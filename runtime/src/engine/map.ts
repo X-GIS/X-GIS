@@ -11,6 +11,7 @@ import { isTileTemplate } from '../loader/tiles'
 import { RasterRenderer } from './raster-renderer'
 import { PanZoomController, type Controller } from './controller'
 import { GlobeRenderer } from './globe-renderer'
+import { CanvasRenderer } from './canvas-renderer'
 
 export class XGISMap {
   private ctx!: GPUContext
@@ -22,8 +23,9 @@ export class XGISMap {
   private projectionName = 'mercator'
   private controller: Controller | null = null
 
-  // Projection is ALWAYS centered on camera position
-  // No toggle needed — this is the fundamental behavior
+  // Canvas 2D fallback
+  private canvasRenderer: CanvasRenderer | null = null
+  private useCanvas2D = false
 
   // Raw data for re-projection
   private rawDatasets = new Map<string, GeoJSONFeatureCollection>()
@@ -76,11 +78,18 @@ export class XGISMap {
 
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
-    // 2. Init GPU
-    this.ctx = await initGPU(this.canvas)
-    this.renderer = new MapRenderer(this.ctx)
-    this.rasterRenderer = new RasterRenderer(this.ctx)
-    this.globeRenderer = new GlobeRenderer(this.ctx)
+    // 2. Init GPU (fallback to Canvas 2D)
+    try {
+      this.ctx = await initGPU(this.canvas)
+      this.renderer = new MapRenderer(this.ctx)
+      this.rasterRenderer = new RasterRenderer(this.ctx)
+      this.globeRenderer = new GlobeRenderer(this.ctx)
+      this.useCanvas2D = false
+    } catch (err) {
+      console.warn('[X-GIS] WebGPU unavailable, falling back to Canvas 2D:', (err as Error).message)
+      this.canvasRenderer = new CanvasRenderer(this.canvas)
+      this.useCanvas2D = true
+    }
 
     // 3. Load data
     for (const load of commands.loads) {
@@ -88,9 +97,10 @@ export class XGISMap {
       console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
 
       if (isTileTemplate(url)) {
-        // Raster tile source — just store the template
         this.rawDatasets.set(load.name, { _tileUrl: url } as unknown as GeoJSONFeatureCollection)
-        this.rasterRenderer.setUrlTemplate(url)
+        if (!this.useCanvas2D) {
+          this.rasterRenderer.setUrlTemplate(url)
+        }
       } else {
         const response = await fetch(url)
         const data = await response.json() as GeoJSONFeatureCollection
@@ -101,16 +111,24 @@ export class XGISMap {
     this.showCommands = commands.shows
 
     // 4. Build render layers + fit camera
-    this.rebuildLayers()
+    if (this.useCanvas2D) {
+      this.rebuildLayersCanvas2D()
+    } else {
+      this.rebuildLayers()
+    }
 
     // 5. Setup controller
     this.switchController()
 
     // 6. Start render loop
     this.running = true
-    this.renderLoop()
+    if (this.useCanvas2D) {
+      this.renderLoopCanvas2D()
+    } else {
+      this.renderLoop()
+    }
 
-    console.log('[X-GIS] Map running')
+    console.log(`[X-GIS] Map running (${this.useCanvas2D ? 'Canvas 2D fallback' : 'WebGPU'})`)
   }
 
   /** Rebuild GPU layers from raw data with current projection */
@@ -145,6 +163,55 @@ export class XGISMap {
     }
 
     console.log(`[X-GIS] Rebuilt layers (GPU projection: ${this.projectionName})`)
+  }
+
+  /** Build layers for Canvas 2D fallback */
+  private rebuildLayersCanvas2D(): void {
+    if (!this.canvasRenderer) return
+
+    for (const show of this.showCommands) {
+      const data = this.rawDatasets.get(show.targetName)
+      if (!data) continue
+
+      const isTile = (data as unknown as { _tileUrl?: string })._tileUrl
+      if (isTile) {
+        this.canvasRenderer.addLayer(show, null, isTile as string)
+      } else {
+        this.canvasRenderer.addLayer(show, data, null)
+
+        // Fit camera to data bounds
+        if (data.features?.length) {
+          let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity
+          for (const f of data.features) {
+            if (!f.geometry) continue
+            const coords = JSON.stringify(f.geometry.coordinates)
+            const nums = coords.match(/-?\d+\.?\d*/g)?.map(Number) ?? []
+            for (let i = 0; i < nums.length - 1; i += 2) {
+              const lon = nums[i], lat = nums[i + 1]
+              if (Math.abs(lon) <= 180 && Math.abs(lat) <= 90) {
+                minLon = Math.min(minLon, lon); maxLon = Math.max(maxLon, lon)
+                minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat)
+              }
+            }
+          }
+          if (minLon < Infinity) {
+            const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, (minLat + maxLat) / 2)
+            this.camera.centerX = cx
+            this.camera.centerY = cy
+            const lonSpan = maxLon - minLon
+            const degPerPixel = lonSpan / this.canvas.clientWidth
+            this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPixel * 256)) - 1)
+          }
+        }
+      }
+    }
+  }
+
+  /** Canvas 2D render loop */
+  private renderLoopCanvas2D = (): void => {
+    if (!this.running || !this.canvasRenderer) return
+    this.canvasRenderer.render(this.camera, this.projectionName)
+    requestAnimationFrame(this.renderLoopCanvas2D)
   }
 
   /** Load and run a pre-compiled .xgb binary */
