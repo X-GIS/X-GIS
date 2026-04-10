@@ -8,23 +8,49 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #0a0a0f; color: #e0e0e0; font-family: system-ui, sans-serif; overflow: hidden; }
     #map { width: 100vw; height: 100vh; display: block; touch-action: none; }
+
+    #demo-picker {
+      position: fixed; top: 12px; right: 12px;
+      display: flex; flex-wrap: wrap; gap: 6px;
+      z-index: 20; max-width: 50vw;
+    }
+    #demo-picker button {
+      background: rgba(30,30,50,0.85); color: #aaa;
+      border: 1px solid #333; border-radius: 6px;
+      padding: 6px 12px; font-size: 12px;
+      cursor: pointer; transition: all 0.15s;
+      backdrop-filter: blur(8px);
+    }
+    #demo-picker button:hover { background: rgba(50,50,80,0.9); color: #fff; border-color: #555; }
+    #demo-picker button.active { background: rgba(59,130,246,0.3); color: #60a5fa; border-color: #3b82f6; }
+
     #status {
-      position: fixed; top: 12px; left: 12px;
+      position: fixed; bottom: 12px; left: 12px;
       background: rgba(0,0,0,0.7); padding: 8px 16px;
       border-radius: 6px; font-size: 13px; color: #aaa;
       pointer-events: none; z-index: 10;
+      transition: opacity 0.5s;
     }
     #error {
       position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
       background: #1a1a2e; padding: 32px; border-radius: 12px;
-      border: 1px solid #e74c3c; max-width: 500px; display: none;
+      border: 1px solid #e74c3c; max-width: 500px; display: none; z-index: 30;
     }
     #error h2 { color: #e74c3c; margin-bottom: 12px; }
     #error pre { color: #ccc; font-size: 13px; white-space: pre-wrap; }
+
+    @media (max-width: 600px) {
+      #demo-picker {
+        top: auto; bottom: 52px; right: 8px; left: 8px;
+        max-width: 100%; justify-content: center;
+      }
+      #demo-picker button { padding: 8px 10px; font-size: 11px; }
+    }
   </style>
 </head>
 <body>
   <canvas id="map"></canvas>
+  <div id="demo-picker"></div>
   <div id="status">X-GIS loading...</div>
   <div id="error"><h2>Error</h2><pre id="error-msg"></pre></div>
   <script type="module" src="/src/main.ts"></script>
