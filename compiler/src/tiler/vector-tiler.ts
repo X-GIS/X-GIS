@@ -4,7 +4,8 @@
 // with tighter bounding boxes, dramatically reducing tile scatter for large features.
 
 import earcut from 'earcut'
-import { simplifyPolygon, simplifyLine } from './simplify'
+// simplify removed: original coordinates preserved for topology correctness
+// import { simplifyPolygon, simplifyLine } from './simplify'
 import { clipPolygonToRect, clipLineToRect } from './clip'
 import type { GeoJSONFeatureCollection, GeoJSONFeature } from '../../runtime/src/loader/geojson'
 
@@ -283,37 +284,31 @@ export function compileGeoJSONToTiles(
   for (let z = minZoom; z <= maxZoom; z++) {
     const zStart = performance.now()
 
-    // Simplify each part for this zoom
-    interface SimplifiedPart {
+    // Use original geometry (no simplification — preserves shared edges between adjacent features)
+    interface PreparedPart {
       original: GeometryPart
-      simplifiedRings?: number[][][]
-      simplifiedCoords?: number[][]
+      rings?: number[][][]
+      coords?: number[][]
       minLon: number; minLat: number; maxLon: number; maxLat: number
-      vertexCount: number
     }
 
-    const simplifiedParts: SimplifiedPart[] = []
+    const preparedParts: PreparedPart[] = []
 
     for (const part of allParts) {
       if (part.type === 'polygon' && part.rings) {
-        const simplified = simplifyPolygon(part.rings, z)
-        if (simplified.length === 0 || simplified[0].length < 3) continue
-        const bbox = ringsBBox(simplified[0])
-        const vc = simplified.reduce((sum, r) => sum + r.length, 0)
-        simplifiedParts.push({ original: part, simplifiedRings: simplified, ...bbox, vertexCount: vc })
+        if (part.rings.length === 0 || part.rings[0].length < 3) continue
+        preparedParts.push({ original: part, rings: part.rings, minLon: part.minLon, minLat: part.minLat, maxLon: part.maxLon, maxLat: part.maxLat })
       } else if (part.type === 'line' && part.coords) {
-        const simplified = simplifyLine(part.coords, z)
-        if (simplified.length < 2) continue
-        const bbox = coordsBBox(simplified)
-        simplifiedParts.push({ original: part, simplifiedCoords: simplified, ...bbox, vertexCount: simplified.length })
+        if (part.coords.length < 2) continue
+        preparedParts.push({ original: part, coords: part.coords, minLon: part.minLon, minLat: part.minLat, maxLon: part.maxLon, maxLat: part.maxLat })
       }
     }
 
     // Scatter: assign parts to tiles using per-part bbox
     const tileFeaturesMap = new Map<number, number[]>()
 
-    for (let pi = 0; pi < simplifiedParts.length; pi++) {
-      const sp = simplifiedParts[pi]
+    for (let pi = 0; pi < preparedParts.length; pi++) {
+      const sp = preparedParts[pi]
       const fxMin = lonToTileX(sp.minLon, z)
       const fxMax = lonToTileX(sp.maxLon, z)
       const fyMin = latToTileY(sp.maxLat, z) // lat reversed
@@ -341,19 +336,19 @@ export function compileGeoJSONToTiles(
       const featureIds = new Set<number>()
 
       for (const pi of partIndices) {
-        const sp = simplifiedParts[pi]
+        const sp = preparedParts[pi]
         const fid = sp.original.featureIndex // stable feature ID
 
-        if (sp.simplifiedRings) {
-          const clipped = clipPolygonToRect(sp.simplifiedRings, tb.west, tb.south, tb.east, tb.north)
+        if (sp.rings) {
+          const clipped = clipPolygonToRect(sp.rings, tb.west, tb.south, tb.east, tb.north)
           if (clipped.length > 0 && clipped[0].length >= 3) {
             tessellatePolygonToArrays(clipped, fid, scratch.pv, scratch.pi)
             featureIds.add(fid)
           }
         }
 
-        if (sp.simplifiedCoords) {
-          const segments = clipLineToRect(sp.simplifiedCoords, tb.west, tb.south, tb.east, tb.north)
+        if (sp.coords) {
+          const segments = clipLineToRect(sp.coords, tb.west, tb.south, tb.east, tb.north)
           for (const seg of segments) {
             if (seg.length >= 2) {
               tessellateLineToArrays(seg, fid, scratch.lv, scratch.li)

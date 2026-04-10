@@ -12,7 +12,7 @@
 
 import type { CompiledTileSet, TileLevel, CompiledTile } from './vector-tiler'
 import { tileKey, tileKeyUnpack } from './vector-tiler'
-import { encodeCoords, encodeIndices, decodeCoords, decodeIndices, precisionForZoom } from './encoding'
+import { encodeCoords, encodeIndices, decodeCoords, decodeIndices, encodeFeatIds, decodeFeatIds, precisionForZoom } from './encoding'
 
 // ═══ Constants ═══
 
@@ -55,7 +55,7 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
   // Pre-encode all tiles (both layers)
   const encodedTiles: {
     key: number
-    compact: { coords: Uint8Array; indices: Uint8Array; lineCoords: Uint8Array; lineIndices: Uint8Array }
+    compact: { coords: Uint8Array; indices: Uint8Array; lineCoords: Uint8Array; lineIndices: Uint8Array; polyFeatIds: Uint8Array; lineFeatIds: Uint8Array }
     gpuReady: { vertices: Float32Array; indices: Uint32Array; lineVertices: Float32Array; lineIndices: Uint32Array }
     tile: CompiledTile
   }[] = []
@@ -64,12 +64,16 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
     // Compact layer: ZigZag delta encoding with zoom-adaptive precision
     const precision = precisionForZoom(tile.z)
     const polyCoordFlat: number[] = []
+    const polyFeatIds: number[] = []
     for (let i = 0; i < tile.vertices.length; i += 3) {
       polyCoordFlat.push(tile.vertices[i], tile.vertices[i + 1])
+      polyFeatIds.push(tile.vertices[i + 2])
     }
     const lineCoordFlat: number[] = []
+    const lineFeatIds: number[] = []
     for (let i = 0; i < tile.lineVertices.length; i += 3) {
       lineCoordFlat.push(tile.lineVertices[i], tile.lineVertices[i + 1])
+      lineFeatIds.push(tile.lineVertices[i + 2])
     }
 
     encodedTiles.push({
@@ -79,6 +83,8 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
         indices: encodeIndices(tile.indices),
         lineCoords: encodeCoords(lineCoordFlat, precision),
         lineIndices: encodeIndices(tile.lineIndices),
+        polyFeatIds: encodeFeatIds(polyFeatIds),
+        lineFeatIds: encodeFeatIds(lineFeatIds),
       },
       gpuReady: {
         vertices: tile.vertices,
@@ -100,7 +106,8 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
 
   for (const et of encodedTiles) {
     const compactSize = et.compact.coords.byteLength + et.compact.indices.byteLength +
-      et.compact.lineCoords.byteLength + et.compact.lineIndices.byteLength + 16 // 4 size headers
+      et.compact.lineCoords.byteLength + et.compact.lineIndices.byteLength +
+      et.compact.polyFeatIds.byteLength + et.compact.lineFeatIds.byteLength + 24 // 6 size headers
     const gpuReadySize = includeGPUReady
       ? et.gpuReady.vertices.byteLength + et.gpuReady.indices.byteLength +
         et.gpuReady.lineVertices.byteLength + et.gpuReady.lineIndices.byteLength
@@ -158,8 +165,8 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
   for (let i = 0; i < encodedTiles.length; i++) {
     const et = encodedTiles[i]
 
-    // Compact layer: [coordsLen][coords][indicesLen][indices][lineCoords...][lineIndices...]
-    const compactParts = [et.compact.coords, et.compact.indices, et.compact.lineCoords, et.compact.lineIndices]
+    // Compact layer: coords + indices + lineCoords + lineIndices + polyFeatIds + lineFeatIds
+    const compactParts = [et.compact.coords, et.compact.indices, et.compact.lineCoords, et.compact.lineIndices, et.compact.polyFeatIds, et.compact.lineFeatIds]
     for (const part of compactParts) {
       view.setUint32(pos, part.byteLength, true); pos += 4
       new Uint8Array(buf, pos, part.byteLength).set(part)
@@ -291,26 +298,38 @@ export function parseGPUReadyTile(
   const lineCoordsBuf = readSection()
   const lineIndicesBuf = readSection()
 
+  // Read feat_id sections (may not exist in older files)
+  let polyFeatIdsBuf: Uint8Array | null = null
+  let lineFeatIdsBuf: Uint8Array | null = null
+  if (pos < dataBuf.length) {
+    polyFeatIdsBuf = readSection()
+    if (pos < dataBuf.length) {
+      lineFeatIdsBuf = readSection()
+    }
+  }
+
   // Decode coordinates with zoom-adaptive precision
   const precision = precisionForZoom(z)
   const coords = decodeCoords(coordsBuf, precision)
+  const polyFeatIds = polyFeatIdsBuf ? decodeFeatIds(polyFeatIdsBuf) : null
   const vertices = new Float32Array(coords.length / 2 * 3)
   for (let i = 0; i < coords.length; i += 2) {
     const vi = (i / 2) * 3
-    vertices[vi] = coords[i]       // lon
-    vertices[vi + 1] = coords[i + 1] // lat
-    vertices[vi + 2] = 0           // feat_id (not preserved in compact)
+    vertices[vi] = coords[i]
+    vertices[vi + 1] = coords[i + 1]
+    vertices[vi + 2] = polyFeatIds ? polyFeatIds[i / 2] : 0
   }
 
   const indices = decodeIndices(indicesBuf)
 
   const lineCoords = decodeCoords(lineCoordsBuf, precision)
+  const lineFeatIds = lineFeatIdsBuf ? decodeFeatIds(lineFeatIdsBuf) : null
   const lineVertices = new Float32Array(lineCoords.length / 2 * 3)
   for (let i = 0; i < lineCoords.length; i += 2) {
     const vi = (i / 2) * 3
     lineVertices[vi] = lineCoords[i]
     lineVertices[vi + 1] = lineCoords[i + 1]
-    lineVertices[vi + 2] = 0
+    lineVertices[vi + 2] = lineFeatIds ? lineFeatIds[i / 2] : 0
   }
 
   const lineIndices = decodeIndices(lineIndicesBuf)

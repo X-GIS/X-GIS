@@ -157,3 +157,42 @@ export function decodeIndices(buf: Uint8Array): Uint32Array {
 
   return indices
 }
+
+/**
+ * Encode per-vertex feature IDs to compact varint bytes.
+ * Uses delta encoding (feat_ids are often runs of the same value).
+ */
+export function encodeFeatIds(ids: number[]): Uint8Array {
+  const bytes: number[] = []
+  encodeVarint(ids.length, bytes)
+
+  let prev = 0
+  for (const id of ids) {
+    encodeVarint(zigzagEncode(id - prev), bytes)
+    prev = id
+  }
+
+  return new Uint8Array(bytes)
+}
+
+/**
+ * Decode compact varint bytes back to feature ID array.
+ */
+export function decodeFeatIds(buf: Uint8Array): Float32Array {
+  let offset = 0
+
+  const [count, countBytes] = decodeVarint(buf, offset)
+  offset += countBytes
+
+  const ids = new Float32Array(count) // f32 to match vertex stride
+  let prev = 0
+
+  for (let i = 0; i < count; i++) {
+    const [zDelta, deltaBytes] = decodeVarint(buf, offset)
+    offset += deltaBytes
+    prev += zigzagDecode(zDelta)
+    ids[i] = prev
+  }
+
+  return ids
+}
