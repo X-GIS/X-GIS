@@ -18,10 +18,10 @@ struct Uniforms {
   mvp: mat4x4<f32>,
   fill_color: vec4<f32>,
   stroke_color: vec4<f32>,
-  // projection params: x=type(0=merc,1=equi,2=natearth,3=ortho), y=centerLon, z=centerLat, w=unused
+  // projection params: x=type, y=centerLon_hi, z=centerLat_hi, w=unused
   proj_params: vec4<f32>,
-  // tile origin: x=west(lon), y=south(lat) — vertex coords are tile-local, add origin
-  tile_origin: vec4<f32>,
+  // center_lo: x=centerLon_lo, y=centerLat_lo (hi+lo = f64 precision center)
+  center_lo: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -180,8 +180,9 @@ fn vs_main(@location(0) lonlat: vec2<f32>, @location(1) feature_id: u32) -> Vert
   let lon = lonlat.x;
   let lat = lonlat.y;
 
-  let center_lon = u.proj_params.y;
-  let center_lat = u.proj_params.z;
+  // Double-single center for sub-meter precision: center = hi + lo
+  let center_lon = u.proj_params.y + u.center_lo.x;
+  let center_lat = u.proj_params.z + u.center_lo.y;
 
   let vertex_projected = project(lon, lat);
   let center_projected = project(center_lon, center_lat);
@@ -721,8 +722,13 @@ export class MapRenderer {
       new Float32Array(uniformData, 0, 16).set(mvp)
       new Float32Array(uniformData, 64, 4).set(fillColor as number[])
       new Float32Array(uniformData, 80, 4).set(strokeColor as number[])
-      new Float32Array(uniformData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
-      new Float32Array(uniformData, 112, 4).set([0, 0, 0, 0]) // tile_origin.z=0 → absolute lon/lat mode
+      // Hi/lo split for center coordinates (sub-meter pan precision)
+      const lonHi = Math.fround(projCenterLon)
+      const lonLo = projCenterLon - lonHi
+      const latHi = Math.fround(projCenterLat)
+      const latLo = projCenterLat - latHi
+      new Float32Array(uniformData, 96, 4).set([projType, lonHi, latHi, 0])
+      new Float32Array(uniformData, 112, 4).set([lonLo, latLo, 0, 0])
       device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
       // Select bind group: per-layer (with feature data) or shared
@@ -761,8 +767,10 @@ export class MapRenderer {
       new Float32Array(gratUniform, 0, 16).set(mvp)
       new Float32Array(gratUniform, 64, 4).set([1, 1, 1, 0.15]) // white, low alpha
       new Float32Array(gratUniform, 80, 4).set([1, 1, 1, 0.15])
-      new Float32Array(gratUniform, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
-      new Float32Array(gratUniform, 112, 4).set([0, 0, 0, 0]) // tile_origin.z=0 → absolute lon/lat
+      const gLonHi = Math.fround(projCenterLon)
+      const gLatHi = Math.fround(projCenterLat)
+      new Float32Array(gratUniform, 96, 4).set([projType, gLonHi, gLatHi, 0])
+      new Float32Array(gratUniform, 112, 4).set([projCenterLon - gLonHi, projCenterLat - gLatHi, 0, 0])
       device.queue.writeBuffer(this.uniformBuffer, 0, gratUniform)
 
       pass.setPipeline(this.linePipeline)

@@ -134,8 +134,10 @@ export class VectorTileRenderer {
     new Float32Array(uniformData, 0, 16).set(mvp)
     new Float32Array(uniformData, 64, 4).set(fillColor)
     new Float32Array(uniformData, 80, 4).set(strokeColor)
-    new Float32Array(uniformData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
-    // tile_origin is set per-tile in renderTileKeys
+    const vtLonHi = Math.fround(projCenterLon)
+    const vtLatHi = Math.fround(projCenterLat)
+    new Float32Array(uniformData, 96, 4).set([projType, vtLonHi, vtLatHi, 0])
+    new Float32Array(uniformData, 112, 4).set([projCenterLon - vtLonHi, projCenterLat - vtLatHi, 0, 0])
     this.device.queue.writeBuffer(uniformBuffer, 0, uniformData)
 
     const bindGroup = this.device.createBindGroup({
