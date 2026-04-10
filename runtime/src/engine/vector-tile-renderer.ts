@@ -204,14 +204,6 @@ export class VectorTileRenderer {
 
       cached.lastUsedFrame = this.frameCount
 
-      // Write tile origin (west, south) to uniform
-      const [tz, tx, ty] = tileKeyUnpack(key)
-      const tn = Math.pow(2, tz)
-      const tileWest = tx / tn * 360 - 180
-      const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
-      new Float32Array(uniformData, 112, 4).set([tileWest, tileSouth, 0, 0])
-      this.device.queue.writeBuffer(uniformBuffer, 0, uniformData)
-
       if (cached.indexCount > 0) {
         pass.setPipeline(fillPipeline)
         pass.setBindGroup(0, bindGroup)

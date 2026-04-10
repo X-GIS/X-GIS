@@ -377,16 +377,7 @@ export function compileGeoJSONToTiles(
       if ((scratch.pv.length >= 9 || scratch.lv.length >= 6) &&
           (scratch.pv.length > 0 || scratch.lv.length > 0)) {
 
-        // Convert to tile-local coordinates (subtract origin for f32 precision)
-        for (let i = 0; i < scratch.pv.length; i += 3) {
-          scratch.pv[i] -= tb.west
-          scratch.pv[i + 1] -= tb.south
-        }
-        for (let i = 0; i < scratch.lv.length; i += 3) {
-          scratch.lv[i] -= tb.west
-          scratch.lv[i + 1] -= tb.south
-        }
-
+        // Store absolute lon/lat coordinates (GPU uses RTC for precision)
         tiles.set(key, {
           z, x: tx, y: ty,
           tileWest: tb.west,

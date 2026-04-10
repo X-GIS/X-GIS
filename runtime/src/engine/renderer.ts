@@ -176,11 +176,9 @@ struct VertexOutput {
 }
 
 @vertex
-fn vs_main(@location(0) local_pos: vec2<f32>, @location(1) feature_id: u32) -> VertexOutput {
-  // Tile-local → global: add tile origin
-  // Non-tiled layers: tile_origin = (0,0,0,0), so lon/lat = local_pos directly
-  let lon = local_pos.x + u.tile_origin.x;
-  let lat = local_pos.y + u.tile_origin.y;
+fn vs_main(@location(0) lonlat: vec2<f32>, @location(1) feature_id: u32) -> VertexOutput {
+  let lon = lonlat.x;
+  let lat = lonlat.y;
 
   let center_lon = u.proj_params.y;
   let center_lat = u.proj_params.z;
