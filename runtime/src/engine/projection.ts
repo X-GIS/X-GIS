@@ -135,6 +135,121 @@ export function orthographic(centerLon: number, centerLat: number): Projection {
   }
 }
 
+// ═══ Azimuthal Equidistant ═══
+
+export function azimuthalEquidistant(centerLon: number, centerLat: number): Projection {
+  const lam0 = centerLon * DEG2RAD
+  const phi0 = centerLat * DEG2RAD
+  const sinPhi0 = Math.sin(phi0)
+  const cosPhi0 = Math.cos(phi0)
+
+  return {
+    name: 'azimuthal_equidistant',
+
+    forward(lon: number, lat: number): [number, number] {
+      const lam = lon * DEG2RAD
+      const phi = lat * DEG2RAD
+      const cosC = sinPhi0 * Math.sin(phi) + cosPhi0 * Math.cos(phi) * Math.cos(lam - lam0)
+      const c = Math.acos(Math.max(-1, Math.min(1, cosC)))
+      if (c < 0.0001) return [0, 0]
+      const k = c / Math.sin(c)
+      const x = EARTH_RADIUS * k * Math.cos(phi) * Math.sin(lam - lam0)
+      const y = EARTH_RADIUS * k * (cosPhi0 * Math.sin(phi) - sinPhi0 * Math.cos(phi) * Math.cos(lam - lam0))
+      return [x, y]
+    },
+
+    inverse(x: number, y: number): [number, number] {
+      const rho = Math.sqrt(x * x + y * y)
+      if (rho < 0.001) return [centerLon, centerLat]
+      const c = rho / EARTH_RADIUS
+      const cosC = Math.cos(c)
+      const sinC = Math.sin(c)
+      const lat = Math.asin(cosC * sinPhi0 + (y * sinC * cosPhi0) / rho) * RAD2DEG
+      const lon = (lam0 + Math.atan2(x * sinC, rho * cosPhi0 * cosC - y * sinPhi0 * sinC)) * RAD2DEG
+      return [lon, lat]
+    },
+  }
+}
+
+// ═══ Stereographic ═══
+
+export function stereographic(centerLon: number, centerLat: number): Projection {
+  const lam0 = centerLon * DEG2RAD
+  const phi0 = centerLat * DEG2RAD
+  const sinPhi0 = Math.sin(phi0)
+  const cosPhi0 = Math.cos(phi0)
+
+  return {
+    name: 'stereographic',
+
+    forward(lon: number, lat: number): [number, number] {
+      const lam = lon * DEG2RAD
+      const phi = lat * DEG2RAD
+      const cosC = sinPhi0 * Math.sin(phi) + cosPhi0 * Math.cos(phi) * Math.cos(lam - lam0)
+      if (cosC < -0.9) return [NaN, NaN]
+      const k = 2.0 / (1.0 + cosC)
+      const x = EARTH_RADIUS * k * Math.cos(phi) * Math.sin(lam - lam0)
+      const y = EARTH_RADIUS * k * (cosPhi0 * Math.sin(phi) - sinPhi0 * Math.cos(phi) * Math.cos(lam - lam0))
+      return [x, y]
+    },
+
+    inverse(x: number, y: number): [number, number] {
+      const rho = Math.sqrt(x * x + y * y)
+      if (rho < 0.001) return [centerLon, centerLat]
+      const c = 2 * Math.atan2(rho, 2 * EARTH_RADIUS)
+      const cosC = Math.cos(c)
+      const sinC = Math.sin(c)
+      const lat = Math.asin(cosC * sinPhi0 + (y * sinC * cosPhi0) / rho) * RAD2DEG
+      const lon = (lam0 + Math.atan2(x * sinC, rho * cosPhi0 * cosC - y * sinPhi0 * sinC)) * RAD2DEG
+      return [lon, lat]
+    },
+  }
+}
+
+// ═══ Oblique Mercator ═══
+
+export function obliqueMercator(centerLon: number, centerLat: number): Projection {
+  const lam0 = centerLon * DEG2RAD
+  const phi0 = centerLat * DEG2RAD
+  const sinPhi0 = Math.sin(phi0)
+  const cosPhi0 = Math.cos(phi0)
+
+  return {
+    name: 'oblique_mercator',
+
+    forward(lon: number, lat: number): [number, number] {
+      const lam = lon * DEG2RAD
+      const phi = lat * DEG2RAD
+      const dLam = lam - lam0
+      const lamRot = Math.atan2(
+        Math.cos(phi) * Math.sin(dLam),
+        cosPhi0 * Math.sin(phi) - sinPhi0 * Math.cos(phi) * Math.cos(dLam),
+      )
+      const phiRot = Math.asin(Math.max(-1, Math.min(1,
+        sinPhi0 * Math.sin(phi) + cosPhi0 * Math.cos(phi) * Math.cos(dLam),
+      )))
+      const phiShifted = Math.max(-1.5, Math.min(1.5, phiRot - Math.PI / 2))
+      const x = EARTH_RADIUS * lamRot
+      const y = EARTH_RADIUS * Math.log(Math.tan(Math.PI / 4 + phiShifted / 2))
+      return [x, y]
+    },
+
+    inverse(x: number, y: number): [number, number] {
+      const phiShifted = 2 * Math.atan(Math.exp(y / EARTH_RADIUS)) - Math.PI / 2
+      const phiRot = phiShifted + Math.PI / 2
+      const lamRot = x / EARTH_RADIUS
+      const lat = Math.asin(Math.max(-1, Math.min(1,
+        sinPhi0 * Math.sin(phiRot) + cosPhi0 * Math.cos(phiRot) * Math.cos(lamRot),
+      ))) * RAD2DEG
+      const lon = (lam0 + Math.atan2(
+        Math.cos(phiRot) * Math.sin(lamRot),
+        sinPhi0 * Math.cos(phiRot) * Math.cos(lamRot) - cosPhi0 * Math.sin(phiRot),
+      )) * RAD2DEG
+      return [lon, lat]
+    },
+  }
+}
+
 // ═══ Projection Registry ═══
 
 const PROJECTIONS: Record<string, Projection | ((...args: number[]) => Projection)> = {
@@ -142,6 +257,9 @@ const PROJECTIONS: Record<string, Projection | ((...args: number[]) => Projectio
   equirectangular,
   natural_earth: naturalEarth,
   orthographic: (lon = 0, lat = 20) => orthographic(lon, lat),
+  azimuthal_equidistant: (lon = 0, lat = 20) => azimuthalEquidistant(lon, lat),
+  stereographic: (lon = 0, lat = 20) => stereographic(lon, lat),
+  oblique_mercator: (lon = 0, lat = 20) => obliqueMercator(lon, lat),
 }
 
 export function getProjection(name: string, ...args: number[]): Projection {
