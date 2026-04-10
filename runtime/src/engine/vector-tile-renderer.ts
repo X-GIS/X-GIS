@@ -133,35 +133,50 @@ export class VectorTileRenderer {
       entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
     })
 
-    // Render each visible tile (track rendered keys to prevent duplicate parent rendering)
-    const rendered = new Set<number>()
+    // Pass 1: Load all visible tiles, collect what to render
+    const toRender: { key: number; cached: CachedVectorTile }[] = []
+    const coveredByExact = new Set<number>() // parent keys covered by exact-zoom children
 
     for (const coord of tiles) {
       const key = tileKey(coord.z, coord.x, coord.y)
-      let cached = this.tileCache.get(key)
-      let renderKey = key
 
-      if (!cached) {
-        // Try to load tile
-        this.ensureTileLoaded(key)
-
-        // Fallback: find nearest cached parent
-        let parentKey = tileKeyParent(key)
-        for (let i = 0; i < 5 && !cached; i++) {
-          cached = this.tileCache.get(parentKey)
-          if (cached) { renderKey = parentKey; break }
-          // Also try loading the parent
-          this.ensureTileLoaded(parentKey)
-          parentKey = tileKeyParent(parentKey)
-        }
+      // Try exact match first
+      const exact = this.tileCache.get(key)
+      if (exact) {
+        toRender.push({ key, cached: exact })
+        // Mark all ancestor keys as covered (no parent fallback needed here)
+        let pk = tileKeyParent(key)
+        for (let i = 0; i < 5; i++) { coveredByExact.add(pk); pk = tileKeyParent(pk) }
+        continue
       }
 
-      if (!cached) continue
+      // Trigger async load
+      this.ensureTileLoaded(key)
 
-      // Skip if this exact tile (or parent) was already rendered
-      if (rendered.has(renderKey)) continue
-      rendered.add(renderKey)
+      // Fallback: find nearest cached parent
+      let parentKey = tileKeyParent(key)
+      for (let i = 0; i < 5; i++) {
+        const parent = this.tileCache.get(parentKey)
+        if (parent) {
+          toRender.push({ key: parentKey, cached: parent })
+          break
+        }
+        this.ensureTileLoaded(parentKey)
+        parentKey = tileKeyParent(parentKey)
+      }
+    }
 
+    // Pass 2: Render, skipping parents that are covered by exact children
+    const rendered = new Set<number>()
+
+    for (const { key, cached } of toRender) {
+      // Skip duplicate renders of same tile
+      if (rendered.has(key)) continue
+
+      // Skip parent tiles whose area is fully covered by exact-zoom children
+      if (coveredByExact.has(key)) continue
+
+      rendered.add(key)
       cached.lastUsedFrame = this.frameCount
 
       // Draw polygons
