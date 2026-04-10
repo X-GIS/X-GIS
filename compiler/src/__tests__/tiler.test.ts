@@ -5,7 +5,7 @@ import {
   zigzagEncode, zigzagDecode,
 } from '../tiler/encoding'
 import { simplify, toleranceForZoom } from '../tiler/simplify'
-import { compileGeoJSONToTiles, tileKey, tileKeyUnpack, tileKeyParent, tileKeyChildren } from '../tiler/vector-tiler'
+import { compileGeoJSONToTiles, tileKey, tileKeyUnpack, tileKeyParent, tileKeyChildren, mortonEncode, mortonDecode } from '../tiler/vector-tiler'
 import type { GeoJSONFeatureCollection } from '../../../runtime/src/loader/geojson'
 
 describe('ZigZag Encoding', () => {
@@ -86,7 +86,28 @@ describe('Douglas-Peucker Simplification', () => {
   })
 })
 
-describe('Tile Key (Quadkey Hash)', () => {
+describe('Morton Code', () => {
+  it('encodes and decodes x/y', () => {
+    expect(mortonDecode(mortonEncode(5, 2))).toEqual([5, 2])
+    expect(mortonDecode(mortonEncode(0, 0))).toEqual([0, 0])
+    expect(mortonDecode(mortonEncode(255, 255))).toEqual([255, 255])
+  })
+
+  it('preserves spatial adjacency', () => {
+    // Adjacent tiles should have close Morton codes
+    const m00 = mortonEncode(4, 4)
+    const m10 = mortonEncode(5, 4)
+    const m01 = mortonEncode(4, 5)
+    const mFar = mortonEncode(100, 100)
+    // Nearby tiles differ by small amount
+    expect(Math.abs(m10 - m00)).toBeLessThan(4)
+    expect(Math.abs(m01 - m00)).toBeLessThan(4)
+    // Far tile differs by large amount
+    expect(Math.abs(mFar - m00)).toBeGreaterThan(100)
+  })
+})
+
+describe('Tile Key (Morton + Sentinel)', () => {
   it('packs and unpacks z/x/y', () => {
     const key = tileKey(3, 5, 2)
     const [z, x, y] = tileKeyUnpack(key)

@@ -19,44 +19,76 @@ export interface TileLevel {
   tiles: Map<number, CompiledTile> // tileKey(z,x,y) → tile
 }
 
-/**
- * Quadkey-style tile hash.
- * Interleaves x/y bits with a leading 1-bit that encodes zoom level.
- * Supports zoom 0-26 (fits in JS safe integer, 53 bits).
- *
- * Properties:
- *   parent(key) = key >>> 2  (drop last 2 bits)
- *   children(key) = [key<<2, key<<2|1, key<<2|2, key<<2|3]
- *   zoom(key) = floor(log2(key)) / 2
- */
-export function tileKey(z: number, x: number, y: number): number {
-  let key = 1 // leading 1-bit sentinel
-  for (let i = z - 1; i >= 0; i--) {
-    const bx = (x >>> i) & 1
-    const by = (y >>> i) & 1
-    key = (key << 2) | (by << 1) | bx
-  }
-  return key
+// ═══ Morton Code (Z-Order Curve) Tile Key ═══
+//
+// Interleaves x/y bits to create a spatially-coherent key.
+// Adjacent tiles in 2D space have numerically adjacent keys → cache-friendly.
+// Leading 1-bit sentinel encodes zoom level implicitly.
+//
+// Example: z=3, x=5(101), y=2(010)
+//   Morton:   0,1, 0,0, 1,1  → 011001 (=25)
+//   With sentinel: 1|01|10|01 (=89)
+//
+// Properties:
+//   parent(key) = key >>> 2
+//   children(key) = [key<<2 | 0..3]
+//   Supports zoom 0-26 (fits in JS safe integer, 53 bits)
+
+/** Interleave bits: spread x into even bit positions */
+function spreadBits(v: number): number {
+  v = (v | (v << 16)) & 0x0000ffff
+  v = (v | (v <<  8)) & 0x00ff00ff
+  v = (v | (v <<  4)) & 0x0f0f0f0f
+  v = (v | (v <<  2)) & 0x33333333
+  v = (v | (v <<  1)) & 0x55555555
+  return v
 }
 
-/** Extract z, x, y from a quadkey tile hash */
+/** Extract even bit positions (reverse of spreadBits) */
+function compactBits(v: number): number {
+  v &= 0x55555555
+  v = (v | (v >>>  1)) & 0x33333333
+  v = (v | (v >>>  2)) & 0x0f0f0f0f
+  v = (v | (v >>>  4)) & 0x00ff00ff
+  v = (v | (v >>>  8)) & 0x0000ffff
+  return v
+}
+
+/** Pure Morton code: interleave x and y bits */
+export function mortonEncode(x: number, y: number): number {
+  return spreadBits(x) | (spreadBits(y) << 1)
+}
+
+/** Decode Morton code back to x, y */
+export function mortonDecode(morton: number): [number, number] {
+  return [compactBits(morton), compactBits(morton >>> 1)]
+}
+
+/**
+ * Tile key: Morton code with leading 1-bit sentinel for zoom encoding.
+ * Spatially adjacent tiles have numerically adjacent keys (Z-order curve).
+ */
+export function tileKey(z: number, x: number, y: number): number {
+  // Sentinel bit at position 2*z, then Morton-interleaved x/y below
+  return (1 << (2 * z)) | mortonEncode(x, y)
+}
+
+/** Extract z, x, y from a Morton tile key */
 export function tileKeyUnpack(key: number): [number, number, number] {
-  // Find zoom level: count bit-pairs after the leading 1
+  // Find zoom: position of the leading 1-bit
   let z = 0
   let tmp = key >>> 2
   while (tmp > 0) { z++; tmp >>>= 2 }
 
-  let x = 0, y = 0
-  for (let i = 0; i < z; i++) {
-    const bits = (key >>> (2 * i)) & 3
-    x |= (bits & 1) << i
-    y |= ((bits >>> 1) & 1) << i
-  }
+  // Strip sentinel, decode Morton
+  const morton = key & ((1 << (2 * z)) - 1)
+  const [x, y] = mortonDecode(morton)
   return [z, x, y]
 }
 
 /** Get parent tile key (one zoom level up) */
 export function tileKeyParent(key: number): number {
+  // Remove bottom 2 bits (one Morton level)
   return key >>> 2
 }
 
