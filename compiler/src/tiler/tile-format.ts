@@ -325,6 +325,14 @@ export async function decompressTileData(compressed: ArrayBuffer): Promise<Array
   }
 }
 
+function tileBoundsFromZXY(z: number, x: number, y: number) {
+  const n = Math.pow(2, z)
+  return {
+    west: x / n * 360 - 180,
+    south: Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * 180 / Math.PI,
+  }
+}
+
 /** Extract tile data — uses GPU-ready layer if available, otherwise decodes compact layer */
 export function parseGPUReadyTile(
   buf: ArrayBuffer,
@@ -347,7 +355,8 @@ export function parseGPUReadyTile(
     const lineVertices = new Float32Array(gpuBuf, offset, entry.lineVertexCount * 3); offset += lineVertBytes
     const lineIndices = new Uint32Array(gpuBuf, offset, entry.lineIndexCount)
 
-    return { z, x, y, vertices, indices, lineVertices, lineIndices, featureCount: 0 }
+    const tb = tileBoundsFromZXY(z, x, y)
+  return { z, x, y, tileWest: tb.west, tileSouth: tb.south, vertices, indices, lineVertices, lineIndices, featureCount: 0 }
   }
 
   // Decompress gzip'd compact layer
@@ -410,7 +419,8 @@ export function parseGPUReadyTile(
 
   const lineIndices = decodeIndices(lineIndicesBuf)
 
-  return { z, x, y, vertices, indices, lineVertices, lineIndices, featureCount: 0 }
+  const tb = tileBoundsFromZXY(z, x, y)
+  return { z, x, y, tileWest: tb.west, tileSouth: tb.south, vertices, indices, lineVertices, lineIndices, featureCount: 0 }
 }
 
 // ═══ Property Table Serialization ═══
