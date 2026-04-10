@@ -108,10 +108,8 @@ export class XGISMap {
           this.rasterRenderer.setUrlTemplate(url)
         }
       } else if (url.endsWith('.xgvt') && !this.useCanvas2D && this.vectorTileRenderer) {
-        // Vector tile file — load into VectorTileRenderer
-        const response = await fetch(url)
-        const buf = await response.arrayBuffer()
-        this.vectorTileRenderer.loadFromBuffer(buf)
+        // Vector tile file — load index only via Range Request (COG-style)
+        await this.vectorTileRenderer.loadFromURL(url)
         this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
       } else {
         const response = await fetch(url)

@@ -186,13 +186,15 @@ export class VectorTileRenderer {
       this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
       this.loadingTiles.delete(key)
     } else if (this.fileUrl) {
-      // Async: Range Request
-      const gpuOffset = entry.dataOffset + entry.compactSize
-      fetchRange(this.fileUrl, gpuOffset, entry.gpuReadySize).then(buf => {
-        const tile = parseGPUReadyTile(
-          createEntryBuffer(buf, entry),
-          { ...entry, dataOffset: 0, compactSize: 0 },
-        )
+      // Async: Range Request for compact layer (or GPU-ready if available)
+      const fetchOffset = entry.dataOffset
+      const fetchSize = entry.gpuReadySize > 0
+        ? entry.compactSize + entry.gpuReadySize  // both layers
+        : entry.compactSize                        // compact only
+      if (fetchSize === 0) { this.loadingTiles.delete(key); return }
+
+      fetchRange(this.fileUrl, fetchOffset, fetchSize).then(buf => {
+        const tile = parseGPUReadyTile(buf, { ...entry, dataOffset: 0 })
         this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
         this.loadingTiles.delete(key)
       }).catch(() => {
@@ -272,13 +274,6 @@ async function fetchRange(url: string, offset: number, length: number): Promise<
     headers: { Range: `bytes=${offset}-${offset + length - 1}` },
   })
   return res.arrayBuffer()
-}
-
-/** Create a fake full buffer for parseGPUReadyTile when we only have the GPU-ready section */
-function createEntryBuffer(gpuBuf: ArrayBuffer, _entry: TileIndexEntry): ArrayBuffer {
-  // parseGPUReadyTile expects the gpu data to start at entry.dataOffset + entry.compactSize
-  // We pass compactSize=0 and dataOffset=0, so it reads from the start of gpuBuf
-  return gpuBuf
 }
 
 function parseHexColor(hex: string): [number, number, number, number] {
