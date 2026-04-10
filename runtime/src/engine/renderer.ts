@@ -397,6 +397,9 @@ function interpolateZoom(stops: { zoom: number; value: number }[], zoom: number)
 
 export class MapRenderer {
   private ctx: GPUContext
+  // Cached per-frame allocation (avoid GC pressure in render loop)
+  private uniformDataBuf = new ArrayBuffer(144)
+  private gratUniformBuf = new ArrayBuffer(144)
   fillPipeline!: GPURenderPipeline
   private strokePipeline!: GPURenderPipeline
   linePipeline!: GPURenderPipeline
@@ -718,7 +721,7 @@ export class MapRenderer {
       const fillColor = fillRaw ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity] : [0, 0, 0, 0]
       const strokeColor = strokeRaw ? [strokeRaw[0], strokeRaw[1], strokeRaw[2], strokeRaw[3] * opacity] : [0, 0, 0, 0]
 
-      const uniformData = new ArrayBuffer(144)
+      const uniformData = this.uniformDataBuf
       new Float32Array(uniformData, 0, 16).set(mvp)
       new Float32Array(uniformData, 64, 4).set(fillColor as number[])
       new Float32Array(uniformData, 80, 4).set(strokeColor as number[])
@@ -763,7 +766,7 @@ export class MapRenderer {
 
     // Draw graticule grid lines
     if (this.graticuleBuffer) {
-      const gratUniform = new ArrayBuffer(144)
+      const gratUniform = this.gratUniformBuf
       new Float32Array(gratUniform, 0, 16).set(mvp)
       new Float32Array(gratUniform, 64, 4).set([1, 1, 1, 0.15]) // white, low alpha
       new Float32Array(gratUniform, 80, 4).set([1, 1, 1, 0.15])
