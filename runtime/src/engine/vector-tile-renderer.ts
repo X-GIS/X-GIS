@@ -25,8 +25,8 @@ interface CachedVectorTile {
   lastUsedFrame: number
 }
 
-const MAX_CACHED_TILES = 256
-const MAX_CONCURRENT_LOADS = 6
+const MAX_CACHED_TILES = 512
+const MAX_CONCURRENT_LOADS = 12
 
 // ═══ Renderer ═══
 
@@ -39,6 +39,11 @@ export class VectorTileRenderer {
   private loadingTiles = new Set<number>()
   private frameCount = 0
   private lastZoom = -1
+
+  // Zoom transition state: keep previous zoom visible until new zoom fully loaded
+  private stableZoom = -1
+  private stableKeys: number[] = []        // tile keys that were fully rendered at stableZoom
+  private zoomAbortController: AbortController | null = null
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
@@ -103,9 +108,10 @@ export class VectorTileRenderer {
     const maxLevel = this.index.header.maxLevel
     const currentZ = Math.max(0, Math.min(maxLevel, Math.round(zoom)))
 
-    // Cancel loading for previous zoom
+    // Zoom transition: cancel old requests when zoom changes
     if (currentZ !== this.lastZoom) {
-      this.loadingTiles.clear()
+      this.zoomAbortController?.abort()
+      this.zoomAbortController = new AbortController()
       this.lastZoom = currentZ
     }
 
@@ -136,49 +142,81 @@ export class VectorTileRenderer {
       entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
     })
 
-    // Collect missing tiles for batch loading
-    const missing: number[] = []
+    // Check how many visible tiles are cached at current zoom
+    const neededKeys = tiles.map(c => tileKey(c.z, c.x, c.y))
+    const cachedCount = neededKeys.filter(k => this.tileCache.has(k)).length
+    const allCached = cachedCount === neededKeys.length
 
-    // Render cached tiles + collect misses (exact-zoom only, no parent fallback)
-    for (const coord of tiles) {
-      const renderKey = tileKey(coord.z, coord.x, coord.y)
-      const cached = this.tileCache.get(renderKey)
+    // Decide what to render
+    if (allCached || this.stableZoom < 0) {
+      // All tiles ready (or first load): render current zoom
+      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, bindGroup)
+      this.stableZoom = currentZ
+      this.stableKeys = neededKeys
+    } else if (currentZ !== this.stableZoom && cachedCount < neededKeys.length) {
+      // Zoom transitioning: render STABLE zoom tiles while loading new zoom
+      this.renderTileKeys(this.stableKeys, pass, fillPipeline, linePipeline, bindGroup)
 
-      if (cached) {
-        cached.lastUsedFrame = this.frameCount
-
-        if (cached.indexCount > 0) {
-          pass.setPipeline(fillPipeline)
-          pass.setBindGroup(0, bindGroup)
-          pass.setVertexBuffer(0, cached.vertexBuffer)
-          pass.setIndexBuffer(cached.indexBuffer, 'uint32')
-          pass.drawIndexed(cached.indexCount)
-        }
-
-        if (cached.lineIndexCount > 0 && cached.lineVertexBuffer && cached.lineIndexBuffer) {
-          pass.setPipeline(linePipeline)
-          pass.setBindGroup(0, bindGroup)
-          pass.setVertexBuffer(0, cached.lineVertexBuffer)
-          pass.setIndexBuffer(cached.lineIndexBuffer, 'uint32')
-          pass.drawIndexed(cached.lineIndexCount)
-        }
-      } else {
-        missing.push(renderKey)
+      // Also render any new-zoom tiles that are already loaded (progressive reveal)
+      const newReady = neededKeys.filter(k => this.tileCache.has(k))
+      if (newReady.length > 0) {
+        this.renderTileKeys(newReady, pass, fillPipeline, linePipeline, bindGroup)
       }
+
+      // When all new tiles loaded, swap to new zoom
+      if (allCached) {
+        this.stableZoom = currentZ
+        this.stableKeys = neededKeys
+      }
+    } else {
+      // Same zoom, some tiles missing (panning): render what we have
+      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, bindGroup)
+      this.stableKeys = neededKeys
     }
 
-    // Batch load missing tiles (merges adjacent tile data into fewer Range Requests)
+    // Load missing tiles
+    const missing = neededKeys.filter(k => !this.tileCache.has(k) && !this.loadingTiles.has(k))
     if (missing.length > 0) {
-      // Deduplicate missing keys (multiple children may resolve to same parent)
-      const uniqueMissing = [...new Set(missing)]
-      this.batchLoadTiles(uniqueMissing)
+      this.batchLoadTiles([...new Set(missing)])
     }
 
-    // Prefetch: load 1 tile beyond visible bounds
+    // Prefetch adjacent tiles
     this.prefetchAdjacent(tiles, currentZ)
 
     // LRU eviction
     this.evictTiles()
+  }
+
+  /** Render a list of tile keys (draws cached tiles, skips missing) */
+  private renderTileKeys(
+    keys: number[],
+    pass: GPURenderPassEncoder,
+    fillPipeline: GPURenderPipeline,
+    linePipeline: GPURenderPipeline,
+    bindGroup: GPUBindGroup,
+  ): void {
+    for (const key of keys) {
+      const cached = this.tileCache.get(key)
+      if (!cached) continue
+
+      cached.lastUsedFrame = this.frameCount
+
+      if (cached.indexCount > 0) {
+        pass.setPipeline(fillPipeline)
+        pass.setBindGroup(0, bindGroup)
+        pass.setVertexBuffer(0, cached.vertexBuffer)
+        pass.setIndexBuffer(cached.indexBuffer, 'uint32')
+        pass.drawIndexed(cached.indexCount)
+      }
+
+      if (cached.lineIndexCount > 0 && cached.lineVertexBuffer && cached.lineIndexBuffer) {
+        pass.setPipeline(linePipeline)
+        pass.setBindGroup(0, bindGroup)
+        pass.setVertexBuffer(0, cached.lineVertexBuffer)
+        pass.setIndexBuffer(cached.lineIndexBuffer, 'uint32')
+        pass.drawIndexed(cached.lineIndexCount)
+      }
+    }
   }
 
   /**
@@ -379,7 +417,11 @@ export class VectorTileRenderer {
   private evictTiles(): void {
     if (this.tileCache.size <= MAX_CACHED_TILES) return
 
+    // Protect stable zoom tiles from eviction
+    const protectedKeys = new Set(this.stableKeys)
+
     const entries = [...this.tileCache.entries()]
+      .filter(([key]) => !protectedKeys.has(key))
       .sort((a, b) => a[1].lastUsedFrame - b[1].lastUsedFrame)
 
     const toEvict = this.tileCache.size - MAX_CACHED_TILES
