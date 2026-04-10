@@ -124,10 +124,14 @@ export class XGISMap {
           )
           this.camera.centerX = cx
           this.camera.centerY = cy
-          // Fit world to viewport
-          const w = Math.max(this.canvas.clientWidth, 320)
+          // Fit bounds to viewport (use smaller dimension)
+          const vw = Math.max(this.canvas.clientWidth, 320)
+          const vh = Math.max(this.canvas.clientHeight, 320)
           const lonSpan = maxLon - minLon
-          this.camera.zoom = Math.max(0, Math.log2(w / (lonSpan / 360 * 256)) - 1)
+          const latSpan = Math.min(maxLat, 85) - Math.max(minLat, -85)
+          const zoomByWidth = Math.log2(vw / (lonSpan / 360 * 256))
+          const zoomByHeight = Math.log2(vh / (latSpan / 180 * 256))
+          this.camera.zoom = Math.max(0, Math.min(zoomByWidth, zoomByHeight) - 0.5)
         }
       } else {
         const response = await fetch(url)
