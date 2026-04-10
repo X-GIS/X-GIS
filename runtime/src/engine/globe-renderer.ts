@@ -75,6 +75,7 @@ export class GlobeRenderer {
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
+    this.canvasFormat = ctx.format
 
     const module = ctx.device.createShaderModule({ code: GLOBE_SHADER, label: 'globe-shader' })
 
@@ -148,11 +149,14 @@ export class GlobeRenderer {
     this.createFlatMapTexture()
   }
 
+  private canvasFormat: GPUTextureFormat
+
   private createFlatMapTexture(): void {
     const size = this.flatMapSize
+    // Must match canvas format so fill/line pipelines are compatible
     this.flatMapTexture = this.device.createTexture({
       size: { width: size, height: size },
-      format: 'rgba8unorm',
+      format: this.canvasFormat,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
       label: 'flat-map-texture',
     })
@@ -164,9 +168,9 @@ export class GlobeRenderer {
     return this.flatMapView!
   }
 
-  /** Get the flat map format (for render pass compatibility) */
+  /** Get the flat map format (matches canvas format for pipeline compatibility) */
   getFlatMapFormat(): GPUTextureFormat {
-    return 'rgba8unorm'
+    return this.canvasFormat
   }
 
   /** Render the sphere with the flat map texture */
