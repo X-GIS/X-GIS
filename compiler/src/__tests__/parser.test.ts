@@ -264,6 +264,49 @@ describe('Parser', () => {
     })
   })
 
+  describe('symbol statement', () => {
+    it('parses symbol with path and anchor', () => {
+      const ast = parse(`
+        symbol arrow {
+          path "M 0 -1 L -0.4 0.3 L 0.4 0.3 Z"
+          anchor: center
+        }
+      `)
+      const stmt = ast.body[0] as AST.SymbolStatement
+      expect(stmt.kind).toBe('SymbolStatement')
+      expect(stmt.name).toBe('arrow')
+      expect(stmt.elements).toHaveLength(2)
+      expect(stmt.elements[0]).toEqual({ kind: 'path', data: 'M 0 -1 L -0.4 0.3 L 0.4 0.3 Z' })
+      expect(stmt.elements[1]).toEqual({ kind: 'anchor', value: 'center' })
+    })
+
+    it('parses symbol with rect and circle', () => {
+      const ast = parse(`
+        symbol nato_friendly {
+          rect x: -1 y: -0.7 w: 2 h: 1.4
+          circle cx: 0 cy: 0 r: 0.3
+          anchor: center
+        }
+      `)
+      const stmt = ast.body[0] as AST.SymbolStatement
+      expect(stmt.elements).toHaveLength(3)
+
+      const rect = stmt.elements[0]
+      expect(rect.kind).toBe('rect')
+      if (rect.kind === 'rect') {
+        expect(rect.props.x).toBe(-1)
+        expect(rect.props.w).toBe(2)
+        expect(rect.props.h).toBe(1.4)
+      }
+
+      const circle = stmt.elements[1]
+      expect(circle.kind).toBe('circle')
+      if (circle.kind === 'circle') {
+        expect(circle.props.r).toBe(0.3)
+      }
+    })
+  })
+
   describe('show with data binding', () => {
     it('parses show with field access and expressions', () => {
       const ast = parse(`

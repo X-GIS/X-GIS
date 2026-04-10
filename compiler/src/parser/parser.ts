@@ -34,6 +34,10 @@ export class Parser {
         return this.parseLayerStatement()
       case TokenType.Preset:
         return this.parsePresetStatement()
+      case TokenType.Import:
+        return this.parseImportStatement()
+      case TokenType.SymbolDef:
+        return this.parseSymbolStatement()
       default:
         return this.parseExprStatement()
     }
@@ -193,6 +197,85 @@ export class Parser {
     return { kind: 'PresetStatement', name, utilities, line }
   }
 
+  // import { name1, name2 } from "path"
+  private parseImportStatement(): AST.ImportStatement {
+    const line = this.current().line
+    this.expect(TokenType.Import)
+    this.expect(TokenType.LBrace)
+
+    const names: string[] = []
+    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
+      names.push(this.expect(TokenType.Identifier).value)
+      if (this.check(TokenType.Comma)) this.advance()
+    }
+    this.expect(TokenType.RBrace)
+    this.expect(TokenType.From)
+
+    const path = this.expect(TokenType.String).value
+    return { kind: 'ImportStatement', names, path, line }
+  }
+
+  // symbol name { path "...", rect x: N y: N w: N h: N, circle cx: N cy: N r: N, anchor: value }
+  private parseSymbolStatement(): AST.SymbolStatement {
+    const line = this.current().line
+    this.expect(TokenType.SymbolDef)
+    const name = this.expect(TokenType.Identifier).value
+    this.expect(TokenType.LBrace)
+
+    const elements: AST.SymbolElement[] = []
+
+    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
+      const keyword = this.current()
+
+      if (keyword.type === TokenType.Identifier && keyword.value === 'path') {
+        this.advance()
+        const data = this.expect(TokenType.String).value
+        elements.push({ kind: 'path', data })
+      } else if (keyword.type === TokenType.Identifier && keyword.value === 'rect') {
+        this.advance()
+        const props = this.parseNumericProps()
+        elements.push({ kind: 'rect', props })
+      } else if (keyword.type === TokenType.Identifier && keyword.value === 'circle') {
+        this.advance()
+        const props = this.parseNumericProps()
+        elements.push({ kind: 'circle', props })
+      } else if (keyword.type === TokenType.Identifier && keyword.value === 'anchor') {
+        this.advance()
+        this.expect(TokenType.Colon)
+        const value = this.expect(TokenType.Identifier).value
+        elements.push({ kind: 'anchor', value })
+      } else {
+        this.error(`Unexpected token in symbol block: ${keyword.value}`)
+      }
+    }
+
+    this.expect(TokenType.RBrace)
+    return { kind: 'SymbolStatement', name, elements, line }
+  }
+
+  /** Parse key: number pairs like "x: 0.5 y: -1 w: 2 h: 1.4" */
+  private parseNumericProps(): Record<string, number> {
+    const props: Record<string, number> = {}
+    // Parse key: value pairs until we hit a non-identifier or a keyword like 'path', 'rect', 'circle', 'anchor'
+    while (
+      this.check(TokenType.Identifier) &&
+      this.tokens[this.pos + 1]?.type === TokenType.Colon &&
+      !['path', 'rect', 'circle', 'anchor'].includes(this.current().value)
+    ) {
+      const key = this.advance().value
+      this.expect(TokenType.Colon)
+      // Handle negative numbers
+      let sign = 1
+      if (this.check(TokenType.Minus)) {
+        this.advance()
+        sign = -1
+      }
+      const num = parseFloat(this.expect(TokenType.Number).value)
+      props[key] = sign * num
+    }
+    return props
+  }
+
   // key: value (used in source and layer blocks)
   // Uses parseComparison() instead of parseExpr() to avoid consuming | as pipe operator
   private parseBlockProperty(): AST.BlockProperty {
@@ -256,11 +339,19 @@ export class Parser {
    * Parse a hyphen-joined utility name like "fill-red-500", "stroke-white", "opacity-80".
    * Consumes: Identifier/Number/Color tokens joined by Minus tokens.
    */
+  /** Check if token can start or continue a utility name (identifiers + keywords used as names) */
+  private isUtilityNameToken(): boolean {
+    const t = this.current().type
+    return t === TokenType.Identifier || t === TokenType.SymbolDef ||
+      t === TokenType.Source || t === TokenType.Layer || t === TokenType.Preset ||
+      t === TokenType.View || t === TokenType.On
+  }
+
   private parseUtilityName(): string {
     let name = ''
 
-    // First token must be an identifier
-    if (this.check(TokenType.Identifier)) {
+    // First token must be an identifier or keyword used as utility name
+    if (this.isUtilityNameToken()) {
       name = this.advance().value
     } else if (this.check(TokenType.Number)) {
       name = this.advance().value
@@ -273,14 +364,14 @@ export class Parser {
     while (this.check(TokenType.Minus)) {
       // Peek ahead: if next after minus is not part of utility name, stop
       const next = this.tokens[this.pos + 1]
-      if (
-        !next ||
-        (next.type !== TokenType.Identifier &&
-         next.type !== TokenType.Number &&
-         next.type !== TokenType.Color)
-      ) {
-        break
-      }
+      if (!next) break
+      const isNamePart = next.type === TokenType.Identifier ||
+        next.type === TokenType.Number ||
+        next.type === TokenType.Color ||
+        next.type === TokenType.SymbolDef ||
+        next.type === TokenType.Source ||
+        next.type === TokenType.Layer
+      if (!isNamePart) break
       this.advance() // consume '-'
       name += '-' + this.advance().value
     }

@@ -13,6 +13,8 @@ export type Statement =
   | SourceStatement
   | LayerStatement
   | PresetStatement
+  | ImportStatement
+  | SymbolStatement
 
 // let world = load("countries.geojson")
 export type LetStatement = {
@@ -194,6 +196,28 @@ export type PresetStatement = {
   utilities: UtilityLine[]
   line: number
 }
+
+// import { name1, name2 } from "file.xgs"
+export type ImportStatement = {
+  kind: 'ImportStatement'
+  names: string[]
+  path: string
+  line: number
+}
+
+// symbol arrow { path "M 0 -1 L -0.4 0.3 Z", anchor: center }
+export type SymbolStatement = {
+  kind: 'SymbolStatement'
+  name: string
+  elements: SymbolElement[]
+  line: number
+}
+
+export type SymbolElement =
+  | { kind: 'path'; data: string }
+  | { kind: 'rect'; props: Record<string, number> }
+  | { kind: 'circle'; props: Record<string, number> }
+  | { kind: 'anchor'; value: string }
 
 // A single utility item, e.g., z8:fill-red-500 or size-[speed/50]
 export type UtilityItem = {
