@@ -239,8 +239,8 @@ function autoDetectMaxZoom(features: GeoJSONFeature[]): number {
   if (spacingCount === 0) return 6
 
   const avgSpacing = totalSpacing / spacingCount
-  // Tile at zoom z covers 360/2^z degrees. Useful while tile > avgSpacing * 8
-  const maxZoom = Math.max(2, Math.min(14, Math.ceil(Math.log2(360 / (avgSpacing * 8)))))
+  // Tile at zoom z covers 360/2^z degrees. Cap conservatively to manage tile count.
+  const maxZoom = Math.max(2, Math.min(8, Math.ceil(Math.log2(360 / (avgSpacing * 16)))))
   console.log(`  Auto maxZoom: ${maxZoom} (avg vertex spacing: ${avgSpacing.toFixed(4)}°)`)
   return maxZoom
 }
@@ -318,10 +318,6 @@ export function compileGeoJSONToTiles(
       const fxMax = lonToTileX(sp.maxLon, z)
       const fyMin = latToTileY(sp.maxLat, z) // lat reversed
       const fyMax = latToTileY(sp.minLat, z)
-
-      // tileSpan guard: skip parts with too many tiles and too few vertices
-      const span = (fxMax - fxMin + 1) * (fyMax - fyMin + 1)
-      if (span > 4096 && sp.vertexCount / span < 2) continue
 
       for (let x = fxMin; x <= fxMax; x++) {
         for (let y = fyMin; y <= fyMax; y++) {
