@@ -57,6 +57,8 @@ function extractShow(stmt: AST.ShowStatement): ShowCommand | null {
   let stroke: string | null = null
   let strokeWidth = 1
   let projection = 'mercator'
+  let visible = true
+  let opacity = 1.0
 
   for (const prop of stmt.block.properties) {
     if (prop.name === 'fill') {
@@ -69,12 +71,21 @@ function extractShow(stmt: AST.ShowStatement): ShowCommand | null {
       if (val && val.kind === 'Identifier') {
         projection = val.name
       }
+    } else if (prop.name === 'visible') {
+      const val = prop.values[0]
+      if (val && val.kind === 'BoolLiteral') {
+        visible = val.value
+      }
+    } else if (prop.name === 'opacity') {
+      const val = prop.values[0]
+      if (val && val.kind === 'NumberLiteral') {
+        opacity = val.value
+      }
     } else if (prop.name === 'stroke') {
       const val = prop.values[0]
       if (val && val.kind === 'ColorLiteral') {
         stroke = val.value
       }
-      // Second value: stroke width (e.g., 1px)
       const widthVal = prop.values[1]
       if (widthVal && widthVal.kind === 'NumberLiteral') {
         strokeWidth = widthVal.value
@@ -82,5 +93,5 @@ function extractShow(stmt: AST.ShowStatement): ShowCommand | null {
     }
   }
 
-  return { targetName, fill, stroke, strokeWidth, projection }
+  return { targetName, fill, stroke, strokeWidth, projection, visible, opacity }
 }

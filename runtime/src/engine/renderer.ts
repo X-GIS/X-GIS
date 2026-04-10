@@ -232,16 +232,72 @@ function parseColor(hex: string): [number, number, number, number] {
 
 export interface ShowCommand {
   targetName: string
-  fill: string | null // hex color
-  stroke: string | null // hex color
-  strokeWidth: number // in pixels
-  projection: string // 'mercator', 'equirectangular', 'natural_earth', 'orthographic'
+  fill: string | null
+  stroke: string | null
+  strokeWidth: number
+  projection: string
+  visible: boolean
+  opacity: number
+}
+
+/**
+ * Dynamic property store — X-GIS 속성을 런타임에 변경 가능.
+ * 컴파일된 기본값 + 클라이언트 오버라이드.
+ */
+export class StyleProperties {
+  private defaults = new Map<string, unknown>()
+  private overrides = new Map<string, unknown>()
+
+  setDefault(key: string, value: unknown): void {
+    this.defaults.set(key, value)
+  }
+
+  set(key: string, value: unknown): void {
+    this.overrides.set(key, value)
+  }
+
+  get(key: string): unknown {
+    return this.overrides.get(key) ?? this.defaults.get(key)
+  }
+
+  getColor(key: string): [number, number, number, number] | null {
+    const v = this.get(key)
+    if (typeof v === 'string') return parseColor(v)
+    if (v === null || v === undefined) return null
+    return v as [number, number, number, number]
+  }
+
+  getNumber(key: string, fallback = 0): number {
+    const v = this.get(key)
+    if (typeof v === 'number') return v
+    return fallback
+  }
+
+  getBool(key: string, fallback = true): boolean {
+    const v = this.get(key)
+    if (typeof v === 'boolean') return v
+    return fallback
+  }
+
+  reset(key: string): void {
+    this.overrides.delete(key)
+  }
+
+  resetAll(): void {
+    this.overrides.clear()
+  }
+
+  /** List all property names */
+  keys(): string[] {
+    return [...new Set([...this.defaults.keys(), ...this.overrides.keys()])]
+  }
 }
 
 // ═══ Render Layer ═══
 
 interface RenderLayer {
   show: ShowCommand
+  props: StyleProperties
   polygonVertexBuffer: GPUBuffer | null
   polygonIndexBuffer: GPUBuffer | null
   polygonIndexCount: number
@@ -335,8 +391,17 @@ export class MapRenderer {
   /** Register data + show command as a render layer */
   addLayer(show: ShowCommand, polygons: MeshData, lines: LineMeshData): void {
     const { device } = this.ctx
+    // Create dynamic property store with compiled defaults
+    const props = new StyleProperties()
+    props.setDefault('fill', show.fill)
+    props.setDefault('stroke', show.stroke)
+    props.setDefault('strokeWidth', show.strokeWidth)
+    props.setDefault('visible', show.visible ?? true)
+    props.setDefault('opacity', show.opacity ?? 1.0)
+
     const layer: RenderLayer = {
       show,
+      props,
       polygonVertexBuffer: null,
       polygonIndexBuffer: null,
       polygonIndexCount: 0,
@@ -396,6 +461,18 @@ export class MapRenderer {
   }
 
   /** Remove all layers (for re-projection) */
+  getLayer(name: string): RenderLayer | undefined {
+    return this.layers.find((l) => l.show.targetName === name)
+  }
+
+  listProperties(): Record<string, string[]> {
+    const result: Record<string, string[]> = {}
+    for (const layer of this.layers) {
+      result[layer.show.targetName] = layer.props.keys()
+    }
+    return result
+  }
+
   clearLayers(): void {
     for (const layer of this.layers) {
       layer.polygonVertexBuffer?.destroy()
@@ -413,11 +490,15 @@ export class MapRenderer {
     const mvp = camera.getRTCMatrix(canvas.width, canvas.height)
 
     for (const layer of this.layers) {
-      const fillColor = layer.show.fill ? parseColor(layer.show.fill) : [0, 0, 0, 0]
-      const strokeColor = layer.show.stroke ? parseColor(layer.show.stroke) : [0, 0, 0, 0]
-      const strokeWidth = layer.show.strokeWidth
+      // Read from dynamic properties (supports runtime override)
+      if (!layer.props.getBool('visible')) continue
 
-      // Write uniforms: MVP(64) + fill(16) + stroke(16) + proj_params(16) = 112, pad to 128
+      const opacity = layer.props.getNumber('opacity', 1.0)
+      const fillRaw = layer.props.getColor('fill')
+      const strokeRaw = layer.props.getColor('stroke')
+      const fillColor = fillRaw ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity] : [0, 0, 0, 0]
+      const strokeColor = strokeRaw ? [strokeRaw[0], strokeRaw[1], strokeRaw[2], strokeRaw[3] * opacity] : [0, 0, 0, 0]
+
       const uniformData = new ArrayBuffer(128)
       new Float32Array(uniformData, 0, 16).set(mvp)
       new Float32Array(uniformData, 64, 4).set(fillColor as number[])
@@ -426,7 +507,7 @@ export class MapRenderer {
       device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
       // Draw filled polygons
-      if (layer.show.fill && layer.polygonVertexBuffer && layer.polygonIndexBuffer) {
+      if (fillRaw && layer.polygonVertexBuffer && layer.polygonIndexBuffer) {
         pass.setPipeline(this.fillPipeline)
         pass.setBindGroup(0, this.bindGroup)
         pass.setVertexBuffer(0, layer.polygonVertexBuffer)
@@ -435,7 +516,7 @@ export class MapRenderer {
       }
 
       // Draw line strokes
-      if (layer.show.stroke && layer.lineVertexBuffer && layer.lineIndexBuffer) {
+      if (strokeRaw && layer.lineVertexBuffer && layer.lineIndexBuffer) {
         pass.setPipeline(this.linePipeline)
         pass.setBindGroup(0, this.bindGroup)
         pass.setVertexBuffer(0, layer.lineVertexBuffer)

@@ -257,6 +257,49 @@ export class XGISMap {
     requestAnimationFrame(this.renderLoop)
   }
 
+  // ═══ Dynamic Property API ═══
+
+  /** Set a layer property at runtime. Changes apply immediately (next frame). */
+  set(path: string, value: unknown): void {
+    // path format: "layerName.property" e.g. "world.fill", "world.opacity"
+    const dot = path.indexOf('.')
+    if (dot < 0) return
+
+    const layerName = path.substring(0, dot)
+    const prop = path.substring(dot + 1)
+    const layer = this.renderer.getLayer(layerName)
+    if (layer) {
+      layer.props.set(prop, value)
+    }
+  }
+
+  /** Get a layer property (current value, including overrides) */
+  get(path: string): unknown {
+    const dot = path.indexOf('.')
+    if (dot < 0) return undefined
+
+    const layerName = path.substring(0, dot)
+    const prop = path.substring(dot + 1)
+    const layer = this.renderer.getLayer(layerName)
+    return layer?.props.get(prop)
+  }
+
+  /** Reset a property to its compiled default */
+  reset(path: string): void {
+    const dot = path.indexOf('.')
+    if (dot < 0) return
+
+    const layerName = path.substring(0, dot)
+    const prop = path.substring(dot + 1)
+    const layer = this.renderer.getLayer(layerName)
+    layer?.props.reset(prop)
+  }
+
+  /** List all settable properties */
+  listProperties(): Record<string, string[]> {
+    return this.renderer.listProperties()
+  }
+
   stop(): void {
     this.controller?.detach()
     this.running = false
