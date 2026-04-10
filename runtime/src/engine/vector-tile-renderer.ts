@@ -163,17 +163,17 @@ export class VectorTileRenderer {
     // Decide what to render
     if (allCached || this.stableZoom < 0) {
       // All tiles ready (or first load): render current zoom
-      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData)
+      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
       this.stableZoom = currentZ
       this.stableKeys = neededKeys
     } else if (currentZ !== this.stableZoom && cachedCount < neededKeys.length) {
       // Zoom transitioning: render STABLE zoom tiles while loading new zoom
-      this.renderTileKeys(this.stableKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData)
+      this.renderTileKeys(this.stableKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
 
       // Also render any new-zoom tiles that are already loaded (progressive reveal)
       const newReady = neededKeys.filter(k => this.tileCache.has(k))
       if (newReady.length > 0) {
-        this.renderTileKeys(newReady, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData)
+        this.renderTileKeys(newReady, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
       }
 
       // When all new tiles loaded, swap to new zoom
@@ -183,7 +183,7 @@ export class VectorTileRenderer {
       }
     } else {
       // Same zoom, some tiles missing (panning): render what we have
-      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData)
+      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
       this.stableKeys = neededKeys
     }
 
@@ -209,6 +209,8 @@ export class VectorTileRenderer {
     _sharedBindGroup: GPUBindGroup,
     _sharedUniformBuffer: GPUBuffer,
     sharedUniformData: ArrayBuffer,
+    projCenterLon: number,
+    projCenterLat: number,
   ): void {
     for (const key of keys) {
       const cached = this.tileCache.get(key)
@@ -216,12 +218,23 @@ export class VectorTileRenderer {
 
       cached.lastUsedFrame = this.frameCount
 
-      // Write shared uniforms + per-tile origin to this tile's own buffer
-      // Copy shared data (mvp, colors, proj_params, center_lo)
+      // Write shared uniforms to this tile's buffer
       this.device.queue.writeBuffer(cached.uniformBuffer, 0, sharedUniformData)
-      // Overwrite tile_origin with this tile's values
-      const tileOrigin = new Float32Array([cached.tileWest, cached.tileSouth, 0, 0])
-      this.device.queue.writeBuffer(cached.uniformBuffer, 112, tileOrigin)
+
+      // Compute per-tile RTC offset on CPU in f64:
+      // tile_rtc.xy = project(tile_origin) - project(center)
+      const DEG2RAD = Math.PI / 180
+      const R = 6378137
+      const tileX = cached.tileWest * DEG2RAD * R
+      const tileY = Math.log(Math.tan(Math.PI / 4 + cached.tileSouth * DEG2RAD / 2)) * R
+      const centerX = projCenterLon * DEG2RAD * R
+      const centerY = Math.log(Math.tan(Math.PI / 4 + projCenterLat * DEG2RAD / 2)) * R
+      // f64 subtraction → result as f32 (small number, precise)
+      const offsetX = tileX - centerX
+      const offsetY = tileY - centerY
+
+      const tileRtc = new Float32Array([offsetX, offsetY, cached.tileWest, cached.tileSouth])
+      this.device.queue.writeBuffer(cached.uniformBuffer, 112, tileRtc)
 
       if (cached.indexCount > 0) {
         pass.setPipeline(fillPipeline)

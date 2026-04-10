@@ -20,8 +20,8 @@ struct Uniforms {
   stroke_color: vec4<f32>,
   // projection params: x=type, y=centerLon_hi, z=centerLat_hi, w=unused
   proj_params: vec4<f32>,
-  // tile_origin: x=west, y=south — for tile-local coords; (0,0) for non-tiled
-  tile_origin: vec4<f32>,
+  // Per-tile RTC: x,y = projected offset (meters), z = tile_west, w = tile_south (for backface cull)
+  tile_rtc: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -177,20 +177,25 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(@location(0) local_pos: vec2<f32>, @location(1) feature_id: u32) -> VertexOutput {
-  // Tile-local → global (tile_origin = 0,0 for non-tiled layers)
-  let lon = local_pos.x + u.tile_origin.x;
-  let lat = local_pos.y + u.tile_origin.y;
+  // Precision-safe RTC:
+  // local_pos = lon/lat relative to tile origin (small values, precise in f32)
+  // tile_rtc.xy = project(tile_origin) - project(camera_center), computed on CPU in f64
+  // Result: project locally (small numbers only) + add precomputed offset
 
-  let center_lon = u.proj_params.y;
-  let center_lat = u.proj_params.z;
+  // Project the local offset (small coords → small projected values, no precision loss)
+  let local_x = local_pos.x * DEG2RAD * EARTH_R;
+  let local_y = local_pos.y * DEG2RAD * EARTH_R;  // approximate Mercator y for small offsets
 
-  let vertex_projected = project(lon, lat);
-  let center_projected = project(center_lon, center_lat);
-  let rtc = vertex_projected - center_projected;
+  // Final RTC = local projection + precomputed tile-to-center offset
+  let rtc = vec2<f32>(local_x + u.tile_rtc.x, local_y + u.tile_rtc.y);
+
+  // Approximate absolute lon/lat for backface culling (precision not critical here)
+  let abs_lon = local_pos.x + u.tile_rtc.z;
+  let abs_lat = local_pos.y + u.tile_rtc.w;
 
   var out: VertexOutput;
   out.position = u.mvp * vec4<f32>(rtc, 0.0, 1.0);
-  out.cos_c = needs_backface_cull(lon, lat);
+  out.cos_c = needs_backface_cull(abs_lon, abs_lat);
   out.feat_id = feature_id;
   return out;
 }
@@ -726,7 +731,13 @@ export class MapRenderer {
       new Float32Array(uniformData, 64, 4).set(fillColor as number[])
       new Float32Array(uniformData, 80, 4).set(strokeColor as number[])
       new Float32Array(uniformData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
-      new Float32Array(uniformData, 112, 4).set([0, 0, 0, 0]) // tile_origin=(0,0) for non-tiled
+      // Non-tiled: vertices are absolute lon/lat, so tile_origin = (0,0)
+      // RTC offset = project(0,0) - project(center) ← but origin is 0, so just -project(center)
+      const DEG2RAD = Math.PI / 180
+      const R = 6378137
+      const cx = projCenterLon * DEG2RAD * R
+      const cy = Math.log(Math.tan(Math.PI / 4 + projCenterLat * DEG2RAD / 2)) * R
+      new Float32Array(uniformData, 112, 4).set([-cx, -cy, 0, 0]) // tile_rtc: offset, west=0, south=0
       device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
       // Select bind group: per-layer (with feature data) or shared
@@ -766,7 +777,11 @@ export class MapRenderer {
       new Float32Array(gratUniform, 64, 4).set([1, 1, 1, 0.15]) // white, low alpha
       new Float32Array(gratUniform, 80, 4).set([1, 1, 1, 0.15])
       new Float32Array(gratUniform, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
-      new Float32Array(gratUniform, 112, 4).set([0, 0, 0, 0])
+      const gDEG2RAD = Math.PI / 180
+      const gR = 6378137
+      const gcx = projCenterLon * gDEG2RAD * gR
+      const gcy = Math.log(Math.tan(Math.PI / 4 + projCenterLat * gDEG2RAD / 2)) * gR
+      new Float32Array(gratUniform, 112, 4).set([-gcx, -gcy, 0, 0])
       device.queue.writeBuffer(this.uniformBuffer, 0, gratUniform)
 
       pass.setPipeline(this.linePipeline)
