@@ -7,7 +7,7 @@
   "scripts": {
     "build": "bun run --filter '*' build",
     "test": "vitest run",
-    "dev": "bun run --filter playground dev"
+    "dev": "bun run --filter @xgis/playground dev"
   },
   "devDependencies": {
     "@webgpu/types": "^0.1.54",
