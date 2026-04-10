@@ -169,25 +169,23 @@ fn needs_backface_cull(lon_deg: f32, lat_deg: f32) -> f32 {
 
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
-  @location(0) cos_c: f32,   // for orthographic back-face culling
+  @location(0) cos_c: f32,
+  @location(1) @interpolate(flat) feat_id: u32,
 }
 
 @vertex
-fn vs_main(@location(0) lonlat: vec2<f32>) -> VertexOutput {
+fn vs_main(@location(0) lonlat: vec2<f32>, @location(1) feature_id: u32) -> VertexOutput {
   let center_lon = u.proj_params.y;
   let center_lat = u.proj_params.z;
 
-  // RTC: Project vertex AND center, then subtract
-  // → coordinates are small (relative to center) → no f32 precision loss
   let vertex_projected = project(lonlat.x, lonlat.y);
   let center_projected = project(center_lon, center_lat);
   let rtc = vertex_projected - center_projected;
 
   var out: VertexOutput;
   out.position = u.mvp * vec4<f32>(rtc, 0.0, 1.0);
-
-  // Back-face culling for globe projections (orthographic, stereographic)
   out.cos_c = needs_backface_cull(lonlat.x, lonlat.y);
+  out.feat_id = feature_id;
   return out;
 }
 
@@ -230,13 +228,25 @@ interface CachedPipeline {
  * Build a specialized WGSL shader by injecting variant's preamble and expressions.
  */
 function buildShader(variant?: ShaderVariantInfo | null): string {
-  if (!variant || !variant.preamble) return POLYGON_SHADER
+  if (!variant || (!variant.preamble && !variant.needsFeatureBuffer)) return POLYGON_SHADER
 
   let shader = POLYGON_SHADER
-
-  // Insert preamble after the Uniforms struct binding
   const insertPoint = '@group(0) @binding(0) var<uniform> u: Uniforms;'
-  shader = shader.replace(insertPoint, insertPoint + '\n\n// ── Specialized constants ──\n' + variant.preamble)
+
+  // Insert storage buffer declaration for per-feature data
+  let insertions = ''
+  if (variant.needsFeatureBuffer) {
+    insertions += '\n@group(0) @binding(1) var<storage, read> feat_data: array<f32>;\n'
+  }
+
+  // Insert preamble (const declarations)
+  if (variant.preamble) {
+    insertions += '\n// ── Specialized constants ──\n' + variant.preamble + '\n'
+  }
+
+  if (insertions) {
+    shader = shader.replace(insertPoint, insertPoint + insertions)
+  }
 
   // Replace fragment return expressions
   if (variant.fillExpr && variant.fillExpr !== 'u.fill_color') {
@@ -358,6 +368,9 @@ interface RenderLayer {
   // Per-layer specialized pipelines (null = use shared default)
   fillPipeline: GPURenderPipeline | null
   linePipeline: GPURenderPipeline | null
+  // Per-feature data
+  featureDataBuffer: GPUBuffer | null
+  perLayerBindGroup: GPUBindGroup | null
 }
 
 /** Linearly interpolate between sorted zoom stops */
@@ -383,6 +396,7 @@ export class MapRenderer {
   private linePipeline!: GPURenderPipeline
   private uniformBuffer!: GPUBuffer
   private bindGroupLayout!: GPUBindGroupLayout
+  private featureBindGroupLayout!: GPUBindGroupLayout
   private bindGroup!: GPUBindGroup
   private layers: RenderLayer[] = []
   private graticuleBuffer: GPUBuffer | null = null
@@ -413,13 +427,31 @@ export class MapRenderer {
       }],
     })
 
+    this.featureBindGroupLayout = device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform' },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.FRAGMENT,
+          buffer: { type: 'read-only-storage' },
+        },
+      ],
+    })
+
     const pipelineLayout = device.createPipelineLayout({
       bindGroupLayouts: [this.bindGroupLayout],
     })
 
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 8, // 2 x f32
-      attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
+      arrayStride: 12, // 2×f32 (lon,lat) + 1×u32 (feat_id)
+      attributes: [
+        { shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 8, format: 'uint32' as GPUVertexFormat },
+      ],
     }
 
     // Fill pipeline (triangles)
@@ -502,6 +534,41 @@ export class MapRenderer {
       zoomSizeStops: show.zoomSizeStops ?? null,
       fillPipeline: layerFillPipeline,
       linePipeline: layerLinePipeline,
+      featureDataBuffer: null,
+      perLayerBindGroup: null,
+    }
+
+    // Build per-feature storage buffer if needed
+    if (variant?.needsFeatureBuffer && polygons.features.length > 0) {
+      const fieldCount = variant.featureFields.length
+      if (fieldCount > 0) {
+        const featureCount = polygons.features.length
+        const data = new Float32Array(featureCount * fieldCount)
+        for (let i = 0; i < featureCount; i++) {
+          const props = polygons.features[i].properties
+          for (let j = 0; j < fieldCount; j++) {
+            const val = props[variant.featureFields[j]]
+            data[i * fieldCount + j] = typeof val === 'number' ? val : 0
+          }
+        }
+
+        layer.featureDataBuffer = device.createBuffer({
+          size: Math.max(data.byteLength, 16), // min 16 bytes for WebGPU
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          label: `${show.targetName}-feat-data`,
+        })
+        device.queue.writeBuffer(layer.featureDataBuffer, 0, data)
+
+        layer.perLayerBindGroup = device.createBindGroup({
+          layout: this.featureBindGroupLayout,
+          entries: [
+            { binding: 0, resource: { buffer: this.uniformBuffer } },
+            { binding: 1, resource: { buffer: layer.featureDataBuffer } },
+          ],
+        })
+
+        console.log(`[X-GIS] Feature data buffer: ${featureCount} features × ${fieldCount} fields for "${show.targetName}"`)
+      }
     }
 
     // Upload polygon mesh
@@ -553,13 +620,18 @@ export class MapRenderer {
       label: `shader-${variant.key}`,
     })
 
+    // Use feature bind group layout if storage buffer is needed
+    const layout = variant.needsFeatureBuffer ? this.featureBindGroupLayout : this.bindGroupLayout
     const pipelineLayout = device.createPipelineLayout({
-      bindGroupLayouts: [this.bindGroupLayout],
+      bindGroupLayouts: [layout],
     })
 
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 8,
-      attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat }],
+      arrayStride: 12,
+      attributes: [
+        { shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 8, format: 'uint32' as GPUVertexFormat },
+      ],
     }
 
     const blendState: GPUBlendState = {
@@ -616,6 +688,7 @@ export class MapRenderer {
       layer.polygonIndexBuffer?.destroy()
       layer.lineVertexBuffer?.destroy()
       layer.lineIndexBuffer?.destroy()
+      layer.featureDataBuffer?.destroy()
     }
     this.layers = []
   }
@@ -646,10 +719,13 @@ export class MapRenderer {
       new Float32Array(uniformData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
       device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
+      // Select bind group: per-layer (with feature data) or shared
+      const bindGroup = layer.perLayerBindGroup ?? this.bindGroup
+
       // Draw filled polygons (use per-layer pipeline if specialized)
       if (fillRaw && layer.polygonVertexBuffer && layer.polygonIndexBuffer) {
         pass.setPipeline(layer.fillPipeline ?? this.fillPipeline)
-        pass.setBindGroup(0, this.bindGroup)
+        pass.setBindGroup(0, bindGroup)
         pass.setVertexBuffer(0, layer.polygonVertexBuffer)
         pass.setIndexBuffer(layer.polygonIndexBuffer, 'uint32')
         pass.drawIndexed(layer.polygonIndexCount)
@@ -658,7 +734,7 @@ export class MapRenderer {
       // Draw line strokes (use per-layer pipeline if specialized)
       if (strokeRaw && layer.lineVertexBuffer && layer.lineIndexBuffer) {
         pass.setPipeline(layer.linePipeline ?? this.linePipeline)
-        pass.setBindGroup(0, this.bindGroup)
+        pass.setBindGroup(0, bindGroup)
         pass.setVertexBuffer(0, layer.lineVertexBuffer)
         pass.setIndexBuffer(layer.lineIndexBuffer, 'uint32')
         pass.drawIndexed(layer.lineIndexCount)

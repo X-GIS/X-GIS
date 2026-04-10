@@ -24,7 +24,7 @@ export type GeoJSONGeometry =
 // ═══ GPU-ready mesh data ═══
 
 export interface MeshData {
-  vertices: Float32Array  // [lon, lat, lon, lat, ...] in degrees
+  vertices: Float32Array  // [lon, lat, feat_id, lon, lat, feat_id, ...] in degrees (3 floats/vertex)
   indices: Uint32Array
   features: FeatureRange[]
   bounds: [number, number, number, number] // [minLon, minLat, maxLon, maxLat]
@@ -145,17 +145,17 @@ export function loadGeoJSON(data: GeoJSONFeatureCollection): {
     }
   }
 
-  // Compute bounds (lon/lat degrees)
-  for (let i = 0; i < polyVertices.length; i += 2) {
+  // Compute bounds (lon/lat degrees, stride 3: lon,lat,feat_id)
+  for (let i = 0; i < polyVertices.length; i += 3) {
     const lon = polyVertices[i], lat = polyVertices[i + 1]
-    if (lon < 500) { // skip shifted coords > 360
+    if (lon < 500) {
       minLon = Math.min(minLon, lon)
       maxLon = Math.max(maxLon, lon)
     }
     minLat = Math.min(minLat, lat)
     maxLat = Math.max(maxLat, lat)
   }
-  for (let i = 0; i < lineVertices.length; i += 2) {
+  for (let i = 0; i < lineVertices.length; i += 3) {
     const lon = lineVertices[i], lat = lineVertices[i + 1]
     minLon = Math.min(minLon, lon)
     maxLon = Math.max(maxLon, lon)
@@ -190,8 +190,10 @@ function tessellatePolygon(
   outIndices: number[],
   outFeatures: FeatureRange[],
 ): void {
-  const baseVertex = outVertices.length / 2
+  const STRIDE = 3 // lon, lat, feat_id
+  const baseVertex = outVertices.length / STRIDE
   const baseIndex = outIndices.length
+  const featureId = outFeatures.length // 0-based feature index
 
   const flatCoords: number[] = []
   const holeIndices: number[] = []
@@ -201,30 +203,26 @@ function tessellatePolygon(
       holeIndices.push(flatCoords.length / 2)
     }
 
-    // Fix anti-meridian + subdivide long edges
     let ring = fixAntiMeridianRing(rings[r])
     ring = subdivideRing(ring)
 
     for (const coord of ring) {
-      flatCoords.push(coord[0], coord[1]) // raw lon/lat degrees
+      flatCoords.push(coord[0], coord[1]) // earcut needs 2D
     }
   }
 
-  // Triangulate with earcut
+  // Triangulate with earcut (uses 2D flat coords)
   const earcutIndices = earcut(flatCoords, holeIndices.length > 0 ? holeIndices : undefined)
 
-  // Post-earcut: subdivide large triangles
-  // This ensures curved projections look smooth
+  // Post-earcut subdivision (internal: still 2D for math)
   const finalVertices: number[] = [...flatCoords]
   const finalIndices: number[] = []
   const vertexMap = new Map<string, number>()
 
-  // Snap to 6 decimal places to avoid floating-point key mismatch
   function snapKey(lon: number, lat: number): string {
     return `${(lon * 1e6) | 0},${(lat * 1e6) | 0}`
   }
 
-  // Register existing vertices
   for (let i = 0; i < flatCoords.length; i += 2) {
     vertexMap.set(snapKey(flatCoords[i], flatCoords[i + 1]), i / 2)
   }
@@ -250,12 +248,10 @@ function tessellatePolygon(
     const maxEdge = Math.max(d01, d12, d20)
 
     if (maxEdge <= MAX_TRI_DEGREES || depth >= 5) {
-      // Small enough — emit triangle
       finalIndices.push(i0, i1, i2)
       return
     }
 
-    // Midpoint subdivision: split into 4 triangles
     const m01 = getOrAddVertex((x0 + x1) / 2, (y0 + y1) / 2)
     const m12 = getOrAddVertex((x1 + x2) / 2, (y1 + y2) / 2)
     const m20 = getOrAddVertex((x2 + x0) / 2, (y2 + y0) / 2)
@@ -266,14 +262,13 @@ function tessellatePolygon(
     subdivideTri(m01, m12, m20, depth + 1)
   }
 
-  // Subdivide each earcut triangle
   for (let t = 0; t < earcutIndices.length; t += 3) {
     subdivideTri(earcutIndices[t], earcutIndices[t + 1], earcutIndices[t + 2], 0)
   }
 
-  // Emit final vertices + indices
+  // Emit final vertices with feat_id (stride 3: lon, lat, feat_id)
   for (let i = 0; i < finalVertices.length; i += 2) {
-    outVertices.push(finalVertices[i], finalVertices[i + 1])
+    outVertices.push(finalVertices[i], finalVertices[i + 1], featureId)
   }
   for (const idx of finalIndices) {
     outIndices.push(baseVertex + idx)
@@ -295,10 +290,11 @@ function tessellateLineString(
   outIndices: number[],
   outFeatures: FeatureRange[],
 ): void {
-  const baseVertex = outVertices.length / 2
+  const STRIDE = 3
+  const baseVertex = outVertices.length / STRIDE
   const baseIndex = outIndices.length
+  const featureId = outFeatures.length
 
-  // Subdivide long segments
   const subdivided: number[][] = []
   for (let i = 0; i < coordinates.length; i++) {
     subdivided.push(coordinates[i])
@@ -322,7 +318,7 @@ function tessellateLineString(
   }
 
   for (const coord of subdivided) {
-    outVertices.push(coord[0], coord[1])
+    outVertices.push(coord[0], coord[1], featureId)
   }
 
   for (let i = 0; i < subdivided.length - 1; i++) {

@@ -2,7 +2,7 @@
 // GPU 프로젝션과 함께 동작
 
 export interface GraticuleData {
-  /** Line segments: [lon1, lat1, lon2, lat2, ...] in degrees */
+  /** Line segments: [lon1, lat1, feat_id, lon2, lat2, feat_id, ...] in degrees (stride 3) */
   vertices: Float32Array
   indexCount: number
 }
@@ -10,27 +10,27 @@ export interface GraticuleData {
 /** Generate graticule grid lines every `step` degrees */
 export function generateGraticule(step = 15): GraticuleData {
   const vertices: number[] = []
-  const segmentStep = 2 // 2 degree segments for smooth curves
+  const segmentStep = 2
 
   // Longitude lines (meridians)
   for (let lon = -180; lon <= 180; lon += step) {
     for (let lat = -90; lat < 90; lat += segmentStep) {
-      vertices.push(lon, lat)
-      vertices.push(lon, Math.min(lat + segmentStep, 90))
+      vertices.push(lon, lat, 0)
+      vertices.push(lon, Math.min(lat + segmentStep, 90), 0)
     }
   }
 
   // Latitude lines (parallels)
   for (let lat = -90 + step; lat < 90; lat += step) {
     for (let lon = -180; lon < 180; lon += segmentStep) {
-      vertices.push(lon, lat)
-      vertices.push(Math.min(lon + segmentStep, 180), lat)
+      vertices.push(lon, lat, 0)
+      vertices.push(Math.min(lon + segmentStep, 180), lat, 0)
     }
   }
 
   return {
     vertices: new Float32Array(vertices),
-    indexCount: vertices.length / 2, // each vertex is a line endpoint
+    indexCount: vertices.length / 3, // stride 3: each vertex is lon,lat,feat_id
   }
 }
 
@@ -51,12 +51,12 @@ export function generateGlobeOutline(segments = 128): GraticuleData {
     // We'll use a trick: emit lon/lat pairs that are 90° from any center
     // These represent the "horizon" of the globe
     // Using equator-centered coordinates that the shader will transform
-    vertices.push(Math.cos(a1) * 89.99, Math.sin(a1) * 89.99)
-    vertices.push(Math.cos(a2) * 89.99, Math.sin(a2) * 89.99)
+    vertices.push(Math.cos(a1) * 89.99, Math.sin(a1) * 89.99, 0)
+    vertices.push(Math.cos(a2) * 89.99, Math.sin(a2) * 89.99, 0)
   }
 
   return {
     vertices: new Float32Array(vertices),
-    indexCount: vertices.length / 2,
+    indexCount: vertices.length / 3,
   }
 }
