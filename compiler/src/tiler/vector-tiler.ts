@@ -367,7 +367,9 @@ export function compileGeoJSONToTiles(
         }
       }
 
-      if (scratch.pv.length > 0 || scratch.lv.length > 0) {
+      // Minimum size filter: skip tiles with < 1 triangle (9 floats = 3 vertices × stride 3)
+      if ((scratch.pv.length >= 9 || scratch.lv.length >= 6) &&
+          (scratch.pv.length > 0 || scratch.lv.length > 0)) {
         tiles.set(key, {
           z, x: tx, y: ty,
           vertices: new Float32Array(scratch.pv),
@@ -387,9 +389,53 @@ export function compileGeoJSONToTiles(
     console.log(`  z${z}: ${tiles.size} tiles (${zElapsed}ms)`)
   }
 
+  // Stage 1: Deduplicate overviews — remove child tiles that add no detail over parent
+  const beforeDedup = levels.reduce((s, l) => s + l.tiles.size, 0)
+  deduplicateOverviews(levels)
+  const afterDedup = levels.reduce((s, l) => s + l.tiles.size, 0)
+  if (beforeDedup !== afterDedup) {
+    console.log(`  Dedup: ${beforeDedup} → ${afterDedup} tiles (${((1 - afterDedup / beforeDedup) * 100).toFixed(0)}% removed)`)
+  }
+
   return {
     levels,
     bounds: [gMinLon, gMinLat, gMaxLon, gMaxLat],
     featureCount: geojson.features.length,
+  }
+}
+
+/**
+ * Remove child tiles that add no meaningful detail over their parent.
+ * A child is redundant if its vertex count is similar to parent's per-child share.
+ * Processes high zoom → low zoom (bottom-up).
+ */
+function deduplicateOverviews(levels: TileLevel[]): void {
+  // Sort levels by zoom descending for bottom-up processing
+  const sorted = [...levels].sort((a, b) => b.zoom - a.zoom)
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const childLevel = sorted[i]
+    const parentLevel = sorted[i + 1]
+    if (childLevel.zoom !== parentLevel.zoom + 1) continue // non-consecutive zooms
+
+    const toDelete: number[] = []
+
+    for (const [childKey, childTile] of childLevel.tiles) {
+      const parentKey = tileKeyParent(childKey)
+      const parentTile = parentLevel.tiles.get(parentKey)
+      if (!parentTile) continue
+
+      // Child is redundant if it has no more detail than what overzoom from parent provides.
+      // Compare child vertex count to parent's average per-child share.
+      // If child ≤ parent/2, the child adds no meaningful detail.
+      const parentPerChild = parentTile.vertices.length / 2 // generous: /2 instead of /4
+      if (childTile.vertices.length <= parentPerChild) {
+        toDelete.push(childKey)
+      }
+    }
+
+    for (const key of toDelete) {
+      childLevel.tiles.delete(key)
+    }
   }
 }

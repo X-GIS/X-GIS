@@ -8,7 +8,14 @@
 //   → zigzag:          [254000000, 75000000, 200000, 200000]
 //   → varint:          variable-length bytes (small deltas = fewer bytes)
 
-const PRECISION = 1e6 // 6 decimal places ≈ ~0.1m accuracy
+const DEFAULT_PRECISION = 1e6 // 6 decimal places ≈ ~0.1m accuracy
+
+/** Get precision for a zoom level — lower zoom needs less precision */
+export function precisionForZoom(zoom: number): number {
+  if (zoom <= 4) return 1e4   // 0.01° ≈ 1.1km
+  if (zoom <= 8) return 1e5   // 0.001° ≈ 110m
+  return 1e6                   // 0.0001° ≈ 11m
+}
 
 // ═══ Varint ═══
 
@@ -55,7 +62,7 @@ export function zigzagDecode(n: number): number {
  * Input: [lon0, lat0, lon1, lat1, ...] in degrees
  * Output: varint-encoded zigzag deltas
  */
-export function encodeCoords(coords: number[]): Uint8Array {
+export function encodeCoords(coords: number[], precision = DEFAULT_PRECISION): Uint8Array {
   const bytes: number[] = []
 
   // Write coordinate count
@@ -65,8 +72,8 @@ export function encodeCoords(coords: number[]): Uint8Array {
   let prevLat = 0
 
   for (let i = 0; i < coords.length; i += 2) {
-    const lon = Math.round(coords[i] * PRECISION)
-    const lat = Math.round(coords[i + 1] * PRECISION)
+    const lon = Math.round(coords[i] * precision)
+    const lat = Math.round(coords[i + 1] * precision)
 
     const dLon = lon - prevLon
     const dLat = lat - prevLat
@@ -85,7 +92,7 @@ export function encodeCoords(coords: number[]): Uint8Array {
  * Decode compact bytes back to coordinate array.
  * Output: [lon0, lat0, lon1, lat1, ...] in degrees
  */
-export function decodeCoords(buf: Uint8Array): Float32Array {
+export function decodeCoords(buf: Uint8Array, precision = DEFAULT_PRECISION): Float32Array {
   let offset = 0
 
   const [count, countBytes] = decodeVarint(buf, offset)
@@ -104,8 +111,8 @@ export function decodeCoords(buf: Uint8Array): Float32Array {
     prevLon += zigzagDecode(zLon)
     prevLat += zigzagDecode(zLat)
 
-    coords[i * 2] = prevLon / PRECISION
-    coords[i * 2 + 1] = prevLat / PRECISION
+    coords[i * 2] = prevLon / precision
+    coords[i * 2 + 1] = prevLat / precision
   }
 
   return coords

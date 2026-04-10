@@ -12,7 +12,7 @@
 
 import type { CompiledTileSet, TileLevel, CompiledTile } from './vector-tiler'
 import { tileKey, tileKeyUnpack } from './vector-tiler'
-import { encodeCoords, encodeIndices, decodeCoords, decodeIndices } from './encoding'
+import { encodeCoords, encodeIndices, decodeCoords, decodeIndices, precisionForZoom } from './encoding'
 
 // ═══ Constants ═══
 
@@ -61,10 +61,11 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
   }[] = []
 
   for (const { key, tile } of allTiles) {
-    // Compact layer: ZigZag delta encoding
+    // Compact layer: ZigZag delta encoding with zoom-adaptive precision
+    const precision = precisionForZoom(tile.z)
     const polyCoordFlat: number[] = []
     for (let i = 0; i < tile.vertices.length; i += 3) {
-      polyCoordFlat.push(tile.vertices[i], tile.vertices[i + 1]) // lon, lat only (skip feat_id)
+      polyCoordFlat.push(tile.vertices[i], tile.vertices[i + 1])
     }
     const lineCoordFlat: number[] = []
     for (let i = 0; i < tile.lineVertices.length; i += 3) {
@@ -74,9 +75,9 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
     encodedTiles.push({
       key,
       compact: {
-        coords: encodeCoords(polyCoordFlat),
+        coords: encodeCoords(polyCoordFlat, precision),
         indices: encodeIndices(tile.indices),
-        lineCoords: encodeCoords(lineCoordFlat),
+        lineCoords: encodeCoords(lineCoordFlat, precision),
         lineIndices: encodeIndices(tile.lineIndices),
       },
       gpuReady: {
@@ -290,8 +291,9 @@ export function parseGPUReadyTile(
   const lineCoordsBuf = readSection()
   const lineIndicesBuf = readSection()
 
-  // Decode coordinates (lon/lat pairs) → stride-3 vertices (lon, lat, feat_id=0)
-  const coords = decodeCoords(coordsBuf)
+  // Decode coordinates with zoom-adaptive precision
+  const precision = precisionForZoom(z)
+  const coords = decodeCoords(coordsBuf, precision)
   const vertices = new Float32Array(coords.length / 2 * 3)
   for (let i = 0; i < coords.length; i += 2) {
     const vi = (i / 2) * 3
@@ -302,7 +304,7 @@ export function parseGPUReadyTile(
 
   const indices = decodeIndices(indicesBuf)
 
-  const lineCoords = decodeCoords(lineCoordsBuf)
+  const lineCoords = decodeCoords(lineCoordsBuf, precision)
   const lineVertices = new Float32Array(lineCoords.length / 2 * 3)
   for (let i = 0; i < lineCoords.length; i += 2) {
     const vi = (i / 2) * 3
