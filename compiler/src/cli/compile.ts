@@ -137,9 +137,18 @@ function tileCommand(inputPath: string, outputPath: string) {
   const source = readFileSync(inputPath, 'utf-8')
   const geojson = JSON.parse(source)
 
+  console.log(`Tiling ${inputPath} (${(source.length / 1024).toFixed(0)} KB, ${geojson.features?.length ?? 0} features)...`)
+
   const start = performance.now()
-  const tileSet = compileGeoJSONToTiles(geojson, { minZoom: 0, maxZoom: 14 })
+  const tileSet = compileGeoJSONToTiles(geojson, { minZoom: 0 })  // maxZoom auto-detected
+  const tileElapsed = (performance.now() - start).toFixed(0)
+  console.log(`  Tiling done in ${tileElapsed}ms`)
+
+  const serStart = performance.now()
   const binary = serializeXGVT(tileSet)
+  const serElapsed = (performance.now() - serStart).toFixed(0)
+  console.log(`  Serialization done in ${serElapsed}ms`)
+
   const elapsed = (performance.now() - start).toFixed(0)
 
   writeFileSync(outputPath, Buffer.from(binary))

@@ -34,7 +34,13 @@ export interface TileIndexEntry {
 
 // ═══ Serialize ═══
 
-export function serializeXGVT(tileSet: CompiledTileSet): ArrayBuffer {
+export interface SerializeOptions {
+  /** Include GPU-ready layer (Float32/Uint32). Doubles file size but enables zero-copy GPU upload. Default: false */
+  includeGPUReady?: boolean
+}
+
+export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptions): ArrayBuffer {
+  const includeGPUReady = options?.includeGPUReady ?? false
   // Collect all tiles across levels
   const allTiles: { key: number; tile: CompiledTile }[] = []
   for (const level of tileSet.levels) {
@@ -94,8 +100,10 @@ export function serializeXGVT(tileSet: CompiledTileSet): ArrayBuffer {
   for (const et of encodedTiles) {
     const compactSize = et.compact.coords.byteLength + et.compact.indices.byteLength +
       et.compact.lineCoords.byteLength + et.compact.lineIndices.byteLength + 16 // 4 size headers
-    const gpuReadySize = et.gpuReady.vertices.byteLength + et.gpuReady.indices.byteLength +
-      et.gpuReady.lineVertices.byteLength + et.gpuReady.lineIndices.byteLength
+    const gpuReadySize = includeGPUReady
+      ? et.gpuReady.vertices.byteLength + et.gpuReady.indices.byteLength +
+        et.gpuReady.lineVertices.byteLength + et.gpuReady.lineIndices.byteLength
+      : 0
 
     indexEntries.push({
       tileHash: et.key,
@@ -157,14 +165,16 @@ export function serializeXGVT(tileSet: CompiledTileSet): ArrayBuffer {
       pos += part.byteLength
     }
 
-    // GPU-Ready layer: raw Float32/Uint32 arrays
-    const gpuParts: ArrayBufferView[] = [
-      et.gpuReady.vertices, et.gpuReady.indices,
-      et.gpuReady.lineVertices, et.gpuReady.lineIndices,
-    ]
-    for (const part of gpuParts) {
-      new Uint8Array(buf, pos, part.byteLength).set(new Uint8Array(part.buffer, part.byteOffset, part.byteLength))
-      pos += part.byteLength
+    // GPU-Ready layer: raw Float32/Uint32 arrays (optional)
+    if (includeGPUReady) {
+      const gpuParts: ArrayBufferView[] = [
+        et.gpuReady.vertices, et.gpuReady.indices,
+        et.gpuReady.lineVertices, et.gpuReady.lineIndices,
+      ]
+      for (const part of gpuParts) {
+        new Uint8Array(buf, pos, part.byteLength).set(new Uint8Array(part.buffer, part.byteOffset, part.byteLength))
+        pos += part.byteLength
+      }
     }
   }
 

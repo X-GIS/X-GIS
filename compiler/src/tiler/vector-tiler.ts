@@ -214,8 +214,55 @@ function tessellateLineToArrays(
 
 export interface TilerOptions {
   minZoom?: number   // default 0
-  maxZoom?: number   // default 14 (auto-reduced if data resolution insufficient)
+  maxZoom?: number   // default: auto-detected from data resolution
   maxFeaturesPerTile?: number  // default 5000
+}
+
+/**
+ * Auto-detect appropriate maxZoom from data resolution.
+ * Estimates average vertex spacing and finds the zoom level where
+ * further subdivision provides no additional detail.
+ */
+function autoDetectMaxZoom(features: GeoJSONFeature[], bboxes: FeatureBBox[]): number {
+  // Sample vertex spacing from first N features
+  const sampleSize = Math.min(features.length, 50)
+  let totalSpacing = 0
+  let spacingCount = 0
+
+  for (let i = 0; i < sampleSize; i++) {
+    const geom = features[i].geometry
+    const coords = extractFirstRing(geom)
+    if (!coords || coords.length < 2) continue
+
+    for (let j = 1; j < coords.length; j++) {
+      const dx = Math.abs(coords[j][0] - coords[j - 1][0])
+      const dy = Math.abs(coords[j][1] - coords[j - 1][1])
+      const spacing = Math.sqrt(dx * dx + dy * dy)
+      if (spacing > 0) {
+        totalSpacing += spacing
+        spacingCount++
+      }
+    }
+  }
+
+  if (spacingCount === 0) return 6
+
+  const avgSpacing = totalSpacing / spacingCount // degrees
+
+  // At zoom z, each tile covers 360/2^z degrees of longitude
+  // Detail is pointless when tile covers less than avg vertex spacing
+  // → maxZoom ≈ log2(360 / avgSpacing) - 4 (conservative, fewer tiles)
+  const maxZoom = Math.max(2, Math.min(10, Math.floor(Math.log2(360 / avgSpacing)) - 4))
+
+  console.log(`  Auto maxZoom: ${maxZoom} (avg vertex spacing: ${avgSpacing.toFixed(4)}°)`)
+  return maxZoom
+}
+
+function extractFirstRing(geom: GeoJSONFeature['geometry']): number[][] | null {
+  if (geom.type === 'Polygon') return (geom.coordinates as number[][][])[0]
+  if (geom.type === 'MultiPolygon') return (geom.coordinates as number[][][][])[0]?.[0]
+  if (geom.type === 'LineString') return geom.coordinates as number[][]
+  return null
 }
 
 /**
@@ -227,7 +274,6 @@ export function compileGeoJSONToTiles(
   options?: TilerOptions,
 ): CompiledTileSet {
   const minZoom = options?.minZoom ?? 0
-  const maxZoom = options?.maxZoom ?? 14
 
   // Step 1: Compute feature bboxes
   const featureBBoxes: FeatureBBox[] = []
@@ -243,81 +289,176 @@ export function compileGeoJSONToTiles(
     gMinLat = Math.min(gMinLat, fb.minLat); gMaxLat = Math.max(gMaxLat, fb.maxLat)
   }
 
-  // Step 2: For each zoom level, generate tiles (sparse — skip empty tiles)
+  // Auto-detect maxZoom from data resolution
+  // Estimate avg vertex spacing → zoom where spacing ≈ tile pixel size
+  const detectedZoom = autoDetectMaxZoom(geojson.features, featureBBoxes)
+  const maxZoom = options?.maxZoom ?? detectedZoom
+
+  // Step 2: For each zoom level, pre-tessellate features once, then scatter into tiles.
+  // Two key optimizations over naive tile-first approach:
+  //   1. Feature-first scatter: O(features × tiles_per_feature) instead of O(total_tiles × features)
+  //   2. Per-zoom tessellation cache: simplify+earcut once per feature per zoom, not per tile
   const levels: TileLevel[] = []
 
   for (let z = minZoom; z <= maxZoom; z++) {
+    const zStart = performance.now()
     const n = Math.pow(2, z)
+
+    // Pre-tessellate each feature once at this zoom level
+    interface PreTessellated {
+      fb: FeatureBBox
+      polyVerts: Float32Array   // stride 3, feature_id = 0 (rebased per tile)
+      polyIdx: Uint32Array
+      lineVerts: Float32Array
+      lineIdx: Uint32Array
+    }
+    const featureGeom: PreTessellated[] = []
+
+    for (const fb of featureBBoxes) {
+      const pv: number[] = []
+      const pi: number[] = []
+      const lv: number[] = []
+      const li: number[] = []
+      const geom = fb.feature.geometry
+
+      if (geom.type === 'Polygon') {
+        const simplified = simplifyPolygon(geom.coordinates as number[][][], z)
+        tessellatePolygonToArrays(simplified, 0, pv, pi)
+      } else if (geom.type === 'MultiPolygon') {
+        for (const poly of geom.coordinates as number[][][][]) {
+          const simplified = simplifyPolygon(poly, z)
+          tessellatePolygonToArrays(simplified, 0, pv, pi)
+        }
+      } else if (geom.type === 'LineString') {
+        const simplified = simplifyLine(geom.coordinates as number[][], z)
+        tessellateLineToArrays(simplified, 0, lv, li)
+      } else if (geom.type === 'MultiLineString') {
+        for (const line of geom.coordinates as number[][][]) {
+          const simplified = simplifyLine(line, z)
+          tessellateLineToArrays(simplified, 0, lv, li)
+        }
+      }
+
+      if (pv.length === 0 && lv.length === 0) continue
+
+      featureGeom.push({
+        fb,
+        polyVerts: new Float32Array(pv),
+        polyIdx: new Uint32Array(pi),
+        lineVerts: new Float32Array(lv),
+        lineIdx: new Uint32Array(li),
+      })
+    }
+
+    // Scatter: for each pre-tessellated feature, assign to covered tiles
+    const tileFeaturesMap = new Map<number, number[]>() // tileKey → indices into featureGeom
+
+    for (let fi = 0; fi < featureGeom.length; fi++) {
+      const fb = featureGeom[fi].fb
+      const fxMin = Math.max(0, Math.floor((fb.minLon + 180) / 360 * n))
+      const fxMax = Math.min(n - 1, Math.floor((fb.maxLon + 180) / 360 * n))
+
+      const latMaxClamped = Math.min(fb.maxLat, 85)
+      const latMinClamped = Math.max(fb.minLat, -85)
+      const fyMin = Math.max(0, Math.floor((1 - Math.log(Math.tan(latMaxClamped * Math.PI / 180) + 1 / Math.cos(latMaxClamped * Math.PI / 180)) / Math.PI) / 2 * n))
+      const fyMax = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(latMinClamped * Math.PI / 180) + 1 / Math.cos(latMinClamped * Math.PI / 180)) / Math.PI) / 2 * n))
+
+      // Skip features that span too many tiles at this zoom
+      // (they're already rendered at lower zoom levels)
+      const tileSpan = (fxMax - fxMin + 1) * (fyMax - fyMin + 1)
+      if (tileSpan > 64) continue  // feature covers >64 tiles → skip at this zoom
+
+      for (let x = fxMin; x <= fxMax; x++) {
+        for (let y = fyMin; y <= fyMax; y++) {
+          const key = tileKey(z, x, y)
+          let list = tileFeaturesMap.get(key)
+          if (!list) { list = []; tileFeaturesMap.set(key, list) }
+          list.push(fi)
+        }
+      }
+    }
+
+    // Assemble tiles by merging pre-tessellated buffers
     const tiles = new Map<number, CompiledTile>()
 
-    // Determine tile range that covers the data bbox
-    const xMin = Math.max(0, Math.floor((gMinLon + 180) / 360 * n))
-    const xMax = Math.min(n - 1, Math.floor((gMaxLon + 180) / 360 * n))
-    const yMin = Math.max(0, Math.floor((1 - Math.log(Math.tan(gMaxLat * Math.PI / 180) + 1 / Math.cos(gMaxLat * Math.PI / 180)) / Math.PI) / 2 * n))
-    const yMax = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(Math.max(gMinLat, -85) * Math.PI / 180) + 1 / Math.cos(Math.max(gMinLat, -85) * Math.PI / 180)) / Math.PI) / 2 * n))
+    for (const [key, featureIndices] of tileFeaturesMap) {
+      const [, tx, ty] = tileKeyUnpack(key)
 
-    for (let x = xMin; x <= xMax; x++) {
-      for (let y = yMin; y <= yMax; y++) {
-        const tb = tileBounds(z, x, y)
-
-        // Find features that intersect this tile
-        const tileFeatures: FeatureBBox[] = []
-        for (const fb of featureBBoxes) {
-          if (bboxIntersects(fb, tb)) {
-            tileFeatures.push(fb)
-          }
-        }
-
-        if (tileFeatures.length === 0) continue // sparse: skip empty
-
-        // Tessellate features for this tile
-        const polyVerts: number[] = []
-        const polyIdx: number[] = []
-        const lineVerts: number[] = []
-        const lineIdx: number[] = []
-        let tileFeatureCount = 0
-
-        for (const fb of tileFeatures) {
-          const geom = fb.feature.geometry
-
-          if (geom.type === 'Polygon') {
-            const simplified = simplifyPolygon(geom.coordinates as number[][][], z)
-            tessellatePolygonToArrays(simplified, tileFeatureCount, polyVerts, polyIdx)
-            tileFeatureCount++
-          } else if (geom.type === 'MultiPolygon') {
-            for (const poly of geom.coordinates as number[][][][]) {
-              const simplified = simplifyPolygon(poly, z)
-              tessellatePolygonToArrays(simplified, tileFeatureCount, polyVerts, polyIdx)
-            }
-            tileFeatureCount++
-          } else if (geom.type === 'LineString') {
-            const simplified = simplifyLine(geom.coordinates as number[][], z)
-            tessellateLineToArrays(simplified, tileFeatureCount, lineVerts, lineIdx)
-            tileFeatureCount++
-          } else if (geom.type === 'MultiLineString') {
-            for (const line of geom.coordinates as number[][][]) {
-              const simplified = simplifyLine(line, z)
-              tessellateLineToArrays(simplified, tileFeatureCount, lineVerts, lineIdx)
-            }
-            tileFeatureCount++
-          }
-        }
-
-        if (polyVerts.length === 0 && lineVerts.length === 0) continue
-
-        tiles.set(tileKey(z, x, y), {
-          z, x, y,
-          vertices: new Float32Array(polyVerts),
-          indices: new Uint32Array(polyIdx),
-          lineVertices: new Float32Array(lineVerts),
-          lineIndices: new Uint32Array(lineIdx),
-          featureCount: tileFeatureCount,
-        })
+      // Compute total sizes for pre-allocation
+      let totalPolyVerts = 0, totalPolyIdx = 0, totalLineVerts = 0, totalLineIdx = 0
+      for (const fi of featureIndices) {
+        const fg = featureGeom[fi]
+        totalPolyVerts += fg.polyVerts.length
+        totalPolyIdx += fg.polyIdx.length
+        totalLineVerts += fg.lineVerts.length
+        totalLineIdx += fg.lineIdx.length
       }
+
+      if (totalPolyVerts === 0 && totalLineVerts === 0) continue
+
+      const polyVerts = new Float32Array(totalPolyVerts)
+      const polyIdx = new Uint32Array(totalPolyIdx)
+      const lineVerts = new Float32Array(totalLineVerts)
+      const lineIdx = new Uint32Array(totalLineIdx)
+      let pvOff = 0, piOff = 0, lvOff = 0, liOff = 0
+      let featureCount = 0
+
+      for (const fi of featureIndices) {
+        const fg = featureGeom[fi]
+
+        if (fg.polyVerts.length > 0) {
+          // Rebase feature_id (every 3rd float) and vertex indices
+          const baseVertex = pvOff / 3
+          for (let i = 0; i < fg.polyVerts.length; i += 3) {
+            polyVerts[pvOff + i] = fg.polyVerts[i]
+            polyVerts[pvOff + i + 1] = fg.polyVerts[i + 1]
+            polyVerts[pvOff + i + 2] = featureCount
+          }
+          for (let i = 0; i < fg.polyIdx.length; i++) {
+            polyIdx[piOff + i] = fg.polyIdx[i] + baseVertex
+          }
+          pvOff += fg.polyVerts.length
+          piOff += fg.polyIdx.length
+        }
+
+        if (fg.lineVerts.length > 0) {
+          const baseVertex = lvOff / 3
+          for (let i = 0; i < fg.lineVerts.length; i += 3) {
+            lineVerts[lvOff + i] = fg.lineVerts[i]
+            lineVerts[lvOff + i + 1] = fg.lineVerts[i + 1]
+            lineVerts[lvOff + i + 2] = featureCount
+          }
+          for (let i = 0; i < fg.lineIdx.length; i++) {
+            lineIdx[liOff + i] = fg.lineIdx[i] + baseVertex
+          }
+          lvOff += fg.lineVerts.length
+          liOff += fg.lineIdx.length
+        }
+
+        featureCount++
+      }
+
+      tiles.set(key, {
+        z, x: tx, y: ty,
+        vertices: polyVerts,
+        indices: polyIdx,
+        lineVertices: lineVerts,
+        lineIndices: lineIdx,
+        featureCount,
+      })
     }
 
     if (tiles.size > 0) {
       levels.push({ zoom: z, tiles })
+    }
+
+    const zElapsed = (performance.now() - zStart).toFixed(0)
+    console.log(`  z${z}: ${tiles.size} tiles (${zElapsed}ms)`)
+
+    // Early termination: prevent memory explosion
+    if (tiles.size > 4000) {
+      console.log(`  Stopping at z${z}: tile count exceeded 4K`)
+      break
     }
   }
 

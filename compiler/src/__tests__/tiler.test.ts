@@ -294,7 +294,7 @@ describe('.xgvt Binary Format', () => {
 
   it('round-trips GPU-ready tile data', () => {
     const tileSet = compileGeoJSONToTiles(testGeoJSON, { minZoom: 0, maxZoom: 2 })
-    const binary = serializeXGVT(tileSet)
+    const binary = serializeXGVT(tileSet, { includeGPUReady: true })
     const index = parseXGVTIndex(binary)
 
     // Pick first tile
