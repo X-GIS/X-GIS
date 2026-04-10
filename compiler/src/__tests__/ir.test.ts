@@ -79,6 +79,125 @@ describe('IR Lower', () => {
   })
 })
 
+describe('IR Modifiers', () => {
+  it('lowers zoom modifier to zoom-interpolated opacity', () => {
+    const scene = compile(`
+      source data { type: geojson, url: "x.geojson" }
+      layer tracks {
+        source: data
+        | z8:opacity-40 z16:opacity-100
+      }
+    `)
+    const node = scene.renderNodes[0]
+    expect(node.opacity.kind).toBe('zoom-interpolated')
+    if (node.opacity.kind === 'zoom-interpolated') {
+      expect(node.opacity.stops).toHaveLength(2)
+      expect(node.opacity.stops[0]).toEqual({ zoom: 8, value: 0.4 })
+      expect(node.opacity.stops[1]).toEqual({ zoom: 16, value: 1.0 })
+    }
+  })
+
+  it('lowers zoom modifier to zoom-interpolated size', () => {
+    const scene = compile(`
+      source data { type: geojson, url: "x.geojson" }
+      layer tracks {
+        source: data
+        | z8:size-4 z14:size-12
+      }
+    `)
+    const node = scene.renderNodes[0]
+    expect(node.size.kind).toBe('zoom-interpolated')
+    if (node.size.kind === 'zoom-interpolated') {
+      expect(node.size.stops).toEqual([
+        { zoom: 8, value: 4 },
+        { zoom: 14, value: 12 },
+      ])
+    }
+  })
+
+  it('lowers data modifier to conditional fill', () => {
+    const scene = compile(`
+      source data { type: geojson, url: "x.geojson" }
+      layer tracks {
+        source: data
+        | friendly:fill-green-500 hostile:fill-red-500 fill-gray-400
+      }
+    `)
+    const node = scene.renderNodes[0]
+    expect(node.fill.kind).toBe('conditional')
+    if (node.fill.kind === 'conditional') {
+      expect(node.fill.branches).toHaveLength(2)
+      expect(node.fill.branches[0].field).toBe('friendly')
+      expect(node.fill.branches[0].value.kind).toBe('constant')
+      expect(node.fill.branches[1].field).toBe('hostile')
+      // Fallback is the unmodified fill-gray-400
+      expect(node.fill.fallback.kind).toBe('constant')
+    }
+  })
+
+  it('sorts zoom stops by zoom level', () => {
+    const scene = compile(`
+      source data { type: geojson, url: "x.geojson" }
+      layer tracks {
+        source: data
+        | z16:opacity-100 z8:opacity-40 z12:opacity-70
+      }
+    `)
+    const node = scene.renderNodes[0]
+    if (node.opacity.kind === 'zoom-interpolated') {
+      expect(node.opacity.stops[0].zoom).toBe(8)
+      expect(node.opacity.stops[1].zoom).toBe(12)
+      expect(node.opacity.stops[2].zoom).toBe(16)
+    }
+  })
+})
+
+describe('IR Presets', () => {
+  it('expands apply-presetName', () => {
+    const scene = compile(`
+      preset alert {
+        | fill-red-500 stroke-black stroke-2
+      }
+
+      source data { type: geojson, url: "x.geojson" }
+      layer tracks {
+        source: data
+        | apply-alert opacity-80
+      }
+    `)
+    const node = scene.renderNodes[0]
+    // Preset fill-red-500 should be applied
+    expect(node.fill.kind).toBe('constant')
+    if (node.fill.kind === 'constant') {
+      expect(node.fill.rgba[0]).toBeCloseTo(0.937, 2) // red-500
+    }
+    // Stroke from preset
+    expect(node.stroke.width).toBe(2)
+    // opacity-80 from layer overrides
+    expect(node.opacity).toEqual({ kind: 'constant', value: 0.8 })
+  })
+
+  it('layer utilities override preset values', () => {
+    const scene = compile(`
+      preset base {
+        | fill-blue-500 stroke-1
+      }
+
+      source data { type: geojson, url: "x.geojson" }
+      layer tracks {
+        source: data
+        | apply-base fill-green-500
+      }
+    `)
+    const node = scene.renderNodes[0]
+    // fill-green-500 should override preset's fill-blue-500
+    expect(node.fill.kind).toBe('constant')
+    if (node.fill.kind === 'constant') {
+      expect(node.fill.rgba[1]).toBeGreaterThan(0.7) // green dominant
+    }
+  })
+})
+
 describe('IR EmitCommands', () => {
   it('converts IR to SceneCommands', () => {
     const scene = compile(`

@@ -9,9 +9,15 @@ import {
   type SourceDef,
   type RenderNode,
   type ColorValue,
+  type SizeValue,
+  type OpacityValue,
+  type ZoomStop,
+  type ConditionalBranch,
   colorNone,
   colorConstant,
   opacityConstant,
+  sizeNone,
+  sizeConstant,
   hexToRgba,
 } from './render-node'
 
@@ -22,9 +28,19 @@ export function lower(program: AST.Program): Scene {
   const sources: SourceDef[] = []
   const renderNodes: RenderNode[] = []
   const sourceMap = new Map<string, SourceDef>()
+  const presetMap = new Map<string, AST.UtilityLine[]>()
+
+  // First pass: collect presets
+  for (const stmt of program.body) {
+    if (stmt.kind === 'PresetStatement') {
+      presetMap.set(stmt.name, stmt.utilities)
+    }
+  }
 
   for (const stmt of program.body) {
     switch (stmt.kind) {
+      case 'PresetStatement':
+        break // already processed
       case 'SourceStatement': {
         const src = lowerSource(stmt)
         if (src) {
@@ -34,7 +50,7 @@ export function lower(program: AST.Program): Scene {
         break
       }
       case 'LayerStatement': {
-        const node = lowerLayer(stmt, sourceMap)
+        const node = lowerLayer(stmt, sourceMap, presetMap)
         if (node) {
           // If the source was referenced but not yet added, add it
           if (!sources.find(s => s.name === node.sourceRef)) {
@@ -82,7 +98,11 @@ function lowerSource(stmt: AST.SourceStatement): SourceDef | null {
   return { name: stmt.name, type, url }
 }
 
-function lowerLayer(stmt: AST.LayerStatement, sourceMap: Map<string, SourceDef>): RenderNode | null {
+function lowerLayer(
+  stmt: AST.LayerStatement,
+  sourceMap: Map<string, SourceDef>,
+  presetMap: Map<string, AST.UtilityLine[]>,
+): RenderNode | null {
   // Extract block properties
   let sourceRef = ''
   let zOrder = 0
@@ -97,20 +117,71 @@ function lowerLayer(stmt: AST.LayerStatement, sourceMap: Map<string, SourceDef>)
 
   if (!sourceRef || !sourceMap.has(sourceRef)) return null
 
+  // Expand presets: apply-name → inline preset's utility items
+  const expandedUtilities = expandPresets(stmt.utilities, presetMap)
+
   // Process utility lines
   let fill: ColorValue = colorNone()
   let strokeColor: ColorValue = colorNone()
   let strokeWidth = 1
-  let opacity = 1.0
+  let opacity: OpacityValue = opacityConstant(1.0)
+  let size: SizeValue = sizeNone()
   let projection = 'mercator'
   let visible = true
 
-  for (const line of stmt.utilities) {
-    for (const item of line.items) {
-      // Skip modifier items for Phase 0
-      if (item.modifier) continue
+  // Collectors for modifier-based values
+  const fillBranches: ConditionalBranch<ColorValue>[] = []
+  const opacityZoomStops: ZoomStop<number>[] = []
+  const sizeZoomStops: ZoomStop<number>[] = []
 
+  for (const line of expandedUtilities) {
+    for (const item of line.items) {
       const name = item.name
+      const mod = item.modifier
+
+      // ── Modifier items ──
+      if (mod) {
+        // Zoom modifier: z8:opacity-40, z14:size-12
+        const zoomMatch = mod.match(/^z(\d+)$/)
+        if (zoomMatch) {
+          const zoom = parseInt(zoomMatch[1])
+          if (name.startsWith('opacity-')) {
+            const num = parseFloat(name.slice(8))
+            if (!isNaN(num)) {
+              opacityZoomStops.push({ zoom, value: num <= 1 ? num : num / 100 })
+            }
+          } else if (name.startsWith('size-')) {
+            const num = parseFloat(name.slice(5))
+            if (!isNaN(num)) {
+              sizeZoomStops.push({ zoom, value: num })
+            }
+          }
+          continue
+        }
+
+        // Data modifier: friendly:fill-green-500
+        if (name.startsWith('fill-')) {
+          const hex = resolveColor(name.slice(5))
+          if (hex) {
+            fillBranches.push({ field: mod, value: colorConstant(...hexToRgba(hex)) })
+          }
+        }
+        continue
+      }
+
+      // ── Unmodified items ──
+
+      // Data binding: fill-[expr], size-[expr], opacity-[expr]
+      if (item.binding) {
+        if (name === 'fill') {
+          fill = { kind: 'data-driven', expr: { ast: item.binding } }
+        } else if (name === 'size') {
+          size = { kind: 'data-driven', expr: { ast: item.binding } }
+        } else if (name === 'opacity') {
+          opacity = { kind: 'data-driven', expr: { ast: item.binding } }
+        }
+        continue
+      }
 
       if (name.startsWith('fill-')) {
         const hex = resolveColor(name.slice(5))
@@ -127,7 +198,13 @@ function lowerLayer(stmt: AST.LayerStatement, sourceMap: Map<string, SourceDef>)
       } else if (name.startsWith('opacity-')) {
         const num = parseFloat(name.slice(8))
         if (!isNaN(num)) {
-          opacity = num <= 1 ? num : num / 100
+          const val = num <= 1 ? num : num / 100
+          opacity = opacityConstant(val)
+        }
+      } else if (name.startsWith('size-')) {
+        const num = parseFloat(name.slice(5))
+        if (!isNaN(num)) {
+          size = sizeConstant(num)
         }
       } else if (name.startsWith('projection-')) {
         projection = name.slice(11)
@@ -139,16 +216,68 @@ function lowerLayer(stmt: AST.LayerStatement, sourceMap: Map<string, SourceDef>)
     }
   }
 
+  // Build conditional fill if branches exist
+  if (fillBranches.length > 0) {
+    fill = { kind: 'conditional', branches: fillBranches, fallback: fill }
+  }
+
+  // Build zoom-interpolated opacity if stops exist
+  if (opacityZoomStops.length > 0) {
+    opacityZoomStops.sort((a, b) => a.zoom - b.zoom)
+    opacity = { kind: 'zoom-interpolated', stops: opacityZoomStops }
+  }
+
+  // Build zoom-interpolated size if stops exist
+  if (sizeZoomStops.length > 0) {
+    sizeZoomStops.sort((a, b) => a.zoom - b.zoom)
+    size = { kind: 'zoom-interpolated', stops: sizeZoomStops }
+  }
+
   return {
     name: stmt.name,
     sourceRef,
     zOrder,
     fill,
     stroke: { color: strokeColor, width: strokeWidth },
-    opacity: opacityConstant(opacity),
+    opacity,
+    size,
     projection,
     visible,
   }
+}
+
+/**
+ * Expand apply-presetName items by inlining the preset's utility lines.
+ * Preset items come first (lower priority), layer items come after (override).
+ */
+function expandPresets(
+  utilities: AST.UtilityLine[],
+  presetMap: Map<string, AST.UtilityLine[]>,
+): AST.UtilityLine[] {
+  const result: AST.UtilityLine[] = []
+
+  for (const line of utilities) {
+    const expandedItems: AST.UtilityItem[] = []
+
+    for (const item of line.items) {
+      if (item.name.startsWith('apply-') && !item.modifier) {
+        const presetName = item.name.slice(6)
+        const preset = presetMap.get(presetName)
+        if (preset) {
+          // Inline preset lines before current line's remaining items
+          result.push(...preset)
+        }
+      } else {
+        expandedItems.push(item)
+      }
+    }
+
+    if (expandedItems.length > 0) {
+      result.push({ kind: 'UtilityLine', items: expandedItems, line: line.line })
+    }
+  }
+
+  return result
 }
 
 // ═══ Legacy syntax lowering ═══
@@ -215,6 +344,7 @@ function lowerShow(stmt: AST.ShowStatement): RenderNode | null {
     fill,
     stroke: { color: strokeColor, width: strokeWidth },
     opacity: opacityConstant(opacity),
+    size: sizeNone(),
     projection,
     visible,
   }

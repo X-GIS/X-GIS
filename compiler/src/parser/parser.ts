@@ -32,6 +32,8 @@ export class Parser {
         return this.parseSourceStatement()
       case TokenType.Layer:
         return this.parseLayerStatement()
+      case TokenType.Preset:
+        return this.parsePresetStatement()
       default:
         return this.parseExprStatement()
     }
@@ -169,6 +171,26 @@ export class Parser {
     this.expect(TokenType.RBrace)
 
     return { kind: 'LayerStatement', name, properties, utilities, line }
+  }
+
+  // preset name { | utility-lines ... }
+  private parsePresetStatement(): AST.PresetStatement {
+    const line = this.current().line
+    this.expect(TokenType.Preset)
+    const name = this.expect(TokenType.Identifier).value
+    this.expect(TokenType.LBrace)
+
+    const utilities: AST.UtilityLine[] = []
+    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
+      if (this.check(TokenType.Pipe)) {
+        utilities.push(this.parseUtilityLine())
+      } else {
+        this.error(`Expected | in preset block, got ${TokenType[this.current().type]}`)
+      }
+    }
+    this.expect(TokenType.RBrace)
+
+    return { kind: 'PresetStatement', name, utilities, line }
   }
 
   // key: value (used in source and layer blocks)
@@ -316,7 +338,7 @@ export class Parser {
 
   // expr | transform | transform
   private parsePipe(): AST.Expr {
-    let left = this.parseComparison()
+    let left = this.parseLogicalOr()
 
     if (this.check(TokenType.Pipe)) {
       const transforms: AST.FnCall[] = []
@@ -335,6 +357,28 @@ export class Parser {
     return left
   }
 
+  // ||
+  private parseLogicalOr(): AST.Expr {
+    let left = this.parseLogicalAnd()
+    while (this.check(TokenType.PipePipe)) {
+      const op = this.advance().value
+      const right = this.parseLogicalAnd()
+      left = { kind: 'BinaryExpr', op, left, right }
+    }
+    return left
+  }
+
+  // &&
+  private parseLogicalAnd(): AST.Expr {
+    let left = this.parseComparison()
+    while (this.check(TokenType.AmpAmp)) {
+      const op = this.advance().value
+      const right = this.parseComparison()
+      left = { kind: 'BinaryExpr', op, left, right }
+    }
+    return left
+  }
+
   // ==, !=, <, >, <=, >=
   private parseComparison(): AST.Expr {
     let left = this.parseAdditive()
@@ -342,8 +386,7 @@ export class Parser {
     while (
       this.check(TokenType.EqEq) || this.check(TokenType.BangEq) ||
       this.check(TokenType.Lt) || this.check(TokenType.Gt) ||
-      this.check(TokenType.LtEq) || this.check(TokenType.GtEq) ||
-      this.check(TokenType.AmpAmp) || this.check(TokenType.PipePipe)
+      this.check(TokenType.LtEq) || this.check(TokenType.GtEq)
     ) {
       const op = this.advance().value
       const right = this.parseAdditive()

@@ -29,6 +29,7 @@ export interface RenderNode {
   fill: ColorValue
   stroke: StrokeValue
   opacity: OpacityValue
+  size: SizeValue
   projection: string
   visible: boolean
 }
@@ -42,10 +43,8 @@ export interface RenderNode {
 export type ColorValue =
   | { kind: 'constant'; rgba: [number, number, number, number] }
   | { kind: 'none' }
-  // Phase 1 extensions (not yet implemented):
-  // | { kind: 'data-driven'; expr: Expr }
-  // | { kind: 'conditional'; branches: { field: string; match: string; value: ColorValue }[]; fallback: ColorValue }
-  // | { kind: 'zoom-interpolated'; stops: { zoom: number; value: ColorValue }[] }
+  | { kind: 'data-driven'; expr: DataExpr }
+  | { kind: 'conditional'; branches: ConditionalBranch<ColorValue>[]; fallback: ColorValue }
 
 /**
  * Stroke combines color and width.
@@ -60,8 +59,41 @@ export interface StrokeValue {
  */
 export type OpacityValue =
   | { kind: 'constant'; value: number }
-  // Phase 1:
-  // | { kind: 'zoom-interpolated'; stops: { zoom: number; value: number }[] }
+  | { kind: 'data-driven'; expr: DataExpr }
+  | { kind: 'zoom-interpolated'; stops: ZoomStop<number>[] }
+
+/**
+ * Size value for points/symbols.
+ */
+export type SizeValue =
+  | { kind: 'constant'; value: number }
+  | { kind: 'none' }
+  | { kind: 'data-driven'; expr: DataExpr }
+  | { kind: 'zoom-interpolated'; stops: ZoomStop<number>[] }
+
+/**
+ * A zoom stop for interpolated values.
+ */
+export interface ZoomStop<T> {
+  zoom: number
+  value: T
+}
+
+/**
+ * A conditional branch: applies when a data field matches a value.
+ */
+export interface ConditionalBranch<T> {
+  field: string   // the property/modifier name (e.g., "friendly", "hostile")
+  value: T        // the value when condition matches
+}
+
+/**
+ * A reference to an AST expression for per-feature evaluation.
+ * Stored as the raw AST Expr node — evaluated at runtime per feature.
+ */
+export interface DataExpr {
+  ast: import('../parser/ast').Expr
+}
 
 // ═══ Helpers ═══
 
@@ -74,6 +106,14 @@ export function colorConstant(r: number, g: number, b: number, a: number = 1): C
 }
 
 export function opacityConstant(value: number): OpacityValue {
+  return { kind: 'constant', value }
+}
+
+export function sizeNone(): SizeValue {
+  return { kind: 'none' }
+}
+
+export function sizeConstant(value: number): SizeValue {
   return { kind: 'constant', value }
 }
 

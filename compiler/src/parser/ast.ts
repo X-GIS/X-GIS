@@ -12,6 +12,7 @@ export type Statement =
   | ExprStatement
   | SourceStatement
   | LayerStatement
+  | PresetStatement
 
 // let world = load("countries.geojson")
 export type LetStatement = {
@@ -183,6 +184,14 @@ export type BlockProperty = {
 export type UtilityLine = {
   kind: 'UtilityLine'
   items: UtilityItem[]
+  line: number
+}
+
+// preset military_track { | symbol-arrow stroke-black stroke-1 | ... }
+export type PresetStatement = {
+  kind: 'PresetStatement'
+  name: string
+  utilities: UtilityLine[]
   line: number
 }
 

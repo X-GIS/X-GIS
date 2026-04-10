@@ -25,6 +25,7 @@ export enum TokenType {
   Enum, // enum
   Source, // source
   Layer, // layer
+  Preset, // preset
 
   // Units
   Px, // px
@@ -96,6 +97,7 @@ const KEYWORDS: Record<string, TokenType> = {
   enum: TokenType.Enum,
   source: TokenType.Source,
   layer: TokenType.Layer,
+  preset: TokenType.Preset,
   true: TokenType.Bool,
   false: TokenType.Bool,
 }
