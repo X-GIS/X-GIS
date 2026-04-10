@@ -1,0 +1,17 @@
+{
+  "name": "@xgis/playground",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@xgis/compiler": "workspace:*",
+    "@xgis/runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^8.0.8"
+  }
+}

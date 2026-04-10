@@ -1,0 +1,20 @@
+{
+  "name": "xgis",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "workspaces": ["compiler", "runtime", "playground"],
+  "scripts": {
+    "build": "bun run --filter '*' build",
+    "test": "vitest run",
+    "dev": "bun run --filter playground dev"
+  },
+  "devDependencies": {
+    "@webgpu/types": "^0.1.54",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "earcut": "^3.0.2"
+  }
+}

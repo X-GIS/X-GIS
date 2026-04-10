@@ -1,0 +1,8 @@
+// X-GIS Hello Map — 첫 번째 프로그램
+
+let world = load("countries.geojson")
+
+show world {
+    fill: #f2efe9
+    stroke: #ccc, 1px
+}

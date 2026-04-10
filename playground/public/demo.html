@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>X-GIS — 3가지 사용 방법</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0f0f14; color: #e0e0e0; font-family: system-ui, sans-serif; padding: 24px; }
+    h1 { color: #4ade80; margin-bottom: 8px; }
+    h2 { color: #60a5fa; margin: 24px 0 8px; font-size: 18px; }
+    p { color: #888; margin-bottom: 12px; font-size: 14px; }
+    pre { background: #1a1a2e; padding: 12px 16px; border-radius: 8px; font-size: 13px;
+          color: #a5d6a7; margin-bottom: 12px; overflow-x: auto; }
+    xgis-map { border: 1px solid #333; border-radius: 8px; margin-bottom: 24px; }
+  </style>
+</head>
+<body>
+  <h1>X-GIS Language</h1>
+  <p>지도를 위한 프로그래밍 언어 — 3가지 사용 방법</p>
+
+  <!-- ═══ 방법 1: 인라인 코드 ═══ -->
+  <h2>1. 인라인 코드</h2>
+  <pre>&lt;xgis-map&gt;
+  let world = load("countries.geojson")
+  show world { fill: #3a6b4e, stroke: #2a4a3a, 1px }
+&lt;/xgis-map&gt;</pre>
+
+  <xgis-map style="height: 300px;">
+    let world = load("data/countries.geojson")
+    show world {
+      fill: #3a6b4e
+      stroke: #2a4a3a, 1px
+    }
+  </xgis-map>
+
+  <!-- ═══ 방법 2: src 파일 참조 ═══ -->
+  <h2>2. .xgis 파일 참조</h2>
+  <pre>&lt;xgis-map src="hello.xgis"&gt;&lt;/xgis-map&gt;</pre>
+
+  <xgis-map src="/examples/hello.xgis" style="height: 300px;"></xgis-map>
+
+  <!-- ═══ 방법 3: script 태그 ═══ -->
+  <h2>3. script 태그 참조</h2>
+  <pre>&lt;script type="text/xgis" id="ocean-map"&gt;
+  let world = load("data/countries.geojson")
+  show world { fill: #2c5f7c, stroke: #1a3d52, 1px }
+&lt;/script&gt;
+&lt;xgis-map script="ocean-map"&gt;&lt;/xgis-map&gt;</pre>
+
+  <script type="text/xgis" id="ocean-map">
+    let world = load("data/countries.geojson")
+    show world {
+      fill: #2c5f7c
+      stroke: #1a3d52, 1px
+    }
+  </script>
+  <xgis-map script="ocean-map" style="height: 300px;"></xgis-map>
+
+  <!-- ═══ 방법 4: 컴파일된 .xgb 바이너리 ═══ -->
+  <h2>4. 컴파일된 바이너리 (.xgb)</h2>
+  <pre>$ xgisc compile hello.xgis -o hello.xgb   (126B → 62B, 51% smaller)
+&lt;xgis-map src="hello.xgb"&gt;&lt;/xgis-map&gt;</pre>
+
+  <xgis-map src="/examples/hello.xgb" style="height: 300px;"></xgis-map>
+
+  <!-- ═══ 5. 프로젝션 — 클라이언트 API로 전환 ═══ -->
+  <h2>5. Projections (클라이언트 API)</h2>
+  <p>같은 X-GIS 코드, 다른 프로젝션 — JS에서 런타임 전환</p>
+  <pre>const map = new XGISMap(canvas)
+await map.run(xgisCode)
+map.setProjection('equirectangular')  // 런타임 전환!</pre>
+
+  <div style="margin-bottom: 12px;">
+    <button onclick="setProj('mercator')" style="padding: 6px 16px; margin: 0 4px; background: #4ade80; color: #000; border: none; border-radius: 4px; cursor: pointer;">Mercator</button>
+    <button onclick="setProj('equirectangular')" style="padding: 6px 16px; margin: 0 4px; background: #60a5fa; color: #000; border: none; border-radius: 4px; cursor: pointer;">Equirectangular</button>
+    <button onclick="setProj('natural_earth')" style="padding: 6px 16px; margin: 0 4px; background: #f59e0b; color: #000; border: none; border-radius: 4px; cursor: pointer;">Natural Earth</button>
+    <button onclick="setProj('orthographic')" style="padding: 6px 16px; margin: 0 4px; background: #ec4899; color: #000; border: none; border-radius: 4px; cursor: pointer;">Orthographic</button>
+    <button onclick="setProj('azimuthal_equidistant')" style="padding: 6px 16px; margin: 0 4px; background: #8b5cf6; color: #fff; border: none; border-radius: 4px; cursor: pointer;">Azimuthal EqDist</button>
+    <button onclick="setProj('stereographic')" style="padding: 6px 16px; margin: 0 4px; background: #06b6d4; color: #000; border: none; border-radius: 4px; cursor: pointer;">Stereographic</button>
+    <button onclick="setProj('oblique_mercator')" style="padding: 6px 16px; margin: 0 4px; background: #f97316; color: #000; border: none; border-radius: 4px; cursor: pointer;">Oblique Mercator</button>
+  </div>
+  <p style="color: #666; font-size: 12px; margin-bottom: 8px;">프로젝션은 항상 화면 중심 기준. 패닝하면 프로젝션 중심이 따라감.</p>
+
+  <canvas id="proj-map" style="width: 100%; height: 400px; border: 1px solid #333; border-radius: 8px;"></canvas>
+
+  <script type="module">
+    import { registerXGISElement, XGISMap } from '/src/web-entry.ts'
+    registerXGISElement()
+
+    const canvas = document.getElementById('proj-map')
+    const map = new XGISMap(canvas)
+    await map.run(`
+      let world = load("/data/countries.geojson")
+      show world {
+        fill: #3a6b4e
+        stroke: #2a4a3a, 1px
+      }
+    `)
+
+    window.setProj = (name) => {
+      map.setProjection(name)
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+// X-GIS Hello Map
+
+let world = load("/data/countries.geojson")
+
+show world {
+    fill: #f2efe9
+    stroke: #ccc, 1px
+}

@@ -1,0 +1,159 @@
+import { describe, expect, it } from 'vitest'
+import { Lexer } from '../lexer/lexer'
+import { Parser } from '../parser/parser'
+import type * as AST from '../parser/ast'
+
+function parse(source: string): AST.Program {
+  const tokens = new Lexer(source).tokenize()
+  return new Parser(tokens).parse()
+}
+
+describe('Parser', () => {
+  describe('let statement', () => {
+    it('parses simple let with function call', () => {
+      const ast = parse('let world = load("countries.geojson")')
+      expect(ast.body).toHaveLength(1)
+
+      const stmt = ast.body[0] as AST.LetStatement
+      expect(stmt.kind).toBe('LetStatement')
+      expect(stmt.name).toBe('world')
+
+      const call = stmt.value as AST.FnCall
+      expect(call.kind).toBe('FnCall')
+      expect((call.callee as AST.Identifier).name).toBe('load')
+      expect(call.args).toHaveLength(1)
+      expect((call.args[0] as AST.StringLiteral).value).toBe('countries.geojson')
+    })
+
+    it('parses let with arithmetic', () => {
+      const ast = parse('let x = a + b * 2')
+      const stmt = ast.body[0] as AST.LetStatement
+      const expr = stmt.value as AST.BinaryExpr
+      expect(expr.op).toBe('+')
+      // b * 2 should be grouped first (higher precedence)
+      expect((expr.right as AST.BinaryExpr).op).toBe('*')
+    })
+  })
+
+  describe('show statement', () => {
+    it('parses show with block', () => {
+      const ast = parse(`
+        show world {
+          fill: #f2efe9
+          stroke: #ccc, 1px
+        }
+      `)
+      expect(ast.body).toHaveLength(1)
+
+      const stmt = ast.body[0] as AST.ShowStatement
+      expect(stmt.kind).toBe('ShowStatement')
+      expect((stmt.target as AST.Identifier).name).toBe('world')
+      expect(stmt.block.properties).toHaveLength(2)
+
+      // fill: #f2efe9
+      const fill = stmt.block.properties[0]
+      expect(fill.name).toBe('fill')
+      expect(fill.values).toHaveLength(1)
+      expect((fill.values[0] as AST.ColorLiteral).value).toBe('#f2efe9')
+
+      // stroke: #ccc, 1px
+      const stroke = stmt.block.properties[1]
+      expect(stroke.name).toBe('stroke')
+      expect(stroke.values).toHaveLength(2)
+      expect((stroke.values[0] as AST.ColorLiteral).value).toBe('#ccc')
+      expect((stroke.values[1] as AST.NumberLiteral).value).toBe(1)
+      expect((stroke.values[1] as AST.NumberLiteral).unit).toBe('px')
+    })
+  })
+
+  describe('hello map program', () => {
+    it('parses the first X-GIS program', () => {
+      const ast = parse(`
+        let world = load("countries.geojson")
+
+        show world {
+          fill: #f2efe9
+          stroke: #ccc, 1px
+        }
+      `)
+
+      expect(ast.body).toHaveLength(2)
+      expect(ast.body[0].kind).toBe('LetStatement')
+      expect(ast.body[1].kind).toBe('ShowStatement')
+    })
+  })
+
+  describe('expressions', () => {
+    it('parses field access (.field)', () => {
+      const ast = parse('let x = .speed')
+      const stmt = ast.body[0] as AST.LetStatement
+      const field = stmt.value as AST.FieldAccess
+      expect(field.kind).toBe('FieldAccess')
+      expect(field.object).toBeNull() // implicit
+      expect(field.field).toBe('speed')
+    })
+
+    it('parses chained field access (a.b.c)', () => {
+      const ast = parse('let x = ship.position.lat')
+      const stmt = ast.body[0] as AST.LetStatement
+      const outer = stmt.value as AST.FieldAccess
+      expect(outer.field).toBe('lat')
+      const inner = outer.object as AST.FieldAccess
+      expect(inner.field).toBe('position')
+      expect((inner.object as AST.Identifier).name).toBe('ship')
+    })
+
+    it('parses pipe expressions', () => {
+      const ast = parse('let x = .speed | clamp(4, 24)')
+      const stmt = ast.body[0] as AST.LetStatement
+      const pipe = stmt.value as AST.PipeExpr
+      expect(pipe.kind).toBe('PipeExpr')
+
+      const input = pipe.input as AST.FieldAccess
+      expect(input.field).toBe('speed')
+
+      expect(pipe.transforms).toHaveLength(1)
+      expect((pipe.transforms[0].callee as AST.Identifier).name).toBe('clamp')
+      expect(pipe.transforms[0].args).toHaveLength(2)
+    })
+
+    it('parses number with unit', () => {
+      const ast = parse('let r = 5km')
+      const stmt = ast.body[0] as AST.LetStatement
+      const num = stmt.value as AST.NumberLiteral
+      expect(num.value).toBe(5)
+      expect(num.unit).toBe('km')
+    })
+
+    it('parses comparison expressions', () => {
+      const ast = parse('let x = zoom >= 10')
+      const stmt = ast.body[0] as AST.LetStatement
+      const cmp = stmt.value as AST.BinaryExpr
+      expect(cmp.op).toBe('>=')
+    })
+  })
+
+  describe('show with data binding', () => {
+    it('parses show with field access and expressions', () => {
+      const ast = parse(`
+        show ais {
+          shape: arrow
+          color: .type
+          size: .speed / 50 | clamp(4, 24)
+          rotate: .heading
+        }
+      `)
+
+      const stmt = ast.body[0] as AST.ShowStatement
+      expect(stmt.block.properties).toHaveLength(4)
+
+      // shape: arrow
+      expect(stmt.block.properties[0].name).toBe('shape')
+      expect((stmt.block.properties[0].values[0] as AST.Identifier).name).toBe('arrow')
+
+      // size: .speed / 50 | clamp(4, 24) — pipe expression
+      const sizeExpr = stmt.block.properties[2].values[0]
+      expect(sizeExpr.kind).toBe('PipeExpr')
+    })
+  })
+})

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>X-GIS Playground</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0f; color: #e0e0e0; font-family: system-ui, sans-serif; overflow: hidden; }
+    #map { width: 100vw; height: 100vh; display: block; }
+    #status {
+      position: fixed; top: 12px; left: 12px;
+      background: rgba(0,0,0,0.7); padding: 8px 16px;
+      border-radius: 6px; font-size: 13px; color: #aaa;
+      pointer-events: none; z-index: 10;
+    }
+    #error {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: #1a1a2e; padding: 32px; border-radius: 12px;
+      border: 1px solid #e74c3c; max-width: 500px; display: none;
+    }
+    #error h2 { color: #e74c3c; margin-bottom: 12px; }
+    #error pre { color: #ccc; font-size: 13px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <canvas id="map"></canvas>
+  <div id="status">X-GIS loading...</div>
+  <div id="error"><h2>Error</h2><pre id="error-msg"></pre></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
