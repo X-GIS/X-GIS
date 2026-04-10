@@ -12,7 +12,11 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     throw new Error('WebGPU is not supported in this browser')
   }
 
-  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })
+  // Try high-performance first, fall back to any available adapter
+  let adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })
+  if (!adapter) {
+    adapter = await navigator.gpu.requestAdapter()
+  }
   if (!adapter) throw new Error('Failed to get GPU adapter')
 
   const device = await adapter.requestDevice()
