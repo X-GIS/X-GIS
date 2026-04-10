@@ -251,12 +251,15 @@ export class VectorTileRenderer {
     if (entries.length === 0) return
 
     if (this.fileBuf) {
-      // Synchronous: decode from buffer
+      // Full file in memory — decompress each tile async
       for (const { key, entry } of entries) {
         this.loadingTiles.add(key)
-        const tile = parseGPUReadyTile(this.fileBuf!, entry)
-        this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
-        this.loadingTiles.delete(key)
+        const slice = this.fileBuf!.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
+        decompressTileData(slice).then(decompressed => {
+          const tile = parseGPUReadyTile(decompressed, { ...entry, dataOffset: 0, compactSize: decompressed.byteLength })
+          this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+          this.loadingTiles.delete(key)
+        }).catch(() => { this.loadingTiles.delete(key) })
       }
       return
     }
