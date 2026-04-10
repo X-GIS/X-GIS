@@ -389,13 +389,9 @@ export function compileGeoJSONToTiles(
     console.log(`  z${z}: ${tiles.size} tiles (${zElapsed}ms)`)
   }
 
-  // Stage 1: Deduplicate overviews — remove child tiles that add no detail over parent
-  const beforeDedup = levels.reduce((s, l) => s + l.tiles.size, 0)
-  deduplicateOverviews(levels)
-  const afterDedup = levels.reduce((s, l) => s + l.tiles.size, 0)
-  if (beforeDedup !== afterDedup) {
-    console.log(`  Dedup: ${beforeDedup} → ${afterDedup} tiles (${((1 - afterDedup / beforeDedup) * 100).toFixed(0)}% removed)`)
-  }
+  // Note: Overview dedup disabled — removing tiles creates gaps that require
+  // parent fallback, which conflicts with alpha blending. All tiles are kept.
+  // File size is managed by zoom-adaptive precision and simplification instead.
 
   return {
     levels,

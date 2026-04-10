@@ -139,10 +139,10 @@ export class VectorTileRenderer {
     // Collect missing tiles for batch loading
     const missing: number[] = []
 
-    // Render cached tiles + collect misses
+    // Render cached tiles + collect misses (exact-zoom only, no parent fallback)
     for (const coord of tiles) {
-      const key = tileKey(coord.z, coord.x, coord.y)
-      const cached = this.tileCache.get(key)
+      const renderKey = tileKey(coord.z, coord.x, coord.y)
+      const cached = this.tileCache.get(renderKey)
 
       if (cached) {
         cached.lastUsedFrame = this.frameCount
@@ -163,13 +163,15 @@ export class VectorTileRenderer {
           pass.drawIndexed(cached.lineIndexCount)
         }
       } else {
-        missing.push(key)
+        missing.push(renderKey)
       }
     }
 
     // Batch load missing tiles (merges adjacent tile data into fewer Range Requests)
     if (missing.length > 0) {
-      this.batchLoadTiles(missing)
+      // Deduplicate missing keys (multiple children may resolve to same parent)
+      const uniqueMissing = [...new Set(missing)]
+      this.batchLoadTiles(uniqueMissing)
     }
 
     // Prefetch: load 1 tile beyond visible bounds
