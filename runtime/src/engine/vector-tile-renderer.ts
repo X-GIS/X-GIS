@@ -136,7 +136,10 @@ export class VectorTileRenderer {
       entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
     })
 
-    // Render exact-zoom tiles only (no parent fallback — prevents alpha overlap)
+    // Collect missing tiles for batch loading
+    const missing: number[] = []
+
+    // Render cached tiles + collect misses
     for (const coord of tiles) {
       const key = tileKey(coord.z, coord.x, coord.y)
       const cached = this.tileCache.get(key)
@@ -160,12 +163,136 @@ export class VectorTileRenderer {
           pass.drawIndexed(cached.lineIndexCount)
         }
       } else {
-        this.ensureTileLoaded(key)
+        missing.push(key)
       }
     }
 
+    // Batch load missing tiles (merges adjacent tile data into fewer Range Requests)
+    if (missing.length > 0) {
+      this.batchLoadTiles(missing)
+    }
+
+    // Prefetch: load 1 tile beyond visible bounds
+    this.prefetchAdjacent(tiles, currentZ)
+
     // LRU eviction
     this.evictTiles()
+  }
+
+  /**
+   * Batch load multiple tiles, merging adjacent byte ranges into fewer requests.
+   */
+  private batchLoadTiles(keys: number[]): void {
+    if (!this.index) return
+
+    // Resolve entries and filter already loading/cached
+    const entries: { key: number; entry: TileIndexEntry }[] = []
+    for (const key of keys) {
+      if (this.tileCache.has(key) || this.loadingTiles.has(key)) continue
+      if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
+      const entry = this.index.entryByHash.get(key)
+      if (!entry) continue
+      entries.push({ key, entry })
+    }
+
+    if (entries.length === 0) return
+
+    if (this.fileBuf) {
+      // Synchronous: decode from buffer
+      for (const { key, entry } of entries) {
+        this.loadingTiles.add(key)
+        const tile = parseGPUReadyTile(this.fileBuf!, entry)
+        this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+        this.loadingTiles.delete(key)
+      }
+      return
+    }
+
+    if (!this.fileUrl) return
+
+    // Sort by file offset for merging
+    entries.sort((a, b) => a.entry.dataOffset - b.entry.dataOffset)
+
+    // Group consecutive entries into batches (merge if gap < 1KB)
+    const MAX_GAP = 1024
+    const batches: { entries: typeof entries; startOffset: number; endOffset: number }[] = []
+    let current = {
+      entries: [entries[0]],
+      startOffset: entries[0].entry.dataOffset,
+      endOffset: entries[0].entry.dataOffset + entries[0].entry.compactSize,
+    }
+
+    for (let i = 1; i < entries.length; i++) {
+      const e = entries[i]
+      const eEnd = e.entry.dataOffset + e.entry.compactSize
+      if (e.entry.dataOffset - current.endOffset <= MAX_GAP) {
+        // Merge into current batch
+        current.entries.push(e)
+        current.endOffset = Math.max(current.endOffset, eEnd)
+      } else {
+        batches.push(current)
+        current = { entries: [e], startOffset: e.entry.dataOffset, endOffset: eEnd }
+      }
+    }
+    batches.push(current)
+
+    // Fetch each batch as a single Range Request
+    for (const batch of batches) {
+      for (const { key } of batch.entries) {
+        this.loadingTiles.add(key)
+      }
+
+      const size = batch.endOffset - batch.startOffset
+      if (size <= 0) continue
+
+      fetchRange(this.fileUrl, batch.startOffset, size).then(buf => {
+        for (const { key, entry } of batch.entries) {
+          const localOffset = entry.dataOffset - batch.startOffset
+          const localSize = entry.compactSize
+          const tileBuf = buf.slice(localOffset, localOffset + localSize)
+          const tile = parseGPUReadyTile(tileBuf, { ...entry, dataOffset: 0 })
+          this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+          this.loadingTiles.delete(key)
+        }
+      }).catch(() => {
+        for (const { key } of batch.entries) {
+          this.loadingTiles.delete(key)
+        }
+      })
+    }
+  }
+
+  /**
+   * Prefetch tiles 1 step beyond visible bounds for smoother panning.
+   */
+  private prefetchAdjacent(visibleTiles: { z: number; x: number; y: number }[], zoom: number): void {
+    if (!this.index || visibleTiles.length === 0) return
+
+    // Find visible bounds in tile coordinates
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    for (const t of visibleTiles) {
+      if (t.x < minX) minX = t.x; if (t.x > maxX) maxX = t.x
+      if (t.y < minY) minY = t.y; if (t.y > maxY) maxY = t.y
+    }
+
+    // Expand by 1 tile in each direction
+    const n = Math.pow(2, zoom)
+    const prefetchKeys: number[] = []
+
+    for (let x = Math.max(0, minX - 1); x <= Math.min(n - 1, maxX + 1); x++) {
+      for (let y = Math.max(0, minY - 1); y <= Math.min(n - 1, maxY + 1); y++) {
+        // Only prefetch border tiles (not already visible)
+        if (x >= minX && x <= maxX && y >= minY && y <= maxY) continue
+        const key = tileKey(zoom, x, y)
+        if (!this.tileCache.has(key) && !this.loadingTiles.has(key) && this.index.entryByHash.has(key)) {
+          prefetchKeys.push(key)
+        }
+      }
+    }
+
+    if (prefetchKeys.length > 0 && this.loadingTiles.size < MAX_CONCURRENT_LOADS) {
+      this.batchLoadTiles(prefetchKeys.slice(0, MAX_CONCURRENT_LOADS - this.loadingTiles.size))
+    }
   }
 
   private ensureTileLoaded(key: number): void {
