@@ -29,7 +29,27 @@ export class PanZoomController implements Controller {
     const activePointers = new Map<number, { x: number; y: number }>()
     let lastPinchDist = 0
 
+    // Double-tap zoom
+    let lastTapTime = 0
+    let lastTapX = 0
+    let lastTapY = 0
+
     const onPointerDown = (e: PointerEvent) => {
+      // Double-tap detection (single finger only)
+      if (activePointers.size === 0) {
+        const now = performance.now()
+        const dt = now - lastTapTime
+        const dist = Math.hypot(e.clientX - lastTapX, e.clientY - lastTapY)
+        if (dt < 300 && dist < 30) {
+          // Double tap → zoom in
+          camera.zoomAt(1, e.clientX, e.clientY, canvas.width, canvas.height)
+          lastTapTime = 0
+          return
+        }
+        lastTapTime = now
+        lastTapX = e.clientX
+        lastTapY = e.clientY
+      }
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
       canvas.setPointerCapture(e.pointerId)
 

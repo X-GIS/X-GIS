@@ -55,12 +55,14 @@ export class Camera {
 
   /** Pan by CSS pixels (clientX/clientY delta) */
   pan(dx: number, dy: number, canvasWidth: number, canvasHeight: number): void {
-    // Convert canvas physical pixels to CSS pixels for consistent DPR handling
-    const cssWidth = canvasWidth / (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
-    const cssHeight = canvasHeight / (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
-    const metersPerPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
-    this.centerX -= dx * metersPerPixel
-    this.centerY += dy * metersPerPixel
+    // dx/dy are in CSS pixels, canvasWidth/Height are in physical pixels.
+    // The RTC matrix maps physical pixels, so we need meters per physical pixel,
+    // then multiply by DPR to get meters per CSS pixel.
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    const metersPerPhysicalPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
+    const metersPerCSSPixel = metersPerPhysicalPixel * dpr
+    this.centerX -= dx * metersPerCSSPixel
+    this.centerY += dy * metersPerCSSPixel
   }
 
   /** Zoom by delta at CSS screen position (clientX/clientY) */
