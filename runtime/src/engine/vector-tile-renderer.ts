@@ -109,9 +109,13 @@ export class VectorTileRenderer {
     const R = 6378137
     const centerLon = (centerX / R) * (180 / Math.PI)
     const centerLat = (2 * Math.atan(Math.exp(centerY / R)) - Math.PI / 2) * (180 / Math.PI)
-    // Overzoom: clamp to max available level in the .xgvt file
+
+    // Limit overzoom to maxLevel + 6 (f32 precision safe up to ~z14 beyond data)
     const maxLevel = this.index.header.maxLevel
-    const currentZ = Math.max(0, Math.min(maxLevel, Math.round(zoom)))
+    const maxAllowedZoom = maxLevel + 6
+    if (camera.zoom > maxAllowedZoom) camera.zoom = maxAllowedZoom
+
+    const currentZ = Math.max(0, Math.min(maxLevel, Math.round(camera.zoom)))
 
     // Zoom transition: cancel old requests when zoom changes
     if (currentZ !== this.lastZoom) {
