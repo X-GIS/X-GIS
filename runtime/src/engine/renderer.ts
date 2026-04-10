@@ -308,6 +308,22 @@ interface RenderLayer {
   lineVertexBuffer: GPUBuffer | null
   lineIndexBuffer: GPUBuffer | null
   lineIndexCount: number
+  zoomOpacityStops: { zoom: number; value: number }[] | null
+  zoomSizeStops: { zoom: number; value: number }[] | null
+}
+
+/** Linearly interpolate between sorted zoom stops */
+function interpolateZoom(stops: { zoom: number; value: number }[], zoom: number): number {
+  if (stops.length === 0) return 1.0
+  if (zoom <= stops[0].zoom) return stops[0].value
+  if (zoom >= stops[stops.length - 1].zoom) return stops[stops.length - 1].value
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (zoom >= stops[i].zoom && zoom <= stops[i + 1].zoom) {
+      const t = (zoom - stops[i].zoom) / (stops[i + 1].zoom - stops[i].zoom)
+      return stops[i].value + t * (stops[i + 1].value - stops[i].value)
+    }
+  }
+  return stops[stops.length - 1].value
 }
 
 // ═══ MapRenderer ═══
@@ -412,6 +428,8 @@ export class MapRenderer {
       lineVertexBuffer: null,
       lineIndexBuffer: null,
       lineIndexCount: 0,
+      zoomOpacityStops: show.zoomOpacityStops ?? null,
+      zoomSizeStops: show.zoomSizeStops ?? null,
     }
 
     // Upload polygon mesh
@@ -497,7 +515,10 @@ export class MapRenderer {
       // Read from dynamic properties (supports runtime override)
       if (!layer.props.getBool('visible')) continue
 
-      const opacity = layer.props.getNumber('opacity', 1.0)
+      // Zoom-interpolated values override defaults
+      const opacity = layer.zoomOpacityStops
+        ? interpolateZoom(layer.zoomOpacityStops, camera.zoom)
+        : layer.props.getNumber('opacity', 1.0)
       const fillRaw = layer.props.getColor('fill')
       const strokeRaw = layer.props.getColor('stroke')
       const fillColor = fillRaw ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity] : [0, 0, 0, 0]
