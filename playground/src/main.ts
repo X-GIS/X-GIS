@@ -140,8 +140,8 @@ layer border_layer {
 let world = load("countries.xgvt")
 
 show world {
-  fill: #2d6a4f80
-  stroke: #95d5b2, 1px
+  fill: #2d6a4f
+  stroke: #1b4332, 1px
 }
 `,
   },
