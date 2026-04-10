@@ -248,31 +248,70 @@ export function parseXGVTIndex(buf: ArrayBuffer): XGVTIndex {
   }
 }
 
-/** Extract GPU-ready tile data from a tile's data section */
+/** Extract tile data — uses GPU-ready layer if available, otherwise decodes compact layer */
 export function parseGPUReadyTile(
   buf: ArrayBuffer,
   entry: TileIndexEntry,
 ): CompiledTile {
-  // Skip compact layer, read GPU-ready layer directly
-  const gpuStart = entry.dataOffset + entry.compactSize
-  const gpuBuf = buf.slice(gpuStart, gpuStart + entry.gpuReadySize)
-
-  let offset = 0
-  const vertBytes = entry.vertexCount * 3 * 4 // stride 3, f32
-  const idxBytes = entry.indexCount * 4 // u32
-  const lineVertBytes = entry.lineVertexCount * 3 * 4
-  const lineIdxBytes = entry.lineIndexCount * 4
-
-  const vertices = new Float32Array(gpuBuf, offset, entry.vertexCount * 3); offset += vertBytes
-  const indices = new Uint32Array(gpuBuf, offset, entry.indexCount); offset += idxBytes
-  const lineVertices = new Float32Array(gpuBuf, offset, entry.lineVertexCount * 3); offset += lineVertBytes
-  const lineIndices = new Uint32Array(gpuBuf, offset, entry.lineIndexCount)
-
   const [z, x, y] = tileKeyUnpack(entry.tileHash)
 
-  return {
-    z, x, y,
-    vertices, indices, lineVertices, lineIndices,
-    featureCount: 0, // not tracked in binary format currently
+  // If GPU-ready layer exists, use it directly (zero-copy)
+  if (entry.gpuReadySize > 0) {
+    const gpuStart = entry.dataOffset + entry.compactSize
+    const gpuBuf = buf.slice(gpuStart, gpuStart + entry.gpuReadySize)
+
+    let offset = 0
+    const vertBytes = entry.vertexCount * 3 * 4
+    const idxBytes = entry.indexCount * 4
+    const lineVertBytes = entry.lineVertexCount * 3 * 4
+
+    const vertices = new Float32Array(gpuBuf, offset, entry.vertexCount * 3); offset += vertBytes
+    const indices = new Uint32Array(gpuBuf, offset, entry.indexCount); offset += idxBytes
+    const lineVertices = new Float32Array(gpuBuf, offset, entry.lineVertexCount * 3); offset += lineVertBytes
+    const lineIndices = new Uint32Array(gpuBuf, offset, entry.lineIndexCount)
+
+    return { z, x, y, vertices, indices, lineVertices, lineIndices, featureCount: 0 }
   }
+
+  // Decode compact layer (ZigZag delta → Float32/Uint32)
+  const dataBuf = new Uint8Array(buf, entry.dataOffset, entry.compactSize)
+  let pos = 0
+
+  function readSection(): Uint8Array {
+    const len = new DataView(dataBuf.buffer, dataBuf.byteOffset + pos, 4).getUint32(0, true)
+    pos += 4
+    const section = dataBuf.slice(pos, pos + len)
+    pos += len
+    return section
+  }
+
+  const coordsBuf = readSection()
+  const indicesBuf = readSection()
+  const lineCoordsBuf = readSection()
+  const lineIndicesBuf = readSection()
+
+  // Decode coordinates (lon/lat pairs) → stride-3 vertices (lon, lat, feat_id=0)
+  const coords = decodeCoords(coordsBuf)
+  const vertices = new Float32Array(coords.length / 2 * 3)
+  for (let i = 0; i < coords.length; i += 2) {
+    const vi = (i / 2) * 3
+    vertices[vi] = coords[i]       // lon
+    vertices[vi + 1] = coords[i + 1] // lat
+    vertices[vi + 2] = 0           // feat_id (not preserved in compact)
+  }
+
+  const indices = decodeIndices(indicesBuf)
+
+  const lineCoords = decodeCoords(lineCoordsBuf)
+  const lineVertices = new Float32Array(lineCoords.length / 2 * 3)
+  for (let i = 0; i < lineCoords.length; i += 2) {
+    const vi = (i / 2) * 3
+    lineVertices[vi] = lineCoords[i]
+    lineVertices[vi + 1] = lineCoords[i + 1]
+    lineVertices[vi + 2] = 0
+  }
+
+  const lineIndices = decodeIndices(lineIndicesBuf)
+
+  return { z, x, y, vertices, indices, lineVertices, lineIndices, featureCount: 0 }
 }
