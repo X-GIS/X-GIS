@@ -130,11 +130,12 @@ export class VectorTileRenderer {
     const fillColor = fillRaw ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity] : [0, 0, 0, 0]
     const strokeColor = strokeRaw ? [strokeRaw[0], strokeRaw[1], strokeRaw[2], strokeRaw[3] * opacity] : [0, 0, 0, 0]
 
-    const uniformData = new ArrayBuffer(128)
+    const uniformData = new ArrayBuffer(144)
     new Float32Array(uniformData, 0, 16).set(mvp)
     new Float32Array(uniformData, 64, 4).set(fillColor)
     new Float32Array(uniformData, 80, 4).set(strokeColor)
     new Float32Array(uniformData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
+    // tile_origin is set per-tile in renderTileKeys
     this.device.queue.writeBuffer(uniformBuffer, 0, uniformData)
 
     const bindGroup = this.device.createBindGroup({
@@ -150,17 +151,17 @@ export class VectorTileRenderer {
     // Decide what to render
     if (allCached || this.stableZoom < 0) {
       // All tiles ready (or first load): render current zoom
-      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, bindGroup)
+      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, bindGroup, uniformBuffer, uniformData)
       this.stableZoom = currentZ
       this.stableKeys = neededKeys
     } else if (currentZ !== this.stableZoom && cachedCount < neededKeys.length) {
       // Zoom transitioning: render STABLE zoom tiles while loading new zoom
-      this.renderTileKeys(this.stableKeys, pass, fillPipeline, linePipeline, bindGroup)
+      this.renderTileKeys(this.stableKeys, pass, fillPipeline, linePipeline, bindGroup, uniformBuffer, uniformData)
 
       // Also render any new-zoom tiles that are already loaded (progressive reveal)
       const newReady = neededKeys.filter(k => this.tileCache.has(k))
       if (newReady.length > 0) {
-        this.renderTileKeys(newReady, pass, fillPipeline, linePipeline, bindGroup)
+        this.renderTileKeys(newReady, pass, fillPipeline, linePipeline, bindGroup, uniformBuffer, uniformData)
       }
 
       // When all new tiles loaded, swap to new zoom
@@ -170,7 +171,7 @@ export class VectorTileRenderer {
       }
     } else {
       // Same zoom, some tiles missing (panning): render what we have
-      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, bindGroup)
+      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, bindGroup, uniformBuffer, uniformData)
       this.stableKeys = neededKeys
     }
 
@@ -194,12 +195,22 @@ export class VectorTileRenderer {
     fillPipeline: GPURenderPipeline,
     linePipeline: GPURenderPipeline,
     bindGroup: GPUBindGroup,
+    uniformBuffer: GPUBuffer,
+    uniformData: ArrayBuffer,
   ): void {
     for (const key of keys) {
       const cached = this.tileCache.get(key)
       if (!cached) continue
 
       cached.lastUsedFrame = this.frameCount
+
+      // Write tile origin to uniform (f64 precision computed here, sent as f32)
+      const [z, x, y] = tileKeyUnpack(key)
+      const n = Math.pow(2, z)
+      const tileWest = x / n * 360 - 180
+      const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * 180 / Math.PI
+      new Float32Array(uniformData, 112, 4).set([tileWest, tileSouth, 0, 0])
+      this.device.queue.writeBuffer(uniformBuffer, 0, uniformData)
 
       if (cached.indexCount > 0) {
         pass.setPipeline(fillPipeline)

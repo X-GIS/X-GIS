@@ -36,7 +36,9 @@ export interface CompiledTile {
   z: number
   x: number
   y: number
-  vertices: Float32Array
+  tileWest: number   // tile origin longitude (f64 precision in JS)
+  tileSouth: number  // tile origin latitude (f64 precision in JS)
+  vertices: Float32Array   // tile-local coordinates: [dx, dy, feat_id] where dx=lon-tileWest
   indices: Uint32Array
   lineVertices: Float32Array
   lineIndices: Uint32Array
@@ -371,8 +373,21 @@ export function compileGeoJSONToTiles(
       // Minimum size filter: skip tiles with < 1 triangle (9 floats = 3 vertices × stride 3)
       if ((scratch.pv.length >= 9 || scratch.lv.length >= 6) &&
           (scratch.pv.length > 0 || scratch.lv.length > 0)) {
+
+        // Convert to tile-local coordinates: subtract tile origin for f32 precision
+        for (let i = 0; i < scratch.pv.length; i += 3) {
+          scratch.pv[i] -= tb.west
+          scratch.pv[i + 1] -= tb.south
+        }
+        for (let i = 0; i < scratch.lv.length; i += 3) {
+          scratch.lv[i] -= tb.west
+          scratch.lv[i + 1] -= tb.south
+        }
+
         tiles.set(key, {
           z, x: tx, y: ty,
+          tileWest: tb.west,
+          tileSouth: tb.south,
           vertices: new Float32Array(scratch.pv),
           indices: new Uint32Array(scratch.pi),
           lineVertices: new Float32Array(scratch.lv),

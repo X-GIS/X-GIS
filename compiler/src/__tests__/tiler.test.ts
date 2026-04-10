@@ -385,12 +385,12 @@ describe('.xgvt Binary Format', () => {
     expect(tile.vertices.length).toBe(entry.vertexCount * 3)
     expect(tile.indices.length).toBe(entry.indexCount)
 
-    // Vertices should contain reasonable lon/lat values
+    // Vertices are tile-local coordinates (dx, dy relative to tile origin)
+    // At zoom 0-2 with test data [0-30°], values should be small relative offsets
     for (let i = 0; i < tile.vertices.length; i += 3) {
-      expect(tile.vertices[i]).toBeGreaterThanOrEqual(-180)
-      expect(tile.vertices[i]).toBeLessThanOrEqual(360) // anti-meridian shift
-      expect(tile.vertices[i + 1]).toBeGreaterThanOrEqual(-90)
-      expect(tile.vertices[i + 1]).toBeLessThanOrEqual(90)
+      // Tile-local dx/dy should be within tile width (~180° at z0, ~90° at z1)
+      expect(Math.abs(tile.vertices[i])).toBeLessThan(360)
+      expect(Math.abs(tile.vertices[i + 1])).toBeLessThan(180)
     }
   })
 

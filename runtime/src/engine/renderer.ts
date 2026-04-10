@@ -20,6 +20,8 @@ struct Uniforms {
   stroke_color: vec4<f32>,
   // projection params: x=type(0=merc,1=equi,2=natearth,3=ortho), y=centerLon, z=centerLat, w=unused
   proj_params: vec4<f32>,
+  // tile origin: x=west(lon), y=south(lat) — vertex coords are tile-local, add origin to get global
+  tile_origin: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -174,17 +176,21 @@ struct VertexOutput {
 }
 
 @vertex
-fn vs_main(@location(0) lonlat: vec2<f32>, @location(1) feature_id: u32) -> VertexOutput {
+fn vs_main(@location(0) local_pos: vec2<f32>, @location(1) feature_id: u32) -> VertexOutput {
+  // Tile-local → global: add tile origin (preserves f64 precision via small f32 + f32 origin)
+  let lon = local_pos.x + u.tile_origin.x;
+  let lat = local_pos.y + u.tile_origin.y;
+
   let center_lon = u.proj_params.y;
   let center_lat = u.proj_params.z;
 
-  let vertex_projected = project(lonlat.x, lonlat.y);
+  let vertex_projected = project(lon, lat);
   let center_projected = project(center_lon, center_lat);
   let rtc = vertex_projected - center_projected;
 
   var out: VertexOutput;
   out.position = u.mvp * vec4<f32>(rtc, 0.0, 1.0);
-  out.cos_c = needs_backface_cull(lonlat.x, lonlat.y);
+  out.cos_c = needs_backface_cull(lon, lat);
   out.feat_id = feature_id;
   return out;
 }
@@ -480,7 +486,7 @@ export class MapRenderer {
 
     // Uniform buffer (MVP + colors + strokeWidth = 64 + 16 + 16 + 4 = padded to 112)
     this.uniformBuffer = device.createBuffer({
-      size: 128, // 4x4 matrix(64) + fill(16) + stroke(16) + strokeWidth(4) + padding
+      size: 144, // 4x4 matrix(64) + fill(16) + stroke(16) + proj_params(16) + tile_origin(16)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: 'uniforms',
     })
@@ -712,11 +718,12 @@ export class MapRenderer {
       const fillColor = fillRaw ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity] : [0, 0, 0, 0]
       const strokeColor = strokeRaw ? [strokeRaw[0], strokeRaw[1], strokeRaw[2], strokeRaw[3] * opacity] : [0, 0, 0, 0]
 
-      const uniformData = new ArrayBuffer(128)
+      const uniformData = new ArrayBuffer(144)
       new Float32Array(uniformData, 0, 16).set(mvp)
       new Float32Array(uniformData, 64, 4).set(fillColor as number[])
       new Float32Array(uniformData, 80, 4).set(strokeColor as number[])
       new Float32Array(uniformData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
+      new Float32Array(uniformData, 112, 4).set([0, 0, 0, 0]) // tile_origin = (0,0) for non-tiled layers
       device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
       // Select bind group: per-layer (with feature data) or shared
@@ -751,11 +758,12 @@ export class MapRenderer {
 
     // Draw graticule grid lines
     if (this.graticuleBuffer) {
-      const gratUniform = new ArrayBuffer(128)
+      const gratUniform = new ArrayBuffer(144)
       new Float32Array(gratUniform, 0, 16).set(mvp)
       new Float32Array(gratUniform, 64, 4).set([1, 1, 1, 0.15]) // white, low alpha
       new Float32Array(gratUniform, 80, 4).set([1, 1, 1, 0.15])
       new Float32Array(gratUniform, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
+      new Float32Array(gratUniform, 112, 4).set([0, 0, 0, 0]) // tile_origin = (0,0)
       device.queue.writeBuffer(this.uniformBuffer, 0, gratUniform)
 
       pass.setPipeline(this.linePipeline)
