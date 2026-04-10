@@ -7,6 +7,7 @@ import {
 import { simplify, toleranceForZoom } from '../tiler/simplify'
 import { compileGeoJSONToTiles, tileKey, tileKeyUnpack, tileKeyParent, tileKeyChildren, mortonEncode, mortonDecode } from '../tiler/vector-tiler'
 import { serializeXGVT, parseXGVTIndex, parseGPUReadyTile } from '../tiler/tile-format'
+import { clipPolygonToRect, clipLineToRect } from '../tiler/clip'
 import type { GeoJSONFeatureCollection } from '../../../runtime/src/loader/geojson'
 
 describe('ZigZag Encoding', () => {
@@ -160,6 +161,85 @@ describe('Tile Key (Morton + Sentinel)', () => {
       }
     }
     expect(keys.size).toBe((1 << z) * (1 << z)) // 64 unique keys
+  })
+})
+
+describe('Geometry Clipping', () => {
+  describe('polygon clipping', () => {
+    it('keeps polygon fully inside rect', () => {
+      const rings = [[[2, 2], [8, 2], [8, 8], [2, 8], [2, 2]]]
+      const clipped = clipPolygonToRect(rings, 0, 0, 10, 10)
+      expect(clipped).toHaveLength(1)
+      expect(clipped[0]).toHaveLength(5)
+    })
+
+    it('returns empty for polygon fully outside rect', () => {
+      const rings = [[[20, 20], [30, 20], [30, 30], [20, 30], [20, 20]]]
+      const clipped = clipPolygonToRect(rings, 0, 0, 10, 10)
+      expect(clipped).toHaveLength(0)
+    })
+
+    it('clips polygon crossing one edge', () => {
+      // Square from -5 to 5, clipped to x >= 0
+      const rings = [[[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]]]
+      const clipped = clipPolygonToRect(rings, 0, -10, 10, 10)
+      expect(clipped).toHaveLength(1)
+      // All vertices should have lon >= 0
+      for (const pt of clipped[0]) {
+        expect(pt[0]).toBeGreaterThanOrEqual(-0.001)
+      }
+    })
+
+    it('clips polygon crossing corner', () => {
+      // Square from -5 to 5, clipped to [0,0,10,10]
+      const rings = [[[-5, -5], [5, -5], [5, 5], [-5, 5], [-5, -5]]]
+      const clipped = clipPolygonToRect(rings, 0, 0, 10, 10)
+      expect(clipped).toHaveLength(1)
+      for (const pt of clipped[0]) {
+        expect(pt[0]).toBeGreaterThanOrEqual(-0.001)
+        expect(pt[1]).toBeGreaterThanOrEqual(-0.001)
+      }
+    })
+
+    it('handles polygon with hole', () => {
+      const outer = [[0, 0], [20, 0], [20, 20], [0, 20], [0, 0]]
+      const hole = [[5, 5], [15, 5], [15, 15], [5, 15], [5, 5]]
+      const clipped = clipPolygonToRect([outer, hole], 0, 0, 10, 10)
+      expect(clipped.length).toBeGreaterThanOrEqual(1)
+      // Outer ring clipped
+      expect(clipped[0].length).toBeGreaterThanOrEqual(3)
+    })
+  })
+
+  describe('line clipping', () => {
+    it('keeps line fully inside rect', () => {
+      const coords = [[2, 2], [5, 5], [8, 3]]
+      const segments = clipLineToRect(coords, 0, 0, 10, 10)
+      expect(segments).toHaveLength(1)
+      expect(segments[0]).toHaveLength(3)
+    })
+
+    it('returns empty for line fully outside rect', () => {
+      const coords = [[20, 20], [30, 30]]
+      const segments = clipLineToRect(coords, 0, 0, 10, 10)
+      expect(segments).toHaveLength(0)
+    })
+
+    it('clips line crossing rect boundary', () => {
+      const coords = [[-5, 5], [15, 5]]
+      const segments = clipLineToRect(coords, 0, 0, 10, 10)
+      expect(segments).toHaveLength(1)
+      // Clipped to [0,5] - [10,5]
+      expect(segments[0][0][0]).toBeCloseTo(0)
+      expect(segments[0][segments[0].length - 1][0]).toBeCloseTo(10)
+    })
+
+    it('splits line into multiple segments', () => {
+      // Line goes in, out, in
+      const coords = [[2, 5], [12, 5], [12, 2], [5, 2]]
+      const segments = clipLineToRect(coords, 0, 0, 10, 10)
+      expect(segments.length).toBeGreaterThanOrEqual(1)
+    })
   })
 })
 

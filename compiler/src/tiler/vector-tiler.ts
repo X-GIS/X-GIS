@@ -4,6 +4,7 @@
 
 import earcut from 'earcut'
 import { simplifyPolygon, simplifyLine } from './simplify'
+import { clipPolygonToRect, clipLineToRect } from './clip'
 import type { GeoJSONFeatureCollection, GeoJSONFeature } from '../../runtime/src/loader/geojson'
 
 // ═══ Types ═══
@@ -294,64 +295,50 @@ export function compileGeoJSONToTiles(
   const detectedZoom = autoDetectMaxZoom(geojson.features, featureBBoxes)
   const maxZoom = options?.maxZoom ?? detectedZoom
 
-  // Step 2: For each zoom level, pre-tessellate features once, then scatter into tiles.
-  // Two key optimizations over naive tile-first approach:
-  //   1. Feature-first scatter: O(features × tiles_per_feature) instead of O(total_tiles × features)
-  //   2. Per-zoom tessellation cache: simplify+earcut once per feature per zoom, not per tile
+  // Step 2: For each zoom level, simplify → scatter → clip per tile → tessellate
   const levels: TileLevel[] = []
 
   for (let z = minZoom; z <= maxZoom; z++) {
     const zStart = performance.now()
     const n = Math.pow(2, z)
 
-    // Pre-tessellate each feature once at this zoom level
-    interface PreTessellated {
+    // Simplify each feature for this zoom (no tessellation yet)
+    interface SimplifiedFeature {
       fb: FeatureBBox
-      polyVerts: Float32Array   // stride 3, feature_id = 0 (rebased per tile)
-      polyIdx: Uint32Array
-      lineVerts: Float32Array
-      lineIdx: Uint32Array
+      polyRings: number[][][][]  // array of polygons, each is [outer, ...holes]
+      lineCoords: number[][][]   // array of linestrings
     }
-    const featureGeom: PreTessellated[] = []
+    const featureGeom: SimplifiedFeature[] = []
 
     for (const fb of featureBBoxes) {
-      const pv: number[] = []
-      const pi: number[] = []
-      const lv: number[] = []
-      const li: number[] = []
+      const polyRings: number[][][][] = []
+      const lineCoords: number[][][] = []
       const geom = fb.feature.geometry
 
       if (geom.type === 'Polygon') {
         const simplified = simplifyPolygon(geom.coordinates as number[][][], z)
-        tessellatePolygonToArrays(simplified, 0, pv, pi)
+        if (simplified.length > 0 && simplified[0].length >= 3) polyRings.push(simplified)
       } else if (geom.type === 'MultiPolygon') {
         for (const poly of geom.coordinates as number[][][][]) {
           const simplified = simplifyPolygon(poly, z)
-          tessellatePolygonToArrays(simplified, 0, pv, pi)
+          if (simplified.length > 0 && simplified[0].length >= 3) polyRings.push(simplified)
         }
       } else if (geom.type === 'LineString') {
         const simplified = simplifyLine(geom.coordinates as number[][], z)
-        tessellateLineToArrays(simplified, 0, lv, li)
+        if (simplified.length >= 2) lineCoords.push(simplified)
       } else if (geom.type === 'MultiLineString') {
         for (const line of geom.coordinates as number[][][]) {
           const simplified = simplifyLine(line, z)
-          tessellateLineToArrays(simplified, 0, lv, li)
+          if (simplified.length >= 2) lineCoords.push(simplified)
         }
       }
 
-      if (pv.length === 0 && lv.length === 0) continue
-
-      featureGeom.push({
-        fb,
-        polyVerts: new Float32Array(pv),
-        polyIdx: new Uint32Array(pi),
-        lineVerts: new Float32Array(lv),
-        lineIdx: new Uint32Array(li),
-      })
+      if (polyRings.length === 0 && lineCoords.length === 0) continue
+      featureGeom.push({ fb, polyRings, lineCoords })
     }
 
-    // Scatter: for each pre-tessellated feature, assign to covered tiles
-    const tileFeaturesMap = new Map<number, number[]>() // tileKey → indices into featureGeom
+    // Scatter: assign features to tiles by bbox
+    const tileFeaturesMap = new Map<number, number[]>()
 
     for (let fi = 0; fi < featureGeom.length; fi++) {
       const fb = featureGeom[fi].fb
@@ -363,10 +350,10 @@ export function compileGeoJSONToTiles(
       const fyMin = Math.max(0, Math.floor((1 - Math.log(Math.tan(latMaxClamped * Math.PI / 180) + 1 / Math.cos(latMaxClamped * Math.PI / 180)) / Math.PI) / 2 * n))
       const fyMax = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(latMinClamped * Math.PI / 180) + 1 / Math.cos(latMinClamped * Math.PI / 180)) / Math.PI) / 2 * n))
 
-      // Skip features that span too many tiles at this zoom
-      // (they're already rendered at lower zoom levels)
+      // Skip features spanning too many tiles (clipping is correct but earcut per-tile is too expensive)
+      // These features are rendered from lower zoom levels via parent fallback
       const tileSpan = (fxMax - fxMin + 1) * (fyMax - fyMin + 1)
-      if (tileSpan > 64) continue  // feature covers >64 tiles → skip at this zoom
+      if (tileSpan > 256) continue
 
       for (let x = fxMin; x <= fxMax; x++) {
         for (let y = fyMin; y <= fyMax; y++) {
@@ -378,74 +365,56 @@ export function compileGeoJSONToTiles(
       }
     }
 
-    // Assemble tiles by merging pre-tessellated buffers
+    // Assemble tiles: clip → tessellate per tile
     const tiles = new Map<number, CompiledTile>()
 
     for (const [key, featureIndices] of tileFeaturesMap) {
       const [, tx, ty] = tileKeyUnpack(key)
+      const tb = tileBounds(z, tx, ty)
 
-      // Compute total sizes for pre-allocation
-      let totalPolyVerts = 0, totalPolyIdx = 0, totalLineVerts = 0, totalLineIdx = 0
-      for (const fi of featureIndices) {
-        const fg = featureGeom[fi]
-        totalPolyVerts += fg.polyVerts.length
-        totalPolyIdx += fg.polyIdx.length
-        totalLineVerts += fg.lineVerts.length
-        totalLineIdx += fg.lineIdx.length
-      }
-
-      if (totalPolyVerts === 0 && totalLineVerts === 0) continue
-
-      const polyVerts = new Float32Array(totalPolyVerts)
-      const polyIdx = new Uint32Array(totalPolyIdx)
-      const lineVerts = new Float32Array(totalLineVerts)
-      const lineIdx = new Uint32Array(totalLineIdx)
-      let pvOff = 0, piOff = 0, lvOff = 0, liOff = 0
+      const polyVerts: number[] = []
+      const polyIdx: number[] = []
+      const lineVerts: number[] = []
+      const lineIdx: number[] = []
       let featureCount = 0
 
       for (const fi of featureIndices) {
         const fg = featureGeom[fi]
+        let hasOutput = false
 
-        if (fg.polyVerts.length > 0) {
-          // Rebase feature_id (every 3rd float) and vertex indices
-          const baseVertex = pvOff / 3
-          for (let i = 0; i < fg.polyVerts.length; i += 3) {
-            polyVerts[pvOff + i] = fg.polyVerts[i]
-            polyVerts[pvOff + i + 1] = fg.polyVerts[i + 1]
-            polyVerts[pvOff + i + 2] = featureCount
+        // Clip and tessellate polygons
+        for (const rings of fg.polyRings) {
+          const clipped = clipPolygonToRect(rings, tb.west, tb.south, tb.east, tb.north)
+          if (clipped.length > 0 && clipped[0].length >= 3) {
+            tessellatePolygonToArrays(clipped, featureCount, polyVerts, polyIdx)
+            hasOutput = true
           }
-          for (let i = 0; i < fg.polyIdx.length; i++) {
-            polyIdx[piOff + i] = fg.polyIdx[i] + baseVertex
-          }
-          pvOff += fg.polyVerts.length
-          piOff += fg.polyIdx.length
         }
 
-        if (fg.lineVerts.length > 0) {
-          const baseVertex = lvOff / 3
-          for (let i = 0; i < fg.lineVerts.length; i += 3) {
-            lineVerts[lvOff + i] = fg.lineVerts[i]
-            lineVerts[lvOff + i + 1] = fg.lineVerts[i + 1]
-            lineVerts[lvOff + i + 2] = featureCount
+        // Clip and tessellate lines
+        for (const line of fg.lineCoords) {
+          const segments = clipLineToRect(line, tb.west, tb.south, tb.east, tb.north)
+          for (const seg of segments) {
+            if (seg.length >= 2) {
+              tessellateLineToArrays(seg, featureCount, lineVerts, lineIdx)
+              hasOutput = true
+            }
           }
-          for (let i = 0; i < fg.lineIdx.length; i++) {
-            lineIdx[liOff + i] = fg.lineIdx[i] + baseVertex
-          }
-          lvOff += fg.lineVerts.length
-          liOff += fg.lineIdx.length
         }
 
-        featureCount++
+        if (hasOutput) featureCount++
       }
 
-      tiles.set(key, {
-        z, x: tx, y: ty,
-        vertices: polyVerts,
-        indices: polyIdx,
-        lineVertices: lineVerts,
-        lineIndices: lineIdx,
-        featureCount,
-      })
+      if (polyVerts.length > 0 || lineVerts.length > 0) {
+        tiles.set(key, {
+          z, x: tx, y: ty,
+          vertices: new Float32Array(polyVerts),
+          indices: new Uint32Array(polyIdx),
+          lineVertices: new Float32Array(lineVerts),
+          lineIndices: new Uint32Array(lineIdx),
+          featureCount,
+        })
+      }
     }
 
     if (tiles.size > 0) {
@@ -454,12 +423,6 @@ export function compileGeoJSONToTiles(
 
     const zElapsed = (performance.now() - zStart).toFixed(0)
     console.log(`  z${z}: ${tiles.size} tiles (${zElapsed}ms)`)
-
-    // Early termination: prevent memory explosion
-    if (tiles.size > 4000) {
-      console.log(`  Stopping at z${z}: tile count exceeded 4K`)
-      break
-    }
   }
 
   return {
