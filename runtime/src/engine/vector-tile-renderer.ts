@@ -99,7 +99,9 @@ export class VectorTileRenderer {
     const R = 6378137
     const centerLon = (centerX / R) * (180 / Math.PI)
     const centerLat = (2 * Math.atan(Math.exp(centerY / R)) - Math.PI / 2) * (180 / Math.PI)
-    const currentZ = Math.max(0, Math.min(14, Math.round(zoom)))
+    // Overzoom: clamp to max available level in the .xgvt file
+    const maxLevel = this.index.header.maxLevel
+    const currentZ = Math.max(0, Math.min(maxLevel, Math.round(zoom)))
 
     // Cancel loading for previous zoom
     if (currentZ !== this.lastZoom) {
@@ -107,7 +109,7 @@ export class VectorTileRenderer {
       this.lastZoom = currentZ
     }
 
-    const tiles = visibleTiles(centerLon, centerLat, zoom, canvasWidth, canvasHeight)
+    const tiles = visibleTiles(centerLon, centerLat, currentZ, canvasWidth, canvasHeight)
     const n = Math.pow(2, currentZ)
     const ctX = Math.floor((centerLon + 180) / 360 * n)
     const ctY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
