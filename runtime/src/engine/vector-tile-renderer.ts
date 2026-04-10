@@ -37,6 +37,7 @@ export class VectorTileRenderer {
   private fileBuf: ArrayBuffer | null = null // for local/full-file mode
   private tileCache = new Map<number, CachedVectorTile>()
   private loadingTiles = new Set<number>()
+  private decompressedTiles: Map<number, ArrayBuffer> | null = null // pre-decompressed for fileBuf mode
   private frameCount = 0
   private lastZoom = -1
 
@@ -59,11 +60,22 @@ export class VectorTileRenderer {
     return this.index?.header.bounds ?? null
   }
 
-  /** Load from a full ArrayBuffer (local file or pre-fetched) */
-  loadFromBuffer(buf: ArrayBuffer): void {
+  /** Load from a full ArrayBuffer — pre-decompresses all tiles for instant access */
+  async loadFromBuffer(buf: ArrayBuffer): Promise<void> {
     this.fileBuf = buf
     this.index = parseXGVTIndex(buf)
-    console.log(`[X-GIS] VectorTile index loaded: ${this.index.entries.length} tiles, bounds: [${this.index.header.bounds.map(b => b.toFixed(1)).join(', ')}]`)
+    console.log(`[X-GIS] VectorTile index: ${this.index.entries.length} tiles, decompressing...`)
+
+    // Pre-decompress all tiles at load time for synchronous access during rendering
+    const start = performance.now()
+    this.decompressedTiles = new Map()
+    const promises = this.index.entries.map(async entry => {
+      const slice = buf.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
+      const decompressed = await decompressTileData(slice)
+      this.decompressedTiles!.set(entry.tileHash, decompressed)
+    })
+    await Promise.all(promises)
+    console.log(`[X-GIS] Decompressed ${this.index.entries.length} tiles in ${(performance.now() - start).toFixed(0)}ms`)
   }
 
   /** Load from URL (Range Request mode) */
@@ -242,8 +254,22 @@ export class VectorTileRenderer {
 
     if (entries.length === 0) return
 
+    if (this.decompressedTiles) {
+      // Pre-decompressed: synchronous — no frame delay
+      for (const { key, entry } of entries) {
+        this.loadingTiles.add(key)
+        const decompressed = this.decompressedTiles.get(entry.tileHash)
+        if (decompressed) {
+          const tile = parseGPUReadyTile(decompressed, { ...entry, dataOffset: 0, compactSize: decompressed.byteLength })
+          this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+        }
+        this.loadingTiles.delete(key)
+      }
+      return
+    }
+
     if (this.fileBuf) {
-      // Full file in memory — decompress each tile async
+      // Fallback async decompress
       for (const { key, entry } of entries) {
         this.loadingTiles.add(key)
         const slice = this.fileBuf!.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
@@ -353,10 +379,18 @@ export class VectorTileRenderer {
 
     this.loadingTiles.add(key)
 
-    if (this.fileBuf) {
-      // Full file in memory — extract compressed tile, decompress, parse
-      const compressedSlice = this.fileBuf.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
-      decompressTileData(compressedSlice).then(decompressed => {
+    if (this.decompressedTiles) {
+      // Pre-decompressed: synchronous decode → no jitter
+      const decompressed = this.decompressedTiles.get(entry.tileHash)
+      if (decompressed) {
+        const tile = parseGPUReadyTile(decompressed, { ...entry, dataOffset: 0, compactSize: decompressed.byteLength })
+        this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+      }
+      this.loadingTiles.delete(key)
+    } else if (this.fileBuf) {
+      // Fallback: async decompress
+      const slice = this.fileBuf.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
+      decompressTileData(slice).then(decompressed => {
         const tile = parseGPUReadyTile(decompressed, { ...entry, dataOffset: 0, compactSize: decompressed.byteLength })
         this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
         this.loadingTiles.delete(key)

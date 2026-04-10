@@ -111,7 +111,7 @@ export class XGISMap {
         // Vector tile file — full load for instant tile access
         const vtResponse = await fetch(url)
         const vtBuf = await vtResponse.arrayBuffer()
-        this.vectorTileRenderer.loadFromBuffer(vtBuf)
+        await this.vectorTileRenderer.loadFromBuffer(vtBuf)
         this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
 
         // Fit camera to vector tile bounds
