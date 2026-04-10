@@ -191,6 +191,9 @@ fn vs_main(@location(0) lonlat: vec2<f32>) -> VertexOutput {
   return out;
 }
 
+// ── Fragment shaders (replaceable by ShaderVariant) ──
+// FILL_EXPR and STROKE_EXPR are replaced by buildShader() when a variant exists
+
 @fragment
 fn fs_fill(input: VertexOutput) -> @location(0) vec4<f32> {
   if (input.cos_c < 0.0) { discard; }
@@ -203,6 +206,48 @@ fn fs_stroke(input: VertexOutput) -> @location(0) vec4<f32> {
   return u.stroke_color;
 }
 `
+
+// Fragment markers for template replacement
+const FILL_RETURN_MARKER = 'return u.fill_color;'
+const STROKE_RETURN_MARKER = 'return u.stroke_color;'
+
+interface ShaderVariantInfo {
+  key: string
+  preamble: string
+  fillExpr: string
+  strokeExpr: string
+  needsFeatureBuffer: boolean
+  featureFields: string[]
+  uniformFields: string[]
+}
+
+interface CachedPipeline {
+  fillPipeline: GPURenderPipeline
+  linePipeline: GPURenderPipeline
+}
+
+/**
+ * Build a specialized WGSL shader by injecting variant's preamble and expressions.
+ */
+function buildShader(variant?: ShaderVariantInfo | null): string {
+  if (!variant || !variant.preamble) return POLYGON_SHADER
+
+  let shader = POLYGON_SHADER
+
+  // Insert preamble after the Uniforms struct binding
+  const insertPoint = '@group(0) @binding(0) var<uniform> u: Uniforms;'
+  shader = shader.replace(insertPoint, insertPoint + '\n\n// ── Specialized constants ──\n' + variant.preamble)
+
+  // Replace fragment return expressions
+  if (variant.fillExpr && variant.fillExpr !== 'u.fill_color') {
+    shader = shader.replace(FILL_RETURN_MARKER, `return ${variant.fillExpr};`)
+  }
+  if (variant.strokeExpr && variant.strokeExpr !== 'u.stroke_color') {
+    shader = shader.replace(STROKE_RETURN_MARKER, `return ${variant.strokeExpr};`)
+  }
+
+  return shader
+}
 
 // ═══ Color parsing ═══
 
@@ -310,6 +355,9 @@ interface RenderLayer {
   lineIndexCount: number
   zoomOpacityStops: { zoom: number; value: number }[] | null
   zoomSizeStops: { zoom: number; value: number }[] | null
+  // Per-layer specialized pipelines (null = use shared default)
+  fillPipeline: GPURenderPipeline | null
+  linePipeline: GPURenderPipeline | null
 }
 
 /** Linearly interpolate between sorted zoom stops */
@@ -339,6 +387,9 @@ export class MapRenderer {
   private layers: RenderLayer[] = []
   private graticuleBuffer: GPUBuffer | null = null
   private graticuleVertexCount = 0
+
+  // Shader variant cache: variant key → compiled pipeline set
+  private shaderCache = new Map<string, CachedPipeline>()
 
   constructor(ctx: GPUContext) {
     this.ctx = ctx
@@ -419,6 +470,25 @@ export class MapRenderer {
     props.setDefault('visible', show.visible ?? true)
     props.setDefault('opacity', show.opacity ?? 1.0)
 
+    // Create per-layer specialized pipelines if shader variant exists
+    const variant = show.shaderVariant as ShaderVariantInfo | null | undefined
+    let layerFillPipeline: GPURenderPipeline | null = null
+    let layerLinePipeline: GPURenderPipeline | null = null
+
+    if (variant?.preamble) {
+      const cached = this.shaderCache.get(variant.key)
+      if (cached) {
+        layerFillPipeline = cached.fillPipeline
+        layerLinePipeline = cached.linePipeline
+      } else {
+        const pipelines = this.createVariantPipelines(variant)
+        layerFillPipeline = pipelines.fillPipeline
+        layerLinePipeline = pipelines.linePipeline
+        this.shaderCache.set(variant.key, pipelines)
+        console.log(`[X-GIS] Specialized shader for layer "${show.targetName}" (key: ${variant.key})`)
+      }
+    }
+
     const layer: RenderLayer = {
       show,
       props,
@@ -430,6 +500,8 @@ export class MapRenderer {
       lineIndexCount: 0,
       zoomOpacityStops: show.zoomOpacityStops ?? null,
       zoomSizeStops: show.zoomSizeStops ?? null,
+      fillPipeline: layerFillPipeline,
+      linePipeline: layerLinePipeline,
     }
 
     // Upload polygon mesh
@@ -469,6 +541,49 @@ export class MapRenderer {
     }
 
     this.layers.push(layer)
+  }
+
+  /** Create specialized fill + line pipelines for a shader variant */
+  private createVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
+    const { device, format } = this.ctx
+    const wgsl = buildShader(variant)
+
+    const module = device.createShaderModule({
+      code: wgsl,
+      label: `shader-${variant.key}`,
+    })
+
+    const pipelineLayout = device.createPipelineLayout({
+      bindGroupLayouts: [this.bindGroupLayout],
+    })
+
+    const vertexBufferLayout: GPUVertexBufferLayout = {
+      arrayStride: 8,
+      attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat }],
+    }
+
+    const blendState: GPUBlendState = {
+      color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+      alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+    }
+
+    const fillPipeline = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+      fragment: { module, entryPoint: 'fs_fill', targets: [{ format, blend: blendState }] },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      label: `fill-${variant.key}`,
+    })
+
+    const linePipeline = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+      fragment: { module, entryPoint: 'fs_stroke', targets: [{ format, blend: blendState }] },
+      primitive: { topology: 'line-list', cullMode: 'none' },
+      label: `line-${variant.key}`,
+    })
+
+    return { fillPipeline, linePipeline }
   }
 
   private initGraticule(): void {
@@ -531,18 +646,18 @@ export class MapRenderer {
       new Float32Array(uniformData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
       device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
-      // Draw filled polygons
+      // Draw filled polygons (use per-layer pipeline if specialized)
       if (fillRaw && layer.polygonVertexBuffer && layer.polygonIndexBuffer) {
-        pass.setPipeline(this.fillPipeline)
+        pass.setPipeline(layer.fillPipeline ?? this.fillPipeline)
         pass.setBindGroup(0, this.bindGroup)
         pass.setVertexBuffer(0, layer.polygonVertexBuffer)
         pass.setIndexBuffer(layer.polygonIndexBuffer, 'uint32')
         pass.drawIndexed(layer.polygonIndexCount)
       }
 
-      // Draw line strokes
+      // Draw line strokes (use per-layer pipeline if specialized)
       if (strokeRaw && layer.lineVertexBuffer && layer.lineIndexBuffer) {
-        pass.setPipeline(this.linePipeline)
+        pass.setPipeline(layer.linePipeline ?? this.linePipeline)
         pass.setBindGroup(0, this.bindGroup)
         pass.setVertexBuffer(0, layer.lineVertexBuffer)
         pass.setIndexBuffer(layer.lineIndexBuffer, 'uint32')
