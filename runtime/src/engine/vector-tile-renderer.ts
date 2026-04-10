@@ -163,17 +163,17 @@ export class VectorTileRenderer {
     // Decide what to render
     if (allCached || this.stableZoom < 0) {
       // All tiles ready (or first load): render current zoom
-      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, bindGroup, uniformBuffer, uniformData)
+      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData)
       this.stableZoom = currentZ
       this.stableKeys = neededKeys
     } else if (currentZ !== this.stableZoom && cachedCount < neededKeys.length) {
       // Zoom transitioning: render STABLE zoom tiles while loading new zoom
-      this.renderTileKeys(this.stableKeys, pass, fillPipeline, linePipeline, bindGroup, uniformBuffer, uniformData)
+      this.renderTileKeys(this.stableKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData)
 
       // Also render any new-zoom tiles that are already loaded (progressive reveal)
       const newReady = neededKeys.filter(k => this.tileCache.has(k))
       if (newReady.length > 0) {
-        this.renderTileKeys(newReady, pass, fillPipeline, linePipeline, bindGroup, uniformBuffer, uniformData)
+        this.renderTileKeys(newReady, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData)
       }
 
       // When all new tiles loaded, swap to new zoom
@@ -183,7 +183,7 @@ export class VectorTileRenderer {
       }
     } else {
       // Same zoom, some tiles missing (panning): render what we have
-      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, bindGroup, uniformBuffer, uniformData)
+      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData)
       this.stableKeys = neededKeys
     }
 
