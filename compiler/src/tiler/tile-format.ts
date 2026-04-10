@@ -10,14 +10,14 @@
 //   - HTTP Range Request compatible: Header+Index first, then individual tiles
 //   - Morton-keyed tile index for spatial cache coherence
 
-import type { CompiledTileSet, TileLevel, CompiledTile } from './vector-tiler'
+import type { CompiledTileSet, TileLevel, CompiledTile, PropertyTable, PropertyFieldType } from './vector-tiler'
 import { tileKey, tileKeyUnpack } from './vector-tiler'
 import { encodeCoords, encodeIndices, decodeCoords, decodeIndices, encodeFeatIds, decodeFeatIds, precisionForZoom } from './encoding'
 
 // ═══ Constants ═══
 
 const MAGIC = 0x54564758 // "XGVT" little-endian
-const VERSION = 1
+const VERSION = 2 // v2: feat_id streams + PropertyTable
 
 // ═══ Types ═══
 
@@ -96,12 +96,17 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
     })
   }
 
-  // Calculate sizes
-  const headerSize = 32
-  const indexEntrySize = 36 // 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4 bytes
-  const indexSize = 4 + encodedTiles.length * indexEntrySize // tileCount(u32) + entries
+  // Serialize property table
+  const propTableBuf = serializePropertyTable(tileSet.propertyTable)
 
-  let dataOffset = headerSize + indexSize
+  // Calculate sizes
+  const headerSize = 40 // v2: 32B + propTableOffset(4) + propTableLength(4)
+  const indexEntrySize = 36
+  const indexSize = 4 + encodedTiles.length * indexEntrySize
+  const propTableOffset = headerSize + indexSize
+  const propTableLength = propTableBuf.byteLength
+
+  let dataOffset = propTableOffset + propTableLength
   const indexEntries: TileIndexEntry[] = []
 
   for (const et of encodedTiles) {
@@ -134,17 +139,19 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
   const view = new DataView(buf)
   let pos = 0
 
-  // Header (32 bytes)
+  // Header (40 bytes, v2)
   view.setUint32(pos, MAGIC, true); pos += 4
   view.setUint16(pos, VERSION, true); pos += 2
   view.setUint8(pos, tileSet.levels.length); pos += 1
   view.setUint8(pos, tileSet.levels.length > 0 ? tileSet.levels[tileSet.levels.length - 1].zoom : 0); pos += 1
-  view.setFloat32(pos, tileSet.bounds[0], true); pos += 4 // minLon
-  view.setFloat32(pos, tileSet.bounds[1], true); pos += 4 // minLat
-  view.setFloat32(pos, tileSet.bounds[2], true); pos += 4 // maxLon
-  view.setFloat32(pos, tileSet.bounds[3], true); pos += 4 // maxLat
+  view.setFloat32(pos, tileSet.bounds[0], true); pos += 4
+  view.setFloat32(pos, tileSet.bounds[1], true); pos += 4
+  view.setFloat32(pos, tileSet.bounds[2], true); pos += 4
+  view.setFloat32(pos, tileSet.bounds[3], true); pos += 4
   view.setUint32(pos, headerSize, true); pos += 4 // indexOffset
   view.setUint32(pos, indexSize, true); pos += 4 // indexLength
+  view.setUint32(pos, propTableOffset, true); pos += 4 // propTableOffset (v2)
+  view.setUint32(pos, propTableLength, true); pos += 4 // propTableLength (v2)
 
   // Tile Index
   view.setUint32(pos, indexEntries.length, true); pos += 4
@@ -160,6 +167,10 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
     // padding to 36 bytes
     view.setUint32(pos, 0, true); pos += 4
   }
+
+  // Property Table
+  new Uint8Array(buf, pos, propTableBuf.byteLength).set(new Uint8Array(propTableBuf))
+  pos += propTableBuf.byteLength
 
   // Tile Data
   for (let i = 0; i < encodedTiles.length; i++) {
@@ -197,6 +208,8 @@ export interface XGVTHeader {
   bounds: [number, number, number, number]
   indexOffset: number
   indexLength: number
+  propTableOffset: number
+  propTableLength: number
 }
 
 export interface XGVTIndex {
@@ -215,7 +228,7 @@ export function parseXGVTIndex(buf: ArrayBuffer): XGVTIndex {
   if (magic !== MAGIC) throw new Error(`Invalid .xgvt file (expected XGVT magic)`)
 
   const version = view.getUint16(pos, true); pos += 2
-  if (version !== VERSION) throw new Error(`Unsupported .xgvt version: ${version}`)
+  if (version !== 1 && version !== VERSION) throw new Error(`Unsupported .xgvt version: ${version}`)
 
   const levelCount = view.getUint8(pos); pos += 1
   const maxLevel = view.getUint8(pos); pos += 1
@@ -226,6 +239,13 @@ export function parseXGVTIndex(buf: ArrayBuffer): XGVTIndex {
   pos += 16
   const indexOffset = view.getUint32(pos, true); pos += 4
   const indexLength = view.getUint32(pos, true); pos += 4
+
+  // v2: property table offset/length
+  let propTableOffset = 0, propTableLength = 0
+  if (version >= 2) {
+    propTableOffset = view.getUint32(pos, true); pos += 4
+    propTableLength = view.getUint32(pos, true); pos += 4
+  }
 
   // Index
   pos = indexOffset
@@ -250,7 +270,7 @@ export function parseXGVTIndex(buf: ArrayBuffer): XGVTIndex {
   }
 
   return {
-    header: { levelCount, maxLevel, bounds, indexOffset, indexLength },
+    header: { levelCount, maxLevel, bounds, indexOffset, indexLength, propTableOffset, propTableLength },
     entries,
     entryByHash,
   }
@@ -335,4 +355,160 @@ export function parseGPUReadyTile(
   const lineIndices = decodeIndices(lineIndicesBuf)
 
   return { z, x, y, vertices, indices, lineVertices, lineIndices, featureCount: 0 }
+}
+
+// ═══ Property Table Serialization ═══
+
+function serializePropertyTable(table: PropertyTable): ArrayBuffer {
+  const textEncoder = new TextEncoder()
+
+  // Pre-encode strings and build string pool
+  const stringPool: string[] = []
+  const stringIndex = new Map<string, number>()
+
+  function internString(s: string): number {
+    let idx = stringIndex.get(s)
+    if (idx !== undefined) return idx
+    idx = stringPool.length
+    stringPool.push(s)
+    stringIndex.set(s, idx)
+    return idx
+  }
+
+  // Intern field names
+  for (const name of table.fieldNames) internString(name)
+
+  // Intern string values
+  for (const row of table.values) {
+    for (let fi = 0; fi < table.fieldTypes.length; fi++) {
+      if (table.fieldTypes[fi] === 'string' && row[fi] !== null && typeof row[fi] === 'string') {
+        internString(row[fi] as string)
+      }
+    }
+  }
+
+  // Calculate size
+  let size = 4 + 2 // featureCount(u32) + fieldCount(u16)
+
+  // Field names: u16 length + bytes each
+  for (const name of table.fieldNames) {
+    size += 2 + textEncoder.encode(name).byteLength
+  }
+
+  // Field types: 1 byte each
+  size += table.fieldTypes.length
+
+  // String pool: u32 count + (u16 len + bytes) each
+  size += 4
+  for (const s of stringPool) {
+    size += 2 + textEncoder.encode(s).byteLength
+  }
+
+  // Values: per feature, per field
+  for (let fi = 0; fi < table.fieldTypes.length; fi++) {
+    const type = table.fieldTypes[fi]
+    if (type === 'f64') size += table.values.length * 8
+    else if (type === 'string') size += table.values.length * 4 // u32 index
+    else if (type === 'bool') size += table.values.length * 1
+  }
+
+  const buf = new ArrayBuffer(size)
+  const view = new DataView(buf)
+  const u8 = new Uint8Array(buf)
+  let pos = 0
+
+  // Header
+  view.setUint32(pos, table.values.length, true); pos += 4
+  view.setUint16(pos, table.fieldNames.length, true); pos += 2
+
+  // Field names
+  for (const name of table.fieldNames) {
+    const encoded = textEncoder.encode(name)
+    view.setUint16(pos, encoded.byteLength, true); pos += 2
+    u8.set(encoded, pos); pos += encoded.byteLength
+  }
+
+  // Field types (0=f64, 1=string, 2=bool)
+  for (const type of table.fieldTypes) {
+    view.setUint8(pos, type === 'f64' ? 0 : type === 'string' ? 1 : 2); pos += 1
+  }
+
+  // String pool
+  view.setUint32(pos, stringPool.length, true); pos += 4
+  for (const s of stringPool) {
+    const encoded = textEncoder.encode(s)
+    view.setUint16(pos, encoded.byteLength, true); pos += 2
+    u8.set(encoded, pos); pos += encoded.byteLength
+  }
+
+  // Values: column-major (all values for field 0, then field 1, ...)
+  for (let fi = 0; fi < table.fieldTypes.length; fi++) {
+    const type = table.fieldTypes[fi]
+    for (const row of table.values) {
+      const val = row[fi]
+      if (type === 'f64') {
+        view.setFloat64(pos, typeof val === 'number' ? val : 0, true); pos += 8
+      } else if (type === 'string') {
+        const idx = (val !== null && typeof val === 'string') ? stringIndex.get(val) ?? 0xFFFFFFFF : 0xFFFFFFFF
+        view.setUint32(pos, idx, true); pos += 4
+      } else if (type === 'bool') {
+        view.setUint8(pos, val === null ? 0xFF : val ? 1 : 0); pos += 1
+      }
+    }
+  }
+
+  return buf
+}
+
+/** Parse a PropertyTable from a buffer section */
+export function parsePropertyTable(buf: ArrayBuffer): PropertyTable {
+  const view = new DataView(buf)
+  const u8 = new Uint8Array(buf)
+  const textDecoder = new TextDecoder()
+  let pos = 0
+
+  const featureCount = view.getUint32(pos, true); pos += 4
+  const fieldCount = view.getUint16(pos, true); pos += 2
+
+  // Field names
+  const fieldNames: string[] = []
+  for (let i = 0; i < fieldCount; i++) {
+    const len = view.getUint16(pos, true); pos += 2
+    fieldNames.push(textDecoder.decode(u8.slice(pos, pos + len))); pos += len
+  }
+
+  // Field types
+  const fieldTypes: PropertyFieldType[] = []
+  for (let i = 0; i < fieldCount; i++) {
+    const t = view.getUint8(pos); pos += 1
+    fieldTypes.push(t === 0 ? 'f64' : t === 1 ? 'string' : 'bool')
+  }
+
+  // String pool
+  const stringPoolSize = view.getUint32(pos, true); pos += 4
+  const stringPool: string[] = []
+  for (let i = 0; i < stringPoolSize; i++) {
+    const len = view.getUint16(pos, true); pos += 2
+    stringPool.push(textDecoder.decode(u8.slice(pos, pos + len))); pos += len
+  }
+
+  // Values (column-major)
+  const values: (number | string | boolean | null)[][] = Array.from({ length: featureCount }, () => new Array(fieldCount).fill(null))
+
+  for (let fi = 0; fi < fieldCount; fi++) {
+    const type = fieldTypes[fi]
+    for (let ri = 0; ri < featureCount; ri++) {
+      if (type === 'f64') {
+        values[ri][fi] = view.getFloat64(pos, true); pos += 8
+      } else if (type === 'string') {
+        const idx = view.getUint32(pos, true); pos += 4
+        values[ri][fi] = idx === 0xFFFFFFFF ? null : stringPool[idx]
+      } else if (type === 'bool') {
+        const v = view.getUint8(pos); pos += 1
+        values[ri][fi] = v === 0xFF ? null : v === 1
+      }
+    }
+  }
+
+  return { fieldNames, fieldTypes, values }
 }

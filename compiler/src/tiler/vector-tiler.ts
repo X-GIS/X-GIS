@@ -15,6 +15,16 @@ export interface CompiledTileSet {
   levels: TileLevel[]
   bounds: [number, number, number, number]
   featureCount: number
+  propertyTable: PropertyTable
+}
+
+export type PropertyFieldType = 'f64' | 'string' | 'bool'
+
+export interface PropertyTable {
+  fieldNames: string[]
+  fieldTypes: PropertyFieldType[]
+  /** values[featureIndex][fieldIndex] */
+  values: (number | string | boolean | null)[][]
 }
 
 export interface TileLevel {
@@ -384,11 +394,59 @@ export function compileGeoJSONToTiles(
   // parent fallback, which conflicts with alpha blending. All tiles are kept.
   // File size is managed by zoom-adaptive precision and simplification instead.
 
+  // Build property table from original GeoJSON features
+  const propertyTable = buildPropertyTable(geojson.features)
+  console.log(`  Properties: ${propertyTable.fieldNames.length} fields (${propertyTable.fieldNames.join(', ')})`)
+
   return {
     levels,
     bounds: [gMinLon, gMinLat, gMaxLon, gMaxLat],
     featureCount: geojson.features.length,
+    propertyTable,
   }
+}
+
+/**
+ * Build a property table from GeoJSON features.
+ * Scans all features to determine field names, types, and values.
+ */
+function buildPropertyTable(features: GeoJSONFeature[]): PropertyTable {
+  // Collect union of all property keys
+  const fieldSet = new Map<string, PropertyFieldType>()
+
+  for (const feature of features) {
+    if (!feature.properties) continue
+    for (const [key, val] of Object.entries(feature.properties)) {
+      if (val === null || val === undefined) continue
+      const existing = fieldSet.get(key)
+      const valType = typeof val === 'number' ? 'f64' : typeof val === 'boolean' ? 'bool' : 'string'
+      if (!existing) {
+        fieldSet.set(key, valType)
+      } else if (existing !== valType) {
+        fieldSet.set(key, 'string') // mixed types → string
+      }
+    }
+  }
+
+  const fieldNames = [...fieldSet.keys()]
+  const fieldTypes = fieldNames.map(k => fieldSet.get(k)!)
+
+  // Build values array
+  const values: (number | string | boolean | null)[][] = []
+  for (const feature of features) {
+    const row: (number | string | boolean | null)[] = []
+    for (const name of fieldNames) {
+      const val = feature.properties?.[name]
+      if (val === undefined || val === null) {
+        row.push(null)
+      } else {
+        row.push(val as number | string | boolean)
+      }
+    }
+    values.push(row)
+  }
+
+  return { fieldNames, fieldTypes, values }
 }
 
 /**
