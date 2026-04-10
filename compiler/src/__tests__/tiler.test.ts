@@ -26,27 +26,25 @@ describe('ZigZag Encoding', () => {
 })
 
 describe('Coordinate Encoding', () => {
-  it('round-trips quantized integer coordinate arrays', () => {
-    // Coordinates are now quantized integers (0-8192 extent)
-    const coords = [1000, 2000, 1050, 2100, 1025, 2050]
+  it('round-trips coordinate arrays', () => {
+    const coords = [0.5, 0.3, 0.6, 0.4, 0.55, 0.35] // tile-local floats
     const encoded = encodeCoords(coords)
     const decoded = decodeCoords(encoded)
 
     expect(decoded.length).toBe(coords.length)
     for (let i = 0; i < coords.length; i++) {
-      expect(decoded[i]).toBe(coords[i])
+      expect(decoded[i]).toBeCloseTo(coords[i], 5)
     }
   })
 
-  it('compresses small integer deltas efficiently', () => {
-    // Quantized coords with small deltas (typical for tile-local)
+  it('compresses delta sequences efficiently', () => {
     const coords: number[] = []
     for (let i = 0; i < 100; i++) {
-      coords.push(4000 + i * 10, 4000 + i * 10)
+      coords.push(i * 0.001, i * 0.001) // small tile-local deltas
     }
     const encoded = encodeCoords(coords)
     const rawSize = coords.length * 4
-    expect(encoded.byteLength).toBeLessThan(rawSize * 0.3) // much better compression with small ints
+    expect(encoded.byteLength).toBeLessThan(rawSize * 0.6)
   })
 })
 
@@ -386,12 +384,10 @@ describe('.xgvt Binary Format', () => {
     expect(tile.vertices.length).toBe(entry.vertexCount * 3)
     expect(tile.indices.length).toBe(entry.indexCount)
 
-    // Vertices are quantized integers (0-8192 tile extent)
+    // Vertices are tile-local float coordinates (small relative to tile)
     for (let i = 0; i < tile.vertices.length; i += 3) {
-      expect(tile.vertices[i]).toBeGreaterThanOrEqual(-100) // small negative from clipping edge
-      expect(tile.vertices[i]).toBeLessThanOrEqual(8300)    // slightly over extent from clipping
-      expect(tile.vertices[i + 1]).toBeGreaterThanOrEqual(-100)
-      expect(tile.vertices[i + 1]).toBeLessThanOrEqual(8300)
+      expect(Math.abs(tile.vertices[i])).toBeLessThan(400)
+      expect(Math.abs(tile.vertices[i + 1])).toBeLessThan(200)
     }
   })
 

@@ -20,8 +20,7 @@ struct Uniforms {
   stroke_color: vec4<f32>,
   // projection params: x=type(0=merc,1=equi,2=natearth,3=ortho), y=centerLon, z=centerLat, w=unused
   proj_params: vec4<f32>,
-  // tile origin: x=west, y=south, z=width(east-west), w=height(north-south)
-  // vertex coords are quantized integers (0-8192), restored to lon/lat in shader
+  // tile origin: x=west(lon), y=south(lat) — vertex coords are tile-local, add origin
   tile_origin: vec4<f32>,
 }
 
@@ -177,17 +176,11 @@ struct VertexOutput {
 }
 
 @vertex
-fn vs_main(@location(0) pos: vec2<f32>, @location(1) feature_id: u32) -> VertexOutput {
-  // If tile_origin.z > 0: quantized integer (0-8192) → lon/lat via tile bounds
-  // If tile_origin.z == 0: pos is already absolute lon/lat (non-tiled layers)
-  var lon: f32; var lat: f32;
-  if (u.tile_origin.z > 0.0) {
-    lon = u.tile_origin.x + (pos.x / 8192.0) * u.tile_origin.z;
-    lat = u.tile_origin.y + (pos.y / 8192.0) * u.tile_origin.w;
-  } else {
-    lon = pos.x;
-    lat = pos.y;
-  }
+fn vs_main(@location(0) local_pos: vec2<f32>, @location(1) feature_id: u32) -> VertexOutput {
+  // Tile-local → global: add tile origin
+  // Non-tiled layers: tile_origin = (0,0,0,0), so lon/lat = local_pos directly
+  let lon = local_pos.x + u.tile_origin.x;
+  let lat = local_pos.y + u.tile_origin.y;
 
   let center_lon = u.proj_params.y;
   let center_lat = u.proj_params.z;

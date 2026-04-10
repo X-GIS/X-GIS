@@ -8,7 +8,7 @@
 //   → zigzag:          [254000000, 75000000, 200000, 200000]
 //   → varint:          variable-length bytes (small deltas = fewer bytes)
 
-// Coordinates are now quantized integers (0-EXTENT), no precision multiplier needed
+const PRECISION = 1e6 // 6 decimal places ≈ ~0.1m accuracy
 
 // ═══ Varint ═══
 
@@ -58,15 +58,14 @@ export function zigzagDecode(n: number): number {
 export function encodeCoords(coords: number[]): Uint8Array {
   const bytes: number[] = []
 
-  // Write coordinate count
   encodeVarint(coords.length / 2, bytes)
 
   let prevLon = 0
   let prevLat = 0
 
   for (let i = 0; i < coords.length; i += 2) {
-    const lon = Math.round(coords[i])   // already quantized integers
-    const lat = Math.round(coords[i + 1])
+    const lon = Math.round(coords[i] * PRECISION)
+    const lat = Math.round(coords[i + 1] * PRECISION)
 
     const dLon = lon - prevLon
     const dLat = lat - prevLat
@@ -104,8 +103,8 @@ export function decodeCoords(buf: Uint8Array): Float32Array {
     prevLon += zigzagDecode(zLon)
     prevLat += zigzagDecode(zLat)
 
-    coords[i * 2] = prevLon    // quantized integer (0-EXTENT)
-    coords[i * 2 + 1] = prevLat
+    coords[i * 2] = prevLon / PRECISION
+    coords[i * 2 + 1] = prevLat / PRECISION
   }
 
   return coords

@@ -377,16 +377,14 @@ export function compileGeoJSONToTiles(
       if ((scratch.pv.length >= 9 || scratch.lv.length >= 6) &&
           (scratch.pv.length > 0 || scratch.lv.length > 0)) {
 
-        // Quantize to tile-local integers (MVT-style, 0-EXTENT)
-        const tileW = tb.east - tb.west
-        const tileH = tb.north - tb.south
+        // Convert to tile-local coordinates (subtract origin for f32 precision)
         for (let i = 0; i < scratch.pv.length; i += 3) {
-          scratch.pv[i] = Math.round((scratch.pv[i] - tb.west) / tileW * TILE_EXTENT)
-          scratch.pv[i + 1] = Math.round((scratch.pv[i + 1] - tb.south) / tileH * TILE_EXTENT)
+          scratch.pv[i] -= tb.west
+          scratch.pv[i + 1] -= tb.south
         }
         for (let i = 0; i < scratch.lv.length; i += 3) {
-          scratch.lv[i] = Math.round((scratch.lv[i] - tb.west) / tileW * TILE_EXTENT)
-          scratch.lv[i + 1] = Math.round((scratch.lv[i + 1] - tb.south) / tileH * TILE_EXTENT)
+          scratch.lv[i] -= tb.west
+          scratch.lv[i + 1] -= tb.south
         }
 
         tiles.set(key, {
