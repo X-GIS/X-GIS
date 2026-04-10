@@ -133,6 +133,19 @@ layer border_layer {
 `,
   },
 
+  vector_tiles: {
+    name: 'Vector Tiles (.xgvt)',
+    description: 'Pre-tiled vector data with COG-style loading (5.7MB vs 14MB GeoJSON)',
+    source: `
+let world = load("countries.xgvt")
+
+show world {
+  fill: #2d6a4f80
+  stroke: #95d5b2, 1px
+}
+`,
+  },
+
   minimal: {
     name: 'Minimal',
     description: 'Simplest possible X-GIS program',

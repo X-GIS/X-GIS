@@ -43,6 +43,11 @@ export class VectorTileRenderer {
     this.device = ctx.device
   }
 
+  /** Whether this renderer has data loaded */
+  hasData(): boolean {
+    return this.index !== null && this.index.entries.length > 0
+  }
+
   /** Load from a full ArrayBuffer (local file or pre-fetched) */
   loadFromBuffer(buf: ArrayBuffer): void {
     this.fileBuf = buf

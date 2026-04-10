@@ -391,11 +391,11 @@ function interpolateZoom(stops: { zoom: number; value: number }[], zoom: number)
 
 export class MapRenderer {
   private ctx: GPUContext
-  private fillPipeline!: GPURenderPipeline
+  fillPipeline!: GPURenderPipeline
   private strokePipeline!: GPURenderPipeline
-  private linePipeline!: GPURenderPipeline
-  private uniformBuffer!: GPUBuffer
-  private bindGroupLayout!: GPUBindGroupLayout
+  linePipeline!: GPURenderPipeline
+  uniformBuffer!: GPUBuffer
+  bindGroupLayout!: GPUBindGroupLayout
   private featureBindGroupLayout!: GPUBindGroupLayout
   private bindGroup!: GPUBindGroup
   private layers: RenderLayer[] = []

@@ -12,6 +12,7 @@ import { RasterRenderer } from './raster-renderer'
 import { PanZoomController, type Controller } from './controller'
 import { GlobeRenderer } from './globe-renderer'
 import { CanvasRenderer } from './canvas-renderer'
+import { VectorTileRenderer } from './vector-tile-renderer'
 
 export class XGISMap {
   private ctx!: GPUContext
@@ -26,6 +27,10 @@ export class XGISMap {
   // Canvas 2D fallback
   private canvasRenderer: CanvasRenderer | null = null
   private useCanvas2D = false
+
+  // Vector tile renderer
+  private vectorTileRenderer: VectorTileRenderer | null = null
+  private vectorTileShows: SceneCommands['shows'] = []
 
   // Raw data for re-projection
   private rawDatasets = new Map<string, GeoJSONFeatureCollection>()
@@ -84,6 +89,7 @@ export class XGISMap {
       this.renderer = new MapRenderer(this.ctx)
       this.rasterRenderer = new RasterRenderer(this.ctx)
       this.globeRenderer = new GlobeRenderer(this.ctx)
+      this.vectorTileRenderer = new VectorTileRenderer(this.ctx)
       this.useCanvas2D = false
     } catch (err) {
       console.warn('[X-GIS] WebGPU unavailable, falling back to Canvas 2D:', (err as Error).message)
@@ -101,6 +107,12 @@ export class XGISMap {
         if (!this.useCanvas2D) {
           this.rasterRenderer.setUrlTemplate(url)
         }
+      } else if (url.endsWith('.xgvt') && !this.useCanvas2D && this.vectorTileRenderer) {
+        // Vector tile file — load into VectorTileRenderer
+        const response = await fetch(url)
+        const buf = await response.arrayBuffer()
+        this.vectorTileRenderer.loadFromBuffer(buf)
+        this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
       } else {
         const response = await fetch(url)
         const data = await response.json() as GeoJSONFeatureCollection
@@ -143,6 +155,12 @@ export class XGISMap {
 
       // Skip raster tile sources (handled by rasterRenderer)
       if ((data as unknown as { _tileUrl?: string })._tileUrl) continue
+
+      // Skip vector tile sources (handled by vectorTileRenderer)
+      if ((data as unknown as { _vectorTile?: boolean })._vectorTile) {
+        this.vectorTileShows.push(show)
+        continue
+      }
 
       const mesh = loadGeoJSON(data)
       this.renderer.addLayer(show, mesh.polygons, mesh.lines)
@@ -320,6 +338,17 @@ export class XGISMap {
 
       this.rasterRenderer.render(pass, this.camera, projType, centerLon, centerLat, w, h)
       this.renderer.renderToPass(pass, this.camera, projType, centerLon, centerLat)
+
+      // Render vector tiles
+      if (this.vectorTileRenderer?.hasData()) {
+        for (const show of this.vectorTileShows) {
+          this.vectorTileRenderer.render(
+            pass, this.camera, projType, centerLon, centerLat, w, h,
+            show, this.renderer.fillPipeline, this.renderer.linePipeline,
+            this.renderer.uniformBuffer, this.renderer.bindGroupLayout,
+          )
+        }
+      }
 
       pass.end()
     }
