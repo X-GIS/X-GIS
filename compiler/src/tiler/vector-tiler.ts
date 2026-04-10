@@ -252,8 +252,8 @@ function autoDetectMaxZoom(features: GeoJSONFeature[], bboxes: FeatureBBox[]): n
 
   // At zoom z, each tile covers 360/2^z degrees of longitude
   // Detail is pointless when tile covers less than avg vertex spacing
-  // → maxZoom ≈ log2(360 / avgSpacing) - 4 (conservative, fewer tiles)
-  const maxZoom = Math.max(2, Math.min(10, Math.floor(Math.log2(360 / avgSpacing)) - 4))
+  // Conservative: limit to prevent tile explosion with large features
+  const maxZoom = Math.max(2, Math.min(7, Math.floor(Math.log2(360 / avgSpacing)) - 5))
 
   console.log(`  Auto maxZoom: ${maxZoom} (avg vertex spacing: ${avgSpacing.toFixed(4)}°)`)
   return maxZoom
@@ -350,13 +350,8 @@ export function compileGeoJSONToTiles(
       const fyMin = Math.max(0, Math.floor((1 - Math.log(Math.tan(latMaxClamped * Math.PI / 180) + 1 / Math.cos(latMaxClamped * Math.PI / 180)) / Math.PI) / 2 * n))
       const fyMax = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(latMinClamped * Math.PI / 180) + 1 / Math.cos(latMinClamped * Math.PI / 180)) / Math.PI) / 2 * n))
 
-      // Skip features spanning too many tiles at high zoom
-      // At low zoom (0-4), allow large spans since total tile count is small
-      // At high zoom (8+), limit to prevent memory explosion
-      const tileSpan = (fxMax - fxMin + 1) * (fyMax - fyMin + 1)
-      const maxSpan = z <= 4 ? 10000 : z <= 6 ? 2000 : z <= 8 ? 500 : 100
-      if (tileSpan > maxSpan) continue
-
+      // No tileSpan limit — clipping keeps each tile small,
+      // and autoDetectMaxZoom prevents unnecessary high-zoom generation.
       for (let x = fxMin; x <= fxMax; x++) {
         for (let y = fyMin; y <= fyMax; y++) {
           const key = tileKey(z, x, y)

@@ -133,68 +133,31 @@ export class VectorTileRenderer {
       entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
     })
 
-    // Pass 1: Load all visible tiles, collect what to render
-    const toRender: { key: number; cached: CachedVectorTile }[] = []
-    const coveredByExact = new Set<number>() // parent keys covered by exact-zoom children
-
+    // Render exact-zoom tiles only (no parent fallback — prevents alpha overlap)
     for (const coord of tiles) {
       const key = tileKey(coord.z, coord.x, coord.y)
+      const cached = this.tileCache.get(key)
 
-      // Try exact match first
-      const exact = this.tileCache.get(key)
-      if (exact) {
-        toRender.push({ key, cached: exact })
-        // Mark all ancestor keys as covered (no parent fallback needed here)
-        let pk = tileKeyParent(key)
-        for (let i = 0; i < 5; i++) { coveredByExact.add(pk); pk = tileKeyParent(pk) }
-        continue
-      }
+      if (cached) {
+        cached.lastUsedFrame = this.frameCount
 
-      // Trigger async load
-      this.ensureTileLoaded(key)
-
-      // Fallback: find nearest cached parent
-      let parentKey = tileKeyParent(key)
-      for (let i = 0; i < 5; i++) {
-        const parent = this.tileCache.get(parentKey)
-        if (parent) {
-          toRender.push({ key: parentKey, cached: parent })
-          break
+        if (cached.indexCount > 0) {
+          pass.setPipeline(fillPipeline)
+          pass.setBindGroup(0, bindGroup)
+          pass.setVertexBuffer(0, cached.vertexBuffer)
+          pass.setIndexBuffer(cached.indexBuffer, 'uint32')
+          pass.drawIndexed(cached.indexCount)
         }
-        this.ensureTileLoaded(parentKey)
-        parentKey = tileKeyParent(parentKey)
-      }
-    }
 
-    // Pass 2: Render, skipping parents that are covered by exact children
-    const rendered = new Set<number>()
-
-    for (const { key, cached } of toRender) {
-      // Skip duplicate renders of same tile
-      if (rendered.has(key)) continue
-
-      // Skip parent tiles whose area is fully covered by exact-zoom children
-      if (coveredByExact.has(key)) continue
-
-      rendered.add(key)
-      cached.lastUsedFrame = this.frameCount
-
-      // Draw polygons
-      if (cached.indexCount > 0) {
-        pass.setPipeline(fillPipeline)
-        pass.setBindGroup(0, bindGroup)
-        pass.setVertexBuffer(0, cached.vertexBuffer)
-        pass.setIndexBuffer(cached.indexBuffer, 'uint32')
-        pass.drawIndexed(cached.indexCount)
-      }
-
-      // Draw lines
-      if (cached.lineIndexCount > 0 && cached.lineVertexBuffer && cached.lineIndexBuffer) {
-        pass.setPipeline(linePipeline)
-        pass.setBindGroup(0, bindGroup)
-        pass.setVertexBuffer(0, cached.lineVertexBuffer)
-        pass.setIndexBuffer(cached.lineIndexBuffer, 'uint32')
-        pass.drawIndexed(cached.lineIndexCount)
+        if (cached.lineIndexCount > 0 && cached.lineVertexBuffer && cached.lineIndexBuffer) {
+          pass.setPipeline(linePipeline)
+          pass.setBindGroup(0, bindGroup)
+          pass.setVertexBuffer(0, cached.lineVertexBuffer)
+          pass.setIndexBuffer(cached.lineIndexBuffer, 'uint32')
+          pass.drawIndexed(cached.lineIndexCount)
+        }
+      } else {
+        this.ensureTileLoaded(key)
       }
     }
 
