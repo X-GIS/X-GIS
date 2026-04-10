@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync } from 'fs'
 import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { serializeXGB, type BinaryScene } from '../binary/format'
+import { lower } from '../ir/lower'
 
 function main() {
   const args = process.argv.slice(2)
@@ -16,6 +17,7 @@ xgisc — X-GIS Compiler
 Usage:
   xgisc compile <input.xgis> [-o <output.xgb>]   Compile to binary
   xgisc parse <input.xgis>                        Parse and print AST (debug)
+  xgisc ir <input.xgis>                           Lower to IR and print (debug)
 
 Example:
   xgisc compile hello.xgis -o hello.xgb
@@ -45,6 +47,13 @@ Example:
       process.exit(1)
     }
     parseDebug(inputPath)
+  } else if (command === 'ir') {
+    const inputPath = args[1]
+    if (!inputPath) {
+      console.error('Error: No input file specified')
+      process.exit(1)
+    }
+    irDebug(inputPath)
   } else {
     console.error(`Unknown command: ${command}`)
     process.exit(1)
@@ -109,6 +118,14 @@ function parseDebug(inputPath: string) {
   const tokens = new Lexer(source).tokenize()
   const ast = new Parser(tokens).parse()
   console.log(JSON.stringify(ast, null, 2))
+}
+
+function irDebug(inputPath: string) {
+  const source = readFileSync(inputPath, 'utf-8')
+  const tokens = new Lexer(source).tokenize()
+  const ast = new Parser(tokens).parse()
+  const scene = lower(ast)
+  console.log(JSON.stringify(scene, null, 2))
 }
 
 main()

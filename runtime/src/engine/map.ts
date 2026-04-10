@@ -1,6 +1,6 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { Lexer, Parser } from '@xgis/compiler'
+import { Lexer, Parser, lower, emitCommands } from '@xgis/compiler'
 import { deserializeXGB } from '../../../compiler/src/binary/format'
 import { initGPU, resizeCanvas, type GPUContext } from './gpu'
 import { Camera } from './camera'
@@ -64,10 +64,13 @@ export class XGISMap {
 
   /** Load and run an X-GIS program */
   async run(source: string, baseUrl = ''): Promise<void> {
-    // 1. Parse
+    // 1. Parse → IR → Commands
     const tokens = new Lexer(source).tokenize()
     const ast = new Parser(tokens).parse()
-    const commands = interpret(ast)
+
+    // Use IR pipeline for new syntax, fallback to legacy interpreter
+    const hasNewSyntax = ast.body.some(s => s.kind === 'SourceStatement' || s.kind === 'LayerStatement')
+    const commands = hasNewSyntax ? emitCommands(lower(ast)) : interpret(ast)
 
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 

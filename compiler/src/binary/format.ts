@@ -10,7 +10,7 @@
 import type { ShowCommand } from '../../../runtime/src/engine/renderer'
 
 const MAGIC = 0x53494758 // "XGIS" in little-endian
-const VERSION = 1
+const VERSION = 2
 
 export interface BinaryScene {
   loads: BinaryLoad[]
@@ -27,6 +27,10 @@ export interface BinaryShow {
   fill: string | null
   stroke: string | null
   strokeWidth: number
+  projection?: string
+  visible?: boolean
+  opacity?: number
+  zOrder?: number
 }
 
 // ═══ Serialize → ArrayBuffer ═══
@@ -52,6 +56,11 @@ export function serializeXGB(scene: BinaryScene): ArrayBuffer {
     encoder.writeString(show.fill ?? '')
     encoder.writeString(show.stroke ?? '')
     encoder.writeF32(show.strokeWidth)
+    // v2 fields
+    encoder.writeString(show.projection ?? 'mercator')
+    encoder.writeU8(show.visible === false ? 0 : 1)
+    encoder.writeF32(show.opacity ?? 1.0)
+    encoder.writeU16(show.zOrder ?? 0)
   }
 
   return encoder.finish()
@@ -69,7 +78,7 @@ export function deserializeXGB(buffer: ArrayBuffer): BinaryScene {
   }
 
   const version = decoder.readU16()
-  if (version !== VERSION) {
+  if (version !== 1 && version !== VERSION) {
     throw new Error(`Unsupported .xgb version: ${version} (expected ${VERSION})`)
   }
 
@@ -91,7 +100,20 @@ export function deserializeXGB(buffer: ArrayBuffer): BinaryScene {
     const fill = decoder.readString() || null
     const stroke = decoder.readString() || null
     const strokeWidth = decoder.readF32()
-    shows.push({ targetName, fill, stroke, strokeWidth })
+
+    // v2 fields (absent in v1)
+    let projection = 'mercator'
+    let visible = true
+    let opacity = 1.0
+    let zOrder = 0
+    if (version >= 2) {
+      projection = decoder.readString()
+      visible = decoder.readU8() !== 0
+      opacity = decoder.readF32()
+      zOrder = decoder.readU16()
+    }
+
+    shows.push({ targetName, fill, stroke, strokeWidth, projection, visible, opacity, zOrder })
   }
 
   return { loads, shows }

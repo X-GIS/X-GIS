@@ -43,6 +43,39 @@ describe('XGB Binary Format', () => {
     expect(buffer.byteLength).toBeLessThan(120)
   })
 
+  it('round-trips v2 fields (projection, visible, opacity, zOrder)', () => {
+    const scene: BinaryScene = {
+      loads: [{ name: 'world', url: 'countries.geojson' }],
+      shows: [{
+        targetName: 'world', fill: '#ff0000', stroke: '#000', strokeWidth: 2,
+        projection: 'natural_earth', visible: false, opacity: 0.75, zOrder: 10,
+      }],
+    }
+
+    const buffer = serializeXGB(scene)
+    const restored = deserializeXGB(buffer)
+
+    expect(restored.shows[0].projection).toBe('natural_earth')
+    expect(restored.shows[0].visible).toBe(false)
+    expect(restored.shows[0].opacity).toBeCloseTo(0.75)
+    expect(restored.shows[0].zOrder).toBe(10)
+  })
+
+  it('defaults v2 fields when not provided', () => {
+    const scene: BinaryScene = {
+      loads: [{ name: 'x', url: 'x.geojson' }],
+      shows: [{ targetName: 'x', fill: '#fff', stroke: null, strokeWidth: 1 }],
+    }
+
+    const buffer = serializeXGB(scene)
+    const restored = deserializeXGB(buffer)
+
+    expect(restored.shows[0].projection).toBe('mercator')
+    expect(restored.shows[0].visible).toBe(true)
+    expect(restored.shows[0].opacity).toBeCloseTo(1.0)
+    expect(restored.shows[0].zOrder).toBe(0)
+  })
+
   it('rejects invalid magic', () => {
     const badBuffer = new ArrayBuffer(8)
     new DataView(badBuffer).setUint32(0, 0xDEADBEEF, true)
