@@ -1,6 +1,7 @@
 // ═══ AST Interpreter — AST를 실행 가능한 명령으로 변환 ═══
 
 import type * as AST from '@xgis/compiler'
+import { resolveUtilities } from '@xgis/compiler'
 import type { ShowCommand } from './renderer'
 
 export interface LoadCommand {
@@ -15,11 +16,12 @@ export interface SceneCommands {
 
 /**
  * Interpret a parsed X-GIS program into executable commands.
- * MVP: handles let + load() and show blocks only.
+ * Handles both legacy (let/show) and new (source/layer) syntax.
  */
 export function interpret(program: AST.Program): SceneCommands {
   const loads: LoadCommand[] = []
   const shows: ShowCommand[] = []
+  const sources = new Map<string, SourceDef>()
 
   for (const stmt of program.body) {
     if (stmt.kind === 'LetStatement') {
@@ -28,11 +30,84 @@ export function interpret(program: AST.Program): SceneCommands {
     } else if (stmt.kind === 'ShowStatement') {
       const show = extractShow(stmt)
       if (show) shows.push(show)
+    } else if (stmt.kind === 'SourceStatement') {
+      const src = extractSource(stmt)
+      if (src) sources.set(src.name, src)
+    } else if (stmt.kind === 'LayerStatement') {
+      const result = extractLayer(stmt, sources)
+      if (result) {
+        loads.push(result.load)
+        shows.push(result.show)
+      }
     }
   }
 
   return { loads, shows }
 }
+
+// ═══ New syntax: source/layer ═══
+
+interface SourceDef {
+  name: string
+  type: string
+  url: string
+}
+
+function extractSource(stmt: AST.SourceStatement): SourceDef | null {
+  let type = 'geojson'
+  let url = ''
+
+  for (const prop of stmt.properties) {
+    if (prop.name === 'type' && prop.value.kind === 'Identifier') {
+      type = prop.value.name
+    } else if (prop.name === 'url' && prop.value.kind === 'StringLiteral') {
+      url = prop.value.value
+    }
+  }
+
+  if (!url) return null
+  return { name: stmt.name, type, url }
+}
+
+function extractLayer(
+  stmt: AST.LayerStatement,
+  sources: Map<string, SourceDef>,
+): { load: LoadCommand; show: ShowCommand } | null {
+  // Find source reference
+  let sourceName = ''
+  for (const prop of stmt.properties) {
+    if (prop.name === 'source' && prop.value.kind === 'Identifier') {
+      sourceName = prop.value.name
+    }
+  }
+
+  const sourceDef = sources.get(sourceName)
+  if (!sourceDef) return null
+
+  // Collect all utility items from all lines
+  const allItems: AST.UtilityItem[] = []
+  for (const line of stmt.utilities) {
+    allItems.push(...line.items)
+  }
+
+  // Resolve utilities to properties
+  const resolved = resolveUtilities(allItems)
+
+  return {
+    load: { name: sourceDef.name, url: sourceDef.url },
+    show: {
+      targetName: sourceDef.name,
+      fill: resolved.fill,
+      stroke: resolved.stroke,
+      strokeWidth: resolved.strokeWidth,
+      projection: resolved.projection,
+      visible: resolved.visible,
+      opacity: resolved.opacity,
+    },
+  }
+}
+
+// ═══ Legacy syntax: let/show ═══
 
 function extractLoad(stmt: AST.LetStatement): LoadCommand | null {
   if (stmt.value.kind === 'FnCall') {

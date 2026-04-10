@@ -133,6 +133,137 @@ describe('Parser', () => {
     })
   })
 
+  describe('source statement', () => {
+    it('parses source with properties', () => {
+      const ast = parse(`
+        source neighborhoods {
+          type: geojson
+          url: "./data/seoul_gu.geojson"
+        }
+      `)
+      expect(ast.body).toHaveLength(1)
+
+      const stmt = ast.body[0] as AST.SourceStatement
+      expect(stmt.kind).toBe('SourceStatement')
+      expect(stmt.name).toBe('neighborhoods')
+      expect(stmt.properties).toHaveLength(2)
+
+      expect(stmt.properties[0].name).toBe('type')
+      expect((stmt.properties[0].value as AST.Identifier).name).toBe('geojson')
+
+      expect(stmt.properties[1].name).toBe('url')
+      expect((stmt.properties[1].value as AST.StringLiteral).value).toBe('./data/seoul_gu.geojson')
+    })
+
+    it('parses source with comma-separated properties', () => {
+      const ast = parse(`source world { type: geojson, url: "countries.geojson" }`)
+      const stmt = ast.body[0] as AST.SourceStatement
+      expect(stmt.properties).toHaveLength(2)
+    })
+  })
+
+  describe('layer statement', () => {
+    it('parses layer with properties and utilities', () => {
+      const ast = parse(`
+        layer districts {
+          source: neighborhoods
+          | fill-blue-400 stroke-white stroke-2 opacity-80
+        }
+      `)
+      expect(ast.body).toHaveLength(1)
+
+      const stmt = ast.body[0] as AST.LayerStatement
+      expect(stmt.kind).toBe('LayerStatement')
+      expect(stmt.name).toBe('districts')
+
+      // source property
+      expect(stmt.properties).toHaveLength(1)
+      expect(stmt.properties[0].name).toBe('source')
+      expect((stmt.properties[0].value as AST.Identifier).name).toBe('neighborhoods')
+
+      // utility line
+      expect(stmt.utilities).toHaveLength(1)
+      expect(stmt.utilities[0].items).toHaveLength(4)
+      expect(stmt.utilities[0].items[0].name).toBe('fill-blue-400')
+      expect(stmt.utilities[0].items[1].name).toBe('stroke-white')
+      expect(stmt.utilities[0].items[2].name).toBe('stroke-2')
+      expect(stmt.utilities[0].items[3].name).toBe('opacity-80')
+    })
+
+    it('parses multiple utility lines', () => {
+      const ast = parse(`
+        layer tracks {
+          source: military_tracks
+          | symbol-arrow size-8 rotate-45
+          | fill-green-500 stroke-black stroke-1
+          | opacity-80
+        }
+      `)
+
+      const stmt = ast.body[0] as AST.LayerStatement
+      expect(stmt.utilities).toHaveLength(3)
+      expect(stmt.utilities[0].items).toHaveLength(3)
+      expect(stmt.utilities[1].items).toHaveLength(3)
+      expect(stmt.utilities[2].items).toHaveLength(1)
+    })
+
+    it('parses utility with modifier', () => {
+      const ast = parse(`
+        layer tracks {
+          source: data
+          | friendly:fill-green-500 hostile:fill-red-500 fill-gray-400
+        }
+      `)
+
+      const stmt = ast.body[0] as AST.LayerStatement
+      const items = stmt.utilities[0].items
+
+      expect(items[0].modifier).toBe('friendly')
+      expect(items[0].name).toBe('fill-green-500')
+
+      expect(items[1].modifier).toBe('hostile')
+      expect(items[1].name).toBe('fill-red-500')
+
+      expect(items[2].modifier).toBeNull()
+      expect(items[2].name).toBe('fill-gray-400')
+    })
+
+    it('parses utility with data binding [expr]', () => {
+      const ast = parse(`
+        layer tracks {
+          source: data
+          | size-[speed]
+        }
+      `)
+
+      const stmt = ast.body[0] as AST.LayerStatement
+      const item = stmt.utilities[0].items[0]
+      expect(item.name).toBe('size')
+      expect(item.binding).not.toBeNull()
+      expect((item.binding as AST.Identifier).name).toBe('speed')
+    })
+  })
+
+  describe('DESIGN.md MVP example', () => {
+    it('parses the complete MVP scene', () => {
+      const ast = parse(`
+        source neighborhoods {
+          type: geojson
+          url: "./data/seoul_gu.geojson"
+        }
+
+        layer districts {
+          source: neighborhoods
+          | fill-blue-400 stroke-white stroke-2 opacity-80
+        }
+      `)
+
+      expect(ast.body).toHaveLength(2)
+      expect(ast.body[0].kind).toBe('SourceStatement')
+      expect(ast.body[1].kind).toBe('LayerStatement')
+    })
+  })
+
   describe('show with data binding', () => {
     it('parses show with field access and expressions', () => {
       const ast = parse(`

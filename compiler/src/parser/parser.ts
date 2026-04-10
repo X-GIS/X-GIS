@@ -28,6 +28,10 @@ export class Parser {
         return this.parseShowStatement()
       case TokenType.Fn:
         return this.parseFnStatement()
+      case TokenType.Source:
+        return this.parseSourceStatement()
+      case TokenType.Layer:
+        return this.parseLayerStatement()
       default:
         return this.parseExprStatement()
     }
@@ -121,6 +125,181 @@ export class Parser {
     this.expect(TokenType.RBrace)
 
     return { kind: 'FnStatement', name, params, returnType, body, line }
+  }
+
+  // source name { key: value, ... }
+  private parseSourceStatement(): AST.SourceStatement {
+    const line = this.current().line
+    this.expect(TokenType.Source)
+    const name = this.expect(TokenType.Identifier).value
+    this.expect(TokenType.LBrace)
+
+    const properties: AST.BlockProperty[] = []
+    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
+      properties.push(this.parseBlockProperty())
+      // skip optional comma between properties
+      if (this.check(TokenType.Comma)) this.advance()
+    }
+    this.expect(TokenType.RBrace)
+
+    return { kind: 'SourceStatement', name, properties, line }
+  }
+
+  // layer name { key: value, ... | utility-items ... }
+  private parseLayerStatement(): AST.LayerStatement {
+    const line = this.current().line
+    this.expect(TokenType.Layer)
+    const name = this.expect(TokenType.Identifier).value
+    this.expect(TokenType.LBrace)
+
+    const properties: AST.BlockProperty[] = []
+    const utilities: AST.UtilityLine[] = []
+
+    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
+      if (this.check(TokenType.Pipe)) {
+        // Utility line: | item item item ...
+        utilities.push(this.parseUtilityLine())
+      } else {
+        // Block property: key: value
+        properties.push(this.parseBlockProperty())
+        // skip optional comma
+        if (this.check(TokenType.Comma)) this.advance()
+      }
+    }
+    this.expect(TokenType.RBrace)
+
+    return { kind: 'LayerStatement', name, properties, utilities, line }
+  }
+
+  // key: value (used in source and layer blocks)
+  // Uses parseComparison() instead of parseExpr() to avoid consuming | as pipe operator
+  private parseBlockProperty(): AST.BlockProperty {
+    const line = this.current().line
+    const name = this.expectIdentifierOrKeyword()
+    this.expect(TokenType.Colon)
+    const value = this.parseComparison()
+    return { kind: 'BlockProperty', name, value, line }
+  }
+
+  // | item item item (until next | or })
+  private parseUtilityLine(): AST.UtilityLine {
+    const line = this.current().line
+    this.expect(TokenType.Pipe)
+
+    const items: AST.UtilityItem[] = []
+    // Parse items until we hit another |, }, or EOF
+    while (
+      !this.check(TokenType.Pipe) &&
+      !this.check(TokenType.RBrace) &&
+      !this.isEnd()
+    ) {
+      items.push(this.parseUtilityItem())
+    }
+
+    return { kind: 'UtilityLine', items, line }
+  }
+
+  // Parse a single utility item like "fill-red-500", "z8:opacity-40", "size-[expr]"
+  private parseUtilityItem(): AST.UtilityItem {
+    let modifier: string | null = null
+
+    // Check for modifier pattern: identifier:identifier-...
+    // e.g., z8:opacity-40, friendly:fill-green-500, hover:glow-8
+    if (this.isModifierPattern()) {
+      modifier = this.advance().value // consume the modifier identifier
+      this.expect(TokenType.Colon)    // consume ':'
+    }
+
+    // Parse the utility name: hyphen-joined tokens like "fill-red-500", "stroke-2"
+    const name = this.parseUtilityName()
+
+    // Check for data binding: -[expr] or [expr]
+    let binding: AST.Expr | null = null
+    // Handle size-[speed], fill-[expr] patterns: minus followed by bracket
+    if (this.check(TokenType.Minus) && this.tokens[this.pos + 1]?.type === TokenType.LBracket) {
+      this.advance() // skip '-'
+      this.advance() // skip '['
+      binding = this.parseExpr()
+      this.expect(TokenType.RBracket)
+    } else if (this.check(TokenType.LBracket)) {
+      this.advance() // skip [
+      binding = this.parseExpr()
+      this.expect(TokenType.RBracket)
+    }
+
+    return { kind: 'UtilityItem', modifier, name, binding }
+  }
+
+  /**
+   * Parse a hyphen-joined utility name like "fill-red-500", "stroke-white", "opacity-80".
+   * Consumes: Identifier/Number/Color tokens joined by Minus tokens.
+   */
+  private parseUtilityName(): string {
+    let name = ''
+
+    // First token must be an identifier
+    if (this.check(TokenType.Identifier)) {
+      name = this.advance().value
+    } else if (this.check(TokenType.Number)) {
+      name = this.advance().value
+      return name
+    } else {
+      this.error(`Expected utility name, got ${TokenType[this.current().type]} ('${this.current().value}')`)
+    }
+
+    // Continue consuming -identifier, -number, -color segments
+    while (this.check(TokenType.Minus)) {
+      // Peek ahead: if next after minus is not part of utility name, stop
+      const next = this.tokens[this.pos + 1]
+      if (
+        !next ||
+        (next.type !== TokenType.Identifier &&
+         next.type !== TokenType.Number &&
+         next.type !== TokenType.Color)
+      ) {
+        break
+      }
+      this.advance() // consume '-'
+      name += '-' + this.advance().value
+    }
+
+    return name
+  }
+
+  /**
+   * Lookahead: is this a modifier pattern (identifier followed by colon,
+   * then another identifier that starts a utility name)?
+   * Distinguishes "z8:opacity-40" (modifier) from "source: neighborhoods" (property).
+   */
+  private isModifierPattern(): boolean {
+    if (!this.check(TokenType.Identifier)) return false
+    const next1 = this.tokens[this.pos + 1]
+    const next2 = this.tokens[this.pos + 2]
+    if (!next1 || next1.type !== TokenType.Colon) return false
+    // After colon, must be an identifier (utility name start)
+    // But we need to distinguish from block properties — block properties
+    // are only parsed outside utility lines, so inside utility lines this is always a modifier
+    return next2 !== undefined && next2.type === TokenType.Identifier
+  }
+
+  /**
+   * Consume an identifier token, but also accept keywords used as property names
+   * (e.g., "source" in layer block: "source: world").
+   */
+  private expectIdentifierOrKeyword(): string {
+    const token = this.current()
+    // Accept identifier and keyword tokens that can be used as property names
+    if (
+      token.type === TokenType.Identifier ||
+      token.type === TokenType.Source ||
+      token.type === TokenType.Layer ||
+      token.type === TokenType.View ||
+      token.type === TokenType.On
+    ) {
+      this.advance()
+      return token.value
+    }
+    return this.expect(TokenType.Identifier).value
   }
 
   private parseExprStatement(): AST.ExprStatement {

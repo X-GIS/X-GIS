@@ -5,7 +5,13 @@ export type Program = {
   body: Statement[]
 }
 
-export type Statement = LetStatement | ShowStatement | FnStatement | ExprStatement
+export type Statement =
+  | LetStatement
+  | ShowStatement
+  | FnStatement
+  | ExprStatement
+  | SourceStatement
+  | LayerStatement
 
 // let world = load("countries.geojson")
 export type LetStatement = {
@@ -144,4 +150,46 @@ export type MatchBlock = {
 export type MatchArm = {
   pattern: string // key name or '_' for default
   value: Expr
+}
+
+// ═══ New syntax: source/layer/utility (DESIGN.md v3) ═══
+
+// source world { type: geojson, url: "./data/countries.geojson" }
+export type SourceStatement = {
+  kind: 'SourceStatement'
+  name: string
+  properties: BlockProperty[]
+  line: number
+}
+
+// layer districts { source: neighborhoods, | fill-blue-400 stroke-white stroke-2 }
+export type LayerStatement = {
+  kind: 'LayerStatement'
+  name: string
+  properties: BlockProperty[]
+  utilities: UtilityLine[]
+  line: number
+}
+
+// Generic key: value property used in source/layer blocks
+export type BlockProperty = {
+  kind: 'BlockProperty'
+  name: string
+  value: Expr
+  line: number
+}
+
+// A single | line: | fill-red-500 stroke-white stroke-2 opacity-80
+export type UtilityLine = {
+  kind: 'UtilityLine'
+  items: UtilityItem[]
+  line: number
+}
+
+// A single utility item, e.g., z8:fill-red-500 or size-[speed/50]
+export type UtilityItem = {
+  kind: 'UtilityItem'
+  modifier: string | null   // e.g., "z8", "friendly", "hover" (before the colon)
+  name: string              // e.g., "fill-red-500", "stroke-2", "opacity-80"
+  binding: Expr | null      // e.g., the expression inside [...] for data binding
 }

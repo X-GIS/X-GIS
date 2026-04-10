@@ -23,6 +23,8 @@ export enum TokenType {
   Import, // import
   Struct, // struct
   Enum, // enum
+  Source, // source
+  Layer, // layer
 
   // Units
   Px, // px
@@ -92,6 +94,8 @@ const KEYWORDS: Record<string, TokenType> = {
   import: TokenType.Import,
   struct: TokenType.Struct,
   enum: TokenType.Enum,
+  source: TokenType.Source,
+  layer: TokenType.Layer,
   true: TokenType.Bool,
   false: TokenType.Bool,
 }
