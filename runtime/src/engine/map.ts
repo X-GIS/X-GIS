@@ -108,9 +108,8 @@ export class XGISMap {
           this.rasterRenderer.setUrlTemplate(url)
         }
       } else if (url.endsWith('.xgvt') && !this.useCanvas2D && this.vectorTileRenderer) {
-        // Vector tile file — full load (reliable), Range Request for CDN/large files
-        const buf = await (await fetch(url)).arrayBuffer()
-        this.vectorTileRenderer.loadFromBuffer(buf)
+        // Vector tile file — Range Request mode (index first, tiles on demand)
+        await this.vectorTileRenderer.loadFromURL(url)
         this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
 
         // Fit camera to vector tile bounds

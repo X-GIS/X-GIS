@@ -26,6 +26,7 @@ interface CachedVectorTile {
 }
 
 const MAX_CACHED_TILES = 256
+const MAX_CONCURRENT_LOADS = 6
 
 // ═══ Renderer ═══
 
@@ -168,6 +169,7 @@ export class VectorTileRenderer {
   private ensureTileLoaded(key: number): void {
     if (this.tileCache.has(key) || this.loadingTiles.has(key)) return
     if (!this.index) return
+    if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) return // throttle
 
     const entry = this.index.entryByHash.get(key)
     if (!entry) return
