@@ -72,15 +72,17 @@ export function isTileTemplate(url: string): boolean {
   return url.includes('{z}') && url.includes('{x}') && url.includes('{y}')
 }
 
-/** Load an image as a GPU texture */
+/** Load an image as a GPU texture (supports AbortSignal for cancellation) */
 export async function loadImageTexture(
   device: GPUDevice,
   url: string,
+  signal?: AbortSignal,
 ): Promise<GPUTexture | null> {
   try {
-    const response = await fetch(url)
+    const response = await fetch(url, { signal })
     if (!response.ok) return null
     const blob = await response.blob()
+    if (signal?.aborted) return null
     const bitmap = await createImageBitmap(blob)
 
     const texture = device.createTexture({
@@ -100,4 +102,15 @@ export async function loadImageTexture(
   } catch {
     return null
   }
+}
+
+/**
+ * Sort tiles by distance from center (closest first → highest priority).
+ */
+export function sortByPriority(tiles: TileCoord[], centerTileX: number, centerTileY: number): TileCoord[] {
+  return tiles.sort((a, b) => {
+    const da = Math.abs(a.x - centerTileX) + Math.abs(a.y - centerTileY)
+    const db = Math.abs(b.x - centerTileX) + Math.abs(b.y - centerTileY)
+    return da - db
+  })
 }

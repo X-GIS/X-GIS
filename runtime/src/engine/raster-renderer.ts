@@ -2,7 +2,7 @@
 
 import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
-import { visibleTiles, tileBounds, tileUrl, loadImageTexture, type TileCoord, type LoadedTile } from '../loader/tiles'
+import { visibleTiles, tileBounds, tileUrl, loadImageTexture, sortByPriority, type TileCoord } from '../loader/tiles'
 
 const RASTER_SHADER = /* wgsl */ `
 const PI: f32 = 3.14159265;
@@ -142,6 +142,16 @@ fn fs_tile(input: VsOut) -> @location(0) vec4<f32> {
 }
 `
 
+interface CachedTile {
+  texture: GPUTexture
+  bindGroup: GPUBindGroup
+  tileUniform: GPUBuffer
+  lastUsedFrame: number
+}
+
+const MAX_CACHED_TILES = 256
+const MAX_CONCURRENT_LOADS = 6
+
 export class RasterRenderer {
   private device: GPUDevice
   private pipeline: GPURenderPipeline
@@ -150,9 +160,11 @@ export class RasterRenderer {
   private uniformBuffer: GPUBuffer
   private sampler: GPUSampler
 
-  // Tile cache
-  private tileCache = new Map<string, { texture: GPUTexture; bindGroup: GPUBindGroup; tileUniform: GPUBuffer }>()
-  private loadingTiles = new Set<string>()
+  // LRU tile cache
+  private tileCache = new Map<string, CachedTile>()
+  private loadingTiles = new Map<string, AbortController>()
+  private frameCount = 0
+  private lastZoom = -1
 
   private urlTemplate = ''
 
@@ -213,43 +225,70 @@ export class RasterRenderer {
     canvasHeight: number,
   ): void {
     if (!this.urlTemplate) return
+    this.frameCount++
 
     const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
-
-    // Determine visible tiles
     const { centerX, centerY, zoom } = camera
-    // Convert mercator center back to lon/lat for tile calculation
     const centerLon = (centerX / 6378137) * (180 / Math.PI)
     const centerLat = (2 * Math.atan(Math.exp(centerY / 6378137)) - Math.PI / 2) * (180 / Math.PI)
 
+    const currentZ = Math.max(0, Math.min(18, Math.round(zoom)))
+
+    // Cancel in-flight requests when zoom level changes
+    if (currentZ !== this.lastZoom) {
+      for (const [key, ctrl] of this.loadingTiles) {
+        const tileZ = parseInt(key.split('/')[0])
+        if (tileZ !== currentZ) {
+          ctrl.abort()
+          this.loadingTiles.delete(key)
+        }
+      }
+      this.lastZoom = currentZ
+    }
+
     const tiles = visibleTiles(centerLon, centerLat, zoom, canvasWidth, canvasHeight)
 
-    // Load missing tiles (async)
+    // Sort by distance from center (priority loading)
+    const n = Math.pow(2, currentZ)
+    const centerTileX = Math.floor((centerLon + 180) / 360 * n)
+    const centerTileY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
+    sortByPriority(tiles, centerTileX, centerTileY)
+
+    // Build set of visible tile keys for this frame
+    const visibleKeys = new Set(tiles.map(c => `${c.z}/${c.x}/${c.y}`))
+
+    // Load missing tiles (async, with concurrency limit and priority)
     for (const coord of tiles) {
       const key = `${coord.z}/${coord.x}/${coord.y}`
-      if (!this.tileCache.has(key) && !this.loadingTiles.has(key)) {
-        this.loadingTiles.add(key)
-        const url = tileUrl(this.urlTemplate, coord)
-        loadImageTexture(this.device, url).then((texture) => {
-          this.loadingTiles.delete(key)
-          if (!texture) return
+      if (this.tileCache.has(key) || this.loadingTiles.has(key)) continue
+      if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break // respect concurrency limit
 
-          const bounds = tileBounds(coord)
-          const tileUniform = this.device.createBuffer({
-            size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-          })
-          this.device.queue.writeBuffer(tileUniform, 0, new Float32Array([
-            bounds.west, bounds.south, bounds.east, bounds.north,
-          ]))
+      const ctrl = new AbortController()
+      this.loadingTiles.set(key, ctrl)
+      const url = tileUrl(this.urlTemplate, coord)
 
-          const bindGroup = this.device.createBindGroup({
-            layout: this.tileBindGroupLayout,
-            entries: [{ binding: 0, resource: { buffer: tileUniform } }],
-          })
+      loadImageTexture(this.device, url, ctrl.signal).then((texture) => {
+        this.loadingTiles.delete(key)
+        if (!texture) return
 
-          this.tileCache.set(key, { texture, bindGroup, tileUniform })
+        const bounds = tileBounds(coord)
+        const tileUniform = this.device.createBuffer({
+          size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         })
-      }
+        this.device.queue.writeBuffer(tileUniform, 0, new Float32Array([
+          bounds.west, bounds.south, bounds.east, bounds.north,
+        ]))
+
+        const bindGroup = this.device.createBindGroup({
+          layout: this.tileBindGroupLayout,
+          entries: [{ binding: 0, resource: { buffer: tileUniform } }],
+        })
+
+        this.tileCache.set(key, { texture, bindGroup, tileUniform, lastUsedFrame: this.frameCount })
+
+        // Evict old tiles if cache is full
+        this.evictTiles(visibleKeys)
+      })
     }
 
     // Write global uniforms
@@ -266,6 +305,8 @@ export class RasterRenderer {
       const cached = this.tileCache.get(key)
       if (!cached) continue
 
+      cached.lastUsedFrame = this.frameCount
+
       const globalBG = this.device.createBindGroup({
         layout: this.globalBindGroupLayout,
         entries: [
@@ -277,7 +318,25 @@ export class RasterRenderer {
 
       pass.setBindGroup(0, globalBG)
       pass.setBindGroup(1, cached.bindGroup)
-      pass.draw(6) // quad = 2 triangles
+      pass.draw(6)
+    }
+  }
+
+  /** Evict least-recently-used tiles when cache exceeds limit */
+  private evictTiles(visibleKeys: Set<string>): void {
+    if (this.tileCache.size <= MAX_CACHED_TILES) return
+
+    // Sort by lastUsedFrame (oldest first), skip currently visible
+    const entries = [...this.tileCache.entries()]
+      .filter(([key]) => !visibleKeys.has(key))
+      .sort((a, b) => a[1].lastUsedFrame - b[1].lastUsedFrame)
+
+    const toEvict = this.tileCache.size - MAX_CACHED_TILES
+    for (let i = 0; i < toEvict && i < entries.length; i++) {
+      const [key, tile] = entries[i]
+      tile.texture.destroy()
+      tile.tileUniform.destroy()
+      this.tileCache.delete(key)
     }
   }
 }

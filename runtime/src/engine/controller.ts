@@ -25,24 +25,69 @@ export class PanZoomController implements Controller {
     let lastX = 0
     let lastY = 0
 
+    // Touch state for pinch-to-zoom
+    const activePointers = new Map<number, { x: number; y: number }>()
+    let lastPinchDist = 0
+
     const onPointerDown = (e: PointerEvent) => {
-      isDragging = true
-      lastX = e.clientX
-      lastY = e.clientY
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
       canvas.setPointerCapture(e.pointerId)
+
+      if (activePointers.size === 1) {
+        isDragging = true
+        lastX = e.clientX
+        lastY = e.clientY
+      } else if (activePointers.size === 2) {
+        // Start pinch — calculate initial distance
+        isDragging = false
+        lastPinchDist = getPinchDistance(activePointers)
+      }
     }
 
     const onPointerMove = (e: PointerEvent) => {
-      if (!isDragging) return
-      const dx = e.clientX - lastX
-      const dy = e.clientY - lastY
-      lastX = e.clientX
-      lastY = e.clientY
-      camera.pan(dx, dy, canvas.width, canvas.height)
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+      if (activePointers.size === 2) {
+        // Pinch zoom
+        const dist = getPinchDistance(activePointers)
+        if (lastPinchDist > 0) {
+          const scale = dist / lastPinchDist
+          const delta = (scale - 1) * 3
+          const center = getPinchCenter(activePointers)
+          camera.zoomAt(delta, center.x, center.y, canvas.width, canvas.height)
+        }
+        lastPinchDist = dist
+      } else if (isDragging && activePointers.size === 1) {
+        // Single finger pan
+        const dx = e.clientX - lastX
+        const dy = e.clientY - lastY
+        lastX = e.clientX
+        lastY = e.clientY
+        camera.pan(dx, dy, canvas.width, canvas.height)
+      }
     }
 
-    const onPointerUp = () => {
-      isDragging = false
+    const onPointerUp = (e: PointerEvent) => {
+      activePointers.delete(e.pointerId)
+      if (activePointers.size === 0) {
+        isDragging = false
+        lastPinchDist = 0
+      } else if (activePointers.size === 1) {
+        // Went from 2 fingers to 1 — restart single-finger drag
+        isDragging = true
+        const remaining = activePointers.values().next().value!
+        lastX = remaining.x
+        lastY = remaining.y
+        lastPinchDist = 0
+      }
+    }
+
+    const onPointerCancel = (e: PointerEvent) => {
+      activePointers.delete(e.pointerId)
+      if (activePointers.size === 0) {
+        isDragging = false
+        lastPinchDist = 0
+      }
     }
 
     const onWheel = (e: WheelEvent) => {
@@ -54,12 +99,14 @@ export class PanZoomController implements Controller {
     canvas.addEventListener('pointerdown', onPointerDown)
     canvas.addEventListener('pointermove', onPointerMove)
     canvas.addEventListener('pointerup', onPointerUp)
+    canvas.addEventListener('pointercancel', onPointerCancel)
     canvas.addEventListener('wheel', onWheel, { passive: false })
 
     this.cleanup = () => {
       canvas.removeEventListener('pointerdown', onPointerDown)
       canvas.removeEventListener('pointermove', onPointerMove)
       canvas.removeEventListener('pointerup', onPointerUp)
+      canvas.removeEventListener('pointercancel', onPointerCancel)
       canvas.removeEventListener('wheel', onWheel)
     }
   }
@@ -68,6 +115,20 @@ export class PanZoomController implements Controller {
     this.cleanup?.()
     this.cleanup = null
   }
+}
+
+function getPinchDistance(pointers: Map<number, { x: number; y: number }>): number {
+  const pts = [...pointers.values()]
+  if (pts.length < 2) return 0
+  const dx = pts[1].x - pts[0].x
+  const dy = pts[1].y - pts[0].y
+  return Math.sqrt(dx * dx + dy * dy)
+}
+
+function getPinchCenter(pointers: Map<number, { x: number; y: number }>): { x: number; y: number } {
+  const pts = [...pointers.values()]
+  if (pts.length < 2) return pts[0] ?? { x: 0, y: 0 }
+  return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 }
 }
 
 // ═══ Trackball Controller — 지구본용 (Orthographic) ═══
@@ -84,52 +145,75 @@ export class TrackballController implements Controller {
     let lastX = 0
     let lastY = 0
 
-    const scheduleRebuild = () => {
-      if (this.rebuildTimer) clearTimeout(this.rebuildTimer)
-      this.rebuildTimer = setTimeout(() => {
-        const state = getState()
-        state.setProjectionCenter?.(this.centerLon, this.centerLat)
-      }, 50) // 50ms debounce
-    }
+    const activePointers = new Map<number, { x: number; y: number }>()
+    let lastPinchDist = 0
 
     const onPointerDown = (e: PointerEvent) => {
-      isDragging = true
-      lastX = e.clientX
-      lastY = e.clientY
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
       canvas.setPointerCapture(e.pointerId)
+
+      if (activePointers.size === 1) {
+        isDragging = true
+        lastX = e.clientX
+        lastY = e.clientY
+      } else if (activePointers.size === 2) {
+        isDragging = false
+        lastPinchDist = getPinchDistance(activePointers)
+      }
     }
 
     const onPointerMove = (e: PointerEvent) => {
-      if (!isDragging) return
-      const dx = e.clientX - lastX
-      const dy = e.clientY - lastY
-      lastX = e.clientX
-      lastY = e.clientY
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
 
-      // 드래그 → 지구본 회전 (표면을 잡고 끄는 느낌)
-      // 오른쪽 드래그 → 표면이 오른쪽으로 → 중심점은 서쪽으로 이동
-      const sensitivity = 0.4
-      this.centerLon -= dx * sensitivity
-      this.centerLat += dy * sensitivity
+      if (activePointers.size === 2) {
+        const dist = getPinchDistance(activePointers)
+        if (lastPinchDist > 0) {
+          const scale = dist / lastPinchDist
+          const delta = (scale - 1) * 2
+          const center = getPinchCenter(activePointers)
+          camera.zoomAt(delta, center.x, center.y, canvas.width, canvas.height)
+        }
+        lastPinchDist = dist
+      } else if (isDragging && activePointers.size === 1) {
+        const dx = e.clientX - lastX
+        const dy = e.clientY - lastY
+        lastX = e.clientX
+        lastY = e.clientY
 
-      // 위도 클램프
-      this.centerLat = Math.max(-89, Math.min(89, this.centerLat))
+        const sensitivity = 0.4
+        this.centerLon -= dx * sensitivity
+        this.centerLat += dy * sensitivity
+        this.centerLat = Math.max(-89, Math.min(89, this.centerLat))
+        if (this.centerLon > 180) this.centerLon -= 360
+        if (this.centerLon < -180) this.centerLon += 360
 
-      // 경도 래핑
-      if (this.centerLon > 180) this.centerLon -= 360
-      if (this.centerLon < -180) this.centerLon += 360
-
-      // 프로젝션 중심 업데이트 → GPU uniform이므로 즉시 (재테셀레이션 없음!)
-      const state = getState()
-      state.setProjectionCenter?.(this.centerLon, this.centerLat)
+        const state = getState()
+        state.setProjectionCenter?.(this.centerLon, this.centerLat)
+      }
     }
 
-    const onPointerUp = () => {
-      isDragging = false
-      // 드래그 끝나면 즉시 최종 rebuild
-      if (this.rebuildTimer) clearTimeout(this.rebuildTimer)
-      const state = getState()
-      state.setProjectionCenter?.(this.centerLon, this.centerLat)
+    const onPointerUp = (e: PointerEvent) => {
+      activePointers.delete(e.pointerId)
+      if (activePointers.size === 0) {
+        isDragging = false
+        lastPinchDist = 0
+        const state = getState()
+        state.setProjectionCenter?.(this.centerLon, this.centerLat)
+      } else if (activePointers.size === 1) {
+        isDragging = true
+        const remaining = activePointers.values().next().value!
+        lastX = remaining.x
+        lastY = remaining.y
+        lastPinchDist = 0
+      }
+    }
+
+    const onPointerCancel = (e: PointerEvent) => {
+      activePointers.delete(e.pointerId)
+      if (activePointers.size === 0) {
+        isDragging = false
+        lastPinchDist = 0
+      }
     }
 
     const onWheel = (e: WheelEvent) => {
@@ -141,12 +225,14 @@ export class TrackballController implements Controller {
     canvas.addEventListener('pointerdown', onPointerDown)
     canvas.addEventListener('pointermove', onPointerMove)
     canvas.addEventListener('pointerup', onPointerUp)
+    canvas.addEventListener('pointercancel', onPointerCancel)
     canvas.addEventListener('wheel', onWheel, { passive: false })
 
     this.cleanup = () => {
       canvas.removeEventListener('pointerdown', onPointerDown)
       canvas.removeEventListener('pointermove', onPointerMove)
       canvas.removeEventListener('pointerup', onPointerUp)
+      canvas.removeEventListener('pointercancel', onPointerCancel)
       canvas.removeEventListener('wheel', onWheel)
     }
   }

@@ -53,24 +53,31 @@ export class Camera {
     ])
   }
 
-  /** Pan by screen pixels */
+  /** Pan by CSS pixels (clientX/clientY delta) */
   pan(dx: number, dy: number, canvasWidth: number, canvasHeight: number): void {
+    // Convert canvas physical pixels to CSS pixels for consistent DPR handling
+    const cssWidth = canvasWidth / (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
+    const cssHeight = canvasHeight / (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
     const metersPerPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
     this.centerX -= dx * metersPerPixel
     this.centerY += dy * metersPerPixel
   }
 
-  /** Zoom by delta at screen position */
+  /** Zoom by delta at CSS screen position (clientX/clientY) */
   zoomAt(delta: number, screenX: number, screenY: number, canvasWidth: number, canvasHeight: number): void {
     const oldZoom = this.zoom
     this.zoom = Math.max(0, Math.min(22, this.zoom + delta))
 
-    // Zoom toward mouse position
+    // Use CSS dimensions for offset calculation (screenX/Y are CSS coordinates)
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    const cssWidth = canvasWidth / dpr
+    const cssHeight = canvasHeight / dpr
+
     const oldMPP = (40075016.686 / 256) / Math.pow(2, oldZoom)
     const newMPP = (40075016.686 / 256) / Math.pow(2, this.zoom)
 
-    const offsetX = (screenX - canvasWidth / 2)
-    const offsetY = -(screenY - canvasHeight / 2)
+    const offsetX = (screenX - cssWidth / 2)
+    const offsetY = -(screenY - cssHeight / 2)
 
     this.centerX += offsetX * (oldMPP - newMPP)
     this.centerY += offsetY * (oldMPP - newMPP)
