@@ -1,6 +1,7 @@
 // ═══ Vector Tiler ═══
 // Compiles GeoJSON → pyramid of GPU-ready tiles (COG-style overview levels).
-// Zero runtime cost: tiles contain pre-tessellated Float32Array/Uint32Array.
+// Per-part decomposition: MultiPolygons are split into individual parts
+// with tighter bounding boxes, dramatically reducing tile scatter for large features.
 
 import earcut from 'earcut'
 import { simplifyPolygon, simplifyLine } from './simplify'
@@ -17,25 +18,22 @@ export interface CompiledTileSet {
 
 export interface TileLevel {
   zoom: number
-  tiles: Map<number, CompiledTile> // tileKey(z,x,y) → tile
+  tiles: Map<number, CompiledTile>
+}
+
+export interface CompiledTile {
+  z: number
+  x: number
+  y: number
+  vertices: Float32Array
+  indices: Uint32Array
+  lineVertices: Float32Array
+  lineIndices: Uint32Array
+  featureCount: number
 }
 
 // ═══ Morton Code (Z-Order Curve) Tile Key ═══
-//
-// Interleaves x/y bits to create a spatially-coherent key.
-// Adjacent tiles in 2D space have numerically adjacent keys → cache-friendly.
-// Leading 1-bit sentinel encodes zoom level implicitly.
-//
-// Example: z=3, x=5(101), y=2(010)
-//   Morton:   0,1, 0,0, 1,1  → 011001 (=25)
-//   With sentinel: 1|01|10|01 (=89)
-//
-// Properties:
-//   parent(key) = key >>> 2
-//   children(key) = [key<<2 | 0..3]
-//   Supports zoom 0-26 (fits in JS safe integer, 53 bits)
 
-/** Interleave bits: spread x into even bit positions */
 function spreadBits(v: number): number {
   v = (v | (v << 16)) & 0x0000ffff
   v = (v | (v <<  8)) & 0x00ff00ff
@@ -45,7 +43,6 @@ function spreadBits(v: number): number {
   return v
 }
 
-/** Extract even bit positions (reverse of spreadBits) */
 function compactBits(v: number): number {
   v &= 0x55555555
   v = (v | (v >>>  1)) & 0x33333333
@@ -55,116 +52,122 @@ function compactBits(v: number): number {
   return v
 }
 
-/** Pure Morton code: interleave x and y bits */
 export function mortonEncode(x: number, y: number): number {
   return spreadBits(x) | (spreadBits(y) << 1)
 }
 
-/** Decode Morton code back to x, y */
 export function mortonDecode(morton: number): [number, number] {
   return [compactBits(morton), compactBits(morton >>> 1)]
 }
 
-/**
- * Tile key: Morton code with leading 1-bit sentinel for zoom encoding.
- * Spatially adjacent tiles have numerically adjacent keys (Z-order curve).
- */
 export function tileKey(z: number, x: number, y: number): number {
-  // Sentinel bit at position 2*z, then Morton-interleaved x/y below
   return (1 << (2 * z)) | mortonEncode(x, y)
 }
 
-/** Extract z, x, y from a Morton tile key */
 export function tileKeyUnpack(key: number): [number, number, number] {
-  // Find zoom: position of the leading 1-bit
   let z = 0
   let tmp = key >>> 2
   while (tmp > 0) { z++; tmp >>>= 2 }
-
-  // Strip sentinel, decode Morton
   const morton = key & ((1 << (2 * z)) - 1)
   const [x, y] = mortonDecode(morton)
   return [z, x, y]
 }
 
-/** Get parent tile key (one zoom level up) */
 export function tileKeyParent(key: number): number {
-  // Remove bottom 2 bits (one Morton level)
   return key >>> 2
 }
 
-/** Get four child tile keys (one zoom level down) */
 export function tileKeyChildren(key: number): [number, number, number, number] {
   const base = key << 2
   return [base, base | 1, base | 2, base | 3]
 }
 
-export interface CompiledTile {
-  z: number
-  x: number
-  y: number
-  /** GPU-ready polygon vertices: [lon, lat, feat_id, ...] stride 3 */
-  vertices: Float32Array
-  /** GPU-ready polygon indices */
-  indices: Uint32Array
-  /** GPU-ready line vertices */
-  lineVertices: Float32Array
-  /** GPU-ready line indices */
-  lineIndices: Uint32Array
-  featureCount: number
-}
+// ═══ Geometry Part: per-polygon/per-line with tight bbox ═══
 
-interface FeatureBBox {
-  feature: GeoJSONFeature
+interface GeometryPart {
+  type: 'polygon' | 'line'
+  rings?: number[][][]
+  coords?: number[][]
   featureIndex: number
-  minLon: number
-  minLat: number
-  maxLon: number
-  maxLat: number
+  minLon: number; minLat: number; maxLon: number; maxLat: number
 }
 
-// ═══ Tile Math (mirrors runtime/src/loader/tiles.ts) ═══
+function decomposeFeatures(features: GeoJSONFeature[]): GeometryPart[] {
+  const parts: GeometryPart[] = []
 
-function tileBounds(z: number, x: number, y: number): { west: number; south: number; east: number; north: number } {
-  const n = Math.pow(2, z)
-  const west = x / n * 360 - 180
-  const east = (x + 1) / n * 360 - 180
-  const north = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI
-  const south = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * 180 / Math.PI
-  return { west, south, east, north }
-}
+  for (let fi = 0; fi < features.length; fi++) {
+    const geom = features[fi].geometry
+    if (!geom) continue
 
-function bboxIntersects(
-  a: { minLon: number; minLat: number; maxLon: number; maxLat: number },
-  b: { west: number; south: number; east: number; north: number },
-): boolean {
-  return !(a.maxLon < b.west || a.minLon > b.east || a.maxLat < b.south || a.minLat > b.north)
-}
-
-// ═══ Feature BBox Computation ═══
-
-function computeFeatureBBox(feature: GeoJSONFeature, index: number): FeatureBBox | null {
-  let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity
-
-  function scanCoords(coords: unknown): void {
-    if (!Array.isArray(coords)) return
-    if (typeof coords[0] === 'number') {
-      // [lon, lat]
-      const lon = coords[0] as number, lat = coords[1] as number
-      minLon = Math.min(minLon, lon); maxLon = Math.max(maxLon, lon)
-      minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat)
-    } else {
-      for (const c of coords) scanCoords(c)
+    if (geom.type === 'Polygon') {
+      const rings = geom.coordinates as number[][][]
+      parts.push(makePolygonPart(rings, fi))
+    } else if (geom.type === 'MultiPolygon') {
+      for (const poly of geom.coordinates as number[][][][]) {
+        parts.push(makePolygonPart(poly, fi))
+      }
+    } else if (geom.type === 'LineString') {
+      const coords = geom.coordinates as number[][]
+      parts.push(makeLinePart(coords, fi))
+    } else if (geom.type === 'MultiLineString') {
+      for (const line of geom.coordinates as number[][][]) {
+        parts.push(makeLinePart(line, fi))
+      }
     }
   }
 
-  scanCoords(feature.geometry.coordinates)
-  if (!isFinite(minLon)) return null
-
-  return { feature, featureIndex: index, minLon, minLat, maxLon, maxLat }
+  return parts
 }
 
-// ═══ Tessellation (simplified from runtime/src/loader/geojson.ts) ═══
+function makePolygonPart(rings: number[][][], featureIndex: number): GeometryPart {
+  const bbox = ringsBBox(rings[0]) // outer ring bbox
+  return { type: 'polygon', rings, featureIndex, ...bbox }
+}
+
+function makeLinePart(coords: number[][], featureIndex: number): GeometryPart {
+  const bbox = coordsBBox(coords)
+  return { type: 'line', coords, featureIndex, ...bbox }
+}
+
+function ringsBBox(ring: number[][]): { minLon: number; minLat: number; maxLon: number; maxLat: number } {
+  let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity
+  for (const [lon, lat] of ring) {
+    if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon
+    if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat
+  }
+  return { minLon, minLat, maxLon, maxLat }
+}
+
+function coordsBBox(coords: number[][]): { minLon: number; minLat: number; maxLon: number; maxLat: number } {
+  return ringsBBox(coords)
+}
+
+// ═══ Tile Math ═══
+
+function tileBounds(z: number, x: number, y: number): { west: number; south: number; east: number; north: number } {
+  const n = Math.pow(2, z)
+  return {
+    west: x / n * 360 - 180,
+    east: (x + 1) / n * 360 - 180,
+    north: Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI,
+    south: Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * 180 / Math.PI,
+  }
+}
+
+function lonToTileX(lon: number, z: number): number {
+  const n = Math.pow(2, z)
+  return Math.max(0, Math.min(n - 1, Math.floor((lon + 180) / 360 * n)))
+}
+
+function latToTileY(lat: number, z: number): number {
+  const n = Math.pow(2, z)
+  const clamped = Math.max(-85, Math.min(85, lat))
+  return Math.max(0, Math.min(n - 1,
+    Math.floor((1 - Math.log(Math.tan(clamped * Math.PI / 180) + 1 / Math.cos(clamped * Math.PI / 180)) / Math.PI) / 2 * n)
+  ))
+}
+
+// ═══ Tessellation ═══
 
 function tessellatePolygonToArrays(
   rings: number[][][],
@@ -173,7 +176,6 @@ function tessellatePolygonToArrays(
   outIdx: number[],
 ): void {
   const baseVertex = outVerts.length / 3
-
   const flatCoords: number[] = []
   const holeIndices: number[] = []
 
@@ -186,7 +188,6 @@ function tessellatePolygonToArrays(
 
   const earcutIdx = earcut(flatCoords, holeIndices.length > 0 ? holeIndices : undefined)
 
-  // Emit vertices with feature ID (stride 3)
   for (let i = 0; i < flatCoords.length; i += 2) {
     outVerts.push(flatCoords[i], flatCoords[i + 1], featureId)
   }
@@ -202,7 +203,6 @@ function tessellateLineToArrays(
   outIdx: number[],
 ): void {
   const baseVertex = outVerts.length / 3
-
   for (const coord of coords) {
     outVerts.push(coord[0], coord[1], featureId)
   }
@@ -211,21 +211,14 @@ function tessellateLineToArrays(
   }
 }
 
-// ═══ Main Tiler ═══
+// ═══ Auto Zoom Detection ═══
 
 export interface TilerOptions {
-  minZoom?: number   // default 0
-  maxZoom?: number   // default: auto-detected from data resolution
-  maxFeaturesPerTile?: number  // default 5000
+  minZoom?: number
+  maxZoom?: number
 }
 
-/**
- * Auto-detect appropriate maxZoom from data resolution.
- * Estimates average vertex spacing and finds the zoom level where
- * further subdivision provides no additional detail.
- */
-function autoDetectMaxZoom(features: GeoJSONFeature[], bboxes: FeatureBBox[]): number {
-  // Sample vertex spacing from first N features
+function autoDetectMaxZoom(features: GeoJSONFeature[]): number {
   const sampleSize = Math.min(features.length, 50)
   let totalSpacing = 0
   let spacingCount = 0
@@ -239,22 +232,15 @@ function autoDetectMaxZoom(features: GeoJSONFeature[], bboxes: FeatureBBox[]): n
       const dx = Math.abs(coords[j][0] - coords[j - 1][0])
       const dy = Math.abs(coords[j][1] - coords[j - 1][1])
       const spacing = Math.sqrt(dx * dx + dy * dy)
-      if (spacing > 0) {
-        totalSpacing += spacing
-        spacingCount++
-      }
+      if (spacing > 0) { totalSpacing += spacing; spacingCount++ }
     }
   }
 
   if (spacingCount === 0) return 6
 
-  const avgSpacing = totalSpacing / spacingCount // degrees
-
-  // At zoom z, each tile covers 360/2^z degrees of longitude
-  // Detail is pointless when tile covers less than avg vertex spacing
-  // Conservative: limit to prevent tile explosion with large features
-  const maxZoom = Math.max(2, Math.min(7, Math.floor(Math.log2(360 / avgSpacing)) - 5))
-
+  const avgSpacing = totalSpacing / spacingCount
+  // Tile at zoom z covers 360/2^z degrees. Useful while tile > avgSpacing * 8
+  const maxZoom = Math.max(2, Math.min(14, Math.ceil(Math.log2(360 / (avgSpacing * 8)))))
   console.log(`  Auto maxZoom: ${maxZoom} (avg vertex spacing: ${avgSpacing.toFixed(4)}°)`)
   return maxZoom
 }
@@ -266,98 +252,83 @@ function extractFirstRing(geom: GeoJSONFeature['geometry']): number[][] | null {
   return null
 }
 
-/**
- * Compile a GeoJSON FeatureCollection into a pyramid of GPU-ready tiles.
- * Uses COG-style overview levels with sparse storage.
- */
+// ═══ Main Tiler ═══
+
 export function compileGeoJSONToTiles(
   geojson: GeoJSONFeatureCollection,
   options?: TilerOptions,
 ): CompiledTileSet {
   const minZoom = options?.minZoom ?? 0
+  const maxZoom = options?.maxZoom ?? autoDetectMaxZoom(geojson.features)
 
-  // Step 1: Compute feature bboxes
-  const featureBBoxes: FeatureBBox[] = []
-  for (let i = 0; i < geojson.features.length; i++) {
-    const fb = computeFeatureBBox(geojson.features[i], i)
-    if (fb) featureBBoxes.push(fb)
-  }
+  // Step 1: Decompose features into individual geometry parts with tight bboxes
+  const allParts = decomposeFeatures(geojson.features)
+  console.log(`  Decomposed ${geojson.features.length} features → ${allParts.length} parts`)
 
   // Global bounds
   let gMinLon = Infinity, gMinLat = Infinity, gMaxLon = -Infinity, gMaxLat = -Infinity
-  for (const fb of featureBBoxes) {
-    gMinLon = Math.min(gMinLon, fb.minLon); gMaxLon = Math.max(gMaxLon, fb.maxLon)
-    gMinLat = Math.min(gMinLat, fb.minLat); gMaxLat = Math.max(gMaxLat, fb.maxLat)
+  for (const p of allParts) {
+    if (p.minLon < gMinLon) gMinLon = p.minLon
+    if (p.maxLon > gMaxLon) gMaxLon = p.maxLon
+    if (p.minLat < gMinLat) gMinLat = p.minLat
+    if (p.maxLat > gMaxLat) gMaxLat = p.maxLat
   }
 
-  // Auto-detect maxZoom from data resolution
-  // Estimate avg vertex spacing → zoom where spacing ≈ tile pixel size
-  const detectedZoom = autoDetectMaxZoom(geojson.features, featureBBoxes)
-  const maxZoom = options?.maxZoom ?? detectedZoom
-
-  // Step 2: For each zoom level, simplify → scatter → clip per tile → tessellate
+  // Step 2: Per-zoom processing
   const levels: TileLevel[] = []
+
+  // Reusable scratch arrays (reset per tile)
+  const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[] }
 
   for (let z = minZoom; z <= maxZoom; z++) {
     const zStart = performance.now()
-    const n = Math.pow(2, z)
 
-    // Simplify each feature for this zoom (no tessellation yet)
-    interface SimplifiedFeature {
-      fb: FeatureBBox
-      polyRings: number[][][][]  // array of polygons, each is [outer, ...holes]
-      lineCoords: number[][][]   // array of linestrings
+    // Simplify each part for this zoom
+    interface SimplifiedPart {
+      original: GeometryPart
+      simplifiedRings?: number[][][]
+      simplifiedCoords?: number[][]
+      minLon: number; minLat: number; maxLon: number; maxLat: number
+      vertexCount: number
     }
-    const featureGeom: SimplifiedFeature[] = []
 
-    for (const fb of featureBBoxes) {
-      const polyRings: number[][][][] = []
-      const lineCoords: number[][][] = []
-      const geom = fb.feature.geometry
+    const simplifiedParts: SimplifiedPart[] = []
 
-      if (geom.type === 'Polygon') {
-        const simplified = simplifyPolygon(geom.coordinates as number[][][], z)
-        if (simplified.length > 0 && simplified[0].length >= 3) polyRings.push(simplified)
-      } else if (geom.type === 'MultiPolygon') {
-        for (const poly of geom.coordinates as number[][][][]) {
-          const simplified = simplifyPolygon(poly, z)
-          if (simplified.length > 0 && simplified[0].length >= 3) polyRings.push(simplified)
-        }
-      } else if (geom.type === 'LineString') {
-        const simplified = simplifyLine(geom.coordinates as number[][], z)
-        if (simplified.length >= 2) lineCoords.push(simplified)
-      } else if (geom.type === 'MultiLineString') {
-        for (const line of geom.coordinates as number[][][]) {
-          const simplified = simplifyLine(line, z)
-          if (simplified.length >= 2) lineCoords.push(simplified)
-        }
+    for (const part of allParts) {
+      if (part.type === 'polygon' && part.rings) {
+        const simplified = simplifyPolygon(part.rings, z)
+        if (simplified.length === 0 || simplified[0].length < 3) continue
+        const bbox = ringsBBox(simplified[0])
+        const vc = simplified.reduce((sum, r) => sum + r.length, 0)
+        simplifiedParts.push({ original: part, simplifiedRings: simplified, ...bbox, vertexCount: vc })
+      } else if (part.type === 'line' && part.coords) {
+        const simplified = simplifyLine(part.coords, z)
+        if (simplified.length < 2) continue
+        const bbox = coordsBBox(simplified)
+        simplifiedParts.push({ original: part, simplifiedCoords: simplified, ...bbox, vertexCount: simplified.length })
       }
-
-      if (polyRings.length === 0 && lineCoords.length === 0) continue
-      featureGeom.push({ fb, polyRings, lineCoords })
     }
 
-    // Scatter: assign features to tiles by bbox
+    // Scatter: assign parts to tiles using per-part bbox
     const tileFeaturesMap = new Map<number, number[]>()
 
-    for (let fi = 0; fi < featureGeom.length; fi++) {
-      const fb = featureGeom[fi].fb
-      const fxMin = Math.max(0, Math.floor((fb.minLon + 180) / 360 * n))
-      const fxMax = Math.min(n - 1, Math.floor((fb.maxLon + 180) / 360 * n))
+    for (let pi = 0; pi < simplifiedParts.length; pi++) {
+      const sp = simplifiedParts[pi]
+      const fxMin = lonToTileX(sp.minLon, z)
+      const fxMax = lonToTileX(sp.maxLon, z)
+      const fyMin = latToTileY(sp.maxLat, z) // lat reversed
+      const fyMax = latToTileY(sp.minLat, z)
 
-      const latMaxClamped = Math.min(fb.maxLat, 85)
-      const latMinClamped = Math.max(fb.minLat, -85)
-      const fyMin = Math.max(0, Math.floor((1 - Math.log(Math.tan(latMaxClamped * Math.PI / 180) + 1 / Math.cos(latMaxClamped * Math.PI / 180)) / Math.PI) / 2 * n))
-      const fyMax = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(latMinClamped * Math.PI / 180) + 1 / Math.cos(latMinClamped * Math.PI / 180)) / Math.PI) / 2 * n))
+      // tileSpan guard: skip parts with too many tiles and too few vertices
+      const span = (fxMax - fxMin + 1) * (fyMax - fyMin + 1)
+      if (span > 4096 && sp.vertexCount / span < 2) continue
 
-      // No tileSpan limit — clipping keeps each tile small,
-      // and autoDetectMaxZoom prevents unnecessary high-zoom generation.
       for (let x = fxMin; x <= fxMax; x++) {
         for (let y = fyMin; y <= fyMax; y++) {
           const key = tileKey(z, x, y)
           let list = tileFeaturesMap.get(key)
           if (!list) { list = []; tileFeaturesMap.set(key, list) }
-          list.push(fi)
+          list.push(pi)
         }
       }
     }
@@ -365,51 +336,45 @@ export function compileGeoJSONToTiles(
     // Assemble tiles: clip → tessellate per tile
     const tiles = new Map<number, CompiledTile>()
 
-    for (const [key, featureIndices] of tileFeaturesMap) {
+    for (const [key, partIndices] of tileFeaturesMap) {
       const [, tx, ty] = tileKeyUnpack(key)
       const tb = tileBounds(z, tx, ty)
 
-      const polyVerts: number[] = []
-      const polyIdx: number[] = []
-      const lineVerts: number[] = []
-      const lineIdx: number[] = []
-      let featureCount = 0
+      scratch.pv.length = 0; scratch.pi.length = 0
+      scratch.lv.length = 0; scratch.li.length = 0
+      const featureIds = new Set<number>()
 
-      for (const fi of featureIndices) {
-        const fg = featureGeom[fi]
-        let hasOutput = false
+      for (const pi of partIndices) {
+        const sp = simplifiedParts[pi]
+        const fid = sp.original.featureIndex // stable feature ID
 
-        // Clip and tessellate polygons
-        for (const rings of fg.polyRings) {
-          const clipped = clipPolygonToRect(rings, tb.west, tb.south, tb.east, tb.north)
+        if (sp.simplifiedRings) {
+          const clipped = clipPolygonToRect(sp.simplifiedRings, tb.west, tb.south, tb.east, tb.north)
           if (clipped.length > 0 && clipped[0].length >= 3) {
-            tessellatePolygonToArrays(clipped, featureCount, polyVerts, polyIdx)
-            hasOutput = true
+            tessellatePolygonToArrays(clipped, fid, scratch.pv, scratch.pi)
+            featureIds.add(fid)
           }
         }
 
-        // Clip and tessellate lines
-        for (const line of fg.lineCoords) {
-          const segments = clipLineToRect(line, tb.west, tb.south, tb.east, tb.north)
+        if (sp.simplifiedCoords) {
+          const segments = clipLineToRect(sp.simplifiedCoords, tb.west, tb.south, tb.east, tb.north)
           for (const seg of segments) {
             if (seg.length >= 2) {
-              tessellateLineToArrays(seg, featureCount, lineVerts, lineIdx)
-              hasOutput = true
+              tessellateLineToArrays(seg, fid, scratch.lv, scratch.li)
+              featureIds.add(fid)
             }
           }
         }
-
-        if (hasOutput) featureCount++
       }
 
-      if (polyVerts.length > 0 || lineVerts.length > 0) {
+      if (scratch.pv.length > 0 || scratch.lv.length > 0) {
         tiles.set(key, {
           z, x: tx, y: ty,
-          vertices: new Float32Array(polyVerts),
-          indices: new Uint32Array(polyIdx),
-          lineVertices: new Float32Array(lineVerts),
-          lineIndices: new Uint32Array(lineIdx),
-          featureCount,
+          vertices: new Float32Array(scratch.pv),
+          indices: new Uint32Array(scratch.pi),
+          lineVertices: new Float32Array(scratch.lv),
+          lineIndices: new Uint32Array(scratch.li),
+          featureCount: featureIds.size,
         })
       }
     }
@@ -425,6 +390,6 @@ export function compileGeoJSONToTiles(
   return {
     levels,
     bounds: [gMinLon, gMinLat, gMaxLon, gMaxLat],
-    featureCount: featureBBoxes.length,
+    featureCount: geojson.features.length,
   }
 }
