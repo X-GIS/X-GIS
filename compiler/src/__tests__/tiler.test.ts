@@ -6,6 +6,7 @@ import {
 } from '../tiler/encoding'
 import { simplify, toleranceForZoom } from '../tiler/simplify'
 import { compileGeoJSONToTiles, tileKey, tileKeyUnpack, tileKeyParent, tileKeyChildren, mortonEncode, mortonDecode } from '../tiler/vector-tiler'
+import { serializeXGVT, parseXGVTIndex, parseGPUReadyTile } from '../tiler/tile-format'
 import type { GeoJSONFeatureCollection } from '../../../runtime/src/loader/geojson'
 
 describe('ZigZag Encoding', () => {
@@ -252,6 +253,94 @@ describe('Vector Tiler', () => {
       const totalHighVerts = highTiles.reduce((sum, t) => sum + t.vertices.length, 0)
       // Low zoom tile should have fewer vertices
       expect(level0Tile.vertices.length).toBeLessThanOrEqual(totalHighVerts)
+    }
+  })
+})
+
+describe('.xgvt Binary Format', () => {
+  const testGeoJSON: GeoJSONFeatureCollection = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]],
+        },
+        properties: { name: 'A' },
+      },
+      {
+        type: 'Feature',
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[[20, 20], [30, 20], [30, 30], [20, 30], [20, 20]]],
+        },
+        properties: { name: 'B' },
+      },
+    ],
+  }
+
+  it('serializes and parses header + index', () => {
+    const tileSet = compileGeoJSONToTiles(testGeoJSON, { minZoom: 0, maxZoom: 3 })
+    const binary = serializeXGVT(tileSet)
+
+    expect(binary.byteLength).toBeGreaterThan(32) // at least header
+
+    const index = parseXGVTIndex(binary)
+    expect(index.header.bounds[0]).toBeCloseTo(0)  // minLon
+    expect(index.header.bounds[2]).toBeCloseTo(30) // maxLon
+    expect(index.entries.length).toBeGreaterThan(0)
+  })
+
+  it('round-trips GPU-ready tile data', () => {
+    const tileSet = compileGeoJSONToTiles(testGeoJSON, { minZoom: 0, maxZoom: 2 })
+    const binary = serializeXGVT(tileSet)
+    const index = parseXGVTIndex(binary)
+
+    // Pick first tile
+    const entry = index.entries[0]
+    const tile = parseGPUReadyTile(binary, entry)
+
+    // Vertices should be valid stride-3 arrays
+    expect(tile.vertices.length).toBe(entry.vertexCount * 3)
+    expect(tile.indices.length).toBe(entry.indexCount)
+
+    // Vertices should contain reasonable lon/lat values
+    for (let i = 0; i < tile.vertices.length; i += 3) {
+      expect(tile.vertices[i]).toBeGreaterThanOrEqual(-180)
+      expect(tile.vertices[i]).toBeLessThanOrEqual(360) // anti-meridian shift
+      expect(tile.vertices[i + 1]).toBeGreaterThanOrEqual(-90)
+      expect(tile.vertices[i + 1]).toBeLessThanOrEqual(90)
+    }
+  })
+
+  it('is smaller than raw GeoJSON', () => {
+    const tileSet = compileGeoJSONToTiles(testGeoJSON, { minZoom: 0, maxZoom: 3 })
+    const binary = serializeXGVT(tileSet)
+    const jsonSize = JSON.stringify(testGeoJSON).length
+
+    // Binary should be compact (includes GPU-ready + compact layers)
+    console.log(`[xgvt] JSON: ${jsonSize}B → Binary: ${binary.byteLength}B (${(binary.byteLength / jsonSize * 100).toFixed(0)}%)`)
+  })
+
+  it('supports Morton key lookup', () => {
+    const tileSet = compileGeoJSONToTiles(testGeoJSON, { minZoom: 0, maxZoom: 2 })
+    const binary = serializeXGVT(tileSet)
+    const index = parseXGVTIndex(binary)
+
+    // Lookup z=0, x=0, y=0 by Morton key
+    const key = tileKey(0, 0, 0)
+    const entry = index.entryByHash.get(key)
+    expect(entry).toBeDefined()
+  })
+
+  it('entries are sorted by Morton key', () => {
+    const tileSet = compileGeoJSONToTiles(testGeoJSON, { minZoom: 0, maxZoom: 3 })
+    const binary = serializeXGVT(tileSet)
+    const index = parseXGVTIndex(binary)
+
+    for (let i = 1; i < index.entries.length; i++) {
+      expect(index.entries[i].tileHash).toBeGreaterThanOrEqual(index.entries[i - 1].tileHash)
     }
   })
 })

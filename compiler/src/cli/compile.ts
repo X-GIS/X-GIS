@@ -6,6 +6,8 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { serializeXGB, type BinaryScene } from '../binary/format'
 import { lower } from '../ir/lower'
+import { compileGeoJSONToTiles } from '../tiler/vector-tiler'
+import { serializeXGVT } from '../tiler/tile-format'
 
 function main() {
   const args = process.argv.slice(2)
@@ -18,6 +20,7 @@ Usage:
   xgisc compile <input.xgis> [-o <output.xgb>]   Compile to binary
   xgisc parse <input.xgis>                        Parse and print AST (debug)
   xgisc ir <input.xgis>                           Lower to IR and print (debug)
+  xgisc tile <input.geojson> [-o <output.xgvt>]   Tile GeoJSON to vector tiles
 
 Example:
   xgisc compile hello.xgis -o hello.xgb
@@ -47,6 +50,16 @@ Example:
       process.exit(1)
     }
     parseDebug(inputPath)
+  } else if (command === 'tile') {
+    const inputPath = args[1]
+    if (!inputPath) {
+      console.error('Error: No input file specified')
+      process.exit(1)
+    }
+    const outputPath = args.indexOf('-o') >= 0
+      ? args[args.indexOf('-o') + 1]
+      : inputPath.replace(/\.geojson$/, '.xgvt')
+    tileCommand(inputPath, outputPath)
   } else if (command === 'ir') {
     const inputPath = args[1]
     if (!inputPath) {
@@ -118,6 +131,29 @@ function parseDebug(inputPath: string) {
   const tokens = new Lexer(source).tokenize()
   const ast = new Parser(tokens).parse()
   console.log(JSON.stringify(ast, null, 2))
+}
+
+function tileCommand(inputPath: string, outputPath: string) {
+  const source = readFileSync(inputPath, 'utf-8')
+  const geojson = JSON.parse(source)
+
+  const start = performance.now()
+  const tileSet = compileGeoJSONToTiles(geojson, { minZoom: 0, maxZoom: 14 })
+  const binary = serializeXGVT(tileSet)
+  const elapsed = (performance.now() - start).toFixed(0)
+
+  writeFileSync(outputPath, Buffer.from(binary))
+
+  const totalTiles = tileSet.levels.reduce((sum, l) => sum + l.tiles.size, 0)
+  const srcSize = source.length
+  const binSize = binary.byteLength
+
+  console.log(`Tiled: ${inputPath} → ${outputPath}`)
+  console.log(`  Source:  ${(srcSize / 1024).toFixed(1)} KB (${geojson.features?.length ?? 0} features)`)
+  console.log(`  Binary:  ${(binSize / 1024).toFixed(1)} KB`)
+  console.log(`  Levels:  ${tileSet.levels.length} (zoom ${tileSet.levels[0]?.zoom ?? 0}~${tileSet.levels[tileSet.levels.length - 1]?.zoom ?? 0})`)
+  console.log(`  Tiles:   ${totalTiles} (sparse)`)
+  console.log(`  Time:    ${elapsed}ms`)
 }
 
 function irDebug(inputPath: string) {
