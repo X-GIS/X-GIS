@@ -111,6 +111,18 @@ export class XGISMap {
         // Vector tile file — load index only via Range Request (COG-style)
         await this.vectorTileRenderer.loadFromURL(url)
         this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
+
+        // Fit camera to vector tile bounds
+        const vtBounds = this.vectorTileRenderer.getBounds()
+        if (vtBounds) {
+          const [minLon, minLat, maxLon, maxLat] = vtBounds
+          const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, (minLat + maxLat) / 2)
+          this.camera.centerX = cx
+          this.camera.centerY = cy
+          const lonSpan = maxLon - minLon
+          const degPerPixel = lonSpan / this.canvas.clientWidth
+          this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPixel * 256)) - 1)
+        }
       } else {
         const response = await fetch(url)
         const data = await response.json() as GeoJSONFeatureCollection

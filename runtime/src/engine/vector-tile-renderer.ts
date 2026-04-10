@@ -48,6 +48,11 @@ export class VectorTileRenderer {
     return this.index !== null && this.index.entries.length > 0
   }
 
+  /** Get the geographic bounds of the loaded data */
+  getBounds(): [number, number, number, number] | null {
+    return this.index?.header.bounds ?? null
+  }
+
   /** Load from a full ArrayBuffer (local file or pre-fetched) */
   loadFromBuffer(buf: ArrayBuffer): void {
     this.fileBuf = buf
@@ -128,24 +133,35 @@ export class VectorTileRenderer {
       entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
     })
 
-    // Render each visible tile
+    // Render each visible tile (track rendered keys to prevent duplicate parent rendering)
+    const rendered = new Set<number>()
+
     for (const coord of tiles) {
       const key = tileKey(coord.z, coord.x, coord.y)
       let cached = this.tileCache.get(key)
+      let renderKey = key
 
       if (!cached) {
-        // Try to load tile (with parent fallback)
+        // Try to load tile
         this.ensureTileLoaded(key)
 
-        // Fallback: try parent tile
+        // Fallback: find nearest cached parent
         let parentKey = tileKeyParent(key)
-        for (let i = 0; i < 3 && !cached; i++) {
+        for (let i = 0; i < 5 && !cached; i++) {
           cached = this.tileCache.get(parentKey)
+          if (cached) { renderKey = parentKey; break }
+          // Also try loading the parent
+          this.ensureTileLoaded(parentKey)
           parentKey = tileKeyParent(parentKey)
         }
       }
 
       if (!cached) continue
+
+      // Skip if this exact tile (or parent) was already rendered
+      if (rendered.has(renderKey)) continue
+      rendered.add(renderKey)
+
       cached.lastUsedFrame = this.frameCount
 
       // Draw polygons
