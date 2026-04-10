@@ -118,20 +118,13 @@ export class XGISMap {
         const vtBounds = this.vectorTileRenderer.getBounds()
         if (vtBounds) {
           const [minLon, minLat, maxLon, maxLat] = vtBounds
-          const [cx, cy] = lonLatToMercator(
-            (minLon + maxLon) / 2,
-            Math.max(-85, Math.min(85, (minLat + maxLat) / 2)),
-          )
+          const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
+          const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
           this.camera.centerX = cx
           this.camera.centerY = cy
-          // Fit bounds to viewport (use smaller dimension)
-          const vw = Math.max(this.canvas.clientWidth, 320)
-          const vh = Math.max(this.canvas.clientHeight, 320)
+          // Simple zoom: world-spanning data starts at zoom ~1
           const lonSpan = maxLon - minLon
-          const latSpan = Math.min(maxLat, 85) - Math.max(minLat, -85)
-          const zoomByWidth = Math.log2(vw / (lonSpan / 360 * 256))
-          const zoomByHeight = Math.log2(vh / (latSpan / 180 * 256))
-          this.camera.zoom = Math.max(0, Math.min(zoomByWidth, zoomByHeight) - 0.5)
+          this.camera.zoom = lonSpan >= 350 ? 1 : Math.max(0.5, Math.log2(360 / lonSpan) + 1)
         }
       } else {
         const response = await fetch(url)
