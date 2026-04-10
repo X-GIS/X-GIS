@@ -23,6 +23,13 @@ interface CachedVectorTile {
   lineIndexBuffer: GPUBuffer | null
   lineIndexCount: number
   lastUsedFrame: number
+  // Per-tile uniform buffer + bind group (for tile_origin)
+  uniformBuffer: GPUBuffer
+  bindGroup: GPUBindGroup
+  tileWest: number
+  tileSouth: number
+  tileWidth: number
+  tileHeight: number
 }
 
 const MAX_CACHED_TILES = 512
@@ -110,11 +117,9 @@ export class VectorTileRenderer {
     const centerLon = (centerX / R) * (180 / Math.PI)
     const centerLat = (2 * Math.atan(Math.exp(centerY / R)) - Math.PI / 2) * (180 / Math.PI)
 
-    // Limit overzoom to maxLevel + 6 (f32 precision safe up to ~z14 beyond data)
+    // Overzoom: clamp tile zoom to max available, camera zoom is unlimited
+    // (tile-local coordinates + per-tile bind groups ensure f32 precision at any zoom)
     const maxLevel = this.index.header.maxLevel
-    const maxAllowedZoom = maxLevel + 6
-    if (camera.zoom > maxAllowedZoom) camera.zoom = maxAllowedZoom
-
     const currentZ = Math.max(0, Math.min(maxLevel, Math.round(camera.zoom)))
 
     // Zoom transition: cancel old requests when zoom changes
@@ -139,25 +144,16 @@ export class VectorTileRenderer {
     const fillColor = fillRaw ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity] : [0, 0, 0, 0]
     const strokeColor = strokeRaw ? [strokeRaw[0], strokeRaw[1], strokeRaw[2], strokeRaw[3] * opacity] : [0, 0, 0, 0]
 
-    // Reuse cached ArrayBuffer (no per-frame allocation)
+    // Store bindGroupLayout for uploadTile
+    this.lastBindGroupLayout = bindGroupLayout
+
+    // Build shared uniform data (same for all tiles except tile_origin)
     const uniformData = this.uniformDataBuf
     new Float32Array(uniformData, 0, 16).set(mvp)
     new Float32Array(uniformData, 64, 4).set(fillColor)
     new Float32Array(uniformData, 80, 4).set(strokeColor)
-    const vtLonHi = Math.fround(projCenterLon)
-    const vtLatHi = Math.fround(projCenterLat)
-    new Float32Array(uniformData, 96, 4).set([projType, vtLonHi, vtLatHi, 0])
-    new Float32Array(uniformData, 112, 4).set([projCenterLon - vtLonHi, projCenterLat - vtLatHi, 0, 0])
-    this.device.queue.writeBuffer(uniformBuffer, 0, uniformData)
-
-    // Cache bind group (uniform buffer doesn't change between frames)
-    if (!this.cachedBindGroup) {
-      this.cachedBindGroup = this.device.createBindGroup({
-        layout: bindGroupLayout,
-        entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
-      })
-    }
-    const bindGroup = this.cachedBindGroup
+    new Float32Array(uniformData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
+    // tile_origin at offset 112 will be written per-tile in renderTileKeys
 
     // Check how many visible tiles are cached at current zoom
     const neededKeys = tiles.map(c => tileKey(c.z, c.x, c.y))
@@ -204,25 +200,32 @@ export class VectorTileRenderer {
     this.evictTiles()
   }
 
-  /** Render a list of tile keys (draws cached tiles, skips missing) */
+  /** Render a list of tile keys with per-tile bind groups */
   private renderTileKeys(
     keys: number[],
     pass: GPURenderPassEncoder,
     fillPipeline: GPURenderPipeline,
     linePipeline: GPURenderPipeline,
-    bindGroup: GPUBindGroup,
-    uniformBuffer: GPUBuffer,
-    uniformData: ArrayBuffer,
+    _sharedBindGroup: GPUBindGroup,
+    _sharedUniformBuffer: GPUBuffer,
+    sharedUniformData: ArrayBuffer,
   ): void {
     for (const key of keys) {
       const cached = this.tileCache.get(key)
-      if (!cached) continue
+      if (!cached || !cached.bindGroup) continue
 
       cached.lastUsedFrame = this.frameCount
 
+      // Write shared uniforms + per-tile origin to this tile's own buffer
+      // Copy shared data (mvp, colors, proj_params, center_lo)
+      this.device.queue.writeBuffer(cached.uniformBuffer, 0, sharedUniformData)
+      // Overwrite tile_origin with this tile's values
+      const tileOrigin = new Float32Array([cached.tileWest, cached.tileSouth, 0, 0])
+      this.device.queue.writeBuffer(cached.uniformBuffer, 112, tileOrigin)
+
       if (cached.indexCount > 0) {
         pass.setPipeline(fillPipeline)
-        pass.setBindGroup(0, bindGroup)
+        pass.setBindGroup(0, cached.bindGroup)
         pass.setVertexBuffer(0, cached.vertexBuffer)
         pass.setIndexBuffer(cached.indexBuffer, 'uint32')
         pass.drawIndexed(cached.indexCount)
@@ -230,7 +233,7 @@ export class VectorTileRenderer {
 
       if (cached.lineIndexCount > 0 && cached.lineVertexBuffer && cached.lineIndexBuffer) {
         pass.setPipeline(linePipeline)
-        pass.setBindGroup(0, bindGroup)
+        pass.setBindGroup(0, cached.bindGroup)
         pass.setVertexBuffer(0, cached.lineVertexBuffer)
         pass.setIndexBuffer(cached.lineIndexBuffer, 'uint32')
         pass.drawIndexed(cached.lineIndexCount)
@@ -412,6 +415,8 @@ export class VectorTileRenderer {
     }
   }
 
+  private lastBindGroupLayout: GPUBindGroupLayout | null = null
+
   private uploadTile(
     key: number,
     vertices: Float32Array,
@@ -447,6 +452,27 @@ export class VectorTileRenderer {
       this.device.queue.writeBuffer(lineIndexBuffer, 0, lineIndices)
     }
 
+    // Per-tile uniform buffer + bind group (for tile_origin)
+    const uniformBuffer = this.device.createBuffer({
+      size: 144,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    })
+
+    // Compute tile bounds for tile_origin
+    const [tz, tx, ty] = tileKeyUnpack(key)
+    const tn = Math.pow(2, tz)
+    const tileWest = tx / tn * 360 - 180
+    const tileEast = (tx + 1) / tn * 360 - 180
+    const tileNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tn))) * 180 / Math.PI
+    const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
+
+    const bindGroup = this.lastBindGroupLayout
+      ? this.device.createBindGroup({
+          layout: this.lastBindGroupLayout,
+          entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
+        })
+      : null!
+
     this.tileCache.set(key, {
       vertexBuffer,
       indexBuffer,
@@ -455,6 +481,11 @@ export class VectorTileRenderer {
       lineIndexBuffer,
       lineIndexCount: lineIndices.length,
       lastUsedFrame: this.frameCount,
+      uniformBuffer,
+      bindGroup,
+      tileWest, tileSouth,
+      tileWidth: tileEast - tileWest,
+      tileHeight: tileNorth - tileSouth,
     })
   }
 
@@ -475,6 +506,7 @@ export class VectorTileRenderer {
       tile.indexBuffer.destroy()
       tile.lineVertexBuffer?.destroy()
       tile.lineIndexBuffer?.destroy()
+      tile.uniformBuffer.destroy()
       this.tileCache.delete(key)
     }
   }
