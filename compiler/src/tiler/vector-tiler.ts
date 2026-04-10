@@ -7,7 +7,10 @@ import earcut from 'earcut'
 // simplify removed: original coordinates preserved for topology correctness
 // import { simplifyPolygon, simplifyLine } from './simplify'
 import { clipPolygonToRect, clipLineToRect } from './clip'
-import type { GeoJSONFeatureCollection, GeoJSONFeature } from '../../runtime/src/loader/geojson'
+import type { GeoJSONFeatureCollection, GeoJSONFeature } from './geojson-types'
+
+/** Tile coordinate extent (like MVT 4096, but higher for military precision) */
+export const TILE_EXTENT = 8192
 
 // ═══ Types ═══
 
@@ -374,14 +377,16 @@ export function compileGeoJSONToTiles(
       if ((scratch.pv.length >= 9 || scratch.lv.length >= 6) &&
           (scratch.pv.length > 0 || scratch.lv.length > 0)) {
 
-        // Convert to tile-local coordinates: subtract tile origin for f32 precision
+        // Quantize to tile-local integers (MVT-style, 0-EXTENT)
+        const tileW = tb.east - tb.west
+        const tileH = tb.north - tb.south
         for (let i = 0; i < scratch.pv.length; i += 3) {
-          scratch.pv[i] -= tb.west
-          scratch.pv[i + 1] -= tb.south
+          scratch.pv[i] = Math.round((scratch.pv[i] - tb.west) / tileW * TILE_EXTENT)
+          scratch.pv[i + 1] = Math.round((scratch.pv[i + 1] - tb.south) / tileH * TILE_EXTENT)
         }
         for (let i = 0; i < scratch.lv.length; i += 3) {
-          scratch.lv[i] -= tb.west
-          scratch.lv[i + 1] -= tb.south
+          scratch.lv[i] = Math.round((scratch.lv[i] - tb.west) / tileW * TILE_EXTENT)
+          scratch.lv[i + 1] = Math.round((scratch.lv[i + 1] - tb.south) / tileH * TILE_EXTENT)
         }
 
         tiles.set(key, {
@@ -464,38 +469,3 @@ function buildPropertyTable(features: GeoJSONFeature[]): PropertyTable {
   return { fieldNames, fieldTypes, values }
 }
 
-/**
- * Remove child tiles that add no meaningful detail over their parent.
- * A child is redundant if its vertex count is similar to parent's per-child share.
- * Processes high zoom → low zoom (bottom-up).
- */
-function deduplicateOverviews(levels: TileLevel[]): void {
-  // Sort levels by zoom descending for bottom-up processing
-  const sorted = [...levels].sort((a, b) => b.zoom - a.zoom)
-
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const childLevel = sorted[i]
-    const parentLevel = sorted[i + 1]
-    if (childLevel.zoom !== parentLevel.zoom + 1) continue // non-consecutive zooms
-
-    const toDelete: number[] = []
-
-    for (const [childKey, childTile] of childLevel.tiles) {
-      const parentKey = tileKeyParent(childKey)
-      const parentTile = parentLevel.tiles.get(parentKey)
-      if (!parentTile) continue
-
-      // Child is redundant if it has no more detail than what overzoom from parent provides.
-      // Compare child vertex count to parent's average per-child share.
-      // If child ≤ parent/2, the child adds no meaningful detail.
-      const parentPerChild = parentTile.vertices.length / 2 // generous: /2 instead of /4
-      if (childTile.vertices.length <= parentPerChild) {
-        toDelete.push(childKey)
-      }
-    }
-
-    for (const key of toDelete) {
-      childLevel.tiles.delete(key)
-    }
-  }
-}

@@ -9,7 +9,7 @@ import type { ShowCommand } from './renderer'
 import { visibleTiles, sortByPriority } from '../loader/tiles'
 import {
   parseXGVTIndex, parseGPUReadyTile,
-  tileKey, tileKeyParent,
+  tileKey, tileKeyUnpack,
   type XGVTIndex, type TileIndexEntry,
 } from '@xgis/compiler'
 
@@ -204,12 +204,14 @@ export class VectorTileRenderer {
 
       cached.lastUsedFrame = this.frameCount
 
-      // Write tile origin to uniform (f64 precision computed here, sent as f32)
-      const [z, x, y] = tileKeyUnpack(key)
-      const n = Math.pow(2, z)
-      const tileWest = x / n * 360 - 180
-      const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * 180 / Math.PI
-      new Float32Array(uniformData, 112, 4).set([tileWest, tileSouth, 0, 0])
+      // Write tile origin + dimensions to uniform (for quantized coord → lon/lat restoration)
+      const [tz, tx, ty] = tileKeyUnpack(key)
+      const tn = Math.pow(2, tz)
+      const tileWest = tx / tn * 360 - 180
+      const tileEast = (tx + 1) / tn * 360 - 180
+      const tileNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tn))) * 180 / Math.PI
+      const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
+      new Float32Array(uniformData, 112, 4).set([tileWest, tileSouth, tileEast - tileWest, tileNorth - tileSouth])
       this.device.queue.writeBuffer(uniformBuffer, 0, uniformData)
 
       if (cached.indexCount > 0) {

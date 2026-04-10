@@ -26,26 +26,27 @@ describe('ZigZag Encoding', () => {
 })
 
 describe('Coordinate Encoding', () => {
-  it('round-trips coordinate arrays', () => {
-    const coords = [127.0, 37.5, 127.1, 37.6, 127.05, 37.55]
+  it('round-trips quantized integer coordinate arrays', () => {
+    // Coordinates are now quantized integers (0-8192 extent)
+    const coords = [1000, 2000, 1050, 2100, 1025, 2050]
     const encoded = encodeCoords(coords)
     const decoded = decodeCoords(encoded)
 
     expect(decoded.length).toBe(coords.length)
     for (let i = 0; i < coords.length; i++) {
-      expect(decoded[i]).toBeCloseTo(coords[i], 5)
+      expect(decoded[i]).toBe(coords[i])
     }
   })
 
-  it('compresses delta sequences efficiently', () => {
-    // Small deltas should compress well
+  it('compresses small integer deltas efficiently', () => {
+    // Quantized coords with small deltas (typical for tile-local)
     const coords: number[] = []
     for (let i = 0; i < 100; i++) {
-      coords.push(127.0 + i * 0.001, 37.5 + i * 0.001)
+      coords.push(4000 + i * 10, 4000 + i * 10)
     }
     const encoded = encodeCoords(coords)
-    const rawSize = coords.length * 4 // Float32 = 4 bytes each
-    expect(encoded.byteLength).toBeLessThan(rawSize * 0.6) // significant compression
+    const rawSize = coords.length * 4
+    expect(encoded.byteLength).toBeLessThan(rawSize * 0.3) // much better compression with small ints
   })
 })
 
@@ -385,12 +386,12 @@ describe('.xgvt Binary Format', () => {
     expect(tile.vertices.length).toBe(entry.vertexCount * 3)
     expect(tile.indices.length).toBe(entry.indexCount)
 
-    // Vertices are tile-local coordinates (dx, dy relative to tile origin)
-    // At zoom 0-2 with test data [0-30°], values should be small relative offsets
+    // Vertices are quantized integers (0-8192 tile extent)
     for (let i = 0; i < tile.vertices.length; i += 3) {
-      // Tile-local dx/dy should be within tile width (~180° at z0, ~90° at z1)
-      expect(Math.abs(tile.vertices[i])).toBeLessThan(360)
-      expect(Math.abs(tile.vertices[i + 1])).toBeLessThan(180)
+      expect(tile.vertices[i]).toBeGreaterThanOrEqual(-100) // small negative from clipping edge
+      expect(tile.vertices[i]).toBeLessThanOrEqual(8300)    // slightly over extent from clipping
+      expect(tile.vertices[i + 1]).toBeGreaterThanOrEqual(-100)
+      expect(tile.vertices[i + 1]).toBeLessThanOrEqual(8300)
     }
   })
 

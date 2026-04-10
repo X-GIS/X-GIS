@@ -20,7 +20,8 @@ struct Uniforms {
   stroke_color: vec4<f32>,
   // projection params: x=type(0=merc,1=equi,2=natearth,3=ortho), y=centerLon, z=centerLat, w=unused
   proj_params: vec4<f32>,
-  // tile origin: x=west(lon), y=south(lat) — vertex coords are tile-local, add origin to get global
+  // tile origin: x=west, y=south, z=width(east-west), w=height(north-south)
+  // vertex coords are quantized integers (0-8192), restored to lon/lat in shader
   tile_origin: vec4<f32>,
 }
 
@@ -176,10 +177,17 @@ struct VertexOutput {
 }
 
 @vertex
-fn vs_main(@location(0) local_pos: vec2<f32>, @location(1) feature_id: u32) -> VertexOutput {
-  // Tile-local → global: add tile origin (preserves f64 precision via small f32 + f32 origin)
-  let lon = local_pos.x + u.tile_origin.x;
-  let lat = local_pos.y + u.tile_origin.y;
+fn vs_main(@location(0) pos: vec2<f32>, @location(1) feature_id: u32) -> VertexOutput {
+  // If tile_origin.z > 0: quantized integer (0-8192) → lon/lat via tile bounds
+  // If tile_origin.z == 0: pos is already absolute lon/lat (non-tiled layers)
+  var lon: f32; var lat: f32;
+  if (u.tile_origin.z > 0.0) {
+    lon = u.tile_origin.x + (pos.x / 8192.0) * u.tile_origin.z;
+    lat = u.tile_origin.y + (pos.y / 8192.0) * u.tile_origin.w;
+  } else {
+    lon = pos.x;
+    lat = pos.y;
+  }
 
   let center_lon = u.proj_params.y;
   let center_lat = u.proj_params.z;
@@ -723,7 +731,7 @@ export class MapRenderer {
       new Float32Array(uniformData, 64, 4).set(fillColor as number[])
       new Float32Array(uniformData, 80, 4).set(strokeColor as number[])
       new Float32Array(uniformData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
-      new Float32Array(uniformData, 112, 4).set([0, 0, 0, 0]) // tile_origin = (0,0) for non-tiled layers
+      new Float32Array(uniformData, 112, 4).set([0, 0, 0, 0]) // tile_origin.z=0 → absolute lon/lat mode
       device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
       // Select bind group: per-layer (with feature data) or shared
@@ -763,7 +771,7 @@ export class MapRenderer {
       new Float32Array(gratUniform, 64, 4).set([1, 1, 1, 0.15]) // white, low alpha
       new Float32Array(gratUniform, 80, 4).set([1, 1, 1, 0.15])
       new Float32Array(gratUniform, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
-      new Float32Array(gratUniform, 112, 4).set([0, 0, 0, 0]) // tile_origin = (0,0)
+      new Float32Array(gratUniform, 112, 4).set([0, 0, 0, 0]) // tile_origin.z=0 → absolute lon/lat
       device.queue.writeBuffer(this.uniformBuffer, 0, gratUniform)
 
       pass.setPipeline(this.linePipeline)
