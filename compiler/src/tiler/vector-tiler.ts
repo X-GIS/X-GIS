@@ -16,7 +16,17 @@ export interface CompiledTileSet {
 
 export interface TileLevel {
   zoom: number
-  tiles: Map<string, CompiledTile> // "x/y" → tile
+  tiles: Map<number, CompiledTile> // tileKey(z,x,y) → tile
+}
+
+/** Pack z/x/y into a single u32 key. z: 5bit (0-31), x: 13bit (0-8191), y: 13bit (0-8191) */
+export function tileKey(z: number, x: number, y: number): number {
+  return ((z & 0x1f) << 26) | ((x & 0x1fff) << 13) | (y & 0x1fff)
+}
+
+/** Unpack a u32 tile key back to z, x, y */
+export function tileKeyUnpack(key: number): [number, number, number] {
+  return [(key >>> 26) & 0x1f, (key >>> 13) & 0x1fff, key & 0x1fff]
 }
 
 export interface CompiledTile {
@@ -169,7 +179,7 @@ export function compileGeoJSONToTiles(
 
   for (let z = minZoom; z <= maxZoom; z++) {
     const n = Math.pow(2, z)
-    const tiles = new Map<string, CompiledTile>()
+    const tiles = new Map<number, CompiledTile>()
 
     // Determine tile range that covers the data bbox
     const xMin = Math.max(0, Math.floor((gMinLon + 180) / 360 * n))
@@ -226,7 +236,7 @@ export function compileGeoJSONToTiles(
 
         if (polyVerts.length === 0 && lineVerts.length === 0) continue
 
-        tiles.set(`${x}/${y}`, {
+        tiles.set(tileKey(z, x, y), {
           z, x, y,
           vertices: new Float32Array(polyVerts),
           indices: new Uint32Array(polyIdx),

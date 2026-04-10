@@ -5,7 +5,7 @@ import {
   zigzagEncode, zigzagDecode,
 } from '../tiler/encoding'
 import { simplify, toleranceForZoom } from '../tiler/simplify'
-import { compileGeoJSONToTiles } from '../tiler/vector-tiler'
+import { compileGeoJSONToTiles, tileKey, tileKeyUnpack } from '../tiler/vector-tiler'
 import type { GeoJSONFeatureCollection } from '../../../runtime/src/loader/geojson'
 
 describe('ZigZag Encoding', () => {
@@ -83,6 +83,22 @@ describe('Douglas-Peucker Simplification', () => {
     expect(toleranceForZoom(0)).toBe(1.0)
     expect(toleranceForZoom(1)).toBe(0.5)
     expect(toleranceForZoom(10)).toBeCloseTo(1 / 1024)
+  })
+})
+
+describe('Tile Key Packing', () => {
+  it('packs and unpacks z/x/y', () => {
+    const key = tileKey(10, 512, 341)
+    const [z, x, y] = tileKeyUnpack(key)
+    expect(z).toBe(10)
+    expect(x).toBe(512)
+    expect(y).toBe(341)
+  })
+
+  it('handles edge values', () => {
+    expect(tileKeyUnpack(tileKey(0, 0, 0))).toEqual([0, 0, 0])
+    expect(tileKeyUnpack(tileKey(31, 8191, 8191))).toEqual([31, 8191, 8191])
+    expect(tileKeyUnpack(tileKey(14, 16383 & 0x1fff, 16383 & 0x1fff))).toEqual([14, 8191, 8191])
   })
 })
 
