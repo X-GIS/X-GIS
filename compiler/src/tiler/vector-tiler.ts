@@ -19,14 +19,51 @@ export interface TileLevel {
   tiles: Map<number, CompiledTile> // tileKey(z,x,y) → tile
 }
 
-/** Pack z/x/y into a single u32 key. z: 5bit (0-31), x: 13bit (0-8191), y: 13bit (0-8191) */
+/**
+ * Quadkey-style tile hash.
+ * Interleaves x/y bits with a leading 1-bit that encodes zoom level.
+ * Supports zoom 0-26 (fits in JS safe integer, 53 bits).
+ *
+ * Properties:
+ *   parent(key) = key >>> 2  (drop last 2 bits)
+ *   children(key) = [key<<2, key<<2|1, key<<2|2, key<<2|3]
+ *   zoom(key) = floor(log2(key)) / 2
+ */
 export function tileKey(z: number, x: number, y: number): number {
-  return ((z & 0x1f) << 26) | ((x & 0x1fff) << 13) | (y & 0x1fff)
+  let key = 1 // leading 1-bit sentinel
+  for (let i = z - 1; i >= 0; i--) {
+    const bx = (x >>> i) & 1
+    const by = (y >>> i) & 1
+    key = (key << 2) | (by << 1) | bx
+  }
+  return key
 }
 
-/** Unpack a u32 tile key back to z, x, y */
+/** Extract z, x, y from a quadkey tile hash */
 export function tileKeyUnpack(key: number): [number, number, number] {
-  return [(key >>> 26) & 0x1f, (key >>> 13) & 0x1fff, key & 0x1fff]
+  // Find zoom level: count bit-pairs after the leading 1
+  let z = 0
+  let tmp = key >>> 2
+  while (tmp > 0) { z++; tmp >>>= 2 }
+
+  let x = 0, y = 0
+  for (let i = 0; i < z; i++) {
+    const bits = (key >>> (2 * i)) & 3
+    x |= (bits & 1) << i
+    y |= ((bits >>> 1) & 1) << i
+  }
+  return [z, x, y]
+}
+
+/** Get parent tile key (one zoom level up) */
+export function tileKeyParent(key: number): number {
+  return key >>> 2
+}
+
+/** Get four child tile keys (one zoom level down) */
+export function tileKeyChildren(key: number): [number, number, number, number] {
+  const base = key << 2
+  return [base, base | 1, base | 2, base | 3]
 }
 
 export interface CompiledTile {

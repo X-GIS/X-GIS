@@ -5,7 +5,7 @@ import {
   zigzagEncode, zigzagDecode,
 } from '../tiler/encoding'
 import { simplify, toleranceForZoom } from '../tiler/simplify'
-import { compileGeoJSONToTiles, tileKey, tileKeyUnpack } from '../tiler/vector-tiler'
+import { compileGeoJSONToTiles, tileKey, tileKeyUnpack, tileKeyParent, tileKeyChildren } from '../tiler/vector-tiler'
 import type { GeoJSONFeatureCollection } from '../../../runtime/src/loader/geojson'
 
 describe('ZigZag Encoding', () => {
@@ -86,19 +86,58 @@ describe('Douglas-Peucker Simplification', () => {
   })
 })
 
-describe('Tile Key Packing', () => {
+describe('Tile Key (Quadkey Hash)', () => {
   it('packs and unpacks z/x/y', () => {
-    const key = tileKey(10, 512, 341)
+    const key = tileKey(3, 5, 2)
     const [z, x, y] = tileKeyUnpack(key)
-    expect(z).toBe(10)
-    expect(x).toBe(512)
-    expect(y).toBe(341)
+    expect(z).toBe(3)
+    expect(x).toBe(5)
+    expect(y).toBe(2)
   })
 
-  it('handles edge values', () => {
-    expect(tileKeyUnpack(tileKey(0, 0, 0))).toEqual([0, 0, 0])
-    expect(tileKeyUnpack(tileKey(31, 8191, 8191))).toEqual([31, 8191, 8191])
-    expect(tileKeyUnpack(tileKey(14, 16383 & 0x1fff, 16383 & 0x1fff))).toEqual([14, 8191, 8191])
+  it('round-trips various zoom levels', () => {
+    const cases: [number, number, number][] = [
+      [0, 0, 0], [1, 0, 0], [1, 1, 1],
+      [4, 12, 7], [8, 200, 150], [10, 512, 341],
+      [14, 8000, 6000],
+    ]
+    for (const [z, x, y] of cases) {
+      expect(tileKeyUnpack(tileKey(z, x, y))).toEqual([z, x, y])
+    }
+  })
+
+  it('zoom 0 produces key = 1', () => {
+    expect(tileKey(0, 0, 0)).toBe(1)
+  })
+
+  it('parent key is key >>> 2', () => {
+    const child = tileKey(3, 5, 2)
+    const parent = tileKeyParent(child)
+    const [pz, px, py] = tileKeyUnpack(parent)
+    expect(pz).toBe(2)
+    expect(px).toBe(Math.floor(5 / 2))  // 2
+    expect(py).toBe(Math.floor(2 / 2))  // 1
+  })
+
+  it('children of a key contain the key\'s area', () => {
+    const parent = tileKey(2, 1, 1)
+    const children = tileKeyChildren(parent)
+    expect(children.length).toBe(4)
+    // All children have same parent
+    for (const child of children) {
+      expect(tileKeyParent(child)).toBe(parent)
+    }
+  })
+
+  it('unique keys for all tiles at a zoom level', () => {
+    const z = 3
+    const keys = new Set<number>()
+    for (let x = 0; x < (1 << z); x++) {
+      for (let y = 0; y < (1 << z); y++) {
+        keys.add(tileKey(z, x, y))
+      }
+    }
+    expect(keys.size).toBe((1 << z) * (1 << z)) // 64 unique keys
   })
 })
 
