@@ -350,10 +350,12 @@ export function compileGeoJSONToTiles(
       const fyMin = Math.max(0, Math.floor((1 - Math.log(Math.tan(latMaxClamped * Math.PI / 180) + 1 / Math.cos(latMaxClamped * Math.PI / 180)) / Math.PI) / 2 * n))
       const fyMax = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(latMinClamped * Math.PI / 180) + 1 / Math.cos(latMinClamped * Math.PI / 180)) / Math.PI) / 2 * n))
 
-      // Skip features spanning too many tiles (clipping is correct but earcut per-tile is too expensive)
-      // These features are rendered from lower zoom levels via parent fallback
+      // Skip features spanning too many tiles at high zoom
+      // At low zoom (0-4), allow large spans since total tile count is small
+      // At high zoom (8+), limit to prevent memory explosion
       const tileSpan = (fxMax - fxMin + 1) * (fyMax - fyMin + 1)
-      if (tileSpan > 256) continue
+      const maxSpan = z <= 4 ? 10000 : z <= 6 ? 2000 : z <= 8 ? 500 : 100
+      if (tileSpan > maxSpan) continue
 
       for (let x = fxMin; x <= fxMax; x++) {
         for (let y = fyMin; y <= fyMax; y++) {
