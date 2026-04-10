@@ -238,6 +238,10 @@ export interface ShowCommand {
   projection: string
   visible: boolean
   opacity: number
+  size?: number | null
+  zoomOpacityStops?: { zoom: number; value: number }[] | null
+  zoomSizeStops?: { zoom: number; value: number }[] | null
+  shaderVariant?: { key: string; preamble: string; fillExpr: string; strokeExpr: string; needsFeatureBuffer: boolean; featureFields: string[]; uniformFields: string[] } | null
 }
 
 /**

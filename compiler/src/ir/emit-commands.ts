@@ -2,8 +2,11 @@
 // Converts IR Scene to the existing runtime SceneCommands format.
 // This bridge allows the runtime to consume IR without changes.
 
-import type { Scene, RenderNode, ColorValue } from './render-node'
+import type { Scene, RenderNode, ColorValue, ZoomStop } from './render-node'
 import { rgbaToHex } from './render-node'
+import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
+
+export type { ShaderVariant } from '../codegen/shader-gen'
 
 export interface LoadCommand {
   name: string
@@ -18,6 +21,10 @@ export interface ShowCommand {
   projection: string
   visible: boolean
   opacity: number
+  size: number | null
+  zoomOpacityStops: ZoomStop<number>[] | null
+  zoomSizeStops: ZoomStop<number>[] | null
+  shaderVariant: ShaderVariant | null
 }
 
 export interface SceneCommands {
@@ -41,6 +48,9 @@ export function emitCommands(scene: Scene): SceneCommands {
 }
 
 function emitShow(node: RenderNode): ShowCommand {
+  // Generate shader variant for this layer
+  const shaderVariant = generateShaderVariant(node)
+
   return {
     targetName: node.sourceRef,
     fill: colorToHex(node.fill),
@@ -49,6 +59,10 @@ function emitShow(node: RenderNode): ShowCommand {
     projection: node.projection,
     visible: node.visible,
     opacity: node.opacity.kind === 'constant' ? node.opacity.value : 1.0,
+    size: node.size.kind === 'constant' ? node.size.value : null,
+    zoomOpacityStops: node.opacity.kind === 'zoom-interpolated' ? node.opacity.stops : null,
+    zoomSizeStops: node.size.kind === 'zoom-interpolated' ? node.size.stops : null,
+    shaderVariant,
   }
 }
 
