@@ -13,7 +13,18 @@
 import type { CompiledTileSet, CompiledTile, PropertyTable, PropertyFieldType } from './vector-tiler'
 import { tileKeyUnpack } from './vector-tiler'
 import { encodeCoords, encodeIndices, decodeCoords, decodeIndices, encodeFeatIds, decodeFeatIds } from './encoding'
-import { gzipSync, gunzipSync } from 'node:zlib'
+// gzip: compile-time only (node:zlib), runtime uses DecompressionStream
+let gzipSync: (buf: Buffer) => Buffer
+let gunzipSync: (buf: Buffer) => Buffer
+try {
+  const zlib = require('node:zlib')
+  gzipSync = zlib.gzipSync
+  gunzipSync = zlib.gunzipSync
+} catch {
+  // Browser: gzipSync not available (only used at compile time)
+  gzipSync = (_buf: Buffer) => { throw new Error('gzip not available in browser') }
+  gunzipSync = (_buf: Buffer) => { throw new Error('gunzip not available in browser — use decompressTile()') }
+}
 
 // ═══ Constants ═══
 
@@ -288,6 +299,32 @@ export function parseXGVTIndex(buf: ArrayBuffer): XGVTIndex {
   }
 }
 
+/**
+ * Decompress gzip'd tile data in browser using DecompressionStream API.
+ * Returns decompressed ArrayBuffer.
+ */
+export async function decompressTileData(compressed: ArrayBuffer): Promise<ArrayBuffer> {
+  try {
+    const ds = new DecompressionStream('gzip')
+    const reader = new Blob([compressed]).stream().pipeThrough(ds).getReader()
+    const chunks: Uint8Array[] = []
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+    }
+    let totalLen = 0
+    for (const c of chunks) totalLen += c.byteLength
+    const result = new Uint8Array(totalLen)
+    let offset = 0
+    for (const c of chunks) { result.set(c, offset); offset += c.byteLength }
+    return result.buffer
+  } catch {
+    // Not compressed or DecompressionStream unavailable
+    return compressed
+  }
+}
+
 /** Extract tile data — uses GPU-ready layer if available, otherwise decodes compact layer */
 export function parseGPUReadyTile(
   buf: ArrayBuffer,
@@ -313,13 +350,14 @@ export function parseGPUReadyTile(
     return { z, x, y, vertices, indices, lineVertices, lineIndices, featureCount: 0 }
   }
 
-  // Decompress gzip'd compact layer, then decode sections
+  // Decompress gzip'd compact layer
   const compressedBuf = new Uint8Array(buf, entry.dataOffset, entry.compactSize)
   let dataBuf: Uint8Array
   try {
+    // Node/Bun: sync decompression
     dataBuf = new Uint8Array(gunzipSync(Buffer.from(compressedBuf)))
   } catch {
-    // Fallback: not compressed (old format)
+    // Browser or uncompressed: use raw data
     dataBuf = compressedBuf
   }
   let pos = 0

@@ -8,7 +8,7 @@ import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
 import { visibleTiles, sortByPriority } from '../loader/tiles'
 import {
-  parseXGVTIndex, parseGPUReadyTile,
+  parseXGVTIndex, parseGPUReadyTile, decompressTileData,
   tileKey, tileKeyUnpack,
   type XGVTIndex, type TileIndexEntry,
 } from '@xgis/compiler'
@@ -359,20 +359,23 @@ export class VectorTileRenderer {
     this.loadingTiles.add(key)
 
     if (this.fileBuf) {
-      // Synchronous: full file already in memory
-      const tile = parseGPUReadyTile(this.fileBuf, entry)
-      this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
-      this.loadingTiles.delete(key)
+      // Full file in memory — extract compressed tile, decompress, parse
+      const compressedSlice = this.fileBuf.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
+      decompressTileData(compressedSlice).then(decompressed => {
+        const tile = parseGPUReadyTile(decompressed, { ...entry, dataOffset: 0, compactSize: decompressed.byteLength })
+        this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+        this.loadingTiles.delete(key)
+      }).catch(() => { this.loadingTiles.delete(key) })
     } else if (this.fileUrl) {
-      // Async: Range Request for compact layer (or GPU-ready if available)
+      // Range Request — fetch compressed tile, decompress, parse
       const fetchOffset = entry.dataOffset
-      const fetchSize = entry.gpuReadySize > 0
-        ? entry.compactSize + entry.gpuReadySize  // both layers
-        : entry.compactSize                        // compact only
+      const fetchSize = entry.compactSize
       if (fetchSize === 0) { this.loadingTiles.delete(key); return }
 
-      fetchRange(this.fileUrl, fetchOffset, fetchSize).then(buf => {
-        const tile = parseGPUReadyTile(buf, { ...entry, dataOffset: 0 })
+      fetchRange(this.fileUrl, fetchOffset, fetchSize).then(compressed =>
+        decompressTileData(compressed)
+      ).then(decompressed => {
+        const tile = parseGPUReadyTile(decompressed, { ...entry, dataOffset: 0, compactSize: decompressed.byteLength })
         this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
         this.loadingTiles.delete(key)
       }).catch(() => {
