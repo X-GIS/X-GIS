@@ -93,6 +93,7 @@ export interface ConditionalBranch<T> {
  */
 export interface DataExpr {
   ast: import('../parser/ast').Expr
+  classification?: import('./classify').ExprClass
 }
 
 // ═══ Helpers ═══

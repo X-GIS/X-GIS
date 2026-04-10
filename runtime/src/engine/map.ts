@@ -1,6 +1,6 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { Lexer, Parser, lower, emitCommands } from '@xgis/compiler'
+import { Lexer, Parser, lower, optimize, emitCommands } from '@xgis/compiler'
 import { deserializeXGB } from '../../../compiler/src/binary/format'
 import { initGPU, resizeCanvas, type GPUContext } from './gpu'
 import { Camera } from './camera'
@@ -70,7 +70,9 @@ export class XGISMap {
 
     // Use IR pipeline for new syntax, fallback to legacy interpreter
     const hasNewSyntax = ast.body.some(s => s.kind === 'SourceStatement' || s.kind === 'LayerStatement')
-    const commands = hasNewSyntax ? emitCommands(lower(ast)) : interpret(ast)
+    const commands = hasNewSyntax
+      ? emitCommands(optimize(lower(ast), ast))
+      : interpret(ast)
 
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 

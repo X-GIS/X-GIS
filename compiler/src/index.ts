@@ -11,3 +11,6 @@ export type { Scene, SourceDef, RenderNode, ColorValue, StrokeValue, OpacityValu
 export { hexToRgba, rgbaToHex, colorNone, colorConstant, opacityConstant, sizeNone, sizeConstant } from './ir/render-node'
 export { evaluate, type FeatureProps } from './eval/evaluator'
 export { resolveImports, type FileReader } from './module/resolver'
+export { optimize } from './ir/optimize'
+export { classifyExpr, type ExprClass } from './ir/classify'
+export { constFold } from './ir/const-fold'
