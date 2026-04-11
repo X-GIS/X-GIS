@@ -276,17 +276,21 @@ export class VectorTileRenderer {
     const fallbackKeys: number[] = []
     const toLoad: number[] = []
 
+    // Max zoom levels to walk up for fallback (limits overzoom waste)
+    const MAX_FALLBACK_LEVELS = 4
+
     for (let i = 0; i < tiles.length; i++) {
       const key = neededKeys[i]
       if (this.tileCache.has(key)) continue // already have current zoom tile
 
-      // Walk up parent chain: find cached ancestor OR closest existing ancestor to load
+      // Walk up parent chain (limited depth) to find cached or loadable ancestor
       let parentKey = key
       let foundCached = false
       let closestExisting = -1
       let hasAnyAncestor = false
+      const minZ = Math.max(0, currentZ - MAX_FALLBACK_LEVELS)
 
-      for (let pz = currentZ - 1; pz >= 0; pz--) {
+      for (let pz = currentZ - 1; pz >= minZ; pz--) {
         parentKey = parentKey >>> 2
         if (this.index.entryByHash.has(parentKey)) hasAnyAncestor = true
         if (this.tileCache.has(parentKey)) {
@@ -299,7 +303,7 @@ export class VectorTileRenderer {
         }
       }
 
-      // Skip if no data exists anywhere in this tile's ancestry (empty ocean/area)
+      // Skip if no data exists in the limited ancestry range
       if (!hasAnyAncestor && !this.index.entryByHash.has(key)) continue
 
       // If current zoom tile doesn't exist in index, load the closest ancestor
