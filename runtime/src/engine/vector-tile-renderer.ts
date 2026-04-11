@@ -399,17 +399,12 @@ export class VectorTileRenderer {
 
       if (zoomDiff >= 2 && cached.polygons && cached.polygons.length > 0 &&
           viewWest !== undefined) {
-        // Clip polygons to viewport bounds (tile-local coords)
-        const clipW = viewWest! - cached.tileWest
-        const clipE = viewEast! - cached.tileWest
-        const clipS = viewSouth! - cached.tileSouth
-        const clipN = viewNorth! - cached.tileSouth
-
+        // Clip polygons to viewport bounds (absolute coords — rings are absolute)
         const verts: number[] = []
         const idx: number[] = []
 
         for (const poly of cached.polygons) {
-          const clipped = clipPolygonToRect(poly.rings, clipW, clipS, clipE, clipN)
+          const clipped = clipPolygonToRect(poly.rings, viewWest!, viewSouth!, viewEast!, viewNorth!)
           if (clipped.length === 0 || clipped[0].length < 3) continue
 
           const baseVertex = verts.length / 3
@@ -424,8 +419,9 @@ export class VectorTileRenderer {
           }
 
           const earcutIdx = earcut(flatCoords, holeIndices.length > 0 ? holeIndices : undefined)
+          // Convert to tile-local coordinates after earcut
           for (let i = 0; i < flatCoords.length; i += 2) {
-            verts.push(flatCoords[i], flatCoords[i + 1], poly.featId)
+            verts.push(flatCoords[i] - cached.tileWest, flatCoords[i + 1] - cached.tileSouth, poly.featId)
           }
           for (const i of earcutIdx) {
             idx.push(baseVertex + i)

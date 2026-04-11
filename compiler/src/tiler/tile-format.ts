@@ -411,6 +411,7 @@ export function parseGPUReadyTile(
   const polygons = decodeRingData(ringDataBuf, precision)
   const polyVerts: number[] = []
   const polyIdx: number[] = []
+  const tb = tileBoundsFromZXY(z, x, y)
 
   for (const poly of polygons) {
     const baseVertex = polyVerts.length / 3
@@ -426,7 +427,7 @@ export function parseGPUReadyTile(
 
     const earcutIdx = earcut(flatCoords, holeIndices.length > 0 ? holeIndices : undefined)
     for (let i = 0; i < flatCoords.length; i += 2) {
-      polyVerts.push(flatCoords[i], flatCoords[i + 1], poly.featId)
+      polyVerts.push(flatCoords[i] - tb.west, flatCoords[i + 1] - tb.south, poly.featId)
     }
     for (const idx of earcutIdx) {
       polyIdx.push(baseVertex + idx)
@@ -448,7 +449,6 @@ export function parseGPUReadyTile(
   }
   const lineIndices = decodeIndices(lineIndicesBuf)
 
-  const tb = tileBoundsFromZXY(z, x, y)
   return {
     z, x, y, tileWest: tb.west, tileSouth: tb.south,
     vertices, indices, lineVertices, lineIndices,
