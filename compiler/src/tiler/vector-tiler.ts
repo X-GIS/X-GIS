@@ -480,10 +480,10 @@ export function compileGeoJSONToTiles(
           polygons: tilePolygons.length > 0 ? tilePolygons : undefined,
         })
 
-        // Adaptive subdivision: subdivide only if simplification removed vertices.
-        // If pre == post, geometry is already at full detail → leaf (no children needed).
-        // If pre > post, higher zoom would reveal the removed vertices → subdivide.
-        if (z < maxZoom && preSimplifyVerts > postSimplifyVerts) {
+        // Adaptive subdivision:
+        // - Full-cover tiles: always subdivide (original data has coastline/border detail at higher zoom)
+        // - Other tiles: subdivide only if simplification removed vertices
+        if (z < maxZoom && (fullCover || preSimplifyVerts > postSimplifyVerts)) {
           needsSubdivision.add(key)
         }
       }
