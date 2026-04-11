@@ -758,11 +758,20 @@ export class MapRenderer {
       alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
     }
 
+    const stencilWrite: GPUDepthStencilState = {
+      format: 'stencil8',
+      stencilFront: { compare: 'always', passOp: 'replace' },
+      stencilBack: { compare: 'always', passOp: 'replace' },
+      stencilWriteMask: 0xFF,
+      stencilReadMask: 0xFF,
+    }
+
     const fillPipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
       fragment: { module, entryPoint: 'fs_fill', targets: [{ format, blend: blendState }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: stencilWrite,
       label: `fill-${variant.key}`,
     })
 
@@ -771,6 +780,7 @@ export class MapRenderer {
       vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
       fragment: { module, entryPoint: 'fs_stroke', targets: [{ format, blend: blendState }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
+      depthStencil: stencilWrite,
       label: `line-${variant.key}`,
     })
 
