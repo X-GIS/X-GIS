@@ -477,6 +477,7 @@ export class VectorTileRenderer {
       }
 
       this.renderedDraws.set(key, { polyCount, lineCount: cached.lineIndexCount, vertexCount: vertexCount + cached.cpuLineVertices.length / 3 })
+    }
   }
 
   /**
