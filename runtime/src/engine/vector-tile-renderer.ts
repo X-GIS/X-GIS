@@ -246,10 +246,11 @@ export class VectorTileRenderer {
     const maxSubTileZ = maxLevel + 6  // allow overzoom sub-tiles up to +6 levels
     const currentZ = Math.max(0, Math.min(maxSubTileZ, Math.round(camera.zoom)))
 
-    // Zoom transition: cancel old requests when zoom changes
+    // Zoom transition: cancel pending tile fetches for old zoom level
     if (currentZ !== this.lastZoom) {
       this.zoomAbortController?.abort()
       this.zoomAbortController = new AbortController()
+      this.loadingTiles.clear() // allow aborted tiles to be re-requested at new zoom
       this.lastZoom = currentZ
     }
 
@@ -565,7 +566,7 @@ export class VectorTileRenderer {
       const size = batch.endOffset - batch.startOffset
       if (size <= 0) continue
 
-      fetchRange(this.fileUrl, batch.startOffset, size).then(buf => {
+      fetchRange(this.fileUrl, batch.startOffset, size, this.zoomAbortController?.signal ?? undefined).then(buf => {
         for (const { key, entry } of batch.entries) {
           const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
           const localOffset = entry.dataOffset - batch.startOffset
@@ -671,7 +672,7 @@ export class VectorTileRenderer {
         return
       }
 
-      fetchRange(this.fileUrl, fetchOffset, fetchSize).then(compressed =>
+      fetchRange(this.fileUrl, fetchOffset, fetchSize, this.zoomAbortController?.signal ?? undefined).then(compressed =>
         decompressTileData(compressed)
       ).then(decompressed => {
         const tile = parseGPUReadyTile(decompressed, { ...entry, dataOffset: 0, compactSize: decompressed.byteLength })
@@ -829,7 +830,7 @@ export class VectorTileRenderer {
 // Cache for full-file fallback when server doesn't support Range requests
 let fullFileCache: { url: string; buf: ArrayBuffer } | null = null
 
-async function fetchRange(url: string, offset: number, length: number): Promise<ArrayBuffer> {
+async function fetchRange(url: string, offset: number, length: number, signal?: AbortSignal): Promise<ArrayBuffer> {
   // If we already have the full file cached (server doesn't support Range), use it
   if (fullFileCache && fullFileCache.url === url) {
     return fullFileCache.buf.slice(offset, offset + length)
@@ -837,6 +838,7 @@ async function fetchRange(url: string, offset: number, length: number): Promise<
 
   const res = await fetch(url, {
     headers: { Range: `bytes=${offset}-${offset + length - 1}` },
+    signal,
   })
   const buf = await res.arrayBuffer()
 
