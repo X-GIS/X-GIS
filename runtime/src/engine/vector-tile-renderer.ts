@@ -11,12 +11,10 @@ import {
   parseXGVTIndex, parseGPUReadyTile, decompressTileData, parsePropertyTable,
   TILE_FLAG_FULL_COVER,
   tileKey, tileKeyUnpack,
-  clipPolygonToRect,
   type XGVTIndex, type TileIndexEntry,
   type PropertyTable, type RingPolygon,
 } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
-import earcut from 'earcut'
 
 // ═══ Types ═══
 
@@ -72,11 +70,6 @@ export class VectorTileRenderer {
   private featureDataBuffer: GPUBuffer | null = null
   private featureBindGroupLayout: GPUBindGroupLayout | null = null
 
-  // Temporary GPU buffers for overzoom sub-tiling (never overwrites cached tile buffers)
-  private tempVertexBuffer: GPUBuffer | null = null
-  private tempIndexBuffer: GPUBuffer | null = null
-  private tempVBSize = 0
-  private tempIBSize = 0
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
@@ -322,27 +315,14 @@ export class VectorTileRenderer {
       }
     }
 
-    // Viewport bounds for runtime sub-tiling during overzoom
-    const mpp = (40075016.686 / 256) / Math.pow(2, camera.zoom)
-    const dpr2 = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-    const halfW = (canvasWidth / dpr2) * mpp / 2
-    const halfH = (canvasHeight / dpr2) * mpp / 2
-    const R2 = 6378137
-    const vW = ((camera.centerX - halfW) / R2) * (180 / Math.PI)
-    const vE = ((camera.centerX + halfW) / R2) * (180 / Math.PI)
-    const vS = (2 * Math.atan(Math.exp((camera.centerY - halfH) / R2)) - Math.PI / 2) * (180 / Math.PI)
-    const vN = (2 * Math.atan(Math.exp((camera.centerY + halfH) / R2)) - Math.PI / 2) * (180 / Math.PI)
-
     // 2. Render parent fallbacks first (behind), then current zoom on top
     const uniqueFallbacks = [...new Set(fallbackKeys)]
     if (uniqueFallbacks.length > 0) {
-      this.renderTileKeys(uniqueFallbacks, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat,
-        camera.zoom, vW, vS, vE, vN)
+      this.renderTileKeys(uniqueFallbacks, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
     }
 
     // 3. Render current zoom tiles (whatever is available) — drawn on top
-    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat,
-      camera.zoom, vW, vS, vE, vN)
+    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
     this.stableZoom = currentZ
     this.stableKeys = neededKeys
 
@@ -372,8 +352,6 @@ export class VectorTileRenderer {
     sharedUniformData: ArrayBuffer,
     projCenterLon: number,
     projCenterLat: number,
-    cameraZoom?: number,
-    viewW?: number, viewS?: number, viewE?: number, viewN?: number,
   ): void {
     for (const key of keys) {
       if (this.renderedDraws.has(key)) continue // already drawn this frame
@@ -395,72 +373,17 @@ export class VectorTileRenderer {
       const tileRtc = new Float32Array([tileX - centerX, tileY - centerY, cached.tileWest, cached.tileSouth])
       this.device.queue.writeBuffer(cached.uniformBuffer, 112, tileRtc)
 
-      // Overzoom sub-tiling: only for maxZoom tiles (original data, not simplified)
-      const maxLevel = this.index!.header.maxLevel
-      const zoomDiff = (cameraZoom ?? cached.tileZoom) - cached.tileZoom
-      let polyCount = 0, vertexCount = 0
-
-      if (zoomDiff >= 2 && cached.tileZoom >= maxLevel &&
-          cached.polygons && cached.polygons.length > 0 && viewW !== undefined) {
-        const verts: number[] = []
-        const idx: number[] = []
-
-        for (const poly of cached.polygons) {
-          const clipped = clipPolygonToRect(poly.rings, viewW!, viewS!, viewE!, viewN!)
-          if (clipped.length === 0 || clipped[0].length < 3) continue
-          const base = verts.length / 3
-          const flat: number[] = []
-          const holes: number[] = []
-          for (let r = 0; r < clipped.length; r++) {
-            if (r > 0) holes.push(flat.length / 2)
-            for (const c of clipped[r]) flat.push(c[0], c[1])
-          }
-          const tri = earcut(flat, holes.length > 0 ? holes : undefined)
-          for (let i = 0; i < flat.length; i += 2) {
-            verts.push(flat[i] - cached.tileWest, flat[i + 1] - cached.tileSouth, poly.featId)
-          }
-          for (const i of tri) idx.push(base + i)
-        }
-
-        if (verts.length > 0) {
-          const vb = new Float32Array(verts)
-          const ib = new Uint32Array(idx)
-          // Grow temp buffers if needed
-          if (vb.byteLength > this.tempVBSize) {
-            this.tempVertexBuffer?.destroy()
-            this.tempVBSize = Math.max(vb.byteLength * 2, 4096)
-            this.tempVertexBuffer = this.device.createBuffer({ size: this.tempVBSize, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
-          }
-          if (ib.byteLength > this.tempIBSize) {
-            this.tempIndexBuffer?.destroy()
-            this.tempIBSize = Math.max(ib.byteLength * 2, 1024)
-            this.tempIndexBuffer = this.device.createBuffer({ size: this.tempIBSize, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST })
-          }
-          this.device.queue.writeBuffer(this.tempVertexBuffer!, 0, vb)
-          this.device.queue.writeBuffer(this.tempIndexBuffer!, 0, ib)
-
-          pass.setPipeline(fillPipeline)
-          pass.setBindGroup(0, cached.bindGroup)
-          pass.setVertexBuffer(0, this.tempVertexBuffer!)
-          pass.setIndexBuffer(this.tempIndexBuffer!, 'uint32')
-          pass.drawIndexed(ib.length)
-          polyCount = ib.length
-          vertexCount = vb.length / 3
-        }
-      } else {
-        // Normal: render full cached tile
-        if (cached.indexCount > 0) {
-          pass.setPipeline(fillPipeline)
-          pass.setBindGroup(0, cached.bindGroup)
-          pass.setVertexBuffer(0, cached.vertexBuffer)
-          pass.setIndexBuffer(cached.indexBuffer, 'uint32')
-          pass.drawIndexed(cached.indexCount)
-          polyCount = cached.indexCount
-          vertexCount = cached.cpuVertices.length / 3
-        }
+      // Render full cached tile — GPU viewport clipping handles off-screen geometry
+      // Runtime sub-tiling disabled: Sutherland-Hodgman produces self-intersecting
+      // polygons for concave coastlines, causing earcut artifacts.
+      if (cached.indexCount > 0) {
+        pass.setPipeline(fillPipeline)
+        pass.setBindGroup(0, cached.bindGroup)
+        pass.setVertexBuffer(0, cached.vertexBuffer)
+        pass.setIndexBuffer(cached.indexBuffer, 'uint32')
+        pass.drawIndexed(cached.indexCount)
       }
 
-      // Lines: always render full (from cache)
       if (cached.lineIndexCount > 0 && cached.lineVertexBuffer && cached.lineIndexBuffer) {
         pass.setPipeline(linePipeline)
         pass.setBindGroup(0, cached.bindGroup)
@@ -469,7 +392,8 @@ export class VectorTileRenderer {
         pass.drawIndexed(cached.lineIndexCount)
       }
 
-      this.renderedDraws.set(key, { polyCount, lineCount: cached.lineIndexCount, vertexCount: vertexCount + cached.cpuLineVertices.length / 3 })
+      const vc = (cached.cpuVertices.length / 3) + (cached.cpuLineVertices.length / 3)
+      this.renderedDraws.set(key, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount, vertexCount: vc })
     }
   }
 
