@@ -23,6 +23,7 @@ export function visibleTiles(
   zoom: number,
   viewportWidth: number,
   viewportHeight: number,
+  cameraZoom?: number,
 ): TileCoord[] {
   const z = Math.max(0, Math.min(18, Math.round(zoom)))
   const n = Math.pow(2, z)
@@ -31,8 +32,11 @@ export function visibleTiles(
   const cx = Math.floor((centerLon + 180) / 360 * n)
   const cy = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
 
-  // How many tiles fit in viewport (approximate)
-  const tileSize = 256
+  // How many tiles fit in viewport — account for overzoom
+  // At camera zoom >> tile zoom, each tile covers many screen pixels
+  const effectiveZoom = cameraZoom ?? zoom
+  const scale = Math.pow(2, effectiveZoom - z) // how many screen-tile-sizes per actual tile
+  const tileSize = 256 * scale
   const tilesX = Math.ceil(viewportWidth / tileSize / 2) + 1
   const tilesY = Math.ceil(viewportHeight / tileSize / 2) + 1
 
