@@ -321,18 +321,24 @@ export class VectorTileRenderer {
       }
     }
 
-    // Render current zoom tiles. Keep old zoom as fallback until new tiles appear.
-    const hasCurrent = neededKeys.some(k => this.tileCache.has(k))
-
-    if (hasCurrent || this.stableZoom < 0 || currentZ === this.stableZoom) {
-      // New tiles available (or same zoom) → render current zoom only
-      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
-      this.stableZoom = currentZ
-      this.stableKeys = neededKeys
-    } else {
-      // No new tiles yet → keep showing old zoom (prevents black screen flicker)
-      this.renderTileKeys(this.stableKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+    // 2. For uncached positions, collect fallback ancestor keys
+    const fallbackKeys: number[] = []
+    for (const key of neededKeys) {
+      if (this.tileCache.has(key)) continue
+      let pk = key
+      for (let pz = currentZ - 1; pz >= 0; pz--) {
+        pk = pk >>> 2
+        if (this.tileCache.has(pk)) { fallbackKeys.push(pk); break }
+      }
     }
+
+    // 3. Render: fallbacks FIRST (behind), then current zoom ON TOP
+    // Overlap with opacity < 1.0 causes minor color shift but eliminates flicker entirely
+    const uniqueFallbacks = [...new Set(fallbackKeys)]
+    if (uniqueFallbacks.length > 0) {
+      this.renderTileKeys(uniqueFallbacks, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+    }
+    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
 
     // Load missing tiles
     const missing = neededKeys
