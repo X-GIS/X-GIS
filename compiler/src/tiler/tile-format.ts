@@ -126,8 +126,9 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
   const compressedTiles: (Uint8Array | null)[] = []
   for (const et of encodedTiles) {
     // Full-cover tiles with no geometry: skip compact data entirely
-    const isEmpty = et.tile.fullCover &&
-      et.tile.vertices.length === 0 && et.tile.lineVertices.length === 0
+    // Only skip compact data if truly empty (no polygons AND no lines)
+    const isEmpty = (!et.tile.polygons || et.tile.polygons.length === 0) &&
+      et.tile.lineVertices.length === 0
     if (isEmpty) {
       compressedTiles.push(null) // no compact data
       continue
