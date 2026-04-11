@@ -44,7 +44,7 @@ interface CachedVectorTile {
 }
 
 const MAX_CACHED_TILES = 512
-const MAX_CONCURRENT_LOADS = 12
+const MAX_CONCURRENT_LOADS = 32  // .xgvt supports parallel Range Requests
 
 // ═══ Renderer ═══
 
@@ -246,14 +246,8 @@ export class VectorTileRenderer {
     const maxSubTileZ = maxLevel + 6  // allow overzoom sub-tiles up to +6 levels
     const currentZ = Math.max(0, Math.min(maxSubTileZ, Math.round(camera.zoom)))
 
-    // Zoom transition: cancel pending fetches (but not base-level tiles which are always needed)
+    // Track zoom changes (no abort — let all fetches complete, LRU manages memory)
     if (currentZ !== this.lastZoom) {
-      // Only abort if zooming OUT (zooming in still needs the same/higher tiles)
-      if (currentZ < this.lastZoom) {
-        this.zoomAbortController?.abort()
-        this.loadingTiles.clear()
-      }
-      this.zoomAbortController = new AbortController()
       this.lastZoom = currentZ
     }
 
@@ -589,7 +583,7 @@ export class VectorTileRenderer {
       const size = batch.endOffset - batch.startOffset
       if (size <= 0) continue
 
-      fetchRange(this.fileUrl, batch.startOffset, size, this.zoomAbortController?.signal ?? undefined).then(buf => {
+      fetchRange(this.fileUrl, batch.startOffset, size).then(buf => {
         for (const { key, entry } of batch.entries) {
           const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
           const localOffset = entry.dataOffset - batch.startOffset
@@ -726,7 +720,7 @@ export class VectorTileRenderer {
         return
       }
 
-      fetchRange(this.fileUrl, fetchOffset, fetchSize, this.zoomAbortController?.signal ?? undefined).then(compressed =>
+      fetchRange(this.fileUrl, fetchOffset, fetchSize).then(compressed =>
         decompressTileData(compressed)
       ).then(decompressed => {
         const tile = parseGPUReadyTile(decompressed, { ...entry, dataOffset: 0, compactSize: decompressed.byteLength })
