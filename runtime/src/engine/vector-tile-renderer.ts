@@ -230,6 +230,8 @@ export class VectorTileRenderer {
     linePipeline: GPURenderPipeline,
     uniformBuffer: GPUBuffer,
     bindGroupLayout: GPUBindGroupLayout,
+    fillPipelineFallback?: GPURenderPipeline,
+    linePipelineFallback?: GPURenderPipeline,
   ): void {
     if (!this.index) return
     this.frameCount++
@@ -318,9 +320,16 @@ export class VectorTileRenderer {
       }
     }
 
-    // 2. Render current zoom tiles only (no fallback overlap)
-    // Prefetching + fast loading minimize gaps. Overlap causes permanent color shift.
+    // 2. Render current zoom tiles FIRST (stencil writes 1 where drawn)
+    pass.setStencilReference(1)
     this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+
+    // 3. Render fallback ancestors with stencil test (only where stencil=0, not covered by children)
+    if (fillPipelineFallback && fallbackKeys.length > 0) {
+      pass.setStencilReference(0)
+      const uniqueFallbacks = [...new Set(fallbackKeys)]
+      this.renderTileKeys(uniqueFallbacks, pass, fillPipelineFallback, linePipelineFallback!, null!, uniformBuffer, uniformData, centerLon, centerLat)
+    }
 
     // Load missing tiles
     const missing = neededKeys

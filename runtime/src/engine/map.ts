@@ -39,6 +39,11 @@ export class XGISMap {
   private rawDatasets = new Map<string, GeoJSONFeatureCollection>()
   private showCommands: SceneCommands['shows'] = []
 
+  // Stencil buffer for tile overlap masking
+  private stencilTexture: GPUTexture | null = null
+  private stencilWidth = 0
+  private stencilHeight = 0
+
   // Stats inspector
   private _stats = new StatsTracker()
   private _statsPanel: StatsPanel | null = null
@@ -397,6 +402,18 @@ export class XGISMap {
 
     } else {
       // ═══ Flat mode: direct rendering ═══
+      // Create/resize stencil texture for tile overlap masking
+      if (!this.stencilTexture || this.stencilWidth !== w || this.stencilHeight !== h) {
+        this.stencilTexture?.destroy()
+        this.stencilTexture = device.createTexture({
+          size: { width: w, height: h },
+          format: 'stencil8',
+          usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        })
+        this.stencilWidth = w
+        this.stencilHeight = h
+      }
+
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
           view: screenView,
@@ -404,6 +421,12 @@ export class XGISMap {
           loadOp: 'clear',
           storeOp: 'store',
         }],
+        depthStencilAttachment: {
+          view: this.stencilTexture.createView(),
+          stencilClearValue: 0,
+          stencilLoadOp: 'clear',
+          stencilStoreOp: 'discard',
+        },
       })
 
       this.rasterRenderer.render(pass, this.camera, projType, centerLon, centerLat, w, h)
@@ -419,6 +442,7 @@ export class XGISMap {
             pass, this.camera, projType, centerLon, centerLat, w, h,
             show, fp, lp,
             this.renderer.uniformBuffer, bgl,
+            this.renderer.fillPipelineFallback, this.renderer.linePipelineFallback,
           )
         }
       }

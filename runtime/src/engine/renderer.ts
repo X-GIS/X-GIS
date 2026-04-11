@@ -418,6 +418,9 @@ export class MapRenderer {
   fillPipeline!: GPURenderPipeline
   private strokePipeline!: GPURenderPipeline
   linePipeline!: GPURenderPipeline
+  // Stencil-test pipelines: only draw where stencil = 0 (not covered by children)
+  fillPipelineFallback!: GPURenderPipeline
+  linePipelineFallback!: GPURenderPipeline
   uniformBuffer!: GPUBuffer
   bindGroupLayout!: GPUBindGroupLayout
   featureBindGroupLayout!: GPUBindGroupLayout
@@ -500,28 +503,67 @@ export class MapRenderer {
       ],
     }
 
-    // Fill pipeline (triangles)
+    const blendState: GPUBlendState = {
+      color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+      alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+    }
+
+    // Stencil state: current zoom tiles WRITE stencil=1
+    const stencilWrite: GPUDepthStencilState = {
+      format: 'stencil8',
+      stencilFront: { compare: 'always', passOp: 'replace' },
+      stencilBack: { compare: 'always', passOp: 'replace' },
+      stencilWriteMask: 0xFF,
+      stencilReadMask: 0xFF,
+    }
+
+    // Stencil state: fallback tiles only draw where stencil=0 (not covered by children)
+    const stencilTest: GPUDepthStencilState = {
+      format: 'stencil8',
+      stencilFront: { compare: 'equal', passOp: 'keep' },
+      stencilBack: { compare: 'equal', passOp: 'keep' },
+      stencilWriteMask: 0x00,
+      stencilReadMask: 0xFF,
+    }
+
+    // Fill pipeline (stencil write — current zoom tiles)
     this.fillPipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: [{ format, blend: {
-        color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-      }}] },
+      fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: [{ format, blend: blendState }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: stencilWrite,
       label: 'fill-pipeline',
     })
 
-    // Line pipeline (line-list)
+    // Line pipeline (stencil write)
     this.linePipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: [{ format, blend: {
-        color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-        alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-      }}] },
+      fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: [{ format, blend: blendState }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
+      depthStencil: stencilWrite,
       label: 'line-pipeline',
+    })
+
+    // Fallback fill pipeline (stencil test — only where stencil=0)
+    this.fillPipelineFallback = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+      fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: [{ format, blend: blendState }] },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: stencilTest,
+      label: 'fill-pipeline-fallback',
+    })
+
+    // Fallback line pipeline (stencil test)
+    this.linePipelineFallback = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+      fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: [{ format, blend: blendState }] },
+      primitive: { topology: 'line-list', cullMode: 'none' },
+      depthStencil: stencilTest,
+      label: 'line-pipeline-fallback',
     })
 
     // Uniform buffer (MVP + colors + strokeWidth = 64 + 16 + 16 + 4 = padded to 112)
