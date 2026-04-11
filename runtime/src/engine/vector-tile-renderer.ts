@@ -11,6 +11,7 @@ import {
   parseXGVTIndex, parseGPUReadyTile, decompressTileData, parsePropertyTable,
   TILE_FLAG_FULL_COVER,
   tileKey, tileKeyUnpack,
+  clipPolygonToRect,
   type XGVTIndex, type TileIndexEntry,
   type PropertyTable, type RingPolygon,
 } from '@xgis/compiler'
@@ -242,7 +243,8 @@ export class VectorTileRenderer {
     // Overzoom: clamp tile zoom to max available, camera zoom is unlimited
     // (tile-local coordinates + per-tile bind groups ensure f32 precision at any zoom)
     const maxLevel = this.index.header.maxLevel
-    const currentZ = Math.max(0, Math.min(maxLevel, Math.round(camera.zoom)))
+    const maxSubTileZ = maxLevel + 6  // allow overzoom sub-tiles up to +6 levels
+    const currentZ = Math.max(0, Math.min(maxSubTileZ, Math.round(camera.zoom)))
 
     // Zoom transition: cancel old requests when zoom changes
     if (currentZ !== this.lastZoom) {
@@ -288,18 +290,25 @@ export class VectorTileRenderer {
       const key = neededKeys[i]
       if (this.tileCache.has(key)) continue
 
-      // Walk up full parent chain to find cached or loadable ancestor
+      // Walk up parent chain to find cached ancestor
       let parentKey = key
       let foundCached = false
       let closestExisting = -1
       let hasAnyAncestor = false
+      let cachedParentKey = -1
 
       for (let pz = currentZ - 1; pz >= 0; pz--) {
         parentKey = parentKey >>> 2
         if (this.index.entryByHash.has(parentKey)) hasAnyAncestor = true
         if (this.tileCache.has(parentKey)) {
-          fallbackKeys.push(parentKey)
-          foundCached = true
+          cachedParentKey = parentKey
+          // Try generating sub-tile from cached parent (overzoom)
+          if (currentZ > maxLevel && this.generateSubTile(key, parentKey)) {
+            foundCached = true // sub-tile created in cache → will render directly
+          } else {
+            fallbackKeys.push(parentKey) // fall back to parent render
+            foundCached = true
+          }
           break
         }
         if (closestExisting < 0 && this.index.entryByHash.has(parentKey)) {
@@ -307,10 +316,8 @@ export class VectorTileRenderer {
         }
       }
 
-      // Skip if no data exists in the limited ancestry range
       if (!hasAnyAncestor && !this.index.entryByHash.has(key)) continue
 
-      // If current zoom tile doesn't exist in index, load the closest ancestor
       if (!this.index.entryByHash.has(key) && closestExisting >= 0 && !foundCached) {
         toLoad.push(closestExisting)
       }
@@ -394,6 +401,82 @@ export class VectorTileRenderer {
       const vc = (cached.cpuVertices.length / 3) + (cached.cpuLineVertices.length / 3)
       this.renderedDraws.set(key, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount, vertexCount: vc })
     }
+  }
+
+  /**
+   * Generate a sub-tile by clipping parent tile's triangles to sub-tile bounds.
+   * Each triangle is convex → Sutherland-Hodgman is exact.
+   * Result is cached as a new tile entry with its own GPU buffers.
+   */
+  private generateSubTile(subKey: number, parentKey: number): boolean {
+    const parent = this.tileCache.get(parentKey)
+    if (!parent || parent.cpuIndices.length === 0) return false
+
+    const [sz, sx, sy] = tileKeyUnpack(subKey)
+    const sn = Math.pow(2, sz)
+
+    // Sub-tile bounds in absolute degrees
+    const subWest = sx / sn * 360 - 180
+    const subEast = (sx + 1) / sn * 360 - 180
+    const subSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (sy + 1) / sn))) * 180 / Math.PI
+    const subNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * sy / sn))) * 180 / Math.PI
+
+    // Convert to parent tile-local coordinates
+    const clipW = subWest - parent.tileWest
+    const clipE = subEast - parent.tileWest
+    const clipS = subSouth - parent.tileSouth
+    const clipN = subNorth - parent.tileSouth
+
+    const verts = parent.cpuVertices
+    const outV: number[] = []
+    const outI: number[] = []
+
+    for (let t = 0; t < parent.cpuIndices.length; t += 3) {
+      const i0 = parent.cpuIndices[t], i1 = parent.cpuIndices[t + 1], i2 = parent.cpuIndices[t + 2]
+      const x0 = verts[i0 * 3], y0 = verts[i0 * 3 + 1]
+      const x1 = verts[i1 * 3], y1 = verts[i1 * 3 + 1]
+      const x2 = verts[i2 * 3], y2 = verts[i2 * 3 + 1]
+      const fid = verts[i0 * 3 + 2]
+
+      // Fast AABB reject
+      const minX = Math.min(x0, x1, x2), maxX = Math.max(x0, x1, x2)
+      const minY = Math.min(y0, y1, y2), maxY = Math.max(y0, y1, y2)
+      if (maxX < clipW || minX > clipE || maxY < clipS || minY > clipN) continue
+
+      // Fast accept: fully inside sub-tile bounds
+      if (minX >= clipW && maxX <= clipE && minY >= clipS && maxY <= clipN) {
+        const base = outV.length / 3
+        outV.push(x0, y0, fid, x1, y1, fid, x2, y2, fid)
+        outI.push(base, base + 1, base + 2)
+        continue
+      }
+
+      // Clip triangle (convex → exact)
+      const clipped = clipPolygonToRect([[[x0, y0], [x1, y1], [x2, y2]]], clipW, clipS, clipE, clipN)
+      if (clipped.length === 0 || clipped[0].length < 3) continue
+      const ring = clipped[0]
+      const base = outV.length / 3
+      for (const [x, y] of ring) outV.push(x, y, fid)
+      for (let j = 1; j < ring.length - 1; j++) outI.push(base, base + j, base + j + 1)
+    }
+
+    if (outV.length === 0) return false
+
+    // Upload as new cache entry (parent coordinates, parent bindGroup layout)
+    const vertices = new Float32Array(outV)
+    const indices = new Uint32Array(outI)
+    this.uploadTile(subKey, undefined, vertices, indices, new Float32Array(0), new Uint32Array(0))
+
+    // Fix sub-tile's tileWest/tileSouth to match PARENT (coordinates are parent-local)
+    const cached = this.tileCache.get(subKey)
+    if (cached) {
+      cached.tileWest = parent.tileWest
+      cached.tileSouth = parent.tileSouth
+      cached.tileWidth = parent.tileWidth
+      cached.tileHeight = parent.tileHeight
+    }
+
+    return true
   }
 
   /**
