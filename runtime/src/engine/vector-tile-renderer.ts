@@ -98,13 +98,14 @@ export class VectorTileRenderer {
   }
 
   // Track per-frame actual draw counts (after overzoom clipping)
-  private renderedDraws = new Map<number, { polyCount: number; lineCount: number }>()
+  private renderedDraws = new Map<number, { polyCount: number; lineCount: number; vertexCount: number }>()
 
   /** Get draw stats for tiles rendered THIS frame (reflects clipping) */
   getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number } {
     let drawCalls = 0, vertices = 0, triangles = 0, lines = 0
     for (const [, counts] of this.renderedDraws) {
-      if (counts.polyCount > 0) { drawCalls++; vertices += counts.polyCount; triangles += Math.floor(counts.polyCount / 3) }
+      vertices += counts.vertexCount
+      if (counts.polyCount > 0) { drawCalls++; triangles += Math.floor(counts.polyCount / 3) }
       if (counts.lineCount > 0) { drawCalls++; lines += Math.floor(counts.lineCount / 2) }
     }
     return { drawCalls, vertices, triangles, lines, tilesVisible: this.renderedDraws.size }
@@ -462,8 +463,11 @@ export class VectorTileRenderer {
             pass.drawIndexed(lineClipCount)
           }
         }
-        // Record clipped draw counts
-        this.renderedDraws.set(key, { polyCount: clipCount, lineCount: lineClipCount ?? 0 })
+        // Count unique vertices in clipped indices
+        const uniqueVerts = new Set<number>()
+        for (let i = 0; i < clipCount; i++) uniqueVerts.add(this.clipIndexBuf[i])
+        for (let i = 0; i < lineClipCount; i++) uniqueVerts.add(this.clipLineIndexBuf[i])
+        this.renderedDraws.set(key, { polyCount: clipCount, lineCount: lineClipCount, vertexCount: uniqueVerts.size })
       } else {
         // No clipping needed — render full tile
         if (cached.indexCount > 0) {
@@ -481,8 +485,9 @@ export class VectorTileRenderer {
           pass.setIndexBuffer(cached.lineIndexBuffer, 'uint32')
           pass.drawIndexed(cached.lineIndexCount)
         }
-        // Record full draw counts
-        this.renderedDraws.set(key, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount })
+        // Full tile: vertex count from CPU data
+        const vc = (cached.cpuVertices.length / 3) + (cached.cpuLineVertices.length / 3)
+        this.renderedDraws.set(key, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount, vertexCount: vc })
       }
     }
   }
