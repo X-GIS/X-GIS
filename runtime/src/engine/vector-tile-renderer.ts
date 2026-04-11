@@ -323,15 +323,8 @@ export class VectorTileRenderer {
       }
     }
 
-    // 2. Render current zoom tiles FIRST (highest detail)
+    // Render current zoom tiles only (no fallback overlap = no alpha blending artifacts)
     this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
-
-    // 3. Render parent fallbacks for UNCOVERED positions only
-    // renderedDraws prevents re-drawing tiles already rendered above
-    const uniqueFallbacks = [...new Set(fallbackKeys)]
-    if (uniqueFallbacks.length > 0) {
-      this.renderTileKeys(uniqueFallbacks, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
-    }
     this.stableZoom = currentZ
     this.stableKeys = neededKeys
 
