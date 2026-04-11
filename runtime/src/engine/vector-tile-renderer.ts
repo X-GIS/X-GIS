@@ -316,27 +316,14 @@ export class VectorTileRenderer {
       }
     }
 
-    // Compute viewport bounds in degrees for overzoom clipping
-    const metersPerPixel = (40075016.686 / 256) / Math.pow(2, camera.zoom)
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-    const halfW = (canvasWidth / dpr) * metersPerPixel / 2
-    const halfH = (canvasHeight / dpr) * metersPerPixel / 2
-    const R2 = 6378137
-    const viewWest = ((camera.centerX - halfW) / R2) * (180 / Math.PI)
-    const viewEast = ((camera.centerX + halfW) / R2) * (180 / Math.PI)
-    const viewSouth = (2 * Math.atan(Math.exp((camera.centerY - halfH) / R2)) - Math.PI / 2) * (180 / Math.PI)
-    const viewNorth = (2 * Math.atan(Math.exp((camera.centerY + halfH) / R2)) - Math.PI / 2) * (180 / Math.PI)
-
     // 2. Render parent fallbacks first (behind), then current zoom on top
     const uniqueFallbacks = [...new Set(fallbackKeys)]
     if (uniqueFallbacks.length > 0) {
-      this.renderTileKeys(uniqueFallbacks, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat,
-        camera.zoom, viewWest, viewSouth, viewEast, viewNorth)
+      this.renderTileKeys(uniqueFallbacks, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
     }
 
     // 3. Render current zoom tiles (whatever is available) — drawn on top
-    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat,
-      camera.zoom, viewWest, viewSouth, viewEast, viewNorth)
+    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
     this.stableZoom = currentZ
     this.stableKeys = neededKeys
 
@@ -356,11 +343,6 @@ export class VectorTileRenderer {
     this.evictTiles()
   }
 
-  /** Render a list of tile keys with per-tile bind groups */
-  // Reusable temp buffers for overzoom clipping (avoid per-frame allocation)
-  private clipIndexBuf: Uint32Array = new Uint32Array(0)
-  private clipLineIndexBuf: Uint32Array = new Uint32Array(0)
-
   private renderTileKeys(
     keys: number[],
     pass: GPURenderPassEncoder,
@@ -371,11 +353,6 @@ export class VectorTileRenderer {
     sharedUniformData: ArrayBuffer,
     projCenterLon: number,
     projCenterLat: number,
-    cameraZoom?: number,
-    viewWest?: number,
-    viewSouth?: number,
-    viewEast?: number,
-    viewNorth?: number,
   ): void {
     for (const key of keys) {
       const cached = this.tileCache.get(key)
@@ -396,99 +373,25 @@ export class VectorTileRenderer {
       const tileRtc = new Float32Array([tileX - centerX, tileY - centerY, cached.tileWest, cached.tileSouth])
       this.device.queue.writeBuffer(cached.uniformBuffer, 112, tileRtc)
 
-      // Overzoom clipping: if camera zoom >> tile zoom, filter triangles to viewport
-      const zoomDiff = (cameraZoom ?? cached.tileZoom) - cached.tileZoom
-      const needsClip = zoomDiff >= 2 && viewWest !== undefined
-
-      if (needsClip && cached.cpuIndices.length > 0) {
-        // Convert viewport bounds to tile-local coordinates
-        const localW = (viewWest! - cached.tileWest)
-        const localE = (viewEast! - cached.tileWest)
-        const localS = (viewSouth! - cached.tileSouth)
-        const localN = (viewNorth! - cached.tileSouth)
-        const verts = cached.cpuVertices
-        let lineClipCount = 0
-
-        // Filter polygon triangles: keep if any vertex is inside viewport
-        if (this.clipIndexBuf.length < cached.cpuIndices.length) {
-          this.clipIndexBuf = new Uint32Array(cached.cpuIndices.length)
-        }
-        let clipCount = 0
-        for (let i = 0; i < cached.cpuIndices.length; i += 3) {
-          const i0 = cached.cpuIndices[i], i1 = cached.cpuIndices[i + 1], i2 = cached.cpuIndices[i + 2]
-          const x0 = verts[i0 * 3], y0 = verts[i0 * 3 + 1]
-          const x1 = verts[i1 * 3], y1 = verts[i1 * 3 + 1]
-          const x2 = verts[i2 * 3], y2 = verts[i2 * 3 + 1]
-          // Keep triangle if any vertex is inside the expanded viewport
-          if ((x0 >= localW && x0 <= localE && y0 >= localS && y0 <= localN) ||
-              (x1 >= localW && x1 <= localE && y1 >= localS && y1 <= localN) ||
-              (x2 >= localW && x2 <= localE && y2 >= localS && y2 <= localN)) {
-            this.clipIndexBuf[clipCount++] = i0
-            this.clipIndexBuf[clipCount++] = i1
-            this.clipIndexBuf[clipCount++] = i2
-          }
-        }
-
-        if (clipCount > 0) {
-          this.device.queue.writeBuffer(cached.indexBuffer, 0, this.clipIndexBuf, 0, clipCount)
-          pass.setPipeline(fillPipeline)
-          pass.setBindGroup(0, cached.bindGroup)
-          pass.setVertexBuffer(0, cached.vertexBuffer)
-          pass.setIndexBuffer(cached.indexBuffer, 'uint32')
-          pass.drawIndexed(clipCount)
-        }
-
-        // Filter line segments similarly
-        if (cached.cpuLineIndices.length > 0 && cached.lineVertexBuffer && cached.lineIndexBuffer) {
-          if (this.clipLineIndexBuf.length < cached.cpuLineIndices.length) {
-            this.clipLineIndexBuf = new Uint32Array(cached.cpuLineIndices.length)
-          }
-          const lv = cached.cpuLineVertices
-          for (let i = 0; i < cached.cpuLineIndices.length; i += 2) {
-            const i0 = cached.cpuLineIndices[i], i1 = cached.cpuLineIndices[i + 1]
-            const x0 = lv[i0 * 3], y0 = lv[i0 * 3 + 1]
-            const x1 = lv[i1 * 3], y1 = lv[i1 * 3 + 1]
-            if ((x0 >= localW && x0 <= localE && y0 >= localS && y0 <= localN) ||
-                (x1 >= localW && x1 <= localE && y1 >= localS && y1 <= localN)) {
-              this.clipLineIndexBuf[lineClipCount++] = i0
-              this.clipLineIndexBuf[lineClipCount++] = i1
-            }
-          }
-          if (lineClipCount > 0) {
-            this.device.queue.writeBuffer(cached.lineIndexBuffer, 0, this.clipLineIndexBuf, 0, lineClipCount)
-            pass.setPipeline(linePipeline)
-            pass.setBindGroup(0, cached.bindGroup)
-            pass.setVertexBuffer(0, cached.lineVertexBuffer)
-            pass.setIndexBuffer(cached.lineIndexBuffer, 'uint32')
-            pass.drawIndexed(lineClipCount)
-          }
-        }
-        // Count unique vertices in clipped indices
-        const uniqueVerts = new Set<number>()
-        for (let i = 0; i < clipCount; i++) uniqueVerts.add(this.clipIndexBuf[i])
-        for (let i = 0; i < lineClipCount; i++) uniqueVerts.add(this.clipLineIndexBuf[i])
-        this.renderedDraws.set(key, { polyCount: clipCount, lineCount: lineClipCount, vertexCount: uniqueVerts.size })
-      } else {
-        // No clipping needed — render full tile
-        if (cached.indexCount > 0) {
-          pass.setPipeline(fillPipeline)
-          pass.setBindGroup(0, cached.bindGroup)
-          pass.setVertexBuffer(0, cached.vertexBuffer)
-          pass.setIndexBuffer(cached.indexBuffer, 'uint32')
-          pass.drawIndexed(cached.indexCount)
-        }
-
-        if (cached.lineIndexCount > 0 && cached.lineVertexBuffer && cached.lineIndexBuffer) {
-          pass.setPipeline(linePipeline)
-          pass.setBindGroup(0, cached.bindGroup)
-          pass.setVertexBuffer(0, cached.lineVertexBuffer)
-          pass.setIndexBuffer(cached.lineIndexBuffer, 'uint32')
-          pass.drawIndexed(cached.lineIndexCount)
-        }
-        // Full tile: vertex count from CPU data
-        const vc = (cached.cpuVertices.length / 3) + (cached.cpuLineVertices.length / 3)
-        this.renderedDraws.set(key, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount, vertexCount: vc })
+      // Render full tile — GPU handles viewport clipping efficiently
+      if (cached.indexCount > 0) {
+        pass.setPipeline(fillPipeline)
+        pass.setBindGroup(0, cached.bindGroup)
+        pass.setVertexBuffer(0, cached.vertexBuffer)
+        pass.setIndexBuffer(cached.indexBuffer, 'uint32')
+        pass.drawIndexed(cached.indexCount)
       }
+
+      if (cached.lineIndexCount > 0 && cached.lineVertexBuffer && cached.lineIndexBuffer) {
+        pass.setPipeline(linePipeline)
+        pass.setBindGroup(0, cached.bindGroup)
+        pass.setVertexBuffer(0, cached.lineVertexBuffer)
+        pass.setIndexBuffer(cached.lineIndexBuffer, 'uint32')
+        pass.drawIndexed(cached.lineIndexCount)
+      }
+
+      const vc = (cached.cpuVertices.length / 3) + (cached.cpuLineVertices.length / 3)
+      this.renderedDraws.set(key, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount, vertexCount: vc })
     }
   }
 
