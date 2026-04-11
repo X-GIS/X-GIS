@@ -9,3 +9,5 @@ compiler/src/**/*.d.ts
 runtime/src/**/*.d.ts
 runtime/src/**/*.js
 !compiler/src/tiler/earcut.d.ts
+*.tsbuildinfo
+nul

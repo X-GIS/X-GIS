@@ -10,6 +10,7 @@
     "dev": "bun run --filter @xgis/playground dev"
   },
   "devDependencies": {
+    "@types/node": "^25.6.0",
     "@webgpu/types": "^0.1.54",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
