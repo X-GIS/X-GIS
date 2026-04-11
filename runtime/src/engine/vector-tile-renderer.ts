@@ -395,11 +395,13 @@ export class VectorTileRenderer {
       const tileRtc = new Float32Array([tileX - centerX, tileY - centerY, cached.tileWest, cached.tileSouth])
       this.device.queue.writeBuffer(cached.uniformBuffer, 112, tileRtc)
 
-      // Overzoom sub-tiling: clip rings to viewport + earcut → temp GPU buffers
+      // Overzoom sub-tiling: only for maxZoom tiles (original data, not simplified)
+      const maxLevel = this.index!.header.maxLevel
       const zoomDiff = (cameraZoom ?? cached.tileZoom) - cached.tileZoom
       let polyCount = 0, vertexCount = 0
 
-      if (zoomDiff >= 2 && cached.polygons && cached.polygons.length > 0 && viewW !== undefined) {
+      if (zoomDiff >= 2 && cached.tileZoom >= maxLevel &&
+          cached.polygons && cached.polygons.length > 0 && viewW !== undefined) {
         const verts: number[] = []
         const idx: number[] = []
 
