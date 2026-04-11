@@ -57,18 +57,35 @@ export class PanZoomController implements Controller {
         isDragging = true
         lastX = e.clientX
         lastY = e.clientY
+        lastMoveTime = performance.now()
+        panVelX = 0; panVelY = 0
+        inertiaAnimating = false
       } else if (activePointers.size === 2) {
-        // Start pinch — calculate initial distance
         isDragging = false
         lastPinchDist = getPinchDistance(activePointers)
       }
+    }
+
+    // Pan inertia
+    let panVelX = 0, panVelY = 0
+    let lastMoveTime = 0
+    let inertiaAnimating = false
+
+    const applyInertia = () => {
+      if (Math.abs(panVelX) < 0.3 && Math.abs(panVelY) < 0.3) {
+        inertiaAnimating = false
+        return
+      }
+      camera.pan(panVelX, panVelY, canvas.width, canvas.height)
+      panVelX *= 0.92  // friction
+      panVelY *= 0.92
+      requestAnimationFrame(applyInertia)
     }
 
     const onPointerMove = (e: PointerEvent) => {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
 
       if (activePointers.size === 2) {
-        // Pinch zoom
         const dist = getPinchDistance(activePointers)
         if (lastPinchDist > 0) {
           const scale = dist / lastPinchDist
@@ -78,11 +95,18 @@ export class PanZoomController implements Controller {
         }
         lastPinchDist = dist
       } else if (isDragging && activePointers.size === 1) {
-        // Single finger pan
         const dx = e.clientX - lastX
         const dy = e.clientY - lastY
+        const now = performance.now()
+        const dt = Math.max(1, now - lastMoveTime)
+
+        // Track velocity for inertia (CSS pixels per frame at 60fps)
+        panVelX = dx * (16 / dt)
+        panVelY = dy * (16 / dt)
+
         lastX = e.clientX
         lastY = e.clientY
+        lastMoveTime = now
         camera.pan(dx, dy, canvas.width, canvas.height)
       }
     }
@@ -90,15 +114,22 @@ export class PanZoomController implements Controller {
     const onPointerUp = (e: PointerEvent) => {
       activePointers.delete(e.pointerId)
       if (activePointers.size === 0) {
+        // Start inertia if velocity is significant
+        if (isDragging && (Math.abs(panVelX) > 1 || Math.abs(panVelY) > 1)) {
+          if (!inertiaAnimating) {
+            inertiaAnimating = true
+            applyInertia()
+          }
+        }
         isDragging = false
         lastPinchDist = 0
       } else if (activePointers.size === 1) {
-        // Went from 2 fingers to 1 — restart single-finger drag
         isDragging = true
         const remaining = activePointers.values().next().value!
         lastX = remaining.x
         lastY = remaining.y
         lastPinchDist = 0
+        panVelX = 0; panVelY = 0
       }
     }
 
