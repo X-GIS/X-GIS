@@ -30,27 +30,27 @@ describe('WGSL Expression Compiler', () => {
   })
 
   it('compiles field access', () => {
-    expect(exprToWGSL(parseExpr('speed'), fieldMap)).toBe('feat_data[feat_idx + 0u]')
-    expect(exprToWGSL(parseExpr('.altitude'), fieldMap)).toBe('feat_data[feat_idx + 1u]')
+    expect(exprToWGSL(parseExpr('speed'), fieldMap)).toBe('feat_data[input.feat_id * 3u + 0u]')
+    expect(exprToWGSL(parseExpr('.altitude'), fieldMap)).toBe('feat_data[input.feat_id * 3u + 1u]')
   })
 
   it('compiles arithmetic', () => {
     const result = exprToWGSL(parseExpr('speed / 50'), fieldMap)
-    expect(result).toBe('(feat_data[feat_idx + 0u] / 50.0)')
+    expect(result).toBe('(feat_data[input.feat_id * 3u + 0u] / 50.0)')
   })
 
   it('compiles built-in function calls', () => {
     const result = exprToWGSL(parseExpr('clamp(speed, 4, 24)'), fieldMap)
-    expect(result).toBe('clamp(feat_data[feat_idx + 0u], 4.0, 24.0)')
+    expect(result).toBe('clamp(feat_data[input.feat_id * 3u + 0u], 4.0, 24.0)')
   })
 
   it('compiles pipe expressions', () => {
     const result = exprToWGSL(parseExpr('speed / 50 | clamp(4, 24)'), fieldMap)
-    expect(result).toBe('clamp((feat_data[feat_idx + 0u] / 50.0), 4.0, 24.0)')
+    expect(result).toBe('clamp((feat_data[input.feat_id * 3u + 0u] / 50.0), 4.0, 24.0)')
   })
 
   it('compiles unary negation', () => {
-    expect(exprToWGSL(parseExpr('-speed'), fieldMap)).toBe('(-feat_data[feat_idx + 0u])')
+    expect(exprToWGSL(parseExpr('-speed'), fieldMap)).toBe('(-feat_data[input.feat_id * 3u + 0u])')
   })
 
   it('compiles log10 via log', () => {
@@ -61,7 +61,7 @@ describe('WGSL Expression Compiler', () => {
 
   it('compiles scale as multiplication', () => {
     const result = exprToWGSL(parseExpr('scale(speed, 4)'), fieldMap)
-    expect(result).toBe('(feat_data[feat_idx + 0u] * 4.0)')
+    expect(result).toBe('(feat_data[input.feat_id * 3u + 0u] * 4.0)')
   })
 
   it('compiles user-defined function by inlining', () => {
@@ -70,7 +70,7 @@ describe('WGSL Expression Compiler', () => {
     const fnEnv = new Map([['double', fnAst.body[0] as AST.FnStatement]])
 
     const result = exprToWGSL(parseExpr('double(speed)'), fieldMap, fnEnv)
-    expect(result).toBe('(feat_data[feat_idx + 0u] * 2.0)')
+    expect(result).toBe('(feat_data[input.feat_id * 3u + 0u] * 2.0)')
   })
 })
 

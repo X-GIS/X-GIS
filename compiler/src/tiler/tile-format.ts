@@ -12,7 +12,7 @@
 
 import type { CompiledTileSet, CompiledTile, PropertyTable, PropertyFieldType } from './vector-tiler'
 import { tileKeyUnpack } from './vector-tiler'
-import { encodeCoords, encodeIndices, decodeCoords, decodeIndices, encodeFeatIds, decodeFeatIds } from './encoding'
+import { encodeCoords, encodeIndices, decodeCoords, decodeIndices, encodeFeatIds, decodeFeatIds, precisionForZoom } from './encoding'
 // gzip: compile-time only (node:zlib), runtime uses DecompressionStream
 let gzipSync: (buf: Buffer) => Buffer
 let gunzipSync: (buf: Buffer) => Buffer
@@ -33,6 +33,8 @@ const VERSION = 2 // v2: feat_id streams + PropertyTable
 
 // ═══ Types ═══
 
+export const TILE_FLAG_FULL_COVER = 0x1
+
 export interface TileIndexEntry {
   tileHash: number      // Morton tile key
   dataOffset: number    // absolute byte position in file
@@ -42,6 +44,8 @@ export interface TileIndexEntry {
   indexCount: number
   lineVertexCount: number
   lineIndexCount: number
+  flags: number              // bit 0 = fullCover (reuses 4B padding)
+  fullCoverFeatureId: number // flags >>> 1
 }
 
 // ═══ Serialize ═══
@@ -73,7 +77,10 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
   }[] = []
 
   for (const { key, tile } of allTiles) {
-    // Compact layer: ZigZag delta encoding (coordinates are quantized integers)
+    // Zoom-adaptive precision: lower zooms use coarser quantization → smaller varints
+    const precision = precisionForZoom(tile.z)
+
+    // Compact layer: ZigZag delta encoding
     const polyCoordFlat: number[] = []
     const polyFeatIds: number[] = []
     for (let i = 0; i < tile.vertices.length; i += 3) {
@@ -90,9 +97,9 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
     encodedTiles.push({
       key,
       compact: {
-        coords: encodeCoords(polyCoordFlat),
+        coords: encodeCoords(polyCoordFlat, precision),
         indices: encodeIndices(tile.indices),
-        lineCoords: encodeCoords(lineCoordFlat),
+        lineCoords: encodeCoords(lineCoordFlat, precision),
         lineIndices: encodeIndices(tile.lineIndices),
         polyFeatIds: encodeFeatIds(polyFeatIds),
         lineFeatIds: encodeFeatIds(lineFeatIds),
@@ -121,8 +128,15 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
   const indexEntries: TileIndexEntry[] = []
 
   // Pre-compress each tile's compact data with gzip
-  const compressedTiles: Uint8Array[] = []
+  const compressedTiles: (Uint8Array | null)[] = []
   for (const et of encodedTiles) {
+    // Full-cover tiles with no geometry: skip compact data entirely
+    const isEmpty = et.tile.fullCover &&
+      et.tile.vertices.length === 0 && et.tile.lineVertices.length === 0
+    if (isEmpty) {
+      compressedTiles.push(null) // no compact data
+      continue
+    }
     // Concatenate all compact parts with size headers
     const parts = [et.compact.coords, et.compact.indices, et.compact.lineCoords, et.compact.lineIndices, et.compact.polyFeatIds, et.compact.lineFeatIds]
     let rawSize = 0
@@ -138,10 +152,15 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
 
   for (let ci = 0; ci < encodedTiles.length; ci++) {
     const et = encodedTiles[ci]
-    const compactSize = compressedTiles[ci].byteLength
+    const compactSize = compressedTiles[ci]?.byteLength ?? 0
     const gpuReadySize = includeGPUReady
       ? et.gpuReady.vertices.byteLength + et.gpuReady.indices.byteLength +
         et.gpuReady.lineVertices.byteLength + et.gpuReady.lineIndices.byteLength
+      : 0
+
+    const tile = et.tile
+    const flagsWord = tile.fullCover
+      ? (TILE_FLAG_FULL_COVER | ((tile.fullCoverFeatureId ?? 0) << 1))
       : 0
 
     indexEntries.push({
@@ -153,6 +172,8 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
       indexCount: et.gpuReady.indices.length,
       lineVertexCount: et.gpuReady.lineVertices.length / 3,
       lineIndexCount: et.gpuReady.lineIndices.length,
+      flags: flagsWord & 0x1,
+      fullCoverFeatureId: flagsWord >>> 1,
     })
 
     dataOffset += compactSize + gpuReadySize
@@ -190,8 +211,9 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
     view.setUint32(pos, entry.indexCount, true); pos += 4
     view.setUint32(pos, entry.lineVertexCount, true); pos += 4
     view.setUint32(pos, entry.lineIndexCount, true); pos += 4
-    // padding to 36 bytes
-    view.setUint32(pos, 0, true); pos += 4
+    // flags: bit 0 = fullCover, bits 1-31 = fullCoverFeatureId
+    const flagsWord = (entry.flags & 0x1) | ((entry.fullCoverFeatureId ?? 0) << 1)
+    view.setUint32(pos, flagsWord, true); pos += 4
   }
 
   // Property Table
@@ -202,10 +224,12 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
   for (let i = 0; i < encodedTiles.length; i++) {
     const et = encodedTiles[i]
 
-    // Gzip-compressed compact layer
+    // Gzip-compressed compact layer (null for empty full-cover tiles)
     const compressed = compressedTiles[i]
-    new Uint8Array(buf, pos, compressed.byteLength).set(compressed)
-    pos += compressed.byteLength
+    if (compressed) {
+      new Uint8Array(buf, pos, compressed.byteLength).set(compressed)
+      pos += compressed.byteLength
+    }
 
     // GPU-Ready layer: raw Float32/Uint32 arrays (optional)
     if (includeGPUReady) {
@@ -239,6 +263,7 @@ export interface XGVTIndex {
   header: XGVTHeader
   entries: TileIndexEntry[]
   entryByHash: Map<number, TileIndexEntry>
+  propertyTable?: PropertyTable
 }
 
 /** Parse header + index from the beginning of an .xgvt file */
@@ -277,6 +302,7 @@ export function parseXGVTIndex(buf: ArrayBuffer): XGVTIndex {
   const entryByHash = new Map<number, TileIndexEntry>()
 
   for (let i = 0; i < tileCount; i++) {
+    const flagsWord = view.getUint32(pos + 32, true)
     const entry: TileIndexEntry = {
       tileHash: view.getUint32(pos, true),
       dataOffset: view.getUint32(pos + 4, true),
@@ -286,6 +312,8 @@ export function parseXGVTIndex(buf: ArrayBuffer): XGVTIndex {
       indexCount: view.getUint32(pos + 20, true),
       lineVertexCount: view.getUint32(pos + 24, true),
       lineIndexCount: view.getUint32(pos + 28, true),
+      flags: flagsWord & 0x1,
+      fullCoverFeatureId: flagsWord >>> 1,
     }
     pos += 36
     entries.push(entry)
@@ -394,8 +422,9 @@ export function parseGPUReadyTile(
     }
   }
 
-  // Decode quantized integer coordinates
-  const coords = decodeCoords(coordsBuf)
+  // Decode quantized integer coordinates (zoom-adaptive precision)
+  const precision = precisionForZoom(z)
+  const coords = decodeCoords(coordsBuf, precision)
   const polyFeatIds = polyFeatIdsBuf ? decodeFeatIds(polyFeatIdsBuf) : null
   const vertices = new Float32Array(coords.length / 2 * 3)
   for (let i = 0; i < coords.length; i += 2) {
@@ -407,7 +436,7 @@ export function parseGPUReadyTile(
 
   const indices = decodeIndices(indicesBuf)
 
-  const lineCoords = decodeCoords(lineCoordsBuf)
+  const lineCoords = decodeCoords(lineCoordsBuf, precision)
   const lineFeatIds = lineFeatIdsBuf ? decodeFeatIds(lineFeatIdsBuf) : null
   const lineVertices = new Float32Array(lineCoords.length / 2 * 3)
   for (let i = 0; i < lineCoords.length; i += 2) {

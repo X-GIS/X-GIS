@@ -146,6 +146,38 @@ show world {
 `,
   },
 
+  categorical: {
+    name: 'Categorical Colors',
+    description: 'fill categorical(name) — auto-assign 20 distinct colors by country name',
+    source: `
+source world {
+  type: geojson
+  url: "countries.geojson"
+}
+
+layer countries {
+  source: world
+  | fill categorical(name) stroke-slate-700 stroke-1 opacity-95
+}
+`,
+  },
+
+  categorical_vt: {
+    name: 'Categorical (xgvt)',
+    description: 'fill categorical(name) on vector tiles — PropertyTable → GPU storage buffer',
+    source: `
+source world {
+  type: geojson
+  url: "countries.xgvt"
+}
+
+layer countries {
+  source: world
+  | fill categorical(name) stroke-slate-700 stroke-1 opacity-95
+}
+`,
+  },
+  
   minimal: {
     name: 'Minimal',
     description: 'Simplest possible X-GIS program',

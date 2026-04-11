@@ -4,8 +4,7 @@
 // with tighter bounding boxes, dramatically reducing tile scatter for large features.
 
 import earcut from 'earcut'
-// simplify removed: original coordinates preserved for topology correctness
-// import { simplifyPolygon, simplifyLine } from './simplify'
+import { simplifyPolygon, simplifyLine } from './simplify'
 import { clipPolygonToRect, clipLineToRect } from './clip'
 import type { GeoJSONFeatureCollection, GeoJSONFeature } from './geojson-types'
 
@@ -46,6 +45,8 @@ export interface CompiledTile {
   lineVertices: Float32Array
   lineIndices: Uint32Array
   featureCount: number
+  fullCover?: boolean
+  fullCoverFeatureId?: number
 }
 
 // ═══ Morton Code (Z-Order Curve) Tile Key ═══
@@ -183,6 +184,18 @@ function latToTileY(lat: number, z: number): number {
   ))
 }
 
+// ═══ Full Cover Detection ═══
+
+/** Signed area of a ring via shoelace formula (degrees²) */
+function shoelaceArea(ring: number[][]): number {
+  let area = 0
+  for (let i = 0, n = ring.length; i < n; i++) {
+    const j = (i + 1) % n
+    area += ring[i][0] * ring[j][1] - ring[j][0] * ring[i][1]
+  }
+  return area / 2
+}
+
 // ═══ Tessellation ═══
 
 function tessellatePolygonToArrays(
@@ -256,7 +269,7 @@ function autoDetectMaxZoom(features: GeoJSONFeature[]): number {
 
   const avgSpacing = totalSpacing / spacingCount
   // Tile at zoom z covers 360/2^z degrees. Cap conservatively to manage tile count.
-  const maxZoom = Math.max(2, Math.min(8, Math.ceil(Math.log2(360 / (avgSpacing * 16)))))
+  const maxZoom = Math.max(2, Math.min(7, Math.ceil(Math.log2(360 / (avgSpacing * 16)))))
   console.log(`  Auto maxZoom: ${maxZoom} (avg vertex spacing: ${avgSpacing.toFixed(4)}°)`)
   return maxZoom
 }
@@ -290,8 +303,12 @@ export function compileGeoJSONToTiles(
     if (p.maxLat > gMaxLat) gMaxLat = p.maxLat
   }
 
-  // Step 2: Per-zoom processing
+  // Step 2: Per-zoom processing with adaptive subdivision
   const levels: TileLevel[] = []
+
+  // Track which tiles need further subdivision based on vertex density
+  // Tiles with sparse geometry stop early; dense geometry continues to maxZoom
+  const needsSubdivision = new Set<number>()
 
   // Reusable scratch arrays (reset per tile)
   const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[] }
@@ -299,7 +316,8 @@ export function compileGeoJSONToTiles(
   for (let z = minZoom; z <= maxZoom; z++) {
     const zStart = performance.now()
 
-    // Use original geometry (no simplification — preserves shared edges between adjacent features)
+    // Simplification applied per-tile AFTER clipping (clip → simplify → tessellate)
+    // This preserves tile boundary vertices while reducing interior detail
     interface PreparedPart {
       original: GeometryPart
       rings?: number[][][]
@@ -320,6 +338,7 @@ export function compileGeoJSONToTiles(
     }
 
     // Scatter: assign parts to tiles using per-part bbox
+    // At z > minZoom, only create tiles whose parent was marked for subdivision
     const tileFeaturesMap = new Map<number, number[]>()
 
     for (let pi = 0; pi < preparedParts.length; pi++) {
@@ -331,6 +350,11 @@ export function compileGeoJSONToTiles(
 
       for (let x = fxMin; x <= fxMax; x++) {
         for (let y = fyMin; y <= fyMax; y++) {
+          // Adaptive: skip if parent tile didn't need subdivision
+          if (z > minZoom) {
+            const parentKey = tileKey(z, x, y) >>> 2 // tileKeyParent
+            if (!needsSubdivision.has(parentKey)) continue
+          }
           const key = tileKey(z, x, y)
           let list = tileFeaturesMap.get(key)
           if (!list) { list = []; tileFeaturesMap.set(key, list) }
@@ -350,6 +374,20 @@ export function compileGeoJSONToTiles(
       scratch.lv.length = 0; scratch.li.length = 0
       const featureIds = new Set<number>()
 
+      // Lock predicate: vertices on tile boundary edges must survive simplification
+      // so adjacent tiles share identical edge geometry (no seams)
+      const EPS = 1e-10
+      const isOnBoundary = (c: number[]) =>
+        Math.abs(c[0] - tb.west) < EPS || Math.abs(c[0] - tb.east) < EPS ||
+        Math.abs(c[1] - tb.south) < EPS || Math.abs(c[1] - tb.north) < EPS
+
+      // Track clipped rings for full-cover detection
+      let tileClippedRings: number[][][] = []
+      let tilePolyFeatureIds = new Set<number>()
+      // Track pre/post simplification vertex counts for adaptive subdivision
+      let preSimplifyVerts = 0
+      let postSimplifyVerts = 0
+
       for (const pi of partIndices) {
         const sp = preparedParts[pi]
         const fid = sp.original.featureIndex // stable feature ID
@@ -357,6 +395,18 @@ export function compileGeoJSONToTiles(
         if (sp.rings) {
           const clipped = clipPolygonToRect(sp.rings, tb.west, tb.south, tb.east, tb.north)
           if (clipped.length > 0 && clipped[0].length >= 3) {
+            tileClippedRings.push(...clipped)
+            tilePolyFeatureIds.add(fid)
+            for (const ring of clipped) preSimplifyVerts += ring.length
+            // Simplification used ONLY for adaptive subdivision decision (pre vs post count).
+            // Actual tile data uses ORIGINAL clipped geometry — no gaps between adjacent features.
+            if (z < maxZoom) {
+              const simplified = simplifyPolygon(clipped, z, isOnBoundary)
+              for (const ring of simplified) postSimplifyVerts += ring.length
+            } else {
+              postSimplifyVerts += preSimplifyVerts
+            }
+            // Tessellate original clipped geometry (unsimplified)
             tessellatePolygonToArrays(clipped, fid, scratch.pv, scratch.pi)
             featureIds.add(fid)
           }
@@ -366,6 +416,14 @@ export function compileGeoJSONToTiles(
           const segments = clipLineToRect(sp.coords, tb.west, tb.south, tb.east, tb.north)
           for (const seg of segments) {
             if (seg.length >= 2) {
+              preSimplifyVerts += seg.length
+              if (z < maxZoom) {
+                const simplified = simplifyLine(seg, z, isOnBoundary)
+                postSimplifyVerts += simplified.length
+              } else {
+                postSimplifyVerts += seg.length
+              }
+              // Tessellate original clipped line (unsimplified)
               tessellateLineToArrays(seg, fid, scratch.lv, scratch.li)
               featureIds.add(fid)
             }
@@ -373,9 +431,24 @@ export function compileGeoJSONToTiles(
         }
       }
 
-      // Minimum size filter: skip tiles with < 1 triangle (9 floats = 3 vertices × stride 3)
-      if ((scratch.pv.length >= 9 || scratch.lv.length >= 6) &&
-          (scratch.pv.length > 0 || scratch.lv.length > 0)) {
+      // Full-cover detection: single feature, single ring, area matches tile
+      let fullCover = false
+      let fullCoverFeatId = -1
+      if (tilePolyFeatureIds.size === 1 && tileClippedRings.length === 1) {
+        const tileArea = (tb.east - tb.west) * (tb.north - tb.south)
+        const polyArea = Math.abs(shoelaceArea(tileClippedRings[0]))
+        if (Math.abs(polyArea - tileArea) / tileArea < 1e-6) {
+          fullCover = true
+          fullCoverFeatId = [...tilePolyFeatureIds][0]
+          // Clear polygon data — client will generate a quad
+          scratch.pv.length = 0
+          scratch.pi.length = 0
+        }
+      }
+
+      // Minimum size filter (full-cover tiles may have only line data or nothing)
+      if (fullCover || ((scratch.pv.length >= 9 || scratch.lv.length >= 6) &&
+          (scratch.pv.length > 0 || scratch.lv.length > 0))) {
 
         // Convert to tile-local coordinates for f32 precision
         for (let i = 0; i < scratch.pv.length; i += 3) {
@@ -396,7 +469,16 @@ export function compileGeoJSONToTiles(
           lineVertices: new Float32Array(scratch.lv),
           lineIndices: new Uint32Array(scratch.li),
           featureCount: featureIds.size,
+          fullCover,
+          fullCoverFeatureId: fullCoverFeatId,
         })
+
+        // Adaptive subdivision: subdivide only if simplification removed vertices.
+        // If pre == post, geometry is already at full detail → leaf (no children needed).
+        // If pre > post, higher zoom would reveal the removed vertices → subdivide.
+        if (z < maxZoom && preSimplifyVerts > postSimplifyVerts) {
+          needsSubdivision.add(key)
+        }
       }
     }
 
@@ -404,8 +486,10 @@ export function compileGeoJSONToTiles(
       levels.push({ zoom: z, tiles })
     }
 
+    const fullCoverCount = [...tiles.values()].filter(t => t.fullCover).length
+    const leafCount = tiles.size - [...tiles.keys()].filter(k => needsSubdivision.has(k)).length
     const zElapsed = (performance.now() - zStart).toFixed(0)
-    console.log(`  z${z}: ${tiles.size} tiles (${zElapsed}ms)`)
+    console.log(`  z${z}: ${tiles.size} tiles${fullCoverCount > 0 ? ` (${fullCoverCount} full-cover)` : ''}${leafCount > 0 && z < maxZoom ? ` (${leafCount} leaf)` : ''} (${zElapsed}ms)`)
   }
 
   // Note: Overview dedup disabled — removing tiles creates gaps that require

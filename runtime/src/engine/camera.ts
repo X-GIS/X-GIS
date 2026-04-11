@@ -53,16 +53,27 @@ export class Camera {
     ])
   }
 
+  // Mercator Y limit: ±85.051129° → ±20037508.34m
+  private static readonly MAX_Y = 20037508.34
+
+  /** Compute the maximum camera Y offset for the current zoom (content stays on screen) */
+  private maxCameraY(canvasHeight: number): number {
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    const metersPerPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
+    const visibleHalf = (canvasHeight / dpr) * metersPerPixel / 2
+    // Camera can move until the Mercator edge reaches the screen edge
+    return Math.max(0, Camera.MAX_Y - visibleHalf)
+  }
+
   /** Pan by CSS pixels (clientX/clientY delta) */
   pan(dx: number, dy: number, canvasWidth: number, canvasHeight: number): void {
-    // dx/dy are in CSS pixels, canvasWidth/Height are in physical pixels.
-    // The RTC matrix maps physical pixels, so we need meters per physical pixel,
-    // then multiply by DPR to get meters per CSS pixel.
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
     const metersPerPhysicalPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
     const metersPerCSSPixel = metersPerPhysicalPixel * dpr
     this.centerX -= dx * metersPerCSSPixel
-    this.centerY += dy * metersPerCSSPixel
+    const maxY = this.maxCameraY(canvasHeight)
+    const newY = this.centerY + dy * metersPerCSSPixel
+    this.centerY = Math.max(-maxY, Math.min(maxY, newY))
   }
 
   /** Zoom by delta at CSS screen position (clientX/clientY) */
@@ -83,5 +94,8 @@ export class Camera {
 
     this.centerX += offsetX * (oldMPP - newMPP)
     this.centerY += offsetY * (oldMPP - newMPP)
+    // Clamp after zoom: visible area changes with zoom level
+    const maxY = this.maxCameraY(canvasHeight)
+    this.centerY = Math.max(-maxY, Math.min(maxY, this.centerY))
   }
 }

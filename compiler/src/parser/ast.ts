@@ -120,6 +120,7 @@ export type FnCall = {
   kind: 'FnCall'
   callee: Expr
   args: Expr[]
+  matchBlock?: MatchBlock  // match(field) { "val" -> color, ... }
 }
 
 // a + b, a > b, etc.

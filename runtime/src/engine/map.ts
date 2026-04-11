@@ -31,6 +31,8 @@ export class XGISMap {
   // Vector tile renderer
   private vectorTileRenderer: VectorTileRenderer | null = null
   private vectorTileShows: SceneCommands['shows'] = []
+  private vtVariantPipelines: { fillPipeline: GPURenderPipeline; linePipeline: GPURenderPipeline } | null = null
+  private vtVariantLayout: GPUBindGroupLayout | null = null
 
   // Raw data for re-projection
   private rawDatasets = new Map<string, GeoJSONFeatureCollection>()
@@ -83,6 +85,7 @@ export class XGISMap {
 
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
+
     // 2. Init GPU (fallback to Canvas 2D)
     try {
       this.ctx = await initGPU(this.canvas)
@@ -97,6 +100,7 @@ export class XGISMap {
       this.useCanvas2D = true
     }
 
+
     // 3. Load data
     for (const load of commands.loads) {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
@@ -108,10 +112,16 @@ export class XGISMap {
           this.rasterRenderer.setUrlTemplate(url)
         }
       } else if (url.endsWith('.xgvt') && !this.useCanvas2D && this.vectorTileRenderer) {
-        // Vector tile file — full load for instant tile access
-        const vtResponse = await fetch(url)
-        const vtBuf = await vtResponse.arrayBuffer()
-        await this.vectorTileRenderer.loadFromBuffer(vtBuf)
+        // Vector tile file — COG-style: always try Range Request first
+        const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
+        try {
+          await this.vectorTileRenderer.loadFromURL(fullUrl)
+        } catch {
+          // Fallback: full load if Range Request fails (e.g. file:// protocol)
+          const vtResponse = await fetch(url)
+          const vtBuf = await vtResponse.arrayBuffer()
+          await this.vectorTileRenderer.loadFromBuffer(vtBuf)
+        }
         this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
 
         // Fit camera to vector tile bounds
@@ -134,6 +144,7 @@ export class XGISMap {
     }
 
     this.showCommands = commands.shows
+
 
     // 4. Build render layers + fit camera
     if (this.useCanvas2D) {
@@ -172,6 +183,24 @@ export class XGISMap {
       // Skip vector tile sources (handled by vectorTileRenderer)
       if ((data as unknown as { _vectorTile?: boolean })._vectorTile) {
         this.vectorTileShows.push(show)
+
+        // Per-feature styling: build variant pipeline + feature data buffer
+        const variant = show.shaderVariant
+        if (variant && (variant.preamble || variant.needsFeatureBuffer) && this.vectorTileRenderer) {
+          try {
+            const pipelines = this.renderer.getOrCreateVariantPipelines(variant as any)
+            this.vtVariantPipelines = pipelines
+            this.vtVariantLayout = variant.needsFeatureBuffer
+              ? this.renderer.featureBindGroupLayout
+              : this.renderer.bindGroupLayout
+            if (variant.needsFeatureBuffer && !this.vectorTileRenderer.hasFeatureData()) {
+              this.vectorTileRenderer.buildFeatureDataBuffer(variant as any, this.vtVariantLayout)
+            }
+          } catch (e) {
+            console.warn('[X-GIS] VT variant pipeline failed:', e)
+          }
+        }
+
         continue
       }
 
@@ -300,12 +329,21 @@ export class XGISMap {
     const w = canvas.width, h = canvas.height
     if (w === 0 || h === 0) { requestAnimationFrame(this.renderLoop); return }
 
+    // Clamp camera so map content stays on screen
+    const MAX_MERC = 20037508.34
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    const mpp = (40075016.686 / 256) / Math.pow(2, this.camera.zoom)
+    const visHalfY = (h / dpr) * mpp / 2
+    const visHalfX = (w / dpr) * mpp / 2
+    const maxY = Math.max(0, MAX_MERC - visHalfY)
+    const maxX = Math.max(0, MAX_MERC - visHalfX)
+    this.camera.centerX = Math.max(-maxX, Math.min(maxX, this.camera.centerX))
+    this.camera.centerY = Math.max(-maxY, Math.min(maxY, this.camera.centerY))
+
     // RTC: Camera center IS projection center. Always.
-    // Vertex shader: project(vertex) - project(center) → small f32 relative coords
-    // This means: whatever you're looking at has minimum distortion.
     const R = 6378137
     const centerLon = (this.camera.centerX / R) * (180 / Math.PI)
-    const centerLat = Math.max(-89, Math.min(89,
+    const centerLat = Math.max(-85, Math.min(85,
       (2 * Math.atan(Math.exp(this.camera.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
     ))
 
@@ -355,10 +393,13 @@ export class XGISMap {
       // Render vector tiles
       if (this.vectorTileRenderer?.hasData()) {
         for (const show of this.vectorTileShows) {
+          const fp = this.vtVariantPipelines?.fillPipeline ?? this.renderer.fillPipeline
+          const lp = this.vtVariantPipelines?.linePipeline ?? this.renderer.linePipeline
+          const bgl = this.vtVariantLayout ?? this.renderer.bindGroupLayout
           this.vectorTileRenderer.render(
             pass, this.camera, projType, centerLon, centerLat, w, h,
-            show, this.renderer.fillPipeline, this.renderer.linePipeline,
-            this.renderer.uniformBuffer, this.renderer.bindGroupLayout,
+            show, fp, lp,
+            this.renderer.uniformBuffer, bgl,
           )
         }
       }

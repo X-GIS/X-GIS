@@ -6,9 +6,11 @@
  * Simplify a ring/polyline using Douglas-Peucker algorithm.
  * @param ring Array of [lon, lat] coordinate pairs
  * @param tolerance Maximum allowed deviation in degrees
+ * @param isLocked Optional predicate — locked vertices are never removed.
+ *                 Used to preserve tile boundary vertices for seamless adjacency.
  * @returns Simplified coordinate array (always preserves first and last point)
  */
-export function simplify(ring: number[][], tolerance: number): number[][] {
+export function simplify(ring: number[][], tolerance: number, isLocked?: (coord: number[]) => boolean): number[][] {
   if (ring.length <= 2) return ring
   if (tolerance <= 0) return ring
 
@@ -16,6 +18,14 @@ export function simplify(ring: number[][], tolerance: number): number[][] {
   const keep = new Uint8Array(ring.length)
   keep[0] = 1
   keep[ring.length - 1] = 1
+
+  // Lock boundary vertices — they must survive simplification
+  // so adjacent tiles share identical edge geometry
+  if (isLocked) {
+    for (let i = 0; i < ring.length; i++) {
+      if (isLocked(ring[i])) keep[i] = 1
+    }
+  }
 
   dpStep(ring, 0, ring.length - 1, sqTolerance, keep)
 
@@ -27,7 +37,7 @@ export function simplify(ring: number[][], tolerance: number): number[][] {
   return result
 }
 
-/** Recursive Douglas-Peucker step */
+/** Recursive Douglas-Peucker step (respects pre-locked vertices) */
 function dpStep(
   ring: number[][],
   first: number,
@@ -35,10 +45,20 @@ function dpStep(
   sqTolerance: number,
   keep: Uint8Array,
 ): void {
+  // If a locked vertex exists between first..last, we must recurse through it
+  // even if the max distance is below tolerance
   let maxDist = 0
   let maxIdx = first
+  let hasLocked = false
 
   for (let i = first + 1; i < last; i++) {
+    if (keep[i]) {
+      // Locked vertex — recurse into sub-segments around it
+      hasLocked = true
+      if (i - first > 1) dpStep(ring, first, i, sqTolerance, keep)
+      if (last - i > 1) dpStep(ring, i, last, sqTolerance, keep)
+      return
+    }
     const dist = sqDistToSegment(ring[i], ring[first], ring[last])
     if (dist > maxDist) {
       maxDist = dist
@@ -46,7 +66,7 @@ function dpStep(
     }
   }
 
-  if (maxDist > sqTolerance) {
+  if (!hasLocked && maxDist > sqTolerance) {
     keep[maxIdx] = 1
     if (maxIdx - first > 1) dpStep(ring, first, maxIdx, sqTolerance, keep)
     if (last - maxIdx > 1) dpStep(ring, maxIdx, last, sqTolerance, keep)
@@ -79,28 +99,30 @@ function sqDistToSegment(p: number[], a: number[], b: number[]): number {
  * Higher zoom = lower tolerance = more detail.
  */
 export function toleranceForZoom(zoom: number): number {
-  // At zoom 0, ~1° tolerance (very coarse)
-  // At zoom 14, ~0.0001° tolerance (~11m)
-  // Each zoom level halves the tolerance
-  return 1.0 / Math.pow(2, zoom)
+  // Tolerance = ~1/16 pixel at each zoom level
+  // At zoom z, one pixel ≈ 360/(256*2^z) degrees
+  // Using 1/16 pixel ensures inter-feature gaps are invisible even with overzoom
+  return 360 / (4096 * Math.pow(2, zoom))
 }
 
 /**
  * Simplify a polygon (outer ring + holes) for a given zoom level.
  * Preserves ring closure and minimum vertex count.
+ * @param isLocked Predicate to lock tile-boundary vertices from removal
  */
-export function simplifyPolygon(rings: number[][][], zoom: number): number[][][] {
+export function simplifyPolygon(rings: number[][][], zoom: number, isLocked?: (coord: number[]) => boolean): number[][][] {
   const tolerance = toleranceForZoom(zoom)
   return rings
-    .map(ring => simplify(ring, tolerance))
+    .map(ring => simplify(ring, tolerance, isLocked))
     .filter(ring => ring.length >= 3) // discard degenerate rings
 }
 
 /**
  * Simplify a linestring for a given zoom level.
+ * @param isLocked Predicate to lock tile-boundary vertices from removal
  */
-export function simplifyLine(coords: number[][], zoom: number): number[][] {
+export function simplifyLine(coords: number[][], zoom: number, isLocked?: (coord: number[]) => boolean): number[][] {
   const tolerance = toleranceForZoom(zoom)
-  const result = simplify(coords, tolerance)
+  const result = simplify(coords, tolerance, isLocked)
   return result.length >= 2 ? result : coords // preserve at least 2 points
 }

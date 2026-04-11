@@ -6,5 +6,10 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true,
+    watch: { followSymlinks: true },
+  },
+  optimizeDeps: {
+    // Don't pre-bundle workspace packages — use source directly
+    exclude: ['@xgis/compiler', '@xgis/runtime'],
   },
 })

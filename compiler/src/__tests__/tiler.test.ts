@@ -81,9 +81,12 @@ describe('Douglas-Peucker Simplification', () => {
   })
 
   it('tolerance decreases with zoom', () => {
-    expect(toleranceForZoom(0)).toBe(1.0)
-    expect(toleranceForZoom(1)).toBe(0.5)
-    expect(toleranceForZoom(10)).toBeCloseTo(1 / 1024)
+    // Tolerance = 360 / (4096 * 2^z) — ~1/16 pixel at each zoom level
+    expect(toleranceForZoom(0)).toBeCloseTo(360 / 4096)
+    expect(toleranceForZoom(1)).toBeCloseTo(360 / 8192)
+    expect(toleranceForZoom(10)).toBeCloseTo(360 / (4096 * 1024))
+    // Each zoom level halves the tolerance
+    expect(toleranceForZoom(1)).toBeCloseTo(toleranceForZoom(0) / 2)
   })
 })
 

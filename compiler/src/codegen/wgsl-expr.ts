@@ -60,7 +60,8 @@ export function exprToWGSL(
     case 'Identifier': {
       const offset = fieldMap.get(expr.name)
       if (offset !== undefined) {
-        return `feat_data[feat_idx + ${offset}u]`
+        const total = fieldMap.size
+        return `feat_data[input.feat_id * ${total}u + ${offset}u]`
       }
       return '0.0'
     }
@@ -69,7 +70,8 @@ export function exprToWGSL(
       const fieldName = expr.field
       const offset = fieldMap.get(fieldName)
       if (offset !== undefined) {
-        return `feat_data[feat_idx + ${offset}u]`
+        const total = fieldMap.size
+        return `feat_data[input.feat_id * ${total}u + ${offset}u]`
       }
       return '0.0'
     }

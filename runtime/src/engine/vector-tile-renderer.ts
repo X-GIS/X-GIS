@@ -8,10 +8,13 @@ import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
 import { visibleTiles, sortByPriority } from '../loader/tiles'
 import {
-  parseXGVTIndex, parseGPUReadyTile, decompressTileData,
+  parseXGVTIndex, parseGPUReadyTile, decompressTileData, parsePropertyTable,
+  TILE_FLAG_FULL_COVER,
   tileKey, tileKeyUnpack,
   type XGVTIndex, type TileIndexEntry,
+  type PropertyTable,
 } from '@xgis/compiler'
+import type { ShaderVariant } from '@xgis/compiler'
 
 // ═══ Types ═══
 
@@ -56,6 +59,10 @@ export class VectorTileRenderer {
   private stableKeys: number[] = []        // tile keys that were fully rendered at stableZoom
   private zoomAbortController: AbortController | null = null
 
+  // Global feature data buffer (shared across all tiles, built from PropertyTable)
+  private featureDataBuffer: GPUBuffer | null = null
+  private featureBindGroupLayout: GPUBindGroupLayout | null = null
+
   constructor(ctx: GPUContext) {
     this.device = ctx.device
   }
@@ -70,27 +77,113 @@ export class VectorTileRenderer {
     return this.index?.header.bounds ?? null
   }
 
+  /** Get the PropertyTable (for per-feature styling) */
+  getPropertyTable(): PropertyTable | undefined {
+    return this.index?.propertyTable
+  }
+
+  /** Whether feature data buffer has been built */
+  hasFeatureData(): boolean {
+    return this.featureDataBuffer !== null
+  }
+
+  /**
+   * Build a global feature data GPU buffer from the PropertyTable.
+   * Called when a shader variant requires per-feature data (needsFeatureBuffer).
+   * String fields are encoded as category IDs (sorted unique values → 0-based integers).
+   */
+  buildFeatureDataBuffer(
+    variant: ShaderVariant,
+    featureBindGroupLayout: GPUBindGroupLayout,
+  ): void {
+    const table = this.index?.propertyTable
+    if (!table || variant.featureFields.length === 0) return
+
+    this.featureBindGroupLayout = featureBindGroupLayout
+    const fieldCount = variant.featureFields.length
+    const featureCount = table.values.length
+    const data = new Float32Array(featureCount * fieldCount)
+
+    // Build string→categoryID maps
+    const catMaps = new Map<string, Map<string, number>>()
+    for (const fieldName of variant.featureFields) {
+      const fi = table.fieldNames.indexOf(fieldName)
+      if (fi >= 0 && table.fieldTypes[fi] === 'string') {
+        const uniqueVals = new Set<string>()
+        for (const row of table.values) {
+          const v = row[fi]
+          if (typeof v === 'string') uniqueVals.add(v)
+        }
+        const sorted = [...uniqueVals].sort()
+        const map = new Map<string, number>()
+        sorted.forEach((v, i) => map.set(v, i))
+        catMaps.set(fieldName, map)
+      }
+    }
+
+    // Encode feature data
+    for (let i = 0; i < featureCount; i++) {
+      const row = table.values[i]
+      for (let j = 0; j < fieldCount; j++) {
+        const fieldName = variant.featureFields[j]
+        const fi = table.fieldNames.indexOf(fieldName)
+        if (fi < 0) continue
+        const val = row[fi]
+        const catMap = catMaps.get(fieldName)
+        if (catMap && typeof val === 'string') {
+          data[i * fieldCount + j] = catMap.get(val) ?? 0
+        } else {
+          data[i * fieldCount + j] = typeof val === 'number' ? val : 0
+        }
+      }
+    }
+
+    this.featureDataBuffer = this.device.createBuffer({
+      size: Math.max(data.byteLength, 16),
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    })
+    this.device.queue.writeBuffer(this.featureDataBuffer, 0, data)
+    console.log(`[X-GIS] Feature data buffer: ${featureCount} features × ${fieldCount} fields`)
+  }
+
   /** Load from a full ArrayBuffer */
   async loadFromBuffer(buf: ArrayBuffer): Promise<void> {
     this.fileBuf = buf
     this.index = parseXGVTIndex(buf)
     this.decompressedTiles = new Map()
+
+    // Parse PropertyTable from the full buffer
+    const { propTableOffset, propTableLength } = this.index.header
+    if (propTableOffset > 0 && propTableLength > 0) {
+      const propBuf = buf.slice(propTableOffset, propTableOffset + propTableLength)
+      this.index.propertyTable = parsePropertyTable(propBuf)
+    }
+
     console.log(`[X-GIS] VectorTile index loaded: ${this.index.entries.length} tiles`)
   }
 
-  /** Load from URL (Range Request mode) */
+  /** Load from URL (Range Request mode — COG-style async) */
   async loadFromURL(url: string): Promise<void> {
     this.fileUrl = url
 
-    // Fetch header (32 bytes)
-    const headerBuf = await fetchRange(url, 0, 32)
+    // 1. Fetch header (40 bytes for v2: includes propTable offset/length)
+    const headerBuf = await fetchRange(url, 0, 40)
     const view = new DataView(headerBuf)
     const indexOffset = view.getUint32(24, true)
     const indexLength = view.getUint32(28, true)
 
-    // Fetch index
+    // 2. Fetch header + tile index in one request
     const indexBuf = await fetchRange(url, 0, indexOffset + indexLength)
     this.index = parseXGVTIndex(indexBuf)
+
+    // 3. Fetch PropertyTable if present (v2+)
+    const propTableOffset = this.index.header.propTableOffset
+    const propTableLength = this.index.header.propTableLength
+    if (propTableOffset > 0 && propTableLength > 0) {
+      const propBuf = await fetchRange(url, propTableOffset, propTableLength)
+      this.index.propertyTable = parsePropertyTable(propBuf)
+    }
+
     console.log(`[X-GIS] VectorTile index loaded: ${this.index.entries.length} tiles (Range Request mode)`)
   }
 
@@ -155,42 +248,58 @@ export class VectorTileRenderer {
     new Float32Array(uniformData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
     // tile_origin at offset 112 will be written per-tile in renderTileKeys
 
-    // Check how many visible tiles are cached at current zoom
+    // Render strategy: current zoom tiles first, parent fallback for missing positions
     const neededKeys = tiles.map(c => tileKey(c.z, c.x, c.y))
-    const cachedCount = neededKeys.filter(k => this.tileCache.has(k)).length
-    const allCached = cachedCount === neededKeys.length
 
-    // Decide what to render
-    if (allCached || this.stableZoom < 0) {
-      // All tiles ready (or first load): render current zoom
-      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
-      this.stableZoom = currentZ
-      this.stableKeys = neededKeys
-    } else if (currentZ !== this.stableZoom && cachedCount < neededKeys.length) {
-      // Zoom transitioning: render STABLE zoom tiles while loading new zoom
-      this.renderTileKeys(this.stableKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+    // 1. For each visible position: find the best available tile (current zoom or ancestor)
+    const fallbackKeys: number[] = []
+    const toLoad: number[] = []
 
-      // Also render any new-zoom tiles that are already loaded (progressive reveal)
-      const newReady = neededKeys.filter(k => this.tileCache.has(k))
-      if (newReady.length > 0) {
-        this.renderTileKeys(newReady, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+    for (let i = 0; i < tiles.length; i++) {
+      const key = neededKeys[i]
+      if (this.tileCache.has(key)) continue // already have current zoom tile
+
+      // Walk up parent chain: find cached ancestor OR closest existing ancestor to load
+      let parentKey = key
+      let foundCached = false
+      let closestExisting = -1
+      for (let pz = currentZ - 1; pz >= 0; pz--) {
+        parentKey = parentKey >>> 2
+        if (this.tileCache.has(parentKey)) {
+          fallbackKeys.push(parentKey)
+          foundCached = true
+          break
+        }
+        // Check if this ancestor exists in the index (adaptive tiling: leaf tile)
+        if (closestExisting < 0 && this.index.entryByHash.has(parentKey)) {
+          closestExisting = parentKey
+        }
       }
 
-      // When all new tiles loaded, swap to new zoom
-      if (allCached) {
-        this.stableZoom = currentZ
-        this.stableKeys = neededKeys
+      // If current zoom tile doesn't exist in index, load the closest ancestor
+      if (!this.index.entryByHash.has(key) && closestExisting >= 0 && !foundCached) {
+        toLoad.push(closestExisting)
       }
-    } else {
-      // Same zoom, some tiles missing (panning): render what we have
-      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
-      this.stableKeys = neededKeys
     }
 
-    // Load missing tiles
-    const missing = neededKeys.filter(k => !this.tileCache.has(k) && !this.loadingTiles.has(k))
-    if (missing.length > 0) {
-      this.batchLoadTiles([...new Set(missing)])
+    // 2. Render parent fallbacks first (behind), then current zoom on top
+    const uniqueFallbacks = [...new Set(fallbackKeys)]
+    if (uniqueFallbacks.length > 0) {
+      this.renderTileKeys(uniqueFallbacks, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+    }
+
+    // 3. Render current zoom tiles (whatever is available) — drawn on top
+    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+    this.stableZoom = currentZ
+    this.stableKeys = neededKeys
+
+    // 4. Load missing tiles — include ancestor tiles for adaptive leaf positions
+    const missing = neededKeys
+      .filter(k => !this.tileCache.has(k) && !this.loadingTiles.has(k) && this.index.entryByHash.has(k))
+    const ancestorsToLoad = toLoad.filter(k => !this.tileCache.has(k) && !this.loadingTiles.has(k))
+    const allToLoad = [...new Set([...missing, ...ancestorsToLoad])]
+    if (allToLoad.length > 0) {
+      this.batchLoadTiles(allToLoad)
     }
 
     // Prefetch adjacent tiles
@@ -229,7 +338,6 @@ export class VectorTileRenderer {
       const tileY = Math.log(Math.tan(Math.PI / 4 + cached.tileSouth * DEG2RAD / 2)) * R
       const centerX = projCenterLon * DEG2RAD * R
       const centerY = Math.log(Math.tan(Math.PI / 4 + projCenterLat * DEG2RAD / 2)) * R
-      // f64 subtraction → result as f32 (small number, precise)
       const offsetX = tileX - centerX
       const offsetY = tileY - centerY
 
@@ -267,6 +375,13 @@ export class VectorTileRenderer {
       if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
       const entry = this.index.entryByHash.get(key)
       if (!entry) continue
+
+      // Full-cover tiles with no data: upload quad immediately, skip fetch
+      if ((entry.flags & TILE_FLAG_FULL_COVER) && entry.compactSize === 0) {
+        this.uploadFullCoverTile(key, entry, new Float32Array(0), new Uint32Array(0))
+        continue
+      }
+
       entries.push({ key, entry })
     }
 
@@ -275,19 +390,26 @@ export class VectorTileRenderer {
     if (this.decompressedTiles && this.fileBuf) {
       for (const { key, entry } of entries) {
         this.loadingTiles.add(key)
+        const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
         const cached = this.decompressedTiles.get(entry.tileHash)
         if (cached) {
-          // Already decompressed: synchronous
           const tile = parseGPUReadyTile(cached, { ...entry, dataOffset: 0, compactSize: cached.byteLength })
-          this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+          if (isFullCover) {
+            this.uploadFullCoverTile(key, entry, tile.lineVertices, tile.lineIndices)
+          } else {
+            this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+          }
           this.loadingTiles.delete(key)
         } else {
-          // Decompress on demand
           const slice = this.fileBuf!.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
           decompressTileData(slice).then(result => {
             this.decompressedTiles!.set(entry.tileHash, result)
             const tile = parseGPUReadyTile(result, { ...entry, dataOffset: 0, compactSize: result.byteLength })
-            this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+            if (isFullCover) {
+              this.uploadFullCoverTile(key, entry, tile.lineVertices, tile.lineIndices)
+            } else {
+              this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+            }
             this.loadingTiles.delete(key)
           }).catch(() => { this.loadingTiles.delete(key) })
         }
@@ -334,12 +456,22 @@ export class VectorTileRenderer {
 
       fetchRange(this.fileUrl, batch.startOffset, size).then(buf => {
         for (const { key, entry } of batch.entries) {
+          const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
           const localOffset = entry.dataOffset - batch.startOffset
           const localSize = entry.compactSize
-          const tileBuf = buf.slice(localOffset, localOffset + localSize)
-          const tile = parseGPUReadyTile(tileBuf, { ...entry, dataOffset: 0 })
-          this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
-          this.loadingTiles.delete(key)
+          const compressed = buf.slice(localOffset, localOffset + localSize)
+          decompressTileData(compressed).then(decompressed => {
+            const tile = parseGPUReadyTile(decompressed, { ...entry, dataOffset: 0, compactSize: decompressed.byteLength })
+            if (isFullCover) {
+              this.uploadFullCoverTile(key, entry, tile.lineVertices, tile.lineIndices)
+            } else {
+              this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+            }
+            this.loadingTiles.delete(key)
+          }).catch(err => {
+            console.warn(`[X-GIS] Tile ${key} decompress failed:`, err)
+            this.loadingTiles.delete(key)
+          })
         }
       }).catch(() => {
         for (const { key } of batch.entries) {
@@ -391,36 +523,52 @@ export class VectorTileRenderer {
     if (!entry) return
 
     this.loadingTiles.add(key)
+    const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
 
     if (this.decompressedTiles && this.fileBuf) {
-      // Check if already decompressed (cached)
       let decompressed = this.decompressedTiles.get(entry.tileHash)
       if (decompressed) {
-        // Cached: synchronous parse + upload
         const tile = parseGPUReadyTile(decompressed, { ...entry, dataOffset: 0, compactSize: decompressed.byteLength })
-        this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+        if (isFullCover) {
+          this.uploadFullCoverTile(key, entry, tile.lineVertices, tile.lineIndices)
+        } else {
+          this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+        }
         this.loadingTiles.delete(key)
       } else {
-        // First access: async decompress, cache, then upload
         const slice = this.fileBuf.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
         decompressTileData(slice).then(result => {
           this.decompressedTiles!.set(entry.tileHash, result)
           const tile = parseGPUReadyTile(result, { ...entry, dataOffset: 0, compactSize: result.byteLength })
-          this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+          if (isFullCover) {
+            this.uploadFullCoverTile(key, entry, tile.lineVertices, tile.lineIndices)
+          } else {
+            this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+          }
           this.loadingTiles.delete(key)
         }).catch(() => { this.loadingTiles.delete(key) })
       }
     } else if (this.fileUrl) {
-      // Range Request — fetch compressed tile, decompress, parse
       const fetchOffset = entry.dataOffset
       const fetchSize = entry.compactSize
-      if (fetchSize === 0) { this.loadingTiles.delete(key); return }
+      if (fetchSize === 0 && !isFullCover) { this.loadingTiles.delete(key); return }
+
+      if (isFullCover && fetchSize === 0) {
+        // Full-cover with no line data — just generate quad
+        this.uploadFullCoverTile(key, entry, new Float32Array(0), new Uint32Array(0))
+        this.loadingTiles.delete(key)
+        return
+      }
 
       fetchRange(this.fileUrl, fetchOffset, fetchSize).then(compressed =>
         decompressTileData(compressed)
       ).then(decompressed => {
         const tile = parseGPUReadyTile(decompressed, { ...entry, dataOffset: 0, compactSize: decompressed.byteLength })
-        this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+        if (isFullCover) {
+          this.uploadFullCoverTile(key, entry, tile.lineVertices, tile.lineIndices)
+        } else {
+          this.uploadTile(key, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+        }
         this.loadingTiles.delete(key)
       }).catch(() => {
         this.loadingTiles.delete(key)
@@ -429,6 +577,33 @@ export class VectorTileRenderer {
   }
 
   private lastBindGroupLayout: GPUBindGroupLayout | null = null
+
+  /** Full-cover tile: generate a quad covering the tile bounds instead of tessellated polygons */
+  private uploadFullCoverTile(
+    key: number,
+    entry: TileIndexEntry,
+    lineVertices: Float32Array,
+    lineIndices: Uint32Array,
+  ): void {
+    const [tz, tx, ty] = tileKeyUnpack(key)
+    const tn = Math.pow(2, tz)
+    const tileWidth = 360 / tn
+    const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
+    const tileNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tn))) * 180 / Math.PI
+    const tileHeight = tileNorth - tileSouth
+    const fid = entry.fullCoverFeatureId
+
+    // 4 vertices (tile-local coords), 2 triangles
+    const vertices = new Float32Array([
+      0,         0,          fid,
+      tileWidth, 0,          fid,
+      tileWidth, tileHeight, fid,
+      0,         tileHeight, fid,
+    ])
+    const indices = new Uint32Array([0, 1, 2, 0, 2, 3])
+
+    this.uploadTile(key, vertices, indices, lineVertices, lineIndices)
+  }
 
   private uploadTile(
     key: number,
@@ -479,11 +654,16 @@ export class VectorTileRenderer {
     const tileNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tn))) * 180 / Math.PI
     const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
 
-    const bindGroup = this.lastBindGroupLayout
-      ? this.device.createBindGroup({
-          layout: this.lastBindGroupLayout,
-          entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
-        })
+    // Use feature bind group layout if storage buffer exists, else standard
+    const layout = (this.featureBindGroupLayout && this.featureDataBuffer)
+      ? this.featureBindGroupLayout
+      : this.lastBindGroupLayout
+    const entries: GPUBindGroupEntry[] = [{ binding: 0, resource: { buffer: uniformBuffer } }]
+    if (this.featureBindGroupLayout && this.featureDataBuffer) {
+      entries.push({ binding: 1, resource: { buffer: this.featureDataBuffer } })
+    }
+    const bindGroup = layout
+      ? this.device.createBindGroup({ layout, entries })
       : null!
 
     this.tileCache.set(key, {
@@ -527,11 +707,26 @@ export class VectorTileRenderer {
 
 // ═══ Helpers ═══
 
+// Cache for full-file fallback when server doesn't support Range requests
+let fullFileCache: { url: string; buf: ArrayBuffer } | null = null
+
 async function fetchRange(url: string, offset: number, length: number): Promise<ArrayBuffer> {
+  // If we already have the full file cached (server doesn't support Range), use it
+  if (fullFileCache && fullFileCache.url === url) {
+    return fullFileCache.buf.slice(offset, offset + length)
+  }
+
   const res = await fetch(url, {
     headers: { Range: `bytes=${offset}-${offset + length - 1}` },
   })
-  return res.arrayBuffer()
+  const buf = await res.arrayBuffer()
+
+  // If server returned full file (200) instead of partial (206), cache it
+  if (res.status === 200 && buf.byteLength > length) {
+    fullFileCache = { url, buf }
+    return buf.slice(offset, offset + length)
+  }
+  return buf
 }
 
 function parseHexColor(hex: string): [number, number, number, number] {

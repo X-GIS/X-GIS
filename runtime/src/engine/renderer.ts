@@ -169,34 +169,41 @@ fn needs_backface_cull(lon_deg: f32, lat_deg: f32) -> f32 {
   return 1.0; // flat projections: no culling
 }
 
+const MERCATOR_LAT_LIMIT: f32 = 85.051129;
+
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) cos_c: f32,
   @location(1) @interpolate(flat) feat_id: u32,
+  @location(2) abs_lat: f32,
 }
 
 @vertex
-fn vs_main(@location(0) local_pos: vec2<f32>, @location(1) feature_id: u32) -> VertexOutput {
+fn vs_main(@location(0) local_pos: vec2<f32>, @location(1) feature_id: f32) -> VertexOutput {
   // Precision-safe RTC:
   // local_pos = lon/lat relative to tile origin (small values, precise in f32)
   // tile_rtc.xy = project(tile_origin) - project(camera_center), computed on CPU in f64
   // Result: project locally (small numbers only) + add precomputed offset
 
-  // Project the local offset (small coords → small projected values, no precision loss)
+  // Project the local offset using proper Mercator projection
   let local_x = local_pos.x * DEG2RAD * EARTH_R;
-  let local_y = local_pos.y * DEG2RAD * EARTH_R;  // approximate Mercator y for small offsets
-
-  // Final RTC = local projection + precomputed tile-to-center offset
+  // Mercator Y: compute relative to tile origin for precision
+  // abs_lat = vertex latitude, clamped to prevent tan(π/2)=∞
+  let abs_lat = local_pos.y + u.tile_rtc.w;
+  let abs_lat_clamped = clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
+  let origin_clamped = clamp(u.tile_rtc.w, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
+  let local_y = (log(tan(PI * 0.25 + abs_lat_clamped * DEG2RAD * 0.5))
+               - log(tan(PI * 0.25 + origin_clamped * DEG2RAD * 0.5))) * EARTH_R;
+  // tile_rtc.xy = project(tile_origin) - project(center), computed on CPU in f64
   let rtc = vec2<f32>(local_x + u.tile_rtc.x, local_y + u.tile_rtc.y);
 
-  // Approximate absolute lon/lat for backface culling (precision not critical here)
   let abs_lon = local_pos.x + u.tile_rtc.z;
-  let abs_lat = local_pos.y + u.tile_rtc.w;
 
   var out: VertexOutput;
   out.position = u.mvp * vec4<f32>(rtc, 0.0, 1.0);
   out.cos_c = needs_backface_cull(abs_lon, abs_lat);
-  out.feat_id = feature_id;
+  out.feat_id = u32(feature_id);
+  out.abs_lat = abs_lat_clamped;
   return out;
 }
 
@@ -206,12 +213,14 @@ fn vs_main(@location(0) local_pos: vec2<f32>, @location(1) feature_id: u32) -> V
 @fragment
 fn fs_fill(input: VertexOutput) -> @location(0) vec4<f32> {
   if (input.cos_c < 0.0) { discard; }
+  if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
   return u.fill_color;
 }
 
 @fragment
 fn fs_stroke(input: VertexOutput) -> @location(0) vec4<f32> {
   if (input.cos_c < 0.0) { discard; }
+  if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
   return u.stroke_color;
 }
 `
@@ -220,7 +229,7 @@ fn fs_stroke(input: VertexOutput) -> @location(0) vec4<f32> {
 const FILL_RETURN_MARKER = 'return u.fill_color;'
 const STROKE_RETURN_MARKER = 'return u.stroke_color;'
 
-interface ShaderVariantInfo {
+export interface ShaderVariantInfo {
   key: string
   preamble: string
   fillExpr: string
@@ -230,7 +239,7 @@ interface ShaderVariantInfo {
   uniformFields: string[]
 }
 
-interface CachedPipeline {
+export interface CachedPipeline {
   fillPipeline: GPURenderPipeline
   linePipeline: GPURenderPipeline
 }
@@ -259,9 +268,10 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
     shader = shader.replace(insertPoint, insertPoint + insertions)
   }
 
-  // Replace fragment return expressions
+  // Replace fragment return expressions (feat_data indexing is inlined in expressions)
   if (variant.fillExpr && variant.fillExpr !== 'u.fill_color') {
-    shader = shader.replace(FILL_RETURN_MARKER, `return ${variant.fillExpr};`)
+    const matchCode = (variant as any).fillPreamble ? `${(variant as any).fillPreamble}  ` : ''
+    shader = shader.replace(FILL_RETURN_MARKER, `${matchCode}return ${variant.fillExpr};`)
   }
   if (variant.strokeExpr && variant.strokeExpr !== 'u.stroke_color') {
     shader = shader.replace(STROKE_RETURN_MARKER, `return ${variant.strokeExpr};`)
@@ -410,7 +420,7 @@ export class MapRenderer {
   linePipeline!: GPURenderPipeline
   uniformBuffer!: GPUBuffer
   bindGroupLayout!: GPUBindGroupLayout
-  private featureBindGroupLayout!: GPUBindGroupLayout
+  featureBindGroupLayout!: GPUBindGroupLayout
   private bindGroup!: GPUBindGroup
   private layers: RenderLayer[] = []
   private graticuleBuffer: GPUBuffer | null = null
@@ -464,7 +474,7 @@ export class MapRenderer {
       arrayStride: 12, // 2×f32 (lon,lat) + 1×u32 (feat_id)
       attributes: [
         { shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 8, format: 'uint32' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 8, format: 'float32' as GPUVertexFormat },
       ],
     }
 
@@ -521,7 +531,7 @@ export class MapRenderer {
     let layerFillPipeline: GPURenderPipeline | null = null
     let layerLinePipeline: GPURenderPipeline | null = null
 
-    if (variant?.preamble) {
+    if (variant && (variant.preamble || variant.needsFeatureBuffer || variant.fillExpr !== 'u.fill_color')) {
       const cached = this.shaderCache.get(variant.key)
       if (cached) {
         layerFillPipeline = cached.fillPipeline
@@ -558,11 +568,33 @@ export class MapRenderer {
       if (fieldCount > 0) {
         const featureCount = polygons.features.length
         const data = new Float32Array(featureCount * fieldCount)
+        // Build string→categoryID maps for string fields
+        const catMaps = new Map<string, Map<string, number>>()
+        for (const fieldName of variant.featureFields) {
+          const uniqueVals = new Set<string>()
+          for (const feat of polygons.features) {
+            const v = feat.properties[fieldName]
+            if (typeof v === 'string') uniqueVals.add(v)
+          }
+          if (uniqueVals.size > 0) {
+            const sorted = [...uniqueVals].sort()
+            const map = new Map<string, number>()
+            sorted.forEach((v, i) => map.set(v, i))
+            catMaps.set(fieldName, map)
+          }
+        }
+
         for (let i = 0; i < featureCount; i++) {
           const props = polygons.features[i].properties
           for (let j = 0; j < fieldCount; j++) {
-            const val = props[variant.featureFields[j]]
-            data[i * fieldCount + j] = typeof val === 'number' ? val : 0
+            const fieldName = variant.featureFields[j]
+            const val = props[fieldName]
+            const catMap = catMaps.get(fieldName)
+            if (catMap && typeof val === 'string') {
+              data[i * fieldCount + j] = catMap.get(val) ?? 0
+            } else {
+              data[i * fieldCount + j] = typeof val === 'number' ? val : 0
+            }
           }
         }
 
@@ -624,6 +656,15 @@ export class MapRenderer {
     this.layers.push(layer)
   }
 
+  /** Get or create variant pipelines (public for vector tile renderer) */
+  getOrCreateVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
+    const cached = this.shaderCache.get(variant.key)
+    if (cached) return cached
+    const pipelines = this.createVariantPipelines(variant)
+    this.shaderCache.set(variant.key, pipelines)
+    return pipelines
+  }
+
   /** Create specialized fill + line pipelines for a shader variant */
   private createVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
     const { device, format } = this.ctx
@@ -644,7 +685,7 @@ export class MapRenderer {
       arrayStride: 12,
       attributes: [
         { shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 8, format: 'uint32' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 8, format: 'float32' as GPUVertexFormat },
       ],
     }
 
@@ -744,7 +785,9 @@ export class MapRenderer {
       const bindGroup = layer.perLayerBindGroup ?? this.bindGroup
 
       // Draw filled polygons (use per-layer pipeline if specialized)
-      if (fillRaw && layer.polygonVertexBuffer && layer.polygonIndexBuffer) {
+      // Data-driven fill: fillRaw is null but shader variant provides the color
+      const hasFill = fillRaw || layer.fillPipeline
+      if (hasFill && layer.polygonVertexBuffer && layer.polygonIndexBuffer) {
         pass.setPipeline(layer.fillPipeline ?? this.fillPipeline)
         pass.setBindGroup(0, bindGroup)
         pass.setVertexBuffer(0, layer.polygonVertexBuffer)

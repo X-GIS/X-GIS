@@ -318,10 +318,23 @@ export class Parser {
     // Parse the utility name: hyphen-joined tokens like "fill-red-500", "stroke-2"
     const name = this.parseUtilityName()
 
-    // Check for data binding: -[expr] or [expr]
+    // Check for data binding: -[expr] or [expr] or fill match(...){...} / categorical(...) / gradient(...)
     let binding: AST.Expr | null = null
+
+    // New syntax: fill match(field) { ... }, fill categorical(field), fill gradient(field, ...)
+    const DATA_STYLE_PROPS = ['fill', 'stroke', 'opacity']
+    const DATA_STYLE_FNS = ['match', 'categorical', 'gradient']
+    if (DATA_STYLE_PROPS.includes(name) && this.check(TokenType.Identifier) &&
+        DATA_STYLE_FNS.includes(this.tokens[this.pos]?.value)) {
+      binding = this.parseExpr()
+      // If it's match(...), check for trailing { ... } match block
+      if (binding.kind === 'FnCall' && binding.callee.kind === 'Identifier' &&
+          binding.callee.name === 'match' && this.check(TokenType.LBrace)) {
+        binding.matchBlock = this.parseMatchBlock()
+      }
+    }
     // Handle size-[speed], fill-[expr] patterns: minus followed by bracket
-    if (this.check(TokenType.Minus) && this.tokens[this.pos + 1]?.type === TokenType.LBracket) {
+    else if (this.check(TokenType.Minus) && this.tokens[this.pos + 1]?.type === TokenType.LBracket) {
       this.advance() // skip '-'
       this.advance() // skip '['
       binding = this.parseExpr()
@@ -377,6 +390,47 @@ export class Parser {
     }
 
     return name
+  }
+
+  /**
+   * Parse match block: { "KOR" -> red-500, "JPN" -> blue-500, _ -> gray-300 }
+   */
+  private parseMatchBlock(): AST.MatchBlock {
+    this.expect(TokenType.LBrace)
+    const arms: AST.MatchArm[] = []
+
+    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
+      // Pattern: string literal, identifier, or '_' for default
+      let pattern: string
+      if (this.check(TokenType.String)) {
+        pattern = this.advance().value
+      } else if (this.check(TokenType.Identifier)) {
+        pattern = this.advance().value
+      } else {
+        break
+      }
+
+      // Arrow: ->
+      this.expect(TokenType.Arrow)
+
+      // Value: color name like red-500 (parsed as utility name) or expression
+      let value: AST.Expr
+      if (this.check(TokenType.Color)) {
+        value = { kind: 'ColorLiteral', value: this.advance().value }
+      } else {
+        // Parse as utility name (hyphen-joined identifiers like "red-500", "gray-300")
+        const colorName = this.parseUtilityName()
+        value = { kind: 'Identifier', name: colorName }
+      }
+
+      arms.push({ pattern, value })
+
+      // Optional comma/newline separator
+      if (this.check(TokenType.Comma)) this.advance()
+    }
+
+    this.expect(TokenType.RBrace)
+    return { kind: 'MatchBlock', arms }
   }
 
   /**
