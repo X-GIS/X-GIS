@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Categorical Colors — X-GIS</title>
+  <link rel="stylesheet" href="/examples/shared.css">
+</head>
+<body>
+  <canvas id="map"></canvas>
+  <div id="topbar">
+    <a href="/">&larr; Examples</a><span class="sep">/</span>
+    <span class="title">Categorical Colors</span>
+    <span class="desc">Each country auto-colored by name</span>
+  </div>
+  <details id="source-panel" open>
+    <summary>Source</summary>
+    <pre id="source-code">source world {
+  type: geojson
+  url: "countries.geojson"
+}
+
+layer countries {
+  source: world
+  | fill categorical(name) stroke-slate-700 stroke-1 opacity-95
+}</pre>
+  </details>
+  <div id="status">Loading...</div>
+  <div id="error"><h2>Error</h2><pre id="error-msg"></pre></div>
+  <script type="module">
+    import { XGISMap } from '@xgis/runtime'
+    const map = new XGISMap(document.getElementById('map'))
+    map.run(document.getElementById('source-code').textContent, '/data/')
+      .then(() => { document.getElementById('status').textContent = 'Categorical Colors | scroll to zoom, drag to pan' })
+      .catch(e => { document.getElementById('error').style.display = 'block'; document.getElementById('error-msg').textContent = String(e) })
+  </script>
+</body>
+</html>

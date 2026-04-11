@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vector Tiles — X-GIS</title>
+  <link rel="stylesheet" href="/examples/shared.css">
+</head>
+<body>
+  <canvas id="map"></canvas>
+  <div id="topbar">
+    <a href="/">&larr; Examples</a><span class="sep">/</span>
+    <span class="title">Vector Tiles</span>
+    <span class="desc">Pre-tiled .xgvt with adaptive zoom and COG-style loading</span>
+  </div>
+  <details id="source-panel" open>
+    <summary>Source</summary>
+    <pre id="source-code">source world {
+  type: geojson
+  url: "countries.xgvt"
+}
+
+layer countries {
+  source: world
+  | fill-emerald-700 stroke-emerald-900 stroke-1
+}</pre>
+  </details>
+  <div id="status">Loading...</div>
+  <div id="error"><h2>Error</h2><pre id="error-msg"></pre></div>
+  <script type="module">
+    import { XGISMap } from '@xgis/runtime'
+    const map = new XGISMap(document.getElementById('map'))
+    map.run(document.getElementById('source-code').textContent, '/data/')
+      .then(() => { document.getElementById('status').textContent = 'Vector Tiles | scroll to zoom, drag to pan' })
+      .catch(e => { document.getElementById('error').style.display = 'block'; document.getElementById('error-msg').textContent = String(e) })
+  </script>
+</body>
+</html>
