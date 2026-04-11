@@ -246,11 +246,14 @@ export class VectorTileRenderer {
     const maxSubTileZ = maxLevel + 6  // allow overzoom sub-tiles up to +6 levels
     const currentZ = Math.max(0, Math.min(maxSubTileZ, Math.round(camera.zoom)))
 
-    // Zoom transition: cancel pending tile fetches for old zoom level
+    // Zoom transition: cancel pending fetches (but not base-level tiles which are always needed)
     if (currentZ !== this.lastZoom) {
-      this.zoomAbortController?.abort()
+      // Only abort if zooming OUT (zooming in still needs the same/higher tiles)
+      if (currentZ < this.lastZoom) {
+        this.zoomAbortController?.abort()
+        this.loadingTiles.clear()
+      }
       this.zoomAbortController = new AbortController()
-      this.loadingTiles.clear() // allow aborted tiles to be re-requested at new zoom
       this.lastZoom = currentZ
     }
 
@@ -324,25 +327,31 @@ export class VectorTileRenderer {
       }
     }
 
-    // Stable zoom: keep rendering old zoom until new zoom is fully loaded
-    const cachedCount = neededKeys.filter(k => this.tileCache.has(k)).length
-    const allCached = cachedCount === neededKeys.length
+    // Stable zoom: keep rendering old zoom until new zoom tiles are available
+    // Count tiles that are cached OR have no data (ocean) — both are "ready"
+    const readyCount = neededKeys.filter(k =>
+      this.tileCache.has(k) || !this.hasAnyAncestorData(k, currentZ)
+    ).length
+    const allReady = readyCount === neededKeys.length
 
-    if (allCached || this.stableZoom < 0) {
+    if (allReady || this.stableZoom < 0) {
       // All tiles ready → switch to new zoom
       this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
       this.stableZoom = currentZ
       this.stableKeys = neededKeys
     } else if (currentZ !== this.stableZoom) {
-      // Transitioning: render OLD zoom tiles (stable, no flicker)
+      // Transitioning: render OLD zoom + any NEW tiles already loaded
       this.renderTileKeys(this.stableKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
-      // When all new tiles loaded, swap
-      if (allCached) {
+      const readyNew = neededKeys.filter(k => this.tileCache.has(k))
+      if (readyNew.length > 0) {
+        this.renderTileKeys(readyNew, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+      }
+      if (allReady) {
         this.stableZoom = currentZ
         this.stableKeys = neededKeys
       }
     } else {
-      // Same zoom, some tiles loading (panning): render what we have
+      // Same zoom: render what we have
       this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
       this.stableKeys = neededKeys
     }
@@ -415,6 +424,17 @@ export class VectorTileRenderer {
       const vc = (cached.cpuVertices.length / 3) + (cached.cpuLineVertices.length / 3)
       this.renderedDraws.set(key, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount, vertexCount: vc })
     }
+  }
+
+  /** Check if any ancestor tile has data for this position */
+  private hasAnyAncestorData(key: number, currentZ: number): boolean {
+    if (this.index?.entryByHash.has(key)) return true
+    let pk = key
+    for (let pz = currentZ - 1; pz >= 0; pz--) {
+      pk = pk >>> 2
+      if (this.index?.entryByHash.has(pk)) return true
+    }
+    return false
   }
 
   /**
