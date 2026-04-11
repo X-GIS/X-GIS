@@ -11,7 +11,6 @@ import {
   parseXGVTIndex, parseGPUReadyTile, decompressTileData, parsePropertyTable,
   TILE_FLAG_FULL_COVER,
   tileKey, tileKeyUnpack,
-  clipPolygonToRect,
   type XGVTIndex, type TileIndexEntry,
   type PropertyTable, type RingPolygon,
 } from '@xgis/compiler'
@@ -317,26 +316,14 @@ export class VectorTileRenderer {
       }
     }
 
-    // Viewport bounds (absolute degrees) for triangle clipping
-    const mpp = (40075016.686 / 256) / Math.pow(2, camera.zoom)
-    const halfW = canvasWidth * mpp / 2 * 1.1
-    const halfH = canvasHeight * mpp / 2 * 1.1
-    const R2 = 6378137
-    const vW = ((camera.centerX - halfW) / R2) * (180 / Math.PI)
-    const vE = ((camera.centerX + halfW) / R2) * (180 / Math.PI)
-    const vS = (2 * Math.atan(Math.exp((camera.centerY - halfH) / R2)) - Math.PI / 2) * (180 / Math.PI)
-    const vN = (2 * Math.atan(Math.exp((camera.centerY + halfH) / R2)) - Math.PI / 2) * (180 / Math.PI)
-
     // 2. Render parent fallbacks first (behind), then current zoom on top
     const uniqueFallbacks = [...new Set(fallbackKeys)]
     if (uniqueFallbacks.length > 0) {
-      this.renderTileKeys(uniqueFallbacks, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat,
-        camera.zoom, vW, vS, vE, vN)
+      this.renderTileKeys(uniqueFallbacks, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
     }
 
     // 3. Render current zoom tiles (whatever is available) — drawn on top
-    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat,
-      camera.zoom, vW, vS, vE, vN)
+    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
     this.stableZoom = currentZ
     this.stableKeys = neededKeys
 
@@ -366,8 +353,6 @@ export class VectorTileRenderer {
     sharedUniformData: ArrayBuffer,
     projCenterLon: number,
     projCenterLat: number,
-    cameraZoom?: number,
-    viewW?: number, viewS?: number, viewE?: number, viewN?: number,
   ): void {
     for (const key of keys) {
       if (this.renderedDraws.has(key)) continue
@@ -388,84 +373,14 @@ export class VectorTileRenderer {
       const tileRtc = new Float32Array([tileX - centerX, tileY - centerY, cached.tileWest, cached.tileSouth])
       this.device.queue.writeBuffer(cached.uniformBuffer, 112, tileRtc)
 
-      // Overzoom: per-tile triangle clipping (each tile has its own GPU buffer — no sync issue)
-      const zoomDiff = (cameraZoom ?? cached.tileZoom) - cached.tileZoom
-      let polyCount = 0, vertexCount = 0
-
-      if (zoomDiff >= 2 && cached.cpuIndices.length > 0 && viewW !== undefined) {
-        const clipW = viewW! - cached.tileWest
-        const clipE = viewE! - cached.tileWest
-        const clipS = viewS! - cached.tileSouth
-        const clipN = viewN! - cached.tileSouth
-        const verts = cached.cpuVertices
-
-        const outV: number[] = []
-        const outI: number[] = []
-
-        for (let t = 0; t < cached.cpuIndices.length; t += 3) {
-          const i0 = cached.cpuIndices[t], i1 = cached.cpuIndices[t + 1], i2 = cached.cpuIndices[t + 2]
-          const x0 = verts[i0 * 3], y0 = verts[i0 * 3 + 1]
-          const x1 = verts[i1 * 3], y1 = verts[i1 * 3 + 1]
-          const x2 = verts[i2 * 3], y2 = verts[i2 * 3 + 1]
-          const fid = verts[i0 * 3 + 2]
-
-          const minX = Math.min(x0, x1, x2), maxX = Math.max(x0, x1, x2)
-          const minY = Math.min(y0, y1, y2), maxY = Math.max(y0, y1, y2)
-          if (maxX < clipW || minX > clipE || maxY < clipS || minY > clipN) continue
-
-          if (minX >= clipW && maxX <= clipE && minY >= clipS && maxY <= clipN) {
-            const base = outV.length / 3
-            outV.push(x0, y0, fid, x1, y1, fid, x2, y2, fid)
-            outI.push(base, base + 1, base + 2)
-            continue
-          }
-
-          const clipped = clipPolygonToRect([[[x0, y0], [x1, y1], [x2, y2]]], clipW, clipS, clipE, clipN)
-          if (clipped.length === 0 || clipped[0].length < 3) continue
-          const ring = clipped[0]
-          const base = outV.length / 3
-          for (const [x, y] of ring) outV.push(x, y, fid)
-          for (let j = 1; j < ring.length - 1; j++) outI.push(base, base + j, base + j + 1)
-        }
-
-        if (outV.length > 0) {
-          const vb = new Float32Array(outV)
-          const ib = new Uint32Array(outI)
-          // Write to THIS tile's own GPU buffers (no shared temp buffer → no sync issue)
-          if (vb.byteLength <= cached.vertexBuffer.size && ib.byteLength <= cached.indexBuffer.size) {
-            this.device.queue.writeBuffer(cached.vertexBuffer, 0, vb)
-            this.device.queue.writeBuffer(cached.indexBuffer, 0, ib)
-            pass.setPipeline(fillPipeline)
-            pass.setBindGroup(0, cached.bindGroup)
-            pass.setVertexBuffer(0, cached.vertexBuffer)
-            pass.setIndexBuffer(cached.indexBuffer, 'uint32')
-            pass.drawIndexed(ib.length)
-            polyCount = ib.length
-            vertexCount = vb.length / 3
-          } else {
-            // Buffer too small — fall back to full render
-            this.device.queue.writeBuffer(cached.vertexBuffer, 0, cached.cpuVertices)
-            this.device.queue.writeBuffer(cached.indexBuffer, 0, cached.cpuIndices)
-            pass.setPipeline(fillPipeline)
-            pass.setBindGroup(0, cached.bindGroup)
-            pass.setVertexBuffer(0, cached.vertexBuffer)
-            pass.setIndexBuffer(cached.indexBuffer, 'uint32')
-            pass.drawIndexed(cached.indexCount)
-            polyCount = cached.indexCount
-            vertexCount = cached.cpuVertices.length / 3
-          }
-        }
-      } else {
-        // Normal: render full cached tile
-        if (cached.indexCount > 0) {
-          pass.setPipeline(fillPipeline)
-          pass.setBindGroup(0, cached.bindGroup)
-          pass.setVertexBuffer(0, cached.vertexBuffer)
-          pass.setIndexBuffer(cached.indexBuffer, 'uint32')
-          pass.drawIndexed(cached.indexCount)
-          polyCount = cached.indexCount
-          vertexCount = cached.cpuVertices.length / 3
-        }
+      // Render full cached tile — GPU viewport clipping handles off-screen geometry
+      // TODO: per-tile triangle clipping for overzoom optimization
+      if (cached.indexCount > 0) {
+        pass.setPipeline(fillPipeline)
+        pass.setBindGroup(0, cached.bindGroup)
+        pass.setVertexBuffer(0, cached.vertexBuffer)
+        pass.setIndexBuffer(cached.indexBuffer, 'uint32')
+        pass.drawIndexed(cached.indexCount)
       }
 
       if (cached.lineIndexCount > 0 && cached.lineVertexBuffer && cached.lineIndexBuffer) {
@@ -476,7 +391,8 @@ export class VectorTileRenderer {
         pass.drawIndexed(cached.lineIndexCount)
       }
 
-      this.renderedDraws.set(key, { polyCount, lineCount: cached.lineIndexCount, vertexCount: vertexCount + cached.cpuLineVertices.length / 3 })
+      const vc = (cached.cpuVertices.length / 3) + (cached.cpuLineVertices.length / 3)
+      this.renderedDraws.set(key, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount, vertexCount: vc })
     }
   }
 
