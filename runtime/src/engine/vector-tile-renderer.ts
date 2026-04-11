@@ -284,18 +284,23 @@ export class VectorTileRenderer {
       let parentKey = key
       let foundCached = false
       let closestExisting = -1
+      let hasAnyAncestor = false
+
       for (let pz = currentZ - 1; pz >= 0; pz--) {
         parentKey = parentKey >>> 2
+        if (this.index.entryByHash.has(parentKey)) hasAnyAncestor = true
         if (this.tileCache.has(parentKey)) {
           fallbackKeys.push(parentKey)
           foundCached = true
           break
         }
-        // Check if this ancestor exists in the index (adaptive tiling: leaf tile)
         if (closestExisting < 0 && this.index.entryByHash.has(parentKey)) {
           closestExisting = parentKey
         }
       }
+
+      // Skip if no data exists anywhere in this tile's ancestry (empty ocean/area)
+      if (!hasAnyAncestor && !this.index.entryByHash.has(key)) continue
 
       // If current zoom tile doesn't exist in index, load the closest ancestor
       if (!this.index.entryByHash.has(key) && closestExisting >= 0 && !foundCached) {
