@@ -92,14 +92,19 @@ export class VectorTileRenderer {
     return this.tileCache.size
   }
 
-  /** Get draw stats for currently rendered tiles */
+  // Track per-frame rendered keys
+  private renderedKeys: number[] = []
+
+  /** Get draw stats for tiles rendered THIS frame (not all cached) */
   getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number } {
     let drawCalls = 0, vertices = 0, triangles = 0, lines = 0
-    for (const [, tile] of this.tileCache) {
+    for (const key of this.renderedKeys) {
+      const tile = this.tileCache.get(key)
+      if (!tile) continue
       if (tile.indexCount > 0) { drawCalls++; vertices += tile.indexCount; triangles += Math.floor(tile.indexCount / 3) }
       if (tile.lineIndexCount > 0) { drawCalls++; lines += Math.floor(tile.lineIndexCount / 2) }
     }
-    return { drawCalls, vertices, triangles, lines, tilesVisible: this.tileCache.size }
+    return { drawCalls, vertices, triangles, lines, tilesVisible: this.renderedKeys.length }
   }
 
   /**
@@ -219,6 +224,7 @@ export class VectorTileRenderer {
   ): void {
     if (!this.index) return
     this.frameCount++
+    this.renderedKeys = []
 
     const { centerX, centerY, zoom } = camera
     const R = 6378137
@@ -341,6 +347,7 @@ export class VectorTileRenderer {
       if (!cached || !cached.bindGroup) continue
 
       cached.lastUsedFrame = this.frameCount
+      this.renderedKeys.push(key)
 
       // Write shared uniforms to this tile's buffer
       this.device.queue.writeBuffer(cached.uniformBuffer, 0, sharedUniformData)
