@@ -327,34 +327,8 @@ export class VectorTileRenderer {
       }
     }
 
-    // Stable zoom: keep rendering old zoom until new zoom tiles are available
-    // Count tiles that are cached OR have no data (ocean) — both are "ready"
-    const readyCount = neededKeys.filter(k =>
-      this.tileCache.has(k) || !this.hasAnyAncestorData(k, currentZ)
-    ).length
-    const allReady = readyCount === neededKeys.length
-
-    if (allReady || this.stableZoom < 0) {
-      // All tiles ready → switch to new zoom
-      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
-      this.stableZoom = currentZ
-      this.stableKeys = neededKeys
-    } else if (currentZ !== this.stableZoom) {
-      // Transitioning: render OLD zoom + any NEW tiles already loaded
-      this.renderTileKeys(this.stableKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
-      const readyNew = neededKeys.filter(k => this.tileCache.has(k))
-      if (readyNew.length > 0) {
-        this.renderTileKeys(readyNew, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
-      }
-      if (allReady) {
-        this.stableZoom = currentZ
-        this.stableKeys = neededKeys
-      }
-    } else {
-      // Same zoom: render what we have
-      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
-      this.stableKeys = neededKeys
-    }
+    // Render current zoom tiles (sub-tiles are generated synchronously from cached parents)
+    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
 
     // Load missing tiles
     const missing = neededKeys
