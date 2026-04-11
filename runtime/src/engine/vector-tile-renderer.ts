@@ -318,10 +318,25 @@ export class VectorTileRenderer {
       }
     }
 
-    // 2. Render: fallbacks FIRST (behind), then current zoom ON TOP (zero flicker)
-    const uniqueFallbacks = [...new Set(fallbackKeys)]
-    if (uniqueFallbacks.length > 0) {
-      this.renderTileKeys(uniqueFallbacks, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+    // 2. Filter fallbacks: skip parents whose children are ALL cached (no overlap needed)
+    const cachedNeeded = new Set(neededKeys.filter(k => this.tileCache.has(k)))
+    const activeFallbacks = [...new Set(fallbackKeys)].filter(fk => {
+      // Check if ANY child position still needs this fallback
+      for (const nk of neededKeys) {
+        if (cachedNeeded.has(nk)) continue // child cached, doesn't need fallback
+        // Check if this fallback is an ancestor of nk
+        let pk = nk
+        for (let pz = currentZ - 1; pz >= 0; pz--) {
+          pk = pk >>> 2
+          if (pk === fk) return true // still needed
+        }
+      }
+      return false
+    })
+
+    // 3. Render: filtered fallbacks FIRST (behind), then current zoom ON TOP
+    if (activeFallbacks.length > 0) {
+      this.renderTileKeys(activeFallbacks, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
     }
     this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
 
@@ -844,11 +859,11 @@ export class VectorTileRenderer {
   private evictTiles(): void {
     if (this.tileCache.size <= MAX_CACHED_TILES) return
 
-    // Protect stable zoom tiles from eviction
+    // Protect: stable zoom tiles + low-zoom tiles (always needed as fallbacks)
     const protectedKeys = new Set(this.stableKeys)
 
     const entries = [...this.tileCache.entries()]
-      .filter(([key]) => !protectedKeys.has(key))
+      .filter(([key, tile]) => !protectedKeys.has(key) && tile.tileZoom > 4)
       .sort((a, b) => a[1].lastUsedFrame - b[1].lastUsedFrame)
 
     const toEvict = this.tileCache.size - MAX_CACHED_TILES
