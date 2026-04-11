@@ -324,12 +324,30 @@ export class VectorTileRenderer {
       }
     }
 
-    // Render current zoom tiles only (no fallback overlap = no alpha blending artifacts)
-    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
-    this.stableZoom = currentZ
-    this.stableKeys = neededKeys
+    // Stable zoom: keep rendering old zoom until new zoom is fully loaded
+    const cachedCount = neededKeys.filter(k => this.tileCache.has(k)).length
+    const allCached = cachedCount === neededKeys.length
 
-    // 4. Load missing tiles — include ancestor tiles for adaptive leaf positions
+    if (allCached || this.stableZoom < 0) {
+      // All tiles ready → switch to new zoom
+      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+      this.stableZoom = currentZ
+      this.stableKeys = neededKeys
+    } else if (currentZ !== this.stableZoom) {
+      // Transitioning: render OLD zoom tiles (stable, no flicker)
+      this.renderTileKeys(this.stableKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+      // When all new tiles loaded, swap
+      if (allCached) {
+        this.stableZoom = currentZ
+        this.stableKeys = neededKeys
+      }
+    } else {
+      // Same zoom, some tiles loading (panning): render what we have
+      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+      this.stableKeys = neededKeys
+    }
+
+    // Load missing tiles
     const missing = neededKeys
       .filter(k => !this.tileCache.has(k) && !this.loadingTiles.has(k) && this.index.entryByHash.has(k))
     const ancestorsToLoad = toLoad.filter(k => !this.tileCache.has(k) && !this.loadingTiles.has(k))
@@ -338,8 +356,9 @@ export class VectorTileRenderer {
       this.batchLoadTiles(allToLoad)
     }
 
-    // Prefetch adjacent tiles
+    // Prefetch: adjacent tiles + next zoom level
     this.prefetchAdjacent(tiles, currentZ)
+    this.prefetchNextZoom(centerLon, centerLat, currentZ, canvasWidth, canvasHeight, camera.zoom)
 
     // LRU eviction
     this.evictTiles()
@@ -623,6 +642,37 @@ export class VectorTileRenderer {
 
     if (prefetchKeys.length > 0 && this.loadingTiles.size < MAX_CONCURRENT_LOADS) {
       this.batchLoadTiles(prefetchKeys.slice(0, MAX_CONCURRENT_LOADS - this.loadingTiles.size))
+    }
+  }
+
+  /** Prefetch tiles at the next zoom level for smoother zoom-in transitions */
+  private prefetchNextZoom(
+    centerLon: number, centerLat: number,
+    currentZ: number, canvasWidth: number, canvasHeight: number,
+    cameraZoom: number,
+  ): void {
+    if (!this.index || this.loadingTiles.size >= MAX_CONCURRENT_LOADS) return
+
+    const nextZ = currentZ + 1
+    const maxSubZ = this.index.header.maxLevel + 6
+    if (nextZ > maxSubZ) return
+
+    const nextTiles = visibleTiles(centerLon, centerLat, nextZ, canvasWidth, canvasHeight, cameraZoom)
+    const prefetchKeys: number[] = []
+
+    for (const t of nextTiles) {
+      const key = tileKey(t.z, t.x, t.y)
+      if (this.tileCache.has(key) || this.loadingTiles.has(key)) continue
+      if (this.index.entryByHash.has(key)) {
+        prefetchKeys.push(key)
+      }
+    }
+
+    if (prefetchKeys.length > 0) {
+      const slots = MAX_CONCURRENT_LOADS - this.loadingTiles.size
+      if (slots > 0) {
+        this.batchLoadTiles(prefetchKeys.slice(0, slots))
+      }
     }
   }
 
