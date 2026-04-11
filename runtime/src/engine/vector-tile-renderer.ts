@@ -97,19 +97,17 @@ export class VectorTileRenderer {
     return this.tileCache.size
   }
 
-  // Track per-frame actually drawn tile keys (deduplicated)
-  private renderedKeys = new Set<number>()
+  // Track per-frame actual draw counts (after overzoom clipping)
+  private renderedDraws = new Map<number, { polyCount: number; lineCount: number }>()
 
-  /** Get draw stats for tiles rendered THIS frame (not all cached) */
+  /** Get draw stats for tiles rendered THIS frame (reflects clipping) */
   getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number } {
     let drawCalls = 0, vertices = 0, triangles = 0, lines = 0
-    for (const key of this.renderedKeys) {
-      const tile = this.tileCache.get(key)
-      if (!tile) continue
-      if (tile.indexCount > 0) { drawCalls++; vertices += tile.indexCount; triangles += Math.floor(tile.indexCount / 3) }
-      if (tile.lineIndexCount > 0) { drawCalls++; lines += Math.floor(tile.lineIndexCount / 2) }
+    for (const [, counts] of this.renderedDraws) {
+      if (counts.polyCount > 0) { drawCalls++; vertices += counts.polyCount; triangles += Math.floor(counts.polyCount / 3) }
+      if (counts.lineCount > 0) { drawCalls++; lines += Math.floor(counts.lineCount / 2) }
     }
-    return { drawCalls, vertices, triangles, lines, tilesVisible: this.renderedKeys.size }
+    return { drawCalls, vertices, triangles, lines, tilesVisible: this.renderedDraws.size }
   }
 
   /**
@@ -229,7 +227,7 @@ export class VectorTileRenderer {
   ): void {
     if (!this.index) return
     this.frameCount++
-    this.renderedKeys.clear()
+    this.renderedDraws.clear()
 
     const { centerX, centerY, zoom } = camera
     const R = 6378137
@@ -383,7 +381,6 @@ export class VectorTileRenderer {
       if (!cached || !cached.bindGroup) continue
 
       cached.lastUsedFrame = this.frameCount
-      this.renderedKeys.add(key)
 
       // Write shared uniforms to this tile's buffer
       this.device.queue.writeBuffer(cached.uniformBuffer, 0, sharedUniformData)
@@ -408,7 +405,8 @@ export class VectorTileRenderer {
         const localE = (viewEast! - cached.tileWest)
         const localS = (viewSouth! - cached.tileSouth)
         const localN = (viewNorth! - cached.tileSouth)
-        const verts = cached.cpuVertices // stride 3: dx, dy, feat_id
+        const verts = cached.cpuVertices
+        let lineClipCount = 0
 
         // Filter polygon triangles: keep if any vertex is inside viewport
         if (this.clipIndexBuf.length < cached.cpuIndices.length) {
@@ -444,7 +442,6 @@ export class VectorTileRenderer {
           if (this.clipLineIndexBuf.length < cached.cpuLineIndices.length) {
             this.clipLineIndexBuf = new Uint32Array(cached.cpuLineIndices.length)
           }
-          let lineClipCount = 0
           const lv = cached.cpuLineVertices
           for (let i = 0; i < cached.cpuLineIndices.length; i += 2) {
             const i0 = cached.cpuLineIndices[i], i1 = cached.cpuLineIndices[i + 1]
@@ -465,6 +462,8 @@ export class VectorTileRenderer {
             pass.drawIndexed(lineClipCount)
           }
         }
+        // Record clipped draw counts
+        this.renderedDraws.set(key, { polyCount: clipCount, lineCount: lineClipCount ?? 0 })
       } else {
         // No clipping needed — render full tile
         if (cached.indexCount > 0) {
@@ -482,6 +481,8 @@ export class VectorTileRenderer {
           pass.setIndexBuffer(cached.lineIndexBuffer, 'uint32')
           pass.drawIndexed(cached.lineIndexCount)
         }
+        // Record full draw counts
+        this.renderedDraws.set(key, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount })
       }
     }
   }
