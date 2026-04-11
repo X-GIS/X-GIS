@@ -110,10 +110,33 @@ export class PanZoomController implements Controller {
       }
     }
 
+    // Smooth zoom animation
+    let targetZoom = camera.zoom
+    let zoomScreenX = 0, zoomScreenY = 0
+    let animating = false
+
+    const animateZoom = () => {
+      const diff = targetZoom - camera.zoom
+      if (Math.abs(diff) < 0.01) {
+        camera.zoomAt(diff, zoomScreenX, zoomScreenY, canvas.width, canvas.height)
+        animating = false
+        return
+      }
+      const step = diff * 0.15 // ease-out: 15% per frame
+      camera.zoomAt(step, zoomScreenX, zoomScreenY, canvas.width, canvas.height)
+      requestAnimationFrame(animateZoom)
+    }
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       const delta = e.deltaY > 0 ? -0.5 : 0.5
-      camera.zoomAt(delta, e.clientX, e.clientY, canvas.width, canvas.height)
+      targetZoom = Math.max(0, Math.min(22, targetZoom + delta))
+      zoomScreenX = e.clientX
+      zoomScreenY = e.clientY
+      if (!animating) {
+        animating = true
+        animateZoom()
+      }
     }
 
     canvas.addEventListener('pointerdown', onPointerDown)
