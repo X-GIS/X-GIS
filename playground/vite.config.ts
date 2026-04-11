@@ -9,7 +9,14 @@ export default defineConfig({
     watch: { followSymlinks: true },
   },
   optimizeDeps: {
-    // Don't pre-bundle workspace packages — use source directly
     exclude: ['@xgis/compiler', '@xgis/runtime'],
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        demo: 'demo.html',
+      },
+    },
   },
 })

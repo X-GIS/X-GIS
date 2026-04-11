@@ -6,53 +6,106 @@
   <title>X-GIS Playground</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #0a0a0f; color: #e0e0e0; font-family: system-ui, sans-serif; overflow: hidden; }
-    #map { width: 100vw; height: 100vh; display: block; touch-action: none; }
+    body {
+      background: #0a0a0f; color: #e0e0e0;
+      font-family: system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+    }
 
-    #demo-picker {
-      position: fixed; top: 12px; right: 12px;
-      display: flex; flex-wrap: wrap; gap: 6px;
-      z-index: 20; max-width: 50vw;
+    header {
+      padding: 3rem 2rem 2rem;
+      max-width: 960px;
+      margin: 0 auto;
     }
-    #demo-picker button {
-      background: rgba(30,30,50,0.85); color: #aaa;
-      border: 1px solid #333; border-radius: 6px;
-      padding: 6px 12px; font-size: 12px;
-      cursor: pointer; transition: all 0.15s;
-      backdrop-filter: blur(8px);
+    header h1 {
+      font-size: 1.8rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
     }
-    #demo-picker button:hover { background: rgba(50,50,80,0.9); color: #fff; border-color: #555; }
-    #demo-picker button.active { background: rgba(59,130,246,0.3); color: #60a5fa; border-color: #3b82f6; }
+    header h1 span { color: #3b82f6; }
+    header p {
+      color: #777;
+      margin-top: 0.5rem;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
 
-    #status {
-      position: fixed; bottom: 12px; left: 12px;
-      background: rgba(0,0,0,0.7); padding: 8px 16px;
-      border-radius: 6px; font-size: 13px; color: #aaa;
-      pointer-events: none; z-index: 10;
-      transition: opacity 0.5s;
+    #demo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1rem;
+      padding: 0 2rem 4rem;
+      max-width: 960px;
+      margin: 0 auto;
     }
-    #error {
-      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      background: #1a1a2e; padding: 32px; border-radius: 12px;
-      border: 1px solid #e74c3c; max-width: 500px; display: none; z-index: 30;
-    }
-    #error h2 { color: #e74c3c; margin-bottom: 12px; }
-    #error pre { color: #ccc; font-size: 13px; white-space: pre-wrap; }
 
-    @media (max-width: 600px) {
-      #demo-picker {
-        top: auto; bottom: 52px; right: 8px; left: 8px;
-        max-width: 100%; justify-content: center;
-      }
-      #demo-picker button { padding: 8px 10px; font-size: 11px; }
+    .demo-card {
+      display: flex;
+      flex-direction: column;
+      background: #111118;
+      border: 1px solid #1e1e2e;
+      border-radius: 12px;
+      padding: 1.4rem;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+    }
+    .demo-card:hover {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 1px #3b82f640, 0 8px 24px #0004;
+      transform: translateY(-2px);
+    }
+    .demo-card h3 {
+      color: #e0e0e0;
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 0.3rem;
+    }
+    .demo-card .tag {
+      display: inline-block;
+      font-size: 0.65rem;
+      color: #3b82f6;
+      background: #3b82f615;
+      border: 1px solid #3b82f630;
+      border-radius: 4px;
+      padding: 1px 6px;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .demo-card p {
+      color: #888;
+      font-size: 0.8rem;
+      margin-bottom: 0.8rem;
+      line-height: 1.45;
+      flex: 1;
+    }
+    .demo-card pre {
+      background: #0a0a12;
+      border: 1px solid #1a1a28;
+      border-radius: 8px;
+      padding: 0.7rem;
+      font-family: 'Fira Code', 'Cascadia Code', 'SF Mono', monospace;
+      font-size: 0.68rem;
+      color: #7b8fad;
+      overflow: hidden;
+      line-height: 1.4;
+      white-space: pre;
+    }
+
+    @media (max-width: 640px) {
+      header { padding: 2rem 1rem 1.5rem; }
+      #demo-grid { grid-template-columns: 1fr; padding: 0 1rem 3rem; }
     }
   </style>
 </head>
 <body>
-  <canvas id="map"></canvas>
-  <div id="demo-picker"></div>
-  <div id="status">X-GIS loading...</div>
-  <div id="error"><h2>Error</h2><pre id="error-msg"></pre></div>
-  <script type="module" src="/src/main.ts"></script>
+  <header>
+    <h1><span>X-GIS</span> Playground</h1>
+    <p>A DSL and WebGPU rendering engine for GIS maps. Click a demo below to explore.</p>
+  </header>
+  <div id="demo-grid"></div>
+  <script type="module" src="/src/gallery.ts"></script>
 </body>
 </html>

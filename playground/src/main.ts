@@ -3,24 +3,11 @@ import { XGISMap } from '@xgis/runtime'
 // ═══ Demo Scenes ═══
 
 const DEMOS: Record<string, { name: string; description: string; source: string }> = {
-  raster_vector: {
-    name: 'Raster + Vector',
-    description: 'OpenStreetMap tiles with country borders overlay',
-    source: `
-let basemap = load("https://tile.openstreetmap.org/{z}/{x}/{y}.png")
-let countries = load("countries.geojson")
+  // ── Basic ──
 
-show basemap {}
-show countries {
-    fill: #3a6b4e40
-    stroke: #ffffff80, 1px
-}
-`,
-  },
-
-  new_syntax: {
-    name: 'New Syntax (source/layer)',
-    description: 'Tailwind utility styling with source/layer blocks',
+  minimal: {
+    name: 'Minimal',
+    description: 'Simplest X-GIS program — one source, one layer',
     source: `
 source world {
   type: geojson
@@ -29,14 +16,14 @@ source world {
 
 layer countries {
   source: world
-  | fill-green-200 stroke-gray-400 stroke-1 opacity-90
+  | fill-stone-200 stroke-stone-400 stroke-1
 }
 `,
   },
 
-  dark_theme: {
+  dark: {
     name: 'Dark Theme',
-    description: 'Dark map with bright borders',
+    description: 'Dark fill with bright borders',
     source: `
 source world {
   type: geojson
@@ -50,29 +37,38 @@ layer countries {
 `,
   },
 
-  raster_overlay: {
-    name: 'Raster + Styled Overlay',
-    description: 'OSM tiles with blue translucent country fill',
+  // ── Raster ──
+
+  raster: {
+    name: 'Raster + Borders',
+    description: 'OpenStreetMap tiles with country border overlay',
     source: `
-let basemap = load("https://tile.openstreetmap.org/{z}/{x}/{y}.png")
+source basemap {
+  type: raster
+  url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+}
 
 source world {
   type: geojson
   url: "countries.geojson"
 }
 
-show basemap {}
+layer tiles {
+  source: basemap
+}
 
-layer overlay {
+layer borders {
   source: world
-  | fill-blue-500 opacity-30 stroke-white stroke-1
+  | fill-blue-500 opacity-20 stroke-white stroke-1
 }
 `,
   },
 
-  zoom_modifiers: {
-    name: 'Zoom Modifiers',
-    description: 'Opacity changes with zoom level (zoom in/out to see)',
+  // ── Zoom ──
+
+  zoom: {
+    name: 'Zoom Styles',
+    description: 'Opacity changes with zoom level — zoom in/out to see',
     source: `
 source world {
   type: geojson
@@ -87,68 +83,43 @@ layer countries {
 `,
   },
 
-  data_modifiers: {
-    name: 'Data Modifiers',
-    description: 'Conditional styling by feature properties',
-    source: `
-source world {
-  type: geojson
-  url: "countries.geojson"
-}
-
-preset base_style {
-  | stroke-gray-500 stroke-1 opacity-85
-}
-
-layer countries {
-  source: world
-  | apply-base_style
-  | fill-gray-300
-}
-`,
-  },
+  // ── Multi-Layer ──
 
   multi_layer: {
     name: 'Multi-Layer',
-    description: 'Multiple layers with different styles',
+    description: 'Same source, different layer styles stacked',
     source: `
-let basemap = load("https://tile.openstreetmap.org/{z}/{x}/{y}.png")
+source basemap {
+  type: raster
+  url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+}
 
 source world {
   type: geojson
   url: "countries.geojson"
 }
 
-show basemap {}
+layer tiles {
+  source: basemap
+}
 
-layer fill_layer {
+layer fill {
   source: world
   | fill-orange-200 opacity-40
 }
 
-layer border_layer {
+layer borders {
   source: world
   | stroke-red-500 stroke-2 opacity-80
 }
 `,
   },
 
-  vector_tiles: {
-    name: 'Vector Tiles (.xgvt)',
-    description: 'Pre-tiled vector data with COG-style loading (5.7MB vs 14MB GeoJSON)',
-    source: `
-let world = load("countries.xgvt")
-
-show world {
-  fill: #2d6a4f
-  stroke: #1b4332, 1px
-}
-`,
-  },
+  // ── Per-Feature Styling ──
 
   categorical: {
-    name: 'Categorical Colors',
-    description: 'fill categorical(name) — auto-assign 20 distinct colors by country name',
+    name: 'Categorical',
+    description: 'Each country auto-colored by name — 20 distinct colors',
     source: `
 source world {
   type: geojson
@@ -162,9 +133,27 @@ layer countries {
 `,
   },
 
-  categorical_vt: {
-    name: 'Categorical (xgvt)',
-    description: 'fill categorical(name) on vector tiles — PropertyTable → GPU storage buffer',
+  // ── Vector Tiles ──
+
+  vector_tiles: {
+    name: 'Vector Tiles',
+    description: 'Pre-tiled .xgvt format — Range Request, adaptive zoom, COG-style',
+    source: `
+source world {
+  type: geojson
+  url: "countries.xgvt"
+}
+
+layer countries {
+  source: world
+  | fill-emerald-700 stroke-emerald-900 stroke-1
+}
+`,
+  },
+
+  vector_categorical: {
+    name: 'VT Categorical',
+    description: 'Per-feature colors on vector tiles — PropertyTable → GPU',
     source: `
 source world {
   type: geojson
@@ -174,18 +163,6 @@ source world {
 layer countries {
   source: world
   | fill categorical(name) stroke-slate-700 stroke-1 opacity-95
-}
-`,
-  },
-  
-  minimal: {
-    name: 'Minimal',
-    description: 'Simplest possible X-GIS program',
-    source: `
-let world = load("countries.geojson")
-show world {
-  fill: #f2efe9
-  stroke: #ccc, 1px
 }
 `,
   },
@@ -247,7 +224,7 @@ function init() {
 
   // Load from URL hash or default
   const hash = location.hash.slice(1)
-  const startDemo = hash && DEMOS[hash] ? hash : 'raster_vector'
+  const startDemo = hash && DEMOS[hash] ? hash : 'minimal'
   loadDemo(startDemo)
 }
 

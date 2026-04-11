@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>X-GIS Demo</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0f; color: #e0e0e0; font-family: system-ui, sans-serif; overflow: hidden; }
+    #map { width: 100vw; height: 100vh; display: block; touch-action: none; }
+
+    /* ── Top bar ── */
+    #topbar {
+      position: fixed; top: 0; left: 0; right: 0;
+      display: flex; align-items: center; gap: 12px;
+      padding: 0 16px; height: 40px;
+      background: rgba(10, 10, 15, 0.9);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid #1a1a28;
+      z-index: 20;
+      font-size: 13px;
+    }
+    #topbar a {
+      color: #60a5fa; text-decoration: none;
+      display: flex; align-items: center; gap: 4px;
+    }
+    #topbar a:hover { color: #93bbfc; }
+    #topbar .sep { color: #333; }
+    #demo-title { font-weight: 600; color: #ccc; }
+    #demo-desc { color: #666; font-size: 12px; margin-left: auto; }
+
+    /* ── Source code panel ── */
+    #source-panel {
+      position: fixed; top: 52px; right: 12px;
+      background: rgba(12, 12, 20, 0.92);
+      border: 1px solid #1e1e2e;
+      border-radius: 10px;
+      padding: 0; max-width: 380px;
+      overflow: hidden; z-index: 20;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 32px #0006;
+    }
+    #source-panel summary {
+      cursor: pointer; font-size: 11px; color: #666;
+      user-select: none; padding: 8px 14px;
+      border-bottom: 1px solid #1a1a28;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    #source-panel[open] summary { color: #888; }
+    #source-code {
+      font-family: 'Fira Code', 'Cascadia Code', 'SF Mono', monospace;
+      font-size: 12px; color: #a5d6ff;
+      white-space: pre; line-height: 1.6;
+      padding: 12px 14px;
+      max-height: 50vh; overflow: auto;
+    }
+
+    /* ── Status bar ── */
+    #status {
+      position: fixed; bottom: 12px; left: 12px;
+      background: rgba(0, 0, 0, 0.7); padding: 6px 14px;
+      border-radius: 6px; font-size: 12px; color: #777;
+      pointer-events: none; z-index: 10;
+      transition: opacity 0.5s;
+    }
+
+    /* ── Error overlay ── */
+    #error {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: #12121e; padding: 2rem; border-radius: 12px;
+      border: 1px solid #e74c3c; max-width: 480px;
+      display: none; z-index: 30;
+      box-shadow: 0 16px 48px #0008;
+    }
+    #error h2 { color: #e74c3c; font-size: 1rem; margin-bottom: 0.8rem; }
+    #error pre { color: #ccc; font-size: 12px; white-space: pre-wrap; line-height: 1.5; }
+
+    @media (max-width: 640px) {
+      #demo-desc { display: none; }
+      #source-panel { right: 8px; left: 8px; max-width: none; top: 48px; }
+      #source-panel summary { font-size: 10px; }
+      #source-code { font-size: 11px; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="map"></canvas>
+
+  <div id="topbar">
+    <a href="/">&larr; All Demos</a>
+    <span class="sep">/</span>
+    <span id="demo-title"></span>
+    <span id="demo-desc"></span>
+  </div>
+
+  <details id="source-panel" open>
+    <summary>Source Code</summary>
+    <pre id="source-code"></pre>
+  </details>
+
+  <div id="status">Loading...</div>
+  <div id="error"><h2>Error</h2><pre id="error-msg"></pre></div>
+
+  <script type="module" src="/src/demo-runner.ts"></script>
+</body>
+</html>
