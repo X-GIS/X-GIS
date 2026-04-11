@@ -77,8 +77,8 @@ export class PanZoomController implements Controller {
         return
       }
       camera.pan(panVelX, panVelY, canvas.width, canvas.height)
-      panVelX *= 0.92  // friction
-      panVelY *= 0.92
+      panVelX *= 0.85  // friction (higher = stops faster)
+      panVelY *= 0.85
       requestAnimationFrame(applyInertia)
     }
 
