@@ -327,8 +327,18 @@ export class VectorTileRenderer {
       }
     }
 
-    // Render current zoom tiles (sub-tiles are generated synchronously from cached parents)
-    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+    // Render current zoom tiles. Keep old zoom as fallback until new tiles appear.
+    const hasCurrent = neededKeys.some(k => this.tileCache.has(k))
+
+    if (hasCurrent || this.stableZoom < 0 || currentZ === this.stableZoom) {
+      // New tiles available (or same zoom) → render current zoom only
+      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+      this.stableZoom = currentZ
+      this.stableKeys = neededKeys
+    } else {
+      // No new tiles yet → keep showing old zoom (prevents black screen flicker)
+      this.renderTileKeys(this.stableKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+    }
 
     // Load missing tiles
     const missing = neededKeys
