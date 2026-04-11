@@ -438,11 +438,13 @@ export class XGISMap {
           const fp = this.vtVariantPipelines?.fillPipeline ?? this.renderer.fillPipeline
           const lp = this.vtVariantPipelines?.linePipeline ?? this.renderer.linePipeline
           const bgl = this.vtVariantLayout ?? this.renderer.bindGroupLayout
+          const fpFb = this.vtVariantPipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
+          const lpFb = this.vtVariantPipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
           this.vectorTileRenderer.render(
             pass, this.camera, projType, centerLon, centerLat, w, h,
             show, fp, lp,
             this.renderer.uniformBuffer, bgl,
-            this.renderer.fillPipelineFallback, this.renderer.linePipelineFallback,
+            fpFb, lpFb,
           )
         }
       }

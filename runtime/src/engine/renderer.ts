@@ -242,6 +242,8 @@ export interface ShaderVariantInfo {
 export interface CachedPipeline {
   fillPipeline: GPURenderPipeline
   linePipeline: GPURenderPipeline
+  fillPipelineFallback: GPURenderPipeline
+  linePipelineFallback: GPURenderPipeline
 }
 
 /**
@@ -784,7 +786,34 @@ export class MapRenderer {
       label: `line-${variant.key}`,
     })
 
-    return { fillPipeline, linePipeline }
+    // Stencil test: only draw where stencil=0 (not covered by children)
+    const stencilTest: GPUDepthStencilState = {
+      format: 'stencil8',
+      stencilFront: { compare: 'equal', passOp: 'keep' },
+      stencilBack: { compare: 'equal', passOp: 'keep' },
+      stencilWriteMask: 0x00,
+      stencilReadMask: 0xFF,
+    }
+
+    const fillPipelineFallback = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+      fragment: { module, entryPoint: 'fs_fill', targets: [{ format, blend: blendState }] },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: stencilTest,
+      label: `fill-fallback-${variant.key}`,
+    })
+
+    const linePipelineFallback = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+      fragment: { module, entryPoint: 'fs_stroke', targets: [{ format, blend: blendState }] },
+      primitive: { topology: 'line-list', cullMode: 'none' },
+      depthStencil: stencilTest,
+      label: `line-fallback-${variant.key}`,
+    })
+
+    return { fillPipeline, linePipeline, fillPipelineFallback, linePipelineFallback }
   }
 
   private initGraticule(): void {
