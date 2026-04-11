@@ -318,26 +318,8 @@ export class VectorTileRenderer {
       }
     }
 
-    // 2. Filter fallbacks: skip parents whose children are ALL cached (no overlap needed)
-    const cachedNeeded = new Set(neededKeys.filter(k => this.tileCache.has(k)))
-    const activeFallbacks = [...new Set(fallbackKeys)].filter(fk => {
-      // Check if ANY child position still needs this fallback
-      for (const nk of neededKeys) {
-        if (cachedNeeded.has(nk)) continue // child cached, doesn't need fallback
-        // Check if this fallback is an ancestor of nk
-        let pk = nk
-        for (let pz = currentZ - 1; pz >= 0; pz--) {
-          pk = pk >>> 2
-          if (pk === fk) return true // still needed
-        }
-      }
-      return false
-    })
-
-    // 3. Render: filtered fallbacks FIRST (behind), then current zoom ON TOP
-    if (activeFallbacks.length > 0) {
-      this.renderTileKeys(activeFallbacks, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
-    }
+    // 2. Render current zoom tiles only (no fallback overlap)
+    // Prefetching + fast loading minimize gaps. Overlap causes permanent color shift.
     this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
 
     // Load missing tiles
@@ -349,9 +331,12 @@ export class VectorTileRenderer {
       this.batchLoadTiles(allToLoad)
     }
 
-    // Prefetch: adjacent tiles + next zoom level
+    // Prefetch: adjacent + next zoom (zoom in) + prev zoom (zoom out)
     this.prefetchAdjacent(tiles, currentZ)
     this.prefetchNextZoom(centerLon, centerLat, currentZ, canvasWidth, canvasHeight, camera.zoom)
+    if (currentZ > 0) {
+      this.prefetchNextZoom(centerLon, centerLat, currentZ - 2, canvasWidth, canvasHeight, camera.zoom)
+    }
 
     // LRU eviction
     this.evictTiles()
