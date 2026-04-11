@@ -284,21 +284,17 @@ export class VectorTileRenderer {
     const fallbackKeys: number[] = []
     const toLoad: number[] = []
 
-    // Max zoom levels to walk up for fallback (limits overzoom waste)
-    const MAX_FALLBACK_LEVELS = 4
-
     for (let i = 0; i < tiles.length; i++) {
       const key = neededKeys[i]
-      if (this.tileCache.has(key)) continue // already have current zoom tile
+      if (this.tileCache.has(key)) continue
 
-      // Walk up parent chain (limited depth) to find cached or loadable ancestor
+      // Walk up full parent chain to find cached or loadable ancestor
       let parentKey = key
       let foundCached = false
       let closestExisting = -1
       let hasAnyAncestor = false
-      const minZ = Math.max(0, currentZ - MAX_FALLBACK_LEVELS)
 
-      for (let pz = currentZ - 1; pz >= minZ; pz--) {
+      for (let pz = currentZ - 1; pz >= 0; pz--) {
         parentKey = parentKey >>> 2
         if (this.index.entryByHash.has(parentKey)) hasAnyAncestor = true
         if (this.tileCache.has(parentKey)) {
@@ -374,6 +370,7 @@ export class VectorTileRenderer {
     viewWest?: number, viewSouth?: number, viewEast?: number, viewNorth?: number,
   ): void {
     for (const key of keys) {
+      if (this.renderedDraws.has(key)) continue // already drawn this frame
       const cached = this.tileCache.get(key)
       if (!cached || !cached.bindGroup) continue
 
