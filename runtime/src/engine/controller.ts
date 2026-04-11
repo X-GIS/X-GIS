@@ -71,14 +71,16 @@ export class PanZoomController implements Controller {
     let lastMoveTime = 0
     let inertiaAnimating = false
 
+    const MAX_INERTIA_VEL = 15  // cap velocity (CSS px/frame)
+
     const applyInertia = () => {
-      if (Math.abs(panVelX) < 0.3 && Math.abs(panVelY) < 0.3) {
+      if (Math.abs(panVelX) < 0.5 && Math.abs(panVelY) < 0.5) {
         inertiaAnimating = false
         return
       }
       camera.pan(panVelX, panVelY, canvas.width, canvas.height)
-      panVelX *= 0.85  // friction (higher = stops faster)
-      panVelY *= 0.85
+      panVelX *= 0.90
+      panVelY *= 0.90
       requestAnimationFrame(applyInertia)
     }
 
@@ -114,8 +116,10 @@ export class PanZoomController implements Controller {
     const onPointerUp = (e: PointerEvent) => {
       activePointers.delete(e.pointerId)
       if (activePointers.size === 0) {
-        // Start inertia if velocity is significant
-        if (isDragging && (Math.abs(panVelX) > 1 || Math.abs(panVelY) > 1)) {
+        // Start inertia only for fast flicks, cap velocity
+        panVelX = Math.max(-MAX_INERTIA_VEL, Math.min(MAX_INERTIA_VEL, panVelX))
+        panVelY = Math.max(-MAX_INERTIA_VEL, Math.min(MAX_INERTIA_VEL, panVelY))
+        if (isDragging && (Math.abs(panVelX) > 2 || Math.abs(panVelY) > 2)) {
           if (!inertiaAnimating) {
             inertiaAnimating = true
             applyInertia()
