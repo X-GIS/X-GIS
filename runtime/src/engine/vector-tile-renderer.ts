@@ -323,10 +323,10 @@ export class VectorTileRenderer {
     }
 
     // Viewport bounds (absolute degrees) for triangle clipping during overzoom
+    // Use full physical pixel viewport (no DPR division) + 10% margin for safety
     const mpp = (40075016.686 / 256) / Math.pow(2, camera.zoom)
-    const dpr2 = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-    const halfW = (canvasWidth / dpr2) * mpp / 2
-    const halfH = (canvasHeight / dpr2) * mpp / 2
+    const halfW = canvasWidth * mpp / 2 * 1.1
+    const halfH = canvasHeight * mpp / 2 * 1.1
     const R2 = 6378137
     const vW = ((camera.centerX - halfW) / R2) * (180 / Math.PI)
     const vE = ((camera.centerX + halfW) / R2) * (180 / Math.PI)
