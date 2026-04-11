@@ -14,6 +14,7 @@ import { GlobeRenderer } from './globe-renderer'
 import { CanvasRenderer } from './canvas-renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
+import { MercatorReprojector } from './mercator-reproject'
 
 export class XGISMap {
   private ctx!: GPUContext
@@ -43,6 +44,9 @@ export class XGISMap {
   private stencilTexture: GPUTexture | null = null
   private stencilWidth = 0
   private stencilHeight = 0
+
+  // 2-pass Mercator reprojection
+  private mercatorReprojector: MercatorReprojector | null = null
 
   // Stats inspector
   private _stats = new StatsTracker()
@@ -116,6 +120,7 @@ export class XGISMap {
       this.rasterRenderer = new RasterRenderer(this.ctx)
       this.globeRenderer = new GlobeRenderer(this.ctx)
       this.vectorTileRenderer = new VectorTileRenderer(this.ctx)
+      this.mercatorReprojector = new MercatorReprojector(this.ctx)
       this.useCanvas2D = false
     } catch (err) {
       console.warn('[X-GIS] WebGPU unavailable, falling back to Canvas 2D:', (err as Error).message)
