@@ -2,3 +2,10 @@ node_modules/
 dist/
 *.xgb
 playground/public/data/
+
+# Build artifacts in source dirs
+**/*.js.map
+compiler/src/**/*.d.ts
+runtime/src/**/*.d.ts
+runtime/src/**/*.js
+!compiler/src/tiler/earcut.d.ts
