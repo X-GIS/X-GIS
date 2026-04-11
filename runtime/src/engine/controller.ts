@@ -108,7 +108,7 @@ export class PanZoomController implements Controller {
       if (isRotating && activePointers.size === 1) {
         const dx = e.clientX - lastRotateX
         lastRotateX = e.clientX
-        camera.rotate(dx * 0.5)
+        camera.rotate(-dx * 0.3)
         return
       }
 

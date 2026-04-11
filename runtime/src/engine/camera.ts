@@ -79,12 +79,12 @@ export class Camera {
     const metersPerPhysicalPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
     const metersPerCSSPixel = metersPerPhysicalPixel * dpr
 
-    // Rotate screen delta to map space (inverse bearing)
-    const rad = this.bearing * Math.PI / 180
+    // Rotate screen delta to map space
+    const rad = -this.bearing * Math.PI / 180
     const cos = Math.cos(rad)
     const sin = Math.sin(rad)
-    const mapDx = dx * cos - dy * sin
-    const mapDy = dx * sin + dy * cos
+    const mapDx = dx * cos + dy * sin
+    const mapDy = -dx * sin + dy * cos
 
     this.centerX -= mapDx * metersPerCSSPixel
     const maxY = this.maxCameraY(canvasHeight)
