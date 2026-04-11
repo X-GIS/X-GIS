@@ -12,7 +12,8 @@
 
 import type { CompiledTileSet, CompiledTile, PropertyTable, PropertyFieldType } from './vector-tiler'
 import { tileKeyUnpack } from './vector-tiler'
-import { encodeCoords, encodeIndices, decodeCoords, decodeIndices, encodeFeatIds, decodeFeatIds, precisionForZoom } from './encoding'
+import { encodeCoords, encodeIndices, decodeCoords, decodeIndices, encodeFeatIds, decodeFeatIds, precisionForZoom, encodeRingData, decodeRingData } from './encoding'
+import earcut from 'earcut'
 // gzip: compile-time only (node:zlib), runtime uses DecompressionStream
 let gzipSync: (buf: Buffer) => Buffer
 let gunzipSync: (buf: Buffer) => Buffer
@@ -29,7 +30,7 @@ try {
 // ═══ Constants ═══
 
 const MAGIC = 0x54564758 // "XGVT" little-endian
-const VERSION = 2 // v2: feat_id streams + PropertyTable
+const VERSION = 1 // ring-based format: polygon rings + line data
 
 // ═══ Types ═══
 
@@ -77,16 +78,12 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
   }[] = []
 
   for (const { key, tile } of allTiles) {
-    // Zoom-adaptive precision: lower zooms use coarser quantization → smaller varints
     const precision = precisionForZoom(tile.z)
 
-    // Compact layer: ZigZag delta encoding
-    const polyCoordFlat: number[] = []
-    const polyFeatIds: number[] = []
-    for (let i = 0; i < tile.vertices.length; i += 3) {
-      polyCoordFlat.push(tile.vertices[i], tile.vertices[i + 1])
-      polyFeatIds.push(tile.vertices[i + 2])
-    }
+    // Encode ring data (polygon structure + coords) for runtime sub-tiling
+    const ringDataBuf = encodeRingData(tile.polygons ?? [], precision)
+
+    // Encode line data
     const lineCoordFlat: number[] = []
     const lineFeatIds: number[] = []
     for (let i = 0; i < tile.lineVertices.length; i += 3) {
@@ -97,11 +94,9 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
     encodedTiles.push({
       key,
       compact: {
-        coords: encodeCoords(polyCoordFlat, precision),
-        indices: encodeIndices(tile.indices),
+        ringData: ringDataBuf,
         lineCoords: encodeCoords(lineCoordFlat, precision),
         lineIndices: encodeIndices(tile.lineIndices),
-        polyFeatIds: encodeFeatIds(polyFeatIds),
         lineFeatIds: encodeFeatIds(lineFeatIds),
       },
       gpuReady: {
@@ -137,8 +132,8 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
       compressedTiles.push(null) // no compact data
       continue
     }
-    // Concatenate all compact parts with size headers
-    const parts = [et.compact.coords, et.compact.indices, et.compact.lineCoords, et.compact.lineIndices, et.compact.polyFeatIds, et.compact.lineFeatIds]
+    // Concatenate compact parts: ringData + lineCoords + lineIndices + lineFeatIds
+    const parts = [et.compact.ringData, et.compact.lineCoords, et.compact.lineIndices, et.compact.lineFeatIds]
     let rawSize = 0
     for (const p of parts) rawSize += 4 + p.byteLength
     const rawBuf = new Uint8Array(rawSize)
@@ -276,7 +271,7 @@ export function parseXGVTIndex(buf: ArrayBuffer): XGVTIndex {
   if (magic !== MAGIC) throw new Error(`Invalid .xgvt file (expected XGVT magic)`)
 
   const version = view.getUint16(pos, true); pos += 2
-  if (version !== 1 && version !== VERSION) throw new Error(`Unsupported .xgvt version: ${version}`)
+  if (version !== VERSION) throw new Error(`Unsupported .xgvt version: ${version} (expected ${VERSION})`)
 
   const levelCount = view.getUint8(pos); pos += 1
   const maxLevel = view.getUint8(pos); pos += 1
@@ -288,12 +283,9 @@ export function parseXGVTIndex(buf: ArrayBuffer): XGVTIndex {
   const indexOffset = view.getUint32(pos, true); pos += 4
   const indexLength = view.getUint32(pos, true); pos += 4
 
-  // v2: property table offset/length
-  let propTableOffset = 0, propTableLength = 0
-  if (version >= 2) {
-    propTableOffset = view.getUint32(pos, true); pos += 4
-    propTableLength = view.getUint32(pos, true); pos += 4
-  }
+  // Property table offset/length
+  const propTableOffset = view.getUint32(pos, true); pos += 4
+  const propTableLength = view.getUint32(pos, true); pos += 4
 
   // Index
   pos = indexOffset
@@ -407,49 +399,62 @@ export function parseGPUReadyTile(
     return section
   }
 
-  const coordsBuf = readSection()
-  const indicesBuf = readSection()
+  // v1 ring-based format: [ringData][lineCoords][lineIndices][lineFeatIds]
+  const ringDataBuf = readSection()
   const lineCoordsBuf = readSection()
   const lineIndicesBuf = readSection()
+  const lineFeatIdsBuf = readSection()
 
-  // Read feat_id sections (may not exist in older files)
-  let polyFeatIdsBuf: Uint8Array | null = null
-  let lineFeatIdsBuf: Uint8Array | null = null
-  if (pos < dataBuf.length) {
-    polyFeatIdsBuf = readSection()
-    if (pos < dataBuf.length) {
-      lineFeatIdsBuf = readSection()
+  const precision = precisionForZoom(z)
+
+  // Decode polygon rings and tessellate with earcut
+  const polygons = decodeRingData(ringDataBuf, precision)
+  const polyVerts: number[] = []
+  const polyIdx: number[] = []
+
+  for (const poly of polygons) {
+    const baseVertex = polyVerts.length / 3
+    const flatCoords: number[] = []
+    const holeIndices: number[] = []
+
+    for (let r = 0; r < poly.rings.length; r++) {
+      if (r > 0) holeIndices.push(flatCoords.length / 2)
+      for (const coord of poly.rings[r]) {
+        flatCoords.push(coord[0], coord[1])
+      }
+    }
+
+    const earcutIdx = earcut(flatCoords, holeIndices.length > 0 ? holeIndices : undefined)
+    for (let i = 0; i < flatCoords.length; i += 2) {
+      polyVerts.push(flatCoords[i], flatCoords[i + 1], poly.featId)
+    }
+    for (const idx of earcutIdx) {
+      polyIdx.push(baseVertex + idx)
     }
   }
 
-  // Decode quantized integer coordinates (zoom-adaptive precision)
-  const precision = precisionForZoom(z)
-  const coords = decodeCoords(coordsBuf, precision)
-  const polyFeatIds = polyFeatIdsBuf ? decodeFeatIds(polyFeatIdsBuf) : null
-  const vertices = new Float32Array(coords.length / 2 * 3)
-  for (let i = 0; i < coords.length; i += 2) {
-    const vi = (i / 2) * 3
-    vertices[vi] = coords[i]
-    vertices[vi + 1] = coords[i + 1]
-    vertices[vi + 2] = polyFeatIds ? polyFeatIds[i / 2] : 0
-  }
+  const vertices = new Float32Array(polyVerts)
+  const indices = new Uint32Array(polyIdx)
 
-  const indices = decodeIndices(indicesBuf)
-
+  // Decode line data
   const lineCoords = decodeCoords(lineCoordsBuf, precision)
-  const lineFeatIds = lineFeatIdsBuf ? decodeFeatIds(lineFeatIdsBuf) : null
+  const lineFeatIds = decodeFeatIds(lineFeatIdsBuf)
   const lineVertices = new Float32Array(lineCoords.length / 2 * 3)
   for (let i = 0; i < lineCoords.length; i += 2) {
     const vi = (i / 2) * 3
     lineVertices[vi] = lineCoords[i]
     lineVertices[vi + 1] = lineCoords[i + 1]
-    lineVertices[vi + 2] = lineFeatIds ? lineFeatIds[i / 2] : 0
+    lineVertices[vi + 2] = lineFeatIds[i / 2] ?? 0
   }
-
   const lineIndices = decodeIndices(lineIndicesBuf)
 
   const tb = tileBoundsFromZXY(z, x, y)
-  return { z, x, y, tileWest: tb.west, tileSouth: tb.south, vertices, indices, lineVertices, lineIndices, featureCount: 0 }
+  return {
+    z, x, y, tileWest: tb.west, tileSouth: tb.south,
+    vertices, indices, lineVertices, lineIndices,
+    featureCount: polygons.length,
+    polygons, // preserve for runtime sub-tiling
+  }
 }
 
 // ═══ Property Table Serialization ═══

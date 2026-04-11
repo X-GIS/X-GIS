@@ -196,3 +196,76 @@ export function decodeFeatIds(buf: Uint8Array): Float32Array {
 
   return ids
 }
+
+// ═══ Ring Data: Polygon structure + coordinates ═══
+
+export interface RingPolygon {
+  rings: number[][][]  // [[x,y], ...] per ring (outer + holes)
+  featId: number
+}
+
+/**
+ * Encode polygon ring data: structure metadata + delta-zigzag-varint coordinates.
+ * Format: [polyCount] then per polygon: [featId, ringCount, ...rings]
+ * Each ring: [vertexCount, delta-encoded x,y pairs]
+ */
+export function encodeRingData(polygons: RingPolygon[], precision = PRECISION): Uint8Array {
+  const bytes: number[] = []
+  encodeVarint(polygons.length, bytes)
+
+  for (const poly of polygons) {
+    encodeVarint(poly.featId, bytes)
+    encodeVarint(poly.rings.length, bytes)
+
+    for (const ring of poly.rings) {
+      encodeVarint(ring.length, bytes)
+      let prevX = 0, prevY = 0
+      for (const coord of ring) {
+        const qx = Math.round(coord[0] * precision)
+        const qy = Math.round(coord[1] * precision)
+        encodeVarint(zigzagEncode(qx - prevX), bytes)
+        encodeVarint(zigzagEncode(qy - prevY), bytes)
+        prevX = qx
+        prevY = qy
+      }
+    }
+  }
+
+  return new Uint8Array(bytes)
+}
+
+/**
+ * Decode polygon ring data back to RingPolygon array.
+ */
+export function decodeRingData(buf: Uint8Array, precision = PRECISION): RingPolygon[] {
+  let offset = 0
+
+  const [polyCount, pcBytes] = decodeVarint(buf, offset); offset += pcBytes
+  const polygons: RingPolygon[] = []
+
+  for (let p = 0; p < polyCount; p++) {
+    const [featId, fidBytes] = decodeVarint(buf, offset); offset += fidBytes
+    const [ringCount, rcBytes] = decodeVarint(buf, offset); offset += rcBytes
+    const rings: number[][][] = []
+
+    for (let r = 0; r < ringCount; r++) {
+      const [vertCount, vcBytes] = decodeVarint(buf, offset); offset += vcBytes
+      const ring: number[][] = []
+      let prevX = 0, prevY = 0
+
+      for (let v = 0; v < vertCount; v++) {
+        const [zx, xBytes] = decodeVarint(buf, offset); offset += xBytes
+        const [zy, yBytes] = decodeVarint(buf, offset); offset += yBytes
+        prevX += zigzagDecode(zx)
+        prevY += zigzagDecode(zy)
+        ring.push([prevX / precision, prevY / precision])
+      }
+
+      rings.push(ring)
+    }
+
+    polygons.push({ rings, featId })
+  }
+
+  return polygons
+}

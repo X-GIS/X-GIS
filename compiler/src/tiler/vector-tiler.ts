@@ -47,6 +47,8 @@ export interface CompiledTile {
   featureCount: number
   fullCover?: boolean
   fullCoverFeatureId?: number
+  /** Original clipped polygon rings for runtime sub-tiling */
+  polygons?: { rings: number[][][]; featId: number }[]
 }
 
 // ═══ Morton Code (Z-Order Curve) Tile Key ═══
@@ -381,9 +383,10 @@ export function compileGeoJSONToTiles(
         Math.abs(c[0] - tb.west) < EPS || Math.abs(c[0] - tb.east) < EPS ||
         Math.abs(c[1] - tb.south) < EPS || Math.abs(c[1] - tb.north) < EPS
 
-      // Track clipped rings for full-cover detection
+      // Track clipped rings for full-cover detection + ring storage
       let tileClippedRings: number[][][] = []
       let tilePolyFeatureIds = new Set<number>()
+      const tilePolygons: { rings: number[][][]; featId: number }[] = []
       // Track pre/post simplification vertex counts for adaptive subdivision
       let preSimplifyVerts = 0
       let postSimplifyVerts = 0
@@ -409,6 +412,8 @@ export function compileGeoJSONToTiles(
             // Tessellate original clipped geometry (unsimplified)
             tessellatePolygonToArrays(clipped, fid, scratch.pv, scratch.pi)
             featureIds.add(fid)
+            // Store clipped rings for runtime sub-tiling
+            tilePolygons.push({ rings: clipped, featId: fid })
           }
         }
 
@@ -471,6 +476,7 @@ export function compileGeoJSONToTiles(
           featureCount: featureIds.size,
           fullCover,
           fullCoverFeatureId: fullCoverFeatId,
+          polygons: tilePolygons.length > 0 ? tilePolygons : undefined,
         })
 
         // Adaptive subdivision: subdivide only if simplification removed vertices.
