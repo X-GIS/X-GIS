@@ -30,6 +30,7 @@ layer countries {
   <script type="module">
     import { XGISMap } from '@xgis/runtime'
     const map = new XGISMap(document.getElementById('map'))
+    map.showInspector()
     map.run(document.getElementById('source-code').textContent, '/data/')
       .then(() => { document.getElementById('status').textContent = 'VT + Categorical | scroll to zoom, drag to pan' })
       .catch(e => { document.getElementById('error').style.display = 'block'; document.getElementById('error-msg').textContent = String(e) })

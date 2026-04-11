@@ -426,6 +426,28 @@ export class MapRenderer {
   private graticuleBuffer: GPUBuffer | null = null
   private graticuleVertexCount = 0
 
+  /** Get rendering stats for all layers */
+  getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number } {
+    let drawCalls = 0, vertices = 0, triangles = 0, lines = 0
+    for (const layer of this.layers) {
+      if (layer.polygonIndexCount > 0) {
+        drawCalls++
+        vertices += layer.polygonIndexCount
+        triangles += Math.floor(layer.polygonIndexCount / 3)
+      }
+      if (layer.lineIndexCount > 0) {
+        drawCalls++
+        lines += Math.floor(layer.lineIndexCount / 2)
+      }
+    }
+    if (this.graticuleVertexCount > 0) {
+      drawCalls++
+      lines += Math.floor(this.graticuleVertexCount / 2)
+      vertices += this.graticuleVertexCount
+    }
+    return { drawCalls, vertices, triangles, lines }
+  }
+
   // Shader variant cache: variant key → compiled pipeline set
   private shaderCache = new Map<string, CachedPipeline>()
 

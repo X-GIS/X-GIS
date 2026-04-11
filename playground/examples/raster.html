@@ -39,6 +39,7 @@ layer borders {
   <script type="module">
     import { XGISMap } from '@xgis/runtime'
     const map = new XGISMap(document.getElementById('map'))
+    map.showInspector()
     map.run(document.getElementById('source-code').textContent, '/data/')
       .then(() => { document.getElementById('status').textContent = 'Raster + Borders | scroll to zoom, drag to pan' })
       .catch(e => { document.getElementById('error').style.display = 'block'; document.getElementById('error-msg').textContent = String(e) })

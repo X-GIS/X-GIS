@@ -87,6 +87,21 @@ export class VectorTileRenderer {
     return this.featureDataBuffer !== null
   }
 
+  /** Get cache size for stats */
+  getCacheSize(): number {
+    return this.tileCache.size
+  }
+
+  /** Get draw stats for currently rendered tiles */
+  getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number } {
+    let drawCalls = 0, vertices = 0, triangles = 0, lines = 0
+    for (const [, tile] of this.tileCache) {
+      if (tile.indexCount > 0) { drawCalls++; vertices += tile.indexCount; triangles += Math.floor(tile.indexCount / 3) }
+      if (tile.lineIndexCount > 0) { drawCalls++; lines += Math.floor(tile.lineIndexCount / 2) }
+    }
+    return { drawCalls, vertices, triangles, lines, tilesVisible: this.tileCache.size }
+  }
+
   /**
    * Build a global feature data GPU buffer from the PropertyTable.
    * Called when a shader variant requires per-feature data (needsFeatureBuffer).

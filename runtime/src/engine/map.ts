@@ -13,6 +13,7 @@ import { PanZoomController, type Controller } from './controller'
 import { GlobeRenderer } from './globe-renderer'
 import { CanvasRenderer } from './canvas-renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
+import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 
 export class XGISMap {
   private ctx!: GPUContext
@@ -38,8 +39,25 @@ export class XGISMap {
   private rawDatasets = new Map<string, GeoJSONFeatureCollection>()
   private showCommands: SceneCommands['shows'] = []
 
+  // Stats inspector
+  private _stats = new StatsTracker()
+  private _statsPanel: StatsPanel | null = null
+
   constructor(private canvas: HTMLCanvasElement) {
     this.camera = new Camera(0, 20, 2)
+  }
+
+  /** Get current rendering stats */
+  get stats(): RenderStats { return this._stats.get() }
+
+  /** Show/hide the stats inspector panel */
+  showInspector(show = true): void {
+    if (show && !this._statsPanel) {
+      this._statsPanel = new StatsPanel()
+    } else if (!show && this._statsPanel) {
+      this._statsPanel.destroy()
+      this._statsPanel = null
+    }
   }
 
   /** Change projection at runtime — GPU uniform only, no re-tessellation! */
@@ -318,6 +336,7 @@ export class XGISMap {
 
   private renderLoop = (): void => {
     if (!this.running) return
+    this._stats.beginFrame()
     resizeCanvas(this.ctx)
 
     const projType = {
@@ -408,6 +427,25 @@ export class XGISMap {
     }
 
     device.queue.submit([encoder.finish()])
+
+    // Collect stats from renderers
+    this._stats.zoom = this.camera.zoom
+    const rs = this.renderer.getDrawStats()
+    this._stats.drawCalls = rs.drawCalls
+    this._stats.vertices = rs.vertices
+    this._stats.triangles = rs.triangles
+    this._stats.lines = rs.lines
+    if (this.vectorTileRenderer?.hasData()) {
+      const vts = this.vectorTileRenderer.getDrawStats()
+      this._stats.drawCalls += vts.drawCalls
+      this._stats.vertices += vts.vertices
+      this._stats.triangles += vts.triangles
+      this._stats.lines += vts.lines
+      this._stats.tilesVisible = vts.tilesVisible
+      this._stats.tilesCached = this.vectorTileRenderer.getCacheSize()
+    }
+    this._stats.endFrame()
+    this._statsPanel?.update(this._stats.get())
 
     requestAnimationFrame(this.renderLoop)
   }

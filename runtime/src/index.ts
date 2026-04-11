@@ -1,4 +1,5 @@
 export { XGISMap } from './engine/map'
+export { StatsPanel, StatsTracker, type RenderStats } from './engine/stats'
 export { Camera } from './engine/camera'
 export { MapRenderer } from './engine/renderer'
 export { loadGeoJSON, lonLatToMercator } from './loader/geojson'
