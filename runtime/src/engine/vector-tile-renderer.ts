@@ -280,7 +280,7 @@ export class VectorTileRenderer {
     // Render strategy: current zoom tiles first, parent fallback for missing positions
     const neededKeys = tiles.map(c => tileKey(c.z, c.x, c.y))
 
-    // 1. For each visible position: find the best available tile (current zoom or ancestor)
+    // 1. For uncached positions: try sub-tile generation or find fallback ancestor
     const fallbackKeys: number[] = []
     const toLoad: number[] = []
 
@@ -288,23 +288,20 @@ export class VectorTileRenderer {
       const key = neededKeys[i]
       if (this.tileCache.has(key)) continue
 
-      // Walk up parent chain to find cached ancestor
       let parentKey = key
       let foundCached = false
       let closestExisting = -1
       let hasAnyAncestor = false
-      let cachedParentKey = -1
 
       for (let pz = currentZ - 1; pz >= 0; pz--) {
         parentKey = parentKey >>> 2
         if (this.index.entryByHash.has(parentKey)) hasAnyAncestor = true
         if (this.tileCache.has(parentKey)) {
-          cachedParentKey = parentKey
           // Try generating sub-tile from cached parent (overzoom)
           if (currentZ > maxLevel && this.generateSubTile(key, parentKey)) {
-            foundCached = true // sub-tile created in cache → will render directly
+            foundCached = true
           } else {
-            fallbackKeys.push(parentKey) // fall back to parent render
+            fallbackKeys.push(parentKey)
             foundCached = true
           }
           break
@@ -321,19 +318,7 @@ export class VectorTileRenderer {
       }
     }
 
-    // 2. For uncached positions, collect fallback ancestor keys
-    const fallbackKeys: number[] = []
-    for (const key of neededKeys) {
-      if (this.tileCache.has(key)) continue
-      let pk = key
-      for (let pz = currentZ - 1; pz >= 0; pz--) {
-        pk = pk >>> 2
-        if (this.tileCache.has(pk)) { fallbackKeys.push(pk); break }
-      }
-    }
-
-    // 3. Render: fallbacks FIRST (behind), then current zoom ON TOP
-    // Overlap with opacity < 1.0 causes minor color shift but eliminates flicker entirely
+    // 2. Render: fallbacks FIRST (behind), then current zoom ON TOP (zero flicker)
     const uniqueFallbacks = [...new Set(fallbackKeys)]
     if (uniqueFallbacks.length > 0) {
       this.renderTileKeys(uniqueFallbacks, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
