@@ -8,6 +8,8 @@ export class Camera {
   centerY: number
   /** Zoom level (0 = whole world, higher = closer) */
   zoom: number
+  /** Map rotation in degrees (0 = north up, clockwise positive) */
+  bearing = 0
 
   constructor(lon = 0, lat = 0, zoom = 2) {
     const [mx, my] = lonLatToMercator(lon, lat)
@@ -38,18 +40,24 @@ export class Camera {
     ])
   }
 
-  /** RTC matrix: scale only, no translation (projection already centers to 0,0) */
+  /** RTC matrix: scale + rotation, no translation (RTC vertex shader already centered) */
   getRTCMatrix(canvasWidth: number, canvasHeight: number): Float32Array {
     const metersPerPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
     const scaleX = 2 / (canvasWidth * metersPerPixel)
     const scaleY = 2 / (canvasHeight * metersPerPixel)
 
+    // Apply bearing rotation (clockwise in screen space)
+    const rad = -this.bearing * Math.PI / 180
+    const cos = Math.cos(rad)
+    const sin = Math.sin(rad)
+
+    // Scale × Rotation (column-major 4x4)
     // prettier-ignore
     return new Float32Array([
-      scaleX, 0,      0, 0,
-      0,      scaleY, 0, 0,
-      0,      0,      1, 0,
-      0,      0,      0, 1,   // NO translation — RTC vertex shader already centered
+      scaleX * cos,  scaleX * sin,  0, 0,
+      -scaleY * sin, scaleY * cos,  0, 0,
+      0,             0,             1, 0,
+      0,             0,             0, 1,
     ])
   }
 
@@ -65,15 +73,33 @@ export class Camera {
     return Math.max(0, Camera.MAX_Y - visibleHalf)
   }
 
-  /** Pan by CSS pixels (clientX/clientY delta) */
+  /** Pan by CSS pixels (clientX/clientY delta), accounting for map rotation */
   pan(dx: number, dy: number, canvasWidth: number, canvasHeight: number): void {
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
     const metersPerPhysicalPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
     const metersPerCSSPixel = metersPerPhysicalPixel * dpr
-    this.centerX -= dx * metersPerCSSPixel
+
+    // Rotate screen delta to map space (inverse bearing)
+    const rad = this.bearing * Math.PI / 180
+    const cos = Math.cos(rad)
+    const sin = Math.sin(rad)
+    const mapDx = dx * cos - dy * sin
+    const mapDy = dx * sin + dy * cos
+
+    this.centerX -= mapDx * metersPerCSSPixel
     const maxY = this.maxCameraY(canvasHeight)
-    const newY = this.centerY + dy * metersPerCSSPixel
+    const newY = this.centerY + mapDy * metersPerCSSPixel
     this.centerY = Math.max(-maxY, Math.min(maxY, newY))
+  }
+
+  /** Rotate by delta degrees */
+  rotate(deltaDeg: number): void {
+    this.bearing = ((this.bearing + deltaDeg) % 360 + 360) % 360
+  }
+
+  /** Reset bearing to north-up */
+  resetBearing(): void {
+    this.bearing = 0
   }
 
   /** Zoom by delta at CSS screen position (clientX/clientY) */

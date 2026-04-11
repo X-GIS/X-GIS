@@ -54,17 +54,30 @@ export class PanZoomController implements Controller {
       canvas.setPointerCapture(e.pointerId)
 
       if (activePointers.size === 1) {
-        isDragging = true
-        lastX = e.clientX
-        lastY = e.clientY
-        lastMoveTime = performance.now()
-        panVelX = 0; panVelY = 0
-        inertiaAnimating = false
+        // Right-click or Ctrl+click → rotate mode
+        if (e.button === 2 || e.ctrlKey) {
+          isRotating = true
+          isDragging = false
+          lastRotateX = e.clientX
+        } else {
+          isDragging = true
+          isRotating = false
+          lastX = e.clientX
+          lastY = e.clientY
+          lastMoveTime = performance.now()
+          panVelX = 0; panVelY = 0
+          inertiaAnimating = false
+        }
       } else if (activePointers.size === 2) {
         isDragging = false
+        isRotating = false
         lastPinchDist = getPinchDistance(activePointers)
+        lastPinchAngle = getPinchAngle(activePointers)
       }
     }
+
+    // Prevent context menu on right-click
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault())
 
     // Pan inertia
     let panVelX = 0, panVelY = 0
@@ -84,10 +97,32 @@ export class PanZoomController implements Controller {
       requestAnimationFrame(applyInertia)
     }
 
+    let isRotating = false
+    let lastRotateX = 0
+    let lastPinchAngle = 0
+
     const onPointerMove = (e: PointerEvent) => {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
 
+      // Right-click or Ctrl+drag → rotate
+      if (isRotating && activePointers.size === 1) {
+        const dx = e.clientX - lastRotateX
+        lastRotateX = e.clientX
+        camera.rotate(dx * 0.5)
+        return
+      }
+
       if (activePointers.size === 2) {
+        // Two-finger rotation + pinch zoom
+        const angle = getPinchAngle(activePointers)
+        if (lastPinchAngle !== 0) {
+          let delta = angle - lastPinchAngle
+          if (delta > 180) delta -= 360
+          if (delta < -180) delta += 360
+          camera.rotate(-delta)
+        }
+        lastPinchAngle = angle
+
         const dist = getPinchDistance(activePointers)
         if (lastPinchDist > 0) {
           const scale = dist / lastPinchDist
@@ -126,9 +161,12 @@ export class PanZoomController implements Controller {
           }
         }
         isDragging = false
+        isRotating = false
         lastPinchDist = 0
+        lastPinchAngle = 0
       } else if (activePointers.size === 1) {
         isDragging = true
+        isRotating = false
         const remaining = activePointers.values().next().value!
         lastX = remaining.x
         lastY = remaining.y
@@ -200,6 +238,12 @@ function getPinchDistance(pointers: Map<number, { x: number; y: number }>): numb
   const dx = pts[1].x - pts[0].x
   const dy = pts[1].y - pts[0].y
   return Math.sqrt(dx * dx + dy * dy)
+}
+
+function getPinchAngle(pointers: Map<number, { x: number; y: number }>): number {
+  const pts = [...pointers.values()]
+  if (pts.length < 2) return 0
+  return Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x) * 180 / Math.PI
 }
 
 function getPinchCenter(pointers: Map<number, { x: number; y: number }>): { x: number; y: number } {
