@@ -401,19 +401,19 @@ export function compileGeoJSONToTiles(
             tileClippedRings.push(...clipped)
             tilePolyFeatureIds.add(fid)
             for (const ring of clipped) preSimplifyVerts += ring.length
-            // Simplification used ONLY for adaptive subdivision decision (pre vs post count).
-            // Actual tile data uses ORIGINAL clipped geometry — no gaps between adjacent features.
+            // At maxZoom: use original data (for runtime sub-tiling)
+            // Below maxZoom: simplify to reduce vertex count
+            const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundary) : clipped
             if (z < maxZoom) {
-              const simplified = simplifyPolygon(clipped, z, isOnBoundary)
-              for (const ring of simplified) postSimplifyVerts += ring.length
+              for (const ring of dataRings) postSimplifyVerts += ring.length
             } else {
               postSimplifyVerts += preSimplifyVerts
             }
-            // Tessellate original clipped geometry (unsimplified)
-            tessellatePolygonToArrays(clipped, fid, scratch.pv, scratch.pi)
-            featureIds.add(fid)
-            // Store clipped rings for runtime sub-tiling
-            tilePolygons.push({ rings: clipped, featId: fid })
+            if (dataRings.length > 0 && dataRings[0].length >= 3) {
+              tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi)
+              featureIds.add(fid)
+              tilePolygons.push({ rings: dataRings, featId: fid })
+            }
           }
         }
 
@@ -422,15 +422,16 @@ export function compileGeoJSONToTiles(
           for (const seg of segments) {
             if (seg.length >= 2) {
               preSimplifyVerts += seg.length
+              const dataLine = z < maxZoom ? simplifyLine(seg, z, isOnBoundary) : seg
               if (z < maxZoom) {
-                const simplified = simplifyLine(seg, z, isOnBoundary)
-                postSimplifyVerts += simplified.length
+                postSimplifyVerts += dataLine.length
               } else {
                 postSimplifyVerts += seg.length
               }
-              // Tessellate original clipped line (unsimplified)
-              tessellateLineToArrays(seg, fid, scratch.lv, scratch.li)
-              featureIds.add(fid)
+              if (dataLine.length >= 2) {
+                tessellateLineToArrays(dataLine, fid, scratch.lv, scratch.li)
+                featureIds.add(fid)
+              }
             }
           }
         }
