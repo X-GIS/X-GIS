@@ -110,36 +110,26 @@ export class PanZoomController implements Controller {
       }
     }
 
-    // Smooth zoom with spring physics + velocity accumulation
+    // Smooth zoom — lerp to target, no spring overshoot
     let targetZoom = camera.zoom
-    let zoomVelocity = 0
     let zoomScreenX = 0, zoomScreenY = 0
     let animating = false
 
-    const SPRING_STIFFNESS = 0.12  // how fast it catches up
-    const SPRING_DAMPING = 0.85    // velocity decay per frame
-    const VELOCITY_THRESHOLD = 0.001
-
     const animateZoom = () => {
       const diff = targetZoom - camera.zoom
-      zoomVelocity = zoomVelocity * SPRING_DAMPING + diff * SPRING_STIFFNESS
-
-      if (Math.abs(zoomVelocity) < VELOCITY_THRESHOLD && Math.abs(diff) < VELOCITY_THRESHOLD) {
-        camera.zoomAt(diff, zoomScreenX, zoomScreenY, canvas.width, canvas.height)
+      if (Math.abs(diff) < 0.005) {
+        if (diff !== 0) camera.zoomAt(diff, zoomScreenX, zoomScreenY, canvas.width, canvas.height)
         animating = false
         return
       }
-
-      camera.zoomAt(zoomVelocity, zoomScreenX, zoomScreenY, canvas.width, canvas.height)
+      camera.zoomAt(diff * 0.2, zoomScreenX, zoomScreenY, canvas.width, canvas.height)
       requestAnimationFrame(animateZoom)
     }
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
-      // Use continuous deltaY for trackpad, capped for mouse wheel
-      const rawDelta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.002)
-      const delta = Math.max(-0.5, Math.min(0.5, rawDelta))
-      targetZoom = Math.max(0, Math.min(22, targetZoom + delta))
+      const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.003)
+      targetZoom = Math.max(0, Math.min(22, targetZoom + Math.max(-1, Math.min(1, delta))))
       zoomScreenX = e.clientX
       zoomScreenY = e.clientY
       if (!animating) {
