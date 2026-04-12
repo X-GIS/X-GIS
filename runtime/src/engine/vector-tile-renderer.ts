@@ -346,13 +346,13 @@ export class VectorTileRenderer {
 
     // Render current zoom tiles (stencil write)
     pass.setStencilReference(1)
-    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, uniformData, projCenterLon, projCenterLat)
+    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, this.uniformDataBuf, projCenterLon, projCenterLat)
 
     // Render fallback ancestors (stencil test)
     if (fillPipelineFallback && fallbackKeys.length > 0) {
       pass.setStencilReference(0)
       const uniqueFallbacks = [...new Set(fallbackKeys)]
-      this.renderTileKeys(uniqueFallbacks, pass, fillPipelineFallback, linePipelineFallback!, uniformData, projCenterLon, projCenterLat)
+      this.renderTileKeys(uniqueFallbacks, pass, fillPipelineFallback, linePipelineFallback!, this.uniformDataBuf, projCenterLon, projCenterLat)
     }
 
     // Request missing tiles from source
