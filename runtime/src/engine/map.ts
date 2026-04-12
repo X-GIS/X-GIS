@@ -149,6 +149,7 @@ export class XGISMap {
           const vtBuf = await vtResponse.arrayBuffer()
           await source.loadFromBuffer(vtBuf)
         }
+        vtRenderer.flushUploadQueue() // upload all preloaded z0-z4 tiles to GPU immediately
         this.vtSources.set(load.name, { source, renderer: vtRenderer })
         this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
 

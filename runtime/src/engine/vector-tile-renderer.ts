@@ -87,6 +87,14 @@ export class VectorTileRenderer {
     }
   }
 
+  /** Flush entire upload queue immediately (for preloaded tiles) */
+  flushUploadQueue(): void {
+    while (this.uploadQueue.length > 0) {
+      const { key, data } = this.uploadQueue.shift()!
+      this.uploadTile(key, data)
+    }
+  }
+
   /** Whether data is available */
   hasData(): boolean {
     return this.source?.hasData() ?? false
