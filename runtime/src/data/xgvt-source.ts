@@ -153,17 +153,32 @@ export class XGVTSource {
       for (const { key, entry } of entries) {
         this.loadingTiles.add(key)
         const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
-        const cached = this.decompressedTiles.get(entry.tileHash)
-        if (cached) {
-          this.parseTileAndCache(key, cached, entry, isFullCover)
+
+        if (entry.gpuReadySize > 0) {
+          // GPU-ready: read directly from file buffer (no decompression)
+          const gpuOffset = entry.dataOffset + entry.compactSize
+          const gpuBuf = this.fileBuf!.slice(gpuOffset, gpuOffset + entry.gpuReadySize)
+          const tile = parseGPUReadyTile(gpuBuf, { ...entry, dataOffset: 0, compactSize: 0, gpuReadySize: gpuBuf.byteLength })
+          if (isFullCover) {
+            this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
+          } else {
+            this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+          }
           this.loadingTiles.delete(key)
         } else {
-          const slice = this.fileBuf!.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
-          decompressTileData(slice).then(result => {
-            this.decompressedTiles!.set(entry.tileHash, result)
-            this.parseTileAndCache(key, result, entry, isFullCover)
+          // Compact: decompress + earcut
+          const cached = this.decompressedTiles.get(entry.tileHash)
+          if (cached) {
+            this.parseTileAndCache(key, cached, entry, isFullCover)
             this.loadingTiles.delete(key)
-          }).catch(() => { this.loadingTiles.delete(key) })
+          } else {
+            const slice = this.fileBuf!.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
+            decompressTileData(slice).then(result => {
+              this.decompressedTiles!.set(entry.tileHash, result)
+              this.parseTileAndCache(key, result, entry, isFullCover)
+              this.loadingTiles.delete(key)
+            }).catch(() => { this.loadingTiles.delete(key) })
+          }
         }
       }
       return
@@ -176,15 +191,16 @@ export class XGVTSource {
 
     const MAX_GAP = 1024
     const batches: { entries: typeof entries; startOffset: number; endOffset: number }[] = []
+    const tileSize = (e: TileIndexEntry) => e.compactSize + e.gpuReadySize
     let current = {
       entries: [entries[0]],
       startOffset: entries[0].entry.dataOffset,
-      endOffset: entries[0].entry.dataOffset + entries[0].entry.compactSize,
+      endOffset: entries[0].entry.dataOffset + tileSize(entries[0].entry),
     }
 
     for (let i = 1; i < entries.length; i++) {
       const e = entries[i]
-      const eEnd = e.entry.dataOffset + e.entry.compactSize
+      const eEnd = e.entry.dataOffset + tileSize(e.entry)
       if (e.entry.dataOffset - current.endOffset <= MAX_GAP) {
         current.entries.push(e)
         current.endOffset = Math.max(current.endOffset, eEnd)
@@ -205,14 +221,29 @@ export class XGVTSource {
         for (const { key, entry } of batch.entries) {
           const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
           const localOffset = entry.dataOffset - batch.startOffset
-          const compressed = buf.slice(localOffset, localOffset + entry.compactSize)
-          decompressTileData(compressed).then(decompressed => {
-            this.parseTileAndCache(key, decompressed, entry, isFullCover)
+
+          if (entry.gpuReadySize > 0) {
+            // GPU-ready path: read pre-tessellated data directly (no decompression)
+            const gpuOffset = localOffset + entry.compactSize
+            const gpuBuf = buf.slice(gpuOffset, gpuOffset + entry.gpuReadySize)
+            const tile = parseGPUReadyTile(gpuBuf, { ...entry, dataOffset: 0, compactSize: 0, gpuReadySize: gpuBuf.byteLength })
+            if (isFullCover) {
+              this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
+            } else {
+              this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+            }
             this.loadingTiles.delete(key)
-          }).catch(err => {
-            console.warn(`[X-GIS] Tile ${key} decompress failed:`, err)
-            this.loadingTiles.delete(key)
-          })
+          } else {
+            // Compact path: decompress + earcut tessellation
+            const compressed = buf.slice(localOffset, localOffset + entry.compactSize)
+            decompressTileData(compressed).then(decompressed => {
+              this.parseTileAndCache(key, decompressed, entry, isFullCover)
+              this.loadingTiles.delete(key)
+            }).catch(err => {
+              console.warn(`[X-GIS] Tile ${key} decompress failed:`, err)
+              this.loadingTiles.delete(key)
+            })
+          }
         }
       }).catch(() => {
         for (const { key } of batch.entries) this.loadingTiles.delete(key)
