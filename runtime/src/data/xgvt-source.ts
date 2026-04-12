@@ -131,39 +131,67 @@ export class XGVTSource {
 
   private async preloadLowZoomTiles(): Promise<void> {
     if (!this.index) return
-    const lowZoomKeys: number[] = []
+    const lowZoomEntries: { key: number; entry: TileIndexEntry }[] = []
     for (const entry of this.index.entries) {
       const [z] = tileKeyUnpack(entry.tileHash)
-      if (z <= 4) lowZoomKeys.push(entry.tileHash)
+      if (z <= 4 && !this.dataCache.has(entry.tileHash)) {
+        lowZoomEntries.push({ key: entry.tileHash, entry })
+      }
     }
-    if (lowZoomKeys.length === 0) return
+    if (lowZoomEntries.length === 0) return
 
-    // Request and wait for all low-zoom tiles to load
-    return new Promise<void>(resolve => {
-      let remaining = lowZoomKeys.length
-      const origCallback = this.onTileLoaded
-      const loaded = new Set<number>()
-
-      this.onTileLoaded = (key, data) => {
-        origCallback?.(key, data)
-        if (lowZoomKeys.includes(key) && !loaded.has(key)) {
-          loaded.add(key)
-          remaining--
-          if (remaining <= 0) {
-            this.onTileLoaded = origCallback
-            resolve()
-          }
+    // Full-file mode: load synchronously
+    if (this.isFullFileMode && this.fileBuf) {
+      for (const { key, entry } of lowZoomEntries) {
+        const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
+        if (entry.gpuReadySize > 0) {
+          const tile = parseGPUReadyTile(this.fileBuf!, {
+            ...entry, dataOffset: entry.dataOffset + entry.compactSize,
+            compactSize: 0, gpuReadySize: entry.gpuReadySize,
+          })
+          if (isFullCover) this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
+          else this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+        } else if (entry.compactSize > 0) {
+          const slice = this.fileBuf!.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
+          const result = await decompressTileData(slice)
+          this.parseTileAndCache(key, result, entry, isFullCover)
+        } else if (isFullCover) {
+          this.createFullCoverTileData(key, entry, new Float32Array(0), new Uint32Array(0))
         }
       }
+      return
+    }
 
-      this.requestTiles(lowZoomKeys)
+    // Range Request mode: batch all z0-z4 tiles in ONE request (no concurrent limit)
+    if (!this.fileUrl) return
+    lowZoomEntries.sort((a, b) => a.entry.dataOffset - b.entry.dataOffset)
 
-      // Timeout fallback: don't block forever
-      setTimeout(() => {
-        this.onTileLoaded = origCallback
-        resolve()
-      }, 5000)
-    })
+    // Find byte range covering all z0-z4 tiles
+    const tileSize = (e: TileIndexEntry) => e.compactSize + e.gpuReadySize
+    const startOffset = lowZoomEntries[0].entry.dataOffset
+    const lastEntry = lowZoomEntries[lowZoomEntries.length - 1]
+    const endOffset = lastEntry.entry.dataOffset + tileSize(lastEntry.entry)
+
+    const buf = await fetchRange(this.fileUrl, startOffset, endOffset - startOffset)
+
+    for (const { key, entry } of lowZoomEntries) {
+      const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
+      const localOffset = entry.dataOffset - startOffset
+
+      if (entry.gpuReadySize > 0) {
+        const gpuOffset = localOffset + entry.compactSize
+        const gpuBuf = buf.slice(gpuOffset, gpuOffset + entry.gpuReadySize)
+        const tile = parseGPUReadyTile(gpuBuf, { ...entry, dataOffset: 0, compactSize: 0, gpuReadySize: gpuBuf.byteLength })
+        if (isFullCover) this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
+        else this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+      } else if (entry.compactSize > 0) {
+        const compressed = buf.slice(localOffset, localOffset + entry.compactSize)
+        const decompressed = await decompressTileData(compressed)
+        this.parseTileAndCache(key, decompressed, entry, isFullCover)
+      } else if (isFullCover) {
+        this.createFullCoverTileData(key, entry, new Float32Array(0), new Uint32Array(0))
+      }
+    }
   }
 
   // ── Tile request (async batch loading) ──
