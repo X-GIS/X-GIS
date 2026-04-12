@@ -88,7 +88,8 @@ export class VectorTileRenderer {
   }
 
   /** Flush entire upload queue immediately (for preloaded tiles) */
-  flushUploadQueue(): void {
+  flushUploadQueue(bindGroupLayout?: GPUBindGroupLayout): void {
+    if (bindGroupLayout) this.lastBindGroupLayout = bindGroupLayout
     while (this.uploadQueue.length > 0) {
       const { key, data } = this.uploadQueue.shift()!
       this.uploadTile(key, data)

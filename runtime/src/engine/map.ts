@@ -46,6 +46,7 @@ export class XGISMap {
 
 
   private _frameCount = 0
+  private _vtDebugLogged = false
 
   // Stats inspector
   private _stats = new StatsTracker()
@@ -149,7 +150,7 @@ export class XGISMap {
           const vtBuf = await vtResponse.arrayBuffer()
           await source.loadFromBuffer(vtBuf)
         }
-        vtRenderer.flushUploadQueue() // upload all preloaded z0-z4 tiles to GPU immediately
+        vtRenderer.flushUploadQueue(this.renderer.bindGroupLayout) // upload preloaded tiles with correct layout
         this.vtSources.set(load.name, { source, renderer: vtRenderer })
         this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
 
@@ -211,7 +212,7 @@ export class XGISMap {
       // Skip vector tile sources (handled by per-source VectorTileRenderer)
       if ((data as unknown as { _vectorTile?: boolean })._vectorTile) {
         const vtEntry = this.vtSources.get(show.targetName)
-        if (!vtEntry) continue
+        if (!vtEntry) { console.warn(`[X-GIS] VT source "${show.targetName}" not found in vtSources:`, [...this.vtSources.keys()]); continue }
 
         let pipelines: typeof this.vtVariantPipelines = null
         let layout: GPUBindGroupLayout | null = null
@@ -413,6 +414,13 @@ export class XGISMap {
       this.renderer.renderToPass(pass, this.camera, projType, centerLon, centerLat)
 
       // Render vector tile sources
+      if (!this._vtDebugLogged && this.vectorTileShows.size > 0) {
+        this._vtDebugLogged = true
+        console.log(`[X-GIS] VT render: shows=${this.vectorTileShows.size}, sources=${this.vtSources.size}`)
+        for (const [name, { renderer }] of this.vtSources) {
+          console.log(`  [${name}] hasData=${renderer.hasData()} gpuCache=${renderer.getCacheSize()}`)
+        }
+      }
       if (this.vectorTileShows.size === 1) {
         // Single source: render in existing pass (shared stencil)
         for (const [sourceName, { show, pipelines, layout }] of this.vectorTileShows) {
