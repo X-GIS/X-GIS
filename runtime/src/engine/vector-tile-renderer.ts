@@ -28,6 +28,7 @@ interface GPUTile {
   tileHeight: number
   tileZoom: number
   lastUsedFrame: number
+  firstShownFrame: number // for fade-in animation
 }
 
 const MAX_GPU_TILES = 512
@@ -49,6 +50,7 @@ export class VectorTileRenderer {
   private cachedStrokeColor = [0, 0, 0, 0]
   private cachedShowFill = ''
   private cachedShowStroke = ''
+  private currentOpacity = 1.0
 
   // Global feature data buffer (shared across all tiles)
   private featureDataBuffer: GPUBuffer | null = null
@@ -224,6 +226,7 @@ export class VectorTileRenderer {
       tileWidth: data.tileWidth, tileHeight: data.tileHeight,
       tileZoom: data.tileZoom,
       lastUsedFrame: this.frameCount,
+      firstShownFrame: this.frameCount,
     })
   }
 
@@ -274,6 +277,7 @@ export class VectorTileRenderer {
 
     // Cache color parsing — only reparse if show properties changed
     const opacity = show.opacity ?? 1.0
+    this.currentOpacity = opacity
     if (show.fill !== this.cachedShowFill) {
       this.cachedShowFill = show.fill ?? ''
       const raw = show.fill ? parseHexColor(show.fill) : null
@@ -370,22 +374,29 @@ export class VectorTileRenderer {
       this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, this.uniformDataBuf, projCenterLon, projCenterLat)
     }
 
-    // Request missing tiles from source (avoid .filter/.map — use for loop)
+    // Request missing tiles — prioritize parents first (ensures fallback is ready)
+    const parentKeys: number[] = []
     for (let i = 0; i < neededKeys.length; i++) {
       const k = neededKeys[i]
       if (!this.gpuCache.has(k) && !this.source!.isLoading(k) && this.source!.hasEntryInIndex(k)) {
         toLoad.push(k)
       }
+      // Ensure parent tiles (z-1, z-2) are loaded for smooth fallback
+      let pk = k
+      for (let pz = 0; pz < 2 && pk > 0; pz++) {
+        pk = pk >>> 2
+        if (!this.gpuCache.has(pk) && !this.source!.isLoading(pk) && !this.source!.hasTileData(pk) && this.source!.hasEntryInIndex(pk)) {
+          parentKeys.push(pk)
+        }
+      }
     }
+    // Load parents first, then current zoom tiles
+    if (parentKeys.length > 0) this.source.requestTiles(parentKeys)
     if (toLoad.length > 0) this.source.requestTiles(toLoad)
 
-    // Prefetch only every 10th frame (reduces CPU during fast pan)
+    // Prefetch adjacent + next zoom (every 10th frame)
     if (this.frameCount % 10 === 0) {
       this.source.prefetchAdjacent(tiles, currentZ)
-      this.source.prefetchNextZoom(centerLon, centerLat, currentZ, canvasWidth, canvasHeight, camera.zoom)
-      if (currentZ > 0) {
-        this.source.prefetchNextZoom(centerLon, centerLat, currentZ - 2, canvasWidth, canvasHeight, camera.zoom)
-      }
     }
 
     // GPU cache eviction
@@ -407,6 +418,17 @@ export class VectorTileRenderer {
       if (!cached || !cached.bindGroup) continue
 
       cached.lastUsedFrame = this.frameCount
+
+      // Fade-in: ramp opacity from 0 to 1 over ~10 frames
+      const fadeFrames = 10
+      const age = this.frameCount - cached.firstShownFrame
+      const fadeAlpha = Math.min(1.0, age / fadeFrames)
+
+      // Apply fade to fill/stroke alpha (indices 19 and 23)
+      const baseFillA = this.cachedFillColor[3] * (this.currentOpacity ?? 1.0)
+      const baseStrokeA = this.cachedStrokeColor[3] * (this.currentOpacity ?? 1.0)
+      this.uniformF32[19] = baseFillA * fadeAlpha
+      this.uniformF32[23] = baseStrokeA * fadeAlpha
 
       // Compute tile_rtc directly into the uniform buffer at offset 28 (index 28-31)
       const DEG2RAD = Math.PI / 180
