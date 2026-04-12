@@ -180,12 +180,14 @@ export class XGVTSource {
 
     if (!this.fileUrl) return
 
-    // Range Request mode: sort by offset, merge adjacent
+    // Range Request mode: sort by offset, merge aggressively.
+    // Over-fetch to include spatially adjacent tiles (Morton order = spatial proximity).
     entries.sort((a, b) => a.entry.dataOffset - b.entry.dataOffset)
 
-    const MAX_GAP = 1024
-    const batches: { entries: typeof entries; startOffset: number; endOffset: number }[] = []
+    const MAX_GAP = 64 * 1024  // 64KB gap tolerance — include tiles between requested ones
+    const MIN_FETCH = 128 * 1024 // minimum 128KB per request — prefetch nearby data
     const tileSize = (e: TileIndexEntry) => e.compactSize + e.gpuReadySize
+    const batches: { entries: typeof entries; startOffset: number; endOffset: number }[] = []
     let current = {
       entries: [entries[0]],
       startOffset: entries[0].entry.dataOffset,
@@ -205,6 +207,16 @@ export class XGVTSource {
     }
     batches.push(current)
 
+    // Expand each batch to MIN_FETCH size (over-fetch for spatial prefetch)
+    for (const batch of batches) {
+      const size = batch.endOffset - batch.startOffset
+      if (size < MIN_FETCH) {
+        const expand = (MIN_FETCH - size) / 2
+        batch.startOffset = Math.max(0, batch.startOffset - expand)
+        batch.endOffset += expand
+      }
+    }
+
     for (const batch of batches) {
       for (const { key } of batch.entries) this.loadingTiles.add(key)
 
@@ -212,12 +224,33 @@ export class XGVTSource {
       if (size <= 0) continue
 
       fetchRange(this.fileUrl, batch.startOffset, size).then(buf => {
+        // Find ALL index entries that fall within the fetched byte range (spatial prefetch)
+        const allInRange: { key: number; entry: TileIndexEntry }[] = []
+        for (const indexEntry of this.index!.entries) {
+          const entryEnd = indexEntry.dataOffset + indexEntry.compactSize + indexEntry.gpuReadySize
+          if (indexEntry.dataOffset >= batch.startOffset && entryEnd <= batch.startOffset + buf.byteLength) {
+            const key = indexEntry.tileHash
+            if (!this.dataCache.has(key) && !this.loadingTiles.has(key)) {
+              allInRange.push({ key, entry: indexEntry })
+            }
+          }
+        }
+        // Include originally requested entries too (they're in loadingTiles)
         for (const { key, entry } of batch.entries) {
+          if (!allInRange.some(e => e.key === key)) {
+            allInRange.push({ key, entry })
+          }
+        }
+
+        for (const { key, entry } of allInRange) {
           const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
           const localOffset = entry.dataOffset - batch.startOffset
+          if (localOffset < 0 || localOffset + entry.compactSize + entry.gpuReadySize > buf.byteLength) {
+            this.loadingTiles.delete(key)
+            continue
+          }
 
           if (entry.gpuReadySize > 0) {
-            // GPU-ready path: read pre-tessellated data directly (no decompression)
             const gpuOffset = localOffset + entry.compactSize
             const gpuBuf = buf.slice(gpuOffset, gpuOffset + entry.gpuReadySize)
             const tile = parseGPUReadyTile(gpuBuf, { ...entry, dataOffset: 0, compactSize: 0, gpuReadySize: gpuBuf.byteLength })
@@ -227,16 +260,15 @@ export class XGVTSource {
               this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
             }
             this.loadingTiles.delete(key)
-          } else {
-            // Compact path: decompress + earcut tessellation
+          } else if (entry.compactSize > 0) {
             const compressed = buf.slice(localOffset, localOffset + entry.compactSize)
             decompressTileData(compressed).then(decompressed => {
               this.parseTileAndCache(key, decompressed, entry, isFullCover)
               this.loadingTiles.delete(key)
-            }).catch(err => {
-              console.warn(`[X-GIS] Tile ${key} decompress failed:`, err)
-              this.loadingTiles.delete(key)
-            })
+            }).catch(() => { this.loadingTiles.delete(key) })
+          } else if (isFullCover) {
+            this.createFullCoverTileData(key, entry, new Float32Array(0), new Uint32Array(0))
+            this.loadingTiles.delete(key)
           }
         }
       }).catch(() => {
