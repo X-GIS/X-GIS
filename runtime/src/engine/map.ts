@@ -432,12 +432,10 @@ export class XGISMap {
       const DEG2RAD_eq = Math.PI / 180
       const mpp2 = (40075016.686 / 256) / Math.pow(2, this.camera.zoom)
 
-      // Compute equirect texture bounds
+      // Compute equirect texture bounds (clamped to geographic limits)
       let eqWest: number, eqEast: number, eqSouth: number, eqNorth: number
       if (projType === 0) {
-        // Mercator: viewport-based bounds using diagonal radius.
-        // Using the diagonal ensures bounds are INDEPENDENT of bearing angle,
-        // preventing the map from stretching/compressing when rotating.
+        // Mercator: diagonal radius for rotation independence
         const halfWm = w * mpp2 / 2, halfHm = h * mpp2 / 2
         const diagHalf = Math.sqrt(halfWm * halfWm + halfHm * halfHm)
         eqWest = Math.max(-180, ((this.camera.centerX - diagHalf) / R) * (180 / Math.PI))
@@ -463,10 +461,9 @@ export class XGISMap {
         0,            0,            0, 1,
       ])
 
-      // Pass 1: Render to equirectangular offscreen texture
-      // Texture height matches geographic aspect ratio to ensure square pixels
+      // Pass 1: Render to equirectangular offscreen texture (canvas size, stable)
       const eqTexW = w
-      const eqTexH = Math.max(1, Math.round(w * (eqNorth - eqSouth) / (eqEast - eqWest)))
+      const eqTexH = h
       const { view: equirectView, stencilView } = this.reprojector.getEquirectTarget(eqTexW, eqTexH)
       const eqPass = encoder.beginRenderPass({
         colorAttachments: [{
