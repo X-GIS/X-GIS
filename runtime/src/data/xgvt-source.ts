@@ -379,7 +379,7 @@ export class XGVTSource {
   }
 
   private parseTileAndCache(key: number, decompressed: ArrayBuffer, entry: TileIndexEntry, isFullCover: boolean): void {
-    const tile = parseGPUReadyTile(decompressed, { ...entry, dataOffset: 0, compactSize: decompressed.byteLength })
+    const tile = parseGPUReadyTile(decompressed, { ...entry, dataOffset: 0, compactSize: decompressed.byteLength, gpuReadySize: 0 })
     if (isFullCover) {
       this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
     } else {
