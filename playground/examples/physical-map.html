@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Physical Map — X-GIS</title>
+  <link rel="stylesheet" href="/examples/shared.css">
+</head>
+<body>
+  <canvas id="map"></canvas>
+  <div id="topbar">
+    <a href="/">&larr; Examples</a><span class="sep">/</span>
+    <span class="title">Physical Map</span>
+    <span class="desc">Ocean + land + coastline + rivers + lakes — 5 layers</span>
+  </div>
+  <details id="source-panel" open>
+    <summary>Source</summary>
+    <pre id="source-code">source ocean {
+  type: geojson
+  url: "ne_110m_ocean.geojson"
+}
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.geojson"
+}
+
+source rivers {
+  type: geojson
+  url: "ne_50m_rivers.geojson"
+}
+
+source lakes {
+  type: geojson
+  url: "ne_50m_lakes.geojson"
+}
+
+layer ocean {
+  source: ocean
+  | fill-slate-900
+}
+
+layer land {
+  source: land
+  | fill-stone-800
+}
+
+layer lakes {
+  source: lakes
+  | fill-sky-800
+}
+
+layer rivers {
+  source: rivers
+  | stroke-sky-700 stroke-1
+}
+
+layer coastline {
+  source: coast
+  | stroke-slate-500 stroke-1
+}</pre>
+  </details>
+  <div id="status">Loading...</div>
+  <div id="error"><h2>Error</h2><pre id="error-msg"></pre></div>
+  <script type="module">
+    import { XGISMap } from '@xgis/runtime'
+    const map = new XGISMap(document.getElementById('map'))
+    map.showInspector()
+    map.run(document.getElementById('source-code').textContent, '/data/')
+      .then(() => { document.getElementById('status').textContent = 'Physical Map | scroll to zoom, drag to pan' })
+      .catch(e => { document.getElementById('error').style.display = 'block'; document.getElementById('error-msg').textContent = String(e) })
+  </script>
+</body>
+</html>
