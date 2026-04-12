@@ -393,15 +393,11 @@ export class XGISMap {
         this.stencilHeight = h
       }
 
-      // Use 'load' to preserve previous frame (render cache) — prevents flicker
-      // when tiles are loading. First frame uses 'clear'.
-      this._frameCount = (this._frameCount ?? 0) + 1
-      const isFirstFrame = this._frameCount < 2
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
           view: screenView,
           clearValue: { r: 0.039, g: 0.039, b: 0.063, a: 1 },
-          loadOp: isFirstFrame ? 'clear' : 'load',
+          loadOp: 'clear',
           storeOp: 'store',
         }],
         depthStencilAttachment: {

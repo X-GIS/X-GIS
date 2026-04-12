@@ -102,6 +102,7 @@ export class XGVTSource {
     }
 
     console.log(`[X-GIS] VectorTile index loaded: ${this.index.entries.length} tiles`)
+    this.preloadLowZoomTiles()
   }
 
   async loadFromURL(url: string): Promise<void> {
@@ -123,6 +124,21 @@ export class XGVTSource {
     }
 
     console.log(`[X-GIS] VectorTile index loaded: ${this.index.entries.length} tiles (Range Request mode)`)
+
+    // Eagerly load z0-z4 tiles (small, full world coverage, always needed as fallback)
+    this.preloadLowZoomTiles()
+  }
+
+  private preloadLowZoomTiles(): void {
+    if (!this.index) return
+    const lowZoomKeys: number[] = []
+    for (const entry of this.index.entries) {
+      const [z] = tileKeyUnpack(entry.tileHash)
+      if (z <= 4) lowZoomKeys.push(entry.tileHash)
+    }
+    if (lowZoomKeys.length > 0) {
+      this.requestTiles(lowZoomKeys)
+    }
   }
 
   // ── Tile request (async batch loading) ──
