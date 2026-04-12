@@ -388,8 +388,8 @@ export class VectorTileRenderer {
       }
     }
 
-    // GPU cache eviction (every 60th frame)
-    if (this.frameCount % 60 === 0) this.evictGPUTiles()
+    // GPU cache eviction
+    if (this.gpuCache.size > MAX_GPU_TILES) this.evictGPUTiles()
   }
 
   private renderTileKeys(

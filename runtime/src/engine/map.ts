@@ -410,6 +410,9 @@ export class XGISMap {
       this.renderer.renderToPass(pass, this.camera, projType, centerLon, centerLat)
 
       // Render all vector tile sources
+      // With multiple sources, disable fallback (stencil) to prevent cross-source interference.
+      // Single source uses stencil for smooth zoom transitions.
+      const multiSource = this.vectorTileShows.size > 1
       for (const [sourceName, { show, pipelines, layout }] of this.vectorTileShows) {
         const vtEntry = this.vtSources.get(sourceName)
         if (!vtEntry || !vtEntry.renderer.hasData()) continue
@@ -417,8 +420,8 @@ export class XGISMap {
         const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
         const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
         const bgl = layout ?? this.renderer.bindGroupLayout
-        const fpFb = pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
-        const lpFb = pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
+        const fpFb = multiSource ? undefined : (pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback)
+        const lpFb = multiSource ? undefined : (pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback)
         vtEntry.renderer.render(
           pass, this.camera, projType, centerLon, centerLat, w, h,
           show, fp, lp,
