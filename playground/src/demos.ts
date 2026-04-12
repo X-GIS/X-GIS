@@ -167,4 +167,144 @@ layer countries {
 }
 `,
   },
+
+  // ── Natural Earth examples ──
+
+  ocean_land: {
+    name: 'Ocean + Land',
+    tag: 'natural-earth',
+    description: 'Ocean and land polygons — two layers with contrasting fill colors',
+    source: `
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.geojson"
+}
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+layer ocean {
+  source: ocean
+  | fill-sky-900
+}
+
+layer land {
+  source: land
+  | fill-emerald-800 stroke-emerald-600 stroke-1
+}
+`,
+  },
+
+  rivers_lakes: {
+    name: 'Rivers + Lakes',
+    tag: 'natural-earth',
+    description: 'Global rivers (lines) and lakes (polygons) overlay on countries',
+    source: `
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+source rivers {
+  type: geojson
+  url: "ne_110m_rivers.geojson"
+}
+
+source lakes {
+  type: geojson
+  url: "ne_110m_lakes.geojson"
+}
+
+layer bg {
+  source: countries
+  | fill-stone-800 stroke-stone-700 stroke-1
+}
+
+layer lakes {
+  source: lakes
+  | fill-sky-600 stroke-sky-400 stroke-1
+}
+
+layer rivers {
+  source: rivers
+  | stroke-sky-400 stroke-1
+}
+`,
+  },
+
+  coastline: {
+    name: 'Coastline',
+    tag: 'natural-earth',
+    description: 'World coastline — line-only rendering with no fill',
+    source: `
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.geojson"
+}
+
+layer coastline {
+  source: coast
+  | stroke-amber-400 stroke-2
+}
+`,
+  },
+
+  physical_map: {
+    name: 'Physical Map',
+    tag: 'natural-earth',
+    description: 'Complete physical map — ocean, land, coastline, rivers, and lakes',
+    source: `
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.geojson"
+}
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.geojson"
+}
+
+source rivers {
+  type: geojson
+  url: "ne_50m_rivers.geojson"
+}
+
+source lakes {
+  type: geojson
+  url: "ne_50m_lakes.geojson"
+}
+
+layer ocean {
+  source: ocean
+  | fill-slate-900
+}
+
+layer land {
+  source: land
+  | fill-stone-800
+}
+
+layer lakes {
+  source: lakes
+  | fill-sky-800
+}
+
+layer rivers {
+  source: rivers
+  | stroke-sky-700 stroke-1
+}
+
+layer coastline {
+  source: coast
+  | stroke-slate-500 stroke-1
+}
+`,
+  },
 }

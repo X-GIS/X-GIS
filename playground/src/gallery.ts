@@ -49,6 +49,26 @@ const EXAMPLES: Example[] = [
     description: 'Per-feature categorical colors on vector tiles',
     preview: `source world {\n  url: "countries.xgvt"\n}\n\nlayer countries {\n  | fill categorical(name)\n}`,
   },
+  {
+    file: 'ocean-land', name: 'Ocean + Land', tag: 'natural-earth',
+    description: 'Ocean and land polygons with contrasting fill colors',
+    preview: `source ocean {\n  url: "ne_110m_ocean.geojson"\n}\nsource land {\n  url: "ne_110m_land.geojson"\n}\nlayer ocean { | fill-sky-900 }\nlayer land { | fill-emerald-800 }`,
+  },
+  {
+    file: 'rivers-lakes', name: 'Rivers + Lakes', tag: 'natural-earth',
+    description: 'Rivers (lines) and lakes (polygons) over countries',
+    preview: `source rivers {\n  url: "ne_110m_rivers.geojson"\n}\nlayer rivers {\n  | stroke-sky-400 stroke-1\n}`,
+  },
+  {
+    file: 'coastline', name: 'Coastline', tag: 'natural-earth',
+    description: 'World coastline — line-only rendering',
+    preview: `source coast {\n  url: "ne_110m_coastline.geojson"\n}\nlayer coastline {\n  | stroke-amber-400 stroke-2\n}`,
+  },
+  {
+    file: 'physical-map', name: 'Physical Map', tag: 'natural-earth',
+    description: 'Ocean + land + coastline + rivers + lakes — 5 layers',
+    preview: `layer ocean { | fill-slate-900 }\nlayer land { | fill-stone-800 }\nlayer lakes { | fill-sky-800 }\nlayer rivers { | stroke-sky-700 }\nlayer coastline { | stroke-slate-500 }`,
+  },
 ]
 
 const grid = document.getElementById('demo-grid')!
