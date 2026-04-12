@@ -254,56 +254,36 @@ layer coastline {
   physical_map: {
     name: 'Physical Map',
     tag: 'natural-earth',
-    description: 'Complete physical map — ocean, land, coastline, rivers, and lakes',
+    description: 'Land, rivers, and lakes — dark ocean background',
     source: `
-source ocean {
-  type: geojson
-  url: "ne_110m_ocean.geojson"
-}
-
 source land {
   type: geojson
   url: "ne_110m_land.geojson"
 }
 
-source coast {
-  type: geojson
-  url: "ne_110m_coastline.geojson"
-}
-
 source rivers {
   type: geojson
-  url: "ne_50m_rivers.geojson"
+  url: "ne_110m_rivers.geojson"
 }
 
 source lakes {
   type: geojson
-  url: "ne_50m_lakes.geojson"
-}
-
-layer ocean {
-  source: ocean
-  | fill-slate-900
+  url: "ne_110m_lakes.geojson"
 }
 
 layer land {
   source: land
-  | fill-stone-800
+  | fill-stone-800 stroke-slate-600 stroke-1
 }
 
 layer lakes {
   source: lakes
-  | fill-sky-800
+  | fill-sky-700
 }
 
 layer rivers {
   source: rivers
-  | stroke-sky-700 stroke-1
-}
-
-layer coastline {
-  source: coast
-  | stroke-slate-500 stroke-1
+  | stroke-sky-600 stroke-1
 }
 `,
   },
