@@ -58,10 +58,7 @@ export class VectorTileRenderer {
 
   // Per-frame draw stats
   private renderedDraws = new Map<number, { polyCount: number; lineCount: number; vertexCount: number }>()
-
-  // Upload queue: tiles waiting for GPU upload (spread across frames to avoid spikes)
-  private uploadQueue: { key: number; data: TileData }[] = []
-  private static MAX_UPLOADS_PER_FRAME = 8
+  private _missedTiles = 0 // tiles with no fallback this frame
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
@@ -70,30 +67,15 @@ export class VectorTileRenderer {
   /** Connect to a data source */
   setSource(source: XGVTSource): void {
     this.source = source
-    // Queue tiles for GPU upload instead of uploading immediately
+    // Immediate GPU upload — no queue delay, no flickering
     source.onTileLoaded = (key, data) => {
-      this.uploadQueue.push({ key, data })
+      this.uploadTile(key, data)
     }
   }
 
-  /** Process queued tile uploads (called at start of render) */
-  private processUploadQueue(): void {
-    const limit = VectorTileRenderer.MAX_UPLOADS_PER_FRAME
-    let processed = 0
-    while (this.uploadQueue.length > 0 && processed < limit) {
-      const { key, data } = this.uploadQueue.shift()!
-      this.uploadTile(key, data)
-      processed++
-    }
-  }
-
-  /** Flush entire upload queue immediately (for preloaded tiles) */
-  flushUploadQueue(bindGroupLayout?: GPUBindGroupLayout): void {
-    if (bindGroupLayout) this.lastBindGroupLayout = bindGroupLayout
-    while (this.uploadQueue.length > 0) {
-      const { key, data } = this.uploadQueue.shift()!
-      this.uploadTile(key, data)
-    }
+  /** Set bind group layout (must be called before tiles arrive) */
+  setBindGroupLayout(layout: GPUBindGroupLayout): void {
+    this.lastBindGroupLayout = layout
   }
 
   /** Whether data is available */
@@ -117,14 +99,14 @@ export class VectorTileRenderer {
     return this.gpuCache.size
   }
 
-  getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number } {
+  getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number; missedTiles: number } {
     let drawCalls = 0, vertices = 0, triangles = 0, lines = 0
     for (const [, counts] of this.renderedDraws) {
       vertices += counts.vertexCount
       if (counts.polyCount > 0) { drawCalls++; triangles += Math.floor(counts.polyCount / 3) }
       if (counts.lineCount > 0) { drawCalls++; lines += Math.floor(counts.lineCount / 2) }
     }
-    return { drawCalls, vertices, triangles, lines, tilesVisible: this.renderedDraws.size }
+    return { drawCalls, vertices, triangles, lines, tilesVisible: this.renderedDraws.size, missedTiles: this._missedTiles }
   }
 
   /** Build per-feature GPU storage buffer from PropertyTable */
@@ -262,8 +244,8 @@ export class VectorTileRenderer {
 
     this.frameCount++
     this.renderedDraws.clear()
+    this._missedTiles = 0
     this.lastBindGroupLayout = bindGroupLayout
-    this.processUploadQueue()
 
     const { centerX, centerY } = camera
     const R = 6378137
@@ -348,8 +330,8 @@ export class VectorTileRenderer {
 
           if (currentZ > maxLevel) {
             this.source.generateSubTile(key, parentKey)
-            // Sub-tile auto-uploaded via onTileLoaded callback
-            foundCached = true
+            // onTileLoaded immediately uploads to GPU (no queue)
+            foundCached = this.gpuCache.has(key) || this.gpuCache.has(parentKey)
           } else {
             fallbackKeys.push(parentKey)
             foundCached = true
@@ -370,6 +352,7 @@ export class VectorTileRenderer {
         } else if (closestExisting >= 0) {
           toLoad.push(closestExisting)
         }
+        this._missedTiles++
       }
     }
 

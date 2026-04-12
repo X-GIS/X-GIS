@@ -150,7 +150,7 @@ export class XGISMap {
           const vtBuf = await vtResponse.arrayBuffer()
           await source.loadFromBuffer(vtBuf)
         }
-        vtRenderer.flushUploadQueue(this.renderer.bindGroupLayout) // upload preloaded tiles with correct layout
+        vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
         this.vtSources.set(load.name, { source, renderer: vtRenderer })
         this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
 
@@ -465,8 +465,8 @@ export class XGISMap {
     this._stats.vertices = rs.vertices
     this._stats.triangles = rs.triangles
     this._stats.lines = rs.lines
-    let totalTilesVis = 0, totalTilesCached = 0
-    for (const [, { renderer: vtR }] of this.vtSources) {
+    let totalTilesVis = 0, totalTilesCached = 0, totalMissed = 0
+    for (const [name, { renderer: vtR }] of this.vtSources) {
       if (!vtR.hasData()) continue
       const vts = vtR.getDrawStats()
       this._stats.drawCalls += vts.drawCalls
@@ -475,6 +475,10 @@ export class XGISMap {
       this._stats.lines += vts.lines
       totalTilesVis += vts.tilesVisible
       totalTilesCached += vtR.getCacheSize()
+      totalMissed += vts.missedTiles
+      if (vts.missedTiles > 0) {
+        console.warn(`[FLICKER] ${name}: ${vts.missedTiles} tiles without fallback (z=${Math.round(this.camera.zoom)} gpuCache=${vtR.getCacheSize()})`)
+      }
     }
     this._stats.tilesVisible = totalTilesVis
     this._stats.tilesCached = totalTilesCached
