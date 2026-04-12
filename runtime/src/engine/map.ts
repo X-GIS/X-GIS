@@ -413,13 +413,14 @@ export class XGISMap {
       }
 
       const msaaView = this.msaaTexture!.createView()
+      const hasMultiSource = this.vectorTileShows.size > 1
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
           view: msaaView,
-          resolveTarget: screenView,
+          resolveTarget: hasMultiSource ? undefined : screenView, // resolve only on last pass
           clearValue: { r: 0.039, g: 0.039, b: 0.063, a: 1 },
           loadOp: 'clear',
-          storeOp: 'discard',
+          storeOp: 'store', // keep MSAA data for subsequent VT passes
         }],
         depthStencilAttachment: {
           view: this.stencilTexture!.createView(),
@@ -451,16 +452,21 @@ export class XGISMap {
 
       // Multi-source: separate pass per source (independent stencil clear)
       if (this.vectorTileShows.size > 1) {
-        for (const [sourceName, { show, pipelines, layout }] of this.vectorTileShows) {
+        const showEntries = [...this.vectorTileShows.entries()]
+        for (let si = 0; si < showEntries.length; si++) {
+          const [sourceName, { show, pipelines, layout }] = showEntries[si]
           const vtEntry = this.vtSources.get(sourceName)
           if (!vtEntry || !vtEntry.renderer.hasData()) continue
           const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
           const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
           const bgl = layout ?? this.renderer.bindGroupLayout
+          const isLast = si === showEntries.length - 1
           const vtPass = encoder.beginRenderPass({
             colorAttachments: [{
-              view: msaaView, resolveTarget: screenView,
-              loadOp: 'load', storeOp: 'discard',
+              view: msaaView,
+              resolveTarget: isLast ? screenView : undefined, // resolve only on last pass
+              loadOp: 'load',
+              storeOp: 'store',
             }],
             depthStencilAttachment: {
               view: this.stencilTexture!.createView(),

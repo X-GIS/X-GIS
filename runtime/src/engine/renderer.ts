@@ -553,7 +553,8 @@ export class MapRenderer {
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: [{ format, blend: blendState }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: stencilWrite, multisample: ms,
+      depthStencil: stencilWrite,
+      multisample: ms,
       label: 'line-pipeline',
     })
 
