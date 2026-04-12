@@ -12,6 +12,7 @@ import { RasterRenderer } from './raster-renderer'
 import { PanZoomController, type Controller } from './controller'
 import { CanvasRenderer } from './canvas-renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
+import { XGVTSource } from '../data/xgvt-source'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 // reprojector.ts preserved for future tile-coordinate RTT approach
 
@@ -28,7 +29,8 @@ export class XGISMap {
   private canvasRenderer: CanvasRenderer | null = null
   private useCanvas2D = false
 
-  // Vector tile renderer
+  // Vector tile data source + renderer
+  private xgvtSource: XGVTSource | null = null
   private vectorTileRenderer: VectorTileRenderer | null = null
   private vectorTileShows: SceneCommands['shows'] = []
   private vtVariantPipelines: { fillPipeline: GPURenderPipeline; linePipeline: GPURenderPipeline } | null = null
@@ -115,7 +117,7 @@ export class XGISMap {
       this.renderer = new MapRenderer(this.ctx)
       this.rasterRenderer = new RasterRenderer(this.ctx)
       this.vectorTileRenderer = new VectorTileRenderer(this.ctx)
-      // Direct rendering — no reprojector needed
+      this.xgvtSource = new XGVTSource()
       this.useCanvas2D = false
     } catch (err) {
       console.warn('[X-GIS] WebGPU unavailable, falling back to Canvas 2D:', (err as Error).message)
@@ -134,17 +136,17 @@ export class XGISMap {
         if (!this.useCanvas2D) {
           this.rasterRenderer.setUrlTemplate(url)
         }
-      } else if (url.endsWith('.xgvt') && !this.useCanvas2D && this.vectorTileRenderer) {
-        // Vector tile file — COG-style: always try Range Request first
+      } else if (url.endsWith('.xgvt') && !this.useCanvas2D && this.xgvtSource && this.vectorTileRenderer) {
+        // Vector tile file — load via XGVTSource (data layer)
         const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
         try {
-          await this.vectorTileRenderer.loadFromURL(fullUrl)
+          await this.xgvtSource.loadFromURL(fullUrl)
         } catch {
-          // Fallback: full load if Range Request fails (e.g. file:// protocol)
           const vtResponse = await fetch(url)
           const vtBuf = await vtResponse.arrayBuffer()
-          await this.vectorTileRenderer.loadFromBuffer(vtBuf)
+          await this.xgvtSource.loadFromBuffer(vtBuf)
         }
+        this.vectorTileRenderer.setSource(this.xgvtSource)
         this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
 
         // Fit camera to vector tile bounds
