@@ -291,7 +291,7 @@ layer rivers {
   physical_map_xgvt: {
     name: 'Physical Map (XGVT)',
     tag: 'xgvt',
-    description: 'Land as .xgvt vector tiles + rivers/lakes as GeoJSON overlay',
+    description: 'Land, rivers, and lakes — all as .xgvt vector tiles',
     source: `
 source land {
   type: geojson
@@ -300,12 +300,12 @@ source land {
 
 source rivers {
   type: geojson
-  url: "ne_110m_rivers.geojson"
+  url: "ne_110m_rivers.xgvt"
 }
 
 source lakes {
   type: geojson
-  url: "ne_110m_lakes.geojson"
+  url: "ne_110m_lakes.xgvt"
 }
 
 layer land {

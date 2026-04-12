@@ -29,10 +29,9 @@ export class XGISMap {
   private canvasRenderer: CanvasRenderer | null = null
   private useCanvas2D = false
 
-  // Vector tile data source + renderer
-  private xgvtSource: XGVTSource | null = null
-  private vectorTileRenderer: VectorTileRenderer | null = null
-  private vectorTileShows: SceneCommands['shows'] = []
+  // Vector tile sources + renderers (per .xgvt source)
+  private vtSources = new Map<string, { source: XGVTSource; renderer: VectorTileRenderer }>()
+  private vectorTileShows = new Map<string, { show: SceneCommands['shows'][0]; pipelines: { fillPipeline: GPURenderPipeline; linePipeline: GPURenderPipeline; fillPipelineFallback: GPURenderPipeline; linePipelineFallback: GPURenderPipeline } | null; layout: GPUBindGroupLayout | null }>()
   private vtVariantPipelines: { fillPipeline: GPURenderPipeline; linePipeline: GPURenderPipeline } | null = null
   private vtVariantLayout: GPUBindGroupLayout | null = null
 
@@ -116,8 +115,7 @@ export class XGISMap {
       this.ctx = await initGPU(this.canvas)
       this.renderer = new MapRenderer(this.ctx)
       this.rasterRenderer = new RasterRenderer(this.ctx)
-      this.vectorTileRenderer = new VectorTileRenderer(this.ctx)
-      this.xgvtSource = new XGVTSource()
+      // VT sources/renderers created per .xgvt file in the load loop
       this.useCanvas2D = false
     } catch (err) {
       console.warn('[X-GIS] WebGPU unavailable, falling back to Canvas 2D:', (err as Error).message)
@@ -136,28 +134,30 @@ export class XGISMap {
         if (!this.useCanvas2D) {
           this.rasterRenderer.setUrlTemplate(url)
         }
-      } else if (url.endsWith('.xgvt') && !this.useCanvas2D && this.xgvtSource && this.vectorTileRenderer) {
-        // Vector tile file — load via XGVTSource (data layer)
+      } else if (url.endsWith('.xgvt') && !this.useCanvas2D) {
+        // Vector tile file — create per-source XGVTSource + VectorTileRenderer
+        const source = new XGVTSource()
+        const vtRenderer = new VectorTileRenderer(this.ctx)
         const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
         try {
-          await this.xgvtSource.loadFromURL(fullUrl)
+          await source.loadFromURL(fullUrl)
         } catch {
           const vtResponse = await fetch(url)
           const vtBuf = await vtResponse.arrayBuffer()
-          await this.xgvtSource.loadFromBuffer(vtBuf)
+          await source.loadFromBuffer(vtBuf)
         }
-        this.vectorTileRenderer.setSource(this.xgvtSource)
+        vtRenderer.setSource(source)
+        this.vtSources.set(load.name, { source, renderer: vtRenderer })
         this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
 
         // Fit camera to vector tile bounds
-        const vtBounds = this.vectorTileRenderer.getBounds()
+        const vtBounds = vtRenderer.getBounds()
         if (vtBounds) {
           const [minLon, minLat, maxLon, maxLat] = vtBounds
           const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
           const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
           this.camera.centerX = cx
           this.camera.centerY = cy
-          // Simple zoom: world-spanning data starts at zoom ~1
           const lonSpan = maxLon - minLon
           this.camera.zoom = lonSpan >= 350 ? 1 : Math.max(0.5, Math.log2(360 / lonSpan) + 1)
         }
@@ -205,27 +205,30 @@ export class XGISMap {
       // Skip raster tile sources (handled by rasterRenderer)
       if ((data as unknown as { _tileUrl?: string })._tileUrl) continue
 
-      // Skip vector tile sources (handled by vectorTileRenderer)
+      // Skip vector tile sources (handled by per-source VectorTileRenderer)
       if ((data as unknown as { _vectorTile?: boolean })._vectorTile) {
-        this.vectorTileShows.push(show)
+        const vtEntry = this.vtSources.get(show.targetName)
+        if (!vtEntry) continue
 
-        // Per-feature styling: build variant pipeline + feature data buffer
+        let pipelines: typeof this.vtVariantPipelines = null
+        let layout: GPUBindGroupLayout | null = null
+
         const variant = show.shaderVariant
-        if (variant && (variant.preamble || variant.needsFeatureBuffer) && this.vectorTileRenderer) {
+        if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
           try {
-            const pipelines = this.renderer.getOrCreateVariantPipelines(variant as any)
-            this.vtVariantPipelines = pipelines
-            this.vtVariantLayout = variant.needsFeatureBuffer
+            pipelines = this.renderer.getOrCreateVariantPipelines(variant as any)
+            layout = variant.needsFeatureBuffer
               ? this.renderer.featureBindGroupLayout
               : this.renderer.bindGroupLayout
-            if (variant.needsFeatureBuffer && !this.vectorTileRenderer.hasFeatureData()) {
-              this.vectorTileRenderer.buildFeatureDataBuffer(variant as any, this.vtVariantLayout)
+            if (variant.needsFeatureBuffer && !vtEntry.renderer.hasFeatureData()) {
+              vtEntry.renderer.buildFeatureDataBuffer(variant as any, layout)
             }
           } catch (e) {
             console.warn('[X-GIS] VT variant pipeline failed:', e)
           }
         }
 
+        this.vectorTileShows.set(show.targetName, { show, pipelines, layout })
         continue
       }
 
@@ -406,20 +409,22 @@ export class XGISMap {
       this.rasterRenderer.render(pass, this.camera, projType, centerLon, centerLat, w, h)
       this.renderer.renderToPass(pass, this.camera, projType, centerLon, centerLat)
 
-      if (this.vectorTileRenderer?.hasData()) {
-        for (const show of this.vectorTileShows) {
-          const fp = this.vtVariantPipelines?.fillPipeline ?? this.renderer.fillPipeline
-          const lp = this.vtVariantPipelines?.linePipeline ?? this.renderer.linePipeline
-          const bgl = this.vtVariantLayout ?? this.renderer.bindGroupLayout
-          const fpFb = this.vtVariantPipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
-          const lpFb = this.vtVariantPipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
-          this.vectorTileRenderer.render(
-            pass, this.camera, projType, centerLon, centerLat, w, h,
-            show, fp, lp,
-            this.renderer.uniformBuffer, bgl,
-            fpFb, lpFb,
-          )
-        }
+      // Render all vector tile sources
+      for (const [sourceName, { show, pipelines, layout }] of this.vectorTileShows) {
+        const vtEntry = this.vtSources.get(sourceName)
+        if (!vtEntry || !vtEntry.renderer.hasData()) continue
+
+        const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
+        const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
+        const bgl = layout ?? this.renderer.bindGroupLayout
+        const fpFb = pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
+        const lpFb = pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
+        vtEntry.renderer.render(
+          pass, this.camera, projType, centerLon, centerLat, w, h,
+          show, fp, lp,
+          this.renderer.uniformBuffer, bgl,
+          fpFb, lpFb,
+        )
       }
 
       pass.end()
@@ -434,15 +439,19 @@ export class XGISMap {
     this._stats.vertices = rs.vertices
     this._stats.triangles = rs.triangles
     this._stats.lines = rs.lines
-    if (this.vectorTileRenderer?.hasData()) {
-      const vts = this.vectorTileRenderer.getDrawStats()
+    let totalTilesVis = 0, totalTilesCached = 0
+    for (const [, { renderer: vtR }] of this.vtSources) {
+      if (!vtR.hasData()) continue
+      const vts = vtR.getDrawStats()
       this._stats.drawCalls += vts.drawCalls
       this._stats.vertices += vts.vertices
       this._stats.triangles += vts.triangles
       this._stats.lines += vts.lines
-      this._stats.tilesVisible = vts.tilesVisible
-      this._stats.tilesCached = this.vectorTileRenderer.getCacheSize()
+      totalTilesVis += vts.tilesVisible
+      totalTilesCached += vtR.getCacheSize()
     }
+    this._stats.tilesVisible = totalTilesVis
+    this._stats.tilesCached = totalTilesCached
     this._stats.endFrame()
     this._statsPanel?.update(this._stats.get())
 
