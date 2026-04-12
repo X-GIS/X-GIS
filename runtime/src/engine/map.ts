@@ -31,7 +31,7 @@ export class XGISMap {
 
   // Vector tile sources + renderers (per .xgvt source)
   private vtSources = new Map<string, { source: XGVTSource; renderer: VectorTileRenderer }>()
-  private vectorTileShows = new Map<string, { show: SceneCommands['shows'][0]; pipelines: { fillPipeline: GPURenderPipeline; linePipeline: GPURenderPipeline; fillPipelineFallback: GPURenderPipeline; linePipelineFallback: GPURenderPipeline } | null; layout: GPUBindGroupLayout | null }>()
+  private vectorTileShows: { sourceName: string; show: SceneCommands['shows'][0]; pipelines: { fillPipeline: GPURenderPipeline; linePipeline: GPURenderPipeline; fillPipelineFallback: GPURenderPipeline; linePipelineFallback: GPURenderPipeline } | null; layout: GPUBindGroupLayout | null }[] = []
   private vtVariantPipelines: { fillPipeline: GPURenderPipeline; linePipeline: GPURenderPipeline } | null = null
   private vtVariantLayout: GPUBindGroupLayout | null = null
 
@@ -209,6 +209,7 @@ export class XGISMap {
     // Now projection-agnostic: vertices are raw lon/lat degrees
     // GPU vertex shader applies projection via uniform
     this.renderer.clearLayers()
+    this.vectorTileShows = []
 
     for (const show of this.showCommands) {
       const data = this.rawDatasets.get(show.targetName)
@@ -241,7 +242,7 @@ export class XGISMap {
           }
         }
 
-        this.vectorTileShows.set(show.targetName, { show, pipelines, layout })
+        this.vectorTileShows.push({ sourceName: show.targetName, show, pipelines, layout })
         continue
       }
 
@@ -273,7 +274,7 @@ export class XGISMap {
           console.warn('[X-GIS] GeoJSON VT variant pipeline failed:', e)
         }
       }
-      this.vectorTileShows.set(show.targetName, { show, pipelines, layout })
+      this.vectorTileShows.push({ sourceName: show.targetName, show, pipelines, layout })
 
       // Fit camera to bounds
       const [minLon, minLat, maxLon, maxLat] = tileSet.bounds
@@ -443,7 +444,7 @@ export class XGISMap {
       }
 
       const msaaView = this.msaaTexture!.createView()
-      const hasMultiSource = this.vectorTileShows.size > 1
+      const hasMultiSource = this.vectorTileShows.length > 1
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
           view: msaaView,
@@ -464,9 +465,9 @@ export class XGISMap {
       this.renderer.renderToPass(pass, this.camera, projType, centerLon, centerLat)
 
       // Render vector tile sources
-      if (this.vectorTileShows.size === 1) {
+      if (this.vectorTileShows.length === 1) {
         // Single source: render in existing pass (shared stencil)
-        for (const [sourceName, { show, pipelines, layout }] of this.vectorTileShows) {
+        for (const { sourceName, show, pipelines, layout } of this.vectorTileShows) {
           const vtEntry = this.vtSources.get(sourceName)
           if (!vtEntry || !vtEntry.renderer.hasData()) continue
           const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
@@ -481,16 +482,15 @@ export class XGISMap {
       pass.end()
 
       // Multi-source: separate pass per source (independent stencil clear)
-      if (this.vectorTileShows.size > 1) {
-        const showEntries = [...this.vectorTileShows.entries()]
-        for (let si = 0; si < showEntries.length; si++) {
-          const [sourceName, { show, pipelines, layout }] = showEntries[si]
+      if (this.vectorTileShows.length > 1) {
+        for (let si = 0; si < this.vectorTileShows.length; si++) {
+          const { sourceName, show, pipelines, layout } = this.vectorTileShows[si]
           const vtEntry = this.vtSources.get(sourceName)
           if (!vtEntry || !vtEntry.renderer.hasData()) continue
           const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
           const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
           const bgl = layout ?? this.renderer.bindGroupLayout
-          const isLast = si === showEntries.length - 1
+          const isLast = si === this.vectorTileShows.length - 1
           const vtPass = encoder.beginRenderPass({
             colorAttachments: [{
               view: msaaView,
