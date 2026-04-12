@@ -114,8 +114,11 @@ export async function loadImageTexture(
  */
 export function sortByPriority(tiles: TileCoord[], centerTileX: number, centerTileY: number): TileCoord[] {
   return tiles.sort((a, b) => {
-    const da = Math.abs(a.x - centerTileX) + Math.abs(a.y - centerTileY)
-    const db = Math.abs(b.x - centerTileX) + Math.abs(b.y - centerTileY)
+    // Use original x (ox) for distance — correct for world copies
+    const ax = a.ox ?? a.x
+    const bx = b.ox ?? b.x
+    const da = Math.abs(ax - centerTileX) + Math.abs(a.y - centerTileY)
+    const db = Math.abs(bx - centerTileX) + Math.abs(b.y - centerTileY)
     return da - db
   })
 }

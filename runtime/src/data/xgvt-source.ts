@@ -490,9 +490,10 @@ export class XGVTSource {
     const n = Math.pow(2, zoom)
     const prefetchKeys: number[] = []
 
-    for (let x = Math.max(0, minX - 1); x <= Math.min(n - 1, maxX + 1); x++) {
+    for (let rawX = minX - 1; rawX <= maxX + 1; rawX++) {
+      const x = ((rawX % n) + n) % n  // wrap X for world wrapping
       for (let y = Math.max(0, minY - 1); y <= Math.min(n - 1, maxY + 1); y++) {
-        if (x >= minX && x <= maxX && y >= minY && y <= maxY) continue
+        if (rawX >= minX && rawX <= maxX && y >= minY && y <= maxY) continue
         const key = tileKey(zoom, x, y)
         if (!this.dataCache.has(key) && !this.loadingTiles.has(key) && this.index.entryByHash.has(key)) {
           prefetchKeys.push(key)
