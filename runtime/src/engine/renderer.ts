@@ -535,13 +535,15 @@ export class MapRenderer {
       stencilReadMask: 0xFF,
     }
 
+    const ms = { count: ctx.sampleCount }
+
     // Fill pipeline (stencil write — current zoom tiles)
     this.fillPipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: [{ format, blend: blendState }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: stencilWrite,
+      depthStencil: stencilWrite, multisample: ms,
       label: 'fill-pipeline',
     })
 
@@ -551,7 +553,7 @@ export class MapRenderer {
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: [{ format, blend: blendState }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: stencilWrite,
+      depthStencil: stencilWrite, multisample: ms,
       label: 'line-pipeline',
     })
 
@@ -561,7 +563,7 @@ export class MapRenderer {
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: [{ format, blend: blendState }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: stencilTest,
+      depthStencil: stencilTest, multisample: ms,
       label: 'fill-pipeline-fallback',
     })
 
@@ -571,7 +573,7 @@ export class MapRenderer {
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: [{ format, blend: blendState }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: stencilTest,
+      depthStencil: stencilTest, multisample: ms,
       label: 'line-pipeline-fallback',
     })
 
@@ -775,12 +777,14 @@ export class MapRenderer {
       stencilReadMask: 0xFF,
     }
 
+    const ms = { count: this.ctx.sampleCount }
+
     const fillPipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
       fragment: { module, entryPoint: 'fs_fill', targets: [{ format, blend: blendState }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: stencilWrite,
+      depthStencil: stencilWrite, multisample: ms,
       label: `fill-${variant.key}`,
     })
 
@@ -789,7 +793,7 @@ export class MapRenderer {
       vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
       fragment: { module, entryPoint: 'fs_stroke', targets: [{ format, blend: blendState }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: stencilWrite,
+      depthStencil: stencilWrite, multisample: ms,
       label: `line-${variant.key}`,
     })
 
@@ -807,7 +811,7 @@ export class MapRenderer {
       vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
       fragment: { module, entryPoint: 'fs_fill', targets: [{ format, blend: blendState }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: stencilTest,
+      depthStencil: stencilTest, multisample: ms,
       label: `fill-fallback-${variant.key}`,
     })
 
@@ -816,7 +820,7 @@ export class MapRenderer {
       vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
       fragment: { module, entryPoint: 'fs_stroke', targets: [{ format, blend: blendState }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: stencilTest,
+      depthStencil: stencilTest, multisample: ms,
       label: `line-fallback-${variant.key}`,
     })
 

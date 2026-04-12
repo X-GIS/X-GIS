@@ -1,10 +1,14 @@
 // ═══ WebGPU Context — 디바이스 초기화 ═══
 
+/** MSAA sample count — 4x is universally supported in WebGPU */
+export const SAMPLE_COUNT = 4
+
 export interface GPUContext {
   device: GPUDevice
   context: GPUCanvasContext
   format: GPUTextureFormat
   canvas: HTMLCanvasElement
+  sampleCount: number
 }
 
 export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
@@ -28,7 +32,7 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   const format = navigator.gpu.getPreferredCanvasFormat()
   context.configure({ device, format, alphaMode: 'premultiplied' })
 
-  return { device, context, format, canvas }
+  return { device, context, format, canvas, sampleCount: SAMPLE_COUNT }
 }
 
 export function resizeCanvas(ctx: GPUContext): void {

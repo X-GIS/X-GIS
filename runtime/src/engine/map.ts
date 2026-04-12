@@ -44,6 +44,11 @@ export class XGISMap {
   private stencilWidth = 0
   private stencilHeight = 0
 
+  // MSAA 4x render target
+  private msaaTexture: GPUTexture | null = null
+  private msaaWidth = 0
+  private msaaHeight = 0
+
 
   private _frameCount = 0
   private _vtDebugLogged = false
@@ -384,26 +389,40 @@ export class XGISMap {
 
     {
       // ═══ Direct rendering: vertex shader handles all projections ═══
-      if (!this.stencilTexture || this.stencilWidth !== w || this.stencilHeight !== h) {
+      // MSAA + stencil texture management (recreate on resize)
+      const sc = this.ctx.sampleCount
+      if (!this.msaaTexture || this.msaaWidth !== w || this.msaaHeight !== h) {
+        this.msaaTexture?.destroy()
         this.stencilTexture?.destroy()
+        this.msaaTexture = device.createTexture({
+          size: { width: w, height: h },
+          format: this.ctx.format,
+          sampleCount: sc,
+          usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        })
         this.stencilTexture = device.createTexture({
           size: { width: w, height: h },
           format: 'stencil8',
+          sampleCount: sc,
           usage: GPUTextureUsage.RENDER_ATTACHMENT,
         })
+        this.msaaWidth = w
+        this.msaaHeight = h
         this.stencilWidth = w
         this.stencilHeight = h
       }
 
+      const msaaView = this.msaaTexture!.createView()
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
-          view: screenView,
+          view: msaaView,
+          resolveTarget: screenView,
           clearValue: { r: 0.039, g: 0.039, b: 0.063, a: 1 },
           loadOp: 'clear',
-          storeOp: 'store',
+          storeOp: 'discard',
         }],
         depthStencilAttachment: {
-          view: this.stencilTexture.createView(),
+          view: this.stencilTexture!.createView(),
           stencilClearValue: 0,
           stencilLoadOp: 'clear',
           stencilStoreOp: 'discard',
@@ -440,7 +459,8 @@ export class XGISMap {
           const bgl = layout ?? this.renderer.bindGroupLayout
           const vtPass = encoder.beginRenderPass({
             colorAttachments: [{
-              view: screenView, loadOp: 'load', storeOp: 'store',
+              view: msaaView, resolveTarget: screenView,
+              loadOp: 'load', storeOp: 'discard',
             }],
             depthStencilAttachment: {
               view: this.stencilTexture!.createView(),

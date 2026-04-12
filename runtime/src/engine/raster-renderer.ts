@@ -198,6 +198,7 @@ export class RasterRenderer {
         }}],
       },
       primitive: { topology: 'triangle-list' },
+      multisample: { count: ctx.sampleCount },
       label: 'raster-pipeline',
     })
 
