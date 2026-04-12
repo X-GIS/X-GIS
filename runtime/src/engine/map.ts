@@ -13,7 +13,7 @@ import { PanZoomController, type Controller } from './controller'
 import { CanvasRenderer } from './canvas-renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
-import { Reprojector } from './reprojector'
+// reprojector.ts preserved for future tile-coordinate RTT approach
 
 export class XGISMap {
   private ctx!: GPUContext
@@ -43,8 +43,6 @@ export class XGISMap {
   private stencilWidth = 0
   private stencilHeight = 0
 
-  // 2-pass reprojection (all projections except equirectangular)
-  private reprojector: Reprojector | null = null
 
   // Stats inspector
   private _stats = new StatsTracker()
@@ -117,7 +115,7 @@ export class XGISMap {
       this.renderer = new MapRenderer(this.ctx)
       this.rasterRenderer = new RasterRenderer(this.ctx)
       this.vectorTileRenderer = new VectorTileRenderer(this.ctx)
-      this.reprojector = new Reprojector(this.ctx)
+      // Direct rendering — no reprojector needed
       this.useCanvas2D = false
     } catch (err) {
       console.warn('[X-GIS] WebGPU unavailable, falling back to Canvas 2D:', (err as Error).message)
@@ -375,8 +373,8 @@ export class XGISMap {
     const encoder = device.createCommandEncoder()
     const screenView = context.getCurrentTexture().createView()
 
-    if (projType === 1) {
-      // ═══ Equirectangular: direct rendering (no reprojection needed) ═══
+    {
+      // ═══ Direct rendering: vertex shader handles all projections ═══
       if (!this.stencilTexture || this.stencilWidth !== w || this.stencilHeight !== h) {
         this.stencilTexture?.destroy()
         this.stencilTexture = device.createTexture({
@@ -403,8 +401,8 @@ export class XGISMap {
         },
       })
 
-      this.rasterRenderer.render(pass, this.camera, 1, centerLon, centerLat, w, h)
-      this.renderer.renderToPass(pass, this.camera, 1, centerLon, centerLat)
+      this.rasterRenderer.render(pass, this.camera, projType, centerLon, centerLat, w, h)
+      this.renderer.renderToPass(pass, this.camera, projType, centerLon, centerLat)
 
       if (this.vectorTileRenderer?.hasData()) {
         for (const show of this.vectorTileShows) {
@@ -414,7 +412,7 @@ export class XGISMap {
           const fpFb = this.vtVariantPipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
           const lpFb = this.vtVariantPipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
           this.vectorTileRenderer.render(
-            pass, this.camera, 1, centerLon, centerLat, w, h,
+            pass, this.camera, projType, centerLon, centerLat, w, h,
             show, fp, lp,
             this.renderer.uniformBuffer, bgl,
             fpFb, lpFb,
@@ -423,90 +421,6 @@ export class XGISMap {
       }
 
       pass.end()
-
-    } else if (this.reprojector) {
-      // ═══ All non-equirect projections: unified 2-pass rendering ═══
-      // Pass 1: equirectangular (linear, correct interpolation) → offscreen texture
-      // Pass 2: inverse projection screen pixels → lon/lat → equirect UV
-
-      const DEG2RAD_eq = Math.PI / 180
-      const mpp2 = (40075016.686 / 256) / Math.pow(2, this.camera.zoom)
-
-      // Compute equirect texture bounds (clamped to geographic limits)
-      let eqWest: number, eqEast: number, eqSouth: number, eqNorth: number
-      if (projType === 0) {
-        // Mercator: diagonal radius for rotation independence
-        const halfWm = w * mpp2 / 2, halfHm = h * mpp2 / 2
-        const diagHalf = Math.sqrt(halfWm * halfWm + halfHm * halfHm)
-        eqWest = Math.max(-180, ((this.camera.centerX - diagHalf) / R) * (180 / Math.PI))
-        eqEast = Math.min(180, ((this.camera.centerX + diagHalf) / R) * (180 / Math.PI))
-        eqSouth = Math.max(-85.051, (2 * Math.atan(Math.exp((this.camera.centerY - diagHalf) / R)) - Math.PI / 2) * (180 / Math.PI))
-        eqNorth = Math.min(85.051, (2 * Math.atan(Math.exp((this.camera.centerY + diagHalf) / R)) - Math.PI / 2) * (180 / Math.PI))
-      } else {
-        // Globe/NatEarth/Oblique: full world bounds
-        eqWest = -180; eqEast = 180; eqSouth = -85.051; eqNorth = 85.051
-      }
-
-      // Equirect camera: north-up, centered on equirect midpoint
-      const eqCenterLon = (eqWest + eqEast) / 2
-      const eqCenterLat = (eqSouth + eqNorth) / 2
-      const eqRangeX = (eqEast - eqWest) * DEG2RAD_eq * R
-      const eqRangeY = (eqNorth - eqSouth) * DEG2RAD_eq * R
-      const equirectCam = new Camera(eqCenterLon, eqCenterLat, this.camera.zoom)
-      // prettier-ignore
-      equirectCam.overrideRTCMatrix = new Float32Array([
-        2 / eqRangeX, 0,            0, 0,
-        0,            2 / eqRangeY, 0, 0,
-        0,            0,            1, 0,
-        0,            0,            0, 1,
-      ])
-
-      // Pass 1: Render to equirectangular offscreen texture (canvas size, stable)
-      const eqTexW = w
-      const eqTexH = h
-      const { view: equirectView, stencilView } = this.reprojector.getEquirectTarget(eqTexW, eqTexH)
-      const eqPass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: equirectView,
-          clearValue: { r: 0.039, g: 0.039, b: 0.063, a: 1 },
-          loadOp: 'clear',
-          storeOp: 'store',
-        }],
-        depthStencilAttachment: {
-          view: stencilView,
-          stencilClearValue: 0,
-          stencilLoadOp: 'clear',
-          stencilStoreOp: 'discard',
-        },
-      })
-
-      this.rasterRenderer.render(eqPass, equirectCam, 1, eqCenterLon, eqCenterLat, eqTexW, eqTexH)
-      this.renderer.renderToPass(eqPass, equirectCam, 1, eqCenterLon, eqCenterLat)
-
-      if (this.vectorTileRenderer?.hasData()) {
-        for (const show of this.vectorTileShows) {
-          const fp = this.vtVariantPipelines?.fillPipeline ?? this.renderer.fillPipeline
-          const lp = this.vtVariantPipelines?.linePipeline ?? this.renderer.linePipeline
-          const bgl = this.vtVariantLayout ?? this.renderer.bindGroupLayout
-          const fpFb = this.vtVariantPipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
-          const lpFb = this.vtVariantPipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
-          this.vectorTileRenderer.render(
-            eqPass, equirectCam, 1, eqCenterLon, eqCenterLat, eqTexW, eqTexH,
-            show, fp, lp,
-            this.renderer.uniformBuffer, bgl,
-            fpFb, lpFb,
-          )
-        }
-      }
-
-      eqPass.end()
-
-      // Pass 2: Reproject equirectangular → target projection on screen
-      this.reprojector.render(encoder, screenView,
-        this.camera.centerX, this.camera.centerY,
-        mpp2, projType, this.camera.bearing, w, h,
-        centerLon, centerLat,
-        eqWest, eqSouth, eqEast, eqNorth)
     }
 
     device.queue.submit([encoder.finish()])
