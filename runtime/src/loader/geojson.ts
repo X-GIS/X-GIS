@@ -106,34 +106,33 @@ function detectsAntiMeridianCross(ring: number[][]): boolean {
   return maxLon - minLon > 350
 }
 
-/** Clip a ring at a longitude cut line using Sutherland-Hodgman algorithm */
-function clipRingAtLon(ring: number[][], cutLon: number, keepLess: boolean): number[][] {
+/** Clip a ring at a cut line using Sutherland-Hodgman algorithm.
+ *  axis: 0 = longitude (x), 1 = latitude (y) */
+function clipRingAtLine(ring: number[][], cutVal: number, keepLess: boolean, axis: 0 | 1): number[][] {
   const result: number[][] = []
   const n = ring.length
-  // Treat as closed ring: last vertex connects to first
   const len = ring[n - 1][0] === ring[0][0] && ring[n - 1][1] === ring[0][1] ? n - 1 : n
 
   for (let i = 0; i < len; i++) {
     const curr = ring[i]
     const next = ring[(i + 1) % len]
-    const currIn = keepLess ? curr[0] <= cutLon : curr[0] >= cutLon
-    const nextIn = keepLess ? next[0] <= cutLon : next[0] >= cutLon
+    const currIn = keepLess ? curr[axis] <= cutVal : curr[axis] >= cutVal
+    const nextIn = keepLess ? next[axis] <= cutVal : next[axis] >= cutVal
 
     if (currIn) {
       result.push(curr)
       if (!nextIn) {
-        // Exiting: add intersection point at cutLon
-        const t = (cutLon - curr[0]) / (next[0] - curr[0])
-        result.push([cutLon, curr[1] + t * (next[1] - curr[1])])
+        const t = (cutVal - curr[axis]) / (next[axis] - curr[axis])
+        if (axis === 0) result.push([cutVal, curr[1] + t * (next[1] - curr[1])])
+        else result.push([curr[0] + t * (next[0] - curr[0]), cutVal])
       }
     } else if (nextIn) {
-      // Entering: add intersection point at cutLon
-      const t = (cutLon - curr[0]) / (next[0] - curr[0])
-      result.push([cutLon, curr[1] + t * (next[1] - curr[1])])
+      const t = (cutVal - curr[axis]) / (next[axis] - curr[axis])
+      if (axis === 0) result.push([cutVal, curr[1] + t * (next[1] - curr[1])])
+      else result.push([curr[0] + t * (next[0] - curr[0]), cutVal])
     }
   }
 
-  // Close the ring
   if (result.length > 0) {
     const first = result[0], last = result[result.length - 1]
     if (first[0] !== last[0] || first[1] !== last[1]) {
@@ -143,25 +142,34 @@ function clipRingAtLon(ring: number[][], cutLon: number, keepLess: boolean): num
   return result
 }
 
-/** Max longitude span for a single tessellated piece (prevents globe-spanning earcut edges) */
-const MAX_PIECE_WIDTH = 40
+function clipRingAtLon(ring: number[][], cutLon: number, keepLess: boolean): number[][] {
+  return clipRingAtLine(ring, cutLon, keepLess, 0)
+}
 
-/** Clip a set of rings (outer + holes) at a longitude, returning west and/or east halves */
-function clipRingsAtLon(rings: number[][][], cutLon: number): { west: number[][][] | null, east: number[][][] | null } {
-  const westOuter = clipRingAtLon(rings[0], cutLon, true)
-  const eastOuter = clipRingAtLon(rings[0], cutLon, false)
+/** Max longitude span for a single tessellated piece (prevents globe-spanning earcut edges) */
+const MAX_PIECE_WIDTH = 20
+
+/** Clip a set of rings (outer + holes) at a line, returning low/high halves */
+function clipRingsAtLine(rings: number[][][], cutVal: number, axis: 0 | 1): { low: number[][][] | null, high: number[][][] | null } {
+  const lowOuter = clipRingAtLine(rings[0], cutVal, true, axis)
+  const highOuter = clipRingAtLine(rings[0], cutVal, false, axis)
 
   const buildPart = (outer: number[][], keepLess: boolean): number[][][] | null => {
     if (outer.length < 4) return null
     const holes: number[][][] = []
     for (let r = 1; r < rings.length; r++) {
-      const clipped = clipRingAtLon(rings[r], cutLon, keepLess)
+      const clipped = clipRingAtLine(rings[r], cutVal, keepLess, axis)
       if (clipped.length >= 4) holes.push(clipped)
     }
     return [outer, ...holes]
   }
 
-  return { west: buildPart(westOuter, true), east: buildPart(eastOuter, false) }
+  return { low: buildPart(lowOuter, true), high: buildPart(highOuter, false) }
+}
+
+function clipRingsAtLon(rings: number[][][], cutLon: number): { west: number[][][] | null, east: number[][][] | null } {
+  const { low, high } = clipRingsAtLine(rings, cutLon, 0)
+  return { west: low, east: high }
 }
 
 /**
@@ -179,40 +187,84 @@ function splitWidePolygon(rings: number[][][]): number[][][][] {
     processedRings = rings.map(shift)
   }
 
-  // Step 2: Determine longitude extent
-  let minLon = Infinity, maxLon = -Infinity
-  for (const [lon] of processedRings[0]) {
+  // Step 2: Determine extent
+  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity
+  for (const [lon, lat] of processedRings[0]) {
     if (lon < minLon) minLon = lon
     if (lon > maxLon) maxLon = lon
+    if (lat < minLat) minLat = lat
+    if (lat > maxLat) maxLat = lat
   }
 
-  if (maxLon - minLon <= MAX_PIECE_WIDTH) return [processedRings]
+  const lonSpan = maxLon - minLon
+  const latSpan = maxLat - minLat
+  if (lonSpan <= MAX_PIECE_WIDTH && latSpan <= MAX_PIECE_WIDTH) return [processedRings]
 
-  // Step 3: Compute clip longitudes at 90° intervals within the polygon's range
-  const clipLons: number[] = []
-  const startLon = Math.ceil(minLon / MAX_PIECE_WIDTH) * MAX_PIECE_WIDTH
-  for (let lon = startLon; lon < maxLon; lon += MAX_PIECE_WIDTH) {
-    if (lon > minLon) clipLons.push(lon)
-  }
+  // Step 3: First split at 180° (anti-meridian boundary) so no piece straddles it
+  // Then shift east pieces back to [-180, 0] before further splitting
+  let westParts: number[][][][] = []
+  let eastParts: number[][][][] = []
 
-  // Step 4: Progressively clip at each longitude
-  let parts: number[][][][] = [processedRings]
-  for (const cutLon of clipLons) {
-    const newParts: number[][][][] = []
-    for (const partRings of parts) {
-      const { west, east } = clipRingsAtLon(partRings, cutLon)
-      if (west) newParts.push(west)
-      if (east) newParts.push(east)
+  if (minLon < 180 && maxLon > 180) {
+    const { west, east } = clipRingsAtLon(processedRings, 180)
+    if (west) westParts.push(west)
+    if (east) {
+      // Shift east coordinates back to standard range
+      const shifted = east.map(ring =>
+        ring.map(([lon, lat]) => [lon - 360, lat])
+      )
+      eastParts.push(shifted)
     }
-    parts = newParts
+  } else if (maxLon > 180) {
+    // Entirely east of 180° — shift back
+    eastParts.push(processedRings.map(ring =>
+      ring.map(([lon, lat]) => [lon - 360, lat])
+    ))
+  } else {
+    westParts.push(processedRings)
   }
 
-  // Step 5: Shift any coordinates > 180° back to standard [-180, 180] range
-  return parts.map(partRings =>
-    partRings.map(ring =>
-      ring.map(([lon, lat]) => lon > 180 ? [lon - 360, lat] : [lon, lat])
-    )
-  )
+  // Step 4: Split at MAX_PIECE_WIDTH intervals on both lon and lat axes
+  const splitOnAxis = (parts: number[][][][], axis: 0 | 1): number[][][][] => {
+    const result: number[][][][] = []
+    for (const partRings of parts) {
+      let pMin = Infinity, pMax = -Infinity
+      for (const coord of partRings[0]) {
+        const v = coord[axis]
+        if (v < pMin) pMin = v
+        if (v > pMax) pMax = v
+      }
+      if (pMax - pMin <= MAX_PIECE_WIDTH) {
+        result.push(partRings)
+        continue
+      }
+
+      const cutVals: number[] = []
+      const start = Math.ceil(pMin / MAX_PIECE_WIDTH) * MAX_PIECE_WIDTH
+      for (let v = start; v < pMax; v += MAX_PIECE_WIDTH) {
+        if (v > pMin) cutVals.push(v)
+      }
+
+      let subParts: number[][][][] = [partRings]
+      for (const cutVal of cutVals) {
+        const newSub: number[][][][] = []
+        for (const sub of subParts) {
+          const { low, high } = clipRingsAtLine(sub, cutVal, axis)
+          if (low) newSub.push(low)
+          if (high) newSub.push(high)
+        }
+        subParts = newSub
+      }
+      result.push(...subParts)
+    }
+    return result
+  }
+
+  // Split by longitude, then by latitude
+  westParts = splitOnAxis(splitOnAxis(westParts, 0), 1)
+  eastParts = splitOnAxis(splitOnAxis(eastParts, 0), 1)
+
+  return [...westParts, ...eastParts]
 }
 
 // ═══ GeoJSON → GPU Mesh ═══
