@@ -53,8 +53,8 @@ export class Camera {
     const sin = Math.sin(rad)
 
     const m = this.rtcMatrix
-    m[0] = scaleX * cos;  m[1] = scaleX * sin;  m[2] = 0; m[3] = 0
-    m[4] = -scaleY * sin; m[5] = scaleY * cos;  m[6] = 0; m[7] = 0
+    m[0] = scaleX * cos;  m[1] = scaleY * sin;  m[2] = 0; m[3] = 0
+    m[4] = -scaleX * sin; m[5] = scaleY * cos;  m[6] = 0; m[7] = 0
     m[8] = 0;             m[9] = 0;             m[10] = 1; m[11] = 0
     m[12] = 0;            m[13] = 0;            m[14] = 0; m[15] = 1
     return m

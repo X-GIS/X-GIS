@@ -263,7 +263,7 @@ export class VectorTileRenderer {
 
     if (currentZ !== this.lastZoom) this.lastZoom = currentZ
 
-    const tiles = visibleTiles(centerLon, centerLat, currentZ, canvasWidth, canvasHeight, camera.zoom)
+    const tiles = visibleTiles(centerLon, centerLat, currentZ, canvasWidth, canvasHeight, camera.zoom, camera.bearing)
     const n = Math.pow(2, currentZ)
     const ctX = Math.floor((centerLon + 180) / 360 * n)
     const ctY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
@@ -441,11 +441,13 @@ export class VectorTileRenderer {
       const tileX = (cached.tileWest + worldOff) * DEG2RAD * R
       const centerX = projCenterLon * DEG2RAD * R
       const currentProjType = this.uniformF32[24]
+      const MERC_LIMIT = 85.051129
+      const clampLat = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
       const tileY = currentProjType < 0.5
-        ? Math.log(Math.tan(Math.PI / 4 + cached.tileSouth * DEG2RAD / 2)) * R
+        ? Math.log(Math.tan(Math.PI / 4 + clampLat(cached.tileSouth) * DEG2RAD / 2)) * R
         : cached.tileSouth * DEG2RAD * R
       const centerY = currentProjType < 0.5
-        ? Math.log(Math.tan(Math.PI / 4 + projCenterLat * DEG2RAD / 2)) * R
+        ? Math.log(Math.tan(Math.PI / 4 + clampLat(projCenterLat) * DEG2RAD / 2)) * R
         : projCenterLat * DEG2RAD * R
 
       this.uniformF32[28] = tileX - centerX

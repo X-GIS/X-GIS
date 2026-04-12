@@ -327,6 +327,7 @@ export interface ShowCommand {
   zoomOpacityStops?: { zoom: number; value: number }[] | null
   zoomSizeStops?: { zoom: number; value: number }[] | null
   shaderVariant?: { key: string; preamble: string; fillExpr: string; strokeExpr: string; needsFeatureBuffer: boolean; featureFields: string[]; uniformFields: string[] } | null
+  filterExpr?: { ast: unknown } | null  // AST expression for per-feature filtering
 }
 
 /**
@@ -893,7 +894,7 @@ export class MapRenderer {
       const R = 6378137
       const cx = projCenterLon * DEG2RAD * R
       const cy = projType < 0.5
-        ? Math.log(Math.tan(Math.PI / 4 + projCenterLat * DEG2RAD / 2)) * R  // Mercator
+        ? Math.log(Math.tan(Math.PI / 4 + Math.max(-85.051129, Math.min(85.051129, projCenterLat)) * DEG2RAD / 2)) * R  // Mercator
         : projCenterLat * DEG2RAD * R  // Equirectangular (linear)
       new Float32Array(uniformData, 112, 4).set([-cx, -cy, 0, 0]) // tile_rtc: offset, west=0, south=0
       device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
@@ -940,7 +941,7 @@ export class MapRenderer {
       const gDEG2RAD = Math.PI / 180
       const gR = 6378137
       const gcx = projCenterLon * gDEG2RAD * gR
-      const gcy = Math.log(Math.tan(Math.PI / 4 + projCenterLat * gDEG2RAD / 2)) * gR
+      const gcy = Math.log(Math.tan(Math.PI / 4 + Math.max(-85.051129, Math.min(85.051129, projCenterLat)) * gDEG2RAD / 2)) * gR
       new Float32Array(gratUniform, 112, 4).set([-gcx, -gcy, 0, 0])
       device.queue.writeBuffer(this.uniformBuffer, 0, gratUniform)
 

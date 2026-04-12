@@ -8,6 +8,7 @@ const RASTER_SHADER = /* wgsl */ `
 const PI: f32 = 3.14159265;
 const DEG2RAD: f32 = 0.01745329;
 const EARTH_R: f32 = 6378137.0;
+const MERCATOR_LAT_LIMIT: f32 = 85.051129;
 
 struct Uniforms {
   mvp: mat4x4<f32>,
@@ -98,7 +99,8 @@ fn project(lon: f32, lat: f32) -> vec2<f32> {
 @group(0) @binding(2) var tex_sampler: sampler;
 
 struct TileUniforms {
-  bounds: vec4<f32>,  // west, south, east, north (degrees)
+  bounds: vec4<f32>,    // west, south, east, north (degrees)
+  tile_rtc: vec4<f32>,  // xy = project(tileWest,tileSouth) - project(camera), z = tileWest, w = tileSouth
 }
 @group(1) @binding(0) var<uniform> tile: TileUniforms;
 
@@ -108,30 +110,73 @@ struct VsOut {
   @location(1) vis: f32,
 }
 
+// Subdivided grid: N×N cells, 6 vertices per cell
+const GRID_N: u32 = 8u;
+const GRID_VERTS: u32 = 8u * 8u * 6u; // 384
+
 @vertex
 fn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut {
-  // Quad: 2 triangles, 6 vertices
-  let u_arr = array<f32, 6>(0, 1, 0, 1, 1, 0);
-  let v_arr = array<f32, 6>(0, 0, 1, 0, 1, 1);
-  let uu = u_arr[vid];
-  let vv = v_arr[vid];
+  let cell = vid / 6u;
+  let tri  = vid % 6u;
+  let cx = cell % GRID_N;
+  let cy = cell / GRID_N;
+
+  let du_arr = array<u32, 6>(0, 1, 0, 1, 1, 0);
+  let dv_arr = array<u32, 6>(0, 0, 1, 0, 1, 1);
+  let gx = cx + du_arr[tri];
+  let gy = cy + dv_arr[tri];
+
+  let uu = f32(gx) / f32(GRID_N);
+  let vv = f32(gy) / f32(GRID_N);
 
   let lon = mix(tile.bounds.x, tile.bounds.z, uu);
-  let lat = mix(tile.bounds.w, tile.bounds.y, vv);  // north to south (top to bottom)
+  let lat = mix(tile.bounds.w, tile.bounds.y, vv);
 
-  // RTC: project relative to center
-  let projected = project(lon, lat);
-  let center_projected = project(u.proj_params.y, u.proj_params.z);
-  let rtc = projected - center_projected;
+  // ── RTC: identical to vector tile shader (tile SW corner as origin) ──
+  // local coords: small offsets from tile origin (precise in f32)
+  let local_lon = lon - tile.tile_rtc.z;  // degrees from tileWest
+  let abs_lat = lat;
+  let origin_lat = tile.tile_rtc.w;       // tileSouth
+
+  let local_x = local_lon * DEG2RAD * EARTH_R;
+
+  // Mercator values for UV correction (raster tiles are always Web Mercator)
+  let abs_clamped = clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
+  let org_clamped = clamp(origin_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
+  let merc_lat = log(tan(PI / 4.0 + abs_clamped * DEG2RAD / 2.0));
+  let merc_south = log(tan(PI / 4.0 + org_clamped * DEG2RAD / 2.0));
+  let north_clamped = clamp(tile.bounds.w, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
+  let merc_north = log(tan(PI / 4.0 + north_clamped * DEG2RAD / 2.0));
+  // UV in Mercator space: vv=0 → north, vv=1 → south (matching texture layout)
+  let merc_vv = (merc_north - merc_lat) / (merc_north - merc_south);
+
+  var local_y: f32;
+  let t = u.proj_params.x;
+  if (t < 0.5) {
+    // Mercator: nonlinear Y, compute relative to tile origin (same as vector shader)
+    local_y = (merc_lat - merc_south) * EARTH_R;
+  } else if (t < 1.5) {
+    // Equirectangular
+    local_y = (lat - origin_lat) * DEG2RAD * EARTH_R;
+  } else {
+    // Other projections: project absolute then subtract origin
+    let projected = project(lon, lat);
+    let origin_projected = project(tile.tile_rtc.z, origin_lat);
+    let rtc_other = projected - origin_projected + tile.tile_rtc.xy;
+    var out: VsOut;
+    out.pos = u.mvp * vec4<f32>(rtc_other, 0.0, 1.0);
+    out.uv = vec2<f32>(uu, merc_vv);
+    out.vis = select(1.0, center_cos_c(lon, lat, u.proj_params.y, u.proj_params.z), t > 2.5);
+    return out;
+  }
+
+  // tile_rtc.xy = project(tileWest,tileSouth) - project(camera), computed CPU f64
+  let rtc = vec2<f32>(local_x + tile.tile_rtc.x, local_y + tile.tile_rtc.y);
 
   var out: VsOut;
   out.pos = u.mvp * vec4<f32>(rtc, 0.0, 1.0);
-  out.uv = vec2<f32>(uu, vv);
-
-  let t = u.proj_params.x;
-  if (t > 2.5 && t < 3.5) { out.vis = center_cos_c(lon, lat, u.proj_params.y, u.proj_params.z); }
-  else if (t > 4.5) { out.vis = center_cos_c(lon, lat, u.proj_params.y, u.proj_params.z); }
-  else { out.vis = 1.0; }
+  out.uv = vec2<f32>(uu, merc_vv);
+  out.vis = 1.0;
   return out;
 }
 
@@ -144,8 +189,6 @@ fn fs_tile(input: VsOut) -> @location(0) vec4<f32> {
 
 interface CachedTile {
   texture: GPUTexture
-  bindGroup: GPUBindGroup
-  tileUniform: GPUBuffer
   lastUsedFrame: number
 }
 
@@ -167,6 +210,10 @@ export class RasterRenderer {
   private lastZoom = -1
 
   private urlTemplate = ''
+  // Pool of per-draw tile uniform buffers (avoids writeBuffer race with draw)
+  private tileUniformPool: GPUBuffer[] = []
+  private tileUniformIdx = 0
+  private drawTileF32 = new Float32Array(8) // bounds(4) + tile_rtc(4)
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
@@ -198,6 +245,13 @@ export class RasterRenderer {
         }}],
       },
       primitive: { topology: 'triangle-list' },
+      depthStencil: {
+        format: 'stencil8',
+        stencilFront: { compare: 'always', passOp: 'keep' },
+        stencilBack: { compare: 'always', passOp: 'keep' },
+        stencilWriteMask: 0x00,
+        stencilReadMask: 0x00,
+      },
       multisample: { count: 4 },  // MSAA 4x
       label: 'raster-pipeline',
     })
@@ -247,7 +301,7 @@ export class RasterRenderer {
       this.lastZoom = currentZ
     }
 
-    const tiles = visibleTiles(centerLon, centerLat, zoom, canvasWidth, canvasHeight)
+    const tiles = visibleTiles(centerLon, centerLat, zoom, canvasWidth, canvasHeight, undefined, camera.bearing)
 
     // Sort by distance from center (priority loading)
     const n = Math.pow(2, currentZ)
@@ -271,23 +325,7 @@ export class RasterRenderer {
       loadImageTexture(this.device, url, ctrl.signal).then((texture) => {
         this.loadingTiles.delete(key)
         if (!texture) return
-
-        const bounds = tileBounds(coord)
-        const tileUniform = this.device.createBuffer({
-          size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        })
-        this.device.queue.writeBuffer(tileUniform, 0, new Float32Array([
-          bounds.west, bounds.south, bounds.east, bounds.north,
-        ]))
-
-        const bindGroup = this.device.createBindGroup({
-          layout: this.tileBindGroupLayout,
-          entries: [{ binding: 0, resource: { buffer: tileUniform } }],
-        })
-
-        this.tileCache.set(key, { texture, bindGroup, tileUniform, lastUsedFrame: this.frameCount })
-
-        // Evict old tiles if cache is full
+        this.tileCache.set(key, { texture, lastUsedFrame: this.frameCount })
         this.evictTiles(visibleKeys)
       })
     }
@@ -300,13 +338,59 @@ export class RasterRenderer {
 
     pass.setPipeline(this.pipeline)
 
-    // Render cached tiles
+    // Reset per-draw uniform pool index
+    this.tileUniformIdx = 0
+
+    // Render cached tiles (world-copy aware via coord.ox)
     for (const coord of tiles) {
       const key = `${coord.z}/${coord.x}/${coord.y}`
       const cached = this.tileCache.get(key)
       if (!cached) continue
 
       cached.lastUsedFrame = this.frameCount
+
+      // Get or create a pooled uniform buffer for this draw
+      if (this.tileUniformIdx >= this.tileUniformPool.length) {
+        this.tileUniformPool.push(this.device.createBuffer({
+          size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        }))
+      }
+      const tileBuf = this.tileUniformPool[this.tileUniformIdx++]
+
+      // Compute bounds using ox (original x) for correct world-copy positioning
+      const ox = coord.ox ?? coord.x
+      const west = ox / n * 360 - 180
+      const east = (ox + 1) / n * 360 - 180
+      const north = Math.atan(Math.sinh(Math.PI * (1 - 2 * coord.y / n))) * 180 / Math.PI
+      const south = Math.atan(Math.sinh(Math.PI * (1 - 2 * (coord.y + 1) / n))) * 180 / Math.PI
+
+      // Compute tile_rtc in f64: project(tileWest, tileSouth) - project(camera)
+      // Uses SW corner as origin — identical to vector tile renderer
+      const DEG2RAD = Math.PI / 180
+      const R = 6378137
+      const tileX = west * DEG2RAD * R
+      const centerX = projCenterLon * DEG2RAD * R
+      const MERC_LIMIT = 85.051129
+      const clampMerc = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
+      const tileY = projType < 0.5
+        ? Math.log(Math.tan(Math.PI / 4 + clampMerc(south) * DEG2RAD / 2)) * R
+        : south * DEG2RAD * R
+      const centerY = projType < 0.5
+        ? Math.log(Math.tan(Math.PI / 4 + clampMerc(projCenterLat) * DEG2RAD / 2)) * R
+        : projCenterLat * DEG2RAD * R
+
+      const tf = this.drawTileF32
+      tf[0] = west; tf[1] = south; tf[2] = east; tf[3] = north   // bounds
+      tf[4] = tileX - centerX  // tile_rtc.x (f64 → f32)
+      tf[5] = tileY - centerY  // tile_rtc.y
+      tf[6] = west             // tile_rtc.z = tileWest
+      tf[7] = south            // tile_rtc.w = tileSouth
+      this.device.queue.writeBuffer(tileBuf, 0, tf)
+
+      const tileBG = this.device.createBindGroup({
+        layout: this.tileBindGroupLayout,
+        entries: [{ binding: 0, resource: { buffer: tileBuf } }],
+      })
 
       const globalBG = this.device.createBindGroup({
         layout: this.globalBindGroupLayout,
@@ -318,8 +402,8 @@ export class RasterRenderer {
       })
 
       pass.setBindGroup(0, globalBG)
-      pass.setBindGroup(1, cached.bindGroup)
-      pass.draw(6)
+      pass.setBindGroup(1, tileBG)
+      pass.draw(384) // 8×8 grid × 6 verts/cell
     }
   }
 
@@ -336,7 +420,6 @@ export class RasterRenderer {
     for (let i = 0; i < toEvict && i < entries.length; i++) {
       const [key, tile] = entries[i]
       tile.texture.destroy()
-      tile.tileUniform.destroy()
       this.tileCache.delete(key)
     }
   }
