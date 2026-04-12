@@ -390,7 +390,7 @@ export class XGISMap {
     {
       // ═══ Direct rendering: vertex shader handles all projections ═══
       // MSAA + stencil texture management (recreate on resize)
-      const sc = this.ctx.sampleCount
+      const sc = 4 // MSAA 4x (WebGPU spec guarantees support)
       if (!this.msaaTexture || this.msaaWidth !== w || this.msaaHeight !== h) {
         this.msaaTexture?.destroy()
         this.stencilTexture?.destroy()
