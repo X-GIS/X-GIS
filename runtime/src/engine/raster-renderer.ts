@@ -198,7 +198,7 @@ export class RasterRenderer {
         }}],
       },
       primitive: { topology: 'triangle-list' },
-      multisample: { count: ctx.sampleCount },
+      multisample: { count: 4 },  // MSAA 4x
       label: 'raster-pipeline',
     })
 

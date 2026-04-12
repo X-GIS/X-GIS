@@ -535,7 +535,7 @@ export class MapRenderer {
       stencilReadMask: 0xFF,
     }
 
-    const ms = { count: ctx.sampleCount }
+    const ms = { count: 4 }  // MSAA 4x
 
     // Fill pipeline (stencil write — current zoom tiles)
     this.fillPipeline = device.createRenderPipeline({
@@ -777,7 +777,7 @@ export class MapRenderer {
       stencilReadMask: 0xFF,
     }
 
-    const ms = { count: this.ctx.sampleCount }
+    const ms = { count: 4 }  // MSAA 4x
 
     const fillPipeline = device.createRenderPipeline({
       layout: pipelineLayout,
