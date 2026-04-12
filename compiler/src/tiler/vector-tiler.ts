@@ -200,6 +200,12 @@ function shoelaceArea(ring: number[][]): number {
 
 // ═══ Tessellation ═══
 
+/** Project latitude to Mercator Y (unitless, for earcut topology only) */
+function latToMercatorY(lat: number): number {
+  const rad = lat * Math.PI / 180
+  return Math.log(Math.tan(Math.PI / 4 + rad / 2))
+}
+
 function tessellatePolygonToArrays(
   rings: number[][][],
   featureId: number,
@@ -207,17 +213,25 @@ function tessellatePolygonToArrays(
   outIdx: number[],
 ): void {
   const baseVertex = outVerts.length / 3
+
+  // Original lon/lat coords for vertex output
   const flatCoords: number[] = []
+  // Mercator-projected coords for earcut topology — triangle edges will be
+  // straight in Mercator space, matching GPU rendering (no coastline overshoot)
+  const mercCoords: number[] = []
   const holeIndices: number[] = []
 
   for (let r = 0; r < rings.length; r++) {
     if (r > 0) holeIndices.push(flatCoords.length / 2)
     for (const coord of rings[r]) {
       flatCoords.push(coord[0], coord[1])
+      mercCoords.push(coord[0], latToMercatorY(coord[1]))
     }
   }
 
-  const earcutIdx = earcut(flatCoords, holeIndices.length > 0 ? holeIndices : undefined)
+  // Earcut in Mercator space: determines WHICH vertices connect (index buffer)
+  // Vertex positions remain in lon/lat for the existing shader pipeline
+  const earcutIdx = earcut(mercCoords, holeIndices.length > 0 ? holeIndices : undefined)
 
   for (let i = 0; i < flatCoords.length; i += 2) {
     outVerts.push(flatCoords[i], flatCoords[i + 1], featureId)
