@@ -1,0 +1,9 @@
+source world {
+  type: geojson
+  url: "ne_110m_countries.xgvt"
+}
+
+layer countries {
+  source: world
+  | fill categorical(NAME) stroke-slate-600 stroke-1 opacity-95
+}

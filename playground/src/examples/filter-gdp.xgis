@@ -1,0 +1,35 @@
+style dark_base {
+  fill: slate-900
+  stroke: slate-700
+  stroke-width: 0.5
+}
+
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+/* All countries as dark background */
+layer all {
+  source: countries
+  style: dark_base
+}
+
+/* GDP > $1 trillion */
+layer wealthy {
+  source: countries
+  filter: .GDP_MD_EST > 1000000
+  fill: emerald-600
+  stroke: emerald-400
+  stroke-width: 1
+  opacity: 0.9
+}
+
+/* GDP > $5 trillion — top economies */
+layer top_economies {
+  source: countries
+  filter: .GDP_MD_EST > 5000000
+  fill: yellow-500
+  stroke: yellow-300
+  stroke-width: 2
+}

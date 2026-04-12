@@ -2,7 +2,7 @@
 // Converts IR Scene to the existing runtime SceneCommands format.
 // This bridge allows the runtime to consume IR without changes.
 
-import type { Scene, RenderNode, ColorValue, ZoomStop } from './render-node'
+import type { Scene, RenderNode, ColorValue, ZoomStop, DataExpr } from './render-node'
 import { rgbaToHex } from './render-node'
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
 
@@ -25,6 +25,7 @@ export interface ShowCommand {
   zoomOpacityStops: ZoomStop<number>[] | null
   zoomSizeStops: ZoomStop<number>[] | null
   shaderVariant: ShaderVariant | null
+  filterExpr: DataExpr | null
 }
 
 export interface SceneCommands {
@@ -63,6 +64,7 @@ function emitShow(node: RenderNode): ShowCommand {
     zoomOpacityStops: node.opacity.kind === 'zoom-interpolated' ? node.opacity.stops : null,
     zoomSizeStops: node.size.kind === 'zoom-interpolated' ? node.size.stops : null,
     shaderVariant,
+    filterExpr: node.filter,
   }
 }
 

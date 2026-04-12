@@ -4,82 +4,254 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>X-GIS Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #0a0a0f; color: #e0e0e0; font-family: system-ui, sans-serif; overflow: hidden; }
-    #map { width: 100vw; height: 100vh; display: block; touch-action: none; }
+    :root {
+      --bg: #06080c;
+      --surface: #0c1017;
+      --surface-glass: rgba(10, 14, 22, 0.88);
+      --border: #1a2233;
+      --border-hover: #2a3a52;
+      --text: #c8d3e0;
+      --text-dim: #5a6a7e;
+      --text-muted: #3a4858;
+      --accent: #38bdf8;
+      --accent-dim: #38bdf818;
+      --font-sans: 'DM Sans', system-ui, sans-serif;
+      --font-mono: 'DM Mono', 'Fira Code', monospace;
+    }
 
-    /* ── Top bar ── */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    #map {
+      width: 100vw; height: 100vh;
+      display: block; touch-action: none;
+    }
+
+    /* ── Top Bar ── */
     #topbar {
       position: fixed; top: 0; left: 0; right: 0;
-      display: flex; align-items: center; gap: 12px;
-      padding: 0 16px; height: 40px;
-      background: rgba(10, 10, 15, 0.9);
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid #1a1a28;
+      display: flex; align-items: center; gap: 8px;
+      padding: 0 16px; height: 44px;
+      background: var(--surface-glass);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      border-bottom: 1px solid var(--border);
       z-index: 20;
-      font-size: 13px;
     }
-    #topbar a {
-      color: #60a5fa; text-decoration: none;
-      display: flex; align-items: center; gap: 4px;
-    }
-    #topbar a:hover { color: #93bbfc; }
-    #topbar .sep { color: #333; }
-    #demo-title { font-weight: 600; color: #ccc; }
-    #demo-desc { color: #666; font-size: 12px; margin-left: auto; }
 
-    /* ── Source code panel ── */
+    .tb-back {
+      color: var(--text-dim); text-decoration: none;
+      font-size: 12px; font-weight: 500;
+      display: flex; align-items: center; gap: 5px;
+      padding: 5px 10px; border-radius: 6px;
+      transition: all 0.15s;
+    }
+    .tb-back:hover { color: var(--accent); background: var(--accent-dim); }
+    .tb-back svg { width: 14px; height: 14px; }
+
+    .tb-sep {
+      width: 1px; height: 18px;
+      background: var(--border);
+      margin: 0 4px;
+    }
+
+    /* Nav buttons */
+    .tb-nav {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      width: 30px; height: 30px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
+      flex-shrink: 0;
+      font-size: 16px;
+    }
+    .tb-nav:hover:not(:disabled) {
+      border-color: var(--border-hover);
+      color: var(--text);
+      background: var(--surface);
+    }
+    .tb-nav:disabled { opacity: 0.25; cursor: default; }
+
+    /* Selector */
+    #demo-select {
+      font-family: var(--font-sans);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 13px; font-weight: 500;
+      padding: 5px 12px 5px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      max-width: 220px;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%235a6a7e' fill='none' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 28px;
+    }
+    #demo-select:focus { outline: none; border-color: var(--accent); }
+
+    .tb-tag {
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid #38bdf830;
+      border-radius: 4px;
+      padding: 2px 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+
+    .tb-desc {
+      color: var(--text-muted);
+      font-size: 11px;
+      margin-left: auto;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Source Panel ── */
     #source-panel {
-      position: fixed; top: 52px; right: 12px;
-      background: rgba(12, 12, 20, 0.92);
-      border: 1px solid #1e1e2e;
-      border-radius: 10px;
-      padding: 0; max-width: 380px;
+      position: fixed; top: 56px; right: 14px;
+      background: var(--surface-glass);
+      border: 1px solid var(--border);
+      border-radius: 14px;
       overflow: hidden; z-index: 20;
-      backdrop-filter: blur(12px);
-      box-shadow: 0 8px 32px #0006;
-    }
-    #source-panel summary {
-      cursor: pointer; font-size: 11px; color: #666;
-      user-select: none; padding: 8px 14px;
-      border-bottom: 1px solid #1a1a28;
-      text-transform: uppercase; letter-spacing: 0.05em;
-    }
-    #source-panel[open] summary { color: #888; }
-    #source-code {
-      font-family: 'Fira Code', 'Cascadia Code', 'SF Mono', monospace;
-      font-size: 12px; color: #a5d6ff;
-      white-space: pre; line-height: 1.6;
-      padding: 12px 14px;
-      max-height: 50vh; overflow: auto;
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      box-shadow: 0 12px 48px #00000060;
+      width: 420px;
+      max-width: calc(100vw - 28px);
+      transition: opacity 0.2s, transform 0.2s;
     }
 
-    /* ── Status bar ── */
+    #source-panel summary {
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      user-select: none;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px;
+      transition: color 0.15s;
+    }
+    #source-panel summary:hover { color: var(--text-dim); }
+    #source-panel[open] summary { color: var(--text-dim); }
+    #source-panel summary::marker { content: ''; }
+    #source-panel summary .chevron {
+      transition: transform 0.2s;
+      width: 12px; height: 12px;
+      flex-shrink: 0;
+    }
+    #source-panel[open] summary .chevron { transform: rotate(90deg); }
+
+    #source-code {
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      line-height: 1.75;
+      padding: 16px 18px;
+      max-height: 55vh;
+      overflow: auto;
+      white-space: pre;
+      tab-size: 2;
+      color: #7b8fad;
+    }
+    #source-code::-webkit-scrollbar { width: 6px; }
+    #source-code::-webkit-scrollbar-track { background: transparent; }
+    #source-code::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* Syntax colors — Material Ocean inspired */
+    .tk-kw { color: #c792ea; }
+    .tk-str { color: #c3e88d; }
+    .tk-num { color: #f78c6c; }
+    .tk-cm { color: #546e7a; font-style: italic; }
+    .tk-prop { color: #82aaff; }
+    .tk-color { color: #ffcb6b; }
+    .tk-pipe { color: #89ddff; font-weight: 500; }
+    .tk-op { color: #89ddff; }
+    .tk-field { color: #f07178; }
+    .tk-fn { color: #82aaff; }
+
+    /* ── Status ── */
     #status {
-      position: fixed; bottom: 12px; left: 12px;
-      background: rgba(0, 0, 0, 0.7); padding: 6px 14px;
-      border-radius: 6px; font-size: 12px; color: #777;
-      pointer-events: none; z-index: 10;
+      position: fixed; bottom: 14px; left: 14px;
+      background: var(--surface-glass);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      padding: 6px 16px;
+      border-radius: 8px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      pointer-events: none;
+      z-index: 10;
       transition: opacity 0.5s;
     }
 
-    /* ── Error overlay ── */
+    /* ── Error ── */
     #error {
       position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      background: #12121e; padding: 2rem; border-radius: 12px;
-      border: 1px solid #e74c3c; max-width: 480px;
+      background: var(--surface);
+      padding: 2rem;
+      border-radius: 16px;
+      border: 1px solid #f4364430;
+      max-width: 520px;
       display: none; z-index: 30;
-      box-shadow: 0 16px 48px #0008;
+      box-shadow: 0 20px 60px #00000070;
     }
-    #error h2 { color: #e74c3c; font-size: 1rem; margin-bottom: 0.8rem; }
-    #error pre { color: #ccc; font-size: 12px; white-space: pre-wrap; line-height: 1.5; }
+    #error h2 { color: #f43644; font-size: 0.9rem; font-weight: 600; margin-bottom: 0.8rem; }
+    #error pre {
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      white-space: pre-wrap;
+      line-height: 1.6;
+    }
 
-    @media (max-width: 640px) {
-      #demo-desc { display: none; }
-      #source-panel { right: 8px; left: 8px; max-width: none; top: 48px; }
-      #source-panel summary { font-size: 10px; }
-      #source-code { font-size: 11px; }
+    /* ── Keyboard hints ── */
+    #kbd-hint {
+      position: fixed; bottom: 14px; right: 14px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+      z-index: 5;
+      pointer-events: none;
+      display: flex; gap: 12px;
+    }
+    kbd {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-family: inherit;
+      font-size: inherit;
+    }
+
+    @media (max-width: 740px) {
+      .tb-desc { display: none; }
+      #source-panel { right: 8px; left: 8px; width: auto; top: 52px; }
+      #source-code { font-size: 11.5px; max-height: 40vh; }
+      #kbd-hint { display: none; }
     }
   </style>
 </head>
@@ -87,19 +259,33 @@
   <canvas id="map"></canvas>
 
   <div id="topbar">
-    <a href="/">&larr; All Demos</a>
-    <span class="sep">/</span>
-    <span id="demo-title"></span>
-    <span id="demo-desc"></span>
+    <a class="tb-back" href="/">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      Demos
+    </a>
+    <div class="tb-sep"></div>
+    <button class="tb-nav" id="prev-btn" title="Previous (←)">&#8249;</button>
+    <select id="demo-select"></select>
+    <button class="tb-nav" id="next-btn" title="Next (→)">&#8250;</button>
+    <span class="tb-tag" id="demo-tag"></span>
+    <span class="tb-desc" id="demo-desc"></span>
   </div>
 
   <details id="source-panel" open>
-    <summary>Source Code</summary>
+    <summary>
+      <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>
+      Source
+    </summary>
     <pre id="source-code"></pre>
   </details>
 
-  <div id="status">Loading...</div>
+  <div id="status">Initializing...</div>
   <div id="error"><h2>Error</h2><pre id="error-msg"></pre></div>
+
+  <div id="kbd-hint">
+    <span><kbd>←</kbd><kbd>→</kbd> navigate</span>
+    <span><kbd>S</kbd> source</span>
+  </div>
 
   <script type="module" src="/src/demo-runner.ts"></script>
 </body>

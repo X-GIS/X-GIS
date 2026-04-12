@@ -55,11 +55,15 @@
       "patterns": [
         {
           "name": "keyword.control.xgis",
-          "match": "\\b(source|layer|preset|import|let|fn|if|else|for|in|return|match|symbol)\\b"
+          "match": "\\b(source|layer|preset|style|import|let|fn|if|else|for|in|return|match|symbol)\\b"
         },
         {
           "name": "keyword.other.xgis",
-          "match": "\\b(type|url|visible|hidden)\\b"
+          "match": "\\b(type|url|visible|hidden|filter)\\b"
+        },
+        {
+          "name": "support.type.property-name.xgis",
+          "match": "\\b(fill|stroke|stroke-width|opacity|size)(?=\\s*:)"
         },
         {
           "name": "constant.language.xgis",

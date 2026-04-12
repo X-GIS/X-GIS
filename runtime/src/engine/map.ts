@@ -1,6 +1,6 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { Lexer, Parser, lower, optimize, emitCommands } from '@xgis/compiler'
+import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONToTiles } from '@xgis/compiler'
 import { deserializeXGB } from '../../../compiler/src/binary/format'
 import { initGPU, resizeCanvas, type GPUContext } from './gpu'
 import { Camera } from './camera'
@@ -168,7 +168,10 @@ export class XGISMap {
           this.camera.centerX = cx
           this.camera.centerY = cy
           const lonSpan = maxLon - minLon
-          this.camera.zoom = lonSpan >= 350 ? 1 : Math.max(0.5, Math.log2(360 / lonSpan) + 1)
+          const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+          const cssW = this.canvas.width / dpr
+          const degPerPx = lonSpan / cssW
+          this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
         }
       } else {
         const response = await fetch(url)
@@ -215,7 +218,8 @@ export class XGISMap {
       if ((data as unknown as { _tileUrl?: string })._tileUrl) continue
 
       // Skip vector tile sources (handled by per-source VectorTileRenderer)
-      if ((data as unknown as { _vectorTile?: boolean })._vectorTile) {
+      // This includes both .xgvt files AND GeoJSON sources that were tiled in-memory
+      if ((data as unknown as { _vectorTile?: boolean })._vectorTile || this.vtSources.has(show.targetName)) {
         const vtEntry = this.vtSources.get(show.targetName)
         if (!vtEntry) continue
 
@@ -241,21 +245,48 @@ export class XGISMap {
         continue
       }
 
-      const mesh = loadGeoJSON(data)
-      this.renderer.addLayer(show, mesh.polygons, mesh.lines)
+      // GeoJSON → in-memory tiling → VectorTileRenderer (same path as .xgvt)
+      const filtered = applyFilter(data, show.filterExpr)
+      const tileSet = compileGeoJSONToTiles(filtered)
 
-      // Bounds are in lon/lat degrees → project to mercator for initial camera fit
-      if (mesh.polygons.bounds[0] < Infinity && isFinite(mesh.polygons.bounds[1])) {
-        const [minLon, minLat, maxLon, maxLat] = mesh.polygons.bounds
-        // Project bounds center to mercator for camera positioning
-        const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, (minLat + maxLat) / 2)
+      const source = new XGVTSource()
+      const vtRenderer = new VectorTileRenderer(this.ctx)
+      vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
+      vtRenderer.setSource(source)
+      source.loadFromTileSet(tileSet)
+      this.vtSources.set(show.targetName, { source, renderer: vtRenderer })
+
+      // Setup shader variant if needed
+      let pipelines: typeof this.vtVariantPipelines = null
+      let layout: GPUBindGroupLayout | null = null
+      const variant = show.shaderVariant
+      if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
+        try {
+          pipelines = this.renderer.getOrCreateVariantPipelines(variant as any)
+          layout = variant.needsFeatureBuffer
+            ? this.renderer.featureBindGroupLayout
+            : this.renderer.bindGroupLayout
+          if (variant.needsFeatureBuffer && !vtRenderer.hasFeatureData()) {
+            vtRenderer.buildFeatureDataBuffer(variant as any, layout)
+          }
+        } catch (e) {
+          console.warn('[X-GIS] GeoJSON VT variant pipeline failed:', e)
+        }
+      }
+      this.vectorTileShows.set(show.targetName, { show, pipelines, layout })
+
+      // Fit camera to bounds
+      const [minLon, minLat, maxLon, maxLat] = tileSet.bounds
+      if (minLon < Infinity) {
+        const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
+        const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
         this.camera.centerX = cx
         this.camera.centerY = cy
-
-        // Estimate zoom from degree extent
         const lonSpan = maxLon - minLon
-        const degPerPixel = lonSpan / this.canvas.clientWidth
-        this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPixel * 256)) - 1)
+        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+        const cssW = this.canvas.width / dpr
+        const degPerPx = lonSpan / cssW
+        this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
       }
     }
 
@@ -274,7 +305,8 @@ export class XGISMap {
       if (isTile) {
         this.canvasRenderer.addLayer(show, null, isTile as string)
       } else {
-        this.canvasRenderer.addLayer(show, data, null)
+        const filtered = applyFilter(data, show.filterExpr)
+        this.canvasRenderer.addLayer(show, filtered, null)
 
         // Fit camera to data bounds
         if (data.features?.length) {
@@ -559,4 +591,27 @@ export class XGISMap {
     this.controller?.detach()
     this.running = false
   }
+}
+
+/**
+ * Filter GeoJSON features using a compiled filter expression.
+ * Returns the original data if no filter is set.
+ */
+function applyFilter(
+  data: GeoJSONFeatureCollection,
+  filterExpr?: { ast: unknown } | null,
+): GeoJSONFeatureCollection {
+  if (!filterExpr?.ast || !data.features) return data
+
+  const ast = filterExpr.ast as import('@xgis/compiler').Expr
+  const filtered = data.features.filter(f => {
+    const result = evaluate(ast, f.properties ?? {})
+    // Truthy check: non-zero numbers, true booleans, non-empty strings
+    if (typeof result === 'boolean') return result
+    if (typeof result === 'number') return result !== 0
+    return !!result
+  })
+
+  if (filtered.length === data.features.length) return data
+  return { ...data, features: filtered }
 }

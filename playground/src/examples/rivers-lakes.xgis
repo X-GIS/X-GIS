@@ -1,0 +1,29 @@
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+source rivers {
+  type: geojson
+  url: "ne_110m_rivers.geojson"
+}
+
+source lakes {
+  type: geojson
+  url: "ne_110m_lakes.geojson"
+}
+
+layer bg {
+  source: countries
+  | fill-stone-800 stroke-stone-700 stroke-1
+}
+
+layer lakes {
+  source: lakes
+  | fill-sky-600 stroke-sky-400 stroke-1
+}
+
+layer rivers {
+  source: rivers
+  | stroke-sky-400 stroke-1
+}

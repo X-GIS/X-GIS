@@ -1,0 +1,29 @@
+source land {
+  type: geojson
+  url: "ne_110m_land.xgvt"
+}
+
+source rivers {
+  type: geojson
+  url: "ne_110m_rivers.xgvt"
+}
+
+source lakes {
+  type: geojson
+  url: "ne_110m_lakes.xgvt"
+}
+
+layer land {
+  source: land
+  | fill-stone-800 stroke-slate-600 stroke-1
+}
+
+layer lakes {
+  source: lakes
+  | fill-sky-700
+}
+
+layer rivers {
+  source: rivers
+  | stroke-sky-600 stroke-1
+}

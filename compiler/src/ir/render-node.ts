@@ -32,6 +32,7 @@ export interface RenderNode {
   size: SizeValue
   projection: string
   visible: boolean
+  filter: DataExpr | null  // per-feature filter expression (e.g., .pop > 1000000)
 }
 
 // ═══ Value types — designed for Phase 1 extension ═══

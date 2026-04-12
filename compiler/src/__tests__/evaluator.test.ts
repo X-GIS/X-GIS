@@ -205,3 +205,42 @@ describe('Data-driven IR lowering', () => {
     }
   })
 })
+
+describe('Filter expression evaluation', () => {
+  function compileScene(source: string) {
+    const tokens = new Lexer(source).tokenize()
+    const ast = new Parser(tokens).parse()
+    return lower(ast)
+  }
+
+  it('evaluates numeric comparison filter', () => {
+    const scene = compileScene(`
+      source data { type: geojson, url: "x.geojson" }
+      layer big { source: data, filter: .pop > 1000000, fill: red-500 }
+    `)
+    const filter = scene.renderNodes[0].filter!
+    expect(evaluate(filter.ast, { pop: 5000000 })).toBe(true)
+    expect(evaluate(filter.ast, { pop: 500 })).toBe(false)
+  })
+
+  it('evaluates string equality filter', () => {
+    const scene = compileScene(`
+      source data { type: geojson, url: "x.geojson" }
+      layer rivers { source: data, filter: .type == "river", stroke: blue-500 }
+    `)
+    const filter = scene.renderNodes[0].filter!
+    expect(evaluate(filter.ast, { type: 'river' })).toBe(true)
+    expect(evaluate(filter.ast, { type: 'lake' })).toBe(false)
+  })
+
+  it('evaluates compound logical filter', () => {
+    const scene = compileScene(`
+      source data { type: geojson, url: "x.geojson" }
+      layer big_cities { source: data, filter: .pop > 500000 && .type == "city", fill: amber-500 }
+    `)
+    const filter = scene.renderNodes[0].filter!
+    expect(evaluate(filter.ast, { pop: 1000000, type: 'city' })).toBe(true)
+    expect(evaluate(filter.ast, { pop: 1000000, type: 'town' })).toBe(false)
+    expect(evaluate(filter.ast, { pop: 100, type: 'city' })).toBe(false)
+  })
+})

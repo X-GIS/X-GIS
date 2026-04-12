@@ -15,6 +15,7 @@ export type Statement =
   | PresetStatement
   | ImportStatement
   | SymbolStatement
+  | StyleStatement
 
 // let world = load("countries.geojson")
 export type LetStatement = {
@@ -172,6 +173,7 @@ export type LayerStatement = {
   name: string
   properties: BlockProperty[]
   utilities: UtilityLine[]
+  styleProperties: StyleProperty[]  // CSS-like properties: fill: stone-800
   line: number
 }
 
@@ -219,6 +221,22 @@ export type SymbolElement =
   | { kind: 'rect'; props: Record<string, number> }
   | { kind: 'circle'; props: Record<string, number> }
   | { kind: 'anchor'; value: string }
+
+// style dark_land { fill: stone-800, stroke: slate-600, stroke-width: 1 }
+export type StyleStatement = {
+  kind: 'StyleStatement'
+  name: string
+  properties: StyleProperty[]
+  line: number
+}
+
+// CSS-like property: fill: stone-800, stroke-width: 1, opacity: 0.8
+export type StyleProperty = {
+  kind: 'StyleProperty'
+  name: string     // e.g., 'fill', 'stroke', 'stroke-width', 'opacity'
+  value: string    // e.g., 'stone-800', '#ff0000', '1', '0.8'
+  line: number
+}
 
 // A single utility item, e.g., z8:fill-red-500 or size-[speed/50]
 export type UtilityItem = {

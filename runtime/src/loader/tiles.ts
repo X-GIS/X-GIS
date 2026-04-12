@@ -25,6 +25,7 @@ export function visibleTiles(
   viewportWidth: number,
   viewportHeight: number,
   cameraZoom?: number,
+  bearing?: number,
 ): TileCoord[] {
   const z = Math.max(0, Math.min(18, Math.round(zoom)))
   const n = Math.pow(2, z)
@@ -38,8 +39,21 @@ export function visibleTiles(
   const effectiveZoom = cameraZoom ?? zoom
   const scale = Math.pow(2, effectiveZoom - z) // how many screen-tile-sizes per actual tile
   const tileSize = 256 * scale
-  const tilesX = Math.ceil(viewportWidth / tileSize / 2) + 1
-  const tilesY = Math.ceil(viewportHeight / tileSize / 2) + 1
+
+  // When the map is rotated, the axis-aligned bounding box of the viewport
+  // is larger than the viewport itself. Scale up by the AABB of a rotated rect.
+  let effW = viewportWidth
+  let effH = viewportHeight
+  if (bearing) {
+    const rad = Math.abs(bearing * Math.PI / 180)
+    const cos = Math.abs(Math.cos(rad))
+    const sin = Math.abs(Math.sin(rad))
+    effW = viewportWidth * cos + viewportHeight * sin
+    effH = viewportWidth * sin + viewportHeight * cos
+  }
+
+  const tilesX = Math.ceil(effW / tileSize / 2) + 1
+  const tilesY = Math.ceil(effH / tileSize / 2) + 1
 
   const tiles: TileCoord[] = []
   for (let dx = -tilesX; dx <= tilesX; dx++) {

@@ -29,6 +29,7 @@ export enum TokenType {
   From, // from
   Export, // export
   SymbolDef, // symbol
+  Style, // style
 
   // Units
   Px, // px
@@ -104,6 +105,7 @@ const KEYWORDS: Record<string, TokenType> = {
   from: TokenType.From,
   export: TokenType.Export,
   symbol: TokenType.SymbolDef,
+  style: TokenType.Style,
   true: TokenType.Bool,
   false: TokenType.Bool,
 }

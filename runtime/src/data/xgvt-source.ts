@@ -9,6 +9,7 @@ import {
   clipPolygonToRect,
   type XGVTIndex, type TileIndexEntry,
   type PropertyTable, type RingPolygon,
+  type CompiledTileSet,
 } from '@xgis/compiler'
 import { visibleTiles } from '../loader/tiles'
 
@@ -127,6 +128,71 @@ export class XGVTSource {
 
     // Load z0-z4 tiles BEFORE returning (guarantees fallback coverage)
     await this.preloadLowZoomTiles()
+  }
+
+  /**
+   * Load from an in-memory CompiledTileSet (from compileGeoJSONToTiles).
+   * Populates cache directly — no file I/O, no decompression.
+   */
+  loadFromTileSet(tileSet: CompiledTileSet): void {
+    // Build a synthetic XGVTIndex
+    const entries: TileIndexEntry[] = []
+    const entryByHash = new Map<number, TileIndexEntry>()
+
+    let tileCount = 0
+    for (const level of tileSet.levels) {
+      for (const [, tile] of level.tiles) {
+        const key = tileKey(tile.z, tile.x, tile.y)
+        const isFullCover = !!tile.fullCover
+        const fid = tile.fullCoverFeatureId ?? 0
+        const entry: TileIndexEntry = {
+          tileHash: key,
+          dataOffset: 0,
+          compactSize: 0,
+          gpuReadySize: 0,
+          vertexCount: tile.vertices.length / 3,
+          indexCount: tile.indices.length,
+          lineVertexCount: tile.lineVertices.length / 3,
+          lineIndexCount: tile.lineIndices.length,
+          flags: isFullCover ? (TILE_FLAG_FULL_COVER | (fid << 1)) : 0,
+          fullCoverFeatureId: fid,
+        }
+        entries.push(entry)
+        entryByHash.set(key, entry)
+
+        // Full-cover tiles: generate quad (same as createFullCoverTileData)
+        if (isFullCover && tile.vertices.length === 0) {
+          this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
+        } else {
+          const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({
+            rings: p.rings, featId: p.featId,
+          }))
+          this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+        }
+        tileCount++
+      }
+    }
+
+    const [minLon, minLat, maxLon, maxLat] = tileSet.bounds
+    this.index = {
+      header: {
+        magic: 0x54564758,
+        version: 1,
+        minLevel: tileSet.levels.length > 0 ? tileSet.levels[0].zoom : 0,
+        maxLevel: tileSet.levels.length > 0 ? tileSet.levels[tileSet.levels.length - 1].zoom : 0,
+        bounds: [minLon, minLat, maxLon, maxLat],
+        indexOffset: 0,
+        indexLength: 0,
+        propTableOffset: 0,
+        propTableLength: 0,
+      },
+      entries,
+      entryByHash,
+      propertyTable: tileSet.propertyTable,
+    }
+    this.isFullFileMode = true
+
+    console.log(`[X-GIS] In-memory tiles loaded: ${tileCount} tiles from ${tileSet.featureCount} features`)
   }
 
   private async preloadLowZoomTiles(): Promise<void> {

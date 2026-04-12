@@ -1,0 +1,9 @@
+source states {
+  type: geojson
+  url: "ne_50m_states.xgvt"
+}
+
+layer states {
+  source: states
+  | fill categorical(admin) stroke-slate-600 stroke-1 opacity-95
+}

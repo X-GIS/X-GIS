@@ -1,0 +1,9 @@
+source world {
+  type: geojson
+  url: "countries.xgvt"
+}
+
+layer countries {
+  source: world
+  | fill-emerald-700 stroke-emerald-900 stroke-1
+}

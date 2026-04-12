@@ -1,0 +1,9 @@
+source world {
+  type: geojson
+  url: "countries.geojson"
+}
+
+layer countries {
+  source: world
+  | fill-stone-200 stroke-stone-400 stroke-1
+}

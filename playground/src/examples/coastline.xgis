@@ -1,0 +1,9 @@
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.geojson"
+}
+
+layer coastline {
+  source: coast
+  | stroke-amber-400 stroke-2
+}

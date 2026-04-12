@@ -1,0 +1,18 @@
+source basemap {
+  type: raster
+  url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+}
+
+source world {
+  type: geojson
+  url: "countries.geojson"
+}
+
+layer tiles {
+  source: basemap
+}
+
+layer borders {
+  source: world
+  | fill-blue-500 opacity-20 stroke-white stroke-1
+}

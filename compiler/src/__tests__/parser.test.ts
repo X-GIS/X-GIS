@@ -307,6 +307,153 @@ describe('Parser', () => {
     })
   })
 
+  describe('style statement', () => {
+    it('parses named style block', () => {
+      const ast = parse(`
+        style dark_land {
+          fill: stone-800
+          stroke: slate-600
+          stroke-width: 1
+          opacity: 0.8
+        }
+      `)
+      expect(ast.body).toHaveLength(1)
+
+      const stmt = ast.body[0] as AST.StyleStatement
+      expect(stmt.kind).toBe('StyleStatement')
+      expect(stmt.name).toBe('dark_land')
+      expect(stmt.properties).toHaveLength(4)
+
+      expect(stmt.properties[0]).toMatchObject({ name: 'fill', value: 'stone-800' })
+      expect(stmt.properties[1]).toMatchObject({ name: 'stroke', value: 'slate-600' })
+      expect(stmt.properties[2]).toMatchObject({ name: 'stroke-width', value: '1' })
+      expect(stmt.properties[3]).toMatchObject({ name: 'opacity', value: '0.8' })
+    })
+
+    it('parses style with hex colors', () => {
+      const ast = parse(`
+        style custom {
+          fill: #ff0000
+          stroke: #ccc
+        }
+      `)
+      const stmt = ast.body[0] as AST.StyleStatement
+      expect(stmt.properties[0]).toMatchObject({ name: 'fill', value: '#ff0000' })
+      expect(stmt.properties[1]).toMatchObject({ name: 'stroke', value: '#ccc' })
+    })
+
+    it('parses style with comma-separated properties', () => {
+      const ast = parse(`style s { fill: red-500, stroke: white, stroke-width: 2 }`)
+      const stmt = ast.body[0] as AST.StyleStatement
+      expect(stmt.properties).toHaveLength(3)
+    })
+  })
+
+  describe('layer with CSS-like properties', () => {
+    it('parses inline CSS properties in layer', () => {
+      const ast = parse(`
+        layer lakes {
+          source: world
+          fill: sky-700
+          stroke: slate-400
+          stroke-width: 0.5
+          opacity: 0.9
+        }
+      `)
+      const stmt = ast.body[0] as AST.LayerStatement
+      expect(stmt.properties).toHaveLength(1) // only source
+      expect(stmt.properties[0].name).toBe('source')
+      expect(stmt.styleProperties).toHaveLength(4)
+      expect(stmt.styleProperties[0]).toMatchObject({ name: 'fill', value: 'sky-700' })
+      expect(stmt.styleProperties[1]).toMatchObject({ name: 'stroke', value: 'slate-400' })
+      expect(stmt.styleProperties[2]).toMatchObject({ name: 'stroke-width', value: '0.5' })
+      expect(stmt.styleProperties[3]).toMatchObject({ name: 'opacity', value: '0.9' })
+    })
+
+    it('parses layer with style ref and inline CSS', () => {
+      const ast = parse(`
+        layer land {
+          source: world
+          style: dark_land
+          fill: green-800
+        }
+      `)
+      const stmt = ast.body[0] as AST.LayerStatement
+      expect(stmt.properties).toHaveLength(2) // source + style
+      expect(stmt.properties[1].name).toBe('style')
+      expect((stmt.properties[1].value as AST.Identifier).name).toBe('dark_land')
+      expect(stmt.styleProperties).toHaveLength(1)
+      expect(stmt.styleProperties[0]).toMatchObject({ name: 'fill', value: 'green-800' })
+    })
+
+    it('parses layer with CSS and utilities coexisting', () => {
+      const ast = parse(`
+        layer countries {
+          source: world
+          fill: emerald-600
+          | stroke-white stroke-1 opacity-80
+        }
+      `)
+      const stmt = ast.body[0] as AST.LayerStatement
+      expect(stmt.styleProperties).toHaveLength(1)
+      expect(stmt.styleProperties[0]).toMatchObject({ name: 'fill', value: 'emerald-600' })
+      expect(stmt.utilities).toHaveLength(1)
+      expect(stmt.utilities[0].items).toHaveLength(3)
+    })
+  })
+
+  describe('layer with filter', () => {
+    it('parses filter expression in layer block', () => {
+      const ast = parse(`
+        layer cities {
+          source: world
+          filter: .pop > 1000000
+          fill: red-500
+        }
+      `)
+      const stmt = ast.body[0] as AST.LayerStatement
+      expect(stmt.properties).toHaveLength(2) // source + filter
+      const filterProp = stmt.properties[1]
+      expect(filterProp.name).toBe('filter')
+      expect(filterProp.value.kind).toBe('BinaryExpr')
+      const bin = filterProp.value as AST.BinaryExpr
+      expect(bin.op).toBe('>')
+      expect((bin.left as AST.FieldAccess).field).toBe('pop')
+      expect((bin.right as AST.NumberLiteral).value).toBe(1000000)
+    })
+
+    it('parses filter with string comparison', () => {
+      const ast = parse(`
+        layer rivers {
+          source: water
+          filter: .type == "river"
+          stroke: blue-500
+        }
+      `)
+      const stmt = ast.body[0] as AST.LayerStatement
+      const filterProp = stmt.properties.find(p => p.name === 'filter')!
+      const bin = filterProp.value as AST.BinaryExpr
+      expect(bin.op).toBe('==')
+      expect((bin.left as AST.FieldAccess).field).toBe('type')
+      expect((bin.right as AST.StringLiteral).value).toBe('river')
+    })
+
+    it('parses filter with logical operators', () => {
+      const ast = parse(`
+        layer big_cities {
+          source: world
+          filter: .pop > 500000 && .type == "city"
+          fill: amber-500
+        }
+      `)
+      const stmt = ast.body[0] as AST.LayerStatement
+      const filterProp = stmt.properties.find(p => p.name === 'filter')!
+      expect(filterProp.value.kind).toBe('BinaryExpr')
+      const and = filterProp.value as AST.BinaryExpr
+      expect(and.op).toBe('&&')
+    })
+  })
+
   describe('show with data binding', () => {
     it('parses show with field access and expressions', () => {
       const ast = parse(`

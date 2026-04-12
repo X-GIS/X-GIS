@@ -29,18 +29,22 @@ export function lower(program: AST.Program): Scene {
   const renderNodes: RenderNode[] = []
   const sourceMap = new Map<string, SourceDef>()
   const presetMap = new Map<string, AST.UtilityLine[]>()
+  const styleMap = new Map<string, AST.StyleProperty[]>()
 
-  // First pass: collect presets
+  // First pass: collect presets and styles
   for (const stmt of program.body) {
     if (stmt.kind === 'PresetStatement') {
       presetMap.set(stmt.name, stmt.utilities)
+    } else if (stmt.kind === 'StyleStatement') {
+      styleMap.set(stmt.name, stmt.properties)
     }
   }
 
   for (const stmt of program.body) {
     switch (stmt.kind) {
       case 'PresetStatement':
-        break // already processed
+      case 'StyleStatement':
+        break // already processed in first pass
       case 'SourceStatement': {
         const src = lowerSource(stmt)
         if (src) {
@@ -50,7 +54,7 @@ export function lower(program: AST.Program): Scene {
         break
       }
       case 'LayerStatement': {
-        const node = lowerLayer(stmt, sourceMap, presetMap)
+        const node = lowerLayer(stmt, sourceMap, presetMap, styleMap)
         if (node) {
           // If the source was referenced but not yet added, add it
           if (!sources.find(s => s.name === node.sourceRef)) {
@@ -102,16 +106,23 @@ function lowerLayer(
   stmt: AST.LayerStatement,
   sourceMap: Map<string, SourceDef>,
   presetMap: Map<string, AST.UtilityLine[]>,
+  styleMap: Map<string, AST.StyleProperty[]>,
 ): RenderNode | null {
   // Extract block properties
   let sourceRef = ''
   let zOrder = 0
+  let styleRef = ''
+  let filterExpr: import('../parser/ast').Expr | null = null
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
       sourceRef = prop.value.name
     } else if (prop.name === 'z-order' && prop.value.kind === 'NumberLiteral') {
       zOrder = prop.value.value
+    } else if (prop.name === 'style' && prop.value.kind === 'Identifier') {
+      styleRef = prop.value.name
+    } else if (prop.name === 'filter') {
+      filterExpr = prop.value
     }
   }
 
@@ -128,6 +139,24 @@ function lowerLayer(
   let size: SizeValue = sizeNone()
   let projection = 'mercator'
   let visible = true
+
+  // Cascade order: named style → inline CSS → utilities
+  // 1. Apply named style (lowest priority)
+  if (styleRef) {
+    const namedProps = styleMap.get(styleRef)
+    if (namedProps) {
+      const result = applyStyleProperties(namedProps, fill, strokeColor, strokeWidth, opacity, projection, visible)
+      fill = result.fill; strokeColor = result.strokeColor; strokeWidth = result.strokeWidth
+      opacity = result.opacity; projection = result.projection; visible = result.visible
+    }
+  }
+
+  // 2. Apply inline CSS-like properties (overrides named style)
+  if (stmt.styleProperties.length > 0) {
+    const result = applyStyleProperties(stmt.styleProperties, fill, strokeColor, strokeWidth, opacity, projection, visible)
+    fill = result.fill; strokeColor = result.strokeColor; strokeWidth = result.strokeWidth
+    opacity = result.opacity; projection = result.projection; visible = result.visible
+  }
 
   // Collectors for modifier-based values
   const fillBranches: ConditionalBranch<ColorValue>[] = []
@@ -243,7 +272,60 @@ function lowerLayer(
     size,
     projection,
     visible,
+    filter: filterExpr ? { ast: filterExpr } : null,
   }
+}
+
+/**
+ * Apply CSS-like style properties to rendering values.
+ * Resolves color names (via Tailwind palette), hex colors, and numbers.
+ */
+function applyStyleProperties(
+  props: AST.StyleProperty[],
+  fill: ColorValue,
+  strokeColor: ColorValue,
+  strokeWidth: number,
+  opacity: OpacityValue,
+  projection: string,
+  visible: boolean,
+): { fill: ColorValue; strokeColor: ColorValue; strokeWidth: number; opacity: OpacityValue; projection: string; visible: boolean } {
+  for (const prop of props) {
+    switch (prop.name) {
+      case 'fill': {
+        const hex = resolveColor(prop.value) ?? (prop.value.startsWith('#') ? prop.value : null)
+        if (hex) fill = colorConstant(...hexToRgba(hex))
+        break
+      }
+      case 'stroke': {
+        const hex = resolveColor(prop.value) ?? (prop.value.startsWith('#') ? prop.value : null)
+        if (hex) strokeColor = colorConstant(...hexToRgba(hex))
+        break
+      }
+      case 'stroke-width': {
+        const num = parseFloat(prop.value)
+        if (!isNaN(num)) strokeWidth = num
+        break
+      }
+      case 'opacity': {
+        const num = parseFloat(prop.value)
+        if (!isNaN(num)) opacity = opacityConstant(num <= 1 ? num : num / 100)
+        break
+      }
+      case 'size': {
+        // size is not currently in the return signature but utilities handle it
+        break
+      }
+      case 'projection': {
+        projection = prop.value
+        break
+      }
+      case 'visible': {
+        visible = prop.value === 'true'
+        break
+      }
+    }
+  }
+  return { fill, strokeColor, strokeWidth, opacity, projection, visible }
 }
 
 /**
@@ -347,5 +429,6 @@ function lowerShow(stmt: AST.ShowStatement): RenderNode | null {
     size: sizeNone(),
     projection,
     visible,
+    filter: null,
   }
 }

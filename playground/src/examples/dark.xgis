@@ -1,0 +1,9 @@
+source world {
+  type: geojson
+  url: "countries.geojson"
+}
+
+layer countries {
+  source: world
+  | fill-slate-800 stroke-cyan-400 stroke-1 opacity-95
+}

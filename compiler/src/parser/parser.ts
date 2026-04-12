@@ -38,6 +38,8 @@ export class Parser {
         return this.parseImportStatement()
       case TokenType.SymbolDef:
         return this.parseSymbolStatement()
+      case TokenType.Style:
+        return this.parseStyleStatement()
       default:
         return this.parseExprStatement()
     }
@@ -151,7 +153,7 @@ export class Parser {
     return { kind: 'SourceStatement', name, properties, line }
   }
 
-  // layer name { key: value, ... | utility-items ... }
+  // layer name { key: value, ... | utility-items ... fill: color ... }
   private parseLayerStatement(): AST.LayerStatement {
     const line = this.current().line
     this.expect(TokenType.Layer)
@@ -160,13 +162,18 @@ export class Parser {
 
     const properties: AST.BlockProperty[] = []
     const utilities: AST.UtilityLine[] = []
+    const styleProperties: AST.StyleProperty[] = []
 
     while (!this.check(TokenType.RBrace) && !this.isEnd()) {
       if (this.check(TokenType.Pipe)) {
         // Utility line: | item item item ...
         utilities.push(this.parseUtilityLine())
+      } else if (this.isStylePropertyStart()) {
+        // CSS-like style property: fill: stone-800, stroke-width: 1
+        styleProperties.push(this.parseStyleProperty())
+        if (this.check(TokenType.Comma)) this.advance()
       } else {
-        // Block property: key: value
+        // Block property: key: value (source, z-order, style, etc.)
         properties.push(this.parseBlockProperty())
         // skip optional comma
         if (this.check(TokenType.Comma)) this.advance()
@@ -174,7 +181,7 @@ export class Parser {
     }
     this.expect(TokenType.RBrace)
 
-    return { kind: 'LayerStatement', name, properties, utilities, line }
+    return { kind: 'LayerStatement', name, properties, utilities, styleProperties, line }
   }
 
   // preset name { | utility-lines ... }
@@ -253,6 +260,79 @@ export class Parser {
     return { kind: 'SymbolStatement', name, elements, line }
   }
 
+  // style name { fill: stone-800, stroke: slate-600, stroke-width: 1 }
+  private parseStyleStatement(): AST.StyleStatement {
+    const line = this.current().line
+    this.expect(TokenType.Style)
+    const name = this.expect(TokenType.Identifier).value
+    this.expect(TokenType.LBrace)
+
+    const properties: AST.StyleProperty[] = []
+    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
+      properties.push(this.parseStyleProperty())
+      if (this.check(TokenType.Comma)) this.advance()
+    }
+    this.expect(TokenType.RBrace)
+
+    return { kind: 'StyleStatement', name, properties, line }
+  }
+
+  /**
+   * Parse a CSS-like style property: fill: stone-800, stroke-width: 1
+   * Property names can be hyphen-joined (stroke-width).
+   * Values can be hyphen-joined color names, hex colors, numbers, or identifiers.
+   */
+  private parseStyleProperty(): AST.StyleProperty {
+    const line = this.current().line
+    // Parse hyphen-joined property name
+    let name = this.expectIdentifierOrKeyword()
+    while (this.check(TokenType.Minus) && this.tokens[this.pos + 1]?.type === TokenType.Identifier) {
+      this.advance() // skip '-'
+      name += '-' + this.advance().value
+    }
+    this.expect(TokenType.Colon)
+
+    // Parse value: hex color, number, bool, or hyphen-joined identifier
+    let value: string
+    if (this.check(TokenType.Color)) {
+      value = this.advance().value
+    } else if (this.check(TokenType.Number)) {
+      value = this.advance().value
+    } else if (this.check(TokenType.Bool)) {
+      value = this.advance().value
+    } else {
+      // Hyphen-joined name like stone-800, sky-700, white, mercator
+      value = this.parseUtilityName()
+    }
+
+    return { kind: 'StyleProperty', name, value, line }
+  }
+
+  /**
+   * Check if current position starts a CSS-like style property in a layer block.
+   * Detects: fill:, stroke:, stroke-width:, opacity:, size:
+   */
+  private isStylePropertyStart(): boolean {
+    if (this.current().type !== TokenType.Identifier) return false
+    const name = this.current().value
+    const next = this.tokens[this.pos + 1]
+
+    if ((name === 'fill' || name === 'opacity' || name === 'size') && next?.type === TokenType.Colon) {
+      return true
+    }
+    if (name === 'stroke') {
+      if (next?.type === TokenType.Colon) return true
+      // stroke-width: pattern
+      if (next?.type === TokenType.Minus) {
+        const next2 = this.tokens[this.pos + 2]
+        const next3 = this.tokens[this.pos + 3]
+        return next2?.type === TokenType.Identifier && next2.value === 'width' &&
+               next3?.type === TokenType.Colon
+      }
+    }
+    return false
+  }
+
   /** Parse key: number pairs like "x: 0.5 y: -1 w: 2 h: 1.4" */
   private parseNumericProps(): Record<string, number> {
     const props: Record<string, number> = {}
@@ -277,12 +357,13 @@ export class Parser {
   }
 
   // key: value (used in source and layer blocks)
-  // Uses parseComparison() instead of parseExpr() to avoid consuming | as pipe operator
+  // Uses parseLogicalOr() instead of parseExpr() to avoid consuming | as pipe operator
+  // (parseLogicalOr handles && and || but not the single | pipe token)
   private parseBlockProperty(): AST.BlockProperty {
     const line = this.current().line
     const name = this.expectIdentifierOrKeyword()
     this.expect(TokenType.Colon)
-    const value = this.parseComparison()
+    const value = this.parseLogicalOr()
     return { kind: 'BlockProperty', name, value, line }
   }
 
@@ -460,6 +541,7 @@ export class Parser {
       token.type === TokenType.Identifier ||
       token.type === TokenType.Source ||
       token.type === TokenType.Layer ||
+      token.type === TokenType.Style ||
       token.type === TokenType.View ||
       token.type === TokenType.On
     ) {

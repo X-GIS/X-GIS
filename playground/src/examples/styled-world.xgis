@@ -1,0 +1,83 @@
+/* Reusable named styles */
+style ocean_style {
+  fill: sky-950
+}
+
+style land_style {
+  fill: stone-800
+  stroke: stone-700
+  stroke-width: 1
+}
+
+style water_body {
+  fill: sky-800
+  stroke: sky-600
+  stroke-width: 0.5
+}
+
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.geojson"
+}
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+source lakes {
+  type: geojson
+  url: "ne_110m_lakes.geojson"
+}
+
+source rivers {
+  type: geojson
+  url: "ne_110m_rivers.geojson"
+}
+
+layer ocean {
+  source: ocean
+  style: ocean_style
+}
+
+layer land_bg {
+  source: land
+  style: land_style
+}
+
+/* Population > 100M highlighted */
+layer major_countries {
+  source: countries
+  filter: .POP_EST > 100000000
+  fill: amber-700
+  stroke: amber-500
+  stroke-width: 1.5
+  opacity: 0.85
+}
+
+/* Population < 1M — subtle */
+layer small_countries {
+  source: countries
+  filter: .POP_EST < 1000000
+  fill: rose-900
+  stroke: rose-700
+  stroke-width: 0.5
+  opacity: 0.6
+}
+
+layer lakes {
+  source: lakes
+  style: water_body
+}
+
+layer rivers {
+  source: rivers
+  stroke: sky-600
+  stroke-width: 1
+  opacity: 0.8
+}

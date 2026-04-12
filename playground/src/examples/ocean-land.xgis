@@ -1,0 +1,19 @@
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.geojson"
+}
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+layer ocean {
+  source: ocean
+  | fill-sky-900
+}
+
+layer land {
+  source: land
+  | fill-emerald-800 stroke-emerald-600 stroke-1
+}

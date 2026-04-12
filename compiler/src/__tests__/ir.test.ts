@@ -198,6 +198,173 @@ describe('IR Presets', () => {
   })
 })
 
+describe('IR Styles (CSS-like)', () => {
+  it('lowers inline CSS-like properties to RenderNode', () => {
+    const scene = compile(`
+      source world { type: geojson, url: "countries.geojson" }
+      layer countries {
+        source: world
+        fill: sky-700
+        stroke: slate-400
+        stroke-width: 2
+        opacity: 0.8
+      }
+    `)
+    expect(scene.renderNodes).toHaveLength(1)
+    const node = scene.renderNodes[0]
+    expect(node.fill.kind).toBe('constant')
+    if (node.fill.kind === 'constant') {
+      // sky-700 = #0369a1
+      expect(node.fill.rgba[0]).toBeCloseTo(0.012, 2)
+      expect(node.fill.rgba[1]).toBeCloseTo(0.412, 2)
+      expect(node.fill.rgba[2]).toBeCloseTo(0.631, 2)
+    }
+    expect(node.stroke.color.kind).toBe('constant')
+    expect(node.stroke.width).toBe(2)
+    expect(node.opacity).toEqual({ kind: 'constant', value: 0.8 })
+  })
+
+  it('lowers named style referenced by layer', () => {
+    const scene = compile(`
+      style dark_land {
+        fill: stone-800
+        stroke: slate-600
+        stroke-width: 1
+      }
+
+      source world { type: geojson, url: "countries.geojson" }
+      layer land {
+        source: world
+        style: dark_land
+      }
+    `)
+    const node = scene.renderNodes[0]
+    expect(node.fill.kind).toBe('constant')
+    if (node.fill.kind === 'constant') {
+      // stone-800 = #292524
+      expect(node.fill.rgba[0]).toBeCloseTo(0.161, 2)
+      expect(node.fill.rgba[1]).toBeCloseTo(0.145, 2)
+      expect(node.fill.rgba[2]).toBeCloseTo(0.141, 2)
+    }
+    expect(node.stroke.color.kind).toBe('constant')
+    expect(node.stroke.width).toBe(1)
+  })
+
+  it('inline CSS overrides named style', () => {
+    const scene = compile(`
+      style base {
+        fill: blue-500
+        stroke: white
+        stroke-width: 1
+      }
+
+      source world { type: geojson, url: "countries.geojson" }
+      layer land {
+        source: world
+        style: base
+        fill: red-500
+      }
+    `)
+    const node = scene.renderNodes[0]
+    // fill should be red-500 (overrides base blue-500)
+    expect(node.fill.kind).toBe('constant')
+    if (node.fill.kind === 'constant') {
+      expect(node.fill.rgba[0]).toBeCloseTo(0.937, 2) // red-500
+    }
+    // stroke should still be from base style
+    expect(node.stroke.color.kind).toBe('constant')
+    expect(node.stroke.width).toBe(1)
+  })
+
+  it('utilities override both named style and inline CSS', () => {
+    const scene = compile(`
+      style base {
+        fill: blue-500
+        opacity: 0.5
+      }
+
+      source world { type: geojson, url: "countries.geojson" }
+      layer land {
+        source: world
+        style: base
+        fill: red-500
+        | fill-green-500 opacity-80
+      }
+    `)
+    const node = scene.renderNodes[0]
+    // fill should be green-500 (utility overrides inline CSS and named style)
+    expect(node.fill.kind).toBe('constant')
+    if (node.fill.kind === 'constant') {
+      expect(node.fill.rgba[1]).toBeGreaterThan(0.7) // green dominant
+    }
+    // opacity should be from utility (0.8), not base (0.5)
+    expect(node.opacity).toEqual({ kind: 'constant', value: 0.8 })
+  })
+
+  it('supports hex color values in style properties', () => {
+    const scene = compile(`
+      source world { type: geojson, url: "countries.geojson" }
+      layer land {
+        source: world
+        fill: #ff0000
+        stroke: #00ff00
+      }
+    `)
+    const node = scene.renderNodes[0]
+    expect(node.fill.kind).toBe('constant')
+    if (node.fill.kind === 'constant') {
+      expect(node.fill.rgba[0]).toBeCloseTo(1.0)
+      expect(node.fill.rgba[1]).toBeCloseTo(0.0)
+      expect(node.fill.rgba[2]).toBeCloseTo(0.0)
+    }
+    expect(node.stroke.color.kind).toBe('constant')
+    if (node.stroke.color.kind === 'constant') {
+      expect(node.stroke.color.rgba[1]).toBeCloseTo(1.0)
+    }
+  })
+})
+
+describe('IR Filter', () => {
+  it('preserves filter expression in RenderNode', () => {
+    const scene = compile(`
+      source world { type: geojson, url: "countries.geojson" }
+      layer big_countries {
+        source: world
+        filter: .pop > 1000000
+        fill: red-500
+      }
+    `)
+    const node = scene.renderNodes[0]
+    expect(node.filter).not.toBeNull()
+    expect(node.filter!.ast.kind).toBe('BinaryExpr')
+  })
+
+  it('has null filter when not specified', () => {
+    const scene = compile(`
+      source world { type: geojson, url: "countries.geojson" }
+      layer countries {
+        source: world
+        fill: blue-500
+      }
+    `)
+    expect(scene.renderNodes[0].filter).toBeNull()
+  })
+
+  it('passes filter through to emitted ShowCommand', () => {
+    const scene = compile(`
+      source world { type: geojson, url: "countries.geojson" }
+      layer big {
+        source: world
+        filter: .pop > 500000
+        fill: red-500
+      }
+    `)
+    const commands = emitCommands(scene)
+    expect(commands.shows[0].filterExpr).not.toBeNull()
+    expect(commands.shows[0].filterExpr!.ast.kind).toBe('BinaryExpr')
+  })
+})
+
 describe('IR EmitCommands', () => {
   it('converts IR to SceneCommands', () => {
     const scene = compile(`
