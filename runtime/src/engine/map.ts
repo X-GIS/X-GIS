@@ -212,7 +212,7 @@ export class XGISMap {
       // Skip vector tile sources (handled by per-source VectorTileRenderer)
       if ((data as unknown as { _vectorTile?: boolean })._vectorTile) {
         const vtEntry = this.vtSources.get(show.targetName)
-        if (!vtEntry) { console.warn(`[X-GIS] VT source "${show.targetName}" not found in vtSources:`, [...this.vtSources.keys()]); continue }
+        if (!vtEntry) continue
 
         let pipelines: typeof this.vtVariantPipelines = null
         let layout: GPUBindGroupLayout | null = null
@@ -414,13 +414,6 @@ export class XGISMap {
       this.renderer.renderToPass(pass, this.camera, projType, centerLon, centerLat)
 
       // Render vector tile sources
-      if (!this._vtDebugLogged && this.vectorTileShows.size > 0) {
-        this._vtDebugLogged = true
-        console.log(`[X-GIS] VT render: shows=${this.vectorTileShows.size}, sources=${this.vtSources.size}`)
-        for (const [name, { renderer }] of this.vtSources) {
-          console.log(`  [${name}] hasData=${renderer.hasData()} gpuCache=${renderer.getCacheSize()}`)
-        }
-      }
       if (this.vectorTileShows.size === 1) {
         // Single source: render in existing pass (shared stencil)
         for (const [sourceName, { show, pipelines, layout }] of this.vectorTileShows) {
