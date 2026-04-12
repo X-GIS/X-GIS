@@ -65,7 +65,7 @@ const OOB: vec2<f32> = vec2<f32>(999.0, 999.0);
 // ═══ Inverse Mercator ═══
 fn inv_mercator(mx: f32, my: f32) -> vec2<f32> {
   let lon = (mx / R) * RAD2DEG;
-  let lat = atan(sinh(my / R)) * RAD2DEG;
+  let lat = (2.0 * atan(exp(my / R)) - PI * 0.5) * RAD2DEG;
   return vec2<f32>(lon, lat);
 }
 
@@ -198,15 +198,21 @@ fn fs_reproject(input: VsOut) -> @location(0) vec4<f32> {
 
   // 4. Inverse projection → lon/lat (degrees)
   var lonlat: vec2<f32>;
-  let pt = u32(u.proj_type);
-  switch (pt) {
-    case 0u { lonlat = inv_mercator(u.center_x + proj_x, u.center_y + proj_y); }
-    case 2u { lonlat = inv_natural_earth(proj_x, proj_y); }
-    case 3u { lonlat = inv_orthographic(proj_x, proj_y, u.center_lon, u.center_lat); }
-    case 4u { lonlat = inv_azimuthal_equidistant(proj_x, proj_y, u.center_lon, u.center_lat); }
-    case 5u { lonlat = inv_stereographic(proj_x, proj_y, u.center_lon, u.center_lat); }
-    case 6u { lonlat = inv_oblique_mercator(proj_x, proj_y, u.center_lon, u.center_lat); }
-    default { lonlat = OOB; }
+  let pt = i32(u.proj_type + 0.5); // round to nearest int
+  if (pt == 0) {
+    lonlat = inv_mercator(u.center_x + proj_x, u.center_y + proj_y);
+  } else if (pt == 2) {
+    lonlat = inv_natural_earth(proj_x, proj_y);
+  } else if (pt == 3) {
+    lonlat = inv_orthographic(proj_x, proj_y, u.center_lon, u.center_lat);
+  } else if (pt == 4) {
+    lonlat = inv_azimuthal_equidistant(proj_x, proj_y, u.center_lon, u.center_lat);
+  } else if (pt == 5) {
+    lonlat = inv_stereographic(proj_x, proj_y, u.center_lon, u.center_lat);
+  } else if (pt == 6) {
+    lonlat = inv_oblique_mercator(proj_x, proj_y, u.center_lon, u.center_lat);
+  } else {
+    lonlat = OOB;
   }
 
   // 5. lon/lat → equirect texture UV

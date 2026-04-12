@@ -435,16 +435,15 @@ export class XGISMap {
       // Compute equirect texture bounds
       let eqWest: number, eqEast: number, eqSouth: number, eqNorth: number
       if (projType === 0) {
-        // Mercator: viewport-based bounds (rotation-aware, clamped)
+        // Mercator: viewport-based bounds using diagonal radius.
+        // Using the diagonal ensures bounds are INDEPENDENT of bearing angle,
+        // preventing the map from stretching/compressing when rotating.
         const halfWm = w * mpp2 / 2, halfHm = h * mpp2 / 2
-        const bearingRad = this.camera.bearing * Math.PI / 180
-        const absCos = Math.abs(Math.cos(bearingRad)), absSin = Math.abs(Math.sin(bearingRad))
-        const bboxHalfX = halfWm * absCos + halfHm * absSin
-        const bboxHalfY = halfWm * absSin + halfHm * absCos
-        eqWest = Math.max(-180, ((this.camera.centerX - bboxHalfX) / R) * (180 / Math.PI))
-        eqEast = Math.min(180, ((this.camera.centerX + bboxHalfX) / R) * (180 / Math.PI))
-        eqSouth = Math.max(-85.051, (2 * Math.atan(Math.exp((this.camera.centerY - bboxHalfY) / R)) - Math.PI / 2) * (180 / Math.PI))
-        eqNorth = Math.min(85.051, (2 * Math.atan(Math.exp((this.camera.centerY + bboxHalfY) / R)) - Math.PI / 2) * (180 / Math.PI))
+        const diagHalf = Math.sqrt(halfWm * halfWm + halfHm * halfHm)
+        eqWest = Math.max(-180, ((this.camera.centerX - diagHalf) / R) * (180 / Math.PI))
+        eqEast = Math.min(180, ((this.camera.centerX + diagHalf) / R) * (180 / Math.PI))
+        eqSouth = Math.max(-85.051, (2 * Math.atan(Math.exp((this.camera.centerY - diagHalf) / R)) - Math.PI / 2) * (180 / Math.PI))
+        eqNorth = Math.min(85.051, (2 * Math.atan(Math.exp((this.camera.centerY + diagHalf) / R)) - Math.PI / 2) * (180 / Math.PI))
       } else {
         // Globe/NatEarth/Oblique: full world bounds
         eqWest = -180; eqEast = 180; eqSouth = -85.051; eqNorth = 85.051
