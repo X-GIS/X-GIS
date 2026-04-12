@@ -57,6 +57,10 @@ export class VectorTileRenderer {
   // Per-frame draw stats
   private renderedDraws = new Map<number, { polyCount: number; lineCount: number; vertexCount: number }>()
 
+  // Upload queue: tiles waiting for GPU upload (spread across frames to avoid spikes)
+  private uploadQueue: { key: number; data: TileData }[] = []
+  private static MAX_UPLOADS_PER_FRAME = 4
+
   constructor(ctx: GPUContext) {
     this.device = ctx.device
   }
@@ -64,9 +68,20 @@ export class VectorTileRenderer {
   /** Connect to a data source */
   setSource(source: XGVTSource): void {
     this.source = source
-    // Auto-upload tiles when source loads them
+    // Queue tiles for GPU upload instead of uploading immediately
     source.onTileLoaded = (key, data) => {
+      this.uploadQueue.push({ key, data })
+    }
+  }
+
+  /** Process queued tile uploads (called at start of render) */
+  private processUploadQueue(): void {
+    const limit = VectorTileRenderer.MAX_UPLOADS_PER_FRAME
+    let processed = 0
+    while (this.uploadQueue.length > 0 && processed < limit) {
+      const { key, data } = this.uploadQueue.shift()!
       this.uploadTile(key, data)
+      processed++
     }
   }
 
@@ -236,6 +251,7 @@ export class VectorTileRenderer {
     this.frameCount++
     this.renderedDraws.clear()
     this.lastBindGroupLayout = bindGroupLayout
+    this.processUploadQueue()
 
     const { centerX, centerY } = camera
     const R = 6378137
