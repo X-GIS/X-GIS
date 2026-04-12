@@ -129,6 +129,7 @@ export function loadGeoJSON(data: GeoJSONFeatureCollection): {
 
   for (const feature of data.features) {
     const geom = feature.geometry
+    if (!geom) continue  // skip features with null geometry
 
     if (geom.type === 'Polygon') {
       tessellatePolygon(geom.coordinates, feature.properties, polyVertices, polyIndices, polyFeatures)
