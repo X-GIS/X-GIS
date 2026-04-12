@@ -464,7 +464,10 @@ export class XGISMap {
       ])
 
       // Pass 1: Render to equirectangular offscreen texture
-      const { view: equirectView, stencilView } = this.reprojector.getEquirectTarget(w, h)
+      // Texture height matches geographic aspect ratio to ensure square pixels
+      const eqTexW = w
+      const eqTexH = Math.max(1, Math.round(w * (eqNorth - eqSouth) / (eqEast - eqWest)))
+      const { view: equirectView, stencilView } = this.reprojector.getEquirectTarget(eqTexW, eqTexH)
       const eqPass = encoder.beginRenderPass({
         colorAttachments: [{
           view: equirectView,
@@ -480,7 +483,7 @@ export class XGISMap {
         },
       })
 
-      this.rasterRenderer.render(eqPass, equirectCam, 1, eqCenterLon, eqCenterLat, w, h)
+      this.rasterRenderer.render(eqPass, equirectCam, 1, eqCenterLon, eqCenterLat, eqTexW, eqTexH)
       this.renderer.renderToPass(eqPass, equirectCam, 1, eqCenterLon, eqCenterLat)
 
       if (this.vectorTileRenderer?.hasData()) {
@@ -491,7 +494,7 @@ export class XGISMap {
           const fpFb = this.vtVariantPipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
           const lpFb = this.vtVariantPipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
           this.vectorTileRenderer.render(
-            eqPass, equirectCam, 1, eqCenterLon, eqCenterLat, w, h,
+            eqPass, equirectCam, 1, eqCenterLon, eqCenterLat, eqTexW, eqTexH,
             show, fp, lp,
             this.renderer.uniformBuffer, bgl,
             fpFb, lpFb,
