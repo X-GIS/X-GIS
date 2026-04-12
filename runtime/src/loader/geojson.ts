@@ -101,6 +101,17 @@ function fixAntiMeridianRing(ring: number[][]): number[][] {
     }
   }
 
+  // Also detect world-wrapping polygons (e.g., Antarctica spans -180° to +180°
+  // continuously without a jump, but earcut creates 360°-wide triangles)
+  if (!hasAntiMeridianCross) {
+    let minLon = Infinity, maxLon = -Infinity
+    for (const [lon] of ring) {
+      if (lon < minLon) minLon = lon
+      if (lon > maxLon) maxLon = lon
+    }
+    if (maxLon - minLon > 350) hasAntiMeridianCross = true
+  }
+
   if (!hasAntiMeridianCross) return ring
 
   // Normalize longitudes: shift to avoid the ±180 boundary
