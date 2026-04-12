@@ -137,7 +137,8 @@ function tileCommand(inputPath: string, outputPath: string) {
   const source = readFileSync(inputPath, 'utf-8')
   const geojson = JSON.parse(source)
 
-  console.log(`Tiling ${inputPath} (${(source.length / 1024).toFixed(0)} KB, ${geojson.features?.length ?? 0} features)...`)
+  const includeGPU = process.argv.includes('--gpu')
+  console.log(`Tiling ${inputPath} (${(source.length / 1024).toFixed(0)} KB, ${geojson.features?.length ?? 0} features)${includeGPU ? ' [GPU-ready]' : ''}...`)
 
   const start = performance.now()
   const tileSet = compileGeoJSONToTiles(geojson, { minZoom: 0 })  // maxZoom auto-detected
@@ -145,7 +146,7 @@ function tileCommand(inputPath: string, outputPath: string) {
   console.log(`  Tiling done in ${tileElapsed}ms`)
 
   const serStart = performance.now()
-  const binary = serializeXGVT(tileSet)
+  const binary = serializeXGVT(tileSet, { includeGPUReady: includeGPU })
   const serElapsed = (performance.now() - serStart).toFixed(0)
   console.log(`  Serialization done in ${serElapsed}ms`)
 
