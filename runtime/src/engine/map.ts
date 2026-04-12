@@ -10,18 +10,16 @@ import { loadGeoJSON, lonLatToMercator, type GeoJSONFeatureCollection } from '..
 import { isTileTemplate } from '../loader/tiles'
 import { RasterRenderer } from './raster-renderer'
 import { PanZoomController, type Controller } from './controller'
-import { GlobeRenderer } from './globe-renderer'
 import { CanvasRenderer } from './canvas-renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
-import { MercatorReprojector } from './mercator-reproject'
+import { Reprojector } from './reprojector'
 
 export class XGISMap {
   private ctx!: GPUContext
   private camera: Camera
   private renderer!: MapRenderer
   private rasterRenderer!: RasterRenderer
-  private globeRenderer!: GlobeRenderer
   private running = false
   private projectionName = 'mercator'
   private controller: Controller | null = null
@@ -45,8 +43,8 @@ export class XGISMap {
   private stencilWidth = 0
   private stencilHeight = 0
 
-  // 2-pass Mercator reprojection
-  private mercatorReprojector: MercatorReprojector | null = null
+  // 2-pass reprojection (all projections except equirectangular)
+  private reprojector: Reprojector | null = null
 
   // Stats inspector
   private _stats = new StatsTracker()
@@ -118,9 +116,8 @@ export class XGISMap {
       this.ctx = await initGPU(this.canvas)
       this.renderer = new MapRenderer(this.ctx)
       this.rasterRenderer = new RasterRenderer(this.ctx)
-      this.globeRenderer = new GlobeRenderer(this.ctx)
       this.vectorTileRenderer = new VectorTileRenderer(this.ctx)
-      this.mercatorReprojector = new MercatorReprojector(this.ctx)
+      this.reprojector = new Reprojector(this.ctx)
       this.useCanvas2D = false
     } catch (err) {
       console.warn('[X-GIS] WebGPU unavailable, falling back to Canvas 2D:', (err as Error).message)
@@ -312,7 +309,6 @@ export class XGISMap {
     this.ctx = await initGPU(this.canvas)
     this.renderer = new MapRenderer(this.ctx)
     this.rasterRenderer = new RasterRenderer(this.ctx)
-    this.globeRenderer = new GlobeRenderer(this.ctx)
 
     for (const load of commands.loads) {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
@@ -376,89 +372,100 @@ export class XGISMap {
       (2 * Math.atan(Math.exp(this.camera.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
     ))
 
-    const isGlobe = projType >= 3 && projType <= 5 // orthographic, azimuthal, stereographic (not oblique mercator)
     const encoder = device.createCommandEncoder()
     const screenView = context.getCurrentTexture().createView()
 
-    if (isGlobe) {
-      // ═══ Globe mode: 2-pass rendering ═══
-      // Pass 1: Render flat Equirectangular map to offscreen texture
-      const flatTarget = this.globeRenderer.getFlatMapTarget()
-      const flatSize = this.globeRenderer.flatMapSize
+    if (projType === 1) {
+      // ═══ Equirectangular: direct rendering (no reprojection needed) ═══
+      if (!this.stencilTexture || this.stencilWidth !== w || this.stencilHeight !== h) {
+        this.stencilTexture?.destroy()
+        this.stencilTexture = device.createTexture({
+          size: { width: w, height: h },
+          format: 'stencil8',
+          usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        })
+        this.stencilWidth = w
+        this.stencilHeight = h
+      }
 
-      const flatPass = encoder.beginRenderPass({
+      const pass = encoder.beginRenderPass({
         colorAttachments: [{
-          view: flatTarget,
-          clearValue: { r: 0.05, g: 0.08, b: 0.12, a: 1 }, // dark ocean
+          view: screenView,
+          clearValue: { r: 0.039, g: 0.039, b: 0.063, a: 1 },
           loadOp: 'clear',
           storeOp: 'store',
         }],
+        depthStencilAttachment: {
+          view: this.stencilTexture.createView(),
+          stencilClearValue: 0,
+          stencilLoadOp: 'clear',
+          stencilStoreOp: 'discard',
+        },
       })
 
-      // Render to flat texture using equirectangular (type=1), centered at 0,0
-      // Use a special "world view" camera that shows the entire world
-      const flatCam = new Camera(0, 0, 0.5) // zoom 0.5 = see entire world
-      this.rasterRenderer.render(flatPass, flatCam, 1, 0, 0, flatSize, flatSize)
-      this.renderer.renderToPass(flatPass, flatCam, 1, 0, 0)
-      flatPass.end()
+      this.rasterRenderer.render(pass, this.camera, 1, centerLon, centerLat, w, h)
+      this.renderer.renderToPass(pass, this.camera, 1, centerLon, centerLat)
 
-      // Pass 2: Render sphere with flat map texture → screen
-      this.globeRenderer.render(encoder, screenView, w, h, centerLon, centerLat, this.camera.zoom)
+      if (this.vectorTileRenderer?.hasData()) {
+        for (const show of this.vectorTileShows) {
+          const fp = this.vtVariantPipelines?.fillPipeline ?? this.renderer.fillPipeline
+          const lp = this.vtVariantPipelines?.linePipeline ?? this.renderer.linePipeline
+          const bgl = this.vtVariantLayout ?? this.renderer.bindGroupLayout
+          const fpFb = this.vtVariantPipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
+          const lpFb = this.vtVariantPipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
+          this.vectorTileRenderer.render(
+            pass, this.camera, 1, centerLon, centerLat, w, h,
+            show, fp, lp,
+            this.renderer.uniformBuffer, bgl,
+            fpFb, lpFb,
+          )
+        }
+      }
 
-    } else if (projType === 0 && this.mercatorReprojector) {
-      // ═══ Mercator 2-pass: equirectangular → Mercator reprojection ═══
-      // Pass 1 renders in equirectangular (linear interpolation = correct for large triangles).
-      // Pass 2 reprojects to Mercator via fullscreen fragment shader UV transform.
+      pass.end()
 
-      // Compute equirect texture bounds accounting for map rotation.
-      // When bearing ≠ 0, the rotated screen covers a larger bounding box in Mercator space.
+    } else if (this.reprojector) {
+      // ═══ All non-equirect projections: unified 2-pass rendering ═══
+      // Pass 1: equirectangular (linear, correct interpolation) → offscreen texture
+      // Pass 2: inverse projection screen pixels → lon/lat → equirect UV
+
       const DEG2RAD_eq = Math.PI / 180
       const mpp2 = (40075016.686 / 256) / Math.pow(2, this.camera.zoom)
-      const halfWm = w * mpp2 / 2, halfHm = h * mpp2 / 2
-      const Rv = 6378137
 
-      // Rotated bounding box: for a w×h rectangle rotated by bearing
-      const bearingRad = this.camera.bearing * Math.PI / 180
-      const absCos = Math.abs(Math.cos(bearingRad))
-      const absSin = Math.abs(Math.sin(bearingRad))
-      const bboxHalfX = halfWm * absCos + halfHm * absSin  // Mercator meters
-      const bboxHalfY = halfWm * absSin + halfHm * absCos
+      // Compute equirect texture bounds
+      let eqWest: number, eqEast: number, eqSouth: number, eqNorth: number
+      if (projType === 0) {
+        // Mercator: viewport-based bounds (rotation-aware, clamped)
+        const halfWm = w * mpp2 / 2, halfHm = h * mpp2 / 2
+        const bearingRad = this.camera.bearing * Math.PI / 180
+        const absCos = Math.abs(Math.cos(bearingRad)), absSin = Math.abs(Math.sin(bearingRad))
+        const bboxHalfX = halfWm * absCos + halfHm * absSin
+        const bboxHalfY = halfWm * absSin + halfHm * absCos
+        eqWest = Math.max(-180, ((this.camera.centerX - bboxHalfX) / R) * (180 / Math.PI))
+        eqEast = Math.min(180, ((this.camera.centerX + bboxHalfX) / R) * (180 / Math.PI))
+        eqSouth = Math.max(-85.051, (2 * Math.atan(Math.exp((this.camera.centerY - bboxHalfY) / R)) - Math.PI / 2) * (180 / Math.PI))
+        eqNorth = Math.min(85.051, (2 * Math.atan(Math.exp((this.camera.centerY + bboxHalfY) / R)) - Math.PI / 2) * (180 / Math.PI))
+      } else {
+        // Globe/NatEarth/Oblique: full world bounds
+        eqWest = -180; eqEast = 180; eqSouth = -85.051; eqNorth = 85.051
+      }
 
-      // Convert rotated bounding box to geographic bounds
-      const bboxWest = ((this.camera.centerX - bboxHalfX) / Rv) * (180 / Math.PI)
-      const bboxEast = ((this.camera.centerX + bboxHalfX) / Rv) * (180 / Math.PI)
-      const bboxSouth = (2 * Math.atan(Math.exp((this.camera.centerY - bboxHalfY) / Rv)) - Math.PI / 2) * (180 / Math.PI)
-      const bboxNorth = (2 * Math.atan(Math.exp((this.camera.centerY + bboxHalfY) / Rv)) - Math.PI / 2) * (180 / Math.PI)
-
-      // Clamp to geographic limits
-      const eqWest = Math.max(-180, bboxWest)
-      const eqEast = Math.min(180, bboxEast)
-      const eqSouth = Math.max(-85.051, bboxSouth)
-      const eqNorth = Math.min(85.051, bboxNorth)
-
-      // Equirect center = midpoint of clamped bounds
+      // Equirect camera: north-up, centered on equirect midpoint
       const eqCenterLon = (eqWest + eqEast) / 2
       const eqCenterLat = (eqSouth + eqNorth) / 2
-
-      // Equirect scale: map degree range to clip space [-1, +1]
       const eqRangeX = (eqEast - eqWest) * DEG2RAD_eq * R
       const eqRangeY = (eqNorth - eqSouth) * DEG2RAD_eq * R
-      const eqScaleX = 2 / eqRangeX
-      const eqScaleY = 2 / eqRangeY
-
-      // Camera for equirect pass: bearing=0 (always north-up).
-      // Rotation is handled in Pass 2 reprojection shader.
       const equirectCam = new Camera(eqCenterLon, eqCenterLat, this.camera.zoom)
       // prettier-ignore
       equirectCam.overrideRTCMatrix = new Float32Array([
-        eqScaleX, 0,        0, 0,
-        0,        eqScaleY, 0, 0,
-        0,        0,        1, 0,
-        0,        0,        0, 1,
+        2 / eqRangeX, 0,            0, 0,
+        0,            2 / eqRangeY, 0, 0,
+        0,            0,            1, 0,
+        0,            0,            0, 1,
       ])
 
-      // Pass 1: Render to equirectangular offscreen texture (projType=1)
-      const { view: equirectView, stencilView } = this.mercatorReprojector.getEquirectTarget(w, h)
+      // Pass 1: Render to equirectangular offscreen texture
+      const { view: equirectView, stencilView } = this.reprojector.getEquirectTarget(w, h)
       const eqPass = encoder.beginRenderPass({
         colorAttachments: [{
           view: equirectView,
@@ -495,61 +502,12 @@ export class XGISMap {
 
       eqPass.end()
 
-      // Pass 2: Reproject equirectangular → Mercator on screen
-      // Rotation is handled here: shader maps screen pixels → rotate → Mercator → equirect UV
-      this.mercatorReprojector.render(encoder, screenView,
+      // Pass 2: Reproject equirectangular → target projection on screen
+      this.reprojector.render(encoder, screenView,
         this.camera.centerX, this.camera.centerY,
-        mpp2, this.camera.bearing, w, h,
+        mpp2, projType, this.camera.bearing, w, h,
+        centerLon, centerLat,
         eqWest, eqSouth, eqEast, eqNorth)
-
-    } else {
-      // ═══ Non-Mercator flat mode: direct rendering ═══
-      if (!this.stencilTexture || this.stencilWidth !== w || this.stencilHeight !== h) {
-        this.stencilTexture?.destroy()
-        this.stencilTexture = device.createTexture({
-          size: { width: w, height: h },
-          format: 'stencil8',
-          usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        })
-        this.stencilWidth = w
-        this.stencilHeight = h
-      }
-
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: screenView,
-          clearValue: { r: 0.05, g: 0.05, b: 0.08, a: 1 },
-          loadOp: 'clear',
-          storeOp: 'store',
-        }],
-        depthStencilAttachment: {
-          view: this.stencilTexture.createView(),
-          stencilClearValue: 0,
-          stencilLoadOp: 'clear',
-          stencilStoreOp: 'discard',
-        },
-      })
-
-      this.rasterRenderer.render(pass, this.camera, projType, centerLon, centerLat, w, h)
-      this.renderer.renderToPass(pass, this.camera, projType, centerLon, centerLat)
-
-      if (this.vectorTileRenderer?.hasData()) {
-        for (const show of this.vectorTileShows) {
-          const fp = this.vtVariantPipelines?.fillPipeline ?? this.renderer.fillPipeline
-          const lp = this.vtVariantPipelines?.linePipeline ?? this.renderer.linePipeline
-          const bgl = this.vtVariantLayout ?? this.renderer.bindGroupLayout
-          const fpFb = this.vtVariantPipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
-          const lpFb = this.vtVariantPipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
-          this.vectorTileRenderer.render(
-            pass, this.camera, projType, centerLon, centerLat, w, h,
-            show, fp, lp,
-            this.renderer.uniformBuffer, bgl,
-            fpFb, lpFb,
-          )
-        }
-      }
-
-      pass.end()
     }
 
     device.queue.submit([encoder.finish()])

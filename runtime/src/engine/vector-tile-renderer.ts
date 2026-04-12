@@ -318,8 +318,12 @@ export class VectorTileRenderer {
 
       if (!hasAnyAncestor && !this.index.entryByHash.has(key)) continue
 
-      if (!this.index.entryByHash.has(key) && closestExisting >= 0 && !foundCached) {
-        toLoad.push(closestExisting)
+      if (!foundCached) {
+        if (this.index.entryByHash.has(key)) {
+          toLoad.push(key)  // Load current zoom tile directly
+        } else if (closestExisting >= 0) {
+          toLoad.push(closestExisting)  // Load closest ancestor
+        }
       }
     }
 
