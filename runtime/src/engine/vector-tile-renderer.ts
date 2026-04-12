@@ -59,7 +59,7 @@ export class VectorTileRenderer {
 
   // Upload queue: tiles waiting for GPU upload (spread across frames to avoid spikes)
   private uploadQueue: { key: number; data: TileData }[] = []
-  private static MAX_UPLOADS_PER_FRAME = 4
+  private static MAX_UPLOADS_PER_FRAME = 8
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device

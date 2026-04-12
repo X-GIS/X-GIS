@@ -180,12 +180,10 @@ export class XGVTSource {
 
     if (!this.fileUrl) return
 
-    // Range Request mode: sort by offset, merge aggressively.
-    // Over-fetch to include spatially adjacent tiles (Morton order = spatial proximity).
+    // Range Request mode: sort by offset, merge adjacent tiles
     entries.sort((a, b) => a.entry.dataOffset - b.entry.dataOffset)
 
-    const MAX_GAP = 64 * 1024  // 64KB gap tolerance — include tiles between requested ones
-    const MIN_FETCH = 128 * 1024 // minimum 128KB per request — prefetch nearby data
+    const MAX_GAP = 8 * 1024  // 8KB gap tolerance — merge nearby tiles into fewer requests
     const tileSize = (e: TileIndexEntry) => e.compactSize + e.gpuReadySize
     const batches: { entries: typeof entries; startOffset: number; endOffset: number }[] = []
     let current = {
@@ -207,16 +205,6 @@ export class XGVTSource {
     }
     batches.push(current)
 
-    // Expand each batch to MIN_FETCH size (over-fetch for spatial prefetch)
-    for (const batch of batches) {
-      const size = batch.endOffset - batch.startOffset
-      if (size < MIN_FETCH) {
-        const expand = (MIN_FETCH - size) / 2
-        batch.startOffset = Math.max(0, batch.startOffset - expand)
-        batch.endOffset += expand
-      }
-    }
-
     for (const batch of batches) {
       for (const { key } of batch.entries) this.loadingTiles.add(key)
 
@@ -224,31 +212,9 @@ export class XGVTSource {
       if (size <= 0) continue
 
       fetchRange(this.fileUrl, batch.startOffset, size).then(buf => {
-        // Find ALL index entries that fall within the fetched byte range (spatial prefetch)
-        const allInRange: { key: number; entry: TileIndexEntry }[] = []
-        for (const indexEntry of this.index!.entries) {
-          const entryEnd = indexEntry.dataOffset + indexEntry.compactSize + indexEntry.gpuReadySize
-          if (indexEntry.dataOffset >= batch.startOffset && entryEnd <= batch.startOffset + buf.byteLength) {
-            const key = indexEntry.tileHash
-            if (!this.dataCache.has(key) && !this.loadingTiles.has(key)) {
-              allInRange.push({ key, entry: indexEntry })
-            }
-          }
-        }
-        // Include originally requested entries too (they're in loadingTiles)
         for (const { key, entry } of batch.entries) {
-          if (!allInRange.some(e => e.key === key)) {
-            allInRange.push({ key, entry })
-          }
-        }
-
-        for (const { key, entry } of allInRange) {
           const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
           const localOffset = entry.dataOffset - batch.startOffset
-          if (localOffset < 0 || localOffset + entry.compactSize + entry.gpuReadySize > buf.byteLength) {
-            this.loadingTiles.delete(key)
-            continue
-          }
 
           if (entry.gpuReadySize > 0) {
             const gpuOffset = localOffset + entry.compactSize
