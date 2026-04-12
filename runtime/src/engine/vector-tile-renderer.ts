@@ -295,10 +295,15 @@ export class VectorTileRenderer {
     uf[22] = this.cachedStrokeColor[2]; uf[23] = this.cachedStrokeColor[3] * opacity
     uf[24] = projType; uf[25] = projCenterLon; uf[26] = projCenterLat; uf[27] = 0
 
-    // Avoid tiles.map() allocation — compute keys inline
+    // Compute tile keys and world offsets for wrapping
+    const tileCount = Math.pow(2, currentZ)
     const neededKeys: number[] = []
+    const worldOffsets: number[] = []
     for (let i = 0; i < tiles.length; i++) {
       neededKeys.push(tileKey(tiles[i].z, tiles[i].x, tiles[i].y))
+      // World offset: difference between original x and wrapped x, in degrees
+      const ox = tiles[i].ox ?? tiles[i].x
+      worldOffsets.push((ox - tiles[i].x) * (360 / tileCount))
     }
     const fallbackKeys: number[] = []
     const toLoad: number[] = []
@@ -356,9 +361,9 @@ export class VectorTileRenderer {
       }
     }
 
-    // Render current zoom tiles (stencil write)
+    // Render current zoom tiles (stencil write) — with world copy offsets
     pass.setStencilReference(1)
-    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, this.uniformDataBuf, projCenterLon, projCenterLat)
+    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, this.uniformDataBuf, projCenterLon, projCenterLat, worldOffsets)
 
     // Render fallback ancestors (stencil test) — dedup via renderedDraws check in renderTileKeys
     if (fillPipelineFallback && fallbackKeys.length > 0) {
@@ -403,9 +408,14 @@ export class VectorTileRenderer {
     sharedUniformData: ArrayBuffer,
     projCenterLon: number,
     projCenterLat: number,
+    worldOffsets?: number[], // per-tile X offset in degrees for world copies
   ): void {
-    for (const key of keys) {
-      if (this.renderedDraws.has(key)) continue
+    for (let ki = 0; ki < keys.length; ki++) {
+      const key = keys[ki]
+      // For world copies: allow same key to render at different positions
+      const worldOff = worldOffsets?.[ki] ?? 0
+      const drawKey = worldOff === 0 ? key : key + worldOff * 1000000 // unique draw key per copy
+      if (this.renderedDraws.has(drawKey)) continue
       const cached = this.gpuCache.get(key)
       if (!cached || !cached.bindGroup) continue
 
@@ -425,7 +435,7 @@ export class VectorTileRenderer {
       // Compute tile_rtc directly into the uniform buffer at offset 28 (index 28-31)
       const DEG2RAD = Math.PI / 180
       const R = 6378137
-      const tileX = cached.tileWest * DEG2RAD * R
+      const tileX = (cached.tileWest + worldOff) * DEG2RAD * R
       const centerX = projCenterLon * DEG2RAD * R
       const currentProjType = this.uniformF32[24]
       const tileY = currentProjType < 0.5
@@ -459,7 +469,7 @@ export class VectorTileRenderer {
       }
 
       const vc = cached.indexCount + cached.lineIndexCount
-      this.renderedDraws.set(key, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount, vertexCount: vc })
+      this.renderedDraws.set(drawKey, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount, vertexCount: vc })
     }
   }
 

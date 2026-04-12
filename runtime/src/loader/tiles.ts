@@ -2,8 +2,9 @@
 
 export interface TileCoord {
   z: number
-  x: number
+  x: number   // wrapped x (0..2^z-1) for data lookup
   y: number
+  ox?: number  // original x (may be < 0 or >= 2^z) for world-copy positioning
 }
 
 export interface LoadedTile {
@@ -43,11 +44,11 @@ export function visibleTiles(
   const tiles: TileCoord[] = []
   for (let dx = -tilesX; dx <= tilesX; dx++) {
     for (let dy = -tilesY; dy <= tilesY; dy++) {
-      const x = cx + dx
+      const ox = cx + dx  // original x (can be outside 0..n-1 for world copies)
       const y = cy + dy
-      if (x >= 0 && x < n && y >= 0 && y < n) {
-        tiles.push({ z, x, y })
-      }
+      if (y < 0 || y >= n) continue  // Y doesn't wrap (latitude bounded)
+      const x = ((ox % n) + n) % n   // wrap X to valid tile range
+      tiles.push({ z, x, y, ox })
     }
   }
   return tiles

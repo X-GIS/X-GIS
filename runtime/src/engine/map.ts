@@ -366,15 +366,13 @@ export class XGISMap {
     const w = canvas.width, h = canvas.height
     if (w === 0 || h === 0) { requestAnimationFrame(this.renderLoop); return }
 
-    // Clamp camera so map content stays on screen
+    // Clamp camera Y (latitude bounded), X wraps freely (world repeat)
     const MAX_MERC = 20037508.34
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
     const mpp = (40075016.686 / 256) / Math.pow(2, this.camera.zoom)
     const visHalfY = (h / dpr) * mpp / 2
-    const visHalfX = (w / dpr) * mpp / 2
     const maxY = Math.max(0, MAX_MERC - visHalfY)
-    const maxX = Math.max(0, MAX_MERC - visHalfX)
-    this.camera.centerX = Math.max(-maxX, Math.min(maxX, this.camera.centerX))
+    // X: free movement (world wrapping) — no clamping
     this.camera.centerY = Math.max(-maxY, Math.min(maxY, this.camera.centerY))
 
     // RTC: Camera center IS projection center. Always.
