@@ -70,6 +70,16 @@ const EXAMPLES: Example[] = [
     preview: `layer ocean { | fill-slate-900 }\nlayer land { | fill-stone-800 }\nlayer lakes { | fill-sky-800 }\nlayer rivers { | stroke-sky-700 }\nlayer coastline { | stroke-slate-500 }`,
   },
   {
+    file: 'physical-map-10m', name: 'Physical Map 10m', tag: 'xgvt-10m',
+    description: 'Highest detail — ocean + land + rivers + lakes (10m)',
+    preview: `source ocean { url: "ne_10m_ocean.xgvt" }\nsource land { url: "ne_10m_land.xgvt" }\nsource rivers { url: "ne_10m_rivers.xgvt" }\nsource lakes { url: "ne_10m_lakes.xgvt" }`,
+  },
+  {
+    file: 'states-10m', name: 'States 10m', tag: 'xgvt-10m',
+    description: '10m admin-1 boundaries (4594 features) with categorical colors',
+    preview: `source states {\n  url: "ne_10m_states.xgvt"\n}\nlayer states {\n  | fill categorical(admin)\n}`,
+  },
+  {
     file: 'physical-map-50m', name: 'Physical Map 50m', tag: 'xgvt',
     description: 'High-detail ocean + land + rivers + lakes (50m)',
     preview: `source ocean { url: "ne_110m_ocean.xgvt" }\nsource land { url: "ne_110m_land.xgvt" }\nsource rivers { url: "ne_50m_rivers.xgvt" }\nlayer ocean { | fill-sky-950 }\nlayer land { | fill-stone-800 }`,
