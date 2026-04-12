@@ -52,6 +52,10 @@ export class VectorTileRenderer {
   private cachedShowStroke = ''
   private currentOpacity = 1.0
 
+  // Pool of uniform buffers for world-copy rendering (avoid writeBuffer conflicts)
+  private worldCopyPool: { buf: GPUBuffer; bg: GPUBindGroup }[] = []
+  private worldCopyIdx = 0
+
   // Global feature data buffer (shared across all tiles)
   private featureDataBuffer: GPUBuffer | null = null
   private featureBindGroupLayout: GPUBindGroupLayout | null = null
@@ -246,6 +250,7 @@ export class VectorTileRenderer {
     this.renderedDraws.clear()
     this._missedTiles = 0
     this.lastBindGroupLayout = bindGroupLayout
+    this.worldCopyIdx = 0
 
     const { centerX, centerY } = camera
     const R = 6378137
@@ -295,15 +300,14 @@ export class VectorTileRenderer {
     uf[22] = this.cachedStrokeColor[2]; uf[23] = this.cachedStrokeColor[3] * opacity
     uf[24] = projType; uf[25] = projCenterLon; uf[26] = projCenterLat; uf[27] = 0
 
-    // Compute tile keys and world offsets for wrapping
+    // Compute tile keys — use wrapped x for data lookup
     const tileCount = Math.pow(2, currentZ)
     const neededKeys: number[] = []
-    const worldOffsets: number[] = []
+    const worldOffDeg: number[] = [] // per-tile world offset in degrees
     for (let i = 0; i < tiles.length; i++) {
       neededKeys.push(tileKey(tiles[i].z, tiles[i].x, tiles[i].y))
-      // World offset: difference between original x and wrapped x, in degrees
       const ox = tiles[i].ox ?? tiles[i].x
-      worldOffsets.push((ox - tiles[i].x) * (360 / tileCount))
+      worldOffDeg.push((ox - tiles[i].x) * (360 / tileCount))
     }
     const fallbackKeys: number[] = []
     const toLoad: number[] = []
@@ -363,7 +367,7 @@ export class VectorTileRenderer {
 
     // Render current zoom tiles (stencil write) — with world copy offsets
     pass.setStencilReference(1)
-    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, this.uniformDataBuf, projCenterLon, projCenterLat, worldOffsets)
+    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, this.uniformDataBuf, projCenterLon, projCenterLat, worldOffDeg)
 
     // Render fallback ancestors (stencil test) — dedup via renderedDraws check in renderTileKeys
     if (fillPipelineFallback && fallbackKeys.length > 0) {
@@ -432,7 +436,7 @@ export class VectorTileRenderer {
       this.uniformF32[19] = baseFillA * fadeAlpha
       this.uniformF32[23] = baseStrokeA * fadeAlpha
 
-      // Compute tile_rtc directly into the uniform buffer at offset 28 (index 28-31)
+      // Compute tile_rtc
       const DEG2RAD = Math.PI / 180
       const R = 6378137
       const tileX = (cached.tileWest + worldOff) * DEG2RAD * R
@@ -445,16 +449,41 @@ export class VectorTileRenderer {
         ? Math.log(Math.tan(Math.PI / 4 + projCenterLat * DEG2RAD / 2)) * R
         : projCenterLat * DEG2RAD * R
 
-      // Write tile_rtc into shared buffer, then single writeBuffer for everything
       this.uniformF32[28] = tileX - centerX
       this.uniformF32[29] = tileY - centerY
       this.uniformF32[30] = cached.tileWest
       this.uniformF32[31] = cached.tileSouth
-      this.device.queue.writeBuffer(cached.uniformBuffer, 0, this.uniformDataBuf)
+
+      // For world copies (worldOff≠0), use pooled uniform buffer + bind group
+      // to avoid writeBuffer conflict (WebGPU executes all writes before draws)
+      let uniformBuf: GPUBuffer
+      let bindGroup: GPUBindGroup
+      if (worldOff === 0) {
+        uniformBuf = cached.uniformBuffer
+        bindGroup = cached.bindGroup
+      } else {
+        // Get or create pooled buffer
+        if (this.worldCopyIdx >= this.worldCopyPool.length) {
+          const buf = this.device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+          const entries: GPUBindGroupEntry[] = [{ binding: 0, resource: { buffer: buf } }]
+          if (this.featureBindGroupLayout && this.featureDataBuffer) {
+            entries.push({ binding: 1, resource: { buffer: this.featureDataBuffer } })
+          }
+          const layout = (this.featureBindGroupLayout && this.featureDataBuffer)
+            ? this.featureBindGroupLayout : this.lastBindGroupLayout!
+          const bg = this.device.createBindGroup({ layout, entries })
+          this.worldCopyPool.push({ buf, bg })
+        }
+        const pooled = this.worldCopyPool[this.worldCopyIdx++]
+        uniformBuf = pooled.buf
+        bindGroup = pooled.bg
+      }
+
+      this.device.queue.writeBuffer(uniformBuf, 0, this.uniformDataBuf)
 
       if (cached.indexCount > 0) {
         pass.setPipeline(fillPipeline)
-        pass.setBindGroup(0, cached.bindGroup)
+        pass.setBindGroup(0, bindGroup)
         pass.setVertexBuffer(0, cached.vertexBuffer)
         pass.setIndexBuffer(cached.indexBuffer, 'uint32')
         pass.drawIndexed(cached.indexCount)
@@ -462,7 +491,7 @@ export class VectorTileRenderer {
 
       if (cached.lineIndexCount > 0 && cached.lineVertexBuffer && cached.lineIndexBuffer) {
         pass.setPipeline(linePipeline)
-        pass.setBindGroup(0, cached.bindGroup)
+        pass.setBindGroup(0, bindGroup)
         pass.setVertexBuffer(0, cached.lineVertexBuffer)
         pass.setIndexBuffer(cached.lineIndexBuffer, 'uint32')
         pass.drawIndexed(cached.lineIndexCount)
