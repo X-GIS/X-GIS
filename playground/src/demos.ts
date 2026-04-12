@@ -287,4 +287,58 @@ layer rivers {
 }
 `,
   },
+
+  physical_map_xgvt: {
+    name: 'Physical Map (XGVT)',
+    tag: 'xgvt',
+    description: 'Land, rivers, and lakes as pre-tiled .xgvt vector tiles',
+    source: `
+source land {
+  type: geojson
+  url: "ne_110m_land.xgvt"
+}
+
+source rivers {
+  type: geojson
+  url: "ne_110m_rivers.xgvt"
+}
+
+source lakes {
+  type: geojson
+  url: "ne_110m_lakes.xgvt"
+}
+
+layer land {
+  source: land
+  | fill-stone-800 stroke-slate-600 stroke-1
+}
+
+layer lakes {
+  source: lakes
+  | fill-sky-700
+}
+
+layer rivers {
+  source: rivers
+  | stroke-sky-600 stroke-1
+}
+`,
+  },
+
+  countries_categorical_xgvt: {
+    name: 'Countries 110m (XGVT)',
+    tag: 'xgvt',
+    description: 'Natural Earth 110m countries as vector tiles with categorical colors',
+    source: `
+source world {
+  type: geojson
+  url: "ne_110m_countries.xgvt"
+}
+
+layer countries {
+  source: world
+  | fill categorical(NAME) stroke-slate-600 stroke-1 opacity-95
+}
+`,
+  },
 }

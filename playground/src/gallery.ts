@@ -69,6 +69,16 @@ const EXAMPLES: Example[] = [
     description: 'Ocean + land + coastline + rivers + lakes — 5 layers',
     preview: `layer ocean { | fill-slate-900 }\nlayer land { | fill-stone-800 }\nlayer lakes { | fill-sky-800 }\nlayer rivers { | stroke-sky-700 }\nlayer coastline { | stroke-slate-500 }`,
   },
+  {
+    file: 'physical-map-xgvt', name: 'Physical Map (XGVT)', tag: 'xgvt',
+    description: 'Land + rivers + lakes as pre-tiled vector tiles',
+    preview: `source land {\n  url: "ne_110m_land.xgvt"\n}\nlayer land {\n  | fill-stone-800 stroke-slate-600\n}`,
+  },
+  {
+    file: 'countries-categorical-xgvt', name: 'Countries 110m (XGVT)', tag: 'xgvt',
+    description: 'Natural Earth 110m countries with categorical colors',
+    preview: `source world {\n  url: "ne_110m_countries.xgvt"\n}\nlayer countries {\n  | fill categorical(NAME)\n}`,
+  },
 ]
 
 const grid = document.getElementById('demo-grid')!
