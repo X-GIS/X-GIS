@@ -340,7 +340,7 @@ export class VectorTileRenderer {
         parentKey = parentKey >>> 2
         if (this.source.hasEntryInIndex(parentKey)) hasAnyAncestor = true
 
-        if (this.source.hasTileData(parentKey)) {
+        if (this.gpuCache.has(parentKey) || this.source.hasTileData(parentKey)) {
           // Ensure parent is on GPU
           if (!this.gpuCache.has(parentKey)) {
             this.uploadTile(parentKey, this.source.getTileData(parentKey)!)
