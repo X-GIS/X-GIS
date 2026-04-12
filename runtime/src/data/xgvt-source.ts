@@ -102,7 +102,7 @@ export class XGVTSource {
     }
 
     console.log(`[X-GIS] VectorTile index loaded: ${this.index.entries.length} tiles`)
-    this.preloadLowZoomTiles()
+    await this.preloadLowZoomTiles()
   }
 
   async loadFromURL(url: string): Promise<void> {
@@ -125,20 +125,45 @@ export class XGVTSource {
 
     console.log(`[X-GIS] VectorTile index loaded: ${this.index.entries.length} tiles (Range Request mode)`)
 
-    // Eagerly load z0-z4 tiles (small, full world coverage, always needed as fallback)
-    this.preloadLowZoomTiles()
+    // Load z0-z4 tiles BEFORE returning (guarantees fallback coverage)
+    await this.preloadLowZoomTiles()
   }
 
-  private preloadLowZoomTiles(): void {
+  private async preloadLowZoomTiles(): Promise<void> {
     if (!this.index) return
     const lowZoomKeys: number[] = []
     for (const entry of this.index.entries) {
       const [z] = tileKeyUnpack(entry.tileHash)
       if (z <= 4) lowZoomKeys.push(entry.tileHash)
     }
-    if (lowZoomKeys.length > 0) {
+    if (lowZoomKeys.length === 0) return
+
+    // Request and wait for all low-zoom tiles to load
+    return new Promise<void>(resolve => {
+      let remaining = lowZoomKeys.length
+      const origCallback = this.onTileLoaded
+      const loaded = new Set<number>()
+
+      this.onTileLoaded = (key, data) => {
+        origCallback?.(key, data)
+        if (lowZoomKeys.includes(key) && !loaded.has(key)) {
+          loaded.add(key)
+          remaining--
+          if (remaining <= 0) {
+            this.onTileLoaded = origCallback
+            resolve()
+          }
+        }
+      }
+
       this.requestTiles(lowZoomKeys)
-    }
+
+      // Timeout fallback: don't block forever
+      setTimeout(() => {
+        this.onTileLoaded = origCallback
+        resolve()
+      }, 5000)
+    })
   }
 
   // ── Tile request (async batch loading) ──

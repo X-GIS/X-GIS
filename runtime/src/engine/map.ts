@@ -140,6 +140,7 @@ export class XGISMap {
         // Vector tile file — create per-source XGVTSource + VectorTileRenderer
         const source = new XGVTSource()
         const vtRenderer = new VectorTileRenderer(this.ctx)
+        vtRenderer.setSource(source) // connect before load so preloaded tiles auto-upload
         const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
         try {
           await source.loadFromURL(fullUrl)
@@ -148,7 +149,6 @@ export class XGISMap {
           const vtBuf = await vtResponse.arrayBuffer()
           await source.loadFromBuffer(vtBuf)
         }
-        vtRenderer.setSource(source)
         this.vtSources.set(load.name, { source, renderer: vtRenderer })
         this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
 
