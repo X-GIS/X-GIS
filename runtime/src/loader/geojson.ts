@@ -1,5 +1,4 @@
 import earcut from 'earcut'
-import { clipPolygonToRect } from '@xgis/compiler'
 
 // ═══ GeoJSON Types (minimal) ═══
 
@@ -197,27 +196,20 @@ function tessellatePolygon(
   const baseIndex = outIndices.length
   const featureId = outFeatures.length // 0-based feature index
 
-  // Clip rings to Mercator valid range before tessellation.
-  // Antarctica extends to -90° which is infinite in Mercator → clip to ±85°.
-  const MERC_LAT_LIMIT = 85.051
-  const clippedRings = clipPolygonToRect(
-    rings, -360, -MERC_LAT_LIMIT, 360, MERC_LAT_LIMIT,
-  )
-  if (clippedRings.length === 0) return
-
   const flatCoords: number[] = []
   const holeIndices: number[] = []
 
-  for (let r = 0; r < clippedRings.length; r++) {
+  for (let r = 0; r < rings.length; r++) {
     if (r > 0) {
       holeIndices.push(flatCoords.length / 2)
     }
 
-    let ring = fixAntiMeridianRing(clippedRings[r])
+    let ring = fixAntiMeridianRing(rings[r])
     ring = subdivideRing(ring)
 
     for (const coord of ring) {
-      flatCoords.push(coord[0], coord[1]) // earcut needs 2D
+      // Clamp latitude to Mercator limit (±85.051°) — Antarctica at -90° → -85°
+      flatCoords.push(coord[0], Math.max(-85.051, Math.min(85.051, coord[1])))
     }
   }
 
