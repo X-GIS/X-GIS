@@ -8,7 +8,7 @@ import { simplify, toleranceForZoom } from '../tiler/simplify'
 import { compileGeoJSONToTiles, tileKey, tileKeyUnpack, tileKeyParent, tileKeyChildren, mortonEncode, mortonDecode } from '../tiler/vector-tiler'
 import { serializeXGVT, parseXGVTIndex, parseGPUReadyTile } from '../tiler/tile-format'
 import { clipPolygonToRect, clipLineToRect } from '../tiler/clip'
-import type { GeoJSONFeatureCollection } from '../../../runtime/src/loader/geojson'
+import type { GeoJSONFeatureCollection } from '../tiler/geojson-types'
 
 describe('ZigZag Encoding', () => {
   it('encodes and decodes zigzag', () => {

@@ -119,7 +119,7 @@ export class PanZoomController implements Controller {
           let delta = angle - lastPinchAngle
           if (delta > 180) delta -= 360
           if (delta < -180) delta += 360
-          camera.rotate(-delta)
+          camera.rotate(delta)
         }
         lastPinchAngle = angle
 

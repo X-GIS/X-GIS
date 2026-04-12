@@ -300,7 +300,10 @@ export class VectorTileRenderer {
         if (this.index.entryByHash.has(parentKey)) hasAnyAncestor = true
         if (this.tileCache.has(parentKey)) {
           // Try generating sub-tile from cached parent (overzoom)
-          if (currentZ > maxLevel && this.generateSubTile(key, parentKey)) {
+          if (currentZ > maxLevel) {
+            // Always generate sub-tile (even if empty — caches "no data here"
+            // so the parent tile doesn't fallback-render its entire geometry)
+            this.generateSubTile(key, parentKey)
             foundCached = true
           } else {
             fallbackKeys.push(parentKey)
@@ -321,14 +324,15 @@ export class VectorTileRenderer {
     }
 
     // 2. Render current zoom tiles FIRST (stencil writes 1 where drawn)
+    // Use projCenterLon/Lat for tile_rtc (must match shader uniform proj_params)
     pass.setStencilReference(1)
-    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, centerLon, centerLat)
+    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, null!, uniformBuffer, uniformData, projCenterLon, projCenterLat)
 
     // 3. Render fallback ancestors with stencil test (only where stencil=0, not covered by children)
     if (fillPipelineFallback && fallbackKeys.length > 0) {
       pass.setStencilReference(0)
       const uniqueFallbacks = [...new Set(fallbackKeys)]
-      this.renderTileKeys(uniqueFallbacks, pass, fillPipelineFallback, linePipelineFallback!, null!, uniformBuffer, uniformData, centerLon, centerLat)
+      this.renderTileKeys(uniqueFallbacks, pass, fillPipelineFallback, linePipelineFallback!, null!, uniformBuffer, uniformData, projCenterLon, projCenterLat)
     }
 
     // Load missing tiles
@@ -374,9 +378,15 @@ export class VectorTileRenderer {
       const DEG2RAD = Math.PI / 180
       const R = 6378137
       const tileX = cached.tileWest * DEG2RAD * R
-      const tileY = Math.log(Math.tan(Math.PI / 4 + cached.tileSouth * DEG2RAD / 2)) * R
       const centerX = projCenterLon * DEG2RAD * R
-      const centerY = Math.log(Math.tan(Math.PI / 4 + projCenterLat * DEG2RAD / 2)) * R
+      // proj_params.x is in sharedUniformData at offset 96
+      const currentProjType = new Float32Array(sharedUniformData, 96, 1)[0]
+      const tileY = currentProjType < 0.5
+        ? Math.log(Math.tan(Math.PI / 4 + cached.tileSouth * DEG2RAD / 2)) * R  // Mercator
+        : cached.tileSouth * DEG2RAD * R  // Equirectangular (linear)
+      const centerY = currentProjType < 0.5
+        ? Math.log(Math.tan(Math.PI / 4 + projCenterLat * DEG2RAD / 2)) * R
+        : projCenterLat * DEG2RAD * R
 
       const tileRtc = new Float32Array([tileX - centerX, tileY - centerY, cached.tileWest, cached.tileSouth])
       this.device.queue.writeBuffer(cached.uniformBuffer, 112, tileRtc)
@@ -422,7 +432,7 @@ export class VectorTileRenderer {
    */
   private generateSubTile(subKey: number, parentKey: number): boolean {
     const parent = this.tileCache.get(parentKey)
-    if (!parent || parent.cpuIndices.length === 0) return false
+    if (!parent || (parent.cpuIndices.length === 0 && parent.cpuLineIndices.length === 0)) return false
 
     const [sz, sx, sy] = tileKeyUnpack(subKey)
     const sn = Math.pow(2, sz)
@@ -472,12 +482,61 @@ export class VectorTileRenderer {
       for (let j = 1; j < ring.length - 1; j++) outI.push(base, base + j, base + j + 1)
     }
 
-    if (outV.length === 0) return false
+    // ── Line clipping: clip parent line segments to sub-tile bounds ──
+    const lineVerts = parent.cpuLineVertices
+    const lineIdx = parent.cpuLineIndices
+    const outLV: number[] = []
+    const outLI: number[] = []
+
+    for (let s = 0; s < lineIdx.length; s += 2) {
+      const a = lineIdx[s], b = lineIdx[s + 1]
+      const ax = lineVerts[a * 3], ay = lineVerts[a * 3 + 1], afid = lineVerts[a * 3 + 2]
+      const bx = lineVerts[b * 3], by = lineVerts[b * 3 + 1]
+
+      // AABB reject
+      if (Math.max(ax, bx) < clipW || Math.min(ax, bx) > clipE ||
+          Math.max(ay, by) < clipS || Math.min(ay, by) > clipN) continue
+
+      // Fast accept: both endpoints inside
+      if (ax >= clipW && ax <= clipE && ay >= clipS && ay <= clipN &&
+          bx >= clipW && bx <= clipE && by >= clipS && by <= clipN) {
+        const base = outLV.length / 3
+        outLV.push(ax, ay, afid, bx, by, afid)
+        outLI.push(base, base + 1)
+        continue
+      }
+
+      // Liang-Barsky parametric clip
+      const dx = bx - ax, dy = by - ay
+      let tMin = 0, tMax = 1
+      let valid = true
+      const clipEdge = (p: number, q: number): void => {
+        if (!valid) return
+        if (Math.abs(p) < 1e-15) { if (q < 0) valid = false; return }
+        const r = q / p
+        if (p < 0) { if (r > tMax) valid = false; else if (r > tMin) tMin = r }
+        else       { if (r < tMin) valid = false; else if (r < tMax) tMax = r }
+      }
+      clipEdge(-dx, ax - clipW)
+      clipEdge(dx, clipE - ax)
+      clipEdge(-dy, ay - clipS)
+      clipEdge(dy, clipN - ay)
+      if (!valid || tMin > tMax) continue
+
+      const base = outLV.length / 3
+      outLV.push(ax + tMin * dx, ay + tMin * dy, afid, ax + tMax * dx, ay + tMax * dy, afid)
+      outLI.push(base, base + 1)
+    }
+
+    // Empty sub-tiles are still cached (with zero geometry) to prevent
+    // parent tile fallback rendering entire coastlines for ocean areas.
 
     // Upload as new cache entry (parent coordinates, parent bindGroup layout)
     const vertices = new Float32Array(outV)
     const indices = new Uint32Array(outI)
-    this.uploadTile(subKey, undefined, vertices, indices, new Float32Array(0), new Uint32Array(0))
+    const clippedLineVerts = new Float32Array(outLV)
+    const clippedLineIdx = new Uint32Array(outLI)
+    this.uploadTile(subKey, undefined, vertices, indices, clippedLineVerts, clippedLineIdx)
 
     // Fix sub-tile's tileWest/tileSouth to match PARENT (coordinates are parent-local)
     const cached = this.tileCache.get(subKey)

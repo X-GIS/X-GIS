@@ -185,15 +185,22 @@ fn vs_main(@location(0) local_pos: vec2<f32>, @location(1) feature_id: f32) -> V
   // tile_rtc.xy = project(tile_origin) - project(camera_center), computed on CPU in f64
   // Result: project locally (small numbers only) + add precomputed offset
 
-  // Project the local offset using proper Mercator projection
+  // Project the local offset based on projection type
   let local_x = local_pos.x * DEG2RAD * EARTH_R;
-  // Mercator Y: compute relative to tile origin for precision
-  // abs_lat = vertex latitude, clamped to prevent tan(π/2)=∞
   let abs_lat = local_pos.y + u.tile_rtc.w;
   let abs_lat_clamped = clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
-  let origin_clamped = clamp(u.tile_rtc.w, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
-  let local_y = (log(tan(PI * 0.25 + abs_lat_clamped * DEG2RAD * 0.5))
-               - log(tan(PI * 0.25 + origin_clamped * DEG2RAD * 0.5))) * EARTH_R;
+
+  var local_y: f32;
+  if (u.proj_params.x < 0.5) {
+    // Mercator: nonlinear Y (log(tan(...)))
+    let origin_clamped = clamp(u.tile_rtc.w, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
+    local_y = (log(tan(PI * 0.25 + abs_lat_clamped * DEG2RAD * 0.5))
+             - log(tan(PI * 0.25 + origin_clamped * DEG2RAD * 0.5))) * EARTH_R;
+  } else {
+    // Equirectangular / other: linear Y
+    local_y = local_pos.y * DEG2RAD * EARTH_R;
+  }
+
   // tile_rtc.xy = project(tile_origin) - project(center), computed on CPU in f64
   let rtc = vec2<f32>(local_x + u.tile_rtc.x, local_y + u.tile_rtc.y);
 
@@ -880,7 +887,9 @@ export class MapRenderer {
       const DEG2RAD = Math.PI / 180
       const R = 6378137
       const cx = projCenterLon * DEG2RAD * R
-      const cy = Math.log(Math.tan(Math.PI / 4 + projCenterLat * DEG2RAD / 2)) * R
+      const cy = projType < 0.5
+        ? Math.log(Math.tan(Math.PI / 4 + projCenterLat * DEG2RAD / 2)) * R  // Mercator
+        : projCenterLat * DEG2RAD * R  // Equirectangular (linear)
       new Float32Array(uniformData, 112, 4).set([-cx, -cy, 0, 0]) // tile_rtc: offset, west=0, south=0
       device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 

@@ -2,7 +2,7 @@
 // Generates per-layer WGSL shader variants based on IR analysis.
 // Three specialization axes: projection × value constants × feature data.
 
-import type { RenderNode, ColorValue, OpacityValue, SizeValue } from '../ir/render-node'
+import type { RenderNode, ColorValue, OpacityValue } from '../ir/render-node'
 import { rgbaToHex, hexToRgba } from '../ir/render-node'
 import { exprToWGSL, collectFields, type WGSLFnEnv } from './wgsl-expr'
 import { generatePaletteWGSL } from './categorical-encoder'
@@ -28,13 +28,6 @@ export interface ShaderVariant {
   featureFields: string[]
   /** Which uniform fields are still needed (not inlined) */
   uniformFields: string[]
-}
-
-/** Projection name to integer type mapping */
-const PROJ_TYPES: Record<string, number> = {
-  mercator: 0, equirectangular: 1, natural_earth: 2,
-  orthographic: 3, azimuthal_equidistant: 4, stereographic: 5,
-  oblique_mercator: 6,
 }
 
 /**
@@ -330,7 +323,7 @@ function buildKey(
   node: RenderNode,
   fill: ColorResult,
   stroke: ColorResult,
-  opacity: OpacityResult,
+  _opacity: OpacityResult,
   featureFields: string[],
 ): string {
   const parts: string[] = []

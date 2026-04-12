@@ -72,7 +72,7 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
   // Pre-encode all tiles (both layers)
   const encodedTiles: {
     key: number
-    compact: { coords: Uint8Array; indices: Uint8Array; lineCoords: Uint8Array; lineIndices: Uint8Array; polyFeatIds: Uint8Array; lineFeatIds: Uint8Array }
+    compact: { ringData: Uint8Array; lineCoords: Uint8Array; lineIndices: Uint8Array; lineFeatIds: Uint8Array }
     gpuReady: { vertices: Float32Array; indices: Uint32Array; lineVertices: Float32Array; lineIndices: Uint32Array }
     tile: CompiledTile
   }[] = []

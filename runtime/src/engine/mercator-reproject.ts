@@ -2,23 +2,30 @@
 // Pass 2 of 2-pass Mercator rendering:
 // Resamples an equirectangular texture into Mercator space via fullscreen quad.
 //
-// Pass 1 renders all geometry in equirectangular projection (linear, correct interpolation).
-// Pass 2 maps equirectangular pixels to Mercator screen positions via fragment shader UV transform.
+// Pass 1 renders all geometry in equirectangular (north-up, no rotation).
+// Pass 2 maps screen pixels → rotate by bearing → Mercator → lon/lat → equirect UV.
 
 import type { GPUContext } from './gpu'
 
 const REPROJECT_SHADER = /* wgsl */ `
 struct Uniforms {
-  // Equirectangular view bounds (degrees)
-  view_west: f32,
-  view_south: f32,
-  view_east: f32,
-  view_north: f32,
-  // Mercator Y bounds (normalized, for UV mapping)
-  merc_y_south: f32,
-  merc_y_north: f32,
+  // Camera center in Mercator meters
+  center_x: f32,
+  center_y: f32,
+  // Meters per physical pixel at current zoom
+  mpp: f32,
+  // Bearing rotation (screen → Mercator)
+  bearing_cos: f32,
+  bearing_sin: f32,
+  // Physical canvas size (pixels)
+  canvas_w: f32,
+  canvas_h: f32,
   _pad0: f32,
-  _pad1: f32,
+  // Equirect texture geographic bounds (degrees)
+  eq_west: f32,
+  eq_east: f32,
+  eq_south: f32,
+  eq_north: f32,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -32,7 +39,6 @@ struct VsOut {
 
 @vertex
 fn vs_fullscreen(@builtin(vertex_index) vid: u32) -> VsOut {
-  // Fullscreen triangle (covers entire screen with 3 vertices)
   let x = f32(vid & 1u) * 4.0 - 1.0;
   let y = f32((vid >> 1u) & 1u) * 4.0 - 1.0;
   var out: VsOut;
@@ -42,26 +48,32 @@ fn vs_fullscreen(@builtin(vertex_index) vid: u32) -> VsOut {
 }
 
 const PI: f32 = 3.14159265;
+const R: f32 = 6378137.0;
 
 @fragment
 fn fs_reproject(input: VsOut) -> @location(0) vec4<f32> {
-  // Screen UV → Mercator Y → inverse Mercator → latitude → equirectangular UV
-  let merc_y = mix(u.merc_y_south, u.merc_y_north, 1.0 - input.uv.y);
-  let lat_rad = atan(sinh(merc_y));
-  let lat_deg = lat_rad * (180.0 / PI);
+  // 1. Screen UV → pixel offset from center (Y-up)
+  let px_x = (input.uv.x - 0.5) * u.canvas_w;
+  let px_y = (0.5 - input.uv.y) * u.canvas_h;
 
-  // Map latitude to equirectangular texture V coordinate
-  let equirect_v = (lat_deg - u.view_south) / (u.view_north - u.view_south);
+  // 2. Rotate by bearing (screen space → Mercator space)
+  let rot_x = px_x * u.bearing_cos - px_y * u.bearing_sin;
+  let rot_y = px_x * u.bearing_sin + px_y * u.bearing_cos;
 
-  // Longitude maps linearly (same in both projections)
-  let equirect_u = input.uv.x;
+  // 3. Pixel offset → Mercator meters → lon/lat (degrees)
+  let merc_x = u.center_x + rot_x * u.mpp;
+  let merc_y = u.center_y + rot_y * u.mpp;
+  let lon = (merc_x / R) * (180.0 / PI);
+  let lat = atan(sinh(merc_y / R)) * (180.0 / PI);
 
-  // Clamp to valid texture range
-  if (equirect_v < 0.0 || equirect_v > 1.0) {
-    return vec4<f32>(0.039, 0.039, 0.063, 1.0); // background color
-  }
+  // 4. lon/lat → equirect texture UV
+  let eq_u = (lon - u.eq_west) / (u.eq_east - u.eq_west);
+  let eq_v = (lat - u.eq_south) / (u.eq_north - u.eq_south);
 
-  return textureSample(equirect_tex, equirect_sampler, vec2<f32>(equirect_u, 1.0 - equirect_v));
+  // Sample equirect texture, mask out-of-bounds
+  let color = textureSampleLevel(equirect_tex, equirect_sampler, vec2<f32>(eq_u, 1.0 - eq_v), 0.0);
+  let bg = vec4<f32>(0.039, 0.039, 0.063, 1.0);
+  return select(color, bg, eq_u < 0.0 || eq_u > 1.0 || eq_v < 0.0 || eq_v > 1.0);
 }
 `
 
@@ -95,7 +107,7 @@ export class MercatorReprojector {
     })
 
     this.uniformBuffer = ctx.device.createBuffer({
-      size: 32, // 8 × f32
+      size: 48, // 12 × f32
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
 
@@ -133,7 +145,10 @@ export class MercatorReprojector {
   render(
     encoder: GPUCommandEncoder,
     screenView: GPUTextureView,
-    viewWest: number, viewSouth: number, viewEast: number, viewNorth: number,
+    centerX: number, centerY: number,
+    mpp: number, bearing: number,
+    canvasW: number, canvasH: number,
+    eqWest: number, eqSouth: number, eqEast: number, eqNorth: number,
   ): void {
     if (!this.equirectTexture) return
 
@@ -151,21 +166,17 @@ export class MercatorReprojector {
       })
     }
 
-    // Compute Mercator Y bounds (normalized by Earth radius)
-    const DEG2RAD = Math.PI / 180
-    const clampS = Math.max(-85.051, viewSouth)
-    const clampN = Math.min(85.051, viewNorth)
-    const mercYSouth = Math.log(Math.tan(Math.PI / 4 + clampS * DEG2RAD / 2))
-    const mercYNorth = Math.log(Math.tan(Math.PI / 4 + clampN * DEG2RAD / 2))
-
-    // Update uniforms
+    const bearingRad = bearing * Math.PI / 180
     const data = new Float32Array([
-      viewWest, viewSouth, viewEast, viewNorth,
-      mercYSouth, mercYNorth, 0, 0,
+      centerX, centerY,
+      mpp,
+      Math.cos(bearingRad), Math.sin(bearingRad),
+      canvasW, canvasH,
+      0, // pad
+      eqWest, eqEast, eqSouth, eqNorth,
     ])
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data)
 
-    // Bind group
     const bindGroup = this.device.createBindGroup({
       layout: this.bindGroupLayout,
       entries: [
@@ -175,7 +186,6 @@ export class MercatorReprojector {
       ],
     })
 
-    // Render fullscreen quad
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
         view: screenView,
@@ -187,7 +197,7 @@ export class MercatorReprojector {
 
     pass.setPipeline(this.pipeline)
     pass.setBindGroup(0, bindGroup)
-    pass.draw(3) // fullscreen triangle
+    pass.draw(3)
     pass.end()
   }
 }

@@ -7,8 +7,6 @@
 //
 // 파싱 없이 바로 실행 가능한 중간 표현
 
-import type { ShowCommand } from '../../../runtime/src/engine/renderer'
-
 const MAGIC = 0x53494758 // "XGIS" in little-endian
 const VERSION = 2
 

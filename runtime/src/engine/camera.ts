@@ -10,6 +10,8 @@ export class Camera {
   zoom: number
   /** Map rotation in degrees (0 = north up, clockwise positive) */
   bearing = 0
+  /** If set, getRTCMatrix returns this instead of computing from zoom/bearing */
+  overrideRTCMatrix: Float32Array | null = null
 
   constructor(lon = 0, lat = 0, zoom = 2) {
     const [mx, my] = lonLatToMercator(lon, lat)
@@ -42,6 +44,7 @@ export class Camera {
 
   /** RTC matrix: scale + rotation, no translation (RTC vertex shader already centered) */
   getRTCMatrix(canvasWidth: number, canvasHeight: number): Float32Array {
+    if (this.overrideRTCMatrix) return this.overrideRTCMatrix
     const metersPerPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
     const scaleX = 2 / (canvasWidth * metersPerPixel)
     const scaleY = 2 / (canvasHeight * metersPerPixel)
