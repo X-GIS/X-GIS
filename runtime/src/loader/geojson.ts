@@ -89,37 +89,114 @@ function subdivideRing(ring: number[][]): number[][] {
 }
 
 // ═══ Anti-meridian handling ═══
-// 날짜변경선(180°)을 넘는 폴리곤을 분할
+// 날짜변경선(180°)을 넘는 폴리곤을 Sutherland-Hodgman 클리핑으로 분할
+// 절대 좌표 공간에서 earcut하면 내부 삼각형 변이 지구를 횡단 → 반드시 분할 필요
 
-function fixAntiMeridianRing(ring: number[][]): number[][] {
-  // Detect if ring crosses anti-meridian (large lon jump)
-  let hasAntiMeridianCross = false
+/** Detect if a ring crosses the anti-meridian (±180°) */
+function detectsAntiMeridianCross(ring: number[][]): boolean {
   for (let i = 0; i < ring.length - 1; i++) {
-    if (Math.abs(ring[i][0] - ring[i + 1][0]) > 180) {
-      hasAntiMeridianCross = true
-      break
+    if (Math.abs(ring[i][0] - ring[i + 1][0]) > 180) return true
+  }
+  // World-wrapping polygons (Antarctica spans -180° to +180°)
+  let minLon = Infinity, maxLon = -Infinity
+  for (const [lon] of ring) {
+    if (lon < minLon) minLon = lon
+    if (lon > maxLon) maxLon = lon
+  }
+  return maxLon - minLon > 350
+}
+
+/** Clip a ring at a longitude cut line using Sutherland-Hodgman algorithm */
+function clipRingAtLon(ring: number[][], cutLon: number, keepLess: boolean): number[][] {
+  const result: number[][] = []
+  const n = ring.length
+  // Treat as closed ring: last vertex connects to first
+  const len = ring[n - 1][0] === ring[0][0] && ring[n - 1][1] === ring[0][1] ? n - 1 : n
+
+  for (let i = 0; i < len; i++) {
+    const curr = ring[i]
+    const next = ring[(i + 1) % len]
+    const currIn = keepLess ? curr[0] <= cutLon : curr[0] >= cutLon
+    const nextIn = keepLess ? next[0] <= cutLon : next[0] >= cutLon
+
+    if (currIn) {
+      result.push(curr)
+      if (!nextIn) {
+        // Exiting: add intersection point at cutLon
+        const t = (cutLon - curr[0]) / (next[0] - curr[0])
+        result.push([cutLon, curr[1] + t * (next[1] - curr[1])])
+      }
+    } else if (nextIn) {
+      // Entering: add intersection point at cutLon
+      const t = (cutLon - curr[0]) / (next[0] - curr[0])
+      result.push([cutLon, curr[1] + t * (next[1] - curr[1])])
     }
   }
 
-  // Also detect world-wrapping polygons (e.g., Antarctica spans -180° to +180°
-  // continuously without a jump, but earcut creates 360°-wide triangles)
-  if (!hasAntiMeridianCross) {
-    let minLon = Infinity, maxLon = -Infinity
-    for (const [lon] of ring) {
-      if (lon < minLon) minLon = lon
-      if (lon > maxLon) maxLon = lon
+  // Close the ring
+  if (result.length > 0) {
+    const first = result[0], last = result[result.length - 1]
+    if (first[0] !== last[0] || first[1] !== last[1]) {
+      result.push([first[0], first[1]])
     }
-    if (maxLon - minLon > 350) hasAntiMeridianCross = true
+  }
+  return result
+}
+
+/**
+ * Split polygon rings at the anti-meridian (180°).
+ * Returns an array of polygon ring-sets, each tessellated independently.
+ * Most polygons return [[original rings]]. Anti-meridian polygons return
+ * [[west rings], [east rings]] where each is a valid polygon.
+ */
+function splitRingsAtAntiMeridian(rings: number[][][]): number[][][][] {
+  const outerRing = rings[0]
+  if (!detectsAntiMeridianCross(outerRing)) return [rings]
+
+  // Step 1: Shift negative longitudes to create continuous coordinate space
+  const shift = (ring: number[][]): number[][] =>
+    ring.map(([lon, lat]) => lon < -90 ? [lon + 360, lat] : [lon, lat])
+
+  const shiftedOuter = shift(outerRing)
+
+  // Step 2: Check if shifted ring actually crosses 180°
+  let hasEast = false
+  for (const [lon] of shiftedOuter) {
+    if (lon > 180) { hasEast = true; break }
+  }
+  if (!hasEast) {
+    // After shift, everything is ≤180° — no split needed
+    return [[shiftedOuter, ...rings.slice(1).map(shift)]]
   }
 
-  if (!hasAntiMeridianCross) return ring
+  // Step 3: Clip outer ring at lon=180° into west and east parts
+  const westOuter = clipRingAtLon(shiftedOuter, 180, true)
+  const eastOuter = clipRingAtLon(shiftedOuter, 180, false)
 
-  // Normalize longitudes: shift to avoid the ±180 boundary
-  // If ring has points near 180 and -180, shift negative longitudes by +360
-  return ring.map(([lon, lat]) => {
-    if (lon < -90) return [lon + 360, lat]
-    return [lon, lat]
-  })
+  // Shift east part back by -360° to standard [-180, 0] range
+  const eastOuterShifted = eastOuter.map(([lon, lat]) => [lon - 360, lat])
+
+  const results: number[][][][] = []
+
+  // Step 4: Handle holes — assign each hole to west or east based on centroid
+  const westHoles: number[][][] = []
+  const eastHoles: number[][][] = []
+  for (let r = 1; r < rings.length; r++) {
+    const hole = shift(rings[r])
+    let sumLon = 0
+    for (const [lon] of hole) sumLon += lon
+    const avgLon = sumLon / hole.length
+    if (avgLon <= 180) {
+      westHoles.push(hole)
+    } else {
+      eastHoles.push(hole.map(([lon, lat]) => [lon - 360, lat]))
+    }
+  }
+
+  if (westOuter.length >= 4) results.push([westOuter, ...westHoles])
+  if (eastOuterShifted.length >= 4) results.push([eastOuterShifted, ...eastHoles])
+
+  return results
 }
 
 // ═══ GeoJSON → GPU Mesh ═══
@@ -202,6 +279,21 @@ function tessellatePolygon(
   outIndices: number[],
   outFeatures: FeatureRange[],
 ): void {
+  // Split at anti-meridian: each part is tessellated independently
+  // This prevents earcut from creating internal edges that span the globe
+  const parts = splitRingsAtAntiMeridian(rings)
+  for (const partRings of parts) {
+    tessellatePolygonPart(partRings, properties, outVertices, outIndices, outFeatures)
+  }
+}
+
+function tessellatePolygonPart(
+  rings: number[][][],
+  properties: Record<string, unknown>,
+  outVertices: number[],
+  outIndices: number[],
+  outFeatures: FeatureRange[],
+): void {
   const STRIDE = 3 // lon, lat, feat_id
   const baseVertex = outVertices.length / STRIDE
   const baseIndex = outIndices.length
@@ -215,8 +307,7 @@ function tessellatePolygon(
       holeIndices.push(flatCoords.length / 2)
     }
 
-    let ring = fixAntiMeridianRing(rings[r])
-    ring = subdivideRing(ring)
+    let ring = subdivideRing(rings[r])
 
     for (const coord of ring) {
       // Clamp latitude to Mercator limit (±85.051°) — Antarctica at -90° → -85°
