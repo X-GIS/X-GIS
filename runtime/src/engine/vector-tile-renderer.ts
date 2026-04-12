@@ -310,13 +310,13 @@ export class VectorTileRenderer {
       worldOffDeg.push((ox - tiles[i].x) * (360 / tileCount))
     }
     const fallbackKeys: number[] = []
+    const fallbackOffsets: number[] = []
     const toLoad: number[] = []
 
     for (let i = 0; i < tiles.length; i++) {
       const key = neededKeys[i]
       if (this.gpuCache.has(key)) continue
 
-      // Check if source has CPU data ready → upload to GPU
       if (this.source.hasTileData(key)) {
         this.uploadTile(key, this.source.getTileData(key)!)
         continue
@@ -332,17 +332,16 @@ export class VectorTileRenderer {
         if (this.source.hasEntryInIndex(parentKey)) hasAnyAncestor = true
 
         if (this.gpuCache.has(parentKey) || this.source.hasTileData(parentKey)) {
-          // Ensure parent is on GPU
           if (!this.gpuCache.has(parentKey)) {
             this.uploadTile(parentKey, this.source.getTileData(parentKey)!)
           }
 
           if (currentZ > maxLevel) {
             this.source.generateSubTile(key, parentKey)
-            // onTileLoaded immediately uploads to GPU (no queue)
             foundCached = this.gpuCache.has(key) || this.gpuCache.has(parentKey)
           } else {
             fallbackKeys.push(parentKey)
+            fallbackOffsets.push(worldOffDeg[i]) // same world offset as the child
             foundCached = true
           }
           break
@@ -369,10 +368,10 @@ export class VectorTileRenderer {
     pass.setStencilReference(1)
     this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, this.uniformDataBuf, projCenterLon, projCenterLat, worldOffDeg)
 
-    // Render fallback ancestors (stencil test) — dedup via renderedDraws check in renderTileKeys
+    // Render fallback ancestors (stencil test) — with world offsets for wrapping
     if (fillPipelineFallback && fallbackKeys.length > 0) {
       pass.setStencilReference(0)
-      this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, this.uniformDataBuf, projCenterLon, projCenterLat)
+      this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, this.uniformDataBuf, projCenterLon, projCenterLat, fallbackOffsets)
     }
 
     // Request missing tiles — prioritize parents first (ensures fallback is ready)
