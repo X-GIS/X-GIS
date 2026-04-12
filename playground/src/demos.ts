@@ -325,6 +325,70 @@ layer rivers {
 `,
   },
 
+  physical_map_50m: {
+    name: 'Physical Map 50m',
+    tag: 'xgvt',
+    description: 'High-detail land + ocean + rivers + lakes (50m XGVT)',
+    source: `
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.xgvt"
+}
+
+source land {
+  type: geojson
+  url: "ne_110m_land.xgvt"
+}
+
+source rivers {
+  type: geojson
+  url: "ne_50m_rivers.xgvt"
+}
+
+source lakes {
+  type: geojson
+  url: "ne_50m_lakes.xgvt"
+}
+
+layer ocean {
+  source: ocean
+  | fill-sky-950
+}
+
+layer land {
+  source: land
+  | fill-stone-800
+}
+
+layer lakes {
+  source: lakes
+  | fill-sky-800
+}
+
+layer rivers {
+  source: rivers
+  | stroke-sky-700 stroke-1
+}
+`,
+  },
+
+  states_provinces: {
+    name: 'States & Provinces',
+    tag: 'xgvt',
+    description: '50m admin-1 boundaries with categorical colors (XGVT)',
+    source: `
+source states {
+  type: geojson
+  url: "ne_50m_states.xgvt"
+}
+
+layer states {
+  source: states
+  | fill categorical(admin) stroke-slate-600 stroke-1 opacity-95
+}
+`,
+  },
+
   countries_categorical_xgvt: {
     name: 'Countries 110m (XGVT)',
     tag: 'xgvt',

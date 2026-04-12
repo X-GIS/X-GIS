@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>States &amp; Provinces — X-GIS</title>
+  <link rel="stylesheet" href="/examples/shared.css">
+</head>
+<body>
+  <canvas id="map"></canvas>
+  <div id="topbar">
+    <a href="/">&larr; Examples</a><span class="sep">/</span>
+    <span class="title">States &amp; Provinces</span>
+    <span class="desc">50m admin-1 boundaries with categorical colors (XGVT)</span>
+  </div>
+  <details id="source-panel" open>
+    <summary>Source</summary>
+    <pre id="source-code">source states {
+  type: geojson
+  url: "ne_50m_states.xgvt"
+}
+
+layer states {
+  source: states
+  | fill categorical(admin) stroke-slate-600 stroke-1 opacity-95
+}</pre>
+  </details>
+  <div id="status">Loading...</div>
+  <div id="error"><h2>Error</h2><pre id="error-msg"></pre></div>
+  <script type="module">
+    import { XGISMap } from '@xgis/runtime'
+    const map = new XGISMap(document.getElementById('map'))
+    map.showInspector()
+    map.run(document.getElementById('source-code').textContent, '/data/')
+      .then(() => { document.getElementById('status').textContent = 'States & Provinces | scroll to zoom, drag to pan' })
+      .catch(e => { document.getElementById('error').style.display = 'block'; document.getElementById('error-msg').textContent = String(e) })
+  </script>
+</body>
+</html>
