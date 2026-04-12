@@ -419,25 +419,29 @@ export function parseGPUReadyTile(
 
   const precision = precisionForZoom(z)
 
-  // Decode polygon rings and tessellate with earcut
+  // Decode polygon rings and tessellate with earcut in Mercator space
   const polygons = decodeRingData(ringDataBuf, precision)
   const polyVerts: number[] = []
   const polyIdx: number[] = []
   const tb = tileBoundsFromZXY(z, x, y)
+  const latToMercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360))
 
   for (const poly of polygons) {
     const baseVertex = polyVerts.length / 3
     const flatCoords: number[] = []
+    const mercCoords: number[] = []
     const holeIndices: number[] = []
 
     for (let r = 0; r < poly.rings.length; r++) {
       if (r > 0) holeIndices.push(flatCoords.length / 2)
       for (const coord of poly.rings[r]) {
         flatCoords.push(coord[0], coord[1])
+        mercCoords.push(coord[0], latToMercY(coord[1]))
       }
     }
 
-    const earcutIdx = earcut(flatCoords, holeIndices.length > 0 ? holeIndices : undefined)
+    // Earcut in Mercator space for correct triangle topology on screen
+    const earcutIdx = earcut(mercCoords, holeIndices.length > 0 ? holeIndices : undefined)
     for (let i = 0; i < flatCoords.length; i += 2) {
       polyVerts.push(flatCoords[i] - tb.west, flatCoords[i + 1] - tb.south, poly.featId)
     }
