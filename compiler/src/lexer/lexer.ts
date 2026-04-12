@@ -27,9 +27,13 @@ export class Lexer {
         continue
       }
 
-      // Comments: //
+      // Comments: // and /* */
       if (ch === '/' && this.peek(1) === '/') {
         this.skipLineComment()
+        continue
+      }
+      if (ch === '/' && this.peek(1) === '*') {
+        this.skipBlockComment()
         continue
       }
 
@@ -230,6 +234,25 @@ export class Lexer {
     while (this.pos < this.src.length && this.src[this.pos] !== '\n') {
       this.pos++
       this.col++
+    }
+  }
+
+  private skipBlockComment(): void {
+    this.pos += 2 // skip /*
+    this.col += 2
+    while (this.pos < this.src.length) {
+      if (this.src[this.pos] === '*' && this.peek(1) === '/') {
+        this.pos += 2 // skip */
+        this.col += 2
+        return
+      }
+      if (this.src[this.pos] === '\n') {
+        this.line++
+        this.col = 1
+      } else {
+        this.col++
+      }
+      this.pos++
     }
   }
 
