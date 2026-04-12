@@ -409,28 +409,47 @@ export class XGISMap {
       this.rasterRenderer.render(pass, this.camera, projType, centerLon, centerLat, w, h)
       this.renderer.renderToPass(pass, this.camera, projType, centerLon, centerLat)
 
-      // Render all vector tile sources
-      // With multiple sources, disable fallback (stencil) to prevent cross-source interference.
-      // Single source uses stencil for smooth zoom transitions.
-      const multiSource = this.vectorTileShows.size > 1
-      for (const [sourceName, { show, pipelines, layout }] of this.vectorTileShows) {
-        const vtEntry = this.vtSources.get(sourceName)
-        if (!vtEntry || !vtEntry.renderer.hasData()) continue
-
-        const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
-        const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
-        const bgl = layout ?? this.renderer.bindGroupLayout
-        const fpFb = multiSource ? undefined : (pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback)
-        const lpFb = multiSource ? undefined : (pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback)
-        vtEntry.renderer.render(
-          pass, this.camera, projType, centerLon, centerLat, w, h,
-          show, fp, lp,
-          this.renderer.uniformBuffer, bgl,
-          fpFb, lpFb,
-        )
+      // Render vector tile sources
+      if (this.vectorTileShows.size === 1) {
+        // Single source: render in existing pass (shared stencil)
+        for (const [sourceName, { show, pipelines, layout }] of this.vectorTileShows) {
+          const vtEntry = this.vtSources.get(sourceName)
+          if (!vtEntry || !vtEntry.renderer.hasData()) continue
+          const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
+          const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
+          const bgl = layout ?? this.renderer.bindGroupLayout
+          vtEntry.renderer.render(pass, this.camera, projType, centerLon, centerLat, w, h,
+            show, fp, lp, this.renderer.uniformBuffer, bgl,
+            pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback,
+            pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback)
+        }
       }
-
       pass.end()
+
+      // Multi-source: separate pass per source (independent stencil clear)
+      if (this.vectorTileShows.size > 1) {
+        for (const [sourceName, { show, pipelines, layout }] of this.vectorTileShows) {
+          const vtEntry = this.vtSources.get(sourceName)
+          if (!vtEntry || !vtEntry.renderer.hasData()) continue
+          const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
+          const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
+          const bgl = layout ?? this.renderer.bindGroupLayout
+          const vtPass = encoder.beginRenderPass({
+            colorAttachments: [{
+              view: screenView, loadOp: 'load', storeOp: 'store',
+            }],
+            depthStencilAttachment: {
+              view: this.stencilTexture!.createView(),
+              stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard',
+            },
+          })
+          vtEntry.renderer.render(vtPass, this.camera, projType, centerLon, centerLat, w, h,
+            show, fp, lp, this.renderer.uniformBuffer, bgl,
+            pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback,
+            pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback)
+          vtPass.end()
+        }
+      }
     }
 
     device.queue.submit([encoder.finish()])
