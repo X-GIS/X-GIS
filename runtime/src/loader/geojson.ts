@@ -143,60 +143,76 @@ function clipRingAtLon(ring: number[][], cutLon: number, keepLess: boolean): num
   return result
 }
 
-/**
- * Split polygon rings at the anti-meridian (180°).
- * Returns an array of polygon ring-sets, each tessellated independently.
- * Most polygons return [[original rings]]. Anti-meridian polygons return
- * [[west rings], [east rings]] where each is a valid polygon.
- */
-function splitRingsAtAntiMeridian(rings: number[][][]): number[][][][] {
-  const outerRing = rings[0]
-  if (!detectsAntiMeridianCross(outerRing)) return [rings]
+/** Max longitude span for a single tessellated piece (prevents globe-spanning earcut edges) */
+const MAX_PIECE_WIDTH = 40
 
-  // Step 1: Shift negative longitudes to create continuous coordinate space
-  const shift = (ring: number[][]): number[][] =>
-    ring.map(([lon, lat]) => lon < -90 ? [lon + 360, lat] : [lon, lat])
+/** Clip a set of rings (outer + holes) at a longitude, returning west and/or east halves */
+function clipRingsAtLon(rings: number[][][], cutLon: number): { west: number[][][] | null, east: number[][][] | null } {
+  const westOuter = clipRingAtLon(rings[0], cutLon, true)
+  const eastOuter = clipRingAtLon(rings[0], cutLon, false)
 
-  const shiftedOuter = shift(outerRing)
-
-  // Step 2: Check if shifted ring actually crosses 180°
-  let hasEast = false
-  for (const [lon] of shiftedOuter) {
-    if (lon > 180) { hasEast = true; break }
-  }
-  if (!hasEast) {
-    // After shift, everything is ≤180° — no split needed
-    return [[shiftedOuter, ...rings.slice(1).map(shift)]]
-  }
-
-  // Step 3: Clip outer ring at lon=180° into west and east parts
-  const westOuter = clipRingAtLon(shiftedOuter, 180, true)
-  const eastOuter = clipRingAtLon(shiftedOuter, 180, false)
-
-  // Shift east part back by -360° to standard [-180, 0] range
-  const eastOuterShifted = eastOuter.map(([lon, lat]) => [lon - 360, lat])
-
-  const results: number[][][][] = []
-
-  // Step 4: Handle holes — assign each hole to west or east based on centroid
-  const westHoles: number[][][] = []
-  const eastHoles: number[][][] = []
-  for (let r = 1; r < rings.length; r++) {
-    const hole = shift(rings[r])
-    let sumLon = 0
-    for (const [lon] of hole) sumLon += lon
-    const avgLon = sumLon / hole.length
-    if (avgLon <= 180) {
-      westHoles.push(hole)
-    } else {
-      eastHoles.push(hole.map(([lon, lat]) => [lon - 360, lat]))
+  const buildPart = (outer: number[][], keepLess: boolean): number[][][] | null => {
+    if (outer.length < 4) return null
+    const holes: number[][][] = []
+    for (let r = 1; r < rings.length; r++) {
+      const clipped = clipRingAtLon(rings[r], cutLon, keepLess)
+      if (clipped.length >= 4) holes.push(clipped)
     }
+    return [outer, ...holes]
   }
 
-  if (westOuter.length >= 4) results.push([westOuter, ...westHoles])
-  if (eastOuterShifted.length >= 4) results.push([eastOuterShifted, ...eastHoles])
+  return { west: buildPart(westOuter, true), east: buildPart(eastOuter, false) }
+}
 
-  return results
+/**
+ * Split polygon rings to keep each piece ≤ MAX_PIECE_WIDTH° wide.
+ * Handles anti-meridian crossing + large polygons (Russia spans 152°).
+ * Returns array of ring-sets, each tessellated independently.
+ */
+function splitWidePolygon(rings: number[][][]): number[][][][] {
+  let processedRings = rings
+
+  // Step 1: Anti-meridian — shift to continuous coordinate space
+  if (detectsAntiMeridianCross(rings[0])) {
+    const shift = (ring: number[][]): number[][] =>
+      ring.map(([lon, lat]) => lon < -90 ? [lon + 360, lat] : [lon, lat])
+    processedRings = rings.map(shift)
+  }
+
+  // Step 2: Determine longitude extent
+  let minLon = Infinity, maxLon = -Infinity
+  for (const [lon] of processedRings[0]) {
+    if (lon < minLon) minLon = lon
+    if (lon > maxLon) maxLon = lon
+  }
+
+  if (maxLon - minLon <= MAX_PIECE_WIDTH) return [processedRings]
+
+  // Step 3: Compute clip longitudes at 90° intervals within the polygon's range
+  const clipLons: number[] = []
+  const startLon = Math.ceil(minLon / MAX_PIECE_WIDTH) * MAX_PIECE_WIDTH
+  for (let lon = startLon; lon < maxLon; lon += MAX_PIECE_WIDTH) {
+    if (lon > minLon) clipLons.push(lon)
+  }
+
+  // Step 4: Progressively clip at each longitude
+  let parts: number[][][][] = [processedRings]
+  for (const cutLon of clipLons) {
+    const newParts: number[][][][] = []
+    for (const partRings of parts) {
+      const { west, east } = clipRingsAtLon(partRings, cutLon)
+      if (west) newParts.push(west)
+      if (east) newParts.push(east)
+    }
+    parts = newParts
+  }
+
+  // Step 5: Shift any coordinates > 180° back to standard [-180, 180] range
+  return parts.map(partRings =>
+    partRings.map(ring =>
+      ring.map(([lon, lat]) => lon > 180 ? [lon - 360, lat] : [lon, lat])
+    )
+  )
 }
 
 // ═══ GeoJSON → GPU Mesh ═══
@@ -279,9 +295,9 @@ function tessellatePolygon(
   outIndices: number[],
   outFeatures: FeatureRange[],
 ): void {
-  // Split at anti-meridian: each part is tessellated independently
-  // This prevents earcut from creating internal edges that span the globe
-  const parts = splitRingsAtAntiMeridian(rings)
+  // Split wide polygons at 90° intervals to prevent earcut from creating
+  // internal triangle edges that span the globe (visible as diagonal artifacts)
+  const parts = splitWidePolygon(rings)
   for (const partRings of parts) {
     tessellatePolygonPart(partRings, properties, outVertices, outIndices, outFeatures)
   }
