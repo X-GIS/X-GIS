@@ -42,6 +42,8 @@ export class VectorTileRenderer {
   private lastZoom = -1
   private stableKeys: number[] = []
   private uniformDataBuf = new ArrayBuffer(144)
+  private tileRtcBuf = new Float32Array(4) // reused per-tile RTC buffer
+  private uniformView = new DataView(new ArrayBuffer(144))
   private lastBindGroupLayout: GPUBindGroupLayout | null = null
 
   // Global feature data buffer (shared across all tiles)
@@ -368,7 +370,7 @@ export class VectorTileRenderer {
       const R = 6378137
       const tileX = cached.tileWest * DEG2RAD * R
       const centerX = projCenterLon * DEG2RAD * R
-      const currentProjType = new Float32Array(sharedUniformData, 96, 1)[0]
+      const currentProjType = new DataView(sharedUniformData).getFloat32(96, true)
       const tileY = currentProjType < 0.5
         ? Math.log(Math.tan(Math.PI / 4 + cached.tileSouth * DEG2RAD / 2)) * R
         : cached.tileSouth * DEG2RAD * R
@@ -376,8 +378,11 @@ export class VectorTileRenderer {
         ? Math.log(Math.tan(Math.PI / 4 + projCenterLat * DEG2RAD / 2)) * R
         : projCenterLat * DEG2RAD * R
 
-      const tileRtc = new Float32Array([tileX - centerX, tileY - centerY, cached.tileWest, cached.tileSouth])
-      this.device.queue.writeBuffer(cached.uniformBuffer, 112, tileRtc)
+      this.tileRtcBuf[0] = tileX - centerX
+      this.tileRtcBuf[1] = tileY - centerY
+      this.tileRtcBuf[2] = cached.tileWest
+      this.tileRtcBuf[3] = cached.tileSouth
+      this.device.queue.writeBuffer(cached.uniformBuffer, 112, this.tileRtcBuf)
 
       if (cached.indexCount > 0) {
         pass.setPipeline(fillPipeline)

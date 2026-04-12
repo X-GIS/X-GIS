@@ -39,7 +39,7 @@ export class XGVTSource {
   private fileBuf: ArrayBuffer | null = null
   private dataCache = new Map<number, TileData>()
   private loadingTiles = new Set<number>()
-  private decompressedTiles: Map<number, ArrayBuffer> | null = null
+  private isFullFileMode = false
 
   /** Called when a tile finishes loading (for GPU upload) */
   onTileLoaded: ((key: number, data: TileData) => void) | null = null
@@ -93,7 +93,7 @@ export class XGVTSource {
   async loadFromBuffer(buf: ArrayBuffer): Promise<void> {
     this.fileBuf = buf
     this.index = parseXGVTIndex(buf)
-    this.decompressedTiles = new Map()
+    this.isFullFileMode = true
 
     const { propTableOffset, propTableLength } = this.index.header
     if (propTableOffset > 0 && propTableLength > 0) {
@@ -149,16 +149,17 @@ export class XGVTSource {
     if (entries.length === 0) return
 
     // Full-file mode (ArrayBuffer already loaded)
-    if (this.decompressedTiles && this.fileBuf) {
+    if (this.isFullFileMode && this.fileBuf) {
       for (const { key, entry } of entries) {
         this.loadingTiles.add(key)
         const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
 
         if (entry.gpuReadySize > 0) {
-          // GPU-ready: read directly from file buffer (no decompression)
-          const gpuOffset = entry.dataOffset + entry.compactSize
-          const gpuBuf = this.fileBuf!.slice(gpuOffset, gpuOffset + entry.gpuReadySize)
-          const tile = parseGPUReadyTile(gpuBuf, { ...entry, dataOffset: 0, compactSize: 0, gpuReadySize: gpuBuf.byteLength })
+          // GPU-ready: read directly from file buffer (no decompression, no copy)
+          const tile = parseGPUReadyTile(this.fileBuf!, {
+            ...entry, dataOffset: entry.dataOffset + entry.compactSize,
+            compactSize: 0, gpuReadySize: entry.gpuReadySize,
+          })
           if (isFullCover) {
             this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
           } else {
@@ -166,19 +167,12 @@ export class XGVTSource {
           }
           this.loadingTiles.delete(key)
         } else {
-          // Compact: decompress + earcut
-          const cached = this.decompressedTiles.get(entry.tileHash)
-          if (cached) {
-            this.parseTileAndCache(key, cached, entry, isFullCover)
+          // Compact: decompress + earcut (no intermediate cache)
+          const slice = this.fileBuf!.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
+          decompressTileData(slice).then(result => {
+            this.parseTileAndCache(key, result, entry, isFullCover)
             this.loadingTiles.delete(key)
-          } else {
-            const slice = this.fileBuf!.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
-            decompressTileData(slice).then(result => {
-              this.decompressedTiles!.set(entry.tileHash, result)
-              this.parseTileAndCache(key, result, entry, isFullCover)
-              this.loadingTiles.delete(key)
-            }).catch(() => { this.loadingTiles.delete(key) })
-          }
+          }).catch(() => { this.loadingTiles.delete(key) })
         }
       }
       return

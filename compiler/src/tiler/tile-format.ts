@@ -361,23 +361,34 @@ export function parseGPUReadyTile(
 ): CompiledTile {
   const [z, x, y] = tileKeyUnpack(entry.tileHash)
 
-  // If GPU-ready layer exists, use it directly (zero-copy)
+  // If GPU-ready layer exists, use it directly (zero-copy views if aligned)
   if (entry.gpuReadySize > 0) {
     const gpuStart = entry.dataOffset + entry.compactSize
-    const gpuBuf = buf.slice(gpuStart, gpuStart + entry.gpuReadySize)
-
-    let offset = 0
     const vertBytes = entry.vertexCount * 3 * 4
     const idxBytes = entry.indexCount * 4
     const lineVertBytes = entry.lineVertexCount * 3 * 4
 
-    const vertices = new Float32Array(gpuBuf, offset, entry.vertexCount * 3); offset += vertBytes
-    const indices = new Uint32Array(gpuBuf, offset, entry.indexCount); offset += idxBytes
-    const lineVertices = new Float32Array(gpuBuf, offset, entry.lineVertexCount * 3); offset += lineVertBytes
-    const lineIndices = new Uint32Array(gpuBuf, offset, entry.lineIndexCount)
+    let vertices: Float32Array, indices: Uint32Array, lineVertices: Float32Array, lineIndices: Uint32Array
+
+    if (gpuStart % 4 === 0) {
+      // Aligned: create views directly (zero-copy)
+      let off = gpuStart
+      vertices = new Float32Array(buf, off, entry.vertexCount * 3); off += vertBytes
+      indices = new Uint32Array(buf, off, entry.indexCount); off += idxBytes
+      lineVertices = new Float32Array(buf, off, entry.lineVertexCount * 3); off += lineVertBytes
+      lineIndices = new Uint32Array(buf, off, entry.lineIndexCount)
+    } else {
+      // Unaligned: copy to aligned buffer
+      const gpuBuf = buf.slice(gpuStart, gpuStart + entry.gpuReadySize)
+      let off = 0
+      vertices = new Float32Array(gpuBuf, off, entry.vertexCount * 3); off += vertBytes
+      indices = new Uint32Array(gpuBuf, off, entry.indexCount); off += idxBytes
+      lineVertices = new Float32Array(gpuBuf, off, entry.lineVertexCount * 3); off += lineVertBytes
+      lineIndices = new Uint32Array(gpuBuf, off, entry.lineIndexCount)
+    }
 
     const tb = tileBoundsFromZXY(z, x, y)
-  return { z, x, y, tileWest: tb.west, tileSouth: tb.south, vertices, indices, lineVertices, lineIndices, featureCount: 0 }
+    return { z, x, y, tileWest: tb.west, tileSouth: tb.south, vertices, indices, lineVertices, lineIndices, featureCount: 0 }
   }
 
   // Decompress gzip'd compact layer
