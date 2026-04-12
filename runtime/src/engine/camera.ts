@@ -39,25 +39,25 @@ export class Camera {
     ])
   }
 
+  // Preallocated RTC matrix (reused every frame)
+  private rtcMatrix = new Float32Array(16)
+
   /** RTC matrix: scale + rotation, no translation (RTC vertex shader already centered) */
   getRTCMatrix(canvasWidth: number, canvasHeight: number): Float32Array {
     const metersPerPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
     const scaleX = 2 / (canvasWidth * metersPerPixel)
     const scaleY = 2 / (canvasHeight * metersPerPixel)
 
-    // Apply bearing rotation (clockwise in screen space)
     const rad = -this.bearing * Math.PI / 180
     const cos = Math.cos(rad)
     const sin = Math.sin(rad)
 
-    // Scale × Rotation (column-major 4x4)
-    // prettier-ignore
-    return new Float32Array([
-      scaleX * cos,  scaleX * sin,  0, 0,
-      -scaleY * sin, scaleY * cos,  0, 0,
-      0,             0,             1, 0,
-      0,             0,             0, 1,
-    ])
+    const m = this.rtcMatrix
+    m[0] = scaleX * cos;  m[1] = scaleX * sin;  m[2] = 0; m[3] = 0
+    m[4] = -scaleY * sin; m[5] = scaleY * cos;  m[6] = 0; m[7] = 0
+    m[8] = 0;             m[9] = 0;             m[10] = 1; m[11] = 0
+    m[12] = 0;            m[13] = 0;            m[14] = 0; m[15] = 1
+    return m
   }
 
   // Mercator Y limit: ±85.051129° → ±20037508.34m

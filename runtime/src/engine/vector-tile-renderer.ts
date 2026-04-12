@@ -42,9 +42,13 @@ export class VectorTileRenderer {
   private lastZoom = -1
   private stableKeys: number[] = []
   private uniformDataBuf = new ArrayBuffer(144)
+  private uniformF32 = new Float32Array(this.uniformDataBuf) // reusable view over full uniform
   private tileRtcBuf = new Float32Array(4) // reused per-tile RTC buffer
-  private uniformView = new DataView(new ArrayBuffer(144))
   private lastBindGroupLayout: GPUBindGroupLayout | null = null
+  private cachedFillColor = [0, 0, 0, 0]
+  private cachedStrokeColor = [0, 0, 0, 0]
+  private cachedShowFill = ''
+  private cachedShowStroke = ''
 
   // Global feature data buffer (shared across all tiles)
   private featureDataBuffer: GPUBuffer | null = null
@@ -252,19 +256,39 @@ export class VectorTileRenderer {
 
     const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
 
-    const fillRaw = show.fill ? parseHexColor(show.fill) : null
-    const strokeRaw = show.stroke ? parseHexColor(show.stroke) : null
+    // Cache color parsing — only reparse if show properties changed
     const opacity = show.opacity ?? 1.0
-    const fillColor = fillRaw ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity] : [0, 0, 0, 0]
-    const strokeColor = strokeRaw ? [strokeRaw[0], strokeRaw[1], strokeRaw[2], strokeRaw[3] * opacity] : [0, 0, 0, 0]
+    if (show.fill !== this.cachedShowFill) {
+      this.cachedShowFill = show.fill ?? ''
+      const raw = show.fill ? parseHexColor(show.fill) : null
+      this.cachedFillColor[0] = raw ? raw[0] : 0
+      this.cachedFillColor[1] = raw ? raw[1] : 0
+      this.cachedFillColor[2] = raw ? raw[2] : 0
+      this.cachedFillColor[3] = raw ? raw[3] : 0
+    }
+    if (show.stroke !== this.cachedShowStroke) {
+      this.cachedShowStroke = show.stroke ?? ''
+      const raw = show.stroke ? parseHexColor(show.stroke) : null
+      this.cachedStrokeColor[0] = raw ? raw[0] : 0
+      this.cachedStrokeColor[1] = raw ? raw[1] : 0
+      this.cachedStrokeColor[2] = raw ? raw[2] : 0
+      this.cachedStrokeColor[3] = raw ? raw[3] : 0
+    }
 
-    const uniformData = this.uniformDataBuf
-    new Float32Array(uniformData, 0, 16).set(mvp)
-    new Float32Array(uniformData, 64, 4).set(fillColor)
-    new Float32Array(uniformData, 80, 4).set(strokeColor)
-    new Float32Array(uniformData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
+    // Write uniforms directly via cached Float32Array view (no new typed array allocations)
+    const uf = this.uniformF32
+    uf.set(mvp, 0) // offset 0: mvp (16 floats)
+    uf[16] = this.cachedFillColor[0]; uf[17] = this.cachedFillColor[1]
+    uf[18] = this.cachedFillColor[2]; uf[19] = this.cachedFillColor[3] * opacity
+    uf[20] = this.cachedStrokeColor[0]; uf[21] = this.cachedStrokeColor[1]
+    uf[22] = this.cachedStrokeColor[2]; uf[23] = this.cachedStrokeColor[3] * opacity
+    uf[24] = projType; uf[25] = projCenterLon; uf[26] = projCenterLat; uf[27] = 0
 
-    const neededKeys = tiles.map(c => tileKey(c.z, c.x, c.y))
+    // Avoid tiles.map() allocation — compute keys inline
+    const neededKeys: number[] = []
+    for (let i = 0; i < tiles.length; i++) {
+      neededKeys.push(tileKey(tiles[i].z, tiles[i].x, tiles[i].y))
+    }
     const fallbackKeys: number[] = []
     const toLoad: number[] = []
 
@@ -370,7 +394,7 @@ export class VectorTileRenderer {
       const R = 6378137
       const tileX = cached.tileWest * DEG2RAD * R
       const centerX = projCenterLon * DEG2RAD * R
-      const currentProjType = new DataView(sharedUniformData).getFloat32(96, true)
+      const currentProjType = this.uniformF32[24] // proj_type at offset 96 = index 24
       const tileY = currentProjType < 0.5
         ? Math.log(Math.tan(Math.PI / 4 + cached.tileSouth * DEG2RAD / 2)) * R
         : cached.tileSouth * DEG2RAD * R
