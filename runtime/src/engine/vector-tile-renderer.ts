@@ -364,28 +364,32 @@ export class VectorTileRenderer {
     pass.setStencilReference(1)
     this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, this.uniformDataBuf, projCenterLon, projCenterLat)
 
-    // Render fallback ancestors (stencil test)
+    // Render fallback ancestors (stencil test) — dedup via renderedDraws check in renderTileKeys
     if (fillPipelineFallback && fallbackKeys.length > 0) {
       pass.setStencilReference(0)
-      const uniqueFallbacks = [...new Set(fallbackKeys)]
-      this.renderTileKeys(uniqueFallbacks, pass, fillPipelineFallback, linePipelineFallback!, this.uniformDataBuf, projCenterLon, projCenterLat)
+      this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, this.uniformDataBuf, projCenterLon, projCenterLat)
     }
 
-    // Request missing tiles from source
-    const missing = neededKeys
-      .filter(k => !this.gpuCache.has(k) && !this.source!.isLoading(k) && this.source!.hasEntryInIndex(k))
-    const allToLoad = [...new Set([...missing, ...toLoad.filter(k => !this.gpuCache.has(k) && !this.source!.isLoading(k))])]
-    if (allToLoad.length > 0) this.source.requestTiles(allToLoad)
+    // Request missing tiles from source (avoid .filter/.map — use for loop)
+    for (let i = 0; i < neededKeys.length; i++) {
+      const k = neededKeys[i]
+      if (!this.gpuCache.has(k) && !this.source!.isLoading(k) && this.source!.hasEntryInIndex(k)) {
+        toLoad.push(k)
+      }
+    }
+    if (toLoad.length > 0) this.source.requestTiles(toLoad)
 
-    // Prefetch
-    this.source.prefetchAdjacent(tiles, currentZ)
-    this.source.prefetchNextZoom(centerLon, centerLat, currentZ, canvasWidth, canvasHeight, camera.zoom)
-    if (currentZ > 0) {
-      this.source.prefetchNextZoom(centerLon, centerLat, currentZ - 2, canvasWidth, canvasHeight, camera.zoom)
+    // Prefetch only every 10th frame (reduces CPU during fast pan)
+    if (this.frameCount % 10 === 0) {
+      this.source.prefetchAdjacent(tiles, currentZ)
+      this.source.prefetchNextZoom(centerLon, centerLat, currentZ, canvasWidth, canvasHeight, camera.zoom)
+      if (currentZ > 0) {
+        this.source.prefetchNextZoom(centerLon, centerLat, currentZ - 2, canvasWidth, canvasHeight, camera.zoom)
+      }
     }
 
-    // GPU cache eviction
-    this.evictGPUTiles()
+    // GPU cache eviction (every 60th frame)
+    if (this.frameCount % 60 === 0) this.evictGPUTiles()
   }
 
   private renderTileKeys(
@@ -404,13 +408,12 @@ export class VectorTileRenderer {
 
       cached.lastUsedFrame = this.frameCount
 
-      this.device.queue.writeBuffer(cached.uniformBuffer, 0, sharedUniformData)
-
+      // Compute tile_rtc directly into the uniform buffer at offset 28 (index 28-31)
       const DEG2RAD = Math.PI / 180
       const R = 6378137
       const tileX = cached.tileWest * DEG2RAD * R
       const centerX = projCenterLon * DEG2RAD * R
-      const currentProjType = this.uniformF32[24] // proj_type at offset 96 = index 24
+      const currentProjType = this.uniformF32[24]
       const tileY = currentProjType < 0.5
         ? Math.log(Math.tan(Math.PI / 4 + cached.tileSouth * DEG2RAD / 2)) * R
         : cached.tileSouth * DEG2RAD * R
@@ -418,11 +421,12 @@ export class VectorTileRenderer {
         ? Math.log(Math.tan(Math.PI / 4 + projCenterLat * DEG2RAD / 2)) * R
         : projCenterLat * DEG2RAD * R
 
-      this.tileRtcBuf[0] = tileX - centerX
-      this.tileRtcBuf[1] = tileY - centerY
-      this.tileRtcBuf[2] = cached.tileWest
-      this.tileRtcBuf[3] = cached.tileSouth
-      this.device.queue.writeBuffer(cached.uniformBuffer, 112, this.tileRtcBuf)
+      // Write tile_rtc into shared buffer, then single writeBuffer for everything
+      this.uniformF32[28] = tileX - centerX
+      this.uniformF32[29] = tileY - centerY
+      this.uniformF32[30] = cached.tileWest
+      this.uniformF32[31] = cached.tileSouth
+      this.device.queue.writeBuffer(cached.uniformBuffer, 0, this.uniformDataBuf)
 
       if (cached.indexCount > 0) {
         pass.setPipeline(fillPipeline)
