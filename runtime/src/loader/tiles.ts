@@ -58,10 +58,12 @@ export function visibleTiles(
   let tilesY = Math.ceil(effH / tileSize / 2) + 1
 
   // Pitch: camera tilted → need more tiles in the "forward" direction
+  // Quantize pitch to 5° steps to stabilize tile set (prevents oscillation)
   if (pitch && pitch > 1) {
-    const pitchFactor = 1 / Math.cos(Math.min(pitch, 85) * Math.PI / 180)
+    const quantizedPitch = Math.ceil(Math.min(pitch, 85) / 5) * 5
+    const pitchFactor = 1 / Math.cos(quantizedPitch * Math.PI / 180)
     const extra = Math.ceil(tilesY * (pitchFactor - 1))
-    tilesY += Math.min(extra, tilesY * 4) // cap at 5× to prevent runaway
+    tilesY += Math.min(extra, tilesY * 4)
   }
 
   const tiles: TileCoord[] = []
