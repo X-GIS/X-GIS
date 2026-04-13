@@ -59,7 +59,7 @@ export function visibleTiles(
 
   // Pitch: camera tilted → need more tiles in the "forward" direction
   // Quantize pitch to 5° steps to stabilize tile set (prevents oscillation)
-  if (pitch && pitch > 1) {
+  if (pitch && pitch > 0) {
     const quantizedPitch = Math.ceil(Math.min(pitch, 85) / 5) * 5
     const pitchFactor = 1 / Math.cos(quantizedPitch * Math.PI / 180)
     const extra = Math.ceil(tilesY * (pitchFactor - 1))

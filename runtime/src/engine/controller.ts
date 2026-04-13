@@ -214,7 +214,7 @@ export class PanZoomController implements Controller {
           camera.bearing = target
 
           // Pitch: only snap to 0 if very close (< 5°)
-          if (camera.pitch < 5) camera.pitch = 0
+          if (camera.pitch < 2) camera.pitch = 0
         }
         isDragging = false
         isRotatePending = false

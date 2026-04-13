@@ -412,6 +412,9 @@ export class VectorTileRenderer {
       this.source.prefetchAdjacent(tiles, currentZ)
     }
 
+    // Track stable tile set for eviction protection and point rendering
+    this.stableKeys = neededKeys
+
     // GPU cache eviction
     if (this.gpuCache.size > MAX_GPU_TILES) this.evictGPUTiles()
 

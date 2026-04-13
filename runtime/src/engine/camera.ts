@@ -55,21 +55,7 @@ export class Camera {
     const metersPerPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
     const m = this.rtcMatrix
 
-    if (this.pitch < 0.1) {
-      // pitch ≈ 0: fast path — pure orthographic (exact same as before)
-      const scaleX = 2 / (canvasWidth * metersPerPixel)
-      const scaleY = 2 / (canvasHeight * metersPerPixel)
-      const rad = -this.bearing * Math.PI / 180
-      const cos = Math.cos(rad)
-      const sin = Math.sin(rad)
-      m[0] = scaleX * cos;  m[1] = scaleY * sin;  m[2] = 0; m[3] = 0
-      m[4] = -scaleX * sin; m[5] = scaleY * cos;  m[6] = 0; m[7] = 0
-      m[8] = 0;             m[9] = 0;             m[10] = 1; m[11] = 0
-      m[12] = 0;            m[13] = 0;            m[14] = 0; m[15] = 1
-      return m
-    }
-
-    // ── Perspective path ──
+    // ── Always use perspective path (no ortho/perspective discontinuity) ──
     // MVP = Perspective × Translate(0,0,-alt) × RotateX(pitch) × RotateZ(bearing)
     // Applied right-to-left: bearing → pitch → move camera up → project
 
@@ -90,16 +76,14 @@ export class Camera {
     const near = altitude * 0.5
     const far = groundDist * 3
 
-    // Helper: multiply two column-major 4×4 matrices (A × B), reuses tmp array
-    const tmp = Camera._mulTmp
-    const mul = (a: number[], b: number[]): number[] => {
-      for (let i = 0; i < 16; i++) tmp[i] = 0
+    // Multiply two column-major 4×4 matrices into `out` array
+    const mul4 = (out: number[], a: number[], b: number[]) => {
       for (let c = 0; c < 4; c++)
-        for (let r = 0; r < 4; r++)
-          for (let k = 0; k < 4; k++)
-            tmp[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k]
-      const result = [...tmp] // copy because mul is chained
-      return result
+        for (let r = 0; r < 4; r++) {
+          let s = 0
+          for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]
+          out[c * 4 + r] = s
+        }
     }
 
     // Perspective matrix (column-major)
@@ -139,15 +123,20 @@ export class Camera {
     ]
 
     // MVP = P × T × Rx × Rz  (right-to-left: bearing → pitch → translate → project)
-    const MVP = mul(P, mul(T, mul(Rx, Rz)))
+    const t1 = Camera._t1, t2 = Camera._t2
+    mul4(t1, Rx, Rz)      // t1 = Rx × Rz
+    mul4(t2, T, t1)        // t2 = T × (Rx × Rz)
+    mul4(Camera._t3, P, t2) // t3 = P × T × Rx × Rz
 
-    for (let i = 0; i < 16; i++) m[i] = MVP[i]
+    for (let i = 0; i < 16; i++) m[i] = Camera._t3[i]
     return m
   }
 
   // Mercator Y limit: ±85.051129° → ±20037508.34m
   private static readonly MAX_Y = 20037508.34
-  private static _mulTmp = new Array(16).fill(0)
+  private static _t1 = new Array(16).fill(0)
+  private static _t2 = new Array(16).fill(0)
+  private static _t3 = new Array(16).fill(0)
 
   /** Compute the maximum camera Y offset for the current zoom (content stays on screen) */
   private maxCameraY(canvasHeight: number): number {
