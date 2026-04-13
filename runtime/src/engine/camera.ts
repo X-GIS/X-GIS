@@ -204,11 +204,16 @@ export class Camera {
     const oldMPP = (40075016.686 / 256) / Math.pow(2, oldZoom)
     const newMPP = (40075016.686 / 256) / Math.pow(2, this.zoom)
 
-    const offsetX = (screenX - cssWidth / 2)
-    const offsetY = -(screenY - cssHeight / 2)
-
-    this.centerX += offsetX * (oldMPP - newMPP)
-    this.centerY += offsetY * (oldMPP - newMPP)
+    // When pitched, zoom toward screen center only (perspective makes
+    // screen-to-world mapping non-linear, causing jitter with offset zoom)
+    if (this.pitch > 1) {
+      // No center offset when pitched — zoom is centered
+    } else {
+      const offsetX = (screenX - cssWidth / 2)
+      const offsetY = -(screenY - cssHeight / 2)
+      this.centerX += offsetX * (oldMPP - newMPP)
+      this.centerY += offsetY * (oldMPP - newMPP)
+    }
     // Clamp after zoom: visible area changes with zoom level
     const maxY = this.maxCameraY(canvasHeight)
     this.centerY = Math.max(-maxY, Math.min(maxY, this.centerY))
