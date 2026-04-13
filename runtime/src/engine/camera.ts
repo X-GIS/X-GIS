@@ -73,8 +73,8 @@ export class Camera {
     // Near: close enough to not clip nearby geometry
     // Far: just enough to cover visible ground at max pitch
     const groundDist = altitude / Math.max(Math.cos(pitchRad), 0.01)
-    const near = altitude * 0.5
-    const far = groundDist * 3
+    const near = altitude * 0.01
+    const far = groundDist * 5
 
     // Multiply two column-major 4×4 matrices into `out` array
     const mul4 = (out: number[], a: number[], b: number[]) => {
