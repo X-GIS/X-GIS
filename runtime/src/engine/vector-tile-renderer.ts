@@ -382,17 +382,8 @@ export class VectorTileRenderer {
       }
     }
 
-    // Render current zoom tiles (stencil write) — with world copy offsets
-    pass.setStencilReference(1)
-    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, this.uniformDataBuf, projCenterLon, projCenterLat, worldOffDeg)
-
-    // Render fallback ancestors (stencil test) — with world offsets for wrapping
-    if (fillPipelineFallback && fallbackKeys.length > 0) {
-      pass.setStencilReference(0)
-      this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, this.uniformDataBuf, projCenterLon, projCenterLat, fallbackOffsets)
-    }
-
-    // Request missing tiles — prioritize parents first (ensures fallback is ready)
+    // Request missing tiles BEFORE drawing — on-demand tiles compile synchronously
+    // and become available in gpuCache within the same frame
     const parentKeys: number[] = []
     for (let i = 0; i < neededKeys.length; i++) {
       const k = neededKeys[i]
@@ -411,6 +402,25 @@ export class VectorTileRenderer {
     // Load parents first, then current zoom tiles
     if (parentKeys.length > 0) this.source.requestTiles(parentKeys)
     if (toLoad.length > 0) this.source.requestTiles(toLoad)
+
+    // After on-demand compile, newly available tiles may need upload
+    for (const key of toLoad) {
+      if (!this.gpuCache.has(key) && this.source!.hasTileData(key)) {
+        this.uploadTile(key, this.source!.getTileData(key)!)
+      }
+    }
+
+    // NOW draw (tiles are guaranteed in gpuCache if they compiled synchronously)
+
+    // Render current zoom tiles (stencil write) — with world copy offsets
+    pass.setStencilReference(1)
+    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, this.uniformDataBuf, projCenterLon, projCenterLat, worldOffDeg)
+
+    // Render fallback ancestors (stencil test) — with world offsets for wrapping
+    if (fillPipelineFallback && fallbackKeys.length > 0) {
+      pass.setStencilReference(0)
+      this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, this.uniformDataBuf, projCenterLon, projCenterLat, fallbackOffsets)
+    }
 
     // Prefetch adjacent + next zoom (every 10th frame)
     if (this.frameCount % 10 === 0) {
