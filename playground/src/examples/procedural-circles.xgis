@@ -1,26 +1,24 @@
-/* Ternary conditional: GDP-based coloring on GPU */
+/* Population circles: procedural geometry from point data */
 
-source countries {
+source land {
   type: geojson
-  url: "ne_110m_countries.geojson"
+  url: "ne_110m_land.geojson"
 }
 
-/* Dark base layer */
-layer base {
-  source: countries
-  | fill-slate-800 stroke-slate-600 stroke-0.5
+source cities {
+  type: geojson
+  url: "ne_110m_populated_places.geojson"
 }
 
-/* GDP > $1 trillion highlighted */
-layer wealthy {
-  source: countries
-  filter: .GDP_MD_EST > 1000000
-  | fill-emerald-500 stroke-emerald-300 stroke-1 opacity-80
+/* Dark land background */
+layer background {
+  source: land
+  | fill-slate-800 stroke-slate-700 stroke-0.5
 }
 
-/* Top economies ($5T+) extra highlight */
-layer top {
-  source: countries
-  filter: .GDP_MD_EST > 5000000
-  | fill-yellow-400 stroke-yellow-200 stroke-2 opacity-90
+/* Population circles — radius from sqrt(pop_max) */
+layer population {
+  source: cities
+  geometry: circle(.longitude, .latitude, sqrt(.pop_max) / 5000, 32)
+  | fill-rose-500 opacity-40 stroke-rose-400 stroke-1
 }
