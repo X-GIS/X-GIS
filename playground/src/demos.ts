@@ -161,7 +161,7 @@ export const DEMOS: Record<string, Demo> = {
   sdf_points: {
     name: 'SDF Points',
     tag: 'point',
-    description: 'Screen-space (8px) + world-space (500km) SDF circles — zoom to see the difference',
+    description: 'Billboard markers (8px) + flat coverage (300km) — right-click drag to pitch and compare',
     source: load('sdf-points.xgis'),
   },
 }
