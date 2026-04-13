@@ -13,7 +13,7 @@ const PI: f32 = 3.14159265;
 const DEG2RAD: f32 = 0.01745329;
 const EARTH_R: f32 = 6378137.0;
 const MERCATOR_LAT_LIMIT: f32 = 85.051129;
-const STRIDE: u32 = 11u;
+const STRIDE: u32 = 13u;
 
 struct Uniforms {
   mvp: mat4x4<f32>,
@@ -57,12 +57,11 @@ fn vs_point(
     radius_px = raw_radius;                          // px: as-is
   }
 
-  // Project center to Mercator RTC
-  let local_x = center.x * DEG2RAD * EARTH_R;
-  let lat_clamped = clamp(center.y, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
-  let local_y = log(tan(PI * 0.25 + lat_clamped * DEG2RAD * 0.5)) * EARTH_R;
-  let rtc = vec2f(local_x + u.tile_rtc.x, local_y + u.tile_rtc.y);
-  let center_clip = u.mvp * vec4f(rtc, 0.0, 1.0);
+  // RTC: center is pre-computed as (mercX - cameraMercX, mercY - cameraMercY)
+  // stored in feat_data by CPU in f64 precision, passed as small f32 offsets
+  let rtc_x = feat_data[fid * STRIDE + 11u];
+  let rtc_y = feat_data[fid * STRIDE + 12u];
+  let center_clip = u.mvp * vec4f(rtc_x, rtc_y, 0.0, 1.0);
 
   // Expand quad: offset in NDC pixels
   let px_to_ndc = vec2f(2.0 / u.viewport.x, 2.0 / u.viewport.y);
@@ -133,6 +132,9 @@ interface PointLayer {
   vertexBuffer: GPUBuffer
   indexBuffer: GPUBuffer
   featureBuffer: GPUBuffer
+  featData: Float32Array        // CPU copy for RTC updates
+  lons: Float64Array            // original longitudes (f64)
+  lats: Float64Array            // original latitudes (f64)
   indexCount: number
   pointCount: number
   bindGroup: GPUBindGroup
@@ -261,7 +263,7 @@ export class PointRenderer {
     }
 
     // Build per-feature data (stride = 11 floats)
-    const STRIDE = 11
+    const STRIDE = 13
     const featData = new Float32Array(points.length * STRIDE)
     let flags = 0
     if (fill) flags |= 1
@@ -287,6 +289,15 @@ export class PointRenderer {
       // stroke width in UV space
       featData[off + 9] = strokeWidth / Math.max(radiusPx, 1)
       featData[off + 10] = flags
+      // [11] and [12] = RTC x/y, written per-frame in render()
+    }
+
+    // Store original coordinates in f64 for per-frame RTC computation
+    const lons = new Float64Array(points.length)
+    const lats = new Float64Array(points.length)
+    for (let i = 0; i < points.length; i++) {
+      lons[i] = points[i].lon
+      lats[i] = points[i].lat
     }
 
     const vertexBuffer = this.device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
@@ -308,6 +319,7 @@ export class PointRenderer {
 
     this.layers.push({
       vertexBuffer, indexBuffer, featureBuffer,
+      featData, lons, lats,
       indexCount: indices.length,
       pointCount: points.length,
       bindGroup,
@@ -349,12 +361,32 @@ export class PointRenderer {
     uf[24] = canvasWidth
     uf[25] = canvasHeight
     uf[26] = metersPerPixel
-    uf[26] = 0
     uf[27] = 0
+
+    // tile_rtc no longer needed in uniform (RTC computed per-point in CPU)
+    uf[20] = 0; uf[21] = 0; uf[22] = 0; uf[23] = 0
 
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
 
+    // Camera center in Mercator (f64 precision)
+    const camMercX = projCenterLon * DEG2RAD * R
+    const camClampedLat = Math.max(-85.051129, Math.min(85.051129, projCenterLat))
+    const camMercY = Math.log(Math.tan(Math.PI / 4 + camClampedLat * DEG2RAD / 2)) * R
+
     for (const layer of this.layers) {
+      // Per-frame: compute RTC offsets in f64, write to feat_data as small f32
+      const STRIDE = 13
+      for (let i = 0; i < layer.pointCount; i++) {
+        const lon = layer.lons[i]
+        const lat = layer.lats[i]
+        const mercX = lon * DEG2RAD * R
+        const clampLat = Math.max(-85.051129, Math.min(85.051129, lat))
+        const mercY = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
+        layer.featData[i * STRIDE + 11] = mercX - camMercX  // f64 subtraction → f32 (small value)
+        layer.featData[i * STRIDE + 12] = mercY - camMercY
+      }
+      this.device.queue.writeBuffer(layer.featureBuffer, 0, layer.featData)
+
       pass.setPipeline(this.pipeline)
       pass.setBindGroup(0, layer.bindGroup)
       pass.setVertexBuffer(0, layer.vertexBuffer)
