@@ -544,7 +544,8 @@ export class XGISMap {
           vtEntry.renderer.render(pass, this.camera, projType, centerLon, centerLat, w, h,
             show, fp, lp, this.renderer.uniformBuffer, bgl,
             pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback,
-            pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback)
+            pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback,
+            this.pointRenderer)
         }
       }
 
@@ -580,7 +581,8 @@ export class XGISMap {
           vtEntry.renderer.render(vtPass, this.camera, projType, centerLon, centerLat, w, h,
             show, fp, lp, this.renderer.uniformBuffer, bgl,
             pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback,
-            pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback)
+            pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback,
+            this.pointRenderer)
           vtPass.end()
         }
 

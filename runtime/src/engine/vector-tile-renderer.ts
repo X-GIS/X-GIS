@@ -252,6 +252,7 @@ export class VectorTileRenderer {
     bindGroupLayout: GPUBindGroupLayout,
     fillPipelineFallback?: GPURenderPipeline,
     linePipelineFallback?: GPURenderPipeline,
+    pointRenderer?: import('./point-renderer').PointRenderer | null,
   ): void {
     if (!this.source?.hasData()) return
     const index = this.source.getIndex()
@@ -511,6 +512,43 @@ export class VectorTileRenderer {
 
       const vc = cached.indexCount + cached.lineIndexCount
       this.renderedDraws.set(drawKey, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount, vertexCount: vc })
+    }
+
+    // Render tile-based points via PointRenderer (if available)
+    if (pointRenderer) {
+      const DEG2RAD = Math.PI / 180
+      const R = 6378137
+      const camMercX = projCenterLon * DEG2RAD * R
+      const camClampedLat = Math.max(-85.051129, Math.min(85.051129, projCenterLat))
+      const camMercY = Math.log(Math.tan(Math.PI / 4 + camClampedLat * DEG2RAD / 2)) * R
+
+      // Collect points from visible tiles
+      for (const key of this.stableKeys) {
+        const tileData = this.source.getTileData(key)
+        if (!tileData?.pointVertices || tileData.pointVertices.length < 3) continue
+
+        const ptv = tileData.pointVertices
+        const tileW = tileData.tileWest
+        const tileS = tileData.tileSouth
+
+        for (let i = 0; i < ptv.length; i += 3) {
+          // Convert tile-local back to absolute for RTC
+          const lon = ptv[i] + tileW
+          const lat = ptv[i + 1] + tileS
+          const featId = ptv[i + 2]
+
+          // RTC in f64
+          const mercX = lon * DEG2RAD * R
+          const clampLat = Math.max(-85.051129, Math.min(85.051129, lat))
+          const mercY = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
+          const rtcX = mercX - camMercX
+          const rtcY = mercY - camMercY
+
+          pointRenderer.addTilePoint(rtcX, rtcY, featId)
+        }
+      }
+
+      pointRenderer.flushTilePoints(pass, camera, projCenterLon, projCenterLat, canvasWidth, canvasHeight, show)
     }
   }
 

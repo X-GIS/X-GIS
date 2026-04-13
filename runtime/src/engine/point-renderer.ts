@@ -203,6 +203,132 @@ export class PointRenderer {
     return this.layers.length > 0
   }
 
+  // ── Tile-based point accumulation (called from VectorTileRenderer) ──
+  private tilePoints: { rtcX: number; rtcY: number; featId: number }[] = []
+  private tilePointBuffer: GPUBuffer | null = null
+  private tilePointIndexBuffer: GPUBuffer | null = null
+  private tilePointFeatBuffer: GPUBuffer | null = null
+  private tilePointBindGroup: GPUBindGroup | null = null
+
+  /** Accumulate a point from a visible tile (pre-computed RTC) */
+  addTilePoint(rtcX: number, rtcY: number, featId: number): void {
+    this.tilePoints.push({ rtcX, rtcY, featId })
+  }
+
+  /** Flush accumulated tile points as a single draw call */
+  flushTilePoints(
+    pass: GPURenderPassEncoder,
+    camera: Camera,
+    projCenterLon: number,
+    projCenterLat: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; opacity?: number },
+  ): void {
+    if (this.tilePoints.length === 0) return
+    const N = this.tilePoints.length
+
+    // Parse show colors
+    const fillHex = show.fill
+    const strokeHex = show.stroke
+    const fill = fillHex ? this.parseHex(fillHex) : null
+    const stroke = strokeHex ? this.parseHex(strokeHex) : null
+    const opacity = show.opacity ?? 1.0
+    const radiusPx = show.size ?? 6
+    const strokeWidth = (show.strokeWidth ?? 1) / Math.max(radiusPx, 1)
+
+    let flags = 0
+    if (fill) flags |= 1
+    if (stroke) flags |= 2
+
+    // Build quad vertices + feat_data
+    const STRIDE = 13
+    const verts = new Float32Array(N * 4 * 4)
+    const indices = new Uint32Array(N * 6)
+    const featData = new Float32Array(N * STRIDE)
+    const u32View = new Uint32Array(verts.buffer)
+
+    for (let i = 0; i < N; i++) {
+      const pt = this.tilePoints[i]
+      const base = i * 4 * 4
+
+      for (let q = 0; q < 4; q++) {
+        const off = base + q * 4
+        verts[off + 0] = 0     // center placeholder (not used — RTC in feat_data)
+        verts[off + 1] = 0
+        u32View[off + 2] = q
+        verts[off + 3] = i
+      }
+
+      const iBase = i * 6, vBase = i * 4
+      indices[iBase] = vBase; indices[iBase + 1] = vBase + 1; indices[iBase + 2] = vBase + 2
+      indices[iBase + 3] = vBase; indices[iBase + 4] = vBase + 2; indices[iBase + 5] = vBase + 3
+
+      const fOff = i * STRIDE
+      featData[fOff + 0] = radiusPx
+      featData[fOff + 1] = fill ? fill[0] * opacity : 0
+      featData[fOff + 2] = fill ? fill[1] * opacity : 0
+      featData[fOff + 3] = fill ? fill[2] * opacity : 0
+      featData[fOff + 4] = fill ? fill[3] * opacity : 0
+      featData[fOff + 5] = stroke ? stroke[0] : 0
+      featData[fOff + 6] = stroke ? stroke[1] : 0
+      featData[fOff + 7] = stroke ? stroke[2] : 0
+      featData[fOff + 8] = stroke ? stroke[3] * opacity : 0
+      featData[fOff + 9] = strokeWidth
+      featData[fOff + 10] = flags
+      featData[fOff + 11] = pt.rtcX  // pre-computed RTC (f64 precision)
+      featData[fOff + 12] = pt.rtcY
+    }
+
+    // Upload (reuse or recreate buffers)
+    this.tilePointBuffer?.destroy()
+    this.tilePointIndexBuffer?.destroy()
+    this.tilePointFeatBuffer?.destroy()
+
+    this.tilePointBuffer = this.device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
+    this.device.queue.writeBuffer(this.tilePointBuffer, 0, verts)
+    this.tilePointIndexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST })
+    this.device.queue.writeBuffer(this.tilePointIndexBuffer, 0, indices)
+    this.tilePointFeatBuffer = this.device.createBuffer({ size: Math.max(featData.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST })
+    this.device.queue.writeBuffer(this.tilePointFeatBuffer, 0, featData)
+
+    this.tilePointBindGroup = this.device.createBindGroup({
+      layout: this.bindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer } },
+        { binding: 1, resource: { buffer: this.tilePointFeatBuffer } },
+      ],
+    })
+
+    // Update uniforms (viewport + mpp)
+    const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
+    const uf = this.uniformData
+    uf.set(mvp, 0)
+    uf[16] = 0; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
+    uf[20] = 0; uf[21] = 0; uf[22] = 0; uf[23] = 0
+    const metersPerPixel = (40075016.686 / 256) / Math.pow(2, camera.zoom)
+    uf[24] = canvasWidth; uf[25] = canvasHeight; uf[26] = metersPerPixel; uf[27] = 0
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
+
+    // Draw
+    pass.setPipeline(this.pipeline)
+    pass.setBindGroup(0, this.tilePointBindGroup)
+    pass.setVertexBuffer(0, this.tilePointBuffer)
+    pass.setIndexBuffer(this.tilePointIndexBuffer, 'uint32')
+    pass.drawIndexed(N * 6)
+
+    // Clear for next frame
+    this.tilePoints = []
+  }
+
+  private parseHex(hex: string): [number, number, number, number] {
+    let r = 0, g = 0, b = 0, a = 1
+    if (hex.length === 4) { r = parseInt(hex[1]+hex[1],16)/255; g = parseInt(hex[2]+hex[2],16)/255; b = parseInt(hex[3]+hex[3],16)/255 }
+    else if (hex.length === 7) { r = parseInt(hex.slice(1,3),16)/255; g = parseInt(hex.slice(3,5),16)/255; b = parseInt(hex.slice(5,7),16)/255 }
+    else if (hex.length === 9) { r = parseInt(hex.slice(1,3),16)/255; g = parseInt(hex.slice(3,5),16)/255; b = parseInt(hex.slice(5,7),16)/255; a = parseInt(hex.slice(7,9),16)/255 }
+    return [r, g, b, a]
+  }
+
   /**
    * Add a point layer from GeoJSON features.
    * @param features Array of GeoJSON features with Point geometry
