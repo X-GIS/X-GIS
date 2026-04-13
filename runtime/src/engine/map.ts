@@ -212,6 +212,7 @@ export class XGISMap {
     // Now projection-agnostic: vertices are raw lon/lat degrees
     // GPU vertex shader applies projection via uniform
     this.renderer.clearLayers()
+    this.pointRenderer?.clearLayers()
     this.vectorTileShows = []
 
     for (const show of this.showCommands) {

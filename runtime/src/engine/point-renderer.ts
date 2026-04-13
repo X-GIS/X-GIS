@@ -181,6 +181,13 @@ export class PointRenderer {
       vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vertexBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: blendState }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: {
+        format: 'stencil8',
+        stencilFront: { compare: 'always', passOp: 'keep' },
+        stencilBack: { compare: 'always', passOp: 'keep' },
+        stencilWriteMask: 0x00,
+        stencilReadMask: 0x00,
+      },
       multisample: { count: 4 },
       label: 'sdf-point-pipeline',
     })
