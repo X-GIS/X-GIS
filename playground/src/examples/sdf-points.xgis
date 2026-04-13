@@ -1,4 +1,4 @@
-/* SDF Points: resolution-independent circles via fragment shader */
+/* SDF Points: resolution-independent circles with world-space sizing */
 
 source land {
   type: geojson
@@ -16,8 +16,14 @@ layer background {
   | fill-slate-800 stroke-slate-700 stroke-0.5
 }
 
-/* City points as SDF circles */
-layer points {
+/* Large world-space circles (500km) — grow with zoom */
+layer coverage {
   source: cities
-  | fill-rose-500 stroke-white stroke-2 size-8 opacity-80
+  | fill-sky-500 opacity-10 size-500km
+}
+
+/* Screen-space city markers (8px) — fixed size */
+layer markers {
+  source: cities
+  | fill-rose-500 stroke-white stroke-2 size-8 opacity-90
 }
