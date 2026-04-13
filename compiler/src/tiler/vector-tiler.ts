@@ -287,6 +287,8 @@ export interface TilerOptions {
   maxZoom?: number
   /** Called after each zoom level is compiled — enables progressive rendering */
   onLevel?: (level: TileLevel, bounds: [number, number, number, number], propertyTable: PropertyTable) => void
+  /** If true, yield to the event loop between zoom levels (browser only) */
+  async?: boolean
 }
 
 function autoDetectMaxZoom(features: GeoJSONFeature[]): number {
@@ -351,15 +353,41 @@ export function compileGeoJSONToTiles(
 
   // Step 2: Per-zoom processing with adaptive subdivision
   const levels: TileLevel[] = []
-
-  // Track which tiles need further subdivision based on vertex density
-  // Tiles with sparse geometry stop early; dense geometry continues to maxZoom
   const needsSubdivision = new Set<number>()
-
-  // Reusable scratch arrays (reset per tile)
   const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[] }
 
+  function processZoomLevel(z: number): void {
+    processZoomLevelShared(z, minZoom, maxZoom, allParts, levels, needsSubdivision, scratch, bounds, propertyTable, options?.onLevel)
+  }
+
   for (let z = minZoom; z <= maxZoom; z++) {
+    processZoomLevel(z)
+  }
+
+  console.log(`  Properties: ${propertyTable.fieldNames.length} fields (${propertyTable.fieldNames.join(', ')})`)
+
+  return {
+    levels,
+    bounds,
+    featureCount: geojson.features.length,
+    propertyTable,
+  }
+}
+
+// ═══ Shared Zoom Level Processing ═══
+
+function processZoomLevelShared(
+  z: number,
+  minZoom: number,
+  maxZoom: number,
+  allParts: GeometryPart[],
+  levels: TileLevel[],
+  needsSubdivision: Set<number>,
+  scratch: { pv: number[]; pi: number[]; lv: number[]; li: number[] },
+  bounds: [number, number, number, number],
+  propertyTable: PropertyTable,
+  onLevel?: (level: TileLevel, bounds: [number, number, number, number], propertyTable: PropertyTable) => void,
+): void {
     const zStart = performance.now()
 
     // Simplification applied per-tile AFTER clipping (clip → simplify → tessellate)
@@ -537,27 +565,57 @@ export function compileGeoJSONToTiles(
     if (tiles.size > 0) {
       const level = { zoom: z, tiles }
       levels.push(level)
-      options?.onLevel?.(level, bounds, propertyTable)
+      onLevel?.(level, bounds, propertyTable)
     }
 
     const fullCoverCount = [...tiles.values()].filter(t => t.fullCover).length
     const leafCount = tiles.size - [...tiles.keys()].filter(k => needsSubdivision.has(k)).length
     const zElapsed = (performance.now() - zStart).toFixed(0)
     console.log(`  z${z}: ${tiles.size} tiles${fullCoverCount > 0 ? ` (${fullCoverCount} full-cover)` : ''}${leafCount > 0 && z < maxZoom ? ` (${leafCount} leaf)` : ''} (${zElapsed}ms)`)
-  }
+}
 
-  // Note: Overview dedup disabled — removing tiles creates gaps that require
-  // parent fallback, which conflicts with alpha blending. All tiles are kept.
-  // File size is managed by zoom-adaptive precision and simplification instead.
+/** Async version: yields to the event loop between zoom levels so the
+ *  browser can render intermediate results (z0 appears immediately).
+ *  Uses the same internal state as sync version (adaptive subdivision preserved). */
+export async function compileGeoJSONToTilesAsync(
+  geojson: GeoJSONFeatureCollection,
+  options?: TilerOptions,
+): Promise<CompiledTileSet> {
+  const origOnLevel = options?.onLevel
 
-  console.log(`  Properties: ${propertyTable.fieldNames.length} fields (${propertyTable.fieldNames.join(', ')})`)
+  return new Promise<CompiledTileSet>((resolve) => {
+    const minZoom = options?.minZoom ?? 0
+    const maxZoom = options?.maxZoom ?? autoDetectMaxZoom(geojson.features)
+    const allParts = decomposeFeatures(geojson.features)
 
-  return {
-    levels,
-    bounds,
-    featureCount: geojson.features.length,
-    propertyTable,
-  }
+    let gMinLon = Infinity, gMinLat = Infinity, gMaxLon = -Infinity, gMaxLat = -Infinity
+    for (const p of allParts) {
+      if (p.minLon < gMinLon) gMinLon = p.minLon
+      if (p.maxLon > gMaxLon) gMaxLon = p.maxLon
+      if (p.minLat < gMinLat) gMinLat = p.minLat
+      if (p.maxLat > gMaxLat) gMaxLat = p.maxLat
+    }
+    const bounds: [number, number, number, number] = [gMinLon, gMinLat, gMaxLon, gMaxLat]
+    const propertyTable = buildPropertyTable(geojson.features)
+    const levels: TileLevel[] = []
+    const needsSubdivision = new Set<number>()
+    const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[] }
+
+    // Process one zoom level, then schedule the next via setTimeout
+    function step(z: number) {
+      processZoomLevelShared(z, minZoom, maxZoom, allParts, levels, needsSubdivision, scratch, bounds, propertyTable, origOnLevel)
+
+      if (z < maxZoom) {
+        setTimeout(() => step(z + 1), 0)
+      } else {
+        console.log(`  Properties: ${propertyTable.fieldNames.length} fields (${propertyTable.fieldNames.join(', ')})`)
+        resolve({ levels, bounds, featureCount: geojson.features.length, propertyTable })
+      }
+    }
+
+    console.log(`  Decomposed ${geojson.features.length} features → ${allParts.length} parts`)
+    step(minZoom)
+  })
 }
 
 /**

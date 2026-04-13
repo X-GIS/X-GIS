@@ -1,6 +1,6 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONToTiles } from '@xgis/compiler'
+import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONToTilesAsync } from '@xgis/compiler'
 import { deserializeXGB } from '../../../compiler/src/binary/format'
 import { initGPU, resizeCanvas, type GPUContext } from './gpu'
 import { Camera } from './camera'
@@ -278,8 +278,9 @@ export class XGISMap {
       vtRenderer.setSource(source)
       this.vtSources.set(vtKey, { source, renderer: vtRenderer })
 
-      // Progressive tiling: each zoom level uploads immediately → z0 renders first
-      const tileSet = compileGeoJSONToTiles(filtered, {
+      // Progressive async tiling: yields to event loop between zoom levels
+      // z0 renders immediately while z1..zN compile in background
+      compileGeoJSONToTilesAsync(filtered, {
         onLevel: (level, bounds, propTable) => source.addTileLevel(level, bounds, propTable),
       })
 
