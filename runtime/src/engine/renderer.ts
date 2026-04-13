@@ -23,6 +23,8 @@ struct Uniforms {
   proj_params: vec4<f32>,
   // Per-tile RTC: x,y = projected offset (meters), z = tile_west, w = tile_south (for backface cull)
   tile_rtc: vec4<f32>,
+  // Per-frame extra: x=opacity (zoom-interpolated)
+  opacity: f32,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -849,6 +851,7 @@ export class MapRenderer {
         ? Math.log(Math.tan(Math.PI / 4 + Math.max(-85.051129, Math.min(85.051129, projCenterLat)) * DEG2RAD / 2)) * R  // Mercator
         : projCenterLat * DEG2RAD * R  // Equirectangular (linear)
       new Float32Array(uniformData, 112, 4).set([-cx, -cy, 0, 0]) // tile_rtc: offset, west=0, south=0
+      new Float32Array(uniformData, 128, 1)[0] = opacity // zoom-interpolated opacity
       device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
       // Select bind group: per-layer (with feature data) or shared

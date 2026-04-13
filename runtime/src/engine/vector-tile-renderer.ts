@@ -473,6 +473,7 @@ export class VectorTileRenderer {
       const baseStrokeA = this.cachedStrokeColor[3] * (this.currentOpacity ?? 1.0)
       this.uniformF32[19] = baseFillA * fadeAlpha
       this.uniformF32[23] = baseStrokeA * fadeAlpha
+      this.uniformF32[32] = this.currentOpacity ?? 1.0 // u.opacity for zoom-interpolated
 
       // Compute tile_rtc
       const DEG2RAD = Math.PI / 180
