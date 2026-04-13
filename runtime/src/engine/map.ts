@@ -271,14 +271,17 @@ export class XGISMap {
       }
 
       const filtered = applyFilter(data, show.filterExpr)
-      const tileSet = compileGeoJSONToTiles(filtered)
 
       const source = new XGVTSource()
       const vtRenderer = new VectorTileRenderer(this.ctx)
       vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
       vtRenderer.setSource(source)
-      source.loadFromTileSet(tileSet)
       this.vtSources.set(vtKey, { source, renderer: vtRenderer })
+
+      // Progressive tiling: each zoom level uploads immediately → z0 renders first
+      const tileSet = compileGeoJSONToTiles(filtered, {
+        onLevel: (level, bounds, propTable) => source.addTileLevel(level, bounds, propTable),
+      })
 
       // Setup shader variant if needed
       let pipelines: typeof this.vtVariantPipelines = null

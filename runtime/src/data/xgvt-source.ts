@@ -9,7 +9,7 @@ import {
   clipPolygonToRect,
   type XGVTIndex, type TileIndexEntry,
   type PropertyTable, type RingPolygon,
-  type CompiledTileSet,
+  type CompiledTileSet, type TileLevel,
 } from '@xgis/compiler'
 import { visibleTiles } from '../loader/tiles'
 
@@ -193,6 +193,51 @@ export class XGVTSource {
     this.isFullFileMode = true
 
     console.log(`[X-GIS] In-memory tiles loaded: ${tileCount} tiles from ${tileSet.featureCount} features`)
+  }
+
+  /**
+   * Progressively add a single zoom level (from onLevel callback).
+   * Creates/extends the index and caches tiles immediately.
+   */
+  addTileLevel(level: TileLevel, bounds: [number, number, number, number], propertyTable: PropertyTable): void {
+    if (!this.index) {
+      this.index = {
+        header: {
+          magic: 0x54564758, version: 1,
+          minLevel: level.zoom, maxLevel: level.zoom,
+          bounds, indexOffset: 0, indexLength: 0,
+          propTableOffset: 0, propTableLength: 0,
+        },
+        entries: [], entryByHash: new Map(), propertyTable,
+      }
+      this.isFullFileMode = true
+    }
+
+    this.index.header.maxLevel = Math.max(this.index.header.maxLevel, level.zoom)
+
+    for (const [, tile] of level.tiles) {
+      const key = tileKey(tile.z, tile.x, tile.y)
+      if (this.index.entryByHash.has(key)) continue
+
+      const isFullCover = !!tile.fullCover
+      const fid = tile.fullCoverFeatureId ?? 0
+      const entry: TileIndexEntry = {
+        tileHash: key, dataOffset: 0, compactSize: 0, gpuReadySize: 0,
+        vertexCount: tile.vertices.length / 3, indexCount: tile.indices.length,
+        lineVertexCount: tile.lineVertices.length / 3, lineIndexCount: tile.lineIndices.length,
+        flags: isFullCover ? (TILE_FLAG_FULL_COVER | (fid << 1)) : 0,
+        fullCoverFeatureId: fid,
+      }
+      this.index.entries.push(entry)
+      this.index.entryByHash.set(key, entry)
+
+      if (isFullCover && tile.vertices.length === 0) {
+        this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
+      } else {
+        const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
+        this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+      }
+    }
   }
 
   private async preloadLowZoomTiles(): Promise<void> {

@@ -285,6 +285,8 @@ function tessellateLineToArrays(
 export interface TilerOptions {
   minZoom?: number
   maxZoom?: number
+  /** Called after each zoom level is compiled — enables progressive rendering */
+  onLevel?: (level: TileLevel, bounds: [number, number, number, number], propertyTable: PropertyTable) => void
 }
 
 function autoDetectMaxZoom(features: GeoJSONFeature[]): number {
@@ -342,6 +344,10 @@ export function compileGeoJSONToTiles(
     if (p.minLat < gMinLat) gMinLat = p.minLat
     if (p.maxLat > gMaxLat) gMaxLat = p.maxLat
   }
+
+  // Build property table early (needed for progressive onLevel callbacks)
+  const propertyTable = buildPropertyTable(geojson.features)
+  const bounds: [number, number, number, number] = [gMinLon, gMinLat, gMaxLon, gMaxLat]
 
   // Step 2: Per-zoom processing with adaptive subdivision
   const levels: TileLevel[] = []
@@ -529,7 +535,9 @@ export function compileGeoJSONToTiles(
     }
 
     if (tiles.size > 0) {
-      levels.push({ zoom: z, tiles })
+      const level = { zoom: z, tiles }
+      levels.push(level)
+      options?.onLevel?.(level, bounds, propertyTable)
     }
 
     const fullCoverCount = [...tiles.values()].filter(t => t.fullCover).length
@@ -542,13 +550,11 @@ export function compileGeoJSONToTiles(
   // parent fallback, which conflicts with alpha blending. All tiles are kept.
   // File size is managed by zoom-adaptive precision and simplification instead.
 
-  // Build property table from original GeoJSON features
-  const propertyTable = buildPropertyTable(geojson.features)
   console.log(`  Properties: ${propertyTable.fieldNames.length} fields (${propertyTable.fieldNames.join(', ')})`)
 
   return {
     levels,
-    bounds: [gMinLon, gMinLat, gMaxLon, gMaxLat],
+    bounds,
     featureCount: geojson.features.length,
     propertyTable,
   }
