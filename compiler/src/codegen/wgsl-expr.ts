@@ -110,6 +110,13 @@ export function exprToWGSL(
     case 'PipeExpr':
       return pipeToWGSL(expr, fieldMap, fnEnv)
 
+    case 'ConditionalExpr': {
+      const cond = exprToWGSL(expr.condition, fieldMap, fnEnv)
+      const thenVal = exprToWGSL(expr.thenExpr, fieldMap, fnEnv)
+      const elseVal = exprToWGSL(expr.elseExpr, fieldMap, fnEnv)
+      return `select(${elseVal}, ${thenVal}, ${cond} != 0.0)`
+    }
+
     default:
       return '0.0'
   }

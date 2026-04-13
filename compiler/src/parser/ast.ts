@@ -110,6 +110,7 @@ export type Expr =
   | BinaryExpr
   | ArrayLiteral
   | ArrayAccess
+  | ConditionalExpr
   | UnaryExpr
   | PipeExpr
   | MatchBlock
@@ -197,6 +198,14 @@ export type ArrayAccess = {
   kind: 'ArrayAccess'
   array: Expr
   index: Expr
+}
+
+// condition ? thenExpr : elseExpr
+export type ConditionalExpr = {
+  kind: 'ConditionalExpr'
+  condition: Expr
+  thenExpr: Expr
+  elseExpr: Expr
 }
 
 // ═══ New syntax: source/layer/utility (DESIGN.md v3) ═══

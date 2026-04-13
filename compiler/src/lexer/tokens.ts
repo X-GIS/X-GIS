@@ -69,6 +69,7 @@ export enum TokenType {
   AmpAmp, // &&
   PipePipe, // ||
   Bang, // !
+  Question, // ?
 
   // Special
   Newline,

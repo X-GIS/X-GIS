@@ -55,6 +55,16 @@ export function classifyExpr(expr: AST.Expr, fnEnv?: FnEnv): ExprClass {
     case 'MatchBlock':
       return classifyMatch(expr, fnEnv)
 
+    case 'ConditionalExpr':
+      return merge(
+        classifyExpr(expr.condition, fnEnv),
+        merge(classifyExpr(expr.thenExpr, fnEnv), classifyExpr(expr.elseExpr, fnEnv)),
+      )
+
+    case 'ArrayLiteral':
+    case 'ArrayAccess':
+      return 'per-feature-cpu' // arrays can't go to GPU
+
     default:
       return 'per-feature-cpu'
   }
@@ -92,13 +102,25 @@ function classifyFnBody(fn: AST.FnStatement, argClasses: ExprClass[], fnEnv?: Fn
     paramClasses.set(p.name, argClasses[i] ?? 'constant')
   })
 
-  // Classify each statement in the body
+  return classifyStmtBlock(fn.body, paramClasses, fnEnv)
+}
+
+/** Classify a block of statements (shared between fn body and if/else branches) */
+function classifyStmtBlock(stmts: AST.Statement[], paramClasses: Map<string, ExprClass>, fnEnv?: FnEnv): ExprClass {
   let result: ExprClass = 'constant'
-  for (const stmt of fn.body) {
+  for (const stmt of stmts) {
     if (stmt.kind === 'ExprStatement') {
       result = merge(result, classifyWithParams(stmt.expr, paramClasses, fnEnv))
     } else if (stmt.kind === 'LetStatement') {
       result = merge(result, classifyWithParams(stmt.value, paramClasses, fnEnv))
+    } else if (stmt.kind === 'IfStatement') {
+      result = merge(result, classifyWithParams(stmt.condition, paramClasses, fnEnv))
+      result = merge(result, classifyStmtBlock(stmt.thenBranch, paramClasses, fnEnv))
+      if (stmt.elseBranch) result = merge(result, classifyStmtBlock(stmt.elseBranch, paramClasses, fnEnv))
+    } else if (stmt.kind === 'ReturnStatement' && stmt.value) {
+      result = merge(result, classifyWithParams(stmt.value, paramClasses, fnEnv))
+    } else if (stmt.kind === 'ForStatement') {
+      result = merge(result, 'per-feature-cpu') // GPU can't do dynamic loops
     }
   }
   return result
@@ -146,6 +168,13 @@ function classifyWithParams(expr: AST.Expr, paramClasses: Map<string, ExprClass>
       }
       return cls
     }
+
+    case 'ConditionalExpr':
+      return merge(
+        classifyWithParams(expr.condition, paramClasses, fnEnv),
+        merge(classifyWithParams(expr.thenExpr, paramClasses, fnEnv),
+              classifyWithParams(expr.elseExpr, paramClasses, fnEnv)),
+      )
 
     default:
       return classifyExpr(expr, fnEnv)

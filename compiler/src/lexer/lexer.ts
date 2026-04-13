@@ -91,7 +91,7 @@ export class Lexer {
         '=': TokenType.Eq, '<': TokenType.Lt, '>': TokenType.Gt,
         '+': TokenType.Plus, '-': TokenType.Minus,
         '*': TokenType.Star, '/': TokenType.Slash, '%': TokenType.Percent,
-        '&': TokenType.Amp, '|': TokenType.Pipe, '!': TokenType.Bang,
+        '&': TokenType.Amp, '|': TokenType.Pipe, '!': TokenType.Bang, '?': TokenType.Question,
       }
 
       const tokenType = singleChars[ch]

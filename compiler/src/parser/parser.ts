@@ -625,7 +625,16 @@ export class Parser {
   // ═══ Expression Parsing (Pratt / Precedence Climbing) ═══
 
   private parseExpr(): AST.Expr {
-    return this.parsePipe()
+    const expr = this.parsePipe()
+    // Ternary: expr ? thenExpr : elseExpr
+    if (this.check(TokenType.Question)) {
+      this.advance()
+      const thenExpr = this.parseExpr()
+      this.expect(TokenType.Colon)
+      const elseExpr = this.parseExpr()
+      return { kind: 'ConditionalExpr', condition: expr, thenExpr, elseExpr }
+    }
+    return expr
   }
 
   // expr | transform | transform

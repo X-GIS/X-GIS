@@ -39,6 +39,10 @@ export function evaluate(expr: AST.Expr, props: FeatureProps, fnEnv?: FnEnv): un
       return evaluatePipe(expr, props, fnEnv)
     case 'MatchBlock':
       return evaluateMatch(expr, props, fnEnv)
+    case 'ConditionalExpr':
+      return toBool(evaluate(expr.condition, props, fnEnv))
+        ? evaluate(expr.thenExpr, props, fnEnv)
+        : evaluate(expr.elseExpr, props, fnEnv)
     case 'ArrayLiteral':
       return expr.elements.map(e => evaluate(e, props, fnEnv))
     case 'ArrayAccess': {
