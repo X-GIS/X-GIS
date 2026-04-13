@@ -191,6 +191,7 @@ fn fs_tile(input: VsOut) -> @location(0) vec4<f32> {
 interface CachedTile {
   texture: GPUTexture
   lastUsedFrame: number
+  firstShownFrame: number
 }
 
 const MAX_CACHED_TILES = 256
@@ -281,11 +282,12 @@ export class RasterRenderer {
 
     const currentZ = Math.max(0, Math.min(18, Math.round(zoom)))
 
-    // Cancel in-flight requests when zoom level changes
+    // On zoom change: cancel distant zoom requests but KEEP parent tiles loading
     if (currentZ !== this.lastZoom) {
       for (const [key, ctrl] of this.loadingTiles) {
         const tileZ = parseInt(key.split('/')[0])
-        if (tileZ !== currentZ) {
+        // Keep parent tiles (lower zoom) and current zoom; abort distant zooms
+        if (tileZ !== currentZ && tileZ > currentZ) {
           ctrl.abort()
           this.loadingTiles.delete(key)
         }
@@ -317,7 +319,7 @@ export class RasterRenderer {
       loadImageTexture(this.device, url, ctrl.signal).then((texture) => {
         this.loadingTiles.delete(key)
         if (!texture) return
-        this.tileCache.set(key, { texture, lastUsedFrame: this.frameCount })
+        this.tileCache.set(key, { texture, lastUsedFrame: this.frameCount, firstShownFrame: this.frameCount })
         this.evictTiles(visibleKeys)
       })
     }
@@ -333,10 +335,50 @@ export class RasterRenderer {
     // Reset per-draw uniform pool index
     this.tileUniformIdx = 0
 
-    // Render cached tiles (world-copy aware via coord.ox)
+    // Also load parent tiles for fallback (1-2 levels up)
+    for (const coord of tiles) {
+      for (let pz = 1; pz <= 2; pz++) {
+        const parentZ = coord.z - pz
+        if (parentZ < 0) break
+        const parentX = coord.x >> pz
+        const parentY = coord.y >> pz
+        const parentKey = `${parentZ}/${parentX}/${parentY}`
+        if (this.tileCache.has(parentKey) || this.loadingTiles.has(parentKey)) continue
+        if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
+        const ctrl = new AbortController()
+        this.loadingTiles.set(parentKey, ctrl)
+        loadImageTexture(this.device, tileUrl(this.urlTemplate, { z: parentZ, x: parentX, y: parentY }), ctrl.signal).then((texture) => {
+          this.loadingTiles.delete(parentKey)
+          if (texture) this.tileCache.set(parentKey, { texture, lastUsedFrame: this.frameCount, firstShownFrame: this.frameCount })
+        })
+      }
+    }
+
+    // Render tiles: current zoom first, then parent fallback for missing
     for (const coord of tiles) {
       const key = `${coord.z}/${coord.x}/${coord.y}`
-      const cached = this.tileCache.get(key)
+      let cached = this.tileCache.get(key)
+      let fallbackCoord = coord
+      let isFallback = false
+
+      // Parent fallback: walk up until we find a cached tile
+      if (!cached) {
+        for (let pz = 1; pz <= 4; pz++) {
+          const parentZ = coord.z - pz
+          if (parentZ < 0) break
+          const parentX = coord.x >> pz
+          const parentY = coord.y >> pz
+          const parentKey = `${parentZ}/${parentX}/${parentY}`
+          const parentCached = this.tileCache.get(parentKey)
+          if (parentCached) {
+            cached = parentCached
+            fallbackCoord = { z: parentZ, x: parentX, y: parentY, ox: (coord.ox ?? coord.x) >> pz }
+            isFallback = true
+            break
+          }
+        }
+      }
+
       if (!cached) continue
 
       cached.lastUsedFrame = this.frameCount
@@ -349,12 +391,14 @@ export class RasterRenderer {
       }
       const tileBuf = this.tileUniformPool[this.tileUniformIdx++]
 
-      // Compute bounds using ox (original x) for correct world-copy positioning
-      const ox = coord.ox ?? coord.x
-      const west = ox / n * 360 - 180
-      const east = (ox + 1) / n * 360 - 180
-      const north = Math.atan(Math.sinh(Math.PI * (1 - 2 * coord.y / n))) * 180 / Math.PI
-      const south = Math.atan(Math.sinh(Math.PI * (1 - 2 * (coord.y + 1) / n))) * 180 / Math.PI
+      // Compute bounds: use fallback tile's coordinates if using parent
+      const renderCoord = isFallback ? fallbackCoord : coord
+      const rn = Math.pow(2, renderCoord.z)
+      const ox = renderCoord.ox ?? renderCoord.x
+      const west = ox / rn * 360 - 180
+      const east = (ox + 1) / rn * 360 - 180
+      const north = Math.atan(Math.sinh(Math.PI * (1 - 2 * renderCoord.y / rn))) * 180 / Math.PI
+      const south = Math.atan(Math.sinh(Math.PI * (1 - 2 * (renderCoord.y + 1) / rn))) * 180 / Math.PI
 
       // Compute tile_rtc in f64: project(tileWest, tileSouth) - project(camera)
       // Uses SW corner as origin — identical to vector tile renderer
