@@ -58,7 +58,9 @@ export class PanZoomController implements Controller {
         if (e.button === 2 || e.ctrlKey) {
           isRotating = true
           isDragging = false
+          rotateStartX = e.clientX
           lastRotateX = e.clientX
+          rotateActivated = false
         } else {
           isDragging = true
           isRotating = false
@@ -98,14 +100,22 @@ export class PanZoomController implements Controller {
     }
 
     let isRotating = false
+    let rotateStartX = 0
     let lastRotateX = 0
+    let rotateActivated = false  // deadzone: only rotate after 3px movement
     let lastPinchAngle = 0
 
     const onPointerMove = (e: PointerEvent) => {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
 
-      // Right-click or Ctrl+drag → rotate
+      // Right-click or Ctrl+drag → rotate (with deadzone)
       if (isRotating && activePointers.size === 1) {
+        if (!rotateActivated) {
+          // Require minimum 3px movement before activating rotation
+          if (Math.abs(e.clientX - rotateStartX) < 3) return
+          rotateActivated = true
+          lastRotateX = e.clientX
+        }
         const dx = e.clientX - lastRotateX
         lastRotateX = e.clientX
         camera.rotate(-dx * 0.3)
@@ -162,6 +172,7 @@ export class PanZoomController implements Controller {
         }
         isDragging = false
         isRotating = false
+        rotateActivated = false
         lastPinchDist = 0
         lastPinchAngle = 0
       } else if (activePointers.size === 1) {
