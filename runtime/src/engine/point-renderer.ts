@@ -4,6 +4,7 @@
 // Single draw call for all points via per-feature storage buffer.
 
 import type { Camera } from './camera'
+import { BLEND_ALPHA, STENCIL_DISABLED, MSAA_4X } from './gpu-shared'
 
 // ═══ WGSL Shader ═══
 
@@ -171,24 +172,13 @@ export class PointRenderer {
       ],
     }
 
-    const blendState: GPUBlendState = {
-      color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-      alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-    }
-
     this.pipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: blendState }] },
+      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: {
-        format: 'stencil8',
-        stencilFront: { compare: 'always', passOp: 'keep' },
-        stencilBack: { compare: 'always', passOp: 'keep' },
-        stencilWriteMask: 0x00,
-        stencilReadMask: 0x00,
-      },
-      multisample: { count: 4 },
+      depthStencil: STENCIL_DISABLED,
+      multisample: MSAA_4X,
       label: 'sdf-point-pipeline',
     })
 

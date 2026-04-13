@@ -4,6 +4,7 @@ import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { MeshData, LineMeshData } from '../loader/geojson'
 import { generateGraticule } from './graticule'
+import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, MSAA_4X } from './gpu-shared'
 
 function createGraticuleData(step: number) { return generateGraticule(step) }
 
@@ -513,38 +514,13 @@ export class MapRenderer {
       ],
     }
 
-    const blendState: GPUBlendState = {
-      color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-      alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-    }
-
-    // Stencil state: current zoom tiles WRITE stencil=1
-    const stencilWrite: GPUDepthStencilState = {
-      format: 'stencil8',
-      stencilFront: { compare: 'always', passOp: 'replace' },
-      stencilBack: { compare: 'always', passOp: 'replace' },
-      stencilWriteMask: 0xFF,
-      stencilReadMask: 0xFF,
-    }
-
-    // Stencil state: fallback tiles only draw where stencil=0 (not covered by children)
-    const stencilTest: GPUDepthStencilState = {
-      format: 'stencil8',
-      stencilFront: { compare: 'equal', passOp: 'keep' },
-      stencilBack: { compare: 'equal', passOp: 'keep' },
-      stencilWriteMask: 0x00,
-      stencilReadMask: 0xFF,
-    }
-
-    const ms = { count: 4 }  // MSAA 4x
-
     // Fill pipeline (stencil write — current zoom tiles)
     this.fillPipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: [{ format, blend: blendState }] },
+      fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: stencilWrite, multisample: ms,
+      depthStencil: STENCIL_WRITE, multisample: MSAA_4X,
       label: 'fill-pipeline',
     })
 
@@ -552,10 +528,10 @@ export class MapRenderer {
     this.linePipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: [{ format, blend: blendState }] },
+      fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: stencilWrite,
-      multisample: ms,
+      depthStencil: STENCIL_WRITE,
+      multisample: MSAA_4X,
       label: 'line-pipeline',
     })
 
@@ -563,9 +539,9 @@ export class MapRenderer {
     this.fillPipelineFallback = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: [{ format, blend: blendState }] },
+      fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: stencilTest, multisample: ms,
+      depthStencil: STENCIL_TEST, multisample: MSAA_4X,
       label: 'fill-pipeline-fallback',
     })
 
@@ -573,9 +549,9 @@ export class MapRenderer {
     this.linePipelineFallback = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: [{ format, blend: blendState }] },
+      fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: stencilTest, multisample: ms,
+      depthStencil: STENCIL_TEST, multisample: MSAA_4X,
       label: 'line-pipeline-fallback',
     })
 
@@ -766,63 +742,39 @@ export class MapRenderer {
       ],
     }
 
-    const blendState: GPUBlendState = {
-      color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-      alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-    }
-
-    const stencilWrite: GPUDepthStencilState = {
-      format: 'stencil8',
-      stencilFront: { compare: 'always', passOp: 'replace' },
-      stencilBack: { compare: 'always', passOp: 'replace' },
-      stencilWriteMask: 0xFF,
-      stencilReadMask: 0xFF,
-    }
-
-    const ms = { count: 4 }  // MSAA 4x
-
     const fillPipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_fill', targets: [{ format, blend: blendState }] },
+      fragment: { module, entryPoint: 'fs_fill', targets: [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: stencilWrite, multisample: ms,
+      depthStencil: STENCIL_WRITE, multisample: MSAA_4X,
       label: `fill-${variant.key}`,
     })
 
     const linePipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_stroke', targets: [{ format, blend: blendState }] },
+      fragment: { module, entryPoint: 'fs_stroke', targets: [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: stencilWrite, multisample: ms,
+      depthStencil: STENCIL_WRITE, multisample: MSAA_4X,
       label: `line-${variant.key}`,
     })
-
-    // Stencil test: only draw where stencil=0 (not covered by children)
-    const stencilTest: GPUDepthStencilState = {
-      format: 'stencil8',
-      stencilFront: { compare: 'equal', passOp: 'keep' },
-      stencilBack: { compare: 'equal', passOp: 'keep' },
-      stencilWriteMask: 0x00,
-      stencilReadMask: 0xFF,
-    }
 
     const fillPipelineFallback = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_fill', targets: [{ format, blend: blendState }] },
+      fragment: { module, entryPoint: 'fs_fill', targets: [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: stencilTest, multisample: ms,
+      depthStencil: STENCIL_TEST, multisample: MSAA_4X,
       label: `fill-fallback-${variant.key}`,
     })
 
     const linePipelineFallback = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_stroke', targets: [{ format, blend: blendState }] },
+      fragment: { module, entryPoint: 'fs_stroke', targets: [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: stencilTest, multisample: ms,
+      depthStencil: STENCIL_TEST, multisample: MSAA_4X,
       label: `line-fallback-${variant.key}`,
     })
 

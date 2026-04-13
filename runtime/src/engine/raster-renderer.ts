@@ -3,6 +3,7 @@
 import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import { visibleTiles, tileBounds, tileUrl, loadImageTexture, sortByPriority, type TileCoord } from '../loader/tiles'
+import { BLEND_ALPHA, STENCIL_DISABLED, MSAA_4X } from './gpu-shared'
 
 const RASTER_SHADER = /* wgsl */ `
 const PI: f32 = 3.14159265;
@@ -239,20 +240,11 @@ export class RasterRenderer {
       vertex: { module, entryPoint: 'vs_tile' },
       fragment: {
         module, entryPoint: 'fs_tile',
-        targets: [{ format: ctx.format, blend: {
-          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-        }}],
+        targets: [{ format: ctx.format, blend: BLEND_ALPHA }],
       },
       primitive: { topology: 'triangle-list' },
-      depthStencil: {
-        format: 'stencil8',
-        stencilFront: { compare: 'always', passOp: 'keep' },
-        stencilBack: { compare: 'always', passOp: 'keep' },
-        stencilWriteMask: 0x00,
-        stencilReadMask: 0x00,
-      },
-      multisample: { count: 4 },  // MSAA 4x
+      depthStencil: STENCIL_DISABLED,
+      multisample: MSAA_4X,
       label: 'raster-pipeline',
     })
 
