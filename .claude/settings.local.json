@@ -58,7 +58,24 @@
       "Bash(git -C /d/X-GIS add playground/bun.lockb)",
       "Bash(git -C /d/X-GIS add -A playground/)",
       "Bash(git -C /d/X-GIS add compiler/src/tiler/vector-tiler.ts)",
-      "Bash(git -C /d/X-GIS add runtime/src/data/xgvt-source.ts runtime/src/engine/vector-tile-renderer.ts)"
+      "Bash(git -C /d/X-GIS add runtime/src/data/xgvt-source.ts runtime/src/engine/vector-tile-renderer.ts)",
+      "Bash(git -C /d/X-GIS commit -m \"fix: add runtime type check for pointRenderer to prevent ReferenceError\")",
+      "Read(//d/X-GIS/**)",
+      "Bash(find . -name \"*.ts\" -type f -exec grep -l \"stableKeys\" {} \\\\;)",
+      "Bash(git -C /d/X-GIS add runtime/src/engine/raster-renderer.ts)",
+      "Bash(git -C /d/X-GIS add runtime/src/engine/point-renderer.ts)",
+      "Bash(git -C /d/X-GIS add runtime/src/engine/camera.ts)",
+      "Bash(git -C /d/X-GIS add compiler/src/ir/render-node.ts compiler/src/ir/lower.ts compiler/src/ir/emit-commands.ts runtime/src/engine/point-renderer.ts runtime/src/engine/map.ts)",
+      "Bash(git -C /d/X-GIS add runtime/src/loader/tiles.ts runtime/src/engine/raster-renderer.ts runtime/src/engine/vector-tile-renderer.ts runtime/src/engine/canvas-renderer.ts)",
+      "Bash(git -C /d/X-GIS add runtime/src/engine/camera.ts runtime/src/engine/controller.ts)",
+      "Bash(git -C /d/X-GIS add runtime/src/engine/controller.ts)",
+      "Bash(git -C /d/X-GIS add runtime/src/engine/camera.ts runtime/src/engine/vector-tile-renderer.ts runtime/src/loader/tiles.ts runtime/src/engine/controller.ts)",
+      "Bash(git -C /d/X-GIS commit -m \"fix: near plane too far \\(0.5×altitude → 0.01×altitude\\) — bottom of screen clipped when pitched\")",
+      "Bash(git -C /d/X-GIS add runtime/src/engine/camera.ts runtime/src/loader/tiles.ts runtime/src/engine/vector-tile-renderer.ts runtime/src/engine/raster-renderer.ts)",
+      "Bash(wc -l D:/X-GIS/playground/src/examples/*.xgis)",
+      "Bash(ls -la D:/X-GIS/playground/src/*.html)",
+      "Bash(ls -la D:/X-GIS/playground/*.html)",
+      "Bash(python3 -c \"import sys,json; data=json.loads\\(sys.stdin.read\\(\\)+']}'\\); props=data['features'][0]['properties']; print\\(json.dumps\\(props, indent=2\\)\\)\")"
     ]
   }
 }

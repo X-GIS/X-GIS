@@ -1,0 +1,23 @@
+/* Population gradient — light (small) to dark (large) */
+
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.geojson"
+}
+
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer sea {
+  source: ocean
+  | fill-slate-900
+}
+
+/* Population: 0 → light yellow, 1.4B → deep purple */
+layer population {
+  source: countries
+  | fill gradient(.POP_EST, 0, 1400000000, yellow-200, purple-900)
+    stroke-slate-600 stroke-0.5
+}

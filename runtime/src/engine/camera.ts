@@ -69,12 +69,13 @@ export class Camera {
     const viewHeightMeters = canvasHeight * metersPerPixel
     const altitude = viewHeightMeters / 2 / Math.tan(halfFov)
 
-    // Tighter near/far for better depth precision
-    // Near: close enough to not clip nearby geometry
-    // Far: just enough to cover visible ground at max pitch
-    const groundDist = altitude / Math.max(Math.cos(pitchRad), 0.01)
+    // Near/far planes: cover all visible ground including horizon
+    // maxViewAngle = angle from vertical to the top of the screen ray
+    // When pitch + halfFov >= 90°, the top of the screen is past the horizon
+    const maxViewAngle = Math.min(pitchRad + halfFov, Math.PI / 2 - 0.01)
+    const farthestGround = altitude / Math.cos(maxViewAngle)
     const near = altitude * 0.01
-    const far = groundDist * 5
+    const far = farthestGround * 1.5
 
     // Multiply two column-major 4×4 matrices into `out` array
     const mul4 = (out: number[], a: number[], b: number[]) => {
@@ -166,7 +167,7 @@ export class Camera {
     const dz = fz - nz
     if (Math.abs(dz) < 1e-10) return null
     const t = -nz / dz
-    if (t < 0 || t > 2) return null // behind camera or too far
+    if (t < 0) return null // behind camera
 
     return [nx + t * (fx - nx), ny + t * (fy - ny)]
   }

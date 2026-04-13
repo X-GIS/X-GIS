@@ -10,6 +10,7 @@ import { loadGeoJSON, lonLatToMercator, type GeoJSONFeatureCollection } from '..
 import { isTileTemplate } from '../loader/tiles'
 import { RasterRenderer } from './raster-renderer'
 import { PointRenderer } from './point-renderer'
+import { ShapeRegistry } from './sdf-shape'
 import { PanZoomController, type Controller } from './controller'
 import { CanvasRenderer } from './canvas-renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
@@ -23,6 +24,7 @@ export class XGISMap {
   private renderer!: MapRenderer
   private rasterRenderer!: RasterRenderer
   private pointRenderer!: PointRenderer
+  private shapeRegistry: ShapeRegistry | null = null
   private running = false
   private projectionName = 'mercator'
   private controller: Controller | null = null
@@ -125,7 +127,18 @@ export class XGISMap {
       this.ctx = await initGPU(this.canvas)
       this.renderer = new MapRenderer(this.ctx)
       this.rasterRenderer = new RasterRenderer(this.ctx)
-      try { this.pointRenderer = new PointRenderer(this.ctx) } catch (e) { console.warn('[X-GIS] PointRenderer init failed:', e) }
+      try {
+        this.pointRenderer = new PointRenderer(this.ctx)
+        this.shapeRegistry = new ShapeRegistry(this.ctx.device)
+        // Register user-defined symbols from DSL
+        for (const sym of commands.symbols) {
+          for (const path of sym.paths) {
+            this.shapeRegistry.addShape(sym.name, path)
+          }
+        }
+        this.shapeRegistry.uploadToGPU()
+        this.pointRenderer.setShapeRegistry(this.shapeRegistry)
+      } catch (e) { console.warn('[X-GIS] PointRenderer init failed:', e) }
       // VT sources/renderers created per .xgvt file in the load loop
       this.useCanvas2D = false
     } catch (err) {
@@ -299,6 +312,9 @@ export class XGISMap {
           })
         }
 
+        // Resolve shape name to GPU shape_id
+        const shapeId = show.shape ? (this.shapeRegistry?.getShapeId(show.shape) ?? 0) : 0
+
         this.pointRenderer.addLayer(
           filtered.features as any,
           fill, stroke,
@@ -308,6 +324,7 @@ export class XGISMap {
           show.sizeUnit,
           perFeatureSizes,
           show.billboard,
+          shapeId,
         )
         continue
       }
@@ -322,7 +339,9 @@ export class XGISMap {
       // when the renderer requests visible tiles
       const parts = decomposeFeatures(filtered.features)
       const z0Set = compileGeoJSONToTiles(filtered, { minZoom: 0, maxZoom: 0 })
-      source.addTileLevel(z0Set.levels[0], z0Set.bounds, z0Set.propertyTable)
+      if (z0Set.levels.length > 0) {
+        source.addTileLevel(z0Set.levels[0], z0Set.bounds, z0Set.propertyTable)
+      }
       source.setRawParts(parts, z0Set.levels.length > 0 ? 7 : 0)
 
       // Fit camera

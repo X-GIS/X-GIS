@@ -22,6 +22,8 @@ interface GPUTile {
   lineVertexBuffer: GPUBuffer | null
   lineIndexBuffer: GPUBuffer | null
   lineIndexCount: number
+  outlineIndexBuffer: GPUBuffer | null
+  outlineIndexCount: number
   uniformBuffer: GPUBuffer
   bindGroup: GPUBindGroup
   tileWest: number
@@ -225,11 +227,24 @@ export class VectorTileRenderer {
       ? this.device.createBindGroup({ layout, entries })
       : null!
 
+    // Outline indices (polygon edges, reuses polygon vertex buffer)
+    let outlineIndexBuffer: GPUBuffer | null = null
+    let outlineIndexCount = 0
+    if (data.outlineIndices && data.outlineIndices.length > 0) {
+      outlineIndexBuffer = this.device.createBuffer({
+        size: Math.max(data.outlineIndices.byteLength, 4),
+        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      })
+      this.device.queue.writeBuffer(outlineIndexBuffer, 0, data.outlineIndices)
+      outlineIndexCount = data.outlineIndices.length
+    }
+
     this.gpuCache.set(key, {
       vertexBuffer, indexBuffer,
       indexCount: data.indices.length,
       lineVertexBuffer, lineIndexBuffer,
       lineIndexCount: data.lineIndices.length,
+      outlineIndexBuffer, outlineIndexCount,
       uniformBuffer, bindGroup,
       tileWest: data.tileWest, tileSouth: data.tileSouth,
       tileWidth: data.tileWidth, tileHeight: data.tileHeight,
@@ -262,6 +277,7 @@ export class VectorTileRenderer {
     if (!index) return
 
     this.frameCount++
+    this.source.resetCompileBudget()
     this.renderedDraws.clear()
     this._missedTiles = 0
     this.lastBindGroupLayout = bindGroupLayout
@@ -325,7 +341,8 @@ export class VectorTileRenderer {
     for (let i = 0; i < tiles.length; i++) {
       neededKeys.push(tileKey(tiles[i].z, tiles[i].x, tiles[i].y))
       const ox = tiles[i].ox ?? tiles[i].x
-      worldOffDeg.push((ox - tiles[i].x) * (360 / tileCount))
+      const tileN = Math.pow(2, tiles[i].z)
+      worldOffDeg.push((ox - tiles[i].x) * (360 / tileN))
     }
     const fallbackKeys: number[] = []
     const fallbackOffsets: number[] = []
@@ -355,8 +372,19 @@ export class VectorTileRenderer {
           }
 
           if (currentZ > maxLevel) {
-            this.source.generateSubTile(key, parentKey)
-            foundCached = this.gpuCache.has(key) || this.gpuCache.has(parentKey)
+            // 1. Try compileSingleTile (fast, grid-indexed)
+            if (!this.source.compileTileOnDemand(key)) {
+              // 2. Budget exceeded — try generateSubTile for small parents (not z=0)
+              if (parentKey > 1) this.source.generateSubTile(key, parentKey)
+            }
+            if (this.gpuCache.has(key)) {
+              foundCached = true
+            } else {
+              // 3. Still no tile — parent fallback (guaranteed visual continuity)
+              fallbackKeys.push(parentKey)
+              fallbackOffsets.push(worldOffDeg[i])
+              foundCached = true
+            }
           } else {
             fallbackKeys.push(parentKey)
             fallbackOffsets.push(worldOffDeg[i]) // same world offset as the child
@@ -549,6 +577,15 @@ export class VectorTileRenderer {
         pass.setVertexBuffer(0, cached.vertexBuffer)
         pass.setIndexBuffer(cached.indexBuffer, 'uint32')
         pass.drawIndexed(cached.indexCount)
+      }
+
+      // Draw polygon outlines (reuses polygon vertex buffer)
+      if (cached.outlineIndexCount > 0 && cached.outlineIndexBuffer) {
+        pass.setPipeline(linePipeline)
+        pass.setBindGroup(0, bindGroup)
+        pass.setVertexBuffer(0, cached.vertexBuffer)
+        pass.setIndexBuffer(cached.outlineIndexBuffer, 'uint32')
+        pass.drawIndexed(cached.outlineIndexCount)
       }
 
       if (cached.lineIndexCount > 0 && cached.lineVertexBuffer && cached.lineIndexBuffer) {

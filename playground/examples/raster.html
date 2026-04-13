@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Raster + Borders — X-GIS</title>
   <link rel="stylesheet" href="/examples/shared.css">
 </head>
+
 <body>
   <canvas id="map"></canvas>
   <div id="topbar">
@@ -15,7 +17,8 @@
   </div>
   <details id="source-panel" open>
     <summary>Source</summary>
-    <pre id="source-code">source basemap {
+    <pre id="source-code">
+source basemap {
   type: raster
   url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 }
@@ -32,10 +35,14 @@ layer tiles {
 layer borders {
   source: world
   | fill-blue-500 opacity-20 stroke-white stroke-1
-}</pre>
+}
+      </pre>
   </details>
   <div id="status">Loading...</div>
-  <div id="error"><h2>Error</h2><pre id="error-msg"></pre></div>
+  <div id="error">
+    <h2>Error</h2>
+    <pre id="error-msg"></pre>
+  </div>
   <script type="module">
     import { XGISMap } from '@xgis/runtime'
     const map = new XGISMap(document.getElementById('map'))
@@ -45,4 +52,5 @@ layer borders {
       .catch(e => { document.getElementById('error').style.display = 'block'; document.getElementById('error-msg').textContent = String(e) })
   </script>
 </body>
+
 </html>

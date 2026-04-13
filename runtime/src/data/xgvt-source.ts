@@ -23,6 +23,7 @@ export interface TileData {
   indices: Uint32Array         // triangle indices
   lineVertices: Float32Array   // line vertices
   lineIndices: Uint32Array     // line segment indices (pairs)
+  outlineIndices: Uint32Array  // polygon outline line segments (reuses vertices buffer)
   pointVertices?: Float32Array // [lon, lat, featId] stride 3 (tile-local points)
   tileWest: number             // tile origin (degrees)
   tileSouth: number
@@ -74,19 +75,96 @@ export class XGVTSource {
     return this.index?.header.maxLevel ?? 0
   }
 
+  /** Spatial grid index: z=3 tile key → part indices */
+  private partGrid: Map<number, number[]> | null = null
+  private static readonly GRID_ZOOM = 3
+
   /** Store raw geometry parts for on-demand compilation (GeoJSON sources) */
   setRawParts(parts: GeometryPart[], maxZoom: number): void {
     this.rawParts = parts
     this.rawMaxZoom = maxZoom
+    this.buildPartGrid(parts)
+  }
+
+  /** Build spatial grid index at z=3 (64 cells) for fast part lookup */
+  private buildPartGrid(parts: GeometryPart[]): void {
+    const z = XGVTSource.GRID_ZOOM
+    const n = Math.pow(2, z)
+    const grid = new Map<number, number[]>()
+
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i]
+      const minTX = Math.max(0, Math.floor((p.minLon + 180) / 360 * n))
+      const maxTX = Math.min(n - 1, Math.floor((p.maxLon + 180) / 360 * n))
+      const minTY = Math.max(0, Math.floor((1 - Math.log(Math.tan(Math.max(p.minLat, -85) * Math.PI / 180) + 1 / Math.cos(Math.max(p.minLat, -85) * Math.PI / 180)) / Math.PI) / 2 * n))
+      const maxTY = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(Math.min(p.maxLat, 85) * Math.PI / 180) + 1 / Math.cos(Math.min(p.maxLat, 85) * Math.PI / 180)) / Math.PI) / 2 * n))
+
+      // Note: in Mercator tile coords, smaller Y = higher latitude
+      const yLo = Math.min(minTY, maxTY)
+      const yHi = Math.max(minTY, maxTY)
+
+      for (let tx = minTX; tx <= maxTX; tx++) {
+        for (let ty = yLo; ty <= yHi; ty++) {
+          const key = tileKey(z, tx, ty)
+          let arr = grid.get(key)
+          if (!arr) { arr = []; grid.set(key, arr) }
+          arr.push(i)
+        }
+      }
+    }
+    this.partGrid = grid
+  }
+
+  /** Get parts that potentially overlap a tile (via grid index) */
+  getRelevantParts(z: number, x: number, y: number): GeometryPart[] | null {
+    if (!this.rawParts || !this.partGrid) return this.rawParts
+    const gz = XGVTSource.GRID_ZOOM
+
+    if (z >= gz) {
+      // Tile fits within one grid cell
+      const shift = z - gz
+      const key = tileKey(gz, x >> shift, y >> shift)
+      const indices = this.partGrid.get(key)
+      if (!indices) return null
+      return indices.map(i => this.rawParts![i])
+    }
+
+    // z < gz: tile covers multiple grid cells — aggregate with dedup
+    const shift = gz - z
+    const gx0 = x << shift
+    const gy0 = y << shift
+    const span = 1 << shift
+    const seen = new Set<number>()
+    const result: GeometryPart[] = []
+    for (let gx = gx0; gx < gx0 + span; gx++) {
+      for (let gy = gy0; gy < gy0 + span; gy++) {
+        const key = tileKey(gz, gx, gy)
+        const indices = this.partGrid.get(key)
+        if (!indices) continue
+        for (const idx of indices) {
+          if (!seen.has(idx)) { seen.add(idx); result.push(this.rawParts![idx]) }
+        }
+      }
+    }
+    return result.length > 0 ? result : null
   }
 
   /** Compile a single tile on demand from raw parts */
+  private _compileBudget = 0
+  /** Reset per-frame compilation budget (call once per frame before tile requests) */
+  resetCompileBudget(): void { this._compileBudget = 0 }
+
   compileTileOnDemand(key: number): boolean {
     if (!this.rawParts || this.dataCache.has(key)) return false
+    if (this._compileBudget >= 2) return false // max 2 tiles per frame — smooth 30fps
     const [z, x, y] = tileKeyUnpack(key)
     if (z > this.rawMaxZoom) return false
 
-    const tile = compileSingleTile(this.rawParts, z, x, y, this.rawMaxZoom)
+    // Use spatial grid for faster part lookup (64× fewer parts at z=3+)
+    const parts = this.getRelevantParts(z, x, y)
+    if (!parts || parts.length === 0) return false
+
+    const tile = compileSingleTile(parts, z, x, y, this.rawMaxZoom)
     if (!tile) return false
 
     // Create synthetic index entry
@@ -104,7 +182,8 @@ export class XGVTSource {
     }
 
     const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
-    this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices)
+    this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices, tile.outlineIndices)
+    this._compileBudget++
     return true
   }
 
@@ -214,7 +293,7 @@ export class XGVTSource {
           const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({
             rings: p.rings, featId: p.featId,
           }))
-          this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices)
+          this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices, tile.outlineIndices)
         }
         tileCount++
       }
@@ -282,7 +361,7 @@ export class XGVTSource {
         this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
       } else {
         const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
-        this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices)
+        this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices, tile.outlineIndices)
       }
     }
   }
@@ -308,7 +387,7 @@ export class XGVTSource {
             compactSize: 0, gpuReadySize: entry.gpuReadySize,
           })
           if (isFullCover) this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
-          else this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+          else this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, undefined, tile.outlineIndices)
         } else if (entry.compactSize > 0) {
           const slice = this.fileBuf!.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
           const result = await decompressTileData(slice)
@@ -341,7 +420,7 @@ export class XGVTSource {
         const gpuBuf = buf.slice(gpuOffset, gpuOffset + entry.gpuReadySize)
         const tile = parseGPUReadyTile(gpuBuf, { ...entry, dataOffset: 0, compactSize: 0, gpuReadySize: gpuBuf.byteLength })
         if (isFullCover) this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
-        else this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+        else this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, undefined, tile.outlineIndices)
       } else if (entry.compactSize > 0) {
         const compressed = buf.slice(localOffset, localOffset + entry.compactSize)
         const decompressed = await decompressTileData(compressed)
@@ -394,7 +473,7 @@ export class XGVTSource {
           if (isFullCover) {
             this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
           } else {
-            this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+            this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, undefined, tile.outlineIndices)
           }
           this.loadingTiles.delete(key)
         } else {
@@ -454,7 +533,7 @@ export class XGVTSource {
             if (isFullCover) {
               this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
             } else {
-              this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+              this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, undefined, tile.outlineIndices)
             }
             this.loadingTiles.delete(key)
           } else if (entry.compactSize > 0) {
@@ -479,7 +558,7 @@ export class XGVTSource {
     if (isFullCover) {
       this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
     } else {
-      this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+      this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, undefined, tile.outlineIndices)
     }
   }
 
@@ -507,6 +586,7 @@ export class XGVTSource {
     vertices: Float32Array, indices: Uint32Array,
     lineVertices: Float32Array, lineIndices: Uint32Array,
     pointVertices?: Float32Array,
+    outlineIndices?: Uint32Array,
   ): void {
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
@@ -517,6 +597,7 @@ export class XGVTSource {
 
     const data: TileData = {
       vertices, indices, lineVertices, lineIndices,
+      outlineIndices: outlineIndices ?? new Uint32Array(0),
       pointVertices,
       tileWest, tileSouth,
       tileWidth: tileEast - tileWest,
@@ -622,12 +703,48 @@ export class XGVTSource {
       outLI.push(base, base + 1)
     }
 
+    // Clip polygon outlines (same Liang-Barsky as lines, but uses polygon vertices)
+    const outlineIdx = parent.outlineIndices
+    const outOI: number[] = []
+    if (outlineIdx && outlineIdx.length > 0) {
+      for (let s = 0; s < outlineIdx.length; s += 2) {
+        const a = outlineIdx[s], b = outlineIdx[s + 1]
+        const ax = verts[a * 3], ay = verts[a * 3 + 1], afid = verts[a * 3 + 2]
+        const bx = verts[b * 3], by = verts[b * 3 + 1]
+
+        if (Math.max(ax, bx) < clipW || Math.min(ax, bx) > clipE ||
+            Math.max(ay, by) < clipS || Math.min(ay, by) > clipN) continue
+
+        // Both endpoints inside → reuse from outV (find or add vertices)
+        const oBase = outV.length / 3
+        const dx = bx - ax, dy = by - ay
+        let tMin = 0, tMax = 1
+        let valid = true
+        const clipEdge = (p: number, q: number): void => {
+          if (!valid) return
+          if (Math.abs(p) < 1e-15) { if (q < 0) valid = false; return }
+          const r = q / p
+          if (p < 0) { if (r > tMax) valid = false; else if (r > tMin) tMin = r }
+          else       { if (r < tMin) valid = false; else if (r < tMax) tMax = r }
+        }
+        clipEdge(-dx, ax - clipW)
+        clipEdge(dx, clipE - ax)
+        clipEdge(-dy, ay - clipS)
+        clipEdge(dy, clipN - ay)
+        if (!valid || tMin > tMax) continue
+
+        outV.push(ax + tMin * dx, ay + tMin * dy, afid, ax + tMax * dx, ay + tMax * dy, afid)
+        outOI.push(oBase, oBase + 1)
+      }
+    }
+
     // Cache sub-tile (even if empty — prevents parent fallback)
     const subData: TileData = {
       vertices: new Float32Array(outV),
       indices: new Uint32Array(outI),
       lineVertices: new Float32Array(outLV),
       lineIndices: new Uint32Array(outLI),
+      outlineIndices: new Uint32Array(outOI),
       tileWest: parent.tileWest,
       tileSouth: parent.tileSouth,
       tileWidth: parent.tileWidth,

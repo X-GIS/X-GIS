@@ -491,7 +491,21 @@ export class Parser {
       this.expect(TokenType.RBracket)
     }
 
-    return { kind: 'UtilityItem', modifier, name, binding }
+    // Check for trailing unit after ] — e.g., size-[expr]km
+    let bindingUnit: string | null = null
+    if (binding) {
+      const unitTypes = [TokenType.Px, TokenType.M, TokenType.Km, TokenType.Nm, TokenType.Deg]
+      if (unitTypes.includes(this.current().type)) {
+        bindingUnit = this.advance().value
+      } else if (this.check(TokenType.Identifier)) {
+        const v = this.current().value
+        if (['px', 'm', 'km', 'nm', 'deg'].includes(v)) {
+          bindingUnit = this.advance().value
+        }
+      }
+    }
+
+    return { kind: 'UtilityItem', modifier, name, binding, bindingUnit }
   }
 
   /**

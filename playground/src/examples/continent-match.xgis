@@ -1,0 +1,21 @@
+/* Continent colors using match() — each continent gets a distinct color */
+
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer continents {
+  source: countries
+  | fill match(CONTINENT) {
+      "Africa"        -> amber-600,
+      "Asia"          -> rose-500,
+      "Europe"        -> sky-500,
+      "North America" -> emerald-500,
+      "South America" -> lime-500,
+      "Oceania"       -> violet-500,
+      "Antarctica"    -> slate-300,
+      _               -> gray-400
+    }
+    stroke-slate-700 stroke-0.5 opacity-90
+}

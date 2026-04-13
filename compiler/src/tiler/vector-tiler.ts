@@ -45,6 +45,7 @@ export interface CompiledTile {
   indices: Uint32Array
   lineVertices: Float32Array
   lineIndices: Uint32Array
+  outlineIndices: Uint32Array  // polygon outline line segments (reuses vertices buffer)
   featureCount: number
   fullCover?: boolean
   fullCoverFeatureId?: number
@@ -229,6 +230,7 @@ function tessellatePolygonToArrays(
   outVerts: number[],
   outIdx: number[],
   dedupMap?: Map<string, number>,
+  outOutlineIdx?: number[],
 ): void {
   // Original lon/lat coords for vertex output
   const flatCoords: number[] = []
@@ -236,13 +238,17 @@ function tessellatePolygonToArrays(
   // straight in Mercator space, matching GPU rendering (no coastline overshoot)
   const mercCoords: number[] = []
   const holeIndices: number[] = []
+  // Ring boundaries for outline extraction: [startIdx, endIdx] per ring
+  const ringBounds: [number, number][] = []
 
   for (let r = 0; r < rings.length; r++) {
     if (r > 0) holeIndices.push(flatCoords.length / 2)
+    const ringStart = flatCoords.length / 2
     for (const coord of rings[r]) {
       flatCoords.push(coord[0], coord[1])
       mercCoords.push(coord[0], latToMercatorY(coord[1]))
     }
+    ringBounds.push([ringStart, flatCoords.length / 2])
   }
 
   const earcutIdx = earcut(mercCoords, holeIndices.length > 0 ? holeIndices : undefined)
@@ -264,6 +270,15 @@ function tessellatePolygonToArrays(
     for (const idx of earcutIdx) {
       outIdx.push(localToGlobal[idx])
     }
+    // Extract outline indices from rings (reuse deduped vertices)
+    if (outOutlineIdx) {
+      for (const [start, end] of ringBounds) {
+        for (let i = start; i < end; i++) {
+          const next = i + 1 < end ? i + 1 : start
+          outOutlineIdx.push(localToGlobal[i], localToGlobal[next])
+        }
+      }
+    }
   } else {
     const baseVertex = outVerts.length / 3
     for (let i = 0; i < flatCoords.length; i += 2) {
@@ -271,6 +286,15 @@ function tessellatePolygonToArrays(
     }
     for (const idx of earcutIdx) {
       outIdx.push(baseVertex + idx)
+    }
+    // Extract outline indices from rings (reuse fill vertices)
+    if (outOutlineIdx) {
+      for (const [start, end] of ringBounds) {
+        for (let i = start; i < end; i++) {
+          const next = i + 1 < end ? i + 1 : start
+          outOutlineIdx.push(baseVertex + i, baseVertex + next)
+        }
+      }
     }
   }
 }
@@ -364,7 +388,7 @@ export function compileGeoJSONToTiles(
   // Step 2: Per-zoom processing with adaptive subdivision
   const levels: TileLevel[] = []
   const needsSubdivision = new Set<number>()
-  const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[] }
+  const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], oi: [] as number[] }
 
   function processZoomLevel(z: number): void {
     processZoomLevelShared(z, minZoom, maxZoom, allParts, levels, needsSubdivision, scratch, bounds, propertyTable, options?.onLevel)
@@ -393,7 +417,7 @@ function processZoomLevelShared(
   allParts: GeometryPart[],
   levels: TileLevel[],
   needsSubdivision: Set<number>,
-  scratch: { pv: number[]; pi: number[]; lv: number[]; li: number[]; ptv: number[] },
+  scratch: { pv: number[]; pi: number[]; lv: number[]; li: number[]; ptv: number[]; oi: number[] },
   bounds: [number, number, number, number],
   propertyTable: PropertyTable,
   onLevel?: (level: TileLevel, bounds: [number, number, number, number], propertyTable: PropertyTable) => void,
@@ -455,7 +479,7 @@ function processZoomLevelShared(
       const tb = tileBounds(z, tx, ty)
 
       scratch.pv.length = 0; scratch.pi.length = 0
-      scratch.lv.length = 0; scratch.li.length = 0
+      scratch.lv.length = 0; scratch.li.length = 0; scratch.oi.length = 0
       scratch.ptv.length = 0
       const featureIds = new Set<number>()
       const dedupMap = new Map<string, number>()
@@ -494,7 +518,7 @@ function processZoomLevelShared(
               postSimplifyVerts += preSimplifyVerts
             }
             if (dataRings.length > 0 && dataRings[0].length >= 3) {
-              tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap)
+              tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap, scratch.oi)
               featureIds.add(fid)
               tilePolygons.push({ rings: dataRings, featId: fid })
             }
@@ -542,12 +566,30 @@ function processZoomLevelShared(
           // Clear polygon data — client will generate a quad
           scratch.pv.length = 0
           scratch.pi.length = 0
+          scratch.oi.length = 0
         }
       }
 
       // Minimum size filter
       const hasGeometry = scratch.pv.length >= 9 || scratch.lv.length >= 6 || scratch.ptv.length >= 3
       if (fullCover || hasGeometry) {
+
+        // Filter outline: remove edges on tile boundary (clipping artifacts)
+        if (scratch.oi.length > 0 && z > 0) {
+          const EPS = 1e-7
+          const filtered: number[] = []
+          for (let i = 0; i < scratch.oi.length; i += 2) {
+            const a = scratch.oi[i], b = scratch.oi[i + 1]
+            const ax = scratch.pv[a * 3], ay = scratch.pv[a * 3 + 1]
+            const bx = scratch.pv[b * 3], by = scratch.pv[b * 3 + 1]
+            if (Math.abs(ax - tb.west) < EPS && Math.abs(bx - tb.west) < EPS) continue
+            if (Math.abs(ax - tb.east) < EPS && Math.abs(bx - tb.east) < EPS) continue
+            if (Math.abs(ay - tb.south) < EPS && Math.abs(by - tb.south) < EPS) continue
+            if (Math.abs(ay - tb.north) < EPS && Math.abs(by - tb.north) < EPS) continue
+            filtered.push(a, b)
+          }
+          scratch.oi = filtered
+        }
 
         // Convert to tile-local coordinates for f32 precision
         for (let i = 0; i < scratch.pv.length; i += 3) {
@@ -571,6 +613,7 @@ function processZoomLevelShared(
           indices: new Uint32Array(scratch.pi),
           lineVertices: new Float32Array(scratch.lv),
           lineIndices: new Uint32Array(scratch.li),
+          outlineIndices: new Uint32Array(scratch.oi),
           pointVertices: scratch.ptv.length > 0 ? new Float32Array(scratch.ptv) : undefined,
           featureCount: featureIds.size,
           fullCover,
@@ -610,7 +653,7 @@ export function compileSingleTile(
 ): CompiledTile | null {
   const tb = tileBounds(z, x, y)
   const precision = precisionForZoom(z)
-  const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[] }
+  const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], oi: [] as number[] }
   const featureIds = new Set<number>()
   const dedupMap = new Map<string, number>()
   const EPS = 1e-10
@@ -631,7 +674,7 @@ export function compileSingleTile(
       if (clipped.length > 0 && clipped[0].length >= 3) {
         const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundary) : clipped
         if (dataRings.length > 0 && dataRings[0].length >= 3) {
-          tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap)
+          tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap, scratch.oi)
           featureIds.add(fid)
           tilePolygons.push({ rings: dataRings, featId: fid })
         }
@@ -662,6 +705,23 @@ export function compileSingleTile(
 
   if (scratch.pv.length < 9 && scratch.lv.length < 6 && scratch.ptv.length < 3) return null
 
+  // Filter outline: remove edges on tile boundary (clipping artifacts)
+  if (scratch.oi.length > 0) {
+    const EPS = 1e-7
+    const filtered: number[] = []
+    for (let i = 0; i < scratch.oi.length; i += 2) {
+      const a = scratch.oi[i], b = scratch.oi[i + 1]
+      const ax = scratch.pv[a * 3], ay = scratch.pv[a * 3 + 1]
+      const bx = scratch.pv[b * 3], by = scratch.pv[b * 3 + 1]
+      if (Math.abs(ax - tb.west) < EPS && Math.abs(bx - tb.west) < EPS) continue
+      if (Math.abs(ax - tb.east) < EPS && Math.abs(bx - tb.east) < EPS) continue
+      if (Math.abs(ay - tb.south) < EPS && Math.abs(by - tb.south) < EPS) continue
+      if (Math.abs(ay - tb.north) < EPS && Math.abs(by - tb.north) < EPS) continue
+      filtered.push(a, b)
+    }
+    scratch.oi = filtered
+  }
+
   // Convert to tile-local coordinates
   for (let i = 0; i < scratch.pv.length; i += 3) {
     scratch.pv[i] -= tb.west; scratch.pv[i + 1] -= tb.south
@@ -680,6 +740,7 @@ export function compileSingleTile(
     indices: new Uint32Array(scratch.pi),
     lineVertices: new Float32Array(scratch.lv),
     lineIndices: new Uint32Array(scratch.li),
+    outlineIndices: new Uint32Array(scratch.oi),
     pointVertices: scratch.ptv.length > 0 ? new Float32Array(scratch.ptv) : undefined,
     featureCount: featureIds.size,
     polygons: tilePolygons.length > 0 ? tilePolygons : undefined,
@@ -711,7 +772,7 @@ export async function compileGeoJSONToTilesAsync(
     const propertyTable = buildPropertyTable(geojson.features)
     const levels: TileLevel[] = []
     const needsSubdivision = new Set<number>()
-    const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[] }
+    const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], oi: [] as number[] }
 
     // Process one zoom level, then schedule the next via setTimeout
     function step(z: number) {

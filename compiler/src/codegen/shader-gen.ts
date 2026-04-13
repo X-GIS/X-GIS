@@ -373,6 +373,14 @@ function resolveColorFromAST(node: import('../parser/ast').Expr): [number, numbe
     const hex = resolveColor(node.value)
     if (hex) return hexToRgba(hex)
   }
+  // Hyphenated color names parsed as subtraction: sky-300 → Identifier("sky") - NumberLiteral(300)
+  if (node.kind === 'BinaryExpr' && node.op === '-'
+      && node.left.kind === 'Identifier'
+      && node.right.kind === 'NumberLiteral') {
+    const colorName = `${node.left.name}-${node.right.value}`
+    const hex = resolveColor(colorName)
+    if (hex) return hexToRgba(hex)
+  }
   return null
 }
 

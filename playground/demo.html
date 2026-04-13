@@ -11,7 +11,7 @@
     :root {
       --bg: #06080c;
       --surface: #0c1017;
-      --surface-glass: rgba(10, 14, 22, 0.88);
+      --surface2: #111820;
       --border: #1a2233;
       --border-hover: #2a3a52;
       --text: #c8d3e0;
@@ -19,8 +19,11 @@
       --text-muted: #3a4858;
       --accent: #38bdf8;
       --accent-dim: #38bdf818;
+      --green: #4ade80;
+      --green-dim: #4ade8018;
       --font-sans: 'DM Sans', system-ui, sans-serif;
       --font-mono: 'DM Mono', 'Fira Code', monospace;
+      --editor-width: 420px;
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -30,173 +33,176 @@
       font-family: var(--font-sans);
       overflow: hidden;
       -webkit-font-smoothing: antialiased;
+      height: 100vh;
+    }
+
+    /* ── Split Layout ── */
+    #layout {
+      display: flex;
+      height: 100vh;
+    }
+
+    #map-pane {
+      flex: 1;
+      position: relative;
+      min-width: 200px;
     }
 
     #map {
-      width: 100vw; height: 100vh;
+      width: 100%; height: 100%;
       display: block; touch-action: none;
     }
 
-    /* ── Top Bar ── */
-    #topbar {
-      position: fixed; top: 0; left: 0; right: 0;
-      display: flex; align-items: center; gap: 8px;
-      padding: 0 16px; height: 44px;
-      background: var(--surface-glass);
-      backdrop-filter: blur(20px) saturate(1.4);
-      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    #editor-pane {
+      width: var(--editor-width);
+      min-width: 280px;
+      max-width: 50vw;
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      position: relative;
+    }
+
+    /* ── Resize Handle ── */
+    #resize-handle {
+      position: absolute;
+      left: -3px; top: 0; bottom: 0;
+      width: 6px;
+      cursor: col-resize;
+      z-index: 30;
+    }
+    #resize-handle:hover, #resize-handle.active {
+      background: var(--accent);
+      opacity: 0.3;
+    }
+
+    /* ── Editor Header ── */
+    .editor-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
       border-bottom: 1px solid var(--border);
-      z-index: 20;
+      flex-shrink: 0;
     }
 
-    .tb-back {
-      color: var(--text-dim); text-decoration: none;
-      font-size: 12px; font-weight: 500;
-      display: flex; align-items: center; gap: 5px;
-      padding: 5px 10px; border-radius: 6px;
-      transition: all 0.15s;
-    }
-    .tb-back:hover { color: var(--accent); background: var(--accent-dim); }
-    .tb-back svg { width: 14px; height: 14px; }
-
-    .tb-sep {
-      width: 1px; height: 18px;
-      background: var(--border);
-      margin: 0 4px;
-    }
-
-    /* Nav buttons */
-    .tb-nav {
+    .editor-header .tb-nav {
       background: transparent;
       border: 1px solid var(--border);
       color: var(--text-dim);
-      width: 30px; height: 30px;
-      border-radius: 8px;
+      width: 26px; height: 26px;
+      border-radius: 6px;
       cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       transition: all 0.15s;
       flex-shrink: 0;
-      font-size: 16px;
+      font-size: 14px;
     }
-    .tb-nav:hover:not(:disabled) {
+    .editor-header .tb-nav:hover:not(:disabled) {
       border-color: var(--border-hover);
       color: var(--text);
-      background: var(--surface);
+      background: var(--surface2);
     }
-    .tb-nav:disabled { opacity: 0.25; cursor: default; }
+    .editor-header .tb-nav:disabled { opacity: 0.25; cursor: default; }
 
-    /* Selector */
     #demo-select {
       font-family: var(--font-sans);
-      background: var(--surface);
+      background: var(--surface2);
       border: 1px solid var(--border);
       color: var(--text);
-      font-size: 13px; font-weight: 500;
-      padding: 5px 12px 5px 10px;
-      border-radius: 8px;
+      font-size: 12px; font-weight: 500;
+      padding: 4px 24px 4px 8px;
+      border-radius: 6px;
       cursor: pointer;
-      max-width: 220px;
+      flex: 1;
+      min-width: 0;
       appearance: none;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%235a6a7e' fill='none' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
       background-repeat: no-repeat;
-      background-position: right 10px center;
-      padding-right: 28px;
+      background-position: right 8px center;
     }
     #demo-select:focus { outline: none; border-color: var(--accent); }
 
     .tb-tag {
       font-family: var(--font-mono);
-      font-size: 0.6rem;
+      font-size: 0.55rem;
       color: var(--accent);
       background: var(--accent-dim);
       border: 1px solid #38bdf830;
       border-radius: 4px;
-      padding: 2px 8px;
+      padding: 1px 6px;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       white-space: nowrap;
-    }
-
-    .tb-desc {
-      color: var(--text-muted);
-      font-size: 11px;
-      margin-left: auto;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    /* ── Source Panel ── */
-    #source-panel {
-      position: fixed; top: 56px; right: 14px;
-      background: var(--surface-glass);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      overflow: hidden; z-index: 20;
-      backdrop-filter: blur(20px) saturate(1.4);
-      -webkit-backdrop-filter: blur(20px) saturate(1.4);
-      box-shadow: 0 12px 48px #00000060;
-      width: 420px;
-      max-width: calc(100vw - 28px);
-      transition: opacity 0.2s, transform 0.2s;
-    }
-
-    #source-panel summary {
-      cursor: pointer;
-      font-family: var(--font-mono);
-      font-size: 0.65rem;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      user-select: none;
-      padding: 10px 16px;
-      border-bottom: 1px solid var(--border);
-      display: flex; align-items: center; gap: 8px;
-      transition: color 0.15s;
-    }
-    #source-panel summary:hover { color: var(--text-dim); }
-    #source-panel[open] summary { color: var(--text-dim); }
-    #source-panel summary::marker { content: ''; }
-    #source-panel summary .chevron {
-      transition: transform 0.2s;
-      width: 12px; height: 12px;
       flex-shrink: 0;
     }
-    #source-panel[open] summary .chevron { transform: rotate(90deg); }
 
-    #source-code {
-      font-family: var(--font-mono);
-      font-size: 12.5px;
-      line-height: 1.75;
-      padding: 16px 18px;
-      max-height: 55vh;
-      overflow: auto;
-      white-space: pre;
-      tab-size: 2;
-      color: #7b8fad;
+    /* ── Editor Body (code area) ── */
+    .editor-body {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      position: relative;
     }
-    #source-code::-webkit-scrollbar { width: 6px; }
-    #source-code::-webkit-scrollbar-track { background: transparent; }
-    #source-code::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    /* Let Monaco widgets (autocomplete, hover) overflow the editor pane */
+    .monaco-editor .overflow-guard { overflow: visible !important; }
+    .monaco-editor .overflowingContentWidgets { position: fixed !important; z-index: 100; }
 
-    /* Shiki generates inline styles — override container only */
-    #source-code pre.shiki { margin: 0; padding: 0; background: transparent !important; }
-    #source-code code { font-family: inherit; font-size: inherit; line-height: inherit; }
+    /* ── Editor Footer ── */
+    .editor-footer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
 
-    /* ── Status ── */
-    #status {
-      position: fixed; bottom: 14px; left: 14px;
-      background: var(--surface-glass);
-      border: 1px solid var(--border);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      padding: 6px 16px;
-      border-radius: 8px;
+    .run-btn {
       font-family: var(--font-mono);
       font-size: 11px;
+      font-weight: 500;
+      background: var(--green-dim);
+      color: var(--green);
+      border: 1px solid #4ade8040;
+      border-radius: 6px;
+      padding: 5px 16px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .run-btn:hover { background: #4ade8030; border-color: var(--green); }
+
+    .run-hint {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    .editor-footer .spacer { flex: 1; }
+
+    .back-link {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 11px;
+      display: flex; align-items: center; gap: 4px;
+      transition: color 0.15s;
+    }
+    .back-link:hover { color: var(--accent); }
+    .back-link svg { width: 12px; height: 12px; }
+
+    /* ── Status (on map) ── */
+    #status {
+      position: absolute; bottom: 12px; left: 12px;
+      background: rgba(10, 14, 22, 0.75);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 10px;
       color: var(--text-dim);
       pointer-events: none;
-      z-index: 10;
       transition: opacity 0.5s;
     }
 
@@ -220,65 +226,53 @@
       line-height: 1.6;
     }
 
-    /* ── Keyboard hints ── */
-    #kbd-hint {
-      position: fixed; bottom: 14px; right: 14px;
-      font-family: var(--font-mono);
-      font-size: 10px;
-      color: var(--text-muted);
-      z-index: 5;
-      pointer-events: none;
-      display: flex; gap: 12px;
-    }
-    kbd {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 1px 6px;
-      font-family: inherit;
-      font-size: inherit;
-    }
-
+    /* ── Mobile: stack vertically ── */
     @media (max-width: 740px) {
-      .tb-desc { display: none; }
-      #source-panel { right: 8px; left: 8px; width: auto; top: 52px; }
-      #source-code { font-size: 11.5px; max-height: 40vh; }
-      #kbd-hint { display: none; }
+      #layout { flex-direction: column; }
+      #map-pane { height: 50vh; }
+      #editor-pane {
+        width: 100% !important;
+        max-width: 100%;
+        height: 50vh;
+        border-left: none;
+        border-top: 1px solid var(--border);
+      }
+      #resize-handle { display: none; }
     }
   </style>
 </head>
 <body>
-  <canvas id="map"></canvas>
+  <div id="layout">
+    <div id="map-pane">
+      <canvas id="map"></canvas>
+      <div id="status">Initializing...</div>
+    </div>
 
-  <div id="topbar">
-    <a class="tb-back" href="/">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-      Demos
-    </a>
-    <div class="tb-sep"></div>
-    <button class="tb-nav" id="prev-btn" title="Previous (←)">&#8249;</button>
-    <select id="demo-select"></select>
-    <button class="tb-nav" id="next-btn" title="Next (→)">&#8250;</button>
-    <span class="tb-tag" id="demo-tag"></span>
-    <span class="tb-desc" id="demo-desc"></span>
+    <div id="editor-pane">
+      <div id="resize-handle"></div>
+
+      <div class="editor-header">
+        <button class="tb-nav" id="prev-btn" title="Previous">&#8249;</button>
+        <select id="demo-select"></select>
+        <button class="tb-nav" id="next-btn" title="Next">&#8250;</button>
+        <span class="tb-tag" id="demo-tag"></span>
+      </div>
+
+      <div class="editor-body" id="monaco-container"></div>
+
+      <div class="editor-footer">
+        <button class="run-btn" id="run-btn">&#9654; Run</button>
+        <span class="run-hint">Ctrl+Enter</span>
+        <span class="spacer"></span>
+        <a class="back-link" href="/">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Gallery
+        </a>
+      </div>
+    </div>
   </div>
 
-  <details id="source-panel" open>
-    <summary>
-      <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>
-      Source
-    </summary>
-    <pre id="source-code"></pre>
-  </details>
-
-  <div id="status">Initializing...</div>
   <div id="error"><h2>Error</h2><pre id="error-msg"></pre></div>
-
-  <div id="kbd-hint">
-    <span><kbd>←</kbd><kbd>→</kbd> navigate</span>
-    <span><kbd>S</kbd> source</span>
-  </div>
-
   <script type="module" src="/src/demo-runner.ts"></script>
 </body>
 </html>

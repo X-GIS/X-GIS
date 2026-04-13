@@ -18,7 +18,9 @@ import {
   opacityConstant,
   sizeNone,
   sizeConstant,
+  shapeNone,
   hexToRgba,
+  type ShapeRef,
 } from './render-node'
 
 /**
@@ -27,16 +29,23 @@ import {
 export function lower(program: AST.Program): Scene {
   const sources: SourceDef[] = []
   const renderNodes: RenderNode[] = []
+  const symbols: import('./render-node').SymbolDef[] = []
   const sourceMap = new Map<string, SourceDef>()
   const presetMap = new Map<string, AST.UtilityLine[]>()
   const styleMap = new Map<string, AST.StyleProperty[]>()
 
-  // First pass: collect presets and styles
+  // First pass: collect presets, styles, and symbols
   for (const stmt of program.body) {
     if (stmt.kind === 'PresetStatement') {
       presetMap.set(stmt.name, stmt.utilities)
     } else if (stmt.kind === 'StyleStatement') {
       styleMap.set(stmt.name, stmt.properties)
+    } else if (stmt.kind === 'SymbolStatement') {
+      const paths: string[] = []
+      for (const el of stmt.elements) {
+        if (el.kind === 'path') paths.push(el.data)
+      }
+      if (paths.length > 0) symbols.push({ name: stmt.name, paths })
     }
   }
 
@@ -81,7 +90,7 @@ export function lower(program: AST.Program): Scene {
     }
   }
 
-  return { sources, renderNodes }
+  return { sources, renderNodes, symbols }
 }
 
 // ═══ New syntax lowering ═══
@@ -143,6 +152,7 @@ function lowerLayer(
   let projection = 'mercator'
   let visible = true
   let billboard = true
+  let shape: ShapeRef = shapeNone()
 
   // Cascade order: named style → inline CSS → utilities
   // 1. Apply named style (lowest priority)
@@ -209,7 +219,7 @@ function lowerLayer(
         if (name === 'fill') {
           fill = { kind: 'data-driven', expr: { ast: item.binding } }
         } else if (name === 'size') {
-          size = { kind: 'data-driven', expr: { ast: item.binding } }
+          size = { kind: 'data-driven', expr: { ast: item.binding }, unit: item.bindingUnit ?? null }
         } else if (name === 'opacity') {
           opacity = { kind: 'data-driven', expr: { ast: item.binding } }
         }
@@ -250,6 +260,13 @@ function lowerLayer(
         billboard = false
       } else if (name === 'billboard') {
         billboard = true
+      } else if (name.startsWith('shape-')) {
+        const shapeName = name.slice(6)
+        if (item.binding) {
+          shape = { kind: 'data-driven', expr: { ast: item.binding } }
+        } else {
+          shape = { kind: 'named', name: shapeName }
+        }
       } else if (name === 'visible') {
         visible = true
       }
@@ -286,6 +303,7 @@ function lowerLayer(
     filter: filterExpr ? { ast: filterExpr } : null,
     geometry: geometryExpr ? { ast: geometryExpr } : null,
     billboard,
+    shape,
   }
 }
 
@@ -445,5 +463,6 @@ function lowerShow(stmt: AST.ShowStatement): RenderNode | null {
     filter: null,
     geometry: null,
     billboard: true,
+    shape: shapeNone(),
   }
 }

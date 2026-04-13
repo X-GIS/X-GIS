@@ -295,4 +295,5 @@ export type UtilityItem = {
   modifier: string | null   // e.g., "z8", "friendly", "hover" (before the colon)
   name: string              // e.g., "fill-red-500", "stroke-2", "opacity-80"
   binding: Expr | null      // e.g., the expression inside [...] for data binding
+  bindingUnit?: string | null // e.g., "km" in size-[expr]km
 }

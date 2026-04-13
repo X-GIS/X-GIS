@@ -388,7 +388,7 @@ export function parseGPUReadyTile(
     }
 
     const tb = tileBoundsFromZXY(z, x, y)
-    return { z, x, y, tileWest: tb.west, tileSouth: tb.south, vertices, indices, lineVertices, lineIndices, featureCount: 0 }
+    return { z, x, y, tileWest: tb.west, tileSouth: tb.south, vertices, indices, lineVertices, lineIndices, outlineIndices: new Uint32Array(0), featureCount: 0 }
   }
 
   // Decompress gzip'd compact layer
@@ -471,6 +471,7 @@ export function parseGPUReadyTile(
   return {
     z, x, y, tileWest: tb.west, tileSouth: tb.south,
     vertices, indices, lineVertices, lineIndices,
+    outlineIndices: new Uint32Array(0), // outline extracted from rings at runtime
     featureCount: polygons.length,
     polygons, // preserve for runtime sub-tiling
   }

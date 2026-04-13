@@ -16,6 +16,7 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
-    "earcut": "^3.0.2"
+    "earcut": "^3.0.2",
+    "monaco-editor": "^0.55.1"
   }
 }

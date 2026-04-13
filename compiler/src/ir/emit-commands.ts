@@ -30,11 +30,14 @@ export interface ShowCommand {
   sizeUnit: string | null
   sizeExpr: DataExpr | null
   billboard: boolean
+  shape: string | null
+  shapeDefs: { name: string; paths: string[] }[]
 }
 
 export interface SceneCommands {
   loads: LoadCommand[]
   shows: ShowCommand[]
+  symbols: { name: string; paths: string[] }[]
 }
 
 /**
@@ -49,7 +52,7 @@ export function emitCommands(scene: Scene): SceneCommands {
 
   const shows: ShowCommand[] = scene.renderNodes.map(emitShow)
 
-  return { loads, shows }
+  return { loads, shows, symbols: scene.symbols }
 }
 
 function emitShow(node: RenderNode): ShowCommand {
@@ -73,6 +76,8 @@ function emitShow(node: RenderNode): ShowCommand {
     sizeUnit: (node.size.kind === 'constant' || node.size.kind === 'data-driven') ? (node.size.unit ?? null) : null,
     sizeExpr: node.size.kind === 'data-driven' ? node.size.expr : null,
     billboard: node.billboard,
+    shape: node.shape.kind === 'named' ? node.shape.name : null,
+    shapeDefs: [],
   }
 }
 

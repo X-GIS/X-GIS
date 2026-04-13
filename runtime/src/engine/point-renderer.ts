@@ -5,6 +5,7 @@
 
 import type { Camera } from './camera'
 import { BLEND_ALPHA, STENCIL_DISABLED, MSAA_4X, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
+import type { ShapeRegistry } from './sdf-shape'
 
 // ═══ WGSL Shader ═══
 
@@ -13,7 +14,7 @@ const PI: f32 = 3.14159265;
 const DEG2RAD: f32 = 0.01745329;
 const EARTH_R: f32 = 6378137.0;
 const MERCATOR_LAT_LIMIT: f32 = 85.051129;
-const STRIDE: u32 = 13u;
+const STRIDE: u32 = 14u;
 
 struct Uniforms {
   mvp: mat4x4<f32>,
@@ -22,13 +23,136 @@ struct Uniforms {
   viewport: vec4<f32>,      // xy = canvas width/height, z = meters_per_pixel
 }
 
+// Shape SDF storage buffers
+struct ShapeDesc {
+  seg_start: u32,
+  seg_count: u32,
+  bbox_min_x: f32,
+  bbox_min_y: f32,
+  bbox_max_x: f32,
+  bbox_max_y: f32,
+  _pad0: f32,
+  _pad1: f32,
+}
+
+struct Segment {
+  kind: u32,        // 0=line, 1=quadratic, 2=cubic
+  color_idx: u32,
+  flags: u32,
+  _pad: u32,
+  p0: vec2f,
+  p1: vec2f,
+  p2: vec2f,
+  p3: vec2f,
+}
+
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var<storage, read> feat_data: array<f32>;
+@group(0) @binding(2) var<storage, read> shapes: array<ShapeDesc>;
+@group(0) @binding(3) var<storage, read> segments: array<Segment>;
+
+// ── SDF distance functions ──
+
+fn dist_to_line(p: vec2f, a: vec2f, b: vec2f) -> f32 {
+  let ab = b - a;
+  let len2 = dot(ab, ab);
+  if (len2 < 1e-10) { return length(p - a); }
+  let t = clamp(dot(p - a, ab) / len2, 0.0, 1.0);
+  return length(p - a - ab * t);
+}
+
+fn dist_to_quadratic(p: vec2f, a: vec2f, b: vec2f, c: vec2f) -> f32 {
+  var best_d: f32 = 1e10;
+  let STEPS = 16u;
+  for (var i = 0u; i <= STEPS; i++) {
+    let t = f32(i) / f32(STEPS);
+    let ab = mix(a, b, t);
+    let bc = mix(b, c, t);
+    let q = mix(ab, bc, t);
+    best_d = min(best_d, length(p - q));
+  }
+  return best_d;
+}
+
+fn dist_to_cubic(p: vec2f, a: vec2f, b: vec2f, c: vec2f, d: vec2f) -> f32 {
+  var best_d: f32 = 1e10;
+  let STEPS = 24u;
+  for (var i = 0u; i <= STEPS; i++) {
+    let t = f32(i) / f32(STEPS);
+    let ab = mix(a, b, t); let bc = mix(b, c, t); let cd = mix(c, d, t);
+    let abc = mix(ab, bc, t); let bcd = mix(bc, cd, t);
+    let q = mix(abc, bcd, t);
+    best_d = min(best_d, length(p - q));
+  }
+  return best_d;
+}
+
+// Winding number contribution from a line segment (horizontal ray cast)
+fn winding_line(p: vec2f, a: vec2f, b: vec2f) -> i32 {
+  if (a.y <= p.y) {
+    if (b.y > p.y) {
+      let cross_val = (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y);
+      if (cross_val > 0.0) { return 1; }
+    }
+  } else {
+    if (b.y <= p.y) {
+      let cross_val = (b.x - a.x) * (p.y - a.y) - (p.x - a.x) * (b.y - a.y);
+      if (cross_val < 0.0) { return -1; }
+    }
+  }
+  return 0;
+}
+
+fn sdf_shape(uv_in: vec2f, shape_id: u32) -> f32 {
+  // Flip Y: NDC Y-up → SVG/path Y-down convention
+  let uv = vec2f(uv_in.x, -uv_in.y);
+  let s = shapes[shape_id];
+
+  // AABB early-out
+  if (uv.x < s.bbox_min_x || uv.x > s.bbox_max_x ||
+      uv.y < s.bbox_min_y || uv.y > s.bbox_max_y) {
+    return 2.0;
+  }
+
+  var min_dist: f32 = 1e10;
+  var winding: i32 = 0;
+  let end = min(s.seg_start + s.seg_count, s.seg_start + 32u);
+
+  for (var i = s.seg_start; i < end; i++) {
+    let seg = segments[i];
+    switch seg.kind {
+      case 0u: {
+        min_dist = min(min_dist, dist_to_line(uv, seg.p0, seg.p1));
+        winding += winding_line(uv, seg.p0, seg.p1);
+      }
+      case 1u: {
+        min_dist = min(min_dist, dist_to_quadratic(uv, seg.p0, seg.p1, seg.p2));
+        // Approximate winding with chord
+        winding += winding_line(uv, seg.p0, seg.p2);
+      }
+      case 2u: {
+        min_dist = min(min_dist, dist_to_cubic(uv, seg.p0, seg.p1, seg.p2, seg.p3));
+        // Approximate winding with chord
+        winding += winding_line(uv, seg.p0, seg.p3);
+      }
+      default: {}
+    }
+  }
+
+  // Map: dist=1.0 at boundary (matching circle convention)
+  // Inside: dist < 1.0, Outside: dist > 1.0
+  if (winding != 0) {
+    return 1.0 - min_dist;  // inside: smaller dist = more inside = lower value
+  } else {
+    return 1.0 + min_dist;  // outside: further from edge = higher value
+  }
+}
 
 struct PointOut {
   @builtin(position) position: vec4<f32>,
   @location(0) uv: vec2<f32>,
   @location(1) @interpolate(flat) feat_id: u32,
+  @location(2) @interpolate(flat) radius_px: f32,
 }
 
 @vertex
@@ -45,16 +169,18 @@ fn vs_point(
   let raw_radius = feat_data[fid * STRIDE + 0u];
   let size_mode = u32(feat_data[fid * STRIDE + 10u]) >> 4u;
 
-  // Unit conversion: 0=px, 1=m, 2=km, 3=deg
+  // Unit conversion: 0=px, 1=m, 2=km, 3=deg, 4=nm
   var radius_px: f32;
   if (size_mode == 1u) {
-    radius_px = raw_radius / u.viewport.z;          // meters → pixels
+    radius_px = raw_radius / u.viewport.z;           // meters → pixels
   } else if (size_mode == 2u) {
-    radius_px = raw_radius * 1000.0 / u.viewport.z; // km → pixels
+    radius_px = raw_radius * 1000.0 / u.viewport.z;  // km → pixels
   } else if (size_mode == 3u) {
     radius_px = raw_radius * 111320.0 / u.viewport.z; // deg → pixels (equator approx)
+  } else if (size_mode == 4u) {
+    radius_px = raw_radius * 1852.0 / u.viewport.z;  // nautical miles → pixels
   } else {
-    radius_px = raw_radius;                          // px: as-is
+    radius_px = raw_radius;                           // px: as-is
   }
 
   // RTC: center is pre-computed as (mercX - cameraMercX, mercY - cameraMercY)
@@ -83,14 +209,24 @@ fn vs_point(
     out.uv = offsets[quad_id] * expand / max(radius_px, 1.0);
   }
   out.feat_id = fid;
+  out.radius_px = radius_px;
   return out;
 }
 
 @fragment
 fn fs_point(in: PointOut) -> @location(0) vec4f {
   let fid = in.feat_id;
-  let dist = length(in.uv);
-  let aa = fwidth(dist) * 1.5;
+  let shape_id = u32(feat_data[fid * STRIDE + 13u]);
+
+  // Compute AA from UV (always smooth) — not from SDF dist which has AABB discontinuities
+  let aa = fwidth(length(in.uv)) * 1.5;
+
+  var dist: f32;
+  if (shape_id == 0u) {
+    dist = length(in.uv);  // analytical circle (fast path)
+  } else {
+    dist = sdf_shape(in.uv, shape_id - 1u);
+  }
 
   // Read per-feature style
   let fill_color = vec4f(
@@ -105,8 +241,11 @@ fn fs_point(in: PointOut) -> @location(0) vec4f {
     feat_data[fid * STRIDE + 7u],
     feat_data[fid * STRIDE + 8u]
   );
-  let stroke_w = feat_data[fid * STRIDE + 9u];
+  let stroke_w_px = feat_data[fid * STRIDE + 9u];
   let flags = u32(feat_data[fid * STRIDE + 10u]);
+
+  // Convert stroke width from px to UV space using actual rendered radius
+  let stroke_w = stroke_w_px / max(in.radius_px, 1.0);
 
   var color = vec4f(0.0);
 
@@ -164,6 +303,11 @@ export class PointRenderer {
   private uniformBuffer: GPUBuffer
   private uniformData = new Float32Array(28) // mvp(16) + proj_params(4) + tile_rtc(4) + viewport(2) + pad(2)
   private layers: PointLayer[] = []
+  private shapeRegistry: ShapeRegistry | null = null
+
+  setShapeRegistry(registry: ShapeRegistry): void {
+    this.shapeRegistry = registry
+  }
 
   constructor(ctx: { device: GPUDevice; format: GPUTextureFormat }) {
     this.device = ctx.device
@@ -175,6 +319,8 @@ export class PointRenderer {
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
         { binding: 1, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
       ],
     })
 
@@ -204,6 +350,26 @@ export class PointRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
   }
+
+  /** Create a bind group with uniform + feat_data + shape buffers */
+  private makeBindGroup(featBuffer: GPUBuffer): GPUBindGroup {
+    const shapeBuf = this.shapeRegistry?.shapeBuffer
+    const segBuf = this.shapeRegistry?.segmentBuffer
+    // Fallback: tiny empty buffers if no registry
+    const emptyBuf = this._emptyStorageBuf ??= this.device.createBuffer({
+      size: 64, usage: GPUBufferUsage.STORAGE, label: 'empty-shape-buf',
+    })
+    return this.device.createBindGroup({
+      layout: this.bindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer } },
+        { binding: 1, resource: { buffer: featBuffer } },
+        { binding: 2, resource: { buffer: shapeBuf ?? emptyBuf } },
+        { binding: 3, resource: { buffer: segBuf ?? emptyBuf } },
+      ],
+    })
+  }
+  private _emptyStorageBuf: GPUBuffer | null = null
 
   clearLayers(): void {
     for (const layer of this.layers) {
@@ -253,14 +419,14 @@ export class PointRenderer {
     const stroke = strokeHex ? this.parseHex(strokeHex) : null
     const opacity = show.opacity ?? 1.0
     const radiusPx = show.size ?? 6
-    const strokeWidth = (show.strokeWidth ?? 1) / Math.max(radiusPx, 1)
+    const strokeWidth = show.strokeWidth ?? 1  // raw px, shader converts to UV
 
     let flags = 0
     if (fill) flags |= 1
     if (stroke) flags |= 2
 
     // Build 3× expanded buffers (primary + left + right world copies)
-    const STRIDE = 13
+    const STRIDE = 14
     // WORLD_MERC imported from gpu-shared
     const COPIES = WORLD_COPIES
     const totalN = N * COPIES.length
@@ -295,6 +461,7 @@ export class PointRenderer {
         featData[fOff+9] = strokeWidth; featData[fOff+10] = flags
         featData[fOff+11] = pt.rtcX + worldOff
         featData[fOff+12] = pt.rtcY
+        featData[fOff+13] = 0 // shape_id (circle default for tile points)
       }
     }
 
@@ -309,13 +476,7 @@ export class PointRenderer {
     this.tilePointFeatBuffer = this.device.createBuffer({ size: Math.max(featData.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST })
     this.device.queue.writeBuffer(this.tilePointFeatBuffer, 0, featData)
 
-    this.tilePointBindGroup = this.device.createBindGroup({
-      layout: this.bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.uniformBuffer } },
-        { binding: 1, resource: { buffer: this.tilePointFeatBuffer } },
-      ],
-    })
+    this.tilePointBindGroup = this.makeBindGroup(this.tilePointFeatBuffer)
 
     const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
     const uf = this.uniformData
@@ -364,6 +525,7 @@ export class PointRenderer {
     sizeUnit?: string | null,
     perFeatureSizes?: number[] | null,
     billboard?: boolean,
+    shapeId?: number,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -406,13 +568,13 @@ export class PointRenderer {
     }
 
     // Build per-feature data (stride = 11 floats)
-    const STRIDE = 13
+    const STRIDE = 14
     const featData = new Float32Array(points.length * STRIDE)
     let flags = 0
     if (fill) flags |= 1
     if (stroke) flags |= 2
     // Size mode in upper 4 bits: 0=px, 1=m, 2=km, 3=deg
-    const unitMap: Record<string, number> = { m: 1, km: 2, deg: 3 }
+    const unitMap: Record<string, number> = { m: 1, km: 2, deg: 3, nm: 4 }
     const sizeMode = sizeUnit ? (unitMap[sizeUnit] ?? 0) : 0
     if (billboard === false) flags |= 8  // bit 3 = flat
     flags |= (sizeMode << 4)
@@ -431,9 +593,10 @@ export class PointRenderer {
       featData[off + 7] = stroke ? stroke[2] : 0
       featData[off + 8] = stroke ? stroke[3] * opacity : 0
       // stroke width in UV space
-      featData[off + 9] = strokeWidth / Math.max(radiusPx, 1)
+      featData[off + 9] = strokeWidth  // raw px, shader converts to UV
       featData[off + 10] = flags
       // [11] and [12] = RTC x/y, written per-frame in render()
+      featData[off + 13] = shapeId ?? 0
     }
 
     // Store original coordinates in f64 for per-frame RTC computation
@@ -453,13 +616,7 @@ export class PointRenderer {
     const featureBuffer = this.device.createBuffer({ size: Math.max(featData.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST })
     this.device.queue.writeBuffer(featureBuffer, 0, featData)
 
-    const bindGroup = this.device.createBindGroup({
-      layout: this.bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.uniformBuffer } },
-        { binding: 1, resource: { buffer: featureBuffer } },
-      ],
-    })
+    const bindGroup = this.makeBindGroup(featureBuffer)
 
     this.layers.push({
       vertexBuffer, indexBuffer, featureBuffer,
@@ -518,7 +675,7 @@ export class PointRenderer {
     const camMercY = Math.log(Math.tan(Math.PI / 4 + camClampedLat * DEG2RAD / 2)) * R
 
     // WORLD_MERC imported from gpu-shared
-    const STRIDE = 13
+    const STRIDE = 14
     // WORLD_COPIES imported from gpu-shared
 
     for (const layer of this.layers) {
@@ -548,6 +705,7 @@ export class PointRenderer {
           const srcOff = i * STRIDE
           const dstOff = (basePoint + i) * STRIDE
           expandedFeat.set(layer.featData.subarray(srcOff, srcOff + 11), dstOff)
+          expandedFeat[dstOff + 13] = layer.featData[srcOff + 13] // shape_id
           expandedFeat[dstOff + 11] = dx
           expandedFeat[dstOff + 12] = dy
 
@@ -579,13 +737,7 @@ export class PointRenderer {
         layer._expandedVertBuf = this.device.createBuffer({ size: expandedVerts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
         layer._expandedIdxBuf = this.device.createBuffer({ size: expandedIdx.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST })
         layer._expandedFeatBuf = this.device.createBuffer({ size: Math.max(expandedFeat.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST })
-        layer._expandedBindGroup = this.device.createBindGroup({
-          layout: this.bindGroupLayout,
-          entries: [
-            { binding: 0, resource: { buffer: this.uniformBuffer } },
-            { binding: 1, resource: { buffer: layer._expandedFeatBuf } },
-          ],
-        })
+        layer._expandedBindGroup = this.makeBindGroup(layer._expandedFeatBuf)
         layer._expandedSize = totalPoints
       }
 

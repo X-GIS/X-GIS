@@ -8,6 +8,13 @@
 export interface Scene {
   sources: SourceDef[]
   renderNodes: RenderNode[]
+  symbols: SymbolDef[]
+}
+
+/** A user-defined shape symbol with SVG path data. */
+export interface SymbolDef {
+  name: string
+  paths: string[]
 }
 
 /**
@@ -35,7 +42,16 @@ export interface RenderNode {
   filter: DataExpr | null  // per-feature filter expression (e.g., .pop > 1000000)
   geometry: DataExpr | null  // procedural geometry expression (e.g., circle(.lon, .lat, .r))
   billboard: boolean         // true = faces camera (default), false = flat on ground
+  shape: ShapeRef            // point shape (circle default, or named/user-defined)
 }
+
+/**
+ * Shape reference for point rendering.
+ */
+export type ShapeRef =
+  | { kind: 'none' }                         // circle (analytical default)
+  | { kind: 'named'; name: string }          // built-in or user-defined shape
+  | { kind: 'data-driven'; expr: DataExpr }  // per-feature shape selection
 
 // ═══ Value types — designed for Phase 1 extension ═══
 
@@ -119,6 +135,10 @@ export function sizeNone(): SizeValue {
 
 export function sizeConstant(value: number, unit?: string | null): SizeValue {
   return { kind: 'constant', value, unit: unit ?? null }
+}
+
+export function shapeNone(): ShapeRef {
+  return { kind: 'none' }
 }
 
 /**

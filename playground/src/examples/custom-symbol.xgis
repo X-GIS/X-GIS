@@ -1,0 +1,38 @@
+/* User-defined symbol — arrow shape via SVG path */
+
+symbol arrow {
+  path "M 0 -1 L 0.4 0.4 L 0 0.1 L -0.4 0.4 Z"
+}
+
+symbol flag {
+  path "M -0.15 -1 L -0.15 1 L -0.05 1 L -0.05 -1 Z M -0.05 -1 L 0.8 -0.5 L -0.05 0 Z"
+}
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source cities {
+  type: geojson
+  url: "ne_110m_populated_places.geojson"
+}
+
+layer ground {
+  source: land
+  | fill-slate-800 stroke-slate-700 stroke-0.5
+}
+
+/* Arrows for capitals */
+layer capitals {
+  source: cities
+  filter: .featurecla == "Admin-0 capital"
+  | shape-arrow fill-emerald-400 stroke-emerald-600 stroke-1 size-16
+}
+
+/* Flags for other cities */
+layer others {
+  source: cities
+  filter: .featurecla != "Admin-0 capital"
+  | shape-flag fill-sky-300 stroke-sky-500 stroke-0.5 size-10
+}

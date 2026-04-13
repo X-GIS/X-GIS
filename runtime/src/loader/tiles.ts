@@ -98,97 +98,133 @@ import type { Projection } from '../engine/projection'
 
 const MAX_FRUSTUM_TILES = 300
 
-/** Select visible tiles by unprojecting screen grid to lon/lat via projection inverse.
- *  Works correctly with any pitch, bearing, and projection combination. */
+/** Quadtree-based visible tile selection.
+ *  Recursively subdivides from z=0, using screen-space tile size to determine LOD.
+ *  Near tiles get high zoom, far tiles get low zoom — natural perspective LOD. */
 export function visibleTilesFrustum(
   camera: Camera,
   projection: Projection,
-  z: number,
+  maxZ: number,
   canvasWidth: number,
   canvasHeight: number,
 ): TileCoord[] {
-  const n = Math.pow(2, z)
-
-  // Camera center in projection space (for RTC→absolute conversion)
-  const [camProjX, camProjY] = projection.forward(
-    (camera.centerX / 6378137) * (180 / Math.PI),
-    (2 * Math.atan(Math.exp(camera.centerY / 6378137)) - Math.PI / 2) * (180 / Math.PI),
-  )
-
-  // Sample screen grid (9×9 = 81 points) → unproject → lon/lat
-  const lonLats: [number, number][] = []
-  const GRID = 8
-  for (let sx = 0; sx <= GRID; sx++) {
-    for (let sy = 0; sy <= GRID; sy++) {
-      const screenX = (sx / GRID) * canvasWidth
-      const screenY = (sy / GRID) * canvasHeight
-
-      const rtc = camera.unprojectToZ0(screenX, screenY, canvasWidth, canvasHeight)
-      if (!rtc) continue // beyond horizon
-
-      // RTC → absolute projection coords → lon/lat
-      const result = projection.inverse(rtc[0] + camProjX, rtc[1] + camProjY)
-      if (!result || isNaN(result[0]) || isNaN(result[1])) continue
-
-      lonLats.push(result)
-    }
-  }
-
-  if (lonLats.length === 0) {
-    // Fallback: can't unproject anything (extreme pitch or projection)
-    return visibleTiles(
-      (camera.centerX / 6378137) * (180 / Math.PI),
-      Math.max(-85, Math.min(85, (2 * Math.atan(Math.exp(camera.centerY / 6378137)) - Math.PI / 2) * (180 / Math.PI))),
-      z, canvasWidth, canvasHeight, undefined, camera.bearing, camera.pitch,
-    )
-  }
-
-  // Bounding box of all sampled lon/lat points
-  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity
-  for (const [lon, lat] of lonLats) {
-    if (lon < minLon) minLon = lon
-    if (lon > maxLon) maxLon = lon
-    if (lat < minLat) minLat = lat
-    if (lat > maxLat) maxLat = lat
-  }
-
-  // Clamp to valid tile range
-  minLat = Math.max(-85.051, minLat)
-  maxLat = Math.min(85.051, maxLat)
-
-  // Convert lon/lat bounds to tile coordinates
-  const minTileX = Math.floor((minLon + 180) / 360 * n)
-  const maxTileX = Math.floor((maxLon + 180) / 360 * n)
-  const minTileY = Math.max(0, Math.floor((1 - Math.log(Math.tan(maxLat * Math.PI / 180) + 1 / Math.cos(maxLat * Math.PI / 180)) / Math.PI) / 2 * n))
-  const maxTileY = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(minLat * Math.PI / 180) + 1 / Math.cos(minLat * Math.PI / 180)) / Math.PI) / 2 * n))
-
-  const tiles: TileCoord[] = []
+  const DEG2RAD = Math.PI / 180
+  const R = 6378137
+  const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
+  const camMercX = camera.centerX
+  const camMercY = camera.centerY
   const maxCopies = (WORLD_COPIES.length - 1) / 2
+  const SUBDIVIDE_THRESHOLD = 400 // subdivide if tile > this many px on screen
 
-  for (let ox = minTileX; ox <= maxTileX; ox++) {
-    const x = ((ox % n) + n) % n
-    if (ox < -maxCopies * n || ox >= (maxCopies + 1) * n) continue
-    for (let y = minTileY; y <= maxTileY; y++) {
-      if (y < 0 || y >= n) continue
-      tiles.push({ z, x, y, ox })
+  // Project Mercator coords → screen pixel (returns null if behind camera)
+  const toScreen = (mx: number, my: number): [number, number] | null => {
+    const rx = mx - camMercX, ry = my - camMercY
+    const cw = mvp[3] * rx + mvp[7] * ry + mvp[15]
+    if (cw <= 0.01) return null
+    const cx = mvp[0] * rx + mvp[4] * ry + mvp[12]
+    const cy = mvp[1] * rx + mvp[5] * ry + mvp[13]
+    return [(cx / cw + 1) * 0.5 * canvasWidth, (1 - cy / cw) * 0.5 * canvasHeight]
+  }
+
+  // Lon/lat → Mercator meters
+  const lonToMerc = (lon: number) => lon * DEG2RAD * R
+  const latToMerc = (lat: number) => {
+    const cl = Math.max(-85.051, Math.min(85.051, lat))
+    return Math.log(Math.tan(Math.PI / 4 + cl * DEG2RAD / 2)) * R
+  }
+
+  // Tile y → latitude (north edge)
+  const tileYToLat = (y: number, n: number) =>
+    Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI
+
+  // Estimate tile's screen-space size in pixels
+  const tileScreenSize = (tz: number, ox: number, y: number): number => {
+    const tn = Math.pow(2, tz)
+    const lonW = ox / tn * 360 - 180
+    const lonE = (ox + 1) / tn * 360 - 180
+    const latN = tileYToLat(y, tn)
+    const latS = tileYToLat(y + 1, tn)
+    const mw = lonToMerc(lonW), me = lonToMerc(lonE)
+    const mn = latToMerc(latN), ms = latToMerc(latS)
+
+    const corners = [toScreen(mw, ms), toScreen(me, ms), toScreen(me, mn), toScreen(mw, mn)]
+    let sxMin = Infinity, sxMax = -Infinity, syMin = Infinity, syMax = -Infinity
+    let valid = 0
+    for (const c of corners) {
+      if (!c) continue
+      valid++
+      if (c[0] < sxMin) sxMin = c[0]
+      if (c[0] > sxMax) sxMax = c[0]
+      if (c[1] < syMin) syMin = c[1]
+      if (c[1] > syMax) syMax = c[1]
+    }
+    if (valid < 2) return 0
+    return Math.max(sxMax - sxMin, syMax - syMin)
+  }
+
+  // Check if tile is potentially visible (screen AABB overlaps viewport)
+  const isTileVisible = (tz: number, ox: number, y: number): boolean => {
+    const tn = Math.pow(2, tz)
+    const lonW = ox / tn * 360 - 180
+    const lonE = (ox + 1) / tn * 360 - 180
+    const latN = tileYToLat(y, tn)
+    const latS = tileYToLat(y + 1, tn)
+    const mw = lonToMerc(lonW), me = lonToMerc(lonE)
+    const mn = latToMerc(latN), ms = latToMerc(latS)
+
+    const corners = [toScreen(mw, ms), toScreen(me, ms), toScreen(me, mn), toScreen(mw, mn)]
+    let sxMin = Infinity, sxMax = -Infinity, syMin = Infinity, syMax = -Infinity
+    let valid = 0
+    for (const c of corners) {
+      if (!c) { valid++; continue } // behind camera = might wrap around, be conservative
+      valid++
+      if (c[0] < sxMin) sxMin = c[0]
+      if (c[0] > sxMax) sxMax = c[0]
+      if (c[1] < syMin) syMin = c[1]
+      if (c[1] > syMax) syMax = c[1]
+    }
+    if (valid === 0) return false
+    if (sxMin === Infinity) return true // all behind camera at low zoom — be conservative
+    // Generous margin for partially-visible tiles
+    const margin = Math.max(canvasWidth, canvasHeight) * 0.1
+    return sxMax >= -margin && sxMin <= canvasWidth + margin &&
+           syMax >= -margin && syMin <= canvasHeight + margin
+  }
+
+  const result: TileCoord[] = []
+
+  const visit = (tz: number, x: number, y: number, ox: number): void => {
+    if (result.length >= MAX_FRUSTUM_TILES) return
+    const tn = Math.pow(2, tz)
+    if (y < 0 || y >= tn) return
+    if (ox < -maxCopies * tn || ox >= (maxCopies + 1) * tn) return
+
+    // Low-zoom tiles always visible (screen projection unreliable for world-scale tiles)
+    if (tz > 3 && !isTileVisible(tz, ox, y)) return
+
+    const screenPx = tz <= 3 ? SUBDIVIDE_THRESHOLD + 1 : tileScreenSize(tz, ox, y)
+
+    // Subdivide if tile is large on screen and we haven't reached max zoom
+    if (tz < maxZ && screenPx > SUBDIVIDE_THRESHOLD && result.length + 4 <= MAX_FRUSTUM_TILES) {
+      for (let dy = 0; dy < 2; dy++) {
+        for (let dx = 0; dx < 2; dx++) {
+          visit(tz + 1, x * 2 + dx, y * 2 + dy, ox * 2 + dx)
+        }
+      }
+      return
+    }
+
+    if (screenPx > 0 || tz <= 2) { // always include low-zoom tiles for coverage
+      result.push({ z: tz, x, y, ox })
     }
   }
 
-  // Limit total tile count (sort by distance from center)
-  if (tiles.length > MAX_FRUSTUM_TILES) {
-    const centerX = (camera.centerX / 6378137) * (180 / Math.PI)
-    const centerLat = (2 * Math.atan(Math.exp(camera.centerY / 6378137)) - Math.PI / 2) * (180 / Math.PI)
-    const cx = Math.floor((centerX + 180) / 360 * n)
-    const cy = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
-    tiles.sort((a, b) => {
-      const da = (a.ox - cx) ** 2 + (a.y - cy) ** 2
-      const db = (b.ox - cx) ** 2 + (b.y - cy) ** 2
-      return da - db
-    })
-    tiles.length = MAX_FRUSTUM_TILES
+  // Start from z=0 for each world copy
+  for (let wx = -maxCopies; wx <= maxCopies; wx++) {
+    visit(0, 0, 0, wx)
   }
 
-  return tiles
+  return result
 }
 
 /** Get lon/lat bounds for a tile */

@@ -1,0 +1,24 @@
+/* GDP heatmap using gradient() — blue (low) to red (high) */
+
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+/* Dark ocean background */
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.geojson"
+}
+
+layer sea {
+  source: ocean
+  | fill-slate-900
+}
+
+/* GDP gradient: $0 → blue, $5T+ → red */
+layer gdp {
+  source: countries
+  | fill gradient(.GDP_MD_EST, 0, 5000000, sky-300, rose-600)
+    stroke-slate-600 stroke-0.5 opacity-95
+}

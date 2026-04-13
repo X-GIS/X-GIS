@@ -300,11 +300,11 @@ export class RasterRenderer {
       ? visibleTilesFrustum(camera, mercatorProj, currentZ, canvasWidth, canvasHeight)
       : visibleTiles(centerLon, centerLat, zoom, canvasWidth, canvasHeight, undefined, camera.bearing, camera.pitch)
 
-    // Sort by distance from center (priority loading)
-    const n = Math.pow(2, currentZ)
-    const centerTileX = Math.floor((centerLon + 180) / 360 * n)
-    const centerTileY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
-    sortByPriority(tiles, centerTileX, centerTileY)
+    // Sort: lower zoom first (draw background), higher zoom on top (sharp near tiles)
+    tiles.sort((a, b) => {
+      if (a.z !== b.z) return a.z - b.z
+      return 0
+    })
 
     // Build set of visible tile keys for this frame
     const visibleKeys = new Set(tiles.map(c => `${c.z}/${c.x}/${c.y}`))

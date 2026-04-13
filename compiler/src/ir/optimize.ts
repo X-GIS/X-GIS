@@ -29,6 +29,7 @@ export function optimize(scene: Scene, program?: AST.Program): Scene {
   return {
     sources: scene.sources,
     renderNodes: scene.renderNodes.map(node => optimizeNode(node, fnEnv)),
+    symbols: scene.symbols,
   }
 }
 

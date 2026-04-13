@@ -1,0 +1,29 @@
+/* Income groups using match() — World Bank classification */
+
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.geojson"
+}
+
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer sea {
+  source: ocean
+  | fill-slate-900
+}
+
+layer income {
+  source: countries
+  | fill match(INCOME_GRP) {
+      "1. High income: OECD"     -> emerald-400,
+      "2. High income: nonOECD"  -> emerald-600,
+      "3. Upper middle income"   -> sky-400,
+      "4. Lower middle income"   -> amber-400,
+      "5. Low income"            -> rose-500,
+      _                          -> gray-500
+    }
+    stroke-slate-700 stroke-0.5 opacity-90
+}
