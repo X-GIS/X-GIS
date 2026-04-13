@@ -187,41 +187,18 @@ export class PanZoomController implements Controller {
             applyInertia()
           }
         }
-        // Animated snap to nearest 15° on release
+        // Snap bearing + pitch on release (no animation — immediate)
         if (isRotating && rotateActivated) {
+          // Bearing: snap to nearest 15°
           const SNAP = 15
           let b = ((camera.bearing % 360) + 360) % 360
           let target = Math.round(b / SNAP) * SNAP
           if (target === 360) target = 0
-          // Handle shortest path (e.g., 350° → 0° = +10°, not -350°)
-          let diff = target - b
-          if (diff > 180) diff -= 360
-          if (diff < -180) diff += 360
-          const animateSnap = () => {
-            const current = camera.bearing
-            const remaining = target - ((current % 360) + 360) % 360
-            let r = remaining
-            if (r > 180) r -= 360
-            if (r < -180) r += 360
-            if (Math.abs(r) < 0.5) {
-              camera.bearing = target
-              return
-            }
-            camera.bearing = current + r * 0.2
-            requestAnimationFrame(animateSnap)
-          }
-          animateSnap()
+          camera.bearing = target
 
-          // Pitch snap: animate to nearest 15° (0° snaps from ±7°)
+          // Pitch: snap to nearest 15° (0° snaps from ±7°)
           const PITCH_SNAP = 15
-          const pitchTarget = camera.pitch < 7 ? 0 : Math.round(camera.pitch / PITCH_SNAP) * PITCH_SNAP
-          const animatePitchSnap = () => {
-            const diff = pitchTarget - camera.pitch
-            if (Math.abs(diff) < 0.3) { camera.pitch = pitchTarget; return }
-            camera.pitch += diff * 0.2
-            requestAnimationFrame(animatePitchSnap)
-          }
-          animatePitchSnap()
+          camera.pitch = camera.pitch < 7 ? 0 : Math.round(camera.pitch / PITCH_SNAP) * PITCH_SNAP
         }
         isDragging = false
         isRotatePending = false

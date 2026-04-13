@@ -167,8 +167,8 @@ export class Camera {
     this.centerX -= mapDx * metersPerCSSPixel
     // Wrap X to stay within one world width (prevents infinite drift)
     const halfWorld = WORLD_MERC / 2
-    if (this.centerX > halfWorld) this.centerX -= WORLD_WIDTH
-    else if (this.centerX < -halfWorld) this.centerX += WORLD_WIDTH
+    if (this.centerX > halfWorld) this.centerX -= WORLD_MERC
+    else if (this.centerX < -halfWorld) this.centerX += WORLD_MERC
     const maxY = this.maxCameraY(canvasHeight)
     const newY = this.centerY + mapDy * metersPerCSSPixel
     this.centerY = Math.max(-maxY, Math.min(maxY, newY))
