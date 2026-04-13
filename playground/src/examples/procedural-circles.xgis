@@ -1,18 +1,26 @@
-/* Procedural circles: generate geometry per-feature from point data */
+/* Ternary conditional: GDP-based coloring on GPU */
 
-source capitals {
+source countries {
   type: geojson
   url: "ne_110m_countries.geojson"
 }
 
+/* Dark base layer */
 layer base {
-  source: capitals
+  source: countries
   | fill-slate-800 stroke-slate-600 stroke-0.5
 }
 
-/* Population circles — radius proportional to GDP */
-layer gdp_circles {
-  source: capitals
-  geometry: circle(.LABEL_X, .LABEL_Y, sqrt(.GDP_MD_EST) / 50000, 32)
-  | fill-emerald-400 opacity-30 stroke-emerald-500 stroke-1
+/* GDP > $1 trillion highlighted */
+layer wealthy {
+  source: countries
+  filter: .GDP_MD_EST > 1000000
+  | fill-emerald-500 stroke-emerald-300 stroke-1 opacity-80
+}
+
+/* Top economies ($5T+) extra highlight */
+layer top {
+  source: countries
+  filter: .GDP_MD_EST > 5000000
+  | fill-yellow-400 stroke-yellow-200 stroke-2 opacity-90
 }

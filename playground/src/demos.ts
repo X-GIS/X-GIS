@@ -152,9 +152,9 @@ export const DEMOS: Record<string, Demo> = {
   // ── Procedural geometry ──
 
   procedural_circles: {
-    name: 'GDP Circles',
-    tag: 'procedural',
-    description: 'Procedural circles sized by GDP — geometry generated per-feature at runtime',
+    name: 'GDP Tiers',
+    tag: 'filter',
+    description: 'Three-tier GDP filter: dark base, $1T+ emerald, $5T+ gold — stacked layers with filter expressions',
     source: load('procedural-circles.xgis'),
   },
 }
