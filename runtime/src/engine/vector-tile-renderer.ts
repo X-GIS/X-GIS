@@ -7,7 +7,7 @@ import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
 import { visibleTiles, visibleTilesFrustum, sortByPriority } from '../loader/tiles'
-import { tileKey, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
+import { tileKey, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { XGVTSource, TileData } from '../data/xgvt-source'
 import { mercator as mercatorProj } from './projection'
@@ -49,7 +49,6 @@ export class VectorTileRenderer {
   private stableKeys: number[] = []
   private uniformDataBuf = new ArrayBuffer(144)
   private uniformF32 = new Float32Array(this.uniformDataBuf) // reusable view over full uniform
-  private tileRtcBuf = new Float32Array(4) // reused per-tile RTC buffer
   private lastBindGroupLayout: GPUBindGroupLayout | null = null
   private cachedFillColor = [0, 0, 0, 0]
   private cachedStrokeColor = [0, 0, 0, 0]
@@ -266,7 +265,7 @@ export class VectorTileRenderer {
     show: ShowCommand,
     fillPipeline: GPURenderPipeline,
     linePipeline: GPURenderPipeline,
-    uniformBuffer: GPUBuffer,
+    _uniformBuffer: GPUBuffer,
     bindGroupLayout: GPUBindGroupLayout,
     fillPipelineFallback?: GPURenderPipeline,
     linePipelineFallback?: GPURenderPipeline,
@@ -335,7 +334,6 @@ export class VectorTileRenderer {
     uf[24] = projType; uf[25] = projCenterLon; uf[26] = projCenterLat; uf[27] = 0
 
     // Compute tile keys — use wrapped x for data lookup
-    const tileCount = Math.pow(2, currentZ)
     const neededKeys: number[] = []
     const worldOffDeg: number[] = [] // per-tile world offset in degrees
     for (let i = 0; i < tiles.length; i++) {
@@ -493,7 +491,7 @@ export class VectorTileRenderer {
     pass: GPURenderPassEncoder,
     fillPipeline: GPURenderPipeline,
     linePipeline: GPURenderPipeline,
-    sharedUniformData: ArrayBuffer,
+    _sharedUniformData: ArrayBuffer,
     projCenterLon: number,
     projCenterLat: number,
     worldOffsets?: number[], // per-tile X offset in degrees for world copies

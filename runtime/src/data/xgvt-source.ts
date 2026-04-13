@@ -302,9 +302,7 @@ export class XGVTSource {
     const [minLon, minLat, maxLon, maxLat] = tileSet.bounds
     this.index = {
       header: {
-        magic: 0x54564758,
-        version: 1,
-        minLevel: tileSet.levels.length > 0 ? tileSet.levels[0].zoom : 0,
+        levelCount: tileSet.levels.length,
         maxLevel: tileSet.levels.length > 0 ? tileSet.levels[tileSet.levels.length - 1].zoom : 0,
         bounds: [minLon, minLat, maxLon, maxLat],
         indexOffset: 0,
@@ -329,8 +327,8 @@ export class XGVTSource {
     if (!this.index) {
       this.index = {
         header: {
-          magic: 0x54564758, version: 1,
-          minLevel: level.zoom, maxLevel: level.zoom,
+          levelCount: 1,
+          maxLevel: level.zoom,
           bounds, indexOffset: 0, indexLength: 0,
           propTableOffset: 0, propTableLength: 0,
         },
@@ -338,12 +336,13 @@ export class XGVTSource {
       }
       this.isFullFileMode = true
     }
+    const idx = this.index!
 
-    this.index.header.maxLevel = Math.max(this.index.header.maxLevel, level.zoom)
+    idx.header.maxLevel = Math.max(idx.header.maxLevel, level.zoom)
 
     for (const [, tile] of level.tiles) {
       const key = tileKey(tile.z, tile.x, tile.y)
-      if (this.index.entryByHash.has(key)) continue
+      if (idx.entryByHash.has(key)) continue
 
       const isFullCover = !!tile.fullCover
       const fid = tile.fullCoverFeatureId ?? 0
@@ -354,8 +353,8 @@ export class XGVTSource {
         flags: isFullCover ? (TILE_FLAG_FULL_COVER | (fid << 1)) : 0,
         fullCoverFeatureId: fid,
       }
-      this.index.entries.push(entry)
-      this.index.entryByHash.set(key, entry)
+      idx.entries.push(entry)
+      idx.entryByHash.set(key, entry)
 
       if (isFullCover && tile.vertices.length === 0) {
         this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
@@ -563,7 +562,7 @@ export class XGVTSource {
   }
 
   private createFullCoverTileData(key: number, entry: TileIndexEntry, lineVertices: Float32Array, lineIndices: Uint32Array): void {
-    const [tz, tx, ty] = tileKeyUnpack(key)
+    const [tz, , ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
     const tileWidth = 360 / tn
     const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI

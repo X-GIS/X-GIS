@@ -2,7 +2,7 @@
 
 import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
-import { visibleTiles, visibleTilesFrustum, tileBounds, tileUrl, loadImageTexture, sortByPriority, type TileCoord } from '../loader/tiles'
+import { visibleTiles, visibleTilesFrustum, tileUrl, loadImageTexture } from '../loader/tiles'
 import { mercator as mercatorProj } from './projection'
 import { BLEND_ALPHA, STENCIL_DISABLED, MSAA_4X } from './gpu-shared'
 

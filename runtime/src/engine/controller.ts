@@ -318,7 +318,6 @@ export class TrackballController implements Controller {
   private cleanup: (() => void) | null = null
   private centerLon = 0
   private centerLat = 20
-  private rebuildTimer: ReturnType<typeof setTimeout> | null = null
 
   attach(canvas: HTMLCanvasElement, camera: Camera, getState: () => ControllerState): void {
     let isDragging = false

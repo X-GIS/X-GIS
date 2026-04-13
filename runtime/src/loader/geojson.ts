@@ -142,7 +142,8 @@ function clipRingAtLine(ring: number[][], cutVal: number, keepLess: boolean, axi
   return result
 }
 
-function clipRingAtLon(ring: number[][], cutLon: number, keepLess: boolean): number[][] {
+// @ts-expect-error: reserved for future meridian splitting
+function _clipRingAtLon(ring: number[][], cutLon: number, keepLess: boolean): number[][] {
   return clipRingAtLine(ring, cutLon, keepLess, 0)
 }
 

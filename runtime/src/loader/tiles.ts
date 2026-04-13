@@ -103,7 +103,7 @@ const MAX_FRUSTUM_TILES = 300
  *  Near tiles get high zoom, far tiles get low zoom — natural perspective LOD. */
 export function visibleTilesFrustum(
   camera: Camera,
-  projection: Projection,
+  _projection: Projection,
   maxZ: number,
   canvasWidth: number,
   canvasHeight: number,

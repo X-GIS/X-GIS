@@ -3,7 +3,8 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": ["@webgpu/types"]
+    "types": ["@webgpu/types", "node", "vite/client"],
+    "noEmit": true
   },
   "include": ["src/**/*.ts"]
 }

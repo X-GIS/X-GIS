@@ -1,12 +1,11 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONToTiles, decomposeFeatures } from '@xgis/compiler'
-import { deserializeXGB } from '../../../compiler/src/binary/format'
+import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONToTiles, decomposeFeatures, deserializeXGB } from '@xgis/compiler'
 import { initGPU, resizeCanvas, type GPUContext } from './gpu'
 import { Camera } from './camera'
 import { MapRenderer, interpolateZoom } from './renderer'
 import { interpret, type SceneCommands } from './interpreter'
-import { loadGeoJSON, lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
+import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
 import { isTileTemplate } from '../loader/tiles'
 import { RasterRenderer } from './raster-renderer'
 import { PointRenderer } from './point-renderer'
@@ -17,6 +16,13 @@ import { VectorTileRenderer } from './vector-tile-renderer'
 import { XGVTSource } from '../data/xgvt-source'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 // reprojector.ts preserved for future tile-coordinate RTT approach
+
+interface VariantPipelines {
+  fillPipeline: GPURenderPipeline
+  linePipeline: GPURenderPipeline
+  fillPipelineFallback?: GPURenderPipeline
+  linePipelineFallback?: GPURenderPipeline
+}
 
 export class XGISMap {
   private ctx!: GPUContext
@@ -35,9 +41,8 @@ export class XGISMap {
 
   // Vector tile sources + renderers (per .xgvt source)
   private vtSources = new Map<string, { source: XGVTSource; renderer: VectorTileRenderer }>()
-  private vectorTileShows: { sourceName: string; show: SceneCommands['shows'][0]; pipelines: { fillPipeline: GPURenderPipeline; linePipeline: GPURenderPipeline; fillPipelineFallback: GPURenderPipeline; linePipelineFallback: GPURenderPipeline } | null; layout: GPUBindGroupLayout | null }[] = []
-  private vtVariantPipelines: { fillPipeline: GPURenderPipeline; linePipeline: GPURenderPipeline } | null = null
-  private vtVariantLayout: GPUBindGroupLayout | null = null
+  private vectorTileShows: { sourceName: string; show: SceneCommands['shows'][0]; pipelines: VariantPipelines | null; layout: GPUBindGroupLayout | null }[] = []
+  private vtVariantPipelines: VariantPipelines | null = null
 
   // Raw data for re-projection
   private rawDatasets = new Map<string, GeoJSONFeatureCollection>()
@@ -45,17 +50,11 @@ export class XGISMap {
 
   // Stencil buffer for tile overlap masking
   private stencilTexture: GPUTexture | null = null
-  private stencilWidth = 0
-  private stencilHeight = 0
 
   // MSAA 4x render target
   private msaaTexture: GPUTexture | null = null
   private msaaWidth = 0
   private msaaHeight = 0
-
-
-  private _frameCount = 0
-  private _vtDebugLogged = false
 
   // Stats inspector
   private _stats = new StatsTracker()
@@ -131,7 +130,7 @@ export class XGISMap {
         this.pointRenderer = new PointRenderer(this.ctx)
         this.shapeRegistry = new ShapeRegistry(this.ctx.device)
         // Register user-defined symbols from DSL
-        for (const sym of commands.symbols) {
+        for (const sym of commands.symbols ?? []) {
           for (const path of sym.paths) {
             this.shapeRegistry.addShape(sym.name, path)
           }
@@ -154,10 +153,9 @@ export class XGISMap {
       console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
 
       if (isTileTemplate(url)) {
+        // Store the URL — actual raster rendering is activated only when a
+        // layer references this source (in rebuildLayers)
         this.rawDatasets.set(load.name, { _tileUrl: url } as unknown as GeoJSONFeatureCollection)
-        if (!this.useCanvas2D) {
-          this.rasterRenderer.setUrlTemplate(url)
-        }
       } else if (url.endsWith('.xgvt') && !this.useCanvas2D) {
         // Vector tile file — create per-source XGVTSource + VectorTileRenderer
         const source = new XGVTSource()
@@ -228,12 +226,19 @@ export class XGISMap {
     this.pointRenderer?.clearLayers()
     this.vectorTileShows = []
 
+    // Reset raster renderer — only activate if a layer references a raster source
+    if (!this.useCanvas2D) this.rasterRenderer.setUrlTemplate('')
+
     for (const show of this.showCommands) {
       const data = this.rawDatasets.get(show.targetName)
       if (!data) continue
 
-      // Skip raster tile sources (handled by rasterRenderer)
-      if ((data as unknown as { _tileUrl?: string })._tileUrl) continue
+      // Raster tile source referenced by a layer → activate raster renderer
+      const tileUrl = (data as unknown as { _tileUrl?: string })._tileUrl
+      if (tileUrl) {
+        if (!this.useCanvas2D) this.rasterRenderer.setUrlTemplate(tileUrl)
+        continue
+      }
 
       // Skip vector tile sources loaded from .xgvt files
       if ((data as unknown as { _vectorTile?: boolean })._vectorTile) {
@@ -434,7 +439,7 @@ export class XGISMap {
   /** Load and run a pre-compiled .xgb binary */
   async runBinary(buffer: ArrayBuffer, baseUrl = ''): Promise<void> {
     const scene = deserializeXGB(buffer)
-    const commands: SceneCommands = { loads: scene.loads, shows: scene.shows }
+    const commands: SceneCommands = { loads: scene.loads, shows: scene.shows as unknown as SceneCommands['shows'] }
 
     console.log('[X-GIS] Binary loaded:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
@@ -527,8 +532,6 @@ export class XGISMap {
         })
         this.msaaWidth = w
         this.msaaHeight = h
-        this.stencilWidth = w
-        this.stencilHeight = h
       }
 
       const msaaView = this.msaaTexture!.createView()

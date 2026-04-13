@@ -182,7 +182,7 @@ export class Camera {
   }
 
   /** Pan by CSS pixels (clientX/clientY delta), accounting for map rotation */
-  pan(dx: number, dy: number, canvasWidth: number, canvasHeight: number): void {
+  pan(dx: number, dy: number, _canvasWidth: number, canvasHeight: number): void {
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
     const metersPerPhysicalPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
     const metersPerCSSPixel = metersPerPhysicalPixel * dpr

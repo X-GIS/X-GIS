@@ -12,6 +12,7 @@ export interface LoadCommand {
 export interface SceneCommands {
   loads: LoadCommand[]
   shows: ShowCommand[]
+  symbols?: { name: string; paths: string[] }[]
 }
 
 /**

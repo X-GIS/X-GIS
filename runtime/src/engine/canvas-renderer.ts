@@ -4,7 +4,7 @@
 
 import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
-import { getProjection, type Projection } from './projection'
+import { getProjection } from './projection'
 import type { GeoJSONFeatureCollection } from '../loader/geojson'
 import { visibleTiles, tileBounds, tileUrl, sortByPriority } from '../loader/tiles'
 

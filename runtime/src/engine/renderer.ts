@@ -331,8 +331,14 @@ export interface ShowCommand {
   size?: number | null
   zoomOpacityStops?: { zoom: number; value: number }[] | null
   zoomSizeStops?: { zoom: number; value: number }[] | null
-  shaderVariant?: { key: string; preamble: string; fillExpr: string; strokeExpr: string; needsFeatureBuffer: boolean; featureFields: string[]; uniformFields: string[] } | null
+  shaderVariant?: { key: string; preamble: string; fillExpr: string; strokeExpr: string; fillPreamble?: string; needsFeatureBuffer: boolean; featureFields: string[]; uniformFields: string[] } | null
   filterExpr?: { ast: unknown } | null  // AST expression for per-feature filtering
+  geometryExpr?: { ast: unknown } | null
+  sizeExpr?: { ast: unknown } | null
+  sizeUnit?: string | null
+  billboard?: boolean
+  shape?: string | null
+  shapeDefs?: { name: string; paths: string[] }[]
 }
 
 /**
@@ -429,10 +435,8 @@ export class MapRenderer {
   private ctx: GPUContext
   // Cached per-frame allocation (avoid GC pressure in render loop)
   private uniformDataBuf = new ArrayBuffer(144)
-  private gratUniformBuf = new ArrayBuffer(144)
   private gratWorldBufs: { buf: GPUBuffer; bg: GPUBindGroup }[] = []
   fillPipeline!: GPURenderPipeline
-  private strokePipeline!: GPURenderPipeline
   linePipeline!: GPURenderPipeline
   // Stencil-test pipelines: only draw where stencil = 0 (not covered by children)
   fillPipelineFallback!: GPURenderPipeline

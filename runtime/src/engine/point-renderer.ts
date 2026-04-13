@@ -534,7 +534,7 @@ export class PointRenderer {
       if (f.geometry.type === 'Point') {
         points.push({ lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] })
       } else if (f.geometry.type === 'MultiPoint') {
-        for (const coord of (f.geometry as { coordinates: number[][] }).coordinates) {
+        for (const coord of (f.geometry as unknown as { coordinates: number[][] }).coordinates) {
           points.push({ lon: coord[0], lat: coord[1] })
         }
       }
