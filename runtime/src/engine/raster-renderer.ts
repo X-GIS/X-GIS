@@ -2,7 +2,8 @@
 
 import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
-import { visibleTiles, tileBounds, tileUrl, loadImageTexture, sortByPriority, type TileCoord } from '../loader/tiles'
+import { visibleTiles, visibleTilesFrustum, tileBounds, tileUrl, loadImageTexture, sortByPriority, type TileCoord } from '../loader/tiles'
+import { mercator as mercatorProj } from './projection'
 import { BLEND_ALPHA, STENCIL_DISABLED, MSAA_4X } from './gpu-shared'
 
 const RASTER_SHADER = /* wgsl */ `
@@ -295,7 +296,9 @@ export class RasterRenderer {
       this.lastZoom = currentZ
     }
 
-    const tiles = visibleTiles(centerLon, centerLat, zoom, canvasWidth, canvasHeight, undefined, camera.bearing, camera.pitch)
+    const tiles = camera.pitch > 0.5
+      ? visibleTilesFrustum(camera, mercatorProj, currentZ, canvasWidth, canvasHeight)
+      : visibleTiles(centerLon, centerLat, zoom, canvasWidth, canvasHeight, undefined, camera.bearing, camera.pitch)
 
     // Sort by distance from center (priority loading)
     const n = Math.pow(2, currentZ)

@@ -138,6 +138,39 @@ export class Camera {
   private static _t2 = new Array(16).fill(0)
   private static _t3 = new Array(16).fill(0)
 
+  // ── MVP Inverse (for screen → world unprojection) ──
+  private rtcMatrixInv = new Float32Array(16)
+
+  /** Get the inverse of the RTC matrix (cached per frame) */
+  getRTCMatrixInverse(canvasWidth: number, canvasHeight: number): Float32Array {
+    const mvp = this.getRTCMatrix(canvasWidth, canvasHeight)
+    invert4x4(mvp, this.rtcMatrixInv)
+    return this.rtcMatrixInv
+  }
+
+  /** Unproject screen pixel to z=0 world plane (RTC-relative).
+   *  Returns [x, y] in projection meters relative to camera center, or null if behind horizon. */
+  unprojectToZ0(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number): [number, number] | null {
+    const inv = this.getRTCMatrixInverse(canvasWidth, canvasHeight)
+    const ndcX = (screenX / canvasWidth) * 2 - 1
+    const ndcY = 1 - (screenY / canvasHeight) * 2
+
+    // Ray from near to far plane
+    const n = mulVec4(inv, [ndcX, ndcY, -1, 1])
+    const f = mulVec4(inv, [ndcX, ndcY, 1, 1])
+    // Perspective divide
+    const nx = n[0] / n[3], ny = n[1] / n[3], nz = n[2] / n[3]
+    const fx = f[0] / f[3], fy = f[1] / f[3], fz = f[2] / f[3]
+
+    // Intersect with z=0 plane
+    const dz = fz - nz
+    if (Math.abs(dz) < 1e-10) return null
+    const t = -nz / dz
+    if (t < 0 || t > 2) return null // behind camera or too far
+
+    return [nx + t * (fx - nx), ny + t * (fy - ny)]
+  }
+
   /** Compute the maximum camera Y offset for the current zoom (content stays on screen) */
   private maxCameraY(canvasHeight: number): number {
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
@@ -207,4 +240,51 @@ export class Camera {
     const maxY = this.maxCameraY(canvasHeight)
     this.centerY = Math.max(-maxY, Math.min(maxY, this.centerY))
   }
+}
+
+// ═══ Matrix Utilities ═══
+
+/** Multiply 4×4 matrix (column-major) by vec4 */
+function mulVec4(m: Float32Array, v: number[]): number[] {
+  return [
+    m[0]*v[0] + m[4]*v[1] + m[8]*v[2] + m[12]*v[3],
+    m[1]*v[0] + m[5]*v[1] + m[9]*v[2] + m[13]*v[3],
+    m[2]*v[0] + m[6]*v[1] + m[10]*v[2] + m[14]*v[3],
+    m[3]*v[0] + m[7]*v[1] + m[11]*v[2] + m[15]*v[3],
+  ]
+}
+
+/** Invert a 4×4 column-major matrix. Writes result into `out`. */
+function invert4x4(m: Float32Array, out: Float32Array): boolean {
+  const a00=m[0],a01=m[1],a02=m[2],a03=m[3]
+  const a10=m[4],a11=m[5],a12=m[6],a13=m[7]
+  const a20=m[8],a21=m[9],a22=m[10],a23=m[11]
+  const a30=m[12],a31=m[13],a32=m[14],a33=m[15]
+
+  const b00=a00*a11-a01*a10, b01=a00*a12-a02*a10, b02=a00*a13-a03*a10
+  const b03=a01*a12-a02*a11, b04=a01*a13-a03*a11, b05=a02*a13-a03*a12
+  const b06=a20*a31-a21*a30, b07=a20*a32-a22*a30, b08=a20*a33-a23*a30
+  const b09=a21*a32-a22*a31, b10=a21*a33-a23*a31, b11=a22*a33-a23*a32
+
+  let det = b00*b11 - b01*b10 + b02*b09 + b03*b08 - b04*b07 + b05*b06
+  if (Math.abs(det) < 1e-15) return false
+  det = 1 / det
+
+  out[0]  = (a11*b11 - a12*b10 + a13*b09) * det
+  out[1]  = (a02*b10 - a01*b11 - a03*b09) * det
+  out[2]  = (a31*b05 - a32*b04 + a33*b03) * det
+  out[3]  = (a22*b04 - a21*b05 - a23*b03) * det
+  out[4]  = (a12*b08 - a10*b11 - a13*b07) * det
+  out[5]  = (a00*b11 - a02*b08 + a03*b07) * det
+  out[6]  = (a32*b02 - a30*b05 - a33*b01) * det
+  out[7]  = (a20*b05 - a22*b02 + a23*b01) * det
+  out[8]  = (a10*b10 - a11*b08 + a13*b06) * det
+  out[9]  = (a01*b08 - a00*b10 - a03*b06) * det
+  out[10] = (a30*b04 - a31*b02 + a33*b00) * det
+  out[11] = (a21*b02 - a20*b04 - a23*b00) * det
+  out[12] = (a11*b07 - a10*b09 - a12*b06) * det
+  out[13] = (a00*b09 - a01*b07 + a02*b06) * det
+  out[14] = (a31*b01 - a30*b03 - a32*b00) * det
+  out[15] = (a20*b03 - a21*b01 + a22*b00) * det
+  return true
 }

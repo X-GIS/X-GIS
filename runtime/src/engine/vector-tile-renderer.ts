@@ -6,10 +6,11 @@
 import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
-import { visibleTiles, sortByPriority } from '../loader/tiles'
+import { visibleTiles, visibleTilesFrustum, sortByPriority } from '../loader/tiles'
 import { tileKey, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { XGVTSource, TileData } from '../data/xgvt-source'
+import { mercator as mercatorProj } from './projection'
 import type { PointRenderer } from './point-renderer'
 
 // ═══ Types ═══
@@ -39,6 +40,7 @@ const MAX_GPU_TILES = 512
 export class VectorTileRenderer {
   private device: GPUDevice
   private source: XGVTSource | null = null
+  currentProjection: import('./projection').Projection | null = null
   private gpuCache = new Map<number, GPUTile>()
   private frameCount = 0
   private lastZoom = -1
@@ -276,7 +278,10 @@ export class VectorTileRenderer {
 
     if (currentZ !== this.lastZoom) this.lastZoom = currentZ
 
-    const tiles = visibleTiles(centerLon, centerLat, currentZ, canvasWidth, canvasHeight, camera.zoom, camera.bearing, camera.pitch)
+    // Use frustum-based selection when pitched (accurate), AABB when flat (faster)
+    const tiles = camera.pitch > 0.5
+      ? visibleTilesFrustum(camera, this.currentProjection ?? mercatorProj, currentZ, canvasWidth, canvasHeight)
+      : visibleTiles(centerLon, centerLat, currentZ, canvasWidth, canvasHeight, camera.zoom, camera.bearing, camera.pitch)
     const n = Math.pow(2, currentZ)
     const ctX = Math.floor((centerLon + 180) / 360 * n)
     const ctY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)

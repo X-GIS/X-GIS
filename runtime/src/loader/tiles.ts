@@ -91,6 +91,106 @@ export function visibleTiles(
   return tiles
 }
 
+// ═══ Frustum-based tile selection ═══
+
+import type { Camera } from '../engine/camera'
+import type { Projection } from '../engine/projection'
+
+const MAX_FRUSTUM_TILES = 300
+
+/** Select visible tiles by unprojecting screen grid to lon/lat via projection inverse.
+ *  Works correctly with any pitch, bearing, and projection combination. */
+export function visibleTilesFrustum(
+  camera: Camera,
+  projection: Projection,
+  z: number,
+  canvasWidth: number,
+  canvasHeight: number,
+): TileCoord[] {
+  const n = Math.pow(2, z)
+
+  // Camera center in projection space (for RTC→absolute conversion)
+  const [camProjX, camProjY] = projection.forward(
+    (camera.centerX / 6378137) * (180 / Math.PI),
+    (2 * Math.atan(Math.exp(camera.centerY / 6378137)) - Math.PI / 2) * (180 / Math.PI),
+  )
+
+  // Sample screen grid (9×9 = 81 points) → unproject → lon/lat
+  const lonLats: [number, number][] = []
+  const GRID = 8
+  for (let sx = 0; sx <= GRID; sx++) {
+    for (let sy = 0; sy <= GRID; sy++) {
+      const screenX = (sx / GRID) * canvasWidth
+      const screenY = (sy / GRID) * canvasHeight
+
+      const rtc = camera.unprojectToZ0(screenX, screenY, canvasWidth, canvasHeight)
+      if (!rtc) continue // beyond horizon
+
+      // RTC → absolute projection coords → lon/lat
+      const result = projection.inverse(rtc[0] + camProjX, rtc[1] + camProjY)
+      if (!result || isNaN(result[0]) || isNaN(result[1])) continue
+
+      lonLats.push(result)
+    }
+  }
+
+  if (lonLats.length === 0) {
+    // Fallback: can't unproject anything (extreme pitch or projection)
+    return visibleTiles(
+      (camera.centerX / 6378137) * (180 / Math.PI),
+      Math.max(-85, Math.min(85, (2 * Math.atan(Math.exp(camera.centerY / 6378137)) - Math.PI / 2) * (180 / Math.PI))),
+      z, canvasWidth, canvasHeight, undefined, camera.bearing, camera.pitch,
+    )
+  }
+
+  // Bounding box of all sampled lon/lat points
+  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity
+  for (const [lon, lat] of lonLats) {
+    if (lon < minLon) minLon = lon
+    if (lon > maxLon) maxLon = lon
+    if (lat < minLat) minLat = lat
+    if (lat > maxLat) maxLat = lat
+  }
+
+  // Clamp to valid tile range
+  minLat = Math.max(-85.051, minLat)
+  maxLat = Math.min(85.051, maxLat)
+
+  // Convert lon/lat bounds to tile coordinates
+  const minTileX = Math.floor((minLon + 180) / 360 * n)
+  const maxTileX = Math.floor((maxLon + 180) / 360 * n)
+  const minTileY = Math.max(0, Math.floor((1 - Math.log(Math.tan(maxLat * Math.PI / 180) + 1 / Math.cos(maxLat * Math.PI / 180)) / Math.PI) / 2 * n))
+  const maxTileY = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(minLat * Math.PI / 180) + 1 / Math.cos(minLat * Math.PI / 180)) / Math.PI) / 2 * n))
+
+  const tiles: TileCoord[] = []
+  const maxCopies = (WORLD_COPIES.length - 1) / 2
+
+  for (let ox = minTileX; ox <= maxTileX; ox++) {
+    const x = ((ox % n) + n) % n
+    if (ox < -maxCopies * n || ox >= (maxCopies + 1) * n) continue
+    for (let y = minTileY; y <= maxTileY; y++) {
+      if (y < 0 || y >= n) continue
+      tiles.push({ z, x, y, ox })
+    }
+  }
+
+  // Limit total tile count (sort by distance from center)
+  if (tiles.length > MAX_FRUSTUM_TILES) {
+    const centerX = (camera.centerX / 6378137) * (180 / Math.PI)
+    const centerLat = (2 * Math.atan(Math.exp(camera.centerY / 6378137)) - Math.PI / 2) * (180 / Math.PI)
+    const cx = Math.floor((centerX + 180) / 360 * n)
+    const cy = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
+    tiles.sort((a, b) => {
+      const da = (a.ox - cx) ** 2 + (a.y - cy) ** 2
+      const db = (b.ox - cx) ** 2 + (b.y - cy) ** 2
+      return da - db
+    })
+    tiles.length = MAX_FRUSTUM_TILES
+  }
+
+  return tiles
+}
+
 /** Get lon/lat bounds for a tile */
 export function tileBounds(coord: TileCoord): { west: number; south: number; east: number; north: number } {
   const n = Math.pow(2, coord.z)
