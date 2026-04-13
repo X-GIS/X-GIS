@@ -535,6 +535,14 @@ export class Parser {
       name += '-' + this.advance().value
     }
 
+    // Absorb trailing unit token (px, m, km, etc.) into name
+    // e.g., size-500 + km → "size-500km"
+    if (this.check(TokenType.Px) || this.check(TokenType.M) ||
+        this.check(TokenType.Km) || this.check(TokenType.Nm) ||
+        this.check(TokenType.Deg)) {
+      name += this.advance().value
+    }
+
     return name
   }
 
