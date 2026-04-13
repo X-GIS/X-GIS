@@ -73,7 +73,7 @@ export class Camera {
     const fovRad = Camera.FOV * Math.PI / 180
     const halfFov = fovRad / 2
     const aspect = canvasWidth / canvasHeight
-    const pitchRad = this.pitch * Math.PI / 180
+    const pitchRad = -this.pitch * Math.PI / 180  // negative: tilt camera forward (look ahead)
     const bearingRad = -this.bearing * Math.PI / 180
 
     // Camera altitude: at zoom Z, the viewport covers canvasHeight * mpp meters.
