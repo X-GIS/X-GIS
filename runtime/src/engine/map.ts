@@ -218,9 +218,8 @@ export class XGISMap {
       // Skip raster tile sources (handled by rasterRenderer)
       if ((data as unknown as { _tileUrl?: string })._tileUrl) continue
 
-      // Skip vector tile sources (handled by per-source VectorTileRenderer)
-      // This includes both .xgvt files AND GeoJSON sources that were tiled in-memory
-      if ((data as unknown as { _vectorTile?: boolean })._vectorTile || this.vtSources.has(show.targetName)) {
+      // Skip vector tile sources loaded from .xgvt files
+      if ((data as unknown as { _vectorTile?: boolean })._vectorTile) {
         const vtEntry = this.vtSources.get(show.targetName)
         if (!vtEntry) continue
 
@@ -246,7 +245,31 @@ export class XGISMap {
         continue
       }
 
-      // GeoJSON → in-memory tiling → VectorTileRenderer (same path as .xgvt)
+      // GeoJSON → in-memory tiling → VectorTileRenderer
+      // Each layer gets its own key: reuse source if no filter, separate if filtered
+      const hasFilter = !!show.filterExpr
+      const vtKey = hasFilter ? `${show.targetName}__${this.vectorTileShows.length}` : show.targetName
+
+      // Reuse existing VT source if same key (same source, no filter)
+      if (this.vtSources.has(vtKey)) {
+        const vtEntry = this.vtSources.get(vtKey)!
+        let pipelines: typeof this.vtVariantPipelines = null
+        let layout: GPUBindGroupLayout | null = null
+        const variant = show.shaderVariant
+        if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
+          try {
+            pipelines = this.renderer.getOrCreateVariantPipelines(variant as any)
+            layout = variant.needsFeatureBuffer
+              ? this.renderer.featureBindGroupLayout : this.renderer.bindGroupLayout
+            if (variant.needsFeatureBuffer && !vtEntry.renderer.hasFeatureData()) {
+              vtEntry.renderer.buildFeatureDataBuffer(variant as any, layout)
+            }
+          } catch (e) { console.warn('[X-GIS] VT variant pipeline failed:', e) }
+        }
+        this.vectorTileShows.push({ sourceName: vtKey, show, pipelines, layout })
+        continue
+      }
+
       const filtered = applyFilter(data, show.filterExpr)
       const tileSet = compileGeoJSONToTiles(filtered)
 
@@ -255,7 +278,7 @@ export class XGISMap {
       vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
       vtRenderer.setSource(source)
       source.loadFromTileSet(tileSet)
-      this.vtSources.set(show.targetName, { source, renderer: vtRenderer })
+      this.vtSources.set(vtKey, { source, renderer: vtRenderer })
 
       // Setup shader variant if needed
       let pipelines: typeof this.vtVariantPipelines = null
@@ -274,7 +297,7 @@ export class XGISMap {
           console.warn('[X-GIS] GeoJSON VT variant pipeline failed:', e)
         }
       }
-      this.vectorTileShows.push({ sourceName: show.targetName, show, pipelines, layout })
+      this.vectorTileShows.push({ sourceName: vtKey, show, pipelines, layout })
 
       // Fit camera to bounds
       const [minLon, minLat, maxLon, maxLat] = tileSet.bounds
