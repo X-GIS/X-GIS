@@ -910,13 +910,13 @@ export class MapRenderer {
       pass.setVertexBuffer(0, this.graticuleBuffer)
 
       // Ensure we have 3 graticule uniform buffers (one per world copy)
-      while (this.gratWorldBufs.length < 3) {
+      while (this.gratWorldBufs.length < worldOffs.length) {
         const buf = device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
         const bg = device.createBindGroup({ layout: this.bindGroupLayout, entries: [{ binding: 0, resource: { buffer: buf } }] })
         this.gratWorldBufs.push({ buf, bg })
       }
 
-      const worldOffs = [-1, 0, 1]
+      const worldOffs = [-2, -1, 0, 1, 2]
       for (let wi = 0; wi < worldOffs.length; wi++) {
         const { buf, bg } = this.gratWorldBufs[wi]
         const gratData = new ArrayBuffer(144)

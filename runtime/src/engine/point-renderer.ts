@@ -253,7 +253,7 @@ export class PointRenderer {
     // Build 3× expanded buffers (primary + left + right world copies)
     const STRIDE = 13
     const WORLD_MERC = 40075016.686
-    const COPIES = [-1, 0, 1]
+    const COPIES = [-2, -1, 0, 1, 2]
     const totalN = N * COPIES.length
 
     const verts = new Float32Array(totalN * 4 * 4)
@@ -508,7 +508,7 @@ export class PointRenderer {
 
     const WORLD_MERC = 40075016.686
     const STRIDE = 13
-    const WORLD_COPIES = [-1, 0, 1]
+    const WORLD_COPIES = [-2, -1, 0, 1, 2]
 
     for (const layer of this.layers) {
       const N = layer.pointCount

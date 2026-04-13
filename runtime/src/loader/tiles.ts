@@ -70,7 +70,8 @@ export function visibleTiles(
 
       // Limit world copies: ox must be within [-n, 2n) → at most 3 worlds
       // (MapLibre-style: primary world + one copy left + one copy right)
-      if (ox < -n || ox >= 2 * n) continue
+      // Limit world copies: primary + 4 copies (2 left, 2 right)
+      if (ox < -2 * n || ox >= 3 * n) continue
 
       tiles.push({ z, x, y, ox })
     }
