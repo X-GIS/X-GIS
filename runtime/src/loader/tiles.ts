@@ -56,12 +56,22 @@ export function visibleTiles(
   const tilesY = Math.ceil(effH / tileSize / 2) + 1
 
   const tiles: TileCoord[] = []
+
+  // Wrap cx to [0, n) so world copies are symmetric around the primary world
+  const wrappedCx = ((cx % n) + n) % n
+  const wrapOffset = cx - wrappedCx  // how many tiles the camera is shifted
+
   for (let dx = -tilesX; dx <= tilesX; dx++) {
     for (let dy = -tilesY; dy <= tilesY; dy++) {
-      const ox = cx + dx  // original x (can be outside 0..n-1 for world copies)
+      const ox = wrapOffset + wrappedCx + dx
       const y = cy + dy
-      if (y < 0 || y >= n) continue  // Y doesn't wrap (latitude bounded)
-      const x = ((ox % n) + n) % n   // wrap X to valid tile range
+      if (y < 0 || y >= n) continue
+      const x = ((ox % n) + n) % n
+
+      // Limit world copies: ox must be within [-n, 2n) → at most 3 worlds
+      // (MapLibre-style: primary world + one copy left + one copy right)
+      if (ox < -n || ox >= 2 * n) continue
+
       tiles.push({ z, x, y, ox })
     }
   }

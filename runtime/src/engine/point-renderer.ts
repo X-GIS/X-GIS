@@ -317,6 +317,19 @@ export class PointRenderer {
     pass.setIndexBuffer(this.tilePointIndexBuffer, 'uint32')
     pass.drawIndexed(N * 6)
 
+    // World copies: offset RTC x by ±WORLD_MERC
+    const WORLD_MERC = 40075016.686
+    for (const worldOff of [-WORLD_MERC, WORLD_MERC]) {
+      for (let i = 0; i < N; i++) {
+        featData[i * STRIDE + 11] += worldOff
+      }
+      this.device.queue.writeBuffer(this.tilePointFeatBuffer!, 0, featData)
+      pass.drawIndexed(N * 6)
+      for (let i = 0; i < N; i++) {
+        featData[i * STRIDE + 11] -= worldOff
+      }
+    }
+
     // Clear for next frame
     this.tilePoints = []
   }
@@ -502,22 +515,44 @@ export class PointRenderer {
     for (const layer of this.layers) {
       // Per-frame: compute RTC offsets in f64, write to feat_data as small f32
       const STRIDE = 13
+      const WORLD_MERC = 40075016.686 // Earth circumference in Mercator meters
+
       for (let i = 0; i < layer.pointCount; i++) {
         const lon = layer.lons[i]
         const lat = layer.lats[i]
-        const mercX = lon * DEG2RAD * R
+        let mercX = lon * DEG2RAD * R
         const clampLat = Math.max(-85.051129, Math.min(85.051129, lat))
         const mercY = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
-        layer.featData[i * STRIDE + 11] = mercX - camMercX  // f64 subtraction → f32 (small value)
+
+        // Wrap to closest world copy (like MapLibre)
+        let dx = mercX - camMercX
+        if (dx > WORLD_MERC / 2) dx -= WORLD_MERC
+        else if (dx < -WORLD_MERC / 2) dx += WORLD_MERC
+
+        layer.featData[i * STRIDE + 11] = dx
         layer.featData[i * STRIDE + 12] = mercY - camMercY
       }
       this.device.queue.writeBuffer(layer.featureBuffer, 0, layer.featData)
 
+      // Draw primary + world copies (-1, 0, +1)
       pass.setPipeline(this.pipeline)
       pass.setBindGroup(0, layer.bindGroup)
       pass.setVertexBuffer(0, layer.vertexBuffer)
       pass.setIndexBuffer(layer.indexBuffer, 'uint32')
       pass.drawIndexed(layer.indexCount)
+
+      // World copies: offset all points by ±WORLD_MERC and draw again
+      for (const worldOff of [-WORLD_MERC, WORLD_MERC]) {
+        for (let i = 0; i < layer.pointCount; i++) {
+          layer.featData[i * STRIDE + 11] += worldOff
+        }
+        this.device.queue.writeBuffer(layer.featureBuffer, 0, layer.featData)
+        pass.drawIndexed(layer.indexCount)
+        // Restore
+        for (let i = 0; i < layer.pointCount; i++) {
+          layer.featData[i * STRIDE + 11] -= worldOff
+        }
+      }
     }
   }
 }

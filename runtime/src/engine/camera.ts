@@ -86,6 +86,11 @@ export class Camera {
     const mapDy = -dx * sin + dy * cos
 
     this.centerX -= mapDx * metersPerCSSPixel
+    // Wrap X to stay within one world width (prevents infinite drift)
+    const WORLD_WIDTH = 40075016.686 // Earth circumference in meters
+    const halfWorld = WORLD_WIDTH / 2
+    if (this.centerX > halfWorld) this.centerX -= WORLD_WIDTH
+    else if (this.centerX < -halfWorld) this.centerX += WORLD_WIDTH
     const maxY = this.maxCameraY(canvasHeight)
     const newY = this.centerY + mapDy * metersPerCSSPixel
     this.centerY = Math.max(-maxY, Math.min(maxY, newY))
