@@ -31,19 +31,19 @@ for (let i = 0; i < demoIds.length; i++) {
 // ── Syntax highlighting (Material Ocean palette) ──
 function highlight(src: string): string {
   return src
-    .replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="tk-cm">$1</span>')
-    .replace(/(\/\/.*$)/gm, '<span class="tk-cm">$1</span>')
-    .replace(/("(?:[^"\\]|\\.)*")/g, '<span class="tk-str">$1</span>')
-    .replace(/(#[0-9a-fA-F]{3,8})\b/g, '<span class="tk-num">$1</span>')
-    .replace(/\b(source|layer|style|preset|let|show|fn|if|else|for|in|return|import|from|match|symbol|filter)\b/g, '<span class="tk-kw">$1</span>')
-    .replace(/\b(type|url|source|style|filter|fill|stroke|stroke-width|opacity|size|visible|z-order)(?=\s*:)/g, '<span class="tk-prop">$1</span>')
-    .replace(/\b(categorical|gradient|match|clamp|min|max|abs|sqrt|log|sin|cos)(?=\s*\()/g, '<span class="tk-fn">$1</span>')
-    .replace(/(\|)(?!\|)/g, '<span class="tk-pipe">$1</span>')
-    .replace(/(==|!=|&lt;=|&gt;=|&lt;|&gt;|&amp;&amp;|\|\||->)/g, '<span class="tk-op">$1</span>')
-    .replace(/(\.[A-Z_][A-Z_0-9]*)\b/g, '<span class="tk-field">$1</span>')
-    .replace(/\b(\d+\.?\d*)\b/g, '<span class="tk-num">$1</span>')
-    .replace(/(?<=fill-|stroke-|bg-)((?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\d+)?)/g, '<span class="tk-color">$1</span>')
-    .replace(/(?<=:\s*)((?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\d+)?)\b/g, '<span class="tk-color">$1</span>')
+    .replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="hl-comment">$1</span>')
+    .replace(/(\/\/.*$)/gm, '<span class="hl-comment">$1</span>')
+    .replace(/("(?:[^"\\]|\\.)*")/g, '<span class="hl-string">$1</span>')
+    .replace(/(#[0-9a-fA-F]{3,8})\b/g, '<span class="hl-number">$1</span>')
+    .replace(/\b(source|layer|style|preset|let|show|fn|if|else|for|in|return|import|from|match|symbol|filter)\b/g, '<span class="hl-keyword">$1</span>')
+    .replace(/\b(type|url|source|style|filter|fill|stroke|stroke-width|opacity|size|visible|z-order|geometry)(?=\s*:)/g, '<span class="hl-property">$1</span>')
+    .replace(/\b(categorical|gradient|match|clamp|min|max|abs|sqrt|log|sin|cos|circle|arc|polygon|linestring|length|pow|atan2)(?=\s*\()/g, '<span class="hl-function">$1</span>')
+    .replace(/(\|)(?!\|)/g, '<span class="hl-pipe">$1</span>')
+    .replace(/(==|!=|&lt;=|&gt;=|&lt;|&gt;|&amp;&amp;|\|\||->|\?)/g, '<span class="hl-operator">$1</span>')
+    .replace(/(\.[a-zA-Z_][a-zA-Z_0-9]*)\b/g, '<span class="hl-field">$1</span>')
+    .replace(/\b(\d+\.?\d*)(px|m|km|nm|deg)?\b/g, '<span class="hl-number">$1$2</span>')
+    .replace(/(?<=fill-|stroke-|bg-)((?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\d+)?)/g, '<span class="hl-color">$1</span>')
+    .replace(/(?<=:\s*)((?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\d+)?)\b/g, '<span class="hl-color">$1</span>')
 }
 
 function esc(s: string) {
