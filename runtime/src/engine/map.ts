@@ -280,8 +280,27 @@ export class XGISMap {
 
       // Progressive async tiling: yields to event loop between zoom levels
       // z0 renders immediately while z1..zN compile in background
+      let cameraFitted = false
       compileGeoJSONToTilesAsync(filtered, {
-        onLevel: (level, bounds, propTable) => source.addTileLevel(level, bounds, propTable),
+        onLevel: (level, bounds, propTable) => {
+          source.addTileLevel(level, bounds, propTable)
+          // Fit camera on first level
+          if (!cameraFitted) {
+            cameraFitted = true
+            const [minLon, minLat, maxLon, maxLat] = bounds
+            if (minLon < Infinity) {
+              const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
+              const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
+              this.camera.centerX = cx
+              this.camera.centerY = cy
+              const lonSpan = maxLon - minLon
+              const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+              const cssW = this.canvas.width / dpr
+              const degPerPx = lonSpan / cssW
+              this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+            }
+          }
+        },
       })
 
       // Setup shader variant if needed
@@ -302,20 +321,6 @@ export class XGISMap {
         }
       }
       this.vectorTileShows.push({ sourceName: vtKey, show, pipelines, layout })
-
-      // Fit camera to bounds
-      const [minLon, minLat, maxLon, maxLat] = tileSet.bounds
-      if (minLon < Infinity) {
-        const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
-        const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
-        this.camera.centerX = cx
-        this.camera.centerY = cy
-        const lonSpan = maxLon - minLon
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-        const cssW = this.canvas.width / dpr
-        const degPerPx = lonSpan / cssW
-        this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
-      }
     }
 
     console.log(`[X-GIS] Rebuilt layers (GPU projection: ${this.projectionName})`)
