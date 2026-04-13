@@ -179,17 +179,9 @@
     #source-code::-webkit-scrollbar-track { background: transparent; }
     #source-code::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-    /* Syntax colors — Material Ocean inspired */
-    .hl-keyword { color: #c792ea; }
-    .hl-string { color: #c3e88d; }
-    .hl-number { color: #f78c6c; }
-    .hl-comment { color: #546e7a; font-style: italic; }
-    .hl-property { color: #82aaff; }
-    .hl-color { color: #ffcb6b; }
-    .hl-pipe { color: #89ddff; font-weight: 500; }
-    .hl-operator { color: #89ddff; }
-    .hl-field { color: #f07178; }
-    .hl-function { color: #82aaff; }
+    /* Shiki generates inline styles — override container only */
+    #source-code pre.shiki { margin: 0; padding: 0; background: transparent !important; }
+    #source-code code { font-family: inherit; font-size: inherit; line-height: inherit; }
 
     /* ── Status ── */
     #status {

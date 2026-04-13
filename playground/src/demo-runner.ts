@@ -2,6 +2,8 @@
 
 import { XGISMap } from '@xgis/runtime'
 import { DEMOS } from './demos'
+import { createHighlighter, type Highlighter } from 'shiki'
+import xgisGrammar from '../../vscode-xgis/syntaxes/xgis.tmLanguage.json'
 
 const demoIds = Object.keys(DEMOS)
 const params = new URLSearchParams(location.search)
@@ -28,26 +30,25 @@ for (let i = 0; i < demoIds.length; i++) {
   selectEl.appendChild(opt)
 }
 
-// ── Syntax highlighting (Material Ocean palette) ──
-function highlight(src: string): string {
-  return src
-    .replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="hl-comment">$1</span>')
-    .replace(/(\/\/.*$)/gm, '<span class="hl-comment">$1</span>')
-    .replace(/("(?:[^"\\]|\\.)*")/g, '<span class="hl-string">$1</span>')
-    .replace(/(#[0-9a-fA-F]{3,8})\b/g, '<span class="hl-number">$1</span>')
-    .replace(/\b(source|layer|style|preset|let|show|fn|if|else|for|in|return|import|from|match|symbol|filter)\b/g, '<span class="hl-keyword">$1</span>')
-    .replace(/\b(type|url|source|style|filter|fill|stroke|stroke-width|opacity|size|visible|z-order|geometry)(?=\s*:)/g, '<span class="hl-property">$1</span>')
-    .replace(/\b(categorical|gradient|match|clamp|min|max|abs|sqrt|log|sin|cos|circle|arc|polygon|linestring|length|pow|atan2)(?=\s*\()/g, '<span class="hl-function">$1</span>')
-    .replace(/(\|)(?!\|)/g, '<span class="hl-pipe">$1</span>')
-    .replace(/(==|!=|&lt;=|&gt;=|&lt;|&gt;|&amp;&amp;|\|\||->|\?)/g, '<span class="hl-operator">$1</span>')
-    .replace(/(\.[a-zA-Z_][a-zA-Z_0-9]*)\b/g, '<span class="hl-field">$1</span>')
-    .replace(/\b(\d+\.?\d*)(px|m|km|nm|deg)?\b/g, '<span class="hl-number">$1$2</span>')
-    .replace(/(?<=fill-|stroke-|bg-)((?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\d+)?)/g, '<span class="hl-color">$1</span>')
-    .replace(/(?<=:\s*)((?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\d+)?)\b/g, '<span class="hl-color">$1</span>')
+// ── Syntax highlighting via Shiki + xgis TextMate grammar ──
+let highlighter: Highlighter | null = null
+
+async function initHighlighter() {
+  try {
+    highlighter = await createHighlighter({
+      themes: ['material-theme-ocean'],
+      langs: [{ ...xgisGrammar as any, name: 'xgis' }],
+    })
+  } catch (e) {
+    console.warn('[X-GIS] Shiki init failed, using plain text:', e)
+  }
 }
 
-function esc(s: string) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+function highlightCode(src: string): string {
+  if (!highlighter) {
+    return src.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+  return highlighter.codeToHtml(src, { lang: 'xgis', theme: 'material-theme-ocean' })
 }
 
 // ── Load demo ──
@@ -63,7 +64,7 @@ async function loadDemo(idx: number) {
   prevBtn.disabled = idx === 0
   nextBtn.disabled = idx === demoIds.length - 1
 
-  sourceEl.innerHTML = highlight(esc(demo.source.trim()))
+  sourceEl.innerHTML = highlightCode(demo.source.trim())
   history.replaceState(null, '', `demo.html?id=${id}`)
 
   errorDiv.style.display = 'none'
@@ -96,6 +97,13 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft' && currentIdx > 0) { e.preventDefault(); loadDemo(currentIdx - 1) }
   else if (e.key === 'ArrowRight' && currentIdx < demoIds.length - 1) { e.preventDefault(); loadDemo(currentIdx + 1) }
   else if (e.key === 's' || e.key === 'S') { sourcePanel.open = !sourcePanel.open }
+})
+
+// Init: load highlighter async, then show demo
+initHighlighter().then(() => {
+  // Re-highlight current demo once Shiki is ready
+  const demo = DEMOS[demoIds[currentIdx]]
+  if (demo) sourceEl.innerHTML = highlightCode(demo.source.trim())
 })
 
 loadDemo(currentIdx)

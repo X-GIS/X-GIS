@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "@xgis/compiler": "workspace:*",
-    "@xgis/runtime": "workspace:*"
+    "@xgis/runtime": "workspace:*",
+    "shiki": "^4.0.2"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0",
