@@ -160,7 +160,18 @@ export class VectorTileRenderer {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     })
     this.device.queue.writeBuffer(this.featureDataBuffer, 0, data)
-    console.log(`[X-GIS] Feature data buffer: ${featureCount} features × ${fieldCount} fields`)
+
+    // Rebuild bind groups for already-cached tiles (they were created with
+    // the uniform-only layout before the feature buffer existed)
+    for (const [, cached] of this.gpuCache) {
+      const entries: GPUBindGroupEntry[] = [
+        { binding: 0, resource: { buffer: cached.uniformBuffer } },
+        { binding: 1, resource: { buffer: this.featureDataBuffer } },
+      ]
+      cached.bindGroup = this.device.createBindGroup({ layout: featureBindGroupLayout, entries })
+    }
+
+    console.log(`[X-GIS] Feature data buffer: ${featureCount} features × ${fieldCount} fields (${this.gpuCache.size} tiles rebound)`)
   }
 
   /** Upload CPU tile data to GPU buffers */
