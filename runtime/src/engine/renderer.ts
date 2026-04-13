@@ -6,7 +6,7 @@ import type { MeshData, LineMeshData } from '../loader/geojson'
 import { generateGraticule } from './graticule'
 import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, MSAA_4X } from './gpu-shared'
 
-function createGraticuleData(step: number) { return generateGraticule(step) }
+// generateGraticule(zoom) now handles zoom-adaptive steps internally
 
 // ═══ Shader Source ═══
 
@@ -231,7 +231,9 @@ fn fs_fill(input: VertexOutput) -> @location(0) vec4<f32> {
 fn fs_stroke(input: VertexOutput) -> @location(0) vec4<f32> {
   if (input.cos_c < 0.0) { discard; }
   if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
-  return u.stroke_color;
+  // feat_id > 0 = major grid line (brighter), 0 = minor (dimmer)
+  let alpha_scale = select(0.4, 1.0, input.feat_id > 0u);
+  return vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);
 }
 `
 
@@ -442,6 +444,7 @@ export class MapRenderer {
   private layers: RenderLayer[] = []
   private graticuleBuffer: GPUBuffer | null = null
   private graticuleVertexCount = 0
+  private lastGratZoom = -1
 
   /** Get rendering stats for all layers */
   getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number } {
@@ -784,8 +787,9 @@ export class MapRenderer {
     return { fillPipeline, linePipeline, fillPipelineFallback, linePipelineFallback }
   }
 
-  private initGraticule(): void {
-    const grat = createGraticuleData(15)
+  private initGraticule(zoom = 2): void {
+    const grat = generateGraticule(zoom)
+    this.graticuleBuffer?.destroy()
     this.graticuleBuffer = this.ctx.device.createBuffer({
       size: grat.vertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
@@ -793,6 +797,7 @@ export class MapRenderer {
     })
     this.ctx.device.queue.writeBuffer(this.graticuleBuffer, 0, grat.vertices)
     this.graticuleVertexCount = grat.indexCount
+    this.lastGratZoom = zoom
   }
 
   /** Remove all layers (for re-projection) */
@@ -885,6 +890,12 @@ export class MapRenderer {
         // For simplicity in MVP, we skip polygon outlines (only line features get stroked)
         // Full implementation would extract edges from triangulated polygons
       }
+    }
+
+    // Regenerate graticule if zoom level changed (adaptive spacing)
+    const gratZoom = Math.round(camera.zoom)
+    if (gratZoom !== this.lastGratZoom) {
+      this.initGraticule(gratZoom)
     }
 
     // Draw graticule grid lines (primary world + copies)
