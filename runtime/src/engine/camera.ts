@@ -83,17 +83,23 @@ export class Camera {
     const viewHeightMeters = canvasHeight * metersPerPixel
     const altitude = viewHeightMeters / 2 / Math.tan(halfFov)
 
-    const near = altitude * 0.1
-    const far = altitude * 20
+    // Tighter near/far for better depth precision
+    // Near: close enough to not clip nearby geometry
+    // Far: just enough to cover visible ground at max pitch
+    const groundDist = altitude / Math.max(Math.cos(pitchRad), 0.01)
+    const near = altitude * 0.5
+    const far = groundDist * 3
 
-    // Helper: multiply two column-major 4×4 matrices (A × B)
+    // Helper: multiply two column-major 4×4 matrices (A × B), reuses tmp array
+    const tmp = Camera._mulTmp
     const mul = (a: number[], b: number[]): number[] => {
-      const o = new Array(16).fill(0)
+      for (let i = 0; i < 16; i++) tmp[i] = 0
       for (let c = 0; c < 4; c++)
         for (let r = 0; r < 4; r++)
           for (let k = 0; k < 4; k++)
-            o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k]
-      return o
+            tmp[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k]
+      const result = [...tmp] // copy because mul is chained
+      return result
     }
 
     // Perspective matrix (column-major)
@@ -141,6 +147,7 @@ export class Camera {
 
   // Mercator Y limit: ±85.051129° → ±20037508.34m
   private static readonly MAX_Y = 20037508.34
+  private static _mulTmp = new Array(16).fill(0)
 
   /** Compute the maximum camera Y offset for the current zoom (content stays on screen) */
   private maxCameraY(canvasHeight: number): number {

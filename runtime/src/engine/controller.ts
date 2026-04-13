@@ -197,7 +197,7 @@ export class PanZoomController implements Controller {
             applyInertia()
           }
         }
-        // Snap bearing + pitch on release (no animation — immediate)
+        // Snap bearing on release (pitch is left as-is for smooth control)
         if (isRotating && rotateActivated) {
           // Bearing: snap to nearest 15°
           const SNAP = 15
@@ -206,9 +206,8 @@ export class PanZoomController implements Controller {
           if (target === 360) target = 0
           camera.bearing = target
 
-          // Pitch: snap to nearest 15° (0° snaps from ±7°)
-          const PITCH_SNAP = 15
-          camera.pitch = camera.pitch < 7 ? 0 : Math.round(camera.pitch / PITCH_SNAP) * PITCH_SNAP
+          // Pitch: only snap to 0 if very close (< 5°)
+          if (camera.pitch < 5) camera.pitch = 0
         }
         isDragging = false
         isRotatePending = false
