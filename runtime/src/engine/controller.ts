@@ -54,9 +54,10 @@ export class PanZoomController implements Controller {
       canvas.setPointerCapture(e.pointerId)
 
       if (activePointers.size === 1) {
-        // Right-click or Ctrl+click → rotate mode
+        // Right-click or Ctrl+click → prepare rotate mode (activated on move)
         if (e.button === 2 || e.ctrlKey) {
-          isRotating = true
+          isRotatePending = true
+          isRotating = false
           isDragging = false
           rotateStartX = e.clientX
           rotateStartY = e.clientY
@@ -99,7 +100,8 @@ export class PanZoomController implements Controller {
       requestAnimationFrame(applyInertia)
     }
 
-    let isRotating = false
+    let isRotatePending = false  // right-click down, waiting for movement
+    let isRotating = false       // actively rotating (after deadzone)
     let rotateActivated = false
     let rotateStartX = 0
     let rotateStartY = 0
@@ -110,15 +112,20 @@ export class PanZoomController implements Controller {
     const onPointerMove = (e: PointerEvent) => {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
 
-      // Right-click or Ctrl+drag → bearing (horizontal) + pitch (vertical)
+      // Right-click pending → check deadzone to activate
+      if (isRotatePending && !isRotating && activePointers.size === 1) {
+        const dist = Math.hypot(e.clientX - rotateStartX, e.clientY - rotateStartY)
+        if (dist < 3) return
+        // Passed deadzone: activate rotation
+        isRotatePending = false
+        isRotating = true
+        rotateActivated = true
+        lastRotateX = e.clientX
+        lastRotateY = e.clientY
+      }
+
+      // Active rotation: bearing (horizontal) + pitch (vertical)
       if (isRotating && activePointers.size === 1) {
-        if (!rotateActivated) {
-          const dist = Math.hypot(e.clientX - rotateStartX, e.clientY - rotateStartY)
-          if (dist < 3) return
-          rotateActivated = true
-          lastRotateX = e.clientX
-          lastRotateY = e.clientY
-        }
 
         const dx = e.clientX - lastRotateX
         const dy = e.clientY - lastRotateY
@@ -217,6 +224,7 @@ export class PanZoomController implements Controller {
           animatePitchSnap()
         }
         isDragging = false
+        isRotatePending = false
         isRotating = false
         rotateActivated = false
         lastPinchDist = 0
