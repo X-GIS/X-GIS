@@ -50,6 +50,8 @@ export interface CompiledTile {
   fullCoverFeatureId?: number
   /** Original clipped polygon rings for runtime sub-tiling */
   polygons?: { rings: number[][][]; featId: number }[]
+  /** Point features: [dx, dy, feat_id] tile-local, stride 3 */
+  pointVertices?: Float32Array
 }
 
 // ═══ Morton Code (Z-Order Curve) Tile Key ═══
@@ -105,9 +107,10 @@ export function tileKeyChildren(key: number): [number, number, number, number] {
 // ═══ Geometry Part: per-polygon/per-line with tight bbox ═══
 
 export interface GeometryPart {
-  type: 'polygon' | 'line'
+  type: 'polygon' | 'line' | 'point'
   rings?: number[][][]
   coords?: number[][]
+  point?: number[]           // [lon, lat] for Point geometry
   featureIndex: number
   minLon: number; minLat: number; maxLon: number; maxLat: number
 }
@@ -132,6 +135,13 @@ export function decomposeFeatures(features: GeoJSONFeature[]): GeometryPart[] {
     } else if (geom.type === 'MultiLineString') {
       for (const line of geom.coordinates as number[][][]) {
         parts.push(makeLinePart(line, fi))
+      }
+    } else if (geom.type === 'Point') {
+      const coord = geom.coordinates as number[]
+      parts.push({ type: 'point', point: coord, featureIndex: fi, minLon: coord[0], minLat: coord[1], maxLon: coord[0], maxLat: coord[1] })
+    } else if (geom.type === 'MultiPoint') {
+      for (const coord of geom.coordinates as number[][]) {
+        parts.push({ type: 'point', point: coord, featureIndex: fi, minLon: coord[0], minLat: coord[1], maxLon: coord[0], maxLat: coord[1] })
       }
     }
   }
@@ -354,7 +364,7 @@ export function compileGeoJSONToTiles(
   // Step 2: Per-zoom processing with adaptive subdivision
   const levels: TileLevel[] = []
   const needsSubdivision = new Set<number>()
-  const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[] }
+  const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[] }
 
   function processZoomLevel(z: number): void {
     processZoomLevelShared(z, minZoom, maxZoom, allParts, levels, needsSubdivision, scratch, bounds, propertyTable, options?.onLevel)
@@ -383,7 +393,7 @@ function processZoomLevelShared(
   allParts: GeometryPart[],
   levels: TileLevel[],
   needsSubdivision: Set<number>,
-  scratch: { pv: number[]; pi: number[]; lv: number[]; li: number[] },
+  scratch: { pv: number[]; pi: number[]; lv: number[]; li: number[]; ptv: number[] },
   bounds: [number, number, number, number],
   propertyTable: PropertyTable,
   onLevel?: (level: TileLevel, bounds: [number, number, number, number], propertyTable: PropertyTable) => void,
@@ -446,6 +456,7 @@ function processZoomLevelShared(
 
       scratch.pv.length = 0; scratch.pi.length = 0
       scratch.lv.length = 0; scratch.li.length = 0
+      scratch.ptv.length = 0
       const featureIds = new Set<number>()
       const dedupMap = new Map<string, number>()
 
@@ -508,6 +519,15 @@ function processZoomLevelShared(
             }
           }
         }
+
+        // Point: just check if it's inside the tile bounds
+        if (sp.original.type === 'point' && sp.original.point) {
+          const [px, py] = sp.original.point
+          if (px >= tb.west && px <= tb.east && py >= tb.south && py <= tb.north) {
+            scratch.ptv.push(px, py, fid)
+            featureIds.add(fid)
+          }
+        }
       }
 
       // Full-cover detection: single feature, single ring, area matches tile
@@ -525,9 +545,9 @@ function processZoomLevelShared(
         }
       }
 
-      // Minimum size filter (full-cover tiles may have only line data or nothing)
-      if (fullCover || ((scratch.pv.length >= 9 || scratch.lv.length >= 6) &&
-          (scratch.pv.length > 0 || scratch.lv.length > 0))) {
+      // Minimum size filter
+      const hasGeometry = scratch.pv.length >= 9 || scratch.lv.length >= 6 || scratch.ptv.length >= 3
+      if (fullCover || hasGeometry) {
 
         // Convert to tile-local coordinates for f32 precision
         for (let i = 0; i < scratch.pv.length; i += 3) {
@@ -538,6 +558,10 @@ function processZoomLevelShared(
           scratch.lv[i] -= tb.west
           scratch.lv[i + 1] -= tb.south
         }
+        for (let i = 0; i < scratch.ptv.length; i += 3) {
+          scratch.ptv[i] -= tb.west
+          scratch.ptv[i + 1] -= tb.south
+        }
 
         tiles.set(key, {
           z, x: tx, y: ty,
@@ -547,6 +571,7 @@ function processZoomLevelShared(
           indices: new Uint32Array(scratch.pi),
           lineVertices: new Float32Array(scratch.lv),
           lineIndices: new Uint32Array(scratch.li),
+          pointVertices: scratch.ptv.length > 0 ? new Float32Array(scratch.ptv) : undefined,
           featureCount: featureIds.size,
           fullCover,
           fullCoverFeatureId: fullCoverFeatId,
@@ -585,7 +610,7 @@ export function compileSingleTile(
 ): CompiledTile | null {
   const tb = tileBounds(z, x, y)
   const precision = precisionForZoom(z)
-  const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[] }
+  const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[] }
   const featureIds = new Set<number>()
   const dedupMap = new Map<string, number>()
   const EPS = 1e-10
@@ -625,9 +650,17 @@ export function compileSingleTile(
         }
       }
     }
+
+    if (part.type === 'point' && part.point) {
+      const [px, py] = part.point
+      if (px >= tb.west && px <= tb.east && py >= tb.south && py <= tb.north) {
+        scratch.ptv.push(px, py, fid)
+        featureIds.add(fid)
+      }
+    }
   }
 
-  if (scratch.pv.length < 9 && scratch.lv.length < 6) return null
+  if (scratch.pv.length < 9 && scratch.lv.length < 6 && scratch.ptv.length < 3) return null
 
   // Convert to tile-local coordinates
   for (let i = 0; i < scratch.pv.length; i += 3) {
@@ -635,6 +668,9 @@ export function compileSingleTile(
   }
   for (let i = 0; i < scratch.lv.length; i += 3) {
     scratch.lv[i] -= tb.west; scratch.lv[i + 1] -= tb.south
+  }
+  for (let i = 0; i < scratch.ptv.length; i += 3) {
+    scratch.ptv[i] -= tb.west; scratch.ptv[i + 1] -= tb.south
   }
 
   return {
@@ -644,6 +680,7 @@ export function compileSingleTile(
     indices: new Uint32Array(scratch.pi),
     lineVertices: new Float32Array(scratch.lv),
     lineIndices: new Uint32Array(scratch.li),
+    pointVertices: scratch.ptv.length > 0 ? new Float32Array(scratch.ptv) : undefined,
     featureCount: featureIds.size,
     polygons: tilePolygons.length > 0 ? tilePolygons : undefined,
   }
@@ -674,7 +711,7 @@ export async function compileGeoJSONToTilesAsync(
     const propertyTable = buildPropertyTable(geojson.features)
     const levels: TileLevel[] = []
     const needsSubdivision = new Set<number>()
-    const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[] }
+    const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[] }
 
     // Process one zoom level, then schedule the next via setTimeout
     function step(z: number) {
