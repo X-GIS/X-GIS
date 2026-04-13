@@ -118,8 +118,7 @@ export class PanZoomController implements Controller {
         }
         const dx = e.clientX - lastRotateX
         lastRotateX = e.clientX
-        // Logical rotation: 200px drag = 90° turn
-        camera.rotate(-dx * (90 / 200))
+        camera.rotate(-dx * 0.5)
         return
       }
 
@@ -171,16 +170,30 @@ export class PanZoomController implements Controller {
             applyInertia()
           }
         }
-        // Snap bearing to nearest 15° (0° snaps from ±7°)
+        // Animated snap to nearest 15° on release
         if (isRotating && rotateActivated) {
           const SNAP = 15
-          let b = camera.bearing
-          // Normalize to [0, 360)
-          b = ((b % 360) + 360) % 360
-          const snapped = Math.round(b / SNAP) * SNAP
-          // Animate snap
-          const snapTo = snapped === 360 ? 0 : snapped
-          camera.bearing = snapTo
+          let b = ((camera.bearing % 360) + 360) % 360
+          let target = Math.round(b / SNAP) * SNAP
+          if (target === 360) target = 0
+          // Handle shortest path (e.g., 350° → 0° = +10°, not -350°)
+          let diff = target - b
+          if (diff > 180) diff -= 360
+          if (diff < -180) diff += 360
+          const animateSnap = () => {
+            const current = camera.bearing
+            const remaining = target - ((current % 360) + 360) % 360
+            let r = remaining
+            if (r > 180) r -= 360
+            if (r < -180) r += 360
+            if (Math.abs(r) < 0.5) {
+              camera.bearing = target
+              return
+            }
+            camera.bearing = current + r * 0.2
+            requestAnimationFrame(animateSnap)
+          }
+          animateSnap()
         }
         isDragging = false
         isRotating = false
