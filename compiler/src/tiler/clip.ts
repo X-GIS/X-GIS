@@ -16,18 +16,19 @@ export function clipPolygonToRect(
   south: number,
   east: number,
   north: number,
+  precision?: number,
 ): number[][][] {
   const result: number[][][] = []
 
   for (const ring of rings) {
     let clipped = ring
-    clipped = clipRingToEdge(clipped, west, 0, true)   // keep lon >= west
+    clipped = clipRingToEdge(clipped, west, 0, true, precision)   // keep lon >= west
     if (clipped.length < 3) continue
-    clipped = clipRingToEdge(clipped, east, 0, false)  // keep lon <= east
+    clipped = clipRingToEdge(clipped, east, 0, false, precision)  // keep lon <= east
     if (clipped.length < 3) continue
-    clipped = clipRingToEdge(clipped, south, 1, true)  // keep lat >= south
+    clipped = clipRingToEdge(clipped, south, 1, true, precision)  // keep lat >= south
     if (clipped.length < 3) continue
-    clipped = clipRingToEdge(clipped, north, 1, false) // keep lat <= north
+    clipped = clipRingToEdge(clipped, north, 1, false, precision) // keep lat <= north
     if (clipped.length < 3) continue
     result.push(clipped)
   }
@@ -47,6 +48,7 @@ function clipRingToEdge(
   value: number,
   axis: 0 | 1,
   keepAbove: boolean,
+  precision?: number,
 ): number[][] {
   if (ring.length === 0) return []
 
@@ -62,32 +64,36 @@ function clipRingToEdge(
 
     if (currInside) {
       if (nextInside) {
-        // Both inside → emit next
         out.push(next)
       } else {
-        // Curr inside, next outside → emit intersection
-        out.push(intersect(curr, next, value, axis))
+        out.push(intersect(curr, next, value, axis, precision))
       }
     } else {
       if (nextInside) {
-        // Curr outside, next inside → emit intersection + next
-        out.push(intersect(curr, next, value, axis))
+        out.push(intersect(curr, next, value, axis, precision))
         out.push(next)
       }
-      // Both outside → emit nothing
     }
   }
 
   return out
 }
 
-/** Compute intersection of segment a→b with edge at value on given axis */
-function intersect(a: number[], b: number[], value: number, axis: 0 | 1): number[] {
+/** Snap a value to a quantization grid (deterministic across tiles) */
+function snapToGrid(v: number, precision: number): number {
+  return Math.round(v * precision) / precision
+}
+
+/** Compute intersection of segment a→b with edge at value on given axis.
+ *  The boundary-axis coordinate is exact (= value).
+ *  The perpendicular coordinate is snapped to precision grid to ensure
+ *  adjacent tiles produce identical boundary vertices. */
+function intersect(a: number[], b: number[], value: number, axis: 0 | 1, precision?: number): number[] {
   const t = (value - a[axis]) / (b[axis] - a[axis])
-  return [
-    a[0] + t * (b[0] - a[0]),
-    a[1] + t * (b[1] - a[1]),
-  ]
+  const other = a[1 - axis] + t * (b[1 - axis] - a[1 - axis])
+  return axis === 0
+    ? [value, precision ? snapToGrid(other, precision) : other]
+    : [precision ? snapToGrid(other, precision) : other, value]
 }
 
 // ═══ Line Clipping ═══
@@ -103,6 +109,7 @@ export function clipLineToRect(
   south: number,
   east: number,
   north: number,
+  precision?: number,
 ): number[][][] {
   if (coords.length < 2) return []
 
@@ -110,7 +117,7 @@ export function clipLineToRect(
   let current: number[][] = []
 
   for (let i = 0; i < coords.length - 1; i++) {
-    const clipped = clipSegment(coords[i], coords[i + 1], west, south, east, north)
+    const clipped = clipSegment(coords[i], coords[i + 1], west, south, east, north, precision)
     if (clipped) {
       if (current.length === 0) {
         current.push(clipped[0], clipped[1])
@@ -148,6 +155,7 @@ function clipSegment(
   south: number,
   east: number,
   north: number,
+  precision?: number,
 ): [number[], number[]] | null {
   const dx = b[0] - a[0]
   const dy = b[1] - a[1]
@@ -155,21 +163,13 @@ function clipSegment(
   let tMin = 0
   let tMax = 1
 
-  // Clip against each edge
-  // Left (west): -dx * t <= a[0] - west
   if (!clipEdge(-dx, a[0] - west)) return null
-  // Right (east): dx * t <= east - a[0]
   if (!clipEdge(dx, east - a[0])) return null
-  // Bottom (south): -dy * t <= a[1] - south
   if (!clipEdge(-dy, a[1] - south)) return null
-  // Top (north): dy * t <= north - a[1]
   if (!clipEdge(dy, north - a[1])) return null
 
   function clipEdge(p: number, q: number): boolean {
-    if (Math.abs(p) < 1e-15) {
-      // Parallel to edge
-      return q >= 0
-    }
+    if (Math.abs(p) < 1e-15) return q >= 0
     const r = q / p
     if (p < 0) {
       if (r > tMax) return false
@@ -183,8 +183,19 @@ function clipSegment(
 
   if (tMin > tMax) return null
 
-  return [
-    [a[0] + tMin * dx, a[1] + tMin * dy],
-    [a[0] + tMax * dx, a[1] + tMax * dy],
-  ]
+  const p0: number[] = [a[0] + tMin * dx, a[1] + tMin * dy]
+  const p1: number[] = [a[0] + tMax * dx, a[1] + tMax * dy]
+
+  // Snap boundary-clipped endpoints to precision grid for tile consistency
+  if (precision) {
+    const EPS = 1e-10
+    for (const pt of [p0, p1]) {
+      const onBoundaryX = Math.abs(pt[0] - west) < EPS || Math.abs(pt[0] - east) < EPS
+      const onBoundaryY = Math.abs(pt[1] - south) < EPS || Math.abs(pt[1] - north) < EPS
+      if (onBoundaryX) pt[1] = snapToGrid(pt[1], precision)
+      if (onBoundaryY) pt[0] = snapToGrid(pt[0], precision)
+    }
+  }
+
+  return [p0, p1]
 }

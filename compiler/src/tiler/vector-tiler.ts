@@ -6,6 +6,7 @@
 import earcut from 'earcut'
 import { simplifyPolygon, simplifyLine } from './simplify'
 import { clipPolygonToRect, clipLineToRect } from './clip'
+import { precisionForZoom } from './encoding'
 import type { GeoJSONFeatureCollection, GeoJSONFeature } from './geojson-types'
 
 /** Tile coordinate extent (like MVT 4096, but higher for military precision) */
@@ -207,14 +208,18 @@ function latToMercatorY(lat: number): number {
   return Math.log(Math.tan(Math.PI / 4 + rad / 2))
 }
 
+/** Vertex dedup key: quantize to 1e6 (~0.1m), include feature ID */
+function vertexKey(x: number, y: number, fid: number): string {
+  return `${(x * 1e6) | 0},${(y * 1e6) | 0},${fid | 0}`
+}
+
 function tessellatePolygonToArrays(
   rings: number[][][],
   featureId: number,
   outVerts: number[],
   outIdx: number[],
+  dedupMap?: Map<string, number>,
 ): void {
-  const baseVertex = outVerts.length / 3
-
   // Original lon/lat coords for vertex output
   const flatCoords: number[] = []
   // Mercator-projected coords for earcut topology — triangle edges will be
@@ -230,15 +235,33 @@ function tessellatePolygonToArrays(
     }
   }
 
-  // Earcut in Mercator space: determines WHICH vertices connect (index buffer)
-  // Vertex positions remain in lon/lat for the existing shader pipeline
   const earcutIdx = earcut(mercCoords, holeIndices.length > 0 ? holeIndices : undefined)
 
-  for (let i = 0; i < flatCoords.length; i += 2) {
-    outVerts.push(flatCoords[i], flatCoords[i + 1], featureId)
-  }
-  for (const idx of earcutIdx) {
-    outIdx.push(baseVertex + idx)
+  if (dedupMap) {
+    // Dedup: reuse existing vertices with same quantized position + feature ID
+    const localToGlobal: number[] = []
+    for (let i = 0; i < flatCoords.length; i += 2) {
+      const x = flatCoords[i], y = flatCoords[i + 1]
+      const key = vertexKey(x, y, featureId)
+      let globalIdx = dedupMap.get(key)
+      if (globalIdx === undefined) {
+        globalIdx = outVerts.length / 3
+        outVerts.push(x, y, featureId)
+        dedupMap.set(key, globalIdx)
+      }
+      localToGlobal.push(globalIdx)
+    }
+    for (const idx of earcutIdx) {
+      outIdx.push(localToGlobal[idx])
+    }
+  } else {
+    const baseVertex = outVerts.length / 3
+    for (let i = 0; i < flatCoords.length; i += 2) {
+      outVerts.push(flatCoords[i], flatCoords[i + 1], featureId)
+    }
+    for (const idx of earcutIdx) {
+      outIdx.push(baseVertex + idx)
+    }
   }
 }
 
@@ -390,6 +413,7 @@ export function compileGeoJSONToTiles(
       scratch.pv.length = 0; scratch.pi.length = 0
       scratch.lv.length = 0; scratch.li.length = 0
       const featureIds = new Set<number>()
+      const dedupMap = new Map<string, number>()
 
       // Lock predicate: vertices on tile boundary edges must survive simplification
       // so adjacent tiles share identical edge geometry (no seams)
@@ -411,7 +435,7 @@ export function compileGeoJSONToTiles(
         const fid = sp.original.featureIndex // stable feature ID
 
         if (sp.rings) {
-          const clipped = clipPolygonToRect(sp.rings, tb.west, tb.south, tb.east, tb.north)
+          const clipped = clipPolygonToRect(sp.rings, tb.west, tb.south, tb.east, tb.north, precisionForZoom(z))
           if (clipped.length > 0 && clipped[0].length >= 3) {
             tileClippedRings.push(...clipped)
             tilePolyFeatureIds.add(fid)
@@ -425,7 +449,7 @@ export function compileGeoJSONToTiles(
               postSimplifyVerts += preSimplifyVerts
             }
             if (dataRings.length > 0 && dataRings[0].length >= 3) {
-              tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi)
+              tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap)
               featureIds.add(fid)
               tilePolygons.push({ rings: dataRings, featId: fid })
             }
@@ -433,7 +457,7 @@ export function compileGeoJSONToTiles(
         }
 
         if (sp.coords) {
-          const segments = clipLineToRect(sp.coords, tb.west, tb.south, tb.east, tb.north)
+          const segments = clipLineToRect(sp.coords, tb.west, tb.south, tb.east, tb.north, precisionForZoom(z))
           for (const seg of segments) {
             if (seg.length >= 2) {
               preSimplifyVerts += seg.length
