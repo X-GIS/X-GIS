@@ -322,7 +322,7 @@ describe('Data-driven IR lowering', () => {
       }
     `)
     const node = scene.renderNodes[0]
-    expect(node.size).toEqual({ kind: 'constant', value: 8 })
+    expect(node.size).toMatchObject({ kind: 'constant', value: 8 })
   })
 
   it('evaluates data-driven expression against feature', () => {

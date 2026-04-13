@@ -68,9 +68,9 @@ export type OpacityValue =
  * Size value for points/symbols.
  */
 export type SizeValue =
-  | { kind: 'constant'; value: number }
+  | { kind: 'constant'; value: number; unit?: string | null }
   | { kind: 'none' }
-  | { kind: 'data-driven'; expr: DataExpr }
+  | { kind: 'data-driven'; expr: DataExpr; unit?: string | null }
   | { kind: 'zoom-interpolated'; stops: ZoomStop<number>[] }
 
 /**
@@ -116,8 +116,8 @@ export function sizeNone(): SizeValue {
   return { kind: 'none' }
 }
 
-export function sizeConstant(value: number): SizeValue {
-  return { kind: 'constant', value }
+export function sizeConstant(value: number, unit?: string | null): SizeValue {
+  return { kind: 'constant', value, unit: unit ?? null }
 }
 
 /**

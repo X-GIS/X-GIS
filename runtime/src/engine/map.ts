@@ -293,6 +293,7 @@ export class XGISMap {
           show.strokeWidth,
           show.size ?? 8,
           show.opacity ?? 1.0,
+          show.sizeUnit,
         )
         continue
       }

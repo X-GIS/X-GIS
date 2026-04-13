@@ -234,9 +234,12 @@ function lowerLayer(
           opacity = opacityConstant(val)
         }
       } else if (name.startsWith('size-')) {
-        const num = parseFloat(name.slice(5))
-        if (!isNaN(num)) {
-          size = sizeConstant(num)
+        const sizeStr = name.slice(5)
+        const unitMatch = sizeStr.match(/^([\d.]+)(px|m|km|nm|deg)?$/)
+        if (unitMatch) {
+          const num = parseFloat(unitMatch[1])
+          const unit = unitMatch[2] || null  // null = px default
+          if (!isNaN(num)) size = sizeConstant(num, unit)
         }
       } else if (name.startsWith('projection-')) {
         projection = name.slice(11)

@@ -130,7 +130,7 @@ describe('Optimize Pass', () => {
     `)
     const optimized = optimize(scene, ast)
     const node = optimized.renderNodes[0]
-    expect(node.size).toEqual({ kind: 'constant', value: 30 })
+    expect(node.size).toMatchObject({ kind: 'constant', value: 30 })
   })
 
   it('folds constant data-driven opacity', () => {
@@ -184,6 +184,6 @@ describe('Optimize Pass', () => {
       }
     `)
     const optimized = optimize(scene, ast)
-    expect(optimized.renderNodes[0].size).toEqual({ kind: 'constant', value: 30 })
+    expect(optimized.renderNodes[0].size).toMatchObject({ kind: 'constant', value: 30 })
   })
 })

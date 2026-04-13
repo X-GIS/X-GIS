@@ -18,7 +18,7 @@ struct Uniforms {
   mvp: mat4x4<f32>,
   proj_params: vec4<f32>,   // x=projType, y=centerLon, z=centerLat
   tile_rtc: vec4<f32>,      // xy = -project(center), zw = (0,0)
-  viewport: vec2<f32>,      // canvas width, height in pixels
+  viewport: vec4<f32>,      // xy = canvas width/height, z = meters_per_pixel
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -41,7 +41,20 @@ fn vs_point(
   );
 
   let fid = u32(feat_id);
-  let radius_px = feat_data[fid * STRIDE + 0u];
+  let raw_radius = feat_data[fid * STRIDE + 0u];
+  let size_mode = u32(feat_data[fid * STRIDE + 10u]) >> 4u;
+
+  // Unit conversion: 0=px, 1=m, 2=km, 3=deg
+  var radius_px: f32;
+  if (size_mode == 1u) {
+    radius_px = raw_radius / u.viewport.z;          // meters → pixels
+  } else if (size_mode == 2u) {
+    radius_px = raw_radius * 1000.0 / u.viewport.z; // km → pixels
+  } else if (size_mode == 3u) {
+    radius_px = raw_radius * 111320.0 / u.viewport.z; // deg → pixels (equator approx)
+  } else {
+    radius_px = raw_radius;                          // px: as-is
+  }
 
   // Project center to Mercator RTC
   let local_x = center.x * DEG2RAD * EARTH_R;
@@ -52,6 +65,7 @@ fn vs_point(
 
   // Expand quad: offset in NDC pixels
   let px_to_ndc = vec2f(2.0 / u.viewport.x, 2.0 / u.viewport.y);
+  radius_px = max(radius_px, 1.0); // minimum 1px
   // Add padding for stroke + AA
   let expand = radius_px + 2.0;
   let offset_ndc = offsets[quad_id] * expand * px_to_ndc;
@@ -206,6 +220,7 @@ export class PointRenderer {
     strokeWidth: number,
     radiusPx: number,
     opacity: number,
+    sizeUnit?: string | null,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -256,6 +271,10 @@ export class PointRenderer {
     let flags = 0
     if (fill) flags |= 1
     if (stroke) flags |= 2
+    // Size mode in upper 4 bits: 0=px, 1=m, 2=km, 3=deg
+    const unitMap: Record<string, number> = { m: 1, km: 2, deg: 3 }
+    const sizeMode = sizeUnit ? (unitMap[sizeUnit] ?? 0) : 0
+    flags |= (sizeMode << 4)
 
     for (let i = 0; i < points.length; i++) {
       const off = i * STRIDE
@@ -330,9 +349,11 @@ export class PointRenderer {
     uf[21] = -Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) * R
     uf[22] = 0
     uf[23] = 0
-    // viewport
+    // viewport: xy = size, z = meters_per_pixel
+    const metersPerPixel = (40075016.686 / 256) / Math.pow(2, camera.zoom)
     uf[24] = canvasWidth
     uf[25] = canvasHeight
+    uf[26] = metersPerPixel
     uf[26] = 0
     uf[27] = 0
 

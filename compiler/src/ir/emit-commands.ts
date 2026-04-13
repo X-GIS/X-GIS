@@ -27,6 +27,7 @@ export interface ShowCommand {
   shaderVariant: ShaderVariant | null
   filterExpr: DataExpr | null
   geometryExpr: DataExpr | null
+  sizeUnit: string | null
 }
 
 export interface SceneCommands {
@@ -67,6 +68,7 @@ function emitShow(node: RenderNode): ShowCommand {
     shaderVariant,
     filterExpr: node.filter,
     geometryExpr: node.geometry,
+    sizeUnit: (node.size.kind === 'constant' || node.size.kind === 'data-driven') ? (node.size.unit ?? null) : null,
   }
 }
 
