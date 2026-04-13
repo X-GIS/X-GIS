@@ -886,24 +886,29 @@ export class MapRenderer {
       }
     }
 
-    // Draw graticule grid lines
+    // Draw graticule grid lines (primary world + copies)
     if (this.graticuleBuffer) {
       const gratUniform = this.gratUniformBuf
       new Float32Array(gratUniform, 0, 16).set(mvp)
-      new Float32Array(gratUniform, 64, 4).set([1, 1, 1, 0.15]) // white, low alpha
+      new Float32Array(gratUniform, 64, 4).set([1, 1, 1, 0.15])
       new Float32Array(gratUniform, 80, 4).set([1, 1, 1, 0.15])
       new Float32Array(gratUniform, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
       const gDEG2RAD = Math.PI / 180
       const gR = 6378137
-      const gcx = projCenterLon * gDEG2RAD * gR
       const gcy = Math.log(Math.tan(Math.PI / 4 + Math.max(-85.051129, Math.min(85.051129, projCenterLat)) * gDEG2RAD / 2)) * gR
-      new Float32Array(gratUniform, 112, 4).set([-gcx, -gcy, 0, 0])
-      device.queue.writeBuffer(this.uniformBuffer, 0, gratUniform)
 
       pass.setPipeline(this.linePipeline)
       pass.setBindGroup(0, this.bindGroup)
       pass.setVertexBuffer(0, this.graticuleBuffer)
-      pass.draw(this.graticuleVertexCount)
+
+      // Draw for each world copy (-1, 0, +1)
+      const WORLD_MERC = 2 * Math.PI * gR // ~40075016.686
+      for (const worldOff of [-1, 0, 1]) {
+        const gcx = projCenterLon * gDEG2RAD * gR - worldOff * WORLD_MERC
+        new Float32Array(gratUniform, 112, 4).set([-gcx, -gcy, 0, 0])
+        device.queue.writeBuffer(this.uniformBuffer, 0, gratUniform)
+        pass.draw(this.graticuleVertexCount)
+      }
     }
 
     // pass.end() and submit() are handled by caller
