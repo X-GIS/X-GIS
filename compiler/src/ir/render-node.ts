@@ -34,6 +34,7 @@ export interface RenderNode {
   visible: boolean
   filter: DataExpr | null  // per-feature filter expression (e.g., .pop > 1000000)
   geometry: DataExpr | null  // procedural geometry expression (e.g., circle(.lon, .lat, .r))
+  billboard: boolean         // true = faces camera (default), false = flat on ground
 }
 
 // ═══ Value types — designed for Phase 1 extension ═══

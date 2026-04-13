@@ -142,6 +142,7 @@ function lowerLayer(
   let size: SizeValue = sizeNone()
   let projection = 'mercator'
   let visible = true
+  let billboard = true
 
   // Cascade order: named style → inline CSS → utilities
   // 1. Apply named style (lowest priority)
@@ -245,6 +246,10 @@ function lowerLayer(
         projection = name.slice(11)
       } else if (name === 'hidden') {
         visible = false
+      } else if (name === 'flat') {
+        billboard = false
+      } else if (name === 'billboard') {
+        billboard = true
       } else if (name === 'visible') {
         visible = true
       }
@@ -280,6 +285,7 @@ function lowerLayer(
     visible,
     filter: filterExpr ? { ast: filterExpr } : null,
     geometry: geometryExpr ? { ast: geometryExpr } : null,
+    billboard,
   }
 }
 
@@ -438,5 +444,6 @@ function lowerShow(stmt: AST.ShowStatement): RenderNode | null {
     visible,
     filter: null,
     geometry: null,
+    billboard: true,
   }
 }

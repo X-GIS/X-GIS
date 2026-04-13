@@ -29,6 +29,7 @@ export interface ShowCommand {
   geometryExpr: DataExpr | null
   sizeUnit: string | null
   sizeExpr: DataExpr | null
+  billboard: boolean
 }
 
 export interface SceneCommands {
@@ -71,6 +72,7 @@ function emitShow(node: RenderNode): ShowCommand {
     geometryExpr: node.geometry,
     sizeUnit: (node.size.kind === 'constant' || node.size.kind === 'data-driven') ? (node.size.unit ?? null) : null,
     sizeExpr: node.size.kind === 'data-driven' ? node.size.expr : null,
+    billboard: node.billboard,
   }
 }
 

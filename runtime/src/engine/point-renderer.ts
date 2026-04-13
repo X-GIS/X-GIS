@@ -63,16 +63,25 @@ fn vs_point(
   let rtc_y = feat_data[fid * STRIDE + 12u];
   let center_clip = u.mvp * vec4f(rtc_x, rtc_y, 0.0, 1.0);
 
-  // Expand quad: offset in NDC pixels
-  let px_to_ndc = vec2f(2.0 / u.viewport.x, 2.0 / u.viewport.y);
-  radius_px = max(radius_px, 1.0); // minimum 1px
-  // Add padding for stroke + AA
+  let is_flat = (u32(feat_data[fid * STRIDE + 10u]) & 8u) != 0u;  // bit 3 = flat
+  radius_px = max(radius_px, 1.0);
   let expand = radius_px + 2.0;
-  let offset_ndc = offsets[quad_id] * expand * px_to_ndc;
 
   var out: PointOut;
-  out.position = center_clip + vec4f(offset_ndc * center_clip.w, 0.0, 0.0);
-  out.uv = offsets[quad_id] * expand / max(radius_px, 1.0);
+
+  if (is_flat) {
+    // FLAT: expand in world-space, then transform via MVP
+    let world_expand = expand * u.viewport.z;  // px → meters (viewport.z = mpp)
+    let wo = offsets[quad_id] * world_expand;
+    out.position = u.mvp * vec4f(rtc_x + wo.x, rtc_y + wo.y, 0.0, 1.0);
+    out.uv = offsets[quad_id];
+  } else {
+    // BILLBOARD: expand in screen-space (NDC), perspective-corrected
+    let px_to_ndc = vec2f(2.0 / u.viewport.x, 2.0 / u.viewport.y);
+    let offset_ndc = offsets[quad_id] * expand * px_to_ndc;
+    out.position = center_clip + vec4f(offset_ndc * center_clip.w, 0.0, 0.0);
+    out.uv = offsets[quad_id] * expand / max(radius_px, 1.0);
+  }
   out.feat_id = fid;
   return out;
 }
@@ -354,6 +363,7 @@ export class PointRenderer {
     opacity: number,
     sizeUnit?: string | null,
     perFeatureSizes?: number[] | null,
+    billboard?: boolean,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -404,6 +414,7 @@ export class PointRenderer {
     // Size mode in upper 4 bits: 0=px, 1=m, 2=km, 3=deg
     const unitMap: Record<string, number> = { m: 1, km: 2, deg: 3 }
     const sizeMode = sizeUnit ? (unitMap[sizeUnit] ?? 0) : 0
+    if (billboard === false) flags |= 8  // bit 3 = flat
     flags |= (sizeMode << 4)
 
     for (let i = 0; i < points.length; i++) {

@@ -307,6 +307,7 @@ export class XGISMap {
           show.opacity ?? 1.0,
           show.sizeUnit,
           perFeatureSizes,
+          show.billboard,
         )
         continue
       }
