@@ -1,6 +1,6 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONToTilesAsync } from '@xgis/compiler'
+import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONToTiles, decomposeFeatures } from '@xgis/compiler'
 import { deserializeXGB } from '../../../compiler/src/binary/format'
 import { initGPU, resizeCanvas, type GPUContext } from './gpu'
 import { Camera } from './camera'
@@ -278,30 +278,26 @@ export class XGISMap {
       vtRenderer.setSource(source)
       this.vtSources.set(vtKey, { source, renderer: vtRenderer })
 
-      // Progressive async tiling: yields to event loop between zoom levels
-      // z0 renders immediately while z1..zN compile in background
-      let cameraFitted = false
-      compileGeoJSONToTilesAsync(filtered, {
-        onLevel: (level, bounds, propTable) => {
-          source.addTileLevel(level, bounds, propTable)
-          // Fit camera on first level
-          if (!cameraFitted) {
-            cameraFitted = true
-            const [minLon, minLat, maxLon, maxLat] = bounds
-            if (minLon < Infinity) {
-              const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
-              const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
-              this.camera.centerX = cx
-              this.camera.centerY = cy
-              const lonSpan = maxLon - minLon
-              const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-              const cssW = this.canvas.width / dpr
-              const degPerPx = lonSpan / cssW
-              this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
-            }
-          }
-        },
-      })
+      // On-demand tiling: compile z0 immediately, higher zooms on demand
+      // when the renderer requests visible tiles
+      const parts = decomposeFeatures(filtered.features)
+      const z0Set = compileGeoJSONToTiles(filtered, { minZoom: 0, maxZoom: 0 })
+      source.addTileLevel(z0Set.levels[0], z0Set.bounds, z0Set.propertyTable)
+      source.setRawParts(parts, z0Set.levels.length > 0 ? 7 : 0)
+
+      // Fit camera
+      const [minLon, minLat, maxLon, maxLat] = z0Set.bounds
+      if (minLon < Infinity) {
+        const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
+        const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
+        this.camera.centerX = cx
+        this.camera.centerY = cy
+        const lonSpan = maxLon - minLon
+        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+        const cssW = this.canvas.width / dpr
+        const degPerPx = lonSpan / cssW
+        this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+      }
 
       // Setup shader variant if needed
       let pipelines: typeof this.vtVariantPipelines = null

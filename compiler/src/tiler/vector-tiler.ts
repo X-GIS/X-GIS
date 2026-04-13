@@ -104,7 +104,7 @@ export function tileKeyChildren(key: number): [number, number, number, number] {
 
 // ═══ Geometry Part: per-polygon/per-line with tight bbox ═══
 
-interface GeometryPart {
+export interface GeometryPart {
   type: 'polygon' | 'line'
   rings?: number[][][]
   coords?: number[][]
@@ -112,7 +112,7 @@ interface GeometryPart {
   minLon: number; minLat: number; maxLon: number; maxLat: number
 }
 
-function decomposeFeatures(features: GeoJSONFeature[]): GeometryPart[] {
+export function decomposeFeatures(features: GeoJSONFeature[]): GeometryPart[] {
   const parts: GeometryPart[] = []
 
   for (let fi = 0; fi < features.length; fi++) {
@@ -572,6 +572,81 @@ function processZoomLevelShared(
     const leafCount = tiles.size - [...tiles.keys()].filter(k => needsSubdivision.has(k)).length
     const zElapsed = (performance.now() - zStart).toFixed(0)
     console.log(`  z${z}: ${tiles.size} tiles${fullCoverCount > 0 ? ` (${fullCoverCount} full-cover)` : ''}${leafCount > 0 && z < maxZoom ? ` (${leafCount} leaf)` : ''} (${zElapsed}ms)`)
+}
+
+// ═══ On-Demand Single Tile Compilation ═══
+
+/** Compile a single tile from raw geometry parts. Used for on-demand tiling
+ *  where only visible tiles are compiled instead of the entire pyramid. */
+export function compileSingleTile(
+  parts: GeometryPart[],
+  z: number, x: number, y: number,
+  maxZoom: number,
+): CompiledTile | null {
+  const tb = tileBounds(z, x, y)
+  const precision = precisionForZoom(z)
+  const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[] }
+  const featureIds = new Set<number>()
+  const dedupMap = new Map<string, number>()
+  const EPS = 1e-10
+  const isOnBoundary = (c: number[]) =>
+    Math.abs(c[0] - tb.west) < EPS || Math.abs(c[0] - tb.east) < EPS ||
+    Math.abs(c[1] - tb.south) < EPS || Math.abs(c[1] - tb.north) < EPS
+  const tilePolygons: { rings: number[][][]; featId: number }[] = []
+
+  for (const part of parts) {
+    // Quick bbox reject
+    if (part.maxLon < tb.west || part.minLon > tb.east ||
+        part.maxLat < tb.south || part.minLat > tb.north) continue
+
+    const fid = part.featureIndex
+
+    if (part.type === 'polygon' && part.rings) {
+      const clipped = clipPolygonToRect(part.rings, tb.west, tb.south, tb.east, tb.north, precision)
+      if (clipped.length > 0 && clipped[0].length >= 3) {
+        const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundary) : clipped
+        if (dataRings.length > 0 && dataRings[0].length >= 3) {
+          tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap)
+          featureIds.add(fid)
+          tilePolygons.push({ rings: dataRings, featId: fid })
+        }
+      }
+    }
+
+    if (part.type === 'line' && part.coords) {
+      const segments = clipLineToRect(part.coords, tb.west, tb.south, tb.east, tb.north, precision)
+      for (const seg of segments) {
+        if (seg.length >= 2) {
+          const dataLine = z < maxZoom ? simplifyLine(seg, z, isOnBoundary) : seg
+          if (dataLine.length >= 2) {
+            tessellateLineToArrays(dataLine, fid, scratch.lv, scratch.li)
+            featureIds.add(fid)
+          }
+        }
+      }
+    }
+  }
+
+  if (scratch.pv.length < 9 && scratch.lv.length < 6) return null
+
+  // Convert to tile-local coordinates
+  for (let i = 0; i < scratch.pv.length; i += 3) {
+    scratch.pv[i] -= tb.west; scratch.pv[i + 1] -= tb.south
+  }
+  for (let i = 0; i < scratch.lv.length; i += 3) {
+    scratch.lv[i] -= tb.west; scratch.lv[i + 1] -= tb.south
+  }
+
+  return {
+    z, x, y,
+    tileWest: tb.west, tileSouth: tb.south,
+    vertices: new Float32Array(scratch.pv),
+    indices: new Uint32Array(scratch.pi),
+    lineVertices: new Float32Array(scratch.lv),
+    lineIndices: new Uint32Array(scratch.li),
+    featureCount: featureIds.size,
+    polygons: tilePolygons.length > 0 ? tilePolygons : undefined,
+  }
 }
 
 /** Async version: yields to the event loop between zoom levels so the

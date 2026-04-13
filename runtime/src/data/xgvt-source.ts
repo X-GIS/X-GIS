@@ -7,9 +7,11 @@ import {
   TILE_FLAG_FULL_COVER,
   tileKey, tileKeyUnpack,
   clipPolygonToRect,
+  compileSingleTile,
   type XGVTIndex, type TileIndexEntry,
   type PropertyTable, type RingPolygon,
   type CompiledTileSet, type TileLevel,
+  type GeometryPart,
 } from '@xgis/compiler'
 import { visibleTiles } from '../loader/tiles'
 
@@ -42,6 +44,10 @@ export class XGVTSource {
   private loadingTiles = new Set<number>()
   private isFullFileMode = false
 
+  /** Raw geometry parts for on-demand tile compilation (GeoJSON sources only) */
+  private rawParts: GeometryPart[] | null = null
+  private rawMaxZoom = 7
+
   /** Called when a tile finishes loading (for GPU upload) */
   onTileLoaded: ((key: number, data: TileData) => void) | null = null
 
@@ -67,6 +73,40 @@ export class XGVTSource {
     return this.index?.header.maxLevel ?? 0
   }
 
+  /** Store raw geometry parts for on-demand compilation (GeoJSON sources) */
+  setRawParts(parts: GeometryPart[], maxZoom: number): void {
+    this.rawParts = parts
+    this.rawMaxZoom = maxZoom
+  }
+
+  /** Compile a single tile on demand from raw parts */
+  compileTileOnDemand(key: number): boolean {
+    if (!this.rawParts || this.dataCache.has(key)) return false
+    const [z, x, y] = tileKeyUnpack(key)
+    if (z > this.rawMaxZoom) return false
+
+    const tile = compileSingleTile(this.rawParts, z, x, y, this.rawMaxZoom)
+    if (!tile) return false
+
+    // Create synthetic index entry
+    if (this.index) {
+      const entry: TileIndexEntry = {
+        tileHash: key, dataOffset: 0, compactSize: 0, gpuReadySize: 0,
+        vertexCount: tile.vertices.length / 3, indexCount: tile.indices.length,
+        lineVertexCount: tile.lineVertices.length / 3, lineIndexCount: tile.lineIndices.length,
+        flags: 0, fullCoverFeatureId: 0,
+      }
+      if (!this.index.entryByHash.has(key)) {
+        this.index.entries.push(entry)
+        this.index.entryByHash.set(key, entry)
+      }
+    }
+
+    const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
+    this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+    return true
+  }
+
   // ── Tile data cache ──
 
   getTileData(key: number): TileData | null {
@@ -86,7 +126,13 @@ export class XGVTSource {
   }
 
   hasEntryInIndex(key: number): boolean {
-    return this.index?.entryByHash.has(key) ?? false
+    if (this.index?.entryByHash.has(key)) return true
+    // On-demand sources can compile any tile within maxZoom
+    if (this.rawParts) {
+      const [z] = tileKeyUnpack(key)
+      return z <= this.rawMaxZoom
+    }
+    return false
   }
 
   // ── Loading ──
@@ -315,7 +361,11 @@ export class XGVTSource {
       if (this.dataCache.has(key) || this.loadingTiles.has(key)) continue
       if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
       const entry = this.index.entryByHash.get(key)
-      if (!entry) continue
+      if (!entry) {
+        // On-demand: compile from raw GeoJSON parts if available
+        if (this.rawParts) this.compileTileOnDemand(key)
+        continue
+      }
 
       // Full-cover tiles with no data: create quad immediately
       if ((entry.flags & TILE_FLAG_FULL_COVER) && entry.compactSize === 0) {
