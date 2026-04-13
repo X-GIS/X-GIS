@@ -159,14 +159,87 @@ The compiler statically analyzes expressions and optimizes rendering:
 ```bash
 bun install                   # install dependencies
 bun run build                 # build all packages
-bun run test                  # run tests (132 tests)
+bun run test                  # run tests
 bun run dev                   # dev server with HTTPS
 
 # Compiler CLI
 bun compiler/src/cli/compile.ts compile hello.xgis -o hello.xgb
-bun compiler/src/cli/compile.ts parse hello.xgis    # print AST
-bun compiler/src/cli/compile.ts ir hello.xgis        # print IR
+bun compiler/src/cli/compile.ts parse hello.xgis          # print AST
+bun compiler/src/cli/compile.ts ir hello.xgis              # print IR
+bun compiler/src/cli/compile.ts tile data.geojson -o data.xgvt   # GeoJSON → XGVT
 ```
+
+## Vector Tiles (.xgvt)
+
+XGVT (X-GIS Vector Tile) is a single-file vector tile format optimized for WebGPU rendering. It pre-processes GeoJSON into a tile pyramid at compile time, enabling instant rendering without runtime tessellation.
+
+### Why XGVT
+
+| | Raw GeoJSON | XGVT |
+|---|---|---|
+| **Loading** | Parse JSON + tessellate all polygons at runtime | Read binary + upload to GPU (zero-copy) |
+| **Tiling** | Runtime `compileGeoJSONToTiles()` on every page load | Pre-computed at build time |
+| **Precision** | Absolute lon/lat in f32 (precision loss at high zoom) | Tile-local coordinates (small values, precise in f32) |
+| **Streaming** | Load entire dataset before first render | HTTP Range Requests — load only visible tiles |
+| **Overzoom** | Fixed detail level | Runtime sub-tile generation from stored polygon rings |
+
+### Format
+
+```
+[Header 32B] [TileIndex N×24B] [TileData...]
+
+Header:   magic(XGVT) version bounds(4×f64) indexOffset indexLength
+Index:    tileHash compactSize gpuReadySize vertexCount indexCount flags
+TileData: gzip'd compact layer (ZigZag delta-encoded rings + coordinates)
+```
+
+- **Compact layer**: ZigZag delta-encoded polygon rings + line coordinates, gzip compressed. Decoded and tessellated at runtime using earcut in Mercator space.
+- **Morton-keyed index**: Tiles indexed by Z-order curve for spatial cache coherence.
+- **HTTP Range Request compatible**: Load header+index first (single request), then fetch individual tiles on demand.
+
+### Compiling
+
+```bash
+# Basic (compact only — small files, runtime earcut)
+bun compiler/src/cli/compile.ts tile countries.geojson -o countries.xgvt
+
+# With GPU-ready layer (larger files, zero-copy GPU upload, no runtime earcut)
+bun compiler/src/cli/compile.ts tile countries.geojson -o countries.xgvt --gpu
+```
+
+### Usage in X-GIS
+
+```
+source world {
+  type: geojson
+  url: "countries.xgvt"
+}
+
+layer countries {
+  source: world
+  | fill-emerald-700 stroke-emerald-900 stroke-1
+}
+```
+
+### Tile Pipeline
+
+```
+GeoJSON features
+  │
+  ├─ decomposeFeatures()     Split MultiPolygon → individual parts with tight bbox
+  │
+  ├─ Per zoom level (z0 → zMax):
+  │   ├─ clipPolygonToRect()  Sutherland-Hodgman clip to tile bounds
+  │   ├─ simplifyPolygon()    Douglas-Peucker simplification (zoom-adaptive)
+  │   ├─ earcut(mercCoords)   Triangulate in Mercator space (correct screen topology)
+  │   └─ tile-local coords    vertex -= (tileWest, tileSouth) for f32 precision
+  │
+  ├─ Adaptive subdivision     Only subdivide tiles where simplification removed detail
+  │
+  └─ serializeXGVT()         Pack into single binary with Morton-keyed index
+```
+
+Key design decision: **earcut runs in Mercator-projected coordinates**. Triangle edges are straight in Mercator space, matching GPU rendering. This prevents fill artifacts where lon/lat-straight edges curve in Mercator, overshooting coastlines.
 
 ## Projections
 
