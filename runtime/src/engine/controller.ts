@@ -100,25 +100,32 @@ export class PanZoomController implements Controller {
     }
 
     let isRotating = false
+    let rotateActivated = false
     let rotateStartX = 0
-    let lastRotateX = 0
-    let rotateActivated = false  // deadzone: only rotate after 3px movement
+    let lastRotateAngle = 0
     let lastPinchAngle = 0
 
     const onPointerMove = (e: PointerEvent) => {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
 
-      // Right-click or Ctrl+drag → rotate (with deadzone)
+      // Right-click or Ctrl+drag → rotate around canvas center
       if (isRotating && activePointers.size === 1) {
+        const rect = canvas.getBoundingClientRect()
+        const cx = rect.left + rect.width / 2
+        const cy = rect.top + rect.height / 2
+
         if (!rotateActivated) {
-          // Require minimum 3px movement before activating rotation
           if (Math.abs(e.clientX - rotateStartX) < 3) return
           rotateActivated = true
-          lastRotateX = e.clientX
+          lastRotateAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI
         }
-        const dx = e.clientX - lastRotateX
-        lastRotateX = e.clientX
-        camera.rotate(-dx * 0.5)
+
+        const angle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI
+        let delta = angle - lastRotateAngle
+        if (delta > 180) delta -= 360
+        if (delta < -180) delta += 360
+        lastRotateAngle = angle
+        camera.rotate(delta)
         return
       }
 
