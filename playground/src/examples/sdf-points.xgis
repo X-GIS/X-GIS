@@ -1,29 +1,11 @@
-/* SDF Points: resolution-independent circles with world-space sizing */
-
-source land {
-  type: geojson
-  url: "ne_110m_land.geojson"
-}
+/* SDF Points: resolution-independent circles */
 
 source cities {
   type: geojson
   url: "ne_110m_populated_places.geojson"
 }
 
-/* Dark land background */
-layer background {
-  source: land
-  | fill-slate-800 stroke-slate-700 stroke-0.5
-}
-
-/* Large world-space circles (500km) — grow with zoom */
-layer coverage {
-  source: cities
-  | fill-sky-500 opacity-10 size-500km
-}
-
-/* Screen-space city markers (8px) — fixed size */
 layer markers {
   source: cities
-  | fill-rose-500 stroke-white stroke-2 size-8 opacity-90
+  | fill-rose-500 stroke-white stroke-2 size-12 opacity-90
 }
