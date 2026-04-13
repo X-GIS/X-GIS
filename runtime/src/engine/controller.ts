@@ -127,8 +127,8 @@ export class PanZoomController implements Controller {
 
         // Horizontal → bearing rotation
         camera.rotate(-dx * 0.5)
-        // Vertical → pitch (drag down = increase pitch, drag up = decrease)
-        camera.pitch = Math.max(0, Math.min(85, camera.pitch + dy * 0.3))
+        // Vertical → pitch (drag up = increase pitch, drag down = decrease)
+        camera.pitch = Math.max(0, Math.min(85, camera.pitch - dy * 0.3))
         return
       }
 
