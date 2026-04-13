@@ -114,8 +114,8 @@ export class Camera {
       0, 0, -altitude, 1,
     ]
 
-    // RotateX(pitch) — tilt camera forward
-    const cp = Math.cos(pitchRad), sp = Math.sin(pitchRad)
+    // RotateX(-pitch) — tilt camera backward (look down at map from ahead)
+    const cp = Math.cos(-pitchRad), sp = Math.sin(-pitchRad)
     const Rx = [
       1, 0, 0, 0,
       0, cp, sp, 0,
