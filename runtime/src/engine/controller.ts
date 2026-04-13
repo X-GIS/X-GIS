@@ -162,10 +162,17 @@ export class PanZoomController implements Controller {
         lastPinchDist = dist
 
         // Two-finger vertical drag → pitch
+        // Only apply when both fingers move in same direction (parallel drag),
+        // not during pinch-to-zoom (distance change dominates)
         const center = getPinchCenter(activePointers)
-        if (lastPinchCenterY !== 0) {
+        if (lastPinchCenterY !== 0 && lastPinchDist > 0) {
           const dy = center.y - lastPinchCenterY
-          camera.pitch = Math.max(0, Math.min(85, camera.pitch - dy * 0.3))
+          const distChange = Math.abs(dist - lastPinchDist)
+          const centerMove = Math.abs(dy)
+          // Only pitch if vertical center movement >> distance change (parallel drag)
+          if (centerMove > 2 && centerMove > distChange * 2) {
+            camera.pitch = Math.max(0, Math.min(85, camera.pitch - dy * 0.3))
+          }
         }
         lastPinchCenterY = center.y
       } else if (isDragging && activePointers.size === 1) {
