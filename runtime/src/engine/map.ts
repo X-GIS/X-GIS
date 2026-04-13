@@ -125,7 +125,7 @@ export class XGISMap {
       this.ctx = await initGPU(this.canvas)
       this.renderer = new MapRenderer(this.ctx)
       this.rasterRenderer = new RasterRenderer(this.ctx)
-      this.pointRenderer = new PointRenderer(this.ctx)
+      try { this.pointRenderer = new PointRenderer(this.ctx) } catch (e) { console.warn('[X-GIS] PointRenderer init failed:', e) }
       // VT sources/renderers created per .xgvt file in the load loop
       this.useCanvas2D = false
     } catch (err) {
@@ -409,7 +409,7 @@ export class XGISMap {
     this.ctx = await initGPU(this.canvas)
     this.renderer = new MapRenderer(this.ctx)
     this.rasterRenderer = new RasterRenderer(this.ctx)
-      this.pointRenderer = new PointRenderer(this.ctx)
+      try { this.pointRenderer = new PointRenderer(this.ctx) } catch (e) { console.warn('[X-GIS] PointRenderer init failed:', e) }
 
     for (const load of commands.loads) {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
