@@ -113,6 +113,7 @@ function lowerLayer(
   let zOrder = 0
   let styleRef = ''
   let filterExpr: import('../parser/ast').Expr | null = null
+  let geometryExpr: import('../parser/ast').Expr | null = null
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -123,6 +124,8 @@ function lowerLayer(
       styleRef = prop.value.name
     } else if (prop.name === 'filter') {
       filterExpr = prop.value
+    } else if (prop.name === 'geometry') {
+      geometryExpr = prop.value
     }
   }
 
@@ -273,6 +276,7 @@ function lowerLayer(
     projection,
     visible,
     filter: filterExpr ? { ast: filterExpr } : null,
+    geometry: geometryExpr ? { ast: geometryExpr } : null,
   }
 }
 
@@ -430,5 +434,6 @@ function lowerShow(stmt: AST.ShowStatement): RenderNode | null {
     projection,
     visible,
     filter: null,
+    geometry: null,
   }
 }

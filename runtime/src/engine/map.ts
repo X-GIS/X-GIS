@@ -270,7 +270,12 @@ export class XGISMap {
         continue
       }
 
-      const filtered = applyFilter(data, show.filterExpr)
+      let filtered = applyFilter(data, show.filterExpr)
+
+      // Procedural geometry: evaluate geometry expression per feature
+      if (show.geometryExpr?.ast) {
+        filtered = applyGeometry(filtered, show.geometryExpr)
+      }
 
       const source = new XGVTSource()
       const vtRenderer = new VectorTileRenderer(this.ctx)
@@ -642,4 +647,37 @@ function applyFilter(
 
   if (filtered.length === data.features.length) return data
   return { ...data, features: filtered }
+}
+
+/**
+ * Generate procedural geometry for each feature.
+ * Evaluates the geometry expression per-feature, replacing each feature's
+ * geometry with the computed result (e.g., circle, arc, polygon from points).
+ */
+function applyGeometry(
+  data: GeoJSONFeatureCollection,
+  geometryExpr: { ast: unknown },
+): GeoJSONFeatureCollection {
+  const ast = geometryExpr.ast as import('@xgis/compiler').Expr
+  const newFeatures = data.features.map(f => {
+    const result = evaluate(ast, f.properties ?? {})
+    if (!result) return f
+
+    // Result is coordinate array → wrap as Polygon
+    if (Array.isArray(result) && result.length > 0 && Array.isArray(result[0])) {
+      return {
+        ...f,
+        geometry: { type: 'Polygon' as const, coordinates: [result as number[][]] },
+      }
+    }
+
+    // Result is GeoJSON geometry object
+    if (result && typeof result === 'object' && 'type' in result && 'coordinates' in result) {
+      return { ...f, geometry: result as typeof f.geometry }
+    }
+
+    return f
+  })
+
+  return { ...data, features: newFeatures }
 }

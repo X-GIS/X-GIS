@@ -33,6 +33,7 @@ export interface RenderNode {
   projection: string
   visible: boolean
   filter: DataExpr | null  // per-feature filter expression (e.g., .pop > 1000000)
+  geometry: DataExpr | null  // procedural geometry expression (e.g., circle(.lon, .lat, .r))
 }
 
 // ═══ Value types — designed for Phase 1 extension ═══

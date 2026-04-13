@@ -26,6 +26,7 @@ export interface ShowCommand {
   zoomSizeStops: ZoomStop<number>[] | null
   shaderVariant: ShaderVariant | null
   filterExpr: DataExpr | null
+  geometryExpr: DataExpr | null
 }
 
 export interface SceneCommands {
@@ -65,6 +66,7 @@ function emitShow(node: RenderNode): ShowCommand {
     zoomSizeStops: node.size.kind === 'zoom-interpolated' ? node.size.stops : null,
     shaderVariant,
     filterExpr: node.filter,
+    geometryExpr: node.geometry,
   }
 }
 

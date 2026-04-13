@@ -231,6 +231,38 @@ function callBuiltin(name: string, args: unknown[]): unknown {
     case 'TAU': return Math.PI * 2
     // Array
     case 'length': return Array.isArray(args[0]) ? args[0].length : 0
+    // Geometry generators — return coordinate arrays
+    case 'circle': {
+      const [cx, cy, r, s] = args.map(toNumber)
+      const steps = Math.max(4, Math.floor(s || 32))
+      const pts: number[][] = []
+      for (let i = 0; i <= steps; i++) {
+        const a = (i % steps) * Math.PI * 2 / steps
+        pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)])
+      }
+      return pts
+    }
+    case 'arc': {
+      const [cx, cy, r, startA, endA, s] = args.map(toNumber)
+      const steps = Math.max(2, Math.floor(s || 32))
+      const pts: number[][] = []
+      for (let i = 0; i <= steps; i++) {
+        const a = startA + (endA - startA) * i / steps
+        pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)])
+      }
+      return pts
+    }
+    case 'polygon': {
+      // polygon(points) — wrap as GeoJSON-style ring (close if not closed)
+      const pts = args[0] as number[][]
+      if (!Array.isArray(pts)) return null
+      return { type: 'Polygon', coordinates: [pts] }
+    }
+    case 'linestring': {
+      const pts = args[0] as number[][]
+      if (!Array.isArray(pts)) return null
+      return { type: 'LineString', coordinates: pts }
+    }
     default:
       return args[0] ?? null
   }
