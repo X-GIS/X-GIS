@@ -176,7 +176,7 @@ export class CanvasRenderer {
     const R = 6378137
     const centerLon = (camera.centerX / R) * (180 / Math.PI)
     const centerLat = (2 * Math.atan(Math.exp(camera.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
-    const tiles = visibleTiles(centerLon, centerLat, camera.zoom, cssW, cssH, undefined, camera.bearing)
+    const tiles = visibleTiles(centerLon, centerLat, camera.zoom, cssW, cssH, undefined, camera.bearing, camera.pitch)
 
     const z = Math.max(0, Math.min(18, Math.round(camera.zoom)))
     const n = Math.pow(2, z)

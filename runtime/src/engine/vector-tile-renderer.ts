@@ -276,7 +276,7 @@ export class VectorTileRenderer {
 
     if (currentZ !== this.lastZoom) this.lastZoom = currentZ
 
-    const tiles = visibleTiles(centerLon, centerLat, currentZ, canvasWidth, canvasHeight, camera.zoom, camera.bearing)
+    const tiles = visibleTiles(centerLon, centerLat, currentZ, canvasWidth, canvasHeight, camera.zoom, camera.bearing, camera.pitch)
     const n = Math.pow(2, currentZ)
     const ctX = Math.floor((centerLon + 180) / 360 * n)
     const ctY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)

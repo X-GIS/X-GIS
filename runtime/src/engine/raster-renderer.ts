@@ -295,7 +295,7 @@ export class RasterRenderer {
       this.lastZoom = currentZ
     }
 
-    const tiles = visibleTiles(centerLon, centerLat, zoom, canvasWidth, canvasHeight, undefined, camera.bearing)
+    const tiles = visibleTiles(centerLon, centerLat, zoom, canvasWidth, canvasHeight, undefined, camera.bearing, camera.pitch)
 
     // Sort by distance from center (priority loading)
     const n = Math.pow(2, currentZ)

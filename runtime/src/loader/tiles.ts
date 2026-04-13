@@ -27,6 +27,7 @@ export function visibleTiles(
   viewportHeight: number,
   cameraZoom?: number,
   bearing?: number,
+  pitch?: number,
 ): TileCoord[] {
   const z = Math.max(0, Math.min(18, Math.round(zoom)))
   const n = Math.pow(2, z)
@@ -54,7 +55,14 @@ export function visibleTiles(
   }
 
   const tilesX = Math.ceil(effW / tileSize / 2) + 1
-  const tilesY = Math.ceil(effH / tileSize / 2) + 1
+  let tilesY = Math.ceil(effH / tileSize / 2) + 1
+
+  // Pitch: camera tilted → need more tiles in the "forward" direction
+  if (pitch && pitch > 1) {
+    const pitchFactor = 1 / Math.cos(Math.min(pitch, 85) * Math.PI / 180)
+    const extra = Math.ceil(tilesY * (pitchFactor - 1))
+    tilesY += Math.min(extra, tilesY * 4) // cap at 5× to prevent runaway
+  }
 
   const tiles: TileCoord[] = []
 
