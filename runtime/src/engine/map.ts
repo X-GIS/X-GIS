@@ -501,7 +501,7 @@ export class XGISMap {
         })
         this.stencilTexture = device.createTexture({
           size: { width: w, height: h },
-          format: 'stencil8',
+          format: 'depth24plus-stencil8',
           sampleCount: sc,
           usage: GPUTextureUsage.RENDER_ATTACHMENT,
         })
@@ -523,6 +523,9 @@ export class XGISMap {
         }],
         depthStencilAttachment: {
           view: this.stencilTexture!.createView(),
+          depthClearValue: 1.0,
+          depthLoadOp: 'clear',
+          depthStoreOp: 'discard',
           stencilClearValue: 0,
           stencilLoadOp: 'clear',
           stencilStoreOp: 'discard',
@@ -582,6 +585,7 @@ export class XGISMap {
             }],
             depthStencilAttachment: {
               view: this.stencilTexture!.createView(),
+              depthClearValue: 1.0, depthLoadOp: 'clear', depthStoreOp: 'discard',
               stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard',
             },
           })
@@ -604,6 +608,7 @@ export class XGISMap {
             }],
             depthStencilAttachment: {
               view: this.stencilTexture!.createView(),
+              depthClearValue: 1.0, depthLoadOp: 'clear', depthStoreOp: 'discard',
               stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard',
             },
           })

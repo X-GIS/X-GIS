@@ -14,7 +14,9 @@ export const BLEND_ALPHA: GPUBlendState = {
 
 /** Stencil write: mark tile areas (compare=always, passOp=replace, mask=0xFF) */
 export const STENCIL_WRITE: GPUDepthStencilState = {
-  format: 'stencil8',
+  format: 'depth24plus-stencil8',
+  depthCompare: 'always',
+  depthWriteEnabled: false,
   stencilFront: { compare: 'always', passOp: 'replace' },
   stencilBack: { compare: 'always', passOp: 'replace' },
   stencilWriteMask: 0xFF,
@@ -23,7 +25,9 @@ export const STENCIL_WRITE: GPUDepthStencilState = {
 
 /** Stencil test: only draw where stencil=0 (fallback tiles, not covered by children) */
 export const STENCIL_TEST: GPUDepthStencilState = {
-  format: 'stencil8',
+  format: 'depth24plus-stencil8',
+  depthCompare: 'always',
+  depthWriteEnabled: false,
   stencilFront: { compare: 'equal', passOp: 'keep' },
   stencilBack: { compare: 'equal', passOp: 'keep' },
   stencilWriteMask: 0x00,
@@ -32,7 +36,9 @@ export const STENCIL_TEST: GPUDepthStencilState = {
 
 /** Stencil disabled: always pass, no write (raster tiles, SDF points) */
 export const STENCIL_DISABLED: GPUDepthStencilState = {
-  format: 'stencil8',
+  format: 'depth24plus-stencil8',
+  depthCompare: 'always',
+  depthWriteEnabled: false,
   stencilFront: { compare: 'always', passOp: 'keep' },
   stencilBack: { compare: 'always', passOp: 'keep' },
   stencilWriteMask: 0x00,

@@ -59,7 +59,7 @@ export class PanZoomController implements Controller {
           isRotating = true
           isDragging = false
           rotateStartX = e.clientX
-          lastRotateX = e.clientX
+          rotateStartY = e.clientY
           rotateActivated = false
         } else {
           isDragging = true
@@ -102,30 +102,33 @@ export class PanZoomController implements Controller {
     let isRotating = false
     let rotateActivated = false
     let rotateStartX = 0
-    let lastRotateAngle = 0
+    let rotateStartY = 0
+    let lastRotateX = 0
+    let lastRotateY = 0
     let lastPinchAngle = 0
 
     const onPointerMove = (e: PointerEvent) => {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
 
-      // Right-click or Ctrl+drag → rotate around canvas center
+      // Right-click or Ctrl+drag → bearing (horizontal) + pitch (vertical)
       if (isRotating && activePointers.size === 1) {
-        const rect = canvas.getBoundingClientRect()
-        const cx = rect.left + rect.width / 2
-        const cy = rect.top + rect.height / 2
-
         if (!rotateActivated) {
-          if (Math.abs(e.clientX - rotateStartX) < 3) return
+          const dist = Math.hypot(e.clientX - rotateStartX, e.clientY - rotateStartY)
+          if (dist < 3) return
           rotateActivated = true
-          lastRotateAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI
+          lastRotateX = e.clientX
+          lastRotateY = e.clientY
         }
 
-        const angle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI
-        let delta = angle - lastRotateAngle
-        if (delta > 180) delta -= 360
-        if (delta < -180) delta += 360
-        lastRotateAngle = angle
-        camera.rotate(delta)
+        const dx = e.clientX - lastRotateX
+        const dy = e.clientY - lastRotateY
+        lastRotateX = e.clientX
+        lastRotateY = e.clientY
+
+        // Horizontal → bearing rotation
+        camera.rotate(-dx * 0.5)
+        // Vertical → pitch (drag down = increase pitch, drag up = decrease)
+        camera.pitch = Math.max(0, Math.min(85, camera.pitch + dy * 0.3))
         return
       }
 
@@ -201,6 +204,17 @@ export class PanZoomController implements Controller {
             requestAnimationFrame(animateSnap)
           }
           animateSnap()
+
+          // Pitch snap: animate to nearest 15° (0° snaps from ±7°)
+          const PITCH_SNAP = 15
+          const pitchTarget = camera.pitch < 7 ? 0 : Math.round(camera.pitch / PITCH_SNAP) * PITCH_SNAP
+          const animatePitchSnap = () => {
+            const diff = pitchTarget - camera.pitch
+            if (Math.abs(diff) < 0.3) { camera.pitch = pitchTarget; return }
+            camera.pitch += diff * 0.2
+            requestAnimationFrame(animatePitchSnap)
+          }
+          animatePitchSnap()
         }
         isDragging = false
         isRotating = false
