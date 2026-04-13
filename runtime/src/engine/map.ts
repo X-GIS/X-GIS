@@ -4,7 +4,7 @@ import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONT
 import { deserializeXGB } from '../../../compiler/src/binary/format'
 import { initGPU, resizeCanvas, type GPUContext } from './gpu'
 import { Camera } from './camera'
-import { MapRenderer } from './renderer'
+import { MapRenderer, interpolateZoom } from './renderer'
 import { interpret, type SceneCommands } from './interpreter'
 import { loadGeoJSON, lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
 import { isTileTemplate } from '../loader/tiles'
@@ -538,11 +538,15 @@ export class XGISMap {
         for (const { sourceName, show, pipelines, layout } of this.vectorTileShows) {
           const vtEntry = this.vtSources.get(sourceName)
           if (!vtEntry || !vtEntry.renderer.hasData()) continue
+          // Zoom-interpolated opacity: override per frame
+          const effectiveShow = show.zoomOpacityStops
+            ? { ...show, opacity: interpolateZoom(show.zoomOpacityStops, this.camera.zoom) }
+            : show
           const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
           const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
           const bgl = layout ?? this.renderer.bindGroupLayout
           vtEntry.renderer.render(pass, this.camera, projType, centerLon, centerLat, w, h,
-            show, fp, lp, this.renderer.uniformBuffer, bgl,
+            effectiveShow, fp, lp, this.renderer.uniformBuffer, bgl,
             pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback,
             pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback,
             this.pointRenderer)
@@ -559,9 +563,12 @@ export class XGISMap {
       // Multi-source: separate pass per source (independent stencil clear)
       if (this.vectorTileShows.length > 1) {
         for (let si = 0; si < this.vectorTileShows.length; si++) {
-          const { sourceName, show, pipelines, layout } = this.vectorTileShows[si]
+          const { sourceName, show: rawShow, pipelines, layout } = this.vectorTileShows[si]
           const vtEntry = this.vtSources.get(sourceName)
           if (!vtEntry || !vtEntry.renderer.hasData()) continue
+          const show = rawShow.zoomOpacityStops
+            ? { ...rawShow, opacity: interpolateZoom(rawShow.zoomOpacityStops, this.camera.zoom) }
+            : rawShow
           const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
           const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
           const bgl = layout ?? this.renderer.bindGroupLayout

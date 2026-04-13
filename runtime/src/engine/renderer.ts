@@ -408,7 +408,7 @@ interface RenderLayer {
 }
 
 /** Linearly interpolate between sorted zoom stops */
-function interpolateZoom(stops: { zoom: number; value: number }[], zoom: number): number {
+export function interpolateZoom(stops: { zoom: number; value: number }[], zoom: number): number {
   if (stops.length === 0) return 1.0
   if (zoom <= stops[0].zoom) return stops[0].value
   if (zoom >= stops[stops.length - 1].zoom) return stops[stops.length - 1].value
