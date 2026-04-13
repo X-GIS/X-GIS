@@ -477,4 +477,97 @@ describe('Parser', () => {
       expect(sizeExpr.kind).toBe('PipeExpr')
     })
   })
+
+  describe('ternary conditional', () => {
+    it('parses expr ? expr : expr', () => {
+      const ast = parse('let x = a > 5 ? 1 : 0')
+      const expr = (ast.body[0] as AST.LetStatement).value
+      expect(expr.kind).toBe('ConditionalExpr')
+      const cond = expr as AST.ConditionalExpr
+      expect(cond.condition.kind).toBe('BinaryExpr')
+      expect(cond.thenExpr.kind).toBe('NumberLiteral')
+      expect(cond.elseExpr.kind).toBe('NumberLiteral')
+    })
+
+    it('parses nested ternary', () => {
+      const ast = parse('let x = a > 10 ? 2 : a > 5 ? 1 : 0')
+      const expr = (ast.body[0] as AST.LetStatement).value as AST.ConditionalExpr
+      expect(expr.kind).toBe('ConditionalExpr')
+      expect(expr.elseExpr.kind).toBe('ConditionalExpr')
+    })
+  })
+
+  describe('if/else statement', () => {
+    it('parses if/else in function', () => {
+      const ast = parse(`
+        fn classify(x: f32) -> f32 {
+          if x > 10 { return 1.0 }
+          else { return 0.0 }
+        }
+      `)
+      const fn = ast.body[0] as AST.FnStatement
+      expect(fn.body).toHaveLength(1)
+      const ifStmt = fn.body[0] as AST.IfStatement
+      expect(ifStmt.kind).toBe('IfStatement')
+      expect(ifStmt.thenBranch).toHaveLength(1)
+      expect(ifStmt.elseBranch).toHaveLength(1)
+      expect((ifStmt.thenBranch[0] as AST.ReturnStatement).kind).toBe('ReturnStatement')
+    })
+
+    it('parses else if chain', () => {
+      const ast = parse(`
+        fn grade(x: f32) -> string {
+          if x > 90 { return "A" }
+          else if x > 80 { return "B" }
+          else { return "C" }
+        }
+      `)
+      const fn = ast.body[0] as AST.FnStatement
+      const ifStmt = fn.body[0] as AST.IfStatement
+      expect(ifStmt.elseBranch).toHaveLength(1)
+      expect((ifStmt.elseBranch![0] as AST.IfStatement).kind).toBe('IfStatement')
+    })
+  })
+
+  describe('for loop', () => {
+    it('parses for..in range', () => {
+      const ast = parse(`
+        fn make(n: f32) -> array {
+          for i in 0..10 {
+            let x = i * 2
+          }
+        }
+      `)
+      const fn = ast.body[0] as AST.FnStatement
+      const forStmt = fn.body[0] as AST.ForStatement
+      expect(forStmt.kind).toBe('ForStatement')
+      expect(forStmt.variable).toBe('i')
+      expect((forStmt.start as AST.NumberLiteral).value).toBe(0)
+      expect((forStmt.end as AST.NumberLiteral).value).toBe(10)
+      expect(forStmt.body).toHaveLength(1)
+    })
+  })
+
+  describe('array literal', () => {
+    it('parses empty array', () => {
+      const ast = parse('let x = []')
+      const expr = (ast.body[0] as AST.LetStatement).value as AST.ArrayLiteral
+      expect(expr.kind).toBe('ArrayLiteral')
+      expect(expr.elements).toHaveLength(0)
+    })
+
+    it('parses array with elements', () => {
+      const ast = parse('let x = [1, 2, 3]')
+      const expr = (ast.body[0] as AST.LetStatement).value as AST.ArrayLiteral
+      expect(expr.kind).toBe('ArrayLiteral')
+      expect(expr.elements).toHaveLength(3)
+    })
+
+    it('parses nested array', () => {
+      const ast = parse('let x = [[1, 2], [3, 4]]')
+      const expr = (ast.body[0] as AST.LetStatement).value as AST.ArrayLiteral
+      expect(expr.elements).toHaveLength(2)
+      expect((expr.elements[0] as AST.ArrayLiteral).kind).toBe('ArrayLiteral')
+    })
+  })
 })

@@ -148,4 +148,13 @@ export const DEMOS: Record<string, Demo> = {
     description: 'Natural Earth 110m countries as vector tiles with categorical colors',
     source: load('countries-categorical-xgvt.xgis'),
   },
+
+  // ── Procedural geometry ──
+
+  procedural_circles: {
+    name: 'GDP Circles',
+    tag: 'procedural',
+    description: 'Procedural circles sized by GDP — geometry generated per-feature at runtime',
+    source: load('procedural-circles.xgis'),
+  },
 }

@@ -154,6 +154,141 @@ describe('Evaluator', () => {
       expect(evaluate(expr, { speed: 0.2 })).toBe(4) // 2 clamped to 4
     })
   })
+
+  describe('trigonometry', () => {
+    it('sin/cos/tan', () => {
+      expect(evaluate(parseExpr('sin(0)'), {})).toBe(0)
+      expect(evaluate(parseExpr('cos(0)'), {})).toBe(1)
+      expect(evaluate(parseExpr('sin(3.14159265 / 2)'), {})).toBeCloseTo(1)
+    })
+
+    it('atan2', () => {
+      expect(evaluate(parseExpr('atan2(1, 0)'), {})).toBeCloseTo(Math.PI / 2)
+    })
+
+    it('pow/exp/log', () => {
+      expect(evaluate(parseExpr('pow(2, 10)'), {})).toBe(1024)
+      expect(evaluate(parseExpr('exp(0)'), {})).toBe(1)
+      expect(evaluate(parseExpr('log(1)'), {})).toBe(0)
+    })
+
+    it('PI/TAU constants', () => {
+      expect(evaluate(parseExpr('PI()'), {})).toBeCloseTo(Math.PI)
+      expect(evaluate(parseExpr('TAU()'), {})).toBeCloseTo(Math.PI * 2)
+    })
+  })
+
+  describe('ternary conditional', () => {
+    it('evaluates true branch', () => {
+      expect(evaluate(parseExpr('10 > 5 ? 1 : 0'), {})).toBe(1)
+    })
+
+    it('evaluates false branch', () => {
+      expect(evaluate(parseExpr('3 > 5 ? 1 : 0'), {})).toBe(0)
+    })
+
+    it('works with field access', () => {
+      expect(evaluate(parseExpr('.speed > 10 ? "fast" : "slow"'), SHIP)).toBe('fast')
+      expect(evaluate(parseExpr('.speed > 100 ? "fast" : "slow"'), SHIP)).toBe('slow')
+    })
+
+    it('nested ternary', () => {
+      expect(evaluate(parseExpr('.speed > 100 ? "fast" : .speed > 10 ? "medium" : "slow"'), SHIP)).toBe('medium')
+    })
+  })
+
+  describe('arrays', () => {
+    it('evaluates array literal', () => {
+      const result = evaluate(parseExpr('[1, 2, 3]'), {})
+      expect(result).toEqual([1, 2, 3])
+    })
+
+    it('evaluates nested array', () => {
+      const result = evaluate(parseExpr('[[1, 2], [3, 4]]'), {})
+      expect(result).toEqual([[1, 2], [3, 4]])
+    })
+
+    it('length builtin', () => {
+      expect(evaluate(parseExpr('length([10, 20, 30])'), {})).toBe(3)
+    })
+  })
+
+  describe('user functions with control flow', () => {
+    function evalWithFn(fnSrc: string, callSrc: string, props: FeatureProps = {}): unknown {
+      const tokens = new Lexer(`${fnSrc}\nlet result = ${callSrc}`).tokenize()
+      const ast = new Parser(tokens).parse()
+      const fnStmt = ast.body[0] as AST.FnStatement
+      const letStmt = ast.body[1] as AST.LetStatement
+      const fnEnv = new Map([[fnStmt.name, fnStmt]])
+      return evaluate(letStmt.value, props, fnEnv)
+    }
+
+    it('if/else with return', () => {
+      expect(evalWithFn(
+        'fn classify(x: f32) -> f32 { if x > 10 { return 1.0 } else { return 0.0 } }',
+        'classify(20)'
+      )).toBe(1)
+
+      expect(evalWithFn(
+        'fn classify(x: f32) -> f32 { if x > 10 { return 1.0 } else { return 0.0 } }',
+        'classify(5)'
+      )).toBe(0)
+    })
+
+    it('else if chain', () => {
+      expect(evalWithFn(
+        'fn grade(x: f32) -> f32 { if x > 90 { return 4.0 } else if x > 80 { return 3.0 } else { return 2.0 } }',
+        'grade(95)'
+      )).toBe(4)
+      expect(evalWithFn(
+        'fn grade(x: f32) -> f32 { if x > 90 { return 4.0 } else if x > 80 { return 3.0 } else { return 2.0 } }',
+        'grade(85)'
+      )).toBe(3)
+    })
+
+    it('for loop with last expression', () => {
+      const result = evalWithFn(
+        `fn sum_to(n: f32) -> f32 {
+          let total = 0
+          for i in 0..4 {
+            let total = total + i
+          }
+          return total
+        }`,
+        'sum_to(4)'
+      )
+      // 0+1+2+3 = 6
+      expect(result).toBe(6)
+    })
+
+    it('trig in function body', () => {
+      const result = evalWithFn(
+        `fn circle_point(angle: f32) -> array {
+          return [cos(angle), sin(angle)]
+        }`,
+        'circle_point(0)'
+      )
+      expect(result).toEqual([1, 0])
+    })
+  })
+
+  describe('geometry builtins', () => {
+    it('circle generates closed ring', () => {
+      const result = evaluate(parseExpr('circle(0, 0, 1, 4)'), {}) as number[][]
+      expect(result).toHaveLength(5) // 4 segments + closing point
+      expect(result[0][0]).toBeCloseTo(1) // first point at (1,0)
+      expect(result[0][1]).toBeCloseTo(0)
+      expect(result[4][0]).toBeCloseTo(result[0][0]) // closed
+      expect(result[4][1]).toBeCloseTo(result[0][1])
+    })
+
+    it('arc generates partial ring', () => {
+      const result = evaluate(parseExpr('arc(0, 0, 1, 0, 3.14159265, 4)'), {}) as number[][]
+      expect(result).toHaveLength(5) // 4+1 points for half circle
+      expect(result[0][0]).toBeCloseTo(1)  // start at (1,0)
+      expect(result[4][0]).toBeCloseTo(-1) // end at (-1,0)
+    })
+  })
 })
 
 describe('Data-driven IR lowering', () => {

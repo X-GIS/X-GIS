@@ -1,0 +1,18 @@
+/* Procedural circles: generate geometry per-feature from point data */
+
+source capitals {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer base {
+  source: capitals
+  | fill-slate-800 stroke-slate-600 stroke-0.5
+}
+
+/* Population circles — radius proportional to GDP */
+layer gdp_circles {
+  source: capitals
+  geometry: circle(.LABEL_X, .LABEL_Y, sqrt(.GDP_MD_EST) / 50000, 32)
+  | fill-emerald-400 opacity-30 stroke-emerald-500 stroke-1
+}
