@@ -248,19 +248,16 @@ export class PointRenderer {
     const verts = new Float32Array(points.length * 4 * 4) // 4 verts × 4 floats
     const indices = new Uint32Array(points.length * 6)
 
+    const u32View = new Uint32Array(verts.buffer)
     for (let i = 0; i < points.length; i++) {
-      const base = i * 4 * 4
+      const base = i * 4 * 4 // 4 verts × 4 floats
       const { lon, lat } = points[i]
       for (let q = 0; q < 4; q++) {
-        verts[base + q * 4 + 0] = lon
-        verts[base + q * 4 + 1] = lat
-        verts[base + q * 4 + 2] = q   // quad_id as uint32 bits in float32
-        verts[base + q * 4 + 3] = i   // feat_id
-      }
-      // Rewrite quad_id as proper uint32
-      const u32View = new Uint32Array(verts.buffer)
-      for (let q = 0; q < 4; q++) {
-        u32View[base / 4 + q * 4 + 2] = q
+        const off = base + q * 4
+        verts[off + 0] = lon
+        verts[off + 1] = lat
+        u32View[off + 2] = q  // quad_id as uint32 (same index — both are 4-byte elements)
+        verts[off + 3] = i    // feat_id as float32
       }
       const iBase = i * 6
       const vBase = i * 4
