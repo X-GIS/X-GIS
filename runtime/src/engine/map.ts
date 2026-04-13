@@ -532,12 +532,7 @@ export class XGISMap {
       this.rasterRenderer.render(pass, this.camera, projType, centerLon, centerLat, w, h)
       this.renderer.renderToPass(pass, this.camera, projType, centerLon, centerLat)
 
-      // Render SDF points
-      if (this.pointRenderer?.hasLayers()) {
-        this.pointRenderer.render(pass, this.camera, centerLon, centerLat, w, h)
-      }
-
-      // Render vector tile sources
+      // Render vector tile sources (polygons/lines — before points)
       if (this.vectorTileShows.length === 1) {
         // Single source: render in existing pass (shared stencil)
         for (const { sourceName, show, pipelines, layout } of this.vectorTileShows) {
@@ -552,6 +547,12 @@ export class XGISMap {
             pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback)
         }
       }
+
+      // Render SDF points (after polygons so points appear on top)
+      if (this.pointRenderer?.hasLayers()) {
+        this.pointRenderer.render(pass, this.camera, centerLon, centerLat, w, h)
+      }
+
       pass.end()
 
       // Multi-source: separate pass per source (independent stencil clear)
@@ -581,6 +582,24 @@ export class XGISMap {
             pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback,
             pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback)
           vtPass.end()
+        }
+
+        // Render SDF points after all VT passes
+        if (this.pointRenderer?.hasLayers()) {
+          const ptPass = encoder.beginRenderPass({
+            colorAttachments: [{
+              view: msaaView,
+              resolveTarget: screenView,
+              loadOp: 'load',
+              storeOp: 'store',
+            }],
+            depthStencilAttachment: {
+              view: this.stencilTexture!.createView(),
+              stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard',
+            },
+          })
+          this.pointRenderer.render(ptPass, this.camera, centerLon, centerLat, w, h)
+          ptPass.end()
         }
       }
     }
