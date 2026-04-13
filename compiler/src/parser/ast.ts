@@ -16,6 +16,9 @@ export type Statement =
   | ImportStatement
   | SymbolStatement
   | StyleStatement
+  | IfStatement
+  | ReturnStatement
+  | ForStatement
 
 // let world = load("countries.geojson")
 export type LetStatement = {
@@ -68,6 +71,32 @@ export type ExprStatement = {
   line: number
 }
 
+// if condition { then } else { else }
+export type IfStatement = {
+  kind: 'IfStatement'
+  condition: Expr
+  thenBranch: Statement[]
+  elseBranch: Statement[] | null
+  line: number
+}
+
+// return expr
+export type ReturnStatement = {
+  kind: 'ReturnStatement'
+  value: Expr | null
+  line: number
+}
+
+// for i in start..end { body }
+export type ForStatement = {
+  kind: 'ForStatement'
+  variable: string
+  start: Expr
+  end: Expr
+  body: Statement[]
+  line: number
+}
+
 // ═══ Expressions ═══
 
 export type Expr =
@@ -79,6 +108,8 @@ export type Expr =
   | FieldAccess
   | FnCall
   | BinaryExpr
+  | ArrayLiteral
+  | ArrayAccess
   | UnaryExpr
   | PipeExpr
   | MatchBlock
@@ -155,6 +186,17 @@ export type MatchBlock = {
 export type MatchArm = {
   pattern: string // key name or '_' for default
   value: Expr
+}
+
+export type ArrayLiteral = {
+  kind: 'ArrayLiteral'
+  elements: Expr[]
+}
+
+export type ArrayAccess = {
+  kind: 'ArrayAccess'
+  array: Expr
+  index: Expr
 }
 
 // ═══ New syntax: source/layer/utility (DESIGN.md v3) ═══

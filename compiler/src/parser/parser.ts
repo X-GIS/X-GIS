@@ -40,9 +40,74 @@ export class Parser {
         return this.parseSymbolStatement()
       case TokenType.Style:
         return this.parseStyleStatement()
+      case TokenType.If:
+        return this.parseIfStatement()
+      case TokenType.Return:
+        return this.parseReturnStatement()
+      case TokenType.For:
+        return this.parseForStatement()
       default:
         return this.parseExprStatement()
     }
+  }
+
+  // if expr { stmts } else { stmts }
+  private parseIfStatement(): AST.IfStatement {
+    const line = this.current().line
+    this.expect(TokenType.If)
+    const condition = this.parseExpr()
+    this.expect(TokenType.LBrace)
+    const thenBranch: AST.Statement[] = []
+    while (!this.check(TokenType.RBrace) && !this.check(TokenType.EOF)) {
+      thenBranch.push(this.parseStatement())
+    }
+    this.expect(TokenType.RBrace)
+
+    let elseBranch: AST.Statement[] | null = null
+    if (this.check(TokenType.Else)) {
+      this.advance()
+      if (this.check(TokenType.If)) {
+        // else if — chain as single statement in else branch
+        elseBranch = [this.parseIfStatement()]
+      } else {
+        this.expect(TokenType.LBrace)
+        elseBranch = []
+        while (!this.check(TokenType.RBrace) && !this.check(TokenType.EOF)) {
+          elseBranch.push(this.parseStatement())
+        }
+        this.expect(TokenType.RBrace)
+      }
+    }
+    return { kind: 'IfStatement', condition, thenBranch, elseBranch, line }
+  }
+
+  // return expr
+  private parseReturnStatement(): AST.ReturnStatement {
+    const line = this.current().line
+    this.expect(TokenType.Return)
+    let value: AST.Expr | null = null
+    if (!this.check(TokenType.RBrace) && !this.check(TokenType.EOF)) {
+      value = this.parseExpr()
+    }
+    return { kind: 'ReturnStatement', value, line }
+  }
+
+  // for name in start..end { body }
+  private parseForStatement(): AST.ForStatement {
+    const line = this.current().line
+    this.expect(TokenType.For)
+    const variable = this.expect(TokenType.Identifier).value
+    this.expect(TokenType.In)
+    const start = this.parseExpr()
+    this.expect(TokenType.DotDot)
+    const end = this.parseExpr()
+    this.expect(TokenType.LBrace)
+    const body: AST.Statement[] = []
+    while (!this.check(TokenType.RBrace) && !this.check(TokenType.EOF)) {
+      body.push(this.parseStatement())
+    }
+    this.expect(TokenType.RBrace)
+    return { kind: 'ForStatement', variable, start, end, body, line }
   }
 
   // let name = expr
@@ -671,6 +736,11 @@ export class Parser {
         this.advance()
         const field = this.expect(TokenType.Identifier).value
         expr = { kind: 'FieldAccess', object: expr, field }
+      } else if (this.check(TokenType.LBracket)) {
+        this.advance()
+        const index = this.parseExpr()
+        this.expect(TokenType.RBracket)
+        expr = { kind: 'ArrayAccess', array: expr, index }
       } else {
         break
       }
@@ -732,6 +802,18 @@ export class Parser {
       // Check for match block: identifier { key: value, ... }
       // (used in show properties like: .type { hostile: #ff0000, _: #808080 })
       return { kind: 'Identifier', name: token.value }
+    }
+
+    // Array literal: [expr, expr, ...]
+    if (token.type === TokenType.LBracket) {
+      this.advance()
+      const elements: AST.Expr[] = []
+      while (!this.check(TokenType.RBracket) && !this.check(TokenType.EOF)) {
+        elements.push(this.parseExpr())
+        if (this.check(TokenType.Comma)) this.advance()
+      }
+      this.expect(TokenType.RBracket)
+      return { kind: 'ArrayLiteral', elements }
     }
 
     // Grouped expression: ( expr )

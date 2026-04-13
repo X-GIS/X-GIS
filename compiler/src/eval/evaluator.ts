@@ -39,6 +39,13 @@ export function evaluate(expr: AST.Expr, props: FeatureProps, fnEnv?: FnEnv): un
       return evaluatePipe(expr, props, fnEnv)
     case 'MatchBlock':
       return evaluateMatch(expr, props, fnEnv)
+    case 'ArrayLiteral':
+      return expr.elements.map(e => evaluate(e, props, fnEnv))
+    case 'ArrayAccess': {
+      const arr = evaluate(expr.array, props, fnEnv)
+      const idx = toNumber(evaluate(expr.index, props, fnEnv))
+      return Array.isArray(arr) ? arr[Math.floor(idx)] ?? null : null
+    }
     default:
       return null
   }
@@ -91,6 +98,52 @@ function evaluateUnary(expr: AST.UnaryExpr, props: FeatureProps, fnEnv?: FnEnv):
   }
 }
 
+/** Sentinel for early return from function body */
+class ReturnSignal { constructor(public value: unknown) {} }
+
+const MAX_LOOP_ITERATIONS = 10000
+
+/** Execute a list of statements, returning the last expression value or ReturnSignal */
+function executeBody(body: AST.Statement[], scope: FeatureProps, fnEnv?: FnEnv): unknown {
+  let result: unknown = null
+  for (const stmt of body) {
+    switch (stmt.kind) {
+      case 'ExprStatement':
+        result = evaluate(stmt.expr, scope, fnEnv)
+        break
+      case 'LetStatement':
+        scope[stmt.name] = evaluate(stmt.value, scope, fnEnv)
+        break
+      case 'ReturnStatement':
+        return new ReturnSignal(stmt.value ? evaluate(stmt.value, scope, fnEnv) : null)
+      case 'IfStatement': {
+        const cond = toBool(evaluate(stmt.condition, scope, fnEnv))
+        const branch = cond ? stmt.thenBranch : stmt.elseBranch
+        if (branch) {
+          const r = executeBody(branch, scope, fnEnv)
+          if (r instanceof ReturnSignal) return r
+          result = r
+        }
+        break
+      }
+      case 'ForStatement': {
+        const startVal = Math.floor(toNumber(evaluate(stmt.start, scope, fnEnv)))
+        const endVal = Math.floor(toNumber(evaluate(stmt.end, scope, fnEnv)))
+        const iterations = Math.min(Math.abs(endVal - startVal), MAX_LOOP_ITERATIONS)
+        for (let i = 0; i < iterations; i++) {
+          scope[stmt.variable] = startVal + i
+          const r = executeBody(stmt.body, scope, fnEnv)
+          if (r instanceof ReturnSignal) return r
+          result = r
+        }
+        break
+      }
+      default: break
+    }
+  }
+  return result
+}
+
 function evaluateFnCall(expr: AST.FnCall, props: FeatureProps, fnEnv?: FnEnv): unknown {
   const name = expr.callee.kind === 'Identifier' ? expr.callee.name : null
   if (!name) return null
@@ -102,18 +155,9 @@ function evaluateFnCall(expr: AST.FnCall, props: FeatureProps, fnEnv?: FnEnv): u
     const fn = fnEnv.get(name)
     if (fn) {
       const fnProps: FeatureProps = { ...props }
-      fn.params.forEach((p, i) => {
-        fnProps[p.name] = args[i]
-      })
-      let result: unknown = null
-      for (const stmt of fn.body) {
-        if (stmt.kind === 'ExprStatement') {
-          result = evaluate(stmt.expr, fnProps, fnEnv)
-        } else if (stmt.kind === 'LetStatement') {
-          fnProps[stmt.name] = evaluate(stmt.value, fnProps, fnEnv)
-        }
-      }
-      return result
+      fn.params.forEach((p, i) => { fnProps[p.name] = args[i] })
+      const r = executeBody(fn.body, fnProps, fnEnv)
+      return r instanceof ReturnSignal ? r.value : r
     }
   }
 
@@ -167,12 +211,28 @@ function callBuiltin(name: string, args: unknown[]): unknown {
     case 'log2': return Math.log2(Math.max(1e-10, toNumber(args[0])))
     case 'scale': return toNumber(args[0]) * toNumber(args[1])
     case 'step': {
-      // step(value, threshold, below, above)
       const [val, threshold, below, above] = args.map(toNumber)
       return val < threshold ? below : above
     }
+    // Trigonometry
+    case 'sin': return Math.sin(toNumber(args[0]))
+    case 'cos': return Math.cos(toNumber(args[0]))
+    case 'tan': return Math.tan(toNumber(args[0]))
+    case 'asin': return Math.asin(toNumber(args[0]))
+    case 'acos': return Math.acos(toNumber(args[0]))
+    case 'atan': return Math.atan(toNumber(args[0]))
+    case 'atan2': return Math.atan2(toNumber(args[0]), toNumber(args[1]))
+    // Exponential
+    case 'pow': return Math.pow(toNumber(args[0]), toNumber(args[1]))
+    case 'exp': return Math.exp(toNumber(args[0]))
+    case 'log': return Math.log(Math.max(1e-10, toNumber(args[0])))
+    // Constants
+    case 'PI': return Math.PI
+    case 'TAU': return Math.PI * 2
+    // Array
+    case 'length': return Array.isArray(args[0]) ? args[0].length : 0
     default:
-      return args[0] ?? null // unknown function passes through first arg
+      return args[0] ?? null
   }
 }
 
