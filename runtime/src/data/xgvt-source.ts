@@ -23,6 +23,7 @@ export interface TileData {
   indices: Uint32Array         // triangle indices
   lineVertices: Float32Array   // line vertices
   lineIndices: Uint32Array     // line segment indices (pairs)
+  pointVertices?: Float32Array // [lon, lat, featId] stride 3 (tile-local points)
   tileWest: number             // tile origin (degrees)
   tileSouth: number
   tileWidth: number
@@ -103,7 +104,7 @@ export class XGVTSource {
     }
 
     const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
-    this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+    this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices)
     return true
   }
 
@@ -213,7 +214,7 @@ export class XGVTSource {
           const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({
             rings: p.rings, featId: p.featId,
           }))
-          this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+          this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices)
         }
         tileCount++
       }
@@ -281,7 +282,7 @@ export class XGVTSource {
         this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
       } else {
         const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
-        this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices)
+        this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices)
       }
     }
   }
@@ -505,6 +506,7 @@ export class XGVTSource {
     polygons: RingPolygon[] | undefined,
     vertices: Float32Array, indices: Uint32Array,
     lineVertices: Float32Array, lineIndices: Uint32Array,
+    pointVertices?: Float32Array,
   ): void {
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
@@ -515,6 +517,7 @@ export class XGVTSource {
 
     const data: TileData = {
       vertices, indices, lineVertices, lineIndices,
+      pointVertices,
       tileWest, tileSouth,
       tileWidth: tileEast - tileWest,
       tileHeight: tileNorth - tileSouth,
