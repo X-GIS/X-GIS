@@ -132,12 +132,18 @@ interface PointLayer {
   vertexBuffer: GPUBuffer
   indexBuffer: GPUBuffer
   featureBuffer: GPUBuffer
-  featData: Float32Array        // CPU copy for RTC updates
-  lons: Float64Array            // original longitudes (f64)
-  lats: Float64Array            // original latitudes (f64)
+  featData: Float32Array
+  lons: Float64Array
+  lats: Float64Array
   indexCount: number
   pointCount: number
   bindGroup: GPUBindGroup
+  // Expanded buffers for 3× world copies (created on first render)
+  _expandedVertBuf?: GPUBuffer
+  _expandedIdxBuf?: GPUBuffer
+  _expandedFeatBuf?: GPUBuffer
+  _expandedBindGroup?: GPUBindGroup
+  _expandedSize?: number
 }
 
 // ═══ Renderer ═══
@@ -195,6 +201,9 @@ export class PointRenderer {
       layer.vertexBuffer.destroy()
       layer.indexBuffer.destroy()
       layer.featureBuffer.destroy()
+      layer._expandedVertBuf?.destroy()
+      layer._expandedIdxBuf?.destroy()
+      layer._expandedFeatBuf?.destroy()
     }
     this.layers = []
   }
@@ -241,46 +250,45 @@ export class PointRenderer {
     if (fill) flags |= 1
     if (stroke) flags |= 2
 
-    // Build quad vertices + feat_data
+    // Build 3× expanded buffers (primary + left + right world copies)
     const STRIDE = 13
-    const verts = new Float32Array(N * 4 * 4)
-    const indices = new Uint32Array(N * 6)
-    const featData = new Float32Array(N * STRIDE)
+    const WORLD_MERC = 40075016.686
+    const COPIES = [-1, 0, 1]
+    const totalN = N * COPIES.length
+
+    const verts = new Float32Array(totalN * 4 * 4)
+    const indices = new Uint32Array(totalN * 6)
+    const featData = new Float32Array(totalN * STRIDE)
     const u32View = new Uint32Array(verts.buffer)
 
-    for (let i = 0; i < N; i++) {
-      const pt = this.tilePoints[i]
-      const base = i * 4 * 4
+    for (let w = 0; w < COPIES.length; w++) {
+      const worldOff = COPIES[w] * WORLD_MERC
+      for (let i = 0; i < N; i++) {
+        const pt = this.tilePoints[i]
+        const gi = w * N + i
 
-      for (let q = 0; q < 4; q++) {
-        const off = base + q * 4
-        verts[off + 0] = 0     // center placeholder (not used — RTC in feat_data)
-        verts[off + 1] = 0
-        u32View[off + 2] = q
-        verts[off + 3] = i
+        const base = gi * 4 * 4
+        for (let q = 0; q < 4; q++) {
+          const off = base + q * 4
+          verts[off] = 0; verts[off + 1] = 0; u32View[off + 2] = q; verts[off + 3] = gi
+        }
+
+        const iBase = gi * 6, vBase = gi * 4
+        indices[iBase] = vBase; indices[iBase+1] = vBase+1; indices[iBase+2] = vBase+2
+        indices[iBase+3] = vBase; indices[iBase+4] = vBase+2; indices[iBase+5] = vBase+3
+
+        const fOff = gi * STRIDE
+        featData[fOff+0] = radiusPx
+        featData[fOff+1] = fill?fill[0]:0; featData[fOff+2] = fill?fill[1]:0
+        featData[fOff+3] = fill?fill[2]:0; featData[fOff+4] = fill?fill[3]*opacity:0
+        featData[fOff+5] = stroke?stroke[0]:0; featData[fOff+6] = stroke?stroke[1]:0
+        featData[fOff+7] = stroke?stroke[2]:0; featData[fOff+8] = stroke?stroke[3]*opacity:0
+        featData[fOff+9] = strokeWidth; featData[fOff+10] = flags
+        featData[fOff+11] = pt.rtcX + worldOff
+        featData[fOff+12] = pt.rtcY
       }
-
-      const iBase = i * 6, vBase = i * 4
-      indices[iBase] = vBase; indices[iBase + 1] = vBase + 1; indices[iBase + 2] = vBase + 2
-      indices[iBase + 3] = vBase; indices[iBase + 4] = vBase + 2; indices[iBase + 5] = vBase + 3
-
-      const fOff = i * STRIDE
-      featData[fOff + 0] = radiusPx
-      featData[fOff + 1] = fill ? fill[0] : 0
-      featData[fOff + 2] = fill ? fill[1] : 0
-      featData[fOff + 3] = fill ? fill[2] : 0
-      featData[fOff + 4] = fill ? fill[3] * opacity : 0
-      featData[fOff + 5] = stroke ? stroke[0] : 0
-      featData[fOff + 6] = stroke ? stroke[1] : 0
-      featData[fOff + 7] = stroke ? stroke[2] : 0
-      featData[fOff + 8] = stroke ? stroke[3] * opacity : 0
-      featData[fOff + 9] = strokeWidth
-      featData[fOff + 10] = flags
-      featData[fOff + 11] = pt.rtcX  // pre-computed RTC (f64 precision)
-      featData[fOff + 12] = pt.rtcY
     }
 
-    // Upload (reuse or recreate buffers)
     this.tilePointBuffer?.destroy()
     this.tilePointIndexBuffer?.destroy()
     this.tilePointFeatBuffer?.destroy()
@@ -300,7 +308,6 @@ export class PointRenderer {
       ],
     })
 
-    // Update uniforms (viewport + mpp)
     const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
     const uf = this.uniformData
     uf.set(mvp, 0)
@@ -310,25 +317,12 @@ export class PointRenderer {
     uf[24] = canvasWidth; uf[25] = canvasHeight; uf[26] = metersPerPixel; uf[27] = 0
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
 
-    // Draw
+    // Single draw call for all 3 world copies
     pass.setPipeline(this.pipeline)
     pass.setBindGroup(0, this.tilePointBindGroup)
     pass.setVertexBuffer(0, this.tilePointBuffer)
     pass.setIndexBuffer(this.tilePointIndexBuffer, 'uint32')
-    pass.drawIndexed(N * 6)
-
-    // World copies: offset RTC x by ±WORLD_MERC
-    const WORLD_MERC = 40075016.686
-    for (const worldOff of [-WORLD_MERC, WORLD_MERC]) {
-      for (let i = 0; i < N; i++) {
-        featData[i * STRIDE + 11] += worldOff
-      }
-      this.device.queue.writeBuffer(this.tilePointFeatBuffer!, 0, featData)
-      pass.drawIndexed(N * 6)
-      for (let i = 0; i < N; i++) {
-        featData[i * STRIDE + 11] -= worldOff
-      }
-    }
+    pass.drawIndexed(totalN * 6)
 
     // Clear for next frame
     this.tilePoints = []
@@ -512,47 +506,87 @@ export class PointRenderer {
     const camClampedLat = Math.max(-85.051129, Math.min(85.051129, projCenterLat))
     const camMercY = Math.log(Math.tan(Math.PI / 4 + camClampedLat * DEG2RAD / 2)) * R
 
+    const WORLD_MERC = 40075016.686
+    const STRIDE = 13
+    const WORLD_COPIES = [-1, 0, 1]
+
     for (const layer of this.layers) {
-      // Per-frame: compute RTC offsets in f64, write to feat_data as small f32
-      const STRIDE = 13
-      const WORLD_MERC = 40075016.686 // Earth circumference in Mercator meters
+      const N = layer.pointCount
+      // Build 3× expanded buffers (one copy per world)
+      const totalPoints = N * WORLD_COPIES.length
+      const expandedFeat = new Float32Array(totalPoints * STRIDE)
+      const expandedVerts = new Float32Array(totalPoints * 4 * 4)
+      const expandedIdx = new Uint32Array(totalPoints * 6)
+      const u32Verts = new Uint32Array(expandedVerts.buffer)
 
-      for (let i = 0; i < layer.pointCount; i++) {
-        const lon = layer.lons[i]
-        const lat = layer.lats[i]
-        let mercX = lon * DEG2RAD * R
-        const clampLat = Math.max(-85.051129, Math.min(85.051129, lat))
-        const mercY = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
+      for (let w = 0; w < WORLD_COPIES.length; w++) {
+        const worldOff = WORLD_COPIES[w] * WORLD_MERC
+        const basePoint = w * N
 
-        // Wrap to closest world copy (like MapLibre)
-        let dx = mercX - camMercX
-        if (dx > WORLD_MERC / 2) dx -= WORLD_MERC
-        else if (dx < -WORLD_MERC / 2) dx += WORLD_MERC
+        for (let i = 0; i < N; i++) {
+          const lon = layer.lons[i]
+          const lat = layer.lats[i]
+          const mercX = lon * DEG2RAD * R
+          const clampLat = Math.max(-85.051129, Math.min(85.051129, lat))
+          const mercY = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
 
-        layer.featData[i * STRIDE + 11] = dx
-        layer.featData[i * STRIDE + 12] = mercY - camMercY
+          let dx = mercX - camMercX + worldOff
+          const dy = mercY - camMercY
+
+          // Copy style data from original
+          const srcOff = i * STRIDE
+          const dstOff = (basePoint + i) * STRIDE
+          expandedFeat.set(layer.featData.subarray(srcOff, srcOff + 11), dstOff)
+          expandedFeat[dstOff + 11] = dx
+          expandedFeat[dstOff + 12] = dy
+
+          // Build quad vertices
+          const globalIdx = basePoint + i
+          const vBase = globalIdx * 4 * 4
+          for (let q = 0; q < 4; q++) {
+            const off = vBase + q * 4
+            expandedVerts[off + 0] = 0 // placeholder (RTC in feat_data)
+            expandedVerts[off + 1] = 0
+            u32Verts[off + 2] = q
+            expandedVerts[off + 3] = globalIdx // feat_id indexes into expanded buffer
+          }
+
+          // Build indices
+          const iBase = globalIdx * 6
+          const vIdx = globalIdx * 4
+          expandedIdx[iBase] = vIdx; expandedIdx[iBase + 1] = vIdx + 1; expandedIdx[iBase + 2] = vIdx + 2
+          expandedIdx[iBase + 3] = vIdx; expandedIdx[iBase + 4] = vIdx + 2; expandedIdx[iBase + 5] = vIdx + 3
+        }
       }
-      this.device.queue.writeBuffer(layer.featureBuffer, 0, layer.featData)
 
-      // Draw primary + world copies (-1, 0, +1)
+      // Upload expanded buffers
+      // Reuse or recreate GPU buffers sized for 3× points
+      if (!layer._expandedVertBuf || layer._expandedSize !== totalPoints) {
+        layer._expandedVertBuf?.destroy()
+        layer._expandedIdxBuf?.destroy()
+        layer._expandedFeatBuf?.destroy()
+        layer._expandedVertBuf = this.device.createBuffer({ size: expandedVerts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
+        layer._expandedIdxBuf = this.device.createBuffer({ size: expandedIdx.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST })
+        layer._expandedFeatBuf = this.device.createBuffer({ size: Math.max(expandedFeat.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST })
+        layer._expandedBindGroup = this.device.createBindGroup({
+          layout: this.bindGroupLayout,
+          entries: [
+            { binding: 0, resource: { buffer: this.uniformBuffer } },
+            { binding: 1, resource: { buffer: layer._expandedFeatBuf } },
+          ],
+        })
+        layer._expandedSize = totalPoints
+      }
+
+      this.device.queue.writeBuffer(layer._expandedVertBuf!, 0, expandedVerts)
+      this.device.queue.writeBuffer(layer._expandedIdxBuf!, 0, expandedIdx)
+      this.device.queue.writeBuffer(layer._expandedFeatBuf!, 0, expandedFeat)
+
       pass.setPipeline(this.pipeline)
-      pass.setBindGroup(0, layer.bindGroup)
-      pass.setVertexBuffer(0, layer.vertexBuffer)
-      pass.setIndexBuffer(layer.indexBuffer, 'uint32')
-      pass.drawIndexed(layer.indexCount)
-
-      // World copies: offset all points by ±WORLD_MERC and draw again
-      for (const worldOff of [-WORLD_MERC, WORLD_MERC]) {
-        for (let i = 0; i < layer.pointCount; i++) {
-          layer.featData[i * STRIDE + 11] += worldOff
-        }
-        this.device.queue.writeBuffer(layer.featureBuffer, 0, layer.featData)
-        pass.drawIndexed(layer.indexCount)
-        // Restore
-        for (let i = 0; i < layer.pointCount; i++) {
-          layer.featData[i * STRIDE + 11] -= worldOff
-        }
-      }
+      pass.setBindGroup(0, layer._expandedBindGroup!)
+      pass.setVertexBuffer(0, layer._expandedVertBuf!)
+      pass.setIndexBuffer(layer._expandedIdxBuf!, 'uint32')
+      pass.drawIndexed(totalPoints * 6)
     }
   }
 }
