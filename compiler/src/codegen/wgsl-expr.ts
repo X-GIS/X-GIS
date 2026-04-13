@@ -182,8 +182,9 @@ function pipeToWGSL(expr: AST.PipeExpr, fieldMap: Map<string, number>, fnEnv?: W
 }
 
 /**
- * Inline a user-defined function by substituting args into the body expression.
- * Only works for single-expression function bodies.
+ * Inline a user-defined function by compiling its body to WGSL.
+ * Simple bodies (single expression) → direct substitution.
+ * Complex bodies (if/else, let, return) → preamble + result var.
  */
 function inlineUserFn(
   fn: AST.FnStatement,
@@ -191,20 +192,64 @@ function inlineUserFn(
   fieldMap: Map<string, number>,
   fnEnv?: WGSLFnEnv,
 ): string {
-  // Build param → WGSL expression mapping
   const paramMap = new Map<string, string>()
   fn.params.forEach((p, i) => {
     paramMap.set(p.name, argExprs[i] ?? '0.0')
   })
 
-  // Find the expression in the body (last ExprStatement)
-  for (let i = fn.body.length - 1; i >= 0; i--) {
-    const stmt = fn.body[i]
+  // Check if body has control flow (if/return)
+  const hasControlFlow = fn.body.some(s =>
+    s.kind === 'IfStatement' || s.kind === 'ReturnStatement'
+  )
+
+  if (!hasControlFlow) {
+    // Simple path: find last ExprStatement
+    for (let i = fn.body.length - 1; i >= 0; i--) {
+      const stmt = fn.body[i]
+      if (stmt.kind === 'ExprStatement') {
+        return substituteParams(stmt.expr, paramMap, fieldMap, fnEnv)
+      }
+    }
+    return '0.0'
+  }
+
+  // Complex path: compile statements to WGSL with a result variable
+  // This generates preamble code that gets injected via the fillPreamble mechanism
+  return compileStmtBlockToWGSL(fn.body, paramMap, fieldMap, fnEnv)
+}
+
+/** Compile a statement block to a single WGSL expression using nested select() */
+function compileStmtBlockToWGSL(
+  stmts: AST.Statement[],
+  paramMap: Map<string, string>,
+  fieldMap: Map<string, number>,
+  fnEnv?: WGSLFnEnv,
+): string {
+  // Strategy: convert if/else chains to nested select()
+  // fn f(x) { if x > 10 { return 1.0 } else { return 0.5 } }
+  // → select(0.5, 1.0, x > 10.0)
+
+  for (const stmt of stmts) {
+    if (stmt.kind === 'ReturnStatement' && stmt.value) {
+      return substituteParams(stmt.value, paramMap, fieldMap, fnEnv)
+    }
     if (stmt.kind === 'ExprStatement') {
       return substituteParams(stmt.expr, paramMap, fieldMap, fnEnv)
     }
+    if (stmt.kind === 'LetStatement') {
+      // Add local variable to paramMap
+      const val = substituteParams(stmt.value, paramMap, fieldMap, fnEnv)
+      paramMap.set(stmt.name, `(${val})`)
+    }
+    if (stmt.kind === 'IfStatement') {
+      const cond = substituteParams(stmt.condition, paramMap, fieldMap, fnEnv)
+      const thenVal = compileStmtBlockToWGSL(stmt.thenBranch, new Map(paramMap), fieldMap, fnEnv)
+      const elseVal = stmt.elseBranch
+        ? compileStmtBlockToWGSL(stmt.elseBranch, new Map(paramMap), fieldMap, fnEnv)
+        : '0.0'
+      return `select(${elseVal}, ${thenVal}, ${cond} != 0.0)`
+    }
   }
-
   return '0.0'
 }
 
@@ -249,6 +294,16 @@ function substituteParams(
       if (wgslName) return `${wgslName}(${args.join(', ')})`
       return '0.0'
     }
+
+    case 'ConditionalExpr': {
+      const cond = substituteParams(expr.condition, paramMap, fieldMap, fnEnv)
+      const thenVal = substituteParams(expr.thenExpr, paramMap, fieldMap, fnEnv)
+      const elseVal = substituteParams(expr.elseExpr, paramMap, fieldMap, fnEnv)
+      return `select(${elseVal}, ${thenVal}, ${cond} != 0.0)`
+    }
+
+    case 'FieldAccess':
+      return exprToWGSL(expr, fieldMap, fnEnv)
 
     default:
       return exprToWGSL(expr, fieldMap, fnEnv)
