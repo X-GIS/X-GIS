@@ -1,4 +1,4 @@
-/* Population circles: procedural geometry from point data */
+/* Data-driven SDF circles: radius from population data */
 
 source land {
   type: geojson
@@ -16,9 +16,9 @@ layer background {
   | fill-slate-800 stroke-slate-700 stroke-0.5
 }
 
-/* Population circles — radius from sqrt(pop_max) */
+/* Population circles — per-feature radius from sqrt(pop_max) */
 layer population {
   source: cities
-  geometry: circle(.longitude, .latitude, sqrt(.pop_max) / 5000, 32)
-  | fill-rose-500 opacity-40 stroke-rose-400 stroke-1
+  | fill-rose-500 opacity-50 stroke-rose-300 stroke-1
+  | size-[sqrt(.pop_max) / 80]
 }

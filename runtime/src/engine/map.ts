@@ -288,6 +288,17 @@ export class XGISMap {
         const strokeHex = show.stroke
         const fill = fillHex ? parseHexColor(fillHex) : null
         const stroke = strokeHex ? parseHexColor(strokeHex) : null
+
+        // Evaluate per-feature size if data-driven
+        let perFeatureSizes: number[] | null = null
+        if (show.sizeExpr?.ast) {
+          const ast = show.sizeExpr.ast as import('@xgis/compiler').Expr
+          perFeatureSizes = filtered.features.map(f => {
+            const r = evaluate(ast, f.properties ?? {})
+            return typeof r === 'number' ? r : (show.size ?? 8)
+          })
+        }
+
         this.pointRenderer.addLayer(
           filtered.features as any,
           fill, stroke,
@@ -295,6 +306,7 @@ export class XGISMap {
           show.size ?? 8,
           show.opacity ?? 1.0,
           show.sizeUnit,
+          perFeatureSizes,
         )
         continue
       }

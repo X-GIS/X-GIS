@@ -218,6 +218,7 @@ export class PointRenderer {
     radiusPx: number,
     opacity: number,
     sizeUnit?: string | null,
+    perFeatureSizes?: number[] | null,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -272,7 +273,7 @@ export class PointRenderer {
 
     for (let i = 0; i < points.length; i++) {
       const off = i * STRIDE
-      featData[off + 0] = radiusPx
+      featData[off + 0] = perFeatureSizes ? perFeatureSizes[i] : radiusPx
       // fill rgba
       featData[off + 1] = fill ? fill[0] * opacity : 0
       featData[off + 2] = fill ? fill[1] * opacity : 0
