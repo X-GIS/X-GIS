@@ -424,7 +424,10 @@ export function parseGPUReadyTile(
   const polyVerts: number[] = []
   const polyIdx: number[] = []
   const tb = tileBoundsFromZXY(z, x, y)
-  const latToMercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360))
+  const latToMercY = (lat: number) => {
+    const c = Math.max(-85.051, Math.min(85.051, lat))
+    return Math.log(Math.tan(Math.PI / 4 + c * Math.PI / 360))
+  }
 
   for (const poly of polygons) {
     const baseVertex = polyVerts.length / 3

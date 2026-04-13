@@ -202,7 +202,8 @@ function shoelaceArea(ring: number[][]): number {
 
 /** Project latitude to Mercator Y (unitless, for earcut topology only) */
 function latToMercatorY(lat: number): number {
-  const rad = lat * Math.PI / 180
+  const clamped = Math.max(-85.051, Math.min(85.051, lat))
+  const rad = clamped * Math.PI / 180
   return Math.log(Math.tan(Math.PI / 4 + rad / 2))
 }
 
