@@ -41,7 +41,24 @@
       "Bash(git -C /d/X-GIS add -f playground/public/data/countries.xgvt)",
       "Bash(grep -E \"\\\\.d\\\\.ts|\\\\.ts$\")",
       "Bash(bun -e ':*)",
-      "Bash(bun:*)"
+      "Bash(bun:*)",
+      "Bash(git -C /d/X-GIS add compiler/src/tiler/clip.ts compiler/src/tiler/vector-tiler.ts)",
+      "Bash(git -C /d/X-GIS add -f playground/public/data/*.xgvt)",
+      "Bash(git -C /d/X-GIS push)",
+      "Bash(git -C /d/X-GIS add runtime/src/engine/vector-tile-renderer.ts)",
+      "Bash(git -C /d/X-GIS add runtime/src/engine/map.ts)",
+      "Bash(git -C /d/X-GIS add compiler/src/tiler/vector-tiler.ts runtime/src/data/xgvt-source.ts runtime/src/engine/map.ts)",
+      "Bash(git -C /d/X-GIS add compiler/src/lexer/tokens.ts compiler/src/lexer/lexer.ts compiler/src/parser/ast.ts compiler/src/parser/parser.ts compiler/src/eval/evaluator.ts compiler/src/ir/classify.ts compiler/src/codegen/wgsl-expr.ts)",
+      "Bash(curl -sL -o /d/X-GIS/playground/public/data/ne_110m_populated_places.geojson \"https://raw.githubusercontent.com/martynafford/natural-earth-geojson/master/110m/cultural/ne_110m_populated_places_simple.json\")",
+      "Bash(git -C /d/X-GIS add -f playground/public/data/ne_110m_populated_places.geojson playground/src/examples/procedural-circles.xgis playground/src/demos.ts)",
+      "Bash(git -C /d/X-GIS add runtime/src/engine/point-renderer.ts runtime/src/engine/map.ts playground/src/examples/sdf-points.xgis playground/src/demos.ts)",
+      "Bash(git -C /d/X-GIS add compiler/src/ir/render-node.ts compiler/src/ir/lower.ts compiler/src/ir/emit-commands.ts runtime/src/engine/point-renderer.ts runtime/src/engine/map.ts compiler/src/__tests__/evaluator.test.ts compiler/src/__tests__/optimize.test.ts)",
+      "Bash(git -C /d/X-GIS add runtime/src/engine/gpu-shared.ts runtime/src/engine/renderer.ts runtime/src/engine/raster-renderer.ts runtime/src/engine/point-renderer.ts)",
+      "Bash(git -C /d/X-GIS add playground/src/demo-runner.ts playground/demo.html playground/package.json playground/bun.lock)",
+      "Bash(git -C /d/X-GIS add playground/bun.lockb)",
+      "Bash(git -C /d/X-GIS add -A playground/)",
+      "Bash(git -C /d/X-GIS add compiler/src/tiler/vector-tiler.ts)",
+      "Bash(git -C /d/X-GIS add runtime/src/data/xgvt-source.ts runtime/src/engine/vector-tile-renderer.ts)"
     ]
   }
 }

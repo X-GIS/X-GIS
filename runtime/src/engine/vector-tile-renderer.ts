@@ -516,7 +516,7 @@ export class VectorTileRenderer {
     }
 
     // Render tile-based points via PointRenderer (if available)
-    if (pointRenderer) {
+    if (pointRenderer && typeof pointRenderer.addTilePoint === 'function') {
       const DEG2RAD = Math.PI / 180
       const R = 6378137
       const camMercX = projCenterLon * DEG2RAD * R
