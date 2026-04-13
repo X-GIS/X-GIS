@@ -10,6 +10,7 @@ import { visibleTiles, sortByPriority } from '../loader/tiles'
 import { tileKey, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { XGVTSource, TileData } from '../data/xgvt-source'
+import type { PointRenderer } from './point-renderer'
 
 // ═══ Types ═══
 
@@ -252,7 +253,7 @@ export class VectorTileRenderer {
     bindGroupLayout: GPUBindGroupLayout,
     fillPipelineFallback?: GPURenderPipeline,
     linePipelineFallback?: GPURenderPipeline,
-    pointRenderer?: import('./point-renderer').PointRenderer | null,
+    pointRenderer?: PointRenderer | null,
   ): void {
     if (!this.source?.hasData()) return
     const index = this.source.getIndex()
