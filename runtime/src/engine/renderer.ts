@@ -428,6 +428,7 @@ export class MapRenderer {
   // Cached per-frame allocation (avoid GC pressure in render loop)
   private uniformDataBuf = new ArrayBuffer(144)
   private gratUniformBuf = new ArrayBuffer(144)
+  private gratWorldBufs: { buf: GPUBuffer; bg: GPUBindGroup }[] = []
   fillPipeline!: GPURenderPipeline
   private strokePipeline!: GPURenderPipeline
   linePipeline!: GPURenderPipeline
@@ -887,26 +888,36 @@ export class MapRenderer {
     }
 
     // Draw graticule grid lines (primary world + copies)
+    // Each world copy needs its own uniform buffer (WebGPU batches writeBuffer)
     if (this.graticuleBuffer) {
-      const gratUniform = this.gratUniformBuf
-      new Float32Array(gratUniform, 0, 16).set(mvp)
-      new Float32Array(gratUniform, 64, 4).set([1, 1, 1, 0.15])
-      new Float32Array(gratUniform, 80, 4).set([1, 1, 1, 0.15])
-      new Float32Array(gratUniform, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
       const gDEG2RAD = Math.PI / 180
       const gR = 6378137
       const gcy = Math.log(Math.tan(Math.PI / 4 + Math.max(-85.051129, Math.min(85.051129, projCenterLat)) * gDEG2RAD / 2)) * gR
+      const WORLD_MERC = 2 * Math.PI * gR
 
       pass.setPipeline(this.linePipeline)
-      pass.setBindGroup(0, this.bindGroup)
       pass.setVertexBuffer(0, this.graticuleBuffer)
 
-      // Draw for each world copy (-1, 0, +1)
-      const WORLD_MERC = 2 * Math.PI * gR // ~40075016.686
-      for (const worldOff of [-1, 0, 1]) {
-        const gcx = projCenterLon * gDEG2RAD * gR - worldOff * WORLD_MERC
-        new Float32Array(gratUniform, 112, 4).set([-gcx, -gcy, 0, 0])
-        device.queue.writeBuffer(this.uniformBuffer, 0, gratUniform)
+      // Ensure we have 3 graticule uniform buffers (one per world copy)
+      while (this.gratWorldBufs.length < 3) {
+        const buf = device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+        const bg = device.createBindGroup({ layout: this.bindGroupLayout, entries: [{ binding: 0, resource: { buffer: buf } }] })
+        this.gratWorldBufs.push({ buf, bg })
+      }
+
+      const worldOffs = [-1, 0, 1]
+      for (let wi = 0; wi < worldOffs.length; wi++) {
+        const { buf, bg } = this.gratWorldBufs[wi]
+        const gratData = new ArrayBuffer(144)
+        new Float32Array(gratData, 0, 16).set(mvp)
+        new Float32Array(gratData, 64, 4).set([1, 1, 1, 0.15])
+        new Float32Array(gratData, 80, 4).set([1, 1, 1, 0.15])
+        new Float32Array(gratData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
+        const gcx = projCenterLon * gDEG2RAD * gR - worldOffs[wi] * WORLD_MERC
+        new Float32Array(gratData, 112, 4).set([-gcx, -gcy, 0, 0])
+        device.queue.writeBuffer(buf, 0, gratData)
+
+        pass.setBindGroup(0, bg)
         pass.draw(this.graticuleVertexCount)
       }
     }
