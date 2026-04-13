@@ -4,7 +4,7 @@
 // Single draw call for all points via per-feature storage buffer.
 
 import type { Camera } from './camera'
-import { BLEND_ALPHA, STENCIL_DISABLED, MSAA_4X } from './gpu-shared'
+import { BLEND_ALPHA, STENCIL_DISABLED, MSAA_4X, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
 
 // ═══ WGSL Shader ═══
 
@@ -252,8 +252,8 @@ export class PointRenderer {
 
     // Build 3× expanded buffers (primary + left + right world copies)
     const STRIDE = 13
-    const WORLD_MERC = 40075016.686
-    const COPIES = [-2, -1, 0, 1, 2]
+    // WORLD_MERC imported from gpu-shared
+    const COPIES = WORLD_COPIES
     const totalN = N * COPIES.length
 
     const verts = new Float32Array(totalN * 4 * 4)
@@ -506,9 +506,9 @@ export class PointRenderer {
     const camClampedLat = Math.max(-85.051129, Math.min(85.051129, projCenterLat))
     const camMercY = Math.log(Math.tan(Math.PI / 4 + camClampedLat * DEG2RAD / 2)) * R
 
-    const WORLD_MERC = 40075016.686
+    // WORLD_MERC imported from gpu-shared
     const STRIDE = 13
-    const WORLD_COPIES = [-2, -1, 0, 1, 2]
+    // WORLD_COPIES imported from gpu-shared
 
     for (const layer of this.layers) {
       const N = layer.pointCount

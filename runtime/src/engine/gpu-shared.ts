@@ -61,6 +61,14 @@ export function uploadBuffer(
   return buf
 }
 
+// ── World Wrapping ──
+
+/** Earth circumference in Mercator meters */
+export const WORLD_MERC = 40075016.686
+
+/** World copy offsets: primary + N copies each side */
+export const WORLD_COPIES = [-2, -1, 0, 1, 2]
+
 /** Create an empty uniform buffer */
 export function createUniformBuffer(device: GPUDevice, size: number, label?: string): GPUBuffer {
   return device.createBuffer({

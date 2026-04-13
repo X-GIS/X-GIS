@@ -4,7 +4,7 @@ import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { MeshData, LineMeshData } from '../loader/geojson'
 import { generateGraticule } from './graticule'
-import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, MSAA_4X } from './gpu-shared'
+import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, MSAA_4X, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
 
 // generateGraticule(zoom) now handles zoom-adaptive steps internally
 
@@ -904,7 +904,7 @@ export class MapRenderer {
       const gDEG2RAD = Math.PI / 180
       const gR = 6378137
       const gcy = Math.log(Math.tan(Math.PI / 4 + Math.max(-85.051129, Math.min(85.051129, projCenterLat)) * gDEG2RAD / 2)) * gR
-      const WORLD_MERC = 2 * Math.PI * gR
+      // WORLD_MERC imported from gpu-shared
 
       pass.setPipeline(this.linePipeline)
       pass.setVertexBuffer(0, this.graticuleBuffer)
@@ -916,7 +916,7 @@ export class MapRenderer {
         this.gratWorldBufs.push({ buf, bg })
       }
 
-      const worldOffs = [-2, -1, 0, 1, 2]
+      const worldOffs = WORLD_COPIES
       for (let wi = 0; wi < worldOffs.length; wi++) {
         const { buf, bg } = this.gratWorldBufs[wi]
         const gratData = new ArrayBuffer(144)

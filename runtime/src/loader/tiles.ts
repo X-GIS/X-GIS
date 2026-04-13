@@ -1,4 +1,5 @@
 // ═══ Raster Tile Loader — 웹 맵 타일 로딩 ═══
+import { WORLD_COPIES } from '../engine/gpu-shared'
 
 export interface TileCoord {
   z: number
@@ -70,8 +71,9 @@ export function visibleTiles(
 
       // Limit world copies: ox must be within [-n, 2n) → at most 3 worlds
       // (MapLibre-style: primary world + one copy left + one copy right)
-      // Limit world copies: primary + 4 copies (2 left, 2 right)
-      if (ox < -2 * n || ox >= 3 * n) continue
+      // Limit world copies based on WORLD_COPIES range
+      const maxCopies = (WORLD_COPIES.length - 1) / 2  // e.g., [-2,-1,0,1,2] → 2
+      if (ox < -maxCopies * n || ox >= (maxCopies + 1) * n) continue
 
       tiles.push({ z, x, y, ox })
     }

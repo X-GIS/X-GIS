@@ -1,6 +1,7 @@
 // ═══ 2D Map Camera — 줌/패닝 ═══
 
 import { lonLatToMercator } from '../loader/geojson'
+import { WORLD_MERC } from './gpu-shared'
 
 export class Camera {
   /** Camera center in Web Mercator coordinates */
@@ -87,8 +88,7 @@ export class Camera {
 
     this.centerX -= mapDx * metersPerCSSPixel
     // Wrap X to stay within one world width (prevents infinite drift)
-    const WORLD_WIDTH = 40075016.686 // Earth circumference in meters
-    const halfWorld = WORLD_WIDTH / 2
+    const halfWorld = WORLD_MERC / 2
     if (this.centerX > halfWorld) this.centerX -= WORLD_WIDTH
     else if (this.centerX < -halfWorld) this.centerX += WORLD_WIDTH
     const maxY = this.maxCameraY(canvasHeight)
