@@ -266,9 +266,9 @@ export class PointRenderer {
 
       const fOff = i * STRIDE
       featData[fOff + 0] = radiusPx
-      featData[fOff + 1] = fill ? fill[0] * opacity : 0
-      featData[fOff + 2] = fill ? fill[1] * opacity : 0
-      featData[fOff + 3] = fill ? fill[2] * opacity : 0
+      featData[fOff + 1] = fill ? fill[0] : 0
+      featData[fOff + 2] = fill ? fill[1] : 0
+      featData[fOff + 3] = fill ? fill[2] : 0
       featData[fOff + 4] = fill ? fill[3] * opacity : 0
       featData[fOff + 5] = stroke ? stroke[0] : 0
       featData[fOff + 6] = stroke ? stroke[1] : 0
@@ -402,10 +402,10 @@ export class PointRenderer {
     for (let i = 0; i < points.length; i++) {
       const off = i * STRIDE
       featData[off + 0] = perFeatureSizes ? perFeatureSizes[i] : radiusPx
-      // fill rgba
-      featData[off + 1] = fill ? fill[0] * opacity : 0
-      featData[off + 2] = fill ? fill[1] * opacity : 0
-      featData[off + 3] = fill ? fill[2] * opacity : 0
+      // fill rgba (RGB not premultiplied — alpha blending handles it)
+      featData[off + 1] = fill ? fill[0] : 0
+      featData[off + 2] = fill ? fill[1] : 0
+      featData[off + 3] = fill ? fill[2] : 0
       featData[off + 4] = fill ? fill[3] * opacity : 0
       // stroke rgba
       featData[off + 5] = stroke ? stroke[0] : 0
