@@ -9,6 +9,7 @@ import { interpret, type SceneCommands } from './interpreter'
 import { loadGeoJSON, lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
 import { isTileTemplate } from '../loader/tiles'
 import { RasterRenderer } from './raster-renderer'
+import { PointRenderer } from './point-renderer'
 import { PanZoomController, type Controller } from './controller'
 import { CanvasRenderer } from './canvas-renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
@@ -21,6 +22,7 @@ export class XGISMap {
   private camera: Camera
   private renderer!: MapRenderer
   private rasterRenderer!: RasterRenderer
+  private pointRenderer!: PointRenderer
   private running = false
   private projectionName = 'mercator'
   private controller: Controller | null = null
@@ -123,6 +125,7 @@ export class XGISMap {
       this.ctx = await initGPU(this.canvas)
       this.renderer = new MapRenderer(this.ctx)
       this.rasterRenderer = new RasterRenderer(this.ctx)
+      this.pointRenderer = new PointRenderer(this.ctx)
       // VT sources/renderers created per .xgvt file in the load loop
       this.useCanvas2D = false
     } catch (err) {
@@ -277,6 +280,23 @@ export class XGISMap {
         filtered = applyGeometry(filtered, show.geometryExpr)
       }
 
+      // Point geometry → SDF point renderer (skip polygon tiling pipeline)
+      const firstGeomType = filtered.features[0]?.geometry?.type
+      if ((firstGeomType === 'Point' || firstGeomType === 'MultiPoint') && !show.geometryExpr && this.pointRenderer) {
+        const fillHex = show.fill
+        const strokeHex = show.stroke
+        const fill = fillHex ? parseHexColor(fillHex) : null
+        const stroke = strokeHex ? parseHexColor(strokeHex) : null
+        this.pointRenderer.addLayer(
+          filtered.features as any,
+          fill, stroke,
+          show.strokeWidth,
+          show.size ?? 8,
+          show.opacity ?? 1.0,
+        )
+        continue
+      }
+
       const source = new XGVTSource()
       const vtRenderer = new VectorTileRenderer(this.ctx)
       vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
@@ -387,6 +407,7 @@ export class XGISMap {
     this.ctx = await initGPU(this.canvas)
     this.renderer = new MapRenderer(this.ctx)
     this.rasterRenderer = new RasterRenderer(this.ctx)
+      this.pointRenderer = new PointRenderer(this.ctx)
 
     for (const load of commands.loads) {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
@@ -496,6 +517,11 @@ export class XGISMap {
 
       this.rasterRenderer.render(pass, this.camera, projType, centerLon, centerLat, w, h)
       this.renderer.renderToPass(pass, this.camera, projType, centerLon, centerLat)
+
+      // Render SDF points
+      if (this.pointRenderer?.hasLayers()) {
+        this.pointRenderer.render(pass, this.camera, centerLon, centerLat, w, h)
+      }
 
       // Render vector tile sources
       if (this.vectorTileShows.length === 1) {
@@ -680,4 +706,17 @@ function applyGeometry(
   })
 
   return { ...data, features: newFeatures }
+}
+
+function parseHexColor(hex: string): [number, number, number, number] {
+  let r = 0, g = 0, b = 0, a = 1
+  if (hex.length === 4) {
+    r = parseInt(hex[1] + hex[1], 16) / 255; g = parseInt(hex[2] + hex[2], 16) / 255; b = parseInt(hex[3] + hex[3], 16) / 255
+  } else if (hex.length === 7) {
+    r = parseInt(hex.slice(1, 3), 16) / 255; g = parseInt(hex.slice(3, 5), 16) / 255; b = parseInt(hex.slice(5, 7), 16) / 255
+  } else if (hex.length === 9) {
+    r = parseInt(hex.slice(1, 3), 16) / 255; g = parseInt(hex.slice(3, 5), 16) / 255; b = parseInt(hex.slice(5, 7), 16) / 255
+    a = parseInt(hex.slice(7, 9), 16) / 255
+  }
+  return [r, g, b, a]
 }

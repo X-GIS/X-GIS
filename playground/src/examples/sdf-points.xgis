@@ -1,0 +1,23 @@
+/* SDF Points: resolution-independent circles via fragment shader */
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source cities {
+  type: geojson
+  url: "ne_110m_populated_places.geojson"
+}
+
+/* Dark land background */
+layer background {
+  source: land
+  | fill-slate-800 stroke-slate-700 stroke-0.5
+}
+
+/* City points as SDF circles */
+layer points {
+  source: cities
+  | fill-rose-500 stroke-white stroke-2 size-8 opacity-80
+}

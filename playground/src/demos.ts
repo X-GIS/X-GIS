@@ -157,4 +157,11 @@ export const DEMOS: Record<string, Demo> = {
     description: 'Procedural circles from point data — radius proportional to city population',
     source: load('procedural-circles.xgis'),
   },
+
+  sdf_points: {
+    name: 'SDF Points',
+    tag: 'point',
+    description: 'Resolution-independent SDF circles — fill + stroke in a single fragment shader, 1 draw call',
+    source: load('sdf-points.xgis'),
+  },
 }
