@@ -13,6 +13,9 @@ const TAG_COLORS: Record<string, string> = {
   'natural-earth': '#4ade80',
   'data-driven': '#c084fc',
   point: '#fbbf24',
+  line: '#38bdf8',
+  '10m': '#f472b6',
+  thematic: '#fb923c',
 }
 
 const TAG_LABELS: Record<string, string> = {
@@ -26,6 +29,9 @@ const TAG_LABELS: Record<string, string> = {
   'natural-earth': 'Natural Earth',
   'data-driven': 'Data-Driven',
   point: 'Points & Shapes',
+  line: 'SDF Lines',
+  '10m': 'High Detail (10m)',
+  thematic: 'Thematic',
 }
 
 const content = document.getElementById('content')!

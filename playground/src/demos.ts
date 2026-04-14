@@ -273,4 +273,106 @@ export const DEMOS: Record<string, Demo> = {
     description: 'GDI+-style center / inset / outset alignment. Three parallel coastlines shifted by half-width. Corners stay connected via offset-aware miter.',
     source: load('stroke-align.xgis'),
   },
+
+  // ── 10m detail — finest Natural Earth tier ──
+
+  physical_map_10m: {
+    name: 'Physical Map 10m',
+    tag: '10m',
+    description: 'Finest-grain Natural Earth physical map: 10m ocean, land, rivers, lakes. Capillary river network, every major bay and lake — zoom in to see the difference against 50m.',
+    source: load('physical-map-10m.xgis'),
+  },
+
+  states_10m: {
+    name: 'States 10m',
+    tag: '10m',
+    description: '10m admin-1 boundaries with per-country categorical fill. Sharper state borders than 50m — useful for detailed views of US, Brazil, India, Australia.',
+    source: load('states-10m.xgis'),
+  },
+
+  rivers_10m: {
+    name: 'Rivers 10m',
+    tag: '10m',
+    description: 'Full 10m river network over dark land. Major basins resolve into hundreds of named tributaries at high zoom. Thick cyan strokes against deep green land.',
+    source: load('rivers-10m.xgis'),
+  },
+
+  zoom_lod: {
+    name: 'Zoom LOD',
+    tag: 'zoom',
+    description: 'Progressive level-of-detail: 110m coastline at low zoom, 50m land + major rivers at mid zoom, full 10m land + river network at high zoom. Opacity modifiers cross-fade between tiers.',
+    source: load('zoom-lod.xgis'),
+  },
+
+  populated_places: {
+    name: 'Populated Places',
+    tag: 'point',
+    description: 'World cities over 10m states background. Pin size scales with POP_MAX via gradient(). Uses the populated-places Point dataset (bulk tiler now produces point-only tiles correctly).',
+    source: load('populated-places.xgis'),
+  },
+
+  night_map: {
+    name: 'Night Map',
+    tag: '10m',
+    description: 'Dark indigo land with warm amber rivers and lakes. Two-layer glow + body stroke gives each river a soft halo. Demonstrates how color + opacity choices produce distinct visual identities from the same geometry.',
+    source: load('night-map.xgis'),
+  },
+
+  // ── Thematic / composition demos ──
+
+  continent_outlines: {
+    name: 'Continent Outlines',
+    tag: 'thematic',
+    description: 'Each continent colored by match(CONTINENT) with heavy matching outlines — distinct hue per landmass with a darker halo stroke.',
+    source: load('continent-outlines.xgis'),
+  },
+
+  dashed_borders: {
+    name: 'Dashed Borders',
+    tag: 'thematic',
+    description: 'Translucent sky-blue country fill with dashed white borders. Mixes polygon fill with stroke-dasharray-8-4 line styling.',
+    source: load('dashed-borders.xgis'),
+  },
+
+  coastline_10m: {
+    name: 'Coastline 10m',
+    tag: '10m',
+    description: 'World coastline at 10m resolution, rendered as two stacked line layers — dark shadow stroke + bright cyan body. No polygon fill. Stress test for dense SDF line vertices.',
+    source: load('coastline-10m.xgis'),
+  },
+
+  water_hierarchy: {
+    name: 'Water Hierarchy',
+    tag: '10m',
+    description: 'Three-tier blue gradient for ocean, lakes, and rivers. Glow halos on both lakes and rivers give soft water-body ambience against neutral land.',
+    source: load('water-hierarchy.xgis'),
+  },
+
+  raster_overlay: {
+    name: 'Raster + 10m Borders',
+    tag: 'raster',
+    description: 'OpenStreetMap basemap with translucent white 10m state boundaries overlaid. Demonstrates raster + vector composition and offscreen MAX-blend compositing over imagery.',
+    source: load('raster-overlay.xgis'),
+  },
+
+  bold_borders: {
+    name: 'Bold Borders',
+    tag: 'thematic',
+    description: 'High-contrast flat country fill with double-stroke outlines: thick black shadow behind, bright amber foreground. Presentation-ready styling.',
+    source: load('bold-borders.xgis'),
+  },
+
+  megacities: {
+    name: 'Megacities',
+    tag: 'point',
+    description: 'Populated places filtered by POP_MAX > 5M. Each city shown as a glowing 500 km halo + billboard pin whose size scales linearly up to 30M population.',
+    source: load('megacities.xgis'),
+  },
+
+  layered_borders: {
+    name: 'Layered Borders',
+    tag: 'zoom',
+    description: 'Three-tier admin borders: bold countries (always visible), 50m states (fade in at z3), 10m states (fade in at z6). Drillable hierarchy via zoom-opacity modifiers.',
+    source: load('layered-borders.xgis'),
+  },
 }
