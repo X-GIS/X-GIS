@@ -61,6 +61,11 @@ export class XGISMap {
   // Stats inspector
   private _stats = new StatsTracker()
   private _statsPanel: StatsPanel | null = null
+  /** Last frame (per source) we logged a FLICKER warning. Throttles the
+   *  warning to at most once every 60 frames (~1s at 60fps) so normal
+   *  on-demand loading doesn't flood the overlay. */
+  private _flickerLastFrame = new Map<string, number>()
+  private _frameCount = 0
 
   constructor(private canvas: HTMLCanvasElement) {
     this.camera = new Camera(0, 20, 2)
@@ -195,8 +200,13 @@ export class XGISMap {
     }
 
 
-    // 3. Load data
-    for (const load of commands.loads) {
+    // 3. Load data — all sources in parallel. Sequential awaits used to
+    // serialize 4-source demos into ~4x the total wall-clock time (each
+    // source had to finish its index + preload decompression before the
+    // next started). Promise.all lets index fetches overlap and lets
+    // tile decompressions interleave on the main thread.
+    let cameraFit = false
+    const loadPromises = commands.loads.map(async (load) => {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
       console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
 
@@ -222,26 +232,33 @@ export class XGISMap {
         this.vtSources.set(load.name, { source, renderer: vtRenderer })
         this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
 
-        // Fit camera to vector tile bounds
-        const vtBounds = vtRenderer.getBounds()
-        if (vtBounds) {
-          const [minLon, minLat, maxLon, maxLat] = vtBounds
-          const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
-          const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
-          this.camera.centerX = cx
-          this.camera.centerY = cy
-          const lonSpan = maxLon - minLon
-          const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, MAX_DPR) : 1
-          const cssW = this.canvas.width / dpr
-          const degPerPx = lonSpan / cssW
-          this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+        // Fit camera to the FIRST source that finishes. Multi-source demos
+        // typically have the same world-bounds; picking "first to win"
+        // avoids order-dependent racing and gives deterministic-enough
+        // framing without coordinating across promises.
+        if (!cameraFit) {
+          const vtBounds = vtRenderer.getBounds()
+          if (vtBounds) {
+            cameraFit = true
+            const [minLon, minLat, maxLon, maxLat] = vtBounds
+            const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
+            const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
+            this.camera.centerX = cx
+            this.camera.centerY = cy
+            const lonSpan = maxLon - minLon
+            const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, MAX_DPR) : 1
+            const cssW = this.canvas.width / dpr
+            const degPerPx = lonSpan / cssW
+            this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+          }
         }
       } else {
         const response = await fetch(url)
         const data = await response.json() as GeoJSONFeatureCollection
         this.rawDatasets.set(load.name, data)
       }
-    }
+    })
+    await Promise.all(loadPromises)
 
     this.showCommands = commands.shows
 
@@ -920,10 +937,20 @@ export class XGISMap {
       totalTilesVis += vts.tilesVisible
       totalTilesCached += vtR.getCacheSize()
       totalMissed += vts.missedTiles
+      // Throttle [FLICKER] per-source to once per ~60 frames. On-demand
+      // tile loading legitimately leaves some visible cells uncached for
+      // a few frames; the warning is only informative for diagnosing
+      // "missing fallback" regressions, not an error users need to see
+      // at 60 Hz during normal pan/zoom.
       if (vts.missedTiles > 0) {
-        console.warn(`[FLICKER] ${name}: ${vts.missedTiles} tiles without fallback (z=${Math.round(this.camera.zoom)} gpuCache=${vtR.getCacheSize()})`)
+        const last = this._flickerLastFrame.get(name) ?? -Infinity
+        if (this._frameCount - last >= 60) {
+          this._flickerLastFrame.set(name, this._frameCount)
+          console.warn(`[FLICKER] ${name}: ${vts.missedTiles} tiles without fallback (z=${Math.round(this.camera.zoom)} gpuCache=${vtR.getCacheSize()})`)
+        }
       }
     }
+    this._frameCount++
     this._stats.tilesVisible = totalTilesVis
     this._stats.tilesCached = totalTilesCached
     this._stats.endFrame()

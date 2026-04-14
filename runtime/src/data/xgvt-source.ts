@@ -252,8 +252,17 @@ export class XGVTSource {
 
     console.log(`[X-GIS] VectorTile index loaded: ${this.index.entries.length} tiles (Range Request mode)`)
 
-    // Load z0-z4 tiles BEFORE returning (guarantees fallback coverage)
-    await this.preloadLowZoomTiles()
+    // Stage the z = 0 tile BEFORE returning — this is 1 tile per source,
+    // parses in <100 ms, and gives the render loop a coarse global
+    // fallback to paint the first frame against. All remaining low-zoom
+    // tiles (z=1..3) are queued in the background via preloadBackground()
+    // and populate dataCache as they arrive. The render loop's parent
+    // walk will find them as soon as they're ready; until then it falls
+    // back to the z=0 tile or renders nothing.
+    await this.preloadZeroTile()
+    // Kick off background preload but do NOT await — loadFromURL returns
+    // immediately after z=0 is ready.
+    this.preloadBackground().catch(e => console.error('[xgvt preload bg]', (e as Error)?.stack ?? e))
   }
 
   /**
@@ -365,69 +374,99 @@ export class XGVTSource {
     }
   }
 
-  private async preloadLowZoomTiles(): Promise<void> {
-    if (!this.index) return
-    const lowZoomEntries: { key: number; entry: TileIndexEntry }[] = []
-    for (const entry of this.index.entries) {
-      const [z] = tileKeyUnpack(entry.tileHash)
-      if (z <= 4 && !this.dataCache.has(entry.tileHash)) {
-        lowZoomEntries.push({ key: entry.tileHash, entry })
-      }
-    }
-    if (lowZoomEntries.length === 0) return
-
-    // Full-file mode: load synchronously
-    if (this.isFullFileMode && this.fileBuf) {
-      for (const { key, entry } of lowZoomEntries) {
-        const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
-        if (entry.gpuReadySize > 0) {
-          const tile = parseGPUReadyTile(this.fileBuf!, {
-            ...entry, dataOffset: entry.dataOffset + entry.compactSize,
-            compactSize: 0, gpuReadySize: entry.gpuReadySize,
-          })
-          if (isFullCover) this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
-          else this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, undefined, tile.outlineIndices)
-        } else if (entry.compactSize > 0) {
-          const slice = this.fileBuf!.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
-          const result = await decompressTileData(slice)
-          this.parseTileAndCache(key, result, entry, isFullCover)
-        } else if (isFullCover) {
-          this.createFullCoverTileData(key, entry, new Float32Array(0), new Uint32Array(0))
-        }
-      }
-      return
-    }
-
-    // Range Request mode: batch all z0-z4 tiles in ONE request (no concurrent limit)
-    if (!this.fileUrl) return
-    lowZoomEntries.sort((a, b) => a.entry.dataOffset - b.entry.dataOffset)
-
-    // Find byte range covering all z0-z4 tiles
-    const tileSize = (e: TileIndexEntry) => e.compactSize + e.gpuReadySize
-    const startOffset = lowZoomEntries[0].entry.dataOffset
-    const lastEntry = lowZoomEntries[lowZoomEntries.length - 1]
-    const endOffset = lastEntry.entry.dataOffset + tileSize(lastEntry.entry)
-
-    const buf = await fetchRange(this.fileUrl, startOffset, endOffset - startOffset)
-
-    for (const { key, entry } of lowZoomEntries) {
+  /** Parse an entry list from an already-fetched shared buffer into
+   *  dataCache. Called by both preloadZeroTile and preloadBackground.
+   *  Returns a promise that resolves when all compact jobs finish. */
+  private async parseEntryBatch(
+    entries: { key: number; entry: TileIndexEntry }[],
+    sharedBuf: ArrayBuffer,
+    sharedStartOffset: number,
+  ): Promise<void> {
+    const compactJobs: Promise<void>[] = []
+    for (const { key, entry } of entries) {
       const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
-      const localOffset = entry.dataOffset - startOffset
+      const localOffset = entry.dataOffset - sharedStartOffset
 
       if (entry.gpuReadySize > 0) {
         const gpuOffset = localOffset + entry.compactSize
-        const gpuBuf = buf.slice(gpuOffset, gpuOffset + entry.gpuReadySize)
+        const gpuBuf = sharedBuf.slice(gpuOffset, gpuOffset + entry.gpuReadySize)
         const tile = parseGPUReadyTile(gpuBuf, { ...entry, dataOffset: 0, compactSize: 0, gpuReadySize: gpuBuf.byteLength })
         if (isFullCover) this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
         else this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, undefined, tile.outlineIndices)
       } else if (entry.compactSize > 0) {
-        const compressed = buf.slice(localOffset, localOffset + entry.compactSize)
-        const decompressed = await decompressTileData(compressed)
-        this.parseTileAndCache(key, decompressed, entry, isFullCover)
+        const compressed = sharedBuf.slice(localOffset, localOffset + entry.compactSize)
+        compactJobs.push(
+          decompressTileData(compressed).then(decompressed => {
+            this.parseTileAndCache(key, decompressed, entry, isFullCover)
+          }),
+        )
       } else if (isFullCover) {
         this.createFullCoverTileData(key, entry, new Float32Array(0), new Uint32Array(0))
       }
     }
+    if (compactJobs.length > 0) await Promise.all(compactJobs)
+  }
+
+  /** Stage 1 of preload: the z=0 root tile only. Resolves in ~50-100 ms
+   *  per source and gives the render loop a coarse global fallback so
+   *  the first frame paints immediately. Full-file and Range Request
+   *  paths handled uniformly. */
+  private async preloadZeroTile(): Promise<void> {
+    if (!this.index) return
+    const entries: { key: number; entry: TileIndexEntry }[] = []
+    for (const entry of this.index.entries) {
+      const [z] = tileKeyUnpack(entry.tileHash)
+      if (z === 0 && !this.dataCache.has(entry.tileHash)) {
+        entries.push({ key: entry.tileHash, entry })
+      }
+    }
+    if (entries.length === 0) return
+
+    if (this.isFullFileMode && this.fileBuf) {
+      // In-memory mode: entries already point into the full buffer.
+      await this.parseEntryBatch(entries, this.fileBuf, 0)
+      return
+    }
+
+    if (!this.fileUrl) return
+    const tileSize = (e: TileIndexEntry) => e.compactSize + e.gpuReadySize
+    entries.sort((a, b) => a.entry.dataOffset - b.entry.dataOffset)
+    const startOffset = entries[0].entry.dataOffset
+    const lastEntry = entries[entries.length - 1]
+    const endOffset = lastEntry.entry.dataOffset + tileSize(lastEntry.entry)
+    const buf = await fetchRange(this.fileUrl, startOffset, endOffset - startOffset)
+    await this.parseEntryBatch(entries, buf, startOffset)
+  }
+
+  /** Stage 2 of preload: all z=1..3 tiles, background. Runs after
+   *  loadFromURL has already returned. Tiles populate dataCache as they
+   *  finish; the render loop's parent walk picks them up as soon as
+   *  they're ready. Errors are logged, never thrown. */
+  private async preloadBackground(): Promise<void> {
+    if (!this.index) return
+    const PRELOAD_MAX_Z = 3
+    const entries: { key: number; entry: TileIndexEntry }[] = []
+    for (const entry of this.index.entries) {
+      const [z] = tileKeyUnpack(entry.tileHash)
+      if (z >= 1 && z <= PRELOAD_MAX_Z && !this.dataCache.has(entry.tileHash)) {
+        entries.push({ key: entry.tileHash, entry })
+      }
+    }
+    if (entries.length === 0) return
+
+    if (this.isFullFileMode && this.fileBuf) {
+      await this.parseEntryBatch(entries, this.fileBuf, 0)
+      return
+    }
+
+    if (!this.fileUrl) return
+    const tileSize = (e: TileIndexEntry) => e.compactSize + e.gpuReadySize
+    entries.sort((a, b) => a.entry.dataOffset - b.entry.dataOffset)
+    const startOffset = entries[0].entry.dataOffset
+    const lastEntry = entries[entries.length - 1]
+    const endOffset = lastEntry.entry.dataOffset + tileSize(lastEntry.entry)
+    const buf = await fetchRange(this.fileUrl, startOffset, endOffset - startOffset)
+    await this.parseEntryBatch(entries, buf, startOffset)
   }
 
   // ── Tile request (async batch loading) ──
