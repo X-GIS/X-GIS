@@ -486,6 +486,10 @@ function processZoomLevelShared(
       } else if (part.type === 'line' && part.coords) {
         if (part.coords.length < 2) continue
         preparedParts.push({ original: part, coords: part.coords, minLon: part.minLon, minLat: part.minLat, maxLon: part.maxLon, maxLat: part.maxLat })
+      } else if (part.type === 'point' && part.point) {
+        // Points carry their single coord as both min and max so the scatter
+        // bbox math below places them in exactly one tile per world copy.
+        preparedParts.push({ original: part, minLon: part.minLon, minLat: part.minLat, maxLon: part.maxLon, maxLat: part.maxLat })
       }
     }
 
@@ -668,8 +672,11 @@ function processZoomLevelShared(
 
         // Adaptive subdivision:
         // - Full-cover tiles: always subdivide (original data has coastline/border detail at higher zoom)
-        // - Other tiles: subdivide only if simplification removed vertices
-        if (z < maxZoom && (fullCover || preSimplifyVerts > postSimplifyVerts)) {
+        // - Polygon/line tiles: subdivide only if simplification removed vertices
+        // - Point-bearing tiles: always subdivide so points spread across finer
+        //   tiles at higher zooms (no vertex-simplification metric applies).
+        const hasPoints = scratch.ptv.length > 0
+        if (z < maxZoom && (fullCover || hasPoints || preSimplifyVerts > postSimplifyVerts)) {
           needsSubdivision.add(key)
         }
       }
