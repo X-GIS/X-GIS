@@ -195,10 +195,30 @@ fn vs_main(@location(0) local_pos: vec2<f32>, @location(1) feature_id: f32) -> V
 
   var local_y: f32;
   if (u.proj_params.x < 0.5) {
-    // Mercator: nonlinear Y (log(tan(...)))
-    let origin_clamped = clamp(u.tile_rtc.w, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
-    local_y = (log(tan(PI * 0.25 + abs_lat_clamped * DEG2RAD * 0.5))
-             - log(tan(PI * 0.25 + origin_clamped * DEG2RAD * 0.5))) * EARTH_R;
+    // Mercator Y delta — stable reformulation.
+    //
+    // The naive form log(tan(abs_lat)) - log(tan(origin)) suffers from
+    // catastrophic cancellation when both logs evaluate close together
+    // (small dy). For a z=5 tile rendered at camera.zoom=22 this produced
+    // ~1 m of visible jitter. Using atanh + sum-to-product avoids the
+    // cancellation entirely: the numerator is computed directly from the
+    // small dy without forming two large, near-equal intermediates.
+    //
+    //   merc_y_delta = R * atanh((sin(abs_lat) - sin(origin)) /
+    //                            (1 - sin(abs_lat) * sin(origin)))
+    //                = R * atanh((2 * cos(mid) * sin(dy/2)) / (1 - s_abs * s_origin))
+    //
+    // with atanh(z) = 0.5 * log((1+z)/(1-z)).
+    let origin_rad = clamp(u.tile_rtc.w, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT) * DEG2RAD;
+    let dy_rad = local_pos.y * DEG2RAD;
+    let half_dy = dy_rad * 0.5;
+    let mid_rad = origin_rad + half_dy;
+    let s_origin = sin(origin_rad);
+    let s_abs = sin(clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT) * DEG2RAD);
+    let num = 2.0 * cos(mid_rad) * sin(half_dy);
+    let denom = max(1.0 - s_abs * s_origin, 1e-9);
+    let z = num / denom;
+    local_y = 0.5 * log((1.0 + z) / max(1.0 - z, 1e-9)) * EARTH_R;
   } else {
     // Equirectangular / other: linear Y
     local_y = local_pos.y * DEG2RAD * EARTH_R;
