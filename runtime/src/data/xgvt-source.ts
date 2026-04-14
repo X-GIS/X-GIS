@@ -14,6 +14,7 @@ import {
   type GeometryPart,
 } from '@xgis/compiler'
 import { visibleTiles } from '../loader/tiles'
+import { getSharedPool, type XGVTWorkerPool } from './xgvt-worker-pool'
 
 // ═══ Types ═══
 
@@ -376,12 +377,15 @@ export class XGVTSource {
 
   /** Parse an entry list from an already-fetched shared buffer into
    *  dataCache. Called by both preloadZeroTile and preloadBackground.
-   *  Returns a promise that resolves when all compact jobs finish. */
+   *  Compact tiles are dispatched to the worker pool so decompress +
+   *  earcut runs off the main thread. Returns a promise that resolves
+   *  when all compact jobs finish. */
   private async parseEntryBatch(
     entries: { key: number; entry: TileIndexEntry }[],
     sharedBuf: ArrayBuffer,
     sharedStartOffset: number,
   ): Promise<void> {
+    const pool = this.getPool()
     const compactJobs: Promise<void>[] = []
     for (const { key, entry } of entries) {
       const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
@@ -394,10 +398,25 @@ export class XGVTSource {
         if (isFullCover) this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
         else this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, undefined, tile.outlineIndices)
       } else if (entry.compactSize > 0) {
+        // Slice the compressed bytes and hand them to a worker. The
+        // worker returns already-decompressed + earcut-tessellated
+        // typed arrays as Transferables, so the main thread only runs
+        // cacheTileData / createFullCoverTileData (which is fast).
         const compressed = sharedBuf.slice(localOffset, localOffset + entry.compactSize)
         compactJobs.push(
-          decompressTileData(compressed).then(decompressed => {
-            this.parseTileAndCache(key, decompressed, entry, isFullCover)
+          pool.parseTile(compressed, entry).then(parsed => {
+            if (isFullCover) {
+              this.createFullCoverTileData(key, entry, parsed.lineVertices, parsed.lineIndices)
+            } else {
+              this.cacheTileData(
+                key, parsed.polygons,
+                parsed.vertices, parsed.indices,
+                parsed.lineVertices, parsed.lineIndices,
+                undefined, parsed.outlineIndices,
+              )
+            }
+          }).catch(err => {
+            console.error('[xgvt-pool parse]', (err as Error)?.stack ?? err)
           }),
         )
       } else if (isFullCover) {
@@ -405,6 +424,12 @@ export class XGVTSource {
       }
     }
     if (compactJobs.length > 0) await Promise.all(compactJobs)
+  }
+
+  private _pool: XGVTWorkerPool | null = null
+  private getPool(): XGVTWorkerPool {
+    if (!this._pool) this._pool = getSharedPool()
+    return this._pool
   }
 
   /** Stage 1 of preload: the z=0 root tile only. Resolves in ~50-100 ms
@@ -515,12 +540,25 @@ export class XGVTSource {
           }
           this.loadingTiles.delete(key)
         } else {
-          // Compact: decompress + earcut (no intermediate cache)
+          // Compact in full-file mode: hand off to worker pool so
+          // decompress + earcut runs off-main-thread.
           const slice = this.fileBuf!.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
-          decompressTileData(slice).then(result => {
-            this.parseTileAndCache(key, result, entry, isFullCover)
+          this.getPool().parseTile(slice, entry).then(parsed => {
+            if (isFullCover) {
+              this.createFullCoverTileData(key, entry, parsed.lineVertices, parsed.lineIndices)
+            } else {
+              this.cacheTileData(
+                key, parsed.polygons,
+                parsed.vertices, parsed.indices,
+                parsed.lineVertices, parsed.lineIndices,
+                undefined, parsed.outlineIndices,
+              )
+            }
             this.loadingTiles.delete(key)
-          }).catch(() => { this.loadingTiles.delete(key) })
+          }).catch(err => {
+            this.loadingTiles.delete(key)
+            console.error('[xgvt-pool parse]', (err as Error)?.stack ?? err)
+          })
         }
       }
       return
@@ -575,11 +613,25 @@ export class XGVTSource {
             }
             this.loadingTiles.delete(key)
           } else if (entry.compactSize > 0) {
+            // Route compact-tile decompress + earcut through the worker
+            // pool so the main thread stays free for interactive frames.
             const compressed = buf.slice(localOffset, localOffset + entry.compactSize)
-            decompressTileData(compressed).then(decompressed => {
-              this.parseTileAndCache(key, decompressed, entry, isFullCover)
+            this.getPool().parseTile(compressed, entry).then(parsed => {
+              if (isFullCover) {
+                this.createFullCoverTileData(key, entry, parsed.lineVertices, parsed.lineIndices)
+              } else {
+                this.cacheTileData(
+                  key, parsed.polygons,
+                  parsed.vertices, parsed.indices,
+                  parsed.lineVertices, parsed.lineIndices,
+                  undefined, parsed.outlineIndices,
+                )
+              }
               this.loadingTiles.delete(key)
-            }).catch(() => { this.loadingTiles.delete(key) })
+            }).catch(err => {
+              this.loadingTiles.delete(key)
+              console.error('[xgvt-pool parse]', (err as Error)?.stack ?? err)
+            })
           } else if (isFullCover) {
             this.createFullCoverTileData(key, entry, new Float32Array(0), new Uint32Array(0))
             this.loadingTiles.delete(key)
