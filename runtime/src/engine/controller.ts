@@ -271,7 +271,15 @@ export class PanZoomController implements Controller {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.003)
-      targetZoom = Math.max(0, Math.min(22, targetZoom + Math.max(-1, Math.min(1, delta))))
+      // If the wheel direction reversed relative to the pending animation,
+      // drop any overshoot targetZoom accumulated past camera.zoom so the
+      // user feels an immediate reversal instead of having to "un-wind" the
+      // pending zoom-in before the zoom-out starts.
+      const pending = targetZoom - camera.zoom
+      if (pending * delta < 0) {
+        targetZoom = camera.zoom
+      }
+      targetZoom = Math.max(0, Math.min(camera.maxZoom, targetZoom + Math.max(-1, Math.min(1, delta))))
       zoomScreenX = e.clientX
       zoomScreenY = e.clientY
       if (!animating) {
