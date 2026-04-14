@@ -156,8 +156,19 @@ export class VectorTileRenderer {
     }
   }
 
+  /** Ring buffers retired mid-frame because of capacity grow. Destroyed on
+   *  the NEXT beginFrame() so the in-flight submit that still references
+   *  them via bind groups completes without hitting "used in submit while
+   *  destroyed". */
+  private retiredUniformRings: GPUBuffer[] = []
+
   beginFrame(): void {
     this.uniformSlot = 0
+    // Safe to destroy rings that were grown out of last frame: by now the
+    // previous frame's command buffer has been submitted and its GPU-side
+    // lifetime is the device's responsibility, not the buffer handle.
+    for (const b of this.retiredUniformRings) b.destroy()
+    this.retiredUniformRings.length = 0
   }
 
   private allocUniformSlot(): number {
@@ -168,7 +179,10 @@ export class VectorTileRenderer {
   private growUniformRing(minSlots: number): void {
     let newCap = this.uniformRingCapacity
     while (newCap < minSlots) newCap *= 2
-    this.uniformRing?.destroy()
+    // Don't destroy the old ring immediately — it may still be bound to
+    // commands already recorded in the current command encoder. Retire it
+    // to be destroyed at the start of the next frame (after submit).
+    if (this.uniformRing) this.retiredUniformRings.push(this.uniformRing)
     this.uniformRingCapacity = newCap
     this.uniformRing = this.device.createBuffer({
       size: newCap * UNIFORM_SLOT,
@@ -777,20 +791,21 @@ export class VectorTileRenderer {
 
       cached.lastUsedFrame = this.frameCount
 
-      // Fade-in: ramp opacity from 0 to 1 over ~10 frames
-      const fadeFrames = 10
-      const age = this.frameCount - cached.firstShownFrame
-      const fadeAlpha = Math.min(1.0, age / fadeFrames)
-
-      // Apply fade to fill/stroke alpha (indices 19 and 23)
+      // Tile pop-in: new tiles appear immediately at full opacity.
+      // A fade-in used to ramp alpha 0→1 over ~10 frames, but that made
+      // each newly-loaded tile visually EMPTY for 10 frames (no fallback
+      // once the child is cached), producing a continuous flicker during
+      // active zoom as tiles finish loading one by one. Instant pop-in is
+      // visually cleaner and matches the loading sequence's natural cadence.
       const baseFillA = this.cachedFillColor[3] * (this.currentOpacity ?? 1.0)
       const baseStrokeA = this.cachedStrokeColor[3] * (this.currentOpacity ?? 1.0)
-      this.uniformF32[19] = baseFillA * fadeAlpha
-      this.uniformF32[23] = baseStrokeA * fadeAlpha
-      // u.opacity: zoom-interpolated opacity for shader variants
-      // (shader variants apply u.opacity themselves, so this is NOT double-applied
-      //  because variant fill/stroke exprs use u.opacity instead of pre-multiplied alpha)
-      this.uniformF32[32] = (this.currentOpacity ?? 1.0) * fadeAlpha
+      this.uniformF32[19] = baseFillA
+      this.uniformF32[23] = baseStrokeA
+      // u.opacity for shader variants: zoom-interpolated layer opacity only
+      // (shader variants apply u.opacity themselves, so this is NOT double-
+      //  applied because variant fill/stroke exprs use u.opacity instead of
+      //  pre-multiplied alpha)
+      this.uniformF32[32] = (this.currentOpacity ?? 1.0)
 
       // Compute tile_rtc
       const DEG2RAD = Math.PI / 180
