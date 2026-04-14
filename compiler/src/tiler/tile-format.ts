@@ -72,7 +72,7 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
   // Pre-encode all tiles (both layers)
   const encodedTiles: {
     key: number
-    compact: { ringData: Uint8Array; lineCoords: Uint8Array; lineIndices: Uint8Array; lineFeatIds: Uint8Array }
+    compact: { ringData: Uint8Array; lineCoords: Uint8Array; lineIndices: Uint8Array; lineFeatIds: Uint8Array; lineArcStart: Uint8Array }
     gpuReady: { vertices: Float32Array; indices: Uint32Array; lineVertices: Float32Array; lineIndices: Uint32Array }
     tile: CompiledTile
   }[] = []
@@ -83,13 +83,19 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
     // Encode ring data (polygon structure + coords) for runtime sub-tiling
     const ringDataBuf = encodeRingData(tile.polygons ?? [], precision)
 
-    // Encode line data
+    // Encode line data (stride 4: lon, lat, featId, arcStart)
     const lineCoordFlat: number[] = []
     const lineFeatIds: number[] = []
-    for (let i = 0; i < tile.lineVertices.length; i += 3) {
+    const lineArcStart: number[] = []
+    for (let i = 0; i < tile.lineVertices.length; i += 4) {
       lineCoordFlat.push(tile.lineVertices[i], tile.lineVertices[i + 1])
       lineFeatIds.push(tile.lineVertices[i + 2])
+      lineArcStart.push(tile.lineVertices[i + 3])
     }
+
+    // Encode arc-start as raw f32 bytes (no quantization — arc is precomputed
+    // in f64 Mercator meters and must round-trip accurately for dash phase).
+    const arcBuf = new Uint8Array(new Float32Array(lineArcStart).buffer)
 
     encodedTiles.push({
       key,
@@ -98,6 +104,7 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
         lineCoords: encodeCoords(lineCoordFlat, precision),
         lineIndices: encodeIndices(tile.lineIndices),
         lineFeatIds: encodeFeatIds(lineFeatIds),
+        lineArcStart: arcBuf,
       },
       gpuReady: {
         vertices: tile.vertices,
@@ -133,8 +140,8 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
       compressedTiles.push(null) // no compact data
       continue
     }
-    // Concatenate compact parts: ringData + lineCoords + lineIndices + lineFeatIds
-    const parts = [et.compact.ringData, et.compact.lineCoords, et.compact.lineIndices, et.compact.lineFeatIds]
+    // Concatenate compact parts: ringData + lineCoords + lineIndices + lineFeatIds + lineArcStart
+    const parts = [et.compact.ringData, et.compact.lineCoords, et.compact.lineIndices, et.compact.lineFeatIds, et.compact.lineArcStart]
     let rawSize = 0
     for (const p of parts) rawSize += 4 + p.byteLength
     const rawBuf = new Uint8Array(rawSize)
@@ -166,7 +173,7 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
       gpuReadySize,
       vertexCount: et.gpuReady.vertices.length / 3,
       indexCount: et.gpuReady.indices.length,
-      lineVertexCount: et.gpuReady.lineVertices.length / 3,
+      lineVertexCount: et.gpuReady.lineVertices.length / 4,
       lineIndexCount: et.gpuReady.lineIndices.length,
       flags: flagsWord & 0x1,
       fullCoverFeatureId: flagsWord >>> 1,
@@ -366,7 +373,7 @@ export function parseGPUReadyTile(
     const gpuStart = entry.dataOffset + entry.compactSize
     const vertBytes = entry.vertexCount * 3 * 4
     const idxBytes = entry.indexCount * 4
-    const lineVertBytes = entry.lineVertexCount * 3 * 4
+    const lineVertBytes = entry.lineVertexCount * 4 * 4  // stride 4
 
     let vertices: Float32Array, indices: Uint32Array, lineVertices: Float32Array, lineIndices: Uint32Array
 
@@ -375,7 +382,7 @@ export function parseGPUReadyTile(
       let off = gpuStart
       vertices = new Float32Array(buf, off, entry.vertexCount * 3); off += vertBytes
       indices = new Uint32Array(buf, off, entry.indexCount); off += idxBytes
-      lineVertices = new Float32Array(buf, off, entry.lineVertexCount * 3); off += lineVertBytes
+      lineVertices = new Float32Array(buf, off, entry.lineVertexCount * 4); off += lineVertBytes
       lineIndices = new Uint32Array(buf, off, entry.lineIndexCount)
     } else {
       // Unaligned: copy to aligned buffer
@@ -383,7 +390,7 @@ export function parseGPUReadyTile(
       let off = 0
       vertices = new Float32Array(gpuBuf, off, entry.vertexCount * 3); off += vertBytes
       indices = new Uint32Array(gpuBuf, off, entry.indexCount); off += idxBytes
-      lineVertices = new Float32Array(gpuBuf, off, entry.lineVertexCount * 3); off += lineVertBytes
+      lineVertices = new Float32Array(gpuBuf, off, entry.lineVertexCount * 4); off += lineVertBytes
       lineIndices = new Uint32Array(gpuBuf, off, entry.lineIndexCount)
     }
 
@@ -411,11 +418,12 @@ export function parseGPUReadyTile(
     return section
   }
 
-  // v1 ring-based format: [ringData][lineCoords][lineIndices][lineFeatIds]
+  // v1 ring-based format: [ringData][lineCoords][lineIndices][lineFeatIds][lineArcStart]
   const ringDataBuf = readSection()
   const lineCoordsBuf = readSection()
   const lineIndicesBuf = readSection()
   const lineFeatIdsBuf = readSection()
+  const lineArcStartBuf = pos < dataBuf.byteLength ? readSection() : new Uint8Array(0)
 
   const precision = precisionForZoom(z)
 
@@ -456,15 +464,21 @@ export function parseGPUReadyTile(
   const vertices = new Float32Array(polyVerts)
   const indices = new Uint32Array(polyIdx)
 
-  // Decode line data
+  // Decode line data (stride 4: lon, lat, featId, arcStart)
   const lineCoords = decodeCoords(lineCoordsBuf, precision)
   const lineFeatIds = decodeFeatIds(lineFeatIdsBuf)
-  const lineVertices = new Float32Array(lineCoords.length / 2 * 3)
+  const arcCount = lineArcStartBuf.byteLength / 4
+  const lineArcStart = arcCount > 0
+    ? new Float32Array(lineArcStartBuf.buffer, lineArcStartBuf.byteOffset, arcCount)
+    : null
+  const lineVertices = new Float32Array(lineCoords.length / 2 * 4)
   for (let i = 0; i < lineCoords.length; i += 2) {
-    const vi = (i / 2) * 3
+    const vi = (i / 2) * 4
+    const vj = i / 2
     lineVertices[vi] = lineCoords[i]
     lineVertices[vi + 1] = lineCoords[i + 1]
-    lineVertices[vi + 2] = lineFeatIds[i / 2] ?? 0
+    lineVertices[vi + 2] = lineFeatIds[vj] ?? 0
+    lineVertices[vi + 3] = lineArcStart ? lineArcStart[vj] ?? 0 : 0
   }
   const lineIndices = decodeIndices(lineIndicesBuf)
 

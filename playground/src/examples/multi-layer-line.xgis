@@ -1,0 +1,30 @@
+/*
+ * Multi-layer same source — regression demo for dynamic uniform offsets.
+ * Both layers draw from the `coast` source. With the old (broken) renderer
+ * only the last layer's style would show through; now both render together.
+ */
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.geojson"
+}
+
+layer land_fill {
+  source: land
+  | fill-slate-900
+}
+
+layer thick_red {
+  source: coast
+  | stroke-red-500 stroke-5
+}
+
+layer dashed_blue {
+  source: coast
+  | stroke-sky-400 stroke-2 stroke-dasharray-20-10
+}

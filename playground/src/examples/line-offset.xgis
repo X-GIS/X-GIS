@@ -1,0 +1,38 @@
+/*
+ * Line offset showcase — three layers on the same coastline.
+ * The center slate line is the original geometry; the red line is
+ * shifted 5px to the LEFT of travel and the blue line is shifted
+ * 5px to the RIGHT. At every join the offset lines remain parallel
+ * to the centerline because the offset is folded into the miter
+ * vertex computation (not a naive perpendicular shift).
+ */
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.geojson"
+}
+
+layer land_fill {
+  source: land
+  | fill-slate-900
+}
+
+layer center {
+  source: coast
+  | stroke-slate-400 stroke-1
+}
+
+layer left_rail {
+  source: coast
+  | stroke-red-500 stroke-2 stroke-offset-5
+}
+
+layer right_rail {
+  source: coast
+  | stroke-sky-400 stroke-2 stroke-offset-right-5
+}

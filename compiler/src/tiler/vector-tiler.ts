@@ -270,12 +270,20 @@ function tessellatePolygonToArrays(
     for (const idx of earcutIdx) {
       outIdx.push(localToGlobal[idx])
     }
-    // Extract outline indices from rings (reuse deduped vertices)
+    // Extract outline indices from rings (reuse deduped vertices).
+    // Skip edges that collapse to a single vertex after dedup — they arise
+    // from closure duplicates produced by clipping algorithms and poison
+    // adjacency: the "degenerate first neighbor" wins when buildLineSegments
+    // picks `prev_tangent`, leaving real edges with zero tangents and broken
+    // joins. See regression test polygon-outline-adjacency.
     if (outOutlineIdx) {
       for (const [start, end] of ringBounds) {
         for (let i = start; i < end; i++) {
           const next = i + 1 < end ? i + 1 : start
-          outOutlineIdx.push(localToGlobal[i], localToGlobal[next])
+          const gi = localToGlobal[i]
+          const gn = localToGlobal[next]
+          if (gi === gn) continue
+          outOutlineIdx.push(gi, gn)
         }
       }
     }
@@ -287,16 +295,51 @@ function tessellatePolygonToArrays(
     for (const idx of earcutIdx) {
       outIdx.push(baseVertex + idx)
     }
-    // Extract outline indices from rings (reuse fill vertices)
+    // Extract outline indices from rings (reuse fill vertices).
+    // Skip degenerate closure edges — see dedup branch above for the
+    // adjacency-corruption rationale. In the non-dedup branch a duplicated
+    // closure vertex has a different INDEX but the same POSITION, so
+    // compare positions instead.
     if (outOutlineIdx) {
       for (const [start, end] of ringBounds) {
         for (let i = start; i < end; i++) {
           const next = i + 1 < end ? i + 1 : start
+          const ax = flatCoords[i * 2], ay = flatCoords[i * 2 + 1]
+          const bx = flatCoords[next * 2], by = flatCoords[next * 2 + 1]
+          if (ax === bx && ay === by) continue
           outOutlineIdx.push(baseVertex + i, baseVertex + next)
         }
       }
     }
   }
+}
+
+/**
+ * Augment a polyline's coords with per-vertex arc-length (meters, f64 Mercator).
+ * arcStart is stored at index 2 of each coord.
+ * Called on the ORIGINAL unclipped feature so arc values survive tile splitting.
+ */
+function augmentLineWithArc(coords: number[][]): number[][] {
+  const DEG2RAD = Math.PI / 180
+  const R = 6378137
+  const LAT_LIMIT = 85.051129
+  const clampLat = (v: number) => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
+  const out: number[][] = new Array(coords.length)
+  let arc = 0
+  let prevMx = 0, prevMy = 0
+  for (let i = 0; i < coords.length; i++) {
+    const c = coords[i]
+    const mx = c[0] * DEG2RAD * R
+    const my = Math.log(Math.tan(Math.PI / 4 + clampLat(c[1]) * DEG2RAD / 2)) * R
+    if (i > 0) {
+      const dx = mx - prevMx, dy = my - prevMy
+      arc += Math.sqrt(dx * dx + dy * dy)
+    }
+    out[i] = [c[0], c[1], arc]
+    prevMx = mx
+    prevMy = my
+  }
+  return out
 }
 
 function tessellateLineToArrays(
@@ -305,9 +348,10 @@ function tessellateLineToArrays(
   outVerts: number[],
   outIdx: number[],
 ): void {
-  const baseVertex = outVerts.length / 3
+  // Stride 4: [lon, lat, featId, arcStart]
+  const baseVertex = outVerts.length / 4
   for (const coord of coords) {
-    outVerts.push(coord[0], coord[1], featureId)
+    outVerts.push(coord[0], coord[1], featureId, coord[2] ?? 0)
   }
   for (let i = 0; i < coords.length - 1; i++) {
     outIdx.push(baseVertex + i, baseVertex + i + 1)
@@ -526,7 +570,8 @@ function processZoomLevelShared(
         }
 
         if (sp.coords) {
-          const segments = clipLineToRect(sp.coords, tb.west, tb.south, tb.east, tb.north, precisionForZoom(z))
+          const arcLine = augmentLineWithArc(sp.coords)
+          const segments = clipLineToRect(arcLine, tb.west, tb.south, tb.east, tb.north, precisionForZoom(z))
           for (const seg of segments) {
             if (seg.length >= 2) {
               preSimplifyVerts += seg.length
@@ -571,7 +616,7 @@ function processZoomLevelShared(
       }
 
       // Minimum size filter
-      const hasGeometry = scratch.pv.length >= 9 || scratch.lv.length >= 6 || scratch.ptv.length >= 3
+      const hasGeometry = scratch.pv.length >= 9 || scratch.lv.length >= 8 || scratch.ptv.length >= 3
       if (fullCover || hasGeometry) {
 
         // Filter outline: remove edges on tile boundary (clipping artifacts)
@@ -596,7 +641,7 @@ function processZoomLevelShared(
           scratch.pv[i] -= tb.west
           scratch.pv[i + 1] -= tb.south
         }
-        for (let i = 0; i < scratch.lv.length; i += 3) {
+        for (let i = 0; i < scratch.lv.length; i += 4) {
           scratch.lv[i] -= tb.west
           scratch.lv[i + 1] -= tb.south
         }
@@ -682,7 +727,8 @@ export function compileSingleTile(
     }
 
     if (part.type === 'line' && part.coords) {
-      const segments = clipLineToRect(part.coords, tb.west, tb.south, tb.east, tb.north, precision)
+      const arcLine = augmentLineWithArc(part.coords)
+      const segments = clipLineToRect(arcLine, tb.west, tb.south, tb.east, tb.north, precision)
       for (const seg of segments) {
         if (seg.length >= 2) {
           const dataLine = z < maxZoom ? simplifyLine(seg, z, isOnBoundary) : seg
@@ -703,7 +749,7 @@ export function compileSingleTile(
     }
   }
 
-  if (scratch.pv.length < 9 && scratch.lv.length < 6 && scratch.ptv.length < 3) return null
+  if (scratch.pv.length < 9 && scratch.lv.length < 8 && scratch.ptv.length < 3) return null
 
   // Filter outline: remove edges on tile boundary (clipping artifacts)
   if (scratch.oi.length > 0) {
@@ -726,7 +772,7 @@ export function compileSingleTile(
   for (let i = 0; i < scratch.pv.length; i += 3) {
     scratch.pv[i] -= tb.west; scratch.pv[i + 1] -= tb.south
   }
-  for (let i = 0; i < scratch.lv.length; i += 3) {
+  for (let i = 0; i < scratch.lv.length; i += 4) {
     scratch.lv[i] -= tb.west; scratch.lv[i + 1] -= tb.south
   }
   for (let i = 0; i < scratch.ptv.length; i += 3) {

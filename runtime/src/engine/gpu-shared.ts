@@ -10,6 +10,16 @@ export const BLEND_ALPHA: GPUBlendState = {
   alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
 }
 
+/** Max blending — keeps the maximum of src and dst per channel. Used by the
+ *  translucent line offscreen pipeline so overlapping segments of a single
+ *  layer don't accumulate alpha at corners / self-intersections. The
+ *  composite pass then blends the offscreen onto the main target with
+ *  per-layer opacity. */
+export const BLEND_MAX: GPUBlendState = {
+  color: { srcFactor: 'one', dstFactor: 'one', operation: 'max' },
+  alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'max' },
+}
+
 // ── Stencil States ──
 
 /** Stencil write: mark tile areas (compare=always, passOp=replace, mask=0xFF) */
@@ -34,7 +44,7 @@ export const STENCIL_TEST: GPUDepthStencilState = {
   stencilReadMask: 0xFF,
 }
 
-/** Stencil disabled: always pass, no write (raster tiles, SDF points) */
+/** Stencil disabled: always pass, no write (raster tiles, SDF line body) */
 export const STENCIL_DISABLED: GPUDepthStencilState = {
   format: 'depth24plus-stencil8',
   depthCompare: 'always',
@@ -45,9 +55,25 @@ export const STENCIL_DISABLED: GPUDepthStencilState = {
   stencilReadMask: 0x00,
 }
 
-// ── MSAA ──
+/** Depth test + write, no stencil — point markers need occlusion when the
+ *  camera is pitched so near points draw over far points regardless of the
+ *  CPU-side feature order. `less-equal` lets same-depth fragments overwrite
+ *  (preserves painter's order for top-down views where all z are equal). */
+export const DEPTH_TEST_WRITE: GPUDepthStencilState = {
+  format: 'depth24plus-stencil8',
+  depthCompare: 'less-equal',
+  depthWriteEnabled: true,
+  stencilFront: { compare: 'always', passOp: 'keep' },
+  stencilBack: { compare: 'always', passOp: 'keep' },
+  stencilWriteMask: 0x00,
+  stencilReadMask: 0x00,
+}
 
-export const MSAA_4X: GPUMultisampleState = { count: 4 }
+// ── MSAA ──
+// Name kept for readability but the sample count is chosen at module load
+// (4x desktop, 1x mobile). All render pipelines pick this up at creation.
+import { SAMPLE_COUNT } from './gpu'
+export const MSAA_4X: GPUMultisampleState = { count: SAMPLE_COUNT }
 
 // ── Buffer Helpers ──
 

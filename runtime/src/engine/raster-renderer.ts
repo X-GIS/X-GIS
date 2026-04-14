@@ -2,7 +2,7 @@
 
 import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
-import { visibleTiles, visibleTilesFrustum, tileUrl, loadImageTexture } from '../loader/tiles'
+import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../loader/tiles'
 import { mercator as mercatorProj } from './projection'
 import { BLEND_ALPHA, STENCIL_DISABLED, MSAA_4X } from './gpu-shared'
 
@@ -103,6 +103,8 @@ fn project(lon: f32, lat: f32) -> vec2<f32> {
 struct TileUniforms {
   bounds: vec4<f32>,    // west, south, east, north (degrees)
   tile_rtc: vec4<f32>,  // xy = project(tileWest,tileSouth) - project(camera), z = tileWest, w = tileSouth
+  merc_y: vec2<f32>,    // x = merc_south (absolute), y = merc_diff (merc_north - merc_south, stored as small f32)
+  _pad: vec2<f32>,
 }
 @group(1) @binding(0) var<uniform> tile: TileUniforms;
 
@@ -131,32 +133,28 @@ fn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut {
   let uu = f32(gx) / f32(GRID_N);
   let vv = f32(gy) / f32(GRID_N);
 
-  let lon = mix(tile.bounds.x, tile.bounds.z, uu);
-  let lat = mix(tile.bounds.w, tile.bounds.y, vv);
+  // Mercator-uniform grid: vv is linear in Mercator Y (matches raster texture layout)
+  // merc_y.x = merc_south (absolute), merc_y.y = merc_diff (small, high precision)
+  // vv=0 → north (offset=diff), vv=1 → south (offset=0)
+  let merc_y_offset = (1.0 - vv) * tile.merc_y.y;  // local offset from tileSouth
+  let merc_y_abs = tile.merc_y.x + merc_y_offset;   // absolute merc Y (for non-Mercator projections)
 
-  // ── RTC: identical to vector tile shader (tile SW corner as origin) ──
-  // local coords: small offsets from tile origin (precise in f32)
+  let lon = mix(tile.bounds.x, tile.bounds.z, uu);
+  // Recover latitude from absolute Mercator Y (for non-Mercator projections only)
+  let lat_rad = 2.0 * atan(exp(merc_y_abs)) - PI / 2.0;
+  let lat = lat_rad / DEG2RAD;
+
   let local_lon = lon - tile.tile_rtc.z;  // degrees from tileWest
-  let abs_lat = lat;
   let origin_lat = tile.tile_rtc.w;       // tileSouth
 
   let local_x = local_lon * DEG2RAD * EARTH_R;
 
-  // Mercator values for UV correction (raster tiles are always Web Mercator)
-  let abs_clamped = clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
-  let org_clamped = clamp(origin_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
-  let merc_lat = log(tan(PI / 4.0 + abs_clamped * DEG2RAD / 2.0));
-  let merc_south = log(tan(PI / 4.0 + org_clamped * DEG2RAD / 2.0));
-  let north_clamped = clamp(tile.bounds.w, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
-  let merc_north = log(tan(PI / 4.0 + north_clamped * DEG2RAD / 2.0));
-  // UV in Mercator space: vv=0 → north, vv=1 → south (matching texture layout)
-  let merc_vv = (merc_north - merc_lat) / (merc_north - merc_south);
-
   var local_y: f32;
   let t = u.proj_params.x;
   if (t < 0.5) {
-    // Mercator: nonlinear Y, compute relative to tile origin (same as vector shader)
-    local_y = (merc_lat - merc_south) * EARTH_R;
+    // Mercator: linear in Mercator Y — merc_y_offset is already relative to tileSouth
+    // (computed as (1-vv) * merc_diff) so no catastrophic subtraction of near-equal values.
+    local_y = merc_y_offset * EARTH_R;
   } else if (t < 1.5) {
     // Equirectangular
     local_y = (lat - origin_lat) * DEG2RAD * EARTH_R;
@@ -167,7 +165,7 @@ fn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut {
     let rtc_other = projected - origin_projected + tile.tile_rtc.xy;
     var out: VsOut;
     out.pos = u.mvp * vec4<f32>(rtc_other, 0.0, 1.0);
-    out.uv = vec2<f32>(uu, merc_vv);
+    out.uv = vec2<f32>(uu, vv);
     out.vis = select(1.0, center_cos_c(lon, lat, u.proj_params.y, u.proj_params.z), t > 2.5);
     return out;
   }
@@ -177,7 +175,7 @@ fn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut {
 
   var out: VsOut;
   out.pos = u.mvp * vec4<f32>(rtc, 0.0, 1.0);
-  out.uv = vec2<f32>(uu, merc_vv);
+  out.uv = vec2<f32>(uu, vv);
   out.vis = 1.0;
   return out;
 }
@@ -216,7 +214,7 @@ export class RasterRenderer {
   // Pool of per-draw tile uniform buffers (avoids writeBuffer race with draw)
   private tileUniformPool: GPUBuffer[] = []
   private tileUniformIdx = 0
-  private drawTileF32 = new Float32Array(8) // bounds(4) + tile_rtc(4)
+  private drawTileF32 = new Float32Array(12) // bounds(4) + tile_rtc(4) + merc_y(2) + pad(2)
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
@@ -277,9 +275,7 @@ export class RasterRenderer {
     this.frameCount++
 
     const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
-    const { centerX, centerY, zoom } = camera
-    const centerLon = (centerX / 6378137) * (180 / Math.PI)
-    const centerLat = (2 * Math.atan(Math.exp(centerY / 6378137)) - Math.PI / 2) * (180 / Math.PI)
+    const { zoom } = camera
 
     const currentZ = Math.max(0, Math.min(18, Math.round(zoom)))
 
@@ -296,9 +292,10 @@ export class RasterRenderer {
       this.lastZoom = currentZ
     }
 
-    const tiles = camera.pitch > 0.5
-      ? visibleTilesFrustum(camera, mercatorProj, currentZ, canvasWidth, canvasHeight)
-      : visibleTiles(centerLon, centerLat, zoom, canvasWidth, canvasHeight, undefined, camera.bearing, camera.pitch)
+    // Quadtree-based frustum selection works at every pitch, including 0.
+    // The legacy AABB path (`visibleTiles`) diverged over time and broke
+    // at low pitch for the VT pipeline, so we unify on the frustum path.
+    const tiles = visibleTilesFrustum(camera, mercatorProj, currentZ, canvasWidth, canvasHeight)
 
     // Sort: lower zoom first (draw background), higher zoom on top (sharp near tiles)
     tiles.sort((a, b) => {
@@ -389,7 +386,7 @@ export class RasterRenderer {
       // Get or create a pooled uniform buffer for this draw
       if (this.tileUniformIdx >= this.tileUniformPool.length) {
         this.tileUniformPool.push(this.device.createBuffer({
-          size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         }))
       }
       const tileBuf = this.tileUniformPool[this.tileUniformIdx++]
@@ -418,12 +415,22 @@ export class RasterRenderer {
         ? Math.log(Math.tan(Math.PI / 4 + clampMerc(projCenterLat) * DEG2RAD / 2)) * R
         : projCenterLat * DEG2RAD * R
 
+      // Precompute Mercator Y bounds in f64 — crucially, store merc_south and the
+      // small diff (merc_north - merc_south) separately, avoiding catastrophic
+      // cancellation in f32 at high zoom where the two values are nearly equal.
+      const mercSouth = Math.log(Math.tan(Math.PI / 4 + clampMerc(south) * DEG2RAD / 2))
+      const mercNorth = Math.log(Math.tan(Math.PI / 4 + clampMerc(north) * DEG2RAD / 2))
+      const mercDiff = mercNorth - mercSouth
+
       const tf = this.drawTileF32
       tf[0] = west; tf[1] = south; tf[2] = east; tf[3] = north   // bounds
       tf[4] = tileX - centerX  // tile_rtc.x (f64 → f32)
       tf[5] = tileY - centerY  // tile_rtc.y
       tf[6] = west             // tile_rtc.z = tileWest
       tf[7] = south            // tile_rtc.w = tileSouth
+      tf[8] = mercSouth        // merc_y.x (absolute, for non-Mercator projections)
+      tf[9] = mercDiff         // merc_y.y (small diff, precise at any zoom)
+      tf[10] = 0; tf[11] = 0   // padding
       this.device.queue.writeBuffer(tileBuf, 0, tf)
 
       const tileBG = this.device.createBindGroup({

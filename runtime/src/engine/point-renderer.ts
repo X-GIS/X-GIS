@@ -4,7 +4,7 @@
 // Single draw call for all points via per-feature storage buffer.
 
 import type { Camera } from './camera'
-import { BLEND_ALPHA, STENCIL_DISABLED, MSAA_4X, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
+import { BLEND_ALPHA, DEPTH_TEST_WRITE, MSAA_4X, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
 import type { ShapeRegistry } from './sdf-shape'
 
 // ═══ WGSL Shader ═══
@@ -202,10 +202,23 @@ fn vs_point(
     out.position = u.mvp * vec4f(rtc_x + wo.x, rtc_y + wo.y, 0.0, 1.0);
     out.uv = offsets[quad_id];
   } else {
-    // BILLBOARD: expand in screen-space (NDC), perspective-corrected
+    // BILLBOARD: expand in screen-space (NDC), perspective-corrected.
+    // Anchor shift (bits 8-9): 0=center, 1=bottom, 2=top.
+    // Bottom anchor lifts the quad up by one full quad extent in px so
+    // its bottom edge sits on the projected ground point (pin style).
+    let anchor_mode = (u32(feat_data[fid * STRIDE + 10u]) >> 8u) & 3u;
+    var y_shift_px = 0.0;
+    if (anchor_mode == 1u) { y_shift_px = expand; }        // bottom
+    else if (anchor_mode == 2u) { y_shift_px = -expand; }  // top
     let px_to_ndc = vec2f(2.0 / u.viewport.x, 2.0 / u.viewport.y);
-    let offset_ndc = offsets[quad_id] * expand * px_to_ndc;
+    let offset_px = vec2f(
+      offsets[quad_id].x * expand,
+      offsets[quad_id].y * expand + y_shift_px,
+    );
+    let offset_ndc = offset_px * px_to_ndc;
     out.position = center_clip + vec4f(offset_ndc * center_clip.w, 0.0, 0.0);
+    // UV stays centered so the SDF shape renders unchanged — only the
+    // on-screen placement is shifted.
     out.uv = offsets[quad_id] * expand / max(radius_px, 1.0);
   }
   out.feat_id = fid;
@@ -286,6 +299,10 @@ interface PointLayer {
   indexCount: number
   pointCount: number
   bindGroup: GPUBindGroup
+  /** Flat layers lie on the ground plane and draw without depth write so
+   *  overlapping circles blend cleanly without z-fighting from coplanar
+   *  fragments. Billboards keep depth write so near markers occlude far. */
+  isFlat: boolean
   // Expanded buffers for 3× world copies (created on first render)
   _expandedVertBuf?: GPUBuffer
   _expandedIdxBuf?: GPUBuffer
@@ -298,7 +315,8 @@ interface PointLayer {
 
 export class PointRenderer {
   private device: GPUDevice
-  private pipeline: GPURenderPipeline
+  private pipeline: GPURenderPipeline        // billboard: depth test + write + bias
+  private pipelineFlat: GPURenderPipeline    // flat: depth test only, no write (avoids coplanar z-fight)
   private bindGroupLayout: GPUBindGroupLayout
   private uniformBuffer: GPUBuffer
   private uniformData = new Float32Array(28) // mvp(16) + proj_params(4) + tile_rtc(4) + viewport(2) + pad(2)
@@ -335,14 +353,48 @@ export class PointRenderer {
       ],
     }
 
+    // Polygon offset (depth bias) pulls point markers slightly toward the
+    // camera so they never z-fight with ground polygons, line strokes, or
+    // each other. Negative bias = closer in WebGPU's [0,1] depth range.
+    // `depthBiasSlopeScale: -1` makes the offset proportional to surface
+    // slope so the effect is roughly constant in screen space regardless
+    // of pitch. Values chosen empirically — large enough to dominate any
+    // realistic coplanar tie at 24-bit depth precision.
+    const pointDepthStencil: GPUDepthStencilState = {
+      ...DEPTH_TEST_WRITE,
+      depthBias: -10,
+      depthBiasSlopeScale: -1,
+      depthBiasClamp: 0,
+    }
+
     this.pipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vertexBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: STENCIL_DISABLED,
+      depthStencil: pointDepthStencil,
       multisample: MSAA_4X,
       label: 'sdf-point-pipeline',
+    })
+
+    // Flat pipeline — depth read but NO write. Flat circles (e.g. coverage
+    // overlays lying on the ground plane) have identical clip-space Z at
+    // any overlapping fragment, so writing depth produces a coplanar tie
+    // that flickers as z-fighting. Painter's order + alpha blending is the
+    // correct composition for these. Depth test is kept at less-equal so
+    // future opaque 3D geometry (not present today) can still occlude them.
+    const flatDepthStencil: GPUDepthStencilState = {
+      ...DEPTH_TEST_WRITE,
+      depthWriteEnabled: false,
+    }
+    this.pipelineFlat = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vertexBufferLayout] },
+      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: BLEND_ALPHA }] },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: flatDepthStencil,
+      multisample: MSAA_4X,
+      label: 'sdf-point-pipeline-flat',
     })
 
     this.uniformBuffer = device.createBuffer({
@@ -526,6 +578,7 @@ export class PointRenderer {
     perFeatureSizes?: number[] | null,
     billboard?: boolean,
     shapeId?: number,
+    anchor?: 'center' | 'bottom' | 'top',
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -578,6 +631,9 @@ export class PointRenderer {
     const sizeMode = sizeUnit ? (unitMap[sizeUnit] ?? 0) : 0
     if (billboard === false) flags |= 8  // bit 3 = flat
     flags |= (sizeMode << 4)
+    // Anchor mode: bits 8-9 (0=center, 1=bottom, 2=top)
+    const anchorMap = { center: 0, bottom: 1, top: 2 } as const
+    flags |= (anchorMap[anchor ?? 'center']) << 8
 
     for (let i = 0; i < points.length; i++) {
       const off = i * STRIDE
@@ -624,6 +680,7 @@ export class PointRenderer {
       indexCount: indices.length,
       pointCount: points.length,
       bindGroup,
+      isFlat: billboard === false,
     })
 
     console.log(`[X-GIS] SDF point layer: ${points.length} points`)
@@ -745,7 +802,7 @@ export class PointRenderer {
       this.device.queue.writeBuffer(layer._expandedIdxBuf!, 0, expandedIdx)
       this.device.queue.writeBuffer(layer._expandedFeatBuf!, 0, expandedFeat)
 
-      pass.setPipeline(this.pipeline)
+      pass.setPipeline(layer.isFlat ? this.pipelineFlat : this.pipeline)
       pass.setBindGroup(0, layer._expandedBindGroup!)
       pass.setVertexBuffer(0, layer._expandedVertBuf!)
       pass.setIndexBuffer(layer._expandedIdxBuf!, 'uint32')

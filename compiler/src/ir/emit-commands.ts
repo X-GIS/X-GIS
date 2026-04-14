@@ -30,8 +30,22 @@ export interface ShowCommand {
   sizeUnit: string | null
   sizeExpr: DataExpr | null
   billboard: boolean
+  anchor?: 'center' | 'bottom' | 'top'
   shape: string | null
   shapeDefs: { name: string; paths: string[] }[]
+  // Phase 2: line styling
+  linecap?: 'butt' | 'round' | 'square' | 'arrow'
+  linejoin?: 'miter' | 'round' | 'bevel'
+  miterlimit?: number
+  // Phase 3: dash array
+  dashArray?: number[]
+  dashOffset?: number
+  // Phase 4: pattern stack (up to 3 slots)
+  patterns?: import('./render-node').StrokePattern[]
+  /** Lateral parallel offset in pixels (positive = left of travel). */
+  strokeOffset?: number
+  /** Stroke alignment — 'inset' / 'outset' shift by ±half_width at runtime. */
+  strokeAlign?: 'center' | 'inset' | 'outset'
 }
 
 export interface SceneCommands {
@@ -76,8 +90,17 @@ function emitShow(node: RenderNode): ShowCommand {
     sizeUnit: (node.size.kind === 'constant' || node.size.kind === 'data-driven') ? (node.size.unit ?? null) : null,
     sizeExpr: node.size.kind === 'data-driven' ? node.size.expr : null,
     billboard: node.billboard,
+    anchor: node.anchor,
     shape: node.shape.kind === 'named' ? node.shape.name : null,
     shapeDefs: [],
+    linecap: node.stroke.linecap,
+    linejoin: node.stroke.linejoin,
+    miterlimit: node.stroke.miterlimit,
+    dashArray: node.stroke.dashArray,
+    dashOffset: node.stroke.dashOffset,
+    patterns: node.stroke.patterns,
+    strokeOffset: node.stroke.offset,
+    strokeAlign: node.stroke.align,
   }
 }
 

@@ -23,8 +23,11 @@ layer coverage {
   | fill-sky-500 opacity-15 size-300km flat
 }
 
-/* Billboard screen-space markers (8px) — always face camera, fixed size */
+/* Billboard screen-space markers (8px) — always face camera, fixed size.
+   anchor-bottom makes the dot's world position sit at the BOTTOM of the
+   circle, so the marker stands up from the ground like a pin instead of
+   having its lower half intersect the ground polygon. */
 layer markers {
   source: cities
-  | fill-rose-500 stroke-white stroke-2 size-8 opacity-90
+  | fill-rose-500 stroke-white stroke-2 size-8 opacity-90 anchor-bottom
 }

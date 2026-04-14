@@ -1,7 +1,7 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONToTiles, decomposeFeatures, deserializeXGB } from '@xgis/compiler'
-import { initGPU, resizeCanvas, type GPUContext } from './gpu'
+import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONToTiles, decomposeFeatures, deserializeXGB, resolveImportsAsync } from '@xgis/compiler'
+import { initGPU, resizeCanvas, MAX_DPR, SAMPLE_COUNT, SAFE_MODE, type GPUContext } from './gpu'
 import { Camera } from './camera'
 import { MapRenderer, interpolateZoom } from './renderer'
 import { interpret, type SceneCommands } from './interpreter'
@@ -10,6 +10,7 @@ import { isTileTemplate } from '../loader/tiles'
 import { RasterRenderer } from './raster-renderer'
 import { PointRenderer } from './point-renderer'
 import { ShapeRegistry } from './sdf-shape'
+import { LineRenderer } from './line-renderer'
 import { PanZoomController, type Controller } from './controller'
 import { CanvasRenderer } from './canvas-renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
@@ -31,6 +32,7 @@ export class XGISMap {
   private rasterRenderer!: RasterRenderer
   private pointRenderer!: PointRenderer
   private shapeRegistry: ShapeRegistry | null = null
+  private lineRenderer: LineRenderer | null = null
   private running = false
   private projectionName = 'mercator'
   private controller: Controller | null = null
@@ -66,6 +68,9 @@ export class XGISMap {
 
   /** Get current rendering stats */
   get stats(): RenderStats { return this._stats.get() }
+
+  /** Public read/write access to the camera (for URL hash, etc). */
+  getCamera(): Camera { return this.camera }
 
   /** Show/hide the stats inspector panel */
   showInspector(show = true): void {
@@ -108,9 +113,46 @@ export class XGISMap {
 
   /** Load and run an X-GIS program */
   async run(source: string, baseUrl = ''): Promise<void> {
-    // 1. Parse → IR → Commands
+    // Promote baseUrl to an absolute URL. `new URL(path, base)` requires
+    // `base` to be absolute — passing a bare path like '/data/' throws
+    // TypeError: Invalid base URL. Accepts '', '/data/', relative URLs, or
+    // fully-qualified URLs.
+    const absBase = (() => {
+      if (typeof window === 'undefined') return baseUrl  // SSR / tests
+      if (!baseUrl) return window.location.href
+      try { return new URL(baseUrl, window.location.href).href }
+      catch { return window.location.href }
+    })()
+
+    // 1. Parse → resolve imports (async fetch) → IR → Commands
     const tokens = new Lexer(source).tokenize()
-    const ast = new Parser(tokens).parse()
+    let ast = new Parser(tokens).parse()
+
+    // Resolve any `import { ... } from "..."` statements via fetch.
+    // Errors are logged (via console.error → in-page overlay) so future
+    // module-resolution failures aren't opaque on iOS.
+    const resolver = async (path: string): Promise<string | null> => {
+      let url: string
+      try { url = new URL(path, absBase).href }
+      catch (e) {
+        console.error(`[X-GIS import] cannot build URL for "${path}" against base "${absBase}":`, (e as Error).message)
+        return null
+      }
+      try {
+        const resp = await fetch(url)
+        if (!resp.ok) {
+          console.error(`[X-GIS import] fetch ${url} failed: ${resp.status} ${resp.statusText}`)
+          return null
+        }
+        return await resp.text()
+      } catch (e) {
+        console.error(`[X-GIS import] fetch ${url} threw:`, (e as Error).message)
+        return null
+      }
+    }
+    if (ast.body.some(s => s.kind === 'ImportStatement')) {
+      ast = await resolveImportsAsync(ast, absBase, resolver)
+    }
 
     // Use IR pipeline for new syntax, fallback to legacy interpreter
     const hasNewSyntax = ast.body.some(s => s.kind === 'SourceStatement' || s.kind === 'LayerStatement')
@@ -138,6 +180,12 @@ export class XGISMap {
         this.shapeRegistry.uploadToGPU()
         this.pointRenderer.setShapeRegistry(this.shapeRegistry)
       } catch (e) { console.warn('[X-GIS] PointRenderer init failed:', e) }
+
+      // SDF line renderer (shared by all VTR instances)
+      try {
+        this.lineRenderer = new LineRenderer(this.ctx, this.renderer.bindGroupLayout)
+        if (this.shapeRegistry) this.lineRenderer.setShapeRegistry(this.shapeRegistry)
+      } catch (e) { console.warn('[X-GIS] LineRenderer init failed:', e) }
       // VT sources/renderers created per .xgvt file in the load loop
       this.useCanvas2D = false
     } catch (err) {
@@ -161,6 +209,7 @@ export class XGISMap {
         const source = new XGVTSource()
         const vtRenderer = new VectorTileRenderer(this.ctx)
         vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout) // must be set before any tile uploads
+        if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
         vtRenderer.setSource(source) // connect before load so preloaded tiles auto-upload
         const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
         try {
@@ -182,7 +231,7 @@ export class XGISMap {
           this.camera.centerX = cx
           this.camera.centerY = cy
           const lonSpan = maxLon - minLon
-          const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+          const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, MAX_DPR) : 1
           const cssW = this.canvas.width / dpr
           const degPerPx = lonSpan / cssW
           this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
@@ -330,6 +379,7 @@ export class XGISMap {
           perFeatureSizes,
           show.billboard,
           shapeId,
+          show.anchor,
         )
         continue
       }
@@ -337,6 +387,7 @@ export class XGISMap {
       const source = new XGVTSource()
       const vtRenderer = new VectorTileRenderer(this.ctx)
       vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
+      if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
       vtRenderer.setSource(source)
       this.vtSources.set(vtKey, { source, renderer: vtRenderer })
 
@@ -357,7 +408,7 @@ export class XGISMap {
         this.camera.centerX = cx
         this.camera.centerY = cy
         const lonSpan = maxLon - minLon
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+        const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, MAX_DPR) : 1
         const cssW = this.canvas.width / dpr
         const degPerPx = lonSpan / cssW
         this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
@@ -480,6 +531,19 @@ export class XGISMap {
 
   private renderLoop = (): void => {
     if (!this.running) return
+    try {
+      this.renderFrame()
+    } catch (err) {
+      // Surface frame errors to the console so the in-page log overlay
+      // (and PC DevTools) can show the real message. Without this wrap,
+      // requestAnimationFrame errors bubble to window.onerror as the
+      // useless "Script error. @ :0:0" placeholder under iOS WebKit.
+      console.error('[X-GIS frame]', (err as Error)?.stack ?? err)
+      this.running = false  // stop the loop so the error doesn't repeat 60×/sec
+    }
+  }
+
+  private renderFrame(): void {
     this._stats.beginFrame()
     resizeCanvas(this.ctx)
 
@@ -492,9 +556,28 @@ export class XGISMap {
     const w = canvas.width, h = canvas.height
     if (w === 0 || h === 0) { requestAnimationFrame(this.renderLoop); return }
 
+    // Track the maximum useful zoom level based on loaded vector sources.
+    // Tile vertices are stored in tile-local degrees (float32), losing
+    // precision to ~30cm for a z=5 parent at zoom > ~18, and generateSubTile
+    // is called for thousands of microscopic slices. maxSubTileZ =
+    // source.maxLevel + 6 matches the tile selection clamp. We only
+    // UPDATE camera.maxZoom here (not `camera.zoom` itself) so that
+    // zoomAt and other input-side clamping use the current cap, while
+    // avoiding per-frame tug-of-war with the controller's inertia/zoom
+    // animations that would manifest as the map drifting by itself.
+    let zoomCap = 22
+    if (this.vtSources.size > 0) {
+      let maxSrcLevel = 0
+      for (const [, { renderer: vtR }] of this.vtSources) {
+        if (vtR.sourceMaxLevel > maxSrcLevel) maxSrcLevel = vtR.sourceMaxLevel
+      }
+      zoomCap = Math.min(22, maxSrcLevel + 6)
+    }
+    this.camera.maxZoom = zoomCap
+
     // Clamp camera Y (latitude bounded), X wraps freely (world repeat)
     const MAX_MERC = 20037508.34
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, MAX_DPR) : 1
     const mpp = (40075016.686 / 256) / Math.pow(2, this.camera.zoom)
     const visHalfY = (h / dpr) * mpp / 2
     const maxY = Math.max(0, MAX_MERC - visHalfY)
@@ -510,11 +593,30 @@ export class XGISMap {
 
     const encoder = device.createCommandEncoder()
     const screenView = context.getCurrentTexture().createView()
+    // Wrap the entire frame in a validation scope so any pass-creation or
+    // draw-call validation error gets a unique log entry pointing to the
+    // submit. Each block below also pushes its own scope for finer locality.
+    device.pushErrorScope('validation')
+
+    // Per-pass scope helper: pushes an error scope, runs `fn`, then pops and
+    // logs any validation error tagged with `label`. Nested inside the
+    // frame-level scope so both levels fire independently — the inner scope
+    // pinpoints which pass failed, the outer one catches encoder-wide state.
+    const passScope = (label: string, fn: () => void): void => {
+      device.pushErrorScope('validation')
+      try { fn() }
+      finally {
+        device.popErrorScope().then((err) => {
+          if (err) console.error(`[X-GIS pass:${label}]`, err.message)
+        }).catch(() => { /* scope stack mismatch — swallow */ })
+      }
+    }
 
     {
       // ═══ Direct rendering: vertex shader handles all projections ═══
-      // MSAA + stencil texture management (recreate on resize)
-      const sc = 4 // MSAA 4x (WebGPU spec guarantees support)
+      // MSAA + stencil texture management (recreate on resize).
+      // sample count tracks the pipeline-time SAMPLE_COUNT (1 on mobile, 4 on desktop).
+      const sc = SAMPLE_COUNT
       if (!this.msaaTexture || this.msaaWidth !== w || this.msaaHeight !== h) {
         this.msaaTexture?.destroy()
         this.stencilTexture?.destroy()
@@ -534,12 +636,21 @@ export class XGISMap {
         this.msaaHeight = h
       }
 
+      // When SAMPLE_COUNT === 1 (mobile / no MSAA), render DIRECTLY to the
+      // swapchain texture and never set a resolveTarget — single-sample
+      // attachments cannot have a resolve target per WebGPU spec.
       const msaaView = this.msaaTexture!.createView()
       const hasMultiSource = this.vectorTileShows.length > 1
+      const useResolve = sc > 1
+      const colorView = useResolve ? msaaView : screenView
+      const colorResolve = useResolve && !hasMultiSource ? screenView : undefined
+      // Per-pass scope so a validation error in the main pass is labelled
+      // before the frame-level scope catches the poisoned-encoder aftermath.
+      device.pushErrorScope('validation')
       const pass = encoder.beginRenderPass({
         colorAttachments: [{
-          view: msaaView,
-          resolveTarget: hasMultiSource ? undefined : screenView, // resolve only on last pass
+          view: colorView,
+          resolveTarget: colorResolve,
           clearValue: { r: 0.039, g: 0.039, b: 0.063, a: 1 },
           loadOp: 'clear',
           storeOp: 'store', // keep MSAA data for subsequent VT passes
@@ -555,8 +666,19 @@ export class XGISMap {
         },
       })
 
+      // Reset per-frame uniform ring cursors (dynamic-offset slots).
+      this.renderer.beginFrame()
+      this.lineRenderer?.beginFrame()
+      for (const [, { renderer: vtR }] of this.vtSources) vtR.beginFrame()
+
       this.rasterRenderer.render(pass, this.camera, projType, centerLon, centerLat, w, h)
       this.renderer.renderToPass(pass, this.camera, projType, centerLon, centerLat)
+
+      // Track translucent line layers — they get a second pass after the
+      // main pass: render to offscreen with MAX blend, then composite onto
+      // the main framebuffer with alpha × layer opacity. This avoids
+      // alpha accumulation at line self-intersections / corner overlap.
+      const translucentLineLayers: { sourceName: string; show: SceneCommands['shows'][0]; pipelines: VariantPipelines | null; layout: GPUBindGroupLayout | null; opacity: number }[] = []
 
       // Render vector tile sources (polygons/lines — before points)
       if (this.vectorTileShows.length === 1) {
@@ -568,14 +690,27 @@ export class XGISMap {
           const effectiveShow = show.zoomOpacityStops
             ? { ...show, opacity: interpolateZoom(show.zoomOpacityStops, this.camera.zoom) }
             : show
+          const isTranslucentStroke =
+            !SAFE_MODE && (effectiveShow.opacity ?? 1) < 0.999 && !!effectiveShow.stroke
+
           const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
           const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
           const bgl = layout ?? this.renderer.bindGroupLayout
+          const fpF = pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
+          const lpF = pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
+
+          // Translucent+stroke: draw fills in the main pass (baked opacity),
+          // then defer strokes to the offscreen MAX-blend pass below.
+          // Opaque: draw everything inline in one call.
           vtEntry.renderer.render(pass, this.camera, projType, centerLon, centerLat, w, h,
             effectiveShow, fp, lp, this.renderer.uniformBuffer, bgl,
-            pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback,
-            pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback,
-            this.pointRenderer)
+            fpF, lpF,
+            isTranslucentStroke ? null : this.pointRenderer,
+            isTranslucentStroke ? 'fills' : 'all')
+
+          if (isTranslucentStroke) {
+            translucentLineLayers.push({ sourceName, show: effectiveShow, pipelines, layout, opacity: effectiveShow.opacity ?? 1 })
+          }
         }
       }
 
@@ -585,9 +720,65 @@ export class XGISMap {
       }
 
       pass.end()
+      device.popErrorScope().then((err) => {
+        if (err) console.error('[X-GIS pass:main]', err.message)
+      }).catch(() => { /* scope stack mismatch — swallow */ })
 
-      // Multi-source: separate pass per source (independent stencil clear)
+      // ── Translucent line layers ──
+      // For each translucent line layer: clear an offscreen RT, draw lines
+      // with MAX blend (no within-layer accumulation), then composite the
+      // offscreen onto the main framebuffer with the layer opacity.
+      if (translucentLineLayers.length > 0 && this.lineRenderer) {
+        this.lineRenderer.ensureOffscreen(w, h)
+        for (let li = 0; li < translucentLineLayers.length; li++) {
+          const { sourceName, show, pipelines, layout, opacity } = translucentLineLayers[li]
+          const vtEntry = this.vtSources.get(sourceName)
+          if (!vtEntry || !vtEntry.renderer.hasData()) continue
+          const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
+          const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
+          const bgl = layout ?? this.renderer.bindGroupLayout
+
+          // 1. Offscreen pass: lines with MAX blend
+          passScope(`ss-offscreen[${li}]`, () => {
+            const offPass = this.lineRenderer!.beginTranslucentPass(encoder)
+            vtEntry.renderer.render(offPass, this.camera, projType, centerLon, centerLat, w, h,
+              show, fp, lp, this.renderer.uniformBuffer, bgl,
+              pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback,
+              pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback,
+              null,
+              'strokes')
+            offPass.end()
+          })
+
+          // 2. Composite pass: blend offscreen onto main RT.
+          // The composite pipeline has no depth/stencil so the attachment
+          // is omitted. Use direct screenView writes when MSAA is off.
+          const isLastTranslucent = li === translucentLineLayers.length - 1
+          passScope(`ss-composite[${li}]`, () => {
+            const compPass = encoder.beginRenderPass({
+              colorAttachments: [{
+                view: useResolve ? msaaView : screenView,
+                resolveTarget: useResolve && isLastTranslucent ? screenView : undefined,
+                loadOp: 'load',
+                storeOp: 'store',
+              }],
+            })
+            this.lineRenderer!.composite(compPass, opacity)
+            compPass.end()
+          })
+        }
+      }
+
+      // Multi-source: separate pass per source (independent stencil clear).
+      // Each translucent+stroke layer gets the same offscreen MAX-blend +
+      // composite treatment as the single-source path, so within-layer alpha
+      // does not accumulate at line corners. The earlier "encoder state is
+      // not valid" regression on iOS was caused by the composite uniform
+      // buffer being half its true size (16 vs 32); once that was fixed the
+      // offscreen path is safe to enable here too.
       if (this.vectorTileShows.length > 1) {
+        const lr = this.lineRenderer
+        if (lr) lr.ensureOffscreen(w, h)
         for (let si = 0; si < this.vectorTileShows.length; si++) {
           const { sourceName, show: rawShow, pipelines, layout } = this.vectorTileShows[si]
           const vtEntry = this.vtSources.get(sourceName)
@@ -598,34 +789,67 @@ export class XGISMap {
           const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
           const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
           const bgl = layout ?? this.renderer.bindGroupLayout
+          const fpF = pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
+          const lpF = pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
           const isLast = si === this.vectorTileShows.length - 1
-          const vtPass = encoder.beginRenderPass({
-            colorAttachments: [{
-              view: msaaView,
-              resolveTarget: isLast ? screenView : undefined, // resolve only on last pass
-              loadOp: 'load',
-              storeOp: 'store',
-            }],
-            depthStencilAttachment: {
-              view: this.stencilTexture!.createView(),
-              depthClearValue: 1.0, depthLoadOp: 'clear', depthStoreOp: 'discard',
-              stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard',
-            },
+
+          const isTranslucentStroke =
+            !SAFE_MODE && lr !== null && (show.opacity ?? 1) < 0.999 && !!show.stroke
+
+          passScope(`ms-vt[${si}]`, () => {
+            const vtPass = encoder.beginRenderPass({
+              colorAttachments: [{
+                view: useResolve ? msaaView : screenView,
+                resolveTarget: useResolve && isLast && !isTranslucentStroke ? screenView : undefined,
+                loadOp: 'load',
+                storeOp: 'store',
+              }],
+              depthStencilAttachment: {
+                view: this.stencilTexture!.createView(),
+                depthClearValue: 1.0, depthLoadOp: 'clear', depthStoreOp: 'discard',
+                stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard',
+              },
+            })
+            vtEntry.renderer.render(vtPass, this.camera, projType, centerLon, centerLat, w, h,
+              show, fp, lp, this.renderer.uniformBuffer, bgl,
+              fpF, lpF,
+              isTranslucentStroke ? null : this.pointRenderer,
+              isTranslucentStroke ? 'fills' : 'all')
+            vtPass.end()
           })
-          vtEntry.renderer.render(vtPass, this.camera, projType, centerLon, centerLat, w, h,
-            show, fp, lp, this.renderer.uniformBuffer, bgl,
-            pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback,
-            pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback,
-            this.pointRenderer)
-          vtPass.end()
+
+          if (isTranslucentStroke && lr) {
+            // Offscreen line draw (MAX blend, α=1) — no within-layer accumulation.
+            passScope(`ms-offscreen[${si}]`, () => {
+              const offPass = lr.beginTranslucentPass(encoder)
+              vtEntry.renderer.render(offPass, this.camera, projType, centerLon, centerLat, w, h,
+                show, fp, lp, this.renderer.uniformBuffer, bgl, fpF, lpF,
+                null, 'strokes')
+              offPass.end()
+            })
+
+            // Composite offscreen → main framebuffer with layer opacity.
+            passScope(`ms-composite[${si}]`, () => {
+              const compPass = encoder.beginRenderPass({
+                colorAttachments: [{
+                  view: useResolve ? msaaView : screenView,
+                  resolveTarget: useResolve && isLast ? screenView : undefined,
+                  loadOp: 'load',
+                  storeOp: 'store',
+                }],
+              })
+              lr.composite(compPass, show.opacity ?? 1)
+              compPass.end()
+            })
+          }
         }
 
         // Render SDF points after all VT passes
-        if (this.pointRenderer?.hasLayers()) {
+        if (this.pointRenderer?.hasLayers()) passScope('ms-points', () => {
           const ptPass = encoder.beginRenderPass({
             colorAttachments: [{
-              view: msaaView,
-              resolveTarget: screenView,
+              view: useResolve ? msaaView : screenView,
+              resolveTarget: useResolve ? screenView : undefined,
               loadOp: 'load',
               storeOp: 'store',
             }],
@@ -635,13 +859,18 @@ export class XGISMap {
               stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard',
             },
           })
-          this.pointRenderer.render(ptPass, this.camera, centerLon, centerLat, w, h)
+          this.pointRenderer!.render(ptPass, this.camera, centerLon, centerLat, w, h)
           ptPass.end()
-        }
+        })
       }
     }
 
+    // Outer scope catches the FRAME-level error (one entry per bad frame),
+    // matching the inner scope opened right after createCommandEncoder().
     device.queue.submit([encoder.finish()])
+    device.popErrorScope().then((err) => {
+      if (err) console.error('[X-GIS frame-validation]', err.message)
+    }).catch(() => { /* scope mismatch — ignore */ })
 
     // Collect stats from renderers
     this._stats.zoom = this.camera.zoom

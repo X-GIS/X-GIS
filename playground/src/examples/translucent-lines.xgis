@@ -1,0 +1,36 @@
+/*
+ * Translucent line stack — shows that overlapping line layers don't
+ * accumulate alpha at corners or self-intersections. Each translucent
+ * line layer renders to an offscreen RT with MAX blending, then
+ * composites onto the main framebuffer with its layer opacity.
+ *
+ * If you see DARK SPOTS at coastline corners or where two layers
+ * overlap, the regression is back.
+ */
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.geojson"
+}
+
+layer land_fill {
+  source: land
+  | fill-slate-900
+}
+
+/* Thick translucent red coastline — corners must NOT darken */
+layer thick_red {
+  source: coast
+  | stroke-red-500 stroke-12 opacity-30
+}
+
+/* Thinner translucent cyan coastline overlaid — composes cleanly */
+layer thin_cyan {
+  source: coast
+  | stroke-cyan-300 stroke-3 opacity-50
+}

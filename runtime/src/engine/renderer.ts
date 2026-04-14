@@ -337,8 +337,26 @@ export interface ShowCommand {
   sizeExpr?: { ast: unknown } | null
   sizeUnit?: string | null
   billboard?: boolean
+  anchor?: 'center' | 'bottom' | 'top'
   shape?: string | null
   shapeDefs?: { name: string; paths: string[] }[]
+  // Line styling (Phase 2+)
+  linecap?: 'butt' | 'round' | 'square' | 'arrow'
+  linejoin?: 'miter' | 'round' | 'bevel'
+  miterlimit?: number
+  dashArray?: number[]
+  dashOffset?: number
+  patterns?: {
+    shape: string
+    spacing: number
+    spacingUnit?: 'm' | 'px' | 'km' | 'nm'
+    size: number
+    sizeUnit?: 'm' | 'px' | 'km' | 'nm'
+    offset?: number
+    offsetUnit?: 'm' | 'px' | 'km' | 'nm'
+    startOffset?: number
+    anchor?: 'repeat' | 'start' | 'end' | 'center'
+  }[]
 }
 
 /**
@@ -435,7 +453,11 @@ export class MapRenderer {
   private ctx: GPUContext
   // Cached per-frame allocation (avoid GC pressure in render loop)
   private uniformDataBuf = new ArrayBuffer(144)
-  private gratWorldBufs: { buf: GPUBuffer; bg: GPUBindGroup }[] = []
+  // Dynamic-offset uniform ring (see docs: multi-layer uniform slots)
+  private static readonly UNIFORM_SLOT = 256
+  private static readonly UNIFORM_SIZE = 144
+  private uniformRingCapacity = 256 // slots
+  private uniformSlot = 0
   fillPipeline!: GPURenderPipeline
   linePipeline!: GPURenderPipeline
   // Stencil-test pipelines: only draw where stencil = 0 (not covered by children)
@@ -493,7 +515,7 @@ export class MapRenderer {
       entries: [{
         binding: 0,
         visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-        buffer: { type: 'uniform' },
+        buffer: { type: 'uniform', hasDynamicOffset: true },
       }],
     })
 
@@ -502,7 +524,7 @@ export class MapRenderer {
         {
           binding: 0,
           visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: { type: 'uniform' },
+          buffer: { type: 'uniform', hasDynamicOffset: true },
         },
         {
           binding: 1,
@@ -517,7 +539,17 @@ export class MapRenderer {
     })
 
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 12, // 2×f32 (lon,lat) + 1×u32 (feat_id)
+      arrayStride: 12, // polygon fill: 2×f32 (lon,lat) + 1×f32 (feat_id)
+      attributes: [
+        { shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 8, format: 'float32' as GPUVertexFormat },
+      ],
+    }
+    // Line features carry an extra arc_start component (stride 16).
+    // The shader reads only position + feat_id; arc_start is ignored here
+    // (the SDF LineRenderer consumes it via a storage buffer).
+    const lineVertexBufferLayout: GPUVertexBufferLayout = {
+      arrayStride: 16,
       attributes: [
         { shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat },
         { shaderLocation: 1, offset: 8, format: 'float32' as GPUVertexFormat },
@@ -537,7 +569,7 @@ export class MapRenderer {
     // Line pipeline (stencil write)
     this.linePipeline = device.createRenderPipeline({
       layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+      vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
       depthStencil: STENCIL_WRITE,
@@ -558,24 +590,63 @@ export class MapRenderer {
     // Fallback line pipeline (stencil test)
     this.linePipelineFallback = device.createRenderPipeline({
       layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+      vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
       depthStencil: STENCIL_TEST, multisample: MSAA_4X,
       label: 'line-pipeline-fallback',
     })
 
-    // Uniform buffer (MVP + colors + strokeWidth = 64 + 16 + 16 + 4 = padded to 112)
+    // Uniform ring buffer: 256-byte slots, dynamic offsets per draw.
+    // Guarantees that multi-layer draws don't overwrite each other's uniforms.
     this.uniformBuffer = device.createBuffer({
-      size: 144, // 4x4 matrix(64) + fill(16) + stroke(16) + proj_params(16) + tile_origin(16)
+      size: this.uniformRingCapacity * MapRenderer.UNIFORM_SLOT,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      label: 'uniforms',
+      label: 'uniform-ring',
     })
 
     this.bindGroup = device.createBindGroup({
       layout: this.bindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer } }],
+      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } }],
     })
+  }
+
+  /** Reset the ring-buffer slot cursor. Call once per frame before any draws. */
+  beginFrame(): void {
+    this.uniformSlot = 0
+  }
+
+  private allocUniformSlot(): number {
+    if (this.uniformSlot >= this.uniformRingCapacity) this.growUniformRing(this.uniformSlot + 1)
+    return this.uniformSlot++ * MapRenderer.UNIFORM_SLOT
+  }
+
+  private growUniformRing(minSlots: number): void {
+    const { device } = this.ctx
+    let newCap = this.uniformRingCapacity
+    while (newCap < minSlots) newCap *= 2
+    this.uniformBuffer?.destroy()
+    this.uniformRingCapacity = newCap
+    this.uniformBuffer = device.createBuffer({
+      size: newCap * MapRenderer.UNIFORM_SLOT,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      label: 'uniform-ring',
+    })
+    this.bindGroup = device.createBindGroup({
+      layout: this.bindGroupLayout,
+      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } }],
+    })
+    for (const layer of this.layers) {
+      if (layer.featureDataBuffer) {
+        layer.perLayerBindGroup = device.createBindGroup({
+          layout: this.featureBindGroupLayout,
+          entries: [
+            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
+            { binding: 1, resource: { buffer: layer.featureDataBuffer } },
+          ],
+        })
+      }
+    }
   }
 
   /** Register data + show command as a render layer */
@@ -671,7 +742,7 @@ export class MapRenderer {
         layer.perLayerBindGroup = device.createBindGroup({
           layout: this.featureBindGroupLayout,
           entries: [
-            { binding: 0, resource: { buffer: this.uniformBuffer } },
+            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
           ],
         })
@@ -751,6 +822,13 @@ export class MapRenderer {
         { shaderLocation: 1, offset: 8, format: 'float32' as GPUVertexFormat },
       ],
     }
+    const lineVertexBufferLayout: GPUVertexBufferLayout = {
+      arrayStride: 16,
+      attributes: [
+        { shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 8, format: 'float32' as GPUVertexFormat },
+      ],
+    }
 
     const fillPipeline = device.createRenderPipeline({
       layout: pipelineLayout,
@@ -763,7 +841,7 @@ export class MapRenderer {
 
     const linePipeline = device.createRenderPipeline({
       layout: pipelineLayout,
-      vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+      vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
       fragment: { module, entryPoint: 'fs_stroke', targets: [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
       depthStencil: STENCIL_WRITE, multisample: MSAA_4X,
@@ -781,7 +859,7 @@ export class MapRenderer {
 
     const linePipelineFallback = device.createRenderPipeline({
       layout: pipelineLayout,
-      vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+      vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
       fragment: { module, entryPoint: 'fs_stroke', targets: [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
       depthStencil: STENCIL_TEST, multisample: MSAA_4X,
@@ -862,7 +940,8 @@ export class MapRenderer {
         : projCenterLat * DEG2RAD * R  // Equirectangular (linear)
       new Float32Array(uniformData, 112, 4).set([-cx, -cy, 0, 0]) // tile_rtc: offset, west=0, south=0
       new Float32Array(uniformData, 128, 1)[0] = opacity // zoom-interpolated opacity
-      device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
+      const slotOffset = this.allocUniformSlot()
+      device.queue.writeBuffer(this.uniformBuffer, slotOffset, uniformData)
 
       // Select bind group: per-layer (with feature data) or shared
       const bindGroup = layer.perLayerBindGroup ?? this.bindGroup
@@ -872,7 +951,7 @@ export class MapRenderer {
       const hasFill = fillRaw || layer.fillPipeline
       if (hasFill && layer.polygonVertexBuffer && layer.polygonIndexBuffer) {
         pass.setPipeline(layer.fillPipeline ?? this.fillPipeline)
-        pass.setBindGroup(0, bindGroup)
+        pass.setBindGroup(0, bindGroup, [slotOffset])
         pass.setVertexBuffer(0, layer.polygonVertexBuffer)
         pass.setIndexBuffer(layer.polygonIndexBuffer, 'uint32')
         pass.drawIndexed(layer.polygonIndexCount)
@@ -881,7 +960,7 @@ export class MapRenderer {
       // Draw line strokes (use per-layer pipeline if specialized)
       if (strokeRaw && layer.lineVertexBuffer && layer.lineIndexBuffer) {
         pass.setPipeline(layer.linePipeline ?? this.linePipeline)
-        pass.setBindGroup(0, bindGroup)
+        pass.setBindGroup(0, bindGroup, [slotOffset])
         pass.setVertexBuffer(0, layer.lineVertexBuffer)
         pass.setIndexBuffer(layer.lineIndexBuffer, 'uint32')
         pass.drawIndexed(layer.lineIndexCount)
@@ -915,14 +994,7 @@ export class MapRenderer {
 
       const worldOffs = WORLD_COPIES
 
-      // Ensure we have enough graticule uniform buffers (one per world copy)
-      while (this.gratWorldBufs.length < worldOffs.length) {
-        const buf = device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
-        const bg = device.createBindGroup({ layout: this.bindGroupLayout, entries: [{ binding: 0, resource: { buffer: buf } }] })
-        this.gratWorldBufs.push({ buf, bg })
-      }
       for (let wi = 0; wi < worldOffs.length; wi++) {
-        const { buf, bg } = this.gratWorldBufs[wi]
         const gratData = new ArrayBuffer(144)
         new Float32Array(gratData, 0, 16).set(mvp)
         new Float32Array(gratData, 64, 4).set([1, 1, 1, 0.15])
@@ -930,9 +1002,10 @@ export class MapRenderer {
         new Float32Array(gratData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
         const gcx = projCenterLon * gDEG2RAD * gR - worldOffs[wi] * WORLD_MERC
         new Float32Array(gratData, 112, 4).set([-gcx, -gcy, 0, 0])
-        device.queue.writeBuffer(buf, 0, gratData)
+        const gratOff = this.allocUniformSlot()
+        device.queue.writeBuffer(this.uniformBuffer, gratOff, gratData)
 
-        pass.setBindGroup(0, bg)
+        pass.setBindGroup(0, this.bindGroup, [gratOff])
         pass.draw(this.graticuleVertexCount)
       }
     }

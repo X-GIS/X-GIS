@@ -1,0 +1,49 @@
+/*
+ * Stroke alignment showcase — three coastline layers, same width.
+ *
+ *   stroke-center  → centerline (default GDI+ "Center" alignment)
+ *   stroke-inset   → centerline shifted INWARD by half-width
+ *                    (left of travel — inside of CCW polygon rings)
+ *   stroke-outset  → centerline shifted OUTWARD by half-width
+ *                    (right of travel)
+ *
+ * The three strokes appear as parallel lines, with corners that stay
+ * connected because the offset is folded into the miter formula.
+ *
+ * For CW-wound polygons swap inset ↔ outset, or use explicit
+ * `stroke-offset-right-N` / `stroke-offset-left-N`.
+ */
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.geojson"
+}
+
+layer land_fill {
+  source: land
+  | fill-slate-900
+}
+
+/* Order matters: inset/outset widen the stroke asymmetrically to the
+ * LEFT / RIGHT of travel by half-width, so the three bands are adjacent
+ * with no gap. The middle (orange) band must be drawn LAST so the outer
+ * bands don't overwrite it on their overlap edge. */
+layer outset_cyan {
+  source: coast
+  | stroke-cyan-300 stroke-3 stroke-outset
+}
+
+layer inset_red {
+  source: coast
+  | stroke-red-500 stroke-3 stroke-inset
+}
+
+layer center_orange {
+  source: coast
+  | stroke-orange-300 stroke-3 stroke-center
+}

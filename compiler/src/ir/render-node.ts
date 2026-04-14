@@ -43,6 +43,11 @@ export interface RenderNode {
   geometry: DataExpr | null  // procedural geometry expression (e.g., circle(.lon, .lat, .r))
   billboard: boolean         // true = faces camera (default), false = flat on ground
   shape: ShapeRef            // point shape (circle default, or named/user-defined)
+  /** Billboard anchor: which edge of the quad sits on the projected point.
+   *  `center` (default) puts the quad centered on the point; `bottom` makes
+   *  the marker stand above the ground like a pin; `top` is its symmetric
+   *  counterpart. Only affects billboard (non-flat) point markers. */
+  anchor?: 'center' | 'bottom' | 'top'
 }
 
 /**
@@ -68,9 +73,43 @@ export type ColorValue =
 /**
  * Stroke combines color and width.
  */
+/** One pattern instance in a stroke's pattern stack (up to 3). */
+export interface StrokePattern {
+  /** Symbol name — must resolve via ShapeRegistry (built-in or user-defined). */
+  shape: string
+  /** Repeat spacing. */
+  spacing: number
+  spacingUnit?: 'm' | 'px' | 'km' | 'nm'
+  /** Symbol extent (diameter/width). */
+  size: number
+  sizeUnit?: 'm' | 'px' | 'km' | 'nm'
+  /** Perpendicular offset from the line centerline. */
+  offset?: number
+  offsetUnit?: 'm' | 'px' | 'km' | 'nm'
+  /** Arc offset before the first instance (anchored placements). */
+  startOffset?: number
+  /** Placement mode: repeat (default), start, end, center. */
+  anchor?: 'repeat' | 'start' | 'end' | 'center'
+}
+
 export interface StrokeValue {
   color: ColorValue
   width: number
+  linecap?: 'butt' | 'round' | 'square' | 'arrow'
+  linejoin?: 'miter' | 'round' | 'bevel'
+  miterlimit?: number
+  /** Dash array in meters (even indices = on, odd = off). */
+  dashArray?: number[]
+  dashOffset?: number
+  /** Up to 3 pattern slots rendered along the line. */
+  patterns?: StrokePattern[]
+  /** Lateral parallel offset in pixels. Positive = left of travel. */
+  offset?: number
+  /** Stroke alignment relative to the centerline. Default 'center'.
+   *  Inset shifts the stroke onto the left side of travel by half-width
+   *  (so the stroke's right edge sits on the original line); outset shifts
+   *  the other way. Combined with explicit `offset` by addition. */
+  align?: 'center' | 'inset' | 'outset'
 }
 
 /**

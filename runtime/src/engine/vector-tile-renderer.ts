@@ -6,14 +6,22 @@
 import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
-import { visibleTiles, visibleTilesFrustum, sortByPriority } from '../loader/tiles'
+import { visibleTilesFrustum, sortByPriority } from '../loader/tiles'
 import { tileKey, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { XGVTSource, TileData } from '../data/xgvt-source'
 import { mercator as mercatorProj } from './projection'
 import type { PointRenderer } from './point-renderer'
+import { buildLineSegments, type LineRenderer } from './line-renderer'
 
 // ═══ Types ═══
+
+/** Layer draw phase — replaces the prior `translucentLines: boolean` flag.
+ *  'all' draws fill + stroke in one pass (opaque default).
+ *  'fills'/'strokes' split across a main pass and an offscreen MAX-blend
+ *  pass so translucent strokes don't accumulate alpha across overlapping
+ *  geometry. 'fills' + 'strokes' together == 'all'. */
+export type LayerDrawPhase = 'all' | 'fills' | 'strokes'
 
 interface GPUTile {
   vertexBuffer: GPUBuffer
@@ -24,8 +32,13 @@ interface GPUTile {
   lineIndexCount: number
   outlineIndexBuffer: GPUBuffer | null
   outlineIndexCount: number
-  uniformBuffer: GPUBuffer
-  bindGroup: GPUBindGroup
+  // SDF line segment buffers for polygon outlines and line features
+  outlineSegmentBuffer: GPUBuffer | null
+  outlineSegmentCount: number
+  outlineSegmentBindGroup: GPUBindGroup | null
+  lineSegmentBuffer: GPUBuffer | null
+  lineSegmentCount: number
+  lineSegmentBindGroup: GPUBindGroup | null
   tileWest: number
   tileSouth: number
   tileWidth: number
@@ -39,9 +52,18 @@ const MAX_GPU_TILES = 512
 
 // ═══ Renderer ═══
 
+const UNIFORM_SLOT = 256
+const UNIFORM_SIZE = 144
+
 export class VectorTileRenderer {
   private device: GPUDevice
   private source: XGVTSource | null = null
+
+  /** Max tile level of the backing source (0 if none), for camera zoom
+   *  clamping in the render loop. */
+  get sourceMaxLevel(): number {
+    return this.source?.maxLevel ?? 0
+  }
   currentProjection: import('./projection').Projection | null = null
   private gpuCache = new Map<number, GPUTile>()
   private frameCount = 0
@@ -50,15 +72,28 @@ export class VectorTileRenderer {
   private uniformDataBuf = new ArrayBuffer(144)
   private uniformF32 = new Float32Array(this.uniformDataBuf) // reusable view over full uniform
   private lastBindGroupLayout: GPUBindGroupLayout | null = null
+  /** Uniform-only layout — stays pinned to the base `bindGroupLayout`
+   *  even when `render()` swaps `lastBindGroupLayout` for a variant layout. */
+  private baseBindGroupLayout: GPUBindGroupLayout | null = null
   private cachedFillColor = [0, 0, 0, 0]
   private cachedStrokeColor = [0, 0, 0, 0]
   private cachedShowFill = ''
   private cachedShowStroke = ''
   private currentOpacity = 1.0
 
-  // Pool of uniform buffers for world-copy rendering (avoid writeBuffer conflicts)
-  private worldCopyPool: { buf: GPUBuffer; bg: GPUBindGroup }[] = []
-  private worldCopyIdx = 0
+  // ── Uniform ring (dynamic-offset) ──
+  // Shared across all tiles + world copies + layers in a frame. Each draw
+  // gets a fresh 256-byte slot, preventing multi-layer writeBuffer clobber.
+  private uniformRing: GPUBuffer | null = null
+  private uniformRingCapacity = 1024 // slots — 256 KB initial
+  private uniformSlot = 0
+  /** Tile bind group referencing the ring with dynamic offset (uniform only). */
+  private tileBgDefault: GPUBindGroup | null = null
+  /** Tile bind group referencing the ring + feature storage (variant shaders). */
+  private tileBgFeature: GPUBindGroup | null = null
+
+  // SDF line renderer (set externally)
+  private lineRenderer: LineRenderer | null = null
 
   // Global feature data buffer (shared across all tiles)
   private featureDataBuffer: GPUBuffer | null = null
@@ -66,6 +101,10 @@ export class VectorTileRenderer {
 
   // Per-frame draw stats
   private renderedDraws = new Map<number, { polyCount: number; lineCount: number; vertexCount: number }>()
+  /** Deduped tile-drop warnings. Key format: "<reason>:<z>/<x>/<y>". Once
+   *  per session per key; prevents flood when panning/zooming over an area
+   *  that has no data at the current level. */
+  private tileDropWarnings = new Set<string>()
   private _missedTiles = 0 // tiles with no fallback this frame
 
   constructor(ctx: GPUContext) {
@@ -84,6 +123,79 @@ export class VectorTileRenderer {
   /** Set bind group layout (must be called before tiles arrive) */
   setBindGroupLayout(layout: GPUBindGroupLayout): void {
     this.lastBindGroupLayout = layout
+    this.baseBindGroupLayout = layout
+    this.ensureUniformRing()
+  }
+
+  private ensureUniformRing(): void {
+    if (this.uniformRing) return
+    this.uniformRing = this.device.createBuffer({
+      size: this.uniformRingCapacity * UNIFORM_SLOT,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      label: 'vtr-uniform-ring',
+    })
+    this.rebuildTileBindGroups()
+  }
+
+  private rebuildTileBindGroups(): void {
+    if (!this.uniformRing || !this.baseBindGroupLayout) return
+    this.tileBgDefault = this.device.createBindGroup({
+      layout: this.baseBindGroupLayout,
+      entries: [{ binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } }],
+    })
+    if (this.featureBindGroupLayout && this.featureDataBuffer) {
+      this.tileBgFeature = this.device.createBindGroup({
+        layout: this.featureBindGroupLayout,
+        entries: [
+          { binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } },
+          { binding: 1, resource: { buffer: this.featureDataBuffer } },
+        ],
+      })
+    } else {
+      this.tileBgFeature = null
+    }
+  }
+
+  beginFrame(): void {
+    this.uniformSlot = 0
+  }
+
+  private allocUniformSlot(): number {
+    if (this.uniformSlot >= this.uniformRingCapacity) this.growUniformRing(this.uniformSlot + 1)
+    return this.uniformSlot++ * UNIFORM_SLOT
+  }
+
+  private growUniformRing(minSlots: number): void {
+    let newCap = this.uniformRingCapacity
+    while (newCap < minSlots) newCap *= 2
+    this.uniformRing?.destroy()
+    this.uniformRingCapacity = newCap
+    this.uniformRing = this.device.createBuffer({
+      size: newCap * UNIFORM_SLOT,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      label: 'vtr-uniform-ring',
+    })
+    this.rebuildTileBindGroups()
+  }
+
+  /** Provide the shared SDF line renderer (set by map.ts after GPU init). */
+  setLineRenderer(lr: LineRenderer): void {
+    const wasNull = this.lineRenderer === null
+    this.lineRenderer = lr
+    // If tiles were uploaded before LineRenderer was available they have no
+    // segment buffers — force re-upload so outlines/lines render on next frame.
+    if (wasNull && this.gpuCache.size > 0) {
+      for (const tile of this.gpuCache.values()) {
+        tile.vertexBuffer?.destroy()
+        tile.indexBuffer?.destroy()
+        tile.lineVertexBuffer?.destroy()
+        tile.lineIndexBuffer?.destroy()
+        tile.outlineIndexBuffer?.destroy()
+        tile.outlineSegmentBuffer?.destroy()
+        tile.lineSegmentBuffer?.destroy()
+      }
+      this.gpuCache.clear()
+    }
   }
 
   /** Whether data is available */
@@ -165,17 +277,10 @@ export class VectorTileRenderer {
     })
     this.device.queue.writeBuffer(this.featureDataBuffer, 0, data)
 
-    // Rebuild bind groups for already-cached tiles (they were created with
-    // the uniform-only layout before the feature buffer existed)
-    for (const [, cached] of this.gpuCache) {
-      const entries: GPUBindGroupEntry[] = [
-        { binding: 0, resource: { buffer: cached.uniformBuffer } },
-        { binding: 1, resource: { buffer: this.featureDataBuffer } },
-      ]
-      cached.bindGroup = this.device.createBindGroup({ layout: featureBindGroupLayout, entries })
-    }
+    // Build the shared feature-bound tile bind group
+    this.rebuildTileBindGroups()
 
-    console.log(`[X-GIS] Feature data buffer: ${featureCount} features × ${fieldCount} fields (${this.gpuCache.size} tiles rebound)`)
+    console.log(`[X-GIS] Feature data buffer: ${featureCount} features × ${fieldCount} fields`)
   }
 
   /** Upload CPU tile data to GPU buffers */
@@ -210,22 +315,6 @@ export class VectorTileRenderer {
       this.device.queue.writeBuffer(lineIndexBuffer, 0, data.lineIndices)
     }
 
-    const uniformBuffer = this.device.createBuffer({
-      size: 144,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    })
-
-    const layout = (this.featureBindGroupLayout && this.featureDataBuffer)
-      ? this.featureBindGroupLayout
-      : this.lastBindGroupLayout
-    const entries: GPUBindGroupEntry[] = [{ binding: 0, resource: { buffer: uniformBuffer } }]
-    if (this.featureBindGroupLayout && this.featureDataBuffer) {
-      entries.push({ binding: 1, resource: { buffer: this.featureDataBuffer } })
-    }
-    const bindGroup = layout
-      ? this.device.createBindGroup({ layout, entries })
-      : null!
-
     // Outline indices (polygon edges, reuses polygon vertex buffer)
     let outlineIndexBuffer: GPUBuffer | null = null
     let outlineIndexCount = 0
@@ -238,13 +327,36 @@ export class VectorTileRenderer {
       outlineIndexCount = data.outlineIndices.length
     }
 
+    // SDF line segment buffers (for polygon outlines + line features)
+    let outlineSegmentBuffer: GPUBuffer | null = null
+    let outlineSegmentCount = 0
+    let outlineSegmentBindGroup: GPUBindGroup | null = null
+    let lineSegmentBuffer: GPUBuffer | null = null
+    let lineSegmentCount = 0
+    let lineSegmentBindGroup: GPUBindGroup | null = null
+    if (this.lineRenderer) {
+      if (data.outlineIndices && data.outlineIndices.length > 0) {
+        const segData = buildLineSegments(data.vertices, data.outlineIndices, data.tileSouth, 3, data.tileWidth, data.tileHeight)
+        outlineSegmentBuffer = this.lineRenderer.uploadSegmentBuffer(segData)
+        outlineSegmentCount = data.outlineIndices.length / 2
+        outlineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(outlineSegmentBuffer)
+      }
+      if (data.lineIndices.length > 0 && data.lineVertices.length > 0) {
+        const segData = buildLineSegments(data.lineVertices, data.lineIndices, data.tileSouth, 4, data.tileWidth, data.tileHeight)
+        lineSegmentBuffer = this.lineRenderer.uploadSegmentBuffer(segData)
+        lineSegmentCount = data.lineIndices.length / 2
+        lineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(lineSegmentBuffer)
+      }
+    }
+
     this.gpuCache.set(key, {
       vertexBuffer, indexBuffer,
       indexCount: data.indices.length,
       lineVertexBuffer, lineIndexBuffer,
       lineIndexCount: data.lineIndices.length,
       outlineIndexBuffer, outlineIndexCount,
-      uniformBuffer, bindGroup,
+      outlineSegmentBuffer, outlineSegmentCount, outlineSegmentBindGroup,
+      lineSegmentBuffer, lineSegmentCount, lineSegmentBindGroup,
       tileWest: data.tileWest, tileSouth: data.tileSouth,
       tileWidth: data.tileWidth, tileHeight: data.tileHeight,
       tileZoom: data.tileZoom,
@@ -270,6 +382,11 @@ export class VectorTileRenderer {
     fillPipelineFallback?: GPURenderPipeline,
     linePipelineFallback?: GPURenderPipeline,
     pointRenderer?: PointRenderer | null,
+    /** Which draws to emit for this layer.
+     *  - 'all':     fills + strokes in the current pass (opaque default)
+     *  - 'fills':   polygon fills only (main pass, baked opacity)
+     *  - 'strokes': outlines + line features only (offscreen MAX-blend pass) */
+    phase: LayerDrawPhase = 'all',
   ): void {
     if (!this.source?.hasData()) return
     const index = this.source.getIndex()
@@ -280,7 +397,7 @@ export class VectorTileRenderer {
     this.renderedDraws.clear()
     this._missedTiles = 0
     this.lastBindGroupLayout = bindGroupLayout
-    this.worldCopyIdx = 0
+    this.ensureUniformRing()
 
     const { centerX, centerY } = camera
     const R = 6378137
@@ -293,10 +410,17 @@ export class VectorTileRenderer {
 
     if (currentZ !== this.lastZoom) this.lastZoom = currentZ
 
-    // Use frustum-based selection when pitched (accurate), AABB when flat (faster)
-    const tiles = camera.pitch > 0.5
-      ? visibleTilesFrustum(camera, this.currentProjection ?? mercatorProj, currentZ, canvasWidth, canvasHeight)
-      : visibleTiles(centerLon, centerLat, currentZ, canvasWidth, canvasHeight, camera.zoom, camera.bearing, camera.pitch)
+    // Quadtree-based frustum selection works at every pitch, including 0.
+    // The legacy AABB-based `visibleTiles` path silently drifted from the
+    // VTR cache pipeline and broke at low pitch, so it is no longer used.
+    const tiles = visibleTilesFrustum(
+      camera,
+      this.currentProjection ?? mercatorProj,
+      currentZ,
+      canvasWidth,
+      canvasHeight,
+    )
+
     const n = Math.pow(2, currentZ)
     const ctX = Math.floor((centerLon + 180) / 360 * n)
     const ctY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
@@ -333,6 +457,88 @@ export class VectorTileRenderer {
     uf[22] = this.cachedStrokeColor[2]; uf[23] = this.cachedStrokeColor[3] * opacity
     uf[24] = projType; uf[25] = projCenterLon; uf[26] = projCenterLat; uf[27] = 0
 
+    // Allocate + write SDF line layer slot for this render() call. All
+    // drawSegments() calls below will use this same byte offset.
+    // In 'fills' phase no drawSegments runs, so skip the allocation entirely
+    // to avoid ring-slot churn, redundant pattern-param warnings, and any
+    // incidental validation surface in the translucent fill pre-pass.
+    let lineLayerOffset = 0
+    if (this.lineRenderer && phase !== 'fills') {
+      const strokeWidthPx = show.strokeWidth ?? 1
+      const mpp = (40075016.686 / 256) / Math.pow(2, camera.zoom)
+      const capMap = { butt: 0, round: 1, square: 2, arrow: 3 } as const
+      const joinMap = { miter: 0, round: 1, bevel: 2 } as const
+      // Default cap/join = round. Round is a stable circle SDF that fills
+      // corners and chain ends correctly at any angle. Miter/bevel require
+      // explicit opt-in via `stroke-linejoin-miter` / `stroke-linecap-butt`.
+      const cap = capMap[show.linecap ?? 'round']
+      const join = joinMap[show.linejoin ?? 'round']
+      const miterLimit = show.miterlimit ?? 4.0
+      // DSL dash values default to pixels (matching stroke-width convention).
+      // Convert to Mercator meters here so the shader's meter-based arc_pos
+      // comparison renders the pattern at a consistent on-screen size across
+      // zoom levels. TODO: add explicit unit suffixes (20m_10m, 20km_5km) to
+      // the parser if real-world length dashes are needed later.
+      const dash = (show.dashArray && show.dashArray.length >= 2)
+        ? {
+            array: show.dashArray.map(v => v * mpp),
+            offset: (show.dashOffset ?? 0) * mpp,
+          }
+        : null
+
+
+
+      // Resolve patterns: shape name → registry ID; unit name → flag code.
+      const unitMap = { m: 0, px: 1, km: 2, nm: 3 } as const
+      const anchorMap = { repeat: 0, start: 1, end: 2, center: 3 } as const
+      const patternSlots = (show.patterns ?? [])
+        .slice(0, 3)
+        .map(p => ({
+          shapeId: this.lineRenderer!.resolveShapeId(p.shape),
+          spacing: p.spacing,
+          spacingUnit: unitMap[p.spacingUnit ?? 'm'],
+          size: p.size,
+          sizeUnit: unitMap[p.sizeUnit ?? 'm'],
+          offset: p.offset ?? 0,
+          offsetUnit: unitMap[p.offsetUnit ?? 'm'],
+          startOffset: p.startOffset ?? 0,
+          anchor: anchorMap[p.anchor ?? 'repeat'],
+        }))
+        .filter(p => p.shapeId > 0)
+
+      // In translucent mode the offscreen RT must hold the FULL color +
+      // stroke alpha (no opacity multiply). The composite step then blends
+      // with the layer opacity. Otherwise we'd double-apply opacity.
+      // In 'strokes' phase the offscreen RT holds the FULL color + stroke
+      // alpha (no opacity multiply). The composite step then blends with the
+      // layer opacity — otherwise we'd double-apply it.
+      const layerOpacity = phase === 'strokes' ? 1.0 : opacity
+
+      // Resolve stroke alignment to an effective offset. Inset/outset
+      // shift by ±half_width; combines additively with explicit
+      // stroke-offset-N (so users can fine-tune around the baseline).
+      const explicitOffset = show.strokeOffset ?? 0
+      const alignDelta = show.strokeAlign === 'inset'
+        ? strokeWidthPx / 2
+        : show.strokeAlign === 'outset'
+          ? -strokeWidthPx / 2
+          : 0
+      const effectiveOffset = explicitOffset + alignDelta
+
+      lineLayerOffset = this.lineRenderer.writeLayerSlot(
+        [this.cachedStrokeColor[0], this.cachedStrokeColor[1], this.cachedStrokeColor[2], this.cachedStrokeColor[3]],
+        strokeWidthPx,
+        layerOpacity,
+        mpp,
+        cap,
+        join,
+        miterLimit,
+        dash,
+        patternSlots,
+        effectiveOffset,
+      )
+    }
+
     // Compute tile keys — use wrapped x for data lookup
     const neededKeys: number[] = []
     const worldOffDeg: number[] = [] // per-tile world offset in degrees
@@ -355,48 +561,94 @@ export class VectorTileRenderer {
         continue
       }
 
-      let parentKey = key
       let foundCached = false
       let closestExisting = -1
       let hasAnyAncestor = false
+      // The nearest parent that is already cached/loaded. Used for fallback
+      // draw and sub-tile generation. `-1` if none found.
+      let cachedAncestorKey = -1
 
-      for (let pz = currentZ - 1; pz >= 0; pz--) {
-        parentKey = parentKey >>> 2
-        if (this.source.hasEntryInIndex(parentKey)) hasAnyAncestor = true
-
-        if (this.gpuCache.has(parentKey) || this.source.hasTileData(parentKey)) {
-          if (!this.gpuCache.has(parentKey)) {
-            this.uploadTile(parentKey, this.source.getTileData(parentKey)!)
+      // Parent-search must walk from THIS tile's zoom, not currentZ.
+      // visibleTilesFrustum returns tiles at multiple levels (LOD for pitched
+      // views), so currentZ is wrong as a starting bound.
+      //
+      // We do a SINGLE full walk (no early break) that collects all three
+      // needed facts:
+      //   1. hasAnyAncestor — does any ancestor exist in the precomputed index
+      //   2. closestExisting — the highest (closest to tile) indexed ancestor
+      //   3. cachedAncestorKey — the highest ancestor already cached/loaded
+      //
+      // Previously the walk broke early on the first cached/loaded ancestor,
+      // which meant hasAnyAncestor could stay false if the cached ancestor
+      // happened to NOT be in the precomputed index (e.g. a sub-tile that
+      // was generated from an even-higher parent in an earlier frame).
+      const tileZ = tiles[i].z
+      {
+        let walkKey = key
+        for (let pz = tileZ - 1; pz >= 0; pz--) {
+          walkKey = walkKey >>> 2
+          if (this.source.hasEntryInIndex(walkKey)) {
+            hasAnyAncestor = true
+            if (closestExisting < 0) closestExisting = walkKey
           }
-
-          if (currentZ > maxLevel) {
-            // 1. Try compileSingleTile (fast, grid-indexed)
-            if (!this.source.compileTileOnDemand(key)) {
-              // 2. Budget exceeded — try generateSubTile for small parents (not z=0)
-              if (parentKey > 1) this.source.generateSubTile(key, parentKey)
-            }
-            if (this.gpuCache.has(key)) {
-              foundCached = true
-            } else {
-              // 3. Still no tile — parent fallback (guaranteed visual continuity)
-              fallbackKeys.push(parentKey)
-              fallbackOffsets.push(worldOffDeg[i])
-              foundCached = true
-            }
-          } else {
-            fallbackKeys.push(parentKey)
-            fallbackOffsets.push(worldOffDeg[i]) // same world offset as the child
-            foundCached = true
+          if (cachedAncestorKey < 0 && (this.gpuCache.has(walkKey) || this.source.hasTileData(walkKey))) {
+            cachedAncestorKey = walkKey
           }
-          break
-        }
-
-        if (closestExisting < 0 && this.source.hasEntryInIndex(parentKey)) {
-          closestExisting = parentKey
         }
       }
 
-      if (!hasAnyAncestor && !this.source.hasEntryInIndex(key)) continue
+      if (cachedAncestorKey >= 0) {
+        const parentKey = cachedAncestorKey
+        if (!this.gpuCache.has(parentKey)) {
+          this.uploadTile(parentKey, this.source.getTileData(parentKey)!)
+        }
+
+        if (tileZ > maxLevel) {
+          // 1. Try compileSingleTile (fast, grid-indexed)
+          if (!this.source.compileTileOnDemand(key)) {
+            // 2. Budget exceeded — try generateSubTile for small parents.
+            //    Skip when the only parent is root (key=1): clipping the
+            //    whole world is too expensive and the root fallback below
+            //    already covers the region correctly.
+            if (parentKey > 1) this.source.generateSubTile(key, parentKey)
+          }
+          const cachedSub = this.gpuCache.get(key)
+          if (cachedSub) {
+            foundCached = true
+            // Empty sub-tile (clip produced nothing) still gets cached to
+            // prevent re-generation, but it writes no stencil and covers
+            // no area. Push the parent as a fallback so the region is
+            // painted by coarser geometry instead of leaving a hole.
+            const hasGeom =
+              cachedSub.indexCount > 0 ||
+              cachedSub.lineSegmentCount > 0 ||
+              cachedSub.outlineSegmentCount > 0
+            if (!hasGeom) {
+              fallbackKeys.push(parentKey)
+              fallbackOffsets.push(worldOffDeg[i])
+            }
+          } else {
+            // 3. Still no tile — parent fallback (guaranteed visual continuity)
+            fallbackKeys.push(parentKey)
+            fallbackOffsets.push(worldOffDeg[i])
+            foundCached = true
+          }
+        } else {
+          fallbackKeys.push(parentKey)
+          fallbackOffsets.push(worldOffDeg[i]) // same world offset as the child
+          foundCached = true
+        }
+      }
+
+      if (!hasAnyAncestor && !this.source.hasEntryInIndex(key)) {
+        const t = tiles[i]
+        const wKey = `no-ancestor:${t.z}/${t.x}/${t.y}`
+        if (!this.tileDropWarnings.has(wKey)) {
+          this.tileDropWarnings.add(wKey)
+          console.warn(`[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${maxLevel}).`)
+        }
+        continue
+      }
 
       if (!foundCached) {
         if (this.source.hasEntryInIndex(key)) {
@@ -438,14 +690,16 @@ export class VectorTileRenderer {
 
     // NOW draw (tiles are guaranteed in gpuCache if they compiled synchronously)
 
-    // Render current zoom tiles (stencil write) — with world copy offsets
-    pass.setStencilReference(1)
-    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, this.uniformDataBuf, projCenterLon, projCenterLat, worldOffDeg)
+    // Render current zoom tiles (stencil write) — with world copy offsets.
+    // Translucent line passes have NO depth/stencil attachment, so skip the
+    // stencil reference call there.
+    if (phase !== 'strokes') pass.setStencilReference(1)
+    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, phase)
 
     // Render fallback ancestors (stencil test) — with world offsets for wrapping
     if (fillPipelineFallback && fallbackKeys.length > 0) {
-      pass.setStencilReference(0)
-      this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, this.uniformDataBuf, projCenterLon, projCenterLat, fallbackOffsets)
+      if (phase !== 'strokes') pass.setStencilReference(0)
+      this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase)
     }
 
     // Prefetch adjacent + next zoom (every 10th frame)
@@ -453,8 +707,18 @@ export class VectorTileRenderer {
       this.source.prefetchAdjacent(tiles, currentZ)
     }
 
-    // Track stable tile set for eviction protection and point rendering
-    this.stableKeys = neededKeys
+    // Track stable tile set for eviction protection and point rendering.
+    // IMPORTANT: include fallbackKeys too — those tiles' buffers are bound
+    // in bind groups used by the draw calls we just recorded. Evicting them
+    // now would destroy their buffers before `queue.submit()` runs, causing
+    // "Buffer used in submit while destroyed" validation errors.
+    if (fallbackKeys.length > 0) {
+      const merged = new Set<number>(neededKeys)
+      for (const k of fallbackKeys) merged.add(k)
+      this.stableKeys = [...merged]
+    } else {
+      this.stableKeys = neededKeys
+    }
 
     // GPU cache eviction
     if (this.gpuCache.size > MAX_GPU_TILES) this.evictGPUTiles()
@@ -491,11 +755,17 @@ export class VectorTileRenderer {
     pass: GPURenderPassEncoder,
     fillPipeline: GPURenderPipeline,
     linePipeline: GPURenderPipeline,
-    _sharedUniformData: ArrayBuffer,
     projCenterLon: number,
     projCenterLat: number,
-    worldOffsets?: number[], // per-tile X offset in degrees for world copies
+    worldOffsets: number[] | undefined,
+    lineLayerOffset: number,
+    phase: LayerDrawPhase,
   ): void {
+    const drawFills = phase !== 'strokes'
+    const drawStrokes = phase !== 'fills'
+    const translucentLines = phase === 'strokes'
+    const tileBg = this.tileBgFeature ?? this.tileBgDefault
+    if (!tileBg || !this.uniformRing) return
     for (let ki = 0; ki < keys.length; ki++) {
       const key = keys[ki]
       // For world copies: allow same key to render at different positions
@@ -503,7 +773,7 @@ export class VectorTileRenderer {
       const drawKey = worldOff === 0 ? key : key + worldOff * 1000000 // unique draw key per copy
       if (this.renderedDraws.has(drawKey)) continue
       const cached = this.gpuCache.get(key)
-      if (!cached || !cached.bindGroup) continue
+      if (!cached) continue
 
       cached.lastUsedFrame = this.frameCount
 
@@ -542,56 +812,30 @@ export class VectorTileRenderer {
       this.uniformF32[30] = cached.tileWest
       this.uniformF32[31] = cached.tileSouth
 
-      // For world copies (worldOff≠0), use pooled uniform buffer + bind group
-      // to avoid writeBuffer conflict (WebGPU executes all writes before draws)
-      let uniformBuf: GPUBuffer
-      let bindGroup: GPUBindGroup
-      if (worldOff === 0) {
-        uniformBuf = cached.uniformBuffer
-        bindGroup = cached.bindGroup
-      } else {
-        // Get or create pooled buffer
-        if (this.worldCopyIdx >= this.worldCopyPool.length) {
-          const buf = this.device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
-          const entries: GPUBindGroupEntry[] = [{ binding: 0, resource: { buffer: buf } }]
-          if (this.featureBindGroupLayout && this.featureDataBuffer) {
-            entries.push({ binding: 1, resource: { buffer: this.featureDataBuffer } })
-          }
-          const layout = (this.featureBindGroupLayout && this.featureDataBuffer)
-            ? this.featureBindGroupLayout : this.lastBindGroupLayout!
-          const bg = this.device.createBindGroup({ layout, entries })
-          this.worldCopyPool.push({ buf, bg })
-        }
-        const pooled = this.worldCopyPool[this.worldCopyIdx++]
-        uniformBuf = pooled.buf
-        bindGroup = pooled.bg
-      }
+      // Allocate a fresh ring slot for this tile × layer × world-copy draw.
+      const slotOffset = this.allocUniformSlot()
+      // Ring may have grown in allocUniformSlot — use current (rebuilt) bind groups.
+      const currentTileBg = this.tileBgFeature ?? this.tileBgDefault!
+      const currentLineTileBg = this.tileBgDefault!
+      this.device.queue.writeBuffer(this.uniformRing!, slotOffset, this.uniformDataBuf)
 
-      this.device.queue.writeBuffer(uniformBuf, 0, this.uniformDataBuf)
-
-      if (cached.indexCount > 0) {
+      // Polygon fills — skipped in 'strokes' phase (offscreen line-only RT).
+      if (drawFills && cached.indexCount > 0) {
         pass.setPipeline(fillPipeline)
-        pass.setBindGroup(0, bindGroup)
+        pass.setBindGroup(0, currentTileBg, [slotOffset])
         pass.setVertexBuffer(0, cached.vertexBuffer)
         pass.setIndexBuffer(cached.indexBuffer, 'uint32')
         pass.drawIndexed(cached.indexCount)
       }
 
-      // Draw polygon outlines (reuses polygon vertex buffer)
-      if (cached.outlineIndexCount > 0 && cached.outlineIndexBuffer) {
-        pass.setPipeline(linePipeline)
-        pass.setBindGroup(0, bindGroup)
-        pass.setVertexBuffer(0, cached.vertexBuffer)
-        pass.setIndexBuffer(cached.outlineIndexBuffer, 'uint32')
-        pass.drawIndexed(cached.outlineIndexCount)
+      // Polygon outlines via SDF line renderer — skipped in 'fills' phase.
+      if (drawStrokes && this.lineRenderer && cached.outlineSegmentCount > 0 && cached.outlineSegmentBindGroup) {
+        this.lineRenderer.drawSegments(pass, currentLineTileBg, cached.outlineSegmentBindGroup, cached.outlineSegmentCount, slotOffset, lineLayerOffset, translucentLines)
       }
 
-      if (cached.lineIndexCount > 0 && cached.lineVertexBuffer && cached.lineIndexBuffer) {
-        pass.setPipeline(linePipeline)
-        pass.setBindGroup(0, bindGroup)
-        pass.setVertexBuffer(0, cached.lineVertexBuffer)
-        pass.setIndexBuffer(cached.lineIndexBuffer, 'uint32')
-        pass.drawIndexed(cached.lineIndexCount)
+      // Line features via SDF line renderer — skipped in 'fills' phase.
+      if (drawStrokes && this.lineRenderer && cached.lineSegmentCount > 0 && cached.lineSegmentBindGroup) {
+        this.lineRenderer.drawSegments(pass, currentLineTileBg, cached.lineSegmentBindGroup, cached.lineSegmentCount, slotOffset, lineLayerOffset, translucentLines)
       }
 
       const vc = cached.indexCount + cached.lineIndexCount
@@ -614,7 +858,9 @@ export class VectorTileRenderer {
       tile.indexBuffer.destroy()
       tile.lineVertexBuffer?.destroy()
       tile.lineIndexBuffer?.destroy()
-      tile.uniformBuffer.destroy()
+      tile.outlineIndexBuffer?.destroy()
+      tile.outlineSegmentBuffer?.destroy()
+      tile.lineSegmentBuffer?.destroy()
       this.gpuCache.delete(key)
     }
   }

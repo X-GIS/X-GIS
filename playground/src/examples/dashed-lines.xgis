@@ -1,0 +1,26 @@
+/*
+ * Dashed lines demo — shows simple and composite dash arrays.
+ * Composite dashes (>2 segments) let you build morse-style patterns.
+ */
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.geojson"
+}
+
+layer land_fill {
+  source: land
+  | fill-slate-900
+}
+
+/* Simple on/off dash: 20px dash, 10px gap */
+layer simple_dash {
+  source: coast
+  | stroke-sky-400 stroke-2
+  | stroke-dasharray-20-10
+}

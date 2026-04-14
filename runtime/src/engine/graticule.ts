@@ -2,8 +2,9 @@
 // GPU 프로젝션과 함께 동작. 줌 적응형 간격 + 메이저/마이너 구분.
 
 export interface GraticuleData {
-  /** Line segments: [lon1, lat1, feat_id, lon2, lat2, feat_id, ...] in degrees (stride 3)
-   *  feat_id: 1 = major, 0 = minor */
+  /** Line segments stride 4: [lon, lat, feat_id, arc_start]. arc_start is
+   *  unused for graticule (always 0) but kept to match the line pipeline's
+   *  stride-16 vertex buffer layout. feat_id: 1 = major, 0 = minor. */
   vertices: Float32Array
   indexCount: number
 }
@@ -28,8 +29,8 @@ export function generateGraticule(zoom = 2): GraticuleData {
     for (let lon = -180; lon < 180; lon += step) {
       if (skipStep && lon % skipStep === 0) continue // skip major lines
       for (let lat = -90; lat < 90; lat += segmentStep) {
-        vertices.push(lon, lat, featId)
-        vertices.push(lon, Math.min(lat + segmentStep, 90), featId)
+        vertices.push(lon, lat, featId, 0)
+        vertices.push(lon, Math.min(lat + segmentStep, 90), featId, 0)
       }
     }
   }
@@ -38,8 +39,8 @@ export function generateGraticule(zoom = 2): GraticuleData {
     for (let lat = -90 + step; lat < 90; lat += step) {
       if (skipStep && (lat + 90) % skipStep === 0) continue
       for (let lon = -180; lon < 180; lon += segmentStep) {
-        vertices.push(lon, lat, featId)
-        vertices.push(Math.min(lon + segmentStep, 180), lat, featId)
+        vertices.push(lon, lat, featId, 0)
+        vertices.push(Math.min(lon + segmentStep, 180), lat, featId, 0)
       }
     }
   }
@@ -56,7 +57,7 @@ export function generateGraticule(zoom = 2): GraticuleData {
 
   return {
     vertices: new Float32Array(vertices),
-    indexCount: vertices.length / 3,
+    indexCount: vertices.length / 4,
   }
 }
 
@@ -66,12 +67,12 @@ export function generateGlobeOutline(segments = 128): GraticuleData {
   for (let i = 0; i < segments; i++) {
     const a1 = (i / segments) * Math.PI * 2
     const a2 = ((i + 1) / segments) * Math.PI * 2
-    vertices.push(Math.cos(a1) * 89.99, Math.sin(a1) * 89.99, 0)
-    vertices.push(Math.cos(a2) * 89.99, Math.sin(a2) * 89.99, 0)
+    vertices.push(Math.cos(a1) * 89.99, Math.sin(a1) * 89.99, 0, 0)
+    vertices.push(Math.cos(a2) * 89.99, Math.sin(a2) * 89.99, 0, 0)
   }
 
   return {
     vertices: new Float32Array(vertices),
-    indexCount: vertices.length / 3,
+    indexCount: vertices.length / 4,
   }
 }

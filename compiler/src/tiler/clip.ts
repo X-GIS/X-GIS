@@ -186,6 +186,14 @@ function clipSegment(
   const p0: number[] = [a[0] + tMin * dx, a[1] + tMin * dy]
   const p1: number[] = [a[0] + tMax * dx, a[1] + tMax * dy]
 
+  // Interpolate any extra per-vertex data (e.g., arc_start at index 2)
+  if (a.length > 2 && b.length > 2) {
+    for (let k = 2; k < Math.min(a.length, b.length); k++) {
+      p0.push(a[k] + tMin * (b[k] - a[k]))
+      p1.push(a[k] + tMax * (b[k] - a[k]))
+    }
+  }
+
   // Snap boundary-clipped endpoints to precision grid for tile consistency
   if (precision) {
     const EPS = 1e-10

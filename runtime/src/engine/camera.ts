@@ -2,6 +2,7 @@
 
 import { lonLatToMercator } from '../loader/geojson'
 import { WORLD_MERC } from './gpu-shared'
+import { MAX_DPR } from './gpu'
 
 export class Camera {
   /** Camera center in Web Mercator coordinates */
@@ -13,6 +14,12 @@ export class Camera {
   bearing = 0
   /** Camera pitch/tilt in degrees (0 = top-down, 85 = nearly horizontal) */
   pitch = 0
+  /** Upper bound for `zoom`. Set by the Map based on source.maxLevel so
+   *  that user pan/zoom input and hash restoration can't push us past the
+   *  data's usable range (beyond which tile-local float32 precision and
+   *  sub-tile generation cost both blow up). Default 22 = "effectively
+   *  unlimited" for high-detail sources. */
+  maxZoom = 22
 
   /** Perspective field of view in degrees */
   static readonly FOV = 45
@@ -174,7 +181,7 @@ export class Camera {
 
   /** Compute the maximum camera Y offset for the current zoom (content stays on screen) */
   private maxCameraY(canvasHeight: number): number {
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, MAX_DPR) : 1
     const metersPerPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
     const visibleHalf = (canvasHeight / dpr) * metersPerPixel / 2
     // Camera can move until the Mercator edge reaches the screen edge
@@ -183,7 +190,7 @@ export class Camera {
 
   /** Pan by CSS pixels (clientX/clientY delta), accounting for map rotation */
   pan(dx: number, dy: number, _canvasWidth: number, canvasHeight: number): void {
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, MAX_DPR) : 1
     const metersPerPhysicalPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
     const metersPerCSSPixel = metersPerPhysicalPixel * dpr
 
@@ -217,10 +224,10 @@ export class Camera {
   /** Zoom by delta at CSS screen position (clientX/clientY) */
   zoomAt(delta: number, screenX: number, screenY: number, canvasWidth: number, canvasHeight: number): void {
     const oldZoom = this.zoom
-    this.zoom = Math.max(0, Math.min(22, this.zoom + delta))
+    this.zoom = Math.max(0, Math.min(this.maxZoom, this.zoom + delta))
 
     // Use CSS dimensions for offset calculation (screenX/Y are CSS coordinates)
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, MAX_DPR) : 1
     const cssWidth = canvasWidth / dpr
     const cssHeight = canvasHeight / dpr
 

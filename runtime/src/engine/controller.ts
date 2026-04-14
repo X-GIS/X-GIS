@@ -21,6 +21,16 @@ export class PanZoomController implements Controller {
   private cleanup: (() => void) | null = null
 
   attach(canvas: HTMLCanvasElement, camera: Camera, _getState: () => ControllerState): void {
+    // Wrap event handlers so any throw inside them surfaces with the real
+    // stack via console.error instead of bubbling to window.onerror as the
+    // useless cross-origin "Script error. @ :0:0" placeholder iOS WebKit
+    // substitutes for opaque error events.
+    const safe = <T extends (...a: never[]) => unknown>(label: string, fn: T): T =>
+      ((...args: never[]) => {
+        try { return fn(...args) }
+        catch (e) { console.error('[ctrl ' + label + ']', (e as Error)?.stack ?? e) }
+      }) as T
+
     let isDragging = false
     let lastX = 0
     let lastY = 0
@@ -81,7 +91,7 @@ export class PanZoomController implements Controller {
     }
 
     // Prevent context menu on right-click
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault())
+    canvas.addEventListener('contextmenu', safe('contextmenu', (e: Event) => e.preventDefault()))
 
     // Pan inertia
     let panVelX = 0, panVelY = 0
@@ -90,7 +100,7 @@ export class PanZoomController implements Controller {
 
     const MAX_INERTIA_VEL = 15  // cap velocity (CSS px/frame)
 
-    const applyInertia = () => {
+    const applyInertia = safe('inertia', () => {
       if (Math.abs(panVelX) < 0.5 && Math.abs(panVelY) < 0.5) {
         inertiaAnimating = false
         return
@@ -99,7 +109,7 @@ export class PanZoomController implements Controller {
       panVelX *= 0.90
       panVelY *= 0.90
       requestAnimationFrame(applyInertia)
-    }
+    })
 
     let isRotatePending = false  // right-click down, waiting for movement
     let isRotating = false       // actively rotating (after deadzone)
@@ -247,7 +257,7 @@ export class PanZoomController implements Controller {
     let zoomScreenX = 0, zoomScreenY = 0
     let animating = false
 
-    const animateZoom = () => {
+    const animateZoom = safe('animateZoom', () => {
       const diff = targetZoom - camera.zoom
       if (Math.abs(diff) < 0.005) {
         if (diff !== 0) camera.zoomAt(diff, zoomScreenX, zoomScreenY, canvas.width, canvas.height)
@@ -256,7 +266,7 @@ export class PanZoomController implements Controller {
       }
       camera.zoomAt(diff * 0.2, zoomScreenX, zoomScreenY, canvas.width, canvas.height)
       requestAnimationFrame(animateZoom)
-    }
+    })
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
@@ -270,18 +280,24 @@ export class PanZoomController implements Controller {
       }
     }
 
-    canvas.addEventListener('pointerdown', onPointerDown)
-    canvas.addEventListener('pointermove', onPointerMove)
-    canvas.addEventListener('pointerup', onPointerUp)
-    canvas.addEventListener('pointercancel', onPointerCancel)
-    canvas.addEventListener('wheel', onWheel, { passive: false })
+    const sPointerDown = safe('pointerdown', onPointerDown)
+    const sPointerMove = safe('pointermove', onPointerMove)
+    const sPointerUp = safe('pointerup', onPointerUp)
+    const sPointerCancel = safe('pointercancel', onPointerCancel)
+    const sWheel = safe('wheel', onWheel)
+
+    canvas.addEventListener('pointerdown', sPointerDown)
+    canvas.addEventListener('pointermove', sPointerMove)
+    canvas.addEventListener('pointerup', sPointerUp)
+    canvas.addEventListener('pointercancel', sPointerCancel)
+    canvas.addEventListener('wheel', sWheel, { passive: false })
 
     this.cleanup = () => {
-      canvas.removeEventListener('pointerdown', onPointerDown)
-      canvas.removeEventListener('pointermove', onPointerMove)
-      canvas.removeEventListener('pointerup', onPointerUp)
-      canvas.removeEventListener('pointercancel', onPointerCancel)
-      canvas.removeEventListener('wheel', onWheel)
+      canvas.removeEventListener('pointerdown', sPointerDown)
+      canvas.removeEventListener('pointermove', sPointerMove)
+      canvas.removeEventListener('pointerup', sPointerUp)
+      canvas.removeEventListener('pointercancel', sPointerCancel)
+      canvas.removeEventListener('wheel', sWheel)
     }
   }
 

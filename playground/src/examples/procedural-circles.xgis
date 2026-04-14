@@ -20,5 +20,5 @@ layer background {
 layer population {
   source: cities
   | fill-rose-500 opacity-50 stroke-rose-300 stroke-1
-  | size-[sqrt(.pop_max) / 80]
+  | size-[sqrt(.pop_max) / 80] flat
 }

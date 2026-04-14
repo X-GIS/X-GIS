@@ -75,7 +75,17 @@
       "Bash(wc -l D:/X-GIS/playground/src/examples/*.xgis)",
       "Bash(ls -la D:/X-GIS/playground/src/*.html)",
       "Bash(ls -la D:/X-GIS/playground/*.html)",
-      "Bash(python3 -c \"import sys,json; data=json.loads\\(sys.stdin.read\\(\\)+']}'\\); props=data['features'][0]['properties']; print\\(json.dumps\\(props, indent=2\\)\\)\")"
+      "Bash(python3 -c \"import sys,json; data=json.loads\\(sys.stdin.read\\(\\)+']}'\\); props=data['features'][0]['properties']; print\\(json.dumps\\(props, indent=2\\)\\)\")",
+      "Bash(ls playground/public/data/*.xgvt)",
+      "Bash(bunx vitest:*)",
+      "Bash(grep -E \"\\\\\\\\.ts:[0-9]\")",
+      "Bash(grep \"BUG REPRO\\\\|\\\\\\\\[\")",
+      "Bash(ls D:/X-GIS/playground/public/*.geojson)",
+      "Bash(grep -l \"coastline\\\\|coast\" D:/X-GIS/playground/src/examples/*.xgis)",
+      "Bash(grep -l \"ne_110m_land\\\\|stroke\" D:/X-GIS/playground/src/examples/*.xgis)",
+      "Bash(awk '/const LINE_SHADER = .* `/,/^`/' D:/X-GIS/runtime/src/engine/line-renderer.ts)",
+      "Bash(grep -c '`')",
+      "Bash(netstat -ano)"
     ]
   }
 }

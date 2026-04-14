@@ -147,11 +147,57 @@ function lowerLayer(
   let fill: ColorValue = colorNone()
   let strokeColor: ColorValue = colorNone()
   let strokeWidth = 1
+  let linecap: 'butt' | 'round' | 'square' | 'arrow' | undefined
+  let linejoin: 'miter' | 'round' | 'bevel' | undefined
+  let miterlimit: number | undefined
+  let dashArray: number[] | undefined
+  let dashOffset: number | undefined
+  let strokeOffset: number | undefined
+  let strokeAlign: 'center' | 'inset' | 'outset' | undefined
+  // Phase 4: pattern stack — up to 3 slots. Slot 0 = `stroke-pattern-*`,
+  // slots 1/2 = `stroke-pattern-1-*` / `stroke-pattern-2-*`.
+  const patternSlots: import('./render-node').StrokePattern[] = [
+    { shape: '', spacing: 0, size: 0 },
+    { shape: '', spacing: 0, size: 0 },
+    { shape: '', spacing: 0, size: 0 },
+  ]
+  const patternDirty = [false, false, false]
+
+  const parsePatternAttr = (rest: string, slotIdx: number): void => {
+    const p = patternSlots[slotIdx]
+    const unitRe = /^(-?[\d.]+)(m|px|km|nm)?$/
+    if (rest.startsWith('spacing-')) {
+      const m = rest.slice('spacing-'.length).match(unitRe)
+      if (m) { p.spacing = parseFloat(m[1]); p.spacingUnit = (m[2] as 'm' | 'px' | 'km' | 'nm' | undefined) ?? 'm'; patternDirty[slotIdx] = true }
+      return
+    }
+    if (rest.startsWith('size-')) {
+      const m = rest.slice('size-'.length).match(unitRe)
+      if (m) { p.size = parseFloat(m[1]); p.sizeUnit = (m[2] as 'm' | 'px' | 'km' | 'nm' | undefined) ?? 'm'; patternDirty[slotIdx] = true }
+      return
+    }
+    if (rest.startsWith('offset-')) {
+      const m = rest.slice('offset-'.length).match(unitRe)
+      if (m) { p.offset = parseFloat(m[1]); p.offsetUnit = (m[2] as 'm' | 'px' | 'km' | 'nm' | undefined) ?? 'm'; patternDirty[slotIdx] = true }
+      return
+    }
+    if (rest.startsWith('anchor-')) {
+      const v = rest.slice('anchor-'.length)
+      if (v === 'repeat' || v === 'start' || v === 'end' || v === 'center') {
+        p.anchor = v; patternDirty[slotIdx] = true
+      }
+      return
+    }
+    // Fallback: treat rest as shape name
+    p.shape = rest
+    patternDirty[slotIdx] = true
+  }
   let opacity: OpacityValue = opacityConstant(1.0)
   let size: SizeValue = sizeNone()
   let projection = 'mercator'
   let visible = true
   let billboard = true
+  let anchor: 'center' | 'bottom' | 'top' | undefined
   let shape: ShapeRef = shapeNone()
 
   // Cascade order: named style → inline CSS → utilities
@@ -162,6 +208,17 @@ function lowerLayer(
       const result = applyStyleProperties(namedProps, fill, strokeColor, strokeWidth, opacity, projection, visible)
       fill = result.fill; strokeColor = result.strokeColor; strokeWidth = result.strokeWidth
       opacity = result.opacity; projection = result.projection; visible = result.visible
+      if (result.linecap) linecap = result.linecap
+      if (result.linejoin) linejoin = result.linejoin
+      if (result.miterlimit !== undefined) miterlimit = result.miterlimit
+      if (result.dashArray) dashArray = result.dashArray
+      if (result.dashOffset !== undefined) dashOffset = result.dashOffset
+      if (result.strokeOffset !== undefined) strokeOffset = result.strokeOffset
+      if (result.strokeAlign !== undefined) strokeAlign = result.strokeAlign
+      if (result.pattern) {
+        Object.assign(patternSlots[0], result.pattern)
+        patternDirty[0] = true
+      }
     }
   }
 
@@ -170,6 +227,17 @@ function lowerLayer(
     const result = applyStyleProperties(stmt.styleProperties, fill, strokeColor, strokeWidth, opacity, projection, visible)
     fill = result.fill; strokeColor = result.strokeColor; strokeWidth = result.strokeWidth
     opacity = result.opacity; projection = result.projection; visible = result.visible
+    if (result.linecap) linecap = result.linecap
+    if (result.linejoin) linejoin = result.linejoin
+    if (result.miterlimit !== undefined) miterlimit = result.miterlimit
+    if (result.dashArray) dashArray = result.dashArray
+    if (result.dashOffset !== undefined) dashOffset = result.dashOffset
+    if (result.strokeOffset !== undefined) strokeOffset = result.strokeOffset
+    if (result.strokeAlign !== undefined) strokeAlign = result.strokeAlign
+    if (result.pattern) {
+      Object.assign(patternSlots[0], result.pattern)
+      patternDirty[0] = true
+    }
   }
 
   // Collectors for modifier-based values
@@ -229,6 +297,60 @@ function lowerLayer(
       if (name.startsWith('fill-')) {
         const hex = resolveColor(name.slice(5))
         if (hex) fill = colorConstant(...hexToRgba(hex))
+      } else if (name === 'stroke-butt-cap') {
+        linecap = 'butt'
+      } else if (name === 'stroke-round-cap') {
+        linecap = 'round'
+      } else if (name === 'stroke-square-cap') {
+        linecap = 'square'
+      } else if (name === 'stroke-arrow-cap') {
+        linecap = 'arrow'
+      } else if (name === 'stroke-miter-join') {
+        linejoin = 'miter'
+      } else if (name === 'stroke-round-join') {
+        linejoin = 'round'
+      } else if (name === 'stroke-bevel-join') {
+        linejoin = 'bevel'
+      } else if (name.startsWith('stroke-miterlimit-')) {
+        const num = parseFloat(name.slice('stroke-miterlimit-'.length))
+        if (!isNaN(num)) miterlimit = num
+      } else if (name.startsWith('stroke-dasharray-')) {
+        // e.g. stroke-dasharray-10-5 or stroke-dasharray-6-2-1-2.
+        // The lexer splits `20_10` into Number + Identifier which breaks
+        // the utility-name accumulator — hyphen is the only separator that
+        // stays inside a single utility token via parseUtilityName.
+        const parts = name.slice('stroke-dasharray-'.length).split('-')
+        const nums = parts.map(parseFloat).filter(n => !isNaN(n))
+        if (nums.length >= 2) dashArray = nums
+      } else if (name.startsWith('stroke-dashoffset-')) {
+        const num = parseFloat(name.slice('stroke-dashoffset-'.length))
+        if (!isNaN(num)) dashOffset = num
+      } else if (name === 'stroke-inset') {
+        // GDI+-style alignment: shift the centerline inward by half the
+        // stroke width so the stroke sits entirely on the left of travel.
+        // Resolved at runtime against the current strokeWidth.
+        strokeAlign = 'inset'
+      } else if (name === 'stroke-outset') {
+        strokeAlign = 'outset'
+      } else if (name === 'stroke-center') {
+        strokeAlign = 'center'
+      } else if (name.startsWith('stroke-offset-right-')) {
+        // Right-hand parallel offset: same magnitude, negative sign convention.
+        const num = parseFloat(name.slice('stroke-offset-right-'.length))
+        if (!isNaN(num)) strokeOffset = -num
+      } else if (name.startsWith('stroke-offset-left-')) {
+        const num = parseFloat(name.slice('stroke-offset-left-'.length))
+        if (!isNaN(num)) strokeOffset = num
+      } else if (name.startsWith('stroke-offset-')) {
+        // Bare stroke-offset-N → positive (left of travel) by default.
+        const num = parseFloat(name.slice('stroke-offset-'.length))
+        if (!isNaN(num)) strokeOffset = num
+      } else if (name.startsWith('stroke-pattern-1-')) {
+        parsePatternAttr(name.slice('stroke-pattern-1-'.length), 1)
+      } else if (name.startsWith('stroke-pattern-2-')) {
+        parsePatternAttr(name.slice('stroke-pattern-2-'.length), 2)
+      } else if (name.startsWith('stroke-pattern-')) {
+        parsePatternAttr(name.slice('stroke-pattern-'.length), 0)
       } else if (name.startsWith('stroke-')) {
         const rest = name.slice(7)
         const num = parseFloat(rest)
@@ -260,6 +382,12 @@ function lowerLayer(
         billboard = false
       } else if (name === 'billboard') {
         billboard = true
+      } else if (name === 'anchor-center') {
+        anchor = 'center'
+      } else if (name === 'anchor-bottom') {
+        anchor = 'bottom'
+      } else if (name === 'anchor-top') {
+        anchor = 'top'
       } else if (name.startsWith('shape-')) {
         const shapeName = name.slice(6)
         if (item.binding) {
@@ -295,7 +423,20 @@ function lowerLayer(
     sourceRef,
     zOrder,
     fill,
-    stroke: { color: strokeColor, width: strokeWidth },
+    stroke: (() => {
+      const validPatterns = patternSlots.filter((p, i) =>
+        patternDirty[i] && p.shape && p.size > 0 && (p.spacing > 0 || p.anchor !== 'repeat' && p.anchor !== undefined)
+      )
+      return {
+        color: strokeColor,
+        width: strokeWidth,
+        linecap, linejoin, miterlimit,
+        dashArray, dashOffset,
+        patterns: validPatterns.length > 0 ? validPatterns : undefined,
+        offset: strokeOffset,
+        align: strokeAlign,
+      }
+    })(),
     opacity,
     size,
     projection,
@@ -304,6 +445,7 @@ function lowerLayer(
     geometry: geometryExpr ? { ast: geometryExpr } : null,
     billboard,
     shape,
+    anchor,
   }
 }
 
@@ -319,7 +461,36 @@ function applyStyleProperties(
   opacity: OpacityValue,
   projection: string,
   visible: boolean,
-): { fill: ColorValue; strokeColor: ColorValue; strokeWidth: number; opacity: OpacityValue; projection: string; visible: boolean } {
+): {
+  fill: ColorValue
+  strokeColor: ColorValue
+  strokeWidth: number
+  opacity: OpacityValue
+  projection: string
+  visible: boolean
+  linecap?: 'butt' | 'round' | 'square' | 'arrow'
+  linejoin?: 'miter' | 'round' | 'bevel'
+  miterlimit?: number
+  dashArray?: number[]
+  dashOffset?: number
+  strokeOffset?: number
+  strokeAlign?: 'center' | 'inset' | 'outset'
+  pattern?: import('./render-node').StrokePattern
+} {
+  let linecap: 'butt' | 'round' | 'square' | 'arrow' | undefined
+  let linejoin: 'miter' | 'round' | 'bevel' | undefined
+  let miterlimit: number | undefined
+  let dashArray: number[] | undefined
+  let dashOffset: number | undefined
+  let strokeOffset: number | undefined
+  let strokeAlign: 'center' | 'inset' | 'outset' | undefined
+  const pattern: import('./render-node').StrokePattern = { shape: '', spacing: 0, size: 0 }
+  let patternDirtyCss = false
+  const parseCssUnitValue = (v: string): { num: number; unit: 'm' | 'px' | 'km' | 'nm' } | null => {
+    const m = v.trim().match(/^(-?[\d.]+)\s*(m|px|km|nm)?$/)
+    if (!m) return null
+    return { num: parseFloat(m[1]), unit: (m[2] as 'm' | 'px' | 'km' | 'nm' | undefined) ?? 'm' }
+  }
   for (const prop of props) {
     switch (prop.name) {
       case 'fill': {
@@ -337,13 +508,76 @@ function applyStyleProperties(
         if (!isNaN(num)) strokeWidth = num
         break
       }
+      case 'stroke-linecap': {
+        const v = prop.value
+        if (v === 'butt' || v === 'round' || v === 'square' || v === 'arrow') linecap = v
+        break
+      }
+      case 'stroke-linejoin': {
+        const v = prop.value
+        if (v === 'miter' || v === 'round' || v === 'bevel') linejoin = v
+        break
+      }
+      case 'stroke-miterlimit': {
+        const num = parseFloat(prop.value)
+        if (!isNaN(num)) miterlimit = num
+        break
+      }
+      case 'stroke-dasharray': {
+        // "10 5" or "6 2 1 2" — whitespace or comma separated
+        const nums = prop.value.split(/[\s,]+/).map(parseFloat).filter(n => !isNaN(n))
+        if (nums.length >= 2) dashArray = nums
+        break
+      }
+      case 'stroke-dashoffset': {
+        const num = parseFloat(prop.value)
+        if (!isNaN(num)) dashOffset = num
+        break
+      }
+      case 'stroke-offset': {
+        const num = parseFloat(prop.value)
+        if (!isNaN(num)) strokeOffset = num
+        break
+      }
+      case 'stroke-align':
+      case 'stroke-alignment': {
+        const v = prop.value.trim()
+        if (v === 'center' || v === 'inset' || v === 'outset') strokeAlign = v
+        break
+      }
+      case 'stroke-pattern': {
+        pattern.shape = prop.value.trim()
+        patternDirtyCss = true
+        break
+      }
+      case 'stroke-pattern-spacing': {
+        const pv = parseCssUnitValue(prop.value)
+        if (pv) { pattern.spacing = pv.num; pattern.spacingUnit = pv.unit; patternDirtyCss = true }
+        break
+      }
+      case 'stroke-pattern-size': {
+        const pv = parseCssUnitValue(prop.value)
+        if (pv) { pattern.size = pv.num; pattern.sizeUnit = pv.unit; patternDirtyCss = true }
+        break
+      }
+      case 'stroke-pattern-offset': {
+        const pv = parseCssUnitValue(prop.value)
+        if (pv) { pattern.offset = pv.num; pattern.offsetUnit = pv.unit; patternDirtyCss = true }
+        break
+      }
+      case 'stroke-pattern-anchor': {
+        const v = prop.value.trim()
+        if (v === 'repeat' || v === 'start' || v === 'end' || v === 'center') {
+          pattern.anchor = v; patternDirtyCss = true
+        }
+        break
+      }
       case 'opacity': {
         const num = parseFloat(prop.value)
         if (!isNaN(num)) opacity = opacityConstant(num <= 1 ? num : num / 100)
         break
       }
       case 'size': {
-        // size is not currently in the return signature but utilities handle it
         break
       }
       case 'projection': {
@@ -356,7 +590,11 @@ function applyStyleProperties(
       }
     }
   }
-  return { fill, strokeColor, strokeWidth, opacity, projection, visible }
+  return {
+    fill, strokeColor, strokeWidth, opacity, projection, visible,
+    linecap, linejoin, miterlimit, dashArray, dashOffset, strokeOffset, strokeAlign,
+    pattern: patternDirtyCss && pattern.shape && pattern.size > 0 && (pattern.spacing > 0 || pattern.anchor) ? pattern : undefined,
+  }
 }
 
 /**

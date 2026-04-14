@@ -1,0 +1,39 @@
+/*
+ * Line styles showcase — four stacked coastline layers, each demonstrating
+ * a different cap/join/width combination on the same geometry so you can
+ * compare them side-by-side. Defaults (round cap + round join) are shown
+ * alongside explicit miter/butt for contrast.
+ */
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.geojson"
+}
+
+layer land_fill {
+  source: land
+  | fill-slate-900
+}
+
+/* 1. Default — round cap + round join, no explicit utilities */
+layer coast_default {
+  source: coast
+  | stroke-cyan-300 stroke-6 opacity-40
+}
+
+/* 2. Explicit miter join + butt cap — sharp corners, flat ends */
+layer coast_miter {
+  source: coast
+  | stroke-rose-400 stroke-3 stroke-miter-join stroke-butt-cap
+}
+
+/* 3. Thin bevel join — compromise between miter and round */
+layer coast_bevel {
+  source: coast
+  | stroke-lime-300 stroke-1 stroke-bevel-join
+}

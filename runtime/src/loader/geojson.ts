@@ -313,7 +313,7 @@ export function loadGeoJSON(data: GeoJSONFeatureCollection): {
     minLat = Math.min(minLat, lat)
     maxLat = Math.max(maxLat, lat)
   }
-  for (let i = 0; i < lineVertices.length; i += 3) {
+  for (let i = 0; i < lineVertices.length; i += 4) {
     const lon = lineVertices[i], lat = lineVertices[i + 1]
     minLon = Math.min(minLon, lon)
     maxLon = Math.max(maxLon, lon)
@@ -463,7 +463,7 @@ function tessellateLineString(
   outIndices: number[],
   outFeatures: FeatureRange[],
 ): void {
-  const STRIDE = 3
+  const STRIDE = 4
   const baseVertex = outVertices.length / STRIDE
   const baseIndex = outIndices.length
   const featureId = outFeatures.length
@@ -490,8 +490,23 @@ function tessellateLineString(
     }
   }
 
-  for (const coord of subdivided) {
-    outVertices.push(coord[0], coord[1], featureId)
+  // Compute f64 global arc-length per vertex (Mercator meters)
+  const DEG2RAD = Math.PI / 180
+  const R = 6378137
+  const LAT_LIMIT = 85.051129
+  const clampLat = (v: number) => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
+  let arc = 0
+  let prevMx = 0, prevMy = 0
+  for (let i = 0; i < subdivided.length; i++) {
+    const c = subdivided[i]
+    const mx = c[0] * DEG2RAD * R
+    const my = Math.log(Math.tan(Math.PI / 4 + clampLat(c[1]) * DEG2RAD / 2)) * R
+    if (i > 0) {
+      const dx = mx - prevMx, dy = my - prevMy
+      arc += Math.sqrt(dx * dx + dy * dy)
+    }
+    outVertices.push(c[0], c[1], featureId, arc)
+    prevMx = mx; prevMy = my
   }
 
   for (let i = 0; i < subdivided.length - 1; i++) {

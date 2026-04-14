@@ -96,7 +96,13 @@ export function visibleTiles(
 import type { Camera } from '../engine/camera'
 import type { Projection } from '../engine/projection'
 
-const MAX_FRUSTUM_TILES = 300
+// Mobile GPUs choke on 300 frustum tiles — each tile is a draw call plus
+// SDF-shaded line segments. 120 keeps the foreground refined and the
+// horizon at a coarse LOD.
+const IS_MOBILE = typeof window !== 'undefined'
+  && (window.matchMedia?.('(pointer: coarse)').matches ?? false)
+  && (window.innerWidth || 0) <= 900
+const MAX_FRUSTUM_TILES = IS_MOBILE ? 120 : 300
 
 /** Quadtree-based visible tile selection.
  *  Recursively subdivides from z=0, using screen-space tile size to determine LOD.
@@ -120,7 +126,7 @@ export function visibleTilesFrustum(
   const toScreen = (mx: number, my: number): [number, number] | null => {
     const rx = mx - camMercX, ry = my - camMercY
     const cw = mvp[3] * rx + mvp[7] * ry + mvp[15]
-    if (cw <= 0.01) return null
+    if (cw <= 1e-6) return null
     const cx = mvp[0] * rx + mvp[4] * ry + mvp[12]
     const cy = mvp[1] * rx + mvp[5] * ry + mvp[13]
     return [(cx / cw + 1) * 0.5 * canvasWidth, (1 - cy / cw) * 0.5 * canvasHeight]
@@ -137,58 +143,94 @@ export function visibleTilesFrustum(
   const tileYToLat = (y: number, n: number) =>
     Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI
 
-  // Estimate tile's screen-space size in pixels
-  const tileScreenSize = (tz: number, ox: number, y: number): number => {
+  // Camera position in lon/lat for "camera inside tile" test below.
+  const camLon = (camMercX / R) * (180 / Math.PI)
+  const camLat = (2 * Math.atan(Math.exp(camMercY / R)) - Math.PI / 2) * (180 / Math.PI)
+
+  // Unified classify: returns screen-space tile size in px, or -1 if not visible.
+  // Handles null corners (behind camera) consistently — a tile with all corners
+  // behind camera is treated as "very large" to force subdivision.
+  const classifyTile = (tz: number, ox: number, y: number): number => {
+    // Low-zoom tiles: projection unreliable for world-scale tiles, always subdivide
+    if (tz <= 3) return SUBDIVIDE_THRESHOLD + 1
+
     const tn = Math.pow(2, tz)
     const lonW = ox / tn * 360 - 180
     const lonE = (ox + 1) / tn * 360 - 180
     const latN = tileYToLat(y, tn)
     const latS = tileYToLat(y + 1, tn)
+
+    // Camera inside this tile? At high zoom (tz < camera.zoom), a tile that
+    // contains the camera projects with ALL 9 sample points far outside the
+    // tiny viewport, so the overlapsViewport check would wrongly cull it.
+    // The only reliable signal that the tile must be descended into is
+    // "camera lon/lat falls inside the tile's lon/lat bounds". Force
+    // subdivision in that case so we eventually reach the leaf tile
+    // actually under the camera.
+    if (camLon >= lonW && camLon <= lonE && camLat >= latS && camLat <= latN) {
+      return SUBDIVIDE_THRESHOLD + 1
+    }
+
     const mw = lonToMerc(lonW), me = lonToMerc(lonE)
     const mn = latToMerc(latN), ms = latToMerc(latS)
 
-    const corners = [toScreen(mw, ms), toScreen(me, ms), toScreen(me, mn), toScreen(mw, mn)]
+    // Sample 9 points: 4 corners + 4 edge midpoints + 1 center. Rotated
+    // projections (bearing + pitch) can turn the tile's on-screen shape
+    // into a quadrilateral whose 4-corner AABB misses part of its true
+    // coverage. Extra samples catch straddle cases where one edge passes
+    // through the viewport while the 4 corners are on one side.
+    const mmid_h = (mw + me) * 0.5
+    const mmid_v = (mn + ms) * 0.5
+    const corners = [
+      toScreen(mw, ms), toScreen(me, ms), toScreen(me, mn), toScreen(mw, mn),
+      toScreen(mmid_h, ms), toScreen(me, mmid_v), toScreen(mmid_h, mn), toScreen(mw, mmid_v),
+      toScreen(mmid_h, mmid_v),
+    ]
     let sxMin = Infinity, sxMax = -Infinity, syMin = Infinity, syMax = -Infinity
-    let valid = 0
+    let validCount = 0
+    let behindCount = 0
     for (const c of corners) {
-      if (!c) continue
-      valid++
+      if (!c) { behindCount++; continue }
+      validCount++
       if (c[0] < sxMin) sxMin = c[0]
       if (c[0] > sxMax) sxMax = c[0]
       if (c[1] < syMin) syMin = c[1]
       if (c[1] > syMax) syMax = c[1]
     }
-    if (valid < 2) return 0
-    return Math.max(sxMax - sxMin, syMax - syMin)
-  }
 
-  // Check if tile is potentially visible (screen AABB overlaps viewport)
-  const isTileVisible = (tz: number, ox: number, y: number): boolean => {
-    const tn = Math.pow(2, tz)
-    const lonW = ox / tn * 360 - 180
-    const lonE = (ox + 1) / tn * 360 - 180
-    const latN = tileYToLat(y, tn)
-    const latS = tileYToLat(y + 1, tn)
-    const mw = lonToMerc(lonW), me = lonToMerc(lonE)
-    const mn = latToMerc(latN), ms = latToMerc(latS)
+    // All corners behind camera — cull.
+    // (Previously this forced subdivision in case the tile straddled the
+    // near plane, but that caused tiles on the opposite hemisphere to flood
+    // the result set with spurious world-copy children at any non-zero
+    // pitch. For tz > 3 the tile is small enough that "all corners behind"
+    // is a reliable cull signal; partial behind is still handled below.)
+    if (validCount === 0) return -1
 
-    const corners = [toScreen(mw, ms), toScreen(me, ms), toScreen(me, mn), toScreen(mw, mn)]
-    let sxMin = Infinity, sxMax = -Infinity, syMin = Infinity, syMax = -Infinity
-    let valid = 0
-    for (const c of corners) {
-      if (!c) { valid++; continue } // behind camera = might wrap around, be conservative
-      valid++
-      if (c[0] < sxMin) sxMin = c[0]
-      if (c[0] > sxMax) sxMax = c[0]
-      if (c[1] < syMin) syMin = c[1]
-      if (c[1] > syMax) syMax = c[1]
-    }
-    if (valid === 0) return false
-    if (sxMin === Infinity) return true // all behind camera at low zoom — be conservative
     // Generous margin for partially-visible tiles
-    const margin = Math.max(canvasWidth, canvasHeight) * 0.1
-    return sxMax >= -margin && sxMin <= canvasWidth + margin &&
-           syMax >= -margin && syMin <= canvasHeight + margin
+    const margin = Math.max(canvasWidth, canvasHeight) * 0.25
+    const overlapsViewport =
+      sxMax >= -margin && sxMin <= canvasWidth + margin &&
+      syMax >= -margin && syMin <= canvasHeight + margin
+
+    // If any corner is behind camera, we only know the AABB of the VISIBLE
+    // corners — the tile's true extent could be larger. Use a GENEROUS
+    // margin for the "subdivide maybe" check so we don't miss tiles that
+    // straddle the camera near plane with both bearing and pitch applied
+    // (a 45° bearing rotates the 4-corner AABB significantly, which can
+    // push visible-corner projections outside the strict viewport even
+    // while the tile still covers on-screen pixels).
+    const wideMargin = Math.max(canvasWidth, canvasHeight) * 2
+    const nearViewport =
+      sxMax >= -wideMargin && sxMin <= canvasWidth + wideMargin &&
+      syMax >= -wideMargin && syMin <= canvasHeight + wideMargin
+    if (behindCount > 0) {
+      return nearViewport ? SUBDIVIDE_THRESHOLD * 2 : -1
+    }
+
+    if (!overlapsViewport) return -1
+
+    const size = Math.max(sxMax - sxMin, syMax - syMin)
+    return Math.max(size, 1) // always > 0 when visible
   }
 
   const result: TileCoord[] = []
@@ -199,10 +241,8 @@ export function visibleTilesFrustum(
     if (y < 0 || y >= tn) return
     if (ox < -maxCopies * tn || ox >= (maxCopies + 1) * tn) return
 
-    // Low-zoom tiles always visible (screen projection unreliable for world-scale tiles)
-    if (tz > 3 && !isTileVisible(tz, ox, y)) return
-
-    const screenPx = tz <= 3 ? SUBDIVIDE_THRESHOLD + 1 : tileScreenSize(tz, ox, y)
+    const screenPx = classifyTile(tz, ox, y)
+    if (screenPx < 0) return // not visible
 
     // Subdivide if tile is large on screen and we haven't reached max zoom
     if (tz < maxZ && screenPx > SUBDIVIDE_THRESHOLD && result.length + 4 <= MAX_FRUSTUM_TILES) {
@@ -214,14 +254,19 @@ export function visibleTilesFrustum(
       return
     }
 
-    if (screenPx > 0 || tz <= 2) { // always include low-zoom tiles for coverage
-      result.push({ z: tz, x, y, ox })
-    }
+    // Always push when visible (avoids gaps from inconsistent size checks)
+    result.push({ z: tz, x, y, ox })
   }
 
-  // Start from z=0 for each world copy
-  for (let wx = -maxCopies; wx <= maxCopies; wx++) {
-    visit(0, 0, 0, wx)
+  // Start from z=0 for each world copy — BUT iterate from the central world
+  // copy outward (0, +1, -1, +2, -2, ...). DFS subdivision greedily consumes
+  // MAX_FRUSTUM_TILES; if we walked the leftmost copy first, extreme pitch
+  // could burn the entire budget on far-away distant-horizon tiles before
+  // the foreground under the camera ever gets refined.
+  visit(0, 0, 0, 0)
+  for (let k = 1; k <= maxCopies; k++) {
+    visit(0, 0, 0, k)
+    visit(0, 0, 0, -k)
   }
 
   return result

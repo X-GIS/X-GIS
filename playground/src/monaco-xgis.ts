@@ -230,6 +230,65 @@ export function registerXGISLanguage() {
     },
   })
 
+  // ── Go-to-definition (Ctrl+click on source references) ──
+  monaco.languages.registerDefinitionProvider('xgis', {
+    provideDefinition(model, position) {
+      const word = model.getWordAtPosition(position)
+      if (!word) return null
+      const full = model.getValue()
+      // Find `source <word> {` or `layer <word> {` blocks in the same file
+      const defRe = new RegExp(`\\b(?:source|layer|style|symbol|preset)\\s+${escapeRegex(word.word)}\\b`, 'g')
+      let m: RegExpExecArray | null
+      while ((m = defRe.exec(full)) !== null) {
+        const pos = model.getPositionAt(m.index)
+        return {
+          uri: model.uri,
+          range: new monaco.Range(pos.lineNumber, 1, pos.lineNumber, model.getLineMaxColumn(pos.lineNumber)),
+        }
+      }
+      return null
+    },
+  })
+
+  // ── Document symbols (outline panel: every source/layer/style/symbol block) ──
+  monaco.languages.registerDocumentSymbolProvider('xgis', {
+    provideDocumentSymbols(model) {
+      const symbols: monaco.languages.DocumentSymbol[] = []
+      const text = model.getValue()
+      const re = /\b(source|layer|style|symbol|preset)\s+([A-Za-z_][\w]*)\s*\{/g
+      let m: RegExpExecArray | null
+      const kindMap: Record<string, monaco.languages.SymbolKind> = {
+        source: monaco.languages.SymbolKind.Class,
+        layer: monaco.languages.SymbolKind.Method,
+        style: monaco.languages.SymbolKind.Interface,
+        symbol: monaco.languages.SymbolKind.Constructor,
+        preset: monaco.languages.SymbolKind.Property,
+      }
+      while ((m = re.exec(text)) !== null) {
+        const start = model.getPositionAt(m.index)
+        // Scan forward to matching closing brace
+        let depth = 0
+        let end = m.index + m[0].length
+        for (let i = m.index + m[0].length - 1; i < text.length; i++) {
+          if (text[i] === '{') depth++
+          else if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break } }
+        }
+        const endPos = model.getPositionAt(end)
+        const range = new monaco.Range(start.lineNumber, 1, endPos.lineNumber, model.getLineMaxColumn(endPos.lineNumber))
+        const nameRange = new monaco.Range(start.lineNumber, 1, start.lineNumber, model.getLineMaxColumn(start.lineNumber))
+        symbols.push({
+          name: m[2],
+          detail: m[1],
+          kind: kindMap[m[1]] ?? monaco.languages.SymbolKind.Object,
+          range,
+          selectionRange: nameRange,
+          tags: [],
+        })
+      }
+      return symbols
+    },
+  })
+
   // ── Hover provider ──
   monaco.languages.registerHoverProvider('xgis', {
     provideHover(model, position) {
@@ -273,6 +332,10 @@ export function registerXGISLanguage() {
       return null
     },
   })
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 // ═══ Context Detection ═══
@@ -336,9 +399,54 @@ const PROJECTIONS = ['mercator', 'equirectangular', 'natural-earth', 'orthograph
 const UTILITY_COMPLETIONS: Partial<monaco.languages.CompletionItem>[] = [
   { label: 'fill-', insertText: 'fill-${1}', detail: 'Fill color', documentation: { value: '`fill-{color}-{shade}` — Tailwind fill color\n\nExamples: `fill-red-500`, `fill-sky-300`' } },
   { label: 'stroke-', insertText: 'stroke-${1}', detail: 'Stroke color or width', documentation: { value: '`stroke-{color}-{shade}` — Stroke color\n`stroke-{N}` — Stroke width in px\n\nExamples: `stroke-cyan-400`, `stroke-2`' } },
+  // Stroke width presets
+  { label: 'stroke-1', insertText: 'stroke-1', detail: '1px stroke width', kind: monaco.languages.CompletionItemKind.Value },
+  { label: 'stroke-2', insertText: 'stroke-2', detail: '2px stroke width', kind: monaco.languages.CompletionItemKind.Value },
+  { label: 'stroke-3', insertText: 'stroke-3', detail: '3px stroke width', kind: monaco.languages.CompletionItemKind.Value },
+  { label: 'stroke-4', insertText: 'stroke-4', detail: '4px stroke width', kind: monaco.languages.CompletionItemKind.Value },
+  { label: 'stroke-5', insertText: 'stroke-5', detail: '5px stroke width', kind: monaco.languages.CompletionItemKind.Value },
+  { label: 'stroke-6', insertText: 'stroke-6', detail: '6px stroke width', kind: monaco.languages.CompletionItemKind.Value },
+  { label: 'stroke-8', insertText: 'stroke-8', detail: '8px stroke width', kind: monaco.languages.CompletionItemKind.Value },
+  { label: 'stroke-10', insertText: 'stroke-10', detail: '10px stroke width', kind: monaco.languages.CompletionItemKind.Value },
+  // Line caps
+  { label: 'stroke-round-cap', insertText: 'stroke-round-cap', detail: 'Round line cap (default)', documentation: { value: 'Round endpoint caps — draws a circle at each open line end. Default since a recent release.' } },
+  { label: 'stroke-butt-cap', insertText: 'stroke-butt-cap', detail: 'Butt (flat) line cap', documentation: { value: 'Flat endpoint — terminates exactly at the vertex with no overshoot.' } },
+  { label: 'stroke-square-cap', insertText: 'stroke-square-cap', detail: 'Square line cap', documentation: { value: 'Flat endpoint extended by half_width past the vertex.' } },
+  { label: 'stroke-arrow-cap', insertText: 'stroke-arrow-cap', detail: 'Arrow line cap', documentation: { value: 'Tapered arrow-head at open ends. Only applies at chain termini (non-joined vertices).' } },
+  // Line joins
+  { label: 'stroke-round-join', insertText: 'stroke-round-join', detail: 'Round line join (default)', documentation: { value: 'Rounded corners via circular SDF — stable at any angle. Default since a recent release.' } },
+  { label: 'stroke-miter-join', insertText: 'stroke-miter-join', detail: 'Miter line join', documentation: { value: 'Sharp corners extended to the miter tip. Falls back to bevel if the tip exceeds `miter-limit` × half-width.' } },
+  { label: 'stroke-bevel-join', insertText: 'stroke-bevel-join', detail: 'Bevel line join', documentation: { value: 'Corners clipped flat at the intersection of the two strokes.' } },
+  { label: 'stroke-miter-limit-', insertText: 'stroke-miter-limit-${1:4}', detail: 'Miter limit ratio', documentation: { value: '`stroke-miter-limit-{N}` — maximum miter-extension-to-width ratio before falling back to bevel. Default `4`.' } },
+  // Lateral parallel offset
+  { label: 'stroke-offset-', insertText: 'stroke-offset-${1:5}', detail: 'Lateral parallel offset (px, +left)', documentation: { value: '`stroke-offset-N` — shift the stroke perpendicular to the line by `N` pixels.\n\nDefault direction = LEFT of travel. Use `stroke-offset-right-N` for the right side, or `stroke-offset-left-N` for explicit left.\n\nWorks correctly across joins — adjacent segments share their offset miter vertex.' } },
+  { label: 'stroke-offset-left-', insertText: 'stroke-offset-left-${1:5}', detail: 'Offset to the left of travel (px)', kind: monaco.languages.CompletionItemKind.Value },
+  { label: 'stroke-offset-right-', insertText: 'stroke-offset-right-${1:5}', detail: 'Offset to the right of travel (px)', kind: monaco.languages.CompletionItemKind.Value },
+  // GDI+ alignment sugar
+  { label: 'stroke-center', insertText: 'stroke-center', detail: 'Center alignment (default)', documentation: { value: 'Centerline-aligned stroke — half on each side of the original geometry.' } },
+  { label: 'stroke-inset', insertText: 'stroke-inset', detail: 'Inset alignment (left of travel)', documentation: { value: 'Shift the stroke INWARD by half the stroke width.\n\nFor CCW polygon rings the inside of the polygon is on the LEFT of travel, so `stroke-inset` keeps the stroke entirely inside the polygon.\n\nCombines additively with explicit `stroke-offset-N`. Resolved at runtime against the layer width.' } },
+  { label: 'stroke-outset', insertText: 'stroke-outset', detail: 'Outset alignment (right of travel)', documentation: { value: 'Shift the stroke OUTWARD by half the stroke width.\n\nFor CCW polygon rings this places the stroke entirely outside the polygon. Use `stroke-inset` for the opposite side.' } },
+  // Dash / pattern
+  { label: 'stroke-dasharray-', insertText: 'stroke-dasharray-${1:20}-${2:10}', detail: 'Dash array (px)', documentation: { value: '`stroke-dasharray-N-M[-N-M...]` — alternating on/off lengths in pixels.\n\n```xgis\n| stroke-dasharray-20-10\n| stroke-dasharray-4-2-1-2\n```' } },
+  { label: 'stroke-dashoffset-', insertText: 'stroke-dashoffset-${1:0}', detail: 'Dash phase offset (px)' },
+  { label: 'stroke-pattern-', insertText: 'stroke-pattern-${1}', detail: 'Repeating SDF symbol along the line', documentation: { value: '`stroke-pattern-{shape}` plus `stroke-pattern-spacing-{N}px`, `stroke-pattern-size-{N}px`, `stroke-pattern-offset-{N}px`.\n\nRefers to a symbol defined in this file or imported.' } },
+  // Color/opacity
   { label: 'opacity-', insertText: 'opacity-${1}', detail: 'Opacity (0-100)', documentation: { value: '`opacity-{N}` — Layer opacity\n\n`opacity-50` = 50%, `opacity-0.8` = 80%' } },
+  { label: 'opacity-25', insertText: 'opacity-25', detail: '25% opacity', kind: monaco.languages.CompletionItemKind.Value },
+  { label: 'opacity-50', insertText: 'opacity-50', detail: '50% opacity', kind: monaco.languages.CompletionItemKind.Value },
+  { label: 'opacity-75', insertText: 'opacity-75', detail: '75% opacity', kind: monaco.languages.CompletionItemKind.Value },
+  { label: 'opacity-100', insertText: 'opacity-100', detail: '100% opacity', kind: monaco.languages.CompletionItemKind.Value },
+  // Point sizing
   { label: 'size-', insertText: 'size-${1}', detail: 'Point size', documentation: { value: '`size-{N}{unit}` — Point radius\n\nUnits: `px` (default), `m`, `km`, `nm`, `deg`\n\nData-driven: `size-[sqrt(.pop) / 80]km`' } },
+  { label: 'size-4', insertText: 'size-4', detail: '4px point radius', kind: monaco.languages.CompletionItemKind.Value },
+  { label: 'size-8', insertText: 'size-8', detail: '8px point radius', kind: monaco.languages.CompletionItemKind.Value },
+  { label: 'size-12', insertText: 'size-12', detail: '12px point radius', kind: monaco.languages.CompletionItemKind.Value },
+  { label: 'size-16', insertText: 'size-16', detail: '16px point radius', kind: monaco.languages.CompletionItemKind.Value },
+  // Point shape / anchor / billboard
   { label: 'shape-', insertText: 'shape-${1}', detail: 'Point shape', documentation: { value: 'Built-in: `circle` (default), `star`, `diamond`, `triangle`, `square`, `cross`, `hexagon`, `pentagon`\n\nCustom: define with `symbol` block' } },
+  { label: 'anchor-center', insertText: 'anchor-center', detail: 'Anchor point at center', documentation: { value: 'Point geometry anchored at its center (default).' } },
+  { label: 'anchor-bottom', insertText: 'anchor-bottom', detail: 'Anchor point at bottom', documentation: { value: 'Point geometry anchored at the bottom — common for map pins so the tip sits exactly on the coordinate.' } },
+  { label: 'anchor-top', insertText: 'anchor-top', detail: 'Anchor point at top' },
   { label: 'flat', insertText: 'flat', detail: 'Flat on ground', documentation: { value: 'Render points flat on the ground plane (world-space).\nSize scales with zoom.' } },
   { label: 'billboard', insertText: 'billboard', detail: 'Faces camera', documentation: { value: 'Render points always facing the camera (screen-space).\nSize is constant in pixels. **(default)**' } },
   { label: 'visible', insertText: 'visible', detail: 'Show layer' },
@@ -399,6 +507,30 @@ const HOVER_DOCS: Record<string, string> = {
   // Utilities
   flat: '**flat** — Render on the ground plane (world-space)\n\nPoint size scales with map zoom. Useful for area coverage circles.',
   billboard: '**billboard** — Render facing the camera (screen-space)\n\nPoint size is constant in pixels. **(default)**',
+  // Line caps
+  'stroke-round-cap': '**stroke-round-cap** — Round endpoint (default).\n\nDraws a half-circle at each open line end. Stable at any width.',
+  'stroke-butt-cap': '**stroke-butt-cap** — Flat endpoint terminating exactly at the vertex.',
+  'stroke-square-cap': '**stroke-square-cap** — Flat endpoint extended by half the line width past the vertex.',
+  'stroke-arrow-cap': '**stroke-arrow-cap** — Tapered arrowhead at line termini (non-joined vertices only).',
+  // Line joins
+  'stroke-round-join': '**stroke-round-join** — Rounded corners (default).\n\nDrawn via circular SDF — correct at any bend angle.',
+  'stroke-miter-join': '**stroke-miter-join** — Sharp miter corners.\n\nExtends the stroke to the intersection of the two edges, up to `miter-limit × half-width`. Beyond that, falls back to bevel.',
+  'stroke-bevel-join': '**stroke-bevel-join** — Corners clipped flat at the stroke intersection.',
+  // Dash
+  'stroke-dasharray': '**stroke-dasharray-N-M[-N-M...]** — Alternating on/off lengths in pixels.\n\n```xgis\n| stroke-dasharray-20-10\n| stroke-dasharray-4-2-1-2\n```',
+  'stroke-dashoffset': '**stroke-dashoffset-N** — Dash phase shift in pixels.',
+  // Lateral offset
+  'stroke-offset': '**stroke-offset-N** — Lateral parallel offset in pixels (positive = left of travel).\n\nAdjacent segments share their offset miter vertex so joins stay tight at any turn.',
+  'stroke-offset-left': '**stroke-offset-left-N** — Offset to the LEFT of travel direction (same as bare `stroke-offset-N`).',
+  'stroke-offset-right': '**stroke-offset-right-N** — Offset to the RIGHT of travel direction (negative half-width shift).',
+  // Alignment
+  'stroke-center': '**stroke-center** — Centerline alignment (default). Half the stroke width on each side of the geometry.',
+  'stroke-inset': '**stroke-inset** — GDI+ Inset alignment. Shifts the centerline inward by `stroke-width/2` so the stroke sits entirely on one side. For CCW polygon rings, the inset side is the polygon interior.',
+  'stroke-outset': '**stroke-outset** — Outward alignment. Shifts the centerline outward by `stroke-width/2`. For CCW polygon rings, the outset side is the polygon exterior.',
+  // Anchors
+  'anchor-center': '**anchor-center** — Point geometry anchored at its center. (default)',
+  'anchor-bottom': '**anchor-bottom** — Bottom-anchored (for map pins so the tip sits on the coordinate).',
+  'anchor-top': '**anchor-top** — Top-anchored.',
 }
 
 // ═══ Dynamic Field Discovery ═══

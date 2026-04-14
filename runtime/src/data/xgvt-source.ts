@@ -19,9 +19,9 @@ import { visibleTiles } from '../loader/tiles'
 
 /** CPU-only tile data (no GPU dependency) */
 export interface TileData {
-  vertices: Float32Array       // [lon, lat, featId] stride 3 (tile-local)
+  vertices: Float32Array       // [lon, lat, featId] stride 3 (tile-local, polygon fills)
   indices: Uint32Array         // triangle indices
-  lineVertices: Float32Array   // line vertices
+  lineVertices: Float32Array   // [lon, lat, featId, arcStart_m] stride 4
   lineIndices: Uint32Array     // line segment indices (pairs)
   outlineIndices: Uint32Array  // polygon outline line segments (reuses vertices buffer)
   pointVertices?: Float32Array // [lon, lat, featId] stride 3 (tile-local points)
@@ -172,7 +172,7 @@ export class XGVTSource {
       const entry: TileIndexEntry = {
         tileHash: key, dataOffset: 0, compactSize: 0, gpuReadySize: 0,
         vertexCount: tile.vertices.length / 3, indexCount: tile.indices.length,
-        lineVertexCount: tile.lineVertices.length / 3, lineIndexCount: tile.lineIndices.length,
+        lineVertexCount: tile.lineVertices.length / 4, lineIndexCount: tile.lineIndices.length,
         flags: 0, fullCoverFeatureId: 0,
       }
       if (!this.index.entryByHash.has(key)) {
@@ -278,7 +278,7 @@ export class XGVTSource {
           gpuReadySize: 0,
           vertexCount: tile.vertices.length / 3,
           indexCount: tile.indices.length,
-          lineVertexCount: tile.lineVertices.length / 3,
+          lineVertexCount: tile.lineVertices.length / 4,
           lineIndexCount: tile.lineIndices.length,
           flags: isFullCover ? (TILE_FLAG_FULL_COVER | (fid << 1)) : 0,
           fullCoverFeatureId: fid,
@@ -349,7 +349,7 @@ export class XGVTSource {
       const entry: TileIndexEntry = {
         tileHash: key, dataOffset: 0, compactSize: 0, gpuReadySize: 0,
         vertexCount: tile.vertices.length / 3, indexCount: tile.indices.length,
-        lineVertexCount: tile.lineVertices.length / 3, lineIndexCount: tile.lineIndices.length,
+        lineVertexCount: tile.lineVertices.length / 4, lineIndexCount: tile.lineIndices.length,
         flags: isFullCover ? (TILE_FLAG_FULL_COVER | (fid << 1)) : 0,
         fullCoverFeatureId: fid,
       }
@@ -606,7 +606,8 @@ export class XGVTSource {
     }
 
     this.dataCache.set(key, data)
-    this.onTileLoaded?.(key, data)
+    try { this.onTileLoaded?.(key, data) }
+    catch (e) { console.error('[onTileLoaded]', (e as Error)?.stack ?? e) }
   }
 
   // ── Sub-tile generation (overzoom CPU clipping) ──
@@ -632,6 +633,22 @@ export class XGVTSource {
     const verts = parent.vertices
     const outV: number[] = []
     const outI: number[] = []
+    // Position-dedup index for outV (polygon + outline share the same buffer).
+    // Without this, polygon outline edges created by independent segment
+    // clipping never share endpoint indices — every segment becomes its own
+    // isolated chain end and buildLineSegments cannot find neighbors to
+    // compute prev/next tangents, so line joins silently degrade to butt caps.
+    const outVKey = new Map<string, number>()
+    const pushDedupPV = (x: number, y: number, fid: number): number => {
+      // Quantize to ~1e-6 degree (≈10 cm) to tolerate clipper float noise.
+      const k = `${Math.round(x * 1e6)},${Math.round(y * 1e6)},${fid}`
+      const hit = outVKey.get(k)
+      if (hit !== undefined) return hit
+      const idx = outV.length / 3
+      outV.push(x, y, fid)
+      outVKey.set(k, idx)
+      return idx
+    }
 
     for (let t = 0; t < parent.indices.length; t += 3) {
       const i0 = parent.indices[t], i1 = parent.indices[t + 1], i2 = parent.indices[t + 2]
@@ -645,39 +662,51 @@ export class XGVTSource {
       if (maxX < clipW || minX > clipE || maxY < clipS || minY > clipN) continue
 
       if (minX >= clipW && maxX <= clipE && minY >= clipS && maxY <= clipN) {
-        const base = outV.length / 3
-        outV.push(x0, y0, fid, x1, y1, fid, x2, y2, fid)
-        outI.push(base, base + 1, base + 2)
+        outI.push(pushDedupPV(x0, y0, fid), pushDedupPV(x1, y1, fid), pushDedupPV(x2, y2, fid))
         continue
       }
 
       const clipped = clipPolygonToRect([[[x0, y0], [x1, y1], [x2, y2]]], clipW, clipS, clipE, clipN)
       if (clipped.length === 0 || clipped[0].length < 3) continue
       const ring = clipped[0]
-      const base = outV.length / 3
-      for (const [x, y] of ring) outV.push(x, y, fid)
-      for (let j = 1; j < ring.length - 1; j++) outI.push(base, base + j, base + j + 1)
+      const ringIdx: number[] = []
+      for (const [x, y] of ring) ringIdx.push(pushDedupPV(x, y, fid))
+      for (let j = 1; j < ring.length - 1; j++) outI.push(ringIdx[0], ringIdx[j], ringIdx[j + 1])
     }
 
-    // Clip lines (Liang-Barsky)
+    // Clip lines (Liang-Barsky). Also dedup line vertices so consecutive
+    // polyline segments that shared a vertex in the parent tile still share
+    // it in the sub-tile — essential for prev/next tangent adjacency.
     const lineVerts = parent.lineVertices
     const lineIdx = parent.lineIndices
     const outLV: number[] = []
     const outLI: number[] = []
+    const outLVKey = new Map<string, number>()
+    const pushDedupLV = (x: number, y: number, fid: number, arc: number): number => {
+      const k = `${Math.round(x * 1e6)},${Math.round(y * 1e6)},${fid}`
+      const hit = outLVKey.get(k)
+      if (hit !== undefined) return hit
+      const idx = outLV.length / 4
+      outLV.push(x, y, fid, arc)
+      outLVKey.set(k, idx)
+      return idx
+    }
 
     for (let s = 0; s < lineIdx.length; s += 2) {
       const a = lineIdx[s], b = lineIdx[s + 1]
-      const ax = lineVerts[a * 3], ay = lineVerts[a * 3 + 1], afid = lineVerts[a * 3 + 2]
-      const bx = lineVerts[b * 3], by = lineVerts[b * 3 + 1]
+      const ax = lineVerts[a * 4], ay = lineVerts[a * 4 + 1]
+      const afid = lineVerts[a * 4 + 2], aarc = lineVerts[a * 4 + 3]
+      const bx = lineVerts[b * 4], by = lineVerts[b * 4 + 1]
+      const barc = lineVerts[b * 4 + 3]
 
       if (Math.max(ax, bx) < clipW || Math.min(ax, bx) > clipE ||
           Math.max(ay, by) < clipS || Math.min(ay, by) > clipN) continue
 
       if (ax >= clipW && ax <= clipE && ay >= clipS && ay <= clipN &&
           bx >= clipW && bx <= clipE && by >= clipS && by <= clipN) {
-        const base = outLV.length / 3
-        outLV.push(ax, ay, afid, bx, by, afid)
-        outLI.push(base, base + 1)
+        const ia = pushDedupLV(ax, ay, afid, aarc)
+        const ib = pushDedupLV(bx, by, afid, barc)
+        if (ia !== ib) outLI.push(ia, ib)
         continue
       }
 
@@ -697,9 +726,10 @@ export class XGVTSource {
       clipEdge(dy, clipN - ay)
       if (!valid || tMin > tMax) continue
 
-      const base = outLV.length / 3
-      outLV.push(ax + tMin * dx, ay + tMin * dy, afid, ax + tMax * dx, ay + tMax * dy, afid)
-      outLI.push(base, base + 1)
+      const darc = barc - aarc
+      const ia = pushDedupLV(ax + tMin * dx, ay + tMin * dy, afid, aarc + tMin * darc)
+      const ib = pushDedupLV(ax + tMax * dx, ay + tMax * dy, afid, aarc + tMax * darc)
+      if (ia !== ib) outLI.push(ia, ib)
     }
 
     // Clip polygon outlines (same Liang-Barsky as lines, but uses polygon vertices)
@@ -714,8 +744,6 @@ export class XGVTSource {
         if (Math.max(ax, bx) < clipW || Math.min(ax, bx) > clipE ||
             Math.max(ay, by) < clipS || Math.min(ay, by) > clipN) continue
 
-        // Both endpoints inside → reuse from outV (find or add vertices)
-        const oBase = outV.length / 3
         const dx = bx - ax, dy = by - ay
         let tMin = 0, tMax = 1
         let valid = true
@@ -732,8 +760,10 @@ export class XGVTSource {
         clipEdge(dy, clipN - ay)
         if (!valid || tMin > tMax) continue
 
-        outV.push(ax + tMin * dx, ay + tMin * dy, afid, ax + tMax * dx, ay + tMax * dy, afid)
-        outOI.push(oBase, oBase + 1)
+        const i0 = pushDedupPV(ax + tMin * dx, ay + tMin * dy, afid)
+        const i1 = pushDedupPV(ax + tMax * dx, ay + tMax * dy, afid)
+        if (i0 === i1) continue // degenerate clip
+        outOI.push(i0, i1)
       }
     }
 
@@ -752,7 +782,8 @@ export class XGVTSource {
     }
 
     this.dataCache.set(subKey, subData)
-    this.onTileLoaded?.(subKey, subData)
+    try { this.onTileLoaded?.(subKey, subData) }
+    catch (e) { console.error('[onTileLoaded sub]', (e as Error)?.stack ?? e) }
     return true
   }
 

@@ -37,9 +37,12 @@ function optimizeNode(node: RenderNode, fnEnv: FnEnv): RenderNode {
   return {
     ...node,
     fill: optimizeColor(node.fill, fnEnv),
+    // Preserve all stroke fields — only the color needs optimization.
+    // (Historically this was `{ color, width }` which silently dropped
+    // linecap/linejoin/miterlimit/dashArray/dashOffset/patterns added later.)
     stroke: {
+      ...node.stroke,
       color: optimizeColor(node.stroke.color, fnEnv),
-      width: node.stroke.width,
     },
     opacity: optimizeOpacity(node.opacity, fnEnv),
     size: optimizeSize(node.size, fnEnv),

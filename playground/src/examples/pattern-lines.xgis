@@ -1,0 +1,29 @@
+/*
+ * Pattern lines demo — imports an external symbol library and decorates
+ * coastlines with repeating shapes. Shows dash + pattern + arrow cap.
+ */
+
+import { railway_tie, cliff_tooth } from "libs/s100-lines.xgis"
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.geojson"
+}
+
+layer land_fill {
+  source: land
+  | fill-slate-800
+}
+
+/* Composite dash + railway-tie pattern on the same layer */
+layer railway_coast {
+  source: coast
+  | stroke-amber-300 stroke-2 stroke-arrow-cap
+  | stroke-dasharray-40-10
+  | stroke-pattern-railway_tie stroke-pattern-spacing-60px stroke-pattern-size-14px
+}
