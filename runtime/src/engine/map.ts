@@ -690,6 +690,13 @@ export class XGISMap {
           const effectiveShow = show.zoomOpacityStops
             ? { ...show, opacity: interpolateZoom(show.zoomOpacityStops, this.camera.zoom) }
             : show
+          // Early skip: layers that interpolate to effectively-zero opacity
+          // contribute nothing to the framebuffer but still cost tile
+          // selection, GPU upload, and draw calls — and their transient
+          // partial-draws during fade-in cause visible flicker at zoom
+          // transitions. Dropping them entirely lets the pipeline focus on
+          // visible layers only.
+          if ((effectiveShow.opacity ?? 1) < 0.005) continue
           const isTranslucentStroke =
             !SAFE_MODE && (effectiveShow.opacity ?? 1) < 0.999 && !!effectiveShow.stroke
 
@@ -779,6 +786,24 @@ export class XGISMap {
       if (this.vectorTileShows.length > 1) {
         const lr = this.lineRenderer
         if (lr) lr.ensureOffscreen(w, h)
+
+        // Precompute the index of the last VISIBLE layer (opacity > 0.005
+        // and backing source has data). MSAA resolveTarget must fire on
+        // exactly the last pass that actually runs; otherwise skipped
+        // layers would leave the last isLast=true layer un-rendered and
+        // the screen would go blank on desktop.
+        let lastVisibleSi = -1
+        for (let si = 0; si < this.vectorTileShows.length; si++) {
+          const { sourceName, show: rs } = this.vectorTileShows[si]
+          const vte = this.vtSources.get(sourceName)
+          if (!vte || !vte.renderer.hasData()) continue
+          const eff = rs.zoomOpacityStops
+            ? interpolateZoom(rs.zoomOpacityStops, this.camera.zoom)
+            : (rs.opacity ?? 1)
+          if (eff < 0.005) continue
+          lastVisibleSi = si
+        }
+
         for (let si = 0; si < this.vectorTileShows.length; si++) {
           const { sourceName, show: rawShow, pipelines, layout } = this.vectorTileShows[si]
           const vtEntry = this.vtSources.get(sourceName)
@@ -786,12 +811,17 @@ export class XGISMap {
           const show = rawShow.zoomOpacityStops
             ? { ...rawShow, opacity: interpolateZoom(rawShow.zoomOpacityStops, this.camera.zoom) }
             : rawShow
+          // Skip layers whose zoom-interpolated opacity is effectively zero —
+          // avoids wasted tile requests, uploads, and draw calls for the
+          // invisible tail of a fade-out. See same-path comment in the
+          // single-source branch above.
+          if ((show.opacity ?? 1) < 0.005) continue
           const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
           const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
           const bgl = layout ?? this.renderer.bindGroupLayout
           const fpF = pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
           const lpF = pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
-          const isLast = si === this.vectorTileShows.length - 1
+          const isLast = si === lastVisibleSi
 
           const isTranslucentStroke =
             !SAFE_MODE && lr !== null && (show.opacity ?? 1) < 0.999 && !!show.stroke
