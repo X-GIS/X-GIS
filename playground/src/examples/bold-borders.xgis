@@ -1,0 +1,31 @@
+/*
+ * Bold borders — minimal flat fill with exaggerated outlines.
+ * High-contrast design suitable for presentations or dashboards
+ * where individual country shapes matter more than detail.
+ */
+
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.xgvt"
+}
+
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer sea {
+  source: ocean
+  | fill-neutral-950
+}
+
+layer country_shadow {
+  source: countries
+  | fill-neutral-800
+    stroke-black stroke-4
+}
+
+layer country_fg {
+  source: countries
+  | stroke-amber-300 stroke-1.5
+}

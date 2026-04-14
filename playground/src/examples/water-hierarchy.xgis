@@ -1,0 +1,56 @@
+/*
+ * Water hierarchy — 10m ocean, lakes, and rivers rendered as a
+ * three-tier blue gradient. Each tier uses a slightly brighter shade
+ * so the visual depth matches the hydrographic hierarchy (ocean =
+ * darkest background, lakes = mid, rivers = brightest foreground).
+ */
+
+source ocean {
+  type: geojson
+  url: "ne_10m_ocean.xgvt"
+}
+
+source land {
+  type: geojson
+  url: "ne_10m_land.xgvt"
+}
+
+source lakes {
+  type: geojson
+  url: "ne_10m_lakes.xgvt"
+}
+
+source rivers {
+  type: geojson
+  url: "ne_10m_rivers.xgvt"
+}
+
+layer ocean {
+  source: ocean
+  | fill-blue-950
+}
+
+layer land {
+  source: land
+  | fill-stone-900
+}
+
+layer lakes_halo {
+  source: lakes
+  | fill-blue-700 opacity-40
+}
+
+layer lakes {
+  source: lakes
+  | fill-blue-500 stroke-blue-300 stroke-0.5
+}
+
+layer rivers_halo {
+  source: rivers
+  | stroke-blue-400 stroke-3 opacity-25
+}
+
+layer rivers {
+  source: rivers
+  | stroke-cyan-300 stroke-1
+}

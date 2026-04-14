@@ -1,0 +1,26 @@
+/*
+ * Hybrid raster + vector — OpenStreetMap basemap with 10m states
+ * boundaries overlaid in translucent white. Shows how a raster base
+ * combines with vector features drawn on top, and how translucent
+ * strokes over imagery avoid corner alpha accumulation thanks to the
+ * offscreen MAX-blend pipeline.
+ */
+
+source osm {
+  type: raster
+  url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+}
+
+source states {
+  type: geojson
+  url: "ne_10m_states.xgvt"
+}
+
+layer basemap {
+  source: osm
+}
+
+layer state_borders {
+  source: states
+  | stroke-white stroke-2 opacity-55
+}

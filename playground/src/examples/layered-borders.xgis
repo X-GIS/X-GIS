@@ -1,0 +1,56 @@
+/*
+ * Three-tier administrative borders: countries (thick), 50m states
+ * (medium), and 10m states (fine). Color cascade from bright to
+ * muted gives the visual impression of a drillable hierarchy.
+ * Zoom in to see the finer 10m layer emerge over the coarser tiers.
+ */
+
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.xgvt"
+}
+
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+source states_50 {
+  type: geojson
+  url: "ne_50m_states.xgvt"
+}
+
+source states_10 {
+  type: geojson
+  url: "ne_10m_states.xgvt"
+}
+
+layer sea {
+  source: ocean
+  | fill-slate-950
+}
+
+layer country_fill {
+  source: countries
+  | fill-slate-800
+}
+
+/* Finest tier: thin light lines, fade in at high zoom */
+layer states_detail {
+  source: states_10
+  | stroke-sky-300 stroke-0.5 opacity-60
+  | z0:opacity-0 z4:opacity-0 z6:opacity-60
+}
+
+/* Mid tier: medium cyan, visible from mid zoom */
+layer states_mid {
+  source: states_50
+  | stroke-cyan-400 stroke-1 opacity-75
+  | z0:opacity-0 z3:opacity-40 z6:opacity-75
+}
+
+/* Top tier: bold country borders, always visible */
+layer country_borders {
+  source: countries
+  | stroke-white stroke-1.5
+}

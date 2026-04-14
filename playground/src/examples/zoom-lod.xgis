@@ -1,0 +1,54 @@
+/*
+ * Zoom-based level of detail. Coarse 110m land cross-fades into the
+ * fine 10m land as you zoom past z5, and major 50m rivers hand off
+ * to the full 10m river network past z7. Low zoom stays cheap (just
+ * the 110m outline); high zoom reveals every tributary and bay.
+ */
+
+source land_110 {
+  type: geojson
+  url: "ne_110m_land.xgvt"
+}
+
+source land_10 {
+  type: geojson
+  url: "ne_10m_land.xgvt"
+}
+
+source rivers_50 {
+  type: geojson
+  url: "ne_50m_rivers.xgvt"
+}
+
+source rivers_10 {
+  type: geojson
+  url: "ne_10m_rivers.xgvt"
+}
+
+/* Coarse land — fade OUT after z5 so it doesn't double up on land_high */
+layer land_low {
+  source: land_110
+  | fill-stone-800
+  | z0:opacity-100 z5:opacity-100 z7:opacity-0
+}
+
+/* Fine land — fade IN starting at z5 */
+layer land_high {
+  source: land_10
+  | fill-stone-800
+  | z0:opacity-0 z5:opacity-0 z7:opacity-100
+}
+
+/* Major rivers — visible from z3, hand off to rivers_10 at z7 */
+layer rivers_major {
+  source: rivers_50
+  | stroke-sky-500 stroke-1
+  | z0:opacity-0 z3:opacity-70 z7:opacity-0
+}
+
+/* Full river network — fade in at high zoom */
+layer rivers_detail {
+  source: rivers_10
+  | stroke-sky-400 stroke-1.5
+  | z0:opacity-0 z6:opacity-0 z9:opacity-90
+}

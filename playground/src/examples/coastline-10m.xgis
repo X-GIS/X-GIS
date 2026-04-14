@@ -1,0 +1,27 @@
+/*
+ * World coastline rendered as two stacked line layers — dark shadow
+ * stroke + bright cyan body. No polygon fill. Stress test for dense
+ * SDF line vertices on the 110m coastline dataset (which is stored
+ * as LineString features, not polygon outlines).
+ *
+ * Note: Natural Earth only ships 110m and 50m coastline line files;
+ * the 10m tier stores land as polygons, so we use the 110m coastline
+ * here. For a 10m-detail line view see `rivers_10m` and `night_map`.
+ */
+
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.xgvt"
+}
+
+/* Dark halo beneath the main stroke */
+layer coast_shadow {
+  source: coast
+  | stroke-slate-900 stroke-4
+}
+
+/* Bright cyan body on top */
+layer coast_main {
+  source: coast
+  | stroke-cyan-300 stroke-1.5
+}

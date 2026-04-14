@@ -1,0 +1,57 @@
+/*
+ * Night-mode physical map — deep indigo ocean, muted land, warm
+ * amber rivers/lakes that glow against the dark background.
+ * Demonstrates how color choice + stroke/opacity combinations can
+ * produce very different visual identities from the same data.
+ */
+
+source ocean {
+  type: geojson
+  url: "ne_50m_rivers.xgvt"
+}
+
+source land {
+  type: geojson
+  url: "ne_10m_land.xgvt"
+}
+
+source rivers {
+  type: geojson
+  url: "ne_10m_rivers.xgvt"
+}
+
+source lakes {
+  type: geojson
+  url: "ne_10m_lakes.xgvt"
+}
+
+layer sea_bg {
+  source: land
+  | fill-slate-950
+}
+
+layer land {
+  source: land
+  | fill-indigo-950 stroke-indigo-800 stroke-0.5
+}
+
+layer lakes_glow {
+  source: lakes
+  | fill-amber-900 opacity-40
+}
+
+layer lakes {
+  source: lakes
+  | fill-amber-600 stroke-amber-300 stroke-0.5
+}
+
+/* Amber stroke lines glow against the dark indigo land */
+layer rivers_glow {
+  source: rivers
+  | stroke-amber-500 stroke-3 opacity-25
+}
+
+layer rivers {
+  source: rivers
+  | stroke-amber-300 stroke-1
+}

@@ -1,0 +1,36 @@
+/*
+ * Megacities — filter populated places to only those with
+ * pop_max > 5,000,000 and render them as large glowing pins over
+ * dark countries. Demonstrates filter + sqrt-scaled size + halo
+ * combination.
+ */
+
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+source cities {
+  type: geojson
+  url: "ne_110m_populated_places.geojson"
+}
+
+layer countries {
+  source: countries
+  | fill-slate-900 stroke-slate-700 stroke-0.5
+}
+
+/* Glow halo — flat world-space circle */
+layer city_halo {
+  source: cities
+  filter: .pop_max > 5000000
+  | fill-rose-400 opacity-25 size-500km flat
+}
+
+/* Primary pin — billboard, size scaled by sqrt(pop_max) */
+layer megacity_pins {
+  source: cities
+  filter: .pop_max > 5000000
+  | fill-rose-500 stroke-white stroke-2
+  | size-[sqrt(.pop_max) / 400] anchor-bottom
+}

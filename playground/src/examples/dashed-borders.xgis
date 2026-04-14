@@ -1,0 +1,25 @@
+/*
+ * Countries with dashed border lines — sky fill, dashed slate strokes.
+ * Demonstrates mixing polygon fills with dash-array line styling.
+ */
+
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.xgvt"
+}
+
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer sea {
+  source: ocean
+  | fill-sky-950
+}
+
+layer countries {
+  source: countries
+  | fill-sky-800 opacity-60
+    stroke-white stroke-1.5 stroke-dasharray-8-4
+}

@@ -1,0 +1,38 @@
+/*
+ * Full 10m river network layered on simplified land. The 10m rivers
+ * dataset splits major rivers into named segments and adds hundreds of
+ * tributaries missing from 50m, so the contrast between low-zoom
+ * (sparse, major basins) and high-zoom (dense, capillary network)
+ * is especially strong.
+ */
+
+source land {
+  type: geojson
+  url: "ne_10m_land.xgvt"
+}
+
+source rivers {
+  type: geojson
+  url: "ne_10m_rivers.xgvt"
+}
+
+source lakes {
+  type: geojson
+  url: "ne_10m_lakes.xgvt"
+}
+
+layer land {
+  source: land
+  | fill-emerald-950
+}
+
+layer lakes {
+  source: lakes
+  | fill-cyan-700 stroke-cyan-400 stroke-0.5
+}
+
+/* Thicker blue strokes draw attention to the capillary river detail */
+layer rivers {
+  source: rivers
+  | stroke-cyan-400 stroke-1.5 opacity-80
+}

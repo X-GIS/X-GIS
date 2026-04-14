@@ -1,0 +1,36 @@
+/*
+ * Continent categorical fill with thick matching outlines.
+ * Uses match() on the CONTINENT property to assign a distinct hue
+ * to each landmass, with darker versions of the same colors as
+ * border strokes.
+ */
+
+source ocean {
+  type: geojson
+  url: "ne_110m_ocean.xgvt"
+}
+
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer sea {
+  source: ocean
+  | fill-slate-950
+}
+
+layer continents {
+  source: countries
+  | fill match(CONTINENT) {
+      "Africa"        -> amber-500,
+      "Asia"          -> rose-500,
+      "Europe"        -> sky-500,
+      "North America" -> emerald-500,
+      "South America" -> lime-500,
+      "Oceania"       -> violet-500,
+      "Antarctica"    -> slate-300,
+      _               -> gray-500
+    }
+    stroke-slate-900 stroke-1.5 opacity-85
+}

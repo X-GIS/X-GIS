@@ -1,0 +1,43 @@
+/*
+ * World cities sized by population, laid over a detailed states
+ * background. Uses the populated-places Point dataset — which now
+ * compiles correctly through the bulk tiler (was previously skipped).
+ */
+
+source land {
+  type: geojson
+  url: "ne_10m_land.xgvt"
+}
+
+source states {
+  type: geojson
+  url: "ne_10m_states.xgvt"
+}
+
+source cities {
+  type: geojson
+  url: "ne_110m_populated_places.geojson"
+}
+
+layer land {
+  source: land
+  | fill-slate-900
+}
+
+layer states {
+  source: states
+  | fill-slate-800 stroke-slate-700 stroke-0.5
+}
+
+/* City glow — flat world-space circle, 200km radius */
+layer cities_glow {
+  source: cities
+  | fill-amber-300 opacity-30 size-200km flat
+}
+
+/* Pin radius scales with sqrt(pop_max) for visually-proportional area */
+layer cities_pins {
+  source: cities
+  | fill-amber-400 stroke-white stroke-1.5
+  | size-[sqrt(.pop_max) / 600] anchor-bottom opacity-95
+}

@@ -1,0 +1,25 @@
+/*
+ * 10m admin-1 (states / provinces) with per-country categorical fill.
+ * Finer boundaries than the 50m version — good for zooming into
+ * the United States, Brazil, India, Australia, etc.
+ */
+
+source land {
+  type: geojson
+  url: "ne_10m_land.xgvt"
+}
+
+source states {
+  type: geojson
+  url: "ne_10m_states.xgvt"
+}
+
+layer land_bg {
+  source: land
+  | fill-slate-900
+}
+
+layer states {
+  source: states
+  | fill categorical(admin) stroke-slate-700 stroke-0.75 opacity-85
+}
