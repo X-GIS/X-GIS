@@ -1,0 +1,6 @@
+/* Fixture: 2-vertex line with round cap. Isolates cap geometry. */
+source l { type: geojson, url: "fixture-line.geojson" }
+layer the_line {
+  source: l
+  | stroke-amber-300 stroke-16 stroke-round-cap
+}

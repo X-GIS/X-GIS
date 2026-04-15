@@ -1,0 +1,6 @@
+/* Fixture: 3-vertex sharp turn with bevel join. */
+source l { type: geojson, url: "fixture-line-join.geojson" }
+layer the_line {
+  source: l
+  | stroke-amber-300 stroke-14 stroke-bevel-join
+}

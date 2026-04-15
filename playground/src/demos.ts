@@ -439,4 +439,17 @@ export const DEMOS: Record<string, Demo> = {
   // Stress fixtures (exercise validation capture)
   fixture_stress_all_renderers: { name: 'Stress: all renderers', tag: 'fixture', description: 'Polygon fill + SDF line + SDF point in one frame.', source: load('fixture-stress-all-renderers.xgis') },
   fixture_stress_many_layers: { name: 'Stress: many layers', tag: 'fixture', description: '8 filtered layers from one source — uniform ring boundary.', source: load('fixture-stress-many-layers.xgis') },
+  // Extension: caps/joins/patterns/align/offset/easing/data-driven/shape
+  fixture_cap_round:            { name: 'Fixture: cap round',          tag: 'fixture', description: 'stroke-round-cap isolated.',                   source: load('fixture-cap-round.xgis') },
+  fixture_cap_square:           { name: 'Fixture: cap square',         tag: 'fixture', description: 'stroke-square-cap isolated.',                  source: load('fixture-cap-square.xgis') },
+  fixture_join_round:           { name: 'Fixture: join round',         tag: 'fixture', description: 'stroke-round-join on sharp turn.',             source: load('fixture-join-round.xgis') },
+  fixture_join_bevel:           { name: 'Fixture: join bevel',         tag: 'fixture', description: 'stroke-bevel-join on sharp turn.',             source: load('fixture-join-bevel.xgis') },
+  fixture_pattern_multi:        { name: 'Fixture: pattern multi-slot', tag: 'fixture', description: '2-slot pattern stack (dot + cross).',          source: load('fixture-pattern-multi.xgis') },
+  fixture_stroke_inset:         { name: 'Fixture: stroke inset',       tag: 'fixture', description: 'stroke-inset on polygon boundary.',            source: load('fixture-stroke-inset.xgis') },
+  fixture_stroke_offset_right:  { name: 'Fixture: stroke offset right',tag: 'fixture', description: 'Signed stroke-offset-right-8 rail.',           source: load('fixture-stroke-offset-right.xgis') },
+  fixture_anim_ease_linear:     { name: 'Fixture: anim ease linear',   tag: 'fixture', description: 'Opacity keyframe with linear easing.',         source: load('fixture-anim-ease-linear.xgis') },
+  fixture_dasharray_complex:    { name: 'Fixture: dasharray complex',  tag: 'fixture', description: '4-value composite dash array.',                source: load('fixture-dasharray-complex.xgis') },
+  fixture_size_expr:            { name: 'Fixture: size expr',          tag: 'fixture', description: 'Point size-[sqrt(.pop) / 2] expression.',      source: load('fixture-size-expr.xgis') },
+  fixture_filter_complex:       { name: 'Fixture: filter complex',     tag: 'fixture', description: 'Filter .kind == "b" — renders only middle.',  source: load('fixture-filter-complex.xgis') },
+  fixture_shape_custom_svg:     { name: 'Fixture: custom SVG shape',   tag: 'fixture', description: 'Point with local symbol diamond.',             source: load('fixture-shape-custom-svg.xgis') },
 }

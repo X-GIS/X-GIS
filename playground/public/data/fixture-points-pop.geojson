@@ -1,0 +1,8 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "pop": 400 },   "geometry": { "type": "Point", "coordinates": [-30, 0] } },
+    { "type": "Feature", "properties": { "pop": 2500 },  "geometry": { "type": "Point", "coordinates": [  0, 0] } },
+    { "type": "Feature", "properties": { "pop": 10000 }, "geometry": { "type": "Point", "coordinates": [ 30, 0] } }
+  ]
+}

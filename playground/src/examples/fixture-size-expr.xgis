@@ -1,0 +1,9 @@
+/* Fixture: data-driven point size via sqrt() expression.
+ * 3 points with pop={400, 2500, 10000} → radii proportional to sqrt.
+ * Exercises the expression evaluator path for size (distinct from
+ * constant size and the match() color path). */
+source p { type: geojson, url: "fixture-points-pop.geojson" }
+layer dots {
+  source: p
+  | fill-rose-500 size-[sqrt(.pop) / 2]
+}

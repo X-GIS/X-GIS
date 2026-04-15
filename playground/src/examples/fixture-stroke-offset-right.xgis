@@ -1,0 +1,8 @@
+/* Fixture: stroke-offset-right-8 — signed offset right of travel.
+ * Mirrors fixture_line but shifted perpendicular, isolating the
+ * offset vertex computation from the baseline cap/join paths. */
+source l { type: geojson, url: "fixture-line.geojson" }
+layer shifted {
+  source: l
+  | stroke-amber-300 stroke-10 stroke-offset-right-8
+}

@@ -1,0 +1,10 @@
+/* Fixture: SDF point with a locally-defined custom SVG shape.
+ * Exercises the symbol registry + custom-shape SDF bake path. */
+symbol diamond {
+  path "M 0 -1 L 1 0 L 0 1 L -1 0 Z"
+}
+source p { type: geojson, url: "fixture-point.geojson" }
+layer marker {
+  source: p
+  | shape-diamond fill-rose-500 stroke-white stroke-2 size-50
+}

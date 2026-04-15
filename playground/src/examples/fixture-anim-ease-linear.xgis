@@ -1,0 +1,15 @@
+/* Fixture: opacity keyframe with linear easing.
+ * Contrast with fixture_anim_opacity (ease-in-out) — same keyframe
+ * stops should produce different mid-cycle values under a linear
+ * curve, isolating the easing lookup path. */
+keyframes pulse_lin {
+  0%:   opacity-100
+  50%:  opacity-20
+  100%: opacity-100
+}
+source sq { type: geojson, url: "fixture-square.geojson" }
+layer pulsing {
+  source: sq
+  | fill-emerald-500
+  | animation-pulse_lin animation-duration-1500 animation-ease-linear animation-infinite
+}

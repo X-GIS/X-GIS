@@ -1,0 +1,8 @@
+/* Fixture: polygon boundary with stroke-inset alignment.
+ * Stroke shifts inward by half-width — tests the alignment offset
+ * folded into the miter vertex computation. */
+source sq { type: geojson, url: "fixture-square.geojson" }
+layer bordered {
+  source: sq
+  | fill-slate-800 stroke-amber-300 stroke-12 stroke-inset
+}

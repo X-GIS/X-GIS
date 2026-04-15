@@ -1,0 +1,10 @@
+/* Fixture: compound filter expression (`.kind == "b"`).
+ * The source has 3 features a/b/c — filter selects only the middle
+ * one so only emerald pixels should appear. Exercises the filter
+ * evaluation path end-to-end. */
+source d { type: geojson, url: "fixture-categorical.geojson" }
+layer only_b {
+  source: d
+  filter: .kind == "b"
+  | fill-emerald-500
+}

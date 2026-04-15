@@ -1,0 +1,8 @@
+/* Fixture: composite 4-value dash array (dash-gap-dash-gap rhythm).
+ * Exercises the multi-segment arc-length accumulator, not just the
+ * simple 2-value case covered by fixture_dashed_line. */
+source l { type: geojson, url: "fixture-line.geojson" }
+layer dashed {
+  source: l
+  | stroke-amber-300 stroke-12 stroke-dasharray-20-6-6-6
+}
