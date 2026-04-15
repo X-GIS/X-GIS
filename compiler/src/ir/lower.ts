@@ -116,7 +116,8 @@ function lowerSource(stmt: AST.SourceStatement): SourceDef | null {
     }
   }
 
-  if (!url) return null
+  // Inline source (no url) — runtime seeds with an empty FeatureCollection
+  // and the host fills it via setSourceData / setSourcePoints.
   return { name: stmt.name, type, url }
 }
 

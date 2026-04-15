@@ -529,3 +529,107 @@ test.describe('X-GIS fixture: animated dashoffset', () => {
     )
   })
 })
+
+// ── Extension 3: external data injection ───────────────────────────
+//
+// These tests verify that a host app can push GeoJSON / typed-array
+// data into a running map after run() completes. The .xgis files
+// declare `source tracks { type: geojson }` (no url) so the fixture
+// starts empty; the test drives setSourceData / setSourcePoints via
+// page.evaluate on `window.__xgisMap`.
+
+test.describe('X-GIS fixture: external data injection', () => {
+  test('inline_push — setSourceData populates empty source with rose points', async ({ page }) => {
+    test.setTimeout(FIXTURE_TIMEOUT_MS + 10_000)
+    await withValidationCapture(page, async () => {
+      await loadFixture(page, 'fixture_inline_push')
+
+      // Empty source — no rose yet.
+      const emptyPng = await captureCanvas(page)
+      const emptyR = await (await import('./helpers/visual'))
+        .colorHistogram(page, emptyPng, [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }])
+      expect(emptyR.rose, 'empty inline source should render no rose pixels')
+        .toBeLessThan(0.0001)
+
+      // First push — 3 points.
+      await page.evaluate(() => {
+        const map = (window as unknown as { __xgisMap: { setSourceData: (id: string, fc: unknown) => void } }).__xgisMap
+        map.setSourceData('tracks', {
+          type: 'FeatureCollection',
+          features: [
+            { type: 'Feature', id: 1, geometry: { type: 'Point', coordinates: [-30, 0] }, properties: {} },
+            { type: 'Feature', id: 2, geometry: { type: 'Point', coordinates: [0, 0] },   properties: {} },
+            { type: 'Feature', id: 3, geometry: { type: 'Point', coordinates: [30, 0] },  properties: {} },
+          ],
+        })
+      })
+      await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+
+      const png1 = await captureCanvas(page)
+      await expectColorHistogram(page, png1,
+        [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
+        { rose: [0.0005, 0.30] },
+      )
+
+      // Second push — different coordinates, proves retile works.
+      await page.evaluate(() => {
+        const map = (window as unknown as { __xgisMap: { setSourceData: (id: string, fc: unknown) => void } }).__xgisMap
+        map.setSourceData('tracks', {
+          type: 'FeatureCollection',
+          features: [
+            { type: 'Feature', id: 1, geometry: { type: 'Point', coordinates: [-10, -10] }, properties: {} },
+            { type: 'Feature', id: 2, geometry: { type: 'Point', coordinates: [10, 10] },   properties: {} },
+          ],
+        })
+      })
+      await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+
+      const png2 = await captureCanvas(page)
+      await expectColorHistogram(page, png2,
+        [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
+        { rose: [0.0005, 0.30] },
+      )
+    })
+  })
+
+  test('typed_array_points — setSourcePoints fast path renders and updates', async ({ page }) => {
+    test.setTimeout(FIXTURE_TIMEOUT_MS + 10_000)
+    await withValidationCapture(page, async () => {
+      await loadFixture(page, 'fixture_typed_array_points')
+
+      // First push — 3 points via typed arrays.
+      await page.evaluate(() => {
+        const map = (window as unknown as { __xgisMap: { setSourcePoints: (id: string, d: unknown) => void } }).__xgisMap
+        map.setSourcePoints('tracks', {
+          lon: new Float32Array([-30, 0, 30]),
+          lat: new Float32Array([0, 0, 0]),
+          ids: new Uint32Array([101, 102, 103]),
+        })
+      })
+      await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+
+      const png1 = await captureCanvas(page)
+      await expectColorHistogram(page, png1,
+        [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
+        { rose: [0.0005, 0.30] },
+      )
+
+      // Second push — 4 points (added one, proves retile).
+      await page.evaluate(() => {
+        const map = (window as unknown as { __xgisMap: { setSourcePoints: (id: string, d: unknown) => void } }).__xgisMap
+        map.setSourcePoints('tracks', {
+          lon: new Float32Array([-30, -10, 10, 30]),
+          lat: new Float32Array([10, -10, 10, -10]),
+          ids: new Uint32Array([101, 102, 103, 104]),
+        })
+      })
+      await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+
+      const png2 = await captureCanvas(page)
+      await expectColorHistogram(page, png2,
+        [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
+        { rose: [0.0005, 0.30] },
+      )
+    })
+  })
+})

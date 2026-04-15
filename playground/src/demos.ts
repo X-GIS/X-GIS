@@ -463,4 +463,7 @@ export const DEMOS: Record<string, Demo> = {
   fixture_pattern_units_km:     { name: 'Fixture: pattern units km',   tag: 'fixture', description: 'km-unit spacing/size for stroke pattern.',     source: load('fixture-pattern-units-km.xgis') },
   fixture_anim_dashoffset:      { name: 'Fixture: anim dashoffset',    tag: 'fixture', description: 'Marching-ants animated dashoffset keyframe.',  source: load('fixture-anim-dashoffset.xgis') },
   fixture_miterlimit:           { name: 'Fixture: miterlimit',         tag: 'fixture', description: 'Sharp-angle miter→bevel fallback path.',       source: load('fixture-miterlimit.xgis') },
+  // Extension 3: external data injection
+  fixture_inline_push:          { name: 'Fixture: inline push',        tag: 'fixture', description: 'Inline source filled via setSourceData().',    source: load('fixture-inline-push.xgis') },
+  fixture_typed_array_points:   { name: 'Fixture: typed-array points', tag: 'fixture', description: 'Inline source filled via setSourcePoints().',  source: load('fixture-typed-array-points.xgis') },
 }

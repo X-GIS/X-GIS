@@ -23,6 +23,8 @@ import { CanvasRenderer } from './canvas-renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { XGVTSource } from '../data/xgvt-source'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
+import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
+import type { GeoJSONFeature } from '../loader/geojson'
 // reprojector.ts preserved for future tile-coordinate RTT approach
 
 interface VariantPipelines {
@@ -61,6 +63,11 @@ export class XGISMap {
   // Raw data for re-projection
   private rawDatasets = new Map<string, GeoJSONFeatureCollection>()
   private showCommands: SceneCommands['shows'] = []
+
+  // External-injection update state (see setSourceData / updateFeature)
+  private _pendingPatches = new Map<string, Map<number, { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> }>>()
+  private _pendingFlushHandle: number | null = null
+  private _unknownSourceWarned = new Set<string>()
 
   // Stencil buffer for tile overlap masking
   private stencilTexture: GPUTexture | null = null
@@ -277,6 +284,11 @@ export class XGISMap {
             this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
           }
         }
+      } else if (load.url === '') {
+        // Inline source — no URL provided. Seed with an empty
+        // FeatureCollection so the host can push data later via
+        // setSourceData / setSourcePoints / updateFeature.
+        this.rawDatasets.set(load.name, { type: 'FeatureCollection', features: [] })
       } else {
         const response = await fetch(url)
         const data = await response.json() as GeoJSONFeatureCollection
@@ -443,9 +455,16 @@ export class XGISMap {
       this.vtSources.set(vtKey, { source, renderer: vtRenderer })
 
       // On-demand tiling: compile z0 immediately, higher zooms on demand
-      // when the renderer requests visible tiles
-      const parts = decomposeFeatures(filtered.features)
-      const z0Set = compileGeoJSONToTiles(filtered, { minZoom: 0, maxZoom: 0 })
+      // when the renderer requests visible tiles.
+      // `idResolver` honours the standard GeoJSON `feature.id` (falling
+      // back to `properties.id`, then array index) so ids stay stable
+      // across setSourceData / updateFeature pushes — required for
+      // picking and track-history correctness in the external
+      // data-injection use case.
+      const idResolver = (f: GeoJSONFeature, i: number) =>
+        toU32Id(f.id ?? f.properties?.id ?? i)
+      const parts = decomposeFeatures(filtered.features, idResolver)
+      const z0Set = compileGeoJSONToTiles(filtered, { minZoom: 0, maxZoom: 0, idResolver })
       if (z0Set.levels.length > 0) {
         source.addTileLevel(z0Set.levels[0], z0Set.bounds, z0Set.propertyTable)
       }
@@ -1027,6 +1046,121 @@ export class XGISMap {
   /** List all settable properties */
   listProperties(): Record<string, string[]> {
     return this.renderer.listProperties()
+  }
+
+  // ═══ External data injection API ═══════════════════════════════
+  //
+  // Host applications that hold their own data (C2 tracks, sensor
+  // feeds, geofences) push it in via these methods instead of having
+  // X-GIS fetch a URL. The source must be declared in the .xgis file
+  // with `source X { type: geojson }` (no url) so run() can seed an
+  // empty placeholder that setSourceData then fills.
+
+  /** Destroy GPU resources for every vtSources entry belonging to
+   *  `sourceId` (including its filtered variants keyed `id__N`). */
+  private teardownSource(sourceId: string): void {
+    for (const [key, entry] of this.vtSources) {
+      if (key === sourceId || key.startsWith(`${sourceId}__`)) {
+        entry.renderer.destroy()
+        this.vtSources.delete(key)
+      }
+    }
+  }
+
+  /** Full-replace push for a GeoJSON source.
+   *  Retiles and re-uploads only the affected source; other sources
+   *  keep their existing GPU state.
+   *
+   *  Throws if `sourceId` was not declared in the .xgis file. */
+  setSourceData(sourceId: string, data: GeoJSONFeatureCollection): void {
+    if (!this.rawDatasets.has(sourceId)) {
+      throw new Error(`[X-GIS] setSourceData: unknown source "${sourceId}"`)
+    }
+    this.rawDatasets.set(sourceId, data)
+    this.teardownSource(sourceId)
+    this.rebuildLayers()
+  }
+
+  /** Typed-array fast path for point sources.
+   *
+   *  The host passes parallel Float32Arrays of longitudes and
+   *  latitudes plus an optional `Uint32Array` of stable ids. This
+   *  bypasses GeoJSON authoring on the host side — the dominant
+   *  cost in high-rate track scenarios — at the price of synthesizing
+   *  a minimal FeatureCollection inside X-GIS. A truly zero-alloc
+   *  pointRenderer path is deferred to PR 2; the public API is the
+   *  fast path so callers don't need to change when that lands.
+   *
+   *  Current volume sweet spot: a few thousand points at 10 Hz.
+   *  Beyond that, the PR 2 optimization becomes necessary.
+   *
+   *  Throws on length mismatch between lon / lat / ids. */
+  setSourcePoints(sourceId: string, data: PointPatch): void {
+    this.setSourceData(sourceId, pointPatchToFeatureCollection(data))
+  }
+
+  /** Feature-level mutation. Enqueues a patch and coalesces all
+   *  pending updates within a single rAF into one retile per source.
+   *
+   *  `featureId` matches the stable id (GeoJSON feature.id → u32).
+   *  Unknown source or feature logs a warn-once and drops the patch
+   *  (a host race under reconnect is expected, not fatal). */
+  updateFeature(
+    sourceId: string,
+    featureId: number,
+    patch: { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> },
+  ): void {
+    if (!this.rawDatasets.has(sourceId)) {
+      if (!this._unknownSourceWarned.has(sourceId)) {
+        console.warn(`[X-GIS] updateFeature: unknown source "${sourceId}"`)
+        this._unknownSourceWarned.add(sourceId)
+      }
+      return
+    }
+    let bySource = this._pendingPatches.get(sourceId)
+    if (!bySource) {
+      bySource = new Map()
+      this._pendingPatches.set(sourceId, bySource)
+    }
+    const existing = bySource.get(featureId)
+    bySource.set(featureId, {
+      geometry: patch.geometry ?? existing?.geometry,
+      properties: { ...(existing?.properties ?? {}), ...(patch.properties ?? {}) },
+    })
+    this.scheduleFlushPendingUpdates()
+  }
+
+  private scheduleFlushPendingUpdates(): void {
+    if (this._pendingFlushHandle !== null) return
+    const raf = (typeof window !== 'undefined' && window.requestAnimationFrame)
+      ? window.requestAnimationFrame.bind(window)
+      : (cb: FrameRequestCallback): number => setTimeout(() => cb(performance.now()), 16) as unknown as number
+    this._pendingFlushHandle = raf(() => this.flushPendingUpdates())
+  }
+
+  private flushPendingUpdates(): void {
+    this._pendingFlushHandle = null
+    if (this._pendingPatches.size === 0) return
+
+    for (const [sourceId, patches] of this._pendingPatches) {
+      const data = this.rawDatasets.get(sourceId)
+      if (!data) continue
+      // Walk features, apply patches by matching the stable id.
+      // O(N × P) today; PR 2 replaces with a side index.
+      for (const f of data.features) {
+        const fid = toU32Id(f.id ?? f.properties?.id)
+        const patch = patches.get(fid)
+        if (!patch) continue
+        if (patch.geometry) f.geometry = patch.geometry
+        if (patch.properties) {
+          f.properties = { ...(f.properties ?? {}), ...patch.properties }
+        }
+      }
+      // Trigger a single retile for this source.
+      this.teardownSource(sourceId)
+    }
+    this._pendingPatches.clear()
+    this.rebuildLayers()
   }
 
   stop(): void {

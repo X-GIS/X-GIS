@@ -253,33 +253,47 @@ export interface GeometryPart {
   minLon: number; minLat: number; maxLon: number; maxLat: number
 }
 
-export function decomposeFeatures(features: GeoJSONFeature[]): GeometryPart[] {
+/** Resolver mapping a feature + its index to a stable u32 id used as
+ *  `featureIndex` inside the tiler and as the shader-visible feature
+ *  id. Default (legacy) behavior: array index. External-injection
+ *  callers pass a resolver that reads `feature.id` / `properties.id`
+ *  so ids survive retiles. */
+export type FeatureIdResolver = (feature: GeoJSONFeature, index: number) => number
+
+const defaultIdResolver: FeatureIdResolver = (_f, i) => i
+
+export function decomposeFeatures(
+  features: GeoJSONFeature[],
+  idResolver: FeatureIdResolver = defaultIdResolver,
+): GeometryPart[] {
   const parts: GeometryPart[] = []
 
   for (let fi = 0; fi < features.length; fi++) {
-    const geom = features[fi].geometry
+    const feature = features[fi]
+    const geom = feature.geometry
     if (!geom) continue
+    const id = idResolver(feature, fi)
 
     if (geom.type === 'Polygon') {
       const rings = geom.coordinates as number[][][]
-      parts.push(makePolygonPart(rings, fi))
+      parts.push(makePolygonPart(rings, id))
     } else if (geom.type === 'MultiPolygon') {
       for (const poly of geom.coordinates as number[][][][]) {
-        parts.push(makePolygonPart(poly, fi))
+        parts.push(makePolygonPart(poly, id))
       }
     } else if (geom.type === 'LineString') {
       const coords = geom.coordinates as number[][]
-      parts.push(makeLinePart(coords, fi))
+      parts.push(makeLinePart(coords, id))
     } else if (geom.type === 'MultiLineString') {
       for (const line of geom.coordinates as number[][][]) {
-        parts.push(makeLinePart(line, fi))
+        parts.push(makeLinePart(line, id))
       }
     } else if (geom.type === 'Point') {
       const coord = geom.coordinates as number[]
-      parts.push({ type: 'point', point: coord, featureIndex: fi, minLon: coord[0], minLat: coord[1], maxLon: coord[0], maxLat: coord[1] })
+      parts.push({ type: 'point', point: coord, featureIndex: id, minLon: coord[0], minLat: coord[1], maxLon: coord[0], maxLat: coord[1] })
     } else if (geom.type === 'MultiPoint') {
       for (const coord of geom.coordinates as number[][]) {
-        parts.push({ type: 'point', point: coord, featureIndex: fi, minLon: coord[0], minLat: coord[1], maxLon: coord[0], maxLat: coord[1] })
+        parts.push({ type: 'point', point: coord, featureIndex: id, minLon: coord[0], minLat: coord[1], maxLon: coord[0], maxLat: coord[1] })
       }
     }
   }
@@ -504,6 +518,8 @@ export interface TilerOptions {
   onLevel?: (level: TileLevel, bounds: [number, number, number, number], propertyTable: PropertyTable) => void
   /** If true, yield to the event loop between zoom levels (browser only) */
   async?: boolean
+  /** Optional resolver for stable feature ids. Defaults to array index. */
+  idResolver?: FeatureIdResolver
 }
 
 function autoDetectMaxZoom(features: GeoJSONFeature[]): number {
@@ -550,7 +566,7 @@ export function compileGeoJSONToTiles(
   const maxZoom = options?.maxZoom ?? autoDetectMaxZoom(geojson.features)
 
   // Step 1: Decompose features into individual geometry parts with tight bboxes
-  const allParts = decomposeFeatures(geojson.features)
+  const allParts = decomposeFeatures(geojson.features, options?.idResolver)
   console.log(`  Decomposed ${geojson.features.length} features → ${allParts.length} parts`)
 
   // Global bounds
@@ -931,7 +947,7 @@ export async function compileGeoJSONToTilesAsync(
   return new Promise<CompiledTileSet>((resolve) => {
     const minZoom = options?.minZoom ?? 0
     const maxZoom = options?.maxZoom ?? autoDetectMaxZoom(geojson.features)
-    const allParts = decomposeFeatures(geojson.features)
+    const allParts = decomposeFeatures(geojson.features, options?.idResolver)
 
     let gMinLon = Infinity, gMinLat = Infinity, gMaxLon = -Infinity, gMaxLat = -Infinity
     for (const p of allParts) {

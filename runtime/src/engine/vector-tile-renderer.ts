@@ -236,6 +236,32 @@ export class VectorTileRenderer {
     return this.gpuCache.size
   }
 
+  /** Tear down all GPU resources owned by this renderer.
+   *  Used when a source is being replaced (setSourceData) or the
+   *  whole map is disposed. After destroy() the renderer is dead —
+   *  create a new VectorTileRenderer if another upload is needed. */
+  destroy(): void {
+    for (const tile of this.gpuCache.values()) {
+      tile.vertexBuffer?.destroy()
+      tile.indexBuffer?.destroy()
+      tile.lineVertexBuffer?.destroy()
+      tile.lineIndexBuffer?.destroy()
+      tile.outlineIndexBuffer?.destroy()
+      tile.outlineSegmentBuffer?.destroy()
+      tile.lineSegmentBuffer?.destroy()
+    }
+    this.gpuCache.clear()
+
+    this.featureDataBuffer?.destroy()
+    this.featureDataBuffer = null
+
+    this.uniformRing?.destroy()
+    this.uniformRing = null
+
+    for (const r of this.retiredUniformRings) r.destroy()
+    this.retiredUniformRings = []
+  }
+
   getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number; missedTiles: number } {
     let drawCalls = 0, vertices = 0, triangles = 0, lines = 0
     for (const [, counts] of this.renderedDraws) {
