@@ -452,4 +452,15 @@ export const DEMOS: Record<string, Demo> = {
   fixture_size_expr:            { name: 'Fixture: size expr',          tag: 'fixture', description: 'Point size-[sqrt(.pop) / 2] expression.',      source: load('fixture-size-expr.xgis') },
   fixture_filter_complex:       { name: 'Fixture: filter complex',     tag: 'fixture', description: 'Filter .kind == "b" — renders only middle.',  source: load('fixture-filter-complex.xgis') },
   fixture_shape_custom_svg:     { name: 'Fixture: custom SVG shape',   tag: 'fixture', description: 'Point with local symbol diamond.',             source: load('fixture-shape-custom-svg.xgis') },
+  // Extension 2: projection/anchor/size-zoom/pattern/miterlimit/anim-dashoffset
+  fixture_projection_equirectangular: { name: 'Fixture: projection equirect', tag: 'fixture', description: 'Equirectangular projection on a simple polygon.',  source: load('fixture-projection-equirectangular.xgis') },
+  fixture_anchor_center:        { name: 'Fixture: anchor center',      tag: 'fixture', description: 'SDF point anchor-center mode.',                source: load('fixture-anchor-center.xgis') },
+  fixture_anchor_top:           { name: 'Fixture: anchor top',         tag: 'fixture', description: 'SDF point anchor-top mode.',                   source: load('fixture-anchor-top.xgis') },
+  fixture_size_zoom:            { name: 'Fixture: size zoom stops',    tag: 'fixture', description: 'z0:size-30 z20:size-80 interpolation.',        source: load('fixture-size-zoom.xgis') },
+  fixture_stroke_outset:        { name: 'Fixture: stroke outset',      tag: 'fixture', description: 'stroke-outset alignment (mirror of inset).',   source: load('fixture-stroke-outset.xgis') },
+  fixture_pattern_anchor_start: { name: 'Fixture: pattern anchor start',tag: 'fixture', description: 'Pattern pinned at line start.',               source: load('fixture-pattern-anchor-start.xgis') },
+  fixture_pattern_anchor_end:   { name: 'Fixture: pattern anchor end', tag: 'fixture', description: 'Pattern pinned at line end.',                  source: load('fixture-pattern-anchor-end.xgis') },
+  fixture_pattern_units_km:     { name: 'Fixture: pattern units km',   tag: 'fixture', description: 'km-unit spacing/size for stroke pattern.',     source: load('fixture-pattern-units-km.xgis') },
+  fixture_anim_dashoffset:      { name: 'Fixture: anim dashoffset',    tag: 'fixture', description: 'Marching-ants animated dashoffset keyframe.',  source: load('fixture-anim-dashoffset.xgis') },
+  fixture_miterlimit:           { name: 'Fixture: miterlimit',         tag: 'fixture', description: 'Sharp-angle miter→bevel fallback path.',       source: load('fixture-miterlimit.xgis') },
 }

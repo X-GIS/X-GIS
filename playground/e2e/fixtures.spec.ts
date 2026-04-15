@@ -432,3 +432,100 @@ test.describe('X-GIS fixture: custom shape', () => {
     )
   })
 })
+
+// ── Extension 2: projection / anchor / size-zoom / patterns / miterlimit / anim-dashoffset ──
+
+test.describe('X-GIS fixture: projection variants', () => {
+  test('projection_equirectangular — equirect non-Mercator path renders emerald', async ({ page }) => {
+    test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
+    await fixtureColorAssert(page, 'fixture_projection_equirectangular',
+      [{ name: 'emerald', rgb: EMERALD_500, tolerance: 80 }],
+      { emerald: [0.005, 0.60] },
+    )
+  })
+})
+
+test.describe('X-GIS fixture: point anchor modes', () => {
+  test('anchor_center — centered sprite renders rose pixels', async ({ page }) => {
+    test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
+    await fixtureColorAssert(page, 'fixture_anchor_center',
+      [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
+      { rose: [0.0005, 0.30] },
+    )
+  })
+
+  test('anchor_top — top-anchored sprite renders rose pixels', async ({ page }) => {
+    test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
+    await fixtureColorAssert(page, 'fixture_anchor_top',
+      [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
+      { rose: [0.0005, 0.30] },
+    )
+  })
+})
+
+test.describe('X-GIS fixture: size zoom interpolation', () => {
+  test('size_zoom — zoom-interpolated point size renders', async ({ page }) => {
+    test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
+    // Interpolated size at the default camera zoom is smaller than
+    // a fixed size-50 fixture, so rose pixels end up < 0.1% — use a
+    // looser floor than the other point fixtures.
+    await fixtureColorAssert(page, 'fixture_size_zoom',
+      [{ name: 'rose', rgb: ROSE_500, tolerance: 100 }],
+      { rose: [0.0001, 0.30] },
+    )
+  })
+})
+
+test.describe('X-GIS fixture: stroke align outset + miterlimit', () => {
+  test('stroke_outset — outward-shifted border renders amber', async ({ page }) => {
+    test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
+    await fixtureColorAssert(page, 'fixture_stroke_outset',
+      [{ name: 'amber', rgb: AMBER_300, tolerance: 100 }],
+      { amber: [0.001, 0.40] },
+    )
+  })
+
+  test('miterlimit — clamped miter falls back to bevel without crashing', async ({ page }) => {
+    test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
+    await fixtureColorAssert(page, 'fixture_miterlimit',
+      [{ name: 'amber', rgb: AMBER_300, tolerance: 100 }],
+      { amber: [0.001, 0.30] },
+    )
+  })
+})
+
+test.describe('X-GIS fixture: pattern anchor/units', () => {
+  test('pattern_anchor_start — pattern pinned at line start', async ({ page }) => {
+    test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
+    await fixtureColorAssert(page, 'fixture_pattern_anchor_start',
+      [{ name: 'amber', rgb: AMBER_300, tolerance: 120 }],
+      { amber: [0.0005, 0.40] },
+    )
+  })
+
+  test('pattern_anchor_end — pattern pinned at line end', async ({ page }) => {
+    test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
+    await fixtureColorAssert(page, 'fixture_pattern_anchor_end',
+      [{ name: 'amber', rgb: AMBER_300, tolerance: 120 }],
+      { amber: [0.0005, 0.40] },
+    )
+  })
+
+  test('pattern_units_km — km-unit spacing resolves without crashing', async ({ page }) => {
+    test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
+    await fixtureColorAssert(page, 'fixture_pattern_units_km',
+      [{ name: 'amber', rgb: AMBER_300, tolerance: 120 }],
+      { amber: [0.0005, 0.40] },
+    )
+  })
+})
+
+test.describe('X-GIS fixture: animated dashoffset', () => {
+  test('anim_dashoffset — marching-ants cycle renders amber', async ({ page }) => {
+    test.setTimeout(FIXTURE_TIMEOUT_MS + 5_000)
+    await fixtureColorAssert(page, 'fixture_anim_dashoffset',
+      [{ name: 'amber', rgb: AMBER_300, tolerance: 120 }],
+      { amber: [0.0005, 0.30] },
+    )
+  })
+})

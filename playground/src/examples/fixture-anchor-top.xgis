@@ -1,0 +1,6 @@
+/* Fixture: SDF point with anchor-top (sprite hangs below anchor). */
+source p { type: geojson, url: "fixture-point.geojson" }
+layer dot {
+  source: p
+  | fill-rose-500 size-40 anchor-top
+}

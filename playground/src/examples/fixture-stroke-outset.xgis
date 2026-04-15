@@ -1,0 +1,8 @@
+/* Fixture: polygon boundary with stroke-outset alignment.
+ * Mirror of fixture_stroke_inset — stroke shifts OUTWARD by
+ * half-width, right of travel. */
+source sq { type: geojson, url: "fixture-square.geojson" }
+layer bordered {
+  source: sq
+  | fill-slate-800 stroke-amber-300 stroke-12 stroke-outset
+}

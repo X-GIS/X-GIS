@@ -1,0 +1,10 @@
+/* Fixture: stroke pattern with spacing/size in km units.
+ * The default unit is metres; km takes the alternate parseCssUnitValue
+ * branch and exercises the km → m conversion at pattern upload. */
+symbol dot { path "M 0 -0.5 L 0.5 0 L 0 0.5 L -0.5 0 Z" }
+source l { type: geojson, url: "fixture-line.geojson" }
+layer kmpat {
+  source: l
+  | stroke-amber-300 stroke-12
+  | stroke-pattern-dot stroke-pattern-size-200km stroke-pattern-spacing-600km
+}

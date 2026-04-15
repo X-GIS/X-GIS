@@ -1,0 +1,12 @@
+/* Fixture: animated dash-offset via keyframes ("marching ants").
+ * PR3 landed animated dashoffset — this isolates that path. */
+keyframes march {
+  0%:   stroke-dashoffset-0
+  100%: stroke-dashoffset-30
+}
+source l { type: geojson, url: "fixture-line.geojson" }
+layer ants {
+  source: l
+  | stroke-amber-300 stroke-12 stroke-dasharray-10-5
+  | animation-march animation-duration-1500 animation-ease-linear animation-infinite
+}

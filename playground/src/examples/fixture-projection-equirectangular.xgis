@@ -1,0 +1,7 @@
+/* Fixture: polygon rendered under equirectangular projection.
+ * Exercises the non-Mercator projection code path end-to-end. */
+source sq { type: geojson, url: "fixture-square.geojson" }
+layer flat {
+  source: sq
+  | fill-emerald-500 projection-equirectangular
+}

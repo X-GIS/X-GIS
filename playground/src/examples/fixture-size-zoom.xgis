@@ -1,0 +1,9 @@
+/* Fixture: zoom-interpolated point size.
+ * At zoom 0 size=30, at zoom 20 size=80 — exercises the zoom stop
+ * interpolation path for SizeValue (distinct from constant size). */
+source p { type: geojson, url: "fixture-point.geojson" }
+layer dot {
+  source: p
+  | fill-rose-500
+  | z0:size-30 z20:size-80
+}

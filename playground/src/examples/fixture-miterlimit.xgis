@@ -1,0 +1,9 @@
+/* Fixture: sharp-angle turn with stroke-miterlimit-2.
+ * The default miterlimit is generous enough that every join renders
+ * as miter; clamping to 2 forces the renderer to fall back to bevel
+ * on the acute corner, isolating the miter-fallback code path. */
+source l { type: geojson, url: "fixture-line-join.geojson" }
+layer clamped {
+  source: l
+  | stroke-amber-300 stroke-14 stroke-miter-join stroke-miterlimit-2
+}
