@@ -3,7 +3,7 @@
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONToTiles, decomposeFeatures, deserializeXGB, resolveImportsAsync } from '@xgis/compiler'
 import { initGPU, resizeCanvas, MAX_DPR, SAMPLE_COUNT, type GPUContext } from './gpu'
 import { Camera } from './camera'
-import { MapRenderer } from './renderer'
+import { MapRenderer, interpolateZoom } from './renderer'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
   groupOpaqueBySource as groupOpaqueBySourceImpl,
@@ -419,13 +419,21 @@ export class XGISMap {
         const fill = fillHex ? parseHexColor(fillHex) : null
         const stroke = strokeHex ? parseHexColor(strokeHex) : null
 
+        // Resolve zoom-interpolated size to a concrete value at the
+        // current camera zoom. Evaluated once at layer build time —
+        // sufficient for static displays; a zoom-aware point uniform
+        // upload path is tracked as a follow-up for live resize.
+        const baseSize = show.zoomSizeStops && show.zoomSizeStops.length > 0
+          ? interpolateZoom(show.zoomSizeStops, this.camera.zoom)
+          : (show.size ?? 8)
+
         // Evaluate per-feature size if data-driven
         let perFeatureSizes: number[] | null = null
         if (show.sizeExpr?.ast) {
           const ast = show.sizeExpr.ast as import('@xgis/compiler').Expr
           perFeatureSizes = filtered.features.map(f => {
             const r = evaluate(ast, f.properties ?? {})
-            return typeof r === 'number' ? r : (show.size ?? 8)
+            return typeof r === 'number' ? r : baseSize
           })
         }
 
@@ -436,7 +444,7 @@ export class XGISMap {
           filtered.features as any,
           fill, stroke,
           show.strokeWidth,
-          show.size ?? 8,
+          baseSize,
           show.opacity ?? 1.0,
           show.sizeUnit,
           perFeatureSizes,
