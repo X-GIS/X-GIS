@@ -719,10 +719,11 @@ export class PointRenderer {
   }
 
   /** Re-evaluate zoom-interpolated point sizes against the current
-   *  camera zoom and re-upload the affected featData if the value
-   *  changed meaningfully since last frame. Caller should invoke
+   *  camera zoom and patch layer.featData in place. Caller invokes
    *  this once per frame before render(). No-op for layers without
-   *  zoomSizeStops. */
+   *  zoomSizeStops. render() copies from layer.featData into the
+   *  per-world expanded buffer each frame, so the patched values
+   *  propagate naturally — no need to touch the expanded buffer. */
   updateDynamicSizes(cameraZoom: number, interpolate: (stops: { zoom: number; value: number }[], zoom: number) => number): void {
     const STRIDE = 14
     for (const layer of this.layers) {
@@ -734,11 +735,6 @@ export class PointRenderer {
       for (let i = 0; i < layer.pointCount; i++) {
         layer.featData[i * STRIDE + 0] = size
       }
-      this.device.queue.writeBuffer(layer.featureBuffer, 0, layer.featData)
-      // Expanded (3× world copies) buffer stays in sync on next render.
-      layer._expandedFeatBuf?.destroy()
-      layer._expandedFeatBuf = undefined
-      layer._expandedBindGroup = undefined
       layer.lastDynZoom = cameraZoom
     }
   }
