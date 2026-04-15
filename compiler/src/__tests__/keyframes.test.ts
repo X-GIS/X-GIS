@@ -424,3 +424,139 @@ describe('Keyframes — multi-property (PR 3)', () => {
     expect(node.fill.kind).toBe('constant')
   })
 })
+
+// ═══ Bug 1 structural regression — all-property cross combinations ═══
+//
+// Bug 1 (commit 1317263): emit-commands read animation lifecycle
+// metadata (loop / easing / delayMs) from `node.opacity` only. Any
+// layer that animated fill / stroke / width / size / dashOffset
+// without ALSO animating opacity got `loop=false` silently, freezing
+// the animation after one cycle.
+//
+// The fix moved metadata to a single layer-wide `node.animationMeta`
+// field that emit-commands reads regardless of which property is
+// animated. These tests pin that contract by exercising EVERY
+// animatable property in a single keyframes block and asserting the
+// emitted metadata is consistent across all of them.
+
+describe('Keyframes — all-property metadata propagation (Bug 1 structural)', () => {
+  it('one keyframes block driving all 6 properties: every emitted stop list shares the same lifecycle', () => {
+    const scene = compile(`
+      keyframes everything {
+        0%:   opacity-100 fill-blue-500  stroke-amber-300 stroke-2 size-8  stroke-dashoffset-0
+        50%:  opacity-30  fill-rose-600  stroke-sky-300   stroke-6 size-20 stroke-dashoffset-30
+        100%: opacity-100 fill-blue-500  stroke-amber-300 stroke-2 size-8  stroke-dashoffset-0
+      }
+      source data { type: geojson, url: "x.geojson" }
+      layer multi {
+        source: data
+        | fill-blue-500 stroke-amber-300 stroke-2 size-8 stroke-dasharray-16-8
+        | animation-everything animation-duration-2500 animation-ease-in-out animation-delay-100 animation-infinite
+      }
+    `)
+    const commands = emitCommands(scene)
+    const show = commands.shows[0]
+
+    // Every property got its own time stop list:
+    expect(show.timeOpacityStops).toHaveLength(3)
+    expect(show.timeFillStops).toHaveLength(3)
+    expect(show.timeStrokeStops).toHaveLength(3)
+    expect(show.timeStrokeWidthStops).toHaveLength(3)
+    expect(show.timeSizeStops).toHaveLength(3)
+    expect(show.timeDashOffsetStops).toHaveLength(3)
+
+    // And the SHARED lifecycle metadata applies to every one of
+    // them. This is the structural property Bug 1 violated — under
+    // the bug, only opacity got the right loop value.
+    expect(show.timeOpacityLoop).toBe(true)
+    expect(show.timeOpacityEasing).toBe('ease-in-out')
+    expect(show.timeOpacityDelayMs).toBe(100)
+  })
+
+  it('Bug 1 mirror: drop opacity from the keyframes — the other 5 still inherit lifecycle', () => {
+    // The exact bug shape: a keyframes block touches everything
+    // EXCEPT opacity. Under the bug, emit-commands read metadata
+    // from `node.opacity.kind === 'time-interpolated'` which was
+    // false (opacity stayed constant), so loop fell through to
+    // false silently. The fix reads from `node.animationMeta`
+    // which is set whenever ANY property is animated.
+    const scene = compile(`
+      keyframes no_opacity {
+        0%:   fill-blue-500  stroke-amber-300 stroke-2 size-8  stroke-dashoffset-0
+        50%:  fill-rose-600  stroke-sky-300   stroke-6 size-20 stroke-dashoffset-30
+        100%: fill-blue-500  stroke-amber-300 stroke-2 size-8  stroke-dashoffset-0
+      }
+      source data { type: geojson, url: "x.geojson" }
+      layer multi {
+        source: data
+        | fill-blue-500 stroke-amber-300 stroke-2 size-8 stroke-dasharray-16-8
+        | animation-no_opacity animation-duration-1500 animation-ease-out animation-infinite
+      }
+    `)
+    const commands = emitCommands(scene)
+    const show = commands.shows[0]
+
+    // Opacity is NOT animated:
+    expect(show.timeOpacityStops).toBeNull()
+    // But every OTHER property IS:
+    expect(show.timeFillStops).toHaveLength(3)
+    expect(show.timeStrokeStops).toHaveLength(3)
+    expect(show.timeStrokeWidthStops).toHaveLength(3)
+    expect(show.timeSizeStops).toHaveLength(3)
+    expect(show.timeDashOffsetStops).toHaveLength(3)
+
+    // And — critically — they all inherit the lifecycle from
+    // animationMeta even though opacity itself isn't time-interp:
+    expect(show.timeOpacityLoop).toBe(true)
+    expect(show.timeOpacityEasing).toBe('ease-out')
+    expect(show.timeOpacityDelayMs).toBe(0)
+  })
+
+  it('IR has node.animationMeta populated whenever any keyframes is referenced', () => {
+    const scene = compile(`
+      keyframes march {
+        0%:   stroke-dashoffset-0
+        100%: stroke-dashoffset-60
+      }
+      source data { type: geojson, url: "x.geojson" }
+      layer marching {
+        source: data
+        | stroke-amber-300 stroke-2 stroke-dasharray-16-8
+        | animation-march animation-duration-1200 animation-ease-linear animation-infinite
+      }
+    `)
+    const node = scene.renderNodes[0]
+    // The single source of truth — must be set even when only a
+    // stroke property is animated. Without this, emit-commands has
+    // no way to recover the lifecycle for non-color, non-opacity
+    // properties whose IR shape doesn't carry per-property metadata.
+    expect(node.animationMeta).toBeDefined()
+    expect(node.animationMeta?.loop).toBe(true)
+    expect(node.animationMeta?.easing).toBe('linear')
+    expect(node.animationMeta?.delayMs).toBe(0)
+  })
+
+  it('non-loop animation: lifecycle propagates the false value to every property', () => {
+    // Negative case: animations without `animation-infinite`
+    // should propagate loop=false uniformly across all properties.
+    // If a future refactor breaks the propagation in the other
+    // direction (always loop=true), this test catches it.
+    const scene = compile(`
+      keyframes one_shot {
+        0%:   fill-blue-500 size-8
+        100%: fill-rose-600 size-20
+      }
+      source data { type: geojson, url: "x.geojson" }
+      layer once {
+        source: data
+        | fill-blue-500 size-8
+        | animation-one_shot animation-duration-800
+      }
+    `)
+    const commands = emitCommands(scene)
+    const show = commands.shows[0]
+    expect(show.timeOpacityLoop).toBe(false)
+    expect(show.timeFillStops).toHaveLength(2)
+    expect(show.timeSizeStops).toHaveLength(2)
+  })
+})
