@@ -1,4 +1,5 @@
 import { test, expect, type Page, type ConsoleMessage } from '@playwright/test'
+import { captureCanvas, sampleNonBackgroundPixels, hashScreenshot } from './helpers/visual'
 
 // Hard-coded demo ID list. Importing `DEMOS` from `../src/demos.ts`
 // doesn't work here because that module uses Vite's `import.meta.glob`
@@ -230,6 +231,136 @@ test.describe('X-GIS demo smoke', () => {
         page.off('response', onResponse)
         page.off('requestfailed', onRequestFailed)
       }
+    })
+  }
+})
+
+// ═══ Visual regression suite (PR B) ═══
+//
+// One baseline screenshot per demo, committed to
+// `playground/e2e/baselines/`. Plus targeted bug-class assertions
+// that would have caught the two recent regressions:
+//
+//   - SDF point demos (Bug 2): assert non-background pixels exist
+//     so a future "renders nothing" silent failure trips immediately
+//   - Animation demos (Bug 1): sample multiple time points across
+//     >2 cycles and assert the canvas is still changing — proof
+//     that the cycle loop is alive past the first iteration
+//
+// Pixel diff tolerance is configured in playwright.config.ts. To
+// rebake baselines after an intentional visual change:
+//
+//     bun run test:e2e -- --update-snapshots
+//
+// Pin to a single GPU/driver in CI (the baseline images depend on
+// it). Running locally on a different GPU may require a one-time
+// rebake; expect at most a couple of demos to need it.
+
+// Demos excluded from baseline screenshots because their visible
+// content depends on `_elapsedMs` (animation) and would never be
+// pixel-stable between runs. Their per-cycle correctness is verified
+// by the dedicated cycle regression tests below instead.
+const ANIMATED_DEMOS = new Set(['animation_pulse', 'animation_showcase'])
+
+// Demos that load large vector tile sets and need extra settle time
+// before the canvas content is stable enough to baseline. Without
+// the extra wait, late-arriving tiles cause spurious pixel diffs
+// between runs.
+const TILE_HEAVY_DEMOS = new Set([
+  'physical_map_10m', 'physical_map_50m', 'night_map',
+  'water_hierarchy', 'rivers_10m', 'states_10m',
+])
+
+test.describe('X-GIS visual regression', () => {
+  for (const id of DEMO_IDS) {
+    if (ANIMATED_DEMOS.has(id)) continue
+    test(`baseline: ${id}`, async ({ page }) => {
+      test.setTimeout(PER_DEMO_TIMEOUT_MS + 15_000)
+      await page.goto(`/demo.html?id=${id}`, { waitUntil: 'domcontentloaded' })
+      const png = await captureCanvas(page)
+      // Tile-heavy demos: extra settle time for late tile loads, plus
+      // a relaxed pixel-diff cap (5%) because tile composition order
+      // can vary slightly between runs even after settle. The default
+      // 1% cap is fine for static layers but too tight for thousands
+      // of small features.
+      if (TILE_HEAVY_DEMOS.has(id)) {
+        await page.waitForTimeout(2000)
+        const png2 = await captureCanvas(page)
+        expect(png2).toMatchSnapshot(`${id}.png`, { maxDiffPixelRatio: 0.05 })
+      } else {
+        expect(png).toMatchSnapshot(`${id}.png`)
+      }
+    })
+  }
+
+  // ── Bug 2 mirror: SDF point demos must render non-background pixels ──
+  // The smoke test only checks that the canvas is non-zero — but if
+  // direct-layer points stop rendering (which is exactly what PR 2's
+  // inlinePoints optimization caused), the canvas still passes the
+  // smoke check because the land background is drawn. This sample
+  // tests every point demo for actual point-colored pixels.
+  const POINT_DEMOS = [
+    'sdf_points', 'gradient_points', 'megacities', 'custom_shapes',
+    'shape_gallery', 'populated_places', 'procedural_circles',
+    'custom_symbol',
+  ]
+  for (const id of POINT_DEMOS) {
+    test(`regression(Bug 2): ${id} renders non-background pixels`, async ({ page }) => {
+      test.setTimeout(20_000)
+      await page.goto(`/demo.html?id=${id}`, { waitUntil: 'domcontentloaded' })
+      const png = await captureCanvas(page)
+      // The dev background is #06080c (RGB 6,8,12). Point markers
+      // are bright (rose, sky, amber) — any non-trivial pixel count
+      // confirms they reached the framebuffer.
+      const differing = await sampleNonBackgroundPixels(
+        page, png,
+        { r: 6, g: 8, b: 12 },
+        50,  // tolerance: anti-aliasing buffer
+        400, // 20×20 grid: enough chances to hit even sparse demos like megacities (~76 cities)
+      )
+      // Any value > 2 strictly proves "more than zero points
+      // rendered". Random sampling against a solid background gives
+      // exactly 0 differing pixels, so this catches the silent
+      // "everything in background" regression while leaving headroom
+      // for very sparse layers (megacities has only ~76 features).
+      expect(differing,
+        `${id}: only ${differing}/400 sampled pixels differ from background — points likely missing`)
+        .toBeGreaterThan(2)
+    })
+  }
+
+  // ── Bug 1 mirror: animation demos must still cycle past first iteration ──
+  // PR 3's fill animation froze at the last keyframe value after one
+  // cycle because the lifecycle metadata was read from the wrong
+  // property union. Sample 4 evenly-spaced points across >2 full
+  // cycles; at least 3 of 4 hashes must differ, proving the canvas
+  // is still changing past the first iteration.
+  const ANIMATION_DEMOS: { id: string; cycleMs: number }[] = [
+    { id: 'animation_pulse', cycleMs: 1500 },
+    { id: 'animation_showcase', cycleMs: 2000 }, // longest of its 3 anims
+  ]
+  for (const { id, cycleMs } of ANIMATION_DEMOS) {
+    test(`regression(Bug 1): ${id} cycles past first iteration`, async ({ page }) => {
+      test.setTimeout(30_000)
+      await page.goto(`/demo.html?id=${id}`, { waitUntil: 'domcontentloaded' })
+      // Sample at quarter-cycle intervals across ~2.5 cycles.
+      // If the animation is frozen at any constant after the first
+      // cycle, hashes 3 + 4 will collapse to a single value.
+      const sampleTimes = [
+        Math.round(cycleMs * 0.3),
+        Math.round(cycleMs * 0.7),
+        Math.round(cycleMs * 1.5),
+        Math.round(cycleMs * 2.3),
+      ]
+      const hashes: string[] = []
+      for (const t of sampleTimes) {
+        const png = await captureCanvas(page, { elapsedMsAtLeast: t })
+        hashes.push(await hashScreenshot(page, png))
+      }
+      const unique = new Set(hashes).size
+      expect(unique,
+        `${id}: only ${unique} distinct frames at t=[${sampleTimes.join(',')}]ms — animation frozen`)
+        .toBeGreaterThanOrEqual(3)
     })
   }
 })

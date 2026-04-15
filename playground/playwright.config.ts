@@ -23,6 +23,19 @@ export default defineConfig({
   fullyParallel: false, // single dev server, serial is safer
   workers: 1,
   reporter: [['list']],
+  // Visual regression baselines (PR B). Per-pixel match is too strict
+  // for WebGPU output across drivers / GPU vendors — a small tolerance
+  // catches real regressions without flagging anti-aliasing noise.
+  // Threshold = max per-channel diff (0..1); maxDiffPixelRatio = max
+  // fraction of pixels allowed to differ. Numbers calibrated for the
+  // X-GIS dev environment; adjust the rebake doc if a new GPU lands
+  // in CI.
+  expect: {
+    toHaveScreenshot: {
+      threshold: 0.15,
+      maxDiffPixelRatio: 0.01,
+    },
+  },
   use: {
     baseURL: 'https://localhost:3000',
     ignoreHTTPSErrors: true,
