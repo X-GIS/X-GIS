@@ -432,6 +432,37 @@ async function loadDemo(idx: number) {
   discoverFields(demo.source, '/data/')
 
   await runSource(demo.source, demo.name)
+
+  // Post-run hook: inline-source fixtures need the host to push
+  // data — without this, gallery visitors see an empty canvas.
+  // E2E tests that drive these fixtures themselves pass `?e2e=1`
+  // to opt out so the test controls the push cadence.
+  if (currentMap && !params.has('e2e')) {
+    applyFixtureAutoPush(id, currentMap)
+  }
+}
+
+/** Auto-inject sample data for inline-source fixtures so they
+ *  render something when opened manually from the gallery. */
+function applyFixtureAutoPush(id: string, map: InstanceType<typeof XGISMap>): void {
+  if (id === 'fixture_inline_push') {
+    map.setSourceData('tracks', {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', id: 1, geometry: { type: 'Point', coordinates: [-30, 0] },  properties: {} },
+        { type: 'Feature', id: 2, geometry: { type: 'Point', coordinates: [0, 0] },    properties: {} },
+        { type: 'Feature', id: 3, geometry: { type: 'Point', coordinates: [30, 0] },   properties: {} },
+        { type: 'Feature', id: 4, geometry: { type: 'Point', coordinates: [0, 30] },   properties: {} },
+        { type: 'Feature', id: 5, geometry: { type: 'Point', coordinates: [0, -30] },  properties: {} },
+      ],
+    })
+  } else if (id === 'fixture_typed_array_points') {
+    map.setSourcePoints('tracks', {
+      lon: new Float32Array([-40, -20, 0, 20, 40]),
+      lat: new Float32Array([-20, 20, -20, 20, -20]),
+      ids: new Uint32Array([201, 202, 203, 204, 205]),
+    })
+  }
 }
 
 // ── Run button ──

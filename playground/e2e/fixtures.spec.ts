@@ -29,7 +29,9 @@ import { withValidationCapture, clearValidationErrors } from './helpers/validati
 const FIXTURE_TIMEOUT_MS = 15_000
 
 async function loadFixture(page: Page, id: string): Promise<void> {
-  await page.goto(`/demo.html?id=${id}`, { waitUntil: 'domcontentloaded' })
+  // `e2e=1` disables the demo-runner's auto-push for inline fixtures
+  // so tests control the push cadence themselves.
+  await page.goto(`/demo.html?id=${id}&e2e=1`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
     null,
