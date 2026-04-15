@@ -27,19 +27,19 @@ describe('line feature tiling with arc-length', () => {
     expect(parts[0].coords).toEqual(lineFeature.geometry.coordinates)
   })
 
-  it('compileSingleTile outputs stride-4 lineVertices with monotonically increasing arc', () => {
+  it('compileSingleTile outputs DSFUN stride-6 lineVertices with monotonically increasing arc', () => {
     const parts = decomposeFeatures([lineFeature])
     // Tile z=0 covers the whole world, so the line is entirely inside.
     const tile = compileSingleTile(parts, 0, 0, 0, 7)
     expect(tile).not.toBeNull()
-    expect(tile!.lineVertices.length).toBeGreaterThanOrEqual(2 * 4)
-    expect(tile!.lineVertices.length % 4).toBe(0)
+    expect(tile!.lineVertices.length).toBeGreaterThanOrEqual(2 * 6)
+    expect(tile!.lineVertices.length % 6).toBe(0)
 
-    // Collect the arc value from each vertex (index 3 in stride-4 layout)
-    const vertCount = tile!.lineVertices.length / 4
+    // Collect the arc value from each vertex (index 5 in DSFUN stride-6 layout)
+    const vertCount = tile!.lineVertices.length / 6
     const arcs: number[] = []
     for (let i = 0; i < vertCount; i++) {
-      arcs.push(tile!.lineVertices[i * 4 + 3])
+      arcs.push(tile!.lineVertices[i * 6 + 5])
     }
 
     // First arc must be 0 (start of the feature)

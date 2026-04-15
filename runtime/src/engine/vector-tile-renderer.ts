@@ -7,7 +7,7 @@ import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
 import { visibleTilesFrustum, sortByPriority } from '../loader/tiles'
-import { tileKey, type PropertyTable } from '@xgis/compiler'
+import { tileKey, tileKeyParent, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { XGVTSource, TileData } from '../data/xgvt-source'
 import { mercator as mercatorProj } from './projection'
@@ -80,6 +80,9 @@ export class VectorTileRenderer {
   private cachedShowFill = ''
   private cachedShowStroke = ''
   private currentOpacity = 1.0
+  /** Log-depth factor for the current frame, sampled from camera at the
+   *  start of render(). Packed into slot 35 of every tile uniform. */
+  private logDepthFc = 0
 
   // ── Uniform ring (dynamic-offset) ──
   // Shared across all tiles + world copies + layers in a frame. Each draw
@@ -341,7 +344,10 @@ export class VectorTileRenderer {
       outlineIndexCount = data.outlineIndices.length
     }
 
-    // SDF line segment buffers (for polygon outlines + line features)
+    // SDF line segment buffers (for polygon outlines + line features).
+    // buildLineSegments now reads DSFUN-stride vertex buffers and needs the
+    // tile extent in Mercator meters so its tile-boundary detection keeps
+    // seamless joins across tile edges.
     let outlineSegmentBuffer: GPUBuffer | null = null
     let outlineSegmentCount = 0
     let outlineSegmentBindGroup: GPUBindGroup | null = null
@@ -349,14 +355,26 @@ export class VectorTileRenderer {
     let lineSegmentCount = 0
     let lineSegmentBindGroup: GPUBindGroup | null = null
     if (this.lineRenderer) {
+      const SEG_DEG2RAD = Math.PI / 180
+      const SEG_R = 6378137
+      const SEG_LAT_LIMIT = 85.051129
+      const clampSegLat = (v: number) => Math.max(-SEG_LAT_LIMIT, Math.min(SEG_LAT_LIMIT, v))
+      const tileMercXWest = data.tileWest * SEG_DEG2RAD * SEG_R
+      const tileMercXEast = (data.tileWest + data.tileWidth) * SEG_DEG2RAD * SEG_R
+      const tileMercYSouth = Math.log(Math.tan(Math.PI / 4 + clampSegLat(data.tileSouth) * SEG_DEG2RAD / 2)) * SEG_R
+      const tileMercYNorth = Math.log(Math.tan(Math.PI / 4 + clampSegLat(data.tileSouth + data.tileHeight) * SEG_DEG2RAD / 2)) * SEG_R
+      const tileWidthMerc = tileMercXEast - tileMercXWest
+      const tileHeightMerc = tileMercYNorth - tileMercYSouth
       if (data.outlineIndices && data.outlineIndices.length > 0) {
-        const segData = buildLineSegments(data.vertices, data.outlineIndices, data.tileSouth, 3, data.tileWidth, data.tileHeight)
+        // Polygon outlines share the polygon vertex buffer (DSFUN stride 5).
+        const segData = buildLineSegments(data.vertices, data.outlineIndices, 5, tileWidthMerc, tileHeightMerc)
         outlineSegmentBuffer = this.lineRenderer.uploadSegmentBuffer(segData)
         outlineSegmentCount = data.outlineIndices.length / 2
         outlineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(outlineSegmentBuffer)
       }
       if (data.lineIndices.length > 0 && data.lineVertices.length > 0) {
-        const segData = buildLineSegments(data.lineVertices, data.lineIndices, data.tileSouth, 4, data.tileWidth, data.tileHeight)
+        // Line features use the line vertex buffer (DSFUN stride 6).
+        const segData = buildLineSegments(data.lineVertices, data.lineIndices, 6, tileWidthMerc, tileHeightMerc)
         lineSegmentBuffer = this.lineRenderer.uploadSegmentBuffer(segData)
         lineSegmentCount = data.lineIndices.length / 2
         lineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(lineSegmentBuffer)
@@ -419,7 +437,9 @@ export class VectorTileRenderer {
     const centerLat = (2 * Math.atan(Math.exp(centerY / R)) - Math.PI / 2) * (180 / Math.PI)
 
     const maxLevel = this.source.maxLevel
-    const maxSubTileZ = maxLevel + 6
+    // DSFUN precision lets sub-tiles work at any camera zoom. Clamp to 22
+    // to match the camera's universal maxZoom, not the old maxLevel+6.
+    const maxSubTileZ = 22
     const currentZ = Math.max(0, Math.min(maxSubTileZ, Math.round(camera.zoom)))
 
     if (currentZ !== this.lastZoom) this.lastZoom = currentZ
@@ -441,6 +461,7 @@ export class VectorTileRenderer {
     sortByPriority(tiles, ctX, ctY)
 
     const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
+    this.logDepthFc = camera.getLogDepthFc()
 
     // Cache color parsing — only reparse if show properties changed
     const opacity = show.opacity ?? 1.0
@@ -598,9 +619,12 @@ export class VectorTileRenderer {
       // was generated from an even-higher parent in an earlier frame).
       const tileZ = tiles[i].z
       {
+        // DSFUN lifts camera zoom to 22, so the walk can start at z>15
+        // where `>>> 2` would overflow JS bit-shift semantics. Use the
+        // arithmetic parent helper instead.
         let walkKey = key
         for (let pz = tileZ - 1; pz >= 0; pz--) {
-          walkKey = walkKey >>> 2
+          walkKey = tileKeyParent(walkKey)
           if (this.source.hasEntryInIndex(walkKey)) {
             hasAnyAncestor = true
             if (closestExisting < 0) closestExisting = walkKey
@@ -682,10 +706,11 @@ export class VectorTileRenderer {
       if (!this.gpuCache.has(k) && !this.source!.isLoading(k) && this.source!.hasEntryInIndex(k)) {
         toLoad.push(k)
       }
-      // Ensure parent tiles (z-1, z-2) are loaded for smooth fallback
+      // Ensure parent tiles (z-1, z-2) are loaded for smooth fallback.
+      // Use arithmetic parent helper so z>15 keys walk correctly under DSFUN.
       let pk = k
-      for (let pz = 0; pz < 2 && pk > 0; pz++) {
-        pk = pk >>> 2
+      for (let pz = 0; pz < 2 && pk > 1; pz++) {
+        pk = tileKeyParent(pk)
         if (!this.gpuCache.has(pk) && !this.source!.isLoading(pk) && !this.source!.hasTileData(pk) && this.source!.hasEntryInIndex(pk)) {
           parentKeys.push(pk)
         }
@@ -737,27 +762,32 @@ export class VectorTileRenderer {
     // GPU cache eviction
     if (this.gpuCache.size > MAX_GPU_TILES) this.evictGPUTiles()
 
-    // Render tile-based points via PointRenderer (if available)
+    // Render tile-based points via PointRenderer (if available).
+    // Tile point vertices are DSFUN stride 5: [mx_h, my_h, mx_l, my_l, feat_id]
+    // in tile-local Mercator meters. We reconstruct f64-equivalent tile-local
+    // meters via (h + l) on the TS side and subtract the camera's tile-local
+    // position to get a small, f32-safe camera-relative offset.
     if (pointRenderer && typeof pointRenderer.addTilePoint === 'function') {
       const DEG2RAD = Math.PI / 180
       const R = 6378137
+      const LAT_LIMIT = 85.051129
+      const clampLat = (v: number) => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
       const camMercX = projCenterLon * DEG2RAD * R
-      const camClampedLat = Math.max(-85.051129, Math.min(85.051129, projCenterLat))
-      const camMercY = Math.log(Math.tan(Math.PI / 4 + camClampedLat * DEG2RAD / 2)) * R
+      const camMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(projCenterLat) * DEG2RAD / 2)) * R
 
       for (const key of this.stableKeys) {
         const tileData = this.source!.getTileData(key)
-        if (!tileData?.pointVertices || tileData.pointVertices.length < 3) continue
+        if (!tileData?.pointVertices || tileData.pointVertices.length < 5) continue
         const ptv = tileData.pointVertices
-        const tileW = tileData.tileWest
-        const tileS = tileData.tileSouth
-        for (let i = 0; i < ptv.length; i += 3) {
-          const lon = ptv[i] + tileW
-          const lat = ptv[i + 1] + tileS
-          const mercX = lon * DEG2RAD * R
-          const clampLat = Math.max(-85.051129, Math.min(85.051129, lat))
-          const mercY = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
-          pointRenderer.addTilePoint(mercX - camMercX, mercY - camMercY, ptv[i + 2])
+        const tileMercX = tileData.tileWest * DEG2RAD * R
+        const tileMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(tileData.tileSouth) * DEG2RAD / 2)) * R
+        const camRelX = camMercX - tileMercX // camera in tile-local Mercator frame (f64)
+        const camRelY = camMercY - tileMercY
+        for (let i = 0; i < ptv.length; i += 5) {
+          // Reconstruct tile-local merc from DSFUN high+low pair
+          const ptMxLocal = ptv[i] + ptv[i + 2]
+          const ptMyLocal = ptv[i + 1] + ptv[i + 3]
+          pointRenderer.addTilePoint(ptMxLocal - camRelX, ptMyLocal - camRelY, ptv[i + 4])
         }
       }
       pointRenderer.flushTilePoints(pass, camera, projCenterLon, projCenterLat, canvasWidth, canvasHeight, show)
@@ -801,31 +831,47 @@ export class VectorTileRenderer {
       const baseStrokeA = this.cachedStrokeColor[3] * (this.currentOpacity ?? 1.0)
       this.uniformF32[19] = baseFillA
       this.uniformF32[23] = baseStrokeA
-      // u.opacity for shader variants: zoom-interpolated layer opacity only
-      // (shader variants apply u.opacity themselves, so this is NOT double-
-      //  applied because variant fill/stroke exprs use u.opacity instead of
-      //  pre-multiplied alpha)
-      this.uniformF32[32] = (this.currentOpacity ?? 1.0)
+      // u.opacity for shader variants is written at index 34 (offset 136)
+      // in the DSFUN uniform block, below — keep it off the pre-tile pack so
+      // we only write it once per slot.
 
-      // Compute tile_rtc
+      // DSFUN uniform pack:
+      // cam_h/cam_l = splitF64(cam_merc - tile_origin_merc) so the GPU
+      // subtraction (pos_h - cam_h) + (pos_l - cam_l) cancels tile-origin
+      // magnitude and yields camera-relative meters at f64-equivalent
+      // precision regardless of camera zoom.
       const DEG2RAD = Math.PI / 180
       const R = 6378137
-      const tileX = (cached.tileWest + worldOff) * DEG2RAD * R
-      const centerX = projCenterLon * DEG2RAD * R
-      const currentProjType = this.uniformF32[24]
       const MERC_LIMIT = 85.051129
       const clampLat = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
-      const tileY = currentProjType < 0.5
-        ? Math.log(Math.tan(Math.PI / 4 + clampLat(cached.tileSouth) * DEG2RAD / 2)) * R
-        : cached.tileSouth * DEG2RAD * R
-      const centerY = currentProjType < 0.5
-        ? Math.log(Math.tan(Math.PI / 4 + clampLat(projCenterLat) * DEG2RAD / 2)) * R
-        : projCenterLat * DEG2RAD * R
+      // Vertex data is in Mercator meters regardless of current projection:
+      // the tiler always pre-projects to Mercator. Non-Mercator reprojection
+      // happens in the shader via abs merc → lon/lat → project().
+      const tileMercX = (cached.tileWest + worldOff) * DEG2RAD * R
+      const tileMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(cached.tileSouth) * DEG2RAD / 2)) * R
+      const camMercX = projCenterLon * DEG2RAD * R
+      const camMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(projCenterLat) * DEG2RAD / 2)) * R
+      const camRelX = camMercX - tileMercX // f64 cancellation
+      const camRelY = camMercY - tileMercY
 
-      this.uniformF32[28] = tileX - centerX
-      this.uniformF32[29] = tileY - centerY
-      this.uniformF32[30] = cached.tileWest
-      this.uniformF32[31] = cached.tileSouth
+      const camRelXH = Math.fround(camRelX)
+      const camRelXL = Math.fround(camRelX - camRelXH)
+      const camRelYH = Math.fround(camRelY)
+      const camRelYL = Math.fround(camRelY - camRelYH)
+
+      // cam_h (28-29), cam_l (30-31) — offsets 112..127
+      this.uniformF32[28] = camRelXH
+      this.uniformF32[29] = camRelYH
+      this.uniformF32[30] = camRelXL
+      this.uniformF32[31] = camRelYL
+
+      // tile_origin_merc (32-33) + opacity (34) + log_depth_fc (35)
+      // — offsets 128..143. log_depth_fc was cached by camera.getRTCMatrix
+      // and is shared across every tile drawn this frame.
+      this.uniformF32[32] = Math.fround(tileMercX)
+      this.uniformF32[33] = Math.fround(tileMercY)
+      this.uniformF32[34] = this.currentOpacity ?? 1.0
+      this.uniformF32[35] = this.logDepthFc
 
       // Allocate a fresh ring slot for this tile × layer × world-copy draw.
       const slotOffset = this.allocUniformSlot()

@@ -1,0 +1,58 @@
+import { defineConfig, devices } from '@playwright/test'
+
+/**
+ * Playwright configuration for X-GIS playground e2e smoke tests.
+ *
+ * The smoke test loads every demo from DEMOS and asserts:
+ *  - No console.error fires during initial load
+ *  - No [X-GIS pass:*] or [X-GIS frame-validation] errors in the
+ *    in-page overlay log
+ *  - Canvas has non-zero visible pixels after __xgisReady
+ *
+ * Targets the Vite dev server at https://localhost:3000 (HTTPS via
+ * @vitejs/plugin-basic-ssl, self-signed cert accepted via
+ * ignoreHTTPSErrors).
+ *
+ * Chromium is launched with --enable-unsafe-webgpu so WebGPU works
+ * in headless mode. Default Playwright 1.59+ ships with WebGPU-
+ * capable Chromium; no extra binaries needed.
+ */
+export default defineConfig({
+  testDir: './e2e',
+  timeout: 60_000,
+  fullyParallel: false, // single dev server, serial is safer
+  workers: 1,
+  reporter: [['list']],
+  use: {
+    baseURL: 'https://localhost:3000',
+    ignoreHTTPSErrors: true,
+    trace: 'retain-on-failure',
+    // Headless Chromium on Windows fails to enumerate a WebGPU adapter
+    // ("No available adapters"), which drops the engine into Canvas 2D
+    // fallback — and Canvas 2D doesn't support XGVT tile parsing, so
+    // every vector-tile demo fails with a JSON parse error on
+    // "XGVT...". Running headed uses the actual system GPU (D3D/Vulkan)
+    // and WebGPU works. Override with HEADED=0 for CI once we have a
+    // working GPU-enabled runner.
+    headless: process.env.HEADED === '0',
+    launchOptions: {
+      args: [
+        '--enable-unsafe-webgpu',
+        '--enable-features=Vulkan',
+      ],
+    },
+  },
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
+  webServer: {
+    command: 'bun run dev',
+    url: 'https://localhost:3000/demo.html?id=minimal',
+    reuseExistingServer: true,
+    timeout: 60_000,
+    ignoreHTTPSErrors: true,
+  },
+})

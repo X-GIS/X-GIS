@@ -3,6 +3,11 @@ dist/
 *.xgb
 playground/public/data/
 
+# Playwright e2e artifacts
+playground/test-results/
+playground/playwright-report/
+playground/.playwright/
+
 # Build artifacts in source dirs
 **/*.js.map
 compiler/src/**/*.d.ts

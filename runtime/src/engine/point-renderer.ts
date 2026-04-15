@@ -5,6 +5,7 @@
 
 import type { Camera } from './camera'
 import { BLEND_ALPHA, DEPTH_TEST_WRITE, MSAA_4X, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
+import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
 import type { ShapeRegistry } from './sdf-shape'
 
 // ═══ WGSL Shader ═══
@@ -15,12 +16,13 @@ const DEG2RAD: f32 = 0.01745329;
 const EARTH_R: f32 = 6378137.0;
 const MERCATOR_LAT_LIMIT: f32 = 85.051129;
 const STRIDE: u32 = 14u;
+${WGSL_LOG_DEPTH_FNS}
 
 struct Uniforms {
   mvp: mat4x4<f32>,
   proj_params: vec4<f32>,   // x=projType, y=centerLon, z=centerLat
   tile_rtc: vec4<f32>,      // xy = -project(center), zw = (0,0)
-  viewport: vec4<f32>,      // xy = canvas width/height, z = meters_per_pixel
+  viewport: vec4<f32>,      // xy = canvas w/h, z = meters_per_pixel, w = log_depth_fc
 }
 
 // Shape SDF storage buffers
@@ -153,6 +155,16 @@ struct PointOut {
   @location(0) uv: vec2<f32>,
   @location(1) @interpolate(flat) feat_id: u32,
   @location(2) @interpolate(flat) radius_px: f32,
+  // view_w = pre-division clip-space w of the point center. All four
+  // quad corners share one depth so interpolation isn't an issue, but
+  // we still want the log-depth value in a varying so fs_point can write
+  // frag_depth uniformly.
+  @location(3) view_w: f32,
+}
+
+struct PointFragmentOutput {
+  @location(0) color: vec4<f32>,
+  @builtin(frag_depth) depth: f32,
 }
 
 @vertex
@@ -194,12 +206,17 @@ fn vs_point(
   let expand = radius_px + 2.0;
 
   var out: PointOut;
+  // Use the center's w for log-depth so every corner of the quad shares
+  // the same depth value (point markers occupy near-zero depth range).
+  let fc = u.viewport.w;
+  out.view_w = center_clip.w;
 
   if (is_flat) {
     // FLAT: expand in world-space, then transform via MVP
     let world_expand = expand * u.viewport.z;  // px → meters (viewport.z = mpp)
     let wo = offsets[quad_id] * world_expand;
-    out.position = u.mvp * vec4f(rtc_x + wo.x, rtc_y + wo.y, 0.0, 1.0);
+    let flat_clip = u.mvp * vec4f(rtc_x + wo.x, rtc_y + wo.y, 0.0, 1.0);
+    out.position = apply_log_depth(flat_clip, fc);
     out.uv = offsets[quad_id];
   } else {
     // BILLBOARD: expand in screen-space (NDC), perspective-corrected.
@@ -216,7 +233,8 @@ fn vs_point(
       offsets[quad_id].y * expand + y_shift_px,
     );
     let offset_ndc = offset_px * px_to_ndc;
-    out.position = center_clip + vec4f(offset_ndc * center_clip.w, 0.0, 0.0);
+    let billboard_clip = center_clip + vec4f(offset_ndc * center_clip.w, 0.0, 0.0);
+    out.position = apply_log_depth(billboard_clip, fc);
     // UV stays centered so the SDF shape renders unchanged — only the
     // on-screen placement is shifted.
     out.uv = offsets[quad_id] * expand / max(radius_px, 1.0);
@@ -227,7 +245,7 @@ fn vs_point(
 }
 
 @fragment
-fn fs_point(in: PointOut) -> @location(0) vec4f {
+fn fs_point(in: PointOut) -> PointFragmentOutput {
   let fid = in.feat_id;
   let shape_id = u32(feat_data[fid * STRIDE + 13u]);
 
@@ -283,7 +301,10 @@ fn fs_point(in: PointOut) -> @location(0) vec4f {
   }
 
   if (color.a < 0.005) { discard; }
-  return color;
+  var out: PointFragmentOutput;
+  out.color = color;
+  out.depth = compute_log_frag_depth(in.view_w, u.viewport.w);
+  return out;
 }
 `
 
@@ -536,7 +557,8 @@ export class PointRenderer {
     uf[16] = 0; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
     uf[20] = 0; uf[21] = 0; uf[22] = 0; uf[23] = 0
     const metersPerPixel = (40075016.686 / 256) / Math.pow(2, camera.zoom)
-    uf[24] = canvasWidth; uf[25] = canvasHeight; uf[26] = metersPerPixel; uf[27] = 0
+    // viewport.w = log_depth_fc so fs_point can write @builtin(frag_depth)
+    uf[24] = canvasWidth; uf[25] = canvasHeight; uf[26] = metersPerPixel; uf[27] = camera.getLogDepthFc()
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
 
     // Single draw call for all 3 world copies
@@ -714,12 +736,12 @@ export class PointRenderer {
     uf[21] = -Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) * R
     uf[22] = 0
     uf[23] = 0
-    // viewport: xy = size, z = meters_per_pixel
+    // viewport: xy = size, z = meters_per_pixel, w = log_depth_fc
     const metersPerPixel = (40075016.686 / 256) / Math.pow(2, camera.zoom)
     uf[24] = canvasWidth
     uf[25] = canvasHeight
     uf[26] = metersPerPixel
-    uf[27] = 0
+    uf[27] = camera.getLogDepthFc()
 
     // tile_rtc no longer needed in uniform (RTC computed per-point in CPU)
     uf[20] = 0; uf[21] = 0; uf[22] = 0; uf[23] = 0

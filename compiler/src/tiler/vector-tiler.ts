@@ -12,6 +12,106 @@ import type { GeoJSONFeatureCollection, GeoJSONFeature } from './geojson-types'
 /** Tile coordinate extent (like MVT 4096, but higher for military precision) */
 export const TILE_EXTENT = 8192
 
+// ═══ DSFUN (Double-Single FUNction) helpers ═══
+// Tile vertices are stored as (high, low) f32 pairs of tile-local Mercator
+// meters. high + low reconstructs an f64-equivalent value; the shader
+// subtracts (pos_h - cam_h) + (pos_l - cam_l) to preserve precision under
+// large-magnitude subtraction. See docs/dsfun-refactor-plan.md.
+
+const DSFUN_EARTH_R = 6378137
+const DSFUN_DEG2RAD = Math.PI / 180
+const DSFUN_LAT_LIMIT = 85.051129
+
+/** Convert (lon_deg, lat_deg) to Mercator meters in f64. */
+export function lonLatToMercF64(lon: number, lat: number): [number, number] {
+  const clamped = Math.max(-DSFUN_LAT_LIMIT, Math.min(DSFUN_LAT_LIMIT, lat))
+  const mx = lon * DSFUN_DEG2RAD * DSFUN_EARTH_R
+  const my = Math.log(Math.tan(Math.PI / 4 + clamped * DSFUN_DEG2RAD / 2)) * DSFUN_EARTH_R
+  return [mx, my]
+}
+
+/** Split an f64 TS number into (high, low) f32 pair where high + low ≈ value. */
+export function splitF64(x: number): [number, number] {
+  const h = Math.fround(x)
+  const l = Math.fround(x - h)
+  return [h, l]
+}
+
+/**
+ * Pack a stride-3 scratch array of absolute (lon, lat, feat_id) vertices into a
+ * stride-5 DSFUN Float32Array of tile-local Mercator meters:
+ *   [mx_h, my_h, mx_l, my_l, feat_id]
+ * The tile origin (tileMx, tileMy) is subtracted in f64 before splitting, so
+ * the resulting high/low pair can reconstruct f64-equivalent precision on the
+ * GPU via (pos_h - cam_h) + (pos_l - cam_l).
+ */
+export function packDSFUNPolygonVertices(
+  scratchPv: number[] | Float64Array,
+  tileMx: number,
+  tileMy: number,
+): Float32Array {
+  const count = scratchPv.length / 3
+  const out = new Float32Array(count * 5)
+  for (let i = 0; i < count; i++) {
+    const lon = scratchPv[i * 3]
+    const lat = scratchPv[i * 3 + 1]
+    const fid = scratchPv[i * 3 + 2]
+    const clamped = Math.max(-DSFUN_LAT_LIMIT, Math.min(DSFUN_LAT_LIMIT, lat))
+    const mx = lon * DSFUN_DEG2RAD * DSFUN_EARTH_R
+    const my = Math.log(Math.tan(Math.PI / 4 + clamped * DSFUN_DEG2RAD / 2)) * DSFUN_EARTH_R
+    const localMx = mx - tileMx
+    const localMy = my - tileMy
+    const mxH = Math.fround(localMx)
+    const mxL = Math.fround(localMx - mxH)
+    const myH = Math.fround(localMy)
+    const myL = Math.fround(localMy - myH)
+    const base = i * 5
+    out[base] = mxH
+    out[base + 1] = myH
+    out[base + 2] = mxL
+    out[base + 3] = myL
+    out[base + 4] = fid
+  }
+  return out
+}
+
+/**
+ * Pack a stride-4 scratch array of absolute (lon, lat, feat_id, arc_start)
+ * line vertices into a stride-6 DSFUN Float32Array:
+ *   [mx_h, my_h, mx_l, my_l, feat_id, arc_start]
+ */
+export function packDSFUNLineVertices(
+  scratchLv: number[] | Float64Array,
+  tileMx: number,
+  tileMy: number,
+): Float32Array {
+  const count = scratchLv.length / 4
+  const out = new Float32Array(count * 6)
+  for (let i = 0; i < count; i++) {
+    const lon = scratchLv[i * 4]
+    const lat = scratchLv[i * 4 + 1]
+    const fid = scratchLv[i * 4 + 2]
+    const arc = scratchLv[i * 4 + 3]
+    const clamped = Math.max(-DSFUN_LAT_LIMIT, Math.min(DSFUN_LAT_LIMIT, lat))
+    const mx = lon * DSFUN_DEG2RAD * DSFUN_EARTH_R
+    const my = Math.log(Math.tan(Math.PI / 4 + clamped * DSFUN_DEG2RAD / 2)) * DSFUN_EARTH_R
+    const localMx = mx - tileMx
+    const localMy = my - tileMy
+    const mxH = Math.fround(localMx)
+    const mxL = Math.fround(localMx - mxH)
+    const myH = Math.fround(localMy)
+    const myL = Math.fround(localMy - myH)
+    const base = i * 6
+    out[base] = mxH
+    out[base + 1] = myH
+    out[base + 2] = mxL
+    out[base + 3] = myL
+    out[base + 4] = fid
+    out[base + 5] = arc
+  }
+  return out
+}
+
 // ═══ Types ═══
 
 export interface CompiledTileSet {
@@ -41,8 +141,16 @@ export interface CompiledTile {
   y: number
   tileWest: number   // tile origin longitude (f64 precision in JS)
   tileSouth: number  // tile origin latitude (f64 precision in JS)
-  vertices: Float32Array   // tile-local coordinates: [dx, dy, feat_id] where dx=lon-tileWest
+  /** Polygon fill vertices as DSFUN stride-5 pairs:
+   *  [mx_h, my_h, mx_l, my_l, feat_id] in tile-local Mercator meters.
+   *  mx_h + mx_l reconstructs an f64-equivalent coordinate — the shader
+   *  cancels tile-origin magnitude with (pos_h - cam_h) + (pos_l - cam_l)
+   *  so precision survives into camera-relative space. */
+  vertices: Float32Array
   indices: Uint32Array
+  /** Line vertices as DSFUN stride-6 pairs:
+   *  [mx_h, my_h, mx_l, my_l, feat_id, arc_start]. arc_start is global
+   *  f64-accumulated Mercator-meter arc length (precomputed in tiler). */
   lineVertices: Float32Array
   lineIndices: Uint32Array
   outlineIndices: Uint32Array  // polygon outline line segments (reuses vertices buffer)
@@ -51,58 +159,87 @@ export interface CompiledTile {
   fullCoverFeatureId?: number
   /** Original clipped polygon rings for runtime sub-tiling */
   polygons?: { rings: number[][][]; featId: number }[]
-  /** Point features: [dx, dy, feat_id] tile-local, stride 3 */
+  /** Point vertices as DSFUN stride-5 pairs (same layout as polygon). */
   pointVertices?: Float32Array
 }
 
 // ═══ Morton Code (Z-Order Curve) Tile Key ═══
+//
+// Tile keys pack (z, x, y) into one f64-safe integer:
+//   key = 4^z + mortonEncode(x, y)
+//
+// For z ≤ 15 the key fits in 32 bits and the bit-twiddling hacks
+// (spreadBits/compactBits) produce identical values to the loop form.
+// For z > 15 (DSFUN unlocked camera zooms 16–22) we need f64 arithmetic
+// because `1 << 32` overflows JavaScript's 32-bit shift semantics and
+// spreadBits truncates inputs to 16 bits.
+//
+// Max supported zoom = 22. At z=22, x and y reach 2^22, morton reaches
+// 2^44, and the key plus z-prefix stays well below 2^53 (JS integer limit).
 
-function spreadBits(v: number): number {
-  v = (v | (v << 16)) & 0x0000ffff
-  v = (v | (v <<  8)) & 0x00ff00ff
-  v = (v | (v <<  4)) & 0x0f0f0f0f
-  v = (v | (v <<  2)) & 0x33333333
-  v = (v | (v <<  1)) & 0x55555555
-  return v
+const MAX_TILE_ZOOM = 22
+
+/** Spread the 22 low bits of `v` into even positions of a 44-bit result. */
+function spreadBits22(v: number): number {
+  let result = 0
+  for (let i = 0; i < MAX_TILE_ZOOM; i++) {
+    if ((v & (1 << i)) !== 0) result += Math.pow(2, 2 * i)
+  }
+  return result
 }
 
-function compactBits(v: number): number {
-  v &= 0x55555555
-  v = (v | (v >>>  1)) & 0x33333333
-  v = (v | (v >>>  2)) & 0x0f0f0f0f
-  v = (v | (v >>>  4)) & 0x00ff00ff
-  v = (v | (v >>>  8)) & 0x0000ffff
-  return v
+/** Collect bits at positions `startBit`, `startBit+2`, `startBit+4`, … back into a packed integer. */
+function collectBits22(morton: number, startBit: number): number {
+  let result = 0
+  for (let i = 0; i < MAX_TILE_ZOOM; i++) {
+    const pow = Math.pow(2, 2 * i + startBit)
+    if (Math.floor(morton / pow) % 2 === 1) result |= (1 << i)
+  }
+  return result
 }
 
 export function mortonEncode(x: number, y: number): number {
-  return spreadBits(x) | (spreadBits(y) << 1)
+  return spreadBits22(x) + 2 * spreadBits22(y)
 }
 
 export function mortonDecode(morton: number): [number, number] {
-  return [compactBits(morton), compactBits(morton >>> 1)]
+  return [collectBits22(morton, 0), collectBits22(morton, 1)]
 }
 
 export function tileKey(z: number, x: number, y: number): number {
-  return (1 << (2 * z)) | mortonEncode(x, y)
+  return Math.pow(4, z) + mortonEncode(x, y)
 }
 
 export function tileKeyUnpack(key: number): [number, number, number] {
+  // Find the largest z such that 4^z ≤ key.
   let z = 0
-  let tmp = key >>> 2
-  while (tmp > 0) { z++; tmp >>>= 2 }
-  const morton = key & ((1 << (2 * z)) - 1)
+  let acc = 1 // 4^0
+  while (acc * 4 <= key) {
+    acc *= 4
+    z++
+  }
+  const morton = key - acc
   const [x, y] = mortonDecode(morton)
   return [z, x, y]
 }
 
 export function tileKeyParent(key: number): number {
-  return key >>> 2
+  const [z, x, y] = tileKeyUnpack(key)
+  // x >> 1 is always safe (22-bit → 21-bit).
+  return tileKey(z - 1, x >>> 1, y >>> 1)
 }
 
 export function tileKeyChildren(key: number): [number, number, number, number] {
-  const base = key << 2
-  return [base, base | 1, base | 2, base | 3]
+  const [z, x, y] = tileKeyUnpack(key)
+  const cz = z + 1
+  const cx = x * 2
+  const cy = y * 2
+  return [
+    tileKey(cz, cx,     cy),
+    tileKey(cz, cx + 1, cy),
+    tileKey(cz, cx,     cy + 1),
+    tileKey(cz, cx + 1, cy + 1),
+  ]
 }
 
 // ═══ Geometry Part: per-polygon/per-line with tight bbox ═══
@@ -508,7 +645,7 @@ function processZoomLevelShared(
         for (let y = fyMin; y <= fyMax; y++) {
           // Adaptive: skip if parent tile didn't need subdivision
           if (z > minZoom) {
-            const parentKey = tileKey(z, x, y) >>> 2 // tileKeyParent
+            const parentKey = tileKey(z - 1, x >>> 1, y >>> 1)
             if (!needsSubdivision.has(parentKey)) continue
           }
           const key = tileKey(z, x, y)
@@ -640,30 +777,20 @@ function processZoomLevelShared(
           scratch.oi = filtered
         }
 
-        // Convert to tile-local coordinates for f32 precision
-        for (let i = 0; i < scratch.pv.length; i += 3) {
-          scratch.pv[i] -= tb.west
-          scratch.pv[i + 1] -= tb.south
-        }
-        for (let i = 0; i < scratch.lv.length; i += 4) {
-          scratch.lv[i] -= tb.west
-          scratch.lv[i + 1] -= tb.south
-        }
-        for (let i = 0; i < scratch.ptv.length; i += 3) {
-          scratch.ptv[i] -= tb.west
-          scratch.ptv[i + 1] -= tb.south
-        }
+        // DSFUN pack: project scratch vertices (absolute lon/lat) to tile-local
+        // Mercator meters in f64, then split into (high, low) f32 pairs.
+        const [tileMx, tileMy] = lonLatToMercF64(tb.west, tb.south)
 
         tiles.set(key, {
           z, x: tx, y: ty,
           tileWest: tb.west,
           tileSouth: tb.south,
-          vertices: new Float32Array(scratch.pv),
+          vertices: packDSFUNPolygonVertices(scratch.pv, tileMx, tileMy),
           indices: new Uint32Array(scratch.pi),
-          lineVertices: new Float32Array(scratch.lv),
+          lineVertices: packDSFUNLineVertices(scratch.lv, tileMx, tileMy),
           lineIndices: new Uint32Array(scratch.li),
           outlineIndices: new Uint32Array(scratch.oi),
-          pointVertices: scratch.ptv.length > 0 ? new Float32Array(scratch.ptv) : undefined,
+          pointVertices: scratch.ptv.length > 0 ? packDSFUNPolygonVertices(scratch.ptv, tileMx, tileMy) : undefined,
           featureCount: featureIds.size,
           fullCover,
           fullCoverFeatureId: fullCoverFeatId,
@@ -775,26 +902,18 @@ export function compileSingleTile(
     scratch.oi = filtered
   }
 
-  // Convert to tile-local coordinates
-  for (let i = 0; i < scratch.pv.length; i += 3) {
-    scratch.pv[i] -= tb.west; scratch.pv[i + 1] -= tb.south
-  }
-  for (let i = 0; i < scratch.lv.length; i += 4) {
-    scratch.lv[i] -= tb.west; scratch.lv[i + 1] -= tb.south
-  }
-  for (let i = 0; i < scratch.ptv.length; i += 3) {
-    scratch.ptv[i] -= tb.west; scratch.ptv[i + 1] -= tb.south
-  }
+  // DSFUN pack: project to tile-local Mercator meters, split into high/low pairs
+  const [tileMx, tileMy] = lonLatToMercF64(tb.west, tb.south)
 
   return {
     z, x, y,
     tileWest: tb.west, tileSouth: tb.south,
-    vertices: new Float32Array(scratch.pv),
+    vertices: packDSFUNPolygonVertices(scratch.pv, tileMx, tileMy),
     indices: new Uint32Array(scratch.pi),
-    lineVertices: new Float32Array(scratch.lv),
+    lineVertices: packDSFUNLineVertices(scratch.lv, tileMx, tileMy),
     lineIndices: new Uint32Array(scratch.li),
     outlineIndices: new Uint32Array(scratch.oi),
-    pointVertices: scratch.ptv.length > 0 ? new Float32Array(scratch.ptv) : undefined,
+    pointVertices: scratch.ptv.length > 0 ? packDSFUNPolygonVertices(scratch.ptv, tileMx, tileMy) : undefined,
     featureCount: featureIds.size,
     polygons: tilePolygons.length > 0 ? tilePolygons : undefined,
   }

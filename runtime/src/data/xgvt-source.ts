@@ -8,6 +8,7 @@ import {
   tileKey, tileKeyUnpack,
   clipPolygonToRect,
   compileSingleTile,
+  lonLatToMercF64,
   type XGVTIndex, type TileIndexEntry,
   type PropertyTable, type RingPolygon,
   type CompiledTileSet, type TileLevel,
@@ -18,21 +19,34 @@ import { getSharedPool, type XGVTWorkerPool } from './xgvt-worker-pool'
 
 // ═══ Types ═══
 
-/** CPU-only tile data (no GPU dependency) */
+/** CPU-only tile data (no GPU dependency)
+ *
+ * DSFUN vertex format (see docs/dsfun-refactor-plan.md):
+ * - Polygon/point: [mx_h, my_h, mx_l, my_l, feat_id]                 stride 5
+ * - Line:          [mx_h, my_h, mx_l, my_l, feat_id, arc_start_m]    stride 6
+ *
+ * (mx, my) are tile-local Mercator meters relative to tile origin,
+ * split into (high, low) f32 pairs for f64-equivalent precision via
+ * the shader's DSFUN subtraction (pos_h - cam_h) + (pos_l - cam_l).
+ */
 export interface TileData {
-  vertices: Float32Array       // [lon, lat, featId] stride 3 (tile-local, polygon fills)
+  vertices: Float32Array       // polygon fills — DSFUN stride 5
   indices: Uint32Array         // triangle indices
-  lineVertices: Float32Array   // [lon, lat, featId, arcStart_m] stride 4
+  lineVertices: Float32Array   // lines — DSFUN stride 6 (arc_start at [5])
   lineIndices: Uint32Array     // line segment indices (pairs)
-  outlineIndices: Uint32Array  // polygon outline line segments (reuses vertices buffer)
-  pointVertices?: Float32Array // [lon, lat, featId] stride 3 (tile-local points)
-  tileWest: number             // tile origin (degrees)
+  outlineIndices: Uint32Array  // polygon outline line segments (reuses `vertices`)
+  pointVertices?: Float32Array // points — DSFUN stride 5
+  tileWest: number             // tile origin (degrees) — canonical identity
   tileSouth: number
   tileWidth: number
   tileHeight: number
   tileZoom: number
   polygons?: RingPolygon[]     // original rings (for sub-tiling)
 }
+
+// Stride constants (exported for tests + VTR upload paths)
+export const DSFUN_POLY_STRIDE = 5
+export const DSFUN_LINE_STRIDE = 6
 
 const MAX_CACHED_TILES = 512
 const MAX_CONCURRENT_LOADS = 32
@@ -172,8 +186,8 @@ export class XGVTSource {
     if (this.index) {
       const entry: TileIndexEntry = {
         tileHash: key, dataOffset: 0, compactSize: 0, gpuReadySize: 0,
-        vertexCount: tile.vertices.length / 3, indexCount: tile.indices.length,
-        lineVertexCount: tile.lineVertices.length / 4, lineIndexCount: tile.lineIndices.length,
+        vertexCount: tile.vertices.length / DSFUN_POLY_STRIDE, indexCount: tile.indices.length,
+        lineVertexCount: tile.lineVertices.length / DSFUN_LINE_STRIDE, lineIndexCount: tile.lineIndices.length,
         flags: 0, fullCoverFeatureId: 0,
       }
       if (!this.index.entryByHash.has(key)) {
@@ -286,9 +300,9 @@ export class XGVTSource {
           dataOffset: 0,
           compactSize: 0,
           gpuReadySize: 0,
-          vertexCount: tile.vertices.length / 3,
+          vertexCount: tile.vertices.length / DSFUN_POLY_STRIDE,
           indexCount: tile.indices.length,
-          lineVertexCount: tile.lineVertices.length / 4,
+          lineVertexCount: tile.lineVertices.length / DSFUN_LINE_STRIDE,
           lineIndexCount: tile.lineIndices.length,
           flags: isFullCover ? (TILE_FLAG_FULL_COVER | (fid << 1)) : 0,
           fullCoverFeatureId: fid,
@@ -358,8 +372,8 @@ export class XGVTSource {
       const fid = tile.fullCoverFeatureId ?? 0
       const entry: TileIndexEntry = {
         tileHash: key, dataOffset: 0, compactSize: 0, gpuReadySize: 0,
-        vertexCount: tile.vertices.length / 3, indexCount: tile.indices.length,
-        lineVertexCount: tile.lineVertices.length / 4, lineIndexCount: tile.lineIndices.length,
+        vertexCount: tile.vertices.length / DSFUN_POLY_STRIDE, indexCount: tile.indices.length,
+        lineVertexCount: tile.lineVertices.length / DSFUN_LINE_STRIDE, lineIndexCount: tile.lineIndices.length,
         flags: isFullCover ? (TILE_FLAG_FULL_COVER | (fid << 1)) : 0,
         fullCoverFeatureId: fid,
       }
@@ -653,17 +667,37 @@ export class XGVTSource {
   }
 
   private createFullCoverTileData(key: number, entry: TileIndexEntry, lineVertices: Float32Array, lineIndices: Uint32Array): void {
-    const [tz, , ty] = tileKeyUnpack(key)
+    const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
-    const tileWidth = 360 / tn
+    const tileWest = tx / tn * 360 - 180
+    const tileEast = (tx + 1) / tn * 360 - 180
     const tileSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tn))) * 180 / Math.PI
     const tileNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tn))) * 180 / Math.PI
-    const tileHeight = tileNorth - tileSouth
     const fid = entry.fullCoverFeatureId
 
+    // DSFUN stride-5 quad in tile-local Mercator meters. Corner 0 is
+    // (0,0), corner 2 is (merc_width, merc_height).
+    const [tileMx, tileMy] = lonLatToMercF64(tileWest, tileSouth)
+    const [neMx, neMy] = lonLatToMercF64(tileEast, tileNorth)
+    const mercWidth = neMx - tileMx
+    const mercHeight = neMy - tileMy
+
+    const splitLocal = (v: number): [number, number] => {
+      const h = Math.fround(v)
+      return [h, Math.fround(v - h)]
+    }
+    const [wH, wL] = splitLocal(mercWidth)
+    const [hH, hL] = splitLocal(mercHeight)
+
     const vertices = new Float32Array([
-      0, 0, fid, tileWidth, 0, fid,
-      tileWidth, tileHeight, fid, 0, tileHeight, fid,
+      // (0, 0)
+      0, 0, 0, 0, fid,
+      // (width, 0)
+      wH, 0, wL, 0, fid,
+      // (width, height)
+      wH, hH, wL, hL, fid,
+      // (0, height)
+      0, hH, 0, hL, fid,
     ])
     const indices = new Uint32Array([0, 1, 2, 0, 2, 3])
 
@@ -715,38 +749,56 @@ export class XGVTSource {
     const subSouth = Math.atan(Math.sinh(Math.PI * (1 - 2 * (sy + 1) / sn))) * 180 / Math.PI
     const subNorth = Math.atan(Math.sinh(Math.PI * (1 - 2 * sy / sn))) * 180 / Math.PI
 
-    const clipW = subWest - parent.tileWest
-    const clipE = subEast - parent.tileWest
-    const clipS = subSouth - parent.tileSouth
-    const clipN = subNorth - parent.tileSouth
+    // Parent vertices are stored as DSFUN tile-local Mercator meters (high/low
+    // pairs). Sub-tile clip must run in the same Mercator-meter space, so we
+    // convert every bound to meters and work with reconstructed f64 values.
+    const [parentMx, parentMy] = lonLatToMercF64(parent.tileWest, parent.tileSouth)
+    const [subMxW, subMyS] = lonLatToMercF64(subWest, subSouth)
+    const [subMxE, subMyN] = lonLatToMercF64(subEast, subNorth)
+    const clipW = subMxW - parentMx
+    const clipE = subMxE - parentMx
+    const clipS = subMyS - parentMy
+    const clipN = subMyN - parentMy
 
     // Clip polygons
     const verts = parent.vertices
     const outV: number[] = []
     const outI: number[] = []
-    // Position-dedup index for outV (polygon + outline share the same buffer).
-    // Without this, polygon outline edges created by independent segment
-    // clipping never share endpoint indices — every segment becomes its own
-    // isolated chain end and buildLineSegments cannot find neighbors to
-    // compute prev/next tangents, so line joins silently degrade to butt caps.
+    // Position-dedup index for outV. Quantize to ~1 cm to tolerate clipper
+    // noise — with DSFUN vertices we can afford much tighter quantization
+    // than the old 10 cm tile-local-degree key.
     const outVKey = new Map<string, number>()
+    const splitLocal = (v: number): [number, number] => {
+      const h = Math.fround(v)
+      return [h, Math.fround(v - h)]
+    }
+    // outV layout: DSFUN stride-5 [mx_h, my_h, mx_l, my_l, feat_id] per vertex.
     const pushDedupPV = (x: number, y: number, fid: number): number => {
-      // Quantize to ~1e-6 degree (≈10 cm) to tolerate clipper float noise.
-      const k = `${Math.round(x * 1e6)},${Math.round(y * 1e6)},${fid}`
+      const k = `${Math.round(x * 100)},${Math.round(y * 100)},${fid}`
       const hit = outVKey.get(k)
       if (hit !== undefined) return hit
-      const idx = outV.length / 3
-      outV.push(x, y, fid)
+      const idx = outV.length / 5
+      const [xH, xL] = splitLocal(x)
+      const [yH, yL] = splitLocal(y)
+      outV.push(xH, yH, xL, yL, fid)
       outVKey.set(k, idx)
       return idx
     }
 
+    // Reconstruct parent vertex to f64-equivalent tile-local meters
+    const readPV = (vi: number): [number, number, number] => {
+      const off = vi * 5
+      const x = verts[off] + verts[off + 2]
+      const y = verts[off + 1] + verts[off + 3]
+      const fid = verts[off + 4]
+      return [x, y, fid]
+    }
+
     for (let t = 0; t < parent.indices.length; t += 3) {
       const i0 = parent.indices[t], i1 = parent.indices[t + 1], i2 = parent.indices[t + 2]
-      const x0 = verts[i0 * 3], y0 = verts[i0 * 3 + 1]
-      const x1 = verts[i1 * 3], y1 = verts[i1 * 3 + 1]
-      const x2 = verts[i2 * 3], y2 = verts[i2 * 3 + 1]
-      const fid = verts[i0 * 3 + 2]
+      const [x0, y0, fid] = readPV(i0)
+      const [x1, y1] = readPV(i1)
+      const [x2, y2] = readPV(i2)
 
       const minX = Math.min(x0, x1, x2), maxX = Math.max(x0, x1, x2)
       const minY = Math.min(y0, y1, y2), maxY = Math.max(y0, y1, y2)
@@ -765,30 +817,37 @@ export class XGVTSource {
       for (let j = 1; j < ring.length - 1; j++) outI.push(ringIdx[0], ringIdx[j], ringIdx[j + 1])
     }
 
-    // Clip lines (Liang-Barsky). Also dedup line vertices so consecutive
-    // polyline segments that shared a vertex in the parent tile still share
-    // it in the sub-tile — essential for prev/next tangent adjacency.
+    // Clip lines (Liang-Barsky). Same DSFUN reconstruction + dedup.
     const lineVerts = parent.lineVertices
     const lineIdx = parent.lineIndices
+    // outLV layout: DSFUN stride-6 [mx_h, my_h, mx_l, my_l, feat_id, arc_start]
     const outLV: number[] = []
     const outLI: number[] = []
     const outLVKey = new Map<string, number>()
     const pushDedupLV = (x: number, y: number, fid: number, arc: number): number => {
-      const k = `${Math.round(x * 1e6)},${Math.round(y * 1e6)},${fid}`
+      const k = `${Math.round(x * 100)},${Math.round(y * 100)},${fid}`
       const hit = outLVKey.get(k)
       if (hit !== undefined) return hit
-      const idx = outLV.length / 4
-      outLV.push(x, y, fid, arc)
+      const idx = outLV.length / 6
+      const [xH, xL] = splitLocal(x)
+      const [yH, yL] = splitLocal(y)
+      outLV.push(xH, yH, xL, yL, fid, arc)
       outLVKey.set(k, idx)
       return idx
+    }
+    const readLV = (vi: number): [number, number, number, number] => {
+      const off = vi * 6
+      const x = lineVerts[off] + lineVerts[off + 2]
+      const y = lineVerts[off + 1] + lineVerts[off + 3]
+      const fid = lineVerts[off + 4]
+      const arc = lineVerts[off + 5]
+      return [x, y, fid, arc]
     }
 
     for (let s = 0; s < lineIdx.length; s += 2) {
       const a = lineIdx[s], b = lineIdx[s + 1]
-      const ax = lineVerts[a * 4], ay = lineVerts[a * 4 + 1]
-      const afid = lineVerts[a * 4 + 2], aarc = lineVerts[a * 4 + 3]
-      const bx = lineVerts[b * 4], by = lineVerts[b * 4 + 1]
-      const barc = lineVerts[b * 4 + 3]
+      const [ax, ay, afid, aarc] = readLV(a)
+      const [bx, by, , barc] = readLV(b)
 
       if (Math.max(ax, bx) < clipW || Math.min(ax, bx) > clipE ||
           Math.max(ay, by) < clipS || Math.min(ay, by) > clipN) continue
@@ -829,8 +888,8 @@ export class XGVTSource {
     if (outlineIdx && outlineIdx.length > 0) {
       for (let s = 0; s < outlineIdx.length; s += 2) {
         const a = outlineIdx[s], b = outlineIdx[s + 1]
-        const ax = verts[a * 3], ay = verts[a * 3 + 1], afid = verts[a * 3 + 2]
-        const bx = verts[b * 3], by = verts[b * 3 + 1]
+        const [ax, ay, afid] = readPV(a)
+        const [bx, by] = readPV(b)
 
         if (Math.max(ax, bx) < clipW || Math.min(ax, bx) > clipE ||
             Math.max(ay, by) < clipS || Math.min(ay, by) > clipN) continue

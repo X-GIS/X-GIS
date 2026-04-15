@@ -47,6 +47,7 @@ import {
   WGSL_WINDING_LINE,
   WGSL_SHAPE_STRUCTS,
 } from './wgsl-sdf'
+import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
 import type { ShapeRegistry } from './sdf-shape'
 
 // ═══ Layer Uniform Layout ═══
@@ -267,10 +268,23 @@ export function packLineLayerUniform(
 //   [4-5]  prev_tangent (vec2)  — direction of prev seg arriving at p0 (zero = cap)
 //   [6-7]  next_tangent (vec2)  — direction of next seg leaving p1 (zero = cap)
 //   [8]    arc_start   (f32)
-//   [9]    line_length (f32)
-//   [10]   pad_ratio_p0 (f32)   — multiplier of half_w for along-dir quad pad at p0
-//   [11]   pad_ratio_p1 (f32)   — multiplier of half_w for along-dir quad pad at p1
-export const LINE_SEGMENT_STRIDE_F32 = 12
+// DSFUN segment layout (stride 16 f32 = 64 bytes):
+//   [0-1]   p0_h (vec2<f32>)        — tile-local Mercator meters, high pair
+//   [2-3]   p1_h (vec2<f32>)
+//   [4-5]   p0_l (vec2<f32>)        — low pair
+//   [6-7]   p1_l (vec2<f32>)
+//   [8-9]   prev_tangent (vec2<f32>)
+//   [10-11] next_tangent (vec2<f32>)
+//   [12]    arc_start (f32)
+//   [13]    line_length (f32)
+//   [14]    pad_ratio_p0 (f32)
+//   [15]    pad_ratio_p1 (f32)
+//
+// The shader subtracts (p0_h - cam_h) + (p0_l - cam_l) to cancel tile-origin
+// magnitude and recover camera-relative meters with f64-equivalent precision.
+// Tangents stay single-f32 — they're unit vectors in a tile-local frame and
+// don't suffer from cancellation.
+export const LINE_SEGMENT_STRIDE_F32 = 16
 export const LINE_SEGMENT_STRIDE_BYTES = LINE_SEGMENT_STRIDE_F32 * 4
 
 /**
@@ -316,15 +330,16 @@ const DEFAULT_BUILD_MITER_LIMIT = 4.0
 /**
  * Build a segment storage buffer from line vertices + indices.
  *
- * Input vertices are tile-local degrees:
- *   - stride 3: `[lon_rel, lat_rel, featId]` — used by polygon outlines.
- *               arc_start is computed via per-tile BFS traversal.
- *   - stride 4: `[lon_rel, lat_rel, featId, arcStart_m]` — used by line features.
- *               arc_start is precomputed globally at tiling time (cross-tile
- *               continuity for dash/pattern phase).
+ * Input vertices are DSFUN tile-local Mercator meters:
+ *   - stride 5: `[mx_h, my_h, mx_l, my_l, featId]`          — polygon outlines
+ *   - stride 6: `[mx_h, my_h, mx_l, my_l, featId, arcStart]` — line features
  *
- * Converts degrees → tile-local Mercator METERS (f64) so the shader avoids
- * f32 `log(tan())` precision loss at high zoom.
+ * No Mercator projection needed here — the tiler already pre-projected each
+ * vertex to Mercator meters at compile time. This function reads the DSFUN
+ * high/low pair back into an f64-equivalent TS number for CPU-side tangent
+ * math, then re-splits the endpoint positions into the segment storage
+ * buffer where the shader performs the cancellation subtraction at draw
+ * time.
  *
  * Also computes prev_tangent/next_tangent for each segment by looking up
  * adjacent segments that share an endpoint — needed for line join rendering.
@@ -332,36 +347,26 @@ const DEFAULT_BUILD_MITER_LIMIT = 4.0
 export function buildLineSegments(
   vertices: Float32Array,
   indices: Uint32Array,
-  tileSouthDeg: number,
-  stride: number = 3,
-  /** Tile width/height in degrees — used to detect chain ends that sit on a
-   *  tile boundary and treat them as virtual joins (same-direction tangent)
-   *  so the SDF shader emits no cap there. Adjacent tiles' segments meet
-   *  at the boundary and the union forms a continuous stroke. Optional;
-   *  when omitted, boundary detection is disabled and chain ends always
-   *  render with the configured cap style. */
-  tileWidthDeg: number = 0,
-  tileHeightDeg: number = 0,
+  stride: 5 | 6 = 5,
+  /** Tile width/height in Mercator METERS — used to detect chain ends that
+   *  sit on a tile boundary and treat them as virtual joins (same-direction
+   *  tangent) so the SDF shader emits no cap there. Adjacent tiles' segments
+   *  meet at the boundary and the union forms a continuous stroke. Optional;
+   *  when omitted, boundary detection is disabled. */
+  tileWidthMerc: number = 0,
+  tileHeightMerc: number = 0,
 ): Float32Array {
-  const DEG2RAD = Math.PI / 180
-  const R = 6378137
-  const LAT_LIMIT = 85.051129
-  const clampLat = (v: number) => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
-
-  // Precompute merc_south (f64) — this is the reference for merc_y
-  const mercSouth = Math.log(Math.tan(Math.PI / 4 + clampLat(tileSouthDeg) * DEG2RAD / 2)) * R
-
   const segCount = indices.length / 2
   const out = new Float32Array(segCount * LINE_SEGMENT_STRIDE_F32)
 
-  // Convert a single vertex (lon/lat rel. to tile) to tile-local Mercator meters
+  // Reconstruct f64-equivalent tile-local Mercator meters from the DSFUN
+  // high/low pair. Precision loss here is ~0 because the values were
+  // originally split with Math.fround.
   const projVert = (vi: number): [number, number] => {
-    const lon = vertices[vi * stride]
-    const lat = vertices[vi * stride + 1]
-    const absLat = clampLat(lat + tileSouthDeg)
-    const x = lon * DEG2RAD * R
-    const y = Math.log(Math.tan(Math.PI / 4 + absLat * DEG2RAD / 2)) * R - mercSouth
-    return [x, y]
+    const off = vi * stride
+    const mx = vertices[off] + vertices[off + 2]
+    const my = vertices[off + 1] + vertices[off + 3]
+    return [mx, my]
   }
 
   // Build adjacency map: vertex_index → [segment_index, ...]
@@ -390,11 +395,12 @@ export function buildLineSegments(
     segLen[i] = Math.sqrt(dx * dx + dy * dy)
   }
 
-  if (stride >= 4) {
-    // Global arc from vertex[3]. Each segment's arc_start = vertex[a].arc.
+  if (stride >= 6) {
+    // Global arc from vertex[5] (DSFUN stride 6 line features). Each
+    // segment's arc_start = vertex[a].arc_start.
     for (let i = 0; i < segCount; i++) {
       const a = indices[i * 2]
-      arcStart[i] = vertices[a * stride + 3]
+      arcStart[i] = vertices[a * stride + 5]
     }
     // arcTotal left at 0 — patterns that need line_length will come in Phase 4.
   } else {
@@ -461,34 +467,58 @@ export function buildLineSegments(
   } // end stride-3 BFS branch
 
   // ── Tile boundary detection ──
-  // Returns true if a tile-local (lon,lat in degrees relative to tile SW
-  // corner) lies within `EPS_DEG` of any tile edge. Used to suppress the
-  // visible round/butt cap that would otherwise appear at every tile-clip
-  // boundary along a polyline that continues into the neighboring tile.
-  const EPS_DEG = 1e-4
-  const onBoundary = (lonLocal: number, latLocal: number): boolean => {
-    if (tileWidthDeg <= 0 || tileHeightDeg <= 0) return false
+  // Returns true if a tile-local (mx, my in Mercator METERS relative to tile
+  // SW corner) lies within `EPS_M` of any tile edge. Suppresses the visible
+  // round/butt cap at every tile-clip boundary so adjacent tiles' segments
+  // meet seamlessly. ~10m tolerance soaks up clipper float noise at any zoom.
+  const EPS_M = 10
+  const onBoundary = (mxLocal: number, myLocal: number): boolean => {
+    if (tileWidthMerc <= 0 || tileHeightMerc <= 0) return false
     return (
-      lonLocal <= EPS_DEG ||
-      latLocal <= EPS_DEG ||
-      lonLocal >= tileWidthDeg - EPS_DEG ||
-      latLocal >= tileHeightDeg - EPS_DEG
+      mxLocal <= EPS_M ||
+      myLocal <= EPS_M ||
+      mxLocal >= tileWidthMerc - EPS_M ||
+      myLocal >= tileHeightMerc - EPS_M
     )
   }
-  const vertOnBoundary = (vi: number): boolean =>
-    onBoundary(vertices[vi * stride], vertices[vi * stride + 1])
+  const vertOnBoundary = (vi: number): boolean => {
+    const [mx, my] = projVert(vi)
+    return onBoundary(mx, my)
+  }
 
   for (let i = 0; i < segCount; i++) {
     const a = indices[i * 2]
     const b = indices[i * 2 + 1]
     const off = i * LINE_SEGMENT_STRIDE_F32
 
-    const [p0x, p0y] = projVert(a)
-    const [p1x, p1y] = projVert(b)
-    out[off + 0] = p0x
-    out[off + 1] = p0y
-    out[off + 2] = p1x
-    out[off + 3] = p1y
+    // Read DSFUN high/low directly from the vertex buffer so the segment
+    // storage buffer stays lossless.
+    const aOff = a * stride
+    const bOff = b * stride
+    const a_mxH = vertices[aOff]
+    const a_myH = vertices[aOff + 1]
+    const a_mxL = vertices[aOff + 2]
+    const a_myL = vertices[aOff + 3]
+    const b_mxH = vertices[bOff]
+    const b_myH = vertices[bOff + 1]
+    const b_mxL = vertices[bOff + 2]
+    const b_myL = vertices[bOff + 3]
+
+    // Layout: p0_h, p1_h, p0_l, p1_l, prev_tangent, next_tangent, arc, len, pads
+    out[off + 0] = a_mxH
+    out[off + 1] = a_myH
+    out[off + 2] = b_mxH
+    out[off + 3] = b_myH
+    out[off + 4] = a_mxL
+    out[off + 5] = a_myL
+    out[off + 6] = b_mxL
+    out[off + 7] = b_myL
+
+    // Reconstructed f64-equivalent positions for tangent / pad math
+    const p0x = a_mxH + a_mxL
+    const p0y = a_myH + a_myL
+    const p1x = b_mxH + b_mxL
+    const p1y = b_myH + b_myL
 
     // Segment direction (tile-local Mercator meters), used both for the
     // boundary-fallback tangent and the miter pad ratio below.
@@ -526,8 +556,8 @@ export function buildLineSegments(
     if (prevTx === 0 && prevTy === 0 && vertOnBoundary(a)) {
       prevTx = dxUnit; prevTy = dyUnit
     }
-    out[off + 4] = prevTx
-    out[off + 5] = prevTy
+    out[off + 8] = prevTx
+    out[off + 9] = prevTy
 
     // next_tangent: similar for vertex b (p1 side), pointing AWAY from b
     // next_tangent = normalize(nextOtherEnd - b)
@@ -550,18 +580,18 @@ export function buildLineSegments(
     if (nextTx === 0 && nextTy === 0 && vertOnBoundary(b)) {
       nextTx = dxUnit; nextTy = dyUnit
     }
-    out[off + 6] = nextTx
-    out[off + 7] = nextTy
+    out[off + 10] = nextTx
+    out[off + 11] = nextTy
 
-    out[off + 8] = arcStart[i]
-    out[off + 9] = arcTotal[i]
+    out[off + 12] = arcStart[i]
+    out[off + 13] = arcTotal[i]
 
     // Miter pad ratios — bound the quad extension past each endpoint so we
     // don't pay worst-case `miter_limit × half_w` overdraw at every segment.
     // At p0: join is between `prev_tangent` (arriving) and current `dir` (leaving).
-    out[off + 10] = computeMiterPadRatio([prevTx, prevTy], [dxUnit, dyUnit], DEFAULT_BUILD_MITER_LIMIT)
+    out[off + 14] = computeMiterPadRatio([prevTx, prevTy], [dxUnit, dyUnit], DEFAULT_BUILD_MITER_LIMIT)
     // At p1: join is between current `dir` (arriving) and `next_tangent` (leaving).
-    out[off + 11] = computeMiterPadRatio([dxUnit, dyUnit], [nextTx, nextTy], DEFAULT_BUILD_MITER_LIMIT)
+    out[off + 15] = computeMiterPadRatio([dxUnit, dyUnit], [nextTx, nextTy], DEFAULT_BUILD_MITER_LIMIT)
   }
   return out
 }
@@ -618,13 +648,18 @@ struct TileUniforms {
   fill_color: vec4<f32>,
   stroke_color: vec4<f32>,
   proj_params: vec4<f32>,
-  tile_rtc: vec4<f32>,
+  // DSFUN camera offset in tile-local Mercator meters, split high/low.
+  cam_h: vec2<f32>,
+  cam_l: vec2<f32>,
+  tile_origin_merc: vec2<f32>,
   opacity: f32,
-  _pad0: f32,
-  _pad1: f32,
-  _pad2: f32,
+  // Log-depth factor: 1.0 / log2(cam_far + 1.0). Reuses the old DSFUN
+  // _pad0 slot so the 144-byte uniform layout is unchanged.
+  log_depth_fc: f32,
 }
 @group(0) @binding(0) var<uniform> tile: TileUniforms;
+
+${WGSL_LOG_DEPTH_FNS}
 
 struct PatternSlot {
   id: u32,
@@ -675,8 +710,13 @@ const PAT_ANCHOR_END:    u32 = 2u;
 const PAT_ANCHOR_CENTER: u32 = 3u;
 
 struct LineSegment {
-  p0: vec2<f32>,
-  p1: vec2<f32>,
+  // DSFUN endpoint pairs in tile-local Mercator meters. The shader
+  // subtracts (p0_h - cam_h) + (p0_l - cam_l) (and similarly for p1)
+  // to reach camera-relative meters at f64-equivalent precision.
+  p0_h: vec2<f32>,
+  p1_h: vec2<f32>,
+  p0_l: vec2<f32>,
+  p1_l: vec2<f32>,
   prev_tangent: vec2<f32>,
   next_tangent: vec2<f32>,
   arc_start: f32,
@@ -744,6 +784,14 @@ struct LineOut {
   @builtin(position) position: vec4<f32>,
   @location(0) world_local: vec2<f32>,
   @location(1) @interpolate(flat) seg_id: u32,
+  // view_w = pre-division clip-space w. Fragment recomputes log-depth
+  // per pixel so long line segments don't drift in view-space.
+  @location(2) view_w: f32,
+}
+
+struct LineFragmentOutput {
+  @location(0) color: vec4<f32>,
+  @builtin(frag_depth) depth: f32,
 }
 
 @vertex
@@ -752,8 +800,11 @@ fn vs_line(
   @builtin(vertex_index) vi: u32,
 ) -> LineOut {
   let seg = segments[seg_id];
-  let p0 = seg.p0;
-  let p1 = seg.p1;
+  // DSFUN: reconstruct camera-relative p0/p1 in meters. The subtraction
+  // (p0_h - cam_h) + (p0_l - cam_l) cancels the tile-origin magnitude and
+  // preserves the small delta at full f64-equivalent precision.
+  let p0 = (seg.p0_h - tile.cam_h) + (seg.p0_l - tile.cam_l);
+  let p1 = (seg.p1_h - tile.cam_h) + (seg.p1_l - tile.cam_l);
 
   // Segment direction in tile-local space
   let seg_vec = p1 - p0;
@@ -871,11 +922,14 @@ fn vs_line(
 
   let corner_local = base + offset;
 
-  // Apply tile RTC offset and MVP
-  let corner_rtc = corner_local + tile.tile_rtc.xy;
+  // corner_local is already in camera-relative meters: p0 and p1 were
+  // DSFUN-reconstructed camera-relative, and offset is a small stroke-scale
+  // displacement in the same frame. No separate RTC add is needed.
 
   var out: LineOut;
-  out.position = tile.mvp * vec4<f32>(corner_rtc, 0.0, 1.0);
+  let clip = tile.mvp * vec4<f32>(corner_local, 0.0, 1.0);
+  out.position = apply_log_depth(clip, tile.log_depth_fc);
+  out.view_w = clip.w;
   out.world_local = corner_local; // interpolated across the quad
   out.seg_id = seg_id;
   return out;
@@ -889,12 +943,19 @@ fn plane_signed(p: vec2<f32>, origin: vec2<f32>, outward_nrm: vec2<f32>) -> f32 
   return dot(p - origin, outward_nrm);
 }
 
-@fragment
-fn fs_line(in: LineOut) -> @location(0) vec4<f32> {
+// Core line SDF + color math. Shared by two entry points:
+//   - fs_line: standard path, writes @builtin(frag_depth) so log-depth
+//              matches the vector-tile + raster passes into the same
+//              main depth target.
+//   - fs_line_max: translucent offscreen path. Its render target has no
+//              depth attachment, so writing frag_depth there is a
+//              validation error. This path returns plain color only.
+fn compute_line_color(in: LineOut) -> vec4<f32> {
   let seg = segments[in.seg_id];
   let p = in.world_local;
-  let p0 = seg.p0;
-  let p1 = seg.p1;
+  // DSFUN reconstruct p0/p1 in camera-relative meters (same frame as p).
+  let p0 = (seg.p0_h - tile.cam_h) + (seg.p0_l - tile.cam_l);
+  let p1 = (seg.p1_h - tile.cam_h) + (seg.p1_l - tile.cam_l);
 
   // Segment direction/normal in tile-local meters
   let seg_vec = p1 - p0;
@@ -1201,6 +1262,24 @@ fn fs_line(in: LineOut) -> @location(0) vec4<f32> {
   if (alpha < 0.005) { discard; }
   return vec4<f32>(layer.color.rgb, layer.color.a * alpha);
 }
+
+@fragment
+fn fs_line(in: LineOut) -> LineFragmentOutput {
+  var out: LineFragmentOutput;
+  out.color = compute_line_color(in);
+  out.depth = compute_log_frag_depth(in.view_w, tile.log_depth_fc);
+  return out;
+}
+
+// Max-blend path: targets an offscreen color-only attachment (no depth).
+// Writing @builtin(frag_depth) here trips WebGPU's "shader writes frag
+// depth but no depth texture set" validation, so this entry point skips
+// log-depth entirely — the translucent pass composites over the main
+// framebuffer later, so its depth values would be discarded anyway.
+@fragment
+fn fs_line_max(in: LineOut) -> @location(0) vec4<f32> {
+  return compute_line_color(in);
+}
 `
 
 // ═══ Renderer ═══
@@ -1294,13 +1373,16 @@ export class LineRenderer {
 
     // MAX-blend variant: same shader, different blend op + NO MSAA + NO depth-stencil.
     // Targets the single-sample offscreen RT used for translucent compositing.
+    // Uses fs_line_max (not fs_line) because the offscreen target has no
+    // depth attachment — writing @builtin(frag_depth) would trip the
+    // "shader writes frag depth but no depth texture set" validation.
     this.pipelineMax = this.device.createRenderPipeline({
       label: 'line-pipeline-max',
       layout: linePipelineLayout,
       vertex: { module, entryPoint: 'vs_line' },
       fragment: {
         module,
-        entryPoint: 'fs_line',
+        entryPoint: 'fs_line_max',
         targets: [{ format: this.format, blend: BLEND_MAX }],
       },
       primitive: { topology: 'triangle-list', cullMode: 'none' },

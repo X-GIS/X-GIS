@@ -11,9 +11,15 @@
 //   - Morton-keyed tile index for spatial cache coherence
 
 import type { CompiledTileSet, CompiledTile, PropertyTable, PropertyFieldType } from './vector-tiler'
-import { tileKeyUnpack } from './vector-tiler'
+import { tileKeyUnpack, lonLatToMercF64 } from './vector-tiler'
 import { encodeCoords, encodeIndices, decodeCoords, decodeIndices, encodeFeatIds, decodeFeatIds, precisionForZoom, encodeRingData, decodeRingData } from './encoding'
 import earcut from 'earcut'
+
+// ═══ DSFUN vertex strides ═══
+// Polygon/point: [mx_h, my_h, mx_l, my_l, feat_id]                 — stride 5
+// Line:          [mx_h, my_h, mx_l, my_l, feat_id, arc_start]      — stride 6
+const POLY_STRIDE = 5
+const LINE_STRIDE = 6
 // gzip: compile-time only (node:zlib), runtime uses DecompressionStream
 let gzipSync: (buf: Buffer) => Buffer
 let gunzipSync: (buf: Buffer) => Buffer
@@ -83,14 +89,27 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
     // Encode ring data (polygon structure + coords) for runtime sub-tiling
     const ringDataBuf = encodeRingData(tile.polygons ?? [], precision)
 
-    // Encode line data (stride 4: lon, lat, featId, arcStart)
+    // Encode line data from DSFUN stride-6 format: [mx_h, my_h, mx_l, my_l, feat_id, arc_start]
+    // For the compact layer we decode back to absolute lon/lat degrees (varint-friendly).
     const lineCoordFlat: number[] = []
     const lineFeatIds: number[] = []
     const lineArcStart: number[] = []
-    for (let i = 0; i < tile.lineVertices.length; i += 4) {
-      lineCoordFlat.push(tile.lineVertices[i], tile.lineVertices[i + 1])
-      lineFeatIds.push(tile.lineVertices[i + 2])
-      lineArcStart.push(tile.lineVertices[i + 3])
+    const EARTH_R = 6378137
+    const DEG2RAD = Math.PI / 180
+    // Tile origin in Mercator meters — lineVertices store deltas from this origin.
+    const [tileMxOrigin, tileMyOrigin] = lonLatToMercF64(tile.tileWest, tile.tileSouth)
+    for (let i = 0; i < tile.lineVertices.length; i += LINE_STRIDE) {
+      const mxLocal = tile.lineVertices[i] + tile.lineVertices[i + 2]
+      const myLocal = tile.lineVertices[i + 1] + tile.lineVertices[i + 3]
+      const mxAbs = mxLocal + tileMxOrigin
+      const myAbs = myLocal + tileMyOrigin
+      // Inverse Mercator to recover lon/lat in degrees
+      const lon = mxAbs / (DEG2RAD * EARTH_R)
+      const latRad = 2 * Math.atan(Math.exp(myAbs / EARTH_R)) - Math.PI / 2
+      const lat = latRad / DEG2RAD
+      lineCoordFlat.push(lon, lat)
+      lineFeatIds.push(tile.lineVertices[i + 4])
+      lineArcStart.push(tile.lineVertices[i + 5])
     }
 
     // Encode arc-start as raw f32 bytes (no quantization — arc is precomputed
@@ -171,9 +190,9 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
       dataOffset,
       compactSize,
       gpuReadySize,
-      vertexCount: et.gpuReady.vertices.length / 3,
+      vertexCount: et.gpuReady.vertices.length / POLY_STRIDE,
       indexCount: et.gpuReady.indices.length,
-      lineVertexCount: et.gpuReady.lineVertices.length / 4,
+      lineVertexCount: et.gpuReady.lineVertices.length / LINE_STRIDE,
       lineIndexCount: et.gpuReady.lineIndices.length,
       flags: flagsWord & 0x1,
       fullCoverFeatureId: flagsWord >>> 1,
@@ -371,26 +390,26 @@ export function parseGPUReadyTile(
   // If GPU-ready layer exists, use it directly (zero-copy views if aligned)
   if (entry.gpuReadySize > 0) {
     const gpuStart = entry.dataOffset + entry.compactSize
-    const vertBytes = entry.vertexCount * 3 * 4
+    const vertBytes = entry.vertexCount * POLY_STRIDE * 4
     const idxBytes = entry.indexCount * 4
-    const lineVertBytes = entry.lineVertexCount * 4 * 4  // stride 4
+    const lineVertBytes = entry.lineVertexCount * LINE_STRIDE * 4
 
     let vertices: Float32Array, indices: Uint32Array, lineVertices: Float32Array, lineIndices: Uint32Array
 
     if (gpuStart % 4 === 0) {
       // Aligned: create views directly (zero-copy)
       let off = gpuStart
-      vertices = new Float32Array(buf, off, entry.vertexCount * 3); off += vertBytes
+      vertices = new Float32Array(buf, off, entry.vertexCount * POLY_STRIDE); off += vertBytes
       indices = new Uint32Array(buf, off, entry.indexCount); off += idxBytes
-      lineVertices = new Float32Array(buf, off, entry.lineVertexCount * 4); off += lineVertBytes
+      lineVertices = new Float32Array(buf, off, entry.lineVertexCount * LINE_STRIDE); off += lineVertBytes
       lineIndices = new Uint32Array(buf, off, entry.lineIndexCount)
     } else {
       // Unaligned: copy to aligned buffer
       const gpuBuf = buf.slice(gpuStart, gpuStart + entry.gpuReadySize)
       let off = 0
-      vertices = new Float32Array(gpuBuf, off, entry.vertexCount * 3); off += vertBytes
+      vertices = new Float32Array(gpuBuf, off, entry.vertexCount * POLY_STRIDE); off += vertBytes
       indices = new Uint32Array(gpuBuf, off, entry.indexCount); off += idxBytes
-      lineVertices = new Float32Array(gpuBuf, off, entry.lineVertexCount * 4); off += lineVertBytes
+      lineVertices = new Float32Array(gpuBuf, off, entry.lineVertexCount * LINE_STRIDE); off += lineVertBytes
       lineIndices = new Uint32Array(gpuBuf, off, entry.lineIndexCount)
     }
 
@@ -429,56 +448,93 @@ export function parseGPUReadyTile(
 
   // Decode polygon rings and tessellate with earcut in Mercator space
   const polygons = decodeRingData(ringDataBuf, precision)
-  const polyVerts: number[] = []
-  const polyIdx: number[] = []
   const tb = tileBoundsFromZXY(z, x, y)
+  const EARTH_R = 6378137
+  const DEG2RAD = Math.PI / 180
+  const LAT_LIMIT = 85.051129
   const latToMercY = (lat: number) => {
-    const c = Math.max(-85.051, Math.min(85.051, lat))
-    return Math.log(Math.tan(Math.PI / 4 + c * Math.PI / 360))
+    const c = Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, lat))
+    return Math.log(Math.tan(Math.PI / 4 + c * DEG2RAD / 2)) * EARTH_R
   }
+  const [tileMx, tileMy] = lonLatToMercF64(tb.west, tb.south)
+
+  // Polygon vertices emitted directly as DSFUN stride-5 pairs.
+  // Two-pass: first count vertices, allocate Float32Array, then fill.
+  // Earcut runs in Mercator meters (topology) so triangulation matches
+  // the shader's rasterization space.
+  let polyVertCount = 0
+  for (const poly of polygons) {
+    for (const ring of poly.rings) polyVertCount += ring.length
+  }
+  const vertices = new Float32Array(polyVertCount * POLY_STRIDE)
+  const polyIdx: number[] = []
+  let polyWriteBase = 0
 
   for (const poly of polygons) {
-    const baseVertex = polyVerts.length / 3
-    const flatCoords: number[] = []
+    const ringStartVertex = polyWriteBase
     const mercCoords: number[] = []
     const holeIndices: number[] = []
 
     for (let r = 0; r < poly.rings.length; r++) {
-      if (r > 0) holeIndices.push(flatCoords.length / 2)
+      if (r > 0) holeIndices.push(mercCoords.length / 2)
       for (const coord of poly.rings[r]) {
-        flatCoords.push(coord[0], coord[1])
-        mercCoords.push(coord[0], latToMercY(coord[1]))
+        const lon = coord[0]
+        const lat = coord[1]
+        const mxAbs = lon * DEG2RAD * EARTH_R
+        const myAbs = latToMercY(lat)
+        const localMx = mxAbs - tileMx
+        const localMy = myAbs - tileMy
+        const mxH = Math.fround(localMx)
+        const mxL = Math.fround(localMx - mxH)
+        const myH = Math.fround(localMy)
+        const myL = Math.fround(localMy - myH)
+        const off = polyWriteBase * POLY_STRIDE
+        vertices[off] = mxH
+        vertices[off + 1] = myH
+        vertices[off + 2] = mxL
+        vertices[off + 3] = myL
+        vertices[off + 4] = poly.featId
+        polyWriteBase++
+        mercCoords.push(mxAbs, myAbs)
       }
     }
 
-    // Earcut in Mercator space for correct triangle topology on screen
+    // Earcut in Mercator meters for correct triangle topology on screen
     const earcutIdx = earcut(mercCoords, holeIndices.length > 0 ? holeIndices : undefined)
-    for (let i = 0; i < flatCoords.length; i += 2) {
-      polyVerts.push(flatCoords[i] - tb.west, flatCoords[i + 1] - tb.south, poly.featId)
-    }
     for (const idx of earcutIdx) {
-      polyIdx.push(baseVertex + idx)
+      polyIdx.push(ringStartVertex + idx)
     }
   }
 
-  const vertices = new Float32Array(polyVerts)
   const indices = new Uint32Array(polyIdx)
 
-  // Decode line data (stride 4: lon, lat, featId, arcStart)
+  // Decode line data — compact format stores absolute lon/lat; rebuild DSFUN stride 6.
   const lineCoords = decodeCoords(lineCoordsBuf, precision)
   const lineFeatIds = decodeFeatIds(lineFeatIdsBuf)
   const arcCount = lineArcStartBuf.byteLength / 4
   const lineArcStart = arcCount > 0
     ? new Float32Array(lineArcStartBuf.buffer, lineArcStartBuf.byteOffset, arcCount)
     : null
-  const lineVertices = new Float32Array(lineCoords.length / 2 * 4)
-  for (let i = 0; i < lineCoords.length; i += 2) {
-    const vi = (i / 2) * 4
-    const vj = i / 2
-    lineVertices[vi] = lineCoords[i]
-    lineVertices[vi + 1] = lineCoords[i + 1]
-    lineVertices[vi + 2] = lineFeatIds[vj] ?? 0
-    lineVertices[vi + 3] = lineArcStart ? lineArcStart[vj] ?? 0 : 0
+  const lineVertCount = lineCoords.length / 2
+  const lineVertices = new Float32Array(lineVertCount * LINE_STRIDE)
+  for (let i = 0; i < lineVertCount; i++) {
+    const lon = lineCoords[i * 2]
+    const lat = lineCoords[i * 2 + 1]
+    const mxAbs = lon * DEG2RAD * EARTH_R
+    const myAbs = latToMercY(lat)
+    const localMx = mxAbs - tileMx
+    const localMy = myAbs - tileMy
+    const mxH = Math.fround(localMx)
+    const mxL = Math.fround(localMx - mxH)
+    const myH = Math.fround(localMy)
+    const myL = Math.fround(localMy - myH)
+    const off = i * LINE_STRIDE
+    lineVertices[off] = mxH
+    lineVertices[off + 1] = myH
+    lineVertices[off + 2] = mxL
+    lineVertices[off + 3] = myL
+    lineVertices[off + 4] = lineFeatIds[i] ?? 0
+    lineVertices[off + 5] = lineArcStart ? lineArcStart[i] ?? 0 : 0
   }
   const lineIndices = decodeIndices(lineIndicesBuf)
 

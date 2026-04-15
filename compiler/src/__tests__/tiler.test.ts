@@ -294,16 +294,16 @@ describe('Vector Tiler', () => {
     }
   })
 
-  it('produces GPU-ready vertex format (stride 3)', () => {
+  it('produces GPU-ready vertex format (DSFUN stride 5)', () => {
     const tileSet = compileGeoJSONToTiles(simpleGeoJSON, { minZoom: 0, maxZoom: 0 })
     const level0 = tileSet.levels[0]
     const tile = [...level0.tiles.values()][0]
 
-    // Vertices should be stride 3: [lon, lat, feat_id, ...]
-    expect(tile.vertices.length % 3).toBe(0)
+    // Polygon vertices: [mx_h, my_h, mx_l, my_l, feat_id] — stride 5
+    expect(tile.vertices.length % 5).toBe(0)
     // Indices should reference valid vertices
     for (let i = 0; i < tile.indices.length; i++) {
-      expect(tile.indices[i]).toBeLessThan(tile.vertices.length / 3)
+      expect(tile.indices[i]).toBeLessThan(tile.vertices.length / 5)
     }
   })
 
@@ -383,14 +383,18 @@ describe('.xgvt Binary Format', () => {
     const entry = index.entries[0]
     const tile = parseGPUReadyTile(binary, entry)
 
-    // Vertices should be valid stride-3 arrays
-    expect(tile.vertices.length).toBe(entry.vertexCount * 3)
+    // DSFUN polygon vertices: stride 5 — [mx_h, my_h, mx_l, my_l, feat_id]
+    expect(tile.vertices.length).toBe(entry.vertexCount * 5)
     expect(tile.indices.length).toBe(entry.indexCount)
 
-    // Vertices are tile-local float coordinates (small relative to tile)
-    for (let i = 0; i < tile.vertices.length; i += 3) {
-      expect(Math.abs(tile.vertices[i])).toBeLessThan(400)
-      expect(Math.abs(tile.vertices[i + 1])).toBeLessThan(200)
+    // Vertices are tile-local Mercator meters. A low-zoom tile spans up to
+    // ~20,000 km on each axis so we only assert the DSFUN pair reconstructs
+    // a finite value — the magnitude depends heavily on tile size.
+    for (let i = 0; i < tile.vertices.length; i += 5) {
+      const mx = tile.vertices[i] + tile.vertices[i + 2]
+      const my = tile.vertices[i + 1] + tile.vertices[i + 3]
+      expect(Number.isFinite(mx)).toBe(true)
+      expect(Number.isFinite(my)).toBe(true)
     }
   })
 

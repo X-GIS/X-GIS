@@ -85,7 +85,20 @@
       "Bash(grep -l \"ne_110m_land\\\\|stroke\" D:/X-GIS/playground/src/examples/*.xgis)",
       "Bash(awk '/const LINE_SHADER = .* `/,/^`/' D:/X-GIS/runtime/src/engine/line-renderer.ts)",
       "Bash(grep -c '`')",
-      "Bash(netstat -ano)"
+      "Bash(netstat -ano)",
+      "Bash(grep -n '`' runtime/src/engine/wgsl-log-depth.ts runtime/src/engine/line-renderer.ts runtime/src/engine/point-renderer.ts runtime/src/engine/raster-renderer.ts runtime/src/engine/renderer.ts)",
+      "Bash(grep -v -E '\\(\\\\*/|`$|= /\\\\*\\)')",
+      "Bash(ls -la playground/public/data/*.xgvt)",
+      "Bash(awk '{print $\\(NF-3\\), $\\(NF-2\\), $\\(NF-1\\), $NF}')",
+      "Bash(bunx playwright:*)",
+      "Bash(grep -E \"^  [a-z_]+: \\\\{$\" playground/src/demos.ts)",
+      "Bash(grep -cE \"^  [a-z_0-9]+: \\\\{$\" playground/src/demos.ts)",
+      "Bash(grep -E \"^  [a-z_0-9]+: \\\\{$\" playground/src/demos.ts)",
+      "Bash(SMOKE_TIMEOUT_MS=90000 SMOKE_DEBUG=1 bunx playwright test --grep \"physical_map_10m$\" --timeout 120000 --reporter=list)",
+      "Bash(SMOKE_TIMEOUT_MS=30000 SMOKE_DEBUG=1 bunx playwright test --grep \"physical_map_10m$\" --timeout 60000 --reporter=list)",
+      "Bash(SMOKE_DEBUG=1 bunx playwright test --grep \"physical_map_10m$\" --timeout 60000 --reporter=list)",
+      "Bash(curl -sk -o /dev/null -w \"%{http_code}\\\\n\" https://localhost:3000/favicon.ico)",
+      "Bash(curl -sk -o /dev/null -w \"%{http_code}\\\\n\" https://localhost:3000/robots.txt)"
     ]
   }
 }

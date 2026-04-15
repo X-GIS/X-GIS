@@ -3,6 +3,7 @@
 import { lonLatToMercator } from '../loader/geojson'
 import { WORLD_MERC } from './gpu-shared'
 import { MAX_DPR } from './gpu'
+import { computeLogDepthFc } from './wgsl-log-depth'
 
 export class Camera {
   /** Camera center in Web Mercator coordinates */
@@ -55,6 +56,16 @@ export class Camera {
 
   // Preallocated RTC matrix (reused every frame)
   private rtcMatrix = new Float32Array(16)
+  /** Cached far-plane value from the most recent getRTCMatrix() call.
+   *  Used by getLogDepthFc() so renderers can pack the log-depth factor
+   *  without re-deriving altitude math. */
+  private _lastFar = 1e6
+
+  /** Log-depth factor for the current frame: `1 / log2(far + 1)`. Valid
+   *  after getRTCMatrix() has been called this frame. */
+  getLogDepthFc(): number {
+    return computeLogDepthFc(this._lastFar)
+  }
 
   /** RTC matrix: perspective projection × view (pitch + bearing).
    *  When pitch=0, reduces to the same orthographic-like result as before. */
@@ -81,8 +92,18 @@ export class Camera {
     // When pitch + halfFov >= 90°, the top of the screen is past the horizon
     const maxViewAngle = Math.min(pitchRad + halfFov, Math.PI / 2 - 0.01)
     const farthestGround = altitude / Math.cos(maxViewAngle)
-    const near = altitude * 0.01
+    // Near plane: 1% of altitude, but never smaller than 1 m. Log-depth
+    // preserves precision at any near/far ratio, so the tiny floor only
+    // protects against primitive clipping when the camera dips below ~1 m
+    // above the ground (zoom ~22 + pitch 0).
+    const near = Math.max(1.0, altitude * 0.01)
     const far = farthestGround * 1.5
+
+    // Stash the far plane for log-depth uniform packing. The renderers
+    // call getLogDepthFc() after getRTCMatrix() each frame; keeping it as
+    // a side-effect on `this` avoids re-deriving altitude/maxViewAngle in
+    // every pipeline.
+    this._lastFar = far
 
     // Multiply two column-major 4×4 matrices into `out` array
     const mul4 = (out: number[], a: number[], b: number[]) => {

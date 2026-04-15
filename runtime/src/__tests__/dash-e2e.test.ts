@@ -143,27 +143,34 @@ describe('end-to-end dash pipeline', () => {
   // dash phase is continuous regardless of vertex density.
   it('dense vertices: arc_start advances monotonically across segments', async () => {
     // Bypass the tiler and call buildLineSegments directly with a synth
-    // stride-4 chain of 10 vertices spaced ~1 m apart. The arc field
-    // (slot 3) carries the cumulative distance the tiler would compute.
+    // DSFUN stride-6 chain of 10 vertices spaced ~1 m apart. The arc
+    // field (slot 5) carries the cumulative distance the tiler would
+    // compute.
     const { buildLineSegments, LINE_SEGMENT_STRIDE_F32 } = await import('../engine/line-renderer')
     const arcs = [0, 1, 2.1, 3.05, 4.2, 5.0, 6.3, 7.1, 8.4, 9.0]
-    const verts = new Float32Array(arcs.length * 4)
+    const verts = new Float32Array(arcs.length * 6)
     for (let i = 0; i < arcs.length; i++) {
-      verts[i * 4 + 0] = i * 0.00001 // ~1 m in lon-degrees at equator
-      verts[i * 4 + 1] = 0
-      verts[i * 4 + 2] = 0
-      verts[i * 4 + 3] = arcs[i]
+      // DSFUN layout: [mx_h, my_h, mx_l, my_l, feat_id, arc_start]
+      // Use small tile-local Mercator meters for the position.
+      verts[i * 6 + 0] = i * 1.0 // 1 m spacing
+      verts[i * 6 + 1] = 0
+      verts[i * 6 + 2] = 0
+      verts[i * 6 + 3] = 0
+      verts[i * 6 + 4] = 0
+      verts[i * 6 + 5] = arcs[i]
     }
     const idx: number[] = []
     for (let i = 0; i < arcs.length - 1; i++) idx.push(i, i + 1)
-    const seg = buildLineSegments(verts, new Uint32Array(idx), 0, 4)
+    // stride 6 (line features), no tile-bounds so no boundary detection.
+    const seg = buildLineSegments(verts, new Uint32Array(idx), 6)
 
-    // Check arc_start at slot 8 of each segment: must be monotonic.
+    // Check arc_start at slot 12 of each segment (DSFUN layout):
+    // [p0_h, p1_h, p0_l, p1_l, prev_t, next_t, arc_start, len, pad, pad].
     let prev = -Infinity
     for (let s = 0; s < arcs.length - 1; s++) {
-      const arcStart = seg[s * LINE_SEGMENT_STRIDE_F32 + 8]
+      const arcStart = seg[s * LINE_SEGMENT_STRIDE_F32 + 12]
       expect(arcStart).toBeGreaterThanOrEqual(prev)
-      // Must equal the source vertex's arc value (stride-4 path reads
+      // Must equal the source vertex's arc value (stride-6 path reads
       // directly from the vertex buffer — no recomputation).
       expect(arcStart).toBeCloseTo(arcs[s], 4)
       prev = arcStart

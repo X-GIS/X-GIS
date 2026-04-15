@@ -5,6 +5,7 @@ import type { Camera } from './camera'
 import type { MeshData, LineMeshData } from '../loader/geojson'
 import { generateGraticule } from './graticule'
 import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, MSAA_4X, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
+import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
 
 // generateGraticule(zoom) now handles zoom-adaptive steps internally
 
@@ -14,17 +15,29 @@ const POLYGON_SHADER = /* wgsl */ `
 const PI: f32 = 3.14159265;
 const DEG2RAD: f32 = 0.01745329;
 const EARTH_R: f32 = 6378137.0;
+${WGSL_LOG_DEPTH_FNS}
 
 struct Uniforms {
   mvp: mat4x4<f32>,
   fill_color: vec4<f32>,
   stroke_color: vec4<f32>,
-  // projection params: x=type, y=centerLon_hi, z=centerLat_hi, w=unused
+  // projection params: x=type, y=centerLon, z=centerLat, w=unused
   proj_params: vec4<f32>,
-  // Per-tile RTC: x,y = projected offset (meters), z = tile_west, w = tile_south (for backface cull)
-  tile_rtc: vec4<f32>,
-  // Per-frame extra: x=opacity (zoom-interpolated)
+  // DSFUN camera position in tile-local Mercator meters, split high/low.
+  // cam_h + cam_l = splitF64(cam_merc - tile_origin_merc), computed CPU-side
+  // per tile per frame. The vertex shader computes
+  //   rel = (pos_h - cam_h) + (pos_l - cam_l)
+  // which cancels the tile-origin magnitude and preserves f64-equivalent
+  // precision at any camera zoom.
+  cam_h: vec2<f32>,
+  cam_l: vec2<f32>,
+  // Absolute tile origin in Mercator meters (for non-Mercator reconstruction).
+  tile_origin_merc: vec2<f32>,
   opacity: f32,
+  // Logarithmic depth factor: 1.0 / log2(camera_far + 1.0).
+  // Packed by the renderer each frame; shaders use it to rewrite
+  // position.z and frag_depth for Three.js-equivalent log depth.
+  log_depth_fc: f32,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -179,58 +192,61 @@ struct VertexOutput {
   @location(0) cos_c: f32,
   @location(1) @interpolate(flat) feat_id: u32,
   @location(2) abs_lat: f32,
+  // view_w = pre-division clip-space w. Fragment shader recomputes
+  // log-depth per pixel from this (linear interpolation of log2 over
+  // a triangle would drift otherwise).
+  @location(3) view_w: f32,
+}
+
+struct FragmentOutput {
+  @location(0) color: vec4<f32>,
+  @builtin(frag_depth) depth: f32,
 }
 
 @vertex
-fn vs_main(@location(0) local_pos: vec2<f32>, @location(1) feature_id: f32) -> VertexOutput {
-  // Precision-safe RTC:
-  // local_pos = lon/lat relative to tile origin (small values, precise in f32)
-  // tile_rtc.xy = project(tile_origin) - project(camera_center), computed on CPU in f64
-  // Result: project locally (small numbers only) + add precomputed offset
+fn vs_main(
+  @location(0) pos_h: vec2<f32>,
+  @location(1) pos_l: vec2<f32>,
+  @location(2) feature_id: f32,
+) -> VertexOutput {
+  // DSFUN Mercator subtraction — camera-relative tile-local meters.
+  // (pos_h - cam_h) + (pos_l - cam_l) = pos_f64 - cam_f64 with f64-equivalent
+  // precision, because the large tile-origin magnitude cancels before the low
+  // parts are added.
+  let rel = (pos_h - u.cam_h) + (pos_l - u.cam_l);
 
-  // Project the local offset based on projection type
-  let local_x = local_pos.x * DEG2RAD * EARTH_R;
-  let abs_lat = local_pos.y + u.tile_rtc.w;
+  // Reconstruct absolute Mercator meters (needed for non-Mercator
+  // reprojection and for the fragment discard at |lat| > MERCATOR_LAT_LIMIT).
+  let abs_merc_x = (pos_h.x + pos_l.x) + u.tile_origin_merc.x;
+  let abs_merc_y = (pos_h.y + pos_l.y) + u.tile_origin_merc.y;
+  let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
+  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let abs_lat = lat_rad / DEG2RAD;
   let abs_lat_clamped = clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
 
-  var local_y: f32;
-  if (u.proj_params.x < 0.5) {
-    // Mercator Y delta — stable reformulation.
-    //
-    // The naive form log(tan(abs_lat)) - log(tan(origin)) suffers from
-    // catastrophic cancellation when both logs evaluate close together
-    // (small dy). For a z=5 tile rendered at camera.zoom=22 this produced
-    // ~1 m of visible jitter. Using atanh + sum-to-product avoids the
-    // cancellation entirely: the numerator is computed directly from the
-    // small dy without forming two large, near-equal intermediates.
-    //
-    //   merc_y_delta = R * atanh((sin(abs_lat) - sin(origin)) /
-    //                            (1 - sin(abs_lat) * sin(origin)))
-    //                = R * atanh((2 * cos(mid) * sin(dy/2)) / (1 - s_abs * s_origin))
-    //
-    // with atanh(z) = 0.5 * log((1+z)/(1-z)).
-    let origin_rad = clamp(u.tile_rtc.w, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT) * DEG2RAD;
-    let dy_rad = local_pos.y * DEG2RAD;
-    let half_dy = dy_rad * 0.5;
-    let mid_rad = origin_rad + half_dy;
-    let s_origin = sin(origin_rad);
-    let s_abs = sin(clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT) * DEG2RAD);
-    let num = 2.0 * cos(mid_rad) * sin(half_dy);
-    let denom = max(1.0 - s_abs * s_origin, 1e-9);
-    let z = num / denom;
-    local_y = 0.5 * log((1.0 + z) / max(1.0 - z, 1e-9)) * EARTH_R;
+  var rtc: vec2<f32>;
+  let t = u.proj_params.x;
+  if (t < 0.5) {
+    // Pure Mercator: rel is already camera-relative meters.
+    rtc = rel;
   } else {
-    // Equirectangular / other: linear Y
-    local_y = local_pos.y * DEG2RAD * EARTH_R;
+    // All other projections (equirect, natural earth, ortho, ...):
+    // run the same project() as before but on the reconstructed absolute
+    // lon/lat, then subtract the projected camera center. Precision here is
+    // limited to the f32 reconstruction, which is fine because non-Mercator
+    // projections are only used at low/global zoom.
+    // NOTE: avoid the reserved word "target" as an identifier.
+    let proj_xy = project(abs_lon, abs_lat);
+    let center_xy = project(u.proj_params.y, u.proj_params.z);
+    rtc = proj_xy - center_xy;
   }
 
-  // tile_rtc.xy = project(tile_origin) - project(center), computed on CPU in f64
-  let rtc = vec2<f32>(local_x + u.tile_rtc.x, local_y + u.tile_rtc.y);
-
-  let abs_lon = local_pos.x + u.tile_rtc.z;
-
   var out: VertexOutput;
-  out.position = u.mvp * vec4<f32>(rtc, 0.0, 1.0);
+  let clip = u.mvp * vec4<f32>(rtc, 0.0, 1.0);
+  // Log-depth rewrite of clip.z. Three.js equivalent — preserves near-plane
+  // precision at high pitch and when rendering 3D geometry.
+  out.position = apply_log_depth(clip, u.log_depth_fc);
+  out.view_w = clip.w;
   out.cos_c = needs_backface_cull(abs_lon, abs_lat);
   out.feat_id = u32(feature_id);
   out.abs_lat = abs_lat_clamped;
@@ -241,25 +257,34 @@ fn vs_main(@location(0) local_pos: vec2<f32>, @location(1) feature_id: f32) -> V
 // FILL_EXPR and STROKE_EXPR are replaced by buildShader() when a variant exists
 
 @fragment
-fn fs_fill(input: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_fill(input: VertexOutput) -> FragmentOutput {
   if (input.cos_c < 0.0) { discard; }
   if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
-  return u.fill_color;
+  var out: FragmentOutput;
+  out.color = u.fill_color;
+  out.depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
+  return out;
 }
 
 @fragment
-fn fs_stroke(input: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_stroke(input: VertexOutput) -> FragmentOutput {
   if (input.cos_c < 0.0) { discard; }
   if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
   // feat_id > 0 = major grid line (brighter), 0 = minor (dimmer)
   let alpha_scale = select(0.4, 1.0, input.feat_id > 0u);
-  return vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);
+  var out: FragmentOutput;
+  out.color = vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);
+  out.depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
+  return out;
 }
 `
 
-// Fragment markers for template replacement
-const FILL_RETURN_MARKER = 'return u.fill_color;'
-const STROKE_RETURN_MARKER = 'return u.stroke_color;'
+// Fragment markers for template replacement. Match the entire
+// `out.color = ...;` assignment in fs_fill / fs_stroke so variants can
+// swap in a data-driven color expression without touching the FragmentOutput
+// plumbing or the log-depth write.
+const FILL_RETURN_MARKER = 'out.color = u.fill_color;'
+const STROKE_RETURN_MARKER = 'out.color = vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);'
 
 export interface ShaderVariantInfo {
   key: string
@@ -302,13 +327,14 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
     shader = shader.replace(insertPoint, insertPoint + insertions)
   }
 
-  // Replace fragment return expressions (feat_data indexing is inlined in expressions)
+  // Replace fragment color assignments (feat_data indexing is inlined in
+  // expressions). The log-depth write after this assignment is untouched.
   if (variant.fillExpr && variant.fillExpr !== 'u.fill_color') {
     const matchCode = (variant as any).fillPreamble ? `${(variant as any).fillPreamble}  ` : ''
-    shader = shader.replace(FILL_RETURN_MARKER, `${matchCode}return ${variant.fillExpr};`)
+    shader = shader.replace(FILL_RETURN_MARKER, `${matchCode}out.color = ${variant.fillExpr};`)
   }
   if (variant.strokeExpr && variant.strokeExpr !== 'u.stroke_color') {
-    shader = shader.replace(STROKE_RETURN_MARKER, `return ${variant.strokeExpr};`)
+    shader = shader.replace(STROKE_RETURN_MARKER, `out.color = ${variant.strokeExpr};`)
   }
 
   return shader
@@ -558,21 +584,26 @@ export class MapRenderer {
       bindGroupLayouts: [this.bindGroupLayout],
     })
 
+    // DSFUN polygon vertex: [mx_h, my_h, mx_l, my_l, feat_id] — stride 20 bytes.
+    // shaderLocation 0 = pos_h (vec2), 1 = pos_l (vec2), 2 = feat_id (f32).
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 12, // polygon fill: 2×f32 (lon,lat) + 1×f32 (feat_id)
+      arrayStride: 20,
       attributes: [
-        { shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 8, format: 'float32' as GPUVertexFormat },
+        { shaderLocation: 0, offset: 0,  format: 'float32x2' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 8,  format: 'float32x2' as GPUVertexFormat },
+        { shaderLocation: 2, offset: 16, format: 'float32'   as GPUVertexFormat },
       ],
     }
-    // Line features carry an extra arc_start component (stride 16).
-    // The shader reads only position + feat_id; arc_start is ignored here
-    // (the SDF LineRenderer consumes it via a storage buffer).
+    // DSFUN line vertex: [mx_h, my_h, mx_l, my_l, feat_id, arc_start] — stride 24 bytes.
+    // arc_start lives at offset 20; the vertex shader ignores it (the SDF
+    // LineRenderer reads it via the segment storage buffer), but keeping it
+    // in the VB means the same typed-array lays out for both paths.
     const lineVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 16,
+      arrayStride: 24,
       attributes: [
-        { shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 8, format: 'float32' as GPUVertexFormat },
+        { shaderLocation: 0, offset: 0,  format: 'float32x2' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 8,  format: 'float32x2' as GPUVertexFormat },
+        { shaderLocation: 2, offset: 16, format: 'float32'   as GPUVertexFormat },
       ],
     }
 
@@ -835,18 +866,22 @@ export class MapRenderer {
       bindGroupLayouts: [layout],
     })
 
+    // DSFUN layout — matches initPipelines() above so variants can render
+    // the same tile vertex buffers produced by the compiler.
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 12,
+      arrayStride: 20,
       attributes: [
-        { shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 8, format: 'float32' as GPUVertexFormat },
+        { shaderLocation: 0, offset: 0,  format: 'float32x2' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 8,  format: 'float32x2' as GPUVertexFormat },
+        { shaderLocation: 2, offset: 16, format: 'float32'   as GPUVertexFormat },
       ],
     }
     const lineVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 16,
+      arrayStride: 24,
       attributes: [
-        { shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 8, format: 'float32' as GPUVertexFormat },
+        { shaderLocation: 0, offset: 0,  format: 'float32x2' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 8,  format: 'float32x2' as GPUVertexFormat },
+        { shaderLocation: 2, offset: 16, format: 'float32'   as GPUVertexFormat },
       ],
     }
 
@@ -950,16 +985,23 @@ export class MapRenderer {
       new Float32Array(uniformData, 64, 4).set(fillColor as number[])
       new Float32Array(uniformData, 80, 4).set(strokeColor as number[])
       new Float32Array(uniformData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
-      // Non-tiled: vertices are absolute lon/lat, so tile_origin = (0,0)
-      // RTC offset = project(0,0) - project(center) ← but origin is 0, so just -project(center)
+      // Non-tiled layer: vertices are stored in absolute Mercator meters
+      // (DSFUN stride 5/6) so tile_origin_merc = (0, 0) and
+      // cam_h/cam_l = splitF64(cam_merc). The DSFUN subtraction in vs_main
+      // then yields camera-relative meters exactly like the tiled path.
       const DEG2RAD = Math.PI / 180
       const R = 6378137
       const cx = projCenterLon * DEG2RAD * R
       const cy = projType < 0.5
         ? Math.log(Math.tan(Math.PI / 4 + Math.max(-85.051129, Math.min(85.051129, projCenterLat)) * DEG2RAD / 2)) * R  // Mercator
-        : projCenterLat * DEG2RAD * R  // Equirectangular (linear)
-      new Float32Array(uniformData, 112, 4).set([-cx, -cy, 0, 0]) // tile_rtc: offset, west=0, south=0
-      new Float32Array(uniformData, 128, 1)[0] = opacity // zoom-interpolated opacity
+        : projCenterLat * DEG2RAD * R  // Equirectangular fallback (non-Mercator rebuilds lon/lat in the shader)
+      const cxH = Math.fround(cx)
+      const cxL = Math.fround(cx - cxH)
+      const cyH = Math.fround(cy)
+      const cyL = Math.fround(cy - cyH)
+      new Float32Array(uniformData, 112, 4).set([cxH, cyH, cxL, cyL]) // cam_h.xy, cam_l.xy
+      // tile_origin_merc=(0,0), opacity, log_depth_fc
+      new Float32Array(uniformData, 128, 4).set([0, 0, opacity, camera.getLogDepthFc()])
       const slotOffset = this.allocUniformSlot()
       device.queue.writeBuffer(this.uniformBuffer, slotOffset, uniformData)
 
@@ -1020,8 +1062,17 @@ export class MapRenderer {
         new Float32Array(gratData, 64, 4).set([1, 1, 1, 0.15])
         new Float32Array(gratData, 80, 4).set([1, 1, 1, 0.15])
         new Float32Array(gratData, 96, 4).set([projType, projCenterLon, projCenterLat, 0])
+        // Graticule vertices are DSFUN-encoded in absolute Mercator meters,
+        // so tile_origin_merc = (0,0) and cam_h/cam_l = splitF64(cam_merc).
+        // World-copy offsets shift the camera by ±WORLD_MERC meters.
         const gcx = projCenterLon * gDEG2RAD * gR - worldOffs[wi] * WORLD_MERC
-        new Float32Array(gratData, 112, 4).set([-gcx, -gcy, 0, 0])
+        const gcxH = Math.fround(gcx)
+        const gcxL = Math.fround(gcx - gcxH)
+        const gcyH = Math.fround(gcy)
+        const gcyL = Math.fround(gcy - gcyH)
+        new Float32Array(gratData, 112, 4).set([gcxH, gcyH, gcxL, gcyL])
+        // tile_origin_merc=(0,0) for graticule (world-space DSFUN), opacity=1, log_depth_fc
+        new Float32Array(gratData, 128, 4).set([0, 0, 1, camera.getLogDepthFc()])
         const gratOff = this.allocUniformSlot()
         device.queue.writeBuffer(this.uniformBuffer, gratOff, gratData)
 

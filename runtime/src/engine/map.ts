@@ -118,6 +118,13 @@ export class XGISMap {
 
   /** Load and run an X-GIS program */
   async run(source: string, baseUrl = ''): Promise<void> {
+    // Reset the e2e ready signal for this load. The smoke test polls
+    // __xgisReady after triggering navigation; the previous demo's
+    // `true` would falsely satisfy the wait if we didn't clear it.
+    if (typeof window !== 'undefined') {
+      ;(window as unknown as { __xgisReady?: boolean }).__xgisReady = false
+    }
+
     // Promote baseUrl to an absolute URL. `new URL(path, base)` requires
     // `base` to be absolute — passing a bare path like '/data/' throws
     // TypeError: Invalid base URL. Accepts '', '/data/', relative URLs, or
@@ -282,6 +289,15 @@ export class XGISMap {
     }
 
     console.log(`[X-GIS] Map running (${this.useCanvas2D ? 'Canvas 2D fallback' : 'WebGPU'})`)
+
+    // Expose a ready signal for headless e2e / smoke tests. The test
+    // harness (playground/e2e/smoke.spec.ts) polls window.__xgisReady
+    // to know when a demo has completed its initial load and entered
+    // the render loop. Gated on `typeof window` so SSR / Node tests
+    // don't trip over the global.
+    if (typeof window !== 'undefined') {
+      ;(window as unknown as { __xgisReady?: boolean }).__xgisReady = true
+    }
   }
 
   /** Rebuild GPU layers from raw data with current projection */
@@ -573,24 +589,11 @@ export class XGISMap {
     const w = canvas.width, h = canvas.height
     if (w === 0 || h === 0) { requestAnimationFrame(this.renderLoop); return }
 
-    // Track the maximum useful zoom level based on loaded vector sources.
-    // Tile vertices are stored in tile-local degrees (float32), losing
-    // precision to ~30cm for a z=5 parent at zoom > ~18, and generateSubTile
-    // is called for thousands of microscopic slices. maxSubTileZ =
-    // source.maxLevel + 6 matches the tile selection clamp. We only
-    // UPDATE camera.maxZoom here (not `camera.zoom` itself) so that
-    // zoomAt and other input-side clamping use the current cap, while
-    // avoiding per-frame tug-of-war with the controller's inertia/zoom
-    // animations that would manifest as the map drifting by itself.
-    let zoomCap = 22
-    if (this.vtSources.size > 0) {
-      let maxSrcLevel = 0
-      for (const [, { renderer: vtR }] of this.vtSources) {
-        if (vtR.sourceMaxLevel > maxSrcLevel) maxSrcLevel = vtR.sourceMaxLevel
-      }
-      zoomCap = Math.min(22, maxSrcLevel + 6)
-    }
-    this.camera.maxZoom = zoomCap
+    // DSFUN precision removes the old `maxSrcLevel + 6` clamp: tile vertices
+    // are now stored as f64-equivalent (high/low) Mercator-meter pairs, so
+    // a z=5 parent tile survives camera zoom 22 with sub-millimeter jitter.
+    // Zoom 22 is a universal cap across every source.
+    this.camera.maxZoom = 22
 
     // Clamp camera Y (latitude bounded), X wraps freely (world repeat)
     const MAX_MERC = 20037508.34

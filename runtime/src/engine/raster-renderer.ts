@@ -5,15 +5,18 @@ import type { Camera } from './camera'
 import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../loader/tiles'
 import { mercator as mercatorProj } from './projection'
 import { BLEND_ALPHA, STENCIL_DISABLED, MSAA_4X } from './gpu-shared'
+import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
 
 const RASTER_SHADER = /* wgsl */ `
 const PI: f32 = 3.14159265;
 const DEG2RAD: f32 = 0.01745329;
 const EARTH_R: f32 = 6378137.0;
 const MERCATOR_LAT_LIMIT: f32 = 85.051129;
+${WGSL_LOG_DEPTH_FNS}
 
 struct Uniforms {
   mvp: mat4x4<f32>,
+  // proj_params: x=type, y=centerLon, z=centerLat, w=log_depth_fc
   proj_params: vec4<f32>,
 }
 
@@ -112,6 +115,12 @@ struct VsOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) uv: vec2<f32>,
   @location(1) vis: f32,
+  @location(2) view_w: f32,
+}
+
+struct RasterFragmentOutput {
+  @location(0) color: vec4<f32>,
+  @builtin(frag_depth) depth: f32,
 }
 
 // Subdivided grid: N×N cells, 6 vertices per cell
@@ -164,7 +173,9 @@ fn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut {
     let origin_projected = project(tile.tile_rtc.z, origin_lat);
     let rtc_other = projected - origin_projected + tile.tile_rtc.xy;
     var out: VsOut;
-    out.pos = u.mvp * vec4<f32>(rtc_other, 0.0, 1.0);
+    let clip_other = u.mvp * vec4<f32>(rtc_other, 0.0, 1.0);
+    out.pos = apply_log_depth(clip_other, u.proj_params.w);
+    out.view_w = clip_other.w;
     out.uv = vec2<f32>(uu, vv);
     out.vis = select(1.0, center_cos_c(lon, lat, u.proj_params.y, u.proj_params.z), t > 2.5);
     return out;
@@ -174,16 +185,21 @@ fn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut {
   let rtc = vec2<f32>(local_x + tile.tile_rtc.x, local_y + tile.tile_rtc.y);
 
   var out: VsOut;
-  out.pos = u.mvp * vec4<f32>(rtc, 0.0, 1.0);
+  let clip = u.mvp * vec4<f32>(rtc, 0.0, 1.0);
+  out.pos = apply_log_depth(clip, u.proj_params.w);
+  out.view_w = clip.w;
   out.uv = vec2<f32>(uu, vv);
   out.vis = 1.0;
   return out;
 }
 
 @fragment
-fn fs_tile(input: VsOut) -> @location(0) vec4<f32> {
+fn fs_tile(input: VsOut) -> RasterFragmentOutput {
   if (input.vis < 0.0) { discard; }
-  return textureSample(tex, tex_sampler, input.uv);
+  var out: RasterFragmentOutput;
+  out.color = textureSample(tex, tex_sampler, input.uv);
+  out.depth = compute_log_frag_depth(input.view_w, u.proj_params.w);
+  return out;
 }
 `
 
@@ -324,10 +340,12 @@ export class RasterRenderer {
       })
     }
 
-    // Write global uniforms
+    // Write global uniforms. proj_params.w = log_depth_fc so the raster
+    // grid shader can apply/read the log-depth transform uniformly with
+    // the vector pipelines.
     const uniformData = new ArrayBuffer(128)
     new Float32Array(uniformData, 0, 16).set(mvp)
-    new Float32Array(uniformData, 64, 4).set([projType, projCenterLon, projCenterLat, 0])
+    new Float32Array(uniformData, 64, 4).set([projType, projCenterLon, projCenterLat, camera.getLogDepthFc()])
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
     pass.setPipeline(this.pipeline)
