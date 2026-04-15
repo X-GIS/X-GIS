@@ -2,7 +2,7 @@
 // Converts IR Scene to the existing runtime SceneCommands format.
 // This bridge allows the runtime to consume IR without changes.
 
-import type { Scene, RenderNode, ColorValue, ZoomStop, DataExpr } from './render-node'
+import type { Scene, RenderNode, ColorValue, ZoomStop, TimeStop, Easing, DataExpr } from './render-node'
 import { rgbaToHex } from './render-node'
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
 
@@ -46,6 +46,15 @@ export interface ShowCommand {
   strokeOffset?: number
   /** Stroke alignment — 'inset' / 'outset' shift by ±half_width at runtime. */
   strokeAlign?: 'center' | 'inset' | 'outset'
+  // ── Animation (PR 1: opacity only) ──
+  /** Keyframe stops along the millisecond timeline. Null means no animation. */
+  timeOpacityStops: TimeStop<number>[] | null
+  /** If true, `elapsedMs` wraps modulo the last stop's timeMs (repeat forever). */
+  timeOpacityLoop: boolean
+  /** Easing function applied BETWEEN stops. Default 'linear'. */
+  timeOpacityEasing: Easing
+  /** Milliseconds to wait before the first stop takes effect. Negative allowed. */
+  timeOpacityDelayMs: number
 }
 
 export interface SceneCommands {
@@ -73,6 +82,26 @@ function emitShow(node: RenderNode): ShowCommand {
   // Generate shader variant for this layer
   const shaderVariant = generateShaderVariant(node)
 
+  // Project opacity through the three shapes: constant / zoom / time / hybrid.
+  // The zoom-time hybrid populates BOTH zoomOpacityStops and timeOpacityStops;
+  // the runtime composes them multiplicatively so zoom-opacity acts as a
+  // slow envelope around the faster animation pulse.
+  const op = node.opacity
+  const zoomOpacityStops: ZoomStop<number>[] | null =
+    op.kind === 'zoom-interpolated' ? op.stops :
+    op.kind === 'zoom-time' ? op.zoomStops :
+    null
+  const timeOpacityStops: TimeStop<number>[] | null =
+    op.kind === 'time-interpolated' ? op.stops :
+    op.kind === 'zoom-time' ? op.timeStops :
+    null
+  const timeOpacityLoop =
+    op.kind === 'time-interpolated' || op.kind === 'zoom-time' ? op.loop : false
+  const timeOpacityEasing: Easing =
+    op.kind === 'time-interpolated' || op.kind === 'zoom-time' ? op.easing : 'linear'
+  const timeOpacityDelayMs =
+    op.kind === 'time-interpolated' || op.kind === 'zoom-time' ? op.delayMs : 0
+
   return {
     targetName: node.sourceRef,
     fill: colorToHex(node.fill),
@@ -80,9 +109,9 @@ function emitShow(node: RenderNode): ShowCommand {
     strokeWidth: node.stroke.width,
     projection: node.projection,
     visible: node.visible,
-    opacity: node.opacity.kind === 'constant' ? node.opacity.value : 1.0,
+    opacity: op.kind === 'constant' ? op.value : 1.0,
     size: node.size.kind === 'constant' ? node.size.value : null,
-    zoomOpacityStops: node.opacity.kind === 'zoom-interpolated' ? node.opacity.stops : null,
+    zoomOpacityStops,
     zoomSizeStops: node.size.kind === 'zoom-interpolated' ? node.size.stops : null,
     shaderVariant,
     filterExpr: node.filter,
@@ -101,6 +130,10 @@ function emitShow(node: RenderNode): ShowCommand {
     patterns: node.stroke.patterns,
     strokeOffset: node.stroke.offset,
     strokeAlign: node.stroke.align,
+    timeOpacityStops,
+    timeOpacityLoop,
+    timeOpacityEasing,
+    timeOpacityDelayMs,
   }
 }
 

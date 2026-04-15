@@ -3,7 +3,7 @@
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONToTiles, decomposeFeatures, deserializeXGB, resolveImportsAsync } from '@xgis/compiler'
 import { initGPU, resizeCanvas, MAX_DPR, SAMPLE_COUNT, SAFE_MODE, type GPUContext } from './gpu'
 import { Camera } from './camera'
-import { MapRenderer, interpolateZoom } from './renderer'
+import { MapRenderer, interpolateZoom, interpolateTime } from './renderer'
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
 import { isTileTemplate } from '../loader/tiles'
@@ -93,6 +93,12 @@ export class XGISMap {
    *  on-demand loading doesn't flood the overlay. */
   private _flickerLastFrame = new Map<string, number>()
   private _frameCount = 0
+  /** Wall-clock animation origin captured on the first rendered frame.
+   *  `performance.now() - _startTime` yields the elapsed milliseconds
+   *  fed into every time-interpolated value (opacity today, more
+   *  properties in future PRs). Null until first renderFrame. */
+  private _startTime: number | null = null
+  private _elapsedMs = 0
 
   constructor(private canvas: HTMLCanvasElement) {
     this.camera = new Camera(0, 20, 2)
@@ -630,9 +636,25 @@ export class XGISMap {
     for (const entry of this.vectorTileShows) {
       const vtEntry = this.vtSources.get(entry.sourceName)
       if (!vtEntry || !vtEntry.renderer.hasData()) continue
-      const effectiveShow = entry.show.zoomOpacityStops
-        ? { ...entry.show, opacity: interpolateZoom(entry.show.zoomOpacityStops, this.camera.zoom) }
-        : entry.show
+      // Opacity = zoom factor × time factor. Either may be 1 if its stop
+      // list is absent, leaving the existing constant opacity intact.
+      const baseOpa = entry.show.opacity ?? 1
+      const zoomOpa = entry.show.zoomOpacityStops
+        ? interpolateZoom(entry.show.zoomOpacityStops, this.camera.zoom)
+        : baseOpa
+      const timeOpa = entry.show.timeOpacityStops
+        ? interpolateTime(
+            entry.show.timeOpacityStops, this._elapsedMs,
+            entry.show.timeOpacityLoop ?? false,
+            entry.show.timeOpacityEasing ?? 'linear',
+            entry.show.timeOpacityDelayMs ?? 0,
+          )
+        : 1
+      const composedOpa = zoomOpa * timeOpa
+      const effectiveShow =
+        (entry.show.zoomOpacityStops || entry.show.timeOpacityStops)
+          ? { ...entry.show, opacity: composedOpa }
+          : entry.show
       if ((effectiveShow.opacity ?? 1) < 0.005) continue
       const isTranslucentStroke =
         !SAFE_MODE && (effectiveShow.opacity ?? 1) < 0.999 && !!effectiveShow.stroke
@@ -676,6 +698,12 @@ export class XGISMap {
   private renderFrame(): void {
     this._stats.beginFrame()
     resizeCanvas(this.ctx)
+
+    // Seed the animation clock on first rendered frame, then compute the
+    // elapsed wall-clock milliseconds. Everything time-interpolated
+    // (opacity today, color/width/etc. in later PRs) reads this value.
+    if (this._startTime === null) this._startTime = performance.now()
+    this._elapsedMs = performance.now() - this._startTime
 
     const projType = {
       mercator: 0, equirectangular: 1, natural_earth: 2,
@@ -854,7 +882,7 @@ export class XGISMap {
           // current architecture.
           if (isFirst) {
             this.rasterRenderer.render(subPass, this.camera, projType, centerLon, centerLat, w, h)
-            this.renderer.renderToPass(subPass, this.camera, projType, centerLon, centerLat)
+            this.renderer.renderToPass(subPass, this.camera, projType, centerLon, centerLat, this._elapsedMs)
           }
 
           if (!group) return

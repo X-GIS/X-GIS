@@ -1,0 +1,38 @@
+/*
+ * Animation PR 1 — keyframes + time-interpolated opacity.
+ *
+ * A top-level `keyframes pulse { ... }` block declares a named animation.
+ * Layers reference it with `animation-pulse duration-MS ease-MODE infinite`.
+ * The runtime composes zoom-opacity × time-opacity multiplicatively, so
+ * animations and zoom-opacity interact correctly.
+ *
+ * Expected visual: amber coastline fades 100% → 30% → 100% every 1.5s
+ * with ease-in-out timing, forever. Slate land stays static underneath.
+ */
+
+keyframes pulse {
+  0%:   opacity-100
+  50%:  opacity-30
+  100%: opacity-100
+}
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.geojson"
+}
+
+layer land_fill {
+  source: land
+  | fill-slate-800
+}
+
+layer pulsing_coast {
+  source: coast
+  | stroke-amber-300 stroke-3
+  | animation-pulse duration-1500 ease-in-out infinite
+}

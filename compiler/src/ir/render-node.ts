@@ -119,6 +119,32 @@ export type OpacityValue =
   | { kind: 'constant'; value: number }
   | { kind: 'data-driven'; expr: DataExpr }
   | { kind: 'zoom-interpolated'; stops: ZoomStop<number>[] }
+  | {
+      kind: 'time-interpolated'
+      stops: TimeStop<number>[]
+      loop: boolean
+      easing: Easing
+      delayMs: number
+    }
+  | {
+      kind: 'zoom-time'
+      zoomStops: ZoomStop<number>[]
+      timeStops: TimeStop<number>[]
+      loop: boolean
+      easing: Easing
+      delayMs: number
+    }
+
+/** A time stop for keyframe-interpolated values. Time axis is milliseconds
+ *  from the start of the animation. */
+export interface TimeStop<T> {
+  timeMs: number
+  value: T
+}
+
+/** Easing function used between adjacent time stops. Four CSS presets —
+ *  cubic-bezier, steps, and per-segment variants land in later PRs. */
+export type Easing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
 
 /**
  * Size value for points/symbols.

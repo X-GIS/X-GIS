@@ -16,6 +16,7 @@ export type Statement =
   | ImportStatement
   | SymbolStatement
   | StyleStatement
+  | KeyframesStatement
   | IfStatement
   | ReturnStatement
   | ForStatement
@@ -296,4 +297,19 @@ export type UtilityItem = {
   name: string              // e.g., "fill-red-500", "stroke-2", "opacity-80"
   binding: Expr | null      // e.g., the expression inside [...] for data binding
   bindingUnit?: string | null // e.g., "km" in size-[expr]km
+}
+
+// keyframes pulse { 0%: opacity-100  50%: opacity-30  100%: opacity-100 }
+export type KeyframesStatement = {
+  kind: 'KeyframesStatement'
+  name: string             // e.g., "pulse"
+  frames: Keyframe[]       // sorted by percent after parsing
+  line: number
+}
+
+// A single keyframe: { percent: 50, utilities: [UtilityItem('opacity-30')] }
+export type Keyframe = {
+  percent: number          // 0..100 (from=0, to=100)
+  utilities: UtilityItem[]
+  line: number
 }

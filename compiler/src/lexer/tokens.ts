@@ -27,9 +27,11 @@ export enum TokenType {
   Layer, // layer
   Preset, // preset
   From, // from
+  To, // to (keyframes alias for 100%)
   Export, // export
   SymbolDef, // symbol
   Style, // style
+  Keyframes, // keyframes
 
   // Units
   Px, // px
@@ -104,9 +106,11 @@ const KEYWORDS: Record<string, TokenType> = {
   layer: TokenType.Layer,
   preset: TokenType.Preset,
   from: TokenType.From,
+  to: TokenType.To,
   export: TokenType.Export,
   symbol: TokenType.SymbolDef,
   style: TokenType.Style,
+  keyframes: TokenType.Keyframes,
   true: TokenType.Bool,
   false: TokenType.Bool,
 }

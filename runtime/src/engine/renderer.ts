@@ -366,6 +366,9 @@ function parseColor(hex: string): [number, number, number, number] {
 
 // ═══ Show command (parsed from AST) ═══
 
+/** Easing function used between adjacent time-interpolated stops. */
+export type Easing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
+
 export interface ShowCommand {
   targetName: string
   fill: string | null
@@ -377,6 +380,11 @@ export interface ShowCommand {
   size?: number | null
   zoomOpacityStops?: { zoom: number; value: number }[] | null
   zoomSizeStops?: { zoom: number; value: number }[] | null
+  // ── Animation (PR 1: opacity only) ──
+  timeOpacityStops?: { timeMs: number; value: number }[] | null
+  timeOpacityLoop?: boolean
+  timeOpacityEasing?: Easing
+  timeOpacityDelayMs?: number
   shaderVariant?: { key: string; preamble: string; fillExpr: string; strokeExpr: string; fillPreamble?: string; needsFeatureBuffer: boolean; featureFields: string[]; uniformFields: string[] } | null
   filterExpr?: { ast: unknown } | null  // AST expression for per-feature filtering
   geometryExpr?: { ast: unknown } | null
@@ -471,6 +479,12 @@ interface RenderLayer {
   lineIndexCount: number
   zoomOpacityStops: { zoom: number; value: number }[] | null
   zoomSizeStops: { zoom: number; value: number }[] | null
+  // Animation (PR 1: opacity only). Populated from ShowCommand.timeOpacity*
+  // in addLayer(). Null timeOpacityStops means "no animation".
+  timeOpacityStops: { timeMs: number; value: number }[] | null
+  timeOpacityLoop: boolean
+  timeOpacityEasing: Easing
+  timeOpacityDelayMs: number
   // Per-layer specialized pipelines (null = use shared default)
   fillPipeline: GPURenderPipeline | null
   linePipeline: GPURenderPipeline | null
@@ -488,6 +502,53 @@ export function interpolateZoom(stops: { zoom: number; value: number }[], zoom: 
     if (zoom >= stops[i].zoom && zoom <= stops[i + 1].zoom) {
       const t = (zoom - stops[i].zoom) / (stops[i + 1].zoom - stops[i].zoom)
       return stops[i].value + t * (stops[i + 1].value - stops[i].value)
+    }
+  }
+  return stops[stops.length - 1].value
+}
+
+/** Easing functions applied between adjacent time stops. Maps t∈[0,1] → [0,1]. */
+const EASING_LUT: Record<Easing, (t: number) => number> = {
+  'linear':      (t) => t,
+  'ease-in':     (t) => t * t,
+  'ease-out':    (t) => 1 - (1 - t) * (1 - t),
+  'ease-in-out': (t) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2,
+}
+
+/**
+ * Linearly interpolate between sorted time stops, with easing applied to
+ * the per-segment t. Mirrors interpolateZoom() but operates on milliseconds
+ * instead of zoom levels, and supports loop / delay / easing semantics.
+ *
+ * - `elapsedMs` is the global wall clock since animation start
+ * - `loop=true` wraps elapsed modulo the last stop's timeMs
+ * - `delayMs` is subtracted before sampling (may be negative to "start mid")
+ * - `easing` warps the per-segment t before the lerp
+ *
+ * Returns the first stop's value when no stops exist or we're before the
+ * first stop (after delay adjustment). Returns the last stop's value when
+ * we're past the end and loop=false.
+ */
+export function interpolateTime(
+  stops: { timeMs: number; value: number }[],
+  elapsedMs: number,
+  loop: boolean,
+  easing: Easing,
+  delayMs: number,
+): number {
+  if (stops.length === 0) return 1.0
+  const effective = elapsedMs - delayMs
+  if (effective < 0) return stops[0].value
+  const last = stops[stops.length - 1].timeMs
+  const t = loop && last > 0 ? effective % last : Math.min(effective, last)
+  if (t <= stops[0].timeMs) return stops[0].value
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (t >= stops[i].timeMs && t <= stops[i + 1].timeMs) {
+      const span = stops[i + 1].timeMs - stops[i].timeMs
+      if (span === 0) return stops[i + 1].value
+      const raw = (t - stops[i].timeMs) / span
+      const k = EASING_LUT[easing](raw)
+      return stops[i].value + k * (stops[i + 1].value - stops[i].value)
     }
   }
   return stops[stops.length - 1].value
@@ -741,6 +802,10 @@ export class MapRenderer {
       lineIndexCount: 0,
       zoomOpacityStops: show.zoomOpacityStops ?? null,
       zoomSizeStops: show.zoomSizeStops ?? null,
+      timeOpacityStops: show.timeOpacityStops ?? null,
+      timeOpacityLoop: show.timeOpacityLoop ?? false,
+      timeOpacityEasing: show.timeOpacityEasing ?? 'linear',
+      timeOpacityDelayMs: show.timeOpacityDelayMs ?? 0,
       fillPipeline: layerFillPipeline,
       linePipeline: layerLinePipeline,
       featureDataBuffer: null,
@@ -962,7 +1027,7 @@ export class MapRenderer {
   }
 
   /** Render all layers into an existing render pass (RTC projection) */
-  renderToPass(pass: GPURenderPassEncoder, camera: Camera, projType = 0, projCenterLon = 0, projCenterLat = 20): void {
+  renderToPass(pass: GPURenderPassEncoder, camera: Camera, projType = 0, projCenterLon = 0, projCenterLat = 20, elapsedMs = 0): void {
     const { device, canvas } = this.ctx
     // RTC: no translation in MVP, projection center is at (0,0)
     const mvp = camera.getRTCMatrix(canvas.width, canvas.height)
@@ -971,10 +1036,19 @@ export class MapRenderer {
       // Read from dynamic properties (supports runtime override)
       if (!layer.props.getBool('visible')) continue
 
-      // Zoom-interpolated values override defaults
-      const opacity = layer.zoomOpacityStops
+      // Opacity = zoom factor × time factor. Either may be 1 if its stop
+      // list is absent. Multiplying lets zoom-opacity act as a slow envelope
+      // around a faster time-based pulse, which is what users expect.
+      const zoomOpa = layer.zoomOpacityStops
         ? interpolateZoom(layer.zoomOpacityStops, camera.zoom)
         : layer.props.getNumber('opacity', 1.0)
+      const timeOpa = layer.timeOpacityStops
+        ? interpolateTime(
+            layer.timeOpacityStops, elapsedMs,
+            layer.timeOpacityLoop, layer.timeOpacityEasing, layer.timeOpacityDelayMs,
+          )
+        : 1.0
+      const opacity = zoomOpa * timeOpa
       const fillRaw = layer.props.getColor('fill')
       const strokeRaw = layer.props.getColor('stroke')
       const fillColor = fillRaw ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity] : [0, 0, 0, 0]

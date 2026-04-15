@@ -40,6 +40,8 @@ export class Parser {
         return this.parseSymbolStatement()
       case TokenType.Style:
         return this.parseStyleStatement()
+      case TokenType.Keyframes:
+        return this.parseKeyframesStatement()
       case TokenType.If:
         return this.parseIfStatement()
       case TokenType.Return:
@@ -342,6 +344,86 @@ export class Parser {
     return { kind: 'StyleStatement', name, properties, line }
   }
 
+  // keyframes pulse { 0%: opacity-100  50%: opacity-30  100%: opacity-100 }
+  //
+  // Each keyframe: <percent>%: utility utility ...   or   from: ... / to: ...
+  // Utilities inside a keyframe must NOT carry modifiers (z8:, hover:, etc.) —
+  // a keyframe already IS a point in time, so any modifier would be ambiguous.
+  private parseKeyframesStatement(): AST.KeyframesStatement {
+    const line = this.current().line
+    this.expect(TokenType.Keyframes)
+    const name = this.expect(TokenType.Identifier).value
+    this.expect(TokenType.LBrace)
+
+    const frames: AST.Keyframe[] = []
+    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
+      frames.push(this.parseKeyframe())
+      // separator is implicit (whitespace / newline), commas tolerated
+      if (this.check(TokenType.Comma)) this.advance()
+    }
+    this.expect(TokenType.RBrace)
+
+    // Sort by percent so downstream lowering sees a monotonic sequence.
+    frames.sort((a, b) => a.percent - b.percent)
+    return { kind: 'KeyframesStatement', name, frames, line }
+  }
+
+  // Single keyframe row: `<percent>%: <utilities>` or `from: ...` / `to: ...`
+  private parseKeyframe(): AST.Keyframe {
+    const line = this.current().line
+
+    // Parse the percent specifier. Accept:
+    //   - <number>%  — standard percentage
+    //   - from       — alias for 0%
+    //   - to         — alias for 100%
+    let percent: number
+    if (this.check(TokenType.Number)) {
+      const n = parseFloat(this.advance().value)
+      // The '%' symbol lexes as TokenType.Percent
+      if (this.check(TokenType.Percent)) this.advance()
+      percent = n
+    } else if (this.check(TokenType.From)) {
+      this.advance()
+      percent = 0
+    } else if (this.check(TokenType.To)) {
+      this.advance()
+      percent = 100
+    } else {
+      this.error(`Expected percent, 'from', or 'to' in keyframe, got ${TokenType[this.current().type]}`)
+    }
+    if (percent < 0 || percent > 100) {
+      this.error(`Keyframe percent must be in 0..100, got ${percent}`)
+    }
+
+    this.expect(TokenType.Colon)
+
+    // Parse utility items until end-of-frame. End conditions: we see another
+    // percent specifier (<number>%, from, to) or the closing brace.
+    const utilities: AST.UtilityItem[] = []
+    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
+      if (this.isKeyframeBoundary()) break
+      const item = this.parseUtilityItem()
+      if (item.modifier) {
+        this.error(`Modifiers are not allowed inside keyframes (got '${item.modifier}:' on '${item.name}')`)
+      }
+      utilities.push(item)
+    }
+
+    return { percent, utilities, line }
+  }
+
+  // True if the current position begins a new keyframe row (another percent
+  // line or a from/to alias). Used to terminate the utility list inside a
+  // keyframe without a separator token.
+  private isKeyframeBoundary(): boolean {
+    if (this.check(TokenType.From) || this.check(TokenType.To)) return true
+    if (this.check(TokenType.Number)) {
+      const next = this.tokens[this.pos + 1]
+      if (next?.type === TokenType.Percent) return true
+    }
+    return false
+  }
+
   /**
    * Parse a CSS-like style property: fill: stone-800, stroke-width: 1
    * Property names can be hyphen-joined (stroke-width).
@@ -517,7 +599,12 @@ export class Parser {
     const t = this.current().type
     return t === TokenType.Identifier || t === TokenType.SymbolDef ||
       t === TokenType.Source || t === TokenType.Layer || t === TokenType.Preset ||
-      t === TokenType.View || t === TokenType.On
+      t === TokenType.View || t === TokenType.On ||
+      // Short keywords that naturally appear inside utility names, e.g.
+      // `ease-in-out`, `ease-in`, `from-red-500`, `to-blue-500`, `fade-in`.
+      // Without these, `in` / `from` / `to` would short-circuit the
+      // hyphen-joined name accumulator and break utility parsing.
+      t === TokenType.In || t === TokenType.From || t === TokenType.To
   }
 
   private parseUtilityName(): string {
@@ -543,7 +630,12 @@ export class Parser {
         next.type === TokenType.Color ||
         next.type === TokenType.SymbolDef ||
         next.type === TokenType.Source ||
-        next.type === TokenType.Layer
+        next.type === TokenType.Layer ||
+        // Short keywords that appear mid-name: ease-in-out, ease-in,
+        // from-red-500, to-blue-500, fade-in, etc.
+        next.type === TokenType.In ||
+        next.type === TokenType.From ||
+        next.type === TokenType.To
       if (!isNamePart) break
       this.advance() // consume '-'
       name += '-' + this.advance().value

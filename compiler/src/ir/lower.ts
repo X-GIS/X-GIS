@@ -12,6 +12,8 @@ import {
   type SizeValue,
   type OpacityValue,
   type ZoomStop,
+  type TimeStop,
+  type Easing,
   type ConditionalBranch,
   colorNone,
   colorConstant,
@@ -33,8 +35,12 @@ export function lower(program: AST.Program): Scene {
   const sourceMap = new Map<string, SourceDef>()
   const presetMap = new Map<string, AST.UtilityLine[]>()
   const styleMap = new Map<string, AST.StyleProperty[]>()
+  const keyframesMap = new Map<string, AST.KeyframesStatement>()
 
-  // First pass: collect presets, styles, and symbols
+  // First pass: collect presets, styles, symbols, and keyframes. Keyframes
+  // must land in the symbol table before any layer is lowered so forward
+  // references like `animation-pulse` resolve regardless of declaration
+  // order in the source file.
   for (const stmt of program.body) {
     if (stmt.kind === 'PresetStatement') {
       presetMap.set(stmt.name, stmt.utilities)
@@ -46,6 +52,8 @@ export function lower(program: AST.Program): Scene {
         if (el.kind === 'path') paths.push(el.data)
       }
       if (paths.length > 0) symbols.push({ name: stmt.name, paths })
+    } else if (stmt.kind === 'KeyframesStatement') {
+      keyframesMap.set(stmt.name, stmt)
     }
   }
 
@@ -53,6 +61,7 @@ export function lower(program: AST.Program): Scene {
     switch (stmt.kind) {
       case 'PresetStatement':
       case 'StyleStatement':
+      case 'KeyframesStatement':
         break // already processed in first pass
       case 'SourceStatement': {
         const src = lowerSource(stmt)
@@ -63,7 +72,7 @@ export function lower(program: AST.Program): Scene {
         break
       }
       case 'LayerStatement': {
-        const node = lowerLayer(stmt, sourceMap, presetMap, styleMap)
+        const node = lowerLayer(stmt, sourceMap, presetMap, styleMap, keyframesMap)
         if (node) {
           // If the source was referenced but not yet added, add it
           if (!sources.find(s => s.name === node.sourceRef)) {
@@ -116,6 +125,7 @@ function lowerLayer(
   sourceMap: Map<string, SourceDef>,
   presetMap: Map<string, AST.UtilityLine[]>,
   styleMap: Map<string, AST.StyleProperty[]>,
+  keyframesMap: Map<string, AST.KeyframesStatement>,
 ): RenderNode | null {
   // Extract block properties
   let sourceRef = ''
@@ -244,6 +254,17 @@ function lowerLayer(
   const fillBranches: ConditionalBranch<ColorValue>[] = []
   const opacityZoomStops: ZoomStop<number>[] = []
   const sizeZoomStops: ZoomStop<number>[] = []
+
+  // Animation metadata. Collected from top-level utilities like
+  // `animation-pulse duration-1500 ease-in-out infinite delay-200` on the
+  // layer's utility line. The actual keyframe expansion happens once after
+  // the utility loop completes, so the order of `animation-*` vs
+  // `duration-*` on the same line doesn't matter.
+  let animationName: string | null = null
+  let animationDurationMs = 1000
+  let animationEasing: Easing = 'linear'
+  let animationDelayMs = 0
+  let animationLoop = false
 
   for (const line of expandedUtilities) {
     for (const item of line.items) {
@@ -397,6 +418,54 @@ function lowerLayer(
         }
       } else if (name === 'visible') {
         visible = true
+      } else if (name.startsWith('animation-')) {
+        animationName = name.slice('animation-'.length)
+      } else if (name.startsWith('duration-')) {
+        const num = parseFloat(name.slice('duration-'.length))
+        if (!isNaN(num)) animationDurationMs = num
+      } else if (name === 'ease-linear') {
+        animationEasing = 'linear'
+      } else if (name === 'ease-in') {
+        animationEasing = 'ease-in'
+      } else if (name === 'ease-out') {
+        animationEasing = 'ease-out'
+      } else if (name === 'ease-in-out') {
+        animationEasing = 'ease-in-out'
+      } else if (name.startsWith('delay-')) {
+        const num = parseFloat(name.slice('delay-'.length))
+        if (!isNaN(num)) animationDelayMs = num
+      } else if (name === 'infinite') {
+        animationLoop = true
+      }
+    }
+  }
+
+  // Expand referenced keyframes into per-property time stops. Currently
+  // only opacity is supported (PR 1); PR 3 extends to color/width/size/
+  // dashoffset and PR 5 extends to transforms.
+  const opacityTimeStops: TimeStop<number>[] = []
+  if (animationName) {
+    const kf = keyframesMap.get(animationName)
+    if (!kf) {
+      throw new Error(
+        `Unknown keyframes reference: animation-${animationName} ` +
+        `(layer '${stmt.name}' at line ${stmt.line})`,
+      )
+    }
+    for (const frame of kf.frames) {
+      const timeMs = (frame.percent / 100) * animationDurationMs
+      for (const item of frame.utilities) {
+        const uname = item.name
+        if (uname.startsWith('opacity-')) {
+          const num = parseFloat(uname.slice('opacity-'.length))
+          if (!isNaN(num)) {
+            opacityTimeStops.push({
+              timeMs,
+              value: num <= 1 ? num : num / 100,
+            })
+          }
+        }
+        // Other properties deferred to later PRs.
       }
     }
   }
@@ -406,8 +475,31 @@ function lowerLayer(
     fill = { kind: 'conditional', branches: fillBranches, fallback: fill }
   }
 
-  // Build zoom-interpolated opacity if stops exist
-  if (opacityZoomStops.length > 0) {
+  // Build opacity — may be zoom-interpolated, time-interpolated, or a
+  // zoom-time hybrid when a layer carries BOTH `z<N>:opacity-*` and
+  // `animation-*`. The runtime composes the two multiplicatively.
+  if (opacityTimeStops.length > 0) {
+    opacityTimeStops.sort((a, b) => a.timeMs - b.timeMs)
+    if (opacityZoomStops.length > 0) {
+      opacityZoomStops.sort((a, b) => a.zoom - b.zoom)
+      opacity = {
+        kind: 'zoom-time',
+        zoomStops: opacityZoomStops,
+        timeStops: opacityTimeStops,
+        loop: animationLoop,
+        easing: animationEasing,
+        delayMs: animationDelayMs,
+      }
+    } else {
+      opacity = {
+        kind: 'time-interpolated',
+        stops: opacityTimeStops,
+        loop: animationLoop,
+        easing: animationEasing,
+        delayMs: animationDelayMs,
+      }
+    }
+  } else if (opacityZoomStops.length > 0) {
     opacityZoomStops.sort((a, b) => a.zoom - b.zoom)
     opacity = { kind: 'zoom-interpolated', stops: opacityZoomStops }
   }

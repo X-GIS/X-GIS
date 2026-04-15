@@ -382,4 +382,11 @@ export const DEMOS: Record<string, Demo> = {
     description: 'Translucent yellow coast declared BEFORE opaque country fill. Bucket scheduler must render opaque first and composite the translucent stroke on top, regardless of declaration order.',
     source: load('bucket-order.xgis'),
   },
+
+  animation_pulse: {
+    name: 'Animation: pulse (PR 1)',
+    tag: 'animation',
+    description: 'Keyframes block + animation-pulse modifier. Amber coastline fades 100 → 30 → 100 every 1.5s with ease-in-out. First landing of the X-GIS animation system.',
+    source: load('animation-pulse.xgis'),
+  },
 }
