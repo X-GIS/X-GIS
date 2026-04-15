@@ -864,16 +864,32 @@ export class XGISMap {
       const opaqueGroups = this.groupOpaqueBySource(opaque)
       const hasTranslucent = translucent.length > 0 && this.lineRenderer !== null
       const hasPoints = this.pointRenderer?.hasLayers() ?? false
-      // Inline points into the last opaque sub-pass ONLY when there
-      // are no translucent composites to run after. Otherwise defer
-      // to a dedicated points pass at the very end so points always
-      // draw on top of translucent composites.
-      const inlinePoints = hasPoints && !hasTranslucent
+      // ── Two independent point paths ──
+      //
+      // 1. TILE points: data lives on xgvt tiles (e.g. countries_xgvt
+      //    + populated_places_xgvt). VTR drains them per-source via
+      //    pointRenderer.addTilePoint/flushTilePoints inside its own
+      //    render pass. We pass `pointRenderer` to every VTR.render
+      //    call below — VTR's tile loop is a no-op for sources that
+      //    don't carry point vertices, so this is safe and free.
+      //
+      // 2. DIRECT-LAYER points: GeoJSON sources where rebuildLayers
+      //    routed the show into pointRenderer.addLayer() instead of
+      //    creating a vector-tile pipeline. These live in
+      //    pointRenderer.layers and are rendered by a dedicated bucket
+      //    3 pass. They are NEVER reachable from VTR.render — VTR
+      //    only sees tile data.
+      //
+      // The original `inlinePoints` optimization conflated these two
+      // paths and silently skipped bucket 3 whenever there was no
+      // translucent layer, hiding every direct-layer point demo
+      // (sdf_points, gradient_points, megacities, custom_*, etc).
+      // Fix: bucket 3 always runs when direct-layer points exist.
       // Which pass owns the MSAA resolveTarget? Precisely the last
       // pass that writes to the color target. Priority: dedicated
       // points > last composite > last opaque sub-pass.
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const _resolveOwner = hasPoints && !inlinePoints
+      const _resolveOwner = hasPoints
         ? 'points'
         : hasTranslucent
           ? 'composite'
@@ -930,17 +946,17 @@ export class XGISMap {
 
           for (let si = 0; si < group.shows.length; si++) {
             const cs = group.shows[si]
-            // Pass pointRenderer inline only on the VERY last opaque
-            // draw of the last group AND only if there's no dedicated
-            // points pass coming after. Otherwise points render in
-            // their own pass below.
-            const isTailOfBucket =
-              inlinePoints && isLastOpaque && si === group.shows.length - 1
+            // Always pass pointRenderer so VTR can flush any TILE
+            // points stored on this source's xgvt data. The tile
+            // loop short-circuits when no point vertices exist, so
+            // there's no cost for plain polygon/line sources.
+            // Direct-layer points (pointRenderer.addLayer registered)
+            // are rendered separately in bucket 3 below.
             cs.vtEntry.renderer.render(
               subPass, this.camera, projType, centerLon, centerLat, w, h,
               cs.show, cs.fp, cs.lp, this.renderer.uniformBuffer, cs.bgl,
               cs.fpF, cs.lpF,
-              isTailOfBucket ? this.pointRenderer : null,
+              this.pointRenderer,
               cs.fillPhase,
             )
           }
@@ -983,11 +999,12 @@ export class XGISMap {
         }
       }
 
-      // ── Bucket 3: points ──
-      // Only run a dedicated points pass if we didn't already inline
-      // points into the last opaque sub-pass. The inline path is a
-      // small optimization for the common "no translucent" case.
-      if (hasPoints && !inlinePoints) {
+      // ── Bucket 3: direct-layer points ──
+      // Renders pointRenderer.layers (GeoJSON sources routed through
+      // pointRenderer.addLayer in rebuildLayers). Always runs when
+      // direct layers exist; tile-points are handled inline in
+      // bucket 1 via VTR.render's pointRenderer parameter.
+      if (hasPoints) {
         passScope('points', () => {
           const ptPass = encoder.beginRenderPass({
             colorAttachments: [{
