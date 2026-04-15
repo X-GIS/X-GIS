@@ -20,11 +20,21 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
-  // 4 workers + fullyParallel: each worker spawns its own headed
-  // Chromium against the shared Vite dev server. On a single
-  // developer GPU this means 4 simultaneous WebGPU contexts; if
-  // that proves unstable on a future CI machine, drop to 2.
-  // Override via WORKERS=N env var without touching the config.
+  // Worker parallelization. The bottleneck is GPU contention, NOT
+  // CPU — Windows headed Chromium can only sustain ~4-5 simultaneous
+  // WebGPU contexts before they start failing to enumerate adapters
+  // or losing tiles between frames. Empirical measurements on a
+  // 16-logical-core machine:
+  //
+  //   workers=4  → 1m23s, 54/54 pass  (sweet spot)
+  //   workers=6  → 1m37s, 51/54 pass
+  //   workers=8  → 1m46s, 48/54 pass
+  //   workers=16 → 2m46s, 24/54 pass  (GPU thrashing)
+  //
+  // 4 is faster AND more stable than any higher count, because the
+  // GPU is the bottleneck. Override via WORKERS env var if a future
+  // CI runner has different headroom (e.g. Linux + Vulkan + multiple
+  // virtual GPUs may sustain more).
   fullyParallel: true,
   workers: Number(process.env.WORKERS ?? 4),
   reporter: [['list']],
