@@ -451,6 +451,7 @@ export class XGISMap {
           show.billboard,
           shapeId,
           show.anchor,
+          show.zoomSizeStops ?? null,
         )
         continue
       }
@@ -960,6 +961,10 @@ export class XGISMap {
               stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard',
             },
           })
+          // Re-evaluate zoom-interpolated point sizes against the
+          // current camera before drawing. No-op for layers without
+          // zoomSizeStops; internally skipped when zoom is unchanged.
+          this.pointRenderer!.updateDynamicSizes(this.camera.zoom, interpolateZoom)
           this.pointRenderer!.render(ptPass, this.camera, centerLon, centerLat, w, h)
           ptPass.end()
         })

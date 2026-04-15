@@ -324,6 +324,13 @@ interface PointLayer {
    *  overlapping circles blend cleanly without z-fighting from coplanar
    *  fragments. Billboards keep depth write so near markers occlude far. */
   isFlat: boolean
+  /** Zoom stops for dynamic size — present only when a layer was built
+   *  with `z5:size-N z15:size-M` style utilities. Interpolated each frame
+   *  against camera.zoom and written back into featData[i*STRIDE+0]. */
+  zoomSizeStops: { zoom: number; value: number }[] | null
+  /** Last zoom value the dynamic size was uploaded for, used to skip
+   *  redundant queue.writeBuffer calls when the camera is idle. */
+  lastDynZoom: number
   // Expanded buffers for 3× world copies (created on first render)
   _expandedVertBuf?: GPUBuffer
   _expandedIdxBuf?: GPUBuffer
@@ -601,6 +608,7 @@ export class PointRenderer {
     billboard?: boolean,
     shapeId?: number,
     anchor?: 'center' | 'bottom' | 'top',
+    zoomSizeStops?: { zoom: number; value: number }[] | null,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -703,9 +711,36 @@ export class PointRenderer {
       pointCount: points.length,
       bindGroup,
       isFlat: billboard === false,
+      zoomSizeStops: zoomSizeStops ?? null,
+      lastDynZoom: Number.NaN,
     })
 
     console.log(`[X-GIS] SDF point layer: ${points.length} points`)
+  }
+
+  /** Re-evaluate zoom-interpolated point sizes against the current
+   *  camera zoom and re-upload the affected featData if the value
+   *  changed meaningfully since last frame. Caller should invoke
+   *  this once per frame before render(). No-op for layers without
+   *  zoomSizeStops. */
+  updateDynamicSizes(cameraZoom: number, interpolate: (stops: { zoom: number; value: number }[], zoom: number) => number): void {
+    const STRIDE = 14
+    for (const layer of this.layers) {
+      const stops = layer.zoomSizeStops
+      if (!stops || stops.length === 0) continue
+      if (Math.abs(layer.lastDynZoom - cameraZoom) < 0.001) continue
+
+      const size = interpolate(stops, cameraZoom)
+      for (let i = 0; i < layer.pointCount; i++) {
+        layer.featData[i * STRIDE + 0] = size
+      }
+      this.device.queue.writeBuffer(layer.featureBuffer, 0, layer.featData)
+      // Expanded (3× world copies) buffer stays in sync on next render.
+      layer._expandedFeatBuf?.destroy()
+      layer._expandedFeatBuf = undefined
+      layer._expandedBindGroup = undefined
+      layer.lastDynZoom = cameraZoom
+    }
   }
 
   render(
