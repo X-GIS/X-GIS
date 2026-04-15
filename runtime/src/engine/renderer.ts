@@ -380,11 +380,27 @@ export interface ShowCommand {
   size?: number | null
   zoomOpacityStops?: { zoom: number; value: number }[] | null
   zoomSizeStops?: { zoom: number; value: number }[] | null
-  // ── Animation (PR 1: opacity only) ──
+  // ── Animation (PR 1: opacity; PR 3: color/width/size/dashoffset) ──
+  //
+  // Every animatable property carries a parallel time-stop list.
+  // Shared loop/easing/delayMs come from the single `animation-<name>`
+  // reference on the layer — one animation block drives every stop
+  // list, even cross-property.
   timeOpacityStops?: { timeMs: number; value: number }[] | null
+  timeFillStops?: { timeMs: number; value: [number, number, number, number] }[] | null
+  timeStrokeStops?: { timeMs: number; value: [number, number, number, number] }[] | null
+  timeStrokeWidthStops?: { timeMs: number; value: number }[] | null
+  timeSizeStops?: { timeMs: number; value: number }[] | null
+  timeDashOffsetStops?: { timeMs: number; value: number }[] | null
   timeOpacityLoop?: boolean
   timeOpacityEasing?: Easing
   timeOpacityDelayMs?: number
+  // Per-frame animated overrides. Populated by map.ts
+  // classifyVectorTileShows() when an animation is active, so VTR and
+  // line-renderer don't need to know about time stops — they just read
+  // the pre-resolved value. Bypasses VTR's hex-string parse cache.
+  resolvedFillRgba?: [number, number, number, number] | null
+  resolvedStrokeRgba?: [number, number, number, number] | null
   shaderVariant?: { key: string; preamble: string; fillExpr: string; strokeExpr: string; fillPreamble?: string; needsFeatureBuffer: boolean; featureFields: string[]; uniformFields: string[] } | null
   filterExpr?: { ast: unknown } | null  // AST expression for per-feature filtering
   geometryExpr?: { ast: unknown } | null
@@ -479,9 +495,14 @@ interface RenderLayer {
   lineIndexCount: number
   zoomOpacityStops: { zoom: number; value: number }[] | null
   zoomSizeStops: { zoom: number; value: number }[] | null
-  // Animation (PR 1: opacity only). Populated from ShowCommand.timeOpacity*
-  // in addLayer(). Null timeOpacityStops means "no animation".
+  // Animation time-stop lists. Populated from ShowCommand.time*Stops
+  // in addLayer(). Null means "no animation for this property".
   timeOpacityStops: { timeMs: number; value: number }[] | null
+  timeFillStops: { timeMs: number; value: [number, number, number, number] }[] | null
+  timeStrokeStops: { timeMs: number; value: [number, number, number, number] }[] | null
+  timeStrokeWidthStops: { timeMs: number; value: number }[] | null
+  timeSizeStops: { timeMs: number; value: number }[] | null
+  timeDashOffsetStops: { timeMs: number; value: number }[] | null
   timeOpacityLoop: boolean
   timeOpacityEasing: Easing
   timeOpacityDelayMs: number
@@ -552,6 +573,60 @@ export function interpolateTime(
     }
   }
   return stops[stops.length - 1].value
+}
+
+/**
+ * Componentwise-RGB version of interpolateTime for color animations.
+ * Writes the interpolated value into `out` (caller-provided, avoids
+ * per-frame allocations) and returns it.
+ *
+ * Uses naive linear RGB lerp. A future PR may add per-keyframes
+ * colorspace annotations (e.g. `in oklch`) — that's noted as out of
+ * scope in the animation roadmap.
+ */
+export function interpolateTimeColor(
+  stops: { timeMs: number; value: [number, number, number, number] }[],
+  elapsedMs: number,
+  loop: boolean,
+  easing: Easing,
+  delayMs: number,
+  out: [number, number, number, number] = [0, 0, 0, 0],
+): [number, number, number, number] {
+  if (stops.length === 0) { out[0] = 1; out[1] = 1; out[2] = 1; out[3] = 1; return out }
+  const effective = elapsedMs - delayMs
+  if (effective < 0) {
+    const v = stops[0].value
+    out[0] = v[0]; out[1] = v[1]; out[2] = v[2]; out[3] = v[3]
+    return out
+  }
+  const last = stops[stops.length - 1].timeMs
+  const t = loop && last > 0 ? effective % last : Math.min(effective, last)
+  if (t <= stops[0].timeMs) {
+    const v = stops[0].value
+    out[0] = v[0]; out[1] = v[1]; out[2] = v[2]; out[3] = v[3]
+    return out
+  }
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (t >= stops[i].timeMs && t <= stops[i + 1].timeMs) {
+      const span = stops[i + 1].timeMs - stops[i].timeMs
+      if (span === 0) {
+        const v = stops[i + 1].value
+        out[0] = v[0]; out[1] = v[1]; out[2] = v[2]; out[3] = v[3]
+        return out
+      }
+      const raw = (t - stops[i].timeMs) / span
+      const k = EASING_LUT[easing](raw)
+      const a = stops[i].value, b = stops[i + 1].value
+      out[0] = a[0] + k * (b[0] - a[0])
+      out[1] = a[1] + k * (b[1] - a[1])
+      out[2] = a[2] + k * (b[2] - a[2])
+      out[3] = a[3] + k * (b[3] - a[3])
+      return out
+    }
+  }
+  const v = stops[stops.length - 1].value
+  out[0] = v[0]; out[1] = v[1]; out[2] = v[2]; out[3] = v[3]
+  return out
 }
 
 // ═══ MapRenderer ═══
@@ -803,6 +878,11 @@ export class MapRenderer {
       zoomOpacityStops: show.zoomOpacityStops ?? null,
       zoomSizeStops: show.zoomSizeStops ?? null,
       timeOpacityStops: show.timeOpacityStops ?? null,
+      timeFillStops: show.timeFillStops ?? null,
+      timeStrokeStops: show.timeStrokeStops ?? null,
+      timeStrokeWidthStops: show.timeStrokeWidthStops ?? null,
+      timeSizeStops: show.timeSizeStops ?? null,
+      timeDashOffsetStops: show.timeDashOffsetStops ?? null,
       timeOpacityLoop: show.timeOpacityLoop ?? false,
       timeOpacityEasing: show.timeOpacityEasing ?? 'linear',
       timeOpacityDelayMs: show.timeOpacityDelayMs ?? 0,
@@ -1049,8 +1129,25 @@ export class MapRenderer {
           )
         : 1.0
       const opacity = zoomOpa * timeOpa
-      const fillRaw = layer.props.getColor('fill')
-      const strokeRaw = layer.props.getColor('stroke')
+
+      // Fill / stroke color — if keyframes animate them, sample the stop
+      // list each frame. Otherwise fall back to the base color from the
+      // dynamic property store (which itself originated from the compiled
+      // `fill:` / `stroke:` hex).
+      let fillRaw = layer.props.getColor('fill')
+      let strokeRaw = layer.props.getColor('stroke')
+      if (layer.timeFillStops) {
+        fillRaw = interpolateTimeColor(
+          layer.timeFillStops, elapsedMs,
+          layer.timeOpacityLoop, layer.timeOpacityEasing, layer.timeOpacityDelayMs,
+        )
+      }
+      if (layer.timeStrokeStops) {
+        strokeRaw = interpolateTimeColor(
+          layer.timeStrokeStops, elapsedMs,
+          layer.timeOpacityLoop, layer.timeOpacityEasing, layer.timeOpacityDelayMs,
+        )
+      }
       const fillColor = fillRaw ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity] : [0, 0, 0, 0]
       const strokeColor = strokeRaw ? [strokeRaw[0], strokeRaw[1], strokeRaw[2], strokeRaw[3] * opacity] : [0, 0, 0, 0]
 

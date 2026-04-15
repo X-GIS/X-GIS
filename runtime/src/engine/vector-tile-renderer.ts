@@ -463,10 +463,22 @@ export class VectorTileRenderer {
     const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
     this.logDepthFc = camera.getLogDepthFc()
 
-    // Cache color parsing — only reparse if show properties changed
+    // Cache color parsing — only reparse if show properties changed.
+    //
+    // Animation override: if `resolvedFillRgba` / `resolvedStrokeRgba` is
+    // set, the classifier has already interpolated this frame's value from
+    // a keyframes block. Use it directly — skipping both the hex cache
+    // check AND the hex parse. The cached base color stays intact so a
+    // subsequent static frame can re-use it.
     const opacity = show.opacity ?? 1.0
     this.currentOpacity = opacity
-    if (show.fill !== this.cachedShowFill) {
+    if (show.resolvedFillRgba) {
+      this.cachedFillColor[0] = show.resolvedFillRgba[0]
+      this.cachedFillColor[1] = show.resolvedFillRgba[1]
+      this.cachedFillColor[2] = show.resolvedFillRgba[2]
+      this.cachedFillColor[3] = show.resolvedFillRgba[3]
+      this.cachedShowFill = ''
+    } else if (show.fill !== this.cachedShowFill) {
       this.cachedShowFill = show.fill ?? ''
       const raw = show.fill ? parseHexColor(show.fill) : null
       this.cachedFillColor[0] = raw ? raw[0] : 0
@@ -474,7 +486,13 @@ export class VectorTileRenderer {
       this.cachedFillColor[2] = raw ? raw[2] : 0
       this.cachedFillColor[3] = raw ? raw[3] : 0
     }
-    if (show.stroke !== this.cachedShowStroke) {
+    if (show.resolvedStrokeRgba) {
+      this.cachedStrokeColor[0] = show.resolvedStrokeRgba[0]
+      this.cachedStrokeColor[1] = show.resolvedStrokeRgba[1]
+      this.cachedStrokeColor[2] = show.resolvedStrokeRgba[2]
+      this.cachedStrokeColor[3] = show.resolvedStrokeRgba[3]
+      this.cachedShowStroke = ''
+    } else if (show.stroke !== this.cachedShowStroke) {
       this.cachedShowStroke = show.stroke ?? ''
       const raw = show.stroke ? parseHexColor(show.stroke) : null
       this.cachedStrokeColor[0] = raw ? raw[0] : 0

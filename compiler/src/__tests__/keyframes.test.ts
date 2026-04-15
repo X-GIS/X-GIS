@@ -196,3 +196,186 @@ describe('Keyframes lowering', () => {
     expect(show.timeOpacityDelayMs).toBe(200)
   })
 })
+
+describe('Keyframes — multi-property (PR 3)', () => {
+  it('expands fill keyframes into time-interpolated ColorValue', () => {
+    const scene = compile(`
+      keyframes heat {
+        0%:   fill-blue-500
+        100%: fill-red-500
+      }
+      source data { type: geojson, url: "x.geojson" }
+      layer hot {
+        source: data
+        | fill-blue-500
+        | animation-heat animation-duration-2000 animation-infinite
+      }
+    `)
+    const node = scene.renderNodes[0]
+    expect(node.fill.kind).toBe('time-interpolated')
+    if (node.fill.kind !== 'time-interpolated') throw new Error('wrong kind')
+    expect(node.fill.stops).toHaveLength(2)
+    expect(node.fill.stops[0].timeMs).toBe(0)
+    expect(node.fill.stops[1].timeMs).toBe(2000)
+    // blue-500 = #3b82f6 → approx [0.231, 0.51, 0.965, 1]
+    expect(node.fill.stops[0].value[2]).toBeGreaterThan(0.9)
+    // red-500 = #ef4444 → approx [0.937, 0.267, 0.267, 1]
+    expect(node.fill.stops[1].value[0]).toBeGreaterThan(0.9)
+    expect(node.fill.loop).toBe(true)
+  })
+
+  it('expands stroke-<number> keyframes into timeWidthStops on StrokeValue', () => {
+    const scene = compile(`
+      keyframes grow {
+        0%:   stroke-2
+        100%: stroke-8
+      }
+      source data { type: geojson, url: "x.geojson" }
+      layer growing {
+        source: data
+        | stroke-red-500 stroke-2
+        | animation-grow animation-duration-1000 animation-infinite
+      }
+    `)
+    const node = scene.renderNodes[0]
+    expect(node.stroke.timeWidthStops).toBeDefined()
+    expect(node.stroke.timeWidthStops).toEqual([
+      { timeMs: 0, value: 2 },
+      { timeMs: 1000, value: 8 },
+    ])
+  })
+
+  it('expands stroke-<colorname> keyframes into time-interpolated stroke color', () => {
+    const scene = compile(`
+      keyframes fire {
+        0%:   stroke-amber-300
+        100%: stroke-red-500
+      }
+      source data { type: geojson, url: "x.geojson" }
+      layer blaze {
+        source: data
+        | stroke-amber-300 stroke-2
+        | animation-fire animation-duration-1200 animation-infinite
+      }
+    `)
+    const node = scene.renderNodes[0]
+    expect(node.stroke.color.kind).toBe('time-interpolated')
+    if (node.stroke.color.kind !== 'time-interpolated') throw new Error('wrong kind')
+    expect(node.stroke.color.stops).toHaveLength(2)
+  })
+
+  it('expands stroke-dashoffset keyframes into timeDashOffsetStops', () => {
+    const scene = compile(`
+      keyframes march {
+        from: stroke-dashoffset-0
+        to:   stroke-dashoffset-60
+      }
+      source data { type: geojson, url: "x.geojson" }
+      layer marching {
+        source: data
+        | stroke-amber-300 stroke-2 stroke-dasharray-16-8
+        | animation-march animation-duration-1200 animation-ease-linear animation-infinite
+      }
+    `)
+    const node = scene.renderNodes[0]
+    expect(node.stroke.timeDashOffsetStops).toEqual([
+      { timeMs: 0, value: 0 },
+      { timeMs: 1200, value: 60 },
+    ])
+  })
+
+  it('expands size keyframes into time-interpolated SizeValue for points', () => {
+    const scene = compile(`
+      keyframes ping {
+        0%:   size-8
+        50%:  size-20
+        100%: size-8
+      }
+      source data { type: geojson, url: "x.geojson" }
+      layer pings {
+        source: data
+        | fill-red-500 size-8
+        | animation-ping animation-duration-1500 animation-ease-in-out animation-infinite
+      }
+    `)
+    const node = scene.renderNodes[0]
+    expect(node.size.kind).toBe('time-interpolated')
+    if (node.size.kind !== 'time-interpolated') throw new Error('wrong kind')
+    expect(node.size.stops).toEqual([
+      { timeMs: 0, value: 8 },
+      { timeMs: 750, value: 20 },
+      { timeMs: 1500, value: 8 },
+    ])
+  })
+
+  it('cross-property keyframes expand into parallel stop lists', () => {
+    const scene = compile(`
+      keyframes combo {
+        0%:   opacity-100 fill-blue-500 stroke-2
+        100%: opacity-40  fill-red-500  stroke-8
+      }
+      source data { type: geojson, url: "x.geojson" }
+      layer combined {
+        source: data
+        | fill-blue-500 stroke-blue-500 stroke-2
+        | animation-combo animation-duration-2000 animation-infinite
+      }
+    `)
+    const node = scene.renderNodes[0]
+    expect(node.opacity.kind).toBe('time-interpolated')
+    expect(node.fill.kind).toBe('time-interpolated')
+    expect(node.stroke.timeWidthStops).toBeDefined()
+    expect(node.stroke.timeWidthStops).toHaveLength(2)
+  })
+
+  it('emits ShowCommand.timeFillStops / timeStrokeStops / timeStrokeWidthStops / timeDashOffsetStops / timeSizeStops', () => {
+    const scene = compile(`
+      keyframes combo {
+        0%:   fill-blue-500 stroke-amber-300 stroke-2 stroke-dashoffset-0  size-10
+        100%: fill-red-500  stroke-red-500   stroke-6 stroke-dashoffset-40 size-20
+      }
+      source data { type: geojson, url: "x.geojson" }
+      layer combo {
+        source: data
+        | fill-blue-500 stroke-amber-300 stroke-2 size-10 stroke-dasharray-16-8
+        | animation-combo animation-duration-1500 animation-infinite
+      }
+    `)
+    const commands = emitCommands(scene)
+    const show = commands.shows[0]
+    expect(show.timeFillStops).toHaveLength(2)
+    expect(show.timeStrokeStops).toHaveLength(2)
+    expect(show.timeStrokeWidthStops).toEqual([
+      { timeMs: 0, value: 2 },
+      { timeMs: 1500, value: 6 },
+    ])
+    expect(show.timeDashOffsetStops).toEqual([
+      { timeMs: 0, value: 0 },
+      { timeMs: 1500, value: 40 },
+    ])
+    expect(show.timeSizeStops).toEqual([
+      { timeMs: 0, value: 10 },
+      { timeMs: 1500, value: 20 },
+    ])
+  })
+
+  it('single-stop property does not promote to time-interpolated', () => {
+    // Need ≥2 stops to interpolate; a single stop would just hold
+    // forever and degenerates to a constant.
+    const scene = compile(`
+      keyframes half_only {
+        50%: fill-red-500
+      }
+      source data { type: geojson, url: "x.geojson" }
+      layer half {
+        source: data
+        | fill-blue-500
+        | animation-half_only animation-duration-1000 animation-infinite
+      }
+    `)
+    const node = scene.renderNodes[0]
+    // Fill stays constant (blue-500) because only one stop — not enough
+    // to interpolate.
+    expect(node.fill.kind).toBe('constant')
+  })
+})

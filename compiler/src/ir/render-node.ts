@@ -69,6 +69,17 @@ export type ColorValue =
   | { kind: 'none' }
   | { kind: 'data-driven'; expr: DataExpr }
   | { kind: 'conditional'; branches: ConditionalBranch<ColorValue>[]; fallback: ColorValue }
+  | {
+      kind: 'time-interpolated'
+      /** Fallback color when t < first stop (respecting delay). Used by
+       *  emit-commands to pick a sensible `fill:` hex so pre-animation
+       *  frames look right. */
+      base: [number, number, number, number]
+      stops: TimeStop<[number, number, number, number]>[]
+      loop: boolean
+      easing: Easing
+      delayMs: number
+    }
 
 /**
  * Stroke combines color and width.
@@ -110,6 +121,16 @@ export interface StrokeValue {
    *  (so the stroke's right edge sits on the original line); outset shifts
    *  the other way. Combined with explicit `offset` by addition. */
   align?: 'center' | 'inset' | 'outset'
+  // ── Animation (PR 3) ──
+  // Parallel time stop lists live on the parent interface instead of
+  // promoting `width` / `dashOffset` to a union type — keeps every
+  // downstream consumer (emit-commands, renderer, line-renderer) able
+  // to read the base scalar without branching, and only checks the
+  // stops when animation is actually attached. Shared loop / easing /
+  // delay metadata is reused from the opacity animation attached to
+  // the same layer (see LayerAnimationMeta on RenderNode below).
+  timeWidthStops?: TimeStop<number>[]
+  timeDashOffsetStops?: TimeStop<number>[]
 }
 
 /**
@@ -154,6 +175,14 @@ export type SizeValue =
   | { kind: 'none' }
   | { kind: 'data-driven'; expr: DataExpr; unit?: string | null }
   | { kind: 'zoom-interpolated'; stops: ZoomStop<number>[] }
+  | {
+      kind: 'time-interpolated'
+      stops: TimeStop<number>[]
+      loop: boolean
+      easing: Easing
+      delayMs: number
+      unit?: string | null
+    }
 
 /**
  * A zoom stop for interpolated values.

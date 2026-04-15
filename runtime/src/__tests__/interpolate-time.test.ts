@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { interpolateTime, type Easing } from '../engine/renderer'
+import { interpolateTime, interpolateTimeColor, type Easing } from '../engine/renderer'
 
 // ═══ interpolateTime: time-axis sibling of interpolateZoom ═══
 //
@@ -121,5 +121,65 @@ describe('interpolateTime — degenerate stops', () => {
     ]
     // At exactly t=500 the segment-lookup returns the second stop's value
     expect(interpolateTime(stops, 500, false, 'linear', 0)).toBe(0.5)
+  })
+})
+
+// ═══ interpolateTimeColor: vec4 companion to interpolateTime ═══
+
+const COLOR_STOPS: { timeMs: number; value: [number, number, number, number] }[] = [
+  { timeMs: 0,    value: [1, 0, 0, 1] },  // red
+  { timeMs: 500,  value: [0, 1, 0, 1] },  // green
+  { timeMs: 1000, value: [0, 0, 1, 1] },  // blue
+]
+
+describe('interpolateTimeColor — boundary & midpoint', () => {
+  it('returns first stop at t=0', () => {
+    expect(interpolateTimeColor(COLOR_STOPS, 0, false, 'linear', 0)).toEqual([1, 0, 0, 1])
+  })
+
+  it('returns last stop at t=last', () => {
+    expect(interpolateTimeColor(COLOR_STOPS, 1000, false, 'linear', 0)).toEqual([0, 0, 1, 1])
+  })
+
+  it('componentwise lerps at segment midpoint', () => {
+    // t=250 is halfway between red [1,0,0] and green [0,1,0]
+    const c = interpolateTimeColor(COLOR_STOPS, 250, false, 'linear', 0)
+    expect(c[0]).toBeCloseTo(0.5, 6)
+    expect(c[1]).toBeCloseTo(0.5, 6)
+    expect(c[2]).toBeCloseTo(0.0, 6)
+    expect(c[3]).toBeCloseTo(1.0, 6)
+  })
+
+  it('componentwise lerps at second segment midpoint', () => {
+    // t=750 is halfway between green [0,1,0] and blue [0,0,1]
+    const c = interpolateTimeColor(COLOR_STOPS, 750, false, 'linear', 0)
+    expect(c[0]).toBeCloseTo(0.0, 6)
+    expect(c[1]).toBeCloseTo(0.5, 6)
+    expect(c[2]).toBeCloseTo(0.5, 6)
+  })
+})
+
+describe('interpolateTimeColor — loop + delay', () => {
+  it('wraps when loop=true', () => {
+    // 1250 % 1000 = 250 → midpoint of red/green segment
+    const c = interpolateTimeColor(COLOR_STOPS, 1250, true, 'linear', 0)
+    expect(c[0]).toBeCloseTo(0.5, 6)
+    expect(c[1]).toBeCloseTo(0.5, 6)
+  })
+
+  it('respects delayMs', () => {
+    // elapsed=200, delay=500 → effective=-300 → returns first stop
+    expect(interpolateTimeColor(COLOR_STOPS, 200, false, 'linear', 500)).toEqual([1, 0, 0, 1])
+  })
+})
+
+describe('interpolateTimeColor — allocation reuse', () => {
+  it('writes into provided `out` buffer without allocating', () => {
+    const out: [number, number, number, number] = [9, 9, 9, 9]
+    const result = interpolateTimeColor(COLOR_STOPS, 500, false, 'linear', 0, out)
+    // Returned array is the SAME reference as `out` — caller can keep
+    // a pooled Float32-friendly tuple across frames.
+    expect(result).toBe(out)
+    expect(out).toEqual([0, 1, 0, 1])
   })
 })

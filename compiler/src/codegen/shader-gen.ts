@@ -115,6 +115,19 @@ function processColorValue(
     }
   }
 
+  if (value.kind === 'time-interpolated') {
+    // CPU resolves the animated color each frame and writes it into the
+    // fill_color / stroke_color uniform slot. Shader just reads from the
+    // uniform. Mirrors the opacity path that already routes zoom- /
+    // time-interpolated opacity through `u.opacity`.
+    const uniformName = prefix === 'FILL' ? 'u.fill_color' : 'u.stroke_color'
+    return {
+      preamble: [],
+      isConst: false, needsFeatures: false, isVec4: true,
+      expr: uniformName,
+    }
+  }
+
   if (value.kind === 'data-driven') {
     const fields = collectFields(value.expr.ast)
     fields.forEach(f => featureFields.add(f))

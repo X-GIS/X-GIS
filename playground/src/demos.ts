@@ -389,4 +389,11 @@ export const DEMOS: Record<string, Demo> = {
     description: 'Keyframes block + animation-pulse modifier. Amber coastline fades 100 → 30 → 100 every 1.5s with ease-in-out. First landing of the X-GIS animation system.',
     source: load('animation-pulse.xgis'),
   },
+
+  animation_showcase: {
+    name: 'Animation: showcase (PR 3)',
+    tag: 'animation',
+    description: 'Full property coverage — fill/stroke color morph, dash-offset marching, cross-property keyframes. Countries heat up, coastline marches, land outline cycles amber↔sky.',
+    source: load('animation-showcase.xgis'),
+  },
 }

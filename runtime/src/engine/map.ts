@@ -3,7 +3,7 @@
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONToTiles, decomposeFeatures, deserializeXGB, resolveImportsAsync } from '@xgis/compiler'
 import { initGPU, resizeCanvas, MAX_DPR, SAMPLE_COUNT, SAFE_MODE, type GPUContext } from './gpu'
 import { Camera } from './camera'
-import { MapRenderer, interpolateZoom, interpolateTime } from './renderer'
+import { MapRenderer, interpolateZoom, interpolateTime, interpolateTimeColor } from './renderer'
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
 import { isTileTemplate } from '../loader/tiles'
@@ -651,10 +651,51 @@ export class XGISMap {
           )
         : 1
       const composedOpa = zoomOpa * timeOpa
-      const effectiveShow =
-        (entry.show.zoomOpacityStops || entry.show.timeOpacityStops)
-          ? { ...entry.show, opacity: composedOpa }
-          : entry.show
+
+      // PR 3: resolve animated color/width/size/dashoffset here so the
+      // downstream VTR, line-renderer, and point-renderer all see a
+      // plain static show object and don't need to know about time
+      // stops. The classifier is the single choke point that turns
+      // animation IR back into concrete uniform values every frame.
+      const loop = entry.show.timeOpacityLoop ?? false
+      const easing = entry.show.timeOpacityEasing ?? 'linear'
+      const delayMs = entry.show.timeOpacityDelayMs ?? 0
+      const hasAnyTimeAnim =
+        !!entry.show.timeOpacityStops ||
+        !!entry.show.timeFillStops ||
+        !!entry.show.timeStrokeStops ||
+        !!entry.show.timeStrokeWidthStops ||
+        !!entry.show.timeSizeStops ||
+        !!entry.show.timeDashOffsetStops
+      const needsClone = !!entry.show.zoomOpacityStops || hasAnyTimeAnim
+      const effectiveShow = needsClone
+        ? { ...entry.show, opacity: composedOpa }
+        : entry.show
+      if (entry.show.timeFillStops) {
+        effectiveShow.resolvedFillRgba = interpolateTimeColor(
+          entry.show.timeFillStops, this._elapsedMs, loop, easing, delayMs,
+        )
+      }
+      if (entry.show.timeStrokeStops) {
+        effectiveShow.resolvedStrokeRgba = interpolateTimeColor(
+          entry.show.timeStrokeStops, this._elapsedMs, loop, easing, delayMs,
+        )
+      }
+      if (entry.show.timeStrokeWidthStops) {
+        effectiveShow.strokeWidth = interpolateTime(
+          entry.show.timeStrokeWidthStops, this._elapsedMs, loop, easing, delayMs,
+        )
+      }
+      if (entry.show.timeDashOffsetStops) {
+        effectiveShow.dashOffset = interpolateTime(
+          entry.show.timeDashOffsetStops, this._elapsedMs, loop, easing, delayMs,
+        )
+      }
+      if (entry.show.timeSizeStops) {
+        effectiveShow.size = interpolateTime(
+          entry.show.timeSizeStops, this._elapsedMs, loop, easing, delayMs,
+        )
+      }
       if ((effectiveShow.opacity ?? 1) < 0.005) continue
       const isTranslucentStroke =
         !SAFE_MODE && (effectiveShow.opacity ?? 1) < 0.999 && !!effectiveShow.stroke

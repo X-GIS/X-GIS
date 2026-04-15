@@ -46,14 +46,20 @@ export interface ShowCommand {
   strokeOffset?: number
   /** Stroke alignment — 'inset' / 'outset' shift by ±half_width at runtime. */
   strokeAlign?: 'center' | 'inset' | 'outset'
-  // ── Animation (PR 1: opacity only) ──
-  /** Keyframe stops along the millisecond timeline. Null means no animation. */
+  // ── Animation ──
+  //
+  // PR 1 shipped time*Opacity; PR 3 adds time* stops for fill/stroke
+  // color, stroke width, point size, and dash offset. All share the
+  // same loop/easing/delay metadata because a single layer only hosts
+  // one animation reference (`animation-<name>`) at a time.
   timeOpacityStops: TimeStop<number>[] | null
-  /** If true, `elapsedMs` wraps modulo the last stop's timeMs (repeat forever). */
+  timeFillStops: TimeStop<[number, number, number, number]>[] | null
+  timeStrokeStops: TimeStop<[number, number, number, number]>[] | null
+  timeStrokeWidthStops: TimeStop<number>[] | null
+  timeSizeStops: TimeStop<number>[] | null
+  timeDashOffsetStops: TimeStop<number>[] | null
   timeOpacityLoop: boolean
-  /** Easing function applied BETWEEN stops. Default 'linear'. */
   timeOpacityEasing: Easing
-  /** Milliseconds to wait before the first stop takes effect. Negative allowed. */
   timeOpacityDelayMs: number
 }
 
@@ -102,6 +108,19 @@ function emitShow(node: RenderNode): ShowCommand {
   const timeOpacityDelayMs =
     op.kind === 'time-interpolated' || op.kind === 'zoom-time' ? op.delayMs : 0
 
+  // PR 3: project animated color / size stops off each union. Because
+  // ColorValue.time-interpolated carries a `base` fallback, we emit the
+  // base through `fill:` / `stroke:` — downstream code uses it when
+  // time-factor reads aren't active yet (pre-delay frames).
+  const timeFillStops: TimeStop<[number, number, number, number]>[] | null =
+    node.fill.kind === 'time-interpolated' ? node.fill.stops : null
+  const timeStrokeStops: TimeStop<[number, number, number, number]>[] | null =
+    node.stroke.color.kind === 'time-interpolated' ? node.stroke.color.stops : null
+  const timeSizeStops: TimeStop<number>[] | null =
+    node.size.kind === 'time-interpolated' ? node.size.stops : null
+  const timeStrokeWidthStops = node.stroke.timeWidthStops ?? null
+  const timeDashOffsetStops = node.stroke.timeDashOffsetStops ?? null
+
   return {
     targetName: node.sourceRef,
     fill: colorToHex(node.fill),
@@ -131,6 +150,11 @@ function emitShow(node: RenderNode): ShowCommand {
     strokeOffset: node.stroke.offset,
     strokeAlign: node.stroke.align,
     timeOpacityStops,
+    timeFillStops,
+    timeStrokeStops,
+    timeStrokeWidthStops,
+    timeSizeStops,
+    timeDashOffsetStops,
     timeOpacityLoop,
     timeOpacityEasing,
     timeOpacityDelayMs,
@@ -140,5 +164,9 @@ function emitShow(node: RenderNode): ShowCommand {
 function colorToHex(color: ColorValue): string | null {
   if (color.kind === 'none') return null
   if (color.kind === 'constant') return rgbaToHex(color.rgba)
+  // For time-interpolated colors, the `base` snapshot is the fallback
+  // pre-animation value — emitting it as a hex keeps the existing
+  // shader-variant generator and raw pixel readback paths happy.
+  if (color.kind === 'time-interpolated') return rgbaToHex(color.base)
   return null
 }

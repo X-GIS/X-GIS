@@ -1,0 +1,67 @@
+/*
+ * Animation showcase — PR 3 property coverage.
+ *
+ * Three stacked layers each animate a different property family:
+ *   - country_heat:  fill color morphing slate → rose → slate (2s)
+ *   - coast_march:   dash offset marching along the coastline (1.2s)
+ *   - land_glow:     stroke color cycling amber → sky → amber (3s)
+ *
+ * Every animation comes from a top-level `keyframes` block referenced
+ * by `animation-<name>`. All lifecycle modifiers carry the unified
+ * `animation-` prefix (duration, ease, infinite). One animation block
+ * can drive multiple properties per keyframe row — watch how `heat`
+ * also cycles the stroke color through the same timeline.
+ */
+
+keyframes heat {
+  0%:   fill-slate-700 stroke-slate-500
+  50%:  fill-rose-600  stroke-amber-300
+  100%: fill-slate-700 stroke-slate-500
+}
+
+keyframes march {
+  from: stroke-dashoffset-0
+  to:   stroke-dashoffset-60
+}
+
+keyframes glow {
+  0%:   stroke-amber-300
+  50%:  stroke-sky-300
+  100%: stroke-amber-300
+}
+
+source land {
+  type: geojson
+  url: "ne_110m_land.geojson"
+}
+
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.geojson"
+}
+
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+/* Countries: fill + stroke color morph every 2 seconds. */
+layer country_heat {
+  source: countries
+  | fill-slate-700 stroke-slate-500 stroke-1
+  | animation-heat animation-duration-2000 animation-ease-in-out animation-infinite
+}
+
+/* Coastline: marching dashes, 60m per 1.2s (linear pacing). */
+layer coast_march {
+  source: coast
+  | stroke-amber-300 stroke-3 stroke-dasharray-16-8
+  | animation-march animation-duration-1200 animation-ease-linear animation-infinite
+}
+
+/* Land outline: stroke color cycles amber → sky → amber every 3s. */
+layer land_glow {
+  source: land
+  | stroke-amber-300 stroke-2 fill-transparent
+  | animation-glow animation-duration-3000 animation-ease-in-out animation-infinite
+}

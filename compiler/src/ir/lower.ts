@@ -459,10 +459,18 @@ function lowerLayer(
     }
   }
 
-  // Expand referenced keyframes into per-property time stops. Currently
-  // only opacity is supported (PR 1); PR 3 extends to color/width/size/
-  // dashoffset and PR 5 extends to transforms.
+  // Expand referenced keyframes into per-property time stops.
+  //
+  // PR 1 covered opacity. PR 3 (this code) covers fill, stroke color,
+  // stroke width, point size, and stroke dash-offset — the five
+  // properties that already have concrete per-layer uniform slots.
+  // PR 5 will add transforms, PR 6 filters.
   const opacityTimeStops: TimeStop<number>[] = []
+  const fillTimeStops: TimeStop<[number, number, number, number]>[] = []
+  const strokeColorTimeStops: TimeStop<[number, number, number, number]>[] = []
+  const strokeWidthTimeStops: TimeStop<number>[] = []
+  const sizeTimeStops: TimeStop<number>[] = []
+  const dashOffsetTimeStops: TimeStop<number>[] = []
   if (animationName) {
     const kf = keyframesMap.get(animationName)
     if (!kf) {
@@ -475,6 +483,7 @@ function lowerLayer(
       const timeMs = (frame.percent / 100) * animationDurationMs
       for (const item of frame.utilities) {
         const uname = item.name
+        // ── opacity ──
         if (uname.startsWith('opacity-')) {
           const num = parseFloat(uname.slice('opacity-'.length))
           if (!isNaN(num)) {
@@ -483,8 +492,48 @@ function lowerLayer(
               value: num <= 1 ? num : num / 100,
             })
           }
+          continue
         }
-        // Other properties deferred to later PRs.
+        // ── dash-offset (meters) ──
+        // Must come before the generic `stroke-` branch because
+        // `stroke-dashoffset-N` shares the prefix.
+        if (uname.startsWith('stroke-dashoffset-')) {
+          const num = parseFloat(uname.slice('stroke-dashoffset-'.length))
+          if (!isNaN(num)) dashOffsetTimeStops.push({ timeMs, value: num })
+          continue
+        }
+        // ── fill color ──
+        if (uname.startsWith('fill-')) {
+          const hex = resolveColor(uname.slice('fill-'.length))
+          if (hex) fillTimeStops.push({ timeMs, value: hexToRgba(hex) })
+          continue
+        }
+        // ── stroke: either color or width ──
+        // The existing static lowering treats `stroke-<number>` as
+        // width and `stroke-<colorname>` as color. Mirror that here.
+        if (uname.startsWith('stroke-')) {
+          const rest = uname.slice('stroke-'.length)
+          const num = parseFloat(rest)
+          if (!isNaN(num) && rest === String(num)) {
+            strokeWidthTimeStops.push({ timeMs, value: num })
+          } else {
+            const hex = resolveColor(rest)
+            if (hex) strokeColorTimeStops.push({ timeMs, value: hexToRgba(hex) })
+          }
+          continue
+        }
+        // ── point size ──
+        if (uname.startsWith('size-')) {
+          const sizeStr = uname.slice('size-'.length)
+          const unitMatch = sizeStr.match(/^([\d.]+)(px|m|km|nm|deg)?$/)
+          if (unitMatch) {
+            const num = parseFloat(unitMatch[1])
+            if (!isNaN(num)) sizeTimeStops.push({ timeMs, value: num })
+          }
+          continue
+        }
+        // Unknown keyframe utilities are silently ignored. Future PRs
+        // extend this loop (transforms, filters, etc.).
       }
     }
   }
@@ -523,6 +572,68 @@ function lowerLayer(
     opacity = { kind: 'zoom-interpolated', stops: opacityZoomStops }
   }
 
+  // ── PR 3: build animated fill/stroke/width/size/dashOffset ──
+  //
+  // Each list is only promoted if the keyframe block actually set the
+  // corresponding property at ≥2 frames. A single stop wouldn't animate
+  // anything — we'd just hold that value forever — so that case
+  // degenerates to a constant and we skip the promotion.
+
+  if (fillTimeStops.length >= 2) {
+    fillTimeStops.sort((a, b) => a.timeMs - b.timeMs)
+    // `base` is the fill color the layer had before keyframes touched
+    // it, so pre-animation frames still look right. If the layer had no
+    // explicit fill, fall back to the first stop's value.
+    const baseRgba: [number, number, number, number] =
+      fill.kind === 'constant' ? fill.rgba : fillTimeStops[0].value
+    fill = {
+      kind: 'time-interpolated',
+      base: baseRgba,
+      stops: fillTimeStops,
+      loop: animationLoop,
+      easing: animationEasing,
+      delayMs: animationDelayMs,
+    }
+  }
+
+  if (strokeColorTimeStops.length >= 2) {
+    strokeColorTimeStops.sort((a, b) => a.timeMs - b.timeMs)
+    const baseRgba: [number, number, number, number] =
+      strokeColor.kind === 'constant' ? strokeColor.rgba : strokeColorTimeStops[0].value
+    strokeColor = {
+      kind: 'time-interpolated',
+      base: baseRgba,
+      stops: strokeColorTimeStops,
+      loop: animationLoop,
+      easing: animationEasing,
+      delayMs: animationDelayMs,
+    }
+  }
+
+  // Width / dashOffset live as parallel time stop lists on StrokeValue,
+  // stamped after the stroke object is built below. We hold them in
+  // outer-scope let variables here and read them below.
+  if (strokeWidthTimeStops.length >= 2) {
+    strokeWidthTimeStops.sort((a, b) => a.timeMs - b.timeMs)
+  }
+  if (dashOffsetTimeStops.length >= 2) {
+    dashOffsetTimeStops.sort((a, b) => a.timeMs - b.timeMs)
+  }
+
+  if (sizeTimeStops.length >= 2) {
+    sizeTimeStops.sort((a, b) => a.timeMs - b.timeMs)
+    const baseUnit =
+      (size.kind === 'constant' || size.kind === 'data-driven') ? (size.unit ?? null) : null
+    size = {
+      kind: 'time-interpolated',
+      stops: sizeTimeStops,
+      loop: animationLoop,
+      easing: animationEasing,
+      delayMs: animationDelayMs,
+      unit: baseUnit,
+    }
+  }
+
   // Build zoom-interpolated size if stops exist
   if (sizeZoomStops.length > 0) {
     sizeZoomStops.sort((a, b) => a.zoom - b.zoom)
@@ -546,6 +657,8 @@ function lowerLayer(
         patterns: validPatterns.length > 0 ? validPatterns : undefined,
         offset: strokeOffset,
         align: strokeAlign,
+        timeWidthStops: strokeWidthTimeStops.length >= 2 ? strokeWidthTimeStops : undefined,
+        timeDashOffsetStops: dashOffsetTimeStops.length >= 2 ? dashOffsetTimeStops : undefined,
       }
     })(),
     opacity,
