@@ -78,7 +78,7 @@ describe('Keyframes lowering', () => {
       layer pulsing {
         source: data
         | stroke-red-500 stroke-2
-        | animation-pulse duration-1500 ease-in-out infinite
+        | animation-pulse animation-duration-1500 animation-ease-in-out animation-infinite
       }
     `)
     const node = scene.renderNodes[0]
@@ -123,7 +123,7 @@ describe('Keyframes lowering', () => {
       layer early {
         source: data
         | fill-blue-500
-        | animation-later duration-500
+        | animation-later animation-duration-500
       }
       keyframes later {
         0%:   opacity-100
@@ -146,7 +146,7 @@ describe('Keyframes lowering', () => {
         source: data
         | fill-emerald-500
         | z6:opacity-40 z14:opacity-100
-        | animation-pulse duration-2000 infinite
+        | animation-pulse animation-duration-2000 animation-infinite
       }
     `)
     const node = scene.renderNodes[0]
@@ -167,7 +167,7 @@ describe('Keyframes lowering', () => {
       layer broken {
         source: data
         | fill-red-500
-        | animation-nonexistent duration-500
+        | animation-nonexistent animation-duration-500
       }
     `)).toThrow(/Unknown keyframes reference/)
   })
@@ -182,7 +182,7 @@ describe('Keyframes lowering', () => {
       layer pulsing {
         source: data
         | fill-red-500
-        | animation-pulse duration-800 ease-out delay-200 infinite
+        | animation-pulse animation-duration-800 animation-ease-out animation-delay-200 animation-infinite
       }
     `)
     const commands = emitCommands(scene)

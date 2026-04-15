@@ -2,7 +2,16 @@
  * Animation PR 1 — keyframes + time-interpolated opacity.
  *
  * A top-level `keyframes pulse { ... }` block declares a named animation.
- * Layers reference it with `animation-pulse duration-MS ease-MODE infinite`.
+ * Layers reference it with the `animation-*` utility family. Every
+ * animation-related modifier shares the `animation-` prefix so they're
+ * visually grouped and can't collide with non-animation utilities:
+ *
+ *   animation-pulse           — keyframes reference by name
+ *   animation-duration-1500   — duration in milliseconds
+ *   animation-ease-in-out     — easing function
+ *   animation-infinite        — loop forever
+ *   animation-delay-200       — optional start offset
+ *
  * The runtime composes zoom-opacity × time-opacity multiplicatively, so
  * animations and zoom-opacity interact correctly.
  *
@@ -34,5 +43,5 @@ layer land_fill {
 layer pulsing_coast {
   source: coast
   | stroke-amber-300 stroke-3
-  | animation-pulse duration-1500 ease-in-out infinite
+  | animation-pulse animation-duration-1500 animation-ease-in-out animation-infinite
 }

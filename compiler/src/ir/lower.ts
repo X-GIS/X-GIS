@@ -419,23 +419,42 @@ function lowerLayer(
       } else if (name === 'visible') {
         visible = true
       } else if (name.startsWith('animation-')) {
-        animationName = name.slice('animation-'.length)
-      } else if (name.startsWith('duration-')) {
-        const num = parseFloat(name.slice('duration-'.length))
-        if (!isNaN(num)) animationDurationMs = num
-      } else if (name === 'ease-linear') {
-        animationEasing = 'linear'
-      } else if (name === 'ease-in') {
-        animationEasing = 'ease-in'
-      } else if (name === 'ease-out') {
-        animationEasing = 'ease-out'
-      } else if (name === 'ease-in-out') {
-        animationEasing = 'ease-in-out'
-      } else if (name.startsWith('delay-')) {
-        const num = parseFloat(name.slice('delay-'.length))
-        if (!isNaN(num)) animationDelayMs = num
-      } else if (name === 'infinite') {
-        animationLoop = true
+        // All animation-related utilities carry the `animation-` prefix so
+        // they're visually grouped and can't collide with non-animation
+        // modifiers. The sub-prefix discriminator decides whether this is
+        // a lifecycle setting or a keyframes reference:
+        //
+        //   animation-duration-<ms>   → duration in milliseconds
+        //   animation-delay-<ms>      → delay in ms (negative allowed)
+        //   animation-ease-{linear|in|out|in-out}
+        //                             → easing function
+        //   animation-infinite        → loop forever (PR 2 will add
+        //                               animation-iteration-<N> for finite)
+        //   animation-<anything else> → keyframes reference by name
+        //
+        // This means `duration`, `delay`, `ease-*`, and `infinite` are
+        // reserved as keyframes names — using them in `keyframes <name>`
+        // makes them unreachable here.
+        const rest = name.slice('animation-'.length)
+        if (rest.startsWith('duration-')) {
+          const num = parseFloat(rest.slice('duration-'.length))
+          if (!isNaN(num)) animationDurationMs = num
+        } else if (rest.startsWith('delay-')) {
+          const num = parseFloat(rest.slice('delay-'.length))
+          if (!isNaN(num)) animationDelayMs = num
+        } else if (rest === 'ease-linear') {
+          animationEasing = 'linear'
+        } else if (rest === 'ease-in') {
+          animationEasing = 'ease-in'
+        } else if (rest === 'ease-out') {
+          animationEasing = 'ease-out'
+        } else if (rest === 'ease-in-out') {
+          animationEasing = 'ease-in-out'
+        } else if (rest === 'infinite') {
+          animationLoop = true
+        } else {
+          animationName = rest
+        }
       }
     }
   }
