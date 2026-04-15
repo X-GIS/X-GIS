@@ -1,9 +1,16 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONToTiles, decomposeFeatures, deserializeXGB, resolveImportsAsync } from '@xgis/compiler'
-import { initGPU, resizeCanvas, MAX_DPR, SAMPLE_COUNT, SAFE_MODE, type GPUContext } from './gpu'
+import { initGPU, resizeCanvas, MAX_DPR, SAMPLE_COUNT, type GPUContext } from './gpu'
 import { Camera } from './camera'
-import { MapRenderer, interpolateZoom, interpolateTime, interpolateTimeColor } from './renderer'
+import { MapRenderer } from './renderer'
+import {
+  classifyVectorTileShows as classifyVectorTileShowsImpl,
+  groupOpaqueBySource as groupOpaqueBySourceImpl,
+  planFrameSchedule,
+  type ClassifiedShow as ExternalClassifiedShow,
+  type OpaqueGroup as ExternalOpaqueGroup,
+} from './bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
 import { isTileTemplate } from '../loader/tiles'
@@ -16,7 +23,6 @@ import { CanvasRenderer } from './canvas-renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { XGVTSource } from '../data/xgvt-source'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
-import type { LayerDrawPhase } from './vector-tile-renderer'
 // reprojector.ts preserved for future tile-coordinate RTT approach
 
 interface VariantPipelines {
@@ -26,31 +32,10 @@ interface VariantPipelines {
   linePipelineFallback?: GPURenderPipeline
 }
 
-/** A vector-tile show after zoom-opacity resolution and bucket
- *  classification. Produced by classifyVectorTileShows() once per
- *  frame and consumed by the bucket scheduler. */
-interface ClassifiedShow {
-  sourceName: string
-  vtEntry: { source: XGVTSource; renderer: VectorTileRenderer }
-  show: SceneCommands['shows'][0]
-  fp: GPURenderPipeline
-  lp: GPURenderPipeline
-  bgl: GPUBindGroupLayout
-  fpF?: GPURenderPipeline
-  lpF?: GPURenderPipeline
-  isTranslucentStroke: boolean
-  /** Phase for the OPAQUE bucket draw. 'all' for pure opaque layers,
-   *  'fills' for the fill half of a translucent-stroke layer. The
-   *  'strokes' phase is emitted separately in the translucent bucket. */
-  fillPhase: LayerDrawPhase
-}
-
-/** A run of consecutive same-source opaque shows that can share one
- *  sub-pass (single stencil clear). */
-interface OpaqueGroup {
-  sourceName: string
-  shows: ClassifiedShow[]
-}
+// ClassifiedShow + OpaqueGroup live in bucket-scheduler.ts so they're
+// importable by tests. Local aliases keep the rest of map.ts terse.
+type ClassifiedShow = ExternalClassifiedShow
+type OpaqueGroup = ExternalOpaqueGroup
 
 export class XGISMap {
   private ctx!: GPUContext
@@ -627,113 +612,33 @@ export class XGISMap {
    *  An opaque layer only appears in the opaque bucket, fillPhase='all',
    *  which renders fill + stroke + inline points in one call.
    */
+  /** Thin instance wrapper around the pure classifier in
+   *  `bucket-scheduler.ts`. Bundles up the instance state the
+   *  classifier needs into a single param object so the underlying
+   *  function stays testable in isolation. */
   private classifyVectorTileShows(): {
     opaque: ClassifiedShow[]
     translucent: ClassifiedShow[]
   } {
-    const opaque: ClassifiedShow[] = []
-    const translucent: ClassifiedShow[] = []
-    for (const entry of this.vectorTileShows) {
-      const vtEntry = this.vtSources.get(entry.sourceName)
-      if (!vtEntry || !vtEntry.renderer.hasData()) continue
-      // Opacity = zoom factor × time factor. Either may be 1 if its stop
-      // list is absent, leaving the existing constant opacity intact.
-      const baseOpa = entry.show.opacity ?? 1
-      const zoomOpa = entry.show.zoomOpacityStops
-        ? interpolateZoom(entry.show.zoomOpacityStops, this.camera.zoom)
-        : baseOpa
-      const timeOpa = entry.show.timeOpacityStops
-        ? interpolateTime(
-            entry.show.timeOpacityStops, this._elapsedMs,
-            entry.show.timeOpacityLoop ?? false,
-            entry.show.timeOpacityEasing ?? 'linear',
-            entry.show.timeOpacityDelayMs ?? 0,
-          )
-        : 1
-      const composedOpa = zoomOpa * timeOpa
-
-      // PR 3: resolve animated color/width/size/dashoffset here so the
-      // downstream VTR, line-renderer, and point-renderer all see a
-      // plain static show object and don't need to know about time
-      // stops. The classifier is the single choke point that turns
-      // animation IR back into concrete uniform values every frame.
-      const loop = entry.show.timeOpacityLoop ?? false
-      const easing = entry.show.timeOpacityEasing ?? 'linear'
-      const delayMs = entry.show.timeOpacityDelayMs ?? 0
-      const hasAnyTimeAnim =
-        !!entry.show.timeOpacityStops ||
-        !!entry.show.timeFillStops ||
-        !!entry.show.timeStrokeStops ||
-        !!entry.show.timeStrokeWidthStops ||
-        !!entry.show.timeSizeStops ||
-        !!entry.show.timeDashOffsetStops
-      const needsClone = !!entry.show.zoomOpacityStops || hasAnyTimeAnim
-      const effectiveShow = needsClone
-        ? { ...entry.show, opacity: composedOpa }
-        : entry.show
-      if (entry.show.timeFillStops) {
-        effectiveShow.resolvedFillRgba = interpolateTimeColor(
-          entry.show.timeFillStops, this._elapsedMs, loop, easing, delayMs,
-        )
-      }
-      if (entry.show.timeStrokeStops) {
-        effectiveShow.resolvedStrokeRgba = interpolateTimeColor(
-          entry.show.timeStrokeStops, this._elapsedMs, loop, easing, delayMs,
-        )
-      }
-      if (entry.show.timeStrokeWidthStops) {
-        effectiveShow.strokeWidth = interpolateTime(
-          entry.show.timeStrokeWidthStops, this._elapsedMs, loop, easing, delayMs,
-        )
-      }
-      if (entry.show.timeDashOffsetStops) {
-        effectiveShow.dashOffset = interpolateTime(
-          entry.show.timeDashOffsetStops, this._elapsedMs, loop, easing, delayMs,
-        )
-      }
-      if (entry.show.timeSizeStops) {
-        effectiveShow.size = interpolateTime(
-          entry.show.timeSizeStops, this._elapsedMs, loop, easing, delayMs,
-        )
-      }
-      if ((effectiveShow.opacity ?? 1) < 0.005) continue
-      const isTranslucentStroke =
-        !SAFE_MODE && (effectiveShow.opacity ?? 1) < 0.999 && !!effectiveShow.stroke
-      const fp = entry.pipelines?.fillPipeline ?? this.renderer.fillPipeline
-      const lp = entry.pipelines?.linePipeline ?? this.renderer.linePipeline
-      const bgl = entry.layout ?? this.renderer.bindGroupLayout
-      const fpF = entry.pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
-      const lpF = entry.pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
-      const classified: ClassifiedShow = {
-        sourceName: entry.sourceName,
-        vtEntry,
-        show: effectiveShow,
-        fp, lp, bgl, fpF, lpF,
-        isTranslucentStroke,
-        fillPhase: isTranslucentStroke ? 'fills' : 'all',
-      }
-      opaque.push(classified)
-      if (isTranslucentStroke) translucent.push(classified)
-    }
-    return { opaque, translucent }
+    return classifyVectorTileShowsImpl({
+      vectorTileShows: this.vectorTileShows,
+      vtSources: this.vtSources,
+      cameraZoom: this.camera.zoom,
+      elapsedMs: this._elapsedMs,
+      rendererDefaults: {
+        fillPipeline: this.renderer.fillPipeline,
+        linePipeline: this.renderer.linePipeline,
+        bindGroupLayout: this.renderer.bindGroupLayout,
+        fillPipelineFallback: this.renderer.fillPipelineFallback,
+        linePipelineFallback: this.renderer.linePipelineFallback,
+      },
+    })
   }
 
-  /** Group consecutive same-source opaque shows into runs so each source
-   *  gets a single render pass with one stencil clear. Preserves
-   *  declaration order — a later show with the same sourceName that's
-   *  split by an intervening different source opens a NEW group (the
-   *  stencil ring state isn't compatible across sources). */
+  /** Thin instance wrapper around the pure grouper in
+   *  `bucket-scheduler.ts`. */
   private groupOpaqueBySource(opaque: ClassifiedShow[]): OpaqueGroup[] {
-    const groups: OpaqueGroup[] = []
-    for (const show of opaque) {
-      const last = groups[groups.length - 1]
-      if (last && last.sourceName === show.sourceName) {
-        last.shows.push(show)
-      } else {
-        groups.push({ sourceName: show.sourceName, shows: [show] })
-      }
-    }
-    return groups
+    return groupOpaqueBySourceImpl(opaque)
   }
 
   private renderFrame(): void {

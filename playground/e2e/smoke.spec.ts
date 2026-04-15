@@ -267,8 +267,10 @@ const ANIMATED_DEMOS = new Set(['animation_pulse', 'animation_showcase'])
 // the extra wait, late-arriving tiles cause spurious pixel diffs
 // between runs.
 const TILE_HEAVY_DEMOS = new Set([
-  'physical_map_10m', 'physical_map_50m', 'night_map',
-  'water_hierarchy', 'rivers_10m', 'states_10m',
+  'physical_map_10m', 'physical_map_50m', 'physical_map_xgvt',
+  'night_map', 'water_hierarchy', 'rivers_10m', 'states_10m',
+  'countries_categorical_xgvt', 'states_provinces',
+  'vector_tiles', 'vector_categorical',
 ])
 
 test.describe('X-GIS visual regression', () => {
