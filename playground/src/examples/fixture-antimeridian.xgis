@@ -1,0 +1,6 @@
+/* Fixture: polygon crossing 180° meridian. Validates world wrap. */
+source d { type: geojson, url: "fixture-antimeridian.geojson" }
+layer wrap {
+  source: d
+  | fill-amber-500
+}

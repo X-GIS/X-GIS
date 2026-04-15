@@ -1,0 +1,6 @@
+/* Fixture: polygon at latitude 80-88 (near pole). Validates clipping. */
+source d { type: geojson, url: "fixture-mercator-clip.geojson" }
+layer polar {
+  source: d
+  | fill-sky-400
+}

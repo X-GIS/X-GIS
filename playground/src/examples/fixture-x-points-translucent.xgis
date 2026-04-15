@@ -1,0 +1,14 @@
+/* Interaction fixture: direct-layer points + translucent vector.
+ * Bug 2 mirror — the bucket scheduler had to drop direct-layer
+ * points when there was a translucent vector layer. Verifies
+ * both rendering paths coexist. */
+source p { type: geojson, url: "fixture-point.geojson" }
+source t { type: geojson, url: "fixture-triangle.geojson" }
+layer base_tri {
+  source: t
+  | fill-blue-500 stroke-amber-300 stroke-8 opacity-50
+}
+layer pin {
+  source: p
+  | fill-rose-500 size-60
+}

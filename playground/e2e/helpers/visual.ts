@@ -119,6 +119,54 @@ export async function sampleNonBackgroundPixels(
 }
 
 /**
+ * Compare two PNG buffers in the page context and return the
+ * fraction of pixels that differ by more than `tolerance` per
+ * channel (0-255). Used by reftest pairs where byte-equal hash
+ * comparison is too strict (anti-aliasing jitter from per-pass
+ * GPU state changes produces tiny pixel differences even when
+ * two paths semantically render the same thing).
+ *
+ * Returns a value in [0, 1] — 0 means pixel-identical, 1 means
+ * every pixel differs.
+ */
+export async function pixelDiffRatio(
+  page: Page,
+  pngA: Buffer,
+  pngB: Buffer,
+  tolerance = 12,
+): Promise<number> {
+  return await page.evaluate(
+    async ({ a64, b64, tol }) => {
+      const decode = async (b64: string) => {
+        const blob = await fetch(`data:image/png;base64,${b64}`).then(r => r.blob())
+        const bmp = await createImageBitmap(blob)
+        const c = document.createElement('canvas')
+        c.width = bmp.width
+        c.height = bmp.height
+        const ctx = c.getContext('2d')!
+        ctx.drawImage(bmp, 0, 0)
+        return { data: ctx.getImageData(0, 0, bmp.width, bmp.height).data, w: bmp.width, h: bmp.height }
+      }
+      const A = await decode(a64)
+      const B = await decode(b64)
+      if (A.w !== B.w || A.h !== B.h) return 1
+      let differing = 0
+      for (let i = 0; i < A.data.length; i += 4) {
+        if (
+          Math.abs(A.data[i] - B.data[i]) > tol ||
+          Math.abs(A.data[i + 1] - B.data[i + 1]) > tol ||
+          Math.abs(A.data[i + 2] - B.data[i + 2]) > tol
+        ) {
+          differing++
+        }
+      }
+      return differing / (A.w * A.h)
+    },
+    { a64: pngA.toString('base64'), b64: pngB.toString('base64'), tol: tolerance },
+  )
+}
+
+/**
  * Hash a screenshot buffer to a short hex string. Used to assert
  * that two captures (e.g. animation @ t=0 vs t=3000ms) produced
  * DIFFERENT frames — proof that the animation is still cycling.

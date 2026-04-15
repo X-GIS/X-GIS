@@ -1,0 +1,14 @@
+/* Interaction fixture: opacity + fill + stroke + width keyframes
+ * simultaneously (Bug 1 multi-property mirror). The lifecycle
+ * metadata must propagate to ALL animated properties. */
+keyframes everything {
+  0%:   opacity-100 fill-blue-500  stroke-amber-300 stroke-2
+  50%:  opacity-60  fill-rose-500  stroke-sky-400   stroke-8
+  100%: opacity-100 fill-blue-500  stroke-amber-300 stroke-2
+}
+source sq { type: geojson, url: "fixture-square.geojson" }
+layer multi {
+  source: sq
+  | fill-blue-500 stroke-amber-300 stroke-2
+  | animation-everything animation-duration-2000 animation-ease-in-out animation-infinite
+}

@@ -1,0 +1,11 @@
+/* Reftest B: triangle via match() with a single arm that always
+ * resolves to blue-500. Validates that the categorical/match()
+ * shader variant produces pixel-identical output to the static
+ * constant path. */
+source t { type: geojson, url: "fixture-triangle.geojson" }
+layer tri {
+  source: t
+  | fill match(.kind) {
+      _ -> blue-500
+    }
+}

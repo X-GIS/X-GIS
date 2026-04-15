@@ -1,0 +1,6 @@
+/* Reftest A: line with static stroke width. Reference. */
+source l { type: geojson, url: "fixture-line.geojson" }
+layer the_line {
+  source: l
+  | stroke-amber-300 stroke-12
+}

@@ -1,0 +1,10 @@
+/* Reftest B: square with degenerate zoom-opacity stops (both stops
+ * at the same value). The interpolated result must equal the static
+ * constant path, exercising the zoom-interpolation lookup at its
+ * boundary. */
+source sq { type: geojson, url: "fixture-square.geojson" }
+layer the_square {
+  source: sq
+  | fill-emerald-500
+  | z0:opacity-80 z20:opacity-80
+}

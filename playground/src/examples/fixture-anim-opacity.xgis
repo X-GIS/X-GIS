@@ -1,0 +1,12 @@
+/* Fixture: opacity keyframe. Bug 1 isolation. */
+keyframes pulse {
+  0%:   opacity-100
+  50%:  opacity-30
+  100%: opacity-100
+}
+source sq { type: geojson, url: "fixture-square.geojson" }
+layer pulsing {
+  source: sq
+  | fill-emerald-500
+  | animation-pulse animation-duration-1500 animation-ease-in-out animation-infinite
+}

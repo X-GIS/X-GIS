@@ -1,0 +1,14 @@
+/* Reftest B: line with keyframe stroke width that holds at a
+ * single value (degenerate keyframe). The animated path must
+ * produce the same pixels as the static path because the
+ * interpolation has no range to traverse. */
+keyframes hold {
+  0%:   stroke-12
+  100%: stroke-12
+}
+source l { type: geojson, url: "fixture-line.geojson" }
+layer the_line {
+  source: l
+  | stroke-amber-300 stroke-12
+  | animation-hold animation-duration-1000 animation-infinite
+}

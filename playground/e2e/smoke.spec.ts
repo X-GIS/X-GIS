@@ -1,30 +1,28 @@
 import { test, expect, type Page, type ConsoleMessage } from '@playwright/test'
-import {
-  captureCanvas, sampleNonBackgroundPixels, hashScreenshot,
-  colorHistogram, type ColorBucket,
-} from './helpers/visual'
+import { captureCanvas, sampleNonBackgroundPixels } from './helpers/visual'
 
-// Hard-coded demo ID list. Importing `DEMOS` from `../src/demos.ts`
-// doesn't work here because that module uses Vite's `import.meta.glob`
-// which is a Vite-only transform — under Playwright's Node runner it
-// throws "glob is not a function". Adding a new demo means adding its
-// ID to both `src/demos.ts` and to this list.
+// Production smoke runs against a SMALL curated set of demos —
+// not all 50. Per-feature regression coverage lives in the
+// fixtures.spec.ts / interactions.spec.ts / reftest.spec.ts
+// suites; this file only exists to catch tile-loader / data
+// pipeline / demo-runner regressions that pure fixtures can't
+// isolate.
+//
+// The 5 demos here were selected for their integration coverage:
+//   - physical_map_10m: large xgvt tile load path
+//   - vector_categorical: shader variant + storage buffer
+//   - bucket_order: bucket scheduler PR2 regression target
+//   - sdf_points: direct-layer points (Bug 2 mirror)
+//   - water_hierarchy: translucent + multi-source stacking
+//
+// To re-add a demo as a smoke target, add its ID here AND bake a
+// new baseline via `bun run test:e2e -- --update-snapshots`.
 const DEMO_IDS = [
-  'animation_pulse', 'animation_showcase',
-  'bold_borders', 'bucket_order', 'categorical', 'coastline', 'coastline_10m',
-  'continent_match', 'continent_outlines', 'countries_categorical_xgvt',
-  'custom_shapes', 'custom_symbol', 'dark', 'dashed_borders',
-  'dashed_lines', 'filter_gdp', 'gdp_gradient', 'gradient_points',
-  'income_match', 'layered_borders', 'line_offset', 'line_styles',
-  'megacities', 'minimal', 'multi_layer', 'multi_layer_line',
-  'night_map', 'ocean_land', 'pattern_lines', 'physical_map',
-  'physical_map_10m', 'physical_map_50m', 'physical_map_xgvt',
-  'populated_places', 'population_gradient', 'procedural_circles',
-  'raster', 'raster_overlay', 'rivers_10m', 'rivers_lakes',
-  'sdf_points', 'shape_gallery', 'states_10m', 'states_provinces',
-  'stroke_align', 'styled_world', 'translucent_lines',
-  'vector_categorical', 'vector_tiles', 'water_hierarchy', 'zoom',
-  'zoom_lod',
+  'physical_map_10m',
+  'vector_categorical',
+  'bucket_order',
+  'sdf_points',
+  'water_hierarchy',
 ]
 
 // ═══ X-GIS consolidated e2e suite ═══
@@ -251,128 +249,4 @@ test.describe('X-GIS demo', () => {
 // verify "the animation visits the right colors" instead of just
 // "the canvas keeps changing".
 
-test.describe('X-GIS animation regression', () => {
-  test('animation_pulse: cycles past first iteration + amber stroke visible at peak', async ({ page }) => {
-    test.setTimeout(30_000)
-    const cycleMs = 1500
-    await page.goto('/demo.html?id=animation_pulse', { waitUntil: 'domcontentloaded' })
-
-    // 6 samples across ~3 cycles. Sample BOTH hash + amber ratio
-    // at each point so we can prove (a) the cycle is alive (≥4
-    // unique hashes) and (b) the amber stroke is actually being
-    // rendered at SOME point during the cycle (max amber > 0.01).
-    //
-    // The range-based assertion is more robust than picking a
-    // specific cycle phase — `_elapsedMs` doesn't reset on page
-    // navigation and the init time is variable, so "sample at
-    // peak" is unreliable. "Sample N times, assert max >
-    // threshold" works regardless.
-    //
-    // amber-300 = #fcd34d ≈ RGB(252, 211, 77)
-    const sampleTimes = [
-      Math.round(cycleMs * 0.2),
-      Math.round(cycleMs * 0.5),
-      Math.round(cycleMs * 0.85),
-      Math.round(cycleMs * 1.4),
-      Math.round(cycleMs * 2.1),
-      Math.round(cycleMs * 2.85),
-    ]
-    const hashes: string[] = []
-    const amberPoints: number[] = []
-    for (const t of sampleTimes) {
-      const png = await captureCanvas(page, { elapsedMsAtLeast: t })
-      hashes.push(await hashScreenshot(page, png))
-      const r = await colorHistogram(page, png, [
-        { name: 'amber', rgb: [252, 211, 77], tolerance: 100 },
-      ])
-      amberPoints.push(r.amber)
-    }
-
-    const unique = new Set(hashes).size
-    expect(unique,
-      `animation_pulse: only ${unique}/6 distinct frames — animation frozen`)
-      .toBeGreaterThanOrEqual(4)
-
-    // Amber must reach a non-trivial peak across the cycle —
-    // catches "stroke vanished entirely" silent failures the
-    // cycle hash test can't see.
-    const maxAmber = Math.max(...amberPoints)
-    expect(maxAmber,
-      `animation_pulse: amber peak ${(maxAmber * 100).toFixed(2)}% across 6 samples ` +
-      `(${amberPoints.map(r => (r * 100).toFixed(1) + '%').join(', ')}) — ` +
-      `coastline stroke not reaching the canvas`)
-      .toBeGreaterThan(0.01)
-  })
-
-  test('animation_showcase: cycles + rose ratio varies across cycle (proves heat keyframe morphs)', async ({ page }) => {
-    test.setTimeout(40_000)
-    const cycleMs = 2000
-    await page.goto('/demo.html?id=animation_showcase', { waitUntil: 'domcontentloaded' })
-
-    // 6-sample cycle continuity check (hash-based).
-    const sampleTimes = [
-      Math.round(cycleMs * 0.15),
-      Math.round(cycleMs * 0.50),
-      Math.round(cycleMs * 0.85),
-      Math.round(cycleMs * 1.40),
-      Math.round(cycleMs * 2.10),
-      Math.round(cycleMs * 2.85),
-    ]
-    const hashes: string[] = []
-    const rosePoints: number[] = []
-    const buckets: ColorBucket[] = [
-      { name: 'rose', rgb: [225, 29, 72], tolerance: 80 },
-    ]
-    for (const t of sampleTimes) {
-      const png = await captureCanvas(page, { elapsedMsAtLeast: t })
-      hashes.push(await hashScreenshot(page, png))
-      // Also measure rose ratio at each sample so we can verify
-      // the heat keyframe is actually morphing colors, not just
-      // jittering pixels.
-      const r = await page.evaluate(async (b64) => {
-        const blob = await fetch(`data:image/png;base64,${b64}`).then(r => r.blob())
-        const bmp = await createImageBitmap(blob)
-        const c = document.createElement('canvas')
-        c.width = bmp.width; c.height = bmp.height
-        const ctx = c.getContext('2d')!
-        ctx.drawImage(bmp, 0, 0)
-        const data = ctx.getImageData(0, 0, bmp.width, bmp.height).data
-        let rose = 0
-        for (let i = 0; i < data.length; i += 4) {
-          if (
-            Math.abs(data[i] - 225) <= 80 &&
-            Math.abs(data[i + 1] - 29) <= 80 &&
-            Math.abs(data[i + 2] - 72) <= 80
-          ) rose++
-        }
-        return rose / (bmp.width * bmp.height)
-      }, (await captureCanvas(page, { elapsedMsAtLeast: t })).toString('base64'))
-      rosePoints.push(r)
-    }
-
-    const unique = new Set(hashes).size
-    expect(unique,
-      `animation_showcase: only ${unique}/6 distinct frames — animation frozen`)
-      .toBeGreaterThanOrEqual(4)
-
-    // NEW Bug 1 mirror via histogram: the rose ratio should swing
-    // significantly across the 6 samples. If the heat keyframe
-    // were frozen at any single value (slate OR rose), the range
-    // would be near zero. Empirically: peak ~15%, trough ~0% →
-    // range ≈ 15%. Assert range > 5% with plenty of headroom.
-    const range = Math.max(...rosePoints) - Math.min(...rosePoints)
-    expect(range,
-      `animation_showcase: rose ratio range ${(range * 100).toFixed(1)}% across 6 samples ` +
-      `(${rosePoints.map(r => (r * 100).toFixed(1) + '%').join(', ')}) — ` +
-      `heat keyframe not morphing`)
-      .toBeGreaterThan(0.04)
-
-    // The rose ratio must also reach a non-trivial peak — proves
-    // the rose-600 keyframe value is actually visited, not just
-    // "anything changes" which a tiny pixel jitter could fake.
-    expect(Math.max(...rosePoints),
-      `animation_showcase: rose ratio peak ${(Math.max(...rosePoints) * 100).toFixed(1)}% — ` +
-      `country fills never reached the rose-600 keyframe value`)
-      .toBeGreaterThan(0.05)
-  })
-})
+// Animation regression suite extracted to playground/e2e/animation.spec.ts

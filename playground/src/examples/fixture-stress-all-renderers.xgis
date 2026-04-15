@@ -1,0 +1,24 @@
+/* Stress fixture: exercises every renderer in one frame.
+ * - polygon fill (MapRenderer or VTR depending on geom type)
+ * - SDF line (line-renderer)
+ * - SDF point (point-renderer)
+ * - graticule overlay (always on)
+ *
+ * Validation capture catches any bind group / pipeline mismatch
+ * that this combo would trigger. */
+source poly  { type: geojson, url: "fixture-square.geojson" }
+source line  { type: geojson, url: "fixture-line.geojson" }
+source point { type: geojson, url: "fixture-point.geojson" }
+
+layer the_poly {
+  source: poly
+  | fill-emerald-500 stroke-amber-300 stroke-2
+}
+layer the_line {
+  source: line
+  | stroke-rose-500 stroke-6 stroke-dasharray-15-8
+}
+layer the_pin {
+  source: point
+  | fill-sky-400 size-30
+}

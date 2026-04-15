@@ -1,0 +1,17 @@
+/* Fixture: single SDF point at (0, 0).
+ *
+ * Smallest possible point demo — one feature, fully opaque red
+ * fill, large enough to register in canvas-center pixel sampling.
+ * Used by fixtures.spec.ts to validate the pointRenderer code
+ * path in isolation.
+ */
+
+source one_point {
+  type: geojson
+  url: "fixture-point.geojson"
+}
+
+layer the_point {
+  source: one_point
+  | fill-red-500 size-80 stroke-white stroke-2
+}

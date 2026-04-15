@@ -1,0 +1,6 @@
+/* Fixture: translucent stroke. Validates bucket 2 (offscreen MAX-blend). */
+source t { type: geojson, url: "fixture-triangle.geojson" }
+layer tri {
+  source: t
+  | fill-blue-500 stroke-amber-300 stroke-12 opacity-50
+}

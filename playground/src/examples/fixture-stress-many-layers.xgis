@@ -1,0 +1,13 @@
+/* Stress fixture: many layers from one source.
+ * Exercises the per-layer uniform ring + bind-group dispatch
+ * loop. If the ring overflows or wraps incorrectly, validation
+ * capture trips. */
+source d { type: geojson, url: "fixture-stress-many.geojson" }
+layer L1 { source: d, filter: .id == 1 | fill-red-500 }
+layer L2 { source: d, filter: .id == 2 | fill-amber-500 }
+layer L3 { source: d, filter: .id == 3 | fill-emerald-500 }
+layer L4 { source: d, filter: .id == 4 | fill-sky-500 }
+layer L5 { source: d, filter: .id == 5 | fill-blue-500 }
+layer L6 { source: d, filter: .id == 6 | fill-violet-500 }
+layer L7 { source: d, filter: .id == 7 | fill-rose-500 }
+layer L8 { source: d, filter: .id == 8 | fill-pink-500 }

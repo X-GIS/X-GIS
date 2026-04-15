@@ -1,0 +1,6 @@
+/* Fixture: 4-vertex polygon (2 triangles). Validates tessellation. */
+source sq { type: geojson, url: "fixture-square.geojson" }
+layer the_square {
+  source: sq
+  | fill-emerald-500
+}

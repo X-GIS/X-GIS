@@ -847,23 +847,32 @@ export class XGISMap {
             this.renderer.renderToPass(subPass, this.camera, projType, centerLon, centerLat, this._elapsedMs)
           }
 
-          if (!group) return
-
-          for (let si = 0; si < group.shows.length; si++) {
-            const cs = group.shows[si]
-            // Always pass pointRenderer so VTR can flush any TILE
-            // points stored on this source's xgvt data. The tile
-            // loop short-circuits when no point vertices exist, so
-            // there's no cost for plain polygon/line sources.
-            // Direct-layer points (pointRenderer.addLayer registered)
-            // are rendered separately in bucket 3 below.
-            cs.vtEntry.renderer.render(
-              subPass, this.camera, projType, centerLon, centerLat, w, h,
-              cs.show, cs.fp, cs.lp, this.renderer.uniformBuffer, cs.bgl,
-              cs.fpF, cs.lpF,
-              this.pointRenderer,
-              cs.fillPhase,
-            )
+          // Render the group's vector tile shows (if any). In a
+          // points-only demo (no opaque vector tile layers at all)
+          // `group` is undefined and the synthetic first pass exists
+          // only to clear the canvas + draw raster + draw legacy
+          // MapRenderer layers. We MUST still call subPass.end() in
+          // that case, otherwise the pass stays open and bucket 3
+          // (or any subsequent encoder operation) trips a
+          // "RenderPassEncoder is open" validation error.
+          if (group) {
+            for (let si = 0; si < group.shows.length; si++) {
+              const cs = group.shows[si]
+              // Always pass pointRenderer so VTR can flush any TILE
+              // points stored on this source's xgvt data. The tile
+              // loop short-circuits when no point vertices exist,
+              // so there's no cost for plain polygon/line sources.
+              // Direct-layer points (pointRenderer.addLayer
+              // registered) are rendered separately in bucket 3
+              // below.
+              cs.vtEntry.renderer.render(
+                subPass, this.camera, projType, centerLon, centerLat, w, h,
+                cs.show, cs.fp, cs.lp, this.renderer.uniformBuffer, cs.bgl,
+                cs.fpF, cs.lpF,
+                this.pointRenderer,
+                cs.fillPhase,
+              )
+            }
           }
 
           subPass.end()

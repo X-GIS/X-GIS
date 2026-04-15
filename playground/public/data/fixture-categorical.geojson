@@ -1,0 +1,20 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "kind": "a" },
+      "geometry": { "type": "Polygon", "coordinates": [[[-50, -20], [-20, -20], [-20, 20], [-50, 20], [-50, -20]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "kind": "b" },
+      "geometry": { "type": "Polygon", "coordinates": [[[-15, -20], [15, -20], [15, 20], [-15, 20], [-15, -20]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "kind": "c" },
+      "geometry": { "type": "Polygon", "coordinates": [[[20, -20], [50, -20], [50, 20], [20, 20], [20, -20]]] }
+    }
+  ]
+}

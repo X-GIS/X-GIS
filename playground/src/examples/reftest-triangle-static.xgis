@@ -1,0 +1,7 @@
+/* Reftest A: triangle via static fill. Reference for
+ * reftest_triangle_match. The two MUST render identically. */
+source t { type: geojson, url: "fixture-triangle.geojson" }
+layer tri {
+  source: t
+  | fill-blue-500
+}

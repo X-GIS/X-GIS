@@ -1,0 +1,14 @@
+/* Interaction fixture: translucent stroke + opacity keyframe.
+ * Tests that bucket 2 (offscreen MAX-blend) interacts correctly
+ * with the animation lifecycle metadata. */
+keyframes pulse {
+  0%:   opacity-100
+  50%:  opacity-30
+  100%: opacity-100
+}
+source t { type: geojson, url: "fixture-triangle.geojson" }
+layer animated_translucent {
+  source: t
+  | fill-blue-500 stroke-amber-300 stroke-12 opacity-50
+  | animation-pulse animation-duration-1500 animation-infinite
+}

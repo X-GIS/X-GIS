@@ -1,0 +1,6 @@
+/* Fixture: SDF billboard point with anchor-bottom (pin marker). */
+source p { type: geojson, url: "fixture-point.geojson" }
+layer pin {
+  source: p
+  | fill-rose-500 stroke-white stroke-2 size-50 anchor-bottom
+}

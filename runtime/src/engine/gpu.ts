@@ -42,6 +42,23 @@ export interface GPUContext {
   format: GPUTextureFormat
   canvas: HTMLCanvasElement
   sampleCount: number
+  /** Validation error queue — the global `uncapturederror` handler
+   *  pushes every WebGPU validation error here. Tests poll this
+   *  via `getValidationErrors(ctx)` and assert it stays empty;
+   *  production code can ignore it (the queue grows unbounded but
+   *  errors are also still logged to console for visibility). */
+  _validationErrors: { message: string; t: number }[]
+}
+
+/** Inspect the validation error queue without mutating it. */
+export function getValidationErrors(ctx: GPUContext): { message: string; t: number }[] {
+  return [...ctx._validationErrors]
+}
+
+/** Reset the validation error queue. Tests call this at the start
+ *  of each fixture to isolate per-test errors. */
+export function clearValidationErrors(ctx: GPUContext): void {
+  ctx._validationErrors.length = 0
 }
 
 export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
@@ -58,13 +75,6 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
 
   const device = await adapter.requestDevice()
   device.lost.then((info) => console.error('WebGPU device lost:', info.message))
-  // Surface validation errors directly to the console so silent rendering
-  // failures (broken WGSL, mismatched bind groups, incompatible blend op)
-  // become visible without needing pushErrorScope around every call.
-  device.addEventListener?.('uncapturederror', (e) => {
-    const err = (e as unknown as { error: { message: string } }).error
-    console.error('[WebGPU validation]', err?.message ?? e)
-  })
 
   const context = canvas.getContext('webgpu')
   if (!context) throw new Error('Failed to get WebGPU context')
@@ -72,7 +82,32 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   const format = navigator.gpu.getPreferredCanvasFormat()
   context.configure({ device, format, alphaMode: 'premultiplied' })
 
-  return { device, context, format, canvas, sampleCount: SAMPLE_COUNT }
+  // Build the GPUContext bundle BEFORE wiring the validation
+  // handler so the handler can push into the per-context queue
+  // (tests read `ctx._validationErrors` to assert no errors fired).
+  const ctx: GPUContext = {
+    device, context, format, canvas,
+    sampleCount: SAMPLE_COUNT,
+    _validationErrors: [],
+  }
+
+  // Surface validation errors via TWO sinks:
+  //   (1) console.error for human visibility (existing behavior)
+  //   (2) the per-context queue for programmatic test assertions
+  //
+  // The queue lets `withValidationCapture` in helpers/validation.ts
+  // fail a test the moment ANY WebGPU validation error fires —
+  // bind group missing, layout mismatch, broken WGSL compile,
+  // pipeline state error, etc. — without requiring every resource
+  // creation site to be individually wrapped in pushErrorScope.
+  device.addEventListener?.('uncapturederror', (e) => {
+    const err = (e as unknown as { error: { message: string } }).error
+    const msg = err?.message ?? String(e)
+    console.error('[WebGPU validation]', msg)
+    ctx._validationErrors.push({ message: msg, t: Date.now() })
+  })
+
+  return ctx
 }
 
 export function resizeCanvas(ctx: GPUContext): void {

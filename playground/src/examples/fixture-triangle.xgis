@@ -1,0 +1,6 @@
+/* Fixture: 3-vertex closed polygon. Validates fill shader + winding. */
+source t { type: geojson, url: "fixture-triangle.geojson" }
+layer tri {
+  source: t
+  | fill-blue-500
+}

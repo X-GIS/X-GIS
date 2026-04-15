@@ -1,0 +1,10 @@
+/* Fixture: SDF point with translucent glow halo. */
+source p { type: geojson, url: "fixture-point.geojson" }
+layer halo {
+  source: p
+  | fill-amber-300 size-120 opacity-30
+}
+layer pin {
+  source: p
+  | fill-amber-500 size-30
+}

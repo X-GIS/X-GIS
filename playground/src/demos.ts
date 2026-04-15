@@ -396,4 +396,47 @@ export const DEMOS: Record<string, Demo> = {
     description: 'Full property coverage — fill/stroke color morph, dash-offset marching, cross-property keyframes. Countries heat up, coastline marches, land outline cycles amber↔sky.',
     source: load('animation-showcase.xgis'),
   },
+
+  // ── Test fixtures ─────────────────────────────────────────────
+  // Minimum-data e2e fixtures. Each isolates a single feature so
+  // failures pinpoint the exact code path. Documented in
+  // playground/e2e/fixtures.spec.ts. Inspect manually via
+  // ?id=fixture_point etc.
+
+  fixture_point: {
+    name: 'Fixture: point',
+    tag: 'fixture',
+    description: 'Single SDF point at (0, 0). Used by e2e fixture tests to validate the pointRenderer code path in isolation.',
+    source: load('fixture-point.xgis'),
+  },
+  fixture_line: { name: 'Fixture: line (2pt)', tag: 'fixture', description: '2-vertex line, no join.', source: load('fixture-line.xgis') },
+  fixture_line_join: { name: 'Fixture: line join', tag: 'fixture', description: '3-vertex sharp turn — miter join.', source: load('fixture-line-join.xgis') },
+  fixture_triangle: { name: 'Fixture: triangle', tag: 'fixture', description: 'Closed 3-vertex polygon.', source: load('fixture-triangle.xgis') },
+  fixture_square: { name: 'Fixture: square', tag: 'fixture', description: '4-vertex polygon (2-triangle tessellation).', source: load('fixture-square.xgis') },
+  fixture_stroke_fill: { name: 'Fixture: stroke + fill', tag: 'fixture', description: 'Same layer fill + stroke.', source: load('fixture-stroke-fill.xgis') },
+  fixture_dashed_line: { name: 'Fixture: dashed line', tag: 'fixture', description: 'Dash shader.', source: load('fixture-dashed-line.xgis') },
+  fixture_translucent_stroke: { name: 'Fixture: translucent stroke', tag: 'fixture', description: 'Bucket 2 offscreen path.', source: load('fixture-translucent-stroke.xgis') },
+  fixture_multi_layer: { name: 'Fixture: multi-layer', tag: 'fixture', description: 'Two overlapping polygons — draw order.', source: load('fixture-multi-layer.xgis') },
+  fixture_anim_opacity: { name: 'Fixture: anim opacity', tag: 'fixture', description: 'Opacity keyframe (Bug 1 isolation).', source: load('fixture-anim-opacity.xgis') },
+  fixture_anim_color: { name: 'Fixture: anim color', tag: 'fixture', description: 'Fill keyframe (Bug 1 cross-property).', source: load('fixture-anim-color.xgis') },
+  fixture_sdf_point: { name: 'Fixture: SDF pin', tag: 'fixture', description: 'Billboard with anchor-bottom.', source: load('fixture-sdf-point.xgis') },
+  fixture_sdf_glow: { name: 'Fixture: SDF glow', tag: 'fixture', description: 'Translucent halo + opaque pin.', source: load('fixture-sdf-glow.xgis') },
+  fixture_categorical: { name: 'Fixture: categorical', tag: 'fixture', description: 'match() data-driven fill.', source: load('fixture-categorical.xgis') },
+  fixture_mercator_clip: { name: 'Fixture: mercator clip', tag: 'fixture', description: 'Polar polygon — Mercator clipping.', source: load('fixture-mercator-clip.xgis') },
+  fixture_antimeridian: { name: 'Fixture: antimeridian', tag: 'fixture', description: 'Polygon crossing 180°.', source: load('fixture-antimeridian.xgis') },
+  // Curated interaction fixtures
+  fixture_x_translucent_anim: { name: 'Fixture×: translucent + anim', tag: 'fixture', description: 'Bucket 2 + opacity keyframe.', source: load('fixture-x-translucent-anim.xgis') },
+  fixture_x_points_translucent: { name: 'Fixture×: points + translucent', tag: 'fixture', description: 'Bug 2 mirror — direct points + bucket 2.', source: load('fixture-x-points-translucent.xgis') },
+  fixture_x_zoom_time_opacity: { name: 'Fixture×: zoom × time opacity', tag: 'fixture', description: 'Multiplicative composition.', source: load('fixture-x-zoom-time-opacity.xgis') },
+  fixture_x_anim_multi_property: { name: 'Fixture×: anim multi-property', tag: 'fixture', description: 'Bug 1 mirror — opacity+fill+stroke+width keyframes.', source: load('fixture-x-anim-multi-property.xgis') },
+  // Reftest pairs (each pair must render identically)
+  reftest_triangle_static: { name: 'Reftest A: triangle static', tag: 'fixture', description: 'Triangle via static fill — reference.', source: load('reftest-triangle-static.xgis') },
+  reftest_triangle_match: { name: 'Reftest B: triangle match()', tag: 'fixture', description: 'Triangle via match() with single arm — must equal static.', source: load('reftest-triangle-match.xgis') },
+  reftest_zoom_static: { name: 'Reftest A: zoom static', tag: 'fixture', description: 'Square with static opacity — reference.', source: load('reftest-zoom-static.xgis') },
+  reftest_zoom_degenerate: { name: 'Reftest B: zoom degenerate', tag: 'fixture', description: 'Square with degenerate zoom-opacity stops — must equal static.', source: load('reftest-zoom-degenerate.xgis') },
+  reftest_stroke_static: { name: 'Reftest A: stroke static', tag: 'fixture', description: 'Line with static stroke — reference.', source: load('reftest-stroke-static.xgis') },
+  reftest_stroke_keyframe_static: { name: 'Reftest B: stroke keyframe static', tag: 'fixture', description: 'Line with degenerate stroke keyframe — must equal static.', source: load('reftest-stroke-keyframe-static.xgis') },
+  // Stress fixtures (exercise validation capture)
+  fixture_stress_all_renderers: { name: 'Stress: all renderers', tag: 'fixture', description: 'Polygon fill + SDF line + SDF point in one frame.', source: load('fixture-stress-all-renderers.xgis') },
+  fixture_stress_many_layers: { name: 'Stress: many layers', tag: 'fixture', description: '8 filtered layers from one source — uniform ring boundary.', source: load('fixture-stress-many-layers.xgis') },
 }

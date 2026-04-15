@@ -1,0 +1,6 @@
+/* Fixture: same layer fill + stroke. Validates dual-pass per layer. */
+source t { type: geojson, url: "fixture-triangle.geojson" }
+layer tri {
+  source: t
+  | fill-blue-500 stroke-amber-300 stroke-8
+}

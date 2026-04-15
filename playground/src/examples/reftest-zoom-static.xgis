@@ -1,0 +1,7 @@
+/* Reftest A: square via static opacity. Reference for
+ * reftest_zoom_degenerate. */
+source sq { type: geojson, url: "fixture-square.geojson" }
+layer the_square {
+  source: sq
+  | fill-emerald-500 opacity-80
+}

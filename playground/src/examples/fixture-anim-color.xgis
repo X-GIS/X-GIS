@@ -1,0 +1,12 @@
+/* Fixture: fill keyframe (cross-property). Bug 1 mirror. */
+keyframes heat {
+  0%:   fill-blue-500
+  50%:  fill-rose-500
+  100%: fill-blue-500
+}
+source sq { type: geojson, url: "fixture-square.geojson" }
+layer heated {
+  source: sq
+  | fill-blue-500
+  | animation-heat animation-duration-2000 animation-infinite
+}

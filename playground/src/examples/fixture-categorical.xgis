@@ -1,0 +1,11 @@
+/* Fixture: 3 features with match() on `kind` field. */
+source d { type: geojson, url: "fixture-categorical.geojson" }
+layer cats {
+  source: d
+  | fill match(.kind) {
+      "a" -> red-500
+      "b" -> emerald-500
+      "c" -> blue-500
+      _   -> gray-500
+    }
+}

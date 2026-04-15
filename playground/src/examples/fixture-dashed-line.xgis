@@ -1,0 +1,6 @@
+/* Fixture: dashed line. Validates dash shader. */
+source l { type: geojson, url: "fixture-line.geojson" }
+layer dashed {
+  source: l
+  | stroke-amber-300 stroke-12 stroke-dasharray-30-15
+}

@@ -1,0 +1,11 @@
+/* Fixture: two overlapping polygons. Validates draw order. */
+source t { type: geojson, url: "fixture-triangle.geojson" }
+source sq { type: geojson, url: "fixture-square.geojson" }
+layer base {
+  source: sq
+  | fill-blue-500
+}
+layer top {
+  source: t
+  | fill-rose-500
+}
