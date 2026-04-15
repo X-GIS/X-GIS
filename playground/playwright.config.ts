@@ -20,8 +20,13 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
-  fullyParallel: false, // single dev server, serial is safer
-  workers: 1,
+  // 4 workers + fullyParallel: each worker spawns its own headed
+  // Chromium against the shared Vite dev server. On a single
+  // developer GPU this means 4 simultaneous WebGPU contexts; if
+  // that proves unstable on a future CI machine, drop to 2.
+  // Override via WORKERS=N env var without touching the config.
+  fullyParallel: true,
+  workers: Number(process.env.WORKERS ?? 4),
   reporter: [['list']],
   // Visual regression baselines (PR B). Per-pixel match is too strict
   // for WebGPU output across drivers / GPU vendors — a small tolerance
