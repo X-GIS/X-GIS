@@ -359,6 +359,51 @@ describe('Keyframes — multi-property (PR 3)', () => {
     ])
   })
 
+  it('color-only animation inherits loop=true from the fill IR (regression)', () => {
+    // Regression: previously emit-commands read loop / easing / delayMs
+    // ONLY from the opacity union. A layer that animated fill but kept
+    // opacity constant got loop=false silently → ran one cycle then
+    // froze at the last stop. Fix: emit lifecycle metadata from
+    // whichever property actually has time stops.
+    const scene = compile(`
+      keyframes heat {
+        0%:   fill-slate-700
+        50%:  fill-rose-600
+        100%: fill-slate-700
+      }
+      source d { type: geojson, url: "x.geojson" }
+      layer hot {
+        source: d
+        | fill-slate-700
+        | animation-heat animation-duration-2000 animation-ease-in-out animation-infinite
+      }
+    `)
+    const commands = emitCommands(scene)
+    const show = commands.shows[0]
+    expect(show.timeFillStops).toHaveLength(3)
+    expect(show.timeOpacityLoop).toBe(true)
+    expect(show.timeOpacityEasing).toBe('ease-in-out')
+  })
+
+  it('stroke-width-only animation inherits loop=true from the stroke IR (regression)', () => {
+    const scene = compile(`
+      keyframes grow {
+        0%:   stroke-2
+        100%: stroke-8
+      }
+      source d { type: geojson, url: "x.geojson" }
+      layer growing {
+        source: d
+        | stroke-red-500 stroke-2
+        | animation-grow animation-duration-1000 animation-infinite
+      }
+    `)
+    const commands = emitCommands(scene)
+    const show = commands.shows[0]
+    expect(show.timeStrokeWidthStops).toHaveLength(2)
+    expect(show.timeOpacityLoop).toBe(true)
+  })
+
   it('single-stop property does not promote to time-interpolated', () => {
     // Need ≥2 stops to interpolate; a single stop would just hold
     // forever and degenerates to a constant.

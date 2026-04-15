@@ -48,6 +48,13 @@ export interface RenderNode {
    *  the marker stand above the ground like a pin; `top` is its symmetric
    *  counterpart. Only affects billboard (non-flat) point markers. */
   anchor?: 'center' | 'bottom' | 'top'
+  /** Layer-wide animation lifecycle metadata. Set when ANY property on
+   *  this layer references a `keyframes` block. A single layer can only
+   *  host one `animation-<name>` reference, so loop / easing / delayMs
+   *  are shared across every animated property (fill, stroke, width,
+   *  size, dash-offset). emit-commands reads from this field as the
+   *  authoritative source of lifecycle metadata. */
+  animationMeta?: { loop: boolean; easing: Easing; delayMs: number }
 }
 
 /**

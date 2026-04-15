@@ -661,6 +661,9 @@ function lowerLayer(
         timeDashOffsetStops: dashOffsetTimeStops.length >= 2 ? dashOffsetTimeStops : undefined,
       }
     })(),
+    animationMeta: animationName
+      ? { loop: animationLoop, easing: animationEasing, delayMs: animationDelayMs }
+      : undefined,
     opacity,
     size,
     projection,

@@ -101,12 +101,6 @@ function emitShow(node: RenderNode): ShowCommand {
     op.kind === 'time-interpolated' ? op.stops :
     op.kind === 'zoom-time' ? op.timeStops :
     null
-  const timeOpacityLoop =
-    op.kind === 'time-interpolated' || op.kind === 'zoom-time' ? op.loop : false
-  const timeOpacityEasing: Easing =
-    op.kind === 'time-interpolated' || op.kind === 'zoom-time' ? op.easing : 'linear'
-  const timeOpacityDelayMs =
-    op.kind === 'time-interpolated' || op.kind === 'zoom-time' ? op.delayMs : 0
 
   // PR 3: project animated color / size stops off each union. Because
   // ColorValue.time-interpolated carries a `base` fallback, we emit the
@@ -120,6 +114,23 @@ function emitShow(node: RenderNode): ShowCommand {
     node.size.kind === 'time-interpolated' ? node.size.stops : null
   const timeStrokeWidthStops = node.stroke.timeWidthStops ?? null
   const timeDashOffsetStops = node.stroke.timeDashOffsetStops ?? null
+
+  // Lifecycle metadata (loop / easing / delayMs) is shared across every
+  // animated property on a layer because a layer hosts one
+  // `animation-<name>` reference at a time. lower.ts stamps it onto
+  // `node.animationMeta` when ANY property is keyframe-animated;
+  // emit-commands just reads it. Falls back to safe defaults when no
+  // animation is attached at all.
+  //
+  // BUG FIX (PR 3 follow-up): previously we read these from the opacity
+  // union only. A layer that animated color / width / dash-offset but
+  // kept opacity constant got loop=false silently — one full cycle then
+  // frozen at the last stop. The animationMeta single source of truth
+  // makes that miscall structurally impossible.
+  const meta = node.animationMeta ?? { loop: false, easing: 'linear' as Easing, delayMs: 0 }
+  const timeOpacityLoop = meta.loop
+  const timeOpacityEasing = meta.easing
+  const timeOpacityDelayMs = meta.delayMs
 
   return {
     targetName: node.sourceRef,

@@ -392,6 +392,10 @@ async function runSource(source: string, label: string) {
     status.style.opacity = '1'
 
     currentMap = new XGISMap(canvas)
+    // Debug hook — Playwright tests + DevTools console can poke at
+    // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
+    // demo runner. Keep it lightweight; not part of the public API.
+    ;(window as unknown as { __xgisMap?: unknown }).__xgisMap = currentMap
     await currentMap.run(source, '/data/')
 
     // Apply pre-existing hash AFTER data is loaded (so bounds-fit ran first).
