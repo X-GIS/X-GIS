@@ -1,0 +1,38 @@
+/*
+ * Bucket-order regression — translucent declared BEFORE opaque.
+ *
+ * The translucent yellow coastline is declared FIRST, followed by the
+ * opaque country fill. Under the old per-source scheduler, the coast
+ * was rendered (offscreen + composite) before countries drew, so the
+ * opaque country fill painted OVER the translucent coast — hiding it.
+ *
+ * Under the bucket scheduler, opaque country_fill renders first (bucket 1),
+ * then the translucent yellow coast composites ON TOP (bucket 2),
+ * regardless of declaration order.
+ *
+ * Visual check: the yellow coastline MUST be visible on top of the
+ * slate country fills. If countries hide the coast, the bucket order
+ * is broken.
+ */
+
+source coast {
+  type: geojson
+  url: "ne_110m_coastline.geojson"
+}
+
+source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+/* Translucent stroke — declared FIRST, must still render ON TOP */
+layer coast_outline {
+  source: coast
+  | stroke-yellow-300 stroke-4 opacity-60
+}
+
+/* Opaque fill + stroke — declared SECOND, must render UNDER translucent */
+layer country_fill {
+  source: countries
+  | fill-slate-700 stroke-slate-500 stroke-1
+}

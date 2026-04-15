@@ -7,7 +7,7 @@ import { test, expect, type Page, type ConsoleMessage } from '@playwright/test'
 // ID to both `src/demos.ts` and to this list; the spec sorts them for
 // stable report ordering.
 const DEMO_IDS = [
-  'bold_borders', 'categorical', 'coastline', 'coastline_10m',
+  'bold_borders', 'bucket_order', 'categorical', 'coastline', 'coastline_10m',
   'continent_match', 'continent_outlines', 'countries_categorical_xgvt',
   'custom_shapes', 'custom_symbol', 'dark', 'dashed_borders',
   'dashed_lines', 'filter_gdp', 'gdp_gradient', 'gradient_points',

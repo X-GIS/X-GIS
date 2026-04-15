@@ -16,6 +16,7 @@ import { CanvasRenderer } from './canvas-renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { XGVTSource } from '../data/xgvt-source'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
+import type { LayerDrawPhase } from './vector-tile-renderer'
 // reprojector.ts preserved for future tile-coordinate RTT approach
 
 interface VariantPipelines {
@@ -23,6 +24,32 @@ interface VariantPipelines {
   linePipeline: GPURenderPipeline
   fillPipelineFallback?: GPURenderPipeline
   linePipelineFallback?: GPURenderPipeline
+}
+
+/** A vector-tile show after zoom-opacity resolution and bucket
+ *  classification. Produced by classifyVectorTileShows() once per
+ *  frame and consumed by the bucket scheduler. */
+interface ClassifiedShow {
+  sourceName: string
+  vtEntry: { source: XGVTSource; renderer: VectorTileRenderer }
+  show: SceneCommands['shows'][0]
+  fp: GPURenderPipeline
+  lp: GPURenderPipeline
+  bgl: GPUBindGroupLayout
+  fpF?: GPURenderPipeline
+  lpF?: GPURenderPipeline
+  isTranslucentStroke: boolean
+  /** Phase for the OPAQUE bucket draw. 'all' for pure opaque layers,
+   *  'fills' for the fill half of a translucent-stroke layer. The
+   *  'strokes' phase is emitted separately in the translucent bucket. */
+  fillPhase: LayerDrawPhase
+}
+
+/** A run of consecutive same-source opaque shows that can share one
+ *  sub-pass (single stencil clear). */
+interface OpaqueGroup {
+  sourceName: string
+  shows: ClassifiedShow[]
 }
 
 export class XGISMap {
@@ -576,6 +603,76 @@ export class XGISMap {
     }
   }
 
+  /** Classify all visible vector-tile shows into opaque and translucent
+   *  buckets for the bucket scheduler. Each show is resolved once — zoom-
+   *  interpolated opacity, pipeline + layout picks, early-skip for
+   *  effectively-invisible layers — so the pass loop below doesn't repeat
+   *  that work.
+   *
+   *  A translucent-stroke layer appears in BOTH buckets:
+   *    - opaque bucket with fillPhase='fills' (draws the polygon fill
+   *      with baked alpha into the main color target using standard
+   *      alpha blending)
+   *    - translucent bucket with phase='strokes' (draws just the SDF
+   *      stroke into an offscreen RT with MAX blend, then composites
+   *      back with the layer's opacity — kills within-layer alpha
+   *      accumulation at corner overlaps)
+   *
+   *  An opaque layer only appears in the opaque bucket, fillPhase='all',
+   *  which renders fill + stroke + inline points in one call.
+   */
+  private classifyVectorTileShows(): {
+    opaque: ClassifiedShow[]
+    translucent: ClassifiedShow[]
+  } {
+    const opaque: ClassifiedShow[] = []
+    const translucent: ClassifiedShow[] = []
+    for (const entry of this.vectorTileShows) {
+      const vtEntry = this.vtSources.get(entry.sourceName)
+      if (!vtEntry || !vtEntry.renderer.hasData()) continue
+      const effectiveShow = entry.show.zoomOpacityStops
+        ? { ...entry.show, opacity: interpolateZoom(entry.show.zoomOpacityStops, this.camera.zoom) }
+        : entry.show
+      if ((effectiveShow.opacity ?? 1) < 0.005) continue
+      const isTranslucentStroke =
+        !SAFE_MODE && (effectiveShow.opacity ?? 1) < 0.999 && !!effectiveShow.stroke
+      const fp = entry.pipelines?.fillPipeline ?? this.renderer.fillPipeline
+      const lp = entry.pipelines?.linePipeline ?? this.renderer.linePipeline
+      const bgl = entry.layout ?? this.renderer.bindGroupLayout
+      const fpF = entry.pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
+      const lpF = entry.pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
+      const classified: ClassifiedShow = {
+        sourceName: entry.sourceName,
+        vtEntry,
+        show: effectiveShow,
+        fp, lp, bgl, fpF, lpF,
+        isTranslucentStroke,
+        fillPhase: isTranslucentStroke ? 'fills' : 'all',
+      }
+      opaque.push(classified)
+      if (isTranslucentStroke) translucent.push(classified)
+    }
+    return { opaque, translucent }
+  }
+
+  /** Group consecutive same-source opaque shows into runs so each source
+   *  gets a single render pass with one stencil clear. Preserves
+   *  declaration order — a later show with the same sourceName that's
+   *  split by an intervening different source opens a NEW group (the
+   *  stencil ring state isn't compatible across sources). */
+  private groupOpaqueBySource(opaque: ClassifiedShow[]): OpaqueGroup[] {
+    const groups: OpaqueGroup[] = []
+    for (const show of opaque) {
+      const last = groups[groups.length - 1]
+      if (last && last.sourceName === show.sourceName) {
+        last.shows.push(show)
+      } else {
+        groups.push({ sourceName: show.sourceName, shows: [show] })
+      }
+    }
+    return groups
+  }
+
   private renderFrame(): void {
     this._stats.beginFrame()
     resizeCanvas(this.ctx)
@@ -660,245 +757,172 @@ export class XGISMap {
       // swapchain texture and never set a resolveTarget — single-sample
       // attachments cannot have a resolve target per WebGPU spec.
       const msaaView = this.msaaTexture!.createView()
-      const hasMultiSource = this.vectorTileShows.length > 1
       const useResolve = sc > 1
       const colorView = useResolve ? msaaView : screenView
-      const colorResolve = useResolve && !hasMultiSource ? screenView : undefined
-      // Per-pass scope so a validation error in the main pass is labelled
-      // before the frame-level scope catches the poisoned-encoder aftermath.
-      device.pushErrorScope('validation')
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: colorView,
-          resolveTarget: colorResolve,
-          clearValue: { r: 0.039, g: 0.039, b: 0.063, a: 1 },
-          loadOp: 'clear',
-          storeOp: 'store', // keep MSAA data for subsequent VT passes
-        }],
-        depthStencilAttachment: {
-          view: this.stencilTexture!.createView(),
-          depthClearValue: 1.0,
-          depthLoadOp: 'clear',
-          depthStoreOp: 'discard',
-          stencilClearValue: 0,
-          stencilLoadOp: 'clear',
-          stencilStoreOp: 'discard',
-        },
-      })
 
       // Reset per-frame uniform ring cursors (dynamic-offset slots).
       this.renderer.beginFrame()
       this.lineRenderer?.beginFrame()
       for (const [, { renderer: vtR }] of this.vtSources) vtR.beginFrame()
 
-      this.rasterRenderer.render(pass, this.camera, projType, centerLon, centerLat, w, h)
-      this.renderer.renderToPass(pass, this.camera, projType, centerLon, centerLat)
+      // ══════ Bucket scheduler ══════
+      //
+      // Layers are classified into two buckets so alpha compositing is
+      // always correct regardless of user declaration order:
+      //
+      //   1. OPAQUE bucket — every vector source's fills + opaque
+      //      strokes + the fill half of translucent-stroke layers.
+      //      Runs first so translucent content has a finished opaque
+      //      backdrop to blend against. Sources that don't share
+      //      stencil state get their own sub-pass (each sub-pass
+      //      clears stencil), but consecutive same-source shows share
+      //      one sub-pass.
+      //
+      //   2. TRANSLUCENT bucket — offscreen MAX-blend + composite for
+      //      each translucent-stroke layer, in declaration order.
+      //      Runs after the entire opaque bucket so translucent
+      //      strokes always paint on top of opaque content.
+      //
+      //   3. POINTS bucket — a single pass (or inline in bucket 1)
+      //      for SDF points. Always last so points draw over the map.
+      //
+      // The previous scheduler interleaved bucket 1 + 2 per source,
+      // which broke the ordering when a translucent layer was
+      // declared before an opaque layer: the translucent composite
+      // would run BEFORE the later opaque fill, and the opaque fill
+      // would cover the translucent strokes.
+      const { opaque, translucent } = this.classifyVectorTileShows()
+      const opaqueGroups = this.groupOpaqueBySource(opaque)
+      const hasTranslucent = translucent.length > 0 && this.lineRenderer !== null
+      const hasPoints = this.pointRenderer?.hasLayers() ?? false
+      // Inline points into the last opaque sub-pass ONLY when there
+      // are no translucent composites to run after. Otherwise defer
+      // to a dedicated points pass at the very end so points always
+      // draw on top of translucent composites.
+      const inlinePoints = hasPoints && !hasTranslucent
+      // Which pass owns the MSAA resolveTarget? Precisely the last
+      // pass that writes to the color target. Priority: dedicated
+      // points > last composite > last opaque sub-pass.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const _resolveOwner = hasPoints && !inlinePoints
+        ? 'points'
+        : hasTranslucent
+          ? 'composite'
+          : 'opaque'
 
-      // Track translucent line layers — they get a second pass after the
-      // main pass: render to offscreen with MAX blend, then composite onto
-      // the main framebuffer with alpha × layer opacity. This avoids
-      // alpha accumulation at line self-intersections / corner overlap.
-      const translucentLineLayers: { sourceName: string; show: SceneCommands['shows'][0]; pipelines: VariantPipelines | null; layout: GPUBindGroupLayout | null; opacity: number }[] = []
+      if (hasTranslucent) this.lineRenderer!.ensureOffscreen(w, h)
 
-      // Render vector tile sources (polygons/lines — before points)
-      if (this.vectorTileShows.length === 1) {
-        // Single source: render in existing pass (shared stencil)
-        for (const { sourceName, show, pipelines, layout } of this.vectorTileShows) {
-          const vtEntry = this.vtSources.get(sourceName)
-          if (!vtEntry || !vtEntry.renderer.hasData()) continue
-          // Zoom-interpolated opacity: override per frame
-          const effectiveShow = show.zoomOpacityStops
-            ? { ...show, opacity: interpolateZoom(show.zoomOpacityStops, this.camera.zoom) }
-            : show
-          // Early skip: layers that interpolate to effectively-zero opacity
-          // contribute nothing to the framebuffer but still cost tile
-          // selection, GPU upload, and draw calls — and their transient
-          // partial-draws during fade-in cause visible flicker at zoom
-          // transitions. Dropping them entirely lets the pipeline focus on
-          // visible layers only.
-          if ((effectiveShow.opacity ?? 1) < 0.005) continue
-          const isTranslucentStroke =
-            !SAFE_MODE && (effectiveShow.opacity ?? 1) < 0.999 && !!effectiveShow.stroke
+      // ── Bucket 1: opaque ──
+      // Always emit at least one pass so raster + canvas background
+      // can run even if there are no vector layers to draw. The first
+      // pass clears the color target; subsequent opaque sub-passes
+      // load.
+      const opaqueCount = Math.max(1, opaqueGroups.length)
+      for (let gi = 0; gi < opaqueCount; gi++) {
+        const group = opaqueGroups[gi]
+        const isFirst = gi === 0
+        const isLastOpaque = gi === opaqueCount - 1
+        // Only the LAST opaque sub-pass can claim resolveTarget, and
+        // only if no translucent/points pass runs after it.
+        const resolveHere =
+          useResolve && isLastOpaque && _resolveOwner === 'opaque'
 
-          const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
-          const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
-          const bgl = layout ?? this.renderer.bindGroupLayout
-          const fpF = pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
-          const lpF = pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
+        passScope(isFirst ? 'opaque-main' : `opaque[${gi}]`, () => {
+          const subPass = encoder.beginRenderPass({
+            colorAttachments: [{
+              view: colorView,
+              resolveTarget: resolveHere ? screenView : undefined,
+              // First pass clears to the canvas background; subsequent
+              // opaque sub-passes load so we don't stomp earlier work.
+              clearValue: isFirst ? { r: 0.039, g: 0.039, b: 0.063, a: 1 } : undefined,
+              loadOp: isFirst ? 'clear' : 'load',
+              storeOp: 'store',
+            }],
+            depthStencilAttachment: {
+              view: this.stencilTexture!.createView(),
+              depthClearValue: 1.0,
+              depthLoadOp: 'clear',
+              depthStoreOp: 'discard',
+              stencilClearValue: 0,
+              stencilLoadOp: 'clear',
+              stencilStoreOp: 'discard',
+            },
+          })
 
-          // Translucent+stroke: draw fills in the main pass (baked opacity),
-          // then defer strokes to the offscreen MAX-blend pass below.
-          // Opaque: draw everything inline in one call.
-          vtEntry.renderer.render(pass, this.camera, projType, centerLon, centerLat, w, h,
-            effectiveShow, fp, lp, this.renderer.uniformBuffer, bgl,
-            fpF, lpF,
-            isTranslucentStroke ? null : this.pointRenderer,
-            isTranslucentStroke ? 'fills' : 'all')
-
-          if (isTranslucentStroke) {
-            translucentLineLayers.push({ sourceName, show: effectiveShow, pipelines, layout, opacity: effectiveShow.opacity ?? 1 })
+          // First opaque pass owns raster + canvas-2D background
+          // content. These are always the back-most layers in the
+          // current architecture.
+          if (isFirst) {
+            this.rasterRenderer.render(subPass, this.camera, projType, centerLon, centerLat, w, h)
+            this.renderer.renderToPass(subPass, this.camera, projType, centerLon, centerLat)
           }
-        }
+
+          if (!group) return
+
+          for (let si = 0; si < group.shows.length; si++) {
+            const cs = group.shows[si]
+            // Pass pointRenderer inline only on the VERY last opaque
+            // draw of the last group AND only if there's no dedicated
+            // points pass coming after. Otherwise points render in
+            // their own pass below.
+            const isTailOfBucket =
+              inlinePoints && isLastOpaque && si === group.shows.length - 1
+            cs.vtEntry.renderer.render(
+              subPass, this.camera, projType, centerLon, centerLat, w, h,
+              cs.show, cs.fp, cs.lp, this.renderer.uniformBuffer, cs.bgl,
+              cs.fpF, cs.lpF,
+              isTailOfBucket ? this.pointRenderer : null,
+              cs.fillPhase,
+            )
+          }
+
+          subPass.end()
+        })
       }
 
-      // Render SDF points (after polygons so points appear on top)
-      if (this.pointRenderer?.hasLayers()) {
-        this.pointRenderer.render(pass, this.camera, centerLon, centerLat, w, h)
-      }
+      // ── Bucket 2: translucent offscreen + composite ──
+      if (hasTranslucent) {
+        for (let li = 0; li < translucent.length; li++) {
+          const cs = translucent[li]
+          const isLastTranslucent = li === translucent.length - 1
+          const resolveHere =
+            useResolve && isLastTranslucent && _resolveOwner === 'composite'
 
-      pass.end()
-      device.popErrorScope().then((err) => {
-        if (err) console.error('[X-GIS pass:main]', err.message)
-      }).catch(() => { /* scope stack mismatch — swallow */ })
-
-      // ── Translucent line layers ──
-      // For each translucent line layer: clear an offscreen RT, draw lines
-      // with MAX blend (no within-layer accumulation), then composite the
-      // offscreen onto the main framebuffer with the layer opacity.
-      if (translucentLineLayers.length > 0 && this.lineRenderer) {
-        this.lineRenderer.ensureOffscreen(w, h)
-        for (let li = 0; li < translucentLineLayers.length; li++) {
-          const { sourceName, show, pipelines, layout, opacity } = translucentLineLayers[li]
-          const vtEntry = this.vtSources.get(sourceName)
-          if (!vtEntry || !vtEntry.renderer.hasData()) continue
-          const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
-          const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
-          const bgl = layout ?? this.renderer.bindGroupLayout
-
-          // 1. Offscreen pass: lines with MAX blend
-          passScope(`ss-offscreen[${li}]`, () => {
+          passScope(`translucent-off[${li}]`, () => {
             const offPass = this.lineRenderer!.beginTranslucentPass(encoder)
-            vtEntry.renderer.render(offPass, this.camera, projType, centerLon, centerLat, w, h,
-              show, fp, lp, this.renderer.uniformBuffer, bgl,
-              pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback,
-              pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback,
-              null,
-              'strokes')
+            cs.vtEntry.renderer.render(
+              offPass, this.camera, projType, centerLon, centerLat, w, h,
+              cs.show, cs.fp, cs.lp, this.renderer.uniformBuffer, cs.bgl,
+              cs.fpF, cs.lpF,
+              null, 'strokes',
+            )
             offPass.end()
           })
 
-          // 2. Composite pass: blend offscreen onto main RT.
-          // The composite pipeline has no depth/stencil so the attachment
-          // is omitted. Use direct screenView writes when MSAA is off.
-          const isLastTranslucent = li === translucentLineLayers.length - 1
-          passScope(`ss-composite[${li}]`, () => {
+          passScope(`translucent-comp[${li}]`, () => {
             const compPass = encoder.beginRenderPass({
               colorAttachments: [{
-                view: useResolve ? msaaView : screenView,
-                resolveTarget: useResolve && isLastTranslucent ? screenView : undefined,
+                view: colorView,
+                resolveTarget: resolveHere ? screenView : undefined,
                 loadOp: 'load',
                 storeOp: 'store',
               }],
             })
-            this.lineRenderer!.composite(compPass, opacity)
+            this.lineRenderer!.composite(compPass, cs.show.opacity ?? 1)
             compPass.end()
           })
         }
       }
 
-      // Multi-source: separate pass per source (independent stencil clear).
-      // Each translucent+stroke layer gets the same offscreen MAX-blend +
-      // composite treatment as the single-source path, so within-layer alpha
-      // does not accumulate at line corners. The earlier "encoder state is
-      // not valid" regression on iOS was caused by the composite uniform
-      // buffer being half its true size (16 vs 32); once that was fixed the
-      // offscreen path is safe to enable here too.
-      if (this.vectorTileShows.length > 1) {
-        const lr = this.lineRenderer
-        if (lr) lr.ensureOffscreen(w, h)
-
-        // Precompute the index of the last VISIBLE layer (opacity > 0.005
-        // and backing source has data). MSAA resolveTarget must fire on
-        // exactly the last pass that actually runs; otherwise skipped
-        // layers would leave the last isLast=true layer un-rendered and
-        // the screen would go blank on desktop.
-        let lastVisibleSi = -1
-        for (let si = 0; si < this.vectorTileShows.length; si++) {
-          const { sourceName, show: rs } = this.vectorTileShows[si]
-          const vte = this.vtSources.get(sourceName)
-          if (!vte || !vte.renderer.hasData()) continue
-          const eff = rs.zoomOpacityStops
-            ? interpolateZoom(rs.zoomOpacityStops, this.camera.zoom)
-            : (rs.opacity ?? 1)
-          if (eff < 0.005) continue
-          lastVisibleSi = si
-        }
-
-        for (let si = 0; si < this.vectorTileShows.length; si++) {
-          const { sourceName, show: rawShow, pipelines, layout } = this.vectorTileShows[si]
-          const vtEntry = this.vtSources.get(sourceName)
-          if (!vtEntry || !vtEntry.renderer.hasData()) continue
-          const show = rawShow.zoomOpacityStops
-            ? { ...rawShow, opacity: interpolateZoom(rawShow.zoomOpacityStops, this.camera.zoom) }
-            : rawShow
-          // Skip layers whose zoom-interpolated opacity is effectively zero —
-          // avoids wasted tile requests, uploads, and draw calls for the
-          // invisible tail of a fade-out. See same-path comment in the
-          // single-source branch above.
-          if ((show.opacity ?? 1) < 0.005) continue
-          const fp = pipelines?.fillPipeline ?? this.renderer.fillPipeline
-          const lp = pipelines?.linePipeline ?? this.renderer.linePipeline
-          const bgl = layout ?? this.renderer.bindGroupLayout
-          const fpF = pipelines?.fillPipelineFallback ?? this.renderer.fillPipelineFallback
-          const lpF = pipelines?.linePipelineFallback ?? this.renderer.linePipelineFallback
-          const isLast = si === lastVisibleSi
-
-          const isTranslucentStroke =
-            !SAFE_MODE && lr !== null && (show.opacity ?? 1) < 0.999 && !!show.stroke
-
-          passScope(`ms-vt[${si}]`, () => {
-            const vtPass = encoder.beginRenderPass({
-              colorAttachments: [{
-                view: useResolve ? msaaView : screenView,
-                resolveTarget: useResolve && isLast && !isTranslucentStroke ? screenView : undefined,
-                loadOp: 'load',
-                storeOp: 'store',
-              }],
-              depthStencilAttachment: {
-                view: this.stencilTexture!.createView(),
-                depthClearValue: 1.0, depthLoadOp: 'clear', depthStoreOp: 'discard',
-                stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard',
-              },
-            })
-            vtEntry.renderer.render(vtPass, this.camera, projType, centerLon, centerLat, w, h,
-              show, fp, lp, this.renderer.uniformBuffer, bgl,
-              fpF, lpF,
-              isTranslucentStroke ? null : this.pointRenderer,
-              isTranslucentStroke ? 'fills' : 'all')
-            vtPass.end()
-          })
-
-          if (isTranslucentStroke && lr) {
-            // Offscreen line draw (MAX blend, α=1) — no within-layer accumulation.
-            passScope(`ms-offscreen[${si}]`, () => {
-              const offPass = lr.beginTranslucentPass(encoder)
-              vtEntry.renderer.render(offPass, this.camera, projType, centerLon, centerLat, w, h,
-                show, fp, lp, this.renderer.uniformBuffer, bgl, fpF, lpF,
-                null, 'strokes')
-              offPass.end()
-            })
-
-            // Composite offscreen → main framebuffer with layer opacity.
-            passScope(`ms-composite[${si}]`, () => {
-              const compPass = encoder.beginRenderPass({
-                colorAttachments: [{
-                  view: useResolve ? msaaView : screenView,
-                  resolveTarget: useResolve && isLast ? screenView : undefined,
-                  loadOp: 'load',
-                  storeOp: 'store',
-                }],
-              })
-              lr.composite(compPass, show.opacity ?? 1)
-              compPass.end()
-            })
-          }
-        }
-
-        // Render SDF points after all VT passes
-        if (this.pointRenderer?.hasLayers()) passScope('ms-points', () => {
+      // ── Bucket 3: points ──
+      // Only run a dedicated points pass if we didn't already inline
+      // points into the last opaque sub-pass. The inline path is a
+      // small optimization for the common "no translucent" case.
+      if (hasPoints && !inlinePoints) {
+        passScope('points', () => {
           const ptPass = encoder.beginRenderPass({
             colorAttachments: [{
-              view: useResolve ? msaaView : screenView,
+              view: colorView,
               resolveTarget: useResolve ? screenView : undefined,
               loadOp: 'load',
               storeOp: 'store',

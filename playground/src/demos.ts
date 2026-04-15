@@ -375,4 +375,11 @@ export const DEMOS: Record<string, Demo> = {
     description: 'Three-tier admin borders: bold countries (always visible), 50m states (fade in at z3), 10m states (fade in at z6). Drillable hierarchy via zoom-opacity modifiers.',
     source: load('layered-borders.xgis'),
   },
+
+  bucket_order: {
+    name: 'Bucket Order (regression)',
+    tag: 'line',
+    description: 'Translucent yellow coast declared BEFORE opaque country fill. Bucket scheduler must render opaque first and composite the translucent stroke on top, regardless of declaration order.',
+    source: load('bucket-order.xgis'),
+  },
 }
