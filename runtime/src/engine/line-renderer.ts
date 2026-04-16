@@ -1226,8 +1226,11 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
         // Current owns along > 0 (strict) so the bisector plane (along==0)
         // is drawn by exactly one segment, never both.
         if (along_j > 0.0) {
+          // REPLACE body with circle past the endpoint — not union (min).
+          // The body extends past the join as a miter shape; replacing
+          // with the circle SDF produces the correct rounded corner.
           let circle_d = length(p - p0_join_center) - half_w_m;
-          d_m = min(d_m, circle_d);
+          d_m = circle_d;
         }
       }
     }
@@ -1264,7 +1267,7 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
         // is owned by the NEXT segment via its p0 (along > 0) check.
         if (along_j < 0.0) {
           let circle_d = length(p - p1_join_center) - half_w_m;
-          d_m = min(d_m, circle_d);
+          d_m = circle_d;
         }
       }
     }
