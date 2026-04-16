@@ -626,6 +626,7 @@ export class VectorTileRenderer {
         dash,
         patternSlots,
         effectiveOffset,
+        canvasHeight,
       )
     }
 
