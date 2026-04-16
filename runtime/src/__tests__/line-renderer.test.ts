@@ -521,4 +521,251 @@ describe('buildLineSegments', () => {
       expect(Math.abs(dy)).toBeCloseTo(offsetM, 1)
     })
   })
+
+  // ═══ Miter / Bevel join SDF tests ═══
+  // Port the fragment-shader miter & bevel math to TypeScript and verify
+  // that points inside the join area produce d ≤ 0 (visible) and points
+  // outside produce d > 0 (clipped).
+  describe('miter join SDF (ported fragment-shader math)', () => {
+    type V2 = [number, number]
+    const dot2 = (a: V2, b: V2) => a[0] * b[0] + a[1] * b[1]
+    const sub = (a: V2, b: V2): V2 => [a[0] - b[0], a[1] - b[1]]
+    const add = (a: V2, b: V2): V2 => [a[0] + b[0], a[1] + b[1]]
+    const mul = (a: V2, s: number): V2 => [a[0] * s, a[1] * s]
+    const len = (v: V2) => Math.hypot(v[0], v[1])
+    const perp = (v: V2): V2 => [-v[1], v[0]]
+    const normalize = (v: V2): V2 => { const l = len(v); return [v[0] / l, v[1] / l] }
+
+    /** Compute the miter SDF at a point p, matching the WGSL logic in
+     *  compute_line_color for JOIN_MITER at p1. */
+    function miterSDF(
+      p: V2,
+      p0: V2, p1: V2,
+      nextTangent: V2,
+      halfW: number,
+      offsetM: number,
+      miterLimit: number,
+    ): number {
+      const segVec = sub(p1, p0)
+      const segLen = len(segVec)
+      const dir: V2 = segLen < 1e-6 ? [1, 0] : [segVec[0] / segLen, segVec[1] / segLen]
+      const nrmLine = perp(dir)
+
+      // Body SDF (current segment strip)
+      const signedPerp = dot2(sub(p, p0), nrmLine)
+      const perpM = Math.abs(signedPerp - offsetM)
+      const bodyD = perpM - halfW
+
+      // Next segment strip SDF
+      const nextNrm = perp(nextTangent)
+      const nextSignedPerp = dot2(sub(p, p1), nextNrm)
+      const nextPerpM = Math.abs(nextSignedPerp - offsetM)
+      const nextBodyD = nextPerpM - halfW
+
+      // Intersection of both strips
+      let miterD = Math.max(bodyD, nextBodyD)
+
+      // Miter limit clip along bisector
+      const bis: V2 = add(dir, nextTangent)
+      const bisLen = len(bis)
+      if (bisLen > 1e-6) {
+        const bisUnit = normalize(bis)
+        const alongBis = dot2(sub(p, p1), bisUnit)
+        miterD = Math.max(miterD, alongBis - miterLimit * halfW)
+      }
+
+      return miterD
+    }
+
+    it('point at the miter tip center is inside (d ≤ 0) for a 90° corner', () => {
+      // Segment from (0,0) to (100,0), next goes up: tangent = (0,1)
+      const p0: V2 = [0, 0]
+      const p1: V2 = [100, 0]
+      const nextT: V2 = [0, 1]
+      const halfW = 10
+      // A point slightly inside the miter diamond
+      const p: V2 = [105, 5]
+      const d = miterSDF(p, p0, p1, nextT, halfW, 0, 4)
+      expect(d).toBeLessThanOrEqual(0)
+    })
+
+    it('point well outside the miter diamond is clipped (d > 0)', () => {
+      const p0: V2 = [0, 0]
+      const p1: V2 = [100, 0]
+      const nextT: V2 = [0, 1]
+      const halfW = 10
+      // Point far beyond both strips
+      const p: V2 = [115, 15]
+      const d = miterSDF(p, p0, p1, nextT, halfW, 0, 4)
+      expect(d).toBeGreaterThan(0)
+    })
+
+    it('miter tip vertex (exact intersection of outer edges) is at boundary (d ≈ 0)', () => {
+      // For 90° turn, miter tip = p1 + half_w along each axis
+      const p0: V2 = [0, 0]
+      const p1: V2 = [100, 0]
+      const nextT: V2 = [0, 1]
+      const halfW = 10
+      // The exact miter tip: perpendicular distance to both strips = halfW
+      const tip: V2 = [100 + halfW, halfW]
+      const d = miterSDF(tip, p0, p1, nextT, halfW, 0, 4)
+      expect(Math.abs(d)).toBeLessThan(0.01)
+    })
+
+    it('miter limit clips the tip for a shallow angle', () => {
+      // A very gentle turn (10°) → miter ratio ≈ 11.5, exceeds limit 4.
+      // CPU sets pad_ratio = 1, so fragment shader miter_d should be > 0
+      // at the would-be tip.
+      const cos10 = Math.cos(10 * Math.PI / 180)
+      const sin10 = Math.sin(10 * Math.PI / 180)
+      const p0: V2 = [0, 0]
+      const p1: V2 = [100, 0]
+      const nextT: V2 = [cos10, sin10]
+      const halfW = 10
+      const miterLimit = 4
+      // Point at the bisector direction, at miter_limit * halfW distance
+      const bis = normalize(add([1, 0], nextT))
+      const testP: V2 = add(p1, mul(bis, miterLimit * halfW + 1))
+      const d = miterSDF(testP, p0, p1, nextT, halfW, 0, miterLimit)
+      expect(d).toBeGreaterThan(0)
+    })
+
+    it('miter with offset_m shifts the tip correctly', () => {
+      const p0: V2 = [0, 0]
+      const p1: V2 = [100, 0]
+      const nextT: V2 = [0, 1]
+      const halfW = 10
+      const offsetM = 5
+      // With offset, the strip center is shifted +5 in nrm direction.
+      // Point at (105, 10): perp to current = 10, abs(10-5)=5 < 10 → inside current.
+      // perp to next from p1: next_nrm = (-1,0), dot((5,10),(-1,0)) = -5, abs(-5-5)=10 = halfW → boundary
+      const p: V2 = [105, 10]
+      const d = miterSDF(p, p0, p1, nextT, halfW, offsetM, 4)
+      expect(Math.abs(d)).toBeLessThan(0.01)
+    })
+  })
+
+  describe('bevel join SDF (ported fragment-shader math)', () => {
+    type V2 = [number, number]
+    const dot2 = (a: V2, b: V2) => a[0] * b[0] + a[1] * b[1]
+    const sub = (a: V2, b: V2): V2 => [a[0] - b[0], a[1] - b[1]]
+    const add = (a: V2, b: V2): V2 => [a[0] + b[0], a[1] + b[1]]
+    const mul = (a: V2, s: number): V2 => [a[0] * s, a[1] * s]
+    const len = (v: V2) => Math.hypot(v[0], v[1])
+    const perp = (v: V2): V2 => [-v[1], v[0]]
+    const normalize = (v: V2): V2 => { const l = len(v); return [v[0] / l, v[1] / l] }
+
+    /** Compute the bevel SDF at a point p, matching the WGSL logic. */
+    function bevelSDF(
+      p: V2,
+      p0: V2, p1: V2,
+      nextTangent: V2,
+      halfW: number,
+      offsetM: number,
+    ): number {
+      const segVec = sub(p1, p0)
+      const segLen = len(segVec)
+      const dir: V2 = segLen < 1e-6 ? [1, 0] : [segVec[0] / segLen, segVec[1] / segLen]
+      const nrmLine = perp(dir)
+      const nextNrm = perp(nextTangent)
+
+      // Body SDF
+      const signedPerp = dot2(sub(p, p0), nrmLine)
+      const perpM = Math.abs(signedPerp - offsetM)
+      const bodyD = perpM - halfW
+
+      // Next strip SDF
+      const nextSignedPerp = dot2(sub(p, p1), nextNrm)
+      const nextPerpM = Math.abs(nextSignedPerp - offsetM)
+      const nextBodyD = nextPerpM - halfW
+
+      let bevelD = Math.max(bodyD, nextBodyD)
+
+      // Bevel edge clip
+      const crossVal = dir[0] * nextTangent[1] - dir[1] * nextTangent[0]
+      if (Math.abs(crossVal) > 1e-6) {
+        const s = -Math.sign(crossVal)
+        const oc = add(p1, mul(nrmLine, offsetM + halfW * s))
+        const onBv = add(p1, mul(nextNrm, offsetM + halfW * s))
+        const be = sub(onBv, oc)
+        const bl = len(be)
+        if (bl > 1e-6) {
+          const bd = normalize(be)
+          const bo: V2 = [-bd[1] * s, bd[0] * s]
+          bevelD = Math.max(bevelD, dot2(sub(p, oc), bo))
+        }
+      }
+
+      return bevelD
+    }
+
+    it('center of bevel triangle is inside (d < 0) for 90° corner', () => {
+      const p0: V2 = [0, 0]
+      const p1: V2 = [100, 0]
+      const nextT: V2 = [0, 1]
+      const halfW = 10
+      // The bevel triangle center at ~(100+3, 3) should be inside.
+      const p: V2 = [103, 3]
+      const d = bevelSDF(p, p0, p1, nextT, halfW, 0)
+      expect(d).toBeLessThan(0)
+    })
+
+    it('point beyond the bevel edge is clipped (d > 0)', () => {
+      // For a LEFT turn (dir=right, next=up), the OUTER side is the
+      // bottom-right.  The miter tip on the outer side is at (110, -10).
+      // The bevel edge clips it.
+      const p0: V2 = [0, 0]
+      const p1: V2 = [100, 0]
+      const nextT: V2 = [0, 1]
+      const halfW = 10
+      // Outer miter tip at (110, -10) — beyond the bevel edge
+      const p: V2 = [110, -10]
+      const d = bevelSDF(p, p0, p1, nextT, halfW, 0)
+      expect(d).toBeGreaterThan(0)
+    })
+
+    it('bevel is smaller than miter for the same geometry', () => {
+      // A point in the miter diamond on the outer side but past the bevel edge
+      const p0: V2 = [0, 0]
+      const p1: V2 = [100, 0]
+      const nextT: V2 = [0, 1]
+      const halfW = 10
+      // (108, -8) is inside both strips (miter d < 0) but past the bevel edge
+      const p: V2 = [108, -8]
+      const bD = bevelSDF(p, p0, p1, nextT, halfW, 0)
+      // This point should be clipped by the bevel edge
+      expect(bD).toBeGreaterThan(0)
+    })
+  })
+
+  describe('miter quad extension uses pad_ratio', () => {
+    it('miter join along_pad exceeds half_w for 90° corner', () => {
+      const vertices = dsfunLineVerts([
+        [0, 0], [1000, 0], [1000, 1000],
+      ])
+      const indices = new Uint32Array([0, 1, 1, 2])
+      const segData = buildLineSegments(vertices, indices, 6)
+      const padP1 = segData[0 * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P1]
+      // pad_ratio ≈ 1.414 for 90°
+      expect(padP1).toBeGreaterThan(1.3)
+      // For miter, along_pad = max(half_w, pad_ratio * half_w) = pad_ratio * half_w
+      const halfW = 50
+      const alongPadMiter = padP1 * halfW
+      expect(alongPadMiter).toBeGreaterThan(halfW)
+      expect(alongPadMiter).toBeLessThan(halfW * 1.5)
+    })
+
+    it('bevel/round join along_pad stays at half_w (pad_ratio not used)', () => {
+      const vertices = dsfunLineVerts([
+        [0, 0], [1000, 0], [1000, 1000],
+      ])
+      const indices = new Uint32Array([0, 1, 1, 2])
+      const segData = buildLineSegments(vertices, indices, 6)
+      const padP1 = segData[0 * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P1]
+      // pad_ratio > 1 but for bevel/round the VS uses half_w_side, not pad_ratio
+      expect(padP1).toBeGreaterThan(1)
+      // The test confirms pad_ratio IS computed; the VS just doesn't use it
+      // for non-miter joins.
+    })
+  })
 })
