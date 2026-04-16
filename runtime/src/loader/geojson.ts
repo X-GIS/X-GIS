@@ -473,6 +473,64 @@ function tessellateLineString(
   outIndices: number[],
   outFeatures: FeatureRange[],
 ): void {
+  // Split at the anti-meridian (±180°) so each piece stays in a continuous
+  // coordinate space. Without this, a line from lon=170 to lon=-170 would
+  // produce a 340° segment across the entire map instead of a 20° segment
+  // crossing the date line.
+  const pieces = splitLineAtAntiMeridian(coordinates)
+  for (const piece of pieces) {
+    tessellateLineStringPiece(piece, properties, outVertices, outIndices, outFeatures)
+  }
+}
+
+/** Split a linestring at every anti-meridian crossing (|Δlon| > 180°).
+ *  Returns one or more continuous coordinate arrays. */
+function splitLineAtAntiMeridian(coords: number[][]): number[][][] {
+  if (coords.length < 2) return [coords]
+
+  let needsSplit = false
+  for (let i = 0; i < coords.length - 1; i++) {
+    if (Math.abs(coords[i + 1][0] - coords[i][0]) > 180) { needsSplit = true; break }
+  }
+  if (!needsSplit) return [coords]
+
+  const pieces: number[][][] = []
+  let current: number[][] = [coords[0]]
+
+  for (let i = 0; i < coords.length - 1; i++) {
+    const a = coords[i], b = coords[i + 1]
+    const dlon = b[0] - a[0]
+
+    if (Math.abs(dlon) > 180) {
+      // Crosses anti-meridian — compute the crossing latitude.
+      // Shift b to continuous space, find t where lon = ±180.
+      const bShifted = dlon > 0 ? b[0] - 360 : b[0] + 360
+      const cutLon = dlon > 0 ? -180 : 180
+      const t = (cutLon - a[0]) / (bShifted - a[0])
+      const cutLat = a[1] + t * (b[1] - a[1])
+
+      // End current piece at the crossing
+      current.push([cutLon, cutLat])
+      pieces.push(current)
+
+      // Start new piece from the opposite side of the meridian
+      current = [[-cutLon, cutLat], b]
+    } else {
+      current.push(b)
+    }
+  }
+
+  if (current.length >= 2) pieces.push(current)
+  return pieces
+}
+
+function tessellateLineStringPiece(
+  coordinates: number[][],
+  properties: Record<string, unknown>,
+  outVertices: number[],
+  outIndices: number[],
+  outFeatures: FeatureRange[],
+): void {
   const STRIDE = 4
   const baseVertex = outVertices.length / STRIDE
   const baseIndex = outIndices.length
