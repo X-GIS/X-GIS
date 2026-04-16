@@ -121,8 +121,15 @@ export function simplifyPolygon(rings: number[][][], zoom: number, isLocked?: (c
  * Simplify a linestring for a given zoom level.
  * @param isLocked Predicate to lock tile-boundary vertices from removal
  */
-export function simplifyLine(coords: number[][], zoom: number, isLocked?: (coord: number[]) => boolean): number[][] {
-  const tolerance = toleranceForZoom(zoom)
+export function simplifyLine(coords: number[][], zoom: number, isLocked?: (coord: number[]) => boolean, toleranceOverride?: number): number[][] {
+  const tolerance = toleranceOverride ?? toleranceForZoom(zoom)
   const result = simplify(coords, tolerance, isLocked)
   return result.length >= 2 ? result : coords // preserve at least 2 points
+}
+
+/** Tolerance in Mercator meters for line simplification (lines are clipped in Mercator). */
+export function mercatorToleranceForZoom(zoom: number): number {
+  // At zoom z, one pixel ≈ 2π * R / (256 * 2^z) meters
+  // Using 1/16 pixel to match toleranceForZoom's ratio
+  return 2 * Math.PI * 6378137 / (4096 * Math.pow(2, zoom))
 }

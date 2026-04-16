@@ -4,7 +4,7 @@
 // with tighter bounding boxes, dramatically reducing tile scatter for large features.
 
 import earcut from 'earcut'
-import { simplifyPolygon, simplifyLine } from './simplify'
+import { simplifyPolygon, simplifyLine, mercatorToleranceForZoom } from './simplify'
 import { clipPolygonToRect, clipLineToRect } from './clip'
 import { precisionForZoom } from './encoding'
 import type { GeoJSONFeatureCollection, GeoJSONFeature } from './geojson-types'
@@ -85,7 +85,8 @@ export function packDSFUNLineVertices(
   tileMx: number,
   tileMy: number,
 ): Float32Array {
-  // Input stride 8: [lon, lat, featId, arc, tin_x, tin_y, tout_x, tout_y]
+  // Input stride 8: [mx, my, featId, arc, tin_x, tin_y, tout_x, tout_y]
+  // Coordinates are ALREADY in absolute Mercator meters (from augmentLineWithArc).
   // Output stride 10: [mx_h, my_h, mx_l, my_l, feat_id, arc, tin_x, tin_y, tout_x, tout_y]
   const IN_STRIDE = 8
   const OUT_STRIDE = 10
@@ -93,17 +94,14 @@ export function packDSFUNLineVertices(
   const out = new Float32Array(count * OUT_STRIDE)
   for (let i = 0; i < count; i++) {
     const si = i * IN_STRIDE
-    const lon = scratchLv[si]
-    const lat = scratchLv[si + 1]
+    const mx = scratchLv[si]
+    const my = scratchLv[si + 1]
     const fid = scratchLv[si + 2]
     const arc = scratchLv[si + 3]
     const tinX = scratchLv[si + 4]
     const tinY = scratchLv[si + 5]
     const toutX = scratchLv[si + 6]
     const toutY = scratchLv[si + 7]
-    const clamped = Math.max(-DSFUN_LAT_LIMIT, Math.min(DSFUN_LAT_LIMIT, lat))
-    const mx = lon * DSFUN_DEG2RAD * DSFUN_EARTH_R
-    const my = Math.log(Math.tan(Math.PI / 4 + clamped * DSFUN_DEG2RAD / 2)) * DSFUN_EARTH_R
     const localMx = mx - tileMx
     const localMy = my - tileMy
     const mxH = Math.fround(localMx)
@@ -523,7 +521,7 @@ function augmentLineWithArc(coords: number[][]): number[][] {
       const len = Math.sqrt(dx * dx + dy * dy)
       if (len > 1e-9) { toutX = dx / len; toutY = dy / len }
     }
-    out[i] = [coords[i][0], coords[i][1], arcArr[i], tinX, tinY, toutX, toutY]
+    out[i] = [mxArr[i], myArr[i], arcArr[i], tinX, tinY, toutX, toutY]
   }
   return out
 }
@@ -716,6 +714,10 @@ function processZoomLevelShared(
     for (const [key, partIndices] of tileFeaturesMap) {
       const [, tx, ty] = tileKeyUnpack(key)
       const tb = tileBounds(z, tx, ty)
+      // Mercator tile bounds for line clipping (lines must be clipped in
+      // Mercator space to match generateSubTile's Mercator-space clipper).
+      const [tbMxW, tbMyS] = lonLatToMercF64(tb.west, tb.south)
+      const [tbMxE, tbMyN] = lonLatToMercF64(tb.east, tb.north)
 
       scratch.pv.length = 0; scratch.pi.length = 0
       scratch.lv.length = 0; scratch.li.length = 0; scratch.oi.length = 0
@@ -723,12 +725,16 @@ function processZoomLevelShared(
       const featureIds = new Set<number>()
       const dedupMap = new Map<string, number>()
 
-      // Lock predicate: vertices on tile boundary edges must survive simplification
-      // so adjacent tiles share identical edge geometry (no seams)
+      // Lock predicate: vertices on tile boundary edges must survive simplification.
+      // Polygons clip in lon/lat, lines clip in Mercator — separate predicates.
       const EPS = 1e-10
-      const isOnBoundary = (c: number[]) =>
+      const isOnBoundaryLL = (c: number[]) =>
         Math.abs(c[0] - tb.west) < EPS || Math.abs(c[0] - tb.east) < EPS ||
         Math.abs(c[1] - tb.south) < EPS || Math.abs(c[1] - tb.north) < EPS
+      const MERC_EPS = 1.0
+      const isOnBoundaryMerc = (c: number[]) =>
+        Math.abs(c[0] - tbMxW) < MERC_EPS || Math.abs(c[0] - tbMxE) < MERC_EPS ||
+        Math.abs(c[1] - tbMyS) < MERC_EPS || Math.abs(c[1] - tbMyN) < MERC_EPS
 
       // Track clipped rings for full-cover detection + ring storage
       let tileClippedRings: number[][][] = []
@@ -750,7 +756,7 @@ function processZoomLevelShared(
             for (const ring of clipped) preSimplifyVerts += ring.length
             // At maxZoom: use original data (for runtime sub-tiling)
             // Below maxZoom: simplify to reduce vertex count
-            const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundary) : clipped
+            const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryLL) : clipped
             if (z < maxZoom) {
               for (const ring of dataRings) postSimplifyVerts += ring.length
             } else {
@@ -766,11 +772,11 @@ function processZoomLevelShared(
 
         if (sp.coords) {
           const arcLine = augmentLineWithArc(sp.coords)
-          const segments = clipLineToRect(arcLine, tb.west, tb.south, tb.east, tb.north, precisionForZoom(z))
+          const segments = clipLineToRect(arcLine, tbMxW, tbMyS, tbMxE, tbMyN)
           for (const seg of segments) {
             if (seg.length >= 2) {
               preSimplifyVerts += seg.length
-              const dataLine = z < maxZoom ? simplifyLine(seg, z, isOnBoundary) : seg
+              const dataLine = z < maxZoom ? simplifyLine(seg, z, isOnBoundaryMerc, mercatorToleranceForZoom(z)) : seg
               if (z < maxZoom) {
                 postSimplifyVerts += dataLine.length
               } else {
@@ -886,13 +892,22 @@ export function compileSingleTile(
 ): CompiledTile | null {
   const tb = tileBounds(z, x, y)
   const precision = precisionForZoom(z)
+  // Mercator tile bounds for line clipping (must match generateSubTile's space)
+  const [stMxW, stMyS] = lonLatToMercF64(tb.west, tb.south)
+  const [stMxE, stMyN] = lonLatToMercF64(tb.east, tb.north)
   const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], oi: [] as number[] }
   const featureIds = new Set<number>()
   const dedupMap = new Map<string, number>()
   const EPS = 1e-10
-  const isOnBoundary = (c: number[]) =>
+  // isOnBoundary: polygons still clip in lon/lat, lines clip in Mercator.
+  // For simplifyLine, boundary check uses Mercator coordinates.
+  const isOnBoundaryLL = (c: number[]) =>
     Math.abs(c[0] - tb.west) < EPS || Math.abs(c[0] - tb.east) < EPS ||
     Math.abs(c[1] - tb.south) < EPS || Math.abs(c[1] - tb.north) < EPS
+  const MERC_EPS = 1.0 // 1 meter tolerance for Mercator boundary detection
+  const isOnBoundaryMerc = (c: number[]) =>
+    Math.abs(c[0] - stMxW) < MERC_EPS || Math.abs(c[0] - stMxE) < MERC_EPS ||
+    Math.abs(c[1] - stMyS) < MERC_EPS || Math.abs(c[1] - stMyN) < MERC_EPS
   const tilePolygons: { rings: number[][][]; featId: number }[] = []
 
   for (const part of parts) {
@@ -905,7 +920,7 @@ export function compileSingleTile(
     if (part.type === 'polygon' && part.rings) {
       const clipped = clipPolygonToRect(part.rings, tb.west, tb.south, tb.east, tb.north, precision)
       if (clipped.length > 0 && clipped[0].length >= 3) {
-        const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundary) : clipped
+        const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryLL) : clipped
         if (dataRings.length > 0 && dataRings[0].length >= 3) {
           tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap, scratch.oi)
           featureIds.add(fid)
@@ -916,10 +931,10 @@ export function compileSingleTile(
 
     if (part.type === 'line' && part.coords) {
       const arcLine = augmentLineWithArc(part.coords)
-      const segments = clipLineToRect(arcLine, tb.west, tb.south, tb.east, tb.north, precision)
+      const segments = clipLineToRect(arcLine, stMxW, stMyS, stMxE, stMyN)
       for (const seg of segments) {
         if (seg.length >= 2) {
-          const dataLine = z < maxZoom ? simplifyLine(seg, z, isOnBoundary) : seg
+          const dataLine = z < maxZoom ? simplifyLine(seg, z, isOnBoundaryMerc, mercatorToleranceForZoom(z)) : seg
           if (dataLine.length >= 2) {
             tessellateLineToArrays(dataLine, fid, scratch.lv, scratch.li)
             featureIds.add(fid)
