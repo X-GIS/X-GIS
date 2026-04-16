@@ -522,11 +522,11 @@ describe('buildLineSegments', () => {
     })
   })
 
-  // ═══ Miter / Bevel join SDF tests ═══
-  // Port the fragment-shader miter & bevel math to TypeScript and verify
-  // that points inside the join area produce d ≤ 0 (visible) and points
-  // outside produce d > 0 (clipped).
-  describe('miter join SDF (ported fragment-shader math)', () => {
+  // ═══ Miter / Bevel join geometry tests ═══
+  // Miter joins work via body SDF + bisector clip: each segment renders
+  // its half of the miter diamond naturally. These tests verify the
+  // geometric property that both strips intersect to form the miter.
+  describe('miter join geometry (strip intersection)', () => {
     type V2 = [number, number]
     const dot2 = (a: V2, b: V2) => a[0] * b[0] + a[1] * b[1]
     const sub = (a: V2, b: V2): V2 => [a[0] - b[0], a[1] - b[1]]
@@ -645,7 +645,7 @@ describe('buildLineSegments', () => {
     })
   })
 
-  describe('bevel join SDF (ported fragment-shader math)', () => {
+  describe('bevel edge clip (ported fragment-shader math)', () => {
     type V2 = [number, number]
     const dot2 = (a: V2, b: V2) => a[0] * b[0] + a[1] * b[1]
     const sub = (a: V2, b: V2): V2 => [a[0] - b[0], a[1] - b[1]]
@@ -655,86 +655,65 @@ describe('buildLineSegments', () => {
     const perp = (v: V2): V2 => [-v[1], v[0]]
     const normalize = (v: V2): V2 => { const l = len(v); return [v[0] / l, v[1] / l] }
 
-    /** Compute the bevel SDF at a point p, matching the WGSL logic. */
-    function bevelSDF(
+    /** Compute the bevel edge clip distance at point p. Matches the WGSL
+     *  bevel-edge clip in the bisector section of compute_line_color.
+     *  Returns > 0 when the point is past the bevel edge (should be clipped). */
+    function bevelEdgeClip(
       p: V2,
-      p0: V2, p1: V2,
+      joinCenter: V2,
+      dir: V2,
       nextTangent: V2,
       halfW: number,
       offsetM: number,
     ): number {
-      const segVec = sub(p1, p0)
-      const segLen = len(segVec)
-      const dir: V2 = segLen < 1e-6 ? [1, 0] : [segVec[0] / segLen, segVec[1] / segLen]
       const nrmLine = perp(dir)
       const nextNrm = perp(nextTangent)
 
-      // Body SDF
-      const signedPerp = dot2(sub(p, p0), nrmLine)
-      const perpM = Math.abs(signedPerp - offsetM)
-      const bodyD = perpM - halfW
-
-      // Next strip SDF
-      const nextSignedPerp = dot2(sub(p, p1), nextNrm)
-      const nextPerpM = Math.abs(nextSignedPerp - offsetM)
-      const nextBodyD = nextPerpM - halfW
-
-      let bevelD = Math.max(bodyD, nextBodyD)
-
-      // Bevel edge clip
       const crossVal = dir[0] * nextTangent[1] - dir[1] * nextTangent[0]
-      if (Math.abs(crossVal) > 1e-6) {
-        const s = -Math.sign(crossVal)
-        const oc = add(p1, mul(nrmLine, offsetM + halfW * s))
-        const onBv = add(p1, mul(nextNrm, offsetM + halfW * s))
-        const be = sub(onBv, oc)
-        const bl = len(be)
-        if (bl > 1e-6) {
-          const bd = normalize(be)
-          const bo: V2 = [-bd[1] * s, bd[0] * s]
-          bevelD = Math.max(bevelD, dot2(sub(p, oc), bo))
-        }
-      }
+      if (Math.abs(crossVal) <= 1e-6) return -Infinity // collinear, no clip
 
-      return bevelD
+      const s = -Math.sign(crossVal)
+      const oc = add(joinCenter, mul(nrmLine, offsetM + halfW * s))
+      const onBv = add(joinCenter, mul(nextNrm, offsetM + halfW * s))
+      const be = sub(onBv, oc)
+      const bl = len(be)
+      if (bl <= 1e-6) return -Infinity
+
+      const bd = normalize(be)
+      const bo: V2 = [-bd[1] * s, bd[0] * s]
+      return dot2(sub(p, oc), bo)
     }
 
-    it('center of bevel triangle is inside (d < 0) for 90° corner', () => {
-      const p0: V2 = [0, 0]
-      const p1: V2 = [100, 0]
-      const nextT: V2 = [0, 1]
-      const halfW = 10
-      // The bevel triangle center at ~(100+3, 3) should be inside.
-      const p: V2 = [103, 3]
-      const d = bevelSDF(p, p0, p1, nextT, halfW, 0)
+    it('point inside bevel triangle has negative clip distance', () => {
+      // 90° left turn at (100,0). Outer side = bottom-right.
+      // (103, -3) is inside the bevel triangle.
+      const d = bevelEdgeClip([103, -3], [100, 0], [1, 0], [0, 1], 10, 0)
       expect(d).toBeLessThan(0)
     })
 
-    it('point beyond the bevel edge is clipped (d > 0)', () => {
-      // For a LEFT turn (dir=right, next=up), the OUTER side is the
-      // bottom-right.  The miter tip on the outer side is at (110, -10).
-      // The bevel edge clips it.
-      const p0: V2 = [0, 0]
-      const p1: V2 = [100, 0]
-      const nextT: V2 = [0, 1]
-      const halfW = 10
-      // Outer miter tip at (110, -10) — beyond the bevel edge
-      const p: V2 = [110, -10]
-      const d = bevelSDF(p, p0, p1, nextT, halfW, 0)
+    it('outer miter tip is clipped by the bevel edge (d > 0)', () => {
+      // (110, -10) is the miter tip on the outer side — past the bevel edge
+      const d = bevelEdgeClip([110, -10], [100, 0], [1, 0], [0, 1], 10, 0)
       expect(d).toBeGreaterThan(0)
     })
 
-    it('bevel is smaller than miter for the same geometry', () => {
-      // A point in the miter diamond on the outer side but past the bevel edge
-      const p0: V2 = [0, 0]
-      const p1: V2 = [100, 0]
-      const nextT: V2 = [0, 1]
-      const halfW = 10
-      // (108, -8) is inside both strips (miter d < 0) but past the bevel edge
-      const p: V2 = [108, -8]
-      const bD = bevelSDF(p, p0, p1, nextT, halfW, 0)
-      // This point should be clipped by the bevel edge
-      expect(bD).toBeGreaterThan(0)
+    it('point past bevel edge on outer side is clipped', () => {
+      // (108, -8) is inside both strips but past the bevel edge
+      const d = bevelEdgeClip([108, -8], [100, 0], [1, 0], [0, 1], 10, 0)
+      expect(d).toBeGreaterThan(0)
+    })
+
+    it('inner side of turn is not affected by bevel clip (d < 0)', () => {
+      // (97, 3) is on the inner side (top-left) of a left turn
+      const d = bevelEdgeClip([97, 3], [100, 0], [1, 0], [0, 1], 10, 0)
+      expect(d).toBeLessThan(0)
+    })
+
+    it('bevel edge with offset_m shifts outer corners correctly', () => {
+      // With offset_m = 5, the stroke center shifts +5 in nrm direction.
+      // The outer corners shift accordingly.
+      const d = bevelEdgeClip([110, -5], [100, 0], [1, 0], [0, 1], 10, 5)
+      expect(d).toBeGreaterThan(0)
     })
   })
 

@@ -1054,6 +1054,16 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
   // segments are short relative to the stroke width (dense polyline data
   // at low zoom) — and every overlap pixel accumulates alpha, making
   // translucent strokes visibly brighter at sharp corners.
+  //
+  // For MITER joins, the body SDF naturally extends past the join vertex
+  // into the miter tip area. The bisector splits ownership so each segment
+  // renders its half of the miter diamond. The vertex-shader quad extension
+  // (pad_ratio × half_w) ensures geometry coverage.
+  //
+  // For BEVEL joins, a bevel-edge clip is added on top of the bisector
+  // clip. This truncates the miter tip at the straight line connecting
+  // the two outer stroke corners, producing the flat bevel shape.
+  let join_flags = (layer.flags >> 3u) & 3u;
   if (has_prev) {
     let bis_p0 = seg.prev_tangent + dir;
     let bis_len_p0 = length(bis_p0);
@@ -1069,6 +1079,28 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
         d_m = max(d_m, -along_p0);
       }
     }
+    // Bevel-edge clip at p0: truncate the body at the bevel edge so the
+    // miter tip is cut flat. The bevel edge connects the outer stroke
+    // corners of the two segments meeting at this vertex.
+    if (join_flags == JOIN_BEVEL) {
+      let prev_nrm = vec2<f32>(-seg.prev_tangent.y, seg.prev_tangent.x);
+      let cross_p0 = seg.prev_tangent.x * dir.y - seg.prev_tangent.y * dir.x;
+      if (abs(cross_p0) > 1e-6) {
+        let s0 = -sign(cross_p0);
+        let oc0 = p0 + prev_nrm * (layer.offset_m + half_w_m * s0);
+        let on0 = p0 + nrm_line * (layer.offset_m + half_w_m * s0);
+        let be0 = on0 - oc0;
+        let bl0 = length(be0);
+        if (bl0 > 1e-6) {
+          let bd0 = be0 / bl0;
+          let bo0 = vec2<f32>(-bd0.y, bd0.x) * s0;
+          let bclip0 = dot(p - oc0, bo0);
+          if (bclip0 > 0.0) {
+            d_m = max(d_m, bclip0);
+          }
+        }
+      }
+    }
   }
   if (has_next) {
     let bis_p1 = dir + seg.next_tangent;
@@ -1078,6 +1110,26 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
       let along_p1 = dot(p - p1, bis_unit_p1);
       if (along_p1 > 0.0) {
         d_m = max(d_m, along_p1);
+      }
+    }
+    // Bevel-edge clip at p1 (symmetric with p0).
+    if (join_flags == JOIN_BEVEL) {
+      let next_nrm_bv = vec2<f32>(-seg.next_tangent.y, seg.next_tangent.x);
+      let cross_p1 = dir.x * seg.next_tangent.y - dir.y * seg.next_tangent.x;
+      if (abs(cross_p1) > 1e-6) {
+        let s1 = -sign(cross_p1);
+        let oc1 = p1 + nrm_line * (layer.offset_m + half_w_m * s1);
+        let on1 = p1 + next_nrm_bv * (layer.offset_m + half_w_m * s1);
+        let be1 = on1 - oc1;
+        let bl1 = length(be1);
+        if (bl1 > 1e-6) {
+          let bd1 = be1 / bl1;
+          let bo1 = vec2<f32>(-bd1.y, bd1.x) * s1;
+          let bclip1 = dot(p - oc1, bo1);
+          if (bclip1 > 0.0) {
+            d_m = max(d_m, bclip1);
+          }
+        }
       }
     }
   }
@@ -1142,8 +1194,9 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
       d_m = select(d_m, circle_d, dist_p1 > 0.0);
     }
   } else {
-    // JOIN at p1 — the current segment (ending here) is responsible for
-    // rendering join geometry on its side of the bisector.
+    // JOIN at p1 — symmetric with p0. Draw the circle only on the
+    // current segment's side (along_p1 <= 0) so the next segment handles
+    // the other half of the corner.
     let join_type_p1 = (layer.flags >> 3u) & 3u;
     if (join_type_p1 == JOIN_ROUND && dist_p1 > 0.0) {
       let bis_p1_j = dir + seg.next_tangent;
@@ -1159,61 +1212,14 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
         }
       }
     }
-    // ── Miter tip at p1 ──
-    // The miter shape is the intersection of THIS segment's strip and the
-    // NEXT segment's strip.  Only this segment (ending at p1) renders the
-    // full tip; the next segment (starting at p0) leaves it to us via the
-    // bisector ownership convention, preventing translucent double-shading.
-    if (join_type_p1 == JOIN_MITER && dist_p1 > 0.0) {
-      let next_nrm_mt = vec2<f32>(-seg.next_tangent.y, seg.next_tangent.x);
-      let next_signed_perp = dot(p - p1, next_nrm_mt);
-      let next_perp_m = abs(next_signed_perp - layer.offset_m);
-      let next_body_d = next_perp_m - half_w_m;
-
-      // Miter = intersection of both strips (max of their SDFs).
-      var miter_d = max(body_d, next_body_d);
-
-      // Miter-limit clip: cap the spike at miter_limit × half_w along
-      // the bisector direction from the join vertex.
-      let bis_p1_mt = dir + seg.next_tangent;
-      let bis_len_mt = length(bis_p1_mt);
-      if (bis_len_mt > 1e-6) {
-        let bis_unit_mt = bis_p1_mt / bis_len_mt;
-        let along_bis = dot(p - p1, bis_unit_mt);
-        miter_d = max(miter_d, along_bis - layer.miter_limit * half_w_m);
-      }
-
-      // Union the miter tip with the (bisector-clipped) body.
-      d_m = min(d_m, miter_d);
-    }
-    // ── Bevel fill at p1 ──
-    // The bevel triangle is the intersection of both strips, clipped at
-    // the straight bevel edge connecting the two outer stroke corners.
-    if (join_type_p1 == JOIN_BEVEL && dist_p1 > 0.0) {
-      let next_nrm_bv = vec2<f32>(-seg.next_tangent.y, seg.next_tangent.x);
-      let next_signed_perp_bv = dot(p - p1, next_nrm_bv);
-      let next_perp_m_bv = abs(next_signed_perp_bv - layer.offset_m);
-      let next_body_d_bv = next_perp_m_bv - half_w_m;
-
-      var bevel_d = max(body_d, next_body_d_bv);
-
-      // Bevel edge: line connecting the two outer stroke corners.
-      let cross_val = dir.x * seg.next_tangent.y - dir.y * seg.next_tangent.x;
-      if (abs(cross_val) > 1e-6) {
-        let s = -sign(cross_val); // outer side of the bend
-        let oc = p1 + nrm_line * (layer.offset_m + half_w_m * s);
-        let on_bv = p1 + next_nrm_bv * (layer.offset_m + half_w_m * s);
-        let be = on_bv - oc;
-        let bl = length(be);
-        if (bl > 1e-6) {
-          let bd = be / bl;
-          let bo = vec2<f32>(-bd.y, bd.x) * s;
-          bevel_d = max(bevel_d, dot(p - oc, bo));
-        }
-      }
-
-      d_m = min(d_m, bevel_d);
-    }
+    // Note: MITER joins need no additional SDF here. The body SDF extends
+    // past the endpoint, and the bisector clip (above) splits ownership
+    // between adjacent segments. Each segment renders its half of the
+    // miter diamond via its own body. The vertex-shader quad extension
+    // (pad_ratio × half_w) ensures geometry coverage for the tip.
+    //
+    // BEVEL joins are handled by the bevel-edge clip in the bisector
+    // section (above), which truncates the miter tip at the bevel edge.
   }
 
   // Project fragment onto segment's along-axis to get local arc (shared by dash + patterns)
