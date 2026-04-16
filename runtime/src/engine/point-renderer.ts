@@ -324,6 +324,11 @@ interface PointLayer {
    *  overlapping circles blend cleanly without z-fighting from coplanar
    *  fragments. Billboards keep depth write so near markers occlude far. */
   isFlat: boolean
+  /** Translucent billboards skip depth write so they don't occlude opaque
+   *  geometry drawn behind them in later layers (classic transparency +
+   *  depth ordering). A layer is translucent when opacity, fill.a, or
+   *  stroke.a (all multiplied together) drops below 1. */
+  isTranslucent: boolean
   /** Zoom stops for dynamic size — present only when a layer was built
    *  with `z5:size-N z15:size-M` style utilities. Interpolated each frame
    *  against camera.zoom and written back into featData[i*STRIDE+0]. */
@@ -343,8 +348,9 @@ interface PointLayer {
 
 export class PointRenderer {
   private device: GPUDevice
-  private pipeline: GPURenderPipeline        // billboard: depth test + write + bias
-  private pipelineFlat: GPURenderPipeline    // flat: depth test only, no write (avoids coplanar z-fight)
+  private pipeline: GPURenderPipeline            // billboard: depth test + write + bias
+  private pipelineTranslucent: GPURenderPipeline // billboard: depth test only, no write (transparency)
+  private pipelineFlat: GPURenderPipeline        // flat: depth test only, no write (avoids coplanar z-fight)
   private bindGroupLayout: GPUBindGroupLayout
   private uniformBuffer: GPUBuffer
   private uniformData = new Float32Array(28) // mvp(16) + proj_params(4) + tile_rtc(4) + viewport(2) + pad(2)
@@ -403,6 +409,26 @@ export class PointRenderer {
       depthStencil: pointDepthStencil,
       multisample: MSAA_4X,
       label: 'sdf-point-pipeline',
+    })
+
+    // Translucent billboard pipeline — same as `pipeline` (depth bias, test
+    // less-equal) but does NOT write depth. Translucent halos, glows, and
+    // any fill/stroke with effective alpha < 1 use this so the depth buffer
+    // only retains values from opaque fragments. Without this, a halo drawn
+    // first writes depth across its large area and causes opaque pins of
+    // other points drawn later to fail the depth test under pitch+rotation.
+    const translucentDepthStencil: GPUDepthStencilState = {
+      ...pointDepthStencil,
+      depthWriteEnabled: false,
+    }
+    this.pipelineTranslucent = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vertexBufferLayout] },
+      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: BLEND_ALPHA }] },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: translucentDepthStencil,
+      multisample: MSAA_4X,
+      label: 'sdf-point-pipeline-translucent',
     })
 
     // Flat pipeline — depth read but NO write. Flat circles (e.g. coverage
@@ -568,8 +594,17 @@ export class PointRenderer {
     uf[24] = canvasWidth; uf[25] = canvasHeight; uf[26] = metersPerPixel; uf[27] = camera.getLogDepthFc()
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
 
+    // Pick the translucent (no depth write) pipeline when the effective
+    // alpha drops below 1 so halos/glows rendered from tile sources don't
+    // occlude opaque points or layers drawn into the same depth buffer.
+    // Matches the classification used in addLayer().
+    const EPS = 0.999
+    const fillA = fill ? fill[3] * opacity : 1
+    const strokeA = stroke ? stroke[3] * opacity : 1
+    const tileIsTranslucent = opacity < EPS || fillA < EPS || strokeA < EPS
+
     // Single draw call for all 3 world copies
-    pass.setPipeline(this.pipeline)
+    pass.setPipeline(tileIsTranslucent ? this.pipelineTranslucent : this.pipeline)
     pass.setBindGroup(0, this.tilePointBindGroup)
     pass.setVertexBuffer(0, this.tilePointBuffer)
     pass.setIndexBuffer(this.tilePointIndexBuffer, 'uint32')
@@ -704,6 +739,15 @@ export class PointRenderer {
 
     const bindGroup = this.makeBindGroup(featureBuffer)
 
+    // Translucent iff any channel's effective alpha is < ~1. Catches both
+    // top-level opacity (e.g. `opacity-30`) and color-channel alpha such as
+    // `fill-amber-300/30`. Fully opaque layers with opacity=1, fill.a=1
+    // and stroke.a=1 remain in the depth-writing bucket.
+    const EPS = 0.999
+    const fillA = fill ? fill[3] * opacity : 1
+    const strokeA = stroke ? stroke[3] * opacity : 1
+    const isTranslucent = opacity < EPS || fillA < EPS || strokeA < EPS
+
     this.layers.push({
       vertexBuffer, indexBuffer, featureBuffer,
       featData, lons, lats,
@@ -711,6 +755,7 @@ export class PointRenderer {
       pointCount: points.length,
       bindGroup,
       isFlat: billboard === false,
+      isTranslucent,
       zoomSizeStops: zoomSizeStops ?? null,
       lastDynZoom: Number.NaN,
     })
@@ -788,9 +833,10 @@ export class PointRenderer {
     const STRIDE = 14
     // WORLD_COPIES imported from gpu-shared
 
-    for (const layer of this.layers) {
+    // Per-layer buffer upload — runs once per layer regardless of which
+    // draw phase the layer belongs to.
+    const uploadLayer = (layer: PointLayer): number => {
       const N = layer.pointCount
-      // Build 3× expanded buffers (one copy per world)
       const totalPoints = N * WORLD_COPIES.length
       const expandedFeat = new Float32Array(totalPoints * STRIDE)
       const expandedVerts = new Float32Array(totalPoints * 4 * 4)
@@ -808,7 +854,7 @@ export class PointRenderer {
           const clampLat = Math.max(-85.051129, Math.min(85.051129, lat))
           const mercY = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
 
-          let dx = mercX - camMercX + worldOff
+          const dx = mercX - camMercX + worldOff
           const dy = mercY - camMercY
 
           // Copy style data from original
@@ -838,7 +884,6 @@ export class PointRenderer {
         }
       }
 
-      // Upload expanded buffers
       // Reuse or recreate GPU buffers sized for 3× points
       if (!layer._expandedVertBuf || layer._expandedSize !== totalPoints) {
         layer._expandedVertBuf?.destroy()
@@ -854,12 +899,37 @@ export class PointRenderer {
       this.device.queue.writeBuffer(layer._expandedVertBuf!, 0, expandedVerts)
       this.device.queue.writeBuffer(layer._expandedIdxBuf!, 0, expandedIdx)
       this.device.queue.writeBuffer(layer._expandedFeatBuf!, 0, expandedFeat)
+      return totalPoints
+    }
 
-      pass.setPipeline(layer.isFlat ? this.pipelineFlat : this.pipeline)
+    const drawLayer = (layer: PointLayer, pipeline: GPURenderPipeline, totalPoints: number) => {
+      pass.setPipeline(pipeline)
       pass.setBindGroup(0, layer._expandedBindGroup!)
       pass.setVertexBuffer(0, layer._expandedVertBuf!)
       pass.setIndexBuffer(layer._expandedIdxBuf!, 'uint32')
       pass.drawIndexed(totalPoints * 6)
+    }
+
+    // Upload every layer's buffers first (cheap; writes don't depend on
+    // phase order), then run two draw phases.
+    const totals = this.layers.map(uploadLayer)
+
+    // Phase 1 — opaque billboards write depth so they correctly occlude
+    // other opaque geometry regardless of declaration order.
+    for (let i = 0; i < this.layers.length; i++) {
+      const layer = this.layers[i]
+      if (layer.isFlat || layer.isTranslucent) continue
+      drawLayer(layer, this.pipeline, totals[i])
+    }
+
+    // Phase 2 — translucent billboards + flat layers blend on top without
+    // writing depth. Declaration order is preserved within this phase so
+    // authors still get painter's-order control for overlapping halos.
+    for (let i = 0; i < this.layers.length; i++) {
+      const layer = this.layers[i]
+      if (!layer.isFlat && !layer.isTranslucent) continue
+      const pipeline = layer.isFlat ? this.pipelineFlat : this.pipelineTranslucent
+      drawLayer(layer, pipeline, totals[i])
     }
   }
 }
