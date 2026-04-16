@@ -61,7 +61,9 @@ export function lonLatToMercator(lon: number, lat: number): [number, number] {
 const MAX_EDGE_DEGREES = 3 // 링 변 세분화 기준
 const MAX_TRI_DEGREES = 2  // 삼각형 세분화 기준 (이보다 큰 변이 있으면 4분할)
 
-/** Subdivide a ring by inserting midpoints along long edges */
+/** Subdivide a ring by inserting midpoints along long edges.
+ *  Falls back to linear interpolation when lon exceeds ±180° (antimeridian
+ *  shift), since great circle slerp normalizes lon to ±180. */
 function subdivideRing(ring: number[][]): number[][] {
   const result: number[][] = []
 
@@ -75,10 +77,17 @@ function subdivideRing(ring: number[][]): number[][] {
     const maxDeg = Math.max(dlon, dlat)
 
     if (maxDeg > MAX_EDGE_DEGREES) {
+      // Use linear interpolation when coordinates are in shifted antimeridian
+      // space (lon > 180 or < -180), since great circle slerp wraps lon.
+      const useLinear = curr[0] > 180 || curr[0] < -180 || next[0] > 180 || next[0] < -180
       const segments = Math.ceil(maxDeg / MAX_EDGE_DEGREES)
       for (let s = 1; s < segments; s++) {
         const t = s / segments
-        result.push(interpolateGreatCircle(curr[0], curr[1], next[0], next[1], t))
+        if (useLinear) {
+          result.push([curr[0] + (next[0] - curr[0]) * t, curr[1] + (next[1] - curr[1]) * t])
+        } else {
+          result.push(interpolateGreatCircle(curr[0], curr[1], next[0], next[1], t))
+        }
       }
     }
   }
