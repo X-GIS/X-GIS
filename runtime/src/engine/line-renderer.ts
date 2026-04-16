@@ -1378,14 +1378,8 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
   }
   if (pat_d_m < 1e9) { d_m = min(d_m, pat_d_m); }
 
-  // Convert to pixels — depth-aware mpp correction for high pitch.
-  // view_w (clip-space w) is proportional to fragment depth. At high pitch,
-  // far fragments have a larger effective mpp than the camera-center value.
-  // Using view_w / mpp gives a depth-corrected ratio: when view_w is large
-  // (far away), mpp_corrected grows, preventing the AA band from shrinking
-  // below 1 pixel.
-  let mpp_corrected = layer.mpp * max(in.view_w, 1.0);
-  let d_px = d_m / mpp_corrected;
+  // Convert to pixels
+  let d_px = d_m / layer.mpp;
   let aa = 1.0;
   let alpha = 1.0 - smoothstep(-aa, aa, d_px);
   if (alpha < 0.005) { discard; }
