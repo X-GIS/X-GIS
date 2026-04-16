@@ -65,7 +65,8 @@ import type { ShapeRegistry } from './sdf-shape'
 //   [12-19] dash_array[8]
 //   [20-43] patterns[3] × 8 f32 each (id, flags, spacing, size, offset, start_offset, pad×2)
 //   [44]    offset_m                 — lateral parallel-offset (+left)
-//   [45-47] pad×3                    — 16-byte alignment
+//   [45]    viewport_height          — screen height in pixels
+//   [46-47] pad×2                    — 16-byte alignment
 // Total = 48 f32 = 192 bytes.
 
 export const LINE_UNIFORM_SIZE = 192
@@ -198,6 +199,7 @@ export function packLineLayerUniform(
   dash: DashConfig | null = null,
   patterns: PatternSlot[] = [],
   offsetPx: number = 0,
+  viewportHeight: number = 1,
 ): Float32Array {
   const buf = new Float32Array(LINE_UNIFORM_SIZE / 4)
   const u32 = new Uint32Array(buf.buffer)
@@ -256,6 +258,7 @@ export function packLineLayerUniform(
 
   // Lateral parallel offset: DSL value in pixels → shader wants meters.
   buf[44] = offsetPx * mppAtCenter
+  buf[45] = viewportHeight
   return buf
 }
 
@@ -719,7 +722,7 @@ struct LineLayer {
   dash_array: array<vec4<f32>, 2>,  // 8 floats, packed
   patterns: array<PatternSlot, 3>,
   offset_m: f32,        // lateral parallel offset (+left of travel)
-  _pad_a: f32,
+  viewport_height: f32, // screen height in pixels — screen-space width clamping
   _pad_b: f32,
   _pad_c: f32,
 }
@@ -960,7 +963,27 @@ fn vs_line(
     offset = offset + dir * along * endpoint_pad;
   }
 
-  let corner_local = base + offset;
+  var corner_local = base + offset;
+
+  // ── Screen-space minimum width guarantee ──
+  // At high pitch, perspective foreshortening can shrink the quad's
+  // perpendicular extent below 1 screen pixel, causing rasterization
+  // gaps (visible as dashing). Scale the offset so the quad always
+  // covers at least (width_px + 2*aa_width_px) screen pixels.
+  if (layer.viewport_height > 0.0) {
+    let center_clip = tile.mvp * vec4<f32>(base, 0.0, 1.0);
+    let corner_clip = tile.mvp * vec4<f32>(corner_local, 0.0, 1.0);
+    // NDC distance = screen-space distance / (viewport_height / 2)
+    let center_ndc = center_clip.xy / max(abs(center_clip.w), 1e-6) * sign(center_clip.w);
+    let corner_ndc = corner_clip.xy / max(abs(corner_clip.w), 1e-6) * sign(corner_clip.w);
+    let screen_dist = length(corner_ndc - center_ndc);
+    // Minimum NDC width for the requested pixel width
+    let min_ndc = (layer.width_px + 2.0 * layer.aa_width_px) / layer.viewport_height;
+    if (screen_dist > 1e-8 && screen_dist < min_ndc) {
+      let scale = min_ndc / screen_dist;
+      corner_local = base + offset * scale;
+    }
+  }
 
   // corner_local is already in camera-relative meters: p0 and p1 were
   // DSFUN-reconstructed camera-relative, and offset is a small stroke-scale
@@ -1355,8 +1378,14 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
   }
   if (pat_d_m < 1e9) { d_m = min(d_m, pat_d_m); }
 
-  // Convert to pixels
-  let d_px = d_m / layer.mpp;
+  // Convert to pixels — depth-aware mpp correction for high pitch.
+  // view_w (clip-space w) is proportional to fragment depth. At high pitch,
+  // far fragments have a larger effective mpp than the camera-center value.
+  // Using view_w / mpp gives a depth-corrected ratio: when view_w is large
+  // (far away), mpp_corrected grows, preventing the AA band from shrinking
+  // below 1 pixel.
+  let mpp_corrected = layer.mpp * max(in.view_w, 1.0);
+  let d_px = d_m / mpp_corrected;
   let aa = 1.0;
   let alpha = 1.0 - smoothstep(-aa, aa, d_px);
   if (alpha < 0.005) { discard; }
@@ -1608,6 +1637,7 @@ export class LineRenderer {
     dash: DashConfig | null = null,
     patterns: PatternSlot[] = [],
     offsetPx: number = 0,
+    viewportHeight: number = 1,
   ): number {
     // Pattern sanity checks (deduped, one warning per condition per
     // LineRenderer instance). Runs on the parameter set BEFORE packing so
@@ -1622,7 +1652,7 @@ export class LineRenderer {
     this.layerSlot++
     const data = packLineLayerUniform(
       strokeColor, strokeWidthPx, opacity, mppAtCenter,
-      cap, join, miterLimit, dash, patterns, offsetPx,
+      cap, join, miterLimit, dash, patterns, offsetPx, viewportHeight,
     )
     this.device.queue.writeBuffer(this.layerRing, off, data)
     return off
