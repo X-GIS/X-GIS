@@ -32,7 +32,7 @@ import { getSharedPool, type XGVTWorkerPool } from './xgvt-worker-pool'
 export interface TileData {
   vertices: Float32Array       // polygon fills — DSFUN stride 5
   indices: Uint32Array         // triangle indices
-  lineVertices: Float32Array   // lines — DSFUN stride 6 (arc_start at [5])
+  lineVertices: Float32Array   // lines — DSFUN stride 10 (arc_start at [5], tangent at [6-9])
   lineIndices: Uint32Array     // line segment indices (pairs)
   outlineIndices: Uint32Array  // polygon outline line segments (reuses `vertices`)
   pointVertices?: Float32Array // points — DSFUN stride 5
@@ -820,42 +820,44 @@ export class XGVTSource {
     // Clip lines (Liang-Barsky). Same DSFUN reconstruction + dedup.
     const lineVerts = parent.lineVertices
     const lineIdx = parent.lineIndices
-    // outLV layout: DSFUN stride-6 [mx_h, my_h, mx_l, my_l, feat_id, arc_start]
+    // outLV layout: DSFUN stride-10 [mx_h, my_h, mx_l, my_l, feat_id, arc_start, tin_x, tin_y, tout_x, tout_y]
     const outLV: number[] = []
     const outLI: number[] = []
     const outLVKey = new Map<string, number>()
-    const pushDedupLV = (x: number, y: number, fid: number, arc: number): number => {
+    const pushDedupLV = (x: number, y: number, fid: number, arc: number, tinX: number, tinY: number, toutX: number, toutY: number): number => {
       const k = `${Math.round(x * 100)},${Math.round(y * 100)},${fid}`
       const hit = outLVKey.get(k)
       if (hit !== undefined) return hit
-      const idx = outLV.length / 6
+      const idx = outLV.length / DSFUN_LINE_STRIDE
       const [xH, xL] = splitLocal(x)
       const [yH, yL] = splitLocal(y)
-      outLV.push(xH, yH, xL, yL, fid, arc)
+      outLV.push(xH, yH, xL, yL, fid, arc, tinX, tinY, toutX, toutY)
       outLVKey.set(k, idx)
       return idx
     }
-    const readLV = (vi: number): [number, number, number, number] => {
-      const off = vi * 6
+    const readLV = (vi: number): [number, number, number, number, number, number, number, number] => {
+      const off = vi * DSFUN_LINE_STRIDE
       const x = lineVerts[off] + lineVerts[off + 2]
       const y = lineVerts[off + 1] + lineVerts[off + 3]
       const fid = lineVerts[off + 4]
       const arc = lineVerts[off + 5]
-      return [x, y, fid, arc]
+      const tinX = lineVerts[off + 6] ?? 0, tinY = lineVerts[off + 7] ?? 0
+      const toutX = lineVerts[off + 8] ?? 0, toutY = lineVerts[off + 9] ?? 0
+      return [x, y, fid, arc, tinX, tinY, toutX, toutY]
     }
 
     for (let s = 0; s < lineIdx.length; s += 2) {
       const a = lineIdx[s], b = lineIdx[s + 1]
-      const [ax, ay, afid, aarc] = readLV(a)
-      const [bx, by, , barc] = readLV(b)
+      const [ax, ay, afid, aarc, atinX, atinY, atoutX, atoutY] = readLV(a)
+      const [bx, by, , barc, btinX, btinY, btoutX, btoutY] = readLV(b)
 
       if (Math.max(ax, bx) < clipW || Math.min(ax, bx) > clipE ||
           Math.max(ay, by) < clipS || Math.min(ay, by) > clipN) continue
 
       if (ax >= clipW && ax <= clipE && ay >= clipS && ay <= clipN &&
           bx >= clipW && bx <= clipE && by >= clipS && by <= clipN) {
-        const ia = pushDedupLV(ax, ay, afid, aarc)
-        const ib = pushDedupLV(bx, by, afid, barc)
+        const ia = pushDedupLV(ax, ay, afid, aarc, atinX, atinY, atoutX, atoutY)
+        const ib = pushDedupLV(bx, by, afid, barc, btinX, btinY, btoutX, btoutY)
         if (ia !== ib) outLI.push(ia, ib)
         continue
       }
@@ -877,8 +879,14 @@ export class XGVTSource {
       if (!valid || tMin > tMax) continue
 
       const darc = barc - aarc
-      const ia = pushDedupLV(ax + tMin * dx, ay + tMin * dy, afid, aarc + tMin * darc)
-      const ib = pushDedupLV(ax + tMax * dx, ay + tMax * dy, afid, aarc + tMax * darc)
+      // Mid-segment clip points: zero tangent → runtime boundary fallback.
+      // Original vertices (tMin≈0 / tMax≈1): preserve tangent for cross-tile joins.
+      const p0tinX = tMin < 1e-10 ? atinX : 0, p0tinY = tMin < 1e-10 ? atinY : 0
+      const p0toutX = tMin < 1e-10 ? atoutX : 0, p0toutY = tMin < 1e-10 ? atoutY : 0
+      const p1tinX = tMax > 1 - 1e-10 ? btinX : 0, p1tinY = tMax > 1 - 1e-10 ? btinY : 0
+      const p1toutX = tMax > 1 - 1e-10 ? btoutX : 0, p1toutY = tMax > 1 - 1e-10 ? btoutY : 0
+      const ia = pushDedupLV(ax + tMin * dx, ay + tMin * dy, afid, aarc + tMin * darc, p0tinX, p0tinY, p0toutX, p0toutY)
+      const ib = pushDedupLV(ax + tMax * dx, ay + tMax * dy, afid, aarc + tMax * darc, p1tinX, p1tinY, p1toutX, p1toutY)
       if (ia !== ib) outLI.push(ia, ib)
     }
 
