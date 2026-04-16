@@ -307,17 +307,28 @@ function computeMiterPadRatio(
   const ax = tangentA[0], ay = tangentA[1]
   const bx = tangentB[0], by = tangentB[1]
   if ((ax === 0 && ay === 0) || (bx === 0 && by === 0)) return 1 // cap
-  const bisX = ax + bx
-  const bisY = ay + by
-  const bisLen = Math.hypot(bisX, bisY)
-  if (bisLen < 1e-6) return miterLimit // 180° degenerate — worst case
-  const nx = bisX / bisLen
-  const ny = bisY / bisLen
-  // perp of tangentB: (-by, bx)
-  const sinHalf = Math.abs(nx * -by + ny * bx)
-  if (sinHalf < 0.05) return 1                // collinear-ish, no miter needed
-  if (sinHalf < 1 / miterLimit) return 1      // beyond miter limit → bevel (butt)
-  return Math.min(1 / sinHalf, miterLimit)
+  // The quad extends along the segment direction (tangentA). The miter tip
+  // projects onto this direction by |tan(θ/2)| × half_w, where θ is the
+  // angle between the two tangent vectors. The previous formula (1/sin(θ/2))
+  // gives the miter LENGTH along the bisector, which underestimates the
+  // along-direction projection for angles > 103.6°, leaving the miter tip
+  // outside the quad (visible triangular gap).
+  //
+  // Derivation:  pad_along = |cross(A,B)| / (1 + dot(A,B)) = |tan(θ/2)|
+  const cross = Math.abs(ax * by - ay * bx)
+  const dotAB = ax * bx + ay * by
+  const denom = 1 + dotAB
+  if (denom < 1e-6) return miterLimit // 180° degenerate — worst case
+  const padAlong = cross / denom
+  if (padAlong < 0.05) return 1       // collinear-ish, no miter needed
+  // Miter limit check: 1/sin(θ/2) > miterLimit → bevel fallback.
+  // sinHalf = |cross| / |A+B|
+  const bisLen = Math.hypot(ax + bx, ay + by)
+  if (bisLen > 1e-6) {
+    const sinHalf = cross / bisLen
+    if (sinHalf < 1 / miterLimit) return 1 // beyond miter limit → bevel
+  }
+  return Math.min(padAlong, miterLimit)
 }
 
 /** Miter limit assumed at build time. Must match the shader default so quad

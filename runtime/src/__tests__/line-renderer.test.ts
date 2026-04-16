@@ -250,9 +250,10 @@ describe('buildLineSegments', () => {
       expect(segData[1 * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P1]).toBe(1)
     })
 
-    it('90° corner join: pad ratio ≈ 1.41 (1/sin(45°))', () => {
+    it('90° corner join: pad ratio = |tan(45°)| = 1.0', () => {
       // L-shape: (0,0) → (1000,0) → (1000,1000). Middle join is a 90° turn.
-      // sin(half_angle) = sin(45°) = 0.707 → pad = 1/0.707 ≈ 1.414.
+      // pad_along = |tan(θ/2)| where θ = 90° → tan(45°) = 1.0.
+      // (Previously 1/sin(45°) ≈ 1.414, which over-estimated the along-dir pad.)
       const vertices = dsfunLineVerts([
         [0,    0],
         [1000, 0],
@@ -260,14 +261,10 @@ describe('buildLineSegments', () => {
       ])
       const indices = new Uint32Array([0, 1, 1, 2])
       const segData = buildLineSegments(vertices, indices, 6)
-      // seg 0: p1 is the 90° corner (joining with seg 1)
       const seg0PadP1 = segData[0 * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P1]
-      expect(seg0PadP1).toBeGreaterThan(1.3)
-      expect(seg0PadP1).toBeLessThan(1.5)
-      // seg 1: p0 is the same 90° corner
+      expect(seg0PadP1).toBeCloseTo(1.0, 1)
       const seg1PadP0 = segData[1 * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P0]
-      expect(seg1PadP0).toBeGreaterThan(1.3)
-      expect(seg1PadP0).toBeLessThan(1.5)
+      expect(seg1PadP0).toBeCloseTo(1.0, 1)
     })
 
     it('gentle turn beyond miter limit: pad ratio clamps to 1 (bevel fallback)', () => {
@@ -718,33 +715,28 @@ describe('buildLineSegments', () => {
   })
 
   describe('miter quad extension uses pad_ratio', () => {
-    it('miter join along_pad exceeds half_w for 90° corner', () => {
+    it('miter pad at 90° is exactly 1.0 (= |tan(45°)|)', () => {
       const vertices = dsfunLineVerts([
         [0, 0], [1000, 0], [1000, 1000],
       ])
       const indices = new Uint32Array([0, 1, 1, 2])
       const segData = buildLineSegments(vertices, indices, 6)
       const padP1 = segData[0 * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P1]
-      // pad_ratio ≈ 1.414 for 90°
-      expect(padP1).toBeGreaterThan(1.3)
-      // For miter, along_pad = max(half_w, pad_ratio * half_w) = pad_ratio * half_w
-      const halfW = 50
-      const alongPadMiter = padP1 * halfW
-      expect(alongPadMiter).toBeGreaterThan(halfW)
-      expect(alongPadMiter).toBeLessThan(halfW * 1.5)
+      expect(padP1).toBeCloseTo(1.0, 1)
     })
 
-    it('bevel/round join along_pad stays at half_w (pad_ratio not used)', () => {
+    it('miter pad at obtuse angle (>103.6°) exceeds 1/sin (fixes triangle artifact)', () => {
+      // V-shape: (-30,0) → (0,40) → (30,0). θ between dirs ≈ 106°.
+      // pad_along = |tan(θ/2)| > 1/sin(θ/2) for this angle.
       const vertices = dsfunLineVerts([
-        [0, 0], [1000, 0], [1000, 1000],
+        [-3000, 0], [0, 4000], [3000, 0],
       ])
       const indices = new Uint32Array([0, 1, 1, 2])
       const segData = buildLineSegments(vertices, indices, 6)
       const padP1 = segData[0 * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P1]
-      // pad_ratio > 1 but for bevel/round the VS uses half_w_side, not pad_ratio
-      expect(padP1).toBeGreaterThan(1)
-      // The test confirms pad_ratio IS computed; the VS just doesn't use it
-      // for non-miter joins.
+      // For this geometry tan(θ/2) ≈ 1.333 while 1/sin(θ/2) ≈ 1.25
+      expect(padP1).toBeGreaterThan(1.25)
+      expect(padP1).toBeLessThan(1.5)
     })
   })
 })
