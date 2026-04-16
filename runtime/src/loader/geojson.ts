@@ -1,4 +1,5 @@
 import earcut from 'earcut'
+import { interpolateGreatCircle } from '@xgis/compiler/tiler/geodesic'
 
 // ═══ GeoJSON Types (minimal) ═══
 
@@ -77,10 +78,7 @@ function subdivideRing(ring: number[][]): number[][] {
       const segments = Math.ceil(maxDeg / MAX_EDGE_DEGREES)
       for (let s = 1; s < segments; s++) {
         const t = s / segments
-        result.push([
-          curr[0] + (next[0] - curr[0]) * t,
-          curr[1] + (next[1] - curr[1]) * t,
-        ])
+        result.push(interpolateGreatCircle(curr[0], curr[1], next[0], next[1], t))
       }
     }
   }
@@ -425,9 +423,12 @@ function tessellatePolygonPart(
       return
     }
 
-    const m01 = getOrAddVertex((x0 + x1) / 2, (y0 + y1) / 2)
-    const m12 = getOrAddVertex((x1 + x2) / 2, (y1 + y2) / 2)
-    const m20 = getOrAddVertex((x2 + x0) / 2, (y2 + y0) / 2)
+    const [m01x, m01y] = interpolateGreatCircle(x0, y0, x1, y1, 0.5)
+    const [m12x, m12y] = interpolateGreatCircle(x1, y1, x2, y2, 0.5)
+    const [m20x, m20y] = interpolateGreatCircle(x2, y2, x0, y0, 0.5)
+    const m01 = getOrAddVertex(m01x, m01y)
+    const m12 = getOrAddVertex(m12x, m12y)
+    const m20 = getOrAddVertex(m20x, m20y)
 
     subdivideTri(i0, m01, m20, depth + 1)
     subdivideTri(m01, i1, m12, depth + 1)
@@ -481,10 +482,7 @@ function tessellateLineString(
         const segments = Math.ceil(maxDeg / MAX_EDGE_DEGREES)
         for (let s = 1; s < segments; s++) {
           const t = s / segments
-          subdivided.push([
-            curr[0] + (next[0] - curr[0]) * t,
-            curr[1] + (next[1] - curr[1]) * t,
-          ])
+          subdivided.push(interpolateGreatCircle(curr[0], curr[1], next[0], next[1], t))
         }
       }
     }
