@@ -699,11 +699,8 @@ export class VectorTileRenderer {
         if (tileZ > maxLevel) {
           // 1. Try compileSingleTile (fast, grid-indexed)
           if (!this.source.compileTileOnDemand(key)) {
-            // 2. Budget exceeded — try generateSubTile for small parents.
-            //    Skip when the only parent is root (key=1): clipping the
-            //    whole world is too expensive and the root fallback below
-            //    already covers the region correctly.
-            if (parentKey > 1) this.source.generateSubTile(key, parentKey)
+            // 2. Budget exceeded — generate sub-tile from closest ancestor.
+            this.source.generateSubTile(key, parentKey)
           }
           const cachedSub = this.gpuCache.get(key)
           if (cachedSub) {
