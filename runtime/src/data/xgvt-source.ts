@@ -882,7 +882,7 @@ export class XGVTSource {
       clipEdge(dx, clipE - ax)
       clipEdge(-dy, ay - clipS)
       clipEdge(dy, clipN - ay)
-      if (!valid || tMin > tMax) continue
+      if (!valid || tMax - tMin < 1e-10) continue
 
       const darc = barc - aarc
       // Mid-segment clip points: zero tangent → runtime boundary fallback.
@@ -922,7 +922,7 @@ export class XGVTSource {
         clipEdge(dx, clipE - ax)
         clipEdge(-dy, ay - clipS)
         clipEdge(dy, clipN - ay)
-        if (!valid || tMin > tMax) continue
+        if (!valid || tMax - tMin < 1e-10) continue
 
         const i0 = pushDedupPV(ax + tMin * dx, ay + tMin * dy, afid)
         const i1 = pushDedupPV(ax + tMax * dx, ay + tMax * dy, afid)
