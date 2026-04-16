@@ -208,10 +208,12 @@ export class XGISMap {
       try {
         this.pointRenderer = new PointRenderer(this.ctx)
         this.shapeRegistry = new ShapeRegistry(this.ctx.device)
-        // Register user-defined symbols from DSL
+        // Register user-defined symbols from DSL under the `user:` namespace
+        // so they shadow built-ins of the same name instead of being silently
+        // dropped by the duplicate-name guard in `addShape`.
         for (const sym of commands.symbols ?? []) {
           for (const path of sym.paths) {
-            this.shapeRegistry.addShape(sym.name, path)
+            this.shapeRegistry.addUserShape(sym.name, path)
           }
         }
         this.shapeRegistry.uploadToGPU()
