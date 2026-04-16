@@ -579,7 +579,20 @@ export function buildLineSegments(
     // the segment's own direction. The matching segment in the adjacent
     // tile will have the same fallback at its p1, so the two strokes
     // meet seamlessly with no cap.
-    if (prevTx === 0 && prevTy === 0 && vertOnBoundary(a)) {
+    //
+    // IMPORTANT: stride-10 vertices encode tangent_in AND tangent_out.
+    // A TRUE line endpoint has tangent_in=0 but tangent_out≠0 (line start)
+    // or tangent_in≠0 but tangent_out=0 (line end). A mid-segment clip
+    // point has BOTH tangents=0. Only apply the boundary fallback when
+    // both tangents are zero (clip point); skip it for real endpoints so
+    // their cap is preserved even when the endpoint happens to sit on a
+    // tile edge.
+    let isRealEndpointA = false
+    if (stride === 10) {
+      const toutAx = vertices[a * stride + 8], toutAy = vertices[a * stride + 9]
+      isRealEndpointA = (prevTx === 0 && prevTy === 0) && (Math.abs(toutAx) > 1e-6 || Math.abs(toutAy) > 1e-6)
+    }
+    if (prevTx === 0 && prevTy === 0 && !isRealEndpointA && vertOnBoundary(a)) {
       prevTx = dxUnit; prevTy = dyUnit
     }
     out[off + 8] = prevTx
@@ -613,7 +626,13 @@ export function buildLineSegments(
         }
       }
     }
-    if (nextTx === 0 && nextTy === 0 && vertOnBoundary(b)) {
+    // Same real-endpoint check for p1: tangent_out=0 but tangent_in≠0 → line end.
+    let isRealEndpointB = false
+    if (stride === 10) {
+      const tinBx = vertices[b * stride + 6], tinBy = vertices[b * stride + 7]
+      isRealEndpointB = (nextTx === 0 && nextTy === 0) && (Math.abs(tinBx) > 1e-6 || Math.abs(tinBy) > 1e-6)
+    }
+    if (nextTx === 0 && nextTy === 0 && !isRealEndpointB && vertOnBoundary(b)) {
       nextTx = dxUnit; nextTy = dyUnit
     }
     out[off + 10] = nextTx
