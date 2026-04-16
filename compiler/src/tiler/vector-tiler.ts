@@ -85,13 +85,22 @@ export function packDSFUNLineVertices(
   tileMx: number,
   tileMy: number,
 ): Float32Array {
-  const count = scratchLv.length / 4
-  const out = new Float32Array(count * 6)
+  // Input stride 8: [lon, lat, featId, arc, tin_x, tin_y, tout_x, tout_y]
+  // Output stride 10: [mx_h, my_h, mx_l, my_l, feat_id, arc, tin_x, tin_y, tout_x, tout_y]
+  const IN_STRIDE = 8
+  const OUT_STRIDE = 10
+  const count = scratchLv.length / IN_STRIDE
+  const out = new Float32Array(count * OUT_STRIDE)
   for (let i = 0; i < count; i++) {
-    const lon = scratchLv[i * 4]
-    const lat = scratchLv[i * 4 + 1]
-    const fid = scratchLv[i * 4 + 2]
-    const arc = scratchLv[i * 4 + 3]
+    const si = i * IN_STRIDE
+    const lon = scratchLv[si]
+    const lat = scratchLv[si + 1]
+    const fid = scratchLv[si + 2]
+    const arc = scratchLv[si + 3]
+    const tinX = scratchLv[si + 4]
+    const tinY = scratchLv[si + 5]
+    const toutX = scratchLv[si + 6]
+    const toutY = scratchLv[si + 7]
     const clamped = Math.max(-DSFUN_LAT_LIMIT, Math.min(DSFUN_LAT_LIMIT, lat))
     const mx = lon * DSFUN_DEG2RAD * DSFUN_EARTH_R
     const my = Math.log(Math.tan(Math.PI / 4 + clamped * DSFUN_DEG2RAD / 2)) * DSFUN_EARTH_R
@@ -101,13 +110,17 @@ export function packDSFUNLineVertices(
     const mxL = Math.fround(localMx - mxH)
     const myH = Math.fround(localMy)
     const myL = Math.fround(localMy - myH)
-    const base = i * 6
-    out[base] = mxH
-    out[base + 1] = myH
-    out[base + 2] = mxL
-    out[base + 3] = myL
-    out[base + 4] = fid
-    out[base + 5] = arc
+    const di = i * OUT_STRIDE
+    out[di] = mxH
+    out[di + 1] = myH
+    out[di + 2] = mxL
+    out[di + 3] = myL
+    out[di + 4] = fid
+    out[di + 5] = arc
+    out[di + 6] = tinX
+    out[di + 7] = tinY
+    out[di + 8] = toutX
+    out[di + 9] = toutY
   }
   return out
 }
@@ -475,20 +488,42 @@ function augmentLineWithArc(coords: number[][]): number[][] {
   const R = 6378137
   const LAT_LIMIT = 85.051129
   const clampLat = (v: number) => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
-  const out: number[][] = new Array(coords.length)
+
+  // First pass: project all vertices to Mercator and accumulate arc length.
+  const n = coords.length
+  const mxArr = new Float64Array(n)
+  const myArr = new Float64Array(n)
+  const arcArr = new Float64Array(n)
   let arc = 0
-  let prevMx = 0, prevMy = 0
-  for (let i = 0; i < coords.length; i++) {
+  for (let i = 0; i < n; i++) {
     const c = coords[i]
-    const mx = c[0] * DEG2RAD * R
-    const my = Math.log(Math.tan(Math.PI / 4 + clampLat(c[1]) * DEG2RAD / 2)) * R
+    mxArr[i] = c[0] * DEG2RAD * R
+    myArr[i] = Math.log(Math.tan(Math.PI / 4 + clampLat(c[1]) * DEG2RAD / 2)) * R
     if (i > 0) {
-      const dx = mx - prevMx, dy = my - prevMy
+      const dx = mxArr[i] - mxArr[i - 1], dy = myArr[i] - myArr[i - 1]
       arc += Math.sqrt(dx * dx + dy * dy)
     }
-    out[i] = [c[0], c[1], arc]
-    prevMx = mx
-    prevMy = my
+    arcArr[i] = arc
+  }
+
+  // Second pass: compute tangent_in / tangent_out at every vertex so tile
+  // clipping can propagate the true join direction across tile boundaries.
+  // tangent_in  = unit direction arriving at this vertex (prev → this)
+  // tangent_out = unit direction leaving this vertex (this → next)
+  const out: number[][] = new Array(n)
+  for (let i = 0; i < n; i++) {
+    let tinX = 0, tinY = 0, toutX = 0, toutY = 0
+    if (i > 0) {
+      const dx = mxArr[i] - mxArr[i - 1], dy = myArr[i] - myArr[i - 1]
+      const len = Math.sqrt(dx * dx + dy * dy)
+      if (len > 1e-9) { tinX = dx / len; tinY = dy / len }
+    }
+    if (i < n - 1) {
+      const dx = mxArr[i + 1] - mxArr[i], dy = myArr[i + 1] - myArr[i]
+      const len = Math.sqrt(dx * dx + dy * dy)
+      if (len > 1e-9) { toutX = dx / len; toutY = dy / len }
+    }
+    out[i] = [coords[i][0], coords[i][1], arcArr[i], tinX, tinY, toutX, toutY]
   }
   return out
 }
@@ -499,10 +534,13 @@ function tessellateLineToArrays(
   outVerts: number[],
   outIdx: number[],
 ): void {
-  // Stride 4: [lon, lat, featId, arcStart]
-  const baseVertex = outVerts.length / 4
+  // Stride 8: [lon, lat, featId, arcStart, tangent_in_x, tangent_in_y, tangent_out_x, tangent_out_y]
+  const baseVertex = outVerts.length / 8
   for (const coord of coords) {
-    outVerts.push(coord[0], coord[1], featureId, coord[2] ?? 0)
+    outVerts.push(
+      coord[0], coord[1], featureId, coord[2] ?? 0,
+      coord[3] ?? 0, coord[4] ?? 0, coord[5] ?? 0, coord[6] ?? 0,
+    )
   }
   for (let i = 0; i < coords.length - 1; i++) {
     outIdx.push(baseVertex + i, baseVertex + i + 1)

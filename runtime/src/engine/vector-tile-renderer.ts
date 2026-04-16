@@ -399,8 +399,19 @@ export class VectorTileRenderer {
         outlineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(outlineSegmentBuffer)
       }
       if (data.lineIndices.length > 0 && data.lineVertices.length > 0) {
-        // Line features use the line vertex buffer (DSFUN stride 6).
-        const segData = buildLineSegments(data.lineVertices, data.lineIndices, 6, tileWidthMerc, tileHeightMerc)
+        // Line features: detect stride from vertex data length / vertex count.
+        // Stride 10 includes precomputed tangent_in/out for cross-tile joins;
+        // stride 6 is the legacy format without tangents.
+        let lineStride: 6 | 10 = 6
+        if (data.lineIndices.length > 0) {
+          let maxIdx = 0
+          for (let li = 0; li < data.lineIndices.length; li++) {
+            if (data.lineIndices[li] > maxIdx) maxIdx = data.lineIndices[li]
+          }
+          const vertCount = maxIdx + 1
+          if (vertCount > 0 && data.lineVertices.length / vertCount >= 10) lineStride = 10
+        }
+        const segData = buildLineSegments(data.lineVertices, data.lineIndices, lineStride, tileWidthMerc, tileHeightMerc)
         lineSegmentBuffer = this.lineRenderer.uploadSegmentBuffer(segData)
         lineSegmentCount = data.lineIndices.length / 2
         lineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(lineSegmentBuffer)
