@@ -46,7 +46,7 @@ export interface TileData {
 
 // Stride constants (exported for tests + VTR upload paths)
 export const DSFUN_POLY_STRIDE = 5
-export const DSFUN_LINE_STRIDE = 6
+export const DSFUN_LINE_STRIDE = 10
 
 const MAX_CACHED_TILES = 512
 const MAX_CONCURRENT_LOADS = 32

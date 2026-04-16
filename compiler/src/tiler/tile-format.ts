@@ -16,10 +16,10 @@ import { encodeCoords, encodeIndices, decodeCoords, decodeIndices, encodeFeatIds
 import earcut from 'earcut'
 
 // ═══ DSFUN vertex strides ═══
-// Polygon/point: [mx_h, my_h, mx_l, my_l, feat_id]                 — stride 5
-// Line:          [mx_h, my_h, mx_l, my_l, feat_id, arc_start]      — stride 6
+// Polygon/point: [mx_h, my_h, mx_l, my_l, feat_id]                                                 — stride 5
+// Line:          [mx_h, my_h, mx_l, my_l, feat_id, arc_start, tin_x, tin_y, tout_x, tout_y]        — stride 10
 const POLY_STRIDE = 5
-const LINE_STRIDE = 6
+const LINE_STRIDE = 10
 // gzip: compile-time only (node:zlib), runtime uses DecompressionStream
 let gzipSync: (buf: Buffer) => Buffer
 let gunzipSync: (buf: Buffer) => Buffer
@@ -36,7 +36,7 @@ try {
 // ═══ Constants ═══
 
 const MAGIC = 0x54564758 // "XGVT" little-endian
-const VERSION = 1 // ring-based format: polygon rings + line data
+const VERSION = 2 // v2: stride-10 line vertices with tangent_in/out for cross-tile joins
 
 // ═══ Types ═══
 
@@ -78,7 +78,7 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
   // Pre-encode all tiles (both layers)
   const encodedTiles: {
     key: number
-    compact: { ringData: Uint8Array; lineCoords: Uint8Array; lineIndices: Uint8Array; lineFeatIds: Uint8Array; lineArcStart: Uint8Array }
+    compact: { ringData: Uint8Array; lineCoords: Uint8Array; lineIndices: Uint8Array; lineFeatIds: Uint8Array; lineArcStart: Uint8Array; lineTangents: Uint8Array }
     gpuReady: { vertices: Float32Array; indices: Uint32Array; lineVertices: Float32Array; lineIndices: Uint32Array }
     tile: CompiledTile
   }[] = []
@@ -89,11 +89,13 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
     // Encode ring data (polygon structure + coords) for runtime sub-tiling
     const ringDataBuf = encodeRingData(tile.polygons ?? [], precision)
 
-    // Encode line data from DSFUN stride-6 format: [mx_h, my_h, mx_l, my_l, feat_id, arc_start]
+    // Encode line data from DSFUN stride-10 format:
+    // [mx_h, my_h, mx_l, my_l, feat_id, arc_start, tin_x, tin_y, tout_x, tout_y]
     // For the compact layer we decode back to absolute lon/lat degrees (varint-friendly).
     const lineCoordFlat: number[] = []
     const lineFeatIds: number[] = []
     const lineArcStart: number[] = []
+    const lineTangents: number[] = [] // [tin_x, tin_y, tout_x, tout_y] per vertex
     const EARTH_R = 6378137
     const DEG2RAD = Math.PI / 180
     // Tile origin in Mercator meters — lineVertices store deltas from this origin.
@@ -110,11 +112,15 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
       lineCoordFlat.push(lon, lat)
       lineFeatIds.push(tile.lineVertices[i + 4])
       lineArcStart.push(tile.lineVertices[i + 5])
+      lineTangents.push(
+        tile.lineVertices[i + 6] ?? 0, tile.lineVertices[i + 7] ?? 0,
+        tile.lineVertices[i + 8] ?? 0, tile.lineVertices[i + 9] ?? 0,
+      )
     }
 
-    // Encode arc-start as raw f32 bytes (no quantization — arc is precomputed
-    // in f64 Mercator meters and must round-trip accurately for dash phase).
+    // Encode arc-start and tangents as raw f32 bytes (no quantization).
     const arcBuf = new Uint8Array(new Float32Array(lineArcStart).buffer)
+    const tangentBuf = new Uint8Array(new Float32Array(lineTangents).buffer)
 
     encodedTiles.push({
       key,
@@ -124,6 +130,7 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
         lineIndices: encodeIndices(tile.lineIndices),
         lineFeatIds: encodeFeatIds(lineFeatIds),
         lineArcStart: arcBuf,
+        lineTangents: tangentBuf,
       },
       gpuReady: {
         vertices: tile.vertices,
@@ -159,8 +166,8 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
       compressedTiles.push(null) // no compact data
       continue
     }
-    // Concatenate compact parts: ringData + lineCoords + lineIndices + lineFeatIds + lineArcStart
-    const parts = [et.compact.ringData, et.compact.lineCoords, et.compact.lineIndices, et.compact.lineFeatIds, et.compact.lineArcStart]
+    // Concatenate compact parts: ringData + lineCoords + lineIndices + lineFeatIds + lineArcStart + lineTangents
+    const parts = [et.compact.ringData, et.compact.lineCoords, et.compact.lineIndices, et.compact.lineFeatIds, et.compact.lineArcStart, et.compact.lineTangents]
     let rawSize = 0
     for (const p of parts) rawSize += 4 + p.byteLength
     const rawBuf = new Uint8Array(rawSize)
@@ -437,12 +444,13 @@ export function parseGPUReadyTile(
     return section
   }
 
-  // v1 ring-based format: [ringData][lineCoords][lineIndices][lineFeatIds][lineArcStart]
+  // v1 ring-based format: [ringData][lineCoords][lineIndices][lineFeatIds][lineArcStart][lineTangents]
   const ringDataBuf = readSection()
   const lineCoordsBuf = readSection()
   const lineIndicesBuf = readSection()
   const lineFeatIdsBuf = readSection()
   const lineArcStartBuf = pos < dataBuf.byteLength ? readSection() : new Uint8Array(0)
+  const lineTangentsBuf = pos < dataBuf.byteLength ? readSection() : new Uint8Array(0)
 
   const precision = precisionForZoom(z)
 
@@ -508,12 +516,16 @@ export function parseGPUReadyTile(
 
   const indices = new Uint32Array(polyIdx)
 
-  // Decode line data — compact format stores absolute lon/lat; rebuild DSFUN stride 6.
+  // Decode line data — compact format stores absolute lon/lat; rebuild DSFUN stride 10.
   const lineCoords = decodeCoords(lineCoordsBuf, precision)
   const lineFeatIds = decodeFeatIds(lineFeatIdsBuf)
   const arcCount = lineArcStartBuf.byteLength / 4
   const lineArcStart = arcCount > 0
     ? new Float32Array(lineArcStartBuf.buffer, lineArcStartBuf.byteOffset, arcCount)
+    : null
+  const tangentCount = lineTangentsBuf.byteLength / 4
+  const lineTangents = tangentCount > 0
+    ? new Float32Array(lineTangentsBuf.buffer, lineTangentsBuf.byteOffset, tangentCount)
     : null
   const lineVertCount = lineCoords.length / 2
   const lineVertices = new Float32Array(lineVertCount * LINE_STRIDE)
@@ -535,6 +547,11 @@ export function parseGPUReadyTile(
     lineVertices[off + 3] = myL
     lineVertices[off + 4] = lineFeatIds[i] ?? 0
     lineVertices[off + 5] = lineArcStart ? lineArcStart[i] ?? 0 : 0
+    const ti = i * 4
+    lineVertices[off + 6] = lineTangents ? lineTangents[ti] ?? 0 : 0
+    lineVertices[off + 7] = lineTangents ? lineTangents[ti + 1] ?? 0 : 0
+    lineVertices[off + 8] = lineTangents ? lineTangents[ti + 2] ?? 0 : 0
+    lineVertices[off + 9] = lineTangents ? lineTangents[ti + 3] ?? 0 : 0
   }
   const lineIndices = decodeIndices(lineIndicesBuf)
 
