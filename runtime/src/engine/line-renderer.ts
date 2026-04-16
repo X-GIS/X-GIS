@@ -907,13 +907,20 @@ fn vs_line(
   // overlaps between adjacent segments are handled by the fs_line
   // bisector half-plane clip, and the corner wedge is filled by the
   // round-join circle SDF (radius half_w) in fs_line. Sharp miter tips
-  // are not supported by this geometry — a future enhancement would add
-  // separate per-join triangle instances for true miter.
+  // are not supported by this geometry — miter tips are rendered by the
+  // fragment shader's SDF intersection of both adjacent strips.
   var offset = perp_cur * half_w_side * across_scale;
   if (has_neighbor) {
-    // Joined endpoint: pad by half_w_side along dir so the round-join
-    // circle at this endpoint has geometry to shade on.
-    offset = offset + dir * along * half_w_side * across_scale;
+    // Joined endpoint: pad along dir so there is geometry for the
+    // fragment shader to shade the join on. For MITER joins, extend by
+    // the precomputed pad_ratio so the quad covers the miter tip.
+    // For ROUND/BEVEL, half_w_side is sufficient.
+    var along_pad = half_w_side;
+    if (join_type_vs == JOIN_MITER) {
+      let endpoint_pad = select(pad_p1_m, pad_p0_m, is_start);
+      along_pad = max(along_pad, endpoint_pad);
+    }
+    offset = offset + dir * along * along_pad * across_scale;
   } else {
     // Chain terminus: use the configured cap pad (butt/square/arrow).
     let endpoint_pad = select(pad_p1_m, pad_p0_m, is_start);
@@ -1135,9 +1142,8 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
       d_m = select(d_m, circle_d, dist_p1 > 0.0);
     }
   } else {
-    // JOIN at p1 — symmetric with p0. Draw the circle only on the
-    // current segment's side (along_p1 <= 0) so the next segment handles
-    // the other half of the corner.
+    // JOIN at p1 — the current segment (ending here) is responsible for
+    // rendering join geometry on its side of the bisector.
     let join_type_p1 = (layer.flags >> 3u) & 3u;
     if (join_type_p1 == JOIN_ROUND && dist_p1 > 0.0) {
       let bis_p1_j = dir + seg.next_tangent;
@@ -1152,6 +1158,61 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
           d_m = min(d_m, circle_d);
         }
       }
+    }
+    // ── Miter tip at p1 ──
+    // The miter shape is the intersection of THIS segment's strip and the
+    // NEXT segment's strip.  Only this segment (ending at p1) renders the
+    // full tip; the next segment (starting at p0) leaves it to us via the
+    // bisector ownership convention, preventing translucent double-shading.
+    if (join_type_p1 == JOIN_MITER && dist_p1 > 0.0) {
+      let next_nrm_mt = vec2<f32>(-seg.next_tangent.y, seg.next_tangent.x);
+      let next_signed_perp = dot(p - p1, next_nrm_mt);
+      let next_perp_m = abs(next_signed_perp - layer.offset_m);
+      let next_body_d = next_perp_m - half_w_m;
+
+      // Miter = intersection of both strips (max of their SDFs).
+      var miter_d = max(body_d, next_body_d);
+
+      // Miter-limit clip: cap the spike at miter_limit × half_w along
+      // the bisector direction from the join vertex.
+      let bis_p1_mt = dir + seg.next_tangent;
+      let bis_len_mt = length(bis_p1_mt);
+      if (bis_len_mt > 1e-6) {
+        let bis_unit_mt = bis_p1_mt / bis_len_mt;
+        let along_bis = dot(p - p1, bis_unit_mt);
+        miter_d = max(miter_d, along_bis - layer.miter_limit * half_w_m);
+      }
+
+      // Union the miter tip with the (bisector-clipped) body.
+      d_m = min(d_m, miter_d);
+    }
+    // ── Bevel fill at p1 ──
+    // The bevel triangle is the intersection of both strips, clipped at
+    // the straight bevel edge connecting the two outer stroke corners.
+    if (join_type_p1 == JOIN_BEVEL && dist_p1 > 0.0) {
+      let next_nrm_bv = vec2<f32>(-seg.next_tangent.y, seg.next_tangent.x);
+      let next_signed_perp_bv = dot(p - p1, next_nrm_bv);
+      let next_perp_m_bv = abs(next_signed_perp_bv - layer.offset_m);
+      let next_body_d_bv = next_perp_m_bv - half_w_m;
+
+      var bevel_d = max(body_d, next_body_d_bv);
+
+      // Bevel edge: line connecting the two outer stroke corners.
+      let cross_val = dir.x * seg.next_tangent.y - dir.y * seg.next_tangent.x;
+      if (abs(cross_val) > 1e-6) {
+        let s = -sign(cross_val); // outer side of the bend
+        let oc = p1 + nrm_line * (layer.offset_m + half_w_m * s);
+        let on_bv = p1 + next_nrm_bv * (layer.offset_m + half_w_m * s);
+        let be = on_bv - oc;
+        let bl = length(be);
+        if (bl > 1e-6) {
+          let bd = be / bl;
+          let bo = vec2<f32>(-bd.y, bd.x) * s;
+          bevel_d = max(bevel_d, dot(p - oc, bo));
+        }
+      }
+
+      d_m = min(d_m, bevel_d);
     }
   }
 
