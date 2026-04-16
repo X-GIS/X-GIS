@@ -5,13 +5,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Raster + Borders — X-GIS</title>
-  <link rel="stylesheet" href="/examples/shared.css">
+  <link rel="stylesheet" href="shared.css">
 </head>
 
 <body>
   <canvas id="map"></canvas>
   <div id="topbar">
-    <a href="/">&larr; Examples</a><span class="sep">/</span>
+    <a href="../">&larr; Examples</a><span class="sep">/</span>
     <span class="title">Raster + Borders</span>
     <span class="desc">OSM tiles with translucent country borders</span>
   </div>
@@ -47,7 +47,7 @@ layer borders {
     import { XGISMap } from '@xgis/runtime'
     const map = new XGISMap(document.getElementById('map'))
     map.showInspector()
-    map.run(document.getElementById('source-code').textContent, '/data/')
+    map.run(document.getElementById('source-code').textContent, '../data/')
       .then(() => { document.getElementById('status').textContent = 'Raster + Borders | scroll to zoom, drag to pan' })
       .catch(e => { document.getElementById('error').style.display = 'block'; document.getElementById('error-msg').textContent = String(e) })
   </script>

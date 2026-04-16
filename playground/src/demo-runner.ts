@@ -396,7 +396,7 @@ async function runSource(source: string, label: string) {
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
     // demo runner. Keep it lightweight; not part of the public API.
     ;(window as unknown as { __xgisMap?: unknown }).__xgisMap = currentMap
-    await currentMap.run(source, '/data/')
+    await currentMap.run(source, import.meta.env.BASE_URL + 'data/')
 
     // Apply pre-existing hash AFTER data is loaded (so bounds-fit ran first).
     applyHashToCamera(currentMap)
@@ -429,7 +429,7 @@ async function loadDemo(idx: number) {
   history.replaceState(null, '', `demo.html?id=${id}${location.hash}`)
 
   // Discover fields from GeoJSON URLs in source (async, non-blocking)
-  discoverFields(demo.source, '/data/')
+  discoverFields(demo.source, import.meta.env.BASE_URL + 'data/')
 
   await runSource(demo.source, demo.name)
 
@@ -468,7 +468,7 @@ function applyFixtureAutoPush(id: string, map: InstanceType<typeof XGISMap>): vo
 // ── Run button ──
 runBtn.addEventListener('click', () => {
   const src = editor.getValue()
-  discoverFields(src, '/data/')
+  discoverFields(src, import.meta.env.BASE_URL + 'data/')
   runSource(src, 'Custom')
 })
 

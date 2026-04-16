@@ -4,12 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Physical Map (XGVT) — X-GIS</title>
-  <link rel="stylesheet" href="/examples/shared.css">
+  <link rel="stylesheet" href="shared.css">
 </head>
 <body>
   <canvas id="map"></canvas>
   <div id="topbar">
-    <a href="/">&larr; Examples</a><span class="sep">/</span>
+    <a href="../">&larr; Examples</a><span class="sep">/</span>
     <span class="title">Physical Map (XGVT)</span>
     <span class="desc">Land + rivers + lakes as pre-tiled .xgvt vector tiles</span>
   </div>
@@ -51,7 +51,7 @@ layer rivers {
     import { XGISMap } from '@xgis/runtime'
     const map = new XGISMap(document.getElementById('map'))
     map.showInspector()
-    map.run(document.getElementById('source-code').textContent, '/data/')
+    map.run(document.getElementById('source-code').textContent, '../data/')
       .then(() => { document.getElementById('status').textContent = 'Physical Map (XGVT) | scroll to zoom, drag to pan' })
       .catch(e => { document.getElementById('error').style.display = 'block'; document.getElementById('error-msg').textContent = String(e) })
   </script>
