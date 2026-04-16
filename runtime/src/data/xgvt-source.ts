@@ -760,7 +760,9 @@ export class XGVTSource {
     const clipS = subMyS - parentMy
     const clipN = subMyN - parentMy
 
-    // Clip polygons
+    // Clip polygons — vertex data is re-packed from parent-local DSFUN to
+    // sub-tile-local DSFUN so that boundary detection and DSFUN camera
+    // uniforms work correctly with the sub-tile's own tileWest/tileSouth.
     const verts = parent.vertices
     const outV: number[] = []
     const outI: number[] = []
@@ -772,14 +774,18 @@ export class XGVTSource {
       const h = Math.fround(v)
       return [h, Math.fround(v - h)]
     }
+    // Re-origin offset: subtract from parent-local to get sub-tile-local.
+    // clipW = subMxW - parentMx, clipS = subMyS - parentMy.
+    const reoriginX = clipW
+    const reoriginY = clipS
     // outV layout: DSFUN stride-5 [mx_h, my_h, mx_l, my_l, feat_id] per vertex.
     const pushDedupPV = (x: number, y: number, fid: number): number => {
       const k = `${Math.round(x * 100)},${Math.round(y * 100)},${fid}`
       const hit = outVKey.get(k)
       if (hit !== undefined) return hit
       const idx = outV.length / 5
-      const [xH, xL] = splitLocal(x)
-      const [yH, yL] = splitLocal(y)
+      const [xH, xL] = splitLocal(x - reoriginX)
+      const [yH, yL] = splitLocal(y - reoriginY)
       outV.push(xH, yH, xL, yL, fid)
       outVKey.set(k, idx)
       return idx
@@ -829,8 +835,8 @@ export class XGVTSource {
       const hit = outLVKey.get(k)
       if (hit !== undefined) return hit
       const idx = outLV.length / DSFUN_LINE_STRIDE
-      const [xH, xL] = splitLocal(x)
-      const [yH, yL] = splitLocal(y)
+      const [xH, xL] = splitLocal(x - reoriginX)
+      const [yH, yL] = splitLocal(y - reoriginY)
       outLV.push(xH, yH, xL, yL, fid, arc, tinX, tinY, toutX, toutY)
       outLVKey.set(k, idx)
       return idx
@@ -925,17 +931,20 @@ export class XGVTSource {
       }
     }
 
-    // Cache sub-tile (even if empty — prevents parent fallback)
+    // Cache sub-tile with its OWN bounds. Vertex data has been re-packed
+    // from parent-local to sub-tile-local DSFUN coordinates so the DSFUN
+    // camera uniform (VTR) and boundary detection (buildLineSegments) both
+    // use the sub-tile's origin — seamless joins across tile edges.
     const subData: TileData = {
       vertices: new Float32Array(outV),
       indices: new Uint32Array(outI),
       lineVertices: new Float32Array(outLV),
       lineIndices: new Uint32Array(outLI),
       outlineIndices: new Uint32Array(outOI),
-      tileWest: parent.tileWest,
-      tileSouth: parent.tileSouth,
-      tileWidth: parent.tileWidth,
-      tileHeight: parent.tileHeight,
+      tileWest: subWest,
+      tileSouth: subSouth,
+      tileWidth: subEast - subWest,
+      tileHeight: subNorth - subSouth,
       tileZoom: sz,
     }
 
