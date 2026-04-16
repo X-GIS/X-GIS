@@ -181,7 +181,12 @@ function clipSegment(
     return true
   }
 
-  if (tMin > tMax) return null
+  // Reject degenerate clips where the segment merely touches the tile
+  // boundary without crossing it (tMin ≈ tMax). A common case: a polyline
+  // vertex sits exactly on a tile edge, producing a [B, B] zero-length
+  // result that creates a ghost segment in the output (visible as a small
+  // square artifact and corrupted join tangent in the adjacent segment).
+  if (tMax - tMin < 1e-10) return null
 
   const p0: number[] = [a[0] + tMin * dx, a[1] + tMin * dy]
   const p1: number[] = [a[0] + tMax * dx, a[1] + tMax * dy]
