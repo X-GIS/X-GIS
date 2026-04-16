@@ -190,6 +190,13 @@ function starPath(points: number, outerR: number, innerR: number): string {
   return pts.join(' ') + ' Z'
 }
 
+/** Internal namespace prefix for user-defined (`symbol X { ... }`) shapes.
+ *  Keeps them from colliding with built-in names like `cross`, `star`, etc.;
+ *  lookup order in `getShapeId` is user → built-in so user definitions win
+ *  when they share a name with a built-in. The prefix is never exposed to
+ *  DSL authors — they reference shapes by their bare name. */
+export const USER_SHAPE_PREFIX = 'user:'
+
 export const BUILTIN_SHAPES: Record<string, string> = {
   square: 'M -0.75 -0.75 L 0.75 -0.75 L 0.75 0.75 L -0.75 0.75 Z',
   diamond: 'M 0 -1 L 0.7 0 L 0 1 L -0.7 0 Z',
@@ -225,6 +232,13 @@ export class ShapeRegistry {
     }
   }
 
+  /** Register a user-defined shape under the `user:` namespace so it cannot
+   *  silently collide with built-ins. Callers still look it up by the bare
+   *  name via `getShapeId`, which checks the prefixed key first. */
+  addUserShape(name: string, svgPath: string): number {
+    return this.addShape(USER_SHAPE_PREFIX + name, svgPath)
+  }
+
   /** Register a shape from SVG path string. Returns shape_id (1-based, 0=circle). */
   addShape(name: string, svgPath: string): number {
     if (this.shapes.has(name)) return this.shapes.get(name)!.id
@@ -249,9 +263,14 @@ export class ShapeRegistry {
     return id
   }
 
-  /** Get shape_id by name. Returns 0 for "circle" or unknown. */
+  /** Get shape_id by bare name. Returns 0 for "circle" or unknown.
+   *  User-defined shapes (registered via `addUserShape`) take precedence over
+   *  identically-named built-ins, so `symbol cross { ... }` in the DSL wins
+   *  over the built-in `cross` glyph when referenced as `stroke-pattern-cross`. */
   getShapeId(name: string): number {
     if (name === 'circle') return 0
+    const userHit = this.shapes.get(USER_SHAPE_PREFIX + name)
+    if (userHit) return userHit.id
     return this.shapes.get(name)?.id ?? 0
   }
 
