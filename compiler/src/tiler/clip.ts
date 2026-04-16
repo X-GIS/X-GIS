@@ -197,14 +197,28 @@ function clipSegment(
   // Override tangent fields — direction unit vectors must NOT be linearly
   // interpolated along the segment. When augmentLineWithArc stores
   // [lon, lat, arc, tin_x, tin_y, tout_x, tout_y], indices 3-6 carry the
-  // join tangent at each original vertex. For a clipped endpoint we
-  // propagate the tangent from the NEAREST original vertex so the renderer
-  // knows the true join direction across tile boundaries.
+  // join tangent at each original vertex.
+  //
+  // For ORIGINAL vertices (tMin≈0 / tMax≈1) we preserve the join tangent so
+  // the renderer knows the true turn angle even across tile boundaries.
+  //
+  // For MID-SEGMENT clip points (tMin>0 / tMax<1) we zero the tangent so
+  // the runtime falls back to its boundary-detection heuristic (segment
+  // direction = straight continuation). Propagating the original vertex's
+  // tangent here would create a FAKE join at the clip point with the wrong
+  // angle, causing asymmetric quad expansion and visible line misalignment
+  // between adjacent tiles.
   if (a.length >= 7 && b.length >= 7) {
-    // p0 gets tangents from vertex a (start of original segment)
-    p0[3] = a[3]; p0[4] = a[4]; p0[5] = a[5]; p0[6] = a[6]
-    // p1 gets tangents from vertex b (end of original segment)
-    p1[3] = b[3]; p1[4] = b[4]; p1[5] = b[5]; p1[6] = b[6]
+    if (tMin < 1e-10) {
+      p0[3] = a[3]; p0[4] = a[4]; p0[5] = a[5]; p0[6] = a[6]
+    } else {
+      p0[3] = 0; p0[4] = 0; p0[5] = 0; p0[6] = 0
+    }
+    if (tMax > 1 - 1e-10) {
+      p1[3] = b[3]; p1[4] = b[4]; p1[5] = b[5]; p1[6] = b[6]
+    } else {
+      p1[3] = 0; p1[4] = 0; p1[5] = 0; p1[6] = 0
+    }
   }
 
   // Snap boundary-clipped endpoints to precision grid for tile consistency
