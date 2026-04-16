@@ -358,7 +358,7 @@ const DEFAULT_BUILD_MITER_LIMIT = 4.0
 export function buildLineSegments(
   vertices: Float32Array,
   indices: Uint32Array,
-  stride: 5 | 6 = 5,
+  stride: 5 | 6 | 10 = 5,
   /** Tile width/height in Mercator METERS — used to detect chain ends that
    *  sit on a tile boundary and treat them as virtual joins (same-direction
    *  tangent) so the SDF shader emits no cap there. Adjacent tiles' segments
@@ -543,20 +543,32 @@ export function buildLineSegments(
     // The tangent is the direction OF THE PREVIOUS SEGMENT, pointing TOWARD vertex a.
     // So if prev has endpoints (pa → a), prev_tangent = normalize(a - pa).
     let prevTx = 0, prevTy = 0
-    const neighborsA = vertToSegs.get(a)
-    if (neighborsA && neighborsA.length > 1) {
-      // Pick the first other segment
-      for (const ns of neighborsA) {
-        if (ns === i) continue
-        const na = indices[ns * 2]
-        const nb = indices[ns * 2 + 1]
-        const otherEnd = (na === a) ? nb : na
-        const [ox, oy] = projVert(otherEnd)
-        const dx = p0x - ox
-        const dy = p0y - oy
-        const len = Math.sqrt(dx * dx + dy * dy)
-        if (len > 1e-9) { prevTx = dx / len; prevTy = dy / len }
-        break
+
+    // Stride 10: the tiler pre-computed tangent_in at vertex a (index 6-7).
+    // tangent_in is the direction arriving at a from the previous vertex
+    // — this is exactly prev_tangent. Use it directly to get the true join
+    // direction even when the neighbor segment is in a different tile.
+    if (stride === 10) {
+      prevTx = vertices[a * stride + 6]
+      prevTy = vertices[a * stride + 7]
+    }
+
+    // Neighbor search fallback (stride 5/6, or stride 10 with zero tangent)
+    if (prevTx === 0 && prevTy === 0) {
+      const neighborsA = vertToSegs.get(a)
+      if (neighborsA && neighborsA.length > 1) {
+        for (const ns of neighborsA) {
+          if (ns === i) continue
+          const na = indices[ns * 2]
+          const nb = indices[ns * 2 + 1]
+          const otherEnd = (na === a) ? nb : na
+          const [ox, oy] = projVert(otherEnd)
+          const dx = p0x - ox
+          const dy = p0y - oy
+          const len = Math.sqrt(dx * dx + dy * dy)
+          if (len > 1e-9) { prevTx = dx / len; prevTy = dy / len }
+          break
+        }
       }
     }
     // Tile boundary fallback: if no neighbor found AND p0 sits on a tile
@@ -573,19 +585,29 @@ export function buildLineSegments(
     // next_tangent: similar for vertex b (p1 side), pointing AWAY from b
     // next_tangent = normalize(nextOtherEnd - b)
     let nextTx = 0, nextTy = 0
-    const neighborsB = vertToSegs.get(b)
-    if (neighborsB && neighborsB.length > 1) {
-      for (const ns of neighborsB) {
-        if (ns === i) continue
-        const na = indices[ns * 2]
-        const nb = indices[ns * 2 + 1]
-        const otherEnd = (na === b) ? nb : na
-        const [ox, oy] = projVert(otherEnd)
-        const dx = ox - p1x
-        const dy = oy - p1y
-        const len = Math.sqrt(dx * dx + dy * dy)
-        if (len > 1e-9) { nextTx = dx / len; nextTy = dy / len }
-        break
+
+    // Stride 10: tangent_out at vertex b (index 8-9) is the direction
+    // leaving b toward the next vertex — exactly next_tangent.
+    if (stride === 10) {
+      nextTx = vertices[b * stride + 8]
+      nextTy = vertices[b * stride + 9]
+    }
+
+    if (nextTx === 0 && nextTy === 0) {
+      const neighborsB = vertToSegs.get(b)
+      if (neighborsB && neighborsB.length > 1) {
+        for (const ns of neighborsB) {
+          if (ns === i) continue
+          const na = indices[ns * 2]
+          const nb = indices[ns * 2 + 1]
+          const otherEnd = (na === b) ? nb : na
+          const [ox, oy] = projVert(otherEnd)
+          const dx = ox - p1x
+          const dy = oy - p1y
+          const len = Math.sqrt(dx * dx + dy * dy)
+          if (len > 1e-9) { nextTx = dx / len; nextTy = dy / len }
+          break
+        }
       }
     }
     if (nextTx === 0 && nextTy === 0 && vertOnBoundary(b)) {

@@ -194,6 +194,19 @@ function clipSegment(
     }
   }
 
+  // Override tangent fields — direction unit vectors must NOT be linearly
+  // interpolated along the segment. When augmentLineWithArc stores
+  // [lon, lat, arc, tin_x, tin_y, tout_x, tout_y], indices 3-6 carry the
+  // join tangent at each original vertex. For a clipped endpoint we
+  // propagate the tangent from the NEAREST original vertex so the renderer
+  // knows the true join direction across tile boundaries.
+  if (a.length >= 7 && b.length >= 7) {
+    // p0 gets tangents from vertex a (start of original segment)
+    p0[3] = a[3]; p0[4] = a[4]; p0[5] = a[5]; p0[6] = a[6]
+    // p1 gets tangents from vertex b (end of original segment)
+    p1[3] = b[3]; p1[4] = b[4]; p1[5] = b[5]; p1[6] = b[6]
+  }
+
   // Snap boundary-clipped endpoints to precision grid for tile consistency
   if (precision) {
     const EPS = 1e-10
