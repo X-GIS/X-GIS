@@ -749,53 +749,56 @@ describe('buildLineSegments', () => {
   // bowtie-shaped quad that failed to cover the round-join circle —
   // visible as a dark V-notch at every segment boundary. Fixed by
   // clamping along_pad to at least endpoint_pad for all join types.
-  describe('vs_line along_pad covers offset round joins', () => {
-    // Port the shader's along_pad clamp — the ONE line this regression
-    // protects. Both MITER and ROUND (default in VTR) must end up with
-    // along_pad ≥ endpoint_pad so the quad covers the join circle /
-    // miter tip regardless of offset magnitude.
-    function alongPad(halfWSide: number, endpointPad: number): number {
-      return Math.max(halfWSide, endpointPad)
+  describe('vs_line along_pad covers offset round joins without halo', () => {
+    // Port the shader's along_pad clamp. MITER uses pad_ratio × half_w to
+    // cover the miter tip; ROUND/BEVEL use half_w directly — pad_ratio
+    // overshoots and creates a sharp-corner halo when stacked layers
+    // blend, which the regression guards against.
+    const JOIN_MITER = 0
+    const JOIN_ROUND = 1
+    function alongPad(halfWSide: number, halfWmAa: number, endpointPad: number, joinType: number): number {
+      const joinPad = joinType === JOIN_MITER ? endpointPad : halfWmAa
+      return Math.max(halfWSide, joinPad)
     }
 
-    it('stroke-10 + offset-right-11 keeps along_pad positive on the near edge', () => {
-      // half_w_m_aa (vs-side) = (10 × 0.5 + 1.5) × 1 = 6.5 (use mpp=1 for clarity)
+    it('stroke-10 + offset-right-11 keeps along_pad positive on the near edge (ROUND)', () => {
+      // half_w_m_aa = (10 × 0.5 + 1.5) × 1 = 6.5
       const halfWmAa = 6.5
-      const offsetM = -11  // stroke-offset-right-11 → negative sign
-      // Near edge = across=+1 (left perpendicular = same side as +offset);
-      // for right-offset (negative offset_m), the near edge is where
-      // half_w_side collapses.
+      const offsetM = -11
       const across = +1
-      const halfWSide = halfWmAa + offsetM * across  // = 6.5 - 11 = -4.5
+      const halfWSide = halfWmAa + offsetM * across  // = -4.5
       expect(halfWSide).toBeLessThan(0)
-
-      // endpoint_pad for a collinear join (pad_ratio = 1) is half_w_m_aa.
-      const endpointPad = 1 * halfWmAa
-      const pad = alongPad(halfWSide, endpointPad)
-      expect(pad).toBeGreaterThanOrEqual(endpointPad)
-      // And NOT negative — the pre-fix bug was pad = -4.5.
+      // Collinear pad_ratio = 1 → endpointPad = halfWmAa.
+      const pad = alongPad(halfWSide, halfWmAa, /* endpointPad */ halfWmAa, JOIN_ROUND)
+      expect(pad).toBe(halfWmAa)
       expect(pad).toBeGreaterThan(0)
     })
 
-    it('no-offset stroke still gets at least endpoint_pad coverage', () => {
-      // Sanity: in the common no-offset case, half_w_side == half_w_m_aa,
-      // and endpoint_pad is also half_w_m_aa → pad == half_w_m_aa. No
-      // behaviour change from the clamp.
+    it('no-offset + sharp-corner ROUND join does NOT use pad_ratio (no halo)', () => {
+      // Regression guard: this used to be `max(half_w_side, endpoint_pad)`
+      // which for ROUND with a 150° miter would extend the quad by
+      // 3.7× half_w — visible as alpha-blend halo lines on multi-layer
+      // polylines. Post-fix, ROUND caps at half_w_m_aa regardless of
+      // pad_ratio.
       const halfWmAa = 6.5
-      const halfWSide = halfWmAa + 0
-      const endpointPad = halfWmAa
-      expect(alongPad(halfWSide, endpointPad)).toBeCloseTo(halfWmAa, 6)
+      const halfWSide = halfWmAa
+      const padRatioSharp = 3.7
+      const endpointPadSharp = padRatioSharp * halfWmAa  // 24.05
+      const round = alongPad(halfWSide, halfWmAa, endpointPadSharp, JOIN_ROUND)
+      const miter = alongPad(halfWSide, halfWmAa, endpointPadSharp, JOIN_MITER)
+      expect(round).toBe(halfWmAa)          // ROUND ignores pad_ratio
+      expect(miter).toBe(endpointPadSharp)  // MITER still covers the miter tip
+      expect(miter).toBeGreaterThan(round)
     })
 
-    it('positive offset (left) on the opposite across also stays positive', () => {
-      // For stroke-10 + offset-left-11 (offset_m = +11), the FAR edge
-      // becomes the inner-collapsed side. Verify symmetry.
+    it('positive offset (left) on opposite across also stays positive (ROUND)', () => {
       const halfWmAa = 6.5
       const offsetM = +11
-      const across = -1  // opposite side now collapses
-      const halfWSide = halfWmAa + offsetM * across  // = 6.5 - 11 = -4.5
+      const across = -1
+      const halfWSide = halfWmAa + offsetM * across  // = -4.5
       expect(halfWSide).toBeLessThan(0)
-      expect(alongPad(halfWSide, halfWmAa)).toBeGreaterThan(0)
+      const pad = alongPad(halfWSide, halfWmAa, halfWmAa, JOIN_ROUND)
+      expect(pad).toBeGreaterThan(0)
     })
   })
 })
