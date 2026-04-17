@@ -1,6 +1,7 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { Lexer, Parser, lower, optimize, emitCommands, evaluate, compileGeoJSONToTiles, decomposeFeatures, deserializeXGB, resolveImportsAsync } from '@xgis/compiler'
+import { Lexer, Parser, lower, optimize, emitCommands, evaluate, deserializeXGB, resolveImportsAsync } from '@xgis/compiler'
+import { getSharedGeoJSONCompilePool } from '../data/geojson-compile-pool'
 import { initGPU, resizeCanvas, MAX_DPR, SAMPLE_COUNT, type GPUContext } from './gpu'
 import { Camera } from './camera'
 import { MapRenderer, interpolateZoom } from './renderer'
@@ -68,6 +69,10 @@ export class XGISMap {
   private _pendingPatches = new Map<string, Map<number, { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> }>>()
   private _pendingFlushHandle: number | null = null
   private _unknownSourceWarned = new Set<string>()
+  // Lazy featureId → feature index per source, so flushPendingUpdates can
+  // patch in O(patches) instead of O(features). Invalidated on setSourceData
+  // (full replace) and rebuilt on demand.
+  private _featureIndex = new Map<string, Map<number, GeoJSONFeature>>()
 
   // Stencil buffer for tile overlap masking
   private stencilTexture: GPUTexture | null = null
@@ -500,35 +505,48 @@ export class XGISMap {
       vtRenderer.setSource(source)
       this.vtSources.set(vtKey, { source, renderer: vtRenderer })
 
-      // On-demand tiling: compile z0 immediately, higher zooms on demand
-      // when the renderer requests visible tiles.
-      // `idResolver` honours the standard GeoJSON `feature.id` (falling
-      // back to `properties.id`, then array index) so ids stay stable
-      // across setSourceData / updateFeature pushes — required for
-      // picking and track-history correctness in the external
-      // data-injection use case.
-      const idResolver = (f: GeoJSONFeature, i: number) =>
-        toU32Id(f.id ?? f.properties?.id ?? i)
-      const parts = decomposeFeatures(filtered.features, idResolver)
-      const z0Set = compileGeoJSONToTiles(filtered, { minZoom: 0, maxZoom: 0, idResolver })
-      if (z0Set.levels.length > 0) {
-        source.addTileLevel(z0Set.levels[0], z0Set.bounds, z0Set.propertyTable)
-      }
-      source.setRawParts(parts, z0Set.levels.length > 0 ? 7 : 0)
+      // Offload `decomposeFeatures` + `compileGeoJSONToTiles(z0)` to a
+      // worker so earcut over 10k+ features no longer blocks the main
+      // thread. The source is created empty up-front; when the pool
+      // returns we call `addTileLevel` + `setRawParts` + fit the camera.
+      // Legacy behaviour (synchronous fit + first-frame z0) is preserved
+      // in the fallback path when the worker pool is unavailable.
+      //
+      // Stable-id policy (`feature.id` → `properties.id` → index) lives
+      // in the worker now via the `'feature-id-fallback'` mode; see
+      // `geojson-compile-worker.ts:resolveIdResolver`.
+      const pool = getSharedGeoJSONCompilePool()
+      const compilePromise = pool.compile(filtered, 0, 0, 'feature-id-fallback')
+      // Capture the entry we just registered so a stale completion (arriving
+      // after a re-teardown) cannot overwrite a newer source under the same
+      // key — `setSourceData` / `teardownSource` deletes the entry, and we
+      // only apply results if the pointer still matches.
+      const registeredEntry = this.vtSources.get(vtKey)
+      compilePromise.then(({ parts, tileSet }) => {
+        if (this.vtSources.get(vtKey) !== registeredEntry) return // superseded
+        if (tileSet.levels.length > 0) {
+          source.addTileLevel(tileSet.levels[0], tileSet.bounds, tileSet.propertyTable)
+        }
+        source.setRawParts(parts, tileSet.levels.length > 0 ? 7 : 0)
 
-      // Fit camera
-      const [minLon, minLat, maxLon, maxLat] = z0Set.bounds
-      if (minLon < Infinity) {
-        const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
-        const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
-        this.camera.centerX = cx
-        this.camera.centerY = cy
-        const lonSpan = maxLon - minLon
-        const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, MAX_DPR) : 1
-        const cssW = this.canvas.width / dpr
-        const degPerPx = lonSpan / cssW
-        this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
-      }
+        // Fit camera once the compile lands. For the fallback (sync) path
+        // this still runs inside the same microtask, so users see the same
+        // "camera snaps to data on load" behaviour they had before.
+        const [minLon, minLat, maxLon, maxLat] = tileSet.bounds
+        if (minLon < Infinity) {
+          const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
+          const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
+          this.camera.centerX = cx
+          this.camera.centerY = cy
+          const lonSpan = maxLon - minLon
+          const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, MAX_DPR) : 1
+          const cssW = this.canvas.width / dpr
+          const degPerPx = lonSpan / cssW
+          this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+        }
+      }).catch((err) => {
+        console.error('[X-GIS] GeoJSON compile failed:', err)
+      })
 
       // Setup shader variant if needed
       let pipelines: typeof this.vtVariantPipelines = null
@@ -1228,6 +1246,8 @@ export class XGISMap {
       throw new Error(`[X-GIS] setSourceData: unknown source "${sourceId}"`)
     }
     this.rawDatasets.set(sourceId, data)
+    // Full replace invalidates any cached feature index for this source.
+    this._featureIndex.delete(sourceId)
     this.teardownSource(sourceId)
     this.rebuildLayers()
     this.invalidate()
@@ -1298,12 +1318,20 @@ export class XGISMap {
     for (const [sourceId, patches] of this._pendingPatches) {
       const data = this.rawDatasets.get(sourceId)
       if (!data) continue
-      // Walk features, apply patches by matching the stable id.
-      // O(N × P) today; PR 2 replaces with a side index.
-      for (const f of data.features) {
-        const fid = toU32Id(f.id ?? f.properties?.id)
-        const patch = patches.get(fid)
-        if (!patch) continue
+      // Lookup via featureId index so patching is O(patches) instead of
+      // O(features). The index is built once per source and reused across
+      // flush cycles until setSourceData replaces the dataset.
+      let index = this._featureIndex.get(sourceId)
+      if (!index) {
+        index = new Map()
+        for (const f of data.features) {
+          index.set(toU32Id(f.id ?? f.properties?.id), f)
+        }
+        this._featureIndex.set(sourceId, index)
+      }
+      for (const [fid, patch] of patches) {
+        const f = index.get(fid)
+        if (!f) continue
         if (patch.geometry) f.geometry = patch.geometry
         if (patch.properties) {
           f.properties = { ...(f.properties ?? {}), ...patch.properties }
