@@ -1045,6 +1045,12 @@ fn vs_line(
     // center pad exactly.
     var join_pad = half_w_m + abs(layer.offset_m) * pad_ratio;
     if (join_type_vs == JOIN_MITER) { join_pad = endpoint_pad; }
+    // Add a half-pixel safety margin to absorb float-precision slippage
+    // between the vertex-shader quad size and the fragment-shader circle
+    // SDF edge — at tight tie-breaker values (2×half_w outset at 90°)
+    // the two equal exactly and any per-vertex rounding leaked thin
+    // "whisker" artifacts past the round-join circle.
+    join_pad = join_pad + 0.5 * layer.mpp;
     let along_pad = max(half_w_side, join_pad);
     offset = offset + dir * along * along_pad * across_scale;
   } else {
