@@ -922,13 +922,14 @@ export class XGISMap {
         // only if no translucent/points pass runs after it.
         const resolveHere =
           useResolve && isLastOpaque && _resolveOwner === 'opaque'
-        // The points bucket needs to depth-test against opaque polygons
-        // (e.g. the back side of the globe must occlude city markers
-        // floating above the front side). Store depth only on the very
-        // last opaque sub-pass, and only when a points pass actually
-        // runs — otherwise tile-based mobile GPUs can keep discarding
-        // depth and avoid the write-back to main memory.
-        const persistDepthForPoints = isLastOpaque && hasPoints
+        // Depth must persist across opaque sub-passes so group N's
+        // polygons are correctly occluded by group N-1's (e.g. roads
+        // rendered after buildings must respect building depth in a
+        // pitched / globe view), and across into the points bucket for
+        // the same reason. Only the final consumer can discard. Tile-
+        // based mobile GPUs pay a write-back when we store, but the
+        // result was visibly wrong without it.
+        const persistDepth = !isLastOpaque || hasPoints
 
         passScope(isFirst ? 'opaque-main' : `opaque[${gi}]`, () => {
           const subPass = encoder.beginRenderPass({
@@ -944,8 +945,13 @@ export class XGISMap {
             depthStencilAttachment: {
               view: this.stencilTexture!.createView(),
               depthClearValue: 1.0,
-              depthLoadOp: 'clear',
-              depthStoreOp: persistDepthForPoints ? 'store' : 'discard',
+              // First sub-pass clears depth; subsequent ones load the
+              // depth their predecessor stored.
+              depthLoadOp: isFirst ? 'clear' : 'load',
+              depthStoreOp: persistDepth ? 'store' : 'discard',
+              // Stencil IS still per-sub-pass — each opaque group uses
+              // unique IDs for its own polygon coverage and they don't
+              // need to survive across groups.
               stencilClearValue: 0,
               stencilLoadOp: 'clear',
               stencilStoreOp: 'discard',
