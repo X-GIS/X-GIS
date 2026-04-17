@@ -1031,7 +1031,19 @@ fn vs_line(
     let base_pad = select(pad_p1_m, pad_p0_m, is_start);
     let offset_extent_m = half_w_m + abs(layer.offset_m);
     let endpoint_pad = max(base_pad, pad_ratio * offset_extent_m);
-    var join_pad = half_w_m;
+    // ROUND / BEVEL: the offset miter vertex (p0_join_center /
+    // p1_join_center) sits abs(offset_m) * pad_ratio past the
+    // centerline endpoint along the -dir direction, and the round-join
+    // circle drawn around it has radius half_w_m (the bevel-edge
+    // clip stays within the same radius). Extend the quad by the sum
+    // so the rasteriser visits those fragments — previously the quad
+    // capped at half_w_m from the CENTERLINE endpoint and cut off
+    // the far half of the shifted circle. Fixture-stroke-outset made
+    // this loud: an isolated ring appeared where the body should have
+    // flowed into the corner, with gaps on either side.
+    // offset_m = 0 collapses to half_w_m, preserving the stroke-
+    // center pad exactly.
+    var join_pad = half_w_m + abs(layer.offset_m) * pad_ratio;
     if (join_type_vs == JOIN_MITER) { join_pad = endpoint_pad; }
     let along_pad = max(half_w_side, join_pad);
     offset = offset + dir * along * along_pad * across_scale;
