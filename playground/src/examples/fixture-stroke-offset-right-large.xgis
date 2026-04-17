@@ -1,0 +1,10 @@
+/* Fixture: stroke-offset-right-80 — large offset to exercise tile-culling
+ * margin expansion. Before the fix, tiles whose centerline data sat
+ * outside the viewport but whose rendered stroke reached back into the
+ * viewport (via large offset) were culled, causing the stroke to vanish
+ * when zoomed in on the offset region. */
+source l { type: geojson, url: "fixture-line.geojson" }
+layer shifted {
+  source: l
+  | stroke-amber-300 stroke-10 stroke-offset-right-80
+}
