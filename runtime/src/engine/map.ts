@@ -922,6 +922,13 @@ export class XGISMap {
         // only if no translucent/points pass runs after it.
         const resolveHere =
           useResolve && isLastOpaque && _resolveOwner === 'opaque'
+        // The points bucket needs to depth-test against opaque polygons
+        // (e.g. the back side of the globe must occlude city markers
+        // floating above the front side). Store depth only on the very
+        // last opaque sub-pass, and only when a points pass actually
+        // runs — otherwise tile-based mobile GPUs can keep discarding
+        // depth and avoid the write-back to main memory.
+        const persistDepthForPoints = isLastOpaque && hasPoints
 
         passScope(isFirst ? 'opaque-main' : `opaque[${gi}]`, () => {
           const subPass = encoder.beginRenderPass({
@@ -938,7 +945,7 @@ export class XGISMap {
               view: this.stencilTexture!.createView(),
               depthClearValue: 1.0,
               depthLoadOp: 'clear',
-              depthStoreOp: 'discard',
+              depthStoreOp: persistDepthForPoints ? 'store' : 'discard',
               stencilClearValue: 0,
               stencilLoadOp: 'clear',
               stencilStoreOp: 'discard',
@@ -1035,7 +1042,13 @@ export class XGISMap {
             }],
             depthStencilAttachment: {
               view: this.stencilTexture!.createView(),
-              depthClearValue: 1.0, depthLoadOp: 'clear', depthStoreOp: 'discard',
+              // Load the depth the last opaque sub-pass stored above so
+              // billboards on the back side of a globe / pitched surface
+              // are correctly occluded by the front-facing opaque
+              // polygons. Translucent points still skip depth WRITES
+              // (their pipeline disables depthWriteEnabled), so a halo
+              // doesn't block other markers — but they DO depth-test.
+              depthClearValue: 1.0, depthLoadOp: 'load', depthStoreOp: 'discard',
               stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard',
             },
           })
