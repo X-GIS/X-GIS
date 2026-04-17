@@ -1201,8 +1201,22 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
     }
     // Bevel-edge clip at p0: truncate the body at the bevel edge so the
     // miter tip is cut flat. The bevel edge connects the outer stroke
-    // corners of the two segments meeting at this vertex.
-    if (join_flags == JOIN_BEVEL) {
+    // corners of the two segments meeting at this vertex. Applied for
+    // explicit BEVEL joins AND for MITER joins whose corner exceeds the
+    // per-layer miter limit — without this, MITER corners sharper than
+    // the limit rendered as long spikes even though the CPU already
+    // clamped the quad pad (the layer uniform miter_limit was declared
+    // but never read by the old shader).
+    //   sinHalf = abs(cross(A,B)) / length(A+B)
+    //   miter_ratio = 1 / sinHalf = length(A+B) / abs(cross(A,B))
+    //   exceeded  when miter_ratio greater than miter_limit
+    //   equivalently  length(A+B) > miter_limit * abs(cross(A,B))
+    let cross_p0_mag = abs(seg.prev_tangent.x * dir.y - seg.prev_tangent.y * dir.x);
+    let bis_mag_p0 = length(seg.prev_tangent + dir);
+    let miter_over_p0 = bis_mag_p0 > layer.miter_limit * cross_p0_mag;
+    let apply_bevel_p0 = (join_flags == JOIN_BEVEL) ||
+                         (join_flags == JOIN_MITER && miter_over_p0);
+    if (apply_bevel_p0) {
       let prev_nrm = vec2<f32>(-seg.prev_tangent.y, seg.prev_tangent.x);
       let cross_p0 = seg.prev_tangent.x * dir.y - seg.prev_tangent.y * dir.x;
       if (abs(cross_p0) > 1e-6) {
@@ -1232,8 +1246,13 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
         d_m = max(d_m, along_p1);
       }
     }
-    // Bevel-edge clip at p1 (symmetric with p0).
-    if (join_flags == JOIN_BEVEL) {
+    // Bevel-edge clip at p1 — same BEVEL-or-miter-exceeded condition as p0.
+    let cross_p1_mag = abs(dir.x * seg.next_tangent.y - dir.y * seg.next_tangent.x);
+    let bis_mag_p1 = length(dir + seg.next_tangent);
+    let miter_over_p1 = bis_mag_p1 > layer.miter_limit * cross_p1_mag;
+    let apply_bevel_p1 = (join_flags == JOIN_BEVEL) ||
+                         (join_flags == JOIN_MITER && miter_over_p1);
+    if (apply_bevel_p1) {
       let next_nrm_bv = vec2<f32>(-seg.next_tangent.y, seg.next_tangent.x);
       let cross_p1 = dir.x * seg.next_tangent.y - dir.y * seg.next_tangent.x;
       if (abs(cross_p1) > 1e-6) {
