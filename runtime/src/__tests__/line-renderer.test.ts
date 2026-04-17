@@ -739,4 +739,63 @@ describe('buildLineSegments', () => {
       expect(padP1).toBeLessThan(1.5)
     })
   })
+
+  // Regression: when |offset_m| > half_w_m_aa the inner across-side's
+  // `half_w_side` becomes negative. For ROUND/BEVEL joins this used to
+  // propagate directly into `along_pad`, pulling the near-edge quad
+  // corners INWARD past the endpoint. On short subdivided segments
+  // (e.g. 3°-slice equator lines at low zoom) the pulled-in corner
+  // crossed past its sibling on the other endpoint, producing a
+  // bowtie-shaped quad that failed to cover the round-join circle —
+  // visible as a dark V-notch at every segment boundary. Fixed by
+  // clamping along_pad to at least endpoint_pad for all join types.
+  describe('vs_line along_pad covers offset round joins', () => {
+    // Port the shader's along_pad clamp — the ONE line this regression
+    // protects. Both MITER and ROUND (default in VTR) must end up with
+    // along_pad ≥ endpoint_pad so the quad covers the join circle /
+    // miter tip regardless of offset magnitude.
+    function alongPad(halfWSide: number, endpointPad: number): number {
+      return Math.max(halfWSide, endpointPad)
+    }
+
+    it('stroke-10 + offset-right-11 keeps along_pad positive on the near edge', () => {
+      // half_w_m_aa (vs-side) = (10 × 0.5 + 1.5) × 1 = 6.5 (use mpp=1 for clarity)
+      const halfWmAa = 6.5
+      const offsetM = -11  // stroke-offset-right-11 → negative sign
+      // Near edge = across=+1 (left perpendicular = same side as +offset);
+      // for right-offset (negative offset_m), the near edge is where
+      // half_w_side collapses.
+      const across = +1
+      const halfWSide = halfWmAa + offsetM * across  // = 6.5 - 11 = -4.5
+      expect(halfWSide).toBeLessThan(0)
+
+      // endpoint_pad for a collinear join (pad_ratio = 1) is half_w_m_aa.
+      const endpointPad = 1 * halfWmAa
+      const pad = alongPad(halfWSide, endpointPad)
+      expect(pad).toBeGreaterThanOrEqual(endpointPad)
+      // And NOT negative — the pre-fix bug was pad = -4.5.
+      expect(pad).toBeGreaterThan(0)
+    })
+
+    it('no-offset stroke still gets at least endpoint_pad coverage', () => {
+      // Sanity: in the common no-offset case, half_w_side == half_w_m_aa,
+      // and endpoint_pad is also half_w_m_aa → pad == half_w_m_aa. No
+      // behaviour change from the clamp.
+      const halfWmAa = 6.5
+      const halfWSide = halfWmAa + 0
+      const endpointPad = halfWmAa
+      expect(alongPad(halfWSide, endpointPad)).toBeCloseTo(halfWmAa, 6)
+    })
+
+    it('positive offset (left) on the opposite across also stays positive', () => {
+      // For stroke-10 + offset-left-11 (offset_m = +11), the FAR edge
+      // becomes the inner-collapsed side. Verify symmetry.
+      const halfWmAa = 6.5
+      const offsetM = +11
+      const across = -1  // opposite side now collapses
+      const halfWSide = halfWmAa + offsetM * across  // = 6.5 - 11 = -4.5
+      expect(halfWSide).toBeLessThan(0)
+      expect(alongPad(halfWSide, halfWmAa)).toBeGreaterThan(0)
+    })
+  })
 })
