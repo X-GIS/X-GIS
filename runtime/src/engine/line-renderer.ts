@@ -967,14 +967,21 @@ fn vs_line(
   var offset = perp_cur * half_w_side * across_scale;
   if (has_neighbor) {
     // Joined endpoint: pad along dir so there is geometry for the
-    // fragment shader to shade the join on. For MITER joins, extend by
-    // the precomputed pad_ratio so the quad covers the miter tip.
-    // For ROUND/BEVEL, half_w_side is sufficient.
-    var along_pad = half_w_side;
-    if (join_type_vs == JOIN_MITER) {
-      let endpoint_pad = select(pad_p1_m, pad_p0_m, is_start);
-      along_pad = max(along_pad, endpoint_pad);
-    }
+    // fragment shader to shade the join on. The quad must extend past
+    // the endpoint by at least endpoint_pad (pad_ratio x half_w with
+    // AA margin) to cover:
+    //   - MITER: the miter tip projects |tan(theta/2)| x half_w along dir.
+    //   - ROUND: the join circle of radius half_w centred at the offset
+    //     endpoint extends half_w in every direction, including dir.
+    //   - BEVEL: the bevel edge stays within half_w of the endpoint.
+    // half_w_side alone is INSUFFICIENT when it collapses to <= 0
+    // (|offset_m| >= half_w_m + aa): on the inner across side the quad
+    // then pulls INWARD past the endpoint instead of outward, leaving
+    // the round-join circle uncovered and producing a visible V-notch
+    // at the join. The max() clamp below fixes that for all join types;
+    // the extra overdraw for non-MITER in the common case is negligible.
+    let endpoint_pad = select(pad_p1_m, pad_p0_m, is_start);
+    let along_pad = max(half_w_side, endpoint_pad);
     offset = offset + dir * along * along_pad * across_scale;
   } else {
     // Chain terminus: use the configured cap pad (butt/square/arrow).
