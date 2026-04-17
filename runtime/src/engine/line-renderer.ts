@@ -1358,14 +1358,13 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
         // fixture-stroke-outset where a rogue ring appears inside each
         // polygon corner.
         let along_j = dot(p - p0_join_center, bis_unit_j);
-        // Current owns along >= 0 (inclusive) so the bisector plane
-        // (along == 0) is drawn by exactly one segment, never both and
-        // never NEITHER. Before this was strict along > 0, paired with
-        // the strict along < 0 at the matching p1 gate below — so at
-        // the bisector itself neither fired, body_d leaked through
-        // instead of being replaced by circle_d, and the body extended
-        // past the round-join circle radius as a visible diagonal
-        // whisker from every corner of fixture-stroke-outset.
+        // Both p0 (>= 0) and p1 (<= 0) gates are INCLUSIVE at the
+        // bisector plane. See the p1 gate below for the full story —
+        // a strict-on-one-side + strict-on-other-side split leaves
+        // body_d from the adjacent segment leaking past the circle
+        // radius as a diagonal whisker. Matching inclusives double-
+        // replace at the exact bisector line only, which is
+        // idempotent for opaque strokes.
         if (along_j >= 0.0) {
           // REPLACE body with circle past the endpoint — not union (min).
           // The body extends past the join as a miter shape; replacing
@@ -1405,12 +1404,17 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
         let bis_unit_j = bis_p1_j / bis_len_j;
         // Same offset-miter-vertex correction as at p0; see comment there.
         let along_j = dot(p - p1_join_center, bis_unit_j);
-        // Current segment owns along < 0 (strict). The bisector plane
-        // (along == 0) is owned by the NEXT segment's p0 gate which is
-        // inclusive (>= 0); together the two gates partition every
-        // fragment past the centerline endpoint into exactly one
-        // segment's circle_d.
-        if (along_j < 0.0) {
+        // Both p0 (>= 0) and p1 (<= 0) gates are INCLUSIVE at the
+        // bisector plane (along == 0). The two neighbouring segments
+        // therefore BOTH replace body_d with circle_d on that exact
+        // line. This is intentional double-draw: making only one side
+        // inclusive still leaves the OTHER segment's body visible past
+        // the round-circle radius (the diagonal whisker user reported
+        // on fixture-stroke-outset even after the first inclusive-gate
+        // fix). Opaque blending of two identical circle_d samples is
+        // idempotent — the tiny AA-edge pixel brightening is invisible
+        // next to the eliminated whisker.
+        if (along_j <= 0.0) {
           let circle_d = length(p - p1_join_center) - half_w_m;
           d_m = circle_d;
         }
