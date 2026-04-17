@@ -225,6 +225,12 @@ export class XGVTSource {
     return this.loadingTiles.has(key)
   }
 
+  /** True when any tile is still being fetched. Read each frame by the
+   *  render-loop idle-skip so late arrivals trigger a redraw. */
+  hasPendingLoads(): boolean {
+    return this.loadingTiles.size > 0
+  }
+
   getCacheSize(): number {
     return this.dataCache.size
   }
