@@ -85,62 +85,81 @@ export function parseSVGPath(d: string): PathCmd[] {
   return cmds
 }
 
-/** Convert PathCmds to line/bezier segments with computed AABB */
+/** Convert PathCmds to line/bezier segments with computed AABB.
+ *  Implicit max-extent normalization: all coords are scaled so max(|coord|) = 1
+ *  before segments are emitted. This gives `size N` a consistent meaning
+ *  ("longest dimension renders at N units") regardless of how the path's
+ *  source coords were authored. CSS `object-fit: contain` semantics. */
 export function pathToSegments(cmds: PathCmd[]): { segments: SegmentData[]; bbox: [number, number, number, number] } {
-  const segments: SegmentData[] = []
-  let cx = 0, cy = 0 // current point
-  let mx = 0, my = 0 // move-to point (for Z close)
+  // Pass 1: scan AABB from raw command coords to derive the normalization scale.
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-
   const updateBBox = (x: number, y: number) => {
     if (x < minX) minX = x; if (x > maxX) maxX = x
     if (y < minY) minY = y; if (y > maxY) maxY = y
   }
+  for (const cmd of cmds) {
+    switch (cmd.type) {
+      case 'M': case 'L':
+        updateBBox(cmd.x, cmd.y); break
+      case 'Q':
+        updateBBox(cmd.x1, cmd.y1); updateBBox(cmd.x, cmd.y); break
+      case 'C':
+        updateBBox(cmd.x1, cmd.y1); updateBBox(cmd.x2, cmd.y2)
+        updateBBox(cmd.x, cmd.y); break
+      // 'Z' contributes nothing to the AABB
+    }
+  }
+  // Degenerate paths (single point at origin, etc.) leave maxExtent==0; skip
+  // scaling to avoid divide-by-zero. Otherwise scale = 1/maxExtent.
+  const maxExtent = Math.max(
+    Math.abs(minX), Math.abs(maxX),
+    Math.abs(minY), Math.abs(maxY),
+  )
+  const scale = maxExtent > 1e-6 ? 1 / maxExtent : 1
+  const sx = (v: number) => v * scale
+
+  // Pass 2: emit segments with normalized coords.
+  const segments: SegmentData[] = []
+  let cx = 0, cy = 0 // current point
+  let mx = 0, my = 0 // move-to point (for Z close)
 
   for (const cmd of cmds) {
     switch (cmd.type) {
       case 'M':
-        cx = cmd.x; cy = cmd.y
+        cx = sx(cmd.x); cy = sx(cmd.y)
         mx = cx; my = cy
-        updateBBox(cx, cy)
         break
 
       case 'L':
-        updateBBox(cmd.x, cmd.y)
         segments.push({
           kind: 0, colorIdx: 0, flags: 0, _pad: 0,
           p0x: cx, p0y: cy,
-          p1x: cmd.x, p1y: cmd.y,
+          p1x: sx(cmd.x), p1y: sx(cmd.y),
           p2x: 0, p2y: 0, p3x: 0, p3y: 0,
         })
-        cx = cmd.x; cy = cmd.y
+        cx = sx(cmd.x); cy = sx(cmd.y)
         break
 
       case 'Q':
-        updateBBox(cmd.x1, cmd.y1)
-        updateBBox(cmd.x, cmd.y)
         segments.push({
           kind: 1, colorIdx: 0, flags: 0, _pad: 0,
           p0x: cx, p0y: cy,
-          p1x: cmd.x1, p1y: cmd.y1,
-          p2x: cmd.x, p2y: cmd.y,
+          p1x: sx(cmd.x1), p1y: sx(cmd.y1),
+          p2x: sx(cmd.x), p2y: sx(cmd.y),
           p3x: 0, p3y: 0,
         })
-        cx = cmd.x; cy = cmd.y
+        cx = sx(cmd.x); cy = sx(cmd.y)
         break
 
       case 'C':
-        updateBBox(cmd.x1, cmd.y1)
-        updateBBox(cmd.x2, cmd.y2)
-        updateBBox(cmd.x, cmd.y)
         segments.push({
           kind: 2, colorIdx: 0, flags: 0, _pad: 0,
           p0x: cx, p0y: cy,
-          p1x: cmd.x1, p1y: cmd.y1,
-          p2x: cmd.x2, p2y: cmd.y2,
-          p3x: cmd.x, p3y: cmd.y,
+          p1x: sx(cmd.x1), p1y: sx(cmd.y1),
+          p2x: sx(cmd.x2), p2y: sx(cmd.y2),
+          p3x: sx(cmd.x), p3y: sx(cmd.y),
         })
-        cx = cmd.x; cy = cmd.y
+        cx = sx(cmd.x); cy = sx(cmd.y)
         break
 
       case 'Z':
@@ -157,11 +176,15 @@ export function pathToSegments(cmds: PathCmd[]): { segments: SegmentData[]; bbox
     }
   }
 
-  // Add margin to AABB
+  // Bbox is in normalized path-local units; margin is also path-local
+  // (0.1 of the unit square).
   const margin = 0.1
   return {
     segments,
-    bbox: [minX - margin, minY - margin, maxX + margin, maxY + margin],
+    bbox: [
+      minX * scale - margin, minY * scale - margin,
+      maxX * scale + margin, maxY * scale + margin,
+    ],
   }
 }
 
@@ -197,14 +220,19 @@ function starPath(points: number, outerR: number, innerR: number): string {
  *  DSL authors — they reference shapes by their bare name. */
 export const USER_SHAPE_PREFIX = 'user:'
 
+/** Built-in symbols, all authored at max(|coord|) = 1.0 so the source
+ *  matches what `pathToSegments` produces post-normalization. Editing a
+ *  built-in below ±1 here would still render correctly (the registry
+ *  normalizes), but the source would no longer self-document the
+ *  on-screen extent — keep them at ±1 for code clarity. */
 export const BUILTIN_SHAPES: Record<string, string> = {
-  square: 'M -0.75 -0.75 L 0.75 -0.75 L 0.75 0.75 L -0.75 0.75 Z',
+  square: 'M -1 -1 L 1 -1 L 1 1 L -1 1 Z',
   diamond: 'M 0 -1 L 0.7 0 L 0 1 L -0.7 0 Z',
-  triangle: 'M 0 -0.9 L 0.85 0.65 L -0.85 0.65 Z',
+  triangle: 'M 0 -1 L 0.9444 0.7222 L -0.9444 0.7222 Z',
   star: starPath(5, 1.0, 0.38),
-  cross: 'M -0.3 -0.9 L 0.3 -0.9 L 0.3 -0.3 L 0.9 -0.3 L 0.9 0.3 L 0.3 0.3 L 0.3 0.9 L -0.3 0.9 L -0.3 0.3 L -0.9 0.3 L -0.9 -0.3 L -0.3 -0.3 Z',
-  hexagon: regularPolygon(6, 0.9),
-  pentagon: regularPolygon(5, 0.9),
+  cross: 'M -0.3333 -1 L 0.3333 -1 L 0.3333 -0.3333 L 1 -0.3333 L 1 0.3333 L 0.3333 0.3333 L 0.3333 1 L -0.3333 1 L -0.3333 0.3333 L -1 0.3333 L -1 -0.3333 L -0.3333 -0.3333 Z',
+  hexagon: regularPolygon(6, 1.0),
+  pentagon: regularPolygon(5, 1.0),
 }
 
 // ═══ Shape Registry ═══

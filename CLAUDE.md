@@ -84,3 +84,4 @@ Supported: Mercator, Equirectangular, Natural Earth, Orthographic, Azimuthal Equ
 - Tests use Vitest, located at `{compiler,runtime}/src/__tests__/*.test.ts`
 - GeoJSON polygons are triangulated CPU-side using `earcut`, with edge subdivision (>3 degrees) for projection accuracy
 - The `<xgis-map>` custom element (`runtime/src/web/component.ts`) is the public web API
+- **Symbol path coords are normalized at registration**: `symbol foo { path "..." }` paths can be authored in any coordinate range; `runtime/src/engine/sdf-shape.ts:pathToSegments` scales `max(|coord|)` to 1.0 before storing. So `stroke-pattern-size-N{unit}` and point-marker `radius` consistently mean "the longest dimension renders at N units", regardless of source coords. Aspect ratio is preserved. (CSS `object-fit: contain` semantics; future Phase 2 will add an explicit `viewBox` keyword for symbols that need padding/anchor control.)
