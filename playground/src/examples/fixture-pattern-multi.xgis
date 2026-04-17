@@ -1,8 +1,10 @@
 /* Fixture: 2-slot stroke pattern stack. Slot 0 = dot, slot 1 = cross.
  * Exercises the multi-slot pattern dispatch path in the line renderer.
- * Pattern sizes must exceed the stroke width (14 px) so the SDF union
- * makes them visible outside the body. The user-defined `cross` symbol
- * shadows the built-in `cross` via the `user:` namespace. */
+ * Symbol paths can be authored in any coord range — the runtime
+ * normalizes max(|coord|) to 1.0 at registration so `size N` always
+ * means the longest dimension renders at N px on screen, regardless of
+ * how the user wrote the path. With stroke-14, sizes 18 px and 22 px
+ * extrude beyond the body and both patterns are visible. */
 symbol dot   { path "M 0 -0.5 L 0.5 0 L 0 0.5 L -0.5 0 Z" }
 symbol cross { path "M -0.6 -0.1 L 0.6 -0.1 L 0.6 0.1 L -0.6 0.1 Z M -0.1 -0.6 L 0.1 -0.6 L 0.1 0.6 L -0.1 0.6 Z" }
 source l { type: geojson, url: "fixture-line.geojson" }
