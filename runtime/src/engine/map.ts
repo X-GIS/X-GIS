@@ -1140,6 +1140,19 @@ export class XGISMap {
     this._lastSigH = this.ctx.canvas.height
     this._needsRender = false
 
+    // Tile/texture loads still in flight keep the loop warm so the scene
+    // converges. Covers three sources:
+    //   - VT tiles with unresolved placeholders (missedTiles > 0)
+    //   - VT tiles queued behind the per-frame upload budget
+    //   - raster tiles mid-fetch
+    if (totalMissed > 0 || this.rasterRenderer.hasPendingLoads()) {
+      this._needsRender = true
+    } else {
+      for (const [, { renderer }] of this.vtSources) {
+        if (renderer.hasPendingUploads()) { this._needsRender = true; break }
+      }
+    }
+
     requestAnimationFrame(this.renderLoop)
   }
 

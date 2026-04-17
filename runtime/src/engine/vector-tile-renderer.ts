@@ -49,6 +49,14 @@ interface GPUTile {
 }
 
 const MAX_GPU_TILES = 512
+/** Max tiles promoted from data cache to GPU per frame. Chosen empirically:
+ *  crossing a z-boundary produces ~16 newly-visible tiles, and uploading
+ *  them all in one frame caused ~250 ms stalls (perf-scenarios benchmark,
+ *  wb_peak 552 calls / 8.4 MB in a single frame). 3 per frame spreads the
+ *  work across ~5–6 frames → worst spike drops to <50 ms with the cache
+ *  reaching full visibility in ~100 ms. Raise if you see noticeable
+ *  "filling in" during pans on fast connections. */
+const MAX_UPLOADS_PER_FRAME = 1
 
 // ═══ Renderer ═══
 
@@ -167,11 +175,28 @@ export class VectorTileRenderer {
 
   beginFrame(): void {
     this.uniformSlot = 0
+    this._uploadBudget = MAX_UPLOADS_PER_FRAME
     // Safe to destroy rings that were grown out of last frame: by now the
     // previous frame's command buffer has been submitted and its GPU-side
     // lifetime is the device's responsibility, not the buffer handle.
     for (const b of this.retiredUniformRings) b.destroy()
     this.retiredUniformRings.length = 0
+  }
+
+  /** Per-frame upload budget. uploadTile() is expensive — it creates ~5–7
+   *  GPU buffers AND runs `buildLineSegments` (CPU) twice per tile. A LOD
+   *  boundary crossing can easily queue 16+ new tiles in a single frame;
+   *  without a cap that lands as one ~250 ms stall (measured) with a
+   *  multi-MB writeBuffer burst. Excess uploads are deferred to next
+   *  frame via `_pendingUploads`, keeping per-frame work bounded. */
+  private _uploadBudget = 3
+  private _pendingUploads: { key: number; data: TileData }[] = []
+
+  /** The outer render-on-demand loop calls this to know whether it still
+   *  needs to tick — if tiles are queued for upload the scene hasn't
+   *  actually converged yet, even though no user input is flowing. */
+  hasPendingUploads(): boolean {
+    return this._pendingUploads.length > 0
   }
 
   private allocUniformSlot(): number {
@@ -327,7 +352,39 @@ export class VectorTileRenderer {
   }
 
   /** Upload CPU tile data to GPU buffers */
+  /** Route uploads through the frame budget — uploadTile is a misnomer
+   *  kept for backwards call-sites; the real work happens in
+   *  doUploadTile once a slot is granted. Beyond the budget the tile
+   *  sits in `_pendingUploads` and picks up on subsequent frames. */
   private uploadTile(key: number, data: TileData): void {
+    if (this.gpuCache.has(key)) return
+    if (this._uploadBudget <= 0) {
+      // De-dupe: if this key is already queued, drop the duplicate —
+      // the cache check above catches re-entry of a completed upload,
+      // but a pending one still counts.
+      if (!this._pendingUploads.some(p => p.key === key)) {
+        this._pendingUploads.push({ key, data })
+      }
+      return
+    }
+    this._uploadBudget--
+    this.doUploadTile(key, data)
+  }
+
+  /** Drain as many pending uploads as fit in the remaining frame budget.
+   *  Called once per render pass just before we enumerate `neededKeys`
+   *  so newly-visible tiles get a chance at the budget even when the
+   *  queue piled up during a LOD jump. */
+  private drainPendingUploads(): void {
+    while (this._uploadBudget > 0 && this._pendingUploads.length > 0) {
+      const next = this._pendingUploads.shift()!
+      if (this.gpuCache.has(next.key)) continue
+      this._uploadBudget--
+      this.doUploadTile(next.key, next.data)
+    }
+  }
+
+  private doUploadTile(key: number, data: TileData): void {
     if (this.gpuCache.has(key)) return // already uploaded
 
     const vertexBuffer = this.device.createBuffer({
@@ -467,6 +524,10 @@ export class VectorTileRenderer {
     this._missedTiles = 0
     this.lastBindGroupLayout = bindGroupLayout
     this.ensureUniformRing()
+    // Promote pending uploads first — they're strictly older than anything
+    // this frame's tile walk will queue, so servicing them now keeps the
+    // "filling in" order correct (near-z-to-current first).
+    this.drainPendingUploads()
 
     const { centerX, centerY } = camera
     const R = 6378137
