@@ -1,6 +1,18 @@
+/* Minimal world map — one layer, one source.
+ *
+ * Uses the pre-compiled `countries.xgvt` (~8 MB v2 binary).
+ * The runtime issues HTTP Range Requests for the header + index
+ * (~50-200 KB) and then streams individual tile bodies on demand
+ * — initial paint is well under a megabyte over the network.
+ *
+ * The raw `countries.geojson` (~14 MB) parses + triangulates +
+ * subdivides on the main thread before the first frame, which on
+ * mobile blocks for several seconds and keeps subsequent on-demand
+ * sub-tile clipping expensive (every clip walks the full parent).
+ * XGVT side-steps both. */
 source world {
   type: geojson
-  url: "countries.geojson"
+  url: "countries.xgvt"
 }
 
 layer countries {
