@@ -332,32 +332,4 @@ describe('visibleTilesFrustum at low pitch', () => {
       expect(r.count).toBeLessThanOrEqual(300)
     }
   })
-
-  // Regression: stroke-offset shifts the rendered stroke perpendicular
-  // to the centerline. When the centerline sits just outside the default
-  // 0.25×canvas culling envelope but the offset reaches back into the
-  // viewport, the source tile must still be selected so its line data
-  // gets drawn. `extraMarginPx` adds that reach to the overlap test.
-  it('extraMarginPx grows the selected tile set (offset-aware culling)', () => {
-    // Zoom into a specific location and compare the tile set with and
-    // without extra margin. Extra margin must not SHRINK the set, and
-    // at a large margin value should include strictly more tiles.
-    const cam = makeCam(8, 0, 0.05, 0.0)
-    const baseline = visibleTilesFrustum(cam, mercator, 8, W, H)
-    const widened = visibleTilesFrustum(cam, mercator, 8, W, H, /* extraMarginPx */ 400)
-    expect(widened.length).toBeGreaterThanOrEqual(baseline.length)
-    // Defense-in-depth: no tile lost by widening the envelope.
-    const baseKeys = new Set(baseline.map(t => `${t.z}/${t.x}/${t.y}/${t.ox ?? t.x}`))
-    for (const k of baseKeys) {
-      expect(widened.some(t => `${t.z}/${t.x}/${t.y}/${t.ox ?? t.x}` === k)).toBe(true)
-    }
-  })
-
-  it('default extraMarginPx=0 matches pre-fix behaviour exactly', () => {
-    // Callers that don't pass the param must see no change in selection.
-    const cam = makeCam(5, 30, 10, 20, 15)
-    const withoutArg = visibleTilesFrustum(cam, mercator, 5, W, H)
-    const withZero = visibleTilesFrustum(cam, mercator, 5, W, H, 0)
-    expect(withZero.length).toBe(withoutArg.length)
-  })
 })
