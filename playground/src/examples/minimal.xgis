@@ -1,17 +1,6 @@
-/* Minimal world map — one layer, one source.
- *
- * Uses the pre-compiled Natural Earth 110m vector tiles
- * (`ne_110m_countries.xgvt`, ~570 KB). The raw 10m GeoJSON
- * (`countries.geojson`, ~14 MB) triangulates into millions of
- * vertices on load — tolerable on desktop, crushes mobile. The
- * 110m-resolution XGVT is pre-tiled + indexed, so initial load
- * is a single small binary fetch with no JSON.parse /
- * earcut / edge subdivision on the main thread.
- *
- * For the high-detail 10m look, swap in `countries.xgvt`. */
 source world {
   type: geojson
-  url: "ne_110m_countries.xgvt"
+  url: "countries.geojson"
 }
 
 layer countries {
