@@ -207,10 +207,17 @@ interface CachedTile {
   texture: GPUTexture
   lastUsedFrame: number
   firstShownFrame: number
+  // Bind group referencing this tile's texture view. Immutable after load —
+  // cached here so the hot render loop doesn't create one per tile per frame.
+  globalBG?: GPUBindGroup
 }
 
 const MAX_CACHED_TILES = 256
 const MAX_CONCURRENT_LOADS = 6
+// Cap the per-draw uniform pool so long sessions with peaks of 300+ frustum
+// tiles don't hold onto VRAM forever. The pool grows as needed up to this cap
+// and stale entries are destroyed when the cap is exceeded.
+const MAX_TILE_UNIFORM_POOL = 256
 
 export class RasterRenderer {
   private device: GPUDevice
@@ -227,8 +234,12 @@ export class RasterRenderer {
   private lastZoom = -1
 
   private urlTemplate = ''
-  // Pool of per-draw tile uniform buffers (avoids writeBuffer race with draw)
+  // Pool of per-draw tile uniform buffers (avoids writeBuffer race with draw).
+  // Each buffer has a matching pre-built bind group in `tileBindGroupPool` so
+  // the hot path never calls createBindGroup — a major frame-time win when
+  // many raster tiles are visible.
   private tileUniformPool: GPUBuffer[] = []
+  private tileBindGroupPool: GPUBindGroup[] = []
   private tileUniformIdx = 0
   private drawTileF32 = new Float32Array(12) // bounds(4) + tile_rtc(4) + merc_y(2) + pad(2)
 
@@ -299,8 +310,8 @@ export class RasterRenderer {
     if (currentZ !== this.lastZoom) {
       for (const [key, ctrl] of this.loadingTiles) {
         const tileZ = parseInt(key.split('/')[0])
-        // Keep parent tiles (lower zoom) and current zoom; abort distant zooms
-        if (tileZ !== currentZ && tileZ > currentZ) {
+        // Keep parent tiles (lower zoom) and current zoom; abort higher zooms
+        if (tileZ > currentZ) {
           ctrl.abort()
           this.loadingTiles.delete(key)
         }
@@ -322,8 +333,13 @@ export class RasterRenderer {
     // Build set of visible tile keys for this frame
     const visibleKeys = new Set(tiles.map(c => `${c.z}/${c.x}/${c.y}`))
 
-    // Load missing tiles (async, with concurrency limit and priority)
-    for (const coord of tiles) {
+    // Load missing tiles — iterate in reverse zoom order so leaf (near/high-z)
+    // tiles consume the limited concurrency budget first. The draw sort above
+    // is ASC (background → foreground), which means foreground tiles sit at
+    // the end; requesting in draw order starved the actual visible leaves
+    // under pitched/mixed-LOD views, leaving blurry parent fallback instead.
+    const loadOrder = [...tiles].sort((a, b) => b.z - a.z)
+    for (const coord of loadOrder) {
       const key = `${coord.z}/${coord.x}/${coord.y}`
       if (this.tileCache.has(key) || this.loadingTiles.has(key)) continue
       if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break // respect concurrency limit
@@ -401,13 +417,22 @@ export class RasterRenderer {
 
       cached.lastUsedFrame = this.frameCount
 
-      // Get or create a pooled uniform buffer for this draw
+      // Get or create a pooled uniform buffer + matching bind group for this
+      // draw. The bind group is pre-built 1:1 with the buffer so the hot loop
+      // skips createBindGroup entirely.
       if (this.tileUniformIdx >= this.tileUniformPool.length) {
-        this.tileUniformPool.push(this.device.createBuffer({
+        const buf = this.device.createBuffer({
           size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        })
+        this.tileUniformPool.push(buf)
+        this.tileBindGroupPool.push(this.device.createBindGroup({
+          layout: this.tileBindGroupLayout,
+          entries: [{ binding: 0, resource: { buffer: buf } }],
         }))
       }
-      const tileBuf = this.tileUniformPool[this.tileUniformIdx++]
+      const tileBuf = this.tileUniformPool[this.tileUniformIdx]
+      const tileBG = this.tileBindGroupPool[this.tileUniformIdx]
+      this.tileUniformIdx++
 
       // Compute bounds: use fallback tile's coordinates if using parent
       const renderCoord = isFallback ? fallbackCoord : coord
@@ -451,23 +476,40 @@ export class RasterRenderer {
       tf[10] = 0; tf[11] = 0   // padding
       this.device.queue.writeBuffer(tileBuf, 0, tf)
 
-      const tileBG = this.device.createBindGroup({
-        layout: this.tileBindGroupLayout,
-        entries: [{ binding: 0, resource: { buffer: tileBuf } }],
-      })
+      // Per-tile global bind group: immutable after load because the texture
+      // view and sampler are stable for the tile's lifetime. Cached on the
+      // CachedTile entry so repeated frames reuse the same GPU binding.
+      if (!cached.globalBG) {
+        cached.globalBG = this.device.createBindGroup({
+          layout: this.globalBindGroupLayout,
+          entries: [
+            { binding: 0, resource: { buffer: this.uniformBuffer } },
+            { binding: 1, resource: cached.texture.createView() },
+            { binding: 2, resource: this.sampler },
+          ],
+        })
+      }
 
-      const globalBG = this.device.createBindGroup({
-        layout: this.globalBindGroupLayout,
-        entries: [
-          { binding: 0, resource: { buffer: this.uniformBuffer } },
-          { binding: 1, resource: cached.texture.createView() },
-          { binding: 2, resource: this.sampler },
-        ],
-      })
-
-      pass.setBindGroup(0, globalBG)
+      pass.setBindGroup(0, cached.globalBG)
       pass.setBindGroup(1, tileBG)
       pass.draw(384) // 8×8 grid × 6 verts/cell
+    }
+
+    // Evict stale tiles whenever the visible set shrinks (pan/zoom out), not
+    // only when a new tile finishes loading. Without this, a pan-out leaves
+    // hundreds of off-screen textures resident until the next load completes.
+    this.evictTiles(visibleKeys)
+
+    // Shrink the uniform pool back toward MAX_TILE_UNIFORM_POOL if a previous
+    // peak (e.g. extreme pitch) grew it beyond the cap. Only trim the tail
+    // past what we used this frame so active draws aren't disturbed.
+    if (this.tileUniformPool.length > MAX_TILE_UNIFORM_POOL
+        && this.tileUniformIdx <= MAX_TILE_UNIFORM_POOL) {
+      for (let i = this.tileUniformPool.length - 1; i >= MAX_TILE_UNIFORM_POOL; i--) {
+        this.tileUniformPool[i].destroy()
+      }
+      this.tileUniformPool.length = MAX_TILE_UNIFORM_POOL
+      this.tileBindGroupPool.length = MAX_TILE_UNIFORM_POOL
     }
   }
 
