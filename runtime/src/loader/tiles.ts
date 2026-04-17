@@ -106,21 +106,13 @@ const MAX_FRUSTUM_TILES = IS_MOBILE ? 120 : 300
 
 /** Quadtree-based visible tile selection.
  *  Recursively subdivides from z=0, using screen-space tile size to determine LOD.
- *  Near tiles get high zoom, far tiles get low zoom — natural perspective LOD.
- *
- *  `extraMarginPx` widens the "overlaps viewport" test so tiles whose
- *  centerline data is off-screen but whose RENDERED geometry reaches
- *  back into the viewport (e.g. via stroke-offset) are still selected.
- *  Callers compute the needed margin from layer state (max
- *  stroke-offset + half stroke-width) and pass it in; default 0
- *  preserves the existing culling envelope. */
+ *  Near tiles get high zoom, far tiles get low zoom — natural perspective LOD. */
 export function visibleTilesFrustum(
   camera: Camera,
   _projection: Projection,
   maxZ: number,
   canvasWidth: number,
   canvasHeight: number,
-  extraMarginPx: number = 0,
 ): TileCoord[] {
   const DEG2RAD = Math.PI / 180
   const R = 6378137
@@ -214,11 +206,8 @@ export function visibleTilesFrustum(
     // is a reliable cull signal; partial behind is still handled below.)
     if (validCount === 0) return -1
 
-    // Generous margin for partially-visible tiles, plus any
-    // caller-supplied extra margin (e.g. max stroke-offset) so tiles
-    // whose data sits outside the strict viewport but whose RENDERED
-    // geometry reaches in via offset are still selected.
-    const margin = Math.max(canvasWidth, canvasHeight) * 0.25 + Math.max(0, extraMarginPx)
+    // Generous margin for partially-visible tiles
+    const margin = Math.max(canvasWidth, canvasHeight) * 0.25
     const overlapsViewport =
       sxMax >= -margin && sxMin <= canvasWidth + margin &&
       syMax >= -margin && syMin <= canvasHeight + margin
