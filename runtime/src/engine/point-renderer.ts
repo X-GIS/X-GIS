@@ -847,6 +847,17 @@ export class PointRenderer {
     const STRIDE = 14
     // WORLD_COPIES imported from gpu-shared
 
+    // View-forward projection onto the ground plane, used to sort
+    // translucent instances back-to-front. Pitch=0 gives a zero vector
+    // (no in-plane forward component — everything ties), so the sort
+    // becomes a no-op there; non-zero pitch orders so far points render
+    // first. This matches painter's-algorithm expectations for alpha
+    // blending across overlapping markers.
+    const bearingRad = camera.bearing * DEG2RAD
+    const pitchRad = camera.pitch * DEG2RAD
+    const fwdX = Math.sin(bearingRad) * Math.sin(pitchRad)
+    const fwdY = -Math.cos(bearingRad) * Math.sin(pitchRad)
+
     // Per-layer buffer upload — runs once per layer regardless of which
     // draw phase the layer belongs to.
     const uploadLayer = (layer: PointLayer): number => {
@@ -856,6 +867,13 @@ export class PointRenderer {
       const expandedVerts = new Float32Array(totalPoints * 4 * 4)
       const expandedIdx = new Uint32Array(totalPoints * 6)
       const u32Verts = new Uint32Array(expandedVerts.buffer)
+
+      // Pre-compute each instance's view-forward depth so we can write
+      // the index buffer in back-to-front order. Only translucent layers
+      // actually need this (opaque depth-test handles occlusion); for
+      // opaque we skip the sort and keep feature-index order.
+      const depths = layer.isTranslucent ? new Float32Array(totalPoints) : null
+      const order = layer.isTranslucent ? new Uint32Array(totalPoints) : null
 
       for (let w = 0; w < WORLD_COPIES.length; w++) {
         const worldOff = WORLD_COPIES[w] * WORLD_MERC
@@ -890,8 +908,27 @@ export class PointRenderer {
             expandedVerts[off + 3] = globalIdx // feat_id indexes into expanded buffer
           }
 
-          // Build indices
-          const iBase = globalIdx * 6
+          if (depths && order) {
+            depths[globalIdx] = dx * fwdX + dy * fwdY
+            order[globalIdx] = globalIdx
+          } else {
+            // Feature-order indices for opaque layers.
+            const iBase = globalIdx * 6
+            const vIdx = globalIdx * 4
+            expandedIdx[iBase] = vIdx; expandedIdx[iBase + 1] = vIdx + 1; expandedIdx[iBase + 2] = vIdx + 2
+            expandedIdx[iBase + 3] = vIdx; expandedIdx[iBase + 4] = vIdx + 2; expandedIdx[iBase + 5] = vIdx + 3
+          }
+        }
+      }
+
+      // Back-to-front: larger depth first. Sorted order[p] gives the
+      // globalIdx to emit at draw position p.
+      if (depths && order) {
+        const arr = Array.from(order)
+        arr.sort((a, b) => depths[b] - depths[a])
+        for (let p = 0; p < totalPoints; p++) {
+          const globalIdx = arr[p]
+          const iBase = p * 6
           const vIdx = globalIdx * 4
           expandedIdx[iBase] = vIdx; expandedIdx[iBase + 1] = vIdx + 1; expandedIdx[iBase + 2] = vIdx + 2
           expandedIdx[iBase + 3] = vIdx; expandedIdx[iBase + 4] = vIdx + 2; expandedIdx[iBase + 5] = vIdx + 3
