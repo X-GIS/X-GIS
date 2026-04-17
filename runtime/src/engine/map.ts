@@ -772,14 +772,30 @@ export class XGISMap {
     // Zoom 22 is a universal cap across every source.
     this.camera.maxZoom = 22
 
-    // Clamp camera Y (latitude bounded), X wraps freely (world repeat)
+    // Clamp camera Y (latitude bounded), wrap X to a single world.
     const MAX_MERC = 20037508.34
+    const WORLD_MERC_FULL = MAX_MERC * 2 // full circumference
     const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, MAX_DPR) : 1
     const mpp = (40075016.686 / 256) / Math.pow(2, this.camera.zoom)
     const visHalfY = (h / dpr) * mpp / 2
     const maxY = Math.max(0, MAX_MERC - visHalfY)
-    // X: free movement (world wrapping) — no clamping
     this.camera.centerY = Math.max(-maxY, Math.min(maxY, this.camera.centerY))
+
+    // X wrap — camera is allowed to pan infinitely in either direction, but
+    // the renderer's world-copy enumeration (`WORLD_COPIES = [-2..+2]`) is
+    // expressed as a STATIC offset from the camera's primary world. If
+    // camera.centerX drifts outside `[-MAX_MERC, +MAX_MERC]` the outer
+    // copies on one side fall off the quadtree's `ox` guard (tiles.ts)
+    // while the other side is empty, producing a visible "window" of map
+    // inside a black background when panning past ±360° lon. Wrap back
+    // into one world so the WORLD_COPIES math is always correct.
+    if (this.camera.centerX > MAX_MERC) {
+      const over = this.camera.centerX + MAX_MERC
+      this.camera.centerX = ((over % WORLD_MERC_FULL) + WORLD_MERC_FULL) % WORLD_MERC_FULL - MAX_MERC
+    } else if (this.camera.centerX < -MAX_MERC) {
+      const under = this.camera.centerX + MAX_MERC
+      this.camera.centerX = ((under % WORLD_MERC_FULL) + WORLD_MERC_FULL) % WORLD_MERC_FULL - MAX_MERC
+    }
 
     // RTC: Camera center IS projection center. Always.
     const R = 6378137
