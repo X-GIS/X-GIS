@@ -867,4 +867,266 @@ describe('buildLineSegments', () => {
       expect(pad).toBeGreaterThan(0)
     })
   })
+
+  // ── fs_line compute_line_color ported — the whisker-walk reference ──
+  // Line-by-line TS port of line-renderer.ts:1135-1432 for a single
+  // fragment. Returns the final d_m plus a string tag naming the code
+  // path that set it — the same palette the plan's Stage 2 debug shader
+  // would paint. `roundJoinDM` is the only thing unit tests need to
+  // satisfy to prove "no fragment on the outer bisector at r > half_w
+  // ends up with d_m <= 0".
+  describe('fs_line round join — ported math', () => {
+    type V2 = readonly [number, number]
+    const perp = (v: V2): V2 => [-v[1], v[0]]
+    const dot = (a: V2, b: V2) => a[0] * b[0] + a[1] * b[1]
+    const add = (a: V2, b: V2): V2 => [a[0] + b[0], a[1] + b[1]]
+    const sub = (a: V2, b: V2): V2 => [a[0] - b[0], a[1] - b[1]]
+    const mul = (a: V2, s: number): V2 => [a[0] * s, a[1] * s]
+    const len = (v: V2) => Math.hypot(v[0], v[1])
+
+    type Join = 'MITER' | 'ROUND' | 'BEVEL'
+
+    // Ports line-renderer.ts:1135-1432 for a single fragment. prevTan ==
+    // (0,0) ⇒ cap at p0; nextTan == (0,0) ⇒ cap at p1. offset_m sign
+    // matches the shader convention (stroke-outset uses -halfW on our
+    // CCW polygon fixture).
+    function roundJoinDM(
+      p: V2, p0: V2, p1: V2,
+      prevTan: V2, nextTan: V2,
+      halfW: number, offsetM: number, miterLimit: number,
+      joinType: Join,
+    ): { dM: number; branch: string } {
+      const dir: V2 = (() => {
+        const d = sub(p1, p0)
+        const L = len(d)
+        return L > 1e-9 ? [d[0] / L, d[1] / L] : [1, 0]
+      })()
+      const nrmLine: V2 = perp(dir)
+      const signedPerp = dot(sub(p, p0), nrmLine)
+      const perpM = Math.abs(signedPerp - offsetM)
+      const bodyD = perpM - halfW
+
+      const hasPrev = len(prevTan) > 0.001
+      const hasNext = len(nextTan) > 0.001
+
+      // Offset miter vertices (1151-1159).
+      const nrmPrevOff: V2 = perp(prevTan)
+      const miterVecP0: V2 = add(nrmLine, nrmPrevOff)
+      const projP0 = dot(miterVecP0, nrmLine)
+      const p0JoinCenter: V2 = add(p0, mul(miterVecP0, offsetM / Math.max(projP0, 1e-4)))
+
+      const nrmNextOff: V2 = perp(nextTan)
+      const miterVecP1: V2 = add(nrmLine, nrmNextOff)
+      const projP1 = dot(miterVecP1, nrmLine)
+      const p1JoinCenter: V2 = add(p1, mul(miterVecP1, offsetM / Math.max(projP1, 1e-4)))
+
+      const distP0 = -dot(sub(p, p0), dir)
+      const distP1 = dot(sub(p, p1), dir)
+
+      let dM = bodyD
+      let branch = 'body'
+
+      // Bisector clip p0 (1221-1244) — only fires when hasPrev.
+      if (hasPrev) {
+        const bisP0: V2 = add(prevTan, dir)
+        const bisLenP0 = len(bisP0)
+        if (bisLenP0 > 1e-6) {
+          const bisUnitP0: V2 = mul(bisP0, 1 / bisLenP0)
+          const alongP0 = dot(sub(p, p0JoinCenter), bisUnitP0)
+          if (alongP0 < 0) {
+            const newDM = Math.max(dM, -alongP0)
+            if (newDM !== dM) { dM = newDM; branch = 'bisector_p0_prev_side' }
+          }
+        }
+        // Bevel-edge clip at p0 (1257-1280).
+        const crossP0Mag = Math.abs(prevTan[0] * dir[1] - prevTan[1] * dir[0])
+        const bisMagP0 = len(add(prevTan, dir))
+        const miterOverP0 = bisMagP0 > miterLimit * crossP0Mag
+        const applyBevelP0 = joinType === 'BEVEL' || (joinType === 'MITER' && miterOverP0)
+        if (applyBevelP0) {
+          const prevNrm: V2 = perp(prevTan)
+          const crossP0 = prevTan[0] * dir[1] - prevTan[1] * dir[0]
+          if (Math.abs(crossP0) > 1e-6) {
+            const s0 = -Math.sign(crossP0)
+            const oc0 = add(p0, mul(prevNrm, offsetM + halfW * s0))
+            const on0 = add(p0, mul(nrmLine, offsetM + halfW * s0))
+            const be0 = sub(on0, oc0)
+            const bl0 = len(be0)
+            if (bl0 > 1e-6) {
+              const bd0: V2 = mul(be0, 1 / bl0)
+              const bo0: V2 = mul(perp(bd0), s0)
+              const bclip0 = dot(sub(p, oc0), bo0)
+              if (bclip0 > 0) {
+                const newDM = Math.max(dM, bclip0)
+                if (newDM !== dM) { dM = newDM; branch = 'bevel_p0' }
+              }
+            }
+          }
+        }
+      }
+
+      // Bisector clip p1 (1282-1318).
+      if (hasNext) {
+        const bisP1: V2 = add(dir, nextTan)
+        const bisLenP1 = len(bisP1)
+        if (bisLenP1 > 1e-6) {
+          const bisUnitP1: V2 = mul(bisP1, 1 / bisLenP1)
+          const alongP1 = dot(sub(p, p1JoinCenter), bisUnitP1)
+          if (alongP1 > 0) {
+            const newDM = Math.max(dM, alongP1)
+            if (newDM !== dM) { dM = newDM; branch = 'bisector_p1_next_side' }
+          }
+        }
+        const crossP1Mag = Math.abs(dir[0] * nextTan[1] - dir[1] * nextTan[0])
+        const bisMagP1 = len(add(dir, nextTan))
+        const miterOverP1 = bisMagP1 > miterLimit * crossP1Mag
+        const applyBevelP1 = joinType === 'BEVEL' || (joinType === 'MITER' && miterOverP1)
+        if (applyBevelP1) {
+          const nextNrmBv: V2 = perp(nextTan)
+          const crossP1 = dir[0] * nextTan[1] - dir[1] * nextTan[0]
+          if (Math.abs(crossP1) > 1e-6) {
+            const s1 = -Math.sign(crossP1)
+            const oc1 = add(p1, mul(nrmLine, offsetM + halfW * s1))
+            const on1 = add(p1, mul(nextNrmBv, offsetM + halfW * s1))
+            const be1 = sub(on1, oc1)
+            const bl1 = len(be1)
+            if (bl1 > 1e-6) {
+              const bd1: V2 = mul(be1, 1 / bl1)
+              const bo1: V2 = mul(perp(bd1), s1)
+              const bclip1 = dot(sub(p, oc1), bo1)
+              if (bclip1 > 0) {
+                const newDM = Math.max(dM, bclip1)
+                if (newDM !== dM) { dM = newDM; branch = 'bevel_p1' }
+              }
+            }
+          }
+        }
+      }
+
+      // p0 cap / join (1321-1377).
+      if (!hasPrev) {
+        // caps not interesting for the whisker test — skip
+      } else if (joinType === 'ROUND' && distP0 > 0) {
+        const bisP0J: V2 = add(prevTan, dir)
+        const bisLenJ = len(bisP0J)
+        if (bisLenJ > 1e-6) {
+          const bisUnitJ: V2 = mul(bisP0J, 1 / bisLenJ)
+          const alongJ = dot(sub(p, p0JoinCenter), bisUnitJ)
+          if (alongJ >= 0) {
+            dM = len(sub(p, p0JoinCenter)) - halfW
+            branch = 'round_p0_replace'
+          }
+        }
+      }
+
+      // p1 cap / join (1380-1431).
+      if (!hasNext) {
+        // caps not interesting
+      } else if (joinType === 'ROUND' && distP1 > 0) {
+        const bisP1J: V2 = add(dir, nextTan)
+        const bisLenJ = len(bisP1J)
+        if (bisLenJ > 1e-6) {
+          const bisUnitJ: V2 = mul(bisP1J, 1 / bisLenJ)
+          const alongJ = dot(sub(p, p1JoinCenter), bisUnitJ)
+          if (alongJ <= 0) {
+            dM = len(sub(p, p1JoinCenter)) - halfW
+            branch = 'round_p1_replace'
+          }
+        }
+      }
+
+      return { dM, branch }
+    }
+
+    // Geometry: 90° CCW left turn at origin. e0 goes east from (-L,0)
+    // to (0,0). e1 continues from (0,0) north to (0,L). For stroke-
+    // outset on a CCW polygon, offset_m = -halfW in the shader's
+    // signed_perp convention — pushes stroke to the RIGHT of motion =
+    // SOUTH for e0 = exterior of the polygon. Offset miter vertex at
+    // +halfW east, -halfW south of origin: (halfW, -halfW).
+    const L = 100
+    const halfW = 5
+    const offsetM = -halfW
+    const miterLimit = 4
+    const e0P0: V2 = [-L, 0]
+    const e0P1: V2 = [0, 0]
+    const e1P0: V2 = [0, 0]
+    const e1P1: V2 = [0, L]
+    const e0Prev: V2 = [0, 0]          // e0 is line start, cap at p0
+    const e0Next: V2 = [0, 1]          // next seg direction
+    const e1Prev: V2 = [1, 0]          // prev seg direction
+    const e1Next: V2 = [0, 0]          // e1 is line end, cap at p1
+    const miterVertex: V2 = [halfW, -halfW]
+
+    // Whisker lives on the outer bisector (SE direction for this turn).
+    // The inner bisector (along_j = 0 line) passes through the miter
+    // vertex in the SW→NE direction; SE is perpendicular to it ⇒ any
+    // SE fragment has along_j == 0 exactly.
+    const seUnit: V2 = [1 / Math.SQRT2, -1 / Math.SQRT2]
+
+    const probeAt = (r: number) => {
+      const p: V2 = add(miterVertex, mul(seUnit, r))
+      const seg0 = roundJoinDM(p, e0P0, e0P1, e0Prev, e0Next, halfW, offsetM, miterLimit, 'ROUND')
+      const seg1 = roundJoinDM(p, e1P0, e1P1, e1Prev, e1Next, halfW, offsetM, miterLimit, 'ROUND')
+      return { p, seg0, seg1 }
+    }
+
+    it('at r = 0.9 × halfW on outer bisector both segments agree (inside circle)', () => {
+      const { seg0, seg1 } = probeAt(halfW * 0.9)
+      expect(seg0.dM).toBeLessThan(0)
+      expect(seg1.dM).toBeLessThan(0)
+      expect(seg0.branch).toBe('round_p1_replace') // e0 owns its p1
+      expect(seg1.branch).toBe('round_p0_replace') // e1 owns its p0
+      // Inclusive-inclusive contract: both replace with identical circle_d.
+      expect(Math.abs(seg0.dM - seg1.dM)).toBeLessThan(1e-6)
+    })
+
+    it('WHISKER WALK — every pixel at r = 1.3 × halfW on outer bisector is discarded', () => {
+      // The bug: at r > halfW past the miter vertex, the pixel should
+      // be outside the round-join circle. If either segment returns
+      // dM < 0, the whisker is drawn (and the round-join replace
+      // protocol is broken).
+      const r = halfW * 1.3
+      const { p, seg0, seg1 } = probeAt(r)
+      // eslint-disable-next-line no-console
+      console.log('whisker probe at r=1.3×halfW:', { p, seg0, seg1 })
+      expect(seg0.dM).toBeGreaterThan(0)
+      expect(seg1.dM).toBeGreaterThan(0)
+    })
+
+    it('exterior-arc scan at r = 1.3 × halfW — no whisker past the round-join radius', () => {
+      // Only scan angles where BOTH segments consider the fragment to
+      // be "past" their corner endpoint (distP1 > 0 for e0, distP0 > 0
+      // for e1). That's the geometric definition of the corner's
+      // exterior region — inside segment bodies is legitimate body
+      // coverage, not a whisker, and must not trigger the assertion.
+      const r = halfW * 1.3
+      const leaks: Array<{ theta: number; seg: string; branch: string; dM: number }> = []
+      let probed = 0
+      for (let deg = 0; deg < 360; deg += 1) {
+        const theta = (deg * Math.PI) / 180
+        const dirVec: V2 = [Math.cos(theta), Math.sin(theta)]
+        const p: V2 = add(miterVertex, mul(dirVec, r))
+        // Gate: fragment must be past e0's p1 AND past e1's p0 to be in
+        // the exterior round-join region.
+        const e0Dir: V2 = [1, 0]
+        const e1Dir: V2 = [0, 1]
+        const distP1e0 = dot(sub(p, e0P1), e0Dir)
+        const distP0e1 = -dot(sub(p, e1P0), e1Dir)
+        if (distP1e0 <= 0 || distP0e1 <= 0) continue
+        probed++
+        const seg0 = roundJoinDM(p, e0P0, e0P1, e0Prev, e0Next, halfW, offsetM, miterLimit, 'ROUND')
+        const seg1 = roundJoinDM(p, e1P0, e1P1, e1Prev, e1Next, halfW, offsetM, miterLimit, 'ROUND')
+        if (seg0.dM <= 0) leaks.push({ theta: deg, seg: 'e0', branch: seg0.branch, dM: seg0.dM })
+        if (seg1.dM <= 0) leaks.push({ theta: deg, seg: 'e1', branch: seg1.branch, dM: seg1.dM })
+      }
+      // eslint-disable-next-line no-console
+      console.log(`probed ${probed} exterior angles; leaks=${leaks.length}`)
+      if (leaks.length > 0) {
+        // eslint-disable-next-line no-console
+        console.log('whisker leaks:', leaks.slice(0, 20))
+      }
+      expect(leaks).toEqual([])
+    })
+  })
 })
