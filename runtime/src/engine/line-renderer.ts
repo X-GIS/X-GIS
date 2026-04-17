@@ -84,14 +84,35 @@ export const LINE_JOIN_MITER = 0
 export const LINE_JOIN_ROUND = 1
 export const LINE_JOIN_BEVEL = 2
 
+/** Feature-present bit masks for the layer uniform's `flags` word. The
+ *  fragment shader gates its optional work (pattern stack, offset join
+ *  math) on these so that simple stroke layers — the common case on
+ *  mobile — don't pay for code paths that contribute nothing to the
+ *  output. Bit layout mirrored in the WGSL preamble via `LINE_FLAG_*`
+ *  constants so the TS and GPU sides stay in sync. */
+export const LINE_FLAG_HAS_PATTERN = 1 << 6
+export const LINE_FLAG_HAS_OFFSET = 1 << 7
+
 /**
  * Pack flags:
  *   bits 0-2: cap (butt/round/square/arrow) — 3 bits
  *   bits 3-4: join (miter/round/bevel)
  *   bit 5: dash_enable
+ *   bit 6: has_pattern (any of patterns[k].shapeId > 0)
+ *   bit 7: has_offset  (abs offset_m > 0)
  */
-function packFlags(cap: number, join: number, dashEnable: boolean): number {
-  return (cap & 7) | ((join & 3) << 3) | (dashEnable ? 1 << 5 : 0)
+function packFlags(
+  cap: number,
+  join: number,
+  dashEnable: boolean,
+  hasPattern: boolean,
+  hasOffset: boolean,
+): number {
+  return (cap & 7) |
+    ((join & 3) << 3) |
+    (dashEnable ? 1 << 5 : 0) |
+    (hasPattern ? LINE_FLAG_HAS_PATTERN : 0) |
+    (hasOffset ? LINE_FLAG_HAS_OFFSET : 0)
 }
 
 export interface DashConfig {
@@ -226,7 +247,9 @@ export function packLineLayerUniform(
     dashOffset = dash.offset ?? 0
   }
 
-  u32[8] = packFlags(cap, join, dashCount > 0)
+  const hasPattern = patterns.some(p => !!p && p.shapeId > 0)
+  const hasOffset = Math.abs(offsetPx) > 0
+  u32[8] = packFlags(cap, join, dashCount > 0, hasPattern, hasOffset)
   u32[9] = dashCount
   buf[10] = dashCycle
   buf[11] = dashOffset
@@ -755,6 +778,13 @@ const JOIN_MITER: u32 = 0u;
 const JOIN_ROUND: u32 = 1u;
 const JOIN_BEVEL: u32 = 2u;
 
+// Feature-present flag bits (mirror LINE_FLAG_* in TS). Fragment shader
+// gates pattern-stack and offset-only math on these so simple strokes
+// (no pattern / no offset — the common case) skip hundreds of ops per
+// fragment on mobile.
+const LINE_FLAG_HAS_PATTERN: u32 = 64u;  // 1 << 6
+const LINE_FLAG_HAS_OFFSET:  u32 = 128u; // 1 << 7
+
 const PAT_UNIT_M:  u32 = 0u;
 const PAT_UNIT_PX: u32 = 1u;
 const PAT_UNIT_KM: u32 = 2u;
@@ -884,15 +914,18 @@ fn vs_line(
 
   // Pattern extent: if any slot is active, expand both along and across so
   // that pattern instances near segment edges aren't clipped by the quad.
+  // Gated on LINE_FLAG_HAS_PATTERN so plain strokes skip the scan entirely.
   var pat_extent_m = 0.0;
-  for (var pk = 0u; pk < 3u; pk = pk + 1u) {
-    let pat = layer.patterns[pk];
-    if (pat.id == 0u) { continue; }
-    let sz_unit = (pat.flags >> 2u) & 3u;
-    let off_unit = (pat.flags >> 4u) & 3u;
-    let size_m = pattern_unit_to_m(pat.size, sz_unit, layer.mpp);
-    let off_m = abs(pattern_unit_to_m(pat.offset, off_unit, layer.mpp));
-    pat_extent_m = max(pat_extent_m, size_m * 0.5 + off_m);
+  if ((layer.flags & LINE_FLAG_HAS_PATTERN) != 0u) {
+    for (var pk = 0u; pk < 3u; pk = pk + 1u) {
+      let pat = layer.patterns[pk];
+      if (pat.id == 0u) { continue; }
+      let sz_unit = (pat.flags >> 2u) & 3u;
+      let off_unit = (pat.flags >> 4u) & 3u;
+      let size_m = pattern_unit_to_m(pat.size, sz_unit, layer.mpp);
+      let off_m = abs(pattern_unit_to_m(pat.offset, off_unit, layer.mpp));
+      pat_extent_m = max(pat_extent_m, size_m * 0.5 + off_m);
+    }
   }
   // Arrow cap extends 4×half_w past each endpoint.
   let cap_type_vs = layer.flags & 7u;
@@ -1101,14 +1134,16 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
   // (no cap/join needed) contribute nothing — skip the full ~90-branch body
   // below. Keeps the body, caps, joins, dashes, and patterns all intact.
   var pat_extent_fs = 0.0;
-  for (var pk_fs = 0u; pk_fs < 3u; pk_fs = pk_fs + 1u) {
-    let pat_fs = layer.patterns[pk_fs];
-    if (pat_fs.id == 0u) { continue; }
-    let sz_unit_fs = (pat_fs.flags >> 2u) & 3u;
-    let off_unit_fs = (pat_fs.flags >> 4u) & 3u;
-    let size_m_fs = pattern_unit_to_m(pat_fs.size, sz_unit_fs, layer.mpp);
-    let off_m_fs = abs(pattern_unit_to_m(pat_fs.offset, off_unit_fs, layer.mpp));
-    pat_extent_fs = max(pat_extent_fs, size_m_fs * 0.5 + off_m_fs);
+  if ((layer.flags & LINE_FLAG_HAS_PATTERN) != 0u) {
+    for (var pk_fs = 0u; pk_fs < 3u; pk_fs = pk_fs + 1u) {
+      let pat_fs = layer.patterns[pk_fs];
+      if (pat_fs.id == 0u) { continue; }
+      let sz_unit_fs = (pat_fs.flags >> 2u) & 3u;
+      let off_unit_fs = (pat_fs.flags >> 4u) & 3u;
+      let size_m_fs = pattern_unit_to_m(pat_fs.size, sz_unit_fs, layer.mpp);
+      let off_m_fs = abs(pattern_unit_to_m(pat_fs.offset, off_unit_fs, layer.mpp));
+      pat_extent_fs = max(pat_extent_fs, size_m_fs * 0.5 + off_m_fs);
+    }
   }
   let aa_margin_m = 2.0 * layer.aa_width_px * layer.mpp;
   let early_perp_thresh = max(half_w_m, pat_extent_fs) + aa_margin_m;
@@ -1346,67 +1381,69 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
   // arc, then sample sdf_shape in that instance's local (-1..1) uv frame.
   // The minimum of all pattern SDFs is unioned with the line body.
   var pat_d_m: f32 = 1e10;
-  for (var k: u32 = 0u; k < 3u; k = k + 1u) {
-    let pat = layer.patterns[k];
-    if (pat.id == 0u) { continue; }
+  if ((layer.flags & LINE_FLAG_HAS_PATTERN) != 0u) {
+    for (var k: u32 = 0u; k < 3u; k = k + 1u) {
+      let pat = layer.patterns[k];
+      if (pat.id == 0u) { continue; }
 
-    let sp_unit = pat.flags & 3u;
-    let sz_unit = (pat.flags >> 2u) & 3u;
-    let of_unit = (pat.flags >> 4u) & 3u;
-    let anchor = (pat.flags >> 6u) & 3u;
-    let spacing_m = max(pattern_unit_to_m(pat.spacing, sp_unit, layer.mpp), 1e-3);
-    let size_m = max(pattern_unit_to_m(pat.size, sz_unit, layer.mpp), 1e-3);
-    let off_m = pattern_unit_to_m(pat.offset, of_unit, layer.mpp);
-    let start_m = pat.start_offset;
-    let half_s = size_m * 0.5;
+      let sp_unit = pat.flags & 3u;
+      let sz_unit = (pat.flags >> 2u) & 3u;
+      let of_unit = (pat.flags >> 4u) & 3u;
+      let anchor = (pat.flags >> 6u) & 3u;
+      let spacing_m = max(pattern_unit_to_m(pat.spacing, sp_unit, layer.mpp), 1e-3);
+      let size_m = max(pattern_unit_to_m(pat.size, sz_unit, layer.mpp), 1e-3);
+      let off_m = pattern_unit_to_m(pat.offset, of_unit, layer.mpp);
+      let start_m = pat.start_offset;
+      let half_s = size_m * 0.5;
 
-    if (anchor == PAT_ANCHOR_REPEAT) {
-      // Sample the nearest instance plus both neighbors so that size > spacing
-      // overlap works correctly (union of adjacent SDFs). Early-outs via the
-      // arc-range and |local| checks keep cost ~1x for the common case
-      // size << spacing, because dk=-1/+1 trivially continue.
-      let k_center = floor((arc_pos - start_m) / spacing_m + 0.5);
-      for (var dk: i32 = -1; dk <= 1; dk = dk + 1) {
-        let center_arc_k = (k_center + f32(dk)) * spacing_m + start_m;
-        let arc_on_seg_k = center_arc_k - seg.arc_start;
-        if (arc_on_seg_k < -half_s * 2.0 || arc_on_seg_k > seg_len + half_s * 2.0) { continue; }
-        let center_world_k = p0 + dir * arc_on_seg_k;
-        let local_k = vec2<f32>(
-          dot(p - center_world_k, dir) / half_s,
-          (dot(p - center_world_k, nrm_fs) - off_m) / half_s,
-        );
-        if (abs(local_k.x) > 1.2 || abs(local_k.y) > 1.2) { continue; }
-        let shape_v_k = sdf_shape(local_k, pat.id - 1u);
-        let pd_k = (shape_v_k - 1.0) * half_s;
-        pat_d_m = min(pat_d_m, pd_k);
+      if (anchor == PAT_ANCHOR_REPEAT) {
+        // Sample the nearest instance plus both neighbors so that size > spacing
+        // overlap works correctly (union of adjacent SDFs). Early-outs via the
+        // arc-range and |local| checks keep cost ~1x for the common case
+        // size << spacing, because dk=-1/+1 trivially continue.
+        let k_center = floor((arc_pos - start_m) / spacing_m + 0.5);
+        for (var dk: i32 = -1; dk <= 1; dk = dk + 1) {
+          let center_arc_k = (k_center + f32(dk)) * spacing_m + start_m;
+          let arc_on_seg_k = center_arc_k - seg.arc_start;
+          if (arc_on_seg_k < -half_s * 2.0 || arc_on_seg_k > seg_len + half_s * 2.0) { continue; }
+          let center_world_k = p0 + dir * arc_on_seg_k;
+          let local_k = vec2<f32>(
+            dot(p - center_world_k, dir) / half_s,
+            (dot(p - center_world_k, nrm_fs) - off_m) / half_s,
+          );
+          if (abs(local_k.x) > 1.2 || abs(local_k.y) > 1.2) { continue; }
+          let shape_v_k = sdf_shape(local_k, pat.id - 1u);
+          let pd_k = (shape_v_k - 1.0) * half_s;
+          pat_d_m = min(pat_d_m, pd_k);
+        }
+        continue;
       }
-      continue;
+
+      // START / END / CENTER — single instance
+      var center_arc: f32;
+      if (anchor == PAT_ANCHOR_START) {
+        center_arc = start_m;
+      } else if (anchor == PAT_ANCHOR_END) {
+        center_arc = seg.line_length - start_m;
+      } else {
+        center_arc = seg.line_length * 0.5;
+      }
+
+      // Transform to segment-local coords
+      let arc_on_seg = center_arc - seg.arc_start;
+      if (arc_on_seg < -half_s * 2.0 || arc_on_seg > seg_len + half_s * 2.0) { continue; }
+      let center_world = p0 + dir * arc_on_seg;
+      let local = vec2<f32>(
+        dot(p - center_world, dir) / half_s,
+        (dot(p - center_world, nrm_fs) - off_m) / half_s,
+      );
+      if (abs(local.x) > 1.2 || abs(local.y) > 1.2) { continue; }
+
+      // sdf_shape returns normalized distance (1.0 = edge). Convert to meters.
+      let shape_v = sdf_shape(local, pat.id - 1u);
+      let pd = (shape_v - 1.0) * half_s;
+      pat_d_m = min(pat_d_m, pd);
     }
-
-    // START / END / CENTER — single instance
-    var center_arc: f32;
-    if (anchor == PAT_ANCHOR_START) {
-      center_arc = start_m;
-    } else if (anchor == PAT_ANCHOR_END) {
-      center_arc = seg.line_length - start_m;
-    } else {
-      center_arc = seg.line_length * 0.5;
-    }
-
-    // Transform to segment-local coords
-    let arc_on_seg = center_arc - seg.arc_start;
-    if (arc_on_seg < -half_s * 2.0 || arc_on_seg > seg_len + half_s * 2.0) { continue; }
-    let center_world = p0 + dir * arc_on_seg;
-    let local = vec2<f32>(
-      dot(p - center_world, dir) / half_s,
-      (dot(p - center_world, nrm_fs) - off_m) / half_s,
-    );
-    if (abs(local.x) > 1.2 || abs(local.y) > 1.2) { continue; }
-
-    // sdf_shape returns normalized distance (1.0 = edge). Convert to meters.
-    let shape_v = sdf_shape(local, pat.id - 1u);
-    let pd = (shape_v - 1.0) * half_s;
-    pat_d_m = min(pat_d_m, pd);
   }
   if (pat_d_m < 1e9) { d_m = min(d_m, pat_d_m); }
 
