@@ -447,6 +447,7 @@ export const DEMOS: Record<string, Demo> = {
   fixture_pattern_multi:        { name: 'Fixture: pattern multi-slot', tag: 'fixture', description: '2-slot pattern stack (dot + cross).',          source: load('fixture-pattern-multi.xgis') },
   fixture_stroke_inset:         { name: 'Fixture: stroke inset',       tag: 'fixture', description: 'stroke-inset on polygon boundary.',            source: load('fixture-stroke-inset.xgis') },
   fixture_stroke_offset_right:  { name: 'Fixture: stroke offset right',tag: 'fixture', description: 'Signed stroke-offset-right-8 rail.',           source: load('fixture-stroke-offset-right.xgis') },
+  fixture_stroke_offset_right_large: { name: 'Fixture: stroke offset right (large)', tag: 'fixture', description: 'stroke-offset-right-80 — exercises offset-aware tile culling margin.', source: load('fixture-stroke-offset-right-large.xgis') },
   fixture_anim_ease_linear:     { name: 'Fixture: anim ease linear',   tag: 'fixture', description: 'Opacity keyframe with linear easing.',         source: load('fixture-anim-ease-linear.xgis') },
   fixture_dasharray_complex:    { name: 'Fixture: dasharray complex',  tag: 'fixture', description: '4-value composite dash array.',                source: load('fixture-dasharray-complex.xgis') },
   fixture_size_expr:            { name: 'Fixture: size expr',          tag: 'fixture', description: 'Point size-[sqrt(.pop) / 2] expression.',      source: load('fixture-size-expr.xgis') },
