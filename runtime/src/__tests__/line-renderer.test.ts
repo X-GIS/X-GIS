@@ -157,6 +157,72 @@ describe('packLineLayerUniform', () => {
     expect(buf2[F32_OFFSET]).toBeCloseTo(-300)
   })
 
+  // Regression guard for the fragment-shader feature-gate optimisation:
+  // bit 6 (has_pattern) and bit 7 (has_offset) must reflect the uniform's
+  // actual payload so the shader can short-circuit the pattern-SDF loop
+  // and offset-join math for plain strokes (the mobile-lag hot path).
+  it('sets has_pattern bit only when at least one pattern slot is active', () => {
+    const FLAG_PATTERN = 1 << 6
+    // No patterns → bit clear.
+    const empty = packLineLayerUniform(
+      [1, 1, 1, 1], 2, 1, 100,
+      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
+      null, [], 0,
+    )
+    const emptyU32 = new Uint32Array(empty.buffer)
+    expect((emptyU32[U32_FLAGS] & FLAG_PATTERN) !== 0).toBe(false)
+
+    // One active slot → bit set.
+    const withPat = packLineLayerUniform(
+      [1, 1, 1, 1], 2, 1, 100,
+      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
+      null,
+      [{ shapeId: 3, spacing: 20, size: 12 }],
+      0,
+    )
+    const withPatU32 = new Uint32Array(withPat.buffer)
+    expect((withPatU32[U32_FLAGS] & FLAG_PATTERN) !== 0).toBe(true)
+
+    // Slot with shapeId=0 is inactive — bit stays clear.
+    const inactive = packLineLayerUniform(
+      [1, 1, 1, 1], 2, 1, 100,
+      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
+      null,
+      [{ shapeId: 0, spacing: 20, size: 12 }],
+      0,
+    )
+    const inactiveU32 = new Uint32Array(inactive.buffer)
+    expect((inactiveU32[U32_FLAGS] & FLAG_PATTERN) !== 0).toBe(false)
+  })
+
+  it('sets has_offset bit only when offsetPx is non-zero', () => {
+    const FLAG_OFFSET = 1 << 7
+    const zero = packLineLayerUniform(
+      [1, 1, 1, 1], 2, 1, 100,
+      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
+      null, [], 0,
+    )
+    const zeroU32 = new Uint32Array(zero.buffer)
+    expect((zeroU32[U32_FLAGS] & FLAG_OFFSET) !== 0).toBe(false)
+
+    const off = packLineLayerUniform(
+      [1, 1, 1, 1], 2, 1, 100,
+      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
+      null, [], 5,
+    )
+    const offU32 = new Uint32Array(off.buffer)
+    expect((offU32[U32_FLAGS] & FLAG_OFFSET) !== 0).toBe(true)
+
+    // Negative offset (right-side) still flags.
+    const offNeg = packLineLayerUniform(
+      [1, 1, 1, 1], 2, 1, 100,
+      LINE_CAP_BUTT, LINE_JOIN_MITER, 4,
+      null, [], -3,
+    )
+    const offNegU32 = new Uint32Array(offNeg.buffer)
+    expect((offNegU32[U32_FLAGS] & FLAG_OFFSET) !== 0).toBe(true)
+  })
+
   it('LINE_UNIFORM_SIZE includes the offset slot (≥ 192 bytes)', () => {
     expect(LINE_UNIFORM_SIZE).toBeGreaterThanOrEqual(192)
     expect(LINE_UNIFORM_SIZE % 16).toBe(0)
