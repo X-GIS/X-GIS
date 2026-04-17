@@ -316,6 +316,13 @@ export class XGISMap {
         this.rawDatasets.set(load.name, { type: 'FeatureCollection', features: [] })
       } else {
         const response = await fetch(url)
+        if (!response.ok) {
+          throw new Error(
+            `[X-GIS] Failed to load "${load.name}" from ${url} — HTTP ${response.status}. ` +
+            `Check that the file exists at that path (iOS Safari otherwise surfaces this as the opaque ` +
+            `"string did not match the expected pattern" when response.json() runs on an HTML 404 body).`,
+          )
+        }
         const data = await response.json() as GeoJSONFeatureCollection
         this.rawDatasets.set(load.name, data)
       }

@@ -17,6 +17,17 @@ playground/public/data/*
 # alongside the tracked xgvt fixtures.
 !playground/public/data/ne_110m_countries.geojson
 
+# Natural Earth 110m physical layers (~780 KB total). Same rationale:
+# lots of demos use `ne_110m_{ocean,land,coastline,rivers,lakes}.geojson`
+# directly; 404 leaves iOS showing the opaque "string did not match
+# the expected pattern" (response.json() on an HTML error page).
+!playground/public/data/ne_110m_ocean.geojson
+!playground/public/data/ne_110m_land.geojson
+!playground/public/data/ne_110m_coastline.geojson
+!playground/public/data/ne_110m_rivers.geojson
+!playground/public/data/ne_110m_lakes.geojson
+!playground/public/data/ne_110m_populated_places.geojson
+
 # Playwright e2e artifacts
 playground/test-results/
 playground/playwright-report/
