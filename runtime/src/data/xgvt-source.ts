@@ -166,8 +166,17 @@ export class XGVTSource {
 
   /** Compile a single tile on demand from raw parts */
   private _compileBudget = 0
+  /** Sub-tile generation budget. Without this, rapid zoom-in loads hundreds
+   *  of new sub-tiles in a single frame — each one clips the parent tile's
+   *  geometry synchronously, holding the main thread. A small per-frame cap
+   *  keeps zoom interactive; uncaptured sub-tiles just land in later frames
+   *  (the renderer falls back to parent-tile geometry in the meantime). */
+  private _subTileBudget = 0
   /** Reset per-frame compilation budget (call once per frame before tile requests) */
-  resetCompileBudget(): void { this._compileBudget = 0 }
+  resetCompileBudget(): void {
+    this._compileBudget = 0
+    this._subTileBudget = 0
+  }
 
   compileTileOnDemand(key: number): boolean {
     if (!this.rawParts || this.dataCache.has(key)) return false
@@ -738,8 +747,19 @@ export class XGVTSource {
   // ── Sub-tile generation (overzoom CPU clipping) ──
 
   generateSubTile(subKey: number, parentKey: number): boolean {
+    // Return cached result without charging budget — this is not new work.
+    if (this.dataCache.has(subKey)) return true
+    // Per-frame budget cap: sub-tile clipping is O(parent geometry) and runs
+    // synchronously, so rapid zoom bursts can enqueue hundreds of sub-tiles
+    // and stall the main thread for seconds ("page unresponsive"). Deferring
+    // over-budget sub-tiles to the next frame keeps zoom interactive; the
+    // renderer uses the parent tile as a fallback until the sub-tile lands.
+    if (this._subTileBudget >= 4) return false
+
     const parent = this.dataCache.get(parentKey)
     if (!parent || (parent.indices.length === 0 && parent.lineIndices.length === 0)) return false
+
+    this._subTileBudget++
 
     const [sz, sx, sy] = tileKeyUnpack(subKey)
     const sn = Math.pow(2, sz)
