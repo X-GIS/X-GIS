@@ -967,21 +967,24 @@ fn vs_line(
   var offset = perp_cur * half_w_side * across_scale;
   if (has_neighbor) {
     // Joined endpoint: pad along dir so there is geometry for the
-    // fragment shader to shade the join on. The quad must extend past
-    // the endpoint by at least endpoint_pad (pad_ratio x half_w with
-    // AA margin) to cover:
-    //   - MITER: the miter tip projects |tan(theta/2)| x half_w along dir.
-    //   - ROUND: the join circle of radius half_w centred at the offset
-    //     endpoint extends half_w in every direction, including dir.
-    //   - BEVEL: the bevel edge stays within half_w of the endpoint.
+    // fragment shader to shade the join on.
+    //   - MITER: the miter tip projects |tan(theta/2)| x half_w along dir,
+    //     so the quad must extend by pad_ratio x half_w_aa (= endpoint_pad).
+    //   - ROUND: the join circle of radius half_w_aa stays within half_w_aa
+    //     of the endpoint in every direction — pad_ratio overshoots and
+    //     produces a visible alpha-blend halo at sharp corners when two
+    //     layers stack on the same polyline.
+    //   - BEVEL: the bevel edge stays within half_w of the endpoint — same
+    //     bound as ROUND.
     // half_w_side alone is INSUFFICIENT when it collapses to <= 0
     // (|offset_m| >= half_w_m + aa): on the inner across side the quad
-    // then pulls INWARD past the endpoint instead of outward, leaving
-    // the round-join circle uncovered and producing a visible V-notch
-    // at the join. The max() clamp below fixes that for all join types;
-    // the extra overdraw for non-MITER in the common case is negligible.
+    // then pulls INWARD past the endpoint instead of outward, leaving the
+    // round-join circle uncovered and producing a visible V-notch at the
+    // join. Clamping up to join_pad fixes that.
     let endpoint_pad = select(pad_p1_m, pad_p0_m, is_start);
-    let along_pad = max(half_w_side, endpoint_pad);
+    var join_pad = half_w_m;
+    if (join_type_vs == JOIN_MITER) { join_pad = endpoint_pad; }
+    let along_pad = max(half_w_side, join_pad);
     offset = offset + dir * along * along_pad * across_scale;
   } else {
     // Chain terminus: use the configured cap pad (butt/square/arrow).
