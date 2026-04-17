@@ -1014,7 +1014,23 @@ fn vs_line(
     // then pulls INWARD past the endpoint instead of outward, leaving the
     // round-join circle uncovered and producing a visible V-notch at the
     // join. Clamping up to join_pad fixes that.
-    let endpoint_pad = select(pad_p1_m, pad_p0_m, is_start);
+    // For offset strokes the miter tip slides along the segment direction
+    // by pad_ratio * offset_m on top of the standard pad_ratio * half_w.
+    // Budget that into the MITER endpoint pad using abs(offset_m) so both
+    // inset and outset are covered regardless of turn direction; the
+    // fragment shader's offset-aware bisector clip then discards the
+    // extra coverage past the true miter tip. Without this, the quad
+    // truncates the shifted miter and the join renders shorter than
+    // the geometric endpoint of the offset stroke.
+    //
+    // pad_p0_m / pad_p1_m already carry the base miter pad plus any
+    // pattern-extent clamping done earlier (see pat_extent_m line ~934) —
+    // max against those so offset layers that also use patterns don't
+    // lose their pattern margin.
+    let pad_ratio = select(seg.pad_ratio_p1, seg.pad_ratio_p0, is_start);
+    let base_pad = select(pad_p1_m, pad_p0_m, is_start);
+    let offset_extent_m = half_w_m + abs(layer.offset_m);
+    let endpoint_pad = max(base_pad, pad_ratio * offset_extent_m);
     var join_pad = half_w_m;
     if (join_type_vs == JOIN_MITER) { join_pad = endpoint_pad; }
     let along_pad = max(half_w_side, join_pad);
@@ -1189,7 +1205,16 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
     let bis_len_p0 = length(bis_p0);
     if (bis_len_p0 > 1e-6) {
       let bis_unit_p0 = bis_p0 / bis_len_p0;
-      let along_p0 = dot(p - p0, bis_unit_p0);
+      // Bisector plane passes through the OFFSET miter vertex
+      // (p0_join_center), not the centerline vertex p0. For offset_m = 0
+      // the two points coincide; for inset/outset/stroke-offset layers
+      // the bisector slides along the bisector direction by
+      // offset_m / sin(theta/2) so each segment's half of the join sits
+      // where the shifted parallel strokes actually meet. Without this
+      // correction the join-territory split fires at the wrong along
+      // position, visibly shortening or lengthening the apparent end
+      // of an offset stroke.
+      let along_p0 = dot(p - p0_join_center, bis_unit_p0);
       // Only clip when on the WRONG side of the bisector (prev's territory).
       // Gating with an if avoids pulling d_m toward zero on MY side near
       // the bisector plane, which would reduce alpha and create visible
@@ -1241,7 +1266,8 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
     let bis_len_p1 = length(bis_p1);
     if (bis_len_p1 > 1e-6) {
       let bis_unit_p1 = bis_p1 / bis_len_p1;
-      let along_p1 = dot(p - p1, bis_unit_p1);
+      // Same offset-miter-vertex correction as at p0.
+      let along_p1 = dot(p - p1_join_center, bis_unit_p1);
       if (along_p1 > 0.0) {
         d_m = max(d_m, along_p1);
       }
