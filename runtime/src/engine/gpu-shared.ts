@@ -4,9 +4,19 @@
 
 // ── Blend States ──
 
-/** Standard alpha blending — used by all renderers */
+/** Standard alpha blending — used by all renderers whose fragment
+ *  shader emits NON-premultiplied (rgb, a). The blend factor multiplies
+ *  rgb by a at write time. */
 export const BLEND_ALPHA: GPUBlendState = {
   color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+  alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+}
+
+/** Premultiplied alpha blending — for fragment shaders that already emit
+ *  (rgb*a, a). Using BLEND_ALPHA on premultiplied output multiplies rgb
+ *  by alpha a SECOND time, which silently darkens the result. */
+export const BLEND_ALPHA_PREMULT: GPUBlendState = {
+  color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
   alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
 }
 

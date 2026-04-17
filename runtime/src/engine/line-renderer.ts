@@ -39,7 +39,7 @@
 //    and is deferred.
 
 import type { GPUContext } from './gpu'
-import { BLEND_ALPHA, BLEND_MAX, STENCIL_DISABLED, MSAA_4X } from './gpu-shared'
+import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, STENCIL_DISABLED, MSAA_4X } from './gpu-shared'
 import {
   WGSL_DIST_TO_SEGMENT,
   WGSL_DIST_TO_QUADRATIC,
@@ -1596,7 +1596,11 @@ export class LineRenderer {
       fragment: {
         module: compositeModule,
         entryPoint: 'fs_full',
-        targets: [{ format: this.format, blend: BLEND_ALPHA }],
+        // fs_full emits PREMULTIPLIED rgb (`c.rgb * cu.opacity`); pair it
+        // with the matching blend factor so we don't multiply by alpha a
+        // second time at write. Using BLEND_ALPHA here was the original
+        // bug — translucent line composites came out darker than asked.
+        targets: [{ format: this.format, blend: BLEND_ALPHA_PREMULT }],
       },
       primitive: { topology: 'triangle-list' },
       multisample: MSAA_4X,
