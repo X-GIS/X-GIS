@@ -456,6 +456,7 @@ export const DEMOS: Record<string, Demo> = {
   fixture_projection_equirectangular: { name: 'Fixture: projection equirect', tag: 'fixture', description: 'Equirectangular projection on a simple polygon.',  source: load('fixture-projection-equirectangular.xgis') },
   fixture_anchor_center:        { name: 'Fixture: anchor center',      tag: 'fixture', description: 'SDF point anchor-center mode.',                source: load('fixture-anchor-center.xgis') },
   fixture_anchor_top:           { name: 'Fixture: anchor top',         tag: 'fixture', description: 'SDF point anchor-top mode.',                   source: load('fixture-anchor-top.xgis') },
+  fixture_flat_anchor_bottom:   { name: 'Fixture: flat + anchor bottom', tag: 'fixture', description: 'Flat point anchor-bottom — quad lies on ground, extends north.', source: load('fixture-flat-anchor-bottom.xgis') },
   fixture_size_zoom:            { name: 'Fixture: size zoom stops',    tag: 'fixture', description: 'z0:size-30 z20:size-80 interpolation.',        source: load('fixture-size-zoom.xgis') },
   fixture_stroke_outset:        { name: 'Fixture: stroke outset',      tag: 'fixture', description: 'stroke-outset alignment (mirror of inset).',   source: load('fixture-stroke-outset.xgis') },
   fixture_pattern_anchor_start: { name: 'Fixture: pattern anchor start',tag: 'fixture', description: 'Pattern pinned at line start.',               source: load('fixture-pattern-anchor-start.xgis') },

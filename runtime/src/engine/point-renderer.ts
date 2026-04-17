@@ -212,9 +212,23 @@ fn vs_point(
   out.view_w = center_clip.w;
 
   if (is_flat) {
-    // FLAT: expand in world-space, then transform via MVP
+    // FLAT: expand in world-space, then transform via MVP.
+    // Anchor shift (bits 8-9): 0=center, 1=bottom, 2=top. Unlike the
+    // billboard branch (which shifts in NDC / screen-space), flat quads
+    // rotate with the map, so anchor applies along the world +Y axis.
+    // On a north-up, no-pitch camera this coincides with screen-up, so
+    // anchor-bottom still means "sprite extends upward from the ground
+    // point" (pin metaphor). With bearing rotation the anchor direction
+    // visually rotates with the map — consistent with the flat paradigm.
+    let anchor_mode = (u32(feat_data[fid * STRIDE + 10u]) >> 8u) & 3u;
+    var y_shift = 0.0;
+    if (anchor_mode == 1u) { y_shift = 1.0; }        // bottom: quad +Y
+    else if (anchor_mode == 2u) { y_shift = -1.0; }  // top: quad -Y
     let world_expand = expand * u.viewport.z;  // px → meters (viewport.z = mpp)
-    let wo = offsets[quad_id] * world_expand;
+    let wo = vec2f(
+      offsets[quad_id].x * world_expand,
+      (offsets[quad_id].y + y_shift) * world_expand,
+    );
     let flat_clip = u.mvp * vec4f(rtc_x + wo.x, rtc_y + wo.y, 0.0, 1.0);
     out.position = apply_log_depth(flat_clip, fc);
     out.uv = offsets[quad_id];
