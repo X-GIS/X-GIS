@@ -484,12 +484,23 @@ export class VectorTileRenderer {
     // Quadtree-based frustum selection works at every pitch, including 0.
     // The legacy AABB-based `visibleTiles` path silently drifted from the
     // VTR cache pipeline and broke at low pitch, so it is no longer used.
+    //
+    // Culling margin: the default 0.25×canvas envelope misses tiles whose
+    // centerline data is outside the viewport but whose RENDERED stroke
+    // reaches in via `stroke-offset-N`. Add `|offset| + strokeWidth + aa`
+    // in pixels so those tiles are still loaded and drawn.
+    const strokeOffsetPx = Math.abs(show.strokeOffset ?? 0)
+    const strokeWidthPx = show.strokeWidth ?? 1
+    const alignDeltaPx = show.strokeAlign === 'inset' || show.strokeAlign === 'outset'
+      ? strokeWidthPx / 2 : 0
+    const offsetMarginPx = strokeOffsetPx + alignDeltaPx + strokeWidthPx / 2 + 2
     const tiles = visibleTilesFrustum(
       camera,
       this.currentProjection ?? mercatorProj,
       currentZ,
       canvasWidth,
       canvasHeight,
+      offsetMarginPx,
     )
 
     const n = Math.pow(2, currentZ)
