@@ -92,6 +92,28 @@ export class XGISMap {
   private _startTime: number | null = null
   private _elapsedMs = 0
 
+  // ── Idle-render skip ──
+  // Before this, `renderLoop` called `renderFrame()` every rAF (~60Hz) even
+  // when nothing changed. On mobile the SDF line shader + mobile GPU is
+  // heavy enough that a static minimal.xgis map pegged the tile units for
+  // zero visual benefit ("엄청난 랙"). Now we compare camera state + canvas
+  // size each tick and skip the frame when the signature matches, the
+  // scene has no time-based animation, and no external invalidate is
+  // pending. Any camera input, data push, or active animation resumes
+  // per-frame rendering naturally.
+  private _needsRender = true
+  private _sceneHasAnimation = false
+  private _lastSigZoom = NaN
+  private _lastSigCX = NaN
+  private _lastSigCY = NaN
+  private _lastSigBearing = NaN
+  private _lastSigPitch = NaN
+  private _lastSigW = 0
+  private _lastSigH = 0
+  /** Explicit render trigger for code paths that change state outside the
+   *  camera (setSourceData, updateFeature, tile load completion, etc.). */
+  invalidate(): void { this._needsRender = true }
+
   constructor(private canvas: HTMLCanvasElement) {
     this.camera = new Camera(0, 20, 2)
   }
@@ -125,6 +147,7 @@ export class XGISMap {
     } else if (isGlobe(prevProj) && !isGlobe(name)) {
       this.camera.zoom = Math.max(this.camera.zoom, 1.5)
     }
+    this.invalidate()
   }
 
   getProjectionName(): string {
@@ -300,6 +323,11 @@ export class XGISMap {
     await Promise.all(loadPromises)
 
     this.showCommands = commands.shows
+    this._sceneHasAnimation = commands.shows.some(s =>
+      !!s.timeOpacityStops || !!s.timeFillStops || !!s.timeStrokeStops ||
+      !!s.timeStrokeWidthStops || !!s.timeSizeStops || !!s.timeDashOffsetStops
+    )
+    this._needsRender = true
 
 
     // 4. Build render layers + fit camera
@@ -588,6 +616,11 @@ export class XGISMap {
     }
 
     this.showCommands = commands.shows
+    this._sceneHasAnimation = commands.shows.some(s =>
+      !!s.timeOpacityStops || !!s.timeFillStops || !!s.timeStrokeStops ||
+      !!s.timeStrokeWidthStops || !!s.timeSizeStops || !!s.timeDashOffsetStops
+    )
+    this._needsRender = true
     this.rebuildLayers()
 
     this.switchController()
@@ -612,6 +645,10 @@ export class XGISMap {
 
   private renderLoop = (): void => {
     if (!this.running) return
+    if (!this.shouldRenderThisFrame()) {
+      requestAnimationFrame(this.renderLoop)
+      return
+    }
     try {
       this.renderFrame()
     } catch (err) {
@@ -622,6 +659,38 @@ export class XGISMap {
       console.error('[X-GIS frame]', (err as Error)?.stack ?? err)
       this.running = false  // stop the loop so the error doesn't repeat 60×/sec
     }
+  }
+
+  /** Decide whether `renderLoop` should actually call `renderFrame()`.
+   *  Skips the frame when the camera and canvas are unchanged since the
+   *  last draw AND no animation / pending data source needs to advance.
+   *  `renderFrame` itself updates the stored signature and clears
+   *  `_needsRender` after a successful draw. */
+  private shouldRenderThisFrame(): boolean {
+    if (this._needsRender) return true
+    if (this._sceneHasAnimation) return true
+    if (this.hasPendingSourceWork()) return true
+    const c = this.camera
+    const canvas = this.ctx?.canvas
+    const w = canvas?.width ?? 0, h = canvas?.height ?? 0
+    return (
+      c.zoom !== this._lastSigZoom ||
+      c.centerX !== this._lastSigCX ||
+      c.centerY !== this._lastSigCY ||
+      c.bearing !== this._lastSigBearing ||
+      c.pitch !== this._lastSigPitch ||
+      w !== this._lastSigW ||
+      h !== this._lastSigH
+    )
+  }
+
+  /** Returns true when any source has tile loads / compile work queued for
+   *  this frame. Prevents stranding off-screen loads once the camera settles. */
+  private hasPendingSourceWork(): boolean {
+    for (const { source } of this.vtSources.values()) {
+      if (source.hasPendingLoads?.()) return true
+    }
+    return false
   }
 
   /** Classify all visible vector-tile shows into opaque and translucent
@@ -1017,6 +1086,18 @@ export class XGISMap {
     this._stats.endFrame()
     this._statsPanel?.update(this._stats.get())
 
+    // Snapshot state for the idle-skip comparator in `shouldRenderThisFrame`.
+    // Animation ticks + external invalidate() re-arm `_needsRender` on their
+    // own path, so clearing it unconditionally here is safe.
+    this._lastSigZoom = this.camera.zoom
+    this._lastSigCX = this.camera.centerX
+    this._lastSigCY = this.camera.centerY
+    this._lastSigBearing = this.camera.bearing
+    this._lastSigPitch = this.camera.pitch
+    this._lastSigW = this.ctx.canvas.width
+    this._lastSigH = this.ctx.canvas.height
+    this._needsRender = false
+
     requestAnimationFrame(this.renderLoop)
   }
 
@@ -1094,6 +1175,7 @@ export class XGISMap {
     this.rawDatasets.set(sourceId, data)
     this.teardownSource(sourceId)
     this.rebuildLayers()
+    this.invalidate()
   }
 
   /** Typed-array fast path for point sources.
@@ -1143,6 +1225,7 @@ export class XGISMap {
       properties: { ...(existing?.properties ?? {}), ...(patch.properties ?? {}) },
     })
     this.scheduleFlushPendingUpdates()
+    this.invalidate()
   }
 
   private scheduleFlushPendingUpdates(): void {
