@@ -1,0 +1,11 @@
+/* Fixture: SDF point in FLAT mode (billboard off) with anchor-bottom.
+ * Flat quads lie on the ground plane; anchor shifts them along the
+ * world +Y axis (north on a north-up map). anchor-bottom places the
+ * sprite so its south edge sits on the ground point, so the sprite
+ * extends northward — analogous to billboard pin metaphor. Before this
+ * fix flat + anchor was silently treated as anchor-center. */
+source p { type: geojson, url: "fixture-point.geojson" }
+layer dot {
+  source: p
+  | fill-rose-500 size-80 flat anchor-bottom
+}
