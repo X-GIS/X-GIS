@@ -1331,7 +1331,15 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
       let bis_len_j = length(bis_p0_j);
       if (bis_len_j > 1e-6) {
         let bis_unit_j = bis_p0_j / bis_len_j;
-        let along_j = dot(p - p0, bis_unit_j);
+        // Bisector gate must reference the offset miter vertex so it
+        // agrees with where the circle is centered below. Using p0
+        // (the centerline vertex) here made the gate fire at the wrong
+        // along position for offset strokes, so both adjacent segments
+        // sometimes passed on the same pixel and the round-join circle
+        // visibly doubled at the corner — observed on
+        // fixture-stroke-outset where a rogue ring appears inside each
+        // polygon corner.
+        let along_j = dot(p - p0_join_center, bis_unit_j);
         // Current owns along > 0 (strict) so the bisector plane (along==0)
         // is drawn by exactly one segment, never both.
         if (along_j > 0.0) {
@@ -1371,7 +1379,8 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
       let bis_len_j = length(bis_p1_j);
       if (bis_len_j > 1e-6) {
         let bis_unit_j = bis_p1_j / bis_len_j;
-        let along_j = dot(p - p1, bis_unit_j);
+        // Same offset-miter-vertex correction as at p0; see comment there.
+        let along_j = dot(p - p1_join_center, bis_unit_j);
         // Current segment owns along < 0 (strict). The bisector plane
         // is owned by the NEXT segment via its p0 (along > 0) check.
         if (along_j < 0.0) {
