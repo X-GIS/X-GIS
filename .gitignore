@@ -11,6 +11,12 @@ playground/public/data/*
 # the tests, unlike the bulk data above.
 !playground/public/data/fixture-*.geojson
 
+# Natural Earth 110m countries (~700 KB) — referenced by 19+ demo
+# .xgis files (filter-gdp, continent-match, layered-borders, etc.).
+# Without this, those demos 404 silently. Small enough to ship
+# alongside the tracked xgvt fixtures.
+!playground/public/data/ne_110m_countries.geojson
+
 # Playwright e2e artifacts
 playground/test-results/
 playground/playwright-report/
