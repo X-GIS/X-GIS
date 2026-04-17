@@ -31,12 +31,21 @@ export const BLEND_MAX: GPUBlendState = {
 }
 
 // ── Stencil States ──
+//
+// The polygon pipelines also write depth (`less-equal` test + write) so
+// the opaque buffer carries meaningful depth values into the later
+// points pass. Without it the depth buffer stayed at the initial clear
+// (1.0) and point markers on the back side of a pitched / globe view
+// drew through front-facing polygons that should occlude them. For the
+// common top-down 2-D map every polygon is at z = 0, so `less-equal`
+// still allows painter's order overwrite; the bug only manifests when
+// the scene has real depth variation.
 
 /** Stencil write: mark tile areas (compare=always, passOp=replace, mask=0xFF) */
 export const STENCIL_WRITE: GPUDepthStencilState = {
   format: 'depth24plus-stencil8',
-  depthCompare: 'always',
-  depthWriteEnabled: false,
+  depthCompare: 'less-equal',
+  depthWriteEnabled: true,
   stencilFront: { compare: 'always', passOp: 'replace' },
   stencilBack: { compare: 'always', passOp: 'replace' },
   stencilWriteMask: 0xFF,
@@ -46,8 +55,8 @@ export const STENCIL_WRITE: GPUDepthStencilState = {
 /** Stencil test: only draw where stencil=0 (fallback tiles, not covered by children) */
 export const STENCIL_TEST: GPUDepthStencilState = {
   format: 'depth24plus-stencil8',
-  depthCompare: 'always',
-  depthWriteEnabled: false,
+  depthCompare: 'less-equal',
+  depthWriteEnabled: true,
   stencilFront: { compare: 'equal', passOp: 'keep' },
   stencilBack: { compare: 'equal', passOp: 'keep' },
   stencilWriteMask: 0x00,
