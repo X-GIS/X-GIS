@@ -289,6 +289,14 @@ export class RasterRenderer {
     this.urlTemplate = url
   }
 
+  /** True while any tile fetch is still in flight. The map's render loop
+   *  polls this to keep ticking during load — newly-arrived textures need
+   *  one more frame to show up, but arrivals don't fire a direct callback
+   *  today, so we just keep the loop warm until the queue drains. */
+  hasPendingLoads(): boolean {
+    return this.loadingTiles.size > 0
+  }
+
   render(
     pass: GPURenderPassEncoder,
     camera: Camera,
