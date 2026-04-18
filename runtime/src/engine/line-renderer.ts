@@ -1366,33 +1366,36 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
         // replace at the exact bisector line only, which is
         // idempotent for opaque strokes.
         if (along_j >= 0.0) {
-          // True round-join at p0 (current segment's start, prev ends here).
-          // The correct SDF in the miter region is the MIN of:
-          //   - current body clipped to own along range (past p0 going
-          //     backward → miter extension, excluded)
-          //   - prev body clipped to its along range
-          //   - round-join circle at offset miter vertex
-          // Bare body_d leaks into the miter wedge because the body SDF
-          // is pure perpendicular distance — enforcing the along range
-          // is what makes the corner actually ROUND instead of MITER.
+          // True round-join with offset. Centre-aligned strokes have
+          // the body's outer corner exactly at the circle's tangent
+          // point — body meets arc seamlessly. With offset, the miter
+          // vertex shifts by |offset_m| * tan(β/2) along the bisector,
+          // so the body's natural endpoint at p0 needs to extend
+          // backward by the SAME amount along -dir to reach the
+          // circle's tangent line. Below, the clip threshold is
+          // abs(offset_m) * pad_ratio (= tan(β/2)) instead of 0 —
+          // that keeps body fragments up to the offset-extended
+          // endpoint, closing the tangent gap exactly.
           let circle_d = length(p - p0_join_center) - half_w_m;
+          let along_extend_p0 = abs(layer.offset_m) * seg.pad_ratio_p0;
 
-          // Clip current body: past p0 in -dir direction is miter extension.
+          // Clip current body: past p0 by more than the extension is
+          // miter-wedge territory. Within the extension the body
+          // stays — that's where body meets circle tangentially.
           var current_d = d_m;
-          if (dist_p0 > 0.0) {
-            current_d = max(d_m, dist_p0);
+          if (dist_p0 > along_extend_p0) {
+            current_d = max(d_m, dist_p0 - along_extend_p0);
           }
 
-          // Prev segment's body clipped to prev's along range. Prev ends
-          // at p0 heading in +prev_tangent direction; past prev's end
-          // means dot(p - p0, prev_tangent) > 0.
+          // Prev segment's body (reconstructed from prev_tangent).
+          // Same extension rule past prev's end in its +dir direction.
           let prev_nrm = vec2<f32>(-seg.prev_tangent.y, seg.prev_tangent.x);
           let prev_signed_perp = dot(p - p0, prev_nrm);
           let prev_perp_m = abs(prev_signed_perp - layer.offset_m);
           var neighbor_d = prev_perp_m - half_w_m;
           let along_past_prev_end = dot(p - p0, seg.prev_tangent);
-          if (along_past_prev_end > 0.0) {
-            neighbor_d = max(neighbor_d, along_past_prev_end);
+          if (along_past_prev_end > along_extend_p0) {
+            neighbor_d = max(neighbor_d, along_past_prev_end - along_extend_p0);
           }
 
           d_m = min(min(current_d, circle_d), neighbor_d);
@@ -1440,28 +1443,27 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
         // idempotent — the tiny AA-edge pixel brightening is invisible
         // next to the eliminated whisker.
         if (along_j <= 0.0) {
-          // Mirror of p0: MIN(current body clipped, circle, next body
-          // clipped). Past p1 in +dir direction is current's miter
-          // extension — exclude it. Next starts at p1 heading in
-          // +next_tangent direction; dot(p - p1, next_tangent) < 0
-          // means past next's start going backward (next's miter
-          // extension — also excluded for next).
+          // Mirror of p0 with the same offset-aware along extension.
+          // See the p0 branch above for the full rationale; tl;dr:
+          // the body's natural endpoint extends past p1 by
+          // |offset_m| * tan(β/2) so the body's outer corner lands
+          // on the offset circle's tangent line, matching the
+          // seamless meet at offset=0.
           let circle_d = length(p - p1_join_center) - half_w_m;
+          let along_extend_p1 = abs(layer.offset_m) * seg.pad_ratio_p1;
 
-          // Clip current body past own endpoint.
           var current_d = d_m;
-          if (dist_p1 > 0.0) {
-            current_d = max(d_m, dist_p1);
+          if (dist_p1 > along_extend_p1) {
+            current_d = max(d_m, dist_p1 - along_extend_p1);
           }
 
-          // Next segment's body clipped to its along range.
           let next_nrm = vec2<f32>(-seg.next_tangent.y, seg.next_tangent.x);
           let next_signed_perp = dot(p - p1, next_nrm);
           let next_perp_m = abs(next_signed_perp - layer.offset_m);
           var neighbor_d = next_perp_m - half_w_m;
           let along_into_next = dot(p - p1, seg.next_tangent);
-          if (along_into_next < 0.0) {
-            neighbor_d = max(neighbor_d, -along_into_next);
+          if (along_into_next < -along_extend_p1) {
+            neighbor_d = max(neighbor_d, -along_into_next - along_extend_p1);
           }
 
           d_m = min(min(current_d, circle_d), neighbor_d);
