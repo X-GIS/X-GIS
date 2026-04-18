@@ -1605,6 +1605,12 @@ export class LineRenderer {
   private compositeBindGroup: GPUBindGroup | null = null
   /** Composite uniform buffer — single f32 (opacity). 16-byte aligned. */
   private compositeUniformBuffer!: GPUBuffer
+  /** Last opacity value written to compositeUniformBuffer. The composite
+   *  only needs a fresh writeBuffer when the opacity actually changes
+   *  (between frames where opacity stays constant we'd otherwise rewrite
+   *  identical bytes — cheap per call but ~200 redundant calls per
+   *  translucent scenario). */
+  private lastCompositeOpacity = Number.NaN
 
   constructor(ctx: GPUContext, vtrTileBindGroupLayout: GPUBindGroupLayout) {
     this.device = ctx.device
@@ -1749,7 +1755,10 @@ export class LineRenderer {
   /** Composite the offscreen RT onto a main render pass with the given opacity. */
   composite(mainPass: GPURenderPassEncoder, opacity: number): void {
     if (!this.compositeBindGroup) return
-    this.device.queue.writeBuffer(this.compositeUniformBuffer, 0, new Float32Array([opacity, 0, 0, 0]))
+    if (opacity !== this.lastCompositeOpacity) {
+      this.device.queue.writeBuffer(this.compositeUniformBuffer, 0, new Float32Array([opacity, 0, 0, 0]))
+      this.lastCompositeOpacity = opacity
+    }
     mainPass.setPipeline(this.compositePipeline)
     mainPass.setBindGroup(0, this.compositeBindGroup)
     mainPass.draw(3, 1)

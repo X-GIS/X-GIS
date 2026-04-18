@@ -389,6 +389,7 @@ export class VectorTileRenderer {
     this.featureDataBuffer = this.device.createBuffer({
       size: Math.max(data.byteLength, 16),
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      label: 'feature-data',
     })
     this.device.queue.writeBuffer(this.featureDataBuffer, 0, data)
 
@@ -434,15 +435,20 @@ export class VectorTileRenderer {
   private doUploadTile(key: number, data: TileData): void {
     if (this.gpuCache.has(key)) return // already uploaded
 
+    // Label every per-tile buffer so writeBuffer attribution in the
+    // diagnostic suite can separate tile-upload churn from per-frame
+    // uniform writes. Cost is zero — label is a GPU debug string.
     const vertexBuffer = this.device.createBuffer({
       size: Math.max(data.vertices.byteLength * 3, 12),
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      label: 'tile-vertices',
     })
     this.device.queue.writeBuffer(vertexBuffer, 0, data.vertices)
 
     const indexBuffer = this.device.createBuffer({
       size: Math.max(data.indices.byteLength * 3, 4),
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      label: 'tile-indices',
     })
     this.device.queue.writeBuffer(indexBuffer, 0, data.indices)
 
@@ -452,12 +458,14 @@ export class VectorTileRenderer {
       lineVertexBuffer = this.device.createBuffer({
         size: data.lineVertices.byteLength,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        label: 'tile-line-vertices',
       })
       this.device.queue.writeBuffer(lineVertexBuffer, 0, data.lineVertices)
 
       lineIndexBuffer = this.device.createBuffer({
         size: data.lineIndices.byteLength,
         usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        label: 'tile-line-indices',
       })
       this.device.queue.writeBuffer(lineIndexBuffer, 0, data.lineIndices)
     }
@@ -469,6 +477,7 @@ export class VectorTileRenderer {
       outlineIndexBuffer = this.device.createBuffer({
         size: Math.max(data.outlineIndices.byteLength, 4),
         usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        label: 'tile-outline-indices',
       })
       this.device.queue.writeBuffer(outlineIndexBuffer, 0, data.outlineIndices)
       outlineIndexCount = data.outlineIndices.length

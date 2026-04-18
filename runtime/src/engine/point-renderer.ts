@@ -589,11 +589,11 @@ export class PointRenderer {
     this.tilePointIndexBuffer?.destroy()
     this.tilePointFeatBuffer?.destroy()
 
-    this.tilePointBuffer = this.device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
+    this.tilePointBuffer = this.device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, label: 'tile-point-vertices' })
     this.device.queue.writeBuffer(this.tilePointBuffer, 0, verts)
-    this.tilePointIndexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST })
+    this.tilePointIndexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, label: 'tile-point-indices' })
     this.device.queue.writeBuffer(this.tilePointIndexBuffer, 0, indices)
-    this.tilePointFeatBuffer = this.device.createBuffer({ size: Math.max(featData.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST })
+    this.tilePointFeatBuffer = this.device.createBuffer({ size: Math.max(featData.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'tile-point-features' })
     this.device.queue.writeBuffer(this.tilePointFeatBuffer, 0, featData)
 
     this.tilePointBindGroup = this.makeBindGroup(this.tilePointFeatBuffer)
@@ -742,13 +742,13 @@ export class PointRenderer {
       lats[i] = points[i].lat
     }
 
-    const vertexBuffer = this.device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
+    const vertexBuffer = this.device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, label: 'point-vertices' })
     this.device.queue.writeBuffer(vertexBuffer, 0, verts)
 
-    const indexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST })
+    const indexBuffer = this.device.createBuffer({ size: indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, label: 'point-indices' })
     this.device.queue.writeBuffer(indexBuffer, 0, indices)
 
-    const featureBuffer = this.device.createBuffer({ size: Math.max(featData.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST })
+    const featureBuffer = this.device.createBuffer({ size: Math.max(featData.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'point-features' })
     this.device.queue.writeBuffer(featureBuffer, 0, featData)
 
     const bindGroup = this.makeBindGroup(featureBuffer)
@@ -940,9 +940,9 @@ export class PointRenderer {
         layer._expandedVertBuf?.destroy()
         layer._expandedIdxBuf?.destroy()
         layer._expandedFeatBuf?.destroy()
-        layer._expandedVertBuf = this.device.createBuffer({ size: expandedVerts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
-        layer._expandedIdxBuf = this.device.createBuffer({ size: expandedIdx.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST })
-        layer._expandedFeatBuf = this.device.createBuffer({ size: Math.max(expandedFeat.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST })
+        layer._expandedVertBuf = this.device.createBuffer({ size: expandedVerts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, label: 'point-expanded-vertices' })
+        layer._expandedIdxBuf = this.device.createBuffer({ size: expandedIdx.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST, label: 'point-expanded-indices' })
+        layer._expandedFeatBuf = this.device.createBuffer({ size: Math.max(expandedFeat.byteLength, 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, label: 'point-expanded-features' })
         layer._expandedBindGroup = this.makeBindGroup(layer._expandedFeatBuf)
         layer._expandedSize = totalPoints
       }
