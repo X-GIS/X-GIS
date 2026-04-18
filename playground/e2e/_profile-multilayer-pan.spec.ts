@@ -16,13 +16,20 @@ test.describe('profile multi_layer pan @z0 worldwrap', () => {
       consoleMsgs.push(`[${m.type()}] ${m.text()}`)
     })
 
-    // Quality knobs via env: QUALITY=performance, MSAA=1, DPR=0.5, etc.
-    const flags: string[] = ['id=multi_layer', 'e2e=1', 'gpuprof=1']
+    // Demo + quality knobs via env vars so one spec tests many scenarios:
+    //   DEMO=night_map            target a different demo (default: multi_layer)
+    //   ZOOM=4.5                  override initial zoom (default: 0 — wide view)
+    //   QUALITY=performance       apply a quality preset
+    //   MSAA=1 | DPR=0.5          individual quality overrides
+    const demo = process.env.DEMO ?? 'multi_layer'
+    const zoom = process.env.ZOOM ?? '0'
+    const flags: string[] = [`id=${demo}`, 'e2e=1', 'gpuprof=1']
     if (process.env.QUALITY) flags.push(`quality=${process.env.QUALITY}`)
     if (process.env.MSAA) flags.push(`msaa=${process.env.MSAA}`)
     if (process.env.DPR) flags.push(`dpr=${process.env.DPR}`)
     if (process.env.ADAPTIVE_DPR) flags.push(`adaptiveDpr=${process.env.ADAPTIVE_DPR}`)
-    const url = `/demo.html?${flags.join('&')}#0.00/0.00000/0.00000`
+    if (process.env.PICKING === '1') flags.push('picking=1')
+    const url = `/demo.html?${flags.join('&')}#${zoom}/0.00000/0.00000`
     console.log(`[spec] loading ${url}`)
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
@@ -62,6 +69,16 @@ test.describe('profile multi_layer pan @z0 worldwrap', () => {
     })
 
     const cdp = await page.context().newCDPSession(page)
+    // CPU throttling via CDP — CPU_SLOWDOWN=6 simulates a mid-range mobile
+    // device. Useful when the desktop test rig is too fast to reveal a
+    // CPU-side optimization's impact. Leave unset for normal timing.
+    if (process.env.CPU_SLOWDOWN) {
+      const rate = Number(process.env.CPU_SLOWDOWN)
+      if (Number.isFinite(rate) && rate >= 1) {
+        await cdp.send('Emulation.setCPUThrottlingRate', { rate })
+        console.log(`[spec] CPU throttled ${rate}×`)
+      }
+    }
     await cdp.send('Profiler.enable')
     await cdp.send('Profiler.setSamplingInterval', { interval: 200 })
     await cdp.send('Profiler.start')

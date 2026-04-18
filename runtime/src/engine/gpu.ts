@@ -38,6 +38,11 @@ export const SAMPLE_COUNT: number = QUALITY.msaa
 /** Device-pixel-ratio cap. */
 export const MAX_DPR: number = QUALITY.maxDpr
 
+/** GPU picking enabled (via `?picking=1`). When true every main-pass
+ *  pipeline adds an RG32Uint fragment target and `map.pickAt()` returns
+ *  feature/instance IDs under the pointer. Implies `SAMPLE_COUNT === 1`. */
+export const PICK: boolean = QUALITY.picking
+
 if (typeof window !== 'undefined' && SAFE_MODE) {
   console.warn('[X-GIS] safe mode active (?safe=1) — translucent offscreen disabled (quality preset = battery)')
 }

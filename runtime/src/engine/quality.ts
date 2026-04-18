@@ -42,7 +42,11 @@ export interface QualityConfig {
   /** MSAA sample count: 1, 2, or 4. Init-time only — pipelines bake
    *  sampleCount, runtime change requires page reload. Higher = smoother
    *  polygon edges, more fragment work. SDF line strokes carry their own
-   *  1-px shader AA so 1× is acceptable for stroke-heavy scenes. */
+   *  1-px shader AA so 1× is acceptable for stroke-heavy scenes.
+   *
+   *  Auto-forced to 1 when `picking` is enabled — uint pick RTs can't
+   *  share a multisample pass with a color target without a custom
+   *  resolve shader. */
   msaa: 1 | 2 | 4
   /** Max devicePixelRatio cap. Lower = fewer pixels processed but blurrier
    *  on hi-DPI displays. 1.0 effectively disables retina scaling. */
@@ -52,6 +56,11 @@ export interface QualityConfig {
    *  hides lower DPR aliasing, so this trades nothing visible during
    *  the moments the user is actively dragging. */
   interactionDpr: number | null
+  /** GPU picking (`map.pickAt(x, y)` returns feature/instance IDs under
+   *  the pointer). Adds a second RG32Uint color attachment to every main
+   *  pass. Off by default — 8 bytes/pixel of VRAM + minor fragment cost.
+   *  Requires `msaa = 1` (silently forced). */
+  picking: boolean
 }
 
 export const QUALITY_PRESETS = {
@@ -61,6 +70,7 @@ export const QUALITY_PRESETS = {
     msaa: 4,
     maxDpr: 2,
     interactionDpr: null,
+    picking: false,
   },
   /** 144fps target. MSAA off, DPR 1.0, no adaptive (since DPR is already
    *  minimum). Required for GPU-bound scenes on low-end devices. */
@@ -68,6 +78,7 @@ export const QUALITY_PRESETS = {
     msaa: 1,
     maxDpr: 1.0,
     interactionDpr: null,
+    picking: false,
   },
   /** Desktop sweet spot: full quality at rest, drop DPR during pan to
    *  preserve smoothness without sacrificing static fidelity. */
@@ -75,6 +86,7 @@ export const QUALITY_PRESETS = {
     msaa: 2,
     maxDpr: 2,
     interactionDpr: 1.5,
+    picking: false,
   },
   /** Mobile / low-power. Aliased from the existing `?safe=1` flag for
    *  back-compat. Roughly matches the prior mobile defaults. */
@@ -82,6 +94,7 @@ export const QUALITY_PRESETS = {
     msaa: 1,
     maxDpr: 1.5,
     interactionDpr: 1.0,
+    picking: false,
   },
 } as const satisfies Record<string, QualityConfig>
 
@@ -142,6 +155,14 @@ function resolveQuality(): QualityConfig {
     }
   }
 
+  // ?picking=1 enables GPU picking. Uint pick RTs need sampleCount=1,
+  // so enabling picking silently drops MSAA.
+  const pickParam = params.get('picking')
+  if (pickParam === '1' || pickParam === 'true') {
+    base.picking = true
+    base.msaa = 1
+  }
+
   return base
 }
 
@@ -152,8 +173,8 @@ export const QUALITY: QualityConfig = resolveQuality()
 if (typeof window !== 'undefined') {
   // Surface non-default quality once so users see the trade-off they
   // opted into. Quiet for default to avoid console noise.
-  const isDefault = QUALITY.msaa === 4 && QUALITY.maxDpr === 2 && QUALITY.interactionDpr === null
+  const isDefault = QUALITY.msaa === 4 && QUALITY.maxDpr === 2 && QUALITY.interactionDpr === null && !QUALITY.picking
   if (!isDefault) {
-    console.info(`[X-GIS] quality: msaa=${QUALITY.msaa}× dpr=${QUALITY.maxDpr} adaptiveDpr=${QUALITY.interactionDpr ?? 'off'}`)
+    console.info(`[X-GIS] quality: msaa=${QUALITY.msaa}× dpr=${QUALITY.maxDpr} adaptiveDpr=${QUALITY.interactionDpr ?? 'off'} picking=${QUALITY.picking ? 'on' : 'off'}`)
   }
 }

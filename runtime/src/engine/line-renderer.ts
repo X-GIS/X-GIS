@@ -38,7 +38,7 @@
 //    parallel arc length would require per-segment numerical integration
 //    and is deferred.
 
-import type { GPUContext } from './gpu'
+import { PICK, type GPUContext } from './gpu'
 import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, STENCIL_DISABLED, MSAA_4X } from './gpu-shared'
 import {
   WGSL_DIST_TO_SEGMENT,
@@ -876,6 +876,7 @@ struct LineOut {
 
 struct LineFragmentOutput {
   @location(0) color: vec4<f32>,
+  __PICK_FIELD__
   @builtin(frag_depth) depth: f32,
 }
 
@@ -1613,6 +1614,7 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
 fn fs_line(in: LineOut) -> LineFragmentOutput {
   var out: LineFragmentOutput;
   out.color = compute_line_color(in);
+  __PICK_WRITE__
   out.depth = compute_log_frag_depth(in.view_w, tile.log_depth_fc);
   return out;
 }
@@ -1711,7 +1713,17 @@ export class LineRenderer {
       label: 'line-empty-shape-buf',
     })
 
-    const module = this.device.createShaderModule({ code: LINE_SHADER, label: 'line-shader' })
+    // Splice the pick output into the SDF line shader when `?picking=1`.
+    // SDF lines are usually stroke-only — they don't carry per-feature IDs
+    // in the segment buffer, so the pick value is left at (0, 0). The
+    // underlying polygon fill already wrote its feature ID in this pass,
+    // so writing (0, 0) from the line stroke would OVERWRITE the fill's
+    // pick — which is why the `writeMask: 0` on the second target skips
+    // pick output entirely for the line pipeline.
+    const linePickShader = LINE_SHADER
+      .replace(/__PICK_FIELD__/g, PICK ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
+      .replace(/__PICK_WRITE__/g, PICK ? 'out.pick = vec2<u32>(0u, 0u);' : '')
+    const module = this.device.createShaderModule({ code: linePickShader, label: 'line-shader' })
 
     const linePipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [this.tileBindGroupLayout, this.layerBindGroupLayout],
@@ -1724,7 +1736,14 @@ export class LineRenderer {
       fragment: {
         module,
         entryPoint: 'fs_line',
-        targets: [{ format: this.format, blend: BLEND_ALPHA }],
+        targets: PICK
+          ? [
+              { format: this.format, blend: BLEND_ALPHA },
+              // writeMask: 0 → pick buffer preserves whatever the
+              // polygon fill wrote underneath the line stroke.
+              { format: 'rg32uint' as GPUTextureFormat, writeMask: 0 },
+            ]
+          : [{ format: this.format, blend: BLEND_ALPHA }],
       },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
       depthStencil: STENCIL_DISABLED,

@@ -5,6 +5,7 @@ import type { Camera } from './camera'
 import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../loader/tiles'
 import { mercator as mercatorProj } from './projection'
 import { BLEND_ALPHA, STENCIL_DISABLED, MSAA_4X } from './gpu-shared'
+import { PICK } from './gpu'
 import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
 
 const RASTER_SHADER = /* wgsl */ `
@@ -120,6 +121,7 @@ struct VsOut {
 
 struct RasterFragmentOutput {
   @location(0) color: vec4<f32>,
+  __PICK_FIELD__
   @builtin(frag_depth) depth: f32,
 }
 
@@ -198,6 +200,7 @@ fn fs_tile(input: VsOut) -> RasterFragmentOutput {
   if (input.vis < 0.0) { discard; }
   var out: RasterFragmentOutput;
   out.color = textureSample(tex, tex_sampler, input.uv);
+  __PICK_WRITE__
   out.depth = compute_log_frag_depth(input.view_w, u.proj_params.w);
   return out;
 }
@@ -246,7 +249,13 @@ export class RasterRenderer {
   constructor(ctx: GPUContext) {
     this.device = ctx.device
 
-    const module = ctx.device.createShaderModule({ code: RASTER_SHADER, label: 'raster-shader' })
+    const pickShader = RASTER_SHADER
+      .replace(/__PICK_FIELD__/g, PICK ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
+      // Raster tiles don't carry a feature id — always emit (0, 0) so the
+      // pick texture stays at "no feature" where the basemap is the front-most
+      // surface. Polygon / line / point pipelines write their real IDs on top.
+      .replace(/__PICK_WRITE__/g, PICK ? 'out.pick = vec2<u32>(0u, 0u);' : '')
+    const module = ctx.device.createShaderModule({ code: pickShader, label: 'raster-shader' })
 
     this.globalBindGroupLayout = ctx.device.createBindGroupLayout({
       entries: [
@@ -267,7 +276,9 @@ export class RasterRenderer {
       vertex: { module, entryPoint: 'vs_tile' },
       fragment: {
         module, entryPoint: 'fs_tile',
-        targets: [{ format: ctx.format, blend: BLEND_ALPHA }],
+        targets: PICK
+          ? [{ format: ctx.format, blend: BLEND_ALPHA }, { format: 'rg32uint' as GPUTextureFormat }]
+          : [{ format: ctx.format, blend: BLEND_ALPHA }],
       },
       primitive: { topology: 'triangle-list' },
       depthStencil: STENCIL_DISABLED,

@@ -5,6 +5,7 @@ import type { Camera } from './camera'
 import type { MeshData, LineMeshData } from '../loader/geojson'
 import { generateGraticule } from './graticule'
 import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, MSAA_4X, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
+import { PICK } from './gpu'
 import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
 
 // generateGraticule(zoom) now handles zoom-adaptive steps internally
@@ -200,6 +201,7 @@ struct VertexOutput {
 
 struct FragmentOutput {
   @location(0) color: vec4<f32>,
+  __PICK_FIELD__
   @builtin(frag_depth) depth: f32,
 }
 
@@ -262,6 +264,7 @@ fn fs_fill(input: VertexOutput) -> FragmentOutput {
   if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
   var out: FragmentOutput;
   out.color = u.fill_color;
+  __PICK_WRITE__
   out.depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
   return out;
 }
@@ -274,6 +277,7 @@ fn fs_stroke(input: VertexOutput) -> FragmentOutput {
   let alpha_scale = select(0.4, 1.0, input.feat_id > 0u);
   var out: FragmentOutput;
   out.color = vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);
+  __PICK_WRITE__
   out.depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
   return out;
 }
@@ -307,7 +311,15 @@ export interface CachedPipeline {
  * Build a specialized WGSL shader by injecting variant's preamble and expressions.
  */
 function buildShader(variant?: ShaderVariantInfo | null): string {
-  if (!variant || (!variant.preamble && !variant.needsFeatureBuffer)) return POLYGON_SHADER
+  // Strip (or inject) the pick template markers BEFORE any other substitution
+  // so variant pipelines see the same conditional output as the default path.
+  // Default build (PICK=false) replaces both markers with empty strings so
+  // the resulting WGSL is byte-identical to the pre-picking shader.
+  const applyPick = (src: string): string => src
+    .replace(/__PICK_FIELD__/g, PICK ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
+    .replace(/__PICK_WRITE__/g, PICK ? 'out.pick = vec2<u32>(input.feat_id, 0u);' : '')
+
+  if (!variant || (!variant.preamble && !variant.needsFeatureBuffer)) return applyPick(POLYGON_SHADER)
 
   let shader = POLYGON_SHADER
   const insertPoint = '@group(0) @binding(0) var<uniform> u: Uniforms;'
@@ -337,7 +349,7 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
     shader = shader.replace(STROKE_RETURN_MARKER, `out.color = ${variant.strokeExpr};`)
   }
 
-  return shader
+  return applyPick(shader)
 }
 
 // ═══ Color parsing ═══
@@ -696,8 +708,14 @@ export class MapRenderer {
   private initPipelines(): void {
     const { device, format } = this.ctx
 
+    // Splice the pick output into the shader template when `?picking=1`
+    // is enabled. Keeps the default (no-pick) shader byte-identical with
+    // the prior build — existing deployments see no change.
+    const pickShader = POLYGON_SHADER
+      .replace(/__PICK_FIELD__/g, PICK ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
+      .replace(/__PICK_WRITE__/g, PICK ? 'out.pick = vec2<u32>(input.feat_id, 0u);' : '')
     const shaderModule = device.createShaderModule({
-      code: POLYGON_SHADER,
+      code: pickShader,
       label: 'xgis-shader',
     })
 
@@ -751,11 +769,17 @@ export class MapRenderer {
       ],
     }
 
+    // Pipeline color target list. When picking is on, append an RG32Uint
+    // target at location 1 that the fragment shader's out.pick writes into.
+    // `writeMask: ALL` is default — uint formats ignore blend state.
+    const colorTargets: GPUColorTargetState[] = [{ format, blend: BLEND_ALPHA }]
+    if (PICK) colorTargets.push({ format: 'rg32uint' })
+
     // Fill pipeline (stencil write — current zoom tiles)
     this.fillPipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: [{ format, blend: BLEND_ALPHA }] },
+      fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: colorTargets },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
       depthStencil: STENCIL_WRITE, multisample: MSAA_4X,
       label: 'fill-pipeline',
@@ -765,7 +789,7 @@ export class MapRenderer {
     this.linePipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: [{ format, blend: BLEND_ALPHA }] },
+      fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: colorTargets },
       primitive: { topology: 'line-list', cullMode: 'none' },
       depthStencil: STENCIL_WRITE,
       multisample: MSAA_4X,
@@ -776,7 +800,7 @@ export class MapRenderer {
     this.fillPipelineFallback = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: [{ format, blend: BLEND_ALPHA }] },
+      fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: colorTargets },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
       depthStencil: STENCIL_TEST, multisample: MSAA_4X,
       label: 'fill-pipeline-fallback',
@@ -786,7 +810,7 @@ export class MapRenderer {
     this.linePipelineFallback = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: [{ format, blend: BLEND_ALPHA }] },
+      fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: colorTargets },
       primitive: { topology: 'line-list', cullMode: 'none' },
       depthStencil: STENCIL_TEST, multisample: MSAA_4X,
       label: 'line-pipeline-fallback',
@@ -1075,7 +1099,7 @@ export class MapRenderer {
     const fillPipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_fill', targets: [{ format, blend: BLEND_ALPHA }] },
+      fragment: { module, entryPoint: 'fs_fill', targets: PICK ? [{ format, blend: BLEND_ALPHA }, { format: 'rg32uint' }] : [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
       depthStencil: STENCIL_WRITE, multisample: MSAA_4X,
       label: `fill-${variant.key}`,
@@ -1084,7 +1108,7 @@ export class MapRenderer {
     const linePipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_stroke', targets: [{ format, blend: BLEND_ALPHA }] },
+      fragment: { module, entryPoint: 'fs_stroke', targets: PICK ? [{ format, blend: BLEND_ALPHA }, { format: 'rg32uint' }] : [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
       depthStencil: STENCIL_WRITE, multisample: MSAA_4X,
       label: `line-${variant.key}`,
@@ -1093,7 +1117,7 @@ export class MapRenderer {
     const fillPipelineFallback = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_fill', targets: [{ format, blend: BLEND_ALPHA }] },
+      fragment: { module, entryPoint: 'fs_fill', targets: PICK ? [{ format, blend: BLEND_ALPHA }, { format: 'rg32uint' }] : [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
       depthStencil: STENCIL_TEST, multisample: MSAA_4X,
       label: `fill-fallback-${variant.key}`,
@@ -1102,7 +1126,7 @@ export class MapRenderer {
     const linePipelineFallback = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_stroke', targets: [{ format, blend: BLEND_ALPHA }] },
+      fragment: { module, entryPoint: 'fs_stroke', targets: PICK ? [{ format, blend: BLEND_ALPHA }, { format: 'rg32uint' }] : [{ format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'line-list', cullMode: 'none' },
       depthStencil: STENCIL_TEST, multisample: MSAA_4X,
       label: `line-fallback-${variant.key}`,

@@ -2,7 +2,7 @@
 
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, deserializeXGB, resolveImportsAsync } from '@xgis/compiler'
 import { getSharedGeoJSONCompilePool } from '../data/geojson-compile-pool'
-import { initGPU, resizeCanvas, MAX_DPR, SAMPLE_COUNT, GPU_PROF, type GPUContext } from './gpu'
+import { initGPU, resizeCanvas, MAX_DPR, SAMPLE_COUNT, GPU_PROF, PICK, type GPUContext } from './gpu'
 import { GPUTimer } from './gpu-timer'
 import { Camera } from './camera'
 import { MapRenderer, interpolateZoom } from './renderer'
@@ -87,6 +87,19 @@ export class XGISMap {
   private msaaWidth = 0
   private msaaHeight = 0
 
+  // Pick (GPU hover/click) — secondary color attachment that every main-pass
+  // pipeline writes `vec2<u32>(feature_id, instance_id)` into. 1-tex design
+  // with RG32Uint keeps per-pass overhead to a single extra color-attachment
+  // descriptor and 8 bytes/pixel of VRAM. Always allocated (not opt-in) so
+  // pipelines have a stable target format; `map.pickAt()` reads back a 1×1
+  // at the pointer location via async mapAsync. Kept at single-sample
+  // regardless of SAMPLE_COUNT — picking wants deterministic, non-resolved IDs.
+  private pickTexture: GPUTexture | null = null
+  /** Reusable MAP_READ buffer pool for pickAt() readbacks. Each entry holds
+   *  exactly 8 bytes (one RG32Uint pixel) — a ring keeps mapAsync latency
+   *  off the hot path. */
+  private pickReadbackPool: { buf: GPUBuffer; inUse: boolean }[] = []
+
   // Stats inspector
   private _stats = new StatsTracker()
   private _statsPanel: StatsPanel | null = null
@@ -141,6 +154,67 @@ export class XGISMap {
 
   /** Public read/write access to the camera (for URL hash, etc). */
   getCamera(): Camera { return this.camera }
+
+  /** Read the feature + instance ID under the given CSS pixel coordinate.
+   *  Requires the map to be built with `?picking=1` — otherwise returns
+   *  null immediately (no pick RT exists). Async because readback from a
+   *  GPU texture has a ~1-frame latency via `mapAsync`.
+   *
+   *  - Returns `{ featureId, instanceId }` when a feature covers the pixel
+   *  - Returns `null` when the pick pixel is (0, 0) (no feature / basemap)
+   *  - `featureId` matches what `lower.ts` assigned to the geometry part
+   *    (usually the feature's index in its source GeoJSON / tile)
+   *  - `instanceId` is 0 until WORLD_COPIES instancing ships (future)
+   *
+   *  Pool reuse: the staging buffer ring avoids allocating per call, so
+   *  hover scenarios (60 Hz pickAt) stay cheap. */
+  async pickAt(clientX: number, clientY: number): Promise<{ featureId: number; instanceId: number } | null> {
+    if (!this.pickTexture || !this.ctx) return null
+    const canvas = this.ctx.canvas
+    const rect = canvas.getBoundingClientRect()
+    // Convert CSS coords → physical pixels (match the dpr used for the
+    // framebuffer size). Clamp into bounds; out-of-canvas → null.
+    const px = Math.floor((clientX - rect.left) * (canvas.width / rect.width))
+    const py = Math.floor((clientY - rect.top) * (canvas.height / rect.height))
+    if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) return null
+
+    // Rent a staging buffer. Each slot is 8 bytes (one RG32Uint pixel,
+    // padded to minimum 256-byte row per WebGPU's copy alignment). We
+    // over-allocate to 256 so bytesPerRow is valid.
+    let slot = this.pickReadbackPool.find(s => !s.inUse)
+    if (!slot) {
+      slot = {
+        buf: this.ctx.device.createBuffer({
+          size: 256,
+          usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+          label: 'pick-readback',
+        }),
+        inUse: false,
+      }
+      this.pickReadbackPool.push(slot)
+    }
+    slot.inUse = true
+
+    const encoder = this.ctx.device.createCommandEncoder({ label: 'pick-copy' })
+    encoder.copyTextureToBuffer(
+      { texture: this.pickTexture, origin: { x: px, y: py } },
+      { buffer: slot.buf, bytesPerRow: 256, rowsPerImage: 1 },
+      { width: 1, height: 1 },
+    )
+    this.ctx.device.queue.submit([encoder.finish()])
+
+    try {
+      await slot.buf.mapAsync(GPUMapMode.READ, 0, 8)
+      const view = new Uint32Array(slot.buf.getMappedRange(0, 8))
+      const featureId = view[0]
+      const instanceId = view[1]
+      slot.buf.unmap()
+      if (featureId === 0) return null
+      return { featureId, instanceId }
+    } finally {
+      slot.inUse = false
+    }
+  }
 
   /** Show/hide the stats inspector panel */
   showInspector(show = true): void {
@@ -888,6 +962,7 @@ export class XGISMap {
       if (!this.stencilTexture || this.msaaWidth !== w || this.msaaHeight !== h) {
         this.msaaTexture?.destroy()
         this.stencilTexture?.destroy()
+        this.pickTexture?.destroy()
         // Allocate the MSAA color attachment ONLY when MSAA is on. When
         // sc === 1 we render straight to the swapchain (no resolveTarget)
         // and the MSAA texture would just waste w×h×4 bytes per frame.
@@ -905,6 +980,18 @@ export class XGISMap {
           sampleCount: sc,
           usage: GPUTextureUsage.RENDER_ATTACHMENT,
         })
+        // Pick RT: RG32Uint, single-sample. `?picking=1` forces SAMPLE_COUNT
+        // to 1 globally (see quality.ts) so sc === 1 here whenever PICK is
+        // true — the pick attachment and color attachment share sample count
+        // as WebGPU requires.
+        this.pickTexture = PICK
+          ? device.createTexture({
+              size: { width: w, height: h },
+              format: 'rg32uint',
+              sampleCount: 1,
+              usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+            })
+          : null
         this.msaaWidth = w
         this.msaaHeight = h
       }
@@ -1011,16 +1098,32 @@ export class XGISMap {
           // their own QuerySet to time independently; for the perf-investigation
           // workload (multi_layer) one sub-pass usually covers everything.
           const tsWrites = (isFirst && this.gpuTimer?.passWrites()) || undefined
-          const subPass = encoder.beginRenderPass({
-            colorAttachments: [{
-              view: colorView,
-              resolveTarget: resolveHere ? screenView : undefined,
-              // First pass clears to the canvas background; subsequent
-              // opaque sub-passes load so we don't stomp earlier work.
-              clearValue: isFirst ? { r: 0.039, g: 0.039, b: 0.063, a: 1 } : undefined,
+          // Build color attachments. When picking is enabled, add a
+          // second RG32Uint attachment at location 1 — every pipeline
+          // in the main passes has a matching second fragment output
+          // that writes `vec2<u32>(feature_id, instance_id)`. The first
+          // sub-pass clears the pick texture to (0, 0) = "no feature";
+          // subsequent sub-passes load so earlier-group IDs persist
+          // where later groups didn't draw.
+          const colorAttachments: GPURenderPassColorAttachment[] = [{
+            view: colorView,
+            resolveTarget: resolveHere ? screenView : undefined,
+            // First pass clears to the canvas background; subsequent
+            // opaque sub-passes load so we don't stomp earlier work.
+            clearValue: isFirst ? { r: 0.039, g: 0.039, b: 0.063, a: 1 } : undefined,
+            loadOp: isFirst ? 'clear' : 'load',
+            storeOp: 'store',
+          }]
+          if (PICK && this.pickTexture) {
+            colorAttachments.push({
+              view: this.pickTexture.createView(),
+              clearValue: isFirst ? { r: 0, g: 0, b: 0, a: 0 } : undefined,
               loadOp: isFirst ? 'clear' : 'load',
               storeOp: 'store',
-            }],
+            })
+          }
+          const subPass = encoder.beginRenderPass({
+            colorAttachments,
             depthStencilAttachment: {
               view: this.stencilTexture!.createView(),
               depthClearValue: 1.0,
