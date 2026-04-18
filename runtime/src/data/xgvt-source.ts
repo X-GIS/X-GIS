@@ -180,16 +180,39 @@ export class XGVTSource {
 
   compileTileOnDemand(key: number): boolean {
     if (!this.rawParts || this.dataCache.has(key)) return false
-    if (this._compileBudget >= 2) return false // max 2 tiles per frame — smooth 30fps
     const [z, x, y] = tileKeyUnpack(key)
     if (z > this.rawMaxZoom) return false
 
-    // Use spatial grid for faster part lookup (64× fewer parts at z=3+)
+    // Empty-tile shortcut: if the spatial grid has no parts overlapping
+    // this tile, cache a zero-geometry tile instead of returning false
+    // every frame. Without this, every VTR.render loop finds the tile
+    // absent, falls through to parent-fallback, and increments
+    // missedTiles — producing sustained [FLICKER] warnings for regions
+    // with no data (e.g., z=6 ocean tiles far from the fixture's line).
+    // A cached empty tile lets the VTR's `hasGeom === false` branch
+    // short-circuit the fallback accounting. Cost: a no-op GPU upload
+    // per empty tile, bounded by the LRU cap.
     const parts = this.getRelevantParts(z, x, y)
-    if (!parts || parts.length === 0) return false
+    if (!parts || parts.length === 0) {
+      const empty = new Float32Array(0)
+      const emptyI = new Uint32Array(0)
+      this.cacheTileData(key, undefined, empty, emptyI, empty, emptyI)
+      return true
+    }
+
+    if (this._compileBudget >= 4) return false // max 4 tiles per frame — matches upload cap so the two pipelines stay balanced during pan/zoom
 
     const tile = compileSingleTile(parts, z, x, y, this.rawMaxZoom)
-    if (!tile) return false
+    if (!tile) {
+      // Same rationale as the empty-grid branch above — a tile that
+      // overlapped the spatial grid but produced no triangles after
+      // clipping (very thin line slicing a corner, for example) would
+      // otherwise stay "missed" forever.
+      const empty = new Float32Array(0)
+      const emptyI = new Uint32Array(0)
+      this.cacheTileData(key, undefined, empty, emptyI, empty, emptyI)
+      return true
+    }
 
     // Create synthetic index entry
     if (this.index) {

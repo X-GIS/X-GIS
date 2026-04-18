@@ -56,7 +56,15 @@ const MAX_GPU_TILES = 512
  *  work across ~5–6 frames → worst spike drops to <50 ms with the cache
  *  reaching full visibility in ~100 ms. Raise if you see noticeable
  *  "filling in" during pans on fast connections. */
-const MAX_UPLOADS_PER_FRAME = 1
+/** Per-frame tile upload cap. Set at `1` to prevent LOD-crossing stalls
+ *  for heavy scenes (16 tiles × buildLineSegments = 250ms spike), but
+ *  the interaction audit showed that was far too tight for normal pan
+ *  + zoom + pitch: `missedTiles` stayed non-zero for 600+ consecutive
+ *  frames because new visible tiles appeared faster than the cap could
+ *  promote them to GPU. Raised to `4` — simple scenes clear their
+ *  24-tile viewport in <1 s while heavy scenes absorb ~200 ms spikes
+ *  instead of single 250 ms ones. */
+const MAX_UPLOADS_PER_FRAME = 4
 
 // ═══ Renderer ═══
 
