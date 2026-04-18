@@ -97,6 +97,16 @@ export class VectorTileRenderer {
   // gets a fresh 256-byte slot, preventing multi-layer writeBuffer clobber.
   private uniformRing: GPUBuffer | null = null
   private uniformRingCapacity = 1024 // slots — 256 KB initial
+  /** Staging mirror of the uniform ring. We accumulate every tile's
+   *  per-draw uniform into this CPU-side buffer during a render pass
+   *  and emit ONE writeBuffer at the end instead of one-per-tile. In
+   *  the fixture-audit translucent_stroke scenario the per-tile
+   *  writeBuffer count dropped from ~34k to a handful per frame. */
+  private uniformStaging = new Uint8Array(this.uniformRingCapacity * UNIFORM_SLOT)
+  /** Inclusive-exclusive byte range that's been written to uniformStaging
+   *  but not yet copied to the GPU ring. */
+  private uniformDirtyLo = 0
+  private uniformDirtyHi = 0
   private uniformSlot = 0
   /** Tile bind group referencing the ring with dynamic offset (uniform only). */
   private tileBgDefault: GPUBindGroup | null = null
@@ -217,7 +227,44 @@ export class VectorTileRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: 'vtr-uniform-ring',
     })
+    // Resize the CPU staging buffer in lockstep; preserve already-written
+    // bytes so a grow mid-pass doesn't lose pending uniforms.
+    const grown = new Uint8Array(newCap * UNIFORM_SLOT)
+    grown.set(this.uniformStaging.subarray(0, Math.min(this.uniformStaging.length, grown.length)))
+    this.uniformStaging = grown
     this.rebuildTileBindGroups()
+  }
+
+  /** Copy a per-tile uniform block into the staging mirror at the given
+   *  ring byte offset and extend the dirty range. Replaces the old
+   *  per-draw `device.queue.writeBuffer` call inside renderTileKeys. */
+  private stageUniformSlot(slotOffset: number, src: ArrayBuffer): void {
+    this.uniformStaging.set(new Uint8Array(src, 0, Math.min(src.byteLength, UNIFORM_SLOT)), slotOffset)
+    const hi = slotOffset + UNIFORM_SLOT
+    if (this.uniformDirtyHi === this.uniformDirtyLo) {
+      this.uniformDirtyLo = slotOffset
+      this.uniformDirtyHi = hi
+    } else {
+      if (slotOffset < this.uniformDirtyLo) this.uniformDirtyLo = slotOffset
+      if (hi > this.uniformDirtyHi) this.uniformDirtyHi = hi
+    }
+  }
+
+  /** Upload the accumulated uniform-ring bytes as a SINGLE writeBuffer,
+   *  then mark the dirty range empty. WebGPU schedules the copy before
+   *  any command buffer submitted afterwards, so calling this at end of
+   *  each renderTileKeys (i.e. still within the pass encoding window) is
+   *  correct — the subsequent pass.end → encoder.finish → queue.submit
+   *  sees the updated ring contents. */
+  private flushUniformStaging(): void {
+    if (this.uniformDirtyHi === this.uniformDirtyLo || !this.uniformRing) return
+    const lo = this.uniformDirtyLo, hi = this.uniformDirtyHi
+    this.device.queue.writeBuffer(
+      this.uniformRing, lo,
+      this.uniformStaging.buffer, this.uniformStaging.byteOffset + lo, hi - lo,
+    )
+    this.uniformDirtyLo = 0
+    this.uniformDirtyHi = 0
   }
 
   /** Provide the shared SDF line renderer (set by map.ts after GPU init). */
@@ -1007,7 +1054,10 @@ export class VectorTileRenderer {
       // Ring may have grown in allocUniformSlot — use current (rebuilt) bind groups.
       const currentTileBg = this.tileBgFeature ?? this.tileBgDefault!
       const currentLineTileBg = this.tileBgDefault!
-      this.device.queue.writeBuffer(this.uniformRing!, slotOffset, this.uniformDataBuf)
+      // Stage the slot into the CPU-side mirror instead of issuing one
+      // writeBuffer per tile; the mirror is flushed in a single call at
+      // the end of this renderTileKeys invocation.
+      this.stageUniformSlot(slotOffset, this.uniformDataBuf)
 
       // Polygon fills — skipped in 'strokes' phase (offscreen line-only RT).
       if (drawFills && cached.indexCount > 0) {
@@ -1031,6 +1081,10 @@ export class VectorTileRenderer {
       const vc = cached.indexCount + cached.lineIndexCount
       this.renderedDraws.set(drawKey, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount, vertexCount: vc })
     }
+    // Emit accumulated per-tile uniforms as one writeBuffer. Still
+    // before queue.submit() — the encoded draws read the fresh ring
+    // data by WebGPU's submit-ordering guarantees.
+    this.flushUniformStaging()
   }
 
   private evictGPUTiles(): void {
