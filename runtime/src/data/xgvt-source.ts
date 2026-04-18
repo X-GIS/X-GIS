@@ -764,6 +764,15 @@ export class XGVTSource {
 
     const parent = this.dataCache.get(parentKey)
     if (!parent || (parent.indices.length === 0 && parent.lineIndices.length === 0)) return false
+    // Per-frame cap mirrors compileTileOnDemand. Without this, VTR's
+    // fallback loop could invoke us 10–20 times in a single frame when
+    // a slow zoom landed past the parent's LOD — at z=3 with countries
+    // geometry each call is 100+ ms (16k triangles × Sutherland-Hodgman
+    // × string-key dedup), which compounded to 16 s stalls in the
+    // perf-scenarios hybrid suite. Budget 2/frame keeps worst-case
+    // under ~300 ms while still resolving most tiles within a second.
+    if (this._subTileBudget >= 2) return false
+    if (this.dataCache.has(subKey)) return false // already generated
 
     this._subTileBudget++
 
@@ -975,6 +984,7 @@ export class XGVTSource {
     }
 
     this.dataCache.set(subKey, subData)
+    this._subTileBudget++
     try { this.onTileLoaded?.(subKey, subData) }
     catch (e) { console.error('[onTileLoaded sub]', (e as Error)?.stack ?? e) }
     return true
@@ -985,14 +995,34 @@ export class XGVTSource {
   prefetchAdjacent(visTiles: { z: number; x: number; y: number }[], zoom: number): void {
     if (!this.index || visTiles.length === 0) return
 
+    // visTiles is the mixed-zoom output of visibleTilesFrustum (the quadtree
+    // returns leaves at whatever LOD hit the screen-space threshold — near
+    // tiles at currentZ, far/low-pitch tiles at lower z). The previous
+    // implementation took an AABB over the raw `t.x / t.y` values, which is
+    // nonsense across zoom levels: a z=3 tile with x=3 and a z=18 tile with
+    // x=200000 produced a 200000×Y loop, ~500M iterations, and a 16-second
+    // main-thread stall (measured in the perf-scenarios hybrid suite).
+    //
+    // Fix: only consider visTiles at `zoom` when computing the AABB. Tiles
+    // at other zoom levels are already covered by their own prefetch pass.
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    let matched = 0
     for (const t of visTiles) {
+      if (t.z !== zoom) continue
+      matched++
       if (t.x < minX) minX = t.x; if (t.x > maxX) maxX = t.x
       if (t.y < minY) minY = t.y; if (t.y > maxY) maxY = t.y
     }
+    if (matched === 0) return
 
     const n = Math.pow(2, zoom)
     const prefetchKeys: number[] = []
+    // Hard safety cap so a future misuse (e.g. passing an unexpectedly
+    // wide AABB) can never repeat the 500 M-iteration stall. Realistic
+    // visible tile spans at any camera are < ~30 on either axis; 128 is
+    // generous and still small enough to complete in under 1 ms.
+    const MAX_SPAN = 128
+    if (maxX - minX > MAX_SPAN || maxY - minY > MAX_SPAN) return
 
     for (let rawX = minX - 1; rawX <= maxX + 1; rawX++) {
       const x = ((rawX % n) + n) % n  // wrap X for world wrapping

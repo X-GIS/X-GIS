@@ -730,10 +730,14 @@ export class VectorTileRenderer {
               fallbackOffsets.push(worldOffDeg[i])
             }
           } else {
-            // 3. Still no tile — parent fallback (guaranteed visual continuity)
+            // 3. Still no tile — parent fallback (guaranteed visual continuity).
+            //    Budget on the compile / sub-tile paths likely deferred this
+            //    tile, so mark it missed so the outer render-on-demand loop
+            //    keeps ticking and the next frame reclaims the budget.
             fallbackKeys.push(parentKey)
             fallbackOffsets.push(worldOffDeg[i])
             foundCached = true
+            this._missedTiles++
           }
         } else {
           fallbackKeys.push(parentKey)
