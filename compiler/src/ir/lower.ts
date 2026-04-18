@@ -207,6 +207,7 @@ function lowerLayer(
   let size: SizeValue = sizeNone()
   let projection = 'mercator'
   let visible = true
+  let pointerEvents: 'auto' | 'none' = 'auto'
   let billboard = true
   let anchor: 'center' | 'bottom' | 'top' | undefined
   let shape: ShapeRef = shapeNone()
@@ -419,6 +420,10 @@ function lowerLayer(
         }
       } else if (name === 'visible') {
         visible = true
+      } else if (name === 'pointer-events-none') {
+        pointerEvents = 'none'
+      } else if (name === 'pointer-events-auto') {
+        pointerEvents = 'auto'
       } else if (name.startsWith('animation-')) {
         // All animation-related utilities carry the `animation-` prefix so
         // they're visually grouped and can't collide with non-animation
@@ -669,6 +674,7 @@ function lowerLayer(
     size,
     projection,
     visible,
+    pointerEvents,
     filter: filterExpr ? { ast: filterExpr } : null,
     geometry: geometryExpr ? { ast: geometryExpr } : null,
     billboard,
@@ -926,6 +932,7 @@ function lowerShow(stmt: AST.ShowStatement): RenderNode | null {
     size: sizeNone(),
     projection,
     visible,
+    pointerEvents: 'auto',
     filter: null,
     geometry: null,
     billboard: true,

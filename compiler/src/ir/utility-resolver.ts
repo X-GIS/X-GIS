@@ -11,6 +11,12 @@ export interface ResolvedProperties {
   opacity: number
   projection: string
   visible: boolean
+  /** CSS-style pointer interactivity. 'none' tells the runtime to skip
+   *  writing this layer's pickId into the pick texture's G channel
+   *  (writeMask:0 on a pipeline variant), so picks fall through to
+   *  whatever drew underneath. 'auto' is the default and makes the
+   *  layer pickable. */
+  pointerEvents: 'auto' | 'none'
 }
 
 const DEFAULTS: ResolvedProperties = {
@@ -20,6 +26,7 @@ const DEFAULTS: ResolvedProperties = {
   opacity: 1.0,
   projection: 'mercator',
   visible: true,
+  pointerEvents: 'auto',
 }
 
 /**
@@ -86,4 +93,11 @@ function applyUtility(props: ResolvedProperties, name: string): void {
   // visible / hidden
   if (name === 'visible') { props.visible = true; return }
   if (name === 'hidden') { props.visible = false; return }
+
+  // pointer-events-{none,auto} — CSS-equivalent. 'none' makes the layer
+  // non-pickable (skips pick texture write via writeMask:0 variant);
+  // 'auto' is the default. Used by the DOM-inspired layer API so
+  // authors can mark decorative layers as non-interactive in the DSL.
+  if (name === 'pointer-events-none') { props.pointerEvents = 'none'; return }
+  if (name === 'pointer-events-auto') { props.pointerEvents = 'auto'; return }
 }

@@ -15,11 +15,19 @@ export interface LoadCommand {
 
 export interface ShowCommand {
   targetName: string
+  /** DSL layer name from `layer <name> { ... }`. Distinct from
+   *  `targetName` (source name) when two layers share a source.
+   *  Legacy `show <name> { ... }` syntax mirrors `targetName` here. */
+  layerName?: string
   fill: string | null
   stroke: string | null
   strokeWidth: number
   projection: string
   visible: boolean
+  /** CSS-style pointer interactivity. 'none' makes the layer non-pickable
+   *  (writeMask:0 on the pick attachment so picks fall through). 'auto'
+   *  is the default. */
+  pointerEvents: 'auto' | 'none'
   opacity: number
   size: number | null
   zoomOpacityStops: ZoomStop<number>[] | null
@@ -134,11 +142,18 @@ function emitShow(node: RenderNode): ShowCommand {
 
   return {
     targetName: node.sourceRef,
+    /** DSL layer name (e.g., `layer borders { ... }` → 'borders'). The
+     *  data path uses `targetName` (source name) to look up tiles, but
+     *  the user-facing `map.getLayer(name)` API matches the DSL layer
+     *  name. Two layers can share a source — they get distinct
+     *  `layerName`s and distinct entries in the layer registry. */
+    layerName: node.name,
     fill: colorToHex(node.fill),
     stroke: colorToHex(node.stroke.color),
     strokeWidth: node.stroke.width,
     projection: node.projection,
     visible: node.visible,
+    pointerEvents: node.pointerEvents,
     opacity: op.kind === 'constant' ? op.value : 1.0,
     size: node.size.kind === 'constant' ? node.size.value : null,
     zoomOpacityStops,

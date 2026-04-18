@@ -98,12 +98,14 @@ function extractLayer(
     load: { name: sourceDef.name, url: sourceDef.url },
     show: {
       targetName: sourceDef.name,
+      layerName: sourceDef.name,
       fill: resolved.fill,
       stroke: resolved.stroke,
       strokeWidth: resolved.strokeWidth,
       projection: resolved.projection,
       visible: resolved.visible,
       opacity: resolved.opacity,
+      pointerEvents: resolved.pointerEvents,
     },
   }
 }

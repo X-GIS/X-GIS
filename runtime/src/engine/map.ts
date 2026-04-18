@@ -24,6 +24,7 @@ import { LineRenderer } from './line-renderer'
 import { PanZoomController, type Controller } from './controller'
 import { CanvasRenderer } from './canvas-renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
+import { LayerIdRegistry, XGISLayer } from './layer'
 import { XGVTSource } from '../data/xgvt-source'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
@@ -35,6 +36,11 @@ interface VariantPipelines {
   linePipeline: GPURenderPipeline
   fillPipelineFallback?: GPURenderPipeline
   linePipelineFallback?: GPURenderPipeline
+  // pointer-events: none mirrors (writeMask:0 on the pick attachment).
+  fillPipelineNoPick?: GPURenderPipeline
+  linePipelineNoPick?: GPURenderPipeline
+  fillPipelineFallbackNoPick?: GPURenderPipeline
+  linePipelineFallbackNoPick?: GPURenderPipeline
 }
 
 // ClassifiedShow + OpaqueGroup live in bucket-scheduler.ts so they're
@@ -70,6 +76,19 @@ export class XGISMap {
   // Raw data for re-projection
   private rawDatasets = new Map<string, GeoJSONFeatureCollection>()
   private showCommands: SceneCommands['shows'] = []
+
+  /** Stable u16 IDs assigned to each layer in `addLayer` order. Stamped
+   *  into the pick texture's G channel via per-layer uniform `pick_id`.
+   *  Reset on `rebuildLayers()` so re-projections get a fresh deterministic
+   *  assignment. */
+  private layerIds = new LayerIdRegistry()
+
+  /** Public DOM-style layer wrappers, keyed by layer name. Reset in
+   *  `rebuildLayers()` so a re-projection produces fresh wrappers around
+   *  the new ShowCommand objects (the old ones are gone — keeping a
+   *  stale wrapper would silently no-op). Same name registered twice in
+   *  one rebuild returns the same wrapper. */
+  private xgisLayers = new Map<string, XGISLayer>()
 
   // External-injection update state (see setSourceData / updateFeature)
   private _pendingPatches = new Map<string, Map<number, { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> }>>()
@@ -233,7 +252,7 @@ export class XGISMap {
    *
    *  Pool reuse: the staging buffer ring avoids allocating per call, so
    *  hover scenarios (60 Hz pickAt) stay cheap. */
-  async pickAt(clientX: number, clientY: number): Promise<{ featureId: number; instanceId: number } | null> {
+  async pickAt(clientX: number, clientY: number): Promise<{ featureId: number; layerId: number; instanceId: number } | null> {
     if (!this.pickTexture || !this.ctx) return null
     const canvas = this.ctx.canvas
     const rect = canvas.getBoundingClientRect()
@@ -272,10 +291,18 @@ export class XGISMap {
       await slot.buf.mapAsync(GPUMapMode.READ, 0, 8)
       const view = new Uint32Array(slot.buf.getMappedRange(0, 8))
       const featureId = view[0]
-      const instanceId = view[1]
+      // G channel packs (instanceId << 16) | layerId — see LayerIdRegistry.
+      const packed = view[1]
       slot.buf.unmap()
-      if (featureId === 0) return null
-      return { featureId, instanceId }
+      const layerId = packed & 0xffff
+      const instanceId = (packed >>> 16) & 0xffff
+      // Both featureId=0 and layerId=0 are sentinels: featureId=0 means "no
+      // feature drew here" (raster-only / background), layerId=0 means "no
+      // pickable layer drew here" (e.g., graticule, or Phase 3's
+      // pointer-events:none with writeMask=0 yields 0 because the slot was
+      // never written). Either is a miss.
+      if (featureId === 0 || layerId === 0) return null
+      return { featureId, layerId, instanceId }
     } finally {
       slot.inUse = false
     }
@@ -532,6 +559,15 @@ export class XGISMap {
     this.renderer.clearLayers()
     this.pointRenderer?.clearLayers()
     this.vectorTileShows = []
+    // Reset layer-id registry so re-projection produces deterministic IDs
+    // (same `addLayer` order → same IDs). pickAt callers that cached an ID
+    // across `setProjection()` need to re-resolve.
+    this.layerIds.reset()
+    // Wipe public XGISLayer wrappers — they hold references to the old
+    // ShowCommand objects, which are about to be replaced. Consumers that
+    // cached `getLayer(name)` across `setProjection()` will need to re-
+    // resolve (same contract as Mapbox/MapLibre layer references).
+    this.xgisLayers.clear()
 
     // Reset raster renderer — only activate if a layer references a raster source
     if (!this.useCanvas2D) this.rasterRenderer.setUrlTemplate('')
@@ -539,6 +575,29 @@ export class XGISMap {
     for (const show of this.showCommands) {
       const data = this.rawDatasets.get(show.targetName)
       if (!data) continue
+
+      // Stamp this show with its stable layer ID so VTR's per-tile
+      // uniform write picks it up for the pick texture's G channel.
+      // We register by DSL layer name (e.g., 'fill', 'borders') rather
+      // than source name, so two layers drawing the same source get
+      // distinct IDs and are pickable independently. Legacy syntax
+      // mirrors `targetName` into `layerName` at compile time, so this
+      // is a no-op there.
+      const layerName = show.layerName ?? show.targetName
+      show.pickId = this.layerIds.register(layerName)
+      // Build (or refresh) the public XGISLayer wrapper, keyed by DSL
+      // layer name. `getLayer('borders')` returns the borders wrapper
+      // even when its source is shared with `fill`. Secondary shows
+      // under the same DSL name share the wrapper (extremely rare —
+      // happens only when a future compiler pass fan-outs one `layer`
+      // into multiple shows; the wrapper still mutates the first
+      // show, the rest will adopt it via the layerName lookup).
+      if (!this.xgisLayers.has(layerName)) {
+        this.xgisLayers.set(
+          layerName,
+          new XGISLayer(layerName, show, () => this.invalidate()),
+        )
+      }
 
       // Raster tile source referenced by a layer → activate raster renderer
       const tileUrl = (data as unknown as { _tileUrl?: string })._tileUrl
@@ -929,6 +988,10 @@ export class XGISMap {
         bindGroupLayout: this.renderer.bindGroupLayout,
         fillPipelineFallback: this.renderer.fillPipelineFallback,
         linePipelineFallback: this.renderer.linePipelineFallback,
+        fillPipelineNoPick: this.renderer.fillPipelineNoPick,
+        linePipelineNoPick: this.renderer.linePipelineNoPick,
+        fillPipelineFallbackNoPick: this.renderer.fillPipelineFallbackNoPick,
+        linePipelineFallbackNoPick: this.renderer.linePipelineFallbackNoPick,
       },
     })
   }
@@ -1423,7 +1486,27 @@ export class XGISMap {
     requestAnimationFrame(this.renderLoop)
   }
 
-  // ═══ Dynamic Property API ═══
+  // ═══ DOM-inspired Layer API ═══
+
+  /** Look up a layer by its DSL name. Returns the same `XGISLayer`
+   *  instance for repeated calls within one scene, so consumers can
+   *  hold the reference across frames. The wrapper is invalidated by
+   *  `setProjection()` / scene rebuild — re-resolve in that case.
+   *
+   *  Mirrors `document.getElementById` ergonomically; the returned
+   *  layer exposes `.style` (CSS-like) and `.addEventListener`. */
+  getLayer(name: string): XGISLayer | null {
+    return this.xgisLayers.get(name) ?? null
+  }
+
+  /** Snapshot of all layer wrappers in registration order. Mirrors
+   *  `document.querySelectorAll` returning a static list — mutations to
+   *  the scene after this call do not appear in the returned array. */
+  getLayers(): readonly XGISLayer[] {
+    return Array.from(this.xgisLayers.values())
+  }
+
+  // ═══ Dynamic Property API (lower-level dot-notation; prefer .style) ═══
 
   /** Set a layer property at runtime. Changes apply immediately (next frame). */
   set(path: string, value: unknown): void {

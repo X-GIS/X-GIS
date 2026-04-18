@@ -1,0 +1,258 @@
+// ═══ Layer + Layer Style — DOM-inspired API for X-GIS ═══
+//
+// Mental model: `map.getLayer('borders')` is `document.getElementById`,
+// `layer.style.opacity = 0.5` is `element.style.opacity = '0.5'`. The
+// .style proxy is a typed object (not a JS Proxy) so setters validate
+// and IDE autocomplete works.
+//
+// Pick texture encoding (LayerIdRegistry below): `pickAt()` reads
+// (R, G) from an RG32Uint texture: R = featureId, G = (instanceId<<16)
+// | layerId. layerId disambiguates which X-GIS layer drew the topmost
+// pixel under the cursor — featureId alone can't tell two layers from
+// different sources apart.
+//
+// IDs are u16, assigned in `addLayer()` registration order, stable for
+// the lifetime of the layer (style toggles, animation, restyle never
+// reassign). ID 0 is reserved as the "no layer" sentinel — `pickAt()`
+// returns null for layerId === 0. `clearLayers()` (called on re-
+// projection rebuild) resets the registry; re-registration in the
+// same order produces the same IDs.
+//
+// Phase 2 introduces XGISLayer + XGISLayerStyle (this file). Phase 3
+// adds the `pointerEvents:none` pipeline-variant pathway (writeMask:0
+// on the pick attachment). Phase 4 adds addEventListener.
+
+import type { ShowCommand } from './renderer'
+
+const MAX_LAYER_ID = 0xffff
+
+export class LayerIdRegistry {
+  private next = 1
+  private byName = new Map<string, number>()
+  private byId = new Map<number, string>()
+
+  /** Allocate (or return existing) layer ID for `name`. Same name registered
+   *  twice returns the same ID — handles the case where the compiler emits
+   *  a single `layer foo` that fan-outs to fill + stroke shows. */
+  register(name: string): number {
+    const existing = this.byName.get(name)
+    if (existing !== undefined) return existing
+    if (this.next > MAX_LAYER_ID) {
+      throw new Error(`[X-GIS] LayerIdRegistry exhausted: more than ${MAX_LAYER_ID} layers`)
+    }
+    const id = this.next++
+    this.byName.set(name, id)
+    this.byId.set(id, name)
+    return id
+  }
+
+  /** Reverse lookup: ID → layer name. Returns undefined for the sentinel
+   *  ID 0 or any ID not currently registered. */
+  getName(id: number): string | undefined {
+    return this.byId.get(id)
+  }
+
+  /** Forward lookup: name → ID, or undefined if not registered. */
+  getId(name: string): number | undefined {
+    return this.byName.get(name)
+  }
+
+  /** Wipe the registry. Called from `XGISMap.clearLayers()` so re-projection
+   *  rebuilds get a fresh deterministic ID assignment. */
+  reset(): void {
+    this.next = 1
+    this.byName.clear()
+    this.byId.clear()
+  }
+
+  /** Pack (instanceId, layerId) into the u32 written to the pick texture's
+   *  G channel. Mirrors the decode in `map.pickAt()`. */
+  static pack(layerId: number, instanceId = 0): number {
+    return ((instanceId & 0xffff) << 16) | (layerId & 0xffff)
+  }
+
+  /** Decode a packed G-channel u32 into { layerId, instanceId }. */
+  static unpack(packed: number): { layerId: number; instanceId: number } {
+    return { layerId: packed & 0xffff, instanceId: (packed >>> 16) & 0xffff }
+  }
+}
+
+// ═══ XGISLayer + XGISLayerStyle ═══════════════════════════════════
+//
+// `map.getLayer(name)` returns an `XGISLayer`. The wrapper holds a
+// reference to the underlying `ShowCommand` (the same object VTR /
+// classifier read every frame) and an invalidation callback that wakes
+// the render loop when a style changes.
+//
+// Styling model:
+//
+//   - Setters mutate `show.<prop>` directly so VTR's per-frame reads
+//     pick up the change on the next frame (no rebuild). The first
+//     mutation per property snapshots the compiled default into
+//     `_defaults` so `resetStyle(prop)` can restore it.
+//   - `pointerEvents` is stored on the show today but is a no-op until
+//     Phase 3 wires the writeMask:0 pipeline variant. Phase 2 ships it
+//     so the API surface is stable from day one.
+//   - `Object.assign(layer.style, { opacity: 0.5, fill: '#ff0000' })`
+//     works because each property is a real accessor.
+
+export type PointerEvents = 'auto' | 'none'
+
+/** Public (CSS-like) style property names. Excludes private accessor
+ *  fields on `XGISLayerStyle`. */
+export type XGISLayerStyleKey =
+  | 'opacity' | 'fill' | 'stroke' | 'strokeWidth'
+  | 'visible' | 'pointerEvents'
+
+export interface XGISFeatureEventInit {
+  // Phase 4 will populate this with click / mouseenter / mouseleave /
+  // mousemove + the XGISFeatureEvent shape. Phase 2 keeps an empty
+  // listener registry so addEventListener doesn't throw.
+}
+
+type StyleHost = {
+  show: ShowCommand
+  invalidate: () => void
+}
+
+export class XGISLayerStyle {
+  /** Snapshot of compiled defaults captured on first mutation per prop,
+   *  so `resetStyle` can restore them without round-tripping through
+   *  the compiler. Keys mirror the public CSS-like names below. */
+  private _defaults: Partial<Record<XGISLayerStyleKey, unknown>> = {}
+
+  constructor(private host: StyleHost) {}
+
+  private snapshot<K extends XGISLayerStyleKey>(key: K, current: unknown): void {
+    if (!(key in this._defaults)) this._defaults[key] = current
+  }
+
+  get opacity(): number { return this.host.show.opacity ?? 1 }
+  set opacity(v: number) {
+    this.snapshot('opacity', this.host.show.opacity ?? 1)
+    this.host.show.opacity = v
+    this.host.invalidate()
+  }
+
+  get fill(): string | null { return this.host.show.fill }
+  set fill(v: string | null) {
+    this.snapshot('fill', this.host.show.fill)
+    this.host.show.fill = v
+    this.host.invalidate()
+  }
+
+  get stroke(): string | null { return this.host.show.stroke }
+  set stroke(v: string | null) {
+    this.snapshot('stroke', this.host.show.stroke)
+    this.host.show.stroke = v
+    this.host.invalidate()
+  }
+
+  get strokeWidth(): number { return this.host.show.strokeWidth }
+  set strokeWidth(v: number) {
+    this.snapshot('strokeWidth', this.host.show.strokeWidth)
+    this.host.show.strokeWidth = v
+    this.host.invalidate()
+  }
+
+  get visible(): boolean { return this.host.show.visible }
+  set visible(v: boolean) {
+    this.snapshot('visible', this.host.show.visible)
+    this.host.show.visible = v
+    this.host.invalidate()
+  }
+
+  get pointerEvents(): PointerEvents {
+    return (this.host.show.pointerEvents ?? 'auto') as PointerEvents
+  }
+  set pointerEvents(v: PointerEvents) {
+    if (v !== 'auto' && v !== 'none') {
+      throw new TypeError(`pointerEvents must be 'auto' or 'none' (got ${String(v)})`)
+    }
+    this.snapshot('pointerEvents', this.host.show.pointerEvents ?? 'auto')
+    this.host.show.pointerEvents = v
+    // No pipeline-cache invalidation needed: MapRenderer keeps both
+    // pickable and writeMask:0 mirrors live, and the bucket scheduler
+    // picks the right one per-frame based on `show.pointerEvents`.
+    // Just wake the render loop so the next frame redispatches.
+    this.host.invalidate()
+  }
+
+  /** Restore one property (or all) to compiled default. Properties never
+   *  set via `style` are no-ops. */
+  reset(key?: XGISLayerStyleKey): void {
+    const restore = (k: XGISLayerStyleKey) => {
+      if (!(k in this._defaults)) return
+      // Bypass the snapshot logic — we're explicitly going back to the
+      // compiled value, so direct assignment is the right move.
+      ;(this.host.show as Record<string, unknown>)[k as string] = this._defaults[k]
+      delete this._defaults[k]
+    }
+    if (key) restore(key)
+    else for (const k of Object.keys(this._defaults) as (XGISLayerStyleKey)[]) restore(k)
+    this.host.invalidate()
+  }
+}
+
+export type XGISFeatureEventType = 'click' | 'mouseenter' | 'mouseleave' | 'mousemove'
+
+/** Placeholder listener type — Phase 4 will replace `unknown` with a
+ *  rich `XGISFeatureEvent`. Kept as `unknown` here so the API surface is
+ *  stable but consumers don't accidentally rely on a partial event shape. */
+export type XGISFeatureListener = (event: unknown) => void
+
+export class XGISLayer {
+  readonly style: XGISLayerStyle
+  /** Listener registry. Phase 4 hooks dispatch into this from a map-level
+   *  pointer event router. Phase 2 ships an inert registry so
+   *  `addEventListener` calls don't throw and consumer code can be written
+   *  against the stable surface. */
+  private listeners = new Map<XGISFeatureEventType, Set<XGISFeatureListener>>()
+
+  constructor(
+    public readonly name: string,
+    private show: ShowCommand,
+    private invalidate: () => void,
+  ) {
+    this.style = new XGISLayerStyle({ show, invalidate })
+  }
+
+  /** Stable u16 ID for this layer (LayerIdRegistry-assigned). Useful for
+   *  `pickAt` callers that want to match a hit's `layerId` to a layer
+   *  without going through `getLayer(name)`. */
+  get id(): number {
+    return this.show.pickId ?? 0
+  }
+
+  addEventListener(
+    type: XGISFeatureEventType,
+    listener: XGISFeatureListener,
+    options?: { signal?: AbortSignal; once?: boolean },
+  ): void {
+    let set = this.listeners.get(type)
+    if (!set) { set = new Set(); this.listeners.set(type, set) }
+    const wrapped: XGISFeatureListener = options?.once
+      ? (e) => { set!.delete(wrapped); listener(e) }
+      : listener
+    set.add(wrapped)
+    options?.signal?.addEventListener('abort', () => set!.delete(wrapped), { once: true })
+  }
+
+  removeEventListener(type: XGISFeatureEventType, listener: XGISFeatureListener): void {
+    this.listeners.get(type)?.delete(listener)
+  }
+
+  /** Phase 4 hook — internal dispatcher reads this to know whether to
+   *  spend a `pickAt` cycle for hover/click on this layer. */
+  hasListeners(type: XGISFeatureEventType): boolean {
+    const set = this.listeners.get(type)
+    return !!set && set.size > 0
+  }
+
+  /** Convenience alias matching `XGISLayerStyle.reset` from the layer
+   *  surface (mirrors how a DOM author might call `el.removeAttribute`
+   *  on a single style prop). */
+  resetStyle(key?: XGISLayerStyleKey): void {
+    this.style.reset(key)
+  }
+}

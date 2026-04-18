@@ -62,7 +62,17 @@ export function generateShaderVariant(
   if (opacityResult.needsFeatures) needsFeatureBuffer = true
 
   // ── Build final expressions ──
-  const fillExpr = buildFillExpr(fillResult, opacityResult)
+  // When the layer has no fill at all (`kind: 'none'`), emit the default
+  // `u.fill_color` placeholder rather than `vec4f(FILL_COLOR.rgb, ...)`
+  // with the all-zero const. The runtime treats `fillExpr === 'u.fill_color'`
+  // as "use the cached uniform color" and combines that with the
+  // `cachedFillColor[3] <= 0.005` check to skip the entire fill draw —
+  // which is the right behavior for stroke-only layers (no fill draw
+  // means no pick attachment write either, so picks fall through to
+  // whatever drew underneath).
+  const fillExpr = node.fill.kind === 'none'
+    ? 'u.fill_color'
+    : buildFillExpr(fillResult, opacityResult)
   const strokeExpr = buildStrokeExpr(strokeResult, opacityResult)
 
   // ── Cache key ──

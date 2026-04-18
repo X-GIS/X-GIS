@@ -85,22 +85,36 @@ export interface ClassifierShowEntry {
 
 /** Per-show shader variant pipelines (when a layer needed a custom
  *  WGSL specialization). Mirrors the runtime VariantPipelines shape
- *  but is stub-friendly. */
+ *  but is stub-friendly. The `*NoPick` mirrors are the writeMask:0
+ *  pick-attachment variants used when `show.pointerEvents === 'none'`;
+ *  callers may omit them (the classifier falls back to the pickable
+ *  pipeline + a console warning). */
 export interface ClassifierVariantPipelines {
   fillPipeline: GPURenderPipeline
   linePipeline: GPURenderPipeline
   fillPipelineFallback?: GPURenderPipeline
   linePipelineFallback?: GPURenderPipeline
+  fillPipelineNoPick?: GPURenderPipeline
+  linePipelineNoPick?: GPURenderPipeline
+  fillPipelineFallbackNoPick?: GPURenderPipeline
+  linePipelineFallbackNoPick?: GPURenderPipeline
 }
 
-/** The five default GPU resources shared across every layer. Pulled
- *  off `MapRenderer` in production; tests construct stubs. */
+/** The default GPU resources shared across every layer. Pulled off
+ *  `MapRenderer` in production; tests construct stubs. The `*NoPick`
+ *  mirrors carry the writeMask:0 pick-attachment variants for
+ *  `pointer-events: none` layers — when picking is globally off they
+ *  alias the pickable pipelines. */
 export interface ClassifierRendererDefaults {
   fillPipeline: GPURenderPipeline
   linePipeline: GPURenderPipeline
   bindGroupLayout: GPUBindGroupLayout
   fillPipelineFallback?: GPURenderPipeline
   linePipelineFallback?: GPURenderPipeline
+  fillPipelineNoPick?: GPURenderPipeline
+  linePipelineNoPick?: GPURenderPipeline
+  fillPipelineFallbackNoPick?: GPURenderPipeline
+  linePipelineFallbackNoPick?: GPURenderPipeline
 }
 
 /** Full input bundle. Keeping it a single param object means callers
@@ -209,11 +223,25 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
 
     const isTranslucentStroke =
       !safeMode && (effectiveShow.opacity ?? 1) < 0.999 && !!effectiveShow.stroke
-    const fp = entry.pipelines?.fillPipeline ?? defaults.fillPipeline
-    const lp = entry.pipelines?.linePipeline ?? defaults.linePipeline
+    // pointer-events: none routes through the writeMask:0 mirror set
+    // so the layer's pickId never lands in the pick texture (picks
+    // fall through to whatever drew underneath). Falls back to the
+    // pickable pipeline if the no-pick mirror isn't available — that's
+    // a stub/test scenario, not an expected production path.
+    const noPick = effectiveShow.pointerEvents === 'none'
+    const fp = noPick
+      ? (entry.pipelines?.fillPipelineNoPick ?? defaults.fillPipelineNoPick ?? entry.pipelines?.fillPipeline ?? defaults.fillPipeline)
+      : (entry.pipelines?.fillPipeline ?? defaults.fillPipeline)
+    const lp = noPick
+      ? (entry.pipelines?.linePipelineNoPick ?? defaults.linePipelineNoPick ?? entry.pipelines?.linePipeline ?? defaults.linePipeline)
+      : (entry.pipelines?.linePipeline ?? defaults.linePipeline)
     const bgl = entry.layout ?? defaults.bindGroupLayout
-    const fpF = entry.pipelines?.fillPipelineFallback ?? defaults.fillPipelineFallback
-    const lpF = entry.pipelines?.linePipelineFallback ?? defaults.linePipelineFallback
+    const fpF = noPick
+      ? (entry.pipelines?.fillPipelineFallbackNoPick ?? defaults.fillPipelineFallbackNoPick ?? entry.pipelines?.fillPipelineFallback ?? defaults.fillPipelineFallback)
+      : (entry.pipelines?.fillPipelineFallback ?? defaults.fillPipelineFallback)
+    const lpF = noPick
+      ? (entry.pipelines?.linePipelineFallbackNoPick ?? defaults.linePipelineFallbackNoPick ?? entry.pipelines?.linePipelineFallback ?? defaults.linePipelineFallback)
+      : (entry.pipelines?.linePipelineFallback ?? defaults.linePipelineFallback)
     const classified: ClassifiedShow = {
       sourceName: entry.sourceName,
       vtEntry,

@@ -39,6 +39,13 @@ struct Uniforms {
   // Packed by the renderer each frame; shaders use it to rewrite
   // position.z and frag_depth for Three.js-equivalent log depth.
   log_depth_fc: f32,
+  // Packed pick ID: low16 = layerId (1..65535, 0 = no layer),
+  // high16 = instanceId (reserved for WORLD_COPIES). Written into
+  // the RG32Uint pick texture G channel via the __PICK_WRITE__
+  // template substitution. WGSL rounds struct size up to the largest
+  // member alignment (16, from mat4x4 / vec4) so the trailing u32
+  // implicitly pads the struct to a 160-byte total.
+  pick_id: u32,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -305,6 +312,16 @@ export interface CachedPipeline {
   linePipeline: GPURenderPipeline
   fillPipelineFallback: GPURenderPipeline
   linePipelineFallback: GPURenderPipeline
+  /** Pickable=false mirror set: identical except `writeMask: 0` on the
+   *  RG32Uint pick attachment, so layers with `pointer-events: none`
+   *  draw their color but leave the pick texture's prior contents
+   *  intact (picks fall through to the layer beneath). When picking is
+   *  globally disabled, these alias the pickable pipelines (the
+   *  colorTargets have no pick attachment so the writeMask is moot). */
+  fillPipelineNoPick: GPURenderPipeline
+  linePipelineNoPick: GPURenderPipeline
+  fillPipelineFallbackNoPick: GPURenderPipeline
+  linePipelineFallbackNoPick: GPURenderPipeline
 }
 
 /**
@@ -317,7 +334,7 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
   // the resulting WGSL is byte-identical to the pre-picking shader.
   const applyPick = (src: string): string => src
     .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
-    .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(input.feat_id, 0u);' : '')
+    .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(input.feat_id, u.pick_id);' : '')
 
   if (!variant || (!variant.preamble && !variant.needsFeatureBuffer)) return applyPick(POLYGON_SHADER)
 
@@ -383,11 +400,22 @@ export type Easing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
 
 export interface ShowCommand {
   targetName: string
+  /** DSL layer name (`layer <name> { source: <target> | ... }`). Used
+   *  by `map.getLayer(name)` and `LayerIdRegistry` so two layers
+   *  drawing the same source still resolve to distinct `XGISLayer`
+   *  wrappers. Legacy syntax that lacks a separate layer name reuses
+   *  `targetName`. */
+  layerName?: string
   fill: string | null
   stroke: string | null
   strokeWidth: number
   projection: string
   visible: boolean
+  /** CSS-style pointer interactivity. 'none' marks the layer as non-
+   *  pickable so the writeMask:0 pipeline variant skips its pickId
+   *  write — picks fall through to the layer beneath. 'auto' (default)
+   *  is fully pickable. */
+  pointerEvents?: 'auto' | 'none'
   opacity: number
   size?: number | null
   zoomOpacityStops?: { zoom: number; value: number }[] | null
@@ -439,6 +467,11 @@ export interface ShowCommand {
     startOffset?: number
     anchor?: 'repeat' | 'start' | 'end' | 'center'
   }[]
+  // Stable u16 layer ID assigned by `XGISMap` via `LayerIdRegistry` after
+  // the compiler emits this command. Threaded into every per-tile uniform
+  // write so the fragment shader can stamp the pick texture's G channel
+  // with `(instanceId << 16) | layerId`. 0 = unregistered (sentinel).
+  pickId?: number
 }
 
 /**
@@ -524,6 +557,10 @@ interface RenderLayer {
   // Per-feature data
   featureDataBuffer: GPUBuffer | null
   perLayerBindGroup: GPUBindGroup | null
+  // Stable u16 layer ID assigned by `LayerIdRegistry`, written into the
+  // pick texture's G channel via `u.pick_id` so `pickAt()` can route the
+  // hit back to the owning layer. 0 means "not registered" (sentinel).
+  pickId: number
 }
 
 /** Linearly interpolate between sorted zoom stops */
@@ -646,7 +683,7 @@ export function interpolateTimeColor(
 export class MapRenderer {
   private ctx: GPUContext
   // Cached per-frame allocation (avoid GC pressure in render loop)
-  private uniformDataBuf = new ArrayBuffer(144)
+  private uniformDataBuf = new ArrayBuffer(160)
   // Dynamic-offset uniform ring (see docs: multi-layer uniform slots)
   private static readonly UNIFORM_SLOT = 256
   /** CPU-side mirror of uniformBuffer. Each draw's uniform block is
@@ -657,7 +694,7 @@ export class MapRenderer {
   private uniformStaging = new Uint8Array(0)
   private uniformDirtyLo = 0
   private uniformDirtyHi = 0
-  private static readonly UNIFORM_SIZE = 144
+  private static readonly UNIFORM_SIZE = 160
   private uniformRingCapacity = 256 // slots
   private uniformSlot = 0
   fillPipeline!: GPURenderPipeline
@@ -665,6 +702,14 @@ export class MapRenderer {
   // Stencil-test pipelines: only draw where stencil = 0 (not covered by children)
   fillPipelineFallback!: GPURenderPipeline
   linePipelineFallback!: GPURenderPipeline
+  // `pointer-events: none` mirrors — same shader, writeMask:0 on the
+  // pick attachment so the layer's pickId never lands in the pick
+  // texture. Identity-aliased to the pickable set when picking is
+  // globally disabled (no pick attachment to mask).
+  fillPipelineNoPick!: GPURenderPipeline
+  linePipelineNoPick!: GPURenderPipeline
+  fillPipelineFallbackNoPick!: GPURenderPipeline
+  linePipelineFallbackNoPick!: GPURenderPipeline
   uniformBuffer!: GPUBuffer
   bindGroupLayout!: GPUBindGroupLayout
   featureBindGroupLayout!: GPUBindGroupLayout
@@ -727,7 +772,7 @@ export class MapRenderer {
     // the prior build — existing deployments see no change.
     const pickShader = POLYGON_SHADER
       .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
-      .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(input.feat_id, 0u);' : '')
+      .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(input.feat_id, u.pick_id);' : '')
     const shaderModule = device.createShaderModule({
       code: pickShader,
       label: 'xgis-shader',
@@ -786,50 +831,73 @@ export class MapRenderer {
     // Pipeline color target list. When picking is on, append an RG32Uint
     // target at location 1 that the fragment shader's out.pick writes into.
     // `writeMask: ALL` is default — uint formats ignore blend state.
+    // For `pointer-events: none` layers we build a parallel set with
+    // `writeMask: 0` on the pick target so the layer's pickId never
+    // overwrites the pick texture's prior contents (picks fall through).
+    const pickEnabled = isPickEnabled()
     const colorTargets: GPUColorTargetState[] = [{ format, blend: BLEND_ALPHA }]
-    if (isPickEnabled()) colorTargets.push({ format: 'rg32uint' })
+    if (pickEnabled) colorTargets.push({ format: 'rg32uint' })
+    const colorTargetsNoPick: GPUColorTargetState[] = pickEnabled
+      ? [{ format, blend: BLEND_ALPHA }, { format: 'rg32uint', writeMask: 0 }]
+      : colorTargets
     const msaaState: GPUMultisampleState = { count: getSampleCount() }
 
-    // Fill pipeline (stencil write — current zoom tiles)
-    this.fillPipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: colorTargets },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: STENCIL_WRITE, multisample: msaaState,
-      label: 'fill-pipeline',
+    const buildSet = (targets: GPUColorTargetState[], suffix: string) => ({
+      fill: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        label: `fill-pipeline${suffix}`,
+      }),
+      line: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets },
+        primitive: { topology: 'line-list', cullMode: 'none' },
+        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        label: `line-pipeline${suffix}`,
+      }),
+      fillFallback: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_TEST, multisample: msaaState,
+        label: `fill-pipeline-fallback${suffix}`,
+      }),
+      lineFallback: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets },
+        primitive: { topology: 'line-list', cullMode: 'none' },
+        depthStencil: STENCIL_TEST, multisample: msaaState,
+        label: `line-pipeline-fallback${suffix}`,
+      }),
     })
 
-    // Line pipeline (stencil write)
-    this.linePipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: colorTargets },
-      primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: STENCIL_WRITE,
-      multisample: msaaState,
-      label: 'line-pipeline',
-    })
+    const pickable = buildSet(colorTargets, '')
+    this.fillPipeline = pickable.fill
+    this.linePipeline = pickable.line
+    this.fillPipelineFallback = pickable.fillFallback
+    this.linePipelineFallback = pickable.lineFallback
 
-    // Fallback fill pipeline (stencil test — only where stencil=0)
-    this.fillPipelineFallback = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: colorTargets },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: STENCIL_TEST, multisample: msaaState,
-      label: 'fill-pipeline-fallback',
-    })
-
-    // Fallback line pipeline (stencil test)
-    this.linePipelineFallback = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
-      fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: colorTargets },
-      primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: STENCIL_TEST, multisample: msaaState,
-      label: 'line-pipeline-fallback',
-    })
+    // When picking is off there's no pick attachment to mask, so the
+    // no-pick set is identical to the pickable one — alias instead of
+    // building duplicates.
+    if (pickEnabled) {
+      const noPick = buildSet(colorTargetsNoPick, '-nopick')
+      this.fillPipelineNoPick = noPick.fill
+      this.linePipelineNoPick = noPick.line
+      this.fillPipelineFallbackNoPick = noPick.fillFallback
+      this.linePipelineFallbackNoPick = noPick.lineFallback
+    } else {
+      this.fillPipelineNoPick = this.fillPipeline
+      this.linePipelineNoPick = this.linePipeline
+      this.fillPipelineFallbackNoPick = this.fillPipelineFallback
+      this.linePipelineFallbackNoPick = this.linePipelineFallback
+    }
 
     // Uniform ring buffer: 256-byte slots, dynamic offsets per draw.
     // Guarantees that multi-layer draws don't overwrite each other's uniforms.
@@ -917,8 +985,12 @@ export class MapRenderer {
     }
   }
 
-  /** Register data + show command as a render layer */
-  addLayer(show: ShowCommand, polygons: MeshData, lines: LineMeshData): void {
+  /** Register data + show command as a render layer.
+   *  `pickId` is the stable u16 from `LayerIdRegistry`; it gets baked into
+   *  every uniform-stage write so the fragment shader can stamp the pick
+   *  texture's G channel. 0 = "no layer" (e.g., graticule), which makes
+   *  `pickAt()` return null for hits. */
+  addLayer(show: ShowCommand, polygons: MeshData, lines: LineMeshData, pickId = 0): void {
     const { device } = this.ctx
     // Create dynamic property store with compiled defaults
     const props = new StyleProperties()
@@ -971,6 +1043,7 @@ export class MapRenderer {
       linePipeline: layerLinePipeline,
       featureDataBuffer: null,
       perLayerBindGroup: null,
+      pickId,
     }
 
     // Build per-feature storage buffer if needed
@@ -1076,13 +1149,23 @@ export class MapRenderer {
     return pipelines
   }
 
-  /** Create specialized fill + line pipelines for a shader variant */
+  /** Create specialized fill + line pipelines for a shader variant.
+   *  Builds two parallel sets when picking is enabled — pickable
+   *  (writeMask:ALL on the pick attachment) and non-pickable
+   *  (writeMask:0). The bucket scheduler picks the right one based on
+   *  each show's `pointerEvents`. When picking is globally off, the
+   *  no-pick fields alias the pickable ones (no pick attachment to
+   *  mask). */
   private createVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
     const { device, format } = this.ctx
     const wgsl = buildShader(variant)
     const msaaState: GPUMultisampleState = { count: getSampleCount() }
+    const pickEnabled = isPickEnabled()
     const colorTargets: GPUColorTargetState[] = [{ format, blend: BLEND_ALPHA }]
-    if (isPickEnabled()) colorTargets.push({ format: 'rg32uint' })
+    if (pickEnabled) colorTargets.push({ format: 'rg32uint' })
+    const colorTargetsNoPick: GPUColorTargetState[] = pickEnabled
+      ? [{ format, blend: BLEND_ALPHA }, { format: 'rg32uint', writeMask: 0 }]
+      : colorTargets
 
     const module = device.createShaderModule({
       code: wgsl,
@@ -1114,43 +1197,54 @@ export class MapRenderer {
       ],
     }
 
-    const fillPipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_fill', targets: colorTargets },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: STENCIL_WRITE, multisample: msaaState,
-      label: `fill-${variant.key}`,
+    const buildSet = (targets: GPUColorTargetState[], suffix: string) => ({
+      fill: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+        fragment: { module, entryPoint: 'fs_fill', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        label: `fill-${variant.key}${suffix}`,
+      }),
+      line: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
+        fragment: { module, entryPoint: 'fs_stroke', targets },
+        primitive: { topology: 'line-list', cullMode: 'none' },
+        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        label: `line-${variant.key}${suffix}`,
+      }),
+      fillFallback: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+        fragment: { module, entryPoint: 'fs_fill', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_TEST, multisample: msaaState,
+        label: `fill-fallback-${variant.key}${suffix}`,
+      }),
+      lineFallback: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
+        fragment: { module, entryPoint: 'fs_stroke', targets },
+        primitive: { topology: 'line-list', cullMode: 'none' },
+        depthStencil: STENCIL_TEST, multisample: msaaState,
+        label: `line-fallback-${variant.key}${suffix}`,
+      }),
     })
 
-    const linePipeline = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_stroke', targets: colorTargets },
-      primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: STENCIL_WRITE, multisample: msaaState,
-      label: `line-${variant.key}`,
-    })
+    const p = buildSet(colorTargets, '')
+    const np = pickEnabled ? buildSet(colorTargetsNoPick, '-nopick') : p
 
-    const fillPipelineFallback = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_fill', targets: colorTargets },
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: STENCIL_TEST, multisample: msaaState,
-      label: `fill-fallback-${variant.key}`,
-    })
-
-    const linePipelineFallback = device.createRenderPipeline({
-      layout: pipelineLayout,
-      vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_stroke', targets: colorTargets },
-      primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: STENCIL_TEST, multisample: msaaState,
-      label: `line-fallback-${variant.key}`,
-    })
-
-    return { fillPipeline, linePipeline, fillPipelineFallback, linePipelineFallback }
+    return {
+      fillPipeline: p.fill,
+      linePipeline: p.line,
+      fillPipelineFallback: p.fillFallback,
+      linePipelineFallback: p.lineFallback,
+      fillPipelineNoPick: np.fill,
+      linePipelineNoPick: np.line,
+      fillPipelineFallbackNoPick: np.fillFallback,
+      linePipelineFallbackNoPick: np.lineFallback,
+    }
   }
 
   private initGraticule(zoom = 2): void {
@@ -1257,6 +1351,10 @@ export class MapRenderer {
       new Float32Array(uniformData, 112, 4).set([cxH, cyH, cxL, cyL]) // cam_h.xy, cam_l.xy
       // tile_origin_merc=(0,0), opacity, log_depth_fc
       new Float32Array(uniformData, 128, 4).set([0, 0, opacity, camera.getLogDepthFc()])
+      // pick_id (low16 = layerId, high16 = instanceId=0 for non-tiled),
+      // followed by 12 bytes of vec3<u32> padding so the uniform struct
+      // ends on a 16-byte boundary as required by WebGPU std140-ish layout.
+      new Uint32Array(uniformData, 144, 4).set([layer.pickId, 0, 0, 0])
       const slotOffset = this.allocUniformSlot()
       this.stageUniformSlot(slotOffset, uniformData)
 
@@ -1312,7 +1410,7 @@ export class MapRenderer {
       const worldOffs = WORLD_COPIES
 
       for (let wi = 0; wi < worldOffs.length; wi++) {
-        const gratData = new ArrayBuffer(144)
+        const gratData = new ArrayBuffer(160)
         new Float32Array(gratData, 0, 16).set(mvp)
         new Float32Array(gratData, 64, 4).set([1, 1, 1, 0.15])
         new Float32Array(gratData, 80, 4).set([1, 1, 1, 0.15])
@@ -1328,6 +1426,8 @@ export class MapRenderer {
         new Float32Array(gratData, 112, 4).set([gcxH, gcyH, gcxL, gcyL])
         // tile_origin_merc=(0,0) for graticule (world-space DSFUN), opacity=1, log_depth_fc
         new Float32Array(gratData, 128, 4).set([0, 0, 1, camera.getLogDepthFc()])
+        // pick_id=0 — graticule is decorative, never pickable.
+        new Uint32Array(gratData, 144, 4).set([0, 0, 0, 0])
         const gratOff = this.allocUniformSlot()
         this.stageUniformSlot(gratOff, gratData)
 

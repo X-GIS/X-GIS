@@ -39,6 +39,10 @@ export interface RenderNode {
   size: SizeValue
   projection: string
   visible: boolean
+  /** CSS-style pointer interactivity. 'none' tells the runtime to skip
+   *  this layer's pickId write (writeMask:0 variant) so picks fall
+   *  through to the layer beneath. 'auto' (default) is pickable. */
+  pointerEvents: 'auto' | 'none'
   filter: DataExpr | null  // per-feature filter expression (e.g., .pop > 1000000)
   geometry: DataExpr | null  // procedural geometry expression (e.g., circle(.lon, .lat, .r))
   billboard: boolean         // true = faces camera (default), false = flat on ground

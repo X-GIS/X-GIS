@@ -69,7 +69,7 @@ const MAX_UPLOADS_PER_FRAME = 4
 // ═══ Renderer ═══
 
 const UNIFORM_SLOT = 256
-const UNIFORM_SIZE = 144
+const UNIFORM_SIZE = 160
 
 export class VectorTileRenderer {
   private device: GPUDevice
@@ -85,8 +85,11 @@ export class VectorTileRenderer {
   private frameCount = 0
   private lastZoom = -1
   private stableKeys: number[] = []
-  private uniformDataBuf = new ArrayBuffer(144)
+  private uniformDataBuf = new ArrayBuffer(160)
   private uniformF32 = new Float32Array(this.uniformDataBuf) // reusable view over full uniform
+  /** Reusable u32 view over the same uniform buffer — used to write
+   *  `pick_id` (u32) into the trailing 16-byte slot at offset 144. */
+  private uniformU32 = new Uint32Array(this.uniformDataBuf)
   private lastBindGroupLayout: GPUBindGroupLayout | null = null
   /** Uniform-only layout — stays pinned to the base `bindGroupLayout`
    *  even when `render()` swaps `lastBindGroupLayout` for a variant layout. */
@@ -96,6 +99,10 @@ export class VectorTileRenderer {
   private cachedShowFill = ''
   private cachedShowStroke = ''
   private currentOpacity = 1.0
+  /** Set per render() from `show.pickId` so renderTileKeys can stamp every
+   *  per-tile uniform with the layer's pick ID. 0 = unregistered (sentinel
+   *  → pickAt returns null). */
+  private currentPickId = 0
   /** Set per render() when the resolved fill is invisible AND no shader
    *  variant computes a per-feature fill — `renderTileKeys` skips the
    *  polygon `drawIndexed` in that case (no-op fragment work). */
@@ -649,6 +656,7 @@ export class VectorTileRenderer {
     // subsequent static frame can re-use it.
     const opacity = show.opacity ?? 1.0
     this.currentOpacity = opacity
+    this.currentPickId = show.pickId ?? 0
     if (show.resolvedFillRgba) {
       this.cachedFillColor[0] = show.resolvedFillRgba[0]
       this.cachedFillColor[1] = show.resolvedFillRgba[1]
@@ -1083,6 +1091,10 @@ export class VectorTileRenderer {
       this.uniformF32[33] = Math.fround(tileMercY)
       this.uniformF32[34] = this.currentOpacity ?? 1.0
       this.uniformF32[35] = this.logDepthFc
+      // pick_id (36) — packed (instanceId<<16)|layerId. instanceId is
+      // 0 for now; future WORLD_COPIES instancing will pack it here.
+      // Cached on the show by XGISMap after LayerIdRegistry.register().
+      this.uniformU32[36] = this.currentPickId
 
       // Allocate a fresh ring slot for this tile × layer × world-copy draw.
       const slotOffset = this.allocUniformSlot()
