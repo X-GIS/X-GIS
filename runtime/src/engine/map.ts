@@ -881,17 +881,24 @@ export class XGISMap {
     {
       // ═══ Direct rendering: vertex shader handles all projections ═══
       // MSAA + stencil texture management (recreate on resize).
-      // sample count tracks the pipeline-time SAMPLE_COUNT (1 on mobile, 4 on desktop).
+      // sample count tracks the pipeline-time SAMPLE_COUNT (1 on mobile /
+      // ?safe / ?quality=performance / ?msaa=1, 4 on desktop default).
       const sc = SAMPLE_COUNT
-      if (!this.msaaTexture || this.msaaWidth !== w || this.msaaHeight !== h) {
+      const useResolve = sc > 1
+      if (!this.stencilTexture || this.msaaWidth !== w || this.msaaHeight !== h) {
         this.msaaTexture?.destroy()
         this.stencilTexture?.destroy()
-        this.msaaTexture = device.createTexture({
-          size: { width: w, height: h },
-          format: this.ctx.format,
-          sampleCount: sc,
-          usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        })
+        // Allocate the MSAA color attachment ONLY when MSAA is on. When
+        // sc === 1 we render straight to the swapchain (no resolveTarget)
+        // and the MSAA texture would just waste w×h×4 bytes per frame.
+        this.msaaTexture = useResolve
+          ? device.createTexture({
+              size: { width: w, height: h },
+              format: this.ctx.format,
+              sampleCount: sc,
+              usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            })
+          : null
         this.stencilTexture = device.createTexture({
           size: { width: w, height: h },
           format: 'depth24plus-stencil8',
@@ -905,9 +912,7 @@ export class XGISMap {
       // When SAMPLE_COUNT === 1 (mobile / no MSAA), render DIRECTLY to the
       // swapchain texture and never set a resolveTarget — single-sample
       // attachments cannot have a resolve target per WebGPU spec.
-      const msaaView = this.msaaTexture!.createView()
-      const useResolve = sc > 1
-      const colorView = useResolve ? msaaView : screenView
+      const colorView = useResolve ? this.msaaTexture!.createView() : screenView
 
       // Reset per-frame uniform ring cursors (dynamic-offset slots).
       this.renderer.beginFrame()

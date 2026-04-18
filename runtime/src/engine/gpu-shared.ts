@@ -89,10 +89,17 @@ export const DEPTH_TEST_WRITE: GPUDepthStencilState = {
 }
 
 // ── MSAA ──
-// Name kept for readability but the sample count is chosen at module load
-// (4x desktop, 1x mobile). All render pipelines pick this up at creation.
+// Sample count chosen at module load from `quality.ts` (default 4× desktop,
+// 1× mobile / `?safe=1` / `?quality=performance|battery` / `?msaa=1|2`).
+// Name `MSAA_4X` is historical — the actual count is whatever SAMPLE_COUNT
+// resolves to. All render pipelines pick this up at creation; the 1×
+// branch in `map.ts:renderFrame` handles the no-resolve direct-to-swapchain
+// path.
 import { SAMPLE_COUNT } from './gpu'
-export const MSAA_4X: GPUMultisampleState = { count: SAMPLE_COUNT }
+export const MSAA_STATE: GPUMultisampleState = { count: SAMPLE_COUNT }
+/** @deprecated Use `MSAA_STATE` (count is no longer always 4). Alias kept
+ *  for back-compat with existing imports. */
+export const MSAA_4X = MSAA_STATE
 
 // ── Buffer Helpers ──
 

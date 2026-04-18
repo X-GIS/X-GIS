@@ -13,10 +13,12 @@ export function isMobile(): boolean {
 }
 
 /** `?safe=1` URL flag — user-facing fallback for debugging.
- *  Forces SAMPLE_COUNT=1, clamps DPR, and disables the translucent line
- *  offscreen composite path (the most invasive recent code path). Use this
- *  to bisect: if the demo renders with `?safe=1` but not without, the bug
- *  lives in the new MSAA / offscreen path. */
+ *  Disables the translucent line offscreen composite path (the most
+ *  invasive recent code path). MSAA / DPR clamps moved into the quality
+ *  module; `?safe=1` also routes the quality preset to `battery` (see
+ *  `quality.ts` resolveQuality()). Use this to bisect: if the demo
+ *  renders with `?safe=1` but not without, the bug lives in the new
+ *  MSAA / offscreen path. */
 function readSafeFlag(): boolean {
   if (typeof window === 'undefined') return false
   try { return new URL(window.location.href).searchParams.get('safe') === '1' }
@@ -24,16 +26,20 @@ function readSafeFlag(): boolean {
 }
 export const SAFE_MODE: boolean = readSafeFlag()
 
-/** MSAA sample count — 4x on desktop, disabled on mobile / safe mode. */
-export const SAMPLE_COUNT: number = (isMobile() || SAFE_MODE) ? 1 : 4
+// QUALITY drives both SAMPLE_COUNT (MSAA) and MAX_DPR. Defaults are
+// preserved (msaa=4, dpr=2 on desktop) — change only when ?msaa=N,
+// ?dpr=N, ?quality=preset, or ?safe=1 is explicitly passed.
+import { QUALITY } from './quality'
 
-/** Device-pixel-ratio cap. Mobile DPR of 2–3× combined with MSAA quadruples
- *  the fragment budget; clamping to 1.5 is effectively imperceptible while
- *  halving the shaded-pixel count. */
-export const MAX_DPR: number = (isMobile() || SAFE_MODE) ? 1.5 : 2
+/** MSAA sample count. Source of truth for every pipeline that sets
+ *  `multisample.count` — keep in sync via this import. */
+export const SAMPLE_COUNT: number = QUALITY.msaa
+
+/** Device-pixel-ratio cap. */
+export const MAX_DPR: number = QUALITY.maxDpr
 
 if (typeof window !== 'undefined' && SAFE_MODE) {
-  console.warn('[X-GIS] safe mode active (?safe=1) — MSAA disabled, DPR capped, translucent offscreen disabled')
+  console.warn('[X-GIS] safe mode active (?safe=1) — translucent offscreen disabled (quality preset = battery)')
 }
 
 export interface GPUContext {

@@ -16,7 +16,15 @@ test.describe('profile multi_layer pan @z0 worldwrap', () => {
       consoleMsgs.push(`[${m.type()}] ${m.text()}`)
     })
 
-    await page.goto('/demo.html?id=multi_layer&e2e=1&gpuprof=1#0.00/0.00000/0.00000', {
+    // Quality knobs via env: QUALITY=performance, MSAA=1, DPR=0.5, etc.
+    const flags: string[] = ['id=multi_layer', 'e2e=1', 'gpuprof=1']
+    if (process.env.QUALITY) flags.push(`quality=${process.env.QUALITY}`)
+    if (process.env.MSAA) flags.push(`msaa=${process.env.MSAA}`)
+    if (process.env.DPR) flags.push(`dpr=${process.env.DPR}`)
+    if (process.env.ADAPTIVE_DPR) flags.push(`adaptiveDpr=${process.env.ADAPTIVE_DPR}`)
+    const url = `/demo.html?${flags.join('&')}#0.00/0.00000/0.00000`
+    console.log(`[spec] loading ${url}`)
+    await page.goto(url, {
       waitUntil: 'domcontentloaded',
     })
     await page.waitForFunction(
