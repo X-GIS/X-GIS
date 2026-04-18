@@ -1366,11 +1366,16 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
         // replace at the exact bisector line only, which is
         // idempotent for opaque strokes.
         if (along_j >= 0.0) {
-          // REPLACE body with circle past the endpoint — not union (min).
-          // The body extends past the join as a miter shape; replacing
-          // with the circle SDF produces the correct rounded corner.
+          // UNION (min) with body past the endpoint. Previously this
+          // REPLACED d_m outright, which cut off a visible slice of the
+          // stroke at offset corners: fragments inside the body's
+          // perpendicular strip but outside the round-join circle
+          // became "outside" and left a gap between the stroke edge
+          // and the round join. With min() the body covers the near-
+          // to-centerline wedge and the circle rounds off the outer
+          // arc — together they produce the correct filled corner.
           let circle_d = length(p - p0_join_center) - half_w_m;
-          d_m = circle_d;
+          d_m = min(d_m, circle_d);
         }
       }
     }
@@ -1415,8 +1420,9 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
         // idempotent — the tiny AA-edge pixel brightening is invisible
         // next to the eliminated whisker.
         if (along_j <= 0.0) {
+          // UNION with body — mirror of the p0 gate above.
           let circle_d = length(p - p1_join_center) - half_w_m;
-          d_m = circle_d;
+          d_m = min(d_m, circle_d);
         }
       }
     }
@@ -1437,7 +1443,19 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
   let nrm_fs = vec2<f32>(-dir.y, dir.x);
 
   // ── Dash array ──
-  if ((((layer.flags >> 5u) & 1u) == 1u) && (layer.dash_count > 0u) && (layer.dash_cycle_m > 1e-6)) {
+  // Fragments inside the chain-terminus cap region (past p0 with no
+  // prev neighbor, or past p1 with no next) are NOT subject to the
+  // dash pattern: caps are part of the line endpoint, not dash
+  // segments. Without this guard the cap phase-flickers in and out
+  // as the dash_offset animation advances — the cap's clamped
+  // arc_pos lands in a "gap" slot and the whole fragment is
+  // discarded, giving the "caps disappear with marching ants" bug.
+  // The guard condition is (!has_prev && dist_p0>0) || (!has_next && dist_p1>0);
+  // interior joints + body fragments still get the dash.
+  let in_cap_region =
+    (!has_prev && dist_p0 > 0.0) ||
+    (!has_next && dist_p1 > 0.0);
+  if ((((layer.flags >> 5u) & 1u) == 1u) && (layer.dash_count > 0u) && (layer.dash_cycle_m > 1e-6) && !in_cap_region) {
     var phase = (arc_pos + layer.dash_offset_m) / layer.dash_cycle_m;
     phase = (phase - floor(phase)) * layer.dash_cycle_m;
 
