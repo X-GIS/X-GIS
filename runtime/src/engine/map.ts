@@ -2,7 +2,8 @@
 
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, deserializeXGB, resolveImportsAsync } from '@xgis/compiler'
 import { getSharedGeoJSONCompilePool } from '../data/geojson-compile-pool'
-import { initGPU, resizeCanvas, MAX_DPR, SAMPLE_COUNT, type GPUContext } from './gpu'
+import { initGPU, resizeCanvas, MAX_DPR, SAMPLE_COUNT, GPU_PROF, type GPUContext } from './gpu'
+import { GPUTimer } from './gpu-timer'
 import { Camera } from './camera'
 import { MapRenderer, interpolateZoom } from './renderer'
 import {
@@ -45,6 +46,10 @@ export class XGISMap {
   private camera: Camera
   private renderer!: MapRenderer
   private rasterRenderer!: RasterRenderer
+  /** Optional GPU pass timer. Null when timestamp-query is unsupported or
+   *  `?gpuprof=1` is not set. When set, the FIRST opaque sub-pass each
+   *  frame is timed; samples drain to `getGpuTimings()`. */
+  gpuTimer: GPUTimer | null = null
   private pointRenderer!: PointRenderer
   private shapeRegistry: ShapeRegistry | null = null
   private lineRenderer: LineRenderer | null = null
@@ -241,6 +246,7 @@ export class XGISMap {
       this.ctx = await initGPU(this.canvas)
       this.renderer = new MapRenderer(this.ctx)
       this.rasterRenderer = new RasterRenderer(this.ctx)
+      if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
       try {
         this.pointRenderer = new PointRenderer(this.ctx)
         this.shapeRegistry = new ShapeRegistry(this.ctx.device)
@@ -659,6 +665,7 @@ export class XGISMap {
     this.ctx = await initGPU(this.canvas)
     this.renderer = new MapRenderer(this.ctx)
     this.rasterRenderer = new RasterRenderer(this.ctx)
+    if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
       try { this.pointRenderer = new PointRenderer(this.ctx) } catch (e) { console.warn('[X-GIS] PointRenderer init failed:', e) }
 
     for (const load of commands.loads) {
@@ -994,6 +1001,11 @@ export class XGISMap {
         const persistDepth = !isLastOpaque || hasPoints
 
         passScope(isFirst ? 'opaque-main' : `opaque[${gi}]`, () => {
+          // Time only the FIRST opaque sub-pass — that's where raster +
+          // the heaviest vector source draws. Additional groups would need
+          // their own QuerySet to time independently; for the perf-investigation
+          // workload (multi_layer) one sub-pass usually covers everything.
+          const tsWrites = (isFirst && this.gpuTimer?.passWrites()) || undefined
           const subPass = encoder.beginRenderPass({
             colorAttachments: [{
               view: colorView,
@@ -1018,6 +1030,7 @@ export class XGISMap {
               stencilLoadOp: 'clear',
               stencilStoreOp: 'discard',
             },
+            timestampWrites: tsWrites,
           })
 
           // First opaque pass owns raster + canvas-2D background
@@ -1139,9 +1152,17 @@ export class XGISMap {
     this.renderer.endFrame()
     this.lineRenderer?.endFrame()
 
+    // GPU timing: resolve the queryset BEFORE finish so the same command
+    // buffer carries the resolve+copy. Mapping happens after submit.
+    this.gpuTimer?.resolveOnEncoder(encoder)
+
     // Outer scope catches the FRAME-level error (one entry per bad frame),
     // matching the inner scope opened right after createCommandEncoder().
     device.queue.submit([encoder.finish()])
+
+    // Drain any readbacks that finished mapping last frame, kick mapAsync
+    // on freshly-submitted ones. Cheap when disabled (no-op).
+    this.gpuTimer?.pollReadbacks()
     device.popErrorScope().then((err) => {
       if (err) console.error('[X-GIS frame-validation]', err.message)
     }).catch(() => { /* scope mismatch — ignore */ })

@@ -42,6 +42,11 @@ export interface GPUContext {
   format: GPUTextureFormat
   canvas: HTMLCanvasElement
   sampleCount: number
+  /** True when the device was created with the `timestamp-query`
+   *  feature enabled. Gated by `?gpuprof=1` so production users don't
+   *  pay the always-on adapter feature requirement. Consumers (`GPUTimer`)
+   *  no-op when this is false. */
+  timestampQuerySupported: boolean
   /** Validation error queue — the global `uncapturederror` handler
    *  pushes every WebGPU validation error here. Tests poll this
    *  via `getValidationErrors(ctx)` and assert it stays empty;
@@ -49,6 +54,16 @@ export interface GPUContext {
    *  errors are also still logged to console for visibility). */
   _validationErrors: { message: string; t: number }[]
 }
+
+/** `?gpuprof=1` — opt in to timestamp-query GPU profiling. We only
+ *  request the feature when this flag is set so the adapter doesn't
+ *  reject device creation on hardware/drivers that lack it. */
+function readGpuProfFlag(): boolean {
+  if (typeof window === 'undefined') return false
+  try { return new URL(window.location.href).searchParams.get('gpuprof') === '1' }
+  catch { return false }
+}
+export const GPU_PROF: boolean = readGpuProfFlag()
 
 /** Inspect the validation error queue without mutating it. */
 export function getValidationErrors(ctx: GPUContext): { message: string; t: number }[] {
@@ -73,7 +88,20 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   }
   if (!adapter) throw new Error('Failed to get GPU adapter')
 
-  const device = await adapter.requestDevice()
+  // Optional timestamp-query feature — only when ?gpuprof=1 is set AND the
+  // adapter advertises support. Falls back to a feature-less device on any
+  // mismatch so users without the extension still load the app.
+  let timestampQuerySupported = false
+  const requiredFeatures: GPUFeatureName[] = []
+  if (GPU_PROF && adapter.features.has('timestamp-query')) {
+    requiredFeatures.push('timestamp-query')
+    timestampQuerySupported = true
+  } else if (GPU_PROF) {
+    console.warn('[X-GIS] ?gpuprof=1 requested but adapter lacks timestamp-query feature — GPU timing disabled')
+  }
+  const device = await adapter.requestDevice(
+    requiredFeatures.length > 0 ? { requiredFeatures } : undefined,
+  )
   device.lost.then((info) => console.error('WebGPU device lost:', info.message))
 
   const context = canvas.getContext('webgpu')
@@ -88,6 +116,7 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   const ctx: GPUContext = {
     device, context, format, canvas,
     sampleCount: SAMPLE_COUNT,
+    timestampQuerySupported,
     _validationErrors: [],
   }
 
