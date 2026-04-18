@@ -107,7 +107,12 @@ function readURL(): URLSearchParams | null {
 }
 
 function clampMsaa(n: number): 1 | 2 | 4 {
-  if (n === 1 || n === 2 || n === 4) return n
+  // WebGPU currently supports only sampleCount 1 or 4 in practice (Chrome
+  // rejects 2 as "Multisample count (2) is not supported"). The type
+  // allows 2 for future-proofing but we clamp to 1/4 here. Anything else
+  // → default 4×.
+  if (n === 1) return 1
+  if (n === 2) return 1 // round down to 1× rather than error on the pass
   return 4
 }
 
@@ -166,9 +171,47 @@ function resolveQuality(): QualityConfig {
   return base
 }
 
-/** Module-load constant — quality is fixed at app start. msaa changes
- *  require a page reload because pipelines bake `sampleCount`. */
+/** Live, mutable quality configuration. Fields can be patched at runtime
+ *  via `updateQuality(patch)` — every caller that reads `QUALITY.x`
+ *  (renderers at pipeline-rebuild time, resizeCanvas, etc.) sees the
+ *  new value.
+ *
+ *  - DPR / interactionDpr changes apply on the next canvas resize (~0 ms).
+ *  - MSAA / picking changes require the map to call each renderer's
+ *    `rebuildForQuality()` to recompile pipelines and reallocate render
+ *    targets (~100–300 ms spike). `map.setQuality()` dispatches this.
+ *
+ *  Initial value comes from URL flags (`?quality`, `?msaa`, `?dpr`,
+ *  `?adaptiveDpr`, `?picking`) so the boot-time behavior is unchanged. */
 export const QUALITY: QualityConfig = resolveQuality()
+
+/** Change listeners — `map.setQuality()` registers so it can orchestrate
+ *  the heavy renderer rebuilds that MSAA / picking flips require. */
+type QualityChangeListener = (prev: QualityConfig, next: QualityConfig) => void
+const listeners = new Set<QualityChangeListener>()
+
+export function onQualityChange(fn: QualityChangeListener): () => void {
+  listeners.add(fn)
+  return () => listeners.delete(fn)
+}
+
+/** Merge `patch` into `QUALITY` in place and notify listeners. Callers
+ *  that just want to bump DPR (cheap) can call this directly; full
+ *  runtime toggles (MSAA, picking) should go through `map.setQuality()`
+ *  which also rebuilds renderer state. */
+export function updateQuality(patch: Partial<QualityConfig>): void {
+  const prev: QualityConfig = { ...QUALITY }
+  if (patch.msaa !== undefined) QUALITY.msaa = clampMsaa(patch.msaa)
+  if (patch.maxDpr !== undefined && patch.maxDpr > 0) QUALITY.maxDpr = patch.maxDpr
+  if (patch.interactionDpr !== undefined) QUALITY.interactionDpr = patch.interactionDpr
+  if (patch.picking !== undefined) {
+    QUALITY.picking = patch.picking
+    // Picking requires MSAA=1 (uint RTs can't coexist with multisample
+    // color without a custom resolve). Mirror the URL-flag behavior.
+    if (patch.picking) QUALITY.msaa = 1
+  }
+  for (const fn of listeners) fn(prev, QUALITY)
+}
 
 if (typeof window !== 'undefined') {
   // Surface non-default quality once so users see the trade-off they

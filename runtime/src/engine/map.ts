@@ -2,7 +2,8 @@
 
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, deserializeXGB, resolveImportsAsync } from '@xgis/compiler'
 import { getSharedGeoJSONCompilePool } from '../data/geojson-compile-pool'
-import { initGPU, resizeCanvas, MAX_DPR, SAMPLE_COUNT, GPU_PROF, PICK, type GPUContext } from './gpu'
+import { initGPU, resizeCanvas, GPU_PROF, getSampleCount, getMaxDpr, isPickEnabled, type GPUContext } from './gpu'
+import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './quality'
 import { GPUTimer } from './gpu-timer'
 import { Camera } from './camera'
 import { MapRenderer, interpolateZoom } from './renderer'
@@ -154,6 +155,70 @@ export class XGISMap {
 
   /** Public read/write access to the camera (for URL hash, etc). */
   getCamera(): Camera { return this.camera }
+
+  /** Read the currently-active quality config (live — mutated by
+   *  `setQuality`). Returns a shallow copy so callers can't accidentally
+   *  mutate the internal object. */
+  getQuality(): QualityConfig { return { ...QUALITY } }
+
+  /** Change any combination of quality knobs at runtime. The map figures
+   *  out which parts are cheap (DPR — next resizeCanvas applies) vs
+   *  expensive (MSAA, picking — every renderer recompiles its pipelines
+   *  and any render-target textures are reallocated on the next frame).
+   *
+   *  - `maxDpr`, `interactionDpr`: applied on next resizeCanvas tick
+   *  - `msaa`, `picking`: triggers per-renderer `rebuildForQuality()` +
+   *    invalidates `msaaTexture` / `stencilTexture` / `pickTexture` so
+   *    they get reallocated at the correct sampleCount the next frame
+   *
+   *  MSAA and picking are deliberately combined in one path because
+   *  enabling `picking` also forces `msaa = 1` (uint RTs can't coexist
+   *  with a multisample color attachment without a custom resolve
+   *  shader — see quality.ts).
+   *
+   *  Example:
+   *  ```ts
+   *  map.setQuality({ picking: true })    // enable hover / click picking
+   *  map.setQuality({ maxDpr: 1 })        // downscale to 1× for perf
+   *  map.setQuality({ msaa: 4 })          // crank edge AA back up
+   *  ``` */
+  setQuality(patch: Partial<QualityConfig>): void {
+    const before: QualityConfig = { ...QUALITY }
+    updateQuality(patch)
+    const after = QUALITY
+    const msaaChanged = before.msaa !== after.msaa
+    const pickingChanged = before.picking !== after.picking
+    const dprChanged = before.maxDpr !== after.maxDpr || before.interactionDpr !== after.interactionDpr
+
+    if (msaaChanged || pickingChanged) {
+      // Force next renderFrame to recreate msaa / stencil / pick
+      // textures at the new sampleCount. The existing size-change gate
+      // (`msaaWidth !== w`) won't trip on its own since width/height
+      // are unchanged, so we zero it to force a re-alloc.
+      this.msaaWidth = 0
+      this.msaaHeight = 0
+      this.renderer.rebuildForQuality()
+      this.rasterRenderer.rebuildForQuality()
+      this.lineRenderer?.rebuildForQuality()
+      this.pointRenderer?.rebuildForQuality()
+      // Drop per-show variant pipeline refs so the bucket-scheduler
+      // falls back to the defaults (which we just rebuilt). Without
+      // this, `vectorTileShows[i].pipelines` would still point at the
+      // OLD variant pipelines that have the wrong target count — the
+      // bucket-scheduler hands them to VTR.render() and WebGPU rejects
+      // the pass as "Attachment state of RenderPipeline ... is not
+      // compatible with RenderPassEncoder". They'll be re-built lazily
+      // on the next draw when `getOrCreateVariantPipelines` sees a
+      // shaderCache miss.
+      for (const entry of this.vectorTileShows) entry.pipelines = null
+    }
+    if (dprChanged) {
+      // Canvas resize picks up the new DPR cap on the next frame.
+      this._lastSigW = 0
+      this._lastSigH = 0
+    }
+    this.invalidate()
+  }
 
   /** Read the feature + instance ID under the given CSS pixel coordinate.
    *  Requires the map to be built with `?picking=1` — otherwise returns
@@ -396,7 +461,7 @@ export class XGISMap {
             this.camera.centerX = cx
             this.camera.centerY = cy
             const lonSpan = maxLon - minLon
-            const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, MAX_DPR) : 1
+            const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
             const cssW = this.canvas.width / dpr
             const degPerPx = lonSpan / cssW
             this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
@@ -645,7 +710,7 @@ export class XGISMap {
           this.camera.centerX = cx
           this.camera.centerY = cy
           const lonSpan = maxLon - minLon
-          const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, MAX_DPR) : 1
+          const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
           const cssW = this.canvas.width / dpr
           const degPerPx = lonSpan / cssW
           this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
@@ -902,7 +967,7 @@ export class XGISMap {
     // Clamp camera Y (latitude bounded), wrap X to a single world.
     const MAX_MERC = 20037508.34
     const WORLD_MERC_FULL = MAX_MERC * 2 // full circumference
-    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, MAX_DPR) : 1
+    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
     const mpp = (40075016.686 / 256) / Math.pow(2, this.camera.zoom)
     const visHalfY = (h / dpr) * mpp / 2
     const maxY = Math.max(0, MAX_MERC - visHalfY)
@@ -957,7 +1022,7 @@ export class XGISMap {
       // MSAA + stencil texture management (recreate on resize).
       // sample count tracks the pipeline-time SAMPLE_COUNT (1 on mobile /
       // ?safe / ?quality=performance / ?msaa=1, 4 on desktop default).
-      const sc = SAMPLE_COUNT
+      const sc = getSampleCount()
       const useResolve = sc > 1
       if (!this.stencilTexture || this.msaaWidth !== w || this.msaaHeight !== h) {
         this.msaaTexture?.destroy()
@@ -984,7 +1049,7 @@ export class XGISMap {
         // to 1 globally (see quality.ts) so sc === 1 here whenever PICK is
         // true — the pick attachment and color attachment share sample count
         // as WebGPU requires.
-        this.pickTexture = PICK
+        this.pickTexture = isPickEnabled()
           ? device.createTexture({
               size: { width: w, height: h },
               format: 'rg32uint',
@@ -1114,7 +1179,7 @@ export class XGISMap {
             loadOp: isFirst ? 'clear' : 'load',
             storeOp: 'store',
           }]
-          if (PICK && this.pickTexture) {
+          if (isPickEnabled() && this.pickTexture) {
             colorAttachments.push({
               view: this.pickTexture.createView(),
               clearValue: isFirst ? { r: 0, g: 0, b: 0, a: 0 } : undefined,

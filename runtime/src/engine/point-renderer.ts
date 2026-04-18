@@ -4,7 +4,8 @@
 // Single draw call for all points via per-feature storage buffer.
 
 import type { Camera } from './camera'
-import { BLEND_ALPHA, DEPTH_TEST_WRITE, MSAA_4X, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
+import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
+import { getSampleCount } from './gpu'
 import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
 import type { ShapeRegistry } from './sdf-shape'
 
@@ -366,6 +367,11 @@ export class PointRenderer {
   private pipelineTranslucent: GPURenderPipeline // billboard: depth test only, no write (transparency)
   private pipelineFlat: GPURenderPipeline        // flat: depth test only, no write (avoids coplanar z-fight)
   private bindGroupLayout: GPUBindGroupLayout
+  private pipelineLayout: GPUPipelineLayout | null = null
+  private format: GPUTextureFormat = 'bgra8unorm'
+  // Vertex buffer layout — cached so rebuildForQuality can reuse without
+  // recomputing the stride/attribute map.
+  private vertexBufferLayout: GPUVertexBufferLayout | null = null
   private uniformBuffer: GPUBuffer
   private uniformData = new Float32Array(28) // mvp(16) + proj_params(4) + tile_rtc(4) + viewport(2) + pad(2)
   private layers: PointLayer[] = []
@@ -390,9 +396,11 @@ export class PointRenderer {
       ],
     })
 
-    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] })
+    this.format = ctx.format
+    this.pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] })
+    const pipelineLayout = this.pipelineLayout
 
-    const vertexBufferLayout: GPUVertexBufferLayout = {
+    this.vertexBufferLayout = {
       arrayStride: 16, // center(2×f32) + quad_id(u32) + feat_id(f32)
       attributes: [
         { shaderLocation: 0, offset: 0, format: 'float32x2' as GPUVertexFormat },
@@ -400,6 +408,7 @@ export class PointRenderer {
         { shaderLocation: 2, offset: 12, format: 'float32' as GPUVertexFormat },
       ],
     }
+    const vertexBufferLayout = this.vertexBufferLayout
 
     // Polygon offset (depth bias) pulls point markers slightly toward the
     // camera so they never z-fight with ground polygons, line strokes, or
@@ -421,7 +430,7 @@ export class PointRenderer {
       fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
       depthStencil: pointDepthStencil,
-      multisample: MSAA_4X,
+      multisample: { count: getSampleCount() },
       label: 'sdf-point-pipeline',
     })
 
@@ -441,7 +450,7 @@ export class PointRenderer {
       fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
       depthStencil: translucentDepthStencil,
-      multisample: MSAA_4X,
+      multisample: { count: getSampleCount() },
       label: 'sdf-point-pipeline-translucent',
     })
 
@@ -461,13 +470,58 @@ export class PointRenderer {
       fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: ctx.format, blend: BLEND_ALPHA }] },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
       depthStencil: flatDepthStencil,
-      multisample: MSAA_4X,
+      multisample: { count: getSampleCount() },
       label: 'sdf-point-pipeline-flat',
     })
 
     this.uniformBuffer = device.createBuffer({
       size: 128, // 28 floats × 4 = 112, padded to 128
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    })
+  }
+
+  /** Rebuild the 3 point pipelines with the current QUALITY.msaa.
+   *  Points don't participate in GPU picking today (their render pass has
+   *  only one color attachment), so `isPickEnabled()` is ignored here —
+   *  only MSAA changes require the rebuild. Safe to call mid-session. */
+  rebuildForQuality(): void {
+    if (!this.pipelineLayout || !this.vertexBufferLayout) return
+    const device = this.device
+    const shaderModule = device.createShaderModule({ code: POINT_SHADER, label: 'sdf-point-shader-rebuilt' })
+    const msaa = { count: getSampleCount() }
+    const vb = this.vertexBufferLayout
+    const pl = this.pipelineLayout
+    const fmt = this.format
+    const pointDepthStencil: GPUDepthStencilState = {
+      ...DEPTH_TEST_WRITE,
+      depthBias: -10, depthBiasSlopeScale: -1, depthBiasClamp: 0,
+    }
+    this.pipeline = device.createRenderPipeline({
+      layout: pl,
+      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vb] },
+      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: fmt, blend: BLEND_ALPHA }] },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: pointDepthStencil,
+      multisample: msaa,
+      label: 'sdf-point-pipeline',
+    })
+    this.pipelineTranslucent = device.createRenderPipeline({
+      layout: pl,
+      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vb] },
+      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: fmt, blend: BLEND_ALPHA }] },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: { ...pointDepthStencil, depthWriteEnabled: false },
+      multisample: msaa,
+      label: 'sdf-point-pipeline-translucent',
+    })
+    this.pipelineFlat = device.createRenderPipeline({
+      layout: pl,
+      vertex: { module: shaderModule, entryPoint: 'vs_point', buffers: [vb] },
+      fragment: { module: shaderModule, entryPoint: 'fs_point', targets: [{ format: fmt, blend: BLEND_ALPHA }] },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: { ...DEPTH_TEST_WRITE, depthWriteEnabled: false },
+      multisample: msaa,
+      label: 'sdf-point-pipeline-flat',
     })
   }
 

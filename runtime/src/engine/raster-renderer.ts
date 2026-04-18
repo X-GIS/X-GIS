@@ -4,8 +4,8 @@ import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../loader/tiles'
 import { mercator as mercatorProj } from './projection'
-import { BLEND_ALPHA, STENCIL_DISABLED, MSAA_4X } from './gpu-shared'
-import { PICK } from './gpu'
+import { BLEND_ALPHA, STENCIL_DISABLED } from './gpu-shared'
+import { isPickEnabled, getSampleCount } from './gpu'
 import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
 
 const RASTER_SHADER = /* wgsl */ `
@@ -224,6 +224,7 @@ const MAX_TILE_UNIFORM_POOL = 256
 
 export class RasterRenderer {
   private device: GPUDevice
+  private format: GPUTextureFormat = 'bgra8unorm'
   private pipeline: GPURenderPipeline
   private globalBindGroupLayout: GPUBindGroupLayout
   private tileBindGroupLayout: GPUBindGroupLayout
@@ -248,14 +249,7 @@ export class RasterRenderer {
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
-
-    const pickShader = RASTER_SHADER
-      .replace(/__PICK_FIELD__/g, PICK ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
-      // Raster tiles don't carry a feature id — always emit (0, 0) so the
-      // pick texture stays at "no feature" where the basemap is the front-most
-      // surface. Polygon / line / point pipelines write their real IDs on top.
-      .replace(/__PICK_WRITE__/g, PICK ? 'out.pick = vec2<u32>(0u, 0u);' : '')
-    const module = ctx.device.createShaderModule({ code: pickShader, label: 'raster-shader' })
+    this.format = ctx.format
 
     this.globalBindGroupLayout = ctx.device.createBindGroupLayout({
       entries: [
@@ -271,20 +265,7 @@ export class RasterRenderer {
       ],
     })
 
-    this.pipeline = ctx.device.createRenderPipeline({
-      layout: ctx.device.createPipelineLayout({ bindGroupLayouts: [this.globalBindGroupLayout, this.tileBindGroupLayout] }),
-      vertex: { module, entryPoint: 'vs_tile' },
-      fragment: {
-        module, entryPoint: 'fs_tile',
-        targets: PICK
-          ? [{ format: ctx.format, blend: BLEND_ALPHA }, { format: 'rg32uint' as GPUTextureFormat }]
-          : [{ format: ctx.format, blend: BLEND_ALPHA }],
-      },
-      primitive: { topology: 'triangle-list' },
-      depthStencil: STENCIL_DISABLED,
-      multisample: MSAA_4X,
-      label: 'raster-pipeline',
-    })
+    this.pipeline = this.buildPipeline()
 
     this.uniformBuffer = ctx.device.createBuffer({
       size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, label: 'raster-uniforms',
@@ -293,6 +274,42 @@ export class RasterRenderer {
     this.sampler = ctx.device.createSampler({
       magFilter: 'linear', minFilter: 'linear',
       addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge',
+    })
+  }
+
+  /** Recompile shader + pipeline using the current QUALITY (MSAA /
+   *  picking). Called by map.setQuality() when those knobs flip at
+   *  runtime. All cached bind groups on CachedTile entries stay valid —
+   *  they reference the texture view + sampler + uniform buffer, not
+   *  the pipeline. */
+  rebuildForQuality(): void {
+    this.pipeline = this.buildPipeline()
+  }
+
+  /** Live-reads QUALITY so the returned pipeline matches the current
+   *  MSAA / picking setting. Used at construction time AND from
+   *  `rebuildForQuality()` — each call produces a fresh module + pipeline. */
+  private buildPipeline(): GPURenderPipeline {
+    const pickShader = RASTER_SHADER
+      .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
+      // Raster tiles don't carry a feature id — always emit (0, 0) so the
+      // pick texture stays at "no feature" where the basemap is the front-most
+      // surface. Polygon / line / point pipelines write their real IDs on top.
+      .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(0u, 0u);' : '')
+    const module = this.device.createShaderModule({ code: pickShader, label: 'raster-shader' })
+    return this.device.createRenderPipeline({
+      layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.globalBindGroupLayout, this.tileBindGroupLayout] }),
+      vertex: { module, entryPoint: 'vs_tile' },
+      fragment: {
+        module, entryPoint: 'fs_tile',
+        targets: isPickEnabled()
+          ? [{ format: this.format, blend: BLEND_ALPHA }, { format: 'rg32uint' as GPUTextureFormat }]
+          : [{ format: this.format, blend: BLEND_ALPHA }],
+      },
+      primitive: { topology: 'triangle-list' },
+      depthStencil: STENCIL_DISABLED,
+      multisample: { count: getSampleCount() },
+      label: 'raster-pipeline',
     })
   }
 

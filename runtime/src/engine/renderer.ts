@@ -5,7 +5,7 @@ import type { Camera } from './camera'
 import type { MeshData, LineMeshData } from '../loader/geojson'
 import { generateGraticule } from './graticule'
 import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, MSAA_4X, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
-import { PICK } from './gpu'
+import { isPickEnabled, getSampleCount } from './gpu'
 import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
 
 // generateGraticule(zoom) now handles zoom-adaptive steps internally
@@ -316,8 +316,8 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
   // Default build (PICK=false) replaces both markers with empty strings so
   // the resulting WGSL is byte-identical to the pre-picking shader.
   const applyPick = (src: string): string => src
-    .replace(/__PICK_FIELD__/g, PICK ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
-    .replace(/__PICK_WRITE__/g, PICK ? 'out.pick = vec2<u32>(input.feat_id, 0u);' : '')
+    .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
+    .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(input.feat_id, 0u);' : '')
 
   if (!variant || (!variant.preamble && !variant.needsFeatureBuffer)) return applyPick(POLYGON_SHADER)
 
@@ -705,6 +705,20 @@ export class MapRenderer {
     this.initGraticule()
   }
 
+  /** Rebuild all pipelines + invalidate shader variant cache. Called by
+   *  `map.setQuality()` when MSAA or picking flip at runtime — both force
+   *  a pipeline `sampleCount` / fragment-target-count change that's baked
+   *  at pipeline creation. Non-pipeline state (bind group layouts, the
+   *  uniform ring, graticule geometry) survives the rebuild unchanged. */
+  rebuildForQuality(): void {
+    // Toss the per-show variant pipelines — their shader embeds the
+    // PICK markers too, and their `multisample.count` is frozen. A new
+    // variant pipeline will be recreated lazily on the next frame's
+    // render when `getOrCreateVariantPipelines` sees a cache miss.
+    this.shaderCache.clear()
+    this.initPipelines()
+  }
+
   private initPipelines(): void {
     const { device, format } = this.ctx
 
@@ -712,8 +726,8 @@ export class MapRenderer {
     // is enabled. Keeps the default (no-pick) shader byte-identical with
     // the prior build — existing deployments see no change.
     const pickShader = POLYGON_SHADER
-      .replace(/__PICK_FIELD__/g, PICK ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
-      .replace(/__PICK_WRITE__/g, PICK ? 'out.pick = vec2<u32>(input.feat_id, 0u);' : '')
+      .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
+      .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(input.feat_id, 0u);' : '')
     const shaderModule = device.createShaderModule({
       code: pickShader,
       label: 'xgis-shader',
@@ -773,7 +787,8 @@ export class MapRenderer {
     // target at location 1 that the fragment shader's out.pick writes into.
     // `writeMask: ALL` is default — uint formats ignore blend state.
     const colorTargets: GPUColorTargetState[] = [{ format, blend: BLEND_ALPHA }]
-    if (PICK) colorTargets.push({ format: 'rg32uint' })
+    if (isPickEnabled()) colorTargets.push({ format: 'rg32uint' })
+    const msaaState: GPUMultisampleState = { count: getSampleCount() }
 
     // Fill pipeline (stencil write — current zoom tiles)
     this.fillPipeline = device.createRenderPipeline({
@@ -781,7 +796,7 @@ export class MapRenderer {
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: colorTargets },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: STENCIL_WRITE, multisample: MSAA_4X,
+      depthStencil: STENCIL_WRITE, multisample: msaaState,
       label: 'fill-pipeline',
     })
 
@@ -792,7 +807,7 @@ export class MapRenderer {
       fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: colorTargets },
       primitive: { topology: 'line-list', cullMode: 'none' },
       depthStencil: STENCIL_WRITE,
-      multisample: MSAA_4X,
+      multisample: msaaState,
       label: 'line-pipeline',
     })
 
@@ -802,7 +817,7 @@ export class MapRenderer {
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_fill', targets: colorTargets },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: STENCIL_TEST, multisample: MSAA_4X,
+      depthStencil: STENCIL_TEST, multisample: msaaState,
       label: 'fill-pipeline-fallback',
     })
 
@@ -812,7 +827,7 @@ export class MapRenderer {
       vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_stroke', targets: colorTargets },
       primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: STENCIL_TEST, multisample: MSAA_4X,
+      depthStencil: STENCIL_TEST, multisample: msaaState,
       label: 'line-pipeline-fallback',
     })
 
@@ -1065,6 +1080,9 @@ export class MapRenderer {
   private createVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
     const { device, format } = this.ctx
     const wgsl = buildShader(variant)
+    const msaaState: GPUMultisampleState = { count: getSampleCount() }
+    const colorTargets: GPUColorTargetState[] = [{ format, blend: BLEND_ALPHA }]
+    if (isPickEnabled()) colorTargets.push({ format: 'rg32uint' })
 
     const module = device.createShaderModule({
       code: wgsl,
@@ -1099,36 +1117,36 @@ export class MapRenderer {
     const fillPipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_fill', targets: PICK ? [{ format, blend: BLEND_ALPHA }, { format: 'rg32uint' }] : [{ format, blend: BLEND_ALPHA }] },
+      fragment: { module, entryPoint: 'fs_fill', targets: colorTargets },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: STENCIL_WRITE, multisample: MSAA_4X,
+      depthStencil: STENCIL_WRITE, multisample: msaaState,
       label: `fill-${variant.key}`,
     })
 
     const linePipeline = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_stroke', targets: PICK ? [{ format, blend: BLEND_ALPHA }, { format: 'rg32uint' }] : [{ format, blend: BLEND_ALPHA }] },
+      fragment: { module, entryPoint: 'fs_stroke', targets: colorTargets },
       primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: STENCIL_WRITE, multisample: MSAA_4X,
+      depthStencil: STENCIL_WRITE, multisample: msaaState,
       label: `line-${variant.key}`,
     })
 
     const fillPipelineFallback = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_fill', targets: PICK ? [{ format, blend: BLEND_ALPHA }, { format: 'rg32uint' }] : [{ format, blend: BLEND_ALPHA }] },
+      fragment: { module, entryPoint: 'fs_fill', targets: colorTargets },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: STENCIL_TEST, multisample: MSAA_4X,
+      depthStencil: STENCIL_TEST, multisample: msaaState,
       label: `fill-fallback-${variant.key}`,
     })
 
     const linePipelineFallback = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
-      fragment: { module, entryPoint: 'fs_stroke', targets: PICK ? [{ format, blend: BLEND_ALPHA }, { format: 'rg32uint' }] : [{ format, blend: BLEND_ALPHA }] },
+      fragment: { module, entryPoint: 'fs_stroke', targets: colorTargets },
       primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: STENCIL_TEST, multisample: MSAA_4X,
+      depthStencil: STENCIL_TEST, multisample: msaaState,
       label: `line-fallback-${variant.key}`,
     })
 

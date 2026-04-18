@@ -26,21 +26,27 @@ function readSafeFlag(): boolean {
 }
 export const SAFE_MODE: boolean = readSafeFlag()
 
-// QUALITY drives both SAMPLE_COUNT (MSAA) and MAX_DPR. Defaults are
+// QUALITY drives SAMPLE_COUNT (MSAA), MAX_DPR, and PICK. Defaults are
 // preserved (msaa=4, dpr=2 on desktop) — change only when ?msaa=N,
-// ?dpr=N, ?quality=preset, or ?safe=1 is explicitly passed.
-import { QUALITY } from './quality'
+// ?dpr=N, ?quality=preset, ?picking=1, or ?safe=1 is explicitly passed.
+// At runtime `map.setQuality(patch)` mutates QUALITY in place and
+// dispatches rebuilds; these exports stay as thin getters so every read
+// site sees the current value (no stale snapshots).
+import { QUALITY, onQualityChange } from './quality'
 
-/** MSAA sample count. Source of truth for every pipeline that sets
- *  `multisample.count` — keep in sync via this import. */
+// Function-accessor form for values that change at runtime. A plain
+// `export const X = QUALITY.msaa` would snapshot at module load and
+// stay stale after runtime updates.
+export const getSampleCount = (): number => QUALITY.msaa
+export const getMaxDpr = (): number => QUALITY.maxDpr
+export const isPickEnabled = (): boolean => QUALITY.picking
+
+/** @deprecated Use `getSampleCount()` — this binding reflects the
+ *  module-load value only and does NOT follow runtime quality updates. */
 export const SAMPLE_COUNT: number = QUALITY.msaa
-
-/** Device-pixel-ratio cap. */
+/** @deprecated Use `getMaxDpr()` — module-load snapshot only. */
 export const MAX_DPR: number = QUALITY.maxDpr
-
-/** GPU picking enabled (via `?picking=1`). When true every main-pass
- *  pipeline adds an RG32Uint fragment target and `map.pickAt()` returns
- *  feature/instance IDs under the pointer. Implies `SAMPLE_COUNT === 1`. */
+/** @deprecated Use `isPickEnabled()` — module-load snapshot only. */
 export const PICK: boolean = QUALITY.picking
 
 if (typeof window !== 'undefined' && SAFE_MODE) {
@@ -150,8 +156,13 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   return ctx
 }
 
-export function resizeCanvas(ctx: GPUContext): void {
-  const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR)
+export function resizeCanvas(ctx: GPUContext, interacting = false): void {
+  // Use the LIVE getter so runtime `map.setQuality({ maxDpr })` propagates
+  // on the very next resize without touching anything else.
+  const cap = interacting && QUALITY.interactionDpr !== null
+    ? QUALITY.interactionDpr
+    : getMaxDpr()
+  const dpr = Math.min(window.devicePixelRatio || 1, cap)
   const w = Math.floor(ctx.canvas.clientWidth * dpr)
   const h = Math.floor(ctx.canvas.clientHeight * dpr)
   if (ctx.canvas.width !== w || ctx.canvas.height !== h) {

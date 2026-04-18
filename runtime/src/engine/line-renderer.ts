@@ -38,8 +38,8 @@
 //    parallel arc length would require per-segment numerical integration
 //    and is deferred.
 
-import { PICK, type GPUContext } from './gpu'
-import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, STENCIL_DISABLED, MSAA_4X } from './gpu-shared'
+import { isPickEnabled, getSampleCount, type GPUContext } from './gpu'
+import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, STENCIL_DISABLED } from './gpu-shared'
 import {
   WGSL_DIST_TO_SEGMENT,
   WGSL_DIST_TO_QUADRATIC,
@@ -1721,8 +1721,8 @@ export class LineRenderer {
     // pick — which is why the `writeMask: 0` on the second target skips
     // pick output entirely for the line pipeline.
     const linePickShader = LINE_SHADER
-      .replace(/__PICK_FIELD__/g, PICK ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
-      .replace(/__PICK_WRITE__/g, PICK ? 'out.pick = vec2<u32>(0u, 0u);' : '')
+      .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
+      .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(0u, 0u);' : '')
     const module = this.device.createShaderModule({ code: linePickShader, label: 'line-shader' })
 
     const linePipelineLayout = this.device.createPipelineLayout({
@@ -1736,7 +1736,7 @@ export class LineRenderer {
       fragment: {
         module,
         entryPoint: 'fs_line',
-        targets: PICK
+        targets: isPickEnabled()
           ? [
               { format: this.format, blend: BLEND_ALPHA },
               // writeMask: 0 → pick buffer preserves whatever the
@@ -1747,7 +1747,7 @@ export class LineRenderer {
       },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
       depthStencil: STENCIL_DISABLED,
-      multisample: MSAA_4X,
+      multisample: { count: getSampleCount() },
     })
 
     // MAX-blend variant: same shader, different blend op + NO MSAA + NO depth-stencil.
@@ -1790,7 +1790,7 @@ export class LineRenderer {
         targets: [{ format: this.format, blend: BLEND_ALPHA_PREMULT }],
       },
       primitive: { topology: 'triangle-list' },
-      multisample: MSAA_4X,
+      multisample: { count: getSampleCount() },
     })
     this.offscreenSampler = this.device.createSampler({
       magFilter: 'linear', minFilter: 'linear',
@@ -1800,6 +1800,54 @@ export class LineRenderer {
       size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: 'line-composite-uniform',
+    })
+  }
+
+  /** Re-create the main + composite pipelines from the live QUALITY
+   *  (MSAA sample count, pick target). Called by map.setQuality(). The
+   *  `pipelineMax` variant is always single-sample (offscreen RT) and
+   *  has no pick target, so it doesn't need rebuilding. Bind group
+   *  layouts, shape buffers, and the uniform ring survive unchanged. */
+  rebuildForQuality(): void {
+    const linePickShader = LINE_SHADER
+      .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
+      .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(0u, 0u);' : '')
+    const module = this.device.createShaderModule({ code: linePickShader, label: 'line-shader-rebuilt' })
+    const linePipelineLayout = this.device.createPipelineLayout({
+      bindGroupLayouts: [this.tileBindGroupLayout, this.layerBindGroupLayout],
+    })
+    this.pipeline = this.device.createRenderPipeline({
+      label: 'line-pipeline',
+      layout: linePipelineLayout,
+      vertex: { module, entryPoint: 'vs_line' },
+      fragment: {
+        module,
+        entryPoint: 'fs_line',
+        targets: isPickEnabled()
+          ? [
+              { format: this.format, blend: BLEND_ALPHA },
+              { format: 'rg32uint' as GPUTextureFormat, writeMask: 0 },
+            ]
+          : [{ format: this.format, blend: BLEND_ALPHA }],
+      },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: STENCIL_DISABLED,
+      multisample: { count: getSampleCount() },
+    })
+    // Composite pipeline samples the offscreen RT back into the MSAA main
+    // color, so its multisample.count must match.
+    const compositeModule = this.device.createShaderModule({ code: COMPOSITE_SHADER, label: 'line-composite-rebuilt' })
+    this.compositePipeline = this.device.createRenderPipeline({
+      label: 'line-composite-pipeline',
+      layout: this.device.createPipelineLayout({ bindGroupLayouts: [this.compositeBindGroupLayout] }),
+      vertex: { module: compositeModule, entryPoint: 'vs_full' },
+      fragment: {
+        module: compositeModule,
+        entryPoint: 'fs_full',
+        targets: [{ format: this.format, blend: BLEND_ALPHA_PREMULT }],
+      },
+      primitive: { topology: 'triangle-list' },
+      multisample: { count: getSampleCount() },
     })
   }
 
