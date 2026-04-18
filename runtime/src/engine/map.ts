@@ -89,7 +89,15 @@ export class XGISMap {
    *  warning to at most once every 60 frames (~1s at 60fps) so normal
    *  on-demand loading doesn't flood the overlay. */
   private _flickerLastFrame = new Map<string, number>()
+  /** First frame (per source) at which missedTiles became non-zero. We
+   *  expect a burst during the initial 30-ish frames after a source is
+   *  added — worker compile lands, then the viewport's leaf tiles
+   *  compile on demand at 2/frame. Warning during that window is noise;
+   *  a real FLICKER (GPU cache eviction churn, tile-drop regression)
+   *  sustains past that horizon. */
+  private _flickerFirstFrame = new Map<string, number>()
   private _frameCount = 0
+  private static readonly FLICKER_GRACE_FRAMES = 60
   /** Wall-clock animation origin captured on the first rendered frame.
    *  `performance.now() - _startTime` yields the elapsed milliseconds
    *  fed into every time-interpolated value (opacity today, more
@@ -1162,11 +1170,29 @@ export class XGISMap {
       // "missing fallback" regressions, not an error users need to see
       // at 60 Hz during normal pan/zoom.
       if (vts.missedTiles > 0) {
-        const last = this._flickerLastFrame.get(name) ?? -Infinity
-        if (this._frameCount - last >= 60) {
-          this._flickerLastFrame.set(name, this._frameCount)
-          console.warn(`[FLICKER] ${name}: ${vts.missedTiles} tiles without fallback (z=${Math.round(this.camera.zoom)} gpuCache=${vtR.getCacheSize()})`)
+        // Grace period — ignore FLICKER for the first N frames after we
+        // first observe missedTiles > 0 on this source. Initial-load
+        // compile bursts routinely show 1–16 missed tiles for 2–8 frames
+        // as on-demand compilation catches up; warning there is noise.
+        // Only fire when missedTiles persist past the grace window, which
+        // means an actual regression (GPU cache thrash, tile-drop bug).
+        let firstSeen = this._flickerFirstFrame.get(name)
+        if (firstSeen === undefined) {
+          firstSeen = this._frameCount
+          this._flickerFirstFrame.set(name, firstSeen)
         }
+        const framesSinceFirst = this._frameCount - firstSeen
+        if (framesSinceFirst >= XGISMap.FLICKER_GRACE_FRAMES) {
+          const last = this._flickerLastFrame.get(name) ?? -Infinity
+          if (this._frameCount - last >= 60) {
+            this._flickerLastFrame.set(name, this._frameCount)
+            console.warn(`[FLICKER] ${name}: ${vts.missedTiles} tiles without fallback (z=${Math.round(this.camera.zoom)} gpuCache=${vtR.getCacheSize()})`)
+          }
+        }
+      } else {
+        // Clean frame clears the first-seen marker so a later burst (e.g.
+        // after pan to a new region) gets its own grace window.
+        this._flickerFirstFrame.delete(name)
       }
     }
     this._frameCount++
