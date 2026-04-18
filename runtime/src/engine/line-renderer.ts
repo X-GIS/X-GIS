@@ -1366,16 +1366,36 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
         // replace at the exact bisector line only, which is
         // idempotent for opaque strokes.
         if (along_j >= 0.0) {
-          // UNION (min) with body past the endpoint. Previously this
-          // REPLACED d_m outright, which cut off a visible slice of the
-          // stroke at offset corners: fragments inside the body's
-          // perpendicular strip but outside the round-join circle
-          // became "outside" and left a gap between the stroke edge
-          // and the round join. With min() the body covers the near-
-          // to-centerline wedge and the circle rounds off the outer
-          // arc — together they produce the correct filled corner.
+          // True round-join at p0 (current segment's start, prev ends here).
+          // The correct SDF in the miter region is the MIN of:
+          //   - current body clipped to own along range (past p0 going
+          //     backward → miter extension, excluded)
+          //   - prev body clipped to its along range
+          //   - round-join circle at offset miter vertex
+          // Bare body_d leaks into the miter wedge because the body SDF
+          // is pure perpendicular distance — enforcing the along range
+          // is what makes the corner actually ROUND instead of MITER.
           let circle_d = length(p - p0_join_center) - half_w_m;
-          d_m = min(d_m, circle_d);
+
+          // Clip current body: past p0 in -dir direction is miter extension.
+          var current_d = d_m;
+          if (dist_p0 > 0.0) {
+            current_d = max(d_m, dist_p0);
+          }
+
+          // Prev segment's body clipped to prev's along range. Prev ends
+          // at p0 heading in +prev_tangent direction; past prev's end
+          // means dot(p - p0, prev_tangent) > 0.
+          let prev_nrm = vec2<f32>(-seg.prev_tangent.y, seg.prev_tangent.x);
+          let prev_signed_perp = dot(p - p0, prev_nrm);
+          let prev_perp_m = abs(prev_signed_perp - layer.offset_m);
+          var neighbor_d = prev_perp_m - half_w_m;
+          let along_past_prev_end = dot(p - p0, seg.prev_tangent);
+          if (along_past_prev_end > 0.0) {
+            neighbor_d = max(neighbor_d, along_past_prev_end);
+          }
+
+          d_m = min(min(current_d, circle_d), neighbor_d);
         }
       }
     }
@@ -1420,9 +1440,31 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
         // idempotent — the tiny AA-edge pixel brightening is invisible
         // next to the eliminated whisker.
         if (along_j <= 0.0) {
-          // UNION with body — mirror of the p0 gate above.
+          // Mirror of p0: MIN(current body clipped, circle, next body
+          // clipped). Past p1 in +dir direction is current's miter
+          // extension — exclude it. Next starts at p1 heading in
+          // +next_tangent direction; dot(p - p1, next_tangent) < 0
+          // means past next's start going backward (next's miter
+          // extension — also excluded for next).
           let circle_d = length(p - p1_join_center) - half_w_m;
-          d_m = min(d_m, circle_d);
+
+          // Clip current body past own endpoint.
+          var current_d = d_m;
+          if (dist_p1 > 0.0) {
+            current_d = max(d_m, dist_p1);
+          }
+
+          // Next segment's body clipped to its along range.
+          let next_nrm = vec2<f32>(-seg.next_tangent.y, seg.next_tangent.x);
+          let next_signed_perp = dot(p - p1, next_nrm);
+          let next_perp_m = abs(next_signed_perp - layer.offset_m);
+          var neighbor_d = next_perp_m - half_w_m;
+          let along_into_next = dot(p - p1, seg.next_tangent);
+          if (along_into_next < 0.0) {
+            neighbor_d = max(neighbor_d, -along_into_next);
+          }
+
+          d_m = min(min(current_d, circle_d), neighbor_d);
         }
       }
     }
