@@ -96,6 +96,10 @@ export class VectorTileRenderer {
   private cachedShowFill = ''
   private cachedShowStroke = ''
   private currentOpacity = 1.0
+  /** Set per render() when the resolved fill is invisible AND no shader
+   *  variant computes a per-feature fill — `renderTileKeys` skips the
+   *  polygon `drawIndexed` in that case (no-op fragment work). */
+  private _skipFillDraw = false
   /** Log-depth factor for the current frame, sampled from camera at the
    *  start of render(). Packed into slot 35 of every tile uniform. */
   private logDepthFc = 0
@@ -674,6 +678,20 @@ export class VectorTileRenderer {
       this.cachedStrokeColor[3] = raw ? raw[3] : 0
     }
 
+    // Skip the fill drawIndexed entirely when we KNOW nothing visible will
+    // be produced. Two cases qualify:
+    //   1. show.fill is undefined AND no shader variant computes the fill
+    //      from feature data (e.g. multi_layer's `borders | stroke-* opacity-80`
+    //      gets routed through the opaque bucket as fillPhase='fills' but
+    //      declared no fill at all).
+    //   2. show.fill resolved to a color whose alpha is effectively 0.
+    // BUT a data-driven `fill match(...)` produces colors entirely inside
+    // the variant pipeline (fillExpr != 'u.fill_color'), so cachedFillColor
+    // can be [0,0,0,0] yet the draw is still meaningful — must keep it.
+    const variantFillExpr = show.shaderVariant?.fillExpr
+    const variantProducesFill = !!variantFillExpr && variantFillExpr !== 'u.fill_color'
+    this._skipFillDraw = !variantProducesFill && this.cachedFillColor[3] <= 0.005
+
     // Write uniforms directly via cached Float32Array view (no new typed array allocations)
     const uf = this.uniformF32
     uf.set(mvp, 0) // offset 0: mvp (16 floats)
@@ -1077,7 +1095,16 @@ export class VectorTileRenderer {
       this.stageUniformSlot(slotOffset, this.uniformDataBuf)
 
       // Polygon fills — skipped in 'strokes' phase (offscreen line-only RT).
-      if (drawFills && cached.indexCount > 0) {
+      // ALSO skipped when render() flagged this layer as having an
+      // effectively-invisible fill (no shader variant + zero alpha). Common
+      // case: multi_layer's `borders | stroke-* opacity-80` gets routed
+      // into the opaque bucket as fillPhase='fills' but declared no fill —
+      // the fragment shader was rasterising every covered pixel just to
+      // write α=0. Skipping the whole draw saves ~2-3 ms of GPU per frame
+      // on multi_layer-class scenes. Data-driven `fill match(...)` is NOT
+      // skipped (variant pipeline computes color in shader, cached uniform
+      // alpha may be zero even when the draw is meaningful).
+      if (drawFills && cached.indexCount > 0 && !this._skipFillDraw) {
         pass.setPipeline(fillPipeline)
         pass.setBindGroup(0, currentTileBg, [slotOffset])
         pass.setVertexBuffer(0, cached.vertexBuffer)
