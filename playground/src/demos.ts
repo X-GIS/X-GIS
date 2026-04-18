@@ -468,4 +468,11 @@ export const DEMOS: Record<string, Demo> = {
   // Extension 3: external data injection
   fixture_inline_push:          { name: 'Fixture: inline push',        tag: 'fixture', description: 'Inline source filled via setSourceData().',    source: load('fixture-inline-push.xgis') },
   fixture_typed_array_points:   { name: 'Fixture: typed-array points', tag: 'fixture', description: 'Inline source filled via setSourcePoints().',  source: load('fixture-typed-array-points.xgis') },
+
+  // Extension 4: coverage gaps — cap/anchor/projection/zoom-opacity.
+  fixture_cap_arrow:              { name: 'Fixture: cap arrow',            tag: 'fixture', description: 'stroke-arrow-cap directional taper.',                       source: load('fixture-cap-arrow.xgis') },
+  fixture_anchor_bottom:          { name: 'Fixture: anchor bottom',        tag: 'fixture', description: 'SDF point anchor-bottom (pin hangs above the anchor).',     source: load('fixture-anchor-bottom.xgis') },
+  fixture_projection_orthographic: { name: 'Fixture: projection orthographic', tag: 'fixture', description: 'Orthographic (globe) projection with back-face culling.', source: load('fixture-projection-orthographic.xgis') },
+  fixture_projection_natural_earth: { name: 'Fixture: projection natural earth', tag: 'fixture', description: 'Natural Earth pseudocylindrical projection.',          source: load('fixture-projection-natural-earth.xgis') },
+  fixture_zoom_opacity:           { name: 'Fixture: zoom opacity stops',   tag: 'fixture', description: 'z0:opacity-10 → z6:opacity-100 fade-in.',                    source: load('fixture-zoom-opacity.xgis') },
 }

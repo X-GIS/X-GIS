@@ -32,7 +32,20 @@ const TAG_LABELS: Record<string, string> = {
   line: 'SDF Lines',
   '10m': 'High Detail (10m)',
   thematic: 'Thematic',
+  fixture: 'Fixtures (isolated features)',
 }
+
+// Explicit display order so sections don't scramble when demos are
+// added or renamed. Tags not listed here are appended alphabetically
+// at the end. Higher-impact / beginner-facing tags come first; the
+// large `fixture` bucket goes last because it's a reference corpus
+// rather than a learning path.
+const TAG_ORDER: string[] = [
+  'basic', 'style', 'raster', 'zoom', 'layer',
+  'line', 'point', 'per-feature', 'data-driven',
+  'xgvt', 'natural-earth', '10m', 'thematic',
+  'fixture',
+]
 
 const content = document.getElementById('content')!
 const countEl = document.getElementById('demo-count')!
@@ -49,10 +62,29 @@ for (const [id, demo] of entries) {
   groups.get(demo.tag)!.push({ id, name: demo.name, description: demo.description })
 }
 
+// Sort within each group by display name so additions don't land in
+// "whatever order demos.ts has" — the rules change as fixtures are
+// added, so insertion order is not a stable sort key.
+for (const list of groups.values()) {
+  list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+}
+
+// Produce an ordered [tag, demos] list that respects TAG_ORDER, with
+// any unknown tags appended alphabetically so we don't silently drop
+// them if someone introduces a new category.
+const orderedGroups: [string, { id: string; name: string; description: string }[]][] = []
+const seen = new Set<string>()
+for (const tag of TAG_ORDER) {
+  const list = groups.get(tag)
+  if (list) { orderedGroups.push([tag, list]); seen.add(tag) }
+}
+const leftovers = [...groups.keys()].filter(t => !seen.has(t)).sort()
+for (const tag of leftovers) orderedGroups.push([tag, groups.get(tag)!])
+
 // Build sections
 const sections: { tag: string; el: HTMLElement; items: HTMLElement[] }[] = []
 
-for (const [tag, demos] of groups) {
+for (const [tag, demos] of orderedGroups) {
   const color = TAG_COLORS[tag] ?? '#60a5fa'
   const label = TAG_LABELS[tag] ?? tag
 

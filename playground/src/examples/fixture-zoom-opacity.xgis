@@ -1,0 +1,10 @@
+/* Fixture: zoom-interpolated opacity. At z=0 the square is faint
+ * (opacity-10), at z=6 it's fully opaque (opacity-100). Scroll in to
+ * fade it up. Exercises the zoom-opacity-stops path separately from
+ * time-interpolated keyframes. */
+source sq { type: geojson, url: "fixture-square.geojson" }
+layer fading {
+  source: sq
+  | fill-teal-500
+  | z0:opacity-10 z6:opacity-100
+}

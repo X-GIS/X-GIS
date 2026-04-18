@@ -51,7 +51,7 @@
       border-bottom: 1px solid var(--border);
     }
     .header-inner {
-      max-width: 900px;
+      max-width: 1120px;
       margin: 0 auto;
       padding: 0 2rem;
       height: 52px;
@@ -89,9 +89,20 @@
 
     /* ── Content ── */
     .content {
-      max-width: 900px;
+      max-width: 1120px;
       margin: 0 auto;
       padding: 1.5rem 2rem 4rem;
+    }
+
+    /* Two-column demo list on wide screens — the 900px cap left 30+ %
+     * of a standard 1440p viewport as background. Keeps the current
+     * compact row layout at mobile widths. */
+    @media (min-width: 900px) {
+      .demo-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: 12px;
+      }
     }
 
     /* ── Category Section ── */
@@ -179,11 +190,17 @@
     }
 
     @media (max-width: 640px) {
-      .header-inner { padding: 0 1rem; }
+      .header-inner { padding: 0 1rem; gap: 10px; }
       .content { padding: 1rem 1rem 3rem; }
       .demo-desc { display: none; }
       .demo-name { min-width: 0; }
       .badge { display: none; }
+      /* On a 320 px iPhone SE the search field + logo would otherwise
+       * overflow the viewport. Shrink the search and let focus still
+       * expand it to the available space rather than a fixed pixel
+       * width that could clip the logo. */
+      #search { width: 120px; }
+      #search:focus { width: 150px; }
     }
   </style>
 </head>

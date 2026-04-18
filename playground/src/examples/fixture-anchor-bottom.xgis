@@ -1,0 +1,7 @@
+/* Fixture: SDF point with anchor-bottom (pin hangs above anchor —
+ * typical for map markers where the tip sits on the coordinate). */
+source p { type: geojson, url: "fixture-point.geojson" }
+layer pin {
+  source: p
+  | fill-amber-400 size-40 anchor-bottom
+}

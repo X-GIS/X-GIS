@@ -1,0 +1,8 @@
+/* Fixture: orthographic (globe view). The entire front hemisphere of
+ * the square projects correctly; the back hemisphere is culled by the
+ * GPU shader's center_cos_c visibility test. */
+source sq { type: geojson, url: "fixture-square.geojson" }
+layer globe {
+  source: sq
+  | fill-sky-400 stroke-white stroke-1 projection-orthographic
+}

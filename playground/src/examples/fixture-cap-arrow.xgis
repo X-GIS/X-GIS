@@ -1,0 +1,8 @@
+/* Fixture: 2-vertex line with arrow cap. The arrow taper lives inside
+ * the cap SDF so a bare 2-vertex line gets a directional arrowhead at
+ * each end without an extra sprite. */
+source l { type: geojson, url: "fixture-line.geojson" }
+layer the_line {
+  source: l
+  | stroke-sky-400 stroke-16 stroke-arrow-cap
+}

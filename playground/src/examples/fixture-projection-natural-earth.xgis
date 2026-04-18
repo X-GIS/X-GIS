@@ -1,0 +1,8 @@
+/* Fixture: Natural Earth (flamstead-like pseudocylindrical) on a single
+ * polygon. Covers the polynomial lat→y and cos-scaled lon→x path that
+ * lives only in this projection's WGSL branch. */
+source sq { type: geojson, url: "fixture-square.geojson" }
+layer flat {
+  source: sq
+  | fill-violet-500 projection-natural-earth
+}

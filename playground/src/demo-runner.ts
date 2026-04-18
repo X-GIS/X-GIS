@@ -277,11 +277,51 @@ editor.addAction({
 })
 
 // ── Build selector ──
-for (let i = 0; i < demoIds.length; i++) {
-  const opt = document.createElement('option')
-  opt.value = String(i)
-  opt.textContent = DEMOS[demoIds[i]].name
-  selectEl.appendChild(opt)
+// Group by tag via <optgroup> so the 100+ entry dropdown is browseable
+// instead of an unsorted wall. Tag order mirrors the gallery page's
+// TAG_ORDER; options inside each group sort alphabetically by name.
+// The `<option value>` still carries the `demoIds` index, so the
+// existing `selectEl.value = String(idx)` path keeps working.
+const TAG_ORDER_DROPDOWN: string[] = [
+  'basic', 'style', 'raster', 'zoom', 'layer',
+  'line', 'point', 'per-feature', 'data-driven',
+  'xgvt', 'natural-earth', '10m', 'thematic',
+  'fixture',
+]
+const TAG_LABELS_DROPDOWN: Record<string, string> = {
+  basic: 'Basic', style: 'Style & Filter', raster: 'Raster',
+  zoom: 'Zoom', layer: 'Multi-Layer', 'per-feature': 'Per-Feature',
+  xgvt: 'Vector Tiles (XGVT)', 'natural-earth': 'Natural Earth',
+  'data-driven': 'Data-Driven', point: 'Points & Shapes',
+  line: 'SDF Lines', '10m': 'High Detail (10m)',
+  thematic: 'Thematic', fixture: 'Fixtures',
+}
+{
+  const byTag = new Map<string, { idx: number; name: string }[]>()
+  for (let i = 0; i < demoIds.length; i++) {
+    const d = DEMOS[demoIds[i]]
+    const list = byTag.get(d.tag) ?? []
+    list.push({ idx: i, name: d.name })
+    byTag.set(d.tag, list)
+  }
+  const seen = new Set<string>()
+  const addGroup = (tag: string): void => {
+    const list = byTag.get(tag)
+    if (!list || seen.has(tag)) return
+    seen.add(tag)
+    list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
+    const og = document.createElement('optgroup')
+    og.label = TAG_LABELS_DROPDOWN[tag] ?? tag
+    for (const { idx, name } of list) {
+      const opt = document.createElement('option')
+      opt.value = String(idx)
+      opt.textContent = name
+      og.appendChild(opt)
+    }
+    selectEl.appendChild(og)
+  }
+  for (const tag of TAG_ORDER_DROPDOWN) addGroup(tag)
+  for (const tag of [...byTag.keys()].filter(t => !seen.has(t)).sort()) addGroup(tag)
 }
 
 // ── URL hash sync (MapLibre style: #zoom/lat/lon/bearing/pitch) ──
