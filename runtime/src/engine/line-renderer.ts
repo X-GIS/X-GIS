@@ -1239,7 +1239,8 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
       // brightness discontinuities when the adjacent segment draws with
       // full coverage on the other side.
       if (along_p0 < 0.0) {
-        d_m = max(d_m, -along_p0);
+        // See p1 bisector clip for the +mpp rationale (whisker fix).
+        d_m = max(d_m, -along_p0 + layer.mpp);
       }
     }
     // Bevel-edge clip at p0: truncate the body at the bevel edge so the
@@ -1287,7 +1288,13 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
       // Same offset-miter-vertex correction as at p0.
       let along_p1 = dot(p - p1_join_center, bis_unit_p1);
       if (along_p1 > 0.0) {
-        d_m = max(d_m, along_p1);
+        // Push at least 1 pixel positive so the AA-edge of this bisector
+        // clip doesn't overlap with the neighbour segment's AA-edge of its
+        // own round-join arc. Without the +mpp guard the two segments both
+        // contribute partial alpha at the bisector line and BLEND_ALPHA
+        // composes them as 0.75 instead of 1.0 — visible as a thin dim
+        // "whisker" diagonal at the offset round-join corner.
+        d_m = max(d_m, along_p1 + layer.mpp);
       }
     }
     // Bevel-edge clip at p1 — same BEVEL-or-miter-exceeded condition as p0.
