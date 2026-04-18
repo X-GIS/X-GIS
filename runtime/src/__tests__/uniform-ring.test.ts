@@ -33,8 +33,14 @@ describe('LineRenderer layer uniform ring', () => {
       createSampler: () => ({}) as GPUSampler,
       createTexture: () => ({ createView: () => ({}) }) as unknown as GPUTexture,
       queue: {
-        writeBuffer: (_buf: GPUBuffer, offset: number, data: ArrayBufferView) => {
-          writes.push({ offset, byteLen: data.byteLength })
+        writeBuffer: (
+          _buf: GPUBuffer, offset: number, data: ArrayBufferView | ArrayBuffer,
+          _dataOffset?: number, size?: number,
+        ) => {
+          const byteLen = size ?? (
+            'byteLength' in (data as object) ? (data as ArrayBuffer).byteLength : 0
+          )
+          writes.push({ offset, byteLen })
         },
       },
     }
@@ -49,11 +55,25 @@ describe('LineRenderer layer uniform ring', () => {
     expect(a).toBe(0)
     expect(b).toBe(256)
     expect(c).toBe(512)
-    // Each write must land in a fresh slot so its payload survives to draw time.
-    expect(writes.map(w => w.offset)).toEqual([0, 256, 512])
+    // After batching: three writeLayerSlot calls now stage into a CPU
+    // mirror without issuing any GPU writes. The flush happens in
+    // endFrame() just before queue.submit. Assertion on the offsets
+    // still validates the ring math; writeBuffer spy should see zero
+    // calls until flush.
+    expect(writes).toHaveLength(0)
+    lr.endFrame()
+    // Flush writes one contiguous range covering all 3 slots.
+    expect(writes).toHaveLength(1)
+    expect(writes[0].offset).toBe(0)
+    expect(writes[0].byteLen).toBe(3 * 256)
 
     lr.beginFrame()
     const d = lr.writeLayerSlot([1, 1, 1, 1], 1, 1, 1)
     expect(d).toBe(0) // beginFrame() resets slot cursor
+    lr.endFrame()
+    // Second frame flushes only its own staged slot.
+    expect(writes).toHaveLength(2)
+    expect(writes[1].offset).toBe(0)
+    expect(writes[1].byteLen).toBe(256)
   })
 })

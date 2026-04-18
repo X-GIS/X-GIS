@@ -637,6 +637,14 @@ export class MapRenderer {
   private uniformDataBuf = new ArrayBuffer(144)
   // Dynamic-offset uniform ring (see docs: multi-layer uniform slots)
   private static readonly UNIFORM_SLOT = 256
+  /** CPU-side mirror of uniformBuffer. Each draw's uniform block is
+   *  copied into this staging buffer and a dirty range tracked; one
+   *  writeBuffer per frame flushes the range. Saves ~1000 per-frame
+   *  writeBuffer calls in the fixture audit's stress-many-layers
+   *  scenario. Mirrors the VTR + LineRenderer pattern. */
+  private uniformStaging = new Uint8Array(0)
+  private uniformDirtyLo = 0
+  private uniformDirtyHi = 0
   private static readonly UNIFORM_SIZE = 144
   private uniformRingCapacity = 256 // slots
   private uniformSlot = 0
@@ -791,6 +799,7 @@ export class MapRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: 'uniform-ring',
     })
+    this.uniformStaging = new Uint8Array(this.uniformRingCapacity * MapRenderer.UNIFORM_SLOT)
 
     this.bindGroup = device.createBindGroup({
       layout: this.bindGroupLayout,
@@ -801,6 +810,36 @@ export class MapRenderer {
   /** Reset the ring-buffer slot cursor. Call once per frame before any draws. */
   beginFrame(): void {
     this.uniformSlot = 0
+  }
+
+  /** Copy a draw's uniform block into the staging mirror; tracked by
+   *  dirty range so endFrame() can emit one writeBuffer instead of
+   *  one per draw. Same pattern as VTR.stageUniformSlot. */
+  private stageUniformSlot(slotOffset: number, src: ArrayBuffer): void {
+    const slot = MapRenderer.UNIFORM_SLOT
+    this.uniformStaging.set(new Uint8Array(src, 0, Math.min(src.byteLength, slot)), slotOffset)
+    const hi = slotOffset + slot
+    if (this.uniformDirtyHi === this.uniformDirtyLo) {
+      this.uniformDirtyLo = slotOffset
+      this.uniformDirtyHi = hi
+    } else {
+      if (slotOffset < this.uniformDirtyLo) this.uniformDirtyLo = slotOffset
+      if (hi > this.uniformDirtyHi) this.uniformDirtyHi = hi
+    }
+  }
+
+  /** Flush the staged uniform bytes before queue.submit(). Safe to
+   *  call any number of times per frame — a no-op when no slots have
+   *  been staged since the last flush. */
+  endFrame(): void {
+    if (this.uniformDirtyHi === this.uniformDirtyLo) return
+    const lo = this.uniformDirtyLo, hi = this.uniformDirtyHi
+    this.ctx.device.queue.writeBuffer(
+      this.uniformBuffer, lo,
+      this.uniformStaging.buffer, this.uniformStaging.byteOffset + lo, hi - lo,
+    )
+    this.uniformDirtyLo = 0
+    this.uniformDirtyHi = 0
   }
 
   private allocUniformSlot(): number {
@@ -819,6 +858,9 @@ export class MapRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: 'uniform-ring',
     })
+    const grown = new Uint8Array(newCap * MapRenderer.UNIFORM_SLOT)
+    grown.set(this.uniformStaging.subarray(0, Math.min(this.uniformStaging.length, grown.length)))
+    this.uniformStaging = grown
     this.bindGroup = device.createBindGroup({
       layout: this.bindGroupLayout,
       entries: [{ binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } }],
@@ -1174,7 +1216,7 @@ export class MapRenderer {
       // tile_origin_merc=(0,0), opacity, log_depth_fc
       new Float32Array(uniformData, 128, 4).set([0, 0, opacity, camera.getLogDepthFc()])
       const slotOffset = this.allocUniformSlot()
-      device.queue.writeBuffer(this.uniformBuffer, slotOffset, uniformData)
+      this.stageUniformSlot(slotOffset, uniformData)
 
       // Select bind group: per-layer (with feature data) or shared
       const bindGroup = layer.perLayerBindGroup ?? this.bindGroup
@@ -1245,7 +1287,7 @@ export class MapRenderer {
         // tile_origin_merc=(0,0) for graticule (world-space DSFUN), opacity=1, log_depth_fc
         new Float32Array(gratData, 128, 4).set([0, 0, 1, camera.getLogDepthFc()])
         const gratOff = this.allocUniformSlot()
-        device.queue.writeBuffer(this.uniformBuffer, gratOff, gratData)
+        this.stageUniformSlot(gratOff, gratData)
 
         pass.setBindGroup(0, this.bindGroup, [gratOff])
         pass.draw(this.graticuleVertexCount)

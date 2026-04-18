@@ -1122,6 +1122,15 @@ export class XGISMap {
       }
     }
 
+    // Flush CPU-side uniform-ring mirrors just before submit. WebGPU
+    // orders writeBuffer-before-submit for us, so the encoded draws
+    // still see fresh uniform data even though the writes happen
+    // after encoder.finish(). Covers MapRenderer's `uniform-ring` and
+    // LineRenderer's `line-layer-ring`; VTR's `vtr-uniform-ring`
+    // already self-flushes at the end of each renderTileKeys.
+    this.renderer.endFrame()
+    this.lineRenderer?.endFrame()
+
     // Outer scope catches the FRAME-level error (one entry per bad frame),
     // matching the inner scope opened right after createCommandEncoder().
     device.queue.submit([encoder.finish()])

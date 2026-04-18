@@ -1583,6 +1583,13 @@ export class LineRenderer {
   private layerRing!: GPUBuffer
   private layerRingCapacity = 512
   private layerSlot = 0
+  /** CPU-side mirror of layerRing. Each writeLayerSlot() stages its
+   *  packed uniform bytes here and widens a dirty range; a single
+   *  writeBuffer per frame flushes the range (in endFrame). Mirrors
+   *  the VTR uniform-ring batching pattern. */
+  private layerStaging!: Uint8Array
+  private layerDirtyLo = 0
+  private layerDirtyHi = 0
 
   // ── Translucent line offscreen + composite ──
   /** Single-sample offscreen RT used to render translucent line layers
@@ -1621,6 +1628,7 @@ export class LineRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: 'line-layer-ring',
     })
+    this.layerStaging = new Uint8Array(this.layerRingCapacity * LineRenderer.LAYER_SLOT)
 
     this.emptyShapeBuffer = this.device.createBuffer({
       size: 64,
@@ -1806,8 +1814,34 @@ export class LineRenderer {
       strokeColor, strokeWidthPx, opacity, mppAtCenter,
       cap, join, miterLimit, dash, patterns, offsetPx, viewportHeight,
     )
-    this.device.queue.writeBuffer(this.layerRing, off, data)
+    // Stage into the CPU mirror; flushLayerStaging (called from the
+    // map's render loop via `endFrame()`) emits a single writeBuffer
+    // over the frame's dirty range instead of one per layer.
+    const src = new Uint8Array(data.buffer, data.byteOffset, Math.min(data.byteLength, LineRenderer.LAYER_SLOT))
+    this.layerStaging.set(src, off)
+    const hi = off + LineRenderer.LAYER_SLOT
+    if (this.layerDirtyHi === this.layerDirtyLo) {
+      this.layerDirtyLo = off
+      this.layerDirtyHi = hi
+    } else {
+      if (off < this.layerDirtyLo) this.layerDirtyLo = off
+      if (hi > this.layerDirtyHi) this.layerDirtyHi = hi
+    }
     return off
+  }
+
+  /** Flush the accumulated layer-ring bytes in a single writeBuffer.
+   *  Safe to call any time before queue.submit() — WebGPU orders the
+   *  write before the submitted command buffer by spec. */
+  endFrame(): void {
+    if (this.layerDirtyHi === this.layerDirtyLo) return
+    const lo = this.layerDirtyLo, hi = this.layerDirtyHi
+    this.device.queue.writeBuffer(
+      this.layerRing, lo,
+      this.layerStaging.buffer, this.layerStaging.byteOffset + lo, hi - lo,
+    )
+    this.layerDirtyLo = 0
+    this.layerDirtyHi = 0
   }
 
   /** Emit a warning once per (stable) key for the lifetime of this renderer. */
