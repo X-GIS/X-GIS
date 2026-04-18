@@ -529,6 +529,24 @@ export class XGISMap {
         }
         source.setRawParts(parts, tileSet.levels.length > 0 ? 7 : 0)
 
+        // Feature data buffer MUST be built after the property table
+        // is set on the source — which only happens in `addTileLevel`
+        // above. Building it earlier (inside the sync rebuildLayers
+        // block below) silently no-ops because `getPropertyTable()`
+        // returns undefined before the worker returns, leaving the
+        // variant pipeline paired with the default bind-group layout
+        // and tripping a WebGPU validation error on every draw. Fixture
+        // audit surfaced this as the `match()`-based fixtures
+        // (fixture_categorical, reftest_triangle_match, etc.) logging
+        // "Bind group layout of pipeline layout does not match layout
+        // of bind group".
+        const variant = show.shaderVariant
+        if (variant && variant.needsFeatureBuffer && !vtRenderer.hasFeatureData()) {
+          vtRenderer.buildFeatureDataBuffer(variant as import('@xgis/compiler').ShaderVariant, this.renderer.featureBindGroupLayout)
+        }
+        // Worker result just landed — wake the render loop to paint it.
+        this.invalidate()
+
         // Fit camera once the compile lands. For the fallback (sync) path
         // this still runs inside the same microtask, so users see the same
         // "camera snaps to data on load" behaviour they had before.
@@ -548,19 +566,21 @@ export class XGISMap {
         console.error('[X-GIS] GeoJSON compile failed:', err)
       })
 
-      // Setup shader variant if needed
+      // Setup shader variant if needed. The pipeline + layout must be
+      // wired synchronously (they're stored on vectorTileShows and read
+      // by the render loop every frame), but the feature data buffer
+      // itself is built inside the compile-promise `.then()` above —
+      // the property table it needs only exists after the worker
+      // compile lands.
       let pipelines: typeof this.vtVariantPipelines = null
       let layout: GPUBindGroupLayout | null = null
-      const variant = show.shaderVariant
-      if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
+      const variantSync = show.shaderVariant
+      if (variantSync && (variantSync.preamble || variantSync.needsFeatureBuffer)) {
         try {
-          pipelines = this.renderer.getOrCreateVariantPipelines(variant as any)
-          layout = variant.needsFeatureBuffer
+          pipelines = this.renderer.getOrCreateVariantPipelines(variantSync as any)
+          layout = variantSync.needsFeatureBuffer
             ? this.renderer.featureBindGroupLayout
             : this.renderer.bindGroupLayout
-          if (variant.needsFeatureBuffer && !vtRenderer.hasFeatureData()) {
-            vtRenderer.buildFeatureDataBuffer(variant as any, layout)
-          }
         } catch (e) {
           console.warn('[X-GIS] GeoJSON VT variant pipeline failed:', e)
         }
