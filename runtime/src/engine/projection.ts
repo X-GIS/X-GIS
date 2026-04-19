@@ -5,6 +5,13 @@ const EARTH_RADIUS = 6378137
 const DEG2RAD = Math.PI / 180
 const RAD2DEG = 180 / Math.PI
 
+// Canonical Web Mercator latitude limit (degrees). EPSG:3857 clips at the
+// latitude whose tangent maps to π in the projected plane: atan(sinh(π)) ≈
+// 85.051128779807°. Use this value everywhere on the CPU side — splitting
+// clamps across 85.05 / 85.051 / 85.051129 as this repo did causes
+// sub-km Y drift between tile selection and rendering at polar latitudes.
+export const MERCATOR_LAT_LIMIT = 85.051129
+
 export interface Projection {
   name: string
   forward(lon: number, lat: number): [number, number]
@@ -18,7 +25,7 @@ export const mercator: Projection = {
   name: 'mercator',
 
   forward(lon: number, lat: number): [number, number] {
-    const clampedLat = Math.max(-85.05, Math.min(85.05, lat))
+    const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
     const x = lon * DEG2RAD * EARTH_RADIUS
     const y = Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) * EARTH_RADIUS
     return [x, y]

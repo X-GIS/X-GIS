@@ -46,10 +46,12 @@ export interface LineMeshData {
 
 // ═══ Projection helpers (CPU side, for bounds only) ═══
 
+import { MERCATOR_LAT_LIMIT } from '../engine/projection'
+
 const EARTH_RADIUS = 6378137
 
 export function lonLatToMercator(lon: number, lat: number): [number, number] {
-  const clampedLat = Math.max(-85.05, Math.min(85.05, lat))
+  const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
   const x = lon * (Math.PI / 180) * EARTH_RADIUS
   const y = Math.log(Math.tan(Math.PI / 4 + (clampedLat * Math.PI / 180) / 2)) * EARTH_RADIUS
   return [x, y]
@@ -386,8 +388,8 @@ function tessellatePolygonPart(
     let ring = subdivideRing(rings[r])
 
     for (const coord of ring) {
-      // Clamp latitude to Mercator limit (±85.051°) — Antarctica at -90° → -85°
-      flatCoords.push(coord[0], Math.max(-85.051, Math.min(85.051, coord[1])))
+      // Clamp latitude to Mercator limit — Antarctica at -90° → -MERCATOR_LAT_LIMIT
+      flatCoords.push(coord[0], Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, coord[1])))
     }
   }
 
@@ -558,8 +560,7 @@ function tessellateLineStringPiece(
   // Compute f64 global arc-length per vertex (Mercator meters)
   const DEG2RAD = Math.PI / 180
   const R = 6378137
-  const LAT_LIMIT = 85.051129
-  const clampLat = (v: number) => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
+  const clampLat = (v: number) => Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, v))
   let arc = 0
   let prevMx = 0, prevMy = 0
   for (let i = 0; i < subdivided.length; i++) {

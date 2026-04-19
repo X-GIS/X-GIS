@@ -22,7 +22,7 @@ struct Uniforms {
 }
 
 fn proj_mercator(lon_deg: f32, lat_deg: f32) -> vec2<f32> {
-  let lat = clamp(lat_deg, -85.05, 85.05);
+  let lat = clamp(lat_deg, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
   return vec2<f32>(
     lon_deg * DEG2RAD * EARTH_R,
     log(tan(PI / 4.0 + lat * DEG2RAD / 2.0)) * EARTH_R

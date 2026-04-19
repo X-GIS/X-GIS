@@ -53,7 +53,10 @@ struct Uniforms {
 // ── GPU Projections ──
 
 fn proj_mercator(lon_deg: f32, lat_deg: f32) -> vec2<f32> {
-  let lat = clamp(lat_deg, -85.05, 85.05);
+  // Canonical Mercator latitude limit — matches CPU MERCATOR_LAT_LIMIT in
+  // projection.ts and the const declared later in this shader at line ~196.
+  // Inlined here because WGSL requires forward declaration at module scope.
+  let lat = clamp(lat_deg, -85.051129, 85.051129);
   let x = lon_deg * DEG2RAD * EARTH_R;
   let y = log(tan(PI / 4.0 + lat * DEG2RAD / 2.0)) * EARTH_R;
   return vec2<f32>(x, y);
