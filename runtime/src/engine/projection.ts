@@ -58,49 +58,54 @@ export const equirectangular: Projection = {
 }
 
 // ═══ Natural Earth ═══
-// 미적으로 균형 잡힌 의사원통 도법. 세계 지도에 적합.
-// Robinson과 비슷하지만 수학적으로 더 깔끔.
-
-const NE_A = [
-  0.8707, 0.8707, 0.8680, 0.8620, 0.8530, 0.8400,
-  0.8220, 0.7986, 0.7688, 0.7326, 0.6898, 0.6400, 0.5826,
-]
-const NE_B = [
-  0.0000, 0.0940, 0.1880, 0.2810, 0.3720, 0.4600,
-  0.5445, 0.6240, 0.6970, 0.7620, 0.8170, 0.8600, 0.8940,
-]
-
-function naturalEarthInterpolate(lat: number): [number, number] {
-  const absLat = Math.abs(lat)
-  const idx = Math.min(Math.floor(absLat / 7.5), 11)
-  const frac = (absLat - idx * 7.5) / 7.5
-
-  const a = NE_A[idx] + (NE_A[idx + 1] - NE_A[idx]) * frac
-  const b = NE_B[idx] + (NE_B[idx + 1] - NE_B[idx]) * frac
-
-  return [a, lat >= 0 ? b : -b]
-}
+// Šavrič et al. (2015) 6th-order polynomial. Matches the WGSL
+// proj_natural_earth in raster-renderer.ts and renderer.ts exactly so
+// CPU tile-bounds math and GPU rendering agree. See
+// projection-wgsl-consistency.test.ts.
+//
+// History: The previous implementation was Patterson's 13-entry table
+// (y = NE_B × π × R). It produced y values up to 2× the polynomial's —
+// a ~8145 km drift near the poles. Surfaced by the Phase 2-A cross-
+// consistency test on 2026-04-20. No internal callers depended on the
+// old output; external users were getting a "Natural Earth I"-shaped
+// map on CPU while the GPU rendered "Natural Earth II". Unified here.
 
 export const naturalEarth: Projection = {
   name: 'natural_earth',
 
   forward(lon: number, lat: number): [number, number] {
-    const [a, b] = naturalEarthInterpolate(lat)
-    const x = lon * DEG2RAD * a * EARTH_RADIUS
-    const y = b * Math.PI * EARTH_RADIUS
-    return [x, y]
+    const latR = lat * DEG2RAD
+    const lat2 = latR * latR
+    const lat4 = lat2 * lat2
+    const lat6 = lat2 * lat4
+    const xScale = 0.8707 - 0.131979 * lat2 + 0.013791 * lat4 - 0.0081435 * lat6
+    const yVal = latR * (1.007226 + lat2 * (0.015085 + lat2 * (-0.044475 + 0.028874 * lat2 - 0.005916 * lat4)))
+    return [lon * DEG2RAD * xScale * EARTH_RADIUS, yVal * EARTH_RADIUS]
   },
 
   inverse(x: number, y: number): [number, number] {
-    // Approximate inverse via iteration
-    let lat = (y / (Math.PI * EARTH_RADIUS)) * 90
+    // Newton-Raphson on the latitude polynomial, 5 iterations. Mirrors
+    // reprojector.ts inv_natural_earth.
+    const goalY = y / EARTH_RADIUS
+    let t = goalY / 1.007226
     for (let i = 0; i < 5; i++) {
-      const [, b] = naturalEarthInterpolate(lat)
-      const targetB = y / (Math.PI * EARTH_RADIUS)
-      lat += (targetB - b) * 90
+      const t2 = t * t
+      const t4 = t2 * t2
+      const t6 = t2 * t4
+      const t8 = t4 * t4
+      const yVal = t * (1.007226 + t2 * (0.015085 + t2 * (-0.044475 + 0.028874 * t2 - 0.005916 * t4)))
+      const f = yVal - goalY
+      const dy = 1.007226 + 0.045255 * t2 - 0.222375 * t4 + 0.202118 * t6 - 0.053244 * t8
+      if (Math.abs(dy) < 1e-10) break
+      t = t - f / dy
     }
-    const [a] = naturalEarthInterpolate(lat)
-    const lon = (x / (a * EARTH_RADIUS)) * RAD2DEG
+    const t2 = t * t
+    const t4 = t2 * t2
+    const t6 = t2 * t4
+    const xScale = 0.8707 - 0.131979 * t2 + 0.013791 * t4 - 0.0081435 * t6
+    if (Math.abs(xScale) < 1e-6) return [NaN, NaN]
+    const lon = (x / (xScale * EARTH_RADIUS)) * RAD2DEG
+    const lat = t * RAD2DEG
     return [lon, lat]
   },
 }

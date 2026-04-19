@@ -60,52 +60,31 @@ describe('CPU/GPU projection consistency — Equirectangular', () => {
   })
 })
 
-describe('CPU/GPU projection consistency — Natural Earth (KNOWN DIVERGENCE)', () => {
-  // Known divergence A-1:
-  //   CPU projection.ts: Patterson's 13-entry table + linear interpolation,
-  //                      with y = NE_B(lat) * π * R.
-  //   WGSL proj_natural_earth: Šavrič et al. (2015) 6th-order polynomial.
-  //
-  // These are arguably two different projections ("Natural Earth I" vs
-  // "Natural Earth II"). Measured divergence on the 10×10 grid: ~8.1 M m
-  // near the poles — CPU produces a y value ~2× the WGSL one.
-  //
-  // This is a behavior bug (external users calling naturalEarth.forward
-  // get a different projection than the one rendered on screen) but no
-  // internal code currently calls the CPU forward. Fix is deferred as a
-  // separate behavior change. These tests lock in the current state so
-  // future edits surface any drift from the known divergence.
-
-  it('divergence is bounded by the current measured maximum (~8.2 M m)', () => {
-    // If a future change makes CPU and WGSL DIVERGE MORE, investigate.
-    // If a future change makes them AGREE, delete this test — the fix
-    // for A-1 has landed.
-    const UPPER_BOUND_M = 8_500_000
-    let maxDelta = 0
+describe('CPU/GPU projection consistency — Natural Earth', () => {
+  // A-1 was resolved by switching projection.ts naturalEarth.forward /
+  // inverse to the same Šavrič et al. (2015) polynomial the WGSL shaders
+  // use. The previous ~8145 km divergence is now zero.
+  it('CPU naturalEarth.forward matches WGSL projNaturalEarthWgsl to ≤1mm at 100 sample points', () => {
     for (const [lon, lat] of sampleGrid()) {
       const [xA, yA] = naturalEarth.forward(lon, lat)
       const [xB, yB] = projNaturalEarthWgsl(lon, lat)
-      maxDelta = Math.max(maxDelta, Math.hypot(xA - xB, yA - yB))
+      expect(xB).toBeCloseTo(xA, 3)
+      expect(yB).toBeCloseTo(yA, 3)
     }
-    // eslint-disable-next-line no-console
-    console.log(`[natural-earth A-1 divergence] observed max ΔXY: ${(maxDelta / 1000).toFixed(1)} km`)
-    expect(maxDelta).toBeLessThan(UPPER_BOUND_M)
   })
 
-  it('divergence is NOT zero — formulas differ by design (fix A-1 to resolve)', () => {
-    // When this test starts failing, it means someone unified the two
-    // Natural Earth implementations. Great — delete this test AND the
-    // divergence-bound test above AND add a strict consistency assertion.
-    let foundDivergence = false
-    for (const [lon, lat] of sampleGrid()) {
-      const [xA, yA] = naturalEarth.forward(lon, lat)
-      const [xB, yB] = projNaturalEarthWgsl(lon, lat)
-      if (Math.hypot(xA - xB, yA - yB) > 1) {
-        foundDivergence = true
-        break
+  it('naturalEarth.inverse round-trips to within 1e-6° at mid-latitudes', () => {
+    // Forward then inverse should recover the original lon/lat. Test
+    // mid-latitudes where the Newton-Raphson converges cleanly; the
+    // deep polar region has slower convergence and wider tolerance.
+    for (let lon = -170; lon <= 170; lon += 40) {
+      for (let lat = -60; lat <= 60; lat += 20) {
+        const [x, y] = naturalEarth.forward(lon, lat)
+        const [lon2, lat2] = naturalEarth.inverse(x, y)
+        expect(lon2).toBeCloseTo(lon, 6)
+        expect(lat2).toBeCloseTo(lat, 6)
       }
     }
-    expect(foundDivergence).toBe(true)
   })
 })
 
