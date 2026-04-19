@@ -658,8 +658,9 @@ export class VectorTileRenderer {
     const ctY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
     sortByPriority(tiles, ctX, ctY)
 
-    const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
-    this.logDepthFc = camera.getLogDepthFc()
+    const frame = camera.getFrameView(canvasWidth, canvasHeight)
+    const mvp = frame.matrix
+    this.logDepthFc = frame.logDepthFc
 
     // Cache color parsing — only reparse if show properties changed.
     //

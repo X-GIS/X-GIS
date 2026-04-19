@@ -56,25 +56,10 @@ export class Camera {
 
   // Preallocated RTC matrix (reused every frame)
   private rtcMatrix = new Float32Array(16)
-  /** Cached far-plane value from the most recent getRTCMatrix() call.
-   *  Preserved for backward compatibility with getLogDepthFc(); new
-   *  callers should use getFrameView() which returns far explicitly
-   *  (no hidden state). */
-  private _lastFar = 1e6
-
-  /** Log-depth factor for the current frame: `1 / log2(far + 1)`. Valid
-   *  after getRTCMatrix() has been called this frame. Kept for callers
-   *  still on the legacy two-call pattern (getRTCMatrix + getLogDepthFc).
-   *  Prefer getFrameView() in new code. */
-  getLogDepthFc(): number {
-    return computeLogDepthFc(this._lastFar)
-  }
 
   /** Core matrix + far-plane math. Writes the MVP into `this.rtcMatrix`
-   *  and returns the far-plane value. Private helper shared by both the
-   *  legacy side-effecting getRTCMatrix and the pure getFrameView.
-   *  Callers that want the side-effect (getLogDepthFc reads) must write
-   *  `this._lastFar = <return value>` themselves. */
+   *  and returns the far-plane value. Private helper shared by
+   *  getRTCMatrix (matrix only) and getFrameView (matrix + far + fc). */
   private _buildRTCMatrix(canvasWidth: number, canvasHeight: number): number {
     const metersPerPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
     const m = this.rtcMatrix
@@ -163,20 +148,16 @@ export class Camera {
 
   /** RTC matrix: perspective projection × view (pitch + bearing).
    *  When pitch=0, reduces to the same orthographic-like result as before.
-   *
-   *  Side effect: updates this._lastFar so a later getLogDepthFc() returns
-   *  the correct factor. This ordering dependency is the reason new code
-   *  should prefer getFrameView() (no hidden state). */
+   *  Discards the far-plane value — use getFrameView() when you also
+   *  need far / log-depth. */
   getRTCMatrix(canvasWidth: number, canvasHeight: number): Float32Array {
-    const far = this._buildRTCMatrix(canvasWidth, canvasHeight)
-    this._lastFar = far
+    this._buildRTCMatrix(canvasWidth, canvasHeight)
     return this.rtcMatrix
   }
 
   /** Build the matrix + far + log-depth factor in a single call. No hidden
    *  state — callers get the far value directly and pass it to whatever
-   *  uniform or shader needs it. Preferred over the getRTCMatrix +
-   *  getLogDepthFc two-call pattern.
+   *  uniform or shader needs it.
    *
    *  Note: `matrix` is a reference to the camera's preallocated
    *  `rtcMatrix` buffer (shared with getRTCMatrix). Copy the contents
