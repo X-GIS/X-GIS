@@ -69,6 +69,57 @@ describe('tile selection — semantic sanity (should pass)', () => {
     }
   })
 
+  it('viewport 9-point coverage: each sampled screen point is inside some selected tile', () => {
+    // Sample 9 screen points (3×3 grid fractions 0.25/0.5/0.75). For
+    // each, unproject to lon/lat, convert to a tile at the selection's
+    // max zoom, and check that either that tile OR an ancestor (lower
+    // zoom covering the same lon/lat) is in the selected set. A failure
+    // means the user would see a "hole" at that screen position.
+    //
+    // Fractions are 0.25/0.5/0.75 (not 0/0.5/1.0) to avoid the unprojection
+    // singularity at edges when the camera is pitched and the far edges
+    // fall beyond the horizon.
+    const R = 6378137, DEG2RAD = Math.PI / 180
+    const toLonLat = (mx: number, my: number): [number, number] => {
+      const lon = (mx / R) / DEG2RAD
+      const lat = (2 * Math.atan(Math.exp(my / R)) - Math.PI / 2) / DEG2RAD
+      return [lon, lat]
+    }
+
+    for (const [camLon, camLat, zoom, pitch] of [
+      [0, 0, 5, 0], [10, 50, 6, 0], [120, 35, 5, 0],
+      [0, 0, 5, 30], [10, 50, 6, 45],
+    ] as const) {
+      const cam = makeCam(zoom, pitch, camLon, camLat)
+      const maxZ = zoom
+      const tiles = visibleTilesFrustum(cam, mercator, maxZ, W, H)
+      const keys = new Set<string>()
+      for (const t of tiles) keys.add(`${t.z}/${t.x}/${t.y}`)
+
+      const fracs = [0.25, 0.5, 0.75]
+      for (const fy of fracs) for (const fx of fracs) {
+        const rel = cam.unprojectToZ0(fx * W, fy * H, W, H)
+        if (!rel) continue // beyond horizon — skip
+        const mx = cam.centerX + rel[0]
+        const my = cam.centerY + rel[1]
+        const [sampleLon, sampleLat] = toLonLat(mx, my)
+        if (!Number.isFinite(sampleLon) || !Number.isFinite(sampleLat)) continue
+
+        // Walk up the quadtree until we find a tile in the selection
+        // that contains this lon/lat (or fail).
+        let covered = false
+        for (let tz = maxZ; tz >= 0; tz--) {
+          const n2 = Math.pow(2, tz)
+          const tx = Math.floor((sampleLon + 180) / 360 * n2)
+          const clampedLat = Math.max(-85.051129, Math.min(85.051129, sampleLat))
+          const ty = Math.floor((1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n2)
+          if (keys.has(`${tz}/${tx}/${ty}`)) { covered = true; break }
+        }
+        expect(covered).toBe(true)
+      }
+    }
+  })
+
   it('at zoom 5 pitch 0 equator, selection is bounded by the visible area (<50 tiles)', () => {
     // The viewport at zoom 5 pitch 0 covers a small slice of the world.
     // If the budget ever saturates here, something is very wrong.
