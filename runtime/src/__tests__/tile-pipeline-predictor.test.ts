@@ -97,12 +97,11 @@ describe('tile pipeline predictor', () => {
     expect(pred.overzoom).toBe(false)
     expect(pred.overzoomLevels).toBe(0)
     expect(pred.coldConvergenceFrames).toBe(0)
-    // KNOWN BUG: classifyTile short-circuits at tz <= 3 and pushes
-    // every tile without viewport check when tz === maxZ. So z=3
-    // world-fit saturates (all 5 world-copies × 64 tiles clipped at
-    // 300). See tile-selection-semantic.test.ts for the lock-in.
-    // When that bug is fixed, saturated will become false here.
-    expect(pred.cacheCapacityCheck.saturated).toBe(true)
+    // After the classifyTile fix (tiles.ts:195 — viewport check at
+    // tz === maxZ), z=3 world-fit at the equator no longer saturates
+    // the 300-tile budget. Visible tiles = ~16 (one world copy's
+    // visible quadrant × viewport-culled siblings). Fits in 512.
+    expect(pred.cacheCapacityCheck.saturated).toBe(false)
     expect(pred.cacheCapacityCheck.fitsIn512).toBe(true)
   })
 

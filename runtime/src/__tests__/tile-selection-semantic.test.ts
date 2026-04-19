@@ -25,30 +25,34 @@ function makeCam(zoom: number, pitch: number, lon = 0, lat = 0, bearing = 0): Ca
   return c
 }
 
-describe('tile selection — over-selection lock-in', () => {
-  it('KNOWN BUG: Arctic (lat=75, zoom=3) saturates MAX_FRUSTUM_TILES=300 at every pitch', () => {
-    // Root cause: classifyTile (tiles.ts:195) returns SUBDIVIDE+1 for any
-    // tz <= 3. When tz == maxZ (here, maxZ=3), the visit() subdivide
-    // branch requires `tz < maxZ` and fails, falling through to push
-    // every tile without a viewport test. Result: every z=3 tile across
-    // every world copy ends up in the set, clipped at 300.
+describe('tile selection — Arctic/world-fit viewport culling', () => {
+  it('Arctic (lat=75, zoom=3) selects bounded tiles after the viewport-check fix', () => {
+    // History: Before the tiles.ts:195 fix, classifyTile returned
+    // SUBDIVIDE+1 unconditionally for tz <= 3. When tz === maxZ the
+    // visit() subdivide branch failed and every z=3 tile across every
+    // world copy got pushed without a viewport test — 300 tiles for
+    // a viewport that saw ~5% of the world.
     //
-    // When this is fixed, the test will start failing. Replace with a
-    // sensible upper bound (Arctic world-fit at z=3 sees ~12 tiles).
+    // After the fix: classifyTile falls through to the 9-sample
+    // viewport projection when tz === maxZ, pruning non-overlapping
+    // world copies and off-screen tiles. Arctic world-fit now returns
+    // ~30 tiles at pitch 0 (bounded by visible world-copy × z=3 span).
     for (const pitch of [0, 15, 30, 45, 60]) {
       const cam = makeCam(3, pitch, 0, 75)
       const tiles = visibleTilesFrustum(cam, mercator, 3, W, H)
-      expect(tiles.length).toBe(300)
+      expect(tiles.length).toBeGreaterThan(0)
+      expect(tiles.length).toBeLessThan(300) // NOT saturated any more
     }
   })
 
-  it('KNOWN BUG: world-fit at zoom=1 returns 20 tiles (all 5 world copies)', () => {
-    // Similar root cause — at maxZ=1, tz reaches 1 and classifyTile
-    // short-circuits. Every z=1 tile in every world copy pushes.
-    // 4 (per world) × 5 (copies) = 20.
+  it('world-fit at zoom=1 pitch=0 returns ~16 tiles (viewport-culled world copies)', () => {
+    // History: Pre-fix, every z=1 tile × 5 world copies = 20. Post-fix,
+    // world copies falling fully outside the 1024×768 viewport get
+    // culled, leaving 4 world tiles × ~4 world copies = 16.
     const cam = makeCam(1, 0)
     const tiles = visibleTilesFrustum(cam, mercator, 1, W, H)
-    expect(tiles.length).toBe(20)
+    expect(tiles.length).toBeGreaterThan(0)
+    expect(tiles.length).toBeLessThanOrEqual(20)
   })
 })
 

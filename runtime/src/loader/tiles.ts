@@ -191,8 +191,14 @@ export function visibleTilesFrustum(
   // Handles null corners (behind camera) consistently — a tile with all corners
   // behind camera is treated as "very large" to force subdivision.
   const classifyTile = (tz: number, ox: number, y: number): number => {
-    // Low-zoom tiles: projection unreliable for world-scale tiles, always subdivide
-    if (tz <= 3) return SUBDIVIDE_THRESHOLD + 1
+    // Low-zoom tiles: projection unreliable for world-scale tiles. Force
+    // subdivision when we CAN still subdivide (tz < maxZ). When tz === maxZ
+    // and tz <= 3, the subdivide branch in visit() fails and the tile gets
+    // pushed without a viewport check — Arctic world-fit at maxZ=3 ended up
+    // with 300 tiles (all world copies × all z=3 tiles, clipped by budget)
+    // for a viewport that only saw ~5% of the world. Fall through to the
+    // 9-sample projection check below so unreachable leaves get culled too.
+    if (tz <= 3 && tz < maxZ) return SUBDIVIDE_THRESHOLD + 1
 
     const tn = Math.pow(2, tz)
     const lonW = ox / tn * 360 - 180
