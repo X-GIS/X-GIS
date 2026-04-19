@@ -1,5 +1,37 @@
 // ═══ Raster Tile Loader — 웹 맵 타일 로딩 ═══
 import { WORLD_COPIES } from '../engine/gpu-shared'
+import { tileKeyParent } from '@xgis/compiler'
+
+/** Walk from `leafKey` up the quad-tree until the first parent for
+ *  which `hasEntry(pk)` returns true, returning that ancestor's key.
+ *  Returns -1 when no ancestor up to z=0 is in the index.
+ *
+ *  Hoisted out of `VectorTileRenderer.renderTileKeys` so the extreme
+ *  over-zoom bug (user pans to z=20 while the source maxLevel is 5)
+ *  can be CPU-tested without a GPU device. The previous in-place loop
+ *  capped at 2 levels, which silently dropped every descendant whose
+ *  real parent lived more than 2 levels up — the entire visible set
+ *  would miss its prefetch target and render black.
+ *
+ *  Cap (`MAX_WALK`) mirrors the DSFUN zoom ceiling (22); past that
+ *  `tileKeyParent` loses precision.
+ *
+ *  Complexity: O(z_leaf - z_parent). Typical extreme case at z=20
+ *  terminates in 15 iterations per distinct column; Set-based dedup
+ *  at the call site avoids the N²ish cost when many descendants share
+ *  one ancestor. */
+export function firstIndexedAncestor(
+  leafKey: number,
+  hasEntry: (key: number) => boolean,
+): number {
+  const MAX_WALK = 22
+  let pk = leafKey
+  for (let i = 0; i < MAX_WALK && pk > 1; i++) {
+    pk = tileKeyParent(pk)
+    if (hasEntry(pk)) return pk
+  }
+  return -1
+}
 
 export interface TileCoord {
   z: number

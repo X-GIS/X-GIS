@@ -1,0 +1,32 @@
+/* Picking demo — countries with hover + click feedback.
+ *
+ * Mobile: tap a country to see its info in the overlay panel.
+ * Desktop: hover for live highlight, click to lock the selection.
+ *
+ * The overlay panel + event listeners are wired by demo-runner.ts
+ * when DEMOS[id].picking === true. The .xgis file itself is just
+ * the scene; it has no JS surface. */
+
+source basemap {
+  type: raster
+  url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+}
+
+source world {
+  type: geojson
+  url: "countries.geojson"
+}
+
+layer tiles {
+  source: basemap
+}
+
+layer fill {
+  source: world
+  | fill-orange-200 opacity-50
+}
+
+layer borders {
+  source: world
+  | stroke-red-500 stroke-2 opacity-80
+}

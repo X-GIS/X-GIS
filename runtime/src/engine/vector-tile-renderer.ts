@@ -6,7 +6,7 @@
 import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
-import { visibleTilesFrustum, sortByPriority } from '../loader/tiles'
+import { visibleTilesFrustum, sortByPriority, firstIndexedAncestor } from '../loader/tiles'
 import { tileKey, tileKeyParent, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { XGVTSource, TileData } from '../data/xgvt-source'
@@ -226,6 +226,11 @@ export class VectorTileRenderer {
    *  actually converged yet, even though no user input is flowing. */
   hasPendingUploads(): boolean {
     return this._pendingUploads.length > 0
+  }
+
+  /** Diagnostic: queue depth for inspectPipeline() snapshots. */
+  getPendingUploadCount(): number {
+    return this._pendingUploads.length
   }
 
   private allocUniformSlot(): number {
@@ -523,11 +528,20 @@ export class VectorTileRenderer {
       const tileMercYNorth = Math.log(Math.tan(Math.PI / 4 + clampSegLat(data.tileSouth + data.tileHeight) * SEG_DEG2RAD / 2)) * SEG_R
       const tileWidthMerc = tileMercXEast - tileMercXWest
       const tileHeightMerc = tileMercYNorth - tileMercYSouth
-      if (data.outlineIndices && data.outlineIndices.length > 0) {
-        // Polygon outlines share the polygon vertex buffer (DSFUN stride 5).
-        const segData = buildLineSegments(data.vertices, data.outlineIndices, 5, tileWidthMerc, tileHeightMerc)
+      // Polygon outlines: every tile source now ships stride-10 outline
+      // vertices with global arc_start (GeoJSON tiler, binary .xgvt
+      // decoder, and runtime sub-tile generator all use the same
+      // augmentRingWithArc + clipLineToRect helpers). Line features go
+      // through the same SDF pipeline. The legacy stride-5 outline-
+      // indices-into-fill-vertices path is gone.
+      if (data.outlineVertices && data.outlineVertices.length > 0
+          && data.outlineLineIndices && data.outlineLineIndices.length > 0) {
+        const segData = buildLineSegments(
+          data.outlineVertices, data.outlineLineIndices, 10,
+          tileWidthMerc, tileHeightMerc,
+        )
         outlineSegmentBuffer = this.lineRenderer.uploadSegmentBuffer(segData)
-        outlineSegmentCount = data.outlineIndices.length / 2
+        outlineSegmentCount = data.outlineLineIndices.length / 2
         outlineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(outlineSegmentBuffer)
       }
       if (data.lineIndices.length > 0 && data.lineVertices.length > 0) {
@@ -918,24 +932,30 @@ export class VectorTileRenderer {
     }
 
     // Request missing tiles BEFORE drawing — on-demand tiles compile synchronously
-    // and become available in gpuCache within the same frame
-    const parentKeys: number[] = []
+    // and become available in gpuCache within the same frame.
+    //
+    // Parent prefetch delegates the walk to `firstIndexedAncestor` so
+    // the logic is CPU-testable and unified across call sites. The old
+    // inline loop capped at 2 levels, which silently dropped every
+    // descendant whose real parent lived more than 2 levels up — at
+    // z=20 over a maxLevel=5 source, that meant the z=5 parent was
+    // never prefetched, VTR drew nothing, and FLICKER fired sustainedly.
+    //
+    // Set-based dedup: hundreds of z=20 tiles share a single z=5
+    // ancestor, so we request it once per frame.
+    const parentKeysSet = new Set<number>()
     for (let i = 0; i < neededKeys.length; i++) {
       const k = neededKeys[i]
       if (!this.gpuCache.has(k) && !this.source!.isLoading(k) && this.source!.hasEntryInIndex(k)) {
         toLoad.push(k)
       }
-      // Ensure parent tiles (z-1, z-2) are loaded for smooth fallback.
-      // Use arithmetic parent helper so z>15 keys walk correctly under DSFUN.
-      let pk = k
-      for (let pz = 0; pz < 2 && pk > 1; pz++) {
-        pk = tileKeyParent(pk)
-        if (!this.gpuCache.has(pk) && !this.source!.isLoading(pk) && !this.source!.hasTileData(pk) && this.source!.hasEntryInIndex(pk)) {
-          parentKeys.push(pk)
-        }
+      const pk = firstIndexedAncestor(k, (anc) => this.source!.hasEntryInIndex(anc))
+      if (pk >= 0 && !this.gpuCache.has(pk) && !this.source!.isLoading(pk) && !this.source!.hasTileData(pk)) {
+        parentKeysSet.add(pk)
       }
     }
     // Load parents first, then current zoom tiles
+    const parentKeys = [...parentKeysSet]
     if (parentKeys.length > 0) this.source.requestTiles(parentKeys)
     if (toLoad.length > 0) this.source.requestTiles(toLoad)
 

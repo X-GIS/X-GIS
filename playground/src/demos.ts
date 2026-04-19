@@ -16,6 +16,11 @@ export interface Demo {
   tag: string
   description: string
   source: string  // loaded from .xgis file
+  /** When true, demo-runner enables runtime picking and installs a
+   *  hover/click overlay panel that shows the hit feature's name +
+   *  coordinate. Used by interactive picking demos and any fixture
+   *  that wants to expose live event feedback for manual testing. */
+  picking?: boolean
 }
 
 export const DEMOS: Record<string, Demo> = {
@@ -52,6 +57,14 @@ export const DEMOS: Record<string, Demo> = {
     tag: 'layer',
     description: 'Two layers from the same source with different styles, stacked over raster tiles',
     source: load('multi-layer.xgis'),
+  },
+
+  picking_demo: {
+    name: 'Picking + Events',
+    tag: 'event',
+    description: 'Hover (desktop) or tap (mobile) a country to see its name, coordinate, and feature ID. Demonstrates layer.addEventListener.',
+    source: load('picking-demo.xgis'),
+    picking: true,
   },
 
   categorical: {
@@ -422,6 +435,13 @@ export const DEMOS: Record<string, Demo> = {
   fixture_sdf_point: { name: 'Fixture: SDF pin', tag: 'fixture', description: 'Billboard with anchor-bottom.', source: load('fixture-sdf-point.xgis') },
   fixture_sdf_glow: { name: 'Fixture: SDF glow', tag: 'fixture', description: 'Translucent halo + opaque pin.', source: load('fixture-sdf-glow.xgis') },
   fixture_categorical: { name: 'Fixture: categorical', tag: 'fixture', description: 'match() data-driven fill.', source: load('fixture-categorical.xgis') },
+  fixture_picking: {
+    name: 'Fixture: picking',
+    tag: 'fixture',
+    description: 'Three quadrants with distinct IDs — pickAt at known positions returns expected featureId. Picking + overlay enabled for manual inspection.',
+    source: load('fixture-picking.xgis'),
+    picking: true,
+  },
   fixture_mercator_clip: { name: 'Fixture: mercator clip', tag: 'fixture', description: 'Polar polygon — Mercator clipping.', source: load('fixture-mercator-clip.xgis') },
   fixture_antimeridian: { name: 'Fixture: antimeridian', tag: 'fixture', description: 'Polygon crossing 180°.', source: load('fixture-antimeridian.xgis') },
   // Curated interaction fixtures

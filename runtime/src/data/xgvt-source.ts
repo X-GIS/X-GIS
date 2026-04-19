@@ -6,9 +6,10 @@ import {
   parseXGVTIndex, parseGPUReadyTile, decompressTileData, parsePropertyTable,
   TILE_FLAG_FULL_COVER,
   tileKey, tileKeyUnpack,
-  clipPolygonToRect,
+  clipPolygonToRect, clipLineToRect,
   compileSingleTile,
   lonLatToMercF64,
+  augmentRingWithArc, tessellateLineToArrays, packDSFUNLineVertices,
   type XGVTIndex, type TileIndexEntry,
   type PropertyTable, type RingPolygon,
   type CompiledTileSet, type TileLevel,
@@ -35,6 +36,14 @@ export interface TileData {
   lineVertices: Float32Array   // lines — DSFUN stride 10 (arc_start at [5], tangent at [6-9])
   lineIndices: Uint32Array     // line segment indices (pairs)
   outlineIndices: Uint32Array  // polygon outline line segments (reuses `vertices`)
+  /** Polygon outline vertices in DSFUN stride 10 (matches `lineVertices`).
+   *  When non-empty, VTR builds outline SDF segments from these instead
+   *  of indexing into the polygon fill buffer — gives outlines the same
+   *  global arc_start that line features get, fixing dash-phase resets
+   *  at tile boundaries. Empty for binary .xgvt-loaded tiles and
+   *  runtime-generated sub-tiles (those still use `outlineIndices`). */
+  outlineVertices?: Float32Array
+  outlineLineIndices?: Uint32Array
   pointVertices?: Float32Array // points — DSFUN stride 5
   tileWest: number             // tile origin (degrees) — canonical identity
   tileSouth: number
@@ -229,7 +238,19 @@ export class XGVTSource {
     }
 
     const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
-    this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices, tile.outlineIndices)
+    // Forward the GeoJSON tiler's pre-augmented outline buffers when
+    // present so VTR can use the global-arc outline path. Binary .xgvt
+    // tiles ship empty buffers (Float32Array(0) / Uint32Array(0)) and
+    // fall back to the legacy outlineIndices path inside cacheTileData.
+    this.cacheTileData(
+      key, polygons,
+      tile.vertices, tile.indices,
+      tile.lineVertices, tile.lineIndices,
+      tile.pointVertices,
+      tile.outlineIndices,
+      tile.outlineVertices,
+      tile.outlineLineIndices,
+    )
     this._compileBudget++
     return true
   }
@@ -257,6 +278,13 @@ export class XGVTSource {
   getCacheSize(): number {
     return this.dataCache.size
   }
+
+  /** Diagnostic accessors — let inspectPipeline() + CPU debug tests
+   *  read the budget/queue state without reaching into private fields.
+   *  Not part of the public API.  */
+  getSubTileBudgetUsed(): number { return this._subTileBudget }
+  getCompileBudgetUsed(): number { return this._compileBudget }
+  getPendingLoadCount(): number { return this.loadingTiles.size }
 
   hasEntryInIndex(key: number): boolean {
     if (this.index?.entryByHash.has(key)) return true
@@ -749,6 +777,8 @@ export class XGVTSource {
     lineVertices: Float32Array, lineIndices: Uint32Array,
     pointVertices?: Float32Array,
     outlineIndices?: Uint32Array,
+    outlineVertices?: Float32Array,
+    outlineLineIndices?: Uint32Array,
   ): void {
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
@@ -760,6 +790,8 @@ export class XGVTSource {
     const data: TileData = {
       vertices, indices, lineVertices, lineIndices,
       outlineIndices: outlineIndices ?? new Uint32Array(0),
+      outlineVertices: outlineVertices && outlineVertices.length > 0 ? outlineVertices : undefined,
+      outlineLineIndices: outlineLineIndices && outlineLineIndices.length > 0 ? outlineLineIndices : undefined,
       pointVertices,
       tileWest, tileSouth,
       tileWidth: tileEast - tileWest,
@@ -954,40 +986,46 @@ export class XGVTSource {
       if (ia !== ib) outLI.push(ia, ib)
     }
 
-    // Clip polygon outlines (same Liang-Barsky as lines, but uses polygon vertices)
-    const outlineIdx = parent.outlineIndices
-    const outOI: number[] = []
-    if (outlineIdx && outlineIdx.length > 0) {
-      for (let s = 0; s < outlineIdx.length; s += 2) {
-        const a = outlineIdx[s], b = outlineIdx[s + 1]
-        const [ax, ay, afid] = readPV(a)
-        const [bx, by] = readPV(b)
-
-        if (Math.max(ax, bx) < clipW || Math.min(ax, bx) > clipE ||
-            Math.max(ay, by) < clipS || Math.min(ay, by) > clipN) continue
-
-        const dx = bx - ax, dy = by - ay
-        let tMin = 0, tMax = 1
-        let valid = true
-        const clipEdge = (p: number, q: number): void => {
-          if (!valid) return
-          if (Math.abs(p) < 1e-15) { if (q < 0) valid = false; return }
-          const r = q / p
-          if (p < 0) { if (r > tMax) valid = false; else if (r > tMin) tMin = r }
-          else       { if (r < tMin) valid = false; else if (r < tMax) tMax = r }
+    // Polygon outlines: route through the SAME augment + clip + tessellate
+    // pipeline used by line features so dash phase + pattern arc stay
+    // continuous across the sub-tile boundary. The previous per-segment
+    // Liang-Barsky on parent.outlineIndices reset arc_start at every
+    // sub-tile clip, which surfaced as the dash bug at high zooms.
+    //
+    // We need the original ring data (parent.polygons) for arc continuity
+    // — the parent's outlineIndices are stride-5 (no arc, no tangents)
+    // and walking them per-tile gives the buggy reset behaviour. When
+    // parent.polygons is absent (e.g., a sub-tile of a sub-tile that
+    // dropped polygons during its own re-pack), we fall back to the old
+    // legacy outlineIndices clip — the dash bug recurs there but no
+    // visible regression vs. previous behaviour.
+    const olvScratch: number[] = []
+    const oliScratch: number[] = []
+    if (parent.polygons && parent.polygons.length > 0) {
+      // Sub-tile bounds in absolute Mercator meters for clipLineToRect
+      // (which works in absolute, NOT tile-local, coords).
+      for (const poly of parent.polygons) {
+        for (const ring of poly.rings) {
+          if (ring.length < 3) continue
+          const arcRing = augmentRingWithArc(ring)
+          if (arcRing.length < 2) continue
+          const segments = clipLineToRect(arcRing, subMxW, subMyS, subMxE, subMyN)
+          for (const seg of segments) {
+            if (seg.length >= 2) {
+              tessellateLineToArrays(seg, poly.featId, olvScratch, oliScratch)
+            }
+          }
         }
-        clipEdge(-dx, ax - clipW)
-        clipEdge(dx, clipE - ax)
-        clipEdge(-dy, ay - clipS)
-        clipEdge(dy, clipN - ay)
-        if (!valid || tMax - tMin < 1e-10) continue
-
-        const i0 = pushDedupPV(ax + tMin * dx, ay + tMin * dy, afid)
-        const i1 = pushDedupPV(ax + tMax * dx, ay + tMax * dy, afid)
-        if (i0 === i1) continue // degenerate clip
-        outOI.push(i0, i1)
       }
     }
+    // Pack the scratch into sub-tile-local DSFUN stride-10. When
+    // parent.polygons is missing, olvScratch is empty and we ship empty
+    // outline buffers — VTR falls back to the legacy outlineIndices path
+    // (which we leave empty too in that case so no double-render).
+    const outlineVertices = olvScratch.length > 0
+      ? packDSFUNLineVertices(olvScratch, subMxW, subMyS)
+      : new Float32Array(0)
+    const outlineLineIndices = new Uint32Array(oliScratch)
 
     // Cache sub-tile with its OWN bounds. Vertex data has been re-packed
     // from parent-local to sub-tile-local DSFUN coordinates so the DSFUN
@@ -998,12 +1036,19 @@ export class XGVTSource {
       indices: new Uint32Array(outI),
       lineVertices: new Float32Array(outLV),
       lineIndices: new Uint32Array(outLI),
-      outlineIndices: new Uint32Array(outOI),
+      outlineIndices: new Uint32Array(0),
+      outlineVertices: outlineVertices.length > 0 ? outlineVertices : undefined,
+      outlineLineIndices: outlineLineIndices.length > 0 ? outlineLineIndices : undefined,
       tileWest: subWest,
       tileSouth: subSouth,
       tileWidth: subEast - subWest,
       tileHeight: subNorth - subSouth,
       tileZoom: sz,
+      // Forward parent's ring data so further over-zoom of THIS sub-tile
+      // can also use the global-arc outline path (otherwise grand-child
+      // sub-tiles fall back to the legacy outlineIndices and the dash
+      // bug recurs at very high zoom levels).
+      polygons: parent.polygons,
     }
 
     this.dataCache.set(subKey, subData)

@@ -351,6 +351,10 @@ function applyHashToCamera(map: XGISMap): void {
   cam.centerY = Math.log(Math.tan(Math.PI / 4 + clampLat * RAD / 2)) * R_EARTH
   cam.bearing = h.bearing
   cam.pitch = h.pitch
+  // Tell the map this is an explicit positioning so the post-compile
+  // bounds-fit doesn't snap us back to whole-world view when the
+  // worker tile compile lands.
+  map.markCameraPositioned()
 }
 
 function formatHash(map: XGISMap): string {
@@ -423,6 +427,97 @@ window.addEventListener('hashchange', () => {
 })
 
 // ── Run source code ──
+// ── Picking overlay ────────────────────────────────────────────────
+// Activated by demos with `picking: true`. Shows a small panel pinned
+// over the map with the most recent hover + click hits. Mobile-friendly:
+// touch events route through Pointer Events so tap fires `click` and
+// updates the panel even without hover. Hover lines are hidden when
+// only touch input has been observed.
+
+let pickingOverlayCleanup: (() => void) | null = null
+
+function setupPickingOverlay(map: InstanceType<typeof XGISMap>): void {
+  teardownPickingOverlay()
+
+  // Boot picking on. The demo's URL doesn't need `?picking=1` because
+  // we flip it programmatically here.
+  ;(map as unknown as { setQuality(p: { picking: boolean }): void }).setQuality({ picking: true })
+
+  const panel = document.createElement('div')
+  panel.id = 'picking-overlay'
+  panel.style.cssText = [
+    'position:absolute', 'top:12px', 'right:12px',
+    'min-width:200px', 'max-width:min(80vw,300px)',
+    'padding:10px 12px',
+    'background:rgba(10,14,22,0.85)', 'backdrop-filter:blur(8px)',
+    'border:1px solid rgba(56,189,248,0.4)', 'border-radius:8px',
+    'font:11px/1.5 "DM Mono",monospace', 'color:#c8d3e0',
+    'pointer-events:none', 'z-index:25',
+    'box-shadow:0 4px 12px rgba(0,0,0,0.3)',
+  ].join(';')
+  panel.innerHTML = `
+    <div style="font-weight:500;color:#38bdf8;margin-bottom:6px">Picking</div>
+    <div id="po-hover" style="color:#5a6a7e">Hover a country…</div>
+    <div id="po-click" style="margin-top:6px;padding-top:6px;border-top:1px solid #1a2233;color:#5a6a7e">Tap or click to lock</div>
+  `
+  const mapPane = document.getElementById('map-pane')!
+  mapPane.appendChild(panel)
+  const hoverEl = panel.querySelector('#po-hover') as HTMLDivElement
+  const clickEl = panel.querySelector('#po-click') as HTMLDivElement
+
+  // Detect touch-primary devices so we don't keep showing a stale "Hover…"
+  // line on phones. Coarse pointer is the standard signal — covers
+  // touchscreens and game controllers but excludes hybrid laptops with
+  // a precise mouse attached.
+  const isTouchPrimary = window.matchMedia?.('(pointer: coarse)').matches ?? false
+  if (isTouchPrimary) hoverEl.style.display = 'none'
+
+  type Ev = {
+    target: { name: string }
+    feature: { id: number; layer: string; properties: Record<string, unknown> }
+    coordinate: readonly [number, number]
+  }
+  const fmtCoord = (c: readonly [number, number]) =>
+    `${c[0].toFixed(2)}°, ${c[1].toFixed(2)}°`
+  const fmtFeature = (e: Ev) => {
+    const name = (e.feature.properties.name as string | undefined) ?? `feature ${e.feature.id}`
+    return `<span style="color:#c8d3e0">${name}</span> <span style="color:#5a6a7e">(${e.feature.layer} #${e.feature.id})</span>`
+  }
+
+  const ac = new AbortController()
+  const m = map as unknown as {
+    getLayer(n: string): {
+      addEventListener(t: string, h: (e: unknown) => void, opt?: { signal: AbortSignal }): void
+    } | null
+    addEventListener(t: string, h: (e: unknown) => void, opt?: { signal: AbortSignal }): void
+  }
+
+  // Map-level delegation — fires for any pickable layer hit, so the
+  // panel shows whatever's on top regardless of which layer was added.
+  m.addEventListener('mousemove', (raw) => {
+    const e = raw as Ev
+    hoverEl.innerHTML = `${fmtFeature(e)}<br><span style="color:#5a6a7e">${fmtCoord(e.coordinate)}</span>`
+  }, { signal: ac.signal })
+  m.addEventListener('mouseleave', () => {
+    hoverEl.textContent = 'Hover a country…'
+    hoverEl.style.color = '#5a6a7e'
+  }, { signal: ac.signal })
+  m.addEventListener('click', (raw) => {
+    const e = raw as Ev
+    clickEl.innerHTML = `<span style="color:#4ade80">▸</span> ${fmtFeature(e)}<br><span style="color:#5a6a7e">${fmtCoord(e.coordinate)}</span>`
+  }, { signal: ac.signal })
+
+  pickingOverlayCleanup = () => {
+    ac.abort()
+    panel.remove()
+    pickingOverlayCleanup = null
+  }
+}
+
+function teardownPickingOverlay(): void {
+  pickingOverlayCleanup?.()
+}
+
 async function runSource(source: string, label: string) {
   errorDiv.style.display = 'none'
   currentMap?.stop()
@@ -479,6 +574,14 @@ async function loadDemo(idx: number) {
   // to opt out so the test controls the push cadence.
   if (currentMap && !params.has('e2e')) {
     applyFixtureAutoPush(id, currentMap)
+  }
+
+  // Picking demos: enable runtime picking + install a hover/click
+  // overlay so users can see the API in action without devtools.
+  if (currentMap && demo.picking) {
+    setupPickingOverlay(currentMap)
+  } else {
+    teardownPickingOverlay()
   }
 }
 

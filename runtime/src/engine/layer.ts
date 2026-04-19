@@ -194,20 +194,130 @@ export class XGISLayerStyle {
   }
 }
 
-export type XGISFeatureEventType = 'click' | 'mouseenter' | 'mouseleave' | 'mousemove'
+export type XGISFeatureEventType =
+  | 'click' | 'mouseenter' | 'mouseleave' | 'mousemove'
+  | 'pointerdown' | 'pointerup' | 'wheel'
 
-/** Placeholder listener type — Phase 4 will replace `unknown` with a
- *  rich `XGISFeatureEvent`. Kept as `unknown` here so the API surface is
- *  stable but consumers don't accidentally rely on a partial event shape. */
-export type XGISFeatureListener = (event: unknown) => void
+/** Lightweight feature snapshot delivered to event listeners. `geometry`
+ *  is intentionally not surfaced in Phase 4 — pickAt only returns IDs,
+ *  and reconstructing GeoJSON geometry from the GPU tile cache is a
+ *  Phase 5 concern. Consumers that need geometry should index it by
+ *  `id` against their own data source. */
+export interface XGISFeature {
+  /** Stable feature ID as encoded into the GPU pick texture. Matches the
+   *  `feature.id` field on the source GeoJSON when present, otherwise
+   *  falls back to `properties.id` or the array index. */
+  readonly id: number
+  /** DSL source name (`source <name> { ... }`). */
+  readonly source: string
+  /** DSL layer name (`layer <name> { ... }`). */
+  readonly layer: string
+  /** Feature properties as authored in GeoJSON. Empty object when the
+   *  source has no property table or the ID can't be resolved. */
+  readonly properties: Record<string, unknown>
+}
+
+export class XGISFeatureEvent {
+  readonly type: XGISFeatureEventType
+  readonly target: XGISLayer
+  readonly currentTarget: XGISLayer
+  readonly feature: XGISFeature
+  readonly coordinate: readonly [number, number]
+  readonly pixel: readonly [number, number]
+  readonly clientX: number
+  readonly clientY: number
+  readonly originalEvent: PointerEvent | WheelEvent
+  readonly timeStamp: number
+  private _defaultPrevented = false
+
+  constructor(init: {
+    type: XGISFeatureEventType
+    target: XGISLayer
+    feature: XGISFeature
+    coordinate: readonly [number, number]
+    pixel: readonly [number, number]
+    clientX: number
+    clientY: number
+    originalEvent: PointerEvent | WheelEvent
+  }) {
+    this.type = init.type
+    this.target = init.target
+    this.currentTarget = init.target
+    this.feature = init.feature
+    this.coordinate = init.coordinate
+    this.pixel = init.pixel
+    this.clientX = init.clientX
+    this.clientY = init.clientY
+    this.originalEvent = init.originalEvent
+    this.timeStamp = init.originalEvent.timeStamp
+  }
+
+  get defaultPrevented(): boolean { return this._defaultPrevented }
+
+  /** Stop further listeners on this layer from firing for this event.
+   *  Phase 5 will extend this to stop fall-through to lower layers when
+   *  bubbling lands. */
+  preventDefault(): void { this._defaultPrevented = true }
+
+  /** DOM-style alias for `preventDefault` — same effect today. */
+  stopPropagation(): void { this._defaultPrevented = true }
+}
+
+export type XGISFeatureListener = (event: XGISFeatureEvent) => void
+
+/** EventTarget-flavoured listener bookkeeping shared by `XGISLayer`
+ *  (per-layer dispatch) and `XGISMap` (delegated dispatch — fires for
+ *  any layer hit). Same `addEventListener` semantics: re-registering a
+ *  listener is a no-op, `{ once }` self-removes after first fire,
+ *  `{ signal }` removes on abort, dispatch iterates a snapshot so
+ *  add/remove during dispatch is safe. */
+export class ListenerRegistry {
+  private map = new Map<XGISFeatureEventType, Map<XGISFeatureListener, XGISFeatureListener>>()
+
+  add(
+    type: XGISFeatureEventType,
+    listener: XGISFeatureListener,
+    options?: { signal?: AbortSignal; once?: boolean },
+  ): void {
+    if (options?.signal?.aborted) return
+    let typeMap = this.map.get(type)
+    if (!typeMap) { typeMap = new Map(); this.map.set(type, typeMap) }
+    if (typeMap.has(listener)) return
+    const wrapped: XGISFeatureListener = options?.once
+      ? (e) => { typeMap!.delete(listener); listener(e) }
+      : listener
+    typeMap.set(listener, wrapped)
+    options?.signal?.addEventListener('abort', () => typeMap!.delete(listener), { once: true })
+  }
+
+  remove(type: XGISFeatureEventType, listener: XGISFeatureListener): void {
+    this.map.get(type)?.delete(listener)
+  }
+
+  has(type: XGISFeatureEventType): boolean {
+    const typeMap = this.map.get(type)
+    return !!typeMap && typeMap.size > 0
+  }
+
+  /** Fire every listener for `event.type`, in registration order, with
+   *  early termination on `preventDefault`. Iterates a snapshot so
+   *  add/remove inside a handler doesn't disturb the current dispatch.
+   *  Listener exceptions are caught and logged (with `label` for source
+   *  attribution) so one bad handler doesn't kill the rest. */
+  dispatch(event: XGISFeatureEvent, label: string): void {
+    const typeMap = this.map.get(event.type)
+    if (!typeMap || typeMap.size === 0) return
+    for (const wrapped of [...typeMap.values()]) {
+      try { wrapped(event) }
+      catch (e) { console.error(`[X-GIS] '${event.type}' listener on ${label}:`, e) }
+      if (event.defaultPrevented) break
+    }
+  }
+}
 
 export class XGISLayer {
   readonly style: XGISLayerStyle
-  /** Listener registry. Phase 4 hooks dispatch into this from a map-level
-   *  pointer event router. Phase 2 ships an inert registry so
-   *  `addEventListener` calls don't throw and consumer code can be written
-   *  against the stable surface. */
-  private listeners = new Map<XGISFeatureEventType, Set<XGISFeatureListener>>()
+  private listeners = new ListenerRegistry()
 
   constructor(
     public readonly name: string,
@@ -229,24 +339,24 @@ export class XGISLayer {
     listener: XGISFeatureListener,
     options?: { signal?: AbortSignal; once?: boolean },
   ): void {
-    let set = this.listeners.get(type)
-    if (!set) { set = new Set(); this.listeners.set(type, set) }
-    const wrapped: XGISFeatureListener = options?.once
-      ? (e) => { set!.delete(wrapped); listener(e) }
-      : listener
-    set.add(wrapped)
-    options?.signal?.addEventListener('abort', () => set!.delete(wrapped), { once: true })
+    this.listeners.add(type, listener, options)
   }
 
   removeEventListener(type: XGISFeatureEventType, listener: XGISFeatureListener): void {
-    this.listeners.get(type)?.delete(listener)
+    this.listeners.remove(type, listener)
   }
 
-  /** Phase 4 hook — internal dispatcher reads this to know whether to
-   *  spend a `pickAt` cycle for hover/click on this layer. */
+  /** Internal dispatcher reads this to know whether to spend a `pickAt`
+   *  cycle for hover/click on this layer. */
   hasListeners(type: XGISFeatureEventType): boolean {
-    const set = this.listeners.get(type)
-    return !!set && set.size > 0
+    return this.listeners.has(type)
+  }
+
+  /** Fire every listener registered for `event.type`. The event-dispatcher
+   *  calls this — public for testability but not part of the documented
+   *  surface. */
+  dispatchEvent(event: XGISFeatureEvent): void {
+    this.listeners.dispatch(event, `layer '${this.name}'`)
   }
 
   /** Convenience alias matching `XGISLayerStyle.reset` from the layer

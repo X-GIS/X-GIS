@@ -1,0 +1,22 @@
+/* Fixture: picking — 3 quadrants with distinct fill colors and IDs.
+ *
+ * Reuses fixture-categorical.geojson (kind=a/b/c at lon -50..-20 / -15..15
+ * / 20..50 respectively, all between lat -20..20). e2e asserts pickAt at
+ * the centroid of each quadrant returns the right featureId.
+ *
+ * Used by playground/e2e/_fixture-picking.spec.ts. */
+
+source d {
+  type: geojson
+  url: "fixture-categorical.geojson"
+}
+
+layer quadrants {
+  source: d
+  | fill match(.kind) {
+      "a" -> red-500
+      "b" -> emerald-500
+      "c" -> blue-500
+      _   -> gray-500
+    }
+}

@@ -164,7 +164,23 @@ export interface CompiledTile {
    *  f64-accumulated Mercator-meter arc length (precomputed in tiler). */
   lineVertices: Float32Array
   lineIndices: Uint32Array
-  outlineIndices: Uint32Array  // polygon outline line segments (reuses vertices buffer)
+  /** @deprecated Always emitted empty since the BFS outline path was
+   *  retired. Polygon outlines now travel through `outlineVertices` +
+   *  `outlineLineIndices` (DSFUN stride-10 with global arc_start),
+   *  matching the line-feature shape so dash phase + pattern arc are
+   *  continuous across tile clips. Field kept on the interface only to
+   *  preserve the SerializedTile / TileData ABI; will be removed in a
+   *  future version. */
+  outlineIndices: Uint32Array
+  /** Polygon outline vertices in DSFUN stride-10 (same layout as
+   *  `lineVertices`). Each polygon ring is augmented with global
+   *  Mercator-meter arc_start at tile-compile time and clipped via
+   *  `clipLineToRect` so dash phase + pattern arc remain continuous
+   *  across tile boundaries — the fix that retired the per-tile BFS
+   *  arc walker that used to reset the phase at every tile clip. */
+  outlineVertices: Float32Array
+  /** Vertex-pair indices into `outlineVertices` (line segment list). */
+  outlineLineIndices: Uint32Array
   featureCount: number
   fullCover?: boolean
   fullCoverFeatureId?: number
@@ -392,7 +408,6 @@ function tessellatePolygonToArrays(
   outVerts: number[],
   outIdx: number[],
   dedupMap?: Map<string, number>,
-  outOutlineIdx?: number[],
 ): void {
   // Original lon/lat coords for vertex output
   const flatCoords: number[] = []
@@ -400,23 +415,18 @@ function tessellatePolygonToArrays(
   // straight in Mercator space, matching GPU rendering (no coastline overshoot)
   const mercCoords: number[] = []
   const holeIndices: number[] = []
-  // Ring boundaries for outline extraction: [startIdx, endIdx] per ring
-  const ringBounds: [number, number][] = []
 
   for (let r = 0; r < rings.length; r++) {
     if (r > 0) holeIndices.push(flatCoords.length / 2)
-    const ringStart = flatCoords.length / 2
     for (const coord of rings[r]) {
       flatCoords.push(coord[0], coord[1])
       mercCoords.push(coord[0], latToMercatorY(coord[1]))
     }
-    ringBounds.push([ringStart, flatCoords.length / 2])
   }
 
   const earcutIdx = earcut(mercCoords, holeIndices.length > 0 ? holeIndices : undefined)
 
   if (dedupMap) {
-    // Dedup: reuse existing vertices with same quantized position + feature ID
     const localToGlobal: number[] = []
     for (let i = 0; i < flatCoords.length; i += 2) {
       const x = flatCoords[i], y = flatCoords[i + 1]
@@ -432,23 +442,6 @@ function tessellatePolygonToArrays(
     for (const idx of earcutIdx) {
       outIdx.push(localToGlobal[idx])
     }
-    // Extract outline indices from rings (reuse deduped vertices).
-    // Skip edges that collapse to a single vertex after dedup — they arise
-    // from closure duplicates produced by clipping algorithms and poison
-    // adjacency: the "degenerate first neighbor" wins when buildLineSegments
-    // picks `prev_tangent`, leaving real edges with zero tangents and broken
-    // joins. See regression test polygon-outline-adjacency.
-    if (outOutlineIdx) {
-      for (const [start, end] of ringBounds) {
-        for (let i = start; i < end; i++) {
-          const next = i + 1 < end ? i + 1 : start
-          const gi = localToGlobal[i]
-          const gn = localToGlobal[next]
-          if (gi === gn) continue
-          outOutlineIdx.push(gi, gn)
-        }
-      }
-    }
   } else {
     const baseVertex = outVerts.length / 3
     for (let i = 0; i < flatCoords.length; i += 2) {
@@ -457,41 +450,77 @@ function tessellatePolygonToArrays(
     for (const idx of earcutIdx) {
       outIdx.push(baseVertex + idx)
     }
-    // Extract outline indices from rings (reuse fill vertices).
-    // Skip degenerate closure edges — see dedup branch above for the
-    // adjacency-corruption rationale. In the non-dedup branch a duplicated
-    // closure vertex has a different INDEX but the same POSITION, so
-    // compare positions instead.
-    if (outOutlineIdx) {
-      for (const [start, end] of ringBounds) {
-        for (let i = start; i < end; i++) {
-          const next = i + 1 < end ? i + 1 : start
-          const ax = flatCoords[i * 2], ay = flatCoords[i * 2 + 1]
-          const bx = flatCoords[next * 2], by = flatCoords[next * 2 + 1]
-          if (ax === bx && ay === by) continue
-          outOutlineIdx.push(baseVertex + i, baseVertex + next)
-        }
-      }
-    }
   }
 }
 
 /**
- * Augment a polyline's coords with per-vertex arc-length (meters, f64 Mercator).
- * arcStart is stored at index 2 of each coord.
- * Called on the ORIGINAL unclipped feature so arc values survive tile splitting.
+ * Project an open polyline OR a closed polygon ring to Mercator meters
+ * with per-vertex arc-length + tangents — the lossless input shape that
+ * `clipLineToRect` and `tessellateLineToArrays` expect. Each output
+ * vertex is a 7-tuple `[mxAbs, myAbs, arcStart, tin_x, tin_y, tout_x,
+ * tout_y]`; arcStart and tangents are computed once on the ORIGINAL
+ * unclipped chain so they survive tile splitting (clipLineToRect
+ * interpolates arc at boundary crossings; tangents at original vertices
+ * are preserved as-is, mid-segment clip points get zero tangents and
+ * the runtime falls back to its boundary-detection heuristic).
+ *
+ * `closed=true` treats the input as a polygon ring: the last vertex
+ * connects back to the first, the closing segment contributes to the
+ * arc total, and the wrap vertex is appended so the renderer can draw
+ * the close-segment without inventing a cap. GeoJSON's "first vertex
+ * duplicated at end" convention is detected and stripped — passing a
+ * `[A, B, C, D, A]` ring works the same as passing `[A, B, C, D]`.
+ *
+ * `closed=false` matches the legacy `augmentLineWithArc` behaviour
+ * (open polyline with cap-style endpoints).
+ *
+ * Why this exists as one helper: polygon outlines and line features
+ * share every downstream stage (clip, tessellate, GPU stride-10
+ * pack, SDF segment build). The only meaningful difference is the
+ * wrap-around at the close. Keeping the projection / arc / tangent
+ * math in one place means a future precision tweak (e.g., switching
+ * f64 Mercator to a higher-precision projection) lives in one spot
+ * and doesn't drift between the two paths.
  */
-function augmentLineWithArc(coords: number[][]): number[][] {
+function augmentChainWithArc(coords: number[][], closed: boolean): number[][] {
   const DEG2RAD = Math.PI / 180
   const R = 6378137
   const LAT_LIMIT = 85.051129
   const clampLat = (v: number) => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
 
-  // First pass: project all vertices to Mercator and accumulate arc length.
-  const n = coords.length
+  // For closed rings, strip GeoJSON's trailing duplicate-of-first
+  // vertex so we don't emit a zero-length wrap segment. The wrap is
+  // handled explicitly below.
+  //
+  // Demotion: binary .xgvt tiles store per-tile-clipped polygon rings
+  // that may be open chains (when clipping cut across the ring at a
+  // tile boundary). When `closed=true` is passed for input that
+  // doesn't actually close, demote to open chain rather than dropping
+  // it — this keeps the shared compiler helper usable from both the
+  // GeoJSON tiler (always closed source rings) and runtime decoders
+  // that can't always tell ahead of time.
+  let n = coords.length
+  let actuallyClosed = closed
+  if (closed && n >= 4) {
+    const f = coords[0], l = coords[n - 1]
+    if (Math.abs(f[0] - l[0]) < 1e-12 && Math.abs(f[1] - l[1]) < 1e-12) n -= 1
+  } else if (closed && n >= 2) {
+    // Open chain mistakenly tagged as closed — treat as line.
+    actuallyClosed = false
+  }
+  if (actuallyClosed && n < 3) return []
+  if (!actuallyClosed && n < 2) return []
+
+  // Output length: open chain emits N vertices; closed ring emits N+1
+  // (the appended wrap vertex carries arc=perimeter so the closing
+  // segment t_along stays monotonic).
+  const outN = actuallyClosed ? n + 1 : n
+
+  // Pass 1: project + accumulate arc. For closed rings, also walk the
+  // closing segment so arcArr[n] is the full perimeter.
   const mxArr = new Float64Array(n)
   const myArr = new Float64Array(n)
-  const arcArr = new Float64Array(n)
+  const arcArr = new Float64Array(outN)
   let arc = 0
   for (let i = 0; i < n; i++) {
     const c = coords[i]
@@ -503,30 +532,75 @@ function augmentLineWithArc(coords: number[][]): number[][] {
     }
     arcArr[i] = arc
   }
+  if (actuallyClosed) {
+    const dx = mxArr[0] - mxArr[n - 1], dy = myArr[0] - myArr[n - 1]
+    arc += Math.sqrt(dx * dx + dy * dy)
+    arcArr[n] = arc
+  }
 
-  // Second pass: compute tangent_in / tangent_out at every vertex so tile
-  // clipping can propagate the true join direction across tile boundaries.
-  // tangent_in  = unit direction arriving at this vertex (prev → this)
-  // tangent_out = unit direction leaving this vertex (this → next)
-  const out: number[][] = new Array(n)
+  // Pass 2: emit per-vertex tangents.
+  //
+  //   tangent_in[i]  = unit direction arriving at vertex i (prev → i)
+  //   tangent_out[i] = unit direction leaving  vertex i (i → next)
+  //
+  // Open chain: endpoints have a zero tangent on the missing side so
+  // the renderer draws a cap there.
+  // Closed ring: tangents wrap (prev of 0 = n-1, next of n-1 = 0) so
+  // every join sees real neighbours and no spurious cap is drawn at
+  // the start/end vertex of the wrap.
+  const out: number[][] = new Array(outN)
+  const tan = (ax: number, ay: number, bx: number, by: number) => {
+    const dx = bx - ax, dy = by - ay
+    const len = Math.sqrt(dx * dx + dy * dy)
+    return len > 1e-9 ? [dx / len, dy / len] : [0, 0]
+  }
   for (let i = 0; i < n; i++) {
-    let tinX = 0, tinY = 0, toutX = 0, toutY = 0
-    if (i > 0) {
-      const dx = mxArr[i] - mxArr[i - 1], dy = myArr[i] - myArr[i - 1]
-      const len = Math.sqrt(dx * dx + dy * dy)
-      if (len > 1e-9) { tinX = dx / len; tinY = dy / len }
+    let tin: number[] = [0, 0]
+    let tout: number[] = [0, 0]
+    if (actuallyClosed) {
+      const prev = (i - 1 + n) % n
+      const next = (i + 1) % n
+      tin = tan(mxArr[prev], myArr[prev], mxArr[i], myArr[i])
+      tout = tan(mxArr[i], myArr[i], mxArr[next], myArr[next])
+    } else {
+      if (i > 0) tin = tan(mxArr[i - 1], myArr[i - 1], mxArr[i], myArr[i])
+      if (i < n - 1) tout = tan(mxArr[i], myArr[i], mxArr[i + 1], myArr[i + 1])
     }
-    if (i < n - 1) {
-      const dx = mxArr[i + 1] - mxArr[i], dy = myArr[i + 1] - myArr[i]
-      const len = Math.sqrt(dx * dx + dy * dy)
-      if (len > 1e-9) { toutX = dx / len; toutY = dy / len }
-    }
-    out[i] = [mxArr[i], myArr[i], arcArr[i], tinX, tinY, toutX, toutY]
+    out[i] = [mxArr[i], myArr[i], arcArr[i], tin[0], tin[1], tout[0], tout[1]]
+  }
+  // Wrap vertex for closed rings: same coords as vertex 0 but
+  // arc=perimeter. Tangent_in matches the closing segment (n-1→0),
+  // tangent_out matches the first segment (0→1) so the join looks
+  // identical to a regular interior join.
+  if (actuallyClosed) {
+    const tin = tan(mxArr[n - 1], myArr[n - 1], mxArr[0], myArr[0])
+    const tout = n > 1
+      ? tan(mxArr[0], myArr[0], mxArr[1], myArr[1])
+      : [0, 0]
+    out[n] = [mxArr[0], myArr[0], arcArr[n], tin[0], tin[1], tout[0], tout[1]]
   }
   return out
 }
 
-function tessellateLineToArrays(
+/** Polygon ring → arc-augmented chain (closed). Thin shim around
+ *  `augmentChainWithArc` for call-site readability. Exported for
+ *  runtime sub-tilers that need to derive cross-tile-continuous
+ *  outline geometry from `polygons` preserved on a TileData. */
+export function augmentRingWithArc(ring: number[][]): number[][] {
+  return augmentChainWithArc(ring, true)
+}
+
+/** Open polyline → arc-augmented chain. Thin shim around
+ *  `augmentChainWithArc` for call-site readability. */
+function augmentLineWithArc(coords: number[][]): number[][] {
+  return augmentChainWithArc(coords, false)
+}
+
+/** Push a single chain (open or closed-and-augmented) into stride-8
+ *  scratch arrays + emit consecutive-pair line indices. Exported for
+ *  runtime sub-tilers that need to assemble outline scratch from
+ *  per-tile clipped chains. */
+export function tessellateLineToArrays(
   coords: number[][],
   featureId: number,
   outVerts: number[],
@@ -621,7 +695,7 @@ export function compileGeoJSONToTiles(
   // Step 2: Per-zoom processing with adaptive subdivision
   const levels: TileLevel[] = []
   const needsSubdivision = new Set<number>()
-  const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], oi: [] as number[] }
+  const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], olv: [] as number[], oli: [] as number[] }
 
   function processZoomLevel(z: number): void {
     processZoomLevelShared(z, minZoom, maxZoom, allParts, levels, needsSubdivision, scratch, bounds, propertyTable, options?.onLevel)
@@ -650,7 +724,7 @@ function processZoomLevelShared(
   allParts: GeometryPart[],
   levels: TileLevel[],
   needsSubdivision: Set<number>,
-  scratch: { pv: number[]; pi: number[]; lv: number[]; li: number[]; ptv: number[]; oi: number[] },
+  scratch: { pv: number[]; pi: number[]; lv: number[]; li: number[]; ptv: number[]; olv: number[]; oli: number[] },
   bounds: [number, number, number, number],
   propertyTable: PropertyTable,
   onLevel?: (level: TileLevel, bounds: [number, number, number, number], propertyTable: PropertyTable) => void,
@@ -720,7 +794,8 @@ function processZoomLevelShared(
       const [tbMxE, tbMyN] = lonLatToMercF64(tb.east, tb.north)
 
       scratch.pv.length = 0; scratch.pi.length = 0
-      scratch.lv.length = 0; scratch.li.length = 0; scratch.oi.length = 0
+      scratch.lv.length = 0; scratch.li.length = 0
+      scratch.olv.length = 0; scratch.oli.length = 0
       scratch.ptv.length = 0
       const featureIds = new Set<number>()
       const dedupMap = new Map<string, number>()
@@ -763,9 +838,27 @@ function processZoomLevelShared(
               postSimplifyVerts += preSimplifyVerts
             }
             if (dataRings.length > 0 && dataRings[0].length >= 3) {
-              tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap, scratch.oi)
+              tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap)
               featureIds.add(fid)
               tilePolygons.push({ rings: dataRings, featId: fid })
+            }
+            // Emit outline through the line pipeline so dash phase + pattern
+            // arc stay continuous across tile boundaries. Walk each
+            // ORIGINAL (unclipped) ring through the same augment + clip +
+            // tessellate path used by line features. clipLineToRect
+            // produces open chains per tile that retain interpolated arc
+            // values at boundary crossings — a polygon ring split across
+            // four tiles renders four chains whose arcs join seamlessly.
+            for (const ring of sp.rings) {
+              if (ring.length < 3) continue
+              const arcRing = augmentRingWithArc(ring)
+              if (arcRing.length < 2) continue
+              const segments = clipLineToRect(arcRing, tbMxW, tbMyS, tbMxE, tbMyN)
+              for (const seg of segments) {
+                if (seg.length >= 2) {
+                  tessellateLineToArrays(seg, fid, scratch.olv, scratch.oli)
+                }
+              }
             }
           }
         }
@@ -812,7 +905,8 @@ function processZoomLevelShared(
           // Clear polygon data — client will generate a quad
           scratch.pv.length = 0
           scratch.pi.length = 0
-          scratch.oi.length = 0
+          scratch.olv.length = 0
+          scratch.oli.length = 0
         }
       }
 
@@ -820,22 +914,10 @@ function processZoomLevelShared(
       const hasGeometry = scratch.pv.length >= 9 || scratch.lv.length >= 8 || scratch.ptv.length >= 3
       if (fullCover || hasGeometry) {
 
-        // Filter outline: remove edges on tile boundary (clipping artifacts)
-        if (scratch.oi.length > 0 && z > 0) {
-          const EPS = 1e-7
-          const filtered: number[] = []
-          for (let i = 0; i < scratch.oi.length; i += 2) {
-            const a = scratch.oi[i], b = scratch.oi[i + 1]
-            const ax = scratch.pv[a * 3], ay = scratch.pv[a * 3 + 1]
-            const bx = scratch.pv[b * 3], by = scratch.pv[b * 3 + 1]
-            if (Math.abs(ax - tb.west) < EPS && Math.abs(bx - tb.west) < EPS) continue
-            if (Math.abs(ax - tb.east) < EPS && Math.abs(bx - tb.east) < EPS) continue
-            if (Math.abs(ay - tb.south) < EPS && Math.abs(by - tb.south) < EPS) continue
-            if (Math.abs(ay - tb.north) < EPS && Math.abs(by - tb.north) < EPS) continue
-            filtered.push(a, b)
-          }
-          scratch.oi = filtered
-        }
+        // The legacy boundary-edge filter that used to drop synthetic
+        // tile-boundary outline segments is gone — clipLineToRect (used
+        // by the new outline path) doesn't generate those segments in
+        // the first place, so there's nothing to filter.
 
         // DSFUN pack: project scratch vertices (absolute lon/lat) to tile-local
         // Mercator meters in f64, then split into (high, low) f32 pairs.
@@ -849,7 +931,11 @@ function processZoomLevelShared(
           indices: new Uint32Array(scratch.pi),
           lineVertices: packDSFUNLineVertices(scratch.lv, tileMx, tileMy),
           lineIndices: new Uint32Array(scratch.li),
-          outlineIndices: new Uint32Array(scratch.oi),
+          outlineIndices: new Uint32Array(0), // deprecated — see CompiledTile docstring
+          outlineVertices: scratch.olv.length > 0
+            ? packDSFUNLineVertices(scratch.olv, tileMx, tileMy)
+            : new Float32Array(0),
+          outlineLineIndices: new Uint32Array(scratch.oli),
           pointVertices: scratch.ptv.length > 0 ? packDSFUNPolygonVertices(scratch.ptv, tileMx, tileMy) : undefined,
           featureCount: featureIds.size,
           fullCover,
@@ -895,7 +981,7 @@ export function compileSingleTile(
   // Mercator tile bounds for line clipping (must match generateSubTile's space)
   const [stMxW, stMyS] = lonLatToMercF64(tb.west, tb.south)
   const [stMxE, stMyN] = lonLatToMercF64(tb.east, tb.north)
-  const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], oi: [] as number[] }
+  const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], olv: [] as number[], oli: [] as number[] }
   const featureIds = new Set<number>()
   const dedupMap = new Map<string, number>()
   const EPS = 1e-10
@@ -922,9 +1008,22 @@ export function compileSingleTile(
       if (clipped.length > 0 && clipped[0].length >= 3) {
         const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryLL) : clipped
         if (dataRings.length > 0 && dataRings[0].length >= 3) {
-          tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap, scratch.oi)
+          tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap)
           featureIds.add(fid)
           tilePolygons.push({ rings: dataRings, featId: fid })
+        }
+        // Outline through the line pipeline — see the per-tile pyramid
+        // path above for the full rationale (cross-tile dash continuity).
+        for (const ring of part.rings) {
+          if (ring.length < 3) continue
+          const arcRing = augmentRingWithArc(ring)
+          if (arcRing.length < 2) continue
+          const segments = clipLineToRect(arcRing, stMxW, stMyS, stMxE, stMyN)
+          for (const seg of segments) {
+            if (seg.length >= 2) {
+              tessellateLineToArrays(seg, fid, scratch.olv, scratch.oli)
+            }
+          }
         }
       }
     }
@@ -954,22 +1053,8 @@ export function compileSingleTile(
 
   if (scratch.pv.length < 9 && scratch.lv.length < 8 && scratch.ptv.length < 3) return null
 
-  // Filter outline: remove edges on tile boundary (clipping artifacts)
-  if (scratch.oi.length > 0) {
-    const EPS = 1e-7
-    const filtered: number[] = []
-    for (let i = 0; i < scratch.oi.length; i += 2) {
-      const a = scratch.oi[i], b = scratch.oi[i + 1]
-      const ax = scratch.pv[a * 3], ay = scratch.pv[a * 3 + 1]
-      const bx = scratch.pv[b * 3], by = scratch.pv[b * 3 + 1]
-      if (Math.abs(ax - tb.west) < EPS && Math.abs(bx - tb.west) < EPS) continue
-      if (Math.abs(ax - tb.east) < EPS && Math.abs(bx - tb.east) < EPS) continue
-      if (Math.abs(ay - tb.south) < EPS && Math.abs(by - tb.south) < EPS) continue
-      if (Math.abs(ay - tb.north) < EPS && Math.abs(by - tb.north) < EPS) continue
-      filtered.push(a, b)
-    }
-    scratch.oi = filtered
-  }
+  // No legacy boundary-edge filter — clipLineToRect (used by the
+  // outline path above) doesn't generate synthetic boundary segments.
 
   // DSFUN pack: project to tile-local Mercator meters, split into high/low pairs
   const [tileMx, tileMy] = lonLatToMercF64(tb.west, tb.south)
@@ -981,7 +1066,11 @@ export function compileSingleTile(
     indices: new Uint32Array(scratch.pi),
     lineVertices: packDSFUNLineVertices(scratch.lv, tileMx, tileMy),
     lineIndices: new Uint32Array(scratch.li),
-    outlineIndices: new Uint32Array(scratch.oi),
+    outlineIndices: new Uint32Array(0), // deprecated — see CompiledTile docstring
+    outlineVertices: scratch.olv.length > 0
+      ? packDSFUNLineVertices(scratch.olv, tileMx, tileMy)
+      : new Float32Array(0),
+    outlineLineIndices: new Uint32Array(scratch.oli),
     pointVertices: scratch.ptv.length > 0 ? packDSFUNPolygonVertices(scratch.ptv, tileMx, tileMy) : undefined,
     featureCount: featureIds.size,
     polygons: tilePolygons.length > 0 ? tilePolygons : undefined,
@@ -1013,7 +1102,7 @@ export async function compileGeoJSONToTilesAsync(
     const propertyTable = buildPropertyTable(geojson.features)
     const levels: TileLevel[] = []
     const needsSubdivision = new Set<number>()
-    const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], oi: [] as number[] }
+    const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], olv: [] as number[], oli: [] as number[] }
 
     // Process one zoom level, then schedule the next via setTimeout
     function step(z: number) {

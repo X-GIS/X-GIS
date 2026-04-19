@@ -24,7 +24,11 @@ import { LineRenderer } from './line-renderer'
 import { PanZoomController, type Controller } from './controller'
 import { CanvasRenderer } from './canvas-renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
-import { LayerIdRegistry, XGISLayer } from './layer'
+import {
+  LayerIdRegistry, XGISLayer, ListenerRegistry,
+  type XGISFeature, type XGISFeatureEvent, type XGISFeatureEventType, type XGISFeatureListener,
+} from './layer'
+import { EventDispatcher } from './event-dispatcher'
 import { XGVTSource } from '../data/xgvt-source'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
@@ -47,6 +51,69 @@ interface VariantPipelines {
 // importable by tests. Local aliases keep the rest of map.ts terse.
 type ClassifiedShow = ExternalClassifiedShow
 type OpaqueGroup = ExternalOpaqueGroup
+
+/** Structured return type of `XGISMap.inspectPipeline()`. Every field
+ *  reports LIVE runtime state (not a simulation) so CPU debug sessions
+ *  can correlate a specific frame's tile-selection decisions with the
+ *  cache / budget pressure that drove them. */
+export interface PipelineInspection {
+  camera: {
+    zoom: number
+    lon: number
+    lat: number
+    bearing: number
+    pitch: number
+    maxZoom: number
+  }
+  viewport: { canvasW: number; canvasH: number; dpr: number }
+  /** Monotonic render-loop tick counter (since run()). Useful for
+   *  comparing two snapshots taken across a known interval. */
+  frame: number
+  quality: QualityConfig
+  /** True when hash sync / pointer interaction / setView declared the
+   *  camera explicitly — post-compile bounds-fit is suppressed in that
+   *  case. Surfaces the flag the `_runBoundsFitGate` helper reads. */
+  cameraExplicitlyPositioned: boolean
+  sources: Array<{
+    name: string
+    /** Deepest zoom the source CAN serve as genuine data (e.g., 110m
+     *  Natural Earth typically caps near 7). Over-zooming past this
+     *  forces runtime sub-tile generation or parent-tile fallback. */
+    sourceMaxLevel: number
+    currentZoomRounded: number
+    /** `max(0, zoom - sourceMaxLevel)`. Non-zero means every visible
+     *  tile at this zoom requires a sub-tile-generation pass at load
+     *  time — capped by the per-frame sub-tile budget in XGVTSource. */
+    overzoomLevels: number
+    cache: {
+      size: number
+      pendingLoads: number
+      pendingUploads: number
+      subTileBudgetUsed: number
+      compileBudgetUsed: number
+      hasData: boolean
+    }
+    /** Per-source draw stats accumulated during the last renderFrame.
+     *  `missedTiles` is the count of visible tiles that had no cached
+     *  data AND no parent-tile fallback available — the population
+     *  that drives FLICKER warnings. */
+    frame: {
+      drawCalls: number
+      tilesVisible: number
+      missedTiles: number
+      triangles: number
+      lines: number
+    }
+  }>
+  /** Ring buffer of recent FLICKER events (last ~32). Oldest first. */
+  recentFlickers: Array<{
+    ts: number
+    source: string
+    missed: number
+    z: number
+    cache: number
+  }>
+}
 
 export class XGISMap {
   private ctx!: GPUContext
@@ -89,6 +156,29 @@ export class XGISMap {
    *  stale wrapper would silently no-op). Same name registered twice in
    *  one rebuild returns the same wrapper. */
   private xgisLayers = new Map<string, XGISLayer>()
+
+  /** Pointer event dispatcher — bridges PanZoomController's onClick /
+   *  onPointerMove callbacks to per-layer addEventListener handlers via
+   *  pickAt + the layer registry. Built once in `switchController` and
+   *  reused across re-projections. */
+  private eventDispatcher: EventDispatcher | null = null
+
+  /** Map-level listener registry — `map.addEventListener('click', h)`
+   *  receives every layer hit, like document-level event delegation.
+   *  Layer-level dispatch runs first; map-level fires only if no
+   *  `preventDefault` was called there. */
+  private mapListeners = new ListenerRegistry()
+
+  /** Set whenever the user (or hash sync) explicitly positions the
+   *  camera so the post-compile bounds-fit knows not to clobber it.
+   *  Reset to `false` at the start of each `run()` so a fresh load
+   *  gets the data-fit behaviour. Toggled from:
+   *   - `markCameraPositioned()` (public, called by demo-runner after
+   *     applyHashToCamera)
+   *   - any pan/zoom/rotate gesture in PanZoomController via the
+   *     `onPointerMove` / wheel hooks
+   *   - `setProjection()` */
+  private _cameraExplicitlyPositioned = false
 
   // External-injection update state (see setSourceData / updateFeature)
   private _pendingPatches = new Map<string, Map<number, { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> }>>()
@@ -136,6 +226,13 @@ export class XGISMap {
   private _flickerFirstFrame = new Map<string, number>()
   private _frameCount = 0
   private static readonly FLICKER_GRACE_FRAMES = 60
+  /** Ring buffer of recent FLICKER dispatches across ALL sources,
+   *  keyed by wall-clock time so `inspectPipeline()` can show what
+   *  happened in the last few seconds. Capped at 32 entries — the
+   *  60-frame throttle keeps the write rate low, so 32 covers ~30s
+   *  of the worst sustained case. */
+  private _flickerLog: { ts: number; source: string; missed: number; z: number; cache: number }[] = []
+  private static readonly FLICKER_LOG_CAP = 32
   /** Wall-clock animation origin captured on the first rendered frame.
    *  `performance.now() - _startTime` yields the elapsed milliseconds
    *  fed into every time-interpolated value (opacity today, more
@@ -179,6 +276,73 @@ export class XGISMap {
    *  `setQuality`). Returns a shallow copy so callers can't accidentally
    *  mutate the internal object. */
   getQuality(): QualityConfig { return { ...QUALITY } }
+
+  /** Snapshot of everything a human needs to debug the tile pipeline
+   *  at CPU level: camera state, per-source cache/budget state,
+   *  current draw stats, and the recent FLICKER history. Call from
+   *  DevTools console (`__xgisMap.inspectPipeline()`) or a CPU test
+   *  after driving the map into a specific state.
+   *
+   *  Structured return so `JSON.stringify()` produces a copy-pasteable
+   *  report. Nothing here allocates GPU work — safe to call every
+   *  frame if needed. */
+  inspectPipeline(): PipelineInspection {
+    const cam = this.camera
+    const R = 6378137
+    const DEG = 180 / Math.PI
+    const canvasW = this.ctx?.canvas.width ?? 0
+    const canvasH = this.ctx?.canvas.height ?? 0
+    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+
+    const lon = (cam.centerX / R) * DEG
+    const lat = (2 * Math.atan(Math.exp(cam.centerY / R)) - Math.PI / 2) * DEG
+
+    const sources: PipelineInspection['sources'] = []
+    for (const [name, entry] of this.vtSources) {
+      const source = entry.source
+      const vtR = entry.renderer
+      const stats = vtR.getDrawStats()
+      const sourceMaxLevel = source.maxLevel
+      const overzoom = Math.max(0, Math.round(cam.zoom) - sourceMaxLevel)
+      sources.push({
+        name,
+        sourceMaxLevel,
+        currentZoomRounded: Math.round(cam.zoom),
+        overzoomLevels: overzoom,
+        cache: {
+          size: vtR.getCacheSize(),
+          pendingLoads: source.getPendingLoadCount(),
+          pendingUploads: vtR.getPendingUploadCount(),
+          subTileBudgetUsed: source.getSubTileBudgetUsed(),
+          compileBudgetUsed: source.getCompileBudgetUsed(),
+          hasData: source.hasData(),
+        },
+        frame: {
+          drawCalls: stats.drawCalls,
+          tilesVisible: stats.tilesVisible,
+          missedTiles: stats.missedTiles,
+          triangles: stats.triangles,
+          lines: stats.lines,
+        },
+      })
+    }
+
+    return {
+      camera: {
+        zoom: cam.zoom,
+        lon, lat,
+        bearing: cam.bearing,
+        pitch: cam.pitch,
+        maxZoom: cam.maxZoom,
+      },
+      viewport: { canvasW, canvasH, dpr },
+      frame: this._frameCount,
+      quality: this.getQuality(),
+      cameraExplicitlyPositioned: this._cameraExplicitlyPositioned,
+      sources,
+      recentFlickers: [...this._flickerLog],
+    }
+  }
 
   /** Change any combination of quality knobs at runtime. The map figures
    *  out which parts are cheap (DPR — next resizeCanvas applies) vs
@@ -343,9 +507,160 @@ export class XGISMap {
     // Always PanZoom — panning moves camera = projection center moves
     // All projections center on camera position via GPU shader
     this.controller = new PanZoomController()
-    this.controller.attach(this.canvas, this.camera, () => ({
-      projectionName: this.projectionName,
-    }))
+    // Build the dispatcher lazily — we need it BEFORE controller.attach
+    // so the events object captures a stable reference. Re-projections
+    // call switchController again; reusing the same dispatcher keeps
+    // hover state across the rebuild instead of forcing a synthetic
+    // mouseleave on every projection swap.
+    if (!this.eventDispatcher) {
+      this.eventDispatcher = new EventDispatcher({
+        pickAt: (x, y) => this.pickAt(x, y),
+        getLayerById: (id) => this.getLayerByPickId(id),
+        buildFeature: (layerId, featureId) => this.buildFeatureForEvent(layerId, featureId),
+        clientToLngLat: (x, y) => this.clientToLngLat(x, y),
+        getCanvasRect: () => this.canvas.getBoundingClientRect(),
+        dispatchMapEvent: (e) => this._dispatchMapEvent(e),
+        mapHasListeners: (t) => this.mapListeners.has(t),
+      })
+    }
+    const dispatcher = this.eventDispatcher
+    this.controller.attach(
+      this.canvas, this.camera,
+      () => ({ projectionName: this.projectionName }),
+      {
+        onClick: (x, y, e) => { void dispatcher.handleClick(x, y, e) },
+        onPointerMove: (x, y, e) => { dispatcher.handleMove(x, y, e) },
+        onPointerLeave: (e) => { dispatcher.handlePointerLeave(e) },
+        // Any drag, rotate, or wheel zoom is the user explicitly
+        // positioning the camera — disable the post-compile bounds-fit
+        // auto-snap so the user doesn't get yanked back to whole-world
+        // view when the next tile compile lands.
+        onPointerDown: (x, y, e) => {
+          this._cameraExplicitlyPositioned = true
+          void dispatcher.handlePointerDown(x, y, e)
+        },
+        onPointerUp: (x, y, e) => { void dispatcher.handlePointerUp(x, y, e) },
+        onWheel: (x, y, e) => {
+          this._cameraExplicitlyPositioned = true
+          void dispatcher.handleWheel(x, y, e)
+        },
+      },
+    )
+  }
+
+  /** Mark the camera as user-positioned so the next post-compile
+   *  bounds-fit no-ops. Demo runners + apps call this after they
+   *  apply a deep-link hash position (e.g. `#z/lat/lon/bearing/pitch`)
+   *  so the requested view survives the worker compile completing. */
+  markCameraPositioned(): void {
+    this._cameraExplicitlyPositioned = true
+  }
+
+  /** Test seam — the bounds-fit gate that runs when a GeoJSON worker
+   *  compile lands. Extracted from the inline `.then()` branch so the
+   *  decision is CPU-testable without spinning up a WebGPU device or
+   *  driving a real worker pool. `apply` receives the camera-snap
+   *  effect ONLY when the gate opens (i.e., the camera has NOT been
+   *  explicitly positioned via hash / setView / pointer interaction).
+   *  The inline `.then()` now calls this helper so runtime + tests see
+   *  identical gating.
+   *
+   *  Return value: `true` when the fit ran, `false` when it was
+   *  suppressed — so tests can assert the suppression behaviour
+   *  directly. */
+  _runBoundsFitGate(apply: () => void): boolean {
+    if (this._cameraExplicitlyPositioned) return false
+    apply()
+    return true
+  }
+
+  /** Read-only flag so tests can assert the state machine without
+   *  reaching into private fields. Not part of the public API. */
+  get _cameraPositionedFlag(): boolean {
+    return this._cameraExplicitlyPositioned
+  }
+
+  /** Reverse-resolve a layerId from the pick texture into its public
+   *  XGISLayer wrapper. Returns null for the sentinel `0` and any ID
+   *  that no longer maps to a registered layer (post-clearLayers). */
+  private getLayerByPickId(layerId: number): XGISLayer | null {
+    if (layerId === 0) return null
+    const name = this.layerIds.getName(layerId)
+    if (!name) return null
+    return this.xgisLayers.get(name) ?? null
+  }
+
+  /** Build the rich feature payload for an event hit. Falls back to an
+   *  ID-only feature when the source's `_featureIndex` doesn't carry
+   *  full properties (e.g., .xgvt-loaded tile sources without a parsed
+   *  property table). */
+  private buildFeatureForEvent(layerId: number, featureId: number): XGISFeature | null {
+    const layerName = this.layerIds.getName(layerId)
+    if (!layerName) return null
+    const layer = this.xgisLayers.get(layerName)
+    if (!layer) return null
+    // Find the source by walking vectorTileShows for the show this layer
+    // wraps. Phase 4 only supports GeoJSON sources (in `_featureIndex`);
+    // .xgvt sources land in Phase 5 with property-table reverse mapping.
+    const entry = this.vectorTileShows.find(e => (e.show.layerName ?? e.show.targetName) === layerName)
+    const sourceName = entry?.show.targetName ?? layerName
+    const props = this.lookupFeatureProperties(sourceName, featureId)
+    return {
+      id: featureId,
+      source: sourceName,
+      layer: layerName,
+      properties: props ?? {},
+    }
+  }
+
+  /** Look up properties for `featureId` in `sourceName`'s GeoJSON
+   *  feature index. Builds the index on first access using the same
+   *  `feature-id-fallback` resolver the compile worker uses
+   *  (`feature.id` → `properties.id` → array index), so the IDs the
+   *  GPU encoded into the pick texture match the lookup keys here.
+   *  Returns null when the source isn't a GeoJSON dataset or the ID
+   *  isn't found. */
+  private lookupFeatureProperties(sourceName: string, featureId: number): Record<string, unknown> | null {
+    const data = this.rawDatasets.get(sourceName)
+    if (!data) return null
+    let index = this._featureIndex.get(sourceName)
+    if (!index) {
+      index = new Map()
+      for (let i = 0; i < data.features.length; i++) {
+        const f = data.features[i]
+        const id = toU32Id(f.id ?? f.properties?.id ?? i)
+        index.set(id, f)
+      }
+      this._featureIndex.set(sourceName, index)
+    }
+    const feature = index.get(featureId)
+    return (feature?.properties as Record<string, unknown>) ?? null
+  }
+
+  /** Convert a CSS-coordinate point to longitude/latitude using the
+   *  current camera. Phase 4 supports Mercator; other projections
+   *  return null for now (the dispatcher coerces to NaN, NaN). */
+  private clientToLngLat(clientX: number, clientY: number): readonly [number, number] | null {
+    if (!this.ctx) return null
+    const canvas = this.ctx.canvas
+    const rect = canvas.getBoundingClientRect()
+    // Map CSS coords → physical pixels for unproject (which works in
+    // physical-pixel framebuffer space).
+    const px = (clientX - rect.left) * (canvas.width / rect.width)
+    const py = (clientY - rect.top) * (canvas.height / rect.height)
+    const rtc = this.camera.unprojectToZ0(px, py, canvas.width, canvas.height)
+    if (!rtc) return null
+    // RTC coords are camera-relative meters in projection space. For
+    // Mercator (the most common path) we add cameraCenter to get
+    // absolute Mercator meters then invert to lng/lat. Other projections
+    // need a per-projection inverse — Phase 5 work.
+    if (this.projectionName !== 'mercator') return null
+    const R = 6378137
+    const merc_x = rtc[0] + this.camera.centerX
+    const merc_y = rtc[1] + this.camera.centerY
+    const lon = (merc_x / R) * (180 / Math.PI)
+    const lat = (2 * Math.atan(Math.exp(merc_y / R)) - Math.PI / 2) * (180 / Math.PI)
+    return [lon, lat]
   }
 
   /** Load and run an X-GIS program */
@@ -356,6 +671,10 @@ export class XGISMap {
     if (typeof window !== 'undefined') {
       ;(window as unknown as { __xgisReady?: boolean }).__xgisReady = false
     }
+    // Reset the user-positioned flag — a fresh source should default
+    // to bounds-fit unless the caller explicitly positions the camera
+    // afterwards (via setView, hash sync, or pointer interaction).
+    this._cameraExplicitlyPositioned = false
 
     // Promote baseUrl to an absolute URL. `new URL(path, base)` requires
     // `base` to be absolute — passing a bare path like '/data/' throws
@@ -759,21 +1078,27 @@ export class XGISMap {
         // Worker result just landed — wake the render loop to paint it.
         this.invalidate()
 
-        // Fit camera once the compile lands. For the fallback (sync) path
-        // this still runs inside the same microtask, so users see the same
-        // "camera snaps to data on load" behaviour they had before.
-        const [minLon, minLat, maxLon, maxLat] = tileSet.bounds
-        if (minLon < Infinity) {
-          const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
-          const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
-          this.camera.centerX = cx
-          this.camera.centerY = cy
-          const lonSpan = maxLon - minLon
-          const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-          const cssW = this.canvas.width / dpr
-          const degPerPx = lonSpan / cssW
-          this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
-        }
+        // Fit camera to data bounds once the compile lands — but only
+        // when the user hasn't already positioned the camera explicitly
+        // (URL hash, programmatic .setView, or a pan/zoom gesture).
+        // Otherwise the auto-fit clobbers the requested view, which
+        // surfaced as a bug when demos with deep-link hash URLs
+        // (e.g. `#19.80/21.55/108.05/75/64.2`) snapped back to whole-
+        // world view as soon as the worker compile resolved.
+        this._runBoundsFitGate(() => {
+          const [minLon, minLat, maxLon, maxLat] = tileSet.bounds
+          if (minLon < Infinity) {
+            const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
+            const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
+            this.camera.centerX = cx
+            this.camera.centerY = cy
+            const lonSpan = maxLon - minLon
+            const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+            const cssW = this.canvas.width / dpr
+            const degPerPx = lonSpan / cssW
+            this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+          }
+        })
       }).catch((err) => {
         console.error('[X-GIS] GeoJSON compile failed:', err)
       })
@@ -1443,7 +1768,18 @@ export class XGISMap {
           const last = this._flickerLastFrame.get(name) ?? -Infinity
           if (this._frameCount - last >= 60) {
             this._flickerLastFrame.set(name, this._frameCount)
-            console.warn(`[FLICKER] ${name}: ${vts.missedTiles} tiles without fallback (z=${Math.round(this.camera.zoom)} gpuCache=${vtR.getCacheSize()})`)
+            const zRounded = Math.round(this.camera.zoom)
+            const cacheSize = vtR.getCacheSize()
+            console.warn(`[FLICKER] ${name}: ${vts.missedTiles} tiles without fallback (z=${zRounded} gpuCache=${cacheSize})`)
+            // Ring-buffer the event so inspectPipeline() can replay
+            // the last few seconds without needing a live console capture.
+            this._flickerLog.push({
+              ts: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+              source: name, missed: vts.missedTiles, z: zRounded, cache: cacheSize,
+            })
+            if (this._flickerLog.length > XGISMap.FLICKER_LOG_CAP) {
+              this._flickerLog.splice(0, this._flickerLog.length - XGISMap.FLICKER_LOG_CAP)
+            }
           }
         }
       } else {
@@ -1504,6 +1840,33 @@ export class XGISMap {
    *  the scene after this call do not appear in the returned array. */
   getLayers(): readonly XGISLayer[] {
     return Array.from(this.xgisLayers.values())
+  }
+
+  /** Map-level event delegation. Fires for any layer that gets hit —
+   *  the event's `target` is the hit layer. Same `XGISFeatureEvent`
+   *  shape as layer-level handlers. Layer-level listeners run first;
+   *  if any of them call `preventDefault`, the map-level dispatch is
+   *  suppressed for that hit. Mirrors `document.addEventListener`. */
+  addEventListener(
+    type: XGISFeatureEventType,
+    listener: XGISFeatureListener,
+    options?: { signal?: AbortSignal; once?: boolean },
+  ): void {
+    this.mapListeners.add(type, listener, options)
+  }
+
+  removeEventListener(type: XGISFeatureEventType, listener: XGISFeatureListener): void {
+    this.mapListeners.remove(type, listener)
+  }
+
+  /** Internal: dispatcher calls this after a layer-level dispatch so
+   *  map-level handlers see every hit. The `event.defaultPrevented`
+   *  flag carries through — listeners that want to suppress map-level
+   *  delegation just call `preventDefault()` on the layer event. */
+  _dispatchMapEvent(event: XGISFeatureEvent): void {
+    if (event.defaultPrevented) return
+    if (!this.mapListeners.has(event.type)) return
+    this.mapListeners.dispatch(event, 'map')
   }
 
   // ═══ Dynamic Property API (lower-level dot-notation; prefer .style) ═══

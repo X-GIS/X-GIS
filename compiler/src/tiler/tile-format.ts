@@ -11,7 +11,10 @@
 //   - Morton-keyed tile index for spatial cache coherence
 
 import type { CompiledTileSet, CompiledTile, PropertyTable, PropertyFieldType } from './vector-tiler'
-import { tileKeyUnpack, lonLatToMercF64 } from './vector-tiler'
+import {
+  tileKeyUnpack, lonLatToMercF64,
+  augmentRingWithArc, tessellateLineToArrays, packDSFUNLineVertices,
+} from './vector-tiler'
 import { encodeCoords, encodeIndices, decodeCoords, decodeIndices, encodeFeatIds, decodeFeatIds, precisionForZoom, encodeRingData, decodeRingData } from './encoding'
 import earcut from 'earcut'
 
@@ -421,7 +424,18 @@ export function parseGPUReadyTile(
     }
 
     const tb = tileBoundsFromZXY(z, x, y)
-    return { z, x, y, tileWest: tb.west, tileSouth: tb.south, vertices, indices, lineVertices, lineIndices, outlineIndices: new Uint32Array(0), featureCount: 0 }
+    return {
+      z, x, y, tileWest: tb.west, tileSouth: tb.south,
+      vertices, indices, lineVertices, lineIndices,
+      outlineIndices: new Uint32Array(0),
+      // GPU-ready tiles ship pre-tessellated polygon meshes without raw
+      // ring data, so no outline can be derived here. Layers that want
+      // dashed polygon borders should source from the ring-based path
+      // (i.e., uncached or compact-format binary tiles).
+      outlineVertices: new Float32Array(0),
+      outlineLineIndices: new Uint32Array(0),
+      featureCount: 0,
+    }
   }
 
   // Decompress gzip'd compact layer
@@ -555,10 +569,34 @@ export function parseGPUReadyTile(
   }
   const lineIndices = decodeIndices(lineIndicesBuf)
 
+  // Polygon outlines: derive arc-augmented stride-10 vertices directly
+  // from the decoded rings using the same helper the GeoJSON tiler uses,
+  // so binary tiles get the same global-arc dash continuity within a
+  // ring. Cross-tile continuity ACROSS binary tile boundaries is still
+  // limited to whatever the binary format ships (clipped per-tile
+  // rings), but per-ring dash + tangent_in/out at the wrap vertex are
+  // now correct — replacing the legacy per-tile BFS chain walker.
+  const olv: number[] = []
+  const oli: number[] = []
+  for (const poly of polygons) {
+    for (const ring of poly.rings) {
+      if (ring.length < 2) continue
+      const arcRing = augmentRingWithArc(ring)
+      if (arcRing.length < 2) continue
+      tessellateLineToArrays(arcRing, poly.featId, olv, oli)
+    }
+  }
+  const outlineVertices = olv.length > 0
+    ? packDSFUNLineVertices(olv, tileMx, tileMy)
+    : new Float32Array(0)
+  const outlineLineIndices = new Uint32Array(oli)
+
   return {
     z, x, y, tileWest: tb.west, tileSouth: tb.south,
     vertices, indices, lineVertices, lineIndices,
-    outlineIndices: new Uint32Array(0), // outline extracted from rings at runtime
+    outlineIndices: new Uint32Array(0), // legacy fill-vertex outline indices — empty in v2 binary
+    outlineVertices,
+    outlineLineIndices,
     featureCount: polygons.length,
     polygons, // preserve for runtime sub-tiling
   }

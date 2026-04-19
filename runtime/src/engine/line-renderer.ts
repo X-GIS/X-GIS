@@ -416,13 +416,21 @@ export function buildLineSegments(
   }
 
   // ── Arc-length pass ──
-  // Stride-4: global arc-length is precomputed at tiling time in f64 Mercator
-  // meters and stored at vertex[3]. Cross-tile phase continuity is automatic.
-  // Stride-3 (polygon outlines): fall back to per-tile BFS chain traversal.
+  // Single global-arc path: every caller now passes stride-10 vertices
+  // with arc_start precomputed at tile-compile time in f64 Mercator
+  // meters (vertex[5]). Polygon outlines and line features share the
+  // exact same input shape — the per-tile BFS chain walker that used
+  // to handle stride-3 outlines is gone, having been retired once
+  // augmentRingWithArc was wired through the GeoJSON tiler, the
+  // binary .xgvt decoder, and the runtime sub-tile generator.
+  if (stride < 6) {
+    throw new Error(
+      `[line-renderer] buildLineSegments expects stride>=6 with global arc_start at vertex[5]; got stride=${stride}. ` +
+      `Polygon outlines must come in via outlineVertices (stride-10), not as stride-5 indices into the polygon fill buffer.`,
+    )
+  }
   const arcStart = new Float32Array(segCount)
   const arcTotal = new Float32Array(segCount)
-
-  // Precompute segment lengths (used by stride-3 BFS path + for arcTotal)
   const segLen = new Float32Array(segCount)
   for (let i = 0; i < segCount; i++) {
     const a = indices[i * 2], b = indices[i * 2 + 1]
@@ -430,78 +438,9 @@ export function buildLineSegments(
     const [bx, by] = projVert(b)
     const dx = bx - ax, dy = by - ay
     segLen[i] = Math.sqrt(dx * dx + dy * dy)
-  }
-
-  if (stride >= 6) {
-    // Global arc from vertex[5] (DSFUN stride 6 line features). Each
-    // segment's arc_start = vertex[a].arc_start.
-    for (let i = 0; i < segCount; i++) {
-      const a = indices[i * 2]
-      arcStart[i] = vertices[a * stride + 5]
-    }
+    arcStart[i] = vertices[a * stride + 5]
     // arcTotal left at 0 — patterns that need line_length will come in Phase 4.
-  } else {
-
-  const visited = new Uint8Array(segCount)
-  for (let s0 = 0; s0 < segCount; s0++) {
-    if (visited[s0]) continue
-
-    // 1. BFS collect the whole connected chain
-    const chain: number[] = []
-    const stack = [s0]
-    while (stack.length > 0) {
-      const cur = stack.pop()!
-      if (visited[cur]) continue
-      visited[cur] = 1
-      chain.push(cur)
-      const a = indices[cur * 2], b = indices[cur * 2 + 1]
-      const na = vertToSegs.get(a); if (na) for (const n of na) if (!visited[n]) stack.push(n)
-      const nb = vertToSegs.get(b); if (nb) for (const n of nb) if (!visited[n]) stack.push(n)
-    }
-
-    // 2. Find an endpoint vertex (degree 1 in this chain) or any vertex for rings
-    const inChain = new Set(chain)
-    let startVert = -1
-    let startSeg = chain[0]
-    for (const s of chain) {
-      for (const v of [indices[s * 2], indices[s * 2 + 1]]) {
-        const neigh = vertToSegs.get(v)!
-        let degInChain = 0
-        for (const n of neigh) if (inChain.has(n)) degInChain++
-        if (degInChain === 1) { startVert = v; startSeg = s; break }
-      }
-      if (startVert >= 0) break
-    }
-    if (startVert < 0) {
-      // Closed ring — start anywhere
-      startVert = indices[startSeg * 2]
-    }
-
-    // 3. Ordered walk from startSeg / startVert, assigning arcStart
-    const walked = new Uint8Array(segCount)
-    let cur = startSeg
-    let fromV = startVert
-    let acc = 0
-    while (cur >= 0 && !walked[cur]) {
-      walked[cur] = 1
-      arcStart[cur] = acc
-      acc += segLen[cur]
-      const ca = indices[cur * 2], cb = indices[cur * 2 + 1]
-      const nextV = (ca === fromV) ? cb : ca
-      const neigh = vertToSegs.get(nextV)
-      let next = -1
-      if (neigh) {
-        for (const n of neigh) {
-          if (n !== cur && inChain.has(n) && !walked[n]) { next = n; break }
-        }
-      }
-      if (next < 0) break
-      cur = next
-      fromV = nextV
-    }
-    for (const c of chain) arcTotal[c] = acc
   }
-  } // end stride-3 BFS branch
 
   // ── Tile boundary detection ──
   // Returns true if a tile-local (mx, my in Mercator METERS relative to tile

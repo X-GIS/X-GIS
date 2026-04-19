@@ -374,23 +374,21 @@ describe('buildLineSegments', () => {
     })
   })
 
-  it('returns zero arc for stride-5 polygon-outline input (BFS fallback)', () => {
-    // DSFUN polygon vertices: stride 5 [mx_h, my_h, mx_l, my_l, feat_id].
+  it('rejects stride-5 polygon-outline input with a clear error', () => {
+    // The BFS chain walker that used to handle stride-5 polygon outlines
+    // is gone. All callers now route polygon outlines through the
+    // unified augmentRingWithArc + clipLineToRect + tessellateLineToArrays
+    // pipeline (DSFUN stride-10 with global arc_start) so the line
+    // renderer takes a single code path. Calling buildLineSegments with
+    // stride < 6 now throws — surfacing any stale call site loudly
+    // instead of silently producing zero-arc dashes that drift.
     const vertices = dsfunPolyVerts([
       [0,    0],
       [1000, 0],
       [2000, 0],
     ])
     const indices = new Uint32Array([0, 1, 1, 2])
-
-    const segData = buildLineSegments(vertices, indices, 5)
-
-    // BFS arc: seg 0 start at 0, seg 1 start at seg 0 length
-    const seg0ArcStart = segData[0 * LINE_SEGMENT_STRIDE_F32 + OFF_ARC_START]
-    const seg1ArcStart = segData[1 * LINE_SEGMENT_STRIDE_F32 + OFF_ARC_START]
-    expect(seg0ArcStart).toBe(0)
-    // Seg 1 arc_start should equal seg 0's length (1000 m)
-    expect(seg1ArcStart).toBeCloseTo(1000, 0)
+    expect(() => buildLineSegments(vertices, indices, 5)).toThrow(/stride.*6|outlineVertices/i)
   })
 
   // Ports the miter-offset formula from vs_line and asserts that two

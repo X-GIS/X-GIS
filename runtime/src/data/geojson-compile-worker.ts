@@ -48,6 +48,11 @@ export interface SerializedTile {
   lineVertices: ArrayBuffer
   lineIndices: ArrayBuffer
   outlineIndices: ArrayBuffer
+  /** Outline vertices in DSFUN stride 10 — see CompiledTile in
+   *  vector-tiler.ts for the rationale. Empty buffer when the tiler
+   *  didn't emit them (back-compat path). */
+  outlineVertices: ArrayBuffer
+  outlineLineIndices: ArrayBuffer
   pointVertices?: ArrayBuffer
   featureCount: number
   fullCover?: boolean
@@ -116,6 +121,8 @@ export function runCompile(
         lineVertices: tile.lineVertices.buffer as ArrayBuffer,
         lineIndices: tile.lineIndices.buffer as ArrayBuffer,
         outlineIndices: tile.outlineIndices.buffer as ArrayBuffer,
+        outlineVertices: tile.outlineVertices.buffer as ArrayBuffer,
+        outlineLineIndices: tile.outlineLineIndices.buffer as ArrayBuffer,
         pointVertices: tile.pointVertices?.buffer as ArrayBuffer | undefined,
         featureCount: tile.featureCount,
         fullCover: tile.fullCover,
@@ -123,6 +130,8 @@ export function runCompile(
         polygons: tile.polygons,
       }
       transferables.push(s.vertices, s.indices, s.lineVertices, s.lineIndices, s.outlineIndices)
+      if (s.outlineVertices.byteLength > 0) transferables.push(s.outlineVertices)
+      if (s.outlineLineIndices.byteLength > 0) transferables.push(s.outlineLineIndices)
       if (s.pointVertices) transferables.push(s.pointVertices)
       tiles.push([key, s])
     })

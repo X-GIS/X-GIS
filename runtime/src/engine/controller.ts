@@ -4,7 +4,7 @@ import type { Camera } from './camera'
 
 export interface Controller {
   name: string
-  attach(canvas: HTMLCanvasElement, camera: Camera, getState: () => ControllerState): void
+  attach(canvas: HTMLCanvasElement, camera: Camera, getState: () => ControllerState, events?: ControllerEvents): void
   detach(): void
 }
 
@@ -14,13 +14,47 @@ export interface ControllerState {
   setProjectionCenter?: (lon: number, lat: number) => void
 }
 
+/** Optional event callbacks the map wires into the controller so the
+ *  layer-level event dispatcher can hook pointer activity. None of the
+ *  callbacks block the controller's own pan/zoom/rotate handling — they
+ *  fire on the same events with filtering applied (click only when no
+ *  drag/rotate happened). */
+export interface ControllerEvents {
+  /** Fires from `pointerup` when the press-release was a click — i.e.
+   *  the pointer never travelled past the click deadzone since
+   *  `pointerdown`, and no rotation gesture was activated. */
+  onClick?: (clientX: number, clientY: number, ev: PointerEvent) => void
+  /** Fires on every `pointermove`, regardless of whether a drag is in
+   *  progress. Hover dispatch lives downstream and rAF-coalesces. */
+  onPointerMove?: (clientX: number, clientY: number, ev: PointerEvent) => void
+  /** Fires when the pointer leaves the canvas. Lets hover dispatch
+   *  emit a final `mouseleave` so layers don't get stuck thinking the
+   *  cursor is still on them. */
+  onPointerLeave?: (ev: PointerEvent) => void
+  /** Fires on every `pointerdown`. Unlike `onClick`, no eligibility
+   *  filtering — a press that turns into a drag still fires this. */
+  onPointerDown?: (clientX: number, clientY: number, ev: PointerEvent) => void
+  /** Fires on every `pointerup`. Pairs with `onPointerDown`. */
+  onPointerUp?: (clientX: number, clientY: number, ev: PointerEvent) => void
+  /** Fires on every wheel event. Listeners receive the wheel deltas via
+   *  `event.originalEvent.deltaY` etc. The controller's own zoom logic
+   *  still runs — listeners should not call `preventDefault` on the
+   *  underlying browser event. */
+  onWheel?: (clientX: number, clientY: number, ev: WheelEvent) => void
+}
+
+/** Movement distance (CSS px) at which a press-release stops being a
+ *  click. 4px matches the threshold most browsers use for the synthetic
+ *  `click` event after pointer events. */
+const CLICK_DEADZONE_PX = 4
+
 // ═══ PanZoom Controller — 평면 지도용 (Mercator, Equirectangular, Natural Earth) ═══
 
 export class PanZoomController implements Controller {
   name = 'panzoom'
   private cleanup: (() => void) | null = null
 
-  attach(canvas: HTMLCanvasElement, camera: Camera, _getState: () => ControllerState): void {
+  attach(canvas: HTMLCanvasElement, camera: Camera, _getState: () => ControllerState, events?: ControllerEvents): void {
     // Wrap event handlers so any throw inside them surfaces with the real
     // stack via console.error instead of bubbling to window.onerror as the
     // useless cross-origin "Script error. @ :0:0" placeholder iOS WebKit
@@ -38,6 +72,14 @@ export class PanZoomController implements Controller {
     // Touch state for pinch-to-zoom
     const activePointers = new Map<number, { x: number; y: number }>()
     let lastPinchDist = 0
+
+    // Click detection: track press location + cumulative pointer travel
+    // since pointerdown. Click fires from pointerup when travel stays
+    // under the deadzone AND no rotation gesture activated.
+    let pressX = 0
+    let pressY = 0
+    let pressTravel = 0
+    let pressEligible = false   // single-pointer + left-button press only
 
     // Double-tap zoom
     let lastTapTime = 0
@@ -60,10 +102,19 @@ export class PanZoomController implements Controller {
         lastTapX = e.clientX
         lastTapY = e.clientY
       }
+      events?.onPointerDown?.(e.clientX, e.clientY, e)
+
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
       canvas.setPointerCapture(e.pointerId)
 
       if (activePointers.size === 1) {
+        // Click eligibility: only single-pointer left-button presses
+        // count. Right-click (rotate) and multi-touch are excluded.
+        pressEligible = e.button === 0 && !e.ctrlKey
+        pressX = e.clientX
+        pressY = e.clientY
+        pressTravel = 0
+
         // Right-click or Ctrl+click → prepare rotate mode (activated on move)
         if (e.button === 2 || e.ctrlKey) {
           isRotatePending = true
@@ -123,6 +174,16 @@ export class PanZoomController implements Controller {
 
     const onPointerMove = (e: PointerEvent) => {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+      // Hover dispatch — fires every move regardless of drag/rotate state.
+      // Downstream rAF coalesces, so a fast drag still only spends one
+      // pickAt per frame.
+      events?.onPointerMove?.(e.clientX, e.clientY, e)
+
+      // Update press travel so pointerup can decide click vs drag.
+      if (pressEligible) {
+        pressTravel = Math.max(pressTravel, Math.hypot(e.clientX - pressX, e.clientY - pressY))
+      }
 
       // Right-click pending → check deadzone to activate
       if (isRotatePending && !isRotating && activePointers.size === 1) {
@@ -203,6 +264,17 @@ export class PanZoomController implements Controller {
     }
 
     const onPointerUp = (e: PointerEvent) => {
+      events?.onPointerUp?.(e.clientX, e.clientY, e)
+
+      // Click dispatch: fires before any rotate snap / inertia logic so
+      // listener handlers see the most recent camera state. Eligibility
+      // gate filters out drags (travel > deadzone) and rotation gestures.
+      if (pressEligible && activePointers.has(e.pointerId)
+          && pressTravel < CLICK_DEADZONE_PX && !rotateActivated) {
+        events?.onClick?.(e.clientX, e.clientY, e)
+      }
+      pressEligible = false
+
       activePointers.delete(e.pointerId)
       if (activePointers.size === 0) {
         // Start inertia only for fast flicks, cap velocity
@@ -270,6 +342,7 @@ export class PanZoomController implements Controller {
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
+      events?.onWheel?.(e.clientX, e.clientY, e)
       const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.003)
       // If the wheel direction reversed relative to the pending animation,
       // drop any overshoot targetZoom accumulated past camera.zoom so the
@@ -288,16 +361,22 @@ export class PanZoomController implements Controller {
       }
     }
 
+    const onPointerLeave = (e: PointerEvent) => {
+      events?.onPointerLeave?.(e)
+    }
+
     const sPointerDown = safe('pointerdown', onPointerDown)
     const sPointerMove = safe('pointermove', onPointerMove)
     const sPointerUp = safe('pointerup', onPointerUp)
     const sPointerCancel = safe('pointercancel', onPointerCancel)
+    const sPointerLeave = safe('pointerleave', onPointerLeave)
     const sWheel = safe('wheel', onWheel)
 
     canvas.addEventListener('pointerdown', sPointerDown)
     canvas.addEventListener('pointermove', sPointerMove)
     canvas.addEventListener('pointerup', sPointerUp)
     canvas.addEventListener('pointercancel', sPointerCancel)
+    canvas.addEventListener('pointerleave', sPointerLeave)
     canvas.addEventListener('wheel', sWheel, { passive: false })
 
     this.cleanup = () => {
@@ -305,6 +384,7 @@ export class PanZoomController implements Controller {
       canvas.removeEventListener('pointermove', sPointerMove)
       canvas.removeEventListener('pointerup', sPointerUp)
       canvas.removeEventListener('pointercancel', sPointerCancel)
+      canvas.removeEventListener('pointerleave', sPointerLeave)
       canvas.removeEventListener('wheel', sWheel)
     }
   }
@@ -343,7 +423,7 @@ export class TrackballController implements Controller {
   private centerLon = 0
   private centerLat = 20
 
-  attach(canvas: HTMLCanvasElement, camera: Camera, getState: () => ControllerState): void {
+  attach(canvas: HTMLCanvasElement, camera: Camera, getState: () => ControllerState, _events?: ControllerEvents): void {
     let isDragging = false
     let lastX = 0
     let lastY = 0
