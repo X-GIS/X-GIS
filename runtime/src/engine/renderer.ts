@@ -1291,7 +1291,8 @@ export class MapRenderer {
   renderToPass(pass: GPURenderPassEncoder, camera: Camera, projType = 0, projCenterLon = 0, projCenterLat = 20, elapsedMs = 0): void {
     const { device, canvas } = this.ctx
     // RTC: no translation in MVP, projection center is at (0,0)
-    const mvp = camera.getRTCMatrix(canvas.width, canvas.height)
+    const frame = camera.getFrameView(canvas.width, canvas.height)
+    const mvp = frame.matrix
 
     for (const layer of this.layers) {
       // Read from dynamic properties (supports runtime override)
@@ -1353,7 +1354,7 @@ export class MapRenderer {
       const cyL = Math.fround(cy - cyH)
       new Float32Array(uniformData, 112, 4).set([cxH, cyH, cxL, cyL]) // cam_h.xy, cam_l.xy
       // tile_origin_merc=(0,0), opacity, log_depth_fc
-      new Float32Array(uniformData, 128, 4).set([0, 0, opacity, camera.getLogDepthFc()])
+      new Float32Array(uniformData, 128, 4).set([0, 0, opacity, frame.logDepthFc])
       // pick_id (low16 = layerId, high16 = instanceId=0 for non-tiled),
       // followed by 12 bytes of vec3<u32> padding so the uniform struct
       // ends on a 16-byte boundary as required by WebGPU std140-ish layout.
@@ -1428,7 +1429,7 @@ export class MapRenderer {
         const gcyL = Math.fround(gcy - gcyH)
         new Float32Array(gratData, 112, 4).set([gcxH, gcyH, gcxL, gcyL])
         // tile_origin_merc=(0,0) for graticule (world-space DSFUN), opacity=1, log_depth_fc
-        new Float32Array(gratData, 128, 4).set([0, 0, 1, camera.getLogDepthFc()])
+        new Float32Array(gratData, 128, 4).set([0, 0, 1, frame.logDepthFc])
         // pick_id=0 — graticule is decorative, never pickable.
         new Uint32Array(gratData, 144, 4).set([0, 0, 0, 0])
         const gratOff = this.allocUniformSlot()

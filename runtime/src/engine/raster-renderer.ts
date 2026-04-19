@@ -337,7 +337,8 @@ export class RasterRenderer {
     if (!this.urlTemplate) return
     this.frameCount++
 
-    const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
+    const frame = camera.getFrameView(canvasWidth, canvasHeight)
+    const mvp = frame.matrix
     const { zoom } = camera
 
     const currentZ = Math.max(0, Math.min(18, Math.round(zoom)))
@@ -397,7 +398,7 @@ export class RasterRenderer {
     // the vector pipelines.
     const uniformData = new ArrayBuffer(128)
     new Float32Array(uniformData, 0, 16).set(mvp)
-    new Float32Array(uniformData, 64, 4).set([projType, projCenterLon, projCenterLat, camera.getLogDepthFc()])
+    new Float32Array(uniformData, 64, 4).set([projType, projCenterLon, projCenterLat, frame.logDepthFc])
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
     pass.setPipeline(this.pipeline)

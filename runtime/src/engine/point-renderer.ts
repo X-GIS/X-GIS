@@ -652,14 +652,14 @@ export class PointRenderer {
 
     this.tilePointBindGroup = this.makeBindGroup(this.tilePointFeatBuffer)
 
-    const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
+    const frame = camera.getFrameView(canvasWidth, canvasHeight)
     const uf = this.uniformData
-    uf.set(mvp, 0)
+    uf.set(frame.matrix, 0)
     uf[16] = 0; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
     uf[20] = 0; uf[21] = 0; uf[22] = 0; uf[23] = 0
     const metersPerPixel = (40075016.686 / 256) / Math.pow(2, camera.zoom)
     // viewport.w = log_depth_fc so fs_point can write @builtin(frag_depth)
-    uf[24] = canvasWidth; uf[25] = canvasHeight; uf[26] = metersPerPixel; uf[27] = camera.getLogDepthFc()
+    uf[24] = canvasWidth; uf[25] = canvasHeight; uf[26] = metersPerPixel; uf[27] = frame.logDepthFc
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
 
     // Pick the translucent (no depth write) pipeline when the effective
@@ -862,11 +862,11 @@ export class PointRenderer {
   ): void {
     if (this.layers.length === 0) return
 
-    const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
+    const frame = camera.getFrameView(canvasWidth, canvasHeight)
     const uf = this.uniformData
 
     // MVP matrix
-    uf.set(mvp, 0)
+    uf.set(frame.matrix, 0)
     // proj_params
     uf[16] = 0 // Mercator
     uf[17] = projCenterLon
@@ -885,7 +885,7 @@ export class PointRenderer {
     uf[24] = canvasWidth
     uf[25] = canvasHeight
     uf[26] = metersPerPixel
-    uf[27] = camera.getLogDepthFc()
+    uf[27] = frame.logDepthFc
 
     // tile_rtc no longer needed in uniform (RTC computed per-point in CPU)
     uf[20] = 0; uf[21] = 0; uf[22] = 0; uf[23] = 0
