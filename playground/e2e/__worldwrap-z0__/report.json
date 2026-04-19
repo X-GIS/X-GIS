@@ -1,0 +1,148 @@
+{
+  "view": {
+    "width": 1400,
+    "height": 800
+  },
+  "samples": [
+    {
+      "lon": -540,
+      "actualLon": 180,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": -480,
+      "actualLon": -120,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": -420,
+      "actualLon": -60,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": -360,
+      "actualLon": 0,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": -300,
+      "actualLon": 60,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": -240,
+      "actualLon": 120,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": -180,
+      "actualLon": 180,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": -120,
+      "actualLon": -120,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": -60,
+      "actualLon": -60,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": 0,
+      "actualLon": 0,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": 60,
+      "actualLon": 60,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": 120,
+      "actualLon": 120,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": 180,
+      "actualLon": -180,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": 240,
+      "actualLon": -120,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": 300,
+      "actualLon": -60,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": 360,
+      "actualLon": 0,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": 420,
+      "actualLon": 60,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": 480,
+      "actualLon": 120,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    },
+    {
+      "lon": 540,
+      "actualLon": -180,
+      "tilesVisible": 5,
+      "missedTiles": 0,
+      "rasterLoading": 0
+    }
+  ],
+  "midMotion": {
+    "minVis": 5,
+    "maxVis": 5,
+    "framesWithMissed": 0
+  },
+  "consoleErrors": [],
+  "consoleWarns": []
+}

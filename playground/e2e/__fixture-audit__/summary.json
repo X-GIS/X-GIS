@@ -1,0 +1,187 @@
+{
+  "total": 59,
+  "withErrors": 0,
+  "withWarnings": 0,
+  "dropsOver100": 0,
+  "dropsOver33": 1,
+  "pendingVT": 0,
+  "pendingRaster": 0,
+  "errors": [],
+  "warns": [],
+  "worstMax": [
+    {
+      "id": "fixture_stress_many_layers",
+      "max": 47.9,
+      "p95": 13.4,
+      "drops100": 0
+    },
+    {
+      "id": "fixture_translucent_stroke",
+      "max": 23.1,
+      "p95": 8.3,
+      "drops100": 0
+    },
+    {
+      "id": "fixture_anim_opacity",
+      "max": 23.1,
+      "p95": 8.3,
+      "drops100": 0
+    },
+    {
+      "id": "fixture_line",
+      "max": 22.6,
+      "p95": 8.3,
+      "drops100": 0
+    },
+    {
+      "id": "reftest_triangle_static",
+      "max": 22.5,
+      "p95": 8.2,
+      "drops100": 0
+    },
+    {
+      "id": "reftest_stroke_keyframe_static",
+      "max": 22.4,
+      "p95": 8.2,
+      "drops100": 0
+    },
+    {
+      "id": "fixture_pattern_anchor_end",
+      "max": 22.4,
+      "p95": 8.2,
+      "drops100": 0
+    },
+    {
+      "id": "fixture_stroke_offset_right",
+      "max": 22.3,
+      "p95": 8.2,
+      "drops100": 0
+    },
+    {
+      "id": "fixture_x_anim_multi_property",
+      "max": 22.2,
+      "p95": 8.3,
+      "drops100": 0
+    },
+    {
+      "id": "fixture_pattern_units_km",
+      "max": 22.2,
+      "p95": 8.2,
+      "drops100": 0
+    }
+  ],
+  "worstP95": [
+    {
+      "id": "fixture_stress_many_layers",
+      "p95": 13.4,
+      "max": 47.9,
+      "drops33": 2
+    },
+    {
+      "id": "fixture_point",
+      "p95": 8.3,
+      "max": 12.1,
+      "drops33": 0
+    },
+    {
+      "id": "fixture_line",
+      "p95": 8.3,
+      "max": 22.6,
+      "drops33": 0
+    },
+    {
+      "id": "fixture_line_join",
+      "p95": 8.3,
+      "max": 21.4,
+      "drops33": 0
+    },
+    {
+      "id": "fixture_triangle",
+      "p95": 8.3,
+      "max": 20.6,
+      "drops33": 0
+    },
+    {
+      "id": "fixture_square",
+      "p95": 8.3,
+      "max": 21.4,
+      "drops33": 0
+    },
+    {
+      "id": "fixture_stroke_fill",
+      "p95": 8.3,
+      "max": 21,
+      "drops33": 0
+    },
+    {
+      "id": "fixture_dashed_line",
+      "p95": 8.3,
+      "max": 20,
+      "drops33": 0
+    },
+    {
+      "id": "fixture_translucent_stroke",
+      "p95": 8.3,
+      "max": 23.1,
+      "drops33": 0
+    },
+    {
+      "id": "fixture_multi_layer",
+      "p95": 8.3,
+      "max": 20.7,
+      "drops33": 0
+    }
+  ],
+  "biggestWB": [
+    {
+      "id": "fixture_stress_many_layers",
+      "peakKB": 6089.8,
+      "peakCalls": 94
+    },
+    {
+      "id": "fixture_stress_all_renderers",
+      "peakKB": 3041.6,
+      "peakCalls": 38
+    },
+    {
+      "id": "fixture_x_points_translucent",
+      "peakKB": 3041.1,
+      "peakCalls": 23
+    },
+    {
+      "id": "fixture_multi_layer",
+      "peakKB": 3040.8,
+      "peakCalls": 34
+    },
+    {
+      "id": "fixture_translucent_stroke",
+      "peakKB": 3040.3,
+      "peakCalls": 19
+    },
+    {
+      "id": "fixture_x_translucent_anim",
+      "peakKB": 3040.3,
+      "peakCalls": 20
+    },
+    {
+      "id": "fixture_x_anim_multi_property",
+      "peakKB": 3040.1,
+      "peakCalls": 21
+    },
+    {
+      "id": "fixture_stroke_offset_right_large",
+      "peakKB": 3036.6,
+      "peakCalls": 20
+    },
+    {
+      "id": "fixture_line",
+      "peakKB": 3035.6,
+      "peakCalls": 20
+    },
+    {
+      "id": "fixture_line_join",
+      "peakKB": 3035.6,
+      "peakCalls": 23
+    }
+  ]
+}

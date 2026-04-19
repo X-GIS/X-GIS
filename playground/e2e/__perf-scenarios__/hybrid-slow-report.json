@@ -1,0 +1,183 @@
+{
+  "stalls": [
+    {
+      "t": 9750.09999999404,
+      "dt": 1081.5999999940395,
+      "i": 992
+    },
+    {
+      "t": 8302.90000000596,
+      "dt": 197,
+      "i": 947
+    },
+    {
+      "t": 993.6999999880791,
+      "dt": 156.5,
+      "i": 114
+    }
+  ],
+  "total_frames": 1229,
+  "max_dt": 1081.5999999940395,
+  "top_self_time_us": [
+    {
+      "usec": 2001165,
+      "name": "(idle) @ :-1"
+    },
+    {
+      "usec": 1315058,
+      "name": "prefetchAdjacent @ data/xgvt-source.ts?t=1776450765741:907"
+    },
+    {
+      "usec": 1266614,
+      "name": "(program) @ :-1"
+    },
+    {
+      "usec": 674747,
+      "name": "collectBits22 @ tiler/vector-tiler.ts:119"
+    },
+    {
+      "usec": 671929,
+      "name": "collectBits22 @ tiler/vector-tiler.ts:119"
+    },
+    {
+      "usec": 377998,
+      "name": "collectBits22 @ tiler/vector-tiler.ts:119"
+    },
+    {
+      "usec": 373757,
+      "name": "collectBits22 @ tiler/vector-tiler.ts:119"
+    },
+    {
+      "usec": 227484,
+      "name": "toScreen @ loader/tiles.ts:77"
+    },
+    {
+      "usec": 202681,
+      "name": "toScreen @ loader/tiles.ts:77"
+    },
+    {
+      "usec": 186710,
+      "name": "toScreen @ loader/tiles.ts:77"
+    },
+    {
+      "usec": 169655,
+      "name": "tileYToLat @ loader/tiles.ts:92"
+    },
+    {
+      "usec": 168720,
+      "name": "tileYToLat @ loader/tiles.ts:92"
+    },
+    {
+      "usec": 167914,
+      "name": "tileYToLat @ loader/tiles.ts:92"
+    },
+    {
+      "usec": 165748,
+      "name": "classifyTile @ loader/tiles.ts:99"
+    },
+    {
+      "usec": 159338,
+      "name": "buildLineSegments @ engine/line-renderer.ts:233"
+    },
+    {
+      "usec": 152442,
+      "name": "latToMerc @ loader/tiles.ts:87"
+    },
+    {
+      "usec": 152187,
+      "name": "classifyTile @ loader/tiles.ts:99"
+    },
+    {
+      "usec": 148855,
+      "name": "classifyTile @ loader/tiles.ts:99"
+    },
+    {
+      "usec": 143215,
+      "name": "latToMerc @ loader/tiles.ts:87"
+    },
+    {
+      "usec": 142972,
+      "name": "render @ engine/raster-renderer.ts?t=1776448043923:295"
+    },
+    {
+      "usec": 142699,
+      "name": "latToMerc @ loader/tiles.ts:87"
+    },
+    {
+      "usec": 136775,
+      "name": "lonLatToMercDSFUN @ engine/graticule.ts:3"
+    },
+    {
+      "usec": 114281,
+      "name": "fetch @ :-1"
+    },
+    {
+      "usec": 109857,
+      "name": "(garbage collector) @ :-1"
+    },
+    {
+      "usec": 108113,
+      "name": "spreadBits22 @ tiler/vector-tiler.ts:111"
+    },
+    {
+      "usec": 91489,
+      "name": "lonLatToMercDSFUN @ engine/graticule.ts:3"
+    },
+    {
+      "usec": 87214,
+      "name": "spreadBits22 @ tiler/vector-tiler.ts:111"
+    },
+    {
+      "usec": 76069,
+      "name": "pushDedupPV @ data/xgvt-source.ts?t=1776450765741:728"
+    },
+    {
+      "usec": 69625,
+      "name": "createImageBitmap @ :-1"
+    },
+    {
+      "usec": 64630,
+      "name": "spreadBits22 @ tiler/vector-tiler.ts:111"
+    },
+    {
+      "usec": 63558,
+      "name": "setBindGroup @ :-1"
+    },
+    {
+      "usec": 61696,
+      "name": "visit @ loader/tiles.ts:178"
+    },
+    {
+      "usec": 61070,
+      "name": "pushDedupPV @ data/xgvt-source.ts?t=1776450765741:728"
+    },
+    {
+      "usec": 56551,
+      "name": "visit @ loader/tiles.ts:178"
+    },
+    {
+      "usec": 55856,
+      "name": "copyExternalImageToTexture @ :-1"
+    },
+    {
+      "usec": 55154,
+      "name": "passScope @ engine/map.ts?t=1776450765741:692"
+    },
+    {
+      "usec": 54934,
+      "name": "render @ engine/vector-tile-renderer.ts?t=1776450454100:438"
+    },
+    {
+      "usec": 48677,
+      "name": "visit @ loader/tiles.ts:178"
+    },
+    {
+      "usec": 48654,
+      "name": "writeBuffer @ :-1"
+    },
+    {
+      "usec": 46883,
+      "name": "generateSubTile @ data/xgvt-source.ts?t=1776450765741:686"
+    }
+  ]
+}
