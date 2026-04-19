@@ -3,6 +3,7 @@ import {
   simulateTilePipeline,
   makePitchSweep,
 } from '../loader/tile-pipeline-simulator'
+import { predictTilePipeline } from '../loader/tile-pipeline-predictor'
 
 describe('tile pipeline simulator — basic behavior', () => {
   it('steady low-demand scene converges to zero misses and zero backlog', () => {
@@ -68,6 +69,38 @@ describe('tile pipeline simulator — FLICKER reproduction', () => {
     // Backlog during motion should be positive.
     const motionPeak = Math.max(...result.perFrame.slice(0, 8).map(f => f.backlogSize))
     expect(motionPeak).toBeGreaterThan(0)
+  })
+
+  it('z=22 pitch 60° over Paris — user-reported polygon offset symptom', () => {
+    // User reported: "실제 피치값을 주고 확대 22레벨까지 진행 해야
+    // 오프셋 이슈가 발생함". At zoom 22 with pitch applied, polygons
+    // visually render at the wrong screen position (full-cover quads
+    // appear in the horizon area instead of filling the viewport
+    // under the camera). Browser-verified 2026-04-21 on the
+    // `categorical` demo at (lon=2.3522, lat=48.8566, zoom=22, pitch=60):
+    // blue France fill appeared as a rectangle in the upper half of the
+    // screen rather than covering the ground under Paris.
+    //
+    // Root cause is not yet isolated (likely candidates: DSFUN split
+    // precision at 22-level overzoom, near/far clipping plane mis-
+    // match at extreme zoom, or log-depth factor quantisation at this
+    // ratio). This test locks in the predictor state so a fix that
+    // changes the tile-pipeline shape here gets flagged.
+    const pred = predictTilePipeline(
+      { lon: 2.3522, lat: 48.8566, zoom: 22, bearing: 0, pitch: 60 },
+      { maxLevel: 4 }, // countries.geojson has low source maxLevel
+      1200, 800,
+    )
+    // The source's overzoomBudget (default 13) caps requestable zoom
+    // at maxLevel + 13 = 17, not the requested 22. So the frustum
+    // actually wants tiles at z=17, not z=22 — and the 5 missing
+    // levels are served by parent-tile fallback. This limit itself
+    // may contribute to the observed symptom (polygons "disappearing"
+    // because the requested tile depth can't reach the camera zoom).
+    expect(pred.requestedZ).toBe(17)
+    expect(pred.overzoom).toBe(true)
+    expect(pred.overzoomLevels).toBe(13)
+    expect(pred.cacheCapacityCheck.saturated).toBe(true)
   })
 
   it('a larger upload budget reduces peak missed count for the same trajectory', () => {
