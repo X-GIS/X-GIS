@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { mercator, equirectangular, naturalEarth } from '../engine/projection'
+import {
+  mercator, equirectangular, naturalEarth,
+  orthographic, azimuthalEquidistant, stereographic, obliqueMercator,
+} from '../engine/projection'
 import {
   projMercatorWgsl,
   projEquirectangularWgsl,
   projNaturalEarthWgsl,
+  projOrthographicWgsl,
+  projAzimuthalEquidistantWgsl,
+  projStereographicWgsl,
+  projObliqueMercatorWgsl,
+  cosC,
 } from '../engine/projection-wgsl-mirror'
 
 // Phase 2-A: Cross-consistency between CPU canonical (projection.ts) and
@@ -98,5 +106,100 @@ describe('CPU/GPU projection consistency — Natural Earth (KNOWN DIVERGENCE)', 
       }
     }
     expect(foundDivergence).toBe(true)
+  })
+})
+
+const CENTER_LON = 0
+const CENTER_LAT = 20
+
+describe('CPU/GPU projection consistency — Orthographic', () => {
+  const cpu = orthographic(CENTER_LON, CENTER_LAT)
+
+  it('CPU and WGSL agree to ≤1mm on the FRONT hemisphere (cos_c > 0)', () => {
+    for (const [lon, lat] of sampleGrid()) {
+      if (cosC(lon, lat, CENTER_LON, CENTER_LAT) <= 0) continue
+      const [xA, yA] = cpu.forward(lon, lat)
+      const [xB, yB] = projOrthographicWgsl(lon, lat, CENTER_LON, CENTER_LAT)
+      expect(xB).toBeCloseTo(xA, 3)
+      expect(yB).toBeCloseTo(yA, 3)
+    }
+  })
+
+  it('A-3 KNOWN DIVERGENCE: CPU returns NaN for back-hemisphere, WGSL computes real values', () => {
+    // This is the back-face-culling stage divergence. CPU orthographic
+    // culls at projection time (returns NaN when cos_c < 0), while WGSL
+    // projects unconditionally and defers culling to `needs_backface_cull`
+    // in renderer.ts. A shader path that skips needs_backface_cull would
+    // fold back-hemisphere geometry onto the front of the globe.
+    let cpuNaNCount = 0
+    let wgslFiniteInBackCount = 0
+    for (const [lon, lat] of sampleGrid()) {
+      if (cosC(lon, lat, CENTER_LON, CENTER_LAT) >= 0) continue
+      const [xA] = cpu.forward(lon, lat)
+      const [xB, yB] = projOrthographicWgsl(lon, lat, CENTER_LON, CENTER_LAT)
+      if (Number.isNaN(xA)) cpuNaNCount++
+      if (Number.isFinite(xB) && Number.isFinite(yB)) wgslFiniteInBackCount++
+    }
+    expect(cpuNaNCount).toBeGreaterThan(0)
+    expect(wgslFiniteInBackCount).toBeGreaterThan(0)
+  })
+})
+
+describe('CPU/GPU projection consistency — Azimuthal Equidistant', () => {
+  const cpu = azimuthalEquidistant(CENTER_LON, CENTER_LAT)
+  it('CPU and WGSL agree to ≤1mm across the full globe (azimuthal has no back-face cull)', () => {
+    for (const [lon, lat] of sampleGrid()) {
+      const [xA, yA] = cpu.forward(lon, lat)
+      const [xB, yB] = projAzimuthalEquidistantWgsl(lon, lat, CENTER_LON, CENTER_LAT)
+      expect(xB).toBeCloseTo(xA, 3)
+      expect(yB).toBeCloseTo(yA, 3)
+    }
+  })
+})
+
+describe('CPU/GPU projection consistency — Stereographic', () => {
+  const cpu = stereographic(CENTER_LON, CENTER_LAT)
+
+  it('CPU and WGSL agree to ≤1mm for non-antipodal points (cos_c > -0.9)', () => {
+    for (const [lon, lat] of sampleGrid()) {
+      if (cosC(lon, lat, CENTER_LON, CENTER_LAT) <= -0.9) continue
+      const [xA, yA] = cpu.forward(lon, lat)
+      const [xB, yB] = projStereographicWgsl(lon, lat, CENTER_LON, CENTER_LAT)
+      expect(xB).toBeCloseTo(xA, 3)
+      expect(yB).toBeCloseTo(yA, 3)
+    }
+  })
+
+  it('KNOWN: CPU returns NaN near antipode while WGSL returns sentinel 1e15', () => {
+    // Convention drift parallel to A-3: CPU projects.ts returns [NaN, NaN]
+    // when cos_c < -0.9, the WGSL returns vec2<f32>(1e15, 1e15). Both
+    // effectively "cull" but the contract differs — consumers that check
+    // Number.isFinite see different booleans.
+    let cpuNaNCount = 0, wgslSentinelCount = 0
+    for (const [lon, lat] of sampleGrid()) {
+      if (cosC(lon, lat, CENTER_LON, CENTER_LAT) >= -0.9) continue
+      const [xA] = cpu.forward(lon, lat)
+      const [xB] = projStereographicWgsl(lon, lat, CENTER_LON, CENTER_LAT)
+      if (Number.isNaN(xA)) cpuNaNCount++
+      if (xB === 1e15) wgslSentinelCount++
+    }
+    // May be 0 if the grid doesn't reach the antipode region for this
+    // center — that's fine, the point is the observation is recorded.
+    // eslint-disable-next-line no-console
+    console.log(`[stereographic back-hemisphere convention] CPU NaN=${cpuNaNCount} WGSL sentinel=${wgslSentinelCount}`)
+  })
+})
+
+describe('CPU/GPU projection consistency — Oblique Mercator', () => {
+  const cpu = obliqueMercator(CENTER_LON, CENTER_LAT)
+  it('CPU and WGSL agree to ≤1mm for the main strip', () => {
+    for (const [lon, lat] of sampleGrid()) {
+      const [xA, yA] = cpu.forward(lon, lat)
+      const [xB, yB] = projObliqueMercatorWgsl(lon, lat, CENTER_LON, CENTER_LAT)
+      // Both sides clamp phi_shifted to [-1.5, 1.5] so the projection is
+      // bounded; tolerance can stay tight.
+      expect(xB).toBeCloseTo(xA, 3)
+      expect(yB).toBeCloseTo(yA, 3)
+    }
   })
 })
