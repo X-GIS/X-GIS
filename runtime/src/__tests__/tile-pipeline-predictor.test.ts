@@ -125,6 +125,33 @@ describe('tile pipeline predictor', () => {
     }
   })
 
+  it('reproduces the water_hierarchy FLICKER scenario — pitch 79.9° at z=13.5 over 10m source', () => {
+    // Second user-reported FLICKER case, different source. The
+    // _water-hierarchy-pitch.spec.ts .fail test documents console output
+    // of "[FLICKER] land: 49 tiles without fallback (z=14 gpuCache=237)"
+    // at this camera state. The predictor should flag the frame as
+    // budget-saturated (requestedCount hit the MAX_FRUSTUM_TILES cap)
+    // and report non-trivial overzoom.
+    const pred = predictTilePipeline(
+      {
+        lon: 91.09184,
+        lat: 24.22985,
+        zoom: 13.5,
+        bearing: 330.0,
+        pitch: 79.9,
+      },
+      { maxLevel: 10 }, // ne_10m_* sources
+      1200, 800,
+    )
+    // z=13.5 rounds to 14 at the frustum.
+    expect(pred.requestedZ).toBe(14)
+    // Overzoom by ~4 levels past the source maxLevel.
+    expect(pred.overzoom).toBe(true)
+    expect(pred.overzoomLevels).toBe(4)
+    // High pitch → budget saturates.
+    expect(pred.cacheCapacityCheck.saturated).toBe(true)
+  })
+
   it('pitch 0° at z=20 demands far fewer tiles than pitch 64°', () => {
     // Controls the "pitch multiplies tile count" axiom that drives the
     // bug. Top-down z=20 sees a small rectangular patch; pitched z=20
