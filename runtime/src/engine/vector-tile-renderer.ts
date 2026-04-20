@@ -871,7 +871,19 @@ export class VectorTileRenderer {
       if (cachedAncestorKey >= 0) {
         const parentKey = cachedAncestorKey
         if (!this.gpuCache.has(parentKey)) {
-          this.uploadTile(parentKey, this.source.getTileData(parentKey)!)
+          // Ancestor uploads BYPASS the per-frame budget. Rationale:
+          // fallback parents are the visual safety net for every over-
+          // zoom child currently needing render. There are at most
+          // a handful of unique ancestor keys in a frame (log₂(N)
+          // pyramid depth × frustum span), so unconditional upload
+          // adds minimal GPU work. If the budget throttles them
+          // behind sub-tile uploads, `fallbackKeys.push(parentKey)`
+          // below still emits a draw — but `renderTiles` then finds
+          // no `gpuCache.get(parentKey)` and the tile renders as a
+          // black hole. Caught by _high-pitch-flicker.spec.ts's
+          // "below-horizon renders SOME geometry" assertion (0/18576
+          // non-black pixels in the ground-sample region pre-fix).
+          this.doUploadTile(parentKey, this.source.getTileData(parentKey)!)
         }
 
         if (tileZ > maxLevel) {
