@@ -245,6 +245,24 @@ export class XGVTSource {
       }
     }
 
+    // Full-cover sub-tiles need the quad synthesized from their entry
+    // (fullCoverFeatureId → 4-vertex quad at tile bounds) — same path
+    // batch-loaded full-cover tiles take at load time. Without this,
+    // the empty vertex buffer that compileSingleTile emits after
+    // detecting full-cover lands in dataCache with length 0 and the
+    // renderer has nothing to draw. Surfaces in the Stress-many-layers
+    // fixture: each per-layer filter produces a source whose polygon
+    // fully covers many zoom-tiles; without the quad, layers go blank
+    // past z=6.
+    if (tileFullCover && tile.vertices.length === 0) {
+      const entry = this.index?.entryByHash.get(key)
+      if (entry) {
+        this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
+        this._compileBudget++
+        return true
+      }
+    }
+
     const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
     // Forward the GeoJSON tiler's pre-augmented outline buffers when
     // present so VTR can use the global-arc outline path. Binary .xgvt
