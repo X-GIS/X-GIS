@@ -1058,7 +1058,14 @@ export class XGISMap {
         if (tileSet.levels.length > 0) {
           source.addTileLevel(tileSet.levels[0], tileSet.bounds, tileSet.propertyTable)
         }
-        source.setRawParts(parts, tileSet.levels.length > 0 ? 7 : 0)
+        // rawMaxZoom caps runtime sub-tile generation depth. Set to
+        // camera.maxZoom (22) so zooming past z=7 produces properly-
+        // sized sub-tiles (9.5 m at z=22) instead of a z=7 parent fallback
+        // whose 305 km quad distorts under pitched perspective.
+        // Paired with 5c1be77's fullCover plumbing through compileSingleTile
+        // → xgvt-source so the sub-tile quads reach the match() color
+        // lookup with the correct feature id attached.
+        source.setRawParts(parts, tileSet.levels.length > 0 ? 22 : 0)
 
         // Feature data buffer MUST be built after the property table
         // is set on the source — which only happens in `addTileLevel`
