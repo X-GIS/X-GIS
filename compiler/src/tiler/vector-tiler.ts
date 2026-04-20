@@ -590,6 +590,25 @@ export function augmentRingWithArc(ring: number[][]): number[][] {
   return augmentChainWithArc(ring, true)
 }
 
+/** Remove consecutive duplicate (lon, lat) vertices from a ring.
+ *  clipPolygonToRect occasionally emits rings that start with a
+ *  duplicate of the first vertex; such duplicates become zero-length
+ *  degenerate segments downstream and poison buildLineSegments'
+ *  adjacency lookup. Epsilon of 1e-12 deg (~0.1 nm) matches the
+ *  tolerance used by augmentChainWithArc for the closing-duplicate
+ *  detection. */
+function dedupAdjacentVertices(ring: number[][]): number[][] {
+  if (ring.length < 2) return ring
+  const out: number[][] = [ring[0]]
+  for (let i = 1; i < ring.length; i++) {
+    const prev = out[out.length - 1]
+    const cur = ring[i]
+    if (Math.abs(prev[0] - cur[0]) < 1e-12 && Math.abs(prev[1] - cur[1]) < 1e-12) continue
+    out.push(cur)
+  }
+  return out
+}
+
 /** Open polyline → arc-augmented chain. Thin shim around
  *  `augmentChainWithArc` for call-site readability. */
 function augmentLineWithArc(coords: number[][]): number[][] {
@@ -842,16 +861,16 @@ function processZoomLevelShared(
               featureIds.add(fid)
               tilePolygons.push({ rings: dataRings, featId: fid })
             }
-            // Emit outline through the line pipeline so dash phase + pattern
-            // arc stay continuous across tile boundaries. Walk each
-            // ORIGINAL (unclipped) ring through the same augment + clip +
-            // tessellate path used by line features. clipLineToRect
-            // produces open chains per tile that retain interpolated arc
-            // values at boundary crossings — a polygon ring split across
-            // four tiles renders four chains whose arcs join seamlessly.
-            for (const ring of sp.rings) {
-              if (ring.length < 3) continue
-              const arcRing = augmentRingWithArc(ring)
+            // Emit outline via the line pipeline. Uses the LON/LAT-
+            // clipped rings (`clipped`) instead of the original
+            // `sp.rings` so outline endpoints exactly match where the
+            // fill edges end at the tile boundary — see the fuller
+            // explanation on the parallel code path in
+            // compileSingleTile (fixed 2026-04-20, same bug).
+            for (const ring of clipped) {
+              const ringDedup = dedupAdjacentVertices(ring)
+              if (ringDedup.length < 3) continue
+              const arcRing = augmentRingWithArc(ringDedup)
               if (arcRing.length < 2) continue
               const segments = clipLineToRect(arcRing, tbMxW, tbMyS, tbMxE, tbMyN)
               for (const seg of segments) {
@@ -1012,11 +1031,39 @@ export function compileSingleTile(
           featureIds.add(fid)
           tilePolygons.push({ rings: dataRings, featId: fid })
         }
-        // Outline through the line pipeline — see the per-tile pyramid
-        // path above for the full rationale (cross-tile dash continuity).
-        for (const ring of part.rings) {
-          if (ring.length < 3) continue
-          const arcRing = augmentRingWithArc(ring)
+        // Outline through the line pipeline. Uses `clipped` (the
+        // LON/LAT-clipped rings from the fill path above) — NOT the
+        // original `part.rings` — so outline endpoints land exactly
+        // on the same tile-boundary points the fill edges end at.
+        //
+        // Historical bug (fixed 2026-04-20): previous code walked
+        // `part.rings` and then clipped a second time in Mercator via
+        // `clipLineToRect`. For source polygons with edges that span
+        // many degrees of latitude (e.g. a triangle vertex at
+        // lat=-20 connecting to lat=+30), a straight line in lon/lat
+        // is a curve in Mercator, so the two clips produce endpoints
+        // that differ by up to tens of km at boundary tiles — fill
+        // and stroke end up drawn at geometrically different places.
+        // Using the lon/lat-clipped rings keeps the two pipelines
+        // aligned to the spec GeoJSON linear-interpolation semantics.
+        //
+        // Note: augmentRingWithArc restarts arc=0 at each ring, so
+        // dash patterns on a polygon split across multiple tiles now
+        // desync at tile boundaries for cross-tile arcs. Accepted
+        // trade-off: visible stroke/fill alignment matters more than
+        // dash phase continuity across tile seams. If cross-tile
+        // dash continuity is needed later, the augmenter needs to
+        // carry a source-ring-global arc into the clipped ring.
+        for (const ring of clipped) {
+          // clipPolygonToRect can emit rings that start with a duplicate
+          // of the first vertex (Sutherland-Hodgman stitches the
+          // closure at the top). Dedup adjacent repeats before
+          // augmenting so augmentRingWithArc doesn't produce a
+          // degenerate zero-length self-loop segment, which would
+          // otherwise poison buildLineSegments' adjacency lookup.
+          const ringDedup = dedupAdjacentVertices(ring)
+          if (ringDedup.length < 3) continue
+          const arcRing = augmentRingWithArc(ringDedup)
           if (arcRing.length < 2) continue
           const segments = clipLineToRect(arcRing, stMxW, stMyS, stMxE, stMyN)
           for (const seg of segments) {

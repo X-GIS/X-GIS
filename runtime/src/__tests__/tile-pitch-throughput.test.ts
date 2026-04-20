@@ -163,18 +163,22 @@ describe('Throughput convergence: bug URL (pitch=84)', () => {
     expect(framesToConverge).toBeLessThanOrEqual(60)
   })
 
-  it.fails('fast convergence target: ≤ 20 frames (333 ms @ 60 fps)', () => {
-    // KNOWN FAIL — captures the current throughput bottleneck as a
-    // non-regression target. Observed: ~60 frames at pitch=84 with
-    // the 4-compile/8-sub-tile per-frame budget. When the budget is
-    // raised to an adaptive time-based approach, this test flips to
-    // passing (it.fails inverts) and the marker can be removed.
+  it('fast convergence target: ≤ 20 frames (333 ms @ 60 fps)', () => {
+    // Raw-parts convergence at the bug URL. Initially (count-based
+    // budget) this took ~60 frames. The time-based hybrid budget
+    // brought it to ~57, and the polygon-fill/stroke outline fix
+    // (using clipped rings = smaller input to augmentRingWithArc)
+    // dropped it further to ~19 frames. That's below the fast-
+    // target threshold, so the test now asserts it as a standing
+    // invariant. A regression past 20 frames signals either the
+    // compile budget was lowered or the outline pipeline got
+    // heavier.
     const cam = makeBugCam()
     const tiles = visibleTilesFrustum(cam, mercator, Math.round(BUG.zoom), W, H)
     const tileKeys = tiles.map(t => tileKey(t.z, t.x, t.y))
 
     const source = coldSource()
-    const { framesToConverge } = simulateConvergence(source, tileKeys, 20)
+    const { framesToConverge } = simulateConvergence(source, tileKeys, 30)
     expect(framesToConverge, 'fast-target: needs ≤ 20 frames').toBeGreaterThan(0)
     expect(framesToConverge).toBeLessThanOrEqual(20)
   })
