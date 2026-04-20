@@ -6,7 +6,7 @@
 import earcut from 'earcut'
 import { simplifyPolygon, simplifyLine, mercatorToleranceForZoom } from './simplify'
 import { clipPolygonToRect, clipLineToRect } from './clip'
-import { precisionForZoom, precisionForZoomMM } from './encoding'
+import { precisionForZoomMM } from './encoding'
 import type { GeoJSONFeatureCollection, GeoJSONFeature } from './geojson-types'
 
 /** Tile coordinate extent (like MVT 4096, but higher for military precision) */
@@ -423,13 +423,13 @@ function shoelaceArea(ring: number[][]): number {
 }
 
 // ═══ Tessellation ═══
-
-/** Project latitude to Mercator Y (unitless, for earcut topology only) */
-function latToMercatorY(lat: number): number {
-  const clamped = Math.max(-85.051, Math.min(85.051, lat))
-  const rad = clamped * Math.PI / 180
-  return Math.log(Math.tan(Math.PI / 4 + rad / 2))
-}
+//
+// Note: the old `latToMercatorY(lat)` helper was removed when
+// `tessellatePolygonToArrays` moved to MM-native input (commit
+// 5ee001c — industry-standard pipeline). Earcut now runs directly
+// on MM coords since all upstream clipping + simplification already
+// happens in MM, so the "project-just-for-earcut" step became a
+// no-op.
 
 /** Vertex dedup key: quantize to 1e6 (~0.1m), include feature ID */
 function vertexKey(x: number, y: number, fid: number): string {
