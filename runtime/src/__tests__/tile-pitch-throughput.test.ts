@@ -1,0 +1,216 @@
+import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+
+import { Camera } from '../engine/camera'
+import { visibleTilesFrustum, firstIndexedAncestor } from '../loader/tiles'
+import { mercator } from '../engine/projection'
+import { XGVTSource } from '../data/xgvt-source'
+import {
+  compileGeoJSONToTiles, decomposeFeatures, tileKey,
+} from '@xgis/compiler'
+import type { GeoJSONFeatureCollection } from '@xgis/compiler'
+
+// THROUGHPUT CONVERGENCE at high-pitch frustum loads.
+//
+// Memory (project_tile_pitch_matrix.md) says the ROOT cause of the
+// user's "tiles don't load at pitch=84" bug is the per-frame
+// compile/sub-tile budget, not selection math — all 273 frustum
+// tiles ARE selected correctly (prior tests confirmed), but the
+// budget of 4 compiles + 8 sub-tiles per frame cannot absorb them in
+// reasonable time.
+//
+// This test measures the concrete convergence cost: starting from a
+// cold source (only z=0 pre-compiled), how many "frames" does it
+// take to satisfy every frustum tile's draw-path contract? A frame
+// here = one `resetCompileBudget` + one pass through the tile list
+// calling compileTileOnDemand/generateSubTile per tile.
+//
+// Target: converge in ≤ 20 frames (≈ 333 ms at 60 fps). Reaching the
+// 60-frame mark (≈ 1 s) means the user perceives sustained lag.
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const COUNTRIES_PATH = resolve(__dirname, '../../../playground/public/data/countries.geojson')
+
+const W = 1024
+const H = 768
+
+const BUG = {
+  zoom: 10.29,
+  lat: 30.94565,
+  lon: 117.95751,
+  bearing: 359.5,
+  pitch: 84.0,
+} as const
+
+function makeBugCam(): Camera {
+  const c = new Camera(BUG.lon, BUG.lat, BUG.zoom)
+  c.pitch = BUG.pitch
+  c.bearing = BUG.bearing
+  return c
+}
+
+let countries: GeoJSONFeatureCollection | null = null
+function loadCountries(): GeoJSONFeatureCollection {
+  if (countries) return countries
+  countries = JSON.parse(readFileSync(COUNTRIES_PATH, 'utf8')) as GeoJSONFeatureCollection
+  return countries
+}
+
+/** Build a source whose state mirrors "just finished initial load":
+ *  z=0 tile pre-compiled + raw parts ready for on-demand compile at
+ *  any deeper zoom. Same setup as tile-real-data-coverage.test.ts. */
+function coldSource(): XGVTSource {
+  const gj = loadCountries()
+  const parts = decomposeFeatures(gj.features)
+  const set = compileGeoJSONToTiles(gj, { minZoom: 0, maxZoom: 0 })
+  const source = new XGVTSource()
+  source.addTileLevel(set.levels[0], set.bounds, set.propertyTable)
+  source.setRawParts(parts, 22)
+  return source
+}
+
+/** Run N "frames": each frame resets budgets + iterates the target
+ *  tile set calling compileTileOnDemand. Returns frame count at which
+ *  every tile was satisfied, or maxFrames if not converged. */
+function simulateConvergence(
+  source: XGVTSource,
+  tileKeys: number[],
+  maxFrames: number,
+): { framesToConverge: number; readyPerFrame: number[]; finalReady: number } {
+  const readyPerFrame: number[] = []
+  for (let frame = 1; frame <= maxFrames; frame++) {
+    source.resetCompileBudget()
+    for (const key of tileKeys) {
+      if (source.getTileData(key)) continue
+      source.compileTileOnDemand(key)
+    }
+    let ready = 0
+    for (const key of tileKeys) if (source.getTileData(key)) ready++
+    readyPerFrame.push(ready)
+    if (ready === tileKeys.length) {
+      return { framesToConverge: frame, readyPerFrame, finalReady: ready }
+    }
+  }
+  const finalReady = readyPerFrame[readyPerFrame.length - 1] ?? 0
+  return { framesToConverge: -1, readyPerFrame, finalReady }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 1: Baseline — pitch=0 at bug lat/lon/zoom
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Throughput convergence: baseline (pitch=0)', () => {
+  it('at pitch=0 zoom=10.29, convergence is fast (few frames)', () => {
+    const cam = new Camera(BUG.lon, BUG.lat, BUG.zoom)
+    cam.pitch = 0
+    const tiles = visibleTilesFrustum(cam, mercator, Math.round(BUG.zoom), W, H)
+    const tileKeys = tiles.map(t => tileKey(t.z, t.x, t.y))
+
+    const source = coldSource()
+    const { framesToConverge, finalReady } = simulateConvergence(source, tileKeys, 30)
+    console.log(
+      `[throughput pitch=0] ${tileKeys.length} tiles → converged in ${framesToConverge} frames ` +
+      `(final ready=${finalReady})`,
+    )
+    // Baseline expectation: low-tile-count flat-camera viewport
+    // should finish in well under 20 frames.
+    expect(framesToConverge).toBeGreaterThan(0)
+    expect(framesToConverge).toBeLessThanOrEqual(20)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 2: Bug URL — pitch=84
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Throughput convergence: bug URL (pitch=84)', () => {
+  it('at the exact bug URL, convergence frame count is recorded', () => {
+    const cam = makeBugCam()
+    const tiles = visibleTilesFrustum(cam, mercator, Math.round(BUG.zoom), W, H)
+    const tileKeys = tiles.map(t => tileKey(t.z, t.x, t.y))
+
+    const source = coldSource()
+    const { framesToConverge, readyPerFrame, finalReady } = simulateConvergence(source, tileKeys, 100)
+    console.log(
+      `[throughput pitch=84 bug URL] ${tileKeys.length} tiles → ` +
+      (framesToConverge > 0
+        ? `converged in ${framesToConverge} frames`
+        : `NOT CONVERGED after 100 frames (${finalReady}/${tileKeys.length} ready)`),
+    )
+    console.log(
+      `[throughput pitch=84 bug URL] per-frame ready: ${readyPerFrame.slice(0, 10).join(', ')}` +
+      (readyPerFrame.length > 10 ? `, ... (${readyPerFrame.length} frames total)` : ''),
+    )
+    expect(framesToConverge, 'never converged in 100 frames').toBeGreaterThan(0)
+  })
+
+  it('convergence happens in ≤ 60 frames (≈ 1 s @ 60 fps)', () => {
+    const cam = makeBugCam()
+    const tiles = visibleTilesFrustum(cam, mercator, Math.round(BUG.zoom), W, H)
+    const tileKeys = tiles.map(t => tileKey(t.z, t.x, t.y))
+
+    const source = coldSource()
+    const { framesToConverge } = simulateConvergence(source, tileKeys, 60)
+    // 60 frames = 1 second at 60 fps. If convergence takes longer,
+    // the user perceives sustained "tiles still loading" during
+    // camera motion — which is the reported symptom.
+    expect(
+      framesToConverge,
+      `convergence took more than 60 frames — user-perceived "no tiles loading"`,
+    ).toBeGreaterThan(0)
+    expect(framesToConverge).toBeLessThanOrEqual(60)
+  })
+
+  it.fails('fast convergence target: ≤ 20 frames (333 ms @ 60 fps)', () => {
+    // KNOWN FAIL — captures the current throughput bottleneck as a
+    // non-regression target. Observed: ~60 frames at pitch=84 with
+    // the 4-compile/8-sub-tile per-frame budget. When the budget is
+    // raised to an adaptive time-based approach, this test flips to
+    // passing (it.fails inverts) and the marker can be removed.
+    const cam = makeBugCam()
+    const tiles = visibleTilesFrustum(cam, mercator, Math.round(BUG.zoom), W, H)
+    const tileKeys = tiles.map(t => tileKey(t.z, t.x, t.y))
+
+    const source = coldSource()
+    const { framesToConverge } = simulateConvergence(source, tileKeys, 20)
+    expect(framesToConverge, 'fast-target: needs ≤ 20 frames').toBeGreaterThan(0)
+    expect(framesToConverge).toBeLessThanOrEqual(20)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 3: Pitch sweep — does convergence time monotonically worsen?
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Throughput convergence: pitch sweep', () => {
+  // 30s timeout: 9 pitches × up to 200 frames × ~10-20ms per frame
+  // with cold-source setup = ~18s worst case.
+  it('records convergence frames across pitch 0→85', { timeout: 30_000 }, () => {
+    const rows: Array<{ pitch: number; tiles: number; frames: number }> = []
+    for (const pitch of [0, 20, 40, 60, 70, 75, 80, 84, 85]) {
+      const cam = new Camera(BUG.lon, BUG.lat, BUG.zoom)
+      cam.pitch = pitch
+      cam.bearing = BUG.bearing
+      const tiles = visibleTilesFrustum(cam, mercator, Math.round(BUG.zoom), W, H)
+      const tileKeys = tiles.map(t => tileKey(t.z, t.x, t.y))
+
+      const source = coldSource()
+      const { framesToConverge } = simulateConvergence(source, tileKeys, 200)
+      rows.push({ pitch, tiles: tileKeys.length, frames: framesToConverge })
+    }
+    console.log('[throughput pitch sweep]')
+    for (const r of rows) {
+      console.log(
+        `  pitch=${r.pitch.toString().padStart(3)} → ` +
+        `${r.tiles.toString().padStart(4)} tiles, ` +
+        `${r.frames > 0 ? r.frames.toString().padStart(3) + ' frames' : 'NOT CONVERGED'}`,
+      )
+    }
+    // Monotonicity assertion: every pitch must at least converge.
+    for (const r of rows) {
+      expect(r.frames, `pitch=${r.pitch}: did not converge in 200 frames`).toBeGreaterThan(0)
+    }
+  })
+})
