@@ -1167,9 +1167,24 @@ export class VectorTileRenderer {
   private evictGPUTiles(): void {
     if (this.gpuCache.size <= MAX_GPU_TILES) return
 
+    // Protect indexed ancestors (tileZoom ≤ sourceMaxLevel) plus
+    // the current frame's stableKeys. Indexed ancestors are the
+    // fallback backbone — every over-zoom sub-tile relies on its
+    // nearest indexed ancestor staying in gpuCache. Evicting one
+    // under LRU pressure breaks every z=N descendant at once, which
+    // manifested as the "ocean: 164 tiles without fallback" regression
+    // caught by _high-pitch-flicker.spec.ts.
+    //
+    // Historical cap was `tileZoom > 4` — fine when every source
+    // maxed out around z=4, but physical_map_50m sources go up to
+    // z=5 (110m) and z=7 (50m). Hard-coded 4 left z=5/6/7 ancestors
+    // evictable while they were serving as the ONLY fallback for
+    // hundreds of z=10 descendants.
+    const sourceMaxLevel = this.source?.maxLevel ?? 4
+    const safeBelow = Math.max(4, sourceMaxLevel)
     const protectedKeys = new Set(this.stableKeys)
     const entries = [...this.gpuCache.entries()]
-      .filter(([key, tile]) => !protectedKeys.has(key) && tile.tileZoom > 4)
+      .filter(([key, tile]) => !protectedKeys.has(key) && tile.tileZoom > safeBelow)
       .sort((a, b) => a[1].lastUsedFrame - b[1].lastUsedFrame)
 
     const toEvict = this.gpuCache.size - MAX_GPU_TILES

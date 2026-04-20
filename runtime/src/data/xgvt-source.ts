@@ -1219,8 +1219,17 @@ export class XGVTSource {
   evictTiles(protectedKeys: Set<number>): void {
     if (this.dataCache.size <= MAX_CACHED_TILES) return
 
+    // Protect all indexed ancestor tiles (z ≤ maxLevel) in addition
+    // to the current frame's stableKeys. Same rationale as the
+    // VectorTileRenderer gpuCache eviction: every over-zoom sub-tile
+    // relies on its nearest indexed ancestor surviving in dataCache
+    // so generateSubTile can re-clip from it if the leaf gets
+    // evicted. Hardcoded 4 before; sources can go to z=5 or z=7 so
+    // 4 left real ancestors evictable. Fixed alongside the E2E
+    // flicker repro (_high-pitch-flicker.spec.ts).
+    const safeBelow = this.index ? this.maxLevel : 4
     const entries = [...this.dataCache.entries()]
-      .filter(([key, tile]) => !protectedKeys.has(key) && tile.tileZoom > 4)
+      .filter(([key, tile]) => !protectedKeys.has(key) && tile.tileZoom > safeBelow)
 
     // Sort by insertion order (older first — simple LRU approximation)
     const toEvict = this.dataCache.size - MAX_CACHED_TILES
