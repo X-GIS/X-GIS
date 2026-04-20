@@ -823,7 +823,7 @@ export class XGVTSource {
     // and stall the main thread for seconds ("page unresponsive"). Deferring
     // over-budget sub-tiles to the next frame keeps zoom interactive; the
     // renderer uses the parent tile as a fallback until the sub-tile lands.
-    if (this._subTileBudget >= 4) return false
+    if (this._subTileBudget >= 16) return false
 
     const parent = this.dataCache.get(parentKey)
     if (!parent || (parent.indices.length === 0 && parent.lineIndices.length === 0)) return false
@@ -832,9 +832,15 @@ export class XGVTSource {
     // a slow zoom landed past the parent's LOD — at z=3 with countries
     // geometry each call is 100+ ms (16k triangles × Sutherland-Hodgman
     // × string-key dedup), which compounded to 16 s stalls in the
-    // perf-scenarios hybrid suite. Budget 2/frame keeps worst-case
-    // under ~300 ms while still resolving most tiles within a second.
-    if (this._subTileBudget >= 2) return false
+    // perf-scenarios hybrid suite.
+    //
+    // Budget 8/frame (was 2) — at high zoom each compileSingleTile
+    // clips a small region and runs in microseconds, so the
+    // worst-case stall argument for the old 2/frame cap doesn't apply.
+    // The high cap lets z=22 transient convergence finish in ~1 s
+    // instead of ~40 s at pitch 60°. Low-zoom heavy cases still
+    // self-throttle because compile cost dominates frame time.
+    if (this._subTileBudget >= 8) return false
     if (this.dataCache.has(subKey)) return false // already generated
 
     this._subTileBudget++
