@@ -110,8 +110,13 @@ export function toleranceForZoom(zoom: number): number {
  * Preserves ring closure and minimum vertex count.
  * @param isLocked Predicate to lock tile-boundary vertices from removal
  */
-export function simplifyPolygon(rings: number[][][], zoom: number, isLocked?: (coord: number[]) => boolean): number[][][] {
-  const tolerance = toleranceForZoom(zoom)
+export function simplifyPolygon(rings: number[][][], zoom: number, isLocked?: (coord: number[]) => boolean, toleranceOverride?: number): number[][][] {
+  // `toleranceOverride` is mandatory whenever rings are in Mercator
+  // meters (industry-standard pipeline since 5ee001c). Pass
+  // `mercatorToleranceForZoom(z)`. Omitting the override falls back
+  // to the deg-based `toleranceForZoom(z)` which silently no-ops on
+  // MM rings (deg tolerance ≈ 0.003 vs MM distances ~10^6).
+  const tolerance = toleranceOverride ?? toleranceForZoom(zoom)
   return rings
     .map(ring => simplify(ring, tolerance, isLocked))
     .filter(ring => ring.length >= 3) // discard degenerate rings

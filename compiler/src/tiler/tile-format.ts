@@ -15,7 +15,7 @@ import {
   tileKeyUnpack, lonLatToMercF64,
   augmentRingWithArc, tessellateLineToArrays, packDSFUNLineVertices,
 } from './vector-tiler'
-import { encodeCoords, encodeIndices, decodeCoords, decodeIndices, encodeFeatIds, decodeFeatIds, precisionForZoom, encodeRingData, decodeRingData } from './encoding'
+import { encodeCoords, encodeIndices, decodeCoords, decodeIndices, encodeFeatIds, decodeFeatIds, precisionForZoom, precisionForZoomMM, encodeRingData, decodeRingData } from './encoding'
 import earcut from 'earcut'
 
 // ═══ DSFUN vertex strides ═══
@@ -87,10 +87,16 @@ export function serializeXGVT(tileSet: CompiledTileSet, options?: SerializeOptio
   }[] = []
 
   for (const { key, tile } of allTiles) {
+    // `tile.polygons` rings are in MERCATOR meters (industry-standard
+    // MM-everywhere pipeline since 5ee001c); encode with meter-grain
+    // precision to keep deltas small and varint-friendly. Line coords
+    // are still lon/lat degrees (inverse-projected below for varint-
+    // efficient delta compression).
+    const precisionMM = precisionForZoomMM(tile.z)
     const precision = precisionForZoom(tile.z)
 
-    // Encode ring data (polygon structure + coords) for runtime sub-tiling
-    const ringDataBuf = encodeRingData(tile.polygons ?? [], precision)
+    // Encode ring data (polygon structure + MM coords) for runtime sub-tiling
+    const ringDataBuf = encodeRingData(tile.polygons ?? [], precisionMM)
 
     // Encode line data from DSFUN stride-10 format:
     // [mx_h, my_h, mx_l, my_l, feat_id, arc_start, tin_x, tin_y, tout_x, tout_y]
@@ -466,24 +472,17 @@ export function parseGPUReadyTile(
   const lineArcStartBuf = pos < dataBuf.byteLength ? readSection() : new Uint8Array(0)
   const lineTangentsBuf = pos < dataBuf.byteLength ? readSection() : new Uint8Array(0)
 
+  const precisionMM = precisionForZoomMM(z)
   const precision = precisionForZoom(z)
 
-  // Decode polygon rings and tessellate with earcut in Mercator space
-  const polygons = decodeRingData(ringDataBuf, precision)
+  // Decode polygon rings — stored in MERCATOR meters since 5ee001c
+  // (industry-standard MM-everywhere pipeline). Earcut runs directly
+  // on the decoded MM values; no LL→MM projection needed.
+  const polygons = decodeRingData(ringDataBuf, precisionMM)
   const tb = tileBoundsFromZXY(z, x, y)
-  const EARTH_R = 6378137
-  const DEG2RAD = Math.PI / 180
-  const LAT_LIMIT = 85.051129
-  const latToMercY = (lat: number) => {
-    const c = Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, lat))
-    return Math.log(Math.tan(Math.PI / 4 + c * DEG2RAD / 2)) * EARTH_R
-  }
   const [tileMx, tileMy] = lonLatToMercF64(tb.west, tb.south)
 
   // Polygon vertices emitted directly as DSFUN stride-5 pairs.
-  // Two-pass: first count vertices, allocate Float32Array, then fill.
-  // Earcut runs in Mercator meters (topology) so triangulation matches
-  // the shader's rasterization space.
   let polyVertCount = 0
   for (const poly of polygons) {
     for (const ring of poly.rings) polyVertCount += ring.length
@@ -500,10 +499,9 @@ export function parseGPUReadyTile(
     for (let r = 0; r < poly.rings.length; r++) {
       if (r > 0) holeIndices.push(mercCoords.length / 2)
       for (const coord of poly.rings[r]) {
-        const lon = coord[0]
-        const lat = coord[1]
-        const mxAbs = lon * DEG2RAD * EARTH_R
-        const myAbs = latToMercY(lat)
+        // Absolute Mercator meters — no projection here.
+        const mxAbs = coord[0]
+        const myAbs = coord[1]
         const localMx = mxAbs - tileMx
         const localMy = myAbs - tileMy
         const mxH = Math.fround(localMx)

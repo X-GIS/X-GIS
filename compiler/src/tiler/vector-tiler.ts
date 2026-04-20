@@ -897,7 +897,7 @@ function processZoomLevelShared(
             for (const ring of clipped) preSimplifyVerts += ring.length
             // At maxZoom: use original data (for runtime sub-tiling)
             // Below maxZoom: simplify to reduce vertex count
-            const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryMerc) : clipped
+            const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryMerc, mercatorToleranceForZoom(z)) : clipped
             if (z < maxZoom) {
               for (const ring of dataRings) postSimplifyVerts += ring.length
             } else {
@@ -1074,7 +1074,7 @@ export function compileSingleTile(
       // ring set so endpoints agree by construction.
       const clipped = clipPolygonToRect(part.rings, stMxW, stMyS, stMxE, stMyN, precisionMM)
       if (clipped.length > 0 && clipped[0].length >= 3) {
-        const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryMerc) : clipped
+        const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryMerc, mercatorToleranceForZoom(z)) : clipped
         if (dataRings.length > 0 && dataRings[0].length >= 3) {
           tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap)
           featureIds.add(fid)
