@@ -5464,6 +5464,346 @@
       "north": 71.412502
     }
   ],
+  "pipeline_area_samples": [
+    {
+      "name": "France",
+      "featureIndex": 21,
+      "z": 3,
+      "x": 2,
+      "y": 3,
+      "areaMercM2": 87140218990.44446
+    },
+    {
+      "name": "France",
+      "featureIndex": 21,
+      "z": 3,
+      "x": 3,
+      "y": 2,
+      "areaMercM2": 235145936835.80807
+    },
+    {
+      "name": "France",
+      "featureIndex": 21,
+      "z": 3,
+      "x": 4,
+      "y": 2,
+      "areaMercM2": 926354858284.5579
+    },
+    {
+      "name": "France",
+      "featureIndex": 21,
+      "z": 3,
+      "x": 5,
+      "y": 4,
+      "areaMercM2": 3400401881.068607
+    },
+    {
+      "name": "Japan",
+      "featureIndex": 189,
+      "z": 3,
+      "x": 6,
+      "y": 3,
+      "areaMercM2": 146073274782.17227
+    },
+    {
+      "name": "Japan",
+      "featureIndex": 189,
+      "z": 3,
+      "x": 7,
+      "y": 2,
+      "areaMercM2": 153430658209.06076
+    },
+    {
+      "name": "Japan",
+      "featureIndex": 189,
+      "z": 3,
+      "x": 7,
+      "y": 3,
+      "areaMercM2": 300191921548.3207
+    },
+    {
+      "name": "Brazil",
+      "featureIndex": 44,
+      "z": 3,
+      "x": 2,
+      "y": 3,
+      "areaMercM2": 603735735428.2646
+    },
+    {
+      "name": "Brazil",
+      "featureIndex": 44,
+      "z": 3,
+      "x": 2,
+      "y": 4,
+      "areaMercM2": 6637407300840.227
+    },
+    {
+      "name": "Brazil",
+      "featureIndex": 44,
+      "z": 3,
+      "x": 3,
+      "y": 3,
+      "areaMercM2": 45034491.940611176
+    },
+    {
+      "name": "Brazil",
+      "featureIndex": 44,
+      "z": 3,
+      "x": 3,
+      "y": 4,
+      "areaMercM2": 1777306719254.1182
+    },
+    {
+      "name": "Australia",
+      "featureIndex": 176,
+      "z": 3,
+      "x": 6,
+      "y": 4,
+      "areaMercM2": 4731504027144.062
+    },
+    {
+      "name": "Australia",
+      "featureIndex": 176,
+      "z": 3,
+      "x": 7,
+      "y": 4,
+      "areaMercM2": 4812377615662.446
+    },
+    {
+      "name": "Australia",
+      "featureIndex": 176,
+      "z": 3,
+      "x": 7,
+      "y": 5,
+      "areaMercM2": 113191982070.32799
+    }
+  ],
+  "simplify_samples": [
+    {
+      "label": "staircase",
+      "input": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          1,
+          0.01
+        ],
+        [
+          2,
+          0.01
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          0,
+          3
+        ]
+      ],
+      "toleranceDeg": 0.05,
+      "originalArea": 8.99,
+      "shapelyOutput": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          3.0,
+          0.0
+        ],
+        [
+          3.0,
+          3.0
+        ],
+        [
+          0.0,
+          3.0
+        ]
+      ],
+      "shapelyVertexCount": 4,
+      "shapelyArea": 9.0
+    },
+    {
+      "label": "noisy-line",
+      "input": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0.005
+        ],
+        [
+          2,
+          -0.005
+        ],
+        [
+          3,
+          0.003
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          4,
+          4
+        ],
+        [
+          0,
+          4
+        ]
+      ],
+      "toleranceDeg": 0.02,
+      "originalArea": 15.997,
+      "shapelyOutput": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          4.0,
+          0.0
+        ],
+        [
+          4.0,
+          4.0
+        ],
+        [
+          0.0,
+          4.0
+        ]
+      ],
+      "shapelyVertexCount": 4,
+      "shapelyArea": 16.0
+    },
+    {
+      "label": "near-collinear",
+      "input": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0.001
+        ],
+        [
+          2,
+          0.002
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          0,
+          3
+        ]
+      ],
+      "toleranceDeg": 0.01,
+      "originalArea": 8.997,
+      "shapelyOutput": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          3.0,
+          0.0
+        ],
+        [
+          3.0,
+          3.0
+        ],
+        [
+          0.0,
+          3.0
+        ]
+      ],
+      "shapelyVertexCount": 4,
+      "shapelyArea": 9.0
+    },
+    {
+      "label": "no-op",
+      "input": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0.5
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          3,
+          3
+        ],
+        [
+          0,
+          3
+        ]
+      ],
+      "toleranceDeg": 0.0001,
+      "originalArea": 8.5,
+      "shapelyOutput": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0
+        ],
+        [
+          2.0,
+          0.5
+        ],
+        [
+          3.0,
+          0.0
+        ],
+        [
+          3.0,
+          3.0
+        ],
+        [
+          0.0,
+          3.0
+        ]
+      ],
+      "shapelyVertexCount": 6,
+      "shapelyArea": 8.5
+    }
+  ],
   "constants": {
     "mercator_at_zero": {
       "lon": 0,

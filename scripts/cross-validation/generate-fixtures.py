@@ -287,6 +287,115 @@ for name in BBOX_COUNTRIES:
 
 
 # ════════════════════════════════════════════════════════════════════
+# 8. Pipeline geometry area — full clip + triangulate pipeline
+#
+# For selected country-tile pairs at z=3, compute shapely's exact
+# intersection area in Mercator meters. X-GIS's test compiles the same
+# countries at maxZoom=3 (so no simplification runs on z=3 tiles) and
+# sums the triangle areas for that country's featureId in that tile.
+# The two areas should match within floating-point precision — any
+# meaningful delta indicates geometry loss through clip / triangulate.
+# ════════════════════════════════════════════════════════════════════
+
+from shapely.ops import transform as shapely_transform
+
+_merc_fwd = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+
+def _to_merc(geom):
+    """Project a shapely geometry from lon/lat to Mercator meters."""
+    return shapely_transform(
+        lambda x, y, z=None: _merc_fwd.transform(x, y),
+        geom,
+    )
+
+# featureIndex must match X-GIS's decomposeFeatures which uses the
+# `gj.features` array order. Store the original index so the TS test
+# can filter triangles by featureId.
+_feature_index_by_name: dict[str, int] = {}
+for i, f in enumerate(countries_gj["features"]):
+    nm = (f.get("properties") or {}).get("name")
+    if nm:
+        _feature_index_by_name[nm] = i
+
+pipeline_area_samples: list[dict] = []
+for name in ["France", "Japan", "Brazil", "Australia"]:
+    cp = next((c for c in country_geoms if c["name"] == name), None)
+    if cp is None or name not in _feature_index_by_name:
+        continue
+    feat_idx = _feature_index_by_name[name]
+    country_merc = _to_merc(cp["geom"])
+
+    for z in [3]:
+        w, s, e, nbnd = cp["geom"].bounds
+        tiles = list(mercantile.tiles(w, s, e, nbnd, [z]))
+        for tile in tiles:
+            tb = mercantile.bounds(tile)
+            corners = [
+                _merc_fwd.transform(tb.west,  tb.south),
+                _merc_fwd.transform(tb.east,  tb.south),
+                _merc_fwd.transform(tb.east,  tb.north),
+                _merc_fwd.transform(tb.west,  tb.north),
+            ]
+            tile_merc = Polygon(corners)
+            inter = country_merc.intersection(tile_merc)
+            if inter.is_empty or inter.area < 1e6:  # skip < 1 km² slivers
+                continue
+            pipeline_area_samples.append({
+                "name": name,
+                "featureIndex": feat_idx,
+                "z": tile.z, "x": tile.x, "y": tile.y,
+                "areaMercM2": inter.area,
+            })
+
+
+# ════════════════════════════════════════════════════════════════════
+# 9. Polygon simplification (Douglas-Peucker) — vs shapely.simplify
+#
+# X-GIS uses Douglas-Peucker in compiler/src/tiler/simplify.ts.
+# Shapely's `simplify(tolerance, preserve_topology=False)` is also D-P.
+# At the same tolerance, both should keep the same significant
+# vertices for the synthetic rings below (no ties). Vertex count and
+# resulting area should agree within tolerance.
+# ════════════════════════════════════════════════════════════════════
+
+SIMPLIFY_CASES = [
+    # 1. Staircase — tiny vertical steps below tolerance must be dropped.
+    {"label": "staircase", "toleranceDeg": 0.05,
+     "input": [[0, 0], [1, 0], [1, 0.01], [2, 0.01], [2, 0],
+               [3, 0], [3, 3], [0, 3]]},
+    # 2. Wiggly boundary — noise within tolerance should be smoothed.
+    {"label": "noisy-line", "toleranceDeg": 0.02,
+     "input": [[0, 0], [1, 0.005], [2, -0.005], [3, 0.003],
+               [4, 0], [4, 4], [0, 4]]},
+    # 3. Near-collinear points — DP drops near-colinear middle vertices.
+    {"label": "near-collinear", "toleranceDeg": 0.01,
+     "input": [[0, 0], [1, 0.001], [2, 0.002], [3, 0],
+               [3, 3], [0, 3]]},
+    # 4. No-op case — tolerance too small to remove anything.
+    {"label": "no-op", "toleranceDeg": 0.0001,
+     "input": [[0, 0], [1, 0], [2, 0.5], [3, 0], [3, 3], [0, 3]]},
+]
+
+simplify_samples: list[dict] = []
+for case in SIMPLIFY_CASES:
+    ring = case["input"]
+    p = Polygon(ring)
+    simp = p.simplify(case["toleranceDeg"], preserve_topology=False)
+    coords = list(simp.exterior.coords)
+    if coords and coords[0] == coords[-1]:
+        coords = coords[:-1]
+    simplify_samples.append({
+        "label": case["label"],
+        "input": case["input"],
+        "toleranceDeg": case["toleranceDeg"],
+        "originalArea": p.area,
+        "shapelyOutput": [list(c) for c in coords],
+        "shapelyVertexCount": len(coords),
+        "shapelyArea": simp.area,
+    })
+
+
+# ════════════════════════════════════════════════════════════════════
 # Package everything as one JSON fixture.
 # ════════════════════════════════════════════════════════════════════
 
@@ -304,6 +413,8 @@ fixture = {
     "projections": projection_samples_by_name,
     "tile_feature_counts": tile_feature_counts,
     "country_bboxes": country_bboxes,
+    "pipeline_area_samples": pipeline_area_samples,
+    "simplify_samples": simplify_samples,
     "constants": reference_constants,
 }
 
@@ -322,3 +433,5 @@ for pname, samples in projection_samples_by_name.items():
 print(f"  tile_feature_counts: {len(tile_feature_counts)} tiles "
       f"({len(country_geoms)} countries loaded)")
 print(f"  country_bboxes:      {len(country_bboxes)} countries")
+print(f"  pipeline_area:       {len(pipeline_area_samples)} country-tile samples")
+print(f"  simplify:            {len(simplify_samples)} D-P cases")

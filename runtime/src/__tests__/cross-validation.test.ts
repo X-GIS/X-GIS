@@ -15,6 +15,7 @@ import type { Projection } from '../engine/projection'
 import {
   compileGeoJSONToTiles,
   tileKey,
+  simplify as xgisSimplify,
 } from '@xgis/compiler'
 import type { GeoJSONFeatureCollection } from '@xgis/compiler'
 
@@ -61,6 +62,21 @@ interface CountryBBox {
   name: string
   west: number; south: number; east: number; north: number
 }
+interface PipelineAreaSample {
+  name: string
+  featureIndex: number
+  z: number; x: number; y: number
+  areaMercM2: number
+}
+interface SimplifySample {
+  label: string
+  input: number[][]
+  toleranceDeg: number
+  originalArea: number
+  shapelyOutput: number[][]
+  shapelyVertexCount: number
+  shapelyArea: number
+}
 interface Fixture {
   _meta: { generator: string; pyproj: string; mercantile: string; shapely: string }
   mercator_forward: MercatorForwardSample[]
@@ -70,6 +86,8 @@ interface Fixture {
   projections: Record<string, ProjectionSample[]>
   tile_feature_counts: TileFeatureCount[]
   country_bboxes: CountryBBox[]
+  pipeline_area_samples: PipelineAreaSample[]
+  simplify_samples: SimplifySample[]
   constants: {
     mercator_at_zero: { lon: number; lat: number; expectedX: number; expectedY: number }
     mercator_pole_x: { lon: number; lat: number; expectedX: number; expectedY: number }
@@ -377,3 +395,114 @@ describe('Cross-validation: Country bounding boxes (vs shapely)', () => {
     }
   })
 })
+
+// ═══ Real-data: pipeline geometry area vs shapely intersection ═══
+
+describe('Cross-validation: Pipeline geometry area (clip + triangulate vs shapely)', () => {
+  // For each (country, z=3 tile) pair in the fixture, compile the
+  // geojson at maxZoom=3 (no simplification on z=3 tiles since the
+  // tiler skips simplify at `z == maxZoom`), then sum the triangle
+  // areas in the target tile that are tagged with this country's
+  // featureIndex. Compare against shapely's exact Mercator
+  // intersection area. Any significant delta means the clip +
+  // triangulate pipeline is losing or duplicating area.
+  const COUNTRIES_PATH = resolve(__dirname, '../../../playground/public/data/countries.geojson')
+  const gj = JSON.parse(readFileSync(COUNTRIES_PATH, 'utf8')) as GeoJSONFeatureCollection
+
+  const zooms = [...new Set(fixture.pipeline_area_samples.map(s => s.z))].sort((a, b) => a - b)
+  const maxZoom = zooms[zooms.length - 1]!
+  // maxZoom equals the fixture zoom so the tile-level simplification
+  // filter (`z < maxZoom`) does not run. Triangulated area should be
+  // exact up to earcut precision.
+  const set = compileGeoJSONToTiles(gj, { minZoom: 0, maxZoom })
+
+  function triangleAreaForFeature(
+    vertices: Float32Array,
+    indices: Uint32Array,
+    targetFid: number,
+  ): number {
+    // DSFUN polygon stride 5: [mx_h, my_h, mx_l, my_l, fid]
+    // Coordinates are local to the tile origin (cancels in area calc).
+    let total = 0
+    for (let i = 0; i < indices.length; i += 3) {
+      const i0 = indices[i], i1 = indices[i + 1], i2 = indices[i + 2]
+      const fid0 = vertices[i0 * 5 + 4]
+      const fid1 = vertices[i1 * 5 + 4]
+      const fid2 = vertices[i2 * 5 + 4]
+      if (fid0 !== targetFid || fid1 !== targetFid || fid2 !== targetFid) continue
+      const x0 = vertices[i0 * 5] + vertices[i0 * 5 + 2]
+      const y0 = vertices[i0 * 5 + 1] + vertices[i0 * 5 + 3]
+      const x1 = vertices[i1 * 5] + vertices[i1 * 5 + 2]
+      const y1 = vertices[i1 * 5 + 1] + vertices[i1 * 5 + 3]
+      const x2 = vertices[i2 * 5] + vertices[i2 * 5 + 2]
+      const y2 = vertices[i2 * 5 + 1] + vertices[i2 * 5 + 3]
+      total += 0.5 * Math.abs(x0 * (y1 - y2) + x1 * (y2 - y0) + x2 * (y0 - y1))
+    }
+    return total
+  }
+
+  it(`X-GIS triangulated area matches shapely intersection at ${fixture.pipeline_area_samples.length} country-tile pairs`, () => {
+    const levelByZ = new Map(set.levels.map(l => [l.zoom, l]))
+    const report: string[] = []
+    let maxRelDelta = 0
+    for (const s of fixture.pipeline_area_samples) {
+      const level = levelByZ.get(s.z)
+      if (!level) continue
+      const key = tileKey(s.z, s.x, s.y)
+      const tile = level.tiles.get(key)
+      if (!tile) continue
+
+      const ourArea = triangleAreaForFeature(tile.vertices, tile.indices, s.featureIndex)
+      if (ourArea === 0) continue // feature absent in tile — separate concern
+
+      const rel = Math.abs(ourArea - s.areaMercM2) / Math.max(ourArea, s.areaMercM2, 1)
+      if (rel > maxRelDelta) maxRelDelta = rel
+      if (rel > 0.01) {
+        report.push(`${s.name} z=${s.z} x=${s.x} y=${s.y}: ours=${ourArea.toExponential(3)} shapely=${s.areaMercM2.toExponential(3)} rel=${(rel * 100).toFixed(2)}%`)
+      }
+    }
+    // 2% tolerance: clipping snaps vertices to tile edges and earcut
+    // fan-triangulates, both of which introduce O(ε²) area noise per
+    // edge. Keep loose enough to absorb that but tight enough to catch
+    // dropped polygons or double-counted rings.
+    expect(maxRelDelta, `exceeded 2% on:\n  ${report.join('\n  ')}`).toBeLessThanOrEqual(0.02)
+  })
+})
+
+// ═══ Douglas-Peucker simplification vs shapely.simplify ═══
+
+describe('Cross-validation: Polygon simplification (vs shapely)', () => {
+  // Both X-GIS and shapely use Douglas-Peucker. At the same tolerance,
+  // the retained vertex set should agree for simple inputs with no
+  // ties. Compare vertex count and area of the output.
+  it(`matches shapely at ${fixture.simplify_samples.length} D-P cases`, () => {
+    for (const s of fixture.simplify_samples) {
+      const ours = xgisSimplify(s.input, s.toleranceDeg)
+      // D-P is endpoint-preserving; both should keep vertices [0] and
+      // [N-1]. Close the ring representation: shapely drops the dup
+      // last vertex (we already stripped it in Python). X-GIS's
+      // simplify also returns the open form.
+      expect(ours.length,
+        `${s.label} vertex count: ours=${ours.length} shapely=${s.shapelyVertexCount}`,
+      ).toBe(s.shapelyVertexCount)
+      // Area preservation: both simplified polygons should have very
+      // similar area. D-P's theorem bounds Hausdorff distance to
+      // tolerance, so area delta is ≤ perimeter × tolerance — way
+      // under 1% for the chosen inputs.
+      const ourArea = shoelaceArea(ours)
+      expect(ourArea, `${s.label} area delta`)
+        .toBeCloseTo(s.shapelyArea, 4) // 5e-5 deg² absolute
+    }
+  })
+})
+
+function shoelaceArea(ring: number[][]): number {
+  if (ring.length < 3) return 0
+  let sum = 0
+  for (let i = 0; i < ring.length; i++) {
+    const [x0, y0] = ring[i]
+    const [x1, y1] = ring[(i + 1) % ring.length]
+    sum += x0 * y1 - x1 * y0
+  }
+  return Math.abs(sum) * 0.5
+}
