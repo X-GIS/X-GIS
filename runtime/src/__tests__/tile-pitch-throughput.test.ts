@@ -8,7 +8,7 @@ import { visibleTilesFrustum, firstIndexedAncestor } from '../loader/tiles'
 import { mercator } from '../engine/projection'
 import { XGVTSource } from '../data/xgvt-source'
 import {
-  compileGeoJSONToTiles, decomposeFeatures, tileKey,
+  compileGeoJSONToTiles, decomposeFeatures, tileKey, tileKeyUnpack,
 } from '@xgis/compiler'
 import type { GeoJSONFeatureCollection } from '@xgis/compiler'
 
@@ -183,6 +183,140 @@ describe('Throughput convergence: bug URL (pitch=84)', () => {
 // ═══════════════════════════════════════════════════════════════════
 // Phase 3: Pitch sweep — does convergence time monotonically worsen?
 // ═══════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 4: XGVT sub-tile path — where time budget pays off
+// ═══════════════════════════════════════════════════════════════════
+//
+// The tests above use setRawParts + compileTileOnDemand, where each
+// compile is heavy (5–20 ms). The user's actual bug flows through the
+// XGVT sub-tile path: generateSubTile clips a parent's vertex buffer
+// into a sub-tile region in microseconds at high zoom. This path was
+// gated at 8 sub-tiles/frame pre-fix (10–100× the actual work cost)
+// and is what the 6-ms time budget was designed to unblock.
+
+describe('Throughput convergence: XGVT sub-tile path (the user-bug path)', () => {
+  // Use ne_110m_land.geojson — the equivalent of ne_110m_land.xgvt
+  // that physical_map_50m actually loads. It's ~15 KB with coarse
+  // coastlines; each z=3→z=10 sub-tile clip is µs-scale, exactly the
+  // workload profile the time-budget design targets. (Using
+  // countries.geojson here would put each clip at ms-scale and mask
+  // the time-budget improvement behind per-call cost.)
+  const LAND_GEOJSON = resolve(__dirname, '../../../playground/public/data/ne_110m_land.geojson')
+  let landCache: GeoJSONFeatureCollection | null = null
+  function loadLand(): GeoJSONFeatureCollection {
+    if (landCache) return landCache
+    landCache = JSON.parse(readFileSync(LAND_GEOJSON, 'utf8')) as GeoJSONFeatureCollection
+    return landCache
+  }
+
+  /** Build a source whose z=3 level is fully pre-compiled (mirroring a
+   *  loaded XGVT ancestor), then leaf-key sub-tiles can be generated
+   *  on demand from those z=3 parents. */
+  function subTileSource(): XGVTSource {
+    const gj = loadLand()
+    const set = compileGeoJSONToTiles(gj, { minZoom: 0, maxZoom: 3 })
+    const source = new XGVTSource()
+    for (const level of set.levels) {
+      source.addTileLevel(level, set.bounds, set.propertyTable)
+    }
+    return source
+  }
+
+  /** Filter frustum tiles to only those whose leaf key needs sub-tile
+   *  clipping AND whose ancestor is actually in the index. A frustum
+   *  tile whose parent-chain bottoms out with no match corresponds to
+   *  ocean / no-data regions — the renderer simply skips those in
+   *  production, and we should too in this test (otherwise the
+   *  convergence loop waits forever for tiles that never had data). */
+  function reachableSubTileKeys(source: XGVTSource, tiles: ReturnType<typeof visibleTilesFrustum>): number[] {
+    const idx = source.getIndex()
+    if (!idx) return []
+    const out: number[] = []
+    for (const t of tiles) {
+      const key = tileKey(t.z, t.x, t.y)
+      if (idx.entryByHash.has(key)) continue // direct hit: no sub-tile needed
+      const anc = firstIndexedAncestor(key, k => idx.entryByHash.has(k))
+      if (anc === -1) continue // no ancestor: ocean, skip
+      out.push(key)
+    }
+    return out
+  }
+
+  /** Frame-loop simulation for the sub-tile path: reset budget, walk
+   *  each target tile, find its ancestor, call generateSubTile. */
+  function simulateSubTileConvergence(
+    source: XGVTSource,
+    leafKeys: number[],
+    maxFrames: number,
+  ): { frames: number; finalReady: number } {
+    const idx = source.getIndex()
+    if (!idx) return { frames: -1, finalReady: 0 }
+    for (let frame = 1; frame <= maxFrames; frame++) {
+      source.resetCompileBudget()
+      for (const key of leafKeys) {
+        if (source.getTileData(key)) continue
+        const ancestor = firstIndexedAncestor(key, k => idx.entryByHash.has(k))
+        if (ancestor === -1) continue
+        source.generateSubTile(key, ancestor)
+      }
+      let ready = 0
+      for (const key of leafKeys) if (source.getTileData(key)) ready++
+      if (ready === leafKeys.length) return { frames: frame, finalReady: ready }
+    }
+    let finalReady = 0
+    for (const key of leafKeys) if (source.getTileData(key)) finalReady++
+    return { frames: -1, finalReady }
+  }
+
+  it('bug URL: reachable sub-tiles converge in ≤ 10 frames (was ~35 with 8/frame cap)', () => {
+    const cam = makeBugCam()
+    const tiles = visibleTilesFrustum(cam, mercator, Math.round(BUG.zoom), W, H)
+    const source = subTileSource()
+    const leafKeys = reachableSubTileKeys(source, tiles)
+
+    const { frames, finalReady } = simulateSubTileConvergence(source, leafKeys, 30)
+    console.log(
+      `[sub-tile pitch=84] ${leafKeys.length} reachable leaves → ` +
+      (frames > 0 ? `converged in ${frames} frames` : `NOT converged (${finalReady} ready)`),
+    )
+    // With the hybrid time budget (6 ms wall-clock after an 8-call
+    // floor), microsecond-scale high-zoom sub-tile clips complete
+    // many more per frame than the old 8-cap allowed. Target ≤ 10
+    // frames (167 ms @ 60 fps).
+    expect(frames, 'sub-tile convergence not reached within 30 frames').toBeGreaterThan(0)
+    expect(frames).toBeLessThanOrEqual(10)
+  })
+
+  it('pitch sweep: every pitch converges in ≤ 10 sub-tile frames', { timeout: 30_000 }, () => {
+    const rows: Array<{ pitch: number; leaves: number; frames: number }> = []
+    for (const pitch of [0, 40, 60, 70, 80, 84, 85]) {
+      const cam = new Camera(BUG.lon, BUG.lat, BUG.zoom)
+      cam.pitch = pitch
+      cam.bearing = BUG.bearing
+      const tiles = visibleTilesFrustum(cam, mercator, Math.round(BUG.zoom), W, H)
+
+      const source = subTileSource()
+      const leafKeys = reachableSubTileKeys(source, tiles)
+
+      const { frames } = simulateSubTileConvergence(source, leafKeys, 30)
+      rows.push({ pitch, leaves: leafKeys.length, frames })
+    }
+    console.log('[sub-tile pitch sweep]')
+    for (const r of rows) {
+      console.log(
+        `  pitch=${r.pitch.toString().padStart(3)} → ` +
+        `${r.leaves.toString().padStart(4)} leaves, ` +
+        `${r.frames > 0 ? r.frames.toString().padStart(2) + ' frames' : 'NOT CONVERGED'}`,
+      )
+    }
+    for (const r of rows) {
+      expect(r.frames, `pitch=${r.pitch}: did not converge in 30 frames (${r.leaves} leaves)`)
+        .toBeGreaterThan(0)
+      expect(r.frames, `pitch=${r.pitch}: sub-tile convergence too slow`).toBeLessThanOrEqual(10)
+    }
+  })
+})
 
 describe('Throughput convergence: pitch sweep', () => {
   // 30s timeout: 9 pitches × up to 200 frames × ~10-20ms per frame

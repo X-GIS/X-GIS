@@ -173,18 +173,63 @@ export class XGVTSource {
     return result.length > 0 ? result : null
   }
 
-  /** Compile a single tile on demand from raw parts */
-  private _compileBudget = 0
-  /** Sub-tile generation budget. Without this, rapid zoom-in loads hundreds
-   *  of new sub-tiles in a single frame — each one clips the parent tile's
-   *  geometry synchronously, holding the main thread. A small per-frame cap
-   *  keeps zoom interactive; uncaptured sub-tiles just land in later frames
-   *  (the renderer falls back to parent-tile geometry in the meantime). */
-  private _subTileBudget = 0
-  /** Reset per-frame compilation budget (call once per frame before tile requests) */
+  // ── Per-frame budget (hybrid count-floor + time-ceiling) ──
+  //
+  // Industry-standard approach adapted for our two cost regimes:
+  //
+  //   (1) Heavy raw-parts compiles (z=3, countries) — 5–100 ms each.
+  //       A pure time budget would allow only 1 per frame (the first
+  //       call always blows the deadline), regressing convergence
+  //       from 4/frame to 1/frame. A pure count cap was the old
+  //       design.
+  //   (2) Light sub-tile clips (z=15 at high pitch) — microseconds
+  //       each. A pure count cap of 8 throttles 270-tile bursts to
+  //       60 frames when the same work fits easily in 6 ms total.
+  //
+  // Hybrid policy (both regimes get the best of each):
+  //   • GUARANTEED FLOOR: always process up to `countFloor` calls
+  //     per frame regardless of time — preserves the old count-based
+  //     behaviour under heavy compiles and never starves progress.
+  //   • TIME-BUDGETED HEADROOM: beyond the floor, keep going until
+  //     the per-frame wall-clock deadline (6 ms) is hit. Light bursts
+  //     (sub-tile) can land 50+ per frame; heavy bursts stop at the
+  //     floor.
+  //   • HARD SAFETY CAP: `_MAX_PER_FRAME` blocks runaway timer bugs.
+  //
+  // Matches Mapbox GL's `MAX_PARALLEL_IMAGERY_REQUESTS` + frame-time
+  // scheduling in spirit; MapLibre and Deck.gl use analogous tile-
+  // budget patterns.
+  private _budgetDeadlineMs = 0
+  private _compileCountThisFrame = 0
+  private _subTileCountThisFrame = 0
+  private static readonly _BUDGET_MS = 6
+  private static readonly _COMPILE_FLOOR = 4  // matches previous count cap
+  private static readonly _SUBTILE_FLOOR = 8  // matches previous count cap
+  private static readonly _MAX_PER_FRAME = 128
+
+  /** Reset per-frame budget (call once per frame before tile requests) */
   resetCompileBudget(): void {
-    this._compileBudget = 0
-    this._subTileBudget = 0
+    this._budgetDeadlineMs = this._now() + XGVTSource._BUDGET_MS
+    this._compileCountThisFrame = 0
+    this._subTileCountThisFrame = 0
+  }
+
+  /** Wall-clock reader. Uses performance.now when available (browser +
+   *  modern Node) and falls back to Date.now otherwise. */
+  private _now(): number {
+    return typeof performance !== 'undefined' && typeof performance.now === 'function'
+      ? performance.now()
+      : Date.now()
+  }
+
+  /** Hybrid budget gate. `countFloor` calls are always permitted per
+   *  frame (no-starvation guarantee); beyond that, calls proceed only
+   *  while the wall-clock deadline has not been reached. Upper safety
+   *  cap at `_MAX_PER_FRAME` blocks degenerate timer states. */
+  private _budgetExceeded(callsThisFrame: number, countFloor: number): boolean {
+    if (callsThisFrame >= XGVTSource._MAX_PER_FRAME) return true
+    if (callsThisFrame < countFloor) return false // always allow under floor
+    return this._now() > this._budgetDeadlineMs
   }
 
   compileTileOnDemand(key: number): boolean {
@@ -209,7 +254,10 @@ export class XGVTSource {
       return true
     }
 
-    if (this._compileBudget >= 4) return false // max 4 tiles per frame — matches upload cap so the two pipelines stay balanced during pan/zoom
+    // Hybrid per-frame budget — see resetCompileBudget() comment.
+    // Guarantees at least _COMPILE_FLOOR (4) heavy compiles per frame;
+    // beyond that, defers to time budget (6 ms) for lighter compiles.
+    if (this._budgetExceeded(this._compileCountThisFrame, XGVTSource._COMPILE_FLOOR)) return false
 
     const tile = compileSingleTile(parts, z, x, y, this.rawMaxZoom)
     if (!tile) {
@@ -258,7 +306,7 @@ export class XGVTSource {
       const entry = this.index?.entryByHash.get(key)
       if (entry) {
         this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
-        this._compileBudget++
+        this._compileCountThisFrame++
         return true
       }
     }
@@ -277,7 +325,7 @@ export class XGVTSource {
       tile.outlineVertices,
       tile.outlineLineIndices,
     )
-    this._compileBudget++
+    this._compileCountThisFrame++
     return true
   }
 
@@ -308,8 +356,8 @@ export class XGVTSource {
   /** Diagnostic accessors — let inspectPipeline() + CPU debug tests
    *  read the budget/queue state without reaching into private fields.
    *  Not part of the public API.  */
-  getSubTileBudgetUsed(): number { return this._subTileBudget }
-  getCompileBudgetUsed(): number { return this._compileBudget }
+  getSubTileBudgetUsed(): number { return this._subTileCountThisFrame }
+  getCompileBudgetUsed(): number { return this._compileCountThisFrame }
   getPendingLoadCount(): number { return this.loadingTiles.size }
 
   hasEntryInIndex(key: number): boolean {
@@ -845,32 +893,21 @@ export class XGVTSource {
   generateSubTile(subKey: number, parentKey: number): boolean {
     // Return cached result without charging budget — this is not new work.
     if (this.dataCache.has(subKey)) return true
-    // Per-frame budget cap: sub-tile clipping is O(parent geometry) and runs
-    // synchronously, so rapid zoom bursts can enqueue hundreds of sub-tiles
-    // and stall the main thread for seconds ("page unresponsive"). Deferring
-    // over-budget sub-tiles to the next frame keeps zoom interactive; the
-    // renderer uses the parent tile as a fallback until the sub-tile lands.
-    if (this._subTileBudget >= 16) return false
+
+    // Hybrid per-frame budget — see resetCompileBudget() comment.
+    // Historically two count-based gates (>=16 / >=8); the 8-cap caused
+    // 60-frame (~1 s) convergence stalls at pitch ≥ 60° with ~280
+    // frustum tiles of microsecond-scale sub-tile clips. Hybrid keeps
+    // the 8-call floor so low-zoom heavy parent geometry still self-
+    // throttles, while letting µs-scale high-zoom bursts fill the 6 ms
+    // wall-clock budget (typically 50+ sub-tiles per frame at z ≥ 10).
+    if (this._budgetExceeded(this._subTileCountThisFrame, XGVTSource._SUBTILE_FLOOR)) return false
 
     const parent = this.dataCache.get(parentKey)
     if (!parent || (parent.indices.length === 0 && parent.lineIndices.length === 0)) return false
-    // Per-frame cap mirrors compileTileOnDemand. Without this, VTR's
-    // fallback loop could invoke us 10–20 times in a single frame when
-    // a slow zoom landed past the parent's LOD — at z=3 with countries
-    // geometry each call is 100+ ms (16k triangles × Sutherland-Hodgman
-    // × string-key dedup), which compounded to 16 s stalls in the
-    // perf-scenarios hybrid suite.
-    //
-    // Budget 8/frame (was 2) — at high zoom each compileSingleTile
-    // clips a small region and runs in microseconds, so the
-    // worst-case stall argument for the old 2/frame cap doesn't apply.
-    // The high cap lets z=22 transient convergence finish in ~1 s
-    // instead of ~40 s at pitch 60°. Low-zoom heavy cases still
-    // self-throttle because compile cost dominates frame time.
-    if (this._subTileBudget >= 8) return false
     if (this.dataCache.has(subKey)) return false // already generated
 
-    this._subTileBudget++
+    this._subTileCountThisFrame++
 
     const [sz, sx, sy] = tileKeyUnpack(subKey)
     const sn = Math.pow(2, sz)
@@ -1093,7 +1130,7 @@ export class XGVTSource {
     }
 
     this.dataCache.set(subKey, subData)
-    this._subTileBudget++
+    this._subTileCountThisFrame++
     try { this.onTileLoaded?.(subKey, subData) }
     catch (e) { console.error('[onTileLoaded sub]', (e as Error)?.stack ?? e) }
     return true
