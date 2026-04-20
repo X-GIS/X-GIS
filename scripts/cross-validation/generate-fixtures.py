@@ -20,11 +20,12 @@ Regenerate whenever a projection/tile formula intentionally changes.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import mercantile
 import pyproj
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, shape
 
 
 # Script-relative output path — writes to the runtime test fixture.
@@ -159,6 +160,133 @@ reference_constants = {
 
 
 # ════════════════════════════════════════════════════════════════════
+# 5. Other projections (forward + inverse round-trip) — pyproj
+#
+# X-GIS implements 7 projections. Mercator is cross-checked above via
+# EPSG:3857. Here we add pyproj references for 5 more. Oblique Mercator
+# is intentionally skipped: X-GIS's implementation uses a custom
+# sphere-rotation-then-Mercator formula that doesn't map 1:1 to pyproj's
+# parameterization; its correctness is verified by intra-repo CPU/WGSL
+# consistency tests instead.
+#
+# All projections use R = 6378137 (matches EARTH_RADIUS in projection.ts).
+# natearth2 is the Šavrič 2015 polynomial variant used by X-GIS (not
+# Patterson's natearth).
+# ════════════════════════════════════════════════════════════════════
+
+# Ortho/AEQD/Stereo are family-parameterized — pick a specific center
+# that matches the default in projection.ts (lon=0, lat=20).
+OTHER_PROJECTIONS = {
+    "equirectangular":       "+proj=eqc    +R=6378137 +lon_0=0",
+    "natural_earth":         "+proj=natearth2 +R=6378137 +lon_0=0",
+    "orthographic":          "+proj=ortho  +R=6378137 +lon_0=0 +lat_0=20",
+    "azimuthal_equidistant": "+proj=aeqd   +R=6378137 +lon_0=0 +lat_0=20",
+    "stereographic":         "+proj=stere  +R=6378137 +lon_0=0 +lat_0=20",
+}
+
+projection_samples_by_name: dict[str, list[dict]] = {}
+for pname, crs in OTHER_PROJECTIONS.items():
+    fwd = pyproj.Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+    inv = pyproj.Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+    samples: list[dict] = []
+    for lon in LONS:
+        for lat in LATS:
+            x, y = fwd.transform(lon, lat)
+            if not (math.isfinite(x) and math.isfinite(y)):
+                continue  # ortho back-face, aeqd antipode, etc.
+            rlon, rlat = inv.transform(x, y)
+            samples.append({
+                "lon": lon, "lat": lat,
+                "x": x, "y": y,
+                "roundLon": rlon, "roundLat": rlat,
+            })
+    projection_samples_by_name[pname] = samples
+
+
+# ════════════════════════════════════════════════════════════════════
+# 6. Real-data tile feature-count cross-check — countries.geojson
+#
+# Load the same Natural Earth countries file the playground uses. For
+# each slippy-map tile at z=2 and z=3, count how many country polygons
+# intersect the tile's lon/lat bounds (shapely). X-GIS's compiler
+# produces a per-tile `featureCount` which must agree.
+# ════════════════════════════════════════════════════════════════════
+
+GEOJSON_PATH = (SCRIPT_DIR / ".." / ".." / "playground" / "public"
+                / "data" / "countries.geojson").resolve()
+
+with GEOJSON_PATH.open(encoding="utf-8") as f:
+    countries_gj = json.load(f)
+
+country_geoms: list[dict] = []
+for feat in countries_gj["features"]:
+    try:
+        g = shape(feat["geometry"])
+        if not g.is_valid:
+            g = g.buffer(0)  # GEOS canonical fix for self-intersecting rings
+        country_geoms.append({
+            "name": (feat.get("properties") or {}).get("name", "?"),
+            "geom": g,
+        })
+    except Exception:  # noqa: BLE001 — any parse failure is a skip
+        continue
+
+tile_feature_counts: list[dict] = []
+for z in [2, 3]:
+    n = 2 ** z
+    for tx in range(n):
+        for ty in range(n):
+            t = mercantile.Tile(tx, ty, z)
+            b = mercantile.bounds(t)
+            tile_poly = Polygon([
+                (b.west, b.south), (b.east, b.south),
+                (b.east, b.north), (b.west, b.north),
+                (b.west, b.south),
+            ])
+            # Use "has non-zero intersection area" (not just `intersects`)
+            # — shapely.intersects is True even for shared-boundary
+            # touches, but X-GIS's clipper only emits triangles for
+            # actual 2D overlap. Matching on area > 0 aligns with the
+            # clipper's semantics.
+            count = 0
+            for c in country_geoms:
+                if not c["geom"].intersects(tile_poly):
+                    continue
+                inter = c["geom"].intersection(tile_poly)
+                if inter.area > 1e-12:  # deg² — excludes line/point touches
+                    count += 1
+            tile_feature_counts.append({
+                "z": z, "x": tx, "y": ty,
+                "west": b.west, "south": b.south,
+                "east": b.east, "north": b.north,
+                "featureCount": count,
+            })
+
+
+# ════════════════════════════════════════════════════════════════════
+# 7. Per-country bounding boxes — shapely.bounds on countries.geojson
+#
+# Cross-checks X-GIS's per-feature bbox computation against GEOS.
+# Stable-enough countries (no disputed-border ambiguity at 10m admin
+# resolution): France (mainland + overseas), Japan (archipelago),
+# Brazil, Australia, USA (spans antimeridian).
+# ════════════════════════════════════════════════════════════════════
+
+BBOX_COUNTRIES = ["France", "Japan", "Brazil", "Australia",
+                  "United States of America"]
+country_bboxes: list[dict] = []
+for name in BBOX_COUNTRIES:
+    cp = next((c for c in country_geoms if c["name"] == name), None)
+    if cp is None:
+        continue
+    w, s, e, nbnd = cp["geom"].bounds
+    country_bboxes.append({
+        "name": name,
+        "west": w, "south": s, "east": e, "north": nbnd,
+    })
+
+
+# ════════════════════════════════════════════════════════════════════
 # Package everything as one JSON fixture.
 # ════════════════════════════════════════════════════════════════════
 
@@ -173,6 +301,9 @@ fixture = {
     "mercator_inverse": mercator_inverse_samples,
     "tile_math": tile_samples,
     "polygon_clip_contains": CLIP_SAMPLES,
+    "projections": projection_samples_by_name,
+    "tile_feature_counts": tile_feature_counts,
+    "country_bboxes": country_bboxes,
     "constants": reference_constants,
 }
 
@@ -182,7 +313,12 @@ with OUT.open("w", encoding="utf-8") as f:
     json.dump(fixture, f, indent=2)
 
 print(f"Fixture written: {OUT}")
-print(f"  mercator_forward: {len(projection_samples)} samples")
-print(f"  mercator_inverse: {len(mercator_inverse_samples)} samples")
-print(f"  tile_math:        {len(tile_samples)} samples")
-print(f"  polygon_clip_contains: {len(CLIP_SAMPLES)} samples")
+print(f"  mercator_forward:    {len(projection_samples)} samples")
+print(f"  mercator_inverse:    {len(mercator_inverse_samples)} samples")
+print(f"  tile_math:           {len(tile_samples)} samples")
+print(f"  polygon_clip:        {len(CLIP_SAMPLES)} samples")
+for pname, samples in projection_samples_by_name.items():
+    print(f"  {pname:<22}  {len(samples)} samples")
+print(f"  tile_feature_counts: {len(tile_feature_counts)} tiles "
+      f"({len(country_geoms)} countries loaded)")
+print(f"  country_bboxes:      {len(country_bboxes)} countries")
