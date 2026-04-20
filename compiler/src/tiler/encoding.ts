@@ -10,12 +10,27 @@
 
 const PRECISION = 1e6 // default: 6 decimal places ≈ ~0.1m accuracy
 
-/** Zoom-adaptive precision: lower zooms don't need sub-meter accuracy */
+/** Zoom-adaptive precision: lower zooms don't need sub-meter accuracy.
+ *  Scale factor for LON/LAT-space snapping: coord is quantized to
+ *  `round(coord * precision) / precision`. Returned value is in
+ *  degrees⁻¹ (e.g. 1e6 ⇒ ~0.1m at the equator). */
 export function precisionForZoom(zoom: number): number {
   if (zoom <= 2) return 1e3   // ~100m (world/continent scale)
   if (zoom <= 5) return 1e4   // ~10m  (country scale)
   if (zoom <= 7) return 1e5   // ~1m   (city scale)
   return 1e6                   // ~0.1m (street scale)
+}
+
+/** Zoom-adaptive precision in MERCATOR meters⁻¹ — same GRAIN as
+ *  `precisionForZoom` but applied to meter-space coordinates.
+ *  Used for clipping / simplification in MM after polygons are
+ *  projected up-front (industry-standard pipeline — matches Mapbox
+ *  GL / MapLibre / Tippecanoe). */
+export function precisionForZoomMM(zoom: number): number {
+  if (zoom <= 2) return 0.01  // ~100m
+  if (zoom <= 5) return 0.1   // ~10m
+  if (zoom <= 7) return 1     // ~1m
+  return 10                    // ~0.1m
 }
 
 // ═══ Varint ═══

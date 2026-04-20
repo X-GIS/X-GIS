@@ -1,12 +1,18 @@
 # X-GIS coordinate-system convention
 
-Last revised: 2026-04-20 (commit d34aed2 root cause).
+Last revised: 2026-04-20. Unified to MM-everywhere (industry standard).
 
 This document defines which coordinate space each stage of the tile
 pipeline operates in. Violating it is how the polygon-fill vs stroke
 alignment bug (27 km divergence at z=8 boundary tiles) happened. New
 contributors should read this before adding clipping, simplification,
 or sub-tile logic.
+
+**Industry reference**: this follows the Mapbox GL / MapLibre /
+Tippecanoe convention of "project once to Mercator at source load,
+all downstream tile work in Mercator." Source GeoJSON is projected
+at `decomposeFeatures` time; the per-tile compile hot path never
+touches lon/lat again except for the cheap bbox-reject.
 
 ## Spaces
 
@@ -25,24 +31,31 @@ Reference constants:
 
 | Stage | Space | Why |
 |-------|-------|-----|
-| GeoJSON input | **LL** | RFC 7946 — linear interpolation is lon/lat-linear |
-| Feature bbox (`part.minLon`, etc.) | **LL** | Consistent with source; cheap to compare with tile bounds |
-| Polygon clipping (`clipPolygonToRect`) | **LL** | Matches spec geometry; a straight line in LL is a curve in MM |
-| Polygon outline / stroke clipping | **LL** | Must match fill clip so endpoints coincide at tile boundary |
-| Line feature clipping (`clipLineToRect`) | **MM** | Line geometry is rendered as arc-parameterized MM (dash phase in meters) |
-| Simplify polygon (Douglas-Peucker) | **LL** | Tolerance in degrees (`toleranceForZoom`) |
-| Simplify line | **MM** | Tolerance in meters (`mercatorToleranceForZoom`) |
-| Sub-tile clip in `generateSubTile` | **MM** (parent-local) | Input vertices are already DSFUN (MM); no round-trip through LL |
-| Output vertices (polygon fill + outline + line) | **DLM** | f32 hi/lo pair, relative to tile origin (`tileMx`, `tileMy`) |
+| GeoJSON input | **LL** | Source data from user — RFC 7946 lon/lat |
+| `decomposeFeatures` (project once) | **LL → MM** | `makePolygonPart` calls `projectRingsToMM`; downstream sees MM only |
+| Feature bbox (`part.minLon`, etc.) | **LL** | Kept in LL for cheap bbox-reject against tile bounds; O(1) |
+| Polygon clipping (`clipPolygonToRect`) | **MM** | Matches render output space; edges straight in MM = how map renders |
+| Polygon outline / stroke clipping | **MM** | Shares the MM-clipped ring set with fill — endpoints agree by construction |
+| Line feature clipping (`clipLineToRect`) | **MM** | Arc length in meters; dash phase in meters |
+| Simplify polygon (Douglas-Peucker) | **MM** | Tolerance via `mercatorToleranceForZoom` |
+| Simplify line | **MM** | Same tolerance function |
+| Sub-tile clip in `generateSubTile` | **MM** (parent-local) | Parent vertices are DSFUN (MM); clip bounds derived from LL tile bounds |
+| Output vertices (polygon fill + outline + line + point) | **DLM** | f32 hi/lo pair, relative to tile origin (`tileMx`, `tileMy`) |
 | Tile bounds query | **LL** (primary) + **MM** (derived via `lonLatToMercF64`) | Derive MM from LL, never the other way |
+
+**Key simplification vs. pre-d34aed2/pre-2026-04-20**: polygons and
+lines both clip/simplify in **MM**. No more "polygon=LL, line=MM"
+split. This eliminates an entire class of space-mismatch bugs by
+construction.
 
 ## Critical invariants
 
 These must hold between sibling code paths:
 
-1. **Polygon fill and stroke clip in the SAME space.**
-   Both use LL in the current pipeline. Pre-d34aed2 the stroke used MM
-   and endpoints diverged by up to 27 km at boundary tiles.
+1. **Polygon fill and stroke clip in the SAME space (MM).**
+   Both walk the same MM-clipped ring set. Pre-d34aed2 the stroke
+   used MM and the fill used LL, giving endpoints that diverged up
+   to 27 km at boundary tiles. Now both are MM by construction.
 
 2. **Fill triangulation boundary == stroke outline endpoints.**
    After clipping, the polygon fill's outer edge (boundary triangle

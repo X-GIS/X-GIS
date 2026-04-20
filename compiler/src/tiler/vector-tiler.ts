@@ -6,7 +6,7 @@
 import earcut from 'earcut'
 import { simplifyPolygon, simplifyLine, mercatorToleranceForZoom } from './simplify'
 import { clipPolygonToRect, clipLineToRect } from './clip'
-import { precisionForZoom } from './encoding'
+import { precisionForZoom, precisionForZoomMM } from './encoding'
 import type { GeoJSONFeatureCollection, GeoJSONFeature } from './geojson-types'
 
 /** Tile coordinate extent (like MVT 4096, but higher for military precision) */
@@ -50,15 +50,21 @@ export function packDSFUNPolygonVertices(
   tileMx: number,
   tileMy: number,
 ): Float32Array {
+  // Input stride-3: [mx, my, fid] in ABSOLUTE Mercator meters (MM).
+  // Output stride-5: [mx_h, my_h, mx_l, my_l, fid] in tile-local MM
+  // split across f32 high/low pairs. See docs/COORDINATES.md for the
+  // per-stage space rules — all polygon CPU work ends in MM so this
+  // function is just re-originating to the tile corner plus DSFUN
+  // high/low splitting. Historical note: used to accept lon/lat and
+  // project here; the projection was hoisted up to the pipeline
+  // entry point (decomposeFeatures → projectRingsToMM) so every
+  // intermediate buffer lives in MM.
   const count = scratchPv.length / 3
   const out = new Float32Array(count * 5)
   for (let i = 0; i < count; i++) {
-    const lon = scratchPv[i * 3]
-    const lat = scratchPv[i * 3 + 1]
+    const mx = scratchPv[i * 3]
+    const my = scratchPv[i * 3 + 1]
     const fid = scratchPv[i * 3 + 2]
-    const clamped = Math.max(-DSFUN_LAT_LIMIT, Math.min(DSFUN_LAT_LIMIT, lat))
-    const mx = lon * DSFUN_DEG2RAD * DSFUN_EARTH_R
-    const my = Math.log(Math.tan(Math.PI / 4 + clamped * DSFUN_DEG2RAD / 2)) * DSFUN_EARTH_R
     const localMx = mx - tileMx
     const localMy = my - tileMy
     const mxH = Math.fround(localMx)
@@ -71,6 +77,27 @@ export function packDSFUNPolygonVertices(
     out[base + 2] = mxL
     out[base + 3] = myL
     out[base + 4] = fid
+  }
+  return out
+}
+
+/** Project a lon/lat ring array to Mercator meters (MM). Each output
+ *  ring is `[[mx, my], ...]`. Use this at the polygon pipeline entry
+ *  so all downstream clip/simplify/tessellate runs in MM (industry
+ *  standard — matches Mapbox GL / MapLibre / Tippecanoe). */
+export function projectRingsToMM(rings: number[][][]): number[][][] {
+  const out: number[][][] = new Array(rings.length)
+  for (let r = 0; r < rings.length; r++) {
+    const ring = rings[r]
+    const projRing: number[][] = new Array(ring.length)
+    for (let i = 0; i < ring.length; i++) {
+      const [lon, lat] = ring[i]
+      const clamped = Math.max(-DSFUN_LAT_LIMIT, Math.min(DSFUN_LAT_LIMIT, lat))
+      const mx = lon * DSFUN_DEG2RAD * DSFUN_EARTH_R
+      const my = Math.log(Math.tan(Math.PI / 4 + clamped * DSFUN_DEG2RAD / 2)) * DSFUN_EARTH_R
+      projRing[i] = [mx, my]
+    }
+    out[r] = projRing
   }
   return out
 }
@@ -329,8 +356,15 @@ export function decomposeFeatures(
 }
 
 function makePolygonPart(rings: number[][][], featureIndex: number): GeometryPart {
-  const bbox = ringsBBox(rings[0]) // outer ring bbox
-  return { type: 'polygon', rings, featureIndex, ...bbox }
+  // BBox is computed in LL (for cheap bbox-reject against LL tile
+  // bounds). Rings themselves are pre-projected to MERCATOR METERS
+  // so every downstream per-tile compile skips the projection step —
+  // matches Tippecanoe / Mapbox's "project once at source load"
+  // pattern, and keeps the compileTileOnDemand hot path O(clipped
+  // vertices) instead of O(source vertices × tiles).
+  const bbox = ringsBBox(rings[0]) // LL bbox from original rings
+  const mmRings = projectRingsToMM(rings)
+  return { type: 'polygon', rings: mmRings, featureIndex, ...bbox }
 }
 
 function makeLinePart(coords: number[][], featureIndex: number): GeometryPart {
@@ -409,22 +443,24 @@ function tessellatePolygonToArrays(
   outIdx: number[],
   dedupMap?: Map<string, number>,
 ): void {
-  // Original lon/lat coords for vertex output
+  // Input rings are in MERCATOR METERS (MM), per docs/COORDINATES.md.
+  // Triangle edges are straight in MM — matches GPU rendering so there's
+  // no coastline overshoot from earcut working in a different space than
+  // the output vertex buffer. Historical note: used to take lon/lat and
+  // project to MM internally just for earcut; removed when the whole
+  // polygon pipeline moved to MM to match the industry-standard
+  // Mapbox GL / MapLibre / Tippecanoe convention.
   const flatCoords: number[] = []
-  // Mercator-projected coords for earcut topology — triangle edges will be
-  // straight in Mercator space, matching GPU rendering (no coastline overshoot)
-  const mercCoords: number[] = []
   const holeIndices: number[] = []
 
   for (let r = 0; r < rings.length; r++) {
     if (r > 0) holeIndices.push(flatCoords.length / 2)
     for (const coord of rings[r]) {
       flatCoords.push(coord[0], coord[1])
-      mercCoords.push(coord[0], latToMercatorY(coord[1]))
     }
   }
 
-  const earcutIdx = earcut(mercCoords, holeIndices.length > 0 ? holeIndices : undefined)
+  const earcutIdx = earcut(flatCoords, holeIndices.length > 0 ? holeIndices : undefined)
 
   if (dedupMap) {
     const localToGlobal: number[] = []
@@ -482,7 +518,7 @@ function tessellatePolygonToArrays(
  * f64 Mercator to a higher-precision projection) lives in one spot
  * and doesn't drift between the two paths.
  */
-function augmentChainWithArc(coords: number[][], closed: boolean): number[][] {
+function augmentChainWithArc(coords: number[][], closed: boolean, opts?: { mmInput?: boolean }): number[][] {
   const DEG2RAD = Math.PI / 180
   const R = 6378137
   const LAT_LIMIT = 85.051129
@@ -516,16 +552,25 @@ function augmentChainWithArc(coords: number[][], closed: boolean): number[][] {
   // segment t_along stays monotonic).
   const outN = actuallyClosed ? n + 1 : n
 
-  // Pass 1: project + accumulate arc. For closed rings, also walk the
-  // closing segment so arcArr[n] is the full perimeter.
+  // Pass 1: project (if input is LL) + accumulate arc. For closed
+  // rings, also walk the closing segment so arcArr[n] is the full
+  // perimeter. The `mmInput` opt skips projection when the caller has
+  // already projected to MM — used by the industry-standard MM-native
+  // polygon outline path.
+  const mmInput = opts?.mmInput === true
   const mxArr = new Float64Array(n)
   const myArr = new Float64Array(n)
   const arcArr = new Float64Array(outN)
   let arc = 0
   for (let i = 0; i < n; i++) {
     const c = coords[i]
-    mxArr[i] = c[0] * DEG2RAD * R
-    myArr[i] = Math.log(Math.tan(Math.PI / 4 + clampLat(c[1]) * DEG2RAD / 2)) * R
+    if (mmInput) {
+      mxArr[i] = c[0]
+      myArr[i] = c[1]
+    } else {
+      mxArr[i] = c[0] * DEG2RAD * R
+      myArr[i] = Math.log(Math.tan(Math.PI / 4 + clampLat(c[1]) * DEG2RAD / 2)) * R
+    }
     if (i > 0) {
       const dx = mxArr[i] - mxArr[i - 1], dy = myArr[i] - myArr[i - 1]
       arc += Math.sqrt(dx * dx + dy * dy)
@@ -586,8 +631,8 @@ function augmentChainWithArc(coords: number[][], closed: boolean): number[][] {
  *  `augmentChainWithArc` for call-site readability. Exported for
  *  runtime sub-tilers that need to derive cross-tile-continuous
  *  outline geometry from `polygons` preserved on a TileData. */
-export function augmentRingWithArc(ring: number[][]): number[][] {
-  return augmentChainWithArc(ring, true)
+export function augmentRingWithArc(ring: number[][], opts?: { mmInput?: boolean }): number[][] {
+  return augmentChainWithArc(ring, true, opts)
 }
 
 /** Remove consecutive duplicate (lon, lat) vertices from a ring.
@@ -819,12 +864,9 @@ function processZoomLevelShared(
       const featureIds = new Set<number>()
       const dedupMap = new Map<string, number>()
 
-      // Lock predicate: vertices on tile boundary edges must survive simplification.
-      // Polygons clip in lon/lat, lines clip in Mercator — separate predicates.
-      const EPS = 1e-10
-      const isOnBoundaryLL = (c: number[]) =>
-        Math.abs(c[0] - tb.west) < EPS || Math.abs(c[0] - tb.east) < EPS ||
-        Math.abs(c[1] - tb.south) < EPS || Math.abs(c[1] - tb.north) < EPS
+      // Lock predicate: vertices on tile boundary edges must survive
+      // simplification. Single MM predicate — polygons + lines + outlines
+      // now all clip/simplify in MM (docs/COORDINATES.md).
       const MERC_EPS = 1.0
       const isOnBoundaryMerc = (c: number[]) =>
         Math.abs(c[0] - tbMxW) < MERC_EPS || Math.abs(c[0] - tbMxE) < MERC_EPS ||
@@ -843,14 +885,19 @@ function processZoomLevelShared(
         const fid = sp.original.featureIndex // stable feature ID
 
         if (sp.rings) {
-          const clipped = clipPolygonToRect(sp.rings, tb.west, tb.south, tb.east, tb.north, precisionForZoom(z))
+          // Industry-standard MM-native pipeline. sp.rings are already
+          // in MM (projected once in makePolygonPart), so the hot
+          // path runs: clip → simplify → tessellate all in MM. Both
+          // fill and outline share the same clipped ring set, so their
+          // endpoints agree by construction.
+          const clipped = clipPolygonToRect(sp.rings, tbMxW, tbMyS, tbMxE, tbMyN, precisionForZoomMM(z))
           if (clipped.length > 0 && clipped[0].length >= 3) {
             tileClippedRings.push(...clipped)
             tilePolyFeatureIds.add(fid)
             for (const ring of clipped) preSimplifyVerts += ring.length
             // At maxZoom: use original data (for runtime sub-tiling)
             // Below maxZoom: simplify to reduce vertex count
-            const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryLL) : clipped
+            const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryMerc) : clipped
             if (z < maxZoom) {
               for (const ring of dataRings) postSimplifyVerts += ring.length
             } else {
@@ -861,16 +908,12 @@ function processZoomLevelShared(
               featureIds.add(fid)
               tilePolygons.push({ rings: dataRings, featId: fid })
             }
-            // Emit outline via the line pipeline. Uses the LON/LAT-
-            // clipped rings (`clipped`) instead of the original
-            // `sp.rings` so outline endpoints exactly match where the
-            // fill edges end at the tile boundary — see the fuller
-            // explanation on the parallel code path in
-            // compileSingleTile (fixed 2026-04-20, same bug).
+            // Outline: share the MM-clipped rings with the fill so
+            // endpoints land on the same tile-boundary MM points.
             for (const ring of clipped) {
               const ringDedup = dedupAdjacentVertices(ring)
               if (ringDedup.length < 3) continue
-              const arcRing = augmentRingWithArc(ringDedup)
+              const arcRing = augmentRingWithArc(ringDedup, { mmInput: true })
               if (arcRing.length < 2) continue
               const segments = clipLineToRect(arcRing, tbMxW, tbMyS, tbMxE, tbMyN)
               for (const seg of segments) {
@@ -902,21 +945,25 @@ function processZoomLevelShared(
           }
         }
 
-        // Point: just check if it's inside the tile bounds
+        // Point: check bounds in LL (point data is lon/lat) and project
+        // to MM before pushing into the scratch buffer so all downstream
+        // DSFUN packing runs in MM.
         if (sp.original.type === 'point' && sp.original.point) {
           const [px, py] = sp.original.point
           if (px >= tb.west && px <= tb.east && py >= tb.south && py <= tb.north) {
-            scratch.ptv.push(px, py, fid)
+            const [pmx, pmy] = lonLatToMercF64(px, py)
+            scratch.ptv.push(pmx, pmy, fid)
             featureIds.add(fid)
           }
         }
       }
 
-      // Full-cover detection: single feature, single ring, area matches tile
+      // Full-cover detection: single feature, single ring, area matches tile.
+      // Both areas computed in MM (tileClippedRings are MM per above).
       let fullCover = false
       let fullCoverFeatId = -1
       if (tilePolyFeatureIds.size === 1 && tileClippedRings.length === 1) {
-        const tileArea = (tb.east - tb.west) * (tb.north - tb.south)
+        const tileArea = (tbMxE - tbMxW) * (tbMyN - tbMyS)
         const polyArea = Math.abs(shoelaceArea(tileClippedRings[0]))
         if (Math.abs(polyArea - tileArea) / tileArea < 1e-6) {
           fullCover = true
@@ -996,74 +1043,57 @@ export function compileSingleTile(
   maxZoom: number,
 ): CompiledTile | null {
   const tb = tileBounds(z, x, y)
-  const precision = precisionForZoom(z)
-  // Mercator tile bounds for line clipping (must match generateSubTile's space)
+  const precisionMM = precisionForZoomMM(z)
+  // Mercator tile bounds — derived from LL tile bounds via the canonical
+  // projection. All polygon / line / outline clipping, simplification,
+  // and tessellation happens in MM per docs/COORDINATES.md.
   const [stMxW, stMyS] = lonLatToMercF64(tb.west, tb.south)
   const [stMxE, stMyN] = lonLatToMercF64(tb.east, tb.north)
   const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], olv: [] as number[], oli: [] as number[] }
   const featureIds = new Set<number>()
   const dedupMap = new Map<string, number>()
-  const EPS = 1e-10
-  // isOnBoundary: polygons still clip in lon/lat, lines clip in Mercator.
-  // For simplifyLine, boundary check uses Mercator coordinates.
-  const isOnBoundaryLL = (c: number[]) =>
-    Math.abs(c[0] - tb.west) < EPS || Math.abs(c[0] - tb.east) < EPS ||
-    Math.abs(c[1] - tb.south) < EPS || Math.abs(c[1] - tb.north) < EPS
-  const MERC_EPS = 1.0 // 1 meter tolerance for Mercator boundary detection
+  const MERC_EPS = 1.0 // 1 meter tolerance for tile-boundary detection
   const isOnBoundaryMerc = (c: number[]) =>
     Math.abs(c[0] - stMxW) < MERC_EPS || Math.abs(c[0] - stMxE) < MERC_EPS ||
     Math.abs(c[1] - stMyS) < MERC_EPS || Math.abs(c[1] - stMyN) < MERC_EPS
   const tilePolygons: { rings: number[][][]; featId: number }[] = []
 
   for (const part of parts) {
-    // Quick bbox reject
+    // Quick bbox reject (bbox in LL, tile bounds in LL — fastest path;
+    // the actual clip runs in MM below).
     if (part.maxLon < tb.west || part.minLon > tb.east ||
         part.maxLat < tb.south || part.minLat > tb.north) continue
 
     const fid = part.featureIndex
 
     if (part.type === 'polygon' && part.rings) {
-      const clipped = clipPolygonToRect(part.rings, tb.west, tb.south, tb.east, tb.north, precision)
+      // Industry-standard pipeline (Mapbox GL / MapLibre / Tippecanoe):
+      // rings are ALREADY in MM — projected once at makePolygonPart
+      // (decomposeFeatures time). Hot path is clip → simplify →
+      // tessellate all in MM. Fill and outline share the same clipped
+      // ring set so endpoints agree by construction.
+      const clipped = clipPolygonToRect(part.rings, stMxW, stMyS, stMxE, stMyN, precisionMM)
       if (clipped.length > 0 && clipped[0].length >= 3) {
-        const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryLL) : clipped
+        const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryMerc) : clipped
         if (dataRings.length > 0 && dataRings[0].length >= 3) {
           tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap)
           featureIds.add(fid)
           tilePolygons.push({ rings: dataRings, featId: fid })
         }
-        // Outline through the line pipeline. Uses `clipped` (the
-        // LON/LAT-clipped rings from the fill path above) — NOT the
-        // original `part.rings` — so outline endpoints land exactly
-        // on the same tile-boundary points the fill edges end at.
+        // Outline shares the MM-clipped rings with the fill — endpoints
+        // land on the exact same tile-boundary MM points the fill
+        // terminates at, eliminating the fill/stroke alignment bug
+        // (d34aed2) at the space-choice level rather than requiring
+        // a downstream patch.
         //
-        // Historical bug (fixed 2026-04-20): previous code walked
-        // `part.rings` and then clipped a second time in Mercator via
-        // `clipLineToRect`. For source polygons with edges that span
-        // many degrees of latitude (e.g. a triangle vertex at
-        // lat=-20 connecting to lat=+30), a straight line in lon/lat
-        // is a curve in Mercator, so the two clips produce endpoints
-        // that differ by up to tens of km at boundary tiles — fill
-        // and stroke end up drawn at geometrically different places.
-        // Using the lon/lat-clipped rings keeps the two pipelines
-        // aligned to the spec GeoJSON linear-interpolation semantics.
-        //
-        // Note: augmentRingWithArc restarts arc=0 at each ring, so
-        // dash patterns on a polygon split across multiple tiles now
-        // desync at tile boundaries for cross-tile arcs. Accepted
-        // trade-off: visible stroke/fill alignment matters more than
-        // dash phase continuity across tile seams. If cross-tile
-        // dash continuity is needed later, the augmenter needs to
-        // carry a source-ring-global arc into the clipped ring.
+        // augmentRingWithArc accepts LL input historically but the
+        // clipped rings here are MM. Feed MM directly — augmentRingWithArc
+        // branches on `LL_INPUT` via the `mmInput` parameter so the arc
+        // projection step is a no-op.
         for (const ring of clipped) {
-          // clipPolygonToRect can emit rings that start with a duplicate
-          // of the first vertex (Sutherland-Hodgman stitches the
-          // closure at the top). Dedup adjacent repeats before
-          // augmenting so augmentRingWithArc doesn't produce a
-          // degenerate zero-length self-loop segment, which would
-          // otherwise poison buildLineSegments' adjacency lookup.
           const ringDedup = dedupAdjacentVertices(ring)
           if (ringDedup.length < 3) continue
-          const arcRing = augmentRingWithArc(ringDedup)
+          const arcRing = augmentRingWithArc(ringDedup, { mmInput: true })
           if (arcRing.length < 2) continue
           const segments = clipLineToRect(arcRing, stMxW, stMyS, stMxE, stMyN)
           for (const seg of segments) {
@@ -1092,25 +1122,21 @@ export function compileSingleTile(
     if (part.type === 'point' && part.point) {
       const [px, py] = part.point
       if (px >= tb.west && px <= tb.east && py >= tb.south && py <= tb.north) {
-        scratch.ptv.push(px, py, fid)
+        const [pmx, pmy] = lonLatToMercF64(px, py)
+        scratch.ptv.push(pmx, pmy, fid)
         featureIds.add(fid)
       }
     }
   }
 
-  // Full-cover detection: a single feature's single ring fully
-  // covers the tile. Mirrors compileGeoJSONToTiles:896-911 so runtime
-  // sub-tiles use the same quad-rendering fast path as batch-compiled
-  // ones. Without this, sub-tiles in the interior of a large polygon
-  // ship with triangulated fill but downstream code paths that key on
-  // the fullCover flag (createFullCoverTileData, match() color lookup
-  // via the fullCoverFeatureId) never see it — tiles render with
-  // missing color when zoomed beyond the pre-compiled level.
+  // Full-cover detection: ring is MM-clipped, so compute tile area
+  // in MM too. (tileArea in LL degrees² vs polyArea in MM m² mismatch
+  // is the bug this comment saves future contributors from.)
   let fullCover = false
   let fullCoverFeatId = -1
   if (tilePolygons.length === 1 && tilePolygons[0].rings.length === 1) {
     const ring = tilePolygons[0].rings[0]
-    const tileArea = (tb.east - tb.west) * (tb.north - tb.south)
+    const tileArea = (stMxE - stMxW) * (stMyN - stMyS)
     const polyArea = Math.abs(shoelaceArea(ring))
     if (tileArea > 0 && Math.abs(polyArea - tileArea) / tileArea < 1e-6) {
       fullCover = true
