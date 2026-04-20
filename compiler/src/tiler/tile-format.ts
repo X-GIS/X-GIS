@@ -480,6 +480,15 @@ export function parseGPUReadyTile(
   // on the decoded MM values; no LL→MM projection needed.
   const polygons = decodeRingData(ringDataBuf, precisionMM)
   const tb = tileBoundsFromZXY(z, x, y)
+  // Line coords are still stored in LL (varint-friendly), so we need
+  // the LL→MM helpers below for line-vertex reconstruction.
+  const EARTH_R = 6378137
+  const DEG2RAD = Math.PI / 180
+  const LAT_LIMIT = 85.051129
+  const latToMercY = (lat: number) => {
+    const c = Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, lat))
+    return Math.log(Math.tan(Math.PI / 4 + c * DEG2RAD / 2)) * EARTH_R
+  }
   const [tileMx, tileMy] = lonLatToMercF64(tb.west, tb.south)
 
   // Polygon vertices emitted directly as DSFUN stride-5 pairs.
