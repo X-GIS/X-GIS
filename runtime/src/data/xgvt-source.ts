@@ -336,7 +336,16 @@ export class XGVTSource {
     }
 
     console.log(`[X-GIS] VectorTile index loaded: ${this.index.entries.length} tiles`)
-    await this.preloadLowZoomTiles()
+    // Mirror loadFromURL's two-stage preload: z=0 synchronously (so the
+    // render loop has a coarse global fallback on the first frame),
+    // then z=1..3 in the background. Historically this called a
+    // non-existent `preloadLowZoomTiles()` — the method was split into
+    // preloadZeroTile + preloadBackground but this callsite wasn't
+    // updated, causing the fallback path (map.ts:791, reached when
+    // loadFromURL throws) to throw TypeError and leave the source with
+    // no cached tiles at all — the exact "nothing loads" symptom.
+    await this.preloadZeroTile()
+    this.preloadBackground().catch(e => console.error('[xgvt preload bg]', (e as Error)?.stack ?? e))
   }
 
   async loadFromURL(url: string): Promise<void> {
