@@ -1051,7 +1051,33 @@ export function compileSingleTile(
     }
   }
 
-  if (scratch.pv.length < 9 && scratch.lv.length < 8 && scratch.ptv.length < 3) return null
+  // Full-cover detection: a single feature's single ring fully
+  // covers the tile. Mirrors compileGeoJSONToTiles:896-911 so runtime
+  // sub-tiles use the same quad-rendering fast path as batch-compiled
+  // ones. Without this, sub-tiles in the interior of a large polygon
+  // ship with triangulated fill but downstream code paths that key on
+  // the fullCover flag (createFullCoverTileData, match() color lookup
+  // via the fullCoverFeatureId) never see it — tiles render with
+  // missing color when zoomed beyond the pre-compiled level.
+  let fullCover = false
+  let fullCoverFeatId = -1
+  if (tilePolygons.length === 1 && tilePolygons[0].rings.length === 1) {
+    const ring = tilePolygons[0].rings[0]
+    const tileArea = (tb.east - tb.west) * (tb.north - tb.south)
+    const polyArea = Math.abs(shoelaceArea(ring))
+    if (tileArea > 0 && Math.abs(polyArea - tileArea) / tileArea < 1e-6) {
+      fullCover = true
+      fullCoverFeatId = tilePolygons[0].featId
+      // Clear polygon + outline scratch — client will generate a quad.
+      // Keep line/point scratch: those render independently.
+      scratch.pv.length = 0
+      scratch.pi.length = 0
+      scratch.olv.length = 0
+      scratch.oli.length = 0
+    }
+  }
+
+  if (!fullCover && scratch.pv.length < 9 && scratch.lv.length < 8 && scratch.ptv.length < 3) return null
 
   // No legacy boundary-edge filter — clipLineToRect (used by the
   // outline path above) doesn't generate synthetic boundary segments.
@@ -1073,6 +1099,8 @@ export function compileSingleTile(
     outlineLineIndices: new Uint32Array(scratch.oli),
     pointVertices: scratch.ptv.length > 0 ? packDSFUNPolygonVertices(scratch.ptv, tileMx, tileMy) : undefined,
     featureCount: featureIds.size,
+    fullCover,
+    fullCoverFeatureId: fullCover ? fullCoverFeatId : undefined,
     polygons: tilePolygons.length > 0 ? tilePolygons : undefined,
   }
 }

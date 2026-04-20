@@ -223,13 +223,21 @@ export class XGVTSource {
       return true
     }
 
-    // Create synthetic index entry
+    // Create synthetic index entry. Forward compileSingleTile's
+    // `fullCover` + `fullCoverFeatureId` so sub-tiles beyond the
+    // pre-compiled zoom use the same quad-rendering fast path as
+    // batch-compiled full-cover tiles — otherwise match()-based color
+    // lookups return nothing because the feature id is never attached
+    // to the cover quad.
+    const tileFullCover = tile.fullCover ?? false
+    const tileFullCoverFid = tile.fullCoverFeatureId ?? 0
     if (this.index) {
       const entry: TileIndexEntry = {
         tileHash: key, dataOffset: 0, compactSize: 0, gpuReadySize: 0,
         vertexCount: tile.vertices.length / DSFUN_POLY_STRIDE, indexCount: tile.indices.length,
         lineVertexCount: tile.lineVertices.length / DSFUN_LINE_STRIDE, lineIndexCount: tile.lineIndices.length,
-        flags: 0, fullCoverFeatureId: 0,
+        flags: tileFullCover ? (TILE_FLAG_FULL_COVER | (tileFullCoverFid << 1)) : 0,
+        fullCoverFeatureId: tileFullCoverFid,
       }
       if (!this.index.entryByHash.has(key)) {
         this.index.entries.push(entry)
