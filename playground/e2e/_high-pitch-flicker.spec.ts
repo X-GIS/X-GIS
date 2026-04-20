@@ -214,6 +214,26 @@ test.describe('High-pitch FLICKER repro: physical_map_50m', () => {
     ).toBe(true)
   })
 
+  test('filter_gdp at pitch=83.9 zoom=10.22 (user bug 2026-04-21-B): renders tiles', async ({ page }) => {
+    test.setTimeout(READY_TIMEOUT_MS + SETTLE_TIMEOUT_MS + 10_000)
+    const hash = '#10.22/50.04227/-95.36354/21.1/83.9'
+    await page.goto(`/demo.html?id=filter_gdp${hash}`, { waitUntil: 'domcontentloaded' })
+    await waitForXgisReady(page)
+    await page.waitForTimeout(3000)
+
+    const sources = await snapshotSources(page)
+    console.log('[filter_gdp bug URL post-settle]')
+    console.log(formatSnapshot(sources))
+    expect(sources.length, 'no sources loaded').toBeGreaterThan(0)
+    for (const s of sources) {
+      expect(s.cacheSize, `${s.name}: gpuCache=0 — no data arrived`).toBeGreaterThan(0)
+      expect(
+        s.tilesVisible,
+        `${s.name}: zero tiles drawn (missedTiles=${s.missedTiles})`,
+      ).toBeGreaterThan(0)
+    }
+  })
+
   test('pitch sweep 60° → 85° at zoom=10 over bug location: no permanent missedTiles', async ({ page }) => {
     test.setTimeout(180_000) // 8 pitches × up to 20s each
 

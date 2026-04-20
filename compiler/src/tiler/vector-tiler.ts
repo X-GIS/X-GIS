@@ -635,6 +635,95 @@ export function augmentRingWithArc(ring: number[][], opts?: { mmInput?: boolean 
   return augmentChainWithArc(ring, true, opts)
 }
 
+/** Extract the "interior" arcs of a clipped polygon ring — the
+ *  sub-chains whose edges come from the ORIGINAL polygon's boundary,
+ *  not the synthetic axis-aligned edges Sutherland-Hodgman added to
+ *  close the ring at the tile rect.
+ *
+ *  WHY THIS EXISTS (bug 2026-04-21, user-reported):
+ *    d34aed2 routed polygon OUTLINE emission through the fill's
+ *    clipped ring so fill/stroke endpoints would coincide. But the
+ *    clipped ring's closure includes edges ALONG the tile border
+ *    (v_i → v_{i+1} where BOTH lie on a tile-rect edge). Emitting
+ *    those as stroke drew a visible cross-hatch at every tile
+ *    boundary whenever a polygon spanned multiple tiles.
+ *
+ *    The fix is to exclude edges where both endpoints lie on the
+ *    tile rect — those are synthetic, and the ORIGINAL polygon
+ *    never had a stroke there. The output is a list of open
+ *    polylines (each representing a contiguous run of original
+ *    polygon edges inside this tile). When the polygon is
+ *    entirely inside the tile, a single closed ring is returned.
+ */
+function extractNonSyntheticArcs(
+  ring: number[][],
+  isSameBoundarySide: (a: number[], b: number[]) => boolean,
+): number[][][] {
+  const n = ring.length
+  if (n < 2) return []
+
+  // An edge is "synthetic" when both endpoints lie on the SAME axis
+  // of the tile rect — a clip added it to close the ring along that
+  // rect edge. "Both on boundary" alone isn't enough: a real polygon
+  // edge that crosses the tile enters/exits through the rect, so
+  // both endpoints can land on boundary lines but on DIFFERENT sides
+  // (e.g. enters at x=west, exits at y=north). Those are real edges
+  // of the source polygon and MUST keep rendering as stroke.
+  const edgeSynthetic: boolean[] = new Array(n)
+  for (let i = 0; i < n; i++) {
+    edgeSynthetic[i] = isSameBoundarySide(ring[i], ring[(i + 1) % n])
+  }
+
+  // All edges real → original polygon is fully inside the tile.
+  // Return the whole CLOSED ring (downstream treats closed=true so
+  // the last→first wrap renders, preserving join semantics).
+  if (edgeSynthetic.every(s => !s)) return [ring]
+  // All edges synthetic → this ring is entirely the tile rect's
+  // outline, no source polygon content. Emit nothing.
+  if (edgeSynthetic.every(s => s)) return []
+
+  // Find a rotation start: the first edge that is real AND preceded
+  // by a synthetic one. That's where an arc begins.
+  let start = 0
+  for (let i = 0; i < n; i++) {
+    if (edgeSynthetic[(i - 1 + n) % n] && !edgeSynthetic[i]) { start = i; break }
+  }
+
+  const arcs: number[][][] = []
+  let current: number[][] = []
+  for (let off = 0; off < n; off++) {
+    const i = (start + off) % n
+    if (edgeSynthetic[i]) {
+      if (current.length >= 2) arcs.push(current)
+      current = []
+    } else {
+      const a = ring[i]
+      const b = ring[(i + 1) % n]
+      if (current.length === 0) current.push(a)
+      current.push(b)
+    }
+  }
+  if (current.length >= 2) arcs.push(current)
+  return arcs
+}
+
+/** Build the `isSameBoundarySide` predicate for a MM tile rect. */
+function makeSameBoundarySidePredicateMerc(
+  mxW: number, myS: number, mxE: number, myN: number, eps: number = 1.0,
+): (a: number[], b: number[]) => boolean {
+  return (a, b) => {
+    // Both on x=mxW (tile west edge)
+    if (Math.abs(a[0] - mxW) < eps && Math.abs(b[0] - mxW) < eps) return true
+    // Both on x=mxE
+    if (Math.abs(a[0] - mxE) < eps && Math.abs(b[0] - mxE) < eps) return true
+    // Both on y=myS
+    if (Math.abs(a[1] - myS) < eps && Math.abs(b[1] - myS) < eps) return true
+    // Both on y=myN
+    if (Math.abs(a[1] - myN) < eps && Math.abs(b[1] - myN) < eps) return true
+    return false
+  }
+}
+
 /** Remove consecutive duplicate (lon, lat) vertices from a ring.
  *  clipPolygonToRect occasionally emits rings that start with a
  *  duplicate of the first vertex; such duplicates become zero-length
@@ -908,17 +997,32 @@ function processZoomLevelShared(
               featureIds.add(fid)
               tilePolygons.push({ rings: dataRings, featId: fid })
             }
-            // Outline: share the MM-clipped rings with the fill so
-            // endpoints land on the same tile-boundary MM points.
+            // Outline: extract the ORIGINAL polygon edges from the
+            // clipped ring, dropping the synthetic tile-rect edges
+            // Sutherland-Hodgman added for closure. Without this
+            // filter every tile boundary renders as a visible stroke
+            // wherever a polygon crosses it (user-reported on filter_gdp).
+            const isSameBoundarySide = makeSameBoundarySidePredicateMerc(
+              tbMxW, tbMyS, tbMxE, tbMyN,
+            )
             for (const ring of clipped) {
               const ringDedup = dedupAdjacentVertices(ring)
               if (ringDedup.length < 3) continue
-              const arcRing = augmentRingWithArc(ringDedup, { mmInput: true })
-              if (arcRing.length < 2) continue
-              const segments = clipLineToRect(arcRing, tbMxW, tbMyS, tbMxE, tbMyN)
-              for (const seg of segments) {
-                if (seg.length >= 2) {
-                  tessellateLineToArrays(seg, fid, scratch.olv, scratch.oli)
+              const interiorArcs = extractNonSyntheticArcs(ringDedup, isSameBoundarySide)
+              // If the single emitted arc IS the whole ring (polygon
+              // fully inside the tile — no synthetic edges at all),
+              // treat as closed so the last→first wrap renders.
+              // Otherwise each arc is an open chain clipped at the
+              // tile rect.
+              const wholeRing = interiorArcs.length === 1 && interiorArcs[0] === ringDedup
+              for (const arc of interiorArcs) {
+                const augmented = augmentChainWithArc(arc, wholeRing, { mmInput: true })
+                if (augmented.length < 2) continue
+                const segments = clipLineToRect(augmented, tbMxW, tbMyS, tbMxE, tbMyN)
+                for (const seg of segments) {
+                  if (seg.length >= 2) {
+                    tessellateLineToArrays(seg, fid, scratch.olv, scratch.oli)
+                  }
                 }
               }
             }
@@ -1090,15 +1194,25 @@ export function compileSingleTile(
         // clipped rings here are MM. Feed MM directly — augmentRingWithArc
         // branches on `LL_INPUT` via the `mmInput` parameter so the arc
         // projection step is a no-op.
+        // See parallel comment on compileGeoJSONToTiles outline path —
+        // extract original polygon edges from the clipped ring so
+        // synthetic tile-rect edges don't emit visible strokes.
+        const isSameBoundarySide = makeSameBoundarySidePredicateMerc(
+          stMxW, stMyS, stMxE, stMyN,
+        )
         for (const ring of clipped) {
           const ringDedup = dedupAdjacentVertices(ring)
           if (ringDedup.length < 3) continue
-          const arcRing = augmentRingWithArc(ringDedup, { mmInput: true })
-          if (arcRing.length < 2) continue
-          const segments = clipLineToRect(arcRing, stMxW, stMyS, stMxE, stMyN)
-          for (const seg of segments) {
-            if (seg.length >= 2) {
-              tessellateLineToArrays(seg, fid, scratch.olv, scratch.oli)
+          const interiorArcs = extractNonSyntheticArcs(ringDedup, isSameBoundarySide)
+          const wholeRing = interiorArcs.length === 1 && interiorArcs[0] === ringDedup
+          for (const arc of interiorArcs) {
+            const augmented = augmentChainWithArc(arc, wholeRing, { mmInput: true })
+            if (augmented.length < 2) continue
+            const segments = clipLineToRect(augmented, stMxW, stMyS, stMxE, stMyN)
+            for (const seg of segments) {
+              if (seg.length >= 2) {
+                tessellateLineToArrays(seg, fid, scratch.olv, scratch.oli)
+              }
             }
           }
         }
