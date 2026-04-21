@@ -338,6 +338,131 @@ export function visibleTilesFrustum(
   return result
 }
 
+/**
+ * Tile discovery via SCREEN-SPACE SAMPLE GRID + CORNER UNPROJECT
+ * (industry-standard Mapbox GL / MapLibre pattern).
+ *
+ * Samples a fixed grid of screen points, unprojects each to the
+ * ground (Z=0) plane, and collects the tile at the target zoom
+ * that each unprojected point falls into. Also dilates by the
+ * 8-neighbourhood so the output covers the "between samples"
+ * gaps. Returns tiles at ONE zoom level (chosen by caller, usually
+ * `round(camera.zoom)`).
+ *
+ * Why add this alongside `visibleTilesFrustum`:
+ *
+ *   `visibleTilesFrustum` does mixed-zoom quadtree DFS with per-
+ *   tile MVP projection + margin heuristics. The margins depend on
+ *   `Math.max(canvasWidth, canvasHeight)` which shrinks the
+ *   accept range on narrow viewports (iPhone portrait), culling
+ *   horizon tiles at pitch ≥ 80°. Bug repeatedly rediscovered:
+ *   2026-04-21 FLICKER on `filter_gdp` demo. Each patch of the
+ *   margin formula introduces new edge cases.
+ *
+ *   This function is ALGORITHMICALLY aspect-ratio-invariant: each
+ *   sample's unproject is a geometric truth about the ground
+ *   plane, independent of viewport shape. Narrow and wide
+ *   viewports both get correct coverage for free.
+ *
+ * Trade-offs:
+ *   + No margin heuristics. No aspect-ratio bug class.
+ *   + Matches Mapbox's public algorithm — users get expected
+ *     behaviour if they've seen web maps before.
+ *   + Simpler to port to GPU compute (single pass over samples).
+ *   - Single zoom (no mixed LOD). Tiles near horizon at extreme
+ *     pitch may be demanded in large quantities.
+ *   - Horizon samples unproject to null; very-high-pitch might
+ *     return fewer tiles than the quadtree approach.
+ *
+ * Caller picks `targetZ`; usually `Math.round(camera.zoom)`.
+ */
+export function visibleTilesFrustumSampled(
+  camera: Camera,
+  _projection: Projection,
+  targetZ: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  _extraMarginPx: number = 0,
+): TileCoord[] {
+  const DEG2RAD = Math.PI / 180
+  const R = 6378137
+  const n = Math.pow(2, targetZ)
+  const maxCopies = (WORLD_COPIES.length - 1) / 2
+
+  // 9 × 9 sample grid across the viewport. Denser than Mapbox's
+  // default (which uses camera-space frustum corners) — our
+  // extreme-pitch use case benefits from more samples along the
+  // forward axis. Samples at fractions 0/8, 1/8, ..., 8/8.
+  const SAMPLES_PER_AXIS = 9
+  const tileSet = new Set<number>() // (x * n + y) * 2^maxCopies + (ox + maxCopies)
+
+  const addTile = (x: number, y: number, ox: number): void => {
+    if (y < 0 || y >= n) return
+    if (ox < -maxCopies || ox > maxCopies) return
+    // Pack (x, y, ox) into a single integer. Use `ox` offset
+    // explicitly as the world copy index so wraparound at the
+    // antimeridian emits all three copies.
+    const key = (ox + maxCopies) * (n * n) + x * n + y
+    tileSet.add(key)
+  }
+
+  // Add the camera's current tile unconditionally — at extreme
+  // pitch the camera's forward ray may miss samples that actually
+  // land on it, so pin it here. Matches the "camera-foot tile
+  // always loaded" invariant the existing animation-coverage
+  // tests rely on at low pitch.
+  {
+    const camLon = (camera.centerX / R) / DEG2RAD
+    const camLat = (2 * Math.atan(Math.exp(camera.centerY / R)) - Math.PI / 2) / DEG2RAD
+    const cx = Math.floor((camLon + 180) / 360 * n)
+    const clampedLat = Math.max(-85.051129, Math.min(85.051129, camLat))
+    const cy = Math.floor(
+      (1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n,
+    )
+    addTile(cx, cy, 0)
+  }
+
+  for (let iy = 0; iy < SAMPLES_PER_AXIS; iy++) {
+    const fy = iy / (SAMPLES_PER_AXIS - 1)
+    for (let ix = 0; ix < SAMPLES_PER_AXIS; ix++) {
+      const fx = ix / (SAMPLES_PER_AXIS - 1)
+      const rel = camera.unprojectToZ0(fx * canvasWidth, fy * canvasHeight, canvasWidth, canvasHeight)
+      if (!rel) continue // sample ray misses ground (at/above horizon)
+      const mx = camera.centerX + rel[0]
+      const my = camera.centerY + rel[1]
+      const lon = (mx / R) / DEG2RAD
+      const lat = (2 * Math.atan(Math.exp(my / R)) - Math.PI / 2) / DEG2RAD
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
+      const clampedLat = Math.max(-85.051129, Math.min(85.051129, lat))
+      const tileFx = (lon + 180) / 360 * n
+      const tileFy = (1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n
+      const tx = Math.floor(tileFx)
+      const ty = Math.floor(tileFy)
+      // Record the tile AND its 8-neighbours. Adjacent sample
+      // points at the grid's edges may project to the interior of
+      // a tile — neighbour dilation fills the fringe.
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          addTile(tx + dx, ty + dy, 0)
+        }
+      }
+    }
+  }
+
+  // Unpack and cap.
+  const MAX = MAX_FRUSTUM_TILES
+  const result: TileCoord[] = []
+  for (const key of tileSet) {
+    if (result.length >= MAX) break
+    const ox = Math.floor(key / (n * n)) - maxCopies
+    const rest = key % (n * n)
+    const x = Math.floor(rest / n)
+    const y = rest % n
+    result.push({ z: targetZ, x, y, ox })
+  }
+  return result
+}
+
 /** Get lon/lat bounds for a tile */
 export function tileBounds(coord: TileCoord): { west: number; south: number; east: number; north: number } {
   const n = Math.pow(2, coord.z)
