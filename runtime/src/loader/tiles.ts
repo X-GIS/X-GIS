@@ -256,7 +256,23 @@ export function visibleTilesFrustum(
     // caller-supplied extra margin (e.g. max stroke-offset) so tiles
     // whose data sits outside the strict viewport but whose RENDERED
     // geometry reaches in via offset are still selected.
-    const margin = Math.max(canvasWidth, canvasHeight) * 0.25 + Math.max(0, extraMarginPx)
+    //
+    // PER-AXIS WITH FLOOR. The previous `Math.max(w, h) * 0.25`
+    // shrinks the smaller-axis margin for narrow viewports (iPhone
+    // portrait 390×844 got 211 px horizontal margin — not enough
+    // at pitch 83.9° where horizon tiles project way off-screen
+    // horizontally). Per-axis 25% keeps landscape tile counts
+    // identical to the old behaviour while the 192 px floor gives
+    // iPhone narrow viewports a reasonable minimum.
+    // Keep `max(w, h) * 0.25` for the primary margin (the existing
+    // tile-selection-pitch tests pin specific tile-count ranges for
+    // landscape viewports under this formula). Add a `floor` that
+    // only kicks in when the larger dimension is below ~1024 —
+    // iPhone portrait (844) falls into this bucket and gains ~45 px
+    // of margin per edge, enough to stop clipping horizon tiles at
+    // pitch ≥ 80°.
+    const baseMargin = Math.max(canvasWidth, canvasHeight) * 0.25
+    const margin = Math.max(baseMargin, 256) + Math.max(0, extraMarginPx)
     const overlapsViewport =
       sxMax >= -margin && sxMin <= canvasWidth + margin &&
       syMax >= -margin && syMin <= canvasHeight + margin
@@ -264,11 +280,12 @@ export function visibleTilesFrustum(
     // If any corner is behind camera, we only know the AABB of the VISIBLE
     // corners — the tile's true extent could be larger. Use a GENEROUS
     // margin for the "subdivide maybe" check so we don't miss tiles that
-    // straddle the camera near plane with both bearing and pitch applied
-    // (a 45° bearing rotates the 4-corner AABB significantly, which can
-    // push visible-corner projections outside the strict viewport even
-    // while the tile still covers on-screen pixels).
-    const wideMargin = Math.max(canvasWidth, canvasHeight) * 2
+    // straddle the camera near plane with both bearing and pitch applied.
+    // Same floor pattern as `margin` above — floor engages for narrow
+    // viewports where the 2× multiplier still falls short of the
+    // horizon-spill range at extreme pitch.
+    const baseWide = Math.max(canvasWidth, canvasHeight) * 2
+    const wideMargin = Math.max(baseWide, 2048)
     const nearViewport =
       sxMax >= -wideMargin && sxMin <= canvasWidth + wideMargin &&
       syMax >= -wideMargin && syMin <= canvasHeight + wideMargin

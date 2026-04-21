@@ -214,8 +214,13 @@ test.describe('High-pitch FLICKER repro: physical_map_50m', () => {
     ).toBe(true)
   })
 
-  test('filter_gdp at pitch=83.9 zoom=10.22 (user bug 2026-04-21-B): renders tiles', async ({ page }) => {
+  test('filter_gdp at pitch=83.9 zoom=10.22 (user bug 2026-04-21-B): ground renders', async ({ page }) => {
     test.setTimeout(READY_TIMEOUT_MS + SETTLE_TIMEOUT_MS + 10_000)
+    // User's report is from iPhone portrait (aspect ratio ~0.46).
+    // Default playwright viewport is 1280×720 (1.77 ratio) — very
+    // different frustum shape at pitch=83.9°. Shrink to iPhone
+    // dimensions to match what the user actually sees.
+    await page.setViewportSize({ width: 390, height: 844 })
     const hash = '#10.22/50.04227/-95.36354/21.1/83.9'
     await page.goto(`/demo.html?id=filter_gdp${hash}`, { waitUntil: 'domcontentloaded' })
     await waitForXgisReady(page)
@@ -232,6 +237,59 @@ test.describe('High-pitch FLICKER repro: physical_map_50m', () => {
         `${s.name}: zero tiles drawn (missedTiles=${s.missedTiles})`,
       ).toBeGreaterThan(0)
     }
+
+    const vp = page.viewportSize() ?? { width: 1280, height: 720 }
+    // Sample at MULTIPLE y-fractions to locate where the ground
+    // renders (if at all). At pitch=83.9 the horizon sits near
+    // the middle of the screen; anything below should be ground.
+    const samples: Array<{ fy: number; nonBlack: number; total: number; fraction: number }> = []
+    for (const fy of [0.2, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 0.95]) {
+      const stripY = Math.floor(vp.height * fy)
+      const stripH = 20
+      const sShot = await page.screenshot({
+        clip: { x: 0, y: stripY, width: vp.width, height: stripH },
+        type: 'png',
+      })
+      const r = await page.evaluate(async (pngBytes) => {
+        const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' })
+        const url = URL.createObjectURL(blob)
+        const img = new Image()
+        await new Promise<void>((res, rej) => {
+          img.onload = () => res(); img.onerror = () => rej(new Error('img decode'))
+          img.src = url
+        })
+        const off = new OffscreenCanvas(img.width, img.height)
+        const ctx = off.getContext('2d')
+        if (!ctx) { URL.revokeObjectURL(url); return { total: 0, nonBlack: 0 } }
+        ctx.drawImage(img, 0, 0)
+        const data = ctx.getImageData(0, 0, img.width, img.height).data
+        let nonBlack = 0
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i] > 40 || data[i + 1] > 40 || data[i + 2] > 40) nonBlack++
+        }
+        URL.revokeObjectURL(url)
+        return { total: data.length / 4, nonBlack }
+      }, Array.from(sShot))
+      samples.push({ fy, nonBlack: r.nonBlack, total: r.total, fraction: r.nonBlack / r.total })
+    }
+    console.log('[filter_gdp per-y-strip pixels]')
+    for (const s of samples) {
+      console.log(`  fy=${s.fy}: ${s.nonBlack}/${s.total} (${(s.fraction * 100).toFixed(1)}%)`)
+    }
+
+    // Strip sampling at fy > ~0.55 picks up the UI panel overlay
+    // (code editor + GDP Filter selector), NOT the map canvas.
+    // In iPhone-portrait the map canvas ends around fy ≈ 0.55.
+    // So we only assert on strips in [0.2, 0.55] where the canvas
+    // is the only thing being drawn. The actual user signal is
+    // "is there SOME rendered map area" rather than "every strip
+    // below horizon is full".
+    const canvasStrips = samples.filter(s => s.fy >= 0.3 && s.fy <= 0.55)
+    const maxCanvas = Math.max(...canvasStrips.map(s => s.fraction))
+    expect(
+      maxCanvas,
+      `map canvas strips all blank: ${canvasStrips.map(s => `${s.fy}:${(s.fraction * 100).toFixed(0)}%`).join(' ')}`,
+    ).toBeGreaterThan(0.5)
   })
 
   test('pitch sweep 60° → 85° at zoom=10 over bug location: no permanent missedTiles', async ({ page }) => {
