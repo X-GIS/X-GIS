@@ -236,6 +236,11 @@ export class RasterRenderer {
   private loadingTiles = new Map<string, AbortController>()
   private frameCount = 0
   private lastZoom = -1
+  /** Visible-tile keys captured from the previous frame's render(). Used by
+   *  the next beginFrame()'s deferred eviction to know which tiles to
+   *  protect — see the parallel pattern in
+   *  VectorTileRenderer.beginFrame() (commit da4f26f). */
+  private lastVisibleKeys: Set<string> = new Set()
 
   private urlTemplate = ''
   // Pool of per-draw tile uniform buffers (avoids writeBuffer race with draw).
@@ -532,10 +537,13 @@ export class RasterRenderer {
       pass.draw(384) // 8×8 grid × 6 verts/cell
     }
 
-    // Evict stale tiles whenever the visible set shrinks (pan/zoom out), not
-    // only when a new tile finishes loading. Without this, a pan-out leaves
-    // hundreds of off-screen textures resident until the next load completes.
-    this.evictTiles(visibleKeys)
+    // Capture this frame's visible set; deferred eviction runs in the next
+    // beginFrame(). Eviction used to run inline here, but destroying tile
+    // textures mid-frame trips "Destroyed texture used in submit" because
+    // bind groups created earlier in this same render() still reference
+    // them at queue.submit() time. Same lifecycle hazard the buffer fix
+    // (da4f26f) addressed for VectorTileRenderer.evictGPUTiles().
+    this.lastVisibleKeys = visibleKeys
 
     // Shrink the uniform pool back toward MAX_TILE_UNIFORM_POOL if a previous
     // peak (e.g. extreme pitch) grew it beyond the cap. Only trim the tail
@@ -548,6 +556,14 @@ export class RasterRenderer {
       this.tileUniformPool.length = MAX_TILE_UNIFORM_POOL
       this.tileBindGroupPool.length = MAX_TILE_UNIFORM_POOL
     }
+  }
+
+  /** Drop LRU tiles past MAX_CACHED_TILES and destroy their GPU textures.
+   *  ONLY called from `beginFrame()` so the previous frame's queue.submit()
+   *  has already returned — destroying textures here cannot poison an
+   *  in-flight submit. Mirrors VectorTileRenderer.evictGPUTiles(). */
+  beginFrame(): void {
+    if (this.tileCache.size > MAX_CACHED_TILES) this.evictTiles(this.lastVisibleKeys)
   }
 
   /** Evict least-recently-used tiles when cache exceeds limit */

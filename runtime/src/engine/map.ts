@@ -1464,6 +1464,7 @@ export class XGISMap {
       // Reset per-frame uniform ring cursors (dynamic-offset slots).
       this.renderer.beginFrame()
       this.lineRenderer?.beginFrame()
+      this.rasterRenderer.beginFrame()
       for (const [, { renderer: vtR }] of this.vtSources) vtR.beginFrame()
 
       // ══════ Bucket scheduler ══════
