@@ -619,6 +619,20 @@ export class VectorTileRenderer {
     const index = this.source.getIndex()
     if (!index) return
 
+    // Variant-pipeline guard. The pipeline expects the bind group layout
+    // passed in via `bindGroupLayout`. For shader variants that need the
+    // feature buffer (match() / interpolate() etc.), the layout is
+    // `featureBindGroupLayout` — but `tileBgFeature` is built lazily,
+    // AFTER the async geojson worker compile resolves and the property
+    // table is set on the source (map.ts:1082-1084). Between layer
+    // registration and that resolution, frames render with the variant
+    // pipeline but only `tileBgDefault` is available, producing
+    // "Bind group layout of pipeline layout does not match layout of
+    // bind group" validation errors (~5 per frame on fixture_picking
+    // until the worker resolves). Skip the draw until feature bg is
+    // ready — the layer simply pops in late, same as any tile-load gap.
+    if (bindGroupLayout !== this.baseBindGroupLayout && !this.tileBgFeature) return
+
     this.frameCount++
     this.source.resetCompileBudget()
     this.renderedDraws.clear()
@@ -656,9 +670,20 @@ export class VectorTileRenderer {
     const alignDeltaPx = show.strokeAlign === 'inset' || show.strokeAlign === 'outset'
       ? strokeWidthPx / 2 : 0
     const offsetMarginPx = strokeOffsetPx + alignDeltaPx + strokeWidthPx / 2 + 2
+    // Projection-aware world-copy gate. `this.currentProjection` is
+    // declared but never assigned (legacy field — no caller wires it),
+    // so the previous `?? mercatorProj` always picked Mercator and
+    // worldCopiesFor() returned the full ±2 wrap even under
+    // orthographic. visibleTilesFrustum only reads `.name` on the
+    // projection arg; pass a `{ name }` shim driven by projType so
+    // non-Mercator gets single world. Same pattern as raster-renderer
+    // (commit 14aee7d).
+    const selectorProj = projType === 0
+      ? mercatorProj
+      : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
     const tiles = visibleTilesFrustum(
       camera,
-      this.currentProjection ?? mercatorProj,
+      selectorProj,
       currentZ,
       canvasWidth,
       canvasHeight,
