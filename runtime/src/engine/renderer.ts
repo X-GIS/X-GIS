@@ -4,7 +4,7 @@ import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { MeshData, LineMeshData } from '../loader/geojson'
 import { generateGraticule } from './graticule'
-import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, MSAA_4X, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
+import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, MSAA_4X, WORLD_MERC, worldCopiesFor } from './gpu-shared'
 import { isPickEnabled, getSampleCount } from './gpu'
 import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from './wgsl-projection'
@@ -1279,7 +1279,9 @@ export class MapRenderer {
       pass.setPipeline(this.linePipeline)
       pass.setVertexBuffer(0, this.graticuleBuffer)
 
-      const worldOffs = WORLD_COPIES
+      // Non-Mercator projections render a single world; only Mercator
+      // wraps via WORLD_MERC. See worldCopiesFor() for rationale.
+      const worldOffs = worldCopiesFor(projType)
 
       for (let wi = 0; wi < worldOffs.length; wi++) {
         const gratData = new ArrayBuffer(160)

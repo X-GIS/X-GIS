@@ -4,7 +4,7 @@
 // Single draw call for all points via per-feature storage buffer.
 
 import type { Camera } from './camera'
-import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
+import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_MERC, worldCopiesFor } from './gpu-shared'
 import { getSampleCount } from './gpu'
 import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from './wgsl-projection'
@@ -626,10 +626,11 @@ export class PointRenderer {
     if (fill) flags |= 1
     if (stroke) flags |= 2
 
-    // Build 3× expanded buffers (primary + left + right world copies)
+    // Build expanded buffers (one per world copy). Mercator wraps; other
+    // projections collapse to a single world (worldCopiesFor()).
     const STRIDE = 14
     // WORLD_MERC imported from gpu-shared
-    const COPIES = WORLD_COPIES
+    const COPIES = worldCopiesFor(projType)
     const totalN = N * COPIES.length
 
     const verts = new Float32Array(totalN * 4 * 4)
@@ -927,7 +928,9 @@ export class PointRenderer {
 
     // WORLD_MERC imported from gpu-shared
     const STRIDE = 14
-    // WORLD_COPIES imported from gpu-shared
+    // World-copy enumeration depends on projection — Mercator wraps,
+    // others collapse to a single world. See worldCopiesFor().
+    const COPIES = worldCopiesFor(projType)
 
     // View-forward projection onto the ground plane, used to sort
     // translucent instances back-to-front. Pitch=0 gives a zero vector
@@ -944,7 +947,7 @@ export class PointRenderer {
     // draw phase the layer belongs to.
     const uploadLayer = (layer: PointLayer): number => {
       const N = layer.pointCount
-      const totalPoints = N * WORLD_COPIES.length
+      const totalPoints = N * COPIES.length
       const expandedFeat = new Float32Array(totalPoints * STRIDE)
       const expandedVerts = new Float32Array(totalPoints * 4 * 4)
       const expandedIdx = new Uint32Array(totalPoints * 6)
@@ -957,8 +960,8 @@ export class PointRenderer {
       const depths = layer.isTranslucent ? new Float32Array(totalPoints) : null
       const order = layer.isTranslucent ? new Uint32Array(totalPoints) : null
 
-      for (let w = 0; w < WORLD_COPIES.length; w++) {
-        const worldOff = WORLD_COPIES[w] * WORLD_MERC
+      for (let w = 0; w < COPIES.length; w++) {
+        const worldOff = COPIES[w] * WORLD_MERC
         const basePoint = w * N
 
         for (let i = 0; i < N; i++) {

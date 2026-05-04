@@ -124,8 +124,26 @@ export function uploadBuffer(
 /** Earth circumference in Mercator meters */
 export const WORLD_MERC = 40075016.686
 
-/** World copy offsets: primary + N copies each side */
+/** World copy offsets: primary + N copies each side. Used as the
+ *  Mercator-path enumeration; other projections collapse to a single
+ *  world via `worldCopiesFor()`. */
 export const WORLD_COPIES = [-2, -1, 0, 1, 2]
+const SINGLE_WORLD: readonly number[] = [0]
+
+/** World-copy enumeration gated by projection. Mercator (and only
+ *  Mercator) is periodic in lon and uses the full ±2 wrap; every other
+ *  projection currently in this codebase (equirect, natural earth,
+ *  ortho, azimuthal_equidistant, stereographic, oblique_mercator) either
+ *  isn't periodic or doesn't apply the WORLD_MERC offset to its output
+ *  in the WGSL `project()` path — so the additional copies overdraw at
+ *  the same pixels and waste 4× draws (plus introduce coplanar z-fight).
+ *  Returning `[0]` for non-Mercator collapses to a single world.
+ *  `projType` is the same `proj_params.x` encoding shaders use:
+ *  0 = mercator, 1 = equirect, 2 = natural_earth, 3 = ortho,
+ *  4 = azimuthal_equidistant, 5 = stereographic, 6 = oblique_mercator. */
+export function worldCopiesFor(projType: number): readonly number[] {
+  return projType === 0 ? WORLD_COPIES : SINGLE_WORLD
+}
 
 /** Create an empty uniform buffer */
 export function createUniformBuffer(device: GPUDevice, size: number, label?: string): GPUBuffer {

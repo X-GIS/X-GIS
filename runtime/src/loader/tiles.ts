@@ -1,5 +1,5 @@
 // ═══ Raster Tile Loader — 웹 맵 타일 로딩 ═══
-import { WORLD_COPIES } from '../engine/gpu-shared'
+import { worldCopiesFor } from '../engine/gpu-shared'
 import { tileKeyParent } from '@xgis/compiler'
 
 /** Walk from `leafKey` up the quad-tree until the first parent for
@@ -111,10 +111,10 @@ export function visibleTiles(
       if (y < 0 || y >= n) continue
       const x = ((ox % n) + n) % n
 
-      // Limit world copies: ox must be within [-n, 2n) → at most 3 worlds
-      // (MapLibre-style: primary world + one copy left + one copy right)
-      // Limit world copies based on WORLD_COPIES range
-      const maxCopies = (WORLD_COPIES.length - 1) / 2  // e.g., [-2,-1,0,1,2] → 2
+      // Limit world copies. visibleTiles is invoked from xgvt-source
+      // sub-tile generation and the Canvas 2D fallback — both pure
+      // Mercator paths — so the Mercator wrap range applies.
+      const maxCopies = (worldCopiesFor(0).length - 1) / 2  // mercator → 2
       if (ox < -maxCopies * n || ox >= (maxCopies + 1) * n) continue
 
       tiles.push({ z, x, y, ox })
@@ -148,7 +148,7 @@ const MAX_FRUSTUM_TILES = IS_MOBILE ? 120 : 300
  *  preserves the existing culling envelope. */
 export function visibleTilesFrustum(
   camera: Camera,
-  _projection: Projection,
+  projection: Projection,
   maxZ: number,
   canvasWidth: number,
   canvasHeight: number,
@@ -159,7 +159,11 @@ export function visibleTilesFrustum(
   const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
   const camMercX = camera.centerX
   const camMercY = camera.centerY
-  const maxCopies = (WORLD_COPIES.length - 1) / 2
+  // Non-Mercator projections render a single world (no lon-periodic
+  // wrap); skip enumerating ±N copies to avoid 5× wasted tile selection
+  // + downstream draws. See worldCopiesFor() in gpu-shared.ts.
+  const projType = projection.name === 'mercator' ? 0 : 1
+  const maxCopies = (worldCopiesFor(projType).length - 1) / 2
   const SUBDIVIDE_THRESHOLD = 400 // subdivide if tile > this many px on screen
 
   // Project Mercator coords → screen pixel (returns null if behind camera)
@@ -434,7 +438,7 @@ export function visibleTilesFrustum(
  */
 export function visibleTilesFrustumSampled(
   camera: Camera,
-  _projection: Projection,
+  projection: Projection,
   targetZ: number,
   canvasWidth: number,
   canvasHeight: number,
@@ -443,7 +447,9 @@ export function visibleTilesFrustumSampled(
   const DEG2RAD = Math.PI / 180
   const R = 6378137
   const n = Math.pow(2, targetZ)
-  const maxCopies = (WORLD_COPIES.length - 1) / 2
+  // See parallel comment in visibleTilesFrustum().
+  const projType = projection.name === 'mercator' ? 0 : 1
+  const maxCopies = (worldCopiesFor(projType).length - 1) / 2
 
   // 9 × 9 sample grid across the viewport. Denser than Mapbox's
   // default (which uses camera-space frustum corners) — our
