@@ -76,6 +76,22 @@ fn reproject_point(rtc_merc: vec2<f32>) -> vec2<f32> {
   return proj_xy - center_xy;
 }
 
+// Backface signal at a point's center. Same lon/lat reconstruction as
+// reproject_point's non-Mercator branch, dispatched through
+// needs_backface_cull. Cheap for flat projections — that helper
+// returns +1 immediately when proj_params.x < 2.5.
+fn point_cos_c(rtc_merc: vec2<f32>) -> f32 {
+  let cam_lat = clamp(u.proj_params.z, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
+  let cam_merc_x = u.proj_params.y * DEG2RAD * EARTH_R;
+  let cam_merc_y = log(tan(PI / 4.0 + cam_lat * DEG2RAD / 2.0)) * EARTH_R;
+  let abs_merc_x = rtc_merc.x + cam_merc_x;
+  let abs_merc_y = rtc_merc.y + cam_merc_y;
+  let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
+  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let abs_lat = lat_rad / DEG2RAD;
+  return needs_backface_cull(abs_lon, abs_lat, u.proj_params);
+}
+
 // ── SDF distance functions ──
 
 fn dist_to_line(p: vec2f, a: vec2f, b: vec2f) -> f32 {
@@ -183,6 +199,11 @@ struct PointOut {
   // we still want the log-depth value in a varying so fs_point can write
   // frag_depth uniformly.
   @location(3) view_w: f32,
+  // Backface signal for globe projections (orthographic / azimuthal /
+  // stereographic). All four quad corners share one center, so this is
+  // flat-interpolated via the shared value — fragments either all
+  // render or all discard. +1 for flat projections (no-op).
+  @location(4) @interpolate(flat) cos_c: f32,
 }
 
 struct PointFragmentOutput {
@@ -282,11 +303,16 @@ fn vs_point(
   }
   out.feat_id = fid;
   out.radius_px = radius_px;
+  out.cos_c = point_cos_c(rtc_merc);
   return out;
 }
 
 @fragment
 fn fs_point(in: PointOut) -> PointFragmentOutput {
+  // Backface cull for globe projections — same pattern as polygon
+  // (renderer.ts) and line (line-renderer.ts) shaders. cos_c is +1
+  // for flat projections so the discard is a no-op there.
+  if (in.cos_c < 0.0) { discard; }
   let fid = in.feat_id;
   let shape_id = u32(feat_data[fid * STRIDE + 13u]);
 

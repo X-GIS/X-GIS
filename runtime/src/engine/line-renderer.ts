@@ -699,6 +699,19 @@ ${WGSL_PROJECTION_FNS}
 // then computed in this projected-meter frame, which means polylines drawn
 // on a globe (orthographic / azimuthal / stereographic) curve along the
 // surface instead of leaking out as a Mercator world map.
+// Backface signal at a DSFUN endpoint. Reconstructs absolute lon/lat
+// (the same way reproject_line does for the non-Mercator branch) and
+// dispatches needs_backface_cull. Cheap for flat projections — that
+// helper returns +1 immediately when proj_params.x < 2.5.
+fn endpoint_cos_c(p_h: vec2<f32>, p_l: vec2<f32>) -> f32 {
+  let abs_merc_x = (p_h.x + p_l.x) + tile.tile_origin_merc.x;
+  let abs_merc_y = (p_h.y + p_l.y) + tile.tile_origin_merc.y;
+  let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
+  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let abs_lat = lat_rad / DEG2RAD;
+  return needs_backface_cull(abs_lon, abs_lat, tile.proj_params);
+}
+
 fn reproject_line(p_h: vec2<f32>, p_l: vec2<f32>) -> vec2<f32> {
   if (tile.proj_params.x < 0.5) {
     return (p_h - tile.cam_h) + (p_l - tile.cam_l);
@@ -846,6 +859,13 @@ struct LineOut {
   // view_w = pre-division clip-space w. Fragment recomputes log-depth
   // per pixel so long line segments don't drift in view-space.
   @location(2) view_w: f32,
+  // Backface signal for globe projections (orthographic, azimuthal,
+  // stereographic). needs_backface_cull returns positive on the
+  // visible hemisphere and negative behind the camera. Fragment
+  // shader discards on negative; for flat projections the helper
+  // returns +1 unconditionally so this is a no-op there. Mirrors the
+  // polygon shader's pattern (renderer.ts: VertexOutput.cos_c).
+  @location(3) cos_c: f32,
 }
 
 struct LineFragmentOutput {
@@ -1066,6 +1086,15 @@ fn vs_line(
   out.view_w = clip.w;
   out.world_local = corner_local; // interpolated across the quad
   out.seg_id = seg_id;
+  // Backface signal — pick the cos_c at this vertex's endpoint. With
+  // is_start=true (vertex near p0) we output cos_c at p0, otherwise at
+  // p1. The sign interpolates across the quad so a segment that
+  // straddles the visible-hemisphere boundary gets discarded fragment-
+  // by-fragment along the great-circle horizon line. For flat
+  // projections both endpoints return +1, so the discard is a no-op.
+  let cos_c_p0 = endpoint_cos_c(seg.p0_h, seg.p0_l);
+  let cos_c_p1 = endpoint_cos_c(seg.p1_h, seg.p1_l);
+  out.cos_c = select(cos_c_p1, cos_c_p0, is_start);
   return out;
 }
 
@@ -1085,6 +1114,11 @@ fn plane_signed(p: vec2<f32>, origin: vec2<f32>, outward_nrm: vec2<f32>) -> f32 
 //              depth attachment, so writing frag_depth there is a
 //              validation error. This path returns plain color only.
 fn compute_line_color(in: LineOut) -> vec4<f32> {
+  // Backface cull for globe projections (orthographic / azimuthal /
+  // stereographic). cos_c is the interpolated visibility signal from
+  // vs_line; needs_backface_cull returns +1 for flat projections so
+  // this is a no-op for Mercator / equirect / natural earth.
+  if (in.cos_c < 0.0) { discard; }
   let seg = segments[in.seg_id];
   let p = in.world_local;
   // Reconstruct p0/p1 in camera-relative meters using the same projection
