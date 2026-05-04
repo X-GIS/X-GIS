@@ -7,15 +7,13 @@ import type { Camera } from './camera'
 import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
 import { getSampleCount } from './gpu'
 import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
+import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from './wgsl-projection'
 import type { ShapeRegistry } from './sdf-shape'
 
 // ═══ WGSL Shader ═══
 
 const POINT_SHADER = /* wgsl */ `
-const PI: f32 = 3.14159265;
-const DEG2RAD: f32 = 0.01745329;
-const EARTH_R: f32 = 6378137.0;
-const MERCATOR_LAT_LIMIT: f32 = 85.051129;
+${WGSL_PROJECTION_CONSTS}
 const STRIDE: u32 = 14u;
 ${WGSL_LOG_DEPTH_FNS}
 
@@ -53,6 +51,30 @@ struct Segment {
 @group(0) @binding(1) var<storage, read> feat_data: array<f32>;
 @group(0) @binding(2) var<storage, read> shapes: array<ShapeDesc>;
 @group(0) @binding(3) var<storage, read> segments: array<Segment>;
+
+${WGSL_PROJECTION_FNS}
+
+// Reconstruct camera-relative position in the CURRENT projection's
+// coordinate frame from the point's pre-computed (mercX - cameraMercX,
+// mercY - cameraMercY) Mercator-meter offset stored in feat_data.
+//
+// Mercator (proj_params.x < 0.5): the offset is already what we want.
+// Non-Mercator: add camera Mercator back to get absolute Mercator, convert
+// to lon/lat, project through the dispatch, subtract projected camera.
+fn reproject_point(rtc_merc: vec2<f32>) -> vec2<f32> {
+  if (u.proj_params.x < 0.5) { return rtc_merc; }
+  let cam_lat = clamp(u.proj_params.z, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
+  let cam_merc_x = u.proj_params.y * DEG2RAD * EARTH_R;
+  let cam_merc_y = log(tan(PI / 4.0 + cam_lat * DEG2RAD / 2.0)) * EARTH_R;
+  let abs_merc_x = rtc_merc.x + cam_merc_x;
+  let abs_merc_y = rtc_merc.y + cam_merc_y;
+  let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
+  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let abs_lat = lat_rad / DEG2RAD;
+  let proj_xy = project(abs_lon, abs_lat, u.proj_params);
+  let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
+  return proj_xy - center_xy;
+}
 
 // ── SDF distance functions ──
 
@@ -197,9 +219,13 @@ fn vs_point(
   }
 
   // RTC: center is pre-computed as (mercX - cameraMercX, mercY - cameraMercY)
-  // stored in feat_data by CPU in f64 precision, passed as small f32 offsets
-  let rtc_x = feat_data[fid * STRIDE + 11u];
-  let rtc_y = feat_data[fid * STRIDE + 12u];
+  // stored in feat_data by CPU in f64 precision, passed as small f32 offsets.
+  // For non-Mercator projections we re-project through reproject_point so the
+  // point lands on the globe (or other projection) instead of the Mercator plane.
+  let rtc_merc = vec2<f32>(feat_data[fid * STRIDE + 11u], feat_data[fid * STRIDE + 12u]);
+  let pos = reproject_point(rtc_merc);
+  let rtc_x = pos.x;
+  let rtc_y = pos.y;
   let center_clip = u.mvp * vec4f(rtc_x, rtc_y, 0.0, 1.0);
 
   let is_flat = (u32(feat_data[fid * STRIDE + 10u]) & 8u) != 0u;  // bit 3 = flat
@@ -577,6 +603,7 @@ export class PointRenderer {
   flushTilePoints(
     pass: GPURenderPassEncoder,
     camera: Camera,
+    projType: number,
     projCenterLon: number,
     projCenterLat: number,
     canvasWidth: number,
@@ -655,7 +682,7 @@ export class PointRenderer {
     const frame = camera.getFrameView(canvasWidth, canvasHeight)
     const uf = this.uniformData
     uf.set(frame.matrix, 0)
-    uf[16] = 0; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
+    uf[16] = projType; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
     uf[20] = 0; uf[21] = 0; uf[22] = 0; uf[23] = 0
     const metersPerPixel = (40075016.686 / 256) / Math.pow(2, camera.zoom)
     // viewport.w = log_depth_fc so fs_point can write @builtin(frag_depth)
@@ -855,6 +882,7 @@ export class PointRenderer {
   render(
     pass: GPURenderPassEncoder,
     camera: Camera,
+    projType: number,
     projCenterLon: number,
     projCenterLat: number,
     canvasWidth: number,
@@ -867,8 +895,8 @@ export class PointRenderer {
 
     // MVP matrix
     uf.set(frame.matrix, 0)
-    // proj_params
-    uf[16] = 0 // Mercator
+    // proj_params: shader's reproject_point branches on projType
+    uf[16] = projType
     uf[17] = projCenterLon
     uf[18] = projCenterLat
     uf[19] = 0

@@ -1057,7 +1057,7 @@ export class VectorTileRenderer {
           pointRenderer.addTilePoint(ptMxLocal - camRelX, ptMyLocal - camRelY, ptv[i + 4])
         }
       }
-      pointRenderer.flushTilePoints(pass, camera, projCenterLon, projCenterLat, canvasWidth, canvasHeight, show)
+      pointRenderer.flushTilePoints(pass, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, show)
     }
   }
 
@@ -1143,6 +1143,14 @@ export class VectorTileRenderer {
       // 0 for now; future WORLD_COPIES instancing will pack it here.
       // Cached on the show by XGISMap after LayerIdRegistry.register().
       this.uniformU32[36] = this.currentPickId
+      // layer_depth_offset (37) — per-layer NDC-z bias to disambiguate
+      // coplanar fills under log-depth (filter_gdp at pitch=46.5 z-fight
+      // bug, 2026-05-04). 1e-3 per layer was empirically chosen to
+      // overcome the log-depth precision compression at moderate pitch
+      // (~10 effective bits at 85°). Layer index = pickId & 0xFFFF —
+      // pickIds are assigned in style declaration order so this matches
+      // the bucket scheduler's draw order.
+      this.uniformF32[37] = (this.currentPickId & 0xFFFF) * 1e-3
 
       // Allocate a fresh ring slot for this tile × layer × world-copy draw.
       const slotOffset = this.allocUniformSlot()

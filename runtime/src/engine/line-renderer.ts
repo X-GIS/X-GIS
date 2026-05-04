@@ -48,6 +48,7 @@ import {
   WGSL_SHAPE_STRUCTS,
 } from './wgsl-sdf'
 import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
+import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from './wgsl-projection'
 import type { ShapeRegistry } from './sdf-shape'
 
 // ═══ Layer Uniform Layout ═══
@@ -660,6 +661,7 @@ fn fs_full(in: VsOut) -> @location(0) vec4<f32> {
 `
 
 const LINE_SHADER = /* wgsl */ `
+${WGSL_PROJECTION_CONSTS}
 struct TileUniforms {
   mvp: mat4x4<f32>,
   fill_color: vec4<f32>,
@@ -677,6 +679,39 @@ struct TileUniforms {
 @group(0) @binding(0) var<uniform> tile: TileUniforms;
 
 ${WGSL_LOG_DEPTH_FNS}
+${WGSL_PROJECTION_FNS}
+
+// Reconstruct camera-relative position in the CURRENT projection's coordinate
+// frame from a DSFUN Mercator-meter pair. This is the line-shader analogue of
+// the polygon shader's vs_main reproject block.
+//
+// Mercator (proj_params.x < 0.5): take the DSFUN subtraction
+//   (p_h - cam_h) + (p_l - cam_l)
+// which preserves the small camera-relative delta at f64-equivalent precision
+// — needed for sub-mm stability at high zoom.
+//
+// Non-Mercator: reconstruct absolute lon/lat from Mercator meters, project
+// through the dispatch, and subtract the projected camera center. Precision
+// is f32-limited but adequate at the low/global zooms where non-Mercator
+// projections are used.
+//
+// The line shader's geometry math (segment direction, miter pad, etc.) is
+// then computed in this projected-meter frame, which means polylines drawn
+// on a globe (orthographic / azimuthal / stereographic) curve along the
+// surface instead of leaking out as a Mercator world map.
+fn reproject_line(p_h: vec2<f32>, p_l: vec2<f32>) -> vec2<f32> {
+  if (tile.proj_params.x < 0.5) {
+    return (p_h - tile.cam_h) + (p_l - tile.cam_l);
+  }
+  let abs_merc_x = (p_h.x + p_l.x) + tile.tile_origin_merc.x;
+  let abs_merc_y = (p_h.y + p_l.y) + tile.tile_origin_merc.y;
+  let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
+  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let abs_lat = lat_rad / DEG2RAD;
+  let proj_xy = project(abs_lon, abs_lat, tile.proj_params);
+  let center_xy = project(tile.proj_params.y, tile.proj_params.z, tile.proj_params);
+  return proj_xy - center_xy;
+}
 
 struct PatternSlot {
   id: u32,
@@ -825,13 +860,13 @@ fn vs_line(
   @builtin(vertex_index) vi: u32,
 ) -> LineOut {
   let seg = segments[seg_id];
-  // DSFUN: reconstruct camera-relative p0/p1 in meters. The subtraction
-  // (p0_h - cam_h) + (p0_l - cam_l) cancels the tile-origin magnitude and
-  // preserves the small delta at full f64-equivalent precision.
-  let p0 = (seg.p0_h - tile.cam_h) + (seg.p0_l - tile.cam_l);
-  let p1 = (seg.p1_h - tile.cam_h) + (seg.p1_l - tile.cam_l);
+  // Camera-relative endpoints in the current projection's coordinate frame.
+  // Mercator: DSFUN-precision subtraction. Non-Mercator: abs Mercator →
+  // lon/lat → project() → subtract projected camera. See reproject_line above.
+  let p0 = reproject_line(seg.p0_h, seg.p0_l);
+  let p1 = reproject_line(seg.p1_h, seg.p1_l);
 
-  // Segment direction in tile-local space
+  // Segment direction in current projection's space
   let seg_vec = p1 - p0;
   let seg_len = length(seg_vec);
   var dir: vec2<f32>;
@@ -1052,9 +1087,11 @@ fn plane_signed(p: vec2<f32>, origin: vec2<f32>, outward_nrm: vec2<f32>) -> f32 
 fn compute_line_color(in: LineOut) -> vec4<f32> {
   let seg = segments[in.seg_id];
   let p = in.world_local;
-  // DSFUN reconstruct p0/p1 in camera-relative meters (same frame as p).
-  let p0 = (seg.p0_h - tile.cam_h) + (seg.p0_l - tile.cam_l);
-  let p1 = (seg.p1_h - tile.cam_h) + (seg.p1_l - tile.cam_l);
+  // Reconstruct p0/p1 in camera-relative meters using the same projection
+  // frame as world_local (vs_line corner_local) — Mercator via DSFUN,
+  // others via project(). Distance/SDF math then runs in that frame.
+  let p0 = reproject_line(seg.p0_h, seg.p0_l);
+  let p1 = reproject_line(seg.p1_h, seg.p1_l);
 
   // Segment direction/normal in tile-local meters
   let seg_vec = p1 - p0;

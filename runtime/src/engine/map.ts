@@ -1706,7 +1706,7 @@ export class XGISMap {
           // current camera before drawing. No-op for layers without
           // zoomSizeStops; internally skipped when zoom is unchanged.
           this.pointRenderer!.updateDynamicSizes(this.camera.zoom, interpolateZoom)
-          this.pointRenderer!.render(ptPass, this.camera, centerLon, centerLat, w, h)
+          this.pointRenderer!.render(ptPass, this.camera, projType, centerLon, centerLat, w, h)
           ptPass.end()
         })
       }

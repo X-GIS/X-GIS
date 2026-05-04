@@ -7,12 +7,10 @@ import { mercator as mercatorProj } from './projection'
 import { BLEND_ALPHA, STENCIL_DISABLED } from './gpu-shared'
 import { isPickEnabled, getSampleCount } from './gpu'
 import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
+import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from './wgsl-projection'
 
 const RASTER_SHADER = /* wgsl */ `
-const PI: f32 = 3.14159265;
-const DEG2RAD: f32 = 0.01745329;
-const EARTH_R: f32 = 6378137.0;
-const MERCATOR_LAT_LIMIT: f32 = 85.051129;
+${WGSL_PROJECTION_CONSTS}
 ${WGSL_LOG_DEPTH_FNS}
 
 struct Uniforms {
@@ -21,86 +19,9 @@ struct Uniforms {
   proj_params: vec4<f32>,
 }
 
-fn proj_mercator(lon_deg: f32, lat_deg: f32) -> vec2<f32> {
-  let lat = clamp(lat_deg, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
-  return vec2<f32>(
-    lon_deg * DEG2RAD * EARTH_R,
-    log(tan(PI / 4.0 + lat * DEG2RAD / 2.0)) * EARTH_R
-  );
-}
-
-fn proj_equirectangular(lon_deg: f32, lat_deg: f32) -> vec2<f32> {
-  return vec2<f32>(lon_deg * DEG2RAD * EARTH_R, lat_deg * DEG2RAD * EARTH_R);
-}
-
-fn proj_natural_earth(lon_deg: f32, lat_deg: f32) -> vec2<f32> {
-  let lat = lat_deg * DEG2RAD;
-  let lat2 = lat * lat;
-  let lat4 = lat2 * lat2;
-  let lat6 = lat2 * lat4;
-  let x_scale = 0.8707 - 0.131979 * lat2 + 0.013791 * lat4 - 0.0081435 * lat6;
-  let y_val = lat * (1.007226 + lat2 * (0.015085 + lat2 * (-0.044475 + 0.028874 * lat2 - 0.005916 * lat4)));
-  return vec2<f32>(lon_deg * DEG2RAD * x_scale * EARTH_R, y_val * EARTH_R);
-}
-
-fn proj_orthographic(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
-  let lam = lon_deg * DEG2RAD; let phi = lat_deg * DEG2RAD;
-  let l0 = clon * DEG2RAD; let p0 = clat * DEG2RAD;
-  return vec2<f32>(
-    EARTH_R * cos(phi) * sin(lam - l0),
-    EARTH_R * (cos(p0) * sin(phi) - sin(p0) * cos(phi) * cos(lam - l0))
-  );
-}
-
-fn proj_azimuthal_equidistant(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
-  let lam = lon_deg * DEG2RAD; let phi = lat_deg * DEG2RAD;
-  let l0 = clon * DEG2RAD; let p0 = clat * DEG2RAD;
-  let cos_c = sin(p0)*sin(phi) + cos(p0)*cos(phi)*cos(lam - l0);
-  let c = acos(clamp(cos_c, -1.0, 1.0));
-  if (c < 0.0001) { return vec2<f32>(0.0, 0.0); }
-  let k = c / sin(c);
-  return vec2<f32>(EARTH_R*k*cos(phi)*sin(lam-l0), EARTH_R*k*(cos(p0)*sin(phi)-sin(p0)*cos(phi)*cos(lam-l0)));
-}
-
-fn proj_stereographic(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
-  let lam = lon_deg * DEG2RAD; let phi = lat_deg * DEG2RAD;
-  let l0 = clon * DEG2RAD; let p0 = clat * DEG2RAD;
-  let cos_c = sin(p0)*sin(phi) + cos(p0)*cos(phi)*cos(lam-l0);
-  if (cos_c < -0.9) { return vec2<f32>(1e15, 1e15); }
-  let k = 2.0 / (1.0 + cos_c);
-  return vec2<f32>(EARTH_R*k*cos(phi)*sin(lam-l0), EARTH_R*k*(cos(p0)*sin(phi)-sin(p0)*cos(phi)*cos(lam-l0)));
-}
-
-fn center_cos_c(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> f32 {
-  let lam = lon_deg * DEG2RAD; let phi = lat_deg * DEG2RAD;
-  let l0 = clon * DEG2RAD; let p0 = clat * DEG2RAD;
-  return sin(p0)*sin(phi) + cos(p0)*cos(phi)*cos(lam - l0);
-}
-
-fn proj_oblique_mercator(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
-  let lam = lon_deg * DEG2RAD; let phi = lat_deg * DEG2RAD;
-  let l0 = clon * DEG2RAD; let p0 = clat * DEG2RAD;
-  let d_lam = lam - l0;
-  let lam_rot = atan2(cos(phi)*sin(d_lam), cos(p0)*sin(phi)-sin(p0)*cos(phi)*cos(d_lam));
-  let phi_rot = asin(clamp(sin(p0)*sin(phi)+cos(p0)*cos(phi)*cos(d_lam), -1.0, 1.0));
-  let phi_shifted = phi_rot - PI / 2.0;
-  let y_lat = clamp(phi_shifted, -1.5, 1.5);
-  return vec2<f32>(EARTH_R*lam_rot, EARTH_R*log(tan(PI/4.0+y_lat/2.0)));
-}
-
-fn project(lon: f32, lat: f32) -> vec2<f32> {
-  let t = u.proj_params.x;
-  let clon = u.proj_params.y; let clat = u.proj_params.z;
-  if (t < 0.5) { return proj_mercator(lon, lat); }
-  else if (t < 1.5) { return proj_equirectangular(lon, lat); }
-  else if (t < 2.5) { return proj_natural_earth(lon, lat); }
-  else if (t < 3.5) { return proj_orthographic(lon, lat, clon, clat); }
-  else if (t < 4.5) { return proj_azimuthal_equidistant(lon, lat, clon, clat); }
-  else if (t < 5.5) { return proj_stereographic(lon, lat, clon, clat); }
-  else { return proj_oblique_mercator(lon, lat, clon, clat); }
-}
-
 @group(0) @binding(0) var<uniform> u: Uniforms;
+
+${WGSL_PROJECTION_FNS}
 @group(0) @binding(1) var tex: texture_2d<f32>;
 @group(0) @binding(2) var tex_sampler: sampler;
 
@@ -171,8 +92,8 @@ fn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut {
     local_y = (lat - origin_lat) * DEG2RAD * EARTH_R;
   } else {
     // Other projections: project absolute then subtract origin
-    let projected = project(lon, lat);
-    let origin_projected = project(tile.tile_rtc.z, origin_lat);
+    let projected = project(lon, lat, u.proj_params);
+    let origin_projected = project(tile.tile_rtc.z, origin_lat, u.proj_params);
     let rtc_other = projected - origin_projected + tile.tile_rtc.xy;
     var out: VsOut;
     let clip_other = u.mvp * vec4<f32>(rtc_other, 0.0, 1.0);

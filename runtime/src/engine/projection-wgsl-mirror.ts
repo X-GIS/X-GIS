@@ -1,7 +1,8 @@
 // ═══ WGSL Projection Mirror (Phase 2-A) ═══
 //
-// TypeScript mirrors of the WGSL proj_* functions in renderer.ts and
-// raster-renderer.ts. The runtime does GPU projection via WGSL; tile
+// TypeScript mirrors of the WGSL proj_* functions in `wgsl-projection.ts`
+// (the single source of truth consumed by both renderer.ts and
+// raster-renderer.ts). The runtime does GPU projection via WGSL; tile
 // selection and bounds math do CPU projection via projection.ts. CLAUDE.md
 // mandates keeping the two in sync, but there was no automated check,
 // and 2026-04 recon found multiple divergences (Mercator clamp, Natural
@@ -18,7 +19,7 @@
 const EARTH_R = 6378137
 const DEG2RAD = Math.PI / 180
 
-/** Mirror of `fn proj_mercator` in renderer.ts:55 and raster-renderer.ts:24. */
+/** Mirror of `fn proj_mercator` in wgsl-projection.ts. */
 export function projMercatorWgsl(lon: number, lat: number): [number, number] {
   const clamped = Math.max(-85.051129, Math.min(85.051129, lat))
   const x = lon * DEG2RAD * EARTH_R
@@ -26,7 +27,7 @@ export function projMercatorWgsl(lon: number, lat: number): [number, number] {
   return [x, y]
 }
 
-/** Mirror of `fn proj_natural_earth` in renderer.ts and raster-renderer.ts:36.
+/** Mirror of `fn proj_natural_earth` in wgsl-projection.ts.
  *  Uses the Šavrič et al. (2015) 6th-order polynomial — NOT the table-based
  *  interpolation in projection.ts `naturalEarth.forward`. The divergence is
  *  real and intentional on the GPU side for shader-friendly evaluation. */
@@ -40,17 +41,17 @@ export function projNaturalEarthWgsl(lon: number, lat: number): [number, number]
   return [lon * DEG2RAD * xScale * EARTH_R, yVal * EARTH_R]
 }
 
-/** Mirror of `fn proj_equirectangular` in raster-renderer.ts:32. */
+/** Mirror of `fn proj_equirectangular` in wgsl-projection.ts. */
 export function projEquirectangularWgsl(lon: number, lat: number): [number, number] {
   return [lon * DEG2RAD * EARTH_R, lat * DEG2RAD * EARTH_R]
 }
 
-/** Mirror of `fn proj_orthographic` in raster-renderer.ts:46.
+/** Mirror of `fn proj_orthographic` in wgsl-projection.ts.
  *  NOTE: Unlike CPU `orthographic.forward` which returns [NaN, NaN] for
  *  back-hemisphere points, the WGSL function computes coords regardless.
- *  Back-face culling in renderer.ts is a SEPARATE `needs_backface_cull`
- *  function — so this mirror also returns valid coords for cosC < 0.
- *  Consumers that need culling must check cosC themselves. */
+ *  Back-face culling is a SEPARATE `needs_backface_cull` function — so
+ *  this mirror also returns valid coords for cosC < 0. Consumers that
+ *  need culling must check cosC themselves. */
 export function projOrthographicWgsl(lon: number, lat: number, clon: number, clat: number): [number, number] {
   const lam = lon * DEG2RAD, phi = lat * DEG2RAD
   const l0 = clon * DEG2RAD, p0 = clat * DEG2RAD
@@ -68,7 +69,7 @@ export function cosC(lon: number, lat: number, clon: number, clat: number): numb
   return Math.sin(p0) * Math.sin(phi) + Math.cos(p0) * Math.cos(phi) * Math.cos(lam - l0)
 }
 
-/** Mirror of `fn proj_azimuthal_equidistant` in raster-renderer.ts:55. */
+/** Mirror of `fn proj_azimuthal_equidistant` in wgsl-projection.ts. */
 export function projAzimuthalEquidistantWgsl(lon: number, lat: number, clon: number, clat: number): [number, number] {
   const lam = lon * DEG2RAD, phi = lat * DEG2RAD
   const l0 = clon * DEG2RAD, p0 = clat * DEG2RAD
@@ -82,7 +83,7 @@ export function projAzimuthalEquidistantWgsl(lon: number, lat: number, clon: num
   ]
 }
 
-/** Mirror of `fn proj_stereographic` in raster-renderer.ts:65.
+/** Mirror of `fn proj_stereographic` in wgsl-projection.ts.
  *  Returns a sentinel far-off point for antipodal samples (cos_c < -0.9)
  *  to match the WGSL `return vec2<f32>(1e15, 1e15)` branch. CPU
  *  `stereographic.forward` returns [NaN, NaN] for the same range —
@@ -99,7 +100,7 @@ export function projStereographicWgsl(lon: number, lat: number, clon: number, cl
   ]
 }
 
-/** Mirror of `fn proj_oblique_mercator` in raster-renderer.ts:80. */
+/** Mirror of `fn proj_oblique_mercator` in wgsl-projection.ts. */
 export function projObliqueMercatorWgsl(lon: number, lat: number, clon: number, clat: number): [number, number] {
   const lam = lon * DEG2RAD, phi = lat * DEG2RAD
   const l0 = clon * DEG2RAD, p0 = clat * DEG2RAD

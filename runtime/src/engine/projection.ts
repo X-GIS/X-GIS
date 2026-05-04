@@ -59,9 +59,8 @@ export const equirectangular: Projection = {
 
 // ═══ Natural Earth ═══
 // Šavrič et al. (2015) 6th-order polynomial. Matches the WGSL
-// proj_natural_earth in raster-renderer.ts and renderer.ts exactly so
-// CPU tile-bounds math and GPU rendering agree. See
-// projection-wgsl-consistency.test.ts.
+// proj_natural_earth in wgsl-projection.ts exactly so CPU tile-bounds
+// math and GPU rendering agree. See projection-wgsl-consistency.test.ts.
 //
 // History: The previous implementation was Patterson's 13-entry table
 // (y = NE_B × π × R). It produced y values up to 2× the polynomial's —

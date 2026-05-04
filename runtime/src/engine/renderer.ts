@@ -7,15 +7,14 @@ import { generateGraticule } from './graticule'
 import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, MSAA_4X, WORLD_COPIES, WORLD_MERC } from './gpu-shared'
 import { isPickEnabled, getSampleCount } from './gpu'
 import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
+import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from './wgsl-projection'
 
 // generateGraticule(zoom) now handles zoom-adaptive steps internally
 
 // ═══ Shader Source ═══
 
 const POLYGON_SHADER = /* wgsl */ `
-const PI: f32 = 3.14159265;
-const DEG2RAD: f32 = 0.01745329;
-const EARTH_R: f32 = 6378137.0;
+${WGSL_PROJECTION_CONSTS}
 ${WGSL_LOG_DEPTH_FNS}
 
 struct Uniforms {
@@ -42,161 +41,26 @@ struct Uniforms {
   // Packed pick ID: low16 = layerId (1..65535, 0 = no layer),
   // high16 = instanceId (reserved for WORLD_COPIES). Written into
   // the RG32Uint pick texture G channel via the __PICK_WRITE__
-  // template substitution. WGSL rounds struct size up to the largest
-  // member alignment (16, from mat4x4 / vec4) so the trailing u32
-  // implicitly pads the struct to a 160-byte total.
+  // template substitution.
   pick_id: u32,
+  // Per-layer NDC-z bias to disambiguate coplanar fills under log-depth.
+  // All polygon layers draw at z=0 (ground plane); at high pitch the
+  // log-depth precision compresses (~10 effective bits at pitch 85°),
+  // so coplanar fragments fight. Subtracting layer_depth_offset times
+  // position.w from clip-space z shifts NDC z by layer_depth_offset,
+  // making later layers always win the LEQUAL test. Caller sets this
+  // to a small per-layer multiple (e.g. layerIndex * 1e-4). Positive
+  // offset pushes the layer toward the camera (right-handed NDC z;
+  // negative is near).
+  // WGSL rounds struct size up to the largest member alignment (16,
+  // from mat4x4 / vec4) so the now-two trailing 4-byte fields pad the
+  // struct to a 160-byte total — same size as before.
+  layer_depth_offset: f32,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
-// ── GPU Projections ──
-
-fn proj_mercator(lon_deg: f32, lat_deg: f32) -> vec2<f32> {
-  // Canonical Mercator latitude limit — matches CPU MERCATOR_LAT_LIMIT in
-  // projection.ts and the const declared later in this shader at line ~196.
-  // Inlined here because WGSL requires forward declaration at module scope.
-  let lat = clamp(lat_deg, -85.051129, 85.051129);
-  let x = lon_deg * DEG2RAD * EARTH_R;
-  let y = log(tan(PI / 4.0 + lat * DEG2RAD / 2.0)) * EARTH_R;
-  return vec2<f32>(x, y);
-}
-
-fn proj_equirectangular(lon_deg: f32, lat_deg: f32) -> vec2<f32> {
-  return vec2<f32>(lon_deg * DEG2RAD * EARTH_R, lat_deg * DEG2RAD * EARTH_R);
-}
-
-// Natural Earth (simplified LUT via polynomial approximation)
-fn proj_natural_earth(lon_deg: f32, lat_deg: f32) -> vec2<f32> {
-  let lat = lat_deg * DEG2RAD;
-  let lat2 = lat * lat;
-  let lat4 = lat2 * lat2;
-  let lat6 = lat2 * lat4;
-  // Polynomial coefficients for Natural Earth
-  let x_scale = 0.8707 - 0.131979 * lat2 + 0.013791 * lat4 - 0.0081435 * lat6;
-  let y_val = lat * (1.007226 + lat2 * (0.015085 + lat2 * (-0.044475 + 0.028874 * lat2 - 0.005916 * lat4)));
-  let x = lon_deg * DEG2RAD * x_scale * EARTH_R;
-  let y = y_val * EARTH_R;
-  return vec2<f32>(x, y);
-}
-
-fn proj_orthographic(lon_deg: f32, lat_deg: f32, center_lon: f32, center_lat: f32) -> vec2<f32> {
-  let lam = lon_deg * DEG2RAD;
-  let phi = lat_deg * DEG2RAD;
-  let lam0 = center_lon * DEG2RAD;
-  let phi0 = center_lat * DEG2RAD;
-  let x = EARTH_R * cos(phi) * sin(lam - lam0);
-  let y = EARTH_R * (cos(phi0) * sin(phi) - sin(phi0) * cos(phi) * cos(lam - lam0));
-  return vec2<f32>(x, y);
-}
-
-// Azimuthal Equidistant — 진짜 중심 기준 최소 왜곡
-// 중심에서 거리와 방향이 정확. 중심 왜곡 0.
-fn proj_azimuthal_equidistant(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
-  let lam = lon_deg * DEG2RAD; let phi = lat_deg * DEG2RAD;
-  let l0 = clon * DEG2RAD; let p0 = clat * DEG2RAD;
-
-  let cos_c = sin(p0) * sin(phi) + cos(p0) * cos(phi) * cos(lam - l0);
-  let c = acos(clamp(cos_c, -1.0, 1.0));
-
-  if (c < 0.0001) { return vec2<f32>(0.0, 0.0); } // at center
-
-  let k = c / sin(c);
-  let x = EARTH_R * k * cos(phi) * sin(lam - l0);
-  let y = EARTH_R * k * (cos(p0) * sin(phi) - sin(p0) * cos(phi) * cos(lam - l0));
-  return vec2<f32>(x, y);
-}
-
-// Oblique Mercator — 중심 기준 등각 (Mercator 느낌 + 중심 왜곡 0)
-// 1) 좌표를 중심점 기준으로 회전 (중심 → 적도/본초자오선)
-// 2) 회전된 좌표에 일반 Mercator 적용
-fn proj_oblique_mercator(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
-  let lam = lon_deg * DEG2RAD; let phi = lat_deg * DEG2RAD;
-  let l0 = clon * DEG2RAD; let p0 = clat * DEG2RAD;
-  let d_lam = lam - l0;
-
-  // Oblique rotation: rotate coordinate system so (clon,clat) → (0,0)
-  // After rotation, center point has phi'=0, lam'=0
-  // The "B" value in Snyder's formulation
-  let B = cos(phi) * sin(d_lam);
-  let lam_rot = atan2(
-    cos(phi) * sin(d_lam),
-    cos(p0) * sin(phi) - sin(p0) * cos(phi) * cos(d_lam)
-  );
-  let phi_rot = asin(clamp(
-    sin(p0) * sin(phi) + cos(p0) * cos(phi) * cos(d_lam),
-    -1.0, 1.0
-  ));
-
-  // Now center has phi_rot ≈ PI/2 (it went to north pole)
-  // We want center at equator, so subtract PI/2 from rotated latitude
-  let phi_shifted = phi_rot - PI / 2.0;
-
-  // Apply standard Mercator to shifted coords
-  let x = EARTH_R * lam_rot;
-  let y_lat = clamp(phi_shifted, -1.5, 1.5);  // clamp to avoid log(tan) explosion
-  let y = EARTH_R * log(tan(PI / 4.0 + y_lat / 2.0));
-
-  return vec2<f32>(x, y);
-}
-
-// Stereographic — 중심 기준 등각 (형태 보존)
-fn proj_stereographic(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
-  let lam = lon_deg * DEG2RAD; let phi = lat_deg * DEG2RAD;
-  let l0 = clon * DEG2RAD; let p0 = clat * DEG2RAD;
-
-  let cos_c = sin(p0) * sin(phi) + cos(p0) * cos(phi) * cos(lam - l0);
-  let k = 2.0 / (1.0 + cos_c);
-
-  // cos_c < -0.9 means near antipode → clip
-  if (cos_c < -0.9) { return vec2<f32>(1e15, 1e15); }
-
-  let x = EARTH_R * k * cos(phi) * sin(lam - l0);
-  let y = EARTH_R * k * (cos(p0) * sin(phi) - sin(p0) * cos(phi) * cos(lam - l0));
-  return vec2<f32>(x, y);
-}
-
-fn center_cos_c(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> f32 {
-  let lam = lon_deg * DEG2RAD; let phi = lat_deg * DEG2RAD;
-  let l0 = clon * DEG2RAD; let p0 = clat * DEG2RAD;
-  return sin(p0) * sin(phi) + cos(p0) * cos(phi) * cos(lam - l0);
-}
-
-// proj_type: 0=merc, 1=equirect, 2=natearth, 3=ortho, 4=azimuthal_equidist, 5=stereographic, 6=oblique_mercator
-fn project(lon_deg: f32, lat_deg: f32) -> vec2<f32> {
-  let t = u.proj_params.x;
-  let clon = u.proj_params.y;
-  let clat = u.proj_params.z;
-
-  if (t < 0.5) { return proj_mercator(lon_deg, lat_deg); }
-  else if (t < 1.5) { return proj_equirectangular(lon_deg, lat_deg); }
-  else if (t < 2.5) { return proj_natural_earth(lon_deg, lat_deg); }
-  else if (t < 3.5) { return proj_orthographic(lon_deg, lat_deg, clon, clat); }
-  else if (t < 4.5) { return proj_azimuthal_equidistant(lon_deg, lat_deg, clon, clat); }
-  else if (t < 5.5) { return proj_stereographic(lon_deg, lat_deg, clon, clat); }
-  else { return proj_oblique_mercator(lon_deg, lat_deg, clon, clat); }
-}
-
-fn needs_backface_cull(lon_deg: f32, lat_deg: f32) -> f32 {
-  let t = u.proj_params.x;
-  let clon = u.proj_params.y;
-  let clat = u.proj_params.z;
-
-  // All globe/center-based projections: cull back hemisphere
-  // 3=orthographic, 4=azimuthal_equidistant, 5=stereographic
-  if (t > 2.5) {
-    let cc = center_cos_c(lon_deg, lat_deg, clon, clat);
-    // Orthographic: strict hemisphere (cos_c < 0)
-    if (t < 3.5) { return cc; }
-    // Azimuthal Equidistant: allow most of globe but clip near antipode
-    if (t < 4.5) { return select(-1.0, 1.0, cc > -0.85); }
-    // Stereographic: clip near antipode
-    return select(-1.0, 1.0, cc > -0.8);
-  }
-  return 1.0; // flat projections: no culling
-}
-
-const MERCATOR_LAT_LIMIT: f32 = 85.051129;
+${WGSL_PROJECTION_FNS}
 
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
@@ -248,8 +112,8 @@ fn vs_main(
     // limited to the f32 reconstruction, which is fine because non-Mercator
     // projections are only used at low/global zoom.
     // NOTE: avoid the reserved word "target" as an identifier.
-    let proj_xy = project(abs_lon, abs_lat);
-    let center_xy = project(u.proj_params.y, u.proj_params.z);
+    let proj_xy = project(abs_lon, abs_lat, u.proj_params);
+    let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
     rtc = proj_xy - center_xy;
   }
 
@@ -258,8 +122,12 @@ fn vs_main(
   // Log-depth rewrite of clip.z. Three.js equivalent — preserves near-plane
   // precision at high pitch and when rendering 3D geometry.
   out.position = apply_log_depth(clip, u.log_depth_fc);
+  // Per-layer z bias (see Uniforms.layer_depth_offset). Multiplied by
+  // post-projection w so the NDC-z shift is constant across the depth
+  // range (perspective-divide cancels the w factor).
+  out.position.z = out.position.z - u.layer_depth_offset * out.position.w;
   out.view_w = clip.w;
-  out.cos_c = needs_backface_cull(abs_lon, abs_lat);
+  out.cos_c = needs_backface_cull(abs_lon, abs_lat, u.proj_params);
   out.feat_id = u32(feature_id);
   out.abs_lat = abs_lat_clamped;
   return out;
