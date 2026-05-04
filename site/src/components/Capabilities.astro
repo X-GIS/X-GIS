@@ -1,0 +1,136 @@
+---
+type Glyph = 'projection' | 'tile' | 'data' | 'globe' | 'symbol' | 'layers'
+
+interface Capability {
+  title: string
+  body: string
+  glyph: Glyph
+}
+
+const capabilities: Capability[] = [
+  {
+    title: 'Seven projections.',
+    body: 'Mercator, Equirectangular, Natural Earth, Orthographic, Azimuthal Equidistant, Stereographic, Oblique Mercator. Switch instantly via a GPU uniform.',
+    glyph: 'projection',
+  },
+  {
+    title: 'XGVT vector tiles.',
+    body: 'Pre-tile GeoJSON into a single binary. HTTP Range Requests load only the visible tiles. Zero-copy GPU upload.',
+    glyph: 'tile',
+  },
+  {
+    title: 'Data-driven styling.',
+    body: 'Bind feature properties into utility expressions. The compiler classifies and routes each to the right pipeline stage.',
+    glyph: 'data',
+  },
+  {
+    title: 'Globe mode.',
+    body: 'Two-pass orthographic — flat map to texture, then sphere mesh with diffuse lighting. Same source, different uniform.',
+    glyph: 'globe',
+  },
+  {
+    title: 'SDF symbols & lines.',
+    body: 'Define symbols with SVG-style paths. Stroke with signed-distance fields for crisp edges, joins, and glows at any zoom.',
+    glyph: 'symbol',
+  },
+  {
+    title: 'Compositional layers.',
+    body: 'Stack raster basemaps under vector tiles under live feeds. Each layer carries its own modifier stack and z-order.',
+    glyph: 'layers',
+  },
+]
+---
+
+<section id="capabilities" class="relative py-32 sm:py-40 lg:py-56 border-t border-line">
+  <div class="max-w-[1024px] mx-auto px-6">
+
+    <div class="text-center max-w-[820px] mx-auto mb-20 lg:mb-24">
+      <p class="text-[13px] font-medium tracking-[-0.01em] text-accent mb-5">
+        Capabilities
+      </p>
+      <h2 class="font-medium text-fg leading-[1.05] tracking-[-0.035em]
+                 text-[40px] sm:text-[56px] lg:text-[72px]">
+        Six things, one engine.
+      </h2>
+    </div>
+
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-12 gap-y-16">
+      {capabilities.map((c, i) => (
+        <article class="cap-card group relative">
+          <div class="text-[13px] font-mono text-fg-mute mb-5">
+            {String(i + 1).padStart(2, '0')}
+          </div>
+
+          <div class="cap-glyph mb-7 text-fg-dim group-hover:text-accent transition-colors duration-300">
+            {c.glyph === 'projection' && (
+              <svg viewBox="0 0 40 40" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round">
+                <ellipse cx="20" cy="20" rx="17" ry="17" />
+                <ellipse cx="20" cy="20" rx="17" ry="11" />
+                <ellipse cx="20" cy="20" rx="17" ry="5" />
+              </svg>
+            )}
+            {c.glyph === 'tile' && (
+              <svg viewBox="0 0 40 40" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.25">
+                <rect x="3" y="3" width="34" height="34" />
+                <line x1="20" y1="3" x2="20" y2="37" />
+                <line x1="3" y1="20" x2="37" y2="20" />
+                <line x1="20" y1="11.5" x2="37" y2="11.5" />
+                <line x1="28.5" y1="3" x2="28.5" y2="20" />
+                <line x1="20" y1="28.5" x2="28.5" y2="28.5" />
+                <line x1="28.5" y1="20" x2="28.5" y2="37" />
+              </svg>
+            )}
+            {c.glyph === 'data' && (
+              <svg viewBox="0 0 40 40" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round">
+                <line x1="3" y1="34" x2="37" y2="34" />
+                <line x1="8" y1="34" x2="8" y2="28" />
+                <line x1="16" y1="34" x2="16" y2="22" />
+                <line x1="24" y1="34" x2="24" y2="14" />
+                <line x1="32" y1="34" x2="32" y2="6" />
+              </svg>
+            )}
+            {c.glyph === 'globe' && (
+              <svg viewBox="0 0 40 40" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.25">
+                <circle cx="20" cy="20" r="17" />
+                <ellipse cx="20" cy="20" rx="17" ry="6" />
+                <ellipse cx="20" cy="20" rx="6" ry="17" />
+              </svg>
+            )}
+            {c.glyph === 'symbol' && (
+              <svg viewBox="0 0 40 40" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 30 Q 14 10, 22 22 T 35 14" />
+                <circle cx="5" cy="30" r="2" fill="currentColor" />
+                <circle cx="22" cy="22" r="2" fill="currentColor" />
+                <circle cx="35" cy="14" r="2" fill="currentColor" />
+              </svg>
+            )}
+            {c.glyph === 'layers' && (
+              <svg viewBox="0 0 40 40" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.25">
+                <rect x="3" y="6" width="26" height="17" opacity="0.4" />
+                <rect x="7" y="11" width="26" height="17" opacity="0.7" />
+                <rect x="11" y="16" width="26" height="17" />
+              </svg>
+            )}
+          </div>
+
+          <h3 class="text-[22px] sm:text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
+            {c.title}
+          </h3>
+          <p class="text-[15px] leading-[1.55] text-fg-dim">
+            {c.body}
+          </p>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  /* Subtle lift on hover — Apple-style restraint */
+  .cap-glyph svg {
+    transition: transform 400ms cubic-bezier(0.16, 0.84, 0.32, 1);
+  }
+  .cap-card:hover .cap-glyph svg {
+    transform: translateY(-2px);
+  }
+</style>

@@ -1,0 +1,81 @@
+---
+import '../styles/global.css'
+
+interface Props {
+  title?: string
+  description?: string
+}
+
+const {
+  title = 'X-GIS — A language for cartography',
+  description = 'A domain-specific language and WebGPU rendering engine for GIS maps. Declare what your map should look like; the compiler emits the WGSL.',
+} = Astro.props
+
+const siteUrl = 'https://x-gis.github.io/X-GIS/'
+const canonical = new URL(Astro.url.pathname, Astro.site ?? siteUrl).toString()
+
+// JSON-LD: SoftwareSourceCode + WebSite. Helps search engines surface
+// the project as a software listing rather than a generic page.
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      '@id': `${siteUrl}#website`,
+      url: siteUrl,
+      name: 'X-GIS',
+      description,
+      inLanguage: 'en',
+    },
+    {
+      '@type': 'SoftwareSourceCode',
+      '@id': `${siteUrl}#software`,
+      name: 'X-GIS',
+      description,
+      programmingLanguage: ['TypeScript', 'WGSL'],
+      codeRepository: 'https://github.com/X-GIS/X-GIS',
+      license: 'https://opensource.org/licenses/MIT',
+      url: siteUrl,
+    },
+  ],
+}
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#000000" />
+    <link rel="canonical" href={canonical} />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={`${siteUrl}og.svg`} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:site_name" content="X-GIS" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={`${siteUrl}og.svg`} />
+
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23000'/%3E%3Ctext x='16' y='22' font-family='-apple-system,Helvetica,Arial' font-weight='600' font-size='17' fill='%23f5f5f7' text-anchor='middle' letter-spacing='-1'%3EX%3C/text%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <title>{title}</title>
+
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+  </head>
+  <body class="overflow-x-hidden">
+    <slot />
+  </body>
+</html>

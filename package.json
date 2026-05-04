@@ -3,11 +3,12 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "workspaces": ["compiler", "runtime", "playground"],
+  "workspaces": ["compiler", "runtime", "playground", "site"],
   "scripts": {
     "build": "bun run --filter '*' build",
     "test": "vitest run",
-    "dev": "bun run --filter @xgis/playground dev"
+    "dev": "bun run --filter @xgis/playground dev",
+    "dev:site": "bun run --filter @xgis/site dev"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

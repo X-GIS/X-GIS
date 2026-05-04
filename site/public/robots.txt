@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://x-gis.github.io/X-GIS/sitemap-index.xml

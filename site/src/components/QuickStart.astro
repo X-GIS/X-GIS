@@ -1,0 +1,105 @@
+---
+const githubUrl = 'https://github.com/X-GIS/X-GIS'
+---
+
+<section id="install" class="relative py-32 sm:py-40 lg:py-56 border-t border-line">
+  <div class="max-w-[1024px] mx-auto px-6">
+
+    <div class="text-center max-w-[820px] mx-auto mb-16 lg:mb-20">
+      <p class="text-[13px] font-medium tracking-[-0.01em] text-accent mb-5">
+        Get Started
+      </p>
+      <h2 class="font-medium text-fg leading-[1.05] tracking-[-0.035em]
+                 text-[40px] sm:text-[56px] lg:text-[72px]">
+        Install in one command.
+      </h2>
+    </div>
+
+    <!-- Single big terminal line — Apple's "one screen, one message" -->
+    <div class="max-w-[720px] mx-auto">
+      <div class="rounded-2xl bg-bg-card border border-line p-1.5">
+        <div class="rounded-xl bg-bg px-6 py-5 flex items-center gap-4">
+          <span class="text-fg-mute font-mono text-[15px] select-none">$</span>
+          <code class="flex-1 font-mono text-[15px] sm:text-[17px] text-fg">
+            bun add <span class="text-accent">@xgis/runtime</span>
+          </code>
+          <button
+            type="button"
+            class="copy-btn shrink-0 inline-flex items-center gap-1.5 px-3 h-8 rounded-md
+                   text-[12px] font-medium text-fg-dim hover:text-fg
+                   border border-line hover:border-line-strong transition-colors"
+            data-copy="bun add @xgis/runtime"
+            aria-label="Copy install command"
+          >
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            <span class="copy-label">Copy</span>
+          </button>
+        </div>
+      </div>
+
+      <p class="mt-5 text-center text-[13px] text-fg-mute">
+        Works with npm, pnpm, yarn, and Bun. Node ≥ 18.
+      </p>
+    </div>
+
+    <!-- Then a tiny code sample, framed quietly -->
+    <div class="max-w-[720px] mx-auto mt-16">
+      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
+        <pre class="px-7 py-6 font-mono text-[14px] leading-[1.85] text-fg overflow-x-auto"
+><code><span class="cs-kw">import</span> {`{`} mount {`}`} <span class="cs-kw">from</span> <span class="cs-str">"@xgis/runtime"</span>
+
+<span class="cs-fn">mount</span>(canvas, <span class="cs-str">"./hello.xgis"</span>)</code></pre>
+      </div>
+
+      <p class="mt-5 text-center text-[13px] text-fg-mute">
+        WebGPU when available. Canvas 2D fallback when not.
+      </p>
+    </div>
+
+    <!-- Secondary CTA — links to repo -->
+    <div class="mt-16 text-center">
+      <a
+        href={githubUrl}
+        target="_blank"
+        rel="noopener"
+        class="inline-flex items-center gap-2 text-accent hover:text-accent-hover text-[15px] font-medium transition-colors"
+      >
+        Read the documentation
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 6l6 6-6 6"/>
+        </svg>
+      </a>
+    </div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>('.copy-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const text = btn.dataset.copy ?? ''
+      try {
+        await navigator.clipboard.writeText(text)
+        const label = btn.querySelector('.copy-label') as HTMLElement | null
+        if (!label) return
+        const original = label.textContent
+        label.textContent = 'Copied'
+        btn.classList.add('text-accent')
+        setTimeout(() => {
+          label.textContent = original
+          btn.classList.remove('text-accent')
+        }, 1400)
+      } catch {
+        /* clipboard denied (insecure context, etc.) — fail silently */
+      }
+    })
+  })
+</script>
+
+<style>
+  pre .cs-kw  { color: #ff7ab2; }
+  pre .cs-str { color: #d6c08a; }
+  pre .cs-fn  { color: var(--color-accent); }
+</style>

@@ -1,0 +1,97 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap');
+@import "tailwindcss";
+
+/* ═══ Tokens ═══
+ * Apple Developer–style palette: true black ground, paper-white text,
+ * a single iOS-blue accent. No secondary accents, no gradients except
+ * a single subtle radial in the hero. Restraint is the design.
+ */
+@theme {
+  --color-bg: #000000;
+  --color-bg-elev: #0a0a0a;
+  --color-bg-card: #141414;
+  --color-bg-hover: #1c1c1e;
+
+  --color-fg: #f5f5f7;
+  --color-fg-dim: #a1a1a6;
+  --color-fg-mute: #6e6e73;
+  --color-fg-faint: #424245;
+
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-line-strong: rgba(255, 255, 255, 0.16);
+
+  --color-accent: #2997ff;
+  --color-accent-hover: #51adff;
+  --color-accent-press: #1d7fe0;
+
+  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", "SF Mono", "JetBrains Mono", monospace;
+}
+
+@layer base {
+  html {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "ss02", "cv11", "cv09", "kern";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    min-height: 100vh;
+    background: var(--color-bg);
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: #fff;
+  }
+
+  a { color: inherit; text-decoration: none; }
+
+  /* Apple-style focus ring — subtle, blue, on Tab only */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  /* Tabular numerals everywhere — clean digit alignment */
+  body { font-variant-numeric: tabular-nums; }
+}
+
+/* ═══ Page-load motion ═══
+ * One orchestrated reveal on first paint. Subtle, ease-out, staggered.
+ * Apple-style: large translation distance, slow ease, generous duration.
+ */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(28px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes scale-fade {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@utility fade-up {
+  animation: fade-up 1.1s cubic-bezier(0.16, 0.84, 0.32, 1) both;
+}
+@utility fade-in {
+  animation: fade-in 1.4s ease-out both;
+}
+@utility scale-fade {
+  animation: scale-fade 1.4s cubic-bezier(0.16, 0.84, 0.32, 1) both;
+}
+
+/* Reduced motion — respect the OS setting (Apple Accessibility) */
+@media (prefers-reduced-motion: reduce) {
+  .fade-up, .fade-in, .scale-fade { animation: none; }
+  html { scroll-behavior: auto; }
+}

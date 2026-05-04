@@ -1,0 +1,57 @@
+---
+const pillars = [
+  {
+    title: 'Declarative, not procedural.',
+    body: 'Write fill-red-500, stroke-black, opacity-80. Read the style — that is the program. No imperative API calls, no setter chains, no callback graph.',
+  },
+  {
+    title: 'The compiler writes the shaders.',
+    body: 'WGSL programs, buffer layouts, projection math, render strategies — all derived from your .xgis source. You never reach for a vertex shader.',
+  },
+  {
+    title: 'One source, any view.',
+    body: 'Switch from Mercator to Orthographic to Natural Earth via a uniform. The same data renders to a flat map, a globe, or anywhere else — no re-tessellation.',
+  },
+  {
+    title: 'Modifiers stack.',
+    body: 'z8:opacity-40, friendly:fill-green-500, hover:glow-8. The same composition pattern your CSS already uses, applied to spatial data.',
+  },
+]
+---
+
+<section id="why" class="relative py-32 sm:py-40 lg:py-56 border-t border-line">
+  <div class="max-w-[1024px] mx-auto px-6">
+
+    <div class="text-center max-w-[820px] mx-auto mb-20 lg:mb-24">
+      <p class="text-[13px] font-medium tracking-[-0.01em] text-accent mb-5">
+        The Approach
+      </p>
+      <h2 class="font-medium text-fg leading-[1.05] tracking-[-0.035em]
+                 text-[40px] sm:text-[56px] lg:text-[72px]">
+        Beyond the library.
+      </h2>
+      <p class="mt-7 text-[18px] sm:text-[20px] leading-[1.45] text-fg-dim max-w-[680px] mx-auto">
+        GIS rendering is locked to libraries. Mapbox, Deck.gl, OpenLayers — each has its own
+        API, style format, and shader constraints. Switching means rewriting everything.
+        X-GIS solves this with a <em class="text-fg not-italic font-medium">language</em>
+        instead of an API.
+      </p>
+    </div>
+
+    <div class="grid sm:grid-cols-2 gap-x-12 gap-y-14 lg:gap-y-16">
+      {pillars.map((p, i) => (
+        <article class="relative">
+          <div class="text-[13px] font-mono text-fg-mute mb-3">
+            — {String(i + 1).padStart(2, '0')}
+          </div>
+          <h3 class="text-[22px] sm:text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
+            {p.title}
+          </h3>
+          <p class="text-[15px] leading-[1.6] text-fg-dim">
+            {p.body}
+          </p>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>

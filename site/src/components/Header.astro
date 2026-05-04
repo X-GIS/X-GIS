@@ -1,0 +1,32 @@
+---
+const githubUrl = 'https://github.com/X-GIS/X-GIS'
+---
+
+<header class="fixed top-0 inset-x-0 z-50 backdrop-blur-2xl bg-bg/72 border-b border-line">
+  <div class="max-w-[1024px] mx-auto px-6 h-12 flex items-center text-[13px]">
+    <a href="#" class="font-medium tracking-tight text-fg hover:text-fg">X-GIS</a>
+
+    <!-- Desktop nav (≥ sm) -->
+    <nav class="ml-auto hidden sm:flex items-center gap-7 text-fg-dim">
+      <a href="#why" class="hover:text-fg transition-colors">Why</a>
+      <a href="#capabilities" class="hover:text-fg transition-colors">Capabilities</a>
+      <a href="#install" class="hover:text-fg transition-colors">Install</a>
+      <a href={githubUrl} target="_blank" rel="noopener" class="hover:text-fg transition-colors">GitHub</a>
+    </nav>
+
+    <!-- Mobile: just the GitHub icon — anchor links are reachable via
+         in-page scrolling and section CTAs. Smarter than a hamburger
+         on a 4-link surface. -->
+    <a
+      href={githubUrl}
+      target="_blank"
+      rel="noopener"
+      aria-label="View on GitHub"
+      class="ml-auto sm:hidden inline-flex items-center justify-center w-8 h-8 -mr-2 text-fg-dim hover:text-fg transition-colors"
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+        <path d="M12 .5C5.65.5.5 5.65.5 12.04c0 5.1 3.29 9.42 7.86 10.95.58.11.79-.25.79-.56 0-.27-.01-1.16-.02-2.11-3.2.7-3.87-1.35-3.87-1.35-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.68 1.24 3.34.95.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.05 0 0 .96-.31 3.15 1.17a10.93 10.93 0 0 1 5.74 0c2.18-1.48 3.14-1.17 3.14-1.17.62 1.59.23 2.76.11 3.05.74.8 1.18 1.83 1.18 3.08 0 4.42-2.69 5.4-5.26 5.68.41.36.78 1.06.78 2.13 0 1.54-.01 2.78-.01 3.16 0 .31.21.68.8.56C20.22 21.45 23.5 17.13 23.5 12.04 23.5 5.65 18.36.5 12 .5z"/>
+      </svg>
+    </a>
+  </div>
+</header>

@@ -1,0 +1,368 @@
+---
+const githubUrl = 'https://github.com/X-GIS/X-GIS'
+
+// Initial source — kept in the page so the first paint matches what
+// the script will tokenize. The script duplicates this string for the
+// XGISMap.run() call; if you change one, change both.
+const initialSource = `source land {
+  type: geojson
+  url: "data/land.geojson"
+}
+
+layer continents {
+  source: land
+  | fill-zinc-200
+}`
+---
+
+<section class="relative min-h-[100svh] flex items-center justify-center overflow-hidden pt-24 pb-16">
+  <!-- Single subtle radial — the only "atmosphere" on the page. -->
+  <div
+    class="absolute inset-0 pointer-events-none"
+    aria-hidden="true"
+    style="background: radial-gradient(ellipse 80% 60% at 50% 30%, rgba(41, 151, 255, 0.10) 0%, rgba(41, 151, 255, 0) 60%);"
+  ></div>
+
+  <div class="relative w-full max-w-[1100px] mx-auto px-6 text-center">
+
+    <p class="fade-up text-[13px] font-medium tracking-[-0.01em] text-accent mb-5"
+       style="animation-delay: 100ms">
+      Introducing X-GIS
+    </p>
+
+    <h1 class="fade-up font-sans font-medium text-fg leading-[0.96] tracking-[-0.045em]
+               text-[52px] sm:text-[76px] lg:text-[96px] xl:text-[112px]"
+        style="animation-delay: 240ms">
+      A language for<br />
+      <span class="bg-gradient-to-b from-fg to-fg-dim bg-clip-text text-transparent">cartography.</span>
+    </h1>
+
+    <p class="fade-up mt-7 mx-auto max-w-[620px] text-[18px] sm:text-[21px] leading-[1.4] text-fg-dim"
+       style="animation-delay: 380ms">
+      Declare what your map should look like.
+      The compiler emits the WGSL shaders, buffer layouts, and projection math.
+    </p>
+
+    <div class="fade-up mt-10 flex flex-wrap items-center justify-center gap-4"
+         style="animation-delay: 520ms">
+      <a
+        href="#install"
+        class="inline-flex items-center gap-2 px-6 h-11 rounded-full
+               bg-accent hover:bg-accent-hover active:bg-accent-press
+               text-white text-[15px] font-medium transition-colors"
+      >
+        Get started
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 6l6 6-6 6"/>
+        </svg>
+      </a>
+      <a
+        href={githubUrl}
+        target="_blank"
+        rel="noopener"
+        class="inline-flex items-center gap-2 px-6 h-11 rounded-full
+               text-accent hover:text-accent-hover text-[15px] font-medium transition-colors"
+      >
+        View on GitHub
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 6l6 6-6 6"/>
+        </svg>
+      </a>
+    </div>
+
+    <!-- Live editor + map. The code shown above is the code that runs
+         below — and now you can edit it in place. -->
+    <div class="scale-fade mt-16 sm:mt-20 mx-auto max-w-[680px] text-left"
+         style="animation-delay: 700ms">
+      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
+
+        <!-- Code editor: textarea overlays a styled <pre> -->
+        <div class="relative">
+          <pre
+            id="hero-code-display"
+            aria-hidden="true"
+            class="m-0 px-7 py-7 font-mono text-[14px] sm:text-[15px] leading-[1.85] text-fg
+                   whitespace-pre overflow-x-auto"
+          ></pre>
+          <textarea
+            id="hero-code-input"
+            spellcheck="false"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            aria-label="X-GIS source code (editable)"
+            class="absolute inset-0 m-0 px-7 py-7 font-mono text-[14px] sm:text-[15px] leading-[1.85]
+                   bg-transparent border-0 outline-none resize-none whitespace-pre
+                   overflow-auto"
+            style="color: transparent; caret-color: var(--color-fg);"
+          >{initialSource}</textarea>
+
+          <!-- Status pill (top-right) -->
+          <div class="absolute top-3 right-4 flex items-center gap-1.5 pointer-events-none select-none">
+            <span id="hero-status-dot"
+                  class="block w-1.5 h-1.5 rounded-full bg-accent transition-colors duration-300"></span>
+            <span id="hero-status-text"
+                  class="font-mono text-[11px] text-fg-mute transition-colors duration-300">live</span>
+          </div>
+        </div>
+
+        <div class="border-t border-line"></div>
+
+        <!-- Map -->
+        <div class="relative bg-bg">
+          <canvas
+            id="hero-map"
+            class="block w-full opacity-0 transition-opacity duration-700"
+            style="height: 320px; touch-action: none;"
+          ></canvas>
+          <div
+            id="hero-map-fallback"
+            class="absolute inset-0 flex items-center justify-center text-fg-mute text-[13px] font-mono pointer-events-none"
+          >
+            Loading…
+          </div>
+        </div>
+      </div>
+
+      <p class="mt-4 text-center text-[12px] text-fg-mute">
+        Edit the code — the map re-renders as you type.
+      </p>
+    </div>
+
+    <p class="fade-up mt-10 text-[12px] text-fg-mute font-mono"
+       style="animation-delay: 900ms">
+      WebGPU&nbsp; · &nbsp;Seven projections&nbsp; · &nbsp;MIT
+    </p>
+  </div>
+</section>
+
+<script>
+  import { XGISMap } from '@xgis/runtime'
+
+  // ── Tokenizer for .xgis ── purely visual; the runtime parses the
+  // source independently. Recognized token classes match the CSS in
+  // the <style> block at the bottom of this file.
+  const KEYWORDS = new Set([
+    'source', 'layer', 'preset', 'fn', 'symbol', 'projection',
+    'import', 'export', 'type', 'url', 'bounds',
+  ])
+  const UTIL_PREFIX = /^(fill|stroke|opacity|size|rotate|glow|animate|apply|symbol|projection|width|height|radius|shadow|blur|gap|cap|join|dash|gradient|filter)-/
+
+  type Tok = { type: 'ws' | 'com' | 'str' | 'pun' | 'lit' | 'kw' | 'util' | 'mod' | 'id', text: string }
+
+  function tokenize(src: string): Tok[] {
+    const out: Tok[] = []
+    const n = src.length
+    let i = 0
+    while (i < n) {
+      const ch = src[i]
+      if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+        let j = i
+        while (j < n && /\s/.test(src[j])) j++
+        out.push({ type: 'ws', text: src.slice(i, j) })
+        i = j
+        continue
+      }
+      if (ch === '#') {
+        let j = i
+        while (j < n && src[j] !== '\n') j++
+        out.push({ type: 'com', text: src.slice(i, j) })
+        i = j
+        continue
+      }
+      if (ch === '"') {
+        let j = i + 1
+        while (j < n && src[j] !== '"') j++
+        if (j < n) j++
+        out.push({ type: 'str', text: src.slice(i, j) })
+        i = j
+        continue
+      }
+      if ('{}:|,;()[]'.includes(ch)) {
+        out.push({ type: 'pun', text: ch })
+        i++
+        continue
+      }
+      if (ch >= '0' && ch <= '9') {
+        let j = i
+        while (j < n && /[\d.]/.test(src[j])) j++
+        out.push({ type: 'lit', text: src.slice(i, j) })
+        i = j
+        continue
+      }
+      if (/[A-Za-z_]/.test(ch)) {
+        let j = i
+        while (j < n && /[A-Za-z0-9_-]/.test(src[j])) j++
+        const word = src.slice(i, j)
+        let type: Tok['type']
+        if (KEYWORDS.has(word)) type = 'kw'
+        else if (UTIL_PREFIX.test(word)) type = 'util'
+        else if (src[j] === ':' && !/^[A-Z]/.test(word)) type = 'mod'
+        else type = 'id'
+        out.push({ type, text: word })
+        i = j
+        continue
+      }
+      out.push({ type: 'pun', text: ch })
+      i++
+    }
+    return out
+  }
+
+  function escapeHtml(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+
+  function highlight(src: string): string {
+    return tokenize(src).map(t => {
+      const html = escapeHtml(t.text)
+      return t.type === 'ws' ? html : `<span class="${t.type}">${html}</span>`
+    }).join('')
+  }
+
+  // ── DOM refs ──
+  const display = document.getElementById('hero-code-display') as HTMLPreElement | null
+  const input = document.getElementById('hero-code-input') as HTMLTextAreaElement | null
+  const canvas = document.getElementById('hero-map') as HTMLCanvasElement | null
+  const fallback = document.getElementById('hero-map-fallback')
+  const statusDot = document.getElementById('hero-status-dot')
+  const statusText = document.getElementById('hero-status-text')
+
+  if (display && input && canvas) {
+    // Strip the leading newline that Astro inserts when interpolating
+    // a multi-line string between {} expressions inside <textarea>.
+    if (input.value.startsWith('\n')) input.value = input.value.replace(/^\n/, '')
+    display.innerHTML = highlight(input.value)
+
+    // Sync horizontal scroll — vertical follows because pre grows with content.
+    input.addEventListener('scroll', () => {
+      display.scrollLeft = input.scrollLeft
+      display.scrollTop = input.scrollTop
+    })
+
+    // Wheel-zoom fix (see prior commit) — runtime passes clientX/Y
+    // straight into Camera.zoomAt which expects canvas-local. Intercept,
+    // convert, and zoom ourselves.
+    let mountedMap: XGISMap | null = null
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      if (!mountedMap) return
+      const rect = canvas.getBoundingClientRect()
+      const canvasX = e.clientX - rect.left
+      const canvasY = e.clientY - rect.top
+      const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.003)
+      mountedMap.getCamera().zoomAt(
+        Math.max(-1, Math.min(1, delta)),
+        canvasX, canvasY,
+        canvas.width, canvas.height,
+      )
+    }, { capture: true, passive: false })
+
+    // baseUrl resolves the relative `url:` in the .xgis source.
+    const baseUrl = window.location.pathname.endsWith('/')
+      ? window.location.pathname
+      : window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1)
+
+    // ── Status indicator helpers ──
+    function setStatus(state: 'live' | 'editing' | 'compiling' | 'error', label?: string) {
+      if (!statusDot || !statusText) return
+      statusText.textContent = label ?? state
+      statusDot.classList.remove('bg-accent', 'bg-fg-faint')
+      statusDot.style.background =
+        state === 'error'    ? '#ff453a' :   // iOS red
+        state === 'editing'  ? '#a1a1a6' :   // fg-dim
+        state === 'compiling'? '#ffd60a' :   // iOS amber
+                               'var(--color-accent)'
+    }
+
+    // ── Map mount + live re-run on edit ──
+    let runToken = 0  // monotonic — discard responses from superseded runs
+    let debounceId: number | null = null
+
+    async function runSource(src: string) {
+      const myToken = ++runToken
+      setStatus('compiling')
+      try {
+        if (!mountedMap) {
+          mountedMap = new XGISMap(canvas)
+        }
+        await mountedMap.run(src, baseUrl)
+        if (myToken !== runToken) return  // user typed again while we were running
+        setStatus('live')
+        canvas.style.opacity = '1'
+        if (fallback) fallback.style.display = 'none'
+      } catch (err) {
+        if (myToken !== runToken) return
+        // Compile or load error — keep the previous map render in place,
+        // surface the error on the status pill so editors get feedback
+        // without a destructive crash UI.
+        const msg = err instanceof Error ? err.message : String(err)
+        console.warn('[hero-map]', msg)
+        setStatus('error', 'error')
+        // If the very first run failed, also update the fallback text.
+        if (fallback && fallback.style.display !== 'none') {
+          fallback.textContent = 'Map preview unavailable'
+        }
+      }
+    }
+
+    input.addEventListener('input', () => {
+      display.innerHTML = highlight(input.value)
+      setStatus('editing')
+      if (debounceId !== null) clearTimeout(debounceId)
+      debounceId = window.setTimeout(() => {
+        debounceId = null
+        runSource(input.value)
+      }, 350)
+    })
+
+    // Tab key inserts two spaces instead of moving focus — small QoL
+    // for a 4-line edit surface.
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        const start = input.selectionStart
+        const end = input.selectionEnd
+        const before = input.value.slice(0, start)
+        const after = input.value.slice(end)
+        input.value = before + '  ' + after
+        input.selectionStart = input.selectionEnd = start + 2
+        input.dispatchEvent(new Event('input'))
+      }
+    })
+
+    // First run on page load
+    runSource(input.value)
+  }
+</script>
+
+<style>
+  /* Token coloring — same palette as before. */
+  pre .com  { color: var(--color-fg-mute); }
+  pre .kw   { color: #ff7ab2; }
+  pre .id   { color: var(--color-fg); font-weight: 500; }
+  pre .util { color: #a8c6fa; }
+  pre .mod  { color: var(--color-accent); font-weight: 500; }
+  pre .lit, pre .str { color: #d6c08a; }
+  pre .pun  { color: var(--color-fg-faint); }
+
+  /* Editor scroll-sync hygiene — both pre and textarea must use the
+   * same box model so character cells line up. The padding on each
+   * uses identical Tailwind utilities; this just ensures Firefox and
+   * Chrome handle scrollbar gutters consistently. */
+  #hero-code-display,
+  #hero-code-input {
+    box-sizing: border-box;
+    /* Hide the scrollbar on the display layer — only the textarea owns
+     * the scroll position, so showing two scrollbars looks broken. */
+    scrollbar-width: none;
+  }
+  #hero-code-display::-webkit-scrollbar { display: none; }
+
+  /* Selection inside the editor — without this the textarea's selection
+   * is invisible (text-color: transparent). Use a translucent accent. */
+  #hero-code-input::selection {
+    background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  }
+</style>
