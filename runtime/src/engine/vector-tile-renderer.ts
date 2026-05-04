@@ -210,6 +210,18 @@ export class VectorTileRenderer {
     // lifetime is the device's responsibility, not the buffer handle.
     for (const b of this.retiredUniformRings) b.destroy()
     this.retiredUniformRings.length = 0
+    // Same safety window applies to tile-buffer eviction. Eviction used to
+    // run inline at the end of render() (`this.gpuCache.size > MAX_GPU_TILES`
+    // check after the per-frame draws were encoded). The bucket scheduler
+    // calls render() multiple times per frame (once per opaque layer plus
+    // once per translucent layer), so an eviction in call N could destroy
+    // buffers still bound by encoded-but-not-yet-submitted commands from
+    // call N−1, producing "Buffer used in submit while destroyed"
+    // validation errors on translucent_lines and other multi-layer
+    // demos. Defer to the start of the next frame: the previous frame's
+    // queue.submit() has returned by now, so destroying these buffers
+    // can't poison any in-flight submit.
+    if (this.gpuCache.size > MAX_GPU_TILES) this.evictGPUTiles()
   }
 
   /** Per-frame upload budget. uploadTile() is expensive — it creates ~5–7
@@ -1011,8 +1023,11 @@ export class VectorTileRenderer {
       this.stableKeys = neededKeys
     }
 
-    // GPU cache eviction
-    if (this.gpuCache.size > MAX_GPU_TILES) this.evictGPUTiles()
+    // GPU cache eviction is deferred to beginFrame() — see the comment
+    // there for why mid-frame eviction races with the bucket scheduler's
+    // multi-render-per-frame pattern. Cache may transiently hold a few
+    // tiles above MAX_GPU_TILES between frames; bounded by the per-frame
+    // upload budget, so memory pressure is unaffected.
 
     // Render tile-based points via PointRenderer (if available).
     // Tile point vertices are DSFUN stride 5: [mx_h, my_h, mx_l, my_l, feat_id]
@@ -1176,6 +1191,13 @@ export class VectorTileRenderer {
     this.flushUniformStaging()
   }
 
+  /** Drop LRU tiles past MAX_GPU_TILES and destroy their GPU buffers.
+   *  ONLY called from `beginFrame()` so the previous frame's
+   *  `queue.submit()` has already returned — destroying buffers here
+   *  cannot poison an in-flight submit. Calling this from inside
+   *  `render()` (the old behaviour) raced the bucket scheduler's
+   *  multi-render-per-frame pattern; see beginFrame() for the full
+   *  story. */
   private evictGPUTiles(): void {
     if (this.gpuCache.size <= MAX_GPU_TILES) return
 
