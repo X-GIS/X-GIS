@@ -285,7 +285,17 @@ export class RasterRenderer {
     // Quadtree-based frustum selection works at every pitch, including 0.
     // The legacy AABB path (`visibleTiles`) diverged over time and broke
     // at low pitch for the VT pipeline, so we unify on the frustum path.
-    const tiles = visibleTilesFrustum(camera, mercatorProj, currentZ, canvasWidth, canvasHeight)
+    //
+    // Pass projection name through so the selector's world-copy gate
+    // (worldCopiesFor()) picks single-world for non-Mercator. Hardcoding
+    // mercatorProj here previously caused 5× raster tile fan-out around
+    // the orthographic disk because every copy projected to a different
+    // wrong hemisphere. visibleTilesFrustum only reads `.name` on the
+    // projection arg, so a `{ name }` shim is sufficient.
+    const selectorProj = projType === 0
+      ? mercatorProj
+      : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
+    const tiles = visibleTilesFrustum(camera, selectorProj, currentZ, canvasWidth, canvasHeight)
 
     // Sort: lower zoom first (draw background), higher zoom on top (sharp near tiles)
     tiles.sort((a, b) => {
