@@ -355,6 +355,86 @@ export function decomposeFeatures(
   return parts
 }
 
+/** Spherical linear interpolation between two (lon, lat) points. `t=0`
+ *  returns the first endpoint, `t=1` the second; intermediate values
+ *  follow the great-circle (geodesic) arc on a unit sphere.
+ *
+ *  Used by `subdivideGreatCircle` to insert intermediate vertices
+ *  along a line/ring edge so that downstream tile clipping +
+ *  projection produce a curve that hugs the sphere surface under
+ *  globe projections (orthographic / azimuthal / stereographic). On
+ *  flat projections the sub-segment chords are visually
+ *  indistinguishable from the original edge as long as each
+ *  sub-segment spans ≤1° of arc, so this is safe to apply globally —
+ *  no projection-specific gating needed at compile time. */
+function slerpLonLat(lon0: number, lat0: number, lon1: number, lat1: number, t: number): [number, number] {
+  const DEG2RAD = Math.PI / 180
+  const RAD2DEG = 180 / Math.PI
+  const phi0 = lat0 * DEG2RAD, lam0 = lon0 * DEG2RAD
+  const phi1 = lat1 * DEG2RAD, lam1 = lon1 * DEG2RAD
+  const x0 = Math.cos(phi0) * Math.cos(lam0)
+  const y0 = Math.cos(phi0) * Math.sin(lam0)
+  const z0 = Math.sin(phi0)
+  const x1 = Math.cos(phi1) * Math.cos(lam1)
+  const y1 = Math.cos(phi1) * Math.sin(lam1)
+  const z1 = Math.sin(phi1)
+  const cosOmega = Math.max(-1, Math.min(1, x0 * x1 + y0 * y1 + z0 * z1))
+  const omega = Math.acos(cosOmega)
+  if (omega < 1e-9) return [lon0, lat0] // collinear / coincident
+  const s = Math.sin(omega)
+  const a = Math.sin((1 - t) * omega) / s
+  const b = Math.sin(t * omega) / s
+  const x = a * x0 + b * x1
+  const y = a * y0 + b * y1
+  const z = a * z0 + b * z1
+  return [Math.atan2(y, x) * RAD2DEG, Math.asin(Math.max(-1, Math.min(1, z))) * RAD2DEG]
+}
+
+/** Great-circle distance in degrees between two (lon, lat) points. */
+function greatCircleDistanceDeg(lon0: number, lat0: number, lon1: number, lat1: number): number {
+  const DEG2RAD = Math.PI / 180
+  const phi0 = lat0 * DEG2RAD, lam0 = lon0 * DEG2RAD
+  const phi1 = lat1 * DEG2RAD, lam1 = lon1 * DEG2RAD
+  const cosOmega = Math.max(-1, Math.min(1,
+    Math.sin(phi0) * Math.sin(phi1) + Math.cos(phi0) * Math.cos(phi1) * Math.cos(lam1 - lam0)
+  ))
+  return Math.acos(cosOmega) * 180 / Math.PI
+}
+
+/** Insert great-circle intermediate vertices into a line / ring so each
+ *  sub-segment spans at most ~1° of arc. Edges shorter than 0.5° are
+ *  left as-is (their chord is already indistinguishable from the arc
+ *  at any reasonable rendering scale). Edges up to 90° are subdivided
+ *  proportionally; truly long edges are capped at 64 sub-segments to
+ *  bound vertex bloat.
+ *
+ *  Closed rings (last vertex == first) stay closed: the loop processes
+ *  each consecutive pair, so the trailing closure edge gets the same
+ *  treatment.
+ *
+ *  Without this step a fixture like `[[-30, 0], [30, 0]]` rendered
+ *  under orthographic projects to a CHORD that punches through the
+ *  globe. Subdivided into ~60 1° sub-edges, the chord-of-each-piece
+ *  approximation hugs the sphere surface visually. */
+function subdivideGreatCircle(coords: number[][]): number[][] {
+  if (coords.length < 2) return coords
+  const out: number[][] = [coords[0]]
+  for (let i = 0; i < coords.length - 1; i++) {
+    const a = coords[i], b = coords[i + 1]
+    const arcDeg = greatCircleDistanceDeg(a[0], a[1], b[0], b[1])
+    if (arcDeg < 0.5) {
+      out.push(b)
+      continue
+    }
+    const K = Math.min(64, Math.ceil(arcDeg))
+    for (let k = 1; k < K; k++) {
+      out.push(slerpLonLat(a[0], a[1], b[0], b[1], k / K))
+    }
+    out.push(b)
+  }
+  return out
+}
+
 function makePolygonPart(rings: number[][][], featureIndex: number): GeometryPart {
   // BBox is computed in LL (for cheap bbox-reject against LL tile
   // bounds). Rings themselves are pre-projected to MERCATOR METERS
@@ -362,14 +442,30 @@ function makePolygonPart(rings: number[][][], featureIndex: number): GeometryPar
   // matches Tippecanoe / Mapbox's "project once at source load"
   // pattern, and keeps the compileTileOnDemand hot path O(clipped
   // vertices) instead of O(source vertices × tiles).
-  const bbox = ringsBBox(rings[0]) // LL bbox from original rings
+  //
+  // Great-circle subdivision is NOT applied here (only on lines —
+  // makeLinePart). Polygons split fill/outline through different
+  // paths: outline uses `clipped` (unsimplified), fill uses
+  // `dataRings = simplifyPolygon(clipped)` at z<maxZoom. Adding
+  // sub-vertices to rings causes simplification to drop them from
+  // fill but keep them in outline — outline endpoints land off the
+  // fill boundary by hundreds of meters, breaking the d34aed2
+  // invariant (visible fill/stroke gap). Polygon globe-surface
+  // rendering needs a downstream-pipeline fix (subdivide after
+  // simplification, or unify both paths through dataRings) — left
+  // for a later commit.
+  const bbox = ringsBBox(rings[0])
   const mmRings = projectRingsToMM(rings)
   return { type: 'polygon', rings: mmRings, featureIndex, ...bbox }
 }
 
 function makeLinePart(coords: number[][], featureIndex: number): GeometryPart {
-  const bbox = coordsBBox(coords)
-  return { type: 'line', coords, featureIndex, ...bbox }
+  // Same great-circle subdivision as makePolygonPart — see the
+  // comment there. Without this, fixtures like `[[-30, 0], [30, 0]]`
+  // render as a chord cutting through the orthographic globe.
+  const subdivided = subdivideGreatCircle(coords)
+  const bbox = coordsBBox(subdivided)
+  return { type: 'line', coords: subdivided, featureIndex, ...bbox }
 }
 
 function ringsBBox(ring: number[][]): { minLon: number; minLat: number; maxLon: number; maxLat: number } {
@@ -436,6 +532,94 @@ function vertexKey(x: number, y: number, fid: number): string {
   return `${(x * 1e6) | 0},${(y * 1e6) | 0},${fid | 0}`
 }
 
+// ── Triangle subdivision for non-Mercator projections ─────────────────
+// earcut produces triangles whose edges are straight lines in MM. When the
+// runtime renders under a non-Mercator projection (orthographic, oblique,
+// etc.), the GPU rasterizer linearly interpolates triangle interiors in
+// SCREEN space, so a triangle whose vertices span large angular distance
+// renders as a screen-space-straight chord instead of curving along the
+// surface. The visible artifacts are wedges, antimeridian shortcuts, and
+// horizontal stripes at the Mercator clamp.
+//
+// Densifying the mesh — splitting any triangle whose edge exceeds
+// MAX_TRI_DEGREES_FOR_PROJ in lon/lat angular distance into 4 sub-triangles
+// at MM midpoints — reduces each chord to a smaller angular span, so the
+// per-triangle screen-space approximation tracks the surface closely.
+//
+// Mirrors the legacy logic in runtime/src/loader/geojson.ts that was lost
+// when GeoJSON polygon rendering moved to the tile-based pipeline. Linear
+// MM midpoints (not great-circle slerp) are sufficient for the visible
+// wedge artifact and stay consistent with the MM-throughout pipeline; a
+// future quality pass could swap in geodesic midpoints for high-latitude
+// polygons spanning >10° if needed.
+const MAX_TRI_DEGREES_FOR_PROJ = 2
+const MAX_TRI_SUBDIVIDE_DEPTH = 5
+
+function mmToLonLatDeg(x: number, y: number): [number, number] {
+  const lon = (x / DSFUN_EARTH_R) / DSFUN_DEG2RAD
+  const lat = (2 * Math.atan(Math.exp(y / DSFUN_EARTH_R)) - Math.PI / 2) / DSFUN_DEG2RAD
+  return [lon, lat]
+}
+
+/** Get-or-add a vertex (MM coords) into the dedup-mapped output array.
+ *  Stride-3 layout: x, y, featureId. Returns the global vertex index. */
+function getOrAddVertexMM(
+  x: number, y: number, featureId: number,
+  outVerts: number[],
+  dedupMap: Map<string, number>,
+): number {
+  const key = vertexKey(x, y, featureId)
+  let idx = dedupMap.get(key)
+  if (idx === undefined) {
+    idx = outVerts.length / 3
+    outVerts.push(x, y, featureId)
+    dedupMap.set(key, idx)
+  }
+  return idx
+}
+
+/** Recursively split a triangle into 4 at MM midpoints when any edge
+ *  exceeds the angular threshold. Adjacent triangles sharing an edge
+ *  share the same midpoint via dedupMap, so the densified mesh stays
+ *  watertight (no gaps, no T-junctions). */
+function subdivideTriangleMM(
+  i0: number, i1: number, i2: number,
+  featureId: number,
+  outVerts: number[],
+  outIdx: number[],
+  dedupMap: Map<string, number>,
+  depth: number,
+): void {
+  const x0 = outVerts[i0 * 3], y0 = outVerts[i0 * 3 + 1]
+  const x1 = outVerts[i1 * 3], y1 = outVerts[i1 * 3 + 1]
+  const x2 = outVerts[i2 * 3], y2 = outVerts[i2 * 3 + 1]
+
+  const [lon0, lat0] = mmToLonLatDeg(x0, y0)
+  const [lon1, lat1] = mmToLonLatDeg(x1, y1)
+  const [lon2, lat2] = mmToLonLatDeg(x2, y2)
+  const d01 = Math.max(Math.abs(lon1 - lon0), Math.abs(lat1 - lat0))
+  const d12 = Math.max(Math.abs(lon2 - lon1), Math.abs(lat2 - lat1))
+  const d20 = Math.max(Math.abs(lon0 - lon2), Math.abs(lat0 - lat2))
+  const maxEdge = Math.max(d01, d12, d20)
+
+  if (maxEdge <= MAX_TRI_DEGREES_FOR_PROJ || depth >= MAX_TRI_SUBDIVIDE_DEPTH) {
+    outIdx.push(i0, i1, i2)
+    return
+  }
+
+  const m01x = (x0 + x1) * 0.5, m01y = (y0 + y1) * 0.5
+  const m12x = (x1 + x2) * 0.5, m12y = (y1 + y2) * 0.5
+  const m20x = (x2 + x0) * 0.5, m20y = (y2 + y0) * 0.5
+  const i01 = getOrAddVertexMM(m01x, m01y, featureId, outVerts, dedupMap)
+  const i12 = getOrAddVertexMM(m12x, m12y, featureId, outVerts, dedupMap)
+  const i20 = getOrAddVertexMM(m20x, m20y, featureId, outVerts, dedupMap)
+
+  subdivideTriangleMM(i0, i01, i20, featureId, outVerts, outIdx, dedupMap, depth + 1)
+  subdivideTriangleMM(i01, i1, i12, featureId, outVerts, outIdx, dedupMap, depth + 1)
+  subdivideTriangleMM(i20, i12, i2, featureId, outVerts, outIdx, dedupMap, depth + 1)
+  subdivideTriangleMM(i01, i12, i20, featureId, outVerts, outIdx, dedupMap, depth + 1)
+}
+
 function tessellatePolygonToArrays(
   rings: number[][][],
   featureId: number,
@@ -475,8 +659,15 @@ function tessellatePolygonToArrays(
       }
       localToGlobal.push(globalIdx)
     }
-    for (const idx of earcutIdx) {
-      outIdx.push(localToGlobal[idx])
+    // Densify each earcut triangle so non-Mercator projections can curve
+    // along the surface (see subdivideTriangleMM rationale above).
+    for (let t = 0; t < earcutIdx.length; t += 3) {
+      subdivideTriangleMM(
+        localToGlobal[earcutIdx[t]],
+        localToGlobal[earcutIdx[t + 1]],
+        localToGlobal[earcutIdx[t + 2]],
+        featureId, outVerts, outIdx, dedupMap, 0,
+      )
     }
   } else {
     const baseVertex = outVerts.length / 3

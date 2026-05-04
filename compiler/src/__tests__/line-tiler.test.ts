@@ -20,11 +20,31 @@ describe('line feature tiling with arc-length', () => {
     properties: {},
   }
 
-  it('decomposeFeatures produces a line GeometryPart with coords intact', () => {
+  it('decomposeFeatures produces a line GeometryPart traversing the source endpoints', () => {
+    // makeLinePart now subdivides edges along the great circle before
+    // emitting the part (so globe projections render arcs, not chords).
+    // The subdivided coords pass through every original endpoint in
+    // order with intermediate sub-vertices in between.
     const parts = decomposeFeatures([lineFeature])
     expect(parts).toHaveLength(1)
     expect(parts[0].type).toBe('line')
-    expect(parts[0].coords).toEqual(lineFeature.geometry.coordinates)
+    const orig = lineFeature.geometry.coordinates as number[][]
+    const coords = parts[0].coords!
+    // Every original vertex must appear, in order.
+    let cursor = 0
+    for (const [lon, lat] of orig) {
+      while (cursor < coords.length) {
+        const [cl, ca] = coords[cursor]
+        if (Math.abs(cl - lon) < 1e-9 && Math.abs(ca - lat) < 1e-9) {
+          cursor++
+          break
+        }
+        cursor++
+      }
+    }
+    expect(cursor, 'all original endpoints visited in order').toBeGreaterThanOrEqual(orig.length)
+    // 2° edges → K=2 → 1 intermediate per edge → 5*1 = 5 inserts.
+    expect(coords.length).toBeGreaterThan(orig.length)
   })
 
   it('compileSingleTile outputs DSFUN stride-10 lineVertices with monotonically increasing arc', () => {
