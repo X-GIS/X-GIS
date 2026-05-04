@@ -206,11 +206,12 @@ describe('High-pitch: pitch × zoom matrix', () => {
   // foreshortening-aware budget, vitest will flip these to failing
   // (the test was "expected to fail") and alert the fixer to remove
   // the marker.
-  const KNOWN_FAIL_AT: ReadonlySet<string> = new Set([
-    'pitch=60 zoom=12',
-    'pitch=75 zoom=15',
-    'pitch=84 zoom=15',
-  ])
+  // All three previously-failing entries — (pitch=60, zoom=12),
+  // (pitch=75, zoom=15), (pitch=84, zoom=15) — pass since the 2026-05-04
+  // camera-tile injection at the end of `visibleTilesFrustum`. The 5×5
+  // ring around the camera tile at maxZ now covers the forward (0.5, 0.7)
+  // unproject at every entry in the matrix.
+  const KNOWN_FAIL_AT: ReadonlySet<string> = new Set<string>()
 
   for (const pitch of [60, 75, 84]) {
     for (const zoom of [5, 8, 10, 12, 15]) {

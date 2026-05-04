@@ -312,10 +312,34 @@ export function visibleTilesFrustum(
 
     // Subdivide if tile is large on screen and we haven't reached max zoom
     if (tz < maxZ && screenPx > SUBDIVIDE_THRESHOLD && result.length + 4 <= MAX_FRUSTUM_TILES) {
-      for (let dy = 0; dy < 2; dy++) {
-        for (let dx = 0; dx < 2; dx++) {
-          visit(tz + 1, x * 2 + dx, y * 2 + dy, ox * 2 + dx)
-        }
+      // Visit the child closest to the camera FIRST. Old code walked
+      // (NW, NE, SW, SE) in fixed order, which at extreme pitch + the
+      // camera in the SE quadrant burned the 300-tile budget on tiles
+      // in NW/NE/SW before the camera-side branch ever got descended
+      // into. Prioritising the camera-side child guarantees the
+      // foreground refines to maxZ before far-side coverage starts
+      // pushing on the budget. See fixture-cap-arrow-bug.test.ts for
+      // the regression case.
+      const childN = tn * 2
+      const camChildX = Math.floor((camLon + 180) / 360 * childN)
+      const camChildY = Math.floor(
+        (1 - Math.log(Math.tan(Math.PI / 4 + Math.max(-85.0511, Math.min(85.0511, camLat)) * DEG2RAD / 2)) / Math.PI) / 2 * childN,
+      )
+      const idealDx = camChildX <= ox * 2 ? 0 : 1
+      const idealDy = camChildY <= y * 2 ? 0 : 1
+      // Order: ideal child, its two adjacents, then the diagonal.
+      // Adjacent children (share an edge with the ideal) are closer to
+      // the camera in either x or y than the diagonal opposite, so this
+      // ordering monotonically progresses from "nearest" to "farthest"
+      // child in tile-grid space.
+      const order: Array<[number, number]> = [
+        [idealDx, idealDy],
+        [1 - idealDx, idealDy],
+        [idealDx, 1 - idealDy],
+        [1 - idealDx, 1 - idealDy],
+      ]
+      for (const [dx, dy] of order) {
+        visit(tz + 1, x * 2 + dx, y * 2 + dy, ox * 2 + dx)
       }
       return
     }
@@ -333,6 +357,38 @@ export function visibleTilesFrustum(
   for (let k = 1; k <= maxCopies; k++) {
     visit(0, 0, 0, k)
     visit(0, 0, 0, -k)
+  }
+
+  // Camera-tile guarantee. At extreme pitch + extreme bearing the DFS
+  // budget can be burned by horizon tiles in the three quadrants visited
+  // before the camera quadrant (NW → NE → SW → SE). The camera tile and
+  // its immediate ring then never get pushed even though they contain the
+  // camera and the only data the user is looking at. Repro: GeoJSON line
+  // at lat=0 invisible at zoom=8.34 / pitch=74.8 / bearing=90 over (29.19,
+  // -0.146); see fixture-cap-arrow-bug.test.ts. Inject the 3×3 ring at
+  // maxZ around the camera tile, bypassing MAX_FRUSTUM_TILES (9 tiles
+  // worst-case) so the camera-area always renders.
+  const camN = Math.pow(2, maxZ)
+  const camTX = Math.floor((camLon + 180) / 360 * camN)
+  const camLatClamped = Math.max(-85.0511, Math.min(85.0511, camLat))
+  const camTY = Math.floor(
+    (1 - Math.log(Math.tan(Math.PI / 4 + camLatClamped * DEG2RAD / 2)) / Math.PI) / 2 * camN,
+  )
+  const seen = new Set<number>()
+  for (const t of result) seen.add((t.z * 4194304 + t.y) * 4194304 + (t.ox + camN))
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const ty = camTY + dy
+      if (ty < 0 || ty >= camN) continue
+      const tx = camTX + dx
+      // Wrap around the date line — same as world-copy logic above.
+      const wrappedX = ((tx % camN) + camN) % camN
+      const ox = tx
+      const key = (maxZ * 4194304 + ty) * 4194304 + (ox + camN)
+      if (seen.has(key)) continue
+      seen.add(key)
+      result.push({ z: maxZ, x: wrappedX, y: ty, ox })
+    }
   }
 
   return result
