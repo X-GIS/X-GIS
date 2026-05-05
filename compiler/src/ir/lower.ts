@@ -107,18 +107,33 @@ export function lower(program: AST.Program): Scene {
 function lowerSource(stmt: AST.SourceStatement): SourceDef | null {
   let type = 'geojson'
   let url = ''
+  let layers: string[] | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'type' && prop.value.kind === 'Identifier') {
       type = prop.value.name
     } else if (prop.name === 'url' && prop.value.kind === 'StringLiteral') {
       url = prop.value.value
+    } else if (prop.name === 'layers') {
+      // Accept either `layers: "water"` (single MVT layer) or
+      // `layers: ["water", "roads"]` (subset). PMTiles backend uses
+      // this to filter MVT features before decompose+compile so each
+      // xgis layer can paint its own slice with its own style.
+      if (prop.value.kind === 'StringLiteral') {
+        layers = [prop.value.value]
+      } else if (prop.value.kind === 'ArrayLiteral') {
+        const out: string[] = []
+        for (const el of prop.value.elements) {
+          if (el.kind === 'StringLiteral') out.push(el.value)
+        }
+        if (out.length > 0) layers = out
+      }
     }
   }
 
   // Inline source (no url) — runtime seeds with an empty FeatureCollection
   // and the host fills it via setSourceData / setSourcePoints.
-  return { name: stmt.name, type, url }
+  return { name: stmt.name, type, url, layers }
 }
 
 function lowerLayer(

@@ -102,6 +102,13 @@ export const DEMOS: Record<string, Demo> = {
     source: load('pmtiles-protomaps-v4.xgis'),
   },
 
+  pmtiles_layered: {
+    name: 'PMTiles — per-layer styling',
+    tag: 'xgvt',
+    description: 'Same v4 archive split into water/landuse/roads/buildings, each styled independently. Navigate to a city: #14/35.68/139.76 (Tokyo)',
+    source: load('pmtiles-layered.xgis'),
+  },
+
   // ── CSS-like style + filter ──
 
   styled_world: {

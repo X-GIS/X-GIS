@@ -24,6 +24,11 @@ export interface SourceDef {
   name: string
   type: string      // 'geojson', 'vector', 'raster', 'raster-dem', 'binary'
   url: string
+  /** Optional MVT layer-name subset (PMTiles only). When set, the
+   *  decoder filters features by `_layer` before decompose+compile.
+   *  Lets multiple xgis sources point at the same archive with
+   *  different MVT layer slices for layered styling. */
+  layers?: string[]
 }
 
 /**

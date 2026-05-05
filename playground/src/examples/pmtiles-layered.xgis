@@ -1,0 +1,66 @@
+/* PMTiles per-MVT-layer styling — protomaps v4 archive sliced into
+ * separate xgis sources, each picking ONE MVT layer + its own style.
+ *
+ * The `layers: "..."` property on a source maps to PMTilesBackend's
+ * MVT layer filter (decoder skips features whose `_layer` doesn't
+ * match before decompose+compile). With one source per MVT layer,
+ * each compiled tile contains only that slice's geometry, so xgis
+ * styling applies cleanly without per-feature filter expressions.
+ *
+ * Trade-off: each source has its own backend instance + its own
+ * compile cycle. The PMTiles HTTP cache deduplicates the byte
+ * fetches (one (z,x,y) range request shared across all backends),
+ * but decode + compileSingleTile + buildLineSegments runs N times
+ * — once per layer-slice. With the worker pool that's not
+ * main-thread work, so frame budget is fine; raw throughput is
+ * lower than a single-source split-by-layer compile.
+ *
+ * For viewing, navigate to a city: e.g.
+ *   #14/35.68/139.76   (Tokyo)
+ *   #14/40.78/-73.97   (Manhattan)
+ *   #13/37.5665/126.9780 (Seoul)
+ */
+
+source pm_water {
+  type: pmtiles
+  url: "/pmtiles-proxy/protomaps/v4.pmtiles"
+  layers: "water"
+}
+
+source pm_landuse {
+  type: pmtiles
+  url: "/pmtiles-proxy/protomaps/v4.pmtiles"
+  layers: "landuse"
+}
+
+source pm_roads {
+  type: pmtiles
+  url: "/pmtiles-proxy/protomaps/v4.pmtiles"
+  layers: "roads"
+}
+
+source pm_buildings {
+  type: pmtiles
+  url: "/pmtiles-proxy/protomaps/v4.pmtiles"
+  layers: "buildings"
+}
+
+layer landuse {
+  source: pm_landuse
+  | fill-stone-800
+}
+
+layer water {
+  source: pm_water
+  | fill-sky-900
+}
+
+layer roads {
+  source: pm_roads
+  | stroke-stone-400 stroke-1
+}
+
+layer buildings {
+  source: pm_buildings
+  | fill-stone-700 stroke-stone-500 stroke-0.5
+}

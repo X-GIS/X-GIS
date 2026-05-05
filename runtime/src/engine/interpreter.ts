@@ -7,6 +7,13 @@ import type { ShowCommand } from './renderer'
 export interface LoadCommand {
   name: string
   url: string
+  /** Optional: restrict the source to a subset of named sub-layers.
+   *  For PMTiles/MVT sources this maps to PMTilesSourceOptions.layers
+   *  — the decoder filters features by MVT layer name before
+   *  decompose+compile. Lets multiple xgis layers reference the same
+   *  archive with different MVT layer subsets so each renders with
+   *  its own style (water blue, roads grey, buildings beige, etc.). */
+  layers?: string[]
 }
 
 export interface SceneCommands {
@@ -52,22 +59,38 @@ interface SourceDef {
   name: string
   type: string
   url: string
+  layers?: string[]
 }
 
 function extractSource(stmt: AST.SourceStatement): SourceDef | null {
   let type = 'geojson'
   let url = ''
+  let layers: string[] | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'type' && prop.value.kind === 'Identifier') {
       type = prop.value.name
     } else if (prop.name === 'url' && prop.value.kind === 'StringLiteral') {
       url = prop.value.value
+    } else if (prop.name === 'layers') {
+      // Accept either `layers: "water"` (single MVT layer) or
+      // `layers: ["water", "roads"]` (subset). Anything else is
+      // silently ignored — the source still works, just renders all
+      // MVT layers as before.
+      if (prop.value.kind === 'StringLiteral') {
+        layers = [prop.value.value]
+      } else if (prop.value.kind === 'ArrayLiteral') {
+        const out: string[] = []
+        for (const el of prop.value.elements) {
+          if (el.kind === 'StringLiteral') out.push(el.value)
+        }
+        if (out.length > 0) layers = out
+      }
     }
   }
 
   if (!url) return null
-  return { name: stmt.name, type, url }
+  return { name: stmt.name, type, url, layers }
 }
 
 function extractLayer(
@@ -95,7 +118,7 @@ function extractLayer(
   const resolved = resolveUtilities(allItems)
 
   return {
-    load: { name: sourceDef.name, url: sourceDef.url },
+    load: { name: sourceDef.name, url: sourceDef.url, layers: sourceDef.layers },
     show: {
       targetName: sourceDef.name,
       layerName: sourceDef.name,

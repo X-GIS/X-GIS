@@ -794,7 +794,7 @@ export class XGISMap {
           // selection requests them. No zoom-range cap; the full
           // archive's z range is available, including overzoom past
           // the archive maxZoom (handled by sub-tile generation).
-          await attachPMTilesSource(source, { url: fullUrl })
+          await attachPMTilesSource(source, { url: fullUrl, layers: load.layers })
         } else {
           try {
             await source.loadFromURL(fullUrl)

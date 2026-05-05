@@ -11,6 +11,9 @@ export type { ShaderVariant } from '../codegen/shader-gen'
 export interface LoadCommand {
   name: string
   url: string
+  /** Optional MVT layer subset for PMTiles sources. See the parallel
+   *  field on the legacy `interpreter.ts` LoadCommand. */
+  layers?: string[]
 }
 
 export interface ShowCommand {
@@ -85,6 +88,7 @@ export function emitCommands(scene: Scene): SceneCommands {
   const loads: LoadCommand[] = scene.sources.map(src => ({
     name: src.name,
     url: src.url,
+    layers: src.layers,
   }))
 
   const shows: ShowCommand[] = scene.renderNodes.map(emitShow)
