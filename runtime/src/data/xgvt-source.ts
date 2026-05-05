@@ -17,6 +17,7 @@ import {
 import { visibleTiles } from '../loader/tiles'
 import { XGVTBinaryBackend, type BinaryBackendSink } from './sources/xgvt-binary-source'
 import { PMTilesBackend, type PMTilesBackendSink } from './sources/pmtiles-backend'
+import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
 // Step 0 of the layer-type refactor: shared types live in tile-types.ts so
 // per-format backend modules can import them without pulling in catalog
 // runtime state. Re-exported below for back-compat with external callers
@@ -50,9 +51,10 @@ export class XGVTSource {
    *  remainder to TileCatalog. */
   private binaryBackend: XGVTBinaryBackend | null = null
 
-  /** Raw geometry parts for on-demand tile compilation (GeoJSON sources only) */
-  private rawParts: GeometryPart[] | null = null
-  private rawMaxZoom = 7
+  /** Backend that holds raw decomposed GeoJSON parts + the spatial
+   *  grid for on-demand tile compilation. Lazy — constructed when
+   *  setRawParts is called. */
+  private geojsonBackend: GeoJSONRuntimeBackend | null = null
 
   /** Backend that serves PMTiles + similar virtual-catalog sources
    *  (lazy on-demand fetch). Constructed lazily from setVirtualCatalog
@@ -84,78 +86,18 @@ export class XGVTSource {
     return this.index?.header.maxLevel ?? 0
   }
 
-  /** Spatial grid index: z=3 tile key → part indices */
-  private partGrid: Map<number, number[]> | null = null
-  private static readonly GRID_ZOOM = 3
-
-  /** Store raw geometry parts for on-demand compilation (GeoJSON sources) */
+  /** Store raw geometry parts for on-demand compilation (GeoJSON sources).
+   *  Delegates to the GeoJSONRuntimeBackend, which owns the spatial grid. */
   setRawParts(parts: GeometryPart[], maxZoom: number): void {
-    this.rawParts = parts
-    this.rawMaxZoom = maxZoom
-    this.buildPartGrid(parts)
+    if (!this.geojsonBackend) this.geojsonBackend = new GeoJSONRuntimeBackend()
+    this.geojsonBackend.setParts(parts, maxZoom)
   }
 
-  /** Build spatial grid index at z=3 (64 cells) for fast part lookup */
-  private buildPartGrid(parts: GeometryPart[]): void {
-    const z = XGVTSource.GRID_ZOOM
-    const n = Math.pow(2, z)
-    const grid = new Map<number, number[]>()
-
-    for (let i = 0; i < parts.length; i++) {
-      const p = parts[i]
-      const minTX = Math.max(0, Math.floor((p.minLon + 180) / 360 * n))
-      const maxTX = Math.min(n - 1, Math.floor((p.maxLon + 180) / 360 * n))
-      const minTY = Math.max(0, Math.floor((1 - Math.log(Math.tan(Math.max(p.minLat, -85) * Math.PI / 180) + 1 / Math.cos(Math.max(p.minLat, -85) * Math.PI / 180)) / Math.PI) / 2 * n))
-      const maxTY = Math.min(n - 1, Math.floor((1 - Math.log(Math.tan(Math.min(p.maxLat, 85) * Math.PI / 180) + 1 / Math.cos(Math.min(p.maxLat, 85) * Math.PI / 180)) / Math.PI) / 2 * n))
-
-      // Note: in Mercator tile coords, smaller Y = higher latitude
-      const yLo = Math.min(minTY, maxTY)
-      const yHi = Math.max(minTY, maxTY)
-
-      for (let tx = minTX; tx <= maxTX; tx++) {
-        for (let ty = yLo; ty <= yHi; ty++) {
-          const key = tileKey(z, tx, ty)
-          let arr = grid.get(key)
-          if (!arr) { arr = []; grid.set(key, arr) }
-          arr.push(i)
-        }
-      }
-    }
-    this.partGrid = grid
-  }
-
-  /** Get parts that potentially overlap a tile (via grid index) */
+  /** Get parts that potentially overlap a tile (via grid index).
+   *  Public for tests + potential future direct callers; backend
+   *  owns the actual lookup. */
   getRelevantParts(z: number, x: number, y: number): GeometryPart[] | null {
-    if (!this.rawParts || !this.partGrid) return this.rawParts
-    const gz = XGVTSource.GRID_ZOOM
-
-    if (z >= gz) {
-      // Tile fits within one grid cell
-      const shift = z - gz
-      const key = tileKey(gz, x >> shift, y >> shift)
-      const indices = this.partGrid.get(key)
-      if (!indices) return null
-      return indices.map(i => this.rawParts![i])
-    }
-
-    // z < gz: tile covers multiple grid cells — aggregate with dedup
-    const shift = gz - z
-    const gx0 = x << shift
-    const gy0 = y << shift
-    const span = 1 << shift
-    const seen = new Set<number>()
-    const result: GeometryPart[] = []
-    for (let gx = gx0; gx < gx0 + span; gx++) {
-      for (let gy = gy0; gy < gy0 + span; gy++) {
-        const key = tileKey(gz, gx, gy)
-        const indices = this.partGrid.get(key)
-        if (!indices) continue
-        for (const idx of indices) {
-          if (!seen.has(idx)) { seen.add(idx); result.push(this.rawParts![idx]) }
-        }
-      }
-    }
-    return result.length > 0 ? result : null
+    return this.geojsonBackend?.getRelevantParts(z, x, y) ?? null
   }
 
   // ── Per-frame budget (hybrid count-floor + time-ceiling) ──
@@ -218,9 +160,9 @@ export class XGVTSource {
   }
 
   compileTileOnDemand(key: number): boolean {
-    if (!this.rawParts || this.dataCache.has(key)) return false
+    if (!this.geojsonBackend || this.dataCache.has(key)) return false
     const [z, x, y] = tileKeyUnpack(key)
-    if (z > this.rawMaxZoom) return false
+    if (z > this.geojsonBackend.maxZoom) return false
 
     // Empty-tile shortcut: if the spatial grid has no parts overlapping
     // this tile, cache a zero-geometry tile instead of returning false
@@ -231,7 +173,7 @@ export class XGVTSource {
     // A cached empty tile lets the VTR's `hasGeom === false` branch
     // short-circuit the fallback accounting. Cost: a no-op GPU upload
     // per empty tile, bounded by the LRU cap.
-    const parts = this.getRelevantParts(z, x, y)
+    const parts = this.geojsonBackend.getRelevantParts(z, x, y)
     if (!parts || parts.length === 0) {
       const empty = new Float32Array(0)
       const emptyI = new Uint32Array(0)
@@ -244,7 +186,7 @@ export class XGVTSource {
     // beyond that, defers to time budget (6 ms) for lighter compiles.
     if (this._budgetExceeded(this._compileCountThisFrame, XGVTSource._COMPILE_FLOOR)) return false
 
-    const tile = compileSingleTile(parts, z, x, y, this.rawMaxZoom)
+    const tile = compileSingleTile(parts, z, x, y, this.geojsonBackend.maxZoom)
     if (!tile) {
       // Same rationale as the empty-grid branch above — a tile that
       // overlapped the spatial grid but produced no triangles after
@@ -348,9 +290,9 @@ export class XGVTSource {
   hasEntryInIndex(key: number): boolean {
     if (this.index?.entryByHash.has(key)) return true
     // On-demand sources can compile any tile within maxZoom
-    if (this.rawParts) {
+    if (this.geojsonBackend) {
       const [z] = tileKeyUnpack(key)
-      return z <= this.rawMaxZoom
+      return this.geojsonBackend.has(z)
     }
     if (this.pmtilesBackend) {
       return this.pmtilesBackend.has(key)
@@ -565,7 +507,7 @@ export class XGVTSource {
         // stays sync; PMTilesBackend.loadTile is async — it manages
         // loadingTiles itself via the sink callbacks and triggers
         // onTileLoaded when the network round-trip completes.
-        if (this.rawParts) this.compileTileOnDemand(key)
+        if (this.geojsonBackend) this.compileTileOnDemand(key)
         else if (this.pmtilesBackend) this.pmtilesBackend.loadTile(key)
         continue
       }
