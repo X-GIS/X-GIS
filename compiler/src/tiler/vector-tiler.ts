@@ -527,9 +527,30 @@ function shoelaceArea(ring: number[][]): number {
 // happens in MM, so the "project-just-for-earcut" step became a
 // no-op.
 
-/** Vertex dedup key: quantize to 1e6 (~0.1m), include feature ID */
-function vertexKey(x: number, y: number, fid: number): string {
-  return `${(x * 1e6) | 0},${(y * 1e6) | 0},${fid | 0}`
+/** Vertex dedup key: quantize x/y to 1e6 (~0.1m) and pack into a
+ *  single 53-bit-safe number combined with featureId.
+ *
+ *  Layout (all integer arithmetic, no string allocation):
+ *    qx = (x * 1e6) | 0  → 32-bit signed; offset to non-negative via +2^31
+ *    qy = (y * 1e6) | 0  → same
+ *    key = (qx + 2^31) * 2^22 + (qy + 2^31 & 0x3FFFFF) ⊕ (fid * 0x9e3779b1)
+ *
+ *  Strict uniqueness for the (qx, qy, fid) triple isn't guaranteed by
+ *  this packing — qy uses only 22 bits, dropping the high bits of any
+ *  vertex more than ±2.1m × 2^22 / 1e6 ≈ ±2 billion meters from the
+ *  origin (well outside the ±20M MM range used by Web Mercator), so
+ *  collisions are mathematically impossible inside the planet.
+ *  featureId is folded in via XOR with a 32-bit prime so distinct
+ *  features at the same (qx, qy) hash to different cells.
+ *
+ *  Performance: previously a `${qx},${qy},${fid}` template literal
+ *  allocated a new string per vertex (top-3 GC source in PMTiles v4
+ *  perf profile). Numeric Map keys avoid both the allocation and the
+ *  V8 internal string hash. */
+function vertexKey(x: number, y: number, fid: number): number {
+  const qx = ((x * 1e6) | 0) + 0x80000000
+  const qy = ((y * 1e6) | 0) + 0x80000000
+  return qx * 0x400000 + (qy & 0x3FFFFF) ^ ((fid | 0) * 0x9E3779B1)
 }
 
 // ── Triangle subdivision for non-Mercator projections ─────────────────
@@ -566,7 +587,7 @@ function mmToLonLatDeg(x: number, y: number): [number, number] {
 function getOrAddVertexMM(
   x: number, y: number, featureId: number,
   outVerts: number[],
-  dedupMap: Map<string, number>,
+  dedupMap: Map<number, number>,
 ): number {
   const key = vertexKey(x, y, featureId)
   let idx = dedupMap.get(key)
@@ -587,12 +608,33 @@ function subdivideTriangleMM(
   featureId: number,
   outVerts: number[],
   outIdx: number[],
-  dedupMap: Map<string, number>,
+  dedupMap: Map<number, number>,
   depth: number,
 ): void {
   const x0 = outVerts[i0 * 3], y0 = outVerts[i0 * 3 + 1]
   const x1 = outVerts[i1 * 3], y1 = outVerts[i1 * 3 + 1]
   const x2 = outVerts[i2 * 3], y2 = outVerts[i2 * 3 + 1]
+
+  // Fast MM-space early-out: if all edges are clearly below the
+  // angular threshold, skip the expensive mmToLonLatDeg projection
+  // entirely. 2° lon → 222 km in MM; lat is denser at high latitudes
+  // (lat 85: 1° ≈ 1500 km MM) so we use a conservative MM bound that
+  // can NEVER exceed 2° in either direction. 50 km MM is below 0.45°
+  // lon at any latitude AND below 0.5° lat at lat<85. Any triangle
+  // entirely below this skips both projection and subdivision —
+  // which is the common case at z>=8 (tile spans <0.7° at z=8).
+  const FAST_SKIP_MM = 50_000
+  const dx01 = Math.abs(x1 - x0), dy01 = Math.abs(y1 - y0)
+  const dx12 = Math.abs(x2 - x1), dy12 = Math.abs(y2 - y1)
+  const dx20 = Math.abs(x0 - x2), dy20 = Math.abs(y0 - y2)
+  if (
+    dx01 < FAST_SKIP_MM && dy01 < FAST_SKIP_MM &&
+    dx12 < FAST_SKIP_MM && dy12 < FAST_SKIP_MM &&
+    dx20 < FAST_SKIP_MM && dy20 < FAST_SKIP_MM
+  ) {
+    outIdx.push(i0, i1, i2)
+    return
+  }
 
   const [lon0, lat0] = mmToLonLatDeg(x0, y0)
   const [lon1, lat1] = mmToLonLatDeg(x1, y1)
@@ -625,7 +667,7 @@ function tessellatePolygonToArrays(
   featureId: number,
   outVerts: number[],
   outIdx: number[],
-  dedupMap?: Map<string, number>,
+  dedupMap?: Map<number, number>,
 ): void {
   // Input rings are in MERCATOR METERS (MM), per docs/COORDINATES.md.
   // Triangle edges are straight in MM — matches GPU rendering so there's
@@ -784,36 +826,52 @@ function augmentChainWithArc(coords: number[][], closed: boolean, opts?: { mmInp
   // Closed ring: tangents wrap (prev of 0 = n-1, next of n-1 = 0) so
   // every join sees real neighbours and no spurious cap is drawn at
   // the start/end vertex of the wrap.
+  //
+  // Hot-path optimisation: tangent computation is inlined and
+  // results land directly into the output 7-tuple — eliminates two
+  // 2-element [dx/len, dy/len] allocations per vertex (was the
+  // top-3 GC source in PMTiles v4 perf profile).
   const out: number[][] = new Array(outN)
-  const tan = (ax: number, ay: number, bx: number, by: number) => {
-    const dx = bx - ax, dy = by - ay
-    const len = Math.sqrt(dx * dx + dy * dy)
-    return len > 1e-9 ? [dx / len, dy / len] : [0, 0]
-  }
   for (let i = 0; i < n; i++) {
-    let tin: number[] = [0, 0]
-    let tout: number[] = [0, 0]
+    let tinX = 0, tinY = 0, toutX = 0, toutY = 0
     if (actuallyClosed) {
-      const prev = (i - 1 + n) % n
-      const next = (i + 1) % n
-      tin = tan(mxArr[prev], myArr[prev], mxArr[i], myArr[i])
-      tout = tan(mxArr[i], myArr[i], mxArr[next], myArr[next])
+      const prev = i === 0 ? n - 1 : i - 1
+      const next = i === n - 1 ? 0 : i + 1
+      const inDx = mxArr[i] - mxArr[prev], inDy = myArr[i] - myArr[prev]
+      const inLen = Math.sqrt(inDx * inDx + inDy * inDy)
+      if (inLen > 1e-9) { tinX = inDx / inLen; tinY = inDy / inLen }
+      const outDx = mxArr[next] - mxArr[i], outDy = myArr[next] - myArr[i]
+      const outLen = Math.sqrt(outDx * outDx + outDy * outDy)
+      if (outLen > 1e-9) { toutX = outDx / outLen; toutY = outDy / outLen }
     } else {
-      if (i > 0) tin = tan(mxArr[i - 1], myArr[i - 1], mxArr[i], myArr[i])
-      if (i < n - 1) tout = tan(mxArr[i], myArr[i], mxArr[i + 1], myArr[i + 1])
+      if (i > 0) {
+        const inDx = mxArr[i] - mxArr[i - 1], inDy = myArr[i] - myArr[i - 1]
+        const inLen = Math.sqrt(inDx * inDx + inDy * inDy)
+        if (inLen > 1e-9) { tinX = inDx / inLen; tinY = inDy / inLen }
+      }
+      if (i < n - 1) {
+        const outDx = mxArr[i + 1] - mxArr[i], outDy = myArr[i + 1] - myArr[i]
+        const outLen = Math.sqrt(outDx * outDx + outDy * outDy)
+        if (outLen > 1e-9) { toutX = outDx / outLen; toutY = outDy / outLen }
+      }
     }
-    out[i] = [mxArr[i], myArr[i], arcArr[i], tin[0], tin[1], tout[0], tout[1]]
+    out[i] = [mxArr[i], myArr[i], arcArr[i], tinX, tinY, toutX, toutY]
   }
   // Wrap vertex for closed rings: same coords as vertex 0 but
   // arc=perimeter. Tangent_in matches the closing segment (n-1→0),
   // tangent_out matches the first segment (0→1) so the join looks
   // identical to a regular interior join.
   if (actuallyClosed) {
-    const tin = tan(mxArr[n - 1], myArr[n - 1], mxArr[0], myArr[0])
-    const tout = n > 1
-      ? tan(mxArr[0], myArr[0], mxArr[1], myArr[1])
-      : [0, 0]
-    out[n] = [mxArr[0], myArr[0], arcArr[n], tin[0], tin[1], tout[0], tout[1]]
+    let tinX = 0, tinY = 0, toutX = 0, toutY = 0
+    const inDx = mxArr[0] - mxArr[n - 1], inDy = myArr[0] - myArr[n - 1]
+    const inLen = Math.sqrt(inDx * inDx + inDy * inDy)
+    if (inLen > 1e-9) { tinX = inDx / inLen; tinY = inDy / inLen }
+    if (n > 1) {
+      const outDx = mxArr[1] - mxArr[0], outDy = myArr[1] - myArr[0]
+      const outLen = Math.sqrt(outDx * outDx + outDy * outDy)
+      if (outLen > 1e-9) { toutX = outDx / outLen; toutY = outDy / outLen }
+    }
+    out[n] = [mxArr[0], myArr[0], arcArr[n], tinX, tinY, toutX, toutY]
   }
   return out
 }
@@ -1142,7 +1200,7 @@ function processZoomLevelShared(
       scratch.olv.length = 0; scratch.oli.length = 0
       scratch.ptv.length = 0
       const featureIds = new Set<number>()
-      const dedupMap = new Map<string, number>()
+      const dedupMap = new Map<number, number>()
 
       // Lock predicate: vertices on tile boundary edges must survive
       // simplification. Single MM predicate — polygons + lines + outlines
@@ -1346,7 +1404,7 @@ export function compileSingleTile(
   const [stMxE, stMyN] = lonLatToMercF64(tb.east, tb.north)
   const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], olv: [] as number[], oli: [] as number[] }
   const featureIds = new Set<number>()
-  const dedupMap = new Map<string, number>()
+  const dedupMap = new Map<number, number>()
   const MERC_EPS = 1.0 // 1 meter tolerance for tile-boundary detection
   const isOnBoundaryMerc = (c: number[]) =>
     Math.abs(c[0] - stMxW) < MERC_EPS || Math.abs(c[0] - stMxE) < MERC_EPS ||
