@@ -3,7 +3,6 @@
 // GPU 독립: CPU 배열만 관리, GPU 업로드는 VectorTileRenderer가 담당.
 
 import {
-  parseXGVTIndex, parseGPUReadyTile, decompressTileData, parsePropertyTable,
   TILE_FLAG_FULL_COVER,
   tileKey, tileKeyUnpack,
   clipPolygonToRect, clipLineToRect,
@@ -12,11 +11,11 @@ import {
   augmentRingWithArc, tessellateLineToArrays, packDSFUNLineVertices,
   type XGVTIndex, type TileIndexEntry,
   type PropertyTable, type RingPolygon,
-  type CompiledTileSet, type TileLevel, type CompiledTile,
+  type CompiledTileSet, type TileLevel,
   type GeometryPart,
 } from '@xgis/compiler'
 import { visibleTiles } from '../loader/tiles'
-import { getSharedPool, type XGVTWorkerPool } from './xgvt-worker-pool'
+import { XGVTBinaryBackend, type BinaryBackendSink } from './sources/xgvt-binary-source'
 // Step 0 of the layer-type refactor: shared types live in tile-types.ts so
 // per-format backend modules can import them without pulling in catalog
 // runtime state. Re-exported below for back-compat with external callers
@@ -38,11 +37,17 @@ export {
 
 export class XGVTSource {
   private index: XGVTIndex | null = null
-  private fileUrl = ''
-  private fileBuf: ArrayBuffer | null = null
   private dataCache = new Map<number, TileData>()
   private loadingTiles = new Set<number>()
-  private isFullFileMode = false
+
+  /** Backend that handles .xgvt binary file loading (range-batched
+   *  fetch, worker-pool decompress, GPU-ready vs compact dispatch).
+   *  Constructed lazily when loadFromBuffer / loadFromURL is called.
+   *  Step 2 of the layer-type refactor extracted this to its own
+   *  class for separation of concerns; subsequent steps will move
+   *  PMTiles + GeoJSON-runtime out the same way and rename the
+   *  remainder to TileCatalog. */
+  private binaryBackend: XGVTBinaryBackend | null = null
 
   /** Raw geometry parts for on-demand tile compilation (GeoJSON sources only) */
   private rawParts: GeometryPart[] | null = null
@@ -453,61 +458,38 @@ export class XGVTSource {
 
   // ── Loading ──
 
-  async loadFromBuffer(buf: ArrayBuffer): Promise<void> {
-    this.fileBuf = buf
-    this.index = parseXGVTIndex(buf)
-    this.isFullFileMode = true
-
-    const { propTableOffset, propTableLength } = this.index.header
-    if (propTableOffset > 0 && propTableLength > 0) {
-      const propBuf = buf.slice(propTableOffset, propTableOffset + propTableLength)
-      this.index.propertyTable = parsePropertyTable(propBuf)
+  /** Lazy-build the BinaryBackendSink — the callback bundle the binary
+   *  backend uses to write into our cache. Bound to private methods so
+   *  backend code can't accidentally see our private state. */
+  private getBinaryBackend(): XGVTBinaryBackend {
+    if (!this.binaryBackend) {
+      const sink: BinaryBackendSink = {
+        hasTileData: (key) => this.dataCache.has(key),
+        trackLoading: (key) => { this.loadingTiles.add(key) },
+        releaseLoading: (key) => { this.loadingTiles.delete(key) },
+        getLoadingCount: () => this.loadingTiles.size,
+        cacheTileData: (key, polygons, vertices, indices, lineVerts, lineIndices, pointVerts, outlineIndices, outlineVerts, outlineLineIndices) =>
+          this.cacheTileData(key, polygons, vertices, indices, lineVerts, lineIndices, pointVerts, outlineIndices, outlineVerts, outlineLineIndices),
+        createFullCoverTileData: (key, entry, lineVerts, lineIndices) =>
+          this.createFullCoverTileData(key, entry, lineVerts, lineIndices),
+      }
+      this.binaryBackend = new XGVTBinaryBackend(sink)
     }
+    return this.binaryBackend
+  }
 
-    console.log(`[X-GIS] VectorTile index loaded: ${this.index.entries.length} tiles`)
-    // Mirror loadFromURL's two-stage preload: z=0 synchronously (so the
-    // render loop has a coarse global fallback on the first frame),
-    // then z=1..3 in the background. Historically this called a
-    // non-existent `preloadLowZoomTiles()` — the method was split into
-    // preloadZeroTile + preloadBackground but this callsite wasn't
-    // updated, causing the fallback path (map.ts:791, reached when
-    // loadFromURL throws) to throw TypeError and leave the source with
-    // no cached tiles at all — the exact "nothing loads" symptom.
-    await this.preloadZeroTile()
-    this.preloadBackground().catch(e => console.error('[xgvt preload bg]', (e as Error)?.stack ?? e))
+  async loadFromBuffer(buf: ArrayBuffer): Promise<void> {
+    const backend = this.getBinaryBackend()
+    await backend.loadFromBuffer(buf)
+    // Adopt the backend's parsed index as our own — VTR + multi-backend
+    // dispatch read it via getIndex() / hasEntryInIndex / maxLevel.
+    this.index = backend.index
   }
 
   async loadFromURL(url: string): Promise<void> {
-    this.fileUrl = url
-
-    const headerBuf = await fetchRange(url, 0, 40)
-    const view = new DataView(headerBuf)
-    const indexOffset = view.getUint32(24, true)
-    const indexLength = view.getUint32(28, true)
-
-    const indexBuf = await fetchRange(url, 0, indexOffset + indexLength)
-    this.index = parseXGVTIndex(indexBuf)
-
-    const propTableOffset = this.index.header.propTableOffset
-    const propTableLength = this.index.header.propTableLength
-    if (propTableOffset > 0 && propTableLength > 0) {
-      const propBuf = await fetchRange(url, propTableOffset, propTableLength)
-      this.index.propertyTable = parsePropertyTable(propBuf)
-    }
-
-    console.log(`[X-GIS] VectorTile index loaded: ${this.index.entries.length} tiles (Range Request mode)`)
-
-    // Stage the z = 0 tile BEFORE returning — this is 1 tile per source,
-    // parses in <100 ms, and gives the render loop a coarse global
-    // fallback to paint the first frame against. All remaining low-zoom
-    // tiles (z=1..3) are queued in the background via preloadBackground()
-    // and populate dataCache as they arrive. The render loop's parent
-    // walk will find them as soon as they're ready; until then it falls
-    // back to the z=0 tile or renders nothing.
-    await this.preloadZeroTile()
-    // Kick off background preload but do NOT await — loadFromURL returns
-    // immediately after z=0 is ready.
-    this.preloadBackground().catch(e => console.error('[xgvt preload bg]', (e as Error)?.stack ?? e))
+    const backend = this.getBinaryBackend()
+    await backend.loadFromURL(url)
+    this.index = backend.index
   }
 
   /**
@@ -568,7 +550,6 @@ export class XGVTSource {
       entryByHash,
       propertyTable: tileSet.propertyTable,
     }
-    this.isFullFileMode = true
 
     console.log(`[X-GIS] In-memory tiles loaded: ${tileCount} tiles from ${tileSet.featureCount} features`)
   }
@@ -588,7 +569,6 @@ export class XGVTSource {
         },
         entries: [], entryByHash: new Map(), propertyTable,
       }
-      this.isFullFileMode = true
     }
     const idx = this.index!
 
@@ -617,125 +597,6 @@ export class XGVTSource {
         this.cacheTileData(key, polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, tile.pointVertices, tile.outlineIndices)
       }
     }
-  }
-
-  /** Parse an entry list from an already-fetched shared buffer into
-   *  dataCache. Called by both preloadZeroTile and preloadBackground.
-   *  Compact tiles are dispatched to the worker pool so decompress +
-   *  earcut runs off the main thread. Returns a promise that resolves
-   *  when all compact jobs finish. */
-  private async parseEntryBatch(
-    entries: { key: number; entry: TileIndexEntry }[],
-    sharedBuf: ArrayBuffer,
-    sharedStartOffset: number,
-  ): Promise<void> {
-    const pool = this.getPool()
-    const compactJobs: Promise<void>[] = []
-    for (const { key, entry } of entries) {
-      const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
-      const localOffset = entry.dataOffset - sharedStartOffset
-
-      if (entry.gpuReadySize > 0) {
-        const gpuOffset = localOffset + entry.compactSize
-        const gpuBuf = sharedBuf.slice(gpuOffset, gpuOffset + entry.gpuReadySize)
-        const tile = parseGPUReadyTile(gpuBuf, { ...entry, dataOffset: 0, compactSize: 0, gpuReadySize: gpuBuf.byteLength })
-        if (isFullCover) this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
-        else this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, undefined, tile.outlineIndices)
-      } else if (entry.compactSize > 0) {
-        // Slice the compressed bytes and hand them to a worker. The
-        // worker returns already-decompressed + earcut-tessellated
-        // typed arrays as Transferables, so the main thread only runs
-        // cacheTileData / createFullCoverTileData (which is fast).
-        const compressed = sharedBuf.slice(localOffset, localOffset + entry.compactSize)
-        compactJobs.push(
-          pool.parseTile(compressed, entry).then(parsed => {
-            if (isFullCover) {
-              this.createFullCoverTileData(key, entry, parsed.lineVertices, parsed.lineIndices)
-            } else {
-              this.cacheTileData(
-                key, parsed.polygons,
-                parsed.vertices, parsed.indices,
-                parsed.lineVertices, parsed.lineIndices,
-                undefined, parsed.outlineIndices,
-              )
-            }
-          }).catch(err => {
-            console.error('[xgvt-pool parse]', (err as Error)?.stack ?? err)
-          }),
-        )
-      } else if (isFullCover) {
-        this.createFullCoverTileData(key, entry, new Float32Array(0), new Uint32Array(0))
-      }
-    }
-    if (compactJobs.length > 0) await Promise.all(compactJobs)
-  }
-
-  private _pool: XGVTWorkerPool | null = null
-  private getPool(): XGVTWorkerPool {
-    if (!this._pool) this._pool = getSharedPool()
-    return this._pool
-  }
-
-  /** Stage 1 of preload: the z=0 root tile only. Resolves in ~50-100 ms
-   *  per source and gives the render loop a coarse global fallback so
-   *  the first frame paints immediately. Full-file and Range Request
-   *  paths handled uniformly. */
-  private async preloadZeroTile(): Promise<void> {
-    if (!this.index) return
-    const entries: { key: number; entry: TileIndexEntry }[] = []
-    for (const entry of this.index.entries) {
-      const [z] = tileKeyUnpack(entry.tileHash)
-      if (z === 0 && !this.dataCache.has(entry.tileHash)) {
-        entries.push({ key: entry.tileHash, entry })
-      }
-    }
-    if (entries.length === 0) return
-
-    if (this.isFullFileMode && this.fileBuf) {
-      // In-memory mode: entries already point into the full buffer.
-      await this.parseEntryBatch(entries, this.fileBuf, 0)
-      return
-    }
-
-    if (!this.fileUrl) return
-    const tileSize = (e: TileIndexEntry) => e.compactSize + e.gpuReadySize
-    entries.sort((a, b) => a.entry.dataOffset - b.entry.dataOffset)
-    const startOffset = entries[0].entry.dataOffset
-    const lastEntry = entries[entries.length - 1]
-    const endOffset = lastEntry.entry.dataOffset + tileSize(lastEntry.entry)
-    const buf = await fetchRange(this.fileUrl, startOffset, endOffset - startOffset)
-    await this.parseEntryBatch(entries, buf, startOffset)
-  }
-
-  /** Stage 2 of preload: all z=1..3 tiles, background. Runs after
-   *  loadFromURL has already returned. Tiles populate dataCache as they
-   *  finish; the render loop's parent walk picks them up as soon as
-   *  they're ready. Errors are logged, never thrown. */
-  private async preloadBackground(): Promise<void> {
-    if (!this.index) return
-    const PRELOAD_MAX_Z = 3
-    const entries: { key: number; entry: TileIndexEntry }[] = []
-    for (const entry of this.index.entries) {
-      const [z] = tileKeyUnpack(entry.tileHash)
-      if (z >= 1 && z <= PRELOAD_MAX_Z && !this.dataCache.has(entry.tileHash)) {
-        entries.push({ key: entry.tileHash, entry })
-      }
-    }
-    if (entries.length === 0) return
-
-    if (this.isFullFileMode && this.fileBuf) {
-      await this.parseEntryBatch(entries, this.fileBuf, 0)
-      return
-    }
-
-    if (!this.fileUrl) return
-    const tileSize = (e: TileIndexEntry) => e.compactSize + e.gpuReadySize
-    entries.sort((a, b) => a.entry.dataOffset - b.entry.dataOffset)
-    const startOffset = entries[0].entry.dataOffset
-    const lastEntry = entries[entries.length - 1]
-    const endOffset = lastEntry.entry.dataOffset + tileSize(lastEntry.entry)
-    const buf = await fetchRange(this.fileUrl, startOffset, endOffset - startOffset)
-    await this.parseEntryBatch(entries, buf, startOffset)
   }
 
   // ── Tile request (async batch loading) ──
@@ -768,136 +629,12 @@ export class XGVTSource {
       entries.push({ key, entry })
     }
 
-    if (entries.length === 0) return
-
-    // Full-file mode (ArrayBuffer already loaded)
-    if (this.isFullFileMode && this.fileBuf) {
-      for (const { key, entry } of entries) {
-        this.loadingTiles.add(key)
-        const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
-
-        if (entry.gpuReadySize > 0) {
-          // GPU-ready: read directly from file buffer (no decompression, no copy)
-          const tile = parseGPUReadyTile(this.fileBuf!, {
-            ...entry, dataOffset: entry.dataOffset + entry.compactSize,
-            compactSize: 0, gpuReadySize: entry.gpuReadySize,
-          })
-          if (isFullCover) {
-            this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
-          } else {
-            this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, undefined, tile.outlineIndices)
-          }
-          this.loadingTiles.delete(key)
-        } else {
-          // Compact in full-file mode: hand off to worker pool so
-          // decompress + earcut runs off-main-thread.
-          const slice = this.fileBuf!.slice(entry.dataOffset, entry.dataOffset + entry.compactSize)
-          this.getPool().parseTile(slice, entry).then(parsed => {
-            if (isFullCover) {
-              this.createFullCoverTileData(key, entry, parsed.lineVertices, parsed.lineIndices)
-            } else {
-              this.cacheTileData(
-                key, parsed.polygons,
-                parsed.vertices, parsed.indices,
-                parsed.lineVertices, parsed.lineIndices,
-                undefined, parsed.outlineIndices,
-              )
-            }
-            this.loadingTiles.delete(key)
-          }).catch(err => {
-            this.loadingTiles.delete(key)
-            console.error('[xgvt-pool parse]', (err as Error)?.stack ?? err)
-          })
-        }
-      }
-      return
-    }
-
-    if (!this.fileUrl) return
-
-    // Range Request mode: sort by offset, merge adjacent tiles
-    entries.sort((a, b) => a.entry.dataOffset - b.entry.dataOffset)
-
-    const MAX_GAP = 8 * 1024  // 8KB gap tolerance — merge nearby tiles into fewer requests
-    const tileSize = (e: TileIndexEntry) => e.compactSize + e.gpuReadySize
-    const batches: { entries: typeof entries; startOffset: number; endOffset: number }[] = []
-    let current = {
-      entries: [entries[0]],
-      startOffset: entries[0].entry.dataOffset,
-      endOffset: entries[0].entry.dataOffset + tileSize(entries[0].entry),
-    }
-
-    for (let i = 1; i < entries.length; i++) {
-      const e = entries[i]
-      const eEnd = e.entry.dataOffset + tileSize(e.entry)
-      if (e.entry.dataOffset - current.endOffset <= MAX_GAP) {
-        current.entries.push(e)
-        current.endOffset = Math.max(current.endOffset, eEnd)
-      } else {
-        batches.push(current)
-        current = { entries: [e], startOffset: e.entry.dataOffset, endOffset: eEnd }
-      }
-    }
-    batches.push(current)
-
-    for (const batch of batches) {
-      for (const { key } of batch.entries) this.loadingTiles.add(key)
-
-      const size = batch.endOffset - batch.startOffset
-      if (size <= 0) continue
-
-      fetchRange(this.fileUrl, batch.startOffset, size).then(buf => {
-        for (const { key, entry } of batch.entries) {
-          const isFullCover = !!(entry.flags & TILE_FLAG_FULL_COVER)
-          const localOffset = entry.dataOffset - batch.startOffset
-
-          if (entry.gpuReadySize > 0) {
-            const gpuOffset = localOffset + entry.compactSize
-            const gpuBuf = buf.slice(gpuOffset, gpuOffset + entry.gpuReadySize)
-            const tile = parseGPUReadyTile(gpuBuf, { ...entry, dataOffset: 0, compactSize: 0, gpuReadySize: gpuBuf.byteLength })
-            if (isFullCover) {
-              this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
-            } else {
-              this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, undefined, tile.outlineIndices)
-            }
-            this.loadingTiles.delete(key)
-          } else if (entry.compactSize > 0) {
-            // Route compact-tile decompress + earcut through the worker
-            // pool so the main thread stays free for interactive frames.
-            const compressed = buf.slice(localOffset, localOffset + entry.compactSize)
-            this.getPool().parseTile(compressed, entry).then(parsed => {
-              if (isFullCover) {
-                this.createFullCoverTileData(key, entry, parsed.lineVertices, parsed.lineIndices)
-              } else {
-                this.cacheTileData(
-                  key, parsed.polygons,
-                  parsed.vertices, parsed.indices,
-                  parsed.lineVertices, parsed.lineIndices,
-                  undefined, parsed.outlineIndices,
-                )
-              }
-              this.loadingTiles.delete(key)
-            }).catch(err => {
-              this.loadingTiles.delete(key)
-              console.error('[xgvt-pool parse]', (err as Error)?.stack ?? err)
-            })
-          } else if (isFullCover) {
-            this.createFullCoverTileData(key, entry, new Float32Array(0), new Uint32Array(0))
-            this.loadingTiles.delete(key)
-          }
-        }
-      }).catch(() => {
-        for (const { key } of batch.entries) this.loadingTiles.delete(key)
-      })
-    }
-  }
-
-  private parseTileAndCache(key: number, decompressed: ArrayBuffer, entry: TileIndexEntry, isFullCover: boolean): void {
-    const tile = parseGPUReadyTile(decompressed, { ...entry, dataOffset: 0, compactSize: decompressed.byteLength, gpuReadySize: 0 })
-    if (isFullCover) {
-      this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
-    } else {
-      this.cacheTileData(key, tile.polygons, tile.vertices, tile.indices, tile.lineVertices, tile.lineIndices, undefined, tile.outlineIndices)
+    // Delegate the actual fetch + decode + worker-pool dispatch to the
+    // binary backend. It manages range-request batching, the
+    // GPU-ready/compact split, and per-tile loadingTiles tracking via
+    // the sink callbacks bound in getBinaryBackend().
+    if (entries.length > 0) {
+      this.getBinaryBackend().requestTilesBatch(entries)
     }
   }
 
@@ -1347,21 +1084,3 @@ function tileIntersectsBounds(
            tileNorth < bounds[1] || tileSouth > bounds[3])
 }
 
-let fullFileCache: { url: string; buf: ArrayBuffer } | null = null
-
-async function fetchRange(url: string, offset: number, length: number): Promise<ArrayBuffer> {
-  if (fullFileCache && fullFileCache.url === url) {
-    return fullFileCache.buf.slice(offset, offset + length)
-  }
-
-  const res = await fetch(url, {
-    headers: { Range: `bytes=${offset}-${offset + length - 1}` },
-  })
-  const buf = await res.arrayBuffer()
-
-  if (res.status === 200 && buf.byteLength > length) {
-    fullFileCache = { url, buf }
-    return buf.slice(offset, offset + length)
-  }
-  return buf
-}
