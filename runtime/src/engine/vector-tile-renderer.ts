@@ -6,7 +6,7 @@
 import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
-import { visibleTilesFrustum, sortByPriority, firstIndexedAncestor } from '../loader/tiles'
+import { visibleTilesFrustum, sortByPriority } from '../loader/tiles'
 import { tileKey, tileKeyParent, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../data/tile-catalog'
@@ -49,16 +49,15 @@ interface GPUTile {
   firstShownFrame: number // for fade-in animation
 }
 
-// Per-VTR GPU tile cache cap. Tuned for the SINGLE-source case.
-// Multi-source layered demos (4+ VTRs each holding their own cache)
-// multiply this — at 1024 × 4 backends × ~5 buffers/tile we hit
-// ~20K GPU buffer objects, which on Chrome surfaced as
-// STATUS_BREAKPOINT (GPU process __debugbreak under memory
-// pressure). The proper fix for that scenario is collapsing the
-// multi-source layered design into single-source + per-layer
-// `source-layer` filter (Mapbox-style); until that lands the
-// safer cap is 512.
-const MAX_GPU_TILES = 512
+// Per-VTR GPU tile cache cap on UNIQUE tile keys. With sliced
+// sources (PMTiles N-layer) one tile = N entries × ~7 buffers.
+// Capping at 256 unique keys × 4 typical layers × 7 = ~7K live GPU
+// buffers — well within Chrome's tolerance now that the previous
+// STATUS_BREAKPOINT root causes are fixed (vertexKey int32 overflow
+// inflating vertex counts, missing per-layer decoder filter
+// loading 10+ unused slices per tile, duplicate LoadCommands
+// spawning 4× orphan VTRs all hammering GPU).
+const MAX_GPU_TILES = 256
 /** Max tiles promoted from data cache to GPU per frame. Chosen empirically:
  *  crossing a z-boundary produces ~16 newly-visible tiles, and uploading
  *  them all in one frame caused ~250 ms stalls (perf-scenarios benchmark,
@@ -66,14 +65,16 @@ const MAX_GPU_TILES = 512
  *  work across ~5–6 frames → worst spike drops to <50 ms with the cache
  *  reaching full visibility in ~100 ms. Raise if you see noticeable
  *  "filling in" during pans on fast connections. */
-/** Per-frame tile upload cap. Each upload runs buildLineSegments
- *  (CPU, ~30-150 ms on dense PMTiles tiles like protomaps v4 roads).
- *  Cap = 2 keeps worst-case frame under ~300 ms with dense data.
- *  Simple scenes (Natural Earth at low z, ~10 features per tile)
- *  clear their viewport in <1 s either way; the cap mainly bounds
- *  the worst-case spike during pan / zoom over heavy archives.
- *  Real fix is moving buildLineSegments to a worker — see follow-up. */
-const MAX_UPLOADS_PER_FRAME = 2
+/** Per-frame tile upload cap. Bumped to 4 after the over-zoom
+ *  per-layer sub-tile fix made all 4 layers actually generate
+ *  sub-tiles (previously only the first one did due to the
+ *  hasTileData(key) skip bug). At 4 layers × ~30 visible sub-tiles
+ *  = 120 slices to upload at over-zoom; 2/frame took ~1 s to fill
+ *  ≈ visible flicker as fallback gets progressively replaced.
+ *  4/frame halves convergence time to ~0.5 s while keeping GPU
+ *  buffer creation rate (~1700/sec) below Chrome's STATUS_BREAKPOINT
+ *  threshold even under 4-layer load. */
+const MAX_UPLOADS_PER_FRAME = 4
 
 // ═══ Renderer ═══
 
@@ -90,7 +91,30 @@ export class VectorTileRenderer {
     return this.source?.maxLevel ?? 0
   }
   currentProjection: import('./projection').Projection | null = null
-  private gpuCache = new Map<number, GPUTile>()
+  /** GPU tile cache keyed by `${tileKey}|${sourceLayer}`. The `sourceLayer`
+   *  segment is the MVT layer slot — '' for single-layer sources
+   *  (XGVT-binary, GeoJSON-runtime, sub-tiles), MVT layer name for
+   *  per-layer slices (PMTiles). One tile key may have N entries here,
+   *  one per xgis layer's `sourceLayer` filter. */
+  /** Nested cache: outer key = MVT source-layer slot ('' for single-
+   *  layer sources), inner key = numeric tile key. Lets the per-frame
+   *  hot path fetch the inner Map once per `render()` call and then
+   *  do pure numeric `has`/`get` lookups, eliminating composite-string
+   *  allocation in the per-tile loop (was ~1.6 k allocations/frame at
+   *  z=22 over Seoul × 4 PMTiles layers). */
+  private gpuCache = new Map<string, Map<number, GPUTile>>()
+  /** Total entries across all inner maps. Mirrors what the old flat
+   *  `gpuCache.size` reported; used by eviction trigger, cache-size
+   *  diagnostics, and the setLineRenderer reset guard. */
+  private _gpuCacheCount = 0
+  private getLayerCache(sourceLayer: string): Map<number, GPUTile> | undefined {
+    return this.gpuCache.get(sourceLayer)
+  }
+  private getOrCreateLayerCache(sourceLayer: string): Map<number, GPUTile> {
+    let m = this.gpuCache.get(sourceLayer)
+    if (!m) { m = new Map(); this.gpuCache.set(sourceLayer, m) }
+    return m
+  }
   private frameCount = 0
   private lastZoom = -1
   private stableKeys: number[] = []
@@ -164,8 +188,8 @@ export class VectorTileRenderer {
   setSource(source: TileCatalog): void {
     this.source = source
     // Immediate GPU upload — no queue delay, no flickering
-    source.onTileLoaded = (key, data) => {
-      this.uploadTile(key, data)
+    source.onTileLoaded = (key, data, sourceLayer) => {
+      this.uploadTile(key, data, sourceLayer)
     }
   }
 
@@ -211,9 +235,71 @@ export class VectorTileRenderer {
    *  destroyed". */
   private retiredUniformRings: GPUBuffer[] = []
 
-  beginFrame(): void {
+  /** Frame ID set by `beginFrame(frameId)`, threaded through to
+   *  `source.resetCompileBudget(frameId)` so the catalog's per-frame
+   *  budget can short-circuit duplicate resets when one source feeds
+   *  multiple layer ShowCommands within the same frame. */
+  private currentFrameId = 0
+
+  /** Cache of `visibleTilesFrustum()` + the derived neededKeys /
+   *  worldOffsets arrays. With one source feeding N layer
+   *  ShowCommands, each VTR.render() invocation would otherwise
+   *  re-compute the same tile selection N times — the camera and
+   *  canvas can't change between renders within a frame. Profiling
+   *  showed pmtiles_layered (4 layers) burning ~30 ms / frame on
+   *  redundant frustum walks. Cache keyed by frameId + culling
+   *  margin (different stroke widths produce slightly different
+   *  margins; a hit requires both to match). */
+  private _frameTileCache: {
+    frameId: number
+    marginPx: number
+    currentZ: number
+    tiles: ReturnType<typeof visibleTilesFrustum>
+    neededKeys: number[]
+    worldOffDeg: number[]
+    /** Source's `maxLevel` at the time the cache was populated.
+     *  parentAtMaxLevel + archiveAncestor are computed against this
+     *  level — if the source's archive depth changes between renders
+     *  within a frame (rare but possible during initial load), the
+     *  cache invalidates. */
+    maxLevel: number
+    /** For each tile i: when `tiles[i].z > maxLevel`, the maxLevel
+     *  ancestor key (the over-zoom fallback parent). Else `-1`.
+     *  Sliced layer-independent — depends only on tile coord +
+     *  source maxLevel, so all 4 ShowCommands sharing this source
+     *  read the same value. Eliminates the per-render
+     *  `for (pz>maxLevel) parentKey = tileKeyParent(parentKey)`
+     *  walk that dominated the per-tile loop at over-zoom. */
+    parentAtMaxLevel: number[]
+    /** For each tile i: the highest indexed ancestor (closest to
+     *  the tile) found via `hasEntryInIndex` walk. `-1` if no
+     *  ancestor is in the index. Sliced layer-independent —
+     *  `hasEntryInIndex` is a property of the source index, not
+     *  any layer's GPU/data cache. Replaces three quarters of the
+     *  in-archive per-tile walk (`hasAnyAncestor` + `closestExisting`
+     *  derived from this; only `cachedAncestorKey` still needs a
+     *  per-layer `sliceCached` walk). */
+    archiveAncestor: number[]
+  } | null = null
+
+  beginFrame(frameId: number = 0): void {
+    this.currentFrameId = frameId
     this.uniformSlot = 0
     this._uploadBudget = MAX_UPLOADS_PER_FRAME
+    // Reset the frame-scoped miss counter here so multiple render()
+    // calls within the frame accumulate into one total (see render()).
+    this._missedTiles = 0
+    this._frameTilesVisible = 0
+    this._frameDrawCalls = 0
+    this._frameTriangles = 0
+    this._frameLines = 0
+    this._frameVertices = 0
+    // Frame tile cache invalidates on each new frame via the
+    // currentFrameId comparison in render(); explicit null isn't
+    // strictly needed, but releasing the GC reference here lets the
+    // previous frame's tile array drop sooner if the ShowCommand
+    // list shrinks (e.g. layer toggle).
+    this._frameTileCache = null
     // Safe to destroy rings that were grown out of last frame: by now the
     // previous frame's command buffer has been submitted and its GPU-side
     // lifetime is the device's responsibility, not the buffer handle.
@@ -230,7 +316,24 @@ export class VectorTileRenderer {
     // demos. Defer to the start of the next frame: the previous frame's
     // queue.submit() has returned by now, so destroying these buffers
     // can't poison any in-flight submit.
-    if (this.gpuCache.size > MAX_GPU_TILES) this.evictGPUTiles()
+    // Trigger conservatively — gpuCache.size counts composite (key, layer)
+    // entries, but the cap evictGPUTiles enforces is on UNIQUE TILE KEYS.
+    // A sliced source can have ~4× the entries-per-tile, so we may enter
+    // evictGPUTiles below the cap; it short-circuits correctly in that case.
+    if (this._gpuCacheCount > MAX_GPU_TILES) this.evictGPUTiles()
+    // CPU-side TileCatalog eviction. Without this the dataCache grew
+    // unbounded for the lifetime of the session — VTR's gpuCache
+    // capped GPU memory but every parsed-and-decoded tile's
+    // TileData (vertex + index + line + outline + polygon-rings
+    // arrays) stayed pinned in JS heap. evictTiles protects the
+    // current frame's stableKeys + indexed ancestors (≤ maxLevel)
+    // so visible tiles + their fallback chain survive; only
+    // off-screen leaves get dropped. Same safe-window as the GPU
+    // eviction (runs after prev frame's submit), so a re-render
+    // walking the parent chain can always find a cached ancestor.
+    if (this.source && this.stableKeys.length > 0) {
+      this.source.evictTiles(new Set(this.stableKeys))
+    }
   }
 
   /** Per-frame upload budget. uploadTile() is expensive — it creates ~5–7
@@ -240,7 +343,7 @@ export class VectorTileRenderer {
    *  multi-MB writeBuffer burst. Excess uploads are deferred to next
    *  frame via `_pendingUploads`, keeping per-frame work bounded. */
   private _uploadBudget = 3
-  private _pendingUploads: { key: number; data: TileData }[] = []
+  private _pendingUploads: { key: number; data: TileData; sourceLayer: string }[] = []
 
   /** The outer render-on-demand loop calls this to know whether it still
    *  needs to tick — if tiles are queued for upload the scene hasn't
@@ -318,17 +421,20 @@ export class VectorTileRenderer {
     this.lineRenderer = lr
     // If tiles were uploaded before LineRenderer was available they have no
     // segment buffers — force re-upload so outlines/lines render on next frame.
-    if (wasNull && this.gpuCache.size > 0) {
-      for (const tile of this.gpuCache.values()) {
-        tile.vertexBuffer?.destroy()
-        tile.indexBuffer?.destroy()
-        tile.lineVertexBuffer?.destroy()
-        tile.lineIndexBuffer?.destroy()
-        tile.outlineIndexBuffer?.destroy()
-        tile.outlineSegmentBuffer?.destroy()
-        tile.lineSegmentBuffer?.destroy()
+    if (wasNull && this._gpuCacheCount > 0) {
+      for (const inner of this.gpuCache.values()) {
+        for (const tile of inner.values()) {
+          tile.vertexBuffer?.destroy()
+          tile.indexBuffer?.destroy()
+          tile.lineVertexBuffer?.destroy()
+          tile.lineIndexBuffer?.destroy()
+          tile.outlineIndexBuffer?.destroy()
+          tile.outlineSegmentBuffer?.destroy()
+          tile.lineSegmentBuffer?.destroy()
+        }
       }
       this.gpuCache.clear()
+      this._gpuCacheCount = 0
     }
   }
 
@@ -350,7 +456,7 @@ export class VectorTileRenderer {
   }
 
   getCacheSize(): number {
-    return this.gpuCache.size
+    return this._gpuCacheCount
   }
 
   /** Tear down all GPU resources owned by this renderer.
@@ -358,16 +464,19 @@ export class VectorTileRenderer {
    *  whole map is disposed. After destroy() the renderer is dead —
    *  create a new VectorTileRenderer if another upload is needed. */
   destroy(): void {
-    for (const tile of this.gpuCache.values()) {
-      tile.vertexBuffer?.destroy()
-      tile.indexBuffer?.destroy()
-      tile.lineVertexBuffer?.destroy()
-      tile.lineIndexBuffer?.destroy()
-      tile.outlineIndexBuffer?.destroy()
-      tile.outlineSegmentBuffer?.destroy()
-      tile.lineSegmentBuffer?.destroy()
+    for (const inner of this.gpuCache.values()) {
+      for (const tile of inner.values()) {
+        tile.vertexBuffer?.destroy()
+        tile.indexBuffer?.destroy()
+        tile.lineVertexBuffer?.destroy()
+        tile.lineIndexBuffer?.destroy()
+        tile.outlineIndexBuffer?.destroy()
+        tile.outlineSegmentBuffer?.destroy()
+        tile.lineSegmentBuffer?.destroy()
+      }
     }
     this.gpuCache.clear()
+    this._gpuCacheCount = 0
 
     this.featureDataBuffer?.destroy()
     this.featureDataBuffer = null
@@ -379,14 +488,27 @@ export class VectorTileRenderer {
     this.retiredUniformRings = []
   }
 
+  /** Frame-scoped accumulators (reset in beginFrame, updated in
+   *  render). renderedDraws can't be reused for `tilesVisible`
+   *  because multiple render() calls within a frame must each clear
+   *  their own dedup set (drawKey collision would mute subsequent
+   *  layers' draws of the SAME world-tile + worldOff). These
+   *  counters track the FRAME total across all layer renders. */
+  private _frameTilesVisible = 0
+  private _frameDrawCalls = 0
+  private _frameTriangles = 0
+  private _frameLines = 0
+  private _frameVertices = 0
+
   getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number; missedTiles: number } {
-    let drawCalls = 0, vertices = 0, triangles = 0, lines = 0
-    for (const [, counts] of this.renderedDraws) {
-      vertices += counts.vertexCount
-      if (counts.polyCount > 0) { drawCalls++; triangles += Math.floor(counts.polyCount / 3) }
-      if (counts.lineCount > 0) { drawCalls++; lines += Math.floor(counts.lineCount / 2) }
+    return {
+      drawCalls: this._frameDrawCalls,
+      vertices: this._frameVertices,
+      triangles: this._frameTriangles,
+      lines: this._frameLines,
+      tilesVisible: this._frameTilesVisible,
+      missedTiles: this._missedTiles,
     }
-    return { drawCalls, vertices, triangles, lines, tilesVisible: this.renderedDraws.size, missedTiles: this._missedTiles }
   }
 
   /** Build per-feature GPU storage buffer from PropertyTable */
@@ -449,19 +571,19 @@ export class VectorTileRenderer {
    *  kept for backwards call-sites; the real work happens in
    *  doUploadTile once a slot is granted. Beyond the budget the tile
    *  sits in `_pendingUploads` and picks up on subsequent frames. */
-  private uploadTile(key: number, data: TileData): void {
-    if (this.gpuCache.has(key)) return
+  private uploadTile(key: number, data: TileData, sourceLayer = ''): void {
+    if (this.getLayerCache(sourceLayer)?.has(key)) return
     if (this._uploadBudget <= 0) {
       // De-dupe: if this key is already queued, drop the duplicate —
       // the cache check above catches re-entry of a completed upload,
       // but a pending one still counts.
-      if (!this._pendingUploads.some(p => p.key === key)) {
-        this._pendingUploads.push({ key, data })
+      if (!this._pendingUploads.some(p => p.key === key && p.sourceLayer === sourceLayer)) {
+        this._pendingUploads.push({ key, data, sourceLayer })
       }
       return
     }
     this._uploadBudget--
-    this.doUploadTile(key, data)
+    this.doUploadTile(key, data, sourceLayer)
   }
 
   /** Drain as many pending uploads as fit in the remaining frame budget.
@@ -471,14 +593,15 @@ export class VectorTileRenderer {
   private drainPendingUploads(): void {
     while (this._uploadBudget > 0 && this._pendingUploads.length > 0) {
       const next = this._pendingUploads.shift()!
-      if (this.gpuCache.has(next.key)) continue
+      if (this.getLayerCache(next.sourceLayer)?.has(next.key)) continue
       this._uploadBudget--
-      this.doUploadTile(next.key, next.data)
+      this.doUploadTile(next.key, next.data, next.sourceLayer)
     }
   }
 
-  private doUploadTile(key: number, data: TileData): void {
-    if (this.gpuCache.has(key)) return // already uploaded
+  private doUploadTile(key: number, data: TileData, sourceLayer = ''): void {
+    const layerCache = this.getOrCreateLayerCache(sourceLayer)
+    if (layerCache.has(key)) return // already uploaded
 
     // Label every per-tile buffer so writeBuffer attribution in the
     // diagnostic suite can separate tile-upload churn from per-frame
@@ -590,7 +713,7 @@ export class VectorTileRenderer {
       }
     }
 
-    this.gpuCache.set(key, {
+    layerCache.set(key, {
       vertexBuffer, indexBuffer,
       indexCount: data.indices.length,
       lineVertexBuffer, lineIndexBuffer,
@@ -604,6 +727,7 @@ export class VectorTileRenderer {
       lastUsedFrame: this.frameCount,
       firstShownFrame: this.frameCount,
     })
+    this._gpuCacheCount++
   }
 
   /** Render visible tiles into a render pass */
@@ -633,6 +757,21 @@ export class VectorTileRenderer {
     const index = this.source.getIndex()
     if (!index) return
 
+    // Sliced-source slot for this layer. PMTiles emits per-MVT-layer
+    // slices keyed by layer name in the catalog; xgis layers with a
+    // `sourceLayer` filter pick the matching slice. Single-layer
+    // sources (XGVT-binary, GeoJSON-runtime) always emit '' (default).
+    const sliceLayer = show.sourceLayer ?? ''
+    // Pre-fetch this layer's gpuCache slot once. Hot-path lookups
+    // become pure numeric Map.has/get — no composite-string alloc per
+    // tile. Use getOrCreate so the reference stays valid even if this
+    // is the first frame to upload a tile for this slice layer
+    // (otherwise mid-render compileTileOnDemand → uploadTile would
+    // create a fresh inner Map and our captured `undefined` would go
+    // stale). Empty inner Maps for unused layers cost only a Map
+    // allocation, no per-tile work.
+    const layerCache = this.getOrCreateLayerCache(sliceLayer)
+
     // Variant-pipeline guard. The pipeline expects the bind group layout
     // passed in via `bindGroupLayout`. For shader variants that need the
     // feature buffer (match() / interpolate() etc.), the layout is
@@ -648,9 +787,24 @@ export class VectorTileRenderer {
     if (bindGroupLayout !== this.baseBindGroupLayout && !this.tileBgFeature) return
 
     this.frameCount++
-    this.source.resetCompileBudget()
+    // Pass the FRAME-level id (set by beginFrame from map's
+    // _frameCount, monotonic across render-loop ticks). The
+    // catalog short-circuits if the same id has already reset
+    // its budget this frame — without this, every ShowCommand
+    // sharing the source would reset the counters → each layer
+    // would get a fresh sub-tile budget → 4× more sub-tile clips
+    // per frame than intended → GPU buffer creation burst →
+    // Chrome STATUS_BREAKPOINT at over-zoom.
+    this.source.resetCompileBudget(this.currentFrameId)
     this.renderedDraws.clear()
-    this._missedTiles = 0
+    // _missedTiles is FRAME-scoped, not render-scoped — beginFrame()
+    // resets it to 0. Multiple render() calls within one frame
+    // (one per ShowCommand for sliced sources like PMTiles 4-layer)
+    // ACCUMULATE into the same counter so map.ts's
+    // hasPendingSourceWork sees the true frame total. Resetting
+    // here would have clobbered earlier layers' miss counts and
+    // falsely signaled "no work pending" when only the last
+    // layer happened to converge first.
     this.lastBindGroupLayout = bindGroupLayout
     this.ensureUniformRing()
     // Promote pending uploads first — they're strictly older than anything
@@ -669,6 +823,26 @@ export class VectorTileRenderer {
     const maxSubTileZ = 22
     const currentZ = Math.max(0, Math.min(maxSubTileZ, Math.round(camera.zoom)))
 
+    // Per-MVT-layer minzoom culling — when the source publishes
+    // metadata.vector_layers (PMTiles), each layer's `minzoom` is
+    // a HARD bound below which the archive carries no features for
+    // it (protomaps v4: roads z≥6, buildings z≥14). Skip render()
+    // entirely below that threshold: no missed-tile bookkeeping,
+    // no sub-tile gen, no fetches, no FLICKER chatter.
+    //
+    // `maxzoom` is intentionally NOT used as a cull bound — it's
+    // a SOFT bound on raw archive data, but sub-tile generation
+    // continues to upscale the maxzoom data for over-zoom views.
+    // Culling on maxzoom would freeze rendering past z=15 on
+    // protomaps v4 (every layer reports maxzoom=15), defeating the
+    // whole over-zoom pipeline.
+    if (sliceLayer) {
+      const range = this.source.getLayerZoomRange?.(sliceLayer)
+      if (range && currentZ < range.minzoom) {
+        return
+      }
+    }
+
     if (currentZ !== this.lastZoom) this.lastZoom = currentZ
 
     // Quadtree-based frustum selection works at every pitch, including 0.
@@ -683,7 +857,13 @@ export class VectorTileRenderer {
     const strokeWidthPx = show.strokeWidth ?? 1
     const alignDeltaPx = show.strokeAlign === 'inset' || show.strokeAlign === 'outset'
       ? strokeWidthPx / 2 : 0
-    const offsetMarginPx = strokeOffsetPx + alignDeltaPx + strokeWidthPx / 2 + 2
+    // Round to int so the per-layer margin variance (water 2.25,
+    // roads 2.5 in pmtiles_layered) doesn't poison the frame-tile
+    // cache key. ceil because we'd rather over-cull than miss tiles
+    // whose stroke clips into the viewport. For 4 layers all with
+    // small strokes this collapses to one shared cache hit instead
+    // of 2 misses + 2 hits.
+    const offsetMarginPx = Math.ceil(strokeOffsetPx + alignDeltaPx + strokeWidthPx / 2 + 2)
     // Projection-aware world-copy gate. `this.currentProjection` is
     // declared but never assigned (legacy field — no caller wires it),
     // so the previous `?? mercatorProj` always picked Mercator and
@@ -695,19 +875,101 @@ export class VectorTileRenderer {
     const selectorProj = projType === 0
       ? mercatorProj
       : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
-    const tiles = visibleTilesFrustum(
-      camera,
-      selectorProj,
-      currentZ,
-      canvasWidth,
-      canvasHeight,
-      offsetMarginPx,
-    )
-
-    const n = Math.pow(2, currentZ)
-    const ctX = Math.floor((centerLon + 180) / 360 * n)
-    const ctY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
-    sortByPriority(tiles, ctX, ctY)
+    // Frame-scoped cache: every layer render in the same frame
+    // produces the same visible-tile set unless the culling margin
+    // differs (per-layer stroke width). marginPx is part of the cache
+    // key — typical demos have the same margin across layers (small
+    // strokes) so all renders past the first hit. profiled: pmtiles_
+    // layered (4 layers) used to spend ~30 ms / frame redundantly
+    // walking visibleTilesFrustum + sortByPriority + tileKey loop.
+    let tiles: ReturnType<typeof visibleTilesFrustum>
+    let neededKeys: number[]
+    let worldOffDeg: number[]
+    let parentAtMaxLevel: number[]
+    let archiveAncestor: number[]
+    const cache = this._frameTileCache
+    if (cache && cache.frameId === this.currentFrameId
+        && cache.marginPx === offsetMarginPx
+        && cache.currentZ === currentZ
+        && cache.maxLevel === maxLevel) {
+      tiles = cache.tiles
+      neededKeys = cache.neededKeys
+      worldOffDeg = cache.worldOffDeg
+      parentAtMaxLevel = cache.parentAtMaxLevel
+      archiveAncestor = cache.archiveAncestor
+    } else {
+      tiles = visibleTilesFrustum(
+        camera,
+        selectorProj,
+        currentZ,
+        canvasWidth,
+        canvasHeight,
+        offsetMarginPx,
+      )
+      const n = Math.pow(2, currentZ)
+      const ctX = Math.floor((centerLon + 180) / 360 * n)
+      const ctY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
+      sortByPriority(tiles, ctX, ctY)
+      // Build neededKeys + worldOffsets + sliceLayer-INDEPENDENT
+      // ancestor lookups in one pass so the entire derived set
+      // caches together. parentAtMaxLevel + archiveAncestor depend
+      // only on (tile coord, source maxLevel, source index) — none
+      // of which vary across same-frame ShowCommand renders, so all
+      // 4 layers reuse the precomputed arrays. This is the
+      // sliceLayer-independent half of the per-tile parent walk
+      // hoisted out of the hot path.
+      neededKeys = []
+      worldOffDeg = []
+      parentAtMaxLevel = new Array(tiles.length)
+      archiveAncestor = new Array(tiles.length)
+      // Per-frame-populate hasEntry memo. Adjacent tiles share
+      // ancestors so memoization keeps the index lookup count
+      // sub-linear in tiles.length.
+      const ancestorMemo = new Map<number, boolean>()
+      const ancestorHasEntry = (k: number): boolean => {
+        let v = ancestorMemo.get(k)
+        if (v === undefined) {
+          v = this.source!.hasEntryInIndex(k)
+          ancestorMemo.set(k, v)
+        }
+        return v
+      }
+      for (let i = 0; i < tiles.length; i++) {
+        const tz = tiles[i].z
+        const k = tileKey(tz, tiles[i].x, tiles[i].y)
+        neededKeys.push(k)
+        const ox = tiles[i].ox ?? tiles[i].x
+        const tileN = Math.pow(2, tz)
+        worldOffDeg.push((ox - tiles[i].x) * (360 / tileN))
+        if (tz > maxLevel) {
+          // Over-zoom: walk to maxLevel ancestor. Coordinate-only;
+          // archive existence is checked per-layer via sliceCached.
+          let pk = k
+          for (let pz = tz; pz > maxLevel; pz--) pk = tileKeyParent(pk)
+          parentAtMaxLevel[i] = pk
+          archiveAncestor[i] = -1
+        } else {
+          parentAtMaxLevel[i] = -1
+          // In-archive: walk parents until first hasEntry hit.
+          // First hit is highest indexed ancestor (closestExisting).
+          let pk = k
+          let found = -1
+          for (let pz = tz - 1; pz >= 0; pz--) {
+            pk = tileKeyParent(pk)
+            if (ancestorHasEntry(pk)) { found = pk; break }
+          }
+          archiveAncestor[i] = found
+        }
+      }
+      this._frameTileCache = {
+        frameId: this.currentFrameId,
+        marginPx: offsetMarginPx,
+        currentZ,
+        tiles, neededKeys, worldOffDeg,
+        maxLevel,
+        parentAtMaxLevel, archiveAncestor,
+      }
+    }
 
     const frame = camera.getFrameView(canvasWidth, canvasHeight)
     const mvp = frame.matrix
@@ -858,70 +1120,141 @@ export class VectorTileRenderer {
       )
     }
 
-    // Compute tile keys — use wrapped x for data lookup
-    const neededKeys: number[] = []
-    const worldOffDeg: number[] = [] // per-tile world offset in degrees
-    for (let i = 0; i < tiles.length; i++) {
-      neededKeys.push(tileKey(tiles[i].z, tiles[i].x, tiles[i].y))
-      const ox = tiles[i].ox ?? tiles[i].x
-      const tileN = Math.pow(2, tiles[i].z)
-      worldOffDeg.push((ox - tiles[i].x) * (360 / tileN))
-    }
+    // neededKeys + worldOffDeg + parentAtMaxLevel + archiveAncestor
+    // already computed (and cached frame-wide) above. Per-tile loop
+    // and prefetch loop both read those arrays directly — no need
+    // for a per-render `closestExistingByI` mirror, since the
+    // sliceLayer-independent ancestor result is identical across
+    // every same-frame ShowCommand render.
     const fallbackKeys: number[] = []
     const fallbackOffsets: number[] = []
     const toLoad: number[] = []
+    // Memoize hasEntryInIndex / hasTileData / gpuCache.has across the
+    // parent walks within this render. Adjacent visible tiles share
+    // ancestors (every 4 z=22 children share a z=21 parent, and so
+    // on) so without memo the same key gets queried 4-100× per
+    // render at over-zoom. Per-render scope so the memo never goes
+    // stale (catalog state can mutate between renders within a
+    // frame, e.g. uploadTile populates gpuCache).
+    const hasEntryMemo = new Map<number, boolean>()
+    const sliceCachedMemo = new Map<number, boolean>()  // gpuCache or hasTileData hit for sliceLayer
+    const hasEntry = (k: number): boolean => {
+      let v = hasEntryMemo.get(k)
+      if (v === undefined) {
+        v = this.source!.hasEntryInIndex(k)
+        hasEntryMemo.set(k, v)
+      }
+      return v
+    }
+    const sliceCached = (k: number): boolean => {
+      let v = sliceCachedMemo.get(k)
+      if (v === undefined) {
+        v = layerCache.has(k)
+            || this.source!.hasTileData(k, sliceLayer)
+        sliceCachedMemo.set(k, v)
+      }
+      return v
+    }
+
+    // parentKeysSet is the prefetch queue. Hoisted ahead of the
+    // main per-tile loop so the over-zoom fast path can populate it
+    // for parents that need fetching, instead of duplicating the
+    // queue logic.
+    const parentKeysSet = new Set<number>()
+    // Tracks whether ANY visible tile went through the in-archive
+    // (normal) path. When false, the prefetch loop + primary
+    // renderTileKeys are pure no-ops (every neededKey is over-zoom
+    // so gpuCache.get returns null for all of them) and we can
+    // skip them entirely.
+    let anyInArchive = false
 
     for (let i = 0; i < tiles.length; i++) {
       const key = neededKeys[i]
-      if (this.gpuCache.has(key)) continue
+      const tileZi = tiles[i].z
 
-      if (this.source.hasTileData(key)) {
-        this.uploadTile(key, this.source.getTileData(key)!)
+      // ── OVER-ZOOM FAST PATH ──
+      // For tiles past archive maxLevel, every layer renders the
+      // parent at maxLevel as camera-magnified fallback (no sub-tile
+      // gen — Mapbox-style). Skip the entire per-tile body: no
+      // gpuCache.has chain, no hasTileData chain, no parent-walk
+      // (we know the destination is exactly maxLevel ancestor), no
+      // compileTileOnDemand call. Just walk up by tileKeyParent and
+      // push the fallback. Profiled: dropped per-tile loop time on
+      // pmtiles_layered z=22 from 6.4 ms → ~1 ms per render.
+      if (tileZi > maxLevel) {
+        // parentKey precomputed at frame-cache populate time, shared
+        // across all 4 ShowCommands feeding this VTR. Replaces the
+        // per-render `tileKeyParent` walk that dominated tile-loop
+        // CPU time.
+        const parentKey = parentAtMaxLevel[i]
+        fallbackKeys.push(parentKey)
+        fallbackOffsets.push(worldOffDeg[i])
+        // Ensure parent reaches gpuCache so renderTileKeys finds it.
+        // sliceCached(parentKey) covers gpuCache OR dataCache; the
+        // explicit gpuCache.has below distinguishes "needs upload
+        // from dataCache" vs "already on GPU".
+        if (!sliceCached(parentKey)) {
+          parentKeysSet.add(parentKey)
+        } else if (!layerCache.has(parentKey)) {
+          const data = this.source.getTileData(parentKey, sliceLayer)
+          if (data) this.doUploadTile(parentKey, data, sliceLayer)
+        }
+        continue
+      }
+      // ── END FAST PATH ──
+
+      anyInArchive = true
+      if (layerCache.has(key)) continue
+
+      if (this.source.hasTileData(key, sliceLayer)) {
+        this.uploadTile(key, this.source.getTileData(key, sliceLayer)!, sliceLayer)
         continue
       }
 
-      let foundCached = false
-      let closestExisting = -1
-      let hasAnyAncestor = false
-      // The nearest parent that is already cached/loaded. Used for fallback
-      // draw and sub-tile generation. `-1` if none found.
-      let cachedAncestorKey = -1
+      // Sliced source: tile WAS loaded (some slice cached) but this
+      // layer's MVT source-layer has no features here. Common case at
+      // low zoom — `roads`/`buildings` typically only exist at z>=8/14
+      // in protomaps v4. Skip silently; no fallback walk, no miss
+      // count, no FLICKER warning. The layer simply has nothing to
+      // draw on this tile.
+      //
+      // BUT only when we're INSIDE the archive's zoom range
+      // (tileZ ≤ maxLevel). At over-zoom, sub-tile generation is
+      // PER-LAYER — each layer must clip its own slice from the
+      // parent independently. Without the `tileZ <= maxLevel`
+      // gate, the FIRST layer to generate a sub-tile populates
+      // hasTileData(key)=true → subsequent layers see "loaded"
+      // and skip their sub-tile gen → only one layer renders at
+      // over-zoom (user-reported "tiles disappear at z=15.5+
+      // — only water visible").
+      if (sliceLayer && tiles[i].z <= maxLevel && this.source.hasTileData(key)) continue
 
-      // Parent-search must walk from THIS tile's zoom, not currentZ.
-      // visibleTilesFrustum returns tiles at multiple levels (LOD for pitched
-      // views), so currentZ is wrong as a starting bound.
-      //
-      // We do a SINGLE full walk (no early break) that collects all three
-      // needed facts:
-      //   1. hasAnyAncestor — does any ancestor exist in the precomputed index
-      //   2. closestExisting — the highest (closest to tile) indexed ancestor
-      //   3. cachedAncestorKey — the highest ancestor already cached/loaded
-      //
-      // Previously the walk broke early on the first cached/loaded ancestor,
-      // which meant hasAnyAncestor could stay false if the cached ancestor
-      // happened to NOT be in the precomputed index (e.g. a sub-tile that
-      // was generated from an even-higher parent in an earlier frame).
+      let foundCached = false
+      // closestExisting + hasAnyAncestor come from the frame cache —
+      // both are sliceLayer-independent (they only depend on source
+      // index topology, not any layer's GPU/data cache state). Per-
+      // layer, only `cachedAncestorKey` (the highest ancestor whose
+      // SLICE is loaded) still requires a walk.
+      const closestExisting = archiveAncestor[i]
+      const hasAnyAncestor = closestExisting >= 0
+      let cachedAncestorKey = -1
       const tileZ = tiles[i].z
       {
-        // DSFUN lifts camera zoom to 22, so the walk can start at z>15
-        // where `>>> 2` would overflow JS bit-shift semantics. Use the
-        // arithmetic parent helper instead.
+        // Per-layer walk: find the highest ancestor cached for this
+        // sliceLayer. First sliceCached hit is the highest (walk
+        // climbs from tile parent upward); break immediately. The
+        // hasEntry side of the walk is gone — already in the frame
+        // cache as `archiveAncestor[i]`.
         let walkKey = key
         for (let pz = tileZ - 1; pz >= 0; pz--) {
           walkKey = tileKeyParent(walkKey)
-          if (this.source.hasEntryInIndex(walkKey)) {
-            hasAnyAncestor = true
-            if (closestExisting < 0) closestExisting = walkKey
-          }
-          if (cachedAncestorKey < 0 && (this.gpuCache.has(walkKey) || this.source.hasTileData(walkKey))) {
-            cachedAncestorKey = walkKey
-          }
+          if (sliceCached(walkKey)) { cachedAncestorKey = walkKey; break }
         }
       }
 
       if (cachedAncestorKey >= 0) {
         const parentKey = cachedAncestorKey
-        if (!this.gpuCache.has(parentKey)) {
+        if (!layerCache.has(parentKey)) {
           // Ancestor uploads BYPASS the per-frame budget. Rationale:
           // fallback parents are the visual safety net for every over-
           // zoom child currently needing render. There are at most
@@ -934,22 +1267,29 @@ export class VectorTileRenderer {
           // black hole. Caught by _high-pitch-flicker.spec.ts's
           // "below-horizon renders SOME geometry" assertion (0/18576
           // non-black pixels in the ground-sample region pre-fix).
-          this.doUploadTile(parentKey, this.source.getTileData(parentKey)!)
+          this.doUploadTile(parentKey, this.source.getTileData(parentKey, sliceLayer)!, sliceLayer)
         }
 
         if (tileZ > maxLevel) {
-          // 1. Try compileSingleTile (fast, grid-indexed)
-          if (!this.source.compileTileOnDemand(key)) {
-            // 2. Budget exceeded — generate sub-tile from closest ancestor.
-            this.source.generateSubTile(key, parentKey)
-          }
-          const cachedSub = this.gpuCache.get(key)
+          // Over-zoom: Mapbox/MapLibre semantic — archive data is
+          // capped at maxLevel, so the camera-magnified parent IS
+          // the visual representation. Sub-tile clipping only
+          // re-clips the same data into smaller tile bounds (no
+          // detail gain), introducing per-tile GPU buffer creates,
+          // upload-queue churn, and visible "fill in" flicker
+          // during pan. We just push the parent as fallback and
+          // let the projection scale it up.
+          //
+          // compileTileOnDemand still runs because backends WITH
+          // compileSync (GeoJSON-runtime) genuinely produce finer
+          // tiles at higher z by re-tessellating raw geometry
+          // — for them, sub-tile is a real refinement. PMTiles +
+          // similar archive backends without compileSync return
+          // false here, naturally falling through to fallback.
+          this.source.compileTileOnDemand(key)
+          const cachedSub = layerCache.get(key)
           if (cachedSub) {
             foundCached = true
-            // Empty sub-tile (clip produced nothing) still gets cached to
-            // prevent re-generation, but it writes no stencil and covers
-            // no area. Push the parent as a fallback so the region is
-            // painted by coarser geometry instead of leaving a hole.
             const hasGeom =
               cachedSub.indexCount > 0 ||
               cachedSub.lineSegmentCount > 0 ||
@@ -959,14 +1299,15 @@ export class VectorTileRenderer {
               fallbackOffsets.push(worldOffDeg[i])
             }
           } else {
-            // 3. Still no tile — parent fallback (guaranteed visual continuity).
-            //    Budget on the compile / sub-tile paths likely deferred this
-            //    tile, so mark it missed so the outer render-on-demand loop
-            //    keeps ticking and the next frame reclaims the budget.
+            // Parent magnification path. NOT counted as "missed" —
+            // the parent IS the rendering at over-zoom and nothing
+            // is pending. hasPendingUploads() still triggers a
+            // re-render for compile-on-demand backends (GeoJSON)
+            // when their uploadTile queue is non-empty, so
+            // convergence still works without the missedTiles bump.
             fallbackKeys.push(parentKey)
             fallbackOffsets.push(worldOffDeg[i])
             foundCached = true
-            this._missedTiles++
           }
         } else {
           fallbackKeys.push(parentKey)
@@ -1007,15 +1348,29 @@ export class VectorTileRenderer {
     //
     // Set-based dedup: hundreds of z=20 tiles share a single z=5
     // ancestor, so we request it once per frame.
-    const parentKeysSet = new Set<number>()
-    for (let i = 0; i < neededKeys.length; i++) {
-      const k = neededKeys[i]
-      if (!this.gpuCache.has(k) && !this.source!.isLoading(k) && this.source!.hasEntryInIndex(k)) {
-        toLoad.push(k)
-      }
-      const pk = firstIndexedAncestor(k, (anc) => this.source!.hasEntryInIndex(anc))
-      if (pk >= 0 && !this.gpuCache.has(pk) && !this.source!.isLoading(pk) && !this.source!.hasTileData(pk)) {
-        parentKeysSet.add(pk)
+    // parentKeysSet declared above (hoisted for over-zoom fast path).
+    // Skip the prefetch loop entirely when EVERY tile was handled by
+    // the over-zoom fast path — fast path already populated
+    // parentKeysSet for any parents needing fetch, and the per-tile
+    // hasEntry/sliceCached calls in this loop would all be redundant
+    // (all currentZ keys are out-of-archive, all parents already
+    // checked above). Same idea as the primary-renderTileKeys skip
+    // below.
+    if (anyInArchive) {
+      for (let i = 0; i < neededKeys.length; i++) {
+        const k = neededKeys[i]
+        const cached = sliceCached(k)
+        if (!cached && !this.source!.isLoading(k) && hasEntry(k)) {
+          toLoad.push(k)
+        }
+        // Frame-cached ancestor: parentAtMaxLevel for over-zoom
+        // tiles, archiveAncestor for in-archive. One of the two is
+        // -1, never both; so `Math.max` picks the populated value
+        // with no extra branch.
+        const pk = parentAtMaxLevel[i] >= 0 ? parentAtMaxLevel[i] : archiveAncestor[i]
+        if (pk >= 0 && !sliceCached(pk) && !this.source!.isLoading(pk)) {
+          parentKeysSet.add(pk)
+        }
       }
     }
     // Load parents first, then current zoom tiles
@@ -1025,8 +1380,8 @@ export class VectorTileRenderer {
 
     // After on-demand compile, newly available tiles may need upload
     for (const key of toLoad) {
-      if (!this.gpuCache.has(key) && this.source!.hasTileData(key)) {
-        this.uploadTile(key, this.source!.getTileData(key)!)
+      if (!layerCache.has(key) && this.source!.hasTileData(key, sliceLayer)) {
+        this.uploadTile(key, this.source!.getTileData(key, sliceLayer)!, sliceLayer)
       }
     }
 
@@ -1035,13 +1390,23 @@ export class VectorTileRenderer {
     // Render current zoom tiles (stencil write) — with world copy offsets.
     // Translucent line passes have NO depth/stencil attachment, so skip the
     // stencil reference call there.
-    if (phase !== 'strokes') pass.setStencilReference(1)
-    this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, phase)
+    //
+    // Skip primary renderTileKeys when no tile went through the in-
+    // archive path: every neededKey is over-zoom so its gpuCache.get
+    // returns null inside renderTileKeys (none of them are populated;
+    // fast path uploads only PARENTS, never the over-zoom keys
+    // themselves). The function's loop would iterate every key just
+    // to `continue`, burning N method calls + N drawKey computations
+    // per layer for zero output.
+    if (anyInArchive) {
+      if (phase !== 'strokes') pass.setStencilReference(1)
+      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, phase, layerCache)
+    }
 
     // Render fallback ancestors (stencil test) — with world offsets for wrapping
     if (fillPipelineFallback && fallbackKeys.length > 0) {
       if (phase !== 'strokes') pass.setStencilReference(0)
-      this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase)
+      this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache)
     }
 
     // Prefetch adjacent + next zoom (every 10th frame)
@@ -1073,7 +1438,17 @@ export class VectorTileRenderer {
     // in tile-local Mercator meters. We reconstruct f64-equivalent tile-local
     // meters via (h + l) on the TS side and subtract the camera's tile-local
     // position to get a small, f32-safe camera-relative offset.
-    if (pointRenderer && typeof pointRenderer.addTilePoint === 'function') {
+    //
+    // Skip when the layer hasn't opted into point rendering (no size,
+    // no shape, no size expression). PMTiles MVT layers like
+    // 'buildings' carry centroid Point features alongside polygons —
+    // without this guard, a polygon-only layer like
+    // `layer buildings { | fill-stone-700 stroke-stone-500 stroke-0.5 }`
+    // would draw circle dots over every building centroid using
+    // PointRenderer's default style (the user reported these as
+    // "POI points appearing without being declared").
+    const hasPointStyle = show.size !== null || show.shape !== null || show.sizeExpr !== null
+    if (hasPointStyle && pointRenderer && typeof pointRenderer.addTilePoint === 'function') {
       const DEG2RAD = Math.PI / 180
       const R = 6378137
       const LAT_LIMIT = 85.051129
@@ -1082,7 +1457,7 @@ export class VectorTileRenderer {
       const camMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(projCenterLat) * DEG2RAD / 2)) * R
 
       for (const key of this.stableKeys) {
-        const tileData = this.source!.getTileData(key)
+        const tileData = this.source!.getTileData(key, sliceLayer)
         if (!tileData?.pointVertices || tileData.pointVertices.length < 5) continue
         const ptv = tileData.pointVertices
         const tileMercX = tileData.tileWest * DEG2RAD * R
@@ -1110,6 +1485,7 @@ export class VectorTileRenderer {
     worldOffsets: number[] | undefined,
     lineLayerOffset: number,
     phase: LayerDrawPhase,
+    layerCache: Map<number, GPUTile>,
   ): void {
     const drawFills = phase !== 'strokes'
     const drawStrokes = phase !== 'fills'
@@ -1122,7 +1498,7 @@ export class VectorTileRenderer {
       const worldOff = worldOffsets?.[ki] ?? 0
       const drawKey = worldOff === 0 ? key : key + worldOff * 1000000 // unique draw key per copy
       if (this.renderedDraws.has(drawKey)) continue
-      const cached = this.gpuCache.get(key)
+      const cached = layerCache.get(key)
       if (!cached) continue
 
       cached.lastUsedFrame = this.frameCount
@@ -1231,6 +1607,13 @@ export class VectorTileRenderer {
 
       const vc = cached.indexCount + cached.lineIndexCount
       this.renderedDraws.set(drawKey, { polyCount: cached.indexCount, lineCount: cached.lineIndexCount, vertexCount: vc })
+      // Frame-scoped accumulators (sum across all render() calls
+      // within one frame so getDrawStats() reflects the FRAME total
+      // for sliced sources rather than the last layer's stats).
+      this._frameTilesVisible++
+      this._frameVertices += vc
+      if (cached.indexCount > 0) { this._frameDrawCalls++; this._frameTriangles += Math.floor(cached.indexCount / 3) }
+      if (cached.lineIndexCount > 0) { this._frameDrawCalls++; this._frameLines += Math.floor(cached.lineIndexCount / 2) }
     }
     // Emit accumulated per-tile uniforms as one writeBuffer. Still
     // before queue.submit() — the encoded draws read the fresh ring
@@ -1246,39 +1629,66 @@ export class VectorTileRenderer {
    *  multi-render-per-frame pattern; see beginFrame() for the full
    *  story. */
   private evictGPUTiles(): void {
-    if (this.gpuCache.size <= MAX_GPU_TILES) return
+    // Cap is on UNIQUE TILE KEYS, not composite (key, layer) entries —
+    // a sliced source (PMTiles water/roads/buildings/...) generates
+    // ~4 entries per tile, so a per-entry cap would let 100 visible
+    // tiles × 4 layers = 400 entries blow MAX_GPU_TILES = 512 with
+    // only 128 unique tiles. That under-counts what's actually visible
+    // and triggers thrash. Counting unique keys keeps "tiles in flight"
+    // bounded by tile geometry, not layer count. Slices share lifetime
+    // — once a tile leaves the viewport every layer's slice is
+    // irrelevant, so they evict together.
+    // Aggregate per-tile-key entries across all layer slots. Each
+    // bucket records the slot names (so we can drop the per-slot
+    // entries together) and the latest lastUsedFrame across slots.
+    const byTileKey = new Map<number, { lastUsed: number; tileZoom: number; slots: string[] }>()
+    for (const [slot, inner] of this.gpuCache) {
+      for (const [tk, tile] of inner) {
+        let bucket = byTileKey.get(tk)
+        if (!bucket) {
+          bucket = { lastUsed: tile.lastUsedFrame, tileZoom: tile.tileZoom, slots: [] }
+          byTileKey.set(tk, bucket)
+        }
+        bucket.slots.push(slot)
+        if (tile.lastUsedFrame > bucket.lastUsed) bucket.lastUsed = tile.lastUsedFrame
+      }
+    }
+    if (byTileKey.size <= MAX_GPU_TILES) return
 
     // Protect indexed ancestors (tileZoom ≤ sourceMaxLevel) plus
     // the current frame's stableKeys. Indexed ancestors are the
     // fallback backbone — every over-zoom sub-tile relies on its
-    // nearest indexed ancestor staying in gpuCache. Evicting one
-    // under LRU pressure breaks every z=N descendant at once, which
-    // manifested as the "ocean: 164 tiles without fallback" regression
-    // caught by _high-pitch-flicker.spec.ts.
-    //
-    // Historical cap was `tileZoom > 4` — fine when every source
-    // maxed out around z=4, but physical_map_50m sources go up to
-    // z=5 (110m) and z=7 (50m). Hard-coded 4 left z=5/6/7 ancestors
-    // evictable while they were serving as the ONLY fallback for
-    // hundreds of z=10 descendants.
+    // nearest indexed ancestor staying in gpuCache.
     const sourceMaxLevel = this.source?.maxLevel ?? 4
     const safeBelow = Math.max(4, sourceMaxLevel)
     const protectedKeys = new Set(this.stableKeys)
-    const entries = [...this.gpuCache.entries()]
-      .filter(([key, tile]) => !protectedKeys.has(key) && tile.tileZoom > safeBelow)
-      .sort((a, b) => a[1].lastUsedFrame - b[1].lastUsedFrame)
 
-    const toEvict = this.gpuCache.size - MAX_GPU_TILES
-    for (let i = 0; i < toEvict && i < entries.length; i++) {
-      const [key, tile] = entries[i]
-      tile.vertexBuffer.destroy()
-      tile.indexBuffer.destroy()
-      tile.lineVertexBuffer?.destroy()
-      tile.lineIndexBuffer?.destroy()
-      tile.outlineIndexBuffer?.destroy()
-      tile.outlineSegmentBuffer?.destroy()
-      tile.lineSegmentBuffer?.destroy()
-      this.gpuCache.delete(key)
+    const evictable: { tk: number; lastUsed: number; slots: string[] }[] = []
+    for (const [tk, bucket] of byTileKey) {
+      if (protectedKeys.has(tk)) continue
+      if (bucket.tileZoom <= safeBelow) continue
+      evictable.push({ tk, lastUsed: bucket.lastUsed, slots: bucket.slots })
+    }
+    evictable.sort((a, b) => a.lastUsed - b.lastUsed)
+
+    const toEvict = byTileKey.size - MAX_GPU_TILES
+    for (let i = 0; i < toEvict && i < evictable.length; i++) {
+      const ev = evictable[i]
+      for (const slot of ev.slots) {
+        const inner = this.gpuCache.get(slot)
+        if (!inner) continue
+        const tile = inner.get(ev.tk)
+        if (!tile) continue
+        tile.vertexBuffer.destroy()
+        tile.indexBuffer.destroy()
+        tile.lineVertexBuffer?.destroy()
+        tile.lineIndexBuffer?.destroy()
+        tile.outlineIndexBuffer?.destroy()
+        tile.outlineSegmentBuffer?.destroy()
+        tile.lineSegmentBuffer?.destroy()
+        inner.delete(ev.tk)
+        this._gpuCacheCount--
+      }
     }
   }
 }
