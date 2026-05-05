@@ -38,17 +38,33 @@ export async function attachPMTilesSource(
       `[pmtiles-source] tileType ${header.tileType} not supported — only MVT (1)`,
     )
   }
+  console.log(
+    `[X-GIS] PMTiles attached: z=${header.minZoom}..${header.maxZoom}, ` +
+    `bounds=[${header.minLon.toFixed(4)}, ${header.minLat.toFixed(4)}, ` +
+    `${header.maxLon.toFixed(4)}, ${header.maxLat.toFixed(4)}], ` +
+    `${header.numTileEntries} tile entries`,
+  )
   source.setVirtualCatalog({
     minZoom: header.minZoom,
     maxZoom: header.maxZoom,
     bounds: [header.minLon, header.minLat, header.maxLon, header.maxLat],
     fetcher: async (z, x, y) => {
       const resp = await archive.getZxy(z, x, y)
-      if (!resp) return null
+      if (!resp) {
+        console.debug(`[pmtiles] miss z=${z}/${x}/${y}`)
+        return null
+      }
       const features = decodeMvtTile(resp.data, z, x, y, { layers: opts.layers })
-      if (features.length === 0) return null
+      if (features.length === 0) {
+        console.debug(`[pmtiles] empty z=${z}/${x}/${y}`)
+        return null
+      }
       const parts = decomposeFeatures(features)
-      return compileSingleTile(parts, z, x, y, header.maxZoom)
+      const tile = compileSingleTile(parts, z, x, y, header.maxZoom)
+      if (!tile) {
+        console.debug(`[pmtiles] compile-null z=${z}/${x}/${y}`)
+      }
+      return tile
     },
   })
 }
