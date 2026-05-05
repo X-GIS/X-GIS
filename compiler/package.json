@@ -4,9 +4,20 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
-  "exports": { ".": "./src/index.ts", "./tiler/geodesic": "./src/tiler/geodesic.ts" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./tiler/geodesic": "./src/tiler/geodesic.ts"
+  },
   "scripts": {
     "build": "tsc --build",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@mapbox/vector-tile": "^2.0.4",
+    "pbf": "^4.0.1"
+  },
+  "devDependencies": {
+    "geojson-vt": "^4.0.2",
+    "vt-pbf": "^3.1.3"
   }
 }

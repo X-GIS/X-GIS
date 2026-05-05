@@ -1,0 +1,28 @@
+/* PMTiles source — MVT-inside-PMTiles archive served via HTTP range
+ * requests. The runtime detects the .pmtiles extension and routes
+ * through `populatePMTilesSource` (Phase 2 MVP, pre-fetches all
+ * tiles in the archive's bounds + zoom range, decodes each MVT
+ * via @mapbox/vector-tile, runs them through compileSingleTile,
+ * and stuffs the results into an XGVTSource — same downstream
+ * path as a native .xgvt file).
+ *
+ * To run: drop a small .pmtiles file at
+ *   playground/public/sample.pmtiles
+ * Tippecanoe one-liner from a GeoJSON:
+ *   tippecanoe -o sample.pmtiles -z 6 -Z 0 input.geojson
+ *
+ * Limitations of the MVP (deliberate):
+ *   • Pre-fetches the entire archive on load — fine for small
+ *     datasets, replace with on-demand source for large archives.
+ *   • Empty PropertyTable — feature properties are not yet
+ *     surfaced to the styling layer (constant colors only).
+ */
+source pm {
+  type: pmtiles
+  url: "https://pmtiles.io/protomaps(vector)ODbL_firenze.pmtiles"
+}
+
+layer pm_fill {
+  source: pm
+  | fill-stone-200 stroke-stone-500 stroke-1
+}

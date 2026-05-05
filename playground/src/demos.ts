@@ -88,6 +88,13 @@ export const DEMOS: Record<string, Demo> = {
     source: load('vector-categorical.xgis'),
   },
 
+  pmtiles_source: {
+    name: 'PMTiles (MVT)',
+    tag: 'xgvt',
+    description: 'MVT-in-PMTiles archive — drop sample.pmtiles into playground/public to render',
+    source: load('pmtiles-source.xgis'),
+  },
+
   // ── CSS-like style + filter ──
 
   styled_world: {
@@ -336,7 +343,7 @@ export const DEMOS: Record<string, Demo> = {
   continent_outlines: {
     name: 'Continent Outlines',
     tag: 'thematic',
-    description: 'Each continent colored by match(CONTINENT) with heavy matching outlines — distinct hue per landmass with a darker halo stroke.',
+    description: 'Each continent colored by match(.CONTINENT) with heavy matching outlines — distinct hue per landmass with a darker halo stroke.',
     source: load('continent-outlines.xgis'),
   },
 

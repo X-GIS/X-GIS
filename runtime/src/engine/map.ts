@@ -30,6 +30,7 @@ import {
 } from './layer'
 import { EventDispatcher } from './event-dispatcher'
 import { XGVTSource } from '../data/xgvt-source'
+import { attachPMTilesSource } from '../loader/pmtiles-source'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
@@ -775,20 +776,33 @@ export class XGISMap {
         // Store the URL — actual raster rendering is activated only when a
         // layer references this source (in rebuildLayers)
         this.rawDatasets.set(load.name, { _tileUrl: url } as unknown as GeoJSONFeatureCollection)
-      } else if (url.endsWith('.xgvt') && !this.useCanvas2D) {
-        // Vector tile file — create per-source XGVTSource + VectorTileRenderer
+      } else if ((url.endsWith('.xgvt') || url.endsWith('.pmtiles')) && !this.useCanvas2D) {
+        // Vector tile file — create per-source XGVTSource + VectorTileRenderer.
+        // Two archive formats are recognised by extension:
+        //   .xgvt    native binary, range-request streamed (existing path)
+        //   .pmtiles MVT inside a PMTiles archive — pre-fetched + compiled
+        //            via populatePMTilesSource (Phase 2 MVP).
         const source = new XGVTSource()
         const vtRenderer = new VectorTileRenderer(this.ctx)
         vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout) // must be set before any tile uploads
         if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
         vtRenderer.setSource(source) // connect before load so preloaded tiles auto-upload
         const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
-        try {
-          await source.loadFromURL(fullUrl)
-        } catch {
-          const vtResponse = await fetch(url)
-          const vtBuf = await vtResponse.arrayBuffer()
-          await source.loadFromBuffer(vtBuf)
+        if (url.endsWith('.pmtiles')) {
+          // Lazy attachment — only the header is fetched here; tiles
+          // are pulled on-demand when the renderer's visible-tile
+          // selection requests them. No zoom-range cap; the full
+          // archive's z range is available, including overzoom past
+          // the archive maxZoom (handled by sub-tile generation).
+          await attachPMTilesSource(source, { url: fullUrl })
+        } else {
+          try {
+            await source.loadFromURL(fullUrl)
+          } catch {
+            const vtResponse = await fetch(url)
+            const vtBuf = await vtResponse.arrayBuffer()
+            await source.loadFromBuffer(vtBuf)
+          }
         }
         this.vtSources.set(load.name, { source, renderer: vtRenderer })
         this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)

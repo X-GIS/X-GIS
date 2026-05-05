@@ -12,53 +12,27 @@ import {
   augmentRingWithArc, tessellateLineToArrays, packDSFUNLineVertices,
   type XGVTIndex, type TileIndexEntry,
   type PropertyTable, type RingPolygon,
-  type CompiledTileSet, type TileLevel,
+  type CompiledTileSet, type TileLevel, type CompiledTile,
   type GeometryPart,
 } from '@xgis/compiler'
 import { visibleTiles } from '../loader/tiles'
 import { getSharedPool, type XGVTWorkerPool } from './xgvt-worker-pool'
+// Step 0 of the layer-type refactor: shared types live in tile-types.ts so
+// per-format backend modules can import them without pulling in catalog
+// runtime state. Re-exported below for back-compat with external callers
+// (loadPMTilesSource etc. import these from xgvt-source.ts today).
+import {
+  type TileData,
+  DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE,
+  MAX_CACHED_TILES, MAX_CONCURRENT_LOADS,
+  type VirtualCatalog, type VirtualTileFetcher,
+} from './tile-types'
 
-// ═══ Types ═══
-
-/** CPU-only tile data (no GPU dependency)
- *
- * DSFUN vertex format (see docs/dsfun-refactor-plan.md):
- * - Polygon/point: [mx_h, my_h, mx_l, my_l, feat_id]                 stride 5
- * - Line:          [mx_h, my_h, mx_l, my_l, feat_id, arc_start_m]    stride 6
- *
- * (mx, my) are tile-local Mercator meters relative to tile origin,
- * split into (high, low) f32 pairs for f64-equivalent precision via
- * the shader's DSFUN subtraction (pos_h - cam_h) + (pos_l - cam_l).
- */
-export interface TileData {
-  vertices: Float32Array       // polygon fills — DSFUN stride 5
-  indices: Uint32Array         // triangle indices
-  lineVertices: Float32Array   // lines — DSFUN stride 10 (arc_start at [5], tangent at [6-9])
-  lineIndices: Uint32Array     // line segment indices (pairs)
-  outlineIndices: Uint32Array  // polygon outline line segments (reuses `vertices`)
-  /** Polygon outline vertices in DSFUN stride 10 (matches `lineVertices`).
-   *  When non-empty, VTR builds outline SDF segments from these instead
-   *  of indexing into the polygon fill buffer — gives outlines the same
-   *  global arc_start that line features get, fixing dash-phase resets
-   *  at tile boundaries. Empty for binary .xgvt-loaded tiles and
-   *  runtime-generated sub-tiles (those still use `outlineIndices`). */
-  outlineVertices?: Float32Array
-  outlineLineIndices?: Uint32Array
-  pointVertices?: Float32Array // points — DSFUN stride 5
-  tileWest: number             // tile origin (degrees) — canonical identity
-  tileSouth: number
-  tileWidth: number
-  tileHeight: number
-  tileZoom: number
-  polygons?: RingPolygon[]     // original rings (for sub-tiling)
+export {
+  type TileData,
+  DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE,
+  type VirtualCatalog, type VirtualTileFetcher,
 }
-
-// Stride constants (exported for tests + VTR upload paths)
-export const DSFUN_POLY_STRIDE = 5
-export const DSFUN_LINE_STRIDE = 10
-
-const MAX_CACHED_TILES = 512
-const MAX_CONCURRENT_LOADS = 32
 
 // ═══ Source ═══
 
@@ -73,6 +47,13 @@ export class XGVTSource {
   /** Raw geometry parts for on-demand tile compilation (GeoJSON sources only) */
   private rawParts: GeometryPart[] | null = null
   private rawMaxZoom = 7
+
+  /** External lazy tile producer for on-demand archives (PMTiles + future
+   *  format adapters). When set, hasEntryInIndex returns true for any
+   *  (z, x, y) inside the catalog window, and requestTiles dispatches
+   *  the fetcher for cache misses instead of failing back to sub-tile
+   *  CPU clipping. See setVirtualCatalog. */
+  private virtualCatalog: VirtualCatalog | null = null
 
   /** Called when a tile finishes loading (for GPU upload) */
   onTileLoaded: ((key: number, data: TileData) => void) | null = null
@@ -367,7 +348,107 @@ export class XGVTSource {
       const [z] = tileKeyUnpack(key)
       return z <= this.rawMaxZoom
     }
+    if (this.virtualCatalog) {
+      const [z, x, y] = tileKeyUnpack(key)
+      const vc = this.virtualCatalog
+      if (z < vc.minZoom || z > vc.maxZoom) return false
+      return tileIntersectsBounds(z, x, y, vc.bounds)
+    }
     return false
+  }
+
+  /** Attach an external on-demand tile producer (e.g., PMTiles archive).
+   *  After this call:
+   *    • hasEntryInIndex(key) returns true for any (z, x, y) inside
+   *      the catalog window — the renderer will request those tiles.
+   *    • requestTiles(keys) dispatches the catalog's fetcher for keys
+   *      not already in the index/cache.
+   *    • maxLevel reports the catalog's maxZoom so VTR doesn't fall
+   *      back to sub-tile generation inside the available z range.
+   *    • getBounds() returns the catalog bounds (camera fit + culling).
+   *  Adapters live in their own module (loader/pmtiles-source.ts);
+   *  XGVTSource stays format-agnostic. */
+  setVirtualCatalog(catalog: VirtualCatalog): void {
+    this.virtualCatalog = catalog
+    if (!this.index) {
+      this.index = {
+        header: {
+          levelCount: 0,
+          maxLevel: catalog.maxZoom,
+          bounds: catalog.bounds,
+          indexOffset: 0, indexLength: 0,
+          propTableOffset: 0, propTableLength: 0,
+        },
+        entries: [],
+        entryByHash: new Map(),
+        propertyTable: { fieldNames: [], fieldTypes: [], values: [] },
+      }
+    } else {
+      this.index.header.maxLevel = Math.max(this.index.header.maxLevel, catalog.maxZoom)
+    }
+  }
+
+  /** Async tile fetch for virtual-catalog sources. Symmetric with
+   *  compileTileOnDemand (the rawParts equivalent): manages
+   *  loadingTiles, calls the user fetcher, synthesizes an index
+   *  entry, dispatches cacheTileData / createFullCoverTileData
+   *  exactly like the file-loaded paths. cacheTileData fires
+   *  onTileLoaded so VTR uploads the tile to GPU. */
+  private fetchVirtualTile(key: number): void {
+    if (!this.virtualCatalog) return
+    if (this.dataCache.has(key) || this.loadingTiles.has(key)) return
+    if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) return
+    const [z, x, y] = tileKeyUnpack(key)
+    this.loadingTiles.add(key)
+    this.virtualCatalog.fetcher(z, x, y).then(tile => {
+      this.loadingTiles.delete(key)
+      if (!tile) {
+        // Empty placeholder so the renderer's parent-fallback bookkeeping
+        // doesn't keep retrying this key every frame (matches the
+        // empty-grid shortcut in compileTileOnDemand).
+        const empty = new Float32Array(0)
+        const emptyI = new Uint32Array(0)
+        this.cacheTileData(key, undefined, empty, emptyI, empty, emptyI)
+        return
+      }
+      // Synthesize an index entry so subsequent hasEntryInIndex
+      // checks short-circuit to the cached entry path.
+      const tileFullCover = tile.fullCover ?? false
+      const tileFullCoverFid = tile.fullCoverFeatureId ?? 0
+      if (this.index && !this.index.entryByHash.has(key)) {
+        const entry: TileIndexEntry = {
+          tileHash: key, dataOffset: 0, compactSize: 0, gpuReadySize: 0,
+          vertexCount: tile.vertices.length / DSFUN_POLY_STRIDE,
+          indexCount: tile.indices.length,
+          lineVertexCount: tile.lineVertices.length / DSFUN_LINE_STRIDE,
+          lineIndexCount: tile.lineIndices.length,
+          flags: tileFullCover ? (TILE_FLAG_FULL_COVER | (tileFullCoverFid << 1)) : 0,
+          fullCoverFeatureId: tileFullCoverFid,
+        }
+        this.index.entries.push(entry)
+        this.index.entryByHash.set(key, entry)
+      }
+      if (tileFullCover && tile.vertices.length === 0) {
+        const entry = this.index?.entryByHash.get(key)
+        if (entry) {
+          this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
+          return
+        }
+      }
+      const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
+      this.cacheTileData(
+        key, polygons,
+        tile.vertices, tile.indices,
+        tile.lineVertices, tile.lineIndices,
+        tile.pointVertices,
+        tile.outlineIndices,
+        tile.outlineVertices,
+        tile.outlineLineIndices,
+      )
+    }).catch(err => {
+      this.loadingTiles.delete(key)
+      console.error('[xgvt virtual fetch]', (err as Error)?.stack ?? err)
+    })
   }
 
   // ── Loading ──
@@ -668,8 +749,13 @@ export class XGVTSource {
       if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
       const entry = this.index.entryByHash.get(key)
       if (!entry) {
-        // On-demand: compile from raw GeoJSON parts if available
+        // On-demand: compile from raw GeoJSON parts, or dispatch the
+        // virtualCatalog fetcher (PMTiles + similar archives), or
+        // give up. compileTileOnDemand stays sync; fetchVirtualTile
+        // is async — it manages loadingTiles itself and triggers
+        // onTileLoaded when the network round-trip completes.
         if (this.rawParts) this.compileTileOnDemand(key)
+        else if (this.virtualCatalog) this.fetchVirtualTile(key)
         continue
       }
 
@@ -1240,6 +1326,26 @@ export class XGVTSource {
 }
 
 // ═══ Helpers ═══
+
+/** True if Web-Mercator tile (z, x, y) overlaps the given lon/lat bounds.
+ *  Used by virtualCatalog hasEntryInIndex to avoid issuing fetcher
+ *  requests for keys clearly outside the archive's coverage. */
+function tileIntersectsBounds(
+  z: number, x: number, y: number,
+  bounds: [number, number, number, number],
+): boolean {
+  const n = 1 << z
+  const tileWest = (x / n) * 360 - 180
+  const tileEast = ((x + 1) / n) * 360 - 180
+  const yToLat = (yt: number) => {
+    const s = Math.PI - 2 * Math.PI * (yt / n)
+    return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(s) - Math.exp(-s)))
+  }
+  const tileNorth = yToLat(y)
+  const tileSouth = yToLat(y + 1)
+  return !(tileEast < bounds[0] || tileWest > bounds[2] ||
+           tileNorth < bounds[1] || tileSouth > bounds[3])
+}
 
 let fullFileCache: { url: string; buf: ArrayBuffer } | null = null
 
