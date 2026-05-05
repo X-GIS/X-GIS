@@ -109,6 +109,13 @@ export const DEMOS: Record<string, Demo> = {
     source: load('pmtiles-layered.xgis'),
   },
 
+  pmtiles_only_landuse: {
+    name: 'PMTiles — landuse only (diag)',
+    tag: 'xgvt',
+    description: 'Diagnostic — single MVT layer (landuse) rendered alone in green. Used to isolate stripe artefacts.',
+    source: load('pmtiles-only-landuse.xgis'),
+  },
+
   // ── CSS-like style + filter ──
 
   styled_world: {

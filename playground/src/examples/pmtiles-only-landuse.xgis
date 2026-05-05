@@ -1,0 +1,13 @@
+/* Diagnostic: render ONLY the landuse MVT layer of the v4 archive.
+ * Used to isolate whether the horizontal-stripe artefact in the
+ * pmtiles_layered demo at low zoom comes from landuse or some other
+ * layer. */
+source pm {
+  type: pmtiles
+  url: "/pmtiles-proxy/protomaps/v4.pmtiles"
+  layers: "landuse"
+}
+layer landuse {
+  source: pm
+  | fill-emerald-700
+}

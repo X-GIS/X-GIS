@@ -37,9 +37,21 @@ export function decodeMvtTile(
       const f = layer.feature(i)
       const gj = f.toGeoJSON(x, y, z)
       if (!gj.geometry) continue
+      // Clamp coordinates to the planet — MVT's "buffer" feature
+      // lets polygons extend slightly beyond tile bounds (default
+      // 64 px past each edge), and vector-tile-js's toGeoJSON
+      // un-quantizes those buffer vertices to lon/lat values that
+      // can fall outside [-180, 180] / [-85, 85] for tiles near the
+      // antimeridian or poles. Downstream Mercator projection then
+      // produces points outside the planet's MM range, and after
+      // tile-rect clipping the polygon shape is corrupted into
+      // long horizontal slivers (visible as horizontal stripes
+      // crossing oceans at low z). Clamp here so all vertices land
+      // inside the planet's lon/lat range.
+      const clampedGeom = clampGeometryToPlanet(gj.geometry as GeoJSONGeometry)
       out.push({
         type: 'Feature',
-        geometry: gj.geometry as GeoJSONGeometry,
+        geometry: clampedGeom,
         properties: {
           ...(gj.properties ?? {}),
           _layer: layerName,
@@ -48,4 +60,29 @@ export function decodeMvtTile(
     }
   }
   return out
+}
+
+const LON_MAX = 180
+const LON_MIN = -180
+const LAT_MAX = 85.0511287
+const LAT_MIN = -85.0511287
+const clampLon = (v: number) => v > LON_MAX ? LON_MAX : v < LON_MIN ? LON_MIN : v
+const clampLat = (v: number) => v > LAT_MAX ? LAT_MAX : v < LAT_MIN ? LAT_MIN : v
+
+function clampPos(p: number[]): number[] {
+  return [clampLon(p[0]), clampLat(p[1])]
+}
+
+function clampGeometryToPlanet(g: GeoJSONGeometry): GeoJSONGeometry {
+  switch (g.type) {
+    case 'Point':       return { type: 'Point', coordinates: clampPos(g.coordinates) }
+    case 'MultiPoint':  return { type: 'MultiPoint', coordinates: g.coordinates.map(clampPos) }
+    case 'LineString':  return { type: 'LineString', coordinates: g.coordinates.map(clampPos) }
+    case 'MultiLineString':
+      return { type: 'MultiLineString', coordinates: g.coordinates.map(ls => ls.map(clampPos)) }
+    case 'Polygon':
+      return { type: 'Polygon', coordinates: g.coordinates.map(ring => ring.map(clampPos)) }
+    case 'MultiPolygon':
+      return { type: 'MultiPolygon', coordinates: g.coordinates.map(poly => poly.map(ring => ring.map(clampPos))) }
+  }
 }
