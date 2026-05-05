@@ -1,5 +1,5 @@
-// Verifies the per-MVT-layer styling demo. Each xgis source filters
-// to one MVT layer via the `layers` source property; the demo paints
+// Verifies the per-MVT-layer styling demo. One PMTiles source +
+// multiple xgis layers each filtering by `sourceLayer:` paints
 // water/landuse/roads/buildings with distinct colors. The render
 // should show all four colours simultaneously instead of one
 // homogeneous mash.
@@ -47,26 +47,17 @@ test('PMTiles layered: Tokyo z=14 paints water, land, roads, buildings distinctl
   test.setTimeout(60_000)
   await page.setViewportSize({ width: 1280, height: 720 })
 
-  const logs: string[] = []
-  page.on('console', m => { logs.push(m.text()) })
-
   await page.goto('/demo.html?id=pmtiles_layered#14/35.68/139.76', { waitUntil: 'domcontentloaded' })
   await waitForXgisReady(page)
-  await page.waitForTimeout(8000) // wait for all 4 backends to attach + tiles to fetch
+  await page.waitForTimeout(8000) // tiles fetch + per-layer slice compile
 
   await page.locator('canvas#map').screenshot({ path: 'test-results/pmtiles-layered-tokyo.png' })
   const counts = await colorCounts(page)
   console.log(`[layered] water=${counts.waterBlue} land=${counts.landBeige} road=${counts.roadGrey} building=${counts.buildingMid}`)
 
-  // Header attach logs — expect 4 separate "PMTiles attached" messages,
-  // one per source (water / landuse / roads / buildings).
-  const attachLogs = logs.filter(l => l.includes('PMTiles attached'))
-  console.log(`[layered] ${attachLogs.length} PMTiles backends attached`)
-  expect(attachLogs.length, '4 sources should each attach').toBeGreaterThanOrEqual(3)
-
   // Core assertion: at least three of the four palette buckets land on
-  // canvas pixels — proves the layers actually separated. Tokyo z=14
-  // covers water (Tokyo Bay) + roads + buildings densely.
+  // canvas pixels — proves the per-MVT-layer slices actually separated.
+  // Tokyo z=14 covers water (Tokyo Bay) + roads + buildings densely.
   const litPalettes = [counts.waterBlue, counts.landBeige, counts.roadGrey, counts.buildingMid]
     .filter(c => c > 200).length
   expect(litPalettes, 'at least 3 distinct palette colours on canvas').toBeGreaterThanOrEqual(3)

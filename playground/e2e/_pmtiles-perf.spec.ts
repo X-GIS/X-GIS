@@ -182,6 +182,114 @@ test('PMTiles v4 perf: load + warmup at Tokyo z=10', async ({ page, context }) =
   }
 })
 
+test('PMTiles v4 perf: zoom-in over Seoul (z=8 → z=14)', async ({ page, context }) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 1280, height: 720 })
+
+  // Start zoomed-out at z=8 over Seoul.
+  await page.goto('/demo.html?id=pmtiles_v4#8/37.5665/126.9780', { waitUntil: 'domcontentloaded' })
+  await waitForXgisReady(page)
+  await page.waitForTimeout(2500) // initial z=8 load settle
+
+  const cdp = await context.newCDPSession(page)
+  const PROFILE_MS = 6000
+
+  // Smooth zoom-in from z=8 → z=14 across PROFILE_MS. Each step
+  // forces a new LOD level to fetch + compile, the worst case for
+  // PMTiles since old z tiles get evicted while new z tiles stream
+  // in fresh.
+  const zoomTask = (async () => {
+    const start = Date.now()
+    const zStart = 8
+    const zEnd = 14
+    while (Date.now() - start < PROFILE_MS) {
+      const t = (Date.now() - start) / PROFILE_MS
+      const z = zStart + (zEnd - zStart) * t
+      await page.evaluate((z: number) => {
+        location.hash = `#${z.toFixed(2)}/37.56650/126.97800`
+      }, z)
+      await page.waitForTimeout(80) // ~12 Hz zoom updates
+    }
+  })()
+
+  const [profile, frames] = await Promise.all([
+    recordProfile(cdp, PROFILE_MS),
+    measureFrames(page, PROFILE_MS),
+    zoomTask,
+  ])
+
+  const outPath = path.resolve('test-results', 'pmtiles-v4-perf-seoul-zoom.cpuprofile')
+  fs.mkdirSync(path.dirname(outPath), { recursive: true })
+  fs.writeFileSync(outPath, JSON.stringify(profile))
+  console.log(`\n[profile] saved: ${outPath}`)
+  console.log(`[frames] ${frames.frames} frames in ${frames.ms.toFixed(0)} ms`)
+  console.log(`[frames] FPS=${frames.fps.toFixed(1)}  p50=${frames.p50.toFixed(1)}ms  p95=${frames.p95.toFixed(1)}ms  p99=${frames.p99.toFixed(1)}ms`)
+  const hot = topHotFunctions(profile, 20)
+  console.log(`\n[hot] top 20 (Seoul zoom z=8→14):`)
+  for (const r of hot) {
+    const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
+    console.log(`  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} ${url}:${r.line}`)
+  }
+
+  const cat = await page.evaluate(() => {
+    type Cat = { maxLevel: number; getCacheSize(): number; getPendingLoadCount(): number }
+    const m = (window as unknown as { __xgisMap?: { vtSources?: Map<string, { source: Cat }> } }).__xgisMap
+    const e = m?.vtSources?.get('pm')
+    return e ? { cacheSize: e.source.getCacheSize(), pending: e.source.getPendingLoadCount() } : null
+  })
+  console.log(`\n[catalog] ${JSON.stringify(cat)}`)
+})
+
+test('PMTiles v4 perf: zoom-in over Beijing (z=8 → z=14)', async ({ page, context }) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 1280, height: 720 })
+
+  await page.goto('/demo.html?id=pmtiles_v4#8/39.9042/116.4074', { waitUntil: 'domcontentloaded' })
+  await waitForXgisReady(page)
+  await page.waitForTimeout(2500)
+
+  const cdp = await context.newCDPSession(page)
+  const PROFILE_MS = 6000
+
+  const zoomTask = (async () => {
+    const start = Date.now()
+    while (Date.now() - start < PROFILE_MS) {
+      const t = (Date.now() - start) / PROFILE_MS
+      const z = 8 + 6 * t
+      await page.evaluate((z: number) => {
+        location.hash = `#${z.toFixed(2)}/39.90420/116.40740`
+      }, z)
+      await page.waitForTimeout(80)
+    }
+  })()
+
+  const [profile, frames] = await Promise.all([
+    recordProfile(cdp, PROFILE_MS),
+    measureFrames(page, PROFILE_MS),
+    zoomTask,
+  ])
+
+  const outPath = path.resolve('test-results', 'pmtiles-v4-perf-beijing-zoom.cpuprofile')
+  fs.mkdirSync(path.dirname(outPath), { recursive: true })
+  fs.writeFileSync(outPath, JSON.stringify(profile))
+  console.log(`\n[profile] saved: ${outPath}`)
+  console.log(`[frames] ${frames.frames} frames in ${frames.ms.toFixed(0)} ms`)
+  console.log(`[frames] FPS=${frames.fps.toFixed(1)}  p50=${frames.p50.toFixed(1)}ms  p95=${frames.p95.toFixed(1)}ms  p99=${frames.p99.toFixed(1)}ms`)
+  const hot = topHotFunctions(profile, 15)
+  console.log(`\n[hot] top 15 (Beijing zoom z=8→14):`)
+  for (const r of hot) {
+    const url = r.url ? r.url.split('/').slice(-2).join('/') : ''
+    console.log(`  ${r.selfMs.toFixed(1).padStart(7)} ms (${r.selfPct.toFixed(1).padStart(5)}%)  ${r.name.padEnd(35)} ${url}:${r.line}`)
+  }
+  const cat = await page.evaluate(() => {
+    type Cat = { maxLevel: number; getCacheSize(): number; getPendingLoadCount(): number }
+    const m = (window as unknown as { __xgisMap?: { vtSources?: Map<string, { source: Cat }> } }).__xgisMap
+    const e = m?.vtSources?.get('pm')
+    return e ? { cacheSize: e.source.getCacheSize(), pending: e.source.getPendingLoadCount() } : null
+  })
+  console.log(`\n[catalog] ${JSON.stringify(cat)}`)
+})
+
 test('PMTiles v4 perf: programmatic pan stress', async ({ page, context }) => {
   test.setTimeout(120_000)
   await page.setViewportSize({ width: 1280, height: 720 })
