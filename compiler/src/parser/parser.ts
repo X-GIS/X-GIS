@@ -32,6 +32,8 @@ export class Parser {
         return this.parseSourceStatement()
       case TokenType.Layer:
         return this.parseLayerStatement()
+      case TokenType.Background:
+        return this.parseBackgroundStatement()
       case TokenType.Preset:
         return this.parsePresetStatement()
       case TokenType.Import:
@@ -249,6 +251,36 @@ export class Parser {
     this.expect(TokenType.RBrace)
 
     return { kind: 'LayerStatement', name, properties, utilities, styleProperties, line }
+  }
+
+  // background { fill: sky-900 } — Mapbox-style canvas clear color.
+  // Same body grammar as layer (utility lines OR style properties),
+  // but no name + no source. Only the resolved fill is consumed by
+  // the renderer; everything else is parsed-and-ignored so the same
+  // utility ergonomics work (`background { | fill-sky-900 }`).
+  private parseBackgroundStatement(): AST.BackgroundStatement {
+    const line = this.current().line
+    this.expect(TokenType.Background)
+    this.expect(TokenType.LBrace)
+
+    const utilities: AST.UtilityLine[] = []
+    const styleProperties: AST.StyleProperty[] = []
+    while (!this.check(TokenType.RBrace) && !this.isEnd()) {
+      if (this.check(TokenType.Pipe)) {
+        utilities.push(this.parseUtilityLine())
+      } else if (this.isStylePropertyStart()) {
+        styleProperties.push(this.parseStyleProperty())
+        if (this.check(TokenType.Comma)) this.advance()
+      } else {
+        // Tolerate stray block properties (e.g. someone writes
+        // `color: ...`) — skip without erroring; renderer only
+        // looks at fill anyway.
+        this.parseBlockProperty()
+        if (this.check(TokenType.Comma)) this.advance()
+      }
+    }
+    this.expect(TokenType.RBrace)
+    return { kind: 'BackgroundStatement', utilities, styleProperties, line }
   }
 
   // preset name { | utility-lines ... }

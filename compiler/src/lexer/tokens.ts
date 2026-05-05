@@ -25,6 +25,7 @@ export enum TokenType {
   Enum, // enum
   Source, // source
   Layer, // layer
+  Background, // background
   Preset, // preset
   From, // from
   To, // to (keyframes alias for 100%)
@@ -104,6 +105,7 @@ const KEYWORDS: Record<string, TokenType> = {
   enum: TokenType.Enum,
   source: TokenType.Source,
   layer: TokenType.Layer,
+  background: TokenType.Background,
   preset: TokenType.Preset,
   from: TokenType.From,
   to: TokenType.To,

@@ -37,6 +37,11 @@ export interface SourceDef {
 export interface RenderNode {
   name: string
   sourceRef: string  // references SourceDef.name
+  /** Optional MVT layer slice within the referenced source. When set,
+   *  the runtime draws only this layer's geometry from each tile —
+   *  Mapbox/MapLibre's `source-layer` semantics (lexer prefers
+   *  camelCase `sourceLayer`). */
+  sourceLayer?: string
   zOrder: number
   fill: ColorValue
   stroke: StrokeValue

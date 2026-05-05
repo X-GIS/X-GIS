@@ -23,3 +23,4 @@ export { simplify, simplifyPolygon, simplifyLine, toleranceForZoom, mercatorTole
 export { interpolateGreatCircle, haversineDistance } from './tiler/geodesic'
 export { type RingPolygon } from './tiler/encoding'
 export { decodeMvtTile, type MvtDecodeOptions } from './input/mvt-decoder'
+export type { GeoJSONFeature, GeoJSONGeometry } from './tiler/geojson-types'

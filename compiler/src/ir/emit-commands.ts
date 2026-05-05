@@ -22,6 +22,11 @@ export interface ShowCommand {
    *  `targetName` (source name) when two layers share a source.
    *  Legacy `show <name> { ... }` syntax mirrors `targetName` here. */
   layerName?: string
+  /** Optional MVT layer slice within the source. When set, the
+   *  catalog returns only that slice's TileData and the renderer
+   *  draws only its geometry. Mapbox-style `source-layer`
+   *  semantics (camelCase here for lexer compatibility). */
+  sourceLayer?: string
   fill: string | null
   stroke: string | null
   strokeWidth: number
@@ -78,6 +83,11 @@ export interface SceneCommands {
   loads: LoadCommand[]
   shows: ShowCommand[]
   symbols: { name: string; paths: string[] }[]
+  /** Resolved canvas background fill `#rrggbb` / `#rrggbbaa`. Set
+   *  by `background { fill: <color> }` in the .xgis program; the
+   *  runtime applies it as the WebGPU clearValue. Absent → renderer
+   *  default (dark navy). */
+  background?: string
 }
 
 /**
@@ -146,6 +156,7 @@ function emitShow(node: RenderNode): ShowCommand {
 
   return {
     targetName: node.sourceRef,
+    sourceLayer: node.sourceLayer,
     /** DSL layer name (e.g., `layer borders { ... }` → 'borders'). The
      *  data path uses `targetName` (source name) to look up tiles, but
      *  the user-facing `map.getLayer(name)` API matches the DSL layer

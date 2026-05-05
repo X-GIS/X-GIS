@@ -12,6 +12,7 @@ export type Statement =
   | ExprStatement
   | SourceStatement
   | LayerStatement
+  | BackgroundStatement
   | PresetStatement
   | ImportStatement
   | SymbolStatement
@@ -226,6 +227,18 @@ export type LayerStatement = {
   properties: BlockProperty[]
   utilities: UtilityLine[]
   styleProperties: StyleProperty[]  // CSS-like properties: fill: stone-800
+  line: number
+}
+
+// background { fill: sky-900 } — Mapbox-style canvas clear color.
+// Renders as the bottom-most layer (replaces the hardcoded canvas
+// clearValue). Style accepts the same fill utilities + properties
+// as a regular layer, but only the resolved fill color is consumed
+// (no stroke / no source / no per-feature style).
+export type BackgroundStatement = {
+  kind: 'BackgroundStatement'
+  utilities: UtilityLine[]
+  styleProperties: StyleProperty[]
   line: number
 }
 

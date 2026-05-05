@@ -307,6 +307,20 @@ describe('Vector Tiler', () => {
     }
   })
 
+  it('subdivides large triangles for non-Mercator projection accuracy', () => {
+    // simpleGeoJSON has two 10°×10° squares. Without densification, earcut
+    // produces 2 triangles per square = 4 total. The 10° edges exceed the
+    // 2° threshold so each ear should split recursively at MM midpoints.
+    // Without this guard, polygons render as screen-space chords under
+    // non-Mercator projections (the wedge / antimeridian-stripe artifact
+    // at orthographic / oblique mercator on whole-world tiles).
+    const tileSet = compileGeoJSONToTiles(simpleGeoJSON, { minZoom: 0, maxZoom: 0 })
+    const tile = [...tileSet.levels[0].tiles.values()][0]
+    const triCount = tile.indices.length / 3
+    // Assert well above the un-subdivided baseline of 4 triangles.
+    expect(triCount).toBeGreaterThan(50)
+  })
+
   it('simplifies geometry at lower zoom levels', () => {
     // A detailed polygon
     const detailed: GeoJSONFeatureCollection = {

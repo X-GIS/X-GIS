@@ -547,10 +547,23 @@ function shoelaceArea(ring: number[][]): number {
  *  allocated a new string per vertex (top-3 GC source in PMTiles v4
  *  perf profile). Numeric Map keys avoid both the allocation and the
  *  V8 internal string hash. */
-function vertexKey(x: number, y: number, fid: number): number {
-  const qx = ((x * 1e6) | 0) + 0x80000000
-  const qy = ((y * 1e6) | 0) + 0x80000000
-  return qx * 0x400000 + (qy & 0x3FFFFF) ^ ((fid | 0) * 0x9E3779B1)
+function vertexKey(x: number, y: number, fid: number): string {
+  // Pre-MM refactor this was a packed int32 over (x*1e6, y*1e6, fid) —
+  // valid when input was LL degrees (±180 → ±1.8e8 fits int32). After
+  // the polygon pipeline moved to absolute Mercator meters, x/y range
+  // ±2.0e7 m so x*1e6 ≈ ±2e13 OVERFLOWS int32 catastrophically — the
+  // `| 0` truncation produced essentially random bits and adjacent
+  // vertices collided into shared dedup slots. earcut then received
+  // self-intersecting/degenerate index lists and emitted huge wedge
+  // triangles spanning entire ocean tiles (visible as triangular
+  // artifacts in pmtiles_layered at z=3-5).
+  //
+  // String key with 1mm quantization (Math.round(coord * 1000)) is
+  // unambiguous, collision-free, and only ~2x slower than the broken
+  // numeric hash on V8 (Map<string,number> internalises short ASCII
+  // strings). Tessellation runs off-thread on the worker pool, so the
+  // perf delta is invisible at the frame level.
+  return `${Math.round(x * 1000)},${Math.round(y * 1000)},${fid | 0}`
 }
 
 // ── Triangle subdivision for non-Mercator projections ─────────────────
@@ -587,7 +600,7 @@ function mmToLonLatDeg(x: number, y: number): [number, number] {
 function getOrAddVertexMM(
   x: number, y: number, featureId: number,
   outVerts: number[],
-  dedupMap: Map<number, number>,
+  dedupMap: Map<string, number>,
 ): number {
   const key = vertexKey(x, y, featureId)
   let idx = dedupMap.get(key)
@@ -608,7 +621,7 @@ function subdivideTriangleMM(
   featureId: number,
   outVerts: number[],
   outIdx: number[],
-  dedupMap: Map<number, number>,
+  dedupMap: Map<string, number>,
   depth: number,
 ): void {
   const x0 = outVerts[i0 * 3], y0 = outVerts[i0 * 3 + 1]
@@ -667,7 +680,7 @@ function tessellatePolygonToArrays(
   featureId: number,
   outVerts: number[],
   outIdx: number[],
-  dedupMap?: Map<number, number>,
+  dedupMap?: Map<string, number>,
 ): void {
   // Input rings are in MERCATOR METERS (MM), per docs/COORDINATES.md.
   // Triangle edges are straight in MM — matches GPU rendering so there's
@@ -1200,7 +1213,7 @@ function processZoomLevelShared(
       scratch.olv.length = 0; scratch.oli.length = 0
       scratch.ptv.length = 0
       const featureIds = new Set<number>()
-      const dedupMap = new Map<number, number>()
+      const dedupMap = new Map<string, number>()
 
       // Lock predicate: vertices on tile boundary edges must survive
       // simplification. Single MM predicate — polygons + lines + outlines
@@ -1404,7 +1417,7 @@ export function compileSingleTile(
   const [stMxE, stMyN] = lonLatToMercF64(tb.east, tb.north)
   const scratch = { pv: [] as number[], pi: [] as number[], lv: [] as number[], li: [] as number[], ptv: [] as number[], olv: [] as number[], oli: [] as number[] }
   const featureIds = new Set<number>()
-  const dedupMap = new Map<number, number>()
+  const dedupMap = new Map<string, number>()
   const MERC_EPS = 1.0 // 1 meter tolerance for tile-boundary detection
   const isOnBoundaryMerc = (c: number[]) =>
     Math.abs(c[0] - stMxW) < MERC_EPS || Math.abs(c[0] - stMxE) < MERC_EPS ||

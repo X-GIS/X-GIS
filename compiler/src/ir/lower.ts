@@ -145,6 +145,7 @@ function lowerLayer(
 ): RenderNode | null {
   // Extract block properties
   let sourceRef = ''
+  let sourceLayer: string | undefined
   let zOrder = 0
   let styleRef = ''
   let filterExpr: import('../parser/ast').Expr | null = null
@@ -153,6 +154,12 @@ function lowerLayer(
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
       sourceRef = prop.value.name
+    } else if (prop.name === 'sourceLayer' && prop.value.kind === 'StringLiteral') {
+      // sourceLayer: pick one MVT layer from a multi-layer source.
+      // Mapbox-style spec uses kebab-case `source-layer`; we use
+      // camelCase since the lexer doesn't accept hyphens in
+      // identifiers. Semantics are the same.
+      sourceLayer = prop.value.value
     } else if (prop.name === 'z-order' && prop.value.kind === 'NumberLiteral') {
       zOrder = prop.value.value
     } else if (prop.name === 'style' && prop.value.kind === 'Identifier') {
@@ -664,6 +671,7 @@ function lowerLayer(
   return {
     name: stmt.name,
     sourceRef,
+    sourceLayer,
     zOrder,
     fill,
     stroke: (() => {
