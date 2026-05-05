@@ -13,10 +13,8 @@
 //     streaming, not bulk download).
 //
 import { PMTiles, TileType } from 'pmtiles'
-import {
-  decodeMvtTile, decomposeFeatures, compileSingleTile,
-} from '@xgis/compiler'
 import { TileCatalog } from '../data/tile-catalog'
+import { PMTilesBackend } from '../data/sources/pmtiles-backend'
 
 export interface PMTilesSourceOptions {
   url: string
@@ -63,29 +61,20 @@ export async function attachPMTilesSource(
     `${header.maxLon.toFixed(4)}, ${header.maxLat.toFixed(4)}], ` +
     `${header.numTileEntries} tile entries`,
   )
-  source.setVirtualCatalog({
+  // Fetcher returns RAW MVT bytes only. PMTilesBackend defers decode +
+  // compileSingleTile to its tick() so the heavy work is paced across
+  // frames instead of blocking the main thread when many fetches
+  // resolve in the same microtask boundary.
+  source.attachBackend(new PMTilesBackend({
     minZoom: header.minZoom,
     maxZoom: header.maxZoom,
     bounds: [header.minLon, header.minLat, header.maxLon, header.maxLat],
+    layers: opts.layers,
     fetcher: async (z, x, y) => {
       const resp = await archive.getZxy(z, x, y)
-      if (!resp) {
-        console.debug(`[pmtiles] miss z=${z}/${x}/${y}`)
-        return null
-      }
-      const features = decodeMvtTile(resp.data, z, x, y, { layers: opts.layers })
-      if (features.length === 0) {
-        console.debug(`[pmtiles] empty z=${z}/${x}/${y}`)
-        return null
-      }
-      const parts = decomposeFeatures(features)
-      const tile = compileSingleTile(parts, z, x, y, header.maxZoom)
-      if (!tile) {
-        console.debug(`[pmtiles] compile-null z=${z}/${x}/${y}`)
-      }
-      return tile
+      return resp ? new Uint8Array(resp.data) : null
     },
-  })
+  }))
 }
 
 /** Convenience: create a fresh TileCatalog and attach a PMTiles archive

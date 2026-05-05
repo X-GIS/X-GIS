@@ -148,4 +148,12 @@ export interface TileSource {
 
   /** OPTIONAL teardown. Called by catalog.detachBackend. */
   detach?(): void
+
+  /** OPTIONAL per-frame drain for backends that defer expensive
+   *  decode/compile work after fetch (PMTiles). Catalog invokes this
+   *  once per frame in resetCompileBudget with a budget hint —
+   *  backend should process at most that many queued items, pushing
+   *  results via sink.acceptResult. Backends that compile inline
+   *  (XGVT-binary, GeoJSON-runtime) leave this unimplemented. */
+  tick?(maxOps: number): void
 }

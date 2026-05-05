@@ -28,7 +28,7 @@ import {
 } from '@xgis/compiler'
 import { visibleTiles } from '../loader/tiles'
 import { XGVTBinaryBackend } from './sources/xgvt-binary-source'
-import { PMTilesBackend } from './sources/pmtiles-backend'
+import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
 import type {
   TileSource, TileSourceSink, BackendTileResult,
@@ -308,12 +308,24 @@ export class TileCatalog {
   private static readonly _SUBTILE_FLOOR = 8  // matches previous count cap
   private static readonly _MAX_PER_FRAME = 128
 
-  /** Reset per-frame budget (call once per frame before tile requests) */
+  /** Reset per-frame budget (call once per frame before tile requests).
+   *  Also drains attached backends' deferred-compile queues (PMTiles)
+   *  with a small per-frame budget so heavy decode+compile work
+   *  spreads across frames instead of saturating microtasks. */
   resetCompileBudget(): void {
     this._budgetDeadlineMs = this._now() + TileCatalog._BUDGET_MS
     this._compileCountThisFrame = 0
     this._subTileCountThisFrame = 0
+    // Drain backend deferred-compile queues (PMTiles raw bytes →
+    // compileSingleTile). Backends that compile inline don't
+    // implement tick. _PMTILES_TICK_BUDGET picks how many tiles are
+    // compiled per frame — 4 keeps the worst case under ~16 ms on a
+    // dense world basemap tile, fitting one 60 fps frame.
+    for (const b of this.backends) {
+      b.tick?.(TileCatalog._TICK_BUDGET)
+    }
   }
+  private static readonly _TICK_BUDGET = 4
 
   /** Wall-clock reader. Uses performance.now when available (browser +
    *  modern Node) and falls back to Date.now otherwise. */
@@ -394,7 +406,7 @@ export class TileCatalog {
    *  compiling. New code should use attachBackend directly with a
    *  PMTilesBackend instance. */
   setVirtualCatalog(catalog: VirtualCatalog): void {
-    const backend = new PMTilesBackend(catalog)
+    const backend = new VirtualCatalogAdapter(catalog)
     this.attachBackend(backend)
   }
 
