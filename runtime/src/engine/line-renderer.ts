@@ -1095,25 +1095,39 @@ fn vs_line(
 
   var corner_local = base + offset;
 
-  // ── Screen-space minimum width guarantee ──
-  // At high pitch, perspective foreshortening can shrink the quad's
-  // perpendicular extent below 1 screen pixel, causing rasterization
-  // gaps (visible as dashing). Scale the offset so the quad always
-  // covers at least (width_px + 2*aa_width_px) screen pixels.
+  // ── Screen-pixel-width stroke geometry (Mapbox / MapLibre convention) ──
+  // Scale the perpendicular offset so each corner lands EXACTLY
+  // (width_px + 2*aa_width_px) screen pixels from the centerline,
+  // regardless of source-meter scale or projection distortion.
+  // Two effects:
+  //   1. At high pitch / perspective foreshortening, the quad keeps
+  //      coverage instead of dropping below 1 px (was the prior
+  //      reason for this branch — minimum clamp).
+  //   2. On globe projections (orthographic / azimuthal /
+  //      stereographic) at low zoom, source-meter half_w can be
+  //      thousands of km — without this clamp the quad extends
+  //      far past the visible disc as a flat slab and the per-
+  //      fragment backface cull (compute_line_color below) sees
+  //      fragments off the globe entirely. Scaling down to
+  //      pixel-equivalent source meters keeps the quad on-globe
+  //      so the cull lands on the great-circle horizon.
+  // Trade-off: when scale < 1 (down-scaling case), the in-fragment
+  // SDF threshold (half_w_m source meters) is larger than the
+  // rasterized quad's extent, so all visible fragments resolve
+  // alpha=1 and AA happens at the rasterization edge instead of
+  // the SDF transition. Acceptable for current scope; full
+  // pixel-space SDF (with per-quad scaled half_w varying) is a
+  // future refinement once joins / patterns / arrow caps move to
+  // pixel units too.
   if (layer.viewport_height > 0.0) {
-    // base and corner_local both live in the stroke geometry frame —
-    // map them to camera-relative projected XY before MVP so the screen-
-    // space measurement is correct under non-Mercator projections too.
     let center_clip = tile.mvp * vec4<f32>(finalize_corner(base), 0.0, 1.0);
     let corner_clip = tile.mvp * vec4<f32>(finalize_corner(corner_local), 0.0, 1.0);
-    // NDC distance = screen-space distance / (viewport_height / 2)
     let center_ndc = center_clip.xy / max(abs(center_clip.w), 1e-6) * sign(center_clip.w);
     let corner_ndc = corner_clip.xy / max(abs(corner_clip.w), 1e-6) * sign(corner_clip.w);
     let screen_dist = length(corner_ndc - center_ndc);
-    // Minimum NDC width for the requested pixel width
-    let min_ndc = (layer.width_px + 2.0 * layer.aa_width_px) / layer.viewport_height;
-    if (screen_dist > 1e-8 && screen_dist < min_ndc) {
-      let scale = min_ndc / screen_dist;
+    let target_ndc = (layer.width_px + 2.0 * layer.aa_width_px) / layer.viewport_height;
+    if (screen_dist > 1e-8) {
+      let scale = target_ndc / screen_dist;
       corner_local = base + offset * scale;
     }
   }
