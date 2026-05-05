@@ -20,11 +20,12 @@
 import {
   tileKeyUnpack,
   decodeMvtTile, decomposeFeatures, compileSingleTile,
-  type CompiledTile,
 } from '@xgis/compiler'
+import { buildLineSegments } from '../../engine/line-segment-build'
 import type {
-  TileSource, TileSourceSink, TileSourceMeta, BackendTileResult,
+  TileSource, TileSourceSink, TileSourceMeta,
 } from '../tile-source'
+import { getSharedMvtPool, type MvtWorkerPool } from '../mvt-worker-pool'
 
 /** Async HTTP byte fetcher. Returns the raw MVT bytes for the given
  *  (z, x, y), or null when the archive has no entry. Decode + compile
@@ -117,51 +118,154 @@ export class PMTilesBackend implements TileSource {
   }
 
   /** Stage 2: drain up to maxOps queued tiles per frame. Catalog
-   *  calls this from resetCompileBudget with a small budget so
-   *  compile work spreads across frames instead of blocking the
-   *  main thread on a microtask burst. */
+   *  calls this from resetCompileBudget. Each tile dispatches to the
+   *  worker pool — main thread does ~zero compile work, just queues
+   *  the postMessage and awaits the worker's Transferable response.
+   *  When the worker resolves, sink.acceptResult fires (still on
+   *  main, async). The maxOps budget here governs how many fresh
+   *  worker dispatches we kick off per frame; in-flight workers
+   *  continue regardless. */
   tick(maxOps: number): void {
     if (!this.sink || this.pendingMvt.length === 0) return
     const sink = this.sink
     const n = Math.min(maxOps, this.pendingMvt.length)
+    // Prefer the worker pool when Worker is available (browser); fall
+    // back to inline compile in environments without it (vitest node,
+    // SSR). Both produce identical BackendTileResult shapes — the
+    // worker is purely a performance optimisation.
+    const useWorker = typeof Worker !== 'undefined'
+    const pool = useWorker ? this.getPool() : null
     for (let i = 0; i < n; i++) {
       const { key, bytes } = this.pendingMvt.shift()!
       const [z, x, y] = tileKeyUnpack(key)
-      try {
-        const features = decodeMvtTile(bytes, z, x, y, { layers: this.layers })
-        if (features.length === 0) {
+      const { widthMerc, heightMerc } = tileSizeMerc(z, y)
+      if (pool) {
+        pool.compile(
+          bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+          z, x, y, this.meta.maxZoom,
+          widthMerc, heightMerc,
+          this.layers,
+        ).then(r => {
+          if (r.empty) {
+            sink.acceptResult(key, null)
+          } else {
+            sink.acceptResult(key, {
+              vertices: r.vertices,
+              indices: r.indices,
+              lineVertices: r.lineVertices,
+              lineIndices: r.lineIndices,
+              pointVertices: r.pointVertices,
+              outlineIndices: r.outlineIndices,
+              outlineVertices: r.outlineVertices,
+              outlineLineIndices: r.outlineLineIndices,
+              polygons: r.polygons,
+              fullCover: r.fullCover,
+              fullCoverFeatureId: r.fullCoverFeatureId,
+              prebuiltLineSegments: r.prebuiltLineSegments,
+              prebuiltOutlineSegments: r.prebuiltOutlineSegments,
+            })
+          }
+        }).catch(err => {
+          console.error('[pmtiles worker]', (err as Error)?.stack ?? err)
           sink.acceptResult(key, null)
-        } else {
-          const parts = decomposeFeatures(features)
-          const tile = compileSingleTile(parts, z, x, y, this.meta.maxZoom)
-          sink.acceptResult(key, tile ? compiledToResult(tile) : null)
+        }).finally(() => {
+          sink.releaseLoading(key)
+        })
+      } else {
+        try {
+          this.compileInline(key, bytes, z, x, y, widthMerc, heightMerc)
+        } finally {
+          sink.releaseLoading(key)
         }
-      } catch (err) {
-        console.error('[pmtiles compile]', (err as Error)?.stack ?? err)
-        sink.acceptResult(key, null)
-      } finally {
-        sink.releaseLoading(key)
       }
     }
   }
+
+  /** Inline compile path — used when Worker is unavailable (tests).
+   *  Same pipeline as the worker but blocks the main thread. */
+  private compileInline(
+    key: number, bytes: Uint8Array,
+    z: number, x: number, y: number,
+    widthMerc: number, heightMerc: number,
+  ): void {
+    if (!this.sink) return
+    const sink = this.sink
+    try {
+      const features = decodeMvtTile(bytes, z, x, y, { layers: this.layers })
+      if (features.length === 0) { sink.acceptResult(key, null); return }
+      const parts = decomposeFeatures(features)
+      const tile = compileSingleTile(parts, z, x, y, this.meta.maxZoom)
+      if (!tile) { sink.acceptResult(key, null); return }
+      let prebuiltOutlineSegments: Float32Array | undefined
+      let prebuiltLineSegments: Float32Array | undefined
+      if (tile.outlineVertices && tile.outlineVertices.length > 0
+          && tile.outlineLineIndices && tile.outlineLineIndices.length > 0) {
+        prebuiltOutlineSegments = buildLineSegments(
+          tile.outlineVertices, tile.outlineLineIndices, 10,
+          widthMerc, heightMerc,
+        )
+      }
+      if (tile.lineIndices.length > 0 && tile.lineVertices.length > 0) {
+        let lineStride: 6 | 10 = 6
+        let maxIdx = 0
+        for (let li = 0; li < tile.lineIndices.length; li++) {
+          if (tile.lineIndices[li] > maxIdx) maxIdx = tile.lineIndices[li]
+        }
+        const vertCount = maxIdx + 1
+        if (vertCount > 0 && tile.lineVertices.length / vertCount >= 10) lineStride = 10
+        prebuiltLineSegments = buildLineSegments(
+          tile.lineVertices, tile.lineIndices, lineStride,
+          widthMerc, heightMerc,
+        )
+      }
+      sink.acceptResult(key, {
+        vertices: tile.vertices,
+        indices: tile.indices,
+        lineVertices: tile.lineVertices,
+        lineIndices: tile.lineIndices,
+        pointVertices: tile.pointVertices,
+        outlineIndices: tile.outlineIndices,
+        outlineVertices: tile.outlineVertices,
+        outlineLineIndices: tile.outlineLineIndices,
+        polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
+        fullCover: tile.fullCover,
+        fullCoverFeatureId: tile.fullCoverFeatureId,
+        prebuiltLineSegments,
+        prebuiltOutlineSegments,
+      })
+    } catch (err) {
+      console.error('[pmtiles inline]', (err as Error)?.stack ?? err)
+      sink.acceptResult(key, null)
+    }
+  }
+
+  private _pool: MvtWorkerPool | null = null
+  private getPool(): MvtWorkerPool {
+    if (!this._pool) this._pool = getSharedMvtPool()
+    return this._pool
+  }
 }
 
-/** Convert compiler's CompiledTile into the catalog-side
- *  BackendTileResult shape. Pure field projection. */
-function compiledToResult(tile: CompiledTile): BackendTileResult {
-  return {
-    vertices: tile.vertices,
-    indices: tile.indices,
-    lineVertices: tile.lineVertices,
-    lineIndices: tile.lineIndices,
-    pointVertices: tile.pointVertices,
-    outlineIndices: tile.outlineIndices,
-    outlineVertices: tile.outlineVertices,
-    outlineLineIndices: tile.outlineLineIndices,
-    polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
-    fullCover: tile.fullCover,
-    fullCoverFeatureId: tile.fullCoverFeatureId,
+/** Tile dimensions in Mercator metres — used by the worker's
+ *  buildLineSegments call for tile-edge boundary detection.
+ *  Computed on main and passed to the worker so the worker doesn't
+ *  redo the trig per tile. */
+function tileSizeMerc(z: number, y: number): { widthMerc: number; heightMerc: number } {
+  const DEG2RAD = Math.PI / 180
+  const R = 6378137
+  const LAT_LIMIT = 85.051129
+  const clamp = (v: number) => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
+  const n = 1 << z
+  const widthMerc = (360 / n) * DEG2RAD * R
+  const yToLat = (yt: number) => {
+    const s = Math.PI - 2 * Math.PI * (yt / n)
+    return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(s) - Math.exp(-s)))
   }
+  const latNorth = yToLat(y)
+  const latSouth = yToLat(y + 1)
+  const myNorth = Math.log(Math.tan(Math.PI / 4 + clamp(latNorth) * DEG2RAD / 2)) * R
+  const mySouth = Math.log(Math.tan(Math.PI / 4 + clamp(latSouth) * DEG2RAD / 2)) * R
+  return { widthMerc, heightMerc: myNorth - mySouth }
 }
 
 /** True if Web-Mercator tile (z, x, y) overlaps the given lon/lat bounds. */

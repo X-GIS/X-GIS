@@ -73,6 +73,14 @@ export interface BackendTileResult {
    *  createFullCoverTileData. */
   fullCover?: boolean
   fullCoverFeatureId?: number
+  /** Pre-built SDF line-segment buffer (LINE_SEGMENT_STRIDE_F32 floats
+   *  per segment) ready for GPU upload. Backends that run the heavy
+   *  buildLineSegments call off-thread (MVT worker pool) populate this
+   *  so doUploadTile skips it on the main thread. Undefined → main
+   *  thread builds segments from lineVertices/lineIndices on upload. */
+  prebuiltLineSegments?: Float32Array
+  /** Same as prebuiltLineSegments but for polygon outline strokes. */
+  prebuiltOutlineSegments?: Float32Array
 }
 
 /** Metadata contributed by a backend at attach time. Catalog merges

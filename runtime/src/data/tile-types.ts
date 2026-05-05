@@ -36,6 +36,15 @@ export interface TileData {
   outlineVertices?: Float32Array
   outlineLineIndices?: Uint32Array
   pointVertices?: Float32Array // points — DSFUN stride 5
+  /** Pre-built SDF line-segment buffers ready for GPU upload. When
+   *  present, doUploadTile skips the on-main-thread buildLineSegments
+   *  call entirely. PMTiles MVT worker fills these so heavy line-
+   *  geometry math runs off-thread; XGVT-binary leaves them undefined
+   *  (its compact-tile worker also returns vertex/index buffers but
+   *  not segments — buildLineSegments still runs on main for that
+   *  path until the worker is extended). */
+  prebuiltLineSegments?: Float32Array
+  prebuiltOutlineSegments?: Float32Array
   tileWest: number             // tile origin (degrees) — canonical identity
   tileSouth: number
   tileWidth: number

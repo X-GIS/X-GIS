@@ -245,6 +245,8 @@ export class TileCatalog {
       result.outlineIndices,
       result.outlineVertices,
       result.outlineLineIndices,
+      result.prebuiltLineSegments,
+      result.prebuiltOutlineSegments,
     )
   }
 
@@ -660,6 +662,8 @@ export class TileCatalog {
     outlineIndices?: Uint32Array,
     outlineVertices?: Float32Array,
     outlineLineIndices?: Uint32Array,
+    prebuiltLineSegments?: Float32Array,
+    prebuiltOutlineSegments?: Float32Array,
   ): void {
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
@@ -674,6 +678,8 @@ export class TileCatalog {
       outlineVertices: outlineVertices && outlineVertices.length > 0 ? outlineVertices : undefined,
       outlineLineIndices: outlineLineIndices && outlineLineIndices.length > 0 ? outlineLineIndices : undefined,
       pointVertices,
+      prebuiltLineSegments: prebuiltLineSegments && prebuiltLineSegments.length > 0 ? prebuiltLineSegments : undefined,
+      prebuiltOutlineSegments: prebuiltOutlineSegments && prebuiltOutlineSegments.length > 0 ? prebuiltOutlineSegments : undefined,
       tileWest, tileSouth,
       tileWidth: tileEast - tileWest,
       tileHeight: tileNorth - tileSouth,

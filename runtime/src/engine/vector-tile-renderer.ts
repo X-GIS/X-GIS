@@ -548,28 +548,33 @@ export class VectorTileRenderer {
       // indices-into-fill-vertices path is gone.
       if (data.outlineVertices && data.outlineVertices.length > 0
           && data.outlineLineIndices && data.outlineLineIndices.length > 0) {
-        const segData = buildLineSegments(
-          data.outlineVertices, data.outlineLineIndices, 10,
-          tileWidthMerc, tileHeightMerc,
-        )
+        // PMTiles MVT worker pre-builds segments off-thread; reuse if
+        // present, else build now on the main thread (XGVT-binary path).
+        const segData = data.prebuiltOutlineSegments
+          ?? buildLineSegments(data.outlineVertices, data.outlineLineIndices, 10, tileWidthMerc, tileHeightMerc)
         outlineSegmentBuffer = this.lineRenderer.uploadSegmentBuffer(segData)
         outlineSegmentCount = data.outlineLineIndices.length / 2
         outlineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(outlineSegmentBuffer)
       }
       if (data.lineIndices.length > 0 && data.lineVertices.length > 0) {
-        // Line features: detect stride from vertex data length / vertex count.
-        // Stride 10 includes precomputed tangent_in/out for cross-tile joins;
-        // stride 6 is the legacy format without tangents.
-        let lineStride: 6 | 10 = 6
-        if (data.lineIndices.length > 0) {
-          let maxIdx = 0
-          for (let li = 0; li < data.lineIndices.length; li++) {
-            if (data.lineIndices[li] > maxIdx) maxIdx = data.lineIndices[li]
+        let segData: Float32Array
+        if (data.prebuiltLineSegments) {
+          segData = data.prebuiltLineSegments
+        } else {
+          // Line features: detect stride from vertex data length / vertex count.
+          // Stride 10 includes precomputed tangent_in/out for cross-tile joins;
+          // stride 6 is the legacy format without tangents.
+          let lineStride: 6 | 10 = 6
+          if (data.lineIndices.length > 0) {
+            let maxIdx = 0
+            for (let li = 0; li < data.lineIndices.length; li++) {
+              if (data.lineIndices[li] > maxIdx) maxIdx = data.lineIndices[li]
+            }
+            const vertCount = maxIdx + 1
+            if (vertCount > 0 && data.lineVertices.length / vertCount >= 10) lineStride = 10
           }
-          const vertCount = maxIdx + 1
-          if (vertCount > 0 && data.lineVertices.length / vertCount >= 10) lineStride = 10
+          segData = buildLineSegments(data.lineVertices, data.lineIndices, lineStride, tileWidthMerc, tileHeightMerc)
         }
-        const segData = buildLineSegments(data.lineVertices, data.lineIndices, lineStride, tileWidthMerc, tileHeightMerc)
         lineSegmentBuffer = this.lineRenderer.uploadSegmentBuffer(segData)
         lineSegmentCount = data.lineIndices.length / 2
         lineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(lineSegmentBuffer)
