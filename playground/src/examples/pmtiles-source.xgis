@@ -1,21 +1,23 @@
-/* PMTiles source — MVT-inside-PMTiles archive served via HTTP range
- * requests. The runtime detects the .pmtiles extension and routes
- * through `populatePMTilesSource` (Phase 2 MVP, pre-fetches all
- * tiles in the archive's bounds + zoom range, decodes each MVT
- * via @mapbox/vector-tile, runs them through compileSingleTile,
- * and stuffs the results into an XGVTSource — same downstream
- * path as a native .xgvt file).
+/* PMTiles source — MVT-inside-PMTiles archive served via HTTP byte
+ * range requests. The runtime detects .pmtiles, attaches a
+ * PMTilesBackend lazily via attachPMTilesSource (Phase 1 Step 5 of
+ * the layer-type refactor — see plans/delegated-hopping-cray.md).
+ * Tiles are fetched on-demand only when the camera reaches them;
+ * the archive header is the only upfront cost.
  *
- * To run: drop a small .pmtiles file at
- *   playground/public/sample.pmtiles
- * Tippecanoe one-liner from a GeoJSON:
- *   tippecanoe -o sample.pmtiles -z 6 -Z 0 input.geojson
+ * Sample dataset: protomaps Firenze (Florence) — z=0..15, bounds
+ * [lon 11.227..11.275, lat 43.732..43.794], 92 tile entries.
+ * This is a tiny city extract (~5km × 7km), so:
  *
- * Limitations of the MVP (deliberate):
- *   • Pre-fetches the entire archive on load — fine for small
- *     datasets, replace with on-demand source for large archives.
- *   • Empty PropertyTable — feature properties are not yet
- *     surfaced to the styling layer (constant colors only).
+ *   • At z<10 viewing Florence center the data area is sub-pixel —
+ *     SCREEN APPEARS BLANK (this is correct, not a bug).
+ *   • To see actual streets/buildings, navigate to z=12 or higher:
+ *       https://localhost:3000/demo.html?id=pmtiles_source#13/43.77/11.25
+ *   • Mercator projection is recommended over orthographic for city-
+ *     scale viewing (ortho is best for whole-world archives).
+ *
+ * Substitute any other .pmtiles URL — protomaps publishes daily
+ * world basemaps + city extracts at https://maps.protomaps.com/builds/.
  */
 source pm {
   type: pmtiles
