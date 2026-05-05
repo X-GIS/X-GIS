@@ -1160,10 +1160,29 @@ fn plane_signed(p: vec2<f32>, origin: vec2<f32>, outward_nrm: vec2<f32>) -> f32 
 //              validation error. This path returns plain color only.
 fn compute_line_color(in: LineOut) -> vec4<f32> {
   // Backface cull for globe projections (orthographic / azimuthal /
-  // stereographic). cos_c is the interpolated visibility signal from
-  // vs_line; needs_backface_cull returns +1 for flat projections so
-  // this is a no-op for Mercator / equirect / natural earth.
-  if (in.cos_c < 0.0) { discard; }
+  // stereographic), evaluated PER FRAGMENT.
+  //
+  // Per-vertex cos_c was the original cull (5867a80) but interpolating
+  // a non-linear function (cos_c is the cosine of great-circle distance
+  // from camera) across a thick stroke quad gives wrong values inside
+  // the quad — fragments whose actual world position is on the back
+  // hemisphere can interpolate to a positive cos_c if all four quad
+  // corners are barely positive. Reconstruct lon/lat at the fragment
+  // from in.world_local and dispatch the canonical helper. For flat
+  // projections (Mercator / equirect / natural earth) the helper
+  // returns +1, so this is a no-op there.
+  //
+  // in.world_local is in the stroke geometry frame (see line_endpoint
+  // / finalize_corner): cam-relative projected XY for Mercator,
+  // tile-local source Mercator for non-Mercator. We only need the
+  // non-Mercator branch since the helper short-circuits for flat.
+  if (tile.proj_params.x >= 0.5) {
+    let abs_merc = in.world_local + tile.tile_origin_merc;
+    let abs_lon = abs_merc.x / (DEG2RAD * EARTH_R);
+    let lat_rad = 2.0 * atan(exp(abs_merc.y / EARTH_R)) - PI / 2.0;
+    let abs_lat = lat_rad / DEG2RAD;
+    if (needs_backface_cull(abs_lon, abs_lat, tile.proj_params) < 0.0) { discard; }
+  }
   let seg = segments[in.seg_id];
   let p = in.world_local;
   // Reconstruct p0/p1 in the SAME geometry frame as in.world_local
