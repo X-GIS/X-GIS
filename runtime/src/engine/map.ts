@@ -1479,6 +1479,13 @@ export class XGISMap {
       this.renderer.beginFrame()
       this.lineRenderer?.beginFrame()
       this.rasterRenderer.beginFrame()
+      // PointRenderer drains its retired tile-point buffer queue here
+      // — buffers retired during last frame's renderTilePoints can
+      // safely be destroyed now that queue.submit() has returned for
+      // that frame. Keeps the multi-VTR layered demo (4× tile-point
+      // rebuilds per frame) from triggering "Buffer used in submit
+      // while destroyed" validation errors.
+      this.pointRenderer?.beginFrame()
       for (const [, { renderer: vtR }] of this.vtSources) vtR.beginFrame()
 
       // ══════ Bucket scheduler ══════

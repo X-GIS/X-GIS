@@ -618,7 +618,33 @@ export class PointRenderer {
   private tilePointBuffer: GPUBuffer | null = null
   private tilePointIndexBuffer: GPUBuffer | null = null
   private tilePointFeatBuffer: GPUBuffer | null = null
+  /** Buffers retired this frame because renderTilePoints rebuilt
+   *  its tile-point geometry. Destroyed at the START of the NEXT
+   *  frame so any in-flight queue.submit() that bound them via
+   *  tilePointBindGroup completes first. Mirrors the
+   *  retiredUniformRings pattern in vector-tile-renderer.ts:
+   *  WebGPU spec keeps the GPU-side memory alive after destroy()
+   *  for already-submitted work, but it's illegal to ENQUEUE new
+   *  commands referencing a destroyed buffer. With multi-source
+   *  layered demos (4 VTRs each calling renderTilePoints per
+   *  frame), the rapid destroy+recreate inside renderTilePoints
+   *  hit "Buffer used in submit while destroyed" validation
+   *  errors when the prior frame's command encoder still
+   *  referenced the same bind group. */
+  private retiredTilePointBuffers: GPUBuffer[] = []
   private tilePointBindGroup: GPUBindGroup | null = null
+
+  /** Drain retired-buffer queue from the previous frame. Safe by
+   *  this point because the previous frame's queue.submit() has
+   *  already returned (it's synchronous in JS) and the GPU keeps
+   *  destroyed buffers' memory alive until that work completes.
+   *  MapRenderer should call this once per frame before any
+   *  renderTilePoints / renderPoints call. */
+  beginFrame(): void {
+    if (this.retiredTilePointBuffers.length === 0) return
+    for (const b of this.retiredTilePointBuffers) b.destroy()
+    this.retiredTilePointBuffers.length = 0
+  }
 
   /** Accumulate a point from a visible tile (pre-computed RTC) */
   addTilePoint(rtcX: number, rtcY: number, featId: number): void {
@@ -693,9 +719,13 @@ export class PointRenderer {
       }
     }
 
-    this.tilePointBuffer?.destroy()
-    this.tilePointIndexBuffer?.destroy()
-    this.tilePointFeatBuffer?.destroy()
+    // Defer destroy of the previous frame's buffers — see
+    // retiredTilePointBuffers comment. Drained at the start of the
+    // next frame via beginFrame() once the prior submit has
+    // completed.
+    if (this.tilePointBuffer) this.retiredTilePointBuffers.push(this.tilePointBuffer)
+    if (this.tilePointIndexBuffer) this.retiredTilePointBuffers.push(this.tilePointIndexBuffer)
+    if (this.tilePointFeatBuffer) this.retiredTilePointBuffers.push(this.tilePointFeatBuffer)
 
     this.tilePointBuffer = this.device.createBuffer({ size: verts.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, label: 'tile-point-vertices' })
     this.device.queue.writeBuffer(this.tilePointBuffer, 0, verts)
