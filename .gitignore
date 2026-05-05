@@ -32,6 +32,14 @@ playground/public/data/*
 playground/test-results/
 playground/playwright-report/
 playground/.playwright/
+/test-results/
+
+# Profiling + perf-debug dumps (ad-hoc, not source-controlled)
+*.cpuprofile
+playground/profile-*
+playground/baseline-stats.json
+playground/post-p1-stats.json
+/filter-gdp-iphone.png
 
 # Build artifacts in source dirs
 **/*.js.map
