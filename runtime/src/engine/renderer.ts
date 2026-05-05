@@ -277,6 +277,11 @@ export interface ShowCommand {
    *  wrappers. Legacy syntax that lacks a separate layer name reuses
    *  `targetName`. */
   layerName?: string
+  /** Optional MVT layer slice within the source. When set, the
+   *  catalog returns only that slice's TileData and the renderer
+   *  draws only its geometry. Mapbox-style `source-layer` semantics
+   *  (camelCase here for lexer compatibility). */
+  sourceLayer?: string
   fill: string | null
   stroke: string | null
   strokeWidth: number
@@ -590,6 +595,7 @@ export class MapRenderer {
   private graticuleVertexCount = 0
   private lastGratZoom = -1
 
+
   /** Get rendering stats for all layers */
   getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number } {
     let drawCalls = 0, vertices = 0, triangles = 0, lines = 0
@@ -785,9 +791,21 @@ export class MapRenderer {
     })
   }
 
+  /** Ring buffers retired by growUniformRing during the previous frame.
+   *  Destroyed at the START of the next frame, after the previous
+   *  frame's queue.submit() completed — destroying mid-frame races
+   *  with in-flight commands that still reference the old ring via
+   *  bind groups recorded into the current encoder, which surfaces
+   *  as STATUS_BREAKPOINT (GPU process __debugbreak under buffer-
+   *  used-after-destroyed validation). VTR uses the same pattern;
+   *  see vector-tile-renderer.ts:retiredUniformRings. */
+  private retiredUniformRings: GPUBuffer[] = []
+
   /** Reset the ring-buffer slot cursor. Call once per frame before any draws. */
   beginFrame(): void {
     this.uniformSlot = 0
+    for (const b of this.retiredUniformRings) b.destroy()
+    this.retiredUniformRings.length = 0
   }
 
   /** Copy a draw's uniform block into the staging mirror; tracked by
@@ -829,7 +847,10 @@ export class MapRenderer {
     const { device } = this.ctx
     let newCap = this.uniformRingCapacity
     while (newCap < minSlots) newCap *= 2
-    this.uniformBuffer?.destroy()
+    // Defer destroy: in-flight commands recorded into the current
+    // frame's encoder still reference the old buffer via bind groups.
+    // beginFrame() destroys these after the next queue.submit() wraps.
+    if (this.uniformBuffer) this.retiredUniformRings.push(this.uniformBuffer)
     this.uniformRingCapacity = newCap
     this.uniformBuffer = device.createBuffer({
       size: newCap * MapRenderer.UNIFORM_SLOT,

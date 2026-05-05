@@ -1,7 +1,7 @@
 // ═══ AST Interpreter — AST를 실행 가능한 명령으로 변환 ═══
 
 import type * as AST from '@xgis/compiler'
-import { resolveUtilities } from '@xgis/compiler'
+import { resolveUtilities, resolveColor } from '@xgis/compiler'
 import type { ShowCommand } from './renderer'
 
 export interface LoadCommand {
@@ -20,6 +20,11 @@ export interface SceneCommands {
   loads: LoadCommand[]
   shows: ShowCommand[]
   symbols?: { name: string; paths: string[] }[]
+  /** Resolved background fill color (`#rrggbb` or `#rrggbbaa`).
+   *  Set when the .xgis program contains a `background { ... }`
+   *  block. Renderer applies it as the canvas clearValue; absent
+   *  → renderer keeps its built-in default. */
+  background?: string
 }
 
 /**
@@ -30,8 +35,14 @@ export function interpret(program: AST.Program): SceneCommands {
   const loads: LoadCommand[] = []
   const shows: ShowCommand[] = []
   const sources = new Map<string, SourceDef>()
+  let background: string | undefined
 
   for (const stmt of program.body) {
+    if (stmt.kind === 'BackgroundStatement') {
+      const c = extractBackgroundColor(stmt)
+      if (c) background = c
+      continue
+    }
     if (stmt.kind === 'LetStatement') {
       const load = extractLoad(stmt)
       if (load) loads.push(load)
@@ -44,13 +55,42 @@ export function interpret(program: AST.Program): SceneCommands {
     } else if (stmt.kind === 'LayerStatement') {
       const result = extractLayer(stmt, sources)
       if (result) {
-        loads.push(result.load)
+        // De-dupe LoadCommands by source name. Multiple xgis layers
+        // sharing one source (Mapbox-style: one PMTiles archive,
+        // many `sourceLayer:` filters) must reference the SAME
+        // backend instance — emitting a fresh LoadCommand per layer
+        // would race-create N orphan TileCatalog/VTRs and the actual
+        // rendering ends up wired to whichever attachPMTilesSource
+        // finished last. Symptom: gpuCache stays at 0 forever.
+        if (!loads.some(l => l.name === result.load.name)) {
+          loads.push(result.load)
+        }
         shows.push(result.show)
       }
     }
   }
 
-  return { loads, shows }
+  return { loads, shows, background }
+}
+
+function extractBackgroundColor(stmt: AST.BackgroundStatement): string | undefined {
+  // Walk utility items first (e.g. `| fill-sky-900`), then explicit
+  // `fill: <color>` style properties — last-write-wins matches how
+  // resolveUtilities + style props interact for layers.
+  const allItems: AST.UtilityItem[] = []
+  for (const line of stmt.utilities) allItems.push(...line.items)
+  const resolved = resolveUtilities(allItems)
+  let color = resolved.fill ?? undefined
+  for (const sp of stmt.styleProperties) {
+    if (sp.name !== 'fill') continue
+    const raw = sp.value
+    if (raw.startsWith('#')) color = raw
+    else {
+      const hex = resolveColor(raw)
+      if (hex) color = hex
+    }
+  }
+  return color ?? undefined
 }
 
 // ═══ New syntax: source/layer ═══
@@ -97,11 +137,14 @@ function extractLayer(
   stmt: AST.LayerStatement,
   sources: Map<string, SourceDef>,
 ): { load: LoadCommand; show: ShowCommand } | null {
-  // Find source reference
+  // Find source reference + optional sourceLayer slice
   let sourceName = ''
+  let sourceLayer: string | undefined
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
       sourceName = prop.value.name
+    } else if (prop.name === 'sourceLayer' && prop.value.kind === 'StringLiteral') {
+      sourceLayer = prop.value.value
     }
   }
 
@@ -122,6 +165,7 @@ function extractLayer(
     show: {
       targetName: sourceDef.name,
       layerName: sourceDef.name,
+      sourceLayer,
       fill: resolved.fill,
       stroke: resolved.stroke,
       strokeWidth: resolved.strokeWidth,

@@ -20,6 +20,7 @@
 import {
   tileKeyUnpack,
   decodeMvtTile, decomposeFeatures, compileSingleTile,
+  type GeoJSONFeature,
 } from '@xgis/compiler'
 import { buildLineSegments } from '../../engine/line-segment-build'
 import type {
@@ -41,6 +42,11 @@ export interface PMTilesBackendOptions {
   bounds: [number, number, number, number]
   /** MVT layer name allow-list (decoder filters before compile). */
   layers?: string[]
+  /** Per-MVT-layer info from `metadata.vector_layers` — id +
+   *  minzoom/maxzoom + (optional) field schema. Used by the runtime
+   *  to skip work for layers that don't have data at the current
+   *  camera zoom (e.g. protomaps v4 `buildings` only at z≥14). */
+  vectorLayers?: Array<{ id: string; minzoom: number; maxzoom: number; fields?: Record<string, string> }>
 }
 
 /** Per-backend cap on simultaneous in-flight HTTP fetches. Independent
@@ -53,13 +59,30 @@ export class PMTilesBackend implements TileSource {
   private fetcher: PMTilesFetcher
   private layers: string[] | undefined
   private sink: TileSourceSink | null = null
+  /** Per-MVT-layer info from PMTiles metadata, indexed by layer id. */
+  private vectorLayerInfo: Map<string, { minzoom: number; maxzoom: number }>
 
   /** Raw MVT bytes waiting for decode+compile. Drained by tick(). */
   private pendingMvt: { key: number; bytes: Uint8Array }[] = []
 
+  /** Per-layer zoom range from PMTiles metadata. Returns null when
+   *  the archive didn't ship vector_layers metadata or the requested
+   *  layer isn't listed. Caller (runtime) uses this to short-circuit
+   *  rendering / sub-tile generation when the camera zoom is outside
+   *  the layer's data range. */
+  getLayerZoomRange(layerName: string): { minzoom: number; maxzoom: number } | null {
+    return this.vectorLayerInfo.get(layerName) ?? null
+  }
+
   constructor(opts: PMTilesBackendOptions) {
     this.fetcher = opts.fetcher
     this.layers = opts.layers
+    this.vectorLayerInfo = new Map()
+    if (opts.vectorLayers) {
+      for (const vl of opts.vectorLayers) {
+        this.vectorLayerInfo.set(vl.id, { minzoom: vl.minzoom, maxzoom: vl.maxzoom })
+      }
+    }
     this.meta = {
       bounds: opts.bounds,
       minZoom: opts.minZoom,
@@ -145,25 +168,30 @@ export class PMTilesBackend implements TileSource {
           z, x, y, this.meta.maxZoom,
           widthMerc, heightMerc,
           this.layers,
-        ).then(r => {
-          if (r.empty) {
+        ).then(slices => {
+          if (slices.length === 0) {
             sink.acceptResult(key, null)
-          } else {
+            return
+          }
+          // Each slice is one MVT layer's geometry — push under its
+          // layerName so xgis layers with `sourceLayer: "<name>"`
+          // pick the matching slice from the catalog cache.
+          for (const slice of slices) {
             sink.acceptResult(key, {
-              vertices: r.vertices,
-              indices: r.indices,
-              lineVertices: r.lineVertices,
-              lineIndices: r.lineIndices,
-              pointVertices: r.pointVertices,
-              outlineIndices: r.outlineIndices,
-              outlineVertices: r.outlineVertices,
-              outlineLineIndices: r.outlineLineIndices,
-              polygons: r.polygons,
-              fullCover: r.fullCover,
-              fullCoverFeatureId: r.fullCoverFeatureId,
-              prebuiltLineSegments: r.prebuiltLineSegments,
-              prebuiltOutlineSegments: r.prebuiltOutlineSegments,
-            })
+              vertices: slice.vertices,
+              indices: slice.indices,
+              lineVertices: slice.lineVertices,
+              lineIndices: slice.lineIndices,
+              pointVertices: slice.pointVertices,
+              outlineIndices: slice.outlineIndices,
+              outlineVertices: slice.outlineVertices,
+              outlineLineIndices: slice.outlineLineIndices,
+              polygons: slice.polygons,
+              fullCover: slice.fullCover,
+              fullCoverFeatureId: slice.fullCoverFeatureId,
+              prebuiltLineSegments: slice.prebuiltLineSegments,
+              prebuiltOutlineSegments: slice.prebuiltOutlineSegments,
+            }, slice.layerName)
           }
         }).catch(err => {
           console.error('[pmtiles worker]', (err as Error)?.stack ?? err)
@@ -193,46 +221,63 @@ export class PMTilesBackend implements TileSource {
     try {
       const features = decodeMvtTile(bytes, z, x, y, { layers: this.layers })
       if (features.length === 0) { sink.acceptResult(key, null); return }
-      const parts = decomposeFeatures(features)
-      const tile = compileSingleTile(parts, z, x, y, this.meta.maxZoom)
-      if (!tile) { sink.acceptResult(key, null); return }
-      let prebuiltOutlineSegments: Float32Array | undefined
-      let prebuiltLineSegments: Float32Array | undefined
-      if (tile.outlineVertices && tile.outlineVertices.length > 0
-          && tile.outlineLineIndices && tile.outlineLineIndices.length > 0) {
-        prebuiltOutlineSegments = buildLineSegments(
-          tile.outlineVertices, tile.outlineLineIndices, 10,
-          widthMerc, heightMerc,
-        )
+      // Mirror the worker's group-by-`_layer` so each MVT layer becomes
+      // its own slice keyed under (key, layerName). Without this, vitest
+      // runs (no Worker constructor) collapse all features into a single
+      // unnamed slice and xgis layers with `sourceLayer: "..."` filter
+      // miss everything.
+      const byLayer = new Map<string, GeoJSONFeature[]>()
+      for (const f of features) {
+        const ln = (f.properties?._layer as string) ?? ''
+        let bucket = byLayer.get(ln)
+        if (!bucket) { bucket = []; byLayer.set(ln, bucket) }
+        bucket.push(f)
       }
-      if (tile.lineIndices.length > 0 && tile.lineVertices.length > 0) {
-        let lineStride: 6 | 10 = 6
-        let maxIdx = 0
-        for (let li = 0; li < tile.lineIndices.length; li++) {
-          if (tile.lineIndices[li] > maxIdx) maxIdx = tile.lineIndices[li]
+      let emittedAny = false
+      for (const [layerName, layerFeatures] of byLayer) {
+        const parts = decomposeFeatures(layerFeatures)
+        const tile = compileSingleTile(parts, z, x, y, this.meta.maxZoom)
+        if (!tile) continue
+        let prebuiltOutlineSegments: Float32Array | undefined
+        let prebuiltLineSegments: Float32Array | undefined
+        if (tile.outlineVertices && tile.outlineVertices.length > 0
+            && tile.outlineLineIndices && tile.outlineLineIndices.length > 0) {
+          prebuiltOutlineSegments = buildLineSegments(
+            tile.outlineVertices, tile.outlineLineIndices, 10,
+            widthMerc, heightMerc,
+          )
         }
-        const vertCount = maxIdx + 1
-        if (vertCount > 0 && tile.lineVertices.length / vertCount >= 10) lineStride = 10
-        prebuiltLineSegments = buildLineSegments(
-          tile.lineVertices, tile.lineIndices, lineStride,
-          widthMerc, heightMerc,
-        )
+        if (tile.lineIndices.length > 0 && tile.lineVertices.length > 0) {
+          let lineStride: 6 | 10 = 6
+          let maxIdx = 0
+          for (let li = 0; li < tile.lineIndices.length; li++) {
+            if (tile.lineIndices[li] > maxIdx) maxIdx = tile.lineIndices[li]
+          }
+          const vertCount = maxIdx + 1
+          if (vertCount > 0 && tile.lineVertices.length / vertCount >= 10) lineStride = 10
+          prebuiltLineSegments = buildLineSegments(
+            tile.lineVertices, tile.lineIndices, lineStride,
+            widthMerc, heightMerc,
+          )
+        }
+        sink.acceptResult(key, {
+          vertices: tile.vertices,
+          indices: tile.indices,
+          lineVertices: tile.lineVertices,
+          lineIndices: tile.lineIndices,
+          pointVertices: tile.pointVertices,
+          outlineIndices: tile.outlineIndices,
+          outlineVertices: tile.outlineVertices,
+          outlineLineIndices: tile.outlineLineIndices,
+          polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
+          fullCover: tile.fullCover,
+          fullCoverFeatureId: tile.fullCoverFeatureId,
+          prebuiltLineSegments,
+          prebuiltOutlineSegments,
+        }, layerName)
+        emittedAny = true
       }
-      sink.acceptResult(key, {
-        vertices: tile.vertices,
-        indices: tile.indices,
-        lineVertices: tile.lineVertices,
-        lineIndices: tile.lineIndices,
-        pointVertices: tile.pointVertices,
-        outlineIndices: tile.outlineIndices,
-        outlineVertices: tile.outlineVertices,
-        outlineLineIndices: tile.outlineLineIndices,
-        polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
-        fullCover: tile.fullCover,
-        fullCoverFeatureId: tile.fullCoverFeatureId,
-        prebuiltLineSegments,
-        prebuiltOutlineSegments,
-      })
+      if (!emittedAny) sink.acceptResult(key, null)
     } catch (err) {
       console.error('[pmtiles inline]', (err as Error)?.stack ?? err)
       sink.acceptResult(key, null)

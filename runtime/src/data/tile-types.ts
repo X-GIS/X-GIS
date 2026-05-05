@@ -59,10 +59,24 @@ export const DSFUN_LINE_STRIDE = 10
 
 // ═══ Catalog-level constants ═══
 
-/** Soft cap on cached TileData entries before eviction kicks in. */
-export const MAX_CACHED_TILES = 512
+/** Soft cap on UNIQUE tile keys before eviction kicks in. Per-tile
+ *  inner-Map holds one TileData per MVT source-layer, so cache
+ *  memory scales N×. 1024 keys × ~4 layers × ~5 typed arrays each
+ *  ≈ 20K small typed-arrays — plenty of pan-history headroom
+ *  before eviction churns visible-but-recently-out-of-frame tiles
+ *  back into the regenerate pipeline. Smaller caps caused
+ *  visible flicker during continuous panning at over-zoom: tiles
+ *  evicted on pan-out, regenerated on pan-back. The actual GPU
+ *  memory cap (MAX_GPU_TILES = 256) bounds VRAM independently,
+ *  so a generous CPU-side cap costs only JS heap. */
+export const MAX_CACHED_TILES = 1024
 
-/** Hard cap on simultaneous in-flight tile fetches across all backends. */
+/** Hard cap on simultaneous in-flight tile fetches across all
+ *  backends. 32 keeps initial load at city-scale views under
+ *  ~2 seconds (4-6 visible tiles + parent prefetch fit in one
+ *  fetch wave) without creating GPU pressure — the per-MVT-layer
+ *  decoder filter ensures only used slices compile, so each tile
+ *  yields ~4 buffers regardless of archive layer count. */
 export const MAX_CONCURRENT_LOADS = 32
 
 // ═══ VirtualCatalog (legacy hook — to be replaced by TileSource in Step 3) ═══

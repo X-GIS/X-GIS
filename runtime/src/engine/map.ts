@@ -1,12 +1,14 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { Lexer, Parser, lower, optimize, emitCommands, evaluate, deserializeXGB, resolveImportsAsync } from '@xgis/compiler'
+import { Lexer, Parser, lower, optimize, emitCommands, evaluate, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, type Program } from '@xgis/compiler'
+import type * as AST from '@xgis/compiler'
+import { BackgroundRenderer } from './background-renderer'
 import { getSharedGeoJSONCompilePool } from '../data/geojson-compile-pool'
 import { initGPU, resizeCanvas, GPU_PROF, getSampleCount, getMaxDpr, isPickEnabled, type GPUContext } from './gpu'
 import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './quality'
 import { GPUTimer } from './gpu-timer'
 import { Camera } from './camera'
-import { MapRenderer, interpolateZoom } from './renderer'
+import { MapRenderer, interpolateZoom, type ShowCommand } from './renderer'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
   groupOpaqueBySource as groupOpaqueBySourceImpl,
@@ -226,7 +228,13 @@ export class XGISMap {
    *  sustains past that horizon. */
   private _flickerFirstFrame = new Map<string, number>()
   private _frameCount = 0
-  private static readonly FLICKER_GRACE_FRAMES = 60
+  // Bumped from 60 → 240 (4 s @ 60 fps) — PMTiles world-scale
+  // archives at z=0/z=1 trigger massive worker compiles (water +
+  // earth polygons spanning the planet) that legitimately take
+  // 2–4 seconds on first-load before any slice arrives. The shorter
+  // grace fired stale FLICKER warnings for the entire load period
+  // even though everything was working as designed.
+  private static readonly FLICKER_GRACE_FRAMES = 240
   /** Ring buffer of recent FLICKER dispatches across ALL sources,
    *  keyed by wall-clock time so `inspectPipeline()` can show what
    *  happened in the last few seconds. Capped at 32 entries — the
@@ -240,6 +248,11 @@ export class XGISMap {
    *  properties in future PRs). Null until first renderFrame. */
   private _startTime: number | null = null
   private _elapsedMs = 0
+  /** Earth-surface fill color resolved from `background { fill: ... }`.
+   *  Forwarded to BackgroundRenderer after GPU init. null = no
+   *  background block declared, canvas clearValue dominates. */
+  private _backgroundColor: [number, number, number, number] | null = null
+  private backgroundRenderer: BackgroundRenderer | null = null
 
   // ── Idle-render skip ──
   // Before this, `renderLoop` called `renderFrame()` every rAF (~60Hz) even
@@ -724,6 +737,41 @@ export class XGISMap {
       ? emitCommands(optimize(lower(ast), ast))
       : interpret(ast)
 
+    // background { fill: <color> } — Mapbox-style earth-surface fill.
+    // Implemented as a fullscreen-quad pre-pass via BackgroundRenderer:
+    // depth-test ALWAYS, depth-write OFF, stencil writeMask 0. Doesn't
+    // interact with the layer depth/stencil bookkeeping at all, so
+    // user layers paint freely on top with no z-fight even at high
+    // pitch under log-depth precision compression. Color lookup:
+    // utility lines first (`| fill-sky-900` → resolveUtilities →
+    // hex), then style properties (`fill: sky-900` or `fill: #082f49`).
+    // StyleProperty stores the raw string; `sky-900` resolves via
+    // resolveColor(); bare `#rrggbb` passes through.
+    //
+    // Trade-off: in non-Mercator projections this also paints "space"
+    // outside the projected globe. Acceptable for the projections
+    // currently shipped (Mercator + 2D variants); globe-style
+    // projections will need a sphere proxy on top of this.
+    let bgColor: string | null = null
+    for (const stmt of ast.body) {
+      if (stmt.kind !== 'BackgroundStatement') continue
+      const items: AST.UtilityItem[] = []
+      for (const line of stmt.utilities) items.push(...line.items)
+      const resolved = resolveUtilities(items)
+      let color: string | null = resolved.fill ?? null
+      for (const sp of stmt.styleProperties) {
+        if (sp.name !== 'fill') continue
+        const raw = sp.value
+        if (raw.startsWith('#')) color = raw
+        else {
+          const hex = resolveColor(raw)
+          if (hex) color = hex
+        }
+      }
+      if (color) bgColor = color
+    }
+    if (bgColor) this._backgroundColor = parseHexColor(bgColor)
+
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
 
@@ -732,6 +780,8 @@ export class XGISMap {
       this.ctx = await initGPU(this.canvas)
       this.renderer = new MapRenderer(this.ctx)
       this.rasterRenderer = new RasterRenderer(this.ctx)
+      this.backgroundRenderer = new BackgroundRenderer(this.ctx)
+      if (this._backgroundColor) this.backgroundRenderer.setFill(this._backgroundColor)
       if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
       try {
         this.pointRenderer = new PointRenderer(this.ctx)
@@ -768,6 +818,24 @@ export class XGISMap {
     // next started). Promise.all lets index fetches overlap and lets
     // tile decompressions interleave on the main thread.
     let cameraFit = false
+
+    // Per-source set of MVT source-layers actually consumed by xgis
+    // layers. Forwarded into PMTilesBackend's MVT decoder filter so
+    // protomaps v4 (10+ layers per tile) doesn't compile + upload
+    // 'earth'/'natural'/'pois'/'physical_*'/'transit' slices that the
+    // demo never renders. At z=0 the unused 'earth' slice alone is
+    // world-scale geometry — eliminating it cuts GPU buffer count by
+    // 2-3× and is what stopped Chrome STATUS_BREAKPOINT for the
+    // pmtiles_layered demo. Empty / undefined set = no filter (all
+    // layers compiled).
+    const usedSourceLayers = new Map<string, Set<string>>()
+    for (const show of commands.shows) {
+      if (!show.sourceLayer) continue
+      let set = usedSourceLayers.get(show.targetName)
+      if (!set) { set = new Set(); usedSourceLayers.set(show.targetName, set) }
+      set.add(show.sourceLayer)
+    }
+
     const loadPromises = commands.loads.map(async (load) => {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
       console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
@@ -794,7 +862,16 @@ export class XGISMap {
           // selection requests them. No zoom-range cap; the full
           // archive's z range is available, including overzoom past
           // the archive maxZoom (handled by sub-tile generation).
-          await attachPMTilesSource(source, { url: fullUrl, layers: load.layers })
+          // Merge explicit `layers:` from the source DSL with the
+          // inferred set from xgis layers' `sourceLayer` filters. Either
+          // alone is enough; both means intersection (explicit wins for
+          // any layer not in the inferred set, but inferred set is
+          // typically a subset of explicit).
+          const inferred = usedSourceLayers.get(load.name)
+          const filterLayers = load.layers && load.layers.length > 0
+            ? load.layers
+            : (inferred && inferred.size > 0 ? [...inferred] : undefined)
+          await attachPMTilesSource(source, { url: fullUrl, layers: filterLayers })
         } else {
           try {
             await source.loadFromURL(fullUrl)
@@ -1288,11 +1365,29 @@ export class XGISMap {
     )
   }
 
-  /** Returns true when any source has tile loads / compile work queued for
-   *  this frame. Prevents stranding off-screen loads once the camera settles. */
+  /** Returns true when any source still has work that didn't fit in
+   *  the previous frame's budgets — keeps render-on-demand running
+   *  until the whole pipeline converges. Without this, sub-tile
+   *  generation at deep over-zoom (z=17 over a z=15 PMTiles archive
+   *  produces 30+ tiles × 4 layer slices = 120 sub-tile clips, but
+   *  the per-frame budget caps at ~50) would partial-fill the
+   *  viewport and freeze: render-skip fires after the first paint,
+   *  leaving the remaining sub-tiles ungenerated until the camera
+   *  next moves. Symptoms: checker-pattern of missing layer slices,
+   *  visible sub-tile-aligned rectangular gaps.
+   *
+   *  Signals checked, in order of cost:
+   *    - HTTP fetches in flight (`source.hasPendingLoads`).
+   *    - VTR has pending uploads (deferred when the per-frame upload
+   *      budget hits its cap).
+   *    - Last frame had missed tiles (some visible cells couldn't
+   *      find a cached ancestor or didn't get sub-tiled in time). */
   private hasPendingSourceWork(): boolean {
-    for (const { source } of this.vtSources.values()) {
+    for (const { source, renderer } of this.vtSources.values()) {
       if (source.hasPendingLoads?.()) return true
+      if (renderer.hasPendingUploads?.()) return true
+      const stats = renderer.getDrawStats?.()
+      if (stats && (stats as { missedTiles?: number }).missedTiles && (stats as { missedTiles: number }).missedTiles > 0) return true
     }
     return false
   }
@@ -1486,7 +1581,10 @@ export class XGISMap {
       // rebuilds per frame) from triggering "Buffer used in submit
       // while destroyed" validation errors.
       this.pointRenderer?.beginFrame()
-      for (const [, { renderer: vtR }] of this.vtSources) vtR.beginFrame()
+      // Thread the renderer's _frameCount into each VTR so its
+      // per-frame catalog budget reset can short-circuit duplicate
+      // calls from the same source feeding multiple layers.
+      for (const [, { renderer: vtR }] of this.vtSources) vtR.beginFrame(this._frameCount)
 
       // ══════ Bucket scheduler ══════
       //
@@ -1590,8 +1688,12 @@ export class XGISMap {
           const colorAttachments: GPURenderPassColorAttachment[] = [{
             view: colorView,
             resolveTarget: resolveHere ? screenView : undefined,
-            // First pass clears to the canvas background; subsequent
-            // opaque sub-passes load so we don't stomp earlier work.
+            // First pass clears to a neutral dark "space" color
+            // visible only where the globe ISN'T (ortho projection
+            // corners outside the sphere). Mapbox `background`
+            // semantics — earth-surface fill — is now handled
+            // through the regular tile pipeline via a synthetic
+            // GeoJSON source injected at parse time.
             clearValue: isFirst ? { r: 0.039, g: 0.039, b: 0.063, a: 1 } : undefined,
             loadOp: isFirst ? 'clear' : 'load',
             storeOp: 'store',
@@ -1627,6 +1729,10 @@ export class XGISMap {
           // content. These are always the back-most layers in the
           // current architecture.
           if (isFirst) {
+            // Earth-surface fill — fullscreen quad with depth/stencil
+            // writes disabled. Runs first so subsequent draws paint
+            // freely on top with no depth-buffer interaction.
+            this.backgroundRenderer?.render(subPass)
             this.rasterRenderer.render(subPass, this.camera, projType, centerLon, centerLat, w, h)
             this.renderer.renderToPass(subPass, this.camera, projType, centerLon, centerLat, this._elapsedMs)
           }

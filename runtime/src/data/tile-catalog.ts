@@ -54,7 +54,15 @@ export {
 
 export class TileCatalog {
   private index: XGVTIndex | null = null
-  private dataCache = new Map<number, TileData>()
+  /** Cache of compiled tile data per (tile key, source-layer name).
+   *  The inner map is keyed by MVT layer name; '' (empty string) is
+   *  the "default" slice used by single-layer sources (XGVT-binary,
+   *  GeoJSON-runtime) and as the legacy back-compat lookup for code
+   *  that doesn't pass a sourceLayer. PMTiles emits one slice per
+   *  MVT layer present in the tile, each landing under that layer's
+   *  name — so a single source can serve multiple xgis layers each
+   *  with its own `sourceLayer` filter. */
+  private dataCache = new Map<number, Map<string, TileData>>()
   private loadingTiles = new Set<number>()
 
   /** Ordered list of attached backends. Multi-backend dispatch is
@@ -79,8 +87,20 @@ export class TileCatalog {
    *  setRawParts to feed raw parts in. */
   private geojsonBackend: GeoJSONRuntimeBackend | null = null
 
-  /** Called when a tile finishes loading (for GPU upload) */
-  onTileLoaded: ((key: number, data: TileData) => void) | null = null
+  /** Called when a tile finishes loading (for GPU upload). The
+   *  third argument is the source-layer slot — '' for default
+   *  slice (single-layer sources, sub-tiles), MVT layer name for
+   *  per-layer slices (PMTiles). VTR uploads a per-(key, layer)
+   *  GPU entry so different xgis layers can draw distinct slices. */
+  onTileLoaded: ((key: number, data: TileData, sourceLayer: string) => void) | null = null
+
+  /** Internal: set a slice in the per-key nested map, creating the
+   *  outer slot lazily. Used by cacheTileData + sub-tile gen. */
+  private setSlice(key: number, layer: string, data: TileData): void {
+    let slot = this.dataCache.get(key)
+    if (!slot) { slot = new Map(); this.dataCache.set(key, slot) }
+    slot.set(layer, data)
+  }
 
   // ── Data access ──
 
@@ -114,6 +134,24 @@ export class TileCatalog {
     return this.index?.header.maxLevel ?? 0
   }
 
+  /** Look up the per-MVT-layer zoom range advertised by the source's
+   *  metadata (PMTiles `vector_layers`). Returns null when no backend
+   *  knows about this layer, or no metadata was published. Renderer
+   *  uses it to skip render() entirely for layers whose data range
+   *  doesn't overlap the current camera zoom — eliminates spurious
+   *  FLICKER warnings + sub-tile gen attempts for empty slices
+   *  (protomaps v4 `roads` z≥6, `buildings` z≥14). */
+  getLayerZoomRange(sourceLayer: string): { minzoom: number; maxzoom: number } | null {
+    for (const b of this.backends) {
+      const fn = (b as TileSource & { getLayerZoomRange?: (s: string) => { minzoom: number; maxzoom: number } | null }).getLayerZoomRange
+      if (typeof fn === 'function') {
+        const r = fn.call(b, sourceLayer)
+        if (r) return r
+      }
+    }
+    return null
+  }
+
   /** Lazily-built sink shared by all attached backends. */
   private _sink: TileSourceSink | null = null
   private getSink(): TileSourceSink {
@@ -123,7 +161,7 @@ export class TileCatalog {
         trackLoading: (key) => { this.loadingTiles.add(key) },
         releaseLoading: (key) => { this.loadingTiles.delete(key) },
         getLoadingCount: () => this.loadingTiles.size,
-        acceptResult: (key, result) => this.acceptResult(key, result),
+        acceptResult: (key, result, sourceLayer) => this.acceptResult(key, result, sourceLayer),
       }
     }
     return this._sink
@@ -205,11 +243,11 @@ export class TileCatalog {
    *  backends used to do via bespoke sinks. Called by the shared
    *  sink whenever a backend pushes a result. Pass null for
    *  empty placeholder (backend determined no data for this key). */
-  private acceptResult(key: number, result: BackendTileResult | null): void {
+  private acceptResult(key: number, result: BackendTileResult | null, sourceLayer = ''): void {
     if (!result) {
       const empty = new Float32Array(0)
       const emptyI = new Uint32Array(0)
-      this.cacheTileData(key, undefined, empty, emptyI, empty, emptyI)
+      this.cacheTileData(key, undefined, empty, emptyI, empty, emptyI, undefined, undefined, undefined, undefined, undefined, undefined, sourceLayer)
       return
     }
     // Synthesise an XGVTIndex entry (idempotent — skip if already
@@ -233,7 +271,7 @@ export class TileCatalog {
     if (tileFullCover && result.vertices.length === 0) {
       const entry = this.index?.entryByHash.get(key)
       if (entry) {
-        this.createFullCoverTileData(key, entry, result.lineVertices, result.lineIndices)
+        this.createFullCoverTileData(key, entry, result.lineVertices, result.lineIndices, sourceLayer)
         return
       }
     }
@@ -247,6 +285,7 @@ export class TileCatalog {
       result.outlineLineIndices,
       result.prebuiltLineSegments,
       result.prebuiltOutlineSegments,
+      sourceLayer,
     )
   }
 
@@ -305,16 +344,25 @@ export class TileCatalog {
   private _budgetDeadlineMs = 0
   private _compileCountThisFrame = 0
   private _subTileCountThisFrame = 0
+  // Per-CALL budgets restored to original tuning. The earlier "tiles
+  // disappear at over-zoom" symptom had two compounded root causes
+  // BOTH inside generateSubTile (not in the budgets):
+  //   1. _subTileCountThisFrame was incremented TWICE per call
+  //      (once at line ~814 + once at line ~1061). Per-call cap
+  //      effectively halved → late layers starved.
+  //   2. Budget knobs were over-tightened in chase mitigations.
+  // Fix 1 is in generateSubTile; restoring 1's worth of headroom
+  // here returns single-source convergence speed to baseline
+  // (matches the throughput-test targets).
   private static readonly _BUDGET_MS = 6
-  private static readonly _COMPILE_FLOOR = 4  // matches previous count cap
-  private static readonly _SUBTILE_FLOOR = 8  // matches previous count cap
+  private static readonly _COMPILE_FLOOR = 4
+  private static readonly _SUBTILE_FLOOR = 8
   private static readonly _MAX_PER_FRAME = 128
 
-  /** Reset per-frame budget (call once per frame before tile requests).
-   *  Also drains attached backends' deferred-compile queues (PMTiles)
-   *  with a small per-frame budget so heavy decode+compile work
-   *  spreads across frames instead of saturating microtasks. */
-  resetCompileBudget(): void {
+  /** Reset per-frame budget. The frameId arg is reserved for future
+   *  frame-shared budget work (currently unused — each layer gets
+   *  its own sliced budget per the constants above). */
+  resetCompileBudget(_frameId: number = -1): void {
     this._budgetDeadlineMs = this._now() + TileCatalog._BUDGET_MS
     this._compileCountThisFrame = 0
     this._subTileCountThisFrame = 0
@@ -369,12 +417,28 @@ export class TileCatalog {
 
   // ── Tile data cache ──
 
-  getTileData(key: number): TileData | null {
-    return this.dataCache.get(key) ?? null
+  /** Get the compiled TileData for (key, sourceLayer). When
+   *  sourceLayer is undefined or '', returns the default slice
+   *  (single-layer sources) — falling through to the FIRST per-MVT-
+   *  layer slice if the catalog only has per-layer slices for this
+   *  key (e.g. PMTiles). When sourceLayer is set, returns that
+   *  specific MVT layer's slice or null when absent. */
+  getTileData(key: number, sourceLayer?: string): TileData | null {
+    const slot = this.dataCache.get(key)
+    if (!slot) return null
+    if (sourceLayer) return slot.get(sourceLayer) ?? null
+    // Back-compat: '' = default slice, OR first slice if only per-layer present.
+    const def = slot.get('')
+    if (def) return def
+    const it = slot.values().next()
+    return it.done ? null : it.value
   }
 
-  hasTileData(key: number): boolean {
-    return this.dataCache.has(key)
+  hasTileData(key: number, sourceLayer?: string): boolean {
+    const slot = this.dataCache.get(key)
+    if (!slot) return false
+    if (sourceLayer) return slot.has(sourceLayer)
+    return slot.size > 0
   }
 
   isLoading(key: number): boolean {
@@ -615,7 +679,17 @@ export class TileCatalog {
     return ok
   }
 
-  private createFullCoverTileData(key: number, entry: TileIndexEntry, lineVertices: Float32Array, lineIndices: Uint32Array): void {
+  private createFullCoverTileData(
+    key: number, entry: TileIndexEntry,
+    lineVertices: Float32Array, lineIndices: Uint32Array,
+    /** Per-MVT-layer slot. '' for single-layer sources; layer name
+     *  for sliced sources (PMTiles water/landuse/etc.). The synthesised
+     *  full-cover quad must land in the same slot the requesting xgis
+     *  layer queries — otherwise water tiles tagged fullCover render as
+     *  black holes (the quad sits in the '' slot, but the layer asks
+     *  for the 'water' slot). */
+    sourceLayer = '',
+  ): void {
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
     const tileWest = tx / tn * 360 - 180
@@ -650,7 +724,11 @@ export class TileCatalog {
     ])
     const indices = new Uint32Array([0, 1, 2, 0, 2, 3])
 
-    this.cacheTileData(key, undefined, vertices, indices, lineVertices, lineIndices)
+    this.cacheTileData(
+      key, undefined, vertices, indices, lineVertices, lineIndices,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      sourceLayer,
+    )
   }
 
   private cacheTileData(
@@ -664,6 +742,9 @@ export class TileCatalog {
     outlineLineIndices?: Uint32Array,
     prebuiltLineSegments?: Float32Array,
     prebuiltOutlineSegments?: Float32Array,
+    /** MVT layer slot. '' (default) for single-layer sources;
+     *  layer name for per-MVT-layer slices. */
+    sourceLayer = '',
   ): void {
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
@@ -687,16 +768,19 @@ export class TileCatalog {
       polygons,
     }
 
-    this.dataCache.set(key, data)
-    try { this.onTileLoaded?.(key, data) }
+    this.setSlice(key, sourceLayer, data)
+    try { this.onTileLoaded?.(key, data, sourceLayer) }
     catch (e) { console.error('[onTileLoaded]', (e as Error)?.stack ?? e) }
   }
 
   // ── Sub-tile generation (overzoom CPU clipping) ──
 
-  generateSubTile(subKey: number, parentKey: number): boolean {
+  generateSubTile(subKey: number, parentKey: number, sourceLayer = ''): boolean {
     // Return cached result without charging budget — this is not new work.
-    if (this.dataCache.has(subKey)) return true
+    // Per-slice short-circuit: a different layer may already have generated
+    // its own slice for this subKey; we still need to do the work for THIS
+    // layer if its slot is empty.
+    if (this.hasTileData(subKey, sourceLayer)) return true
 
     // Hybrid per-frame budget — see resetCompileBudget() comment.
     // Historically two count-based gates (>=16 / >=8); the 8-cap caused
@@ -707,11 +791,32 @@ export class TileCatalog {
     // wall-clock budget (typically 50+ sub-tiles per frame at z ≥ 10).
     if (this._budgetExceeded(this._subTileCountThisFrame, TileCatalog._SUBTILE_FLOOR)) return false
 
-    const parent = this.dataCache.get(parentKey)
-    if (!parent || (parent.indices.length === 0 && parent.lineIndices.length === 0)) return false
-    if (this.dataCache.has(subKey)) return false // already generated
+    // Per-slice clip: the parent stores one TileData per MVT
+    // source-layer (PMTiles 'water', 'roads', ...) plus the '' slot
+    // for single-layer sources. We clip the SAME layer's parent
+    // slice into the requested subKey/sourceLayer slot — at over-
+    // zoom past archive maxZoom every active xgis layer needs its
+    // own sub-tile slice or the layer renders as a black hole.
+    const parent = this.getTileData(parentKey, sourceLayer)
+    // Allow sub-tile gen for ANY non-empty slice — polygon-only,
+    // line-only (PMTiles 'roads' / 'transit'), point-only ('places'
+    // / 'pois'), or mixed. Without this, line-only slices were
+    // silently dropped at over-zoom because the early-exit
+    // checked indices/lineIndices but ignored pointVertices, and
+    // the polygon path's empty-iter would never produce output.
+    const hasGeom = parent
+      && (parent.indices.length > 0
+        || parent.lineIndices.length > 0
+        || (parent.pointVertices && parent.pointVertices.length >= 5))
+    if (!hasGeom) return false
+    if (this.hasTileData(subKey, sourceLayer)) return false // already generated for this slot
 
-    this._subTileCountThisFrame++
+    // NOTE: do NOT increment _subTileCountThisFrame here.
+    // Counter is bumped exactly once per successful generation at the
+    // bottom of this method (after setSlice). Earlier code bumped
+    // both early AND late, double-charging the per-frame budget so
+    // 4 layer calls registered as 8 → FLOOR exceeded mid-frame →
+    // time-budget mode → late layers starved at the 2 ms deadline.
 
     const [sz, sx, sy] = tileKeyUnpack(subKey)
     const sn = Math.pow(2, sz)
@@ -909,6 +1014,29 @@ export class TileCatalog {
       : new Float32Array(0)
     const outlineLineIndices = new Uint32Array(oliScratch)
 
+    // Clip parent point features into the sub-tile box. Parent point
+    // vertices are stride-5 DSFUN [mx_h, my_h, mx_l, my_l, fid] in
+    // PARENT-local Mercator meters; reconstruct, test against
+    // (clipW, clipS, clipE, clipN), and re-pack into SUB-tile-local
+    // DSFUN. Without this, point layers (place labels, POIs) vanish
+    // at over-zoom because they have no representation in sub-tile.
+    let subPointVertices: Float32Array | undefined
+    if (parent.pointVertices && parent.pointVertices.length >= 5) {
+      const pv = parent.pointVertices
+      const out: number[] = []
+      for (let i = 0; i < pv.length; i += 5) {
+        const px = pv[i] + pv[i + 2]
+        const py = pv[i + 1] + pv[i + 3]
+        if (px < clipW || px > clipE || py < clipS || py > clipN) continue
+        const lx = px - reoriginX
+        const ly = py - reoriginY
+        const xH = Math.fround(lx); const xL = Math.fround(lx - xH)
+        const yH = Math.fround(ly); const yL = Math.fround(ly - yH)
+        out.push(xH, yH, xL, yL, pv[i + 4])
+      }
+      if (out.length >= 5) subPointVertices = new Float32Array(out)
+    }
+
     // Cache sub-tile with its OWN bounds. Vertex data has been re-packed
     // from parent-local to sub-tile-local DSFUN coordinates so the DSFUN
     // camera uniform (VTR) and boundary detection (buildLineSegments) both
@@ -921,6 +1049,7 @@ export class TileCatalog {
       outlineIndices: new Uint32Array(0),
       outlineVertices: outlineVertices.length > 0 ? outlineVertices : undefined,
       outlineLineIndices: outlineLineIndices.length > 0 ? outlineLineIndices : undefined,
+      pointVertices: subPointVertices,
       tileWest: subWest,
       tileSouth: subSouth,
       tileWidth: subEast - subWest,
@@ -933,9 +1062,9 @@ export class TileCatalog {
       polygons: parent.polygons,
     }
 
-    this.dataCache.set(subKey, subData)
+    this.setSlice(subKey, sourceLayer, subData)
     this._subTileCountThisFrame++
-    try { this.onTileLoaded?.(subKey, subData) }
+    try { this.onTileLoaded?.(subKey, subData, sourceLayer) }
     catch (e) { console.error('[onTileLoaded sub]', (e as Error)?.stack ?? e) }
     return true
   }
@@ -1032,8 +1161,15 @@ export class TileCatalog {
     // 4 left real ancestors evictable. Fixed alongside the E2E
     // flicker repro (_high-pitch-flicker.spec.ts).
     const safeBelow = this.index ? this.maxLevel : 4
+    // Per-key eviction (all slices for a key evict together — they
+    // share tile bounds + zoom). Sample tileZoom from any slice.
     const entries = [...this.dataCache.entries()]
-      .filter(([key, tile]) => !protectedKeys.has(key) && tile.tileZoom > safeBelow)
+      .filter(([key, slot]) => {
+        if (protectedKeys.has(key)) return false
+        const it = slot.values().next()
+        if (it.done) return true
+        return it.value.tileZoom > safeBelow
+      })
 
     // Sort by insertion order (older first — simple LRU approximation)
     const toEvict = this.dataCache.size - MAX_CACHED_TILES

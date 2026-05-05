@@ -1,20 +1,23 @@
 // MVT compile worker — runs the heavy PMTiles tile pipeline off the
-// main thread:
+// main thread. Splits features by MVT `_layer` so a single source
+// can serve multiple xgis layers (each with its own `sourceLayer`)
+// from independently-compiled per-layer slices.
 //
-//   bytes (raw MVT, gzipped or plain)
-//     ↓ decodeMvtTile  (pbf decode + un-quantize to lon/lat)
-//     ↓ decomposeFeatures  (project to MM, build GeometryParts)
-//     ↓ compileSingleTile  (clip + simplify + earcut + DSFUN pack)
-//     ↓ buildLineSegments  (CSR adjacency + miter pads, for outline + line)
-//   typed-array buffers + transferables
+// Pipeline:
+//   bytes (raw MVT) → decodeMvtTile (pbf decode + un-quantise lon/lat)
+//                  → groupBy(_layer)
+//   for each (layerName, features):
+//     decomposeFeatures (project to MM, build GeometryParts)
+//     compileSingleTile (clip + simplify + earcut + DSFUN pack)
+//     buildLineSegments × 2 (outline + line)
+//     emit one slice
 //
-// Returns ArrayBuffers transferred zero-copy back to main, where
-// PMTilesBackend wraps them as a BackendTileResult and pushes via
-// sink.acceptResult. Main thread cost per tile ≈ GPU upload only
-// (~5 ms) instead of decode+compile+segments (~80 ms).
+// Returns an array of slices, each with its own typed-array buffers
+// + prebuilt segment buffers, all marked Transferable.
 
 import {
   decodeMvtTile, decomposeFeatures, compileSingleTile,
+  type GeoJSONFeature,
 } from '@xgis/compiler'
 import { buildLineSegments } from '../engine/line-segment-build'
 
@@ -29,7 +32,9 @@ export interface MvtCompileRequest {
   y: number
   /** Compiler simplification cap (header.maxZoom of the archive) */
   maxZoom: number
-  /** MVT layer name allow-list (decoder filters before decompose). */
+  /** MVT layer name allow-list (decoder filters before decompose).
+   *  Undefined → all layers are decoded and emitted as separate
+   *  slices. Empty array behaves the same as undefined. */
   layers?: string[]
   /** Tile size in Mercator metres (precomputed by the dispatcher to
    *  avoid redoing the projection inside the worker). */
@@ -37,11 +42,9 @@ export interface MvtCompileRequest {
   tileHeightMerc: number
 }
 
-export interface MvtCompileResponse {
-  kind: 'compile-done'
-  taskId: number
-  /** null result fields are encoded as undefined byteLength=0 buffers
-   *  so the response shape stays stable. */
+/** One per-MVT-layer slice in the response. */
+export interface MvtCompileSlice {
+  layerName: string
   vertices: ArrayBuffer
   indices: ArrayBuffer
   lineVertices: ArrayBuffer
@@ -50,16 +53,19 @@ export interface MvtCompileResponse {
   outlineIndices?: ArrayBuffer
   outlineVertices?: ArrayBuffer
   outlineLineIndices?: ArrayBuffer
-  /** Pre-built segment buffers — main skips buildLineSegments. */
   prebuiltLineSegments?: ArrayBuffer
   prebuiltOutlineSegments?: ArrayBuffer
-  /** Polygon rings preserved for runtime sub-tiling (structured-cloned). */
   polygons?: { rings: number[][][]; featId: number }[]
   fullCover: boolean
   fullCoverFeatureId: number
-  /** True when the archive returned no features for this key — main
-   *  treats as empty placeholder. */
-  empty: boolean
+}
+
+export interface MvtCompileResponse {
+  kind: 'compile-done'
+  taskId: number
+  /** Per-MVT-layer slices. Empty array when the archive returned
+   *  no features for this key. */
+  slices: MvtCompileSlice[]
 }
 
 export interface MvtCompileError {
@@ -84,96 +90,87 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       { layers: msg.layers },
     )
     if (features.length === 0) {
-      const empty = new Float32Array(0).buffer as ArrayBuffer
-      const emptyI = new Uint32Array(0).buffer as ArrayBuffer
-      const response: MvtCompileResponse = {
-        kind: 'compile-done',
-        taskId: msg.taskId,
-        vertices: empty, indices: emptyI,
-        lineVertices: empty, lineIndices: emptyI,
-        fullCover: false, fullCoverFeatureId: 0, empty: true,
-      }
-      ;(self as unknown as { postMessage: (m: OutMsg) => void }).postMessage(response)
+      ;(self as unknown as { postMessage: (m: OutMsg) => void })
+        .postMessage({ kind: 'compile-done', taskId: msg.taskId, slices: [] })
       return
     }
 
-    const parts = decomposeFeatures(features)
-    const tile = compileSingleTile(parts, msg.z, msg.x, msg.y, msg.maxZoom)
-    if (!tile) {
-      const empty = new Float32Array(0).buffer as ArrayBuffer
-      const emptyI = new Uint32Array(0).buffer as ArrayBuffer
-      const response: MvtCompileResponse = {
-        kind: 'compile-done',
-        taskId: msg.taskId,
-        vertices: empty, indices: emptyI,
-        lineVertices: empty, lineIndices: emptyI,
-        fullCover: false, fullCoverFeatureId: 0, empty: true,
-      }
-      ;(self as unknown as { postMessage: (m: OutMsg) => void }).postMessage(response)
-      return
+    // Group features by their `_layer` property — added by
+    // decodeMvtTile per-feature. A feature without `_layer` (legacy
+    // input) goes into a special '' bucket so it still renders.
+    const byLayer = new Map<string, GeoJSONFeature[]>()
+    for (const f of features) {
+      const ln = (f.properties?._layer as string) ?? ''
+      let bucket = byLayer.get(ln)
+      if (!bucket) { bucket = []; byLayer.set(ln, bucket) }
+      bucket.push(f)
     }
 
-    // Pre-build SDF segment buffers so doUploadTile on main has zero
-    // line-geometry work. Outline + line each go through
-    // buildLineSegments with the same tile dimensions.
-    let prebuiltLineSegments: ArrayBuffer | undefined
-    let prebuiltOutlineSegments: ArrayBuffer | undefined
-    if (tile.outlineVertices && tile.outlineVertices.length > 0
-        && tile.outlineLineIndices && tile.outlineLineIndices.length > 0) {
-      const seg = buildLineSegments(
-        tile.outlineVertices, tile.outlineLineIndices, 10,
-        msg.tileWidthMerc, msg.tileHeightMerc,
-      )
-      prebuiltOutlineSegments = seg.buffer as ArrayBuffer
-    }
-    if (tile.lineIndices.length > 0 && tile.lineVertices.length > 0) {
-      // Match VTR's stride detection (vector-tile-renderer.ts): scan
-      // the highest index and divide vertex array by vertex count to
-      // pick stride 6 vs 10.
-      let lineStride: 6 | 10 = 6
-      let maxIdx = 0
-      for (let li = 0; li < tile.lineIndices.length; li++) {
-        if (tile.lineIndices[li] > maxIdx) maxIdx = tile.lineIndices[li]
+    const slices: MvtCompileSlice[] = []
+    const transferables: ArrayBuffer[] = []
+
+    for (const [layerName, layerFeatures] of byLayer) {
+      const parts = decomposeFeatures(layerFeatures)
+      const tile = compileSingleTile(parts, msg.z, msg.x, msg.y, msg.maxZoom)
+      if (!tile) continue
+
+      let prebuiltOutlineSegments: ArrayBuffer | undefined
+      let prebuiltLineSegments: ArrayBuffer | undefined
+      if (tile.outlineVertices && tile.outlineVertices.length > 0
+          && tile.outlineLineIndices && tile.outlineLineIndices.length > 0) {
+        const seg = buildLineSegments(
+          tile.outlineVertices, tile.outlineLineIndices, 10,
+          msg.tileWidthMerc, msg.tileHeightMerc,
+        )
+        prebuiltOutlineSegments = seg.buffer as ArrayBuffer
       }
-      const vertCount = maxIdx + 1
-      if (vertCount > 0 && tile.lineVertices.length / vertCount >= 10) lineStride = 10
-      const seg = buildLineSegments(
-        tile.lineVertices, tile.lineIndices, lineStride,
-        msg.tileWidthMerc, msg.tileHeightMerc,
-      )
-      prebuiltLineSegments = seg.buffer as ArrayBuffer
+      if (tile.lineIndices.length > 0 && tile.lineVertices.length > 0) {
+        let lineStride: 6 | 10 = 6
+        let maxIdx = 0
+        for (let li = 0; li < tile.lineIndices.length; li++) {
+          if (tile.lineIndices[li] > maxIdx) maxIdx = tile.lineIndices[li]
+        }
+        const vertCount = maxIdx + 1
+        if (vertCount > 0 && tile.lineVertices.length / vertCount >= 10) lineStride = 10
+        const seg = buildLineSegments(
+          tile.lineVertices, tile.lineIndices, lineStride,
+          msg.tileWidthMerc, msg.tileHeightMerc,
+        )
+        prebuiltLineSegments = seg.buffer as ArrayBuffer
+      }
+
+      const slice: MvtCompileSlice = {
+        layerName,
+        vertices: tile.vertices.buffer as ArrayBuffer,
+        indices: tile.indices.buffer as ArrayBuffer,
+        lineVertices: tile.lineVertices.buffer as ArrayBuffer,
+        lineIndices: tile.lineIndices.buffer as ArrayBuffer,
+        pointVertices: tile.pointVertices?.buffer as ArrayBuffer | undefined,
+        outlineIndices: tile.outlineIndices?.buffer as ArrayBuffer | undefined,
+        outlineVertices: tile.outlineVertices?.buffer as ArrayBuffer | undefined,
+        outlineLineIndices: tile.outlineLineIndices?.buffer as ArrayBuffer | undefined,
+        prebuiltLineSegments,
+        prebuiltOutlineSegments,
+        polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
+        fullCover: tile.fullCover ?? false,
+        fullCoverFeatureId: tile.fullCoverFeatureId ?? 0,
+      }
+      slices.push(slice)
+
+      transferables.push(slice.vertices, slice.indices, slice.lineVertices, slice.lineIndices)
+      if (slice.pointVertices) transferables.push(slice.pointVertices)
+      if (slice.outlineIndices) transferables.push(slice.outlineIndices)
+      if (slice.outlineVertices) transferables.push(slice.outlineVertices)
+      if (slice.outlineLineIndices) transferables.push(slice.outlineLineIndices)
+      if (slice.prebuiltLineSegments) transferables.push(slice.prebuiltLineSegments)
+      if (slice.prebuiltOutlineSegments) transferables.push(slice.prebuiltOutlineSegments)
     }
 
-    const response: MvtCompileResponse = {
-      kind: 'compile-done',
-      taskId: msg.taskId,
-      vertices: tile.vertices.buffer as ArrayBuffer,
-      indices: tile.indices.buffer as ArrayBuffer,
-      lineVertices: tile.lineVertices.buffer as ArrayBuffer,
-      lineIndices: tile.lineIndices.buffer as ArrayBuffer,
-      pointVertices: tile.pointVertices?.buffer as ArrayBuffer | undefined,
-      outlineIndices: tile.outlineIndices?.buffer as ArrayBuffer | undefined,
-      outlineVertices: tile.outlineVertices?.buffer as ArrayBuffer | undefined,
-      outlineLineIndices: tile.outlineLineIndices?.buffer as ArrayBuffer | undefined,
-      prebuiltLineSegments,
-      prebuiltOutlineSegments,
-      polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
-      fullCover: tile.fullCover ?? false,
-      fullCoverFeatureId: tile.fullCoverFeatureId ?? 0,
-      empty: false,
-    }
-    const transfer: ArrayBuffer[] = [
-      response.vertices, response.indices,
-      response.lineVertices, response.lineIndices,
-    ]
-    if (response.pointVertices) transfer.push(response.pointVertices)
-    if (response.outlineIndices) transfer.push(response.outlineIndices)
-    if (response.outlineVertices) transfer.push(response.outlineVertices)
-    if (response.outlineLineIndices) transfer.push(response.outlineLineIndices)
-    if (response.prebuiltLineSegments) transfer.push(response.prebuiltLineSegments)
-    if (response.prebuiltOutlineSegments) transfer.push(response.prebuiltOutlineSegments)
     ;(self as unknown as { postMessage: (m: OutMsg, t?: Transferable[]) => void })
-      .postMessage(response, transfer.filter(b => b.byteLength > 0))
+      .postMessage(
+        { kind: 'compile-done', taskId: msg.taskId, slices },
+        transferables.filter(b => b.byteLength > 0),
+      )
   } catch (err) {
     const e = err as Error
     ;(self as unknown as { postMessage: (m: OutMsg) => void }).postMessage({

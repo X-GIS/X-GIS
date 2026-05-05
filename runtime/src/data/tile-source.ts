@@ -118,10 +118,19 @@ export interface TileSourceSink {
   /** Push the produced tile to the cache. Catalog's acceptResult
    *  synthesises an XGVTIndex entry (if absent), routes to
    *  cacheTileData or createFullCoverTileData as appropriate, and
-   *  fires onTileLoaded for VTR upload. Pass null when the backend
-   *  determined this key has no data — catalog caches an empty
-   *  placeholder so the renderer doesn't keep re-requesting. */
-  acceptResult(key: number, result: BackendTileResult | null): void
+   *  fires onTileLoaded for VTR upload.
+   *
+   *  `sourceLayer` (optional) — when set, the result is stored
+   *  under (key, sourceLayer) so a single source can hold multiple
+   *  per-MVT-layer slices for one tile key. PMTiles emits a
+   *  separate result per MVT layer; xgis layers with their own
+   *  `sourceLayer` filter pull the matching slice. Undefined =
+   *  catch-all slice (legacy single-layer sources).
+   *
+   *  Pass null result when the backend determined this key has no
+   *  data — catalog caches an empty placeholder so the renderer
+   *  doesn't keep re-requesting. */
+  acceptResult(key: number, result: BackendTileResult | null, sourceLayer?: string): void
 }
 
 /** Per-format backend interface. Catalog never exposes these to VTR;

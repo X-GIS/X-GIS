@@ -1,12 +1,18 @@
 // MVT compile worker pool — round-robin dispatch of MVT bytes to N
 // worker threads. Each worker decodes + decomposes + compiles +
-// builds line segments off-thread, returning Transferable buffers
-// that the main thread wraps as a BackendTileResult.
+// builds line segments OFF-thread, returning per-MVT-layer slices
+// as Transferable buffers. The catalog stores each slice under
+// (key, layerName) so a single source can serve multiple xgis
+// `sourceLayer`-filtered render passes.
 
 import type { RingPolygon } from '@xgis/compiler'
 import MvtWorker from './mvt-worker.ts?worker'
 
-export interface MvtCompileResult {
+/** One per-MVT-layer slice in the worker response. Mirrors
+ *  MvtCompileSlice in mvt-worker.ts but with already-wrapped
+ *  TypedArray views (the buffers were transferred zero-copy). */
+export interface MvtCompileSlice {
+  layerName: string
   vertices: Float32Array
   indices: Uint32Array
   lineVertices: Float32Array
@@ -20,12 +26,28 @@ export interface MvtCompileResult {
   polygons?: RingPolygon[]
   fullCover: boolean
   fullCoverFeatureId: number
-  empty: boolean
 }
 
 interface PendingJob {
-  resolve: (r: MvtCompileResult) => void
+  resolve: (slices: MvtCompileSlice[]) => void
   reject: (e: Error) => void
+}
+
+interface SliceMsg {
+  layerName: string
+  vertices: ArrayBuffer
+  indices: ArrayBuffer
+  lineVertices: ArrayBuffer
+  lineIndices: ArrayBuffer
+  pointVertices?: ArrayBuffer
+  outlineIndices?: ArrayBuffer
+  outlineVertices?: ArrayBuffer
+  outlineLineIndices?: ArrayBuffer
+  prebuiltLineSegments?: ArrayBuffer
+  prebuiltOutlineSegments?: ArrayBuffer
+  polygons?: RingPolygon[]
+  fullCover: boolean
+  fullCoverFeatureId: number
 }
 
 /** Shared pool — N workers, round-robin. */
@@ -49,18 +71,7 @@ export class MvtWorkerPool {
       const w = new MvtWorker({ name: `mvt-compile-${i}` })
       w.addEventListener('message', (e: MessageEvent<{
         kind: string; taskId: number;
-        vertices?: ArrayBuffer; indices?: ArrayBuffer;
-        lineVertices?: ArrayBuffer; lineIndices?: ArrayBuffer;
-        pointVertices?: ArrayBuffer;
-        outlineIndices?: ArrayBuffer;
-        outlineVertices?: ArrayBuffer;
-        outlineLineIndices?: ArrayBuffer;
-        prebuiltLineSegments?: ArrayBuffer;
-        prebuiltOutlineSegments?: ArrayBuffer;
-        polygons?: RingPolygon[];
-        fullCover?: boolean;
-        fullCoverFeatureId?: number;
-        empty?: boolean;
+        slices?: SliceMsg[];
         message?: string; stack?: string;
       }>) => {
         const m = e.data
@@ -68,22 +79,23 @@ export class MvtWorkerPool {
         if (!job) return
         this.pending.delete(m.taskId)
         if (m.kind === 'compile-done') {
-          job.resolve({
-            vertices: new Float32Array(m.vertices!),
-            indices: new Uint32Array(m.indices!),
-            lineVertices: new Float32Array(m.lineVertices!),
-            lineIndices: new Uint32Array(m.lineIndices!),
-            pointVertices: m.pointVertices ? new Float32Array(m.pointVertices) : undefined,
-            outlineIndices: m.outlineIndices ? new Uint32Array(m.outlineIndices) : undefined,
-            outlineVertices: m.outlineVertices ? new Float32Array(m.outlineVertices) : undefined,
-            outlineLineIndices: m.outlineLineIndices ? new Uint32Array(m.outlineLineIndices) : undefined,
-            prebuiltLineSegments: m.prebuiltLineSegments ? new Float32Array(m.prebuiltLineSegments) : undefined,
-            prebuiltOutlineSegments: m.prebuiltOutlineSegments ? new Float32Array(m.prebuiltOutlineSegments) : undefined,
-            polygons: m.polygons,
-            fullCover: m.fullCover ?? false,
-            fullCoverFeatureId: m.fullCoverFeatureId ?? 0,
-            empty: m.empty ?? false,
-          })
+          const wrapped: MvtCompileSlice[] = (m.slices ?? []).map(s => ({
+            layerName: s.layerName,
+            vertices: new Float32Array(s.vertices),
+            indices: new Uint32Array(s.indices),
+            lineVertices: new Float32Array(s.lineVertices),
+            lineIndices: new Uint32Array(s.lineIndices),
+            pointVertices: s.pointVertices ? new Float32Array(s.pointVertices) : undefined,
+            outlineIndices: s.outlineIndices ? new Uint32Array(s.outlineIndices) : undefined,
+            outlineVertices: s.outlineVertices ? new Float32Array(s.outlineVertices) : undefined,
+            outlineLineIndices: s.outlineLineIndices ? new Uint32Array(s.outlineLineIndices) : undefined,
+            prebuiltLineSegments: s.prebuiltLineSegments ? new Float32Array(s.prebuiltLineSegments) : undefined,
+            prebuiltOutlineSegments: s.prebuiltOutlineSegments ? new Float32Array(s.prebuiltOutlineSegments) : undefined,
+            polygons: s.polygons,
+            fullCover: s.fullCover,
+            fullCoverFeatureId: s.fullCoverFeatureId,
+          }))
+          job.resolve(wrapped)
         } else {
           const err = new Error(m.message || 'mvt worker failed')
           err.stack = m.stack ?? err.stack
@@ -97,18 +109,20 @@ export class MvtWorkerPool {
     }
   }
 
-  /** Dispatch one MVT compile job; returns the parsed result wrapped
-   *  around Transferable buffers. */
+  /** Dispatch one MVT compile job; returns ALL per-layer slices the
+   *  worker found in the tile. Layers may be filtered upstream via
+   *  the `layers` arg (allow-list); when omitted, every MVT layer
+   *  in the tile produces a slice. */
   compile(
     bytes: ArrayBuffer,
     z: number, x: number, y: number,
     maxZoom: number,
     tileWidthMerc: number, tileHeightMerc: number,
     layers?: string[],
-  ): Promise<MvtCompileResult> {
+  ): Promise<MvtCompileSlice[]> {
     this.ensureWorkers()
     const taskId = this.nextTaskId++
-    return new Promise<MvtCompileResult>((resolve, reject) => {
+    return new Promise<MvtCompileSlice[]>((resolve, reject) => {
       this.pending.set(taskId, { resolve, reject })
       const w = this.workers[this.nextWorker]
       this.nextWorker = (this.nextWorker + 1) % this.workers.length
