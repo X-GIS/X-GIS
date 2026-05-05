@@ -8,6 +8,14 @@
 // budget, sub-tile generation, and the synthesised XGVTIndex stay on the
 // catalog because they are format-agnostic.
 //
+// Result delivery is push-based via TileSourceSink (set at attach time)
+// rather than promise-return. Reason: the XGVT-binary backend batches
+// many tiles into one HTTP range request and decodes them in parallel —
+// a per-tile promise interface would force either re-fanning that work
+// or giving up the batch optimisation. Push-based sink lets each
+// backend dispatch results in whatever shape fits its native fetch
+// model.
+//
 // Protocol shape (intentionally small):
 //
 //   meta        — bounds + zoom range + property table contributed at
@@ -18,22 +26,21 @@
 //                 (a) answer hasEntryInIndex when no entry was
 //                 preregistered, and (b) decide which backend owns a
 //                 tile under multi-backend dispatch.
-//   loadTile    — async producer. Backend resolves (or rejects) one
-//                 tile; catalog's acceptResult wraps the BackendTileResult
-//                 into TileData and fires onTileLoaded for VTR upload.
+//   attach(sink) — wire the backend to the catalog's result sink. Called
+//                 once at attachBackend time. After this, loadTile /
+//                 loadTilesBatch / compileSync may dispatch results.
+//   loadTile    — fire-and-forget async producer. Backend pushes the
+//                 result (or null for missing) to sink.acceptResult
+//                 when ready.
 //   compileSync — OPTIONAL synchronous producer. Only the in-memory
-//                 GeoJSON backend can fulfil this (raw parts +
-//                 compileSingleTile run on the main thread). PMTiles
-//                 and XGVT-binary cannot — would require pre-fetching
-//                 archive contents, defeating their streaming model.
-//                 Catalog's compileTileOnDemand walks attached backends
-//                 and uses compileSync if available, else returns false
-//                 (VTR's existing parent-fallback chain handles it).
-//   loadTilesBatch — OPTIONAL batched fetch. Only XGVT-binary today
-//                 implements this for HTTP range-request merging
-//                 (8 KB gap → single request). Default-implemented in
-//                 catalog as a parallel map over loadTile.
-//   dispose     — OPTIONAL teardown (worker pool refs, archive handles).
+//                 GeoJSON backend can fulfil this. Backend pushes the
+//                 result to the sink during the call. Returns true if
+//                 anything was pushed (success OR cached-empty), false
+//                 if backend cannot serve this key.
+//   loadTilesBatch — OPTIONAL batched fetch. XGVT-binary uses it for
+//                 HTTP range-request merging. Default catalog behaviour:
+//                 map over loadTile.
+//   detach      — OPTIONAL teardown (worker pool refs, archive handles).
 
 import type { TileIndexEntry, PropertyTable, RingPolygon } from '@xgis/compiler'
 
@@ -84,6 +91,31 @@ export interface TileSourceMeta {
   entries?: { key: number; entry: TileIndexEntry }[]
 }
 
+/** Catalog-side push surface that backends use to deliver tile results.
+ *  All operations are non-throwing; the catalog is responsible for
+ *  error handling at the dispatch boundary. */
+export interface TileSourceSink {
+  /** Mark a tile as in-flight (back-pressure dedup + pending-load count). */
+  trackLoading(key: number): void
+  /** Tile work finished (success, miss, or error) — release the slot. */
+  releaseLoading(key: number): void
+  /** True if catalog already has this key cached — backends call this
+   *  to short-circuit duplicate fetches. */
+  hasTileData(key: number): boolean
+  /** Number of tiles currently in-flight across the catalog. Backends
+   *  consult this for self-limiting (the catalog's own MAX_CONCURRENT
+   *  cap is the authoritative gate, but backends can defer work
+   *  internally too). */
+  getLoadingCount(): number
+  /** Push the produced tile to the cache. Catalog's acceptResult
+   *  synthesises an XGVTIndex entry (if absent), routes to
+   *  cacheTileData or createFullCoverTileData as appropriate, and
+   *  fires onTileLoaded for VTR upload. Pass null when the backend
+   *  determined this key has no data — catalog caches an empty
+   *  placeholder so the renderer doesn't keep re-requesting. */
+  acceptResult(key: number, result: BackendTileResult | null): void
+}
+
 /** Per-format backend interface. Catalog never exposes these to VTR;
  *  they live behind TileCatalog. */
 export interface TileSource {
@@ -95,22 +127,25 @@ export interface TileSource {
    *  near-O(1) — called per visible tile per frame. */
   has(key: number): boolean
 
-  /** Asynchronous tile producer. Resolves with a BackendTileResult or
-   *  null when this backend has no data for the key (catalog caches
-   *  an empty placeholder so the renderer doesn't keep re-requesting). */
-  loadTile(key: number): Promise<BackendTileResult | null>
+  /** Wire the backend to the catalog's result sink. Called once at
+   *  attachBackend time. After this, loadTile / loadTilesBatch /
+   *  compileSync may push results via the sink. */
+  attach(sink: TileSourceSink): void
 
-  /** Optional: synchronous compile path. Only the in-memory GeoJSON
-   *  backend implements this. Catalog's compileTileOnDemand walks
-   *  attached backends and uses this if available (returns
-   *  BackendTileResult to cache, or null when out of data). */
-  compileSync?(key: number): BackendTileResult | null
+  /** Fire-and-forget async producer. Backend pushes the result to
+   *  sink.acceptResult when ready. */
+  loadTile(key: number): void
 
-  /** Optional: batched async fetch. Used by XGVT-binary for HTTP
-   *  range-request merging. Default catalog behaviour: map over
-   *  loadTile in parallel. */
-  loadTilesBatch?(keys: number[]): Promise<void>
+  /** OPTIONAL synchronous compile path. Backends without sync data
+   *  (PMTiles, XGVT-binary) omit this. Returns true if the backend
+   *  pushed something (BackendTileResult or empty placeholder), false
+   *  if it cannot serve this key. */
+  compileSync?(key: number): boolean
 
-  /** Optional teardown. Called by catalog.detachBackend. */
-  dispose?(): void
+  /** OPTIONAL batched async fetch. Used by XGVT-binary for HTTP
+   *  range-request merging. */
+  loadTilesBatch?(keys: number[]): void
+
+  /** OPTIONAL teardown. Called by catalog.detachBackend. */
+  detach?(): void
 }

@@ -6,7 +6,6 @@ import {
   TILE_FLAG_FULL_COVER,
   tileKey, tileKeyUnpack,
   clipPolygonToRect, clipLineToRect,
-  compileSingleTile,
   lonLatToMercF64,
   augmentRingWithArc, tessellateLineToArrays, packDSFUNLineVertices,
   type XGVTIndex, type TileIndexEntry,
@@ -15,9 +14,12 @@ import {
   type GeometryPart,
 } from '@xgis/compiler'
 import { visibleTiles } from '../loader/tiles'
-import { XGVTBinaryBackend, type BinaryBackendSink } from './sources/xgvt-binary-source'
-import { PMTilesBackend, type PMTilesBackendSink } from './sources/pmtiles-backend'
+import { XGVTBinaryBackend } from './sources/xgvt-binary-source'
+import { PMTilesBackend } from './sources/pmtiles-backend'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
+import type {
+  TileSource, TileSourceSink, BackendTileResult,
+} from './tile-source'
 // Step 0 of the layer-type refactor: shared types live in tile-types.ts so
 // per-format backend modules can import them without pulling in catalog
 // runtime state. Re-exported below for back-compat with external callers
@@ -42,24 +44,27 @@ export class XGVTSource {
   private dataCache = new Map<number, TileData>()
   private loadingTiles = new Set<number>()
 
-  /** Backend that handles .xgvt binary file loading (range-batched
-   *  fetch, worker-pool decompress, GPU-ready vs compact dispatch).
-   *  Constructed lazily when loadFromBuffer / loadFromURL is called.
-   *  Step 2 of the layer-type refactor extracted this to its own
-   *  class for separation of concerns; subsequent steps will move
-   *  PMTiles + GeoJSON-runtime out the same way and rename the
-   *  remainder to TileCatalog. */
+  /** Ordered list of attached backends. Multi-backend dispatch is
+   *  first-attached-wins for ambiguous (z, x, y) — users wanting
+   *  different precedence detach + reattach in desired order.
+   *  See plans/delegated-hopping-cray.md §1.2 for rationale. */
+  private backends: TileSource[] = []
+  /** Per-key dispatch shortcut: which backend produced a given
+   *  preregistered XGVTIndex entry. Populated by attachBackend
+   *  whenever a backend's meta.entries is non-empty (XGVT-binary).
+   *  Lazy-discovery backends (PMTiles, GeoJSON-runtime) don't
+   *  preregister — their tiles are routed via the iterate-and-ask
+   *  fallback in requestTiles. */
+  private entryToBackend = new Map<number, TileSource>()
+
+  /** Lazy reference to the binary backend instance that this catalog
+   *  manages, if any. Used by loadFromBuffer/URL to call the
+   *  XGVT-binary-specific loader methods (parseXGVTIndex, preload).
+   *  Other catalog code paths use the generic backends list. */
   private binaryBackend: XGVTBinaryBackend | null = null
-
-  /** Backend that holds raw decomposed GeoJSON parts + the spatial
-   *  grid for on-demand tile compilation. Lazy — constructed when
-   *  setRawParts is called. */
+  /** Lazy reference to the in-memory GeoJSON backend, used by
+   *  setRawParts to feed raw parts in. */
   private geojsonBackend: GeoJSONRuntimeBackend | null = null
-
-  /** Backend that serves PMTiles + similar virtual-catalog sources
-   *  (lazy on-demand fetch). Constructed lazily from setVirtualCatalog
-   *  so the legacy hook public API is preserved. */
-  private pmtilesBackend: PMTilesBackend | null = null
 
   /** Called when a tile finishes loading (for GPU upload) */
   onTileLoaded: ((key: number, data: TileData) => void) | null = null
@@ -86,11 +91,157 @@ export class XGVTSource {
     return this.index?.header.maxLevel ?? 0
   }
 
+  /** Lazily-built sink shared by all attached backends. */
+  private _sink: TileSourceSink | null = null
+  private getSink(): TileSourceSink {
+    if (!this._sink) {
+      this._sink = {
+        hasTileData: (key) => this.dataCache.has(key),
+        trackLoading: (key) => { this.loadingTiles.add(key) },
+        releaseLoading: (key) => { this.loadingTiles.delete(key) },
+        getLoadingCount: () => this.loadingTiles.size,
+        acceptResult: (key, result) => this.acceptResult(key, result),
+      }
+    }
+    return this._sink
+  }
+
+  /** Attach a TileSource backend to this catalog. After this call:
+   *  - hasEntryInIndex(key) returns true for any key the backend has.
+   *  - requestTiles(keys) routes through the backend.
+   *  - getBounds() reflects the bounding union of all attached
+   *    backends; maxLevel is the max-of-maxes; getPropertyTable()
+   *    returns the first attached backend's table (first-attached-wins).
+   *  - Backends with meta.entries (XGVT-binary) preregister into
+   *    entryToBackend so dispatch is O(1) for those keys.
+   *  Soft cap: catalog accepts any number of backends. Dispatch
+   *  precedence is attach order — see plans/delegated-hopping-cray.md
+   *  §1.2 for rationale. */
+  attachBackend(backend: TileSource): void {
+    backend.attach(this.getSink())
+    this.backends.push(backend)
+    this.mergeBackendMeta(backend)
+  }
+
+  /** Detach a previously-attached backend. Removes preregistered
+   *  entries from entryToBackend (catalog cache is NOT evicted —
+   *  cached tiles outlive their backend). */
+  detachBackend(backend: TileSource): void {
+    const i = this.backends.indexOf(backend)
+    if (i < 0) return
+    this.backends.splice(i, 1)
+    for (const [key, owner] of this.entryToBackend) {
+      if (owner === backend) this.entryToBackend.delete(key)
+    }
+    backend.detach?.()
+  }
+
+  /** Re-merge a backend's meta into the catalog's XGVTIndex shell
+   *  (bounds union, maxLevel max, propertyTable first-wins,
+   *  preregistered entries). Called by attachBackend; also invoked
+   *  again by setRawParts when the GeoJSON backend's bounds/maxZoom
+   *  change after parts are loaded. */
+  private mergeBackendMeta(backend: TileSource): void {
+    const meta = backend.meta
+    if (!this.index) {
+      this.index = {
+        header: {
+          levelCount: 0,
+          maxLevel: meta.maxZoom,
+          bounds: meta.bounds,
+          indexOffset: 0, indexLength: 0,
+          propTableOffset: 0, propTableLength: 0,
+        },
+        entries: [],
+        entryByHash: new Map(),
+        propertyTable: meta.propertyTable ?? { fieldNames: [], fieldTypes: [], values: [] },
+      }
+    } else {
+      const idx = this.index
+      idx.header.maxLevel = Math.max(idx.header.maxLevel, meta.maxZoom)
+      idx.header.bounds = unionBounds(idx.header.bounds, meta.bounds)
+      // First-attached-wins: only adopt this backend's table if catalog has none.
+      if (meta.propertyTable && (!idx.propertyTable || idx.propertyTable.fieldNames.length === 0)) {
+        idx.propertyTable = meta.propertyTable
+      }
+    }
+    // Preregister entries (XGVT-binary path).
+    if (meta.entries) {
+      for (const { key, entry } of meta.entries) {
+        if (!this.index!.entryByHash.has(key)) {
+          this.index!.entries.push(entry)
+          this.index!.entryByHash.set(key, entry)
+        }
+        this.entryToBackend.set(key, backend)
+      }
+    }
+  }
+
+  /** Catalog-side result handler — unifies cacheTileData /
+   *  createFullCoverTileData / synthetic-entry creation that
+   *  backends used to do via bespoke sinks. Called by the shared
+   *  sink whenever a backend pushes a result. Pass null for
+   *  empty placeholder (backend determined no data for this key). */
+  private acceptResult(key: number, result: BackendTileResult | null): void {
+    if (!result) {
+      const empty = new Float32Array(0)
+      const emptyI = new Uint32Array(0)
+      this.cacheTileData(key, undefined, empty, emptyI, empty, emptyI)
+      return
+    }
+    // Synthesise an XGVTIndex entry (idempotent — skip if already
+    // present). Required so subsequent hasEntryInIndex / parent-walk
+    // calls find the cached tile.
+    const tileFullCover = result.fullCover ?? false
+    const tileFullCoverFid = result.fullCoverFeatureId ?? 0
+    if (this.index && !this.index.entryByHash.has(key)) {
+      const entry: TileIndexEntry = {
+        tileHash: key, dataOffset: 0, compactSize: 0, gpuReadySize: 0,
+        vertexCount: result.vertices.length / DSFUN_POLY_STRIDE,
+        indexCount: result.indices.length,
+        lineVertexCount: result.lineVertices.length / DSFUN_LINE_STRIDE,
+        lineIndexCount: result.lineIndices.length,
+        flags: tileFullCover ? (TILE_FLAG_FULL_COVER | (tileFullCoverFid << 1)) : 0,
+        fullCoverFeatureId: tileFullCoverFid,
+      }
+      this.index.entries.push(entry)
+      this.index.entryByHash.set(key, entry)
+    }
+    if (tileFullCover && result.vertices.length === 0) {
+      const entry = this.index?.entryByHash.get(key)
+      if (entry) {
+        this.createFullCoverTileData(key, entry, result.lineVertices, result.lineIndices)
+        return
+      }
+    }
+    this.cacheTileData(
+      key, result.polygons,
+      result.vertices, result.indices,
+      result.lineVertices, result.lineIndices,
+      result.pointVertices,
+      result.outlineIndices,
+      result.outlineVertices,
+      result.outlineLineIndices,
+    )
+  }
+
   /** Store raw geometry parts for on-demand compilation (GeoJSON sources).
-   *  Delegates to the GeoJSONRuntimeBackend, which owns the spatial grid. */
+   *  Constructs + attaches a GeoJSONRuntimeBackend on first call;
+   *  subsequent calls update its parts (and re-merge meta in case
+   *  bounds / maxZoom changed). */
   setRawParts(parts: GeometryPart[], maxZoom: number): void {
-    if (!this.geojsonBackend) this.geojsonBackend = new GeoJSONRuntimeBackend()
+    let firstAttach = false
+    if (!this.geojsonBackend) {
+      this.geojsonBackend = new GeoJSONRuntimeBackend()
+      firstAttach = true
+    }
     this.geojsonBackend.setParts(parts, maxZoom)
+    if (firstAttach) {
+      this.attachBackend(this.geojsonBackend)
+    } else {
+      // Bounds / maxZoom may have changed — re-merge.
+      this.mergeBackendMeta(this.geojsonBackend)
+    }
   }
 
   /** Get parts that potentially overlap a tile (via grid index).
@@ -159,101 +310,18 @@ export class XGVTSource {
     return this._now() > this._budgetDeadlineMs
   }
 
+  /** Synchronous on-demand compile path. Walks attached backends and
+   *  uses the first one that supports compileSync (GeoJSON-runtime
+   *  today). Catalog gates the call with the per-frame compile budget;
+   *  backend handles parts lookup, compileSingleTile, and result push
+   *  via the shared sink. */
   compileTileOnDemand(key: number): boolean {
-    if (!this.geojsonBackend || this.dataCache.has(key)) return false
-    const [z, x, y] = tileKeyUnpack(key)
-    if (z > this.geojsonBackend.maxZoom) return false
-
-    // Empty-tile shortcut: if the spatial grid has no parts overlapping
-    // this tile, cache a zero-geometry tile instead of returning false
-    // every frame. Without this, every VTR.render loop finds the tile
-    // absent, falls through to parent-fallback, and increments
-    // missedTiles — producing sustained [FLICKER] warnings for regions
-    // with no data (e.g., z=6 ocean tiles far from the fixture's line).
-    // A cached empty tile lets the VTR's `hasGeom === false` branch
-    // short-circuit the fallback accounting. Cost: a no-op GPU upload
-    // per empty tile, bounded by the LRU cap.
-    const parts = this.geojsonBackend.getRelevantParts(z, x, y)
-    if (!parts || parts.length === 0) {
-      const empty = new Float32Array(0)
-      const emptyI = new Uint32Array(0)
-      this.cacheTileData(key, undefined, empty, emptyI, empty, emptyI)
-      return true
+    if (this.dataCache.has(key)) return false
+    for (const backend of this.backends) {
+      if (!backend.compileSync || !backend.has(key)) continue
+      return this.tryCompileSync(key, backend)
     }
-
-    // Hybrid per-frame budget — see resetCompileBudget() comment.
-    // Guarantees at least _COMPILE_FLOOR (4) heavy compiles per frame;
-    // beyond that, defers to time budget (6 ms) for lighter compiles.
-    if (this._budgetExceeded(this._compileCountThisFrame, XGVTSource._COMPILE_FLOOR)) return false
-
-    const tile = compileSingleTile(parts, z, x, y, this.geojsonBackend.maxZoom)
-    if (!tile) {
-      // Same rationale as the empty-grid branch above — a tile that
-      // overlapped the spatial grid but produced no triangles after
-      // clipping (very thin line slicing a corner, for example) would
-      // otherwise stay "missed" forever.
-      const empty = new Float32Array(0)
-      const emptyI = new Uint32Array(0)
-      this.cacheTileData(key, undefined, empty, emptyI, empty, emptyI)
-      return true
-    }
-
-    // Create synthetic index entry. Forward compileSingleTile's
-    // `fullCover` + `fullCoverFeatureId` so sub-tiles beyond the
-    // pre-compiled zoom use the same quad-rendering fast path as
-    // batch-compiled full-cover tiles — otherwise match()-based color
-    // lookups return nothing because the feature id is never attached
-    // to the cover quad.
-    const tileFullCover = tile.fullCover ?? false
-    const tileFullCoverFid = tile.fullCoverFeatureId ?? 0
-    if (this.index) {
-      const entry: TileIndexEntry = {
-        tileHash: key, dataOffset: 0, compactSize: 0, gpuReadySize: 0,
-        vertexCount: tile.vertices.length / DSFUN_POLY_STRIDE, indexCount: tile.indices.length,
-        lineVertexCount: tile.lineVertices.length / DSFUN_LINE_STRIDE, lineIndexCount: tile.lineIndices.length,
-        flags: tileFullCover ? (TILE_FLAG_FULL_COVER | (tileFullCoverFid << 1)) : 0,
-        fullCoverFeatureId: tileFullCoverFid,
-      }
-      if (!this.index.entryByHash.has(key)) {
-        this.index.entries.push(entry)
-        this.index.entryByHash.set(key, entry)
-      }
-    }
-
-    // Full-cover sub-tiles need the quad synthesized from their entry
-    // (fullCoverFeatureId → 4-vertex quad at tile bounds) — same path
-    // batch-loaded full-cover tiles take at load time. Without this,
-    // the empty vertex buffer that compileSingleTile emits after
-    // detecting full-cover lands in dataCache with length 0 and the
-    // renderer has nothing to draw. Surfaces in the Stress-many-layers
-    // fixture: each per-layer filter produces a source whose polygon
-    // fully covers many zoom-tiles; without the quad, layers go blank
-    // past z=6.
-    if (tileFullCover && tile.vertices.length === 0) {
-      const entry = this.index?.entryByHash.get(key)
-      if (entry) {
-        this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
-        this._compileCountThisFrame++
-        return true
-      }
-    }
-
-    const polygons: RingPolygon[] | undefined = tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId }))
-    // Forward the GeoJSON tiler's pre-augmented outline buffers when
-    // present so VTR can use the global-arc outline path. Binary .xgvt
-    // tiles ship empty buffers (Float32Array(0) / Uint32Array(0)) and
-    // fall back to the legacy outlineIndices path inside cacheTileData.
-    this.cacheTileData(
-      key, polygons,
-      tile.vertices, tile.indices,
-      tile.lineVertices, tile.lineIndices,
-      tile.pointVertices,
-      tile.outlineIndices,
-      tile.outlineVertices,
-      tile.outlineLineIndices,
-    )
-    this._compileCountThisFrame++
-    return true
+    return false
   }
 
   // ── Tile data cache ──
@@ -289,83 +357,35 @@ export class XGVTSource {
 
   hasEntryInIndex(key: number): boolean {
     if (this.index?.entryByHash.has(key)) return true
-    // On-demand sources can compile any tile within maxZoom
-    if (this.geojsonBackend) {
-      const [z] = tileKeyUnpack(key)
-      return this.geojsonBackend.has(z)
-    }
-    if (this.pmtilesBackend) {
-      return this.pmtilesBackend.has(key)
+    // Iterate-and-ask each attached backend (lazy-discovery path —
+    // PMTiles, GeoJSON-runtime, future TopoJSON / FlatGeobuf).
+    for (const backend of this.backends) {
+      if (backend.has(key)) return true
     }
     return false
   }
 
-  /** Attach an external on-demand tile producer (e.g., PMTiles archive).
-   *  After this call:
-   *    • hasEntryInIndex(key) returns true for any (z, x, y) inside
-   *      the catalog window — the renderer will request those tiles.
-   *    • requestTiles(keys) dispatches the backend's fetcher for keys
-   *      not already in the index/cache.
-   *    • maxLevel reports the catalog's maxZoom so VTR doesn't fall
-   *      back to sub-tile generation inside the available z range.
-   *    • getBounds() returns the catalog bounds (camera fit + culling).
-   *  Adapters live in their own module (loader/pmtiles-source.ts);
-   *  XGVTSource stays format-agnostic. */
+  /** Legacy hook for on-demand tile producers. Now a thin shim around
+   *  attachBackend(new PMTilesBackend(catalog)). Preserved so existing
+   *  callers (loadPMTilesSource, virtual-catalog-fetch tests) keep
+   *  compiling. New code should use attachBackend directly with a
+   *  PMTilesBackend instance. */
   setVirtualCatalog(catalog: VirtualCatalog): void {
-    const sink: PMTilesBackendSink = {
-      hasTileData: (key) => this.dataCache.has(key),
-      trackLoading: (key) => { this.loadingTiles.add(key) },
-      releaseLoading: (key) => { this.loadingTiles.delete(key) },
-      getLoadingCount: () => this.loadingTiles.size,
-      registerEntry: (key, entry) => {
-        if (this.index && !this.index.entryByHash.has(key)) {
-          this.index.entries.push(entry)
-          this.index.entryByHash.set(key, entry)
-        }
-      },
-      getEntry: (key) => this.index?.entryByHash.get(key),
-      cacheTileData: (key, polygons, vertices, indices, lineVerts, lineIndices, pointVerts, outlineIndices, outlineVerts, outlineLineIndices) =>
-        this.cacheTileData(key, polygons, vertices, indices, lineVerts, lineIndices, pointVerts, outlineIndices, outlineVerts, outlineLineIndices),
-      createFullCoverTileData: (key, entry, lineVerts, lineIndices) =>
-        this.createFullCoverTileData(key, entry, lineVerts, lineIndices),
-    }
-    this.pmtilesBackend = new PMTilesBackend(catalog, sink)
-    if (!this.index) {
-      this.index = {
-        header: {
-          levelCount: 0,
-          maxLevel: catalog.maxZoom,
-          bounds: catalog.bounds,
-          indexOffset: 0, indexLength: 0,
-          propTableOffset: 0, propTableLength: 0,
-        },
-        entries: [],
-        entryByHash: new Map(),
-        propertyTable: { fieldNames: [], fieldTypes: [], values: [] },
-      }
-    } else {
-      this.index.header.maxLevel = Math.max(this.index.header.maxLevel, catalog.maxZoom)
-    }
+    const backend = new PMTilesBackend(catalog)
+    this.attachBackend(backend)
   }
 
   // ── Loading ──
 
-  /** Lazy-build the BinaryBackendSink — the callback bundle the binary
-   *  backend uses to write into our cache. Bound to private methods so
-   *  backend code can't accidentally see our private state. */
+  /** Lazy-build the binary backend instance + attach it. The binary
+   *  backend's loadFromBuffer/URL methods are exposed here as
+   *  delegates because they have parsing-specific signatures that
+   *  don't fit the generic TileSource interface (they're load-time,
+   *  not request-time). */
   private getBinaryBackend(): XGVTBinaryBackend {
     if (!this.binaryBackend) {
-      const sink: BinaryBackendSink = {
-        hasTileData: (key) => this.dataCache.has(key),
-        trackLoading: (key) => { this.loadingTiles.add(key) },
-        releaseLoading: (key) => { this.loadingTiles.delete(key) },
-        getLoadingCount: () => this.loadingTiles.size,
-        cacheTileData: (key, polygons, vertices, indices, lineVerts, lineIndices, pointVerts, outlineIndices, outlineVerts, outlineLineIndices) =>
-          this.cacheTileData(key, polygons, vertices, indices, lineVerts, lineIndices, pointVerts, outlineIndices, outlineVerts, outlineLineIndices),
-        createFullCoverTileData: (key, entry, lineVerts, lineIndices) =>
-          this.createFullCoverTileData(key, entry, lineVerts, lineIndices),
-      }
-      this.binaryBackend = new XGVTBinaryBackend(sink)
+      this.binaryBackend = new XGVTBinaryBackend()
+      this.attachBackend(this.binaryBackend)
     }
     return this.binaryBackend
   }
@@ -373,15 +393,14 @@ export class XGVTSource {
   async loadFromBuffer(buf: ArrayBuffer): Promise<void> {
     const backend = this.getBinaryBackend()
     await backend.loadFromBuffer(buf)
-    // Adopt the backend's parsed index as our own — VTR + multi-backend
-    // dispatch read it via getIndex() / hasEntryInIndex / maxLevel.
-    this.index = backend.index
+    // Index entries arrive via meta after parse — re-merge them.
+    this.mergeBackendMeta(backend)
   }
 
   async loadFromURL(url: string): Promise<void> {
     const backend = this.getBinaryBackend()
     await backend.loadFromURL(url)
-    this.index = backend.index
+    this.mergeBackendMeta(backend)
   }
 
   /**
@@ -491,43 +510,66 @@ export class XGVTSource {
     }
   }
 
-  // ── Tile request (async batch loading) ──
+  // ── Tile request (multi-backend dispatch) ──
 
   requestTiles(keys: number[]): void {
-    if (!this.index) return
+    if (!this.index || this.backends.length === 0) return
 
-    const entries: { key: number; entry: TileIndexEntry }[] = []
+    // Per-backend batches for backends that support batched fetch
+    // (XGVT-binary's range-merge). Single keys go through loadTile.
+    const batches = new Map<TileSource, number[]>()
+
     for (const key of keys) {
       if (this.dataCache.has(key) || this.loadingTiles.has(key)) continue
       if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
-      const entry = this.index.entryByHash.get(key)
-      if (!entry) {
-        // On-demand: compile from raw GeoJSON parts, or dispatch the
-        // PMTiles backend fetcher, or give up. compileTileOnDemand
-        // stays sync; PMTilesBackend.loadTile is async — it manages
-        // loadingTiles itself via the sink callbacks and triggers
-        // onTileLoaded when the network round-trip completes.
-        if (this.geojsonBackend) this.compileTileOnDemand(key)
-        else if (this.pmtilesBackend) this.pmtilesBackend.loadTile(key)
+
+      // Preregistered entries (XGVT-binary) route through entryToBackend.
+      const owner = this.entryToBackend.get(key)
+      if (owner) {
+        const entry = this.index.entryByHash.get(key)!
+        // Full-cover tiles with no data: synthesise quad immediately
+        // from the cached entry — no fetch needed.
+        if ((entry.flags & TILE_FLAG_FULL_COVER) && entry.compactSize === 0) {
+          this.createFullCoverTileData(key, entry, new Float32Array(0), new Uint32Array(0))
+          continue
+        }
+        if (owner.loadTilesBatch) {
+          let batch = batches.get(owner)
+          if (!batch) { batch = []; batches.set(owner, batch) }
+          batch.push(key)
+        } else {
+          owner.loadTile(key)
+        }
         continue
       }
 
-      // Full-cover tiles with no data: create quad immediately
-      if ((entry.flags & TILE_FLAG_FULL_COVER) && entry.compactSize === 0) {
-        this.createFullCoverTileData(key, entry, new Float32Array(0), new Uint32Array(0))
-        continue
+      // Lazy-discovery path: walk backends, first one that claims the
+      // key wins. compileSync (GeoJSON-runtime) is preferred over
+      // async loadTile when both are available.
+      for (const backend of this.backends) {
+        if (!backend.has(key)) continue
+        if (backend.compileSync) {
+          if (this.tryCompileSync(key, backend)) break
+        } else {
+          backend.loadTile(key)
+          break
+        }
       }
-
-      entries.push({ key, entry })
     }
 
-    // Delegate the actual fetch + decode + worker-pool dispatch to the
-    // binary backend. It manages range-request batching, the
-    // GPU-ready/compact split, and per-tile loadingTiles tracking via
-    // the sink callbacks bound in getBinaryBackend().
-    if (entries.length > 0) {
-      this.getBinaryBackend().requestTilesBatch(entries)
+    for (const [backend, batch] of batches) {
+      backend.loadTilesBatch!(batch)
     }
+  }
+
+  /** Per-frame budget gate around backend.compileSync. Returns true if
+   *  the backend produced (and budget was charged). */
+  private tryCompileSync(key: number, backend: TileSource): boolean {
+    if (!backend.compileSync) return false
+    if (this._budgetExceeded(this._compileCountThisFrame, XGVTSource._COMPILE_FLOOR)) return false
+    const ok = backend.compileSync(key)
+    if (ok) this._compileCountThisFrame++
+    return ok
   }
 
   private createFullCoverTileData(key: number, entry: TileIndexEntry, lineVertices: Float32Array, lineIndices: Uint32Array): void {
@@ -952,5 +994,21 @@ export class XGVTSource {
       this.dataCache.delete(entries[i][0])
     }
   }
+}
+
+// ═══ Helpers ═══
+
+/** Bounding union of two lon/lat rectangles. Used by mergeBackendMeta
+ *  when multiple backends contribute coverage. */
+function unionBounds(
+  a: [number, number, number, number],
+  b: [number, number, number, number],
+): [number, number, number, number] {
+  return [
+    Math.min(a[0], b[0]),
+    Math.min(a[1], b[1]),
+    Math.max(a[2], b[2]),
+    Math.max(a[3], b[3]),
+  ]
 }
 
