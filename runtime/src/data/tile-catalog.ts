@@ -85,7 +85,17 @@ export class TileCatalog {
   // ── Data access ──
 
   hasData(): boolean {
-    return this.index !== null && this.index.entries.length > 0
+    // Consider the catalog ready as soon as any backend is attached —
+    // not just when preregistered entries exist. Lazy-discovery
+    // backends (PMTiles, GeoJSON-runtime) start with an empty
+    // entries list and only populate it after tiles are fetched on
+    // demand. The previous "entries.length > 0" check created a
+    // chicken-and-egg deadlock: VTR's render path early-outs on
+    // !hasData → never calls requestTiles → no fetch ever fires →
+    // entries stay at 0 → hasData stays false. Fix: any attached
+    // backend (or any preregistered entry) counts as "has data".
+    if (this.index && this.index.entries.length > 0) return true
+    return this.backends.length > 0
   }
 
   getBounds(): [number, number, number, number] | null {
