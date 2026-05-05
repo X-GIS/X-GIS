@@ -29,7 +29,7 @@ import {
   type XGISFeature, type XGISFeatureEvent, type XGISFeatureEventType, type XGISFeatureListener,
 } from './layer'
 import { EventDispatcher } from './event-dispatcher'
-import { XGVTSource } from '../data/xgvt-source'
+import { TileCatalog } from '../data/tile-catalog'
 import { attachPMTilesSource } from '../loader/pmtiles-source'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
@@ -137,7 +137,7 @@ export class XGISMap {
   private useCanvas2D = false
 
   // Vector tile sources + renderers (per .xgvt source)
-  private vtSources = new Map<string, { source: XGVTSource; renderer: VectorTileRenderer }>()
+  private vtSources = new Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>()
   private vectorTileShows: { sourceName: string; show: SceneCommands['shows'][0]; pipelines: VariantPipelines | null; layout: GPUBindGroupLayout | null }[] = []
   private vtVariantPipelines: VariantPipelines | null = null
 
@@ -782,7 +782,7 @@ export class XGISMap {
         //   .xgvt    native binary, range-request streamed (existing path)
         //   .pmtiles MVT inside a PMTiles archive — pre-fetched + compiled
         //            via populatePMTilesSource (Phase 2 MVP).
-        const source = new XGVTSource()
+        const source = new TileCatalog()
         const vtRenderer = new VectorTileRenderer(this.ctx)
         vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout) // must be set before any tile uploads
         if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
@@ -1043,7 +1043,7 @@ export class XGISMap {
         continue
       }
 
-      const source = new XGVTSource()
+      const source = new TileCatalog()
       const vtRenderer = new VectorTileRenderer(this.ctx)
       vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
       if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)

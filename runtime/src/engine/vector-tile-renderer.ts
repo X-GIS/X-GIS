@@ -1,6 +1,6 @@
 // ═══ Vector Tile Renderer (GPU Layer) ═══
-// Renders vector tiles from XGVTSource to WebGPU.
-// Data loading/caching/sub-tiling is handled by XGVTSource.
+// Renders vector tiles from a TileCatalog to WebGPU.
+// Data loading/caching/sub-tiling is handled by TileCatalog.
 // This class manages GPU buffers, bind groups, and draw calls only.
 
 import type { GPUContext } from './gpu'
@@ -9,7 +9,8 @@ import type { ShowCommand } from './renderer'
 import { visibleTilesFrustum, sortByPriority, firstIndexedAncestor } from '../loader/tiles'
 import { tileKey, tileKeyParent, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
-import type { XGVTSource, TileData } from '../data/xgvt-source'
+import type { TileCatalog } from '../data/tile-catalog'
+import type { TileData } from '../data/tile-types'
 import { mercator as mercatorProj } from './projection'
 import type { PointRenderer } from './point-renderer'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
@@ -73,7 +74,7 @@ const UNIFORM_SIZE = 160
 
 export class VectorTileRenderer {
   private device: GPUDevice
-  private source: XGVTSource | null = null
+  private source: TileCatalog | null = null
 
   /** Max tile level of the backing source (0 if none), for camera zoom
    *  clamping in the render loop. */
@@ -152,7 +153,7 @@ export class VectorTileRenderer {
   }
 
   /** Connect to a data source */
-  setSource(source: XGVTSource): void {
+  setSource(source: TileCatalog): void {
     this.source = source
     // Immediate GPU upload — no queue delay, no flickering
     source.onTileLoaded = (key, data) => {
