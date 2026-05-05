@@ -21,7 +21,8 @@ source pm {
   url: "/pmtiles-proxy/protomaps/v4.pmtiles"
 }
 
-layer pm_fill {
+layer earth {
   source: pm
+  sourceLayer: "earth"
   | fill-stone-200 stroke-stone-500 stroke-1
 }

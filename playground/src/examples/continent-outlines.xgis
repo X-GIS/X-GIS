@@ -22,7 +22,7 @@ layer sea {
 
 layer continents {
   source: countries
-  | fill match(CONTINENT) {
+  | fill match(.CONTINENT) {
       "Africa"        -> amber-500,
       "Asia"          -> rose-500,
       "Europe"        -> sky-500,

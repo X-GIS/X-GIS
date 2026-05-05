@@ -24,7 +24,8 @@ source pm {
   url: "https://pmtiles.io/protomaps(vector)ODbL_firenze.pmtiles"
 }
 
-layer pm_fill {
+layer pm_buildings {
   source: pm
-  | fill-stone-200 stroke-stone-500 stroke-1
+  sourceLayer: "buildings"
+  | fill-stone-200 stroke-stone-500 stroke-0.5
 }

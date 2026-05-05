@@ -137,6 +137,27 @@
     }
     #demo-select:focus { outline: none; border-color: var(--accent); }
 
+    #proj-select {
+      font-family: var(--font-mono);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      font-size: 11px;
+      padding: 4px 22px 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      flex-shrink: 0;
+      max-width: 140px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      overflow: hidden;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%235a6a7e' fill='none' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 6px center;
+    }
+    #proj-select:focus { outline: none; border-color: var(--accent); }
+
     .tb-tag {
       font-family: var(--font-mono);
       font-size: 0.55rem;
@@ -295,6 +316,16 @@
         <button class="tb-nav" id="prev-btn" title="Previous">&#8249;</button>
         <select id="demo-select"></select>
         <button class="tb-nav" id="next-btn" title="Next">&#8250;</button>
+        <select id="proj-select" title="Projection override">
+          <option value="">proj: default</option>
+          <option value="mercator">mercator</option>
+          <option value="equirectangular">equirectangular</option>
+          <option value="natural_earth">natural earth</option>
+          <option value="orthographic">orthographic</option>
+          <option value="azimuthal_equidistant">azimuthal eq.</option>
+          <option value="stereographic">stereographic</option>
+          <option value="oblique_mercator">oblique mercator</option>
+        </select>
         <span class="tb-tag" id="demo-tag"></span>
       </div>
 

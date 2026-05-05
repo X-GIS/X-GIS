@@ -24,6 +24,7 @@ const errorMsg = document.getElementById('error-msg')!
 const runBtn = document.getElementById('run-btn') as HTMLButtonElement
 const tagEl = document.getElementById('demo-tag')!
 const selectEl = document.getElementById('demo-select') as HTMLSelectElement
+const projSelectEl = document.getElementById('proj-select') as HTMLSelectElement
 const prevBtn = document.getElementById('prev-btn') as HTMLButtonElement
 const nextBtn = document.getElementById('next-btn') as HTMLButtonElement
 const editorPane = document.getElementById('editor-pane')!
@@ -397,18 +398,22 @@ function startHashSync(map: XGISMap): void {
   hashSyncRaf = requestAnimationFrame(tick)
 }
 
-// Live hash readout pinned to the top-right of the canvas for quick copy/paste.
+// Live hash readout pinned to the top-left of the map pane for quick copy/paste.
+// Was viewport-fixed top-right but that overlapped the editor pane header on
+// desktop (covering the demo / projection selectors). Top-left of map-pane
+// mirrors #status (bottom-left), the traditional map-attribution corner —
+// stays away from the editor and from the picking overlay (top-right).
 const hashBadge = document.createElement('div')
 hashBadge.id = 'hash-badge'
 hashBadge.title = 'Click to copy map state (zoom/lat/lon/bearing/pitch)'
 hashBadge.style.cssText = [
-  'position:fixed', 'top:12px', 'right:12px', 'z-index:1000',
+  'position:absolute', 'top:12px', 'left:12px', 'z-index:20',
   'font:11px/1.4 "DM Mono",monospace', 'color:#dde',
   'background:rgba(10,12,20,0.75)', 'backdrop-filter:blur(6px)',
   'padding:6px 10px', 'border:1px solid rgba(255,255,255,0.12)',
   'border-radius:6px', 'cursor:pointer', 'user-select:all',
 ].join(';')
-document.body.appendChild(hashBadge)
+document.getElementById('map-pane')!.appendChild(hashBadge)
 hashBadge.addEventListener('click', () => {
   navigator.clipboard?.writeText(location.href).then(() => {
     hashBadge.style.color = '#8f8'
@@ -531,7 +536,17 @@ async function runSource(source: string, label: string) {
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
     // demo runner. Keep it lightweight; not part of the public API.
     ;(window as unknown as { __xgisMap?: unknown }).__xgisMap = currentMap
+    // Expose tileKeyUnpack for e2e diagnostic — lets tests decode
+    // packed tileKeys back to (z, x, y) without re-importing the
+    // helper through Playwright's evaluate-evaluate boundary.
+    const { tileKeyUnpack } = await import('@xgis/compiler')
+    ;(window as unknown as { __xgisInternals?: unknown }).__xgisInternals = { tileKeyUnpack }
     await currentMap.run(source, import.meta.env.BASE_URL + 'data/')
+
+    // URL `?proj=X` overrides whatever projection the source declared.
+    // Empty / absent means: keep the source's default.
+    const projOverride = new URLSearchParams(location.search).get('proj')
+    if (projOverride) currentMap.setProjection(projOverride)
 
     // Apply pre-existing hash AFTER data is loaded (so bounds-fit ran first).
     applyHashToCamera(currentMap)
@@ -561,7 +576,12 @@ async function loadDemo(idx: number) {
   nextBtn.disabled = idx === demoIds.length - 1
 
   editor.setValue(demo.source.trim())
-  history.replaceState(null, '', `demo.html?id=${id}${location.hash}`)
+  // Preserve `?proj=` (and any other current query params) when switching
+  // demos — the projection override is meant to persist across navigation.
+  const navUrl = new URL(location.href)
+  navUrl.pathname = navUrl.pathname.replace(/[^/]*$/, 'demo.html')
+  navUrl.searchParams.set('id', id)
+  history.replaceState(null, '', navUrl.toString())
 
   // Discover fields from GeoJSON URLs in source (async, non-blocking)
   discoverFields(demo.source, import.meta.env.BASE_URL + 'data/')
@@ -619,6 +639,20 @@ runBtn.addEventListener('click', () => {
 prevBtn.addEventListener('click', () => { if (currentIdx > 0) loadDemo(currentIdx - 1) })
 nextBtn.addEventListener('click', () => { if (currentIdx < demoIds.length - 1) loadDemo(currentIdx + 1) })
 selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
+
+// ── Projection override ──
+// Sync dropdown with URL state so reloads / shared links restore it.
+projSelectEl.value = params.get('proj') ?? ''
+projSelectEl.addEventListener('change', () => {
+  const value = projSelectEl.value
+  const url = new URL(location.href)
+  if (value) url.searchParams.set('proj', value)
+  else url.searchParams.delete('proj')
+  history.replaceState(null, '', url.toString())
+  // Empty value = reload demo to restore the source's declared projection.
+  if (!value) loadDemo(currentIdx)
+  else currentMap?.setProjection(value)
+})
 
 document.addEventListener('keydown', (e) => {
   if (monacoContainer.contains(e.target as Node) || e.target instanceof HTMLSelectElement) return

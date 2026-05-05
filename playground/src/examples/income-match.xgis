@@ -17,7 +17,7 @@ layer sea {
 
 layer income {
   source: countries
-  | fill match(INCOME_GRP) {
+  | fill match(.INCOME_GRP) {
       "1. High income: OECD"     -> emerald-400,
       "2. High income: nonOECD"  -> emerald-600,
       "3. Upper middle income"   -> sky-400,

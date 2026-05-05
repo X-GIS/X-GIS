@@ -9,5 +9,6 @@ source pm {
 }
 layer landuse {
   source: pm
+  sourceLayer: "landuse"
   | fill-emerald-700
 }
