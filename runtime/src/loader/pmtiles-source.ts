@@ -32,7 +32,26 @@ export async function attachPMTilesSource(
   opts: PMTilesSourceOptions,
 ): Promise<void> {
   const archive = new PMTiles(opts.url)
-  const header = await archive.getHeader()
+  let header
+  try {
+    header = await archive.getHeader()
+  } catch (e) {
+    // Surface a user-actionable diagnosis instead of letting the raw
+    // "TypeError: Failed to fetch" propagate up through the loader and
+    // hang the demo. The single most common cause of header-fetch
+    // failure is missing CORS headers on the archive's host (e.g.,
+    // demo-bucket.protomaps.com does not set Access-Control-Allow-Origin).
+    const msg = (e as Error)?.message ?? String(e)
+    console.error(
+      `[X-GIS] PMTiles attach failed for ${opts.url}\n` +
+      `  ${msg}\n` +
+      `  If this is "Failed to fetch", the archive's origin likely\n` +
+      `  doesn't set Access-Control-Allow-Origin. Use a CORS-enabled\n` +
+      `  host (e.g. pmtiles.io) or proxy the archive through your dev\n` +
+      `  server (vite.config.ts proxy entry).`,
+    )
+    return  // soft-fail: catalog stays empty, demo still loads
+  }
   if (header.tileType !== TileType.Mvt) {
     throw new Error(
       `[pmtiles-source] tileType ${header.tileType} not supported — only MVT (1)`,

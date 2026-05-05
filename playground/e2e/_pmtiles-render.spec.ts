@@ -1,5 +1,8 @@
 // E2E verification that the PMTiles + MVT input pipeline renders.
 //
+// Note: tests against the Firenze archive baked into pmtiles-source.xgis.
+// To probe the protomaps v4 world basemap, set PMTILES_URL env var.
+//
 // Loads the pmtiles_source demo (Firenze sample, ~5km × 5km area at
 // z=0..15) at z=13 over Florence center. After __xgisReady + a short
 // settle, asserts:

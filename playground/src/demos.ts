@@ -95,6 +95,13 @@ export const DEMOS: Record<string, Demo> = {
     source: load('pmtiles-source.xgis'),
   },
 
+  pmtiles_v4: {
+    name: 'PMTiles — protomaps v4',
+    tag: 'xgvt',
+    description: 'Production protomaps daily world basemap (~6 GB, 176M tiles, z=0..15)',
+    source: load('pmtiles-protomaps-v4.xgis'),
+  },
+
   // ── CSS-like style + filter ──
 
   styled_world: {

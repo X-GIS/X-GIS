@@ -1,0 +1,27 @@
+/* PMTiles — protomaps v4 daily world basemap (~6 GB, 176M tile entries,
+ * z=0..15). Public CDN, OSM-derived, daily refresh.
+ *
+ * Used to stress-test the PMTiles pipeline against a real production
+ * archive (not the 5km × 5km Firenze sample). Recommended views:
+ *   - Whole world: #1.5/0/0
+ *   - Europe:      #5/45/15
+ *   - Tokyo:       #12/35.68/139.76
+ *   - Manhattan:   #14/40.78/-73.97
+ *
+ * NOTE on CORS: demo-bucket.protomaps.com does NOT serve the
+ * Access-Control-Allow-Origin header, so the browser blocks direct
+ * fetches. The dev server (vite.config.ts) proxies it through
+ * /pmtiles-proxy/protomaps so the browser sees a same-origin response.
+ * Production deployments must serve the archive from a CORS-enabled
+ * origin (most CDNs handle this; the protomaps demo bucket is a
+ * known exception).
+ */
+source pm {
+  type: pmtiles
+  url: "/pmtiles-proxy/protomaps/v4.pmtiles"
+}
+
+layer pm_fill {
+  source: pm
+  | fill-stone-200 stroke-stone-500 stroke-1
+}
