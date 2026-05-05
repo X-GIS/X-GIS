@@ -232,29 +232,33 @@ export function obliqueMercator(centerLon: number, centerLat: number): Projectio
       const lam = lon * DEG2RAD
       const phi = lat * DEG2RAD
       const dLam = lam - lam0
+      // Rotated latitude: tilt sphere so (centerLon, centerLat) sits on the equator.
+      const phiRot = Math.asin(Math.max(-1, Math.min(1,
+        Math.sin(phi) * cosPhi0 - Math.cos(phi) * sinPhi0 * Math.cos(dLam),
+      )))
+      // Rotated longitude in same frame.
       const lamRot = Math.atan2(
         Math.cos(phi) * Math.sin(dLam),
-        cosPhi0 * Math.sin(phi) - sinPhi0 * Math.cos(phi) * Math.cos(dLam),
+        Math.sin(phi) * sinPhi0 + Math.cos(phi) * cosPhi0 * Math.cos(dLam),
       )
-      const phiRot = Math.asin(Math.max(-1, Math.min(1,
-        sinPhi0 * Math.sin(phi) + cosPhi0 * Math.cos(phi) * Math.cos(dLam),
-      )))
-      const phiShifted = Math.max(-1.5, Math.min(1.5, phiRot - Math.PI / 2))
+      const MERCATOR_LIMIT_RAD = MERCATOR_LAT_LIMIT * DEG2RAD
+      const phiClamped = Math.max(-MERCATOR_LIMIT_RAD, Math.min(MERCATOR_LIMIT_RAD, phiRot))
       const x = EARTH_RADIUS * lamRot
-      const y = EARTH_RADIUS * Math.log(Math.tan(Math.PI / 4 + phiShifted / 2))
+      const y = EARTH_RADIUS * Math.log(Math.tan(Math.PI / 4 + phiClamped / 2))
       return [x, y]
     },
 
     inverse(x: number, y: number): [number, number] {
-      const phiShifted = 2 * Math.atan(Math.exp(y / EARTH_RADIUS)) - Math.PI / 2
-      const phiRot = phiShifted + Math.PI / 2
+      // Inverse Mercator on rotated frame, then unrotate (rotate by -clat
+      // around the same axis).
+      const phiRot = 2 * Math.atan(Math.exp(y / EARTH_RADIUS)) - Math.PI / 2
       const lamRot = x / EARTH_RADIUS
       const lat = Math.asin(Math.max(-1, Math.min(1,
-        sinPhi0 * Math.sin(phiRot) + cosPhi0 * Math.cos(phiRot) * Math.cos(lamRot),
+        Math.sin(phiRot) * cosPhi0 + Math.cos(phiRot) * Math.cos(lamRot) * sinPhi0,
       ))) * RAD2DEG
       const lon = (lam0 + Math.atan2(
         Math.cos(phiRot) * Math.sin(lamRot),
-        sinPhi0 * Math.cos(phiRot) * Math.cos(lamRot) - cosPhi0 * Math.sin(phiRot),
+        -Math.sin(phiRot) * sinPhi0 + Math.cos(phiRot) * Math.cos(lamRot) * cosPhi0,
       )) * RAD2DEG
       return [lon, lat]
     },

@@ -175,10 +175,42 @@ describe('CPU/GPU projection consistency — Oblique Mercator', () => {
     for (const [lon, lat] of sampleGrid()) {
       const [xA, yA] = cpu.forward(lon, lat)
       const [xB, yB] = projObliqueMercatorWgsl(lon, lat, CENTER_LON, CENTER_LAT)
-      // Both sides clamp phi_shifted to [-1.5, 1.5] so the projection is
-      // bounded; tolerance can stay tight.
+      // Rotated latitude is clamped to ±MERCATOR_LAT_LIMIT (matches plain
+      // Mercator) so the projection is bounded; tolerance can stay tight.
       expect(xB).toBeCloseTo(xA, 3)
       expect(yB).toBeCloseTo(yA, 3)
+    }
+  })
+
+  // Regression: a previous formulation rotated center to the north pole
+  // and subtracted PI/2 from rotated latitude. That collapsed the world
+  // into y ≤ 0 with both poles overlapping, so a camera at center (0, 0)
+  // saw the entire map crammed into the lower-left quadrant of the canvas.
+  // These assertions guard against re-introducing the same shift.
+  it('center (0,0): symmetry across the equator', () => {
+    const eq = obliqueMercator(0, 0)
+    const [, yNorth] = eq.forward(0, 89)
+    const [, ySouth] = eq.forward(0, -89)
+    expect(yNorth).toBeGreaterThan(0)
+    expect(ySouth).toBeLessThan(0)
+    expect(yNorth).toBeCloseTo(-ySouth, 3)
+  })
+
+  it('center maps to (0, 0)', () => {
+    for (const [clon, clat] of [[0, 0], [10, 30], [-50, 45], [120, -20]] as const) {
+      const [x, y] = obliqueMercator(clon, clat).forward(clon, clat)
+      expect(x).toBeCloseTo(0, 3)
+      expect(y).toBeCloseTo(0, 3)
+    }
+  })
+
+  it('forward → inverse round-trips', () => {
+    const proj = obliqueMercator(20, 40)
+    for (const [lon, lat] of [[0, 0], [10, 10], [-30, 50], [80, -20]] as const) {
+      const [x, y] = proj.forward(lon, lat)
+      const [lon2, lat2] = proj.inverse(x, y)
+      expect(lon2).toBeCloseTo(lon, 3)
+      expect(lat2).toBeCloseTo(lat, 3)
     }
   })
 })

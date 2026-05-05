@@ -105,14 +105,14 @@ export function projObliqueMercatorWgsl(lon: number, lat: number, clon: number, 
   const lam = lon * DEG2RAD, phi = lat * DEG2RAD
   const l0 = clon * DEG2RAD, p0 = clat * DEG2RAD
   const dLam = lam - l0
+  const phiRot = Math.asin(Math.max(-1, Math.min(1,
+    Math.sin(phi) * Math.cos(p0) - Math.cos(phi) * Math.sin(p0) * Math.cos(dLam),
+  )))
   const lamRot = Math.atan2(
     Math.cos(phi) * Math.sin(dLam),
-    Math.cos(p0) * Math.sin(phi) - Math.sin(p0) * Math.cos(phi) * Math.cos(dLam),
+    Math.sin(phi) * Math.sin(p0) + Math.cos(phi) * Math.cos(p0) * Math.cos(dLam),
   )
-  const phiRot = Math.asin(Math.max(-1, Math.min(1,
-    Math.sin(p0) * Math.sin(phi) + Math.cos(p0) * Math.cos(phi) * Math.cos(dLam),
-  )))
-  const phiShifted = phiRot - Math.PI / 2
-  const yLat = Math.max(-1.5, Math.min(1.5, phiShifted))
-  return [EARTH_R * lamRot, EARTH_R * Math.log(Math.tan(Math.PI / 4 + yLat / 2))]
+  const MERC_LIMIT_RAD = 85.051129 * DEG2RAD
+  const phiClamped = Math.max(-MERC_LIMIT_RAD, Math.min(MERC_LIMIT_RAD, phiRot))
+  return [EARTH_R * lamRot, EARTH_R * Math.log(Math.tan(Math.PI / 4 + phiClamped / 2))]
 }

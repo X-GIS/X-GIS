@@ -6,7 +6,7 @@
 
 import { bytesToHeader, TileType } from 'pmtiles'
 
-const URL = 'https://pmtiles.io/protomaps(vector)ODbL_firenze.pmtiles'
+const URL = process.argv[2] ?? 'https://pmtiles.io/protomaps(vector)ODbL_firenze.pmtiles'
 
 async function fetchRange(offset: number, length: number): Promise<Uint8Array> {
   const res = await fetch(URL, {
