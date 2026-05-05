@@ -1,10 +1,20 @@
 ---
 const githubUrl = 'https://github.com/X-GIS/X-GIS'
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const logoUrl = `${base}/x-gis-logo-dark.svg`
 ---
 
 <header class="fixed top-0 inset-x-0 z-50 backdrop-blur-2xl bg-bg/72 border-b border-line">
   <div class="max-w-[1024px] mx-auto px-6 h-12 flex items-center text-[13px]">
-    <a href="#" class="font-medium tracking-tight text-fg hover:text-fg">X-GIS</a>
+    <a href="#" class="flex items-center gap-2 hover:text-fg transition-colors">
+      <img
+        src={logoUrl}
+        alt=""
+        width="22"
+        height="22"
+      />
+      <span class="font-medium tracking-tight text-fg">X-GIS</span>
+    </a>
 
     <!-- Desktop nav (≥ sm) -->
     <nav class="ml-auto hidden sm:flex items-center gap-7 text-fg-dim">

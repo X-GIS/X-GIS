@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="X-GIS">
+  <g fill="none" stroke="#0a0a0a" stroke-width="38"
+     stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4">
+    <polyline points="106,170 61,256 106,342"/>
+    <line x1="166" y1="156" x2="236" y2="356"/>
+    <line x1="236" y1="156" x2="166" y2="356"/>
+    <line x1="296" y1="356" x2="346" y2="156"/>
+    <polyline points="406,170 451,256 406,342"/>
+  </g>
+</svg>

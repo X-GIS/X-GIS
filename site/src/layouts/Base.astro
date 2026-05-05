@@ -14,6 +14,12 @@ const {
 const siteUrl = 'https://x-gis.github.io/X-GIS/'
 const canonical = new URL(Astro.url.pathname, Astro.site ?? siteUrl).toString()
 
+// Asset paths must respect the GH Pages base prefix (`/X-GIS/` in CI,
+// `/` in dev). BASE_URL handles that; we strip a trailing slash so the
+// joined path doesn't double up.
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const logoUrl = `${base}/x-gis-logo-dark.svg`
+
 // JSON-LD: SoftwareSourceCode + WebSite. Helps search engines surface
 // the project as a software listing rather than a generic page.
 const jsonLd = {
@@ -67,7 +73,7 @@ const jsonLd = {
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={`${siteUrl}og.svg`} />
 
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23000'/%3E%3Ctext x='16' y='22' font-family='-apple-system,Helvetica,Arial' font-weight='600' font-size='17' fill='%23f5f5f7' text-anchor='middle' letter-spacing='-1'%3EX%3C/text%3E%3C/svg%3E" />
+    <link rel="icon" type="image/svg+xml" href={logoUrl} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 
