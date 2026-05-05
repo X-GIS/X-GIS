@@ -1129,23 +1129,15 @@ export class VectorTileRenderer {
     const fallbackKeys: number[] = []
     const fallbackOffsets: number[] = []
     const toLoad: number[] = []
-    // Memoize hasEntryInIndex / hasTileData / gpuCache.has across the
-    // parent walks within this render. Adjacent visible tiles share
-    // ancestors (every 4 z=22 children share a z=21 parent, and so
-    // on) so without memo the same key gets queried 4-100× per
-    // render at over-zoom. Per-render scope so the memo never goes
-    // stale (catalog state can mutate between renders within a
-    // frame, e.g. uploadTile populates gpuCache).
-    const hasEntryMemo = new Map<number, boolean>()
-    const sliceCachedMemo = new Map<number, boolean>()  // gpuCache or hasTileData hit for sliceLayer
-    const hasEntry = (k: number): boolean => {
-      let v = hasEntryMemo.get(k)
-      if (v === undefined) {
-        v = this.source!.hasEntryInIndex(k)
-        hasEntryMemo.set(k, v)
-      }
-      return v
-    }
+    // Memoize sliceCached lookups across the per-tile + prefetch loops
+    // within this render. Adjacent visible tiles share ancestors so
+    // without memo the same parent key gets queried per layer slot.
+    // hasEntryInIndex is no longer memoized at render scope — the
+    // frame cache populate runs the only memoized walk now (see
+    // archiveAncestor[] above), and the few remaining direct
+    // hasEntryInIndex calls in the per-tile loop hit case-6 paths
+    // that fire at most once per tile per render.
+    const sliceCachedMemo = new Map<number, boolean>()
     const sliceCached = (k: number): boolean => {
       let v = sliceCachedMemo.get(k)
       if (v === undefined) {
@@ -1356,18 +1348,20 @@ export class VectorTileRenderer {
     // (all currentZ keys are out-of-archive, all parents already
     // checked above). Same idea as the primary-renderTileKeys skip
     // below.
+    // Anticipatory parent prefetch for IN-ARCHIVE tiles only. The
+    // toLoad branch from the legacy prefetch loop is gone: per-tile
+    // case 6 already pushes `key`/`closestExisting` into toLoad with
+    // the same `hasEntryInIndex` guard, so a second push here was
+    // pure duplication (the catalog dedupes against `loadingTiles`
+    // but the JS overhead of re-iterating + re-checking still cost
+    // ~0.5 ms / render at z=21.6 over Seoul). For over-zoom tiles
+    // the fast path already enqueued the maxLevel parent into
+    // parentKeysSet, so we skip them entirely — only in-archive
+    // tiles whose own ancestor needs prefetching reach the body.
     if (anyInArchive) {
       for (let i = 0; i < neededKeys.length; i++) {
-        const k = neededKeys[i]
-        const cached = sliceCached(k)
-        if (!cached && !this.source!.isLoading(k) && hasEntry(k)) {
-          toLoad.push(k)
-        }
-        // Frame-cached ancestor: parentAtMaxLevel for over-zoom
-        // tiles, archiveAncestor for in-archive. One of the two is
-        // -1, never both; so `Math.max` picks the populated value
-        // with no extra branch.
-        const pk = parentAtMaxLevel[i] >= 0 ? parentAtMaxLevel[i] : archiveAncestor[i]
+        if (parentAtMaxLevel[i] >= 0) continue
+        const pk = archiveAncestor[i]
         if (pk >= 0 && !sliceCached(pk) && !this.source!.isLoading(pk)) {
           parentKeysSet.add(pk)
         }
