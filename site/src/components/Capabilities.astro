@@ -14,8 +14,8 @@ const capabilities: Capability[] = [
     glyph: 'projection',
   },
   {
-    title: 'XGVT vector tiles.',
-    body: 'Pre-tile GeoJSON into a single binary. HTTP Range Requests load only the visible tiles. Zero-copy GPU upload.',
+    title: 'PMTiles + MVT.',
+    body: 'Stream from a single PMTiles archive over HTTP Range Requests. Each MVT source-layer becomes its own xgis layer, styled independently against shared tile bytes.',
     glyph: 'tile',
   },
   {

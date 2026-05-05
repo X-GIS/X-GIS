@@ -1,5 +1,6 @@
 ---
 const githubUrl = 'https://github.com/X-GIS/X-GIS'
+const cloneCmd = 'git clone https://github.com/X-GIS/X-GIS && cd X-GIS && bun install && bun run dev'
 ---
 
 <section id="install" class="relative py-32 sm:py-40 lg:py-56 border-t border-line">
@@ -11,25 +12,31 @@ const githubUrl = 'https://github.com/X-GIS/X-GIS'
       </p>
       <h2 class="font-medium text-fg leading-[1.05] tracking-[-0.035em]
                  text-[40px] sm:text-[56px] lg:text-[72px]">
-        Install in one command.
+        Clone, install, run.
       </h2>
+      <p class="mt-5 text-[15px] text-fg-mute">
+        npm release is in flight; for now the playground is the way in.
+      </p>
     </div>
 
-    <!-- Single big terminal line — Apple's "one screen, one message" -->
+    <!-- Clone + install + dev server in one block. The package isn't on
+         npm yet, so this is the only working install path right now. -->
     <div class="max-w-[720px] mx-auto">
       <div class="rounded-2xl bg-bg-card border border-line p-1.5">
-        <div class="rounded-xl bg-bg px-6 py-5 flex items-center gap-4">
-          <span class="text-fg-mute font-mono text-[15px] select-none">$</span>
-          <code class="flex-1 font-mono text-[15px] sm:text-[17px] text-fg">
-            bun add <span class="text-accent">@xgis/runtime</span>
-          </code>
+        <div class="rounded-xl bg-bg px-6 py-5 flex items-start gap-4">
+          <span class="text-fg-mute font-mono text-[15px] select-none pt-px">$</span>
+          <code class="flex-1 font-mono text-[14px] sm:text-[15px] text-fg whitespace-pre-wrap break-words leading-[1.6]"
+>git clone <span class="text-accent">https://github.com/X-GIS/X-GIS</span>
+cd X-GIS
+bun install
+bun run dev</code>
           <button
             type="button"
             class="copy-btn shrink-0 inline-flex items-center gap-1.5 px-3 h-8 rounded-md
                    text-[12px] font-medium text-fg-dim hover:text-fg
                    border border-line hover:border-line-strong transition-colors"
-            data-copy="bun add @xgis/runtime"
-            aria-label="Copy install command"
+            data-copy={cloneCmd}
+            aria-label="Copy clone + install command"
           >
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="9" y="9" width="13" height="13" rx="2"/>
@@ -41,17 +48,18 @@ const githubUrl = 'https://github.com/X-GIS/X-GIS'
       </div>
 
       <p class="mt-5 text-center text-[13px] text-fg-mute">
-        Works with npm, pnpm, yarn, and Bun. Node ≥ 18.
+        Bun workspace. The dev server boots the playground at localhost:3000.
       </p>
     </div>
 
-    <!-- Then a tiny code sample, framed quietly -->
+    <!-- Then a tiny code sample showing the actual public API. -->
     <div class="max-w-[720px] mx-auto mt-16">
       <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
         <pre class="px-7 py-6 font-mono text-[14px] leading-[1.85] text-fg overflow-x-auto"
-><code><span class="cs-kw">import</span> {`{`} mount {`}`} <span class="cs-kw">from</span> <span class="cs-str">"@xgis/runtime"</span>
+><code><span class="cs-kw">import</span> {`{`} XGISMap {`}`} <span class="cs-kw">from</span> <span class="cs-str">"@xgis/runtime"</span>
 
-<span class="cs-fn">mount</span>(canvas, <span class="cs-str">"./hello.xgis"</span>)</code></pre>
+<span class="cs-kw">const</span> map = <span class="cs-kw">new</span> <span class="cs-fn">XGISMap</span>(canvas)
+<span class="cs-kw">await</span> map.<span class="cs-fn">run</span>(source, baseUrl)</code></pre>
       </div>
 
       <p class="mt-5 text-center text-[13px] text-fg-mute">
