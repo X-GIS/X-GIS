@@ -325,7 +325,13 @@ export class TileCatalog {
       b.tick?.(TileCatalog._TICK_BUDGET)
     }
   }
-  private static readonly _TICK_BUDGET = 4
+  // 2 paces compileSingleTile (5-50 ms each on dense MVT tiles) at
+  // most ~100 ms/frame so VTR's MAX_UPLOADS_PER_FRAME (also 2) can
+  // drain them without the queue growing. The pair (compile budget +
+  // upload budget) bounds total per-frame work at ~300 ms worst case,
+  // matching the visible-tile pipeline as a single producer→consumer
+  // chain. Real fix for sub-frame work is a compile worker pool.
+  private static readonly _TICK_BUDGET = 2
 
   /** Wall-clock reader. Uses performance.now when available (browser +
    *  modern Node) and falls back to Date.now otherwise. */
