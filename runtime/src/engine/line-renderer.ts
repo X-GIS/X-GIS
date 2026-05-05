@@ -700,9 +700,9 @@ ${WGSL_PROJECTION_FNS}
 // on a globe (orthographic / azimuthal / stereographic) curve along the
 // surface instead of leaking out as a Mercator world map.
 // Backface signal at a DSFUN endpoint. Reconstructs absolute lon/lat
-// (the same way reproject_line does for the non-Mercator branch) and
-// dispatches needs_backface_cull. Cheap for flat projections — that
-// helper returns +1 immediately when proj_params.x < 2.5.
+// (same path as finalize_corner's non-Mercator branch) and dispatches
+// needs_backface_cull. Cheap for flat projections — that helper
+// returns +1 immediately when proj_params.x < 2.5.
 fn endpoint_cos_c(p_h: vec2<f32>, p_l: vec2<f32>) -> f32 {
   let abs_merc_x = (p_h.x + p_l.x) + tile.tile_origin_merc.x;
   let abs_merc_y = (p_h.y + p_l.y) + tile.tile_origin_merc.y;
@@ -712,14 +712,49 @@ fn endpoint_cos_c(p_h: vec2<f32>, p_l: vec2<f32>) -> f32 {
   return needs_backface_cull(abs_lon, abs_lat, tile.proj_params);
 }
 
-fn reproject_line(p_h: vec2<f32>, p_l: vec2<f32>) -> vec2<f32> {
+// Stroke geometry frame helpers.
+//
+// vs_line + compute_line_color do all stroke math (segment direction,
+// perpendicular offset, miter/join padding, pattern extents) in a
+// "geometry frame" that depends on the projection:
+//
+//   * Mercator (proj_params.x < 0.5): camera-relative Mercator
+//     meters, computed via DSFUN cancellation for sub-mm precision
+//     at high zoom. This frame IS the projected XY space — Mercator
+//     projection is the identity on Mercator coords — so we feed
+//     the corner straight into MVP.
+//
+//   * Non-Mercator (orthographic / azimuthal / stereographic /
+//     equirect / natural earth): TILE-LOCAL Mercator. Geometry is
+//     built in the SOURCE coord space where the data lives; each
+//     corner is projected independently via project() before the
+//     MVP transform. This is the architectural fix for the globe-
+//     stroke "fan splay" (2026-05-05): previously we projected the
+//     segment endpoints first and expanded perpendicular in the
+//     ortho XY plane, which produced quads that flew off into 2D
+//     space instead of wrapping the sphere. By moving the perp
+//     expansion to source Mercator and projecting per-corner,
+//     thick strokes follow the sphere surface like an RTT-style
+//     tile renderer would (and like the polygon fill already does).
+//
+// line_endpoint reads a DSFUN-packed segment endpoint into the
+// frame. finalize_corner maps a finished corner into camera-relative
+// projected XY ready for MVP.
+
+fn line_endpoint(p_h: vec2<f32>, p_l: vec2<f32>) -> vec2<f32> {
   if (tile.proj_params.x < 0.5) {
-    return (p_h - tile.cam_h) + (p_l - tile.cam_l);
+    return (p_h - tile.cam_h) + (p_l - tile.cam_l); // DSFUN camera-relative
   }
-  let abs_merc_x = (p_h.x + p_l.x) + tile.tile_origin_merc.x;
-  let abs_merc_y = (p_h.y + p_l.y) + tile.tile_origin_merc.y;
-  let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
-  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  return p_h + p_l; // tile-local Mercator
+}
+
+fn finalize_corner(corner: vec2<f32>) -> vec2<f32> {
+  if (tile.proj_params.x < 0.5) {
+    return corner; // already camera-relative projected XY (= Mercator)
+  }
+  let abs_merc = corner + tile.tile_origin_merc;
+  let abs_lon = abs_merc.x / (DEG2RAD * EARTH_R);
+  let lat_rad = 2.0 * atan(exp(abs_merc.y / EARTH_R)) - PI / 2.0;
   let abs_lat = lat_rad / DEG2RAD;
   let proj_xy = project(abs_lon, abs_lat, tile.proj_params);
   let center_xy = project(tile.proj_params.y, tile.proj_params.z, tile.proj_params);
@@ -880,13 +915,17 @@ fn vs_line(
   @builtin(vertex_index) vi: u32,
 ) -> LineOut {
   let seg = segments[seg_id];
-  // Camera-relative endpoints in the current projection's coordinate frame.
-  // Mercator: DSFUN-precision subtraction. Non-Mercator: abs Mercator →
-  // lon/lat → project() → subtract projected camera. See reproject_line above.
-  let p0 = reproject_line(seg.p0_h, seg.p0_l);
-  let p1 = reproject_line(seg.p1_h, seg.p1_l);
+  // Endpoints in the stroke geometry frame — see line_endpoint and
+  // finalize_corner above. Mercator: camera-relative DSFUN. Non-
+  // Mercator: tile-local source Mercator (corner gets projected
+  // independently below). All stroke math (dir, nrm, perpendicular
+  // offset, joins, patterns, arrow caps) operates in this frame so
+  // that on globes the perp expansion is in source space, not in
+  // ortho's flat 2D plane.
+  let p0 = line_endpoint(seg.p0_h, seg.p0_l);
+  let p1 = line_endpoint(seg.p1_h, seg.p1_l);
 
-  // Segment direction in current projection's space
+  // Segment direction in the geometry frame.
   let seg_vec = p1 - p0;
   let seg_len = length(seg_vec);
   var dir: vec2<f32>;
@@ -1062,8 +1101,11 @@ fn vs_line(
   // gaps (visible as dashing). Scale the offset so the quad always
   // covers at least (width_px + 2*aa_width_px) screen pixels.
   if (layer.viewport_height > 0.0) {
-    let center_clip = tile.mvp * vec4<f32>(base, 0.0, 1.0);
-    let corner_clip = tile.mvp * vec4<f32>(corner_local, 0.0, 1.0);
+    // base and corner_local both live in the stroke geometry frame —
+    // map them to camera-relative projected XY before MVP so the screen-
+    // space measurement is correct under non-Mercator projections too.
+    let center_clip = tile.mvp * vec4<f32>(finalize_corner(base), 0.0, 1.0);
+    let corner_clip = tile.mvp * vec4<f32>(finalize_corner(corner_local), 0.0, 1.0);
     // NDC distance = screen-space distance / (viewport_height / 2)
     let center_ndc = center_clip.xy / max(abs(center_clip.w), 1e-6) * sign(center_clip.w);
     let corner_ndc = corner_clip.xy / max(abs(corner_clip.w), 1e-6) * sign(corner_clip.w);
@@ -1076,15 +1118,18 @@ fn vs_line(
     }
   }
 
-  // corner_local is already in camera-relative meters: p0 and p1 were
-  // DSFUN-reconstructed camera-relative, and offset is a small stroke-scale
-  // displacement in the same frame. No separate RTC add is needed.
-
+  // corner_local is in the geometry frame (Mercator: cam-relative
+  // projected XY; Non-Mercator: tile-local source Mercator). Project
+  // exactly once per corner so each quad vertex lands where it
+  // should on the globe — same per-vertex projection pattern as the
+  // polygon shader. world_local stays in the geometry frame so the
+  // fragment SDF works in a consistent space.
   var out: LineOut;
-  let clip = tile.mvp * vec4<f32>(corner_local, 0.0, 1.0);
+  let corner_proj = finalize_corner(corner_local);
+  let clip = tile.mvp * vec4<f32>(corner_proj, 0.0, 1.0);
   out.position = apply_log_depth(clip, tile.log_depth_fc);
   out.view_w = clip.w;
-  out.world_local = corner_local; // interpolated across the quad
+  out.world_local = corner_local; // geometry-frame; matches compute_line_color
   out.seg_id = seg_id;
   // Backface signal — pick the cos_c at this vertex's endpoint. With
   // is_start=true (vertex near p0) we output cos_c at p0, otherwise at
@@ -1121,11 +1166,13 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
   if (in.cos_c < 0.0) { discard; }
   let seg = segments[in.seg_id];
   let p = in.world_local;
-  // Reconstruct p0/p1 in camera-relative meters using the same projection
-  // frame as world_local (vs_line corner_local) — Mercator via DSFUN,
-  // others via project(). Distance/SDF math then runs in that frame.
-  let p0 = reproject_line(seg.p0_h, seg.p0_l);
-  let p1 = reproject_line(seg.p1_h, seg.p1_l);
+  // Reconstruct p0/p1 in the SAME geometry frame as in.world_local
+  // (vs_line corner_local) — see line_endpoint above. Mercator: DSFUN
+  // camera-relative (= projected XY for Mercator). Non-Mercator:
+  // tile-local source Mercator. Distance/SDF math runs in that frame
+  // and half_w_m is meters in the same frame.
+  let p0 = line_endpoint(seg.p0_h, seg.p0_l);
+  let p1 = line_endpoint(seg.p1_h, seg.p1_l);
 
   // Segment direction/normal in tile-local meters
   let seg_vec = p1 - p0;
