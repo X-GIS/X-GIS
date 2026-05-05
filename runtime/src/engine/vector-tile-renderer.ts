@@ -49,17 +49,16 @@ interface GPUTile {
   firstShownFrame: number // for fade-in animation
 }
 
-// Per-VTR GPU tile cache cap. With multi-source layered demos (4+
-// VTRs each holding their own cache) and high-pitch wide-frustum
-// scenarios that surface 200+ tiles at once, the previous 512 cap
-// thrashed — parent ancestors got evicted before their children
-// finished loading, which surfaced as FLICKER warnings ("N tiles
-// without fallback"). 1024 keeps a typical multi-source viewport
-// (4 backends × 200 visible tiles each) entirely cached without
-// hitting the cap. Memory cost ~3 MB GPU-side per extra 512 tiles
-// (vertex+index+segment buffers); negligible against a single
-// modern GPU's working set.
-const MAX_GPU_TILES = 1024
+// Per-VTR GPU tile cache cap. Tuned for the SINGLE-source case.
+// Multi-source layered demos (4+ VTRs each holding their own cache)
+// multiply this — at 1024 × 4 backends × ~5 buffers/tile we hit
+// ~20K GPU buffer objects, which on Chrome surfaced as
+// STATUS_BREAKPOINT (GPU process __debugbreak under memory
+// pressure). The proper fix for that scenario is collapsing the
+// multi-source layered design into single-source + per-layer
+// `source-layer` filter (Mapbox-style); until that lands the
+// safer cap is 512.
+const MAX_GPU_TILES = 512
 /** Max tiles promoted from data cache to GPU per frame. Chosen empirically:
  *  crossing a z-boundary produces ~16 newly-visible tiles, and uploading
  *  them all in one frame caused ~250 ms stalls (perf-scenarios benchmark,
