@@ -407,13 +407,45 @@ export function buildLineSegments(
     return [mx, my]
   }
 
-  // Build adjacency map: vertex_index → [segment_index, ...]
-  const vertToSegs = new Map<number, number[]>()
+  // Build adjacency: vertex_index → [segment_index, ...] in
+  // Compressed Sparse Row (CSR) form. Two TypedArrays:
+  //
+  //   adjStart[v]   = first index in adjList belonging to vertex v
+  //   adjStart[v+1] = end (exclusive)
+  //   adjList[adjStart[v]..adjStart[v+1]] = segment indices touching v
+  //
+  // Replaces a Map<number, number[]> that allocated a fresh number[]
+  // per vertex (every join + every endpoint walk allocated). For a
+  // dense PMTiles roads tile (~2-5k segments) the Map version showed
+  // up as a measurable per-tile alloc burst + GC pressure in the
+  // perf profile. CSR keeps adjacency in two contiguous Uint32Arrays
+  // — zero per-vertex allocation, cache-friendly iteration.
+  let maxVert = 0
+  for (let i = 0; i < indices.length; i++) {
+    const v = indices[i]
+    if (v > maxVert) maxVert = v
+  }
+  const vertCount = maxVert + 1
+  // Pass 1: count neighbours per vertex (each segment contributes 2).
+  const adjCount = new Uint32Array(vertCount)
+  for (let i = 0; i < segCount; i++) {
+    adjCount[indices[i * 2]]++
+    adjCount[indices[i * 2 + 1]]++
+  }
+  // Pass 2: prefix-sum into adjStart so adjStart[v+1]-adjStart[v]
+  // gives vertex v's neighbour count.
+  const adjStart = new Uint32Array(vertCount + 1)
+  for (let v = 0; v < vertCount; v++) adjStart[v + 1] = adjStart[v] + adjCount[v]
+  // Pass 3: write seg indices into adjList using a per-vertex cursor.
+  // Reuse adjCount as the cursor (zeroed first) — saves a second
+  // allocation.
+  const adjList = new Uint32Array(adjStart[vertCount])
+  adjCount.fill(0)
   for (let i = 0; i < segCount; i++) {
     const a = indices[i * 2]
     const b = indices[i * 2 + 1]
-    const sa = vertToSegs.get(a); if (sa) sa.push(i); else vertToSegs.set(a, [i])
-    const sb = vertToSegs.get(b); if (sb) sb.push(i); else vertToSegs.set(b, [i])
+    adjList[adjStart[a] + adjCount[a]++] = i
+    adjList[adjStart[b] + adjCount[b]++] = i
   }
 
   // ── Arc-length pass ──
@@ -519,11 +551,14 @@ export function buildLineSegments(
       prevTy = vertices[a * stride + 7]
     }
 
-    // Neighbor search fallback (stride 5/6, or stride 10 with zero tangent)
+    // Neighbor search fallback (stride 5/6, or stride 10 with zero tangent).
+    // Adjacency comes from the CSR adjList[adjStart[a]..adjStart[a+1]]
+    // built once at the top of this function — no per-segment Map lookup.
     if (prevTx === 0 && prevTy === 0) {
-      const neighborsA = vertToSegs.get(a)
-      if (neighborsA && neighborsA.length > 1) {
-        for (const ns of neighborsA) {
+      const aStart = adjStart[a], aEnd = adjStart[a + 1]
+      if (aEnd - aStart > 1) {
+        for (let nIdx = aStart; nIdx < aEnd; nIdx++) {
+          const ns = adjList[nIdx]
           if (ns === i) continue
           const na = indices[ns * 2]
           const nb = indices[ns * 2 + 1]
@@ -573,9 +608,10 @@ export function buildLineSegments(
     }
 
     if (nextTx === 0 && nextTy === 0) {
-      const neighborsB = vertToSegs.get(b)
-      if (neighborsB && neighborsB.length > 1) {
-        for (const ns of neighborsB) {
+      const bStart = adjStart[b], bEnd = adjStart[b + 1]
+      if (bEnd - bStart > 1) {
+        for (let nIdx = bStart; nIdx < bEnd; nIdx++) {
+          const ns = adjList[nIdx]
           if (ns === i) continue
           const na = indices[ns * 2]
           const nb = indices[ns * 2 + 1]
