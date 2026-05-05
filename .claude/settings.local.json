@@ -98,7 +98,9 @@
       "Bash(SMOKE_TIMEOUT_MS=30000 SMOKE_DEBUG=1 bunx playwright test --grep \"physical_map_10m$\" --timeout 60000 --reporter=list)",
       "Bash(SMOKE_DEBUG=1 bunx playwright test --grep \"physical_map_10m$\" --timeout 60000 --reporter=list)",
       "Bash(curl -sk -o /dev/null -w \"%{http_code}\\\\n\" https://localhost:3000/favicon.ico)",
-      "Bash(curl -sk -o /dev/null -w \"%{http_code}\\\\n\" https://localhost:3000/robots.txt)"
+      "Bash(curl -sk -o /dev/null -w \"%{http_code}\\\\n\" https://localhost:3000/robots.txt)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
