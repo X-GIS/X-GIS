@@ -10,8 +10,8 @@ source cities {
   url: "ne_110m_populated_places.geojson"
 }
 
-/* Dark land background */
-layer background {
+/* Dark land base */
+layer ground {
   source: land
   | fill-slate-800 stroke-slate-700 stroke-0.5
 }

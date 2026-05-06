@@ -19,6 +19,12 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const playPath = import.meta.env.DEV
   ? 'https://localhost:3000/demo.html'
   : `${base}/play/demo.html`
+// Thumbnails captured by playground/e2e/_capture-thumbnails.spec.ts
+// land in site/public/thumbnails/<runId>.jpg, served by Astro under
+// `${base}/thumbnails/<runId>.jpg`.
+const thumbBase = `${base}/thumbnails`
+const runIdOf = (d: { id: string; runId?: string }) =>
+  d.runId ?? d.id.replace(/-/g, '_')
 
 interface Demo {
   /** Filename (without .xgis) — used for the GitHub source link. */
@@ -31,6 +37,12 @@ interface Demo {
   runId?: string
   title: string
   body: string
+  /** Set true to suppress the JPG thumbnail and fall back to the
+   *  text-only card. Useful for animation demos whose static frame
+   *  is misleading or for demos that render entirely empty in the
+   *  capture environment (e.g., PMTiles archives behind CORS that
+   *  the deployed playground can't reach). */
+  noThumb?: boolean
 }
 
 interface Category {
@@ -213,31 +225,41 @@ const categories: Category[] = [
         ].map(d => (
           <a
             href={`${playPath}?id=${d.runId}`}
-            class="group block rounded-2xl bg-bg-card border border-line
-                   hover:border-line-strong hover:bg-bg-hover transition-colors p-6"
+            class="demo-card group block rounded-2xl bg-bg-card border border-line
+                   hover:border-line-strong overflow-hidden"
           >
-            <div class="flex items-center gap-2 mb-3">
-              <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
-                           bg-accent/15 text-accent text-[10px] font-medium tracking-wide uppercase">
+            <div class="aspect-[16/9] bg-bg-elev relative overflow-hidden">
+              <img
+                src={`${thumbBase}/${d.runId}.jpg`}
+                alt=""
+                width="1200"
+                height="675"
+                loading="lazy"
+                class="w-full h-full object-cover"
+              />
+              <span class="absolute top-3 left-3 inline-flex items-center gap-1 px-1.5 py-0.5 rounded
+                           bg-bg/85 backdrop-blur text-accent text-[10px] font-medium tracking-wide uppercase">
                 <span class="w-1.5 h-1.5 rounded-full bg-accent inline-block animate-pulse"></span>
                 Live
               </span>
-              <p class="font-mono text-[11px] text-fg-mute truncate">
+            </div>
+            <div class="p-5">
+              <p class="font-mono text-[11px] text-fg-mute mb-2 truncate">
                 {d.id}.xgis
               </p>
+              <h3 class="text-[20px] font-medium text-fg leading-[1.25] tracking-[-0.015em] mb-2">
+                {d.title}
+              </h3>
+              <p class="text-[14px] leading-[1.55] text-fg-dim">
+                {d.body}
+              </p>
+              <p class="mt-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-accent group-hover:text-accent-hover transition-colors">
+                Run demo
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M9 6l6 6-6 6"/>
+                </svg>
+              </p>
             </div>
-            <h3 class="text-[20px] font-medium text-fg leading-[1.25] tracking-[-0.015em] mb-2">
-              {d.title}
-            </h3>
-            <p class="text-[14px] leading-[1.55] text-fg-dim">
-              {d.body}
-            </p>
-            <p class="mt-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-accent group-hover:text-accent-hover transition-colors">
-              Run demo
-              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M9 6l6 6-6 6"/>
-              </svg>
-            </p>
           </a>
         ))}
       </div>
@@ -264,36 +286,57 @@ const categories: Category[] = [
             {cat.demos.map(d => (
               <article
                 class="demo-card group relative rounded-2xl bg-bg-card border border-line
-                       hover:border-line-strong hover:bg-bg-hover min-h-[140px]"
+                       hover:border-line-strong overflow-hidden"
               >
                 <a
-                  href={`${playPath}?id=${d.runId ?? d.id.replace(/-/g, '_')}`}
-                  class="block p-5 pr-12 h-full"
+                  href={`${playPath}?id=${runIdOf(d)}`}
+                  class="block"
                   aria-label={`Run ${d.title} demo`}
                 >
-                  <div class="flex items-center gap-2 mb-2">
-                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
-                                 bg-accent/15 text-accent text-[10px] font-medium tracking-wide uppercase">
-                      <span class="w-1.5 h-1.5 rounded-full bg-accent inline-block animate-pulse"></span>
-                      Live
-                    </span>
-                    <p class="font-mono text-[11px] text-fg-mute group-hover:text-fg-dim transition-colors truncate">
+                  {!d.noThumb && (
+                    <div class="aspect-[16/9] bg-bg-elev relative overflow-hidden">
+                      <img
+                        src={`${thumbBase}/${runIdOf(d)}.jpg`}
+                        alt=""
+                        width="1200"
+                        height="675"
+                        loading="lazy"
+                        class="w-full h-full object-cover"
+                      />
+                      <span class="absolute top-3 left-3 inline-flex items-center gap-1 px-1.5 py-0.5 rounded
+                                   bg-bg/85 backdrop-blur text-accent text-[10px] font-medium tracking-wide uppercase">
+                        <span class="w-1.5 h-1.5 rounded-full bg-accent inline-block animate-pulse"></span>
+                        Live
+                      </span>
+                    </div>
+                  )}
+                  <div class="p-5 pr-12">
+                    {d.noThumb && (
+                      <div class="flex items-center gap-2 mb-2">
+                        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
+                                     bg-accent/15 text-accent text-[10px] font-medium tracking-wide uppercase">
+                          <span class="w-1.5 h-1.5 rounded-full bg-accent inline-block animate-pulse"></span>
+                          Live
+                        </span>
+                      </div>
+                    )}
+                    <p class="font-mono text-[11px] text-fg-mute group-hover:text-fg-dim transition-colors truncate mb-2">
                       {d.id}.xgis
                     </p>
+                    <h3 class="text-[16px] font-medium text-fg leading-[1.3] tracking-[-0.01em] mb-2">
+                      {d.title}
+                    </h3>
+                    <p class="text-[13px] leading-[1.5] text-fg-dim">
+                      {d.body}
+                    </p>
                   </div>
-                  <h3 class="text-[16px] font-medium text-fg leading-[1.3] tracking-[-0.01em] mb-2">
-                    {d.title}
-                  </h3>
-                  <p class="text-[13px] leading-[1.5] text-fg-dim">
-                    {d.body}
-                  </p>
                 </a>
                 <a
                   href={`${examplesPath}/${d.id}.xgis`}
                   target="_blank"
                   rel="noopener"
                   aria-label={`View ${d.id}.xgis source on GitHub`}
-                  class="absolute top-4 right-4 inline-flex items-center justify-center
+                  class="absolute bottom-4 right-4 inline-flex items-center justify-center
                          w-8 h-8 rounded-md text-fg-mute hover:text-fg hover:bg-line
                          transition-colors"
                   title="View source on GitHub"
