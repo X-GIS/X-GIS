@@ -132,11 +132,17 @@ function resolveQuality(): QualityConfig {
     base = { ...QUALITY_PRESETS.default }
   }
 
-  // 2. Mobile detection auto-promotes default → battery so phones don't
-  //    have to opt in. Keeps prior mobile behavior identical even when
-  //    the user typed no flag.
+  // 2. Mobile detection auto-promotes default → performance so phones
+  //    don't have to opt in. Real-device inspector data (iPhone, Seoul
+  //    z=8.7) showed GPU pass 27 ms even on the prior `battery` preset
+  //    (maxDpr 1.5) — past the 16.7 ms 60 fps target by ~1.6×, driving
+  //    the user-reported heat + forced refresh. `performance` (msaa 1,
+  //    maxDpr 1.0) drops fragment work to ~1/2.25 vs battery (1.5²
+  //    pixels) without sacrificing draw call count. User can still opt
+  //    back into higher quality with `?quality=battery` or
+  //    `?quality=default`.
   if (!presetParam && !safeFlag && isMobile()) {
-    base = { ...QUALITY_PRESETS.battery }
+    base = { ...QUALITY_PRESETS.performance }
   }
 
   // 3. Per-key URL overrides (apply on top of preset).

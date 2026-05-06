@@ -368,8 +368,24 @@ function renderGPU(_state: InspectorState, map: XGISMap | undefined): string {
     lines.push(`adapter      : ${ad?.info?.vendor ?? '?'} / ${ad?.info?.device ?? ad?.info?.architecture ?? '?'}`)
     lines.push(`timestamp-q  : ${ctx.timestampQuerySupported ? 'yes' : 'no'}`)
     lines.push(`features     : ${features.length ? features.slice(0, 4).join(', ') + (features.length > 4 ? '…' : '') : '(none enabled)'}`)
-    lines.push('')
   }
+  // Canvas + DPR — actual pixel-buffer size the GPU is rasterising,
+  // not the CSS viewport size. On iPhone DPR 3 + a 1.0 maxDpr cap
+  // these can differ ×3, which is the difference between "warm" and
+  // "thermal throttle".
+  const canvas = document.querySelector<HTMLCanvasElement>('#xgis-canvas') ?? document.querySelector<HTMLCanvasElement>('canvas')
+  const rawDpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1
+  if (canvas) {
+    const cssW = canvas.clientWidth
+    const cssH = canvas.clientHeight
+    const cw = canvas.width, ch = canvas.height
+    const effectiveDpr = cssW > 0 ? cw / cssW : 0
+    const px = (cw * ch) / 1e6
+    lines.push(`canvas css   : ${cssW}×${cssH}`)
+    lines.push(`canvas pixel : ${cw}×${ch}  (${px.toFixed(2)} M pixels)`)
+    lines.push(`dpr          : raw ${rawDpr}  effective ${effectiveDpr.toFixed(2)}`)
+  }
+  lines.push('')
   for (const [name, { renderer }] of map.vtSources) {
     const r = renderer as VTRDiag
     lines.push(`── ${name} ──`)

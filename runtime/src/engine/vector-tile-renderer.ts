@@ -2044,12 +2044,20 @@ export class VectorTileRenderer {
     }
     if (byTileKey.size <= MAX_GPU_TILES) return
 
-    // Protect indexed ancestors (tileZoom ≤ sourceMaxLevel) plus
-    // the current frame's stableKeys. Indexed ancestors are the
-    // fallback backbone — every over-zoom sub-tile relies on its
-    // nearest indexed ancestor staying in gpuCache.
-    const sourceMaxLevel = this.source?.maxLevel ?? 4
-    const safeBelow = Math.max(4, sourceMaxLevel)
+    // Eviction policy: only this frame's stableKeys are protected.
+    //
+    // The previous policy ALSO blanket-protected every tileZoom ≤
+    // sourceMaxLevel (i.e. every archived ancestor). On a PMTiles
+    // archive with maxLevel = 15, that meant essentially every cached
+    // tile was protected — the cap stopped doing anything. Real-device
+    // iPhone inspector showed gpuCache 317 entries past the 256 cap
+    // because of this. Same fix as the catalog evictTiles change
+    // earlier in this series: visible-frame protection (stableKeys =
+    // neededKeys ∪ fallbackKeys) covers every ancestor sub-tile gen
+    // actually needs THIS frame; ancestors for non-visible regions
+    // are recoverable by re-fetch + GPU re-upload when the camera
+    // returns to them — at the cost of a brief load shimmer, which
+    // is far preferable to thermal throttle.
     const protectedKeys = this._scratchProtectedKeys
     protectedKeys.clear()
     for (const k of this.stableKeys) protectedKeys.add(k)
@@ -2057,7 +2065,6 @@ export class VectorTileRenderer {
     const evictable: { tk: number; lastUsed: number; slots: string[] }[] = []
     for (const [tk, bucket] of byTileKey) {
       if (protectedKeys.has(tk)) continue
-      if (bucket.tileZoom <= safeBelow) continue
       evictable.push({ tk, lastUsed: bucket.lastUsed, slots: bucket.slots })
     }
     evictable.sort((a, b) => a.lastUsed - b.lastUsed)
