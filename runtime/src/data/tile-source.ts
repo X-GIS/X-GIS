@@ -173,4 +173,18 @@ export interface TileSource {
    *  results via sink.acceptResult. Backends that compile inline
    *  (XGVT-binary, GeoJSON-runtime) leave this unimplemented. */
   tick?(maxOps: number): void
+
+  /** OPTIONAL: cancel in-flight fetches whose keys aren't in
+   *  `activeKeys`. Catalog drives this from VTR per-frame so tiles
+   *  the camera moved past stop hogging bandwidth + worker capacity.
+   *  Implementations should:
+   *    - Abort the underlying fetch (AbortController) so the network
+   *      transfer terminates rather than completing into a discarded
+   *      buffer.
+   *    - Drop already-fetched-but-not-yet-compiled bytes for stale
+   *      keys (e.g., PMTiles' pendingMvt queue).
+   *    - Release the catalog loading slot for cancelled keys so the
+   *      catalog re-issues if the tile becomes visible again.
+   *    - NOT mark the key as failed — abort isn't a fetch error. */
+  cancelStale?(activeKeys: Set<number>): void
 }

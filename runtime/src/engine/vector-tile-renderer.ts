@@ -1406,6 +1406,26 @@ export class VectorTileRenderer {
     }
     // Load parents first, then current zoom tiles
     const parentKeys = [...parentKeysSet]
+
+    // Cancel in-flight fetches the camera has moved past. Active set =
+    // anything we still need this frame: current visible (neededKeys)
+    // + their parent fallbacks (parentKeys) + the parents that fast
+    // path & in-archive walk pushed into fallbackKeys. Without this,
+    // every frame leaves a trail of zombie fetches behind — the
+    // user pans / zooms past a tile while its bytes are still on the
+    // wire, and by the time the bytes arrive the catalog has moved
+    // on, but bandwidth + worker capacity already paid for the
+    // round-trip. cancelStale clips that trail by aborting the
+    // network transfers and dropping decode-queued bytes for keys
+    // the catalog no longer wants. Backends without cancellation
+    // (XGVT-binary, GeoJSON-runtime) are no-ops.
+    if (this.source.cancelStale) {
+      const activeKeys = new Set<number>(neededKeys)
+      for (const k of parentKeys) activeKeys.add(k)
+      for (const k of fallbackKeys) activeKeys.add(k)
+      this.source.cancelStale(activeKeys)
+    }
+
     if (parentKeys.length > 0) this.source.requestTiles(parentKeys)
     if (toLoad.length > 0) this.source.requestTiles(toLoad)
 

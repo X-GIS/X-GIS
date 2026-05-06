@@ -239,7 +239,13 @@ const NEGATIVE_CACHE_TTL_MS = 5 * 60_000
  *  Backoff: 300 ms, then 900 ms (max 2 retries → 3 attempts total).
  *  Tuned for transient CDN edge timeouts (~1-2 s typical recovery)
  *  without hammering origin during a real outage. */
-async function fetchTileWithRetry(url: string, tileLabel: string): Promise<Uint8Array | null | 'failed'> {
+async function fetchTileWithRetry(url: string, tileLabel: string, signal: AbortSignal): Promise<Uint8Array | null | 'failed'> {
+  // Already aborted before we even started — short-circuit. Surfaced
+  // as AbortError to the catch block in PMTilesBackend.loadTile so
+  // it skips the failedKeys negative cache.
+  if (signal.aborted) {
+    throw new DOMException('Aborted', 'AbortError')
+  }
   // Negative cache hit — short-circuit with 'failed' so the
   // PMTilesBackend keeps the tile in its failedKeys map (parent
   // fallback). Without this guard, every frame burns the retry
@@ -253,7 +259,7 @@ async function fetchTileWithRetry(url: string, tileLabel: string): Promise<Uint8
   let lastErr: Error | null = null
   for (let attempt = 0; attempt <= backoffsMs.length; attempt++) {
     try {
-      const resp = await fetch(url)
+      const resp = await fetch(url, { signal })
       // Tile genuinely missing — final answer, don't retry.
       if (resp.status === 404 || resp.status === 204) return null
       if (resp.ok) {
@@ -265,12 +271,21 @@ async function fetchTileWithRetry(url: string, tileLabel: string): Promise<Uint8
       // some CDNs return spurious 403/429 under burst load.
       lastErr = new Error(`${tileLabel}: HTTP ${resp.status}`)
     } catch (e) {
-      // Network error (DNS, TLS, abort, etc.). Retryable.
+      // AbortError — propagate up, never retry, never negative-cache.
+      if (e instanceof DOMException && e.name === 'AbortError') throw e
+      // Network error (DNS, TLS, etc.). Retryable.
       lastErr = e instanceof Error ? e : new Error(String(e))
     }
     // Out of retries — fall through to graceful null.
     if (attempt === backoffsMs.length) break
-    await new Promise(r => setTimeout(r, backoffsMs[attempt]))
+    // Also bail out of backoff sleep if aborted in between attempts.
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, backoffsMs[attempt])
+      signal.addEventListener('abort', () => {
+        clearTimeout(timer)
+        reject(new DOMException('Aborted', 'AbortError'))
+      }, { once: true })
+    })
   }
   // All retries failed — cache this URL as "do not retry for a while"
   // so subsequent frames skip the wasted retry sleep + roundtrip.
@@ -357,12 +372,12 @@ export async function attachPMTilesSource(
       // archive path). 404 / 204 = missing tile (final). 5xx + network
       // errors → retry with backoff (300ms, 900ms), then null — see
       // fetchTileWithRetry above for the recovery semantics.
-      fetcher: async (z, x, y) => {
+      fetcher: async (z, x, y, signal) => {
         const url = tj.tilesTemplate
           .replace('{z}', String(z))
           .replace('{x}', String(x))
           .replace('{y}', String(y))
-        return fetchTileWithRetry(url, `tile ${z}/${x}/${y}`)
+        return fetchTileWithRetry(url, `tile ${z}/${x}/${y}`, signal)
       },
     }))
     return
@@ -422,8 +437,21 @@ export async function attachPMTilesSource(
     bounds: [header.minLon, header.minLat, header.maxLon, header.maxLat],
     layers: opts.layers,
     vectorLayers,
-    fetcher: async (z, x, y) => {
+    fetcher: async (z, x, y, signal) => {
+      // Pre-flight abort check. The pmtiles library doesn't natively
+      // accept an AbortSignal; we can't kill the underlying HTTP
+      // range request in flight, but we can short-circuit before it
+      // starts AND discard the result on resolve if the catalog
+      // cancelled in the meantime. Throwing AbortError here lets
+      // PMTilesBackend.loadTile's catch path skip the failedKeys
+      // negative cache (abort isn't a real fetch error).
+      if (signal.aborted) {
+        throw new DOMException('Aborted', 'AbortError')
+      }
       const resp = await archive.getZxy(z, x, y)
+      if (signal.aborted) {
+        throw new DOMException('Aborted', 'AbortError')
+      }
       return resp ? new Uint8Array(resp.data) : null
     },
   }))

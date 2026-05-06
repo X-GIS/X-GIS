@@ -619,6 +619,19 @@ export class TileCatalog {
 
   // ── Tile request (multi-backend dispatch) ──
 
+  /** Delegate cancellation to every backend that supports it. VTR
+   *  calls this each frame with the union of currently-needed keys
+   *  (visible tiles + parent fallbacks + next-LOD prefetch); backends
+   *  abort in-flight fetches whose keys aren't in the active set so
+   *  the network + worker pool stop wasting capacity on tiles the
+   *  camera moved past. Backends without a cancellation hook (XGVT-
+   *  binary, GeoJSON-runtime) are no-ops here. */
+  cancelStale(activeKeys: Set<number>): void {
+    for (const b of this.backends) {
+      b.cancelStale?.(activeKeys)
+    }
+  }
+
   requestTiles(keys: number[]): void {
     if (!this.index || this.backends.length === 0) return
 

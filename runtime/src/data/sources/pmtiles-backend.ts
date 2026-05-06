@@ -38,16 +38,25 @@ import { getSharedMvtPool, type MvtWorkerPool } from '../mvt-worker-pool'
  *                      404). Caller caches an empty tile so the same
  *                      key isn't re-fetched.
  *    - `'failed'`    — transient/permanent fetch failure (5xx, network
- *                      error, retry exhaustion). Caller does NOT cache
- *                      empty — keeps the tile in "missing" state so
- *                      the renderer's parent-walk falls back to the
- *                      nearest cached ancestor and draws that
- *                      magnified into the failed tile's bounds. The
- *                      backend's per-key negative cache prevents
- *                      hammering the source while the failure persists.
- */
+ *                      error, retry exhaustion, OR aborted via signal).
+ *                      Caller does NOT cache empty — keeps the tile in
+ *                      "missing" state so the renderer's parent-walk
+ *                      falls back to the nearest cached ancestor and
+ *                      draws that magnified. The backend's per-key
+ *                      negative cache prevents hammering the source
+ *                      while the failure persists; abort failures are
+ *                      handled separately so a cancelled request can
+ *                      be re-issued immediately when the tile becomes
+ *                      visible again.
+ *
+ *  `signal` lets the backend cancel an in-flight fetch when the
+ *  catalog reports the tile is no longer wanted (camera moved past
+ *  it, zoom changed enough that it's stale). Implementations should
+ *  surface AbortError as `'failed'` and skip the negative cache for
+ *  abort-induced failures (they're not a real fetch problem). */
 export type PMTilesFetcher = (
   z: number, x: number, y: number,
+  signal: AbortSignal,
 ) => Promise<Uint8Array | null | 'failed'>
 
 export interface PMTilesBackendOptions {
@@ -97,6 +106,11 @@ export class PMTilesBackend implements TileSource {
    *  treats the tile as missing → ancestor fallback draws in its
    *  place. See FAILED_KEY_TTL_MS for the recovery window. */
   private failedKeys: Map<number, number> = new Map()
+
+  /** Per-key AbortController for in-flight fetches. cancelStale()
+   *  walks this map to abort fetches the catalog no longer wants.
+   *  Cleaned up on fetch settle (success, failure, or abort). */
+  private abortControllers: Map<number, AbortController> = new Map()
 
   /** Per-layer zoom range from PMTiles metadata. Returns null when
    *  the archive didn't ship vector_layers metadata or the requested
@@ -164,7 +178,9 @@ export class PMTilesBackend implements TileSource {
     const [z, x, y] = tileKeyUnpack(key)
     const sink = this.sink
     sink.trackLoading(key)
-    this.fetcher(z, x, y).then(result => {
+    const ac = new AbortController()
+    this.abortControllers.set(key, ac)
+    this.fetcher(z, x, y, ac.signal).then(result => {
       if (result === 'failed') {
         // Transient/permanent fetch failure — record in negative cache
         // and DO NOT acceptResult. The catalog will see hasTileData
@@ -194,12 +210,63 @@ export class PMTilesBackend implements TileSource {
       // finishes, providing back-pressure on requestTiles.
       this.pendingMvt.push({ key, bytes: result })
     }).catch(err => {
-      // Network / runtime error before the fetcher could resolve.
-      // Treat the same as 'failed' — record + parent fallback.
-      this.failedKeys.set(key, Date.now() + FAILED_KEY_TTL_MS)
+      // Aborted via signal (catalog no longer wants this tile) —
+      // release the slot but DO NOT mark failedKeys. The tile is
+      // free to be re-requested immediately if it becomes visible
+      // again, and a future call won't sit in the negative cache.
+      const isAbort = (err as Error)?.name === 'AbortError'
+      if (!isAbort) {
+        this.failedKeys.set(key, Date.now() + FAILED_KEY_TTL_MS)
+        console.error('[pmtiles fetch]', (err as Error)?.stack ?? err)
+      }
       sink.releaseLoading(key)
-      console.error('[pmtiles fetch]', (err as Error)?.stack ?? err)
+    }).finally(() => {
+      // Clean up the AbortController bookkeeping regardless of
+      // outcome. Keep this in finally so the map doesn't leak
+      // controllers when a fetch settles via any path.
+      this.abortControllers.delete(key)
     })
+  }
+
+  /** Cancel in-flight fetches for keys NOT in `activeKeys`. Called by
+   *  the catalog (driven by VTR per-frame) when the camera moves
+   *  and previously-requested tiles become irrelevant. The fetcher
+   *  raises AbortError → loadTile's catch path releases the loading
+   *  slot WITHOUT marking failedKeys, leaving the tile free to be
+   *  re-requested if it becomes visible again.
+   *
+   *  Also drops queued bytes from pendingMvt for cancelled keys —
+   *  bytes that finished downloading but haven't been dispatched
+   *  to the worker pool. Their loading slot is released here so
+   *  the catalog can re-issue if needed. (Worker-pool tasks
+   *  already in flight are NOT cancellable; their results are
+   *  filtered on receipt — see tick().) */
+  cancelStale(activeKeys: Set<number>): void {
+    if (!this.sink) return
+    const sink = this.sink
+    // Cancel in-flight fetches.
+    for (const [key, ac] of this.abortControllers) {
+      if (!activeKeys.has(key)) {
+        ac.abort()
+        // The promise's `finally` deletes from this.abortControllers
+        // so we don't double-mutate while iterating. On the next
+        // frame the map is clean.
+      }
+    }
+    // Drop already-fetched-but-not-yet-compiled bytes for stale keys.
+    if (this.pendingMvt.length > 0) {
+      const kept: typeof this.pendingMvt = []
+      for (const item of this.pendingMvt) {
+        if (activeKeys.has(item.key)) {
+          kept.push(item)
+        } else {
+          sink.releaseLoading(item.key)
+        }
+      }
+      if (kept.length !== this.pendingMvt.length) {
+        this.pendingMvt = kept
+      }
+    }
   }
 
   /** Stage 2: drain up to maxOps queued tiles per frame. Catalog
