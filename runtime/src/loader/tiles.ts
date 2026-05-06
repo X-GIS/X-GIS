@@ -316,8 +316,24 @@ export function visibleTilesFrustum(
     // iPhone portrait (844) falls into this bucket and gains ~45 px
     // of margin per edge, enough to stop clipping horizon tiles at
     // pitch ≥ 80°.
+    // Pitch-aware floor. The 256 floor was added so iPhone narrow
+    // viewports don't clip horizon tiles at pitch 80°+ (where a
+    // tile near the horizon projects far off-screen horizontally).
+    // At low pitch the same floor is over-margin: a 430-wide phone
+    // viewport gets 256 + 256 = 512 of horizontal margin (>viewport
+    // itself), pulling 4-5× more tiles than the camera can see.
+    // Inspector measurement (Tokyo z=13, pitch 0.7°) showed 25
+    // unique tiles drawn for what should be 4-6.
+    //
+    // Scale floor with pitch: 64 px at top-down, ramping to 256 px
+    // by pitch ~45°. Tile-selection-pitch tests cover the 75°+ end
+    // explicitly, so they keep the 256 floor.
+    const pitchDeg = camera.pitch ?? 0
+    const pitchFloor = pitchDeg < 30 ? 64
+      : pitchDeg < 60 ? 128
+      : 256
     const baseMargin = Math.max(canvasWidth, canvasHeight) * 0.25
-    const margin = Math.max(baseMargin, 256) + Math.max(0, extraMarginPx)
+    const margin = Math.max(baseMargin, pitchFloor) + Math.max(0, extraMarginPx)
     const overlapsViewport =
       sxMax >= -margin && sxMin <= canvasWidth + margin &&
       syMax >= -margin && syMin <= canvasHeight + margin
