@@ -52,9 +52,9 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
     test.setTimeout(360_000)
 
     // Cache-lookup telemetry — wraps the catalog's hot-path lookups
-    // before the renderer is constructed so every call is counted.
-    // Production code is untouched; counters live on window for the
-    // spec to read at the end.
+    // AND the renderer's GPU buffer pool before either is exercised
+    // so every call is counted. Production code is untouched;
+    // counters live on window for the spec to read at the end.
     await page.addInitScript(() => {
       ;(window as unknown as { __cacheStats: () => unknown, __installCacheTelemetry: () => void }).__installCacheTelemetry = () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,29 +67,62 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
           isLoadingMisses: 0,
           getTileDataHits: 0,
           getTileDataMisses: 0,
+          bufferPoolHits: 0,
+          bufferPoolMisses: 0,
+          gpuCacheHits: 0,
+          gpuCacheMisses: 0,
         }
         for (const { renderer } of map.vtSources.values()) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const catalog = (renderer as any).source as any
-          if (!catalog || catalog.__telemetryInstalled) continue
-          catalog.__telemetryInstalled = true
-          const origHas = catalog.hasTileData.bind(catalog)
-          catalog.hasTileData = (k: number, l?: string) => {
-            const r = origHas(k, l)
-            if (r) stats.hasTileDataHits++; else stats.hasTileDataMisses++
-            return r
+          const r = renderer as any
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const catalog = r?.source as any
+          if (catalog && !catalog.__telemetryInstalled) {
+            catalog.__telemetryInstalled = true
+            const origHas = catalog.hasTileData.bind(catalog)
+            catalog.hasTileData = (k: number, l?: string) => {
+              const v = origHas(k, l)
+              if (v) stats.hasTileDataHits++; else stats.hasTileDataMisses++
+              return v
+            }
+            const origIsLoading = catalog.isLoading.bind(catalog)
+            catalog.isLoading = (k: number) => {
+              const v = origIsLoading(k)
+              if (v) stats.isLoadingHits++; else stats.isLoadingMisses++
+              return v
+            }
+            const origGetTile = catalog.getTileData.bind(catalog)
+            catalog.getTileData = (k: number, l?: string) => {
+              const v = origGetTile(k, l)
+              if (v) stats.getTileDataHits++; else stats.getTileDataMisses++
+              return v
+            }
           }
-          const origIsLoading = catalog.isLoading.bind(catalog)
-          catalog.isLoading = (k: number) => {
-            const r = origIsLoading(k)
-            if (r) stats.isLoadingHits++; else stats.isLoadingMisses++
-            return r
-          }
-          const origGetTile = catalog.getTileData.bind(catalog)
-          catalog.getTileData = (k: number, l?: string) => {
-            const r = origGetTile(k, l)
-            if (r) stats.getTileDataHits++; else stats.getTileDataMisses++
-            return r
+          if (r && !r.__bufferPoolTelemetryInstalled) {
+            r.__bufferPoolTelemetryInstalled = true
+            const origAcquire = r.acquireBuffer.bind(r)
+            r.acquireBuffer = (size: number, usage: number, label: string) => {
+              const bucket = (() => {
+                let b = 2048
+                while (b < size) b *= 2
+                return b
+              })()
+              const key = `${bucket}:${usage}`
+              const pool = r._bufferPool?.get?.(key)
+              if (pool && pool.length > 0) stats.bufferPoolHits++
+              else stats.bufferPoolMisses++
+              return origAcquire(size, usage, label)
+            }
+            // gpuCache hit rate: track layerCache.has() results in
+            // doUploadTile (line 632 already short-circuits on hit).
+            const origDoUpload = r.doUploadTile.bind(r)
+            r.doUploadTile = (key: number, data: unknown, sourceLayer = '') => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const inner = r.gpuCache?.get?.(sourceLayer) as Map<number, unknown> | undefined
+              if (inner?.has?.(key)) stats.gpuCacheHits++
+              else stats.gpuCacheMisses++
+              return origDoUpload(key, data, sourceLayer)
+            }
           }
         }
         ;(window as unknown as { __cacheStats: () => unknown }).__cacheStats = () => stats
@@ -199,6 +232,8 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
       hasTileDataHits: number; hasTileDataMisses: number
       isLoadingHits: number; isLoadingMisses: number
       getTileDataHits: number; getTileDataMisses: number
+      bufferPoolHits: number; bufferPoolMisses: number
+      gpuCacheHits: number; gpuCacheMisses: number
     }
     if (cacheStats) {
       const ratio = (h: number, m: number) =>
@@ -207,6 +242,8 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
       console.log(`  hasTileData: ${cacheStats.hasTileDataHits} hit / ${cacheStats.hasTileDataMisses} miss = ${ratio(cacheStats.hasTileDataHits, cacheStats.hasTileDataMisses)}`)
       console.log(`  isLoading:   ${cacheStats.isLoadingHits} hit / ${cacheStats.isLoadingMisses} miss = ${ratio(cacheStats.isLoadingHits, cacheStats.isLoadingMisses)}`)
       console.log(`  getTileData: ${cacheStats.getTileDataHits} hit / ${cacheStats.getTileDataMisses} miss = ${ratio(cacheStats.getTileDataHits, cacheStats.getTileDataMisses)}`)
+      console.log(`  bufferPool:  ${cacheStats.bufferPoolHits} hit / ${cacheStats.bufferPoolMisses} miss = ${ratio(cacheStats.bufferPoolHits, cacheStats.bufferPoolMisses)}`)
+      console.log(`  gpuCache:    ${cacheStats.gpuCacheHits} hit / ${cacheStats.gpuCacheMisses} miss = ${ratio(cacheStats.gpuCacheHits, cacheStats.gpuCacheMisses)}`)
     }
 
     if (before.heapMB !== null && after.heapMB !== null) {

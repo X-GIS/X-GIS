@@ -39,6 +39,56 @@ test.describe('Continuous wheel-zoom: bounded backend state under sustained gest
   test('5 s in + 5 s out: tilesVisible + heap stay bounded mid-gesture', async ({ page }) => {
     test.setTimeout(120_000)
 
+    await page.addInitScript(() => {
+      ;(window as unknown as { __cacheStats: () => unknown, __installCacheTelemetry: () => void }).__installCacheTelemetry = () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const map = (window as any).__xgisMap
+        if (!map?.vtSources) return
+        const stats = {
+          bufferPoolHits: 0,
+          bufferPoolMisses: 0,
+          gpuCacheHits: 0,
+          gpuCacheMisses: 0,
+          hasTileDataHits: 0,
+          hasTileDataMisses: 0,
+        }
+        for (const { renderer } of map.vtSources.values()) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const r = renderer as any
+          if (r.__telemetryInstalled) continue
+          r.__telemetryInstalled = true
+          const origAcquire = r.acquireBuffer.bind(r)
+          r.acquireBuffer = (size: number, usage: number, label: string) => {
+            let bucket = 2048
+            while (bucket < size) bucket *= 2
+            const key = `${bucket}:${usage}`
+            const pool = r._bufferPool?.get?.(key)
+            if (pool && pool.length > 0) stats.bufferPoolHits++
+            else stats.bufferPoolMisses++
+            return origAcquire(size, usage, label)
+          }
+          const origDoUpload = r.doUploadTile.bind(r)
+          r.doUploadTile = (key: number, data: unknown, sourceLayer = '') => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const inner = r.gpuCache?.get?.(sourceLayer) as Map<number, unknown> | undefined
+            if (inner?.has?.(key)) stats.gpuCacheHits++
+            else stats.gpuCacheMisses++
+            return origDoUpload(key, data, sourceLayer)
+          }
+          const catalog = r.source as { hasTileData?: (k: number, l?: string) => boolean }
+          if (catalog?.hasTileData) {
+            const orig = catalog.hasTileData.bind(catalog)
+            catalog.hasTileData = (k: number, l?: string): boolean => {
+              const v = orig(k, l)
+              if (v) stats.hasTileDataHits++; else stats.hasTileDataMisses++
+              return v
+            }
+          }
+        }
+        ;(window as unknown as { __cacheStats: () => unknown }).__cacheStats = () => stats
+      }
+    })
+
     await page.goto(
       `/demo.html?id=pmtiles_layered#13/35.68/139.76`,
       { waitUntil: 'domcontentloaded' },
@@ -159,6 +209,41 @@ test.describe('Continuous wheel-zoom: bounded backend state under sustained gest
     console.log(`  peak loadingTiles:    ${peakLoading}`)
     console.log(`  peak abortControllers:${peakAbort}`)
     if (peakHeap !== null) console.log(`  peak heap:            ${peakHeap} MB`)
+
+    // Install telemetry post-settle so cold-start fetches don't
+    // pollute the gesture-only hit-rate measurement.
+    await page.evaluate(() => {
+      ;(window as unknown as { __installCacheTelemetry: () => void }).__installCacheTelemetry()
+    })
+    // Re-run a shorter gesture for telemetry
+    const drive = async (startZoom: number, endZoom: number, durationMs: number) =>
+      page.evaluate(async ({ startZoom, endZoom, durationMs }) => {
+        const map = window.__xgisMap!
+        const t0 = performance.now()
+        while (performance.now() - t0 < durationMs) {
+          await new Promise<void>(r => requestAnimationFrame(() => r()))
+          const t = Math.min(1, (performance.now() - t0) / durationMs)
+          map.camera.zoom = startZoom + (endZoom - startZoom) * t
+        }
+      }, { startZoom, endZoom, durationMs })
+    await drive(13, 16, 3000)
+    await drive(16, 13, 3000)
+    const cacheStats = await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (window as any).__cacheStats?.() ?? null
+    }) as null | {
+      bufferPoolHits: number; bufferPoolMisses: number
+      gpuCacheHits: number; gpuCacheMisses: number
+      hasTileDataHits: number; hasTileDataMisses: number
+    }
+    if (cacheStats) {
+      const ratio = (h: number, m: number) =>
+        h + m === 0 ? 'n/a' : `${(100 * h / (h + m)).toFixed(1)}%`
+      console.log('[cache hit rates during continuous gesture]')
+      console.log(`  bufferPool:  ${cacheStats.bufferPoolHits}h / ${cacheStats.bufferPoolMisses}m = ${ratio(cacheStats.bufferPoolHits, cacheStats.bufferPoolMisses)}`)
+      console.log(`  gpuCache:    ${cacheStats.gpuCacheHits}h / ${cacheStats.gpuCacheMisses}m = ${ratio(cacheStats.gpuCacheHits, cacheStats.gpuCacheMisses)}`)
+      console.log(`  hasTileData: ${cacheStats.hasTileDataHits}h / ${cacheStats.hasTileDataMisses}m = ${ratio(cacheStats.hasTileDataHits, cacheStats.hasTileDataMisses)}`)
+    }
 
     // Settled-state ceilings — anything past these on a 1280×720
     // viewport during continuous zoom signals an unbounded path.
