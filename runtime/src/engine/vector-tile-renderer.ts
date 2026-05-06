@@ -75,6 +75,18 @@ const MAX_GPU_TILES = 256
  *  buffer creation rate (~1700/sec) below Chrome's STATUS_BREAKPOINT
  *  threshold even under 4-layer load. */
 const MAX_UPLOADS_PER_FRAME = 4
+/** Mobile-specific upload budget — main-thread `buildLineSegments`
+ *  runs synchronously on every doUploadTile for the XGVT-binary path
+ *  (PMTiles' worker decode bypasses it). Capping mobile uploads to
+ *  1/frame stretches the CPU work over more frames so a flurry of
+ *  zoom-out fetches can't stall the render loop. Tile catch-up takes
+ *  ~4× the wall time, but visible during gestures (settled state
+ *  is identical). User-reported heat + forced refresh on mobile
+ *  during fast pinch zoom motivated this; addresses the synchronous
+ *  CPU spike that the GPU buffer pool change alone could not. */
+function uploadBudgetFor(canvasW: number, canvasH: number): number {
+  return Math.max(canvasW, canvasH) <= 900 ? 1 : MAX_UPLOADS_PER_FRAME
+}
 
 // ═══ Renderer ═══
 
@@ -841,6 +853,14 @@ export class VectorTileRenderer {
     if (!this.source?.hasData()) return
     const index = this.source.getIndex()
     if (!index) return
+
+    // Cap upload budget for mobile viewports. beginFrame() initialised
+    // it to MAX_UPLOADS_PER_FRAME; we tighten it here once we know the
+    // canvas size. Multi-render-per-frame: same VTR sees this clamp
+    // on every layer's render call, so the cap is shared across the
+    // frame's layer iterations (not multiplied).
+    const _frameBudget = uploadBudgetFor(canvasWidth, canvasHeight)
+    if (this._uploadBudget > _frameBudget) this._uploadBudget = _frameBudget
 
     // Sliced-source slot for this layer. PMTiles emits per-MVT-layer
     // slices keyed by layer name in the catalog; xgis layers with a

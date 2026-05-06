@@ -149,7 +149,14 @@ function isMobileViewport(canvasWidth: number, canvasHeight: number): boolean {
 // ~60 unique tiles ≈ 240 drawCalls).
 const MAX_FRUSTUM_TILES_CEILING = 300
 function maxFrustumTilesFor(canvasWidth: number, canvasHeight: number): number {
-  const floor = isMobileViewport(canvasWidth, canvasHeight) ? 30 : 60
+  // Mobile floor lowered 30 → 20 after _continuous-wheel-zoom-mobile
+  // measurements showed peak 132 tilesVisible × 4 layers ≈ 528 draw
+  // calls/frame — past the thermal headroom on real iPhones. Floor
+  // 20 caps unique tiles at 20, so 4-layer drawCalls peak ≈ 240.
+  // The viewport already shows ~5-8 unique tiles at any single
+  // settled zoom on a 390-px-wide canvas; floor 20 still gives
+  // ~3× working-set headroom for transitions + parent walk overlap.
+  const floor = isMobileViewport(canvasWidth, canvasHeight) ? 20 : 60
   return Math.max(
     floor,
     Math.min(MAX_FRUSTUM_TILES_CEILING, Math.round((canvasWidth * canvasHeight) / 12000)),
