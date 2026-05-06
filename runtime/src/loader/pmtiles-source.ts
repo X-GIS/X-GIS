@@ -213,6 +213,19 @@ function looksLikeTileJSON(url: string): boolean {
 const tileFetchLogThrottle = new Map<string, number>()
 const TILE_FETCH_LOG_INTERVAL_MS = 60_000
 
+/** Negative cache for individual tile URLs that exhausted retry —
+ *  during the TTL we return null IMMEDIATELY without hitting the
+ *  network. Without this, a tile that's reproducibly 504 (e.g.,
+ *  api.protomaps.com sometimes has a permanent origin issue on a
+ *  specific (z,x,y) — observed on tile 2/2/2 in the v4 daily build)
+ *  would burn the retry budget on every visible-tile pass forever:
+ *  ~1.2 s of wasted backoff sleep + 3 hopeless network roundtrips
+ *  per affected tile per render. The 5-minute TTL covers
+ *  short-to-medium outages while still giving protomaps' side a
+ *  chance to recover without a page reload. */
+const tileFetchNegativeCache = new Map<string, number>()
+const NEGATIVE_CACHE_TTL_MS = 5 * 60_000
+
 /** Single-tile fetch with retry + graceful null fallback for transient
  *  upstream failures (5xx, network errors). Returns:
  *
@@ -227,6 +240,17 @@ const TILE_FETCH_LOG_INTERVAL_MS = 60_000
  *  Tuned for transient CDN edge timeouts (~1-2 s typical recovery)
  *  without hammering origin during a real outage. */
 async function fetchTileWithRetry(url: string, tileLabel: string): Promise<Uint8Array | null> {
+  // Negative cache hit — short-circuit. The catalog will cache this
+  // null as an empty tile (just like a 404), so the same loadTile()
+  // call in subsequent frames won't re-enter this function for the
+  // same key. The cache here is a belt-and-suspenders guard for
+  // catalogs that DO re-fetch and for sibling URLs that hit the same
+  // upstream issue.
+  const negativeExpiry = tileFetchNegativeCache.get(url)
+  if (negativeExpiry !== undefined) {
+    if (Date.now() < negativeExpiry) return null
+    tileFetchNegativeCache.delete(url)
+  }
   const backoffsMs = [300, 900]
   let lastErr: Error | null = null
   for (let attempt = 0; attempt <= backoffsMs.length; attempt++) {
@@ -250,6 +274,14 @@ async function fetchTileWithRetry(url: string, tileLabel: string): Promise<Uint8
     if (attempt === backoffsMs.length) break
     await new Promise(r => setTimeout(r, backoffsMs[attempt]))
   }
+  // All retries failed — cache this URL as "do not retry for a while"
+  // so subsequent frames skip the wasted retry sleep + roundtrip
+  // entirely. The catalog will cache the null we return here as an
+  // empty tile in its dataCache, but the URL-keyed negative cache
+  // protects sibling backends / cache invalidations from re-entering
+  // the retry loop on this URL during the TTL.
+  tileFetchNegativeCache.set(url, Date.now() + NEGATIVE_CACHE_TTL_MS)
+
   // Throttled log: once per URL pattern per minute. Strip the (z, x, y)
   // path from the URL so a burst of related tile failures shares a
   // single log line instead of stacking 100 identical entries.
@@ -259,10 +291,12 @@ async function fetchTileWithRetry(url: string, tileLabel: string): Promise<Uint8
   if (now - lastLogged > TILE_FETCH_LOG_INTERVAL_MS) {
     tileFetchLogThrottle.set(urlKey, now)
     console.warn(
-      `[X-GIS] tile fetch failed after ${backoffsMs.length + 1} attempts: ` +
-      `${tileLabel} — ${lastErr?.message ?? 'unknown error'}. ` +
-      `Treating as missing tile; will retry on next visible-tile pass. ` +
-      `(Further failures from ${urlKey} suppressed for ${TILE_FETCH_LOG_INTERVAL_MS / 1000}s.)`,
+      `[X-GIS] ${tileLabel} fetch failed after ${backoffsMs.length + 1} attempts ` +
+      `(${lastErr?.message ?? 'unknown error'}). ` +
+      `Caching as missing for ${NEGATIVE_CACHE_TTL_MS / 60_000} min — that area will render empty. ` +
+      `If this is a 5xx from a tile server, it's likely an upstream data-build issue ` +
+      `for this specific (z, x, y); the rest of the map continues to load normally. ` +
+      `(Further failures matching ${urlKey} suppressed for ${TILE_FETCH_LOG_INTERVAL_MS / 1000}s.)`,
     )
   }
   return null
