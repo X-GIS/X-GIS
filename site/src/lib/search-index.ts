@@ -95,8 +95,12 @@ export function buildSearchIndex(base: string): SearchRecord[] {
   }
 
   // ─── Gallery demos (every card becomes one record) ───
+  // Mirror the production gallery's devOnly filter — search results
+  // should reflect what's visible on the page they link to.
+  const includeDevOnly = import.meta.env.DEV
   for (const cat of galleryCategories) {
     for (const d of cat.demos) {
+      if (!includeDevOnly && d.devOnly) continue
       out.push({
         id: `demo:${d.id}`,
         title: d.title,

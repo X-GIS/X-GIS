@@ -24,6 +24,20 @@ const playPath = import.meta.env.DEV
 // land in site/public/thumbnails/<runId>.jpg, served by Astro under
 // `${base}/thumbnails/<runId>.jpg`.
 const thumbBase = `${base}/thumbnails`
+
+// Filter out demos marked `devOnly` for the production build —
+// they're either pointing at a dev-server-only proxy URL (PMTiles
+// world archive without CORS) or otherwise aren't usable on the
+// deployed playground. In dev (astro dev) every card stays visible.
+const showDevOnly = import.meta.env.DEV
+const visibleCategories = showDevOnly
+  ? galleryCategories
+  : galleryCategories
+      .map(cat => ({ ...cat, demos: cat.demos.filter(d => !d.devOnly) }))
+      .filter(cat => cat.demos.length > 0)
+const visibleFeatured = showDevOnly
+  ? featuredDemos
+  : featuredDemos.filter(d => !d.devOnly)
 ---
 
 <Base
@@ -58,7 +72,7 @@ const thumbBase = `${base}/thumbnails`
         Start here
       </p>
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {featuredDemos.map(d => (
+        {visibleFeatured.map(d => (
           <a
             href={`${playPath}?id=${runIdOf(d)}${d.defaultHash ? `#${d.defaultHash}` : ''}`}
             class="demo-card group block rounded-2xl bg-bg-card border border-line
@@ -110,7 +124,7 @@ const thumbBase = `${base}/thumbnails`
 
     <!-- Categories -->
     <div class="max-w-[1100px] mx-auto px-6 space-y-20">
-      {galleryCategories.map(cat => (
+      {visibleCategories.map(cat => (
         <section>
           <h2 class="text-[26px] sm:text-[30px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
             {cat.title}

@@ -21,6 +21,12 @@ export interface Demo {
    *  the global default and sees nothing. Format matches the
    *  playground URL hash: `zoom/lat/lon[/bearing/pitch]`. */
   defaultHash?: string
+  /** Hide the card from the production gallery while keeping it in
+   *  the playground for local dev. Used for demos whose interesting
+   *  content depends on something only the dev environment provides
+   *  (e.g., the protomaps v4 daily basemap proxied via vite — no
+   *  CORS-enabled v4 archive to point at in production). */
+  devOnly?: boolean
 }
 
 export interface Category {
@@ -51,7 +57,12 @@ export const galleryCategories: Category[] = [
       { id: 'pmtiles-source',         title: 'Single MVT source-layer', body: 'One PMTiles archive, one xgis layer filtering one MVT layer.', defaultHash: '13/43.77/11.25' },
       { id: 'pmtiles-layered',        title: 'Per-layer styling',       body: 'water / landuse / roads / buildings each driven by its own MVT slice.', defaultHash: '13/43.77/11.25' },
       { id: 'pmtiles-only-landuse',   title: 'Landuse slice',           body: 'Filter a PMTiles archive down to a single MVT layer.', defaultHash: '13/43.77/11.25' },
-      { id: 'pmtiles-protomaps-v4',   runId: 'pmtiles_v4',              title: 'Protomaps v4',            body: 'Protomaps v4 schema — vector_layers metadata + per-layer minzoom.', defaultHash: '13/43.77/11.25' },
+      // Hidden from the production gallery: this card claims to
+      // demo the protomaps v4 daily basemap (`earth` source-layer +
+      // v4 vector_layers metadata), which doesn't exist on a
+      // CORS-enabled host we can use from x-gis.github.io. In dev
+      // it works via the vite proxy → demo-bucket.protomaps.com.
+      { id: 'pmtiles-protomaps-v4',   runId: 'pmtiles_v4',              title: 'Protomaps v4',            body: 'Protomaps v4 schema — vector_layers metadata + per-layer minzoom.', defaultHash: '13/43.77/11.25', devOnly: true },
     ],
   },
   {
