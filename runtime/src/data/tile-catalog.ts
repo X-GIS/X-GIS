@@ -40,7 +40,7 @@ import type {
 import {
   type TileData,
   DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE,
-  MAX_CACHED_TILES, MAX_CONCURRENT_LOADS,
+  MAX_CACHED_TILES, MAX_CACHED_BYTES, MAX_CONCURRENT_LOADS,
   type VirtualCatalog, type VirtualTileFetcher,
 } from './tile-types'
 
@@ -94,12 +94,58 @@ export class TileCatalog {
    *  GPU entry so different xgis layers can draw distinct slices. */
   onTileLoaded: ((key: number, data: TileData, sourceLayer: string) => void) | null = null
 
+  /** Cumulative byte cost of every TileData in `dataCache`, kept
+   *  in sync by setSlice / dataCache.delete paths. Used by
+   *  evictTiles to enforce `MAX_CACHED_BYTES` independent of
+   *  tile count — a single dense city-zoom tile can hold 4-8 MB
+   *  while a sparse ocean tile is < 100 KB, so count-based caps
+   *  either over-shoot heap on dense scenes or churn on sparse
+   *  ones. */
+  private _cachedBytes = 0
+
+  /** Best-effort byte size of a TileData. Sums every typed-array
+   *  field we hold; skips `polygons` because RingPolygon is plain
+   *  JS arrays (V8-internal, no byteLength) and stress-test
+   *  measurement put it at ~20 % of typed-array total — not zero,
+   *  but the budget cap has 25 % slack so this approximation is
+   *  fine for the eviction trigger. */
+  private static sizeOfTileData(td: TileData): number {
+    let n = 0
+    n += td.vertices.byteLength + td.indices.byteLength
+    n += td.lineVertices.byteLength + td.lineIndices.byteLength
+    n += td.outlineIndices.byteLength
+    if (td.outlineVertices) n += td.outlineVertices.byteLength
+    if (td.outlineLineIndices) n += td.outlineLineIndices.byteLength
+    if (td.pointVertices) n += td.pointVertices.byteLength
+    if (td.prebuiltLineSegments) n += td.prebuiltLineSegments.byteLength
+    if (td.prebuiltOutlineSegments) n += td.prebuiltOutlineSegments.byteLength
+    return n
+  }
+
   /** Internal: set a slice in the per-key nested map, creating the
-   *  outer slot lazily. Used by cacheTileData + sub-tile gen. */
+   *  outer slot lazily. Used by cacheTileData + sub-tile gen.
+   *  Maintains `_cachedBytes` so evictTiles can enforce a byte
+   *  budget — same slot replacement subtracts the old data's size
+   *  before adding the new one. */
   private setSlice(key: number, layer: string, data: TileData): void {
     let slot = this.dataCache.get(key)
     if (!slot) { slot = new Map(); this.dataCache.set(key, slot) }
+    const prev = slot.get(layer)
+    if (prev) this._cachedBytes -= TileCatalog.sizeOfTileData(prev)
     slot.set(layer, data)
+    this._cachedBytes += TileCatalog.sizeOfTileData(data)
+  }
+
+  /** Internal: drop a key (all slices) from dataCache. Use this
+   *  instead of dataCache.delete directly so `_cachedBytes` stays
+   *  in sync. */
+  private deleteCacheEntry(key: number): void {
+    const slot = this.dataCache.get(key)
+    if (!slot) return
+    for (const td of slot.values()) {
+      this._cachedBytes -= TileCatalog.sizeOfTileData(td)
+    }
+    this.dataCache.delete(key)
   }
 
   // ── Data access ──
@@ -1231,7 +1277,11 @@ export class TileCatalog {
   // ── Cache eviction ──
 
   evictTiles(protectedKeys: Set<number>): void {
-    if (this.dataCache.size <= MAX_CACHED_TILES) return
+    // Two caps: byte-based (tight, accurate) and count-based
+    // (loose safety net). Either tripping is enough to trigger
+    // eviction; the loop runs until BOTH are under their limits.
+    if (this.dataCache.size <= MAX_CACHED_TILES
+        && this._cachedBytes <= MAX_CACHED_BYTES) return
 
     // Eviction: anything not in `protectedKeys` (visible + fallback
     // ancestors for the current frame) is fair game. The previous
@@ -1267,9 +1317,12 @@ export class TileCatalog {
     // Insertion order ≈ LRU (Map iteration order is insertion order;
     // re-inserts on access would yield true LRU but cacheTileData
     // / setSlice doesn't re-insert).
-    const toEvict = this.dataCache.size - MAX_CACHED_TILES
-    for (let i = 0; i < toEvict && i < entries.length; i++) {
-      this.dataCache.delete(entries[i][0])
+    let i = 0
+    while (i < entries.length
+           && (this.dataCache.size > MAX_CACHED_TILES
+               || this._cachedBytes > MAX_CACHED_BYTES)) {
+      this.deleteCacheEntry(entries[i][0])
+      i++
     }
   }
 }

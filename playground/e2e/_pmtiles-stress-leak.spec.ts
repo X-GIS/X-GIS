@@ -131,6 +131,7 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
     const after = await sample(0)
     console.log('[after stress + settle]', after)
 
+
     // Bounded-growth assertions. Larger ceilings than the simpler
     // diagnostic spec because the world-scale traversal warms the
     // archive's per-region caches.
@@ -143,8 +144,12 @@ test.describe('PMTiles live: world-scale pan + zoom stress', () => {
     if (before.heapMB !== null && after.heapMB !== null) {
       const delta = after.heapMB - before.heapMB
       console.log(`[heap delta] ${delta} MB`)
-      // 1 GB headroom — anything beyond suggests a real leak.
-      expect(delta).toBeLessThan(1000)
+      // After byte-budget eviction (200 MB cap) + prebuilt-SDF
+      // dispose, world-scale traversal heap delta sits at ~60 MB.
+      // 300 MB ceiling absorbs Chromium's GC cadence noise + cycle
+      // peaks while still catching any regression that re-introduces
+      // unbounded growth.
+      expect(delta).toBeLessThan(300)
     }
   })
 })

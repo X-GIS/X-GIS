@@ -82,6 +82,21 @@ export const DSFUN_LINE_STRIDE = 10
  *  observed at this cap. */
 export const MAX_CACHED_TILES = 256
 
+/** Byte budget for the catalog's CPU-side dataCache. The enforced
+ *  cap is byte-based (more accurate than count-based since per-tile
+ *  size varies 50× between dense city z=15 tiles and sparse ocean
+ *  z=3 tiles); MAX_CACHED_TILES stays as a secondary safety net for
+ *  edge cases where the byte accounting drifts (e.g. a backend that
+ *  swaps a TileData's typed arrays without going through setSlice).
+ *
+ *  200 MB chosen from stress-test measurement after prebuilt-SDF
+ *  dispose (typed-array residual ≈ 260 MB at 256 tiles → 200 MB
+ *  cap evicts the oldest ~25 % so working set is bounded). 5×
+ *  visible viewport (≈ 30 tiles × ~3 MB each ≈ 100 MB) leaves
+ *  ample pan-history headroom while keeping total heap < 1 GB
+ *  under continuous world-scale navigation. */
+export const MAX_CACHED_BYTES = 200 * 1024 * 1024
+
 /** Hard cap on simultaneous in-flight tile fetches across all
  *  backends. 32 keeps initial load at city-scale views under
  *  ~2 seconds (4-6 visible tiles + parent prefetch fit in one

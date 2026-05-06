@@ -741,6 +741,18 @@ export class VectorTileRenderer {
       firstShownFrame: this.frameCount,
     })
     this._gpuCacheCount++
+
+    // Drop main-thread copies of GPU-resident SDF segment buffers.
+    // These are 45 % of catalog memory on a fully-warm world-scale
+    // cache (measured at 180 MB / 401 MB total in
+    // _pmtiles-stress-leak.spec.ts). They were retained only as a
+    // worker-decoded handoff to the upload step; the GPU buffers
+    // are now the source of truth. If the GPU side gets evicted
+    // and a re-upload is needed later, buildLineSegments
+    // (main thread, ~few ms per tile) regenerates them on demand —
+    // a vastly better trade than the steady-state heap cost.
+    data.prebuiltLineSegments = undefined
+    data.prebuiltOutlineSegments = undefined
   }
 
   /** Render visible tiles into a render pass */
