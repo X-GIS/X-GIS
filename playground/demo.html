@@ -4,6 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>X-GIS Demo</title>
+  <!-- Cache-busting: the JS bundle filenames are content-hashed so they
+       invalidate on each build, but the HTML shell that *references*
+       them is not — iOS Safari was serving a stale demo.html that
+       pointed at a long-gone bundle hash, leaving users on the
+       previously-broken (pre-fix) bundle. Tell intermediaries +
+       browsers to revalidate so a fresh deploy actually reaches the
+       client. -->
+  <meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="pragma" content="no-cache">
+  <meta http-equiv="expires" content="0">
   <!-- Suppress auto /favicon.ico 404 — see index.html for full rationale. -->
   <link rel="icon" href="data:,">
   <link rel="preconnect" href="https://fonts.googleapis.com">
