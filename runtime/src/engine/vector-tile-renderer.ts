@@ -923,8 +923,29 @@ export class VectorTileRenderer {
       cz = this._hysteresisZ
       const target = Math.round(z)
       let wantAdvance = false
-      if (target > cz && z > cz + 0.5 + HYST_MARGIN) wantAdvance = true
-      else if (target < cz && z < cz - 0.5 + HYST_MARGIN) wantAdvance = true
+      const zoomingIn = target > cz && z > cz + 0.5 + HYST_MARGIN
+      const zoomingOut = target < cz && z < cz - 0.5 + HYST_MARGIN
+      if (zoomingIn) wantAdvance = true
+      else if (zoomingOut) {
+        // Zoom-out: do NOT gate. Holding cz at the higher LOD while
+        // the camera shows a lower zoom forces visibleTilesFrustum
+        // to enumerate hundreds of small tiles to cover the now-
+        // much-larger viewport — measured 140 → 92 tilesVisible
+        // peak in _mobile-zoom-out-load.spec.ts (35 % drop). User
+        // reported severe heat + forced page refresh on mobile; the
+        // tile fan-out is the underlying GPU/CPU stressor. The
+        // reason gating helped in the zoom-IN direction was that
+        // one parent tile covers the whole viewport over-zoomed,
+        // producing 1-30 visible tiles. Zoom-out has no such
+        // symmetry: a parent tile does NOT compose from cached
+        // children in our render pipeline, so holding the child cz
+        // means rendering children-of-children until the parent
+        // fetches. Just advance; the parent walk magnifies the
+        // nearest cached ancestor (or fetches if needed) — same
+        // mechanism the renderer uses for any cache miss.
+        cz = target
+        this._czPendingAdvance = null
+      }
 
       // Per-layer minzoom skip: layers like protomaps `roads` (z≥6)
       // and `buildings` (z≥14) carry no features below their minzoom.

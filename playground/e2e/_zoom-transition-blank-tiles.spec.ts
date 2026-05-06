@@ -91,7 +91,7 @@ test.describe('Zoom transition: hold previous LOD until next is ready', () => {
     expect(Math.max(...czFinal)).toBeGreaterThanOrEqual(15)
   })
 
-  test('zoom-out jump 16 → 13: cz holds, advances only as cache fills', async ({ page }) => {
+  test('zoom-out jump 16 → 13: cz advances immediately (no hold)', async ({ page }) => {
     test.setTimeout(60_000)
 
     await page.goto(
@@ -127,9 +127,15 @@ test.describe('Zoom transition: hold previous LOD until next is ready', () => {
     console.log('[settled z=16] cz=', cz0)
     expect(Math.min(...cz0)).toBe(16)
 
-    // Jump down to 13. Without the gate, cz drops 16 → 13 within
-    // 2-3 frames. With the gate, it holds wherever the next
-    // ancestor isn't cached.
+    // Zoom-out is intentionally NOT gated — the readiness gate's
+    // hold-old-cz strategy is asymmetric: holding the OLD higher
+    // LOD while the camera shows a lower zoom forces hundreds of
+    // child tiles to fill the viewport (since a parent tile cannot
+    // be composited from cached children in this pipeline). Mobile
+    // devices choke on that load. So zoom-out advances cz directly,
+    // and any missing low-z tiles fall back to the parent walk
+    // (cached ancestor magnified) the renderer uses for every
+    // cache miss.
     await page.evaluate(() => {
       window.__xgisMap!.camera.zoom = 13
     })
@@ -137,7 +143,10 @@ test.describe('Zoom transition: hold previous LOD until next is ready', () => {
 
     const czHold = await readCzs()
     console.log('[immediately after jump] cz=', czHold)
-    expect(Math.min(...czHold)).toBeGreaterThan(13)
+    // cz should have already advanced toward target (13). Allow
+    // up to 14 because Math.round(13) = 13 but hysteresis margin
+    // means cz=14 still satisfies "shown at zoom=13".
+    expect(Math.min(...czHold)).toBeLessThanOrEqual(14)
 
     await page.waitForTimeout(10_000)
     const czFinal = await readCzs()
