@@ -105,7 +105,8 @@ import Docs from '../../../layouts/Docs.astro'
         Every expression is classified into one of four buckets:
       </p>
       <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
-        <table class="w-full text-[13px] sm:text-[14px]">
+        <div class="overflow-x-auto">
+        <table class="w-full min-w-[560px] text-[13px] sm:text-[14px]">
           <thead class="bg-bg-elev text-fg">
             <tr>
               <th class="px-4 py-3 text-left font-medium">Expression</th>
@@ -120,6 +121,7 @@ import Docs from '../../../layouts/Docs.astro'
             <tr class="border-t border-line"><td class="px-4 py-3 font-mono text-fg">threat_size(5)</td><td class="px-4 py-3">constant (user fn)</td><td class="px-4 py-3">User function inlined and folded</td></tr>
           </tbody>
         </table>
+        </div>
       </div>
       <p class="mt-4">
         Classification decides which pipeline the layer needs and which

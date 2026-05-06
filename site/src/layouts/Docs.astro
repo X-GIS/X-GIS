@@ -90,25 +90,41 @@ const navGroups: NavGroup[] = [
         </nav>
       </aside>
 
-      <!-- Mobile docs nav: horizontal scroll-strip. Sticky under the
-           main header. Each item's active state mirrors the desktop
-           side-nav. -->
-      <nav class="lg:hidden sticky top-12 z-40 -mx-6 px-6 mb-6 bg-bg/85 backdrop-blur border-b border-line">
-        <div class="flex gap-5 overflow-x-auto py-3 text-[13px] whitespace-nowrap no-scrollbar">
-          {navGroups.flatMap(g => g.items).map(item => {
-            const active = item.slug === current
-            return (
-              <a
-                href={item.href}
-                class={`transition-colors ${active ? 'text-accent font-medium' : 'text-fg-dim hover:text-fg'}`}
-                aria-current={active ? 'page' : undefined}
-              >
-                {item.label}
-              </a>
-            )
-          })}
-        </div>
-      </nav>
+      <!-- Mobile docs breadcrumb: shows where you are. Cross-page
+           navigation lives in the global mobile drawer (hamburger from
+           the header), so duplicating an 8-item scroll-strip here was
+           wasted vertical space and a competing tap target. The
+           breadcrumb keeps the user oriented without consuming a
+           sticky ~44 px row. -->
+      {(() => {
+        // Flatten nav items with their group title so the breadcrumb
+        // can render "Docs · Concepts · RTC + DSFUN precision".
+        const flat = navGroups.flatMap(g =>
+          g.items.map(it => ({ ...it, groupTitle: g.title }))
+        )
+        const currentItem = flat.find(it => it.slug === current)
+        return (
+          <nav class="lg:hidden mb-6 -mx-6 px-6 py-3 border-b border-line text-[12px] flex items-center gap-2 text-fg-mute overflow-x-auto whitespace-nowrap no-scrollbar">
+            <a href={`${base}/docs`} class="hover:text-fg transition-colors flex-shrink-0">Docs</a>
+            {currentItem && currentItem.slug !== '' && (
+              <>
+                <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flex-shrink-0">
+                  <path d="M9 6l6 6-6 6"/>
+                </svg>
+                {currentItem.groupTitle && (
+                  <>
+                    <span class="flex-shrink-0">{currentItem.groupTitle}</span>
+                    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flex-shrink-0">
+                      <path d="M9 6l6 6-6 6"/>
+                    </svg>
+                  </>
+                )}
+                <span class="text-fg font-medium">{currentItem.label}</span>
+              </>
+            )}
+          </nav>
+        )
+      })()}
 
       <!-- Page content -->
       <article class="min-w-0">
