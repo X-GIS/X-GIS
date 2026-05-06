@@ -5,9 +5,30 @@ import Footer from '../components/Footer.astro'
 
 const githubUrl = 'https://github.com/X-GIS/X-GIS'
 const examplesPath = `${githubUrl}/blob/main/playground/src/examples`
+// Deployed playground lives under /play/ inside the same GH Pages
+// artifact (see .github/workflows/deploy-pages.yml). Cards deep-link
+// to /play/demo.html?id=<name> so a click loads the running demo
+// directly. BASE_URL handles the production /X-GIS/ prefix.
+//
+// In `astro dev` the playground isn't merged, so the cards target
+// the playground's own dev server at https://localhost:3000/demo.html
+// (started independently with `bun run dev` from the playground
+// workspace). The user accepts the cert warning once and from there
+// on dev clicks just work.
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const playPath = import.meta.env.DEV
+  ? 'https://localhost:3000/demo.html'
+  : `${base}/play/demo.html`
 
 interface Demo {
+  /** Filename (without .xgis) — used for the GitHub source link. */
   id: string
+  /** Registered playground demo key — used for /play/demo.html?id=…
+   *  Defaults to `id.replace(/-/g, '_')` (matches most entries in
+   *  playground/src/demos.ts). Specify explicitly when the registered
+   *  key diverges from the filename (e.g., pmtiles-protomaps-v4 →
+   *  pmtiles_v4 in DEMOS). */
+  runId?: string
   title: string
   body: string
 }
@@ -40,7 +61,7 @@ const categories: Category[] = [
       { id: 'pmtiles-source',         title: 'Single MVT source-layer', body: 'One PMTiles archive, one xgis layer filtering one MVT layer.' },
       { id: 'pmtiles-layered',        title: 'Per-layer styling',       body: 'water / landuse / roads / buildings each driven by its own MVT slice.' },
       { id: 'pmtiles-only-landuse',   title: 'Landuse slice',           body: 'Filter a PMTiles archive down to a single MVT layer.' },
-      { id: 'pmtiles-protomaps-v4',   title: 'Protomaps v4',            body: 'Protomaps v4 schema — vector_layers metadata + per-layer minzoom.' },
+      { id: 'pmtiles-protomaps-v4',   runId: 'pmtiles_v4',              title: 'Protomaps v4',            body: 'Protomaps v4 schema — vector_layers metadata + per-layer minzoom.' },
     ],
   },
   {
@@ -162,12 +183,72 @@ const categories: Category[] = [
         Real <code class="font-mono text-fg">.xgis</code> samples.
       </h1>
       <p class="mt-6 text-[17px] sm:text-[18px] leading-[1.55] text-fg-dim">
-        Every card links to the actual source file in the playground — read it on GitHub, then clone the repo
-        (<code class="font-mono text-[14px] text-fg">bun install</code> &nbsp;
-        <code class="font-mono text-[14px] text-fg">bun run dev</code>) to run any of them locally at
-        <code class="font-mono text-[14px] text-fg">localhost:3000/demo.html?id=&lt;name&gt;</code>.
+        Click any card to launch the running demo — pan, zoom, rotate, and inspect.
+        Each card also carries a <span class="font-mono text-[14px] text-fg">&lt;&gt;</span> link to the
+        underlying <code class="font-mono text-[14px] text-fg">.xgis</code> source on GitHub for copy-paste.
       </p>
     </section>
+
+    <!-- Featured starter — three big cards for the most representative
+         entry points. Helps a first-time visitor pick a path without
+         scanning the full ~50-card gallery. -->
+    <section class="max-w-[1100px] mx-auto px-6 mb-20">
+      <p class="text-[12px] font-mono uppercase tracking-wider text-fg-mute mb-4">
+        Start here
+      </p>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {[
+          { id: 'minimal', runId: 'minimal',
+            title: 'The simplest map',
+            body: 'One source, one layer — copy this, change the URL, you have a map.',
+            accent: 'sky' },
+          { id: 'pmtiles-layered', runId: 'pmtiles_layered',
+            title: 'Streaming PMTiles',
+            body: 'Four MVT layers from one archive — water, landuse, roads, buildings.',
+            accent: 'emerald' },
+          { id: 'animation-showcase', runId: 'animation_showcase',
+            title: 'Live animation',
+            body: 'Three keyframe blocks driving fill, stroke, and dash offset together.',
+            accent: 'violet' },
+        ].map(d => (
+          <a
+            href={`${playPath}?id=${d.runId}`}
+            class="group block rounded-2xl bg-bg-card border border-line
+                   hover:border-line-strong hover:bg-bg-hover transition-colors p-6"
+          >
+            <div class="flex items-center gap-2 mb-3">
+              <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
+                           bg-accent/15 text-accent text-[10px] font-medium tracking-wide uppercase">
+                <span class="w-1.5 h-1.5 rounded-full bg-accent inline-block animate-pulse"></span>
+                Live
+              </span>
+              <p class="font-mono text-[11px] text-fg-mute truncate">
+                {d.id}.xgis
+              </p>
+            </div>
+            <h3 class="text-[20px] font-medium text-fg leading-[1.25] tracking-[-0.015em] mb-2">
+              {d.title}
+            </h3>
+            <p class="text-[14px] leading-[1.55] text-fg-dim">
+              {d.body}
+            </p>
+            <p class="mt-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-accent group-hover:text-accent-hover transition-colors">
+              Run demo
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9 6l6 6-6 6"/>
+              </svg>
+            </p>
+          </a>
+        ))}
+      </div>
+    </section>
+
+    <!-- Section divider -->
+    <div class="max-w-[1100px] mx-auto px-6 mb-12">
+      <p class="text-[12px] font-mono uppercase tracking-wider text-fg-mute">
+        All examples
+      </p>
+    </div>
 
     <!-- Categories -->
     <div class="max-w-[1100px] mx-auto px-6 space-y-20">
@@ -181,23 +262,48 @@ const categories: Category[] = [
           </p>
           <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {cat.demos.map(d => (
-              <a
-                href={`${examplesPath}/${d.id}.xgis`}
-                target="_blank"
-                rel="noopener"
-                class="group block rounded-2xl bg-bg-card border border-line hover:border-line-strong
-                       p-5 transition-colors min-h-[120px]"
+              <article
+                class="demo-card group relative rounded-2xl bg-bg-card border border-line
+                       hover:border-line-strong hover:bg-bg-hover transition-colors min-h-[140px]"
               >
-                <p class="font-mono text-[11px] text-fg-mute mb-2 group-hover:text-accent transition-colors">
-                  {d.id}.xgis
-                </p>
-                <h3 class="text-[16px] font-medium text-fg leading-[1.3] tracking-[-0.01em] mb-2">
-                  {d.title}
-                </h3>
-                <p class="text-[13px] leading-[1.5] text-fg-dim">
-                  {d.body}
-                </p>
-              </a>
+                <a
+                  href={`${playPath}?id=${d.runId ?? d.id.replace(/-/g, '_')}`}
+                  class="block p-5 pr-12 h-full"
+                  aria-label={`Run ${d.title} demo`}
+                >
+                  <div class="flex items-center gap-2 mb-2">
+                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
+                                 bg-accent/15 text-accent text-[10px] font-medium tracking-wide uppercase">
+                      <span class="w-1.5 h-1.5 rounded-full bg-accent inline-block animate-pulse"></span>
+                      Live
+                    </span>
+                    <p class="font-mono text-[11px] text-fg-mute group-hover:text-fg-dim transition-colors truncate">
+                      {d.id}.xgis
+                    </p>
+                  </div>
+                  <h3 class="text-[16px] font-medium text-fg leading-[1.3] tracking-[-0.01em] mb-2">
+                    {d.title}
+                  </h3>
+                  <p class="text-[13px] leading-[1.5] text-fg-dim">
+                    {d.body}
+                  </p>
+                </a>
+                <a
+                  href={`${examplesPath}/${d.id}.xgis`}
+                  target="_blank"
+                  rel="noopener"
+                  aria-label={`View ${d.id}.xgis source on GitHub`}
+                  class="absolute top-4 right-4 inline-flex items-center justify-center
+                         w-8 h-8 rounded-md text-fg-mute hover:text-fg hover:bg-line
+                         transition-colors"
+                  title="View source on GitHub"
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="16 18 22 12 16 6" />
+                    <polyline points="8 6 2 12 8 18" />
+                  </svg>
+                </a>
+              </article>
             ))}
           </div>
         </section>

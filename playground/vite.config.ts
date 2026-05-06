@@ -2,7 +2,11 @@ import { defineConfig } from 'vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 
 export default defineConfig({
-  base: process.env.GITHUB_ACTIONS ? '/X-GIS/' : '/',
+  // CI deploys the playground under /X-GIS/play/ so the marketing
+  // site (Astro) can occupy /X-GIS/ root. Local dev keeps the bare `/`
+  // so the existing https://localhost:3000/demo.html paths in e2e
+  // specs and the README still resolve without rewrites.
+  base: process.env.GITHUB_ACTIONS ? '/X-GIS/play/' : '/',
   plugins: [basicSsl()],
   server: {
     port: 3000,

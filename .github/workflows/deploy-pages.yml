@@ -28,6 +28,17 @@ jobs:
 
       - run: bun run build
 
+      # Merge the runnable playground under /play/ inside the
+      # marketing-site artifact. /X-GIS/ serves the docs + examples
+      # marketing site, /X-GIS/play/demo.html?id=<name> serves the
+      # actual interactive demos that the /examples gallery cards
+      # deep-link to. The playground vite config already emits with
+      # base=/X-GIS/play/ in CI, so asset URLs resolve as-is.
+      - name: Merge playground into site/dist/play/
+        run: |
+          mkdir -p site/dist/play
+          cp -R playground/dist/. site/dist/play/
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site/dist

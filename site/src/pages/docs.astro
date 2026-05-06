@@ -3,6 +3,12 @@ import Base from '../layouts/Base.astro'
 import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
 
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const examplesUrl = `${base}/examples`
+const playUrl = import.meta.env.DEV
+  ? 'https://localhost:3000/demo.html?id=minimal'
+  : `${base}/play/demo.html?id=minimal`
+
 // Each section is { id, title, body, code? }. The code block, if
 // present, is rendered verbatim — these are real `.xgis` snippets
 // either taken from playground/src/examples/*.xgis or from compiler
@@ -223,8 +229,30 @@ await map.run(\`
       <p class="mt-6 text-[17px] sm:text-[18px] leading-[1.55] text-fg-dim">
         Every snippet on this page is a real <code class="font-mono text-[15px] text-fg">.xgis</code> sample taken from the
         playground demos or compiler tests — copy any block and it parses + compiles as-is.
-        For runnable demos, see the <a href="examples" class="text-accent hover:text-accent-hover transition-colors">Examples gallery</a>.
       </p>
+      <div class="mt-8 flex flex-wrap items-center gap-3">
+        <a
+          href={playUrl}
+          class="inline-flex items-center gap-2 px-5 h-10 rounded-full
+                 bg-accent hover:bg-accent-hover text-white text-[14px] font-medium transition-colors"
+        >
+          <span class="w-1.5 h-1.5 rounded-full bg-white/90 inline-block animate-pulse"></span>
+          Try the Quick start
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 6l6 6-6 6"/>
+          </svg>
+        </a>
+        <a
+          href={examplesUrl}
+          class="inline-flex items-center gap-2 px-5 h-10 rounded-full
+                 text-accent hover:text-accent-hover text-[14px] font-medium transition-colors"
+        >
+          Browse examples
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 6l6 6-6 6"/>
+          </svg>
+        </a>
+      </div>
     </section>
 
     <!-- Two-column layout: sticky TOC + content -->
