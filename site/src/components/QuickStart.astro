@@ -1,6 +1,7 @@
 ---
-const githubUrl = 'https://github.com/X-GIS/X-GIS'
 const cloneCmd = 'git clone https://github.com/X-GIS/X-GIS && cd X-GIS && bun install && bun run dev'
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const docsUrl = `${base}/docs`
 ---
 
 <section id="install" class="relative py-32 sm:py-40 lg:py-56 border-t border-line">
@@ -67,12 +68,10 @@ bun run dev</code>
       </p>
     </div>
 
-    <!-- Secondary CTA — links to repo -->
+    <!-- Secondary CTA — links to docs page -->
     <div class="mt-16 text-center">
       <a
-        href={githubUrl}
-        target="_blank"
-        rel="noopener"
+        href={docsUrl}
         class="inline-flex items-center gap-2 text-accent hover:text-accent-hover text-[15px] font-medium transition-colors"
       >
         Read the documentation

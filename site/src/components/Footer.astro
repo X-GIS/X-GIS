@@ -1,6 +1,9 @@
 ---
 const githubUrl = 'https://github.com/X-GIS/X-GIS'
 const year = new Date().getFullYear()
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const docsUrl = `${base}/docs`
+const examplesUrl = `${base}/examples`
 ---
 
 <footer class="border-t border-line">
@@ -15,10 +18,11 @@ const year = new Date().getFullYear()
       </p>
 
       <nav class="flex flex-wrap items-center gap-x-7 gap-y-2 sm:ml-auto">
+        <a href={docsUrl} class="hover:text-fg transition-colors">Docs</a>
+        <a href={examplesUrl} class="hover:text-fg transition-colors">Examples</a>
         <a href={githubUrl} target="_blank" rel="noopener" class="hover:text-fg transition-colors">GitHub</a>
-        <a href={`${githubUrl}/blob/main/README.md`} class="hover:text-fg transition-colors">README</a>
-        <a href={`${githubUrl}/blob/main/SPEC.md`} class="hover:text-fg transition-colors">Spec</a>
-        <a href={`${githubUrl}/blob/main/ROADMAP.md`} class="hover:text-fg transition-colors">Roadmap</a>
+        <a href={`${githubUrl}/blob/main/SPEC.md`} target="_blank" rel="noopener" class="hover:text-fg transition-colors">Spec</a>
+        <a href={`${githubUrl}/blob/main/ROADMAP.md`} target="_blank" rel="noopener" class="hover:text-fg transition-colors">Roadmap</a>
       </nav>
     </div>
 
