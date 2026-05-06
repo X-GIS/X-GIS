@@ -1,0 +1,169 @@
+---
+import Docs from '../../../layouts/Docs.astro'
+---
+
+<Docs
+  current="concepts/pipeline"
+  title="X-GIS — Compile pipeline"
+  description="The path from a .xgis source string to a frame: lexer → parser → AST → IR → optimizer → WGSL codegen → renderer."
+>
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">
+      Concept
+    </p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      Compile pipeline.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
+      What happens between <code class="font-mono text-[15px] text-fg">.xgis</code> source
+      and a rendered frame: how the language turns into WGSL the GPU can run.
+    </p>
+  </header>
+
+  <article class="space-y-14 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Stages
+      </h2>
+      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
+        <pre class="px-6 py-5 font-mono text-[13px] sm:text-[14px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>.xgis source
+  │
+  Lexer  →  Parser  →  AST
+                        │
+                      lower()
+                        │
+                      IR (Scene)
+                        │
+                    optimize()        — constant folding,
+                        │              expression classification
+                emit    │    codegen
+              /                  \
+       SceneCommands       ShaderVariant[]
+              \                  /
+               Runtime + GPU / Canvas 2D fallback</code></pre>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Lexer + Parser
+      </h2>
+      <p class="mb-4">
+        The lexer in
+        <code class="font-mono text-fg">@xgis/compiler</code> recognizes the
+        usual tokens (identifiers, numbers, strings, punctuation) plus
+        keywords reserved by the language:
+        <code class="font-mono text-fg">source</code>,
+        <code class="font-mono text-fg">layer</code>,
+        <code class="font-mono text-fg">background</code>,
+        <code class="font-mono text-fg">preset</code>,
+        <code class="font-mono text-fg">symbol</code>,
+        <code class="font-mono text-fg">keyframes</code>,
+        <code class="font-mono text-fg">fn</code>,
+        and the modifier prefix <code class="font-mono text-fg">z&lt;N&gt;:</code>.
+      </p>
+      <p>
+        The parser produces a typed AST (see
+        <code class="font-mono text-fg">compiler/src/parser/ast.ts</code>):
+        every top-level statement becomes one of
+        <code class="font-mono text-fg">SourceStatement</code>,
+        <code class="font-mono text-fg">LayerStatement</code>,
+        <code class="font-mono text-fg">BackgroundStatement</code>,
+        <code class="font-mono text-fg">PresetStatement</code>, etc.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        AST → IR (Scene)
+      </h2>
+      <p class="mb-4">
+        <code class="font-mono text-fg">lower()</code> walks the AST and
+        produces the Scene IR — a flat list of
+        <code class="font-mono text-fg">RenderNode</code> records, one per
+        layer, with utility classes already resolved into structured
+        fields (<code class="font-mono text-fg">fill</code>,
+        <code class="font-mono text-fg">stroke</code>,
+        <code class="font-mono text-fg">opacity</code>,
+        <code class="font-mono text-fg">size</code>, etc.). Presets get
+        expanded inline. Keyframes get attached to their referencing
+        layers.
+      </p>
+      <p>
+        The IR is what the optimizer reads and what the codegen writes from.
+        It deliberately knows nothing about WGSL or GPU buffers — that
+        keeps the language semantics testable in pure TypeScript.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Optimizer: constant fold + classify
+      </h2>
+      <p class="mb-4">
+        Every expression is classified into one of four buckets:
+      </p>
+      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
+        <table class="w-full text-[13px] sm:text-[14px]">
+          <thead class="bg-bg-elev text-fg">
+            <tr>
+              <th class="px-4 py-3 text-left font-medium">Expression</th>
+              <th class="px-4 py-3 text-left font-medium">Class</th>
+              <th class="px-4 py-3 text-left font-medium">Handling</th>
+            </tr>
+          </thead>
+          <tbody class="text-fg-dim">
+            <tr class="border-t border-line"><td class="px-4 py-3 font-mono text-fg">360 / 12</td><td class="px-4 py-3">constant</td><td class="px-4 py-3">Folded to <code class="font-mono">30</code> at compile time</td></tr>
+            <tr class="border-t border-line"><td class="px-4 py-3 font-mono text-fg">z8:opacity-40</td><td class="px-4 py-3">zoom-dependent</td><td class="px-4 py-3">CPU-interpolated per frame</td></tr>
+            <tr class="border-t border-line"><td class="px-4 py-3 font-mono text-fg">speed / 50 | clamp(4,24)</td><td class="px-4 py-3">per-feature GPU</td><td class="px-4 py-3">WGSL codegen, evaluated in vertex shader</td></tr>
+            <tr class="border-t border-line"><td class="px-4 py-3 font-mono text-fg">threat_size(5)</td><td class="px-4 py-3">constant (user fn)</td><td class="px-4 py-3">User function inlined and folded</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-4">
+        Classification decides which pipeline the layer needs and which
+        uniforms get uploaded each frame.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Codegen: WGSL shader variants
+      </h2>
+      <p class="mb-4">
+        Layers with no per-feature GPU expressions share a common
+        <code class="font-mono text-fg">tile_default</code> shader pipeline.
+        Layers that DO use per-feature expressions (e.g.,
+        <code class="font-mono text-fg">fill match(.continent)</code>) get
+        a custom WGSL variant emitted at compile time — the
+        <code class="font-mono text-fg">match</code> table becomes a
+        chained <code class="font-mono text-fg">if/elif</code> in the fragment
+        shader, with branch values constant-baked from the IR.
+      </p>
+      <p>
+        Variants are deduplicated by content hash so a 50-layer scene
+        with identical styling produces one pipeline, not 50.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Runtime
+      </h2>
+      <p class="mb-4">
+        <code class="font-mono text-fg">@xgis/runtime</code> consumes the
+        emitted SceneCommands and ShaderVariants, owns the GPU device,
+        manages tile catalogs (XGVT binary / PMTiles MVT / GeoJSON), and
+        dispatches per-frame draws. WebGPU is the primary backend; Canvas
+        2D engages as fallback when no adapter is available.
+      </p>
+      <p>
+        The runtime is the only component that touches the GPU. Compiler
+        unit tests can fully exercise the language without a graphics
+        context.
+      </p>
+    </section>
+
+  </article>
+</Docs>

@@ -1,0 +1,144 @@
+---
+import Docs from '../../../layouts/Docs.astro'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const playUrl = (id: string, proj: string) =>
+  import.meta.env.DEV
+    ? `https://localhost:3000/demo.html?id=${id}&proj=${proj}`
+    : `${base}/play/demo.html?id=${id}&proj=${proj}`
+
+const projections = [
+  { name: 'mercator',                args: '',                title: 'Mercator',              body: 'Web Mercator (EPSG:3857) — the default. Conformal, scales infinitely toward the poles (clamped at ±85.05° per spec).' },
+  { name: 'equirectangular',          args: '',                title: 'Equirectangular',       body: 'Plate carrée. Latitude maps directly to y; trivial inverse. Distortion grows toward the poles but no clipping.' },
+  { name: 'natural_earth',            args: '',                title: 'Natural Earth',         body: 'Pseudo-cylindrical, polynomial. Best balance of low distortion + recognizable continent shapes. Default for "world overview" demos.' },
+  { name: 'orthographic',             args: '(lon, lat)',      title: 'Orthographic',          body: 'Globe view from infinity. Hemispherical visibility — back-face culled in WGSL. Centers the view on (lon, lat).' },
+  { name: 'azimuthal_equidistant',    args: '(lon, lat)',      title: 'Azimuthal equidistant', body: 'Distances from center are exact. Used for radio range maps + polar projections.' },
+  { name: 'stereographic',            args: '(lon, lat)',      title: 'Stereographic',         body: 'Conformal projection from a sphere onto a plane. Good for polar regions; everything-on-one-page world map.' },
+  { name: 'oblique_mercator',         args: '(lon, lat)',      title: 'Oblique Mercator',      body: 'Tilted Mercator centered on (lon, lat). Useful for narrow regions that span continents (e.g., the Hawaiian Islands chain).' },
+]
+---
+
+<Docs
+  current="concepts/projections"
+  title="X-GIS — Projection switching"
+  description="Seven projections, one source. How X-GIS switches via a single GPU uniform write — no re-tessellation, no re-render of source data."
+>
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">
+      Concept
+    </p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      Projection switching.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
+      Seven projections ship with X-GIS. Switching from Mercator to
+      Orthographic is a single uniform write — same GeoJSON, no
+      re-tessellation, no fresh tile fetches.
+    </p>
+  </header>
+
+  <article class="space-y-14 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        How it works
+      </h2>
+      <p class="mb-4">
+        Tile vertices are stored in <strong class="text-fg">global Web Mercator meters</strong>
+        regardless of which projection is active. Reprojection happens entirely
+        inside the WGSL vertex shader: convert MM back to lon/lat, then forward
+        through whichever projection's CPU-mirrored math is baked into the WGSL.
+      </p>
+      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden mb-4">
+        <pre class="px-6 py-5 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>// WGSL vertex shader (simplified):
+let mm = pos_h + pos_l                             // DSFUN reconstruction
+let lonlat = mercator_inverse(mm)                  // back to lon/lat
+let projected = project(lonlat, u.projection_type) // forward into target
+let clip = u.mvp * vec4(projected, 0.0, 1.0)</code></pre>
+      </div>
+      <p>
+        The <code class="font-mono text-fg">u.projection_type</code> uniform
+        is a small integer; switching projections is a single write
+        per frame. No tessellation work, no re-upload, no cache invalidation.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Why MM as the storage frame
+      </h2>
+      <p class="mb-4">
+        Storing in lon/lat would mean every projection's vertex shader
+        starts from <code class="font-mono text-fg">f32(degrees)</code> — fine
+        for the equator but the precision cliff hits at the poles. Storing
+        in already-projected target coordinates would invalidate every tile
+        when the user switches projections.
+      </p>
+      <p>
+        MM is the compromise: <strong class="text-fg">precision is uniform</strong>
+        (DSFUN handles f32 magnitude) and <strong class="text-fg">switching is free</strong>
+        (just change the post-MM projection step in the shader).
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Available projections
+      </h2>
+      <div class="space-y-3">
+        {projections.map(p => (
+          <div class="rounded-xl bg-bg-card border border-line p-5">
+            <div class="flex items-baseline justify-between gap-4 mb-2">
+              <p class="font-mono text-[13px] text-fg">
+                {p.name}<span class="text-fg-mute">{p.args}</span>
+              </p>
+              <a
+                href={playUrl('physical_map', p.name)}
+                class="text-[12px] text-accent hover:text-accent-hover transition-colors whitespace-nowrap"
+              >
+                Try this →
+              </a>
+            </div>
+            <p class="text-[14px] leading-[1.55] text-fg-dim">
+              {p.body}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Switching at runtime
+      </h2>
+      <p class="mb-4">
+        From JavaScript:
+      </p>
+      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
+        <pre class="px-6 py-5 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>import {`{`} XGISMap, getProjection {`}`} from "@xgis/runtime"
+
+const map = new XGISMap(canvas)
+await map.run(source, baseUrl)
+
+// Switch to globe view centered on Seoul:
+map.setProjection(getProjection("orthographic", 127, 37.5))</code></pre>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        CPU/GPU consistency
+      </h2>
+      <p>
+        Each projection has paired CPU + WGSL implementations. They're
+        kept in lockstep by
+        <code class="font-mono text-fg">runtime/src/__tests__/projection-wgsl-consistency.test.ts</code>,
+        which forwards a sample grid through both and asserts they
+        agree to f32 epsilon. Pick-correctness on a globe map relies
+        on this — the CPU resolves the picked feature; the GPU draws
+        it where the user clicked.
+      </p>
+    </section>
+
+  </article>
+</Docs>

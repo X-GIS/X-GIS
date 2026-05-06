@@ -1,0 +1,163 @@
+---
+import Docs from '../../layouts/Docs.astro'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const playUrl = import.meta.env.DEV
+  ? 'https://localhost:3000/demo.html?id=minimal'
+  : `${base}/play/demo.html?id=minimal`
+
+interface PageCard {
+  href: string
+  eyebrow: string
+  title: string
+  body: string
+}
+
+const cards: PageCard[] = [
+  {
+    href: `${base}/docs/reference`,
+    eyebrow: 'Reference',
+    title: 'Language reference',
+    body: 'Every block, statement, modifier, and utility class with a real working code sample.',
+  },
+  {
+    href: `${base}/docs/concepts/rtc`,
+    eyebrow: 'Concepts',
+    title: 'RTC + DSFUN precision',
+    body: 'Why X-GIS keeps f32 vertices accurate at every camera zoom — split-precision math in WGSL.',
+  },
+  {
+    href: `${base}/docs/concepts/projections`,
+    eyebrow: 'Concepts',
+    title: 'Projection switching',
+    body: 'Seven projections, one source. How the runtime switches via uniform without re-tessellation.',
+  },
+  {
+    href: `${base}/docs/concepts/pipeline`,
+    eyebrow: 'Concepts',
+    title: 'Compile pipeline',
+    body: 'Lexer → AST → IR → optimizer → WGSL codegen. The path from .xgis source to a frame.',
+  },
+  {
+    href: `${base}/docs/api`,
+    eyebrow: 'Reference',
+    title: 'JavaScript API',
+    body: 'XGISMap, Camera, projections, loaders — every public symbol from @xgis/runtime.',
+  },
+  {
+    href: `${base}/docs/utilities`,
+    eyebrow: 'Reference',
+    title: 'Utility catalog',
+    body: 'The full Tailwind-style class set — colors, fills, strokes, opacity, modifiers.',
+  },
+]
+---
+
+<Docs current="" title="X-GIS — Documentation" description="Documentation for X-GIS — language reference, concept guides, JavaScript API, and the Tailwind-style utility catalog.">
+
+  <header class="mb-16">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">
+      Documentation
+    </p>
+    <h1 class="text-[40px] sm:text-[52px] lg:text-[60px] font-medium text-fg leading-[1.05] tracking-[-0.035em]">
+      Learn X-GIS.
+    </h1>
+    <p class="mt-6 text-[17px] sm:text-[19px] leading-[1.55] text-fg-dim max-w-[680px]">
+      X-GIS is a declarative language for cartographic rendering on WebGPU.
+      Declare data sources and styled layers; the compiler emits the WGSL,
+      buffer layouts, and projection math.
+    </p>
+    <div class="mt-8 flex flex-wrap items-center gap-3">
+      <a
+        href={playUrl}
+        class="inline-flex items-center gap-2 px-5 h-10 rounded-full
+               bg-accent hover:bg-accent-hover text-white text-[14px] font-medium transition-colors"
+      >
+        <span class="w-1.5 h-1.5 rounded-full bg-white/90 inline-block animate-pulse"></span>
+        Try the Quick start
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 6l6 6-6 6"/>
+        </svg>
+      </a>
+      <a
+        href={`${base}/docs/reference`}
+        class="inline-flex items-center gap-2 px-5 h-10 rounded-full
+               text-accent hover:text-accent-hover text-[14px] font-medium transition-colors"
+      >
+        Read the reference
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 6l6 6-6 6"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <!-- Section grid: each docs sub-page as a card -->
+  <section class="mb-16">
+    <p class="text-[12px] font-mono uppercase tracking-wider text-fg-mute mb-5">
+      Browse
+    </p>
+    <div class="grid sm:grid-cols-2 gap-4">
+      {cards.map(c => (
+        <a
+          href={c.href}
+          class="docs-card group block rounded-2xl bg-bg-card border border-line
+                 hover:border-line-strong hover:bg-bg-hover p-6"
+        >
+          <p class="text-[11px] font-medium text-accent uppercase tracking-wider mb-2">
+            {c.eyebrow}
+          </p>
+          <h3 class="text-[18px] font-medium text-fg leading-[1.25] tracking-[-0.015em] mb-2">
+            {c.title}
+          </h3>
+          <p class="text-[14px] leading-[1.55] text-fg-dim mb-3">
+            {c.body}
+          </p>
+          <p class="inline-flex items-center gap-1 text-[13px] font-medium text-accent group-hover:text-accent-hover transition-colors">
+            Open
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 6l6 6-6 6"/>
+            </svg>
+          </p>
+        </a>
+      ))}
+    </div>
+  </section>
+
+  <!-- External pointer -->
+  <section class="border-t border-line pt-12">
+    <h2 class="text-[20px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
+      Beyond the site
+    </h2>
+    <ul class="space-y-2 text-[14px] text-fg-dim">
+      <li>
+        <a href="https://github.com/X-GIS/X-GIS/blob/main/SPEC.md" target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">XGVT binary specification</a>
+        — on-disk vector tile format
+      </li>
+      <li>
+        <a href="https://github.com/X-GIS/X-GIS/blob/main/ROADMAP.md" target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">Roadmap</a>
+        — what's planned and what's shipped
+      </li>
+      <li>
+        <a href="https://github.com/X-GIS/X-GIS" target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">GitHub repository</a>
+        — source code and issues
+      </li>
+    </ul>
+  </section>
+</Docs>
+
+<style>
+  .docs-card {
+    transition:
+      transform 500ms cubic-bezier(0.16, 0.84, 0.32, 1),
+      border-color 350ms cubic-bezier(0.16, 0.84, 0.32, 1),
+      background-color 350ms cubic-bezier(0.16, 0.84, 0.32, 1);
+  }
+  .docs-card:hover {
+    transform: translateY(-2px);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .docs-card { transition: none; }
+    .docs-card:hover { transform: none; }
+  }
+</style>

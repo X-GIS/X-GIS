@@ -1,0 +1,141 @@
+---
+import Docs from '../../../layouts/Docs.astro'
+---
+
+<Docs
+  current="concepts/rtc"
+  title="X-GIS — RTC + DSFUN precision"
+  description="How X-GIS preserves f32 precision at any camera zoom by splitting Mercator-meter coordinates into f64-equivalent high-low pairs (DSFUN)."
+>
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">
+      Concept
+    </p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      RTC + DSFUN precision.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
+      Why a city street still renders sharply when the camera is zoomed
+      to building-detail levels — even though the GPU vertex shader only
+      handles 32-bit floats.
+    </p>
+  </header>
+
+  <article class="space-y-14 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        The problem
+      </h2>
+      <p class="mb-4">
+        Web Mercator (EPSG:3857) coordinates measure in meters from the
+        equator and prime meridian. A point in Seoul lands around
+        <code class="font-mono text-fg">(14130000, 4520000)</code>.
+        Single-precision floats can represent that magnitude — but the
+        precision drops to roughly <strong class="text-fg">1.5 m per step</strong>
+        at those values. Move the camera to a Seoul building (zoom 18),
+        ask the GPU to subtract the camera position from each vertex,
+        and you lose every sub-meter detail to f32 cancellation. The
+        result on screen: jittering polygons and mis-aligned strokes.
+      </p>
+      <p>
+        X-GIS solves this with two coordinated tricks: <strong class="text-fg">RTC</strong>
+        (relative-to-center coordinates) and <strong class="text-fg">DSFUN</strong>
+        (double-single function math) — together they recover f64-equivalent
+        precision inside an f32 GPU pipeline.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Coordinate spaces
+      </h2>
+      <p class="mb-5">
+        Each stage of the X-GIS pipeline operates in a defined space.
+        Crossing a stage boundary always means converting; staying inside
+        means staying in the same units.
+      </p>
+      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
+        <table class="w-full text-[13px] sm:text-[14px]">
+          <thead class="bg-bg-elev text-fg">
+            <tr>
+              <th class="px-4 py-3 text-left font-medium">Code</th>
+              <th class="px-4 py-3 text-left font-medium">Space</th>
+              <th class="px-4 py-3 text-left font-medium">Units</th>
+              <th class="px-4 py-3 text-left font-medium">Stage</th>
+            </tr>
+          </thead>
+          <tbody class="text-fg-dim">
+            <tr class="border-t border-line"><td class="px-4 py-3 font-mono text-fg">LL</td><td class="px-4 py-3">WGS84 lon/lat</td><td class="px-4 py-3">degrees</td><td class="px-4 py-3">GeoJSON input, bbox-reject</td></tr>
+            <tr class="border-t border-line"><td class="px-4 py-3 font-mono text-fg">MM</td><td class="px-4 py-3">Global Web Mercator</td><td class="px-4 py-3">meters (~±2×10⁷)</td><td class="px-4 py-3">All clipping, simplification, line arc length</td></tr>
+            <tr class="border-t border-line"><td class="px-4 py-3 font-mono text-fg">DLM</td><td class="px-4 py-3">DSFUN tile-local Mercator</td><td class="px-4 py-3">meters, hi/lo f32 pair</td><td class="px-4 py-3">Output vertices, GPU consumption</td></tr>
+            <tr class="border-t border-line"><td class="px-4 py-3 font-mono text-fg">SP</td><td class="px-4 py-3">Screen / NDC</td><td class="px-4 py-3">pixels / clip-space</td><td class="px-4 py-3">Camera projection only</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        DSFUN: f64-equivalent in f32 hardware
+      </h2>
+      <p class="mb-4">
+        Each tile vertex is stored as two f32 values per axis —
+        <strong class="text-fg">high</strong> and <strong class="text-fg">low</strong> —
+        such that <code class="font-mono text-fg">h + l</code> reproduces the
+        original f64 within ~1 µm. The vertex shader subtracts the camera
+        position the same way:
+      </p>
+      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden mb-4">
+        <pre class="px-6 py-5 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>// CPU side, once per tile:
+let camRel = camera_merc - tile_origin_merc       // f64 subtraction
+let cam_h = f32(camRel)
+let cam_l = f32(camRel - cam_h)                    // residual
+
+// GPU vertex shader, once per vertex:
+let pos_relative_to_camera =
+  (pos_h - cam_h) + (pos_l - cam_l)                // f32 cancellation</code></pre>
+      </div>
+      <p>
+        The <code class="font-mono text-fg">(pos_h - cam_h)</code> subtraction
+        cancels the city-magnitude component to a small residual. The
+        <code class="font-mono text-fg">(pos_l - cam_l)</code> term carries
+        the sub-meter detail. The sum is small enough to live comfortably
+        in f32 — every downstream calculation stays precise.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Cross-path invariants
+      </h2>
+      <p class="mb-4">
+        Because polygons and lines flow through different code paths —
+        triangulation vs SDF segment generation — X-GIS enforces explicit
+        invariants between them, all checked in
+        <code class="font-mono text-fg">tile-cross-path-invariants.test.ts</code>:
+      </p>
+      <ol class="list-decimal pl-6 space-y-3">
+        <li>Polygon fill and stroke clip in the <strong class="text-fg">same space</strong> (MM). Pre-2026-04-20 the stroke ran in MM and the fill in LL — endpoints diverged up to 27 km at z=8 boundary tiles.</li>
+        <li>Fill triangulation boundary == stroke outline endpoints, within 1 m in DLM units.</li>
+        <li>Batch <code class="font-mono text-fg">compileGeoJSONToTiles</code> and on-demand <code class="font-mono text-fg">compileSingleTile</code> produce geometrically equivalent tiles.</li>
+        <li>Sub-tile area conservation: four DSFUN children sum to the parent's triangle-area.</li>
+        <li>DSFUN reconstruction is exact: <code class="font-mono text-fg">h + l</code> recovers the original f64 within 1 µm.</li>
+      </ol>
+    </section>
+
+    <section class="border-t border-line pt-12">
+      <h2 class="text-[20px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
+        Source
+      </h2>
+      <p>
+        The full coordinate convention with the developer-facing
+        invariants and stage-by-stage table lives in
+        <a href="https://github.com/X-GIS/X-GIS/blob/main/docs/COORDINATES.md" target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">docs/COORDINATES.md</a>
+        in the repo. New contributors should read it before adding any
+        clip / simplify / sub-tile logic.
+      </p>
+    </section>
+
+  </article>
+</Docs>

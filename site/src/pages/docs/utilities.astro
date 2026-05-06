@@ -1,0 +1,228 @@
+---
+import Docs from '../../layouts/Docs.astro'
+import { resolveColor } from '@xgis/compiler'
+
+// 22 Tailwind-compatible color families baked into the compiler. The
+// names mirror Tailwind's defaults so the muscle memory carries over.
+const COLOR_FAMILIES = [
+  'slate', 'gray', 'zinc', 'neutral', 'stone',
+  'red', 'orange', 'amber', 'yellow', 'lime',
+  'green', 'emerald', 'teal', 'cyan', 'sky',
+  'blue', 'indigo', 'violet', 'purple', 'fuchsia',
+  'pink', 'rose',
+]
+const SHADES = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]
+
+// Build the swatch grid at build time so the page stays a static
+// HTML doc — no client-side resolveColor calls. If the compiler's
+// palette ever changes, this page picks the change up automatically.
+const swatches = COLOR_FAMILIES.map(family => ({
+  family,
+  shades: SHADES.map(shade => ({
+    shade,
+    name: `${family}-${shade}`,
+    hex: resolveColor(`${family}-${shade}`) ?? '#000000',
+  })),
+}))
+
+interface UtilFamily {
+  name: string
+  signature: string
+  body: string
+  examples: string[]
+}
+
+const utilFamilies: UtilFamily[] = [
+  {
+    name: 'Fill',
+    signature: 'fill-<color> | fill-<expr>',
+    body: 'Polygon and point fill color. Color names are any swatch from the palette below, or a `match()` / `interpolate()` expression bound to feature properties.',
+    examples: [
+      'fill-stone-200',
+      'fill-rose-500',
+      'fill-transparent',
+      'fill match(.continent) { "Europe" -> sky-500, _ -> gray-400 }',
+    ],
+  },
+  {
+    name: 'Stroke',
+    signature: 'stroke-<color> | stroke-<N> | stroke-dasharray-N-N',
+    body: 'Line and outline appearance. `stroke-<N>` sets width in pixels (or unsuffixed for screen-space, suffixed for world-units). Dash patterns use a hyphen-separated list of on/off lengths.',
+    examples: [
+      'stroke-slate-700',
+      'stroke-1.5',
+      'stroke-dasharray-8-4',
+      'stroke-linecap-round',
+      'stroke-linejoin-miter',
+      'stroke-align-inset',
+      'stroke-offset-2',
+    ],
+  },
+  {
+    name: 'Opacity',
+    signature: 'opacity-<N>',
+    body: 'Layer opacity in 0-100 range. `opacity-80` = 0.8.',
+    examples: [
+      'opacity-100',
+      'opacity-80',
+      'opacity-30',
+    ],
+  },
+  {
+    name: 'Size',
+    signature: 'size-<N> | size-<N>px | size-<N>km | size-[expr]',
+    body: 'Point glyph size. Bare numbers are screen-space pixels; suffix `km` switches to world-space. Bracketed expressions evaluate per-feature on the GPU.',
+    examples: [
+      'size-8',
+      'size-300km',
+      'size-[sqrt(.pop_max) / 80]',
+    ],
+  },
+  {
+    name: 'Shape',
+    signature: 'shape-<symbol-name>',
+    body: 'Pick a built-in symbol (circle, square, triangle, star, diamond, arrow) or a user-defined `symbol` from a top-level declaration.',
+    examples: [
+      'shape-circle',
+      'shape-star',
+      'shape-arrow',
+    ],
+  },
+  {
+    name: 'Anchor',
+    signature: 'anchor-<position>',
+    body: 'How a point glyph anchors to its world position. `anchor-bottom` makes the marker stand up like a pin; `anchor-center` keeps it symmetric.',
+    examples: [
+      'anchor-center',
+      'anchor-bottom',
+      'anchor-top',
+    ],
+  },
+  {
+    name: 'Animation',
+    signature: 'animation-<keyframes-name> | animation-duration-<ms> | animation-ease-<curve> | animation-infinite | animation-delay-<ms>',
+    body: 'Attach a top-level `keyframes` block to a layer. All animation lifecycle modifiers share the `animation-` prefix.',
+    examples: [
+      'animation-pulse animation-duration-1500',
+      'animation-ease-in-out animation-infinite',
+      'animation-delay-200',
+    ],
+  },
+  {
+    name: 'Visibility',
+    signature: 'visible | hidden | pointer-events-none',
+    body: 'Layer visibility + interaction control. `pointer-events-none` lets clicks pass through (e.g., for raster basemaps under a pickable vector layer).',
+    examples: [
+      'visible',
+      'hidden',
+      'pointer-events-none',
+    ],
+  },
+  {
+    name: 'Modifiers',
+    signature: 'z<N>: | <fieldName>:',
+    body: 'Prefix any utility to make it conditional. `z<N>:` makes the value apply at zoom N; `<fieldName>:` makes the value apply when the feature property is truthy.',
+    examples: [
+      'z2:opacity-30 z5:opacity-60 z8:opacity-90',
+      'z14:size-12',
+      'priority:fill-rose-500',
+    ],
+  },
+]
+---
+
+<Docs
+  current="utilities"
+  title="X-GIS — Utility catalog"
+  description="The full Tailwind-style utility class set for X-GIS — colors, fills, strokes, opacity, sizes, shapes, animation, modifiers."
+>
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">
+      Reference
+    </p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      Utility catalog.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
+      Tailwind-style utility classes that compose to style every layer.
+      The color swatches are imported from the compiler's palette at build
+      time — they auto-update as the palette evolves.
+    </p>
+  </header>
+
+  <article class="space-y-16">
+
+    <!-- Color swatches -->
+    <section>
+      <h2 class="text-[26px] sm:text-[32px] font-medium text-fg leading-[1.15] tracking-[-0.02em] mb-3 pb-3 border-b border-line">
+        Color palette
+      </h2>
+      <p class="text-[15px] sm:text-[16px] leading-[1.6] text-fg-dim mb-8 max-w-[680px]">
+        22 families × 11 shades, plus <code class="font-mono text-fg">white</code>,
+        <code class="font-mono text-fg">black</code>, and <code class="font-mono text-fg">transparent</code>.
+        Use any swatch with the <code class="font-mono text-fg">fill-</code> or
+        <code class="font-mono text-fg">stroke-</code> prefix.
+      </p>
+      <div class="space-y-4">
+        {swatches.map(({ family, shades }) => (
+          <div>
+            <p class="font-mono text-[12px] text-fg-mute uppercase tracking-wider mb-2">
+              {family}
+            </p>
+            <div class="grid grid-cols-11 gap-1">
+              {shades.map(s => (
+                <div
+                  title={`${s.name} — ${s.hex}`}
+                  class="aspect-square rounded-md border border-line/50"
+                  style={`background:${s.hex}`}
+                ></div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p class="mt-6 text-[13px] text-fg-mute">
+        Hover any swatch for the class name + hex value.
+      </p>
+    </section>
+
+    <!-- Utility families -->
+    <section>
+      <h2 class="text-[26px] sm:text-[32px] font-medium text-fg leading-[1.15] tracking-[-0.02em] mb-3 pb-3 border-b border-line">
+        Utility families
+      </h2>
+      <div class="space-y-12">
+        {utilFamilies.map(f => (
+          <div>
+            <h3 class="text-[18px] font-medium text-fg leading-[1.25] tracking-[-0.015em] mb-2">
+              {f.name}
+            </h3>
+            <p class="font-mono text-[13px] text-fg-mute mb-3">
+              {f.signature}
+            </p>
+            <p class="text-[14px] sm:text-[15px] leading-[1.6] text-fg-dim mb-4">
+              {f.body}
+            </p>
+            <div class="rounded-xl bg-bg-card border border-line overflow-hidden">
+              <pre class="px-5 py-4 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>{f.examples.join('\n')}</code></pre>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section class="border-t border-line pt-12">
+      <h2 class="text-[20px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
+        Editor support
+      </h2>
+      <p class="text-[14px] sm:text-[15px] leading-[1.6] text-fg-dim">
+        The playground's Monaco editor has X-GIS-aware autocompletion
+        for every utility above, including the full color palette as
+        live swatches in the suggestion list. The class definitions
+        live in <code class="font-mono text-fg">playground/src/monaco-xgis.ts</code>
+        — extending them is a one-file change.
+      </p>
+    </section>
+
+  </article>
+</Docs>

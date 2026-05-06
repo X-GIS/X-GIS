@@ -1,0 +1,128 @@
+---
+import Base from './Base.astro'
+import Header from '../components/Header.astro'
+import Footer from '../components/Footer.astro'
+
+interface Props {
+  title?: string
+  description?: string
+  /** The slug of the current page so the side-nav can highlight it.
+   *  Pass the path segment after `/docs/` — e.g., `'reference'`,
+   *  `'concepts/rtc'`, `'api'`, `''` for the overview page. */
+  current: string
+}
+
+const { title, description, current } = Astro.props
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+
+interface NavItem {
+  label: string
+  slug: string
+  href: string
+}
+interface NavGroup {
+  title?: string
+  items: NavItem[]
+}
+
+const navGroups: NavGroup[] = [
+  {
+    items: [
+      { label: 'Overview',           slug: '',                    href: `${base}/docs` },
+      { label: 'Language reference', slug: 'reference',           href: `${base}/docs/reference` },
+    ],
+  },
+  {
+    title: 'Concepts',
+    items: [
+      { label: 'RTC + DSFUN precision',  slug: 'concepts/rtc',         href: `${base}/docs/concepts/rtc` },
+      { label: 'Projections',            slug: 'concepts/projections', href: `${base}/docs/concepts/projections` },
+      { label: 'Compile pipeline',       slug: 'concepts/pipeline',    href: `${base}/docs/concepts/pipeline` },
+    ],
+  },
+  {
+    title: 'Reference',
+    items: [
+      { label: 'JavaScript API',  slug: 'api',       href: `${base}/docs/api` },
+      { label: 'Utility catalog', slug: 'utilities', href: `${base}/docs/utilities` },
+    ],
+  },
+]
+---
+
+<Base title={title ?? 'X-GIS — Documentation'} description={description}>
+  <Header />
+
+  <main class="pt-20 pb-32">
+    <div class="max-w-[1280px] mx-auto px-6 grid lg:grid-cols-[220px_minmax(0,1fr)] gap-x-12">
+
+      <!-- Side-nav (desktop). On mobile this collapses to a horizontal
+           scroll-strip just below the header so the user can still
+           jump between pages without a hamburger. -->
+      <aside class="hidden lg:block">
+        <nav class="sticky top-20 text-[13px] leading-[1.7]">
+          {navGroups.map(group => (
+            <div class="mb-7">
+              {group.title && (
+                <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">
+                  {group.title}
+                </p>
+              )}
+              <ul class="space-y-1.5">
+                {group.items.map(item => {
+                  const active = item.slug === current
+                  return (
+                    <li>
+                      <a
+                        href={item.href}
+                        class={`block transition-colors ${active ? 'text-accent font-medium' : 'text-fg-dim hover:text-fg'}`}
+                        aria-current={active ? 'page' : undefined}
+                      >
+                        {item.label}
+                      </a>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
+      </aside>
+
+      <!-- Mobile docs nav: horizontal scroll-strip. Sticky under the
+           main header. Each item's active state mirrors the desktop
+           side-nav. -->
+      <nav class="lg:hidden sticky top-12 z-40 -mx-6 px-6 mb-6 bg-bg/85 backdrop-blur border-b border-line">
+        <div class="flex gap-5 overflow-x-auto py-3 text-[13px] whitespace-nowrap no-scrollbar">
+          {navGroups.flatMap(g => g.items).map(item => {
+            const active = item.slug === current
+            return (
+              <a
+                href={item.href}
+                class={`transition-colors ${active ? 'text-accent font-medium' : 'text-fg-dim hover:text-fg'}`}
+                aria-current={active ? 'page' : undefined}
+              >
+                {item.label}
+              </a>
+            )
+          })}
+        </div>
+      </nav>
+
+      <!-- Page content -->
+      <article class="min-w-0">
+        <slot />
+      </article>
+    </div>
+  </main>
+
+  <Footer />
+</Base>
+
+<style>
+  /* Hide the scroll bar on the mobile docs nav strip; the strip is
+   * still scrollable, just visually clean. */
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+</style>

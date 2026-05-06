@@ -1,0 +1,224 @@
+---
+import Docs from '../../layouts/Docs.astro'
+
+interface ApiEntry {
+  name: string
+  signature: string
+  body: string
+  example?: string
+}
+interface ApiGroup {
+  title: string
+  body: string
+  entries: ApiEntry[]
+}
+
+// Hand-written from `runtime/src/index.ts` exports. Keep this in sync
+// when adding/removing entries from the runtime's public surface — the
+// list is small enough (<20 symbols) that a doc generator is overkill.
+const groups: ApiGroup[] = [
+  {
+    title: 'Core',
+    body: 'The map class is the only entry point most apps need.',
+    entries: [
+      {
+        name: 'XGISMap',
+        signature: 'new XGISMap(canvas: HTMLCanvasElement)',
+        body: 'Owns the GPU device, the camera, the renderers, and the source catalog. Construct once per canvas.',
+        example: `import { XGISMap } from "@xgis/runtime"
+const map = new XGISMap(canvas)
+await map.run(source, baseUrl)`,
+      },
+      {
+        name: 'XGISMap.run',
+        signature: 'map.run(source: string, baseUrl: string): Promise<void>',
+        body: 'Compile the .xgis source string, resolve relative `url:` references against `baseUrl`, allocate GPU resources, and start the render loop. Resolves once the first frame is composed.',
+      },
+      {
+        name: 'XGISMap.getCamera',
+        signature: 'map.getCamera(): Camera',
+        body: 'Returns the live camera. Mutate `.lon`, `.lat`, `.zoom`, `.bearing`, `.pitch` — the runtime picks up changes on the next frame.',
+      },
+      {
+        name: 'XGISMap.setProjection',
+        signature: 'map.setProjection(proj: Projection): void',
+        body: 'Switch the active projection. No re-tessellation; a single uniform write flips Mercator → Orthographic → Natural Earth.',
+      },
+    ],
+  },
+  {
+    title: 'Camera',
+    body: 'Direct camera control — most code interacts via the input controllers, not the camera class.',
+    entries: [
+      {
+        name: 'Camera',
+        signature: 'class Camera',
+        body: 'Holds `lon`, `lat`, `zoom`, `bearing`, `pitch`, plus derived MVP matrices. `zoomAt(delta, x, y, w, h)` zooms toward a screen-space point.',
+      },
+    ],
+  },
+  {
+    title: 'Projections',
+    body: 'Seven projections in CPU-mirror form. Each returns a Projection record the runtime wires into the shader uniform.',
+    entries: [
+      {
+        name: 'mercator',
+        signature: 'const mercator: Projection',
+        body: 'Web Mercator (EPSG:3857). The default — used unless `setProjection` is called.',
+      },
+      {
+        name: 'equirectangular',
+        signature: 'const equirectangular: Projection',
+        body: 'Plate carrée — latitude maps directly to y.',
+      },
+      {
+        name: 'naturalEarth',
+        signature: 'const naturalEarth: Projection',
+        body: 'Pseudo-cylindrical, polynomial. Low-distortion world overview.',
+      },
+      {
+        name: 'orthographic',
+        signature: 'orthographic(lon: number, lat: number): Projection',
+        body: 'Globe view centered on (lon, lat). Hemispherical visibility, back-face culled.',
+      },
+      {
+        name: 'getProjection',
+        signature: 'getProjection(name: string, ...args: number[]): Projection',
+        body: 'Look up a projection by name with optional center coordinates. Names: mercator, equirectangular, natural_earth, orthographic, azimuthal_equidistant, stereographic, oblique_mercator.',
+        example: `import { getProjection } from "@xgis/runtime"
+const proj = getProjection("orthographic", 127, 37.5)
+map.setProjection(proj)`,
+      },
+    ],
+  },
+  {
+    title: 'Loaders',
+    body: 'Source-loading helpers used by the .xgis runtime under the hood. Most apps don\'t call these directly — declare a `source` block in the .xgis source instead.',
+    entries: [
+      {
+        name: 'loadGeoJSON',
+        signature: 'loadGeoJSON(url: string, baseUrl?: string): Promise<GeoJSON>',
+        body: 'Fetch a GeoJSON file (or a pre-tiled .xgvt binary — auto-detected). Resolves to the parsed FeatureCollection.',
+      },
+      {
+        name: 'loadPMTilesSource',
+        signature: 'loadPMTilesSource(opts: PMTilesSourceOptions): Promise<TileSource>',
+        body: 'Construct a streaming PMTiles backend. Reads the archive header + vector_layers metadata via HTTP Range Requests; returns a TileSource that can be attached to a TileCatalog.',
+      },
+      {
+        name: 'attachPMTilesSource',
+        signature: 'attachPMTilesSource(catalog: TileCatalog, source: TileSource): void',
+        body: 'Wire a PMTiles backend into a tile catalog. The .xgis `type: pmtiles` runtime handler does this for you.',
+      },
+      {
+        name: 'lonLatToMercator',
+        signature: 'lonLatToMercator(lon: number, lat: number): [number, number]',
+        body: 'Project lon/lat to global Web Mercator meters. Useful for placing custom overlays at known coordinates.',
+      },
+    ],
+  },
+  {
+    title: 'GPU compute',
+    body: 'Public compute infrastructure for advanced layer types (color ramps, vector field visualizations, etc.).',
+    entries: [
+      {
+        name: 'ComputeDispatcher',
+        signature: 'class ComputeDispatcher',
+        body: 'Helper around WebGPU compute pipelines. Wrap a WGSL compute shader + bind groups, then `dispatch(workgroups)` per frame.',
+      },
+      {
+        name: 'createColorRampTexture',
+        signature: 'createColorRampTexture(device: GPUDevice, name: string): GPUTexture',
+        body: 'Create a 1D color-ramp texture from a registered ramp name (viridis, magma, plasma, etc.). Sampled by gradient layers.',
+      },
+      {
+        name: 'availableRamps',
+        signature: 'availableRamps(): string[]',
+        body: 'List the registered color ramp names — useful for building UI selectors.',
+      },
+    ],
+  },
+  {
+    title: 'Stats + diagnostics',
+    body: 'Optional UI panel and underlying tracker for performance/diagnostic information.',
+    entries: [
+      {
+        name: 'StatsPanel',
+        signature: 'class StatsPanel',
+        body: 'On-screen FPS / draw-call / triangle-count overlay. Mount once near the canvas; the panel polls live values from the shared StatsTracker.',
+      },
+      {
+        name: 'StatsTracker',
+        signature: 'class StatsTracker',
+        body: 'Singleton that the runtime feeds frame stats into. Read directly from custom UI when StatsPanel doesn\'t fit.',
+      },
+    ],
+  },
+  {
+    title: 'Custom element',
+    body: 'Web Components wrapper for declarative usage in plain HTML.',
+    entries: [
+      {
+        name: 'XGISMapElement',
+        signature: 'class XGISMapElement extends HTMLElement',
+        body: 'A `<x-gis-map src="…">` element. Fetches the .xgis source, mounts an XGISMap inside its shadow root, and reflects basic camera attributes.',
+      },
+      {
+        name: 'registerXGISElement',
+        signature: 'registerXGISElement(): void',
+        body: 'Call once during app bootstrap to register the `<x-gis-map>` custom element with the global registry.',
+      },
+    ],
+  },
+]
+---
+
+<Docs
+  current="api"
+  title="X-GIS — JavaScript API"
+  description="Public exports from @xgis/runtime: XGISMap, Camera, projections, loaders, compute helpers, stats, and the custom element."
+>
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">
+      Reference
+    </p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      JavaScript API.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
+      Every public symbol exported from <code class="font-mono text-[15px] text-fg">@xgis/runtime</code>.
+      Most apps only need <code class="font-mono text-[15px] text-fg">XGISMap</code>;
+      the rest is here for advanced extension.
+    </p>
+  </header>
+
+  <article class="space-y-16">
+    {groups.map(g => (
+      <section>
+        <h2 class="text-[26px] sm:text-[32px] font-medium text-fg leading-[1.15] tracking-[-0.02em] mb-3 pb-3 border-b border-line">
+          {g.title}
+        </h2>
+        <p class="text-[15px] sm:text-[16px] leading-[1.6] text-fg-dim mb-8">
+          {g.body}
+        </p>
+        <div class="space-y-8">
+          {g.entries.map(e => (
+            <div>
+              <p class="font-mono text-[14px] sm:text-[15px] text-fg mb-2 break-words">
+                {e.signature}
+              </p>
+              <p class="text-[14px] sm:text-[15px] leading-[1.6] text-fg-dim mb-3">
+                {e.body}
+              </p>
+              {e.example && (
+                <div class="rounded-xl bg-bg-card border border-line overflow-hidden">
+                  <pre class="px-5 py-4 font-mono text-[12.5px] leading-[1.65] text-fg overflow-x-auto whitespace-pre"><code>{e.example}</code></pre>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+    ))}
+  </article>
+</Docs>

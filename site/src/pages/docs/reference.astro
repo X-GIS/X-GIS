@@ -1,23 +1,35 @@
 ---
-import Base from '../layouts/Base.astro'
-import Header from '../components/Header.astro'
-import Footer from '../components/Footer.astro'
+import Docs from '../../layouts/Docs.astro'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
-const examplesUrl = `${base}/examples`
-const playUrl = import.meta.env.DEV
-  ? 'https://localhost:3000/demo.html?id=minimal'
-  : `${base}/play/demo.html?id=minimal`
+const playBase = import.meta.env.DEV
+  ? 'https://localhost:3000/demo.html'
+  : `${base}/play/demo.html`
 
-// Each section is { id, title, body, code? }. The code block, if
-// present, is rendered verbatim — these are real `.xgis` snippets
-// either taken from playground/src/examples/*.xgis or from compiler
-// unit tests, so every example here actually parses + compiles.
-const sections = [
+interface Section {
+  id: string
+  title: string
+  body: string
+  code?: string
+  /** Registered DEMOS key in playground/src/demos.ts. When set,
+   *  the section gets a "Try this →" pill that opens
+   *  /play/demo.html?id=<demoId>. */
+  demoId?: string
+  /** Optional query string fragment (e.g., `proj=orthographic`) merged
+   *  into the playground URL. */
+  demoQuery?: string
+}
+
+// Every snippet is taken verbatim from playground/src/examples/*.xgis
+// or compiler unit tests — copy any block and it parses + compiles
+// as-is. Section order matches a beginner's reading path: declare
+// data → style it → vary it → react to it.
+const sections: Section[] = [
   {
     id: 'quick-start',
     title: 'Quick start',
     body: 'Two top-level blocks — a source that points at data, a layer that styles it. The pipe-prefixed lines are utility classes; multiple lines are concatenated into one stack.',
+    demoId: 'minimal',
     code: `source world {
   type: geojson
   url: "ne_110m_countries.geojson"
@@ -32,6 +44,7 @@ layer countries {
     id: 'sources',
     title: 'Sources',
     body: 'A `source` block declares where data comes from. Three transports are supported. The runtime picks the loader from the `type` keyword, not the URL extension.',
+    demoId: 'pmtiles_source',
     code: `// GeoJSON — full-file load, runtime tessellation
 source land {
   type: geojson
@@ -60,6 +73,7 @@ source basemap {
     id: 'layers',
     title: 'Layers + utility classes',
     body: 'Each `layer` references a source by name and stacks utility classes on `|` lines. Multiple `|` blocks compose left-to-right; later utilities win on conflict.',
+    demoId: 'multi_layer',
     code: `layer roads {
   source: city
   | stroke-stone-400 stroke-1 opacity-90
@@ -70,6 +84,7 @@ source basemap {
     id: 'modifiers',
     title: 'Zoom modifiers',
     body: 'Prefix any utility with `z<N>:` to set the value at that zoom level. The runtime interpolates between the stops at each frame, so transitions are smooth without manual animation.',
+    demoId: 'zoom',
     code: `layer countries {
   source: world
   | fill-purple-400 stroke-purple-200 stroke-1
@@ -80,6 +95,7 @@ source basemap {
     id: 'filters',
     title: 'Filters',
     body: 'Each layer can carry a `filter:` predicate. Field accessors use the `.FIELD` syntax. Multiple layers can share one source — common pattern for highlighting subsets.',
+    demoId: 'filter_gdp',
     code: `// All countries as dark base
 layer all {
   source: countries
@@ -97,6 +113,7 @@ layer top_economies {
     id: 'match',
     title: 'Data-driven values: match()',
     body: 'Bind feature property values to colors (or any utility value) inline. The compiler classifies each branch and routes to the GPU shader so the lookup happens per-fragment.',
+    demoId: 'continent_match',
     code: `layer continents {
   source: countries
   | fill match(.CONTINENT) {
@@ -116,6 +133,7 @@ layer top_economies {
     id: 'background',
     title: 'Background',
     body: 'A top-level `background { ... }` block sets the canvas clear color (Mapbox-style). Renders before any layer; only the resolved fill color is consumed.',
+    demoId: 'pmtiles_layered',
     code: `background { fill: stone-100 }
 
 source pm {
@@ -146,6 +164,7 @@ layer tracks {
     id: 'symbols',
     title: 'Symbols',
     body: 'Define point glyphs with SVG-style path strings. Reference the symbol with `shape-<name>`. Stroke and fill are signed-distance-field rendered, so shapes stay crisp at every zoom.',
+    demoId: 'custom_symbol',
     code: `symbol arrow {
   path "M 0 -1 L 0.4 0.4 L 0 0.1 L -0.4 0.4 Z"
 }
@@ -160,6 +179,7 @@ layer capitals {
     id: 'animation',
     title: 'Animation — keyframes',
     body: 'Declare a top-level `keyframes` block, then attach it to a layer with `animation-<name>`. The lifecycle modifiers all share the `animation-` prefix so they group together.',
+    demoId: 'animation_pulse',
     code: `keyframes pulse {
   0%:   opacity-100
   50%:  opacity-30
@@ -176,6 +196,8 @@ layer pulsing_coast {
     id: 'projections',
     title: 'Projections',
     body: 'Seven projections ship in both CPU and WGSL form. Switching is a uniform write — same source, no re-tessellation. The runtime exposes them via `getProjection(name, ...args)` from `@xgis/runtime`.',
+    demoId: 'physical_map',
+    demoQuery: 'proj=orthographic',
     code: `// Available names (string keys for getProjection):
 //
 //   mercator                   — Web Mercator, the default
@@ -190,6 +212,7 @@ layer pulsing_coast {
     id: 'js-api',
     title: 'JavaScript API',
     body: 'Call `new XGISMap(canvas)` then `await map.run(source, baseUrl)` where `source` is a `.xgis` source string and `baseUrl` resolves any relative `url:` references in your declarations. WebGPU is preferred; Canvas 2D engages as a fallback when no adapter is available.',
+    demoId: 'minimal',
     code: `import { XGISMap } from "@xgis/runtime"
 
 const canvas = document.querySelector("canvas")
@@ -207,110 +230,66 @@ await map.run(\`
 \`, "/data/")`,
   },
 ]
+
+const playUrl = (s: Section) => {
+  const q = `id=${s.demoId}${s.demoQuery ? `&${s.demoQuery}` : ''}`
+  return `${playBase}?${q}`
+}
 ---
 
-<Base
-  title="X-GIS — Documentation"
-  description="Language reference for X-GIS: sources, layers, utility classes, modifiers, presets, symbols, animation, and the JavaScript runtime API."
+<Docs
+  current="reference"
+  title="X-GIS — Language reference"
+  description="The full .xgis language: sources, layers, utility classes, modifiers, filters, match expressions, background, presets, symbols, animation, projections, and the JavaScript runtime API."
 >
-  <Header />
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">
+      Reference
+    </p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      Language reference.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[680px]">
+      Every snippet below is a real <code class="font-mono text-[15px] text-fg">.xgis</code> sample taken from the playground demos
+      or compiler tests — copy any block and it parses + compiles as-is. Click <span class="font-mono text-[14px] text-fg">Try this →</span>
+      next to a code block to launch the matching live demo.
+    </p>
+  </header>
 
-  <main class="pt-24 pb-32">
-
-    <!-- Page header -->
-    <section class="max-w-[820px] mx-auto px-6 mb-16">
-      <p class="text-[13px] font-medium tracking-[-0.01em] text-accent mb-4">
-        Documentation
-      </p>
-      <h1 class="font-medium text-fg leading-[1.05] tracking-[-0.035em]
-                 text-[40px] sm:text-[56px] lg:text-[64px]">
-        Language reference.
-      </h1>
-      <p class="mt-6 text-[17px] sm:text-[18px] leading-[1.55] text-fg-dim">
-        Every snippet on this page is a real <code class="font-mono text-[15px] text-fg">.xgis</code> sample taken from the
-        playground demos or compiler tests — copy any block and it parses + compiles as-is.
-      </p>
-      <div class="mt-8 flex flex-wrap items-center gap-3">
-        <a
-          href={playUrl}
-          class="inline-flex items-center gap-2 px-5 h-10 rounded-full
-                 bg-accent hover:bg-accent-hover text-white text-[14px] font-medium transition-colors"
-        >
-          <span class="w-1.5 h-1.5 rounded-full bg-white/90 inline-block animate-pulse"></span>
-          Try the Quick start
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M9 6l6 6-6 6"/>
-          </svg>
-        </a>
-        <a
-          href={examplesUrl}
-          class="inline-flex items-center gap-2 px-5 h-10 rounded-full
-                 text-accent hover:text-accent-hover text-[14px] font-medium transition-colors"
-        >
-          Browse examples
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M9 6l6 6-6 6"/>
-          </svg>
-        </a>
-      </div>
-    </section>
-
-    <!-- Two-column layout: sticky TOC + content -->
-    <div class="max-w-[1100px] mx-auto px-6 grid lg:grid-cols-[200px_minmax(0,1fr)] gap-12">
-
-      <!-- Table of contents -->
-      <aside class="hidden lg:block">
-        <nav class="sticky top-20 text-[13px] leading-[1.8]">
-          <p class="font-medium text-fg-mute uppercase tracking-wider text-[11px] mb-3">
-            On this page
-          </p>
-          <ul class="space-y-1.5 text-fg-dim">
-            {sections.map(s => (
-              <li>
-                <a href={`#${s.id}`} class="hover:text-fg transition-colors">{s.title}</a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      </aside>
-
-      <!-- Content -->
-      <article class="min-w-0 space-y-20">
-        {sections.map((s, i) => (
-          <section id={s.id} class="scroll-mt-20">
-            <p class="font-mono text-[12px] text-fg-mute uppercase tracking-wider mb-3">
-              — {String(i + 1).padStart(2, '0')}
-            </p>
-            <h2 class="text-[28px] sm:text-[34px] font-medium text-fg leading-[1.15] tracking-[-0.02em] mb-4 pb-4 border-b border-line">
-              {s.title}
-            </h2>
-            <p class="text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim mb-6">
-              {s.body}
-            </p>
-            {s.code && (
-              <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
-                <pre class="px-6 py-5 font-mono text-[13px] sm:text-[13.5px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>{s.code}</code></pre>
-              </div>
-            )}
-          </section>
-        ))}
-
-        <!-- Footer pointer -->
-        <section class="border-t border-line pt-12">
-          <h2 class="text-[22px] font-medium text-fg leading-[1.2] tracking-[-0.015em] mb-3">
-            More
-          </h2>
-          <p class="text-[15px] leading-[1.6] text-fg-dim">
-            The <a href="https://github.com/X-GIS/X-GIS/blob/main/SPEC.md" target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">XGVT binary spec</a>
-            documents the on-disk vector tile format. The
-            <a href="https://github.com/X-GIS/X-GIS/blob/main/ROADMAP.md" target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">roadmap</a>
-            tracks what's planned next. For source code,
-            <a href="https://github.com/X-GIS/X-GIS" target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">view the GitHub repo</a>.
-          </p>
-        </section>
-      </article>
-    </div>
-  </main>
-
-  <Footer />
-</Base>
+  <article class="space-y-20">
+    {sections.map((s, i) => (
+      <section id={s.id} class="scroll-mt-20">
+        <p class="font-mono text-[12px] text-fg-mute uppercase tracking-wider mb-3">
+          — {String(i + 1).padStart(2, '0')}
+        </p>
+        <h2 class="text-[26px] sm:text-[32px] font-medium text-fg leading-[1.15] tracking-[-0.02em] mb-4 pb-4 border-b border-line">
+          {s.title}
+        </h2>
+        <p class="text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim mb-6">
+          {s.body}
+        </p>
+        {s.code && (
+          <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-2.5 border-b border-line bg-bg-elev">
+              <p class="font-mono text-[11px] text-fg-mute uppercase tracking-wider">
+                {s.id}.xgis
+              </p>
+              {s.demoId && (
+                <a
+                  href={playUrl(s)}
+                  class="inline-flex items-center gap-1.5 text-[12px] text-accent hover:text-accent-hover transition-colors"
+                >
+                  Try this
+                  <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M9 6l6 6-6 6"/>
+                  </svg>
+                </a>
+              )}
+            </div>
+            <pre class="px-6 py-5 font-mono text-[13px] sm:text-[13.5px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>{s.code}</code></pre>
+          </div>
+        )}
+      </section>
+    ))}
+  </article>
+</Docs>

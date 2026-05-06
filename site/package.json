@@ -12,6 +12,7 @@
   "dependencies": {
     "@astrojs/sitemap": "^3.7.2",
     "@tailwindcss/vite": "^4.0.0",
+    "@xgis/compiler": "workspace:*",
     "@xgis/runtime": "workspace:*",
     "astro": "^5.1.0",
     "tailwindcss": "^4.0.0"
