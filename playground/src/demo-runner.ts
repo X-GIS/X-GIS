@@ -536,12 +536,11 @@ async function runSource(source: string, label: string) {
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
     // demo runner. Keep it lightweight; not part of the public API.
     ;(window as unknown as { __xgisMap?: unknown }).__xgisMap = currentMap
-    // ?profile=1 — render an on-page perf overlay so mobile devices
-    // (no Safari Web Inspector without a Mac) can see fps / heap /
-    // tile stats while reproducing heat reports. Top-right, click to
-    // dismiss.
+    // ?profile=1 — render the X-GIS Inspector (tabbed live diag panel).
+    // Pair with ?gpuprof=1 for WebGPU timestamp-query GPU-pass timing.
     if (new URL(window.location.href).searchParams.get('profile') === '1') {
-      installProfilerOverlay(currentMap)
+      const { installXGISInspector } = await import('./xgis-inspector')
+      installXGISInspector()
     }
     // Expose tileKeyUnpack for e2e diagnostic — lets tests decode
     // packed tileKeys back to (z, x, y) without re-importing the
@@ -692,107 +691,7 @@ document.addEventListener('pointerup', () => {
 // ── Init ──
 loadDemo(currentIdx)
 
-// ── On-page perf profiler (mobile, no Web Inspector) ──
-//
-// Renders a small fixed overlay top-right with live + peak stats so
-// the user can reproduce a heat report on a phone, watch which value
-// spikes, and screenshot it. Activated by `?profile=1`.
-
-interface ProfilerXGISMap {
-  vtSources?: Map<string, { renderer: { getDrawStats?: () => {
-    tilesVisible: number; drawCalls: number; missedTiles: number
-  } } }>
-  camera?: { zoom: number; centerX: number; centerY: number }
-}
-
-function installProfilerOverlay(_map: unknown): void {
-  if (document.getElementById('xgis-profiler')) return
-  const el = document.createElement('div')
-  el.id = 'xgis-profiler'
-  el.style.cssText = [
-    'position:fixed', 'top:8px', 'right:8px', 'z-index:99999',
-    'background:rgba(0,0,0,0.7)', 'color:#0f0', 'font:11px/1.3 monospace',
-    'padding:6px 8px', 'border-radius:4px', 'pointer-events:auto',
-    'min-width:160px', 'max-width:240px', 'white-space:pre',
-    'user-select:none',
-  ].join(';')
-  el.textContent = 'profiler\n…'
-  el.addEventListener('click', () => {
-    el.style.display = el.style.display === 'none' ? '' : 'none'
-  })
-  document.body.appendChild(el)
-
-  // Rolling 1 s frame-time + 30 s peak window. requestAnimationFrame
-  // tick — the loop runs as long as the page is alive.
-  const FT_BUF = 60 * 30 // ~30 s at 60 fps
-  const ftRing = new Float64Array(FT_BUF)
-  let ftHead = 0
-  let ftFilled = 0
-  const peaks = {
-    tilesVisible: 0, drawCalls: 0, missedTiles: 0,
-    heapMB: 0, slowFrames: 0,
-  }
-  let lastFrame = performance.now()
-  let lastUpdate = lastFrame
-  let totalSlow = 0
-
-  function tick(): void {
-    requestAnimationFrame(tick)
-    const now = performance.now()
-    const dt = now - lastFrame
-    lastFrame = now
-    ftRing[ftHead] = dt
-    ftHead = (ftHead + 1) % FT_BUF
-    if (ftFilled < FT_BUF) ftFilled++
-    if (dt > 33) totalSlow++
-
-    // Update text every 250 ms.
-    if (now - lastUpdate < 250) return
-    lastUpdate = now
-
-    // Frame-time stats over last 1 s of samples.
-    const sampleCount = Math.min(ftFilled, 60)
-    let sum = 0, max = 0
-    for (let i = 0; i < sampleCount; i++) {
-      const idx = (ftHead - 1 - i + FT_BUF) % FT_BUF
-      const v = ftRing[idx]
-      sum += v
-      if (v > max) max = v
-    }
-    const avg = sampleCount > 0 ? sum / sampleCount : 0
-    const fps = avg > 0 ? Math.round(1000 / avg) : 0
-    if (avg > 33 && peaks.slowFrames < totalSlow) peaks.slowFrames = totalSlow
-
-    // VTR + heap snapshot.
-    let tv = 0, dc = 0, missed = 0
-    const m = (window as unknown as { __xgisMap?: ProfilerXGISMap }).__xgisMap
-    if (m?.vtSources) {
-      for (const { renderer } of m.vtSources.values()) {
-        const ds = renderer.getDrawStats?.()
-        if (!ds) continue
-        if (ds.tilesVisible > tv) tv = ds.tilesVisible
-        if (ds.drawCalls > dc) dc = ds.drawCalls
-        missed += ds.missedTiles
-      }
-    }
-    if (tv > peaks.tilesVisible) peaks.tilesVisible = tv
-    if (dc > peaks.drawCalls) peaks.drawCalls = dc
-    if (missed > peaks.missedTiles) peaks.missedTiles = missed
-    const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory
-    const heapMB = heap ? Math.round(heap.usedJSHeapSize / 1048576) : 0
-    if (heapMB > peaks.heapMB) peaks.heapMB = heapMB
-    const cam = m?.camera
-    const zoom = cam ? cam.zoom.toFixed(2) : '?'
-
-    el.textContent =
-      `fps ${fps}  (avg ${avg.toFixed(1)}ms, max ${max.toFixed(1)}ms)\n` +
-      `slow >33ms : ${totalSlow}\n` +
-      `tilesVis   : ${tv} (peak ${peaks.tilesVisible})\n` +
-      `drawCalls  : ${dc} (peak ${peaks.drawCalls})\n` +
-      `missed     : ${missed} (peak ${peaks.missedTiles})\n` +
-      `heap MB    : ${heapMB} (peak ${peaks.heapMB})\n` +
-      `zoom       : ${zoom}\n` +
-      `(tap to hide)`
-  }
-  requestAnimationFrame(tick)
-}
+// (Old top-right overlay was here. Replaced by xgis-inspector.ts —
+// activated via the same ?profile=1 URL param. The legacy code is
+// intentionally not kept around: the inspector is a strict
+// superset.)
