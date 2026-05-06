@@ -239,16 +239,14 @@ const NEGATIVE_CACHE_TTL_MS = 5 * 60_000
  *  Backoff: 300 ms, then 900 ms (max 2 retries → 3 attempts total).
  *  Tuned for transient CDN edge timeouts (~1-2 s typical recovery)
  *  without hammering origin during a real outage. */
-async function fetchTileWithRetry(url: string, tileLabel: string): Promise<Uint8Array | null> {
-  // Negative cache hit — short-circuit. The catalog will cache this
-  // null as an empty tile (just like a 404), so the same loadTile()
-  // call in subsequent frames won't re-enter this function for the
-  // same key. The cache here is a belt-and-suspenders guard for
-  // catalogs that DO re-fetch and for sibling URLs that hit the same
-  // upstream issue.
+async function fetchTileWithRetry(url: string, tileLabel: string): Promise<Uint8Array | null | 'failed'> {
+  // Negative cache hit — short-circuit with 'failed' so the
+  // PMTilesBackend keeps the tile in its failedKeys map (parent
+  // fallback). Without this guard, every frame burns the retry
+  // budget hitting an upstream that's reproducibly broken.
   const negativeExpiry = tileFetchNegativeCache.get(url)
   if (negativeExpiry !== undefined) {
-    if (Date.now() < negativeExpiry) return null
+    if (Date.now() < negativeExpiry) return 'failed'
     tileFetchNegativeCache.delete(url)
   }
   const backoffsMs = [300, 900]
@@ -275,11 +273,11 @@ async function fetchTileWithRetry(url: string, tileLabel: string): Promise<Uint8
     await new Promise(r => setTimeout(r, backoffsMs[attempt]))
   }
   // All retries failed — cache this URL as "do not retry for a while"
-  // so subsequent frames skip the wasted retry sleep + roundtrip
-  // entirely. The catalog will cache the null we return here as an
-  // empty tile in its dataCache, but the URL-keyed negative cache
-  // protects sibling backends / cache invalidations from re-entering
-  // the retry loop on this URL during the TTL.
+  // so subsequent frames skip the wasted retry sleep + roundtrip.
+  // We return 'failed' (not null) so PMTilesBackend keeps the tile
+  // in its missing-state failedKeys map, letting the renderer's
+  // parent-walk fall back to the nearest cached ancestor instead of
+  // caching an empty tile here.
   tileFetchNegativeCache.set(url, Date.now() + NEGATIVE_CACHE_TTL_MS)
 
   // Throttled log: once per URL pattern per minute. Strip the (z, x, y)
@@ -299,7 +297,7 @@ async function fetchTileWithRetry(url: string, tileLabel: string): Promise<Uint8
       `(Further failures matching ${urlKey} suppressed for ${TILE_FETCH_LOG_INTERVAL_MS / 1000}s.)`,
     )
   }
-  return null
+  return 'failed'
 }
 
 /** Attach a PMTiles archive (or a TileJSON / XYZ MVT tile server) to

@@ -28,12 +28,27 @@ import type {
 } from '../tile-source'
 import { getSharedMvtPool, type MvtWorkerPool } from '../mvt-worker-pool'
 
-/** Async HTTP byte fetcher. Returns the raw MVT bytes for the given
- *  (z, x, y), or null when the archive has no entry. Decode + compile
- *  intentionally happen later in tick(), not here. */
+/** Async HTTP byte fetcher.
+ *
+ *  Three-state return:
+ *    - `Uint8Array`  — raw MVT bytes; decode + compile happen later
+ *                      in tick().
+ *    - `null`        — tile genuinely absent from the source (PMTiles
+ *                      archive has no index entry, XYZ server returned
+ *                      404). Caller caches an empty tile so the same
+ *                      key isn't re-fetched.
+ *    - `'failed'`    — transient/permanent fetch failure (5xx, network
+ *                      error, retry exhaustion). Caller does NOT cache
+ *                      empty — keeps the tile in "missing" state so
+ *                      the renderer's parent-walk falls back to the
+ *                      nearest cached ancestor and draws that
+ *                      magnified into the failed tile's bounds. The
+ *                      backend's per-key negative cache prevents
+ *                      hammering the source while the failure persists.
+ */
 export type PMTilesFetcher = (
   z: number, x: number, y: number,
-) => Promise<Uint8Array | null>
+) => Promise<Uint8Array | null | 'failed'>
 
 export interface PMTilesBackendOptions {
   fetcher: PMTilesFetcher
@@ -54,6 +69,16 @@ export interface PMTilesBackendOptions {
  *  oversubscribing one archive's network. */
 const MAX_INFLIGHT = 16
 
+/** Per-key negative cache TTL (ms) for tiles that the fetcher has
+ *  reported `'failed'` for. While a key is in the failed cache,
+ *  loadTile returns immediately without dispatching a new fetch and
+ *  without calling acceptResult — so the catalog's hasTileData stays
+ *  false, and the renderer's parent-walk continues to find the
+ *  failed tile "missing" and falls back to the nearest cached
+ *  ancestor. After the TTL, the next visible-tile pass retries the
+ *  fetch once (in case the upstream issue resolved). */
+const FAILED_KEY_TTL_MS = 5 * 60_000
+
 export class PMTilesBackend implements TileSource {
   readonly meta: TileSourceMeta
   private fetcher: PMTilesFetcher
@@ -64,6 +89,14 @@ export class PMTilesBackend implements TileSource {
 
   /** Raw MVT bytes waiting for decode+compile. Drained by tick(). */
   private pendingMvt: { key: number; bytes: Uint8Array }[] = []
+
+  /** Per-key "fetcher just reported 'failed'" cache → expiry timestamp
+   *  ms. While present and unexpired, loadTile short-circuits without
+   *  dispatching a new fetch AND without calling acceptResult, so the
+   *  catalog's hasTileData stays false → renderer's parent walk
+   *  treats the tile as missing → ancestor fallback draws in its
+   *  place. See FAILED_KEY_TTL_MS for the recovery window. */
+  private failedKeys: Map<number, number> = new Map()
 
   /** Per-layer zoom range from PMTiles metadata. Returns null when
    *  the archive didn't ship vector_layers metadata or the requested
@@ -117,15 +150,41 @@ export class PMTilesBackend implements TileSource {
   loadTile(key: number): void {
     if (!this.sink) return
     if (this.sink.hasTileData(key)) return
+    // Negative cache: a recent 'failed' result short-circuits without
+    // dispatching another fetch. We deliberately DON'T also call
+    // acceptResult here — keeping hasTileData(key) false lets the
+    // renderer's parent-walk treat the tile as missing and draw the
+    // nearest cached ancestor magnified into its bounds.
+    const failedAt = this.failedKeys.get(key)
+    if (failedAt !== undefined) {
+      if (Date.now() < failedAt) return
+      this.failedKeys.delete(key)
+    }
     if (this.sink.getLoadingCount() >= MAX_INFLIGHT) return
     const [z, x, y] = tileKeyUnpack(key)
     const sink = this.sink
     sink.trackLoading(key)
-    this.fetcher(z, x, y).then(bytes => {
-      if (!bytes) {
-        // Archive has no entry — push empty placeholder immediately
-        // (no compile work needed). Cheap, keeps the catalog from
-        // re-requesting this key.
+    this.fetcher(z, x, y).then(result => {
+      if (result === 'failed') {
+        // Transient/permanent fetch failure — record in negative cache
+        // and DO NOT acceptResult. The catalog will see hasTileData
+        // remain false; the renderer's per-tile parent walk will find
+        // the nearest cached ancestor and draw that magnified into
+        // this tile's bounds (Mapbox-style overzoom fallback). After
+        // FAILED_KEY_TTL_MS the cache entry expires and a fresh
+        // visible-tile pass retries — useful when the upstream
+        // problem was transient and has recovered.
+        this.failedKeys.set(key, Date.now() + FAILED_KEY_TTL_MS)
+        sink.releaseLoading(key)
+        return
+      }
+      if (!result) {
+        // Genuinely missing (404 / archive has no index entry) — push
+        // an empty placeholder so the catalog's hasTileData turns
+        // true and we don't re-request this key. Distinct from
+        // 'failed' above: a 404 means "there's no data at all here"
+        // (e.g., outside the source's bounds), and the parent
+        // fallback would be misleading — better to draw nothing.
         sink.releaseLoading(key)
         sink.acceptResult(key, null)
         return
@@ -133,8 +192,11 @@ export class PMTilesBackend implements TileSource {
       // Bytes ready; queue for paced compile in tick(). Note we do
       // NOT releaseLoading here — the slot stays held until compile
       // finishes, providing back-pressure on requestTiles.
-      this.pendingMvt.push({ key, bytes })
+      this.pendingMvt.push({ key, bytes: result })
     }).catch(err => {
+      // Network / runtime error before the fetcher could resolve.
+      // Treat the same as 'failed' — record + parent fallback.
+      this.failedKeys.set(key, Date.now() + FAILED_KEY_TTL_MS)
       sink.releaseLoading(key)
       console.error('[pmtiles fetch]', (err as Error)?.stack ?? err)
     })
