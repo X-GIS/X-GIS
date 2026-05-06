@@ -117,6 +117,11 @@ export class VectorTileRenderer {
   }
   private frameCount = 0
   private lastZoom = -1
+  /** Hysteresis state for currentZ: persists across frames so the
+   *  integer LOD doesn't oscillate when fractional zoom hovers near
+   *  an integer boundary (pinch zoom can wiggle within ±0.05). See
+   *  the currentZ derivation in render() for the threshold logic. */
+  private _hysteresisZ = -1
   private stableKeys: number[] = []
   private uniformDataBuf = new ArrayBuffer(160)
   private uniformF32 = new Float32Array(this.uniformDataBuf) // reusable view over full uniform
@@ -821,7 +826,39 @@ export class VectorTileRenderer {
     // DSFUN precision lets sub-tiles work at any camera zoom. Clamp to 22
     // to match the camera's universal maxZoom, not the old maxLevel+6.
     const maxSubTileZ = 22
-    const currentZ = Math.max(0, Math.min(maxSubTileZ, Math.round(camera.zoom)))
+    // Round-based currentZ with anti-oscillation hysteresis. Diagnosis:
+    // pinch-zoom input on iOS Safari delivers fractional camera.zoom
+    // updates that wiggle within ±0.05 around the integer-half
+    // boundary (e.g., 4.49 ↔ 4.51), and `Math.round` flips currentZ
+    // 4 ↔ 5 each frame — forcing a wholesale tile-set swap that
+    // the user perceives as flicker.
+    //
+    // Hysteresis: the LOD switch threshold is offset by ±HYST_MARGIN
+    // from the half-integer, so once zoom crosses 4.5 going up,
+    // currentZ stays 5 until zoom drops below 4.4 (asymmetric on the
+    // way back). Sub-frame jitter within the dead zone leaves
+    // currentZ alone.
+    //
+    // We deliberately keep `Math.round` semantics (not floor) so the
+    // user sees the higher-detail LOD as soon as zoom is closer to
+    // it than to the lower one. Floor would magnify the lower LOD
+    // until the integer boundary, visibly losing detail at fractional
+    // zooms (verified against the smoke-test bucket_order baseline,
+    // which renders at zoom 0.75 — floor would drop currentZ to 0,
+    // losing the country-boundary detail z=1 carries).
+    const HYST_MARGIN = 0.1
+    const z = camera.zoom
+    let cz: number
+    if (this._hysteresisZ < 0) {
+      cz = Math.round(z)
+    } else {
+      cz = this._hysteresisZ
+      const target = Math.round(z)
+      if (target > cz && z > cz + 0.5 + HYST_MARGIN) cz = target
+      else if (target < cz && z < cz - 0.5 + HYST_MARGIN) cz = target
+    }
+    this._hysteresisZ = cz
+    const currentZ = Math.max(0, Math.min(maxSubTileZ, cz))
 
     // Per-MVT-layer minzoom culling — when the source publishes
     // metadata.vector_layers (PMTiles), each layer's `minzoom` is
@@ -1406,6 +1443,56 @@ export class VectorTileRenderer {
     // Prefetch adjacent + next zoom (every 10th frame)
     if (this.frameCount % 10 === 0) {
       this.source.prefetchAdjacent(tiles, currentZ)
+    }
+
+    // Tier 2: zoom-direction prefetch.
+    //
+    // When the user is mid-zoom toward an integer boundary, request
+    // the *next* LOD's visible tiles in the background so they're
+    // GPU-resident by the time `currentZ` actually advances. Without
+    // this, the integer boundary still produces a brief
+    // missed-tile spike + parent-fallback period — visible as a
+    // detail "pop" on the user's screen even with floor-based
+    // currentZ + hysteresis (Tier 1).
+    //
+    // Triggers (only one fires per frame, never both — direction is
+    // mutually exclusive at any instant):
+    //   * Zoom-in:   camera.zoom > currentZ + 0.5 → prefetch z=cz+1
+    //   * Zoom-out:  camera.zoom < currentZ      → prefetch z=cz-1
+    //                (cz - 0.3 is the hysteresis switch threshold,
+    //                so once user crosses below cz, the prior LOD
+    //                is what they're heading toward)
+    //
+    // Throttled to every 6 frames (~100 ms) to keep
+    // visibleTilesFrustum's quadtree walk amortised — the prefetch
+    // doesn't need per-frame freshness because the camera typically
+    // moves slowly relative to the rAF cadence.
+    if (this.frameCount % 6 === 0) {
+      let prefetchZ = -1
+      if (camera.zoom > currentZ + 0.5 && currentZ + 1 <= maxSubTileZ) {
+        prefetchZ = currentZ + 1
+      } else if (camera.zoom < currentZ && currentZ - 1 >= 0) {
+        prefetchZ = currentZ - 1
+      }
+      if (prefetchZ >= 0) {
+        const prefetchTiles = visibleTilesFrustum(
+          camera, selectorProj, prefetchZ,
+          canvasWidth, canvasHeight, offsetMarginPx,
+        )
+        const prefetchKeys: number[] = []
+        for (const t of prefetchTiles) {
+          const k = tileKey(t.z, t.x, t.y)
+          // Skip already-loaded / already-loading — the catalog's
+          // requestTiles dedupes too, but doing the cheap check here
+          // saves the array allocation when we're already converged.
+          if (!sliceCached(k) && !this.source!.isLoading(k)) {
+            prefetchKeys.push(k)
+          }
+        }
+        if (prefetchKeys.length > 0) {
+          this.source.requestTiles(prefetchKeys)
+        }
+      }
     }
 
     // Track stable tile set for eviction protection and point rendering.
