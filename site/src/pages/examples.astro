@@ -1,0 +1,219 @@
+---
+import Base from '../layouts/Base.astro'
+import Header from '../components/Header.astro'
+import Footer from '../components/Footer.astro'
+
+const githubUrl = 'https://github.com/X-GIS/X-GIS'
+const examplesPath = `${githubUrl}/blob/main/playground/src/examples`
+
+interface Demo {
+  id: string
+  title: string
+  body: string
+}
+
+interface Category {
+  title: string
+  body: string
+  demos: Demo[]
+}
+
+// Hand-curated subset of playground/src/examples/. Excludes the
+// `fixture-*` and `reftest-*` files (~60 specs that exercise
+// individual renderer behaviors for the e2e harness — useful for
+// contributors but not for a learning surface).
+const categories: Category[] = [
+  {
+    title: 'Basics',
+    body: 'Single source, single layer — the smallest possible map.',
+    demos: [
+      { id: 'minimal',     title: 'Minimal',     body: 'Natural Earth countries with one fill + stroke layer.' },
+      { id: 'ocean-land',  title: 'Ocean & land', body: 'Two GeoJSON layers stacked — water under land.' },
+      { id: 'dark',        title: 'Dark theme',   body: 'Same data, slate palette and translucent strokes.' },
+      { id: 'styled-world', title: 'Styled world', body: 'Multi-layer composition with subtle gradients.' },
+    ],
+  },
+  {
+    title: 'PMTiles + MVT',
+    body: 'Streaming vector tiles via PMTiles archives. Each MVT source-layer styles independently.',
+    demos: [
+      { id: 'pmtiles-source',         title: 'Single MVT source-layer', body: 'One PMTiles archive, one xgis layer filtering one MVT layer.' },
+      { id: 'pmtiles-layered',        title: 'Per-layer styling',       body: 'water / landuse / roads / buildings each driven by its own MVT slice.' },
+      { id: 'pmtiles-only-landuse',   title: 'Landuse slice',           body: 'Filter a PMTiles archive down to a single MVT layer.' },
+      { id: 'pmtiles-protomaps-v4',   title: 'Protomaps v4',            body: 'Protomaps v4 schema — vector_layers metadata + per-layer minzoom.' },
+    ],
+  },
+  {
+    title: 'Vector tiles (XGVT binary)',
+    body: 'Pre-tessellated GeoJSON in a single binary file, streamed via HTTP Range Requests.',
+    demos: [
+      { id: 'vector-tiles',               title: 'XGVT basics',           body: 'Compiled .xgvt loaded with HTTP Range Requests.' },
+      { id: 'vector-categorical',         title: 'Categorical fill',      body: 'Per-feature color from feature properties.' },
+      { id: 'countries-categorical-xgvt', title: 'Countries categorical', body: 'Categorical world map sourced from .xgvt.' },
+      { id: 'physical-map-xgvt',          title: 'Physical map',          body: 'Multi-layer physical Earth from compiled tiles.' },
+    ],
+  },
+  {
+    title: 'Data-driven styling',
+    body: 'Bind feature properties to colors, sizes, and opacity through match(), filters, and gradients.',
+    demos: [
+      { id: 'continent-match',     title: 'match() per continent',     body: 'fill match(.CONTINENT) { ... } — one branch per category.' },
+      { id: 'continent-outlines',  title: 'Continent outlines',        body: 'Same match-table approach driving stroke color.' },
+      { id: 'filter-gdp',          title: 'GDP filter',                body: 'Multiple layers, each with a `filter:` predicate over the same source.' },
+      { id: 'gdp-gradient',        title: 'GDP gradient',              body: 'Continuous color ramp from a numeric property.' },
+      { id: 'income-match',        title: 'Income match()',            body: 'Categorical mapping for World Bank income tiers.' },
+      { id: 'population-gradient', title: 'Population gradient',       body: 'Choropleth from population numbers.' },
+      { id: 'megacities',          title: 'Megacities',                body: 'Filter cities by population, render with sized symbols.' },
+      { id: 'categorical',         title: 'Generic categorical',       body: 'Cleanest match() example — each region one color.' },
+    ],
+  },
+  {
+    title: 'Lines & strokes',
+    body: 'Stroke widths, dash arrays, line caps and joins, signed-distance-field rendering.',
+    demos: [
+      { id: 'bold-borders',      title: 'Bold borders',      body: 'Heavy stroke on a thin fill for poster-style maps.' },
+      { id: 'dashed-borders',    title: 'Dashed borders',    body: 'stroke-dasharray on country boundaries.' },
+      { id: 'dashed-lines',      title: 'Dashed lines',      body: 'Multiple dash patterns side-by-side.' },
+      { id: 'layered-borders',   title: 'Layered borders',   body: 'Stack multiple stroke widths to fake casing.' },
+      { id: 'line-offset',       title: 'Line offset',       body: 'Parallel lines via stroke-offset.' },
+      { id: 'line-styles',       title: 'Line styles',       body: 'Cap, join, dash combinations gallery.' },
+      { id: 'pattern-lines',     title: 'Pattern lines',     body: 'Shape glyphs repeated along a line.' },
+      { id: 'stroke-align',      title: 'Stroke align',      body: 'inset / outset / center stroke alignment.' },
+      { id: 'translucent-lines', title: 'Translucent lines', body: 'Line opacity via the offscreen MAX-blend pass.' },
+      { id: 'multi-layer-line',  title: 'Multi-layer line',  body: 'Casing + body + centerline composed as three layers.' },
+    ],
+  },
+  {
+    title: 'Symbols & points',
+    body: 'Point glyphs from SVG path strings or built-in shapes, sized and colored from data.',
+    demos: [
+      { id: 'custom-symbol',       title: 'Custom symbol',       body: 'symbol arrow { path "..." } and shape-arrow.' },
+      { id: 'custom-shapes',       title: 'Built-in shapes',     body: 'Circle / square / triangle / arrow primitives.' },
+      { id: 'gradient-points',     title: 'Gradient points',     body: 'Per-point color from a numeric property.' },
+      { id: 'populated-places',    title: 'Populated places',    body: 'City labels sized by population.' },
+      { id: 'procedural-circles',  title: 'Procedural circles',  body: 'Generated point grid with ramped colors.' },
+      { id: 'sdf-points',          title: 'SDF points',          body: 'Signed-distance-field point rendering — crisp at any zoom.' },
+      { id: 'shape-gallery',       title: 'Shape gallery',       body: 'Side-by-side comparison of every built-in symbol.' },
+    ],
+  },
+  {
+    title: 'Animation',
+    body: 'Time-driven property tweening declared via top-level `keyframes` blocks.',
+    demos: [
+      { id: 'animation-pulse',    title: 'Pulse',             body: 'opacity 100 → 30 → 100 every 1.5s with ease-in-out.' },
+      { id: 'animation-showcase', title: 'Multi-property',    body: 'fill color, stroke color, dash offset, all animating in parallel.' },
+    ],
+  },
+  {
+    title: 'Zoom behavior',
+    body: 'Zoom-conditional utilities and level-of-detail switching.',
+    demos: [
+      { id: 'zoom',     title: 'Zoom modifier',  body: 'z2:opacity-30 z5:opacity-60 z8:opacity-90 — interpolated.' },
+      { id: 'zoom-lod', title: 'LOD switching',  body: 'Different layers active at different zoom ranges.' },
+    ],
+  },
+  {
+    title: 'Interaction',
+    body: 'Pointer events, hover state, selection.',
+    demos: [
+      { id: 'picking-demo', title: 'Picking demo', body: 'Hover for highlight, click to lock — over an OSM raster basemap.' },
+    ],
+  },
+  {
+    title: 'Raster basemaps',
+    body: 'XYZ tile URL templates as a base layer under vector content.',
+    demos: [
+      { id: 'raster',         title: 'Raster only',    body: 'OSM tiles via the {z}/{x}/{y} template.' },
+      { id: 'raster-overlay', title: 'Vector overlay', body: 'Basemap + a translucent country fill on top.' },
+    ],
+  },
+  {
+    title: 'Geographic compositions',
+    body: 'Multi-source compositions modeled after print cartography.',
+    demos: [
+      { id: 'physical-map',     title: 'Physical map',      body: 'Land + ocean + rivers + lakes + coastline at default resolution.' },
+      { id: 'physical-map-10m', title: 'Physical map (10m)', body: 'Higher-detail Natural Earth at 1:10m scale.' },
+      { id: 'physical-map-50m', title: 'Physical map (50m)', body: 'Mid-detail variant; faster initial load than 10m.' },
+      { id: 'night-map',        title: 'Night map',         body: 'Dark navigation palette with subtle hierarchy.' },
+      { id: 'rivers-lakes',     title: 'Rivers & lakes',    body: 'Hydro layers separated for independent styling.' },
+      { id: 'rivers-10m',       title: 'Rivers (10m)',      body: 'Detailed river network from Natural Earth 10m.' },
+      { id: 'states-provinces', title: 'States & provinces', body: 'Sub-national admin boundaries.' },
+      { id: 'coastline',        title: 'Coastline',         body: 'Single coastline polyline at default resolution.' },
+    ],
+  },
+]
+---
+
+<Base
+  title="X-GIS — Examples"
+  description="Working .xgis examples organized by topic — basics, PMTiles, vector tiles, data-driven styling, lines, symbols, animation, interaction, raster, and more."
+>
+  <Header />
+
+  <main class="pt-24 pb-32">
+
+    <!-- Page header -->
+    <section class="max-w-[820px] mx-auto px-6 mb-16">
+      <p class="text-[13px] font-medium tracking-[-0.01em] text-accent mb-4">
+        Examples
+      </p>
+      <h1 class="font-medium text-fg leading-[1.05] tracking-[-0.035em]
+                 text-[40px] sm:text-[56px] lg:text-[64px]">
+        Real <code class="font-mono text-fg">.xgis</code> samples.
+      </h1>
+      <p class="mt-6 text-[17px] sm:text-[18px] leading-[1.55] text-fg-dim">
+        Every card links to the actual source file in the playground — read it on GitHub, then clone the repo
+        (<code class="font-mono text-[14px] text-fg">bun install</code> &nbsp;
+        <code class="font-mono text-[14px] text-fg">bun run dev</code>) to run any of them locally at
+        <code class="font-mono text-[14px] text-fg">localhost:3000/demo.html?id=&lt;name&gt;</code>.
+      </p>
+    </section>
+
+    <!-- Categories -->
+    <div class="max-w-[1100px] mx-auto px-6 space-y-20">
+      {categories.map(cat => (
+        <section>
+          <h2 class="text-[26px] sm:text-[30px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-2">
+            {cat.title}
+          </h2>
+          <p class="text-[15px] leading-[1.6] text-fg-dim mb-8 max-w-[680px]">
+            {cat.body}
+          </p>
+          <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {cat.demos.map(d => (
+              <a
+                href={`${examplesPath}/${d.id}.xgis`}
+                target="_blank"
+                rel="noopener"
+                class="group block rounded-2xl bg-bg-card border border-line hover:border-line-strong
+                       p-5 transition-colors min-h-[120px]"
+              >
+                <p class="font-mono text-[11px] text-fg-mute mb-2 group-hover:text-accent transition-colors">
+                  {d.id}.xgis
+                </p>
+                <h3 class="text-[16px] font-medium text-fg leading-[1.3] tracking-[-0.01em] mb-2">
+                  {d.title}
+                </h3>
+                <p class="text-[13px] leading-[1.5] text-fg-dim">
+                  {d.body}
+                </p>
+              </a>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+
+    <!-- Footer pointer -->
+    <section class="max-w-[820px] mx-auto px-6 mt-24 pt-12 border-t border-line">
+      <p class="text-[14px] leading-[1.6] text-fg-dim">
+        The
+        <a href={`${examplesPath}`} target="_blank" rel="noopener" class="text-accent hover:text-accent-hover transition-colors">full examples directory</a>
+        carries another ~60 fixture and reference-test files used by the e2e harness — useful for
+        contributors digging into a specific renderer behavior, less so for learning the language.
+      </p>
+    </section>
+  </main>
+
+  <Footer />
+</Base>

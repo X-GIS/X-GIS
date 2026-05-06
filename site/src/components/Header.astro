@@ -2,11 +2,18 @@
 const githubUrl = 'https://github.com/X-GIS/X-GIS'
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const logoUrl = `${base}/x-gis-logo-dark.svg`
+// Internal hrefs go through BASE_URL so they resolve correctly under
+// the GitHub Pages `/X-GIS/` prefix in production. The homepage-anchor
+// links (Why / Install) prepend `/` so clicking from /docs or
+// /examples first navigates back to the home page, then scrolls.
+const home = `${base}/`
+const docsUrl = `${base}/docs`
+const examplesUrl = `${base}/examples`
 ---
 
 <header class="fixed top-0 inset-x-0 z-50 backdrop-blur-2xl bg-bg/72 border-b border-line">
   <div class="max-w-[1024px] mx-auto px-6 h-12 flex items-center text-[13px]">
-    <a href="#" class="flex items-center gap-2 hover:text-fg transition-colors">
+    <a href={home} class="flex items-center gap-2 hover:text-fg transition-colors">
       <img
         src={logoUrl}
         alt=""
@@ -18,9 +25,9 @@ const logoUrl = `${base}/x-gis-logo-dark.svg`
 
     <!-- Desktop nav (≥ sm) -->
     <nav class="ml-auto hidden sm:flex items-center gap-7 text-fg-dim">
-      <a href="#why" class="hover:text-fg transition-colors">Why</a>
-      <a href="#capabilities" class="hover:text-fg transition-colors">Capabilities</a>
-      <a href="#install" class="hover:text-fg transition-colors">Install</a>
+      <a href={docsUrl} class="hover:text-fg transition-colors">Docs</a>
+      <a href={examplesUrl} class="hover:text-fg transition-colors">Examples</a>
+      <a href={`${home}#install`} class="hover:text-fg transition-colors">Install</a>
       <a href={githubUrl} target="_blank" rel="noopener" class="hover:text-fg transition-colors">GitHub</a>
     </nav>
 
