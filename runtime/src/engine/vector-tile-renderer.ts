@@ -131,6 +131,18 @@ export class VectorTileRenderer {
    *  frame the threshold is no longer crossed. */
   private _czPendingAdvance: { target: number, since: number } | null = null
   private stableKeys: number[] = []
+  /** Hot-path scratch collections — reused across render() calls
+   *  to avoid per-frame Set/Map allocations. Each is `.clear()`'d
+   *  before use; the same instance is fine because multi-render-
+   *  per-frame is sequential (one ShowCommand at a time, and each
+   *  render's lifetime is bounded by the function call). Total
+   *  per-frame allocation drop: 5 × 4 layers ≈ 20 collections
+   *  removed from the GC nursery. */
+  private _scratchActiveKeys = new Set<number>()
+  private _scratchSliceCachedMemo = new Map<number, boolean>()
+  private _scratchParentKeysSet = new Set<number>()
+  private _scratchMergedStableKeys = new Set<number>()
+  private _scratchProtectedKeys = new Set<number>()
   private uniformDataBuf = new ArrayBuffer(160)
   private uniformF32 = new Float32Array(this.uniformDataBuf) // reusable view over full uniform
   /** Reusable u32 view over the same uniform buffer — used to write
@@ -345,7 +357,10 @@ export class VectorTileRenderer {
     // eviction (runs after prev frame's submit), so a re-render
     // walking the parent chain can always find a cached ancestor.
     if (this.source && this.stableKeys.length > 0) {
-      this.source.evictTiles(new Set(this.stableKeys))
+      const guard = this._scratchProtectedKeys
+      guard.clear()
+      for (const k of this.stableKeys) guard.add(k)
+      this.source.evictTiles(guard)
     }
   }
 
@@ -1298,7 +1313,8 @@ export class VectorTileRenderer {
     // archiveAncestor[] above), and the few remaining direct
     // hasEntryInIndex calls in the per-tile loop hit case-6 paths
     // that fire at most once per tile per render.
-    const sliceCachedMemo = new Map<number, boolean>()
+    const sliceCachedMemo = this._scratchSliceCachedMemo
+    sliceCachedMemo.clear()
     const sliceCached = (k: number): boolean => {
       let v = sliceCachedMemo.get(k)
       if (v === undefined) {
@@ -1313,7 +1329,8 @@ export class VectorTileRenderer {
     // main per-tile loop so the over-zoom fast path can populate it
     // for parents that need fetching, instead of duplicating the
     // queue logic.
-    const parentKeysSet = new Set<number>()
+    const parentKeysSet = this._scratchParentKeysSet
+    parentKeysSet.clear()
     // Tracks whether ANY visible tile went through the in-archive
     // (normal) path. When false, the prefetch loop + primary
     // renderTileKeys are pure no-ops (every neededKey is over-zoom
@@ -1552,7 +1569,9 @@ export class VectorTileRenderer {
     // the catalog no longer wants. Backends without cancellation
     // (XGVT-binary, GeoJSON-runtime) are no-ops.
     if (this.source.cancelStale) {
-      const activeKeys = new Set<number>(neededKeys)
+      const activeKeys = this._scratchActiveKeys
+      activeKeys.clear()
+      for (const k of neededKeys) activeKeys.add(k)
       for (const k of parentKeys) activeKeys.add(k)
       for (const k of fallbackKeys) activeKeys.add(k)
       this.source.cancelStale(activeKeys)
@@ -1658,7 +1677,9 @@ export class VectorTileRenderer {
     // now would destroy their buffers before `queue.submit()` runs, causing
     // "Buffer used in submit while destroyed" validation errors.
     if (fallbackKeys.length > 0) {
-      const merged = new Set<number>(neededKeys)
+      const merged = this._scratchMergedStableKeys
+      merged.clear()
+      for (const k of neededKeys) merged.add(k)
       for (const k of fallbackKeys) merged.add(k)
       this.stableKeys = [...merged]
     } else {
@@ -1899,7 +1920,9 @@ export class VectorTileRenderer {
     // nearest indexed ancestor staying in gpuCache.
     const sourceMaxLevel = this.source?.maxLevel ?? 4
     const safeBelow = Math.max(4, sourceMaxLevel)
-    const protectedKeys = new Set(this.stableKeys)
+    const protectedKeys = this._scratchProtectedKeys
+    protectedKeys.clear()
+    for (const k of this.stableKeys) protectedKeys.add(k)
 
     const evictable: { tk: number; lastUsed: number; slots: string[] }[] = []
     for (const [tk, bucket] of byTileKey) {
