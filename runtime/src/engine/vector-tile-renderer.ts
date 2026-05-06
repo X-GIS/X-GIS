@@ -141,6 +141,41 @@ export class VectorTileRenderer {
    *  contributor on top of the visible-tile work. */
   private _lastCamSnap: { zoom: number; cx: number; cy: number; t: number } | null = null
   private _lastCamMoveAt = 0
+  /** GPU buffer pool — keyed by `{powerOfTwoBucketSize}:{usage}`.
+   *  doUploadTile and evictGPUTiles together create + destroy 5+
+   *  GPUBuffers per tile, several times per frame on mobile during
+   *  fast pinch/pan. Each createBuffer / destroy is a GPU driver
+   *  call; pooling lets us hand a freed buffer straight back to
+   *  the next acquire instead of round-tripping through the
+   *  driver. Buckets are powers of two from 2 KB → 4 MB so size-
+   *  fit reuse works across tiles with similar feature density.
+   *  Cap per bucket prevents the pool itself from holding GPU
+   *  memory hostage. */
+  private _bufferPool = new Map<string, GPUBuffer[]>()
+  private static readonly _BUFFER_POOL_CAP_PER_BUCKET = 16
+  private static _bufferBucketSize(size: number): number {
+    let bucket = 2048
+    while (bucket < size) bucket *= 2
+    return bucket
+  }
+  private acquireBuffer(size: number, usage: GPUBufferUsageFlags, label: string): GPUBuffer {
+    const bucket = VectorTileRenderer._bufferBucketSize(size)
+    const key = `${bucket}:${usage}`
+    const pool = this._bufferPool.get(key)
+    if (pool && pool.length > 0) return pool.pop()!
+    return this.device.createBuffer({ size: bucket, usage, label })
+  }
+  private releaseBuffer(buf: GPUBuffer | null | undefined): void {
+    if (!buf) return
+    const key = `${buf.size}:${buf.usage}`
+    let pool = this._bufferPool.get(key)
+    if (!pool) { pool = []; this._bufferPool.set(key, pool) }
+    if (pool.length < VectorTileRenderer._BUFFER_POOL_CAP_PER_BUCKET) {
+      pool.push(buf)
+    } else {
+      buf.destroy()
+    }
+  }
   /** Hot-path scratch collections — reused across render() calls
    *  to avoid per-frame Set/Map allocations. Each is `.clear()`'d
    *  before use; the same instance is fine because multi-render-
@@ -644,35 +679,35 @@ export class VectorTileRenderer {
     // Label every per-tile buffer so writeBuffer attribution in the
     // diagnostic suite can separate tile-upload churn from per-frame
     // uniform writes. Cost is zero — label is a GPU debug string.
-    const vertexBuffer = this.device.createBuffer({
-      size: Math.max(data.vertices.byteLength * 3, 12),
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      label: 'tile-vertices',
-    })
+    const vertexBuffer = this.acquireBuffer(
+      Math.max(data.vertices.byteLength * 3, 12),
+      GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      'tile-vertices',
+    )
     this.device.queue.writeBuffer(vertexBuffer, 0, data.vertices)
 
-    const indexBuffer = this.device.createBuffer({
-      size: Math.max(data.indices.byteLength * 3, 4),
-      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-      label: 'tile-indices',
-    })
+    const indexBuffer = this.acquireBuffer(
+      Math.max(data.indices.byteLength * 3, 4),
+      GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      'tile-indices',
+    )
     this.device.queue.writeBuffer(indexBuffer, 0, data.indices)
 
     let lineVertexBuffer: GPUBuffer | null = null
     let lineIndexBuffer: GPUBuffer | null = null
     if (data.lineVertices.length > 0) {
-      lineVertexBuffer = this.device.createBuffer({
-        size: data.lineVertices.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        label: 'tile-line-vertices',
-      })
+      lineVertexBuffer = this.acquireBuffer(
+        data.lineVertices.byteLength,
+        GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        'tile-line-vertices',
+      )
       this.device.queue.writeBuffer(lineVertexBuffer, 0, data.lineVertices)
 
-      lineIndexBuffer = this.device.createBuffer({
-        size: data.lineIndices.byteLength,
-        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-        label: 'tile-line-indices',
-      })
+      lineIndexBuffer = this.acquireBuffer(
+        data.lineIndices.byteLength,
+        GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        'tile-line-indices',
+      )
       this.device.queue.writeBuffer(lineIndexBuffer, 0, data.lineIndices)
     }
 
@@ -680,11 +715,11 @@ export class VectorTileRenderer {
     let outlineIndexBuffer: GPUBuffer | null = null
     let outlineIndexCount = 0
     if (data.outlineIndices && data.outlineIndices.length > 0) {
-      outlineIndexBuffer = this.device.createBuffer({
-        size: Math.max(data.outlineIndices.byteLength, 4),
-        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-        label: 'tile-outline-indices',
-      })
+      outlineIndexBuffer = this.acquireBuffer(
+        Math.max(data.outlineIndices.byteLength, 4),
+        GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        'tile-outline-indices',
+      )
       this.device.queue.writeBuffer(outlineIndexBuffer, 0, data.outlineIndices)
       outlineIndexCount = data.outlineIndices.length
     }
@@ -1996,11 +2031,17 @@ export class VectorTileRenderer {
         if (!inner) continue
         const tile = inner.get(ev.tk)
         if (!tile) continue
-        tile.vertexBuffer.destroy()
-        tile.indexBuffer.destroy()
-        tile.lineVertexBuffer?.destroy()
-        tile.lineIndexBuffer?.destroy()
-        tile.outlineIndexBuffer?.destroy()
+        // Pool the buffers instead of destroying — evictGPUTiles
+        // is the hot path during fast pinch/pan, where the next
+        // upload almost certainly needs same-size buffers. Pool
+        // caps prevent unbounded GPU memory retention.
+        this.releaseBuffer(tile.vertexBuffer)
+        this.releaseBuffer(tile.indexBuffer)
+        this.releaseBuffer(tile.lineVertexBuffer)
+        this.releaseBuffer(tile.lineIndexBuffer)
+        this.releaseBuffer(tile.outlineIndexBuffer)
+        // SDF segment buffers are owned by lineRenderer's path;
+        // keep destroying directly.
         tile.outlineSegmentBuffer?.destroy()
         tile.lineSegmentBuffer?.destroy()
         inner.delete(ev.tk)
