@@ -131,10 +131,30 @@ import type { Projection } from '../engine/projection'
 // Mobile GPUs choke on 300 frustum tiles — each tile is a draw call plus
 // SDF-shaded line segments. 120 keeps the foreground refined and the
 // horizon at a coarse LOD.
-const IS_MOBILE = typeof window !== 'undefined'
-  && (window.matchMedia?.('(pointer: coarse)').matches ?? false)
-  && (window.innerWidth || 0) <= 900
-const MAX_FRUSTUM_TILES = IS_MOBILE ? 120 : 300
+// Mobile heuristic: viewport ≤ 900 px wide is the strong signal
+// — covers actual phones (390 px) AND Playwright mobile-emulation
+// viewports used by the e2e specs (which don't trigger
+// matchMedia('pointer: coarse') in headless Chromium). Note we
+// evaluate the canvas dimensions PER CALL rather than reading
+// `window.innerWidth` once at module load; Playwright sets the
+// viewport after import so a top-level constant captures the
+// pre-viewport default and miscategorises the test as desktop.
+function isMobileViewport(canvasWidth: number, canvasHeight: number): boolean {
+  return Math.max(canvasWidth, canvasHeight) <= 900
+}
+// Viewport-aware tile budget — replaces the old static cap.
+// Density of ~one tile per 12 K pixels keeps drawCalls bounded on
+// any viewport: desktop 1280×720 → 76 tiles, mobile 390×844 → 27
+// tiles. Floor on mobile is tighter (real iPhones throttle past
+// ~60 unique tiles ≈ 240 drawCalls).
+const MAX_FRUSTUM_TILES_CEILING = 300
+function maxFrustumTilesFor(canvasWidth: number, canvasHeight: number): number {
+  const floor = isMobileViewport(canvasWidth, canvasHeight) ? 30 : 60
+  return Math.max(
+    floor,
+    Math.min(MAX_FRUSTUM_TILES_CEILING, Math.round((canvasWidth * canvasHeight) / 12000)),
+  )
+}
 
 /** Quadtree-based visible tile selection.
  *  Recursively subdivides from z=0, using screen-space tile size to determine LOD.
@@ -164,7 +184,18 @@ export function visibleTilesFrustum(
   // + downstream draws. See worldCopiesFor() in gpu-shared.ts.
   const projType = projection.name === 'mercator' ? 0 : 1
   const maxCopies = (worldCopiesFor(projType).length - 1) / 2
-  const SUBDIVIDE_THRESHOLD = 400 // subdivide if tile > this many px on screen
+  // Subdivide cut-off: a tile crosses this many on-screen pixels →
+  // descend into its 4 children. Hard-coded 400 was tuned for
+  // desktop; on small mobile viewports (390 × 844 iPhone) it
+  // forces nearly every tile to subdivide all the way to leaves
+  // because tiles cover most of the viewport at coarse z. Result:
+  // continuous wheel zoom on mobile spawns 150+ visible tiles
+  // ≈ thermal throttling. Scale the threshold to ~half the
+  // shorter viewport edge so mobile gets roughly the same
+  // "tile count per screen" budget as desktop. Floor at 256 so a
+  // tiny canvas (e.g. inset preview) doesn't lose all detail.
+  const SUBDIVIDE_THRESHOLD = Math.max(320, Math.min(canvasWidth, canvasHeight) * 0.5)
+  const MAX_FRUSTUM_TILES = maxFrustumTilesFor(canvasWidth, canvasHeight)
 
   // Project Mercator coords → screen pixel (returns null if behind camera)
   const toScreen = (mx: number, my: number): [number, number] | null => {
@@ -512,7 +543,7 @@ export function visibleTilesFrustumSampled(
   }
 
   // Unpack and cap.
-  const MAX = MAX_FRUSTUM_TILES
+  const MAX = maxFrustumTilesFor(canvasWidth, canvasHeight)
   const result: TileCoord[] = []
   for (const key of tileSet) {
     if (result.length >= MAX) break
