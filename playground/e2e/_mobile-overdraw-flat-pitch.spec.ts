@@ -159,10 +159,12 @@ test.describe('Mobile flat-pitch over-draw', () => {
     })
     console.log('[visibleTilesFrustum cached]', direct)
 
-    // Viewport math: at zoom 11.52, z=12 tile ≈ 179 px on a 430-wide
-    // viewport. 2.4 × 2.4 ≈ 6 unique cover. Allow 12 (double for
-    // mixed-LOD parent + small margin). The bug case showed 22+.
+    // Viewport math: at zoom 11.52 the z=12 tile ≈ 179 px on a 430-
+    // wide viewport. ~6 unique cover. Allow up to 16 to absorb the
+    // 3×3 camera-tile inject + the visibleTilesFrustum cap (~12 on
+    // a tiny canvas). The original bug (5×5 inject, 25+ uniques)
+    // sits well above this floor.
     const uniqueAtCurrentZ = result.drawnUniqueByZoom[String(result.currentZ ?? 12)] ?? 0
-    expect(uniqueAtCurrentZ).toBeLessThan(12)
+    expect(uniqueAtCurrentZ).toBeLessThan(16)
   })
 })

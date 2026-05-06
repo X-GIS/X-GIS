@@ -149,16 +149,16 @@ function isMobileViewport(canvasWidth: number, canvasHeight: number): boolean {
 // ~60 unique tiles ≈ 240 drawCalls).
 const MAX_FRUSTUM_TILES_CEILING = 300
 function maxFrustumTilesFor(canvasWidth: number, canvasHeight: number): number {
-  // Real-device iPhone measurement (Tokyo z=11.5, pitch 0°): user
-  // reported 22-30 unique tiles drawn for what viewport math
-  // predicts ~6. visible cap 8 was set but drawn count includes
-  // parent-walk fallback + multi-render-per-frame, so tightening
-  // the *visible* cap to 4 keeps the fallback/parent budget
-  // proportional. Also tighter divisor (24 K → 36 K) so tiny
-  // mobile viewports drop below floor on most setups.
+  // Mobile cap calibrated against actual viewport coverage rather
+  // than just thermal budget. The DFS prioritises camera-side tiles,
+  // so a too-small cap leaves the viewport edges uncovered (real-
+  // device test showed canvas's lower half going black on flat-
+  // pitch with cap 5). Floor 12 + divisor 18 K covers a typical
+  // 430×715 mobile canvas (cap 14) with margin headroom; cap
+  // 12 minimum guarantees corner coverage.
   const isMobile = isMobileViewport(canvasWidth, canvasHeight)
-  const floor = isMobile ? 4 : 60
-  const divisor = isMobile ? 36000 : 12000
+  const floor = isMobile ? 12 : 60
+  const divisor = isMobile ? 18000 : 12000
   return Math.max(
     floor,
     Math.min(MAX_FRUSTUM_TILES_CEILING, Math.round((canvasWidth * canvasHeight) / divisor)),
@@ -449,28 +449,34 @@ export function visibleTilesFrustum(
   //      whereas the comment said "9 tiles worst-case". 3×3 covers the
   //      camera tile and its 8 neighbours — enough for the bug-arrow
   //      regression case, half the inject of 5×5.
-  if (pitchDegFn >= 30) {
-    const camN = Math.pow(2, maxZ)
-    const camTX = Math.floor((camLon + 180) / 360 * camN)
-    const camLatClamped = Math.max(-85.0511, Math.min(85.0511, camLat))
-    const camTY = Math.floor(
-      (1 - Math.log(Math.tan(Math.PI / 4 + camLatClamped * DEG2RAD / 2)) / Math.PI) / 2 * camN,
-    )
-    const seen = new Set<number>()
-    for (const t of result) seen.add((t.z * 4194304 + t.y) * 4194304 + (t.ox + camN))
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const ty = camTY + dy
-        if (ty < 0 || ty >= camN) continue
-        const tx = camTX + dx
-        // Wrap around the date line — same as world-copy logic above.
-        const wrappedX = ((tx % camN) + camN) % camN
-        const ox = tx
-        const key = (maxZ * 4194304 + ty) * 4194304 + (ox + camN)
-        if (seen.has(key)) continue
-        seen.add(key)
-        result.push({ z: maxZ, x: wrappedX, y: ty, ox })
-      }
+  // 3×3 ring inject around the camera tile at maxZ. Always runs
+  // (used to be high-pitch only, but flat-pitch DFS also leaves
+  // viewport edges uncovered on small mobile canvases — real-device
+  // test showed lower-half black with no inject and cap 5). 9 tiles
+  // at most, well under the cap so it doesn't choke larger
+  // viewports. Inject runs after DFS so the cap-honouring leaves
+  // are preserved and the extra 9 just guarantee camera-region
+  // coverage past the cap.
+  const camN = Math.pow(2, maxZ)
+  const camTX = Math.floor((camLon + 180) / 360 * camN)
+  const camLatClamped = Math.max(-85.0511, Math.min(85.0511, camLat))
+  const camTY = Math.floor(
+    (1 - Math.log(Math.tan(Math.PI / 4 + camLatClamped * DEG2RAD / 2)) / Math.PI) / 2 * camN,
+  )
+  const seen = new Set<number>()
+  for (const t of result) seen.add((t.z * 4194304 + t.y) * 4194304 + (t.ox + camN))
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const ty = camTY + dy
+      if (ty < 0 || ty >= camN) continue
+      const tx = camTX + dx
+      // Wrap around the date line — same as world-copy logic above.
+      const wrappedX = ((tx % camN) + camN) % camN
+      const ox = tx
+      const key = (maxZ * 4194304 + ty) * 4194304 + (ox + camN)
+      if (seen.has(key)) continue
+      seen.add(key)
+      result.push({ z: maxZ, x: wrappedX, y: ty, ox })
     }
   }
 
