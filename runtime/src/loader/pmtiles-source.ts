@@ -206,6 +206,68 @@ function looksLikeTileJSON(url: string): boolean {
   return path.endsWith('.json') && !path.endsWith('.geojson')
 }
 
+/** Per-URL "last error logged at" timestamp (ms). Lets the fetcher
+ *  log a transient 5xx once per minute per URL pattern instead of
+ *  flooding the console — important when 100+ tiles share an upstream
+ *  blip and would otherwise stack 100+ identical error messages. */
+const tileFetchLogThrottle = new Map<string, number>()
+const TILE_FETCH_LOG_INTERVAL_MS = 60_000
+
+/** Single-tile fetch with retry + graceful null fallback for transient
+ *  upstream failures (5xx, network errors). Returns:
+ *
+ *  - `Uint8Array` — successful fetch (200/206 with bytes)
+ *  - `null`        — tile is missing (404 / 204) OR exhausted retries
+ *                    on a transient error. The catalog treats null as
+ *                    "no data here, try again on next visible-tile
+ *                    pass" — same contract as the PMTiles archive
+ *                    backend's null return.
+ *
+ *  Backoff: 300 ms, then 900 ms (max 2 retries → 3 attempts total).
+ *  Tuned for transient CDN edge timeouts (~1-2 s typical recovery)
+ *  without hammering origin during a real outage. */
+async function fetchTileWithRetry(url: string, tileLabel: string): Promise<Uint8Array | null> {
+  const backoffsMs = [300, 900]
+  let lastErr: Error | null = null
+  for (let attempt = 0; attempt <= backoffsMs.length; attempt++) {
+    try {
+      const resp = await fetch(url)
+      // Tile genuinely missing — final answer, don't retry.
+      if (resp.status === 404 || resp.status === 204) return null
+      if (resp.ok) {
+        const buf = await resp.arrayBuffer()
+        return new Uint8Array(buf)
+      }
+      // 5xx (502 Bad Gateway, 503 Service Unavailable, 504 Gateway
+      // Timeout, etc.): retryable. 4xx other than 404: also retry —
+      // some CDNs return spurious 403/429 under burst load.
+      lastErr = new Error(`${tileLabel}: HTTP ${resp.status}`)
+    } catch (e) {
+      // Network error (DNS, TLS, abort, etc.). Retryable.
+      lastErr = e instanceof Error ? e : new Error(String(e))
+    }
+    // Out of retries — fall through to graceful null.
+    if (attempt === backoffsMs.length) break
+    await new Promise(r => setTimeout(r, backoffsMs[attempt]))
+  }
+  // Throttled log: once per URL pattern per minute. Strip the (z, x, y)
+  // path from the URL so a burst of related tile failures shares a
+  // single log line instead of stacking 100 identical entries.
+  const urlKey = url.replace(/\/\d+\/\d+\/\d+/, '/{z}/{x}/{y}')
+  const now = Date.now()
+  const lastLogged = tileFetchLogThrottle.get(urlKey) ?? 0
+  if (now - lastLogged > TILE_FETCH_LOG_INTERVAL_MS) {
+    tileFetchLogThrottle.set(urlKey, now)
+    console.warn(
+      `[X-GIS] tile fetch failed after ${backoffsMs.length + 1} attempts: ` +
+      `${tileLabel} — ${lastErr?.message ?? 'unknown error'}. ` +
+      `Treating as missing tile; will retry on next visible-tile pass. ` +
+      `(Further failures from ${urlKey} suppressed for ${TILE_FETCH_LOG_INTERVAL_MS / 1000}s.)`,
+    )
+  }
+  return null
+}
+
 /** Attach a PMTiles archive (or a TileJSON / XYZ MVT tile server) to
  *  an existing TileCatalog as a lazy virtual catalog. Returns once the
  *  header / TileJSON manifest is read; tiles are fetched on-demand
@@ -257,25 +319,18 @@ export async function attachPMTilesSource(
       bounds: tj.bounds,
       layers: opts.layers,
       vectorLayers: tj.vectorLayers,
-      // XYZ template fetcher — `fetch()` auto-decompresses gzip via
-      // the Content-Encoding header, so the bytes we hand back are
-      // already raw MVT (same shape PMTilesBackend expects from the
-      // archive path). HTTP 404 for missing tiles is normal — XYZ
-      // servers don't pre-publish a tile index, so a tile being
-      // absent at (z, x, y) outside the data area is a 404, which
-      // we map to `null` (matches the archive backend's contract).
+      // XYZ template fetcher with retry + graceful fallback.
+      // `fetch()` auto-decompresses gzip via Content-Encoding, so the
+      // bytes are raw MVT (same shape PMTilesBackend expects from the
+      // archive path). 404 / 204 = missing tile (final). 5xx + network
+      // errors → retry with backoff (300ms, 900ms), then null — see
+      // fetchTileWithRetry above for the recovery semantics.
       fetcher: async (z, x, y) => {
         const url = tj.tilesTemplate
           .replace('{z}', String(z))
           .replace('{x}', String(x))
           .replace('{y}', String(y))
-        const tileResp = await fetch(url)
-        if (tileResp.status === 404 || tileResp.status === 204) return null
-        if (!tileResp.ok) {
-          throw new Error(`tile ${z}/${x}/${y}: HTTP ${tileResp.status}`)
-        }
-        const buf = await tileResp.arrayBuffer()
-        return new Uint8Array(buf)
+        return fetchTileWithRetry(url, `tile ${z}/${x}/${y}`)
       },
     }))
     return
