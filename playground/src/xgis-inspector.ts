@@ -359,11 +359,24 @@ function renderTiles(state: InspectorState, map: XGISMap | undefined): string {
       }
       const cz = r._hysteresisZ ?? '?'
       const zKeys = [...byZ.keys()].sort((a, b) => a - b)
-      const zSummary = zKeys.length
+      const gpuSummary = zKeys.length
         ? zKeys.map(z => `z=${z}:${byZ.get(z)}`).join(' ')
         : '(empty)'
       lines.push(`currentZ     : ${cz}`)
-      lines.push(`gpu by zoom  : ${zSummary}`)
+      lines.push(`gpu retained : ${gpuSummary}`)
+      // Drawn-by-zoom (the actual rendering this frame) — only the
+      // zooms that VTR actually emitted draw calls for. Anything
+      // here past currentZ at flat pitch is real over-detail (the
+      // gpu-retained spread above can include lingering LRU tiles
+      // that aren't rendered).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const drawnMap = (r as any)._frameDrawnByZoom as Map<number, number> | undefined
+      if (drawnMap && drawnMap.size > 0) {
+        const drawnKeys = [...drawnMap.keys()].sort((a, b) => a - b)
+        lines.push(`drawn by zoom: ${drawnKeys.map(z => `z=${z}:${drawnMap.get(z)}`).join(' ')}`)
+      } else {
+        lines.push(`drawn by zoom: (idle frame)`)
+      }
     }
 
     if (cat) {

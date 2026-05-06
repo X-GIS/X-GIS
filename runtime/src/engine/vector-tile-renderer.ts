@@ -389,6 +389,7 @@ export class VectorTileRenderer {
     this._frameTriangles = 0
     this._frameLines = 0
     this._frameVertices = 0
+    this._frameDrawnByZoom.clear()
     // Frame tile cache invalidates on each new frame via the
     // currentFrameId comparison in render(); explicit null isn't
     // strictly needed, but releasing the GC reference here lets the
@@ -597,6 +598,11 @@ export class VectorTileRenderer {
   private _frameTriangles = 0
   private _frameLines = 0
   private _frameVertices = 0
+  /** Per-zoom drawn-tile count for the inspector's "drawn by zoom"
+   *  display. Distinguishes tiles ACTUALLY rendered this frame from
+   *  tiles merely retained in gpuCache. The zoom keyspace is small
+   *  (~22 zoom levels max) so a Map cleared each frame is cheap. */
+  private _frameDrawnByZoom: Map<number, number> = new Map()
 
   getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number; missedTiles: number } {
     return {
@@ -2031,6 +2037,10 @@ export class VectorTileRenderer {
       this._frameVertices += vc
       if (cached.indexCount > 0) { this._frameDrawCalls++; this._frameTriangles += Math.floor(cached.indexCount / 3) }
       if (cached.lineIndexCount > 0) { this._frameDrawCalls++; this._frameLines += Math.floor(cached.lineIndexCount / 2) }
+      const tz = cached.tileZoom
+      if (typeof tz === 'number') {
+        this._frameDrawnByZoom.set(tz, (this._frameDrawnByZoom.get(tz) ?? 0) + 1)
+      }
     }
     // Emit accumulated per-tile uniforms as one writeBuffer. Still
     // before queue.submit() — the encoded draws read the fresh ring
