@@ -105,13 +105,16 @@ export const MAX_CACHED_BYTES = 200 * 1024 * 1024
  *  fetch → decode → upload → evict, which on iPhone reproducibly
  *  triggered Chrome's forced page refresh under thermal/memory
  *  pressure (post-fix-A user report). 8 still drains a region jump
- *  inside ~1 s while bounding the worker + GPU pipeline depth. */
-function _isMobileEnv(): boolean {
-  if (typeof window === 'undefined') return false
-  const w = window.innerWidth || 0
-  return w > 0 && w <= 900
+ *  inside ~1 s while bounding the worker + GPU pipeline depth.
+ *
+ *  Lazy function form — a module-init `const` would race the host
+ *  page's viewport apply (Playwright in tests + real mobile DPR
+ *  setup), capturing the wrong value before innerWidth is laid
+ *  out. Each call is one property read + one comparison.  */
+export function maxConcurrentLoads(): number {
+  const w = (typeof window !== 'undefined' ? window.innerWidth : 0) || 0
+  return w > 0 && w <= 900 ? 8 : 32
 }
-export const MAX_CONCURRENT_LOADS = _isMobileEnv() ? 8 : 32
 
 // ═══ VirtualCatalog (legacy hook — to be replaced by TileSource in Step 3) ═══
 

@@ -80,13 +80,19 @@ export interface PMTilesBackendOptions {
  *  the pmtiles client + an MVT decode in the worker queue. User-
  *  reported forced refresh on iPhone after sustained pinch+drag
  *  navigation traced to fetch / decode pressure compounding faster
- *  than the GPU could drain it. */
-function isMobileEnv(): boolean {
-  if (typeof window === 'undefined') return false
-  const w = window.innerWidth || 0
-  return w > 0 && w <= 900
+ *  than the GPU could drain it.
+ *
+ *  Evaluated lazily — module top-level resolution would race the
+ *  Playwright viewport apply (and real mobile DPR setup), so a
+ *  module-init `MAX_INFLIGHT = …` constant could capture the wrong
+ *  value before the host page is fully laid out. The function form
+ *  re-checks `window.innerWidth` at every loadTile entry, which is
+ *  cheap (one property read + one comparison) and always reflects
+ *  the live viewport. */
+function maxInflight(): number {
+  const w = (typeof window !== 'undefined' ? window.innerWidth : 0) || 0
+  return w > 0 && w <= 900 ? 4 : 16
 }
-const MAX_INFLIGHT = isMobileEnv() ? 4 : 16
 
 /** Per-key negative cache TTL (ms) for tiles that the fetcher has
  *  reported `'failed'` for. While a key is in the failed cache,
@@ -184,7 +190,7 @@ export class PMTilesBackend implements TileSource {
       if (Date.now() < failedAt) return
       this.failedKeys.delete(key)
     }
-    if (this.sink.getLoadingCount() >= MAX_INFLIGHT) return
+    if (this.sink.getLoadingCount() >= maxInflight()) return
     const [z, x, y] = tileKeyUnpack(key)
     const sink = this.sink
     sink.trackLoading(key)

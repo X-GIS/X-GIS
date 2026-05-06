@@ -40,7 +40,7 @@ import type {
 import {
   type TileData,
   DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE,
-  MAX_CACHED_TILES, MAX_CACHED_BYTES, MAX_CONCURRENT_LOADS,
+  MAX_CACHED_TILES, MAX_CACHED_BYTES, maxConcurrentLoads,
   type VirtualCatalog, type VirtualTileFetcher,
 } from './tile-types'
 
@@ -748,9 +748,10 @@ export class TileCatalog {
     // (XGVT-binary's range-merge). Single keys go through loadTile.
     const batches = new Map<TileSource, number[]>()
 
+    const _maxConcurrent = maxConcurrentLoads()
     for (const key of keys) {
       if (this.dataCache.has(key) || this.loadingTiles.has(key)) continue
-      if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
+      if (this.loadingTiles.size >= _maxConcurrent) break
 
       // Preregistered entries (XGVT-binary) route through entryToBackend.
       const owner = this.entryToBackend.get(key)
@@ -1241,8 +1242,9 @@ export class TileCatalog {
       }
     }
 
-    if (prefetchKeys.length > 0 && this.loadingTiles.size < MAX_CONCURRENT_LOADS) {
-      this.prefetchTiles(prefetchKeys.slice(0, MAX_CONCURRENT_LOADS - this.loadingTiles.size))
+    const _cap = maxConcurrentLoads()
+    if (prefetchKeys.length > 0 && this.loadingTiles.size < _cap) {
+      this.prefetchTiles(prefetchKeys.slice(0, _cap - this.loadingTiles.size))
     }
   }
 
@@ -1251,7 +1253,8 @@ export class TileCatalog {
     currentZ: number, canvasWidth: number, canvasHeight: number,
     cameraZoom: number,
   ): void {
-    if (!this.index || this.loadingTiles.size >= MAX_CONCURRENT_LOADS) return
+    const _capNext = maxConcurrentLoads()
+    if (!this.index || this.loadingTiles.size >= _capNext) return
 
     const nextZ = currentZ + 1
     const maxSubZ = this.index.header.maxLevel + 6
@@ -1269,7 +1272,7 @@ export class TileCatalog {
     }
 
     if (prefetchKeys.length > 0) {
-      const slots = MAX_CONCURRENT_LOADS - this.loadingTiles.size
+      const slots = _capNext - this.loadingTiles.size
       if (slots > 0) this.requestTiles(prefetchKeys.slice(0, slots))
     }
   }
