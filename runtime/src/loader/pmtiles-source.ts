@@ -444,7 +444,11 @@ export async function attachPMTilesSource(
       // starts AND discard the result on resolve if the catalog
       // cancelled in the meantime. Throwing AbortError here lets
       // PMTilesBackend.loadTile's catch path skip the failedKeys
-      // negative cache (abort isn't a real fetch error).
+      // negative cache (abort isn't a real fetch error). We do NOT
+      // race the await against the signal — the pmtiles archive
+      // implementation interleaves directory-page fetches inside
+      // getZxy, and bailing early would leave the archive's internal
+      // directory cache half-populated, blocking subsequent loads.
       if (signal.aborted) {
         throw new DOMException('Aborted', 'AbortError')
       }

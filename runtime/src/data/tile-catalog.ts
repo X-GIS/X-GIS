@@ -619,16 +619,62 @@ export class TileCatalog {
 
   // ── Tile request (multi-backend dispatch) ──
 
+  /** Recent prefetch intent — keys that VTR (Tier 2 zoom-direction
+   *  prefetch) and catalog-internal prefetchAdjacent fired off in the
+   *  last few frames. These must be unioned into `cancelStale`'s
+   *  active set so a prefetch fetch isn't aborted by the very next
+   *  frame's cancellation pass. Without this, prefetch fires every
+   *  6 / 10 frames and the next frame kills it — defeating the
+   *  whole purpose of prefetch (regression repro:
+   *  _prefetch-cancelled.spec.ts saw 23 901 aborts over 5 s of a
+   *  stationary camera at zoom 3.6). */
+  private _prefetchKeys: Set<number> = new Set()
+  /** Frames since last prefetchTiles call. Used to age out the
+   *  shield so genuinely abandoned background fetches can still be
+   *  cancelled — e.g., camera direction reverses and the previously-
+   *  intended next-LOD is no longer interesting. */
+  private _prefetchAge: number = 0
+
+  /** Prefetch variant of requestTiles: forwards to the same dispatch
+   *  path but also adds the keys to `_prefetchKeys` so this frame's
+   *  cancelStale won't abort them. Use this from background-fetch
+   *  call sites (Tier 2, adjacent prefetch); `requestTiles` remains
+   *  the path for visible / parent-fallback tiles. */
+  prefetchTiles(keys: number[]): void {
+    if (keys.length === 0) return
+    this.requestTiles(keys)
+    for (const k of keys) this._prefetchKeys.add(k)
+    this._prefetchAge = 0
+  }
+
   /** Delegate cancellation to every backend that supports it. VTR
    *  calls this each frame with the union of currently-needed keys
-   *  (visible tiles + parent fallbacks + next-LOD prefetch); backends
-   *  abort in-flight fetches whose keys aren't in the active set so
-   *  the network + worker pool stop wasting capacity on tiles the
-   *  camera moved past. Backends without a cancellation hook (XGVT-
-   *  binary, GeoJSON-runtime) are no-ops here. */
+   *  (visible tiles + parent fallbacks); we union in `_prefetchKeys`
+   *  so background prefetch fetches survive the per-frame
+   *  cancellation pass. Backends abort in-flight fetches whose keys
+   *  aren't in the merged set so the network + worker pool stop
+   *  wasting capacity on tiles the camera moved past. Backends
+   *  without a cancellation hook (XGVT-binary, GeoJSON-runtime) are
+   *  no-ops here. */
   cancelStale(activeKeys: Set<number>): void {
+    const merged: Set<number> =
+      this._prefetchKeys.size === 0
+        ? activeKeys
+        : new Set(activeKeys)
+    if (this._prefetchKeys.size > 0) {
+      for (const k of this._prefetchKeys) merged.add(k)
+    }
     for (const b of this.backends) {
-      b.cancelStale?.(activeKeys)
+      b.cancelStale?.(merged)
+    }
+    // Age out the prefetch shield: after ~12 frames without a new
+    // prefetch call (i.e. camera lost interest in this LOD), drop
+    // the set so genuinely abandoned fetches become cancellable.
+    // 12 frames ≈ 200 ms at 60 fps — comfortably longer than a
+    // single prefetch round (Tier 2 every 6, adjacent every 10).
+    this._prefetchAge++
+    if (this._prefetchAge > 12 && this._prefetchKeys.size > 0) {
+      this._prefetchKeys.clear()
     }
   }
 
@@ -1121,14 +1167,19 @@ export class TileCatalog {
       for (let y = Math.max(0, minY - 1); y <= Math.min(n - 1, maxY + 1); y++) {
         if (rawX >= minX && rawX <= maxX && y >= minY && y <= maxY) continue
         const key = tileKey(zoom, x, y)
-        if (!this.dataCache.has(key) && !this.loadingTiles.has(key) && this.index.entryByHash.has(key)) {
+        // Keep already-loading keys in the intent set so prefetchTiles
+        // re-marks them in `_prefetchKeys` and they survive the per-
+        // frame cancelStale shield rotation. `prefetchTiles` →
+        // `requestTiles` dedupes loadingTiles internally so this is
+        // free.
+        if (!this.dataCache.has(key) && this.index.entryByHash.has(key)) {
           prefetchKeys.push(key)
         }
       }
     }
 
     if (prefetchKeys.length > 0 && this.loadingTiles.size < MAX_CONCURRENT_LOADS) {
-      this.requestTiles(prefetchKeys.slice(0, MAX_CONCURRENT_LOADS - this.loadingTiles.size))
+      this.prefetchTiles(prefetchKeys.slice(0, MAX_CONCURRENT_LOADS - this.loadingTiles.size))
     }
   }
 

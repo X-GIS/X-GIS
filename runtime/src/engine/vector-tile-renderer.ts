@@ -1502,15 +1502,20 @@ export class VectorTileRenderer {
         const prefetchKeys: number[] = []
         for (const t of prefetchTiles) {
           const k = tileKey(t.z, t.x, t.y)
-          // Skip already-loaded / already-loading — the catalog's
-          // requestTiles dedupes too, but doing the cheap check here
-          // saves the array allocation when we're already converged.
-          if (!sliceCached(k) && !this.source!.isLoading(k)) {
+          // Skip already-loaded keys; KEEP already-loading ones in the
+          // intent set so catalog's _prefetchKeys protection covers
+          // them across cancelStale calls. catalog.requestTiles
+          // dedupes loadingTiles internally, so passing duplicates is
+          // free. Without the in-flight keys here, the second
+          // prefetch round (6 frames later) would yield an empty
+          // array → catalog's age-out clears the shield → next frame
+          // aborts the still-in-flight prefetch.
+          if (!sliceCached(k)) {
             prefetchKeys.push(k)
           }
         }
         if (prefetchKeys.length > 0) {
-          this.source.requestTiles(prefetchKeys)
+          this.source.prefetchTiles(prefetchKeys)
         }
       }
     }

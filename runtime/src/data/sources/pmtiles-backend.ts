@@ -244,13 +244,18 @@ export class PMTilesBackend implements TileSource {
   cancelStale(activeKeys: Set<number>): void {
     if (!this.sink) return
     const sink = this.sink
-    // Cancel in-flight fetches.
+    // Cancel in-flight fetches. Skip controllers already aborted
+    // — same fetch can sit in this.abortControllers across many
+    // frames if the underlying transport (PMTiles archive.getZxy)
+    // ignored our signal and the promise hasn't settled yet. Re-
+    // calling abort() on an already-aborted controller is a no-op
+    // semantically but still counts as "an abort was requested",
+    // which (a) wastes CPU iterating + raising abort events for
+    // listeners that already ran, and (b) makes diagnostics
+    // (counter spies, devtools listeners) read off-by-thousands.
     for (const [key, ac] of this.abortControllers) {
-      if (!activeKeys.has(key)) {
+      if (!activeKeys.has(key) && !ac.signal.aborted) {
         ac.abort()
-        // The promise's `finally` deletes from this.abortControllers
-        // so we don't double-mutate while iterating. On the next
-        // frame the map is clean.
       }
     }
     // Drop already-fetched-but-not-yet-compiled bytes for stale keys.
