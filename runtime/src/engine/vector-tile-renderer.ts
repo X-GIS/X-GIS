@@ -1719,27 +1719,23 @@ export class VectorTileRenderer {
       this.source.cancelStale(activeKeys)
     }
 
-    // Defer the actual visible-tile fetches until the camera settles.
-    // While the user is mid-gesture every frame's `toLoad` set differs
-    // from the last (drag/zoom moves visible by a few tiles per frame),
-    // so issuing fetches per frame produces a fetch → abort → re-fetch
-    // cycle the user almost never benefits from — bytes that arrive
-    // by the time the gesture ends, not before. The parent-walk
-    // fallback already drew the previous LOD over the moving viewport
-    // for free, so there's nothing visible to gain by spinning the
-    // fetch + decode + upload pipeline during the gesture.
+    // Visible-tile fetches: ALWAYS issued, like parentKeys. The
+    // earlier `cameraIdle` gate here was a heat mitigation that
+    // turned out to be too aggressive — at flat pitch on a settled
+    // camera, the gate was leaving 11 of 12 visible z=currentZ
+    // tiles uncached, so the canvas filled but with a parent-walk
+    // (z=currentZ-1) fallback stripe (regression repro:
+    // _mobile-detail-uniformity.spec.ts).
     //
-    // Real-device evidence (URL hash 9.99/37.617/127.080 over Seoul):
-    // sustained pan triggered Chrome's forced refresh on iPhone with
-    // every other concurrency cap already in place. Suppressing
-    // visible-tile fetches during gesture finally bounded the
-    // pipeline depth.
-    //
-    // 200 ms idle window matches the prefetch gate. parentKeys are
-    // never blocked — those are the parent-walk targets the next
-    // frame is going to draw, so they have to load even mid-gesture.
+    // The cancelStale mechanism above already abort-frees in-flight
+    // fetches whose keys leave the active set during a gesture, so
+    // the per-frame fetch traffic is self-trimmed without an extra
+    // gate. Heat protection now relies entirely on the concurrency
+    // caps (MAX_INFLIGHT, MAX_CONCURRENT_LOADS) + the prefetch /
+    // step-prefetch idle gates, not on suppressing visible-fetch
+    // start.
     if (parentKeys.length > 0) this.source.requestTiles(parentKeys)
-    if (toLoad.length > 0 && cameraIdle) this.source.requestTiles(toLoad)
+    if (toLoad.length > 0) this.source.requestTiles(toLoad)
 
     // After on-demand compile, newly available tiles may need upload
     for (const key of toLoad) {
