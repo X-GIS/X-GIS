@@ -316,23 +316,26 @@ export function visibleTilesFrustum(
     // iPhone portrait (844) falls into this bucket and gains ~45 px
     // of margin per edge, enough to stop clipping horizon tiles at
     // pitch ≥ 80°.
-    // Pitch-aware floor. The 256 floor was added so iPhone narrow
-    // viewports don't clip horizon tiles at pitch 80°+ (where a
-    // tile near the horizon projects far off-screen horizontally).
-    // At low pitch the same floor is over-margin: a 430-wide phone
-    // viewport gets 256 + 256 = 512 of horizontal margin (>viewport
-    // itself), pulling 4-5× more tiles than the camera can see.
-    // Inspector measurement (Tokyo z=13, pitch 0.7°) showed 25
-    // unique tiles drawn for what should be 4-6.
+    // Pitch-aware margin. The original `max(W,H) * 0.25 + floor 256`
+    // was tuned for high-pitch (80°+) views where horizon tiles
+    // project far off-screen and need a large pad. At top-down /
+    // low pitch that same margin pulls 4-5× more tiles than the
+    // camera can see — 25 unique drawn at z=14 mobile measurement
+    // for what should be ~6.
     //
-    // Scale floor with pitch: 64 px at top-down, ramping to 256 px
-    // by pitch ~45°. Tile-selection-pitch tests cover the 75°+ end
-    // explicitly, so they keep the 256 floor.
+    // Two scales now: `marginPctOfMax` (the proportional part) and
+    // `pitchFloor` (the absolute minimum). Both ramp with pitch.
+    // Tile-selection-pitch tests cover 75°+ and pin specific
+    // counts under the high-pitch (0.25, 256) values, so those
+    // are preserved exactly.
     const pitchDeg = camera.pitch ?? 0
-    const pitchFloor = pitchDeg < 30 ? 64
+    const marginPctOfMax = pitchDeg < 30 ? 0.05
+      : pitchDeg < 60 ? 0.15
+      : 0.25
+    const pitchFloor = pitchDeg < 30 ? 32
       : pitchDeg < 60 ? 128
       : 256
-    const baseMargin = Math.max(canvasWidth, canvasHeight) * 0.25
+    const baseMargin = Math.max(canvasWidth, canvasHeight) * marginPctOfMax
     const margin = Math.max(baseMargin, pitchFloor) + Math.max(0, extraMarginPx)
     const overlapsViewport =
       sxMax >= -margin && sxMin <= canvasWidth + margin &&
