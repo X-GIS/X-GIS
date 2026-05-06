@@ -925,10 +925,16 @@ export class VectorTileRenderer {
         //      at the old LOD until the final target is fully
         //      cached.
         const step = target > cz ? cz + 1 : cz - 1
-        if (!this._czPendingAdvance || this._czPendingAdvance.target !== step) {
-          // Re-target the timer when the step changes — either we
-          // just advanced one LOD (next step) or the user reversed.
-          this._czPendingAdvance = { target: step, since: now }
+        // Timer tracks the whole transition (target stays fixed
+        // until camera.zoom rounds to a different integer). step
+        // changes every time we advance one LOD, so resetting the
+        // timer on step change would let us never time out — the
+        // 4 sourceLayer renders per frame can each see slightly
+        // different cz, churning step → since constantly reset. We
+        // bind to `target` so the 5 s safety net actually applies
+        // across the full transition.
+        if (!this._czPendingAdvance || this._czPendingAdvance.target !== target) {
+          this._czPendingAdvance = { target, since: now }
         }
         // Readiness check at the STEP LOD (cz±1), not target.
         // Below-minzoom step → instantly ready (no data exists to

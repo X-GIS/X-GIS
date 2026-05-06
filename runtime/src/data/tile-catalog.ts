@@ -634,6 +634,19 @@ export class TileCatalog {
    *  cancelled — e.g., camera direction reverses and the previously-
    *  intended next-LOD is no longer interesting. */
   private _prefetchAge: number = 0
+  /** Eviction shield for just-prefetched keys: key → expiresAt ms.
+   *  Distinct from `_prefetchKeys` (cancel-shield, frame-counted
+   *  age-out) — eviction happens against the catalog's MAX_CACHED_
+   *  TILES cap, which on world-scale pan can fire many times per
+   *  second. Without an evict shield the readiness gate's just-
+   *  fetched target-LOD bytes get evicted next frame because the
+   *  held cz's stableKeys don't include them yet, and the gate
+   *  re-fetches forever (regression:
+   *  _zoom-transition-blank-tiles.spec.ts zoom-in 13 → 16). 5 s is
+   *  long enough to bridge gate hold → cz advance → tile becomes
+   *  part of the new neededKeys (and thus protectedKeys). */
+  private _evictShield: Map<number, number> = new Map()
+  private static readonly EVICT_SHIELD_TTL_MS = 5_000
 
   /** Prefetch variant of requestTiles: forwards to the same dispatch
    *  path but also adds the keys to `_prefetchKeys` so this frame's
@@ -643,7 +656,11 @@ export class TileCatalog {
   prefetchTiles(keys: number[]): void {
     if (keys.length === 0) return
     this.requestTiles(keys)
-    for (const k of keys) this._prefetchKeys.add(k)
+    const expiresAt = Date.now() + TileCatalog.EVICT_SHIELD_TTL_MS
+    for (const k of keys) {
+      this._prefetchKeys.add(k)
+      this._evictShield.set(k, expiresAt)
+    }
     this._prefetchAge = 0
   }
 
@@ -1216,26 +1233,40 @@ export class TileCatalog {
   evictTiles(protectedKeys: Set<number>): void {
     if (this.dataCache.size <= MAX_CACHED_TILES) return
 
-    // Protect all indexed ancestor tiles (z ≤ maxLevel) in addition
-    // to the current frame's stableKeys. Same rationale as the
-    // VectorTileRenderer gpuCache eviction: every over-zoom sub-tile
-    // relies on its nearest indexed ancestor surviving in dataCache
-    // so generateSubTile can re-clip from it if the leaf gets
-    // evicted. Hardcoded 4 before; sources can go to z=5 or z=7 so
-    // 4 left real ancestors evictable. Fixed alongside the E2E
-    // flicker repro (_high-pitch-flicker.spec.ts).
-    const safeBelow = this.index ? this.maxLevel : 4
-    // Per-key eviction (all slices for a key evict together — they
-    // share tile bounds + zoom). Sample tileZoom from any slice.
+    // Eviction: anything not in `protectedKeys` (visible + fallback
+    // ancestors for the current frame) is fair game. The previous
+    // policy ALSO blanket-protected every z ≤ maxLevel ancestor
+    // archive-wide so over-zoom sub-tile gen could re-clip from a
+    // surviving ancestor — but that protection scaled with the
+    // number of regions the user pans through, and on world-scale
+    // navigation it grew without bound (multi-GB heap → OOM the
+    // user reported on the live PMTiles archive, repro:
+    // _pmtiles-stress-leak.spec.ts).
+    //
+    // The visible-frame protection (caller passes stableKeys =
+    // neededKeys ∪ fallbackKeys) covers every ancestor sub-tile
+    // gen actually needs THIS frame; ancestors for non-visible
+    // regions are recoverable by re-fetching when the camera
+    // returns to them — at the cost of a brief load shimmer, which
+    // is far preferable to OOM.
+    // Cleanup expired evict-shield entries first so they don't
+    // permanently freeze the cap once a key's TTL passes.
+    const now = Date.now()
+    for (const [k, exp] of this._evictShield) {
+      if (exp <= now) this._evictShield.delete(k)
+    }
+    // Also protect keys the catalog prefetched within the last
+    // EVICT_SHIELD_TTL_MS (5 s). The held-cz step prefetch lives
+    // here for long enough to bridge the gap between fetch
+    // completing and the cz advance that puts the key into
+    // stableKeys — without that bridge the gate stalls forever
+    // (regression: _zoom-transition-blank-tiles.spec.ts).
     const entries = [...this.dataCache.entries()]
-      .filter(([key, slot]) => {
-        if (protectedKeys.has(key)) return false
-        const it = slot.values().next()
-        if (it.done) return true
-        return it.value.tileZoom > safeBelow
-      })
+      .filter(([key]) => !protectedKeys.has(key) && !this._evictShield.has(key))
 
-    // Sort by insertion order (older first — simple LRU approximation)
+    // Insertion order ≈ LRU (Map iteration order is insertion order;
+    // re-inserts on access would yield true LRU but cacheTileData
+    // / setSlice doesn't re-insert).
     const toEvict = this.dataCache.size - MAX_CACHED_TILES
     for (let i = 0; i < toEvict && i < entries.length; i++) {
       this.dataCache.delete(entries[i][0])
