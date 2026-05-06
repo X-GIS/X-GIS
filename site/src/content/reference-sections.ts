@@ -13,6 +13,12 @@ export interface ReferenceSection {
   /** Extra query string fragment merged into the playground URL
    *  (e.g., `proj=orthographic`). */
   demoQuery?: string
+  /** Optional URL hash appended to the playground link so the
+   *  demo lands at a useful camera position. Format:
+   *  `zoom/lat/lon[/bearing/pitch]` (no leading `#`). Used for
+   *  PMTiles demos that get rewritten to a Firenze-sample archive
+   *  in production — see playground/src/demos.ts. */
+  demoHash?: string
 }
 
 export const referenceSections: ReferenceSection[] = [
@@ -36,6 +42,7 @@ layer countries {
     title: 'Sources',
     body: 'A `source` block declares where data comes from. Three transports are supported. The runtime picks the loader from the `type` keyword, not the URL extension.',
     demoId: 'pmtiles_source',
+    demoHash: '13/43.77/11.25',
     code: `// GeoJSON — full-file load, runtime tessellation
 source land {
   type: geojson
@@ -125,6 +132,7 @@ layer top_economies {
     title: 'Background',
     body: 'A top-level `background { ... }` block sets the canvas clear color (Mapbox-style). Renders before any layer; only the resolved fill color is consumed.',
     demoId: 'pmtiles_layered',
+    demoHash: '13/43.77/11.25',
     code: `background { fill: stone-100 }
 
 source pm {

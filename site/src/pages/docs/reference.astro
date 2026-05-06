@@ -9,7 +9,8 @@ const playBase = import.meta.env.DEV
 
 const playUrl = (s: ReferenceSection) => {
   const q = `id=${s.demoId}${s.demoQuery ? `&${s.demoQuery}` : ''}`
-  return `${playBase}?${q}`
+  const hash = s.demoHash ? `#${s.demoHash}` : ''
+  return `${playBase}?${q}${hash}`
 }
 ---
 

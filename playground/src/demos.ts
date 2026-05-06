@@ -4,10 +4,38 @@
 
 const modules = import.meta.glob<string>('./examples/*.xgis', { eager: true, query: '?raw', import: 'default' })
 
+// Production URL rewrites for .xgis sources.
+//
+// The dev server (vite.config.ts) proxies
+// `/pmtiles-proxy/protomaps/...` to demo-bucket.protomaps.com so the
+// browser sees a same-origin response (the protomaps demo bucket
+// doesn't set Access-Control-Allow-Origin). When the playground is
+// built for the GH Pages deployment under /X-GIS/play/ there is no
+// proxy route — those URLs would 404. Substitute with the
+// pmtiles.io Firenze sample (public CORS, ~5 MB, contains the same
+// MVT source-layers — water / landuse / roads / buildings — as the
+// v4 daily basemap, just covering ~5 km × 5 km of Tuscany instead
+// of the world). The styling demos still work end-to-end; users can
+// pan/zoom around Firenze (43.77, 11.25) to see them rendered.
+//
+// Local `bun run dev` sees `import.meta.env.PROD === false`, leaves
+// the proxy URLs intact, and gets the world archive via the proxy.
+const PROD_URL_REWRITES: Array<[RegExp, string]> = import.meta.env.PROD
+  ? [
+      [
+        /\/pmtiles-proxy\/protomaps\/v4\.pmtiles/g,
+        'https://pmtiles.io/protomaps(vector)ODbL_firenze.pmtiles',
+      ],
+    ]
+  : []
+
 function load(file: string): string {
   const key = `./examples/${file}`
-  const src = modules[key]
+  let src = modules[key]
   if (!src) throw new Error(`Missing example: ${key}`)
+  for (const [pattern, replacement] of PROD_URL_REWRITES) {
+    src = src.replace(pattern, replacement)
+  }
   return src
 }
 

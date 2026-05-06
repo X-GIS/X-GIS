@@ -13,6 +13,14 @@ export interface Demo {
   body: string
   /** Set true to suppress the JPG thumbnail (text-only fallback). */
   noThumb?: boolean
+  /** Optional URL hash (no leading `#`) appended to the playground
+   *  link so a deep-clicked demo lands at a useful camera position.
+   *  Used for the PMTiles demos because the deployed playground
+   *  substitutes the dev-proxy world archive with a Firenze sample
+   *  (~5 km × 5 km in Tuscany) — without a hash the user lands at
+   *  the global default and sees nothing. Format matches the
+   *  playground URL hash: `zoom/lat/lon[/bearing/pitch]`. */
+  defaultHash?: string
 }
 
 export interface Category {
@@ -36,10 +44,14 @@ export const galleryCategories: Category[] = [
     title: 'PMTiles + MVT',
     body: 'Streaming vector tiles via PMTiles archives. Each MVT source-layer styles independently.',
     demos: [
-      { id: 'pmtiles-source',         title: 'Single MVT source-layer', body: 'One PMTiles archive, one xgis layer filtering one MVT layer.' },
-      { id: 'pmtiles-layered',        title: 'Per-layer styling',       body: 'water / landuse / roads / buildings each driven by its own MVT slice.' },
-      { id: 'pmtiles-only-landuse',   title: 'Landuse slice',           body: 'Filter a PMTiles archive down to a single MVT layer.' },
-      { id: 'pmtiles-protomaps-v4',   runId: 'pmtiles_v4',              title: 'Protomaps v4',            body: 'Protomaps v4 schema — vector_layers metadata + per-layer minzoom.' },
+      // The Firenze sample (used in production) covers Tuscany at
+      // ~5 km × 5 km, so the default hash drops the camera onto the
+      // city. In dev these still work — the world archive simply
+      // renders the Firenze area zoomed in.
+      { id: 'pmtiles-source',         title: 'Single MVT source-layer', body: 'One PMTiles archive, one xgis layer filtering one MVT layer.', defaultHash: '13/43.77/11.25' },
+      { id: 'pmtiles-layered',        title: 'Per-layer styling',       body: 'water / landuse / roads / buildings each driven by its own MVT slice.', defaultHash: '13/43.77/11.25' },
+      { id: 'pmtiles-only-landuse',   title: 'Landuse slice',           body: 'Filter a PMTiles archive down to a single MVT layer.', defaultHash: '13/43.77/11.25' },
+      { id: 'pmtiles-protomaps-v4',   runId: 'pmtiles_v4',              title: 'Protomaps v4',            body: 'Protomaps v4 schema — vector_layers metadata + per-layer minzoom.', defaultHash: '13/43.77/11.25' },
     ],
   },
   {
@@ -148,7 +160,8 @@ export const featuredDemos: Demo[] = [
     body: 'One source, one layer — copy this, change the URL, you have a map.' },
   { id: 'pmtiles-layered',    runId: 'pmtiles_layered',
     title: 'Streaming PMTiles',
-    body: 'Four MVT layers from one archive — water, landuse, roads, buildings.' },
+    body: 'Four MVT layers from one archive — water, landuse, roads, buildings.',
+    defaultHash: '13/43.77/11.25' },
   { id: 'animation-showcase', runId: 'animation_showcase',
     title: 'Live animation',
     body: 'Three keyframe blocks driving fill, stroke, and dash offset together.' },

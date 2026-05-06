@@ -60,7 +60,7 @@ const thumbBase = `${base}/thumbnails`
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {featuredDemos.map(d => (
           <a
-            href={`${playPath}?id=${runIdOf(d)}`}
+            href={`${playPath}?id=${runIdOf(d)}${d.defaultHash ? `#${d.defaultHash}` : ''}`}
             class="demo-card group block rounded-2xl bg-bg-card border border-line
                    hover:border-line-strong overflow-hidden"
           >
@@ -125,7 +125,7 @@ const thumbBase = `${base}/thumbnails`
                        hover:border-line-strong overflow-hidden"
               >
                 <a
-                  href={`${playPath}?id=${runIdOf(d)}`}
+                  href={`${playPath}?id=${runIdOf(d)}${d.defaultHash ? `#${d.defaultHash}` : ''}`}
                   class="block"
                   aria-label={`Run ${d.title} demo`}
                 >
