@@ -1399,7 +1399,15 @@ export class VectorTileRenderer {
       for (let i = 0; i < neededKeys.length; i++) {
         if (parentAtMaxLevel[i] >= 0) continue
         const pk = archiveAncestor[i]
-        if (pk >= 0 && !sliceCached(pk) && !this.source!.isLoading(pk)) {
+        // Keep already-loading ancestors in parentKeysSet so they
+        // stay in `activeKeys` for cancelStale's protection check.
+        // Excluding them here meant a parent in flight got dropped
+        // from the next frame's active set → cancelStale aborted
+        // it → cold-start at high zoom (z=14) never resolved
+        // (regression repro: _pmtiles-zoom14-blank.spec.ts). The
+        // catalog's requestTiles dedupes loadingTiles internally,
+        // so re-adding here costs only a Set membership check.
+        if (pk >= 0 && !sliceCached(pk)) {
           parentKeysSet.add(pk)
         }
       }
