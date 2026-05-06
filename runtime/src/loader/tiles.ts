@@ -149,17 +149,16 @@ function isMobileViewport(canvasWidth: number, canvasHeight: number): boolean {
 // ~60 unique tiles ≈ 240 drawCalls).
 const MAX_FRUSTUM_TILES_CEILING = 300
 function maxFrustumTilesFor(canvasWidth: number, canvasHeight: number): number {
-  // Real-device inspector data (iPhone, Tokyo z=9.1, performance
-  // preset): GPU pass 17.4 ms (60 fps target 16.7 ms — just past),
-  // fps 30s avg 35. Even with DPR 1.0 + msaa 1, 196 K line SDF
-  // segments + 429 K triangles per frame is too much for the
-  // sustained mobile GPU budget. Tightening visible cap further:
-  //   - mobile floor 12 → 8 (caps 4-layer triangles ~300 K/frame)
-  //   - viewport-area divisor 18 K → 24 K (smaller default count)
-  // Desktop unchanged.
+  // Real-device iPhone measurement (Tokyo z=11.5, pitch 0°): user
+  // reported 22-30 unique tiles drawn for what viewport math
+  // predicts ~6. visible cap 8 was set but drawn count includes
+  // parent-walk fallback + multi-render-per-frame, so tightening
+  // the *visible* cap to 4 keeps the fallback/parent budget
+  // proportional. Also tighter divisor (24 K → 36 K) so tiny
+  // mobile viewports drop below floor on most setups.
   const isMobile = isMobileViewport(canvasWidth, canvasHeight)
-  const floor = isMobile ? 8 : 60
-  const divisor = isMobile ? 24000 : 12000
+  const floor = isMobile ? 4 : 60
+  const divisor = isMobile ? 36000 : 12000
   return Math.max(
     floor,
     Math.min(MAX_FRUSTUM_TILES_CEILING, Math.round((canvasWidth * canvasHeight) / divisor)),
@@ -206,6 +205,13 @@ export function visibleTilesFrustum(
   // tiny canvas (e.g. inset preview) doesn't lose all detail.
   const SUBDIVIDE_THRESHOLD = Math.max(320, Math.min(canvasWidth, canvasHeight) * 0.5)
   const MAX_FRUSTUM_TILES = maxFrustumTilesFor(canvasWidth, canvasHeight)
+  // Hoisted so the camera-tile-guarantee inject below can gate on
+  // pitch (low pitch DFS already covers the foreground; the inject
+  // is only needed at high pitch where quadrant order matters).
+  const pitchDegFn = camera.pitch ?? 0
+  if ((globalThis as { __DBG_FRUSTUM?: boolean }).__DBG_FRUSTUM) {
+    console.log(`[FRUSTUM cap] canvas=${canvasWidth}×${canvasHeight} mobile=${isMobileViewport(canvasWidth, canvasHeight)} cap=${MAX_FRUSTUM_TILES} pitch=${pitchDegFn.toFixed(1)}`)
+  }
 
   // Project Mercator coords → screen pixel (returns null if behind camera)
   const toScreen = (mx: number, my: number): [number, number] | null => {
@@ -328,12 +334,11 @@ export function visibleTilesFrustum(
     // Tile-selection-pitch tests cover 75°+ and pin specific
     // counts under the high-pitch (0.25, 256) values, so those
     // are preserved exactly.
-    const pitchDeg = camera.pitch ?? 0
-    const marginPctOfMax = pitchDeg < 30 ? 0.05
-      : pitchDeg < 60 ? 0.15
+    const marginPctOfMax = pitchDegFn < 30 ? 0.05
+      : pitchDegFn < 60 ? 0.15
       : 0.25
-    const pitchFloor = pitchDeg < 30 ? 32
-      : pitchDeg < 60 ? 128
+    const pitchFloor = pitchDegFn < 30 ? 32
+      : pitchDegFn < 60 ? 128
       : 256
     const baseMargin = Math.max(canvasWidth, canvasHeight) * marginPctOfMax
     const margin = Math.max(baseMargin, pitchFloor) + Math.max(0, extraMarginPx)
@@ -427,31 +432,45 @@ export function visibleTilesFrustum(
   // budget can be burned by horizon tiles in the three quadrants visited
   // before the camera quadrant (NW → NE → SW → SE). The camera tile and
   // its immediate ring then never get pushed even though they contain the
-  // camera and the only data the user is looking at. Repro: GeoJSON line
-  // at lat=0 invisible at zoom=8.34 / pitch=74.8 / bearing=90 over (29.19,
-  // -0.146); see fixture-cap-arrow-bug.test.ts. Inject the 3×3 ring at
-  // maxZ around the camera tile, bypassing MAX_FRUSTUM_TILES (9 tiles
-  // worst-case) so the camera-area always renders.
-  const camN = Math.pow(2, maxZ)
-  const camTX = Math.floor((camLon + 180) / 360 * camN)
-  const camLatClamped = Math.max(-85.0511, Math.min(85.0511, camLat))
-  const camTY = Math.floor(
-    (1 - Math.log(Math.tan(Math.PI / 4 + camLatClamped * DEG2RAD / 2)) / Math.PI) / 2 * camN,
-  )
-  const seen = new Set<number>()
-  for (const t of result) seen.add((t.z * 4194304 + t.y) * 4194304 + (t.ox + camN))
-  for (let dy = -2; dy <= 2; dy++) {
-    for (let dx = -2; dx <= 2; dx++) {
-      const ty = camTY + dy
-      if (ty < 0 || ty >= camN) continue
-      const tx = camTX + dx
-      // Wrap around the date line — same as world-copy logic above.
-      const wrappedX = ((tx % camN) + camN) % camN
-      const ox = tx
-      const key = (maxZ * 4194304 + ty) * 4194304 + (ox + camN)
-      if (seen.has(key)) continue
-      seen.add(key)
-      result.push({ z: maxZ, x: wrappedX, y: ty, ox })
+  // camera and the only data the user is looking at. Repro:
+  // fixture-cap-arrow-bug.test.ts (zoom=8.34 / pitch=74.8 / bearing=90).
+  //
+  // Two fixes vs the original blanket inject:
+  //
+  //   1. Skip entirely at low pitch. The DFS already produces a complete
+  //      camera-region cover when the camera is looking down — there's
+  //      no quadrant order risk. The blanket inject was responsible for
+  //      mobile flat-pitch 25-tile over-draw measured in the inspector
+  //      (cap 5 honoured by DFS, then 25 more tiles pushed past cap by
+  //      this loop).
+  //
+  //   2. Tighten ring 5×5 (25 tiles) → 3×3 (9 tiles). The original
+  //      `dy/dx -2..2` reads 5×5 and ships 25 inject tiles per call,
+  //      whereas the comment said "9 tiles worst-case". 3×3 covers the
+  //      camera tile and its 8 neighbours — enough for the bug-arrow
+  //      regression case, half the inject of 5×5.
+  if (pitchDegFn >= 30) {
+    const camN = Math.pow(2, maxZ)
+    const camTX = Math.floor((camLon + 180) / 360 * camN)
+    const camLatClamped = Math.max(-85.0511, Math.min(85.0511, camLat))
+    const camTY = Math.floor(
+      (1 - Math.log(Math.tan(Math.PI / 4 + camLatClamped * DEG2RAD / 2)) / Math.PI) / 2 * camN,
+    )
+    const seen = new Set<number>()
+    for (const t of result) seen.add((t.z * 4194304 + t.y) * 4194304 + (t.ox + camN))
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const ty = camTY + dy
+        if (ty < 0 || ty >= camN) continue
+        const tx = camTX + dx
+        // Wrap around the date line — same as world-copy logic above.
+        const wrappedX = ((tx % camN) + camN) % camN
+        const ox = tx
+        const key = (maxZ * 4194304 + ty) * 4194304 + (ox + camN)
+        if (seen.has(key)) continue
+        seen.add(key)
+        result.push({ z: maxZ, x: wrappedX, y: ty, ox })
+      }
     }
   }
 
