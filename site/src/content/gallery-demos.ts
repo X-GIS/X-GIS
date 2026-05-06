@@ -50,19 +50,16 @@ export const galleryCategories: Category[] = [
     title: 'PMTiles + MVT',
     body: 'Streaming vector tiles via PMTiles archives. Each MVT source-layer styles independently.',
     demos: [
-      // The Firenze sample (used in production) covers Tuscany at
-      // ~5 km × 5 km, so the default hash drops the camera onto the
-      // city. In dev these still work — the world archive simply
-      // renders the Firenze area zoomed in.
+      // Defaults drop the camera onto Tokyo (a city dense enough
+      // that water / landuse / roads / buildings all resolve
+      // visibly at z=14). The v4 demo defaults to a wider world
+      // view since `earth` is the only layer it draws.
+      // pmtiles_source uses pmtiles.io's Firenze sample directly
+      // (bypasses the worker), so it keeps its Florence default.
       { id: 'pmtiles-source',         title: 'Single MVT source-layer', body: 'One PMTiles archive, one xgis layer filtering one MVT layer.', defaultHash: '13/43.77/11.25' },
-      { id: 'pmtiles-layered',        title: 'Per-layer styling',       body: 'water / landuse / roads / buildings each driven by its own MVT slice.', defaultHash: '13/43.77/11.25' },
-      { id: 'pmtiles-only-landuse',   title: 'Landuse slice',           body: 'Filter a PMTiles archive down to a single MVT layer.', defaultHash: '13/43.77/11.25' },
-      // Hidden from the production gallery: this card claims to
-      // demo the protomaps v4 daily basemap (`earth` source-layer +
-      // v4 vector_layers metadata), which doesn't exist on a
-      // CORS-enabled host we can use from x-gis.github.io. In dev
-      // it works via the vite proxy → demo-bucket.protomaps.com.
-      { id: 'pmtiles-protomaps-v4',   runId: 'pmtiles_v4',              title: 'Protomaps v4',            body: 'Protomaps v4 schema — vector_layers metadata + per-layer minzoom.', defaultHash: '13/43.77/11.25', devOnly: true },
+      { id: 'pmtiles-layered',        title: 'Per-layer styling',       body: 'water / landuse / roads / buildings each driven by its own MVT slice.', defaultHash: '14/35.68/139.76' },
+      { id: 'pmtiles-only-landuse',   title: 'Landuse slice',           body: 'Filter a PMTiles archive down to a single MVT layer.', defaultHash: '12/35.68/139.76' },
+      { id: 'pmtiles-protomaps-v4',   runId: 'pmtiles_v4',              title: 'Protomaps v4',            body: 'Protomaps v4 daily world basemap — earth source-layer + vector_layers metadata.', defaultHash: '3/30/0' },
     ],
   },
   {
@@ -172,7 +169,7 @@ export const featuredDemos: Demo[] = [
   { id: 'pmtiles-layered',    runId: 'pmtiles_layered',
     title: 'Streaming PMTiles',
     body: 'Four MVT layers from one archive — water, landuse, roads, buildings.',
-    defaultHash: '13/43.77/11.25' },
+    defaultHash: '14/35.68/139.76' },
   { id: 'animation-showcase', runId: 'animation_showcase',
     title: 'Live animation',
     body: 'Three keyframe blocks driving fill, stroke, and dash offset together.' },

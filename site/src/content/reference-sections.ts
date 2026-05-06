@@ -42,7 +42,7 @@ layer countries {
     title: 'Sources',
     body: 'A `source` block declares where data comes from. Three transports are supported. The runtime picks the loader from the `type` keyword, not the URL extension.',
     demoId: 'pmtiles_source',
-    demoHash: '13/43.77/11.25',
+    demoHash: '13/43.77/11.25',  // Florence — pmtiles_source uses the Firenze sample
     code: `// GeoJSON — full-file load, runtime tessellation
 source land {
   type: geojson
@@ -132,7 +132,7 @@ layer top_economies {
     title: 'Background',
     body: 'A top-level `background { ... }` block sets the canvas clear color (Mapbox-style). Renders before any layer; only the resolved fill color is consumed.',
     demoId: 'pmtiles_layered',
-    demoHash: '13/43.77/11.25',
+    demoHash: '14/35.68/139.76',  // Tokyo — multi-layer styling on the v4 daily basemap
     code: `background { fill: stone-100 }
 
 source pm {

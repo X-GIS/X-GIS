@@ -9,22 +9,29 @@ const modules = import.meta.glob<string>('./examples/*.xgis', { eager: true, que
 // The dev server (vite.config.ts) proxies
 // `/pmtiles-proxy/protomaps/...` to demo-bucket.protomaps.com so the
 // browser sees a same-origin response (the protomaps demo bucket
-// doesn't set Access-Control-Allow-Origin). When the playground is
-// built for the GH Pages deployment under /X-GIS/play/ there is no
-// proxy route — those URLs would 404. Substitute with the
-// pmtiles.io Firenze sample (public CORS, ~5 MB, contains the same
-// MVT source-layers — water / landuse / roads / buildings — as the
-// v4 daily basemap, just covering ~5 km × 5 km of Tuscany instead
-// of the world). The styling demos still work end-to-end; users can
-// pan/zoom around Firenze (43.77, 11.25) to see them rendered.
+// rejects CORS preflight: Tigris OS returns 403 on OPTIONS). When
+// the playground is built for the GH Pages deployment under
+// /X-GIS/play/ there is no Vite proxy — those URLs would 404.
 //
-// Local `bun run dev` sees `import.meta.env.PROD === false`, leaves
-// the proxy URLs intact, and gets the world archive via the proxy.
+// Production resolution: a tiny Cloudflare Worker (see
+// `tools/pmtiles-cors-proxy/`) forwards the same requests with
+// `Access-Control-Allow-Origin: *` stamped on the response. The
+// worker's deployed URL goes here:
+//
+//   ┌─────────────────────────────────────────────────────────────┐
+//   │  TODO: replace `<your-account>` with your Cloudflare        │
+//   │  account subdomain after running `wrangler deploy` from     │
+//   │  tools/pmtiles-cors-proxy/. The deployed URL is printed     │
+//   │  by wrangler.                                                │
+//   └─────────────────────────────────────────────────────────────┘
+const PROD_PMTILES_PROXY_BASE =
+  'https://x-gis-pmtiles-proxy.<your-account>.workers.dev'
+
 const PROD_URL_REWRITES: Array<[RegExp, string]> = import.meta.env.PROD
   ? [
       [
         /\/pmtiles-proxy\/protomaps\/v4\.pmtiles/g,
-        'https://pmtiles.io/protomaps(vector)ODbL_firenze.pmtiles',
+        `${PROD_PMTILES_PROXY_BASE}/v4.pmtiles`,
       ],
     ]
   : []
