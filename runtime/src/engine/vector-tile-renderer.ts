@@ -131,6 +131,16 @@ export class VectorTileRenderer {
    *  frame the threshold is no longer crossed. */
   private _czPendingAdvance: { target: number, since: number } | null = null
   private stableKeys: number[] = []
+  /** Camera idle detection — prefetch is suppressed while the
+   *  camera is actively moving (pinch zoom, pan) to keep mobile
+   *  GPU + bandwidth budget on visible-only work. The moment the
+   *  camera stops changing, the suppression times out and Tier 2
+   *  + adjacent prefetch resume. User report: rapid pinch zoom-out
+   *  + pan caused thermal throttling and forced refreshes; the
+   *  GPU upload churn from prefetch on every frame was a major
+   *  contributor on top of the visible-tile work. */
+  private _lastCamSnap: { zoom: number; cx: number; cy: number; t: number } | null = null
+  private _lastCamMoveAt = 0
   /** Hot-path scratch collections — reused across render() calls
    *  to avoid per-frame Set/Map allocations. Each is `.clear()`'d
    *  before use; the same instance is fine because multi-render-
@@ -894,6 +904,28 @@ export class VectorTileRenderer {
     // zooms (verified against the smoke-test bucket_order baseline,
     // which renders at zoom 0.75 — floor would drop currentZ to 0,
     // losing the country-boundary detail z=1 carries).
+    // Camera-idle detection. Tier 2 + adjacent prefetch are
+    // suppressed for IDLE_GRACE_MS after the last detected camera
+    // movement so rapid pinch / pan doesn't drown mobile GPU + net
+    // budget in speculative LOD/edge fetches that the user is
+    // about to invalidate anyway. 200 ms catches the gesture's
+    // settle moment without delaying prefetch on a deliberate
+    // pause. Movement threshold: > 0.005 zoom or > 1 m centre
+    // delta — well above floating-point noise, well below any
+    // visible navigation step.
+    const IDLE_GRACE_MS = 200
+    const nowCam = performance.now()
+    if (this._lastCamSnap) {
+      const dz = Math.abs(camera.zoom - this._lastCamSnap.zoom)
+      const dx = Math.abs(camera.centerX - this._lastCamSnap.cx)
+      const dy = Math.abs(camera.centerY - this._lastCamSnap.cy)
+      if (dz > 0.005 || dx > 1 || dy > 1) {
+        this._lastCamMoveAt = nowCam
+      }
+    }
+    this._lastCamSnap = { zoom: camera.zoom, cx: camera.centerX, cy: camera.centerY, t: nowCam }
+    const cameraIdle = nowCam - this._lastCamMoveAt > IDLE_GRACE_MS
+
     const HYST_MARGIN = 0.1
     // Readiness-gate timeout: once a transition is "wanted" (camera
     // has crossed the hysteresis threshold), we hold the OLD cz —
@@ -1632,8 +1664,11 @@ export class VectorTileRenderer {
       this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache)
     }
 
-    // Prefetch adjacent + next zoom (every 10th frame)
-    if (this.frameCount % 10 === 0) {
+    // Prefetch adjacent + next zoom (every 10th frame, idle only).
+    // While the camera is actively moving the prefetched edge tiles
+    // are likely to be invalidated within ~100 ms of being fetched
+    // — wasted bandwidth + GPU upload pressure on mobile.
+    if (cameraIdle && this.frameCount % 10 === 0) {
       this.source.prefetchAdjacent(tiles, currentZ)
     }
 
@@ -1659,7 +1694,7 @@ export class VectorTileRenderer {
     // visibleTilesFrustum's quadtree walk amortised — the prefetch
     // doesn't need per-frame freshness because the camera typically
     // moves slowly relative to the rAF cadence.
-    if (this.frameCount % 6 === 0) {
+    if (cameraIdle && this.frameCount % 6 === 0) {
       let prefetchZ = -1
       if (camera.zoom > currentZ + 0.5 && currentZ + 1 <= maxSubTileZ) {
         prefetchZ = currentZ + 1
