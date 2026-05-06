@@ -449,27 +449,49 @@ export function visibleTilesFrustum(
   //      whereas the comment said "9 tiles worst-case". 3×3 covers the
   //      camera tile and its 8 neighbours — enough for the bug-arrow
   //      regression case, half the inject of 5×5.
-  // 3×3 ring inject around the camera tile at maxZ. Always runs
-  // (used to be high-pitch only, but flat-pitch DFS also leaves
-  // viewport edges uncovered on small mobile canvases — real-device
-  // test showed lower-half black with no inject and cap 5). 9 tiles
-  // at most, well under the cap so it doesn't choke larger
-  // viewports. Inject runs after DFS so the cap-honouring leaves
-  // are preserved and the extra 9 just guarantee camera-region
-  // coverage past the cap.
+  // Camera-region inject at maxZ. Bypasses MAX_FRUSTUM_TILES so
+  // the camera-area always renders, even when DFS spent the budget
+  // on horizon tiles or camera-side children. Two shapes depending
+  // on pitch:
+  //
+  //   pitch < 30°: viewport AABB inject — derived from canvas / tile-
+  //                size math, covers exactly the tiles the camera
+  //                projects onto. No over-fetch, no gap.
+  //
+  //   pitch ≥ 30°: fixed 5×5 ring inject around the camera tile.
+  //                Perspective makes the AABB calculation invalid
+  //                (foreground tile ≠ horizon tile size on screen),
+  //                so we fall back to a generous Manhattan ring that
+  //                guarantees the foreground+ground renders even
+  //                when DFS budget burns on horizon tiles. Required
+  //                for fixture-cap-arrow-bug + the filter_gdp 83.9°
+  //                ground-renders regression.
   const camN = Math.pow(2, maxZ)
-  const camTX = Math.floor((camLon + 180) / 360 * camN)
+  const camTXf = (camLon + 180) / 360 * camN
   const camLatClamped = Math.max(-85.0511, Math.min(85.0511, camLat))
-  const camTY = Math.floor(
-    (1 - Math.log(Math.tan(Math.PI / 4 + camLatClamped * DEG2RAD / 2)) / Math.PI) / 2 * camN,
-  )
+  const camTYf = (1 - Math.log(Math.tan(Math.PI / 4 + camLatClamped * DEG2RAD / 2)) / Math.PI) / 2 * camN
+  let minTX: number, maxTX: number, minTY: number, maxTY: number
+  if (pitchDegFn < 30) {
+    const tileSizePx = 256 * Math.pow(2, (camera.zoom ?? maxZ) - maxZ)
+    const halfTilesX = (canvasWidth / 2) / tileSizePx
+    const halfTilesY = (canvasHeight / 2) / tileSizePx
+    minTX = Math.floor(camTXf - halfTilesX)
+    maxTX = Math.floor(camTXf + halfTilesX)
+    minTY = Math.floor(camTYf - halfTilesY)
+    maxTY = Math.floor(camTYf + halfTilesY)
+  } else {
+    const camTX = Math.floor(camTXf)
+    const camTY = Math.floor(camTYf)
+    minTX = camTX - 2
+    maxTX = camTX + 2
+    minTY = camTY - 2
+    maxTY = camTY + 2
+  }
   const seen = new Set<number>()
   for (const t of result) seen.add((t.z * 4194304 + t.y) * 4194304 + (t.ox + camN))
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      const ty = camTY + dy
-      if (ty < 0 || ty >= camN) continue
-      const tx = camTX + dx
+  for (let ty = minTY; ty <= maxTY; ty++) {
+    if (ty < 0 || ty >= camN) continue
+    for (let tx = minTX; tx <= maxTX; tx++) {
       // Wrap around the date line — same as world-copy logic above.
       const wrappedX = ((tx % camN) + camN) % camN
       const ox = tx
