@@ -264,7 +264,7 @@ const categories: Category[] = [
             {cat.demos.map(d => (
               <article
                 class="demo-card group relative rounded-2xl bg-bg-card border border-line
-                       hover:border-line-strong hover:bg-bg-hover transition-colors min-h-[140px]"
+                       hover:border-line-strong hover:bg-bg-hover min-h-[140px]"
               >
                 <a
                   href={`${playPath}?id=${d.runId ?? d.id.replace(/-/g, '_')}`}
@@ -323,3 +323,22 @@ const categories: Category[] = [
 
   <Footer />
 </Base>
+
+<style>
+  /* Apple-signature card hover: combined transform + color easing,
+   * slow quart-out curve. Color shifts (border, bg) get the same
+   * timing as the lift so they read as one motion. */
+  .demo-card {
+    transition:
+      transform 500ms cubic-bezier(0.16, 0.84, 0.32, 1),
+      border-color 350ms cubic-bezier(0.16, 0.84, 0.32, 1),
+      background-color 350ms cubic-bezier(0.16, 0.84, 0.32, 1);
+  }
+  .demo-card:hover {
+    transform: translateY(-2px);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .demo-card { transition: none; }
+    .demo-card:hover { transform: none; }
+  }
+</style>

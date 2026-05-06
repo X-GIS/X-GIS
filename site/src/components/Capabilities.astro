@@ -126,11 +126,26 @@ const capabilities: Capability[] = [
 </section>
 
 <style>
-  /* Subtle lift on hover — Apple-style restraint */
+  /* Apple-style hover restraint: subtle whole-card lift + glyph rise.
+   * Easing curve copied from Apple's marketing-page transitions
+   * (signature 0.16 / 0.84 / 0.32 / 1 quart-out feel). */
+  .cap-card {
+    transition: transform 600ms cubic-bezier(0.16, 0.84, 0.32, 1);
+  }
+  .cap-card:hover {
+    transform: translateY(-3px);
+  }
   .cap-glyph svg {
     transition: transform 400ms cubic-bezier(0.16, 0.84, 0.32, 1);
   }
   .cap-card:hover .cap-glyph svg {
     transform: translateY(-2px);
+  }
+  /* Don't animate when the user prefers reduced motion. */
+  @media (prefers-reduced-motion: reduce) {
+    .cap-card,
+    .cap-glyph svg { transition: none; }
+    .cap-card:hover,
+    .cap-card:hover .cap-glyph svg { transform: none; }
   }
 </style>

@@ -4,30 +4,91 @@ const year = new Date().getFullYear()
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const docsUrl = `${base}/docs`
 const examplesUrl = `${base}/examples`
+
+// Apple developer.apple.com footer pattern: four resource columns
+// stacked over a thin copyright row. The columns group by user
+// intent (learn / build / debug / legal) rather than by file
+// location, so a visitor scanning the footer can self-route without
+// reading every link.
+const columns = [
+  {
+    title: 'Documentation',
+    links: [
+      { label: 'Language reference', href: docsUrl },
+      { label: 'Examples gallery',   href: examplesUrl },
+      { label: 'XGVT spec',          href: `${githubUrl}/blob/main/SPEC.md`, external: true },
+      { label: 'Coordinates guide',  href: `${githubUrl}/blob/main/docs/COORDINATES.md`, external: true },
+    ],
+  },
+  {
+    title: 'Project',
+    links: [
+      { label: 'GitHub repo',  href: githubUrl, external: true },
+      { label: 'Roadmap',      href: `${githubUrl}/blob/main/ROADMAP.md`, external: true },
+      { label: 'WebGPU plan',  href: `${githubUrl}/blob/main/docs/WEBGPU_ROADMAP.md`, external: true },
+      { label: 'Releases',     href: `${githubUrl}/releases`, external: true },
+    ],
+  },
+  {
+    title: 'Resources',
+    links: [
+      { label: 'README',       href: `${githubUrl}/blob/main/README.md`, external: true },
+      { label: 'Issues',       href: `${githubUrl}/issues`, external: true },
+      { label: 'Discussions',  href: `${githubUrl}/discussions`, external: true },
+      { label: 'Contributing', href: `${githubUrl}/blob/main/CONTRIBUTING.md`, external: true },
+    ],
+  },
+  {
+    title: 'Legal',
+    links: [
+      { label: 'MIT License',  href: `${githubUrl}/blob/main/LICENSE`, external: true },
+      { label: 'Code of conduct', href: `${githubUrl}/blob/main/CODE_OF_CONDUCT.md`, external: true },
+      { label: 'Security',     href: `${githubUrl}/security`, external: true },
+    ],
+  },
+]
 ---
 
 <footer class="border-t border-line">
-  <div class="max-w-[1024px] mx-auto px-6 py-14 text-[13px] text-fg-mute">
-    <div class="flex flex-col sm:flex-row sm:items-center gap-6 sm:gap-10">
+  <div class="max-w-[1100px] mx-auto px-6 py-16 sm:py-20">
+
+    <!-- Column grid -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-y-10 gap-x-8 mb-14">
+      {columns.map(col => (
+        <div>
+          <p class="text-[12px] font-medium text-fg uppercase tracking-wider mb-4">
+            {col.title}
+          </p>
+          <ul class="space-y-2.5 text-[13px] text-fg-mute">
+            {col.links.map(link => (
+              <li>
+                <a
+                  href={link.href}
+                  target={link.external ? '_blank' : undefined}
+                  rel={link.external ? 'noopener' : undefined}
+                  class="hover:text-fg transition-colors"
+                >
+                  {link.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+
+    <!-- Bottom row: brand + version + copyright -->
+    <div class="flex flex-col sm:flex-row sm:items-center gap-4 pt-8 border-t border-line text-[12px] text-fg-faint">
       <p class="flex items-center gap-3">
-        <span class="font-medium text-fg">X-GIS</span>
+        <span class="font-medium text-fg-dim">X-GIS</span>
         <span class="text-fg-faint">·</span>
         <span>v0.0.1</span>
         <span class="text-fg-faint">·</span>
-        <span>MIT License</span>
+        <span>MIT</span>
       </p>
-
-      <nav class="flex flex-wrap items-center gap-x-7 gap-y-2 sm:ml-auto">
-        <a href={docsUrl} class="hover:text-fg transition-colors">Docs</a>
-        <a href={examplesUrl} class="hover:text-fg transition-colors">Examples</a>
-        <a href={githubUrl} target="_blank" rel="noopener" class="hover:text-fg transition-colors">GitHub</a>
-        <a href={`${githubUrl}/blob/main/SPEC.md`} target="_blank" rel="noopener" class="hover:text-fg transition-colors">Spec</a>
-        <a href={`${githubUrl}/blob/main/ROADMAP.md`} target="_blank" rel="noopener" class="hover:text-fg transition-colors">Roadmap</a>
-      </nav>
+      <p class="sm:ml-auto">
+        Copyright © {year} X-GIS contributors. Built with Astro, Tailwind, and WebGPU.
+      </p>
     </div>
-
-    <p class="mt-10 text-fg-faint">
-      Copyright © {year} X-GIS contributors. Built with Astro, Tailwind, and WebGPU.
-    </p>
   </div>
 </footer>

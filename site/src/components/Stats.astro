@@ -1,0 +1,54 @@
+---
+// Apple-signature "by the numbers" block. Big medium-weight numerals
+// in the accent color, single-line label below each. Set in 4-up on
+// desktop, 2-up on tablet, stacked on mobile. Numbers chosen to be
+// concrete + verifiable from the codebase, not aspirational marketing
+// claims:
+//
+//   7   — projection.ts exports exactly seven projection functions.
+//   144 — perf-debug-overzoom.spec.ts target (1dcfb4e/7e34ef1
+//         optimizations brought renderFrame mean to 7.77 ms / 129 fps,
+//         133 fps median; 144 fps is the locked stability target).
+//   50+ — examples gallery currently lists 51 user-facing demos
+//         (excluding the ~60 fixture-* + reftest-* test specs).
+//   1   — pmtiles-layered.xgis demonstrates four xgis layers reading
+//         four MVT source-layers from one shared archive.
+const stats = [
+  { value: '7',     label: 'Projections', sub: 'CPU + WGSL, switch via uniform' },
+  { value: '144',   label: 'fps target',  sub: 'Render loop tuned to a 6.94 ms budget' },
+  { value: '50+',   label: 'Examples',    sub: 'Live demos covering every language feature' },
+  { value: '1',     label: 'Archive',     sub: 'Per-MVT-layer slicing from a single PMTiles' },
+]
+---
+
+<section class="relative py-32 sm:py-40 lg:py-56 border-t border-line">
+  <div class="max-w-[1100px] mx-auto px-6">
+    <div class="text-center max-w-[820px] mx-auto mb-20 lg:mb-24">
+      <p class="text-[13px] font-medium tracking-[-0.01em] text-accent mb-5">
+        By the numbers
+      </p>
+      <h2 class="font-medium text-fg leading-[1.05] tracking-[-0.035em]
+                 text-[40px] sm:text-[56px] lg:text-[72px]">
+        Built on
+        <span class="bg-gradient-to-b from-fg to-fg-dim bg-clip-text text-transparent">measurable goals.</span>
+      </h2>
+    </div>
+
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-14">
+      {stats.map(s => (
+        <div class="text-center">
+          <p class="font-medium text-accent leading-none tracking-[-0.04em]
+                    text-[64px] sm:text-[80px] lg:text-[96px]">
+            {s.value}
+          </p>
+          <p class="mt-4 text-[15px] sm:text-[16px] font-medium text-fg tracking-[-0.01em]">
+            {s.label}
+          </p>
+          <p class="mt-1.5 text-[13px] leading-[1.5] text-fg-mute max-w-[200px] mx-auto">
+            {s.sub}
+          </p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
