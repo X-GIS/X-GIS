@@ -6,32 +6,28 @@ const modules = import.meta.glob<string>('./examples/*.xgis', { eager: true, que
 
 // Production URL rewrites for .xgis sources.
 //
-// The dev server (vite.config.ts) proxies
-// `/pmtiles-proxy/protomaps/...` to demo-bucket.protomaps.com so the
-// browser sees a same-origin response (the protomaps demo bucket
-// rejects CORS preflight: Tigris OS returns 403 on OPTIONS). When
-// the playground is built for the GH Pages deployment under
-// /X-GIS/play/ there is no Vite proxy — those URLs would 404.
+// In dev (`bun run dev`) the .xgis sources reference
+// `/pmtiles-proxy/protomaps/v4.pmtiles`. Vite proxies that path to
+// demo-bucket.protomaps.com so the browser sees a same-origin
+// response (the protomaps demo bucket rejects CORS preflight, so
+// direct fetches from any other origin fail).
 //
-// Production resolution: a tiny Cloudflare Worker (see
-// `tools/pmtiles-cors-proxy/`) forwards the same requests with
-// `Access-Control-Allow-Origin: *` stamped on the response. The
-// worker's deployed URL goes here:
+// In production (GH Pages, no proxy server) we substitute the dev
+// proxy URL with the protomaps API TileJSON endpoint. The runtime's
+// pmtiles-source loader detects `.json` URLs and switches to the
+// XYZ MVT-tile-server fetcher path (added with this change), so the
+// same demo .xgis sources work both ways without code changes.
 //
-//   ┌─────────────────────────────────────────────────────────────┐
-//   │  TODO: replace `<your-account>` with your Cloudflare        │
-//   │  account subdomain after running `wrangler deploy` from     │
-//   │  tools/pmtiles-cors-proxy/. The deployed URL is printed     │
-//   │  by wrangler.                                                │
-//   └─────────────────────────────────────────────────────────────┘
-const PROD_PMTILES_PROXY_BASE =
-  'https://x-gis-pmtiles-proxy.<your-account>.workers.dev'
+// The API key below is restricted in the protomaps dashboard to
+// CORS Origin = https://x-gis.github.io, so it can't be reused from
+// any other domain even if the bundled JS is mirrored.
+const PROD_PROTOMAPS_API_KEY = '360aa6108dc73d2e'
 
 const PROD_URL_REWRITES: Array<[RegExp, string]> = import.meta.env.PROD
   ? [
       [
         /\/pmtiles-proxy\/protomaps\/v4\.pmtiles/g,
-        `${PROD_PMTILES_PROXY_BASE}/v4.pmtiles`,
+        `https://api.protomaps.com/tiles/v4.json?key=${PROD_PROTOMAPS_API_KEY}`,
       ],
     ]
   : []
