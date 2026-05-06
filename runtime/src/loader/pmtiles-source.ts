@@ -198,7 +198,12 @@ async function openCachedTileJSON(url: string): Promise<CachedTileJSON> {
  *  which surfaces a parse error if the response is actually JSON. */
 function looksLikeTileJSON(url: string): boolean {
   const path = url.split('?')[0]
-  return path.endsWith('.json') || path.endsWith('.tilejson')
+  if (path.endsWith('.tilejson')) return true
+  // `.json` but not `.geojson` — `.geojson` URLs are GeoJSON data
+  // (handled by a different loader), and including them here would
+  // mis-route any GeoJSON source declared with `type: pmtiles` (rare,
+  // but the gate should be honest about its detection rule).
+  return path.endsWith('.json') && !path.endsWith('.geojson')
 }
 
 /** Attach a PMTiles archive (or a TileJSON / XYZ MVT tile server) to

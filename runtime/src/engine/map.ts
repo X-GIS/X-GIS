@@ -118,6 +118,21 @@ export interface PipelineInspection {
   }>
 }
 
+/** True when `url` looks like a PMTiles archive or a TileJSON manifest
+ *  pointing at an XYZ MVT tile server. Both go through
+ *  `attachPMTilesSource`, which dispatches internally based on
+ *  whether the response is binary (PMTiles archive) or JSON
+ *  (TileJSON). The `.geojson` exclusion stops `data/foo.geojson`
+ *  from being mis-routed into the vector-tile branch — only literal
+ *  `.json` suffixes count as TileJSON. */
+function isPMTilesOrTileJSON(url: string): boolean {
+  const path = url.split('?')[0]
+  if (path.endsWith('.pmtiles')) return true
+  if (path.endsWith('.tilejson')) return true
+  if (path.endsWith('.json') && !path.endsWith('.geojson')) return true
+  return false
+}
+
 export class XGISMap {
   private ctx!: GPUContext
   private camera: Camera
@@ -844,19 +859,23 @@ export class XGISMap {
         // Store the URL — actual raster rendering is activated only when a
         // layer references this source (in rebuildLayers)
         this.rawDatasets.set(load.name, { _tileUrl: url } as unknown as GeoJSONFeatureCollection)
-      } else if ((url.endsWith('.xgvt') || url.endsWith('.pmtiles')) && !this.useCanvas2D) {
+      } else if ((url.endsWith('.xgvt') || isPMTilesOrTileJSON(url)) && !this.useCanvas2D) {
         // Vector tile file — create per-source XGVTSource + VectorTileRenderer.
-        // Two archive formats are recognised by extension:
-        //   .xgvt    native binary, range-request streamed (existing path)
-        //   .pmtiles MVT inside a PMTiles archive — pre-fetched + compiled
-        //            via populatePMTilesSource (Phase 2 MVP).
+        // Three archive / manifest formats are recognised by extension:
+        //   .xgvt              native binary, range-request streamed
+        //   .pmtiles           MVT inside a PMTiles archive
+        //   .json / .tilejson  TileJSON manifest pointing at an XYZ MVT
+        //                      tile server (e.g., protomaps API). Same
+        //                      runtime backend as PMTiles — see
+        //                      attachPMTilesSource for the internal
+        //                      dispatch.
         const source = new TileCatalog()
         const vtRenderer = new VectorTileRenderer(this.ctx)
         vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout) // must be set before any tile uploads
         if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
         vtRenderer.setSource(source) // connect before load so preloaded tiles auto-upload
         const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
-        if (url.endsWith('.pmtiles')) {
+        if (isPMTilesOrTileJSON(url)) {
           // Lazy attachment — only the header is fetched here; tiles
           // are pulled on-demand when the renderer's visible-tile
           // selection requests them. No zoom-range cap; the full
