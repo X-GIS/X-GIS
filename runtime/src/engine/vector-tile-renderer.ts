@@ -122,6 +122,14 @@ export class VectorTileRenderer {
    *  an integer boundary (pinch zoom can wiggle within ±0.05). See
    *  the currentZ derivation in render() for the threshold logic. */
   private _hysteresisZ = -1
+  /** Pending cz advance — populated when the camera crosses a
+   *  zoom-transition threshold but the target LOD's tiles aren't
+   *  yet cached. The render keeps drawing at the OLD cz (so the
+   *  user sees the previous LOD over-zoomed instead of blank tiles)
+   *  until either every visible tile at `target` is cached OR
+   *  `READINESS_TIMEOUT_MS` elapses. Cleared on advance + on any
+   *  frame the threshold is no longer crossed. */
+  private _czPendingAdvance: { target: number, since: number } | null = null
   private stableKeys: number[] = []
   private uniformDataBuf = new ArrayBuffer(160)
   private uniformF32 = new Float32Array(this.uniformDataBuf) // reusable view over full uniform
@@ -826,6 +834,19 @@ export class VectorTileRenderer {
     // DSFUN precision lets sub-tiles work at any camera zoom. Clamp to 22
     // to match the camera's universal maxZoom, not the old maxLevel+6.
     const maxSubTileZ = 22
+
+    // Hoisted: visibleTilesFrustum inputs needed both by the readiness
+    // gate (in hysteresis below) and by the main visible-tile selection
+    // further down. Cheap pure derivations; safe to compute once up here.
+    const strokeOffsetPx_h = Math.abs(show.strokeOffset ?? 0)
+    const strokeWidthPx_h = show.strokeWidth ?? 1
+    const alignDeltaPx_h = show.strokeAlign === 'inset' || show.strokeAlign === 'outset'
+      ? strokeWidthPx_h / 2 : 0
+    const offsetMarginPx = Math.ceil(strokeOffsetPx_h + alignDeltaPx_h + strokeWidthPx_h / 2 + 2)
+    const selectorProj = projType === 0
+      ? mercatorProj
+      : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
+
     // Round-based currentZ with anti-oscillation hysteresis. Diagnosis:
     // pinch-zoom input on iOS Safari delivers fractional camera.zoom
     // updates that wiggle within ±0.05 around the integer-half
@@ -847,15 +868,121 @@ export class VectorTileRenderer {
     // which renders at zoom 0.75 — floor would drop currentZ to 0,
     // losing the country-boundary detail z=1 carries).
     const HYST_MARGIN = 0.1
+    // Readiness-gate timeout: once a transition is "wanted" (camera
+    // has crossed the hysteresis threshold), we hold the OLD cz —
+    // so the user keeps seeing the previous LOD over-zoomed — until
+    // every visible tile at the new LOD is cached. That prevents
+    // blank-canvas flashes during fast zoom moves. The timeout is
+    // a safety net for hung networks / unbounded archives: after
+    // 5 s of holding, advance anyway so the user isn't stuck on a
+    // permanently-stale LOD if the upstream is broken.
+    const READINESS_TIMEOUT_MS = 5_000
     const z = camera.zoom
     let cz: number
     if (this._hysteresisZ < 0) {
       cz = Math.round(z)
+      this._czPendingAdvance = null
+    } else if (Math.abs(Math.round(z) - this._hysteresisZ) > 4) {
+      // Bulk camera move (URL hash, programmatic camera reset,
+      // jumpTo). The gate is designed for incremental user-driven
+      // transitions; for jumps spanning more than ~4 LODs we'd
+      // otherwise spend ~1 s per LOD climbing step-by-step, which
+      // looks broken. Snap straight to target and let the normal
+      // visible-tile pipeline + parent walk render whatever
+      // ancestors happen to be cached on the way.
+      cz = Math.round(z)
+      this._czPendingAdvance = null
     } else {
       cz = this._hysteresisZ
       const target = Math.round(z)
-      if (target > cz && z > cz + 0.5 + HYST_MARGIN) cz = target
-      else if (target < cz && z < cz - 0.5 + HYST_MARGIN) cz = target
+      let wantAdvance = false
+      if (target > cz && z > cz + 0.5 + HYST_MARGIN) wantAdvance = true
+      else if (target < cz && z < cz - 0.5 + HYST_MARGIN) wantAdvance = true
+
+      // Per-layer minzoom skip: layers like protomaps `roads` (z≥6)
+      // and `buildings` (z≥14) carry no features below their minzoom.
+      // When the gate's step LOD is below that floor, no fetch will
+      // ever satisfy `hasTileData(k, sliceLayer)` and the gate would
+      // stall forever. Treat below-minzoom steps as already ready —
+      // catalog has nothing to wait on.
+      const layerRange = sliceLayer
+        ? this.source.getLayerZoomRange?.(sliceLayer)
+        : null
+      if (wantAdvance) {
+        const now = performance.now()
+        // Step-by-step advance: never jump cz multiple LODs in one
+        // frame. The gate examines readiness of cz±1 (one step
+        // toward target) and advances only that one LOD; on the
+        // next frame, cz±1 → cz±2 if the next step is ready, and
+        // so on. Two reasons we don't jump straight to target:
+        //   1. Multi-LOD jumps (URL hash sets zoom=16 from initial
+        //      camera at zoom=1) would force the gate to wait for
+        //      z=16 cached, but we only fetch what's at currentZ
+        //      → cz=1 forever, fetching z=1 only. Stepping makes
+        //      cz climb through LODs as each becomes ready.
+        //   2. Single-step keeps the user's view transitioning
+        //      smoothly (cz=13 → 14 → 15 → 16) instead of stalling
+        //      at the old LOD until the final target is fully
+        //      cached.
+        const step = target > cz ? cz + 1 : cz - 1
+        if (!this._czPendingAdvance || this._czPendingAdvance.target !== step) {
+          // Re-target the timer when the step changes — either we
+          // just advanced one LOD (next step) or the user reversed.
+          this._czPendingAdvance = { target: step, since: now }
+        }
+        // Readiness check at the STEP LOD (cz±1), not target.
+        // Below-minzoom step → instantly ready (no data exists to
+        // wait on).
+        const belowLayerMinzoom = !!(layerRange && step < layerRange.minzoom)
+        const aboveLayerMaxzoom = !!(layerRange && step > layerRange.maxzoom)
+        let total = 0, ready = 0
+        let stepTiles: ReturnType<typeof visibleTilesFrustum> = []
+        if (!belowLayerMinzoom && !aboveLayerMaxzoom) {
+          stepTiles = visibleTilesFrustum(
+            camera, selectorProj, step,
+            canvasWidth, canvasHeight, offsetMarginPx,
+          )
+          for (const t of stepTiles) {
+            if (t.z !== step) continue
+            total++
+            // Catalog-level cache check (no sourceLayer arg) — any
+            // layer slice cached counts as "tile fetched". Per-layer
+            // check would stall forever on tiles where this layer
+            // has no features (e.g. buildings slice absent in a
+            // water-only z=14 cell), since the backend never emits
+            // acceptResult for empty-feature layers.
+            if (this.source!.hasTileData(tileKey(t.z, t.x, t.y))) ready++
+          }
+        }
+        const stepReady = belowLayerMinzoom || aboveLayerMaxzoom
+          || total === 0 || ready === total
+        const timedOut = now - this._czPendingAdvance.since > READINESS_TIMEOUT_MS
+
+        if (stepReady || timedOut) {
+          cz = step
+          // Don't null out — next frame may want to step again
+          // toward the still-distant target. The step-change branch
+          // above will reset the timer for the new step.
+          if (cz === target) this._czPendingAdvance = null
+        } else {
+          // Hold at the current cz, but kick off prefetch for the
+          // step LOD so it can ready up. Tier 2 prefetch further
+          // down does the same for cz+1 in zoom-in, but it's gated
+          // on `camera.zoom > currentZ + 0.5` which is always
+          // true here, so the two paths overlap harmlessly. We
+          // still issue here directly because Tier 2 only fires
+          // every 6 frames, while we want the prefetch to start
+          // on the very first held frame.
+          const stepKeys: number[] = []
+          for (const t of stepTiles) {
+            if (t.z !== step) continue
+            stepKeys.push(tileKey(t.z, t.x, t.y))
+          }
+          if (stepKeys.length > 0) this.source.prefetchTiles(stepKeys)
+        }
+      } else {
+        this._czPendingAdvance = null
+      }
     }
     this._hysteresisZ = cz
     const currentZ = Math.max(0, Math.min(maxSubTileZ, cz))
@@ -886,32 +1013,11 @@ export class VectorTileRenderer {
     // The legacy AABB-based `visibleTiles` path silently drifted from the
     // VTR cache pipeline and broke at low pitch, so it is no longer used.
     //
-    // Culling margin: the default 0.25×canvas envelope misses tiles whose
-    // centerline data is outside the viewport but whose RENDERED stroke
-    // reaches in via `stroke-offset-N`. Add `|offset| + strokeWidth + aa`
-    // in pixels so those tiles are still loaded and drawn.
-    const strokeOffsetPx = Math.abs(show.strokeOffset ?? 0)
-    const strokeWidthPx = show.strokeWidth ?? 1
-    const alignDeltaPx = show.strokeAlign === 'inset' || show.strokeAlign === 'outset'
-      ? strokeWidthPx / 2 : 0
-    // Round to int so the per-layer margin variance (water 2.25,
-    // roads 2.5 in pmtiles_layered) doesn't poison the frame-tile
-    // cache key. ceil because we'd rather over-cull than miss tiles
-    // whose stroke clips into the viewport. For 4 layers all with
-    // small strokes this collapses to one shared cache hit instead
-    // of 2 misses + 2 hits.
-    const offsetMarginPx = Math.ceil(strokeOffsetPx + alignDeltaPx + strokeWidthPx / 2 + 2)
-    // Projection-aware world-copy gate. `this.currentProjection` is
-    // declared but never assigned (legacy field — no caller wires it),
-    // so the previous `?? mercatorProj` always picked Mercator and
-    // worldCopiesFor() returned the full ±2 wrap even under
-    // orthographic. visibleTilesFrustum only reads `.name` on the
-    // projection arg; pass a `{ name }` shim driven by projType so
-    // non-Mercator gets single world. Same pattern as raster-renderer
-    // (commit 14aee7d).
-    const selectorProj = projType === 0
-      ? mercatorProj
-      : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
+    // (Culling margin + selectorProj hoisted above the hysteresis
+    // block so the readiness gate can call visibleTilesFrustum at
+    // the target LOD without duplicating the derivation. See those
+    // definitions for the rationale on margin sizing + projection
+    // shim.)
     // Frame-scoped cache: every layer render in the same frame
     // produces the same visible-tile set unless the culling margin
     // differs (per-layer stroke width). marginPx is part of the cache
