@@ -1,0 +1,215 @@
+---
+import { buildSearchIndexJSON } from '../lib/search-index'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const indexJson = buildSearchIndexJSON(base)
+---
+
+<!-- Trigger button. Hidden on mobile (the mobile drawer handles
+     navigation directly); on desktop sits between the nav links and
+     the GitHub link. -->
+<button
+  type="button"
+  id="search-trigger"
+  class="hidden sm:inline-flex items-center gap-2 px-2.5 h-7 rounded-md
+         bg-bg-card hover:bg-bg-hover border border-line hover:border-line-strong
+         text-fg-mute hover:text-fg-dim text-[12px] font-mono transition-colors"
+  aria-label="Search docs and examples"
+>
+  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="11" cy="11" r="7"/>
+    <path d="m20 20-3.5-3.5"/>
+  </svg>
+  <span class="hidden md:inline">Search</span>
+  <kbd class="hidden md:inline px-1 py-px rounded bg-bg-elev text-[10px] tracking-wider">⌘K</kbd>
+</button>
+
+<!-- Modal — hidden by default, toggled via the script below. -->
+<div
+  id="search-modal"
+  class="fixed inset-0 z-[100] hidden items-start justify-center px-4 pt-[12vh]
+         bg-bg/80 backdrop-blur"
+  aria-hidden="true"
+>
+  <div
+    class="search-card w-full max-w-[640px] rounded-2xl bg-bg-card border border-line shadow-2xl overflow-hidden"
+    role="dialog"
+    aria-label="Search"
+    aria-modal="true"
+  >
+    <div class="flex items-center gap-3 px-5 py-4 border-b border-line">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-fg-mute" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"/>
+        <path d="m20 20-3.5-3.5"/>
+      </svg>
+      <input
+        type="text"
+        id="search-input"
+        placeholder="Search docs and examples…"
+        class="flex-1 bg-transparent text-fg text-[15px] placeholder:text-fg-mute outline-none"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <kbd class="px-1.5 py-0.5 rounded bg-bg-elev text-fg-mute text-[10px] tracking-wider">esc</kbd>
+    </div>
+
+    <ul id="search-results" class="max-h-[60vh] overflow-y-auto py-2"></ul>
+
+    <div class="px-5 py-3 border-t border-line text-[11px] text-fg-mute flex items-center gap-4">
+      <span class="flex items-center gap-1.5">
+        <kbd class="px-1.5 py-px rounded bg-bg-elev">↑</kbd>
+        <kbd class="px-1.5 py-px rounded bg-bg-elev">↓</kbd>
+        Navigate
+      </span>
+      <span class="flex items-center gap-1.5">
+        <kbd class="px-1.5 py-px rounded bg-bg-elev">↵</kbd>
+        Open
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- Embed the index as JSON. The script below parses + filters
+     client-side, no fetch required. -->
+<script type="application/json" id="search-index" set:html={indexJson} />
+
+<script>
+  interface SearchRecord {
+    id: string
+    title: string
+    body: string
+    type: 'doc' | 'demo'
+    tag: string
+    url: string
+  }
+
+  const indexEl = document.getElementById('search-index')
+  const records: SearchRecord[] = indexEl ? JSON.parse(indexEl.textContent || '[]') : []
+
+  const trigger = document.getElementById('search-trigger') as HTMLButtonElement | null
+  const modal = document.getElementById('search-modal') as HTMLDivElement | null
+  const input = document.getElementById('search-input') as HTMLInputElement | null
+  const results = document.getElementById('search-results') as HTMLUListElement | null
+
+  if (!modal || !input || !results) {
+    // Search disabled — body had no markup to wire up. Bail silently.
+  } else {
+    let active = 0
+
+    const open = () => {
+      modal.classList.remove('hidden')
+      modal.classList.add('flex')
+      modal.setAttribute('aria-hidden', 'false')
+      // Reset on each open so the user always sees a fresh list.
+      input.value = ''
+      active = 0
+      render('')
+      // requestAnimationFrame to ensure visibility before focus.
+      requestAnimationFrame(() => input.focus())
+    }
+    const close = () => {
+      modal.classList.add('hidden')
+      modal.classList.remove('flex')
+      modal.setAttribute('aria-hidden', 'true')
+    }
+    const isOpen = () => !modal.classList.contains('hidden')
+
+    // ⌘K / Ctrl-K opens the modal; `/` opens it too unless the user
+    // is already typing in another field. `Escape` closes.
+    document.addEventListener('keydown', e => {
+      const meta = e.metaKey || e.ctrlKey
+      if (meta && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        isOpen() ? close() : open()
+        return
+      }
+      const target = e.target as HTMLElement | null
+      const inField = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+      if (e.key === '/' && !inField && !isOpen()) {
+        e.preventDefault()
+        open()
+        return
+      }
+      if (!isOpen()) return
+      if (e.key === 'Escape') { e.preventDefault(); close() }
+      if (e.key === 'ArrowDown') { e.preventDefault(); move(1) }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); move(-1) }
+      if (e.key === 'Enter')     { e.preventDefault(); openActive() }
+    })
+
+    trigger?.addEventListener('click', open)
+    modal.addEventListener('click', e => {
+      // Click outside the card dismisses.
+      if (e.target === modal) close()
+    })
+
+    input.addEventListener('input', () => {
+      active = 0
+      render(input.value)
+    })
+
+    let lastFiltered: SearchRecord[] = []
+
+    const render = (q: string) => {
+      // Trim + lowercase. Empty query shows everything (capped at 12).
+      const needle = q.trim().toLowerCase()
+      const filtered = needle
+        ? records.filter(r =>
+            r.title.toLowerCase().includes(needle) ||
+            r.body.toLowerCase().includes(needle) ||
+            r.tag.toLowerCase().includes(needle))
+            .slice(0, 30)
+        : records.slice(0, 12)
+      lastFiltered = filtered
+      results.innerHTML = filtered.length === 0
+        ? `<li class="px-5 py-6 text-[13px] text-fg-mute">No matches for "${escapeHtml(q)}"</li>`
+        : filtered.map((r, i) => `
+            <li>
+              <a href="${r.url}" data-idx="${i}" class="search-row group flex items-start gap-4 px-5 py-3 ${i === active ? 'bg-bg-hover' : ''}">
+                <span class="mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded bg-bg-elev text-[10px] font-medium tracking-wider uppercase ${r.type === 'demo' ? 'text-accent' : 'text-fg-dim'}">${escapeHtml(r.tag)}</span>
+                <span class="flex-1 min-w-0">
+                  <p class="text-[14px] font-medium text-fg leading-[1.3]">${escapeHtml(r.title)}</p>
+                  <p class="text-[12px] text-fg-dim leading-[1.45] truncate">${escapeHtml(r.body)}</p>
+                </span>
+              </a>
+            </li>
+          `).join('')
+
+      // Hover updates active so keyboard + mouse stay coherent.
+      results.querySelectorAll<HTMLAnchorElement>('.search-row').forEach((row, i) => {
+        row.addEventListener('mouseenter', () => {
+          active = i
+          row.parentElement?.parentElement?.querySelectorAll('.search-row').forEach((r, j) => {
+            r.classList.toggle('bg-bg-hover', j === i)
+          })
+        })
+      })
+    }
+
+    const move = (dir: number) => {
+      if (lastFiltered.length === 0) return
+      active = (active + dir + lastFiltered.length) % lastFiltered.length
+      const rows = results.querySelectorAll('.search-row')
+      rows.forEach((r, i) => r.classList.toggle('bg-bg-hover', i === active))
+      rows[active]?.scrollIntoView({ block: 'nearest' })
+    }
+
+    const openActive = () => {
+      const r = lastFiltered[active]
+      if (!r) return
+      window.location.href = r.url
+    }
+
+    const escapeHtml = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  }
+</script>
+
+<style>
+  /* Modal show on .flex (state class set by JS). Tailwind doesn't
+   * compose `hidden` + `flex` cleanly, so explicit display values. */
+  #search-modal.flex { display: flex; }
+  .search-card {
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  }
+</style>
