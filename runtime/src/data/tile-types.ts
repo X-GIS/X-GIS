@@ -99,11 +99,19 @@ export const MAX_CACHED_BYTES = 200 * 1024 * 1024
 
 /** Hard cap on simultaneous in-flight tile fetches across all
  *  backends. 32 keeps initial load at city-scale views under
- *  ~2 seconds (4-6 visible tiles + parent prefetch fit in one
- *  fetch wave) without creating GPU pressure — the per-MVT-layer
- *  decoder filter ensures only used slices compile, so each tile
- *  yields ~4 buffers regardless of archive layer count. */
-export const MAX_CONCURRENT_LOADS = 32
+ *  ~2 seconds on desktop (4-6 visible tiles + parent prefetch fit
+ *  in one fetch wave). Mobile gets a tighter 8: sustained pinch +
+ *  drag would otherwise cycle hundreds of fetches/sec through
+ *  fetch → decode → upload → evict, which on iPhone reproducibly
+ *  triggered Chrome's forced page refresh under thermal/memory
+ *  pressure (post-fix-A user report). 8 still drains a region jump
+ *  inside ~1 s while bounding the worker + GPU pipeline depth. */
+function _isMobileEnv(): boolean {
+  if (typeof window === 'undefined') return false
+  const w = window.innerWidth || 0
+  return w > 0 && w <= 900
+}
+export const MAX_CONCURRENT_LOADS = _isMobileEnv() ? 8 : 32
 
 // ═══ VirtualCatalog (legacy hook — to be replaced by TileSource in Step 3) ═══
 

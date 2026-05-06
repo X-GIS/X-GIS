@@ -75,8 +75,18 @@ export interface PMTilesBackendOptions {
 
 /** Per-backend cap on simultaneous in-flight HTTP fetches. Independent
  *  of catalog-level MAX_CONCURRENT_LOADS — protects this backend from
- *  oversubscribing one archive's network. */
-const MAX_INFLIGHT = 16
+ *  oversubscribing one archive's network. Mobile gets a tighter cap
+ *  because each in-flight fetch holds a directory-page reference in
+ *  the pmtiles client + an MVT decode in the worker queue. User-
+ *  reported forced refresh on iPhone after sustained pinch+drag
+ *  navigation traced to fetch / decode pressure compounding faster
+ *  than the GPU could drain it. */
+function isMobileEnv(): boolean {
+  if (typeof window === 'undefined') return false
+  const w = window.innerWidth || 0
+  return w > 0 && w <= 900
+}
+const MAX_INFLIGHT = isMobileEnv() ? 4 : 16
 
 /** Per-key negative cache TTL (ms) for tiles that the fetcher has
  *  reported `'failed'` for. While a key is in the failed cache,

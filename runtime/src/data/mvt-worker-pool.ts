@@ -62,7 +62,17 @@ export class MvtWorkerPool {
     const hc = typeof navigator !== 'undefined' && navigator.hardwareConcurrency
       ? navigator.hardwareConcurrency
       : 4
-    this.size = Math.max(2, Math.min(6, hc - 1))
+    // Cap workers at 2 on mobile-class viewports — every active
+    // worker holds an MVT-decode arena in flight + competes with
+    // the main thread for thermal budget. Desktop keeps the
+    // hardwareConcurrency-driven 2-6 range. Re-checked at
+    // construction time so the cap works in both real mobile
+    // browsers and Playwright mobile-emulation viewports.
+    const isMobile = typeof window !== 'undefined'
+      && (window.innerWidth || 0) > 0
+      && (window.innerWidth || 0) <= 900
+    const ceiling = isMobile ? 2 : 6
+    this.size = Math.max(2, Math.min(ceiling, hc - 1))
   }
 
   private ensureWorkers(): void {
