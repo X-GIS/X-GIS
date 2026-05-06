@@ -140,17 +140,73 @@ function buildShell(state: InspectorState): void {
   const header = document.createElement('div')
   header.style.cssText = [
     'display:flex', 'align-items:center', 'justify-content:space-between',
-    'padding:5px 8px', 'background:#27272a', 'cursor:pointer',
+    'gap:6px',
+    'padding:5px 8px', 'background:#27272a',
     'font-weight:600', 'color:#fafafa', 'border-bottom:1px solid #3f3f46',
   ].join(';')
-  header.innerHTML = '<span>X-GIS Inspector</span><span id="xgis-insp-min" style="opacity:0.6">▾</span>'
-  header.addEventListener('click', () => {
+
+  const title = document.createElement('span')
+  title.textContent = 'X-GIS Inspector'
+  title.style.cursor = 'pointer'
+  title.style.flex = '1'
+  header.appendChild(title)
+
+  // Copy button — dumps every tab's content + a short metadata
+  // header into the clipboard as plain text. Cheaper than image
+  // captures for sharing perf reports.
+  const copyBtn = document.createElement('button')
+  copyBtn.textContent = 'Copy'
+  copyBtn.style.cssText = [
+    'background:#3f3f46', 'color:#fafafa', 'border:none', 'border-radius:3px',
+    'padding:2px 8px', 'font:inherit', 'font-size:10px', 'cursor:pointer',
+  ].join(';')
+  copyBtn.addEventListener('click', async (e) => {
+    e.stopPropagation()
+    const text = collectAllTabsAsText(state)
+    try {
+      await navigator.clipboard.writeText(text)
+      const orig = copyBtn.textContent
+      copyBtn.textContent = '✓ Copied'
+      copyBtn.style.background = '#16a34a'
+      setTimeout(() => {
+        copyBtn.textContent = orig
+        copyBtn.style.background = '#3f3f46'
+      }, 1200)
+    } catch {
+      // navigator.clipboard fails on insecure contexts. Fallback:
+      // fill a hidden textarea + select + execCommand('copy'). Some
+      // older mobile browsers (and iOS Safari without HTTPS) need
+      // this path; on https GitHub Pages it'll be the first branch.
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0;'
+      document.body.appendChild(ta)
+      ta.select()
+      try { document.execCommand('copy') } finally { ta.remove() }
+      copyBtn.textContent = '✓ Copied (fallback)'
+      copyBtn.style.background = '#16a34a'
+      setTimeout(() => {
+        copyBtn.textContent = 'Copy'
+        copyBtn.style.background = '#3f3f46'
+      }, 1500)
+    }
+  })
+  header.appendChild(copyBtn)
+
+  const minBtn = document.createElement('span')
+  minBtn.id = 'xgis-insp-min'
+  minBtn.textContent = '▾'
+  minBtn.style.cssText = 'opacity:0.6;cursor:pointer;padding:0 4px'
+  header.appendChild(minBtn)
+
+  const toggleVisible = (): void => {
     state.visible = !state.visible
     state.body.style.display = state.visible ? '' : 'none'
     tabBar.style.display = state.visible ? '' : 'none'
-    const min = header.querySelector('#xgis-insp-min')
-    if (min) min.textContent = state.visible ? '▾' : '▸'
-  })
+    minBtn.textContent = state.visible ? '▾' : '▸'
+  }
+  title.addEventListener('click', toggleVisible)
+  minBtn.addEventListener('click', e => { e.stopPropagation(); toggleVisible() })
   state.el.appendChild(header)
 
   const tabBar = document.createElement('div')
@@ -413,6 +469,41 @@ function renderNet(state: InspectorState): string {
     'lots of aborts means the work isn\'t free even if it never',
     'completes. Reduce fetch starts to actually drop the load.',
   ].join('\n')
+}
+
+function collectAllTabsAsText(state: InspectorState): string {
+  const map = (window as unknown as { __xgisMap?: XGISMap }).__xgisMap
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '?'
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio : 1
+  const url = typeof location !== 'undefined' ? location.href : '?'
+  const ts = new Date().toISOString()
+
+  const sections: string[] = []
+  sections.push('═══ X-GIS Inspector report ═══')
+  sections.push(`captured  : ${ts}`)
+  sections.push(`url       : ${url}`)
+  sections.push(`ua        : ${ua}`)
+  sections.push(`viewport  : ${window.innerWidth}×${window.innerHeight}  dpr ${dpr}`)
+  sections.push(`runtime   : ${((performance.now() - state.startMs) / 1000).toFixed(1)} s`)
+  sections.push('')
+  sections.push('── Frame ──')
+  sections.push(renderFrame(state, map))
+  sections.push('')
+  sections.push('── Tiles ──')
+  sections.push(renderTiles(state, map))
+  sections.push('')
+  sections.push('── GPU ──')
+  sections.push(renderGPU(state, map))
+  sections.push('')
+  sections.push('── Cache ──')
+  sections.push(renderCache(state))
+  sections.push('')
+  sections.push('── Camera ──')
+  sections.push(renderCamera(state, map))
+  sections.push('')
+  sections.push('── Net ──')
+  sections.push(renderNet(state))
+  return sections.join('\n')
 }
 
 function fmtMB(bytes: number): string {

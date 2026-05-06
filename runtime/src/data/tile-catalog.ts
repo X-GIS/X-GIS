@@ -40,7 +40,7 @@ import type {
 import {
   type TileData,
   DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE,
-  MAX_CACHED_TILES, MAX_CACHED_BYTES, maxConcurrentLoads,
+  MAX_CACHED_TILES, maxCachedBytes, maxConcurrentLoads,
   type VirtualCatalog, type VirtualTileFetcher,
 } from './tile-types'
 
@@ -692,7 +692,13 @@ export class TileCatalog {
    *  long enough to bridge gate hold → cz advance → tile becomes
    *  part of the new neededKeys (and thus protectedKeys). */
   private _evictShield: Map<number, number> = new Map()
-  private static readonly EVICT_SHIELD_TTL_MS = 5_000
+  // Reduced 5 s → 2 s after real-device inspector (iPhone) showed
+  // 62 keys still protected by the shield while catalog cache sat
+  // at 296 MB. With 5 s TTL + a steady stream of prefetch the shield
+  // population grew faster than the natural eviction churn could
+  // drain it. 2 s still bridges the prefetch → cz-advance gap on
+  // mobile (typical step LOD fetch settles in 0.5-1 s).
+  private static readonly EVICT_SHIELD_TTL_MS = 2_000
 
   /** Prefetch variant of requestTiles: forwards to the same dispatch
    *  path but also adds the keys to `_prefetchKeys` so this frame's
@@ -1283,8 +1289,9 @@ export class TileCatalog {
     // Two caps: byte-based (tight, accurate) and count-based
     // (loose safety net). Either tripping is enough to trigger
     // eviction; the loop runs until BOTH are under their limits.
+    const _byteCap = maxCachedBytes()
     if (this.dataCache.size <= MAX_CACHED_TILES
-        && this._cachedBytes <= MAX_CACHED_BYTES) return
+        && this._cachedBytes <= _byteCap) return
 
     // Eviction: anything not in `protectedKeys` (visible + fallback
     // ancestors for the current frame) is fair game. The previous
@@ -1323,7 +1330,7 @@ export class TileCatalog {
     let i = 0
     while (i < entries.length
            && (this.dataCache.size > MAX_CACHED_TILES
-               || this._cachedBytes > MAX_CACHED_BYTES)) {
+               || this._cachedBytes > _byteCap)) {
       this.deleteCacheEntry(entries[i][0])
       i++
     }

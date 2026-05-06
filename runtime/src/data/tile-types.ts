@@ -95,6 +95,21 @@ export const MAX_CACHED_TILES = 256
  *  visible viewport (≈ 30 tiles × ~3 MB each ≈ 100 MB) leaves
  *  ample pan-history headroom while keeping total heap < 1 GB
  *  under continuous world-scale navigation. */
+export function maxCachedBytes(): number {
+  // Mobile gets a 100 MB ceiling — real-device inspector (iPhone,
+  // Seoul z=8.7) showed catalog cache at 296 MB on the 200 MB cap,
+  // i.e. eviction couldn't keep up because too many keys were
+  // protected by stableKeys + evictShield + prefetchKeys. 100 MB
+  // forces tighter LRU churn on mobile while desktop stays at
+  // 200 MB for headroom. Evaluated lazily for the same Playwright /
+  // mobile-DPR-init reasons as the concurrency caps.
+  const w = (typeof window !== 'undefined' ? window.innerWidth : 0) || 0
+  return (w > 0 && w <= 900 ? 100 : 200) * 1024 * 1024
+}
+/** @deprecated Use {@link maxCachedBytes}() instead — module-init
+ *  evaluation captured the wrong viewport. Kept as a back-compat
+ *  desktop-default so external callers don't break, but internal
+ *  catalog code now calls the function form. */
 export const MAX_CACHED_BYTES = 200 * 1024 * 1024
 
 /** Hard cap on simultaneous in-flight tile fetches across all
