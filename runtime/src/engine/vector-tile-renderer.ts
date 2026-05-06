@@ -57,7 +57,20 @@ interface GPUTile {
 // inflating vertex counts, missing per-layer decoder filter
 // loading 10+ unused slices per tile, duplicate LoadCommands
 // spawning 4× orphan VTRs all hammering GPU).
-const MAX_GPU_TILES = 256
+const MAX_GPU_TILES_DESKTOP = 256
+/** Mobile cap on UNIQUE tile keys held in gpuCache. Real-device
+ *  iPhone inspector showed gpu cache at 733 entries (146 unique
+ *  keys × 5 layers = 730 entries) for a 256-unique cap — plenty
+ *  of GPU memory retained while only ~50 unique keys were on
+ *  screen. 64 unique × 5 layers = 320 entries puts the resident
+ *  GPU footprint at roughly 1/2.3 of the desktop ceiling without
+ *  forcing visible-tile thrash (visible viewport on a mobile
+ *  canvas is 10-20 unique keys at any settled zoom). */
+const MAX_GPU_TILES_MOBILE = 64
+function getMaxGpuTiles(): number {
+  const w = (typeof window !== 'undefined' ? window.innerWidth : 0) || 0
+  return w > 0 && w <= 900 ? MAX_GPU_TILES_MOBILE : MAX_GPU_TILES_DESKTOP
+}
 /** Max tiles promoted from data cache to GPU per frame. Chosen empirically:
  *  crossing a z-boundary produces ~16 newly-visible tiles, and uploading
  *  them all in one frame caused ~250 ms stalls (perf-scenarios benchmark,
@@ -402,7 +415,7 @@ export class VectorTileRenderer {
     // entries, but the cap evictGPUTiles enforces is on UNIQUE TILE KEYS.
     // A sliced source can have ~4× the entries-per-tile, so we may enter
     // evictGPUTiles below the cap; it short-circuits correctly in that case.
-    if (this._gpuCacheCount > MAX_GPU_TILES) this.evictGPUTiles()
+    if (this._gpuCacheCount > getMaxGpuTiles()) this.evictGPUTiles()
     // CPU-side TileCatalog eviction. Without this the dataCache grew
     // unbounded for the lifetime of the session — VTR's gpuCache
     // capped GPU memory but every parsed-and-decoded tile's
@@ -2042,7 +2055,7 @@ export class VectorTileRenderer {
         if (tile.lastUsedFrame > bucket.lastUsed) bucket.lastUsed = tile.lastUsedFrame
       }
     }
-    if (byTileKey.size <= MAX_GPU_TILES) return
+    if (byTileKey.size <= getMaxGpuTiles()) return
 
     // Eviction policy: only this frame's stableKeys are protected.
     //
@@ -2069,7 +2082,7 @@ export class VectorTileRenderer {
     }
     evictable.sort((a, b) => a.lastUsed - b.lastUsed)
 
-    const toEvict = byTileKey.size - MAX_GPU_TILES
+    const toEvict = byTileKey.size - getMaxGpuTiles()
     for (let i = 0; i < toEvict && i < evictable.length; i++) {
       const ev = evictable[i]
       for (const slot of ev.slots) {

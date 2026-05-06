@@ -149,17 +149,17 @@ function isMobileViewport(canvasWidth: number, canvasHeight: number): boolean {
 // ~60 unique tiles ≈ 240 drawCalls).
 const MAX_FRUSTUM_TILES_CEILING = 300
 function maxFrustumTilesFor(canvasWidth: number, canvasHeight: number): number {
-  // Real-device inspector data (iPhone, Seoul z=8.7): 25 unique
-  // tiles × 4 sourceLayers ≈ 1.1 M triangles + 240 K line segments
-  // per frame. At 60 fps that's 67 M vertices/s + 14 M segments/s
-  // — past mobile GPU thermal headroom even though desktop fps
-  // stayed at 60. Tighter caps:
-  //   - mobile floor 20 → 12 (caps 4-layer triangles at ~600 K/frame)
-  //   - viewport-area divisor 12 K → 18 K (smaller default count)
-  // Desktop unchanged (floor 60, 12 K divisor).
+  // Real-device inspector data (iPhone, Tokyo z=9.1, performance
+  // preset): GPU pass 17.4 ms (60 fps target 16.7 ms — just past),
+  // fps 30s avg 35. Even with DPR 1.0 + msaa 1, 196 K line SDF
+  // segments + 429 K triangles per frame is too much for the
+  // sustained mobile GPU budget. Tightening visible cap further:
+  //   - mobile floor 12 → 8 (caps 4-layer triangles ~300 K/frame)
+  //   - viewport-area divisor 18 K → 24 K (smaller default count)
+  // Desktop unchanged.
   const isMobile = isMobileViewport(canvasWidth, canvasHeight)
-  const floor = isMobile ? 12 : 60
-  const divisor = isMobile ? 18000 : 12000
+  const floor = isMobile ? 8 : 60
+  const divisor = isMobile ? 24000 : 12000
   return Math.max(
     floor,
     Math.min(MAX_FRUSTUM_TILES_CEILING, Math.round((canvasWidth * canvasHeight) / divisor)),
