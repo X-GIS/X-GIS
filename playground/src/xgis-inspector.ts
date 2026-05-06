@@ -339,8 +339,54 @@ function renderTiles(state: InspectorState, map: XGISMap | undefined): string {
     lines.push(`lines        : ${ds.lines ?? 0}`)
     lines.push(`gpu cache    : ${r.getCacheSize?.() ?? '?'}`)
     lines.push(`pending up   : ${r.getPendingUploadCount?.() ?? 0}`)
+
+    // GPU cache zoom distribution — answers "is the renderer
+    // pulling tiles at a higher z than currentZ?". Mixed-LOD
+    // frustum picks deeper-z tiles for pixels close to the camera,
+    // so the spread tells you whether on-screen content is being
+    // drawn at the level you'd expect for the current zoom or at
+    // an over-precise level. The expected pattern is "mostly
+    // currentZ ± 1, a few lower-z far-distance tiles". Anything
+    // significantly above currentZ at flat pitch = over-detail.
+    if (r.gpuCache) {
+      const byZ = new Map<number, number>()
+      for (const inner of r.gpuCache.values()) {
+        for (const tile of inner.values()) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const tz = (tile as any).tileZoom
+          if (typeof tz === 'number') byZ.set(tz, (byZ.get(tz) ?? 0) + 1)
+        }
+      }
+      const cz = r._hysteresisZ ?? '?'
+      const zKeys = [...byZ.keys()].sort((a, b) => a - b)
+      const zSummary = zKeys.length
+        ? zKeys.map(z => `z=${z}:${byZ.get(z)}`).join(' ')
+        : '(empty)'
+      lines.push(`currentZ     : ${cz}`)
+      lines.push(`gpu by zoom  : ${zSummary}`)
+    }
+
     if (cat) {
       lines.push(`catalog cache: ${cat.dataCache?.size ?? 0}  bytes ${fmtMB(cat._cachedBytes ?? 0)}`)
+      // Catalog tile zoom distribution — same idea, but shows
+      // CPU-side cached zoom levels instead of the GPU-resident
+      // ones. Often reveals retention of higher-z tiles from a
+      // prior pinch-in that haven't been evicted yet.
+      const dc = cat.dataCache as Map<number, Map<string, { tileZoom?: number }>> | undefined
+      if (dc) {
+        const byZ = new Map<number, number>()
+        for (const slot of dc.values()) {
+          // each tile key has the same zoom across slices, so sample first
+          const first = slot.values().next().value as { tileZoom?: number } | undefined
+          if (first?.tileZoom !== undefined) {
+            byZ.set(first.tileZoom, (byZ.get(first.tileZoom) ?? 0) + 1)
+          }
+        }
+        const zKeys = [...byZ.keys()].sort((a, b) => a - b)
+        if (zKeys.length) {
+          lines.push(`cat by zoom  : ${zKeys.map(z => `z=${z}:${byZ.get(z)}`).join(' ')}`)
+        }
+      }
       lines.push(`loadingTiles : ${cat.loadingTiles?.size ?? 0}`)
       lines.push(`prefetchKeys : ${cat._prefetchKeys?.size ?? 0}  age ${cat._prefetchAge ?? 0}`)
       lines.push(`evictShield  : ${cat._evictShield?.size ?? 0}`)
