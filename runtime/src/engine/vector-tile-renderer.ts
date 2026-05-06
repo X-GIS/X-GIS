@@ -838,6 +838,21 @@ export class VectorTileRenderer {
     // a vastly better trade than the steady-state heap cost.
     data.prebuiltLineSegments = undefined
     data.prebuiltOutlineSegments = undefined
+
+    // Drop the raw polygon rings too — these are RingPolygon[] (plain
+    // JS nested arrays) retained only for sub-tile generation when
+    // visible zoom exceeds archive maxLevel. At sub-archive zooms (the
+    // common case: PMTiles maxLevel = 15, user is at z=8-14) sub-tile
+    // gen never fires, so the rings are pure overhead — and they're
+    // big: real-device iPhone inspector at Tokyo z=9.1 showed 4 tiles
+    // × ~73 MB total, with rings the dominant share. The over-zoom
+    // path (catalog.generateSubTile) already has a fallback for
+    // missing polygons via outlineIndices (legacy dash-phase reset
+    // recurs there but visible content stays correct), so drop is
+    // safe — just at the cost of slightly worse over-zoom dash
+    // continuity at z > maxLevel, a corner of the camera space the
+    // app rarely sits in.
+    data.polygons = undefined
   }
 
   /** Render visible tiles into a render pass */
