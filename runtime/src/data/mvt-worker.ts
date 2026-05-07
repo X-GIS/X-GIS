@@ -23,29 +23,24 @@ import { buildLineSegments } from '../engine/line-segment-build'
 import { evalExtrudeExpr } from './extrude-eval'
 
 /** Extract per-feature 3D extrude heights from a layer's features.
- *  With `expr` set, evaluates the AST against each feature's
- *  properties (any compiler expression — `.height`, `.levels * 3.5`,
- *  `max(.height, 20)`, `clamp(.h, 5, 200)`, etc.). Without it, falls
- *  back to the protomaps default of `render_height ?? height`.
- *  Non-finite / non-positive / non-numeric results are filtered by
- *  evalExtrudeExpr → those features get the layer's fallback height
- *  at upload time. */
+ *  Only runs when the style explicitly opts in via `extrude:` (the
+ *  AST is passed in as `expr`). Layers without an extrude directive
+ *  return an empty Map — the previous "auto-detect render_height /
+ *  height" fallback was removed because protomaps puts those fields
+ *  on bridges, overpasses, POIs, etc., which then accidentally got
+ *  lifted off the ground. Why: explicit > implicit. How to apply:
+ *  if a style wants buildings extruded, it must say `extrude: .height`. */
 function extractFeatureHeights(
   features: GeoJSONFeature[],
-  expr?: unknown,
+  expr: unknown,
 ): Map<number, number> {
   const out = new Map<number, number>()
+  if (!expr) return out
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
-    if (expr) {
-      const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
-      if (v !== null) out.set(i, v)
-    } else {
-      const r = (props as { render_height?: unknown; height?: unknown }).render_height
-        ?? (props as { height?: unknown }).height
-      if (typeof r === 'number' && Number.isFinite(r) && r > 0) out.set(i, r)
-    }
+    const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
+    if (v !== null) out.set(i, v)
   }
   return out
 }
@@ -157,10 +152,10 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
 
       // Build featId→height first so the segment builder can bake
       // per-segment z lift into the outline buffer for extruded
-      // layers. protomaps `buildings` uses `render_height` (rounded
-      // for rendering) and `height` (raw); custom expressions land
-      // here via `msg.extrudeExprs`. Layers without any height data
-      // produce an empty Map → segment z stays at 0 (ground).
+      // layers. Heights are extracted only for layers whose style
+      // declares `extrude:` (entry present in `msg.extrudeExprs`).
+      // Layers without that directive get an empty Map → segment z
+      // stays at 0 (ground).
       const heights = extractFeatureHeights(layerFeatures, msg.extrudeExprs?.[layerName])
 
       let prebuiltOutlineSegments: ArrayBuffer | undefined

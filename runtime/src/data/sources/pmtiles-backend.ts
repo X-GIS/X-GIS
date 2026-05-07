@@ -35,20 +35,15 @@ import { evalExtrudeExpr } from '../extrude-eval'
  *  helper. Keep in sync with the worker copy. */
 function extractFeatureHeights(
   features: GeoJSONFeature[],
-  expr?: unknown,
+  expr: unknown,
 ): Map<number, number> {
   const out = new Map<number, number>()
+  if (!expr) return out
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
-    if (expr) {
-      const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
-      if (v !== null) out.set(i, v)
-    } else {
-      const r = (props as { render_height?: unknown; height?: unknown }).render_height
-        ?? (props as { height?: unknown }).height
-      if (typeof r === 'number' && Number.isFinite(r) && r > 0) out.set(i, r)
-    }
+    const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
+    if (v !== null) out.set(i, v)
   }
   return out
 }
