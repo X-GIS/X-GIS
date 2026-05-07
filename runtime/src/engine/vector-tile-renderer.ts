@@ -512,6 +512,11 @@ export class VectorTileRenderer {
    *  frame via `_pendingUploads`, keeping per-frame work bounded. */
   private _uploadBudget = 3
   private _pendingUploads: { key: number; data: TileData; sourceLayer: string }[] = []
+  /** Per-decision counts from the last render() call. Always tracked
+   *  (cheap — Map of ~7 string keys). Exposed via
+   *  `getLastDecisionCounts()` for inspector / console diagnosis.
+   *  Reset on every render() entry. */
+  private _lastDecisionCounts: Map<string, number> = new Map()
 
   /** The outer render-on-demand loop calls this to know whether it still
    *  needs to tick — if tiles are queued for upload the scene hasn't
@@ -523,6 +528,24 @@ export class VectorTileRenderer {
   /** Diagnostic: queue depth for inspectPipeline() snapshots. */
   getPendingUploadCount(): number {
     return this._pendingUploads.length
+  }
+
+  /** Diagnostic — per-decision tile count from the last completed
+   *  `render()` call. Always populated (small cost, single counter
+   *  Map per VTR). Inspector / browser-console consumers query this
+   *  to see what each visible tile was resolved as:
+   *
+   *    primary             — drew via layerCache hit
+   *    parent-fallback     — cached ancestor pushed
+   *    child-fallback      — deck.gl best-available children stretch
+   *    overzoom-parent     — over-zoom fast-path parent at maxLevel
+   *    drop-empty-slice    — sliced source: this layer empty here
+   *    drop-no-archive     — tile not in archive index
+   *    pending             — fetch issued, no fallback found yet
+   *    queued-no-fb (BUG)  — uploadTile queued, no fallback (49d4801)
+   */
+  getLastDecisionCounts(): Record<string, number> {
+    return Object.fromEntries(this._lastDecisionCounts)
   }
 
   private allocUniformSlot(): number {
@@ -1593,8 +1616,7 @@ export class VectorTileRenderer {
     // skip them entirely.
     let anyInArchive = false
 
-    // Per-tile decision tracker for the production invariant. Each
-    // tile must end up with a decision in:
+    // Per-tile decision tracker. Each visible tile resolves to one of:
     //   'primary'         — layerCache hit, will draw
     //   'parent-fallback' — cached ancestor pushed to fallbackKeys
     //   'child-fallback'  — cached child (deck.gl best-available) pushed
@@ -1603,10 +1625,13 @@ export class VectorTileRenderer {
     //   'drop-empty-slice'— sliced source layer has no features here
     //   'drop-no-archive' — tile not in archive index, no ancestor either
     //   'pending'         — fetch issued, no fallback found (cold area)
-    // Activated by `globalThis.__XGIS_INVARIANTS = true`. Production
-    // builds never set this → array allocation is gated, zero overhead.
+    //
+    // Always populated (lightweight: array of constant-string refs).
+    // The invariant-throw at end of loop is gated on
+    // `globalThis.__XGIS_INVARIANTS`; the per-decision count summary
+    // (exposed via `getLastDecisionCounts()`) is always available.
+    const _tileDecisions: (string | undefined)[] = new Array(tiles.length)
     const _inv = (globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS
-    const _tileDecisions: (string | undefined)[] = _inv ? new Array(tiles.length) : []
 
     for (let i = 0; i < tiles.length; i++) {
       const key = neededKeys[i]
@@ -1639,14 +1664,14 @@ export class VectorTileRenderer {
           const data = this.source.getTileData(parentKey, sliceLayer)
           if (data) this.doUploadTile(parentKey, data, sliceLayer)
         }
-        if (_inv) _tileDecisions[i] = 'overzoom-parent'
+        _tileDecisions[i] = 'overzoom-parent'
         continue
       }
       // ── END FAST PATH ──
 
       anyInArchive = true
       if (layerCache.has(key)) {
-        if (_inv) _tileDecisions[i] = 'primary'
+        _tileDecisions[i] = 'primary'
         continue
       }
 
@@ -1677,7 +1702,7 @@ export class VectorTileRenderer {
         // (A) — fall through to walk
       } else if (sliceLayer && tiles[i].z <= maxLevel && this.source.hasTileData(key)) {
         // (B) — drop empty slice
-        if (_inv) _tileDecisions[i] = 'drop-empty-slice'
+        _tileDecisions[i] = 'drop-empty-slice'
         continue
       }
 
@@ -1766,7 +1791,7 @@ export class VectorTileRenderer {
           fallbackOffsets.push(worldOffDeg[i]) // same world offset as the child
           foundCached = true
         }
-        if (_inv) _tileDecisions[i] = 'parent-fallback'
+        _tileDecisions[i] = 'parent-fallback'
       }
 
       // deck.gl `refinementStrategy: 'best-available'` + Mapbox
@@ -1789,7 +1814,7 @@ export class VectorTileRenderer {
             fallbackKeys.push(ck)
             fallbackOffsets.push(worldOffDeg[i])
             foundCached = true
-            if (_inv) _tileDecisions[i] = 'child-fallback'
+            _tileDecisions[i] = 'child-fallback'
           }
         }
       }
@@ -1801,7 +1826,7 @@ export class VectorTileRenderer {
           this.tileDropWarnings.add(wKey)
           console.warn(`[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${maxLevel}).`)
         }
-        if (_inv) _tileDecisions[i] = 'drop-no-archive'
+        _tileDecisions[i] = 'drop-no-archive'
         continue
       }
 
@@ -1812,7 +1837,7 @@ export class VectorTileRenderer {
           toLoad.push(closestExisting)
         }
         this._missedTiles++
-        if (_inv && _tileDecisions[i] === undefined) _tileDecisions[i] = 'pending'
+        if (_tileDecisions[i] === undefined) _tileDecisions[i] = 'pending'
       }
     }
 
@@ -1840,6 +1865,15 @@ export class VectorTileRenderer {
           )
         }
       }
+    }
+
+    // Always-on per-decision summary for inspector / console diagnosis.
+    // Reset to start fresh each render() call so consumers see THIS
+    // layer's distribution. Tilly with `getLastDecisionCounts()`.
+    this._lastDecisionCounts.clear()
+    for (let i = 0; i < tiles.length; i++) {
+      const d = _tileDecisions[i] ?? 'untracked'
+      this._lastDecisionCounts.set(d, (this._lastDecisionCounts.get(d) ?? 0) + 1)
     }
 
     // Request missing tiles BEFORE drawing — on-demand tiles compile synchronously
