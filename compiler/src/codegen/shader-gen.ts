@@ -85,6 +85,15 @@ export function generateShaderVariant(
   // ── Cache key ──
   const featureFields = [...allFeatureFields].sort()
   const key = buildKey(node, fillResult, strokeResult, opacityResult, featureFields)
+    // Match-arms hash: two compound layers (same field, different
+    // value→colour mappings) produce IDENTICAL `f:feat|ff:kind`
+    // keys but DIFFERENT shader bodies — the if-else chain in
+    // matchPreamble differs. Without this, the variant cache
+    // returns the FIRST compiled compound's pipeline for the
+    // SECOND compound's draws → roads end up rendered with
+    // landuse colours (or vice versa). Including a hash of the
+    // injected match preambles disambiguates them.
+    + matchArmsKey(fillResult.matchPreamble, strokeResult.matchPreamble)
 
   return {
     key,
@@ -348,6 +357,20 @@ function buildFieldMap(fields: Set<string>): Map<string, number> {
     map.set(field, offset++)
   }
   return map
+}
+
+/** Stable short hash of the fill / stroke match-preamble bodies.
+ *  Returns empty string when both are absent so non-match variants
+ *  keep their existing cache key bytes unchanged. */
+function matchArmsKey(fillPre: string | undefined, strokePre: string | undefined): string {
+  if (!fillPre && !strokePre) return ''
+  const combined = `${fillPre ?? ''}${strokePre ?? ''}`
+  let h = 5381
+  for (let i = 0; i < combined.length; i++) {
+    h = (h * 33) ^ combined.charCodeAt(i)
+    h |= 0
+  }
+  return `|m:${(h >>> 0).toString(36)}`
 }
 
 function buildKey(
