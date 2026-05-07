@@ -417,6 +417,24 @@ export function mergeLayers(scene: Scene): Scene {
       },
       filter: { ast: orFilter } as DataExpr,
     }
+    // Dev-mode visibility into the merge. Triggered ONLY when the
+    // host environment defines `__XGIS_MERGE_LOG = true` (set by
+    // playground vite config in dev, off in prod). Lets a contributor
+    // confirm at-a-glance which xgis layers actually folded without
+    // grepping IR snapshots. Production deployments stay silent.
+    const env = (globalThis as { __XGIS_MERGE_LOG?: boolean })
+    if (env.__XGIS_MERGE_LOG) {
+      const memberNames = group.map(g => g.node.name).join(', ')
+      const widthInfo = widthsAllEqual ? 'same-width' : 'per-feature width'
+      const colorInfo = !strokeNeeded
+        ? 'no-stroke'
+        : compoundStrokeColorExpr ? 'per-feature stroke' : 'shared stroke'
+      // eslint-disable-next-line no-console
+      console.log(
+        `[xgis merge] ${compound.name}: folded ${group.length} layers `
+        + `(${memberNames}) — ${widthInfo}, ${colorInfo}`,
+      )
+    }
     out.push(compound)
     i = j
   }
