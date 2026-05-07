@@ -112,14 +112,19 @@ const MAX_UPLOADS_PER_FRAME = 4
  *  is identical). User-reported heat + forced refresh on mobile
  *  during fast pinch zoom motivated this; addresses the synchronous
  *  CPU spike that the GPU buffer pool change alone could not. */
-function uploadBudgetFor(canvasW: number, canvasH: number): number {
+function uploadBudgetFor(canvasW: number, canvasH: number, dpr: number = 1): number {
   // Test hook: spec sets `globalThis.__XGIS_UPLOAD_BUDGET` to force
   // queue-deferred uploads on every render call so the parent-walk
   // fallback path is exercised deterministically. Production paths
   // never set this, so the constant lookup is a single property read.
   const o = (globalThis as { __XGIS_UPLOAD_BUDGET?: number }).__XGIS_UPLOAD_BUDGET
   if (typeof o === 'number') return o
-  return Math.max(canvasW, canvasH) <= 900 ? 1 : MAX_UPLOADS_PER_FRAME
+  // Mobile classification is a perceptual concept — must use CSS
+  // pixels. A DPR=3 phone's device-pixel canvas is 1290×2235, which
+  // would (incorrectly) flip the `max > 900` test to "desktop" and
+  // bump the budget from 1 to 4 uploads/frame — exactly the spike
+  // the function exists to prevent.
+  return Math.max(canvasW, canvasH) / dpr <= 900 ? 1 : MAX_UPLOADS_PER_FRAME
 }
 
 // ═══ Renderer ═══
@@ -1088,7 +1093,7 @@ export class VectorTileRenderer {
     // canvas size. Multi-render-per-frame: same VTR sees this clamp
     // on every layer's render call, so the cap is shared across the
     // frame's layer iterations (not multiplied).
-    const _frameBudget = uploadBudgetFor(canvasWidth, canvasHeight)
+    const _frameBudget = uploadBudgetFor(canvasWidth, canvasHeight, dpr)
     if (this._uploadBudget > _frameBudget) this._uploadBudget = _frameBudget
 
     // Sliced-source slot for this layer. PMTiles emits per-MVT-layer
