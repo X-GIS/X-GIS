@@ -614,22 +614,23 @@ export function visibleTilesFrustumSampled(
     }
   }
 
-  // Unpack — no per-viewport cap. The DFS selector caps because
-  // its mid-z giants can explode the count; this selector is
-  // single-zoom + 8-neighbour-dilated 9×9 grid → naturally
-  // bounded by viewport size (typical < 30, worst case under
-  // CEILING). Mapbox / MapLibre do the same — viewport coverage
-  // is the budget. Capping at floor (mobile 12) was clipping
-  // legitimate rows on portrait viewports.
+  // Unpack. `ox` in the result is the ABSOLUTE tile-x (including
+  // world-copy shift) — matches the DFS selector's contract, which
+  // the downstream worldOffDeg computation
+  // (`(ox - x) * 360 / n`) depends on. Storing `ox` as a small
+  // copy-index (-1, 0, 1) here was the root cause of the user-
+  // reported "zoom 5+ blank canvas" regression — every tile got a
+  // huge wrong longitude offset and rendered off-screen.
   const MAX = MAX_FRUSTUM_TILES_CEILING
   const result: TileCoord[] = []
   for (const key of tileSet) {
     if (result.length >= MAX) break
-    const ox = Math.floor(key / (n * n)) - maxCopies
+    const copy = Math.floor(key / (n * n)) - maxCopies
     const rest = key % (n * n)
     const x = Math.floor(rest / n)
     const y = rest % n
-    result.push({ z: targetZ, x, y, ox })
+    const absOx = x + copy * n
+    result.push({ z: targetZ, x, y, ox: absOx })
   }
   return result
 }
