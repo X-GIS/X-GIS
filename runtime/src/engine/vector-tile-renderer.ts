@@ -278,6 +278,11 @@ export class VectorTileRenderer {
   private cachedShowFill = ''
   private cachedShowStroke = ''
   private currentOpacity = 1.0
+  /** 3D extrusion height (metres) for the current `render()` call. Set
+   *  per-show; uniform written per-tile from this. MVP: 50 m for the
+   *  `buildings` MVT slice, 0 elsewhere. Future: per-feature data-
+   *  driven via PropertyTable + style `extrude:` syntax. */
+  private currentExtrudeHeight = 0
   /** Set per render() from `show.pickId` so renderTileKeys can stamp every
    *  per-tile uniform with the layer's pick ID. 0 = unregistered (sentinel
    *  → pickAt returns null). */
@@ -1421,6 +1426,10 @@ export class VectorTileRenderer {
     const opacity = show.opacity ?? 1.0
     this.currentOpacity = opacity
     this.currentPickId = show.pickId ?? 0
+    // 3D extrusion MVP: hard-code building height for the protomaps
+    // `buildings` MVT slice. Future: read from show.extrude property
+    // (style-parser change) and / or per-feature via PropertyTable.
+    this.currentExtrudeHeight = show.sourceLayer === 'buildings' ? 50 : 0
     if (show.resolvedFillRgba) {
       this.cachedFillColor[0] = show.resolvedFillRgba[0]
       this.cachedFillColor[1] = show.resolvedFillRgba[1]
@@ -2115,6 +2124,11 @@ export class VectorTileRenderer {
       // tile's zoom. vs_main_quantized dequants pos_norm via this.
       // 2π × R / 2^z; we cache R × 2π once per VTR.
       this.uniformF32[38] = TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom)
+      // extrude_height_m (39) — 3D building extrusion height in
+      // metres. Set in render() from show.sourceLayer (MVP: hard-
+      // coded for `buildings`, 0 elsewhere). Per-feature heights
+      // via PropertyTable + style `extrude:` syntax are a follow-up.
+      this.uniformF32[39] = this.currentExtrudeHeight
 
       // Allocate a fresh ring slot for this tile × layer × world-copy draw.
       const slotOffset = this.allocUniformSlot()

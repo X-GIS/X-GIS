@@ -64,6 +64,13 @@ struct Uniforms {
   // tile per frame, packs into the existing uniform slot pad without
   // growing the struct past 160 bytes.
   tile_extent_m: f32,
+  // 3D-extrusion height in METERS in world space. 0 = flat (default).
+  // vs_main_quantized lifts the polygon vertex by this height in the
+  // world-z direction; mvp transforms to clip space respecting camera
+  // pitch. MVP for buildings: a constant per-layer height (e.g. 50m)
+  // so polygons lift uniformly. Per-feature heights via PropertyTable
+  // are a future extension.
+  extrude_height_m: f32,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -180,7 +187,12 @@ fn vs_main_quantized(
   }
 
   var out: VertexOutput;
-  let clip = u.mvp * vec4<f32>(rtc, 0.0, 1.0);
+  // 3D extrusion: polygon vertex sits at z=extrude_height_m in world
+  // space. mvp transforms (x, y, z) → clip respecting camera pitch
+  // so tilted views show polygons lifted above the ground plane.
+  // For non-extruded layers extrude_height_m is 0 → equivalent to
+  // the previous flat (rtc.x, rtc.y, 0) path, no behaviour change.
+  let clip = u.mvp * vec4<f32>(rtc, u.extrude_height_m, 1.0);
   out.position = apply_log_depth(clip, u.log_depth_fc);
   out.position.z = out.position.z - u.layer_depth_offset * out.position.w;
   out.view_w = clip.w;
