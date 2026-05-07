@@ -150,6 +150,7 @@ function lowerLayer(
   let styleRef = ''
   let filterExpr: import('../parser/ast').Expr | null = null
   let geometryExpr: import('../parser/ast').Expr | null = null
+  let extrude: import('./render-node').ExtrudeValue = { kind: 'none' }
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -168,6 +169,19 @@ function lowerLayer(
       filterExpr = prop.value
     } else if (prop.name === 'geometry') {
       geometryExpr = prop.value
+    } else if (prop.name === 'extrude') {
+      // `extrude: 50` (literal — every feature gets 50 m) or
+      // `extrude: .height` (per-feature — MVT decoder preserves
+      // the named property at decode time, runtime looks up per
+      // vertex). The fallback for the per-feature form is fixed at
+      // 50 m for now; a follow-up extends the syntax to accept an
+      // explicit fallback (e.g. `extrude: .height ?? 50`).
+      const v = prop.value
+      if (v.kind === 'NumberLiteral') {
+        extrude = { kind: 'constant', value: v.value }
+      } else if (v.kind === 'FieldAccess') {
+        extrude = { kind: 'feature', field: v.field, fallback: 50 }
+      }
     }
   }
 
@@ -703,6 +717,7 @@ function lowerLayer(
     billboard,
     shape,
     anchor,
+    extrude,
   }
 }
 
@@ -960,5 +975,6 @@ function lowerShow(stmt: AST.ShowStatement): RenderNode | null {
     geometry: null,
     billboard: true,
     shape: shapeNone(),
+    extrude: { kind: 'none' },
   }
 }

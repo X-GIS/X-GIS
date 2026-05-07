@@ -77,6 +77,12 @@ export interface ShowCommand {
   timeOpacityLoop: boolean
   timeOpacityEasing: Easing
   timeOpacityDelayMs: number
+  /** 3D extrusion height. `none` = flat polygon (default). `constant`
+   *  = uniform metres for every feature. `feature` = per-feature
+   *  property name + fallback metres. The runtime branches the upload
+   *  pipeline + binds the extruded vertex layout when set to anything
+   *  other than 'none'. */
+  extrude: import('./render-node').ExtrudeValue
 }
 
 export interface SceneCommands {
@@ -199,6 +205,7 @@ function emitShow(node: RenderNode): ShowCommand {
     timeOpacityLoop,
     timeOpacityEasing,
     timeOpacityDelayMs,
+    extrude: node.extrude,
   }
 }
 

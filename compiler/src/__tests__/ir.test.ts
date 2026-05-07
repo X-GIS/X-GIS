@@ -391,3 +391,53 @@ describe('IR EmitCommands', () => {
     expect(show.opacity).toBe(0.9)
   })
 })
+
+describe('IR Lower — extrude keyword', () => {
+  it('defaults to extrude { kind: none } when keyword absent', () => {
+    const scene = compile(`
+      source world { type: geojson, url: "countries.geojson" }
+      layer countries {
+        source: world
+        | fill-red-500
+      }
+    `)
+    expect(scene.renderNodes[0].extrude).toEqual({ kind: 'none' })
+  })
+
+  it('lowers `extrude: 50` to constant', () => {
+    const scene = compile(`
+      source pm { type: pmtiles, url: "/world.pmtiles" }
+      layer buildings {
+        source: pm
+        sourceLayer: "buildings"
+        extrude: 50
+        | fill-stone-300
+      }
+    `)
+    expect(scene.renderNodes[0].extrude).toEqual({ kind: 'constant', value: 50 })
+  })
+
+  it('lowers `extrude: .height` to feature lookup with default fallback', () => {
+    const scene = compile(`
+      source pm { type: pmtiles, url: "/world.pmtiles" }
+      layer buildings {
+        source: pm
+        sourceLayer: "buildings"
+        extrude: .render_height
+        | fill-stone-300
+      }
+    `)
+    expect(scene.renderNodes[0].extrude).toEqual({
+      kind: 'feature', field: 'render_height', fallback: 50,
+    })
+  })
+
+  it('emit-commands forwards extrude onto the ShowCommand', () => {
+    const scene = compile(`
+      source pm { type: pmtiles, url: "/world.pmtiles" }
+      layer b { source: pm, sourceLayer: "buildings", extrude: 30, | fill-red }
+    `)
+    const cmds = emitCommands(scene)
+    expect(cmds.shows[0].extrude).toEqual({ kind: 'constant', value: 30 })
+  })
+})

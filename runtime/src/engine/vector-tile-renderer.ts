@@ -269,6 +269,15 @@ export class VectorTileRenderer {
    *  `buildings` MVT slice, 0 elsewhere. Future: per-feature data-
    *  driven via PropertyTable + style `extrude:` syntax. */
   private currentExtrudeHeight = 0
+  /** Extrude routing for the current `render()` call.
+   *   - 'none': flat polygon, no z lift
+   *   - 'uniform': all features at currentExtrudeHeight (flat pipeline,
+   *     is_top * u.extrude_height_m in WGSL)
+   *   - 'per-feature': per-vertex z from the slice's heights map
+   *     (extruded pipeline, vertex buffer slot 1)
+   *  Set in render() from the layer's `extrude:` style; consumed by
+   *  renderTileKeys when picking the fill pipeline. */
+  private currentExtrudeMode: 'none' | 'uniform' | 'per-feature' = 'none'
   /** Set per render() from `show.pickId` so renderTileKeys can stamp every
    *  per-tile uniform with the layer's pick ID. 0 = unregistered (sentinel
    *  → pickAt returns null). */
@@ -803,14 +812,17 @@ export class VectorTileRenderer {
     //     vertex/index buffers. is_top alternates 0/1 for the
     //     bottom/top wall corners.
     const tileExtentM = TWO_PI_R_EARTH / Math.pow(2, data.tileZoom)
-    const isExtruded = sourceLayer === 'buildings'
-    // Per-feature heights branch: when the slice carries a heights
-    // map (MVT decoder extracted `render_height` / `height` from
-    // feature properties), use the *Extruded variants which emit a
-    // parallel z attribute. Otherwise fall back to the existing flat
-    // path with is_top bit + uniform extrude height.
-    const useFeatureHeights = isExtruded && data.heights && data.heights.size > 0
-    const fallbackHeight = isExtruded ? 50 : 0
+    // Slices that carried per-feature `render_height` / `height` from
+    // the MVT decode path get the extruded vertex layout: walls + a
+    // parallel z attribute. Slices without heights data stay on the
+    // single-VB flat layout — render-time decides the actual lift via
+    // the layer's `extrude:` keyword (uniform mode just reads is_top
+    // and applies u.extrude_height_m). The previous heuristic
+    // (`sourceLayer === 'buildings'`) is replaced — slices route
+    // entirely off the data they carry, and per-layer control lives
+    // in the style language now.
+    const useFeatureHeights = data.heights !== undefined && data.heights.size > 0
+    const fallbackHeight = 50
     let polyVerts: ArrayBuffer
     let polyIndices: Uint32Array
     let zAttribute: Float32Array | null = null
@@ -836,27 +848,14 @@ export class VectorTileRenderer {
       zAttribute.set(top.z, 0)
       zAttribute.set(wall.z, top.z.length)
     } else {
-      const topVerts = quantizePolygonVertices(data.vertices, tileExtentM, { isTop: isExtruded })
-      const topVertexCount = topVerts.byteLength / 8
-      polyVerts = topVerts
+      // Flat slice: no heights data → no walls. The is_top bit stays
+      // clear so a layer with `extrude: 50` on this slice silently
+      // renders flat (no height lift) — preferable to fabricating
+      // walls without source-data direction. If users hit this case
+      // they need to source data with a `render_height` / `height`
+      // property.
+      polyVerts = quantizePolygonVertices(data.vertices, tileExtentM, { isTop: false })
       polyIndices = data.indices
-      if (isExtruded && data.polygons && data.polygons.length > 0) {
-        const DEG2RAD = Math.PI / 180
-        const R = 6378137
-        const tileMx = data.tileWest * DEG2RAD * R
-        const clampLat = Math.max(-85.051129, Math.min(85.051129, data.tileSouth))
-        const tileMy = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
-        const wall = generateWallMesh(data.polygons, tileExtentM, tileMx, tileMy)
-        const combined = new Uint8Array(topVerts.byteLength + wall.vertices.byteLength)
-        combined.set(new Uint8Array(topVerts), 0)
-        combined.set(new Uint8Array(wall.vertices), topVerts.byteLength)
-        polyVerts = combined.buffer
-        polyIndices = new Uint32Array(data.indices.length + wall.indices.length)
-        polyIndices.set(data.indices, 0)
-        for (let i = 0; i < wall.indices.length; i++) {
-          polyIndices[data.indices.length + i] = wall.indices[i] + topVertexCount
-        }
-      }
     }
     const vertexBuffer = this.acquireBuffer(
       Math.max(polyVerts.byteLength * 3, 12),
@@ -1499,10 +1498,23 @@ export class VectorTileRenderer {
     const opacity = show.opacity ?? 1.0
     this.currentOpacity = opacity
     this.currentPickId = show.pickId ?? 0
-    // 3D extrusion MVP: hard-code building height for the protomaps
-    // `buildings` MVT slice. Future: read from show.extrude property
-    // (style-parser change) and / or per-feature via PropertyTable.
-    this.currentExtrudeHeight = show.sourceLayer === 'buildings' ? 50 : 0
+    // 3D extrusion: driven by the layer's `extrude:` style keyword.
+    //   * `extrude: 50`     → constant uniform path (currentExtrudeHeight)
+    //   * `extrude: .height` → per-feature path (vertex z attribute);
+    //     uniform mirror still set for fallback display when a tile
+    //     slice has no `heights` map (e.g. archive missing the field
+    //     for that zoom). Explicit, layer-local control replaces the
+    //     prior `sourceLayer === 'buildings'` heuristic.
+    if (show.extrude && show.extrude.kind === 'constant') {
+      this.currentExtrudeHeight = show.extrude.value
+      this.currentExtrudeMode = 'uniform'
+    } else if (show.extrude && show.extrude.kind === 'feature') {
+      this.currentExtrudeHeight = show.extrude.fallback
+      this.currentExtrudeMode = 'per-feature'
+    } else {
+      this.currentExtrudeHeight = 0
+      this.currentExtrudeMode = 'none'
+    }
     if (show.resolvedFillRgba) {
       this.cachedFillColor[0] = show.resolvedFillRgba[0]
       this.cachedFillColor[1] = show.resolvedFillRgba[1]
@@ -2225,11 +2237,16 @@ export class VectorTileRenderer {
       // skipped (variant pipeline computes color in shader, cached uniform
       // alpha may be zero even when the draw is meaningful).
       if (drawFills && cached.indexCount > 0 && !this._skipFillDraw) {
-        // Per-feature extrusion: tiles whose slice carried `heights`
-        // get a parallel f32 z buffer at upload time. Bind the
-        // matching extruded pipeline (which reads z from VB slot 1)
-        // and the second VB; flat tiles use the single-buffer path.
-        const useExtrudedPipe = cached.zBuffer !== null && fillPipelineExtruded !== null
+        // Pipeline selection follows the layer's extrude mode (set in
+        // render() from show.extrude). Per-feature mode wants the
+        // extruded pipeline + per-vertex z; uniform / none use the flat
+        // pipeline (is_top * u.extrude_height_m). The upload path
+        // bakes the extruded vertex layout whenever the slice has
+        // heights data, so the same vertex buffer serves both modes —
+        // the flat pipeline simply ignores the z attribute slot.
+        const useExtrudedPipe = this.currentExtrudeMode === 'per-feature'
+          && cached.zBuffer !== null
+          && fillPipelineExtruded !== null
         pass.setPipeline(useExtrudedPipe ? fillPipelineExtruded! : fillPipeline)
         pass.setBindGroup(0, currentTileBg, [slotOffset])
         pass.setVertexBuffer(0, cached.vertexBuffer)

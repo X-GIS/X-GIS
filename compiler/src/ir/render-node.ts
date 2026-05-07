@@ -47,6 +47,13 @@ export interface RenderNode {
   stroke: StrokeValue
   opacity: OpacityValue
   size: SizeValue
+  /** 3D extrusion height. Lifts polygon roof faces to z=value (metres)
+   *  and emits side walls. `none` = flat (default). `constant` = every
+   *  feature gets the same height. `feature` = look up a per-feature
+   *  property (e.g. `extrude: .height` → ExtrudeValue with field
+   *  'height'); the runtime asks the MVT decoder to preserve that
+   *  field at decode time. */
+  extrude: ExtrudeValue
   projection: string
   visible: boolean
   /** CSS-style pointer interactivity. 'none' tells the runtime to skip
@@ -212,6 +219,15 @@ export interface ZoomStop<T> {
   zoom: number
   value: T
 }
+
+/** 3D extrusion height (metres). `feature.field` names a per-feature
+ *  property that the MVT decoder will preserve at decode time and
+ *  the runtime will look up on a per-vertex basis. `fallback` is
+ *  the height to use when a feature lacks the property. */
+export type ExtrudeValue =
+  | { kind: 'none' }
+  | { kind: 'constant'; value: number }
+  | { kind: 'feature'; field: string; fallback: number }
 
 /**
  * A conditional branch: applies when a data field matches a value.

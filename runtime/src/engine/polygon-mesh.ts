@@ -284,14 +284,31 @@ export function generateWallMeshExtruded(
   for (const poly of polygons) {
     const fid = poly.featId
     const h = heights.get(fid) ?? defaultHeight
-    for (const ring of poly.rings) {
+    for (let r = 0; r < poly.rings.length; r++) {
+      const ring = poly.rings[r]
       const len = ring.length
       if (len < 2) continue
       const closed = ring[0][0] === ring[len - 1][0] && ring[0][1] === ring[len - 1][1]
       const lastEdgeI = closed ? len - 1 : len
+      // Wall winding has to face outward from the polygon mass so a
+      // single `cullMode: 'back'` on the extruded fill pipeline drops
+      // the back faces. Outer rings in the MVT spec are CCW (positive
+      // signed area in screen space); inner rings (holes) are CW. For
+      // CCW rings, emitting triangles in (a_bot, b_bot, a_top) +
+      // (b_bot, b_top, a_top) order produces outward-facing front
+      // faces. For CW rings (e.g. holes, where outward = into the
+      // hole = away from the building mass) we flip the per-edge
+      // direction so the triangles still face outward from the
+      // interior.
+      let signed2 = 0
       for (let i = 0; i < lastEdgeI; i++) {
-        const aIdx = i
-        const bIdx = (i + 1) % len
+        const j = (i + 1) % len
+        signed2 += ring[i][0] * ring[j][1] - ring[j][0] * ring[i][1]
+      }
+      const ccw = signed2 > 0
+      for (let i = 0; i < lastEdgeI; i++) {
+        const aIdx = ccw ? i : (i + 1) % len
+        const bIdx = ccw ? (i + 1) % len : i
         const ax = ring[aIdx][0], ay = ring[aIdx][1]
         const bx = ring[bIdx][0], by = ring[bIdx][1]
         const baseV = vIdx

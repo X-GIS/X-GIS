@@ -115,9 +115,10 @@ layer roads_rail {
   | stroke-slate-500 stroke-1
 }
 
-/* ── Buildings (top layer) ───────────────────────────────────── */
+/* ── Buildings (top layer, 3D extruded) ──────────────────────── */
 layer buildings {
   source: pm_world
   sourceLayer: "buildings"
+  extrude: .render_height
   | fill-stone-300 stroke-stone-500 stroke-0.5
 }

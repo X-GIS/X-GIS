@@ -467,6 +467,13 @@ export interface ShowCommand {
   anchor?: 'center' | 'bottom' | 'top'
   shape?: string | null
   shapeDefs?: { name: string; paths: string[] }[]
+  /** 3D extrusion height. Set by the compiler from the layer's
+   *  `extrude:` keyword; VTR branches its upload + fill draw onto
+   *  the extruded pipeline when `kind !== 'none'`. */
+  extrude?:
+    | { kind: 'none' }
+    | { kind: 'constant'; value: number }
+    | { kind: 'feature'; field: string; fallback: number }
   // Line styling (Phase 2+)
   linecap?: 'butt' | 'round' | 'square' | 'arrow'
   linejoin?: 'miter' | 'round' | 'bevel'
@@ -893,7 +900,13 @@ export class MapRenderer {
         layout: pipelineLayout,
         vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
-        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        // Backface cull: walls + roof faces are emitted with consistent
+        // outward-facing winding (generateWallMeshExtruded computes ring
+        // signed area and flips per-edge direction for CW rings). Drops
+        // ~half of the extruded triangles (back walls hidden behind
+        // front walls) so depth ordering is uniquely determined and
+        // translucent fills don't show double-rendered seams.
+        primitive: { topology: 'triangle-list', cullMode: 'back' },
         depthStencil: STENCIL_WRITE, multisample: msaaState,
         label: `fill-pipeline-extruded${suffix}`,
       }),
@@ -917,7 +930,7 @@ export class MapRenderer {
         layout: pipelineLayout,
         vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
-        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        primitive: { topology: 'triangle-list', cullMode: 'back' },
         depthStencil: STENCIL_TEST, multisample: msaaState,
         label: `fill-pipeline-extruded-fallback${suffix}`,
       }),
