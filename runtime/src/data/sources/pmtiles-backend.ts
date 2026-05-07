@@ -422,6 +422,9 @@ export class PMTilesBackend implements TileSource {
         const parts = decomposeFeatures(layerFeatures)
         const tile = compileSingleTile(parts, z, x, y, this.meta.maxZoom)
         if (!tile) continue
+        // Compute heights first so the line-segment builder can
+        // bake per-segment z lift for extruded layers.
+        const heights = extractFeatureHeights(layerFeatures, this.extrudeExprs?.[layerName])
         let prebuiltOutlineSegments: Float32Array | undefined
         let prebuiltLineSegments: Float32Array | undefined
         if (tile.outlineVertices && tile.outlineVertices.length > 0
@@ -429,6 +432,7 @@ export class PMTilesBackend implements TileSource {
           prebuiltOutlineSegments = buildLineSegments(
             tile.outlineVertices, tile.outlineLineIndices, 10,
             widthMerc, heightMerc,
+            heights.size > 0 ? heights : undefined,
           )
         }
         if (tile.lineIndices.length > 0 && tile.lineVertices.length > 0) {
@@ -442,9 +446,9 @@ export class PMTilesBackend implements TileSource {
           prebuiltLineSegments = buildLineSegments(
             tile.lineVertices, tile.lineIndices, lineStride,
             widthMerc, heightMerc,
+            heights.size > 0 ? heights : undefined,
           )
         }
-        const heights = extractFeatureHeights(layerFeatures, this.extrudeExprs?.[layerName])
         sink.acceptResult(key, {
           vertices: tile.vertices,
           indices: tile.indices,

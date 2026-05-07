@@ -546,6 +546,15 @@ struct LineSegment {
   // shrink from 4×half_w to just what miter geometry needs.
   pad_ratio_p0: f32,
   pad_ratio_p1: f32,
+  // Per-segment 3D extrude height in metres. Set at line-segment build
+  // time from the slice's heights map (looked up by featId) so polygon
+  // outlines on extruded layers ride the per-feature roof; 0 = stay on
+  // the ground (default for non-extruded layers). Slots 17-19 are WGSL
+  // alignment padding — naturally promoted to the next 16-byte boundary.
+  z_lift_m: f32,
+  _pad17: f32,
+  _pad18: f32,
+  _pad19: f32,
 }
 @group(1) @binding(1) var<storage, read> segments: array<LineSegment>;
 
@@ -833,8 +842,8 @@ fn vs_line(
   // future refinement once joins / patterns / arrow caps move to
   // pixel units too.
   if (layer.viewport_height > 0.0) {
-    let center_clip = tile.mvp * vec4<f32>(finalize_corner(base), tile.outline_z_lift_m, 1.0);
-    let corner_clip = tile.mvp * vec4<f32>(finalize_corner(corner_local), tile.outline_z_lift_m, 1.0);
+    let center_clip = tile.mvp * vec4<f32>(finalize_corner(base), seg.z_lift_m, 1.0);
+    let corner_clip = tile.mvp * vec4<f32>(finalize_corner(corner_local), seg.z_lift_m, 1.0);
     let center_ndc = center_clip.xy / max(abs(center_clip.w), 1e-6) * sign(center_clip.w);
     let corner_ndc = corner_clip.xy / max(abs(corner_clip.w), 1e-6) * sign(corner_clip.w);
     let screen_dist = length(corner_ndc - center_ndc);
@@ -853,13 +862,13 @@ fn vs_line(
   // fragment SDF works in a consistent space.
   var out: LineOut;
   let corner_proj = finalize_corner(corner_local);
-  // outline_z_lift_m: shared with the polygon shader's extrude_height_m
-  // slot (uniform offset 156). For non-extruded layers this is 0 -
-  // line draws stay on the ground plane; for extruded layers (style
-  // extrude: <h> or extrude: .field) this matches the layer's
-  // current extrude height so the polygon outline rides on the
-  // building roof instead of underneath it.
-  let clip = tile.mvp * vec4<f32>(corner_proj, tile.outline_z_lift_m, 1.0);
+  // seg.z_lift_m: per-segment world-z lift in metres. Baked at line-
+  // segment build time from the slice's heights map (looked up by
+  // featId). 0 = stay on the ground (default for non-extruded
+  // layers). For per-feature extrude this matches each building's
+  // own height so the outline rides exactly on its roof — tall
+  // buildings get tall outlines, short buildings get short outlines.
+  let clip = tile.mvp * vec4<f32>(corner_proj, seg.z_lift_m, 1.0);
   out.position = apply_log_depth(clip, tile.log_depth_fc);
   out.view_w = clip.w;
   out.world_local = corner_local; // geometry-frame; matches compute_line_color

@@ -7,13 +7,9 @@
 // ═══ Segment Buffer Layout ═══
 // 40 bytes per segment. Phase 1: p0, p1 only. Later phases add prev/next tangents, arc_start, line_length.
 
-// Stride is 12 f32 = 48 bytes. Fields:
-//   [0-1]  p0 (vec2)
-//   [2-3]  p1 (vec2)
-//   [4-5]  prev_tangent (vec2)  — direction of prev seg arriving at p0 (zero = cap)
-//   [6-7]  next_tangent (vec2)  — direction of next seg leaving p1 (zero = cap)
-//   [8]    arc_start   (f32)
-// DSFUN segment layout (stride 16 f32 = 64 bytes):
+// DSFUN segment layout (stride 20 f32 = 80 bytes — naturally
+// rounded up to a 16-byte multiple by WGSL because the struct ends
+// in scalar fields after vec2 pairs):
 //   [0-1]   p0_h (vec2<f32>)        — tile-local Mercator meters, high pair
 //   [2-3]   p1_h (vec2<f32>)
 //   [4-5]   p0_l (vec2<f32>)        — low pair
@@ -24,12 +20,22 @@
 //   [13]    line_length (f32)
 //   [14]    pad_ratio_p0 (f32)
 //   [15]    pad_ratio_p1 (f32)
+//   [16]    z_lift_m (f32)          — per-segment world-z lift in metres
+//   [17-19] _pad (3 × f32)          — vec4 alignment fill
 //
 // The shader subtracts (p0_h - cam_h) + (p0_l - cam_l) to cancel tile-origin
 // magnitude and recover camera-relative meters with f64-equivalent precision.
 // Tangents stay single-f32 — they're unit vectors in a tile-local frame and
 // don't suffer from cancellation.
-export const LINE_SEGMENT_STRIDE_F32 = 16
+//
+// `z_lift_m` carries the source feature's 3D extrude height (looked up
+// per-segment at build time from the slice's heights map). Lets the
+// line shader place a polygon outline on top of its building's roof
+// even when the building's height varies per feature — previously the
+// outline used a single uniform value (the layer's fallback) and
+// floated mid-wall on tall / short buildings. 0 = stay on the ground
+// (default for non-extruded layers).
+export const LINE_SEGMENT_STRIDE_F32 = 20
 export const LINE_SEGMENT_STRIDE_BYTES = LINE_SEGMENT_STRIDE_F32 * 4
 
 /**
@@ -111,6 +117,12 @@ export function buildLineSegments(
    *  when omitted, boundary detection is disabled. */
   tileWidthMerc: number = 0,
   tileHeightMerc: number = 0,
+  /** featId → 3D extrude height (metres). When supplied, every emitted
+   *  segment carries the height looked up from its source feature's
+   *  ID — the outline rides the building roof at the per-feature
+   *  height instead of at a single uniform fallback. Map is read
+   *  via the input vertex's featId at offset 4 in the DSFUN stream. */
+  heights?: ReadonlyMap<number, number>,
 ): Float32Array {
   const segCount = indices.length / 2
   const out = new Float32Array(segCount * LINE_SEGMENT_STRIDE_F32)
@@ -291,6 +303,21 @@ export function buildLineSegments(
 
     out[off + 14] = computeMiterPadRatio([prevTx, prevTy], [dxUnit, dyUnit], DEFAULT_BUILD_MITER_LIMIT)
     out[off + 15] = computeMiterPadRatio([dxUnit, dyUnit], [nextTx, nextTy], DEFAULT_BUILD_MITER_LIMIT)
+
+    // Per-segment z lift. featId lives at offset 4 in the DSFUN
+    // input stride for every supported variant (5 / 6 / 10) — same
+    // slot the polygon vertex stream uses. Both endpoints of a
+    // segment within a single ring share the same featId, so we
+    // sample from p0; for cross-feature segments (would be unusual
+    // — typically each ring stays inside one feature) we'd see a
+    // mid-segment seam, which is the input data's call to make.
+    if (heights) {
+      const fid = vertices[a * stride + 4]
+      const h = heights.get(fid)
+      out[off + 16] = typeof h === 'number' ? h : 0
+    }
+    // Slots 17-19 stay at the buffer's zero-init default — they're
+    // pure WGSL alignment padding.
   }
   return out
 }

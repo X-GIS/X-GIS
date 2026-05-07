@@ -155,6 +155,14 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       const tile = compileSingleTile(parts, msg.z, msg.x, msg.y, msg.maxZoom)
       if (!tile) continue
 
+      // Build featId→height first so the segment builder can bake
+      // per-segment z lift into the outline buffer for extruded
+      // layers. protomaps `buildings` uses `render_height` (rounded
+      // for rendering) and `height` (raw); custom expressions land
+      // here via `msg.extrudeExprs`. Layers without any height data
+      // produce an empty Map → segment z stays at 0 (ground).
+      const heights = extractFeatureHeights(layerFeatures, msg.extrudeExprs?.[layerName])
+
       let prebuiltOutlineSegments: ArrayBuffer | undefined
       let prebuiltLineSegments: ArrayBuffer | undefined
       if (tile.outlineVertices && tile.outlineVertices.length > 0
@@ -162,6 +170,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
         const seg = buildLineSegments(
           tile.outlineVertices, tile.outlineLineIndices, 10,
           msg.tileWidthMerc, msg.tileHeightMerc,
+          heights.size > 0 ? heights : undefined,
         )
         prebuiltOutlineSegments = seg.buffer as ArrayBuffer
       }
@@ -176,17 +185,10 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
         const seg = buildLineSegments(
           tile.lineVertices, tile.lineIndices, lineStride,
           msg.tileWidthMerc, msg.tileHeightMerc,
+          heights.size > 0 ? heights : undefined,
         )
         prebuiltLineSegments = seg.buffer as ArrayBuffer
       }
-
-      // Build featId→height for layers whose features carry a height
-      // property. protomaps `buildings` uses `render_height` (rounded
-      // for rendering) and `height` (raw); we prefer render_height
-      // when both exist. Layers without any height property produce an
-      // empty Map and the runtime falls back to the layer-uniform
-      // extrude default.
-      const heights = extractFeatureHeights(layerFeatures, msg.extrudeExprs?.[layerName])
       const slice: MvtCompileSlice = {
         layerName,
         vertices: tile.vertices.buffer as ArrayBuffer,
