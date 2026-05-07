@@ -86,6 +86,11 @@ struct VertexOutput {
   // log-depth per pixel from this (linear interpolation of log2 over
   // a triangle would drift otherwise).
   @location(3) view_w: f32,
+  // 3D extrusion shading factor. is_top=1 (roof) → 1.0; is_top=0
+  // (wall bottom) → 0.0; the value interpolates 0..1 along wall
+  // triangles. Fragment uses to mix between dark wall + bright
+  // roof colour for a poor-man's Lambert without a real normal.
+  @location(4) wall_blend: f32,
 }
 
 struct FragmentOutput {
@@ -145,6 +150,7 @@ fn vs_main(
   out.cos_c = needs_backface_cull(abs_lon, abs_lat, u.proj_params);
   out.feat_id = u32(feature_id);
   out.abs_lat = abs_lat_clamped;
+  out.wall_blend = 1.0; // DSFUN line pipeline isn't extruded; full brightness
   return out;
 }
 
@@ -208,6 +214,9 @@ fn vs_main_quantized(
   out.cos_c = needs_backface_cull(abs_lon, abs_lat, u.proj_params);
   out.feat_id = u32(feature_id);
   out.abs_lat = abs_lat_clamped;
+  // Wall shading only meaningful when this layer is extruded; for
+  // flat layers all geometry is at the roof brightness.
+  out.wall_blend = select(1.0, select(0.0, 1.0, is_top), u.extrude_height_m > 0.0);
   return out;
 }
 
@@ -219,7 +228,11 @@ fn fs_fill(input: VertexOutput) -> FragmentOutput {
   if (input.cos_c < 0.0) { discard; }
   if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
   var out: FragmentOutput;
-  out.color = u.fill_color;
+  // Wall shading: bottom of wall (wall_blend=0) gets a darker
+  // version of fill_color, roof (wall_blend=1) full brightness.
+  // Linear interp along wall triangles from 0 at base to 1 at top.
+  let wall_shade = 0.55 + 0.45 * input.wall_blend;
+  out.color = vec4<f32>(u.fill_color.rgb * wall_shade, u.fill_color.a);
   __PICK_WRITE__
   out.depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
   return out;
