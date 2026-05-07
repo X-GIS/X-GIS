@@ -468,7 +468,19 @@ const SHAPE_COMPLETIONS: Partial<monaco.languages.CompletionItem>[] = [
 ]
 
 const COMMON_FIELDS = [
+  // Generic
   { name: 'name', detail: 'Feature name', doc: 'Common property: feature display name' },
+  { name: 'kind', detail: 'Feature subtype', doc: 'Categorical subtype (e.g., protomaps `kind`: "park", "highway", "office")' },
+  // Protomaps v4 — buildings layer
+  { name: 'height', detail: 'Building height (m)', doc: 'protomaps `buildings`: height in metres (often missing on smaller buildings)' },
+  { name: 'render_height', detail: 'Display height (m)', doc: 'protomaps `buildings`: rounded display height' },
+  { name: 'min_height', detail: 'Building base (m)', doc: 'protomaps `buildings`: ground-floor elevation for buildings on terrain' },
+  { name: 'levels', detail: 'Floor count', doc: 'protomaps `buildings`: number of floors (multiply by ~3.5 for metres)' },
+  { name: 'min_zoom', detail: 'Min zoom', doc: 'Earliest zoom at which the feature is included' },
+  // Protomaps v4 — roads layer
+  { name: 'min_zoom', detail: 'Min zoom', doc: 'Earliest zoom at which the feature is included' },
+  { name: 'sort_rank', detail: 'Z-order hint', doc: 'protomaps z-order for stacking strokes' },
+  // Natural Earth
   { name: 'pop_max', detail: 'Max population', doc: 'Natural Earth: maximum population estimate' },
   { name: 'pop_min', detail: 'Min population', doc: 'Natural Earth: minimum population estimate' },
   { name: 'POP_EST', detail: 'Population estimate', doc: 'Country population estimate' },

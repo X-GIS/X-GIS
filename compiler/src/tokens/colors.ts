@@ -101,11 +101,23 @@ const NAMED_COLORS: Record<string, string> = {
 /**
  * Resolve a design token color name to hex.
  * Examples: "red-500" → "#ef4444", "white" → "#ffffff", "blue-400" → "#60a5fa"
+ * Also recognises CSS colour functions:
+ *   rgb(255, 0, 0)              → "#ff0000"
+ *   rgba(0, 0, 0, 0.5)          → "#00000080"
+ *   rgb(255, 0, 0, 0.5)         → "#ff000080"   (CSS-modern syntax)
+ *   hsl(120, 50%, 50%)          → "#40bf40"
+ *   hsla(0, 100%, 50%, 0.25)    → "#ff000040"
  * Returns null if unrecognized.
  */
 export function resolveColor(name: string): string | null {
   // Check named colors first
   if (NAMED_COLORS[name]) return NAMED_COLORS[name]
+
+  // CSS rgb/rgba/hsl/hsla function — try before the palette regex
+  // so `rgb(255,0,0)` doesn't fall through to "Expected utility
+  // name" or get mistaken for an identifier-shade pair.
+  const fn = parseCssColorFn(name)
+  if (fn) return fn
 
   // Parse "color-shade" pattern
   const match = name.match(/^([a-z]+)-(\d+)$/)
@@ -116,4 +128,125 @@ export function resolveColor(name: string): string | null {
   if (!palette) return null
 
   return palette[parseInt(shade)] ?? null
+}
+
+/** Parse a CSS rgb / rgba / hsl / hsla function call into a `#RRGGBB`
+ *  or `#RRGGBBAA` string. Accepts comma-separated and modern slash-
+ *  separated alpha (`rgb(0 0 0 / 0.5)`). Returns null when the
+ *  input isn't a recognized colour function. */
+function parseCssColorFn(input: string): string | null {
+  // Strip whitespace inside but keep the structure tokens
+  const trimmed = input.trim()
+  const m = trimmed.match(/^(rgb|rgba|hsl|hsla)\((.*)\)$/i)
+  if (!m) return null
+  const fn = m[1].toLowerCase()
+  // Accept comma OR whitespace separation; the CSS-modern alpha
+  // separator is `/` (e.g. `rgb(255 0 0 / 0.5)`).
+  const inner = m[2].replace(/\//g, ',')
+  const parts = inner.split(/[,\s]+/).filter(p => p.length > 0)
+  if (parts.length < 3 || parts.length > 4) return null
+
+  if (fn === 'rgb' || fn === 'rgba') {
+    const r = parseChannel(parts[0], 255)
+    const g = parseChannel(parts[1], 255)
+    const b = parseChannel(parts[2], 255)
+    if (r === null || g === null || b === null) return null
+    if (parts.length === 4) {
+      const a = parseAlpha(parts[3])
+      if (a === null) return null
+      return rgbToHex(r, g, b, a)
+    }
+    return rgbToHex(r, g, b, 1)
+  }
+
+  // hsl / hsla
+  const h = parseHue(parts[0])
+  const sat = parsePercent(parts[1])
+  const lig = parsePercent(parts[2])
+  if (h === null || sat === null || lig === null) return null
+  const alpha = parts.length === 4 ? parseAlpha(parts[3]) : 1
+  if (alpha === null) return null
+  const [r, g, b] = hslToRgb(h, sat, lig)
+  return rgbToHex(r, g, b, alpha)
+}
+
+function parseChannel(p: string, fullScale: number): number | null {
+  // Percent form: "50%" → 0.5 × fullScale
+  if (p.endsWith('%')) {
+    const v = parseFloat(p.slice(0, -1))
+    if (!Number.isFinite(v)) return null
+    return clamp01(v / 100) * fullScale
+  }
+  const v = parseFloat(p)
+  if (!Number.isFinite(v)) return null
+  return Math.max(0, Math.min(fullScale, v))
+}
+
+function parsePercent(p: string): number | null {
+  if (!p.endsWith('%')) {
+    const v = parseFloat(p)
+    if (!Number.isFinite(v)) return null
+    // CSS spec actually requires `%` for hsl S/L, but tolerate the
+    // unitless 0-100 form (e.g. `hsl(120, 50, 50)`) to be forgiving.
+    return clamp01(v / 100)
+  }
+  const v = parseFloat(p.slice(0, -1))
+  if (!Number.isFinite(v)) return null
+  return clamp01(v / 100)
+}
+
+function parseAlpha(p: string): number | null {
+  if (p.endsWith('%')) {
+    const v = parseFloat(p.slice(0, -1))
+    return Number.isFinite(v) ? clamp01(v / 100) : null
+  }
+  const v = parseFloat(p)
+  return Number.isFinite(v) ? clamp01(v) : null
+}
+
+function parseHue(p: string): number | null {
+  // Accepts plain degrees, "<n>deg", or "<n>turn".
+  const m = p.match(/^(-?\d*\.?\d+)(deg|turn|rad|grad)?$/i)
+  if (!m) return null
+  let v = parseFloat(m[1])
+  if (!Number.isFinite(v)) return null
+  const unit = (m[2] ?? 'deg').toLowerCase()
+  if (unit === 'turn') v *= 360
+  else if (unit === 'rad') v *= 180 / Math.PI
+  else if (unit === 'grad') v *= 0.9
+  return ((v % 360) + 360) % 360
+}
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v
+}
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  if (s === 0) return [l * 255, l * 255, l * 255]
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+  const p = 2 * l - q
+  const hk = h / 360
+  const r = hueToRgb(p, q, hk + 1 / 3)
+  const g = hueToRgb(p, q, hk)
+  const b = hueToRgb(p, q, hk - 1 / 3)
+  return [r * 255, g * 255, b * 255]
+}
+
+function hueToRgb(p: number, q: number, t: number): number {
+  let tt = t
+  if (tt < 0) tt += 1
+  if (tt > 1) tt -= 1
+  if (tt < 1 / 6) return p + (q - p) * 6 * tt
+  if (tt < 1 / 2) return q
+  if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6
+  return p
+}
+
+function rgbToHex(r: number, g: number, b: number, a: number): string {
+  const ri = Math.round(r), gi = Math.round(g), bi = Math.round(b)
+  const ai = Math.round(a * 255)
+  const hex = (n: number) => n.toString(16).padStart(2, '0')
+  return a >= 0.999
+    ? `#${hex(ri)}${hex(gi)}${hex(bi)}`
+    : `#${hex(ri)}${hex(gi)}${hex(bi)}${hex(ai)}`
 }

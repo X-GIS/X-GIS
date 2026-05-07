@@ -471,7 +471,12 @@ export class Parser {
     }
     this.expect(TokenType.Colon)
 
-    // Parse value: hex color, number, bool, or hyphen-joined identifier
+    // Parse value: hex color, number, bool, function call, or
+    // hyphen-joined identifier. Function-call form covers CSS
+    // colours: rgb(255,0,0) / rgba(.../.6) / hsl(120,50%,50%) /
+    // hsla(...) — the lexer tokenises them as Identifier followed
+    // by `(`, so we walk paren-balanced tokens and rebuild the
+    // text. resolveColor() then recognises the rebuilt string.
     let value: string
     if (this.check(TokenType.Color)) {
       value = this.advance().value
@@ -479,12 +484,47 @@ export class Parser {
       value = this.advance().value
     } else if (this.check(TokenType.Bool)) {
       value = this.advance().value
+    } else if (
+      this.check(TokenType.Identifier)
+      && this.tokens[this.pos + 1]?.type === TokenType.LParen
+    ) {
+      value = this.captureFnCallAsString()
     } else {
       // Hyphen-joined name like stone-800, sky-700, white, mercator
       value = this.parseUtilityName()
     }
 
     return { kind: 'StyleProperty', name, value, line }
+  }
+
+  /** Walk paren-balanced tokens and rebuild the source text — used
+   *  to capture function-call syntax in StyleProperty values (e.g.
+   *  `rgb(255, 0, 0, 0.6)`) without committing to a structured
+   *  expression representation. The resulting string is fed back to
+   *  the CSS-style colour resolver in lower.ts. */
+  private captureFnCallAsString(): string {
+    let raw = this.advance().value // fn name
+    if (!this.check(TokenType.LParen)) return raw
+    raw += '('
+    this.advance()
+    let depth = 1
+    while (depth > 0 && !this.isEnd()) {
+      const t = this.current()
+      if (t.type === TokenType.LParen) { depth++; raw += '('; this.advance(); continue }
+      if (t.type === TokenType.RParen) {
+        depth--
+        raw += ')'
+        this.advance()
+        if (depth === 0) break
+        continue
+      }
+      // Tokens like commas / numbers / percent / identifiers all
+      // come through with their raw `value` field already set, so
+      // joining them back yields a usable source-text stand-in.
+      raw += t.value
+      this.advance()
+    }
+    return raw
   }
 
   /**

@@ -404,6 +404,50 @@ function resolveColorFromAST(node: import('../parser/ast').Expr): [number, numbe
     const hex = resolveColor(colorName)
     if (hex) return hexToRgba(hex)
   }
+  // CSS rgb / rgba / hsl / hsla function call. Reconstruct the
+  // source-text from the AST so the same parser in resolveColor()
+  // (which already handles the string form) can produce hex.
+  if (node.kind === 'FnCall' && node.callee.kind === 'Identifier') {
+    const name = node.callee.name.toLowerCase()
+    if (name === 'rgb' || name === 'rgba' || name === 'hsl' || name === 'hsla') {
+      const reconstructed = reconstructCssFnCall(node)
+      if (reconstructed) {
+        const hex = resolveColor(reconstructed)
+        if (hex) return hexToRgba(hex)
+      }
+    }
+  }
+  return null
+}
+
+/** Reconstruct a CSS-style function call string (e.g. "rgb(255, 0,
+ *  0)" or "hsl(120deg, 50%, 50%)") from a parsed FnCall AST. Numeric
+ *  literals and identifiers are emitted verbatim; anything else
+ *  yields null so resolveColorFromAST falls through. */
+function reconstructCssFnCall(call: { callee: import('../parser/ast').Expr; args: import('../parser/ast').Expr[] }): string | null {
+  if (call.callee.kind !== 'Identifier') return null
+  const parts: string[] = []
+  for (const a of call.args) {
+    const piece = exprToCssArg(a)
+    if (piece === null) return null
+    parts.push(piece)
+  }
+  return `${call.callee.name}(${parts.join(', ')})`
+}
+
+function exprToCssArg(node: import('../parser/ast').Expr): string | null {
+  if (node.kind === 'NumberLiteral') return String(node.value)
+  // `50%` parses as Identifier("%") preceded by a number? No — the
+  // lexer doesn't produce a `%` token. CSS percent literals can't be
+  // expressed in the parser today; users wanting hsl() must drop the
+  // `%` (`hsl(120, 50, 50)` — the colour parser tolerates the
+  // unitless form). Same story for `0.5` alpha which parses cleanly.
+  if (node.kind === 'Identifier') return node.name
+  // `120deg` / `0.5turn`: BinaryExpr would be wrong, but the lexer
+  // recognises `deg` etc. as Px-equivalent unit tokens that stick to
+  // the preceding number — so a user writing `hsl(120deg, ...)`
+  // actually emits a single Identifier("120deg") via parseUtilityName
+  // up the chain. Out of scope here.
   return null
 }
 
