@@ -25,14 +25,12 @@ source pm_world {
   url: "/pmtiles-proxy/protomaps/v4.pmtiles"
 }
 
-/* ── Water (zoom 0+) ─────────────────────────────────────────── */
-layer water {
-  source: pm_world
-  sourceLayer: "water"
-  | fill-sky-300 stroke-sky-500 stroke-0.5
-}
-
 /* ── Landuse — per-kind colours ──────────────────────────────── */
+/* Drawn BEFORE water so a moat / lake / coastline polygon sitting
+ * inside a residential / park area paints on top of the landuse
+ * fill — matches standard OSM cartographic stacking. (At pitch=0,
+ * water and landuse share z=0; with later draws winning the
+ * layer_depth_offset race, putting water last makes it visible.) */
 layer landuse_park {
   source: pm_world
   sourceLayer: "landuse"
@@ -77,6 +75,13 @@ layer landuse_other {
        && .kind != "commercial" && .kind != "retail"
        && .kind != "industrial"
   | stroke-stone-300 stroke-0.2
+}
+
+/* ── Water (zoom 0+) ─────────────────────────────────────────── */
+layer water {
+  source: pm_world
+  sourceLayer: "water"
+  | fill-sky-300 stroke-sky-500 stroke-0.5
 }
 
 /* ── Roads — hierarchy of widths (cartographic standard) ─────── */

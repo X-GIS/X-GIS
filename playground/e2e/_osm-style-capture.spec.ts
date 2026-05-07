@@ -32,6 +32,10 @@ test.describe('OSM-style demo capture', () => {
       { name: '04-tokyo-z16-tilt45', hash: '#16/35.68/139.76/0/45' },
       { name: '05-manhattan-z16-tilt60', hash: '#16/40.78/-73.97/0/60' },
       { name: '06-manhattan-z17-tilt75', hash: '#17/40.7580/-73.9855/0/75' },
+      // User-reported "lake below ground" — Tokyo Imperial Palace
+      // moat at z=16.64 / pitch=50.6° / bearing=47.5°.
+      { name: '07-tokyo-moat-bug', hash: '#16.64/35.71214/139.76923/47.5/50.6' },
+      { name: '08-tokyo-moat-topdown', hash: '#16.42/35.71253/139.76863/67.2/0.0' },
     ]
 
     for (const s of states) {
