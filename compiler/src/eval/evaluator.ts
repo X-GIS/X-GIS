@@ -152,6 +152,29 @@ function evaluateFnCall(expr: AST.FnCall, props: FeatureProps, fnEnv?: FnEnv): u
   const name = expr.callee.kind === 'Identifier' ? expr.callee.name : null
   if (!name) return null
 
+  // `match(.field) { value -> result, ..., _ -> default }` — the
+  // matchBlock hangs off the FnCall via the parser, so we have to
+  // dispatch here BEFORE the builtin lookup. Without this the
+  // worker's `extractFeatureColors` / `extractFeatureWidths` (used
+  // by the layer-merge pass) silently received null for every
+  // feature → no per-feature stroke colour / width was ever baked
+  // into the segment buffer; the visible symptom on the iPhone
+  // osm_style demo was every road in the compound layer
+  // rendering at the FIRST member's colour because the segment
+  // override stayed at 0 (alpha=0 sentinel = "use layer colour").
+  if (name === 'match' && expr.matchBlock && expr.args.length === 1) {
+    const key = evaluate(expr.args[0], props, fnEnv)
+    const keyStr = key === null || key === undefined ? null : String(key)
+    if (keyStr !== null) {
+      for (const arm of expr.matchBlock.arms) {
+        if (arm.pattern === '_') continue
+        if (arm.pattern === keyStr) return evaluate(arm.value, props, fnEnv)
+      }
+    }
+    const defaultArm = expr.matchBlock.arms.find(a => a.pattern === '_')
+    return defaultArm ? evaluate(defaultArm.value, props, fnEnv) : null
+  }
+
   const args = expr.args.map(a => evaluate(a, props, fnEnv))
 
   // Try user-defined function first (higher priority than builtins)
