@@ -430,7 +430,25 @@ export class VectorTileRenderer {
     if (this.source && this.stableKeys.length > 0) {
       const guard = this._scratchProtectedKeys
       guard.clear()
-      for (const k of this.stableKeys) guard.add(k)
+      for (const k of this.stableKeys) {
+        guard.add(k)
+        // Cesium QuadtreePrimitive replacement invariant: every
+        // ancestor of a needed tile is also protected from
+        // eviction. Fixes the pathology where the byte-budget
+        // could evict mid-z entries (z=4-7) while leaving a far
+        // ancestor (z=3) cached, forcing the per-layer fallback
+        // walk to reach a country-covering low-detail giant and
+        // dominate GPU vertex throughput. With ancestors held,
+        // any fallback walk finds a 1-2 level parent — Mapbox /
+        // Cesium guarantee. Cost: ~stableKeys × ~zoom adds per
+        // frame (~50 entries for a typical mobile viewport).
+        let pk = k
+        while (pk > 1) {
+          pk = tileKeyParent(pk)
+          if (pk < 1) break
+          guard.add(pk)
+        }
+      }
       this.source.evictTiles(guard)
     }
   }
