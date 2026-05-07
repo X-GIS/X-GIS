@@ -423,6 +423,21 @@ export class XGISMap {
       // on the next draw when `getOrCreateVariantPipelines` sees a
       // shaderCache miss.
       for (const entry of this.vectorTileShows) entry.pipelines = null
+      // VTRs hold their own references to the renderer's `extruded`
+      // and `ground` pipelines (set once at attach time). After a
+      // rebuild those references go stale — same pipeline-attachment-
+      // mismatch panic, just one indirection deeper. Re-wire every
+      // VTR to the freshly built pipelines.
+      for (const { renderer: vtRenderer } of this.vtSources.values()) {
+        vtRenderer.setExtrudedPipelines(
+          this.renderer.fillPipelineExtruded,
+          this.renderer.fillPipelineExtrudedFallback,
+        )
+        vtRenderer.setGroundPipelines(
+          this.renderer.fillPipelineGround,
+          this.renderer.fillPipelineGroundFallback,
+        )
+      }
     }
     if (dprChanged) {
       // Canvas resize picks up the new DPR cap on the next frame.
