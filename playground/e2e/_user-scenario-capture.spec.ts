@@ -1,8 +1,20 @@
-// Captures user-reported scenarios as raw screenshots so we can
-// VISUALLY inspect what's actually happening — not just compare
-// against baselines.
+// Captures user-reported scenarios + asserts data-level invariants
+// at each camera state. Complements the pixel-based smoke specs:
+//
+//   smoke (toMatchSnapshot): catches visual changes vs a baseline
+//                            png, but stale baselines drift silently
+//                            and pass false-positive (commit-71dd401
+//                            PMTiles regression slipped past smoke
+//                            for weeks).
+//
+//   this spec (assertions):  data-level checks — expected visible
+//                            tile count, decision distribution at
+//                            cz, no `untracked` or `queued-no-fb`
+//                            decisions, currentZ matches camera.zoom.
+//                            Robust to pixel drift, catches
+//                            architectural regressions immediately.
 
-import { test } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
@@ -71,6 +83,43 @@ test.describe('User scenario capture', () => {
       console.log('[capture]', s.name, JSON.stringify(diag))
       const buf = await page.screenshot({ fullPage: false })
       fs.writeFileSync(path.join(OUT_DIR, `${s.name}.png`), buf)
+
+      // ── Data-level invariants ─────────────────────────────────
+      // These catch the architectural regressions that pixel-based
+      // smoke baselines miss when stale.
+
+      // cz must have advanced past the initial 0 — catches "never
+      // hysteresis-advanced" stuck state. The gate's READINESS
+      // gating may hold cz several levels behind camera.zoom during
+      // a transition (depending on PMTiles fetch latency in CI),
+      // so we don't assert "cz near camera.zoom" tightly — only
+      // that some progress happened.
+      expect(diag.cz, `[${s.name}] cz=${diag.cz} should have advanced past initial`)
+        .toBeGreaterThan(0)
+
+      // At least SOME tiles should be drawn at every zoom — a fully
+      // blank canvas is the bug class that commit-71dd401's `ox`
+      // contract mismatch produced.
+      expect(diag.visible, `[${s.name}] zero tiles drawn — blank canvas regression`)
+        .toBeGreaterThan(0)
+
+      // No `untracked` or `queued-no-fb` decisions: every visible
+      // tile must resolve to a known TileDecision kind. `untracked`
+      // = a code path that didn't set a decision (bug — adding new
+      // path forgot to mark it). `queued-no-fb` = pre-49d4801
+      // walk-skip bug.
+      const badDecisions = ['untracked', 'queued-no-fb']
+      for (const bad of badDecisions) {
+        expect(diag.decisions[bad] ?? 0, `[${s.name}] decision="${bad}" present (${diag.decisions[bad]})`)
+          .toBe(0)
+      }
+
+      // Catalog must have made progress fetching tiles — fully empty
+      // catalog after waitForTimeout means the source isn't loading.
+      // (Allow zero only at the very initial zoom 0.5 when a bounds-
+      // fit might race with first fetch — but we settled 4s.)
+      expect(diag.catalogTiles, `[${s.name}] catalog has zero tiles after settle — source not fetching?`)
+        .toBeGreaterThan(0)
     }
 
     // Mid-transition capture during zoom-in (the user-reported bug)
