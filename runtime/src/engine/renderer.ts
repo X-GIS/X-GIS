@@ -4,7 +4,13 @@ import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { MeshData, LineMeshData } from '../loader/geojson'
 import { generateGraticule } from './graticule'
-import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH, MSAA_4X, WORLD_MERC, worldCopiesFor } from './gpu-shared'
+import {
+  BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST,
+  STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH,
+  BLEND_OIT_ACCUM, BLEND_OIT_REVEALAGE,
+  OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT,
+  MSAA_4X, WORLD_MERC, worldCopiesFor,
+} from './gpu-shared'
 import { isPickEnabled, getSampleCount } from './gpu'
 import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from './wgsl-projection'
@@ -284,6 +290,47 @@ fn fs_fill(input: VertexOutput) -> FragmentOutput {
   let wall_shade = 0.55 + 0.45 * input.wall_blend;
   out.color = vec4<f32>(u.fill_color.rgb * wall_shade, u.fill_color.a);
   __PICK_WRITE__
+  out.depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
+  return out;
+}
+
+// Weighted Blended OIT (McGuire-Bavoil 2013) translucent fill output.
+// Writes to two MRT slots:
+//   @location(0) accum:     vec4<f32> = (rgb·a·w, a·w)   [BLEND_ADD]
+//   @location(1) revealage: f32        = a               [BLEND mul-by-1-src]
+// The compose pass divides accum.rgb by accum.a to recover the
+// weighted-average colour, and uses (1 - product_of_(1-a)) as the
+// over-blend alpha onto the opaque framebuffer.
+//
+// Weight function: McGuire-Bavoil 7.4. The view-w-dependent term
+// biases small-z fragments to dominate, matching what painter's
+// order would do for clearly-front-most geometry. Clamping prevents
+// degenerate cases (very small / very large weights breaking the
+// running sums in fp16).
+struct OitFragmentOutput {
+  @location(0) accum: vec4<f32>,
+  @location(1) revealage: f32,
+  @builtin(frag_depth) depth: f32,
+}
+
+@fragment
+fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
+  if (input.cos_c < 0.0) { discard; }
+  if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
+  let wall_shade = 0.55 + 0.45 * input.wall_blend;
+  let rgb = u.fill_color.rgb * wall_shade;
+  let a = u.fill_color.a;
+  if (a <= 0.001) { discard; }
+  // McGuire-Bavoil weight: large for closer (smaller view_w) and
+  // smaller alpha contributions, capped to avoid float overflow.
+  let z = max(input.view_w, 1e-3);
+  let w = clamp(0.03 / (1e-5 + pow(z / 200.0, 4.0)), 1e-2, 3.0e3);
+  var out: OitFragmentOutput;
+  out.accum = vec4<f32>(rgb * a, a) * w;
+  out.revealage = a;
+  // No pick output — OIT pass binds only accum + revealage targets.
+  // Translucent buildings stay non-pickable; users wanting to pick
+  // them should keep opacity = 1 (opaque pass writes pick).
   out.depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
   return out;
 }
@@ -736,6 +783,17 @@ export class MapRenderer {
    *  fill-draw branch when a tile slice carries `heights` (e.g.
    *  protomaps `buildings` with `render_height`). */
   fillPipelineExtruded!: GPURenderPipeline
+  /** Weighted-Blended OIT translucent extrude fill. Renders into
+   *  `oitAccumTexture` + `oitRevealageTexture` so multiple
+   *  translucent buildings composite without back-to-front sort.
+   *  The OIT compose pipeline reads both targets back into the
+   *  resolved main color afterward. */
+  fillPipelineExtrudedOIT!: GPURenderPipeline
+  /** Compose pipeline for the Weighted-Blended OIT pair. Samples
+   *  `oitAccumTexture` + `oitRevealageTexture` and over-blends the
+   *  recovered translucent color onto the opaque framebuffer. */
+  oitComposePipeline!: GPURenderPipeline
+  oitComposeBindGroupLayout!: GPUBindGroupLayout
   linePipeline!: GPURenderPipeline
   // Stencil-test pipelines: only draw where stencil = 0 (not covered by children)
   fillPipelineFallback!: GPURenderPipeline
@@ -987,6 +1045,37 @@ export class MapRenderer {
     this.fillPipelineExtrudedFallback = pickable.fillExtrudedFallback
     this.linePipelineFallback = pickable.lineFallback
 
+    // OIT translucent extrude pipeline — separate from buildSet
+    // because it targets the OIT MRT pair (rgba16float accum +
+    // r16float revealage) at sampleCount=1, not the main pass's
+    // color + pick attachments at MSAA. Same vs_main_quantized_
+    // extruded vertex stage as the opaque fill — only the fragment
+    // entry + targets differ. Depth state DEPTH_READ_ONLY: the
+    // translucent fill respects the opaque depth buffer (hidden
+    // behind solid walls) without writing depth (so multiple
+    // translucent layers don't occlude each other in OIT space).
+    const oitTargets: GPUColorTargetState[] = [
+      { format: OIT_ACCUM_FORMAT, blend: BLEND_OIT_ACCUM },
+      { format: OIT_REVEALAGE_FORMAT, blend: BLEND_OIT_REVEALAGE, writeMask: GPUColorWrite.RED },
+    ]
+    this.fillPipelineExtrudedOIT = device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
+      fragment: { module: shaderModule, entryPoint: 'fs_oit_translucent', targets: oitTargets },
+      primitive: { topology: 'triangle-list', cullMode: 'back' },
+      depthStencil: {
+        format: 'depth24plus-stencil8',
+        depthCompare: 'less-equal',
+        depthWriteEnabled: false,
+        stencilFront: { compare: 'always', passOp: 'keep' },
+        stencilBack: { compare: 'always', passOp: 'keep' },
+        stencilWriteMask: 0x00,
+        stencilReadMask: 0x00,
+      },
+      multisample: { count: 1 },
+      label: 'fill-pipeline-extruded-oit',
+    })
+
     // When picking is off there's no pick attachment to mask, so the
     // no-pick set is identical to the pickable one — alias instead of
     // building duplicates.
@@ -1010,6 +1099,61 @@ export class MapRenderer {
       this.fillPipelineExtrudedFallbackNoPick = this.fillPipelineExtrudedFallback
       this.linePipelineFallbackNoPick = this.linePipelineFallback
     }
+
+    // OIT compose — full-screen quad samples accum + revealage and
+    // over-blends the recovered translucent colour onto the
+    // (resolved) main framebuffer. Two texture bindings, no
+    // sampler needed (textureLoad with integer coord is enough —
+    // 1:1 fullscreen quad).
+    const oitComposeShader = /* wgsl */ `
+struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
+@vertex fn vs_full(@builtin(vertex_index) idx: u32) -> VsOut {
+  // Two-triangle fullscreen quad emitted from a 6-vertex no-buffer draw.
+  let x = f32((idx & 1u) << 1u) - 1.0;
+  let y = 1.0 - f32(idx & 2u);
+  // y flipped because WebGPU NDC has y-up but we sample texture y-down.
+  var out: VsOut;
+  out.pos = vec4<f32>(x, y, 0.0, 1.0);
+  out.uv = vec2<f32>((x + 1.0) * 0.5, 1.0 - (y + 1.0) * 0.5);
+  return out;
+}
+@group(0) @binding(0) var accum_tex: texture_2d<f32>;
+@group(0) @binding(1) var revealage_tex: texture_2d<f32>;
+@fragment fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
+  let dim = vec2<f32>(textureDimensions(accum_tex));
+  let uv = vec2<i32>(in.uv * dim);
+  let accum = textureLoad(accum_tex, uv, 0);
+  let revealage = textureLoad(revealage_tex, uv, 0).r;
+  // McGuire-Bavoil compose:
+  //   avg_rgb = accum.rgb / max(accum.a, eps)
+  //   alpha   = 1 - revealage
+  let avg = accum.rgb / max(accum.a, 1e-5);
+  let alpha = 1.0 - revealage;
+  // Output as straight (non-premultiplied) — the pipeline's
+  // BLEND_ALPHA does the over-blend onto the opaque framebuffer.
+  return vec4<f32>(avg, alpha);
+}
+`
+    const oitComposeModule = device.createShaderModule({ code: oitComposeShader, label: 'oit-compose' })
+    this.oitComposeBindGroupLayout = device.createBindGroupLayout({
+      label: 'oit-compose-bgl',
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+      ],
+    })
+    this.oitComposePipeline = device.createRenderPipeline({
+      label: 'oit-compose-pipeline',
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.oitComposeBindGroupLayout] }),
+      vertex: { module: oitComposeModule, entryPoint: 'vs_full' },
+      fragment: {
+        module: oitComposeModule,
+        entryPoint: 'fs_compose',
+        targets: [{ format, blend: BLEND_ALPHA }],
+      },
+      primitive: { topology: 'triangle-list' },
+      multisample: msaaState,
+    })
 
     // Uniform ring buffer: 256-byte slots, dynamic offsets per draw.
     // Guarantees that multi-layer draws don't overwrite each other's uniforms.
