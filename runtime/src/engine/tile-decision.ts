@@ -142,6 +142,37 @@ export function classifyTile(input: ClassifyTileInputs): TileDecision {
   return classifyFallback(input)
 }
 
+/** Compute the eviction-protection key set for a frame. Implements
+ *  the Cesium QuadtreePrimitive replacement invariant: every visible
+ *  tile + up to `depth` levels of its ancestors stay in the catalog
+ *  so the per-tile fallback walk always finds something to render.
+ *
+ *  Capped at `depth` levels (default 4) so the protected set stays
+ *  bounded even at deep zooms — without a cap, mobile catalog can
+ *  grow past MAX_CACHED_BYTES (visible 20 × log2 zoom ~ 200+ keys
+ *  × ~2 MB ≫ 100 MB mobile cap). Beyond the cap, eviction is free;
+ *  the children-stretch fallback (deck.gl best-available) covers the
+ *  rare cold-start cases the depth cap leaves exposed.
+ *
+ *  Pure function — testable in isolation, no rendering or GPU state. */
+export function computeProtectedKeys(
+  stableKeys: readonly number[],
+  depth: number,
+  tileKeyParent: (k: number) => number,
+  out: Set<number> = new Set(),
+): Set<number> {
+  for (const k of stableKeys) {
+    out.add(k)
+    let pk = k
+    for (let d = 0; d < depth && pk > 1; d++) {
+      pk = tileKeyParent(pk)
+      if (pk < 1) break
+      out.add(pk)
+    }
+  }
+  return out
+}
+
 /** Fallback selection: parent walk → children stretch → drop or
  *  pending. Shared between path 3 (queued-with-fallback) and path 5
  *  (cold) so both produce the same fallback structure. */

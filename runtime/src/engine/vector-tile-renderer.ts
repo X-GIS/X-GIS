@@ -7,7 +7,7 @@ import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../loader/tiles'
-import { classifyTile, type TileDecision } from './tile-decision'
+import { classifyTile, computeProtectedKeys, type TileDecision } from './tile-decision'
 import { tileKey, tileKeyParent, tileKeyChildren, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../data/tile-catalog'
@@ -481,26 +481,7 @@ export class VectorTileRenderer {
     if (this.source && this.stableKeys.length > 0) {
       const guard = this._scratchProtectedKeys
       guard.clear()
-      for (const k of this.stableKeys) {
-        guard.add(k)
-        // Cesium QuadtreePrimitive replacement invariant: ancestors
-        // of a needed tile are protected from eviction. Capped at
-        // ANCESTOR_PROTECT_DEPTH levels so visible × ancestor chain
-        // stays bounded even at dense high-zoom viewports — without
-        // a cap, mobile catalog can grow past MAX_CACHED_BYTES under
-        // a wide pyramid (visible 20 × log2 zoom ~ 200+ keys × ~2 MB
-        // each ≫ 100 MB mobile cap). Beyond the cap, eviction is
-        // free game; deck.gl children-stretch fallback (Phase 3)
-        // covers the rare cold-start cases that depth-cap leaves
-        // exposed. Mapbox findLoadedParent walks 1 level by default;
-        // 4 is a balance between fallback coverage and memory.
-        let pk = k
-        for (let d = 0; d < ANCESTOR_PROTECT_DEPTH && pk > 1; d++) {
-          pk = tileKeyParent(pk)
-          if (pk < 1) break
-          guard.add(pk)
-        }
-      }
+      computeProtectedKeys(this.stableKeys, ANCESTOR_PROTECT_DEPTH, tileKeyParent, guard)
       this.source.evictTiles(guard)
     }
   }

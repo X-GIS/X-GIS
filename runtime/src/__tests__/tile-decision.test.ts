@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { tileKey, tileKeyParent } from '@xgis/compiler'
-import { classifyTile, type ClassifyTileInputs, type TileDecision } from '../engine/tile-decision'
+import { classifyTile, computeProtectedKeys, type ClassifyTileInputs, type TileDecision } from '../engine/tile-decision'
 
 const tile = (z: number, x: number, y: number) => ({ z, x, y, ox: x })
 
@@ -175,5 +175,51 @@ describe('classifyTile', () => {
     if (d.kind === 'queued-with-fallback') {
       expect(d.fallback.kind).toBe('parent-fallback')
     }
+  })
+})
+
+describe('computeProtectedKeys', () => {
+  it('always includes every stableKey', () => {
+    const keys = [tileKey(8, 100, 50), tileKey(8, 200, 100)]
+    const protect = computeProtectedKeys(keys, 4, tileKeyParent)
+    for (const k of keys) expect(protect.has(k)).toBe(true)
+  })
+
+  it('protects exactly `depth` levels of ancestors', () => {
+    const visibleKey = tileKey(10, 500, 300)
+    const protect = computeProtectedKeys([visibleKey], 3, tileKeyParent)
+    // Should contain visibleKey + 3 parents (z=9, z=8, z=7)
+    let pk = visibleKey
+    for (let d = 0; d < 3; d++) {
+      pk = tileKeyParent(pk)
+      expect(protect.has(pk), `parent depth ${d + 1} present`).toBe(true)
+    }
+    // The 4th parent (z=6) should NOT be in protected set
+    pk = tileKeyParent(pk)
+    expect(protect.has(pk), 'parent at depth 4 not present').toBe(false)
+  })
+
+  it('size grows linearly with stableKeys + depth (no exponential blowup)', () => {
+    const keys = Array.from({ length: 20 }, (_, i) => tileKey(12, i, i))
+    const protect = computeProtectedKeys(keys, 4, tileKeyParent)
+    // Worst case: 20 visible × (1 + 4 ancestors) = 100
+    // In practice many ancestors overlap; assert ≤ 100
+    expect(protect.size).toBeLessThanOrEqual(100)
+    expect(protect.size).toBeGreaterThanOrEqual(20)
+  })
+
+  it('handles z=0 root correctly (no parent to walk)', () => {
+    const rootKey = tileKey(0, 0, 0)  // = 1
+    const protect = computeProtectedKeys([rootKey], 4, tileKeyParent)
+    expect(protect.size).toBe(1)
+    expect(protect.has(rootKey)).toBe(true)
+  })
+
+  it('reuses provided output Set (avoids allocation)', () => {
+    const out = new Set<number>([999])  // sentinel
+    const ret = computeProtectedKeys([tileKey(8, 100, 50)], 2, tileKeyParent, out)
+    expect(ret).toBe(out)
+    expect(out.has(999)).toBe(true)  // sentinel preserved
+    expect(out.size).toBe(4)  // sentinel + key + 2 ancestors
   })
 })
