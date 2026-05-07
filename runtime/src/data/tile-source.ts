@@ -68,6 +68,11 @@ export interface BackendTileResult {
   outlineLineIndices?: Uint32Array
   /** Original rings carried along for sub-tile clipping. */
   polygons?: RingPolygon[]
+  /** featId → 3D extrude height (metres). Set by the MVT decode
+   *  path for layers carrying `render_height` / `height` (mostly
+   *  buildings); routes the slice to the extruded fill pipeline at
+   *  upload time. Undefined / empty → use the layer's uniform default. */
+  heights?: ReadonlyMap<number, number>
   /** Set when this tile's polygon entirely covers its area. With
    *  empty vertices, catalog synthesises a quad via
    *  createFullCoverTileData. */

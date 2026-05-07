@@ -220,6 +220,56 @@ fn vs_main_quantized(
   return out;
 }
 
+// Per-feature 3D extrusion entry. Same as vs_main_quantized but z
+// comes from a parallel vertex buffer (location 3) instead of
+// is_top times u.extrude_height_m. Bound when the upload path took
+// the *Extruded mesh-gen variants — i.e. an MVT slice that carried
+// per-feature render_height / height properties.
+//
+// wall_blend is derived from the z attribute: z>0 -> 1.0 (top / roof),
+// z=0 -> 0.0 (bottom of wall). Roof faces get full brightness; walls
+// fade from base to roof exactly like the uniform path.
+@vertex
+fn vs_main_quantized_extruded(
+  @location(0) pos_raw: vec2<u32>,
+  @location(2) feature_id: f32,
+  @location(3) z_attr: f32,
+) -> VertexOutput {
+  let mx_q = f32(pos_raw.x & 0x7FFFu);
+  let my_q = f32(pos_raw.y);
+  let local = vec2<f32>(mx_q, my_q) / 32767.0 * u.tile_extent_m;
+  let cam_local = u.cam_h + u.cam_l;
+  let rel = local - cam_local;
+
+  let abs_merc_x = local.x + u.tile_origin_merc.x;
+  let abs_merc_y = local.y + u.tile_origin_merc.y;
+  let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
+  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let abs_lat = lat_rad / DEG2RAD;
+  let abs_lat_clamped = clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
+
+  var rtc: vec2<f32>;
+  let t = u.proj_params.x;
+  if (t < 0.5) {
+    rtc = rel;
+  } else {
+    let proj_xy = project(abs_lon, abs_lat, u.proj_params);
+    let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
+    rtc = proj_xy - center_xy;
+  }
+
+  var out: VertexOutput;
+  let clip = u.mvp * vec4<f32>(rtc, z_attr, 1.0);
+  out.position = apply_log_depth(clip, u.log_depth_fc);
+  out.position.z = out.position.z - u.layer_depth_offset * out.position.w;
+  out.view_w = clip.w;
+  out.cos_c = needs_backface_cull(abs_lon, abs_lat, u.proj_params);
+  out.feat_id = u32(feature_id);
+  out.abs_lat = abs_lat_clamped;
+  out.wall_blend = select(0.0, 1.0, z_attr > 0.0);
+  return out;
+}
+
 // ── Fragment shaders (replaceable by ShaderVariant) ──
 // FILL_EXPR and STROKE_EXPR are replaced by buildShader() when a variant exists
 
@@ -665,17 +715,26 @@ export class MapRenderer {
   private uniformRingCapacity = 256 // slots
   private uniformSlot = 0
   fillPipeline!: GPURenderPipeline
+  /** Per-feature 3D extrusion variant of fillPipeline — identical
+   *  except entryPoint=`vs_main_quantized_extruded` and a second
+   *  vertex buffer slot for the per-vertex z attribute. Used by the
+   *  fill-draw branch when a tile slice carries `heights` (e.g.
+   *  protomaps `buildings` with `render_height`). */
+  fillPipelineExtruded!: GPURenderPipeline
   linePipeline!: GPURenderPipeline
   // Stencil-test pipelines: only draw where stencil = 0 (not covered by children)
   fillPipelineFallback!: GPURenderPipeline
+  fillPipelineExtrudedFallback!: GPURenderPipeline
   linePipelineFallback!: GPURenderPipeline
   // `pointer-events: none` mirrors — same shader, writeMask:0 on the
   // pick attachment so the layer's pickId never lands in the pick
   // texture. Identity-aliased to the pickable set when picking is
   // globally disabled (no pick attachment to mask).
   fillPipelineNoPick!: GPURenderPipeline
+  fillPipelineExtrudedNoPick!: GPURenderPipeline
   linePipelineNoPick!: GPURenderPipeline
   fillPipelineFallbackNoPick!: GPURenderPipeline
+  fillPipelineExtrudedFallbackNoPick!: GPURenderPipeline
   linePipelineFallbackNoPick!: GPURenderPipeline
   uniformBuffer!: GPUBuffer
   bindGroupLayout!: GPUBindGroupLayout
@@ -784,6 +843,16 @@ export class MapRenderer {
         { shaderLocation: 2, offset: 4, format: 'float32'   as GPUVertexFormat },
       ],
     }
+    // Parallel z attribute (slot 1) for the per-feature extrusion
+    // pipeline — one float per polygon vertex, 0 for wall bottoms,
+    // feature-height for wall tops + roof faces. Bound only when the
+    // tile's slice carries `heights`.
+    const extrudedZBufferLayout: GPUVertexBufferLayout = {
+      arrayStride: 4,
+      attributes: [
+        { shaderLocation: 3, offset: 0, format: 'float32' as GPUVertexFormat },
+      ],
+    }
     // DSFUN line vertex: [mx_h, my_h, mx_l, my_l, feat_id, arc_start] — stride 24 bytes.
     // arc_start lives at offset 20; the vertex shader ignores it (the SDF
     // LineRenderer reads it via the segment storage buffer), but keeping it
@@ -820,6 +889,14 @@ export class MapRenderer {
         depthStencil: STENCIL_WRITE, multisample: msaaState,
         label: `fill-pipeline${suffix}`,
       }),
+      fillExtruded: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        label: `fill-pipeline-extruded${suffix}`,
+      }),
       line: device.createRenderPipeline({
         layout: pipelineLayout,
         vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
@@ -836,6 +913,14 @@ export class MapRenderer {
         depthStencil: STENCIL_TEST, multisample: msaaState,
         label: `fill-pipeline-fallback${suffix}`,
       }),
+      fillExtrudedFallback: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_TEST, multisample: msaaState,
+        label: `fill-pipeline-extruded-fallback${suffix}`,
+      }),
       lineFallback: device.createRenderPipeline({
         layout: pipelineLayout,
         vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
@@ -848,8 +933,10 @@ export class MapRenderer {
 
     const pickable = buildSet(colorTargets, '')
     this.fillPipeline = pickable.fill
+    this.fillPipelineExtruded = pickable.fillExtruded
     this.linePipeline = pickable.line
     this.fillPipelineFallback = pickable.fillFallback
+    this.fillPipelineExtrudedFallback = pickable.fillExtrudedFallback
     this.linePipelineFallback = pickable.lineFallback
 
     // When picking is off there's no pick attachment to mask, so the
@@ -858,13 +945,17 @@ export class MapRenderer {
     if (pickEnabled) {
       const noPick = buildSet(colorTargetsNoPick, '-nopick')
       this.fillPipelineNoPick = noPick.fill
+      this.fillPipelineExtrudedNoPick = noPick.fillExtruded
       this.linePipelineNoPick = noPick.line
       this.fillPipelineFallbackNoPick = noPick.fillFallback
+      this.fillPipelineExtrudedFallbackNoPick = noPick.fillExtrudedFallback
       this.linePipelineFallbackNoPick = noPick.lineFallback
     } else {
       this.fillPipelineNoPick = this.fillPipeline
+      this.fillPipelineExtrudedNoPick = this.fillPipelineExtruded
       this.linePipelineNoPick = this.linePipeline
       this.fillPipelineFallbackNoPick = this.fillPipelineFallback
+      this.fillPipelineExtrudedFallbackNoPick = this.fillPipelineExtrudedFallback
       this.linePipelineFallbackNoPick = this.linePipelineFallback
     }
 

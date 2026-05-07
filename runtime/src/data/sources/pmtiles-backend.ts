@@ -28,6 +28,25 @@ import type {
 } from '../tile-source'
 import { getSharedMvtPool, type MvtWorkerPool } from '../mvt-worker-pool'
 
+/** Same height extractor as the worker (mvt-worker.ts). The inline
+ *  fallback path can't import from mvt-worker because its module is
+ *  worker-only (top-level postMessage handler), so we duplicate this
+ *  tiny helper. Keep them in sync — both check `render_height` first
+ *  then `height`, ignoring zero / negative / non-finite values. */
+function extractFeatureHeights(features: GeoJSONFeature[]): Map<number, number> {
+  const out = new Map<number, number>()
+  for (let i = 0; i < features.length; i++) {
+    const props = features[i].properties
+    if (!props) continue
+    const raw = (props as { render_height?: unknown; height?: unknown }).render_height
+      ?? (props as { height?: unknown }).height
+    if (typeof raw !== 'number') continue
+    if (!Number.isFinite(raw) || raw <= 0) continue
+    out.set(i, raw)
+  }
+  return out
+}
+
 /** Async HTTP byte fetcher.
  *
  *  Three-state return:
@@ -337,6 +356,7 @@ export class PMTilesBackend implements TileSource {
               outlineVertices: slice.outlineVertices,
               outlineLineIndices: slice.outlineLineIndices,
               polygons: slice.polygons,
+              heights: slice.heights,
               fullCover: slice.fullCover,
               fullCoverFeatureId: slice.fullCoverFeatureId,
               prebuiltLineSegments: slice.prebuiltLineSegments,
@@ -410,6 +430,7 @@ export class PMTilesBackend implements TileSource {
             widthMerc, heightMerc,
           )
         }
+        const heights = extractFeatureHeights(layerFeatures)
         sink.acceptResult(key, {
           vertices: tile.vertices,
           indices: tile.indices,
@@ -420,6 +441,7 @@ export class PMTilesBackend implements TileSource {
           outlineVertices: tile.outlineVertices,
           outlineLineIndices: tile.outlineLineIndices,
           polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
+          heights: heights.size > 0 ? heights : undefined,
           fullCover: tile.fullCover,
           fullCoverFeatureId: tile.fullCoverFeatureId,
           prebuiltLineSegments,

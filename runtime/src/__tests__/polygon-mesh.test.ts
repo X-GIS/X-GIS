@@ -7,7 +7,12 @@
 // without index collisions).
 
 import { describe, expect, it } from 'vitest'
-import { generateWallMesh, quantizePolygonVertices } from '../engine/polygon-mesh'
+import {
+  generateWallMesh,
+  generateWallMeshExtruded,
+  quantizePolygonVertices,
+  quantizePolygonVerticesExtruded,
+} from '../engine/polygon-mesh'
 
 const TILE_EXTENT_M = (z: number) => (2 * Math.PI * 6378137) / Math.pow(2, z)
 
@@ -164,5 +169,97 @@ describe('generateWallMesh', () => {
     // a_top at (0, 0) with bit 15 set
     expect(u16[2 * 4] & 0x7FFF).toBe(0)
     expect(u16[2 * 4] & 0x8000).toBe(0x8000)
+  })
+})
+
+describe('quantizePolygonVerticesExtruded', () => {
+  it('emits per-vertex z keyed on featId', () => {
+    const ext = TILE_EXTENT_M(14)
+    const dsfun = new Float32Array([
+      0, 0, 0, 0, 1,           // featId 1 → 30 m
+      ext / 2, 0, 0, 0, 2,      // featId 2 → 60 m
+      ext, ext, 0, 0, 1,        // featId 1 → 30 m
+    ])
+    const heights = new Map<number, number>([[1, 30], [2, 60]])
+    const out = quantizePolygonVerticesExtruded(dsfun, ext, heights, 50)
+    expect(out.vertices.byteLength).toBe(3 * 8)
+    expect(out.z.length).toBe(3)
+    expect(out.z[0]).toBe(30)
+    expect(out.z[1]).toBe(60)
+    expect(out.z[2]).toBe(30)
+  })
+
+  it('falls back to defaultHeight for unknown featIds', () => {
+    const ext = TILE_EXTENT_M(14)
+    const dsfun = new Float32Array([0, 0, 0, 0, 99])
+    const out = quantizePolygonVerticesExtruded(dsfun, ext, new Map(), 25)
+    expect(out.z[0]).toBe(25)
+  })
+
+  it('always sets is_top=1 (top-face only)', () => {
+    const ext = TILE_EXTENT_M(14)
+    const dsfun = new Float32Array([0, 0, 0, 0, 1])
+    const out = quantizePolygonVerticesExtruded(dsfun, ext, new Map([[1, 40]]), 50)
+    const u16 = new Uint16Array(out.vertices)
+    expect(u16[0] & 0x8000).toBe(0x8000)
+  })
+})
+
+describe('generateWallMeshExtruded', () => {
+  it('emits z=0 for bottom verts and z=feature-height for top verts', () => {
+    const ext = TILE_EXTENT_M(14)
+    const polys = [{
+      rings: [[[0, 0], [ext / 2, 0], [0, ext / 2]]],
+      featId: 7,
+    }]
+    const heights = new Map<number, number>([[7, 80]])
+    const mesh = generateWallMeshExtruded(polys, ext, 0, 0, heights, 50)
+    // 3 edges × 4 verts = 12 vertices total
+    expect(mesh.z.length).toBe(12)
+    // Order per wall: a_bot, b_bot, a_top, b_top
+    for (let edge = 0; edge < 3; edge++) {
+      const off = edge * 4
+      expect(mesh.z[off + 0]).toBe(0)   // a_bot
+      expect(mesh.z[off + 1]).toBe(0)   // b_bot
+      expect(mesh.z[off + 2]).toBe(80)  // a_top
+      expect(mesh.z[off + 3]).toBe(80)  // b_top
+    }
+  })
+
+  it('uses defaultHeight when feature lacks a height entry', () => {
+    const ext = TILE_EXTENT_M(14)
+    const polys = [{
+      rings: [[[0, 0], [ext / 2, 0], [0, ext / 2]]],
+      featId: 99,
+    }]
+    const mesh = generateWallMeshExtruded(polys, ext, 0, 0, new Map(), 35)
+    expect(mesh.z[2]).toBe(35)
+  })
+
+  it('different polygons get different per-feature heights in the same buffer', () => {
+    const ext = TILE_EXTENT_M(14)
+    const polys = [
+      { rings: [[[0, 0], [ext / 4, 0], [0, ext / 4]]], featId: 1 },
+      { rings: [[[ext / 2, ext / 2], [ext * 3 / 4, ext / 2], [ext / 2, ext * 3 / 4]]], featId: 2 },
+    ]
+    const heights = new Map<number, number>([[1, 30], [2, 90]])
+    const mesh = generateWallMeshExtruded(polys, ext, 0, 0, heights, 50)
+    // Polygon 1: 3 edges × 4 verts = 12 verts at indices [0..12)
+    expect(mesh.z[2]).toBe(30)  // poly 1 a_top
+    expect(mesh.z[12 + 2]).toBe(90)  // poly 2 a_top
+  })
+
+  it('walls carry featId on bottom and top vertices for picking', () => {
+    const ext = TILE_EXTENT_M(14)
+    const polys = [{
+      rings: [[[0, 0], [ext / 2, 0], [0, ext / 2]]],
+      featId: 42,
+    }]
+    const mesh = generateWallMeshExtruded(polys, ext, 0, 0, new Map([[42, 50]]), 50)
+    const f32 = new Float32Array(mesh.vertices)
+    // featId at f32[1], f32[3], f32[5], ... (one per stride-8 vertex)
+    for (let v = 0; v < mesh.z.length; v++) {
+      expect(f32[v * 2 + 1]).toBe(42)
+    }
   })
 })

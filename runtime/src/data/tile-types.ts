@@ -51,6 +51,12 @@ export interface TileData {
   tileHeight: number
   tileZoom: number
   polygons?: RingPolygon[]     // original rings (for sub-tiling)
+  /** featId → 3D extrude height in metres. Populated by the MVT
+   *  decode path for layers whose features carry `render_height` /
+   *  `height` properties (primarily `buildings`). VTR routes upload
+   *  through the extruded polygon pipeline when this is set; missing
+   *  / empty means the layer's uniform default applies. */
+  heights?: ReadonlyMap<number, number>
 }
 
 // Stride constants (exported for tests + VTR upload paths)

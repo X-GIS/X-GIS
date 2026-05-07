@@ -340,6 +340,7 @@ export class TileCatalog {
       result.prebuiltLineSegments,
       result.prebuiltOutlineSegments,
       sourceLayer,
+      result.heights,
     )
   }
 
@@ -882,6 +883,7 @@ export class TileCatalog {
     /** MVT layer slot. '' (default) for single-layer sources;
      *  layer name for per-MVT-layer slices. */
     sourceLayer = '',
+    heights?: ReadonlyMap<number, number>,
   ): void {
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
@@ -903,6 +905,7 @@ export class TileCatalog {
       tileHeight: tileNorth - tileSouth,
       tileZoom: tz,
       polygons,
+      heights,
     }
 
     this.setSlice(key, sourceLayer, data)

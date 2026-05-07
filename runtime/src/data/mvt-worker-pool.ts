@@ -24,6 +24,7 @@ export interface MvtCompileSlice {
   prebuiltLineSegments?: Float32Array
   prebuiltOutlineSegments?: Float32Array
   polygons?: RingPolygon[]
+  heights?: ReadonlyMap<number, number>
   fullCover: boolean
   fullCoverFeatureId: number
 }
@@ -46,6 +47,7 @@ interface SliceMsg {
   prebuiltLineSegments?: ArrayBuffer
   prebuiltOutlineSegments?: ArrayBuffer
   polygons?: RingPolygon[]
+  heights?: ReadonlyMap<number, number>
   fullCover: boolean
   fullCoverFeatureId: number
 }
@@ -102,6 +104,7 @@ export class MvtWorkerPool {
             prebuiltLineSegments: s.prebuiltLineSegments ? new Float32Array(s.prebuiltLineSegments) : undefined,
             prebuiltOutlineSegments: s.prebuiltOutlineSegments ? new Float32Array(s.prebuiltOutlineSegments) : undefined,
             polygons: s.polygons,
+            heights: s.heights,
             fullCover: s.fullCover,
             fullCoverFeatureId: s.fullCoverFeatureId,
           }))

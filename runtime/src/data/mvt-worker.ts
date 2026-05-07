@@ -21,6 +21,25 @@ import {
 } from '@xgis/compiler'
 import { buildLineSegments } from '../engine/line-segment-build'
 
+/** Extract per-feature 3D extrude heights from a layer's features.
+ *  Reads `render_height` first (protomaps' rounded display value),
+ *  falls back to `height`, ignores zero / negative / non-finite
+ *  values. Returns an empty Map for layers that don't carry either
+ *  property — the runtime then keeps using the layer's default
+ *  extrude height uniformly. */
+function extractFeatureHeights(features: GeoJSONFeature[]): Map<number, number> {
+  const out = new Map<number, number>()
+  for (let i = 0; i < features.length; i++) {
+    const props = features[i].properties
+    if (!props) continue
+    const raw = props.render_height ?? props.height
+    if (typeof raw !== 'number') continue
+    if (!Number.isFinite(raw) || raw <= 0) continue
+    out.set(i, raw)
+  }
+  return out
+}
+
 // ── Message protocol ──
 
 export interface MvtCompileRequest {
@@ -56,6 +75,13 @@ export interface MvtCompileSlice {
   prebuiltLineSegments?: ArrayBuffer
   prebuiltOutlineSegments?: ArrayBuffer
   polygons?: { rings: number[][][]; featId: number }[]
+  /** featId → extrude height in metres. Populated only for layers
+   *  whose features carry a `height` (or `render_height`) property —
+   *  primarily protomaps `buildings`. The runtime branches the
+   *  upload path onto the extruded fill pipeline when this is set
+   *  and non-empty. Empty Map = no per-feature data; let the layer's
+   *  default (e.g. style-set) extrude height apply uniformly. */
+  heights?: ReadonlyMap<number, number>
   fullCover: boolean
   fullCoverFeatureId: number
 }
@@ -139,6 +165,13 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
         prebuiltLineSegments = seg.buffer as ArrayBuffer
       }
 
+      // Build featId→height for layers whose features carry a height
+      // property. protomaps `buildings` uses `render_height` (rounded
+      // for rendering) and `height` (raw); we prefer render_height
+      // when both exist. Layers without any height property produce an
+      // empty Map and the runtime falls back to the layer-uniform
+      // extrude default.
+      const heights = extractFeatureHeights(layerFeatures)
       const slice: MvtCompileSlice = {
         layerName,
         vertices: tile.vertices.buffer as ArrayBuffer,
@@ -152,6 +185,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
         prebuiltLineSegments,
         prebuiltOutlineSegments,
         polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
+        heights: heights.size > 0 ? heights : undefined,
         fullCover: tile.fullCover ?? false,
         fullCoverFeatureId: tile.fullCoverFeatureId ?? 0,
       }

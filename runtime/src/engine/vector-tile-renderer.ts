@@ -8,7 +8,12 @@ import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../loader/tiles'
 import { classifyTile, computeProtectedKeys, type TileDecision } from './tile-decision'
-import { generateWallMesh, quantizePolygonVertices } from './polygon-mesh'
+import {
+  generateWallMesh,
+  generateWallMeshExtruded,
+  quantizePolygonVertices,
+  quantizePolygonVerticesExtruded,
+} from './polygon-mesh'
 import { tileKey, tileKeyParent, tileKeyChildren, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../data/tile-catalog'
@@ -30,6 +35,12 @@ interface GPUTile {
   vertexBuffer: GPUBuffer
   indexBuffer: GPUBuffer
   indexCount: number
+  /** Per-vertex z (world metres) for extruded polygons. When non-null,
+   *  the fill path binds the `*Extruded` pipeline and feeds this as
+   *  vertex buffer slot 1; vertex bit 15 of x is unused on this code
+   *  path (z carries the bottom-vs-top distinction directly). Null on
+   *  flat polygon tiles. */
+  zBuffer: GPUBuffer | null
   lineVertexBuffer: GPUBuffer | null
   lineIndexBuffer: GPUBuffer | null
   lineIndexCount: number
@@ -306,8 +317,26 @@ export class VectorTileRenderer {
   private tileDropWarnings = new Set<string>()
   private _missedTiles = 0 // tiles with no fallback this frame
 
+  /** Pipeline pair for tiles with per-feature extrude heights (i.e.
+   *  `cached.zBuffer != null`). The orchestrator (renderer.ts) sets
+   *  these once at init via `setExtrudedPipelines`; VTR swaps them in
+   *  for the fill draw when the cached tile carries a z buffer. Null
+   *  before `setExtrudedPipelines` runs — flat-only render still works
+   *  because the branch checks `cached.zBuffer` first. */
+  private fillPipelineExtruded: GPURenderPipeline | null = null
+  private fillPipelineExtrudedFallback: GPURenderPipeline | null = null
+
   constructor(ctx: GPUContext) {
     this.device = ctx.device
+  }
+
+  /** Provide the per-feature extrusion fill pipelines. Called once
+   *  per frame from map.ts immediately before render() so VTR can
+   *  pick between flat and extruded fill paths on a per-tile basis
+   *  without threading another parameter through `render()`. */
+  setExtrudedPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+    this.fillPipelineExtruded = main
+    this.fillPipelineExtrudedFallback = fallback
   }
 
   /** Connect to a data source */
@@ -775,29 +804,58 @@ export class VectorTileRenderer {
     //     bottom/top wall corners.
     const tileExtentM = TWO_PI_R_EARTH / Math.pow(2, data.tileZoom)
     const isExtruded = sourceLayer === 'buildings'
-    const topVerts = quantizePolygonVertices(data.vertices, tileExtentM, { isTop: isExtruded })
-    const topVertexCount = topVerts.byteLength / 8
-    let polyVerts: ArrayBuffer = topVerts
-    let polyIndices: Uint32Array = data.indices
-    if (isExtruded && data.polygons && data.polygons.length > 0) {
-      // Tile origin in mercator metres — needed because polygon ring
-      // coords are absolute mercator, not tile-local.
+    // Per-feature heights branch: when the slice carries a heights
+    // map (MVT decoder extracted `render_height` / `height` from
+    // feature properties), use the *Extruded variants which emit a
+    // parallel z attribute. Otherwise fall back to the existing flat
+    // path with is_top bit + uniform extrude height.
+    const useFeatureHeights = isExtruded && data.heights && data.heights.size > 0
+    const fallbackHeight = isExtruded ? 50 : 0
+    let polyVerts: ArrayBuffer
+    let polyIndices: Uint32Array
+    let zAttribute: Float32Array | null = null
+    if (useFeatureHeights && data.polygons) {
+      const top = quantizePolygonVerticesExtruded(data.vertices, tileExtentM, data.heights!, fallbackHeight)
+      const topVertexCount = top.vertices.byteLength / 8
       const DEG2RAD = Math.PI / 180
       const R = 6378137
-      const tileMx = (data.tileWest) * DEG2RAD * R
+      const tileMx = data.tileWest * DEG2RAD * R
       const clampLat = Math.max(-85.051129, Math.min(85.051129, data.tileSouth))
       const tileMy = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
-      const wall = generateWallMesh(data.polygons, tileExtentM, tileMx, tileMy)
-      // Concat vertex buffer
-      const combined = new Uint8Array(topVerts.byteLength + wall.vertices.byteLength)
-      combined.set(new Uint8Array(topVerts), 0)
-      combined.set(new Uint8Array(wall.vertices), topVerts.byteLength)
+      const wall = generateWallMeshExtruded(data.polygons, tileExtentM, tileMx, tileMy, data.heights!, fallbackHeight)
+      const combined = new Uint8Array(top.vertices.byteLength + wall.vertices.byteLength)
+      combined.set(new Uint8Array(top.vertices), 0)
+      combined.set(new Uint8Array(wall.vertices), top.vertices.byteLength)
       polyVerts = combined.buffer
-      // Concat index buffer with offset for wall indices
       polyIndices = new Uint32Array(data.indices.length + wall.indices.length)
       polyIndices.set(data.indices, 0)
       for (let i = 0; i < wall.indices.length; i++) {
         polyIndices[data.indices.length + i] = wall.indices[i] + topVertexCount
+      }
+      zAttribute = new Float32Array(top.z.length + wall.z.length)
+      zAttribute.set(top.z, 0)
+      zAttribute.set(wall.z, top.z.length)
+    } else {
+      const topVerts = quantizePolygonVertices(data.vertices, tileExtentM, { isTop: isExtruded })
+      const topVertexCount = topVerts.byteLength / 8
+      polyVerts = topVerts
+      polyIndices = data.indices
+      if (isExtruded && data.polygons && data.polygons.length > 0) {
+        const DEG2RAD = Math.PI / 180
+        const R = 6378137
+        const tileMx = data.tileWest * DEG2RAD * R
+        const clampLat = Math.max(-85.051129, Math.min(85.051129, data.tileSouth))
+        const tileMy = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
+        const wall = generateWallMesh(data.polygons, tileExtentM, tileMx, tileMy)
+        const combined = new Uint8Array(topVerts.byteLength + wall.vertices.byteLength)
+        combined.set(new Uint8Array(topVerts), 0)
+        combined.set(new Uint8Array(wall.vertices), topVerts.byteLength)
+        polyVerts = combined.buffer
+        polyIndices = new Uint32Array(data.indices.length + wall.indices.length)
+        polyIndices.set(data.indices, 0)
+        for (let i = 0; i < wall.indices.length; i++) {
+          polyIndices[data.indices.length + i] = wall.indices[i] + topVertexCount
+        }
       }
     }
     const vertexBuffer = this.acquireBuffer(
@@ -813,6 +871,16 @@ export class VectorTileRenderer {
       'tile-indices',
     )
     this.device.queue.writeBuffer(indexBuffer, 0, polyIndices)
+
+    let zBuffer: GPUBuffer | null = null
+    if (zAttribute) {
+      zBuffer = this.acquireBuffer(
+        Math.max(zAttribute.byteLength, 4),
+        GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        'tile-z-attr',
+      )
+      this.device.queue.writeBuffer(zBuffer, 0, zAttribute)
+    }
 
     let lineVertexBuffer: GPUBuffer | null = null
     let lineIndexBuffer: GPUBuffer | null = null
@@ -910,6 +978,7 @@ export class VectorTileRenderer {
     layerCache.set(key, {
       vertexBuffer, indexBuffer,
       indexCount: polyIndices.length,
+      zBuffer,
       lineVertexBuffer, lineIndexBuffer,
       lineIndexCount: data.lineIndices.length,
       outlineIndexBuffer, outlineIndexCount,
@@ -1870,7 +1939,7 @@ export class VectorTileRenderer {
     // per layer for zero output.
     if (anyInArchive) {
       if (phase !== 'strokes') pass.setStencilReference(1)
-      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, phase, layerCache)
+      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, phase, layerCache, this.fillPipelineExtruded)
     }
 
     // Render fallback ancestors (stencil test) — with world offsets for wrapping
@@ -1893,7 +1962,7 @@ export class VectorTileRenderer {
         this.uniformF32[17] = 0.0
         this.uniformF32[18] = 0.0
       }
-      this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache)
+      this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache, this.fillPipelineExtrudedFallback)
       if (_debugRed) {
         this.uniformF32[16] = _origR
         this.uniformF32[17] = _origG
@@ -2044,6 +2113,7 @@ export class VectorTileRenderer {
     lineLayerOffset: number,
     phase: LayerDrawPhase,
     layerCache: Map<number, GPUTile>,
+    fillPipelineExtruded: GPURenderPipeline | null,
   ): void {
     const drawFills = phase !== 'strokes'
     const drawStrokes = phase !== 'fills'
@@ -2155,9 +2225,15 @@ export class VectorTileRenderer {
       // skipped (variant pipeline computes color in shader, cached uniform
       // alpha may be zero even when the draw is meaningful).
       if (drawFills && cached.indexCount > 0 && !this._skipFillDraw) {
-        pass.setPipeline(fillPipeline)
+        // Per-feature extrusion: tiles whose slice carried `heights`
+        // get a parallel f32 z buffer at upload time. Bind the
+        // matching extruded pipeline (which reads z from VB slot 1)
+        // and the second VB; flat tiles use the single-buffer path.
+        const useExtrudedPipe = cached.zBuffer !== null && fillPipelineExtruded !== null
+        pass.setPipeline(useExtrudedPipe ? fillPipelineExtruded! : fillPipeline)
         pass.setBindGroup(0, currentTileBg, [slotOffset])
         pass.setVertexBuffer(0, cached.vertexBuffer)
+        if (useExtrudedPipe) pass.setVertexBuffer(1, cached.zBuffer!)
         pass.setIndexBuffer(cached.indexBuffer, 'uint32')
         pass.drawIndexed(cached.indexCount)
       }
@@ -2265,6 +2341,7 @@ export class VectorTileRenderer {
         // caps prevent unbounded GPU memory retention.
         this.releaseBuffer(tile.vertexBuffer)
         this.releaseBuffer(tile.indexBuffer)
+        this.releaseBuffer(tile.zBuffer)
         this.releaseBuffer(tile.lineVertexBuffer)
         this.releaseBuffer(tile.lineIndexBuffer)
         this.releaseBuffer(tile.outlineIndexBuffer)
