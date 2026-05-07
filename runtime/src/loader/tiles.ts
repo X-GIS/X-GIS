@@ -575,21 +575,34 @@ export function visibleTilesFrustumSampled(
     tileSet.add(key)
   }
 
-  // Add the camera's current tile unconditionally — at extreme
-  // pitch the camera's forward ray may miss samples that actually
-  // land on it, so pin it here. Matches the "camera-foot tile
-  // always loaded" invariant the existing animation-coverage
-  // tests rely on at low pitch.
-  {
-    const camLon = (camera.centerX / R) / DEG2RAD
-    const camLat = (2 * Math.atan(Math.exp(camera.centerY / R)) - Math.PI / 2) / DEG2RAD
-    const cx = Math.floor((camLon + 180) / 360 * n)
-    const clampedLat = Math.max(-85.051129, Math.min(85.051129, camLat))
-    const cy = Math.floor(
-      (1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n,
-    )
-    addTile(cx, cy, 0)
+  // World-copy aware tile decode. The sample's absolute longitude
+  // (computed from raw mercator x) tells us which world copy the
+  // ground point is in — Math.floor(absTileFx / n) yields the world-
+  // offset (negative = west, positive = east), and the tile-x is the
+  // remainder modulo n. Without this, low-zoom mercator demos that
+  // show multiple Earth copies side-by-side only emit tiles for the
+  // central copy and the East/West copies render blank (regression:
+  // smoke vector_categorical / water_hierarchy at zoom 0).
+  const decodeAbsTile = (absMx: number, absMy: number): void => {
+    const lon = (absMx / R) / DEG2RAD
+    const lat = (2 * Math.atan(Math.exp(absMy / R)) - Math.PI / 2) / DEG2RAD
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return
+    const clampedLat = Math.max(-85.051129, Math.min(85.051129, lat))
+    const absTileFx = (lon + 180) / 360 * n
+    const tileFy = (1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n
+    const tileXFloor = Math.floor(absTileFx)
+    const ox = Math.floor(tileXFloor / n)
+    const tx = ((tileXFloor % n) + n) % n
+    const ty = Math.floor(tileFy)
+    addTile(tx, ty, ox)
   }
+
+  // Pin the camera's current tile unconditionally — at extreme pitch
+  // the camera's forward ray may miss samples that actually land on
+  // it, so include it here. Matches the "camera-foot tile always
+  // loaded" invariant the existing animation-coverage tests rely on
+  // at low pitch.
+  decodeAbsTile(camera.centerX, camera.centerY)
 
   for (let iy = 0; iy < SAMPLES_PER_AXIS; iy++) {
     const fy = iy / (SAMPLES_PER_AXIS - 1)
@@ -597,17 +610,7 @@ export function visibleTilesFrustumSampled(
       const fx = ix / (SAMPLES_PER_AXIS - 1)
       const rel = camera.unprojectToZ0(fx * canvasWidth, fy * canvasHeight, canvasWidth, canvasHeight)
       if (!rel) continue // sample ray misses ground (at/above horizon)
-      const mx = camera.centerX + rel[0]
-      const my = camera.centerY + rel[1]
-      const lon = (mx / R) / DEG2RAD
-      const lat = (2 * Math.atan(Math.exp(my / R)) - Math.PI / 2) / DEG2RAD
-      if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
-      const clampedLat = Math.max(-85.051129, Math.min(85.051129, lat))
-      const tileFx = (lon + 180) / 360 * n
-      const tileFy = (1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n
-      const tx = Math.floor(tileFx)
-      const ty = Math.floor(tileFy)
-      addTile(tx, ty, 0)
+      decodeAbsTile(camera.centerX + rel[0], camera.centerY + rel[1])
     }
   }
 
