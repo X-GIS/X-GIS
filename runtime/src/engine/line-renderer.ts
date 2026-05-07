@@ -39,7 +39,7 @@
 //    and is deferred.
 
 import { isPickEnabled, getSampleCount, type GPUContext } from './gpu'
-import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, STENCIL_DISABLED, DEPTH_READ_ONLY } from './gpu-shared'
+import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, DEPTH_READ_ONLY } from './gpu-shared'
 import {
   WGSL_DIST_TO_SEGMENT,
   WGSL_DIST_TO_QUADRATIC,
@@ -228,8 +228,16 @@ export function packLineLayerUniform(
   buf[0] = strokeColor[0]
   buf[1] = strokeColor[1]
   buf[2] = strokeColor[2]
-  buf[3] = strokeColor[3] * opacity
-  buf[4] = strokeWidthPx
+  // Sub-pixel-width strokes (stroke-0.3 etc.) used to render as a fuzzy
+  // 2-3 px AA band at reduced alpha — the SDF AA distance (1 px each
+  // side of the SDF edge) dominates when the line itself is < 1 px,
+  // making thin strokes look fatter than asked. Mapbox / MapLibre
+  // convention: render at min 1 px geometric width and scale alpha by
+  // the requested fraction. Above 1 px the trick is a no-op.
+  const effectiveWidthPx = Math.max(strokeWidthPx, 1.0)
+  const widthAlphaScale = strokeWidthPx >= 1.0 ? 1.0 : strokeWidthPx
+  buf[3] = strokeColor[3] * opacity * widthAlphaScale
+  buf[4] = effectiveWidthPx
   buf[5] = 1.5
   buf[6] = mppAtCenter
   buf[7] = miterLimit
@@ -1660,7 +1668,7 @@ export class LineRenderer {
           : [{ format: this.format, blend: BLEND_ALPHA }],
       },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: STENCIL_DISABLED,
+      depthStencil: DEPTH_READ_ONLY,
       multisample: { count: getSampleCount() },
     })
     // Composite pipeline samples the offscreen RT back into the MSAA main

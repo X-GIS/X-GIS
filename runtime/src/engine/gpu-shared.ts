@@ -146,6 +146,15 @@ export const DEPTH_READ_ONLY: GPUDepthStencilState = {
   stencilBack: { compare: 'always', passOp: 'keep' },
   stencilWriteMask: 0x00,
   stencilReadMask: 0x00,
+  // Pull line depth slightly toward camera so a roof outline coplanar
+  // with its own roof fill always wins LEQUAL z-fighting (otherwise
+  // float-precision noise makes the same-z outline drop in/out per
+  // pixel — visible as a patchy outline). Occlusion against OTHER
+  // buildings still works because their walls are far enough in
+  // screen-z that a -1 unit bias can't overcome them.
+  depthBias: -1,
+  depthBiasSlopeScale: -1,
+  depthBiasClamp: 0,
 }
 
 /** Stencil disabled: always pass, no write (raster tiles, SDF line body) */
