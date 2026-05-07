@@ -134,6 +134,15 @@ export interface StrokePattern {
 export interface StrokeValue {
   color: ColorValue
   width: number
+  /** Optional per-feature width override. Compiler-synthesized only
+   *  by the `mergeLayers` pass when it folds same-source-layer xgis
+   *  layers whose only stroke difference is the width — the AST is
+   *  a `match(.field) { ... }` expression that the runtime worker
+   *  evaluates per feature, writing the resolved width into the line
+   *  segment buffer's per-segment slot so the shader reads it
+   *  instead of the layer-uniform `width_px`. When absent, the
+   *  scalar `width` above wins (legacy / unmerged path). */
+  widthExpr?: DataExpr
   linecap?: 'butt' | 'round' | 'square' | 'arrow'
   linejoin?: 'miter' | 'round' | 'bevel'
   miterlimit?: number

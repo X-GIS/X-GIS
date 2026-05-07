@@ -86,12 +86,11 @@ function extractLiteral(expr: AST.Expr): string | null {
   return null
 }
 
-/** True when the two stroke definitions are byte-for-byte equivalent
- *  in everything we care about for merging — width, linecap/linejoin,
- *  miterlimit, dash array, offsets, patterns. Stroke COLOUR can
- *  differ; that's what the synthesized match handles. */
+/** True when the two stroke definitions agree on everything that's
+ *  NOT individually dispatchable per feature — linecap, linejoin,
+ *  miterlimit, dash, offsets, patterns. Width and colour CAN differ;
+ *  the synthesized match handles those. */
 function strokesShapeEqual(a: RenderNode['stroke'], b: RenderNode['stroke']): boolean {
-  if (a.width !== b.width) return false
   if (a.linecap !== b.linecap) return false
   if (a.linejoin !== b.linejoin) return false
   if (a.miterlimit !== b.miterlimit) return false
@@ -133,6 +132,14 @@ function canExtendGroup(first: RenderNode, candidate: RenderNode): boolean {
   if (first.visible !== candidate.visible) return false
   if (first.pointerEvents !== candidate.pointerEvents) return false
   if (!strokesShapeEqual(first.stroke, candidate.stroke)) return false
+  // Stroke-width difference IS folded structurally (synthesized
+  // widthExpr below), but the line renderer doesn't yet read the
+  // widthExpr and would silently apply the first member's scalar
+  // width to every feature in the group — visually wrong for
+  // roads_minor / primary / highway whose widths differ. Gate the
+  // relax until the line shader + worker plumbing land. Until then,
+  // widths-must-match is enforced (same as the original pass).
+  if (first.stroke.width !== candidate.stroke.width) return false
   if (first.opacity.kind === 'constant'
       && candidate.opacity.kind === 'constant'
       && first.opacity.value !== candidate.opacity.value) return false
@@ -180,6 +187,39 @@ function buildMatchAst(
   } as unknown as AST.Expr
 
   return fnCall
+}
+
+/** Synthesize `match(.field) { value -> N, ..., _ -> 0 }` for
+ *  per-feature stroke width. Resolved by the worker at decode time
+ *  and written into the line segment buffer's per-segment width
+ *  slot; the line shader picks segment.width_px over the layer
+ *  uniform when non-zero. The default arm returns 0 so unmatched
+ *  features (defensive — the compound's filter already excludes
+ *  them) fall back to layer width without rendering at zero. */
+function buildWidthMatchAst(
+  field: string,
+  arms: Array<{ pattern: string; width: number }>,
+): AST.Expr {
+  const matchArms: AST.MatchArm[] = arms.map(a => ({
+    pattern: a.pattern,
+    value: { kind: 'NumberLiteral', value: a.width } as AST.Expr,
+  }))
+  matchArms.push({
+    pattern: '_',
+    value: { kind: 'NumberLiteral', value: 0 } as AST.Expr,
+  })
+  const matchBlock: AST.MatchBlock = { kind: 'MatchBlock', arms: matchArms }
+  const fieldAccess: AST.Expr = {
+    kind: 'FieldAccess',
+    object: { kind: 'Identifier', name: '' } as AST.Expr,
+    field,
+  } as unknown as AST.Expr
+  return {
+    kind: 'FnCall',
+    callee: { kind: 'Identifier', name: 'match' } as AST.Expr,
+    args: [fieldAccess],
+    matchBlock,
+  } as unknown as AST.Expr
 }
 
 function rgbaToHex(rgba: [number, number, number, number]): string {
@@ -277,17 +317,22 @@ export function mergeLayers(scene: Scene): Scene {
       continue
     }
 
-    // Synthesize the compound. Build per-(value → colour) arms from
-    // every group member so a feature gets the colour of the FIRST
-    // member whose filter matched it (declaration order preserved
-    // by the arm-emission order).
+    // Synthesize the compound. Build per-(value → colour / width) arms
+    // from every group member so a feature gets the styling of the
+    // FIRST member whose filter matched it (declaration order
+    // preserved by the arm-emission order).
     const fillArms: Array<{ pattern: string; rgba: [number, number, number, number] }> = []
     const strokeArms: Array<{ pattern: string; rgba: [number, number, number, number] }> = []
+    const widthArms: Array<{ pattern: string; width: number }> = []
     let strokeNeeded = false
     let fillNeeded = false
     const seenFillValues = new Set<string>()
     const seenStrokeValues = new Set<string>()
+    const seenWidthValues = new Set<string>()
+    let widthsAllEqual = true
+    const firstWidth = group[0].node.stroke.width
     for (const { node, filter } of group) {
+      if (node.stroke.width !== firstWidth) widthsAllEqual = false
       const fillRgba = node.fill.kind === 'constant' ? node.fill.rgba : null
       const strokeRgba = node.stroke.color.kind === 'constant' ? node.stroke.color.rgba : null
       for (const v of filter.values) {
@@ -300,6 +345,10 @@ export function mergeLayers(scene: Scene): Scene {
           strokeArms.push({ pattern: v, rgba: strokeRgba })
           seenStrokeValues.add(v)
           strokeNeeded = true
+        }
+        if (!seenWidthValues.has(v)) {
+          widthArms.push({ pattern: v, width: node.stroke.width })
+          seenWidthValues.add(v)
         }
       }
     }
@@ -320,7 +369,16 @@ export function mergeLayers(scene: Scene): Scene {
       // it for what it is.
       name: `${first.sourceLayer ?? first.sourceRef}__merged_${group.length}`,
       fill: compoundFill,
-      stroke: { ...first.stroke, color: compoundStrokeColor },
+      stroke: {
+        ...first.stroke,
+        color: compoundStrokeColor,
+        // Per-feature width when group widths differ. When all members
+        // share the same width, leave widthExpr undefined and let the
+        // existing scalar `width` win (no runtime override needed).
+        widthExpr: widthsAllEqual
+          ? undefined
+          : { ast: buildWidthMatchAst(firstFilter.field, widthArms) } as DataExpr,
+      },
       filter: { ast: orFilter } as DataExpr,
     }
     out.push(compound)

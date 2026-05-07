@@ -70,7 +70,13 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
     expect(scene.renderNodes.length).toBe(2)
   })
 
-  it('does NOT merge when stroke widths differ (roads_* pattern)', () => {
+  it('does NOT merge stroke-width-differing layers yet — runtime gate', () => {
+    // widthExpr synthesis is wired in the merge pass but the line
+    // renderer doesn't yet consume it. Until that lands, gate the
+    // merge on width equality so roads_* don't visually regress to
+    // a single width. Once line-renderer reads the per-segment
+    // override, flip this expectation back to 1 and remove the
+    // gate in `canExtendGroup`.
     const source = `
       source pm { type: pmtiles url: "x.pmtiles" }
       layer minor {
@@ -83,7 +89,6 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
       }
     `
     const scene = compileToScene(source)
-    // Different widths → can't merge.
     expect(scene.renderNodes.length).toBe(2)
   })
 
@@ -144,7 +149,8 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
       }
     `
     const scene = compileToScene(source)
-    // 5 landuse_* fold to 1, water + 3 roads_* (different widths) +
+    // 5 landuse_* fold to 1, water + 3 roads_* (different widths,
+    // gated until line renderer supports per-feature width) +
     // buildings = 6 RenderNodes total (down from 10 input).
     expect(scene.renderNodes.length).toBe(6)
     // The compound landuse should reference sourceLayer "landuse"
