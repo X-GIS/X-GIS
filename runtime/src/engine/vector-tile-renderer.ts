@@ -1072,6 +1072,12 @@ export class VectorTileRenderer {
      *  - 'fills':   polygon fills only (main pass, baked opacity)
      *  - 'strokes': outlines + line features only (offscreen MAX-blend pass) */
     phase: LayerDrawPhase = 'all',
+    /** Backing-buffer:CSS-pixel ratio for the canvas. Tile budget /
+     *  mobile classification / subdivide threshold are perceptual
+     *  CSS-pixel concepts and must stay DPR-invariant; without this
+     *  param a DPR=3 phone gets 9× more tiles loaded than a DPR=1
+     *  desktop at the same logical viewport size. */
+    dpr: number = 1,
   ): void {
     if (!this.source?.hasData()) return
     const index = this.source.getIndex()
@@ -1309,7 +1315,7 @@ export class VectorTileRenderer {
               )
             : visibleTilesFrustum(
                 camera, selectorProj, step,
-                canvasWidth, canvasHeight, offsetMarginPx,
+                canvasWidth, canvasHeight, offsetMarginPx, dpr,
               )
           for (const t of stepTiles) {
             if (t.z !== step) continue
@@ -1431,6 +1437,7 @@ export class VectorTileRenderer {
             canvasWidth,
             canvasHeight,
             offsetMarginPx,
+            dpr,
           )
 
       // Phase 2 selector-shape invariant. The Mapbox/MapLibre sampled
@@ -2070,7 +2077,7 @@ export class VectorTileRenderer {
             )
           : visibleTilesFrustum(
               camera, selectorProj, prefetchZ,
-              canvasWidth, canvasHeight, offsetMarginPx,
+              canvasWidth, canvasHeight, offsetMarginPx, dpr,
             )
         const prefetchKeys: number[] = []
         for (const t of prefetchTiles) {

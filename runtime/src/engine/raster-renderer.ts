@@ -259,6 +259,9 @@ export class RasterRenderer {
     projCenterLat: number,
     canvasWidth: number,
     canvasHeight: number,
+    /** Backing-buffer:CSS pixel ratio. Forwarded to the tile selector
+     *  so a DPR=3 phone doesn't load 9× more raster tiles than DPR=1. */
+    dpr: number = 1,
   ): void {
     if (!this.urlTemplate) return
     this.frameCount++
@@ -295,7 +298,7 @@ export class RasterRenderer {
     const selectorProj = projType === 0
       ? mercatorProj
       : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
-    const tiles = visibleTilesFrustum(camera, selectorProj, currentZ, canvasWidth, canvasHeight)
+    const tiles = visibleTilesFrustum(camera, selectorProj, currentZ, canvasWidth, canvasHeight, 0, dpr)
 
     // Sort: lower zoom first (draw background), higher zoom on top (sharp near tiles)
     tiles.sort((a, b) => {

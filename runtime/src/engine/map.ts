@@ -1830,7 +1830,7 @@ export class XGISMap {
             // writes disabled. Runs first so subsequent draws paint
             // freely on top with no depth-buffer interaction.
             this.backgroundRenderer?.render(subPass)
-            this.rasterRenderer.render(subPass, this.camera, projType, centerLon, centerLat, w, h)
+            this.rasterRenderer.render(subPass, this.camera, projType, centerLon, centerLat, w, h, dpr)
             this.renderer.renderToPass(subPass, this.camera, projType, centerLon, centerLat, this._elapsedMs)
           }
 
@@ -1858,6 +1858,7 @@ export class XGISMap {
                 cs.fpF, cs.lpF,
                 this.pointRenderer,
                 cs.fillPhase,
+                dpr,
               )
             }
           }
@@ -1907,6 +1908,7 @@ export class XGISMap {
               cs.show, cs.fp, cs.lp, this.renderer.uniformBuffer, cs.bgl,
               cs.fpF, cs.lpF,
               null, 'oit-fill',
+              dpr,
             )
           }
           oitPass.end()
@@ -1950,6 +1952,7 @@ export class XGISMap {
               cs.show, cs.fp, cs.lp, this.renderer.uniformBuffer, cs.bgl,
               cs.fpF, cs.lpF,
               null, 'strokes',
+              dpr,
             )
             offPass.end()
           })

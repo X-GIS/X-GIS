@@ -175,8 +175,15 @@ import type { Projection } from '../engine/projection'
 // `window.innerWidth` once at module load; Playwright sets the
 // viewport after import so a top-level constant captures the
 // pre-viewport default and miscategorises the test as desktop.
-function isMobileViewport(canvasWidth: number, canvasHeight: number): boolean {
-  return Math.max(canvasWidth, canvasHeight) <= 900
+//
+// Inputs MUST be CSS-pixel dimensions, not device pixels. A DPR=3
+// phone's device-pixel canvas is 1290×2235 — `max > 900` would
+// flip it to "desktop" and apply the desktop tile budget. Tile
+// count is a logical/perceptual concept (one tile per ~256 CSS
+// px) and must stay DPR-invariant; only the rasterised pixel
+// count scales with DPR.
+function isMobileViewport(cssWidth: number, cssHeight: number): boolean {
+  return Math.max(cssWidth, cssHeight) <= 900
 }
 // Viewport-aware tile budget — replaces the old static cap.
 // Density of ~one tile per 12 K pixels keeps drawCalls bounded on
@@ -184,7 +191,7 @@ function isMobileViewport(canvasWidth: number, canvasHeight: number): boolean {
 // tiles. Floor on mobile is tighter (real iPhones throttle past
 // ~60 unique tiles ≈ 240 drawCalls).
 const MAX_FRUSTUM_TILES_CEILING = 300
-function maxFrustumTilesFor(canvasWidth: number, canvasHeight: number): number {
+function maxFrustumTilesFor(cssWidth: number, cssHeight: number): number {
   // Mobile cap calibrated against actual viewport coverage rather
   // than just thermal budget. The DFS prioritises camera-side tiles,
   // so a too-small cap leaves the viewport edges uncovered (real-
@@ -192,12 +199,17 @@ function maxFrustumTilesFor(canvasWidth: number, canvasHeight: number): number {
   // pitch with cap 5). Floor 12 + divisor 18 K covers a typical
   // 430×715 mobile canvas (cap 14) with margin headroom; cap
   // 12 minimum guarantees corner coverage.
-  const isMobile = isMobileViewport(canvasWidth, canvasHeight)
+  //
+  // Inputs MUST be CSS pixels — not device pixels. Device pixels
+  // would inflate the budget by DPR² (9× on a DPR=3 phone), but
+  // the number of tiles needed to cover a viewport is the same
+  // regardless of how densely each tile is rasterised.
+  const isMobile = isMobileViewport(cssWidth, cssHeight)
   const floor = isMobile ? 12 : 60
   const divisor = isMobile ? 18000 : 12000
   return Math.max(
     floor,
-    Math.min(MAX_FRUSTUM_TILES_CEILING, Math.round((canvasWidth * canvasHeight) / divisor)),
+    Math.min(MAX_FRUSTUM_TILES_CEILING, Math.round((cssWidth * cssHeight) / divisor)),
   )
 }
 
@@ -218,10 +230,21 @@ export function visibleTilesFrustum(
   canvasWidth: number,
   canvasHeight: number,
   extraMarginPx: number = 0,
+  /** Device-pixel-ratio of the canvas backing buffer relative to CSS
+   *  pixels. The selection logic operates entirely in CSS pixels —
+   *  tile budget, mobile-viewport classification, and SUBDIVIDE_THRESHOLD
+   *  are perceptual ("how many tiles cover the screen?"), independent
+   *  of rasterisation density. The MVP-based projection math is
+   *  aspect-ratio invariant so dividing canvas dims by `dpr` keeps
+   *  tile-corner culling correct. Default 1 preserves call sites that
+   *  already pass CSS-equivalent dimensions (tests, canvas-2D path). */
+  dpr: number = 1,
 ): TileCoord[] {
+  const cssWidth = canvasWidth / dpr
+  const cssHeight = canvasHeight / dpr
   const DEG2RAD = Math.PI / 180
   const R = 6378137
-  const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
+  const mvp = camera.getRTCMatrix(cssWidth, cssHeight)
   const camMercX = camera.centerX
   const camMercY = camera.centerY
   // Non-Mercator projections render a single world (no lon-periodic
@@ -239,14 +262,14 @@ export function visibleTilesFrustum(
   // shorter viewport edge so mobile gets roughly the same
   // "tile count per screen" budget as desktop. Floor at 256 so a
   // tiny canvas (e.g. inset preview) doesn't lose all detail.
-  const SUBDIVIDE_THRESHOLD = Math.max(320, Math.min(canvasWidth, canvasHeight) * 0.5)
-  const MAX_FRUSTUM_TILES = maxFrustumTilesFor(canvasWidth, canvasHeight)
+  const SUBDIVIDE_THRESHOLD = Math.max(320, Math.min(cssWidth, cssHeight) * 0.5)
+  const MAX_FRUSTUM_TILES = maxFrustumTilesFor(cssWidth, cssHeight)
   // Hoisted so the camera-tile-guarantee inject below can gate on
   // pitch (low pitch DFS already covers the foreground; the inject
   // is only needed at high pitch where quadrant order matters).
   const pitchDegFn = camera.pitch ?? 0
   if ((globalThis as { __DBG_FRUSTUM?: boolean }).__DBG_FRUSTUM) {
-    console.log(`[FRUSTUM cap] canvas=${canvasWidth}×${canvasHeight} mobile=${isMobileViewport(canvasWidth, canvasHeight)} cap=${MAX_FRUSTUM_TILES} pitch=${pitchDegFn.toFixed(1)}`)
+    console.log(`[FRUSTUM cap] canvas=${canvasWidth}×${canvasHeight} (css ${cssWidth}×${cssHeight} dpr=${dpr}) mobile=${isMobileViewport(cssWidth, cssHeight)} cap=${MAX_FRUSTUM_TILES} pitch=${pitchDegFn.toFixed(1)}`)
   }
 
   // Project Mercator coords → screen pixel (returns null if behind camera)
@@ -256,7 +279,7 @@ export function visibleTilesFrustum(
     if (cw <= 1e-6) return null
     const cx = mvp[0] * rx + mvp[4] * ry + mvp[12]
     const cy = mvp[1] * rx + mvp[5] * ry + mvp[13]
-    return [(cx / cw + 1) * 0.5 * canvasWidth, (1 - cy / cw) * 0.5 * canvasHeight]
+    return [(cx / cw + 1) * 0.5 * cssWidth, (1 - cy / cw) * 0.5 * cssHeight]
   }
 
   // Lon/lat → Mercator meters
@@ -376,11 +399,11 @@ export function visibleTilesFrustum(
     const pitchFloor = pitchDegFn < 30 ? 32
       : pitchDegFn < 60 ? 128
       : 256
-    const baseMargin = Math.max(canvasWidth, canvasHeight) * marginPctOfMax
+    const baseMargin = Math.max(cssWidth, cssHeight) * marginPctOfMax
     const margin = Math.max(baseMargin, pitchFloor) + Math.max(0, extraMarginPx)
     const overlapsViewport =
-      sxMax >= -margin && sxMin <= canvasWidth + margin &&
-      syMax >= -margin && syMin <= canvasHeight + margin
+      sxMax >= -margin && sxMin <= cssWidth + margin &&
+      syMax >= -margin && syMin <= cssHeight + margin
 
     // If any corner is behind camera, we only know the AABB of the VISIBLE
     // corners — the tile's true extent could be larger. Use a GENEROUS
@@ -389,11 +412,11 @@ export function visibleTilesFrustum(
     // Same floor pattern as `margin` above — floor engages for narrow
     // viewports where the 2× multiplier still falls short of the
     // horizon-spill range at extreme pitch.
-    const baseWide = Math.max(canvasWidth, canvasHeight) * 2
+    const baseWide = Math.max(cssWidth, cssHeight) * 2
     const wideMargin = Math.max(baseWide, 2048)
     const nearViewport =
-      sxMax >= -wideMargin && sxMin <= canvasWidth + wideMargin &&
-      syMax >= -wideMargin && syMin <= canvasHeight + wideMargin
+      sxMax >= -wideMargin && sxMin <= cssWidth + wideMargin &&
+      syMax >= -wideMargin && syMin <= cssHeight + wideMargin
     if (behindCount > 0) {
       return nearViewport ? SUBDIVIDE_THRESHOLD * 2 : -1
     }
@@ -509,8 +532,8 @@ export function visibleTilesFrustum(
   let minTX: number, maxTX: number, minTY: number, maxTY: number
   if (pitchDegFn < 30) {
     const tileSizePx = 256 * Math.pow(2, (camera.zoom ?? maxZ) - maxZ)
-    const halfTilesX = (canvasWidth / 2) / tileSizePx
-    const halfTilesY = (canvasHeight / 2) / tileSizePx
+    const halfTilesX = (cssWidth / 2) / tileSizePx
+    const halfTilesY = (cssHeight / 2) / tileSizePx
     minTX = Math.floor(camTXf - halfTilesX)
     maxTX = Math.floor(camTXf + halfTilesX)
     minTY = Math.floor(camTYf - halfTilesY)
