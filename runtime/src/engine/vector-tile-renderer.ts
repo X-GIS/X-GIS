@@ -1574,6 +1574,21 @@ export class VectorTileRenderer {
     // skip them entirely.
     let anyInArchive = false
 
+    // Per-tile decision tracker for the production invariant. Each
+    // tile must end up with a decision in:
+    //   'primary'         — layerCache hit, will draw
+    //   'parent-fallback' — cached ancestor pushed to fallbackKeys
+    //   'child-fallback'  — cached child (deck.gl best-available) pushed
+    //   'overzoom-parent' — over-zoom fast path pushed parent at maxLevel
+    //   'queued-no-fb'    — uploadTile queued, NO fallback (= BUG)
+    //   'drop-empty-slice'— sliced source layer has no features here
+    //   'drop-no-archive' — tile not in archive index, no ancestor either
+    //   'pending'         — fetch issued, no fallback found (cold area)
+    // Activated by `globalThis.__XGIS_INVARIANTS = true`. Production
+    // builds never set this → array allocation is gated, zero overhead.
+    const _inv = (globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS
+    const _tileDecisions: (string | undefined)[] = _inv ? new Array(tiles.length) : []
+
     for (let i = 0; i < tiles.length; i++) {
       const key = neededKeys[i]
       const tileZi = tiles[i].z
@@ -1605,12 +1620,16 @@ export class VectorTileRenderer {
           const data = this.source.getTileData(parentKey, sliceLayer)
           if (data) this.doUploadTile(parentKey, data, sliceLayer)
         }
+        if (_inv) _tileDecisions[i] = 'overzoom-parent'
         continue
       }
       // ── END FAST PATH ──
 
       anyInArchive = true
-      if (layerCache.has(key)) continue
+      if (layerCache.has(key)) {
+        if (_inv) _tileDecisions[i] = 'primary'
+        continue
+      }
 
       if (this.source.hasTileData(key, sliceLayer)) {
         this.uploadTile(key, this.source.getTileData(key, sliceLayer)!, sliceLayer)
@@ -1642,7 +1661,10 @@ export class VectorTileRenderer {
       // and skip their sub-tile gen → only one layer renders at
       // over-zoom (user-reported "tiles disappear at z=15.5+
       // — only water visible").
-      if (sliceLayer && tiles[i].z <= maxLevel && this.source.hasTileData(key)) continue
+      if (sliceLayer && tiles[i].z <= maxLevel && this.source.hasTileData(key)) {
+        if (_inv) _tileDecisions[i] = 'drop-empty-slice'
+        continue
+      }
 
       let foundCached = false
       // closestExisting + hasAnyAncestor come from the frame cache —
@@ -1729,6 +1751,7 @@ export class VectorTileRenderer {
           fallbackOffsets.push(worldOffDeg[i]) // same world offset as the child
           foundCached = true
         }
+        if (_inv) _tileDecisions[i] = 'parent-fallback'
       }
 
       // deck.gl `refinementStrategy: 'best-available'` + Mapbox
@@ -1751,6 +1774,7 @@ export class VectorTileRenderer {
             fallbackKeys.push(ck)
             fallbackOffsets.push(worldOffDeg[i])
             foundCached = true
+            if (_inv) _tileDecisions[i] = 'child-fallback'
           }
         }
       }
@@ -1762,6 +1786,7 @@ export class VectorTileRenderer {
           this.tileDropWarnings.add(wKey)
           console.warn(`[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${maxLevel}).`)
         }
+        if (_inv) _tileDecisions[i] = 'drop-no-archive'
         continue
       }
 
@@ -1772,6 +1797,33 @@ export class VectorTileRenderer {
           toLoad.push(closestExisting)
         }
         this._missedTiles++
+        if (_inv && _tileDecisions[i] === undefined) _tileDecisions[i] = 'pending'
+      }
+    }
+
+    // ── Production invariant — visibility/fallback consistency check ──
+    // Fires if any visible tile reached the end of the per-tile loop
+    // with `queued-no-fb` (the commit-49d4801 white-flash bug class)
+    // or with no decision at all (un-tracked code path). Pending +
+    // intentional drops are allowed; primary / fallback resolutions
+    // are allowed. The bug pattern is: catalog has data, primary
+    // can't draw (queued upload), AND no per-tile fallback was
+    // pushed. Unlike the global fallbackKeys check, this is per-tile
+    // so a fallback pushed by a NEIGHBOURING tile (sharing the same
+    // ancestor) does NOT mask the bug here.
+    if (_inv) {
+      for (let i = 0; i < tiles.length; i++) {
+        const d = _tileDecisions[i]
+        if (d === 'queued-no-fb' || d === undefined) {
+          const t = tiles[i]
+          throw new Error(
+            `[XGIS INVARIANT] tile ${t.z}/${t.x}/${t.y} layer="${sliceLayer}" `
+            + `decision=${d ?? 'untracked'}. The per-tile loop resolved this tile `
+            + `without a primary draw or a per-tile fallback push. This is the bug `
+            + `class fixed by commit 49d4801 (uploadTile queue + continue skipping `
+            + `the parent-walk fallback).`,
+          )
+        }
       }
     }
 
@@ -1894,6 +1946,7 @@ export class VectorTileRenderer {
       if (phase !== 'strokes') pass.setStencilReference(0)
       this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache)
     }
+
 
     // Prefetch adjacent + next zoom (every 10th frame, idle only).
     // While the camera is actively moving the prefetched edge tiles
