@@ -87,6 +87,11 @@ export interface PMTilesSourceOptions {
    *  its 3D height. Layers without an entry use the worker's default
    *  extraction (`render_height ?? height`). */
   extrudeExprs?: Record<string, unknown>
+  /** Per-show slice descriptors. Each entry says "produce a slice
+   *  with this sliceKey, drawing only `sourceLayer` features that
+   *  pass `filterAst`." Without it, the backend falls back to one
+   *  slice per source layer (legacy). */
+  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }>
 }
 
 /** Per-MVT-layer info pulled from PMTiles `metadata.vector_layers`.
@@ -399,6 +404,7 @@ export async function attachPMTilesSource(
       layers: opts.layers,
       vectorLayers: tj.vectorLayers,
       extrudeExprs: opts.extrudeExprs,
+      showSlices: opts.showSlices,
       // XYZ template fetcher with retry + graceful fallback.
       // `fetch()` auto-decompresses gzip via Content-Encoding, so the
       // bytes are raw MVT (same shape PMTilesBackend expects from the
@@ -471,6 +477,7 @@ export async function attachPMTilesSource(
     layers: opts.layers,
     vectorLayers,
     extrudeExprs: opts.extrudeExprs,
+    showSlices: opts.showSlices,
     fetcher: async (z, x, y, signal) => {
       // Pre-flight abort check. The pmtiles library doesn't natively
       // accept an AbortSignal; we can't kill the underlying HTTP

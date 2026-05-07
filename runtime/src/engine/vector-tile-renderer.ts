@@ -18,6 +18,7 @@ import { tileKey, tileKeyParent, tileKeyChildren, type PropertyTable } from '@xg
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../data/tile-catalog'
 import type { TileData } from '../data/tile-types'
+import { computeSliceKey } from '../data/filter-eval'
 import { mercator as mercatorProj } from './projection'
 import type { PointRenderer } from './point-renderer'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
@@ -1096,11 +1097,16 @@ export class VectorTileRenderer {
     const _frameBudget = uploadBudgetFor(canvasWidth, canvasHeight, dpr)
     if (this._uploadBudget > _frameBudget) this._uploadBudget = _frameBudget
 
-    // Sliced-source slot for this layer. PMTiles emits per-MVT-layer
-    // slices keyed by layer name in the catalog; xgis layers with a
-    // `sourceLayer` filter pick the matching slice. Single-layer
-    // sources (XGVT-binary, GeoJSON-runtime) always emit '' (default).
-    const sliceLayer = show.sourceLayer ?? ''
+    // Sliced-source slot for this layer. PMTiles emits per-show
+    // slices when the source-attach config carries `showSlices` —
+    // the slice key combines `sourceLayer` with a stable hash of
+    // the layer's `filter:` AST so xgis layers that share a source
+    // layer but have different filters get DIFFERENT slices (only
+    // matching features). Without filter or for legacy sources
+    // (XGVT-binary, GeoJSON-runtime, no-filter PMTiles shows),
+    // sliceKey collapses to plain `sourceLayer` ('' for single-
+    // layer sources) — preserving back-compat.
+    const sliceLayer = computeSliceKey(show.sourceLayer ?? '', show.filterExpr?.ast ?? null)
     // Pre-fetch this layer's gpuCache slot once. Hot-path lookups
     // become pure numeric Map.has/get — no composite-string alloc per
     // tile. Use getOrCreate so the reference stays valid even if this

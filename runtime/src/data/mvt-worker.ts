@@ -21,6 +21,7 @@ import {
 } from '@xgis/compiler'
 import { buildLineSegments } from '../engine/line-segment-build'
 import { evalExtrudeExpr } from './extrude-eval'
+import { evalFilterExpr } from './filter-eval'
 
 /** Extract per-feature 3D extrude heights from a layer's features.
  *  Only runs when the style explicitly opts in via `extrude:` (the
@@ -69,6 +70,16 @@ export interface MvtCompileRequest {
    *  height in metres. Layers without an entry use the worker's
    *  default extraction (`render_height ?? height`). */
   extrudeExprs?: Record<string, unknown>
+  /** Per-show slice descriptors. Each entry says "produce a slice
+   *  with this sliceKey, drawing only features from `sourceLayer`
+   *  that pass `filterAst`". When undefined, the worker falls back to
+   *  the legacy "one slice per MVT source layer" behaviour. With it,
+   *  the worker bucket-splits each MVT layer's features by filter so
+   *  every xgis show gets ITS subset — eliminating the redundant
+   *  draws that result when N shows share one MVT source layer with
+   *  different `filter:` clauses (the OSM-style demo's 6 landuse_*
+   *  layers all reading `landuse`). */
+  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }>
 }
 
 /** One per-MVT-layer slice in the response. */
@@ -145,19 +156,20 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
     const slices: MvtCompileSlice[] = []
     const transferables: ArrayBuffer[] = []
 
-    for (const [layerName, layerFeatures] of byLayer) {
-      const parts = decomposeFeatures(layerFeatures)
+    // Compile a feature subset for `sourceLayer` into a slice keyed
+    // under `sliceKey`. Factored out so the legacy "one slice per
+    // MVT layer" path AND the new pre-bucketed "one slice per
+    // (sourceLayer, filter) combo" path share the heavy lifting.
+    const emitSlice = (
+      sliceKey: string,
+      sourceLayer: string,
+      sourceFeatures: GeoJSONFeature[],
+    ): void => {
+      if (sourceFeatures.length === 0) return
+      const parts = decomposeFeatures(sourceFeatures)
       const tile = compileSingleTile(parts, msg.z, msg.x, msg.y, msg.maxZoom)
-      if (!tile) continue
-
-      // Build featId→height first so the segment builder can bake
-      // per-segment z lift into the outline buffer for extruded
-      // layers. Heights are extracted only for layers whose style
-      // declares `extrude:` (entry present in `msg.extrudeExprs`).
-      // Layers without that directive get an empty Map → segment z
-      // stays at 0 (ground).
-      const heights = extractFeatureHeights(layerFeatures, msg.extrudeExprs?.[layerName])
-
+      if (!tile) return
+      const heights = extractFeatureHeights(sourceFeatures, msg.extrudeExprs?.[sourceLayer])
       let prebuiltOutlineSegments: ArrayBuffer | undefined
       let prebuiltLineSegments: ArrayBuffer | undefined
       if (tile.outlineVertices && tile.outlineVertices.length > 0
@@ -185,7 +197,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
         prebuiltLineSegments = seg.buffer as ArrayBuffer
       }
       const slice: MvtCompileSlice = {
-        layerName,
+        layerName: sliceKey,
         vertices: tile.vertices.buffer as ArrayBuffer,
         indices: tile.indices.buffer as ArrayBuffer,
         lineVertices: tile.lineVertices.buffer as ArrayBuffer,
@@ -202,7 +214,6 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
         fullCoverFeatureId: tile.fullCoverFeatureId ?? 0,
       }
       slices.push(slice)
-
       transferables.push(slice.vertices, slice.indices, slice.lineVertices, slice.lineIndices)
       if (slice.pointVertices) transferables.push(slice.pointVertices)
       if (slice.outlineIndices) transferables.push(slice.outlineIndices)
@@ -210,6 +221,28 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       if (slice.outlineLineIndices) transferables.push(slice.outlineLineIndices)
       if (slice.prebuiltLineSegments) transferables.push(slice.prebuiltLineSegments)
       if (slice.prebuiltOutlineSegments) transferables.push(slice.prebuiltOutlineSegments)
+    }
+
+    if (msg.showSlices && msg.showSlices.length > 0) {
+      // Pre-bucket path: one slice per UNIQUE (sourceLayer, filter)
+      // combo. Multiple xgis shows that share the same sliceKey
+      // (e.g. same filter on the same source layer) reuse one slice
+      // — the catalog stores by sliceKey, not by show identity.
+      for (const desc of msg.showSlices) {
+        const layerFeatures = byLayer.get(desc.sourceLayer)
+        if (!layerFeatures || layerFeatures.length === 0) continue
+        const subset = desc.filterAst
+          ? layerFeatures.filter(f => evalFilterExpr(desc.filterAst, f.properties ?? {}))
+          : layerFeatures
+        emitSlice(desc.sliceKey, desc.sourceLayer, subset)
+      }
+    } else {
+      // Legacy path: one slice per MVT source layer, no filter
+      // bucketing. Preserves behaviour for callers that don't pass
+      // `showSlices` (xgvt-binary, tests).
+      for (const [layerName, layerFeatures] of byLayer) {
+        emitSlice(layerName, layerName, layerFeatures)
+      }
     }
 
     ;(self as unknown as { postMessage: (m: OutMsg, t?: Transferable[]) => void })

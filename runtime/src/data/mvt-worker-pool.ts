@@ -133,6 +133,7 @@ export class MvtWorkerPool {
     tileWidthMerc: number, tileHeightMerc: number,
     layers?: string[],
     extrudeExprs?: Record<string, unknown>,
+    showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }>,
   ): Promise<MvtCompileSlice[]> {
     this.ensureWorkers()
     const taskId = this.nextTaskId++
@@ -146,6 +147,7 @@ export class MvtWorkerPool {
         tileWidthMerc, tileHeightMerc,
         layers,
         extrudeExprs,
+        showSlices,
       }, [bytes])
     })
   }

@@ -28,6 +28,7 @@ import type {
 } from '../tile-source'
 import { getSharedMvtPool, type MvtWorkerPool } from '../mvt-worker-pool'
 import { evalExtrudeExpr } from '../extrude-eval'
+import { evalFilterExpr } from '../filter-eval'
 
 /** Same height extractor as the worker (mvt-worker.ts). The inline
  *  fallback path can't import from mvt-worker because its module is
@@ -96,6 +97,12 @@ export interface PMTilesBackendOptions {
    *  against each feature's properties to produce the feature's
    *  height in metres. */
   extrudeExprs?: Record<string, unknown>
+  /** Per-show slice descriptors. With this set, the worker emits one
+   *  pre-filtered slice per UNIQUE (sourceLayer, filter) combo
+   *  instead of one slice per source layer — eliminating the
+   *  redundant draws when N xgis layers share one MVT layer with
+   *  different filters. See `filter-eval.ts` for the contract. */
+  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }>
 }
 
 /** Per-backend cap on simultaneous in-flight HTTP fetches. Independent
@@ -134,6 +141,7 @@ export class PMTilesBackend implements TileSource {
   private fetcher: PMTilesFetcher
   private layers: string[] | undefined
   private extrudeExprs: Record<string, unknown> | undefined
+  private showSlices: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }> | undefined
   private sink: TileSourceSink | null = null
   /** Per-MVT-layer info from PMTiles metadata, indexed by layer id. */
   private vectorLayerInfo: Map<string, { minzoom: number; maxzoom: number }>
@@ -167,6 +175,7 @@ export class PMTilesBackend implements TileSource {
     this.fetcher = opts.fetcher
     this.layers = opts.layers
     this.extrudeExprs = opts.extrudeExprs
+    this.showSlices = opts.showSlices
     this.vectorLayerInfo = new Map()
     if (opts.vectorLayers) {
       for (const vl of opts.vectorLayers) {
@@ -346,6 +355,7 @@ export class PMTilesBackend implements TileSource {
           widthMerc, heightMerc,
           this.layers,
           this.extrudeExprs,
+          this.showSlices,
         ).then(slices => {
           if (slices.length === 0) {
             sink.acceptResult(key, null)
@@ -413,13 +423,16 @@ export class PMTilesBackend implements TileSource {
         bucket.push(f)
       }
       let emittedAny = false
-      for (const [layerName, layerFeatures] of byLayer) {
-        const parts = decomposeFeatures(layerFeatures)
+      const emitSlice = (
+        sliceKey: string,
+        sourceLayer: string,
+        sourceFeatures: GeoJSONFeature[],
+      ): void => {
+        if (sourceFeatures.length === 0) return
+        const parts = decomposeFeatures(sourceFeatures)
         const tile = compileSingleTile(parts, z, x, y, this.meta.maxZoom)
-        if (!tile) continue
-        // Compute heights first so the line-segment builder can
-        // bake per-segment z lift for extruded layers.
-        const heights = extractFeatureHeights(layerFeatures, this.extrudeExprs?.[layerName])
+        if (!tile) return
+        const heights = extractFeatureHeights(sourceFeatures, this.extrudeExprs?.[sourceLayer])
         let prebuiltOutlineSegments: Float32Array | undefined
         let prebuiltLineSegments: Float32Array | undefined
         if (tile.outlineVertices && tile.outlineVertices.length > 0
@@ -459,8 +472,22 @@ export class PMTilesBackend implements TileSource {
           fullCoverFeatureId: tile.fullCoverFeatureId,
           prebuiltLineSegments,
           prebuiltOutlineSegments,
-        }, layerName)
+        }, sliceKey)
         emittedAny = true
+      }
+      if (this.showSlices && this.showSlices.length > 0) {
+        for (const desc of this.showSlices) {
+          const layerFeatures = byLayer.get(desc.sourceLayer)
+          if (!layerFeatures || layerFeatures.length === 0) continue
+          const subset = desc.filterAst
+            ? layerFeatures.filter(f => evalFilterExpr(desc.filterAst, f.properties ?? {}))
+            : layerFeatures
+          emitSlice(desc.sliceKey, desc.sourceLayer, subset)
+        }
+      } else {
+        for (const [layerName, layerFeatures] of byLayer) {
+          emitSlice(layerName, layerName, layerFeatures)
+        }
       }
       if (!emittedAny) sink.acceptResult(key, null)
     } catch (err) {

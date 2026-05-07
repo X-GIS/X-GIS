@@ -33,6 +33,7 @@ import {
 } from './layer'
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '../data/tile-catalog'
+import { computeSliceKey } from '../data/filter-eval'
 import { attachPMTilesSource } from '../loader/pmtiles-source'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
@@ -892,6 +893,26 @@ export class XGISMap {
       layerMap[show.sourceLayer] = ex.expr.ast
     }
 
+    // Per-show slice descriptors. For PMTiles sources where N xgis
+    // layers share one MVT source layer with different `filter:`
+    // clauses (the OSM-style demo: 6 landuse_*, 5 roads_*), the
+    // worker pre-buckets features into per-filter sub-slices so
+    // each xgis show gets ONLY its matching geometry — eliminating
+    // 9× redundant draws of the same source layer's features.
+    // sliceKey is derived from (sourceLayer, filter AST) so two
+    // shows with identical filters share one slice in the catalog.
+    const showSlicesBySource = new Map<string, Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }>>()
+    for (const show of commands.shows) {
+      if (!show.sourceLayer) continue
+      let list = showSlicesBySource.get(show.targetName)
+      if (!list) { list = []; showSlicesBySource.set(show.targetName, list) }
+      const filterAst = show.filterExpr?.ast ?? null
+      const sliceKey = computeSliceKey(show.sourceLayer, filterAst)
+      if (!list.some(s => s.sliceKey === sliceKey)) {
+        list.push({ sliceKey, sourceLayer: show.sourceLayer, filterAst })
+      }
+    }
+
     const loadPromises = commands.loads.map(async (load) => {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
       console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
@@ -938,6 +959,7 @@ export class XGISMap {
             url: fullUrl,
             layers: filterLayers,
             extrudeExprs: extrudeExprsBySource.get(load.name),
+            showSlices: showSlicesBySource.get(load.name),
           })
         } else {
           try {
