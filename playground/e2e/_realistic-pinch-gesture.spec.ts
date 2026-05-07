@@ -114,13 +114,17 @@ test.describe('Realistic mobile pinch gesture', () => {
     // 10 km step is sufficient.
     const STEP_M = 10_000
 
-    // 4 bursts: zoom-in pan east, zoom-in tilt, zoom-out pan west,
-    // zoom-out level. Each burst 1 s ease-in-out, 200 ms idle.
+    // 4 bursts at REALISTIC pinch rates. Real users zoom 1-2 LODs
+    // in ~0.3-0.5 s (≈ 2-4 zoom/s), pan ~10 km in 0.5 s. Earlier
+    // 1 s/burst undersold the actual rate by ~3×, so the spec
+    // wasn't catching the load profile that drove the user heat
+    // report. 400 ms/burst with 100 ms idle ≈ a sustained pinch
+    // gesture from a real user.
     const bursts = [
-      { dz: +1.5, dcx: +STEP_M, dcy: 0, dpitch: 0,    label: 'zoom-in + pan-east' },
-      { dz: +1,   dcx: 0,        dcy: 0, dpitch: +30, label: 'zoom-in + tilt-up' },
-      { dz: -2,   dcx: -STEP_M,  dcy: 0, dpitch: 0,   label: 'zoom-out + pan-west' },
-      { dz: -0.5, dcx: 0,        dcy: -STEP_M, dpitch: -20, label: 'zoom-out + pan-south + tilt-down' },
+      { dz: +1.5, dcx: +STEP_M, dcy: 0,         dpitch: 0,   label: 'zoom-in + pan-east' },
+      { dz: +1,   dcx: 0,        dcy: 0,         dpitch: +30, label: 'zoom-in + tilt-up' },
+      { dz: -2,   dcx: -STEP_M,  dcy: 0,         dpitch: 0,   label: 'zoom-out + pan-west' },
+      { dz: -0.5, dcx: 0,        dcy: -STEP_M,   dpitch: -20, label: 'zoom-out + pan-south + tilt-down' },
     ]
 
     const overallPeaks = { tilesVisible: 0, drawCalls: 0, heapMB: 0 }
@@ -132,13 +136,13 @@ test.describe('Realistic mobile pinch gesture', () => {
         cy: cur.cy + b.dcy,
         pitch: Math.max(0, Math.min(85, cur.pitch + b.dpitch)),
       }
-      const peaks = await burst(cur, next, 1000)
+      const peaks = await burst(cur, next, 400)
       console.log(`[${b.label}] tilesVisible peak ${peaks.tilesVisible}, drawCalls ${peaks.drawCalls}, heap ${peaks.heapMB} MB`)
       if (peaks.tilesVisible > overallPeaks.tilesVisible) overallPeaks.tilesVisible = peaks.tilesVisible
       if (peaks.drawCalls > overallPeaks.drawCalls) overallPeaks.drawCalls = peaks.drawCalls
       if ((peaks.heapMB ?? 0) > overallPeaks.heapMB) overallPeaks.heapMB = peaks.heapMB ?? 0
       cur = next
-      await page.waitForTimeout(200)
+      await page.waitForTimeout(100)
     }
 
     console.log(`[overall] tilesVisible ${overallPeaks.tilesVisible}, drawCalls ${overallPeaks.drawCalls}, heap ${overallPeaks.heapMB} MB`)
@@ -180,27 +184,33 @@ test.describe('Realistic mobile pinch gesture', () => {
     // walk has to carry the rendering. If something starves under
     // sustained motion (parent eviction, cancelStale unbounded
     // abort spam, etc.) it surfaces here, not in the burst test.
-    const peaks = await page.evaluate(async () => {
+    const result = await page.evaluate(async () => {
       const map = window.__xgisMap!
       const start = {
         zoom: map.camera.zoom,
         cx: map.camera.centerX,
         cy: map.camera.centerY,
       }
-      // Continuous: zoom oscillates 13→16→13 + center pans east-then-
-      // west, sinusoidal so the camera is always moving (no instant
-      // direction change which would briefly look like idle).
+      // Sin-driven motion at REALISTIC rates: zoom oscillates ±2 LODs
+      // through 4 cycles in 10 s (peak rate ~5 zoom/s, mid-pinch),
+      // center pans 15 km in ~1.7 s (~9 km/s, fast drag). No idle
+      // gaps — the camera is always moving, the worst case for the
+      // gesture-suppression fix.
       const peaks = { tilesVisible: 0, drawCalls: 0, heapMB: null as number | null }
+      const frameTimes: number[] = []
       const t0 = performance.now()
       const DURATION = 10_000
+      let lastFrame = t0
       while (performance.now() - t0 < DURATION) {
         await new Promise<void>(r => requestAnimationFrame(() => r()))
-        const t = (performance.now() - t0) / DURATION
-        // sin curve through 1.5 cycles in 10 s → ~6.7 s/cycle
-        const phase = t * Math.PI * 1.5
-        map.camera.zoom = start.zoom + 1.5 * Math.sin(phase)
-        map.camera.centerX = start.cx + 15_000 * Math.sin(phase * 0.7)
-        map.camera.centerY = start.cy + 8_000 * Math.cos(phase * 0.7)
+        const now = performance.now()
+        frameTimes.push(now - lastFrame)
+        lastFrame = now
+        const t = (now - t0) / DURATION
+        const phase = t * Math.PI * 4 // 4 cycles in 10 s
+        map.camera.zoom = start.zoom + 2 * Math.sin(phase)
+        map.camera.centerX = start.cx + 15_000 * Math.sin(phase * 1.3)
+        map.camera.centerY = start.cy + 8_000 * Math.cos(phase * 1.3)
         for (const { renderer } of map.vtSources.values()) {
           const ds = renderer.getDrawStats?.() ?? { tilesVisible: 0, drawCalls: 0 }
           if (ds.tilesVisible > peaks.tilesVisible) peaks.tilesVisible = ds.tilesVisible
@@ -212,12 +222,22 @@ test.describe('Realistic mobile pinch gesture', () => {
           if (peaks.heapMB === null || mb > peaks.heapMB) peaks.heapMB = mb
         }
       }
-      return peaks
+      // Drop the first frame (cold-start can be misleading).
+      const ft = frameTimes.slice(1)
+      const avgMs = ft.reduce((a, b) => a + b, 0) / ft.length
+      const sorted = [...ft].sort((a, b) => a - b)
+      const p95Ms = sorted[Math.floor(sorted.length * 0.95)]
+      const slow = ft.filter(f => f > 33).length
+      return { peaks, avgMs, p95Ms, slowFrames: slow, totalFrames: ft.length }
     })
-    console.log(`[10 s sustained] tilesVisible peak ${peaks.tilesVisible}, drawCalls ${peaks.drawCalls}, heap ${peaks.heapMB} MB`)
+    console.log(`[10 s sustained @ z=10] tilesVisible peak ${result.peaks.tilesVisible}, drawCalls ${result.peaks.drawCalls}, heap ${result.peaks.heapMB} MB`)
+    console.log(`  frame time: avg ${result.avgMs.toFixed(1)} ms, p95 ${result.p95Ms.toFixed(1)} ms, >33 ms: ${result.slowFrames}/${result.totalFrames} (${(100 * result.slowFrames / result.totalFrames).toFixed(0)}%)`)
 
-    expect(peaks.tilesVisible).toBeLessThan(200)
-    expect(peaks.drawCalls).toBeLessThan(1500)
-    if (peaks.heapMB !== null) expect(peaks.heapMB).toBeLessThan(800)
+    expect(result.peaks.tilesVisible).toBeLessThan(200)
+    expect(result.peaks.drawCalls).toBeLessThan(1500)
+    if (result.peaks.heapMB !== null) expect(result.peaks.heapMB).toBeLessThan(800)
+    // p95 frame time under 50 ms (20 fps minimum) — anything past
+    // this on a desktop Chromium signals real-device thermal risk.
+    expect(result.p95Ms).toBeLessThan(50)
   })
 })
