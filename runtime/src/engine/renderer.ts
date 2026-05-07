@@ -417,7 +417,8 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
     shader = shader.replace(FILL_RETURN_MARKER, `${matchCode}out.color = ${variant.fillExpr};`)
   }
   if (variant.strokeExpr && variant.strokeExpr !== 'u.stroke_color') {
-    shader = shader.replace(STROKE_RETURN_MARKER, `out.color = ${variant.strokeExpr};`)
+    const matchCode = (variant as any).strokePreamble ? `${(variant as any).strokePreamble}  ` : ''
+    shader = shader.replace(STROKE_RETURN_MARKER, `${matchCode}out.color = ${variant.strokeExpr};`)
   }
 
   return applyPick(shader)
@@ -507,7 +508,7 @@ export interface ShowCommand {
   // the pre-resolved value. Bypasses VTR's hex-string parse cache.
   resolvedFillRgba?: [number, number, number, number] | null
   resolvedStrokeRgba?: [number, number, number, number] | null
-  shaderVariant?: { key: string; preamble: string; fillExpr: string; strokeExpr: string; fillPreamble?: string; needsFeatureBuffer: boolean; featureFields: string[]; uniformFields: string[] } | null
+  shaderVariant?: { key: string; preamble: string; fillExpr: string; strokeExpr: string; fillPreamble?: string; strokePreamble?: string; needsFeatureBuffer: boolean; featureFields: string[]; uniformFields: string[] } | null
   filterExpr?: { ast: unknown } | null  // AST expression for per-feature filtering
   geometryExpr?: { ast: unknown } | null
   sizeExpr?: { ast: unknown } | null

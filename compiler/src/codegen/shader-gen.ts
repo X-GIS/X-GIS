@@ -22,6 +22,13 @@ export interface ShaderVariant {
   strokeExpr: string
   /** WGSL code injected before fill return (match if-else chains) */
   fillPreamble?: string
+  /** WGSL code injected before stroke return — analogous to
+   *  `fillPreamble` for the stroke entry point. Without this, a
+   *  `match()` expression on stroke colour produces an `_mcSS = ...`
+   *  if-else chain whose VAR DECLARATION is dropped on the floor
+   *  while the `expr` still references the var name → "unresolved
+   *  identifier _mc83" at WGSL compile time. */
+  strokePreamble?: string
   /** Whether a storage buffer is needed for per-feature data */
   needsFeatureBuffer: boolean
   /** Fields needed from feature data (for storage buffer layout) */
@@ -85,6 +92,7 @@ export function generateShaderVariant(
     fillExpr,
     strokeExpr,
     fillPreamble: fillResult.matchPreamble,
+    strokePreamble: strokeResult.matchPreamble,
     needsFeatureBuffer,
     featureFields,
     uniformFields,

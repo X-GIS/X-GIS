@@ -125,6 +125,16 @@ function isMergeableNode(n: RenderNode): boolean {
   return true
 }
 
+function strokeColorsEqual(a: RenderNode['stroke'], b: RenderNode['stroke']): boolean {
+  if (a.color.kind !== b.color.kind) return false
+  if (a.color.kind === 'none' && b.color.kind === 'none') return true
+  if (a.color.kind === 'constant' && b.color.kind === 'constant') {
+    const ar = a.color.rgba; const br = b.color.rgba
+    return ar[0] === br[0] && ar[1] === br[1] && ar[2] === br[2] && ar[3] === br[3]
+  }
+  return false
+}
+
 function canExtendGroup(first: RenderNode, candidate: RenderNode): boolean {
   if (first.sourceRef !== candidate.sourceRef) return false
   if (first.sourceLayer !== candidate.sourceLayer) return false
@@ -132,12 +142,18 @@ function canExtendGroup(first: RenderNode, candidate: RenderNode): boolean {
   if (first.visible !== candidate.visible) return false
   if (first.pointerEvents !== candidate.pointerEvents) return false
   if (!strokesShapeEqual(first.stroke, candidate.stroke)) return false
-  // Stroke-width difference IS folded structurally — the worker
-  // bakes per-feature widths into the line segment buffer's
-  // width_px_override slot (offset 17) and the line shader picks
-  // it up via `effective_width_px = select(layer.width_px,
-  // seg.width_px_override, ...)`. Roads_minor / primary / highway
-  // now fold into one compound draw with per-feature dispatch.
+  // Stroke COLOUR must currently match across the group. Data-driven
+  // stroke colour via `match()` would require the LineRenderer to
+  // bind a feature-data storage buffer (the polygon variant pipeline
+  // does, lines don't yet) — without that binding the synthesized
+  // shader references `feat_data[...]` which fails with WebGPU
+  // "unresolved identifier _mc83" at compile time. Per-feature
+  // stroke colour through baked segment-buffer fields is tracked as
+  // the next merge-pass extension; until then we fold only when
+  // colours already match. Stroke WIDTH may still differ — width
+  // resolution is worker-side (extractFeatureWidths writes the
+  // resolved px into segment.width_px_override).
+  if (!strokeColorsEqual(first.stroke, candidate.stroke)) return false
   if (first.opacity.kind === 'constant'
       && candidate.opacity.kind === 'constant'
       && first.opacity.value !== candidate.opacity.value) return false
@@ -357,9 +373,22 @@ export function mergeLayers(scene: Scene): Scene {
     const compoundFill: ColorValue = fillNeeded
       ? { kind: 'data-driven', expr: { ast: buildMatchAst(firstFilter.field, fillArms) } as DataExpr }
       : { kind: 'none' }
-    const compoundStrokeColor: ColorValue = strokeNeeded
-      ? { kind: 'data-driven', expr: { ast: buildMatchAst(firstFilter.field, strokeArms) } as DataExpr }
-      : { kind: 'none' }
+    // Stroke colour: if every member's colour matches the first,
+    // emit a constant — no need to synthesise a match() that the
+    // line shader can't resolve via feat_data anyway. The
+    // strokeColorsEqual gate above guarantees this branch is taken
+    // for any group that actually folds; leaving the data-driven
+    // path in for parity with fill so the per-segment stroke-colour
+    // bake (next merge-pass extension) can flip it on without code
+    // motion here.
+    const allStrokeColorsSame = group.every(g =>
+      strokeColorsEqual(group[0].node.stroke, g.node.stroke),
+    )
+    const compoundStrokeColor: ColorValue = !strokeNeeded
+      ? { kind: 'none' }
+      : allStrokeColorsSame
+        ? group[0].node.stroke.color
+        : { kind: 'data-driven', expr: { ast: buildMatchAst(firstFilter.field, strokeArms) } as DataExpr }
 
     const compound: RenderNode = {
       ...first,
