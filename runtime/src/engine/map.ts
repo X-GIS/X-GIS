@@ -894,6 +894,23 @@ export class XGISMap {
       layerMap[show.sourceLayer] = ex.expr.ast
     }
 
+    // Per-show stroke-width override AST. Synthesized by the
+    // compiler's layer-merge pass for groups whose only stroke
+    // difference is the width (roads_minor / primary / highway).
+    // Keyed by the show's sliceKey (sourceLayer plus filterAst hash)
+    // so the worker writes per-segment width into the SAME slice the
+    // line renderer is going to read from. Multiple xgis layers
+    // sharing a sliceKey are deduplicated — they came from the same
+    // compound layer in the merge output.
+    const strokeWidthExprsBySource = new Map<string, Record<string, unknown>>()
+    for (const show of commands.shows) {
+      if (!show.strokeWidthExpr || !show.sourceLayer) continue
+      const sk = computeSliceKey(show.sourceLayer, show.filterExpr?.ast ?? null)
+      let layerMap = strokeWidthExprsBySource.get(show.targetName)
+      if (!layerMap) { layerMap = {}; strokeWidthExprsBySource.set(show.targetName, layerMap) }
+      layerMap[sk] = show.strokeWidthExpr.ast
+    }
+
     // Per-show slice descriptors. For PMTiles sources where N xgis
     // layers share one MVT source layer with different `filter:`
     // clauses (the OSM-style demo: 6 landuse_*, 5 roads_*), the
@@ -961,6 +978,7 @@ export class XGISMap {
             layers: filterLayers,
             extrudeExprs: extrudeExprsBySource.get(load.name),
             showSlices: showSlicesBySource.get(load.name),
+            strokeWidthExprs: strokeWidthExprsBySource.get(load.name),
           })
         } else {
           try {

@@ -468,6 +468,13 @@ export interface ShowCommand {
   fill: string | null
   stroke: string | null
   strokeWidth: number
+  /** Optional per-feature stroke-width override AST. Set by the
+   *  compiler's mergeLayers pass when folding same-source-layer xgis
+   *  layers with different widths. The MVT worker evaluates this AST
+   *  against each feature's properties and writes the resolved width
+   *  into the line segment buffer's per-segment slot; the shader
+   *  picks `segment.width_px` over the layer uniform when non-zero. */
+  strokeWidthExpr?: { ast: unknown }
   projection: string
   visible: boolean
   /** CSS-style pointer interactivity. 'none' marks the layer as non-

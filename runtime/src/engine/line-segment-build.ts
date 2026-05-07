@@ -21,7 +21,15 @@
 //   [14]    pad_ratio_p0 (f32)
 //   [15]    pad_ratio_p1 (f32)
 //   [16]    z_lift_m (f32)          — per-segment world-z lift in metres
-//   [17-19] _pad (3 × f32)          — vec4 alignment fill
+//   [17]    width_px_override (f32) — per-segment stroke width in pixels;
+//                                      0 = "use the layer-uniform width
+//                                      (legacy / unmerged path)"; non-zero
+//                                      values come from the compiler's
+//                                      mergeLayers pass synthesizing a
+//                                      `match(.field) { "kind" -> N }`
+//                                      that the worker resolves per
+//                                      feature.
+//   [18-19] _pad (2 × f32)          — vec4 alignment fill
 //
 // The shader subtracts (p0_h - cam_h) + (p0_l - cam_l) to cancel tile-origin
 // magnitude and recover camera-relative meters with f64-equivalent precision.
@@ -123,6 +131,13 @@ export function buildLineSegments(
    *  height instead of at a single uniform fallback. Map is read
    *  via the input vertex's featId at offset 4 in the DSFUN stream. */
   heights?: ReadonlyMap<number, number>,
+  /** featId → stroke width (pixels). Compiler-synthesized for
+   *  same-source-layer compounds whose members had different widths
+   *  (roads_minor / primary / highway). Written into the segment at
+   *  offset 17; the line shader picks `seg.width_px` over the layer
+   *  uniform when non-zero. Absent / 0 entries fall through to the
+   *  layer's scalar width. */
+  widths?: ReadonlyMap<number, number>,
 ): Float32Array {
   const segCount = indices.length / 2
   const out = new Float32Array(segCount * LINE_SEGMENT_STRIDE_F32)
@@ -311,12 +326,19 @@ export function buildLineSegments(
     // sample from p0; for cross-feature segments (would be unusual
     // — typically each ring stays inside one feature) we'd see a
     // mid-segment seam, which is the input data's call to make.
+    const fid = (heights || widths) ? vertices[a * stride + 4] : 0
     if (heights) {
-      const fid = vertices[a * stride + 4]
       const h = heights.get(fid)
       out[off + 16] = typeof h === 'number' ? h : 0
     }
-    // Slots 17-19 stay at the buffer's zero-init default — they're
+    // Per-segment stroke width override (pixels). 0 → shader falls
+    // through to layer.width_px. See `merge-layers.ts` for the
+    // compound-layer path that populates this Map.
+    if (widths) {
+      const w = widths.get(fid)
+      out[off + 17] = typeof w === 'number' ? w : 0
+    }
+    // Slots 18-19 stay at the buffer's zero-init default — they're
     // pure WGSL alignment padding.
   }
   return out

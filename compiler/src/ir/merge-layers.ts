@@ -132,14 +132,12 @@ function canExtendGroup(first: RenderNode, candidate: RenderNode): boolean {
   if (first.visible !== candidate.visible) return false
   if (first.pointerEvents !== candidate.pointerEvents) return false
   if (!strokesShapeEqual(first.stroke, candidate.stroke)) return false
-  // Stroke-width difference IS folded structurally (synthesized
-  // widthExpr below), but the line renderer doesn't yet read the
-  // widthExpr and would silently apply the first member's scalar
-  // width to every feature in the group — visually wrong for
-  // roads_minor / primary / highway whose widths differ. Gate the
-  // relax until the line shader + worker plumbing land. Until then,
-  // widths-must-match is enforced (same as the original pass).
-  if (first.stroke.width !== candidate.stroke.width) return false
+  // Stroke-width difference IS folded structurally — the worker
+  // bakes per-feature widths into the line segment buffer's
+  // width_px_override slot (offset 17) and the line shader picks
+  // it up via `effective_width_px = select(layer.width_px,
+  // seg.width_px_override, ...)`. Roads_minor / primary / highway
+  // now fold into one compound draw with per-feature dispatch.
   if (first.opacity.kind === 'constant'
       && candidate.opacity.kind === 'constant'
       && first.opacity.value !== candidate.opacity.value) return false

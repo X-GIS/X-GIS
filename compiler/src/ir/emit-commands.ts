@@ -30,6 +30,15 @@ export interface ShowCommand {
   fill: string | null
   stroke: string | null
   strokeWidth: number
+  /** Optional per-feature stroke-width override AST. Compiler-
+   *  synthesized only by the layer-merge pass when grouping
+   *  same-source-layer xgis layers whose only stroke difference is
+   *  the width (roads_minor / primary / highway pattern). The
+   *  runtime worker evaluates this against each feature and writes
+   *  the resolved width into the line segment buffer's per-segment
+   *  slot; the line shader picks segment.width_px over the layer
+   *  uniform when non-zero. */
+  strokeWidthExpr?: DataExpr
   projection: string
   visible: boolean
   /** CSS-style pointer interactivity. 'none' makes the layer non-pickable
@@ -172,6 +181,7 @@ function emitShow(node: RenderNode): ShowCommand {
     fill: colorToHex(node.fill),
     stroke: colorToHex(node.stroke.color),
     strokeWidth: node.stroke.width,
+    strokeWidthExpr: node.stroke.widthExpr,
     projection: node.projection,
     visible: node.visible,
     pointerEvents: node.pointerEvents,

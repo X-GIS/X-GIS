@@ -70,13 +70,7 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
     expect(scene.renderNodes.length).toBe(2)
   })
 
-  it('does NOT merge stroke-width-differing layers yet — runtime gate', () => {
-    // widthExpr synthesis is wired in the merge pass but the line
-    // renderer doesn't yet consume it. Until that lands, gate the
-    // merge on width equality so roads_* don't visually regress to
-    // a single width. Once line-renderer reads the per-segment
-    // override, flip this expectation back to 1 and remove the
-    // gate in `canExtendGroup`.
+  it('merges roads_* with different widths via per-feature widthExpr', () => {
     const source = `
       source pm { type: pmtiles url: "x.pmtiles" }
       layer minor {
@@ -89,7 +83,9 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
       }
     `
     const scene = compileToScene(source)
-    expect(scene.renderNodes.length).toBe(2)
+    expect(scene.renderNodes.length).toBe(1)
+    expect(scene.renderNodes[0].stroke.widthExpr).toBeDefined()
+    expect(scene.renderNodes[0].stroke.color.kind).toBe('data-driven')
   })
 
   it('OSM-style demo end-to-end — measures realistic fold ratio', () => {
@@ -149,10 +145,10 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
       }
     `
     const scene = compileToScene(source)
-    // 5 landuse_* fold to 1, water + 3 roads_* (different widths,
-    // gated until line renderer supports per-feature width) +
-    // buildings = 6 RenderNodes total (down from 10 input).
-    expect(scene.renderNodes.length).toBe(6)
+    // 5 landuse_* fold to 1, water single, 3 roads_* fold to 1
+    // (per-feature widthExpr now consumed by the line shader),
+    // buildings single = 4 RenderNodes (down from 10 input).
+    expect(scene.renderNodes.length).toBe(4)
     // The compound landuse should reference sourceLayer "landuse"
     // and have a data-driven fill (the synthesized match).
     const landuse = scene.renderNodes.find(n => n.sourceLayer === 'landuse')

@@ -560,7 +560,14 @@ struct LineSegment {
   // the ground (default for non-extruded layers). Slots 17-19 are WGSL
   // alignment padding — naturally promoted to the next 16-byte boundary.
   z_lift_m: f32,
-  _pad17: f32,
+  // Per-segment stroke width override (pixels). When non-zero, the
+  // line vertex / fragment math substitutes this for layer.width_px
+  // — lets the compiler's mergeLayers pass fold same-source-layer
+  // groups (e.g. roads_minor / primary / highway) whose only stroke
+  // difference is the width into ONE compound draw with per-feature
+  // dispatch instead of N separate draws. 0 = "use the layer
+  // uniform" (legacy / unmerged layers).
+  width_px_override: f32,
   _pad18: f32,
   _pad19: f32,
 }
@@ -666,8 +673,13 @@ fn vs_line(
   }
   let nrm = vec2<f32>(-dir.y, dir.x);
 
-  // Width in world meters (at camera center): width_px * mpp
-  let half_w_m = (layer.width_px * 0.5 + layer.aa_width_px) * layer.mpp;
+  // Width in world meters (at camera center): width_px * mpp.
+  // seg.width_px_override is non-zero only on compound layers
+  // produced by the compiler mergeLayers pass (per-feature width
+  // dispatch); legacy / unmerged layers leave it at 0 and fall
+  // through to the layer-uniform width_px.
+  let effective_width_px = select(layer.width_px, seg.width_px_override, seg.width_px_override > 0.0);
+  let half_w_m = (effective_width_px * 0.5 + layer.aa_width_px) * layer.mpp;
 
   // Per-endpoint pad precomputed on CPU. A straight joint gets 1×half_w (just
   // AA margin), a 90° miter gets ~1.41×half_w, and sharp joints that exceed
@@ -855,7 +867,7 @@ fn vs_line(
     let center_ndc = center_clip.xy / max(abs(center_clip.w), 1e-6) * sign(center_clip.w);
     let corner_ndc = corner_clip.xy / max(abs(corner_clip.w), 1e-6) * sign(corner_clip.w);
     let screen_dist = length(corner_ndc - center_ndc);
-    let target_ndc = (layer.width_px + 2.0 * layer.aa_width_px) / layer.viewport_height;
+    let target_ndc = (effective_width_px + 2.0 * layer.aa_width_px) / layer.viewport_height;
     if (screen_dist > 1e-8) {
       let scale = target_ndc / screen_dist;
       corner_local = base + offset * scale;
@@ -953,7 +965,11 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
     dir = seg_vec / seg_len;
   }
 
-  let half_w_m = layer.width_px * 0.5 * layer.mpp;
+  // Per-segment width override falls through to layer width_px when 0
+  // (legacy / unmerged layers). Compound mergeLayers groups
+  // populate it from the synthesized match() AST.
+  let effective_width_px = select(layer.width_px, seg.width_px_override, seg.width_px_override > 0.0);
+  let half_w_m = effective_width_px * 0.5 * layer.mpp;
 
   // ── 1. Main body distance (pixels) ──
   // Signed perpendicular distance (+left of travel). With a parallel offset

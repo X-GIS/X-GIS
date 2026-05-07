@@ -20,6 +20,7 @@
 import {
   tileKeyUnpack,
   decodeMvtTile, decomposeFeatures, compileSingleTile,
+  evaluate,
   type GeoJSONFeature,
 } from '@xgis/compiler'
 import { buildLineSegments } from '../../engine/line-segment-build'
@@ -45,6 +46,21 @@ function extractFeatureHeights(
     if (!props) continue
     const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
     if (v !== null) out.set(i, v)
+  }
+  return out
+}
+
+function extractFeatureWidths(
+  features: GeoJSONFeature[],
+  expr: unknown,
+): Map<number, number> {
+  const out = new Map<number, number>()
+  if (!expr) return out
+  for (let i = 0; i < features.length; i++) {
+    const props = features[i].properties
+    if (!props) continue
+    const v = evaluate(expr as never, props as Record<string, unknown>)
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
 }
@@ -103,6 +119,11 @@ export interface PMTilesBackendOptions {
    *  redundant draws when N xgis layers share one MVT layer with
    *  different filters. See `filter-eval.ts` for the contract. */
   showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }>
+  /** Per-sliceKey stroke-width override AST. The worker uses it to
+   *  bake per-feature widths into the slice's line segment buffer so
+   *  the line shader picks each feature's width without re-uploading
+   *  per-frame uniforms. Compiler-synthesized by mergeLayers. */
+  strokeWidthExprs?: Record<string, unknown>
 }
 
 /** Per-backend cap on simultaneous in-flight HTTP fetches. Independent
@@ -142,6 +163,7 @@ export class PMTilesBackend implements TileSource {
   private layers: string[] | undefined
   private extrudeExprs: Record<string, unknown> | undefined
   private showSlices: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }> | undefined
+  private strokeWidthExprs: Record<string, unknown> | undefined
   private sink: TileSourceSink | null = null
   /** Per-MVT-layer info from PMTiles metadata, indexed by layer id. */
   private vectorLayerInfo: Map<string, { minzoom: number; maxzoom: number }>
@@ -176,6 +198,7 @@ export class PMTilesBackend implements TileSource {
     this.layers = opts.layers
     this.extrudeExprs = opts.extrudeExprs
     this.showSlices = opts.showSlices
+    this.strokeWidthExprs = opts.strokeWidthExprs
     this.vectorLayerInfo = new Map()
     if (opts.vectorLayers) {
       for (const vl of opts.vectorLayers) {
@@ -356,6 +379,7 @@ export class PMTilesBackend implements TileSource {
           this.layers,
           this.extrudeExprs,
           this.showSlices,
+          this.strokeWidthExprs,
         ).then(slices => {
           if (slices.length === 0) {
             sink.acceptResult(key, null)
@@ -433,6 +457,7 @@ export class PMTilesBackend implements TileSource {
         const tile = compileSingleTile(parts, z, x, y, this.meta.maxZoom)
         if (!tile) return
         const heights = extractFeatureHeights(sourceFeatures, this.extrudeExprs?.[sourceLayer])
+        const widths = extractFeatureWidths(sourceFeatures, this.strokeWidthExprs?.[sliceKey])
         let prebuiltOutlineSegments: Float32Array | undefined
         let prebuiltLineSegments: Float32Array | undefined
         if (tile.outlineVertices && tile.outlineVertices.length > 0
@@ -441,6 +466,7 @@ export class PMTilesBackend implements TileSource {
             tile.outlineVertices, tile.outlineLineIndices, 10,
             widthMerc, heightMerc,
             heights.size > 0 ? heights : undefined,
+            widths.size > 0 ? widths : undefined,
           )
         }
         if (tile.lineIndices.length > 0 && tile.lineVertices.length > 0) {
@@ -455,6 +481,7 @@ export class PMTilesBackend implements TileSource {
             tile.lineVertices, tile.lineIndices, lineStride,
             widthMerc, heightMerc,
             heights.size > 0 ? heights : undefined,
+            widths.size > 0 ? widths : undefined,
           )
         }
         sink.acceptResult(key, {

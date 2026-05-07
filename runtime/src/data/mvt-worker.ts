@@ -17,6 +17,7 @@
 
 import {
   decodeMvtTile, decomposeFeatures, compileSingleTile,
+  evaluate,
   type GeoJSONFeature,
 } from '@xgis/compiler'
 import { buildLineSegments } from '../engine/line-segment-build'
@@ -42,6 +43,25 @@ function extractFeatureHeights(
     if (!props) continue
     const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
     if (v !== null) out.set(i, v)
+  }
+  return out
+}
+
+/** Extract per-feature stroke widths in pixels from a layer's
+ *  features when the compound mergeLayers pass synthesized a
+ *  width-by-match expression. Returns an empty Map when no expression
+ *  is provided (the line shader's layer uniform width_px wins). */
+function extractFeatureWidths(
+  features: GeoJSONFeature[],
+  expr: unknown,
+): Map<number, number> {
+  const out = new Map<number, number>()
+  if (!expr) return out
+  for (let i = 0; i < features.length; i++) {
+    const props = features[i].properties
+    if (!props) continue
+    const v = evaluate(expr as never, props as Record<string, unknown>)
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
 }
@@ -80,6 +100,11 @@ export interface MvtCompileRequest {
    *  different `filter:` clauses (the OSM-style demo's 6 landuse_*
    *  layers all reading `landuse`). */
   showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }>
+  /** Per-sliceKey stroke-width override AST. The compound layer's
+   *  width AST evaluated per feature → resolved width baked into the
+   *  line segment buffer's per-segment slot so the line shader picks
+   *  it up without per-frame uniform updates. */
+  strokeWidthExprs?: Record<string, unknown>
 }
 
 /** One per-MVT-layer slice in the response. */
@@ -170,6 +195,10 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       const tile = compileSingleTile(parts, msg.z, msg.x, msg.y, msg.maxZoom)
       if (!tile) return
       const heights = extractFeatureHeights(sourceFeatures, msg.extrudeExprs?.[sourceLayer])
+      // Per-feature stroke widths — keyed by sliceKey because the
+      // compound layer's match() targets a specific compound, not a
+      // raw source layer (multiple compounds can share one source).
+      const widths = extractFeatureWidths(sourceFeatures, msg.strokeWidthExprs?.[sliceKey])
       let prebuiltOutlineSegments: ArrayBuffer | undefined
       let prebuiltLineSegments: ArrayBuffer | undefined
       if (tile.outlineVertices && tile.outlineVertices.length > 0
@@ -178,6 +207,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
           tile.outlineVertices, tile.outlineLineIndices, 10,
           msg.tileWidthMerc, msg.tileHeightMerc,
           heights.size > 0 ? heights : undefined,
+          widths.size > 0 ? widths : undefined,
         )
         prebuiltOutlineSegments = seg.buffer as ArrayBuffer
       }
@@ -193,6 +223,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
           tile.lineVertices, tile.lineIndices, lineStride,
           msg.tileWidthMerc, msg.tileHeightMerc,
           heights.size > 0 ? heights : undefined,
+          widths.size > 0 ? widths : undefined,
         )
         prebuiltLineSegments = seg.buffer as ArrayBuffer
       }

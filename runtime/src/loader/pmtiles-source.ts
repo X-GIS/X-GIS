@@ -92,6 +92,11 @@ export interface PMTilesSourceOptions {
    *  pass `filterAst`." Without it, the backend falls back to one
    *  slice per source layer (legacy). */
   showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }>
+  /** Per-sliceKey stroke-width override AST. Synthesized by the
+   *  compiler's mergeLayers pass when grouping same-source-layer
+   *  layers with different widths. The worker evaluates per feature
+   *  and writes resolved width into the line segment buffer. */
+  strokeWidthExprs?: Record<string, unknown>
 }
 
 /** Per-MVT-layer info pulled from PMTiles `metadata.vector_layers`.
@@ -405,6 +410,7 @@ export async function attachPMTilesSource(
       vectorLayers: tj.vectorLayers,
       extrudeExprs: opts.extrudeExprs,
       showSlices: opts.showSlices,
+      strokeWidthExprs: opts.strokeWidthExprs,
       // XYZ template fetcher with retry + graceful fallback.
       // `fetch()` auto-decompresses gzip via Content-Encoding, so the
       // bytes are raw MVT (same shape PMTilesBackend expects from the
