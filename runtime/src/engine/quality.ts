@@ -175,6 +175,22 @@ function resolveQuality(): QualityConfig {
     base.msaa = 1
   }
 
+  // Adaptive MSAA: at DPR ≥ 2 the device-pixel density already
+  // super-samples polygon edges (a single CSS pixel becomes 4 — at
+  // DPR=2 — or 9 — at DPR=3 — device sub-pixels). Stacking MSAA=4
+  // on top multiplies fragment work without a visible-quality
+  // payoff. Real-device measurement on iPhone DPR=3 z=8 osm-style
+  // hit 270 ms GPU pass with msaa=4 (4-6 fps); dropping to msaa=1
+  // brings it back into 60 fps territory. Mapbox / MapLibre apply
+  // the same heuristic. Users on a hypothetical DPR=1 retina-cap-
+  // override (e.g. `?dpr=1`) keep msaa=4 for proper edge AA.
+  const effectiveDpr = typeof window !== 'undefined'
+    ? Math.min(window.devicePixelRatio || 1, base.maxDpr)
+    : 1
+  if (effectiveDpr >= 2 && msaaParam === null) {
+    base.msaa = 1
+  }
+
   return base
 }
 
