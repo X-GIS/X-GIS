@@ -231,20 +231,29 @@ export function visibleTilesFrustum(
   canvasHeight: number,
   extraMarginPx: number = 0,
   /** Device-pixel-ratio of the canvas backing buffer relative to CSS
-   *  pixels. The selection logic operates entirely in CSS pixels —
-   *  tile budget, mobile-viewport classification, and SUBDIVIDE_THRESHOLD
-   *  are perceptual ("how many tiles cover the screen?"), independent
-   *  of rasterisation density. The MVP-based projection math is
-   *  aspect-ratio invariant so dividing canvas dims by `dpr` keeps
-   *  tile-corner culling correct. Default 1 preserves call sites that
-   *  already pass CSS-equivalent dimensions (tests, canvas-2D path). */
+   *  pixels. **MVP must be built from device dims to MATCH the
+   *  rendering pass** (which uses `camera.getFrameView(canvas.width,
+   *  canvas.height)`) — feeding CSS dims here makes the camera
+   *  altitude DPR× different and tile-corner cull diverges from
+   *  what's actually drawn (visible artefact: viewport tiles flash
+   *  white while the selector chases a higher-zoom set the renderer
+   *  never asked for).
+   *
+   *  Only the *perceptual* knobs (tile budget, mobile classification,
+   *  subdivide threshold floor) divide by dpr — those control "how
+   *  many tiles cover the screen" and should stay DPR-invariant. */
   dpr: number = 1,
 ): TileCoord[] {
   const cssWidth = canvasWidth / dpr
   const cssHeight = canvasHeight / dpr
   const DEG2RAD = Math.PI / 180
   const R = 6378137
-  const mvp = camera.getRTCMatrix(cssWidth, cssHeight)
+  // MVP from DEVICE dims — must match the renderer's frame matrix or
+  // the cull's tile-screen positions and the rasteriser's positions
+  // disagree. (Aspect ratio is the same in either unit; the altitude
+  // term `canvasHeight × mppCSS` inside _buildRTCMatrix scales with
+  // the dimension passed in, so we cannot swap units freely here.)
+  const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
   const camMercX = camera.centerX
   const camMercY = camera.centerY
   // Non-Mercator projections render a single world (no lon-periodic
@@ -253,16 +262,17 @@ export function visibleTilesFrustum(
   const projType = projection.name === 'mercator' ? 0 : 1
   const maxCopies = (worldCopiesFor(projType).length - 1) / 2
   // Subdivide cut-off: a tile crosses this many on-screen pixels →
-  // descend into its 4 children. Hard-coded 400 was tuned for
-  // desktop; on small mobile viewports (390 × 844 iPhone) it
-  // forces nearly every tile to subdivide all the way to leaves
-  // because tiles cover most of the viewport at coarse z. Result:
-  // continuous wheel zoom on mobile spawns 150+ visible tiles
-  // ≈ thermal throttling. Scale the threshold to ~half the
-  // shorter viewport edge so mobile gets roughly the same
-  // "tile count per screen" budget as desktop. Floor at 256 so a
-  // tiny canvas (e.g. inset preview) doesn't lose all detail.
-  const SUBDIVIDE_THRESHOLD = Math.max(320, Math.min(cssWidth, cssHeight) * 0.5)
+  // descend into its 4 children. Threshold is in DEVICE pixels (matches
+  // toScreen output) but the perceptual floor "320 CSS px" is multiplied
+  // by `dpr` so a DPR=3 phone needs the tile to span 960 device px (= 320
+  // CSS px) before subdividing — same perceptual cut-off as DPR=1, no
+  // accidental over-subdivision on retina.
+  // The half-shorter-edge term is already DPR-proportional (both
+  // dimensions scale with dpr) so the proportion stays the same.
+  const SUBDIVIDE_THRESHOLD = Math.max(320 * dpr, Math.min(canvasWidth, canvasHeight) * 0.5)
+  // Tile budget remains in CSS pixels — perceptual quantity, must stay
+  // DPR-invariant so a phone doesn't load 9× more tiles for the same
+  // logical viewport.
   const MAX_FRUSTUM_TILES = maxFrustumTilesFor(cssWidth, cssHeight)
   // Hoisted so the camera-tile-guarantee inject below can gate on
   // pitch (low pitch DFS already covers the foreground; the inject
@@ -279,7 +289,7 @@ export function visibleTilesFrustum(
     if (cw <= 1e-6) return null
     const cx = mvp[0] * rx + mvp[4] * ry + mvp[12]
     const cy = mvp[1] * rx + mvp[5] * ry + mvp[13]
-    return [(cx / cw + 1) * 0.5 * cssWidth, (1 - cy / cw) * 0.5 * cssHeight]
+    return [(cx / cw + 1) * 0.5 * canvasWidth, (1 - cy / cw) * 0.5 * canvasHeight]
   }
 
   // Lon/lat → Mercator meters
@@ -399,11 +409,11 @@ export function visibleTilesFrustum(
     const pitchFloor = pitchDegFn < 30 ? 32
       : pitchDegFn < 60 ? 128
       : 256
-    const baseMargin = Math.max(cssWidth, cssHeight) * marginPctOfMax
-    const margin = Math.max(baseMargin, pitchFloor) + Math.max(0, extraMarginPx)
+    const baseMargin = Math.max(canvasWidth, canvasHeight) * marginPctOfMax
+    const margin = Math.max(baseMargin, pitchFloor * dpr) + Math.max(0, extraMarginPx) * dpr
     const overlapsViewport =
-      sxMax >= -margin && sxMin <= cssWidth + margin &&
-      syMax >= -margin && syMin <= cssHeight + margin
+      sxMax >= -margin && sxMin <= canvasWidth + margin &&
+      syMax >= -margin && syMin <= canvasHeight + margin
 
     // If any corner is behind camera, we only know the AABB of the VISIBLE
     // corners — the tile's true extent could be larger. Use a GENEROUS
@@ -412,11 +422,11 @@ export function visibleTilesFrustum(
     // Same floor pattern as `margin` above — floor engages for narrow
     // viewports where the 2× multiplier still falls short of the
     // horizon-spill range at extreme pitch.
-    const baseWide = Math.max(cssWidth, cssHeight) * 2
-    const wideMargin = Math.max(baseWide, 2048)
+    const baseWide = Math.max(canvasWidth, canvasHeight) * 2
+    const wideMargin = Math.max(baseWide, 2048 * dpr)
     const nearViewport =
-      sxMax >= -wideMargin && sxMin <= cssWidth + wideMargin &&
-      syMax >= -wideMargin && syMin <= cssHeight + wideMargin
+      sxMax >= -wideMargin && sxMin <= canvasWidth + wideMargin &&
+      syMax >= -wideMargin && syMin <= canvasHeight + wideMargin
     if (behindCount > 0) {
       return nearViewport ? SUBDIVIDE_THRESHOLD * 2 : -1
     }
