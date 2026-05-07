@@ -23,11 +23,13 @@ import { buildLineSegments } from '../engine/line-segment-build'
 import { evalExtrudeExpr } from './extrude-eval'
 
 /** Extract per-feature 3D extrude heights from a layer's features.
- *  When `expr` is supplied, evaluate it via miniEval (FieldAccess +
- *  arithmetic BinaryExpr — see the helper above). Without it, fall
+ *  With `expr` set, evaluates the AST against each feature's
+ *  properties (any compiler expression — `.height`, `.levels * 3.5`,
+ *  `max(.height, 20)`, `clamp(.h, 5, 200)`, etc.). Without it, falls
  *  back to the protomaps default of `render_height ?? height`.
- *  Negative, zero, NaN, and non-numeric results are skipped — those
- *  features get the layer's fallback height at upload time. */
+ *  Non-finite / non-positive / non-numeric results are filtered by
+ *  evalExtrudeExpr → those features get the layer's fallback height
+ *  at upload time. */
 function extractFeatureHeights(
   features: GeoJSONFeature[],
   expr?: unknown,
@@ -36,17 +38,14 @@ function extractFeatureHeights(
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
-    let raw: number | null
     if (expr) {
-      raw = evalExtrudeExpr(expr, props as Record<string, unknown>)
+      const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
+      if (v !== null) out.set(i, v)
     } else {
       const r = (props as { render_height?: unknown; height?: unknown }).render_height
         ?? (props as { height?: unknown }).height
-      raw = typeof r === 'number' ? r : null
+      if (typeof r === 'number' && Number.isFinite(r) && r > 0) out.set(i, r)
     }
-    if (raw === null) continue
-    if (!Number.isFinite(raw) || raw <= 0) continue
-    out.set(i, raw)
   }
   return out
 }

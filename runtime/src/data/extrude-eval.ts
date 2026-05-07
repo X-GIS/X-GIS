@@ -1,64 +1,39 @@
-// ═══ Extrude expression mini-evaluator ════════════════════════════
+// ═══ Extrude expression evaluator ═════════════════════════════════
 //
-// Recognises the subset of compiler AST nodes the `extrude:` style
-// keyword commonly produces:
+// Thin wrapper around the compiler's `evaluate()` that coerces the
+// result to a finite positive number (or null). Kept as a tiny
+// helper so callers don't have to repeat the type-check + finite-
+// check + sign-check at every call site. The MVT worker is already
+// importing decode / decompose / compile from `@xgis/compiler`, so
+// pulling in `evaluate` adds no new modules to the worker bundle.
 //
-//   extrude: 50                                 NumberLiteral
-//   extrude: .height                            FieldAccess (implicit)
-//   extrude: .levels * 3.5                      BinaryExpr *
-//   extrude: .levels * 3.5 + .min_height        BinaryExpr + (nested)
-//
-// The compiler's full `evaluate()` covers more shapes (FnCall, Pipe,
-// MatchBlock, …) but importing it into the MVT worker would pull the
-// whole parser/lexer/codegen module graph along, bloating the worker
-// bundle and slowing first-tile decode. The compile-time `extrude:`
-// surface stays restricted to numeric literals, field accesses, and
-// arithmetic for now — matching what's actually useful for building
-// height calculations from MVT properties.
-//
-// Anything outside the supported set returns null → the upload path
-// falls back to the layer's default fallback height.
+// Returning null means "the expression didn't yield a usable height
+// for this feature" — caller falls back to the layer's fallback
+// height. NaN, Infinity, zero, negative numbers, strings, booleans,
+// nulls, and unsupported AST kinds all collapse to that same null.
 
-export type ExtrudeAst = unknown // serialized AST node, structurally typed inside
+import { evaluate } from '@xgis/compiler'
 
-interface MiniNode {
-  kind: string
-}
-interface NumberLiteral extends MiniNode { kind: 'NumberLiteral'; value: number }
-interface FieldAccess extends MiniNode { kind: 'FieldAccess'; object: unknown; field: string }
-interface BinaryExpr extends MiniNode { kind: 'BinaryExpr'; op: string; left: MiniNode; right: MiniNode }
+export type ExtrudeAst = unknown // serialized AST node, structurally typed by evaluate()
 
-/** Evaluate an extrude AST against a feature property bag. Returns a
- *  number when the expression resolves to one, null otherwise (caller
- *  treats null as "use fallback"). */
+/** Evaluate an extrude AST against a feature property bag. Returns
+ *  a finite positive number, or null when the expression is missing
+ *  required fields / divides by zero / produces a non-numeric
+ *  value. The full compiler evaluator handles the entire AST surface
+ *  (literals, FieldAccess, BinaryExpr, UnaryExpr, FnCall, MatchBlock,
+ *  ConditionalExpr, ArrayLiteral / ArrayAccess, PipeExpr); anything
+ *  the user can write inside `fill: ...` works inside `extrude: ...`
+ *  too. */
 export function evalExtrudeExpr(node: ExtrudeAst, props: Record<string, unknown>): number | null {
   if (!node || typeof node !== 'object') return null
-  const n = node as MiniNode
-  switch (n.kind) {
-    case 'NumberLiteral': {
-      const v = (n as NumberLiteral).value
-      return typeof v === 'number' && Number.isFinite(v) ? v : null
-    }
-    case 'FieldAccess': {
-      const fa = n as FieldAccess
-      if (fa.object !== null) return null
-      const v = props[fa.field]
-      return typeof v === 'number' && Number.isFinite(v) ? v : null
-    }
-    case 'BinaryExpr': {
-      const be = n as BinaryExpr
-      const lv = evalExtrudeExpr(be.left, props)
-      const rv = evalExtrudeExpr(be.right, props)
-      if (lv === null || rv === null) return null
-      switch (be.op) {
-        case '+': return lv + rv
-        case '-': return lv - rv
-        case '*': return lv * rv
-        case '/': return rv === 0 ? null : lv / rv
-        default: return null
-      }
-    }
-    default:
-      return null
-  }
+  // The cast is structural — evaluate() expects an AST.Expr but
+  // accepts anything matching the node-kind dispatch shape we get
+  // from the parser. Threading the full type all the way to the
+  // worker would force the worker to re-export the compiler's AST
+  // surface; using `unknown` at the boundary is functionally
+  // equivalent and keeps the call sites straightforward.
+  const v = evaluate(node as never, props)
+  if (typeof v !== 'number') return null
+  if (!Number.isFinite(v) || v <= 0) return null
+  return v
 }

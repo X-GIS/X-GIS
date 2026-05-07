@@ -32,8 +32,7 @@ import { evalExtrudeExpr } from '../extrude-eval'
 /** Same height extractor as the worker (mvt-worker.ts). The inline
  *  fallback path can't import from mvt-worker because its module is
  *  worker-only (top-level postMessage handler), so we duplicate the
- *  helper. With `expr` set, evaluates the AST via evalExtrudeExpr;
- *  without it, falls back to `render_height ?? height`. */
+ *  helper. Keep in sync with the worker copy. */
 function extractFeatureHeights(
   features: GeoJSONFeature[],
   expr?: unknown,
@@ -42,17 +41,14 @@ function extractFeatureHeights(
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
-    let raw: number | null
     if (expr) {
-      raw = evalExtrudeExpr(expr, props as Record<string, unknown>)
+      const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
+      if (v !== null) out.set(i, v)
     } else {
       const r = (props as { render_height?: unknown; height?: unknown }).render_height
         ?? (props as { height?: unknown }).height
-      raw = typeof r === 'number' ? r : null
+      if (typeof r === 'number' && Number.isFinite(r) && r > 0) out.set(i, r)
     }
-    if (raw === null) continue
-    if (!Number.isFinite(raw) || raw <= 0) continue
-    out.set(i, raw)
   }
   return out
 }
