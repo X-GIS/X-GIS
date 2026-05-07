@@ -476,6 +476,11 @@ export interface ShowCommand {
    *  into the line segment buffer's per-segment slot; the shader
    *  picks `segment.width_px` over the layer uniform when non-zero. */
   strokeWidthExpr?: { ast: unknown }
+  /** Optional per-feature stroke-colour override AST. Mirror of
+   *  strokeWidthExpr; the worker resolves per feature, packs RGBA8
+   *  into a u32, and writes it into the line segment buffer's
+   *  `color_packed` slot. Line shader unpacks and uses when alpha > 0. */
+  strokeColorExpr?: { ast: unknown }
   projection: string
   visible: boolean
   /** CSS-style pointer interactivity. 'none' marks the layer as non-

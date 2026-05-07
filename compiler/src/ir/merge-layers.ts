@@ -142,18 +142,14 @@ function canExtendGroup(first: RenderNode, candidate: RenderNode): boolean {
   if (first.visible !== candidate.visible) return false
   if (first.pointerEvents !== candidate.pointerEvents) return false
   if (!strokesShapeEqual(first.stroke, candidate.stroke)) return false
-  // Stroke COLOUR must currently match across the group. Data-driven
-  // stroke colour via `match()` would require the LineRenderer to
-  // bind a feature-data storage buffer (the polygon variant pipeline
-  // does, lines don't yet) — without that binding the synthesized
-  // shader references `feat_data[...]` which fails with WebGPU
-  // "unresolved identifier _mc83" at compile time. Per-feature
-  // stroke colour through baked segment-buffer fields is tracked as
-  // the next merge-pass extension; until then we fold only when
-  // colours already match. Stroke WIDTH may still differ — width
-  // resolution is worker-side (extractFeatureWidths writes the
-  // resolved px into segment.width_px_override).
-  if (!strokeColorsEqual(first.stroke, candidate.stroke)) return false
+  // Stroke colour difference IS folded structurally — same pattern
+  // as the per-feature stroke width: the worker evaluates a
+  // synthesised match() AST per feature, packs RGBA8 into a u32, and
+  // writes it into the line segment buffer's `color_packed` slot.
+  // The line shader unpacks it and uses it when alpha > 0,
+  // otherwise falls through to layer.color. Avoids the LineRenderer
+  // needing a feature-data binding (the polygon variant pipeline's
+  // path) while still getting per-feature stroke colour.
   if (first.opacity.kind === 'constant'
       && candidate.opacity.kind === 'constant'
       && first.opacity.value !== candidate.opacity.value) return false
@@ -373,22 +369,24 @@ export function mergeLayers(scene: Scene): Scene {
     const compoundFill: ColorValue = fillNeeded
       ? { kind: 'data-driven', expr: { ast: buildMatchAst(firstFilter.field, fillArms) } as DataExpr }
       : { kind: 'none' }
-    // Stroke colour: if every member's colour matches the first,
-    // emit a constant — no need to synthesise a match() that the
-    // line shader can't resolve via feat_data anyway. The
-    // strokeColorsEqual gate above guarantees this branch is taken
-    // for any group that actually folds; leaving the data-driven
-    // path in for parity with fill so the per-segment stroke-colour
-    // bake (next merge-pass extension) can flip it on without code
-    // motion here.
+    // Stroke colour: when every member shares the colour, keep it as
+    // a plain constant (no AST work). When they differ, leave the
+    // shader-side ColorValue at the FIRST member's constant (acts
+    // as the "no override" fallback in the line shader) and stash
+    // the match() AST on `colorExpr` so the worker bakes per-feature
+    // RGBA8 into the segment buffer at decode time. This sidesteps
+    // the LineRenderer's lack of a feature-data binding — the
+    // shader doesn't have to read `feat_data[...]`, just unpack the
+    // segment's pre-resolved `color_packed`.
     const allStrokeColorsSame = group.every(g =>
       strokeColorsEqual(group[0].node.stroke, g.node.stroke),
     )
     const compoundStrokeColor: ColorValue = !strokeNeeded
       ? { kind: 'none' }
-      : allStrokeColorsSame
-        ? group[0].node.stroke.color
-        : { kind: 'data-driven', expr: { ast: buildMatchAst(firstFilter.field, strokeArms) } as DataExpr }
+      : group[0].node.stroke.color
+    const compoundStrokeColorExpr = !strokeNeeded || allStrokeColorsSame
+      ? undefined
+      : { ast: buildMatchAst(firstFilter.field, strokeArms) } as DataExpr
 
     const compound: RenderNode = {
       ...first,
@@ -405,6 +403,7 @@ export function mergeLayers(scene: Scene): Scene {
         widthExpr: widthsAllEqual
           ? undefined
           : { ast: buildWidthMatchAst(firstFilter.field, widthArms) } as DataExpr,
+        colorExpr: compoundStrokeColorExpr,
       },
       filter: { ast: orFilter } as DataExpr,
     }

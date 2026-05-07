@@ -66,6 +66,45 @@ function extractFeatureWidths(
   return out
 }
 
+/** Extract per-feature stroke colours, packed RGBA8 → u32. Returned
+ *  Map's value is the packed u32 representation (LSB = R, MSB = A);
+ *  buildLineSegments writes it into the segment buffer at offset 18
+ *  (treated as u32 via a Uint32Array view). The shader unpacks with
+ *  `unpack4x8unorm`. Alpha = 0 means "no override — fall through to
+ *  the layer-uniform colour".
+ *
+ *  The expression is a compiler-synthesised `match(.field) { value
+ *  -> #rrggbbaa, ..., _ -> #00000000 }`. The default arm packs to
+ *  alpha=0 so unmatched features safely fall through. */
+function extractFeatureColors(
+  features: GeoJSONFeature[],
+  expr: unknown,
+): Map<number, number> {
+  const out = new Map<number, number>()
+  if (!expr) return out
+  for (let i = 0; i < features.length; i++) {
+    const props = features[i].properties
+    if (!props) continue
+    const v = evaluate(expr as never, props as Record<string, unknown>)
+    // Color expressions resolve to a vec4 in shader; in JS via
+    // evaluate() they come back as either an integer (vec4 packed
+    // into a number) or a string '#rrggbbaa'. Match arms in
+    // mergeLayers emit hex strings.
+    if (typeof v === 'string' && v.startsWith('#') && (v.length === 7 || v.length === 9)) {
+      const r = parseInt(v.slice(1, 3), 16)
+      const g = parseInt(v.slice(3, 5), 16)
+      const b = parseInt(v.slice(5, 7), 16)
+      const a = v.length === 9 ? parseInt(v.slice(7, 9), 16) : 255
+      if (a > 0) {
+        // Little-endian: low byte = R, high byte = A. Matches
+        // WGSL's `unpack4x8unorm` which reads byte 0 → .x (= R).
+        out.set(i, (r | (g << 8) | (b << 16) | (a << 24)) >>> 0)
+      }
+    }
+  }
+  return out
+}
+
 // ── Message protocol ──
 
 export interface MvtCompileRequest {
@@ -105,6 +144,10 @@ export interface MvtCompileRequest {
    *  line segment buffer's per-segment slot so the line shader picks
    *  it up without per-frame uniform updates. */
   strokeWidthExprs?: Record<string, unknown>
+  /** Per-sliceKey stroke-colour override AST. Same path as width:
+   *  worker resolves per feature into RGBA8 packed u32, written
+   *  into segment buffer for shader unpack. */
+  strokeColorExprs?: Record<string, unknown>
 }
 
 /** One per-MVT-layer slice in the response. */
@@ -195,10 +238,12 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       const tile = compileSingleTile(parts, msg.z, msg.x, msg.y, msg.maxZoom)
       if (!tile) return
       const heights = extractFeatureHeights(sourceFeatures, msg.extrudeExprs?.[sourceLayer])
-      // Per-feature stroke widths — keyed by sliceKey because the
-      // compound layer's match() targets a specific compound, not a
-      // raw source layer (multiple compounds can share one source).
+      // Per-feature stroke widths / colours — keyed by sliceKey
+      // because the compound layer's match() targets a specific
+      // compound, not a raw source layer (multiple compounds can
+      // share one source).
       const widths = extractFeatureWidths(sourceFeatures, msg.strokeWidthExprs?.[sliceKey])
+      const colors = extractFeatureColors(sourceFeatures, msg.strokeColorExprs?.[sliceKey])
       let prebuiltOutlineSegments: ArrayBuffer | undefined
       let prebuiltLineSegments: ArrayBuffer | undefined
       if (tile.outlineVertices && tile.outlineVertices.length > 0
@@ -208,6 +253,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
           msg.tileWidthMerc, msg.tileHeightMerc,
           heights.size > 0 ? heights : undefined,
           widths.size > 0 ? widths : undefined,
+          colors.size > 0 ? colors : undefined,
         )
         prebuiltOutlineSegments = seg.buffer as ArrayBuffer
       }
@@ -224,6 +270,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
           msg.tileWidthMerc, msg.tileHeightMerc,
           heights.size > 0 ? heights : undefined,
           widths.size > 0 ? widths : undefined,
+          colors.size > 0 ? colors : undefined,
         )
         prebuiltLineSegments = seg.buffer as ArrayBuffer
       }

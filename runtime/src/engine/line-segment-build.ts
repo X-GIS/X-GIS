@@ -138,9 +138,22 @@ export function buildLineSegments(
    *  uniform when non-zero. Absent / 0 entries fall through to the
    *  layer's scalar width. */
   widths?: ReadonlyMap<number, number>,
+  /** featId → packed RGBA8 stroke colour (u32, LSB = R, MSB = A).
+   *  Same plumbing as widths — the worker resolves the compound's
+   *  colour-match expression per feature and writes the packed u32
+   *  here. Stored at f32 offset 18 of the segment via a
+   *  Uint32Array view so the bit pattern survives WGSL's
+   *  `unpack4x8unorm` round-trip. Alpha = 0 means "no override —
+   *  use the layer-uniform colour". */
+  colors?: ReadonlyMap<number, number>,
 ): Float32Array {
   const segCount = indices.length / 2
   const out = new Float32Array(segCount * LINE_SEGMENT_STRIDE_F32)
+  // u32 view of the same buffer for writing the packed RGBA8 stroke
+  // colour at offset 18 (per-segment). Float32Array can't store a
+  // raw u32 pattern without a NaN-coercion risk, so we go through
+  // a Uint32Array onto the same ArrayBuffer.
+  const outU32 = new Uint32Array(out.buffer)
 
   // Reconstruct f64-equivalent tile-local Mercator meters from the DSFUN
   // high/low pair. Precision loss here is ~0 because the values were
@@ -326,7 +339,7 @@ export function buildLineSegments(
     // sample from p0; for cross-feature segments (would be unusual
     // — typically each ring stays inside one feature) we'd see a
     // mid-segment seam, which is the input data's call to make.
-    const fid = (heights || widths) ? vertices[a * stride + 4] : 0
+    const fid = (heights || widths || colors) ? vertices[a * stride + 4] : 0
     if (heights) {
       const h = heights.get(fid)
       out[off + 16] = typeof h === 'number' ? h : 0
@@ -338,7 +351,15 @@ export function buildLineSegments(
       const w = widths.get(fid)
       out[off + 17] = typeof w === 'number' ? w : 0
     }
-    // Slots 18-19 stay at the buffer's zero-init default — they're
+    // Per-segment stroke colour override (RGBA8 packed u32). Alpha
+    // byte 0 → shader falls through to layer.color. Offsets 18-19
+    // are f32 in the layout but we write the u32 bit pattern via
+    // the Uint32Array view onto the same ArrayBuffer.
+    if (colors) {
+      const c = colors.get(fid)
+      outU32[off + 18] = typeof c === 'number' ? c >>> 0 : 0
+    }
+    // Slot 19 stays at the buffer's zero-init default — it's
     // pure WGSL alignment padding.
   }
   return out

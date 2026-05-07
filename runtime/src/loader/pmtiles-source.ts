@@ -97,6 +97,11 @@ export interface PMTilesSourceOptions {
    *  layers with different widths. The worker evaluates per feature
    *  and writes resolved width into the line segment buffer. */
   strokeWidthExprs?: Record<string, unknown>
+  /** Per-sliceKey stroke-colour override AST. Companion to
+   *  strokeWidthExprs — mergeLayers folds groups with different
+   *  stroke colours by baking the per-feature colour as packed
+   *  RGBA8 into the segment buffer. */
+  strokeColorExprs?: Record<string, unknown>
 }
 
 /** Per-MVT-layer info pulled from PMTiles `metadata.vector_layers`.
@@ -411,6 +416,7 @@ export async function attachPMTilesSource(
       extrudeExprs: opts.extrudeExprs,
       showSlices: opts.showSlices,
       strokeWidthExprs: opts.strokeWidthExprs,
+    strokeColorExprs: opts.strokeColorExprs,
       // XYZ template fetcher with retry + graceful fallback.
       // `fetch()` auto-decompresses gzip via Content-Encoding, so the
       // bytes are raw MVT (same shape PMTilesBackend expects from the

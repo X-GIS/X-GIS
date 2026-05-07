@@ -143,6 +143,17 @@ export interface StrokeValue {
    *  instead of the layer-uniform `width_px`. When absent, the
    *  scalar `width` above wins (legacy / unmerged path). */
   widthExpr?: DataExpr
+  /** Optional per-feature stroke colour override. Companion to
+   *  widthExpr. Synthesised by the merge pass for same-source-layer
+   *  groups whose stroke colours differ — a `match(.field) { value
+   *  -> #rrggbbaa, ..., _ -> #00000000 }` AST. The worker evaluates
+   *  per feature, packs RGBA8 into a u32, and writes it into the
+   *  line segment buffer's `color_packed` slot; the shader unpacks
+   *  it and uses it when alpha > 0, otherwise falls through to the
+   *  layer-uniform colour. The match infrastructure stays in the
+   *  AST so future user-authored `stroke: match(.field) { ... }` is
+   *  trivially supported once the parser surface lands. */
+  colorExpr?: DataExpr
   linecap?: 'butt' | 'round' | 'square' | 'arrow'
   linejoin?: 'miter' | 'round' | 'bevel'
   miterlimit?: number

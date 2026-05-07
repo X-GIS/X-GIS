@@ -39,6 +39,11 @@ export interface ShowCommand {
    *  slot; the line shader picks segment.width_px over the layer
    *  uniform when non-zero. */
   strokeWidthExpr?: DataExpr
+  /** Optional per-feature stroke colour override AST. Synthesised
+   *  by the merge pass when group members differ in stroke colour;
+   *  resolved by the worker into a packed RGBA8 u32 baked into the
+   *  segment buffer. */
+  strokeColorExpr?: DataExpr
   projection: string
   visible: boolean
   /** CSS-style pointer interactivity. 'none' makes the layer non-pickable
@@ -182,6 +187,7 @@ function emitShow(node: RenderNode): ShowCommand {
     stroke: colorToHex(node.stroke.color),
     strokeWidth: node.stroke.width,
     strokeWidthExpr: node.stroke.widthExpr,
+    strokeColorExpr: node.stroke.colorExpr,
     projection: node.projection,
     visible: node.visible,
     pointerEvents: node.pointerEvents,

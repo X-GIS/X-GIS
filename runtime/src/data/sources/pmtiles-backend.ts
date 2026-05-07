@@ -65,6 +65,27 @@ function extractFeatureWidths(
   return out
 }
 
+function extractFeatureColors(
+  features: GeoJSONFeature[],
+  expr: unknown,
+): Map<number, number> {
+  const out = new Map<number, number>()
+  if (!expr) return out
+  for (let i = 0; i < features.length; i++) {
+    const props = features[i].properties
+    if (!props) continue
+    const v = evaluate(expr as never, props as Record<string, unknown>)
+    if (typeof v === 'string' && v.startsWith('#') && (v.length === 7 || v.length === 9)) {
+      const r = parseInt(v.slice(1, 3), 16)
+      const g = parseInt(v.slice(3, 5), 16)
+      const b = parseInt(v.slice(5, 7), 16)
+      const a = v.length === 9 ? parseInt(v.slice(7, 9), 16) : 255
+      if (a > 0) out.set(i, (r | (g << 8) | (b << 16) | (a << 24)) >>> 0)
+    }
+  }
+  return out
+}
+
 /** Async HTTP byte fetcher.
  *
  *  Three-state return:
@@ -124,6 +145,10 @@ export interface PMTilesBackendOptions {
    *  the line shader picks each feature's width without re-uploading
    *  per-frame uniforms. Compiler-synthesized by mergeLayers. */
   strokeWidthExprs?: Record<string, unknown>
+  /** Per-sliceKey stroke-colour override AST. Same plumbing as
+   *  width — worker resolves per feature, packs RGBA8 into u32,
+   *  writes into segment buffer. */
+  strokeColorExprs?: Record<string, unknown>
 }
 
 /** Per-backend cap on simultaneous in-flight HTTP fetches. Independent
@@ -164,6 +189,7 @@ export class PMTilesBackend implements TileSource {
   private extrudeExprs: Record<string, unknown> | undefined
   private showSlices: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }> | undefined
   private strokeWidthExprs: Record<string, unknown> | undefined
+  private strokeColorExprs: Record<string, unknown> | undefined
   private sink: TileSourceSink | null = null
   /** Per-MVT-layer info from PMTiles metadata, indexed by layer id. */
   private vectorLayerInfo: Map<string, { minzoom: number; maxzoom: number }>
@@ -199,6 +225,7 @@ export class PMTilesBackend implements TileSource {
     this.extrudeExprs = opts.extrudeExprs
     this.showSlices = opts.showSlices
     this.strokeWidthExprs = opts.strokeWidthExprs
+    this.strokeColorExprs = opts.strokeColorExprs
     this.vectorLayerInfo = new Map()
     if (opts.vectorLayers) {
       for (const vl of opts.vectorLayers) {
@@ -380,6 +407,7 @@ export class PMTilesBackend implements TileSource {
           this.extrudeExprs,
           this.showSlices,
           this.strokeWidthExprs,
+          this.strokeColorExprs,
         ).then(slices => {
           if (slices.length === 0) {
             sink.acceptResult(key, null)
@@ -458,6 +486,7 @@ export class PMTilesBackend implements TileSource {
         if (!tile) return
         const heights = extractFeatureHeights(sourceFeatures, this.extrudeExprs?.[sourceLayer])
         const widths = extractFeatureWidths(sourceFeatures, this.strokeWidthExprs?.[sliceKey])
+        const colors = extractFeatureColors(sourceFeatures, this.strokeColorExprs?.[sliceKey])
         let prebuiltOutlineSegments: Float32Array | undefined
         let prebuiltLineSegments: Float32Array | undefined
         if (tile.outlineVertices && tile.outlineVertices.length > 0
@@ -467,6 +496,7 @@ export class PMTilesBackend implements TileSource {
             widthMerc, heightMerc,
             heights.size > 0 ? heights : undefined,
             widths.size > 0 ? widths : undefined,
+            colors.size > 0 ? colors : undefined,
           )
         }
         if (tile.lineIndices.length > 0 && tile.lineVertices.length > 0) {
@@ -482,6 +512,7 @@ export class PMTilesBackend implements TileSource {
             widthMerc, heightMerc,
             heights.size > 0 ? heights : undefined,
             widths.size > 0 ? widths : undefined,
+            colors.size > 0 ? colors : undefined,
           )
         }
         sink.acceptResult(key, {

@@ -911,6 +911,18 @@ export class XGISMap {
       layerMap[sk] = show.strokeWidthExpr.ast
     }
 
+    // Per-show stroke-colour override AST. Same plumbing as the
+    // width path — the worker resolves per feature and bakes
+    // RGBA8 into the line segment buffer.
+    const strokeColorExprsBySource = new Map<string, Record<string, unknown>>()
+    for (const show of commands.shows) {
+      if (!show.strokeColorExpr || !show.sourceLayer) continue
+      const sk = computeSliceKey(show.sourceLayer, show.filterExpr?.ast ?? null)
+      let layerMap = strokeColorExprsBySource.get(show.targetName)
+      if (!layerMap) { layerMap = {}; strokeColorExprsBySource.set(show.targetName, layerMap) }
+      layerMap[sk] = show.strokeColorExpr.ast
+    }
+
     // Per-show slice descriptors. For PMTiles sources where N xgis
     // layers share one MVT source layer with different `filter:`
     // clauses (the OSM-style demo: 6 landuse_*, 5 roads_*), the
@@ -979,6 +991,7 @@ export class XGISMap {
             extrudeExprs: extrudeExprsBySource.get(load.name),
             showSlices: showSlicesBySource.get(load.name),
             strokeWidthExprs: strokeWidthExprsBySource.get(load.name),
+            strokeColorExprs: strokeColorExprsBySource.get(load.name),
           })
         } else {
           try {

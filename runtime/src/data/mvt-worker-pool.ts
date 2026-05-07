@@ -135,6 +135,7 @@ export class MvtWorkerPool {
     extrudeExprs?: Record<string, unknown>,
     showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }>,
     strokeWidthExprs?: Record<string, unknown>,
+    strokeColorExprs?: Record<string, unknown>,
   ): Promise<MvtCompileSlice[]> {
     this.ensureWorkers()
     const taskId = this.nextTaskId++
@@ -150,6 +151,7 @@ export class MvtWorkerPool {
         extrudeExprs,
         showSlices,
         strokeWidthExprs,
+        strokeColorExprs,
       }, [bytes])
     })
   }

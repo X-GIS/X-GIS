@@ -568,7 +568,13 @@ struct LineSegment {
   // dispatch instead of N separate draws. 0 = "use the layer
   // uniform" (legacy / unmerged layers).
   width_px_override: f32,
-  _pad18: f32,
+  // Per-segment stroke colour override (RGBA8 packed). Worker writes
+  // a u32 bit pattern into the underlying ArrayBuffer at this slot;
+  // the shader reads it as f32 and uses bitcast<u32> + unpack4x8unorm
+  // to recover the colour. Alpha = 0 → fall through to layer.color.
+  // Companion to width_px_override; lets the merge pass fold groups
+  // whose stroke colours also differ.
+  color_packed: f32,
   _pad19: f32,
 }
 @group(1) @binding(1) var<storage, read> segments: array<LineSegment>;
@@ -1449,7 +1455,15 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
   let aa = 1.0;
   let alpha = 1.0 - smoothstep(-aa, aa, d_px);
   if (alpha < 0.005) { discard; }
-  return vec4<f32>(layer.color.rgb, layer.color.a * alpha);
+  // Per-segment stroke colour override (RGBA8 packed). Compound
+  // mergeLayers groups whose members had different stroke colours
+  // bake the resolved colour into seg.color_packed at compile time.
+  // Unpack here and use when alpha > 0; otherwise fall through to
+  // the layer uniform colour (legacy / unmerged layers).
+  let seg_packed: u32 = bitcast<u32>(seg.color_packed);
+  let seg_color = unpack4x8unorm(seg_packed);
+  let base_color = select(layer.color, seg_color, seg_color.a > 0.0);
+  return vec4<f32>(base_color.rgb, base_color.a * alpha);
 }
 
 @fragment
