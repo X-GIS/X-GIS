@@ -37,6 +37,61 @@ export function splitF64(x: number): [number, number] {
   return [h, l]
 }
 
+/** Quantized polygon vertex stride: Int16×2 (mx, my) + Float32 (fid).
+ *  60% smaller than DSFUN_POLY_STRIDE × 4 = 20 bytes. Used by the
+ *  vertex-compression pipeline (commit message tag: "Phase B"). The
+ *  Int16 coords are normalized to [0, 65535] mapping the [0, tile_
+ *  extent_meters] tile-local domain — fixed-constant dequant in the
+ *  shader avoids the per-tile uniform overwrite issue that failed the
+ *  earlier 245ac66 attempt. */
+export const QUANT_POLY_STRIDE_BYTES = 8
+export const QUANT_POLY_RANGE = 65535
+
+/** Phase B vertex-compression pack. Equivalent to packDSFUNPolygon-
+ *  Vertices but emits Int16×2 + Float32 instead of Float32×5. The
+ *  shader dequants via `vec2<f32>(pos_i16) / 65535.0 * tile_extent_m`
+ *  where `tile_extent_m` derives from the existing per-tile zoom
+ *  uniform (no new uniforms). Precision: tile_extent_m / 65535 ≥
+ *  0.146 mm at zoom 22 — sub-pixel even at the finest LOD in the
+ *  pyramid. */
+export function packQuantizedPolygonVertices(
+  scratchPv: number[] | Float64Array,
+  tileMx: number,
+  tileMy: number,
+  tileExtentMeters: number,
+): ArrayBuffer {
+  // Input stride-3: [mx, my, fid] in absolute Mercator meters (MM).
+  // Output stride-8 bytes: Int16 mx_q, Int16 my_q, Float32 fid.
+  const count = scratchPv.length / 3
+  const buf = new ArrayBuffer(count * QUANT_POLY_STRIDE_BYTES)
+  const i16 = new Int16Array(buf)
+  const f32 = new Float32Array(buf)
+  const scale = QUANT_POLY_RANGE / tileExtentMeters
+  for (let i = 0; i < count; i++) {
+    const mx = scratchPv[i * 3]
+    const my = scratchPv[i * 3 + 1]
+    const fid = scratchPv[i * 3 + 2]
+    const localMx = mx - tileMx
+    const localMy = my - tileMy
+    // Quantize to [0, 65535]. Coords outside [0, tileExtentMeters]
+    // (rare — clip pipeline keeps them inside) saturate via clamp.
+    let mxQ = Math.round(localMx * scale)
+    let myQ = Math.round(localMy * scale)
+    if (mxQ < 0) mxQ = 0; else if (mxQ > QUANT_POLY_RANGE) mxQ = QUANT_POLY_RANGE
+    if (myQ < 0) myQ = 0; else if (myQ > QUANT_POLY_RANGE) myQ = QUANT_POLY_RANGE
+    // Int16 max is 32767, but our domain is unsigned [0, 65535]. We
+    // store the unsigned 16-bit pattern in the Int16 slot — the
+    // shader uses `format: 'unorm16x2'` (or 'uint16x2' + manual
+    // normalize) to interpret it correctly. Here we cast via the
+    // 16-bit two's-complement representation.
+    const i16Idx = i * 4
+    i16[i16Idx] = mxQ <= 32767 ? mxQ : mxQ - 65536
+    i16[i16Idx + 1] = myQ <= 32767 ? myQ : myQ - 65536
+    f32[i * 2 + 1] = fid
+  }
+  return buf
+}
+
 /**
  * Pack a stride-3 scratch array of absolute (lon, lat, feat_id) vertices into a
  * stride-5 DSFUN Float32Array of tile-local Mercator meters:
