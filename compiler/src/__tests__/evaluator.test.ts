@@ -289,6 +289,71 @@ describe('Evaluator', () => {
       expect(result[4][0]).toBeCloseTo(-1) // end at (-1,0)
     })
   })
+
+  describe('match() FnCall dispatch', () => {
+    // Regression guard for the layer-merge fix (5f6b06e). The
+    // mergeLayers pass synthesises `match(.field) { value -> N }`
+    // ASTs that the worker evaluates per feature. Before the fix,
+    // FnCall fell through to callBuiltin('match', args) which
+    // doesn't know about match → every call returned null →
+    // per-feature stroke widths / colours never made it into the
+    // segment buffer.
+    function makeMatchAst(field: string, arms: Array<{ pattern: string; value: number | string }>): AST.Expr {
+      const matchArms: AST.MatchArm[] = arms.map(a => ({
+        pattern: a.pattern,
+        value: typeof a.value === 'number'
+          ? { kind: 'NumberLiteral', value: a.value } as AST.Expr
+          : { kind: 'StringLiteral', value: a.value } as AST.Expr,
+      }))
+      return {
+        kind: 'FnCall',
+        callee: { kind: 'Identifier', name: 'match' } as AST.Expr,
+        args: [{ kind: 'FieldAccess', object: null, field } as unknown as AST.Expr],
+        matchBlock: { kind: 'MatchBlock', arms: matchArms },
+      } as unknown as AST.Expr
+    }
+
+    it('returns the matching arm value for a string key', () => {
+      const ast = makeMatchAst('kind', [
+        { pattern: 'park', value: 'green' },
+        { pattern: 'water', value: 'blue' },
+        { pattern: '_', value: 'gray' },
+      ])
+      expect(evaluate(ast, { kind: 'park' })).toBe('green')
+      expect(evaluate(ast, { kind: 'water' })).toBe('blue')
+    })
+
+    it('falls back to the _ default arm for an unmatched key', () => {
+      const ast = makeMatchAst('kind', [
+        { pattern: 'a', value: 1 },
+        { pattern: '_', value: 99 },
+      ])
+      expect(evaluate(ast, { kind: 'unknown' })).toBe(99)
+    })
+
+    it('returns null when key is missing AND no default arm', () => {
+      const ast = makeMatchAst('kind', [
+        { pattern: 'a', value: 1 },
+      ])
+      expect(evaluate(ast, {})).toBeNull()
+    })
+
+    it('numeric arms work for stroke-width match (roads_* path)', () => {
+      // Mirrors the merge pass's per-feature width AST shape.
+      const ast = makeMatchAst('kind', [
+        { pattern: 'minor_road', value: 0.5 },
+        { pattern: 'primary', value: 2.5 },
+        { pattern: 'highway', value: 3.5 },
+        { pattern: '_', value: 0 },
+      ])
+      expect(evaluate(ast, { kind: 'minor_road' })).toBe(0.5)
+      expect(evaluate(ast, { kind: 'primary' })).toBe(2.5)
+      expect(evaluate(ast, { kind: 'highway' })).toBe(3.5)
+      // Unmatched: default arm value 0 — feeds the worker's
+      // "no override; use layer width" sentinel.
+      expect(evaluate(ast, { kind: 'service' })).toBe(0)
+    })
+  })
 })
 
 describe('Data-driven IR lowering', () => {

@@ -183,9 +183,14 @@ function buildMatchAst(
     arms: matchArms,
   }
 
+  // `object: null` is the AST shape for implicit `.field` access
+  // (evaluator's evaluateFieldAccess routes a non-null object
+  // through `evaluate(object) → look up [field]` which fails for a
+  // synthetic empty-name identifier; null means "look up `field`
+  // directly on the feature props bag", which is what we want).
   const fieldAccess: AST.Expr = {
     kind: 'FieldAccess',
-    object: { kind: 'Identifier', name: '' } as AST.Expr,
+    object: null,
     field,
   } as unknown as AST.Expr
 
@@ -219,9 +224,14 @@ function buildWidthMatchAst(
     value: { kind: 'NumberLiteral', value: 0 } as AST.Expr,
   })
   const matchBlock: AST.MatchBlock = { kind: 'MatchBlock', arms: matchArms }
+  // `object: null` is the AST shape for implicit `.field` access
+  // (evaluator's evaluateFieldAccess routes a non-null object
+  // through `evaluate(object) → look up [field]` which fails for a
+  // synthetic empty-name identifier; null means "look up `field`
+  // directly on the feature props bag", which is what we want).
   const fieldAccess: AST.Expr = {
     kind: 'FieldAccess',
-    object: { kind: 'Identifier', name: '' } as AST.Expr,
+    object: null,
     field,
   } as unknown as AST.Expr
   return {
@@ -248,7 +258,7 @@ function buildOrFilter(field: string, allValues: string[]): AST.Expr {
   // Build .field == v0 || .field == v1 || ...
   const fieldAccess = (): AST.Expr => ({
     kind: 'FieldAccess',
-    object: { kind: 'Identifier', name: '' } as AST.Expr,
+    object: null,
     field,
   } as unknown as AST.Expr)
   const literalOf = (v: string): AST.Expr => {
