@@ -205,20 +205,6 @@ export function visibleTilesFrustum(
   // tiny canvas (e.g. inset preview) doesn't lose all detail.
   const SUBDIVIDE_THRESHOLD = Math.max(320, Math.min(canvasWidth, canvasHeight) * 0.5)
   const MAX_FRUSTUM_TILES = maxFrustumTilesFor(canvasWidth, canvasHeight)
-  // Mobile floor for push-z. DFS starts from z=0 and subdivides
-  // toward maxZ; once result.length nears MAX_FRUSTUM_TILES the
-  // `+4 <= cap` guard blocks subdivision and the visit() pushes the
-  // current mid-z tile as-is. At low camera zoom (e.g. 7.75 over
-  // Korea) that tile can be a z=2/z=3 ancestor whose ONE tile covers
-  // the entire country with hundreds of K of triangles. Drawing it
-  // dominated mobile GPU vertex throughput during fast pan+rotate
-  // gestures (measured 521-630 K triangles/frame). Cap the minimum
-  // pushed z so the frustum result never includes far-ancestor giants
-  // — the uncovered area renders blank for one frame instead of as
-  // a misplaced low-detail giant.
-  const _isMobile = isMobileViewport(canvasWidth, canvasHeight)
-  const _targetZ = Math.min(maxZ, Math.max(0, Math.round(camera.zoom ?? maxZ)))
-  const MIN_PUSH_Z = _isMobile ? Math.max(0, _targetZ - 2) : 0
   // Hoisted so the camera-tile-guarantee inject below can gate on
   // pitch (low pitch DFS already covers the foreground; the inject
   // is only needed at high pitch where quadrant order matters).
@@ -427,10 +413,6 @@ export function visibleTilesFrustum(
       return
     }
 
-    // Mobile far-ancestor guard: see MIN_PUSH_Z comment above. Drop
-    // pushes from below the floor to avoid one giant low-z tile
-    // dominating triangle throughput.
-    if (tz < MIN_PUSH_Z) return
     // Always push when visible (avoids gaps from inconsistent size checks)
     result.push({ z: tz, x, y, ox })
   }

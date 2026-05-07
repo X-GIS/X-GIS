@@ -913,20 +913,6 @@ export class VectorTileRenderer {
     // frame's layer iterations (not multiplied).
     const _frameBudget = uploadBudgetFor(canvasWidth, canvasHeight)
     if (this._uploadBudget > _frameBudget) this._uploadBudget = _frameBudget
-    // Mobile parent-walk floor. At low zoom over dense protomaps
-    // tiles (e.g. zoom 7 over Korea), an uncached visible z=N tile
-    // walking to z=0 can land on a z=3 ancestor whose single tile
-    // covers the entire country with hundreds of K of triangles.
-    // Drawing that as fallback dominates GPU vertex throughput on
-    // iPhone (15+ ms / frame, thermal throttle). Floor the walk at
-    // currentZ - 2, matching the MIN_PUSH_Z floor in
-    // visibleTilesFrustum so visible + fallback share one consistent
-    // "no far-ancestor" envelope. Uncovered area renders blank for
-    // one frame instead of as a misplaced low-detail giant.
-    const _isMobileVp = Math.max(canvasWidth, canvasHeight) <= 900
-    const _walkFloorZ = _isMobileVp
-      ? Math.max(0, (this._hysteresisZ < 0 ? this.source.maxLevel : this._hysteresisZ) - 2)
-      : 0
 
     // Sliced-source slot for this layer. PMTiles emits per-MVT-layer
     // slices keyed by layer name in the catalog; xgis layers with a
@@ -1608,7 +1594,7 @@ export class VectorTileRenderer {
         // hasEntry side of the walk is gone — already in the frame
         // cache as `archiveAncestor[i]`.
         let walkKey = key
-        for (let pz = tileZ - 1; pz >= _walkFloorZ; pz--) {
+        for (let pz = tileZ - 1; pz >= 0; pz--) {
           walkKey = tileKeyParent(walkKey)
           if (sliceCached(walkKey)) { cachedAncestorKey = walkKey; break }
         }
