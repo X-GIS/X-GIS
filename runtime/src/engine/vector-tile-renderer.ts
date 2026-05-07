@@ -1650,37 +1650,33 @@ export class VectorTileRenderer {
         continue
       }
 
-      if (this.source.hasTileData(key, sliceLayer)) {
-        this.uploadTile(key, this.source.getTileData(key, sliceLayer)!, sliceLayer)
-        // Don't continue — fall through to the parent-walk fallback so
-        // the area is filled with a stretched ancestor while uploadTile
-        // is queued behind the per-frame upload budget. Without this,
-        // a fast zoom-in on desktop drops every ready-but-not-yet-
-        // uploaded tile to the canvas clear color (visible as the
-        // demo's near-white `stone-100` background) for one frame
-        // before the queued upload drains. If uploadTile uploaded
-        // inline (budget available), layerCache.has(key) is now true
-        // and renderTileKeys will draw primary + the redundant parent
-        // fallback gets stencil-tested out — no double-draw cost.
-      }
-
-      // Sliced source: tile WAS loaded (some slice cached) but this
-      // layer's MVT source-layer has no features here. Common case at
-      // low zoom — `roads`/`buildings` typically only exist at z>=8/14
-      // in protomaps v4. Skip silently; no fallback walk, no miss
-      // count, no FLICKER warning. The layer simply has nothing to
-      // draw on this tile.
+      // Branch on whether THIS LAYER's slice has catalog data:
       //
-      // BUT only when we're INSIDE the archive's zoom range
-      // (tileZ ≤ maxLevel). At over-zoom, sub-tile generation is
-      // PER-LAYER — each layer must clip its own slice from the
-      // parent independently. Without the `tileZ <= maxLevel`
-      // gate, the FIRST layer to generate a sub-tile populates
-      // hasTileData(key)=true → subsequent layers see "loaded"
-      // and skip their sub-tile gen → only one layer renders at
-      // over-zoom (user-reported "tiles disappear at z=15.5+
-      // — only water visible").
-      if (sliceLayer && tiles[i].z <= maxLevel && this.source.hasTileData(key)) {
+      // (A) Slice has data → request GPU upload (queued behind the
+      //     per-frame budget). Fall through to the parent-walk
+      //     fallback so the area is filled with a stretched ancestor
+      //     while the upload is in flight. The redundant fallback
+      //     gets stencil-tested out once primary lands — no double-
+      //     draw cost. (Bug class commit-49d4801 white flash.)
+      //
+      // (B) Slice empty but tile WAS loaded (some other slice cached)
+      //     → this layer has no features here. Drop silently — no
+      //     fallback walk, no miss count. Common at low zoom for
+      //     layers with high minzoom (roads ≥ 8, buildings ≥ 14 in
+      //     protomaps v4).
+      //
+      // The `tileZ <= maxLevel` gate on (B) is critical: at over-zoom
+      // sub-tile gen is PER-LAYER, and the first layer to generate a
+      // sub-tile populates hasTileData(key)=true. Without the gate
+      // subsequent layers see "loaded" and skip their own sub-tile
+      // gen → only one layer renders at over-zoom (user-reported
+      // "tiles disappear at z=15.5+ — only water visible").
+      const _thisSliceCached = this.source.hasTileData(key, sliceLayer)
+      if (_thisSliceCached) {
+        this.uploadTile(key, this.source.getTileData(key, sliceLayer)!, sliceLayer)
+        // (A) — fall through to walk
+      } else if (sliceLayer && tiles[i].z <= maxLevel && this.source.hasTileData(key)) {
+        // (B) — drop empty slice
         if (_inv) _tileDecisions[i] = 'drop-empty-slice'
         continue
       }
