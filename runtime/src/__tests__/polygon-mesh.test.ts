@@ -208,8 +208,13 @@ describe('quantizePolygonVerticesExtruded', () => {
 describe('generateWallMeshExtruded', () => {
   it('emits z=0 for bottom verts and z=feature-height for top verts', () => {
     const ext = TILE_EXTENT_M(14)
+    // Triangle interior to the tile — no edge sits on the tile-rect.
+    // generateWallMeshExtruded skips synthetic tile-rect edges (the
+    // ones Sutherland-Hodgman closure adds when a polygon spans tile
+    // boundaries) so a fixture whose vertices land on x=0/y=0 would
+    // also have those edges culled.
     const polys = [{
-      rings: [[[0, 0], [ext / 2, 0], [0, ext / 2]]],
+      rings: [[[ext * 0.25, ext * 0.25], [ext * 0.75, ext * 0.25], [ext * 0.5, ext * 0.75]]],
       featId: 7,
     }]
     const heights = new Map<number, number>([[7, 80]])

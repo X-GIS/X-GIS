@@ -247,13 +247,34 @@ export function generateWallMeshExtruded(
   heights: ReadonlyMap<number, number>,
   defaultHeight: number,
 ): WallMeshExtruded {
+  // Tile-rect edges are SYNTHETIC — added by Sutherland-Hodgman
+  // clipping when a polygon spans tile boundaries. Emitting walls on
+  // those edges drops fake walls inside buildings that straddle tile
+  // seams: visible artefact = the building looks "cut open" at the
+  // boundary because each tile's clipped half emits an inward-facing
+  // wall along the cut. Mirror the outline-side fix from compiler
+  // commit 448d465 (`extractNonSyntheticArcs`) here.
+  const mxW = tileMx, mxE = tileMx + tileExtentM
+  const myS = tileMy, myN = tileMy + tileExtentM
+  const EPS = 1.0 // 1 metre tolerance — matches the compiler predicate
+  const isSynthetic = (a: readonly number[], b: readonly number[]): boolean => {
+    if (Math.abs(a[0] - mxW) < EPS && Math.abs(b[0] - mxW) < EPS) return true
+    if (Math.abs(a[0] - mxE) < EPS && Math.abs(b[0] - mxE) < EPS) return true
+    if (Math.abs(a[1] - myS) < EPS && Math.abs(b[1] - myS) < EPS) return true
+    if (Math.abs(a[1] - myN) < EPS && Math.abs(b[1] - myN) < EPS) return true
+    return false
+  }
+
   let edgeCount = 0
   for (const poly of polygons) {
     for (const ring of poly.rings) {
       const len = ring.length
       if (len < 2) continue
       const closed = ring[0][0] === ring[len - 1][0] && ring[0][1] === ring[len - 1][1]
-      edgeCount += closed ? len - 1 : len
+      const lastEdgeI = closed ? len - 1 : len
+      for (let i = 0; i < lastEdgeI; i++) {
+        if (!isSynthetic(ring[i], ring[(i + 1) % len])) edgeCount++
+      }
     }
   }
 
@@ -307,8 +328,13 @@ export function generateWallMeshExtruded(
       }
       const ccw = signed2 > 0
       for (let i = 0; i < lastEdgeI; i++) {
-        const aIdx = ccw ? i : (i + 1) % len
-        const bIdx = ccw ? (i + 1) % len : i
+        const j = (i + 1) % len
+        // Skip walls that would sit on a tile-rect edge — those are
+        // clipper artefacts, not part of the source polygon's
+        // boundary. See block at the top for the rationale.
+        if (isSynthetic(ring[i], ring[j])) continue
+        const aIdx = ccw ? i : j
+        const bIdx = ccw ? j : i
         const ax = ring[aIdx][0], ay = ring[aIdx][1]
         const bx = ring[bIdx][0], by = ring[bIdx][1]
         const baseV = vIdx
