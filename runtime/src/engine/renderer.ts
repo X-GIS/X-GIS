@@ -327,12 +327,6 @@ fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
   var out: OitFragmentOutput;
   out.accum = vec4<f32>(rgb * a, a) * w;
   out.revealage = a;
-  // No pick output, no depth output — OIT pass binds only accum +
-  // revealage targets. Translucent buildings stay non-pickable;
-  // users wanting to pick them should keep opacity = 1 (opaque
-  // pass writes pick). The McGuire-Bavoil weight already biases the
-  // composite toward closer fragments, partially substituting for
-  // depth occlusion against opaque geometry.
   return out;
 }
 
@@ -1076,8 +1070,20 @@ export class MapRenderer {
       vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_oit_translucent', targets: oitTargets },
       primitive: { topology: 'triangle-list', cullMode: 'back' },
-      // No depthStencil — pass has no depth attachment.
-      multisample: { count: 1 },
+      // OIT pass attaches the opaque MSAA depth-stencil so
+      // translucent fragments depth-test against the full opaque
+      // scene. depthWriteEnabled=false keeps OIT
+      // translucent-vs-translucent order independent.
+      depthStencil: {
+        format: 'depth24plus-stencil8',
+        depthCompare: 'less-equal',
+        depthWriteEnabled: false,
+        stencilFront: { compare: 'always', passOp: 'keep' },
+        stencilBack: { compare: 'always', passOp: 'keep' },
+        stencilWriteMask: 0x00,
+        stencilReadMask: 0x00,
+      },
+      multisample: msaaState,
       label: 'fill-pipeline-extruded-oit',
     })
 
@@ -1107,35 +1113,49 @@ export class MapRenderer {
 
     // OIT compose — full-screen quad samples accum + revealage and
     // over-blends the recovered translucent colour onto the
-    // (resolved) main framebuffer. Two texture bindings, no
-    // sampler needed (textureLoad with integer coord is enough —
-    // 1:1 fullscreen quad).
+    // (resolved) main framebuffer. With MSAA on, accum + revealage
+    // are multisampled; the shader averages every sample to recover
+    // a single resolved value. Single-sample (mobile / safe mode)
+    // takes the same code path with a 1-sample loop, no branch.
+    const sampleCount = getSampleCount()
+    const isMsaa = sampleCount > 1
     const oitComposeShader = /* wgsl */ `
 struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
 @vertex fn vs_full(@builtin(vertex_index) idx: u32) -> VsOut {
-  // Two-triangle fullscreen quad emitted from a 6-vertex no-buffer draw.
-  let x = f32((idx & 1u) << 1u) - 1.0;
-  let y = 1.0 - f32(idx & 2u);
-  // y flipped because WebGPU NDC has y-up but we sample texture y-down.
+  // Oversized triangle covering NDC [-1, 1]² — vertices at
+  // (-1, -1), (3, -1), (-1, 3). The half outside the viewport is
+  // clipped by the rasterizer; covers the whole framebuffer with
+  // one triangle (3-vertex draw). Avoids the off-by-vertex bug of
+  // the bit-packed 6-vertex quad pattern.
+  var pos: vec2<f32>;
+  if (idx == 0u) { pos = vec2<f32>(-1.0, -1.0); }
+  else if (idx == 1u) { pos = vec2<f32>(3.0, -1.0); }
+  else { pos = vec2<f32>(-1.0, 3.0); }
   var out: VsOut;
-  out.pos = vec4<f32>(x, y, 0.0, 1.0);
-  out.uv = vec2<f32>((x + 1.0) * 0.5, 1.0 - (y + 1.0) * 0.5);
+  out.pos = vec4<f32>(pos, 0.0, 1.0);
+  // Texture coords are sample-load coords (integer pixels) computed
+  // from clip-space NDC: uv = (pos + 1) / 2, y flipped because
+  // texture origin is top-left.
+  out.uv = vec2<f32>((pos.x + 1.0) * 0.5, 1.0 - (pos.y + 1.0) * 0.5);
   return out;
 }
-@group(0) @binding(0) var accum_tex: texture_2d<f32>;
-@group(0) @binding(1) var revealage_tex: texture_2d<f32>;
+@group(0) @binding(0) var accum_tex: ${isMsaa ? 'texture_multisampled_2d<f32>' : 'texture_2d<f32>'};
+@group(0) @binding(1) var revealage_tex: ${isMsaa ? 'texture_multisampled_2d<f32>' : 'texture_2d<f32>'};
+const SAMPLE_COUNT: i32 = ${sampleCount};
 @fragment fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
   let dim = vec2<f32>(textureDimensions(accum_tex));
   let uv = vec2<i32>(in.uv * dim);
-  let accum = textureLoad(accum_tex, uv, 0);
-  let revealage = textureLoad(revealage_tex, uv, 0).r;
-  // McGuire-Bavoil compose:
-  //   avg_rgb = accum.rgb / max(accum.a, eps)
-  //   alpha   = 1 - revealage
+  var accum_sum: vec4<f32> = vec4<f32>(0.0);
+  var rev_sum: f32 = 0.0;
+  for (var s: i32 = 0; s < SAMPLE_COUNT; s = s + 1) {
+    accum_sum = accum_sum + textureLoad(accum_tex, uv, s);
+    rev_sum = rev_sum + textureLoad(revealage_tex, uv, s).r;
+  }
+  let inv = 1.0 / f32(SAMPLE_COUNT);
+  let accum = accum_sum * inv;
+  let revealage = rev_sum * inv;
   let avg = accum.rgb / max(accum.a, 1e-5);
   let alpha = 1.0 - revealage;
-  // Output as straight (non-premultiplied) — the pipeline's
-  // BLEND_ALPHA does the over-blend onto the opaque framebuffer.
   return vec4<f32>(avg, alpha);
 }
 `
@@ -1143,8 +1163,10 @@ struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32>, };
     this.oitComposeBindGroupLayout = device.createBindGroupLayout({
       label: 'oit-compose-bgl',
       entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: 'unfilterable-float', multisampled: isMsaa } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: 'unfilterable-float', multisampled: isMsaa } },
       ],
     })
     this.oitComposePipeline = device.createRenderPipeline({

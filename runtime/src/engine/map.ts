@@ -1634,21 +1634,22 @@ export class XGISMap {
               usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
             })
           : null
-        // OIT render targets — single-sample. The translucent extrude
-        // pass binds these as MRT outputs; the OIT compose pass reads
-        // them back as textures and blends the result onto the
-        // resolved main colour.
+        // OIT render targets — sampleCount matches the opaque pass so
+        // both can share the same depth attachment. Without that
+        // sharing the OIT pass had no depth → translucent buildings
+        // didn't occlude behind opaque foreground walls. Compose
+        // pass resolves the MSAA samples by averaging in the shader.
         this.oitAccumTexture = device.createTexture({
           size: { width: w, height: h },
           format: OIT_ACCUM_FORMAT,
-          sampleCount: 1,
+          sampleCount: sc,
           usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
           label: 'oit-accum',
         })
         this.oitRevealageTexture = device.createTexture({
           size: { width: w, height: h },
           format: OIT_REVEALAGE_FORMAT,
-          sampleCount: 1,
+          sampleCount: sc,
           usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
           label: 'oit-revealage',
         })
@@ -1762,7 +1763,11 @@ export class XGISMap {
         // the same reason. Only the final consumer can discard. Tile-
         // based mobile GPUs pay a write-back when we store, but the
         // result was visibly wrong without it.
-        const persistDepth = !isLastOpaque || hasPoints
+        // OIT pass needs the opaque depth to occlude translucent
+        // fragments behind opaque foreground walls; bucket 3 (points)
+        // also reads it. Either consumer requires the LAST opaque
+        // sub-pass to STORE depth instead of discarding.
+        const persistDepth = !isLastOpaque || hasPoints || hasOit
 
         passScope(isFirst ? 'opaque-main' : `opaque[${gi}]`, () => {
           // Time only the FIRST opaque sub-pass — that's where raster +
@@ -1869,13 +1874,14 @@ export class XGISMap {
       // by construction — no back-to-front sort.
       if (hasOit) {
         passScope('oit-fill', () => {
-          // No depth attachment — opaque depth is MSAA-4 and the
-          // OIT RTs are single-sample. Until we add an MSAA-resolved
-          // depth or MSAA OIT, translucent extrude renders without
-          // depth-test against opaque. The McGuire-Bavoil weight
-          // dampens far translucent contributions enough that the
-          // visual is acceptable for the common "glass building
-          // amongst opaque buildings" case.
+          // OIT pass shares the opaque pass's MSAA depth-stencil
+          // (depthLoadOp='load' so the opaque depth is what
+          // translucent fragments test against). depthStoreOp='discard'
+          // because no later pass needs the OIT-side depth. With
+          // sample counts matched, translucent buildings hide
+          // correctly behind opaque foreground walls — full
+          // McGuire-Bavoil order independence applies only to
+          // translucent-vs-translucent.
           const oitPass = encoder.beginRenderPass({
             colorAttachments: [
               {
@@ -1889,6 +1895,11 @@ export class XGISMap {
                 loadOp: 'clear', storeOp: 'store',
               },
             ],
+            depthStencilAttachment: {
+              view: this.stencilTexture!.createView(),
+              depthLoadOp: 'load', depthStoreOp: 'discard',
+              stencilLoadOp: 'load', stencilStoreOp: 'discard',
+            },
           })
           for (const cs of oit) {
             cs.vtEntry.renderer.render(
@@ -1919,7 +1930,7 @@ export class XGISMap {
           })
           compPass.setPipeline(this.renderer.oitComposePipeline)
           compPass.setBindGroup(0, bg)
-          compPass.draw(6) // fullscreen quad — vs_full emits via vertex_index
+          compPass.draw(3) // oversized triangle — vs_full covers fullscreen with 3 verts
           compPass.end()
         })
       }
