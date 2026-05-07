@@ -1293,13 +1293,63 @@ export class TileCatalog {
 
   // ── Cache eviction ──
 
+  /** Recompute the actual byte size of every cached TileData and
+   *  compare against the running `_cachedBytes` accumulator. Drift
+   *  triggered the user-reported "263 MB for 2 tiles" inspector
+   *  bug (commit 497a2c1: prebuiltLineSegments were included in
+   *  setSlice's add but excluded from delete after GPU upload
+   *  nulled them). Activated by `globalThis.__XGIS_INVARIANTS`;
+   *  production builds skip the recomputation entirely. */
+  private assertByteAccountingInvariant(label: string): void {
+    if (!(globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS) return
+    let actual = 0
+    for (const slot of this.dataCache.values()) {
+      for (const td of slot.values()) {
+        actual += TileCatalog.sizeOfTileData(td)
+      }
+    }
+    const drift = Math.abs(actual - this._cachedBytes)
+    // 1 KB tolerance — Math.fround / typed-array byteLength rounding
+    // shouldn't introduce more than a handful of bytes per tile;
+    // a tile-count multiplier of <1 KB across hundreds of tiles
+    // means the accounting is consistent.
+    if (drift > 1024) {
+      throw new Error(
+        `[XGIS INVARIANT] _cachedBytes drift at ${label}: actual=${actual} `
+        + `accumulator=${this._cachedBytes} drift=${drift} bytes across `
+        + `${this.dataCache.size} tile slots. The setSlice / deleteCacheEntry `
+        + `byte-add/subtract path is out of sync with sizeOfTileData. See `
+        + `commit 497a2c1 for the prebuilt-SDF drift class.`,
+      )
+    }
+  }
+
   evictTiles(protectedKeys: Set<number>): void {
+    this.assertByteAccountingInvariant('evictTiles-entry')
+    // Snapshot the protected keys that ARE in catalog pre-eviction —
+    // these must survive the eviction call (Cesium replacement
+    // invariant). Only takes effect when invariants are enabled.
+    const _inv = (globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS
+    const _protectedPresent = _inv
+      ? new Set([...protectedKeys].filter(k => this.dataCache.has(k)))
+      : null
     // Two caps: byte-based (tight, accurate) and count-based
     // (loose safety net). Either tripping is enough to trigger
     // eviction; the loop runs until BOTH are under their limits.
     const _byteCap = maxCachedBytes()
     if (this.dataCache.size <= MAX_CACHED_TILES
-        && this._cachedBytes <= _byteCap) return
+        && this._cachedBytes <= _byteCap) {
+      // Nothing to do — but still verify the protected set wasn't
+      // accidentally dropped by some prior code path.
+      if (_inv && _protectedPresent) {
+        for (const k of _protectedPresent) {
+          if (!this.dataCache.has(k)) {
+            throw new Error(`[XGIS INVARIANT] protected key ${k} missing from catalog at evictTiles entry — replacement invariant violated by a prior code path`)
+          }
+        }
+      }
+      return
+    }
 
     // Eviction: anything not in `protectedKeys` (visible + fallback
     // ancestors for the current frame) is fair game. The previous
@@ -1341,6 +1391,24 @@ export class TileCatalog {
                || this._cachedBytes > _byteCap)) {
       this.deleteCacheEntry(entries[i][0])
       i++
+    }
+    this.assertByteAccountingInvariant('evictTiles-exit')
+
+    // Cesium replacement-invariant audit: every protected key that
+    // was present pre-eviction must still be present post-eviction.
+    // The filter at line 1333 skipped these so the loop above
+    // shouldn't have touched them — this catches future regressions
+    // where the filter is altered.
+    if (_inv && _protectedPresent) {
+      for (const k of _protectedPresent) {
+        if (!this.dataCache.has(k)) {
+          throw new Error(
+            `[XGIS INVARIANT] protected key ${k} was evicted despite being in `
+            + `protectedKeys — replacement invariant violated. The eviction `
+            + `filter at evictTiles must skip every key in protectedKeys.`,
+          )
+        }
+      }
     }
   }
 }
