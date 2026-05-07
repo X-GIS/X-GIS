@@ -1706,14 +1706,7 @@ export class XGISMap {
       const { opaque, translucent, oit } = this.classifyVectorTileShows()
       const opaqueGroups = this.groupOpaqueBySource(opaque)
       const hasTranslucent = translucent.length > 0 && this.lineRenderer !== null
-      // OIT path is opt-in via globalThis.__XGIS_OIT until the
-      // bind-group-layout validation issue surfaces only when a
-      // demo declares an opaque-< 1 extruded layer is sorted out.
-      // Phase 1 + Phase 2 left the GPU side wired; Phase 3 (this
-      // routing) sits behind the flag so casual smoke runs with
-      // translucent buildings don't produce validation noise.
-      const oitEnabled = (globalThis as { __XGIS_OIT?: boolean }).__XGIS_OIT === true
-      const hasOit = oitEnabled && oit.length > 0 && this.oitAccumTexture !== null && this.oitRevealageTexture !== null
+      const hasOit = oit.length > 0 && this.oitAccumTexture !== null && this.oitRevealageTexture !== null
       const hasPoints = this.pointRenderer?.hasLayers() ?? false
       // ── Two independent point paths ──
       //

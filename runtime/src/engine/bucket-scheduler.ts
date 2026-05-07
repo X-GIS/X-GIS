@@ -262,14 +262,22 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
       ? (entry.pipelines?.linePipelineFallbackNoPick ?? defaults.linePipelineFallbackNoPick ?? entry.pipelines?.linePipelineFallback ?? defaults.linePipelineFallback)
       : (entry.pipelines?.linePipelineFallback ?? defaults.linePipelineFallback)
     // Opaque-bucket fillPhase decision:
-    //  * isOitExtrude → 'strokes' (fills go to OIT, outlines via
-    //    the line pipeline in the opaque pass)
-    //  * else if isTranslucentStroke → 'fills' (fills here, strokes
-    //    to translucent offscreen MAX-blend pass)
-    //  * else → 'all' (fills + strokes opaque)
-    const fillPhase = isOitExtrude
-      ? 'strokes'
-      : (isTranslucentStroke ? 'fills' : 'all')
+    //  * isOitExtrude && isTranslucentStroke → SKIP opaque entirely
+    //    (fills handled by OIT, strokes by translucent offscreen)
+    //  * isOitExtrude only → 'strokes' (fills to OIT; outlines, if
+    //    any, go through the regular opaque line pipeline — they're
+    //    fully opaque even when the fill is translucent)
+    //  * isTranslucentStroke only → 'fills' (fills opaque; strokes
+    //    to translucent offscreen MAX-blend)
+    //  * neither → 'all' (pure opaque)
+    const skipOpaque = isOitExtrude && isTranslucentStroke
+    const fillPhase: LayerDrawPhase = skipOpaque
+      ? 'fills' // sentinel — entry isn't pushed to opaque
+      : isOitExtrude
+        ? 'strokes'
+        : isTranslucentStroke
+          ? 'fills'
+          : 'all'
     const classified: ClassifiedShow = {
       sourceName: entry.sourceName,
       vtEntry,
@@ -278,7 +286,7 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
       isTranslucentStroke,
       fillPhase,
     }
-    opaque.push(classified)
+    if (!skipOpaque) opaque.push(classified)
     if (isTranslucentStroke) translucent.push(classified)
     if (isOitExtrude) oit.push(classified)
   }
