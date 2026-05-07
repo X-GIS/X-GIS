@@ -98,6 +98,23 @@ export const STENCIL_TEST_NO_DEPTH: GPUDepthStencilState = {
   stencilReadMask: 0xFF,
 }
 
+/** Depth test enabled, depth write disabled, stencil ignored. Used
+ *  for SDF line draws so outlines respect 3D building occlusion —
+ *  a roof outline behind a foreground building wall fails the
+ *  LEQUAL test and gets hidden, instead of always rendering on top
+ *  the way `STENCIL_DISABLED` would. Lines themselves don't write
+ *  depth so they don't interfere with following draws (e.g. a
+ *  building drawn after a same-z=0 line still wins). */
+export const DEPTH_READ_ONLY: GPUDepthStencilState = {
+  format: 'depth24plus-stencil8',
+  depthCompare: 'less-equal',
+  depthWriteEnabled: false,
+  stencilFront: { compare: 'always', passOp: 'keep' },
+  stencilBack: { compare: 'always', passOp: 'keep' },
+  stencilWriteMask: 0x00,
+  stencilReadMask: 0x00,
+}
+
 /** Stencil disabled: always pass, no write (raster tiles, SDF line body) */
 export const STENCIL_DISABLED: GPUDepthStencilState = {
   format: 'depth24plus-stencil8',

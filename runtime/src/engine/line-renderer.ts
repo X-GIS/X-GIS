@@ -39,7 +39,7 @@
 //    and is deferred.
 
 import { isPickEnabled, getSampleCount, type GPUContext } from './gpu'
-import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, STENCIL_DISABLED } from './gpu-shared'
+import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, STENCIL_DISABLED, DEPTH_READ_ONLY } from './gpu-shared'
 import {
   WGSL_DIST_TO_SEGMENT,
   WGSL_DIST_TO_QUADRATIC,
@@ -1564,7 +1564,18 @@ export class LineRenderer {
           : [{ format: this.format, blend: BLEND_ALPHA }],
       },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
-      depthStencil: STENCIL_DISABLED,
+      // Depth test ON, depth write OFF — lines respect 3D building
+      // occlusion (a roof-edge outline behind a foreground wall is
+      // hidden by the wall) without interfering with subsequent
+      // draws. The previous STENCIL_DISABLED state ignored depth
+      // entirely, which is fine for purely 2D scenes but visibly
+      // wrong once `extrude:` lifts outlines onto building roofs:
+      // background buildings' outlines bled through foreground
+      // walls. Pure painter's order via depth-disabled writes —
+      // already used by ground-layer fills — doesn't apply here
+      // because lines need to compete with extruded fills that
+      // DO write depth.
+      depthStencil: DEPTH_READ_ONLY,
       multisample: { count: getSampleCount() },
     })
 
