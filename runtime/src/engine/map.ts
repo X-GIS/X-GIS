@@ -1969,10 +1969,7 @@ export class XGISMap {
       this._needsRender = true
     } else {
       for (const [, { renderer }] of this.vtSources) {
-        if (renderer.hasPendingUploads() || renderer.hasPendingFades()) {
-          this._needsRender = true
-          break
-        }
+        if (renderer.hasPendingUploads()) { this._needsRender = true; break }
       }
     }
 
