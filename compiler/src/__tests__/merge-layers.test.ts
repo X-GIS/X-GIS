@@ -3,6 +3,7 @@ import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
 import { lower } from '../ir/lower'
 import { optimize } from '../ir/optimize'
+import { emitCommands } from '../ir/emit-commands'
 
 function compileToScene(source: string) {
   const tokens = new Lexer(source).tokenize()
@@ -10,6 +11,116 @@ function compileToScene(source: string) {
   const lowered = lower(ast)
   return optimize(lowered, ast)
 }
+
+function compileToCommands(source: string) {
+  const tokens = new Lexer(source).tokenize()
+  const ast = new Parser(tokens).parse()
+  const lowered = lower(ast)
+  const optimized = optimize(lowered, ast)
+  return emitCommands(optimized)
+}
+
+describe('shader-gen variant key disambiguation (29be5a0 regression guard)', () => {
+  it('two compound match() layers on the same field get DIFFERENT variant keys', () => {
+    // The bug: pre-29be5a0, buildKey collapsed every data-driven
+    // fill to `f:feat|ff:kind` regardless of the actual match
+    // arms. Two compound layers reading `.kind` (e.g. landuse
+    // compound + roads compound) hashed to the SAME key →
+    // shaderCache returned the FIRST compiled compound's pipeline
+    // for the SECOND compound's draws → roads rendered with
+    // landuse colour arms → every road feature failed every arm
+    // → discarded. Fix: hash the synthesized match preambles into
+    // the cache key.
+    const source = `
+      source pm { type: pmtiles url: "x.pmtiles" }
+      layer landuse_park {
+        source: pm sourceLayer: "landuse" filter: .kind == "park"
+        | fill-green-200 stroke-stone-300 stroke-0.3
+      }
+      layer landuse_grass {
+        source: pm sourceLayer: "landuse" filter: .kind == "grass"
+        | fill-lime-100 stroke-stone-300 stroke-0.3
+      }
+      layer roads_minor {
+        source: pm sourceLayer: "roads" filter: .kind == "minor_road"
+        | stroke-stone-400 stroke-0.5
+      }
+      layer roads_primary {
+        source: pm sourceLayer: "roads" filter: .kind == "primary"
+        | stroke-amber-300 stroke-0.5
+      }
+    `
+    const commands = compileToCommands(source)
+    // 4 input → 2 compounds (landuse + roads).
+    expect(commands.shows.length).toBe(2)
+    const landuse = commands.shows.find(s => s.sourceLayer === 'landuse')
+    const roads = commands.shows.find(s => s.sourceLayer === 'roads')
+    expect(landuse?.shaderVariant).toBeDefined()
+    expect(roads?.shaderVariant).toBeDefined()
+    expect(landuse!.shaderVariant!.key).not.toBe(roads!.shaderVariant!.key)
+  })
+
+  it('two compounds with identical structural match keys (different arm tables) still differ', () => {
+    // Same field, same featureFields, same arm count — only the
+    // colour values differ. Pre-fix this collapsed to a single
+    // cache entry; post-fix the matchArmsKey hash diverges.
+    const source = `
+      source pm { type: pmtiles url: "x.pmtiles" }
+      layer a {
+        source: pm sourceLayer: "x" filter: .kind == "p"
+        | fill-green-200 stroke-stone-300 stroke-0.3
+      }
+      layer b {
+        source: pm sourceLayer: "x" filter: .kind == "g"
+        | fill-lime-100 stroke-stone-300 stroke-0.3
+      }
+      layer c {
+        source: pm sourceLayer: "y" filter: .kind == "p"
+        | fill-orange-100 stroke-stone-300 stroke-0.3
+      }
+      layer d {
+        source: pm sourceLayer: "y" filter: .kind == "g"
+        | fill-amber-200 stroke-stone-300 stroke-0.3
+      }
+    `
+    const commands = compileToCommands(source)
+    expect(commands.shows.length).toBe(2)
+    const k1 = commands.shows[0].shaderVariant?.key
+    const k2 = commands.shows[1].shaderVariant?.key
+    expect(k1).toBeDefined()
+    expect(k2).toBeDefined()
+    expect(k1).not.toBe(k2)
+  })
+
+  it('identical match-arm tables on the same field produce IDENTICAL keys (pipeline can be shared)', () => {
+    // Same arm values, different sourceLayers. The pipeline
+    // doesn't care which source a feature came from — the shader
+    // logic is identical, so cache reuse is correct here. Guards
+    // against over-disambiguation.
+    const source = `
+      source pm { type: pmtiles url: "x.pmtiles" }
+      layer a {
+        source: pm sourceLayer: "x" filter: .kind == "p"
+        | fill-green-200 stroke-stone-300 stroke-0.3
+      }
+      layer b {
+        source: pm sourceLayer: "x" filter: .kind == "g"
+        | fill-lime-100 stroke-stone-300 stroke-0.3
+      }
+      layer c {
+        source: pm sourceLayer: "y" filter: .kind == "p"
+        | fill-green-200 stroke-stone-300 stroke-0.3
+      }
+      layer d {
+        source: pm sourceLayer: "y" filter: .kind == "g"
+        | fill-lime-100 stroke-stone-300 stroke-0.3
+      }
+    `
+    const commands = compileToCommands(source)
+    expect(commands.shows.length).toBe(2)
+    expect(commands.shows[0].shaderVariant?.key).toBe(commands.shows[1].shaderVariant?.key)
+  })
+})
 
 describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () => {
   it('merges 3 contiguous landuse_* layers into 1 compound RenderNode', () => {

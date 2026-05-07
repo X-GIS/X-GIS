@@ -427,6 +427,21 @@ function resolveColorFromAST(node: import('../parser/ast').Expr): [number, numbe
     const hex = resolveColor(node.value)
     if (hex) return hexToRgba(hex)
   }
+  // Hex literal direct from a synthesized AST (e.g. mergeLayers'
+  // `match() { value -> #rrggbbaa }` arms). The user-authored
+  // surface always reaches this resolver via Identifier / hyphen
+  // BinaryExpr above; ColorLiteral is the compiler-internal path.
+  // Without this branch the synthesized arms collapse to "no
+  // colour" → match preambles end up containing only the default
+  // variable declaration → variant cache key collision (every
+  // compound on the same field hashes identically) → wrong
+  // pipeline shared across compounds.
+  if (node.kind === 'ColorLiteral' && typeof node.value === 'string') {
+    const hex = node.value
+    if (hex.startsWith('#') && (hex.length === 7 || hex.length === 9)) {
+      return hexToRgba(hex)
+    }
+  }
   // Hyphenated color names parsed as subtraction: sky-300 → Identifier("sky") - NumberLiteral(300)
   if (node.kind === 'BinaryExpr' && node.op === '-'
       && node.left.kind === 'Identifier'
