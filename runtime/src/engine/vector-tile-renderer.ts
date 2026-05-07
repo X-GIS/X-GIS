@@ -1301,7 +1301,8 @@ export class VectorTileRenderer {
       // for low-pitch (single zoom, cap-free, aspect-ratio-invariant);
       // Cesium-style quadtree DFS for high-pitch where mixed-LOD is
       // required for the horizon. 30° is the industry split.
-      tiles = (camera.pitch ?? 0) < 30
+      const _pitchDeg = camera.pitch ?? 0
+      tiles = _pitchDeg < 30
         ? visibleTilesFrustumSampled(
             camera,
             selectorProj,
@@ -1318,6 +1319,24 @@ export class VectorTileRenderer {
             canvasHeight,
             offsetMarginPx,
           )
+
+      // Phase 2 selector-shape invariant. The Mapbox/MapLibre sampled
+      // selector emits single-zoom results — every tile.z must equal
+      // currentZ. The Cesium DFS selector emits mixed-LOD. Catches
+      // future dispatch regressions that route flat-pitch through the
+      // DFS path (which would re-introduce the cap-fill mid-z giant
+      // class of bugs that Phase 2 fixed).
+      if ((globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS && _pitchDeg < 30) {
+        for (const t of tiles) {
+          if (t.z !== currentZ) {
+            throw new Error(
+              `[XGIS INVARIANT] flat-pitch (${_pitchDeg.toFixed(1)}°) selector emitted `
+              + `tile z=${t.z} expected currentZ=${currentZ}. The dispatch should be `
+              + `routing to visibleTilesFrustumSampled which is single-zoom by design.`,
+            )
+          }
+        }
+      }
       const n = Math.pow(2, currentZ)
       const ctX = Math.floor((centerLon + 180) / 360 * n)
       const ctY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
