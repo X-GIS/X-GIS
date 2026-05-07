@@ -106,6 +106,41 @@ function uploadBudgetFor(canvasW: number, canvasH: number): number {
 const UNIFORM_SLOT = 256
 const UNIFORM_SIZE = 160
 
+/** 2π × Earth radius (m). One full mercator wrap. tile_extent_m at
+ *  any zoom z is this constant divided by 2^z (vs_main_quantized
+ *  dequant scale). */
+const TWO_PI_R_EARTH = 2 * Math.PI * 6378137
+
+/** Phase B repack: DSFUN polygon vertices (Float32×5 stride 20) →
+ *  quantized (u16×2 + f32 stride 8). 60% byte reduction. Done at
+ *  upload time as a transitional step; Phase B-3 moves quantization
+ *  into the compiler and skips this step entirely. */
+function repackDSFUNToQuantized(
+  dsfun: Float32Array,
+  tileExtentM: number,
+): ArrayBuffer {
+  const n = dsfun.length / 5
+  const buf = new ArrayBuffer(n * 8)
+  const i16 = new Int16Array(buf)
+  const f32 = new Float32Array(buf)
+  const scale = 65535 / tileExtentM
+  for (let i = 0; i < n; i++) {
+    // local meters = mx_h + mx_l (DSFUN reconstruction)
+    const localX = dsfun[i * 5] + dsfun[i * 5 + 2]
+    const localY = dsfun[i * 5 + 1] + dsfun[i * 5 + 3]
+    const fid = dsfun[i * 5 + 4]
+    let mxQ = Math.round(localX * scale)
+    let myQ = Math.round(localY * scale)
+    if (mxQ < 0) mxQ = 0; else if (mxQ > 65535) mxQ = 65535
+    if (myQ < 0) myQ = 0; else if (myQ > 65535) myQ = 65535
+    const i16Idx = i * 4
+    i16[i16Idx] = mxQ <= 32767 ? mxQ : mxQ - 65536
+    i16[i16Idx + 1] = myQ <= 32767 ? myQ : myQ - 65536
+    f32[i * 2 + 1] = fid
+  }
+  return buf
+}
+
 export class VectorTileRenderer {
   private device: GPUDevice
   private source: TileCatalog | null = null
@@ -728,12 +763,19 @@ export class VectorTileRenderer {
     // Label every per-tile buffer so writeBuffer attribution in the
     // diagnostic suite can separate tile-upload churn from per-frame
     // uniform writes. Cost is zero — label is a GPU debug string.
+    // Phase B: repack DSFUN polygon vertices [mx_h,my_h,mx_l,my_l,fid]
+    // (stride 20) → quantized [u16 mx, u16 my, f32 fid] (stride 8) so
+    // the GPU sees a 60% smaller vertex buffer. Pre-quantization at
+    // compile time is Phase B-3; for now the repack runs once per
+    // upload (~µs per tile, dwarfed by writeBuffer cost).
+    const tileExtentM = TWO_PI_R_EARTH / Math.pow(2, data.tileZoom)
+    const quantVerts = repackDSFUNToQuantized(data.vertices, tileExtentM)
     const vertexBuffer = this.acquireBuffer(
-      Math.max(data.vertices.byteLength * 3, 12),
+      Math.max(quantVerts.byteLength * 3, 12),
       GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       'tile-vertices',
     )
-    this.device.queue.writeBuffer(vertexBuffer, 0, data.vertices)
+    this.device.queue.writeBuffer(vertexBuffer, 0, quantVerts)
 
     const indexBuffer = this.acquireBuffer(
       Math.max(data.indices.byteLength * 3, 4),
@@ -2026,6 +2068,10 @@ export class VectorTileRenderer {
       // pickIds are assigned in style declaration order so this matches
       // the bucket scheduler's draw order.
       this.uniformF32[37] = (this.currentPickId & 0xFFFF) * 1e-3
+      // tile_extent_m (38) — tile-local Mercator-meter extent at this
+      // tile's zoom. vs_main_quantized dequants pos_norm via this.
+      // 2π × R / 2^z; we cache R × 2π once per VTR.
+      this.uniformF32[38] = TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom)
 
       // Allocate a fresh ring slot for this tile × layer × world-copy draw.
       const slotOffset = this.allocUniformSlot()

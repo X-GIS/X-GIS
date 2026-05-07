@@ -56,6 +56,14 @@ struct Uniforms {
   // from mat4x4 / vec4) so the now-two trailing 4-byte fields pad the
   // struct to a 160-byte total — same size as before.
   layer_depth_offset: f32,
+  // Phase B vertex-compression: tile-local-meters extent of one tile
+  // at this tile's zoom. Used by vs_main_quantized to dequant the
+  // unorm16x2 polygon vertex back to local Mercator meters:
+  //   local_m = pos_norm * tile_extent_m
+  // tile_extent_m = 2π × R_earth / 2^tileZoom — written CPU-side per
+  // tile per frame, packs into the existing uniform slot pad without
+  // growing the struct past 160 bytes.
+  tile_extent_m: f32,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -125,6 +133,55 @@ fn vs_main(
   // Per-layer z bias (see Uniforms.layer_depth_offset). Multiplied by
   // post-projection w so the NDC-z shift is constant across the depth
   // range (perspective-divide cancels the w factor).
+  out.position.z = out.position.z - u.layer_depth_offset * out.position.w;
+  out.view_w = clip.w;
+  out.cos_c = needs_backface_cull(abs_lon, abs_lat, u.proj_params);
+  out.feat_id = u32(feature_id);
+  out.abs_lat = abs_lat_clamped;
+  return out;
+}
+
+// Phase B quantized polygon vertex entry. Reads pos_norm (unorm16x2,
+// each component already normalised to [0, 1] by the GPU from the
+// stored u16 [0, 65535]) and dequants via tile_extent_m. The line
+// pipeline keeps its DSFUN entry point above; only polygon fill
+// switches to this. Logic mirrors vs_main minus the high+low precision
+// reconstruction — at the post-quantize tile-local scale (≤ 4×10⁷ m
+// at z=0, ≤ 9.5 m at z=22) Float32 has ample precision (mantissa
+// 23 bit ≈ 2.4 m at z=0, 1 µm at z=22), so the DSFUN trick is
+// unnecessary here.
+@vertex
+fn vs_main_quantized(
+  @location(0) pos_norm: vec2<f32>,
+  @location(2) feature_id: f32,
+) -> VertexOutput {
+  let local = pos_norm * u.tile_extent_m;
+  // cam_h + cam_l = cam_merc - tile_origin_merc (set CPU-side). Sum
+  // here is fine because we are already at tile-local scale where Float32
+  // suffices. Same downstream as vs_main from rel onward.
+  let cam_local = u.cam_h + u.cam_l;
+  let rel = local - cam_local;
+
+  let abs_merc_x = local.x + u.tile_origin_merc.x;
+  let abs_merc_y = local.y + u.tile_origin_merc.y;
+  let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
+  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let abs_lat = lat_rad / DEG2RAD;
+  let abs_lat_clamped = clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
+
+  var rtc: vec2<f32>;
+  let t = u.proj_params.x;
+  if (t < 0.5) {
+    rtc = rel;
+  } else {
+    let proj_xy = project(abs_lon, abs_lat, u.proj_params);
+    let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
+    rtc = proj_xy - center_xy;
+  }
+
+  var out: VertexOutput;
+  let clip = u.mvp * vec4<f32>(rtc, 0.0, 1.0);
+  out.position = apply_log_depth(clip, u.log_depth_fc);
   out.position.z = out.position.z - u.layer_depth_offset * out.position.w;
   out.view_w = clip.w;
   out.cos_c = needs_backface_cull(abs_lon, abs_lat, u.proj_params);
@@ -682,14 +739,15 @@ export class MapRenderer {
       bindGroupLayouts: [this.bindGroupLayout],
     })
 
-    // DSFUN polygon vertex: [mx_h, my_h, mx_l, my_l, feat_id] — stride 20 bytes.
-    // shaderLocation 0 = pos_h (vec2), 1 = pos_l (vec2), 2 = feat_id (f32).
+    // Phase B quantized polygon vertex: [u16 mx, u16 my, f32 feat_id]
+    // — stride 8 bytes, 60% smaller than the DSFUN stride 20 used by
+    // line geometry. Pipeline binds this layout to vs_main_quantized
+    // which dequants via u.tile_extent_m.
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 20,
+      arrayStride: 8,
       attributes: [
-        { shaderLocation: 0, offset: 0,  format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 8,  format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 16, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 0, offset: 0, format: 'unorm16x2' as GPUVertexFormat },
+        { shaderLocation: 2, offset: 4, format: 'float32'   as GPUVertexFormat },
       ],
     }
     // DSFUN line vertex: [mx_h, my_h, mx_l, my_l, feat_id, arc_start] — stride 24 bytes.
@@ -722,7 +780,7 @@ export class MapRenderer {
     const buildSet = (targets: GPUColorTargetState[], suffix: string) => ({
       fill: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_WRITE, multisample: msaaState,
@@ -738,7 +796,7 @@ export class MapRenderer {
       }),
       fillFallback: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_TEST, multisample: msaaState,
@@ -1070,14 +1128,13 @@ export class MapRenderer {
       bindGroupLayouts: [layout],
     })
 
-    // DSFUN layout — matches initPipelines() above so variants can render
-    // the same tile vertex buffers produced by the compiler.
+    // Phase B quantized polygon vertex layout — matches initPipelines()
+    // above. unorm16x2 + float32 stride 8.
     const vertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 20,
+      arrayStride: 8,
       attributes: [
-        { shaderLocation: 0, offset: 0,  format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 1, offset: 8,  format: 'float32x2' as GPUVertexFormat },
-        { shaderLocation: 2, offset: 16, format: 'float32'   as GPUVertexFormat },
+        { shaderLocation: 0, offset: 0, format: 'unorm16x2' as GPUVertexFormat },
+        { shaderLocation: 2, offset: 4, format: 'float32'   as GPUVertexFormat },
       ],
     }
     const lineVertexBufferLayout: GPUVertexBufferLayout = {
@@ -1092,7 +1149,7 @@ export class MapRenderer {
     const buildSet = (targets: GPUColorTargetState[], suffix: string) => ({
       fill: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_WRITE, multisample: msaaState,
@@ -1108,7 +1165,7 @@ export class MapRenderer {
       }),
       fillFallback: device.createRenderPipeline({
         layout: pipelineLayout,
-        vertex: { module, entryPoint: 'vs_main', buffers: [vertexBufferLayout] },
+        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
         fragment: { module, entryPoint: 'fs_fill', targets },
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_TEST, multisample: msaaState,
