@@ -1608,7 +1608,16 @@ export class VectorTileRenderer {
 
       if (this.source.hasTileData(key, sliceLayer)) {
         this.uploadTile(key, this.source.getTileData(key, sliceLayer)!, sliceLayer)
-        continue
+        // Don't continue — fall through to the parent-walk fallback so
+        // the area is filled with a stretched ancestor while uploadTile
+        // is queued behind the per-frame upload budget. Without this,
+        // a fast zoom-in on desktop drops every ready-but-not-yet-
+        // uploaded tile to the canvas clear color (visible as the
+        // demo's near-white `stone-100` background) for one frame
+        // before the queued upload drains. If uploadTile uploaded
+        // inline (budget available), layerCache.has(key) is now true
+        // and renderTileKeys will draw primary + the redundant parent
+        // fallback gets stencil-tested out — no double-draw cost.
       }
 
       // Sliced source: tile WAS loaded (some slice cached) but this
