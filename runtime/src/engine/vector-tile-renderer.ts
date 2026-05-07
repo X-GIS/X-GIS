@@ -100,6 +100,12 @@ const MAX_UPLOADS_PER_FRAME = 4
  *  during fast pinch zoom motivated this; addresses the synchronous
  *  CPU spike that the GPU buffer pool change alone could not. */
 function uploadBudgetFor(canvasW: number, canvasH: number): number {
+  // Test hook: spec sets `globalThis.__XGIS_UPLOAD_BUDGET` to force
+  // queue-deferred uploads on every render call so the parent-walk
+  // fallback path is exercised deterministically. Production paths
+  // never set this, so the constant lookup is a single property read.
+  const o = (globalThis as { __XGIS_UPLOAD_BUDGET?: number }).__XGIS_UPLOAD_BUDGET
+  if (typeof o === 'number') return o
   return Math.max(canvasW, canvasH) <= 900 ? 1 : MAX_UPLOADS_PER_FRAME
 }
 
