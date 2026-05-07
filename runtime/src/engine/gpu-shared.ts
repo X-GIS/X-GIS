@@ -30,6 +30,39 @@ export const BLEND_MAX: GPUBlendState = {
   alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'max' },
 }
 
+/** Weighted Blended OIT — accumulation channel. Every translucent
+ *  fragment contributes (color × α × weight, α × weight) which the
+ *  GPU sums into the rgba16float accum target. McGuire-Bavoil's
+ *  paper (JCGT 2013) — single-pass, order-independent
+ *  approximation that avoids back-to-front sort + depth peeling.
+ *  The compose pass divides accum.rgb by accum.a to recover the
+ *  weighted-average colour. */
+export const BLEND_OIT_ACCUM: GPUBlendState = {
+  color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+  alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+}
+
+/** Weighted Blended OIT — revealage channel. Each fragment writes
+ *  (1 - α) into the single-channel target with multiplicative blend
+ *  so the accumulated value is `Π (1 - α_i)` — the fraction of the
+ *  background still visible after every translucent layer. The
+ *  compose pass uses (1 - revealage) as the alpha for the final
+ *  over-blend onto the opaque target. */
+export const BLEND_OIT_REVEALAGE: GPUBlendState = {
+  color: { srcFactor: 'zero', dstFactor: 'one-minus-src', operation: 'add' },
+  alpha: { srcFactor: 'zero', dstFactor: 'one-minus-src', operation: 'add' },
+}
+
+/** OIT accumulation target format — 16-bit float per channel so
+ *  the (color × weight) sum can grow well above 1 without
+ *  saturating. */
+export const OIT_ACCUM_FORMAT: GPUTextureFormat = 'rgba16float'
+
+/** OIT revealage target format — single 16-bit float. r8unorm
+ *  also works at low quality but quantises (1 - α) too coarsely
+ *  when many low-α layers stack. */
+export const OIT_REVEALAGE_FORMAT: GPUTextureFormat = 'r16float'
+
 // ── Stencil States ──
 //
 // The polygon pipelines also write depth (`less-equal` test + write) so

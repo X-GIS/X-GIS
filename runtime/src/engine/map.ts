@@ -5,6 +5,7 @@ import type * as AST from '@xgis/compiler'
 import { BackgroundRenderer } from './background-renderer'
 import { getSharedGeoJSONCompilePool } from '../data/geojson-compile-pool'
 import { initGPU, resizeCanvas, GPU_PROF, getSampleCount, getMaxDpr, isPickEnabled, type GPUContext } from './gpu'
+import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT } from './gpu-shared'
 import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './quality'
 import { GPUTimer } from './gpu-timer'
 import { Camera } from './camera'
@@ -212,6 +213,14 @@ export class XGISMap {
 
   // MSAA 4x render target
   private msaaTexture: GPUTexture | null = null
+  // Weighted-Blended OIT render targets. Allocated to canvas size at
+  // single sample (compose pass blends onto the resolved main color
+  // afterwards). accumTexture: rgba16float — sum of (color × α ×
+  // weight, α × weight). revealageTexture: r16float — Π(1 - α). The
+  // pair is enough to recover an order-independent approximation of
+  // alpha blending in a single translucent draw pass.
+  private oitAccumTexture: GPUTexture | null = null
+  private oitRevealageTexture: GPUTexture | null = null
   private msaaWidth = 0
   private msaaHeight = 0
 
@@ -1590,6 +1599,8 @@ export class XGISMap {
         this.msaaTexture?.destroy()
         this.stencilTexture?.destroy()
         this.pickTexture?.destroy()
+        this.oitAccumTexture?.destroy()
+        this.oitRevealageTexture?.destroy()
         // Allocate the MSAA color attachment ONLY when MSAA is on. When
         // sc === 1 we render straight to the swapchain (no resolveTarget)
         // and the MSAA texture would just waste w×h×4 bytes per frame.
@@ -1619,6 +1630,24 @@ export class XGISMap {
               usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
             })
           : null
+        // OIT render targets — single-sample. The translucent extrude
+        // pass binds these as MRT outputs; the OIT compose pass reads
+        // them back as textures and blends the result onto the
+        // resolved main colour.
+        this.oitAccumTexture = device.createTexture({
+          size: { width: w, height: h },
+          format: OIT_ACCUM_FORMAT,
+          sampleCount: 1,
+          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+          label: 'oit-accum',
+        })
+        this.oitRevealageTexture = device.createTexture({
+          size: { width: w, height: h },
+          format: OIT_REVEALAGE_FORMAT,
+          sampleCount: 1,
+          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+          label: 'oit-revealage',
+        })
         this.msaaWidth = w
         this.msaaHeight = h
       }
