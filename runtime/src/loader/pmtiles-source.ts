@@ -55,6 +55,12 @@ export interface PMTilesSourceOptions {
   url: string
   /** Restrict to a subset of MVT layer names (default: all layers). */
   layers?: string[]
+  /** Per-MVT-layer 3D-extrude expression AST. Driven by the
+   *  compiler's `extrude:` keyword and forwarded into the backend so
+   *  the MVT decode worker evaluates the AST per feature to compute
+   *  its 3D height. Layers without an entry use the worker's default
+   *  extraction (`render_height ?? height`). */
+  extrudeExprs?: Record<string, unknown>
 }
 
 /** Per-MVT-layer info pulled from PMTiles `metadata.vector_layers`.
@@ -366,6 +372,7 @@ export async function attachPMTilesSource(
       bounds: tj.bounds,
       layers: opts.layers,
       vectorLayers: tj.vectorLayers,
+      extrudeExprs: opts.extrudeExprs,
       // XYZ template fetcher with retry + graceful fallback.
       // `fetch()` auto-decompresses gzip via Content-Encoding, so the
       // bytes are raw MVT (same shape PMTilesBackend expects from the
@@ -437,6 +444,7 @@ export async function attachPMTilesSource(
     bounds: [header.minLon, header.minLat, header.maxLon, header.maxLat],
     layers: opts.layers,
     vectorLayers,
+    extrudeExprs: opts.extrudeExprs,
     fetcher: async (z, x, y, signal) => {
       // Pre-flight abort check. The pmtiles library doesn't natively
       // accept an AbortSignal; we can't kill the underlying HTTP

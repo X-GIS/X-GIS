@@ -469,11 +469,13 @@ export interface ShowCommand {
   shapeDefs?: { name: string; paths: string[] }[]
   /** 3D extrusion height. Set by the compiler from the layer's
    *  `extrude:` keyword; VTR branches its upload + fill draw onto
-   *  the extruded pipeline when `kind !== 'none'`. */
+   *  the extruded pipeline when `kind !== 'none'`. The feature form
+   *  carries an AST expression (any shape — field access, binary,
+   *  function call) that the MVT worker evaluates per feature. */
   extrude?:
     | { kind: 'none' }
     | { kind: 'constant'; value: number }
-    | { kind: 'feature'; field: string; fallback: number }
+    | { kind: 'feature'; expr: { ast: unknown }; fallback: number }
   // Line styling (Phase 2+)
   linecap?: 'butt' | 'round' | 'square' | 'arrow'
   linejoin?: 'miter' | 'round' | 'bevel'

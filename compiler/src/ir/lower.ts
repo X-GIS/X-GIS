@@ -170,17 +170,23 @@ function lowerLayer(
     } else if (prop.name === 'geometry') {
       geometryExpr = prop.value
     } else if (prop.name === 'extrude') {
-      // `extrude: 50` (literal — every feature gets 50 m) or
-      // `extrude: .height` (per-feature — MVT decoder preserves
-      // the named property at decode time, runtime looks up per
-      // vertex). The fallback for the per-feature form is fixed at
-      // 50 m for now; a follow-up extends the syntax to accept an
-      // explicit fallback (e.g. `extrude: .height ?? 50`).
+      // `extrude:` accepts:
+      //   * a number literal (50)         → constant; every feature
+      //     gets the same height
+      //   * any other expression          → feature mode; the runtime
+      //     evaluates the AST against each feature's properties at
+      //     MVT decode time. Examples:
+      //         extrude: .height
+      //         extrude: .levels * 3.5
+      //         extrude: max(.height, 20)
+      //     The fallback (currently fixed at 50 m) is used when the
+      //     expression returns null / undefined / NaN (e.g. the
+      //     feature lacks the referenced property).
       const v = prop.value
       if (v.kind === 'NumberLiteral') {
         extrude = { kind: 'constant', value: v.value }
-      } else if (v.kind === 'FieldAccess') {
-        extrude = { kind: 'feature', field: v.field, fallback: 50 }
+      } else {
+        extrude = { kind: 'feature', expr: { ast: v }, fallback: 50 }
       }
     }
   }

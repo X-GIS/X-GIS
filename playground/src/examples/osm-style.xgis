@@ -116,9 +116,12 @@ layer roads_rail {
 }
 
 /* ── Buildings (top layer, 3D extruded) ──────────────────────── */
+/* extrude accepts any expression — try `.height`, `.levels * 3.5`,
+ * `max(.render_height, 20)`, etc. Falls back to 50 m when the
+ * expression returns null or the property is missing. */
 layer buildings {
   source: pm_world
   sourceLayer: "buildings"
-  extrude: .render_height
+  extrude: .height
   | fill-stone-300 stroke-stone-500 stroke-0.5
 }

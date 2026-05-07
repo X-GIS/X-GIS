@@ -417,7 +417,7 @@ describe('IR Lower — extrude keyword', () => {
     expect(scene.renderNodes[0].extrude).toEqual({ kind: 'constant', value: 50 })
   })
 
-  it('lowers `extrude: .height` to feature lookup with default fallback', () => {
+  it('lowers `extrude: .height` to feature expression with default fallback', () => {
     const scene = compile(`
       source pm { type: pmtiles, url: "/world.pmtiles" }
       layer buildings {
@@ -427,9 +427,28 @@ describe('IR Lower — extrude keyword', () => {
         | fill-stone-300
       }
     `)
-    expect(scene.renderNodes[0].extrude).toEqual({
-      kind: 'feature', field: 'render_height', fallback: 50,
-    })
+    const ex = scene.renderNodes[0].extrude
+    expect(ex.kind).toBe('feature')
+    if (ex.kind !== 'feature') throw new Error('unreachable')
+    expect(ex.fallback).toBe(50)
+    expect(ex.expr.ast.kind).toBe('FieldAccess')
+    expect((ex.expr.ast as { kind: 'FieldAccess'; field: string }).field).toBe('render_height')
+  })
+
+  it('lowers `extrude: .levels * 3.5` to a binary expression', () => {
+    const scene = compile(`
+      source pm { type: pmtiles, url: "/world.pmtiles" }
+      layer buildings {
+        source: pm
+        sourceLayer: "buildings"
+        extrude: .levels * 3.5
+        | fill-stone-300
+      }
+    `)
+    const ex = scene.renderNodes[0].extrude
+    expect(ex.kind).toBe('feature')
+    if (ex.kind !== 'feature') throw new Error('unreachable')
+    expect(ex.expr.ast.kind).toBe('BinaryExpr')
   })
 
   it('emit-commands forwards extrude onto the ShowCommand', () => {

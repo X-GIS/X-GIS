@@ -851,6 +851,22 @@ export class XGISMap {
       set.add(show.sourceLayer)
     }
 
+    // Per-source extrude AST map for shows that declared
+    // `extrude: <expression>` in feature mode. Forwarded to the
+    // PMTiles backend so the MVT decode worker can evaluate the AST
+    // against each feature's properties (FieldAccess + arithmetic
+    // BinaryExpr — see evalExtrudeExpr). Constant-mode extrude
+    // doesn't need this; the layer sets currentExtrudeHeight from the
+    // literal at render time.
+    const extrudeExprsBySource = new Map<string, Record<string, unknown>>()
+    for (const show of commands.shows) {
+      const ex = show.extrude
+      if (!ex || ex.kind !== 'feature' || !show.sourceLayer) continue
+      let layerMap = extrudeExprsBySource.get(show.targetName)
+      if (!layerMap) { layerMap = {}; extrudeExprsBySource.set(show.targetName, layerMap) }
+      layerMap[show.sourceLayer] = ex.expr.ast
+    }
+
     const loadPromises = commands.loads.map(async (load) => {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
       console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
@@ -891,7 +907,11 @@ export class XGISMap {
           const filterLayers = load.layers && load.layers.length > 0
             ? load.layers
             : (inferred && inferred.size > 0 ? [...inferred] : undefined)
-          await attachPMTilesSource(source, { url: fullUrl, layers: filterLayers })
+          await attachPMTilesSource(source, {
+            url: fullUrl,
+            layers: filterLayers,
+            extrudeExprs: extrudeExprsBySource.get(load.name),
+          })
         } else {
           try {
             await source.loadFromURL(fullUrl)

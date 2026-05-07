@@ -27,20 +27,30 @@ import type {
   TileSource, TileSourceSink, TileSourceMeta,
 } from '../tile-source'
 import { getSharedMvtPool, type MvtWorkerPool } from '../mvt-worker-pool'
+import { evalExtrudeExpr } from '../extrude-eval'
 
 /** Same height extractor as the worker (mvt-worker.ts). The inline
  *  fallback path can't import from mvt-worker because its module is
- *  worker-only (top-level postMessage handler), so we duplicate this
- *  tiny helper. Keep them in sync — both check `render_height` first
- *  then `height`, ignoring zero / negative / non-finite values. */
-function extractFeatureHeights(features: GeoJSONFeature[]): Map<number, number> {
+ *  worker-only (top-level postMessage handler), so we duplicate the
+ *  helper. With `expr` set, evaluates the AST via evalExtrudeExpr;
+ *  without it, falls back to `render_height ?? height`. */
+function extractFeatureHeights(
+  features: GeoJSONFeature[],
+  expr?: unknown,
+): Map<number, number> {
   const out = new Map<number, number>()
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
-    const raw = (props as { render_height?: unknown; height?: unknown }).render_height
-      ?? (props as { height?: unknown }).height
-    if (typeof raw !== 'number') continue
+    let raw: number | null
+    if (expr) {
+      raw = evalExtrudeExpr(expr, props as Record<string, unknown>)
+    } else {
+      const r = (props as { render_height?: unknown; height?: unknown }).render_height
+        ?? (props as { height?: unknown }).height
+      raw = typeof r === 'number' ? r : null
+    }
+    if (raw === null) continue
     if (!Number.isFinite(raw) || raw <= 0) continue
     out.set(i, raw)
   }
@@ -90,6 +100,11 @@ export interface PMTilesBackendOptions {
    *  to skip work for layers that don't have data at the current
    *  camera zoom (e.g. protomaps v4 `buildings` only at z≥14). */
   vectorLayers?: Array<{ id: string; minzoom: number; maxzoom: number; fields?: Record<string, string> }>
+  /** Per-MVT-layer 3D-extrude expression AST. Forwarded to the MVT
+   *  worker on every compile request; the worker evaluates the AST
+   *  against each feature's properties to produce the feature's
+   *  height in metres. */
+  extrudeExprs?: Record<string, unknown>
 }
 
 /** Per-backend cap on simultaneous in-flight HTTP fetches. Independent
@@ -127,6 +142,7 @@ export class PMTilesBackend implements TileSource {
   readonly meta: TileSourceMeta
   private fetcher: PMTilesFetcher
   private layers: string[] | undefined
+  private extrudeExprs: Record<string, unknown> | undefined
   private sink: TileSourceSink | null = null
   /** Per-MVT-layer info from PMTiles metadata, indexed by layer id. */
   private vectorLayerInfo: Map<string, { minzoom: number; maxzoom: number }>
@@ -159,6 +175,7 @@ export class PMTilesBackend implements TileSource {
   constructor(opts: PMTilesBackendOptions) {
     this.fetcher = opts.fetcher
     this.layers = opts.layers
+    this.extrudeExprs = opts.extrudeExprs
     this.vectorLayerInfo = new Map()
     if (opts.vectorLayers) {
       for (const vl of opts.vectorLayers) {
@@ -337,6 +354,7 @@ export class PMTilesBackend implements TileSource {
           z, x, y, this.meta.maxZoom,
           widthMerc, heightMerc,
           this.layers,
+          this.extrudeExprs,
         ).then(slices => {
           if (slices.length === 0) {
             sink.acceptResult(key, null)
@@ -430,7 +448,7 @@ export class PMTilesBackend implements TileSource {
             widthMerc, heightMerc,
           )
         }
-        const heights = extractFeatureHeights(layerFeatures)
+        const heights = extractFeatureHeights(layerFeatures, this.extrudeExprs?.[layerName])
         sink.acceptResult(key, {
           vertices: tile.vertices,
           indices: tile.indices,

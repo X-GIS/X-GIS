@@ -220,14 +220,19 @@ export interface ZoomStop<T> {
   value: T
 }
 
-/** 3D extrusion height (metres). `feature.field` names a per-feature
- *  property that the MVT decoder will preserve at decode time and
- *  the runtime will look up on a per-vertex basis. `fallback` is
- *  the height to use when a feature lacks the property. */
+/** 3D extrusion height (metres). `feature.expr` is any AST expression
+ *  evaluated against each feature's properties at MVT decode time.
+ *  Common forms:
+ *    extrude: 50                  → { kind: constant, value: 50 }
+ *    extrude: .height             → feature with FieldAccess('height')
+ *    extrude: .levels * 3.5       → feature with BinaryExpr
+ *    extrude: max(.height, 20)    → feature with FnCall
+ *  `fallback` is the height to use when the expression evaluates to
+ *  null / undefined / non-finite (e.g. the property is missing). */
 export type ExtrudeValue =
   | { kind: 'none' }
   | { kind: 'constant'; value: number }
-  | { kind: 'feature'; field: string; fallback: number }
+  | { kind: 'feature'; expr: DataExpr; fallback: number }
 
 /**
  * A conditional branch: applies when a data field matches a value.

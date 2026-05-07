@@ -20,20 +20,31 @@ import {
   type GeoJSONFeature,
 } from '@xgis/compiler'
 import { buildLineSegments } from '../engine/line-segment-build'
+import { evalExtrudeExpr } from './extrude-eval'
 
 /** Extract per-feature 3D extrude heights from a layer's features.
- *  Reads `render_height` first (protomaps' rounded display value),
- *  falls back to `height`, ignores zero / negative / non-finite
- *  values. Returns an empty Map for layers that don't carry either
- *  property — the runtime then keeps using the layer's default
- *  extrude height uniformly. */
-function extractFeatureHeights(features: GeoJSONFeature[]): Map<number, number> {
+ *  When `expr` is supplied, evaluate it via miniEval (FieldAccess +
+ *  arithmetic BinaryExpr — see the helper above). Without it, fall
+ *  back to the protomaps default of `render_height ?? height`.
+ *  Negative, zero, NaN, and non-numeric results are skipped — those
+ *  features get the layer's fallback height at upload time. */
+function extractFeatureHeights(
+  features: GeoJSONFeature[],
+  expr?: unknown,
+): Map<number, number> {
   const out = new Map<number, number>()
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
-    const raw = props.render_height ?? props.height
-    if (typeof raw !== 'number') continue
+    let raw: number | null
+    if (expr) {
+      raw = evalExtrudeExpr(expr, props as Record<string, unknown>)
+    } else {
+      const r = (props as { render_height?: unknown; height?: unknown }).render_height
+        ?? (props as { height?: unknown }).height
+      raw = typeof r === 'number' ? r : null
+    }
+    if (raw === null) continue
     if (!Number.isFinite(raw) || raw <= 0) continue
     out.set(i, raw)
   }
@@ -59,6 +70,11 @@ export interface MvtCompileRequest {
    *  avoid redoing the projection inside the worker). */
   tileWidthMerc: number
   tileHeightMerc: number
+  /** Per-MVT-layer 3D-extrude expression AST. Evaluated against each
+   *  feature's properties via miniEval to compute that feature's
+   *  height in metres. Layers without an entry use the worker's
+   *  default extraction (`render_height ?? height`). */
+  extrudeExprs?: Record<string, unknown>
 }
 
 /** One per-MVT-layer slice in the response. */
@@ -171,7 +187,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       // when both exist. Layers without any height property produce an
       // empty Map and the runtime falls back to the layer-uniform
       // extrude default.
-      const heights = extractFeatureHeights(layerFeatures)
+      const heights = extractFeatureHeights(layerFeatures, msg.extrudeExprs?.[layerName])
       const slice: MvtCompileSlice = {
         layerName,
         vertices: tile.vertices.buffer as ArrayBuffer,
