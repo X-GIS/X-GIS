@@ -191,7 +191,7 @@ function isMobileViewport(cssWidth: number, cssHeight: number): boolean {
 // tiles. Floor on mobile is tighter (real iPhones throttle past
 // ~60 unique tiles ≈ 240 drawCalls).
 const MAX_FRUSTUM_TILES_CEILING = 300
-function maxFrustumTilesFor(cssWidth: number, cssHeight: number): number {
+function maxFrustumTilesFor(cssWidth: number, cssHeight: number, pitchDeg: number = 0): number {
   // Mobile cap calibrated against actual viewport coverage rather
   // than just thermal budget. The DFS prioritises camera-side tiles,
   // so a too-small cap leaves the viewport edges uncovered (real-
@@ -204,12 +204,28 @@ function maxFrustumTilesFor(cssWidth: number, cssHeight: number): number {
   // would inflate the budget by DPR² (9× on a DPR=3 phone), but
   // the number of tiles needed to cover a viewport is the same
   // regardless of how densely each tile is rasterised.
+  //
+  // PITCH SCALE. At flat top-down, viewport AABB is compact and
+  // ~9 tiles cover everything. Tilt to 70° and the same screen
+  // shows foreground at z=N PLUS a long horizon strip whose
+  // coverage demands many low-z tiles. Without scaling, DFS
+  // burns the whole budget on camera-side subdivisions and the
+  // horizon goes white — measured on iPhone z=15 pitch=71° before
+  // the merge-pass landed (drawn z=12 only 1 unique tile across
+  // 13 layers). 2× / 4× multipliers match the pitch bands the
+  // DFS already uses for its margin formula at line ~395, so the
+  // budget grows in lockstep with the visible horizon area. The
+  // ~3× draw-call reduction from the auto-merge (61.5 % fold on
+  // OSM-style) leaves enough headroom for the bigger budget at
+  // high pitch without exceeding the 16.7 ms 60 fps target.
   const isMobile = isMobileViewport(cssWidth, cssHeight)
-  const floor = isMobile ? 12 : 60
+  const baseFloor = isMobile ? 12 : 60
   const divisor = isMobile ? 18000 : 12000
+  const pitchMul = pitchDeg >= 60 ? 4 : pitchDeg >= 30 ? 2 : 1
+  const floor = Math.round(baseFloor * pitchMul)
   return Math.max(
     floor,
-    Math.min(MAX_FRUSTUM_TILES_CEILING, Math.round((cssWidth * cssHeight) / divisor)),
+    Math.min(MAX_FRUSTUM_TILES_CEILING, Math.round((cssWidth * cssHeight) / divisor) * pitchMul),
   )
 }
 
@@ -271,14 +287,15 @@ export function visibleTilesFrustum(
   // The half-shorter-edge term is already DPR-proportional (both
   // dimensions scale with dpr) so the proportion stays the same.
   const SUBDIVIDE_THRESHOLD = Math.max(320 * dpr, Math.min(canvasWidth, canvasHeight) * 0.5)
-  // Tile budget remains in CSS pixels — perceptual quantity, must stay
-  // DPR-invariant so a phone doesn't load 9× more tiles for the same
-  // logical viewport.
-  const MAX_FRUSTUM_TILES = maxFrustumTilesFor(cssWidth, cssHeight)
   // Hoisted so the camera-tile-guarantee inject below can gate on
   // pitch (low pitch DFS already covers the foreground; the inject
   // is only needed at high pitch where quadrant order matters).
   const pitchDegFn = camera.pitch ?? 0
+  // Tile budget remains in CSS pixels — perceptual quantity, must
+  // stay DPR-invariant so a phone doesn't load 9× more tiles for
+  // the same logical viewport. Pitch-scaled because high-pitch
+  // views demand more low-z horizon tiles on top of the foreground.
+  const MAX_FRUSTUM_TILES = maxFrustumTilesFor(cssWidth, cssHeight, pitchDegFn)
   if ((globalThis as { __DBG_FRUSTUM?: boolean }).__DBG_FRUSTUM) {
     console.log(`[FRUSTUM cap] canvas=${canvasWidth}×${canvasHeight} (css ${cssWidth}×${cssHeight} dpr=${dpr}) mobile=${isMobileViewport(cssWidth, cssHeight)} cap=${MAX_FRUSTUM_TILES} pitch=${pitchDegFn.toFixed(1)}`)
   }
