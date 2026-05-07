@@ -3,7 +3,7 @@
 // tile-local positions to within sub-mm at zoom 22 and within
 // expected error envelope at coarser zooms.
 
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it } from 'vitest'
 import {
   packQuantizedPolygonVertices,
   QUANT_POLY_STRIDE_BYTES,
