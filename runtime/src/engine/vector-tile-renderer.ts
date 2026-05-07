@@ -7,6 +7,7 @@ import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../loader/tiles'
+import { classifyTile, type TileDecision } from './tile-decision'
 import { tileKey, tileKeyParent, tileKeyChildren, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../data/tile-catalog'
@@ -1646,198 +1647,86 @@ export class VectorTileRenderer {
       // compileTileOnDemand call. Just walk up by tileKeyParent and
       // push the fallback. Profiled: dropped per-tile loop time on
       // pmtiles_layered z=22 from 6.4 ms → ~1 ms per render.
-      if (tileZi > maxLevel) {
-        // parentKey precomputed at frame-cache populate time, shared
-        // across all 4 ShowCommands feeding this VTR. Replaces the
-        // per-render `tileKeyParent` walk that dominated tile-loop
-        // CPU time.
-        const parentKey = parentAtMaxLevel[i]
-        fallbackKeys.push(parentKey)
+      // Per-tile resolution via the pure `classifyTile` classifier
+      // (engine/tile-decision.ts). The classifier returns ONE explicit
+      // TileDecision; the side-effect application below pushes
+      // fallbackKeys, requests uploads, and bumps counters per the
+      // decision kind. Replaces the previous inline ~150-line cascade
+      // of `if … continue` branches that two regressions
+      // (commit-49d4801, commit-71dd401) lived inside.
+      const decision: TileDecision = classifyTile({
+        visible: tiles[i],
+        visibleKey: key,
+        maxLevel,
+        parentAtMaxLevel: parentAtMaxLevel[i],
+        archiveAncestor: archiveAncestor[i],
+        layerCache,
+        hasSliceInCatalog: sliceCached,
+        hasAnySliceInCatalog: (k) => this.source!.hasTileData(k),
+        hasEntryInIndex: (k) => this.source!.hasEntryInIndex(k),
+        sliceLayer,
+      })
+      _tileDecisions[i] = decision.kind === 'queued-with-fallback' ? decision.fallback.kind : decision.kind
+
+      if (decision.kind === 'overzoom-parent') {
+        fallbackKeys.push(decision.parentKey)
         fallbackOffsets.push(worldOffDeg[i])
-        // Ensure parent reaches gpuCache so renderTileKeys finds it.
-        // sliceCached(parentKey) covers gpuCache OR dataCache; the
-        // explicit gpuCache.has below distinguishes "needs upload
-        // from dataCache" vs "already on GPU".
-        if (!sliceCached(parentKey)) {
-          parentKeysSet.add(parentKey)
-        } else if (!layerCache.has(parentKey)) {
-          const data = this.source.getTileData(parentKey, sliceLayer)
-          if (data) this.doUploadTile(parentKey, data, sliceLayer)
+        if (decision.parentNeedsFetch) {
+          parentKeysSet.add(decision.parentKey)
+        } else if (decision.parentNeedsUpload) {
+          const data = this.source.getTileData(decision.parentKey, sliceLayer)
+          if (data) this.doUploadTile(decision.parentKey, data, sliceLayer)
         }
-        _tileDecisions[i] = 'overzoom-parent'
         continue
       }
-      // ── END FAST PATH ──
 
       anyInArchive = true
-      if (layerCache.has(key)) {
-        _tileDecisions[i] = 'primary'
-        continue
-      }
-
-      // Branch on whether THIS LAYER's slice has catalog data:
-      //
-      // (A) Slice has data → request GPU upload (queued behind the
-      //     per-frame budget). Fall through to the parent-walk
-      //     fallback so the area is filled with a stretched ancestor
-      //     while the upload is in flight. The redundant fallback
-      //     gets stencil-tested out once primary lands — no double-
-      //     draw cost. (Bug class commit-49d4801 white flash.)
-      //
-      // (B) Slice empty but tile WAS loaded (some other slice cached)
-      //     → this layer has no features here. Drop silently — no
-      //     fallback walk, no miss count. Common at low zoom for
-      //     layers with high minzoom (roads ≥ 8, buildings ≥ 14 in
-      //     protomaps v4).
-      //
-      // The `tileZ <= maxLevel` gate on (B) is critical: at over-zoom
-      // sub-tile gen is PER-LAYER, and the first layer to generate a
-      // sub-tile populates hasTileData(key)=true. Without the gate
-      // subsequent layers see "loaded" and skip their own sub-tile
-      // gen → only one layer renders at over-zoom (user-reported
-      // "tiles disappear at z=15.5+ — only water visible").
-      const _thisSliceCached = this.source.hasTileData(key, sliceLayer)
-      if (_thisSliceCached) {
-        this.uploadTile(key, this.source.getTileData(key, sliceLayer)!, sliceLayer)
-        // (A) — fall through to walk
-      } else if (sliceLayer && tiles[i].z <= maxLevel && this.source.hasTileData(key)) {
-        // (B) — drop empty slice
-        _tileDecisions[i] = 'drop-empty-slice'
-        continue
-      }
-
-      let foundCached = false
-      // closestExisting + hasAnyAncestor come from the frame cache —
-      // both are sliceLayer-independent (they only depend on source
-      // index topology, not any layer's GPU/data cache state). Per-
-      // layer, only `cachedAncestorKey` (the highest ancestor whose
-      // SLICE is loaded) still requires a walk.
-      const closestExisting = archiveAncestor[i]
-      const hasAnyAncestor = closestExisting >= 0
-      let cachedAncestorKey = -1
-      const tileZ = tiles[i].z
-      {
-        // Per-layer walk: find the highest ancestor cached for this
-        // sliceLayer. First sliceCached hit is the highest (walk
-        // climbs from tile parent upward); break immediately. The
-        // hasEntry side of the walk is gone — already in the frame
-        // cache as `archiveAncestor[i]`.
-        let walkKey = key
-        for (let pz = tileZ - 1; pz >= 0; pz--) {
-          walkKey = tileKeyParent(walkKey)
-          if (sliceCached(walkKey)) { cachedAncestorKey = walkKey; break }
-        }
-      }
-
-      if (cachedAncestorKey >= 0) {
-        const parentKey = cachedAncestorKey
-        if (!layerCache.has(parentKey)) {
-          // Ancestor uploads BYPASS the per-frame budget. Rationale:
-          // fallback parents are the visual safety net for every over-
-          // zoom child currently needing render. There are at most
-          // a handful of unique ancestor keys in a frame (log₂(N)
-          // pyramid depth × frustum span), so unconditional upload
-          // adds minimal GPU work. If the budget throttles them
-          // behind sub-tile uploads, `fallbackKeys.push(parentKey)`
-          // below still emits a draw — but `renderTiles` then finds
-          // no `gpuCache.get(parentKey)` and the tile renders as a
-          // black hole. Caught by _high-pitch-flicker.spec.ts's
-          // "below-horizon renders SOME geometry" assertion (0/18576
-          // non-black pixels in the ground-sample region pre-fix).
-          this.doUploadTile(parentKey, this.source.getTileData(parentKey, sliceLayer)!, sliceLayer)
-        }
-
-        if (tileZ > maxLevel) {
-          // Over-zoom: Mapbox/MapLibre semantic — archive data is
-          // capped at maxLevel, so the camera-magnified parent IS
-          // the visual representation. Sub-tile clipping only
-          // re-clips the same data into smaller tile bounds (no
-          // detail gain), introducing per-tile GPU buffer creates,
-          // upload-queue churn, and visible "fill in" flicker
-          // during pan. We just push the parent as fallback and
-          // let the projection scale it up.
-          //
-          // compileTileOnDemand still runs because backends WITH
-          // compileSync (GeoJSON-runtime) genuinely produce finer
-          // tiles at higher z by re-tessellating raw geometry
-          // — for them, sub-tile is a real refinement. PMTiles +
-          // similar archive backends without compileSync return
-          // false here, naturally falling through to fallback.
-          this.source.compileTileOnDemand(key)
-          const cachedSub = layerCache.get(key)
-          if (cachedSub) {
-            foundCached = true
-            const hasGeom =
-              cachedSub.indexCount > 0 ||
-              cachedSub.lineSegmentCount > 0 ||
-              cachedSub.outlineSegmentCount > 0
-            if (!hasGeom) {
-              fallbackKeys.push(parentKey)
-              fallbackOffsets.push(worldOffDeg[i])
-            }
-          } else {
-            // Parent magnification path. NOT counted as "missed" —
-            // the parent IS the rendering at over-zoom and nothing
-            // is pending. hasPendingUploads() still triggers a
-            // re-render for compile-on-demand backends (GeoJSON)
-            // when their uploadTile queue is non-empty, so
-            // convergence still works without the missedTiles bump.
-            fallbackKeys.push(parentKey)
-            fallbackOffsets.push(worldOffDeg[i])
-            foundCached = true
-          }
-        } else {
-          fallbackKeys.push(parentKey)
-          fallbackOffsets.push(worldOffDeg[i]) // same world offset as the child
-          foundCached = true
-        }
-        _tileDecisions[i] = 'parent-fallback'
-      }
-
-      // deck.gl `refinementStrategy: 'best-available'` + Mapbox
-      // `findLoadedChildren`: when no cached ancestor exists, fall
-      // back to cached children at z+1. Each child covers 1/4 of
-      // the missing visible area. Uncached quadrants stay blank
-      // until their fetch completes — strictly better than the
-      // far-ancestor giant we used to draw, and identical to how
-      // Mapbox / MapLibre / deck.gl fill in zoom-out cold scenes
-      // (visible at z=N missed cache, but z=N+1 still cached from
-      // the previous higher-zoom view).
-      if (!foundCached && tileZ < maxLevel) {
-        const childKeys = tileKeyChildren(key)
-        for (const ck of childKeys) {
-          if (sliceCached(ck)) {
-            if (!layerCache.has(ck)) {
-              const childData = this.source.getTileData(ck, sliceLayer)
-              if (childData) this.doUploadTile(ck, childData, sliceLayer)
-            }
-            fallbackKeys.push(ck)
-            fallbackOffsets.push(worldOffDeg[i])
-            foundCached = true
-            _tileDecisions[i] = 'child-fallback'
-          }
-        }
-      }
-
-      if (!hasAnyAncestor && !this.source.hasEntryInIndex(key)) {
+      if (decision.kind === 'primary') continue
+      if (decision.kind === 'drop-empty-slice') continue
+      if (decision.kind === 'drop-no-archive') {
         const t = tiles[i]
         const wKey = `no-ancestor:${t.z}/${t.x}/${t.y}`
         if (!this.tileDropWarnings.has(wKey)) {
           this.tileDropWarnings.add(wKey)
           console.warn(`[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${maxLevel}).`)
         }
-        _tileDecisions[i] = 'drop-no-archive'
         continue
       }
 
-      if (!foundCached) {
-        if (this.source.hasEntryInIndex(key)) {
-          toLoad.push(key)
-        } else if (closestExisting >= 0) {
-          toLoad.push(closestExisting)
+      // queued-with-fallback wraps an inner fallback decision. The
+      // outer kind triggers a uploadTile (queued behind the per-
+      // frame budget); the inner is the visual fill until the
+      // upload lands. Unwrap and process the inner uniformly.
+      let inner: TileDecision = decision
+      if (decision.kind === 'queued-with-fallback') {
+        this.uploadTile(key, this.source.getTileData(key, sliceLayer)!, sliceLayer)
+        inner = decision.fallback
+      }
+
+      if (inner.kind === 'parent-fallback') {
+        if (inner.parentNeedsUpload) {
+          // Ancestor upload BYPASSES the per-frame budget. Fallback
+          // parents are the visual safety net for every visible
+          // tile currently uncached on GPU. Without the immediate
+          // upload, renderTileKeys finds no gpuCache entry and the
+          // tile draws as a black hole. (See _high-pitch-flicker
+          // regression case.)
+          this.doUploadTile(inner.parentKey, this.source.getTileData(inner.parentKey, sliceLayer)!, sliceLayer)
         }
+        fallbackKeys.push(inner.parentKey)
+        fallbackOffsets.push(worldOffDeg[i])
+      } else if (inner.kind === 'child-fallback') {
+        for (const ck of inner.childrenNeedingUpload) {
+          const childData = this.source.getTileData(ck, sliceLayer)
+          if (childData) this.doUploadTile(ck, childData, sliceLayer)
+        }
+        for (const ck of inner.childKeys) {
+          fallbackKeys.push(ck)
+          fallbackOffsets.push(worldOffDeg[i])
+        }
+      } else if (inner.kind === 'pending') {
+        if (inner.requestKey !== null) toLoad.push(inner.requestKey)
         this._missedTiles++
-        if (_tileDecisions[i] === undefined) _tileDecisions[i] = 'pending'
       }
     }
 
