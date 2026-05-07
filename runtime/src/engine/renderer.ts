@@ -1584,8 +1584,11 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
   /** Render all layers into an existing render pass (RTC projection) */
   renderToPass(pass: GPURenderPassEncoder, camera: Camera, projType = 0, projCenterLon = 0, projCenterLat = 20, elapsedMs = 0): void {
     const { device, canvas } = this.ctx
-    // RTC: no translation in MVP, projection center is at (0,0)
-    const frame = camera.getFrameView(canvas.width, canvas.height)
+    // RTC: no translation in MVP, projection center is at (0,0).
+    // Compute the live DPR so the camera matrix uses CSS-pixel altitude
+    // (matches what VTR / raster / point renderers do).
+    const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1
+    const frame = camera.getFrameView(canvas.width, canvas.height, dpr)
     const mvp = frame.matrix
 
     for (const layer of this.layers) {

@@ -59,8 +59,18 @@ export class Camera {
 
   /** Core matrix + far-plane math. Writes the MVP into `this.rtcMatrix`
    *  and returns the far-plane value. Private helper shared by
-   *  getRTCMatrix (matrix only) and getFrameView (matrix + far + fc). */
-  private _buildRTCMatrix(canvasWidth: number, canvasHeight: number): number {
+   *  getRTCMatrix (matrix only) and getFrameView (matrix + far + fc).
+   *
+   *  `dpr` (device-pixel-ratio) is used ONLY to convert the altitude
+   *  term to a CSS-pixel basis. Aspect ratio is `canvasWidth/canvasHeight`
+   *  and is DPR-invariant (both scale equally). Altitude derives from
+   *  `canvasHeight × mppCSS`, so passing device dims here without `dpr`
+   *  would inflate altitude by DPR — the camera would think it's 3× as
+   *  far from the ground at DPR=3, ground-plane unprojects would land
+   *  in different world positions, and tile-selection would diverge from
+   *  what DPR=1 renders. Default `dpr=1` preserves existing test call
+   *  sites that pass CSS-equivalent dimensions. */
+  private _buildRTCMatrix(canvasWidth: number, canvasHeight: number, dpr: number = 1): number {
     const metersPerPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
     const m = this.rtcMatrix
 
@@ -74,8 +84,12 @@ export class Camera {
     const pitchRad = this.pitch * Math.PI / 180
     const bearingRad = -this.bearing * Math.PI / 180
 
-    // Camera altitude in Mercator meters
-    const viewHeightMeters = canvasHeight * metersPerPixel
+    // Camera altitude in Mercator meters — based on the CSS-pixel
+    // viewport height. Tying it to the device-pixel `canvasHeight`
+    // would make the altitude (and thus the entire MVP) DPR-dependent,
+    // breaking the "same camera = same world view at any DPR"
+    // contract that tile selection relies on.
+    const viewHeightMeters = (canvasHeight / dpr) * metersPerPixel
     const altitude = viewHeightMeters / 2 / Math.tan(halfFov)
 
     // Near/far planes: cover all visible ground including horizon
@@ -150,8 +164,8 @@ export class Camera {
    *  When pitch=0, reduces to the same orthographic-like result as before.
    *  Discards the far-plane value — use getFrameView() when you also
    *  need far / log-depth. */
-  getRTCMatrix(canvasWidth: number, canvasHeight: number): Float32Array {
-    this._buildRTCMatrix(canvasWidth, canvasHeight)
+  getRTCMatrix(canvasWidth: number, canvasHeight: number, dpr: number = 1): Float32Array {
+    this._buildRTCMatrix(canvasWidth, canvasHeight, dpr)
     return this.rtcMatrix
   }
 
@@ -163,12 +177,12 @@ export class Camera {
    *  `rtcMatrix` buffer (shared with getRTCMatrix). Copy the contents
    *  into your own uniform immediately; a subsequent call from the same
    *  camera overwrites this buffer. */
-  getFrameView(canvasWidth: number, canvasHeight: number): {
+  getFrameView(canvasWidth: number, canvasHeight: number, dpr: number = 1): {
     matrix: Float32Array
     far: number
     logDepthFc: number
   } {
-    const far = this._buildRTCMatrix(canvasWidth, canvasHeight)
+    const far = this._buildRTCMatrix(canvasWidth, canvasHeight, dpr)
     return { matrix: this.rtcMatrix, far, logDepthFc: computeLogDepthFc(far) }
   }
 
@@ -182,16 +196,16 @@ export class Camera {
   private rtcMatrixInv = new Float32Array(16)
 
   /** Get the inverse of the RTC matrix (cached per frame) */
-  getRTCMatrixInverse(canvasWidth: number, canvasHeight: number): Float32Array {
-    const mvp = this.getRTCMatrix(canvasWidth, canvasHeight)
+  getRTCMatrixInverse(canvasWidth: number, canvasHeight: number, dpr: number = 1): Float32Array {
+    const mvp = this.getRTCMatrix(canvasWidth, canvasHeight, dpr)
     invert4x4(mvp, this.rtcMatrixInv)
     return this.rtcMatrixInv
   }
 
   /** Unproject screen pixel to z=0 world plane (RTC-relative).
    *  Returns [x, y] in projection meters relative to camera center, or null if behind horizon. */
-  unprojectToZ0(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number): [number, number] | null {
-    const inv = this.getRTCMatrixInverse(canvasWidth, canvasHeight)
+  unprojectToZ0(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number, dpr: number = 1): [number, number] | null {
+    const inv = this.getRTCMatrixInverse(canvasWidth, canvasHeight, dpr)
     const ndcX = (screenX / canvasWidth) * 2 - 1
     const ndcY = 1 - (screenY / canvasHeight) * 2
 

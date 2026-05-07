@@ -661,6 +661,7 @@ export class PointRenderer {
     canvasWidth: number,
     canvasHeight: number,
     show: { fill?: string | null; stroke?: string | null; strokeWidth?: number; size?: number | null; opacity?: number },
+    dpr: number = 1,
   ): void {
     if (this.tilePoints.length === 0) return
     const N = this.tilePoints.length
@@ -736,7 +737,7 @@ export class PointRenderer {
 
     this.tilePointBindGroup = this.makeBindGroup(this.tilePointFeatBuffer)
 
-    const frame = camera.getFrameView(canvasWidth, canvasHeight)
+    const frame = camera.getFrameView(canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
     uf.set(frame.matrix, 0)
     uf[16] = projType; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
@@ -944,10 +945,11 @@ export class PointRenderer {
     projCenterLat: number,
     canvasWidth: number,
     canvasHeight: number,
+    dpr: number = 1,
   ): void {
     if (this.layers.length === 0) return
 
-    const frame = camera.getFrameView(canvasWidth, canvasHeight)
+    const frame = camera.getFrameView(canvasWidth, canvasHeight, dpr)
     const uf = this.uniformData
 
     // MVP matrix

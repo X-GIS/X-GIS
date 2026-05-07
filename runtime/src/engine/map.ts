@@ -703,7 +703,8 @@ export class XGISMap {
     // physical-pixel framebuffer space).
     const px = (clientX - rect.left) * (canvas.width / rect.width)
     const py = (clientY - rect.top) * (canvas.height / rect.height)
-    const rtc = this.camera.unprojectToZ0(px, py, canvas.width, canvas.height)
+    const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1
+    const rtc = this.camera.unprojectToZ0(px, py, canvas.width, canvas.height, dpr)
     if (!rtc) return null
     // RTC coords are camera-relative meters in projection space. For
     // Mercator (the most common path) we add cameraCenter to get
@@ -2024,7 +2025,7 @@ export class XGISMap {
           // current camera before drawing. No-op for layers without
           // zoomSizeStops; internally skipped when zoom is unchanged.
           this.pointRenderer!.updateDynamicSizes(this.camera.zoom, interpolateZoom)
-          this.pointRenderer!.render(ptPass, this.camera, projType, centerLon, centerLat, w, h)
+          this.pointRenderer!.render(ptPass, this.camera, projType, centerLon, centerLat, w, h, dpr)
           ptPass.end()
         })
       }

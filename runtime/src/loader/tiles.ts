@@ -248,12 +248,13 @@ export function visibleTilesFrustum(
   const cssHeight = canvasHeight / dpr
   const DEG2RAD = Math.PI / 180
   const R = 6378137
-  // MVP from DEVICE dims — must match the renderer's frame matrix or
-  // the cull's tile-screen positions and the rasteriser's positions
-  // disagree. (Aspect ratio is the same in either unit; the altitude
-  // term `canvasHeight × mppCSS` inside _buildRTCMatrix scales with
-  // the dimension passed in, so we cannot swap units freely here.)
-  const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight)
+  // MVP from device dims + dpr — `_buildRTCMatrix` divides height by
+  // `dpr` for the altitude term so the camera position is CSS-pixel-
+  // anchored (DPR-invariant). Aspect ratio (`canvasW/canvasH`) is
+  // already DPR-invariant since both dims scale equally. The renderer
+  // passes the same dpr to `getFrameView`, so cull projection and
+  // rasterisation projection produce the same screen positions.
+  const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight, dpr)
   const camMercX = camera.centerX
   const camMercY = camera.centerY
   // Non-Mercator projections render a single world (no lon-periodic
@@ -619,6 +620,12 @@ export function visibleTilesFrustumSampled(
   canvasWidth: number,
   canvasHeight: number,
   _extraMarginPx: number = 0,
+  /** Device-pixel-ratio. Forwarded to `unprojectToZ0` so the inverse
+   *  MVP it builds uses CSS-pixel altitude — keeps the 9×9 sample
+   *  grid landing on the SAME ground positions at any DPR (otherwise
+   *  the higher altitude at DPR>1 spreads samples over a 3× wider
+   *  ground footprint and inflates the tile set). */
+  dpr: number = 1,
 ): TileCoord[] {
   const DEG2RAD = Math.PI / 180
   const R = 6378137
@@ -677,7 +684,7 @@ export function visibleTilesFrustumSampled(
     const fy = iy / (SAMPLES_PER_AXIS - 1)
     for (let ix = 0; ix < SAMPLES_PER_AXIS; ix++) {
       const fx = ix / (SAMPLES_PER_AXIS - 1)
-      const rel = camera.unprojectToZ0(fx * canvasWidth, fy * canvasHeight, canvasWidth, canvasHeight)
+      const rel = camera.unprojectToZ0(fx * canvasWidth, fy * canvasHeight, canvasWidth, canvasHeight, dpr)
       if (!rel) continue // sample ray misses ground (at/above horizon)
       decodeAbsTile(camera.centerX + rel[0], camera.centerY + rel[1])
     }

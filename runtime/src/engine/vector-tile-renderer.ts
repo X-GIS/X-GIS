@@ -1322,7 +1322,7 @@ export class VectorTileRenderer {
           stepTiles = (camera.pitch ?? 0) < 30
             ? visibleTilesFrustumSampled(
                 camera, selectorProj, step,
-                canvasWidth, canvasHeight, offsetMarginPx,
+                canvasWidth, canvasHeight, offsetMarginPx, dpr,
               )
             : visibleTilesFrustum(
                 camera, selectorProj, step,
@@ -1440,6 +1440,7 @@ export class VectorTileRenderer {
             canvasWidth,
             canvasHeight,
             offsetMarginPx,
+            dpr,
           )
         : visibleTilesFrustum(
             camera,
@@ -1533,7 +1534,7 @@ export class VectorTileRenderer {
       }
     }
 
-    const frame = camera.getFrameView(canvasWidth, canvasHeight)
+    const frame = camera.getFrameView(canvasWidth, canvasHeight, dpr)
     const mvp = frame.matrix
     this.logDepthFc = frame.logDepthFc
 
@@ -2084,7 +2085,7 @@ export class VectorTileRenderer {
         const prefetchTiles = (camera.pitch ?? 0) < 30
           ? visibleTilesFrustumSampled(
               camera, selectorProj, prefetchZ,
-              canvasWidth, canvasHeight, offsetMarginPx,
+              canvasWidth, canvasHeight, offsetMarginPx, dpr,
             )
           : visibleTilesFrustum(
               camera, selectorProj, prefetchZ,
@@ -2170,7 +2171,7 @@ export class VectorTileRenderer {
           pointRenderer.addTilePoint(ptMxLocal - camRelX, ptMyLocal - camRelY, ptv[i + 4])
         }
       }
-      pointRenderer.flushTilePoints(pass, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, show)
+      pointRenderer.flushTilePoints(pass, camera, projType, projCenterLon, projCenterLat, canvasWidth, canvasHeight, show, dpr)
     }
   }
 

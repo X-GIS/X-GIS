@@ -266,7 +266,7 @@ export class RasterRenderer {
     if (!this.urlTemplate) return
     this.frameCount++
 
-    const frame = camera.getFrameView(canvasWidth, canvasHeight)
+    const frame = camera.getFrameView(canvasWidth, canvasHeight, dpr)
     const mvp = frame.matrix
     const { zoom } = camera
 
