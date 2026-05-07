@@ -63,6 +63,41 @@ export const STENCIL_TEST: GPUDepthStencilState = {
   stencilReadMask: 0xFF,
 }
 
+/** Ground-layer stencil write — same tile-coverage stencil as
+ *  STENCIL_WRITE, but depth test + write are off. Used by polygon
+ *  fills for layers WITHOUT `extrude:`: every ground polygon sits
+ *  at z=0 and trying to disambiguate them with a depth test +
+ *  per-layer NDC bias is what produced the "lake hidden under
+ *  landuse" symptom — coplanar fragments fought painter's order
+ *  through layer_depth_offset, which made the result pitch-
+ *  sensitive. With depth disabled, GPU primitive submission order
+ *  decides: water → landuse → roads renders bottom-to-top exactly
+ *  as the style declares. Stencil stays so sub-tile coverage
+ *  masking still works. */
+export const STENCIL_WRITE_NO_DEPTH: GPUDepthStencilState = {
+  format: 'depth24plus-stencil8',
+  depthCompare: 'always',
+  depthWriteEnabled: false,
+  stencilFront: { compare: 'always', passOp: 'replace' },
+  stencilBack: { compare: 'always', passOp: 'replace' },
+  stencilWriteMask: 0xFF,
+  stencilReadMask: 0xFF,
+}
+
+/** Ground-layer stencil test — same fallback semantics as
+ *  STENCIL_TEST (only draws where stencil=0), depth test + write
+ *  off so painter's order between coplanar ground fragments stays
+ *  stable across pitch. */
+export const STENCIL_TEST_NO_DEPTH: GPUDepthStencilState = {
+  format: 'depth24plus-stencil8',
+  depthCompare: 'always',
+  depthWriteEnabled: false,
+  stencilFront: { compare: 'equal', passOp: 'keep' },
+  stencilBack: { compare: 'equal', passOp: 'keep' },
+  stencilWriteMask: 0x00,
+  stencilReadMask: 0xFF,
+}
+
 /** Stencil disabled: always pass, no write (raster tiles, SDF line body) */
 export const STENCIL_DISABLED: GPUDepthStencilState = {
   format: 'depth24plus-stencil8',

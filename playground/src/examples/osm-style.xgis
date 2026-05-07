@@ -26,11 +26,13 @@ source pm_world {
 }
 
 /* ── Landuse — per-kind colours ──────────────────────────────── */
-/* Drawn BEFORE water so a moat / lake / coastline polygon sitting
- * inside a residential / park area paints on top of the landuse
- * fill — matches standard OSM cartographic stacking. (At pitch=0,
- * water and landuse share z=0; with later draws winning the
- * layer_depth_offset race, putting water last makes it visible.) */
+/* Painter's order: declarations land in GPU submission order. The
+ * runtime's ground fill pipeline runs depth-disabled so coplanar
+ * fragments resolve via that submission order alone — no
+ * pitch-dependent log-depth precision noise. Standard OSM stacking
+ * is `landuse → water → roads → buildings`: residential / park
+ * polygons are the land, water polygons paint the lake holes on
+ * top, roads ride above water (bridges), buildings cap everything. */
 layer landuse_park {
   source: pm_world
   sourceLayer: "landuse"

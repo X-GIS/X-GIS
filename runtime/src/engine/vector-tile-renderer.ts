@@ -334,6 +334,13 @@ export class VectorTileRenderer {
    *  because the branch checks `cached.zBuffer` first. */
   private fillPipelineExtruded: GPURenderPipeline | null = null
   private fillPipelineExtrudedFallback: GPURenderPipeline | null = null
+  /** Ground-layer fill pipelines — depth test/write disabled.
+   *  Selected when `currentExtrudeMode === 'none'` so coplanar
+   *  ground polygons (water, landuse, roads-as-fill, etc.) resolve
+   *  via painter's order instead of the layer_depth_offset NDC
+   *  bias hack. Null until setGroundPipelines runs. */
+  private fillPipelineGround: GPURenderPipeline | null = null
+  private fillPipelineGroundFallback: GPURenderPipeline | null = null
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
@@ -346,6 +353,17 @@ export class VectorTileRenderer {
   setExtrudedPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
     this.fillPipelineExtruded = main
     this.fillPipelineExtrudedFallback = fallback
+  }
+
+  /** Provide the depth-disabled ground-layer fill pipelines. Same
+   *  shader as the regular fill, but the depth state is OFF so
+   *  painter's order between ground polygons is decided by GPU
+   *  command order — the way painter's order is supposed to work,
+   *  without log-depth precision noise + layer_depth_offset
+   *  arithmetic fighting at coplanar fragments. */
+  setGroundPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+    this.fillPipelineGround = main
+    this.fillPipelineGroundFallback = fallback
   }
 
   /** Connect to a data source */
@@ -1951,7 +1969,15 @@ export class VectorTileRenderer {
     // per layer for zero output.
     if (anyInArchive) {
       if (phase !== 'strokes') pass.setStencilReference(1)
-      this.renderTileKeys(neededKeys, pass, fillPipeline, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, phase, layerCache, this.fillPipelineExtruded)
+      // Ground-layer fill (`extrude.kind === 'none'`) uses the
+      // depth-disabled pipeline so coplanar layers resolve via
+      // painter's order. Layers with `extrude:` keep the regular
+      // depth-write pipeline; the per-feature extruded path takes
+      // its own branch inside renderTileKeys.
+      const mainFill = this.currentExtrudeMode === 'none' && this.fillPipelineGround !== null
+        ? this.fillPipelineGround
+        : fillPipeline
+      this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, phase, layerCache, this.fillPipelineExtruded)
     }
 
     // Render fallback ancestors (stencil test) — with world offsets for wrapping
@@ -1974,7 +2000,10 @@ export class VectorTileRenderer {
         this.uniformF32[17] = 0.0
         this.uniformF32[18] = 0.0
       }
-      this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache, this.fillPipelineExtrudedFallback)
+      const fallbackFill = this.currentExtrudeMode === 'none' && this.fillPipelineGroundFallback !== null
+        ? this.fillPipelineGroundFallback
+        : fillPipelineFallback
+      this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache, this.fillPipelineExtrudedFallback)
       if (_debugRed) {
         this.uniformF32[16] = _origR
         this.uniformF32[17] = _origG
@@ -2237,13 +2266,9 @@ export class VectorTileRenderer {
       // skipped (variant pipeline computes color in shader, cached uniform
       // alpha may be zero even when the draw is meaningful).
       if (drawFills && cached.indexCount > 0 && !this._skipFillDraw) {
-        // Pipeline selection follows the layer's extrude mode (set in
-        // render() from show.extrude). Per-feature mode wants the
-        // extruded pipeline + per-vertex z; uniform / none use the flat
-        // pipeline (is_top * u.extrude_height_m). The upload path
-        // bakes the extruded vertex layout whenever the slice has
-        // heights data, so the same vertex buffer serves both modes —
-        // the flat pipeline simply ignores the z attribute slot.
+        // Pipeline already pre-selected by render() for the current
+        // extrude mode (ground / uniform / per-feature). renderTile
+        // Keys just dispatches.
         const useExtrudedPipe = this.currentExtrudeMode === 'per-feature'
           && cached.zBuffer !== null
           && fillPipelineExtruded !== null

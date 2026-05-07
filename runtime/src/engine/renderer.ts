@@ -4,7 +4,7 @@ import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { MeshData, LineMeshData } from '../loader/geojson'
 import { generateGraticule } from './graticule'
-import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, MSAA_4X, WORLD_MERC, worldCopiesFor } from './gpu-shared'
+import { BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST, STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH, MSAA_4X, WORLD_MERC, worldCopiesFor } from './gpu-shared'
 import { isPickEnabled, getSampleCount } from './gpu'
 import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from './wgsl-projection'
@@ -724,6 +724,12 @@ export class MapRenderer {
   private uniformRingCapacity = 256 // slots
   private uniformSlot = 0
   fillPipeline!: GPURenderPipeline
+  /** Ground-layer fill — identical to fillPipeline except depth
+   *  test/write are off. Selected at draw time for any layer whose
+   *  `extrude.kind === 'none'` so coplanar fills resolve via plain
+   *  painter's order (GPU command submission), not the fragile
+   *  layer_depth_offset NDC bias. */
+  fillPipelineGround!: GPURenderPipeline
   /** Per-feature 3D extrusion variant of fillPipeline — identical
    *  except entryPoint=`vs_main_quantized_extruded` and a second
    *  vertex buffer slot for the per-vertex z attribute. Used by the
@@ -733,6 +739,7 @@ export class MapRenderer {
   linePipeline!: GPURenderPipeline
   // Stencil-test pipelines: only draw where stencil = 0 (not covered by children)
   fillPipelineFallback!: GPURenderPipeline
+  fillPipelineGroundFallback!: GPURenderPipeline
   fillPipelineExtrudedFallback!: GPURenderPipeline
   linePipelineFallback!: GPURenderPipeline
   // `pointer-events: none` mirrors — same shader, writeMask:0 on the
@@ -740,9 +747,11 @@ export class MapRenderer {
   // texture. Identity-aliased to the pickable set when picking is
   // globally disabled (no pick attachment to mask).
   fillPipelineNoPick!: GPURenderPipeline
+  fillPipelineGroundNoPick!: GPURenderPipeline
   fillPipelineExtrudedNoPick!: GPURenderPipeline
   linePipelineNoPick!: GPURenderPipeline
   fillPipelineFallbackNoPick!: GPURenderPipeline
+  fillPipelineGroundFallbackNoPick!: GPURenderPipeline
   fillPipelineExtrudedFallbackNoPick!: GPURenderPipeline
   linePipelineFallbackNoPick!: GPURenderPipeline
   uniformBuffer!: GPUBuffer
@@ -898,6 +907,18 @@ export class MapRenderer {
         depthStencil: STENCIL_WRITE, multisample: msaaState,
         label: `fill-pipeline${suffix}`,
       }),
+      // Ground-layer fill — same shader as `fill` but with depth
+      // test + write disabled. Used for any layer with
+      // `extrude.kind === 'none'`; painter's order resolves
+      // coplanar fragments without the layer_depth_offset hack.
+      fillGround: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_WRITE_NO_DEPTH, multisample: msaaState,
+        label: `fill-pipeline-ground${suffix}`,
+      }),
       fillExtruded: device.createRenderPipeline({
         layout: pipelineLayout,
         vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
@@ -928,6 +949,16 @@ export class MapRenderer {
         depthStencil: STENCIL_TEST, multisample: msaaState,
         label: `fill-pipeline-fallback${suffix}`,
       }),
+      // Ground variant of the stencil-test fallback — same depth-
+      // disabled state as fillGround.
+      fillGroundFallback: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_TEST_NO_DEPTH, multisample: msaaState,
+        label: `fill-pipeline-ground-fallback${suffix}`,
+      }),
       fillExtrudedFallback: device.createRenderPipeline({
         layout: pipelineLayout,
         vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
@@ -948,9 +979,11 @@ export class MapRenderer {
 
     const pickable = buildSet(colorTargets, '')
     this.fillPipeline = pickable.fill
+    this.fillPipelineGround = pickable.fillGround
     this.fillPipelineExtruded = pickable.fillExtruded
     this.linePipeline = pickable.line
     this.fillPipelineFallback = pickable.fillFallback
+    this.fillPipelineGroundFallback = pickable.fillGroundFallback
     this.fillPipelineExtrudedFallback = pickable.fillExtrudedFallback
     this.linePipelineFallback = pickable.lineFallback
 
@@ -960,16 +993,20 @@ export class MapRenderer {
     if (pickEnabled) {
       const noPick = buildSet(colorTargetsNoPick, '-nopick')
       this.fillPipelineNoPick = noPick.fill
+      this.fillPipelineGroundNoPick = noPick.fillGround
       this.fillPipelineExtrudedNoPick = noPick.fillExtruded
       this.linePipelineNoPick = noPick.line
       this.fillPipelineFallbackNoPick = noPick.fillFallback
+      this.fillPipelineGroundFallbackNoPick = noPick.fillGroundFallback
       this.fillPipelineExtrudedFallbackNoPick = noPick.fillExtrudedFallback
       this.linePipelineFallbackNoPick = noPick.lineFallback
     } else {
       this.fillPipelineNoPick = this.fillPipeline
+      this.fillPipelineGroundNoPick = this.fillPipelineGround
       this.fillPipelineExtrudedNoPick = this.fillPipelineExtruded
       this.linePipelineNoPick = this.linePipeline
       this.fillPipelineFallbackNoPick = this.fillPipelineFallback
+      this.fillPipelineGroundFallbackNoPick = this.fillPipelineGroundFallback
       this.fillPipelineExtrudedFallbackNoPick = this.fillPipelineExtrudedFallback
       this.linePipelineFallbackNoPick = this.linePipelineFallback
     }
