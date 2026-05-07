@@ -135,6 +135,13 @@ export interface ClassifierInput {
 export interface ClassifierResult {
   opaque: ClassifiedShow[]
   translucent: ClassifiedShow[]
+  /** Translucent extruded fills routed through Weighted-Blended OIT
+   *  (`fillPipelineExtrudedOIT` + accum/revealage RTs + compose).
+   *  The same show may also appear in `opaque` (for its strokes /
+   *  outlines via the regular line pipeline) and `translucent` (for
+   *  translucent strokes) — the buckets describe rendering phases,
+   *  not show identity. */
+  oit: ClassifiedShow[]
 }
 
 /** Classify a frame's vector tile shows into opaque + translucent
@@ -150,6 +157,7 @@ export interface ClassifierResult {
 export function classifyVectorTileShows(input: ClassifierInput): ClassifierResult {
   const opaque: ClassifiedShow[] = []
   const translucent: ClassifiedShow[] = []
+  const oit: ClassifiedShow[] = []
   const safeMode = input.safeMode ?? SAFE_MODE
   const defaults = input.rendererDefaults
 
@@ -223,6 +231,17 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
 
     const isTranslucentStroke =
       !safeMode && (effectiveShow.opacity ?? 1) < 0.999 && !!effectiveShow.stroke
+    // Translucent extruded fills route through Weighted-Blended
+    // OIT — the layer's fill phase moves to the OIT pass, leaving
+    // outlines (if any) on the regular line path. Detected purely
+    // from the show's effective opacity + presence of an
+    // `extrude:` keyword; no per-feature decision (an extruded
+    // layer with mixed alphas still routes its entire fill through
+    // OIT, which is the whole point — no sort).
+    const isOitExtrude =
+      !safeMode && (effectiveShow.opacity ?? 1) < 0.999
+      && effectiveShow.extrude !== undefined
+      && effectiveShow.extrude.kind !== 'none'
     // pointer-events: none routes through the writeMask:0 mirror set
     // so the layer's pickId never lands in the pick texture (picks
     // fall through to whatever drew underneath). Falls back to the
@@ -242,19 +261,29 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     const lpF = noPick
       ? (entry.pipelines?.linePipelineFallbackNoPick ?? defaults.linePipelineFallbackNoPick ?? entry.pipelines?.linePipelineFallback ?? defaults.linePipelineFallback)
       : (entry.pipelines?.linePipelineFallback ?? defaults.linePipelineFallback)
+    // Opaque-bucket fillPhase decision:
+    //  * isOitExtrude → 'strokes' (fills go to OIT, outlines via
+    //    the line pipeline in the opaque pass)
+    //  * else if isTranslucentStroke → 'fills' (fills here, strokes
+    //    to translucent offscreen MAX-blend pass)
+    //  * else → 'all' (fills + strokes opaque)
+    const fillPhase = isOitExtrude
+      ? 'strokes'
+      : (isTranslucentStroke ? 'fills' : 'all')
     const classified: ClassifiedShow = {
       sourceName: entry.sourceName,
       vtEntry,
       show: effectiveShow,
       fp, lp, bgl, fpF, lpF,
       isTranslucentStroke,
-      fillPhase: isTranslucentStroke ? 'fills' : 'all',
+      fillPhase,
     }
     opaque.push(classified)
     if (isTranslucentStroke) translucent.push(classified)
+    if (isOitExtrude) oit.push(classified)
   }
 
-  return { opaque, translucent }
+  return { opaque, translucent, oit }
 }
 
 /** Group consecutive same-source opaque shows into runs so each

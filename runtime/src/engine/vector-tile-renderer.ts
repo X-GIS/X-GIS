@@ -29,7 +29,7 @@ import { buildLineSegments, type LineRenderer } from './line-renderer'
  *  'fills'/'strokes' split across a main pass and an offscreen MAX-blend
  *  pass so translucent strokes don't accumulate alpha across overlapping
  *  geometry. 'fills' + 'strokes' together == 'all'. */
-export type LayerDrawPhase = 'all' | 'fills' | 'strokes'
+export type LayerDrawPhase = 'all' | 'fills' | 'strokes' | 'oit-fill'
 
 interface GPUTile {
   vertexBuffer: GPUBuffer
@@ -341,6 +341,10 @@ export class VectorTileRenderer {
    *  bias hack. Null until setGroundPipelines runs. */
   private fillPipelineGround: GPURenderPipeline | null = null
   private fillPipelineGroundFallback: GPURenderPipeline | null = null
+  /** OIT translucent extrude pipeline — Weighted-Blended OIT MRT
+   *  output. Selected when render() runs with phase='oit-fill'
+   *  (translucent extrude bucket). Null until setOITPipeline runs. */
+  private fillPipelineExtrudedOIT: GPURenderPipeline | null = null
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
@@ -364,6 +368,15 @@ export class VectorTileRenderer {
   setGroundPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
     this.fillPipelineGround = main
     this.fillPipelineGroundFallback = fallback
+  }
+
+  /** Provide the OIT translucent extrude pipeline. Used when
+   *  render() runs with phase='oit-fill': translucent buildings
+   *  draw their fills into the accum + revealage MRT pair so a
+   *  later compose pass can blend them order-independently onto
+   *  the opaque framebuffer. */
+  setOITPipeline(p: GPURenderPipeline): void {
+    this.fillPipelineExtrudedOIT = p
   }
 
   /** Connect to a data source */
@@ -2157,8 +2170,9 @@ export class VectorTileRenderer {
     fillPipelineExtruded: GPURenderPipeline | null,
   ): void {
     const drawFills = phase !== 'strokes'
-    const drawStrokes = phase !== 'fills'
+    const drawStrokes = phase !== 'fills' && phase !== 'oit-fill'
     const translucentLines = phase === 'strokes'
+    const isOitFill = phase === 'oit-fill'
     const tileBg = this.tileBgFeature ?? this.tileBgDefault
     if (!tileBg || !this.uniformRing) return
     // Stroke draws are batched and emitted AFTER every fill in this
@@ -2273,16 +2287,26 @@ export class VectorTileRenderer {
       // skipped (variant pipeline computes color in shader, cached uniform
       // alpha may be zero even when the draw is meaningful).
       if (drawFills && cached.indexCount > 0 && !this._skipFillDraw) {
-        // Pipeline already pre-selected by render() for the current
-        // extrude mode (ground / uniform / per-feature). renderTile
-        // Keys just dispatches.
-        const useExtrudedPipe = this.currentExtrudeMode === 'per-feature'
+        // Pipeline selection — three opaque paths + OIT:
+        //  * 'oit-fill' phase: translucent extrude → OIT MRT pipe
+        //  * per-feature extrude (opaque): vs_main_quantized_extruded + zBuffer
+        //  * uniform / ground (opaque): pre-selected `fillPipeline`
+        const useOitPipe = isOitFill
+          && cached.zBuffer !== null
+          && this.fillPipelineExtrudedOIT !== null
+        const useExtrudedPipe = !isOitFill
+          && this.currentExtrudeMode === 'per-feature'
           && cached.zBuffer !== null
           && fillPipelineExtruded !== null
-        pass.setPipeline(useExtrudedPipe ? fillPipelineExtruded! : fillPipeline)
+        const activePipe = useOitPipe
+          ? this.fillPipelineExtrudedOIT!
+          : useExtrudedPipe
+            ? fillPipelineExtruded!
+            : fillPipeline
+        pass.setPipeline(activePipe)
         pass.setBindGroup(0, currentTileBg, [slotOffset])
         pass.setVertexBuffer(0, cached.vertexBuffer)
-        if (useExtrudedPipe) pass.setVertexBuffer(1, cached.zBuffer!)
+        if (useOitPipe || useExtrudedPipe) pass.setVertexBuffer(1, cached.zBuffer!)
         pass.setIndexBuffer(cached.indexBuffer, 'uint32')
         pass.drawIndexed(cached.indexCount)
       }

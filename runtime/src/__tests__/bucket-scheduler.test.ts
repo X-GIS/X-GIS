@@ -365,7 +365,7 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
 
   it('opaque-only: resolveOwner = opaque, no other buckets', () => {
     const plan = planFrameSchedule(
-      { opaque: [FAKE_OPAQUE], translucent: [] },
+      { opaque: [FAKE_OPAQUE], translucent: [], oit: []  },
       true,  // hasLineRenderer
       false, // hasDirectLayerPoints
     )
@@ -376,7 +376,7 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
 
   it('translucent-only: resolveOwner = composite', () => {
     const plan = planFrameSchedule(
-      { opaque: [FAKE_TRANSLUCENT], translucent: [FAKE_TRANSLUCENT] },
+      { opaque: [FAKE_TRANSLUCENT], translucent: [FAKE_TRANSLUCENT], oit: []  },
       true,
       false,
     )
@@ -389,7 +389,7 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
     // offscreen-stroke pass, so even though there are translucent
     // shows in the input the plan must NOT enable bucket 2.
     const plan = planFrameSchedule(
-      { opaque: [FAKE_TRANSLUCENT], translucent: [FAKE_TRANSLUCENT] },
+      { opaque: [FAKE_TRANSLUCENT], translucent: [FAKE_TRANSLUCENT], oit: []  },
       false, // hasLineRenderer
       false,
     )
@@ -405,7 +405,7 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
     // demo. The fix promotes the scheduler to ALWAYS run bucket 3
     // when direct-layer points exist.
     const plan = planFrameSchedule(
-      { opaque: [FAKE_OPAQUE], translucent: [] },
+      { opaque: [FAKE_OPAQUE], translucent: [], oit: []  },
       true,
       true, // hasDirectLayerPoints
     )
@@ -415,7 +415,7 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
 
   it('points + translucent: resolveOwner = points (last bucket wins)', () => {
     const plan = planFrameSchedule(
-      { opaque: [FAKE_TRANSLUCENT], translucent: [FAKE_TRANSLUCENT] },
+      { opaque: [FAKE_TRANSLUCENT], translucent: [FAKE_TRANSLUCENT], oit: []  },
       true,
       true,
     )
@@ -431,7 +431,7 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
     // bucket scheduler still emits an empty opaque pass to clear
     // the canvas, then the points pass handles the rest.
     const plan = planFrameSchedule(
-      { opaque: [], translucent: [] },
+      { opaque: [], translucent: [], oit: []  },
       true,
       true,
     )

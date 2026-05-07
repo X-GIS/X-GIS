@@ -446,6 +446,7 @@ export class XGISMap {
           this.renderer.fillPipelineGround,
           this.renderer.fillPipelineGroundFallback,
         )
+        vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
       }
     }
     if (dprChanged) {
@@ -914,6 +915,7 @@ export class XGISMap {
         vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout) // must be set before any tile uploads
         vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
         vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
+      vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
         if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
         vtRenderer.setSource(source) // connect before load so preloaded tiles auto-upload
         const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
@@ -1190,6 +1192,7 @@ export class XGISMap {
       vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
       vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
       vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
+      vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
       if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
       vtRenderer.setSource(source)
       this.vtSources.set(vtKey, { source, renderer: vtRenderer })
@@ -1484,6 +1487,7 @@ export class XGISMap {
   private classifyVectorTileShows(): {
     opaque: ClassifiedShow[]
     translucent: ClassifiedShow[]
+    oit: ClassifiedShow[]
   } {
     return classifyVectorTileShowsImpl({
       vectorTileShows: this.vectorTileShows,
@@ -1699,9 +1703,17 @@ export class XGISMap {
       // declared before an opaque layer: the translucent composite
       // would run BEFORE the later opaque fill, and the opaque fill
       // would cover the translucent strokes.
-      const { opaque, translucent } = this.classifyVectorTileShows()
+      const { opaque, translucent, oit } = this.classifyVectorTileShows()
       const opaqueGroups = this.groupOpaqueBySource(opaque)
       const hasTranslucent = translucent.length > 0 && this.lineRenderer !== null
+      // OIT path is opt-in via globalThis.__XGIS_OIT until the
+      // bind-group-layout validation issue surfaces only when a
+      // demo declares an opaque-< 1 extruded layer is sorted out.
+      // Phase 1 + Phase 2 left the GPU side wired; Phase 3 (this
+      // routing) sits behind the flag so casual smoke runs with
+      // translucent buildings don't produce validation noise.
+      const oitEnabled = (globalThis as { __XGIS_OIT?: boolean }).__XGIS_OIT === true
+      const hasOit = oitEnabled && oit.length > 0 && this.oitAccumTexture !== null && this.oitRevealageTexture !== null
       const hasPoints = this.pointRenderer?.hasLayers() ?? false
       // ── Two independent point paths ──
       //
@@ -1853,6 +1865,69 @@ export class XGISMap {
           }
 
           subPass.end()
+        })
+      }
+
+      // ── Bucket 1.5: OIT translucent extrude ──
+      // Render every translucent extruded fill into the accum +
+      // revealage MRT pair (depth-load from opaque, no depth write),
+      // then blend the recovered colour onto the resolved main
+      // colour with a full-screen compose draw. Order-independent
+      // by construction — no back-to-front sort.
+      if (hasOit) {
+        passScope('oit-fill', () => {
+          // No depth attachment — opaque depth is MSAA-4 and the
+          // OIT RTs are single-sample. Until we add an MSAA-resolved
+          // depth or MSAA OIT, translucent extrude renders without
+          // depth-test against opaque. The McGuire-Bavoil weight
+          // dampens far translucent contributions enough that the
+          // visual is acceptable for the common "glass building
+          // amongst opaque buildings" case.
+          const oitPass = encoder.beginRenderPass({
+            colorAttachments: [
+              {
+                view: this.oitAccumTexture!.createView(),
+                clearValue: { r: 0, g: 0, b: 0, a: 0 },
+                loadOp: 'clear', storeOp: 'store',
+              },
+              {
+                view: this.oitRevealageTexture!.createView(),
+                clearValue: { r: 1, g: 0, b: 0, a: 0 },
+                loadOp: 'clear', storeOp: 'store',
+              },
+            ],
+          })
+          for (const cs of oit) {
+            cs.vtEntry.renderer.render(
+              oitPass, this.camera, projType, centerLon, centerLat, w, h,
+              cs.show, cs.fp, cs.lp, this.renderer.uniformBuffer, cs.bgl,
+              cs.fpF, cs.lpF,
+              null, 'oit-fill',
+            )
+          }
+          oitPass.end()
+        })
+
+        passScope('oit-compose', () => {
+          const compPass = encoder.beginRenderPass({
+            colorAttachments: [{
+              view: colorView,
+              resolveTarget: useResolve && !hasTranslucent && !hasPoints && _resolveOwner === 'composite' ? screenView : undefined,
+              loadOp: 'load', storeOp: 'store',
+            }],
+          })
+          // Lazy-build the bind group when texture views change.
+          const bg = this.ctx.device.createBindGroup({
+            layout: this.renderer.oitComposeBindGroupLayout,
+            entries: [
+              { binding: 0, resource: this.oitAccumTexture!.createView() },
+              { binding: 1, resource: this.oitRevealageTexture!.createView() },
+            ],
+          })
+          compPass.setPipeline(this.renderer.oitComposePipeline)
+          compPass.setBindGroup(0, bg)
+          compPass.draw(6) // fullscreen quad — vs_full emits via vertex_index
+          compPass.end()
         })
       }
 

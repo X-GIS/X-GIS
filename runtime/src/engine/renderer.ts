@@ -310,7 +310,6 @@ fn fs_fill(input: VertexOutput) -> FragmentOutput {
 struct OitFragmentOutput {
   @location(0) accum: vec4<f32>,
   @location(1) revealage: f32,
-  @builtin(frag_depth) depth: f32,
 }
 
 @fragment
@@ -328,10 +327,12 @@ fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
   var out: OitFragmentOutput;
   out.accum = vec4<f32>(rgb * a, a) * w;
   out.revealage = a;
-  // No pick output — OIT pass binds only accum + revealage targets.
-  // Translucent buildings stay non-pickable; users wanting to pick
-  // them should keep opacity = 1 (opaque pass writes pick).
-  out.depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
+  // No pick output, no depth output — OIT pass binds only accum +
+  // revealage targets. Translucent buildings stay non-pickable;
+  // users wanting to pick them should keep opacity = 1 (opaque
+  // pass writes pick). The McGuire-Bavoil weight already biases the
+  // composite toward closer fragments, partially substituting for
+  // depth occlusion against opaque geometry.
   return out;
 }
 
@@ -1058,20 +1059,24 @@ export class MapRenderer {
       { format: OIT_ACCUM_FORMAT, blend: BLEND_OIT_ACCUM },
       { format: OIT_REVEALAGE_FORMAT, blend: BLEND_OIT_REVEALAGE, writeMask: GPUColorWrite.RED },
     ]
+    // OIT pass uses NO depth attachment — opaque depth is MSAA-4
+    // and accum/revealage RTs are single-sample, so they can't share
+    // a depth-stencil view. Translucent extrude therefore doesn't
+    // depth-test against opaque buildings in this MVP — every
+    // translucent fragment writes into accum/revealage regardless of
+    // foreground occluders. McGuire-Bavoil weighted blending still
+    // mostly hides far translucent fragments via the weight function,
+    // but a translucent building behind a tall opaque one will still
+    // contribute slightly. Proper depth testing would need either
+    // MSAA-resolve of opaque depth into a single-sample texture, or
+    // building an MSAA OIT pair (more memory, more complex compose).
+    // Deferred — single-sample OIT is the typical industry choice.
     this.fillPipelineExtrudedOIT = device.createRenderPipeline({
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_oit_translucent', targets: oitTargets },
       primitive: { topology: 'triangle-list', cullMode: 'back' },
-      depthStencil: {
-        format: 'depth24plus-stencil8',
-        depthCompare: 'less-equal',
-        depthWriteEnabled: false,
-        stencilFront: { compare: 'always', passOp: 'keep' },
-        stencilBack: { compare: 'always', passOp: 'keep' },
-        stencilWriteMask: 0x00,
-        stencilReadMask: 0x00,
-      },
+      // No depthStencil — pass has no depth attachment.
       multisample: { count: 1 },
       label: 'fill-pipeline-extruded-oit',
     })
