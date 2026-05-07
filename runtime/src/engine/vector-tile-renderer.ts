@@ -7,7 +7,7 @@ import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../loader/tiles'
-import { tileKey, tileKeyParent, type PropertyTable } from '@xgis/compiler'
+import { tileKey, tileKeyParent, tileKeyChildren, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../data/tile-catalog'
 import type { TileData } from '../data/tile-types'
@@ -1703,6 +1703,30 @@ export class VectorTileRenderer {
           fallbackKeys.push(parentKey)
           fallbackOffsets.push(worldOffDeg[i]) // same world offset as the child
           foundCached = true
+        }
+      }
+
+      // deck.gl `refinementStrategy: 'best-available'` + Mapbox
+      // `findLoadedChildren`: when no cached ancestor exists, fall
+      // back to cached children at z+1. Each child covers 1/4 of
+      // the missing visible area. Uncached quadrants stay blank
+      // until their fetch completes — strictly better than the
+      // far-ancestor giant we used to draw, and identical to how
+      // Mapbox / MapLibre / deck.gl fill in zoom-out cold scenes
+      // (visible at z=N missed cache, but z=N+1 still cached from
+      // the previous higher-zoom view).
+      if (!foundCached && tileZ < maxLevel) {
+        const childKeys = tileKeyChildren(key)
+        for (const ck of childKeys) {
+          if (sliceCached(ck)) {
+            if (!layerCache.has(ck)) {
+              const childData = this.source.getTileData(ck, sliceLayer)
+              if (childData) this.doUploadTile(ck, childData, sliceLayer)
+            }
+            fallbackKeys.push(ck)
+            fallbackOffsets.push(worldOffDeg[i])
+            foundCached = true
+          }
         }
       }
 
