@@ -976,13 +976,17 @@ export class MapRenderer {
         layout: pipelineLayout,
         vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
-        // Backface cull: walls + roof faces are emitted with consistent
-        // outward-facing winding (generateWallMeshExtruded computes ring
-        // signed area and flips per-edge direction for CW rings). Drops
-        // ~half of the extruded triangles (back walls hidden behind
-        // front walls) so depth ordering is uniquely determined and
-        // translucent fills don't show double-rendered seams.
-        primitive: { topology: 'triangle-list', cullMode: 'back' },
+        // Two-sided rendering. The earlier `cullMode: 'back'` saved
+        // ~half the extruded fragments BUT cut a hole into any concave
+        // building (dome interior, courtyard, atrium) — once the
+        // camera tilts enough to see the inside the cull drops the
+        // inward-facing wall and the user looks straight through.
+        // Mapbox / MapLibre `fill-extrusion` rendering is unculled for
+        // the same reason: source data carries arbitrary footprints
+        // and the inside-out artefact is far more visible than the
+        // ~2× fragment cost. Depth test + outward-winding emission
+        // still resolve overdraw correctly.
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_WRITE, multisample: msaaState,
         label: `fill-pipeline-extruded${suffix}`,
       }),
@@ -1016,7 +1020,9 @@ export class MapRenderer {
         layout: pipelineLayout,
         vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
-        primitive: { topology: 'triangle-list', cullMode: 'back' },
+        // Same rationale as `fillExtruded` above: unculled to keep
+        // dome / courtyard interiors visible.
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_TEST, multisample: msaaState,
         label: `fill-pipeline-extruded-fallback${suffix}`,
       }),
@@ -1069,7 +1075,13 @@ export class MapRenderer {
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_oit_translucent', targets: oitTargets },
-      primitive: { topology: 'triangle-list', cullMode: 'back' },
+      // Two-sided. Translucent OIT specifically benefits from front+
+      // back contributions to the weighted-blend accum (otherwise
+      // the inside surface of a translucent dome / shell adds
+      // nothing and the volume looks empty from one side). Matches
+      // the opaque-extruded pipeline above so opaque <-> translucent
+      // transitions don't reveal cull seams.
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
       // OIT pass attaches the opaque MSAA depth-stencil so
       // translucent fragments depth-test against the full opaque
       // scene. depthWriteEnabled=false keeps OIT
