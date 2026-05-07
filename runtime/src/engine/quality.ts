@@ -28,6 +28,16 @@
 // `?quality=performance&msaa=2` keeps performance preset's other knobs
 // but bumps MSAA back to 2× for slightly cleaner edges.
 
+// Inline isMobile rather than import from gpu.ts to avoid a circular
+// dependency: gpu.ts now imports QUALITY from this module to derive
+// SAMPLE_COUNT and MAX_DPR.
+function isMobile(): boolean {
+  if (typeof window === 'undefined') return false
+  const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false
+  const narrow = (window.innerWidth || 0) <= 900
+  return coarse && narrow
+}
+
 export interface QualityConfig {
   /** MSAA sample count: 1, 2, or 4. Init-time only — pipelines bake
    *  sampleCount, runtime change requires page reload. Higher = smoother
@@ -54,15 +64,11 @@ export interface QualityConfig {
 }
 
 export const QUALITY_PRESETS = {
-  /** Default — render at the device's native pixel density (capped at 3
-   *  to bound fragment work on high-DPR displays). The `maxDpr=2` cap
-   *  used to silently downscale iPhone DPR=3 to 2× canvas, breaking the
-   *  "1 px in style = 1 device px" contract for retina users. Cap at 3
-   *  covers every iPhone / common Android device; rare 4× monitors will
-   *  still see 3×, which is visually indistinguishable. */
+  /** Current behavior — full quality, no perf opt-ins. Default to preserve
+   *  back-compat with all existing deployments. */
   default: {
     msaa: 4,
-    maxDpr: 3,
+    maxDpr: 2,
     interactionDpr: null,
     picking: false,
   },
@@ -126,13 +132,18 @@ function resolveQuality(): QualityConfig {
     base = { ...QUALITY_PRESETS.default }
   }
 
-  // Mobile auto-promotion to `performance` was REMOVED — it lied about
-  // the pixel grid. With maxDpr=1.0, a `stroke-1` line was rendered at
-  // 1 canvas pixel (= 1 CSS pixel = 3 device pixels after OS upscale on
-  // a DPR=3 phone), which contradicts "1 px means 1 device px". Users
-  // who need the previous performance behavior can still opt in via
-  // `?quality=performance`. The thermal trade-off is now an explicit
-  // choice, not silently applied.
+  // 2. Mobile detection auto-promotes default → performance so phones
+  //    don't have to opt in. Real-device inspector data (iPhone, Seoul
+  //    z=8.7) showed GPU pass 27 ms even on the prior `battery` preset
+  //    (maxDpr 1.5) — past the 16.7 ms 60 fps target by ~1.6×, driving
+  //    the user-reported heat + forced refresh. `performance` (msaa 1,
+  //    maxDpr 1.0) drops fragment work to ~1/2.25 vs battery (1.5²
+  //    pixels) without sacrificing draw call count. User can still opt
+  //    back into higher quality with `?quality=battery` or
+  //    `?quality=default`.
+  if (!presetParam && !safeFlag && isMobile()) {
+    base = { ...QUALITY_PRESETS.performance }
+  }
 
   // 3. Per-key URL overrides (apply on top of preset).
   const msaaParam = params.get('msaa')
