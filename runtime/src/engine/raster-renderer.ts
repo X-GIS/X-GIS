@@ -354,7 +354,7 @@ export class RasterRenderer {
         if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
         const ctrl = new AbortController()
         this.loadingTiles.set(parentKey, ctrl)
-        loadImageTexture(this.device, tileUrl(this.urlTemplate, { z: parentZ, x: parentX, y: parentY }), ctrl.signal).then((texture) => {
+        loadImageTexture(this.device, tileUrl(this.urlTemplate, { z: parentZ, x: parentX, y: parentY, ox: parentX }), ctrl.signal).then((texture) => {
           this.loadingTiles.delete(parentKey)
           if (texture) this.tileCache.set(parentKey, { texture, lastUsedFrame: this.frameCount, firstShownFrame: this.frameCount })
         })

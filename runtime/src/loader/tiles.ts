@@ -33,11 +33,47 @@ export function firstIndexedAncestor(
   return -1
 }
 
+/** A tile coordinate triple — wrapped (x, y) for data lookup, plus
+ *  absolute `ox` for world-copy positioning.
+ *
+ *  CONTRACT — all selectors and consumers MUST follow this:
+ *
+ *    - `x` is the wrapped tile-x in [0, 2^z). Used to look up data
+ *      (catalog key derives from this).
+ *    - `ox` is the ABSOLUTE tile-x including world-copy shift. May be
+ *      negative or ≥ 2^z when the camera spans the antimeridian.
+ *      Equals `x + worldCopy * 2^z` where worldCopy is the integer
+ *      offset (… -2, -1, 0, 1, 2 …) of the world copy this tile
+ *      belongs to.
+ *
+ *  The renderer derives the per-tile longitude shift via
+ *  `(ox - x) * 360 / 2^z`. If a selector emits `ox` as a small copy
+ *  index (e.g. -2..+2) instead of the absolute tile-x, every rendered
+ *  tile gets a multi-thousand-degree wrong offset and the canvas
+ *  blanks at non-zero zoom — root cause of the commit-71dd401
+ *  Phase-2 regression. `ox` is REQUIRED, not optional, so the type
+ *  system catches a missing assignment at the source.
+ *
+ *  See `worldCopyOf(coord)` for the inverse — extract the world-copy
+ *  index from a TileCoord. */
 export interface TileCoord {
   z: number
-  x: number   // wrapped x (0..2^z-1) for data lookup
+  x: number
   y: number
-  ox?: number  // original x (may be < 0 or >= 2^z) for world-copy positioning
+  ox: number
+}
+
+/** World-copy index (-2..+2 typically) of a tile coord. Returns 0 for
+ *  the central copy, +1 for east, -1 for west, etc. Inverse of
+ *  `ox = x + worldCopy * 2^z`. */
+export function worldCopyOf(coord: TileCoord): number {
+  return Math.floor(coord.ox / Math.pow(2, coord.z))
+}
+
+/** Build a TileCoord with the absolute-x contract pre-computed. Use
+ *  this from any new selector to ensure the contract holds. */
+export function makeTileCoord(z: number, wrappedX: number, y: number, worldCopy: number = 0): TileCoord {
+  return { z, x: wrappedX, y, ox: wrappedX + worldCopy * Math.pow(2, z) }
 }
 
 export interface LoadedTile {
