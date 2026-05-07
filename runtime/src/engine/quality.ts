@@ -28,16 +28,6 @@
 // `?quality=performance&msaa=2` keeps performance preset's other knobs
 // but bumps MSAA back to 2× for slightly cleaner edges.
 
-// Inline isMobile rather than import from gpu.ts to avoid a circular
-// dependency: gpu.ts now imports QUALITY from this module to derive
-// SAMPLE_COUNT and MAX_DPR.
-function isMobile(): boolean {
-  if (typeof window === 'undefined') return false
-  const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false
-  const narrow = (window.innerWidth || 0) <= 900
-  return coarse && narrow
-}
-
 export interface QualityConfig {
   /** MSAA sample count: 1, 2, or 4. Init-time only — pipelines bake
    *  sampleCount, runtime change requires page reload. Higher = smoother
@@ -64,11 +54,26 @@ export interface QualityConfig {
 }
 
 export const QUALITY_PRESETS = {
-  /** Current behavior — full quality, no perf opt-ins. Default to preserve
-   *  back-compat with all existing deployments. */
+  /** Default — render at the device's native pixel density (capped at
+   *  3 to bound fragment work on hypothetical 4×+ monitors). Anchored
+   *  here AFTER the DPR-invariance fixes (tile budget / mobile
+   *  classification / MVP altitude all CSS-pixel-based, ee1f394 +
+   *  d608358 + 9d40ddb): tile fetch / decode / cache pressure is
+   *  identical at any DPR for the same logical viewport. The only
+   *  remaining DPR-dependent cost is fragment work — legitimate, since
+   *  more device pixels REQUIRE more fragment shader invocations.
+   *
+   *  Heavy scenes (Manhattan z=11.5 pitch=43° osm-style) measure ~18 ms
+   *  GPU pass at DPR=3 — a hair over the 16.7 ms 60 fps target, so
+   *  weak devices may see 40-50 fps on the worst case. Users on low-
+   *  power hardware can opt down with `?quality=performance` (msaa=1,
+   *  maxDpr=1.0). The previous "silently downscale to 1× for retina
+   *  phones" auto-promotion was removed because it lied about pixel
+   *  intent — `stroke-1` rendered as a fuzzy 3-device-pixel band after
+   *  the OS upscale instead of a sharp 1 CSS pixel. */
   default: {
     msaa: 4,
-    maxDpr: 2,
+    maxDpr: 3,
     interactionDpr: null,
     picking: false,
   },
@@ -132,18 +137,14 @@ function resolveQuality(): QualityConfig {
     base = { ...QUALITY_PRESETS.default }
   }
 
-  // 2. Mobile detection auto-promotes default → performance so phones
-  //    don't have to opt in. Real-device inspector data (iPhone, Seoul
-  //    z=8.7) showed GPU pass 27 ms even on the prior `battery` preset
-  //    (maxDpr 1.5) — past the 16.7 ms 60 fps target by ~1.6×, driving
-  //    the user-reported heat + forced refresh. `performance` (msaa 1,
-  //    maxDpr 1.0) drops fragment work to ~1/2.25 vs battery (1.5²
-  //    pixels) without sacrificing draw call count. User can still opt
-  //    back into higher quality with `?quality=battery` or
-  //    `?quality=default`.
-  if (!presetParam && !safeFlag && isMobile()) {
-    base = { ...QUALITY_PRESETS.performance }
-  }
+  // Mobile auto-promotion to `performance` was removed once the
+  // DPR-invariance fixes landed (ee1f394 / d608358 / 9d40ddb). The
+  // earlier rationale — "GPU pass 27 ms on iPhone" — was driven by
+  // tile-budget / MVP altitude inflation that scaled with DPR², not
+  // by raw fragment cost. With those sinks closed, DPR=3 produces
+  // the same tile / decode / cache load as DPR=1; only legitimate
+  // fragment work scales. Users on weak hardware can still opt down
+  // explicitly with `?quality=performance` (msaa=1, maxDpr=1.0).
 
   // 3. Per-key URL overrides (apply on top of preset).
   const msaaParam = params.get('msaa')
