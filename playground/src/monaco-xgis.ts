@@ -467,31 +467,16 @@ const SHAPE_COMPLETIONS: Partial<monaco.languages.CompletionItem>[] = [
   { label: 'circle', insertText: 'circle', detail: 'Circle (default, analytical SDF)' },
 ]
 
+/** Fallback completions shown before the editor has a chance to fetch
+ *  an actual source schema. Just a tiny generic seed — `name` shows
+ *  up everywhere, the rest is intentionally empty so the user knows
+ *  the real answers come from `discoverFields()`. PMTiles archives
+ *  surface their `vector_layers[*].fields` schema; GeoJSON sources
+ *  surface every property key from the first 10 features. The seed
+ *  here keeps the dropdown non-empty during the first keystroke
+ *  before either path resolves. */
 const COMMON_FIELDS = [
-  // Generic
   { name: 'name', detail: 'Feature name', doc: 'Common property: feature display name' },
-  { name: 'kind', detail: 'Feature subtype', doc: 'Categorical subtype (e.g., protomaps `kind`: "park", "highway", "office")' },
-  // Protomaps v4 — buildings layer
-  { name: 'height', detail: 'Building height (m)', doc: 'protomaps `buildings`: height in metres (often missing on smaller buildings)' },
-  { name: 'render_height', detail: 'Display height (m)', doc: 'protomaps `buildings`: rounded display height' },
-  { name: 'min_height', detail: 'Building base (m)', doc: 'protomaps `buildings`: ground-floor elevation for buildings on terrain' },
-  { name: 'levels', detail: 'Floor count', doc: 'protomaps `buildings`: number of floors (multiply by ~3.5 for metres)' },
-  { name: 'min_zoom', detail: 'Min zoom', doc: 'Earliest zoom at which the feature is included' },
-  // Protomaps v4 — roads layer
-  { name: 'min_zoom', detail: 'Min zoom', doc: 'Earliest zoom at which the feature is included' },
-  { name: 'sort_rank', detail: 'Z-order hint', doc: 'protomaps z-order for stacking strokes' },
-  // Natural Earth
-  { name: 'pop_max', detail: 'Max population', doc: 'Natural Earth: maximum population estimate' },
-  { name: 'pop_min', detail: 'Min population', doc: 'Natural Earth: minimum population estimate' },
-  { name: 'POP_EST', detail: 'Population estimate', doc: 'Country population estimate' },
-  { name: 'GDP_MD_EST', detail: 'GDP (millions USD)', doc: 'Gross domestic product in millions of dollars' },
-  { name: 'CONTINENT', detail: 'Continent name', doc: 'Africa, Asia, Europe, North America, South America, Oceania, Antarctica' },
-  { name: 'REGION_UN', detail: 'UN Region', doc: 'United Nations region classification' },
-  { name: 'SUBREGION', detail: 'Subregion', doc: 'Geographic subregion (e.g., Southern Asia, Western Europe)' },
-  { name: 'ECONOMY', detail: 'Economy class', doc: 'Economy classification (e.g., "7. Least developed region")' },
-  { name: 'INCOME_GRP', detail: 'Income group', doc: 'World Bank income classification' },
-  { name: 'featurecla', detail: 'Feature class', doc: 'Natural Earth feature classification' },
-  { name: 'scalerank', detail: 'Scale rank', doc: 'Importance ranking for display at different scales' },
 ]
 
 const DOCS = {
@@ -551,7 +536,16 @@ const HOVER_DOCS: Record<string, string> = {
 let discoveredFields: { name: string; sample: string }[] = []
 const fieldCache = new Map<string, { name: string; sample: string }[]>()
 
-/** Extract field names from a source string — fetch URLs and read properties */
+/** Extract field names from a source string. Two paths:
+ *  - GeoJSON: fetch the URL, read the first 10 features, collect
+ *    property keys.
+ *  - PMTiles: open the archive header, read its metadata, walk
+ *    `vector_layers[*].fields` (the schema the archive ships with).
+ *    Far cheaper than tile-byte-range probing and gives field names
+ *    + types per source-layer.
+ *  Caches by full URL so repeat edits don't refetch. Errors are
+ *  silent — the editor just falls back to whatever was already
+ *  discovered. */
 export async function discoverFields(source: string, baseUrl: string): Promise<void> {
   const urlMatches = [...source.matchAll(/url:\s*"([^"]+)"/g)]
   const allFields = new Map<string, string>() // name → sample value
@@ -567,36 +561,67 @@ export async function discoverFields(source: string, baseUrl: string): Promise<v
     }
 
     try {
-      const resp = await fetch(fullUrl)
-      if (!resp.ok) continue
-      const data = await resp.json()
-      const features = data.features ?? data
-      if (!Array.isArray(features) || features.length === 0) continue
+      let fields: { name: string; sample: string }[] | null = null
 
-      const fields: { name: string; sample: string }[] = []
-      // Collect all unique property keys from first 10 features
-      const propKeys = new Set<string>()
-      for (let i = 0; i < Math.min(features.length, 10); i++) {
-        const props = features[i]?.properties
-        if (props) for (const k of Object.keys(props)) propKeys.add(k)
+      if (fullUrl.endsWith('.pmtiles') || fullUrl.includes('.pmtiles?')) {
+        fields = await discoverPMTilesFields(fullUrl)
+      } else {
+        fields = await discoverGeoJSONFields(fullUrl)
       }
 
-      for (const key of propKeys) {
-        // Find a sample non-null value
-        let sample = ''
-        for (let i = 0; i < Math.min(features.length, 5); i++) {
-          const v = features[i]?.properties?.[key]
-          if (v != null) { sample = String(v).slice(0, 30); break }
-        }
-        fields.push({ name: key, sample })
-        allFields.set(key, sample)
+      if (fields) {
+        for (const f of fields) allFields.set(f.name, f.sample)
+        fieldCache.set(fullUrl, fields)
       }
-
-      fieldCache.set(fullUrl, fields)
-    } catch { /* ignore fetch errors */ }
+    } catch { /* ignore fetch / parse errors */ }
   }
 
   discoveredFields = [...allFields.entries()].map(([name, sample]) => ({ name, sample }))
+}
+
+/** GeoJSON discovery — fetch the file, read up to 10 features, collect
+ *  property keys + sample values. */
+async function discoverGeoJSONFields(fullUrl: string): Promise<{ name: string; sample: string }[] | null> {
+  const resp = await fetch(fullUrl)
+  if (!resp.ok) return null
+  const data = await resp.json()
+  const features = data.features ?? data
+  if (!Array.isArray(features) || features.length === 0) return null
+
+  const fields: { name: string; sample: string }[] = []
+  const propKeys = new Set<string>()
+  for (let i = 0; i < Math.min(features.length, 10); i++) {
+    const props = features[i]?.properties
+    if (props) for (const k of Object.keys(props)) propKeys.add(k)
+  }
+
+  for (const key of propKeys) {
+    let sample = ''
+    for (let i = 0; i < Math.min(features.length, 5); i++) {
+      const v = features[i]?.properties?.[key]
+      if (v != null) { sample = String(v).slice(0, 30); break }
+    }
+    fields.push({ name: key, sample })
+  }
+  return fields
+}
+
+/** PMTiles discovery — read the archive header + metadata
+ *  (`vector_layers[*].fields`). Far cheaper than fetching a tile
+ *  byte range; the header is one HTTP request and the schema lists
+ *  every property name available across the archive. The `sample`
+ *  column is set to the field's declared type when known
+ *  ("Number", "String", "Boolean") so the editor's hover doc tells
+ *  the user what shape the value has. */
+async function discoverPMTilesFields(fullUrl: string): Promise<{ name: string; sample: string }[] | null> {
+  // Reuse the runtime helper — it shares the same archive cache the
+  // map uses, so opening the archive here is free once the demo has
+  // started rendering. Returns the union of `vector_layers[*].fields`
+  // across every layer in the manifest.
+  const { fetchPMTilesVectorLayerFields } = await import('@xgis/runtime')
+  const fields = await fetchPMTilesVectorLayerFields(fullUrl)
+  if (!fields) return null
+  return Object.entries(fields).map(([name, sample]) => ({ name, sample }))
 }
 
 /** Get current discovered fields (for completion provider) */

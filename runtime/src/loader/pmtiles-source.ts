@@ -40,6 +40,32 @@ interface CachedArchive {
 }
 const archiveCache = new Map<string, Promise<CachedArchive>>()
 
+/** Fetch the union of `vector_layers[*].fields` from a PMTiles
+ *  archive's metadata. Used by editor tooling (the playground's
+ *  Monaco completion provider) to discover field names for `.field`
+ *  autocomplete without round-tripping through the catalog wiring.
+ *  Returns a flat `name → declared-type` map (e.g. `Number`,
+ *  `String`, `Boolean`); types come from the archive's metadata
+ *  schema. Returns null when the archive has no vector_layers
+ *  metadata or the fetch fails. */
+export async function fetchPMTilesVectorLayerFields(
+  url: string,
+): Promise<Record<string, string> | null> {
+  try {
+    const cached = await openCachedArchive(url)
+    const merged: Record<string, string> = {}
+    for (const vl of cached.vectorLayers) {
+      if (!vl.fields) continue
+      for (const [k, v] of Object.entries(vl.fields)) {
+        merged[k] = v
+      }
+    }
+    return Object.keys(merged).length > 0 ? merged : null
+  } catch {
+    return null
+  }
+}
+
 /** Test/dev hook — drop the cache (e.g., to force re-fetch in unit
  *  tests or after a known-stale archive update). Clears both the
  *  PMTiles archive cache and the TileJSON manifest cache. */
