@@ -375,6 +375,19 @@ struct TileUniforms {
   // Log-depth factor: 1.0 / log2(cam_far + 1.0). Reuses the old DSFUN
   // _pad0 slot so the 144-byte uniform layout is unchanged.
   log_depth_fc: f32,
+  // Slots 36-39 mirror the polygon Uniforms tail (pick_id /
+  // layer_depth_offset / tile_extent_m / extrude_height_m). The line
+  // shader only reads outline_z_lift_m — the others are padding so
+  // the WGSL struct lines up with the shared 160-byte uniform block.
+  // outline_z_lift_m aliases polygon's extrude_height_m so a single
+  // CPU-side write at slot 39 lifts BOTH the polygon roof faces AND
+  // the polygon outline strokes onto the building roof, fixing the
+  // "outline draws at ground level only" symptom that user reported
+  // for extruded layers.
+  _pad_pick: u32,
+  _pad_layer_offset: f32,
+  _pad_tile_extent: f32,
+  outline_z_lift_m: f32,
 }
 @group(0) @binding(0) var<uniform> tile: TileUniforms;
 
@@ -820,8 +833,8 @@ fn vs_line(
   // future refinement once joins / patterns / arrow caps move to
   // pixel units too.
   if (layer.viewport_height > 0.0) {
-    let center_clip = tile.mvp * vec4<f32>(finalize_corner(base), 0.0, 1.0);
-    let corner_clip = tile.mvp * vec4<f32>(finalize_corner(corner_local), 0.0, 1.0);
+    let center_clip = tile.mvp * vec4<f32>(finalize_corner(base), tile.outline_z_lift_m, 1.0);
+    let corner_clip = tile.mvp * vec4<f32>(finalize_corner(corner_local), tile.outline_z_lift_m, 1.0);
     let center_ndc = center_clip.xy / max(abs(center_clip.w), 1e-6) * sign(center_clip.w);
     let corner_ndc = corner_clip.xy / max(abs(corner_clip.w), 1e-6) * sign(corner_clip.w);
     let screen_dist = length(corner_ndc - center_ndc);
@@ -840,7 +853,13 @@ fn vs_line(
   // fragment SDF works in a consistent space.
   var out: LineOut;
   let corner_proj = finalize_corner(corner_local);
-  let clip = tile.mvp * vec4<f32>(corner_proj, 0.0, 1.0);
+  // outline_z_lift_m: shared with the polygon shader's extrude_height_m
+  // slot (uniform offset 156). For non-extruded layers this is 0 -
+  // line draws stay on the ground plane; for extruded layers (style
+  // extrude: <h> or extrude: .field) this matches the layer's
+  // current extrude height so the polygon outline rides on the
+  // building roof instead of underneath it.
+  let clip = tile.mvp * vec4<f32>(corner_proj, tile.outline_z_lift_m, 1.0);
   out.position = apply_log_depth(clip, tile.log_depth_fc);
   out.view_w = clip.w;
   out.world_local = corner_local; // geometry-frame; matches compute_line_color
