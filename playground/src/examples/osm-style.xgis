@@ -1,0 +1,123 @@
+/* OSM-style cartographic rendering on protomaps v4 PMTiles.
+ *
+ * Demonstrates a richer style than `pmtiles_layered`:
+ *   - 12+ sub-layers via per-feature `kind` filtering
+ *   - Cartographic palette (water blue, park green, road orange)
+ *   - Layered draw order (water → land → roads → buildings)
+ *
+ * Currently MISSING (engine work pending):
+ *   - text labels (place names, road names, POI labels)
+ *   - 3D polygon extrusion (building heights)
+ *   - zoom-dependent visibility (e.g., minor roads only at z≥12)
+ *
+ * Cities to navigate (URL hash #zoom/lat/lon):
+ *   #14/35.68/139.76    Tokyo
+ *   #14/40.78/-73.97    Manhattan
+ *   #13/37.5665/126.978 Seoul
+ *   #14/48.8566/2.3522  Paris
+ *   #14/51.5074/-0.1278 London
+ */
+
+background { fill: stone-100 }
+
+source pm_world {
+  type: pmtiles
+  url: "/pmtiles-proxy/protomaps/v4.pmtiles"
+}
+
+/* ── Water (zoom 0+) ─────────────────────────────────────────── */
+layer water {
+  source: pm_world
+  sourceLayer: "water"
+  | fill-sky-300 stroke-sky-500 stroke-0.5
+}
+
+/* ── Landuse — per-kind colours ──────────────────────────────── */
+layer landuse_park {
+  source: pm_world
+  sourceLayer: "landuse"
+  filter: .kind == "park" || .kind == "forest" || .kind == "wood"
+  | fill-green-200 stroke-green-300 stroke-0.3
+}
+
+layer landuse_grass {
+  source: pm_world
+  sourceLayer: "landuse"
+  filter: .kind == "grass" || .kind == "meadow" || .kind == "scrub"
+  | fill-lime-100 stroke-lime-200 stroke-0.3
+}
+
+layer landuse_residential {
+  source: pm_world
+  sourceLayer: "landuse"
+  filter: .kind == "residential" || .kind == "neighbourhood"
+  | fill-stone-200 stroke-stone-300 stroke-0.3
+}
+
+layer landuse_commercial {
+  source: pm_world
+  sourceLayer: "landuse"
+  filter: .kind == "commercial" || .kind == "retail"
+  | fill-orange-100 stroke-orange-200 stroke-0.3
+}
+
+layer landuse_industrial {
+  source: pm_world
+  sourceLayer: "landuse"
+  filter: .kind == "industrial"
+  | fill-zinc-200 stroke-zinc-300 stroke-0.3
+}
+
+layer landuse_other {
+  source: pm_world
+  sourceLayer: "landuse"
+  filter: .kind != "park" && .kind != "forest" && .kind != "wood"
+       && .kind != "grass" && .kind != "meadow" && .kind != "scrub"
+       && .kind != "residential" && .kind != "neighbourhood"
+       && .kind != "commercial" && .kind != "retail"
+       && .kind != "industrial"
+  | stroke-stone-300 stroke-0.2
+}
+
+/* ── Roads — hierarchy of widths (cartographic standard) ─────── */
+layer roads_minor {
+  source: pm_world
+  sourceLayer: "roads"
+  filter: .kind == "minor_road" || .kind == "service" || .kind == "path"
+  | stroke-stone-400 stroke-0.5
+}
+
+layer roads_secondary {
+  source: pm_world
+  sourceLayer: "roads"
+  filter: .kind == "secondary" || .kind == "tertiary"
+  | stroke-yellow-200 stroke-1.5
+}
+
+layer roads_primary {
+  source: pm_world
+  sourceLayer: "roads"
+  filter: .kind == "primary"
+  | stroke-amber-300 stroke-2.5
+}
+
+layer roads_highway {
+  source: pm_world
+  sourceLayer: "roads"
+  filter: .kind == "highway" || .kind == "motorway" || .kind == "trunk"
+  | stroke-orange-400 stroke-3.5
+}
+
+layer roads_rail {
+  source: pm_world
+  sourceLayer: "roads"
+  filter: .kind == "rail" || .kind == "subway" || .kind == "tram"
+  | stroke-slate-500 stroke-1
+}
+
+/* ── Buildings (top layer) ───────────────────────────────────── */
+layer buildings {
+  source: pm_world
+  sourceLayer: "buildings"
+  | fill-stone-300 stroke-stone-500 stroke-0.5
+}

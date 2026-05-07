@@ -147,6 +147,13 @@ export const DEMOS: Record<string, Demo> = {
     source: load('pmtiles-only-landuse.xgis'),
   },
 
+  osm_style: {
+    name: 'OSM-style cartography',
+    tag: 'xgvt',
+    description: 'Richer cartographic rendering on protomaps v4: per-kind landuse + road hierarchy (minor/secondary/primary/highway/rail) + buildings. Navigate to a city: #14/35.68/139.76 (Tokyo), #14/40.78/-73.97 (Manhattan).',
+    source: load('osm-style.xgis'),
+  },
+
   // ── CSS-like style + filter ──
 
   styled_world: {
