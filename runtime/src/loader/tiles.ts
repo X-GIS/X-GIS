@@ -625,19 +625,18 @@ export function visibleTilesFrustumSampled(
       const tileFy = (1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n
       const tx = Math.floor(tileFx)
       const ty = Math.floor(tileFy)
-      // Record the tile AND its 8-neighbours. Adjacent sample
-      // points at the grid's edges may project to the interior of
-      // a tile — neighbour dilation fills the fringe.
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          addTile(tx + dx, ty + dy, 0)
-        }
-      }
+      addTile(tx, ty, 0)
     }
   }
 
-  // Unpack and cap.
-  const MAX = maxFrustumTilesFor(canvasWidth, canvasHeight)
+  // Unpack — no per-viewport cap. The DFS selector caps because
+  // its mid-z giants can explode the count; this selector is
+  // single-zoom + 8-neighbour-dilated 9×9 grid → naturally
+  // bounded by viewport size (typical < 30, worst case under
+  // CEILING). Mapbox / MapLibre do the same — viewport coverage
+  // is the budget. Capping at floor (mobile 12) was clipping
+  // legitimate rows on portrait viewports.
+  const MAX = MAX_FRUSTUM_TILES_CEILING
   const result: TileCoord[] = []
   for (const key of tileSet) {
     if (result.length >= MAX) break

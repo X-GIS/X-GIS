@@ -6,7 +6,7 @@
 import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
-import { visibleTilesFrustum, sortByPriority } from '../loader/tiles'
+import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../loader/tiles'
 import { tileKey, tileKeyParent, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../data/tile-catalog'
@@ -1145,10 +1145,15 @@ export class VectorTileRenderer {
         let total = 0, ready = 0
         let stepTiles: ReturnType<typeof visibleTilesFrustum> = []
         if (!belowLayerMinzoom && !aboveLayerMaxzoom) {
-          stepTiles = visibleTilesFrustum(
-            camera, selectorProj, step,
-            canvasWidth, canvasHeight, offsetMarginPx,
-          )
+          stepTiles = (camera.pitch ?? 0) < 30
+            ? visibleTilesFrustumSampled(
+                camera, selectorProj, step,
+                canvasWidth, canvasHeight, offsetMarginPx,
+              )
+            : visibleTilesFrustum(
+                camera, selectorProj, step,
+                canvasWidth, canvasHeight, offsetMarginPx,
+              )
           for (const t of stepTiles) {
             if (t.z !== step) continue
             total++
@@ -1248,14 +1253,27 @@ export class VectorTileRenderer {
       parentAtMaxLevel = cache.parentAtMaxLevel
       archiveAncestor = cache.archiveAncestor
     } else {
-      tiles = visibleTilesFrustum(
-        camera,
-        selectorProj,
-        currentZ,
-        canvasWidth,
-        canvasHeight,
-        offsetMarginPx,
-      )
+      // Phase 2 dispatch: Mapbox / MapLibre screen-space-sample-grid
+      // for low-pitch (single zoom, cap-free, aspect-ratio-invariant);
+      // Cesium-style quadtree DFS for high-pitch where mixed-LOD is
+      // required for the horizon. 30° is the industry split.
+      tiles = (camera.pitch ?? 0) < 30
+        ? visibleTilesFrustumSampled(
+            camera,
+            selectorProj,
+            currentZ,
+            canvasWidth,
+            canvasHeight,
+            offsetMarginPx,
+          )
+        : visibleTilesFrustum(
+            camera,
+            selectorProj,
+            currentZ,
+            canvasWidth,
+            canvasHeight,
+            offsetMarginPx,
+          )
       const n = Math.pow(2, currentZ)
       const ctX = Math.floor((centerLon + 180) / 360 * n)
       const ctY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * n)
@@ -1838,10 +1856,15 @@ export class VectorTileRenderer {
         prefetchZ = currentZ - 1
       }
       if (prefetchZ >= 0) {
-        const prefetchTiles = visibleTilesFrustum(
-          camera, selectorProj, prefetchZ,
-          canvasWidth, canvasHeight, offsetMarginPx,
-        )
+        const prefetchTiles = (camera.pitch ?? 0) < 30
+          ? visibleTilesFrustumSampled(
+              camera, selectorProj, prefetchZ,
+              canvasWidth, canvasHeight, offsetMarginPx,
+            )
+          : visibleTilesFrustum(
+              camera, selectorProj, prefetchZ,
+              canvasWidth, canvasHeight, offsetMarginPx,
+            )
         const prefetchKeys: number[] = []
         for (const t of prefetchTiles) {
           const k = tileKey(t.z, t.x, t.y)
