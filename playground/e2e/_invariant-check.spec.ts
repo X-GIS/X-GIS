@@ -99,6 +99,16 @@ test.describe('Production invariant — visibility / fallback consistency', () =
     await page.waitForTimeout(1000)
     expect(errors, `invariant violations during pan+rotate:\n${errors.join('\n')}`).toEqual([])
 
-    console.log('[invariant-check] zero violations across cold-load + zoom-in + zoom-out + pan+rotate')
+    // Phase D: high-pitch (Cesium DFS path) — exercises the mixed-LOD
+    // selector. Should not violate any invariant either.
+    await page.evaluate(() => {
+      const cam = window.__xgisMap!.camera!
+      cam.pitch = 60
+      cam.zoom = 11
+    })
+    await page.waitForTimeout(3000)
+    expect(errors, `invariant violations during high-pitch:\n${errors.join('\n')}`).toEqual([])
+
+    console.log('[invariant-check] zero violations across cold-load + zoom-in/out + pan+rotate + high-pitch')
   })
 })
