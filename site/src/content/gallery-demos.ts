@@ -58,6 +58,7 @@ export const galleryCategories: Category[] = [
       // (bypasses the worker), so it keeps its Florence default.
       { id: 'pmtiles-source',         title: 'Single MVT source-layer', body: 'One PMTiles archive, one xgis layer filtering one MVT layer.', defaultHash: '13/43.77/11.25' },
       { id: 'pmtiles-layered',        title: 'Per-layer styling',       body: 'water / landuse / roads / buildings each driven by its own MVT slice.', defaultHash: '14/35.68/139.76' },
+      { id: 'osm-style',              runId: 'osm_style',                title: 'OSM-style cartography',   body: 'Per-kind landuse + road hierarchy + extruded buildings (3D walls visible at high pitch).', defaultHash: '17/40.7580/-73.9855/0/75' },
       { id: 'pmtiles-only-landuse',   title: 'Landuse slice',           body: 'Filter a PMTiles archive down to a single MVT layer.', defaultHash: '12/35.68/139.76' },
       { id: 'pmtiles-protomaps-v4',   runId: 'pmtiles_v4',              title: 'Protomaps v4',            body: 'Protomaps v4 daily world basemap — earth source-layer + vector_layers metadata.', defaultHash: '3/30/0' },
     ],

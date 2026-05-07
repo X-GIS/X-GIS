@@ -34,7 +34,7 @@ const GALLERY_DEMOS = [
   // Basics
   'minimal', 'ocean_land', 'dark', 'styled_world',
   // PMTiles + MVT
-  'pmtiles_source', 'pmtiles_layered', 'pmtiles_only_landuse', 'pmtiles_v4',
+  'pmtiles_source', 'pmtiles_layered', 'osm_style', 'pmtiles_only_landuse', 'pmtiles_v4',
   // Vector tiles (XGVT binary)
   'vector_tiles', 'vector_categorical', 'countries_categorical_xgvt', 'physical_map_xgvt',
   // Data-driven styling
@@ -82,7 +82,20 @@ test.describe('Capture demo thumbnails for site/examples gallery', () => {
       // hanging the whole capture run.
       test.setTimeout(45_000)
 
-      await page.goto(`/demo.html?id=${id}`, { waitUntil: 'domcontentloaded' })
+      // Demos that load from external archives or rely on a city-
+      // scale view need an explicit camera hash — without one the
+      // fit-to-bounds default lands at world view and the thumbnail
+      // is mostly empty grid. Hashes match the gallery-demos
+      // `defaultHash` entries.
+      const HASH_OVERRIDE: Record<string, string> = {
+        pmtiles_source: '#13/43.77/11.25',
+        pmtiles_layered: '#14/35.68/139.76',
+        osm_style: '#17/40.7580/-73.9855/0/75',
+        pmtiles_only_landuse: '#12/35.68/139.76',
+        pmtiles_v4: '#3/30/0',
+      }
+      const hash = HASH_OVERRIDE[id] ?? ''
+      await page.goto(`/demo.html?id=${id}${hash}`, { waitUntil: 'domcontentloaded' })
 
       // Captures after __xgisReady + 2× rAF. Animation demos are
       // sampled at frame 0 (no `elapsedMsAtLeast`) — for animations
@@ -90,11 +103,33 @@ test.describe('Capture demo thumbnails for site/examples gallery', () => {
       // back to the text card.
       const png = await captureCanvas(page, { readyTimeoutMs: 30_000 })
 
+      // PMTiles demos fetch their archive over the network after
+      // __xgisReady fires; if we screenshot immediately the canvas is
+      // empty. Wait for at least one VT source to report visible
+      // tiles, then re-capture.
+      if (id in HASH_OVERRIDE) {
+        await page.waitForFunction(
+          () => {
+            const m = (window as unknown as { __xgisMap?: { vtSources?: Map<string, { renderer: { getDrawStats?: () => { tilesVisible: number } } }> } }).__xgisMap
+            if (!m?.vtSources) return false
+            for (const s of m.vtSources.values()) {
+              const stats = s.renderer.getDrawStats?.()
+              if (stats && stats.tilesVisible > 0) return true
+            }
+            return false
+          },
+          null,
+          { timeout: 20_000 },
+        ).catch(() => { /* still emit whatever painted */ })
+        await page.evaluate(() => new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+      }
+      const finalPng = id in HASH_OVERRIDE ? await page.locator('#map').screenshot() : png
+
       // Re-encode PNG → JPG @ q=80 in the page context. Keeps the
       // pipeline node-side-dep-free (same constraint as visual.ts's
       // other helpers) and gives ~5x file size reduction over PNG
       // for photo-like rendered output.
-      const jpgBuffer = await encodeJpeg(page, png, 1200, 675, 0.8)
+      const jpgBuffer = await encodeJpeg(page, finalPng, 1200, 675, 0.8)
       writeFileSync(join(THUMB_DIR, `${id}.jpg`), jpgBuffer)
     })
   }
