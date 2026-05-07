@@ -2161,6 +2161,13 @@ export class VectorTileRenderer {
     const translucentLines = phase === 'strokes'
     const tileBg = this.tileBgFeature ?? this.tileBgDefault
     if (!tileBg || !this.uniformRing) return
+    // Stroke draws are batched and emitted AFTER every fill in this
+    // pass has written depth, so per-tile outlines depth-test against
+    // the layer's full geometry (not just whatever was drawn before
+    // this tile in the per-tile loop). Without this, an extruded
+    // building's roof outline would get overwritten by a later tile's
+    // wall fill at the same pixel.
+    const strokeQueue: { cached: GPUTile; slotOffset: number }[] = []
     for (let ki = 0; ki < keys.length; ki++) {
       const key = keys[ki]
       // For world copies: allow same key to render at different positions
@@ -2280,14 +2287,19 @@ export class VectorTileRenderer {
         pass.drawIndexed(cached.indexCount)
       }
 
-      // Polygon outlines via SDF line renderer — skipped in 'fills' phase.
-      if (drawStrokes && this.lineRenderer && cached.outlineSegmentCount > 0 && cached.outlineSegmentBindGroup) {
-        this.lineRenderer.drawSegments(pass, currentLineTileBg, cached.outlineSegmentBindGroup, cached.outlineSegmentCount, slotOffset, lineLayerOffset, translucentLines)
-      }
-
-      // Line features via SDF line renderer — skipped in 'fills' phase.
-      if (drawStrokes && this.lineRenderer && cached.lineSegmentCount > 0 && cached.lineSegmentBindGroup) {
-        this.lineRenderer.drawSegments(pass, currentLineTileBg, cached.lineSegmentBindGroup, cached.lineSegmentCount, slotOffset, lineLayerOffset, translucentLines)
+      // Strokes (polygon outlines + line features) deferred to a
+      // SECOND pass after every fill in this layer has written depth.
+      // With per-tile interleaving (fill→stroke→next-tile-fill) the
+      // outline of an earlier tile gets clobbered by a later tile's
+      // fill at coplanar / overlapping pixels — DEPTH_READ_ONLY lines
+      // don't write depth, so subsequent extruded fills run depth-
+      // test against the last fill's depth (not the line's), then
+      // overwrite the outline color. Recording the slot offset here
+      // lets the deferred stroke pass reuse the same uniform slot
+      // without re-doing the per-tile bind-group setup.
+      if (drawStrokes && this.lineRenderer
+          && (cached.outlineSegmentCount > 0 || cached.lineSegmentCount > 0)) {
+        strokeQueue.push({ cached, slotOffset })
       }
 
       const vc = cached.indexCount + cached.lineIndexCount
@@ -2302,6 +2314,24 @@ export class VectorTileRenderer {
       const tz = cached.tileZoom
       if (typeof tz === 'number') {
         this._frameDrawnByZoom.set(tz, (this._frameDrawnByZoom.get(tz) ?? 0) + 1)
+      }
+    }
+    // Second pass: emit every queued stroke draw now that all fills
+    // for this layer have written depth. Outline + line-feature
+    // drawSegments calls run against the layer's complete depth
+    // buffer; with DEPTH_READ_ONLY they don't disturb later layers'
+    // depth tests, but their occlusion against THIS layer's own
+    // 3D geometry is now correct regardless of tile iteration order.
+    if (strokeQueue.length > 0 && this.lineRenderer) {
+      const currentLineTileBg2 = this.tileBgDefault!
+      for (let i = 0; i < strokeQueue.length; i++) {
+        const { cached, slotOffset } = strokeQueue[i]
+        if (cached.outlineSegmentCount > 0 && cached.outlineSegmentBindGroup) {
+          this.lineRenderer.drawSegments(pass, currentLineTileBg2, cached.outlineSegmentBindGroup, cached.outlineSegmentCount, slotOffset, lineLayerOffset, translucentLines)
+        }
+        if (cached.lineSegmentCount > 0 && cached.lineSegmentBindGroup) {
+          this.lineRenderer.drawSegments(pass, currentLineTileBg2, cached.lineSegmentBindGroup, cached.lineSegmentCount, slotOffset, lineLayerOffset, translucentLines)
+        }
       }
     }
     // Emit accumulated per-tile uniforms as one writeBuffer. Still
