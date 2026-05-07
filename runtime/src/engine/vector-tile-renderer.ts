@@ -1959,7 +1959,29 @@ export class VectorTileRenderer {
     // Render fallback ancestors (stencil test) — with world offsets for wrapping
     if (fillPipelineFallback && fallbackKeys.length > 0) {
       if (phase !== 'strokes') pass.setStencilReference(0)
+      // Visual debug hook: when `globalThis.__XGIS_FALLBACK_RED = true` is
+      // set, override the fallback fill colour to bright red. Lets the
+      // user visually confirm whether parent/child fallback is actually
+      // rendering during a "white flash" — if red is visible, the bug
+      // is downstream of fallback rendering (e.g., later layer covering
+      // it, alpha = 0, render order); if no red appears, the fallback
+      // path itself is dropping the tile.
+      const _debugRed = (globalThis as { __XGIS_FALLBACK_RED?: boolean }).__XGIS_FALLBACK_RED
+      let _origR = 0, _origG = 0, _origB = 0
+      if (_debugRed) {
+        _origR = this.uniformF32[16]
+        _origG = this.uniformF32[17]
+        _origB = this.uniformF32[18]
+        this.uniformF32[16] = 1.0
+        this.uniformF32[17] = 0.0
+        this.uniformF32[18] = 0.0
+      }
       this.renderTileKeys(fallbackKeys, pass, fillPipelineFallback, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache)
+      if (_debugRed) {
+        this.uniformF32[16] = _origR
+        this.uniformF32[17] = _origG
+        this.uniformF32[18] = _origB
+      }
     }
 
 
