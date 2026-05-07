@@ -119,6 +119,13 @@ const TWO_PI_R_EARTH = 2 * Math.PI * 6378137
  *  perceives a smooth pop-in without the scene feeling laggy. */
 const TILE_FADE_MS = 150
 
+/** Cesium replacement-invariant ancestor protection depth. Caps the
+ *  number of pyramid levels above each visible tile that are held
+ *  pinned in the catalog cache. 4 covers the typical fallback walk
+ *  depth (1-2 levels of parent miss + headroom) without letting the
+ *  protected set explode at deep zoom. */
+const ANCESTOR_PROTECT_DEPTH = 4
+
 /** Phase B repack: DSFUN polygon vertices (Float32×5 stride 20) →
  *  quantized (u16×2 + f32 stride 8). 60% byte reduction. Done at
  *  upload time as a transitional step; Phase B-3 moves quantization
@@ -475,18 +482,19 @@ export class VectorTileRenderer {
       guard.clear()
       for (const k of this.stableKeys) {
         guard.add(k)
-        // Cesium QuadtreePrimitive replacement invariant: every
-        // ancestor of a needed tile is also protected from
-        // eviction. Fixes the pathology where the byte-budget
-        // could evict mid-z entries (z=4-7) while leaving a far
-        // ancestor (z=3) cached, forcing the per-layer fallback
-        // walk to reach a country-covering low-detail giant and
-        // dominate GPU vertex throughput. With ancestors held,
-        // any fallback walk finds a 1-2 level parent — Mapbox /
-        // Cesium guarantee. Cost: ~stableKeys × ~zoom adds per
-        // frame (~50 entries for a typical mobile viewport).
+        // Cesium QuadtreePrimitive replacement invariant: ancestors
+        // of a needed tile are protected from eviction. Capped at
+        // ANCESTOR_PROTECT_DEPTH levels so visible × ancestor chain
+        // stays bounded even at dense high-zoom viewports — without
+        // a cap, mobile catalog can grow past MAX_CACHED_BYTES under
+        // a wide pyramid (visible 20 × log2 zoom ~ 200+ keys × ~2 MB
+        // each ≫ 100 MB mobile cap). Beyond the cap, eviction is
+        // free game; deck.gl children-stretch fallback (Phase 3)
+        // covers the rare cold-start cases that depth-cap leaves
+        // exposed. Mapbox findLoadedParent walks 1 level by default;
+        // 4 is a balance between fallback coverage and memory.
         let pk = k
-        while (pk > 1) {
+        for (let d = 0; d < ANCESTOR_PROTECT_DEPTH && pk > 1; d++) {
           pk = tileKeyParent(pk)
           if (pk < 1) break
           guard.add(pk)
