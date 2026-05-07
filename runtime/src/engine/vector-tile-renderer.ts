@@ -8,6 +8,7 @@ import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../loader/tiles'
 import { classifyTile, computeProtectedKeys, type TileDecision } from './tile-decision'
+import { generateWallMesh, quantizePolygonVertices } from './polygon-mesh'
 import { tileKey, tileKeyParent, tileKeyChildren, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../data/tile-catalog'
@@ -127,35 +128,9 @@ const TWO_PI_R_EARTH = 2 * Math.PI * 6378137
  *  protected set explode at deep zoom. */
 const ANCESTOR_PROTECT_DEPTH = 4
 
-/** Phase B repack: DSFUN polygon vertices (Float32×5 stride 20) →
- *  quantized (u16×2 + f32 stride 8). 60% byte reduction. Done at
- *  upload time as a transitional step; Phase B-3 moves quantization
- *  into the compiler and skips this step entirely. */
-function repackDSFUNToQuantized(
-  dsfun: Float32Array,
-  tileExtentM: number,
-): ArrayBuffer {
-  const n = dsfun.length / 5
-  const buf = new ArrayBuffer(n * 8)
-  const i16 = new Int16Array(buf)
-  const f32 = new Float32Array(buf)
-  const scale = 65535 / tileExtentM
-  for (let i = 0; i < n; i++) {
-    // local meters = mx_h + mx_l (DSFUN reconstruction)
-    const localX = dsfun[i * 5] + dsfun[i * 5 + 2]
-    const localY = dsfun[i * 5 + 1] + dsfun[i * 5 + 3]
-    const fid = dsfun[i * 5 + 4]
-    let mxQ = Math.round(localX * scale)
-    let myQ = Math.round(localY * scale)
-    if (mxQ < 0) mxQ = 0; else if (mxQ > 65535) mxQ = 65535
-    if (myQ < 0) myQ = 0; else if (myQ > 65535) myQ = 65535
-    const i16Idx = i * 4
-    i16[i16Idx] = mxQ <= 32767 ? mxQ : mxQ - 65536
-    i16[i16Idx + 1] = myQ <= 32767 ? myQ : myQ - 65536
-    f32[i * 2 + 1] = fid
-  }
-  return buf
-}
+// Polygon mesh quantization + wall generation moved to engine/
+// polygon-mesh.ts so the math is unit-testable independent of GPU
+// state. See `quantizePolygonVertices` + `generateWallMesh`.
 
 export class VectorTileRenderer {
   private device: GPUDevice
@@ -789,26 +764,55 @@ export class VectorTileRenderer {
     // Label every per-tile buffer so writeBuffer attribution in the
     // diagnostic suite can separate tile-upload churn from per-frame
     // uniform writes. Cost is zero — label is a GPU debug string.
-    // Phase B: repack DSFUN polygon vertices [mx_h,my_h,mx_l,my_l,fid]
-    // (stride 20) → quantized [u16 mx, u16 my, f32 fid] (stride 8) so
-    // the GPU sees a 60% smaller vertex buffer. Pre-quantization at
-    // compile time is Phase B-3; for now the repack runs once per
-    // upload (~µs per tile, dwarfed by writeBuffer cost).
+    //
+    // Polygon vertex pipeline:
+    //   * Top face: DSFUN F32×5 → quantized u16×2 + f32 stride 8
+    //     (60 % byte reduction). is_top flag in bit 15 of x for
+    //     extruded layers so the shader lifts to z=extrude_height_m.
+    //   * Side walls (extruded layers only): emit per-edge wall
+    //     quads from the polygon ring data and concat onto the top
+    //     vertex/index buffers. is_top alternates 0/1 for the
+    //     bottom/top wall corners.
     const tileExtentM = TWO_PI_R_EARTH / Math.pow(2, data.tileZoom)
-    const quantVerts = repackDSFUNToQuantized(data.vertices, tileExtentM)
+    const isExtruded = sourceLayer === 'buildings'
+    const topVerts = quantizePolygonVertices(data.vertices, tileExtentM, { isTop: isExtruded })
+    const topVertexCount = topVerts.byteLength / 8
+    let polyVerts: ArrayBuffer = topVerts
+    let polyIndices: Uint32Array = data.indices
+    if (isExtruded && data.polygons && data.polygons.length > 0) {
+      // Tile origin in mercator metres — needed because polygon ring
+      // coords are absolute mercator, not tile-local.
+      const DEG2RAD = Math.PI / 180
+      const R = 6378137
+      const tileMx = (data.tileWest) * DEG2RAD * R
+      const clampLat = Math.max(-85.051129, Math.min(85.051129, data.tileSouth))
+      const tileMy = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
+      const wall = generateWallMesh(data.polygons, tileExtentM, tileMx, tileMy)
+      // Concat vertex buffer
+      const combined = new Uint8Array(topVerts.byteLength + wall.vertices.byteLength)
+      combined.set(new Uint8Array(topVerts), 0)
+      combined.set(new Uint8Array(wall.vertices), topVerts.byteLength)
+      polyVerts = combined.buffer
+      // Concat index buffer with offset for wall indices
+      polyIndices = new Uint32Array(data.indices.length + wall.indices.length)
+      polyIndices.set(data.indices, 0)
+      for (let i = 0; i < wall.indices.length; i++) {
+        polyIndices[data.indices.length + i] = wall.indices[i] + topVertexCount
+      }
+    }
     const vertexBuffer = this.acquireBuffer(
-      Math.max(quantVerts.byteLength * 3, 12),
+      Math.max(polyVerts.byteLength * 3, 12),
       GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       'tile-vertices',
     )
-    this.device.queue.writeBuffer(vertexBuffer, 0, quantVerts)
+    this.device.queue.writeBuffer(vertexBuffer, 0, polyVerts)
 
     const indexBuffer = this.acquireBuffer(
-      Math.max(data.indices.byteLength * 3, 4),
+      Math.max(polyIndices.byteLength * 3, 4),
       GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
       'tile-indices',
     )
-    this.device.queue.writeBuffer(indexBuffer, 0, data.indices)
+    this.device.queue.writeBuffer(indexBuffer, 0, polyIndices)
 
     let lineVertexBuffer: GPUBuffer | null = null
     let lineIndexBuffer: GPUBuffer | null = null
@@ -905,7 +909,7 @@ export class VectorTileRenderer {
 
     layerCache.set(key, {
       vertexBuffer, indexBuffer,
-      indexCount: data.indices.length,
+      indexCount: polyIndices.length,
       lineVertexBuffer, lineIndexBuffer,
       lineIndexCount: data.lineIndices.length,
       outlineIndexBuffer, outlineIndexCount,

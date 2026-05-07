@@ -148,21 +148,29 @@ fn vs_main(
   return out;
 }
 
-// Phase B quantized polygon vertex entry. Reads pos_norm (unorm16x2,
-// each component already normalised to [0, 1] by the GPU from the
-// stored u16 [0, 65535]) and dequants via tile_extent_m. The line
-// pipeline keeps its DSFUN entry point above; only polygon fill
-// switches to this. Logic mirrors vs_main minus the high+low precision
-// reconstruction — at the post-quantize tile-local scale (≤ 4×10⁷ m
-// at z=0, ≤ 9.5 m at z=22) Float32 has ample precision (mantissa
-// 23 bit ≈ 2.4 m at z=0, 1 µm at z=22), so the DSFUN trick is
-// unnecessary here.
+// Phase B quantized polygon vertex entry. Reads pos_raw (uint16x2 →
+// vec2<u32> in shader) and unpacks:
+//   - bit 15 of x  : is_top flag (3D extrusion side-wall support)
+//   - bits 0-14    : 15-bit position quanta in [0, 32767]
+//
+// The 1-bit precision sacrifice on x (32767 vs 65535 quanta over a
+// tile) is sub-pixel even at zoom 22 (9.5 m / 32767 ≈ 0.29 mm) so
+// invisible in any rendering.
+//
+// Bottom and top vertices share the same x,y; only the is_top flag
+// differs. vs_main_quantized lifts top vertices to z=extrude_height_m
+// in world space; bottom vertices stay on the ground plane (z=0).
+// Side walls between (a_bot, b_bot, a_top, b_top) thus form a vertical
+// quad without needing a separate vertex format or pipeline.
 @vertex
 fn vs_main_quantized(
-  @location(0) pos_norm: vec2<f32>,
+  @location(0) pos_raw: vec2<u32>,
   @location(2) feature_id: f32,
 ) -> VertexOutput {
-  let local = pos_norm * u.tile_extent_m;
+  let is_top = (pos_raw.x & 0x8000u) != 0u;
+  let mx_q = f32(pos_raw.x & 0x7FFFu);
+  let my_q = f32(pos_raw.y);
+  let local = vec2<f32>(mx_q, my_q) / 32767.0 * u.tile_extent_m;
   // cam_h + cam_l = cam_merc - tile_origin_merc (set CPU-side). Sum
   // here is fine because we are already at tile-local scale where Float32
   // suffices. Same downstream as vs_main from rel onward.
@@ -187,12 +195,13 @@ fn vs_main_quantized(
   }
 
   var out: VertexOutput;
-  // 3D extrusion: polygon vertex sits at z=extrude_height_m in world
-  // space. mvp transforms (x, y, z) → clip respecting camera pitch
-  // so tilted views show polygons lifted above the ground plane.
-  // For non-extruded layers extrude_height_m is 0 → equivalent to
-  // the previous flat (rtc.x, rtc.y, 0) path, no behaviour change.
-  let clip = u.mvp * vec4<f32>(rtc, u.extrude_height_m, 1.0);
+  // 3D extrusion: top vertices lift to z=extrude_height_m, bottom
+  // stay at z=0. Wall quads (a_bot, b_bot, a_top, b_top) form
+  // vertical sides; top-face polygons all carry is_top=1. Non-
+  // extruded layers set extrude_height_m=0 → both branches yield
+  // z=0 → identical to the flat path.
+  let z_world = select(0.0, u.extrude_height_m, is_top);
+  let clip = u.mvp * vec4<f32>(rtc, z_world, 1.0);
   out.position = apply_log_depth(clip, u.log_depth_fc);
   out.position.z = out.position.z - u.layer_depth_offset * out.position.w;
   out.view_w = clip.w;
@@ -758,7 +767,7 @@ export class MapRenderer {
     const vertexBufferLayout: GPUVertexBufferLayout = {
       arrayStride: 8,
       attributes: [
-        { shaderLocation: 0, offset: 0, format: 'unorm16x2' as GPUVertexFormat },
+        { shaderLocation: 0, offset: 0, format: 'uint16x2' as GPUVertexFormat },
         { shaderLocation: 2, offset: 4, format: 'float32'   as GPUVertexFormat },
       ],
     }
@@ -1145,7 +1154,7 @@ export class MapRenderer {
     const vertexBufferLayout: GPUVertexBufferLayout = {
       arrayStride: 8,
       attributes: [
-        { shaderLocation: 0, offset: 0, format: 'unorm16x2' as GPUVertexFormat },
+        { shaderLocation: 0, offset: 0, format: 'uint16x2' as GPUVertexFormat },
         { shaderLocation: 2, offset: 4, format: 'float32'   as GPUVertexFormat },
       ],
     }

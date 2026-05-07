@@ -31,6 +31,7 @@ test.describe('OSM-style demo capture', () => {
       // Tilted views — verify 3D building extrusion is visible.
       { name: '04-tokyo-z16-tilt45', hash: '#16/35.68/139.76/0/45' },
       { name: '05-manhattan-z16-tilt60', hash: '#16/40.78/-73.97/0/60' },
+      { name: '06-manhattan-z17-tilt75', hash: '#17/40.7580/-73.9855/0/75' },
     ]
 
     for (const s of states) {
