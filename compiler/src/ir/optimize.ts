@@ -9,6 +9,7 @@ import type {
 import { colorConstant, opacityConstant, sizeConstant, hexToRgba } from './render-node'
 import { classifyExpr, type FnEnv } from './classify'
 import { constFold } from './const-fold'
+import { mergeLayers } from './merge-layers'
 
 /**
  * Optimize a Scene by classifying expressions and folding constants.
@@ -26,11 +27,17 @@ export function optimize(scene: Scene, program?: AST.Program): Scene {
     }
   }
 
-  return {
+  const optimized: Scene = {
     sources: scene.sources,
     renderNodes: scene.renderNodes.map(node => optimizeNode(node, fnEnv)),
     symbols: scene.symbols,
   }
+  // Merge contiguous same-source-layer RenderNodes that differ only
+  // in `filter:` + `fill:` + `stroke colour`. Reduces the per-tile
+  // draw fanout from N (one per xgis layer) to 1 (one compound layer
+  // with a `match()` dispatch on the shared filter field) for the
+  // OSM-style six-`landuse_*` / five-`roads_*` pattern.
+  return mergeLayers(optimized)
 }
 
 function optimizeNode(node: RenderNode, fnEnv: FnEnv): RenderNode {

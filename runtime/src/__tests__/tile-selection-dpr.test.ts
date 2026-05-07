@@ -107,4 +107,40 @@ describe('tile selection DPR invariance', () => {
     // Document the actual count so over-coverage shows up in diffs.
     expect(tiles.length).toBeGreaterThan(0)
   })
+
+  it('DPR sweep at HEAVY scene (Manhattan z=11.5 pitch=43): same tile count', () => {
+    // The original "4fps" report scenario. After all DPR fixes the
+    // tile selector should produce identical sets at DPR=1 / 2 / 3.
+    const cam = makeCam(11.5, 43, 29, -73.99, 40.78)
+    const z = Math.round(cam.zoom)
+    const counts = [1, 2, 3].map(d => {
+      const tiles = visibleTilesFrustum(cam, mercator, z, CSS_W * d, CSS_H * d, 0, d)
+      return { dpr: d, count: tiles.length }
+    })
+    // eslint-disable-next-line no-console
+    console.log('Manhattan z=11.5 pitch=43 — tile counts:', counts)
+    // All DPRs must agree.
+    expect(counts[1].count).toBe(counts[0].count)
+    expect(counts[2].count).toBe(counts[0].count)
+  })
+
+  it('DPR sweep at flat top-down z=15 scenarios: same tile count', () => {
+    const scenarios = [
+      { zoom: 14.95, bearing: 26, label: 'NYC z=14.95 b=26' },
+      { zoom: 16.5, bearing: 0, label: 'NYC z=16.5 b=0' },
+      { zoom: 12, bearing: 90, label: 'NYC z=12 b=90' },
+    ]
+    for (const s of scenarios) {
+      const cam = makeCam(s.zoom, 0, s.bearing)
+      const z = Math.round(cam.zoom)
+      const counts = [1, 2, 3].map(d => {
+        const tiles = visibleTilesFrustumSampled(cam, mercator, z, CSS_W * d, CSS_H * d, 0, d)
+        return { dpr: d, count: tiles.length }
+      })
+      // eslint-disable-next-line no-console
+      console.log(`${s.label} — sampled tile counts:`, counts)
+      expect(counts[1].count).toBe(counts[0].count)
+      expect(counts[2].count).toBe(counts[0].count)
+    }
+  })
 })
