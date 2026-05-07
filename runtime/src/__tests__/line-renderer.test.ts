@@ -38,6 +38,9 @@ const OFF_NEXT_TANGENT = 10
 const OFF_ARC_START = 12
 const OFF_PAD_P0 = 14
 const OFF_PAD_P1 = 15
+const OFF_Z_LIFT = 16
+const OFF_WIDTH_OVERRIDE = 17
+const OFF_COLOR_PACKED = 18
 
 // Helper: build a DSFUN stride-6 line vertex buffer from plain
 // (mx, my, arc_start) tuples. Polygon outlines (stride 5) drop arc_start.
@@ -230,6 +233,68 @@ describe('packLineLayerUniform', () => {
 })
 
 describe('buildLineSegments', () => {
+  it('bakes per-feature stroke width into segment.width_px_override', () => {
+    // Two features, two segments each. Feature 0 (featId=0) has the
+    // first 4 vertices; feature 1 (featId=1) has the last 3.
+    // Mirrors the worker's compound-layer flow: pre-resolved width
+    // map keyed by featId, written into the per-segment slot at
+    // offset 17 so the line shader can pick it over layer.width_px.
+    const vertices = new Float32Array(7 * 6)
+    for (let i = 0; i < 4; i++) {
+      vertices[i * 6 + 0] = i * 100
+      vertices[i * 6 + 4] = 0  // featId
+    }
+    for (let i = 4; i < 7; i++) {
+      vertices[i * 6 + 0] = i * 100
+      vertices[i * 6 + 4] = 1  // featId
+    }
+    const indices = new Uint32Array([0, 1, 1, 2, 2, 3, 4, 5, 5, 6])
+    const widths = new Map<number, number>([[0, 0.5], [1, 2.5]])
+    const seg = buildLineSegments(vertices, indices, 6, 0, 0, undefined, widths)
+    // First 3 segments belong to featId=0 → width 0.5
+    for (let s = 0; s < 3; s++) {
+      expect(seg[s * LINE_SEGMENT_STRIDE_F32 + OFF_WIDTH_OVERRIDE]).toBe(0.5)
+    }
+    // Last 2 segments belong to featId=1 → width 2.5
+    for (let s = 3; s < 5; s++) {
+      expect(seg[s * LINE_SEGMENT_STRIDE_F32 + OFF_WIDTH_OVERRIDE]).toBe(2.5)
+    }
+  })
+
+  it('leaves segment.width_px_override at 0 when no widths map supplied', () => {
+    const vertices = new Float32Array(2 * 6)
+    vertices[0 * 6 + 0] = 0; vertices[0 * 6 + 4] = 0
+    vertices[1 * 6 + 0] = 100; vertices[1 * 6 + 4] = 0
+    const indices = new Uint32Array([0, 1])
+    const seg = buildLineSegments(vertices, indices, 6)
+    // 0 = "no override" sentinel — line shader falls through to
+    // layer.width_px (legacy / unmerged path).
+    expect(seg[OFF_WIDTH_OVERRIDE]).toBe(0)
+  })
+
+  it('packs RGBA8 stroke colour into segment.color_packed via Uint32Array view', () => {
+    // Worker passes colours as packed u32 values keyed by featId.
+    // The segment buffer is a Float32Array; we need to verify that
+    // the u32 bit pattern survives — the shader reads it as f32
+    // and uses bitcast<u32> to recover. Check via Uint32Array view.
+    // Two features, two distinct chains so each segment's p0
+    // belongs to a single feature (segment colour samples featId
+    // from p0, see line-segment-build.ts:347).
+    const vertices = new Float32Array(4 * 6)
+    vertices[0 * 6 + 0] = 0;   vertices[0 * 6 + 4] = 0
+    vertices[1 * 6 + 0] = 100; vertices[1 * 6 + 4] = 0
+    vertices[2 * 6 + 0] = 500; vertices[2 * 6 + 4] = 1
+    vertices[3 * 6 + 0] = 600; vertices[3 * 6 + 4] = 1
+    const indices = new Uint32Array([0, 1, 2, 3])
+    const f0Color = (0xff << 24) | (0x00 << 16) | (0x88 << 8) | 0xff
+    const f1Color = (0x80 << 24) | (0xff << 16) | (0xaa << 8) | 0x00
+    const colors = new Map<number, number>([[0, f0Color >>> 0], [1, f1Color >>> 0]])
+    const seg = buildLineSegments(vertices, indices, 6, 0, 0, undefined, undefined, colors)
+    const segU32 = new Uint32Array(seg.buffer)
+    expect(segU32[0 * LINE_SEGMENT_STRIDE_F32 + OFF_COLOR_PACKED]).toBe(f0Color >>> 0)
+    expect(segU32[1 * LINE_SEGMENT_STRIDE_F32 + OFF_COLOR_PACKED]).toBe(f1Color >>> 0)
+  })
+
   it('carries arc_start from stride-6 vertices into the segment struct', () => {
     // Two segments representing a single polyline with 3 vertices.
     // Arc values simulate what the tiler would write:
