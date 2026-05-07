@@ -169,6 +169,50 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
     expect(scene.renderNodes[0].stroke.color.kind).toBe('constant')
   })
 
+  it('non-contiguous same-sourceLayer groups produce SEPARATE compounds', () => {
+    // Two roads_* groups separated by a non-mergeable layer
+    // (different sourceLayer in between). Each group should fold
+    // into its own compound — the runtime keys segment overrides
+    // by sliceKey, so the two compounds get distinct slices and
+    // their stroke widths / colours don't bleed across each other.
+    const source = `
+      source pm { type: pmtiles url: "x.pmtiles" }
+      layer roads_a {
+        source: pm sourceLayer: "roads" filter: .kind == "minor_road"
+        | stroke-stone-400 stroke-0.5
+      }
+      layer roads_b {
+        source: pm sourceLayer: "roads" filter: .kind == "primary"
+        | stroke-amber-300 stroke-2.5
+      }
+      layer water {
+        source: pm sourceLayer: "water"
+        | fill-sky-300 stroke-sky-500 stroke-0.5
+      }
+      layer roads_c {
+        source: pm sourceLayer: "roads" filter: .kind == "highway"
+        | stroke-orange-400 stroke-3.5
+      }
+      layer roads_d {
+        source: pm sourceLayer: "roads" filter: .kind == "rail"
+        | stroke-slate-500 stroke-1
+      }
+    `
+    const scene = compileToScene(source)
+    // Expect: 1 roads compound (a+b), 1 water, 1 roads compound
+    // (c+d) — the water break splits the roads group into two
+    // contiguous runs. 5 input → 3 output.
+    expect(scene.renderNodes.length).toBe(3)
+    const roadsCompounds = scene.renderNodes.filter(n => n.sourceLayer === 'roads')
+    expect(roadsCompounds.length).toBe(2)
+    // Both should have synthesized colorExpr + widthExpr — group
+    // members have different stroke colours AND widths.
+    for (const r of roadsCompounds) {
+      expect(r.stroke.colorExpr).toBeDefined()
+      expect(r.stroke.widthExpr).toBeDefined()
+    }
+  })
+
   it('merges multi-value filter chains (||-joined kind tests)', () => {
     const source = `
       source pm { type: pmtiles url: "x.pmtiles" }
