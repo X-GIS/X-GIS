@@ -236,9 +236,15 @@ export class Camera {
 
   /** Pan by CSS pixels (clientX/clientY delta), accounting for map rotation */
   pan(dx: number, dy: number, _canvasWidth: number, canvasHeight: number): void {
-    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-    const metersPerPhysicalPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
-    const metersPerCSSPixel = metersPerPhysicalPixel * dpr
+    // mpp from the formula `40075016.686 / 256 / 2^zoom` is meters per
+    // CSS pixel — the Mapbox tile-pyramid convention. After the MVP
+    // DPR-invariance fix (ee1f394), 1 input CSS pixel of drag maps
+    // directly to `mpp` meters of world motion at any DPR. The prior
+    // `× dpr` factor was needed for the old DPR-dependent altitude
+    // semantic (1 CSS px = mpp × dpr m); leaving it in now would make
+    // the map pan DPR× too fast — symptom: the user-reported "pan
+    // feels DPR× more sensitive" on a DPR=3 phone.
+    const metersPerInputPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
 
     // Rotate screen delta by bearing to get map-space delta
     const rad = this.bearing * Math.PI / 180
@@ -247,13 +253,13 @@ export class Camera {
     const mapDx = dx * cos + dy * sin
     const mapDy = -dx * sin + dy * cos
 
-    this.centerX -= mapDx * metersPerCSSPixel
+    this.centerX -= mapDx * metersPerInputPixel
     // Wrap X to stay within one world width (prevents infinite drift)
     const halfWorld = WORLD_MERC / 2
     if (this.centerX > halfWorld) this.centerX -= WORLD_MERC
     else if (this.centerX < -halfWorld) this.centerX += WORLD_MERC
     const maxY = this.maxCameraY(canvasHeight)
-    const newY = this.centerY + mapDy * metersPerCSSPixel
+    const newY = this.centerY + mapDy * metersPerInputPixel
     this.centerY = Math.max(-maxY, Math.min(maxY, newY))
   }
 
