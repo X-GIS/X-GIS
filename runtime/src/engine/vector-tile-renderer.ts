@@ -46,7 +46,10 @@ interface GPUTile {
   tileHeight: number
   tileZoom: number
   lastUsedFrame: number
-  firstShownFrame: number // for fade-in animation
+  /** Timestamp (performance.now) at upload. Render-time alpha = clamp(
+   *  (now - uploadTimeMs) / TILE_FADE_MS, 0, 1). Mapbox / MapLibre /
+   *  Leaflet / Google standard tile fade-in. */
+  uploadTimeMs: number
 }
 
 // Per-VTR GPU tile cache cap on UNIQUE tile keys. With sliced
@@ -110,6 +113,11 @@ const UNIFORM_SIZE = 160
  *  any zoom z is this constant divided by 2^z (vs_main_quantized
  *  dequant scale). */
 const TWO_PI_R_EARTH = 2 * Math.PI * 6378137
+
+/** Tile fade-in duration (ms). Mapbox default is 150 ms, Leaflet
+ *  ~200 ms, Google ~250 ms. 150 ms is short enough that the user
+ *  perceives a smooth pop-in without the scene feeling laggy. */
+const TILE_FADE_MS = 150
 
 /** Phase B repack: DSFUN polygon vertices (Float32×5 stride 20) →
  *  quantized (u16×2 + f32 stride 8). 60% byte reduction. Done at
@@ -504,6 +512,21 @@ export class VectorTileRenderer {
     return this._pendingUploads.length > 0
   }
 
+  /** Mapbox / MapLibre / Leaflet / Google Maps standard tile fade-in.
+   *  Tiles ramp opacity from 0 to 1 over `TILE_FADE_MS` after upload
+   *  to soften the pop-in when a missing tile arrives. The render-on-
+   *  demand loop ticks while any tile is mid-fade so the animation
+   *  completes even after the camera goes idle. */
+  hasPendingFades(): boolean {
+    const now = performance.now()
+    for (const layerCache of this.gpuCache.values()) {
+      for (const tile of layerCache.values()) {
+        if (now - tile.uploadTimeMs < TILE_FADE_MS) return true
+      }
+    }
+    return false
+  }
+
   /** Diagnostic: queue depth for inspectPipeline() snapshots. */
   getPendingUploadCount(): number {
     return this._pendingUploads.length
@@ -889,7 +912,7 @@ export class VectorTileRenderer {
       tileWidth: data.tileWidth, tileHeight: data.tileHeight,
       tileZoom: data.tileZoom,
       lastUsedFrame: this.frameCount,
-      firstShownFrame: this.frameCount,
+      uploadTimeMs: performance.now(),
     })
     this._gpuCacheCount++
 
@@ -2078,7 +2101,15 @@ export class VectorTileRenderer {
       // and is shared across every tile drawn this frame.
       this.uniformF32[32] = Math.fround(tileMercX)
       this.uniformF32[33] = Math.fround(tileMercY)
-      this.uniformF32[34] = this.currentOpacity ?? 1.0
+      // Mapbox / MapLibre / Leaflet / Google fade-in. Per-tile
+      // alpha ramp from 0 to 1 over TILE_FADE_MS softens the
+      // pop-in when a missing tile arrives (most visible at
+      // cold-start panning to unfamiliar areas). uploadTimeMs is
+      // stamped on GPUTile creation in doUploadTile.
+      let _tileAlpha = 1.0
+      const _age = performance.now() - cached.uploadTimeMs
+      if (_age < TILE_FADE_MS) _tileAlpha = _age / TILE_FADE_MS
+      this.uniformF32[34] = (this.currentOpacity ?? 1.0) * _tileAlpha
       this.uniformF32[35] = this.logDepthFc
       // pick_id (36) — packed (instanceId<<16)|layerId. instanceId is
       // 0 for now; future WORLD_COPIES instancing will pack it here.
