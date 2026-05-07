@@ -117,8 +117,16 @@ export class TileCatalog {
     if (td.outlineVertices) n += td.outlineVertices.byteLength
     if (td.outlineLineIndices) n += td.outlineLineIndices.byteLength
     if (td.pointVertices) n += td.pointVertices.byteLength
-    if (td.prebuiltLineSegments) n += td.prebuiltLineSegments.byteLength
-    if (td.prebuiltOutlineSegments) n += td.prebuiltOutlineSegments.byteLength
+    // prebuiltLineSegments / prebuiltOutlineSegments INTENTIONALLY
+    // omitted: VTR.doUploadTile nulls them out after GPU upload (a
+    // 180 MB / 256-tile heap-saving optimisation). Including them
+    // here would drift `_cachedBytes` upward — setSlice adds them
+    // when the tile arrives, but the matching subtract in
+    // deleteCacheEntry sees them already null. Real-device
+    // inspector showed 2 catalog tiles reporting 263 MB cached
+    // because of this; the byte cap then false-positive evicted
+    // visible tiles, leaving currentZ stripes covered by parent-
+    // walk fallback (regression: _mobile-detail-uniformity).
     return n
   }
 
