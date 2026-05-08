@@ -270,28 +270,49 @@
       line-height: 1.6;
     }
 
-    /* ── Mobile: stack vertically ── */
-    @media (max-width: 740px) {
+    /* Desktop default — the source-toggle button is hidden because
+     * the editor is always visible. Mobile rule below overrides this
+     * back to display:flex when the viewport is touch-primary. Source
+     * order matters: this comes BEFORE the @media so the media-query
+     * rule can override it (same specificity → later wins). */
+    .editor-header .tb-nav.mobile-only { display: none; }
+
+    /* ── Mobile: stack vertically + collapse Monaco by default ── */
+    /* Monaco on a touchscreen is borderline unusable (no IME hints,
+     * micro-buttons, soft-keyboard occlusion). Default behaviour on
+     * touch-primary devices is to give the map the entire viewport
+     * and reduce the editor pane to its header strip — demo-select +
+     * Run + Gallery still work, but the source view is collapsed
+     * unless the user explicitly taps "📝" to peek at it. The toggle
+     * is a CSS class swap on `#editor-pane`; Monaco's automaticLayout
+     * picks up the resize. */
+    @media (max-width: 740px), (pointer: coarse) {
       #layout { flex-direction: column; }
       #map-pane {
-        /* Map takes the full viewport. Editor floats as a collapsible
-         * pane below the map — full height when open, a tiny bar when
-         * closed — so the map isn't cut in half whenever we want to
-         * look at the data on a phone. */
-        height: 60vh;
-        height: 60dvh;
-        flex-shrink: 0;
+        flex: 1 1 auto;
+        min-height: 0;
       }
       #editor-pane {
         width: 100% !important;
         max-width: 100%;
-        height: 40vh;
-        height: 40dvh;
-        flex-shrink: 0;
+        flex: 0 0 auto;
         border-left: none;
         border-top: 1px solid var(--border);
+        /* Collapsed: header (demo-select / nav) + footer (Run /
+         * Import / Gallery) stay visible; the Monaco container
+         * itself collapses to zero. */
       }
+      #editor-pane:not(.expanded) #monaco-container,
+      #editor-pane:not(.expanded) #resize-handle { display: none; }
+      #editor-pane.expanded {
+        height: 60vh;
+        height: 60dvh;
+      }
+      #editor-pane.expanded #map-pane { display: none; }
       #resize-handle { display: none; }
+      .editor-header .tb-nav.mobile-only { display: flex; }
+    }
+    @media (max-width: 740px), (pointer: coarse) {
       /* The tag badge on the right takes ~48px that we'd rather give
        * to the demo name select — the current demo's category is
        * already implied by grouping in the dropdown itself. */
@@ -308,7 +329,9 @@
      * be the sole navigation control; the buttons were tap-targets of
      * last resort anyway. */
     @media (max-width: 380px) {
-      .editor-header .tb-nav { display: none; }
+      /* Keep the source-toggle visible — it's the only way to peek
+       * at the source on phones, and it's small enough to fit. */
+      .editor-header .tb-nav:not(.mobile-only) { display: none; }
     }
   </style>
 </head>
@@ -337,6 +360,11 @@
           <option value="oblique_mercator">oblique mercator</option>
         </select>
         <span class="tb-tag" id="demo-tag"></span>
+        <!-- Mobile-only toggle: peek at the source on touchscreens
+             where the editor is collapsed by default. CSS hides this
+             on desktop where the editor is always visible. -->
+        <button class="tb-nav mobile-only" id="editor-toggle"
+                title="Show source" aria-label="Show source">&#9881;</button>
       </div>
 
       <div class="editor-body" id="monaco-container"></div>

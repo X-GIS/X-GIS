@@ -30,6 +30,21 @@ const nextBtn = document.getElementById('next-btn') as HTMLButtonElement
 const editorPane = document.getElementById('editor-pane')!
 const resizeHandle = document.getElementById('resize-handle')!
 const monacoContainer = document.getElementById('monaco-container')!
+const editorToggle = document.getElementById('editor-toggle') as HTMLButtonElement | null
+
+// ── Mobile editor toggle ──
+// On touch-primary devices (`pointer: coarse` or width ≤ 740px) the
+// editor pane is collapsed by default — the source view is hidden and
+// the map gets the whole viewport. Tapping the gear icon expands the
+// editor pane to read/edit the source; tapping again collapses back.
+// Desktop callers never see the button (CSS .mobile-only hides it).
+if (editorToggle) {
+  editorToggle.addEventListener('click', () => {
+    const expanded = editorPane.classList.toggle('expanded')
+    editorToggle.setAttribute('aria-label', expanded ? 'Hide source' : 'Show source')
+    editorToggle.title = expanded ? 'Hide source' : 'Show source'
+  })
+}
 
 // ── In-page log overlay (mobile-friendly error reporting) ──
 // Captures console.error / console.warn / window.error / unhandledrejection
