@@ -38,15 +38,15 @@ layer country_fill {
 /* Finest tier: thin light lines, fade in at high zoom */
 layer states_detail {
   source: states_10
-  | stroke-sky-300 stroke-0.5 opacity-60
-  | z0:opacity-0 z4:opacity-0 z6:opacity-60
+  | stroke-sky-300 stroke-0.5
+  | opacity-[interpolate(zoom, 0, 0, 4, 0, 6, 60)]
 }
 
 /* Mid tier: medium cyan, visible from mid zoom */
 layer states_mid {
   source: states_50
-  | stroke-cyan-400 stroke-1 opacity-75
-  | z0:opacity-0 z3:opacity-40 z6:opacity-75
+  | stroke-cyan-400 stroke-1
+  | opacity-[interpolate(zoom, 0, 0, 3, 40, 6, 75)]
 }
 
 /* Top tier: bold country borders, always visible */

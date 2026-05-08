@@ -6,5 +6,5 @@ source sq { type: geojson, url: "fixture-square.geojson" }
 layer fading {
   source: sq
   | fill-teal-500
-  | z0:opacity-10 z6:opacity-100
+  | opacity-[interpolate(zoom, 0, 10, 6, 100)]
 }

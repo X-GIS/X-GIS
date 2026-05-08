@@ -613,19 +613,10 @@ export class Parser {
     let modifier: string | null = null
 
     // Check for modifier pattern: identifier:identifier-...
-    // e.g., z8:opacity-40, friendly:fill-green-500, hover:glow-8
-    // Fractional zoom modifier: `z15.5:fill-…` — the lexer splits
-    // that into Identifier("z15") Dot Number("5") Colon, so we
-    // detect the 4-token shape here and reassemble it. Only zoom
-    // modifiers are fractional today; no other modifier name uses
-    // a dot, so the `^z\d+$` gate is enough to disambiguate.
-    if (this.isFractionalZoomModifier()) {
-      const intPart = this.advance().value          // "z15"
-      this.advance()                                  // '.'
-      const fracPart = this.advance().value          // "5"
-      this.expect(TokenType.Colon)
-      modifier = `${intPart}.${fracPart}`
-    } else if (this.isModifierPattern()) {
+    // e.g., friendly:fill-green-500, hover:glow-8.
+    // (Zoom modifiers `z14:` were removed in favour of
+    // `opacity-[interpolate(zoom, …)]` — see lower.ts.)
+    if (this.isModifierPattern()) {
       modifier = this.advance().value // consume the modifier identifier
       this.expect(TokenType.Colon)    // consume ':'
     }
@@ -787,23 +778,6 @@ export class Parser {
 
     this.expect(TokenType.RBrace)
     return { kind: 'MatchBlock', arms }
-  }
-
-  /** Lookahead for the fractional zoom modifier `z<int>.<digits>:`.
-   *  The lexer splits these as four tokens — see parseUtilityItem
-   *  for the matching consumer. */
-  private isFractionalZoomModifier(): boolean {
-    if (!this.check(TokenType.Identifier)) return false
-    const cur = this.current().value
-    if (!/^z\d+$/.test(cur)) return false
-    const t1 = this.tokens[this.pos + 1]
-    const t2 = this.tokens[this.pos + 2]
-    const t3 = this.tokens[this.pos + 3]
-    const t4 = this.tokens[this.pos + 4]
-    return !!(t1 && t1.type === TokenType.Dot &&
-              t2 && t2.type === TokenType.Number &&
-              t3 && t3.type === TokenType.Colon &&
-              t4 && t4.type === TokenType.Identifier)
   }
 
   /**

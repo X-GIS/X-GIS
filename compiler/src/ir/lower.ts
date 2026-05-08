@@ -102,6 +102,37 @@ export function lower(program: AST.Program): Scene {
   return { sources, renderNodes, symbols }
 }
 
+/** Detect the `interpolate(zoom, k1, v1, k2, v2, …)` call shape and
+ *  extract numeric (zoom, value) stops. Returns null when the AST
+ *  isn't that exact shape — other inputs (feature properties, etc.)
+ *  or non-numeric values fall through to the generic data-driven
+ *  evaluator path. Used by the binding lowerer to short-circuit
+ *  zoom-only uses straight onto the existing ZoomStop<number>[]
+ *  zoom-interpolation infrastructure (no per-frame eval, no per-
+ *  feature plumbing — the existing kind:'zoom-interpolated' code
+ *  paths in the runtime do the heavy lifting). */
+function extractInterpolateZoomStops(
+  expr: AST.Expr,
+): Array<{ zoom: number; value: number }> | null {
+  if (expr.kind !== 'FnCall') return null
+  if (expr.callee.kind !== 'Identifier' || expr.callee.name !== 'interpolate') return null
+  const args = expr.args
+  // First arg must be the bare `zoom` identifier.
+  if (args.length < 3) return null
+  const input = args[0]
+  if (input.kind !== 'Identifier' || input.name !== 'zoom') return null
+  // Remaining args must alternate (numeric zoom, numeric value).
+  if ((args.length - 1) % 2 !== 0) return null
+  const stops: Array<{ zoom: number; value: number }> = []
+  for (let i = 1; i + 1 < args.length; i += 2) {
+    const zArg = args[i]
+    const vArg = args[i + 1]
+    if (zArg.kind !== 'NumberLiteral' || vArg.kind !== 'NumberLiteral') return null
+    stops.push({ zoom: zArg.value, value: vArg.value })
+  }
+  return stops.length >= 2 ? stops : null
+}
+
 // ═══ New syntax lowering ═══
 
 function lowerSource(stmt: AST.SourceStatement): SourceDef | null {
@@ -299,25 +330,10 @@ function lowerLayer(
 
       // ── Modifier items ──
       if (mod) {
-        // Zoom modifier: z8:opacity-40, z14:size-12, z15.5:fill-#xx
-        const zoomMatch = mod.match(/^z(\d+(?:\.\d+)?)$/)
-        if (zoomMatch) {
-          const zoom = parseFloat(zoomMatch[1])
-          if (name.startsWith('opacity-')) {
-            const num = parseFloat(name.slice(8))
-            if (!isNaN(num)) {
-              opacityZoomStops.push({ zoom, value: num <= 1 ? num : num / 100 })
-            }
-          } else if (name.startsWith('size-')) {
-            const num = parseFloat(name.slice(5))
-            if (!isNaN(num)) {
-              sizeZoomStops.push({ zoom, value: num })
-            }
-          }
-          continue
-        }
-
         // Data modifier: friendly:fill-green-500
+        // (Zoom-driven values used to live behind `zN:opacity-…`
+        // modifiers; they're now expressed as `opacity-[interpolate(
+        // zoom, …)]` and lowered below in the binding handler.)
         if (name.startsWith('fill-')) {
           const hex = resolveColor(name.slice(5))
           if (hex) {
@@ -330,8 +346,28 @@ function lowerLayer(
       // ── Unmodified items ──
 
       // Data binding: fill-[expr], size-[expr], opacity-[expr],
-      // fill-extrusion-height-[expr], fill-extrusion-base-[expr]
+      // fill-extrusion-height-[expr], fill-extrusion-base-[expr].
+      // Zoom-driven path: an `interpolate(zoom, k1, v1, k2, v2, …)`
+      // call with all-numeric stops lowers to the existing
+      // ZoomStop<number>[] mechanism for opacity / size. Other
+      // utilities and non-numeric stops fall through to the generic
+      // data-driven branch (the runtime evaluator handles `zoom`
+      // and `interpolate` as builtins).
       if (item.binding) {
+        const zoomStops = extractInterpolateZoomStops(item.binding)
+        if (zoomStops && name === 'opacity') {
+          for (const s of zoomStops) {
+            opacityZoomStops.push({
+              zoom: s.zoom,
+              value: s.value <= 1 ? s.value : s.value / 100,
+            })
+          }
+          continue
+        }
+        if (zoomStops && name === 'size') {
+          for (const s of zoomStops) sizeZoomStops.push({ zoom: s.zoom, value: s.value })
+          continue
+        }
         if (name === 'fill') {
           fill = { kind: 'data-driven', expr: { ast: item.binding } }
         } else if (name === 'size') {

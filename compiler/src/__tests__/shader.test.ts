@@ -170,7 +170,7 @@ describe('Full Pipeline: emit with shader variants', () => {
       layer tracks {
         source: data
         | fill-green-500 stroke-black stroke-2 opacity-80 size-12
-        | z8:opacity-40 z16:opacity-100
+        | opacity-[interpolate(zoom, 8, 40, 16, 100)]
       }
     `).tokenize()
     const ast = new Parser(tokens).parse()

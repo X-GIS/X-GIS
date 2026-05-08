@@ -4,7 +4,12 @@
 
 import type * as AST from '../parser/ast'
 
-/** A bag of feature properties (e.g., from GeoJSON properties). */
+/** A bag of feature properties (e.g., from GeoJSON properties). The
+ *  reserved key `$zoom` carries the current camera zoom level when
+ *  the caller wants `zoom`-keyed builtins (`interpolate(zoom, …)`)
+ *  to evaluate to a concrete number. Callers that don't supply
+ *  `$zoom` get null for the `zoom` identifier — same shape as a
+ *  missing feature property. */
 export type FeatureProps = Record<string, unknown>
 
 /** Environment of user-defined functions for compile-time evaluation */
@@ -26,6 +31,11 @@ export function evaluate(expr: AST.Expr, props: FeatureProps, fnEnv?: FnEnv): un
     case 'BoolLiteral':
       return expr.value
     case 'Identifier':
+      // Special runtime identifier `zoom` — caller injects via the
+      // `$zoom` reserved key so the same evaluator works for
+      // per-feature (worker, no zoom available) and per-frame
+      // (renderer, zoom known) call sites without API divergence.
+      if (expr.name === 'zoom') return props['$zoom'] ?? null
       return props[expr.name] ?? null
     case 'FieldAccess':
       return evaluateFieldAccess(expr, props, fnEnv)
@@ -251,6 +261,37 @@ function callBuiltin(name: string, args: unknown[]): unknown {
     case 'step': {
       const [val, threshold, below, above] = args.map(toNumber)
       return val < threshold ? below : above
+    }
+    case 'interpolate': {
+      // interpolate(input, x1, y1, x2, y2, …) — linear interpolation
+      // between (xi, yi) stops. The first arg is the input value
+      // (typically `zoom` or a feature property); subsequent args
+      // alternate stop key + stop value. Pass-through when input is
+      // outside the stop range (clamps to first / last). Numeric
+      // values interpolate; non-numeric (e.g. color hex strings)
+      // pick the nearest stop without blending.
+      if (args.length < 3 || (args.length - 1) % 2 !== 0) return null
+      const input = toNumber(args[0])
+      // Build (x, y) pairs.
+      const stops: Array<{ x: number; y: unknown }> = []
+      for (let i = 1; i + 1 < args.length; i += 2) {
+        stops.push({ x: toNumber(args[i]), y: args[i + 1] })
+      }
+      if (stops.length === 0) return null
+      if (input <= stops[0].x) return stops[0].y
+      if (input >= stops[stops.length - 1].x) return stops[stops.length - 1].y
+      for (let i = 0; i + 1 < stops.length; i++) {
+        const a = stops[i], b = stops[i + 1]
+        if (input >= a.x && input <= b.x) {
+          if (typeof a.y === 'number' && typeof b.y === 'number') {
+            const t = (input - a.x) / (b.x - a.x)
+            return a.y + (b.y - a.y) * t
+          }
+          // Non-numeric — pick the closer stop.
+          return (input - a.x) < (b.x - input) ? a.y : b.y
+        }
+      }
+      return stops[0].y
     }
     // Trigonometry
     case 'sin': return Math.sin(toNumber(args[0]))

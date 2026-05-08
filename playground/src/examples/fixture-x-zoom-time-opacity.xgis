@@ -9,6 +9,6 @@ source sq { type: geojson, url: "fixture-square.geojson" }
 layer dual {
   source: sq
   | fill-emerald-500
-  | z0:opacity-80 z20:opacity-80
+  | opacity-[interpolate(zoom, 0, 80, 20, 80)]
   | animation-pulse animation-duration-1200 animation-infinite
 }

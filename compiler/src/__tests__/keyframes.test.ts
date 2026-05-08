@@ -145,7 +145,7 @@ describe('Keyframes lowering', () => {
       layer both {
         source: data
         | fill-emerald-500
-        | z6:opacity-40 z14:opacity-100
+        | opacity-[interpolate(zoom, 6, 40, 14, 100)]
         | animation-pulse animation-duration-2000 animation-infinite
       }
     `)

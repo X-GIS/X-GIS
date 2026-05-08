@@ -5,5 +5,5 @@ source p { type: geojson, url: "fixture-point.geojson" }
 layer dot {
   source: p
   | fill-rose-500
-  | z0:size-30 z20:size-80
+  | size-[interpolate(zoom, 0, 30, 20, 80)]
 }

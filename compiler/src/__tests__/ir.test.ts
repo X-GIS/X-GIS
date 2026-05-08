@@ -85,7 +85,7 @@ describe('IR Modifiers', () => {
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
-        | z8:opacity-40 z16:opacity-100
+        | opacity-[interpolate(zoom, 8, 40, 16, 100)]
       }
     `)
     const node = scene.renderNodes[0]
@@ -102,7 +102,7 @@ describe('IR Modifiers', () => {
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
-        | z8:size-4 z14:size-12
+        | size-[interpolate(zoom, 8, 4, 14, 12)]
       }
     `)
     const node = scene.renderNodes[0]
@@ -140,7 +140,7 @@ describe('IR Modifiers', () => {
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
-        | z16:opacity-100 z8:opacity-40 z12:opacity-70
+        | opacity-[interpolate(zoom, 8, 40, 12, 70, 16, 100)]
       }
     `)
     const node = scene.renderNodes[0]

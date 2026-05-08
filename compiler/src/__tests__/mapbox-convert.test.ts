@@ -256,7 +256,7 @@ describe('Mapbox → xgis converter', () => {
     expect(parses(out)).toBe(true)
   })
 
-  it('lowers ["interpolate", ["linear"], ["zoom"], …] line-width to z<n>:stroke-<v>', () => {
+  it('lowers ["interpolate", ["linear"], ["zoom"], …] line-width to interpolate(zoom, …)', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
@@ -268,12 +268,11 @@ describe('Mapbox → xgis converter', () => {
         },
       }],
     })
-    expect(out).toContain('z11:stroke-1')
-    expect(out).toContain('z19:stroke-2.5')
+    expect(out).toContain('stroke-[interpolate(zoom, 11, 1, 19, 2.5)]')
     expect(parses(out)).toBe(true)
   })
 
-  it('lowers interpolate fill-color to per-zoom fill stops', () => {
+  it('lowers interpolate fill-color to interpolate(zoom, …) bracket form', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
@@ -284,16 +283,13 @@ describe('Mapbox → xgis converter', () => {
         },
       }],
     })
-    expect(out).toContain('z15:fill-#f2eae2')
-    expect(out).toContain('z16:fill-#dfdbd7')
+    expect(out).toContain('fill-[interpolate(zoom, 15, #f2eae2, 16, #dfdbd7)]')
     expect(parses(out)).toBe(true)
   })
 
-  it('preserves fractional zoom stops (parser supports z15.5:)', () => {
-    // The lexer + parser were extended to accept fractional zoom
-    // modifiers — the lexer still splits `z15.5:` into four tokens
-    // (Identifier Dot Number Colon) but parseUtilityItem stitches
-    // them back. Stops survive verbatim.
+  it('preserves fractional zoom stops verbatim (no rounding)', () => {
+    // `interpolate(zoom, …)` carries stop keys as plain numbers, so
+    // fractional values like 15.5 pass through untouched.
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
@@ -304,12 +300,11 @@ describe('Mapbox → xgis converter', () => {
         },
       }],
     })
-    expect(out).toContain('z13:opacity-0')
-    expect(out).toContain('z15.5:opacity-100')
+    expect(out).toContain('opacity-[interpolate(zoom, 13, 0, 15.5, 100)]')
     expect(parses(out)).toBe(true)
   })
 
-  it('lowers interpolate fill-extrusion-height to per-zoom extrude stops', () => {
+  it('lowers interpolate fill-extrusion-height with mixed numeric / get stops', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
@@ -320,8 +315,7 @@ describe('Mapbox → xgis converter', () => {
         },
       }],
     })
-    expect(out).toContain('z14:fill-extrusion-height-0')
-    expect(out).toContain('fill-extrusion-height-[.render_height]')
+    expect(out).toContain('fill-extrusion-height-[interpolate(zoom, 14, 0, 14.5, .render_height)]')
     expect(parses(out)).toBe(true)
   })
 
