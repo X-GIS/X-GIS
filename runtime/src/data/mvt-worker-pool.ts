@@ -79,7 +79,10 @@ export class MvtWorkerPool {
     this.size = Math.max(2, Math.min(ceiling, hc - 1))
   }
 
-  private ensureWorkers(): void {
+  /** Spawn the worker fleet if it doesn't exist yet. Called lazily
+   *  from `compile()` on first use; also called from
+   *  `prewarmMvtWorkerPool()` to start the workers earlier. */
+  ensureWorkers(): void {
     if (this.workers.length > 0) return
     for (let i = 0; i < this.size; i++) {
       const w = new MvtWorker({ name: `mvt-compile-${i}` })
@@ -175,4 +178,17 @@ let sharedPool: MvtWorkerPool | null = null
 export function getSharedMvtPool(): MvtWorkerPool {
   if (!sharedPool) sharedPool = new MvtWorkerPool()
   return sharedPool
+}
+
+/** Prewarm the shared MVT worker pool. Spawns the workers eagerly so
+ *  the first `compile()` call doesn't pay the worker-spawn latency
+ *  (each Worker takes 10-50 ms to set up its JS context). Call from
+ *  the runtime bootstrap (`map.run()`) right after the data-load URLs
+ *  are known so worker spawn overlaps with PMTiles header/metadata
+ *  round trips and shader pipeline compilation.
+ *
+ *  Safe to call multiple times — idempotent (`ensureWorkers` early-
+ *  returns once the workers exist). */
+export function prewarmMvtWorkerPool(): void {
+  getSharedMvtPool().ensureWorkers()
 }

@@ -851,6 +851,7 @@ export class XGISMap {
     // awaits the same cached promise. We only prewarm clearly PMTiles
     // URLs (`*.pmtiles` or declared `type: pmtiles`); TileJSON has its
     // own dispatch with no shared cache yet.
+    let anyVectorTile = false
     for (const load of commands.loads) {
       // URL resolution must match the data-load loop below exactly so
       // the cache hit lands. Loop uses `baseUrl + load.url` for
@@ -859,8 +860,18 @@ export class XGISMap {
       const declaredType = (load as { type?: string }).type
       const isPMTiles = declaredType === 'pmtiles' || url.endsWith('.pmtiles')
       const isTileJSON = declaredType === 'tilejson' || url.endsWith('.json') || url.endsWith('.tilejson')
-      if (isPMTiles) prewarmPMTilesArchive(url)
-      else if (isTileJSON) prewarmTileJSONManifest(url)
+      if (isPMTiles) { prewarmPMTilesArchive(url); anyVectorTile = true }
+      else if (isTileJSON) { prewarmTileJSONManifest(url); anyVectorTile = true }
+    }
+    // Prewarm the MVT decode worker pool when ANY load needs it. Each
+    // worker takes 10-50 ms to spawn its JS context; lazy-spawning on
+    // first compile pays that cost serially after the first byte
+    // arrives. Pre-spawning here lets the workers initialise in
+    // parallel with PMTiles header round trips and shader compile.
+    if (anyVectorTile) {
+      // Async import to keep the worker-pool module out of the path
+      // for pure-GeoJSON demos that never touch MVT decode.
+      void import('../data/mvt-worker-pool').then(m => m.prewarmMvtWorkerPool()).catch(() => undefined)
     }
 
 
