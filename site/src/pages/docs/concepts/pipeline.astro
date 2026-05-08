@@ -26,22 +26,78 @@ import Docs from '../../../layouts/Docs.astro'
       <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         Stages
       </h2>
-      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
-        <pre class="px-6 py-5 font-mono text-[13px] sm:text-[14px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>.xgis source
-  │
-  Lexer  →  Parser  →  AST
-                        │
-                      lower()
-                        │
-                      IR (Scene)
-                        │
-                    optimize()        — constant folding,
-                        │              expression classification
-                emit    │    codegen
-              /                  \
-       SceneCommands       ShaderVariant[]
-              \                  /
-               Runtime + GPU / Canvas 2D fallback</code></pre>
+      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden p-6 sm:p-10">
+        <svg viewBox="0 0 880 360" class="w-full h-auto" role="img" aria-label="Compile pipeline diagram: lexer to parser to AST to lower to IR to optimize to emit and codegen, producing SceneCommands and ShaderVariants for the runtime.">
+          <defs>
+            <marker id="pl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#5a6a7e"/>
+            </marker>
+          </defs>
+
+          <!-- Source row -->
+          <g>
+            <rect x="20" y="20" width="170" height="50" rx="8" fill="#1a2233" stroke="#2a3a52" stroke-width="1"/>
+            <text x="105" y="42" text-anchor="middle" font-family="DM Mono, monospace" font-size="13" fill="#c8d3e0">.xgis source</text>
+            <text x="105" y="58" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10" fill="#5a6a7e">String</text>
+          </g>
+
+          <!-- Lexer / Parser / AST chain -->
+          <line x1="190" y1="45" x2="220" y2="45" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#pl-arrow)"/>
+
+          <g>
+            <rect x="220" y="20" width="120" height="50" rx="8" fill="#0f1825" stroke="#2a3a52" stroke-width="1"/>
+            <text x="280" y="42" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">Lexer</text>
+            <text x="280" y="58" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">Token[]</text>
+          </g>
+
+          <line x1="340" y1="45" x2="370" y2="45" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#pl-arrow)"/>
+
+          <g>
+            <rect x="370" y="20" width="120" height="50" rx="8" fill="#0f1825" stroke="#2a3a52" stroke-width="1"/>
+            <text x="430" y="42" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">Parser</text>
+            <text x="430" y="58" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">AST</text>
+          </g>
+
+          <!-- Down arrow to lower() -->
+          <line x1="430" y1="70" x2="430" y2="100" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#pl-arrow)"/>
+
+          <!-- IR row -->
+          <g>
+            <rect x="350" y="100" width="160" height="50" rx="8" fill="#0f1825" stroke="#2a3a52" stroke-width="1"/>
+            <text x="430" y="122" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">lower()</text>
+            <text x="430" y="138" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">IR (Scene)</text>
+          </g>
+
+          <line x1="430" y1="150" x2="430" y2="180" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#pl-arrow)"/>
+
+          <g>
+            <rect x="320" y="180" width="220" height="60" rx="8" fill="#0f1825" stroke="#2a3a52" stroke-width="1"/>
+            <text x="430" y="204" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">optimize()</text>
+            <text x="430" y="222" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10.5" fill="#5a6a7e">constant folding · expression classify</text>
+          </g>
+
+          <!-- Two outputs branching -->
+          <line x1="380" y1="240" x2="220" y2="280" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#pl-arrow)"/>
+          <line x1="480" y1="240" x2="640" y2="280" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#pl-arrow)"/>
+
+          <text x="270" y="266" font-family="DM Mono, monospace" font-size="10.5" fill="#5a6a7e">emit()</text>
+          <text x="560" y="266" font-family="DM Mono, monospace" font-size="10.5" fill="#5a6a7e">codegen()</text>
+
+          <g>
+            <rect x="80" y="280" width="200" height="56" rx="8" fill="#1a2233" stroke="#2a3a52" stroke-width="1"/>
+            <text x="180" y="304" text-anchor="middle" font-family="DM Mono, monospace" font-size="13" fill="#c8d3e0">SceneCommands</text>
+            <text x="180" y="322" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10" fill="#5a6a7e">runtime instructions</text>
+          </g>
+
+          <g>
+            <rect x="580" y="280" width="200" height="56" rx="8" fill="#1a2233" stroke="#2a3a52" stroke-width="1"/>
+            <text x="680" y="304" text-anchor="middle" font-family="DM Mono, monospace" font-size="13" fill="#c8d3e0">ShaderVariant[]</text>
+            <text x="680" y="322" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10" fill="#5a6a7e">WGSL programs</text>
+          </g>
+
+          <!-- Runtime label spanning bottom -->
+          <text x="430" y="316" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="11" fill="#5a6a7e">→ Runtime + GPU / Canvas 2D fallback ←</text>
+        </svg>
       </div>
     </section>
 

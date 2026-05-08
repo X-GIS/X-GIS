@@ -2,6 +2,7 @@ import { defineConfig } from 'astro/config'
 import sitemap from '@astrojs/sitemap'
 import tailwindcss from '@tailwindcss/vite'
 import expressiveCode from 'astro-expressive-code'
+import xgisGrammar from './src/lib/xgis-grammar.json' with { type: 'json' }
 
 const isCI = !!process.env.GITHUB_ACTIONS
 
@@ -12,11 +13,16 @@ export default defineConfig({
     // Build-time syntax highlighting (Shiki under the hood) + frame
     // chrome (language label, copy button, optional file caption /
     // line markers). Theme picked to match the site's dark surface.
-    // xgis blocks fall back to `js`-like highlighting for now — a
-    // dedicated TextMate grammar can be added later as
-    // `shikiConfig.langs: [<json>]`.
     expressiveCode({
       themes: ['github-dark-default'],
+      // Custom grammar so xgis-specific tokens (block keywords like
+      // `source` / `layer`, color literals, utility classes,
+      // pipe/coalesce/match-arrow operators, runtime accessors like
+      // `zoom`) get tokenised distinctively rather than falling back
+      // to JS approximation. See src/lib/xgis-grammar.json.
+      shiki: {
+        langs: [xgisGrammar],
+      },
       styleOverrides: {
         borderRadius: '0.75rem',
         codeFontFamily: '"DM Mono", "Fira Code", monospace',

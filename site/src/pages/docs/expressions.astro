@@ -222,7 +222,7 @@ const idioms: Idiom[] = [
                       <span class="text-fg font-medium">{op.name}</span>{op.body && (<>{' — '}{op.body}</>)}
                     </p>
                     {op.example && (
-                      <div class="mt-2"><Code code={op.example} lang="js" /></div>
+                      <div class="mt-2"><Code code={op.example} lang="xgis" /></div>
                     )}
                   </div>
                 </div>
@@ -253,7 +253,7 @@ const idioms: Idiom[] = [
             <p class="text-[14px] leading-[1.6] text-fg-dim mb-4 max-w-[720px]">
               {it.body}
             </p>
-            <Code code={it.code} lang="js" />
+            <Code code={it.code} lang="xgis" />
           </div>
           )
         })}

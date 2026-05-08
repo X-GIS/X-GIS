@@ -189,7 +189,7 @@ const groups: FnGroup[] = [
                 <p class="font-mono text-[13px] text-fg-mute mb-2">{fn.signature}</p>
                 <p class="text-[14px] leading-[1.6] text-fg-dim mb-3" set:html={fn.body.replace(/`([^`]+)`/g, '<code class="font-mono text-fg">$1</code>')}></p>
                 {fn.examples.length > 0 && (
-                  <Code code={fn.examples.join('\n')} lang="js" />
+                  <Code code={fn.examples.join('\n')} lang="xgis" />
                 )}
               </div>
             </div>

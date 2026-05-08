@@ -86,6 +86,13 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     await expect(page.locator('#mobile-nav-drawer a', { hasText: 'Cookbook' })).toBeVisible()
     await expect(page.locator('#mobile-nav-drawer a', { hasText: 'Mapbox migration' })).toBeVisible()
 
+    // Pipeline concept page renders the SVG diagram inline.
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto(`http://localhost:${port}/docs/concepts/pipeline/`)
+    const diagram = page.locator('article svg[role="img"]')
+    await expect(diagram).toBeVisible()
+    await page.screenshot({ path: 'test-results/docs-pipeline.png', fullPage: true })
+
     // Search index covers the new pages.
     await page.goto(`http://localhost:${port}/docs/functions/`)
     const indexJson = await page.locator('#search-index').textContent()

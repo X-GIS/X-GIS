@@ -12,14 +12,23 @@ const examplesUrl = `${base}/examples`
 // reading every link.
 const columns = [
   {
-    title: 'Documentation',
+    title: 'Get started',
     links: [
-      { label: 'Overview',            href: docsUrl },
-      { label: 'Language reference',  href: `${docsUrl}/reference` },
-      { label: 'Concepts',            href: `${docsUrl}/concepts/rtc` },
-      { label: 'JavaScript API',      href: `${docsUrl}/api` },
-      { label: 'Utility catalog',     href: `${docsUrl}/utilities` },
+      { label: 'Quickstart',          href: `${docsUrl}/quickstart` },
+      { label: 'Cookbook',            href: `${docsUrl}/cookbook` },
+      { label: 'Mapbox migration',    href: `${docsUrl}/mapbox` },
       { label: 'Examples gallery',    href: examplesUrl },
+    ],
+  },
+  {
+    title: 'Reference',
+    links: [
+      { label: 'Language reference',  href: `${docsUrl}/reference` },
+      { label: 'Sources',             href: `${docsUrl}/sources` },
+      { label: 'Functions',           href: `${docsUrl}/functions` },
+      { label: 'Expressions',         href: `${docsUrl}/expressions` },
+      { label: 'Utility catalog',     href: `${docsUrl}/utilities` },
+      { label: 'JavaScript API',      href: `${docsUrl}/api` },
     ],
   },
   {
@@ -55,7 +64,7 @@ const columns = [
   <div class="max-w-[1100px] mx-auto px-6 py-16 sm:py-20">
 
     <!-- Column grid -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-y-10 gap-x-8 mb-14">
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-y-10 gap-x-8 mb-14">
       {columns.map(col => (
         <div>
           <p class="text-[12px] font-medium text-fg uppercase tracking-wider mb-4">

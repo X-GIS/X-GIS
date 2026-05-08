@@ -1,0 +1,109 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "xgis",
+  "scopeName": "source.xgis",
+  "patterns": [
+    { "include": "#comment-block" },
+    { "include": "#comment-line" },
+    { "include": "#string" },
+    { "include": "#color" },
+    { "include": "#keyword-block" },
+    { "include": "#keyword-control" },
+    { "include": "#bool" },
+    { "include": "#match-arrow" },
+    { "include": "#operator-coalesce" },
+    { "include": "#field-access" },
+    { "include": "#zoom-accessor" },
+    { "include": "#pipe" },
+    { "include": "#builtin-fn" },
+    { "include": "#utility-class" },
+    { "include": "#number-with-unit" },
+    { "include": "#number" },
+    { "include": "#operator" },
+    { "include": "#function-call" },
+    { "include": "#identifier" }
+  ],
+  "repository": {
+    "comment-block": {
+      "begin": "/\\*",
+      "end": "\\*/",
+      "name": "comment.block.xgis"
+    },
+    "comment-line": {
+      "match": "//.*$",
+      "name": "comment.line.double-slash.xgis"
+    },
+    "string": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.xgis",
+      "patterns": [
+        { "match": "\\\\.", "name": "constant.character.escape.xgis" }
+      ]
+    },
+    "color": {
+      "match": "#[0-9a-fA-F]{3,8}\\b",
+      "name": "constant.other.color.rgb-value.xgis"
+    },
+    "keyword-block": {
+      "match": "\\b(source|layer|background|preset|keyframes|style|symbol|filter|extrude|geometry|show|let|fn|view|on|place|simulate|analyze|import|struct|enum|export|apply)\\b",
+      "name": "keyword.other.block.xgis"
+    },
+    "keyword-control": {
+      "match": "\\b(if|else|for|in|return|to|from|match)\\b",
+      "name": "keyword.control.xgis"
+    },
+    "bool": {
+      "match": "\\b(true|false|null)\\b",
+      "name": "constant.language.xgis"
+    },
+    "match-arrow": {
+      "match": "->",
+      "name": "keyword.operator.arrow.xgis"
+    },
+    "operator-coalesce": {
+      "match": "\\?\\?",
+      "name": "keyword.operator.coalesce.xgis"
+    },
+    "field-access": {
+      "match": "\\.[a-zA-Z_][a-zA-Z0-9_]*",
+      "name": "variable.other.member.xgis"
+    },
+    "zoom-accessor": {
+      "match": "\\b(zoom|bearing|pitch)\\b",
+      "name": "support.variable.xgis"
+    },
+    "pipe": {
+      "match": "\\|",
+      "name": "keyword.operator.pipe.xgis"
+    },
+    "builtin-fn": {
+      "match": "\\b(clamp|min|max|round|floor|ceil|abs|sqrt|pow|exp|log|log10|log2|scale|step|interpolate|sin|cos|tan|asin|acos|atan|atan2|length|circle|arc|polygon|linestring|PI|TAU)\\b",
+      "name": "support.function.builtin.xgis"
+    },
+    "utility-class": {
+      "match": "(?<=\\||\\s)([a-z][a-z0-9]*(?:-[a-z0-9]+)+(?:-\\[[^\\]]*\\])?|fill|stroke|opacity|size|shape|anchor|hidden|visible)\\b",
+      "name": "support.class.utility.xgis"
+    },
+    "number-with-unit": {
+      "match": "\\b\\d+(?:\\.\\d+)?(?:px|m|km|nm|deg|s|ms)\\b",
+      "name": "constant.numeric.unit.xgis"
+    },
+    "number": {
+      "match": "\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?\\b",
+      "name": "constant.numeric.xgis"
+    },
+    "operator": {
+      "match": "==|!=|<=|>=|&&|\\|\\||[+\\-*/%<>!=?:]",
+      "name": "keyword.operator.xgis"
+    },
+    "function-call": {
+      "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)(?=\\()",
+      "name": "entity.name.function.xgis"
+    },
+    "identifier": {
+      "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b",
+      "name": "variable.other.xgis"
+    }
+  }
+}

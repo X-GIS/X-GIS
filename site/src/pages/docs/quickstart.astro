@@ -57,7 +57,7 @@ const playUrl = import.meta.env.DEV
       <p class="text-[14px] leading-[1.6] text-fg-dim mb-3 max-w-[720px]">
         A <code class="font-mono text-fg">source</code> block points at the data. Three fields — <code class="font-mono text-fg">type</code>, <code class="font-mono text-fg">url</code>, and an optional <code class="font-mono text-fg">layers</code> filter — cover GeoJSON, PMTiles, TileJSON, raster XYZ, and XGVT.
       </p>
-      <Code lang="js" title="map.xgis" code={`source world {
+      <Code lang="xgis" title="map.xgis" code={`source world {
   type: geojson
   url: "data/ne_110m_countries.geojson"
 }`} />
@@ -73,7 +73,7 @@ const playUrl = import.meta.env.DEV
       <p class="text-[14px] leading-[1.6] text-fg-dim mb-3 max-w-[720px]">
         A <code class="font-mono text-fg">layer</code> references a source by name and stacks Tailwind-style utilities on a <code class="font-mono text-fg">|</code> line. Multiple <code class="font-mono text-fg">|</code> blocks compose; later utilities win on conflict.
       </p>
-      <Code lang="js" title="map.xgis (continued)" code={`layer countries {
+      <Code lang="xgis" title="map.xgis (continued)" code={`layer countries {
   source: world
   | fill-stone-200 stroke-stone-400 stroke-1
 }`} />

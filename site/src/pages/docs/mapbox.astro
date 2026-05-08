@@ -158,7 +158,7 @@ const xgis = convertMapboxStyle(style)
   11, 1,
   19, 2.5
 ]`} />
-            <Code lang="js" title="xgis" code={`| stroke-[interpolate(zoom, 11, 1, 19, 2.5)]`} />
+            <Code lang="xgis" title="xgis" code={`| stroke-[interpolate(zoom, 11, 1, 19, 2.5)]`} />
           </div>
         </div>
 
@@ -172,7 +172,7 @@ const xgis = convertMapboxStyle(style)
   "water", "#a4c8d5",
   "#dadada"
 ]`} />
-            <Code lang="js" title="xgis" code={`| fill match(.class) {
+            <Code lang="xgis" title="xgis" code={`| fill match(.class) {
     "park"  -> #cfe7c1
     "water" -> #a4c8d5
     _       -> #dadada
@@ -189,7 +189,7 @@ const xgis = convertMapboxStyle(style)
   ["get", "height"],
   5
 ]`} />
-            <Code lang="js" title="xgis" code={`| fill-extrusion-height-[.render_height ?? .height ?? 5]`} />
+            <Code lang="xgis" title="xgis" code={`| fill-extrusion-height-[.render_height ?? .height ?? 5]`} />
           </div>
         </div>
 
@@ -201,7 +201,7 @@ const xgis = convertMapboxStyle(style)
   ["==", "$type", "LineString"],
   ["==", "class", "highway"]
 ]`} />
-            <Code lang="js" title="xgis" code={`filter: .class == "highway"
+            <Code lang="xgis" title="xgis" code={`filter: .class == "highway"
 // $type dropped — geometry type
 // is implied by the utility used`} />
           </div>
