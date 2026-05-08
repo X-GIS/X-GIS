@@ -1,7 +1,7 @@
 // `??` operator parsing + evaluation. User reported `.height ?? 50`
 // wasn't accepted by the language; this spec locks it in.
 
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect } from 'vitest'
 import { evaluate } from '../eval/evaluator'
 import { Parser } from '../parser/parser'
 import { Lexer } from '../lexer/lexer'
