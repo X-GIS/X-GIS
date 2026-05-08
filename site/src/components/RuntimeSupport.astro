@@ -1,0 +1,63 @@
+---
+// Browser/runtime compatibility badge row. MDN's BCD analogue: a
+// compact horizontal strip that says "what platforms / browsers
+// does this work on?" without forcing the reader to dig through
+// caveats in prose.
+//
+// Categories chosen to match X-GIS's actual deployment surface:
+//   - WebGPU       (Chrome 113+, Safari 17.4+, Firefox 130+, Edge 113+)
+//   - Canvas 2D    (universal fallback — limited features)
+//   - Mobile       (iOS Safari 17.4+, Android Chrome / WebGPU-enabled)
+//   - Worker       (universal — used for tile decoding)
+//
+// Each row reports a state — "yes" / "no" / "limited" — plus an
+// optional one-line caveat. Renders as a small grid; collapses to
+// stacked rows on narrow viewports.
+
+interface Support {
+  /** Short label — e.g. "WebGPU", "Canvas 2D fallback", "Mobile". */
+  label: string
+  /** Tri-state. "yes" = full support, "limited" = partial / caveats,
+   *  "no" = unsupported. */
+  state: 'yes' | 'limited' | 'no'
+  /** Optional one-line caveat (which versions, what's missing). */
+  body?: string
+}
+
+interface Props {
+  rows: Support[]
+}
+
+const { rows } = Astro.props
+
+const stateClasses: Record<Support['state'], { dot: string; label: string; text: string }> = {
+  yes:     { dot: 'bg-emerald-400', label: 'Supported',    text: 'text-emerald-300' },
+  limited: { dot: 'bg-amber-400',   label: 'Limited',      text: 'text-amber-300'   },
+  no:      { dot: 'bg-rose-400',    label: 'Unsupported',  text: 'text-rose-300'    },
+}
+---
+
+{rows.length > 0 && (
+  <section class="my-6 rounded-xl border border-line bg-bg-elev overflow-hidden">
+    <p class="px-4 pt-3 pb-2 text-[11px] font-medium text-fg-mute uppercase tracking-wider border-b border-line">
+      Runtime support
+    </p>
+    <ul class="divide-y divide-line/60">
+      {rows.map(r => {
+        const s = stateClasses[r.state]
+        return (
+          <li class="grid grid-cols-[140px_minmax(0,1fr)] items-center gap-x-4 px-4 py-2.5 text-[13px]">
+            <span class="inline-flex items-center gap-2">
+              <span class={`w-1.5 h-1.5 rounded-full ${s.dot}`}></span>
+              <span class="text-fg font-medium">{r.label}</span>
+            </span>
+            <span class={`${s.text} flex items-baseline gap-2 flex-wrap`}>
+              <span class="font-medium">{s.label}</span>
+              {r.body && <span class="text-fg-dim">— {r.body}</span>}
+            </span>
+          </li>
+        )
+      })}
+    </ul>
+  </section>
+)}

@@ -1,11 +1,39 @@
 ---
 import Docs from '../../layouts/Docs.astro'
+import RuntimeSupport from '../../components/RuntimeSupport.astro'
 import { Code } from 'astro-expressive-code/components'
+
+interface ApiParam {
+  name: string
+  type: string
+  body: string
+  optional?: boolean
+}
+
+interface ApiReturn {
+  type: string
+  body: string
+}
+
+interface ApiSee {
+  label: string
+  href: string
+}
 
 interface ApiEntry {
   name: string
   signature: string
   body: string
+  /** Per-parameter rows. Renders as a 3-column table (Name / Type /
+   *  Description). Optional — leave undefined when the signature is
+   *  trivially self-describing (no-arg getters, simple constants). */
+  params?: ApiParam[]
+  /** Return shape. `void` / no-meaningful-return entries leave this
+   *  off (the signature already shows `void` or a primitive). */
+  returns?: ApiReturn
+  /** Hand-curated cross-references — sibling APIs, related concept
+   *  pages, glossary entries. */
+  see?: ApiSee[]
   example?: string
 }
 interface ApiGroup {
@@ -29,24 +57,52 @@ const groups: ApiGroup[] = [
         name: 'XGISMap',
         signature: 'new XGISMap(canvas: HTMLCanvasElement)',
         body: 'Owns the GPU device, the camera, the renderers, and the source catalog. Construct once per canvas.',
+        params: [
+          { name: 'canvas', type: 'HTMLCanvasElement', body: 'Target canvas to render into. Must already be attached to the DOM — the constructor reads its `clientWidth` / `clientHeight` to size the WebGPU swap chain.' },
+        ],
         example: `import { XGISMap } from "@xgis/runtime"
 const map = new XGISMap(canvas)
 await map.run(source, baseUrl)`,
+        see: [
+          { label: 'XGISMap.run', href: '#xgismap-run' },
+          { label: 'XGISMapElement (custom element)', href: '#xgismapelement' },
+        ],
       },
       {
         name: 'XGISMap.run',
         signature: 'map.run(source: string, baseUrl: string): Promise<void>',
         body: 'Compile the .xgis source string, resolve relative `url:` references against `baseUrl`, allocate GPU resources, and start the render loop. Resolves once the first frame is composed.',
+        params: [
+          { name: 'source',  type: 'string', body: 'A valid `.xgis` source. Typically loaded via Vite\'s `?raw` import.' },
+          { name: 'baseUrl', type: 'string', body: 'Used to resolve relative `url:` references inside source blocks. Pass `"/"` when the assets sit at site root.' },
+        ],
+        returns: { type: 'Promise<void>', body: 'Resolves after WebGPU resources are allocated and the first frame is composed. Rejects if the source fails to compile or a required resource (e.g. PMTiles header) returns 4xx/5xx.' },
+        see: [
+          { label: 'Quickstart', href: '../quickstart' },
+          { label: 'Sources reference', href: '../sources' },
+        ],
       },
       {
         name: 'XGISMap.getCamera',
         signature: 'map.getCamera(): Camera',
         body: 'Returns the live camera. Mutate `.lon`, `.lat`, `.zoom`, `.bearing`, `.pitch` — the runtime picks up changes on the next frame.',
+        returns: { type: 'Camera', body: 'The live camera instance — same object across calls, mutating it directly drives the next frame.' },
+        see: [
+          { label: 'Camera class', href: '#camera' },
+          { label: 'Glossary — Camera', href: '../glossary#callback-ref' },
+        ],
       },
       {
         name: 'XGISMap.setProjection',
         signature: 'map.setProjection(proj: Projection): void',
         body: 'Switch the active projection. No re-tessellation; a single uniform write flips Mercator → Orthographic → Natural Earth.',
+        params: [
+          { name: 'proj', type: 'Projection', body: 'A projection record from one of the seven built-in projections, or `getProjection(name, …)`.' },
+        ],
+        see: [
+          { label: 'Projections (concept)', href: '../concepts/projections' },
+          { label: 'getProjection', href: '#getprojection' },
+        ],
       },
     ],
   },
@@ -200,6 +256,13 @@ map.setProjection(proj)`,
       Most apps only need <code class="font-mono text-[15px] text-fg">XGISMap</code>;
       the rest is here for advanced extension.
     </p>
+
+    <RuntimeSupport rows={[
+      { label: 'WebGPU',        state: 'yes',     body: 'Chrome 113+ · Safari 17.4+ · Firefox 130+ · Edge 113+' },
+      { label: 'Canvas 2D fallback', state: 'limited', body: 'Activates when no WebGPU adapter is present. GeoJSON paths only — PMTiles / XGVT / extruded buildings unsupported.' },
+      { label: 'Mobile',        state: 'limited', body: 'iOS Safari 17.4+ · Android Chrome with WebGPU enabled. Heavier scenes may throttle.' },
+      { label: 'Web workers',   state: 'yes',     body: 'Required — used for off-main-thread MVT decode + GeoJSON tessellation.' },
+    ]} />
   </header>
 
   <article class="space-y-16">
@@ -211,7 +274,7 @@ map.setProjection(proj)`,
         <p class="text-[15px] sm:text-[16px] leading-[1.6] text-fg-dim mb-8">
           {g.body}
         </p>
-        <div class="space-y-10">
+        <div class="space-y-12">
           {g.entries.map(e => (
             <div>
               <h3 id={slugOf(e.name)} class="scroll-mt-24 font-mono text-[15px] sm:text-[17px] text-fg font-medium mb-2">
@@ -223,8 +286,66 @@ map.setProjection(proj)`,
               <p class="text-[14px] sm:text-[15px] leading-[1.6] text-fg-dim mb-3">
                 {e.body}
               </p>
+
+              {e.params && e.params.length > 0 && (
+                <div class="mt-4">
+                  <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-2">Parameters</p>
+                  <div class="overflow-x-auto rounded-lg border border-line">
+                    <table class="w-full text-[13px] text-fg-dim">
+                      <thead class="bg-bg-elev text-fg">
+                        <tr>
+                          <th class="px-3 py-2 text-left font-medium w-[140px]">Name</th>
+                          <th class="px-3 py-2 text-left font-medium w-[200px]">Type</th>
+                          <th class="px-3 py-2 text-left font-medium">Description</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {e.params.map(p => (
+                          <tr class="border-t border-line/60 align-top">
+                            <td class="px-3 py-2.5">
+                              <code class="font-mono text-fg">{p.name}</code>
+                              {p.optional && <span class="ml-1.5 text-[10.5px] text-fg-mute uppercase">optional</span>}
+                            </td>
+                            <td class="px-3 py-2.5"><code class="font-mono text-[12.5px] text-accent">{p.type}</code></td>
+                            <td class="px-3 py-2.5 leading-[1.55]">{p.body}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {e.returns && (
+                <div class="mt-4">
+                  <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-2">Returns</p>
+                  <div class="rounded-lg border border-line px-3 py-2.5 bg-bg-elev">
+                    <code class="font-mono text-[12.5px] text-accent">{e.returns.type}</code>
+                    <span class="text-fg-dim text-[13px] leading-[1.55]"> — {e.returns.body}</span>
+                  </div>
+                </div>
+              )}
+
               {e.example && (
-                <Code code={e.example} lang="js" />
+                <div class="mt-4">
+                  <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-2">Example</p>
+                  <Code code={e.example} lang="js" />
+                </div>
+              )}
+
+              {e.see && e.see.length > 0 && (
+                <div class="mt-4">
+                  <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-2">See also</p>
+                  <ul class="flex flex-wrap gap-x-4 gap-y-1.5 text-[13px]">
+                    {e.see.map(s => (
+                      <li>
+                        <a href={s.href} class="text-accent hover:text-accent-hover underline">
+                          {s.label}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
           ))}

@@ -109,6 +109,19 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     // Page feedback widget mounted at end of every docs page.
     await expect(page.locator('[data-page-feedback]')).toHaveCount(1)
     await expect(page.locator('[data-page-feedback] button[data-vote="up"]')).toBeVisible()
+    // Clicking thumbs-down reveals the category picker.
+    await page.locator('[data-page-feedback] button[data-vote="down"]').click()
+    await expect(page.locator('.page-feedback-categories a', { hasText: 'Hard to understand' })).toBeVisible()
+    await expect(page.locator('.page-feedback-categories a', { hasText: 'Missing info' })).toBeVisible()
+
+    // RuntimeSupport badge row at the top of the API page.
+    await page.goto(`http://localhost:${port}/docs/api/`)
+    await expect(page.locator('text=Runtime support')).toBeVisible()
+    await expect(page.locator('text=Chrome 113+')).toBeVisible()
+    // Each XGISMap entry has the formalised slots (Parameters / Returns / See also).
+    await expect(page.locator('h3#xgismap-run').locator('xpath=following::*[1]')).toBeVisible()
+    await expect(page.locator('text=Parameters').first()).toBeVisible()
+    await expect(page.locator('text=Returns').first()).toBeVisible()
 
     // Glossary page exists with H3-anchored term definitions and a
     // letter-grouped TOC.

@@ -1,12 +1,15 @@
 ---
 // "Was this page helpful?" widget. Mounts at the end of every docs
-// page (rendered by Docs.astro). Stripe / MS Learn / GitHub Docs
-// pattern: thumbs up / down split + a "report an issue" link that
-// pre-fills a GitHub issue with the page title.
+// page (rendered by Docs.astro). MS Learn / GitHub Docs pattern:
+// thumbs up / down → reveals a category picker → opens a pre-filled
+// GitHub issue with the picked category in the title and labels.
 //
-// No backend — the up/down doesn't go anywhere; it just acknowledges
-// receipt with a quick visual. The real channel for feedback is the
-// GitHub issue link, which is what most readers actually click.
+// Three steps:
+//   1. Tap up / down — local-storage acknowledged.
+//   2. Down reveals four category buttons (Hard to understand /
+//      Missing info / Wrong info / Other).
+//   3. Tapping a category opens a GitHub issue with category-specific
+//      title + body template + label.
 //
 // Caller passes the current page slug so the issue title / body can
 // reference it.
@@ -17,52 +20,95 @@ interface Props {
 
 const { slug } = Astro.props
 const pageLabel = slug === '' ? '/docs' : `/docs/${slug}`
-const issueUrl = new URL('https://github.com/X-GIS/X-GIS/issues/new')
-issueUrl.searchParams.set('title', `Docs feedback — ${pageLabel}`)
-issueUrl.searchParams.set('labels', 'docs')
-issueUrl.searchParams.set('body', `Page: \`${pageLabel}\`\n\nWhat's missing / wrong / confusing:\n\n`)
+
+interface FeedbackCategory {
+  key: string
+  label: string
+  ghLabel: string
+  promptBody: string
+}
+const categories: FeedbackCategory[] = [
+  { key: 'unclear',   label: 'Hard to understand', ghLabel: 'docs:unclear',   promptBody: 'What was confusing or hard to follow:\n\n' },
+  { key: 'missing',   label: 'Missing info',       ghLabel: 'docs:missing',   promptBody: 'What information is missing:\n\n' },
+  { key: 'wrong',     label: 'Wrong info',         ghLabel: 'docs:wrong',     promptBody: 'What\'s incorrect (and what it should say):\n\n' },
+  { key: 'other',     label: 'Other',              ghLabel: 'docs',           promptBody: 'Feedback:\n\n' },
+]
+
+const categoryLinks = categories.map(c => {
+  const url = new URL('https://github.com/X-GIS/X-GIS/issues/new')
+  url.searchParams.set('title', `Docs feedback (${c.label.toLowerCase()}) — ${pageLabel}`)
+  url.searchParams.set('labels', `${c.ghLabel},docs`)
+  url.searchParams.set('body', `Page: \`${pageLabel}\`\n\n${c.promptBody}`)
+  return { ...c, url: url.toString() }
+})
+
+const generalIssueUrl = new URL('https://github.com/X-GIS/X-GIS/issues/new')
+generalIssueUrl.searchParams.set('title', `Docs feedback — ${pageLabel}`)
+generalIssueUrl.searchParams.set('labels', 'docs')
+generalIssueUrl.searchParams.set('body', `Page: \`${pageLabel}\`\n\nWhat's missing / wrong / confusing:\n\n`)
 ---
 
 <div
-  class="page-feedback mt-10 pt-6 border-t border-line/60 flex flex-col sm:flex-row sm:items-center gap-3 text-[13px]"
+  class="page-feedback mt-10 pt-6 border-t border-line/60 text-[13px]"
   data-page-feedback
 >
-  <p class="text-fg-dim">Was this page helpful?</p>
-  <div class="flex items-center gap-2">
-    <button
-      type="button"
-      data-vote="up"
-      aria-label="Yes, this page was helpful"
-      class="vote-btn group inline-flex items-center justify-center w-9 h-9 rounded-md border border-line text-fg-mute hover:text-emerald-300 hover:border-emerald-400/40 hover:bg-emerald-400/5 transition-colors"
+  <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+    <p class="text-fg-dim">Was this page helpful?</p>
+    <div class="flex items-center gap-2">
+      <button
+        type="button"
+        data-vote="up"
+        aria-label="Yes, this page was helpful"
+        class="vote-btn group inline-flex items-center justify-center w-9 h-9 rounded-md border border-line text-fg-mute hover:text-emerald-300 hover:border-emerald-400/40 hover:bg-emerald-400/5 transition-colors"
+      >
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M7 22V11M2 13h5v9H2zM20 9h-5l1.5-5.5a1 1 0 0 0-1-1.3l-1 .15A2 2 0 0 0 13 4.6L11 11v11h7.3a2 2 0 0 0 2-1.6l1.6-9A2 2 0 0 0 20 9z"/>
+        </svg>
+      </button>
+      <button
+        type="button"
+        data-vote="down"
+        aria-label="No, this page was not helpful"
+        class="vote-btn group inline-flex items-center justify-center w-9 h-9 rounded-md border border-line text-fg-mute hover:text-rose-300 hover:border-rose-400/40 hover:bg-rose-400/5 transition-colors"
+      >
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M17 2v11M22 11h-5V2h5zM4 15h5l-1.5 5.5a1 1 0 0 0 1 1.3l1-.15A2 2 0 0 0 11 19.4L13 13V2H5.7a2 2 0 0 0-2 1.6L2.1 12.6A2 2 0 0 0 4 15z"/>
+        </svg>
+      </button>
+    </div>
+    <span class="hidden sm:inline-block w-px h-4 bg-line"></span>
+    <a
+      href={generalIssueUrl.toString()}
+      target="_blank"
+      rel="noopener"
+      class="text-fg-dim hover:text-fg transition-colors inline-flex items-center gap-1.5"
     >
-      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M7 22V11M2 13h5v9H2zM20 9h-5l1.5-5.5a1 1 0 0 0-1-1.3l-1 .15A2 2 0 0 0 13 4.6L11 11v11h7.3a2 2 0 0 0 2-1.6l1.6-9A2 2 0 0 0 20 9z"/>
+      Tell us what's missing
+      <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M7 17L17 7M9 7h8v8"/>
       </svg>
-    </button>
-    <button
-      type="button"
-      data-vote="down"
-      aria-label="No, this page was not helpful"
-      class="vote-btn group inline-flex items-center justify-center w-9 h-9 rounded-md border border-line text-fg-mute hover:text-rose-300 hover:border-rose-400/40 hover:bg-rose-400/5 transition-colors"
-    >
-      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M17 2v11M22 11h-5V2h5zM4 15h5l-1.5 5.5a1 1 0 0 0 1 1.3l1-.15A2 2 0 0 0 11 19.4L13 13V2H5.7a2 2 0 0 0-2 1.6L2.1 12.6A2 2 0 0 0 4 15z"/>
-      </svg>
-    </button>
+    </a>
+    <p class="page-feedback-thanks hidden text-fg-dim italic">Thanks — the issue tracker is the channel for follow-ups.</p>
   </div>
-  <span class="hidden sm:inline-block w-px h-4 bg-line"></span>
-  <a
-    href={issueUrl.toString()}
-    target="_blank"
-    rel="noopener"
-    class="text-fg-dim hover:text-fg transition-colors inline-flex items-center gap-1.5"
-  >
-    Tell us what's missing
-    <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M7 17L17 7M9 7h8v8"/>
-    </svg>
-  </a>
-  <p class="page-feedback-thanks hidden text-fg-dim italic">Thanks — the issue tracker is the channel for follow-ups.</p>
+
+  {/* Category picker — revealed only after a "down" vote. Each
+      button opens a category-tagged issue. */}
+  <div class="page-feedback-categories hidden mt-4 pt-4 border-t border-line/60">
+    <p class="text-[12px] text-fg-mute mb-2.5">What's the issue?</p>
+    <div class="flex flex-wrap gap-2">
+      {categoryLinks.map(c => (
+        <a
+          href={c.url}
+          target="_blank"
+          rel="noopener"
+          data-category={c.key}
+          class="inline-flex items-center px-3 py-1.5 rounded-md border border-line bg-bg-card hover:border-line-strong hover:bg-bg-hover text-fg-dim hover:text-fg transition-colors text-[12.5px]"
+        >
+          {c.label}
+        </a>
+      ))}
+    </div>
+  </div>
 </div>
 
 <script>
@@ -72,6 +118,7 @@ issueUrl.searchParams.set('body', `Page: \`${pageLabel}\`\n\nWhat's missing / wr
   document.querySelectorAll<HTMLElement>('[data-page-feedback]').forEach(root => {
     const buttons = root.querySelectorAll<HTMLButtonElement>('.vote-btn')
     const thanks = root.querySelector<HTMLElement>('.page-feedback-thanks')
+    const categories = root.querySelector<HTMLElement>('.page-feedback-categories')
     const key = `xgis:feedback:${location.pathname}`
     if (localStorage.getItem(key)) {
       thanks?.classList.remove('hidden')
@@ -84,6 +131,12 @@ issueUrl.searchParams.set('body', `Page: \`${pageLabel}\`\n\nWhat's missing / wr
         b.classList.add(vote === 'up' ? 'text-emerald-300' : 'text-rose-300', 'border-line-strong')
         thanks?.classList.remove('hidden')
         buttons.forEach(x => x.setAttribute('disabled', 'true'))
+        // Down vote reveals the category picker — readers can attach
+        // structured info to the resulting GitHub issue. Up votes
+        // skip it (positive feedback doesn't need a follow-up).
+        if (vote === 'down') {
+          categories?.classList.remove('hidden')
+        }
       })
     })
   })
