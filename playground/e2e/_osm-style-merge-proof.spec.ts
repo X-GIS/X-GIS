@@ -11,10 +11,8 @@
 //
 // Verified expectation per `compiler/src/__tests__/measure-osm.test.ts`
 // running on the same osm-style.xgis fixture:
-//   1× landuse compound (5 layers folded → match() on .kind for fill,
-//      stroke colour, AND stroke width — all baked into segment buffer)
-//   1× landuse_other (singleton — `&&`-chain `!=` filter shape isn't
-//      mergeable into the `||`-chain compound)
+//   1× landuse compound (5 layers folded + `landuse_other` absorbed
+//      as the default `_` arm of the synthesised match())
 //   1× water         (singleton — only one water layer in the demo)
 //   1× roads compound (5 layers folded — per-feature stroke
 //      colour + width via segment buffer override slots)
@@ -39,7 +37,7 @@ declare global {
 test.describe('OSM-style auto-merge — runtime proof', () => {
   test.use({ viewport: { width: 1500, height: 907 } })
 
-  test('VTR gpuCache holds exactly 5 sliceKeys (post-merge fold)', async ({ page }) => {
+  test('VTR gpuCache holds exactly 4 sliceKeys (post-merge fold)', async ({ page }) => {
     test.setTimeout(60_000)
     await page.goto(`/demo.html?id=osm_style&dpr=2#15/35.66/139.7/0/0`, {
       waitUntil: 'domcontentloaded',
@@ -74,10 +72,10 @@ test.describe('OSM-style auto-merge — runtime proof', () => {
     // (compound landuse, landuse_other, water, compound roads,
     // buildings). If the merge regresses to per-layer slices the
     // count climbs to 13.
-    expect(sliceKeys.length).toBe(5)
+    expect(sliceKeys.length).toBe(4)
   })
 
-  test('per-frame draws ≤ 5 × visible tiles (merge upper bound)', async ({ page }) => {
+  test('per-frame draws ≤ 4 × visible tiles (merge upper bound)', async ({ page }) => {
     test.setTimeout(60_000)
     await page.goto(`/demo.html?id=osm_style&dpr=2#15/35.66/139.7/0/0`, {
       waitUntil: 'domcontentloaded',
@@ -126,6 +124,6 @@ test.describe('OSM-style auto-merge — runtime proof', () => {
     // multiplier was 13; post-merge is 5. Allow some headroom for
     // ancestor fallback draws (drawn z=N + z=N-1 fallback can
     // double-count slightly), so cap at 5× unique + slack.
-    expect(stats.tilesVisible).toBeLessThanOrEqual(stats.uniqueTilePositions * 5 + 5)
+    expect(stats.tilesVisible).toBeLessThanOrEqual(stats.uniqueTilePositions * 4 + 5)
   })
 })

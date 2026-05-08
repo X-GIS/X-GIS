@@ -47,6 +47,46 @@ interface FilterAnalysis {
 /** Returns null when the filter doesn't match the merge contract.
  *  Otherwise the field name and the list of equality-tested literal
  *  values whose ANY-of would re-create the original boolean. */
+/** Returns null when the filter doesn't match the "default-arm
+ *  absorption" contract — `&&`-chain of `.field != LITERAL` on a
+ *  single field. The OSM-style demo's `landuse_other` block is the
+ *  canonical case: `filter: .kind != "park" && .kind != "forest"
+ *  && ... && .kind != "industrial"`. When the value set EQUALS the
+ *  union of an adjacent compound's `||`-chain values, the
+ *  `!=`-layer covers exactly the features the compound doesn't, so
+ *  it can fold into the compound's `_` default arm. */
+function analyzeNotFilter(filter: DataExpr | null): FilterAnalysis | null {
+  if (!filter) return null
+  const ast = filter.ast as AST.Expr
+  const values: string[] = []
+  let field: string | null = null
+  const visit = (node: AST.Expr): boolean => {
+    if (node.kind === 'BinaryExpr' && node.op === '&&') {
+      return visit(node.left) && visit(node.right)
+    }
+    if (node.kind === 'BinaryExpr' && node.op === '!=') {
+      const f = extractField(node.left) ?? extractField(node.right)
+      const v = extractLiteral(node.right) ?? extractLiteral(node.left)
+      if (f === null || v === null) return false
+      if (field === null) field = f
+      else if (field !== f) return false
+      values.push(v)
+      return true
+    }
+    return false
+  }
+  if (!visit(ast)) return null
+  if (field === null || values.length === 0) return null
+  return { field, values }
+}
+
+function setEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  const set = new Set(a)
+  for (const v of b) if (!set.has(v)) return false
+  return true
+}
+
 function analyzeFilter(filter: DataExpr | null): FilterAnalysis | null {
   if (!filter) return null
   const ast = filter.ast as AST.Expr
@@ -161,13 +201,17 @@ function canExtendGroup(first: RenderNode, candidate: RenderNode): boolean {
 function buildMatchAst(
   field: string,
   arms: Array<{ pattern: string; rgba: [number, number, number, number] }>,
+  /** Override for the `_` default arm. When the merge pass absorbs
+   *  a complementary `&&`-chain `!=` layer (e.g. `landuse_other`),
+   *  its fill / stroke colour becomes the default. Without it the
+   *  default is alpha=0 — equivalent to "discard" since the line /
+   *  fill SDF threshold drops fragments with alpha < 0.005. */
+  defaultRgba?: [number, number, number, number] | null,
 ): AST.Expr {
-  // Default arm — colour none. Won't be reached for non-matching
-  // features because the compound `filter` excludes them at the
-  // worker pre-bucket stage; but match() requires a default.
+  const defaultHex = defaultRgba ? rgbaToHex(defaultRgba) : '#00000000'
   const defaultArm: AST.MatchArm = {
     pattern: '_',
-    value: { kind: 'ColorLiteral', value: '#00000000' } as AST.Expr,
+    value: { kind: 'ColorLiteral', value: defaultHex } as AST.Expr,
   }
   const matchArms: AST.MatchArm[] = arms.map(a => ({
     pattern: a.pattern,
@@ -214,6 +258,10 @@ function buildMatchAst(
 function buildWidthMatchAst(
   field: string,
   arms: Array<{ pattern: string; width: number }>,
+  /** Override for the `_` default arm's width. Used when the merge
+   *  pass absorbs an `&&`-chain `!=` default-arm layer (the
+   *  `landuse_other` pattern). 0 = "no override" sentinel. */
+  defaultWidth: number | null = null,
 ): AST.Expr {
   const matchArms: AST.MatchArm[] = arms.map(a => ({
     pattern: a.pattern,
@@ -221,7 +269,7 @@ function buildWidthMatchAst(
   }))
   matchArms.push({
     pattern: '_',
-    value: { kind: 'NumberLiteral', value: 0 } as AST.Expr,
+    value: { kind: 'NumberLiteral', value: defaultWidth ?? 0 } as AST.Expr,
   })
   const matchBlock: AST.MatchBlock = { kind: 'MatchBlock', arms: matchArms }
   // `object: null` is the AST shape for implicit `.field` access
@@ -337,6 +385,36 @@ export function mergeLayers(scene: Scene): Scene {
       continue
     }
 
+    // Default-arm absorption: after the contiguous `||`-chain group
+    // is built, check whether the NEXT layer is the complementary
+    // `&&`-chain on the same field with the same value set. That's
+    // the OSM-style `landuse_other` pattern — `filter: .kind !=
+    // park && .kind != grass && ... && .kind != industrial` covers
+    // exactly the kinds the compound's || values DON'T. We can fold
+    // it as the compound's `_` default arm AND drop the compound's
+    // filter so all source-layer features reach the shader (the
+    // match() then dispatches to either an explicit value arm or
+    // the default).
+    let defaultArmNode: RenderNode | null = null
+    if (j < nodes.length) {
+      const cand = nodes[j]
+      if (cand.sourceRef === first.sourceRef
+          && cand.sourceLayer === first.sourceLayer
+          && cand.extrude.kind === 'none'
+          && cand.opacity.kind === 'constant' && cand.opacity.value >= 0.999
+          && cand.geometry === null
+          && cand.shape.kind === 'none') {
+        const notFilter = analyzeNotFilter(cand.filter)
+        if (notFilter && notFilter.field === firstFilter.field) {
+          const allCompoundValues = [...new Set(group.flatMap(g => g.filter.values))]
+          if (setEqual(notFilter.values, allCompoundValues)) {
+            defaultArmNode = cand
+            j++
+          }
+        }
+      }
+    }
+
     // Synthesize the compound. Build per-(value → colour / width) arms
     // from every group member so a feature gets the styling of the
     // FIRST member whose filter matched it (declaration order
@@ -374,10 +452,39 @@ export function mergeLayers(scene: Scene): Scene {
     }
 
     const allValues = [...new Set(group.flatMap(g => g.filter.values))]
-    const orFilter: AST.Expr = buildOrFilter(firstFilter.field, allValues)
+    // When a default-arm node was absorbed, the compound covers
+    // EVERY feature in the source layer (the explicit ||-values
+    // PLUS everything else); drop the filter entirely so the
+    // worker's pre-bucket sees all features. Without absorption,
+    // keep the OR-filter so unmatched features stay out of the
+    // slice (the synthesized `_ -> #00000000` arm would render
+    // them transparent but they'd still consume vertex / fragment
+    // bandwidth).
+    const orFilter: AST.Expr | null = defaultArmNode
+      ? null
+      : buildOrFilter(firstFilter.field, allValues)
 
-    const compoundFill: ColorValue = fillNeeded
-      ? { kind: 'data-driven', expr: { ast: buildMatchAst(firstFilter.field, fillArms) } as DataExpr }
+    // Default arm contribution from the absorbed `&&`-chain layer.
+    // The default colour resolves to `#00000000` (alpha=0 = "no
+    // colour") when the absorbed layer doesn't have a fill /
+    // stroke; the match-arm chain in shader-gen turns alpha=0
+    // arms into a discard-equivalent path (low-alpha SDF threshold
+    // already covers it).
+    const defaultFillRgba = defaultArmNode?.fill.kind === 'constant'
+      ? defaultArmNode.fill.rgba
+      : null
+    const defaultStrokeRgba = defaultArmNode?.stroke.color.kind === 'constant'
+      ? defaultArmNode.stroke.color.rgba
+      : null
+    const defaultWidth = defaultArmNode?.stroke.width
+
+    const compoundFill: ColorValue = fillNeeded || defaultFillRgba
+      ? {
+          kind: 'data-driven',
+          expr: {
+            ast: buildMatchAst(firstFilter.field, fillArms, defaultFillRgba),
+          } as DataExpr,
+        }
       : { kind: 'none' }
     // Stroke colour: when every member shares the colour, keep it as
     // a plain constant (no AST work). When they differ, leave the
@@ -388,34 +495,53 @@ export function mergeLayers(scene: Scene): Scene {
     // the LineRenderer's lack of a feature-data binding — the
     // shader doesn't have to read `feat_data[...]`, just unpack the
     // segment's pre-resolved `color_packed`.
+    // Stroke colour: per-feature dispatch baked into segment buffer
+    // when group members differ, OR when the absorbed default arm's
+    // stroke colour differs from the group's.
     const allStrokeColorsSame = group.every(g =>
       strokeColorsEqual(group[0].node.stroke, g.node.stroke),
     )
-    const compoundStrokeColor: ColorValue = !strokeNeeded
+    const defaultStrokeMatchesGroup = defaultStrokeRgba == null
+      || (group[0].node.stroke.color.kind === 'constant'
+          && group[0].node.stroke.color.rgba[0] === defaultStrokeRgba[0]
+          && group[0].node.stroke.color.rgba[1] === defaultStrokeRgba[1]
+          && group[0].node.stroke.color.rgba[2] === defaultStrokeRgba[2]
+          && group[0].node.stroke.color.rgba[3] === defaultStrokeRgba[3])
+    const strokeColorBakeNeeded = strokeNeeded
+      && (!allStrokeColorsSame || !defaultStrokeMatchesGroup)
+    const compoundStrokeColor: ColorValue = !strokeNeeded && !defaultStrokeRgba
       ? { kind: 'none' }
       : group[0].node.stroke.color
-    const compoundStrokeColorExpr = !strokeNeeded || allStrokeColorsSame
+    const compoundStrokeColorExpr = !strokeColorBakeNeeded
       ? undefined
-      : { ast: buildMatchAst(firstFilter.field, strokeArms) } as DataExpr
+      : { ast: buildMatchAst(firstFilter.field, strokeArms, defaultStrokeRgba) } as DataExpr
 
+    // Per-feature width baking when EITHER group widths differ OR
+    // the absorbed default arm's width differs from the group's.
+    const widthBakeNeeded = !widthsAllEqual
+      || (defaultWidth !== undefined && defaultWidth !== firstWidth)
     const compound: RenderNode = {
       ...first,
-      // Name reflects the merge so debug tooling / inspector shows
-      // it for what it is.
-      name: `${first.sourceLayer ?? first.sourceRef}__merged_${group.length}`,
+      name: `${first.sourceLayer ?? first.sourceRef}__merged_${group.length}${defaultArmNode ? '+1default' : ''}`,
       fill: compoundFill,
       stroke: {
         ...first.stroke,
         color: compoundStrokeColor,
-        // Per-feature width when group widths differ. When all members
-        // share the same width, leave widthExpr undefined and let the
-        // existing scalar `width` win (no runtime override needed).
-        widthExpr: widthsAllEqual
+        widthExpr: !widthBakeNeeded
           ? undefined
-          : { ast: buildWidthMatchAst(firstFilter.field, widthArms) } as DataExpr,
+          : {
+              ast: buildWidthMatchAst(
+                firstFilter.field,
+                widthArms,
+                defaultWidth ?? null,
+              ),
+            } as DataExpr,
         colorExpr: compoundStrokeColorExpr,
       },
-      filter: { ast: orFilter } as DataExpr,
+      // When a default arm absorbed: drop the filter so all
+      // source-layer features reach the slice. Without absorption:
+      // keep the OR-filter so unmatched features stay out.
+      filter: orFilter ? { ast: orFilter } as DataExpr : null,
     }
     // Dev-mode visibility into the merge. Triggered ONLY when the
     // host environment defines `__XGIS_MERGE_LOG = true` (set by
