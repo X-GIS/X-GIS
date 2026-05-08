@@ -327,6 +327,12 @@ export class VectorTileRenderer {
 
   // Per-frame draw stats
   private renderedDraws = new Map<number, { polyCount: number; lineCount: number; vertexCount: number }>()
+  // DIAG: filled in by render() at the start of each show, read by
+  // renderTileKeys when pushing per-tile drawIndexed entries into the
+  // trace. Both fields are flag-gated and zero-cost when the trace
+  // isn't armed.
+  private lastTraceSlice: string | null = null
+  private lastTracePhase: string | null = null
   /** Deduped tile-drop warnings. Key format: "<reason>:<z>/<x>/<y>". Once
    *  per session per key; prevents flood when panning/zooming over an area
    *  that has no data at the current level. */
@@ -1144,17 +1150,16 @@ export class VectorTileRenderer {
     // silent unless the flag is set.
     if (typeof window !== 'undefined') {
       const trace = (window as unknown as { __xgisDrawOrderTrace?: Array<{
-        seq: number; slice: string; phase: string; extrude: string; tilesNeeded: number
+        seq: number; slice: string; phase: string; extrude: string; tileKey?: number; isFill?: boolean
       }> }).__xgisDrawOrderTrace
       if (trace) {
-        const ek = (show as { extrude?: { kind?: string } }).extrude?.kind ?? 'none'
-        trace.push({
-          seq: trace.length,
-          slice: sliceLayer,
-          phase,
-          extrude: ek,
-          tilesNeeded: 0, // filled in below once neededKeys known
-        })
+        // Stash for the per-tile drawIndexed entries renderTileKeys
+        // is about to push.
+        this.lastTraceSlice = sliceLayer
+        this.lastTracePhase = phase
+      } else {
+        this.lastTraceSlice = null
+        this.lastTracePhase = null
       }
     }
     // Pre-fetch this layer's gpuCache slot once. Hot-path lookups
@@ -2407,6 +2412,25 @@ export class VectorTileRenderer {
       // skipped (variant pipeline computes color in shader, cached uniform
       // alpha may be zero even when the draw is meaningful).
       if (drawFills && cached.indexCount > 0 && !this._skipFillDraw) {
+        // DIAG: log per-tile drawIndexed for the current trace if armed.
+        // Granular enough to verify the cross-tile order claim
+        // ("all tiles' 2D before any 3D") rather than just per-show
+        // sequencing.
+        if (typeof window !== 'undefined') {
+          const trace = (window as unknown as { __xgisDrawOrderTrace?: Array<{
+            seq: number; slice: string; phase: string; extrude: string; tileKey?: number; isFill?: boolean
+          }> }).__xgisDrawOrderTrace
+          if (trace) {
+            trace.push({
+              seq: trace.length,
+              slice: this.lastTraceSlice ?? '?',
+              phase: this.lastTracePhase ?? '?',
+              extrude: this.currentExtrudeMode === 'none' ? 'none' : 'feature',
+              tileKey: key,
+              isFill: true,
+            })
+          }
+        }
         // Pipeline selection — three opaque paths + OIT:
         //  * 'oit-fill' phase: translucent extrude → OIT MRT pipe
         //  * per-feature extrude (opaque): vs_main_quantized_extruded + zBuffer

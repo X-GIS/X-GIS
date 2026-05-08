@@ -11,7 +11,10 @@ import { writeFileSync } from 'node:fs'
 declare global {
   interface Window {
     __xgisCaptureDrawOrder?: boolean
-    __xgisDrawOrderResult?: Array<{ seq: number; slice: string; phase: string; extrude: string }>
+    __xgisDrawOrderResult?: Array<{
+      seq: number; slice: string; phase: string; extrude: string
+      tileKey?: number; isFill?: boolean
+    }>
   }
 }
 
@@ -40,31 +43,52 @@ test.describe('VTR draw order at high pitch', () => {
     await page.waitForFunction(() => Array.isArray(window.__xgisDrawOrderResult), null, { timeout: 10_000 })
     const trace = await page.evaluate(() => window.__xgisDrawOrderResult)
 
+    const events = trace ?? []
     // eslint-disable-next-line no-console
-    console.log('Captured', (trace ?? []).length, 'draw calls. Order:')
-    for (const e of trace ?? []) {
-      // eslint-disable-next-line no-console
-      console.log(`  seq=${e.seq}  extrude=${e.extrude.padEnd(10)}  phase=${e.phase.padEnd(8)}  slice="${e.slice}"`)
+    console.log('Captured', events.length, 'draw events. Summary by slice:')
+    const bySlice = new Map<string, { extrude: string; tiles: number[] }>()
+    for (const e of events) {
+      const cur = bySlice.get(e.slice) ?? { extrude: e.extrude, tiles: [] }
+      if (e.isFill && typeof e.tileKey === 'number') cur.tiles.push(e.tileKey)
+      bySlice.set(e.slice, cur)
     }
-    writeFileSync('draw-order-trace.json', JSON.stringify(trace, null, 2))
+    for (const [slice, info] of bySlice) {
+      // eslint-disable-next-line no-console
+      console.log(`  slice="${slice}" extrude=${info.extrude} tileFills=${info.tiles.length}`)
+    }
+    writeFileSync('draw-order-trace.json', JSON.stringify(events, null, 2))
 
-    // Two diagnostic invariants:
-    //   1. At least one extruded show fired (buildings layer is in
-    //      osm_style — if this fails, something stopped sending it
-    //      through VTR.render).
-    //   2. EVERY non-extruded ('none') show appears BEFORE every
-    //      extruded show. If false → 2D ground draws after 3D
-    //      buildings → 3D buildings get painted over by ground →
-    //      visible "back through front" artifact even with depth
-    //      working correctly.
-    const hasExtruded = (trace ?? []).some(e => e.extrude !== 'none')
-    const lastNoneIdx = (trace ?? []).reduce(
-      (acc, e, i) => e.extrude === 'none' ? i : acc, -1)
-    const firstExtrudedIdx = (trace ?? []).findIndex(e => e.extrude !== 'none')
+    // The user's concern, precisely stated:
+    //   The CORRECT order is "all-tiles 2D, then all-tiles 3D":
+    //     for tile in tiles: tile.draw2D     (bucket 1)
+    //     for tile in tiles: tile.draw3D     (bucket 2)
+    //   The BROKEN order would be "per-tile 2D+3D interleaved":
+    //     for tile in tiles: tile.draw2D + tile.draw3D
+    //
+    // Per-tile drawIndexed events let us check this directly:
+    // every entry with extrude='none' (2D) must have a sequence
+    // index BELOW every entry with extrude='feature'/'uniform' (3D).
+    // If we ever see [..., 3D fill at tile X, ..., 2D fill at tile Y, ...]
+    // the assertion below fires and prints the violation.
+    let lastNoneFillSeq = -1
+    let firstExtrudedFillSeq = -1
+    const violations: typeof events = []
+    for (const e of events) {
+      if (!e.isFill) continue
+      if (e.extrude === 'none') {
+        if (firstExtrudedFillSeq >= 0) violations.push(e)
+        lastNoneFillSeq = e.seq
+      } else {
+        if (firstExtrudedFillSeq < 0) firstExtrudedFillSeq = e.seq
+      }
+    }
     // eslint-disable-next-line no-console
-    console.log(`hasExtruded=${hasExtruded} lastNoneIdx=${lastNoneIdx} firstExtrudedIdx=${firstExtrudedIdx}`)
-
-    expect(hasExtruded).toBe(true)
-    expect(firstExtrudedIdx).toBeGreaterThan(lastNoneIdx)
+    console.log(`lastNoneFillSeq=${lastNoneFillSeq} firstExtrudedFillSeq=${firstExtrudedFillSeq} violations=${violations.length}`)
+    if (violations.length > 0) {
+      // eslint-disable-next-line no-console
+      console.log('Violations (2D fill AFTER 3D fill started):', violations)
+    }
+    expect(violations.length).toBe(0)
+    expect(firstExtrudedFillSeq).toBeGreaterThan(lastNoneFillSeq)
   })
 })
