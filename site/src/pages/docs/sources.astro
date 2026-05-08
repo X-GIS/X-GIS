@@ -1,0 +1,186 @@
+---
+import Docs from '../../layouts/Docs.astro'
+
+interface SourceType {
+  type: string
+  badge: string
+  short: string
+  body: string
+  fields: { key: string; required: boolean; body: string }[]
+  example: string
+  notes?: string[]
+}
+
+const sourceTypes: SourceType[] = [
+  {
+    type: 'geojson',
+    badge: 'Default',
+    short: 'Full GeoJSON file. Loaded once, tiled on-demand.',
+    body: 'Pulls the entire FeatureCollection over HTTP, then tiles it client-side via the GeoJSON compile worker. Best for moderate datasets (≤ ~50 MB) — countries, ports, points of interest. For large worlds use PMTiles or XGVT instead.',
+    fields: [
+      { key: 'url',  required: true,  body: 'HTTP(S) URL of the .geojson file. Relative paths resolve against the playground / host page baseURL.' },
+    ],
+    example: `source world {
+  type: geojson
+  url: "data/countries.geojson"
+}`,
+    notes: [
+      'CORS-sensitive — the host must send `Access-Control-Allow-Origin`.',
+      'Tile generation runs on a Web Worker; main thread stays smooth.',
+      'Inline data (no `url`) yields an empty source the host populates via `map.setSourceData()`.',
+    ],
+  },
+
+  {
+    type: 'pmtiles',
+    badge: 'Recommended for vector basemaps',
+    short: 'PMTiles archive — MVT inside a single byte-range-served file.',
+    body: 'Lazy-loaded: only the header + visible-frustum tiles are fetched. Scales to planet-size archives (multi-GB) without memory blow-up. Backed by `attachPMTilesSource` — same code path serves both `.pmtiles` archives and TileJSON manifests (see below).',
+    fields: [
+      { key: 'url',    required: true,  body: 'URL of the `.pmtiles` archive. Server must support HTTP byte-range requests (`Accept-Ranges: bytes`).' },
+      { key: 'layers', required: false, body: 'Optional MVT source-layer subset — `["water", "roads"]`. The decoder skips other layers, reducing per-tile work. Defaults to whatever layers the registered xgis `sourceLayer:` filters reference.' },
+    ],
+    example: `source world {
+  type: pmtiles
+  url: "/tiles/protomaps-v4.pmtiles"
+  layers: ["water", "landuse", "transportation"]
+}`,
+    notes: [
+      'Per-source-layer slicing is automatic — multiple xgis layers on the same source share decoded tile data.',
+      'Sub-tile generation handles over-zoom past the archive\'s `maxZoom` by clipping parent geometry.',
+      'CORS rules for the archive\'s host apply; range-request preflight matters in browsers.',
+    ],
+  },
+
+  {
+    type: 'tilejson',
+    badge: 'Manifest pointing at XYZ MVT',
+    short: 'TileJSON manifest. Runtime fetches the manifest, then per-tile `.pbf` from the listed template.',
+    body: 'Use when the upstream is a vector tile server (e.g. `tiles.openfreemap.org/planet`) rather than a single archive. The runtime parses the TileJSON to discover the tile URL template, vector_layers metadata, and zoom range, then drives the same backend as `pmtiles`.',
+    fields: [
+      { key: 'url',    required: true,  body: 'URL returning a TileJSON 3.0 document (JSON). The `tiles[]` array supplies the per-tile URL template.' },
+      { key: 'layers', required: false, body: 'Same semantics as the `pmtiles` source.' },
+    ],
+    example: `source openmaptiles {
+  type: tilejson
+  url: "https://tiles.openfreemap.org/planet"
+}`,
+    notes: [
+      'The Mapbox style converter at <a class="text-accent hover:text-accent-hover underline" href="../convert">/convert</a> auto-emits `type: tilejson` when the upstream URL has no `.pmtiles` extension.',
+      'No `version` / no `tiles[]` in the response triggers a soft-fail — the catalog stays empty so the rest of the demo still loads.',
+    ],
+  },
+
+  {
+    type: 'raster',
+    badge: 'XYZ tile server',
+    short: 'Raster tile server using `{z}/{x}/{y}` template URLs.',
+    body: 'For OSM-style PNG/JPG tile services. The runtime activates the raster renderer only when at least one xgis layer references the source.',
+    fields: [
+      { key: 'url', required: true, body: '`{z}/{x}/{y}` template, e.g. `"https://tile.openstreetmap.org/{z}/{x}/{y}.png"`.' },
+    ],
+    example: `source osm {
+  type: raster
+  url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+}`,
+    notes: [
+      'Most public OSM tile servers ban automated traffic — use your own server or a paid provider for production.',
+      'Raster + vector can mix in one map: stack a vector overlay on top of a raster basemap by listing the raster source first.',
+    ],
+  },
+
+  {
+    type: 'xgvt',
+    badge: 'Pre-tessellated binary',
+    short: 'X-GIS\'s native vector-tile binary format. Streamed via byte-range.',
+    body: 'Pre-tessellated GeoJSON in a single binary archive — no per-tile compile cost at runtime. Generate via `xgvt-cli` (compiler workspace) from a source GeoJSON. Ideal for static datasets you ship with the app.',
+    fields: [
+      { key: 'url', required: true, body: 'URL of the `.xgvt` file. Server must support byte-range requests.' },
+    ],
+    example: `source land {
+  type: xgvt
+  url: "/data/ne_110m_land.xgvt"
+}`,
+    notes: [
+      'Source kind is auto-detected from the `.xgvt` extension when used with `type: geojson` — explicit `type: xgvt` is for clarity.',
+      'XGVT format details live in <a class="text-accent hover:text-accent-hover underline" href="https://github.com/X-GIS/X-GIS/blob/main/SPEC.md" target="_blank" rel="noopener">SPEC.md</a>.',
+    ],
+  },
+]
+---
+
+<Docs
+  current="sources"
+  title="X-GIS — Source types"
+  description="Every source type the runtime accepts — GeoJSON, PMTiles, TileJSON, raster XYZ, and XGVT — with required fields, options, and caveats."
+>
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">Language</p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      Source types.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[720px]">
+      Every source kind the runtime can attach to. Each section below
+      documents the type's intended use, accepted fields, and caveats —
+      pick the one that matches the upstream you have.
+    </p>
+  </header>
+
+  <article class="space-y-14">
+    {sourceTypes.map(s => (
+      <section id={s.type}>
+        <div class="flex items-baseline gap-3 flex-wrap mb-3 pb-2 border-b border-line">
+          <h2 class="text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em]">
+            <code class="font-mono">{s.type}</code>
+          </h2>
+          <span class="text-[11px] px-2 py-0.5 rounded-full bg-accent/15 text-accent border border-accent/30 font-medium">
+            {s.badge}
+          </span>
+        </div>
+        <p class="text-[15px] sm:text-[16px] leading-[1.55] text-fg mb-3 max-w-[720px]">
+          {s.short}
+        </p>
+        <p class="text-[14px] leading-[1.65] text-fg-dim mb-6 max-w-[720px]">
+          {s.body}
+        </p>
+
+        <div class="grid lg:grid-cols-2 gap-6">
+          <div>
+            <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">Fields</p>
+            <div class="space-y-3">
+              {s.fields.map(f => (
+                <div class="grid grid-cols-[100px_minmax(0,1fr)] gap-x-3 items-start">
+                  <code class="font-mono text-[13px] text-fg pt-0.5">{f.key}</code>
+                  <p class="text-[13px] leading-[1.55] text-fg-dim">
+                    {!f.required && <span class="text-fg-mute">optional. </span>}
+                    {f.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">Example</p>
+            <div class="rounded-xl bg-bg-card border border-line overflow-hidden">
+              <pre class="px-5 py-4 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>{s.example}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        {s.notes && s.notes.length > 0 && (
+          <div class="mt-6">
+            <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">Notes</p>
+            <ul class="space-y-2 text-[13.5px] leading-[1.6] text-fg-dim max-w-[720px]">
+              {s.notes.map(n => (
+                <li class="flex gap-2">
+                  <span class="text-fg-mute select-none">•</span>
+                  <span set:html={n}></span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
+    ))}
+  </article>
+</Docs>

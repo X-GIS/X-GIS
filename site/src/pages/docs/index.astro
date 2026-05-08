@@ -16,9 +16,33 @@ interface PageCard {
 const cards: PageCard[] = [
   {
     href: `${base}/docs/reference`,
-    eyebrow: 'Reference',
+    eyebrow: 'Language',
     title: 'Language reference',
-    body: 'Every block, statement, modifier, and utility class with a real working code sample.',
+    body: 'Every block, statement, and modifier with a real working code sample.',
+  },
+  {
+    href: `${base}/docs/sources`,
+    eyebrow: 'Language',
+    title: 'Source types',
+    body: 'GeoJSON, PMTiles, TileJSON, raster XYZ, XGVT — fields and caveats per kind.',
+  },
+  {
+    href: `${base}/docs/functions`,
+    eyebrow: 'Language',
+    title: 'Function reference',
+    body: 'Every builtin: clamp, interpolate, sin / cos / atan2, circle / arc / polygon, the zoom accessor, and constants.',
+  },
+  {
+    href: `${base}/docs/expressions`,
+    eyebrow: 'Language',
+    title: 'Expressions & operators',
+    body: 'Operator precedence and the four idioms (bracket binding, match, filter, field modifier) that bake expressions into utilities.',
+  },
+  {
+    href: `${base}/docs/utilities`,
+    eyebrow: 'Language',
+    title: 'Utility catalog',
+    body: 'The full Tailwind-style class set — colors, fills, strokes, opacity, modifiers.',
   },
   {
     href: `${base}/docs/concepts/rtc`,
@@ -40,15 +64,9 @@ const cards: PageCard[] = [
   },
   {
     href: `${base}/docs/api`,
-    eyebrow: 'Reference',
+    eyebrow: 'API',
     title: 'JavaScript API',
     body: 'XGISMap, Camera, projections, loaders — every public symbol from @xgis/runtime.',
-  },
-  {
-    href: `${base}/docs/utilities`,
-    eyebrow: 'Reference',
-    title: 'Utility catalog',
-    body: 'The full Tailwind-style class set — colors, fills, strokes, opacity, modifiers.',
   },
 ]
 ---

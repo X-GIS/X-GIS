@@ -1,0 +1,257 @@
+---
+import Docs from '../../layouts/Docs.astro'
+
+interface Op {
+  symbol: string
+  name: string
+  body: string
+  example?: string
+}
+
+interface OpGroup {
+  title: string
+  body: string
+  /** Lower number = higher precedence. Same number = associates left-to-right. */
+  precedence: number
+  ops: Op[]
+}
+
+// Reading the AST + parser confirms precedence (compiler/src/parser/parser.ts):
+// parseCoalesce → parseLogicalOr → parseLogicalAnd → parseEquality →
+// parseComparison → parseAdditive → parseMultiplicative → parseUnary →
+// parsePostfix → parsePrimary. Lower in the call stack = tighter binding.
+const opGroups: OpGroup[] = [
+  {
+    title: 'Postfix (tightest)',
+    precedence: 1,
+    body: 'Bind tightly to the operand on their left. Can chain: `obj.a.b[0]`.',
+    ops: [
+      { symbol: '.field', name: 'Field access',
+        body: 'Read a property from the current feature\'s tags or from a nested object. The leading `.` (with no LHS) is shorthand for "this feature\'s `field`".',
+        example: '.height\n.props.population' },
+      { symbol: '[i]', name: 'Index',
+        body: 'Subscript an array. Out-of-bounds returns `null`.',
+        example: '.tags[0]' },
+      { symbol: '(args)', name: 'Function call',
+        body: 'Invoke a builtin (`min`, `interpolate`, `circle`, …) or a user-defined function from a `fn` block.',
+        example: 'clamp(.speed, 0, 60)' },
+    ],
+  },
+  {
+    title: 'Unary',
+    precedence: 2,
+    body: 'Single-operand operators applied before any binary op.',
+    ops: [
+      { symbol: '-x', name: 'Negation', body: 'Numeric negation.', example: 'opacity-[-.delta]' },
+      { symbol: '!x', name: 'Logical not', body: 'Truthy → false, falsy → true.', example: 'filter: !.disputed' },
+    ],
+  },
+  {
+    title: 'Multiplicative',
+    precedence: 3,
+    body: 'Standard arithmetic. Division-by-zero returns `0` (not `Infinity`).',
+    ops: [
+      { symbol: '*', name: 'Multiplication', body: 'Multiply.', example: '.levels * 3.5' },
+      { symbol: '/', name: 'Division',       body: 'Divide. `a / 0 → 0`.', example: '.area / 1000' },
+      { symbol: '%', name: 'Remainder',      body: 'Modulo. `a % 0 → 0`.', example: 'floor(.zoom) % 2' },
+    ],
+  },
+  {
+    title: 'Additive',
+    precedence: 4,
+    body: 'Add and subtract.',
+    ops: [
+      { symbol: '+', name: 'Addition',    body: 'Numeric add (no string concat).', example: '.x + 5' },
+      { symbol: '-', name: 'Subtraction', body: 'Subtract.', example: '.zoom - 14' },
+    ],
+  },
+  {
+    title: 'Comparison',
+    precedence: 5,
+    body: 'Yield boolean. Used most often inside `filter:`.',
+    ops: [
+      { symbol: '<',  name: 'Less than',          body: '', example: 'filter: .area < 100' },
+      { symbol: '<=', name: 'Less or equal',      body: '', example: 'filter: .level <= 3' },
+      { symbol: '>',  name: 'Greater than',       body: '', example: 'filter: .gdp > 1e12' },
+      { symbol: '>=', name: 'Greater or equal',   body: '', example: 'filter: .pop >= 1e6' },
+    ],
+  },
+  {
+    title: 'Equality',
+    precedence: 6,
+    body: 'Strict equality. No type coercion (number ≠ string).',
+    ops: [
+      { symbol: '==', name: 'Equal',     body: '', example: 'filter: .class == "highway"' },
+      { symbol: '!=', name: 'Not equal', body: '', example: 'filter: .kind != "park"' },
+    ],
+  },
+  {
+    title: 'Logical AND',
+    precedence: 7,
+    body: 'Short-circuits on falsy LHS.',
+    ops: [
+      { symbol: '&&', name: 'And', body: 'Both operands must be truthy.', example: 'filter: .class == "river" && .scalerank < 6' },
+    ],
+  },
+  {
+    title: 'Logical OR',
+    precedence: 8,
+    body: 'Short-circuits on truthy LHS.',
+    ops: [
+      { symbol: '||', name: 'Or', body: 'Either operand truthy.', example: 'filter: .kind == "rail" || .kind == "subway"' },
+    ],
+  },
+  {
+    title: 'Coalesce',
+    precedence: 9,
+    body: 'Null-coalesce. Falls through to RHS only when LHS is `null` / `undefined` / non-finite. `0` and `""` are NOT treated as missing.',
+    ops: [
+      { symbol: '??', name: 'Coalesce',
+        body: 'Use RHS when LHS is missing. The standard "explicit fallback" idiom for sparse vector tile data.',
+        example: 'fill-extrusion-height-[.render_height ?? .height ?? 5]' },
+    ],
+  },
+  {
+    title: 'Pipe (right-binding sugar)',
+    precedence: 10,
+    body: 'Pass the LHS as the FIRST argument to the function call on the RHS. Reads left-to-right like a Unix shell pipe — no equivalent in JS.',
+    ops: [
+      { symbol: 'a | f(b)', name: 'Pipe',
+        body: 'Equivalent to `f(a, b)`. Stack multiple pipes for chained transforms.',
+        example: '.speed / 50 | clamp(4, 24)' },
+    ],
+  },
+  {
+    title: 'Ternary (lowest)',
+    precedence: 11,
+    body: 'Inline conditional. Evaluates the condition first, then exactly one branch.',
+    ops: [
+      { symbol: 'cond ? a : b', name: 'Conditional',
+        body: 'When `cond` is truthy yield `a`, otherwise `b`. Right-associative — chain by repeating: `a ? b : c ? d : e`.',
+        example: '.level == 1 ? red-500 : .level == 2 ? amber-500 : gray-400' },
+    ],
+  },
+]
+
+interface Idiom {
+  title: string
+  body: string
+  code: string
+}
+const idioms: Idiom[] = [
+  {
+    title: 'Bracketed binding',
+    body: 'Any utility name followed by `-[<expr>]` lets the expression decide the value at runtime. Inside the brackets the full expression grammar is available.',
+    code: `| fill-[.kind == "park" ? green-500 : gray-300]
+| size-[clamp(.population / 1e5, 4, 24)]`,
+  },
+  {
+    title: 'Match block',
+    body: 'Categorical lookup with explicit defaults. Works in any expression position. Pattern matches against the input on the left of the arrow.',
+    code: `| fill match(.continent) {
+    "Asia"   -> red-500
+    "Europe" -> blue-500
+    _        -> gray-400
+  }`,
+  },
+  {
+    title: 'Filter predicate',
+    body: 'A boolean expression on the layer\'s `filter:` block-property. Only features satisfying the predicate flow through to the renderer.',
+    code: `layer highways {
+  source: roads
+  filter: .class == "highway" && .level >= 3
+}`,
+  },
+  {
+    title: 'Field-modifier conditional fill',
+    body: 'Tailwind-style modifier: `<fieldName>:utility` applies the utility when the named property is truthy. Multiple modifiers stack — earlier wins.',
+    code: `| friendly:fill-green-500 hostile:fill-red-500 fill-gray-400`,
+  },
+]
+---
+
+<Docs
+  current="expressions"
+  title="X-GIS — Expressions & operators"
+  description="Operator reference, precedence table, and the four idioms (bracket binding, match block, filter, field modifier) that bake expressions into utilities."
+>
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">Language</p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      Expressions &amp; operators.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[720px]">
+      The expression grammar that runs inside utility brackets, filters,
+      block-property values, and match arms. Every builtin function listed in
+      the <a href="./functions" class="text-accent hover:text-accent-hover underline">function reference</a> can be combined with the
+      operators below.
+    </p>
+  </header>
+
+  <article class="space-y-16">
+
+    <section>
+      <h2 class="text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+        Operators (tightest → loosest binding)
+      </h2>
+      <p class="text-[14px] sm:text-[15px] leading-[1.6] text-fg-dim mb-8 max-w-[720px]">
+        Listed in precedence order — a higher group binds tighter than a
+        lower one. Within each group operators associate left-to-right.
+      </p>
+      <div class="space-y-12">
+        {opGroups.map(g => (
+          <div>
+            <h3 class="text-[16px] font-medium text-fg leading-[1.3] tracking-[-0.015em] mb-1">
+              {g.precedence}. {g.title}
+            </h3>
+            <p class="text-[13.5px] leading-[1.6] text-fg-dim mb-4 max-w-[720px]">
+              {g.body}
+            </p>
+            <div class="space-y-3">
+              {g.ops.map(op => (
+                <div class="grid lg:grid-cols-[140px_minmax(0,1fr)] gap-x-5 gap-y-1 items-start">
+                  <code class="font-mono text-[13px] text-fg lg:pt-0.5 whitespace-nowrap">{op.symbol}</code>
+                  <div>
+                    <p class="text-[13.5px] text-fg-dim leading-[1.55]">
+                      <span class="text-fg font-medium">{op.name}</span>{op.body && (<>{' — '}{op.body}</>)}
+                    </p>
+                    {op.example && (
+                      <pre class="mt-2 px-3 py-2 rounded-md bg-bg-card border border-line font-mono text-[12.5px] leading-[1.6] text-fg overflow-x-auto"><code>{op.example}</code></pre>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section>
+      <h2 class="text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+        Where expressions go
+      </h2>
+      <p class="text-[14px] sm:text-[15px] leading-[1.6] text-fg-dim mb-8 max-w-[720px]">
+        Four positions accept the full expression grammar. Pick the one that
+        matches your intent — the runtime + compiler choose the lowering
+        path (per-frame, per-feature, or constant-folded) automatically.
+      </p>
+      <div class="space-y-10">
+        {idioms.map(it => (
+          <div>
+            <h3 class="text-[16px] font-medium text-fg leading-[1.25] tracking-[-0.015em] mb-2">
+              {it.title}
+            </h3>
+            <p class="text-[14px] leading-[1.6] text-fg-dim mb-4 max-w-[720px]">
+              {it.body}
+            </p>
+            <div class="rounded-xl bg-bg-card border border-line overflow-hidden">
+              <pre class="px-5 py-4 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>{it.code}</code></pre>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+  </article>
+</Docs>

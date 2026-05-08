@@ -52,6 +52,26 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     await expect(page.locator('a', { hasText: 'Convert from Mapbox' })).toHaveCount(1)
     await expect(page.locator('text=interpolate(zoom')).toHaveCount(1)
     await page.screenshot({ path: 'test-results/site-home.png', fullPage: true })
+
+    // ── New docs pages exist + searchable ──
+    for (const slug of ['functions', 'expressions', 'sources']) {
+      await page.goto(`http://localhost:${port}/docs/${slug}/`)
+      await expect(page.locator('h1').first()).toBeVisible()
+      await page.screenshot({ path: `test-results/docs-${slug}.png`, fullPage: true })
+    }
+
+    // Search index covers the new pages.
+    await page.goto(`http://localhost:${port}/docs/functions/`)
+    const indexJson = await page.locator('#search-index').textContent()
+    expect(indexJson, 'search index must include functions page').toContain('Function reference')
+    expect(indexJson, 'search index must include expressions page').toContain('Expressions & operators')
+    expect(indexJson, 'search index must include sources page').toContain('Source types')
+
+    // Sidebar Language group lists the new pages.
+    const sidebarText = await page.locator('aside nav').first().innerText()
+    expect(sidebarText).toContain('Functions')
+    expect(sidebarText).toContain('Expressions')
+    expect(sidebarText).toContain('Sources')
   } finally {
     server.close()
   }

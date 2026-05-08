@@ -30,7 +30,16 @@ const navGroups: NavGroup[] = [
   {
     items: [
       { label: 'Overview',           slug: '',                    href: `${base}/docs` },
-      { label: 'Language reference', slug: 'reference',           href: `${base}/docs/reference` },
+    ],
+  },
+  {
+    title: 'Language',
+    items: [
+      { label: 'Reference',          slug: 'reference',   href: `${base}/docs/reference` },
+      { label: 'Sources',            slug: 'sources',     href: `${base}/docs/sources` },
+      { label: 'Functions',          slug: 'functions',   href: `${base}/docs/functions` },
+      { label: 'Expressions',        slug: 'expressions', href: `${base}/docs/expressions` },
+      { label: 'Utility catalog',    slug: 'utilities',   href: `${base}/docs/utilities` },
     ],
   },
   {
@@ -42,10 +51,9 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    title: 'Reference',
+    title: 'API',
     items: [
-      { label: 'JavaScript API',  slug: 'api',       href: `${base}/docs/api` },
-      { label: 'Utility catalog', slug: 'utilities', href: `${base}/docs/utilities` },
+      { label: 'JavaScript API',  slug: 'api', href: `${base}/docs/api` },
     ],
   },
 ]

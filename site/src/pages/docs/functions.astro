@@ -1,0 +1,195 @@
+---
+import Docs from '../../layouts/Docs.astro'
+
+interface Fn {
+  name: string
+  signature: string
+  body: string
+  examples: string[]
+  /** Where the function is callable. The evaluator runs in three
+   *  contexts — paint binding (`utility-[expr]`), filter predicate
+   *  (`filter:`), and per-feature property eval (data-driven match
+   *  branch values, etc.). All three share the same builtin set, so
+   *  unless we explicitly mark a function as restricted assume it
+   *  works everywhere. */
+  context?: string
+}
+
+interface FnGroup {
+  title: string
+  body: string
+  fns: Fn[]
+}
+
+// Ground truth: compiler/src/eval/evaluator.ts:245-348 (callBuiltin).
+// Every entry below corresponds to one switch-case branch there.
+const groups: FnGroup[] = [
+  {
+    title: 'Math',
+    body: 'Number-in / number-out helpers. Inputs are coerced via `toNumber` (strings parseFloat, booleans 0/1, anything else 0). Division-by-zero in the language operators returns 0 silently — these helpers follow the same convention.',
+    fns: [
+      { name: 'clamp', signature: 'clamp(value, min, max)',
+        body: 'Pin `value` into the closed range `[min, max]`. Equivalent to `min(max(value, min), max)` but a single call.',
+        examples: ['size-[clamp(.speed / 50, 4, 24)]'] },
+      { name: 'min', signature: 'min(a, b, …)',
+        body: 'Smallest of all arguments. Variadic — pass any number of values.',
+        examples: ['stroke-[min(.width, 8)]', 'opacity-[min(.alpha, 0.7)]'] },
+      { name: 'max', signature: 'max(a, b, …)',
+        body: 'Largest of all arguments. Variadic.',
+        examples: ['stroke-[max(.width, 1)]'] },
+      { name: 'round', signature: 'round(value)', body: 'Round half-up to the nearest integer.', examples: ['size-[round(.zoom)]'] },
+      { name: 'floor', signature: 'floor(value)', body: 'Round down to the next integer.', examples: ['size-[floor(.density / 100)]'] },
+      { name: 'ceil',  signature: 'ceil(value)',  body: 'Round up to the next integer.',     examples: ['size-[ceil(.depth)]'] },
+      { name: 'abs',   signature: 'abs(value)',   body: 'Absolute value.',                    examples: ['stroke-[abs(.delta)]'] },
+      { name: 'sqrt',  signature: 'sqrt(value)',  body: 'Square root. Negative inputs return NaN; the toNumber pipeline coerces NaN to 0 in arithmetic.', examples: ['size-[sqrt(.area)]'] },
+      { name: 'pow',   signature: 'pow(base, exponent)', body: 'Raise `base` to `exponent`. `pow(x, 0.5)` is equivalent to `sqrt(x)`.', examples: ['size-[pow(.population, 0.3)]'] },
+      { name: 'exp',   signature: 'exp(value)',   body: 'Natural exponential — `e ^ value`.', examples: ['size-[exp(.score / 1000)]'] },
+      { name: 'log',   signature: 'log(value)',   body: 'Natural log — `ln(value)`. Inputs ≤ 0 are clamped to 1e-10 to avoid `-Infinity`.', examples: ['size-[log(.population)]'] },
+      { name: 'log10', signature: 'log10(value)', body: 'Base-10 log. Same negative-input clamp as `log`.', examples: ['fill-[interpolate(log10(.population), 3, white-100, 7, red-500)]'] },
+      { name: 'log2',  signature: 'log2(value)',  body: 'Base-2 log. Same clamp as `log`.', examples: ['size-[log2(.zoom)]'] },
+      { name: 'scale', signature: 'scale(value, factor)', body: 'Multiply `value` by `factor`. Pure sugar over `*` for chained pipe operations: `.x | scale(2)`.', examples: ['size-[.height | scale(0.5)]'] },
+    ],
+  },
+
+  {
+    title: 'Trigonometry',
+    body: 'Standard trig in **radians**. Convert from degrees with `value * PI / 180` or use the `TAU` constant for full-revolution math.',
+    fns: [
+      { name: 'sin', signature: 'sin(radians)', body: 'Sine.',          examples: ['stroke-[sin(.angle) * 5]'] },
+      { name: 'cos', signature: 'cos(radians)', body: 'Cosine.',        examples: ['size-[cos(.heading) * 10]'] },
+      { name: 'tan', signature: 'tan(radians)', body: 'Tangent.',       examples: [] },
+      { name: 'asin', signature: 'asin(value)', body: 'Inverse sine. Inputs outside [-1, 1] return NaN.', examples: [] },
+      { name: 'acos', signature: 'acos(value)', body: 'Inverse cosine. Inputs outside [-1, 1] return NaN.', examples: [] },
+      { name: 'atan', signature: 'atan(value)', body: 'Inverse tangent.', examples: [] },
+      { name: 'atan2', signature: 'atan2(y, x)', body: 'Two-arg arctangent — angle of the vector (x, y) in [-π, π]. Use this for "rotate to face direction" since it handles all four quadrants.', examples: ['size-[atan2(.dy, .dx)]'] },
+    ],
+  },
+
+  {
+    title: 'Stops & gates',
+    body: 'Builtins that pick or blend between values. Both work for any input — `zoom` (camera state), `.field` (feature property), arithmetic results.',
+    fns: [
+      { name: 'interpolate', signature: 'interpolate(input, x1, y1, x2, y2, …)',
+        body: 'Linear interpolation between `(xi, yi)` stops. When `input` is below `x1` returns `y1`; above the last `xN` returns `yN`; in between blends linearly. Numeric values blend; non-numeric (e.g. color hex) snap to the nearest stop without blending. The single most-used builtin — covers every Mapbox `interpolate` zoom-driven paint property.',
+        examples: [
+          'opacity-[interpolate(zoom, 8, 40, 14, 100)]',
+          'stroke-[interpolate(zoom, 11, 1, 19, 2.5)]',
+          'fill-[interpolate(.population, 0, white-100, 1e6, red-500)]',
+        ] },
+      { name: 'step', signature: 'step(value, threshold, below, above)',
+        body: 'Discrete two-stop gate. Returns `below` when `value < threshold`, `above` otherwise. For more than two thresholds chain `step` calls or use `match`.',
+        examples: ['opacity-[step(zoom, 10, 30, 100)]'] },
+    ],
+  },
+
+  {
+    title: 'Constants',
+    body: 'Compile-time constants. No-arg builtins.',
+    fns: [
+      { name: 'PI',  signature: 'PI',  body: 'π ≈ 3.14159. Half a revolution.',  examples: ['stroke-[sin(.heading * PI / 180) * 5]'] },
+      { name: 'TAU', signature: 'TAU', body: '2π ≈ 6.28318. Full revolution. Often nicer than `2 * PI`.', examples: [] },
+    ],
+  },
+
+  {
+    title: 'Array',
+    body: 'Helpers for array values. The match-arm value path and geometry generators (`polygon`, `linestring`) produce arrays.',
+    fns: [
+      { name: 'length', signature: 'length(array)', body: 'Number of elements. Returns 0 for non-arrays.', examples: ['size-[length(.tags)]'] },
+      { name: '[i] index', signature: 'array[i]', body: 'Zero-based subscript. Out-of-bounds returns `null`. Bracket form, not a function — read in the parser.', examples: ['fill-[.colors[0]]'] },
+    ],
+  },
+
+  {
+    title: 'Geometry generators',
+    body: 'Construct coordinate arrays / GeoJSON-shaped values from numbers. Used inside `geometry: <expr>` block-property to build a per-feature mesh from properties (e.g. draw a circle around each city sized by population).',
+    fns: [
+      { name: 'circle', signature: 'circle(cx, cy, radius, segments?)',
+        body: 'Polygon ring approximating a circle. `segments` defaults to 32 (clamped ≥ 4). Returns a closed array of `[lon, lat]` pairs.',
+        examples: ['geometry: circle(.lon, .lat, .radius, 64)'] },
+      { name: 'arc', signature: 'arc(cx, cy, radius, startRad, endRad, segments?)',
+        body: 'Open polyline along an arc from `startRad` to `endRad`, both in radians. `segments` defaults to 32 (clamped ≥ 2).',
+        examples: ['geometry: arc(.cx, .cy, 5, 0, PI, 24)'] },
+      { name: 'polygon', signature: 'polygon(points)',
+        body: 'Wrap a `[[lon, lat], …]` ring as a GeoJSON `Polygon`. Caller must close the ring (or use `circle` which closes for you).',
+        examples: ['geometry: polygon(.boundary)'] },
+      { name: 'linestring', signature: 'linestring(points)',
+        body: 'Wrap a `[[lon, lat], …]` array as a GeoJSON `LineString`.',
+        examples: ['geometry: linestring(.path)'] },
+    ],
+  },
+
+  {
+    title: 'Runtime accessors',
+    body: 'Identifiers the evaluator resolves against camera or feature state. Not function calls — just bare names.',
+    fns: [
+      { name: 'zoom', signature: 'zoom',
+        body: 'Current camera zoom level (float). Sampled per-frame. Inject in any expression — most commonly inside `interpolate(zoom, …)`.',
+        examples: ['opacity-[interpolate(zoom, 8, 40, 14, 100)]'] },
+      { name: '.field', signature: '.field_name',
+        body: 'Feature property accessor. `.height` reads the `height` property from the current feature\'s tags. Returns `null` when the property is missing — pair with `??` for a fallback.',
+        examples: [
+          'fill-extrusion-height-[.height ?? 5]',
+          'filter: .class == "highway"',
+        ] },
+    ],
+  },
+]
+---
+
+<Docs
+  current="functions"
+  title="X-GIS — Function reference"
+  description="Every builtin function the xgis evaluator recognises — math, trig, interpolation, runtime accessors, and geometry generators."
+>
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">Language</p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      Function reference.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[720px]">
+      Every builtin the evaluator knows about. Use any of these inside a
+      utility binding (<code class="font-mono text-fg">utility-[expr]</code>),
+      a layer filter (<code class="font-mono text-fg">filter:</code>), a
+      block property (<code class="font-mono text-fg">extrude:</code>,
+      <code class="font-mono text-fg">geometry:</code>), or as a match-arm
+      value.
+    </p>
+    <p class="mt-3 text-[14px] text-fg-mute max-w-[720px]">
+      Inputs are coerced — strings get <code class="font-mono">parseFloat</code>'d,
+      booleans become 0/1, anything else becomes 0. Numeric ops follow JS
+      semantics except division-by-zero returns 0 (no <code class="font-mono">Infinity</code>).
+    </p>
+  </header>
+
+  <article class="space-y-14">
+    {groups.map(g => (
+      <section>
+        <h2 class="text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+          {g.title}
+        </h2>
+        <p class="text-[14px] sm:text-[15px] leading-[1.6] text-fg-dim mb-8 max-w-[720px]">
+          {g.body}
+        </p>
+        <div class="space-y-7">
+          {g.fns.map(fn => (
+            <div class="grid lg:grid-cols-[200px_minmax(0,1fr)] gap-x-6 gap-y-2">
+              <div class="lg:pt-1">
+                <h3 class="font-mono text-[14px] text-fg font-medium">{fn.name}</h3>
+              </div>
+              <div>
+                <p class="font-mono text-[13px] text-fg-mute mb-2">{fn.signature}</p>
+                <p class="text-[14px] leading-[1.6] text-fg-dim mb-3" set:html={fn.body.replace(/`([^`]+)`/g, '<code class="font-mono text-fg">$1</code>')}></p>
+                {fn.examples.length > 0 && (
+                  <div class="rounded-lg bg-bg-card border border-line overflow-hidden">
+                    <pre class="px-4 py-3 font-mono text-[12.5px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>{fn.examples.join('\n')}</code></pre>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    ))}
+  </article>
+</Docs>

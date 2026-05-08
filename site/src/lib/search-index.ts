@@ -80,6 +80,30 @@ export function buildSearchIndex(base: string): SearchRecord[] {
     tag: 'Utilities',
     url: `${base}/docs/utilities`,
   })
+  out.push({
+    id: 'doc:functions',
+    title: 'Function reference',
+    body: 'Every builtin: clamp, min, max, round, sqrt, pow, log, sin, cos, atan2, interpolate, step, circle, arc, polygon, linestring, plus PI / TAU constants and the zoom runtime accessor.',
+    type: 'doc',
+    tag: 'Language',
+    url: `${base}/docs/functions`,
+  })
+  out.push({
+    id: 'doc:expressions',
+    title: 'Expressions & operators',
+    body: 'Operator reference and precedence table — arithmetic, comparison, logical, coalesce ??, ternary ?:, pipe |, bracket binding, match block, filter predicate.',
+    type: 'doc',
+    tag: 'Language',
+    url: `${base}/docs/expressions`,
+  })
+  out.push({
+    id: 'doc:sources',
+    title: 'Source types',
+    body: 'GeoJSON, PMTiles, TileJSON, raster XYZ, and XGVT — required fields, options, and caveats per source kind.',
+    type: 'doc',
+    tag: 'Language',
+    url: `${base}/docs/sources`,
+  })
 
   // ─── Reference sections (one record per section so search lands
   //     on the exact heading via #anchor) ───
