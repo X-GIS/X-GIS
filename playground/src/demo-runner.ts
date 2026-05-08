@@ -46,6 +46,64 @@ if (editorToggle) {
   })
 }
 
+// ── Snapshot copy button ──
+// Click → captures the current scene via __xgisSnapshot(), writes the
+// JSON to the clipboard, flashes a confirmation. Used to share a bug
+// repro: snapshot lands in chat / pasted into _snapshot-from-paste.
+// spec for replay. Includes camera + viewport + DPR + GPU tile cache
+// + render-order trace + pixel hash. Schema in `runtime/src/engine
+// /map.ts captureSnapshot`.
+{
+  const btn = document.getElementById('snapshot-btn') as HTMLButtonElement | null
+  const label = document.getElementById('snapshot-btn-label') as HTMLSpanElement | null
+  if (btn) {
+    let resetTimer: ReturnType<typeof setTimeout> | null = null
+    const flash = (state: 'busy' | 'ok' | 'err', text: string, ms = 1500): void => {
+      btn.dataset.state = state
+      if (label) label.textContent = text
+      if (resetTimer) clearTimeout(resetTimer)
+      resetTimer = setTimeout(() => {
+        btn.removeAttribute('data-state')
+        if (label) label.textContent = 'Copy snapshot'
+      }, ms)
+    }
+    btn.addEventListener('click', async () => {
+      const w = window as unknown as {
+        __xgisSnapshot?: () => Promise<unknown>
+        __xgisStartDrawOrderTrace?: () => void
+        __xgisMap?: { invalidate?: () => void }
+      }
+      if (!w.__xgisSnapshot) {
+        flash('err', 'No map loaded', 2000)
+        return
+      }
+      flash('busy', 'Capturing…', 60_000)
+      try {
+        // Arm the draw-order trace + invalidate so the snapshot's
+        // renderOrder field captures per-tile pipeline routing /
+        // hasZBuffer for the next render frame — those are the
+        // diagnostic fields that pinpoint why a scene rendered the
+        // way it did. ~80 ms gives the rAF loop a turn.
+        w.__xgisStartDrawOrderTrace?.()
+        w.__xgisMap?.invalidate?.()
+        await new Promise<void>((res) => setTimeout(res, 80))
+        const snap = await w.__xgisSnapshot()
+        const json = JSON.stringify(snap, null, 2)
+        await navigator.clipboard.writeText(json)
+        const sizeKb = Math.ceil(json.length / 1024)
+        flash('ok', `Copied ${sizeKb} KB`, 2000)
+      } catch (err) {
+        // navigator.clipboard requires a secure context (https or
+        // localhost). Surface the underlying error so the user can
+        // diagnose: missing __xgisSnapshot, clipboard permission, etc.
+        const msg = (err as Error).message ?? String(err)
+        flash('err', `Failed: ${msg}`.slice(0, 40), 4000)
+        console.error('[snapshot copy]', err)
+      }
+    })
+  }
+}
+
 // ── In-page log overlay (mobile-friendly error reporting) ──
 // Captures console.error / console.warn / window.error / unhandledrejection
 // and any [WebGPU validation] messages routed by the runtime's

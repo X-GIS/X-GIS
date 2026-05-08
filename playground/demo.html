@@ -270,6 +270,54 @@
       line-height: 1.6;
     }
 
+    /* Snapshot copy button — floats in the map's top-right corner. */
+    #snapshot-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-dim);
+      background: rgba(12, 16, 23, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    #snapshot-btn:hover {
+      color: var(--text);
+      border-color: var(--border-hover);
+      background: rgba(17, 24, 32, 0.95);
+    }
+    #snapshot-btn:active {
+      transform: translateY(1px);
+    }
+    #snapshot-btn[data-state="busy"] {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    #snapshot-btn[data-state="ok"] {
+      color: var(--green);
+      border-color: var(--green);
+    }
+    #snapshot-btn[data-state="err"] {
+      color: #f87171;
+      border-color: #f87171;
+    }
+    /* Mobile: smaller, icon-only to stay out of the way. */
+    @media (max-width: 740px), (pointer: coarse) {
+      #snapshot-btn { padding: 6px; }
+      #snapshot-btn-label { display: none; }
+    }
+
     /* Desktop default — the source-toggle button is hidden because
      * the editor is always visible. Mobile rule below overrides this
      * back to display:flex when the viewport is touch-primary. Source
@@ -340,6 +388,19 @@
     <div id="map-pane">
       <canvas id="map"></canvas>
       <div id="status">Initializing...</div>
+      <!-- Snapshot copy button — floating in map's top-right corner.
+           Captures the current scene state (camera, viewport, DPR,
+           loaded tiles, render order, pixel hash) via __xgisSnapshot()
+           and writes the JSON to the clipboard. Use to share an exact
+           bug repro: copy here → paste into chat / a snapshot test. -->
+      <button id="snapshot-btn" title="Copy a JSON snapshot of the current scene to the clipboard (camera, tiles, render order, viewport, DPR — everything needed to reproduce)">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="6" width="18" height="14" rx="2"/>
+          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+          <circle cx="12" cy="13" r="3"/>
+        </svg>
+        <span id="snapshot-btn-label">Copy snapshot</span>
+      </button>
     </div>
 
     <div id="editor-pane">
