@@ -1,5 +1,18 @@
 // ═══ Polygon mesh utilities ══════════════════════════════════════
 //
+// Default lift (metres) for features in an extruded layer that don't
+// have their own height tag. polygon-mesh.ts consumes it as the second
+// argument to `quantizePolygonVerticesExtruded`; the line-segment build
+// path uses the SAME constant for the outline `z_lift_m` so a feature
+// missing a height tag still gets its outline placed on the wall top
+// (not at z=0 where the wall would occlude it). Keep both paths reading
+// this constant — divergence has shown up before as patchy outlines on
+// some buildings but not others (visible in osm_style buildings layer
+// where many features lack explicit `height` / `render_height`).
+export const EXTRUDE_FALLBACK_HEIGHT_M = 50
+
+
+//
 // Pure functions extracted from vector-tile-renderer's upload path.
 // Pulled out so the math is unit-testable independent of GPU state:
 //

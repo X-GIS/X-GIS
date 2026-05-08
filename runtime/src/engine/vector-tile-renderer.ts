@@ -13,6 +13,7 @@ import {
   generateWallMeshExtruded,
   quantizePolygonVertices,
   quantizePolygonVerticesExtruded,
+  EXTRUDE_FALLBACK_HEIGHT_M,
 } from './polygon-mesh'
 import { tileKey, tileKeyParent, tileKeyChildren, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
@@ -861,7 +862,7 @@ export class VectorTileRenderer {
     // entirely off the data they carry, and per-layer control lives
     // in the style language now.
     const useFeatureHeights = data.heights !== undefined && data.heights.size > 0
-    const fallbackHeight = 50
+    const fallbackHeight = EXTRUDE_FALLBACK_HEIGHT_M
     let polyVerts: ArrayBuffer
     let polyIndices: Uint32Array
     let zAttribute: Float32Array | null = null
@@ -982,8 +983,20 @@ export class VectorTileRenderer {
           && data.outlineLineIndices && data.outlineLineIndices.length > 0) {
         // PMTiles MVT worker pre-builds segments off-thread; reuse if
         // present, else build now on the main thread (XGVT-binary path).
+        // Main-thread fallback: pass heights + EXTRUDE_FALLBACK_HEIGHT_M
+        // so this code path matches the worker pre-build (mvt-worker /
+        // pmtiles-backend). Otherwise outlines for tiles built here
+        // would drop to z=0 even on extruded layers and get occluded
+        // by their own walls — same symptom the worker-side fix
+        // (heights ?? defaultHeight) addresses.
         const segData = data.prebuiltOutlineSegments
-          ?? buildLineSegments(data.outlineVertices, data.outlineLineIndices, 10, tileWidthMerc, tileHeightMerc)
+          ?? buildLineSegments(
+            data.outlineVertices, data.outlineLineIndices, 10,
+            tileWidthMerc, tileHeightMerc,
+            data.heights && data.heights.size > 0 ? data.heights : undefined,
+            undefined, undefined,
+            data.heights && data.heights.size > 0 ? EXTRUDE_FALLBACK_HEIGHT_M : 0,
+          )
         outlineSegmentBuffer = this.lineRenderer.uploadSegmentBuffer(segData)
         outlineSegmentCount = data.outlineLineIndices.length / 2
         outlineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(outlineSegmentBuffer)
@@ -1005,7 +1018,13 @@ export class VectorTileRenderer {
             const vertCount = maxIdx + 1
             if (vertCount > 0 && data.lineVertices.length / vertCount >= 10) lineStride = 10
           }
-          segData = buildLineSegments(data.lineVertices, data.lineIndices, lineStride, tileWidthMerc, tileHeightMerc)
+          segData = buildLineSegments(
+            data.lineVertices, data.lineIndices, lineStride,
+            tileWidthMerc, tileHeightMerc,
+            data.heights && data.heights.size > 0 ? data.heights : undefined,
+            undefined, undefined,
+            data.heights && data.heights.size > 0 ? EXTRUDE_FALLBACK_HEIGHT_M : 0,
+          )
         }
         lineSegmentBuffer = this.lineRenderer.uploadSegmentBuffer(segData)
         lineSegmentCount = data.lineIndices.length / 2

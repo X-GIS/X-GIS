@@ -18,14 +18,17 @@ test.describe('osm_style smoke', () => {
         validationErrors.push(text)
       }
     })
-    await page.goto('/demo.html?id=osm_style&e2e=1#15/35.6800/139.7600', {
+    // Pitched view at high zoom — exercises the building extrude path
+    // so a building outline that drops to z=0 (the bug) gets occluded
+    // by its own walls and shows up as patchy / missing strokes.
+    await page.goto('/demo.html?id=osm_style&e2e=1#18/35.6800/139.7600/0/60', {
       waitUntil: 'domcontentloaded',
     })
     await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
       null, { timeout: 30_000 })
     await page.waitForTimeout(5000) // tiles to load + render
 
-    await page.screenshot({ path: 'osm-style-tokyo.png', fullPage: false })
+    await page.screenshot({ path: 'osm-style-tokyo-pitched.png', fullPage: false })
 
     writeFileSync('osm-style-smoke.log', JSON.stringify({
       errors: errors.slice(0, 30),

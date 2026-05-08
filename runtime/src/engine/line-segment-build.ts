@@ -146,6 +146,14 @@ export function buildLineSegments(
    *  `unpack4x8unorm` round-trip. Alpha = 0 means "no override —
    *  use the layer-uniform colour". */
   colors?: ReadonlyMap<number, number>,
+  /** Fallback z lift when `heights.get(fid)` returns undefined.
+   *  Mirrors `polygon-mesh.ts:226` (`heights.get(fid) ?? defaultHeight`)
+   *  — keep them in sync or polygon fill and outline ride
+   *  DIFFERENT z values for features missing from the heights map,
+   *  causing the outline to drop to ground (z=0) while the wall
+   *  rises to defaultHeight, so the wall occludes the outline.
+   *  Defaults to 0 (legacy non-extruded layers). */
+  defaultHeight: number = 0,
 ): Float32Array {
   const segCount = indices.length / 2
   const out = new Float32Array(segCount * LINE_SEGMENT_STRIDE_F32)
@@ -342,7 +350,17 @@ export function buildLineSegments(
     const fid = (heights || widths || colors) ? vertices[a * stride + 4] : 0
     if (heights) {
       const h = heights.get(fid)
-      out[off + 16] = typeof h === 'number' ? h : 0
+      // Match polygon-mesh.ts:226 fallback: missing fid → defaultHeight.
+      // Otherwise the wall rises to defaultHeight (poly path) while the
+      // outline drops to 0 (line path), and the wall occludes its own
+      // roof outline — visible as patchy strokes that depend on whether
+      // the feature has a height tag.
+      out[off + 16] = typeof h === 'number' ? h : defaultHeight
+    } else if (defaultHeight !== 0) {
+      // No per-feature heights map but a layer-level default exists
+      // (e.g. tile-points without per-feature heights). Lift every
+      // segment uniformly so the outline still rides the layer roof.
+      out[off + 16] = defaultHeight
     }
     // Per-segment stroke width override (pixels). 0 → shader falls
     // through to layer.width_px. See `merge-layers.ts` for the

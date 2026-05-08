@@ -21,6 +21,7 @@ import {
   type GeoJSONFeature,
 } from '@xgis/compiler'
 import { buildLineSegments } from '../engine/line-segment-build'
+import { EXTRUDE_FALLBACK_HEIGHT_M } from '../engine/polygon-mesh'
 import { evalExtrudeExpr } from './extrude-eval'
 import { evalFilterExpr } from './filter-eval'
 
@@ -254,6 +255,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
           heights.size > 0 ? heights : undefined,
           widths.size > 0 ? widths : undefined,
           colors.size > 0 ? colors : undefined,
+          heights.size > 0 ? EXTRUDE_FALLBACK_HEIGHT_M : 0,
         )
         prebuiltOutlineSegments = seg.buffer as ArrayBuffer
       }
@@ -271,6 +273,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
           heights.size > 0 ? heights : undefined,
           widths.size > 0 ? widths : undefined,
           colors.size > 0 ? colors : undefined,
+          heights.size > 0 ? EXTRUDE_FALLBACK_HEIGHT_M : 0,
         )
         prebuiltLineSegments = seg.buffer as ArrayBuffer
       }

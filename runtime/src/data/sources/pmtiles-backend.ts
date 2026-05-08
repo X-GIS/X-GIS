@@ -24,6 +24,7 @@ import {
   type GeoJSONFeature,
 } from '@xgis/compiler'
 import { buildLineSegments } from '../../engine/line-segment-build'
+import { EXTRUDE_FALLBACK_HEIGHT_M } from '../../engine/polygon-mesh'
 import type {
   TileSource, TileSourceSink, TileSourceMeta,
 } from '../tile-source'
@@ -497,6 +498,7 @@ export class PMTilesBackend implements TileSource {
             heights.size > 0 ? heights : undefined,
             widths.size > 0 ? widths : undefined,
             colors.size > 0 ? colors : undefined,
+            heights.size > 0 ? EXTRUDE_FALLBACK_HEIGHT_M : 0,
           )
         }
         if (tile.lineIndices.length > 0 && tile.lineVertices.length > 0) {
@@ -513,6 +515,7 @@ export class PMTilesBackend implements TileSource {
             heights.size > 0 ? heights : undefined,
             widths.size > 0 ? widths : undefined,
             colors.size > 0 ? colors : undefined,
+            heights.size > 0 ? EXTRUDE_FALLBACK_HEIGHT_M : 0,
           )
         }
         sink.acceptResult(key, {
