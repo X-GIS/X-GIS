@@ -39,11 +39,27 @@ function extractFeatureHeights(
 ): Map<number, number> {
   const out = new Map<number, number>()
   if (!expr) return out
+  // When the style declares `extrude:` we MUST emit a 3D extruded
+  // tile even if individual features are missing the source property
+  // (e.g. protomaps `buildings` features whose `.height` is null /
+  // unset). Otherwise mvt-worker drops `heights` entirely (size>0
+  // guard at message-build time) → VTR's `useFeatureHeights = false`
+  // → tile uploads through the 2D `quantizePolygonVertices` path,
+  // pinning the buildings flat at z=0 even though the same archive
+  // tile renders correctly when one of its features happens to
+  // carry a height. User reported "일부 상황에서 빌딩 데이터가
+  // 3차원으로 되어있어도 2d로 그려지는 문제" — that's this path.
+  // Resolution: when expr is present, give every feature with
+  // properties a height entry, falling back to the polygon-mesh
+  // EXTRUDE_FALLBACK_HEIGHT_M (50 m) when the expression evaluates
+  // to null / non-positive / non-finite. The map is non-empty if
+  // at least one feature has properties → mvt-worker keeps the
+  // heights field on the slice → VTR routes through the 3D path.
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
     const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
-    if (v !== null) out.set(i, v)
+    out.set(i, typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 50)
   }
   return out
 }

@@ -40,13 +40,22 @@ function extractFeatureHeights(
   features: GeoJSONFeature[],
   expr: unknown,
 ): Map<number, number> {
+  // Mirrors mvt-worker.ts:extractFeatureHeights — see that comment
+  // for the "buildings render flat" repro that motivates the
+  // null-fallback. Both backends MUST agree on the contract: when
+  // the style provides an extrude expression, every feature with
+  // properties gets a height entry, falling back to 50 m when the
+  // expression evaluates to a non-positive / non-finite value.
+  // Otherwise some PMTiles slices land in VTR with `heights: undefined`
+  // and the upload path picks the 2D code path even though the
+  // style declared a 3D extrusion.
   const out = new Map<number, number>()
   if (!expr) return out
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
     const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
-    if (v !== null) out.set(i, v)
+    out.set(i, typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 50)
   }
   return out
 }
