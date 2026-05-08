@@ -28,6 +28,8 @@ const SCENARIOS: Scenario[] = [
   { label: 'bright pitch=60', url: '/demo.html?id=openfreemap_bright#15.0/35.68/139.76/0/60', viewport: { width: 390, height: 844 }, expect: { zoom: 15, pitch: 60 } },
   { label: 'bright pitch=70', url: '/demo.html?id=openfreemap_bright#15.0/35.68/139.76/0/70', viewport: { width: 390, height: 844 }, expect: { zoom: 15, pitch: 70 } },
   { label: 'bright pitch=80', url: '/demo.html?id=openfreemap_bright#15.0/35.68/139.76/0/80', viewport: { width: 390, height: 844 }, expect: { zoom: 15, pitch: 80 } },
+  // User's exact inspector report — desktop 1500×945, Seoul, z=14 pitch=73.2°.
+  { label: 'desktop seoul pitch=73', url: '/demo.html?id=openfreemap_bright#14.0/37.54044/127.00441/75.0/73.2', viewport: { width: 1500, height: 945 }, expect: { zoom: 14, pitch: 73 } },
 ]
 
 for (const scn of SCENARIOS) {
@@ -153,11 +155,12 @@ for (const scn of SCENARIOS) {
 
   expect(typeof result === 'object' && result !== null).toBe(true)
   // High-pitch sanity gate. Pre-fix the LOD selector emitted z=14
-  // for nearly every visible tile at pitch ≥ 60° — horizon strips
-  // had `max(w,h)` exceed the subdivide threshold even though their
-  // perceived detail axis (the smaller axis) was tiny. The fix uses
-  // `min(w,h)` for the size metric. At pitch ≥ 60° we expect the
-  // pyramid to span at least 4 distinct zoom levels.
+  // for nearly every visible tile at pitch ≥ 60° — the screen-AABB
+  // metric kept horizon strips above the subdivide threshold despite
+  // their large foreshortening. The fix replaces the screen-AABB
+  // metric with MapLibre-style distance-based desired-zoom, which
+  // produces a natural pyramid at any pitch + viewport. At pitch ≥
+  // 60° we expect at least 4 distinct zoom levels.
   if (scn.expect.pitch >= 60 && r.uniqueByZoom) {
     const distinctZooms = Object.keys(r.uniqueByZoom).length
     expect(distinctZooms,

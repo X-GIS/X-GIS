@@ -459,27 +459,42 @@ export function visibleTilesFrustum(
 
     if (!overlapsViewport) return -1
 
-    // Tile screen-space size for the SUBDIVIDE_THRESHOLD comparison.
+    // Distance-based LOD criterion (MapLibre `covering_tiles.ts` v5.24).
+    // Each tile's desired zoom decreases as it moves further from the
+    // camera; subdivide while `tz < desiredZ`, emit once `tz >=
+    // desiredZ`. This naturally produces a smooth pyramid (foreground
+    // gets currentZoom, horizon gets currentZoom - log2(distRatio))
+    // without depending on screen-AABB shape, which the prior `max(w,h)`
+    // / `min(w,h)` / geomean variants all got wrong on at least one of
+    // {desktop, mobile} × {low pitch, high pitch}.
     //
-    // Use the SMALLER axis of the AABB, not the larger. Foreshortening
-    // at high pitch turns horizon tiles into elongated thin strips —
-    // their AABB might be 350 px wide × 30 px tall on a 390-wide
-    // viewport. With max(w,h) the width gate said "subdivide!" even
-    // though the tile's perceptible detail axis (perpendicular to the
-    // horizon line) is only 30 px, ~9× too compressed for z+1 features
-    // to register. Result: dozens of unnecessary z=14 horizon children
-    // bleeding into the foreground LOD bucket — confirmed visually at
-    // pitch ≥ 60° on the bright + pmtiles_layered demos (z14:41 of 54
-    // unique tiles at pitch=70 over Tokyo, only 13 across z=8-13).
+    // `cw` is clip-space w from the MVP matrix == view-axis depth from
+    // the camera. Because all rx/ry are world-mercator deltas relative
+    // to (camMercX, camMercY) — the viewport-centre-on-ground point —
+    // `mvp[15]` is the depth at that centre, and `cw_tile` below is the
+    // depth at the tile centre. Their ratio is dimensionless and
+    // FOV-invariant, so the desired-zoom shift is the same on a phone
+    // and a desktop at equal pitch+camera distance.
     //
-    // The smaller axis matches "what features would be visible at this
-    // size" — a 350×30 strip displays features at ~30 px resolution
-    // regardless of how wide it is. Foreground tiles with both axes
-    // ≈ 256 still subdivide correctly when the camera overzooms.
-    const sw = sxMax - sxMin
-    const sh = syMax - syMin
-    const size = Math.min(sw, sh)
-    return Math.max(size, 1) // always > 0 when visible
+    // Reference: see formula in MapLibre's `createCalculateTileZoomFunction`
+    //            developer-guides/covering-tiles.md (b=1 default, equal
+    //            screen-area-per-tile across the viewport).
+    const cw_center = mvp[15]
+    const tile_rx = mmid_h - camMercX
+    const tile_ry = mmid_v - camMercY
+    const cw_tile = mvp[3] * tile_rx + mvp[7] * tile_ry + mvp[15]
+    if (cw_tile <= 1e-6) {
+      // Tile centre is behind camera but some corner is visible — this
+      // is the "straddles near plane" case; force subdivision so the
+      // children get classified individually.
+      return SUBDIVIDE_THRESHOLD + 1
+    }
+    const desiredZ = camera.zoom + Math.log2(cw_center / cw_tile)
+    // SUBDIVIDE_THRESHOLD is a fixed positive constant; we just need to
+    // straddle it so `visit()` makes the subdivide-vs-emit decision. The
+    // returned value isn't a real screen size anymore — the visibility
+    // gate above already culled invisible tiles.
+    return tz < Math.floor(desiredZ) ? SUBDIVIDE_THRESHOLD + 1 : 1
   }
 
   const result: TileCoord[] = []
