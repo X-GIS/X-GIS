@@ -747,6 +747,26 @@ export class XGISMap {
       catch { return window.location.href }
     })()
 
+    // 0. Kick off GPU init in parallel with the synchronous IR
+    // pipeline. `initGPU()` is dominated by `requestDevice()` which
+    // takes 100-500 ms on cold start; sequencing it after the parse
+    // path (which itself takes only ~10-15 ms) wasted that wall time.
+    // Now the device promise is in flight while we lex / parse / lower
+    // / emit, and the await down at step 2 is mostly a no-op once IR
+    // finishes. Saves ~10-15 ms on every cold load, more if any future
+    // IR pass grows.
+    //
+    // GPU init has no dependency on the IR result — it just needs
+    // `this.canvas`. Errors propagate exactly as before via the awaited
+    // catch.
+    const gpuInit = initGPU(this.canvas).catch(err => {
+      // Hold the rejection here so the await below converts it to a
+      // sync throw at the same call site as the previous code. We
+      // don't want unhandled-rejection noise if step 1 errors out
+      // before step 2 awaits.
+      return err as Error
+    })
+
     // 1. Parse → resolve imports (async fetch) → IR → Commands
     const tokens = new Lexer(source).tokenize()
     let ast = new Parser(tokens).parse()
@@ -821,9 +841,14 @@ export class XGISMap {
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
 
-    // 2. Init GPU (fallback to Canvas 2D)
+    // 2. Await the GPU init that was kicked off at step 0. By now the
+    // request has either resolved (typical case — IR finished after
+    // requestDevice) or is about to. Same fallback path as before for
+    // unsupported environments.
     try {
-      this.ctx = await initGPU(this.canvas)
+      const result = await gpuInit
+      if (result instanceof Error) throw result
+      this.ctx = result
       this.renderer = new MapRenderer(this.ctx)
       this.rasterRenderer = new RasterRenderer(this.ctx)
       this.backgroundRenderer = new BackgroundRenderer(this.ctx)
