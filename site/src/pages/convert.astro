@@ -57,7 +57,7 @@ const playgroundUrl = `${base}/play/demo.html`
     </div>
 
     <!-- Output -->
-    <div class="mt-8">
+    <div class="mt-8" data-playground-url={playgroundUrl}>
       <div class="flex items-center justify-between">
         <label for="xgis-out" class="block text-fg text-[12px] tracking-wide uppercase">xgis source</label>
         <div class="flex gap-2">
@@ -76,37 +76,37 @@ const playgroundUrl = `${base}/play/demo.html`
   </main>
   <Footer />
 
-  <script define:vars={{ playgroundUrl }}>
-    // Lazy-load the converter — keeps the initial page TTI tight.
-    let _convertCache = null
-    async function getConverter() {
-      if (_convertCache) return _convertCache
-      const m = await import('@xgis/compiler')
-      _convertCache = m.convertMapboxStyle
-      return _convertCache
-    }
+  <script>
+    // Note: this is a regular Astro <script> (not `define:vars` and not
+    // `is:inline`) so Astro routes it through Vite as a real ES module.
+    // That's required for `import('@xgis/compiler')` (workspace package)
+    // to resolve in the browser. `define:vars` wraps the body in an
+    // IIFE and emits a non-module script — neither top-level await nor
+    // dynamic-imports of bare specifiers work in that mode.
+    import { convertMapboxStyle } from '@xgis/compiler'
 
-    const $url = document.getElementById('mapbox-url')
-    const $json = document.getElementById('mapbox-json')
-    const $out = document.getElementById('xgis-out')
-    const $status = document.getElementById('status')
-    const $fetch = document.getElementById('fetch-btn')
-    const $convert = document.getElementById('convert-btn')
-    const $copy = document.getElementById('copy-btn')
-    const $open = document.getElementById('open-btn')
+    const $url = document.getElementById('mapbox-url') as HTMLInputElement
+    const $json = document.getElementById('mapbox-json') as HTMLTextAreaElement
+    const $out = document.getElementById('xgis-out') as HTMLTextAreaElement
+    const $status = document.getElementById('status') as HTMLParagraphElement
+    const $fetch = document.getElementById('fetch-btn') as HTMLButtonElement
+    const $convert = document.getElementById('convert-btn') as HTMLButtonElement
+    const $copy = document.getElementById('copy-btn') as HTMLButtonElement
+    const $open = document.getElementById('open-btn') as HTMLButtonElement
+    const playgroundUrl =
+      ($out.closest('[data-playground-url]') as HTMLElement | null)?.dataset.playgroundUrl ?? ''
 
-    function setStatus(msg, kind) {
+    function setStatus(msg: string, kind?: 'ok' | 'err') {
       $status.textContent = msg
       $status.style.color = kind === 'err' ? '#f87171'
                           : kind === 'ok'  ? '#86efac'
                           : ''
     }
 
-    async function convertJsonString(jsonStr) {
+    function convertJsonString(jsonStr: string) {
       try {
         const parsed = JSON.parse(jsonStr)
-        const convert = await getConverter()
-        const xgis = convert(parsed)
+        const xgis = convertMapboxStyle(parsed)
         $out.value = xgis
         const warnCount = (xgis.match(/^\s*\*\s+•/gm) || []).length
         setStatus(
@@ -115,7 +115,7 @@ const playgroundUrl = `${base}/play/demo.html`
             : 'Converted.',
           'ok',
         )
-      } catch (e) {
+      } catch (e: any) {
         setStatus('Conversion failed: ' + (e?.message || e), 'err')
       }
     }
@@ -136,7 +136,7 @@ const playgroundUrl = `${base}/play/demo.html`
         const txt = await resp.text()
         $json.value = txt
         convertJsonString(txt)
-      } catch (e) {
+      } catch (e: any) {
         setStatus(
           'Fetch failed: ' + (e?.message || e) +
           ' — likely a CORS block. Paste the JSON manually on the right.',
@@ -156,11 +156,8 @@ const playgroundUrl = `${base}/play/demo.html`
       }
     })
 
-    $open.addEventListener('click', async () => {
+    $open.addEventListener('click', () => {
       if (!$out.value) { setStatus('Convert first, then open.', 'err'); return }
-      // Stash the source in sessionStorage so the playground picks it
-      // up on load. Keeps the URL clean (style sources can be huge —
-      // way past hash-fragment-friendly size).
       try {
         sessionStorage.setItem('__xgisImportSource', $out.value)
         sessionStorage.setItem('__xgisImportLabel', 'Imported')
@@ -168,8 +165,6 @@ const playgroundUrl = `${base}/play/demo.html`
       window.location.href = playgroundUrl + '?id=__import'
     })
 
-    // Convenience: pressing Ctrl/Cmd+Enter in the textarea triggers
-    // the convert button so a paste-and-go flow doesn't need a mouse.
     $json.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault()
