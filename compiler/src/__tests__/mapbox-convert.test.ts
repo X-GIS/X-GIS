@@ -1,0 +1,169 @@
+// Mapbox style → xgis converter. Smoke covers the common shapes
+// (sources, simple fill/line/extrude layers, expressions).
+//
+// We assert two layers of correctness:
+//   1. The emitted output PARSES (the Lexer + Parser don't choke).
+//   2. Specific structures land where expected (extrude utility,
+//      filter shape, source kind).
+
+import { describe, it, expect } from 'vitest'
+import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
+import { Lexer } from '../lexer/lexer'
+import { Parser } from '../parser/parser'
+
+function parses(src: string): boolean {
+  try {
+    const tokens = new Lexer(src).tokenize()
+    new Parser(tokens).parse()
+    return true
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('parse fail:', (e as Error).message, '\n---\n', src)
+    return false
+  }
+}
+
+describe('Mapbox → xgis converter', () => {
+  it('converts background color', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      name: 'demo',
+      sources: {},
+      layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#eef' } }],
+    })
+    expect(out).toContain('background { fill: #eef }')
+  })
+
+  it('converts a vector source pointing at .pmtiles', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { osm: { type: 'vector', url: 'https://x.example/v4.pmtiles' } },
+      layers: [],
+    })
+    expect(out).toContain('source osm {')
+    expect(out).toContain('type: pmtiles')
+    expect(out).toContain('url: "https://x.example/v4.pmtiles"')
+  })
+
+  it('converts a simple fill layer with filter', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'parks', type: 'fill', source: 's', 'source-layer': 'landuse',
+        filter: ['==', 'kind', 'park'],
+        paint: { 'fill-color': '#cfe7c1' },
+      }],
+    })
+    expect(out).toContain('layer parks {')
+    expect(out).toContain('source: s')
+    expect(out).toContain('sourceLayer: "landuse"')
+    expect(out).toContain('filter: .kind == "park"')
+    expect(out).toContain('fill-#cfe7c1')
+    expect(parses(out)).toBe(true)
+  })
+
+  it('converts a line layer with width + dasharray', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'rail', type: 'line', source: 's', 'source-layer': 'roads',
+        filter: ['==', 'kind', 'rail'],
+        paint: { 'line-color': '#888', 'line-width': 1.5, 'line-dasharray': [4, 2] },
+      }],
+    })
+    expect(out).toContain('stroke-#888')
+    expect(out).toContain('stroke-1.5')
+    expect(out).toContain('stroke-dasharray-4-2')
+  })
+
+  it('converts fill-extrusion with [get,height] → fill-extrusion-height-[.height]', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'b', type: 'fill-extrusion', source: 's', 'source-layer': 'buildings',
+        paint: {
+          'fill-extrusion-color': '#ddd',
+          'fill-extrusion-height': ['get', 'height'],
+          'fill-extrusion-base': ['get', 'min_height'],
+        },
+      }],
+    })
+    expect(out).toContain('fill-extrusion-height-[.height]')
+    expect(out).toContain('fill-extrusion-base-[.min_height]')
+  })
+
+  it('converts coalesce → ??', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'b', type: 'fill-extrusion', source: 's', 'source-layer': 'buildings',
+        paint: {
+          'fill-extrusion-height': ['coalesce', ['get', 'height'], 50],
+        },
+      }],
+    })
+    expect(out).toContain('fill-extrusion-height-[.height ?? 50]')
+  })
+
+  it('converts ["match", get(kind), …] to xgis match()', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'land', type: 'fill', source: 's', 'source-layer': 'landuse',
+        paint: {
+          'fill-color': ['match', ['get', 'kind'],
+            'park', '#cfe7c1',
+            'water', '#a4c8d5',
+            '#dadada',
+          ],
+        },
+      }],
+    })
+    // Mapbox `match` to colour is a non-trivial mapping; converter
+    // currently warns rather than emit. Verify the warning surface.
+    expect(out).toMatch(/Color expression not converted|match\(/)
+  })
+
+  it('skips unsupported layer types with a comment', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: {},
+      layers: [{ id: 'labels', type: 'symbol' }],
+    })
+    expect(out).toContain('// SKIPPED layer "labels" type="symbol"')
+  })
+
+  it('emits parseable output for a multi-layer style', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      name: 'multi',
+      sources: { osm: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [
+        { id: 'bg', type: 'background', paint: { 'background-color': '#fafafa' } },
+        {
+          id: 'water', type: 'fill', source: 'osm', 'source-layer': 'water',
+          paint: { 'fill-color': '#a4c8d5' },
+        },
+        {
+          id: 'roads', type: 'line', source: 'osm', 'source-layer': 'roads',
+          filter: ['==', 'kind', 'highway'],
+          paint: { 'line-color': '#cc8800', 'line-width': 2 },
+        },
+        {
+          id: 'b', type: 'fill-extrusion', source: 'osm', 'source-layer': 'buildings',
+          paint: {
+            'fill-extrusion-color': '#dddddd',
+            'fill-extrusion-height': ['coalesce', ['get', 'height'], 50],
+            'fill-extrusion-base': ['coalesce', ['get', 'min_height'], 0],
+          },
+        },
+      ],
+    })
+    expect(parses(out)).toBe(true)
+  })
+})

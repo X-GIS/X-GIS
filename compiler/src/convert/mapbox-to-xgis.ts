@@ -1,0 +1,488 @@
+// ═══ Mapbox Style → xgis Source Converter ═══
+//
+// Takes a Mapbox Style Specification JSON document and emits an
+// equivalent xgis source string. Maps the subset of style features
+// the engine actually renders today; bails with a comment for
+// anything outside that subset so the user sees what got dropped
+// (instead of silent partial output).
+//
+// What this v1 covers:
+//   • Sources of type `vector` (rewritten as `pmtiles` when the
+//     URL already points at a .pmtiles archive — the most common
+//     case — otherwise emits a TODO so the user can pick the right
+//     X-GIS source kind).
+//   • Layer types `background`, `fill`, `line`, `fill-extrusion`.
+//   • Common paint properties:
+//       fill-color / fill-opacity
+//       line-color / line-width / line-dasharray
+//       fill-extrusion-height / fill-extrusion-base
+//   • Filter expressions in the legacy + expression-syntax forms:
+//       ==, !=, <, <=, >, >=, all, any, in, !in, has, !has
+//   • Expression cases: literal, ["get",…], ["coalesce",…],
+//     ["case",…], ["match",…], simple arithmetic, ["to-number"].
+//
+// Not yet covered (emitted as `// TODO: <reason>` comments):
+//   • Symbol layers (text + icon) — the engine doesn't render text
+//     yet; converting paint geometry-less is meaningless.
+//   • Circle layers — addressable but needs separate point work.
+//   • Raster layers (other than direct URL passthrough).
+//   • Complex interpolate expressions with non-numeric stops.
+//   • Sprite atlas / pattern paint properties.
+
+export interface MapboxStyle {
+  version?: number
+  name?: string
+  sources?: Record<string, MapboxSource>
+  layers?: MapboxLayer[]
+  // Other top-level fields (sprite, glyphs, metadata) ignored for now.
+}
+
+export interface MapboxSource {
+  type: string
+  url?: string
+  tiles?: string[]
+  minzoom?: number
+  maxzoom?: number
+  scheme?: string
+  bounds?: number[]
+}
+
+export interface MapboxLayer {
+  id: string
+  type: string
+  source?: string
+  'source-layer'?: string
+  minzoom?: number
+  maxzoom?: number
+  paint?: Record<string, unknown>
+  layout?: Record<string, unknown>
+  filter?: unknown
+}
+
+/** Convert a Mapbox Style JSON (already parsed or raw string) into
+ *  an xgis source string. The result is meant to be human-readable
+ *  and immediately runnable against the X-GIS playground. */
+export function convertMapboxStyle(input: string | MapboxStyle): string {
+  const style: MapboxStyle = typeof input === 'string' ? JSON.parse(input) : input
+  const lines: string[] = []
+  const warnings: string[] = []
+
+  if (style.name) {
+    lines.push(`/* Converted from Mapbox style: "${style.name}" */`)
+    lines.push('')
+  }
+
+  // ── Sources ────────────────────────────────────────────────────────
+  const sourceById = style.sources ?? {}
+  for (const [id, src] of Object.entries(sourceById)) {
+    const block = convertSource(id, src, warnings)
+    lines.push(block)
+    lines.push('')
+  }
+
+  // ── Background layer (Mapbox `background` type) ────────────────────
+  // X-GIS has a top-level `background { fill: <color> }` directive
+  // rather than a layer with `paint.background-color`.
+  const bgLayer = (style.layers ?? []).find(l => l.type === 'background')
+  if (bgLayer) {
+    const color = bgLayer.paint?.['background-color']
+    const colorStr = colorToXgis(color, warnings)
+    if (colorStr) {
+      lines.push(`background { fill: ${colorStr} }`)
+      lines.push('')
+    }
+  }
+
+  // ── Layers ─────────────────────────────────────────────────────────
+  for (const layer of style.layers ?? []) {
+    if (layer.type === 'background') continue // handled above
+    const block = convertLayer(layer, warnings)
+    if (block) {
+      lines.push(block)
+      lines.push('')
+    }
+  }
+
+  // ── Trailing warnings dump ─────────────────────────────────────────
+  if (warnings.length > 0) {
+    lines.push('/* Conversion notes (review before running):')
+    for (const w of warnings) lines.push(' *   • ' + w)
+    lines.push(' */')
+  }
+
+  return lines.join('\n').trimEnd() + '\n'
+}
+
+// ═══ Source conversion ═══════════════════════════════════════════════
+
+function convertSource(id: string, src: MapboxSource, warnings: string[]): string {
+  const lines: string[] = [`source ${sanitizeId(id)} {`]
+  if (src.type === 'vector') {
+    // Prefer URL when present (Mapbox tilejson / mb-style URL); fall
+    // back to first tile pattern. PMTiles is the closest X-GIS native
+    // backing — heuristic: any `.pmtiles` extension routes that way.
+    const url = src.url ?? src.tiles?.[0]
+    if (url && /\.pmtiles(\?|$)/.test(url)) {
+      lines.push('  type: pmtiles')
+      lines.push(`  url: "${url}"`)
+    } else if (url) {
+      lines.push('  type: pmtiles  // TODO: verify — URL is not an explicit .pmtiles archive')
+      lines.push(`  url: "${url}"`)
+      warnings.push(`Source "${id}" type=vector but URL is not a .pmtiles archive; X-GIS currently only renders PMTiles natively. URL passed through verbatim — replace with a PMTiles archive or implement a TileJSON adapter to use as-is.`)
+    } else {
+      lines.push('  // TODO: vector source without url/tiles — fill in PMTiles archive URL')
+      warnings.push(`Source "${id}" has neither url nor tiles[]; emitted placeholder.`)
+    }
+  } else if (src.type === 'raster') {
+    const url = src.tiles?.[0] ?? src.url
+    if (url) {
+      lines.push('  type: raster')
+      lines.push(`  url: "${url}"`)
+    } else {
+      lines.push('  // TODO: raster source missing url/tiles')
+      warnings.push(`Raster source "${id}" has no URL.`)
+    }
+  } else if (src.type === 'geojson') {
+    const url = (src as { data?: string | unknown }).data
+    if (typeof url === 'string') {
+      lines.push('  type: geojson')
+      lines.push(`  url: "${url}"`)
+    } else {
+      lines.push('  // TODO: GeoJSON inline data not yet supported by converter')
+      warnings.push(`GeoJSON source "${id}" has inline data; converter only handles external URLs.`)
+    }
+  } else {
+    lines.push(`  // TODO: unsupported source type "${src.type}"`)
+    warnings.push(`Source "${id}" has unsupported type "${src.type}".`)
+  }
+  lines.push('}')
+  return lines.join('\n')
+}
+
+// ═══ Layer conversion ════════════════════════════════════════════════
+
+function convertLayer(layer: MapboxLayer, warnings: string[]): string | null {
+  // Symbol / circle / heatmap / hillshade — emit a stub the user can
+  // see and remove or implement later, instead of silently dropping
+  // them.
+  if (layer.type === 'symbol' || layer.type === 'circle' ||
+      layer.type === 'heatmap' || layer.type === 'hillshade') {
+    warnings.push(`Layer "${layer.id}" type="${layer.type}" not yet supported by converter — skipped.`)
+    return `// SKIPPED layer "${layer.id}" type="${layer.type}" — unsupported by current X-GIS engine.`
+  }
+
+  const lines: string[] = [`layer ${sanitizeId(layer.id)} {`]
+  if (layer.source) lines.push(`  source: ${sanitizeId(layer.source)}`)
+  if (layer['source-layer']) lines.push(`  sourceLayer: "${layer['source-layer']}"`)
+  if (typeof layer.minzoom === 'number') lines.push(`  minzoom: ${layer.minzoom}`)
+  if (typeof layer.maxzoom === 'number') lines.push(`  maxzoom: ${layer.maxzoom}`)
+  if (layer.filter !== undefined) {
+    const f = filterToXgis(layer.filter, warnings)
+    if (f) lines.push(`  filter: ${f}`)
+  }
+  const utils = paintToUtilities(layer, warnings)
+  if (utils.length > 0) {
+    lines.push('  | ' + utils.join(' '))
+  }
+  lines.push('}')
+  return lines.join('\n')
+}
+
+function paintToUtilities(layer: MapboxLayer, warnings: string[]): string[] {
+  const out: string[] = []
+  const p = layer.paint ?? {}
+
+  if (layer.type === 'fill') {
+    addFill(out, p['fill-color'], warnings)
+    addOpacity(out, p['fill-opacity'], warnings)
+  } else if (layer.type === 'line') {
+    addStroke(out, p['line-color'], warnings)
+    addStrokeWidth(out, p['line-width'], warnings)
+    addStrokeDash(out, p['line-dasharray'], warnings)
+    addOpacity(out, p['line-opacity'], warnings)
+  } else if (layer.type === 'fill-extrusion') {
+    addFill(out, p['fill-extrusion-color'], warnings)
+    addOpacity(out, p['fill-extrusion-opacity'], warnings)
+    const h = exprToXgis(p['fill-extrusion-height'], warnings)
+    if (h !== null) out.push(`fill-extrusion-height-${maybeBracket(h)}`)
+    const b = exprToXgis(p['fill-extrusion-base'], warnings)
+    if (b !== null) out.push(`fill-extrusion-base-${maybeBracket(b)}`)
+  }
+
+  return out
+}
+
+function addFill(out: string[], v: unknown, warnings: string[]): void {
+  if (v === undefined) return
+  const s = colorToXgis(v, warnings)
+  if (s) out.push(`fill-${s}`)
+}
+
+function addStroke(out: string[], v: unknown, warnings: string[]): void {
+  if (v === undefined) return
+  const s = colorToXgis(v, warnings)
+  if (s) out.push(`stroke-${s}`)
+}
+
+function addStrokeWidth(out: string[], v: unknown, warnings: string[]): void {
+  if (v === undefined) return
+  const x = exprToXgis(v, warnings)
+  if (x === null) return
+  // Tailwind-style suffix: number → `stroke-1.5`, expression → bracket form.
+  out.push(`stroke-${maybeBracket(x)}`)
+}
+
+function addStrokeDash(out: string[], v: unknown, _warnings: string[]): void {
+  if (!Array.isArray(v)) return
+  const nums = v.filter(n => typeof n === 'number')
+  if (nums.length < 2) return
+  out.push('stroke-dasharray-' + nums.join('-'))
+}
+
+function addOpacity(out: string[], v: unknown, warnings: string[]): void {
+  if (v === undefined) return
+  if (typeof v === 'number') {
+    // Mapbox 0..1, X-GIS opacity-N where N can be 0..100 or 0..1.
+    out.push(`opacity-${v <= 1 ? Math.round(v * 100) : v}`)
+    return
+  }
+  const x = exprToXgis(v, warnings)
+  if (x !== null) out.push(`opacity-${maybeBracket(x)}`)
+}
+
+// ═══ Color conversion ════════════════════════════════════════════════
+
+function colorToXgis(v: unknown, warnings: string[]): string | null {
+  if (v == null) return null
+  if (typeof v === 'string') {
+    // hex / rgb()/rgba()/hsl() — pass through directly. X-GIS lexer
+    // accepts hex literals and the playground monaco-xgis recognizer
+    // ships hover docs for the rgb/hsl forms.
+    return v.startsWith('#') ? v : v
+  }
+  // Expression form (`["interpolate", ...]` returning colors,
+  // `["match", …]` mapping to colors, etc.)
+  if (Array.isArray(v) && v[0] === 'rgba' && v.length === 5) {
+    const [, r, g, b, a] = v
+    const A = typeof a === 'number' ? a : 1
+    return `rgba(${r}, ${g}, ${b}, ${A})`
+  }
+  if (Array.isArray(v) && v[0] === 'rgb' && v.length === 4) {
+    const [, r, g, b] = v
+    return `rgb(${r}, ${g}, ${b})`
+  }
+  // Fall back: emit a comment-bracketed expr so the user sees what
+  // came in. Avoids producing unparseable utility names for complex
+  // colour expressions we haven't taught the converter yet.
+  warnings.push(`Color expression not converted: ${JSON.stringify(v).slice(0, 120)}`)
+  return null
+}
+
+// ═══ Expression conversion (Mapbox v1 expressions) ═══════════════════
+
+function exprToXgis(v: unknown, warnings: string[]): string | null {
+  if (v === null || v === undefined) return null
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  if (typeof v === 'string') return JSON.stringify(v) // quoted string literal
+  if (!Array.isArray(v)) return null
+  const op = v[0]
+  switch (op) {
+    case 'literal':
+      return exprToXgis(v[1], warnings)
+    case 'get': {
+      const field = v[1]
+      const obj = v[2]
+      if (typeof field !== 'string') return null
+      if (obj !== undefined) {
+        warnings.push(`["get", "${field}", <obj>] with explicit object — converted as plain field access; verify scope.`)
+      }
+      return `.${field}`
+    }
+    case 'has': {
+      const field = v[1]
+      if (typeof field !== 'string') return null
+      return `.${field} != null`
+    }
+    case '!has': {
+      const field = v[1]
+      if (typeof field !== 'string') return null
+      return `.${field} == null`
+    }
+    case 'coalesce': {
+      const args = v.slice(1).map(a => exprToXgis(a, warnings))
+      const valid = args.filter((a): a is string => a !== null)
+      if (valid.length === 0) return null
+      return valid.join(' ?? ')
+    }
+    case 'case': {
+      // ["case", cond1, val1, cond2, val2, …, default]
+      // → cond1 ? val1 : cond2 ? val2 : … : default
+      // X-GIS supports `cond ? a : b` ternary.
+      const args = v.slice(1)
+      if (args.length < 3 || args.length % 2 === 0) {
+        warnings.push(`Malformed ["case"] expression: ${JSON.stringify(v).slice(0, 120)}`)
+        return null
+      }
+      const def = exprToXgis(args[args.length - 1], warnings)
+      let result = def ?? '0'
+      for (let i = args.length - 3; i >= 0; i -= 2) {
+        const cond = exprToXgis(args[i], warnings)
+        const val = exprToXgis(args[i + 1], warnings)
+        if (cond === null || val === null) continue
+        result = `${cond} ? ${val} : ${result}`
+      }
+      return result
+    }
+    case 'match': {
+      // ["match", input, key1, val1, key2, val2, …, default]
+      // X-GIS has `match(.field) { key -> value, _ -> default }`
+      const input = v[1]
+      const args = v.slice(2)
+      if (args.length < 1 || args.length % 2 !== 1) {
+        warnings.push(`Malformed ["match"] expression: ${JSON.stringify(v).slice(0, 120)}`)
+        return null
+      }
+      const inputXgis = exprToXgis(input, warnings)
+      if (inputXgis === null || !inputXgis.startsWith('.')) {
+        // X-GIS match() takes a field access; complex inputs not
+        // supported. Rewrite to chained ?: as a fallback.
+        return matchToTernary(input, args, warnings)
+      }
+      const arms: string[] = []
+      const def = args[args.length - 1]
+      for (let i = 0; i < args.length - 1; i += 2) {
+        const key = args[i]
+        const val = exprToXgis(args[i + 1], warnings)
+        if (val === null) continue
+        const keyStrs = Array.isArray(key) ? key : [key]
+        for (const k of keyStrs) {
+          arms.push(`    ${typeof k === 'string' ? JSON.stringify(k) : k} -> ${val}`)
+        }
+      }
+      const defXgis = exprToXgis(def, warnings)
+      if (defXgis !== null) arms.push(`    _ -> ${defXgis}`)
+      return `match(${inputXgis}) {\n${arms.join(',\n')}\n  }`
+    }
+    case 'all': {
+      const parts = v.slice(1).map(a => filterToXgis(a, warnings)).filter((s): s is string => !!s)
+      if (parts.length === 0) return 'true'
+      return parts.map(parenthesize).join(' && ')
+    }
+    case 'any': {
+      const parts = v.slice(1).map(a => filterToXgis(a, warnings)).filter((s): s is string => !!s)
+      if (parts.length === 0) return 'false'
+      return parts.map(parenthesize).join(' || ')
+    }
+    case '!': {
+      const inner = filterToXgis(v[1], warnings)
+      return inner ? `!(${inner})` : null
+    }
+    // Comparison / arithmetic operators map identically.
+    case '==': case '!=': case '<': case '<=': case '>': case '>=':
+    case '+': case '-': case '*': case '/': case '%': {
+      if (v.length !== 3) return null
+      const a = exprToXgis(v[1], warnings)
+      const b = exprToXgis(v[2], warnings)
+      if (a === null || b === null) return null
+      return `${a} ${op} ${b}`
+    }
+    case 'min': case 'max': {
+      const args = v.slice(1).map(x => exprToXgis(x, warnings)).filter((s): s is string => s !== null)
+      return args.length > 0 ? `${op}(${args.join(', ')})` : null
+    }
+    case 'to-number': case 'number': {
+      // X-GIS evaluator coerces in arithmetic; pass through the inner.
+      return exprToXgis(v[1], warnings)
+    }
+    case 'in': {
+      // ["in", value, ["literal", [...]]]  OR  legacy  ["in", "field", v1, v2, …]
+      const field = v[1]
+      const list = v[2]
+      if (Array.isArray(list) && list[0] === 'literal' && Array.isArray(list[1])) {
+        const fxg = typeof field === 'string'
+          ? `.${field}`
+          : exprToXgis(field, warnings)
+        if (fxg === null) return null
+        const eqs = list[1].map((k: unknown) => `${fxg} == ${typeof k === 'string' ? JSON.stringify(k) : k}`)
+        return eqs.join(' || ')
+      }
+      // Legacy: ["in", field, v1, v2, …]
+      if (typeof field === 'string') {
+        const eqs = v.slice(2).map(k => `.${field} == ${typeof k === 'string' ? JSON.stringify(k) : k}`)
+        return eqs.join(' || ')
+      }
+      warnings.push(`["in"] form not converted: ${JSON.stringify(v).slice(0, 120)}`)
+      return null
+    }
+  }
+  warnings.push(`Expression not converted: ${JSON.stringify(v).slice(0, 120)}`)
+  return null
+}
+
+function matchToTernary(input: unknown, args: unknown[], warnings: string[]): string | null {
+  // Used when ["match", <complex>, …] can't go through xgis match()
+  // because match() requires a field-access input. Falls back to a
+  // chain of `input == key ? value : …`. Less efficient but always
+  // expressible.
+  const inputXgis = exprToXgis(input, warnings)
+  if (inputXgis === null) return null
+  const def = exprToXgis(args[args.length - 1], warnings) ?? '0'
+  let result = def
+  for (let i = args.length - 3; i >= 0; i -= 2) {
+    const key = args[i]
+    const val = exprToXgis(args[i + 1], warnings)
+    if (val === null) continue
+    const keyStrs = Array.isArray(key) ? key : [key]
+    const cond = keyStrs.map(k => `${inputXgis} == ${typeof k === 'string' ? JSON.stringify(k) : k}`).join(' || ')
+    result = `(${cond}) ? ${val} : ${result}`
+  }
+  return result
+}
+
+// ═══ Filter conversion ═══════════════════════════════════════════════
+//
+// Mapbox accepts both LEGACY ([op, field, value, …]) and EXPRESSION
+// (["==", ["get","field"], value]) styles. exprToXgis already handles
+// the expression form; this wrapper also accepts the legacy form.
+
+function filterToXgis(v: unknown, warnings: string[]): string | null {
+  if (v === null || v === undefined) return null
+  if (!Array.isArray(v)) return exprToXgis(v, warnings)
+  const op = v[0]
+  // Legacy filter syntax (Mapbox GL JS v0.x / v1.x style spec): the
+  // FIELD is the second element, not an ["get", "field"] sub-expr.
+  if ((op === '==' || op === '!=' || op === '<' || op === '<=' || op === '>' || op === '>=') &&
+      typeof v[1] === 'string' && !Array.isArray(v[2])) {
+    const field = v[1]
+    const val = v[2]
+    return `.${field} ${op} ${typeof val === 'string' ? JSON.stringify(val) : val}`
+  }
+  // Otherwise route through the expression converter — it covers
+  // all (non-legacy) forms uniformly.
+  return exprToXgis(v, warnings)
+}
+
+// ═══ Helpers ═════════════════════════════════════════════════════════
+
+function maybeBracket(x: string): string {
+  // Short numeric / identifier values stay bare (`stroke-1.5`); any
+  // expression-shaped string gets wrapped in brackets so the xgis
+  // utility lexer recognises the data-driven form.
+  if (/^-?\d+(\.\d+)?$/.test(x)) return x
+  if (/^[\w-]+$/.test(x)) return x
+  return `[${x}]`
+}
+
+function parenthesize(s: string): string {
+  // Wrap with parens when the string contains binary operators that
+  // could re-bind under outer && / ||.
+  return / (\?\?|\|\||&&|==|!=|<|>|<=|>=|\+|-|\*|\/|%) /.test(s) ? `(${s})` : s
+}
+
+function sanitizeId(s: string): string {
+  // X-GIS identifiers — keep alphanumerics and underscores; replace
+  // others (Mapbox often uses kebab-case like `landcover_glacier`,
+  // already valid). Common transformation: dashes → underscores
+  // when needed.
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s) ? s : s.replace(/[^a-zA-Z0-9_]/g, '_')
+}

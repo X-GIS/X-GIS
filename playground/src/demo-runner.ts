@@ -652,6 +652,44 @@ prevBtn.addEventListener('click', () => { if (currentIdx > 0) loadDemo(currentId
 nextBtn.addEventListener('click', () => { if (currentIdx < demoIds.length - 1) loadDemo(currentIdx + 1) })
 selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
 
+// ── Mapbox style import ─────────────────────────────────────────────
+// Paste a Mapbox Style Spec JSON via clipboard / file picker; convert
+// to xgis source via `convertMapboxStyle` from the compiler; load the
+// result into the editor. Triggered by the "Import Mapbox" button if
+// present in the markup, OR by `__xgisImportMapbox(jsonStr)` from the
+// devtools console / a future test harness.
+;(window as unknown as { __xgisImportMapbox?: (json: string | object) => void })
+  .__xgisImportMapbox = (json: string | object) => {
+    import('@xgis/compiler').then(({ convertMapboxStyle }) => {
+      try {
+        const xgis = convertMapboxStyle(json)
+        editor.setValue(xgis)
+        runSource(xgis, 'Imported (Mapbox)')
+      } catch (e) {
+        console.error('[X-GIS] Mapbox import failed:', e)
+      }
+    })
+  }
+const importBtn = document.getElementById('import-mapbox-btn') as HTMLButtonElement | null
+if (importBtn) {
+  importBtn.addEventListener('click', async () => {
+    // Two paths: file picker (recommended) or clipboard read fallback.
+    const fileInput = document.createElement('input')
+    fileInput.type = 'file'
+    fileInput.accept = '.json,application/json'
+    fileInput.style.display = 'none'
+    document.body.appendChild(fileInput)
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files?.[0]
+      if (!file) { fileInput.remove(); return }
+      const text = await file.text()
+      ;(window as unknown as { __xgisImportMapbox: (j: string) => void }).__xgisImportMapbox(text)
+      fileInput.remove()
+    })
+    fileInput.click()
+  })
+}
+
 // ── Projection override ──
 // Sync dropdown with URL state so reloads / shared links restore it.
 projSelectEl.value = params.get('proj') ?? ''
