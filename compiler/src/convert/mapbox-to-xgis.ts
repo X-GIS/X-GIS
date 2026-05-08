@@ -394,6 +394,14 @@ function exprToXgis(v: unknown, warnings: string[]): string | null {
       // X-GIS evaluator coerces in arithmetic; pass through the inner.
       return exprToXgis(v[1], warnings)
     }
+    case 'geometry-type':
+    case 'id': {
+      // Expression-form pseudo-accessors (used inside ["==", ["geometry-type"], …]).
+      // Same rationale as the $type / $id legacy filter case above —
+      // dropped sub-expression bubbles `null` through the parent ==/!=.
+      warnings.push(`["${op}"] dropped — no xgis feature-meta accessor.`)
+      return null
+    }
     case 'in': {
       // ["in", value, ["literal", [...]]]  OR  legacy  ["in", "field", v1, v2, …]
       const field = v[1]
@@ -449,6 +457,18 @@ function filterToXgis(v: unknown, warnings: string[]): string | null {
   if (v === null || v === undefined) return null
   if (!Array.isArray(v)) return exprToXgis(v, warnings)
   const op = v[0]
+
+  // Mapbox pseudo-fields ($type, $id) have no xgis equivalent. $type
+  // is redundant — layer geometry type is already encoded by which
+  // utility class (fill- / stroke- / shape-) the layer uses — so we
+  // drop the sub-predicate. $id has no accessor; user has to swap in
+  // a real `.field` check after the fact.
+  if ((op === '==' || op === '!=' || op === 'in' || op === '!in') &&
+      (v[1] === '$type' || v[1] === '$id')) {
+    warnings.push(`Filter on "${v[1]}" dropped — no xgis equivalent (geometry type is implied by the layer's utility class).`)
+    return null
+  }
+
   // Legacy filter syntax (Mapbox GL JS v0.x / v1.x style spec): the
   // FIELD is the second element, not an ["get", "field"] sub-expr.
   if ((op === '==' || op === '!=' || op === '<' || op === '<=' || op === '>' || op === '>=') &&
@@ -456,6 +476,12 @@ function filterToXgis(v: unknown, warnings: string[]): string | null {
     const field = v[1]
     const val = v[2]
     return `.${field} ${op} ${typeof val === 'string' ? JSON.stringify(val) : val}`
+  }
+  // Legacy `!in` — Mapbox v0/v1 style spec.
+  if (op === '!in' && typeof v[1] === 'string') {
+    const field = v[1]
+    const eqs = v.slice(2).map(k => `.${field} != ${typeof k === 'string' ? JSON.stringify(k) : k}`)
+    return eqs.join(' && ')
   }
   // Otherwise route through the expression converter — it covers
   // all (non-legacy) forms uniformly.

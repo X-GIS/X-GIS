@@ -138,6 +138,57 @@ describe('Mapbox → xgis converter', () => {
     expect(out).toContain('// SKIPPED layer "labels" type="symbol"')
   })
 
+  it('drops $type pseudo-field from filter (legacy form)', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'roads', type: 'line', source: 's', 'source-layer': 'roads',
+        filter: ['all', ['==', '$type', 'LineString'], ['==', 'kind', 'highway']],
+        paint: { 'line-color': '#888' },
+      }],
+    })
+    // $type only allowed inside the trailing /* Conversion notes */ block.
+    const filterLine = out.split('\n').find(l => l.trim().startsWith('filter:')) ?? ''
+    expect(filterLine).not.toContain('$type')
+    expect(out).toContain('.kind == "highway"')
+    expect(parses(out)).toBe(true)
+  })
+
+  it('drops ["geometry-type"] pseudo-accessor (expression form)', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'water', type: 'fill', source: 's', 'source-layer': 'water',
+        filter: ['all',
+          ['==', ['geometry-type'], 'Polygon'],
+          ['==', ['get', 'kind'], 'lake'],
+        ],
+        paint: { 'fill-color': '#a4c8d5' },
+      }],
+    })
+    const filterLine = out.split('\n').find(l => l.trim().startsWith('filter:')) ?? ''
+    expect(filterLine).not.toContain('geometry-type')
+    expect(out).toContain('.kind == "lake"')
+    expect(parses(out)).toBe(true)
+  })
+
+  it('handles legacy !in', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'misc', type: 'fill', source: 's', 'source-layer': 'landuse',
+        filter: ['!in', 'kind', 'park', 'forest'],
+        paint: { 'fill-color': '#eee' },
+      }],
+    })
+    expect(out).toContain('.kind != "park"')
+    expect(out).toContain('.kind != "forest"')
+    expect(parses(out)).toBe(true)
+  })
+
   it('emits parseable output for a multi-layer style', () => {
     const out = convertMapboxStyle({
       version: 8,
