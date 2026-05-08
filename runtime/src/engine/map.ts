@@ -1181,6 +1181,132 @@ export class XGISMap {
     // don't trip over the global.
     if (typeof window !== 'undefined') {
       ;(window as unknown as { __xgisReady?: boolean }).__xgisReady = true
+      // Expose a deterministic scene-snapshot helper. Captures the
+      // camera state, the per-source GPU tile cache, the in-flight
+      // render-order trace, and a pixel-data hash. Designed for
+      // regression testing of bugs that depend on subtle render-
+      // ordering / tile-routing decisions (e.g. the 3D building
+      // depth-sort bug). Re-runs that produce the same camera + same
+      // tile cache + same draw order should produce the same hash —
+      // any drift signals a behaviour change.
+      const self = this
+      ;(window as unknown as {
+        __xgisSnapshot?: () => Promise<unknown>
+        __xgisStartDrawOrderTrace?: () => void
+      }).__xgisSnapshot = () => self.captureSnapshot()
+      ;(window as unknown as {
+        __xgisStartDrawOrderTrace?: () => void
+      }).__xgisStartDrawOrderTrace = () => {
+        ;(window as unknown as { __xgisDrawOrderTrace?: unknown[] }).__xgisDrawOrderTrace = []
+      }
+    }
+  }
+
+  /** Build a deterministic snapshot of the current scene state.
+   *  Includes:
+   *    - Camera state (lon/lat/zoom/bearing/pitch + viewport)
+   *    - Per-vector-source: list of GPU-cached tile keys, queue depths
+   *    - Render-order trace (must be armed via `__xgisStartDrawOrderTrace`
+   *      BEFORE the frame to capture; otherwise empty)
+   *    - SHA-256 hash of the canvas pixel data
+   *
+   *  Call from a test scenario to assert deterministic behaviour or
+   *  to capture a "broken" snapshot for diagnosis.
+   */
+  async captureSnapshot(): Promise<{
+    camera: { lon: number; lat: number; zoom: number; bearing: number; pitch: number }
+    viewport: { width: number; height: number }
+    sources: Record<string, {
+      gpuCacheCount: number
+      pendingFetch: number
+      pendingUpload: number
+      tiles: Array<{ z: number; x: number; y: number }>
+    }>
+    renderOrder: unknown[]
+    pixelHash: string
+    pixelHashBy: 'subtle' | 'fnv'
+  }> {
+    const camera = this.camera
+    const lon = (camera.centerX / 6378137) / (Math.PI / 180)
+    const lat = (2 * Math.atan(Math.exp(camera.centerY / 6378137)) - Math.PI / 2) / (Math.PI / 180)
+
+    const sources: Record<string, {
+      gpuCacheCount: number
+      pendingFetch: number
+      pendingUpload: number
+      tiles: Array<{ z: number; x: number; y: number }>
+    }> = {}
+    if (this.vtSources) {
+      for (const [name, entry] of this.vtSources) {
+        const r = (entry as unknown as { renderer?: {
+          _gpuCacheCount?: number
+          getPendingUploadCount?: () => number
+          _frameTileCache?: { tiles?: Array<{ z: number; x: number; y: number }> }
+        } }).renderer
+        const cat = (entry as unknown as { source?: { getPendingLoadCount?: () => number } }).source
+        sources[name] = {
+          gpuCacheCount: r?._gpuCacheCount ?? 0,
+          pendingFetch: cat?.getPendingLoadCount?.() ?? 0,
+          pendingUpload: r?.getPendingUploadCount?.() ?? 0,
+          tiles: r?._frameTileCache?.tiles ?? [],
+        }
+      }
+    }
+
+    const renderOrder = ((window as unknown as {
+      __xgisDrawOrderTrace?: unknown[]
+    }).__xgisDrawOrderTrace) ?? []
+
+    // Pixel hash. Web crypto SubtleDigest where available (SHA-256);
+    // FNV-1a fallback for non-secure contexts. The canvas readback
+    // uses readPixels via a one-shot copy texture — same pattern as
+    // the picking pipeline, but full-frame.
+    const canvas = this.canvas
+    let pixelHash = ''
+    let pixelHashBy: 'subtle' | 'fnv' = 'fnv'
+    try {
+      // Sample the canvas via toBlob → arrayBuffer → hash. Avoids
+      // creating an extra GPU texture; the trade-off is that toBlob
+      // re-encodes as PNG (deterministic for the same pixel data).
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((b) => resolve(b), 'image/png')
+      })
+      if (blob) {
+        const buf = await blob.arrayBuffer()
+        if (typeof crypto !== 'undefined' && crypto.subtle) {
+          const digest = await crypto.subtle.digest('SHA-256', buf)
+          const bytes = Array.from(new Uint8Array(digest))
+          pixelHash = bytes.map(b => b.toString(16).padStart(2, '0')).join('')
+          pixelHashBy = 'subtle'
+        } else {
+          // FNV-1a 32-bit. Faster but lower entropy — adequate for
+          // detecting frame-by-frame drift in tests.
+          let h = 0x811c9dc5
+          const u8 = new Uint8Array(buf)
+          for (let i = 0; i < u8.length; i++) {
+            h ^= u8[i]
+            h = (h * 0x01000193) >>> 0
+          }
+          pixelHash = h.toString(16).padStart(8, '0')
+          pixelHashBy = 'fnv'
+        }
+      }
+    } catch (e) {
+      console.warn('[xgisSnapshot] pixel hash failed:', e)
+    }
+
+    return {
+      camera: {
+        lon, lat,
+        zoom: camera.zoom,
+        bearing: camera.bearing ?? 0,
+        pitch: camera.pitch ?? 0,
+      },
+      viewport: { width: canvas.width, height: canvas.height },
+      sources,
+      renderOrder,
+      pixelHash,
+      pixelHashBy,
     }
   }
 

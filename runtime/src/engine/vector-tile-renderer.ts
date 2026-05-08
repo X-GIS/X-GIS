@@ -2807,25 +2807,6 @@ export class VectorTileRenderer {
       // skipped (variant pipeline computes color in shader, cached uniform
       // alpha may be zero even when the draw is meaningful).
       if (drawFills && cached.indexCount > 0 && !this._skipFillDraw) {
-        // DIAG: log per-tile drawIndexed for the current trace if armed.
-        // Granular enough to verify the cross-tile order claim
-        // ("all tiles' 2D before any 3D") rather than just per-show
-        // sequencing.
-        if (typeof window !== 'undefined') {
-          const trace = (window as unknown as { __xgisDrawOrderTrace?: Array<{
-            seq: number; slice: string; phase: string; extrude: string; tileKey?: number; isFill?: boolean
-          }> }).__xgisDrawOrderTrace
-          if (trace) {
-            trace.push({
-              seq: trace.length,
-              slice: this.lastTraceSlice ?? '?',
-              phase: this.lastTracePhase ?? '?',
-              extrude: this.currentExtrudeMode === 'none' ? 'none' : 'feature',
-              tileKey: key,
-              isFill: true,
-            })
-          }
-        }
         // Pipeline selection — three opaque paths + OIT:
         //  * 'oit-fill' phase: translucent extrude → OIT MRT pipe
         //  * per-feature extrude (opaque): vs_main_quantized_extruded + zBuffer
@@ -2833,6 +2814,41 @@ export class VectorTileRenderer {
         const useOitPipe = isOitFill
           && cached.zBuffer !== null
           && this.fillPipelineExtrudedOIT !== null
+        // DIAG: log per-tile drawIndexed for the current trace if armed.
+        // Granular enough to verify the cross-tile order claim
+        // ("all tiles' 2D before any 3D") rather than just per-show
+        // sequencing. Pipeline decision is computed below — if the
+        // trace is armed we record the routing here for diagnosis.
+        if (typeof window !== 'undefined') {
+          const trace = (window as unknown as { __xgisDrawOrderTrace?: Array<{
+            seq: number; slice: string; phase: string; extrude: string;
+            tileKey?: number; isFill?: boolean;
+            pipelineRoute?: 'oit' | 'extrude' | 'fill' | 'skip';
+            hasZBuffer?: boolean;
+          }> }).__xgisDrawOrderTrace
+          if (trace) {
+            // Pipeline route is determined a few lines below — but the
+            // logic is mirrored here so we can record it before
+            // dispatch. Skip path: OIT requested but useOitPipe failed.
+            const willSkip = isOitFill && !useOitPipe
+            const route: 'oit' | 'extrude' | 'fill' | 'skip' =
+              willSkip ? 'skip'
+              : useOitPipe ? 'oit'
+              : (this.currentExtrudeMode === 'per-feature' && cached.zBuffer !== null)
+                ? 'extrude'
+                : 'fill'
+            trace.push({
+              seq: trace.length,
+              slice: this.lastTraceSlice ?? '?',
+              phase: this.lastTracePhase ?? '?',
+              extrude: this.currentExtrudeMode === 'none' ? 'none' : 'feature',
+              tileKey: key,
+              isFill: true,
+              pipelineRoute: route,
+              hasZBuffer: cached.zBuffer !== null,
+            })
+          }
+        }
         // CRITICAL: in the OIT pass, the render pass attachments are
         // the rgba16float / r16float MRT pair, not the main color +
         // pick attachments. Falling through to `fillPipeline` here
