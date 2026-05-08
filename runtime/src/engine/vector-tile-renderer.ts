@@ -500,6 +500,9 @@ export class VectorTileRenderer {
     this.currentFrameId = frameId
     this.uniformSlot = 0
     this._uploadBudget = MAX_UPLOADS_PER_FRAME
+    this._uploadsThisFrame = 0
+    this._uploadDeadlineMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) +
+      VectorTileRenderer.UPLOAD_TIME_BUDGET_MS
     // Reset the frame-scoped miss counter here so multiple render()
     // calls within the frame accumulate into one total (see render()).
     this._missedTiles = 0
@@ -558,9 +561,22 @@ export class VectorTileRenderer {
    *  GPU buffers AND runs `buildLineSegments` (CPU) twice per tile. A LOD
    *  boundary crossing can easily queue 16+ new tiles in a single frame;
    *  without a cap that lands as one ~250 ms stall (measured) with a
-   *  multi-MB writeBuffer burst. Excess uploads are deferred to next
-   *  frame via `_pendingUploads`, keeping per-frame work bounded. */
+   *  multi-MB writeBuffer burst.
+   *
+   *  Hybrid floor + time-ceiling scheduler (mirrors the XGVT-source
+   *  fix at commit 7726abd). Floor (`_uploadBudget`) preserves the
+   *  steady-state count cap. Once the floor is exhausted, additional
+   *  uploads keep going until `_uploadDeadlineMs` elapses or the
+   *  safety cap (`UPLOAD_SAFETY_CAP`) is hit. Without the ceiling
+   *  the high-pitch + 81-show TileJSON case piles 3000+ pending
+   *  uploads behind a 4/frame drain — convergence took >800 frames
+   *  (~14 s at 60 fps) and the user perceived it as "extremely slow"
+   *  whenever pitch increased past ~60°. */
   private _uploadBudget = 3
+  private _uploadDeadlineMs = 0
+  private _uploadsThisFrame = 0
+  private static readonly UPLOAD_TIME_BUDGET_MS = 6
+  private static readonly UPLOAD_SAFETY_CAP = 96
   private _pendingUploads: { key: number; data: TileData; sourceLayer: string }[] = []
   /** Per-decision counts from the last render() call. Always tracked
    *  (cheap — Map of ~7 string keys). Exposed via
@@ -817,9 +833,20 @@ export class VectorTileRenderer {
    *  kept for backwards call-sites; the real work happens in
    *  doUploadTile once a slot is granted. Beyond the budget the tile
    *  sits in `_pendingUploads` and picks up on subsequent frames. */
+  /** Hybrid floor + time-ceiling check. Returns true if we have room
+   *  for ONE more upload this frame. Floor uses the count budget;
+   *  ceiling extends past the floor while we're still within the
+   *  per-frame time budget AND under the safety cap. */
+  private hasUploadBudget(): boolean {
+    if (this._uploadBudget > 0) return true
+    if (this._uploadsThisFrame >= VectorTileRenderer.UPLOAD_SAFETY_CAP) return false
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    return now < this._uploadDeadlineMs
+  }
+
   private uploadTile(key: number, data: TileData, sourceLayer = ''): void {
     if (this.getLayerCache(sourceLayer)?.has(key)) return
-    if (this._uploadBudget <= 0) {
+    if (!this.hasUploadBudget()) {
       // De-dupe: if this key is already queued, drop the duplicate —
       // the cache check above catches re-entry of a completed upload,
       // but a pending one still counts.
@@ -828,7 +855,8 @@ export class VectorTileRenderer {
       }
       return
     }
-    this._uploadBudget--
+    if (this._uploadBudget > 0) this._uploadBudget--
+    this._uploadsThisFrame++
     this.doUploadTile(key, data, sourceLayer)
   }
 
@@ -837,10 +865,11 @@ export class VectorTileRenderer {
    *  so newly-visible tiles get a chance at the budget even when the
    *  queue piled up during a LOD jump. */
   private drainPendingUploads(): void {
-    while (this._uploadBudget > 0 && this._pendingUploads.length > 0) {
+    while (this._pendingUploads.length > 0 && this.hasUploadBudget()) {
       const next = this._pendingUploads.shift()!
       if (this.getLayerCache(next.sourceLayer)?.has(next.key)) continue
-      this._uploadBudget--
+      if (this._uploadBudget > 0) this._uploadBudget--
+      this._uploadsThisFrame++
       this.doUploadTile(next.key, next.data, next.sourceLayer)
     }
   }
