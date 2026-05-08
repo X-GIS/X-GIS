@@ -64,6 +64,13 @@ export interface GPUContext {
    *  pay the always-on adapter feature requirement. Consumers (`GPUTimer`)
    *  no-op when this is false. */
   timestampQuerySupported: boolean
+  /** True when the device additionally has Chromium's
+   *  `chromium-experimental-timestamp-query-inside-passes` — lets us
+   *  call `pass.writeTimestamp(querySet, idx)` mid-pass to break a
+   *  pass's GPU time into per-pipeline buckets (raster vs polygon
+   *  fill vs line vs extruded). Strictly a superset of
+   *  `timestamp-query`. */
+  timestampInsidePassesSupported: boolean
   /** Validation error queue — the global `uncapturederror` handler
    *  pushes every WebGPU validation error here. Tests poll this
    *  via `getValidationErrors(ctx)` and assert it stays empty;
@@ -109,10 +116,18 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   // adapter advertises support. Falls back to a feature-less device on any
   // mismatch so users without the extension still load the app.
   let timestampQuerySupported = false
+  let timestampInsidePassesSupported = false
   const requiredFeatures: GPUFeatureName[] = []
   if (GPU_PROF && adapter.features.has('timestamp-query')) {
     requiredFeatures.push('timestamp-query')
     timestampQuerySupported = true
+    // Inside-passes timestamps are a Chromium-experimental superset.
+    // Cast through `as` because the standard `GPUFeatureName` type
+    // doesn't list the chromium-experimental-* names.
+    if (adapter.features.has('chromium-experimental-timestamp-query-inside-passes' as GPUFeatureName)) {
+      requiredFeatures.push('chromium-experimental-timestamp-query-inside-passes' as GPUFeatureName)
+      timestampInsidePassesSupported = true
+    }
   } else if (GPU_PROF) {
     console.warn('[X-GIS] ?gpuprof=1 requested but adapter lacks timestamp-query feature — GPU timing disabled')
   }
@@ -134,6 +149,7 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     device, context, format, canvas,
     sampleCount: SAMPLE_COUNT,
     timestampQuerySupported,
+    timestampInsidePassesSupported,
     _validationErrors: [],
   }
 

@@ -130,7 +130,12 @@ test.describe('profile multi_layer pan @z0 worldwrap', () => {
       // Pull GPU samples accumulated by the GPUTimer ring (in nanoseconds).
       const m = (window as any).__xgisMap
       const gpuNs: number[] = m?.gpuTimer?.getTimings?.() ?? []
-      return { times, total, gpuNs, gpuEnabled: !!m?.gpuTimer?.enabled }
+      const gpuBreakdown: Record<string, number[]> = m?.gpuTimer?.getBreakdown?.() ?? {}
+      return {
+        times, total, gpuNs, gpuBreakdown,
+        gpuEnabled: !!m?.gpuTimer?.enabled,
+        gpuInsidePasses: !!m?.gpuTimer?.insidePasses,
+      }
     }, { x0: box.x + box.width * 0.85, x1: box.x + box.width * 0.15, cy })
 
     const { profile } = await cdp.send('Profiler.stop')
@@ -154,27 +159,50 @@ test.describe('profile multi_layer pan @z0 worldwrap', () => {
     }
 
     // ── GPU pass stats ──
-    let gpuStats: Record<string, unknown> = { enabled: result.gpuEnabled, samples: 0 }
-    if (result.gpuNs.length > 0) {
-      const gpuMs = result.gpuNs.map(ns => ns / 1e6).sort((a, b) => a - b)
-      const gpuAvg = gpuMs.reduce((a, b) => a + b, 0) / gpuMs.length
-      gpuStats = {
-        enabled: true,
-        samples: gpuMs.length,
-        avg_ms: +gpuAvg.toFixed(3),
-        p50_ms: +gpuMs[Math.floor(gpuMs.length * 0.5)].toFixed(3),
-        p95_ms: +gpuMs[Math.floor(gpuMs.length * 0.95)].toFixed(3),
-        p99_ms: +gpuMs[Math.floor(gpuMs.length * 0.99)].toFixed(3),
-        max_ms: +gpuMs[gpuMs.length - 1].toFixed(3),
-        gt_8ms_pct: +(gpuMs.filter(t => t > 8).length / gpuMs.length * 100).toFixed(1),
-        gt_16ms_pct: +(gpuMs.filter(t => t > 16).length / gpuMs.length * 100).toFixed(1),
+    function summarizeNs(samplesNs: number[]) {
+      if (samplesNs.length === 0) return null
+      const ms = samplesNs.map(ns => ns / 1e6).sort((a, b) => a - b)
+      const avg = ms.reduce((a, b) => a + b, 0) / ms.length
+      return {
+        samples: ms.length,
+        avg_ms: +avg.toFixed(3),
+        p50_ms: +ms[Math.floor(ms.length * 0.5)].toFixed(3),
+        p95_ms: +ms[Math.floor(ms.length * 0.95)].toFixed(3),
+        p99_ms: +ms[Math.floor(ms.length * 0.99)].toFixed(3),
+        max_ms: +ms[ms.length - 1].toFixed(3),
       }
     }
+    const gpuStats: Record<string, unknown> = {
+      enabled: result.gpuEnabled,
+      inside_passes: result.gpuInsidePasses,
+      samples: 0,
+    }
+    if (result.gpuNs.length > 0) {
+      const total = summarizeNs(result.gpuNs)!
+      Object.assign(gpuStats, total)
+      const gpuMs = result.gpuNs.map(ns => ns / 1e6)
+      Object.assign(gpuStats, {
+        gt_8ms_pct: +(gpuMs.filter(t => t > 8).length / gpuMs.length * 100).toFixed(1),
+        gt_16ms_pct: +(gpuMs.filter(t => t > 16).length / gpuMs.length * 100).toFixed(1),
+      })
+    }
+    // Per-segment breakdown — only meaningful when inside_passes is true,
+    // but we always emit it (as a single 'total' entry when not).
+    const breakdown: Record<string, unknown> = {}
+    for (const [seg, ns] of Object.entries(result.gpuBreakdown)) {
+      const s = summarizeNs(ns as number[])
+      if (s) breakdown[seg] = s
+    }
 
-    const stats = { cpu: cpuStats, gpu_first_opaque_pass: gpuStats }
+    const stats = {
+      cpu: cpuStats,
+      gpu_first_opaque_pass: gpuStats,
+      gpu_breakdown: breakdown,
+    }
     writeFileSync('profile-multilayer-pan-stats.json', JSON.stringify(stats, null, 2))
     console.log('CPU_STATS:', JSON.stringify(cpuStats))
     console.log('GPU_STATS:', JSON.stringify(gpuStats))
+    console.log('GPU_BREAKDOWN:', JSON.stringify(breakdown))
 
     // Top JS self-time (excluding V8 idle/program/GC)
     const nodes = profile.nodes

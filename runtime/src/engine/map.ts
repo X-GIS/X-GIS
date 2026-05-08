@@ -1884,8 +1884,11 @@ export class XGISMap {
             // writes disabled. Runs first so subsequent draws paint
             // freely on top with no depth-buffer interaction.
             this.backgroundRenderer?.render(subPass)
+            this.gpuTimer?.mark(subPass, 'after_bg')
             this.rasterRenderer.render(subPass, this.camera, projType, centerLon, centerLat, w, h, dpr)
+            this.gpuTimer?.mark(subPass, 'after_raster')
             this.renderer.renderToPass(subPass, this.camera, projType, centerLon, centerLat, this._elapsedMs)
+            this.gpuTimer?.mark(subPass, 'after_legacy')
           }
 
           // Render the group's vector tile shows (if any). In a
