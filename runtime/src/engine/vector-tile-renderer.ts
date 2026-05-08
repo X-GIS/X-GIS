@@ -414,11 +414,13 @@ export class VectorTileRenderer {
   private rebuildTileBindGroups(): void {
     if (!this.uniformRing || !this.baseBindGroupLayout) return
     this.tileBgDefault = this.device.createBindGroup({
+      label: 'vtr-tileBg-default',
       layout: this.baseBindGroupLayout,
       entries: [{ binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } }],
     })
     if (this.featureBindGroupLayout && this.featureDataBuffer) {
       this.tileBgFeature = this.device.createBindGroup({
+        label: 'vtr-tileBg-feature',
         layout: this.featureBindGroupLayout,
         entries: [
           { binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } },
@@ -2009,7 +2011,7 @@ export class VectorTileRenderer {
       const mainFill = this.currentExtrudeMode === 'none' && this.fillPipelineGround !== null
         ? this.fillPipelineGround
         : fillPipeline
-      this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, phase, layerCache, this.fillPipelineExtruded)
+      this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, phase, layerCache, this.fillPipelineExtruded, bindGroupLayout)
     }
 
     // Render fallback ancestors (stencil test) — with world offsets for wrapping
@@ -2035,7 +2037,7 @@ export class VectorTileRenderer {
       const fallbackFill = this.currentExtrudeMode === 'none' && this.fillPipelineGroundFallback !== null
         ? this.fillPipelineGroundFallback
         : fillPipelineFallback
-      this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache, this.fillPipelineExtrudedFallback)
+      this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache, this.fillPipelineExtrudedFallback, bindGroupLayout)
       if (_debugRed) {
         this.uniformF32[16] = _origR
         this.uniformF32[17] = _origG
@@ -2187,13 +2189,36 @@ export class VectorTileRenderer {
     phase: LayerDrawPhase,
     layerCache: Map<number, GPUTile>,
     fillPipelineExtruded: GPURenderPipeline | null,
+    fillBindGroupLayout: GPUBindGroupLayout,
   ): void {
     const drawFills = phase !== 'strokes'
     const drawStrokes = phase !== 'fills' && phase !== 'oit-fill'
     const translucentLines = phase === 'strokes'
     const isOitFill = phase === 'oit-fill'
-    const tileBg = this.tileBgFeature ?? this.tileBgDefault
-    if (!tileBg || !this.uniformRing) return
+    // Pick the bind group whose layout matches the FILL pipeline's
+    // expected layout. Two pitfalls the previous `feature ?? default`
+    // rule failed to handle in mixed-layer sources:
+    //
+    //   • Variant pipeline expects featureBindGroupLayout (data-driven
+    //     match()/interpolate()) but featureDataBuffer hasn't been
+    //     uploaded yet → tileBgFeature is null → the old guard at
+    //     line ~1130 returns early. Still correct.
+    //   • Variant pipeline expects baseBindGroupLayout (constant
+    //     fill — water singleton in osm_style) but a SIBLING layer
+    //     in the same source already created tileBgFeature →
+    //     tileBgFeature is non-null → old rule chose feature BG →
+    //     2-binding BG against 1-binding pipeline → validation
+    //     error "Bind group layout of pipeline layout does not match
+    //     layout of bind group set at group index 0", encoder.finish()
+    //     fails, NOTHING renders. This was the osm_style demo break.
+    //
+    // Lines always use baseBindGroupLayout (assertion further below
+    // is preserved). Strokes get the same uniform-only layout via
+    // currentLineTileBg.
+    const fillBg = fillBindGroupLayout === this.baseBindGroupLayout
+      ? this.tileBgDefault
+      : this.tileBgFeature
+    if (!fillBg || !this.uniformRing) return
     // Stroke draws are batched and emitted AFTER every fill in this
     // pass has written depth, so per-tile outlines depth-test against
     // the layer's full geometry (not just whatever was drawn before
@@ -2287,8 +2312,14 @@ export class VectorTileRenderer {
 
       // Allocate a fresh ring slot for this tile × layer × world-copy draw.
       const slotOffset = this.allocUniformSlot()
-      // Ring may have grown in allocUniformSlot — use current (rebuilt) bind groups.
-      const currentTileBg = this.tileBgFeature ?? this.tileBgDefault!
+      // allocUniformSlot may have grown the ring → tileBgDefault /
+      // tileBgFeature were rebuilt; re-resolve fillBg against the
+      // FILL pipeline's layout (set by render() caller). Lines always
+      // use baseBindGroupLayout, so currentLineTileBg is always the
+      // default BG.
+      const currentTileBg = fillBindGroupLayout === this.baseBindGroupLayout
+        ? this.tileBgDefault!
+        : this.tileBgFeature!
       const currentLineTileBg = this.tileBgDefault!
       // Stage the slot into the CPU-side mirror instead of issuing one
       // writeBuffer per tile; the mirror is flushed in a single call at

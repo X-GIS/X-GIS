@@ -890,6 +890,7 @@ export class MapRenderer {
     })
 
     this.bindGroupLayout = device.createBindGroupLayout({
+      label: 'mr-baseBindGroupLayout',
       entries: [{
         binding: 0,
         visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
@@ -898,6 +899,7 @@ export class MapRenderer {
     })
 
     this.featureBindGroupLayout = device.createBindGroupLayout({
+      label: 'mr-featureBindGroupLayout',
       entries: [
         {
           binding: 0,
@@ -913,6 +915,7 @@ export class MapRenderer {
     })
 
     const pipelineLayout = device.createPipelineLayout({
+      label: 'mr-mainPipelineLayout(base-only)',
       bindGroupLayouts: [this.bindGroupLayout],
     })
 
@@ -1498,6 +1501,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
     // Use feature bind group layout if storage buffer is needed
     const layout = variant.needsFeatureBuffer ? this.featureBindGroupLayout : this.bindGroupLayout
     const pipelineLayout = device.createPipelineLayout({
+      label: `mr-variantPipelineLayout(${variant.needsFeatureBuffer ? 'feature' : 'base'})`,
       bindGroupLayouts: [layout],
     })
 
