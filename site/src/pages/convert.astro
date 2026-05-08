@@ -4,6 +4,34 @@ import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const playgroundUrl = `${base}/play/demo.html`
+
+interface Preset {
+  id: string
+  name: string
+  url: string
+  blurb: string
+}
+
+const presets: Preset[] = [
+  {
+    id: 'openfreemap-liberty',
+    name: 'OpenFreeMap · Liberty',
+    url: 'https://tiles.openfreemap.org/styles/liberty',
+    blurb: 'Detailed, OSM-Liberty-flavoured cartography.',
+  },
+  {
+    id: 'openfreemap-bright',
+    name: 'OpenFreeMap · Bright',
+    url: 'https://tiles.openfreemap.org/styles/bright',
+    blurb: 'Light, busy, road-heavy basemap.',
+  },
+  {
+    id: 'openfreemap-positron',
+    name: 'OpenFreeMap · Positron',
+    url: 'https://tiles.openfreemap.org/styles/positron',
+    blurb: 'Minimal, near-monochrome — good for data overlays.',
+  },
+]
 ---
 
 <Base title="Mapbox style → xgis converter">
@@ -15,52 +43,71 @@ const playgroundUrl = `${base}/play/demo.html`
       <code>style.json</code>. The result drops straight into the playground.
     </p>
 
-    <div class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-      <!-- URL form -->
-      <div class="border border-line rounded-md p-4 bg-bg-elev">
-        <label for="mapbox-url" class="block text-fg text-[12px] tracking-wide uppercase">URL</label>
+    <!-- ── Preset chips ── -->
+    <section class="mt-6">
+      <div class="text-fg-mute text-[11px] uppercase tracking-wider mb-2">Try a public style</div>
+      <div class="flex flex-wrap gap-2">
+        {presets.map(p => (
+          <button
+            type="button"
+            class="preset-chip text-left px-3 py-2 rounded-md border border-line bg-bg-elev hover:border-accent hover:bg-accent/10 transition-colors"
+            data-preset-url={p.url}
+            data-preset-name={p.name}
+          >
+            <div class="text-fg text-[13px] font-medium">{p.name}</div>
+            <div class="text-fg-dim text-[11px] mt-0.5">{p.blurb}</div>
+          </button>
+        ))}
+      </div>
+    </section>
+
+    <!-- ── URL form (primary) ── -->
+    <section class="mt-8 border border-line rounded-md p-4 bg-bg-elev">
+      <label for="mapbox-url" class="block text-fg text-[12px] tracking-wide uppercase">URL</label>
+      <div class="mt-2 flex flex-wrap gap-2 items-center">
         <input
           id="mapbox-url"
           type="url"
           placeholder="https://example.com/style.json"
-          class="mt-2 w-full bg-bg border border-line rounded px-3 py-2 text-[13px] focus:outline-none focus:border-accent"
+          class="flex-1 min-w-[280px] bg-bg border border-line rounded px-3 py-2 text-[13px] focus:outline-none focus:border-accent"
         />
         <button
           id="fetch-btn"
-          class="mt-3 px-4 py-2 bg-accent/15 border border-accent text-accent rounded text-[12px] hover:bg-accent/25 transition-colors"
+          class="px-4 py-2 bg-accent/15 border border-accent text-accent rounded text-[12px] hover:bg-accent/25 transition-colors"
         >
           Fetch &amp; convert
         </button>
-        <p class="mt-2 text-fg-dim text-[11px]">
-          The page fetches the URL directly in the browser — works for hosts
-          that send <code>Access-Control-Allow-Origin</code>. If the request
-          is blocked, paste the JSON into the box on the right instead.
-        </p>
       </div>
+      <p class="mt-2 text-fg-dim text-[11px]">
+        The page fetches the URL directly in the browser — works for hosts
+        that send <code>Access-Control-Allow-Origin</code>. If the request
+        is blocked, <button type="button" id="show-paste" class="underline text-accent hover:text-accent-bright">paste the JSON manually instead</button>.
+      </p>
+    </section>
 
-      <!-- Paste form -->
-      <div class="border border-line rounded-md p-4 bg-bg-elev">
-        <label for="mapbox-json" class="block text-fg text-[12px] tracking-wide uppercase">Paste JSON</label>
-        <textarea
-          id="mapbox-json"
-          rows="6"
-          placeholder='{ "version": 8, "sources": { ... }, "layers": [ ... ] }'
-          class="mt-2 w-full bg-bg border border-line rounded px-3 py-2 text-[12px] font-mono focus:outline-none focus:border-accent"
-        ></textarea>
-        <button
-          id="convert-btn"
-          class="mt-3 px-4 py-2 bg-accent/15 border border-accent text-accent rounded text-[12px] hover:bg-accent/25 transition-colors"
-        >
-          Convert
-        </button>
-      </div>
-    </div>
+    <!-- ── Paste form (secondary, hidden until requested) ── -->
+    <section id="paste-section" class="mt-4 border border-line rounded-md p-4 bg-bg-elev hidden">
+      <label for="mapbox-json" class="block text-fg text-[12px] tracking-wide uppercase">Paste JSON</label>
+      <textarea
+        id="mapbox-json"
+        rows="6"
+        placeholder='{ "version": 8, "sources": { ... }, "layers": [ ... ] }'
+        class="mt-2 w-full bg-bg border border-line rounded px-3 py-2 text-[12px] font-mono focus:outline-none focus:border-accent"
+      ></textarea>
+      <button
+        id="convert-btn"
+        class="mt-3 px-4 py-2 bg-accent/15 border border-accent text-accent rounded text-[12px] hover:bg-accent/25 transition-colors"
+      >
+        Convert
+      </button>
+    </section>
 
-    <!-- Output -->
-    <div class="mt-8" data-playground-url={playgroundUrl}>
-      <div class="flex items-center justify-between">
-        <label for="xgis-out" class="block text-fg text-[12px] tracking-wide uppercase">xgis source</label>
-        <div class="flex gap-2">
+    <!-- ── Output ── -->
+    <section class="mt-8" data-playground-url={playgroundUrl}>
+      <div class="flex items-center gap-2 flex-wrap">
+        <label for="xgis-out" class="text-fg text-[12px] tracking-wide uppercase">xgis source</label>
+        <span id="warn-badge" class="hidden text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 cursor-pointer hover:bg-amber-500/25"></span>
+        <div class="ml-auto flex gap-2">
           <button id="copy-btn" class="px-3 py-1 bg-bg border border-line rounded text-[11px] text-fg-dim hover:text-fg hover:border-fg-dim transition-colors">Copy</button>
           <button id="open-btn" class="px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-[11px] hover:bg-accent/25 transition-colors">Open in playground</button>
         </div>
@@ -72,7 +119,57 @@ const playgroundUrl = `${base}/play/demo.html`
         class="mt-2 w-full bg-bg border border-line rounded px-3 py-2 text-[12px] font-mono whitespace-pre"
       ></textarea>
       <p id="status" class="mt-2 text-fg-dim text-[11px] min-h-[1.2em]"></p>
-    </div>
+
+      <!-- Inline notes panel (toggled by warn-badge) -->
+      <details id="notes-panel" class="mt-4 hidden">
+        <summary class="cursor-pointer text-fg-dim text-[12px] hover:text-fg">Conversion notes</summary>
+        <ul id="notes-list" class="mt-2 text-[12px] text-fg-dim space-y-1 max-h-[280px] overflow-auto pr-2"></ul>
+      </details>
+    </section>
+
+    <!-- ── Compatibility reference ── -->
+    <section class="mt-12 border-t border-line pt-8">
+      <h2 class="text-fg text-[15px] font-medium tracking-tight">Mapbox style spec compatibility</h2>
+      <p class="mt-2 text-fg-dim text-[12px]">
+        Goal: 100% of the style spec round-trips. Current state below is what the
+        converter <em>knows about</em> — anything else lands in the conversion
+        notes block when present.
+      </p>
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-[12px]">
+        <div class="border border-line rounded-md p-3 bg-bg-elev">
+          <div class="text-emerald-300 text-[11px] uppercase tracking-wider mb-2">Supported</div>
+          <ul class="text-fg-dim space-y-1">
+            <li>• Sources: vector (PMTiles + TileJSON), raster, GeoJSON</li>
+            <li>• Layers: background, fill, line, fill-extrusion</li>
+            <li>• Paint: fill-color/-opacity, line-color/-width/-dasharray/-opacity, fill-extrusion-color/-opacity/-height/-base</li>
+            <li>• Filters: legacy + expression form (==/!=/&lt;/&gt;/all/any/in/!in/has/!has)</li>
+            <li>• Expressions: get / coalesce / case / match / arithmetic / min / max / to-number</li>
+            <li>• Zoom: <code>interpolate(zoom, …)</code> with linear curve</li>
+          </ul>
+        </div>
+        <div class="border border-line rounded-md p-3 bg-bg-elev">
+          <div class="text-amber-300 text-[11px] uppercase tracking-wider mb-2">Lossy / heuristic</div>
+          <ul class="text-fg-dim space-y-1">
+            <li>• <code>interpolate</code> curve type (exponential / cubic-bezier) folded to linear</li>
+            <li>• <code>fill-translate</code>, <code>line-translate</code> dropped</li>
+            <li>• <code>fill-outline-color</code> emitted as a separate stroke layer when paired</li>
+            <li>• <code>$type</code> / <code>$id</code> filters dropped (geometry type implied by utility)</li>
+            <li>• Symbol-style <code>fill-pattern</code> / <code>line-pattern</code> dropped (bitmap atlases unimplemented)</li>
+          </ul>
+        </div>
+        <div class="border border-line rounded-md p-3 bg-bg-elev">
+          <div class="text-rose-300 text-[11px] uppercase tracking-wider mb-2">Unsupported (engine)</div>
+          <ul class="text-fg-dim space-y-1">
+            <li>• Symbol layers (text + icons) — SDF font + glyph atlas pending</li>
+            <li>• Circle, heatmap, hillshade, sky layers</li>
+            <li>• <code>let</code> / <code>var</code> bindings, <code>concat</code>, <code>downcase</code>, <code>number-format</code></li>
+            <li>• <code>step</code> expressions, <code>at</code>, <code>distance</code>, <code>distance-from-center</code></li>
+            <li>• Top-level <code>light</code>, <code>fog</code>, <code>terrain</code></li>
+            <li>• Paint property <code>transition</code> overrides</li>
+          </ul>
+        </div>
+      </div>
+    </section>
   </main>
   <Footer />
 
@@ -93,8 +190,15 @@ const playgroundUrl = `${base}/play/demo.html`
     const $convert = document.getElementById('convert-btn') as HTMLButtonElement
     const $copy = document.getElementById('copy-btn') as HTMLButtonElement
     const $open = document.getElementById('open-btn') as HTMLButtonElement
+    const $showPaste = document.getElementById('show-paste') as HTMLButtonElement
+    const $pasteSection = document.getElementById('paste-section') as HTMLElement
+    const $warnBadge = document.getElementById('warn-badge') as HTMLElement
+    const $notesPanel = document.getElementById('notes-panel') as HTMLDetailsElement
+    const $notesList = document.getElementById('notes-list') as HTMLUListElement
     const playgroundUrl =
       ($out.closest('[data-playground-url]') as HTMLElement | null)?.dataset.playgroundUrl ?? ''
+
+    let lastImportLabel = 'Imported'
 
     function setStatus(msg: string, kind?: 'ok' | 'err') {
       $status.textContent = msg
@@ -103,22 +207,76 @@ const playgroundUrl = `${base}/play/demo.html`
                           : ''
     }
 
-    function convertJsonString(jsonStr: string) {
+    function showWarnings(xgis: string) {
+      // Warnings are emitted as `*   • <message>` inside a trailing
+      // `/* Conversion notes (review before running): … */` block.
+      // Surface them in a hidden-by-default <details> next to the
+      // output so the user knows what got dropped without the noise
+      // crowding the source itself.
+      const matches = [...xgis.matchAll(/^\s*\*\s+•\s+(.+)$/gm)].map(m => m[1].trim())
+      if (matches.length === 0) {
+        $warnBadge.classList.add('hidden')
+        $notesPanel.classList.add('hidden')
+        $notesList.innerHTML = ''
+        return
+      }
+      $warnBadge.textContent = `${matches.length} note${matches.length > 1 ? 's' : ''}`
+      $warnBadge.classList.remove('hidden')
+      $notesPanel.classList.remove('hidden')
+      // De-duplicate so 80× "geometry-type dropped" collapses to one line.
+      const counts = new Map<string, number>()
+      for (const m of matches) counts.set(m, (counts.get(m) ?? 0) + 1)
+      $notesList.innerHTML = ''
+      for (const [msg, n] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
+        const li = document.createElement('li')
+        li.textContent = (n > 1 ? `${n}× ` : '') + msg
+        $notesList.appendChild(li)
+      }
+    }
+
+    function convertJsonString(jsonStr: string, label?: string) {
       try {
         const parsed = JSON.parse(jsonStr)
         const xgis = convertMapboxStyle(parsed)
         $out.value = xgis
-        const warnCount = (xgis.match(/^\s*\*\s+•/gm) || []).length
-        setStatus(
-          warnCount > 0
-            ? 'Converted with ' + warnCount + ' note' + (warnCount > 1 ? 's' : '') + ' — see comments at the bottom.'
-            : 'Converted.',
-          'ok',
-        )
+        if (label) lastImportLabel = label
+        showWarnings(xgis)
+        const noteCount = (xgis.match(/^\s*\*\s+•/gm) || []).length
+        setStatus(noteCount > 0
+          ? 'Converted — see ' + noteCount + ' note' + (noteCount > 1 ? 's' : '') + '.'
+          : 'Converted.', 'ok')
       } catch (e: any) {
         setStatus('Conversion failed: ' + (e?.message || e), 'err')
       }
     }
+
+    async function fetchAndConvert(url: string, label?: string) {
+      setStatus('Fetching ' + url + ' …')
+      try {
+        const resp = await fetch(url)
+        if (!resp.ok) throw new Error('HTTP ' + resp.status)
+        const txt = await resp.text()
+        $json.value = txt
+        convertJsonString(txt, label)
+      } catch (e: any) {
+        setStatus(
+          'Fetch failed: ' + (e?.message || e) +
+          ' — likely a CORS block. Paste the JSON manually instead.',
+          'err',
+        )
+        $pasteSection.classList.remove('hidden')
+      }
+    }
+
+    // ── Wire up ──
+    document.querySelectorAll<HTMLButtonElement>('.preset-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const url = btn.dataset.presetUrl ?? ''
+        const name = btn.dataset.presetName ?? 'Preset'
+        $url.value = url
+        fetchAndConvert(url, name)
+      })
+    })
 
     $convert.addEventListener('click', () => {
       const txt = $json.value.trim()
@@ -126,23 +284,19 @@ const playgroundUrl = `${base}/play/demo.html`
       convertJsonString(txt)
     })
 
-    $fetch.addEventListener('click', async () => {
+    $fetch.addEventListener('click', () => {
       const url = $url.value.trim()
       if (!url) { setStatus('Enter a URL first.', 'err'); return }
-      setStatus('Fetching ' + url + ' …')
-      try {
-        const resp = await fetch(url)
-        if (!resp.ok) throw new Error('HTTP ' + resp.status)
-        const txt = await resp.text()
-        $json.value = txt
-        convertJsonString(txt)
-      } catch (e: any) {
-        setStatus(
-          'Fetch failed: ' + (e?.message || e) +
-          ' — likely a CORS block. Paste the JSON manually on the right.',
-          'err',
-        )
-      }
+      fetchAndConvert(url)
+    })
+
+    $showPaste.addEventListener('click', () => {
+      $pasteSection.classList.remove('hidden')
+      $json.focus()
+    })
+
+    $warnBadge.addEventListener('click', () => {
+      $notesPanel.open = !$notesPanel.open
     })
 
     $copy.addEventListener('click', async () => {
@@ -160,7 +314,7 @@ const playgroundUrl = `${base}/play/demo.html`
       if (!$out.value) { setStatus('Convert first, then open.', 'err'); return }
       try {
         sessionStorage.setItem('__xgisImportSource', $out.value)
-        sessionStorage.setItem('__xgisImportLabel', 'Imported')
+        sessionStorage.setItem('__xgisImportLabel', lastImportLabel)
       } catch { /* sessionStorage may be unavailable in some embeds */ }
       window.location.href = playgroundUrl + '?id=__import'
     })
