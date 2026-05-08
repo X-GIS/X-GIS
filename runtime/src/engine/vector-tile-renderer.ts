@@ -2086,8 +2086,8 @@ export class VectorTileRenderer {
     // for a per-render `closestExistingByI` mirror, since the
     // sliceLayer-independent ancestor result is identical across
     // every same-frame ShowCommand render.
-    const fallbackKeys: number[] = []
-    const fallbackOffsets: number[] = []
+    let fallbackKeys: number[] = []
+    let fallbackOffsets: number[] = []
     const toLoad: number[] = []
     // Memoize sliceCached lookups across the per-tile + prefetch loops
     // within this render. Adjacent visible tiles share ancestors so
@@ -2462,6 +2462,41 @@ export class VectorTileRenderer {
 
     // Render fallback ancestors (stencil test) — with world offsets for wrapping
     if (fillPipelineFallback && fallbackKeys.length > 0) {
+      // Dedup + sort fallback queue. The push-per-visible-child loop
+      // above adds the SAME parent key once per visible child that
+      // walks to it — for a z=11 parent covering 16 z=15 children, that's
+      // 16 redundant entries. Each is rendered identically (same world
+      // position, same geometry). User-reported diagnostic snapshot at
+      // Manhattan z=17.5 pitch=80° showed 35 unique parent tiles drawn
+      // 4× per frame each (140 fallback fills per frame for buildings)
+      // when only 35 unique renders are needed.
+      //
+      // Sort ascending by z (smallest-z first → deepest-z last). Where
+      // multiple z-level parents overlap in screen space (z=11 parent
+      // covers area that z=14 parent also covers), the deepest z draws
+      // last and wins LEQUAL fragment competition. Without this the
+      // simpler-geometry parent could occlude the more-detailed one
+      // depending on fallbackKeys insertion order.
+      if (fallbackKeys.length > 1) {
+        const seen = new Set<string>()
+        const compact: { k: number; o: number; z: number }[] = []
+        for (let i = 0; i < fallbackKeys.length; i++) {
+          const k = fallbackKeys[i]
+          const o = fallbackOffsets[i]
+          const id = `${k}_${o}`
+          if (seen.has(id)) continue
+          seen.add(id)
+          // Extract z from tileKey: tileKey = 4^z + morton(x,y).
+          // Find largest z s.t. 4^z ≤ k.
+          let z = 0
+          while (Math.pow(4, z + 1) <= k) z++
+          compact.push({ k, o, z })
+        }
+        // Ascending z: deeper parent (more detail) renders last.
+        compact.sort((a, b) => a.z - b.z)
+        fallbackKeys = compact.map(c => c.k)
+        fallbackOffsets = compact.map(c => c.o)
+      }
       if (phase !== 'strokes') pass.setStencilReference(0)
       // Visual debug hook: when `globalThis.__XGIS_FALLBACK_RED = true` is
       // set, override the fallback fill colour to bright red. Lets the
