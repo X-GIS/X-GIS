@@ -115,7 +115,14 @@ export function registerXGISLanguage() {
 
       // After . → field access (highest priority — works inside expressions, filters, utilities)
       if (textBefore.endsWith('.')) {
-        for (const f of getFieldCompletions()) {
+        // Resolve the cursor's enclosing `layer { ... }` block and
+        // pick its `sourceLayer:` value so the suggestions are
+        // filtered to fields THAT layer actually carries (PMTiles
+        // archives ship per-layer schemas via vector_layers metadata).
+        // Falls back to the flat union when no enclosing layer is
+        // found or the layer has no sourceLayer set.
+        const sourceLayerForCursor = findSourceLayerAtOffset(fullText, offset)
+        for (const f of getFieldCompletions(sourceLayerForCursor)) {
           suggestions.push({
             label: f.name,
             kind: monaco.languages.CompletionItemKind.Field,
@@ -532,9 +539,17 @@ const HOVER_DOCS: Record<string, string> = {
 
 // ═══ Dynamic Field Discovery ═══
 
-/** Currently known fields from loaded GeoJSON/XGVT data */
+/** Currently known fields from loaded GeoJSON/XGVT data — flat union
+ *  used as a fallback when the cursor's source-layer can't be
+ *  resolved (e.g. cursor outside any layer block, or sourceLayer:
+ *  unset). */
 let discoveredFields: { name: string; sample: string }[] = []
+/** Per-source-layer field schema from PMTiles archives. Empty for
+ *  GeoJSON sources (which have a single flat property set, mirrored
+ *  under the empty-string key for uniform lookup). */
+let discoveredBySourceLayer: Record<string, { name: string; sample: string }[]> = {}
 const fieldCache = new Map<string, { name: string; sample: string }[]>()
+const schemaCache = new Map<string, Record<string, { name: string; sample: string }[]>>()
 
 /** Extract field names from a source string. Two paths:
  *  - GeoJSON: fetch the URL, read the first 10 features, collect
@@ -548,35 +563,49 @@ const fieldCache = new Map<string, { name: string; sample: string }[]>()
  *  discovered. */
 export async function discoverFields(source: string, baseUrl: string): Promise<void> {
   const urlMatches = [...source.matchAll(/url:\s*"([^"]+)"/g)]
-  const allFields = new Map<string, string>() // name → sample value
+  const allFields = new Map<string, string>() // flat union (fallback)
+  const perLayer: Record<string, { name: string; sample: string }[]> = {}
 
   for (const [, url] of urlMatches) {
     if (url.endsWith('.xgvt') || url.includes('{z}')) continue // skip binary + tile templates
     const fullUrl = url.startsWith('http') || url.startsWith('/') ? url : baseUrl + url
 
-    // Check cache
-    if (fieldCache.has(fullUrl)) {
-      for (const f of fieldCache.get(fullUrl)!) allFields.set(f.name, f.sample)
+    // Schema (per-layer) cache check.
+    const cachedSchema = schemaCache.get(fullUrl)
+    if (cachedSchema) {
+      for (const [layer, fields] of Object.entries(cachedSchema)) {
+        perLayer[layer] = fields
+        for (const f of fields) allFields.set(f.name, f.sample)
+      }
       continue
     }
 
     try {
-      let fields: { name: string; sample: string }[] | null = null
-
       if (fullUrl.endsWith('.pmtiles') || fullUrl.includes('.pmtiles?')) {
-        fields = await discoverPMTilesFields(fullUrl)
+        const schema = await discoverPMTilesSchema(fullUrl)
+        if (schema) {
+          schemaCache.set(fullUrl, schema)
+          for (const [layer, fields] of Object.entries(schema)) {
+            perLayer[layer] = fields
+            for (const f of fields) allFields.set(f.name, f.sample)
+          }
+        }
       } else {
-        fields = await discoverGeoJSONFields(fullUrl)
-      }
-
-      if (fields) {
-        for (const f of fields) allFields.set(f.name, f.sample)
-        fieldCache.set(fullUrl, fields)
+        // GeoJSON: single flat property set. Mirror it under the
+        // empty-string key so the per-layer lookup falls through to
+        // it when sourceLayer isn't specified.
+        const flat = await discoverGeoJSONFields(fullUrl)
+        if (flat) {
+          fieldCache.set(fullUrl, flat)
+          perLayer[''] = flat
+          for (const f of flat) allFields.set(f.name, f.sample)
+        }
       }
     } catch { /* ignore fetch / parse errors */ }
   }
 
   discoveredFields = [...allFields.entries()].map(([name, sample]) => ({ name, sample }))
+  discoveredBySourceLayer = perLayer
 }
 
 /** GeoJSON discovery — fetch the file, read up to 10 features, collect
@@ -613,19 +642,38 @@ async function discoverGeoJSONFields(fullUrl: string): Promise<{ name: string; s
  *  column is set to the field's declared type when known
  *  ("Number", "String", "Boolean") so the editor's hover doc tells
  *  the user what shape the value has. */
-async function discoverPMTilesFields(fullUrl: string): Promise<{ name: string; sample: string }[] | null> {
-  // Reuse the runtime helper — it shares the same archive cache the
-  // map uses, so opening the archive here is free once the demo has
-  // started rendering. Returns the union of `vector_layers[*].fields`
-  // across every layer in the manifest.
-  const { fetchPMTilesVectorLayerFields } = await import('@xgis/runtime')
-  const fields = await fetchPMTilesVectorLayerFields(fullUrl)
-  if (!fields) return null
-  return Object.entries(fields).map(([name, sample]) => ({ name, sample }))
+/** Per-source-layer PMTiles schema. Returns
+ *  `{ [sourceLayerId]: [{ name, sample }] }`. The completion
+ *  provider keys into this map by the `sourceLayer:` value the
+ *  cursor is currently inside — so an osm_style buildings layer
+ *  shows building fields (height, min_height, kind, …) but not
+ *  road or landuse fields.  */
+async function discoverPMTilesSchema(fullUrl: string): Promise<Record<string, { name: string; sample: string }[]> | null> {
+  const { fetchPMTilesVectorLayerSchema } = await import('@xgis/runtime')
+  const schema = await fetchPMTilesVectorLayerSchema(fullUrl)
+  if (!schema) return null
+  const out: Record<string, { name: string; sample: string }[]> = {}
+  for (const [layerId, fields] of Object.entries(schema)) {
+    out[layerId] = Object.entries(fields).map(([name, sample]) => ({ name, sample }))
+  }
+  return out
 }
 
-/** Get current discovered fields (for completion provider) */
-function getFieldCompletions(): { name: string; detail: string; doc: string }[] {
+/** Get current discovered fields (for completion provider).
+ *  When `sourceLayer` is provided AND we have a per-layer schema for
+ *  it, return only that layer's fields. Otherwise fall back to the
+ *  flat union (still better than COMMON_FIELDS — at least the user
+ *  sees something while editing a layer that hasn't pinned a
+ *  `sourceLayer:` yet). */
+function getFieldCompletions(sourceLayer?: string | null): { name: string; detail: string; doc: string }[] {
+  if (sourceLayer && discoveredBySourceLayer[sourceLayer]) {
+    const fields = discoveredBySourceLayer[sourceLayer]
+    return fields.map(f => ({
+      name: f.name,
+      detail: f.sample ? `${f.sample}` : 'property',
+      doc: `\`${f.name}\` on **${sourceLayer}**${f.sample ? `\n\nType: \`${f.sample}\`` : ''}`,
+    }))
+  }
   if (discoveredFields.length > 0) {
     return discoveredFields.map(f => ({
       name: f.name,
@@ -634,6 +682,51 @@ function getFieldCompletions(): { name: string; detail: string; doc: string }[] 
     }))
   }
   return COMMON_FIELDS
+}
+
+/** Walk back from `offset` through `fullText`, find the enclosing
+ *  `layer { ... }` block, and pick its `sourceLayer:` value if any.
+ *  Returns `null` when the cursor isn't inside a layer block, or
+ *  when the layer has no sourceLayer property.
+ *
+ *  Implementation is a simple brace-balanced scan rather than a full
+ *  re-parse — fast enough to run on every keystroke + AST-blind so
+ *  it still works mid-edit when the source has parse errors that
+ *  would defeat the real parser. */
+function findSourceLayerAtOffset(fullText: string, offset: number): string | null {
+  // Scan backward for the `{` that opens the current block.
+  let depth = 0
+  let openIdx = -1
+  for (let i = offset - 1; i >= 0; i--) {
+    const c = fullText[i]
+    if (c === '}') depth++
+    else if (c === '{') {
+      if (depth === 0) { openIdx = i; break }
+      depth--
+    }
+  }
+  if (openIdx < 0) return null
+  // Walk further back to find the keyword `layer` before the `{`.
+  // Allow whitespace + an identifier (the layer name) between them.
+  const headerEnd = openIdx
+  let headerStart = openIdx - 1
+  while (headerStart >= 0 && /[\s\w]/.test(fullText[headerStart])) headerStart--
+  const header = fullText.slice(headerStart + 1, headerEnd)
+  if (!/^\s*layer\s+\w+\s*$/.test(header)) return null
+
+  // Scan forward from openIdx to the matching `}` (or to `offset`,
+  // whichever comes first) for the body — pick out `sourceLayer:`.
+  let blockDepth = 1
+  const bodyEnd = (() => {
+    for (let i = openIdx + 1; i < fullText.length; i++) {
+      if (fullText[i] === '{') blockDepth++
+      else if (fullText[i] === '}') { blockDepth--; if (blockDepth === 0) return i }
+    }
+    return fullText.length
+  })()
+  const body = fullText.slice(openIdx + 1, bodyEnd)
+  const m = body.match(/sourceLayer\s*:\s*"([^"]+)"/)
+  return m ? m[1] : null
 }
 
 // ═══ Diagnostics ═══

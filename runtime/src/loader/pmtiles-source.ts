@@ -41,26 +41,40 @@ interface CachedArchive {
 const archiveCache = new Map<string, Promise<CachedArchive>>()
 
 /** Fetch the union of `vector_layers[*].fields` from a PMTiles
- *  archive's metadata. Used by editor tooling (the playground's
- *  Monaco completion provider) to discover field names for `.field`
- *  autocomplete without round-tripping through the catalog wiring.
- *  Returns a flat `name → declared-type` map (e.g. `Number`,
- *  `String`, `Boolean`); types come from the archive's metadata
- *  schema. Returns null when the archive has no vector_layers
- *  metadata or the fetch fails. */
+ *  archive's metadata. Returns a FLAT `name → declared-type` map.
+ *  Kept for back-compat — callers that need per-source-layer
+ *  scoping should use {@link fetchPMTilesVectorLayerSchema}. */
 export async function fetchPMTilesVectorLayerFields(
   url: string,
 ): Promise<Record<string, string> | null> {
+  const schema = await fetchPMTilesVectorLayerSchema(url)
+  if (!schema) return null
+  const merged: Record<string, string> = {}
+  for (const fields of Object.values(schema)) {
+    for (const [k, v] of Object.entries(fields)) merged[k] = v
+  }
+  return Object.keys(merged).length > 0 ? merged : null
+}
+
+/** Per-source-layer field schema from PMTiles metadata. The shape
+ *  is `{ [sourceLayerId]: { [fieldName]: declaredType } }` —
+ *  exactly the data the editor needs to filter `.field`
+ *  autocomplete to the layer the cursor is in (`sourceLayer:
+ *  "buildings"` should suggest building fields, not road fields).
+ *
+ *  Returns null when the archive has no vector_layers metadata
+ *  or the fetch fails. */
+export async function fetchPMTilesVectorLayerSchema(
+  url: string,
+): Promise<Record<string, Record<string, string>> | null> {
   try {
     const cached = await openCachedArchive(url)
-    const merged: Record<string, string> = {}
+    const out: Record<string, Record<string, string>> = {}
     for (const vl of cached.vectorLayers) {
       if (!vl.fields) continue
-      for (const [k, v] of Object.entries(vl.fields)) {
-        merged[k] = v
-      }
+      out[vl.id] = { ...vl.fields }
     }
-    return Object.keys(merged).length > 0 ? merged : null
+    return Object.keys(out).length > 0 ? out : null
   } catch {
     return null
   }
