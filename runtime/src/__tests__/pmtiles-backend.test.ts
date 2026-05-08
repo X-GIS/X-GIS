@@ -202,3 +202,55 @@ describe('PMTilesBackend in isolation', () => {
     expect(backend.meta.entries, 'PMTiles uses lazy discovery — no preregistered entries').toBeUndefined()
   })
 })
+
+import { resolveDispatch } from '../loader/pmtiles-source'
+
+describe('resolveDispatch — TileJSON vs PMTiles routing', () => {
+  // URL extension wins regardless of `kind` — the server's bytes
+  // determine what arrives, not the xgis source's declaration.
+  it('routes a .json URL to TileJSON even when kind says pmtiles', () => {
+    // Repro for the iOS Safari error: the protomaps production
+    // rewrite turns `.pmtiles` into a `.json?key=…` TileJSON
+    // manifest URL, but the xgis source still declares
+    // `type: pmtiles`. Pre-fix the dispatcher trusted the kind
+    // and tried to parse the JSON as a binary archive header.
+    expect(resolveDispatch('https://api.protomaps.com/tiles/v4.json?key=abc', 'pmtiles'))
+      .toBe('tilejson')
+  })
+
+  it('routes a .pmtiles URL to PMTiles even when kind says tilejson', () => {
+    expect(resolveDispatch('https://example.com/world.pmtiles', 'tilejson'))
+      .toBe('pmtiles')
+  })
+
+  it('honours kind for extensionless URLs', () => {
+    // openfreemap-style: tile server URL has no extension, the
+    // `kind` declaration is the only signal we have.
+    expect(resolveDispatch('https://tiles.openfreemap.org/planet', 'tilejson'))
+      .toBe('tilejson')
+    expect(resolveDispatch('https://tiles.openfreemap.org/planet', 'pmtiles'))
+      .toBe('pmtiles')
+  })
+
+  it('treats .tilejson the same as .json', () => {
+    expect(resolveDispatch('https://example.com/style.tilejson', 'pmtiles'))
+      .toBe('tilejson')
+  })
+
+  it('does not mis-route .geojson as TileJSON', () => {
+    // .geojson is feature data, not a tile manifest; routing it
+    // through TileJSON would fetch + try to parse it as a
+    // manifest. Default fallback (pmtiles) is wrong too in
+    // practice, but at least the function doesn't claim it's
+    // TileJSON.
+    expect(resolveDispatch('https://example.com/data.geojson', undefined))
+      .toBe('pmtiles')
+  })
+
+  it('falls back to pmtiles when nothing signals otherwise', () => {
+    expect(resolveDispatch('https://example.com/world.pmtiles', undefined))
+      .toBe('pmtiles')
+    expect(resolveDispatch('https://example.com/some-archive', undefined))
+      .toBe('pmtiles')
+  })
+})

@@ -262,6 +262,36 @@ async function openCachedTileJSON(url: string): Promise<CachedTileJSON> {
   return promise
 }
 
+/** Decide whether `attachPMTilesSource` should take its TileJSON
+ *  branch or its PMTiles-archive branch. Routing precedence
+ *  (most-authoritative first):
+ *
+ *    1. URL extension says JSON       → 'tilejson', period.
+ *       The server is the source of truth for what bytes come
+ *       back; an explicit `kind: pmtiles` from a stale xgis
+ *       source can't change that. Without this, the protomaps
+ *       production rewrite (.pmtiles → api.protomaps.com/v4.json
+ *       ?key=…) tried to read the TileJSON response as a PMTiles
+ *       archive header and failed with "Wrong magic number".
+ *    2. URL extension says .pmtiles   → 'pmtiles', period.
+ *    3. Otherwise honour explicit `kind` ('pmtiles' | 'tilejson').
+ *    4. Fall back to PMTiles for the unknown / extensionless case
+ *       — that's the legacy default (`type: pmtiles` xgis sources
+ *       with cleanly-named .pmtiles archives).
+ *
+ *  Exported so the dispatch decision is unit-testable in isolation. */
+export function resolveDispatch(
+  url: string,
+  kind: 'pmtiles' | 'tilejson' | 'auto' | undefined,
+): 'pmtiles' | 'tilejson' {
+  const urlSaysTileJSON = looksLikeTileJSON(url)
+  if (urlSaysTileJSON) return 'tilejson'
+  const urlSaysPMTiles = /\.pmtiles(\?|$)/.test(url.split('?')[0])
+  if (urlSaysPMTiles) return 'pmtiles'
+  if (kind === 'tilejson') return 'tilejson'
+  return 'pmtiles'
+}
+
 /** Heuristic: does this URL look like a TileJSON manifest rather than
  *  a single .pmtiles archive? Checks the path tail; query strings (api
  *  key params) are stripped before the test. Falls through to false
@@ -395,12 +425,7 @@ export async function attachPMTilesSource(
   opts: PMTilesSourceOptions,
 ): Promise<void> {
   // ── TileJSON dispatch ──
-  // Caller-declared kind wins over URL sniffing — manifests at
-  // extensionless URLs (a common Mapbox-style pattern) only get
-  // routed correctly when we honor the explicit declaration.
-  const isTileJSON = opts.kind === 'tilejson' ||
-    (opts.kind !== 'pmtiles' && looksLikeTileJSON(opts.url))
-  if (isTileJSON) {
+  if (resolveDispatch(opts.url, opts.kind) === 'tilejson') {
     let tj: CachedTileJSON
     try {
       tj = await openCachedTileJSON(opts.url)
