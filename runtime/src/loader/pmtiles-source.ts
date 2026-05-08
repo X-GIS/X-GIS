@@ -40,6 +40,25 @@ interface CachedArchive {
 }
 const archiveCache = new Map<string, Promise<CachedArchive>>()
 
+/** Prewarm the archive cache for `url`. Fire-and-forget — any
+ *  attach call later in the same session reuses the cached header +
+ *  metadata instead of re-issuing the two sequential HTTP round trips
+ *  (header → metadata). Call this as early as URLs become known
+ *  (after IR emit) so the network round trips overlap with shader
+ *  pipeline compilation, GPU adapter init, etc.
+ *
+ *  Errors are swallowed — a bad URL or transient network issue should
+ *  fall through to the regular attach path which will retry and surface
+ *  the error there. */
+export function prewarmPMTilesArchive(url: string): void {
+  if (archiveCache.has(url)) return
+  // openCachedArchive is module-private; call it through a tiny
+  // wrapper that swallows the rejection so unhandled-promise listeners
+  // don't fire. The real attach path awaits the same promise and
+  // surfaces the error normally.
+  void openCachedArchive(url).catch(() => undefined)
+}
+
 /** Fetch the union of `vector_layers[*].fields` from a PMTiles
  *  archive's metadata. Returns a FLAT `name → declared-type` map.
  *  Kept for back-compat — callers that need per-source-layer

@@ -34,7 +34,7 @@ import {
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '../data/tile-catalog'
 import { computeSliceKey } from '../data/filter-eval'
-import { attachPMTilesSource } from '../loader/pmtiles-source'
+import { attachPMTilesSource, prewarmPMTilesArchive } from '../loader/pmtiles-source'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
@@ -839,6 +839,27 @@ export class XGISMap {
     if (bgColor) this._backgroundColor = parseHexColor(bgColor)
 
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
+
+    // Prewarm PMTiles archive caches in parallel with the rest of init
+    // (GPU adapter + shader pipeline compilation below). The archive
+    // open does 2 sequential HTTP round trips (header + metadata, ~100-
+    // 400 ms total) that the data-load loop later awaits. Kicking them
+    // off here means by the time the load loop runs, the cache hit is
+    // already there and the header/metadata await is a no-op.
+    //
+    // Fire-and-forget: errors are surfaced when the attach path later
+    // awaits the same cached promise. We only prewarm clearly PMTiles
+    // URLs (`*.pmtiles` or declared `type: pmtiles`); TileJSON has its
+    // own dispatch with no shared cache yet.
+    for (const load of commands.loads) {
+      // URL resolution must match the data-load loop below exactly so
+      // the archiveCache hit lands. Loop uses `baseUrl + load.url` for
+      // relative paths; mirror that here.
+      const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
+      const declaredType = (load as { type?: string }).type
+      const isPMTiles = declaredType === 'pmtiles' || url.endsWith('.pmtiles')
+      if (isPMTiles) prewarmPMTilesArchive(url)
+    }
 
 
     // 2. Await the GPU init that was kicked off at step 0. By now the
