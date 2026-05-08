@@ -1425,6 +1425,37 @@ export class VectorTileRenderer {
         this._czPendingAdvance = null
       }
     }
+    // Clamp cz at sourceMaxLevel BEFORE recording hysteresis or
+    // deriving currentZ — otherwise the selector still requests
+    // z > maxLevel tiles (via the `step` derivation at line 1357)
+    // and we re-enter the over-zoom path we're trying to avoid.
+    //
+    // Beyond archive maxLevel, sub-tile generation recursively
+    // clips parent geometry into virtual children — same data,
+    // smaller tile rect. The rendered RESULT is visually identical
+    // to drawing the parent directly because no new detail enters
+    // from the archive past maxLevel.
+    //
+    // The user-reported Tokyo z=17.07 issue (osm_style, archive
+    // maxLevel=15) reproduced as foreground rendered as oversized
+    // ancestor blocks because the deep over-zoom chain
+    // (z=17 → z=16 → z=15) was sub-tile-gen-throttled and most
+    // tiles fell back two-three levels. iOS Safari additionally
+    // failed to render the polygon fills altogether (likely a
+    // TBDR / sub-tile-gen pipeline incompatibility, unverified
+    // without device access). Capping at maxLevel sends the
+    // selector requests directly to archive-loadable tiles —
+    // foreground draws as primary z=maxLevel with no sub-tile-gen
+    // path and no fallback chain.
+    //
+    // Cost: lose sub-tile-gen's coordinate-precision benefit at
+    // extreme over-zoom. DSFUN precision in a z=15 tile-local
+    // frame is ~mm at z=22 anyway (TILE_EXTENT / 2^7 ≈ 0.3 m / f32
+    // mantissa bits remaining), well below visible pixel scale.
+    // The win: foreground always draws actual archived geometry
+    // instead of an artefact-prone clip pyramid.
+    const sourceMaxLevel = this.source.maxLevel
+    if (cz > sourceMaxLevel) cz = sourceMaxLevel
     this._hysteresisZ = cz
     const currentZ = Math.max(0, Math.min(maxSubTileZ, cz))
 
