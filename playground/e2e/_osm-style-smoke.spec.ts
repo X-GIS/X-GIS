@@ -8,7 +8,8 @@ import { writeFileSync } from 'node:fs'
 test.describe('osm_style smoke', () => {
   test('Tokyo z=15 renders without validation errors', async ({ page }) => {
     test.setTimeout(60_000)
-    await page.setViewportSize({ width: 1500, height: 900 })
+    // iPhone-class viewport (matches user repro)
+    await page.setViewportSize({ width: 430, height: 715 })
     const errors: string[] = []
     const validationErrors: string[] = []
     page.on('console', m => {
@@ -18,15 +19,18 @@ test.describe('osm_style smoke', () => {
         validationErrors.push(text)
       }
     })
-    // Pitched view at high zoom — exercises the building extrude path
-    // so a building outline that drops to z=0 (the bug) gets occluded
-    // by its own walls and shows up as patchy / missing strokes.
-    await page.goto('/demo.html?id=osm_style&e2e=1#18/35.6800/139.7600/0/60', {
+    // Steep pitch (80°) — back tiles' buildings should NOT poke
+    // through closer (front) tiles. depth-test must reject the back
+    // fragments where front buildings already wrote depth.
+    // User-reported repro (Seoul, extreme pitch). At this URL the
+    // user sees a horizontal "floating strip" of buildings at the
+    // horizon line that looks discontinuous from the foreground.
+    await page.goto('/demo.html?id=osm_style&e2e=1#15.78/37.53155/126.97068/348.1/85.0', {
       waitUntil: 'domcontentloaded',
     })
     await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
       null, { timeout: 30_000 })
-    await page.waitForTimeout(5000) // tiles to load + render
+    await page.waitForTimeout(15000) // tiles to load + settle (high-pitch needs deep fallback chain)
 
     await page.screenshot({ path: 'osm-style-tokyo-pitched.png', fullPage: false })
 

@@ -1136,6 +1136,27 @@ export class VectorTileRenderer {
     // sliceKey collapses to plain `sourceLayer` ('' for single-
     // layer sources) — preserving back-compat.
     const sliceLayer = computeSliceKey(show.sourceLayer ?? '', show.filterExpr?.ast ?? null)
+    // DIAG: capture per-frame draw order so the cross-tile depth
+    // question ("is buildings actually drawn LAST?") is answered from
+    // runtime behaviour rather than architectural reading. The Map's
+    // beginFrame resets `__xgisDrawOrderTrace = []`; map.ts dumps it
+    // after the frame and clears the flag. Production paths stay
+    // silent unless the flag is set.
+    if (typeof window !== 'undefined') {
+      const trace = (window as unknown as { __xgisDrawOrderTrace?: Array<{
+        seq: number; slice: string; phase: string; extrude: string; tilesNeeded: number
+      }> }).__xgisDrawOrderTrace
+      if (trace) {
+        const ek = (show as { extrude?: { kind?: string } }).extrude?.kind ?? 'none'
+        trace.push({
+          seq: trace.length,
+          slice: sliceLayer,
+          phase,
+          extrude: ek,
+          tilesNeeded: 0, // filled in below once neededKeys known
+        })
+      }
+    }
     // Pre-fetch this layer's gpuCache slot once. Hot-path lookups
     // become pure numeric Map.has/get — no composite-string alloc per
     // tile. Use getOrCreate so the reference stays valid even if this

@@ -1639,6 +1639,16 @@ export class XGISMap {
     // passWrites() calls will return contiguous timestamp ranges
     // starting at sub-pass 0.
     this.gpuTimer?.beginFrame()
+    // DIAG: when set to `true`, the next frame's VTR.render() calls
+    // log into __xgisDrawOrderTrace; we capture + console.log the
+    // sequence at the end of the frame and clear the flag so only
+    // ONE frame is captured. Set externally by tests / inspector.
+    if (typeof window !== 'undefined') {
+      const w = window as unknown as { __xgisCaptureDrawOrder?: boolean; __xgisDrawOrderTrace?: unknown[] }
+      if (w.__xgisCaptureDrawOrder) {
+        w.__xgisDrawOrderTrace = []
+      }
+    }
     // Wrap the entire frame in a validation scope so any pass-creation or
     // draw-call validation error gets a unique log entry pointing to the
     // submit. Each block below also pushes its own scope for finer locality.
@@ -2128,6 +2138,28 @@ export class XGISMap {
     // Outer scope catches the FRAME-level error (one entry per bad frame),
     // matching the inner scope opened right after createCommandEncoder().
     device.queue.submit([encoder.finish()])
+
+    // DIAG: dump per-frame draw order trace if armed. One-shot —
+    // clears the flag so subsequent frames stay silent.
+    if (typeof window !== 'undefined') {
+      const w = window as unknown as {
+        __xgisCaptureDrawOrder?: boolean
+        __xgisDrawOrderTrace?: Array<{ seq: number; slice: string; phase: string; extrude: string }>
+        __xgisDrawOrderResult?: Array<{ seq: number; slice: string; phase: string; extrude: string }>
+      }
+      if (w.__xgisCaptureDrawOrder && w.__xgisDrawOrderTrace) {
+        const trace = w.__xgisDrawOrderTrace
+        // eslint-disable-next-line no-console
+        console.log('[XGIS-DRAW-ORDER] frame trace (' + trace.length + ' calls):')
+        for (const e of trace) {
+          // eslint-disable-next-line no-console
+          console.log(`  ${String(e.seq).padStart(2, ' ')}  extrude=${e.extrude.padEnd(10)}  phase=${e.phase.padEnd(8)}  slice="${e.slice}"`)
+        }
+        w.__xgisDrawOrderResult = trace.slice()
+        w.__xgisCaptureDrawOrder = false
+        w.__xgisDrawOrderTrace = undefined
+      }
+    }
 
     // Drain any readbacks that finished mapping last frame, kick mapAsync
     // on freshly-submitted ones. Cheap when disabled (no-op).
