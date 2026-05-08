@@ -403,7 +403,14 @@ export function mergeLayers(scene: Scene): Scene {
           && cand.extrude.kind === 'none'
           && cand.opacity.kind === 'constant' && cand.opacity.value >= 0.999
           && cand.geometry === null
-          && cand.shape.kind === 'none') {
+          && cand.shape.kind === 'none'
+          // Stroke SHAPE (cap, join, dash, patterns, offset, align)
+          // must match — those properties live on the layer uniform,
+          // not in segment-baked overrides, so a mismatch would
+          // render the absorbed features with the group's cap/dash
+          // rather than their own. Width and colour are free to
+          // differ — both have segment-bake paths.
+          && strokesShapeEqual(first.stroke, cand.stroke)) {
         const notFilter = analyzeNotFilter(cand.filter)
         if (notFilter && notFilter.field === firstFilter.field) {
           const allCompoundValues = [...new Set(group.flatMap(g => g.filter.values))]
