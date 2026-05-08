@@ -1,47 +1,15 @@
 ---
-const githubUrl = 'https://github.com/X-GIS/X-GIS'
-const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
-const docsUrl = `${base}/docs`
-const examplesUrl = `${base}/examples`
-const convertUrl = `${base}/convert`
-
-interface NavGroup {
-  title?: string
-  links: { label: string; href: string; external?: boolean }[]
-}
-
-const groups: NavGroup[] = [
-  {
-    links: [
-      { label: 'Examples',  href: examplesUrl },
-      { label: 'Convert',   href: convertUrl },
-    ],
-  },
-  {
-    title: 'Documentation',
-    links: [
-      { label: 'Overview',           href: docsUrl },
-      { label: 'Language reference', href: `${docsUrl}/reference` },
-      { label: 'RTC + DSFUN',        href: `${docsUrl}/concepts/rtc` },
-      { label: 'Projections',        href: `${docsUrl}/concepts/projections` },
-      { label: 'Compile pipeline',   href: `${docsUrl}/concepts/pipeline` },
-      { label: 'JavaScript API',     href: `${docsUrl}/api` },
-      { label: 'Utility catalog',    href: `${docsUrl}/utilities` },
-    ],
-  },
-  {
-    title: 'Project',
-    links: [
-      { label: 'GitHub repo', href: githubUrl, external: true },
-      { label: 'Roadmap',     href: `${githubUrl}/blob/main/ROADMAP.md`, external: true },
-      { label: 'XGVT spec',   href: `${githubUrl}/blob/main/SPEC.md`, external: true },
-    ],
-  },
-]
+// Mobile drawer trigger — the hamburger button that lives in the
+// fixed header. The drawer itself is rendered separately by
+// `MobileNavDrawer` (mounted at the body root via Base.astro) so
+// the header's `backdrop-filter` doesn't trap the drawer's
+// `position: fixed` to the header's bounding box.
+//
+// Wire-up is via element IDs (`mobile-nav-toggle` here,
+// `mobile-nav-drawer` over there) — the drawer's script does the
+// getElementById lookup.
 ---
 
-<!-- Hamburger button (mobile only). The desktop nav handles its own
-     links in the header bar. -->
 <button
   type="button"
   id="mobile-nav-toggle"
@@ -56,98 +24,3 @@ const groups: NavGroup[] = [
     <line x1="4" y1="19" x2="20" y2="19"/>
   </svg>
 </button>
-
-<!-- Full-screen drawer. Open/close state managed by the script
-     below; transition handled by the CSS at the end of this file. -->
-<div
-  id="mobile-nav-drawer"
-  class="sm:hidden fixed inset-0 z-[90] bg-bg/95 backdrop-blur-xl
-         translate-x-full transition-transform duration-300
-         flex flex-col"
-  aria-hidden="true"
->
-  <!-- Drawer header — close affordance + brand -->
-  <div class="flex items-center h-12 px-6 border-b border-line">
-    <span class="font-medium tracking-tight text-fg text-[14px]">X-GIS</span>
-    <button
-      type="button"
-      id="mobile-nav-close"
-      aria-label="Close menu"
-      class="ml-auto inline-flex items-center justify-center w-9 h-9 -mr-2 text-fg-dim hover:text-fg transition-colors"
-    >
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <line x1="6" y1="6" x2="18" y2="18"/>
-        <line x1="18" y1="6" x2="6" y2="18"/>
-      </svg>
-    </button>
-  </div>
-
-  <!-- Scrollable nav body. Entries are tappable rows with generous
-       vertical padding for thumb reach. -->
-  <nav class="flex-1 overflow-y-auto px-6 py-8 space-y-10">
-    {groups.map(g => (
-      <div>
-        {g.title && (
-          <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-4">
-            {g.title}
-          </p>
-        )}
-        <ul class="space-y-2.5 text-fg">
-          {g.links.map(link => (
-            <li>
-              <a
-                href={link.href}
-                target={link.external ? '_blank' : undefined}
-                rel={link.external ? 'noopener' : undefined}
-                class="block text-[18px] leading-[1.3] tracking-[-0.01em] hover:text-accent transition-colors"
-              >
-                {link.label}
-                {link.external && (
-                  <span aria-hidden="true" class="inline-block ml-1.5 text-fg-mute">↗</span>
-                )}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </div>
-    ))}
-  </nav>
-</div>
-
-<script>
-  const toggle = document.getElementById('mobile-nav-toggle') as HTMLButtonElement | null
-  const close = document.getElementById('mobile-nav-close') as HTMLButtonElement | null
-  const drawer = document.getElementById('mobile-nav-drawer') as HTMLDivElement | null
-
-  if (toggle && close && drawer) {
-    const open = () => {
-      drawer.classList.remove('translate-x-full')
-      drawer.setAttribute('aria-hidden', 'false')
-      toggle.setAttribute('aria-expanded', 'true')
-      document.body.style.overflow = 'hidden'
-    }
-    const dismiss = () => {
-      drawer.classList.add('translate-x-full')
-      drawer.setAttribute('aria-hidden', 'true')
-      toggle.setAttribute('aria-expanded', 'false')
-      document.body.style.overflow = ''
-    }
-    toggle.addEventListener('click', open)
-    close.addEventListener('click', dismiss)
-
-    // Tapping any in-drawer link should also dismiss the drawer (the
-    // browser navigates immediately, but transient state cleanup is
-    // worth doing — back-button reload would otherwise resurrect
-    // body{overflow:hidden}).
-    drawer.querySelectorAll('a[href]').forEach(a => {
-      a.addEventListener('click', dismiss)
-    })
-
-    // Esc closes when open.
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && drawer.getAttribute('aria-hidden') === 'false') {
-        dismiss()
-      }
-    })
-  }
-</script>

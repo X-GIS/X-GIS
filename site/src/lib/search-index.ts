@@ -142,6 +142,61 @@ export function buildSearchIndex(base: string): SearchRecord[] {
     })
   }
 
+  // ─── Anchor-level entries for the new docs pages ───
+  // Each H2/H3 anchor on functions / expressions / sources / cookbook
+  // / mapbox gets its own record so a query for "interpolate" or
+  // "pmtiles" deep-links into the right section instead of just the
+  // page top. The bodies are short keyword soups — the fuzzy filter
+  // matches against title+body+tag.
+  const anchorRecords: Array<{ slug: string; page: string; tag: string; title: string; body: string }> = [
+    // /docs/functions
+    { slug: 'math',                page: 'functions',   tag: 'Function',   title: 'Math',                  body: 'clamp min max round floor ceil abs sqrt pow exp log log10 log2 scale' },
+    { slug: 'trigonometry',        page: 'functions',   tag: 'Function',   title: 'Trigonometry',          body: 'sin cos tan asin acos atan atan2 radians degrees' },
+    { slug: 'stops-gates',         page: 'functions',   tag: 'Function',   title: 'Stops & gates — interpolate / step',  body: 'interpolate step zoom feature property linear gate threshold' },
+    { slug: 'constants',           page: 'functions',   tag: 'Function',   title: 'Constants — PI / TAU',  body: 'PI TAU pi tau radians' },
+    { slug: 'array',               page: 'functions',   tag: 'Function',   title: 'Array — length, [i] index', body: 'length array subscript index bracket' },
+    { slug: 'geometry-generators', page: 'functions',   tag: 'Function',   title: 'Geometry generators — circle / arc / polygon / linestring', body: 'circle arc polygon linestring procedural geometry' },
+    { slug: 'runtime-accessors',   page: 'functions',   tag: 'Function',   title: 'Runtime accessors — zoom / .field', body: 'zoom field property accessor camera state' },
+    // /docs/expressions
+    { slug: 'operators',                  page: 'expressions', tag: 'Operator', title: 'Operators & precedence',           body: '+ - * / % == != < > <= >= && || ! ?? . | (pipe) ?: (ternary) precedence binding' },
+    { slug: 'bracketed-binding',          page: 'expressions', tag: 'Operator', title: 'Bracketed binding — utility-[expr]', body: 'utility binding expression bracket fill stroke opacity size data-driven' },
+    { slug: 'match-block',                page: 'expressions', tag: 'Operator', title: 'Match block — categorical lookup', body: 'match block categorical case lookup value mapping' },
+    { slug: 'filter-predicate',           page: 'expressions', tag: 'Operator', title: 'Filter predicate',                 body: 'filter predicate boolean layer feature' },
+    { slug: 'field-modifier-conditional-fill', page: 'expressions', tag: 'Operator', title: 'Field-modifier conditional fill',  body: 'modifier field property prefix conditional' },
+    // /docs/sources
+    { slug: 'geojson',  page: 'sources', tag: 'Source', title: 'geojson — full file load',     body: 'geojson source file URL load tiled' },
+    { slug: 'pmtiles',  page: 'sources', tag: 'Source', title: 'pmtiles — single archive',     body: 'pmtiles archive byte-range MVT vector source-layer' },
+    { slug: 'tilejson', page: 'sources', tag: 'Source', title: 'tilejson — XYZ MVT manifest',  body: 'tilejson manifest XYZ MVT vector tile server openfreemap' },
+    { slug: 'raster',   page: 'sources', tag: 'Source', title: 'raster — XYZ tile server',     body: 'raster XYZ tile server PNG JPG OSM basemap' },
+    { slug: 'xgvt',     page: 'sources', tag: 'Source', title: 'xgvt — pre-tessellated binary',body: 'xgvt binary pre-tessellated byte-range native format' },
+    // /docs/cookbook
+    { slug: '3d-buildings',           page: 'cookbook', tag: 'Recipe', title: 'Extruded 3D buildings',         body: 'fill-extrusion-height height render_height building 3d extrude' },
+    { slug: 'categorical-fill',       page: 'cookbook', tag: 'Recipe', title: 'Categorical fill from a property', body: 'match continent category property fill color discrete' },
+    { slug: 'zoom-fade',              page: 'cookbook', tag: 'Recipe', title: 'Zoom-fade road widths',          body: 'zoom interpolate stroke width fade road' },
+    { slug: 'data-driven-stroke',     page: 'cookbook', tag: 'Recipe', title: 'Data-driven stroke width',       body: 'stroke width feature property pipe clamp' },
+    { slug: 'multi-stroke-road-casing', page: 'cookbook', tag: 'Recipe', title: 'Road casing (two stacked strokes)', body: 'road casing stroke layer stack outline' },
+    { slug: 'preset',                 page: 'cookbook', tag: 'Recipe', title: 'Reusable utility stacks (preset)', body: 'preset apply utility stack reuse' },
+    { slug: 'animation-pulse',        page: 'cookbook', tag: 'Recipe', title: 'Pulsing opacity animation',      body: 'animation pulse keyframes opacity infinite' },
+    { slug: 'filter-by-zoom',         page: 'cookbook', tag: 'Recipe', title: 'Hide a layer below a zoom threshold', body: 'minzoom maxzoom zoom threshold layer visibility' },
+    { slug: 'mvt-layer-subset',       page: 'cookbook', tag: 'Recipe', title: 'Restrict PMTiles decoding to source-layers', body: 'pmtiles layers subset mvt source-layer decode worker' },
+    // /docs/mapbox
+    { slug: 'mental-model',         page: 'mapbox', tag: 'Mapbox', title: 'Mental model differences',  body: 'mapbox imperative declarative gl js maplibre' },
+    { slug: 'converter',            page: 'mapbox', tag: 'Mapbox', title: 'Using the converter',       body: 'convert style.json mapbox openfreemap import preset' },
+    { slug: 'compatibility',        page: 'mapbox', tag: 'Mapbox', title: 'Compatibility matrix',      body: 'mapbox compatibility supported lossy unsupported symbol layer text' },
+    { slug: 'expression-mapping',   page: 'mapbox', tag: 'Mapbox', title: 'Expression mapping',        body: 'mapbox expression interpolate match coalesce filter mapping' },
+    { slug: 'caveats',              page: 'mapbox', tag: 'Mapbox', title: 'Caveats & gotchas',         body: 'mapbox symbol cors curve roundtrip exponential' },
+  ]
+  for (const a of anchorRecords) {
+    out.push({
+      id: `anchor:${a.page}/${a.slug}`,
+      title: a.title,
+      body: a.body,
+      type: 'doc',
+      tag: a.tag,
+      url: `${base}/docs/${a.page}#${a.slug}`,
+    })
+  }
+
   // ─── Gallery demos (every card becomes one record) ───
   // Mirror the production gallery's devOnly filter — search results
   // should reflect what's visible on the page they link to.

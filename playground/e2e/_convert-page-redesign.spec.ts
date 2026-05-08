@@ -68,6 +68,24 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     const prevNext = page.locator('text=Edit this page on GitHub')
     await expect(prevNext).toHaveCount(1)
 
+    // ── Mobile hamburger drawer screenshot ──
+    await page.setViewportSize({ width: 390, height: 844 })  // iPhone 14
+    await page.goto(`http://localhost:${port}/docs/cookbook/`)
+    await page.screenshot({ path: 'test-results/mobile-docs-cookbook.png', fullPage: false })
+    // Open the hamburger drawer.
+    await page.locator('#mobile-nav-toggle').click()
+    await page.waitForTimeout(400) // let the slide-in finish
+    await page.screenshot({ path: 'test-results/mobile-nav-open.png', fullPage: false })
+    // The drawer must cover the full viewport (it used to get clipped
+    // to the header's bounding box because backdrop-filter created a
+    // containing block — see MobileNavDrawer.astro). Spot-check by
+    // asserting a deep nav link from the LAST group is visible at
+    // the bottom of the drawer.
+    await expect(page.locator('#mobile-nav-drawer a', { hasText: 'XGVT spec' })).toBeVisible()
+    // And the drawer's documentation group includes the new pages.
+    await expect(page.locator('#mobile-nav-drawer a', { hasText: 'Cookbook' })).toBeVisible()
+    await expect(page.locator('#mobile-nav-drawer a', { hasText: 'Mapbox migration' })).toBeVisible()
+
     // Search index covers the new pages.
     await page.goto(`http://localhost:${port}/docs/functions/`)
     const indexJson = await page.locator('#search-index').textContent()
