@@ -16,6 +16,7 @@ import {
 } from './polygon-mesh'
 import { tileKey, tileKeyParent, tileKeyChildren, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool, asyncWriteBuffer } from './staging-buffer-pool'
+import { PriorityQueue } from '../loader/priority-queue'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../data/tile-catalog'
 import type { TileData } from '../data/tile-types'
@@ -509,10 +510,6 @@ export class VectorTileRenderer {
   beginFrame(frameId: number = 0): void {
     this.currentFrameId = frameId
     this.uniformSlot = 0
-    this._uploadBudget = MAX_UPLOADS_PER_FRAME
-    this._uploadsThisFrame = 0
-    this._uploadDeadlineMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) +
-      VectorTileRenderer.UPLOAD_TIME_BUDGET_MS
     // Reset the frame-scoped miss counter here so multiple render()
     // calls within the frame accumulate into one total (see render()).
     this._missedTiles = 0
@@ -568,34 +565,21 @@ export class VectorTileRenderer {
     }
   }
 
-  /** Per-frame upload budget. uploadTile() is expensive — it creates ~5–7
-   *  GPU buffers AND runs `buildLineSegments` (CPU) twice per tile. A LOD
-   *  boundary crossing can easily queue 16+ new tiles in a single frame;
-   *  without a cap that lands as one ~250 ms stall (measured) with a
-   *  multi-MB writeBuffer burst.
+  /** Async-upload priority queue. Replaces the previous in-place sort
+   *  + per-frame writeBuffer-budget loop. `maxJobs` caps how many tile
+   *  uploads can be in flight concurrently (each holding 5-7 staging
+   *  buffers); the rest wait their turn. Items are string IDs
+   *  (`${key}:${sourceLayer}`) so the queue's identity-based dedup
+   *  catches duplicate enqueues across frames; the actual TileData
+   *  lives in `uploadItemData`. The queue's priorityCallback is wired
+   *  per-frame to the same distance closure that drives fetch — closer
+   *  tiles dispatch first.
    *
-   *  Hybrid floor + time-ceiling scheduler (mirrors the XGVT-source
-   *  fix at commit 7726abd). Floor (`_uploadBudget`) preserves the
-   *  steady-state count cap. Once the floor is exhausted, additional
-   *  uploads keep going until `_uploadDeadlineMs` elapses or the
-   *  safety cap (`UPLOAD_SAFETY_CAP`) is hit. Without the ceiling
-   *  the high-pitch + 81-show TileJSON case piles 3000+ pending
-   *  uploads behind a 4/frame drain — convergence took >800 frames
-   *  (~14 s at 60 fps) and the user perceived it as "extremely slow"
-   *  whenever pitch increased past ~60°. */
-  private _uploadBudget = 3
-  private _uploadDeadlineMs = 0
-  private _uploadsThisFrame = 0
-  private static readonly UPLOAD_TIME_BUDGET_MS = 6
-  private static readonly UPLOAD_SAFETY_CAP = 96
-  private _pendingUploads: { key: number; data: TileData; sourceLayer: string }[] = []
-  /** Priority comparator for the upload queue. When non-null,
-   *  `drainPendingUploads` sorts the queue so the LOWEST-distance tile
-   *  drains first (sorts to index 0 with `shift()`). Wired up per-frame
-   *  by the same distance closure that drives the fetch queue, so a
-   *  newly-visible foreground tile can overtake horizon backlog even
-   *  if it arrived later. */
-  private _uploadPriority: ((a: number, b: number) => number) | null = null
+   *  Async path replaces the writeBuffer-budget reasoning (which was
+   *  about preventing JS-thread stalls): mapAsync doesn't block JS, so
+   *  the only meaningful cap is staging-buffer concurrency. */
+  private uploadQueue = new PriorityQueue<string, void>()
+  private uploadItemData = new Map<string, { key: number; data: TileData; sourceLayer: string }>()
   /** Per-decision counts from the last render() call. Always tracked
    *  (cheap — Map of ~7 string keys). Exposed via
    *  `getLastDecisionCounts()` for inspector / console diagnosis.
@@ -603,15 +587,16 @@ export class VectorTileRenderer {
   private _lastDecisionCounts: Map<string, number> = new Map()
 
   /** The outer render-on-demand loop calls this to know whether it still
-   *  needs to tick — if tiles are queued for upload the scene hasn't
-   *  actually converged yet, even though no user input is flowing. */
+   *  needs to tick — if tiles are queued or actively uploading the
+   *  scene hasn't actually converged yet, even though no user input
+   *  is flowing. */
   hasPendingUploads(): boolean {
-    return this._pendingUploads.length > 0
+    return this.uploadQueue.running
   }
 
   /** Diagnostic: queue depth for inspectPipeline() snapshots. */
   getPendingUploadCount(): number {
-    return this._pendingUploads.length
+    return this.uploadQueue.size() + this.uploadQueue.activeCount()
   }
 
   /** Diagnostic — per-decision tile count from the last completed
@@ -858,62 +843,38 @@ export class VectorTileRenderer {
     console.log(`[X-GIS] Feature data buffer: ${featureCount} features × ${fieldCount} fields`)
   }
 
-  /** Upload CPU tile data to GPU buffers */
-  /** Route uploads through the frame budget — uploadTile is a misnomer
-   *  kept for backwards call-sites; the real work happens in
-   *  doUploadTile once a slot is granted. Beyond the budget the tile
-   *  sits in `_pendingUploads` and picks up on subsequent frames. */
-  /** Hybrid floor + time-ceiling check. Returns true if we have room
-   *  for ONE more upload this frame. Floor uses the count budget;
-   *  ceiling extends past the floor while we're still within the
-   *  per-frame time budget AND under the safety cap. */
-  private hasUploadBudget(): boolean {
-    if (this._uploadBudget > 0) return true
-    if (this._uploadsThisFrame >= VectorTileRenderer.UPLOAD_SAFETY_CAP) return false
-    const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
-    return now < this._uploadDeadlineMs
-  }
-
+  /** Route uploads through the priority queue. Every call enqueues an
+   *  async dispatch via `doUploadTileAsync`; the queue caps concurrent
+   *  uploads via `maxJobs` (set per-frame from `uploadBudgetFor`).
+   *  Same-key + same-layer dedup uses the queue's identity Map.
+   *
+   *  Mid-render fallback uploads still go directly to `doUploadTile`
+   *  (sync) — they need data on GPU before the next render command in
+   *  the same call. Queued uploads tolerate the mapAsync round-trip
+   *  because the visible-set's fallback ancestor covers the gap. */
   private uploadTile(key: number, data: TileData, sourceLayer = ''): void {
     if (this.getLayerCache(sourceLayer)?.has(key)) return
-    if (!this.hasUploadBudget()) {
-      // De-dupe: if this key is already queued, drop the duplicate —
-      // the cache check above catches re-entry of a completed upload,
-      // but a pending one still counts.
-      if (!this._pendingUploads.some(p => p.key === key && p.sourceLayer === sourceLayer)) {
-        this._pendingUploads.push({ key, data, sourceLayer })
-      }
-      return
-    }
-    if (this._uploadBudget > 0) this._uploadBudget--
-    this._uploadsThisFrame++
-    this.doUploadTile(key, data, sourceLayer)
+    const id = `${key}:${sourceLayer}`
+    if (this.uploadQueue.has(id)) return
+    this.uploadItemData.set(id, { key, data, sourceLayer })
+    this.uploadQueue.add(id, async () => {
+      const item = this.uploadItemData.get(id)
+      this.uploadItemData.delete(id)
+      if (!item) return
+      await this.doUploadTileAsync(item.key, item.data, item.sourceLayer)
+    }).catch((err: unknown) => {
+      this.uploadItemData.delete(id)
+      console.error('[upload queue]', err)
+    })
   }
 
-  /** Drain as many pending uploads as fit in the remaining frame budget.
-   *  Called once per render pass just before we enumerate `neededKeys`
-   *  so newly-visible tiles get a chance at the budget even when the
-   *  queue piled up during a LOD jump.
-   *
-   *  When `_uploadPriority` is set, the queue is sorted in place so the
-   *  closest-to-camera tile drains first. Sorting only when the queue
-   *  has more items than fit in the floor budget — for steady-state
-   *  small queues there's nothing to reorder. */
+  /** Kick the upload queue. The queue auto-schedules via `queueMicrotask`
+   *  on every `add` and on every job completion, so this is mostly a
+   *  no-op in steady state — only useful as an explicit flush point if
+   *  the caller wants the queue to consider its current state right
+   *  now (e.g. immediately after a burst of `uploadTile` calls). */
   private drainPendingUploads(): void {
-    if (this._pendingUploads.length > 1 && this._uploadPriority !== null) {
-      // Comparator returns positive when `a` should drain before `b`.
-      // shift() takes index 0, so sort ascending = highest-priority
-      // (smallest distance) at index 0.
-      const cmp = this._uploadPriority
-      this._pendingUploads.sort((a, b) => cmp(a.key, b.key))
-    }
-    while (this._pendingUploads.length > 0 && this.hasUploadBudget()) {
-      const next = this._pendingUploads.shift()!
-      if (this.getLayerCache(next.sourceLayer)?.has(next.key)) continue
-      if (this._uploadBudget > 0) this._uploadBudget--
-      this._uploadsThisFrame++
-      this.doUploadTile(next.key, next.data, next.sourceLayer)
-    }
+    this.uploadQueue.tryRunJobs()
   }
 
   private doUploadTile(key: number, data: TileData, sourceLayer = ''): void {
@@ -1444,14 +1405,6 @@ export class VectorTileRenderer {
     if (!this.source?.hasData()) return
     const index = this.source.getIndex()
     if (!index) return
-
-    // Cap upload budget for mobile viewports. beginFrame() initialised
-    // it to MAX_UPLOADS_PER_FRAME; we tighten it here once we know the
-    // canvas size. Multi-render-per-frame: same VTR sees this clamp
-    // on every layer's render call, so the cap is shared across the
-    // frame's layer iterations (not multiplied).
-    const _frameBudget = uploadBudgetFor(canvasWidth, canvasHeight, dpr)
-    if (this._uploadBudget > _frameBudget) this._uploadBudget = _frameBudget
 
     // Sliced-source slot for this layer. PMTiles emits per-show
     // slices when the source-attach config carries `showSlices` —
@@ -2425,11 +2378,20 @@ export class VectorTileRenderer {
         return dx * dx + dy * dy
       }
       this.source.setFetchPriority(distSq)
-      // Upload-side comparator: ascending by distance so `shift()`
-      // drains the closest tile first. Opposite end of the queue from
-      // the fetch path (which uses pop), hence the inverted sign vs
-      // catalog.setFetchPriority's wrap.
-      this._uploadPriority = (a, b) => distSq(a) - distSq(b)
+      // Upload queue uses the same dispatch convention as fetch (NASA's
+      // PriorityQueue pops from the END), so the comparator returns
+      // positive when `a` is closer than `b` (sorts to end → pops first).
+      const itemData = this.uploadItemData
+      this.uploadQueue.priorityCallback = (a, b) => {
+        const ia = itemData.get(a), ib = itemData.get(b)
+        if (!ia || !ib) return 0
+        return distSq(ib.key) - distSq(ia.key)
+      }
+      // Concurrency cap: same scale as the prior `uploadBudgetFor`
+      // floor (1 mobile / 4 desktop). Async path doesn't stall JS so
+      // the cap exists only to bound concurrent staging-buffer use
+      // (each tile holds 5-7 staging slots in flight).
+      this.uploadQueue.maxJobs = uploadBudgetFor(canvasWidth, canvasHeight, dpr)
     }
 
     // Visible-tile fetches: ALWAYS issued, like parentKeys. The

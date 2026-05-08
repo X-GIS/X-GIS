@@ -123,7 +123,13 @@ export class StagingBufferPool {
  *  encodes `copyBufferToBuffer` into `encoder`, and resolves once the
  *  copy is queued (NOT once the GPU completes — caller submits the
  *  encoder when ready). The slot is returned to the pool after submit
- *  via the callback that the resolved promise schedules. */
+ *  via the callback that the resolved promise schedules.
+ *
+ *  Empty-data case (`byteLength === 0`) resolves with a no-op release
+ *  closure — matches WebGPU's `queue.writeBuffer` semantics where a
+ *  zero-length write is legal and does nothing. Real-world hit:
+ *  tile slices that ship a zero-length `lineVertices` array because
+ *  the source layer carried only polygons. */
 export async function asyncWriteBuffer(
   pool: StagingBufferPool,
   encoder: GPUCommandEncoder,
@@ -132,6 +138,9 @@ export async function asyncWriteBuffer(
   data: ArrayBuffer | ArrayBufferView,
 ): Promise<{ release: () => void }> {
   const byteLength = ('byteLength' in data) ? data.byteLength : (data as ArrayBuffer).byteLength
+  if (byteLength === 0) {
+    return { release: () => {} }
+  }
   const slot = await pool.borrow(byteLength)
   const mapped = slot.buffer.getMappedRange(0, byteLength)
   // Copy data into the mapped range. Both ArrayBuffer and typed-array

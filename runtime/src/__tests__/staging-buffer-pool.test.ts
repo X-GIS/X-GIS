@@ -115,6 +115,18 @@ describe('StagingBufferPool', () => {
     expect(buf.destroyCalled).toBe(1)
   })
 
+  it('asyncWriteBuffer no-ops on zero-length data (matches writeBuffer semantics)', async () => {
+    const encoder = makeMockEncoder()
+    const dstBuf = { _name: 'dst' } as unknown as GPUBuffer
+    const handle = await asyncWriteBuffer(pool, encoder, dstBuf, 0, new Uint8Array(0))
+    handle.release() // no-op release returned, must not throw
+    const copies = (encoder as unknown as { _copies: Array<unknown> })._copies
+    expect(copies.length).toBe(0) // no copyBufferToBuffer emitted
+    // No staging buffer should have been allocated.
+    const created = (device as unknown as { _buffers: MockBuffer[] })._buffers
+    expect(created.length).toBe(0)
+  })
+
   it('asyncWriteBuffer copies data and emits copyBufferToBuffer', async () => {
     const encoder = makeMockEncoder()
     const dst = (device as unknown as { _buffers: MockBuffer[] })._buffers
