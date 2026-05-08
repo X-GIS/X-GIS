@@ -75,8 +75,9 @@ const jsonLd = {
     <meta name="twitter:image" content={`${siteUrl}og.svg`} />
 
     <link rel="icon" type="image/svg+xml" href={logoUrl} />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Fonts are self-hosted via @fontsource-variable/geist —
+         no preconnect to fonts.googleapis.com / fonts.gstatic.com
+         needed. -->
 
     <title>{title}</title>
 

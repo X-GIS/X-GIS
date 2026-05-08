@@ -1,4 +1,12 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&display=swap');
+/* Self-hosted variable fonts (was Google Fonts CSS @import). The
+ * Google CSS adds 2 extra round trips: one to fonts.googleapis.com
+ * for the @font-face declarations, then 2-N more to fonts.gstatic.com
+ * for the actual woff2 files referenced inside. Bundled fontsource
+ * packages ship the same fonts as static assets that Vite serves
+ * with the rest of /_astro — no preconnect, no third-party DNS,
+ * cached behind the same hash-busted URLs as the JS/CSS bundles. */
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 @import "tailwindcss";
 
 /* ═══ Tokens ═══
@@ -24,8 +32,12 @@
   --color-accent-hover: #51adff;
   --color-accent-press: #1d7fe0;
 
-  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
-  --font-mono: "Geist Mono", "SF Mono", "JetBrains Mono", monospace;
+  /* `Geist Variable` is the @font-face name registered by
+   * @fontsource-variable/geist (used as the self-hosted source).
+   * Keep `Geist` after as the fallback name in case the variable
+   * package gets swapped for the static one in the future. */
+  --font-sans: "Geist Variable", "Geist", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono Variable", "Geist Mono", "SF Mono", "JetBrains Mono", monospace;
 }
 
 @layer base {
