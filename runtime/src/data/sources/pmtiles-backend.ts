@@ -31,6 +31,9 @@ import type {
 import { getSharedMvtPool, type MvtWorkerPool } from '../mvt-worker-pool'
 import { evalExtrudeExpr } from '../extrude-eval'
 import { evalFilterExpr } from '../filter-eval'
+import {
+  PriorityQueue, PriorityQueueItemRemovedError,
+} from '../../loader/priority-queue'
 
 /** Same height extractor as the worker (mvt-worker.ts). The inline
  *  fallback path can't import from mvt-worker because its module is
@@ -220,6 +223,18 @@ export class PMTilesBackend implements TileSource {
    *  Cleaned up on fetch settle (success, failure, or abort). */
   private abortControllers: Map<number, AbortController> = new Map()
 
+  /** Concurrency-bounded fetch dispatcher. Replaces the old
+   *  `getLoadingCount() >= maxInflight()` early-return gate with a
+   *  proper queue: every visible tile gets enqueued, the queue itself
+   *  caps how many run at once (`maxJobs`), and `cancelStale` drops
+   *  queued-but-not-yet-dispatched keys via `removeByFilter`.
+   *
+   *  `priorityCallback` is left null by default → FIFO. Higher layers
+   *  can install a comparator (typically distance-to-camera) to make
+   *  near-camera tiles overtake horizon tiles when the queue backs up.
+   *  Algorithm reference: NASA-AMMOS/3DTilesRendererJS PriorityQueue. */
+  private fetchQueue = new PriorityQueue<number, void>()
+
   /** Per-layer zoom range from PMTiles metadata. Returns null when
    *  the archive didn't ship vector_layers metadata or the requested
    *  layer isn't listed. Caller (runtime) uses this to short-circuit
@@ -271,9 +286,15 @@ export class PMTilesBackend implements TileSource {
     return tileIntersectsBounds(z, x, y, this.meta.bounds)
   }
 
-  /** Stage 1: kick off async HTTP fetch. Bytes land in pendingMvt
-   *  when the fetcher resolves; the actual decode+compile waits
-   *  for tick() to dequeue. */
+  /** Stage 1: enqueue an async HTTP fetch. Bytes land in pendingMvt
+   *  when the fetcher resolves; the actual decode+compile waits for
+   *  tick() to dequeue.
+   *
+   *  Concurrency is enforced by `fetchQueue` (maxJobs = maxInflight()).
+   *  A loading slot is reserved at ENQUEUE time so the catalog's
+   *  prefetch back-pressure (`loadingTiles.size < _cap`) sees queued
+   *  tiles too — without this, a high-pitch frame would enqueue 200+
+   *  tiles instantly and prefetch would race the visible-set. */
   loadTile(key: number): void {
     if (!this.sink) return
     if (this.sink.hasTileData(key)) return
@@ -287,13 +308,44 @@ export class PMTilesBackend implements TileSource {
       if (Date.now() < failedAt) return
       this.failedKeys.delete(key)
     }
-    if (this.sink.getLoadingCount() >= maxInflight()) return
-    const [z, x, y] = tileKeyUnpack(key)
+    // Dedupe: already queued or actively fetching.
+    if (this.fetchQueue.has(key)) return
+    if (this.abortControllers.has(key)) return
+
+    // Refresh concurrency from current viewport — `maxInflight()`
+    // resolves lazily off `window.innerWidth`, and a real device
+    // rotation between frames should retune the cap without a reload.
+    this.fetchQueue.maxJobs = maxInflight()
+
     const sink = this.sink
     sink.trackLoading(key)
+    this.fetchQueue.add(key, () => this.doFetch(key)).catch((err: unknown) => {
+      if (err instanceof PriorityQueueItemRemovedError) {
+        // cancelStale dropped us before dispatch. Release the slot
+        // we reserved at enqueue. NOT a fetch failure → no failedKeys.
+        sink.releaseLoading(key)
+        return
+      }
+      // doFetch swallows its own errors, so anything reaching here is
+      // unexpected (queue invariant violation).
+      console.error('[pmtiles fetch queue]', err)
+      sink.releaseLoading(key)
+    })
+  }
+
+  /** Stage 1 body — the actual HTTP fetch + outcome routing. Always
+   *  resolves (errors are converted to `releaseLoading` + failedKeys).
+   *  The queue's promise resolves with `void`; the catch handler in
+   *  loadTile only sees `PriorityQueueItemRemovedError` from
+   *  cancellation. */
+  private async doFetch(key: number): Promise<void> {
+    if (!this.sink) return
+    const sink = this.sink
+    const [z, x, y] = tileKeyUnpack(key)
     const ac = new AbortController()
     this.abortControllers.set(key, ac)
-    this.fetcher(z, x, y, ac.signal).then(result => {
+    try {
+      const result = await this.fetcher(z, x, y, ac.signal)
       if (result === 'failed') {
         // Transient/permanent fetch failure — record in negative cache
         // and DO NOT acceptResult. The catalog will see hasTileData
@@ -322,7 +374,7 @@ export class PMTilesBackend implements TileSource {
       // NOT releaseLoading here — the slot stays held until compile
       // finishes, providing back-pressure on requestTiles.
       this.pendingMvt.push({ key, bytes: result })
-    }).catch(err => {
+    } catch (err) {
       // Aborted via signal (catalog no longer wants this tile) —
       // release the slot but DO NOT mark failedKeys. The tile is
       // free to be re-requested immediately if it becomes visible
@@ -333,12 +385,17 @@ export class PMTilesBackend implements TileSource {
         console.error('[pmtiles fetch]', (err as Error)?.stack ?? err)
       }
       sink.releaseLoading(key)
-    }).finally(() => {
-      // Clean up the AbortController bookkeeping regardless of
-      // outcome. Keep this in finally so the map doesn't leak
-      // controllers when a fetch settles via any path.
+    } finally {
       this.abortControllers.delete(key)
-    })
+    }
+  }
+
+  /** Install a comparator on the fetch priority queue. Higher-priority
+   *  items must sort LAST (positive return when `a` should run before
+   *  `b`). Typically: smaller distance-to-camera = higher priority.
+   *  Reset to FIFO by passing null. */
+  setFetchPriorityCallback(cmp: ((a: number, b: number) => number) | null): void {
+    this.fetchQueue.priorityCallback = cmp
   }
 
   /** Cancel in-flight fetches for keys NOT in `activeKeys`. Called by
@@ -357,6 +414,11 @@ export class PMTilesBackend implements TileSource {
   cancelStale(activeKeys: Set<number>): void {
     if (!this.sink) return
     const sink = this.sink
+    // Drop queued-but-not-yet-dispatched fetches first. Their .catch
+    // handler in loadTile() catches PriorityQueueItemRemovedError and
+    // calls releaseLoading. No abortController exists for these (the
+    // queue hasn't run doFetch yet), so we don't double-up below.
+    this.fetchQueue.removeByFilter(k => !activeKeys.has(k))
     // Cancel in-flight fetches. Skip controllers already aborted
     // — same fetch can sit in this.abortControllers across many
     // frames if the underlying transport (PMTiles archive.getZxy)
