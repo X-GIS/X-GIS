@@ -34,7 +34,7 @@ import {
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '../data/tile-catalog'
 import { computeSliceKey } from '../data/filter-eval'
-import { attachPMTilesSource, prewarmPMTilesArchive } from '../loader/pmtiles-source'
+import { attachPMTilesSource, prewarmPMTilesArchive, prewarmTileJSONManifest } from '../loader/pmtiles-source'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
@@ -853,12 +853,14 @@ export class XGISMap {
     // own dispatch with no shared cache yet.
     for (const load of commands.loads) {
       // URL resolution must match the data-load loop below exactly so
-      // the archiveCache hit lands. Loop uses `baseUrl + load.url` for
+      // the cache hit lands. Loop uses `baseUrl + load.url` for
       // relative paths; mirror that here.
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
       const declaredType = (load as { type?: string }).type
       const isPMTiles = declaredType === 'pmtiles' || url.endsWith('.pmtiles')
+      const isTileJSON = declaredType === 'tilejson' || url.endsWith('.json') || url.endsWith('.tilejson')
       if (isPMTiles) prewarmPMTilesArchive(url)
+      else if (isTileJSON) prewarmTileJSONManifest(url)
     }
 
 

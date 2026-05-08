@@ -59,6 +59,16 @@ export function prewarmPMTilesArchive(url: string): void {
   void openCachedArchive(url).catch(() => undefined)
 }
 
+/** Prewarm the TileJSON manifest cache. Companion to
+ *  {@link prewarmPMTilesArchive} for the TileJSON branch — manifest
+ *  fetches are a single round trip but still 50-200 ms that the
+ *  attach path used to await sequentially. Same cache hits the regular
+ *  attach path's `openCachedTileJSON` later. */
+export function prewarmTileJSONManifest(url: string): void {
+  if (tileJsonCache.has(url)) return
+  void openCachedTileJSON(url).catch(() => undefined)
+}
+
 /** Fetch the union of `vector_layers[*].fields` from a PMTiles
  *  archive's metadata. Returns a FLAT `name → declared-type` map.
  *  Kept for back-compat — callers that need per-source-layer
