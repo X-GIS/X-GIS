@@ -2008,9 +2008,22 @@ export class VectorTileRenderer {
       // painter's order. Layers with `extrude:` keep the regular
       // depth-write pipeline; the per-feature extruded path takes
       // its own branch inside renderTileKeys.
-      const mainFill = this.currentExtrudeMode === 'none' && this.fillPipelineGround !== null
-        ? this.fillPipelineGround
-        : fillPipeline
+      //
+      // CRITICAL: fillPipelineGround was created with the BASE
+      // bindGroupLayout only (renderer.ts:984 → pipelineLayout at
+      // line 917 → bindGroupLayouts: [baseBindGroupLayout]). It
+      // CANNOT be paired with a feature bind group. So we only
+      // substitute it for the caller's variant `fillPipeline` when
+      // the show ALSO uses the base layout — i.e. constant fill
+      // with no data-driven match()/interpolate(). When the show
+      // is variant-driven (bindGroupLayout === featureBindGroupLayout),
+      // we keep the variant pipeline so the bind-group layout
+      // attached at draw time still matches.
+      const groundEligible =
+        this.currentExtrudeMode === 'none'
+        && this.fillPipelineGround !== null
+        && bindGroupLayout === this.baseBindGroupLayout
+      const mainFill = groundEligible ? this.fillPipelineGround! : fillPipeline
       this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, phase, layerCache, this.fillPipelineExtruded, bindGroupLayout)
     }
 
@@ -2034,8 +2047,14 @@ export class VectorTileRenderer {
         this.uniformF32[17] = 0.0
         this.uniformF32[18] = 0.0
       }
-      const fallbackFill = this.currentExtrudeMode === 'none' && this.fillPipelineGroundFallback !== null
-        ? this.fillPipelineGroundFallback
+      // Same ground-pipeline gate as the primary path — the fallback
+      // ground pipeline was also built with base-only layout.
+      const fallbackGroundEligible =
+        this.currentExtrudeMode === 'none'
+        && this.fillPipelineGroundFallback !== null
+        && bindGroupLayout === this.baseBindGroupLayout
+      const fallbackFill = fallbackGroundEligible
+        ? this.fillPipelineGroundFallback!
         : fillPipelineFallback
       this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache, this.fillPipelineExtrudedFallback, bindGroupLayout)
       if (_debugRed) {
