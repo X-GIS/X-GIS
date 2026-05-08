@@ -749,14 +749,23 @@ export class Parser {
       // Arrow: ->
       this.expect(TokenType.Arrow)
 
-      // Value: color name like red-500 (parsed as utility name) or expression
+      // Value parsing — three shapes:
+      //   #abcdef               → ColorLiteral
+      //   red-500 / gray-300    → utility-name Identifier (only when
+      //                           an Identifier is followed by `-`)
+      //   true / 42 / "x" / .f  → general expression (parseCoalesce
+      //                           so `??` works; we deliberately stay
+      //                           below the pipe operator like
+      //                           parseBlockProperty does)
       let value: AST.Expr
       if (this.check(TokenType.Color)) {
         value = { kind: 'ColorLiteral', value: this.advance().value }
-      } else {
-        // Parse as utility name (hyphen-joined identifiers like "red-500", "gray-300")
+      } else if (this.check(TokenType.Identifier) &&
+                 this.tokens[this.pos + 1]?.type === TokenType.Minus) {
         const colorName = this.parseUtilityName()
         value = { kind: 'Identifier', name: colorName }
+      } else {
+        value = this.parseCoalesce()
       }
 
       arms.push({ pattern, value })
@@ -948,7 +957,18 @@ export class Parser {
     while (true) {
       if (this.check(TokenType.LParen)) {
         const args = this.parseArgList()
-        expr = { kind: 'FnCall', callee: expr, args }
+        const call: AST.FnCall = { kind: 'FnCall', callee: expr, args }
+        // `match(field) { "k" -> v, _ -> default }` — the trailing
+        // block is part of the match expression. Originally only
+        // recognized inside utility-item position (parseUtilityItem),
+        // but a value-mapping match makes sense in any expression
+        // context (filter:, paint utility brackets, ternaries…), so
+        // pick up the block uniformly here.
+        if (call.callee.kind === 'Identifier' && call.callee.name === 'match' &&
+            this.check(TokenType.LBrace)) {
+          call.matchBlock = this.parseMatchBlock()
+        }
+        expr = call
       } else if (this.check(TokenType.Dot)) {
         this.advance()
         const field = this.expect(TokenType.Identifier).value

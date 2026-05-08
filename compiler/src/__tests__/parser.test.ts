@@ -548,6 +548,38 @@ describe('Parser', () => {
     })
   })
 
+  describe('match block in expression position', () => {
+    // The match-block form `match(x) { k -> v, _ -> d }` was originally
+    // only consumed inside utility-item position (fill/stroke/opacity).
+    // It now works in any expression context, including filter:.
+    it('parses match() block as a layer filter value', () => {
+      const ast = parse(
+        'layer r {\n  filter: match(.kind) { "highway" -> true, "rail" -> true, _ -> false }\n}'
+      )
+      const layer = ast.body[0] as AST.LayerStatement
+      const filter = layer.properties.find(p => p.name === 'filter') as AST.BlockProperty
+      const call = filter.value as AST.FnCall
+      expect(call.kind).toBe('FnCall')
+      expect((call.callee as AST.Identifier).name).toBe('match')
+      expect(call.matchBlock).toBeDefined()
+      expect(call.matchBlock?.arms).toHaveLength(3)
+      expect(call.matchBlock?.arms[0].pattern).toBe('highway')
+      expect((call.matchBlock?.arms[0].value as AST.BoolLiteral).value).toBe(true)
+      expect(call.matchBlock?.arms[2].pattern).toBe('_')
+    })
+
+    it('accepts numeric and string arm values (not just utility names)', () => {
+      const ast = parse(
+        'layer r {\n  filter: match(.zoom) { "low" -> 1, "high" -> 100, _ -> 0 }\n}'
+      )
+      const layer = ast.body[0] as AST.LayerStatement
+      const filter = layer.properties.find(p => p.name === 'filter') as AST.BlockProperty
+      const arms = (filter.value as AST.FnCall).matchBlock?.arms ?? []
+      expect((arms[0].value as AST.NumberLiteral).value).toBe(1)
+      expect((arms[1].value as AST.NumberLiteral).value).toBe(100)
+    })
+  })
+
   describe('array literal', () => {
     it('parses empty array', () => {
       const ast = parse('let x = []')
