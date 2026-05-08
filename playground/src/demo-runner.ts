@@ -373,17 +373,24 @@ function formatHash(map: XGISMap): string {
 
 let hashSyncRaf = 0
 let lastHash = ''
+let lastBadgeText = ''
 let lastHashWriteMs = 0
 // iOS Safari throttles history.replaceState to 100 calls per 10 seconds and
 // throws SecurityError past that. Writing every rAF (~60Hz) during a pan
-// tripped the limit instantly, so we rate-limit writes to ~5Hz. The badge
-// readout (updateHashBadge) still updates every frame; only the URL mutation
-// is throttled.
+// tripped the limit instantly, so we rate-limit URL writes to ~5Hz. The
+// on-screen badge text update is folded into the same RAF loop and only
+// touched when the formatted string actually changes — touching textContent
+// every frame during a pan was a measured 4.6 ms / pan-window in the
+// profile (osm_style z=15) for what's effectively cosmetic feedback.
 const HASH_WRITE_INTERVAL_MS = 200
 function startHashSync(map: XGISMap): void {
   cancelAnimationFrame(hashSyncRaf)
   const tick = () => {
     const h = formatHash(map)
+    if (h !== lastBadgeText) {
+      hashBadge.textContent = h
+      lastBadgeText = h
+    }
     if (h !== lastHash) {
       const now = performance.now()
       if (now - lastHashWriteMs >= HASH_WRITE_INTERVAL_MS) {
@@ -421,11 +428,6 @@ hashBadge.addEventListener('click', () => {
   })
 })
 
-function updateHashBadge(): void {
-  if (!currentMap) return
-  hashBadge.textContent = formatHash(currentMap)
-  requestAnimationFrame(updateHashBadge)
-}
 
 window.addEventListener('hashchange', () => {
   if (currentMap) applyHashToCamera(currentMap)
@@ -557,7 +559,6 @@ async function runSource(source: string, label: string) {
     // Apply pre-existing hash AFTER data is loaded (so bounds-fit ran first).
     applyHashToCamera(currentMap)
     startHashSync(currentMap)
-    updateHashBadge()
 
     status.textContent = `${label} · scroll to zoom, drag to pan`
     setTimeout(() => { status.style.opacity = '0.4' }, 3000)

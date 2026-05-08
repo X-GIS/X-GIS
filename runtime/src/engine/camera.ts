@@ -57,6 +57,22 @@ export class Camera {
   // Preallocated RTC matrix (reused every frame)
   private rtcMatrix = new Float32Array(16)
 
+  // Cache: identical (camera state, viewport, dpr) → reuse rtcMatrix +
+  // far instead of rebuilding. Hot for the tile selector which calls
+  // unprojectToZ0 SAMPLES_PER_AXIS² (~49) times per frame, each call
+  // funneling through here. NaN sentinels guarantee a miss on first
+  // call regardless of subsequent inputs.
+  private _cacheW = -1
+  private _cacheH = -1
+  private _cacheDpr = -1
+  private _cacheCx = NaN
+  private _cacheCy = NaN
+  private _cacheZoom = NaN
+  private _cacheBearing = NaN
+  private _cachePitch = NaN
+  private _cacheFar = 0
+  private _invDirty = true
+
   /** Core matrix + far-plane math. Writes the MVP into `this.rtcMatrix`
    *  and returns the far-plane value. Private helper shared by
    *  getRTCMatrix (matrix only) and getFrameView (matrix + far + fc).
@@ -71,6 +87,18 @@ export class Camera {
    *  what DPR=1 renders. Default `dpr=1` preserves existing test call
    *  sites that pass CSS-equivalent dimensions. */
   private _buildRTCMatrix(canvasWidth: number, canvasHeight: number, dpr: number = 1): number {
+    if (
+      canvasWidth === this._cacheW &&
+      canvasHeight === this._cacheH &&
+      dpr === this._cacheDpr &&
+      this.centerX === this._cacheCx &&
+      this.centerY === this._cacheCy &&
+      this.zoom === this._cacheZoom &&
+      this.bearing === this._cacheBearing &&
+      this.pitch === this._cachePitch
+    ) {
+      return this._cacheFar
+    }
     const metersPerPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
     const m = this.rtcMatrix
 
@@ -157,6 +185,16 @@ export class Camera {
     mul4(Camera._t3, P, t2) // t3 = P × T × Rx × Rz
 
     for (let i = 0; i < 16; i++) m[i] = Camera._t3[i]
+    this._cacheW = canvasWidth
+    this._cacheH = canvasHeight
+    this._cacheDpr = dpr
+    this._cacheCx = this.centerX
+    this._cacheCy = this.centerY
+    this._cacheZoom = this.zoom
+    this._cacheBearing = this.bearing
+    this._cachePitch = this.pitch
+    this._cacheFar = far
+    this._invDirty = true
     return far
   }
 
@@ -195,10 +233,16 @@ export class Camera {
   // ── MVP Inverse (for screen → world unprojection) ──
   private rtcMatrixInv = new Float32Array(16)
 
-  /** Get the inverse of the RTC matrix (cached per frame) */
+  /** Get the inverse of the RTC matrix (cached per frame). The MVP cache
+   *  in `_buildRTCMatrix` flips `_invDirty` only when the matrix actually
+   *  changes; while the matrix is stable (e.g. across the 49 tile-selector
+   *  unproject calls of a single frame) we skip the invert4x4 entirely. */
   getRTCMatrixInverse(canvasWidth: number, canvasHeight: number, dpr: number = 1): Float32Array {
-    const mvp = this.getRTCMatrix(canvasWidth, canvasHeight, dpr)
-    invert4x4(mvp, this.rtcMatrixInv)
+    this._buildRTCMatrix(canvasWidth, canvasHeight, dpr)
+    if (this._invDirty) {
+      invert4x4(this.rtcMatrix, this.rtcMatrixInv)
+      this._invDirty = false
+    }
     return this.rtcMatrixInv
   }
 
