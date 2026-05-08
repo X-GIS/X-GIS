@@ -589,6 +589,57 @@ export function visibleTilesFrustum(
     }
   }
 
+  // ── PARENT inject for high pitch ──────────────────────────────────
+  // The maxZ inject above gets the camera-vicinity z=maxZ tiles into
+  // `neededKeys`, which protects them from eviction. But when maxZ
+  // exceeds the source archive (e.g. PMTiles maxLevel=15 + camera
+  // zoom=15.78 → engine requests z=16), z=maxZ tiles must be sub-tile
+  // generated from their z=maxZ-1 parents. If those parents aren't in
+  // cache the sub-tile gen fails and the tile falls back two levels
+  // deeper (z=maxZ-2), producing the "foreground generalised
+  // ancestor blocks" the user reported at Seoul z=15.78 pitch=85°.
+  //
+  // Empirical evidence in fb8ee9b's diag: the close-camera area
+  // rendered from z=14 fallback tiles (red overlay) while the horizon
+  // showed correct z=15 primaries. With the 64-tile mobile cap, the
+  // wide-pitch DFS easily filled the budget with far/horizon tiles
+  // and evicted the close-area z=15 parents — even though their
+  // children were in `neededKeys`.
+  //
+  // Fix: at high pitch, explicitly add the camera-vicinity parents
+  // at z=maxZ-1 to `neededKeys` so they're protected too. Only fires
+  // at pitch ≥ 30° (the same gate the maxZ inject uses) and when
+  // maxZ > 0. Modest size — ⌈(maxRing+1)/2⌉² unique parents,
+  // typically 9 tiles for a 5×5 ring. With the cap headroom this
+  // costs us ~4-9 protected keys to fix the close-area visual.
+  if (pitchDegFn >= 30 && maxZ > 0) {
+    const parentZ = maxZ - 1
+    const parentN = Math.pow(2, parentZ)
+    // Convert min/max child tile bounds to parent tile bounds.
+    const pMinTX = Math.floor(minTX / 2)
+    const pMaxTX = Math.floor(maxTX / 2)
+    const pMinTY = Math.floor(minTY / 2)
+    const pMaxTY = Math.floor(maxTY / 2)
+    // Separate dedup for parents — different zoom can't collide with
+    // child injects above, so a small per-zoom set keeps the keys
+    // unambiguous without bumping the existing 64-bit shift math.
+    const parentSeen = new Set<number>()
+    for (const t of result) {
+      if (t.z === parentZ) parentSeen.add((t.y * 4194304) + (t.ox + parentN))
+    }
+    for (let pty = pMinTY; pty <= pMaxTY; pty++) {
+      if (pty < 0 || pty >= parentN) continue
+      for (let ptx = pMinTX; ptx <= pMaxTX; ptx++) {
+        const wrappedX = ((ptx % parentN) + parentN) % parentN
+        const pox = ptx
+        const k = (pty * 4194304) + (pox + parentN)
+        if (parentSeen.has(k)) continue
+        parentSeen.add(k)
+        result.push({ z: parentZ, x: wrappedX, y: pty, ox: pox })
+      }
+    }
+  }
+
   return result
 }
 
