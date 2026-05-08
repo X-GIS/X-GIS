@@ -70,6 +70,17 @@ function evaluateFieldAccess(expr: AST.FieldAccess, props: FeatureProps, _fnEnv?
 
 function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv): unknown {
   const left = evaluate(expr.left, props, fnEnv)
+  // `??` short-circuits — only evaluates RHS when LHS is null /
+  // undefined / non-finite numeric. Mirrors JS semantics so a
+  // style author can write `extrude: .height ?? 50` to get the
+  // raw `.height` when present and fall back to 50 when missing.
+  // Evaluated BEFORE coercing to number so `0` and `false` stay
+  // as themselves on the left and don't trigger fallback.
+  if (expr.op === '??') {
+    if (left === null || left === undefined) return evaluate(expr.right, props, fnEnv)
+    if (typeof left === 'number' && !Number.isFinite(left)) return evaluate(expr.right, props, fnEnv)
+    return left
+  }
   const right = evaluate(expr.right, props, fnEnv)
 
   const l = toNumber(left)

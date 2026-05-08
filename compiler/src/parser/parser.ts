@@ -825,7 +825,7 @@ export class Parser {
 
   // expr | transform | transform
   private parsePipe(): AST.Expr {
-    let left = this.parseLogicalOr()
+    let left = this.parseCoalesce()
 
     if (this.check(TokenType.Pipe)) {
       const transforms: AST.FnCall[] = []
@@ -841,6 +841,24 @@ export class Parser {
       return { kind: 'PipeExpr', input: left, transforms }
     }
 
+    return left
+  }
+
+  // ?? — null/undefined/missing fallback. Sits between pipe (`|`)
+  // and `||` in precedence so `.height ?? 50` parses as a single
+  // BinaryExpr without paren juggling, and `a || b ?? c` parses
+  // as `(a || b) ?? c` (the `||` binds tighter, like JS where the
+  // two cannot mix without parens but this engine resolves with a
+  // flat lower-precedence rule). Right-associative chaining via
+  // the while-loop below: `.h ?? .level * 3 ?? 50` walks
+  // left→right, binding the rightmost first thanks to the chain.
+  private parseCoalesce(): AST.Expr {
+    let left = this.parseLogicalOr()
+    while (this.check(TokenType.QuestionQuestion)) {
+      const op = this.advance().value
+      const right = this.parseLogicalOr()
+      left = { kind: 'BinaryExpr', op, left, right }
+    }
     return left
   }
 

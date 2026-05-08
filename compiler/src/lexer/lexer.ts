@@ -80,6 +80,7 @@ export class Lexer {
       if (ch === '>' && this.peek(1) === '=') { this.push(TokenType.GtEq, '>='); this.advance(2); continue }
       if (ch === '&' && this.peek(1) === '&') { this.push(TokenType.AmpAmp, '&&'); this.advance(2); continue }
       if (ch === '|' && this.peek(1) === '|') { this.push(TokenType.PipePipe, '||'); this.advance(2); continue }
+      if (ch === '?' && this.peek(1) === '?') { this.push(TokenType.QuestionQuestion, '??'); this.advance(2); continue }
       if (ch === '-' && this.peek(1) === '>') { this.push(TokenType.Arrow, '->'); this.advance(2); continue }
 
       // 1-char symbols

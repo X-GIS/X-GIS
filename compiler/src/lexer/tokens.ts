@@ -71,6 +71,7 @@ export enum TokenType {
   Amp, // &
   AmpAmp, // &&
   PipePipe, // ||
+  QuestionQuestion, // ?? (nullish coalesce)
   Bang, // !
   Question, // ?
 
