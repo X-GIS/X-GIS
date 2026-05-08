@@ -80,13 +80,13 @@ source basemap {
   },
   {
     id: 'modifiers',
-    title: 'Zoom modifiers',
-    body: 'Prefix any utility with `z<N>:` to set the value at that zoom level. The runtime interpolates between the stops at each frame, so transitions are smooth without manual animation.',
+    title: 'Zoom-driven values',
+    body: 'Wrap any utility value in `interpolate(zoom, z1, v1, z2, v2, …)` to make it a function of camera zoom. The runtime samples the function each frame and linearly blends between adjacent stops — same builtin works on feature properties, so `interpolate(.population, …)` gives a continuous gradient with no extra syntax.',
     demoId: 'zoom',
     code: `layer countries {
   source: world
   | fill-purple-400 stroke-purple-200 stroke-1
-  | z2:opacity-30 z5:opacity-60 z8:opacity-90
+  | opacity-[interpolate(zoom, 2, 30, 5, 60, 8, 90)]
 }`,
   },
   {

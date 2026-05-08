@@ -3,6 +3,7 @@ const githubUrl = 'https://github.com/X-GIS/X-GIS'
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const docsUrl = `${base}/docs`
 const examplesUrl = `${base}/examples`
+const convertUrl = `${base}/convert`
 ---
 
 <section class="relative min-h-[100svh] flex items-center justify-center overflow-hidden pt-24 pb-16">
@@ -52,6 +53,16 @@ const examplesUrl = `${base}/examples`
                text-accent hover:text-accent-hover text-[15px] font-medium transition-colors"
       >
         View examples
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 6l6 6-6 6"/>
+        </svg>
+      </a>
+      <a
+        href={convertUrl}
+        class="inline-flex items-center gap-2 px-6 h-11 rounded-full
+               text-fg-dim hover:text-fg text-[15px] font-medium transition-colors"
+      >
+        Convert from Mapbox
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M9 6l6 6-6 6"/>
         </svg>

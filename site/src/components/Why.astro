@@ -13,8 +13,8 @@ const pillars = [
     body: 'Switch from Mercator to Orthographic to Natural Earth via a uniform. The same data renders to a flat map, a globe, or anywhere else — no re-tessellation.',
   },
   {
-    title: 'Modifiers stack.',
-    body: 'z8:opacity-40 z14:opacity-100 z16:size-12. Stack zoom-conditional rules the same way you stack CSS breakpoint utilities.',
+    title: 'Zoom is a function input.',
+    body: 'opacity-[interpolate(zoom, 8, 40, 14, 100)]. Camera state is a runtime value the compiler can sample — same shape works for feature properties.',
   },
 ]
 ---

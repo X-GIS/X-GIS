@@ -120,12 +120,21 @@ const utilFamilies: UtilFamily[] = [
   },
   {
     name: 'Modifiers',
-    signature: 'z<N>: | <fieldName>:',
-    body: 'Prefix any utility to make it conditional. `z<N>:` makes the value apply at zoom N; `<fieldName>:` makes the value apply when the feature property is truthy.',
+    signature: '<fieldName>:',
+    body: 'Prefix any utility to make it conditional on a feature property. `priority:fill-rose-500` applies when the feature\'s `priority` field is truthy. (Zoom-driven values use the `interpolate(zoom, …)` builtin in a binding bracket — see below.)',
     examples: [
-      'z2:opacity-30 z5:opacity-60 z8:opacity-90',
-      'z14:size-12',
       'priority:fill-rose-500',
+      'highway:stroke-amber-500 highway:stroke-2',
+    ],
+  },
+  {
+    name: 'Zoom-driven values',
+    signature: '<utility>-[interpolate(zoom, z1, v1, z2, v2, …)]',
+    body: 'Sample any utility value as a function of camera zoom. Stops are linearly interpolated between the listed zooms; values outside the range clamp to the nearest stop. The same `interpolate(input, …)` builtin works on feature properties (`interpolate(.population, 0, white-100, 1e6, red-500)`).',
+    examples: [
+      'opacity-[interpolate(zoom, 8, 40, 14, 100)]',
+      'stroke-[interpolate(zoom, 11, 1, 19, 2.5)]',
+      'fill-extrusion-height-[interpolate(zoom, 14, 0, 14.5, .render_height)]',
     ],
   },
 ]

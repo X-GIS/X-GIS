@@ -13,9 +13,7 @@ import { join, extname } from 'node:path'
 function staticServer(root: string) {
   return createServer((req, res) => {
     let urlPath = (req.url ?? '/').split('?')[0]
-    if (urlPath === '/' || urlPath === '/convert' || urlPath === '/convert/') {
-      urlPath = '/convert/index.html'
-    }
+    if (urlPath.endsWith('/')) urlPath += 'index.html'
     const filePath = join(root, urlPath)
     if (!existsSync(filePath) || !statSync(filePath).isFile()) {
       res.statusCode = 404; res.end('not found'); return
@@ -41,16 +39,19 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
 
   try {
     await page.goto(`http://localhost:${port}/convert/`)
-
-    // Preset chips render with the OpenFreeMap names.
     const chips = page.locator('.preset-chip')
     await expect(chips).toHaveCount(3)
     await expect(chips.first()).toContainText('Liberty')
-
-    // Compatibility reference section is on the page.
     await expect(page.locator('h2', { hasText: 'compatibility' })).toBeVisible()
-
     await page.screenshot({ path: 'test-results/convert-redesign.png', fullPage: true })
+
+    // Homepage check — Mapbox CTA button visible, Why pillars
+    // updated to mention `interpolate(zoom, …)`.
+    await page.goto(`http://localhost:${port}/`)
+    // Element exists in DOM even if hero-fade-up animation hasn't fired.
+    await expect(page.locator('a', { hasText: 'Convert from Mapbox' })).toHaveCount(1)
+    await expect(page.locator('text=interpolate(zoom')).toHaveCount(1)
+    await page.screenshot({ path: 'test-results/site-home.png', fullPage: true })
   } finally {
     server.close()
   }

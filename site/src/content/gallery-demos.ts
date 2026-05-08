@@ -61,6 +61,7 @@ export const galleryCategories: Category[] = [
       { id: 'osm-style',              runId: 'osm_style',                title: 'OSM-style cartography',   body: 'Per-kind landuse + road hierarchy + extruded buildings (3D walls visible at high pitch).', defaultHash: '17/40.7580/-73.9855/0/75' },
       { id: 'pmtiles-only-landuse',   title: 'Landuse slice',           body: 'Filter a PMTiles archive down to a single MVT layer.', defaultHash: '12/35.68/139.76' },
       { id: 'pmtiles-protomaps-v4',   runId: 'pmtiles_v4',              title: 'Protomaps v4',            body: 'Protomaps v4 daily world basemap — earth source-layer + vector_layers metadata.', defaultHash: '3/30/0' },
+      { id: 'openfreemap-bright',     runId: 'openfreemap_bright',      title: 'OpenFreeMap · Bright',    body: 'Live OpenFreeMap "bright" Mapbox style, run through the /convert pipeline. 93 layers from a real-world cartographic style.', defaultHash: '14/35.68/139.76' },
     ],
   },
   {
@@ -128,7 +129,7 @@ export const galleryCategories: Category[] = [
     title: 'Zoom behavior',
     body: 'Zoom-conditional utilities and level-of-detail switching.',
     demos: [
-      { id: 'zoom',     title: 'Zoom modifier',  body: 'z2:opacity-30 z5:opacity-60 z8:opacity-90 — interpolated.' },
+      { id: 'zoom',     title: 'Zoom-driven opacity',  body: 'opacity-[interpolate(zoom, 2, 30, 5, 60, 8, 90)] — linearly blended.' },
       { id: 'zoom-lod', title: 'LOD switching',  body: 'Different layers active at different zoom ranges.' },
     ],
   },
