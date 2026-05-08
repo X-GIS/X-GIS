@@ -890,12 +890,24 @@ export class XGISMap {
     // doesn't need this; the layer sets currentExtrudeHeight from the
     // literal at render time.
     const extrudeExprsBySource = new Map<string, Record<string, unknown>>()
+    const extrudeBaseExprsBySource = new Map<string, Record<string, unknown>>()
     for (const show of commands.shows) {
       const ex = show.extrude
-      if (!ex || ex.kind !== 'feature' || !show.sourceLayer) continue
-      let layerMap = extrudeExprsBySource.get(show.targetName)
-      if (!layerMap) { layerMap = {}; extrudeExprsBySource.set(show.targetName, layerMap) }
-      layerMap[show.sourceLayer] = ex.expr.ast
+      if (ex && ex.kind === 'feature' && show.sourceLayer) {
+        let layerMap = extrudeExprsBySource.get(show.targetName)
+        if (!layerMap) { layerMap = {}; extrudeExprsBySource.set(show.targetName, layerMap) }
+        layerMap[show.sourceLayer] = ex.expr.ast
+      }
+      // Mapbox `fill-extrusion-base` companion. Plumb the per-feature
+      // base AST so the worker can resolve each feature's wall-bottom
+      // z. `kind: 'constant'` is handled at render time uniformly;
+      // only `feature` requires per-feature decode.
+      const exb = show.extrudeBase
+      if (exb && exb.kind === 'feature' && show.sourceLayer) {
+        let layerMap = extrudeBaseExprsBySource.get(show.targetName)
+        if (!layerMap) { layerMap = {}; extrudeBaseExprsBySource.set(show.targetName, layerMap) }
+        layerMap[show.sourceLayer] = exb.expr.ast
+      }
     }
 
     // Per-show stroke-width override AST. Synthesized by the
@@ -993,6 +1005,7 @@ export class XGISMap {
             url: fullUrl,
             layers: filterLayers,
             extrudeExprs: extrudeExprsBySource.get(load.name),
+            extrudeBaseExprs: extrudeBaseExprsBySource.get(load.name),
             showSlices: showSlicesBySource.get(load.name),
             strokeWidthExprs: strokeWidthExprsBySource.get(load.name),
             strokeColorExprs: strokeColorExprsBySource.get(load.name),

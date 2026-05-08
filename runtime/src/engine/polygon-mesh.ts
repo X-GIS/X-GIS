@@ -259,6 +259,12 @@ export function generateWallMeshExtruded(
   tileMy: number,
   heights: ReadonlyMap<number, number>,
   defaultHeight: number,
+  /** Optional `featId → wall base z` (Mapbox `fill-extrusion-base`).
+   *  When provided, wall BOTTOM vertices use this z instead of 0,
+   *  carving out a `min_height` podium. Missing entries fall back to
+   *  `defaultBase` (default 0). */
+  bases?: ReadonlyMap<number, number>,
+  defaultBase: number = 0,
 ): WallMeshExtruded {
   // Tile-rect edges are SYNTHETIC — added by Sutherland-Hodgman
   // clipping when a polygon spans tile boundaries. Emitting walls on
@@ -302,7 +308,7 @@ export function generateWallMeshExtruded(
   let vIdx = 0
   let idxOut = 0
 
-  const writeVertex = (mx: number, my: number, isTop: boolean, fid: number, h: number): void => {
+  const writeVertex = (mx: number, my: number, isTop: boolean, fid: number, h: number, b: number): void => {
     let mxQ = Math.round((mx - tileMx) * scale)
     let myQ = Math.round((my - tileMy) * scale)
     if (mxQ < 0) mxQ = 0; else if (mxQ > POS_RANGE) mxQ = POS_RANGE
@@ -311,13 +317,14 @@ export function generateWallMeshExtruded(
     u16[u16Idx] = mxQ | (isTop ? IS_TOP_BIT : 0)
     u16[u16Idx + 1] = myQ
     f32[vIdx * 2 + 1] = fid
-    z[vIdx] = isTop ? h : 0
+    z[vIdx] = isTop ? h : b
     vIdx++
   }
 
   for (const poly of polygons) {
     const fid = poly.featId
     const h = heights.get(fid) ?? defaultHeight
+    const b = bases?.get(fid) ?? defaultBase
     for (let r = 0; r < poly.rings.length; r++) {
       const ring = poly.rings[r]
       const len = ring.length
@@ -351,10 +358,10 @@ export function generateWallMeshExtruded(
         const ax = ring[aIdx][0], ay = ring[aIdx][1]
         const bx = ring[bIdx][0], by = ring[bIdx][1]
         const baseV = vIdx
-        writeVertex(ax, ay, false, fid, h)
-        writeVertex(bx, by, false, fid, h)
-        writeVertex(ax, ay, true,  fid, h)
-        writeVertex(bx, by, true,  fid, h)
+        writeVertex(ax, ay, false, fid, h, b)
+        writeVertex(bx, by, false, fid, h, b)
+        writeVertex(ax, ay, true,  fid, h, b)
+        writeVertex(bx, by, true,  fid, h, b)
         indices[idxOut++] = baseV + 0
         indices[idxOut++] = baseV + 1
         indices[idxOut++] = baseV + 2

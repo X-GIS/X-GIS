@@ -151,6 +151,7 @@ function lowerLayer(
   let filterExpr: import('../parser/ast').Expr | null = null
   let geometryExpr: import('../parser/ast').Expr | null = null
   let extrude: import('./render-node').ExtrudeValue = { kind: 'none' }
+  let extrudeBase: import('./render-node').ExtrudeValue = { kind: 'none' }
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -347,7 +348,8 @@ function lowerLayer(
 
       // ── Unmodified items ──
 
-      // Data binding: fill-[expr], size-[expr], opacity-[expr]
+      // Data binding: fill-[expr], size-[expr], opacity-[expr],
+      // fill-extrusion-height-[expr], fill-extrusion-base-[expr]
       if (item.binding) {
         if (name === 'fill') {
           fill = { kind: 'data-driven', expr: { ast: item.binding } }
@@ -355,11 +357,29 @@ function lowerLayer(
           size = { kind: 'data-driven', expr: { ast: item.binding }, unit: item.bindingUnit ?? null }
         } else if (name === 'opacity') {
           opacity = { kind: 'data-driven', expr: { ast: item.binding } }
+        } else if (name === 'fill-extrusion-height') {
+          extrude = { kind: 'feature', expr: { ast: item.binding }, fallback: 0 }
+        } else if (name === 'fill-extrusion-base') {
+          extrudeBase = { kind: 'feature', expr: { ast: item.binding }, fallback: 0 }
         }
         continue
       }
 
-      if (name.startsWith('fill-')) {
+      if (name.startsWith('fill-extrusion-height-')) {
+        // Mapbox `fill-extrusion-height` paint property as a tailwind-
+        // shaped utility. Value is a static metres count; data-driven
+        // form is handled higher up via the `-[expr]` binding branch.
+        const num = parseFloat(name.slice('fill-extrusion-height-'.length))
+        if (!isNaN(num)) extrude = { kind: 'constant', value: num }
+      } else if (name.startsWith('fill-extrusion-base-')) {
+        // Mapbox `fill-extrusion-base` paint property — z of the
+        // wall BOTTOM (default 0). Combined with the height utility
+        // it carves out a `min_height`-style podium for tall
+        // buildings. Static-value form; data-driven goes through
+        // the `-[expr]` branch above.
+        const num = parseFloat(name.slice('fill-extrusion-base-'.length))
+        if (!isNaN(num)) extrudeBase = { kind: 'constant', value: num }
+      } else if (name.startsWith('fill-')) {
         const hex = resolveColor(name.slice(5))
         if (hex) fill = colorConstant(...hexToRgba(hex))
       } else if (name === 'stroke-butt-cap') {
@@ -724,6 +744,7 @@ function lowerLayer(
     shape,
     anchor,
     extrude,
+    extrudeBase,
   }
 }
 
@@ -982,5 +1003,6 @@ function lowerShow(stmt: AST.ShowStatement): RenderNode | null {
     billboard: true,
     shape: shapeNone(),
     extrude: { kind: 'none' },
+    extrudeBase: { kind: 'none' },
   }
 }

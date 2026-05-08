@@ -54,6 +54,13 @@ export interface RenderNode {
    *  'height'); the runtime asks the MVT decoder to preserve that
    *  field at decode time. */
   extrude: ExtrudeValue
+  /** 3D extrusion base — the z value of the BOTTOM of the side walls
+   *  (default 0, ground). Mapbox `fill-extrusion-base` semantic:
+   *  combined with `extrude` (= top) it carves out a "min_height"
+   *  for buildings whose footprint sits on a podium. Same value
+   *  shapes as `extrude` (none / constant / feature). When `extrude`
+   *  is `none`, this field is irrelevant and ignored. */
+  extrudeBase: ExtrudeValue
   projection: string
   visible: boolean
   /** CSS-style pointer interactivity. 'none' tells the runtime to skip

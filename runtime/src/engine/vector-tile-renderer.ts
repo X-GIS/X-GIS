@@ -891,7 +891,7 @@ export class VectorTileRenderer {
       const tileMx = data.tileWest * DEG2RAD * R
       const clampLat = Math.max(-85.051129, Math.min(85.051129, data.tileSouth))
       const tileMy = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
-      const wall = generateWallMeshExtruded(data.polygons, tileExtentM, tileMx, tileMy, data.heights!, fallbackHeight)
+      const wall = generateWallMeshExtruded(data.polygons, tileExtentM, tileMx, tileMy, data.heights!, fallbackHeight, data.bases, 0)
       const combined = new Uint8Array(top.vertices.byteLength + wall.vertices.byteLength)
       combined.set(new Uint8Array(top.vertices), 0)
       combined.set(new Uint8Array(wall.vertices), top.vertices.byteLength)

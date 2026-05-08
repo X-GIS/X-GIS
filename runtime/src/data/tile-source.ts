@@ -73,6 +73,11 @@ export interface BackendTileResult {
    *  buildings); routes the slice to the extruded fill pipeline at
    *  upload time. Undefined / empty → use the layer's uniform default. */
   heights?: ReadonlyMap<number, number>
+  /** featId → wall base z (metres) — Mapbox `fill-extrusion-base`.
+   *  Companion to `heights`; missing entries fall back to 0. Only
+   *  populated for layers whose style declares
+   *  `fill-extrusion-base-…`. */
+  bases?: ReadonlyMap<number, number>
   /** Set when this tile's polygon entirely covers its area. With
    *  empty vertices, catalog synthesises a quad via
    *  createFullCoverTileData. */

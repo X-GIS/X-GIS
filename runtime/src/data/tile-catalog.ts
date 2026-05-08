@@ -341,6 +341,7 @@ export class TileCatalog {
       result.prebuiltOutlineSegments,
       sourceLayer,
       result.heights,
+      result.bases,
     )
   }
 
@@ -884,6 +885,7 @@ export class TileCatalog {
      *  layer name for per-MVT-layer slices. */
     sourceLayer = '',
     heights?: ReadonlyMap<number, number>,
+    bases?: ReadonlyMap<number, number>,
   ): void {
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
@@ -906,6 +908,7 @@ export class TileCatalog {
       tileZoom: tz,
       polygons,
       heights,
+      bases,
     }
 
     this.setSlice(key, sourceLayer, data)

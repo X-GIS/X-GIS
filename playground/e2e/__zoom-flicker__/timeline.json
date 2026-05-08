@@ -1,0 +1,2216 @@
+[
+  {
+    "t": 0.10000002384185791,
+    "tick": -1,
+    "cameraZoom": 3,
+    "frameCount": 386,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 9.400000035762787,
+    "tick": 0,
+    "cameraZoom": 3,
+    "frameCount": 386,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 23.100000023841858,
+    "tick": 1,
+    "cameraZoom": 3.1,
+    "frameCount": 387,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 37,
+    "tick": 2,
+    "cameraZoom": 3.2,
+    "frameCount": 388,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 73,
+        "tilesVisible": 73,
+        "missedTiles": 0,
+        "triangles": 558197,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 51,
+    "tick": 3,
+    "cameraZoom": 3.3,
+    "frameCount": 389,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 73,
+        "tilesVisible": 73,
+        "missedTiles": 0,
+        "triangles": 558197,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 64.80000001192093,
+    "tick": 4,
+    "cameraZoom": 3.4,
+    "frameCount": 390,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 61,
+        "tilesVisible": 61,
+        "missedTiles": 0,
+        "triangles": 491584,
+        "lines": 23965,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 78.60000002384186,
+    "tick": 5,
+    "cameraZoom": 3.5,
+    "frameCount": 391,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 61,
+        "tilesVisible": 61,
+        "missedTiles": 0,
+        "triangles": 491584,
+        "lines": 23965,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 92.5,
+    "tick": 6,
+    "cameraZoom": 3.6,
+    "frameCount": 392,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 61,
+        "tilesVisible": 61,
+        "missedTiles": 0,
+        "triangles": 491584,
+        "lines": 23965,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 109,
+    "tick": 7,
+    "cameraZoom": 3.7,
+    "frameCount": 394,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 38,
+        "tilesVisible": 38,
+        "missedTiles": 7,
+        "triangles": 355228,
+        "lines": 20498,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 122.20000004768372,
+    "tick": 8,
+    "cameraZoom": 3.8,
+    "frameCount": 396,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 41,
+        "tilesVisible": 41,
+        "missedTiles": 6,
+        "triangles": 371322,
+        "lines": 20522,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 135.80000001192093,
+    "tick": 9,
+    "cameraZoom": 3.9,
+    "frameCount": 398,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 40,
+        "tilesVisible": 40,
+        "missedTiles": 7,
+        "triangles": 368628,
+        "lines": 20498,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 149.60000002384186,
+    "tick": 10,
+    "cameraZoom": 4,
+    "frameCount": 400,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 43,
+        "tilesVisible": 43,
+        "missedTiles": 7,
+        "triangles": 387409,
+        "lines": 22842,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 164.20000004768372,
+    "tick": 11,
+    "cameraZoom": 4.1,
+    "frameCount": 402,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 34,
+        "tilesVisible": 34,
+        "missedTiles": 2,
+        "triangles": 324093,
+        "lines": 20498,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 178.60000002384186,
+    "tick": 12,
+    "cameraZoom": 4.2,
+    "frameCount": 404,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 34,
+        "tilesVisible": 34,
+        "missedTiles": 2,
+        "triangles": 324093,
+        "lines": 20498,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 192.5,
+    "tick": 13,
+    "cameraZoom": 4.3,
+    "frameCount": 406,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 26,
+        "tilesVisible": 26,
+        "missedTiles": 1,
+        "triangles": 275459,
+        "lines": 18457,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 206.10000002384186,
+    "tick": 14,
+    "cameraZoom": 4.4,
+    "frameCount": 408,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 26,
+        "tilesVisible": 26,
+        "missedTiles": 1,
+        "triangles": 275459,
+        "lines": 18457,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 221.30000001192093,
+    "tick": 15,
+    "cameraZoom": 4.5,
+    "frameCount": 410,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 26,
+        "tilesVisible": 26,
+        "missedTiles": 1,
+        "triangles": 275459,
+        "lines": 18457,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 233.80000001192093,
+    "tick": 16,
+    "cameraZoom": 4.6,
+    "frameCount": 412,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 26,
+        "tilesVisible": 26,
+        "missedTiles": 1,
+        "triangles": 275459,
+        "lines": 18457,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 246.80000001192093,
+    "tick": 17,
+    "cameraZoom": 4.7,
+    "frameCount": 414,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 261.10000002384186,
+    "tick": 18,
+    "cameraZoom": 4.8,
+    "frameCount": 416,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 274.80000001192093,
+    "tick": 19,
+    "cameraZoom": 4.9,
+    "frameCount": 418,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 289.10000002384186,
+    "tick": 20,
+    "cameraZoom": 5,
+    "frameCount": 420,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 303.5,
+    "tick": 21,
+    "cameraZoom": 5.1,
+    "frameCount": 422,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 317.80000001192093,
+    "tick": 22,
+    "cameraZoom": 5.2,
+    "frameCount": 424,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 331.60000002384186,
+    "tick": 23,
+    "cameraZoom": 5.300000000000001,
+    "frameCount": 426,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 346,
+    "tick": 24,
+    "cameraZoom": 5.4,
+    "frameCount": 428,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 361.10000002384186,
+    "tick": 25,
+    "cameraZoom": 5.5,
+    "frameCount": 430,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 373.4000000357628,
+    "tick": 26,
+    "cameraZoom": 5.6,
+    "frameCount": 432,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 386.60000002384186,
+    "tick": 27,
+    "cameraZoom": 5.7,
+    "frameCount": 434,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 400,
+    "tick": 28,
+    "cameraZoom": 5.800000000000001,
+    "frameCount": 436,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 414.4000000357628,
+    "tick": 29,
+    "cameraZoom": 5.9,
+    "frameCount": 438,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 428.10000002384186,
+    "tick": 30,
+    "cameraZoom": 6,
+    "frameCount": 440,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 14,
+        "tilesVisible": 14,
+        "missedTiles": 0,
+        "triangles": 122195,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 442,
+    "tick": 31,
+    "cameraZoom": 6,
+    "frameCount": 442,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 14,
+        "tilesVisible": 14,
+        "missedTiles": 0,
+        "triangles": 122195,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 455.7000000476837,
+    "tick": 32,
+    "cameraZoom": 5.9,
+    "frameCount": 444,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 469.60000002384186,
+    "tick": 33,
+    "cameraZoom": 5.8,
+    "frameCount": 446,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 484.10000002384186,
+    "tick": 34,
+    "cameraZoom": 5.7,
+    "frameCount": 448,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 498.80000001192093,
+    "tick": 35,
+    "cameraZoom": 5.6,
+    "frameCount": 450,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 511.4000000357628,
+    "tick": 36,
+    "cameraZoom": 5.5,
+    "frameCount": 452,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 528.8000000119209,
+    "tick": 37,
+    "cameraZoom": 5.4,
+    "frameCount": 454,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 546.9000000357628,
+    "tick": 38,
+    "cameraZoom": 5.3,
+    "frameCount": 456,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 556.4000000357628,
+    "tick": 39,
+    "cameraZoom": 5.2,
+    "frameCount": 458,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 568.7000000476837,
+    "tick": 40,
+    "cameraZoom": 5.1,
+    "frameCount": 460,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 580.2000000476837,
+    "tick": 41,
+    "cameraZoom": 5,
+    "frameCount": 462,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 594.4000000357628,
+    "tick": 42,
+    "cameraZoom": 4.9,
+    "frameCount": 464,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 608.1000000238419,
+    "tick": 43,
+    "cameraZoom": 4.8,
+    "frameCount": 466,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 622.8000000119209,
+    "tick": 44,
+    "cameraZoom": 4.7,
+    "frameCount": 468,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 635.9000000357628,
+    "tick": 45,
+    "cameraZoom": 4.6,
+    "frameCount": 470,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 649.8000000119209,
+    "tick": 46,
+    "cameraZoom": 4.5,
+    "frameCount": 472,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 12,
+        "tilesVisible": 12,
+        "missedTiles": 0,
+        "triangles": 83226,
+        "lines": 17622,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 666.1000000238419,
+    "tick": 47,
+    "cameraZoom": 4.4,
+    "frameCount": 474,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 26,
+        "tilesVisible": 26,
+        "missedTiles": 1,
+        "triangles": 275459,
+        "lines": 18457,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 678.6000000238419,
+    "tick": 48,
+    "cameraZoom": 4.3,
+    "frameCount": 476,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 26,
+        "tilesVisible": 26,
+        "missedTiles": 1,
+        "triangles": 275459,
+        "lines": 18457,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 692.6000000238419,
+    "tick": 49,
+    "cameraZoom": 4.2,
+    "frameCount": 478,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 34,
+        "tilesVisible": 34,
+        "missedTiles": 2,
+        "triangles": 324093,
+        "lines": 20498,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 707.1000000238419,
+    "tick": 50,
+    "cameraZoom": 4.1,
+    "frameCount": 480,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 34,
+        "tilesVisible": 34,
+        "missedTiles": 2,
+        "triangles": 324093,
+        "lines": 20498,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 719.5,
+    "tick": 51,
+    "cameraZoom": 4,
+    "frameCount": 482,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 43,
+        "tilesVisible": 43,
+        "missedTiles": 7,
+        "triangles": 387409,
+        "lines": 22842,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 733,
+    "tick": 52,
+    "cameraZoom": 3.9,
+    "frameCount": 484,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 40,
+        "tilesVisible": 40,
+        "missedTiles": 7,
+        "triangles": 368628,
+        "lines": 20498,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 747.1000000238419,
+    "tick": 53,
+    "cameraZoom": 3.8,
+    "frameCount": 486,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 41,
+        "tilesVisible": 41,
+        "missedTiles": 6,
+        "triangles": 371322,
+        "lines": 20522,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 760.9000000357628,
+    "tick": 54,
+    "cameraZoom": 3.6999999999999997,
+    "frameCount": 488,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 38,
+        "tilesVisible": 38,
+        "missedTiles": 7,
+        "triangles": 355228,
+        "lines": 20498,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 775.1000000238419,
+    "tick": 55,
+    "cameraZoom": 3.5999999999999996,
+    "frameCount": 490,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 38,
+        "tilesVisible": 38,
+        "missedTiles": 7,
+        "triangles": 355228,
+        "lines": 20498,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 788.3000000119209,
+    "tick": 56,
+    "cameraZoom": 3.5,
+    "frameCount": 492,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 39,
+        "tilesVisible": 39,
+        "missedTiles": 9,
+        "triangles": 352390,
+        "lines": 20498,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 803,
+    "tick": 57,
+    "cameraZoom": 3.4,
+    "frameCount": 494,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 61,
+        "tilesVisible": 61,
+        "missedTiles": 0,
+        "triangles": 491584,
+        "lines": 23965,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 816.4000000357628,
+    "tick": 58,
+    "cameraZoom": 3.3,
+    "frameCount": 496,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 73,
+        "tilesVisible": 73,
+        "missedTiles": 0,
+        "triangles": 558197,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 830.1000000238419,
+    "tick": 59,
+    "cameraZoom": 3.1999999999999997,
+    "frameCount": 498,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 73,
+        "tilesVisible": 73,
+        "missedTiles": 0,
+        "triangles": 558197,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 844.3000000119209,
+    "tick": 60,
+    "cameraZoom": 3.0999999999999996,
+    "frameCount": 500,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 858,
+    "tick": 61,
+    "cameraZoom": 3,
+    "frameCount": 502,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 864.9000000357628,
+    "tick": 62,
+    "cameraZoom": 3,
+    "frameCount": 503,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 871.4000000357628,
+    "tick": 63,
+    "cameraZoom": 3,
+    "frameCount": 504,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 878.8000000119209,
+    "tick": 64,
+    "cameraZoom": 3,
+    "frameCount": 505,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 885.7000000476837,
+    "tick": 65,
+    "cameraZoom": 3,
+    "frameCount": 506,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 893.2000000476837,
+    "tick": 66,
+    "cameraZoom": 3,
+    "frameCount": 507,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 901.3000000119209,
+    "tick": 67,
+    "cameraZoom": 3,
+    "frameCount": 508,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 907.2000000476837,
+    "tick": 68,
+    "cameraZoom": 3,
+    "frameCount": 509,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 913.6000000238419,
+    "tick": 69,
+    "cameraZoom": 3,
+    "frameCount": 510,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 920.9000000357628,
+    "tick": 70,
+    "cameraZoom": 3,
+    "frameCount": 511,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 927.4000000357628,
+    "tick": 71,
+    "cameraZoom": 3,
+    "frameCount": 512,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 934,
+    "tick": 72,
+    "cameraZoom": 3,
+    "frameCount": 513,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 940.9000000357628,
+    "tick": 73,
+    "cameraZoom": 3,
+    "frameCount": 514,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 948.5,
+    "tick": 74,
+    "cameraZoom": 3,
+    "frameCount": 515,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 954.7000000476837,
+    "tick": 75,
+    "cameraZoom": 3,
+    "frameCount": 516,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 961.8000000119209,
+    "tick": 76,
+    "cameraZoom": 3,
+    "frameCount": 517,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 969,
+    "tick": 77,
+    "cameraZoom": 3,
+    "frameCount": 518,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 975.9000000357628,
+    "tick": 78,
+    "cameraZoom": 3,
+    "frameCount": 519,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 982.9000000357628,
+    "tick": 79,
+    "cameraZoom": 3,
+    "frameCount": 520,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 989.7000000476837,
+    "tick": 80,
+    "cameraZoom": 3,
+    "frameCount": 521,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 996.9000000357628,
+    "tick": 81,
+    "cameraZoom": 3,
+    "frameCount": 522,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1003.6000000238419,
+    "tick": 82,
+    "cameraZoom": 3,
+    "frameCount": 523,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1010.7000000476837,
+    "tick": 83,
+    "cameraZoom": 3,
+    "frameCount": 524,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1017.2000000476837,
+    "tick": 84,
+    "cameraZoom": 3,
+    "frameCount": 525,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1024.5,
+    "tick": 85,
+    "cameraZoom": 3,
+    "frameCount": 526,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1031.4000000357628,
+    "tick": 86,
+    "cameraZoom": 3,
+    "frameCount": 527,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1039.2000000476837,
+    "tick": 87,
+    "cameraZoom": 3,
+    "frameCount": 528,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1045,
+    "tick": 88,
+    "cameraZoom": 3,
+    "frameCount": 529,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1052.300000011921,
+    "tick": 89,
+    "cameraZoom": 3,
+    "frameCount": 530,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1059,
+    "tick": 90,
+    "cameraZoom": 3,
+    "frameCount": 531,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1066.300000011921,
+    "tick": 91,
+    "cameraZoom": 3,
+    "frameCount": 532,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1073.300000011921,
+    "tick": 92,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1078.7000000476837,
+    "tick": 93,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1085.7000000476837,
+    "tick": 94,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1092.6000000238419,
+    "tick": 95,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1099.6000000238419,
+    "tick": 96,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1106.6000000238419,
+    "tick": 97,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1113.4000000357628,
+    "tick": 98,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1120.5,
+    "tick": 99,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1127.6000000238419,
+    "tick": 100,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1134.300000011921,
+    "tick": 101,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1141.2000000476837,
+    "tick": 102,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1148.300000011921,
+    "tick": 103,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1155.4000000357628,
+    "tick": 104,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1162.1000000238419,
+    "tick": 105,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1169,
+    "tick": 106,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1176,
+    "tick": 107,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1182.9000000357628,
+    "tick": 108,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1189.800000011921,
+    "tick": 109,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1196.9000000357628,
+    "tick": 110,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1203.7000000476837,
+    "tick": 111,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1210.9000000357628,
+    "tick": 112,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1217.800000011921,
+    "tick": 113,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1224.6000000238419,
+    "tick": 114,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1231.5,
+    "tick": 115,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1238.4000000357628,
+    "tick": 116,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1245.4000000357628,
+    "tick": 117,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1252.4000000357628,
+    "tick": 118,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1259.4000000357628,
+    "tick": 119,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1266.300000011921,
+    "tick": 120,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  },
+  {
+    "t": 1273.2000000476837,
+    "tick": 121,
+    "cameraZoom": 3,
+    "frameCount": 533,
+    "vtrs": [
+      {
+        "sourceName": "pm_world",
+        "drawCalls": 86,
+        "tilesVisible": 86,
+        "missedTiles": 0,
+        "triangles": 896450,
+        "lines": 32789,
+        "pendingUploads": 0,
+        "gpuCacheCount": 106
+      }
+    ]
+  }
+]

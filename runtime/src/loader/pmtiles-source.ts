@@ -101,6 +101,10 @@ export interface PMTilesSourceOptions {
    *  its 3D height. Layers without an entry use the worker's default
    *  extraction (`render_height ?? height`). */
   extrudeExprs?: Record<string, unknown>
+  /** Per-MVT-layer 3D-extrude BASE expression AST (Mapbox
+   *  `fill-extrusion-base`). Worker eval per feature, result is the
+   *  wall-bottom z (default 0). */
+  extrudeBaseExprs?: Record<string, unknown>
   /** Per-show slice descriptors. Each entry says "produce a slice
    *  with this sliceKey, drawing only `sourceLayer` features that
    *  pass `filterAst`." Without it, the backend falls back to one
@@ -428,6 +432,7 @@ export async function attachPMTilesSource(
       layers: opts.layers,
       vectorLayers: tj.vectorLayers,
       extrudeExprs: opts.extrudeExprs,
+      extrudeBaseExprs: opts.extrudeBaseExprs,
       showSlices: opts.showSlices,
       strokeWidthExprs: opts.strokeWidthExprs,
     strokeColorExprs: opts.strokeColorExprs,
@@ -503,6 +508,7 @@ export async function attachPMTilesSource(
     layers: opts.layers,
     vectorLayers,
     extrudeExprs: opts.extrudeExprs,
+    extrudeBaseExprs: opts.extrudeBaseExprs,
     showSlices: opts.showSlices,
     fetcher: async (z, x, y, signal) => {
       // Pre-flight abort check. The pmtiles library doesn't natively

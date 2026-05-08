@@ -140,6 +140,9 @@ export interface PMTilesBackendOptions {
    *  against each feature's properties to produce the feature's
    *  height in metres. */
   extrudeExprs?: Record<string, unknown>
+  /** Companion to `extrudeExprs` for Mapbox `fill-extrusion-base` —
+   *  per-feature wall-bottom z (default 0). */
+  extrudeBaseExprs?: Record<string, unknown>
   /** Per-show slice descriptors. With this set, the worker emits one
    *  pre-filtered slice per UNIQUE (sourceLayer, filter) combo
    *  instead of one slice per source layer — eliminating the
@@ -193,6 +196,7 @@ export class PMTilesBackend implements TileSource {
   private fetcher: PMTilesFetcher
   private layers: string[] | undefined
   private extrudeExprs: Record<string, unknown> | undefined
+  private extrudeBaseExprs: Record<string, unknown> | undefined
   private showSlices: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }> | undefined
   private strokeWidthExprs: Record<string, unknown> | undefined
   private strokeColorExprs: Record<string, unknown> | undefined
@@ -229,6 +233,7 @@ export class PMTilesBackend implements TileSource {
     this.fetcher = opts.fetcher
     this.layers = opts.layers
     this.extrudeExprs = opts.extrudeExprs
+    this.extrudeBaseExprs = opts.extrudeBaseExprs
     this.showSlices = opts.showSlices
     this.strokeWidthExprs = opts.strokeWidthExprs
     this.strokeColorExprs = opts.strokeColorExprs
@@ -411,6 +416,7 @@ export class PMTilesBackend implements TileSource {
           widthMerc, heightMerc,
           this.layers,
           this.extrudeExprs,
+          this.extrudeBaseExprs,
           this.showSlices,
           this.strokeWidthExprs,
           this.strokeColorExprs,
@@ -434,6 +440,7 @@ export class PMTilesBackend implements TileSource {
               outlineLineIndices: slice.outlineLineIndices,
               polygons: slice.polygons,
               heights: slice.heights,
+              bases: slice.bases,
               fullCover: slice.fullCover,
               fullCoverFeatureId: slice.fullCoverFeatureId,
               prebuiltLineSegments: slice.prebuiltLineSegments,
@@ -491,6 +498,7 @@ export class PMTilesBackend implements TileSource {
         const tile = compileSingleTile(parts, z, x, y, this.meta.maxZoom)
         if (!tile) return
         const heights = extractFeatureHeights(sourceFeatures, this.extrudeExprs?.[sourceLayer])
+        const bases = extractFeatureHeights(sourceFeatures, this.extrudeBaseExprs?.[sourceLayer])
         const widths = extractFeatureWidths(sourceFeatures, this.strokeWidthExprs?.[sliceKey])
         const colors = extractFeatureColors(sourceFeatures, this.strokeColorExprs?.[sliceKey])
         let prebuiltOutlineSegments: Float32Array | undefined
@@ -534,6 +542,7 @@ export class PMTilesBackend implements TileSource {
           outlineLineIndices: tile.outlineLineIndices,
           polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
           heights: heights.size > 0 ? heights : undefined,
+          bases: bases.size > 0 ? bases : undefined,
           fullCover: tile.fullCover,
           fullCoverFeatureId: tile.fullCoverFeatureId,
           prebuiltLineSegments,

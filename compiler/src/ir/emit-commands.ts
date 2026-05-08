@@ -97,6 +97,10 @@ export interface ShowCommand {
    *  pipeline + binds the extruded vertex layout when set to anything
    *  other than 'none'. */
   extrude: import('./render-node').ExtrudeValue
+  /** 3D extrusion BASE — z of the wall bottom (Mapbox
+   *  `fill-extrusion-base`). Combined with `extrude` it carves out
+   *  the `min_height` podium for buildings. `none` ⇒ z=0 default. */
+  extrudeBase: import('./render-node').ExtrudeValue
 }
 
 export interface SceneCommands {
@@ -222,6 +226,7 @@ function emitShow(node: RenderNode): ShowCommand {
     timeOpacityEasing,
     timeOpacityDelayMs,
     extrude: node.extrude,
+    extrudeBase: node.extrudeBase,
   }
 }
 

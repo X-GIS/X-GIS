@@ -100,7 +100,12 @@
       "Bash(curl -sk -o /dev/null -w \"%{http_code}\\\\n\" https://localhost:3000/favicon.ico)",
       "Bash(curl -sk -o /dev/null -w \"%{http_code}\\\\n\" https://localhost:3000/robots.txt)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(git stash *)",
+      "Bash(git checkout *)",
+      "Bash(git push *)",
+      "Bash(awk 'NR==615,/^  [a-zA-Z_]/{ if \\(NR>615 && /^  [a-zA-Z_]/\\) {print NR\": END\"; exit} print NR\": \"$0}' /d/X-GIS/runtime/src/engine/vector-tile-renderer.ts)",
+      "Bash(awk -F: '$1>615 && /private|public|^[0-9]+:  [a-z]/ {print; exit}')"
     ]
   }
 }

@@ -573,6 +573,12 @@ export interface ShowCommand {
     | { kind: 'none' }
     | { kind: 'constant'; value: number }
     | { kind: 'feature'; expr: { ast: unknown }; fallback: number }
+  /** Mapbox `fill-extrusion-base` — wall bottom z. Same shape as
+   *  `extrude`; default `none` (=> z=0 ground). */
+  extrudeBase?:
+    | { kind: 'none' }
+    | { kind: 'constant'; value: number }
+    | { kind: 'feature'; expr: { ast: unknown }; fallback: number }
   // Line styling (Phase 2+)
   linecap?: 'butt' | 'round' | 'square' | 'arrow'
   linejoin?: 'miter' | 'round' | 'bevel'

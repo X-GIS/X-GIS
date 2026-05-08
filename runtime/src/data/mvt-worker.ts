@@ -139,6 +139,11 @@ export interface MvtCompileRequest {
    *  height in metres. Layers without an entry use the worker's
    *  default extraction (`render_height ?? height`). */
   extrudeExprs?: Record<string, unknown>
+  /** Per-MVT-layer 3D-extrude BASE expression AST (Mapbox
+   *  `fill-extrusion-base`). Same evaluation path as extrudeExprs;
+   *  the result is the metres-z of the wall BOTTOM (default 0).
+   *  Layers without an entry get every feature's base = 0. */
+  extrudeBaseExprs?: Record<string, unknown>
   /** Per-show slice descriptors. Each entry says "produce a slice
    *  with this sliceKey, drawing only features from `sourceLayer`
    *  that pass `filterAst`". When undefined, the worker falls back to
@@ -181,6 +186,9 @@ export interface MvtCompileSlice {
    *  and non-empty. Empty Map = no per-feature data; let the layer's
    *  default (e.g. style-set) extrude height apply uniformly. */
   heights?: ReadonlyMap<number, number>
+  /** Companion to `heights` for Mapbox `fill-extrusion-base`. Wall
+   *  bottom z (metres) per feature. Missing entries fall back to 0. */
+  bases?: ReadonlyMap<number, number>
   fullCover: boolean
   fullCoverFeatureId: number
 }
@@ -248,6 +256,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       const tile = compileSingleTile(parts, msg.z, msg.x, msg.y, msg.maxZoom)
       if (!tile) return
       const heights = extractFeatureHeights(sourceFeatures, msg.extrudeExprs?.[sourceLayer])
+      const bases = extractFeatureHeights(sourceFeatures, msg.extrudeBaseExprs?.[sourceLayer])
       // Per-feature stroke widths / colours — keyed by sliceKey
       // because the compound layer's match() targets a specific
       // compound, not a raw source layer (multiple compounds can
@@ -300,6 +309,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
         prebuiltOutlineSegments,
         polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
         heights: heights.size > 0 ? heights : undefined,
+        bases: bases.size > 0 ? bases : undefined,
         fullCover: tile.fullCover ?? false,
         fullCoverFeatureId: tile.fullCoverFeatureId ?? 0,
       }

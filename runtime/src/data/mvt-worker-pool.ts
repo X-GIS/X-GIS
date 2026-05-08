@@ -25,6 +25,7 @@ export interface MvtCompileSlice {
   prebuiltOutlineSegments?: Float32Array
   polygons?: RingPolygon[]
   heights?: ReadonlyMap<number, number>
+  bases?: ReadonlyMap<number, number>
   fullCover: boolean
   fullCoverFeatureId: number
 }
@@ -48,6 +49,7 @@ interface SliceMsg {
   prebuiltOutlineSegments?: ArrayBuffer
   polygons?: RingPolygon[]
   heights?: ReadonlyMap<number, number>
+  bases?: ReadonlyMap<number, number>
   fullCover: boolean
   fullCoverFeatureId: number
 }
@@ -105,6 +107,7 @@ export class MvtWorkerPool {
             prebuiltOutlineSegments: s.prebuiltOutlineSegments ? new Float32Array(s.prebuiltOutlineSegments) : undefined,
             polygons: s.polygons,
             heights: s.heights,
+            bases: s.bases,
             fullCover: s.fullCover,
             fullCoverFeatureId: s.fullCoverFeatureId,
           }))
@@ -133,6 +136,7 @@ export class MvtWorkerPool {
     tileWidthMerc: number, tileHeightMerc: number,
     layers?: string[],
     extrudeExprs?: Record<string, unknown>,
+    extrudeBaseExprs?: Record<string, unknown>,
     showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }>,
     strokeWidthExprs?: Record<string, unknown>,
     strokeColorExprs?: Record<string, unknown>,
@@ -149,6 +153,7 @@ export class MvtWorkerPool {
         tileWidthMerc, tileHeightMerc,
         layers,
         extrudeExprs,
+        extrudeBaseExprs,
         showSlices,
         strokeWidthExprs,
         strokeColorExprs,

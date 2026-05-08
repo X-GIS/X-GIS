@@ -57,6 +57,10 @@ export interface TileData {
    *  through the extruded polygon pipeline when this is set; missing
    *  / empty means the layer's uniform default applies. */
   heights?: ReadonlyMap<number, number>
+  /** featId → wall base z in metres (Mapbox `fill-extrusion-base`).
+   *  Populated when the style declared `fill-extrusion-base-…` for
+   *  the layer. Missing entries fall back to 0. */
+  bases?: ReadonlyMap<number, number>
 }
 
 // Stride constants (exported for tests + VTR upload paths)
