@@ -576,13 +576,17 @@ export class Parser {
   }
 
   // key: value (used in source and layer blocks)
-  // Uses parseLogicalOr() instead of parseExpr() to avoid consuming | as pipe operator
-  // (parseLogicalOr handles && and || but not the single | pipe token)
+  // Uses parseCoalesce() instead of parseExpr() to avoid consuming
+  // `|` as the pipe operator. parseCoalesce wraps parseLogicalOr
+  // and adds `??` support — required for things like
+  // `extrude: .height ?? 50` inside a layer body. Walking up to
+  // parsePipe / parseExpr would also pull in the pipe operator
+  // and break the `layer x { ... | fill-... }` grammar.
   private parseBlockProperty(): AST.BlockProperty {
     const line = this.current().line
     const name = this.expectIdentifierOrKeyword()
     this.expect(TokenType.Colon)
-    const value = this.parseLogicalOr()
+    const value = this.parseCoalesce()
     return { kind: 'BlockProperty', name, value, line }
   }
 
