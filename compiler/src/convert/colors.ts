@@ -1,0 +1,39 @@
+import { resolveColor } from '../tokens/colors'
+
+/** Mapbox colour value → xgis colour fragment (the bit between
+ *  `fill-` / `stroke-` and any trailing modifiers).
+ *
+ *  Accepts:
+ *   - Hex literal (`#abcdef`, `#abc`, `#abcdef33`) — passes through.
+ *   - CSS function form (`rgb(…)`, `rgba(…)`, `hsl(…)`, `hsla(…)`) —
+ *     resolved to hex via the compiler's `resolveColor`. The xgis
+ *     lexer can't parse parens inside utility names, so a `fill-
+ *     hsla(0,60%,87%,0.23)` would break, but `fill-#abcdef33` is
+ *     fine.
+ *   - Mapbox tuple-style (`["rgb", r, g, b]`, `["rgba", r, g, b, a]`)
+ *     — same hex resolution.
+ *
+ *  Returns null + emits a warning for anything else (interpolate,
+ *  match, …) so the caller falls back to a more permissive path. */
+export function colorToXgis(v: unknown, warnings: string[]): string | null {
+  if (v == null) return null
+  if (typeof v === 'string') {
+    if (v.startsWith('#')) return v
+    const hex = resolveColor(v.trim())
+    if (hex) return hex
+    return v
+  }
+  if (Array.isArray(v) && v[0] === 'rgba' && v.length === 5) {
+    const [, r, g, b, a] = v
+    const A = typeof a === 'number' ? a : 1
+    const hex = resolveColor(`rgba(${r}, ${g}, ${b}, ${A})`)
+    if (hex) return hex
+  }
+  if (Array.isArray(v) && v[0] === 'rgb' && v.length === 4) {
+    const [, r, g, b] = v
+    const hex = resolveColor(`rgb(${r}, ${g}, ${b})`)
+    if (hex) return hex
+  }
+  warnings.push(`Color expression not converted: ${JSON.stringify(v).slice(0, 120)}`)
+  return null
+}
