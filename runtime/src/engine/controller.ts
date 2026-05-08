@@ -388,6 +388,19 @@ export class PanZoomController implements Controller {
       e.preventDefault()
       events?.onWheel?.(e.clientX, e.clientY, e)
       const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.003)
+      // CRITICAL: when no zoom animation is running, the cached
+      // `targetZoom` may be stale. The controller captures it once
+      // at attach time as `camera.zoom` (which is 0 — the default
+      // Camera constructor value) BEFORE the demo runner applies
+      // the URL hash camera state. So a freshly loaded `#15/...`
+      // demo has camera.zoom=15 but targetZoom=0; the first wheel
+      // computes diff=-15 and animateZoom does diff*0.2=-3 PER
+      // FRAME, dropping the camera straight to z=0 in 5 frames.
+      // User reported "초기 로드 줌이 15에서 처음 화면이 시작하고
+      // 줌 아웃을 하면 바로 줌 0레벨로 이동" — that's this path.
+      // Resync target to the live camera every time a wheel fires
+      // and no animation is in flight.
+      if (!animating) targetZoom = camera.zoom
       // If the wheel direction reversed relative to the pending animation,
       // drop any overshoot targetZoom accumulated past camera.zoom so the
       // user feels an immediate reversal instead of having to "un-wind" the
