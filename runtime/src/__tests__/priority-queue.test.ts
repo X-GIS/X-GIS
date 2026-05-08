@@ -12,7 +12,7 @@ function makeSyncQueue<T, R = unknown>(): PriorityQueue<T, R> {
 /** Wait until `q.running` is false. Used after the last awaited job
  *  promise — the `completedCallback` that decrements `currJobs` lives
  *  on the .finally chain, which settles AFTER the awaited promise. */
-async function waitIdle(q: PriorityQueue<unknown>): Promise<void> {
+async function waitIdle(q: { readonly running: boolean }): Promise<void> {
   for (let i = 0; i < 10 && q.running; i++) {
     await Promise.resolve()
   }
@@ -48,7 +48,7 @@ describe('PriorityQueue', () => {
   })
 
   it('honours maxJobs concurrency cap', async () => {
-    const q = makeSyncQueue<number>()
+    const q = makeSyncQueue<number, void>()
     q.maxJobs = 3
     let active = 0
     let peak = 0

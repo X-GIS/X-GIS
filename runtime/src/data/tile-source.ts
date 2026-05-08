@@ -197,4 +197,11 @@ export interface TileSource {
    *      catalog re-issues if the tile becomes visible again.
    *    - NOT mark the key as failed — abort isn't a fetch error. */
   cancelStale?(activeKeys: Set<number>): void
+
+  /** OPTIONAL: install a comparator on the backend's fetch priority
+   *  queue. Higher-priority items must sort LAST (return positive when
+   *  `a` should run before `b`). Reset to FIFO with `null`. Implemented
+   *  by backends that route fetches through a PriorityQueue (PMTiles).
+   *  Other backends (in-memory GeoJSON, sync compile paths) ignore. */
+  setFetchPriorityCallback?(cmp: ((a: number, b: number) => number) | null): void
 }

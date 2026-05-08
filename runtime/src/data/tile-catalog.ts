@@ -726,6 +726,20 @@ export class TileCatalog {
     this._prefetchAge = 0
   }
 
+  /** Update the fetch-queue priority comparator on every backend that
+   *  has a priority queue (PMTiles). Comparator returns positive when
+   *  `a` should run before `b` — i.e. closer to camera is "higher
+   *  priority", sorts last, and pops first. VTR calls this once per
+   *  frame before `requestTiles` so the queue's next sort uses the
+   *  current camera centre. */
+  setFetchPriority(distanceFromCamera: (key: number) => number): void {
+    for (const b of this.backends) {
+      b.setFetchPriorityCallback?.(
+        (a, c) => distanceFromCamera(c) - distanceFromCamera(a),
+      )
+    }
+  }
+
   /** Delegate cancellation to every backend that supports it. VTR
    *  calls this each frame with the union of currently-needed keys
    *  (visible tiles + parent fallbacks); we union in `_prefetchKeys`

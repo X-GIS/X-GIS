@@ -14,7 +14,7 @@ import {
   quantizePolygonVertices,
   quantizePolygonVerticesExtruded,
 } from './polygon-mesh'
-import { tileKey, tileKeyParent, tileKeyChildren, type PropertyTable } from '@xgis/compiler'
+import { tileKey, tileKeyParent, tileKeyChildren, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../data/tile-catalog'
 import type { TileData } from '../data/tile-types'
@@ -2145,6 +2145,31 @@ export class VectorTileRenderer {
       for (const k of parentKeys) activeKeys.add(k)
       for (const k of fallbackKeys) activeKeys.add(k)
       this.source.cancelStale(activeKeys)
+    }
+
+    // Update the fetch-queue priority comparator with the current
+    // camera centre BEFORE issuing requestTiles. The PriorityQueue
+    // re-sorts on every dispatch using whatever comparator is set, so
+    // the first job picked from the queue right after this is the
+    // closest tile to the camera. World-copy offsets aren't carried in
+    // the tile-key (only z/x/y), so a tile's distance is computed
+    // against the central-world-copy mercator centre — adequate for
+    // priority ordering since all visible copies of the same tile
+    // sort together. Backends without a queue (XGVT-binary, GeoJSON)
+    // ignore this hook.
+    {
+      const camMercX = camera.centerX
+      const camMercY = camera.centerY
+      const PI_R = Math.PI * 6378137
+      this.source.setFetchPriority((key) => {
+        const [tz, tx, ty] = tileKeyUnpack(key)
+        const n = Math.pow(2, tz)
+        const tileX = ((tx + 0.5) / n) * 2 * PI_R - PI_R
+        const tileY = (1 - 2 * (ty + 0.5) / n) * PI_R
+        const dx = tileX - camMercX
+        const dy = tileY - camMercY
+        return dx * dx + dy * dy // squared distance — only ordering matters
+      })
     }
 
     // Visible-tile fetches: ALWAYS issued, like parentKeys. The
