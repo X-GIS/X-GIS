@@ -512,6 +512,7 @@ export class VectorTileRenderer {
     this._frameLines = 0
     this._frameVertices = 0
     this._frameDrawnByZoom.clear()
+    this._frameClassifyMemo.clear()
     // Frame tile cache invalidates on each new frame via the
     // currentFrameId comparison in render(); explicit null isn't
     // strictly needed, but releasing the GC reference here lets the
@@ -761,6 +762,18 @@ export class VectorTileRenderer {
    *  tiles merely retained in gpuCache. The zoom keyspace is small
    *  (~22 zoom levels max) so a Map cleared each frame is cheap. */
   private _frameDrawnByZoom: Map<number, number> = new Map()
+  /** Per-slice memo of classifyTile() decisions, keyed by sliceLayer.
+   *  In bright-style maps an MVT source (`openmaptiles`) backs 81
+   *  shows that resolve to ~13 distinct (sourceLayer + filter)
+   *  slices. Without this memo every show re-runs the per-tile
+   *  decision tree → 81 × 150 visible tiles = 12k classifyTile
+   *  calls per frame at over-zoom. With it ≤ 13 × 150 = 1950
+   *  calls. Cleared in beginFrame; populated lazily on first
+   *  render() per (slice, tile-key). Safe across shows of the same
+   *  slice because the decision inputs (layerCache + index +
+   *  catalog) only change via this same render call's uploads,
+   *  which we re-apply identically to subsequent same-slice shows. */
+  private _frameClassifyMemo: Map<string, Map<number, TileDecision>> = new Map()
 
   getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number; missedTiles: number } {
     return {
@@ -1905,6 +1918,15 @@ export class VectorTileRenderer {
     const _tileDecisions: (string | undefined)[] = new Array(tiles.length)
     const _inv = (globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS
 
+    // Per-frame slice memo: 81 shows in bright resolve to ~13 distinct
+    // slices, so without this we run classifyTile 81× per visible tile
+    // even though the inputs only vary by sliceLayer. See field decl.
+    let sliceMemo = this._frameClassifyMemo.get(sliceLayer)
+    if (!sliceMemo) {
+      sliceMemo = new Map()
+      this._frameClassifyMemo.set(sliceLayer, sliceMemo)
+    }
+
     for (let i = 0; i < tiles.length; i++) {
       const key = neededKeys[i]
       const tileZi = tiles[i].z
@@ -1925,18 +1947,22 @@ export class VectorTileRenderer {
       // decision kind. Replaces the previous inline ~150-line cascade
       // of `if … continue` branches that two regressions
       // (commit-49d4801, commit-71dd401) lived inside.
-      const decision: TileDecision = classifyTile({
-        visible: tiles[i],
-        visibleKey: key,
-        maxLevel,
-        parentAtMaxLevel: parentAtMaxLevel[i],
-        archiveAncestor: archiveAncestor[i],
-        layerCache,
-        hasSliceInCatalog: sliceCached,
-        hasAnySliceInCatalog: (k) => this.source!.hasTileData(k),
-        hasEntryInIndex: (k) => this.source!.hasEntryInIndex(k),
-        sliceLayer,
-      })
+      let decision: TileDecision | undefined = sliceMemo.get(key)
+      if (!decision) {
+        decision = classifyTile({
+          visible: tiles[i],
+          visibleKey: key,
+          maxLevel,
+          parentAtMaxLevel: parentAtMaxLevel[i],
+          archiveAncestor: archiveAncestor[i],
+          layerCache,
+          hasSliceInCatalog: sliceCached,
+          hasAnySliceInCatalog: (k) => this.source!.hasTileData(k),
+          hasEntryInIndex: (k) => this.source!.hasEntryInIndex(k),
+          sliceLayer,
+        })
+        sliceMemo.set(key, decision)
+      }
       _tileDecisions[i] = decision.kind === 'queued-with-fallback' ? decision.fallback.kind : decision.kind
 
       if (decision.kind === 'overzoom-parent') {
