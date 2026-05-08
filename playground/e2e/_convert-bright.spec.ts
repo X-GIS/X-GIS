@@ -49,6 +49,13 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
     page.on('console', m => {
       if (m.text().includes('TileJSON attached')) tileJsonLogs.push(m.text())
     })
+    const tileFetches: { url: string; status: number; ok: boolean }[] = []
+    page.on('response', async resp => {
+      const url = resp.url()
+      if (/openfreemap\.org\/.*\.pbf|openfreemap\.org\/.*\.png/i.test(url)) {
+        tileFetches.push({ url, status: resp.status(), ok: resp.ok() })
+      }
+    })
     page.on('pageerror', e => {
       pageErrors.push(e.message)
     })
@@ -72,7 +79,12 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
       } catch { /* ignore */ }
     }, xgis)
 
-    await page.goto('/demo.html?id=__import', { waitUntil: 'domcontentloaded' })
+    // Navigate to Tokyo z=14 — dense feature area, every layer type
+    // has data here (water, roads, buildings, landuse, …). At z=0.5
+    // / center 0,0 the default view is mid-ocean and the absence of
+    // features is ambiguous (no data vs broken pipeline). z=14 over
+    // a major city makes "no features rendered" sharp.
+    await page.goto('/demo.html?id=__import#14/35.68/139.76', { waitUntil: 'domcontentloaded' })
 
     // Wait for the engine to either reach __xgisReady (success) OR
     // surface an error overlay. Don't fail solely on missing tiles —
@@ -86,8 +98,66 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
       page.waitForSelector('#error', { state: 'visible', timeout: 30_000 }).catch(() => null),
     ])
 
-    // Settle a moment so any deferred error has a chance to surface.
-    await page.waitForTimeout(2_000)
+    // Settle long enough for visible tiles to be requested + rendered
+    // (or fail). Background fetches keep going for several seconds.
+    await page.waitForTimeout(8_000)
+
+    // Sample the canvas — non-zero pixels means SOMETHING rendered.
+    const pixelStats = await page.evaluate(() => {
+      const canvas = document.getElementById('map') as HTMLCanvasElement | null
+      if (!canvas) return null
+      // Read via a 2D scratch canvas — WebGPU canvas can't getImageData
+      // directly. drawImage onto a Canvas2D throws if the source has
+      // alpha set wrong, so wrap in try.
+      try {
+        const scratch = document.createElement('canvas')
+        scratch.width = 64
+        scratch.height = 64
+        const ctx = scratch.getContext('2d')
+        if (!ctx) return { error: 'no 2d ctx' }
+        ctx.drawImage(canvas, 0, 0, 64, 64)
+        const data = ctx.getImageData(0, 0, 64, 64).data
+        let nonBg = 0
+        let uniqueColors = new Set<number>()
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i], g = data[i + 1], b = data[i + 2]
+          uniqueColors.add((r << 16) | (g << 8) | b)
+          // The bright background is #f8f4f0 — count anything else as
+          // foreground. Tolerate small DPR/resampling drift.
+          const isBg = Math.abs(r - 0xf8) < 6 && Math.abs(g - 0xf4) < 6 && Math.abs(b - 0xf0) < 6
+          if (!isBg) nonBg++
+        }
+        const sample = data.slice(0, 16)
+        return {
+          nonBgPixels: nonBg,
+          uniqueColors: uniqueColors.size,
+          total: 64 * 64,
+          sampleColor: `#${[data[0], data[1], data[2]].map(x => x.toString(16).padStart(2, '0')).join('')}`,
+          sample: Array.from(sample),
+        }
+      } catch (e) {
+        return { error: (e as Error).message }
+      }
+    })
+
+    // Also probe what the renderer thinks it's drawing.
+    const tileStats = await page.evaluate(() => {
+      const w = window as unknown as Record<string, unknown>
+      const map = w.__xgisMap as Record<string, unknown> | undefined
+      const status = document.getElementById('status')?.textContent
+      // Inspect all keys on the map for diagnostic helpers.
+      const mapKeys = map ? Object.keys(map).slice(0, 30) : []
+      const vtSources = map?.vtSources as Map<string, unknown> | undefined
+      const vtKeys = vtSources instanceof Map ? [...vtSources.keys()] : null
+      // Try reading the inspector if it's set up.
+      const inspector = w.__xgisInspector as { lastFrame?: unknown } | undefined
+      return {
+        status,
+        mapKeys,
+        vtKeys,
+        inspectorLast: inspector?.lastFrame,
+      }
+    })
 
     // ── Step 5: assert the import path was actually taken — the
     //    demo-runner sets the page title from the import label and
@@ -146,6 +216,16 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
     // eslint-disable-next-line no-console
     console.log('TileJSON attaches:', tileJsonLogs.length)
     // eslint-disable-next-line no-console
+    console.log('pixel sample:', JSON.stringify(pixelStats))
+    // eslint-disable-next-line no-console
+    console.log('tile stats:', JSON.stringify(tileStats))
+    // eslint-disable-next-line no-console
+    console.log('pbf/png fetches:', tileFetches.length)
+    for (const f of tileFetches.slice(0, 6)) {
+      // eslint-disable-next-line no-console
+      console.log(`  ${f.status} ${f.ok ? 'OK ' : 'BAD'} ${f.url}`)
+    }
+    // eslint-disable-next-line no-console
     console.log('pageerror (filtered):', realPageErrors.length, '(raw):', pageErrors.length)
     if (realPageErrors.length > 0) {
       // eslint-disable-next-line no-console
@@ -175,5 +255,6 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
     // whether it's pixels or just a clear viewport (the converted
     // source's tile URL points at an XYZ MVT, which won't render).
     await page.screenshot({ path: 'test-results/convert-bright.png' })
+    await page.locator('#map').screenshot({ path: 'test-results/convert-bright-map.png' })
   })
 })

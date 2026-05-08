@@ -110,6 +110,15 @@ const NAMED_COLORS: Record<string, string> = {
  * Returns null if unrecognized.
  */
 export function resolveColor(name: string): string | null {
+  // Hex literals pass through. Accepted shapes:
+  //   #rgb / #rgba / #rrggbb / #rrggbbaa
+  // Without this, utility classes that bake a hex directly into the
+  // name (`fill-#3399cc`) drop their colour at resolveUtilities time
+  // — the converter from Mapbox styles emits these everywhere.
+  if (/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(name)) {
+    return name.toLowerCase()
+  }
+
   // Check named colors first
   if (NAMED_COLORS[name]) return NAMED_COLORS[name]
 
