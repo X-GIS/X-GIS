@@ -579,6 +579,13 @@ export class VectorTileRenderer {
   private static readonly UPLOAD_TIME_BUDGET_MS = 6
   private static readonly UPLOAD_SAFETY_CAP = 96
   private _pendingUploads: { key: number; data: TileData; sourceLayer: string }[] = []
+  /** Priority comparator for the upload queue. When non-null,
+   *  `drainPendingUploads` sorts the queue so the LOWEST-distance tile
+   *  drains first (sorts to index 0 with `shift()`). Wired up per-frame
+   *  by the same distance closure that drives the fetch queue, so a
+   *  newly-visible foreground tile can overtake horizon backlog even
+   *  if it arrived later. */
+  private _uploadPriority: ((a: number, b: number) => number) | null = null
   /** Per-decision counts from the last render() call. Always tracked
    *  (cheap — Map of ~7 string keys). Exposed via
    *  `getLastDecisionCounts()` for inspector / console diagnosis.
@@ -876,8 +883,20 @@ export class VectorTileRenderer {
   /** Drain as many pending uploads as fit in the remaining frame budget.
    *  Called once per render pass just before we enumerate `neededKeys`
    *  so newly-visible tiles get a chance at the budget even when the
-   *  queue piled up during a LOD jump. */
+   *  queue piled up during a LOD jump.
+   *
+   *  When `_uploadPriority` is set, the queue is sorted in place so the
+   *  closest-to-camera tile drains first. Sorting only when the queue
+   *  has more items than fit in the floor budget — for steady-state
+   *  small queues there's nothing to reorder. */
   private drainPendingUploads(): void {
+    if (this._pendingUploads.length > 1 && this._uploadPriority !== null) {
+      // Comparator returns positive when `a` should drain before `b`.
+      // shift() takes index 0, so sort ascending = highest-priority
+      // (smallest distance) at index 0.
+      const cmp = this._uploadPriority
+      this._pendingUploads.sort((a, b) => cmp(a.key, b.key))
+    }
     while (this._pendingUploads.length > 0 && this.hasUploadBudget()) {
       const next = this._pendingUploads.shift()!
       if (this.getLayerCache(next.sourceLayer)?.has(next.key)) continue
@@ -2161,15 +2180,21 @@ export class VectorTileRenderer {
       const camMercX = camera.centerX
       const camMercY = camera.centerY
       const PI_R = Math.PI * 6378137
-      this.source.setFetchPriority((key) => {
+      const distSq = (key: number): number => {
         const [tz, tx, ty] = tileKeyUnpack(key)
         const n = Math.pow(2, tz)
         const tileX = ((tx + 0.5) / n) * 2 * PI_R - PI_R
         const tileY = (1 - 2 * (ty + 0.5) / n) * PI_R
         const dx = tileX - camMercX
         const dy = tileY - camMercY
-        return dx * dx + dy * dy // squared distance — only ordering matters
-      })
+        return dx * dx + dy * dy
+      }
+      this.source.setFetchPriority(distSq)
+      // Upload-side comparator: ascending by distance so `shift()`
+      // drains the closest tile first. Opposite end of the queue from
+      // the fetch path (which uses pop), hence the inverted sign vs
+      // catalog.setFetchPriority's wrap.
+      this._uploadPriority = (a, b) => distSq(a) - distSq(b)
     }
 
     // Visible-tile fetches: ALWAYS issued, like parentKeys. The
