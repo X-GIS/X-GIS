@@ -97,7 +97,8 @@ export class PanZoomController implements Controller {
         const dist = Math.hypot(e.clientX - lastTapX, e.clientY - lastTapY)
         if (dt < 300 && dist < 30) {
           // Double tap → zoom in
-          camera.zoomAt(1, e.clientX, e.clientY, canvas.width, canvas.height)
+          const rDt = canvas.getBoundingClientRect()
+          camera.zoomAt(1, e.clientX - rDt.left, e.clientY - rDt.top, canvas.width, canvas.height)
           lastTapTime = 0
           return
         }
@@ -134,17 +135,27 @@ export class PanZoomController implements Controller {
           lastMoveTime = performance.now()
           panVelX = 0; panVelY = 0
           inertiaAnimating = false
-          // Capture the world point under the cursor at drag start.
-          // panToScreenAnchor uses this to keep that world location
-          // under the cursor as it moves — perspective-correct at
-          // any pitch / bearing. `null` = ray missed the ground
-          // plane (e.g. cursor above horizon at high pitch); fall
-          // back to delta-based pan in that case.
+          // Capture the ABSOLUTE world point under the cursor at drag
+          // start. panToScreenAnchor uses this to keep that exact world
+          // location under the cursor as it moves — perspective-correct
+          // at any pitch / bearing, idempotent against repeated calls.
+          // `null` = ray missed the ground plane (e.g. cursor above
+          // horizon at high pitch); fall back to delta-based pan in
+          // that case.
+          //
+          // Convert clientX/Y (VIEWPORT-relative) to canvas-local via
+          // bounding rect — the canvas may not sit at viewport (0,0)
+          // (header / editor pane / etc), and unprojectToZ0 expects
+          // coords in [0, canvas.width / canvas.height].
           const dprNow = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 8) : 1
-          dragAnchor = camera.unprojectToZ0(
-            e.clientX * dprNow, e.clientY * dprNow,
+          const r0 = canvas.getBoundingClientRect()
+          const rel = camera.unprojectToZ0(
+            (e.clientX - r0.left) * dprNow, (e.clientY - r0.top) * dprNow,
             canvas.width, canvas.height, dprNow,
           )
+          dragAnchor = rel
+            ? [camera.centerX + rel[0], camera.centerY + rel[1]]
+            : null
         }
       } else if (activePointers.size === 2) {
         isDragging = false
@@ -242,7 +253,8 @@ export class PanZoomController implements Controller {
           const scale = dist / lastPinchDist
           const delta = (scale - 1) * 3
           const center = getPinchCenter(activePointers)
-          camera.zoomAt(delta, center.x, center.y, canvas.width, canvas.height)
+          const rPin = canvas.getBoundingClientRect()
+          camera.zoomAt(delta, center.x - rPin.left, center.y - rPin.top, canvas.width, canvas.height)
         }
         lastPinchDist = dist
 
@@ -279,9 +291,10 @@ export class PanZoomController implements Controller {
           // MVP, so pitch + bearing are both honoured. Fast cursor
           // moves at high pitch correctly translate more world meters
           // per cursor pixel near the horizon.
+          const r1 = canvas.getBoundingClientRect()
           camera.panToScreenAnchor(
             dragAnchor[0], dragAnchor[1],
-            e.clientX, e.clientY,
+            e.clientX - r1.left, e.clientY - r1.top,
             canvas.width, canvas.height,
           )
         } else {
@@ -384,8 +397,13 @@ export class PanZoomController implements Controller {
         targetZoom = camera.zoom
       }
       targetZoom = Math.max(0, Math.min(camera.maxZoom, targetZoom + Math.max(-1, Math.min(1, delta))))
-      zoomScreenX = e.clientX
-      zoomScreenY = e.clientY
+      // Canvas-local cursor coords — same reason as the drag anchor
+      // above: clientX/Y is viewport-relative, canvas may be offset
+      // (header / panel above), and unprojectToZ0 needs coords in
+      // canvas-local space to compute the zoom anchor correctly.
+      const rWheel = canvas.getBoundingClientRect()
+      zoomScreenX = e.clientX - rWheel.left
+      zoomScreenY = e.clientY - rWheel.top
       if (!animating) {
         animating = true
         animateZoom()
@@ -485,7 +503,8 @@ export class TrackballController implements Controller {
           const scale = dist / lastPinchDist
           const delta = (scale - 1) * 2
           const center = getPinchCenter(activePointers)
-          camera.zoomAt(delta, center.x, center.y, canvas.width, canvas.height)
+          const rPi2 = canvas.getBoundingClientRect()
+          camera.zoomAt(delta, center.x - rPi2.left, center.y - rPi2.top, canvas.width, canvas.height)
         }
         lastPinchDist = dist
       } else if (isDragging && activePointers.size === 1) {
@@ -533,7 +552,8 @@ export class TrackballController implements Controller {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       const delta = e.deltaY > 0 ? -0.3 : 0.3
-      camera.zoomAt(delta, e.clientX, e.clientY, canvas.width, canvas.height)
+      const rW = canvas.getBoundingClientRect()
+      camera.zoomAt(delta, e.clientX - rW.left, e.clientY - rW.top, canvas.width, canvas.height)
     }
 
     canvas.addEventListener('pointerdown', onPointerDown)

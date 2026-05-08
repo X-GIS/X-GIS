@@ -40,25 +40,18 @@ function extractFeatureHeights(
   features: GeoJSONFeature[],
   expr: unknown,
 ): Map<number, number> {
-  // Mirrors mvt-worker.ts:extractFeatureHeights — see that comment
-  // for the "buildings render flat" repro that motivates the
-  // null-fallback. Both backends MUST agree on the contract: when
-  // the style provides an extrude expression, every feature with
-  // properties gets a height entry, falling back to 50 m when the
-  // expression evaluates to a non-positive / non-finite value.
-  // Otherwise some PMTiles slices land in VTR with `heights: undefined`
-  // and the upload path picks the 2D code path even though the
-  // style declared a 3D extrusion.
+  // Mirrors mvt-worker.ts — only emit entries for features whose
+  // expression evaluates to a usable height. Missing / null /
+  // non-finite values are left out; the language is responsible
+  // for declaring fallbacks (`extrude: .height ?? 50`) when it
+  // wants a default.
   const out = new Map<number, number>()
   if (!expr) return out
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
     const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
-    // Mirrors mvt-worker.ts — preserve explicit 0 (flat-footprint
-    // building) instead of bumping to defaultHeight. Both backends
-    // must agree on this contract.
-    out.set(i, typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : 50)
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
 }
@@ -510,7 +503,7 @@ export class PMTilesBackend implements TileSource {
             heights.size > 0 ? heights : undefined,
             widths.size > 0 ? widths : undefined,
             colors.size > 0 ? colors : undefined,
-            heights.size > 0 ? EXTRUDE_FALLBACK_HEIGHT_M : 0,
+            0,
           )
         }
         if (tile.lineIndices.length > 0 && tile.lineVertices.length > 0) {
@@ -527,7 +520,7 @@ export class PMTilesBackend implements TileSource {
             heights.size > 0 ? heights : undefined,
             widths.size > 0 ? widths : undefined,
             colors.size > 0 ? colors : undefined,
-            heights.size > 0 ? EXTRUDE_FALLBACK_HEIGHT_M : 0,
+            0,
           )
         }
         sink.acceptResult(key, {

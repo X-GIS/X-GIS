@@ -13,7 +13,6 @@ import {
   generateWallMeshExtruded,
   quantizePolygonVertices,
   quantizePolygonVerticesExtruded,
-  EXTRUDE_FALLBACK_HEIGHT_M,
 } from './polygon-mesh'
 import { tileKey, tileKeyParent, tileKeyChildren, type PropertyTable } from '@xgis/compiler'
 import type { ShaderVariant } from '@xgis/compiler'
@@ -873,7 +872,14 @@ export class VectorTileRenderer {
     // entirely off the data they carry, and per-layer control lives
     // in the style language now.
     const useFeatureHeights = data.heights !== undefined && data.heights.size > 0
-    const fallbackHeight = EXTRUDE_FALLBACK_HEIGHT_M
+    // Per-feature mode: `polygon-mesh.ts:226` does
+    // `heights.get(fid) ?? defaultHeight`. The default is what
+    // features WITHOUT a height entry render at — and the language
+    // contract is now "extrude only when the data says so".
+    // Author-controlled fallbacks (e.g. `extrude: .height ?? 50`)
+    // are evaluated in the worker and end up IN the heights map;
+    // the engine itself doesn't fabricate one.
+    const fallbackHeight = 0
     let polyVerts: ArrayBuffer
     let polyIndices: Uint32Array
     let zAttribute: Float32Array | null = null
@@ -1006,7 +1012,7 @@ export class VectorTileRenderer {
             tileWidthMerc, tileHeightMerc,
             data.heights && data.heights.size > 0 ? data.heights : undefined,
             undefined, undefined,
-            data.heights && data.heights.size > 0 ? EXTRUDE_FALLBACK_HEIGHT_M : 0,
+            0,
           )
         outlineSegmentBuffer = this.lineRenderer.uploadSegmentBuffer(segData)
         outlineSegmentCount = data.outlineLineIndices.length / 2
@@ -1034,7 +1040,7 @@ export class VectorTileRenderer {
             tileWidthMerc, tileHeightMerc,
             data.heights && data.heights.size > 0 ? data.heights : undefined,
             undefined, undefined,
-            data.heights && data.heights.size > 0 ? EXTRUDE_FALLBACK_HEIGHT_M : 0,
+            0,
           )
         }
         lineSegmentBuffer = this.lineRenderer.uploadSegmentBuffer(segData)

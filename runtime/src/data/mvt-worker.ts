@@ -39,34 +39,20 @@ function extractFeatureHeights(
 ): Map<number, number> {
   const out = new Map<number, number>()
   if (!expr) return out
-  // When the style declares `extrude:` we MUST emit a 3D extruded
-  // tile even if individual features are missing the source property
-  // (e.g. protomaps `buildings` features whose `.height` is null /
-  // unset). Otherwise mvt-worker drops `heights` entirely (size>0
-  // guard at message-build time) → VTR's `useFeatureHeights = false`
-  // → tile uploads through the 2D `quantizePolygonVertices` path,
-  // pinning the buildings flat at z=0 even though the same archive
-  // tile renders correctly when one of its features happens to
-  // carry a height. User reported "일부 상황에서 빌딩 데이터가
-  // 3차원으로 되어있어도 2d로 그려지는 문제" — that's this path.
-  // Resolution: when expr is present, give every feature with
-  // properties a height entry, falling back to the polygon-mesh
-  // EXTRUDE_FALLBACK_HEIGHT_M (50 m) when the expression evaluates
-  // to null / non-positive / non-finite. The map is non-empty if
-  // at least one feature has properties → mvt-worker keeps the
-  // heights field on the slice → VTR routes through the 3D path.
+  // Per-feature height — only set when the expression evaluates to
+  // a usable numeric value. Features whose property is missing /
+  // null / non-finite are LEFT OUT of the map; downstream consumers
+  // (polygon-mesh + line-segment-build) treat their absence as
+  // "no extrusion" and render the feature flat at z=0. This means
+  // the language stays in control of the 3D decision: a style that
+  // wants buildings without a `height` tag to extrude must say so
+  // explicitly via `extrude: .height ?? 50` (or whatever default the
+  // author wants). The engine doesn't fabricate a default.
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
     const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
-    // Preserve explicit 0 (a flat-footprint building with no walls is
-    // a legitimate datum — `height: 0` should render a flat polygon
-    // and a flat outline, not a 50 m lifted block). Only fall back
-    // when the expression evaluates to a non-finite / non-numeric
-    // value or a negative one. This keeps polygon-mesh.ts's
-    // `?? defaultHeight` semantic — nullish-only fallback, 0 stays 0
-    // — consistent end-to-end.
-    out.set(i, typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : 50)
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
 }
@@ -278,7 +264,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
           heights.size > 0 ? heights : undefined,
           widths.size > 0 ? widths : undefined,
           colors.size > 0 ? colors : undefined,
-          heights.size > 0 ? EXTRUDE_FALLBACK_HEIGHT_M : 0,
+          0,
         )
         prebuiltOutlineSegments = seg.buffer as ArrayBuffer
       }
@@ -296,7 +282,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
           heights.size > 0 ? heights : undefined,
           widths.size > 0 ? widths : undefined,
           colors.size > 0 ? colors : undefined,
-          heights.size > 0 ? EXTRUDE_FALLBACK_HEIGHT_M : 0,
+          0,
         )
         prebuiltLineSegments = seg.buffer as ArrayBuffer
       }

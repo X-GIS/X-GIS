@@ -364,28 +364,37 @@ export class Camera {
     this.centerY = Math.max(-maxY, Math.min(maxY, this.centerY))
   }
 
-  /** Pan the camera so a world point that was under the cursor at
-   *  drag start stays under the cursor as the cursor moves. The
-   *  controller captures `anchor` (world coords relative to centre
-   *  AT DRAG START) on pointerdown and calls this each pointermove
-   *  with the new cursor position; the camera shifts by
-   *  (anchor - currentRel) under the live MVP, which is the correct
-   *  Mapbox/MapLibre pan-with-pitch geometry. Equivalent to the old
-   *  delta-based `pan()` at pitch=0 + bearing=0; at non-zero pitch
-   *  it correctly shifts more world distance per cursor pixel near
-   *  the horizon than near the bottom of the screen. */
+  /** Pan the camera so the world point captured at drag start stays
+   *  under the cursor as the cursor moves.
+   *
+   *  CRITICAL: `anchorWorldX/Y` must be ABSOLUTE world (mercator
+   *  metres), not camera-relative — i.e. the controller computed it
+   *  ONCE at drag start as `centerX_at_start + unprojectToZ0(...)`
+   *  and stashed THAT. Each pointermove this method recomputes
+   *  cursor_rel against the LIVE MVP and assigns
+   *  `centerX = anchorWorldX - cursor_rel.x` directly.
+   *
+   *  Why absolute: as the camera moves on each pointermove, a
+   *  camera-relative anchor goes stale (it was relative to the
+   *  ORIGINAL camera position) and produces a residual delta on
+   *  every move — visible as runaway accumulating motion in the
+   *  wrong direction. Absolute world coords + direct assignment
+   *  is idempotent: if the cursor returns to its starting screen
+   *  position the camera returns to its starting world position.
+   *
+   *  Equivalent to old delta-based `pan()` at pitch=0 + bearing=0;
+   *  correct under any pitch / bearing because the unprojection walks
+   *  the live MVP. */
   panToScreenAnchor(
-    anchorRelX: number, anchorRelY: number,
+    anchorWorldX: number, anchorWorldY: number,
     cursorX: number, cursorY: number,
     canvasWidth: number, canvasHeight: number,
   ): void {
     const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
     const cur = this.unprojectToZ0(cursorX * dpr, cursorY * dpr, canvasWidth, canvasHeight, dpr)
-    if (!cur) return // ray missed ground (above horizon)
-    const dx = anchorRelX - cur[0]
-    const dy = anchorRelY - cur[1]
-    this.centerX -= dx
-    this.centerY -= dy
+    if (!cur) return // ray missed ground (above horizon) — leave camera as-is
+    this.centerX = anchorWorldX - cur[0]
+    this.centerY = anchorWorldY - cur[1]
     const halfWorld = WORLD_MERC / 2
     if (this.centerX > halfWorld) this.centerX -= WORLD_MERC
     else if (this.centerX < -halfWorld) this.centerX += WORLD_MERC
