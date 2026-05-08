@@ -256,6 +256,75 @@ describe('Mapbox → xgis converter', () => {
     expect(parses(out)).toBe(true)
   })
 
+  it('lowers ["interpolate", ["linear"], ["zoom"], …] line-width to z<n>:stroke-<v>', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'rd', type: 'line', source: 's', 'source-layer': 'roads',
+        paint: {
+          'line-color': '#888',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1, 19, 2.5],
+        },
+      }],
+    })
+    expect(out).toContain('z11:stroke-1')
+    expect(out).toContain('z19:stroke-2.5')
+    expect(parses(out)).toBe(true)
+  })
+
+  it('lowers interpolate fill-color to per-zoom fill stops', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'b', type: 'fill', source: 's', 'source-layer': 'building',
+        paint: {
+          'fill-color': ['interpolate', ['linear'], ['zoom'], 15, '#f2eae2', 16, '#dfdbd7'],
+        },
+      }],
+    })
+    expect(out).toContain('z15:fill-#f2eae2')
+    expect(out).toContain('z16:fill-#dfdbd7')
+    expect(parses(out)).toBe(true)
+  })
+
+  it('preserves fractional zoom stops (parser supports z15.5:)', () => {
+    // The lexer + parser were extended to accept fractional zoom
+    // modifiers — the lexer still splits `z15.5:` into four tokens
+    // (Identifier Dot Number Colon) but parseUtilityItem stitches
+    // them back. Stops survive verbatim.
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'b', type: 'fill', source: 's', 'source-layer': 'building',
+        paint: {
+          'fill-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0, 15.5, 1],
+        },
+      }],
+    })
+    expect(out).toContain('z13:opacity-0')
+    expect(out).toContain('z15.5:opacity-100')
+    expect(parses(out)).toBe(true)
+  })
+
+  it('lowers interpolate fill-extrusion-height to per-zoom extrude stops', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'b', type: 'fill-extrusion', source: 's', 'source-layer': 'building',
+        paint: {
+          'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 14, 0, 14.5, ['get', 'render_height']],
+        },
+      }],
+    })
+    expect(out).toContain('z14:fill-extrusion-height-0')
+    expect(out).toContain('fill-extrusion-height-[.render_height]')
+    expect(parses(out)).toBe(true)
+  })
+
   it('emits parseable output for a multi-layer style', () => {
     const out = convertMapboxStyle({
       version: 8,

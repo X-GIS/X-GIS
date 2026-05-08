@@ -208,29 +208,85 @@ function paintToUtilities(layer: MapboxLayer, warnings: string[]): string[] {
   } else if (layer.type === 'fill-extrusion') {
     addFill(out, p['fill-extrusion-color'], warnings)
     addOpacity(out, p['fill-extrusion-opacity'], warnings)
-    const h = exprToXgis(p['fill-extrusion-height'], warnings)
-    if (h !== null) out.push(`fill-extrusion-height-${maybeBracket(h)}`)
-    const b = exprToXgis(p['fill-extrusion-base'], warnings)
-    if (b !== null) out.push(`fill-extrusion-base-${maybeBracket(b)}`)
+    addExtrudeHeight(out, p['fill-extrusion-height'], warnings)
+    addExtrudeBase(out, p['fill-extrusion-base'], warnings)
   }
 
   return out
 }
 
+/** Mapbox `["interpolate", curve, ["zoom"], z1, v1, z2, v2, …]` →
+ *  array of `(zoom, value)` stops we can fan out to xgis zoom
+ *  modifiers. Returns null when the expression isn't a zoom-driven
+ *  interpolate (e.g. data-driven, or non-numeric stops we can't
+ *  emit per-utility). The curve type (linear / exponential /
+ *  cubic-bezier) is currently dropped — xgis interpolates linearly
+ *  between the stops at runtime, which is the most common case
+ *  and visually close enough for non-critical paint values. */
+function interpolateZoomStops(v: unknown): Array<{ zoom: number; value: unknown }> | null {
+  if (!Array.isArray(v) || v[0] !== 'interpolate') return null
+  // Element 1 is the curve (we ignore which); element 2 must be zoom.
+  const input = v[2]
+  if (!Array.isArray(input) || input[0] !== 'zoom') return null
+  const stops: Array<{ zoom: number; value: unknown }> = []
+  for (let i = 3; i + 1 < v.length; i += 2) {
+    const z = v[i]
+    if (typeof z !== 'number') return null
+    stops.push({ zoom: z, value: v[i + 1] })
+  }
+  return stops.length >= 2 ? stops : null
+}
+
+/** Format a zoom number for the modifier prefix. xgis accepts both
+ *  integer (`z11:`) and fractional (`z15.5:`) modifiers — the
+ *  parser stitches the four tokens (Identifier Dot Number Colon)
+ *  back together. We strip trailing zeros so e.g. `14.0` emits as
+ *  `z14:` (canonical integer form). */
+function zoomMod(z: number): string {
+  if (Number.isInteger(z)) return `z${z}`
+  // Trim 14.500 → 14.5; preserves at most 3 decimals (Mapbox stops
+  // rarely go finer than 0.1).
+  const trimmed = z.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
+  return `z${trimmed}`
+}
+
 function addFill(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
+  const stops = interpolateZoomStops(v)
+  if (stops) {
+    for (const s of stops) {
+      const c = colorToXgis(s.value, warnings)
+      if (c) out.push(`${zoomMod(s.zoom)}:fill-${c}`)
+    }
+    return
+  }
   const s = colorToXgis(v, warnings)
   if (s) out.push(`fill-${s}`)
 }
 
 function addStroke(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
+  const stops = interpolateZoomStops(v)
+  if (stops) {
+    for (const s of stops) {
+      const c = colorToXgis(s.value, warnings)
+      if (c) out.push(`${zoomMod(s.zoom)}:stroke-${c}`)
+    }
+    return
+  }
   const s = colorToXgis(v, warnings)
   if (s) out.push(`stroke-${s}`)
 }
 
 function addStrokeWidth(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
+  const stops = interpolateZoomStops(v)
+  if (stops) {
+    for (const s of stops) {
+      if (typeof s.value === 'number') out.push(`${zoomMod(s.zoom)}:stroke-${s.value}`)
+    }
+    return
+  }
   const x = exprToXgis(v, warnings)
   if (x === null) return
   // Tailwind-style suffix: number → `stroke-1.5`, expression → bracket form.
@@ -251,8 +307,46 @@ function addOpacity(out: string[], v: unknown, warnings: string[]): void {
     out.push(`opacity-${v <= 1 ? Math.round(v * 100) : v}`)
     return
   }
+  const stops = interpolateZoomStops(v)
+  if (stops) {
+    for (const s of stops) {
+      if (typeof s.value === 'number') {
+        const n = s.value <= 1 ? Math.round(s.value * 100) : s.value
+        out.push(`${zoomMod(s.zoom)}:opacity-${n}`)
+      }
+    }
+    return
+  }
   const x = exprToXgis(v, warnings)
   if (x !== null) out.push(`opacity-${maybeBracket(x)}`)
+}
+
+function addExtrudeHeight(out: string[], v: unknown, warnings: string[]): void {
+  if (v === undefined) return
+  const stops = interpolateZoomStops(v)
+  if (stops) {
+    for (const s of stops) {
+      const x = exprToXgis(s.value, warnings)
+      if (x !== null) out.push(`${zoomMod(s.zoom)}:fill-extrusion-height-${maybeBracket(x)}`)
+    }
+    return
+  }
+  const x = exprToXgis(v, warnings)
+  if (x !== null) out.push(`fill-extrusion-height-${maybeBracket(x)}`)
+}
+
+function addExtrudeBase(out: string[], v: unknown, warnings: string[]): void {
+  if (v === undefined) return
+  const stops = interpolateZoomStops(v)
+  if (stops) {
+    for (const s of stops) {
+      const x = exprToXgis(s.value, warnings)
+      if (x !== null) out.push(`${zoomMod(s.zoom)}:fill-extrusion-base-${maybeBracket(x)}`)
+    }
+    return
+  }
+  const x = exprToXgis(v, warnings)
+  if (x !== null) out.push(`fill-extrusion-base-${maybeBracket(x)}`)
 }
 
 // ═══ Color conversion ════════════════════════════════════════════════

@@ -299,10 +299,10 @@ function lowerLayer(
 
       // ── Modifier items ──
       if (mod) {
-        // Zoom modifier: z8:opacity-40, z14:size-12
-        const zoomMatch = mod.match(/^z(\d+)$/)
+        // Zoom modifier: z8:opacity-40, z14:size-12, z15.5:fill-#xx
+        const zoomMatch = mod.match(/^z(\d+(?:\.\d+)?)$/)
         if (zoomMatch) {
-          const zoom = parseInt(zoomMatch[1])
+          const zoom = parseFloat(zoomMatch[1])
           if (name.startsWith('opacity-')) {
             const num = parseFloat(name.slice(8))
             if (!isNaN(num)) {

@@ -14,13 +14,14 @@ layer landcover_glacier {
   source: openmaptiles
   sourceLayer: "landcover"
   filter: .subclass == "glacier"
-  | fill-#fff
+  | fill-#fff z0:opacity-90 z10:opacity-30
 }
 
 layer landuse_residential {
   source: openmaptiles
   sourceLayer: "landuse"
   filter: .class == "neighbourhood" || .class == "residential"
+  | z12:fill-#eae6e166 z16:fill-#eae6e133
 }
 
 layer landuse_suburb {
@@ -28,6 +29,7 @@ layer landuse_suburb {
   sourceLayer: "landuse"
   maxzoom: 10
   filter: .class == "suburb"
+  | z8:fill-#eae6e166 z10:fill-#eae6e100
 }
 
 layer landuse_commercial {
@@ -75,7 +77,7 @@ layer landuse_railway {
 layer park {
   source: openmaptiles
   sourceLayer: "park"
-  | fill-#d8e8c8
+  | fill-#d8e8c8 z9:opacity-50 z12:opacity-20
 }
 
 layer landcover_wood {
@@ -104,49 +106,49 @@ layer waterway_tunnel {
   sourceLayer: "waterway"
   minzoom: 14
   filter: (.class == "canal" || .class == "river" || .class == "stream") && (.brunnel == "tunnel")
-  | stroke-#a0c8f0 stroke-dasharray-2-4
+  | stroke-#a0c8f0 z13:stroke-0.5 z20:stroke-6 stroke-dasharray-2-4
 }
 
 layer waterway_other {
   source: openmaptiles
   sourceLayer: "waterway"
   filter: (.class != "canal" && .class != "river" && .class != "stream") && (.intermittent == 0)
-  | stroke-#a0c8f0
+  | stroke-#a0c8f0 z13:stroke-0.5 z20:stroke-2
 }
 
 layer waterway_other_intermittent {
   source: openmaptiles
   sourceLayer: "waterway"
   filter: (.class != "canal" && .class != "river" && .class != "stream") && (.intermittent == 1)
-  | stroke-#a0c8f0 stroke-dasharray-4-3
+  | stroke-#a0c8f0 z13:stroke-0.5 z20:stroke-2 stroke-dasharray-4-3
 }
 
 layer waterway_stream_canal {
   source: openmaptiles
   sourceLayer: "waterway"
   filter: (.class == "canal" || .class == "stream") && (.brunnel != "tunnel") && (.intermittent == 0)
-  | stroke-#a0c8f0
+  | stroke-#a0c8f0 z13:stroke-0.5 z20:stroke-6
 }
 
 layer waterway_stream_canal_intermittent {
   source: openmaptiles
   sourceLayer: "waterway"
   filter: (.class == "canal" || .class == "stream") && (.brunnel != "tunnel") && (.intermittent == 1)
-  | stroke-#a0c8f0 stroke-dasharray-4-3
+  | stroke-#a0c8f0 z13:stroke-0.5 z20:stroke-6 stroke-dasharray-4-3
 }
 
 layer waterway_river {
   source: openmaptiles
   sourceLayer: "waterway"
   filter: (.class == "river") && (.brunnel != "tunnel") && (.intermittent != 1)
-  | stroke-#a0c8f0
+  | stroke-#a0c8f0 z10:stroke-0.8 z20:stroke-6
 }
 
 layer waterway_river_intermittent {
   source: openmaptiles
   sourceLayer: "waterway"
   filter: (.class == "river") && (.brunnel != "tunnel") && (.intermittent == 1)
-  | stroke-#a0c8f0 stroke-dasharray-3-2.5
+  | stroke-#a0c8f0 z10:stroke-0.8 z20:stroke-6 stroke-dasharray-3-2.5
 }
 
 layer water {
@@ -167,7 +169,7 @@ layer landcover_ice_shelf {
   source: openmaptiles
   sourceLayer: "landcover"
   filter: .subclass == "ice_shelf"
-  | fill-#fff
+  | fill-#fff z0:opacity-90 z10:opacity-30
 }
 
 layer landcover_sand {
@@ -180,124 +182,125 @@ layer landcover_sand {
 layer building {
   source: openmaptiles
   sourceLayer: "building"
+  | z15.5:fill-#f2eae2 z16:fill-#dfdbd7
 }
 
 layer building_top {
   source: openmaptiles
   sourceLayer: "building"
-  | fill-#f2eae2
+  | fill-#f2eae2 z13:opacity-0 z16:opacity-100
 }
 
 layer tunnel_service_track_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "service" || .class == "track")
-  | stroke-#cfcdca stroke-dasharray-0.5-0.25
+  | stroke-#cfcdca z15:stroke-1 z16:stroke-4 z20:stroke-11 stroke-dasharray-0.5-0.25
 }
 
 layer tunnel_motorway_link_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "motorway") && (.ramp == 1)
-  | stroke-#c89366 stroke-dasharray-0.5-0.25
+  | stroke-#c89366 z12:stroke-1 z13:stroke-3 z14:stroke-4 z20:stroke-15 stroke-dasharray-0.5-0.25
 }
 
 layer tunnel_minor_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "minor")
-  | stroke-#cfcdca stroke-dasharray-0.5-0.25
+  | stroke-#cfcdca z12:stroke-0.5 z13:stroke-1 z14:stroke-4 z20:stroke-15 stroke-dasharray-0.5-0.25 z12:opacity-0 z12.5:opacity-100
 }
 
 layer tunnel_link_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "primary" || .class == "secondary" || .class == "tertiary" || .class == "trunk") && (.ramp == 1)
-  | stroke-#e9ac77 stroke-dasharray-0.5-0.25 opacity-100
+  | stroke-#e9ac77 z12:stroke-1 z13:stroke-3 z14:stroke-4 z20:stroke-15 stroke-dasharray-0.5-0.25 opacity-100
 }
 
 layer tunnel_secondary_tertiary_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "secondary" || .class == "tertiary") && (.ramp != 1)
-  | stroke-#e9ac77 stroke-dasharray-0.5-0.25 opacity-100
+  | stroke-#e9ac77 z8:stroke-1.5 z20:stroke-17 stroke-dasharray-0.5-0.25 opacity-100
 }
 
 layer tunnel_trunk_primary_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "primary" || .class == "trunk") && (.ramp != 1)
-  | stroke-#e9ac77
+  | stroke-#e9ac77 z5:stroke-0.4 z6:stroke-0.6 z7:stroke-1.5 z20:stroke-22
 }
 
 layer tunnel_motorway_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "motorway") && (.ramp != 1)
-  | stroke-#e9ac77 stroke-dasharray-0.5-0.25
+  | stroke-#e9ac77 z5:stroke-0.4 z6:stroke-0.6 z7:stroke-1.5 z20:stroke-22 stroke-dasharray-0.5-0.25
 }
 
 layer tunnel_path {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "path")
-  | stroke-#cba stroke-dasharray-1.5-0.75
+  | stroke-#cba z15:stroke-1.2 z20:stroke-4 stroke-dasharray-1.5-0.75
 }
 
 layer tunnel_motorway_link {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "motorway") && (.ramp == 1)
-  | stroke-#f4d19e
+  | stroke-#f4d19e z12.5:stroke-0 z13:stroke-1.5 z14:stroke-2.5 z20:stroke-11.5
 }
 
 layer tunnel_service_track {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "service" || .class == "track")
-  | stroke-#fff
+  | stroke-#fff z15.5:stroke-0 z16:stroke-2 z20:stroke-7.5
 }
 
 layer tunnel_link {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "primary" || .class == "secondary" || .class == "tertiary" || .class == "trunk") && (.ramp == 1)
-  | stroke-#fff4c6
+  | stroke-#fff4c6 z12.5:stroke-0 z13:stroke-1.5 z14:stroke-2.5 z20:stroke-11.5
 }
 
 layer tunnel_minor {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "minor")
-  | stroke-#fff opacity-100
+  | stroke-#fff z13.5:stroke-0 z14:stroke-2.5 z20:stroke-11.5 opacity-100
 }
 
 layer tunnel_secondary_tertiary {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "secondary" || .class == "tertiary") && (.ramp != 1)
-  | stroke-#fff4c6
+  | stroke-#fff4c6 z6.5:stroke-0 z7:stroke-0.5 z20:stroke-10
 }
 
 layer tunnel_trunk_primary {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "primary" || .class == "trunk") && (.ramp != 1)
-  | stroke-#fff4c6
+  | stroke-#fff4c6 z6.5:stroke-0 z7:stroke-0.5 z20:stroke-18
 }
 
 layer tunnel_motorway {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "motorway") && (.ramp != 1)
-  | stroke-#ffdaa6
+  | stroke-#ffdaa6 z6.5:stroke-0 z7:stroke-0.5 z20:stroke-18
 }
 
 layer tunnel_railway {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "tunnel") && (.class == "rail")
-  | stroke-#bbb stroke-dasharray-2-2
+  | stroke-#bbb z14:stroke-0.4 z15:stroke-0.75 z20:stroke-2 stroke-dasharray-2-2
 }
 
 layer ferry {
@@ -312,7 +315,7 @@ layer aeroway_taxiway_casing {
   sourceLayer: "aeroway"
   minzoom: 12
   filter: .class == "taxiway"
-  | stroke-#999999 opacity-100
+  | stroke-#999999 z11:stroke-2 z17:stroke-12 opacity-100
 }
 
 layer aeroway_runway_casing {
@@ -320,7 +323,7 @@ layer aeroway_runway_casing {
   sourceLayer: "aeroway"
   minzoom: 12
   filter: .class == "runway"
-  | stroke-#999999 opacity-100
+  | stroke-#999999 z11:stroke-5 z17:stroke-55 opacity-100
 }
 
 layer aeroway_area {
@@ -328,7 +331,7 @@ layer aeroway_area {
   sourceLayer: "aeroway"
   minzoom: 4
   filter: (.class == "runway" || .class == "taxiway")
-  | fill-#ffffff
+  | fill-#ffffff z13:opacity-0 z14:opacity-100
 }
 
 layer aeroway_taxiway {
@@ -336,7 +339,7 @@ layer aeroway_taxiway {
   sourceLayer: "aeroway"
   minzoom: 4
   filter: (.class == "taxiway")
-  | stroke-#ffffff
+  | stroke-#ffffff z11:stroke-1 z17:stroke-10 z11:opacity-0 z12:opacity-100
 }
 
 layer aeroway_runway {
@@ -344,7 +347,7 @@ layer aeroway_runway {
   sourceLayer: "aeroway"
   minzoom: 4
   filter: (.class == "runway")
-  | stroke-#ffffff
+  | stroke-#ffffff z11:stroke-4 z17:stroke-50 z11:opacity-0 z12:opacity-100
 }
 
 layer road_area_pier {
@@ -358,7 +361,7 @@ layer road_pier {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.class == "pier")
-  | stroke-#f8f4f0
+  | stroke-#f8f4f0 z15:stroke-1 z17:stroke-4
 }
 
 layer highway_area {
@@ -372,7 +375,7 @@ layer highway_motorway_link_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "motorway") && (.ramp == 1)
-  | stroke-#e9ac77 opacity-100
+  | stroke-#e9ac77 z12:stroke-1 z13:stroke-3 z14:stroke-4 z20:stroke-15 opacity-100
 }
 
 layer highway_link_casing {
@@ -380,21 +383,21 @@ layer highway_link_casing {
   sourceLayer: "transportation"
   minzoom: 13
   filter: (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "primary" || .class == "secondary" || .class == "tertiary" || .class == "trunk") && (.ramp == 1)
-  | stroke-#e9ac77 opacity-100
+  | stroke-#e9ac77 z12:stroke-1 z13:stroke-3 z14:stroke-4 z20:stroke-15 opacity-100
 }
 
 layer highway_minor_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel != "tunnel") && (.class == "minor" || .class == "service" || .class == "track")
-  | stroke-#cfcdca
+  | stroke-#cfcdca z12:stroke-0.5 z13:stroke-1 z14:stroke-4 z20:stroke-15 z12:opacity-0 z12.5:opacity-100
 }
 
 layer highway_secondary_tertiary_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "secondary" || .class == "tertiary") && (.ramp != 1)
-  | stroke-#e9ac77 opacity-100
+  | stroke-#e9ac77 z8:stroke-1.5 z20:stroke-17 opacity-100
 }
 
 layer highway_primary_casing {
@@ -402,7 +405,7 @@ layer highway_primary_casing {
   sourceLayer: "transportation"
   minzoom: 5
   filter: (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "primary") && (.ramp != 1)
-  | stroke-#e9ac77
+  | stroke-#e9ac77 z7:stroke-0 z8:stroke-0.6 z9:stroke-1.5 z20:stroke-22 z7:opacity-0 z8:opacity-100
 }
 
 layer highway_trunk_casing {
@@ -410,7 +413,7 @@ layer highway_trunk_casing {
   sourceLayer: "transportation"
   minzoom: 5
   filter: (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "trunk") && (.ramp != 1)
-  | stroke-#e9ac77
+  | stroke-#e9ac77 z5:stroke-0 z6:stroke-0.6 z7:stroke-1.5 z20:stroke-22 z5:opacity-0 z6:opacity-100
 }
 
 layer highway_motorway_casing {
@@ -418,14 +421,14 @@ layer highway_motorway_casing {
   sourceLayer: "transportation"
   minzoom: 4
   filter: (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "motorway") && (.ramp != 1)
-  | stroke-#e9ac77
+  | stroke-#e9ac77 z4:stroke-0 z5:stroke-0.4 z6:stroke-0.6 z7:stroke-1.5 z20:stroke-22 z4:opacity-0 z5:opacity-100
 }
 
 layer highway_path {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "path")
-  | stroke-#cba stroke-dasharray-1.5-0.75
+  | stroke-#cba z15:stroke-1.2 z20:stroke-4 stroke-dasharray-1.5-0.75
 }
 
 layer highway_motorway_link {
@@ -433,7 +436,7 @@ layer highway_motorway_link {
   sourceLayer: "transportation"
   minzoom: 12
   filter: (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "motorway") && (.ramp == 1)
-  | stroke-#fc8
+  | stroke-#fc8 z12.5:stroke-0 z13:stroke-1.5 z14:stroke-2.5 z20:stroke-11.5
 }
 
 layer highway_link {
@@ -441,35 +444,35 @@ layer highway_link {
   sourceLayer: "transportation"
   minzoom: 13
   filter: (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "primary" || .class == "secondary" || .class == "tertiary" || .class == "trunk") && (.ramp == 1)
-  | stroke-#fea
+  | stroke-#fea z12.5:stroke-0 z13:stroke-1.5 z14:stroke-2.5 z20:stroke-11.5
 }
 
 layer highway_minor {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel != "tunnel") && (.class == "minor" || .class == "service" || .class == "track")
-  | stroke-#fff opacity-100
+  | stroke-#fff z13.5:stroke-0 z14:stroke-2.5 z20:stroke-11.5 opacity-100
 }
 
 layer highway_secondary_tertiary {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "secondary" || .class == "tertiary") && (.ramp != 1)
-  | stroke-#fea
+  | stroke-#fea z6.5:stroke-0 z8:stroke-0.5 z20:stroke-13
 }
 
 layer highway_primary {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "primary") && (.ramp != 1)
-  | stroke-#fea
+  | stroke-#fea z8.5:stroke-0 z9:stroke-0.5 z20:stroke-18
 }
 
 layer highway_trunk {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "trunk") && (.ramp != 1)
-  | stroke-#fea
+  | stroke-#fea z6.5:stroke-0 z7:stroke-0.5 z20:stroke-18
 }
 
 layer highway_motorway {
@@ -477,161 +480,161 @@ layer highway_motorway {
   sourceLayer: "transportation"
   minzoom: 5
   filter: (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "motorway") && (.ramp != 1)
-  | stroke-#fc8
+  | stroke-#fc8 z6.5:stroke-0 z7:stroke-0.5 z20:stroke-18
 }
 
 layer railway_transit {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.class == "transit") && (.brunnel != "tunnel")
-  | stroke-#bababac4
+  | stroke-#bababac4 z14:stroke-0.4 z20:stroke-1
 }
 
 layer railway_transit_hatching {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.class == "transit") && (.brunnel != "tunnel")
-  | stroke-#bababaad stroke-dasharray-0.2-8
+  | stroke-#bababaad z14.5:stroke-0 z15:stroke-2 z20:stroke-6 stroke-dasharray-0.2-8
 }
 
 layer railway_service {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.class == "rail") && (.service != null)
-  | stroke-#bababac4
+  | stroke-#bababac4 z14:stroke-0.4 z20:stroke-1
 }
 
 layer railway_service_hatching {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.class == "rail") && (.service != null)
-  | stroke-#bababaad stroke-dasharray-0.2-8
+  | stroke-#bababaad z14.5:stroke-0 z15:stroke-2 z20:stroke-6 stroke-dasharray-0.2-8
 }
 
 layer railway {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (!(.service != null)) && (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "rail")
-  | stroke-#bbb
+  | stroke-#bbb z14:stroke-0.4 z15:stroke-0.75 z20:stroke-2
 }
 
 layer railway_hatching {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (!(.service != null)) && (.brunnel != "bridge" && .brunnel != "tunnel") && (.class == "rail")
-  | stroke-#bbb stroke-dasharray-0.2-8
+  | stroke-#bbb z14.5:stroke-0 z15:stroke-3 z20:stroke-8 stroke-dasharray-0.2-8
 }
 
 layer bridge_motorway_link_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "motorway") && (.ramp == 1)
-  | stroke-#e9ac77 opacity-100
+  | stroke-#e9ac77 z12:stroke-1 z13:stroke-3 z14:stroke-4 z20:stroke-19 opacity-100
 }
 
 layer bridge_link_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "primary" || .class == "secondary" || .class == "tertiary" || .class == "trunk") && (.ramp == 1)
-  | stroke-#e9ac77 opacity-100
+  | stroke-#e9ac77 z12:stroke-1 z13:stroke-3 z14:stroke-4 z20:stroke-19 opacity-100
 }
 
 layer bridge_secondary_tertiary_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "secondary" || .class == "tertiary") && (.ramp != 1)
-  | stroke-#e9ac77 opacity-100
+  | stroke-#e9ac77 z5:stroke-0.4 z7:stroke-0.6 z8:stroke-1.5 z20:stroke-21 opacity-100
 }
 
 layer bridge_trunk_primary_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "primary" || .class == "trunk") && (.ramp != 1)
-  | stroke-#eba76b
+  | stroke-#eba76b z5:stroke-0.4 z6:stroke-0.6 z7:stroke-1.5 z20:stroke-26
 }
 
 layer bridge_motorway_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "motorway") && (.ramp != 1)
-  | stroke-#e9ac77
+  | stroke-#e9ac77 z5:stroke-0.4 z6:stroke-0.6 z7:stroke-1.5 z20:stroke-26
 }
 
 layer bridge_minor_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "minor" || .class == "service" || .class == "track")
-  | stroke-#cfcdca
+  | stroke-#cfcdca z12:stroke-0.5 z13:stroke-1 z14:stroke-6 z20:stroke-24 z12:opacity-0 z12.5:opacity-100
 }
 
 layer bridge_path_casing {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "path")
-  | stroke-#f8f4f0
+  | stroke-#f8f4f0 z15:stroke-1.2 z20:stroke-18
 }
 
 layer bridge_path {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "path")
-  | stroke-#cba stroke-dasharray-1.5-0.75
+  | stroke-#cba z15:stroke-1.2 z20:stroke-4 stroke-dasharray-1.5-0.75
 }
 
 layer bridge_motorway_link {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "motorway") && (.ramp == 1)
-  | stroke-#fc8
+  | stroke-#fc8 z12.5:stroke-0 z13:stroke-1.5 z14:stroke-2.5 z20:stroke-11.5
 }
 
 layer bridge_link {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "primary" || .class == "secondary" || .class == "tertiary" || .class == "trunk") && (.ramp == 1)
-  | stroke-#fea
+  | stroke-#fea z12.5:stroke-0 z13:stroke-1.5 z14:stroke-2.5 z20:stroke-11.5
 }
 
 layer bridge_minor {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "minor" || .class == "service" || .class == "track")
-  | stroke-#fff opacity-100
+  | stroke-#fff z13.5:stroke-0 z14:stroke-2.5 z20:stroke-11.5 opacity-100
 }
 
 layer bridge_secondary_tertiary {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "secondary" || .class == "tertiary") && (.ramp != 1)
-  | stroke-#fea
+  | stroke-#fea z6.5:stroke-0 z8:stroke-0.5 z20:stroke-13
 }
 
 layer bridge_trunk_primary {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "primary" || .class == "trunk") && (.ramp != 1)
-  | stroke-#fea
+  | stroke-#fea z6.5:stroke-0 z7:stroke-0.5 z20:stroke-18
 }
 
 layer bridge_motorway {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "motorway") && (.ramp != 1)
-  | stroke-#fc8
+  | stroke-#fc8 z6.5:stroke-0 z7:stroke-0.5 z20:stroke-18
 }
 
 layer bridge_railway {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "rail")
-  | stroke-#bbb
+  | stroke-#bbb z14:stroke-0.4 z15:stroke-0.75 z20:stroke-2
 }
 
 layer bridge_railway_hatching {
   source: openmaptiles
   sourceLayer: "transportation"
   filter: (.brunnel == "bridge") && (.class == "rail")
-  | stroke-#bbb stroke-dasharray-0.2-8
+  | stroke-#bbb z14.5:stroke-0 z15:stroke-3 z20:stroke-8 stroke-dasharray-0.2-8
 }
 
 layer cablecar {
@@ -639,7 +642,7 @@ layer cablecar {
   sourceLayer: "transportation"
   minzoom: 13
   filter: .subclass == "cable_car"
-  | stroke-#b3b3b3
+  | stroke-#b3b3b3 z11:stroke-1 z19:stroke-2.5
 }
 
 layer cablecar_dash {
@@ -647,7 +650,7 @@ layer cablecar_dash {
   sourceLayer: "transportation"
   minzoom: 13
   filter: .subclass == "cable_car"
-  | stroke-#b3b3b3 stroke-dasharray-2-3
+  | stroke-#b3b3b3 z11:stroke-3 z19:stroke-5.5 stroke-dasharray-2-3
 }
 
 layer boundary_3 {
@@ -655,21 +658,21 @@ layer boundary_3 {
   sourceLayer: "boundary"
   minzoom: 5
   filter: (.admin_level >= 3) && (.admin_level <= 6) && (.maritime != 1) && (.disputed != 1) && (!(.claimed_by != null))
-  | stroke-#b3b3b3 stroke-dasharray-1-1
+  | stroke-#b3b3b3 z7:stroke-1 z11:stroke-2 stroke-dasharray-1-1
 }
 
 layer boundary_2 {
   source: openmaptiles
   sourceLayer: "boundary"
   filter: (.admin_level == 2) && (.maritime != 1) && (.disputed != 1) && (!(.claimed_by != null))
-  | stroke-#a4a2ae
+  | stroke-#a4a2ae z3:stroke-1 z5:stroke-1.2 z12:stroke-3 z0:opacity-40 z4:opacity-100
 }
 
 layer boundary_disputed {
   source: openmaptiles
   sourceLayer: "boundary"
   filter: (.maritime != 1) && (.disputed == 1)
-  | stroke-#a4a2ae stroke-dasharray-1-2
+  | stroke-#a4a2ae z3:stroke-1 z5:stroke-1.2 z12:stroke-3 stroke-dasharray-1-2
 }
 
 // SKIPPED layer "road_oneway" type="symbol" — unsupported by current X-GIS engine.
@@ -723,9 +726,6 @@ layer boundary_disputed {
 // SKIPPED layer "label_country_1" type="symbol" — unsupported by current X-GIS engine.
 
 /* Conversion notes (review before running):
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],0,0.9,10,0.3]
- *   • Color expression not converted: ["interpolate",["linear"],["zoom"],12,"hsla(30,19%,90%,0.4)",16,"hsla(30,19%,90%,0.2)"]
- *   • Color expression not converted: ["interpolate",["linear"],["zoom"],8,"hsla(30,19%,90%,0.4)",10,"hsla(30,19%,90%,0.0)"]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
@@ -735,159 +735,75 @@ layer boundary_disputed {
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.8],["zoom"],9,0.5,12,0.2]
- *   • Expression not converted: ["interpolate",["exponential",1.3],["zoom"],13,0.5,20,6]
- *   • Expression not converted: ["interpolate",["exponential",1.3],["zoom"],13,0.5,20,2]
- *   • Expression not converted: ["interpolate",["exponential",1.3],["zoom"],13,0.5,20,2]
- *   • Expression not converted: ["interpolate",["exponential",1.3],["zoom"],13,0.5,20,6]
- *   • Expression not converted: ["interpolate",["exponential",1.3],["zoom"],13,0.5,20,6]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],10,0.8,20,6]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],10,0.8,20,6]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],0,0.9,10,0.3]
- *   • Color expression not converted: ["interpolate",["linear"],["zoom"],15.5,"#f2eae2",16,"#dfdbd7"]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],13,0,16,1]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],15,1,16,4,20,11]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12,1,13,3,14,4,20,15]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12,0.5,13,1,14,4,20,15]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],12,0,12.5,1]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12,1,13,3,14,4,20,15]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],8,1.5,20,17]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],5,0.4,6,0.6,7,1.5,20,22]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],5,0.4,6,0.6,7,1.5,20,22]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],15,1.2,20,4]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12.5,0,13,1.5,14,2.5,20,11.5]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],15.5,0,16,2,20,7.5]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12.5,0,13,1.5,14,2.5,20,11.5]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],13.5,0,14,2.5,20,11.5]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],6.5,0,7,0.5,20,10]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],6.5,0,7,0.5,20,18]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],6.5,0,7,0.5,20,18]
- *   • Expression not converted: ["interpolate",["exponential",1.4],["zoom"],14,0.4,15,0.75,20,2]
- *   • Expression not converted: ["interpolate",["exponential",1.5],["zoom"],11,2,17,12]
- *   • Expression not converted: ["interpolate",["exponential",1.5],["zoom"],11,5,17,55]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],13,0,14,1]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.5],["zoom"],11,1,17,10]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],11,0,12,1]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.5],["zoom"],11,4,17,50]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],11,0,12,1]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],15,1,17,4]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12,1,13,3,14,4,20,15]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12,1,13,3,14,4,20,15]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12,0.5,13,1,14,4,20,15]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],12,0,12.5,1]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],8,1.5,20,17]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],7,0,8,0.6,9,1.5,20,22]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],7,0,8,1]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],5,0,6,0.6,7,1.5,20,22]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],5,0,6,1]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],4,0,5,0.4,6,0.6,7,1.5,20,22]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],4,0,5,1]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],15,1.2,20,4]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12.5,0,13,1.5,14,2.5,20,11.5]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12.5,0,13,1.5,14,2.5,20,11.5]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],13.5,0,14,2.5,20,11.5]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],6.5,0,8,0.5,20,13]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],8.5,0,9,0.5,20,18]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],6.5,0,7,0.5,20,18]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],6.5,0,7,0.5,20,18]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.4],["zoom"],14,0.4,20,1]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.4],["zoom"],14.5,0,15,2,20,6]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.4],["zoom"],14,0.4,20,1]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.4],["zoom"],14.5,0,15,2,20,6]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.4],["zoom"],14,0.4,15,0.75,20,2]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.4],["zoom"],14.5,0,15,3,20,8]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12,1,13,3,14,4,20,19]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12,1,13,3,14,4,20,19]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],5,0.4,7,0.6,8,1.5,20,21]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],5,0.4,6,0.6,7,1.5,20,26]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],5,0.4,6,0.6,7,1.5,20,26]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12,0.5,13,1,14,6,20,24]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],12,0,12.5,1]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],15,1.2,20,18]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],15,1.2,20,4]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12.5,0,13,1.5,14,2.5,20,11.5]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],12.5,0,13,1.5,14,2.5,20,11.5]
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
  *   • ["geometry-type"] dropped — no xgis feature-meta accessor.
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],13.5,0,14,2.5,20,11.5]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],6.5,0,8,0.5,20,13]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],6.5,0,7,0.5,20,18]
- *   • Expression not converted: ["interpolate",["exponential",1.2],["zoom"],6.5,0,7,0.5,20,18]
- *   • Expression not converted: ["interpolate",["exponential",1.4],["zoom"],14,0.4,15,0.75,20,2]
- *   • Expression not converted: ["interpolate",["exponential",1.4],["zoom"],14.5,0,15,3,20,8]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],11,1,19,2.5]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],11,3,19,5.5]
- *   • Expression not converted: ["interpolate",["linear",1],["zoom"],7,1,11,2]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],3,1,5,1.2,12,3]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],0,0.4,4,1]
- *   • Expression not converted: ["interpolate",["linear"],["zoom"],3,1,5,1.2,12,3]
  *   • Layer "road_oneway" type="symbol" not yet supported by converter — skipped.
  *   • Layer "road_oneway_opposite" type="symbol" not yet supported by converter — skipped.
  *   • Layer "waterway_line_label" type="symbol" not yet supported by converter — skipped.
