@@ -54,6 +54,15 @@ export interface ClassifiedShow {
   bgl: GPUBindGroupLayout
   fpF?: GPURenderPipeline
   lpF?: GPURenderPipeline
+  // Depth-disabled (`STENCIL_WRITE_NO_DEPTH`) ground variants for
+  // `extrude.kind === 'none'` layers. Match `bgl` — i.e. they share
+  // the layout of `fp`/`fpF`. The renderer's unconditional ground
+  // pipelines (`fillPipelineGround` / `fillPipelineGroundFallback`)
+  // can only substitute when bgl === baseBindGroupLayout; for
+  // variant-driven (feature-buffer) shows we need a feature-layout
+  // ground pipeline, which is what these fields carry.
+  fpG?: GPURenderPipeline
+  fpGF?: GPURenderPipeline
   isTranslucentStroke: boolean
   fillPhase: LayerDrawPhase
 }
@@ -91,12 +100,16 @@ export interface ClassifierShowEntry {
  *  pipeline + a console warning). */
 export interface ClassifierVariantPipelines {
   fillPipeline: GPURenderPipeline
+  fillPipelineGround?: GPURenderPipeline
   linePipeline: GPURenderPipeline
   fillPipelineFallback?: GPURenderPipeline
+  fillPipelineGroundFallback?: GPURenderPipeline
   linePipelineFallback?: GPURenderPipeline
   fillPipelineNoPick?: GPURenderPipeline
+  fillPipelineGroundNoPick?: GPURenderPipeline
   linePipelineNoPick?: GPURenderPipeline
   fillPipelineFallbackNoPick?: GPURenderPipeline
+  fillPipelineGroundFallbackNoPick?: GPURenderPipeline
   linePipelineFallbackNoPick?: GPURenderPipeline
 }
 
@@ -107,13 +120,17 @@ export interface ClassifierVariantPipelines {
  *  alias the pickable pipelines. */
 export interface ClassifierRendererDefaults {
   fillPipeline: GPURenderPipeline
+  fillPipelineGround?: GPURenderPipeline
   linePipeline: GPURenderPipeline
   bindGroupLayout: GPUBindGroupLayout
   fillPipelineFallback?: GPURenderPipeline
+  fillPipelineGroundFallback?: GPURenderPipeline
   linePipelineFallback?: GPURenderPipeline
   fillPipelineNoPick?: GPURenderPipeline
+  fillPipelineGroundNoPick?: GPURenderPipeline
   linePipelineNoPick?: GPURenderPipeline
   fillPipelineFallbackNoPick?: GPURenderPipeline
+  fillPipelineGroundFallbackNoPick?: GPURenderPipeline
   linePipelineFallbackNoPick?: GPURenderPipeline
 }
 
@@ -261,6 +278,22 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     const lpF = noPick
       ? (entry.pipelines?.linePipelineFallbackNoPick ?? defaults.linePipelineFallbackNoPick ?? entry.pipelines?.linePipelineFallback ?? defaults.linePipelineFallback)
       : (entry.pipelines?.linePipelineFallback ?? defaults.linePipelineFallback)
+    // Ground (depth-disabled) variants. Prefer a per-show variant
+    // ground pipeline when the show carries one (matches `fp`'s
+    // bind-group layout). Otherwise fall back to the renderer-level
+    // default ground pipelines (built with the base layout). VTR
+    // picks them at draw time only when bgl matches the pipeline's
+    // expected layout — so when bgl is the feature layout but only
+    // the base-layout default ground exists, the substitution is
+    // skipped (and the depth-write fp is used). That preserves
+    // bind-group correctness; the painter's-order optimisation just
+    // doesn't apply to that show.
+    const fpG = noPick
+      ? (entry.pipelines?.fillPipelineGroundNoPick ?? defaults.fillPipelineGroundNoPick ?? entry.pipelines?.fillPipelineGround ?? defaults.fillPipelineGround)
+      : (entry.pipelines?.fillPipelineGround ?? defaults.fillPipelineGround)
+    const fpGF = noPick
+      ? (entry.pipelines?.fillPipelineGroundFallbackNoPick ?? defaults.fillPipelineGroundFallbackNoPick ?? entry.pipelines?.fillPipelineGroundFallback ?? defaults.fillPipelineGroundFallback)
+      : (entry.pipelines?.fillPipelineGroundFallback ?? defaults.fillPipelineGroundFallback)
     // Opaque-bucket fillPhase decision:
     //  * isOitExtrude && isTranslucentStroke → SKIP opaque entirely
     //    (fills handled by OIT, strokes by translucent offscreen)
@@ -282,7 +315,7 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
       sourceName: entry.sourceName,
       vtEntry,
       show: effectiveShow,
-      fp, lp, bgl, fpF, lpF,
+      fp, lp, bgl, fpF, lpF, fpG, fpGF,
       isTranslucentStroke,
       fillPhase,
     }

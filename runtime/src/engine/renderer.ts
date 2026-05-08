@@ -363,8 +363,20 @@ export interface ShaderVariantInfo {
 
 export interface CachedPipeline {
   fillPipeline: GPURenderPipeline
+  /** Depth-disabled (`STENCIL_WRITE_NO_DEPTH`) mirror of `fillPipeline`
+   *  for `extrude.kind === 'none'` ground layers. Coplanar painter's-
+   *  order resolve depends on no draw writing depth — same role as the
+   *  unconditional `fillPipelineGround` (renderer.ts:983), but bound
+   *  to this variant's pipeline layout so feature-buffer-driven
+   *  ground layers can use the painter's-order path too. */
+  fillPipelineGround: GPURenderPipeline
   linePipeline: GPURenderPipeline
   fillPipelineFallback: GPURenderPipeline
+  /** Depth-disabled fallback (`STENCIL_TEST_NO_DEPTH`) for the
+   *  parent-ancestor draw path. Mirrors `fillPipelineGround` but with
+   *  stencil-test (only draws where current-zoom hasn't already
+   *  filled). */
+  fillPipelineGroundFallback: GPURenderPipeline
   linePipelineFallback: GPURenderPipeline
   /** Pickable=false mirror set: identical except `writeMask: 0` on the
    *  RG32Uint pick attachment, so layers with `pointer-events: none`
@@ -373,8 +385,10 @@ export interface CachedPipeline {
    *  globally disabled, these alias the pickable pipelines (the
    *  colorTargets have no pick attachment so the writeMask is moot). */
   fillPipelineNoPick: GPURenderPipeline
+  fillPipelineGroundNoPick: GPURenderPipeline
   linePipelineNoPick: GPURenderPipeline
   fillPipelineFallbackNoPick: GPURenderPipeline
+  fillPipelineGroundFallbackNoPick: GPURenderPipeline
   linePipelineFallbackNoPick: GPURenderPipeline
 }
 
@@ -1532,6 +1546,21 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
         depthStencil: STENCIL_WRITE, multisample: msaaState,
         label: `fill-${variant.key}${suffix}`,
       }),
+      // Ground (depth-disabled) variant — coplanar painter's-order
+      // resolve for `extrude.kind === 'none'` layers. Mirrors the
+      // unconditional `fillPipelineGround` (renderer.ts:983) so
+      // variant-driven ground layers don't write depth and force
+      // z-fighting against subsequent coplanar layers in the same
+      // source. Required after b98c449/e655b25 began routing variant
+      // shows away from the base-only fillPipelineGround substitution.
+      fillGround: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        fragment: { module, entryPoint: 'fs_fill', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_WRITE_NO_DEPTH, multisample: msaaState,
+        label: `fill-ground-${variant.key}${suffix}`,
+      }),
       line: device.createRenderPipeline({
         layout: pipelineLayout,
         vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
@@ -1548,6 +1577,20 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
         depthStencil: STENCIL_TEST, multisample: msaaState,
         label: `fill-fallback-${variant.key}${suffix}`,
       }),
+      // Ground depth-disabled fallback variant — same role as
+      // `fillGround` but for the parent-ancestor fallback path
+      // (stencil test, no stencil write). Without this the
+      // ancestor draw path keeps writing depth which would block
+      // siblings during the brief "current zoom missing, parent
+      // showing" window.
+      fillGroundFallback: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        fragment: { module, entryPoint: 'fs_fill', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_TEST_NO_DEPTH, multisample: msaaState,
+        label: `fill-ground-fallback-${variant.key}${suffix}`,
+      }),
       lineFallback: device.createRenderPipeline({
         layout: pipelineLayout,
         vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
@@ -1563,12 +1606,16 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
 
     return {
       fillPipeline: p.fill,
+      fillPipelineGround: p.fillGround,
       linePipeline: p.line,
       fillPipelineFallback: p.fillFallback,
+      fillPipelineGroundFallback: p.fillGroundFallback,
       linePipelineFallback: p.lineFallback,
       fillPipelineNoPick: np.fill,
+      fillPipelineGroundNoPick: np.fillGround,
       linePipelineNoPick: np.line,
       fillPipelineFallbackNoPick: np.fillFallback,
+      fillPipelineGroundFallbackNoPick: np.fillGroundFallback,
       linePipelineFallbackNoPick: np.lineFallback,
     }
   }

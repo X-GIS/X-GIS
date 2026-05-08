@@ -1086,6 +1086,14 @@ export class VectorTileRenderer {
      *  param a DPR=3 phone gets 9× more tiles loaded than a DPR=1
      *  desktop at the same logical viewport size. */
     dpr: number = 1,
+    /** Depth-disabled (`STENCIL_WRITE_NO_DEPTH`) ground pipeline
+     *  matching `bindGroupLayout` — used for `extrude.kind === 'none'`
+     *  layers so coplanar painter's-order resolves without depth-test
+     *  fighting. When omitted (e.g. legacy callers, tests), VTR falls
+     *  back to the renderer-level `fillPipelineGround` which is base-
+     *  layout only. */
+    fillPipelineGroundOverride?: GPURenderPipeline,
+    fillPipelineGroundFallbackOverride?: GPURenderPipeline,
   ): void {
     if (!this.source?.hasData()) return
     const index = this.source.getIndex()
@@ -2009,21 +2017,23 @@ export class VectorTileRenderer {
       // depth-write pipeline; the per-feature extruded path takes
       // its own branch inside renderTileKeys.
       //
-      // CRITICAL: fillPipelineGround was created with the BASE
-      // bindGroupLayout only (renderer.ts:984 → pipelineLayout at
-      // line 917 → bindGroupLayouts: [baseBindGroupLayout]). It
-      // CANNOT be paired with a feature bind group. So we only
-      // substitute it for the caller's variant `fillPipeline` when
-      // the show ALSO uses the base layout — i.e. constant fill
-      // with no data-driven match()/interpolate(). When the show
-      // is variant-driven (bindGroupLayout === featureBindGroupLayout),
-      // we keep the variant pipeline so the bind-group layout
-      // attached at draw time still matches.
-      const groundEligible =
-        this.currentExtrudeMode === 'none'
-        && this.fillPipelineGround !== null
-        && bindGroupLayout === this.baseBindGroupLayout
-      const mainFill = groundEligible ? this.fillPipelineGround! : fillPipeline
+      // Pick the depth-disabled ground pipeline whose layout matches
+      // the show's bind-group layout. Two cases:
+      //   • Show is base-layout (no variant feature buffer): use the
+      //     renderer-level default `fillPipelineGround` (base-only).
+      //   • Show is variant + featureBindGroupLayout: use the
+      //     `fillPipelineGroundOverride` the caller built for THIS
+      //     variant (matches layout). When that's absent (very old
+      //     caller / test stub), fall back to `fillPipeline` and
+      //     accept depth-write — better z-fighting than a layout
+      //     mismatch that drops the whole encoder.
+      const groundIsBase = bindGroupLayout === this.baseBindGroupLayout
+      const groundForLayout: GPURenderPipeline | null = groundIsBase
+        ? this.fillPipelineGround
+        : (fillPipelineGroundOverride ?? null)
+      const mainFill = this.currentExtrudeMode === 'none' && groundForLayout !== null
+        ? groundForLayout
+        : fillPipeline
       this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, phase, layerCache, this.fillPipelineExtruded, bindGroupLayout)
     }
 
@@ -2047,14 +2057,15 @@ export class VectorTileRenderer {
         this.uniformF32[17] = 0.0
         this.uniformF32[18] = 0.0
       }
-      // Same ground-pipeline gate as the primary path — the fallback
-      // ground pipeline was also built with base-only layout.
-      const fallbackGroundEligible =
-        this.currentExtrudeMode === 'none'
-        && this.fillPipelineGroundFallback !== null
-        && bindGroupLayout === this.baseBindGroupLayout
-      const fallbackFill = fallbackGroundEligible
-        ? this.fillPipelineGroundFallback!
+      // Same layout-matched ground pickup as the primary path —
+      // base layout uses the renderer-level fallback ground; feature
+      // layout uses the variant's fallback ground override.
+      const fallbackGroundIsBase = bindGroupLayout === this.baseBindGroupLayout
+      const fallbackGroundForLayout: GPURenderPipeline | null = fallbackGroundIsBase
+        ? this.fillPipelineGroundFallback
+        : (fillPipelineGroundFallbackOverride ?? null)
+      const fallbackFill = this.currentExtrudeMode === 'none' && fallbackGroundForLayout !== null
+        ? fallbackGroundForLayout
         : fillPipelineFallback
       this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache, this.fillPipelineExtrudedFallback, bindGroupLayout)
       if (_debugRed) {

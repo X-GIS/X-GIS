@@ -42,13 +42,17 @@ import type { GeoJSONFeature } from '../loader/geojson'
 
 interface VariantPipelines {
   fillPipeline: GPURenderPipeline
+  fillPipelineGround?: GPURenderPipeline
   linePipeline: GPURenderPipeline
   fillPipelineFallback?: GPURenderPipeline
+  fillPipelineGroundFallback?: GPURenderPipeline
   linePipelineFallback?: GPURenderPipeline
   // pointer-events: none mirrors (writeMask:0 on the pick attachment).
   fillPipelineNoPick?: GPURenderPipeline
+  fillPipelineGroundNoPick?: GPURenderPipeline
   linePipelineNoPick?: GPURenderPipeline
   fillPipelineFallbackNoPick?: GPURenderPipeline
+  fillPipelineGroundFallbackNoPick?: GPURenderPipeline
   linePipelineFallbackNoPick?: GPURenderPipeline
 }
 
@@ -1550,13 +1554,17 @@ export class XGISMap {
       elapsedMs: this._elapsedMs,
       rendererDefaults: {
         fillPipeline: this.renderer.fillPipeline,
+        fillPipelineGround: this.renderer.fillPipelineGround,
         linePipeline: this.renderer.linePipeline,
         bindGroupLayout: this.renderer.bindGroupLayout,
         fillPipelineFallback: this.renderer.fillPipelineFallback,
+        fillPipelineGroundFallback: this.renderer.fillPipelineGroundFallback,
         linePipelineFallback: this.renderer.linePipelineFallback,
         fillPipelineNoPick: this.renderer.fillPipelineNoPick,
+        fillPipelineGroundNoPick: this.renderer.fillPipelineGround,
         linePipelineNoPick: this.renderer.linePipelineNoPick,
         fillPipelineFallbackNoPick: this.renderer.fillPipelineFallbackNoPick,
+        fillPipelineGroundFallbackNoPick: this.renderer.fillPipelineGroundFallback,
         linePipelineFallbackNoPick: this.renderer.linePipelineFallbackNoPick,
       },
     })
@@ -1923,6 +1931,7 @@ export class XGISMap {
                 this.pointRenderer,
                 cs.fillPhase,
                 dpr,
+                cs.fpG, cs.fpGF,
               )
             }
           }
@@ -1973,6 +1982,7 @@ export class XGISMap {
               cs.fpF, cs.lpF,
               null, 'oit-fill',
               dpr,
+              cs.fpG, cs.fpGF,
             )
           }
           oitPass.end()
@@ -2017,6 +2027,7 @@ export class XGISMap {
               cs.fpF, cs.lpF,
               null, 'strokes',
               dpr,
+              cs.fpG, cs.fpGF,
             )
             offPass.end()
           })
