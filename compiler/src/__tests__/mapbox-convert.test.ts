@@ -45,6 +45,24 @@ describe('Mapbox → xgis converter', () => {
     expect(out).toContain('url: "https://x.example/v4.pmtiles"')
   })
 
+  it('converts a vector source pointing at a TileJSON URL (no extension) → type: tilejson', () => {
+    // Common shape — Mapbox-style URL points at a TileJSON manifest
+    // (e.g., https://tiles.openfreemap.org/planet) without a file
+    // extension. Used to emit `type: pmtiles  // TODO`, which the
+    // runtime then fell through into the GeoJSON fetch path and
+    // crashed. Now declares `tilejson` so the runtime routes through
+    // attachPMTilesSource.
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { om: { type: 'vector', url: 'https://tiles.openfreemap.org/planet' } },
+      layers: [],
+    })
+    expect(out).toContain('type: tilejson')
+    expect(out).toContain('url: "https://tiles.openfreemap.org/planet"')
+    // Old failure mode — TODO comment polluting the source — must be gone.
+    expect(out).not.toContain('// TODO: verify')
+  })
+
   it('converts a simple fill layer with filter', () => {
     const out = convertMapboxStyle({
       version: 8,

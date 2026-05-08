@@ -11,6 +11,14 @@ export type { ShaderVariant } from '../codegen/shader-gen'
 export interface LoadCommand {
   name: string
   url: string
+  /** Source `type:` from the DSL — `'geojson'` / `'pmtiles'` /
+   *  `'tilejson'` / `'raster'` / `'xgvt'`. The runtime dispatches on
+   *  this when set; falls back to URL-extension sniffing otherwise.
+   *  Without it, a URL like `https://tiles.example.com/planet`
+   *  (TileJSON manifest, no extension) gets misrouted as a generic
+   *  GeoJSON `fetch().json()` and the engine crashes when it tries
+   *  to read `data.features[0]` on the TileJSON document. */
+  type?: string
   /** Optional MVT layer subset for PMTiles sources. See the parallel
    *  field on the legacy `interpreter.ts` LoadCommand. */
   layers?: string[]
@@ -122,6 +130,7 @@ export function emitCommands(scene: Scene): SceneCommands {
   const loads: LoadCommand[] = scene.sources.map(src => ({
     name: src.name,
     url: src.url,
+    type: src.type,
     layers: src.layers,
   }))
 

@@ -963,11 +963,24 @@ export class XGISMap {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
       console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
 
-      if (isTileTemplate(url)) {
+      // Source `type:` from the DSL takes precedence over URL-extension
+      // sniffing so a URL without a file extension (e.g. a TileJSON
+      // manifest at `https://tiles.example.com/planet`) still routes
+      // correctly. Without this, the misrouted URL falls into the
+      // bottom `fetch().json()` branch and the JSON gets stored as a
+      // FeatureCollection — which then crashes `applyFilter` because
+      // there's no `.features` array.
+      const declaredType = load.type
+      const looksLikeRaster = declaredType === 'raster' || isTileTemplate(url)
+      const looksLikeVectorTile =
+        declaredType === 'pmtiles' || declaredType === 'tilejson' || declaredType === 'xgvt' ||
+        url.endsWith('.xgvt') || isPMTilesOrTileJSON(url)
+
+      if (looksLikeRaster) {
         // Store the URL — actual raster rendering is activated only when a
         // layer references this source (in rebuildLayers)
         this.rawDatasets.set(load.name, { _tileUrl: url } as unknown as GeoJSONFeatureCollection)
-      } else if ((url.endsWith('.xgvt') || isPMTilesOrTileJSON(url)) && !this.useCanvas2D) {
+      } else if (looksLikeVectorTile && !this.useCanvas2D) {
         // Vector tile file — create per-source XGVTSource + VectorTileRenderer.
         // Three archive / manifest formats are recognised by extension:
         //   .xgvt              native binary, range-request streamed
@@ -986,7 +999,10 @@ export class XGISMap {
         if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
         vtRenderer.setSource(source) // connect before load so preloaded tiles auto-upload
         const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
-        if (isPMTilesOrTileJSON(url)) {
+        const isPmOrTj =
+          declaredType === 'pmtiles' || declaredType === 'tilejson' ||
+          isPMTilesOrTileJSON(url)
+        if (isPmOrTj) {
           // Lazy attachment — only the header is fetched here; tiles
           // are pulled on-demand when the renderer's visible-tile
           // selection requests them. No zoom-range cap; the full

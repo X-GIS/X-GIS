@@ -121,16 +121,19 @@ function convertSource(id: string, src: MapboxSource, warnings: string[]): strin
   const lines: string[] = [`source ${sanitizeId(id)} {`]
   if (src.type === 'vector') {
     // Prefer URL when present (Mapbox tilejson / mb-style URL); fall
-    // back to first tile pattern. PMTiles is the closest X-GIS native
-    // backing — heuristic: any `.pmtiles` extension routes that way.
+    // back to first tile pattern.
+    //   .pmtiles archive       → type: pmtiles
+    //   anything else (most    → type: tilejson  (runtime fetches
+    //   commonly a TileJSON      the manifest, then drives the same
+    //   manifest URL like        attachPMTilesSource backend)
+    //   tiles.example.com/x)
     const url = src.url ?? src.tiles?.[0]
     if (url && /\.pmtiles(\?|$)/.test(url)) {
       lines.push('  type: pmtiles')
       lines.push(`  url: "${url}"`)
     } else if (url) {
-      lines.push('  type: pmtiles  // TODO: verify — URL is not an explicit .pmtiles archive')
+      lines.push('  type: tilejson')
       lines.push(`  url: "${url}"`)
-      warnings.push(`Source "${id}" type=vector but URL is not a .pmtiles archive; X-GIS currently only renders PMTiles natively. URL passed through verbatim — replace with a PMTiles archive or implement a TileJSON adapter to use as-is.`)
     } else {
       lines.push('  // TODO: vector source without url/tiles — fill in PMTiles archive URL')
       warnings.push(`Source "${id}" has neither url nor tiles[]; emitted placeholder.`)
