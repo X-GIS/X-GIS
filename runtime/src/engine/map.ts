@@ -1627,6 +1627,10 @@ export class XGISMap {
 
     const encoder = device.createCommandEncoder()
     const screenView = context.getCurrentTexture().createView()
+    // Reset per-frame sub-pass assignment in the timer. Subsequent
+    // passWrites() calls will return contiguous timestamp ranges
+    // starting at sub-pass 0.
+    this.gpuTimer?.beginFrame()
     // Wrap the entire frame in a validation scope so any pass-creation or
     // draw-call validation error gets a unique log entry pointing to the
     // submit. Each block below also pushes its own scope for finer locality.
@@ -1824,11 +1828,14 @@ export class XGISMap {
         const persistDepth = !isLastOpaque || hasPoints || hasOit
 
         passScope(isFirst ? 'opaque-main' : `opaque[${gi}]`, () => {
-          // Time only the FIRST opaque sub-pass — that's where raster +
-          // the heaviest vector source draws. Additional groups would need
-          // their own QuerySet to time independently; for the perf-investigation
-          // workload (multi_layer) one sub-pass usually covers everything.
-          const tsWrites = (isFirst && this.gpuTimer?.passWrites()) || undefined
+          // Time EVERY opaque sub-pass. The timer pre-allocates a
+          // QuerySet wide enough for MAX_SUBPASSES sub-passes, with
+          // sub-pass 0 carrying the inside-passes breakdown (bg/raster/
+          // legacy/vt) and sub-passes 1..N each contributing one
+          // (begin..end) duration that aggregates into the `vt` ring.
+          // Demos like osm_style split opaque rendering across multiple
+          // groups; single-pass timing missed everything past the first.
+          const tsWrites = this.gpuTimer?.passWrites() || undefined
           // Build color attachments. When picking is enabled, add a
           // second RG32Uint attachment at location 1 — every pipeline
           // in the main passes has a matching second fragment output
