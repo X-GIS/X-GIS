@@ -16,8 +16,8 @@ test.describe('osm_style high-pitch visual diag', () => {
     await page.setViewportSize({ width: 430, height: 715 })
 
     // Match user's exact URL
-    // User's repro: Tokyo z=17.07 (over-zoom past archive maxLevel=15)
-    await page.goto('/demo.html?id=osm_style&e2e=1#17.07/35.68231/139.76596/343.4/18.7', {
+    // Seoul high-pitch regression check
+    await page.goto('/demo.html?id=osm_style&e2e=1#15.78/37.53155/126.97068/348.1/85.0', {
       waitUntil: 'domcontentloaded',
     })
     await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,

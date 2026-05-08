@@ -290,7 +290,27 @@ fn fs_fill(input: VertexOutput) -> FragmentOutput {
   let wall_shade = 0.55 + 0.45 * input.wall_blend;
   out.color = vec4<f32>(u.fill_color.rgb * wall_shade, u.fill_color.a);
   __PICK_WRITE__
-  out.depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
+  // Per-feature deterministic depth jitter to break coplanar z-fights
+  // at shared walls between adjacent buildings. Two buildings that
+  // share an edge each emit a wall along that edge at z=0..min(H_A,
+  // H_B) — fragments at the same screen pixel on both walls compute
+  // the same view_w, so log-depth is identical and the GPU resolves
+  // the tie from per-pixel rasterisation noise (visible "sparkle"
+  // along the shared base, reported by user at Tokyo z=16.33
+  // pitch=63.5°). A tiny per-feat_id offset shifts each feature's
+  // depth by a deterministic amount well below visible pixel scale,
+  // so adjacent walls always have a consistent winner.
+  //   range: ±FEAT_DEPTH_JITTER ≈ ±1.5e-5 NDC z (24-bit depth = 6e-8
+  //   per unit → ~250 depth units, sub-pixel visually).
+  // Only applied when feat_id is non-zero — synthetic pseudo-features
+  // (background quads etc.) keep the canonical log-depth result.
+  let base_depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
+  let jitter = select(
+    0.0,
+    (f32((input.feat_id * 2654435761u) % 1024u) - 512.0) * 1.5e-8,
+    input.feat_id != 0u,
+  );
+  out.depth = base_depth + jitter;
   return out;
 }
 
