@@ -106,6 +106,21 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     await expect(page.locator('aside nav a', { hasText: 'XGISMap.run' })).toBeVisible()
     await page.screenshot({ path: 'test-results/docs-api.png', fullPage: true })
 
+    // Page feedback widget mounted at end of every docs page.
+    await expect(page.locator('[data-page-feedback]')).toHaveCount(1)
+    await expect(page.locator('[data-page-feedback] button[data-vote="up"]')).toBeVisible()
+
+    // Search facet grouping — open Cmd-K, type a query, the result
+    // list should show grouped section headers (e.g. "API · 5",
+    // "Function · 1") rather than a flat list.
+    await page.goto(`http://localhost:${port}/docs/`)
+    await page.locator('#search-trigger').click()
+    await page.locator('#search-input').fill('interpolate')
+    await page.waitForTimeout(150)
+    const groupHeaders = page.locator('#search-results .search-group p')
+    expect(await groupHeaders.count()).toBeGreaterThanOrEqual(2)
+    await page.screenshot({ path: 'test-results/search-facets.png', fullPage: false })
+
     // Search index covers the new pages.
     await page.goto(`http://localhost:${port}/docs/functions/`)
     const indexJson = await page.locator('#search-index').textContent()

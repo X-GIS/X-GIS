@@ -3,6 +3,7 @@ import Base from './Base.astro'
 import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
 import OnThisPage from '../components/OnThisPage.astro'
+import PageFeedback from '../components/PageFeedback.astro'
 
 interface Heading {
   depth: number
@@ -170,6 +171,9 @@ const navGroups: NavGroup[] = [
       <!-- Page content -->
       <article class="min-w-0">
         <slot />
+
+        {/* ── Page feedback widget — sits above prev/next ── */}
+        <PageFeedback slug={current} />
 
         {/* ── Page meta footer: prev/next + edit-on-GitHub ── */}
         {(() => {

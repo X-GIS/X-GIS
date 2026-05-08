@@ -150,37 +150,95 @@ const indexJson = buildSearchIndexJSON(base)
 
     let lastFiltered: SearchRecord[] = []
 
+    // Display order for tag-keyed result groups. Tags not in this list
+    // fall through to the bottom in insertion order. Putting docs +
+    // language reference first surfaces the most useful results when a
+    // search is ambiguous (e.g. "interpolate" matches a function, a
+    // demo card, and the mapbox-migration anchor).
+    const TAG_ORDER: Record<string, number> = {
+      'Get started': 1,
+      'Guides': 2,
+      'Reference': 3,
+      'Function': 4,
+      'Operator': 5,
+      'Source': 6,
+      'API': 7,
+      'Concept': 8,
+      'Mapbox': 9,
+      'Recipe': 10,
+      'Utilities': 11,
+      'Overview': 12,
+      'Language': 13,
+    }
+    // Demo tags (gallery categories) all go last.
+
     const render = (q: string) => {
-      // Trim + lowercase. Empty query shows everything (capped at 12).
+      // Trim + lowercase. Empty query shows everything (capped at 30).
       const needle = q.trim().toLowerCase()
       const filtered = needle
         ? records.filter(r =>
             r.title.toLowerCase().includes(needle) ||
             r.body.toLowerCase().includes(needle) ||
             r.tag.toLowerCase().includes(needle))
-            .slice(0, 30)
-        : records.slice(0, 12)
+            .slice(0, 60)
+        : records.slice(0, 30)
       lastFiltered = filtered
-      results.innerHTML = filtered.length === 0
-        ? `<li class="px-5 py-6 text-[13px] text-fg-mute">No matches for "${escapeHtml(q)}"</li>`
-        : filtered.map((r, i) => `
+      if (filtered.length === 0) {
+        results.innerHTML = `<li class="px-5 py-6 text-[13px] text-fg-mute">No matches for "${escapeHtml(q)}"</li>`
+        return
+      }
+
+      // Group by tag (= category). Sort groups by TAG_ORDER first,
+      // then by alphabetical for unknown tags. Demos always go last
+      // (handled by treating their type='demo' as a low priority).
+      const grouped = new Map<string, SearchRecord[]>()
+      for (const r of filtered) {
+        const key = r.type === 'demo' ? `Demo · ${r.tag}` : r.tag
+        const arr = grouped.get(key) ?? []
+        arr.push(r)
+        grouped.set(key, arr)
+      }
+      const sortedGroups = [...grouped.entries()].sort(([a], [b]) => {
+        const isDemoA = a.startsWith('Demo · ')
+        const isDemoB = b.startsWith('Demo · ')
+        if (isDemoA !== isDemoB) return isDemoA ? 1 : -1
+        const oa = TAG_ORDER[a] ?? 99
+        const ob = TAG_ORDER[b] ?? 99
+        if (oa !== ob) return oa - ob
+        return a.localeCompare(b)
+      })
+
+      // Build a flat array so the keyboard navigation stays simple
+      // (move / openActive don't care about groups).
+      lastFiltered = sortedGroups.flatMap(([, arr]) => arr)
+
+      let i = 0
+      results.innerHTML = sortedGroups.map(([groupTag, arr]) => {
+        const rowsHtml = arr.map(r => {
+          const idx = i++
+          return `
             <li>
-              <a href="${r.url}" data-idx="${i}" class="search-row group flex items-start gap-4 px-5 py-3 ${i === active ? 'bg-bg-hover' : ''}">
-                <span class="mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded bg-bg-elev text-[10px] font-medium tracking-wider uppercase ${r.type === 'demo' ? 'text-accent' : 'text-fg-dim'}">${escapeHtml(r.tag)}</span>
+              <a href="${r.url}" data-idx="${idx}" class="search-row flex items-start gap-3 pl-5 pr-5 py-2 ${idx === active ? 'bg-bg-hover' : ''}">
                 <span class="flex-1 min-w-0">
-                  <p class="text-[14px] font-medium text-fg leading-[1.3]">${escapeHtml(r.title)}</p>
+                  <p class="text-[13.5px] font-medium text-fg leading-[1.3]">${escapeHtml(r.title)}</p>
                   <p class="text-[12px] text-fg-dim leading-[1.45] truncate">${escapeHtml(r.body)}</p>
                 </span>
               </a>
-            </li>
-          `).join('')
+            </li>`
+        }).join('')
+        return `
+          <li class="search-group pt-2 pb-1">
+            <p class="px-5 pb-1.5 text-[10px] font-medium text-fg-mute uppercase tracking-wider">${escapeHtml(groupTag)} <span class="text-fg-faint">·</span> <span class="text-fg-faint">${arr.length}</span></p>
+            <ul>${rowsHtml}</ul>
+          </li>`
+      }).join('')
 
       // Hover updates active so keyboard + mouse stay coherent.
-      results.querySelectorAll<HTMLAnchorElement>('.search-row').forEach((row, i) => {
+      results.querySelectorAll<HTMLAnchorElement>('.search-row').forEach((row, idx) => {
         row.addEventListener('mouseenter', () => {
-          active = i
-          row.parentElement?.parentElement?.querySelectorAll('.search-row').forEach((r, j) => {
-            r.classList.toggle('bg-bg-hover', j === i)
+          active = idx
+          results.querySelectorAll('.search-row').forEach((r, j) => {
+            r.classList.toggle('bg-bg-hover', j === idx)
           })
         })
       })
