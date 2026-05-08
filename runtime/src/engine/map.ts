@@ -2099,6 +2099,7 @@ export class XGISMap {
               null, 'strokes',
               dpr,
               cs.fpG, cs.fpGF,
+              true, // translucentBucket — offscreen pass has no depth
             )
             offPass.end()
           })

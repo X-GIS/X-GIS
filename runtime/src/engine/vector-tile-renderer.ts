@@ -1156,7 +1156,12 @@ export class VectorTileRenderer {
     /** Which draws to emit for this layer.
      *  - 'all':     fills + strokes in the current pass (opaque default)
      *  - 'fills':   polygon fills only (main pass, baked opacity)
-     *  - 'strokes': outlines + line features only (offscreen MAX-blend pass) */
+     *  - 'strokes': outlines + line features only — used by BOTH the
+     *               translucent offscreen MAX-blend pass (where it
+     *               needs `pipelineMax`) and the opaque-bucket case
+     *               where an OIT-extruded layer kept its outlines on
+     *               the main pass (regular `pipeline`). The caller
+     *               disambiguates via `translucentLines`. */
     phase: LayerDrawPhase = 'all',
     /** Backing-buffer:CSS-pixel ratio for the canvas. Tile budget /
      *  mobile classification / subdivide threshold are perceptual
@@ -1172,6 +1177,15 @@ export class VectorTileRenderer {
      *  layout only. */
     fillPipelineGroundOverride?: GPURenderPipeline,
     fillPipelineGroundFallbackOverride?: GPURenderPipeline,
+    /** True when the caller's pass is the translucent offscreen
+     *  MAX-blend RT (no depth attachment) — line draws must use
+     *  `pipelineMax`. False (default) when the pass has a depth
+     *  attachment (opaque bucket); line draws use the regular
+     *  `pipeline`. The opaque bucket can also reach `phase ===
+     *  'strokes'` for OIT-extruded layers whose outlines stayed
+     *  on the main pass (fully opaque even though the fill is
+     *  translucent), so phase alone isn't enough to dispatch. */
+    translucentBucket: boolean = false,
   ): void {
     if (!this.source?.hasData()) return
     const index = this.source.getIndex()
@@ -2196,7 +2210,7 @@ export class VectorTileRenderer {
       const mainFill = this.currentExtrudeMode === 'none' && groundForLayout !== null
         ? groundForLayout
         : fillPipeline
-      this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, phase, layerCache, this.fillPipelineExtruded, bindGroupLayout)
+      this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, phase, layerCache, this.fillPipelineExtruded, bindGroupLayout, translucentBucket)
     }
 
     // Render fallback ancestors (stencil test) — with world offsets for wrapping
@@ -2229,7 +2243,7 @@ export class VectorTileRenderer {
       const fallbackFill = this.currentExtrudeMode === 'none' && fallbackGroundForLayout !== null
         ? fallbackGroundForLayout
         : fillPipelineFallback
-      this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache, this.fillPipelineExtrudedFallback, bindGroupLayout)
+      this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache, this.fillPipelineExtrudedFallback, bindGroupLayout, translucentBucket)
       if (_debugRed) {
         this.uniformF32[16] = _origR
         this.uniformF32[17] = _origG
@@ -2387,10 +2401,22 @@ export class VectorTileRenderer {
     layerCache: Map<number, GPUTile>,
     fillPipelineExtruded: GPURenderPipeline | null,
     fillBindGroupLayout: GPUBindGroupLayout,
+    /** Same disambiguation as the public render() — `'strokes'`
+     *  phase is reused by both the offscreen translucent pass and
+     *  the opaque-bucket OIT-extrude post-pass; the caller tells
+     *  us which so we pick `pipelineMax` (no-depth offscreen) vs
+     *  `pipeline` (regular depth-bearing). */
+    translucentBucket: boolean = false,
   ): void {
     const drawFills = phase !== 'strokes'
     const drawStrokes = phase !== 'fills' && phase !== 'oit-fill'
-    const translucentLines = phase === 'strokes'
+    // `phase === 'strokes'` reaches us from two passes — the
+    // translucent offscreen MAX-blend pass (no depth) and the
+    // opaque OIT-extrude post-pass (with depth). Use the caller's
+    // explicit `translucentBucket` to pick the right line pipeline;
+    // the offscreen one (`pipelineMax`) is incompatible with a
+    // depth-bearing pass and trips frame validation otherwise.
+    const translucentLines = phase === 'strokes' && translucentBucket
     const isOitFill = phase === 'oit-fill'
     // Pick the bind group whose layout matches the FILL pipeline's
     // expected layout. Two pitfalls the previous `feature ?? default`
