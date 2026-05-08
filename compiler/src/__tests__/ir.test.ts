@@ -404,45 +404,41 @@ describe('IR Lower — extrude keyword', () => {
     expect(scene.renderNodes[0].extrude).toEqual({ kind: 'none' })
   })
 
-  it('lowers `extrude: 50` to constant', () => {
+  it('lowers `fill-extrusion-height-50` to constant', () => {
     const scene = compile(`
       source pm { type: pmtiles, url: "/world.pmtiles" }
       layer buildings {
         source: pm
         sourceLayer: "buildings"
-        extrude: 50
-        | fill-stone-300
+        | fill-stone-300 fill-extrusion-height-50
       }
     `)
     expect(scene.renderNodes[0].extrude).toEqual({ kind: 'constant', value: 50 })
   })
 
-  it('lowers `extrude: .height` to feature expression with default fallback', () => {
+  it('lowers `fill-extrusion-height-[.render_height]` to feature expression', () => {
     const scene = compile(`
       source pm { type: pmtiles, url: "/world.pmtiles" }
       layer buildings {
         source: pm
         sourceLayer: "buildings"
-        extrude: .render_height
-        | fill-stone-300
+        | fill-stone-300 fill-extrusion-height-[.render_height]
       }
     `)
     const ex = scene.renderNodes[0].extrude
     expect(ex.kind).toBe('feature')
     if (ex.kind !== 'feature') throw new Error('unreachable')
-    expect(ex.fallback).toBe(50)
     expect(ex.expr.ast.kind).toBe('FieldAccess')
     expect((ex.expr.ast as { kind: 'FieldAccess'; field: string }).field).toBe('render_height')
   })
 
-  it('lowers `extrude: .levels * 3.5` to a binary expression', () => {
+  it('lowers `fill-extrusion-height-[.levels * 3.5]` to a binary expression', () => {
     const scene = compile(`
       source pm { type: pmtiles, url: "/world.pmtiles" }
       layer buildings {
         source: pm
         sourceLayer: "buildings"
-        extrude: .levels * 3.5
-        | fill-stone-300
+        | fill-stone-300 fill-extrusion-height-[.levels * 3.5]
       }
     `)
     const ex = scene.renderNodes[0].extrude
@@ -454,7 +450,7 @@ describe('IR Lower — extrude keyword', () => {
   it('emit-commands forwards extrude onto the ShowCommand', () => {
     const scene = compile(`
       source pm { type: pmtiles, url: "/world.pmtiles" }
-      layer b { source: pm, sourceLayer: "buildings", extrude: 30, | fill-red }
+      layer b { source: pm, sourceLayer: "buildings", | fill-red fill-extrusion-height-30 }
     `)
     const cmds = emitCommands(scene)
     expect(cmds.shows[0].extrude).toEqual({ kind: 'constant', value: 30 })

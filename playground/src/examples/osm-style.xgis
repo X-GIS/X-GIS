@@ -123,12 +123,16 @@ layer roads_rail {
 }
 
 /* ── Buildings (top layer, 3D extruded) ──────────────────────── */
-/* extrude accepts any expression — try `.height`, `.levels * 3.5`,
- * `max(.render_height, 20)`, etc. Falls back to 50 m when the
- * expression returns null or the property is missing. */
+/* 3D height comes from `fill-extrusion-height-[<expr>]` and
+ * `fill-extrusion-base-[<expr>]` (Mapbox-spec equivalents). The
+ * expression is evaluated per feature at MVT decode time and the
+ * engine no longer fabricates a default — use `??` to declare an
+ * explicit fallback when the data is sparse, e.g. protomaps v4
+ * buildings tag `render_height` / `height` only on a subset of
+ * features. Try `.render_height ?? .height ?? .levels * 3.5 ?? 5`
+ * to walk multiple property fallbacks before settling on 5 m. */
 layer buildings {
   source: pm_world
   sourceLayer: "buildings"
-  extrude: .height
-  | fill-stone-300 stroke-stone-500 stroke-0.5
+  | fill-stone-300 stroke-stone-500 stroke-0.5 fill-extrusion-height-[.render_height ?? .height ?? 5]
 }

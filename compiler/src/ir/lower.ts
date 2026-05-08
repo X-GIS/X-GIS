@@ -170,25 +170,6 @@ function lowerLayer(
       filterExpr = prop.value
     } else if (prop.name === 'geometry') {
       geometryExpr = prop.value
-    } else if (prop.name === 'extrude') {
-      // `extrude:` accepts:
-      //   * a number literal (50)         → constant; every feature
-      //     gets the same height
-      //   * any other expression          → feature mode; the runtime
-      //     evaluates the AST against each feature's properties at
-      //     MVT decode time. Examples:
-      //         extrude: .height
-      //         extrude: .levels * 3.5
-      //         extrude: max(.height, 20)
-      //     The fallback (currently fixed at 50 m) is used when the
-      //     expression returns null / undefined / NaN (e.g. the
-      //     feature lacks the referenced property).
-      const v = prop.value
-      if (v.kind === 'NumberLiteral') {
-        extrude = { kind: 'constant', value: v.value }
-      } else {
-        extrude = { kind: 'feature', expr: { ast: v }, fallback: 50 }
-      }
     }
   }
 
