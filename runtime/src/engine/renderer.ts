@@ -304,10 +304,18 @@ fn fs_fill(input: VertexOutput) -> FragmentOutput {
   //   per unit → ~250 depth units, sub-pixel visually).
   // Only applied when feat_id is non-zero — synthetic pseudo-features
   // (background quads etc.) keep the canonical log-depth result.
+  //
+  // Bitwise hash (xor-shift mix) on the LOW 16 bits of feat_id
+  // avoids u32 multiplication overflow that some implementations
+  // (notably Apple Metal under iOS Safari) treat as a shader-
+  // validation error. Pure shifts + xor stay strictly within the
+  // unsigned domain WGSL specifies as wrap-on-overflow.
   let base_depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
+  let id_lo = input.feat_id & 0xFFFFu;
+  let mixed = (id_lo ^ (id_lo >> 7u) ^ (id_lo << 3u)) & 0x3FFu; // 0..1023
   let jitter = select(
     0.0,
-    (f32((input.feat_id * 2654435761u) % 1024u) - 512.0) * 1.5e-8,
+    (f32(mixed) - 512.0) * 1.5e-8,
     input.feat_id != 0u,
   );
   out.depth = base_depth + jitter;
