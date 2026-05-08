@@ -1,6 +1,6 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { Lexer, Parser, lower, optimize, emitCommands, evaluate, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, type Program } from '@xgis/compiler'
+import { Lexer, Parser, lower, optimize, emitCommands, evaluate, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, tileKey as compilerTileKey, type Program } from '@xgis/compiler'
 import type * as AST from '@xgis/compiler'
 import { BackgroundRenderer } from './background-renderer'
 import { getSharedGeoJSONCompilePool } from '../data/geojson-compile-pool'
@@ -1190,15 +1190,20 @@ export class XGISMap {
       // tile cache + same draw order should produce the same hash —
       // any drift signals a behaviour change.
       const self = this
-      ;(window as unknown as {
+      const w = window as unknown as {
         __xgisSnapshot?: () => Promise<unknown>
         __xgisStartDrawOrderTrace?: () => void
-      }).__xgisSnapshot = () => self.captureSnapshot()
-      ;(window as unknown as {
-        __xgisStartDrawOrderTrace?: () => void
-      }).__xgisStartDrawOrderTrace = () => {
-        ;(window as unknown as { __xgisDrawOrderTrace?: unknown[] }).__xgisDrawOrderTrace = []
+        __xgisReplaySnapshot?: (snap: unknown, opts?: unknown) => Promise<unknown>
+        __xgisDrawOrderTrace?: unknown[]
       }
+      w.__xgisSnapshot = () => self.captureSnapshot()
+      w.__xgisStartDrawOrderTrace = () => {
+        w.__xgisDrawOrderTrace = []
+      }
+      w.__xgisReplaySnapshot = (snap, opts) => self.replaySnapshot(
+        snap as Parameters<typeof self.replaySnapshot>[0],
+        opts as Parameters<typeof self.replaySnapshot>[1] | undefined,
+      )
     }
   }
 
@@ -1214,8 +1219,27 @@ export class XGISMap {
    *  to capture a "broken" snapshot for diagnosis.
    */
   async captureSnapshot(): Promise<{
+    /** Schema version — bump when fields change so older snapshots
+     *  can be detected on replay. */
+    schemaVersion: 1
+    /** Page URL the snapshot was taken from — replay targets this URL
+     *  so the demo source + camera hash are pre-applied via #/zoom/lat/lon. */
+    pageUrl: string
+    /** User agent — mostly informational, but a Metal-vs-Vulkan
+     *  difference can show up here as a clue. */
+    userAgent: string
     camera: { lon: number; lat: number; zoom: number; bearing: number; pitch: number }
-    viewport: { width: number; height: number }
+    /** Backing-buffer size + CSS-pixel size + DPR. Reproduction needs
+     *  ALL THREE — the canvas backing buffer drives shader uniforms,
+     *  CSS size drives layout, DPR ties them and gates mobile-class
+     *  decisions inside the runtime (maxInflight, uploadBudget). */
+    viewport: { width: number; height: number; cssWidth: number; cssHeight: number; dpr: number }
+    /** PAGE-level viewport (window.innerWidth / innerHeight). Replay
+     *  must set the playwright context to this exact size so the
+     *  surrounding layout (editor pane, headers) sizes the canvas
+     *  identically — otherwise the canvas shrinks/grows when the
+     *  page viewport differs and we can't compare pixel hashes. */
+    pageViewport: { width: number; height: number }
     sources: Record<string, {
       gpuCacheCount: number
       pendingFetch: number
@@ -1295,19 +1319,128 @@ export class XGISMap {
       console.warn('[xgisSnapshot] pixel hash failed:', e)
     }
 
+    const cssWidth = canvas.clientWidth || canvas.width
+    const cssHeight = canvas.clientHeight || canvas.height
+    const dpr = cssWidth > 0 ? canvas.width / cssWidth : 1
+    const pageWidth = typeof window !== 'undefined' ? window.innerWidth : cssWidth
+    const pageHeight = typeof window !== 'undefined' ? window.innerHeight : cssHeight
+
     return {
+      schemaVersion: 1,
+      pageUrl: typeof window !== 'undefined' ? window.location.href : '',
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
       camera: {
         lon, lat,
         zoom: camera.zoom,
         bearing: camera.bearing ?? 0,
         pitch: camera.pitch ?? 0,
       },
-      viewport: { width: canvas.width, height: canvas.height },
+      viewport: {
+        width: canvas.width, height: canvas.height,
+        cssWidth, cssHeight, dpr,
+      },
+      pageViewport: { width: pageWidth, height: pageHeight },
       sources,
       renderOrder,
       pixelHash,
       pixelHashBy,
     }
+  }
+
+  /** Replay a captured snapshot. Sets the camera back to the snapshot
+   *  position, then resolves once the live state matches the snapshot
+   *  closely enough that pixel-hash comparison is meaningful:
+   *    - Every snapshot tile is present in the live source's GPU cache
+   *    - Every source has zero pending fetch / pending upload
+   *
+   *  Caller (e2e test) is responsible for setting the viewport BEFORE
+   *  this runs — playwright's `setViewportSize` + `deviceScaleFactor`
+   *  handle that. The replay returns a fresh snapshot that the test
+   *  can compare against the input. */
+  async replaySnapshot(snap: {
+    schemaVersion?: number
+    camera: { lon: number; lat: number; zoom: number; bearing: number; pitch: number }
+    sources: Record<string, { tiles: Array<{ z: number; x: number; y: number }> }>
+  }, opts: { timeoutMs?: number } = {}): Promise<{
+    matched: boolean
+    missingTiles: number
+    pendingFetchTotal: number
+    pendingUploadTotal: number
+  }> {
+    if (snap.schemaVersion !== undefined && snap.schemaVersion !== 1) {
+      throw new Error(`replaySnapshot: unsupported schema ${snap.schemaVersion} (this build supports 1)`)
+    }
+    const timeoutMs = opts.timeoutMs ?? 30_000
+
+    // 1. Set the camera. Use lon/lat → mercator and direct field
+    // assignment; bypassing setView avoids triggering animation
+    // tweens which would non-deterministically drift the snapshot
+    // camera over the next few frames.
+    const R = 6378137
+    const DEG2RAD = Math.PI / 180
+    this.camera.centerX = snap.camera.lon * DEG2RAD * R
+    const clampedLat = Math.max(-85.051129, Math.min(85.051129, snap.camera.lat))
+    this.camera.centerY = Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) * R
+    this.camera.zoom = snap.camera.zoom
+    this.camera.bearing = snap.camera.bearing
+    this.camera.pitch = snap.camera.pitch
+    this._cameraExplicitlyPositioned = true
+    this._needsRender = true
+
+    // 2. Wait until each source has every snapshot tile in its GPU
+    // cache. Tile set comparison uses (z,x,y) tuples encoded as
+    // strings; ignores order. We DON'T require zero EXTRA tiles in
+    // the cache — replay-side may carry over fallback ancestors that
+    // the original capture didn't list, and that's harmless.
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      let pendingFetchTotal = 0
+      let pendingUploadTotal = 0
+      let missingTiles = 0
+      for (const [name, snapSrc] of Object.entries(snap.sources)) {
+        const live = (this.vtSources?.get(name) as unknown as {
+          source?: { hasTileData?: (key: number) => boolean; getPendingLoadCount?: () => number }
+          renderer?: { getPendingUploadCount?: () => number }
+        } | undefined)
+        if (!live?.source) {
+          // Source not present in live runtime — replay impossible.
+          return { matched: false, missingTiles: snapSrc.tiles.length, pendingFetchTotal: 0, pendingUploadTotal: 0 }
+        }
+        const cat = live.source as { hasTileData?: (key: number) => boolean; getPendingLoadCount?: () => number }
+        pendingFetchTotal += cat.getPendingLoadCount?.() ?? 0
+        pendingUploadTotal += live.renderer?.getPendingUploadCount?.() ?? 0
+        for (const t of snapSrc.tiles) {
+          // tileKey packing must match the runtime's encoder; pull from
+          // the compiler so we don't fork the format.
+          const key = compilerTileKey(t.z, t.x, t.y)
+          if (!cat.hasTileData?.(key)) missingTiles++
+        }
+      }
+      if (missingTiles === 0 && pendingFetchTotal === 0 && pendingUploadTotal === 0) {
+        return { matched: true, missingTiles: 0, pendingFetchTotal: 0, pendingUploadTotal: 0 }
+      }
+      // Yield to the render loop so tiles can fetch/decode/upload.
+      await new Promise<void>((res) => setTimeout(res, 100))
+    }
+    // Timeout — return current state for caller to inspect.
+    let pendingFetchTotal = 0
+    let pendingUploadTotal = 0
+    let missingTiles = 0
+    for (const [name, snapSrc] of Object.entries(snap.sources)) {
+      const live = (this.vtSources?.get(name) as unknown as {
+        source?: { hasTileData?: (key: number) => boolean; getPendingLoadCount?: () => number }
+        renderer?: { getPendingUploadCount?: () => number }
+      } | undefined)
+      if (!live?.source) continue
+      const cat = live.source as { hasTileData?: (key: number) => boolean; getPendingLoadCount?: () => number }
+      pendingFetchTotal += cat.getPendingLoadCount?.() ?? 0
+      pendingUploadTotal += live.renderer?.getPendingUploadCount?.() ?? 0
+      for (const t of snapSrc.tiles) {
+        const key = compilerTileKey(t.z, t.x, t.y)
+        if (!cat.hasTileData?.(key)) missingTiles++
+      }
+    }
+    return { matched: false, missingTiles, pendingFetchTotal, pendingUploadTotal }
   }
 
   /** Rebuild GPU layers from raw data with current projection */
