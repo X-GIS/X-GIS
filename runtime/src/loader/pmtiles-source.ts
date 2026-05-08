@@ -93,6 +93,12 @@ export function clearPMTilesArchiveCache(): void {
 
 export interface PMTilesSourceOptions {
   url: string
+  /** Explicit declaration of what's at the URL. Lets the caller
+   *  override the URL-extension heuristic when the manifest URL has
+   *  no recognizable suffix (e.g. `https://tiles.example.com/planet`
+   *  is a TileJSON manifest but doesn't end with `.json`). Defaults
+   *  to `'auto'` (sniff by URL). */
+  kind?: 'pmtiles' | 'tilejson' | 'auto'
   /** Restrict to a subset of MVT layer names (default: all layers). */
   layers?: string[]
   /** Per-MVT-layer 3D-extrude expression AST. Driven by the
@@ -389,7 +395,12 @@ export async function attachPMTilesSource(
   opts: PMTilesSourceOptions,
 ): Promise<void> {
   // ── TileJSON dispatch ──
-  if (looksLikeTileJSON(opts.url)) {
+  // Caller-declared kind wins over URL sniffing — manifests at
+  // extensionless URLs (a common Mapbox-style pattern) only get
+  // routed correctly when we honor the explicit declaration.
+  const isTileJSON = opts.kind === 'tilejson' ||
+    (opts.kind !== 'pmtiles' && looksLikeTileJSON(opts.url))
+  if (isTileJSON) {
     let tj: CachedTileJSON
     try {
       tj = await openCachedTileJSON(opts.url)

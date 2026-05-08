@@ -40,8 +40,14 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
     const consoleErrors: string[] = []
     const pageErrors: string[] = []
     const swallowedAlerts: string[] = []
+    const allConsole: string[] = []
     page.on('console', m => {
+      allConsole.push(`[${m.type()}] ${m.text()}`)
       if (m.type() === 'error') consoleErrors.push(m.text())
+    })
+    const tileJsonLogs: string[] = []
+    page.on('console', m => {
+      if (m.text().includes('TileJSON attached')) tileJsonLogs.push(m.text())
     })
     page.on('pageerror', e => {
       pageErrors.push(e.message)
@@ -125,6 +131,20 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
       // eslint-disable-next-line no-console
       console.log(realConsoleErrors.slice(0, 5).join('\n---\n'))
     }
+    if (consoleErrors.length > 0) {
+      // eslint-disable-next-line no-console
+      console.log('--- raw console.error dump ---')
+      // eslint-disable-next-line no-console
+      console.log(consoleErrors.join('\n---\n'))
+    }
+    if (process.env.DEBUG_E2E) {
+      // eslint-disable-next-line no-console
+      console.log('--- all console (last 15) ---')
+      // eslint-disable-next-line no-console
+      console.log(allConsole.slice(-15).join('\n'))
+    }
+    // eslint-disable-next-line no-console
+    console.log('TileJSON attaches:', tileJsonLogs.length)
     // eslint-disable-next-line no-console
     console.log('pageerror (filtered):', realPageErrors.length, '(raw):', pageErrors.length)
     if (realPageErrors.length > 0) {
@@ -142,6 +162,14 @@ test.describe('Mapbox → xgis converter — end-to-end visibility', () => {
     expect(realPageErrors, 'unhandled page exceptions should be empty').toEqual([])
     expect(alerts, 'silent alerts should not happen').toEqual([])
     expect(errorBox, 'error overlay should not surface').toBe(false)
+    // The vector source has type=tilejson and should attach via the
+    // TileJSON dispatch path. Without `kind:'tilejson'` plumbed
+    // through, attachPMTilesSource fell back to PMTiles archive
+    // header parsing and emitted "PMTiles attach failed" — silent
+    // because no exception bubbled but also no tiles ever rendered.
+    // Asserting the success log catches that regression.
+    expect(tileJsonLogs.length, 'TileJSON should attach successfully').toBeGreaterThan(0)
+    expect(tileJsonLogs[0], 'TileJSON log should mention vector_layers').toContain('layers:')
 
     // Save a screenshot so we can eyeball the result regardless of
     // whether it's pixels or just a clear viewport (the converted

@@ -1019,6 +1019,9 @@ export class XGISMap {
             : (inferred && inferred.size > 0 ? [...inferred] : undefined)
           await attachPMTilesSource(source, {
             url: fullUrl,
+            kind: declaredType === 'pmtiles' ? 'pmtiles'
+                : declaredType === 'tilejson' ? 'tilejson'
+                : 'auto',
             layers: filterLayers,
             extrudeExprs: extrudeExprsBySource.get(load.name),
             extrudeBaseExprs: extrudeBaseExprsBySource.get(load.name),
