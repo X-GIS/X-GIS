@@ -733,7 +733,31 @@ document.addEventListener('pointerup', () => {
 })
 
 // ── Init ──
-loadDemo(currentIdx)
+// `?id=__import` → load whatever the /convert page stashed in
+// sessionStorage. Lets the convert page hand off a freshly-converted
+// xgis source without putting the (potentially huge) text into the
+// URL hash. Falls through to the normal demo loader on miss / errors.
+if (params.get('id') === '__import') {
+  let imported: string | null = null
+  let label: string | null = null
+  try {
+    imported = sessionStorage.getItem('__xgisImportSource')
+    label = sessionStorage.getItem('__xgisImportLabel')
+  } catch { /* sessionStorage unavailable */ }
+  if (imported) {
+    document.title = (label ?? 'Imported') + ' — X-GIS'
+    tagEl.textContent = 'imported'
+    editor.setValue(imported.trim())
+    discoverFields(imported, import.meta.env.BASE_URL + 'data/')
+    runSource(imported, label ?? 'Imported')
+    // Don't clear yet — the user may want to reload. Cleared on next
+    // demo navigation via the regular loadDemo path.
+  } else {
+    loadDemo(currentIdx)
+  }
+} else {
+  loadDemo(currentIdx)
+}
 
 // (Old top-right overlay was here. Replaced by xgis-inspector.ts —
 // activated via the same ?profile=1 URL param. The legacy code is

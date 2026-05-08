@@ -1,0 +1,183 @@
+---
+import Base from '../layouts/Base.astro'
+import Header from '../components/Header.astro'
+import Footer from '../components/Footer.astro'
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const playgroundUrl = `${base}/play/demo.html`
+---
+
+<Base title="Mapbox style → xgis converter">
+  <Header />
+  <main class="max-w-[1100px] mx-auto px-6 pt-20 pb-24 text-[14px]">
+    <h1 class="text-[22px] font-medium tracking-tight">Mapbox style → xgis</h1>
+    <p class="mt-2 text-fg-dim">
+      Paste a Mapbox Style Spec JSON, or drop in a URL pointing at a
+      <code>style.json</code>. The result drops straight into the playground.
+    </p>
+
+    <div class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+      <!-- URL form -->
+      <div class="border border-line rounded-md p-4 bg-bg-elev">
+        <label for="mapbox-url" class="block text-fg text-[12px] tracking-wide uppercase">URL</label>
+        <input
+          id="mapbox-url"
+          type="url"
+          placeholder="https://example.com/style.json"
+          class="mt-2 w-full bg-bg border border-line rounded px-3 py-2 text-[13px] focus:outline-none focus:border-accent"
+        />
+        <button
+          id="fetch-btn"
+          class="mt-3 px-4 py-2 bg-accent/15 border border-accent text-accent rounded text-[12px] hover:bg-accent/25 transition-colors"
+        >
+          Fetch &amp; convert
+        </button>
+        <p class="mt-2 text-fg-dim text-[11px]">
+          The page fetches the URL directly in the browser — works for hosts
+          that send <code>Access-Control-Allow-Origin</code>. If the request
+          is blocked, paste the JSON into the box on the right instead.
+        </p>
+      </div>
+
+      <!-- Paste form -->
+      <div class="border border-line rounded-md p-4 bg-bg-elev">
+        <label for="mapbox-json" class="block text-fg text-[12px] tracking-wide uppercase">Paste JSON</label>
+        <textarea
+          id="mapbox-json"
+          rows="6"
+          placeholder='{ "version": 8, "sources": { ... }, "layers": [ ... ] }'
+          class="mt-2 w-full bg-bg border border-line rounded px-3 py-2 text-[12px] font-mono focus:outline-none focus:border-accent"
+        ></textarea>
+        <button
+          id="convert-btn"
+          class="mt-3 px-4 py-2 bg-accent/15 border border-accent text-accent rounded text-[12px] hover:bg-accent/25 transition-colors"
+        >
+          Convert
+        </button>
+      </div>
+    </div>
+
+    <!-- Output -->
+    <div class="mt-8">
+      <div class="flex items-center justify-between">
+        <label for="xgis-out" class="block text-fg text-[12px] tracking-wide uppercase">xgis source</label>
+        <div class="flex gap-2">
+          <button id="copy-btn" class="px-3 py-1 bg-bg border border-line rounded text-[11px] text-fg-dim hover:text-fg hover:border-fg-dim transition-colors">Copy</button>
+          <button id="open-btn" class="px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-[11px] hover:bg-accent/25 transition-colors">Open in playground</button>
+        </div>
+      </div>
+      <textarea
+        id="xgis-out"
+        rows="22"
+        readonly
+        class="mt-2 w-full bg-bg border border-line rounded px-3 py-2 text-[12px] font-mono whitespace-pre"
+      ></textarea>
+      <p id="status" class="mt-2 text-fg-dim text-[11px] min-h-[1.2em]"></p>
+    </div>
+  </main>
+  <Footer />
+
+  <script define:vars={{ playgroundUrl }}>
+    // Lazy-load the converter — keeps the initial page TTI tight.
+    let _convertCache = null
+    async function getConverter() {
+      if (_convertCache) return _convertCache
+      const m = await import('@xgis/compiler')
+      _convertCache = m.convertMapboxStyle
+      return _convertCache
+    }
+
+    const $url = document.getElementById('mapbox-url')
+    const $json = document.getElementById('mapbox-json')
+    const $out = document.getElementById('xgis-out')
+    const $status = document.getElementById('status')
+    const $fetch = document.getElementById('fetch-btn')
+    const $convert = document.getElementById('convert-btn')
+    const $copy = document.getElementById('copy-btn')
+    const $open = document.getElementById('open-btn')
+
+    function setStatus(msg, kind) {
+      $status.textContent = msg
+      $status.style.color = kind === 'err' ? '#f87171'
+                          : kind === 'ok'  ? '#86efac'
+                          : ''
+    }
+
+    async function convertJsonString(jsonStr) {
+      try {
+        const parsed = JSON.parse(jsonStr)
+        const convert = await getConverter()
+        const xgis = convert(parsed)
+        $out.value = xgis
+        const warnCount = (xgis.match(/^\s*\*\s+•/gm) || []).length
+        setStatus(
+          warnCount > 0
+            ? 'Converted with ' + warnCount + ' note' + (warnCount > 1 ? 's' : '') + ' — see comments at the bottom.'
+            : 'Converted.',
+          'ok',
+        )
+      } catch (e) {
+        setStatus('Conversion failed: ' + (e?.message || e), 'err')
+      }
+    }
+
+    $convert.addEventListener('click', () => {
+      const txt = $json.value.trim()
+      if (!txt) { setStatus('Paste a Mapbox style JSON first.', 'err'); return }
+      convertJsonString(txt)
+    })
+
+    $fetch.addEventListener('click', async () => {
+      const url = $url.value.trim()
+      if (!url) { setStatus('Enter a URL first.', 'err'); return }
+      setStatus('Fetching ' + url + ' …')
+      try {
+        const resp = await fetch(url)
+        if (!resp.ok) throw new Error('HTTP ' + resp.status)
+        const txt = await resp.text()
+        $json.value = txt
+        convertJsonString(txt)
+      } catch (e) {
+        setStatus(
+          'Fetch failed: ' + (e?.message || e) +
+          ' — likely a CORS block. Paste the JSON manually on the right.',
+          'err',
+        )
+      }
+    })
+
+    $copy.addEventListener('click', async () => {
+      if (!$out.value) { setStatus('Nothing to copy yet.', 'err'); return }
+      try {
+        await navigator.clipboard.writeText($out.value)
+        setStatus('Copied to clipboard.', 'ok')
+      } catch {
+        $out.select(); document.execCommand('copy')
+        setStatus('Copied (fallback).', 'ok')
+      }
+    })
+
+    $open.addEventListener('click', async () => {
+      if (!$out.value) { setStatus('Convert first, then open.', 'err'); return }
+      // Stash the source in sessionStorage so the playground picks it
+      // up on load. Keeps the URL clean (style sources can be huge —
+      // way past hash-fragment-friendly size).
+      try {
+        sessionStorage.setItem('__xgisImportSource', $out.value)
+        sessionStorage.setItem('__xgisImportLabel', 'Imported')
+      } catch { /* sessionStorage may be unavailable in some embeds */ }
+      window.location.href = playgroundUrl + '?id=__import'
+    })
+
+    // Convenience: pressing Ctrl/Cmd+Enter in the textarea triggers
+    // the convert button so a paste-and-go flow doesn't need a mouse.
+    $json.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault()
+        $convert.click()
+      }
+    })
+    $url.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); $fetch.click() }
+    })
+  </script>
+</Base>
