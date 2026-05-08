@@ -1,3 +1,5 @@
+import { resolveColor } from '../tokens/colors'
+
 // ═══ Mapbox Style → xgis Source Converter ═══
 //
 // Takes a Mapbox Style Specification JSON document and emits an
@@ -255,21 +257,27 @@ function addOpacity(out: string[], v: unknown, warnings: string[]): void {
 function colorToXgis(v: unknown, warnings: string[]): string | null {
   if (v == null) return null
   if (typeof v === 'string') {
-    // hex / rgb()/rgba()/hsl() — pass through directly. X-GIS lexer
-    // accepts hex literals and the playground monaco-xgis recognizer
-    // ships hover docs for the rgb/hsl forms.
-    return v.startsWith('#') ? v : v
+    if (v.startsWith('#')) return v
+    // CSS function colours (rgb / rgba / hsl / hsla) — resolve to hex
+    // so the result is usable in utility-class position. The xgis
+    // lexer can't parse `fill-hsla(0,60%,87%,0.23)` — parens aren't
+    // valid in a utility-name token — but `fill-#abcdef33` is fine.
+    const hex = resolveColor(v.trim())
+    if (hex) return hex
+    return v
   }
   // Expression form (`["interpolate", ...]` returning colors,
   // `["match", …]` mapping to colors, etc.)
   if (Array.isArray(v) && v[0] === 'rgba' && v.length === 5) {
     const [, r, g, b, a] = v
     const A = typeof a === 'number' ? a : 1
-    return `rgba(${r}, ${g}, ${b}, ${A})`
+    const hex = resolveColor(`rgba(${r}, ${g}, ${b}, ${A})`)
+    if (hex) return hex
   }
   if (Array.isArray(v) && v[0] === 'rgb' && v.length === 4) {
     const [, r, g, b] = v
-    return `rgb(${r}, ${g}, ${b})`
+    const hex = resolveColor(`rgb(${r}, ${g}, ${b})`)
+    if (hex) return hex
   }
   // Fall back: emit a comment-bracketed expr so the user sees what
   // came in. Avoids producing unparseable utility names for complex
@@ -427,6 +435,58 @@ function exprToXgis(v: unknown, warnings: string[]): string | null {
   return null
 }
 
+/** Lower `["match", input, k1, val1, …, default]` to a boolean
+ *  expression when every val (and the default) is a boolean literal.
+ *  Returns null when the match is value-typed (caller should keep it
+ *  as match()). */
+function matchToBooleanFilter(v: unknown[], warnings: string[]): string | null {
+  if (v[0] !== 'match' || v.length < 4) return null
+  const input = v[1]
+  const args = v.slice(2)
+  if (args.length % 2 !== 1) return null
+  const def = args[args.length - 1]
+
+  // All values + default must be boolean literals for the lowering
+  // to make sense — otherwise it's a value-mapping match() and we
+  // shouldn't touch it.
+  const allBool = (() => {
+    if (typeof def !== 'boolean') return false
+    for (let i = 1; i < args.length - 1; i += 2) {
+      if (typeof args[i] !== 'boolean') return false
+    }
+    return true
+  })()
+  if (!allBool) return null
+
+  const inputXgis = exprToXgis(input, warnings)
+  if (inputXgis === null) return null
+
+  // Polarity: if default is `false`, emit OR of equality for keys
+  // whose value is `true`. If default is `true`, emit AND of
+  // inequality for keys whose value is `false` (the "not in <keys>"
+  // form).
+  const polarity = def === false
+  const eqOp = polarity ? '==' : '!='
+  const join = polarity ? ' || ' : ' && '
+  const targetVal = polarity   // when polarity=true (default false), pick `true` arms
+
+  const parts: string[] = []
+  for (let i = 0; i < args.length - 1; i += 2) {
+    const key = args[i]
+    const val = args[i + 1]
+    if (val !== targetVal) continue
+    const keys = Array.isArray(key) ? key : [key]
+    for (const k of keys) {
+      parts.push(`${inputXgis} ${eqOp} ${typeof k === 'string' ? JSON.stringify(k) : k}`)
+    }
+  }
+  if (parts.length === 0) {
+    // No matching arms — match collapses to the default literal.
+    return String(def)
+  }
+  return parts.join(join)
+}
+
 function matchToTernary(input: unknown, args: unknown[], warnings: string[]): string | null {
   // Used when ["match", <complex>, …] can't go through xgis match()
   // because match() requires a field-access input. Falls back to a
@@ -467,6 +527,17 @@ function filterToXgis(v: unknown, warnings: string[]): string | null {
       (v[1] === '$type' || v[1] === '$id')) {
     warnings.push(`Filter on "${v[1]}" dropped — no xgis equivalent (geometry type is implied by the layer's utility class).`)
     return null
+  }
+
+  // Boolean-returning ["match", input, k1, true, k2, true, …, false]
+  // is the standard Mapbox idiom for "input is one of these keys".
+  // xgis filter context wants a plain boolean expression, not match()
+  // (which is a value-mapping form), so lower to an OR/AND chain.
+  if (op === 'match') {
+    const lowered = matchToBooleanFilter(v, warnings)
+    if (lowered !== null) return lowered
+    // Fall through to exprToXgis only if it's a non-boolean match —
+    // user will see the warning at the bottom either way.
   }
 
   // Legacy filter syntax (Mapbox GL JS v0.x / v1.x style spec): the

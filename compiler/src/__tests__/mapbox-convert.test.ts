@@ -189,6 +189,55 @@ describe('Mapbox → xgis converter', () => {
     expect(parses(out)).toBe(true)
   })
 
+  it('lowers boolean ["match"] in filter to OR chain', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'land', type: 'fill', source: 's', 'source-layer': 'landuse',
+        // Standard "is one of" idiom: match returns boolean.
+        filter: ['match', ['get', 'class'],
+          ['neighbourhood', 'residential'], true,
+          false,
+        ],
+        paint: { 'fill-color': '#eee' },
+      }],
+    })
+    expect(out).toContain('.class == "neighbourhood" || .class == "residential"')
+    expect(out).not.toContain('match(.class)')
+    expect(parses(out)).toBe(true)
+  })
+
+  it('lowers boolean ["match"] with default=true to AND-of-not chain', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'r', type: 'fill', source: 's', 'source-layer': 'roads',
+        filter: ['match', ['get', 'kind'], 'rail', false, true],
+        paint: { 'fill-color': '#eee' },
+      }],
+    })
+    expect(out).toContain('.kind != "rail"')
+    expect(parses(out)).toBe(true)
+  })
+
+  it('resolves CSS hsla() colours to hex so utility names parse', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { s: { type: 'vector', url: 'a.pmtiles' } },
+      layers: [{
+        id: 'commercial', type: 'fill', source: 's', 'source-layer': 'landuse',
+        paint: { 'fill-color': 'hsla(0,60%,87%,0.23)' },
+      }],
+    })
+    // Should not contain the raw `fill-hsla(...)` form (parens are
+    // not valid in xgis utility names).
+    expect(out).not.toMatch(/fill-hsla/)
+    expect(out).toMatch(/fill-#[0-9a-f]+/)
+    expect(parses(out)).toBe(true)
+  })
+
   it('emits parseable output for a multi-layer style', () => {
     const out = convertMapboxStyle({
       version: 8,
