@@ -59,7 +59,14 @@ function extractFeatureHeights(
     const props = features[i].properties
     if (!props) continue
     const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
-    out.set(i, typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 50)
+    // Preserve explicit 0 (a flat-footprint building with no walls is
+    // a legitimate datum — `height: 0` should render a flat polygon
+    // and a flat outline, not a 50 m lifted block). Only fall back
+    // when the expression evaluates to a non-finite / non-numeric
+    // value or a negative one. This keeps polygon-mesh.ts's
+    // `?? defaultHeight` semantic — nullish-only fallback, 0 stays 0
+    // — consistent end-to-end.
+    out.set(i, typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : 50)
   }
   return out
 }

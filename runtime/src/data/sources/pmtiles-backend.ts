@@ -55,7 +55,10 @@ function extractFeatureHeights(
     const props = features[i].properties
     if (!props) continue
     const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
-    out.set(i, typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 50)
+    // Mirrors mvt-worker.ts — preserve explicit 0 (flat-footprint
+    // building) instead of bumping to defaultHeight. Both backends
+    // must agree on this contract.
+    out.set(i, typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : 50)
   }
   return out
 }
