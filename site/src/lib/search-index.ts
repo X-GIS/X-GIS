@@ -128,6 +128,14 @@ export function buildSearchIndex(base: string): SearchRecord[] {
     tag: 'Guides',
     url: `${base}/docs/mapbox`,
   })
+  out.push({
+    id: 'doc:glossary',
+    title: 'Glossary',
+    body: 'One-paragraph definitions for cartographic + GPU + language jargon: MVT, DSFUN, RTC, WGSL, anchor, stop, source-layer, sub-tile, projection, modifier.',
+    type: 'doc',
+    tag: 'Reference',
+    url: `${base}/docs/glossary`,
+  })
 
   // ─── Reference sections (one record per section so search lands
   //     on the exact heading via #anchor) ───

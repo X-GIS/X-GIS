@@ -1,6 +1,10 @@
 ---
 import Docs from '../../layouts/Docs.astro'
+import SeeAlso from '../../components/SeeAlso.astro'
+import SpecLinks from '../../components/SpecLinks.astro'
 import { Code } from 'astro-expressive-code/components'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 
 interface SourceType {
   type: string
@@ -183,4 +187,19 @@ const sourceTypes: SourceType[] = [
       </section>
     ))}
   </article>
+
+  <SpecLinks specs={[
+    { body: 'RFC 7946',  title: 'GeoJSON', url: 'https://datatracker.ietf.org/doc/html/rfc7946' },
+    { body: 'Mapbox',    title: 'Vector Tile Specification (MVT)', url: 'https://github.com/mapbox/vector-tile-spec' },
+    { body: 'PMTiles',   title: 'PMTiles v3 specification', url: 'https://github.com/protomaps/PMTiles/blob/main/spec/v3/spec.md' },
+    { body: 'Mapbox',    title: 'TileJSON 3.0 specification', url: 'https://github.com/mapbox/tilejson-spec/tree/master/3.0.0' },
+    { body: 'OSM',       title: 'Slippy map tilenames', url: 'https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames' },
+    { body: 'X-GIS',     title: 'XGVT binary format (SPEC.md)', url: 'https://github.com/X-GIS/X-GIS/blob/main/SPEC.md' },
+  ]} />
+
+  <SeeAlso links={[
+    { label: 'Mapbox migration', href: `${base}/docs/mapbox`, body: 'How the converter routes Mapbox source URLs onto these types.' },
+    { label: 'Cookbook — restrict PMTiles decoding', href: `${base}/docs/cookbook#mvt-layer-subset`, body: 'Use the `layers:` option to skip unused MVT source-layers.' },
+    { label: 'Glossary — MVT', href: `${base}/docs/glossary#mvt`, body: 'What an MVT tile actually contains.' },
+  ]} />
 </Docs>

@@ -1,5 +1,7 @@
 ---
 import Docs from '../../../layouts/Docs.astro'
+import SeeAlso from '../../../components/SeeAlso.astro'
+import SpecLinks from '../../../components/SpecLinks.astro'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const playUrl = (id: string, proj: string) =>
@@ -189,4 +191,17 @@ map.setProjection(getProjection("orthographic", 127, 37.5))</code></pre>
     </section>
 
   </article>
+
+  <SpecLinks specs={[
+    { body: 'EPSG',     title: 'EPSG:3857 Web Mercator', url: 'https://epsg.io/3857' },
+    { body: 'EPSG',     title: 'EPSG:4326 WGS 84 (lon/lat)', url: 'https://epsg.io/4326' },
+    { body: 'W3C',      title: 'WGSL specification', url: 'https://www.w3.org/TR/WGSL/' },
+    { body: 'IOGP',     title: 'OGP Geomatics Guidance Note 7-2 (projection math)', url: 'https://www.iogp.org/bookstore/product/coordinate-conversions-and-transformations-including-formulas/' },
+  ]} />
+
+  <SeeAlso links={[
+    { label: 'JavaScript API — projections', href: `${base}/docs/api#projections`, body: 'The seven projection objects and `getProjection()`.' },
+    { label: 'RTC + DSFUN precision', href: `${base}/docs/concepts/rtc`, body: 'How the same vertex stays sub-cm-accurate across all seven projections.' },
+    { label: 'Compile pipeline', href: `${base}/docs/concepts/pipeline`, body: 'Where the per-frame uniform write fits in the render loop.' },
+  ]} />
 </Docs>

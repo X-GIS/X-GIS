@@ -1,0 +1,44 @@
+---
+// "See also" section at the end of a docs page. MDN-style: a small
+// list of semantically-related entries, each with a one-line hook.
+// Distinct from the prev/next nav (which is sequential by sidebar
+// order) — these are CHOSEN by the page author for relevance.
+
+interface Link {
+  label: string
+  href: string
+  body?: string
+  external?: boolean
+}
+
+interface Props {
+  links: Link[]
+}
+
+const { links } = Astro.props
+---
+
+{links.length > 0 && (
+  <section class="mt-12 pt-6 border-t border-line/60">
+    <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">See also</p>
+    <ul class="space-y-2.5">
+      {links.map(l => (
+        <li>
+          <a
+            href={l.href}
+            target={l.external ? '_blank' : undefined}
+            rel={l.external ? 'noopener' : undefined}
+            class="group inline-flex items-baseline gap-2 text-[13.5px] text-fg-dim hover:text-fg transition-colors"
+          >
+            <span class="text-accent group-hover:text-accent-hover transition-colors">→</span>
+            <span>
+              <span class="text-accent group-hover:text-accent-hover transition-colors font-medium">{l.label}</span>
+              {l.external && <span aria-hidden="true" class="ml-1 text-fg-mute">↗</span>}
+              {l.body && <span class="text-fg-dim"> — {l.body}</span>}
+            </span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+)}

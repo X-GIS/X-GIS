@@ -110,6 +110,22 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     await expect(page.locator('[data-page-feedback]')).toHaveCount(1)
     await expect(page.locator('[data-page-feedback] button[data-vote="up"]')).toBeVisible()
 
+    // Glossary page exists with H3-anchored term definitions and a
+    // letter-grouped TOC.
+    await page.goto(`http://localhost:${port}/docs/glossary/`)
+    await expect(page.locator('h2#d')).toHaveCount(1) // "D" letter group (DSFUN, …)
+    await expect(page.locator('dt#dsfun')).toBeVisible()
+    await page.screenshot({ path: 'test-results/docs-glossary.png', fullPage: true })
+
+    // Sources page now has Specifications + See also footers.
+    await page.goto(`http://localhost:${port}/docs/sources/`)
+    await expect(page.locator('text=Specifications').first()).toBeVisible()
+    await expect(page.locator('text=See also').first()).toBeVisible()
+    await expect(page.locator('a', { hasText: 'TileJSON 3.0 specification' })).toBeVisible()
+
+    // Last-updated stamp from git on any docs page.
+    await expect(page.locator('text=/Updated .* (ago|hr|min|day|month|year)/')).toHaveCount(1)
+
     // Search facet grouping — open Cmd-K, type a query, the result
     // list should show grouped section headers (e.g. "API · 5",
     // "Function · 1") rather than a flat list.

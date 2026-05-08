@@ -1,0 +1,213 @@
+---
+import Docs from '../../layouts/Docs.astro'
+
+interface Term {
+  /** Lowercase slug used as the H3 id and the cross-link target. */
+  slug: string
+  /** Heading-cased display label. */
+  term: string
+  body: string
+  /** Optional links to fuller treatments elsewhere in the docs. */
+  see?: { label: string; href: string }[]
+}
+
+interface TermGroup {
+  letter: string
+  terms: Term[]
+}
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const ref = (path: string) => `${base}${path}`
+
+// Authored as a flat list, then bucketed by leading letter at render
+// time. Keeping it flat means alphabetical ordering is automatic and
+// adding a term is a one-line edit. ~30 entries is the sweet spot —
+// enough to cover the jargon a newcomer hits in /docs/{quickstart,
+// cookbook, mapbox} but small enough to skim in one screen.
+const terms: Term[] = [
+  { slug: 'anchor', term: 'Anchor',
+    body: 'Where a point/symbol is positioned relative to its [lon, lat] coordinate. The default `center` puts the centre of the symbol on the coordinate; `bottom` puts the bottom edge on it (typical for marker icons that should "stand on" the location).',
+    see: [{ label: 'Anchor utility', href: ref('/docs/utilities#anchor') }] },
+  { slug: 'ast', term: 'AST (Abstract Syntax Tree)',
+    body: 'The structured tree representation of an `.xgis` source after the parser runs. Every block (`source`, `layer`, `match`, …) becomes a typed AST node. The `lower()` pass walks this tree to produce the IR.',
+    see: [{ label: 'Compile pipeline', href: ref('/docs/concepts/pipeline') }] },
+  { slug: 'binding', term: 'Binding (utility binding)',
+    body: 'Wrapping an expression in `[ … ]` after a utility name to make the value runtime-evaluated. `fill-stone-200` is constant; `fill-[interpolate(zoom, 8, white-100, 14, gray-500)]` is bound — the runtime samples the expression each frame or per feature.',
+    see: [{ label: 'Expressions & operators', href: ref('/docs/expressions#bracketed-binding') }] },
+
+  { slug: 'callback-ref', term: 'Camera',
+    body: 'The viewing state — `lon`, `lat`, `zoom`, `bearing`, `pitch`. Live-mutable; the runtime picks up changes on the next frame. The MVP matrix used by every shader is derived from these five numbers.',
+    see: [{ label: 'JavaScript API', href: ref('/docs/api#camera') }] },
+  { slug: 'compile-on-demand', term: 'Compile-on-demand',
+    body: 'GeoJSON sources stream + tile lazily — only tiles the camera reaches get tessellated. Reduces idle memory + CPU on large datasets at the cost of a brief tile-fetch lag at first sight.' },
+  { slug: 'coalesce', term: 'Coalesce (`??`)',
+    body: 'Operator that yields its right-hand side only when the left-hand side is `null` / `undefined` / non-finite. The standard "explicit fallback" idiom for sparse vector-tile features: `.height ?? 5`.',
+    see: [{ label: 'Operators', href: ref('/docs/expressions#operators') }] },
+
+  { slug: 'dsfun', term: 'DSFUN (double-single function)',
+    body: 'Numeric trick: split an f64-magnitude number into a high half + a low remainder, both stored as f32 attributes. The vertex shader subtracts the camera high half before adding the low — recovering f64-equivalent precision inside an f32 GPU pipeline. Used together with RTC.',
+    see: [{ label: 'RTC + DSFUN precision', href: ref('/docs/concepts/rtc') }] },
+
+  { slug: 'epsg-3857', term: 'EPSG:3857 (Web Mercator)',
+    body: 'The projection identifier for spherical Mercator — the de-facto web tile coordinate system. Coordinates measure in metres from the equator/prime meridian, clamped at ±85.05° to keep the cylinder finite. X-GIS stores all tile vertices in this projection regardless of which projection is displayed.',
+    see: [{ label: 'Projections', href: ref('/docs/concepts/projections') }] },
+  { slug: 'extrude', term: 'Extrusion',
+    body: '3D height baked onto polygon features. `fill-extrusion-height-[<expr>]` runs the expression per feature at decode time and produces walls + a roof. The Mapbox `fill-extrusion` paint property maps onto the same utility.',
+    see: [{ label: 'Cookbook — 3D buildings', href: ref('/docs/cookbook#3d-buildings') }] },
+
+  { slug: 'feature', term: 'Feature',
+    body: 'A single geometry + property bag (GeoJSON `Feature`). Tiles ship arrays of features; xgis layers filter them, style them, optionally extrude them. Property access via `.field` reads the bag.' },
+  { slug: 'filter', term: 'Filter',
+    body: 'A boolean expression on a layer\'s `filter:` block-property. Only features satisfying the predicate flow through to the renderer. Same expression grammar as paint bindings — `filter: .class == "highway" && .level >= 3`.',
+    see: [{ label: 'Filter predicate', href: ref('/docs/expressions#filter-predicate') }] },
+
+  { slug: 'geojson', term: 'GeoJSON',
+    body: 'JSON-encoded feature collection (RFC 7946). Geometry types: Point / LineString / Polygon / Multi*. xgis sources of `type: geojson` accept either a `.geojson` URL or a pre-tessellated `.xgvt` (auto-detected by extension).',
+    see: [{ label: 'geojson source', href: ref('/docs/sources#geojson') }] },
+
+  { slug: 'ir', term: 'IR (intermediate representation)',
+    body: 'The Scene record produced by `lower()` — a flat list of `RenderNode` entries with utility classes already resolved into structured fields (`fill`, `stroke`, `opacity`, `extrude`, …). The optimizer reads + writes IR; codegen consumes IR.',
+    see: [{ label: 'Compile pipeline', href: ref('/docs/concepts/pipeline') }] },
+
+  { slug: 'layer', term: 'Layer',
+    body: 'An xgis `layer` block — references a source, optionally narrows by `sourceLayer:` + `filter:`, and stacks utilities. One layer = one render node = one (or two, with stroke) GPU draw per visible tile.',
+    see: [{ label: 'Language reference', href: ref('/docs/reference#layers') }] },
+  { slug: 'lod', term: 'LOD (level of detail)',
+    body: 'Mapping camera zoom to a tile-pyramid level. X-GIS picks the deepest level whose tiles still project to ≥ 320 device pixels on screen — coarser ones get magnified, finer ones get sub-tile-generated.' },
+
+  { slug: 'match', term: 'Match block',
+    body: 'Categorical lookup syntax: `match(.kind) { "park" -> green-500, "water" -> blue-500, _ -> gray-300 }`. Semantically equivalent to a sequence of `==` checks, but the compiler emits a single switch.',
+    see: [{ label: 'Match block', href: ref('/docs/expressions#match-block') }] },
+  { slug: 'modifier', term: 'Modifier',
+    body: 'A prefix on a utility (`<field>:utility-…`) that makes the utility conditional on a feature property being truthy. Tailwind-shaped — multiple modifiers stack, leftmost wins. Distinct from utility BINDINGS, which run an expression.',
+    see: [{ label: 'Utility catalog — modifiers', href: ref('/docs/utilities#modifiers') }] },
+  { slug: 'mvt', term: 'MVT (Mapbox Vector Tile)',
+    body: 'The de-facto vector tile binary format (Mapbox open spec). Each tile is a Protocol-Buffer-encoded set of layers, each layer a list of features with geometry + properties. Backs both PMTiles archives and TileJSON-served XYZ tile servers.',
+    see: [{ label: 'pmtiles source', href: ref('/docs/sources#pmtiles') }] },
+
+  { slug: 'oit', term: 'OIT (Order Independent Transparency)',
+    body: 'Rendering technique for translucent fills where the final colour shouldn\'t depend on draw order. X-GIS uses weighted-blended OIT (rgba16float accum + r16float revealage) for translucent fill-extrusion buildings.' },
+
+  { slug: 'pitch', term: 'Pitch',
+    body: 'Camera tilt angle in degrees — `0` = looking straight down (top-down), higher values lean toward looking forward. At pitch ≥ 30° the LOD selector switches from the flat-pitch sampled algorithm to a frustum DFS so the horizon gets coarser tiles.' },
+  { slug: 'pmtiles', term: 'PMTiles',
+    body: 'A single-file vector-tile archive format (open spec by Brandon Liu). Reads via HTTP byte-range requests — no per-tile HTTP roundtrip. Scales to planet-sized basemaps without splitting into millions of tiny files.',
+    see: [{ label: 'pmtiles source', href: ref('/docs/sources#pmtiles') }] },
+  { slug: 'preset', term: 'Preset',
+    body: 'A reusable utility stack named at top level: `preset road_base { | stroke-zinc-600 stroke-linecap-round }`. Splat into a layer with `apply-road_base`. Layer-level utilities placed after the apply override the preset values.',
+    see: [{ label: 'Cookbook — preset reuse', href: ref('/docs/cookbook#preset') }] },
+  { slug: 'projection', term: 'Projection',
+    body: 'Function that maps lon/lat onto a flat 2D plane for display. Seven ship: Mercator, Equirectangular, Natural Earth, Orthographic, Azimuthal Equidistant, Stereographic, Oblique Mercator. Switching is a single uniform write.',
+    see: [{ label: 'Projection switching', href: ref('/docs/concepts/projections') }] },
+
+  { slug: 'rtc', term: 'RTC (relative-to-center)',
+    body: 'Coordinate trick: the renderer subtracts the camera position from each vertex on the CPU side, so vertices arrive at the GPU as small offsets in metres relative to the camera. Combined with DSFUN gives sub-cm precision at any zoom.',
+    see: [{ label: 'RTC + DSFUN', href: ref('/docs/concepts/rtc') }] },
+
+  { slug: 'shaders', term: 'Shader',
+    body: 'A program that runs on the GPU. X-GIS emits WGSL (the WebGPU shading language) — vertex shaders for geometry transform, fragment shaders for per-pixel colour. The compiler writes them; you don\'t.' },
+  { slug: 'source', term: 'Source',
+    body: 'An `.xgis` `source` block that names a data origin (URL + type). Layers reference sources by name. One source can back many layers — the runtime decodes each tile once and slices it per source-layer.',
+    see: [{ label: 'Source types', href: ref('/docs/sources') }] },
+  { slug: 'source-layer', term: 'Source-layer (`sourceLayer:`)',
+    body: 'For multi-layer vector-tile sources (PMTiles / TileJSON / MVT), the named slice of features inside one tile. e.g. `sourceLayer: "water"` says "this xgis layer styles only the `water` features inside the source\'s tiles". Distinct from xgis "layer" — same word, different scope.' },
+  { slug: 'step', term: 'Step',
+    body: 'Builtin gate: `step(value, threshold, below, above)`. Returns `below` when `value < threshold`, `above` otherwise. Discrete sibling of `interpolate` (which blends linearly).',
+    see: [{ label: 'Function reference', href: ref('/docs/functions#stops-gates') }] },
+  { slug: 'stop', term: 'Stop',
+    body: 'A `(input, value)` pair inside `interpolate(input, x1, y1, x2, y2, …)`. The runtime blends linearly between adjacent stops. Mapbox\'s interpolate paint expressions map onto the same model.' },
+  { slug: 'sub-tile', term: 'Sub-tile',
+    body: 'A virtual child tile generated at runtime by clipping a parent tile\'s geometry. Used for over-zoom past the source\'s `maxZoom` — the renderer keeps showing finer detail by sub-dividing what data already exists.' },
+  { slug: 'symbol', term: 'Symbol',
+    body: 'A reusable SVG-path glyph defined at top level: `symbol arrow { path "M 0 0 L 10 5 L 0 10 z" }`. Reference with `shape-arrow`. Stroke + fill render via SDF so glyphs stay crisp at every zoom.' },
+
+  { slug: 'tilejson', term: 'TileJSON',
+    body: 'A JSON manifest describing a tile service — declares the tile URL template, zoom range, attribution, and (for vector tiles) the schema of available source layers. X-GIS\'s `type: tilejson` source kind reads this manifest then drives the same backend as PMTiles.',
+    see: [{ label: 'tilejson source', href: ref('/docs/sources#tilejson') }] },
+  { slug: 'tile-pyramid', term: 'Tile pyramid',
+    body: 'The hierarchy of tile zoom levels — z=0 is one tile (the whole world), z=1 is 4 tiles, z=N has 4ⁿ tiles. Each tile at zoom N is one quadrant of its z=N-1 parent. The renderer picks tiles from across the pyramid based on screen-space size.' },
+
+  { slug: 'utility', term: 'Utility (utility class)',
+    body: 'A Tailwind-shaped style atom — `fill-stone-200`, `stroke-1.5`, `opacity-80`, `shape-circle`. Stacked on a layer\'s `|`-prefixed line; later utilities win on conflict. The full catalogue is auto-generated at build time.',
+    see: [{ label: 'Utility catalog', href: ref('/docs/utilities') }] },
+
+  { slug: 'wgsl', term: 'WGSL (WebGPU shading language)',
+    body: 'The GPU shader language WebGPU mandates. Modern, type-safe, derived from Rust-ish + GLSL ancestry. X-GIS\'s codegen emits WGSL; you don\'t hand-write it unless you\'re extending the compute pipeline.' },
+  { slug: 'webgpu', term: 'WebGPU',
+    body: 'The modern browser GPU API (W3C spec, Chrome 113+, Safari 17+, Firefox 130+). Replaces WebGL with explicit pipelines, compute shaders, and a closer-to-metal model. X-GIS targets WebGPU; falls back to Canvas 2D when no adapter is available.' },
+  { slug: 'web-mercator', term: 'Web Mercator',
+    body: 'See [EPSG:3857](#epsg-3857).' },
+  { slug: 'worker', term: 'Worker (web worker)',
+    body: 'Off-main-thread JavaScript. X-GIS runs MVT decoding + GeoJSON tessellation in workers so a slow tile decode never stalls the render loop. Each source kind has its own worker pool.' },
+
+  { slug: 'xgvt', term: 'XGVT',
+    body: 'X-GIS\'s native vector-tile binary format. Pre-tessellated GeoJSON in a single byte-range-served file. Generated via `xgvt-cli`; no per-tile compile cost at runtime. Spec lives in `SPEC.md` in the repo.',
+    see: [{ label: 'xgvt source', href: ref('/docs/sources#xgvt') }] },
+
+  { slug: 'zoom', term: 'Zoom',
+    body: 'Camera magnification level. Each integer step doubles the resolution — z=0 fits the whole world in 256 px, z=1 in 512 px, z=14 in 4 194 304 px. Continuous between integers (z=14.5 is a smooth interpolation). Available as a runtime accessor inside `interpolate(zoom, …)`.' },
+]
+
+// Bucket alphabetically by leading letter, then sort.
+const groups: TermGroup[] = (() => {
+  const map = new Map<string, Term[]>()
+  for (const t of terms) {
+    const letter = t.term[0].toUpperCase()
+    const arr = map.get(letter) ?? []
+    arr.push(t)
+    map.set(letter, arr)
+  }
+  const sorted = [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([letter, ts]) => ({
+      letter,
+      terms: ts.sort((a, b) => a.term.localeCompare(b.term)),
+    }))
+  return sorted
+})()
+---
+
+<Docs
+  current="glossary"
+  title="X-GIS — Glossary"
+  description="Short definitions for the cartographic, GPU, and language jargon used throughout the X-GIS docs — MVT, DSFUN, RTC, WGSL, anchor, stop, and friends."
+  headings={groups.map(g => ({ depth: 2 as const, slug: g.letter.toLowerCase(), text: g.letter }))}
+>
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">Reference</p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      Glossary.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[720px]">
+      One-paragraph definitions for the jargon that pops up across the
+      X-GIS docs. Each entry links into the full treatment elsewhere.
+    </p>
+  </header>
+
+  <article class="space-y-12">
+    {groups.map(g => (
+      <section>
+        <h2 id={g.letter.toLowerCase()} class="scroll-mt-24 text-[22px] sm:text-[26px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+          {g.letter}
+        </h2>
+        <dl class="space-y-6">
+          {g.terms.map(t => (
+            <div>
+              <dt id={t.slug} class="scroll-mt-24 font-mono text-[14px] sm:text-[15px] text-fg font-medium mb-1.5">
+                {t.term}
+              </dt>
+              <dd class="text-[13.5px] sm:text-[14px] leading-[1.65] text-fg-dim max-w-[720px]" set:html={t.body.replace(/`([^`]+)`/g, '<code class="font-mono text-fg">$1</code>').replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a class="text-accent hover:text-accent-hover underline" href="$2">$1</a>')} />
+              {t.see && t.see.length > 0 && (
+                <p class="mt-2 text-[12.5px] text-fg-mute">
+                  See: {t.see.map((s, i) => (
+                    <>{i > 0 && <span class="px-1">·</span>}<a href={s.href} class="text-accent hover:text-accent-hover underline">{s.label}</a></>
+                  ))}
+                </p>
+              )}
+            </div>
+          ))}
+        </dl>
+      </section>
+    ))}
+  </article>
+</Docs>

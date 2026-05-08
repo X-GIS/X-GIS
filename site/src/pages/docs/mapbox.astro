@@ -1,6 +1,8 @@
 ---
 import Docs from '../../layouts/Docs.astro'
 import Callout from '../../components/Callout.astro'
+import SeeAlso from '../../components/SeeAlso.astro'
+import SpecLinks from '../../components/SpecLinks.astro'
 import { Code } from 'astro-expressive-code/components'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
@@ -245,4 +247,17 @@ const xgis = convertMapboxStyle(style)
     </section>
 
   </article>
+
+  <SpecLinks specs={[
+    { body: 'Mapbox',  title: 'Mapbox Style Specification', url: 'https://docs.mapbox.com/style-spec/reference/' },
+    { body: 'Mapbox',  title: 'Style spec — expressions', url: 'https://docs.mapbox.com/style-spec/reference/expressions/' },
+    { body: 'MapLibre', title: 'MapLibre Style Spec (community fork)', url: 'https://maplibre.org/maplibre-style-spec/' },
+  ]} />
+
+  <SeeAlso links={[
+    { label: 'Open the converter', href: `${base}/convert`, body: 'Try a public Mapbox style end-to-end.' },
+    { label: 'Source types', href: `${base}/docs/sources`, body: 'How the converter routes Mapbox source URLs.' },
+    { label: 'Expressions & operators', href: `${base}/docs/expressions`, body: 'Where the converted match() / interpolate() / ?? expressions land.' },
+    { label: 'Function reference', href: `${base}/docs/functions`, body: 'The `interpolate(zoom, …)` / `step` / `match` builtin set.' },
+  ]} />
 </Docs>

@@ -1,0 +1,43 @@
+---
+// "Specifications" section — the X-GIS analogue of MDN's spec link
+// block. Lists the canonical external standards that back a docs
+// page (Mapbox Style Spec, GeoJSON RFC, EPSG, WGSL spec, …) so a
+// reader can verify "is this how the standard says it works?".
+
+interface Spec {
+  /** Standards body or organisation — e.g. "RFC 7946", "Mapbox", "W3C". */
+  body: string
+  /** Title of the spec. */
+  title: string
+  /** Canonical URL. */
+  url: string
+}
+
+interface Props {
+  specs: Spec[]
+}
+
+const { specs } = Astro.props
+---
+
+{specs.length > 0 && (
+  <section class="mt-10 pt-6 border-t border-line/60">
+    <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">Specifications</p>
+    <ul class="space-y-2 text-[13px] text-fg-dim">
+      {specs.map(s => (
+        <li class="flex items-baseline gap-3">
+          <span class="font-mono text-[11.5px] text-fg-mute w-[88px] flex-shrink-0">{s.body}</span>
+          <a
+            href={s.url}
+            target="_blank"
+            rel="noopener"
+            class="text-accent hover:text-accent-hover underline"
+          >
+            {s.title}
+            <span aria-hidden="true" class="ml-1 text-fg-mute">↗</span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+)}
