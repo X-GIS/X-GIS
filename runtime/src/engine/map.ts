@@ -858,8 +858,14 @@ export class XGISMap {
       // relative paths; mirror that here.
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
       const declaredType = (load as { type?: string }).type
+      // PMTiles: declared OR `.pmtiles` extension.
       const isPMTiles = declaredType === 'pmtiles' || url.endsWith('.pmtiles')
-      const isTileJSON = declaredType === 'tilejson' || url.endsWith('.json') || url.endsWith('.tilejson')
+      // TileJSON: declared OR `.tilejson` extension. `.json` ALONE
+      // is ambiguous (could be GeoJSON), so we only prewarm when
+      // the declaration says tilejson — speculatively fetching every
+      // .json source as TileJSON would waste bandwidth on GeoJSON
+      // demos and pollute the manifest cache with rejections.
+      const isTileJSON = declaredType === 'tilejson' || url.endsWith('.tilejson')
       if (isPMTiles) { prewarmPMTilesArchive(url); anyVectorTile = true }
       else if (isTileJSON) { prewarmTileJSONManifest(url); anyVectorTile = true }
     }
