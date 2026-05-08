@@ -66,6 +66,9 @@ export class PanZoomController implements Controller {
       }) as T
 
     let isDragging = false
+    // World anchor for perspective-correct pan — captured at drag
+    // start, used by camera.panToScreenAnchor each pointermove.
+    let dragAnchor: [number, number] | null = null
     let lastX = 0
     let lastY = 0
 
@@ -131,6 +134,17 @@ export class PanZoomController implements Controller {
           lastMoveTime = performance.now()
           panVelX = 0; panVelY = 0
           inertiaAnimating = false
+          // Capture the world point under the cursor at drag start.
+          // panToScreenAnchor uses this to keep that world location
+          // under the cursor as it moves — perspective-correct at
+          // any pitch / bearing. `null` = ray missed the ground
+          // plane (e.g. cursor above horizon at high pitch); fall
+          // back to delta-based pan in that case.
+          const dprNow = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 8) : 1
+          dragAnchor = camera.unprojectToZ0(
+            e.clientX * dprNow, e.clientY * dprNow,
+            canvas.width, canvas.height, dprNow,
+          )
         }
       } else if (activePointers.size === 2) {
         isDragging = false
@@ -259,7 +273,23 @@ export class PanZoomController implements Controller {
         lastX = e.clientX
         lastY = e.clientY
         lastMoveTime = now
-        camera.pan(dx, dy, canvas.width, canvas.height)
+        if (dragAnchor) {
+          // Perspective-correct pan: keep the world point captured at
+          // drag start under the cursor. unprojectToZ0 walks the live
+          // MVP, so pitch + bearing are both honoured. Fast cursor
+          // moves at high pitch correctly translate more world meters
+          // per cursor pixel near the horizon.
+          camera.panToScreenAnchor(
+            dragAnchor[0], dragAnchor[1],
+            e.clientX, e.clientY,
+            canvas.width, canvas.height,
+          )
+        } else {
+          // Anchor missed ground (cursor above horizon at drag start)
+          // — fall back to delta-based pan so the user can still drag
+          // out of the no-ray-hit region.
+          camera.pan(dx, dy, canvas.width, canvas.height)
+        }
       }
     }
 
@@ -299,6 +329,7 @@ export class PanZoomController implements Controller {
           if (camera.pitch < 2) camera.pitch = 0
         }
         isDragging = false
+        dragAnchor = null
         isRotatePending = false
         isRotating = false
         rotateActivated = false

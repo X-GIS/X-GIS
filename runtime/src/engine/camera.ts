@@ -317,30 +317,78 @@ export class Camera {
     this.bearing = 0
   }
 
-  /** Zoom by delta at CSS screen position (clientX/clientY) */
+  /** Zoom by delta at CSS screen position (clientX/clientY).
+   *
+   *  Anchors the world point under the cursor: unproject the cursor
+   *  via the BEFORE-zoom MVP (gets the world location it points at),
+   *  apply the zoom delta, then re-unproject at the same cursor and
+   *  shift `centerX/Y` by the difference so that same world point
+   *  sits under the cursor again. Works at any pitch and bearing
+   *  because unprojectToZ0 walks the full MVP — the previous
+   *  implementation only handled pitch=0 + bearing=0 (offset
+   *  computed in raw screen coords without the bearing rotation
+   *  that `pan()` already applies). */
   zoomAt(delta: number, screenX: number, screenY: number, canvasWidth: number, canvasHeight: number): void {
-    const oldZoom = this.zoom
+    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+    // unprojectToZ0 takes DEVICE-pixel screen coords (it scales by
+    // canvasWidth which is device-px). Convert CSS clientX/Y → device.
+    const sxDev = screenX * dpr
+    const syDev = screenY * dpr
+
+    // World point under cursor BEFORE zoom — relative to current
+    // camera (rel coords).
+    const before = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
+
+    // Apply zoom; this also invalidates the MVP cache so the next
+    // unproject below rebuilds against the new MPP.
     this.zoom = Math.max(0, Math.min(this.maxZoom, this.zoom + delta))
 
-    // Use CSS dimensions for offset calculation (screenX/Y are CSS coordinates)
-    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-    const cssWidth = canvasWidth / dpr
-    const cssHeight = canvasHeight / dpr
+    // World point under cursor AFTER zoom (camera not yet shifted).
+    const after = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
 
-    const oldMPP = (40075016.686 / 256) / Math.pow(2, oldZoom)
-    const newMPP = (40075016.686 / 256) / Math.pow(2, this.zoom)
-
-    // When pitched, zoom toward screen center only (perspective makes
-    // screen-to-world mapping non-linear, causing jitter with offset zoom)
-    if (this.pitch > 1) {
-      // No center offset when pitched — zoom is centered
-    } else {
-      const offsetX = (screenX - cssWidth / 2)
-      const offsetY = -(screenY - cssHeight / 2)
-      this.centerX += offsetX * (oldMPP - newMPP)
-      this.centerY += offsetY * (oldMPP - newMPP)
+    // Shift centre so the BEFORE world point is under the cursor again.
+    // before & after may be null if the cursor ray missed the ground
+    // plane (high pitch, cursor above horizon) — then leave centre as
+    // is, the zoom still applied around (0,0)-relative.
+    if (before && after) {
+      this.centerX += before[0] - after[0]
+      this.centerY += before[1] - after[1]
+      // Wrap X to stay within one world width (mirrors pan()).
+      const halfWorld = WORLD_MERC / 2
+      if (this.centerX > halfWorld) this.centerX -= WORLD_MERC
+      else if (this.centerX < -halfWorld) this.centerX += WORLD_MERC
     }
-    // Clamp after zoom: visible area changes with zoom level
+
+    // Clamp after zoom: visible area changes with zoom level.
+    const maxY = this.maxCameraY(canvasHeight)
+    this.centerY = Math.max(-maxY, Math.min(maxY, this.centerY))
+  }
+
+  /** Pan the camera so a world point that was under the cursor at
+   *  drag start stays under the cursor as the cursor moves. The
+   *  controller captures `anchor` (world coords relative to centre
+   *  AT DRAG START) on pointerdown and calls this each pointermove
+   *  with the new cursor position; the camera shifts by
+   *  (anchor - currentRel) under the live MVP, which is the correct
+   *  Mapbox/MapLibre pan-with-pitch geometry. Equivalent to the old
+   *  delta-based `pan()` at pitch=0 + bearing=0; at non-zero pitch
+   *  it correctly shifts more world distance per cursor pixel near
+   *  the horizon than near the bottom of the screen. */
+  panToScreenAnchor(
+    anchorRelX: number, anchorRelY: number,
+    cursorX: number, cursorY: number,
+    canvasWidth: number, canvasHeight: number,
+  ): void {
+    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+    const cur = this.unprojectToZ0(cursorX * dpr, cursorY * dpr, canvasWidth, canvasHeight, dpr)
+    if (!cur) return // ray missed ground (above horizon)
+    const dx = anchorRelX - cur[0]
+    const dy = anchorRelY - cur[1]
+    this.centerX -= dx
+    this.centerY -= dy
+    const halfWorld = WORLD_MERC / 2
+    if (this.centerX > halfWorld) this.centerX -= WORLD_MERC
+    else if (this.centerX < -halfWorld) this.centerX += WORLD_MERC
     const maxY = this.maxCameraY(canvasHeight)
     this.centerY = Math.max(-maxY, Math.min(maxY, this.centerY))
   }
