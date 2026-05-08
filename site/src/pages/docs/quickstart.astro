@@ -1,0 +1,132 @@
+---
+import Docs from '../../layouts/Docs.astro'
+import Callout from '../../components/Callout.astro'
+import { Code } from 'astro-expressive-code/components'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const playUrl = import.meta.env.DEV
+  ? 'https://localhost:3000/demo.html?id=minimal'
+  : `${base}/play/demo.html?id=minimal`
+---
+
+<Docs
+  current="quickstart"
+  title="X-GIS — Quickstart"
+  description="Build your first xgis map in five minutes — install, declare a source + layer, run on a canvas."
+  headings={[
+    { depth: 2, slug: 'install', text: 'Install' },
+    { depth: 2, slug: 'first-source', text: 'Declare a data source' },
+    { depth: 2, slug: 'first-layer', text: 'Style a layer' },
+    { depth: 2, slug: 'run', text: 'Mount on a canvas' },
+    { depth: 2, slug: 'next-steps', text: 'Next steps' },
+  ]}
+>
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">Get started</p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      Quickstart.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[720px]">
+      A working country-fill map in four steps. ~5 minutes start to
+      finish — no shaders, no buffer layouts, no projection math.
+    </p>
+  </header>
+
+  <article class="space-y-12">
+
+    <section>
+      <h2 id="install" class="scroll-mt-24 text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+        1. Install
+      </h2>
+      <p class="text-[14px] leading-[1.6] text-fg-dim mb-3 max-w-[720px]">
+        Two workspace packages. The compiler turns <code class="font-mono text-fg">.xgis</code> source into IR + WGSL; the runtime mounts on a <code class="font-mono text-fg">&lt;canvas&gt;</code> and renders.
+      </p>
+      <Code lang="bash" code={`bun add @xgis/compiler @xgis/runtime
+# or npm / pnpm / yarn — works the same`} />
+      <Callout type="note">
+        WebGPU is required. The runtime falls back to a Canvas&nbsp;2D
+        renderer when no adapter is available, but only the basic
+        GeoJSON path runs there — no PMTiles, no XGVT, no extruded buildings.
+      </Callout>
+    </section>
+
+    <section>
+      <h2 id="first-source" class="scroll-mt-24 text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+        2. Declare a data source
+      </h2>
+      <p class="text-[14px] leading-[1.6] text-fg-dim mb-3 max-w-[720px]">
+        A <code class="font-mono text-fg">source</code> block points at the data. Three fields — <code class="font-mono text-fg">type</code>, <code class="font-mono text-fg">url</code>, and an optional <code class="font-mono text-fg">layers</code> filter — cover GeoJSON, PMTiles, TileJSON, raster XYZ, and XGVT.
+      </p>
+      <Code lang="js" title="map.xgis" code={`source world {
+  type: geojson
+  url: "data/ne_110m_countries.geojson"
+}`} />
+      <p class="mt-3 text-[13px] text-fg-mute max-w-[720px]">
+        Want the full menu of source kinds? See <a href={`${base}/docs/sources`} class="text-accent hover:text-accent-hover underline">Source types</a>.
+      </p>
+    </section>
+
+    <section>
+      <h2 id="first-layer" class="scroll-mt-24 text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+        3. Style a layer
+      </h2>
+      <p class="text-[14px] leading-[1.6] text-fg-dim mb-3 max-w-[720px]">
+        A <code class="font-mono text-fg">layer</code> references a source by name and stacks Tailwind-style utilities on a <code class="font-mono text-fg">|</code> line. Multiple <code class="font-mono text-fg">|</code> blocks compose; later utilities win on conflict.
+      </p>
+      <Code lang="js" title="map.xgis (continued)" code={`layer countries {
+  source: world
+  | fill-stone-200 stroke-stone-400 stroke-1
+}`} />
+      <p class="mt-3 text-[13px] text-fg-mute max-w-[720px]">
+        Every utility is documented in the <a href={`${base}/docs/utilities`} class="text-accent hover:text-accent-hover underline">utility catalog</a>; expressions and operators in <a href={`${base}/docs/expressions`} class="text-accent hover:text-accent-hover underline">Expressions</a>.
+      </p>
+    </section>
+
+    <section>
+      <h2 id="run" class="scroll-mt-24 text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+        4. Mount on a canvas
+      </h2>
+      <p class="text-[14px] leading-[1.6] text-fg-dim mb-3 max-w-[720px]">
+        Two-line JS — <code class="font-mono text-fg">new XGISMap(canvas)</code> then <code class="font-mono text-fg">map.run(source, baseUrl)</code>. The compiler runs in the browser; the runtime owns the WebGPU context.
+      </p>
+      <Code lang="js" title="main.js" code={`import { XGISMap } from '@xgis/runtime'
+import source from './map.xgis?raw'
+
+const canvas = document.getElementById('map')
+const map = new XGISMap(canvas)
+await map.run(source, '/')
+`} />
+      <p class="mt-3 text-[13px] text-fg-mute max-w-[720px]">
+        For a custom-element flavour (<code class="font-mono text-fg">&lt;x-gis-map src="…"&gt;</code>), see the <a href={`${base}/docs/api`} class="text-accent hover:text-accent-hover underline">JavaScript API</a>.
+      </p>
+    </section>
+
+    <section>
+      <h2 id="next-steps" class="scroll-mt-24 text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+        Next steps
+      </h2>
+      <p class="text-[14px] leading-[1.6] text-fg-dim mb-5 max-w-[720px]">
+        That's the whole loop. From here:
+      </p>
+      <ul class="space-y-3 text-[14px] leading-[1.6] text-fg-dim max-w-[720px]">
+        <li class="flex gap-3">
+          <span class="text-fg-mute select-none">→</span>
+          <span><a href={playUrl} class="text-accent hover:text-accent-hover underline">Open the playground</a> and edit the example live — the editor recompiles on save.</span>
+        </li>
+        <li class="flex gap-3">
+          <span class="text-fg-mute select-none">→</span>
+          <span><a href={`${base}/docs/cookbook`} class="text-accent hover:text-accent-hover underline">Browse the cookbook</a> for copy-paste patterns — 3D buildings, categorical fill, zoom-fade roads.</span>
+        </li>
+        <li class="flex gap-3">
+          <span class="text-fg-mute select-none">→</span>
+          <span><a href={`${base}/docs/mapbox`} class="text-accent hover:text-accent-hover underline">Coming from Mapbox?</a> The compatibility guide maps your existing style spec onto xgis.</span>
+        </li>
+        <li class="flex gap-3">
+          <span class="text-fg-mute select-none">→</span>
+          <span><a href={`${base}/examples`} class="text-accent hover:text-accent-hover underline">Browse 40+ examples</a> grouped by category — basemaps, vector tiles, animation, interaction.</span>
+        </li>
+      </ul>
+    </section>
+
+  </article>
+</Docs>

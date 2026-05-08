@@ -41,10 +41,28 @@ interface NavGroup {
   items: NavItem[]
 }
 
+// Diátaxis layout: Get started → Guides → Reference → Concepts → API.
+// Tutorials (quickstart) come first because they're learning-oriented;
+// Guides (cookbook, mapbox migration) are goal-oriented; Reference is
+// the dry information sink; Concepts explain the WHY; API is the JS-
+// surface for embedding.
 const navGroups: NavGroup[] = [
   {
     items: [
       { label: 'Overview',           slug: '',                    href: `${base}/docs` },
+    ],
+  },
+  {
+    title: 'Get started',
+    items: [
+      { label: 'Quickstart',         slug: 'quickstart',  href: `${base}/docs/quickstart` },
+    ],
+  },
+  {
+    title: 'Guides',
+    items: [
+      { label: 'Cookbook',           slug: 'cookbook',    href: `${base}/docs/cookbook` },
+      { label: 'Mapbox migration',   slug: 'mapbox',      href: `${base}/docs/mapbox` },
     ],
   },
   {

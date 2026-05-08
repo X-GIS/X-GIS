@@ -104,6 +104,30 @@ export function buildSearchIndex(base: string): SearchRecord[] {
     tag: 'Language',
     url: `${base}/docs/sources`,
   })
+  out.push({
+    id: 'doc:quickstart',
+    title: 'Quickstart',
+    body: 'Build your first xgis map in five minutes — install, declare a source + layer, mount on a canvas.',
+    type: 'doc',
+    tag: 'Get started',
+    url: `${base}/docs/quickstart`,
+  })
+  out.push({
+    id: 'doc:cookbook',
+    title: 'Cookbook',
+    body: 'Copy-paste recipes for common cartographic tasks — 3D buildings, categorical fill, zoom-fade roads, road casing, animation, layer subsetting.',
+    type: 'doc',
+    tag: 'Guides',
+    url: `${base}/docs/cookbook`,
+  })
+  out.push({
+    id: 'doc:mapbox',
+    title: 'Mapbox migration',
+    body: 'Mapbox Style Spec compatibility matrix, expression mapping (interpolate / match / coalesce / filter), conceptual differences, and converter caveats.',
+    type: 'doc',
+    tag: 'Guides',
+    url: `${base}/docs/mapbox`,
+  })
 
   // ─── Reference sections (one record per section so search lands
   //     on the exact heading via #anchor) ───

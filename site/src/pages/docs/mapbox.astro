@@ -1,0 +1,248 @@
+---
+import Docs from '../../layouts/Docs.astro'
+import Callout from '../../components/Callout.astro'
+import { Code } from 'astro-expressive-code/components'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+---
+
+<Docs
+  current="mapbox"
+  title="X-GIS — Mapbox compatibility"
+  description="Mapbox Style Spec coverage in the converter, the conceptual differences, and the migration path from Mapbox GL JS / MapLibre to xgis."
+  headings={[
+    { depth: 2, slug: 'mental-model', text: 'Mental model differences' },
+    { depth: 2, slug: 'converter', text: 'Using the converter' },
+    { depth: 2, slug: 'compatibility', text: 'Compatibility matrix' },
+    { depth: 2, slug: 'expression-mapping', text: 'Expression mapping' },
+    { depth: 2, slug: 'caveats', text: 'Caveats & gotchas' },
+  ]}
+>
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">Guides</p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      Migrating from Mapbox.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[720px]">
+      X-GIS reads the Mapbox Style Spec — paste a <code class="font-mono text-fg">style.json</code>
+      into <a href={`${base}/convert`} class="text-accent hover:text-accent-hover underline">/convert</a>
+      and get an equivalent <code class="font-mono text-fg">.xgis</code> source. This page
+      explains what carries across, what's heuristically lossy, and the
+      conceptual differences between the two engines.
+    </p>
+  </header>
+
+  <article class="space-y-14">
+
+    <section>
+      <h2 id="mental-model" class="scroll-mt-24 text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+        Mental model differences
+      </h2>
+      <p class="text-[14px] leading-[1.6] text-fg-dim mb-6 max-w-[720px]">
+        Mapbox GL JS is an imperative library — you instantiate
+        a <code class="font-mono text-fg">Map</code>, call <code class="font-mono text-fg">addLayer()</code>,
+        wire styling through paint property setters, ship glue code
+        in JS. xgis is a language: the source <em>is</em> the program,
+        and the compiler emits the WGSL.
+      </p>
+
+      <div class="grid sm:grid-cols-2 gap-5">
+        <div class="rounded-xl border border-line bg-bg-elev p-5">
+          <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">Mapbox</p>
+          <ul class="space-y-2 text-[13px] leading-[1.55] text-fg-dim">
+            <li>• Imperative API — <code class="font-mono text-fg">map.addLayer({})</code></li>
+            <li>• JSON style spec parsed at runtime</li>
+            <li>• Expressions evaluated by a tree walker per frame</li>
+            <li>• GLSL shaders hand-written for each paint property</li>
+            <li>• Symbol layers (text, icons) first-class</li>
+          </ul>
+        </div>
+        <div class="rounded-xl border border-line bg-bg-elev p-5">
+          <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">xgis</p>
+          <ul class="space-y-2 text-[13px] leading-[1.55] text-fg-dim">
+            <li>• Declarative — <code class="font-mono text-fg">layer x &#123; … &#125;</code></li>
+            <li>• Compile-time IR + WGSL codegen</li>
+            <li>• Zoom-driven values lower to GPU uniforms</li>
+            <li>• Per-feature expressions baked into vertex attributes</li>
+            <li>• Symbol layers not yet implemented (text rendering pending)</li>
+          </ul>
+        </div>
+      </div>
+
+      <Callout type="note" title="What this means in practice">
+        Most cartographic styles port cleanly. The big exception is
+        anything that depends on <strong>text labels</strong> — those
+        get skipped with a comment until the runtime ships a glyph atlas.
+      </Callout>
+    </section>
+
+    <section>
+      <h2 id="converter" class="scroll-mt-24 text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+        Using the converter
+      </h2>
+      <p class="text-[14px] leading-[1.6] text-fg-dim mb-4 max-w-[720px]">
+        Open <a href={`${base}/convert`} class="text-accent hover:text-accent-hover underline">/convert</a>,
+        click a preset chip (Liberty / Bright / Positron — three OpenFreeMap
+        styles) or paste a URL pointing at any <code class="font-mono text-fg">style.json</code>.
+        The page emits an <code class="font-mono text-fg">.xgis</code> source and
+        a count badge showing how many features got dropped or rewritten.
+      </p>
+      <p class="text-[14px] leading-[1.6] text-fg-dim mb-4 max-w-[720px]">
+        The converter is also exported from the compiler package — call it
+        from your build pipeline to bake conversions into your bundle.
+      </p>
+      <Code lang="js" code={`import { convertMapboxStyle } from '@xgis/compiler'
+
+const style = await fetch('https://tiles.openfreemap.org/styles/bright')
+  .then(r => r.json())
+const xgis = convertMapboxStyle(style)
+// xgis is a string — feed to <XGISMap>.run() directly.`} />
+    </section>
+
+    <section>
+      <h2 id="compatibility" class="scroll-mt-24 text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+        Compatibility matrix
+      </h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-[12.5px]">
+        <div class="border border-line rounded-md p-4 bg-bg-elev">
+          <div class="text-emerald-300 text-[11px] uppercase tracking-wider mb-2 font-medium">Supported</div>
+          <ul class="space-y-1.5 text-fg-dim leading-[1.55]">
+            <li>• Sources: vector (PMTiles + TileJSON), raster, GeoJSON</li>
+            <li>• Layers: background, fill, line, fill-extrusion</li>
+            <li>• Paint: fill-color/-opacity, line-color/-width/-dasharray/-opacity, fill-extrusion-color/-opacity/-height/-base</li>
+            <li>• Filters: legacy + expression form (==/!=/&lt;/&gt;/all/any/in/!in/has/!has)</li>
+            <li>• Expressions: get / coalesce / case / match / arithmetic / min / max / to-number</li>
+            <li>• Zoom: <code class="font-mono">interpolate(zoom, …)</code> with linear curve</li>
+          </ul>
+        </div>
+        <div class="border border-line rounded-md p-4 bg-bg-elev">
+          <div class="text-amber-300 text-[11px] uppercase tracking-wider mb-2 font-medium">Lossy / heuristic</div>
+          <ul class="space-y-1.5 text-fg-dim leading-[1.55]">
+            <li>• <code class="font-mono">interpolate</code> curve type (exponential / cubic-bezier) folded to linear</li>
+            <li>• <code class="font-mono">fill-translate</code>, <code class="font-mono">line-translate</code> dropped</li>
+            <li>• <code class="font-mono">fill-outline-color</code> emitted as a separate stroke layer when paired</li>
+            <li>• <code class="font-mono">$type</code> / <code class="font-mono">$id</code> filters dropped (geometry type implied by utility)</li>
+            <li>• <code class="font-mono">fill-pattern</code> / <code class="font-mono">line-pattern</code> dropped (bitmap atlases unimplemented)</li>
+          </ul>
+        </div>
+        <div class="border border-line rounded-md p-4 bg-bg-elev">
+          <div class="text-rose-300 text-[11px] uppercase tracking-wider mb-2 font-medium">Unsupported (engine)</div>
+          <ul class="space-y-1.5 text-fg-dim leading-[1.55]">
+            <li>• Symbol layers (text + icons) — SDF font + glyph atlas pending</li>
+            <li>• Circle, heatmap, hillshade, sky layers</li>
+            <li>• <code class="font-mono">let</code> / <code class="font-mono">var</code>, <code class="font-mono">concat</code>, <code class="font-mono">downcase</code>, <code class="font-mono">number-format</code></li>
+            <li>• <code class="font-mono">step</code> expressions, <code class="font-mono">at</code>, <code class="font-mono">distance</code></li>
+            <li>• Top-level <code class="font-mono">light</code>, <code class="font-mono">fog</code>, <code class="font-mono">terrain</code></li>
+            <li>• Paint property <code class="font-mono">transition</code> overrides</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="expression-mapping" class="scroll-mt-24 text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+        Expression mapping
+      </h2>
+      <p class="text-[14px] leading-[1.6] text-fg-dim mb-6 max-w-[720px]">
+        Common Mapbox expressions and their xgis equivalents. The
+        converter applies these automatically — this is for when you're
+        reading converter output and want to know what changed.
+      </p>
+      <div class="space-y-5">
+        <div>
+          <p class="text-[12px] font-medium text-fg-mute uppercase tracking-wider mb-2">Zoom-driven width</p>
+          <div class="grid md:grid-cols-2 gap-3">
+            <Code lang="json" title="Mapbox" code={`"line-width": [
+  "interpolate", ["linear"],
+  ["zoom"],
+  11, 1,
+  19, 2.5
+]`} />
+            <Code lang="js" title="xgis" code={`| stroke-[interpolate(zoom, 11, 1, 19, 2.5)]`} />
+          </div>
+        </div>
+
+        <div>
+          <p class="text-[12px] font-medium text-fg-mute uppercase tracking-wider mb-2">Property-driven color</p>
+          <div class="grid md:grid-cols-2 gap-3">
+            <Code lang="json" title="Mapbox" code={`"fill-color": [
+  "match",
+  ["get", "class"],
+  "park",  "#cfe7c1",
+  "water", "#a4c8d5",
+  "#dadada"
+]`} />
+            <Code lang="js" title="xgis" code={`| fill match(.class) {
+    "park"  -> #cfe7c1
+    "water" -> #a4c8d5
+    _       -> #dadada
+  }`} />
+          </div>
+        </div>
+
+        <div>
+          <p class="text-[12px] font-medium text-fg-mute uppercase tracking-wider mb-2">Coalesce fallback</p>
+          <div class="grid md:grid-cols-2 gap-3">
+            <Code lang="json" title="Mapbox" code={`"fill-extrusion-height": [
+  "coalesce",
+  ["get", "render_height"],
+  ["get", "height"],
+  5
+]`} />
+            <Code lang="js" title="xgis" code={`| fill-extrusion-height-[.render_height ?? .height ?? 5]`} />
+          </div>
+        </div>
+
+        <div>
+          <p class="text-[12px] font-medium text-fg-mute uppercase tracking-wider mb-2">Filter — legacy form</p>
+          <div class="grid md:grid-cols-2 gap-3">
+            <Code lang="json" title="Mapbox" code={`"filter": [
+  "all",
+  ["==", "$type", "LineString"],
+  ["==", "class", "highway"]
+]`} />
+            <Code lang="js" title="xgis" code={`filter: .class == "highway"
+// $type dropped — geometry type
+// is implied by the utility used`} />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="caveats" class="scroll-mt-24 text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+        Caveats &amp; gotchas
+      </h2>
+
+      <Callout type="warning" title="Symbol layers are silently skipped">
+        The converter emits a <code class="font-mono">// SKIPPED layer "…" type="symbol"</code>
+        comment for every symbol layer it finds, and the conversion notes
+        block at the bottom of the output lists them. You'll see a city
+        with no labels until the runtime ships text rendering.
+      </Callout>
+
+      <Callout type="warning" title="TileJSON URLs need the right type">
+        Mapbox sources without a <code class="font-mono">.pmtiles</code> extension
+        are emitted as <code class="font-mono">type: tilejson</code> — the runtime
+        fetches the manifest, then the per-tile <code class="font-mono">.pbf</code>.
+        If the host doesn't send <code class="font-mono">Access-Control-Allow-Origin</code>,
+        all tile fetches fail silently (the catalog stays empty).
+      </Callout>
+
+      <Callout type="tip" title="Curve type loses subtlety">
+        Mapbox <code class="font-mono">["exponential", base]</code> curves get
+        flattened to linear. For a smooth-feel close to the original add
+        more stops in between — `interpolate(zoom, 11, 1, 14, 1.5, 18, 4)`
+        approximates an exponential rise better than two endpoints alone.
+      </Callout>
+
+      <Callout type="note" title="Round-trip is not exact">
+        The converter's goal is "produces a sensible visual approximation",
+        not "byte-equivalent round-trip". For pixel-precise reproduction
+        of an existing Mapbox map, plan some manual touch-up after
+        running the converter.
+      </Callout>
+    </section>
+
+  </article>
+</Docs>

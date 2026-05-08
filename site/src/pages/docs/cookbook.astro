@@ -1,0 +1,224 @@
+---
+import Docs from '../../layouts/Docs.astro'
+import Callout from '../../components/Callout.astro'
+import { Code } from 'astro-expressive-code/components'
+
+interface Recipe {
+  slug: string
+  title: string
+  body: string
+  code: string
+  notes?: string[]
+}
+
+// Goal-oriented "how-to" recipes — each one solves a specific
+// real-world cartographic task with the minimum xgis source that
+// produces a working map. Diátaxis "How-to guides" category.
+const recipes: Recipe[] = [
+  {
+    slug: '3d-buildings',
+    title: 'Extruded 3D buildings',
+    body: 'Use the per-feature `fill-extrusion-height-[expr]` utility. The expression runs against each feature\'s tags at MVT decode time; missing properties fall through `??` to whatever default you pick.',
+    code: `source pm {
+  type: pmtiles
+  url: "/protomaps-v4.pmtiles"
+}
+
+layer buildings {
+  source: pm
+  sourceLayer: "buildings"
+  | fill-stone-300 stroke-stone-500 stroke-0.5
+  | fill-extrusion-height-[.render_height ?? .height ?? 5]
+}`,
+    notes: [
+      'Walks render at the layer\'s `fill-` colour; the stroke utility paints outlines on the roof + ground edges.',
+      'Pair with `pitch=70` in the camera URL to actually see the 3D massing.',
+    ],
+  },
+
+  {
+    slug: 'categorical-fill',
+    title: 'Categorical fill from a property',
+    body: 'Map discrete values to colours with `match()`. The default arm `_ -> …` runs when no key matches.',
+    code: `source land {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer continents {
+  source: land
+  | fill match(.continent) {
+      "Asia"          -> red-400
+      "Europe"        -> blue-400
+      "Africa"        -> amber-400
+      "North America" -> emerald-400
+      "South America" -> violet-400
+      "Oceania"       -> cyan-400
+      _               -> gray-300
+    }
+  | stroke-white stroke-1
+}`,
+  },
+
+  {
+    slug: 'zoom-fade',
+    title: 'Zoom-fade road widths',
+    body: 'Wrap any utility value in `interpolate(zoom, …)` to make it scale with the camera. Stops blend linearly between the listed zooms; the values clamp outside the range.',
+    code: `layer highways {
+  source: roads
+  sourceLayer: "transportation"
+  filter: .class == "motorway"
+  | stroke-amber-500
+  | stroke-[interpolate(zoom, 6, 0.5, 12, 2, 18, 6)]
+  | opacity-[interpolate(zoom, 5, 0, 7, 100)]
+}`,
+    notes: [
+      'Same builtin works on feature properties — `interpolate(.population, 0, white, 1e6, red-500)` gives a continuous gradient.',
+    ],
+  },
+
+  {
+    slug: 'data-driven-stroke',
+    title: 'Data-driven stroke width',
+    body: 'Pipe (`|`) feeds the LHS as the first argument of an RHS function. Reads left-to-right, no parens, no temporary variables.',
+    code: `layer roads {
+  source: roads
+  sourceLayer: "transportation"
+  | stroke-zinc-700
+  | stroke-[.lanes / 2 | clamp(0.5, 8)]
+}`,
+    notes: [
+      'Equivalent to `stroke-[clamp(.lanes / 2, 0.5, 8)]` — pick whichever reads better.',
+    ],
+  },
+
+  {
+    slug: 'multi-stroke-road-casing',
+    title: 'Road casing (two stacked strokes)',
+    body: 'Two layers on the same source, the casing wider and darker. Order matters — the casing must declare first so the inner stroke draws on top.',
+    code: `layer road_casing {
+  source: roads
+  sourceLayer: "transportation"
+  filter: .class == "motorway"
+  | stroke-amber-700 stroke-[interpolate(zoom, 6, 1, 18, 9)]
+}
+
+layer road_inner {
+  source: roads
+  sourceLayer: "transportation"
+  filter: .class == "motorway"
+  | stroke-amber-300 stroke-[interpolate(zoom, 6, 0.5, 18, 6)]
+}`,
+  },
+
+  {
+    slug: 'preset',
+    title: 'Reusable utility stacks (preset)',
+    body: 'A `preset` block names a utility stack you can splat into any layer with `apply-<name>`. Layer-level utilities placed after the apply override the preset values.',
+    code: `preset road_base {
+  | stroke-zinc-600
+  | stroke-linecap-round stroke-linejoin-round
+}
+
+layer highway {
+  source: roads
+  sourceLayer: "transportation"
+  filter: .class == "motorway"
+  | apply-road_base
+  | stroke-amber-500     // overrides the preset
+  | stroke-[interpolate(zoom, 6, 1, 18, 6)]
+}`,
+  },
+
+  {
+    slug: 'animation-pulse',
+    title: 'Pulsing opacity animation',
+    body: 'A `keyframes` block + `animation-<name>` utility on the layer. The runtime samples the keyframe timeline each frame; multiple paint properties (color, opacity, dashOffset) can animate in parallel.',
+    code: `keyframes pulse {
+  0%:   opacity-100
+  50%:  opacity-30
+  100%: opacity-100
+}
+
+layer beacon {
+  source: pings
+  | shape-circle size-12 fill-rose-500
+  | animation-pulse animation-duration-1500
+  | animation-ease-in-out animation-infinite
+}`,
+  },
+
+  {
+    slug: 'filter-by-zoom',
+    title: 'Hide a layer below a zoom threshold',
+    body: 'Use `minzoom:` / `maxzoom:` block-properties on the layer. The runtime skips the entire layer\'s render path below / above the bounds — no per-feature opacity gymnastics.',
+    code: `layer rail {
+  source: roads
+  sourceLayer: "transportation"
+  filter: .class == "rail"
+  minzoom: 11
+  | stroke-slate-500 stroke-1
+  | stroke-dasharray-2-3
+}`,
+    notes: [
+      'For a soft fade instead of a hard cut, pair with `opacity-[interpolate(zoom, 10, 0, 12, 100)]` and let both work together.',
+    ],
+  },
+
+  {
+    slug: 'mvt-layer-subset',
+    title: 'Restrict PMTiles decoding to specific source-layers',
+    body: 'List the source-layer names the source should bother decoding — the worker skips everything else and per-tile work drops in proportion. Same names you reference via `sourceLayer:` on a layer.',
+    code: `source pm {
+  type: pmtiles
+  url: "/protomaps-v4.pmtiles"
+  layers: ["water", "landuse", "transportation"]
+}`,
+    notes: [
+      'Default behaviour is "decode every source-layer any xgis layer references" — explicit listing only matters when you want to also restrict layers below the inferred set.',
+    ],
+  },
+]
+---
+
+<Docs
+  current="cookbook"
+  title="X-GIS — Cookbook"
+  description="Copy-paste recipes for common cartographic tasks — 3D buildings, categorical fill, zoom-fade roads, animation, road casing."
+  headings={recipes.map(r => ({ depth: 2, slug: r.slug, text: r.title }))}
+>
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">Guides</p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      Cookbook.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[720px]">
+      Recipes for the common tasks. Each one is a complete xgis source
+      block you can paste into the playground and tweak — no setup, no
+      glue code.
+    </p>
+  </header>
+
+  <article class="space-y-14">
+    {recipes.map(r => (
+      <section>
+        <h2 id={r.slug} class="scroll-mt-24 text-[22px] sm:text-[26px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+          {r.title}
+        </h2>
+        <p class="text-[14px] leading-[1.6] text-fg-dim mb-5 max-w-[720px]">
+          {r.body}
+        </p>
+        <Code code={r.code} lang="js" />
+        {r.notes && r.notes.length > 0 && (
+          <div class="mt-4">
+            <ul class="space-y-1.5 text-[13px] leading-[1.6] text-fg-mute max-w-[720px]">
+              {r.notes.map(n => (
+                <li class="flex gap-2"><span class="select-none">·</span><span>{n}</span></li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
+    ))}
+  </article>
+</Docs>

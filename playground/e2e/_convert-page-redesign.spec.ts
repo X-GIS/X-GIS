@@ -57,7 +57,7 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     // Use a 1440-wide viewport so the xl-only OnThisPage TOC renders
     // and the screenshot reflects the desktop layout.
     await page.setViewportSize({ width: 1440, height: 900 })
-    for (const slug of ['functions', 'expressions', 'sources']) {
+    for (const slug of ['quickstart', 'cookbook', 'mapbox', 'functions', 'expressions', 'sources']) {
       await page.goto(`http://localhost:${port}/docs/${slug}/`)
       await expect(page.locator('h1').first()).toBeVisible()
       await page.screenshot({ path: `test-results/docs-${slug}.png`, fullPage: true })
