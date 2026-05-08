@@ -140,6 +140,13 @@ export const DEMOS: Record<string, Demo> = {
     source: load('pmtiles-layered.xgis'),
   },
 
+  openfreemap_bright: {
+    name: 'OpenFreeMap — Bright (converted)',
+    tag: 'xgvt',
+    description: 'Live OpenFreeMap "bright" Mapbox style, run through the /convert pipeline. 93 layers, OpenMapTiles schema (water, landuse, building, transportation, …). Use this to stress-test pitched / panned views against a real-world style. Navigate to a city: #14/35.68/139.76 (Tokyo), #14/40.78/-73.97 (Manhattan).',
+    source: load('openfreemap-bright.xgis'),
+  },
+
   pmtiles_only_landuse: {
     name: 'PMTiles — landuse only (diag)',
     tag: 'xgvt',

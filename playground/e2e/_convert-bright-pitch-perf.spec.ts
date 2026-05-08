@@ -50,7 +50,7 @@ test('bright style: frame-time profile across pitches at z=14 Tokyo', async ({ p
     // explicitly invalidates per-frame to keep animations alive (and
     // for our purposes, sampling steady-state).
     const sample = await page.evaluate(async () => {
-      return await new Promise<{ frames: number[]; pipeline: unknown }>((res) => {
+      return await new Promise<{ frames: number[]; pipeline: unknown; byZoom: Record<number, number> }>((res) => {
         const frames: number[] = []
         let last = performance.now()
         const start = last
@@ -60,9 +60,20 @@ test('bright style: frame-time profile across pitches at z=14 Tokyo', async ({ p
           last = now
           if (now - start < 3000) requestAnimationFrame(tick)
           else {
-            const map = (window as unknown as { __xgisMap?: { inspectPipeline?: () => unknown } }).__xgisMap
+            const map = (window as unknown as {
+              __xgisMap?: {
+                inspectPipeline?: () => unknown
+                vtSources?: Map<string, { renderer?: { _frameDrawnByZoom?: Map<number, number> } }>
+              }
+            }).__xgisMap
             const pipeline = map?.inspectPipeline ? map.inspectPipeline() : null
-            res({ frames, pipeline })
+            const vtsource = map?.vtSources?.get?.('openmaptiles')
+            const byZoomMap = vtsource?.renderer?._frameDrawnByZoom
+            const byZoom: Record<number, number> = {}
+            if (byZoomMap instanceof Map) {
+              for (const [z, n] of byZoomMap) byZoom[z] = n
+            }
+            res({ frames, pipeline, byZoom })
           }
         }
         requestAnimationFrame(tick)
@@ -86,6 +97,8 @@ test('bright style: frame-time profile across pitches at z=14 Tokyo', async ({ p
     })
     // eslint-disable-next-line no-console
     console.log(`pitch=${pitch}: pipeline =`, JSON.stringify(pipeline?.sources?.[0]))
+    // eslint-disable-next-line no-console
+    console.log(`pitch=${pitch}: drawnByZoom =`, JSON.stringify(sample.byZoom))
     await page.locator('#map').screenshot({ path: `test-results/bright-pitch-${pitch}.png` })
   }
 
