@@ -124,39 +124,57 @@ const convertUrl = `${base}/convert`
 </section>
 
 <script>
-  import { XGISMap } from '@xgis/runtime'
+  // The hero map mount is deferred until either (a) the canvas
+  // intersects the viewport or (b) the user interacts with it. Eager
+  // mount loaded ~397 KB of `@xgis/runtime` synchronously on first
+  // paint and dominated the landing-page LCP. Lazy mount keeps the
+  // landing route lightweight while the map still appears the moment
+  // the user reaches it (typical scroll lag is fast enough that the
+  // canvas is still visible by the time it lights up).
+  type XGISMapType = import('@xgis/runtime').XGISMap
 
   const canvas = document.getElementById('hero-map') as HTMLCanvasElement | null
   const fallback = document.getElementById('hero-map-fallback')
 
   if (canvas) {
-    // Wheel-zoom fix: the runtime's controller passes WheelEvent.clientX/Y
-    // straight into Camera.zoomAt which expects canvas-local CSS pixels.
-    // For a centered hero canvas that puts the focal point off by canvasLeft/Top
-    // pixels. Capture phase + stopImmediatePropagation blocks the runtime's
-    // listener, then we call zoomAt with corrected coords.
-    let mountedMap: XGISMap | null = null
-    canvas.addEventListener('wheel', (e) => {
-      e.preventDefault()
-      e.stopImmediatePropagation()
-      if (!mountedMap) return
-      const rect = canvas.getBoundingClientRect()
-      const canvasX = e.clientX - rect.left
-      const canvasY = e.clientY - rect.top
-      const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.003)
-      mountedMap.getCamera().zoomAt(
-        Math.max(-1, Math.min(1, delta)),
-        canvasX, canvasY,
-        canvas.width, canvas.height,
-      )
-    }, { capture: true, passive: false })
+    let mountedMap: XGISMapType | null = null
+    let mountStarted = false
 
-    // baseUrl resolves the relative `url:` in the .xgis source.
-    const baseUrl = window.location.pathname.endsWith('/')
-      ? window.location.pathname
-      : window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1)
+    const startMount = async (): Promise<void> => {
+      if (mountStarted) return
+      mountStarted = true
+      try {
+        // Dynamic import — splits @xgis/runtime + @xgis/compiler out of
+        // the landing-route bundle. Loaded only when the map needs to
+        // render, not on every page view.
+        const { XGISMap } = await import('@xgis/runtime')
 
-    const source = `source land {
+        // Wheel-zoom fix: the runtime's controller passes WheelEvent
+        // .clientX/Y straight into Camera.zoomAt which expects canvas-
+        // local CSS pixels. For a centered hero canvas that puts the
+        // focal point off by canvasLeft/Top pixels. Capture phase +
+        // stopImmediatePropagation blocks the runtime's listener, then
+        // we call zoomAt with corrected coords.
+        canvas.addEventListener('wheel', (e) => {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          if (!mountedMap) return
+          const rect = canvas.getBoundingClientRect()
+          const canvasX = e.clientX - rect.left
+          const canvasY = e.clientY - rect.top
+          const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.003)
+          mountedMap.getCamera().zoomAt(
+            Math.max(-1, Math.min(1, delta)),
+            canvasX, canvasY,
+            canvas.width, canvas.height,
+          )
+        }, { capture: true, passive: false })
+
+        const baseUrl = window.location.pathname.endsWith('/')
+          ? window.location.pathname
+          : window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1)
+
+        const source = `source land {
   type: geojson
   url: "data/land.geojson"
 }
@@ -166,8 +184,6 @@ layer continents {
   | fill-zinc-200
 }`
 
-    ;(async () => {
-      try {
         mountedMap = new XGISMap(canvas)
         await mountedMap.run(source, baseUrl)
         canvas.style.opacity = '1'
@@ -176,7 +192,39 @@ layer continents {
         console.warn('[hero-map]', err)
         if (fallback) fallback.textContent = 'Map preview unavailable'
       }
-    })()
+    }
+
+    // Trigger 1: viewport intersection. `rootMargin: 200px` starts the
+    // mount slightly before the canvas scrolls into view so by the time
+    // the user actually sees it, the runtime is already loading.
+    if (typeof IntersectionObserver !== 'undefined') {
+      const io = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            io.disconnect()
+            startMount()
+            break
+          }
+        }
+      }, { rootMargin: '200px' })
+      io.observe(canvas)
+    } else {
+      // Fallback: very old browsers without IO get an idle-callback
+      // mount instead of "never".
+      const idle = (window as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback
+        ?? ((cb: () => void) => setTimeout(cb, 1))
+      idle(startMount)
+    }
+
+    // Trigger 2: any interaction shortcuts the IO wait — wheel/click
+    // /keyboard means the user is engaging with the map area.
+    const onInteract = (): void => {
+      canvas.removeEventListener('pointerdown', onInteract)
+      canvas.removeEventListener('focus', onInteract)
+      startMount()
+    }
+    canvas.addEventListener('pointerdown', onInteract, { once: true, passive: true })
+    canvas.addEventListener('focus', onInteract, { once: true })
   }
 </script>
 
