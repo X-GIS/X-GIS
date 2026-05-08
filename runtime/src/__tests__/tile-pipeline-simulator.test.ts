@@ -100,7 +100,14 @@ describe('tile pipeline simulator — FLICKER reproduction', () => {
     expect(pred.requestedZ).toBe(17)
     expect(pred.overzoom).toBe(true)
     expect(pred.overzoomLevels).toBe(13)
-    expect(pred.cacheCapacityCheck.saturated).toBe(true)
+    // Pre-fix this URL saturated the GPU tile cache (300+ tiles
+    // requested at this z+pitch). After the classify-tile metric
+    // switched from `max(w,h)` to `min(w,h)` (commit fixing
+    // foreshortened-horizon over-subdivision), the high-pitch tile
+    // count drops sharply and the cache stays under capacity. The
+    // assertion is inverted here as a pinned reminder — if a future
+    // change re-introduces the saturation we should investigate.
+    expect(pred.cacheCapacityCheck.saturated).toBe(false)
   })
 
   it('a larger upload budget reduces peak missed count for the same trajectory', () => {

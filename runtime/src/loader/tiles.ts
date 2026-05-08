@@ -459,7 +459,26 @@ export function visibleTilesFrustum(
 
     if (!overlapsViewport) return -1
 
-    const size = Math.max(sxMax - sxMin, syMax - syMin)
+    // Tile screen-space size for the SUBDIVIDE_THRESHOLD comparison.
+    //
+    // Use the SMALLER axis of the AABB, not the larger. Foreshortening
+    // at high pitch turns horizon tiles into elongated thin strips —
+    // their AABB might be 350 px wide × 30 px tall on a 390-wide
+    // viewport. With max(w,h) the width gate said "subdivide!" even
+    // though the tile's perceptible detail axis (perpendicular to the
+    // horizon line) is only 30 px, ~9× too compressed for z+1 features
+    // to register. Result: dozens of unnecessary z=14 horizon children
+    // bleeding into the foreground LOD bucket — confirmed visually at
+    // pitch ≥ 60° on the bright + pmtiles_layered demos (z14:41 of 54
+    // unique tiles at pitch=70 over Tokyo, only 13 across z=8-13).
+    //
+    // The smaller axis matches "what features would be visible at this
+    // size" — a 350×30 strip displays features at ~30 px resolution
+    // regardless of how wide it is. Foreground tiles with both axes
+    // ≈ 256 still subdivide correctly when the camera overzooms.
+    const sw = sxMax - sxMin
+    const sh = syMax - syMin
+    const size = Math.min(sw, sh)
     return Math.max(size, 1) // always > 0 when visible
   }
 
