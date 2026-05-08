@@ -61,6 +61,14 @@ export interface TileCoord {
   x: number
   y: number
   ox: number
+  /** Marks a parent-injected tile that exists in `result` only to
+   *  keep its data resident (eviction protection). The renderer
+   *  routes these into `fallbackKeys` instead of `neededKeys`, so
+   *  they render via stencil-test (only where the children failed)
+   *  rather than as primaries — preventing parent + child both
+   *  drawing the same screen region. Default false / undefined for
+   *  selector-derived tiles. */
+  fallbackOnly?: boolean
 }
 
 /** World-copy index (-2..+2 typically) of a tile coord. Returns 0 for
@@ -589,40 +597,31 @@ export function visibleTilesFrustum(
     }
   }
 
-  // ── PARENT inject for high pitch ──────────────────────────────────
-  // The maxZ inject above gets the camera-vicinity z=maxZ tiles into
-  // `neededKeys`, which protects them from eviction. But when maxZ
-  // exceeds the source archive (e.g. PMTiles maxLevel=15 + camera
-  // zoom=15.78 → engine requests z=16), z=maxZ tiles must be sub-tile
-  // generated from their z=maxZ-1 parents. If those parents aren't in
-  // cache the sub-tile gen fails and the tile falls back two levels
-  // deeper (z=maxZ-2), producing the "foreground generalised
-  // ancestor blocks" the user reported at Seoul z=15.78 pitch=85°.
+  // ── PARENT inject (fallbackOnly) ──────────────────────────────────
+  // High-pitch view at a zoom near the archive maxLevel: the screen-
+  // space sampler's ray distribution (perspective compresses many
+  // rays into the horizon band) lets close-camera tiles slip out of
+  // `stableKeys`. Under the 64-key mobile cap they get evicted, then
+  // re-fetched on the next frame as the camera holds — visible as
+  // foreground rendering from z=maxZ-1 (or deeper) ancestor blocks
+  // even when camera zoom is at maxZ.
   //
-  // Empirical evidence in fb8ee9b's diag: the close-camera area
-  // rendered from z=14 fallback tiles (red overlay) while the horizon
-  // showed correct z=15 primaries. With the 64-tile mobile cap, the
-  // wide-pitch DFS easily filled the budget with far/horizon tiles
-  // and evicted the close-area z=15 parents — even though their
-  // children were in `neededKeys`.
-  //
-  // Fix: at high pitch, explicitly add the camera-vicinity parents
-  // at z=maxZ-1 to `neededKeys` so they're protected too. Only fires
-  // at pitch ≥ 30° (the same gate the maxZ inject uses) and when
-  // maxZ > 0. Modest size — ⌈(maxRing+1)/2⌉² unique parents,
-  // typically 9 tiles for a 5×5 ring. With the cap headroom this
-  // costs us ~4-9 protected keys to fix the close-area visual.
+  // Fix: keep the camera-vicinity parents at z=maxZ-1 RESIDENT by
+  // adding them to `result` with `fallbackOnly: true`. The renderer
+  // routes flagged tiles into `fallbackKeys` instead of `neededKeys`,
+  // so they participate in EVICTION PROTECTION (stableKeys = needed
+  // ∪ fallback) but render through STENCIL_TEST — drawing only
+  // where the primary children's STENCIL_WRITE didn't already
+  // paint. No duplicate primary-on-primary draws across zoom
+  // levels (the bug the earlier b464f6a inject introduced when
+  // combined with the currentZ-clamp at e4b2d66).
   if (pitchDegFn >= 30 && maxZ > 0) {
     const parentZ = maxZ - 1
     const parentN = Math.pow(2, parentZ)
-    // Convert min/max child tile bounds to parent tile bounds.
     const pMinTX = Math.floor(minTX / 2)
     const pMaxTX = Math.floor(maxTX / 2)
     const pMinTY = Math.floor(minTY / 2)
     const pMaxTY = Math.floor(maxTY / 2)
-    // Separate dedup for parents — different zoom can't collide with
-    // child injects above, so a small per-zoom set keeps the keys
-    // unambiguous without bumping the existing 64-bit shift math.
     const parentSeen = new Set<number>()
     for (const t of result) {
       if (t.z === parentZ) parentSeen.add((t.y * 4194304) + (t.ox + parentN))
@@ -635,7 +634,7 @@ export function visibleTilesFrustum(
         const k = (pty * 4194304) + (pox + parentN)
         if (parentSeen.has(k)) continue
         parentSeen.add(k)
-        result.push({ z: parentZ, x: wrappedX, y: pty, ox: pox })
+        result.push({ z: parentZ, x: wrappedX, y: pty, ox: pox, fallbackOnly: true })
       }
     }
   }

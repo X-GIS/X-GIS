@@ -466,6 +466,11 @@ export class VectorTileRenderer {
     currentZ: number
     tiles: ReturnType<typeof visibleTilesFrustum>
     neededKeys: number[]
+    /** Tile keys flagged `fallbackOnly` by the selector — protected
+     *  from eviction (folded into stableKeys) but never rendered
+     *  as primaries. Empty when the selector emits no fallback-only
+     *  inject (e.g. low-pitch / sampled selector). */
+    protectedAncestors: number[]
     worldOffDeg: number[]
     /** Source's `maxLevel` at the time the cache was populated.
      *  parentAtMaxLevel + archiveAncestor are computed against this
@@ -1499,6 +1504,7 @@ export class VectorTileRenderer {
     // walking visibleTilesFrustum + sortByPriority + tileKey loop.
     let tiles: ReturnType<typeof visibleTilesFrustum>
     let neededKeys: number[]
+    let protectedAncestors: number[] = []
     let worldOffDeg: number[]
     let parentAtMaxLevel: number[]
     let archiveAncestor: number[]
@@ -1509,6 +1515,7 @@ export class VectorTileRenderer {
         && cache.maxLevel === maxLevel) {
       tiles = cache.tiles
       neededKeys = cache.neededKeys
+      protectedAncestors = cache.protectedAncestors
       worldOffDeg = cache.worldOffDeg
       parentAtMaxLevel = cache.parentAtMaxLevel
       archiveAncestor = cache.archiveAncestor
@@ -1569,6 +1576,24 @@ export class VectorTileRenderer {
       // hoisted out of the hot path.
       neededKeys = []
       worldOffDeg = []
+      // `fallbackOnly: true` tiles from the selector (the high-pitch
+      // parent inject in `visibleTilesFrustum`) exist solely to keep
+      // the parent slice resident under eviction pressure — they MUST
+      // NOT enter `neededKeys` or they'd be promoted to PRIMARY draws
+      // (STENCIL_WRITE, compare='always') and overlap their own
+      // children at the same screen pixels, blowing up triangle
+      // counts. Strip them out into a separate `protectedAncestors`
+      // list that the eviction policy folds into `stableKeys` later.
+      const protectedAncestors: number[] = []
+      const renderTiles: typeof tiles = []
+      for (const t of tiles) {
+        if (t.fallbackOnly) {
+          protectedAncestors.push(tileKey(t.z, t.x, t.y))
+        } else {
+          renderTiles.push(t)
+        }
+      }
+      tiles = renderTiles
       parentAtMaxLevel = new Array(tiles.length)
       archiveAncestor = new Array(tiles.length)
       // Per-frame-populate hasEntry memo. Adjacent tiles share
@@ -1614,7 +1639,7 @@ export class VectorTileRenderer {
         frameId: this.currentFrameId,
         marginPx: offsetMarginPx,
         currentZ,
-        tiles, neededKeys, worldOffDeg,
+        tiles, neededKeys, protectedAncestors, worldOffDeg,
         maxLevel,
         parentAtMaxLevel, archiveAncestor,
       }
@@ -2225,11 +2250,16 @@ export class VectorTileRenderer {
     // in bind groups used by the draw calls we just recorded. Evicting them
     // now would destroy their buffers before `queue.submit()` runs, causing
     // "Buffer used in submit while destroyed" validation errors.
-    if (fallbackKeys.length > 0) {
+    if (fallbackKeys.length > 0 || protectedAncestors.length > 0) {
       const merged = this._scratchMergedStableKeys
       merged.clear()
       for (const k of neededKeys) merged.add(k)
       for (const k of fallbackKeys) merged.add(k)
+      // Selector-injected fallback-only ancestors (currently the
+      // high-pitch parent inject) — protected from eviction so they
+      // stay resident and the eviction-driven foreground ancestor-
+      // block regression doesn't reappear under the mobile cap.
+      for (const k of protectedAncestors) merged.add(k)
       this.stableKeys = [...merged]
     } else {
       this.stableKeys = neededKeys
