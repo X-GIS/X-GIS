@@ -1,0 +1,91 @@
+---
+// Right-side sticky "On this page" TOC for docs pages. Astro's
+// `getHeadings()` (called from a parent .astro) yields a flat list
+// of `{ depth, slug, text }` entries; we filter to H2/H3 and render
+// a sticky aside.
+//
+// scroll-spy: tiny IntersectionObserver script highlights the active
+// section. Falls back gracefully when JS is disabled — TOC still
+// renders and links still work.
+
+interface Heading {
+  depth: number
+  slug: string
+  text: string
+}
+
+interface Props {
+  headings: Heading[]
+}
+
+const { headings } = Astro.props
+const items = headings.filter(h => h.depth >= 2 && h.depth <= 3)
+---
+
+{items.length > 0 && (
+  <aside class="hidden xl:block">
+    <nav class="sticky top-20 text-[12.5px] leading-[1.6] max-h-[calc(100vh-6rem)] overflow-auto pr-2">
+      <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">On this page</p>
+      <ul class="space-y-1.5 border-l border-line">
+        {items.map(h => (
+          <li>
+            <a
+              href={`#${h.slug}`}
+              data-onthispage-link={h.slug}
+              class={`block transition-colors text-fg-dim hover:text-fg ${h.depth === 3 ? 'pl-7' : 'pl-3'} -ml-px border-l border-transparent hover:border-fg-dim py-0.5`}
+            >
+              {h.text}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  </aside>
+)}
+
+<script>
+  // Scroll-spy: observe headings and highlight the matching link.
+  // Activates the deepest heading whose top has crossed the viewport
+  // top (within a 30 % offset so links don't flicker on page load).
+  const links = document.querySelectorAll<HTMLAnchorElement>('[data-onthispage-link]')
+  if (links.length > 0) {
+    const linkBySlug = new Map<string, HTMLAnchorElement>()
+    links.forEach(l => {
+      const slug = l.dataset.onthispageLink ?? ''
+      linkBySlug.set(slug, l)
+    })
+
+    const setActive = (slug: string | null) => {
+      links.forEach(l => {
+        const isActive = l.dataset.onthispageLink === slug
+        l.classList.toggle('text-fg', isActive)
+        l.classList.toggle('font-medium', isActive)
+        l.classList.toggle('border-fg', isActive)
+        l.classList.toggle('text-fg-dim', !isActive)
+      })
+    }
+
+    const headings = Array.from(linkBySlug.keys())
+      .map(slug => document.getElementById(slug))
+      .filter((el): el is HTMLElement => el !== null)
+
+    if (headings.length > 0) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          // Activate the topmost intersecting heading. If none are
+          // intersecting (between sections), keep the previous one.
+          const visible = entries
+            .filter(e => e.isIntersecting)
+            .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+          if (visible[0]) {
+            setActive(visible[0].target.id)
+          }
+        },
+        // Negative top margin so a heading "activates" when it crosses
+        // 30 % from the top, not the moment it enters from the bottom.
+        { rootMargin: '-30% 0px -65% 0px', threshold: 0 },
+      )
+      headings.forEach(h => observer.observe(h))
+    }
+  }
+</script>

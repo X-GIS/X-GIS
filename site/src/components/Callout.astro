@@ -1,0 +1,83 @@
+---
+// Inline note / warning / tip / caution / important box. Patterned
+// after MS Learn + GitHub Docs admonitions: a coloured left rail +
+// labelled icon header + slot body. Use sparingly so the visual
+// weight stays meaningful — every paragraph turning into a box
+// would defeat the purpose.
+//
+// Usage:
+//   <Callout type="note">…</Callout>
+//   <Callout type="warning" title="Custom title">…</Callout>
+
+interface Props {
+  type?: 'note' | 'tip' | 'warning' | 'caution' | 'important'
+  title?: string
+}
+
+const { type = 'note', title } = Astro.props
+
+const styles: Record<string, { rail: string; bg: string; label: string; defaultTitle: string; icon: string }> = {
+  note: {
+    rail: 'border-l-sky-400/60',
+    bg: 'bg-sky-400/5',
+    label: 'text-sky-300',
+    defaultTitle: 'Note',
+    icon: 'M12 17v-6m0-4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z',
+  },
+  tip: {
+    rail: 'border-l-emerald-400/60',
+    bg: 'bg-emerald-400/5',
+    label: 'text-emerald-300',
+    defaultTitle: 'Tip',
+    icon: 'M12 2l2.39 4.84L20 8l-4 3.9.94 5.5L12 14.6 7.06 17.4 8 11.9 4 8l5.61-1.16L12 2z',
+  },
+  warning: {
+    rail: 'border-l-amber-400/60',
+    bg: 'bg-amber-400/5',
+    label: 'text-amber-300',
+    defaultTitle: 'Warning',
+    icon: 'M12 2L2 21h20L12 2zm0 7v5m0 3.5h.01',
+  },
+  caution: {
+    rail: 'border-l-rose-400/60',
+    bg: 'bg-rose-400/5',
+    label: 'text-rose-300',
+    defaultTitle: 'Caution',
+    icon: 'M12 9v3m0 4.5h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 0 0-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z',
+  },
+  important: {
+    rail: 'border-l-violet-400/60',
+    bg: 'bg-violet-400/5',
+    label: 'text-violet-300',
+    defaultTitle: 'Important',
+    icon: 'M12 8v5m0 3.5h.01M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18z',
+  },
+}
+
+const s = styles[type]
+const heading = title ?? s.defaultTitle
+---
+
+<div class={`my-6 rounded-r-md border-l-2 ${s.rail} ${s.bg} px-4 py-3 text-[14px] leading-[1.6] text-fg-dim`}>
+  <p class={`flex items-center gap-2 mb-1 text-[12px] font-medium uppercase tracking-wider ${s.label}`}>
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d={s.icon}/>
+    </svg>
+    {heading}
+  </p>
+  <div class="callout-body">
+    <slot />
+  </div>
+</div>
+
+<style>
+  .callout-body :global(p) { margin: 0.25em 0; }
+  .callout-body :global(p:first-child) { margin-top: 0; }
+  .callout-body :global(p:last-child) { margin-bottom: 0; }
+  .callout-body :global(code) {
+    font-family: "DM Mono", "Fira Code", monospace;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 0.05em 0.35em;
+    border-radius: 0.25em;
+  }
+</style>

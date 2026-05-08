@@ -54,11 +54,19 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     await page.screenshot({ path: 'test-results/site-home.png', fullPage: true })
 
     // ── New docs pages exist + searchable ──
+    // Use a 1440-wide viewport so the xl-only OnThisPage TOC renders
+    // and the screenshot reflects the desktop layout.
+    await page.setViewportSize({ width: 1440, height: 900 })
     for (const slug of ['functions', 'expressions', 'sources']) {
       await page.goto(`http://localhost:${port}/docs/${slug}/`)
       await expect(page.locator('h1').first()).toBeVisible()
       await page.screenshot({ path: `test-results/docs-${slug}.png`, fullPage: true })
     }
+    // OnThisPage TOC + prev/next nav exist on functions page.
+    const tocLabel = page.locator('text=On this page')
+    await expect(tocLabel).toHaveCount(1)
+    const prevNext = page.locator('text=Edit this page on GitHub')
+    await expect(prevNext).toHaveCount(1)
 
     // Search index covers the new pages.
     await page.goto(`http://localhost:${port}/docs/functions/`)

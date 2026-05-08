@@ -1,5 +1,6 @@
 ---
 import Docs from '../../layouts/Docs.astro'
+import { Code } from 'astro-expressive-code/components'
 
 interface Fn {
   name: string
@@ -141,6 +142,11 @@ const groups: FnGroup[] = [
   current="functions"
   title="X-GIS — Function reference"
   description="Every builtin function the xgis evaluator recognises — math, trig, interpolation, runtime accessors, and geometry generators."
+  headings={groups.map(g => ({
+    depth: 2,
+    slug: g.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+    text: g.title,
+  }))}
 >
   <header class="mb-12">
     <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">Language</p>
@@ -163,9 +169,11 @@ const groups: FnGroup[] = [
   </header>
 
   <article class="space-y-14">
-    {groups.map(g => (
+    {groups.map(g => {
+      const slug = g.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      return (
       <section>
-        <h2 class="text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+        <h2 id={slug} class="scroll-mt-24 text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
           {g.title}
         </h2>
         <p class="text-[14px] sm:text-[15px] leading-[1.6] text-fg-dim mb-8 max-w-[720px]">
@@ -181,15 +189,14 @@ const groups: FnGroup[] = [
                 <p class="font-mono text-[13px] text-fg-mute mb-2">{fn.signature}</p>
                 <p class="text-[14px] leading-[1.6] text-fg-dim mb-3" set:html={fn.body.replace(/`([^`]+)`/g, '<code class="font-mono text-fg">$1</code>')}></p>
                 {fn.examples.length > 0 && (
-                  <div class="rounded-lg bg-bg-card border border-line overflow-hidden">
-                    <pre class="px-4 py-3 font-mono text-[12.5px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>{fn.examples.join('\n')}</code></pre>
-                  </div>
+                  <Code code={fn.examples.join('\n')} lang="js" />
                 )}
               </div>
             </div>
           ))}
         </div>
       </section>
-    ))}
+      )
+    })}
   </article>
 </Docs>

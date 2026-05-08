@@ -2,6 +2,13 @@
 import Base from './Base.astro'
 import Header from '../components/Header.astro'
 import Footer from '../components/Footer.astro'
+import OnThisPage from '../components/OnThisPage.astro'
+
+interface Heading {
+  depth: number
+  slug: string
+  text: string
+}
 
 interface Props {
   title?: string
@@ -10,9 +17,17 @@ interface Props {
    *  Pass the path segment after `/docs/` — e.g., `'reference'`,
    *  `'concepts/rtc'`, `'api'`, `''` for the overview page. */
   current: string
+  /** Optional headings list — caller passes `Astro.self.props.headings`
+   *  or builds it manually for non-MD pages. When present the
+   *  right-side On-this-page TOC renders. */
+  headings?: Heading[]
 }
 
-const { title, description, current } = Astro.props
+const { title, description, current, headings = [] } = Astro.props
+const githubBase = 'https://github.com/X-GIS/X-GIS/edit/main/site/src/pages/docs'
+const editPath = current === ''
+  ? `${githubBase}/index.astro`
+  : `${githubBase}/${current}.astro`
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 
@@ -63,7 +78,7 @@ const navGroups: NavGroup[] = [
   <Header />
 
   <main class="pt-20 pb-32">
-    <div class="max-w-[1280px] mx-auto px-6 grid lg:grid-cols-[220px_minmax(0,1fr)] gap-x-12">
+    <div class={`max-w-[1280px] mx-auto px-6 grid gap-x-12 ${headings.length > 0 ? 'lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_200px]' : 'lg:grid-cols-[220px_minmax(0,1fr)]'}`}>
 
       <!-- Side-nav (desktop). On mobile this collapses to a horizontal
            scroll-strip just below the header so the user can still
@@ -137,7 +152,65 @@ const navGroups: NavGroup[] = [
       <!-- Page content -->
       <article class="min-w-0">
         <slot />
+
+        {/* ── Page meta footer: prev/next + edit-on-GitHub ── */}
+        {(() => {
+          // Flatten sidebar order so prev/next follow the visible
+          // reading sequence — same order the user sees on the left.
+          const flat = navGroups.flatMap(g => g.items)
+          const idx = flat.findIndex(i => i.slug === current)
+          const prev = idx > 0 ? flat[idx - 1] : null
+          const next = idx >= 0 && idx < flat.length - 1 ? flat[idx + 1] : null
+          return (
+            <div class="mt-16 pt-8 border-t border-line">
+              {(prev || next) && (
+                <div class={`grid gap-3 ${prev && next ? 'sm:grid-cols-2' : 'sm:grid-cols-1'}`}>
+                  {prev && (
+                    <a href={prev.href} class="docs-pagenav group block rounded-xl border border-line px-5 py-4 hover:border-line-strong hover:bg-bg-hover transition-colors text-left">
+                      <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M15 6l-6 6 6 6"/>
+                        </svg>
+                        Previous
+                      </p>
+                      <p class="text-[15px] font-medium text-fg group-hover:text-accent transition-colors">{prev.label}</p>
+                    </a>
+                  )}
+                  {next && (
+                    <a href={next.href} class={`docs-pagenav group block rounded-xl border border-line px-5 py-4 hover:border-line-strong hover:bg-bg-hover transition-colors text-right ${!prev ? 'sm:col-start-2' : ''}`}>
+                      <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-1.5 flex items-center gap-1.5 justify-end">
+                        Next
+                        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M9 6l6 6-6 6"/>
+                        </svg>
+                      </p>
+                      <p class="text-[15px] font-medium text-fg group-hover:text-accent transition-colors">{next.label}</p>
+                    </a>
+                  )}
+                </div>
+              )}
+              <div class="mt-6 flex flex-wrap gap-x-5 gap-y-1 text-[12.5px] text-fg-mute">
+                <a href={editPath} target="_blank" rel="noopener" class="hover:text-fg transition-colors inline-flex items-center gap-1.5">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
+                  </svg>
+                  Edit this page on GitHub
+                </a>
+                <a href="https://github.com/X-GIS/X-GIS/issues/new" target="_blank" rel="noopener" class="hover:text-fg transition-colors inline-flex items-center gap-1.5">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"/>
+                    <path d="M12 8v4M12 16h.01"/>
+                  </svg>
+                  Report an issue
+                </a>
+              </div>
+            </div>
+          )
+        })()}
       </article>
+
+      {/* On-this-page TOC (xl+ only — collapses on smaller screens) */}
+      <OnThisPage headings={headings} />
     </div>
   </main>
 

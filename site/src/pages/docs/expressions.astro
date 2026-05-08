@@ -1,5 +1,6 @@
 ---
 import Docs from '../../layouts/Docs.astro'
+import { Code } from 'astro-expressive-code/components'
 
 interface Op {
   symbol: string
@@ -174,6 +175,11 @@ const idioms: Idiom[] = [
   current="expressions"
   title="X-GIS — Expressions & operators"
   description="Operator reference, precedence table, and the four idioms (bracket binding, match block, filter, field modifier) that bake expressions into utilities."
+  headings={[
+    { depth: 2, slug: 'operators', text: 'Operators' },
+    { depth: 2, slug: 'idioms', text: 'Where expressions go' },
+    ...idioms.map(i => ({ depth: 3, slug: i.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), text: i.title })),
+  ]}
 >
   <header class="mb-12">
     <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">Language</p>
@@ -191,7 +197,7 @@ const idioms: Idiom[] = [
   <article class="space-y-16">
 
     <section>
-      <h2 class="text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+      <h2 id="operators" class="scroll-mt-24 text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
         Operators (tightest → loosest binding)
       </h2>
       <p class="text-[14px] sm:text-[15px] leading-[1.6] text-fg-dim mb-8 max-w-[720px]">
@@ -216,7 +222,7 @@ const idioms: Idiom[] = [
                       <span class="text-fg font-medium">{op.name}</span>{op.body && (<>{' — '}{op.body}</>)}
                     </p>
                     {op.example && (
-                      <pre class="mt-2 px-3 py-2 rounded-md bg-bg-card border border-line font-mono text-[12.5px] leading-[1.6] text-fg overflow-x-auto"><code>{op.example}</code></pre>
+                      <div class="mt-2"><Code code={op.example} lang="js" /></div>
                     )}
                   </div>
                 </div>
@@ -228,7 +234,7 @@ const idioms: Idiom[] = [
     </section>
 
     <section>
-      <h2 class="text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+      <h2 id="idioms" class="scroll-mt-24 text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
         Where expressions go
       </h2>
       <p class="text-[14px] sm:text-[15px] leading-[1.6] text-fg-dim mb-8 max-w-[720px]">
@@ -237,19 +243,20 @@ const idioms: Idiom[] = [
         path (per-frame, per-feature, or constant-folded) automatically.
       </p>
       <div class="space-y-10">
-        {idioms.map(it => (
+        {idioms.map(it => {
+          const slug = it.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+          return (
           <div>
-            <h3 class="text-[16px] font-medium text-fg leading-[1.25] tracking-[-0.015em] mb-2">
+            <h3 id={slug} class="scroll-mt-24 text-[16px] font-medium text-fg leading-[1.25] tracking-[-0.015em] mb-2">
               {it.title}
             </h3>
             <p class="text-[14px] leading-[1.6] text-fg-dim mb-4 max-w-[720px]">
               {it.body}
             </p>
-            <div class="rounded-xl bg-bg-card border border-line overflow-hidden">
-              <pre class="px-5 py-4 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>{it.code}</code></pre>
-            </div>
+            <Code code={it.code} lang="js" />
           </div>
-        ))}
+          )
+        })}
       </div>
     </section>
 

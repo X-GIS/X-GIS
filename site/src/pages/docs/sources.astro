@@ -1,5 +1,6 @@
 ---
 import Docs from '../../layouts/Docs.astro'
+import { Code } from 'astro-expressive-code/components'
 
 interface SourceType {
   type: string
@@ -113,6 +114,7 @@ const sourceTypes: SourceType[] = [
   current="sources"
   title="X-GIS — Source types"
   description="Every source type the runtime accepts — GeoJSON, PMTiles, TileJSON, raster XYZ, and XGVT — with required fields, options, and caveats."
+  headings={sourceTypes.map(s => ({ depth: 2, slug: s.type, text: s.type }))}
 >
   <header class="mb-12">
     <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">Language</p>
@@ -128,8 +130,8 @@ const sourceTypes: SourceType[] = [
 
   <article class="space-y-14">
     {sourceTypes.map(s => (
-      <section id={s.type}>
-        <div class="flex items-baseline gap-3 flex-wrap mb-3 pb-2 border-b border-line">
+      <section>
+        <div id={s.type} class="scroll-mt-24 flex items-baseline gap-3 flex-wrap mb-3 pb-2 border-b border-line">
           <h2 class="text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em]">
             <code class="font-mono">{s.type}</code>
           </h2>
@@ -161,9 +163,7 @@ const sourceTypes: SourceType[] = [
           </div>
           <div>
             <p class="text-[11px] font-medium text-fg-mute uppercase tracking-wider mb-3">Example</p>
-            <div class="rounded-xl bg-bg-card border border-line overflow-hidden">
-              <pre class="px-5 py-4 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>{s.example}</code></pre>
-            </div>
+            <Code code={s.example} lang="js" />
           </div>
         </div>
 
