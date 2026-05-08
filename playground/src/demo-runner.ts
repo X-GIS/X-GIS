@@ -525,6 +525,11 @@ function teardownPickingOverlay(): void {
   pickingOverlayCleanup?.()
 }
 
+// Expose for tests / inspector — pass a modified source string and
+// the demo reloads with it (same path as Run button + Ctrl+Enter).
+;(window as unknown as { __xgisRunSource?: (s: string) => Promise<unknown> }).__xgisRunSource =
+  async (s: string) => runSource(s, 'TestInjected')
+
 async function runSource(source: string, label: string) {
   errorDiv.style.display = 'none'
   currentMap?.stop()

@@ -2469,6 +2469,24 @@ export class VectorTileRenderer {
         const useOitPipe = isOitFill
           && cached.zBuffer !== null
           && this.fillPipelineExtrudedOIT !== null
+        // CRITICAL: in the OIT pass, the render pass attachments are
+        // the rgba16float / r16float MRT pair, not the main color +
+        // pick attachments. Falling through to `fillPipeline` here
+        // would attach an OPAQUE-targets pipeline to the OIT pass and
+        // trip "Attachment state of RenderPipeline is not compatible
+        // with RenderPassEncoder" at every frame's submit. This used
+        // to fire when (a) cached.zBuffer was null on a fallback
+        // ancestor tile of an extruded slice or (b) setOITPipeline
+        // hadn't run yet. Either way: skip the draw rather than
+        // emit an incompatible pipeline. Visual cost: a translucent
+        // building's loading frames may show no fallback ancestor
+        // until the primary tile arrives — minor and transient.
+        if (isOitFill && !useOitPipe) {
+          // strokes for this tile still queue below — only the fill
+          // is being skipped here.
+          if (drawStrokes) strokeQueue.push({ cached, slotOffset })
+          continue
+        }
         const useExtrudedPipe = !isOitFill
           && this.currentExtrudeMode === 'per-feature'
           && cached.zBuffer !== null
