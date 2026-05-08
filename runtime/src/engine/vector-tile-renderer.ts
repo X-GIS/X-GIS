@@ -15,6 +15,7 @@ import {
   quantizePolygonVerticesExtruded,
 } from './polygon-mesh'
 import { tileKey, tileKeyParent, tileKeyChildren, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
+import { StagingBufferPool, asyncWriteBuffer } from './staging-buffer-pool'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../data/tile-catalog'
 import type { TileData } from '../data/tile-types'
@@ -360,7 +361,16 @@ export class VectorTileRenderer {
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
+    this.stagingPool = new StagingBufferPool(ctx.device)
   }
+
+  /** Tiered MAP_WRITE | COPY_SRC pool used by the async upload path
+   *  (`doUploadTileAsync`). The sync `doUploadTile` keeps using
+   *  `device.queue.writeBuffer` for mid-render fallback uploads where
+   *  data must be on GPU before the next render command — those can't
+   *  await without splitting the render pass. The pool is shared across
+   *  the lifetime of the VTR; tier sizes match common tile shapes. */
+  private stagingPool: StagingBufferPool
 
   /** Provide the per-feature extrusion fill pipelines. Called once
    *  per frame from map.ts immediately before render() so VTR can
@@ -1152,6 +1162,231 @@ export class VectorTileRenderer {
     // safe — just at the cost of slightly worse over-zoom dash
     // continuity at z > maxLevel, a corner of the camera space the
     // app rarely sits in.
+    data.polygons = undefined
+  }
+
+  /** Async variant of `doUploadTile`. Routes the 5-7 GPU buffer writes
+   *  through the staging pool's `mapAsync` path, so the JS thread
+   *  yields between mapAsync round-trips and concurrent uploads can
+   *  overlap CPU work on subsequent tiles. Used by `drainPendingUploads`
+   *  for the queued (background) upload path. The sync `doUploadTile`
+   *  above stays put for mid-render fallback uploads where data must
+   *  be on GPU before the next render command in the same call.
+   *
+   *  Body mirrors `doUploadTile` line-for-line apart from:
+   *    - one command encoder per tile
+   *    - writeBuffer → asyncWriteBuffer (pooled mapAsync)
+   *    - lineRenderer.uploadSegmentBuffer → uploadSegmentBufferAsync
+   *    - submit + bulk-release at the end
+   *  Code dup is acceptable: the alternative (parameterising over a
+   *  writer callable) breaks the mid-render path because `await`
+   *  defers to a microtask even for resolved promises, and the
+   *  fallback ancestor uploads need to land before the calling
+   *  renderTileKeys reads `layerCache`. */
+  private async doUploadTileAsync(key: number, data: TileData, sourceLayer = ''): Promise<void> {
+    const layerCache = this.getOrCreateLayerCache(sourceLayer)
+    if (layerCache.has(key)) return
+
+    const tileExtentM = TWO_PI_R_EARTH / Math.pow(2, data.tileZoom)
+    const useFeatureHeights = data.heights !== undefined && data.heights.size > 0
+    const fallbackHeight = 0
+    let polyVerts: ArrayBuffer
+    let polyIndices: Uint32Array
+    let zAttribute: Float32Array | null = null
+    if (useFeatureHeights && data.polygons) {
+      const top = quantizePolygonVerticesExtruded(data.vertices, tileExtentM, data.heights!, fallbackHeight)
+      const topVertexCount = top.vertices.byteLength / 8
+      const DEG2RAD = Math.PI / 180
+      const R = 6378137
+      const tileMx = data.tileWest * DEG2RAD * R
+      const clampLat = Math.max(-85.051129, Math.min(85.051129, data.tileSouth))
+      const tileMy = Math.log(Math.tan(Math.PI / 4 + clampLat * DEG2RAD / 2)) * R
+      const wall = generateWallMeshExtruded(data.polygons, tileExtentM, tileMx, tileMy, data.heights!, fallbackHeight, data.bases, 0)
+      const combined = new Uint8Array(top.vertices.byteLength + wall.vertices.byteLength)
+      combined.set(new Uint8Array(top.vertices), 0)
+      combined.set(new Uint8Array(wall.vertices), top.vertices.byteLength)
+      polyVerts = combined.buffer
+      polyIndices = new Uint32Array(data.indices.length + wall.indices.length)
+      polyIndices.set(data.indices, 0)
+      for (let i = 0; i < wall.indices.length; i++) {
+        polyIndices[data.indices.length + i] = wall.indices[i] + topVertexCount
+      }
+      zAttribute = new Float32Array(top.z.length + wall.z.length)
+      zAttribute.set(top.z, 0)
+      zAttribute.set(wall.z, top.z.length)
+    } else {
+      polyVerts = quantizePolygonVertices(data.vertices, tileExtentM, { isTop: false })
+      polyIndices = data.indices
+    }
+
+    // One command encoder per tile — all the copyBufferToBuffer ops
+    // below batch into a single submit at the end, minimising queue
+    // submission overhead.
+    const encoder = this.device.createCommandEncoder({ label: `tile-upload-${key}` })
+    const releases: Array<() => void> = []
+
+    const vertexBuffer = this.acquireBuffer(
+      Math.max(polyVerts.byteLength * 3, 12),
+      GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      'tile-vertices',
+    )
+    const indexBuffer = this.acquireBuffer(
+      Math.max(polyIndices.byteLength * 3, 4),
+      GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      'tile-indices',
+    )
+
+    // Kick off the staging-buffer mapAsync for vertex + index in
+    // parallel, then await both. mapAsync round-trips overlap, so
+    // the wall-clock cost is one round-trip (not N).
+    const writeHandles: Array<Promise<{ release: () => void }>> = []
+    writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, vertexBuffer, 0, polyVerts))
+    writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, indexBuffer, 0, polyIndices))
+
+    let zBuffer: GPUBuffer | null = null
+    if (zAttribute) {
+      zBuffer = this.acquireBuffer(
+        Math.max(zAttribute.byteLength, 4),
+        GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        'tile-z-attr',
+      )
+      writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, zBuffer, 0, zAttribute))
+    }
+
+    let lineVertexBuffer: GPUBuffer | null = null
+    let lineIndexBuffer: GPUBuffer | null = null
+    if (data.lineVertices.length > 0) {
+      lineVertexBuffer = this.acquireBuffer(
+        data.lineVertices.byteLength,
+        GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        'tile-line-vertices',
+      )
+      writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, lineVertexBuffer, 0, data.lineVertices))
+
+      lineIndexBuffer = this.acquireBuffer(
+        data.lineIndices.byteLength,
+        GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        'tile-line-indices',
+      )
+      writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, lineIndexBuffer, 0, data.lineIndices))
+    }
+
+    let outlineIndexBuffer: GPUBuffer | null = null
+    let outlineIndexCount = 0
+    if (data.outlineIndices && data.outlineIndices.length > 0) {
+      outlineIndexBuffer = this.acquireBuffer(
+        Math.max(data.outlineIndices.byteLength, 4),
+        GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        'tile-outline-indices',
+      )
+      writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, outlineIndexBuffer, 0, data.outlineIndices))
+      outlineIndexCount = data.outlineIndices.length
+    }
+
+    // SDF line segment buffers — same logic as sync path but routed
+    // through `uploadSegmentBufferAsync` so the segment-buffer write
+    // shares this tile's staging pool + encoder.
+    let outlineSegmentBuffer: GPUBuffer | null = null
+    let outlineSegmentCount = 0
+    let outlineSegmentBindGroup: GPUBindGroup | null = null
+    let lineSegmentBuffer: GPUBuffer | null = null
+    let lineSegmentCount = 0
+    let lineSegmentBindGroup: GPUBindGroup | null = null
+    if (this.lineRenderer) {
+      const SEG_DEG2RAD = Math.PI / 180
+      const SEG_R = 6378137
+      const SEG_LAT_LIMIT = 85.051129
+      const clampSegLat = (v: number) => Math.max(-SEG_LAT_LIMIT, Math.min(SEG_LAT_LIMIT, v))
+      const tileMercXWest = data.tileWest * SEG_DEG2RAD * SEG_R
+      const tileMercXEast = (data.tileWest + data.tileWidth) * SEG_DEG2RAD * SEG_R
+      const tileMercYSouth = Math.log(Math.tan(Math.PI / 4 + clampSegLat(data.tileSouth) * SEG_DEG2RAD / 2)) * SEG_R
+      const tileMercYNorth = Math.log(Math.tan(Math.PI / 4 + clampSegLat(data.tileSouth + data.tileHeight) * SEG_DEG2RAD / 2)) * SEG_R
+      const tileWidthMerc = tileMercXEast - tileMercXWest
+      const tileHeightMerc = tileMercYNorth - tileMercYSouth
+      if (data.outlineVertices && data.outlineVertices.length > 0
+          && data.outlineLineIndices && data.outlineLineIndices.length > 0) {
+        const segData = data.prebuiltOutlineSegments
+          ?? buildLineSegments(
+            data.outlineVertices, data.outlineLineIndices, 10,
+            tileWidthMerc, tileHeightMerc,
+            data.heights && data.heights.size > 0 ? data.heights : undefined,
+            undefined, undefined,
+            0,
+          )
+        const seg = await this.lineRenderer.uploadSegmentBufferAsync(segData, encoder, this.stagingPool)
+        outlineSegmentBuffer = seg.buffer
+        releases.push(seg.release)
+        outlineSegmentCount = data.outlineLineIndices.length / 2
+        outlineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(outlineSegmentBuffer)
+      }
+      if (data.lineIndices.length > 0 && data.lineVertices.length > 0) {
+        let segData: Float32Array
+        if (data.prebuiltLineSegments) {
+          segData = data.prebuiltLineSegments
+        } else {
+          let lineStride: 6 | 10 = 6
+          if (data.lineIndices.length > 0) {
+            let maxIdx = 0
+            for (let li = 0; li < data.lineIndices.length; li++) {
+              if (data.lineIndices[li] > maxIdx) maxIdx = data.lineIndices[li]
+            }
+            const vertCount = maxIdx + 1
+            if (vertCount > 0 && data.lineVertices.length / vertCount >= 10) lineStride = 10
+          }
+          segData = buildLineSegments(
+            data.lineVertices, data.lineIndices, lineStride,
+            tileWidthMerc, tileHeightMerc,
+            data.heights && data.heights.size > 0 ? data.heights : undefined,
+            undefined, undefined,
+            0,
+          )
+        }
+        const seg = await this.lineRenderer.uploadSegmentBufferAsync(segData, encoder, this.stagingPool)
+        lineSegmentBuffer = seg.buffer
+        releases.push(seg.release)
+        lineSegmentCount = data.lineIndices.length / 2
+        lineSegmentBindGroup = this.lineRenderer.createLayerBindGroup(lineSegmentBuffer)
+      }
+    }
+
+    // Wait for every staging write to land in its mapped range +
+    // copyBufferToBuffer to be encoded. After this, the encoder holds
+    // every copy command for the tile.
+    const settled = await Promise.all(writeHandles)
+    for (const h of settled) releases.push(h.release)
+
+    // Single submit per tile. The GPU now consumes staging → dst.
+    this.device.queue.submit([encoder.finish()])
+    // Return staging slots to the pool. Subsequent borrows on these
+    // slots will mapAsync, which natively waits for the just-submitted
+    // copy to finish before re-mapping for write.
+    for (const release of releases) release()
+
+    // Race guard: another upload (e.g. parallel doUploadTileAsync for
+    // the same key, or a synchronous mid-render fallback) may have
+    // populated the cache while we were awaiting. Skip the second set.
+    if (layerCache.has(key)) return
+
+    layerCache.set(key, {
+      vertexBuffer, indexBuffer,
+      indexCount: polyIndices.length,
+      zBuffer,
+      lineVertexBuffer, lineIndexBuffer,
+      lineIndexCount: data.lineIndices.length,
+      outlineIndexBuffer, outlineIndexCount,
+      outlineSegmentBuffer, outlineSegmentCount, outlineSegmentBindGroup,
+      lineSegmentBuffer, lineSegmentCount, lineSegmentBindGroup,
+      tileWest: data.tileWest, tileSouth: data.tileSouth,
+      tileWidth: data.tileWidth, tileHeight: data.tileHeight,
+      tileZoom: data.tileZoom,
+      lastUsedFrame: this.frameCount,
+      uploadTimeMs: performance.now(),
+    })
+    this._gpuCacheCount++
+
+    // Same memory-cleanup as sync path.
+    data.prebuiltLineSegments = undefined
+    data.prebuiltOutlineSegments = undefined
     data.polygons = undefined
   }
 

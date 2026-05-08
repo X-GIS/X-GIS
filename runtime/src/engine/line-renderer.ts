@@ -39,6 +39,7 @@
 //    and is deferred.
 
 import { isPickEnabled, getSampleCount, type GPUContext } from './gpu'
+import { asyncWriteBuffer, type StagingBufferPool } from './staging-buffer-pool'
 import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, DEPTH_READ_ONLY } from './gpu-shared'
 import {
   WGSL_DIST_TO_SEGMENT,
@@ -1787,6 +1788,28 @@ export class LineRenderer {
     })
     this.device.queue.writeBuffer(buf, 0, segments)
     return buf
+  }
+
+  /** Async variant of `uploadSegmentBuffer`. Allocates the destination
+   *  buffer, then schedules the write through `asyncWriteBuffer` (the
+   *  caller's pool + encoder). Returns the destination buffer + a
+   *  release closure for the staging slot — the caller submits the
+   *  encoder, then invokes release() to return the staging slot to the
+   *  pool. Requested by VTR's queued tile upload path so the segment
+   *  buffer doesn't pay the driver's writeBuffer staging copy. */
+  async uploadSegmentBufferAsync(
+    segments: Float32Array,
+    encoder: GPUCommandEncoder,
+    pool: StagingBufferPool,
+  ): Promise<{ buffer: GPUBuffer; release: () => void }> {
+    const size = Math.max(segments.byteLength, LINE_SEGMENT_STRIDE_BYTES)
+    const buf = this.device.createBuffer({
+      size,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      label: 'line-segments-async',
+    })
+    const handle = await asyncWriteBuffer(pool, encoder, buf, 0, segments)
+    return { buffer: buf, release: handle.release }
   }
 
   /** Reset the layer ring slot cursor. Call once per frame. */
