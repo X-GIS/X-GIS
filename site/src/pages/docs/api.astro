@@ -1,5 +1,6 @@
 ---
 import Docs from '../../layouts/Docs.astro'
+import { Code } from 'astro-expressive-code/components'
 
 interface ApiEntry {
   name: string
@@ -12,6 +13,9 @@ interface ApiGroup {
   body: string
   entries: ApiEntry[]
 }
+
+// Slug helper — lowercase + replace `.` and any non-alnum with `-`.
+const slugOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
 // Hand-written from `runtime/src/index.ts` exports. Keep this in sync
 // when adding/removing entries from the runtime's public surface — the
@@ -177,6 +181,12 @@ map.setProjection(proj)`,
   current="api"
   title="X-GIS — JavaScript API"
   description="Public exports from @xgis/runtime: XGISMap, Camera, projections, loaders, compute helpers, stats, and the custom element."
+  headings={[
+    ...groups.flatMap(g => [
+      { depth: 2 as const, slug: slugOf(g.title), text: g.title },
+      ...g.entries.map(e => ({ depth: 3 as const, slug: slugOf(e.name), text: e.name })),
+    ]),
+  ]}
 >
   <header class="mb-12">
     <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">
@@ -195,25 +205,26 @@ map.setProjection(proj)`,
   <article class="space-y-16">
     {groups.map(g => (
       <section>
-        <h2 class="text-[26px] sm:text-[32px] font-medium text-fg leading-[1.15] tracking-[-0.02em] mb-3 pb-3 border-b border-line">
+        <h2 id={slugOf(g.title)} class="scroll-mt-24 text-[26px] sm:text-[32px] font-medium text-fg leading-[1.15] tracking-[-0.02em] mb-3 pb-3 border-b border-line">
           {g.title}
         </h2>
         <p class="text-[15px] sm:text-[16px] leading-[1.6] text-fg-dim mb-8">
           {g.body}
         </p>
-        <div class="space-y-8">
+        <div class="space-y-10">
           {g.entries.map(e => (
             <div>
-              <p class="font-mono text-[14px] sm:text-[15px] text-fg mb-2 break-words">
-                {e.signature}
-              </p>
+              <h3 id={slugOf(e.name)} class="scroll-mt-24 font-mono text-[15px] sm:text-[17px] text-fg font-medium mb-2">
+                {e.name}
+              </h3>
+              <div class="mb-3">
+                <Code code={e.signature} lang="ts" />
+              </div>
               <p class="text-[14px] sm:text-[15px] leading-[1.6] text-fg-dim mb-3">
                 {e.body}
               </p>
               {e.example && (
-                <div class="rounded-xl bg-bg-card border border-line overflow-hidden">
-                  <pre class="px-5 py-4 font-mono text-[12.5px] leading-[1.65] text-fg overflow-x-auto whitespace-pre"><code>{e.example}</code></pre>
-                </div>
+                <Code code={e.example} lang="js" />
               )}
             </div>
           ))}

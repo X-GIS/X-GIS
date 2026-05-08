@@ -93,6 +93,19 @@ test('convert page redesign: preset chips visible + clickable', async ({ page })
     await expect(diagram).toBeVisible()
     await page.screenshot({ path: 'test-results/docs-pipeline.png', fullPage: true })
 
+    // Projections concept page also has an SVG diagram.
+    await page.goto(`http://localhost:${port}/docs/concepts/projections/`)
+    await expect(page.locator('article svg[role="img"]')).toBeVisible()
+    await page.screenshot({ path: 'test-results/docs-projections.png', fullPage: true })
+
+    // API page now has H3 anchors per entry — OnThisPage TOC must
+    // surface a deep link (e.g. "XGISMap.run") so a Cmd-K search for
+    // it lands on the entry, not the page top.
+    await page.goto(`http://localhost:${port}/docs/api/`)
+    await expect(page.locator('h3#xgismap-run')).toHaveCount(1)
+    await expect(page.locator('aside nav a', { hasText: 'XGISMap.run' })).toBeVisible()
+    await page.screenshot({ path: 'test-results/docs-api.png', fullPage: true })
+
     // Search index covers the new pages.
     await page.goto(`http://localhost:${port}/docs/functions/`)
     const indexJson = await page.locator('#search-index').textContent()

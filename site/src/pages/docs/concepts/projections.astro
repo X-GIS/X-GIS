@@ -49,6 +49,54 @@ const projections = [
         inside the WGSL vertex shader: convert MM back to lon/lat, then forward
         through whichever projection's CPU-mirrored math is baked into the WGSL.
       </p>
+
+      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden p-6 sm:p-10 mb-4">
+        <svg viewBox="0 0 880 280" class="w-full h-auto" role="img" aria-label="Projection switching pipeline: tile vertices stored as Web Mercator meters, reprojected per-frame in the WGSL vertex shader using a single uniform.">
+          <defs>
+            <marker id="proj-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#5a6a7e"/>
+            </marker>
+          </defs>
+
+          <!-- Storage box -->
+          <g>
+            <rect x="20" y="40" width="200" height="80" rx="8" fill="#1a2233" stroke="#2a3a52" stroke-width="1"/>
+            <text x="120" y="68" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="12" font-weight="500" fill="#c8d3e0">Tile vertices</text>
+            <text x="120" y="86" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#38bdf8">Mercator meters</text>
+            <text x="120" y="104" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10" fill="#5a6a7e">stored once · never re-tiled</text>
+          </g>
+
+          <!-- Vertex shader box -->
+          <line x1="220" y1="80" x2="260" y2="80" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#proj-arrow)"/>
+
+          <g>
+            <rect x="260" y="20" width="280" height="120" rx="8" fill="#0f1825" stroke="#2a3a52" stroke-width="1"/>
+            <text x="400" y="44" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="12" font-weight="500" fill="#c8d3e0">WGSL vertex shader</text>
+            <line x1="280" y1="56" x2="520" y2="56" stroke="#2a3a52" stroke-width="1"/>
+            <text x="280" y="76" font-family="DM Mono, monospace" font-size="10.5" fill="#38bdf8">mercator_inverse(mm)</text>
+            <text x="280" y="92" font-family="DM Sans, sans-serif" font-size="10.5" fill="#5a6a7e">→ lon, lat</text>
+            <text x="280" y="112" font-family="DM Mono, monospace" font-size="10.5" fill="#FF7B72">project(lonlat, type)</text>
+            <text x="280" y="128" font-family="DM Sans, sans-serif" font-size="10.5" fill="#5a6a7e">→ projected x, y</text>
+          </g>
+
+          <!-- Uniform input from below -->
+          <line x1="400" y1="200" x2="400" y2="142" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#proj-arrow)"/>
+          <g>
+            <rect x="280" y="200" width="240" height="56" rx="8" fill="#1a2233" stroke="#2a3a52" stroke-width="1"/>
+            <text x="400" y="222" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="11" font-weight="500" fill="#c8d3e0">setProjection() →</text>
+            <text x="400" y="240" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#FF7B72">u.projection_type</text>
+          </g>
+
+          <!-- Output -->
+          <line x1="540" y1="80" x2="580" y2="80" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#proj-arrow)"/>
+          <g>
+            <rect x="580" y="40" width="280" height="80" rx="8" fill="#1a2233" stroke="#2a3a52" stroke-width="1"/>
+            <text x="720" y="68" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="12" font-weight="500" fill="#c8d3e0">Clip-space position</text>
+            <text x="720" y="86" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#79C0FF">u.mvp · vec4(projected, 0, 1)</text>
+            <text x="720" y="104" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10" fill="#5a6a7e">7 projections · same GeoJSON</text>
+          </g>
+        </svg>
+      </div>
       <div class="rounded-2xl bg-bg-card border border-line overflow-hidden mb-4">
         <pre class="px-6 py-5 font-mono text-[13px] leading-[1.7] text-fg overflow-x-auto whitespace-pre"><code>// WGSL vertex shader (simplified):
 let mm = pos_h + pos_l                             // DSFUN reconstruction

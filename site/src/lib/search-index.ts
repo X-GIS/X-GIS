@@ -185,6 +185,36 @@ export function buildSearchIndex(base: string): SearchRecord[] {
     { slug: 'compatibility',        page: 'mapbox', tag: 'Mapbox', title: 'Compatibility matrix',      body: 'mapbox compatibility supported lossy unsupported symbol layer text' },
     { slug: 'expression-mapping',   page: 'mapbox', tag: 'Mapbox', title: 'Expression mapping',        body: 'mapbox expression interpolate match coalesce filter mapping' },
     { slug: 'caveats',              page: 'mapbox', tag: 'Mapbox', title: 'Caveats & gotchas',         body: 'mapbox symbol cors curve roundtrip exponential' },
+    // /docs/api — every JS export gets its own anchor record so a query
+    // for "XGISMap" / "setProjection" / "getCamera" / "loadGeoJSON" lands
+    // directly on the entry.
+    { slug: 'core',          page: 'api', tag: 'API', title: 'Core',                       body: 'XGISMap run getCamera setProjection map class' },
+    { slug: 'xgismap',       page: 'api', tag: 'API', title: 'XGISMap',                    body: 'XGISMap class constructor canvas WebGPU' },
+    { slug: 'xgismap-run',   page: 'api', tag: 'API', title: 'XGISMap.run',                body: 'run compile source baseUrl render loop' },
+    { slug: 'xgismap-getcamera',   page: 'api', tag: 'API', title: 'XGISMap.getCamera',    body: 'getCamera live mutate lon lat zoom bearing pitch' },
+    { slug: 'xgismap-setprojection', page: 'api', tag: 'API', title: 'XGISMap.setProjection',  body: 'setProjection switch mercator orthographic uniform write' },
+    { slug: 'camera',        page: 'api', tag: 'API', title: 'Camera',                     body: 'Camera class lon lat zoom bearing pitch zoomAt MVP' },
+    { slug: 'projections',   page: 'api', tag: 'API', title: 'Projections',                body: 'mercator equirectangular naturalEarth orthographic stereographic getProjection' },
+    { slug: 'mercator',      page: 'api', tag: 'API', title: 'mercator',                   body: 'Web Mercator EPSG 3857 default projection' },
+    { slug: 'equirectangular', page: 'api', tag: 'API', title: 'equirectangular',          body: 'plate carrée latitude direct y projection' },
+    { slug: 'naturalearth',  page: 'api', tag: 'API', title: 'naturalEarth',               body: 'pseudo-cylindrical natural earth low-distortion' },
+    { slug: 'orthographic',  page: 'api', tag: 'API', title: 'orthographic',               body: 'globe view orthographic hemispherical back-face cull' },
+    { slug: 'getprojection', page: 'api', tag: 'API', title: 'getProjection',              body: 'getProjection look up name args projection' },
+    { slug: 'loaders',       page: 'api', tag: 'API', title: 'Loaders',                    body: 'loadGeoJSON loadPMTilesSource attachPMTilesSource lonLatToMercator' },
+    { slug: 'loadgeojson',   page: 'api', tag: 'API', title: 'loadGeoJSON',                body: 'loadGeoJSON fetch xgvt auto-detect FeatureCollection' },
+    { slug: 'loadpmtilessource',   page: 'api', tag: 'API', title: 'loadPMTilesSource',    body: 'loadPMTilesSource streaming PMTiles backend header range' },
+    { slug: 'attachpmtilessource', page: 'api', tag: 'API', title: 'attachPMTilesSource',  body: 'attachPMTilesSource catalog source backend wire' },
+    { slug: 'lonlattomercator', page: 'api', tag: 'API', title: 'lonLatToMercator',        body: 'lonLatToMercator project coordinate web mercator meters' },
+    { slug: 'gpu-compute',   page: 'api', tag: 'API', title: 'GPU compute',                body: 'ComputeDispatcher createColorRampTexture availableRamps WebGPU compute' },
+    { slug: 'computedispatcher', page: 'api', tag: 'API', title: 'ComputeDispatcher',      body: 'ComputeDispatcher WebGPU compute pipeline dispatch workgroups' },
+    { slug: 'createcolorramptexture', page: 'api', tag: 'API', title: 'createColorRampTexture', body: 'color ramp texture viridis magma plasma 1d gradient' },
+    { slug: 'availableramps', page: 'api', tag: 'API', title: 'availableRamps',            body: 'availableRamps list color ramp names' },
+    { slug: 'stats-diagnostics', page: 'api', tag: 'API', title: 'Stats + diagnostics',    body: 'StatsPanel StatsTracker FPS draw call triangle' },
+    { slug: 'statspanel',    page: 'api', tag: 'API', title: 'StatsPanel',                 body: 'StatsPanel on-screen FPS draw call overlay' },
+    { slug: 'statstracker',  page: 'api', tag: 'API', title: 'StatsTracker',               body: 'StatsTracker singleton frame stats' },
+    { slug: 'custom-element', page: 'api', tag: 'API', title: 'Custom element',            body: 'XGISMapElement registerXGISElement web components x-gis-map' },
+    { slug: 'xgismapelement', page: 'api', tag: 'API', title: 'XGISMapElement',            body: 'XGISMapElement custom element web component shadow root' },
+    { slug: 'registerxgiselement', page: 'api', tag: 'API', title: 'registerXGISElement',  body: 'register custom element x-gis-map global' },
   ]
   for (const a of anchorRecords) {
     out.push({
