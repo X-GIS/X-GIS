@@ -29,26 +29,26 @@ source rivers_10 {
 layer land_low {
   source: land_110
   | fill-stone-800
-  | z0:opacity-100 z5:opacity-100 z7:opacity-0
+  | opacity-[interpolate(zoom, 0, 100, 5, 100, 7, 0)]
 }
 
 /* Fine land — fade IN starting at z5 */
 layer land_high {
   source: land_10
   | fill-stone-800
-  | z0:opacity-0 z5:opacity-0 z7:opacity-100
+  | opacity-[interpolate(zoom, 0, 0, 5, 0, 7, 100)]
 }
 
 /* Major rivers — visible from z3, hand off to rivers_10 at z7 */
 layer rivers_major {
   source: rivers_50
   | stroke-sky-500 stroke-1
-  | z0:opacity-0 z3:opacity-70 z7:opacity-0
+  | opacity-[interpolate(zoom, 0, 0, 3, 70, 7, 0)]
 }
 
 /* Full river network — fade in at high zoom */
 layer rivers_detail {
   source: rivers_10
   | stroke-sky-400 stroke-1.5
-  | z0:opacity-0 z6:opacity-0 z9:opacity-90
+  | opacity-[interpolate(zoom, 0, 0, 6, 0, 9, 90)]
 }

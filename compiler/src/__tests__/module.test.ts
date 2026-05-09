@@ -26,7 +26,7 @@ describe('Module resolution', () => {
     './styles.xgs': `
       preset military_track {
         | fill-green-500 stroke-black stroke-1
-        | z8:opacity-40 z14:opacity-100
+        | opacity-[interpolate(zoom, 8, 40, 14, 100)]
       }
 
       preset alert_effect {

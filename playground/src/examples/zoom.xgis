@@ -6,5 +6,5 @@ source world {
 layer countries {
   source: world
   | fill-purple-400 stroke-purple-200 stroke-1
-  | z2:opacity-30 z5:opacity-60 z8:opacity-90
+  | opacity-[interpolate(zoom, 2, 30, 5, 60, 8, 90)]
 }
