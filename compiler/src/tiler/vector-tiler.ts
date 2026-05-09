@@ -288,21 +288,41 @@ export interface CompiledTile {
 
 const MAX_TILE_ZOOM = 22
 
-/** Spread the 22 low bits of `v` into even positions of a 44-bit result. */
+/** Spread the 22 low bits of `v` into even positions of a 44-bit result.
+ *  Hot path — Math.pow inside the loop dominated CPU profile (5 % of
+ *  total frame time on Bright). Accumulate the power-of-4 instead. */
 function spreadBits22(v: number): number {
   let result = 0
+  let pow = 1  // 4^0
   for (let i = 0; i < MAX_TILE_ZOOM; i++) {
-    if ((v & (1 << i)) !== 0) result += Math.pow(2, 2 * i)
+    if ((v & (1 << i)) !== 0) result += pow
+    pow *= 4
   }
   return result
 }
 
-/** Collect bits at positions `startBit`, `startBit+2`, `startBit+4`, … back into a packed integer. */
+/** Collect bits at positions `startBit`, `startBit+2`, `startBit+4`, … back into a packed integer.
+ *  Hot path — `Math.pow + Math.floor + % 2` per iteration burned 17 % of
+ *  total CPU time on Bright (748 ms / 4 s). Accumulate the divisor and
+ *  use `& 1` for the bit test (works for f64 ints up to 2^32 — when the
+ *  divided morton/pow sits in safe int range, integer-cast bit-and is
+ *  identical to `% 2`). */
 function collectBits22(morton: number, startBit: number): number {
   let result = 0
+  // pow = 2^startBit, then ×4 per iteration (skip every other bit).
+  let pow = startBit === 0 ? 1 : 2
   for (let i = 0; i < MAX_TILE_ZOOM; i++) {
-    const pow = Math.pow(2, 2 * i + startBit)
-    if (Math.floor(morton / pow) % 2 === 1) result |= (1 << i)
+    // Math.floor(morton / pow) is the high-bits-shifted-down view; the
+    // low bit of THAT is the bit at position (2*i + startBit) in morton.
+    // Fast path: when (morton / pow) < 2^31, the | 0 cast preserves the
+    // bottom bit. When morton ≥ 2^32 (z > 15), fall back to the slower
+    // arithmetic form.
+    if (pow <= 0x80000000) {
+      if (((morton / pow) | 0) & 1) result |= (1 << i)
+    } else {
+      if (Math.floor(morton / pow) % 2 === 1) result |= (1 << i)
+    }
+    pow *= 4
   }
   return result
 }
