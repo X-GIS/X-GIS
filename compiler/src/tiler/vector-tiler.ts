@@ -333,9 +333,18 @@ export function tileKeyUnpack(key: number): [number, number, number] {
 }
 
 export function tileKeyParent(key: number): number {
-  const [z, x, y] = tileKeyUnpack(key)
-  // x >> 1 is always safe (22-bit → 21-bit).
-  return tileKey(z - 1, x >>> 1, y >>> 1)
+  // Direct identity: key = 4^z + morton(x, y). Parent at z-1 is
+  // 4^(z-1) + morton(x>>1, y>>1). Since morton(x>>1, y>>1) === morton(x, y) >> 2
+  // (each interleaved bit-pair encodes one level), and 4^(z-1) = 4^z / 4,
+  //   parent = 4^z / 4 + (key - 4^z) / 4 = key / 4.
+  // Avoids the O(z) `while (acc * 4 <= key)` loop in `tileKeyUnpack` +
+  // the morton encode in `tileKey`, both of which dominated the CPU
+  // profile on 80-layer styles (Bright at z=14: tileKeyParent took
+  // 12.6 % of total frame time; tileKeyUnpack another 4.5 %, much of
+  // it called from this function).
+  // Math.floor (not `>>> 2`) because tileKeys span up to ~2^45 at z=22,
+  // exceeding the Int32 range that bitshift operates on.
+  return Math.floor(key / 4)
 }
 
 export function tileKeyChildren(key: number): [number, number, number, number] {
