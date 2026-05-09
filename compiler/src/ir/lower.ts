@@ -3,6 +3,9 @@
 // Handles both legacy (let/show) and new (source/layer) syntax.
 
 import type * as AST from '../parser/ast'
+import { parseExpressionString } from '../parser/parser'
+import { parseTextTemplate, isBareExpressionTemplate } from '../format'
+import type { TextValue, TextPart } from './render-node'
 import { resolveColor } from '../tokens/colors'
 import {
   type Scene,
@@ -111,6 +114,40 @@ export function lower(program: AST.Program): Scene {
  *  zoom-interpolation infrastructure (no per-frame eval, no per-
  *  feature plumbing — the existing kind:'zoom-interpolated' code
  *  paths in the runtime do the heavy lifting). */
+/** Convert the AST.Expr bound to a `label-[<binding>]` utility into
+ *  a TextValue. When the binding is a string literal we treat it as
+ *  a text template (see compiler/src/format/template-parser.ts) so
+ *  patterns like `label-["Lat: {lat:.4f}°N"]` resolve into per-feature
+ *  formatted strings. Bare-expression bindings (`label-[.name]`) and
+ *  templates that collapse to a single bare interp (`label-["{name}"]`)
+ *  return the legacy `kind:'expr'` shape so the renderer doesn't have
+ *  to walk a single-part template at runtime. */
+function bindingToTextValue(binding: AST.Expr): TextValue {
+  if (binding.kind !== 'StringLiteral') {
+    return { kind: 'expr', expr: { ast: binding } }
+  }
+  const parts = parseTextTemplate(binding.value)
+  // "abc" with no interps — wrap as a single-literal template so the
+  // text resolver always emits the constant string. Don't try to coax
+  // it into kind:'expr' (DataExpr expects an AST, not a string).
+  if (parts.length === 0) {
+    return { kind: 'template', parts: [{ kind: 'literal', value: '' }] }
+  }
+  if (isBareExpressionTemplate(parts)) {
+    const interp = parts[0] as { kind: 'interp'; text: string }
+    return { kind: 'expr', expr: { ast: parseExpressionString(interp.text) } }
+  }
+  const irParts: TextPart[] = parts.map(p => {
+    if (p.kind === 'literal') return { kind: 'literal', value: p.text }
+    return {
+      kind: 'interp',
+      expr: { ast: parseExpressionString(p.text) },
+      ...(p.spec ? { spec: p.spec } : {}),
+    }
+  })
+  return { kind: 'template', parts: irParts }
+}
+
 function extractInterpolateZoomStops(
   expr: AST.Expr,
 ): Array<{ zoom: number; value: number }> | null {
@@ -388,7 +425,7 @@ function lowerLayer(
           // quads (Batch 1c). Engine plumbing not yet wired through
           // the renderers — for now this just preserves the IR so
           // Mapbox styles with `text-field` survive compilation.
-          label = { text: { kind: 'expr', expr: { ast: item.binding } }, size: 12 }
+          label = { text: bindingToTextValue(item.binding), size: 12 }
         }
         continue
       }

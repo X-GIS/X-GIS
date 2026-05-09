@@ -1,5 +1,17 @@
 import { TokenType, type Token } from '../lexer/tokens'
+import { Lexer } from '../lexer/lexer'
 import type * as AST from './ast'
+
+/** Parse a standalone xgis expression string into an AST.Expr.
+ *  Used by the IR lower pass to re-parse expression sources
+ *  embedded in string templates (the bit between `{` and `}` in
+ *  `"Lat: {lat:.4f}°N"`). Throws if the source has trailing
+ *  tokens beyond a single expression. */
+export function parseExpressionString(source: string): AST.Expr {
+  const tokens = new Lexer(source).tokenize()
+  const p = new Parser(tokens)
+  return p.parseSingleExpression()
+}
 
 export class Parser {
   private tokens: Token[]
@@ -16,6 +28,21 @@ export class Parser {
       body.push(this.parseStatement())
     }
     return { kind: 'Program', body }
+  }
+
+  /** Parse a single expression and verify nothing else follows.
+   *  Public entry point for sub-expressions (template interps,
+   *  programmatic builders). */
+  parseSingleExpression(): AST.Expr {
+    const expr = this.parseExpr()
+    if (!this.isEnd()) {
+      const tok = this.current()
+      throw new Error(
+        `Expected end of expression, got ${TokenType[tok.type]} ` +
+        `'${tok.value}' at line ${tok.line}, col ${tok.col}`,
+      )
+    }
+    return expr
   }
 
   private parseStatement(): AST.Statement {
