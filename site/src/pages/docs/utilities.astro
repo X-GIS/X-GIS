@@ -110,7 +110,7 @@ const utilFamilies: UtilFamily[] = [
   },
   {
     name: 'Label',
-    signature: 'label-[<expr>] | label-size-<N> | label-color-<color> | label-halo-<N> | label-halo-color-<color> | label-anchor-<pos> | label-offset-x-<N> | label-offset-y-<N> | label-rotate-<deg> | label-letter-spacing-<N> | label-max-width-<N> | label-line-height-<N> | label-justify-<a> | label-font-<name> | label-padding-<N> | label-allow-overlap | label-ignore-placement | label-uppercase | label-lowercase | label-none',
+    signature: 'label-[<expr>] | label-size-<N> | label-color-<color> | label-halo-<N> | label-halo-color-<color> | label-anchor-<pos> | label-offset-x-<N> | label-offset-y-<N> | label-rotate-<deg> | label-letter-spacing-<N> | label-max-width-<N> | label-line-height-<N> | label-justify-<a> | label-font-<name> | label-padding-<N> | label-along-path | label-line-center | label-allow-overlap | label-ignore-placement | label-uppercase | label-lowercase | label-none',
     body: 'Per-feature SDF text labels. Bracket expression sets text content (Mapbox `{name}` token form supported, plus Python-style format specs `{lat:.4f}` and GIS specs `{coord:dms}`). Sibling `label-*` utilities tune typography, layout, and placement. Defaults: 12 px, layer fill colour, no halo, center anchor, no rotation, single-line. `label-max-width-<em>` enables greedy word-break wrapping; multiple `label-font-<name>` utilities stack into a CSS font-fallback chain (browser walks per glyph, ideal for CJK + Latin mix). Anchors: center / top / bottom / left / right. Justify: auto / left / center / right. Renders via the OffscreenCanvas worker → atlas → WGSL pipeline.',
     examples: [
       'label-[.name]',
@@ -122,6 +122,7 @@ const utilFamilies: UtilFamily[] = [
       'label-[.name] label-max-width-7 label-line-height-1.1 label-justify-center',
       'label-[.name] label-font-Noto-Sans-Regular label-font-Noto-Sans-CJK-Regular',
       'label-[.name] label-allow-overlap label-padding-4',
+      'label-[.name] label-along-path  // road / waterway names follow the line',
     ],
   },
   {

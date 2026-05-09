@@ -88,8 +88,11 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
         <code class="font-mono">text-ignore-placement</code> and
         <code class="font-mono">text-padding</code> (greedy bbox collision)
         all map to <code class="font-mono">label-*</code> utilities.
-        Along-path road labels arrive in the next batch;
-        icons depend on the upcoming sprite atlas.
+        <code class="font-mono">symbol-placement: line</code> renders
+        road / waterway / highway names along their geometry, rotated
+        to the local tangent (Batch 1d v1 — single-segment placement
+        per feature; per-glyph along-curve and repeat-along-line
+        ship in v2). Icons depend on the upcoming sprite atlas.
       </Callout>
     </section>
 
@@ -145,7 +148,7 @@ const xgis = convertMapboxStyle(style)
             <li>• Sources: vector (PMTiles + TileJSON), raster, GeoJSON</li>
             <li>• Layers: background, fill, line, fill-extrusion, symbol (text)</li>
             <li>• Paint: fill-color/-opacity, line-color/-width/-dasharray/-opacity, fill-extrusion-color/-opacity/-height/-base</li>
-            <li>• Symbol text: text-field, text-color, text-size (zoom-interpolated), text-halo-color/-width, text-anchor (5-way), text-transform, text-offset, text-rotate, text-letter-spacing, text-max-width + text-line-height + text-justify (multiline), text-font stack, text-allow-overlap, text-ignore-placement, text-padding (collision)</li>
+            <li>• Symbol text: text-field, text-color, text-size (zoom-interpolated), text-halo-color/-width, text-anchor (5-way), text-transform, text-offset, text-rotate, text-letter-spacing, text-max-width + text-line-height + text-justify (multiline), text-font stack, text-allow-overlap, text-ignore-placement, text-padding (collision), <code class="font-mono">symbol-placement: line</code> + <code class="font-mono">line-center</code> (along-path)</li>
             <li>• Filters: legacy + expression form (==/!=/&lt;/&gt;/all/any/in/!in/has/!has)</li>
             <li>• Expressions: get / coalesce / case / match / arithmetic / min / max / to-number</li>
             <li>• Zoom: <code class="font-mono">interpolate(zoom, …)</code> with linear curve</li>
@@ -167,7 +170,8 @@ const xgis = convertMapboxStyle(style)
           <div class="text-rose-300 text-[11px] uppercase tracking-wider mb-2 font-medium">Unsupported (engine)</div>
           <ul class="space-y-1.5 text-fg-dim leading-[1.55]">
             <li>• Icon symbols + sprite atlas (icon-image / icon-size / icon-color)</li>
-            <li>• <code class="font-mono">symbol-placement: line</code> (along-path road labels)</li>
+            <li>• <code class="font-mono">text-keep-upright</code> per-glyph flip on curves</li>
+            <li>• <code class="font-mono">symbol-spacing</code> repeat-along-line (single-label per feature in v1)</li>
             <li>• <code class="font-mono">text-writing-mode: vertical</code> (CJK vertical text)</li>
             <li>• Circle, heatmap, hillshade, sky layers</li>
             <li>• <code class="font-mono">let</code> / <code class="font-mono">var</code>, <code class="font-mono">downcase</code>, <code class="font-mono">number-format</code></li>

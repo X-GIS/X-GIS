@@ -233,6 +233,31 @@ map.clearOverlays()`,
   },
 
   {
+    slug: 'along-path-roads',
+    title: 'Along-path road labels (`label-along-path`)',
+    body: '`label-along-path` (Mapbox `symbol-placement: line`) walks the line geometry instead of anchoring at a point — each feature gets one label per first segment, rotated to match the local tangent. Roads read along their direction, river names follow the bend, highway names align with their corridor. Pair with `label-line-center` when you want exactly one label at the midpoint of every line.',
+    code: `source roads { type: pmtiles, url: "tiles.pmtiles" }
+
+layer road_lines {
+  source: roads
+  sourceLayer: "transportation"
+  | stroke-stone-300 stroke-1
+}
+
+layer road_names {
+  source: roads
+  sourceLayer: "transportation"
+  | label-[.name] label-color-#fff label-halo-1 label-halo-color-#000
+    label-along-path
+}`,
+    notes: [
+      'v1 places one rigid label per feature at the FIRST segment\'s midpoint with that segment\'s tangent — fine for typical 1-3 segment road tiles. Per-glyph along-curve trajectory + repeat-along-line spacing for long roads land in v2.',
+      'A keep-upright "lite" pass auto-flips text-bottom-up segments by 180° so left-to-right readers always see right-side-up labels. Full per-glyph flip on curves is the v2 follow-up.',
+      'Rotation is computed in screen space (atan2 on the projected endpoints) so it stays correct under pitch / bearing — labels visually "stick" to the visible line direction even when the camera tilts.',
+    ],
+  },
+
+  {
     slug: 'import-mapbox-style',
     title: 'One-line import: any Mapbox v8 style',
     body: 'Splice form `import "url"` (no name list) pulls every top-level statement from the URL into your program. The runtime auto-detects Mapbox style.json (looks for `version` + `layers`) and runs the converter before parsing — so a single line drops a full base map (OpenFreeMap, OSM Bright, your own custom Mapbox style) into the canvas, and your own layers below override or sit on top.',
