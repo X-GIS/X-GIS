@@ -599,6 +599,42 @@ export class VectorTileRenderer {
   private uploadQueue = new PriorityQueue<string, void>()
   private uploadItemData = new Map<string, { key: number; data: TileData; sourceLayer: string }>()
 
+  /** Per-frame distSq memo + cached camera centre. distSq runs O(N log N)
+   *  times per upload-queue sort and once per fetch-priority dispatch;
+   *  the camera is constant for the whole frame, so cache the (key →
+   *  distance²) lookup across every render() call in the same frame.
+   *  Cleared in beginFrame. Without this hoist, the per-render allocation
+   *  of a fresh Map + closure happened ~80 times per frame on Bright
+   *  (one per ShowCommand) and the memo never actually shared across
+   *  layers. */
+  private _distMemo = new Map<number, number>()
+  private _distMemoCamX = NaN
+  private _distMemoCamY = NaN
+  /** Stable closure that reads `_distMemo` + camera centre on the
+   *  instance — installed ONCE on the upload queue + source, never
+   *  re-allocated per render. */
+  /** Sentinel — once we install the stable comparators on a queue,
+   *  skip re-installing on every render(). Doesn't prevent a fresh
+   *  source / queue swap (next render sees a different identity).
+   *  Without this, `priorityCallback = …` runs 80× per frame for free
+   *  but the `setFetchPriority` callback path also runs 80×. */
+  private _installedPriorityFns: PriorityQueue<string, void> | null = null
+
+  private _distSqStable = (key: number): number => {
+    const cached = this._distMemo.get(key)
+    if (cached !== undefined) return cached
+    const [tz, tx, ty] = tileKeyUnpack(key)
+    const n = (1 << tz) >>> 0
+    const PI_R = Math.PI * 6378137
+    const tileX = ((tx + 0.5) / n) * 2 * PI_R - PI_R
+    const tileY = (1 - 2 * (ty + 0.5) / n) * PI_R
+    const dx = tileX - this._distMemoCamX
+    const dy = tileY - this._distMemoCamY
+    const d2 = dx * dx + dy * dy
+    this._distMemo.set(key, d2)
+    return d2
+  }
+
   /** Per-frame dispatch counter. Phase C removed the count-based
    *  upload budget on the assumption that mapAsync would prevent
    *  JS-thread stalls. Bench (Bright at z=14 Tokyo, 2026-05-08):
@@ -2588,50 +2624,30 @@ export class VectorTileRenderer {
     // priority ordering since all visible copies of the same tile
     // sort together. Backends without a queue (XGVT-binary, GeoJSON)
     // ignore this hook.
-    {
-      const camMercX = camera.centerX
-      const camMercY = camera.centerY
-      const PI_R = Math.PI * 6378137
-      // Per-frame distSq memo. PriorityQueue.sort() pulls O(N log N)
-      // comparisons each calling distSq twice, but the camera doesn't
-      // move within a frame — every (key → distance) is constant. The
-      // memo also serves the upload queue's priorityCallback which
-      // re-keys the same compare against `itemData[id].key`.
-      // Cleared each frame at the call site below; no need to invalidate
-      // mid-frame.
-      const distMemo = new Map<number, number>()
-      const distSq = (key: number): number => {
-        const cached = distMemo.get(key)
-        if (cached !== undefined) return cached
-        const [tz, tx, ty] = tileKeyUnpack(key)
-        // 2^tz via direct accumulation (loop) avoids Math.pow's call
-        // overhead — for tz ≤ 30, 1 << tz is bounded but tz can hit
-        // 22 only, so the bit-shift form is safe AND faster than pow.
-        const n = (1 << tz) >>> 0  // unsigned to avoid sign-bit at z=31
-        const tileX = ((tx + 0.5) / n) * 2 * PI_R - PI_R
-        const tileY = (1 - 2 * (ty + 0.5) / n) * PI_R
-        const dx = tileX - camMercX
-        const dy = tileY - camMercY
-        const d2 = dx * dx + dy * dy
-        distMemo.set(key, d2)
-        return d2
-      }
-      this.source.setFetchPriority(distSq)
-      // Upload queue uses the same dispatch convention as fetch (NASA's
-      // PriorityQueue pops from the END), so the comparator returns
-      // positive when `a` is closer than `b` (sorts to end → pops first).
+    // Update fetch + upload priority comparators with the current
+    // camera centre. Wired through stable instance closures
+    // (`_distSqStable`) — re-allocating a fresh closure + Map per
+    // render() call (called ~80 times per frame on 80-layer styles)
+    // dominated the JS-thread slice before this hoist. The memo on
+    // `_distMemo` actually shares the lookup across every render() in
+    // the frame now, instead of starting empty each time.
+    if (this._distMemoCamX !== camera.centerX || this._distMemoCamY !== camera.centerY) {
+      this._distMemoCamX = camera.centerX
+      this._distMemoCamY = camera.centerY
+      this._distMemo.clear()
+    }
+    if (this._installedPriorityFns !== this.uploadQueue) {
+      this.source.setFetchPriority(this._distSqStable)
       const itemData = this.uploadItemData
+      const distSq = this._distSqStable
       this.uploadQueue.priorityCallback = (a, b) => {
         const ia = itemData.get(a), ib = itemData.get(b)
         if (!ia || !ib) return 0
         return distSq(ib.key) - distSq(ia.key)
       }
-      // Concurrency cap: same scale as the prior `uploadBudgetFor`
-      // floor (1 mobile / 4 desktop). Async path doesn't stall JS so
-      // the cap exists only to bound concurrent staging-buffer use
-      // (each tile holds 5-7 staging slots in flight).
-      this.uploadQueue.maxJobs = uploadBudgetFor(canvasWidth, canvasHeight, dpr)
+      this._installedPriorityFns = this.uploadQueue
     }
+    this.uploadQueue.maxJobs = uploadBudgetFor(canvasWidth, canvasHeight, dpr)
 
     // Visible-tile fetches: ALWAYS issued, like parentKeys. The
     // earlier `cameraIdle` gate here was a heat mitigation that
