@@ -451,7 +451,7 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
-    it('text-color paint property maps to fill utility', () => {
+    it('text-color paint property maps to label-color utility', () => {
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
         layers: [{
@@ -461,7 +461,76 @@ describe('Mapbox → xgis converter', () => {
         }],
       })
       expect(out).toContain('label-[.name]')
-      expect(out).toContain('fill-#333')
+      // Batch 1c-8g: text-color → label-color-X (was fill-X under 1b).
+      // The IR fallback in map.ts still routes to layer fill when
+      // label-color is absent, so layers without explicit text-color
+      // automatically inherit fill colour.
+      expect(out).toContain('label-color-#333')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-color → label-color-X (Batch 1c-8g)', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'col2', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+          paint: { 'text-color': '#f0f' },
+        }],
+      })
+      // colorToXgis preserves Mapbox short-hex form (#f0f), the
+      // utility resolver expands when looking up the colour.
+      expect(out).toContain('label-color-#f0f')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-size → label-size-N', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 's', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}', 'text-size': 18 } as never,
+        }],
+      })
+      expect(out).toContain('label-size-18')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-halo-width + text-halo-color → label-halo + label-halo-color', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'h', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+          paint: { 'text-halo-width': 2, 'text-halo-color': '#000' },
+        }],
+      })
+      expect(out).toContain('label-halo-2')
+      expect(out).toContain('label-halo-color-#000')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-anchor diagonal collapses to dominant axis', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'a', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}', 'text-anchor': 'top-left' } as never,
+        }],
+      })
+      expect(out).toContain('label-anchor-top')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-transform → label-uppercase', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 't', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}', 'text-transform': 'uppercase' } as never,
+        }],
+      })
+      expect(out).toContain('label-uppercase')
       expect(parses(out)).toBe(true)
     })
 

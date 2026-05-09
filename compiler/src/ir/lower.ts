@@ -220,10 +220,17 @@ function lowerLayer(
   let geometryExpr: import('../parser/ast').Expr | null = null
   let extrude: import('./render-node').ExtrudeValue = { kind: 'none' }
   let extrudeBase: import('./render-node').ExtrudeValue = { kind: 'none' }
-  // Per-feature text label. Set when a `label-[<expr>]` utility
-  // appears. Engine rendering arrives in Batch 1c; for now this is
-  // pure IR plumbing so Mapbox-imported `text-field` survives.
+  // Per-feature text label. The text comes from `label-[<expr>]`;
+  // visual knobs (size, color, halo, anchor, transform) come from
+  // sibling `label-*` utilities that fold into the LabelDef when we
+  // assemble the RenderNode below. Engine plumbing in Batch 1c.
   let label: import('./render-node').LabelDef | undefined
+  let labelSize: number | undefined
+  let labelColor: [number, number, number, number] | undefined
+  let labelHaloWidth: number | undefined
+  let labelHaloColor: [number, number, number, number] | undefined
+  let labelAnchor: import('./render-node').LabelDef['anchor'] | undefined
+  let labelTransform: import('./render-node').LabelDef['transform'] | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -427,6 +434,39 @@ function lowerLayer(
           // Mapbox styles with `text-field` survive compilation.
           label = { text: bindingToTextValue(item.binding), size: 12 }
         }
+        continue
+      }
+
+      // ── label-* visual knob utilities (Batch 1c-8g) ──
+      // Folded into `label` at the bottom of the function. Order with
+      // `label-[<expr>]` doesn't matter — these are just stored in
+      // locals until assembly time.
+      if (name === 'label-uppercase') { labelTransform = 'uppercase'; continue }
+      if (name === 'label-lowercase') { labelTransform = 'lowercase'; continue }
+      if (name === 'label-none') { labelTransform = 'none'; continue }
+      if (name === 'label-anchor-center') { labelAnchor = 'center'; continue }
+      if (name === 'label-anchor-top') { labelAnchor = 'top'; continue }
+      if (name === 'label-anchor-bottom') { labelAnchor = 'bottom'; continue }
+      if (name === 'label-anchor-left') { labelAnchor = 'left'; continue }
+      if (name === 'label-anchor-right') { labelAnchor = 'right'; continue }
+      if (name.startsWith('label-size-')) {
+        const num = parseFloat(name.slice('label-size-'.length))
+        if (!isNaN(num)) labelSize = num
+        continue
+      }
+      if (name.startsWith('label-halo-color-')) {
+        const hex = resolveColor(name.slice('label-halo-color-'.length))
+        if (hex) labelHaloColor = hexToRgba(hex)
+        continue
+      }
+      if (name.startsWith('label-halo-')) {
+        const num = parseFloat(name.slice('label-halo-'.length))
+        if (!isNaN(num)) labelHaloWidth = num
+        continue
+      }
+      if (name.startsWith('label-color-')) {
+        const hex = resolveColor(name.slice('label-color-'.length))
+        if (hex) labelColor = hexToRgba(hex)
         continue
       }
 
@@ -810,7 +850,46 @@ function lowerLayer(
     anchor,
     extrude,
     extrudeBase,
-    label,
+    label: foldLabelKnobs(label, {
+      labelSize, labelColor, labelHaloWidth, labelHaloColor,
+      labelAnchor, labelTransform,
+    }),
+  }
+}
+
+/** Merge sibling `label-*` utility values into the LabelDef built
+ *  from `label-[<expr>]`. Returns the input unchanged when no knobs
+ *  are present (covers the common one-utility-only case). When knobs
+ *  exist but the layer has no `label-[<expr>]`, returns undefined —
+ *  visual knobs without a text source produce no rendering and the
+ *  warning is the user's responsibility (the converter surfaces it). */
+function foldLabelKnobs(
+  base: import('./render-node').LabelDef | undefined,
+  knobs: {
+    labelSize?: number
+    labelColor?: [number, number, number, number]
+    labelHaloWidth?: number
+    labelHaloColor?: [number, number, number, number]
+    labelAnchor?: import('./render-node').LabelDef['anchor']
+    labelTransform?: import('./render-node').LabelDef['transform']
+  },
+): import('./render-node').LabelDef | undefined {
+  if (!base) return undefined
+  let halo = base.halo
+  if (knobs.labelHaloWidth !== undefined || knobs.labelHaloColor !== undefined) {
+    halo = {
+      color: knobs.labelHaloColor ?? base.halo?.color ?? [0, 0, 0, 1],
+      width: knobs.labelHaloWidth ?? base.halo?.width ?? 1,
+      ...(base.halo?.blur !== undefined ? { blur: base.halo.blur } : {}),
+    }
+  }
+  return {
+    ...base,
+    ...(knobs.labelSize !== undefined ? { size: knobs.labelSize } : {}),
+    ...(knobs.labelColor !== undefined ? { color: knobs.labelColor } : {}),
+    ...(halo !== undefined ? { halo } : {}),
+    ...(knobs.labelAnchor !== undefined ? { anchor: knobs.labelAnchor } : {}),
+    ...(knobs.labelTransform !== undefined ? { transform: knobs.labelTransform } : {}),
   }
 }
 

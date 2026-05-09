@@ -71,28 +71,75 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   }
 
   const utils: string[] = [`label-[${labelExpr}]`]
-  // text-color → fill (the layer's fill colour is reused as the
-  // text colour by the renderer when no explicit text colour is
-  // recorded on LabelDef — Batch 1c finalises the fallback rule).
+
+  // text-color → label-color-X (Batch 1c-8g). The runtime falls
+  // back to the layer's `fill` colour when label-color is unset, so
+  // emitting label-color explicitly guarantees the user-intended
+  // text colour even on layers that share fill/stroke with the
+  // underlying point/polygon.
   const textColor = paint['text-color']
   if (textColor !== undefined) {
     const colorStr = colorToXgis(textColor, warnings)
-    if (colorStr) utils.push(`fill-${colorStr}`)
+    if (colorStr) utils.push(`label-color-${colorStr}`)
   }
 
-  // Surface the rest as a warning so the user knows what's still
-  // missing (text-size needs label-size-N, halo needs Batch 1c, etc.)
+  // text-size (constant only — interpolate stops + zoom-driven
+  // sizing fold in once 1c-8h adds zoom-interpolated label sizes).
+  const textSize = layout['text-size']
+  if (typeof textSize === 'number') {
+    utils.push(`label-size-${textSize}`)
+  } else if (textSize !== undefined) {
+    warnings.push(`Symbol layer "${layer.id}" — text-size expression form not yet converted (Batch 1c-8h).`)
+  }
+
+  // text-halo-width / text-halo-color → label-halo-N + label-halo-color-X.
+  const haloWidth = paint['text-halo-width']
+  if (typeof haloWidth === 'number' && haloWidth > 0) {
+    utils.push(`label-halo-${haloWidth}`)
+  }
+  const haloColor = paint['text-halo-color']
+  if (haloColor !== undefined) {
+    const colorStr = colorToXgis(haloColor, warnings)
+    if (colorStr) utils.push(`label-halo-color-${colorStr}`)
+  }
+
+  // text-anchor → label-anchor-X. Mapbox's 9-way anchor (top-left,
+  // bottom-right, etc.) collapses to the 5-way set the IR currently
+  // exposes (1d expands to the full set when anchor matters for
+  // along-path placement); diagonal anchors map to the dominant axis.
+  const anchorMap: Record<string, string> = {
+    'center': 'center',
+    'top': 'top', 'bottom': 'bottom',
+    'left': 'left', 'right': 'right',
+    'top-left': 'top', 'top-right': 'top',
+    'bottom-left': 'bottom', 'bottom-right': 'bottom',
+  }
+  const anchor = layout['text-anchor']
+  if (typeof anchor === 'string' && anchorMap[anchor]) {
+    utils.push(`label-anchor-${anchorMap[anchor]}`)
+  }
+
+  // text-transform → label-uppercase / lowercase / none.
+  const transform = layout['text-transform']
+  if (transform === 'uppercase' || transform === 'lowercase' || transform === 'none') {
+    utils.push(`label-${transform}`)
+  }
+
+  // What's STILL not converted — surface a precise warning so the
+  // user knows which Batch the gap waits on.
   const ignoredText: string[] = []
-  for (const k of ['text-size', 'text-font', 'text-anchor', 'text-offset',
-    'text-halo-color', 'text-halo-width', 'symbol-placement',
+  for (const k of ['text-font', 'text-offset', 'text-rotate',
+    'text-letter-spacing', 'text-line-height', 'text-max-width',
+    'text-justify', 'text-padding', 'text-allow-overlap',
+    'text-ignore-placement', 'text-keep-upright', 'text-writing-mode',
+    'symbol-placement', 'symbol-spacing',
     'icon-image', 'icon-size', 'icon-color']) {
     if (layout[k] !== undefined || paint[k] !== undefined) ignoredText.push(k)
   }
   if (ignoredText.length > 0) {
-    warnings.push(`Symbol layer "${layer.id}" — ignored properties (Batch 1c/1d/2): ${ignoredText.join(', ')}`)
+    warnings.push(`Symbol layer "${layer.id}" — ignored properties (Batch 1d/1e/2): ${ignoredText.join(', ')}`)
   }
 
-  warnings.push(`Symbol layer "${layer.id}" — text-field emitted as label utility; rendering arrives in Batch 1c.`)
   lines.push('  | ' + utils.join(' '))
   lines.push('}')
   return lines.join('\n')
