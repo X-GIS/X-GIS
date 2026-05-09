@@ -229,7 +229,16 @@ function maxFrustumTilesFor(cssWidth: number, cssHeight: number, pitchDeg: numbe
   const isMobile = isMobileViewport(cssWidth, cssHeight)
   const baseFloor = isMobile ? 12 : 60
   const divisor = isMobile ? 18000 : 12000
-  const pitchMul = pitchDeg >= 60 ? 4 : pitchDeg >= 30 ? 2 : 1
+  // Pitch multiplier was 1/2/4 — measured Bright at z=14 pitch=80°
+  // selecting 2700+ tiles, hitting 63 ms / frame frame time (16 fps).
+  // Mapbox uses ~200-400 tiles for the equivalent view because their
+  // selector picks a SINGLE coarse zoom for the horizon strip rather
+  // than letting DFS keep subdividing. We can't (yet) match that
+  // selector design — but we can clamp the budget hard so drawCall
+  // count stays in 60 fps territory: 1.5/2 multiplier instead of 2/4.
+  // The horizon strip becomes visibly chunkier (one or two zoom levels
+  // coarser) past pitch 60°, which is preferable to a 1-fps freeze.
+  const pitchMul = pitchDeg >= 60 ? 2 : pitchDeg >= 30 ? 1.5 : 1
   const floor = Math.round(baseFloor * pitchMul)
   return Math.max(
     floor,
