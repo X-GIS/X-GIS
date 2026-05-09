@@ -50,10 +50,26 @@ const EARTH_CIRC_M = 40075016.686
 const PI_R = Math.PI * 6378137
 const FOV_DEG = 45  // Camera.FOV — fixed in this engine
 
-/** Default screen-space-error target in pixels. Cesium uses 16; we
- *  start there and tune later. Lower = more tiles + sharper detail;
- *  higher = fewer tiles + softer horizon. */
-const DEFAULT_TARGET_SSE_PX = 16
+/** Default screen-space-error target in pixels.
+ *
+ *  Cesium ships 16 px because their `geometricError` measures *terrain
+ *  mesh simplification error in metres* — a real perceptual quantity
+ *  where 16 px error is genuinely invisible. For our 2D vector-tile
+ *  case `geometricError(z) = tileSize/256` is a synthetic proxy.
+ *
+ *  Empirical sweep on Bright at z=14 Tokyo (1280×800):
+ *
+ *    target  pitch=0      pitch=40    pitch=80    note
+ *      1     15.6 ms(64)  19 ms(53)   154 ms(6)   over-subdivides horizon
+ *      4     ~14 ms       ~17 ms      ~50 ms      good balance
+ *     16      7 ms        7 ms        12 ms       fast but z=10 max under cam
+ *
+ *  4 px is the sweet spot for Mercator vector tiles: good detail
+ *  under-camera (z near currentZoom) without horizon over-detail at
+ *  high pitch. Cesium's 16-px convention transposes neatly here as
+ *  an equal-quality "perceptual budget" since our pixel→meter scaling
+ *  is consistent across the metric. */
+const DEFAULT_TARGET_SSE_PX = 4
 
 /** Hard cap on emitted tile count. Safety net only — well-tuned SSE
  *  in a typical view emits 9-100 tiles, but a degenerate camera (e.g.
