@@ -2581,9 +2581,18 @@ export class XGISMap {
           // colour for the polygon AND its label). When THAT is also
           // unset, default to white so dark backgrounds stay readable.
           const def = show.label!
-          const effectiveDef = def.color !== undefined
-            ? def
-            : { ...def, color: hexToRgbaArr(show.fill) ?? [1, 1, 1, 1] as [number, number, number, number] }
+          // Resolve zoom-interpolated text-size against the current
+          // camera zoom (Mapbox `text-size: ["interpolate", …, ["zoom"], …]`).
+          const resolvedSize = def.sizeZoomStops && def.sizeZoomStops.length > 0
+            ? interpolateZoom(def.sizeZoomStops, this.camera.zoom)
+            : def.size
+          const effectiveDef = {
+            ...def,
+            size: resolvedSize,
+            ...(def.color === undefined
+              ? { color: hexToRgbaArr(show.fill) ?? [1, 1, 1, 1] as [number, number, number, number] }
+              : {}),
+          }
 
           // Path 1: GeoJSON / inline-data sources whose features live
           // in `rawDatasets`. Iterates the FeatureCollection directly

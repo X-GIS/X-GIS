@@ -180,6 +180,11 @@ export interface LabelDef {
   font?: string[]
   /** Font size in PIXELS (not font units). Mapbox `text-size`. */
   size: number
+  /** Optional zoom-interpolated size override. When set, the runtime
+   *  evaluates interpolateZoom(stops, camera.zoom) per frame and uses
+   *  the result instead of the constant `size`. Maps from Mapbox
+   *  `text-size: ["interpolate", ["linear"], ["zoom"], …]`. */
+  sizeZoomStops?: ZoomStop<number>[]
   /** Mapbox `text-letter-spacing` in em units. Default 0. */
   letterSpacing?: number
   /** Mapbox `text-line-height` in em units. Default 1.2. */

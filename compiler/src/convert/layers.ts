@@ -125,10 +125,20 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
     utils.push(`label-${transform}`)
   }
 
+  // text-offset → label-offset-x-N + label-offset-y-N (em-units).
+  // Mapbox shape: [number, number]. Constant only — interpolate /
+  // expression forms wait until the binding-bracket utility lands.
+  const offset = layout['text-offset']
+  if (Array.isArray(offset) && offset.length === 2
+      && typeof offset[0] === 'number' && typeof offset[1] === 'number') {
+    if (offset[0] !== 0) utils.push(`label-offset-x-${offset[0]}`)
+    if (offset[1] !== 0) utils.push(`label-offset-y-${offset[1]}`)
+  }
+
   // What's STILL not converted — surface a precise warning so the
   // user knows which Batch the gap waits on.
   const ignoredText: string[] = []
-  for (const k of ['text-font', 'text-offset', 'text-rotate',
+  for (const k of ['text-font', 'text-rotate',
     'text-letter-spacing', 'text-line-height', 'text-max-width',
     'text-justify', 'text-padding', 'text-allow-overlap',
     'text-ignore-placement', 'text-keep-upright', 'text-writing-mode',

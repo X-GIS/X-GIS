@@ -226,11 +226,14 @@ function lowerLayer(
   // assemble the RenderNode below. Engine plumbing in Batch 1c.
   let label: import('./render-node').LabelDef | undefined
   let labelSize: number | undefined
+  const labelSizeZoomStops: ZoomStop<number>[] = []
   let labelColor: [number, number, number, number] | undefined
   let labelHaloWidth: number | undefined
   let labelHaloColor: [number, number, number, number] | undefined
   let labelAnchor: import('./render-node').LabelDef['anchor'] | undefined
   let labelTransform: import('./render-node').LabelDef['transform'] | undefined
+  let labelOffsetX: number | undefined
+  let labelOffsetY: number | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -416,6 +419,10 @@ function lowerLayer(
           for (const s of zoomStops) sizeZoomStops.push({ zoom: s.zoom, value: s.value })
           continue
         }
+        if (zoomStops && name === 'label-size') {
+          for (const s of zoomStops) labelSizeZoomStops.push({ zoom: s.zoom, value: s.value })
+          continue
+        }
         if (name === 'fill') {
           fill = { kind: 'data-driven', expr: { ast: item.binding } }
         } else if (name === 'size') {
@@ -467,6 +474,16 @@ function lowerLayer(
       if (name.startsWith('label-color-')) {
         const hex = resolveColor(name.slice('label-color-'.length))
         if (hex) labelColor = hexToRgba(hex)
+        continue
+      }
+      if (name.startsWith('label-offset-x-')) {
+        const num = parseFloat(name.slice('label-offset-x-'.length))
+        if (!isNaN(num)) labelOffsetX = num
+        continue
+      }
+      if (name.startsWith('label-offset-y-')) {
+        const num = parseFloat(name.slice('label-offset-y-'.length))
+        if (!isNaN(num)) labelOffsetY = num
         continue
       }
 
@@ -852,7 +869,8 @@ function lowerLayer(
     extrudeBase,
     label: foldLabelKnobs(label, {
       labelSize, labelColor, labelHaloWidth, labelHaloColor,
-      labelAnchor, labelTransform,
+      labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
+      labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
     }),
   }
 }
@@ -872,6 +890,9 @@ function foldLabelKnobs(
     labelHaloColor?: [number, number, number, number]
     labelAnchor?: import('./render-node').LabelDef['anchor']
     labelTransform?: import('./render-node').LabelDef['transform']
+    labelOffsetX?: number
+    labelOffsetY?: number
+    labelSizeZoomStops?: ZoomStop<number>[]
   },
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
@@ -883,6 +904,13 @@ function foldLabelKnobs(
       ...(base.halo?.blur !== undefined ? { blur: base.halo.blur } : {}),
     }
   }
+  let offset = base.offset
+  if (knobs.labelOffsetX !== undefined || knobs.labelOffsetY !== undefined) {
+    offset = [
+      knobs.labelOffsetX ?? base.offset?.[0] ?? 0,
+      knobs.labelOffsetY ?? base.offset?.[1] ?? 0,
+    ]
+  }
   return {
     ...base,
     ...(knobs.labelSize !== undefined ? { size: knobs.labelSize } : {}),
@@ -890,6 +918,9 @@ function foldLabelKnobs(
     ...(halo !== undefined ? { halo } : {}),
     ...(knobs.labelAnchor !== undefined ? { anchor: knobs.labelAnchor } : {}),
     ...(knobs.labelTransform !== undefined ? { transform: knobs.labelTransform } : {}),
+    ...(offset !== undefined ? { offset } : {}),
+    ...(knobs.labelSizeZoomStops && knobs.labelSizeZoomStops.length > 0
+      ? { sizeZoomStops: knobs.labelSizeZoomStops } : {}),
   }
 }
 

@@ -522,6 +522,19 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
+    it('text-offset [dx, dy] → label-offset-x-N + label-offset-y-N', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'o', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}', 'text-offset': [0, 1.5] } as never,
+        }],
+      })
+      expect(out).toContain('label-offset-y-1.5')
+      expect(out).not.toContain('label-offset-x-0')  // zero dx omitted
+      expect(parses(out)).toBe(true)
+    })
+
     it('text-transform → label-uppercase', () => {
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },

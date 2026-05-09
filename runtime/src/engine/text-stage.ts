@@ -144,9 +144,35 @@ export class TextStage {
     const draws: TextDraw[] = []
     for (const p of this.pending) {
       const glyphs = this.host.ensureString(p.fontKey, p.text)
+      // Compute anchor offset based on label-anchor + label-offset.
+      // Anchor controls where the text BLOCK sits relative to the
+      // geo point (top → text starts above point). Offset is an
+      // additional em-unit displacement (Mapbox text-offset).
+      let totalAdvance = 0
+      let maxHeight = 0
+      for (const g of glyphs) {
+        const scale = p.def.size / this.opts.rasterFontSize
+        totalAdvance += g.advanceWidth * scale
+        if (g.height * scale > maxHeight) maxHeight = g.height * scale
+      }
+      const anchor = p.def.anchor ?? 'center'
+      let dx = 0, dy = 0
+      // Horizontal anchor
+      if (anchor === 'left' || anchor.endsWith('-left')) dx = 0
+      else if (anchor === 'right' || anchor.endsWith('-right')) dx = -totalAdvance
+      else dx = -totalAdvance / 2
+      // Vertical anchor
+      if (anchor === 'top' || anchor.startsWith('top-')) dy = maxHeight
+      else if (anchor === 'bottom' || anchor.startsWith('bottom-')) dy = 0
+      else dy = maxHeight / 2  // center
+      // text-offset (em-units) — multiply by font size for px.
+      if (p.def.offset) {
+        dx += p.def.offset[0] * p.def.size
+        dy += p.def.offset[1] * p.def.size
+      }
       draws.push({
-        anchorX: p.anchorX,
-        anchorY: p.anchorY,
+        anchorX: p.anchorX + dx,
+        anchorY: p.anchorY + dy,
         glyphs,
         fontSize: p.def.size,
         rasterFontSize: this.opts.rasterFontSize,
