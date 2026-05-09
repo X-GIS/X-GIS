@@ -1,0 +1,14 @@
+/* One-line `import "url"` of a real Mapbox v8 style.json.
+ *
+ * The runtime fetches the URL, sniffs the body (Mapbox shape:
+ * `version` + `layers`), runs convertMapboxStyle, and prepends
+ * the converted xgis to the rest of this program. The user
+ * `places` layer below stacks on top — same paint precedence
+ * as if the imported layers were declared inline.
+ *
+ * No bundler step, no manual fetch + paste — drop the URL in,
+ * get a full base map. Cherry-pick form for project-internal
+ * modules (`import { name } from "./styles.xgis"`) is unchanged.
+ */
+
+import "https://tiles.openfreemap.org/styles/bright"

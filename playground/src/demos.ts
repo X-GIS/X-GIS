@@ -133,6 +133,13 @@ export const DEMOS: Record<string, Demo> = {
     source: load('pmtiles-labels.xgis'),
   },
 
+  import_mapbox_style: {
+    name: 'import "mapbox-style-url"',
+    tag: 'xgvt',
+    description: 'One-line splice import: runtime fetches OpenFreeMap Bright style.json, runs convertMapboxStyle, prepends the converted xgis. Zero JS glue.',
+    source: load('import-mapbox-style.xgis'),
+  },
+
   multiline_labels: {
     name: 'Multiline labels',
     tag: 'basic',
