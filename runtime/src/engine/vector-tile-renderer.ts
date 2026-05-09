@@ -2907,7 +2907,18 @@ export class VectorTileRenderer {
       // that have their OWN buildings. Sentinel west=-1e30 means
       // "no clip" for the primary path (fragment shader skips the
       // discard test).
-      if (visibleKeysForClip) {
+      // Skip per-tile clip when the parent is z=0 root: at that
+      // zoom the tile's data covers the WHOLE world, and the visible-
+      // tile-selector's habit of returning only one z=1 child (e.g.
+      // SE quadrant) at low camera zoom would clip the parent to
+      // that quadrant — visible symptom: hero map shows only Africa
+      // + Australia. Skipping the clip lets the parent render the
+      // entire world for every visible-key fallback at z=0 (some
+      // overdraw, but visually correct). The clip mechanism remains
+      // active for higher-zoom fallback (z>0 parents do NOT contain
+      // adjacent visible tiles' data so cross-tile spill is real).
+      const parentIsRoot = cached.tileZoom === 0
+      if (visibleKeysForClip && !parentIsRoot) {
         const visibleKey = visibleKeysForClip[ki]
         const [vz, vx, vy] = tileKeyUnpack(visibleKey)
         const vn = Math.pow(2, vz)
