@@ -352,15 +352,36 @@ const presets: Preset[] = [
      *  multi-MB hash payloads, and the hash never reaches the server.
      *  The demo runner detects `#src=...` and decodes ahead of its
      *  sessionStorage fallback. */
-    function openInPlayground(source: string, label: string): void {
+    async function openInPlayground(source: string, label: string): Promise<void> {
       // Vite/Astro inline DEV at build — falls back to false in prod
       // bundles so the dev branch tree-shakes out.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isDev = !!(import.meta as any).env?.DEV
       if (isDev) {
+        // Probe the playground dev server before navigating —
+        // a 404/500/timeout up front beats a confusing dead tab. We
+        // hit /@vite/client (always served by Vite when running)
+        // with a no-cors fetch; failure means server isn't up.
+        let playgroundRunning = false
+        try {
+          const probe = await fetch('https://localhost:3000/@vite/client', {
+            mode: 'no-cors', cache: 'no-store',
+          })
+          playgroundRunning = probe.ok || probe.type === 'opaque'
+        } catch {
+          playgroundRunning = false
+        }
+        if (!playgroundRunning) {
+          setStatus(
+            'Playground dev server not running on https://localhost:3000. ' +
+            'Start it with `bun run dev` in playground/ (or `bun run dev:all` ' +
+            'from the repo root to start both servers).',
+            'err',
+          )
+          return
+        }
         const encoded = btoa(unescape(encodeURIComponent(source)))
         const labelParam = encodeURIComponent(label)
-        // Playground dev server defaults — see playground/vite.config.ts
         window.location.href =
           `https://localhost:3000/demo.html?id=__import&label=${labelParam}#src=${encoded}`
         return
@@ -374,7 +395,7 @@ const presets: Preset[] = [
 
     $open.addEventListener('click', () => {
       if (!$out.value) { setStatus('Convert first, then open.', 'err'); return }
-      openInPlayground($out.value, lastImportLabel)
+      void openInPlayground($out.value, lastImportLabel)
     })
 
     $copyImport.addEventListener('click', async () => {
@@ -396,7 +417,7 @@ const presets: Preset[] = [
       // runs the same fetch + convert path on load. Goes through the
       // same dev / prod dispatch as the converted-source button.
       const oneLiner = `import "${lastFetchedUrl}"\n`
-      openInPlayground(oneLiner, lastImportLabel + ' (import)')
+      void openInPlayground(oneLiner, lastImportLabel + ' (import)')
     })
 
     $json.addEventListener('keydown', (e) => {

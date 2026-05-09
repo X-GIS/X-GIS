@@ -8,7 +8,8 @@
     "build": "bun run --filter '*' build",
     "test": "vitest run",
     "dev": "bun run --filter @xgis/playground dev",
-    "dev:site": "bun run --filter @xgis/site dev"
+    "dev:site": "bun run --filter @xgis/site dev",
+    "dev:all": "bun run --filter @xgis/playground --filter @xgis/site dev"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
