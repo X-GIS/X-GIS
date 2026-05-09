@@ -267,6 +267,61 @@ export class ShapeRegistry {
     return this.addShape(USER_SHAPE_PREFIX + name, svgPath)
   }
 
+  /** Register a glyph from a font as a shape under `glyph:fontKey:cp`.
+   *  The path data comes from font-loader's `extractGlyph`. The shape
+   *  is normalised to the same ±1 coordinate frame as built-ins so
+   *  the point renderer can size it via the standard size attribute.
+   *  `unitsPerEm` from the font is used as the normalisation divisor.
+   *  Returns shape_id (0 if path is empty — typical for whitespace
+   *  glyphs which need advance width but render nothing). */
+  addGlyph(fontKey: string, codepoint: number, pathData: string, unitsPerEm: number): number {
+    const name = `glyph:${fontKey}:${codepoint}`
+    if (this.shapes.has(name)) return this.shapes.get(name)!.id
+    if (!pathData) return 0 // empty path (whitespace) — no shape, advance only
+    // Glyph paths come out of opentype.js in font-units, baseline at
+    // y=0, growing right (+x) and DOWN (+y in opentype's flipped frame).
+    // Normalise to the ±1 frame the SDF point shader expects:
+    //   px_norm = px / unitsPerEm
+    // The renderer then scales by the layer's size value (font size in
+    // pixels = size * 1.0 because unitsPerEm == 1.0 after normalisation).
+    // Using the same coordinate frame as built-in shapes (square /
+    // diamond / etc.) lets the existing size pipeline reuse intact.
+    const cmds = parseSVGPath(pathData)
+    const norm = 1 / unitsPerEm
+    const normalisedCmds: PathCmd[] = cmds.map(c => {
+      switch (c.type) {
+        case 'M': return { type: 'M', x: c.x * norm, y: -c.y * norm } // flip Y back to math frame
+        case 'L': return { type: 'L', x: c.x * norm, y: -c.y * norm }
+        case 'C': return {
+          type: 'C',
+          x1: c.x1 * norm, y1: -c.y1 * norm,
+          x2: c.x2 * norm, y2: -c.y2 * norm,
+          x: c.x * norm, y: -c.y * norm,
+        }
+        case 'Q': return {
+          type: 'Q',
+          x1: c.x1 * norm, y1: -c.y1 * norm,
+          x: c.x * norm, y: -c.y * norm,
+        }
+        case 'Z': return { type: 'Z' }
+      }
+    })
+    const { segments, bbox } = pathToSegments(normalisedCmds)
+    const id = this.nextId++
+    const desc: ShapeDescData = {
+      segStart: this.allSegments.length,
+      segCount: segments.length,
+      bboxMinX: bbox[0],
+      bboxMinY: bbox[1],
+      bboxMaxX: bbox[2],
+      bboxMaxY: bbox[3],
+    }
+    this.allSegments.push(...segments)
+    this.shapes.set(name, { id, desc, segments })
+    this.dirty = true
+    return id
+  }
+
   /** Register a shape from SVG path string. Returns shape_id (1-based, 0=circle). */
   addShape(name: string, svgPath: string): number {
     if (this.shapes.has(name)) return this.shapes.get(name)!.id
