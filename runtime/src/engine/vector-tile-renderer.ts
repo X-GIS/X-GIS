@@ -532,6 +532,12 @@ export class VectorTileRenderer {
     this._frameVertices = 0
     this._frameDrawnByZoom.clear()
     this._frameClassifyMemo.clear()
+    // Reset the per-frame upload counter + replay any uploads that
+    // got held over by the previous frame's cap. Without this, a
+    // 80+ slice scene (Bright) bursts hundreds of uploads into one
+    // rAF callback and the JS thread spends ~300 ms per frame in
+    // staging-buffer copies. See `_uploadsThisFrame` for context.
+    this.resetUploadFrameCap()
     // Frame tile cache invalidates on each new frame via the
     // currentFrameId comparison in render(); explicit null isn't
     // strictly needed, but releasing the GC reference here lets the
@@ -592,6 +598,20 @@ export class VectorTileRenderer {
    *  the only meaningful cap is staging-buffer concurrency. */
   private uploadQueue = new PriorityQueue<string, void>()
   private uploadItemData = new Map<string, { key: number; data: TileData; sourceLayer: string }>()
+
+  /** Per-frame dispatch counter. Phase C removed the count-based
+   *  upload budget on the assumption that mapAsync would prevent
+   *  JS-thread stalls. Bench (Bright at z=14 Tokyo, 2026-05-08):
+   *  pre-Phase-C 7 ms median, post 80-300 ms — even with maxJobs=1
+   *  the JS thread spends most of the frame in writeBuffer / staging
+   *  copy, because every job's completion microtask immediately
+   *  dispatches the next, and the queue drains hundreds of items in
+   *  ONE rAF callback. The per-frame cap below restores the bound
+   *  on `uploadTile` calls that actually start work this frame.
+   *  Overflow is held in `_heldUploads` and replayed at beginFrame. */
+  private _uploadsThisFrame = 0
+  private _heldUploads: { key: number; data: TileData; sourceLayer: string }[] = []
+  private _heldUploadIds = new Set<string>()
   /** Per-decision counts from the last render() call. Always tracked
    *  (cheap — Map of ~7 string keys). Exposed via
    *  `getLastDecisionCounts()` for inspector / console diagnosis.
@@ -745,7 +765,18 @@ export class VectorTileRenderer {
     const LAT_LIMIT = 85.051129
     const clampLat = (v: number): number => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
 
-    for (const key of this.stableKeys) {
+    // Walk ONLY the current-frame visible-tile set (neededKeys) — NOT
+    // stableKeys, which also contains fallback ancestors that get
+    // drawn as fill-behind-the-missing-z=14 placeholders. Iterating
+    // those for labels is wasted work and produces label density
+    // mismatch (a z=13 ancestor's labels at z=14 viewport are too
+    // sparse + already-superseded by the eventual z=14 labels).
+    // Bright at z=14 Tokyo measured 308 ms/frame walking 279
+    // stableKeys; switching to ~9 neededKeys is ~30× less iteration.
+    // Falls back to stableKeys when the frame cache is empty (early
+    // boot, or render() hasn't been called this frame yet).
+    const labelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
+    for (const key of labelKeys) {
       const tileData = this.source.getTileData(key, sliceLayer)
       if (!tileData?.pointVertices || tileData.pointVertices.length < 5) continue
       const ptv = tileData.pointVertices
@@ -812,7 +843,10 @@ export class VectorTileRenderer {
     const clampLat = (v: number): number => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
     const STRIDE = 10  // [mx_h, my_h, mx_l, my_l, feat_id, arc, tin_x, tin_y, tout_x, tout_y]
 
-    for (const key of this.stableKeys) {
+    // Same visible-only walk as forEachLabelFeature — see comment
+    // there for the 30× iteration-count win at Bright z=14.
+    const labelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
+    for (const key of labelKeys) {
       const tileData = this.source.getTileData(key, sliceLayer)
       if (!tileData?.lineVertices || !tileData?.lineIndices) continue
       const lv = tileData.lineVertices
@@ -998,6 +1032,28 @@ export class VectorTileRenderer {
     if (this.getLayerCache(sourceLayer)?.has(key)) return
     const id = `${key}:${sourceLayer}`
     if (this.uploadQueue.has(id)) return
+    if (this._heldUploadIds.has(id)) return  // already deferred to next frame
+
+    // Per-frame SLICE-upload cap. Phase A/B/C made `uploadTile` per-
+    // SLICE not per-tile, so a single visible tile in an 80-layer
+    // style (Bright) generates ~80 uploadTile calls. Empirically
+    // (z=14 Tokyo, OpenFreeMap Bright):
+    //   cap=24 → pitch=0 182 ms / pitch=40 514 ms / pitch=80 1066 ms
+    //   cap=4  → pitch=0 190 ms / pitch=40 150 ms / pitch=80  339 ms
+    // Higher cap drains more this frame but each dispatched upload's
+    // sync portion (~5 ms staging copy + writeBuffer encode) blocks
+    // the JS thread, so the per-frame budget grows. cap=4 is the
+    // sweet spot: convergence is bounded but per-frame stall is
+    // tolerable. Mobile gets 1 (matches the prior `uploadBudgetFor`
+    // mobile floor for the same per-CPU-cost reasoning).
+    const cap = (typeof window !== 'undefined' && window.innerWidth <= 900) ? 1 : 4
+    if (this._uploadsThisFrame >= cap) {
+      this._heldUploads.push({ key, data, sourceLayer })
+      this._heldUploadIds.add(id)
+      return
+    }
+    this._uploadsThisFrame++
+
     this.uploadItemData.set(id, { key, data, sourceLayer })
     this.uploadQueue.add(id, async () => {
       const item = this.uploadItemData.get(id)
@@ -1008,6 +1064,21 @@ export class VectorTileRenderer {
       this.uploadItemData.delete(id)
       console.error('[upload queue]', err)
     })
+  }
+
+  /** Release the per-frame upload slot counter and replay any tiles
+   *  held over from the previous frame. Called from beginFrame. */
+  private resetUploadFrameCap(): void {
+    this._uploadsThisFrame = 0
+    if (this._heldUploads.length === 0) return
+    // Replay up to the cap. Items beyond the cap remain held for the
+    // following frame.
+    const held = this._heldUploads
+    this._heldUploads = []
+    this._heldUploadIds.clear()
+    for (const item of held) {
+      this.uploadTile(item.key, item.data, item.sourceLayer)
+    }
   }
 
   /** Kick the upload queue. The queue auto-schedules via `queueMicrotask`

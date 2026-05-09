@@ -2546,8 +2546,15 @@ export class XGISMap {
       //       project the centroid.
       // Lazy-init the stage on first use so a label-free map
       // allocates no atlas pages.
-      const labelShows = this.showCommands.filter(s => s.label !== undefined && s.visible !== false)
-      if (this.overlays.length > 0 || labelShows.length > 0) {
+      // Diagnostic kill switch — `window.__xgisDisableLabels = true`
+      // before render() short-circuits ALL label work. Used to A/B
+      // measure text subsystem cost vs the rest of the frame.
+      const disableLabels = typeof window !== 'undefined'
+        && (window as unknown as { __xgisDisableLabels?: boolean }).__xgisDisableLabels === true
+      const labelShows = disableLabels
+        ? []
+        : this.showCommands.filter(s => s.label !== undefined && s.visible !== false)
+      if (!disableLabels && (this.overlays.length > 0 || labelShows.length > 0)) {
         if (this.textStage === null) {
           this.textStage = new TextStage(device, this.ctx.format, {}, sc)
           this.textStage.prewarmGISDefaults()
