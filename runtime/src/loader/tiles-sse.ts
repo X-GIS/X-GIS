@@ -44,6 +44,7 @@
 
 import type { Camera } from '../engine/camera'
 import type { Projection } from './../engine/projection'
+import { worldCopiesFor } from '../engine/gpu-shared'
 import type { TileCoord } from './tiles'
 
 const EARTH_CIRC_M = 40075016.686
@@ -83,21 +84,32 @@ export interface VisibleTilesSSEOptions {
   maxEmitted?: number
 }
 
+/** Levels of fallback-only ancestor inject. For each emitted tile we
+ *  also push its (z-1, z-2) parents flagged `fallbackOnly` so they're
+ *  protected from eviction — the renderer uses them when a child slice
+ *  hasn't been uploaded yet. Mirrors the existing
+ *  `visibleTilesFrustum` semantics so the parent-walk fallback in VTR
+ *  works identically with either selector.
+ *
+ *  Cap at 2 so the inject set stays bounded on Bright-class scenes. */
+const FALLBACK_PARENT_DEPTH = 2
+
 /** Select visible tiles by screen-space-error. Same return shape as
  *  `visibleTilesFrustum` so callers can swap behind a feature flag.
  *
- *  **Phase 1 scope** — flat Mercator, no world copies, no margin
- *  enlargement, no fallbackOnly inject. Sufficient for measuring
- *  whether the SSE metric solves the high-pitch tile-explosion
- *  problem; production-fidelity passes follow once the comparison
- *  data is in. */
+ *  **Phase 2 (this commit)** — adds world-copy enumeration (camera
+ *  spanning antimeridian), margin-aware enlargement (stroke offsets
+ *  rendering past tile bounds), and fallbackOnly parent inject for
+ *  eviction protection. With these the selector is feature-equivalent
+ *  to `visibleTilesFrustum` for Mercator. Phase 3 follow-ups (OBB
+ *  cull, globe / non-Mercator projections, latitude clamp) ship later. */
 export function visibleTilesSSE(
   camera: Camera,
-  _projection: Projection,
+  projection: Projection,
   maxZ: number,
   canvasWidth: number,
   canvasHeight: number,
-  _extraMarginPx: number = 0,
+  extraMarginPx: number = 0,
   dpr: number = 1,
   opts: VisibleTilesSSEOptions = {},
 ): TileCoord[] {
@@ -138,6 +150,12 @@ export function visibleTilesSSE(
   // wrap behind). Without this short-circuit the DFS never enters
   // the root tile at pitch>0 and the entire selection collapses to
   // zero tiles.
+  //
+  // `extraMarginPx` widens the off-screen test so tiles whose data
+  // lies just outside the viewport but whose RENDERED geometry reaches
+  // back into view (e.g. via stroke-offset, halo, dilated patterns)
+  // are still selected.
+  const margin = extraMarginPx
   const tileVisible = (mxMin: number, myMax: number, mxMax: number, myMin: number): boolean => {
     if (camMx >= mxMin && camMx <= mxMax && camMy >= myMin && camMy <= myMax) {
       return true
@@ -150,7 +168,6 @@ export function visibleTilesSSE(
     ]
     let allBehind = true
     let allLeft = true, allRight = true, allTop = true, allBottom = true
-    const margin = 0
     for (const c of corners) {
       if (!c) continue
       allBehind = false
@@ -164,21 +181,36 @@ export function visibleTilesSSE(
   }
 
   const result: TileCoord[] = []
+  // De-dup parent injects across world-copies and across primary tiles
+  // — the parent of a NE quadrant child and its SW sibling can be the
+  // same coord; without dedup the renderer ends up drawing the same
+  // ancestor twice.
+  const injectedParents = new Set<number>()
+  const parentKey = (z: number, x: number, y: number, worldCopy: number): number =>
+    // Pack (worldCopy, z, x, y) into a 53-bit number for Set lookup.
+    // worldCopy fits ±10 (overhead bits), z ≤ 22 (5 bits), x/y ≤ 2^22.
+    ((worldCopy + 16) * 32 + z) * (1 << 22) * (1 << 22) + x * (1 << 22) + y
 
-  // DFS. `n` = 2^z = number of tiles per side at this level.
-  // Each tile's mercator span: [PI_R - y*tileSize..PI_R - (y+1)*tileSize] in y,
-  //                            [-PI_R + x*tileSize..-PI_R + (x+1)*tileSize] in x.
-  const visit = (z: number, x: number, y: number): void => {
+  // DFS. `n` = 2^z = number of tiles per side at this level. The
+  // mercator x range is shifted by `worldCopy * EARTH_CIRC_M` so a
+  // single DFS pass can be driven from each world copy's root.
+  const visit = (z: number, x: number, y: number, worldCopy: number): void => {
     if (result.length >= maxEmitted) return
 
     const n = 1 << z
     const tileSize = EARTH_CIRC_M / n
-    const mxMin = -PI_R + x * tileSize
+    const xOffset = worldCopy * EARTH_CIRC_M
+    const mxMin = -PI_R + x * tileSize + xOffset
     const mxMax = mxMin + tileSize
     const myMax = PI_R - y * tileSize
     const myMin = myMax - tileSize
 
-    if (!tileVisible(mxMin, myMax, mxMax, myMin)) return
+    // ALWAYS descend the root (z=0): a worldCopy != 0 root may have all
+    // corners off-screen behind/beside the camera even when its
+    // children straddle the viewport. The frustum-cull approximation
+    // only converges at higher z when corners are closer to the
+    // camera. Root has 4 children → 4 extra tile-visible tests, cheap.
+    if (z > 0 && !tileVisible(mxMin, myMax, mxMax, myMin)) return
 
     // 3D distance from camera to the CLOSEST POINT on the tile's
     // bounding rectangle. Using tile-centre distance (which is what
@@ -215,19 +247,49 @@ export function visibleTilesSSE(
         const cx = x * 2 + (i & 1)
         const cy = y * 2 + ((i >> 1) & 1)
         const childTileSize = tileSize / 2
-        const ccx = -PI_R + (cx + 0.5) * childTileSize
+        const ccx = -PI_R + (cx + 0.5) * childTileSize + xOffset
         const ccy = PI_R - (cy + 0.5) * childTileSize
         const cdx = ccx - camMx, cdy = ccy - camMy
         children.push({ cx, cy, idx: cdx * cdx + cdy * cdy })
       }
       children.sort((a, b) => a.idx - b.idx)
-      for (const c of children) visit(z + 1, c.cx, c.cy)
+      for (const c of children) visit(z + 1, c.cx, c.cy, worldCopy)
     } else {
-      // Emit at this level.
-      result.push({ z, x, y, ox: x })
+      // Emit at this level. `ox = x + worldCopy * 2^z` per the
+      // TileCoord absolute-x contract (see loader/tiles.ts:39).
+      result.push({ z, x, y, ox: x + worldCopy * n })
+
+      // fallbackOnly parent inject — push (z-1, z-2) parents flagged
+      // `fallbackOnly` so eviction protects them. Renderer routes
+      // these through the fallback path (clipped to children's bounds)
+      // when the primary slice hasn't uploaded yet. De-duped via
+      // `injectedParents` so the SAME coord across siblings doesn't
+      // emit twice.
+      let pz = z, px = x, py = y
+      for (let depth = 0; depth < FALLBACK_PARENT_DEPTH && pz > 0; depth++) {
+        pz -= 1; px >>>= 1; py >>>= 1
+        const k = parentKey(pz, px, py, worldCopy)
+        if (injectedParents.has(k)) break
+        injectedParents.add(k)
+        result.push({
+          z: pz, x: px, y: py,
+          ox: px + worldCopy * (1 << pz),
+          fallbackOnly: true,
+        })
+      }
     }
   }
 
-  visit(0, 0, 0)
+  // Run the DFS from each world copy's root. For non-Mercator the
+  // worldCopiesFor array is `[0]` so this is a single iteration.
+  // proj_params encoding: 0 = mercator. We don't have direct access to
+  // projType here (the projection enum isn't exported as a numeric
+  // code), so use the `name` heuristic — matches what the existing
+  // visibleTilesFrustum does at line 295-296.
+  const projType = projection.name === 'mercator' ? 0 : 1
+  const worldCopies = worldCopiesFor(projType)
+  for (const wc of worldCopies) {
+    visit(0, 0, 0, wc)
+  }
   return result
 }

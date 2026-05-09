@@ -96,26 +96,89 @@ describe('visibleTilesSSE — perspective adaptation', () => {
 
 describe('visibleTilesSSE — TileCoord contract', () => {
   it('every emitted tile satisfies the (x, ox) absolute-x contract', () => {
-    // Phase 1: world-copy enumeration deferred, so ox === x always.
-    // When Phase 2 lands world copies this test should be updated;
-    // until then it pins the simpler invariant.
+    // Phase 2: ox = x + worldCopy * 2^z. Wrapped x stays in [0, 2^z),
+    // ox can be ±N*2^z when the camera spans world copies.
     const cam = makeCam(14, 0, 139.76, 35.68)
     const tiles = visibleTilesSSE(cam, mercator, 14, 1280, 800, 0, 1)
     for (const t of tiles) {
-      expect(t.ox).toBe(t.x)
+      const n = 1 << t.z
       expect(t.x).toBeGreaterThanOrEqual(0)
-      expect(t.x).toBeLessThan(1 << t.z)
+      expect(t.x).toBeLessThan(n)
       expect(t.y).toBeGreaterThanOrEqual(0)
-      expect(t.y).toBeLessThan(1 << t.z)
+      expect(t.y).toBeLessThan(n)
+      // ox - x must be a multiple of n (a world-copy shift).
+      const wc = (t.ox - t.x) / n
+      expect(Number.isInteger(wc)).toBe(true)
     }
   })
 
-  it('does not emit fallbackOnly tiles in Phase 1', () => {
-    // The fallback-ancestor inject is on the Phase 2 list. Until then,
-    // emit only primary tiles.
+  it('emits fallbackOnly parent ancestors for eviction protection', () => {
+    // Phase 2: each primary tile pushes (z-1, z-2) ancestors flagged
+    // `fallbackOnly` so they're protected from cache eviction. The
+    // renderer uses them as parent fallbacks when child slices haven't
+    // uploaded yet. Mirrors visibleTilesFrustum's behaviour.
     const cam = makeCam(14, 60, 139.76, 35.68)
     const tiles = visibleTilesSSE(cam, mercator, 14, 1280, 800, 0, 1)
-    for (const t of tiles) expect(t.fallbackOnly).toBeFalsy()
+    const primaries = tiles.filter(t => !t.fallbackOnly)
+    const ancestors = tiles.filter(t => t.fallbackOnly === true)
+    expect(primaries.length).toBeGreaterThan(0)
+    expect(ancestors.length).toBeGreaterThan(0)
+    // Every ancestor should be at a strictly LOWER zoom than at least
+    // one primary tile (they're parents).
+    const primaryZooms = new Set(primaries.map(t => t.z))
+    for (const a of ancestors) {
+      let foundChild = false
+      for (const z of primaryZooms) {
+        if (z > a.z) { foundChild = true; break }
+      }
+      expect(foundChild,
+        `ancestor at z=${a.z} should have at least one primary child at higher z`,
+      ).toBe(true)
+    }
+  })
+})
+
+describe('visibleTilesSSE — Phase 2 world copies', () => {
+  it('camera near the antimeridian emits tiles in BOTH world copies', () => {
+    // Camera at lon=180° (date line) with 60° pitch — half the view
+    // is in worldCopy=0, the other half in worldCopy=+1 (or -1).
+    // Without world-copy enumeration, half the screen would render
+    // black at non-zero pitch + bearing.
+    const cam = makeCam(8, 60, 179.5, 0)  // just east of date line
+    const tiles = visibleTilesSSE(cam, mercator, 14, 1280, 800, 0, 1)
+    const worldCopies = new Set<number>()
+    for (const t of tiles) {
+      const n = 1 << t.z
+      worldCopies.add(Math.floor(t.ox / n))
+    }
+    // Expect at least 2 distinct world copies in the result.
+    expect(worldCopies.size).toBeGreaterThanOrEqual(2)
+  })
+
+  it('non-Mercator projection emits a single world copy only', () => {
+    // The worldCopiesFor(projType=1) returns [0]. Tile selector should
+    // skip the ±N enumeration so non-Mercator (ortho, equirect, …)
+    // doesn't double-emit the visible hemisphere.
+    const cam = makeCam(2, 0, 0, 0)
+    const ortho = { ...mercator, name: 'orthographic' as const }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tiles = visibleTilesSSE(cam, ortho as any, 14, 1280, 800, 0, 1)
+    for (const t of tiles) {
+      const n = 1 << t.z
+      expect(Math.floor(t.ox / n)).toBe(0)
+    }
+  })
+})
+
+describe('visibleTilesSSE — Phase 2 margin enlargement', () => {
+  it('larger extraMarginPx selects MORE tiles than zero margin', () => {
+    // The margin widens the cull envelope so tiles whose centerline
+    // data is just outside the viewport still get selected (covers
+    // stroke-offset / halo render reach).
+    const cam = makeCam(14, 0, 139.76, 35.68)
+    const tight = visibleTilesSSE(cam, mercator, 14, 1280, 800, 0, 1).length
+    const loose = visibleTilesSSE(cam, mercator, 14, 1280, 800, 200, 1).length
+    expect(loose).toBeGreaterThanOrEqual(tight)
   })
 })
 

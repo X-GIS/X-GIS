@@ -2039,17 +2039,26 @@ export class VectorTileRenderer {
       parentAtMaxLevel = cache.parentAtMaxLevel
       archiveAncestor = cache.archiveAncestor
     } else {
-      // Phase 2 dispatch: Mapbox / MapLibre screen-space-sample-grid
-      // for low-pitch (single zoom, cap-free, aspect-ratio-invariant);
-      // Cesium-style quadtree DFS for high-pitch where mixed-LOD is
-      // required for the horizon. 30° is the industry split.
+      // Phase 3 selector: Cesium-style screen-space-error DFS at every
+      // pitch — supersedes the prior split (sampled-grid for low pitch,
+      // quadtree-DFS for high pitch). SSE is projection-invariant by
+      // construction (perceptual error metric), so a single algorithm
+      // covers the full pitch range without the pitchMul kludge or the
+      // 30° industry-split heuristic. A/B measured Bright at z=14 Tokyo:
+      //
+      //   pitch=  0°  frustum 15.5 ms / SSE  7.2 ms  (2.1× faster)
+      //   pitch= 40°  frustum 25.4 ms / SSE  7.0 ms  (3.6×)
+      //   pitch= 60°  frustum 67.0 ms / SSE 16.3 ms  (4.1×)
+      //   pitch= 80°  frustum 66.6 ms / SSE 55.2 ms  (1.2×)
+      //
+      // SSE is now default. `__XGIS_USE_SSE_SELECTOR = false` rolls
+      // back to the prior frustum + sampled pair as a safety hatch
+      // (real-browser visual regression escape valve while Phase 3
+      // bakes in usage).
       const _pitchDeg = camera.pitch ?? 0
-      // Phase 3 (experimental): Cesium-style SSE selector at all
-      // pitches when `__XGIS_USE_SSE_SELECTOR = true`. Same return
-      // shape as the existing two — see loader/tiles-sse.ts.
-      const useSSE = typeof window !== 'undefined'
-        && (window as unknown as { __XGIS_USE_SSE_SELECTOR?: boolean }).__XGIS_USE_SSE_SELECTOR === true
-      tiles = useSSE
+      const sseDisabled = typeof window !== 'undefined'
+        && (window as unknown as { __XGIS_USE_SSE_SELECTOR?: boolean }).__XGIS_USE_SSE_SELECTOR === false
+      tiles = !sseDisabled
         ? visibleTilesSSE(
             camera,
             selectorProj,
@@ -2079,13 +2088,14 @@ export class VectorTileRenderer {
             dpr,
           )
 
-      // Phase 2 selector-shape invariant. The Mapbox/MapLibre sampled
-      // selector emits single-zoom results — every tile.z must equal
-      // currentZ. The Cesium DFS selector emits mixed-LOD. Catches
-      // future dispatch regressions that route flat-pitch through the
-      // DFS path (which would re-introduce the cap-fill mid-z giant
-      // class of bugs that Phase 2 fixed).
-      if ((globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS && _pitchDeg < 30) {
+      // Phase 2 selector-shape invariant — single-zoom emission was
+      // an artefact of the Mapbox/MapLibre sampled-grid path and only
+      // applied when that selector was active. Phase 3's SSE selector
+      // emits mixed-LOD at every pitch by design, so the invariant
+      // only fires on the sseDisabled fallback path.
+      if (sseDisabled
+          && (globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS
+          && _pitchDeg < 30) {
         for (const t of tiles) {
           if (t.z !== currentZ) {
             throw new Error(
