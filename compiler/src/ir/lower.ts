@@ -258,6 +258,7 @@ function lowerLayer(
   let labelMaxWidth: number | undefined
   let labelLineHeight: number | undefined
   let labelJustify: 'auto' | 'left' | 'center' | 'right' | undefined
+  let labelPlacement: 'point' | 'line' | 'line-center' | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -490,6 +491,12 @@ function lowerLayer(
       if (name === 'label-none') { labelTransform = 'none'; continue }
       if (name === 'label-allow-overlap') { labelAllowOverlap = true; continue }
       if (name === 'label-ignore-placement') { labelIgnorePlacement = true; continue }
+      // Mapbox `symbol-placement: line | line-center` — labels follow
+      // line geometry instead of anchoring at a point. Runtime walks
+      // the line's segments and emits a label per feature with rotation
+      // matching the local tangent.
+      if (name === 'label-along-path') { labelPlacement = 'line'; continue }
+      if (name === 'label-line-center') { labelPlacement = 'line-center'; continue }
       if (name === 'label-justify-auto') { labelJustify = 'auto'; continue }
       if (name === 'label-justify-left') { labelJustify = 'left'; continue }
       if (name === 'label-justify-center') { labelJustify = 'center'; continue }
@@ -960,6 +967,7 @@ function lowerLayer(
       labelAllowOverlap, labelIgnorePlacement, labelPadding,
       labelRotate, labelLetterSpacing, labelFontStack,
       labelMaxWidth, labelLineHeight, labelJustify,
+      labelPlacement,
     }),
   }
 }
@@ -991,6 +999,7 @@ function foldLabelKnobs(
     labelMaxWidth?: number
     labelLineHeight?: number
     labelJustify?: 'auto' | 'left' | 'center' | 'right'
+    labelPlacement?: 'point' | 'line' | 'line-center'
   },
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
@@ -1029,6 +1038,7 @@ function foldLabelKnobs(
     ...(knobs.labelMaxWidth !== undefined ? { maxWidth: knobs.labelMaxWidth } : {}),
     ...(knobs.labelLineHeight !== undefined ? { lineHeight: knobs.labelLineHeight } : {}),
     ...(knobs.labelJustify !== undefined ? { justify: knobs.labelJustify } : {}),
+    ...(knobs.labelPlacement !== undefined ? { placement: knobs.labelPlacement } : {}),
   }
 }
 

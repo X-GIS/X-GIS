@@ -1,0 +1,30 @@
+/* Along-path road labels (Batch 1d) — names follow the road's
+ * geometry, rotated to match the local segment's tangent. Same
+ * Florence PMTiles archive used by `pmtiles-labels`, but pulls
+ * the `roads` source-layer (linestrings) and applies
+ * `label-along-path`.
+ *
+ * Compare to `pmtiles-labels` (point placement on `places`):
+ * point labels stay horizontal at their anchor; along-path labels
+ * rotate to match the road direction so a north-running street
+ * reads bottom-to-top, an east-west road stays horizontal, etc.
+ */
+
+source pm {
+  type: pmtiles
+  url: "https://pmtiles.io/protomaps(vector)ODbL_firenze.pmtiles"
+}
+
+layer pm_roads {
+  source: pm
+  sourceLayer: "roads"
+  | stroke-stone-300 stroke-1
+}
+
+layer pm_road_names {
+  source: pm
+  sourceLayer: "roads"
+  | label-[.name] label-color-#fff label-size-12
+    label-halo-1 label-halo-color-#000
+    label-along-path
+}

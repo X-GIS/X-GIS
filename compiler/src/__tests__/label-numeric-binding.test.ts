@@ -62,3 +62,20 @@ describe('numeric label-* utilities accept bracket-binding negatives', () => {
     expect(lbl.offset).toEqual([0, 1.5])
   })
 })
+
+describe('label-along-path / label-line-center placement', () => {
+  it('label-along-path → placement = "line"', () => {
+    const lbl = compileLabel('label-along-path')
+    expect(lbl.placement).toBe('line')
+  })
+
+  it('label-line-center → placement = "line-center"', () => {
+    const lbl = compileLabel('label-line-center')
+    expect(lbl.placement).toBe('line-center')
+  })
+
+  it('default placement is undefined (= point at runtime)', () => {
+    const lbl = compileLabel('label-size-12')  // any non-placement utility
+    expect(lbl.placement).toBeUndefined()
+  })
+})

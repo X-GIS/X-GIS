@@ -183,12 +183,20 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
     }
   }
 
+  // symbol-placement → label-along-path / label-line-center.
+  // The runtime walks line geometry and emits one label per feature,
+  // anchored at a segment midpoint with rotation matching the local
+  // tangent. Roads, waterway names, highway shields all rely on this.
+  const placement = layout['symbol-placement']
+  if (placement === 'line') utils.push('label-along-path')
+  else if (placement === 'line-center') utils.push('label-line-center')
+
   // What's STILL not converted — surface a precise warning so the
   // user knows which Batch the gap waits on.
   const ignoredText: string[] = []
   for (const k of [
     'text-keep-upright', 'text-writing-mode',
-    'symbol-placement', 'symbol-spacing',
+    'symbol-spacing',
     'icon-image', 'icon-size', 'icon-color']) {
     if (layout[k] !== undefined || paint[k] !== undefined) ignoredText.push(k)
   }

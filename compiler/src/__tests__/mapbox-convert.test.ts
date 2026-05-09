@@ -639,6 +639,54 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
+    it('symbol-placement: line → label-along-path utility', () => {
+      // Road / waterway / highway names — 7 of 25 symbol layers in
+      // OpenFreeMap Bright. Without this, road network labels never
+      // emit because point-anchor placement on a linestring picks an
+      // unhelpful centroid.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'road-name', type: 'symbol', source: 'x', 'source-layer': 'road',
+          layout: {
+            'text-field': '{name}',
+            'symbol-placement': 'line',
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-along-path')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('symbol-placement: line-center → label-line-center utility', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'l', type: 'symbol', source: 'x', 'source-layer': 'lines',
+          layout: {
+            'text-field': '{name}',
+            'symbol-placement': 'line-center',
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-line-center')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('symbol-placement no longer warns as Batch 1d/1e/2 gap', () => {
+      // Regression for the Batch 1d wiring — the converter previously
+      // listed `symbol-placement` in its ignored-keys warning. After
+      // wiring, the warning shouldn't mention it.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'r', type: 'symbol', source: 'x', 'source-layer': 'road',
+          layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
+        }],
+      })
+      expect(out).not.toMatch(/ignored properties.*symbol-placement/)
+    })
+
     it('text-allow-overlap / text-ignore-placement / text-padding → collision opt-outs', () => {
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },

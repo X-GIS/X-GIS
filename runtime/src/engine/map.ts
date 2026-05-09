@@ -2624,16 +2624,51 @@ export class XGISMap {
           if (vtEntry) {
             const DEG2RAD = Math.PI / 180
             const R = 6378137
-            vtEntry.renderer.forEachLabelFeature(show.sourceLayer, (mercX, mercY, props) => {
-              const lon = (mercX / R) / DEG2RAD
-              const lat = (2 * Math.atan(Math.exp(mercY / R)) - Math.PI / 2) / DEG2RAD
-              const projected = projectLonLat(lon, lat)
-              if (!projected) return
-              stage.addLabel(
-                effectiveDef.text, props,
-                projected[0], projected[1], effectiveDef, effectiveDef.font?.[0],
-              )
-            })
+            const mercToLonLat = (mx: number, my: number): [number, number] => [
+              (mx / R) / DEG2RAD,
+              (2 * Math.atan(Math.exp(my / R)) - Math.PI / 2) / DEG2RAD,
+            ]
+            // Along-path placement: walk lineVertices instead of
+            // pointVertices, project both segment endpoints, anchor
+            // at the screen-space midpoint, rotate by the screen-
+            // space tangent. Computing the angle in screen space
+            // (not mercator) keeps the label aligned with the visible
+            // road through any pitch / bearing.
+            const useLine = effectiveDef.placement === 'line' || effectiveDef.placement === 'line-center'
+            if (useLine) {
+              vtEntry.renderer.forEachLineLabelFeature(show.sourceLayer, (ax, ay, bx, by, props) => {
+                const [aLon, aLat] = mercToLonLat(ax, ay)
+                const [bLon, bLat] = mercToLonLat(bx, by)
+                const pa = projectLonLat(aLon, aLat)
+                const pb = projectLonLat(bLon, bLat)
+                if (!pa || !pb) return
+                const midX = (pa[0] + pb[0]) * 0.5
+                const midY = (pa[1] + pb[1]) * 0.5
+                let angleDeg = Math.atan2(pb[1] - pa[1], pb[0] - pa[0]) * 180 / Math.PI
+                // Keep-upright (lite): if the natural tangent points
+                // "leftward" (would render text upside-down to a left-
+                // to-right reader), flip 180°. Mapbox's full
+                // text-keep-upright is more sophisticated (per-glyph
+                // along curve) but this catches the egregious case.
+                if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
+                stage.addLabel(
+                  effectiveDef.text, props,
+                  midX, midY,
+                  { ...effectiveDef, rotate: angleDeg },
+                  effectiveDef.font?.[0],
+                )
+              })
+            } else {
+              vtEntry.renderer.forEachLabelFeature(show.sourceLayer, (mercX, mercY, props) => {
+                const [lon, lat] = mercToLonLat(mercX, mercY)
+                const projected = projectLonLat(lon, lat)
+                if (!projected) return
+                stage.addLabel(
+                  effectiveDef.text, props,
+                  projected[0], projected[1], effectiveDef, effectiveDef.font?.[0],
+                )
+              })
+            }
           }
         }
 

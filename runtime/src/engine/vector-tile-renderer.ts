@@ -782,6 +782,77 @@ export class VectorTileRenderer {
     }
   }
 
+  /** Walk per-tile line geometry and emit one label anchor per UNIQUE
+   *  feature (keyed by the stride-10 lineVertices' featId at index 4).
+   *  Used when LabelDef.placement === 'line' so road / waterway names
+   *  appear along their geometry instead of at a polygon-style centroid.
+   *
+   *  Callback receives BOTH segment endpoints in absolute mercator
+   *  metres so the caller can project them through the active camera
+   *  and compute a screen-space rotation angle (mercator-space angle
+   *  diverges from screen-space at non-zero pitch or rotated bearing).
+   *  v1 picks the FIRST segment of each feature it sees — sufficient
+   *  for typical 1-3 segment road tiles; longer roads / repeat-along-
+   *  line spacing land in a follow-up. */
+  forEachLineLabelFeature(
+    sliceLayer: string | undefined,
+    fn: (
+      p1MercX: number, p1MercY: number,
+      p2MercX: number, p2MercY: number,
+      props: Record<string, unknown>,
+    ) => void,
+  ): void {
+    if (!this.source) return
+    const table = this.source.getPropertyTable()
+    const fieldNames = table?.fieldNames ?? []
+    const values = table?.values ?? []
+    const DEG2RAD = Math.PI / 180
+    const R = 6378137
+    const LAT_LIMIT = 85.051129
+    const clampLat = (v: number): number => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
+    const STRIDE = 10  // [mx_h, my_h, mx_l, my_l, feat_id, arc, tin_x, tin_y, tout_x, tout_y]
+
+    for (const key of this.stableKeys) {
+      const tileData = this.source.getTileData(key, sliceLayer)
+      if (!tileData?.lineVertices || !tileData?.lineIndices) continue
+      const lv = tileData.lineVertices
+      const li = tileData.lineIndices
+      if (lv.length < STRIDE * 2 || li.length < 2) continue
+      const tileMercX = tileData.tileWest * DEG2RAD * R
+      const tileMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(tileData.tileSouth) * DEG2RAD / 2)) * R
+      const tileProps = tileData.featureProps
+      const seen = new Set<number>()
+      for (let i = 0; i < li.length; i += 2) {
+        const a = li[i]! * STRIDE
+        const b = li[i + 1]! * STRIDE
+        const featId = lv[a + 4]! | 0
+        // Defensive: a degenerate segment with mismatched featIds
+        // would produce a label spanning two roads. Skip rather than
+        // emit garbage — the next clean segment for this feature
+        // will catch it.
+        if ((lv[b + 4]! | 0) !== featId) continue
+        if (seen.has(featId)) continue
+        seen.add(featId)
+        // DSFUN tile-local high+low → tile-local mercator → absolute.
+        const ax = tileMercX + lv[a]! + lv[a + 2]!
+        const ay = tileMercY + lv[a + 1]! + lv[a + 3]!
+        const bx = tileMercX + lv[b]! + lv[b + 2]!
+        const by = tileMercY + lv[b + 1]! + lv[b + 3]!
+        let props: Record<string, unknown>
+        if (tileProps) {
+          props = tileProps.get(featId) ?? {}
+        } else {
+          const row = values[featId] as readonly (number | string | boolean | null)[] | undefined
+          props = {}
+          if (row) {
+            for (let f = 0; f < fieldNames.length; f++) props[fieldNames[f]!] = row[f]
+          }
+        }
+        fn(ax, ay, bx, by, props)
+      }
+    }
+  }
+
   hasFeatureData(): boolean {
     return this.featureDataBuffer !== null
   }

@@ -140,6 +140,13 @@ export const DEMOS: Record<string, Demo> = {
     source: load('import-mapbox-style.xgis'),
   },
 
+  along_path_roads: {
+    name: 'Along-path road labels',
+    tag: 'xgvt',
+    description: 'symbol-placement: line — label-along-path rotates each road name to match its segment tangent, so streets read along their geometry instead of horizontally.',
+    source: load('along-path-roads.xgis'),
+  },
+
   multiline_labels: {
     name: 'Multiline labels',
     tag: 'basic',
