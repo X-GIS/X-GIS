@@ -158,40 +158,102 @@ export class TextStage {
       // glyphs. Applied as a per-glyph advance bump that the
       // text-renderer reads via the glyph's effective advance.
       const letterSpacingPx = (p.def.letterSpacing ?? 0) * p.def.size
-      let totalAdvance = 0
+      const scale = p.def.size / this.opts.rasterFontSize
+      // Multiline layout: greedy word-break at maxWidth (em-units →
+      // px). When unset, treat as Infinity = single line.
+      const maxWidthPx = p.def.maxWidth !== undefined
+        ? p.def.maxWidth * p.def.size : Infinity
+      const lineHeightEm = p.def.lineHeight ?? 1.2
+      const lineHeightPx = lineHeightEm * p.def.size
+      const justify = p.def.justify ?? 'center'
+
+      // Compute per-line glyph ranges + line widths.
+      interface LineRange { start: number; end: number; width: number }
+      const lines: LineRange[] = []
+      let lineStart = 0
+      let lineW = 0
+      let lastSpaceI = -1
+      let lastSpaceW = 0
       let maxHeight = 0
+      const advances: number[] = new Array(glyphs.length)
       for (let gi = 0; gi < glyphs.length; gi++) {
         const g = glyphs[gi]!
-        const scale = p.def.size / this.opts.rasterFontSize
-        totalAdvance += g.advanceWidth * scale
-        // letter-spacing adds AFTER each glyph EXCEPT the last so
-        // trailing whitespace doesn't accumulate. Total: (n-1)*ls.
-        if (gi < glyphs.length - 1) totalAdvance += letterSpacingPx
+        const adv = g.advanceWidth * scale
+        advances[gi] = adv
         if (g.height * scale > maxHeight) maxHeight = g.height * scale
       }
+      for (let gi = 0; gi < glyphs.length; gi++) {
+        const g = glyphs[gi]!
+        const adv = advances[gi]!
+        const ls = gi < glyphs.length - 1 ? letterSpacingPx : 0
+        // Track break candidates at U+0020 (space).
+        if (g.codepoint === 0x20) {
+          lastSpaceI = gi
+          lastSpaceW = lineW
+        }
+        if (lineW + adv > maxWidthPx && lastSpaceI > lineStart) {
+          // Wrap at the most recent space. The space itself is
+          // dropped (it would otherwise sit at the end of the line).
+          lines.push({ start: lineStart, end: lastSpaceI, width: lastSpaceW })
+          lineStart = lastSpaceI + 1
+          lineW = 0
+          for (let j = lineStart; j <= gi; j++) {
+            lineW += advances[j]!
+            if (j < gi) lineW += letterSpacingPx
+          }
+          lastSpaceI = -1
+        } else {
+          lineW += adv + ls
+        }
+      }
+      lines.push({ start: lineStart, end: glyphs.length, width: lineW })
+      // Total bounding box width = max line width.
+      let totalAdvance = 0
+      for (const ln of lines) if (ln.width > totalAdvance) totalAdvance = ln.width
+      const totalHeight = maxHeight + (lines.length - 1) * lineHeightPx
       const anchor = p.def.anchor ?? 'center'
       let dx = 0, dy = 0
       if (anchor === 'left' || anchor.endsWith('-left')) dx = 0
       else if (anchor === 'right' || anchor.endsWith('-right')) dx = -totalAdvance
       else dx = -totalAdvance / 2
-      if (anchor === 'top' || anchor.startsWith('top-')) dy = maxHeight
+      if (anchor === 'top' || anchor.startsWith('top-')) dy = totalHeight
       else if (anchor === 'bottom' || anchor.startsWith('bottom-')) dy = 0
-      else dy = maxHeight / 2
+      else dy = totalHeight / 2
       if (p.def.offset) {
         dx += p.def.offset[0] * p.def.size
         dy += p.def.offset[1] * p.def.size
       }
       const drawX = p.anchorX + dx
       const drawY = p.anchorY + dy
-      // Bbox in screen px (display, NOT physical). The text-renderer
-      // already operates in display px so we use the same units —
-      // Map.ts's projection puts both the anchor and text-renderer's
-      // viewport in canvas physical pixels, but at viewport-divide
-      // time the units cancel out for collision testing.
+      // Compute per-glyph offsets relative to (drawX, drawY) for
+      // multi-line layout. Each line gets justified within the
+      // bbox according to `justify`; lines stack vertically by
+      // lineHeightPx.
+      const glyphOffsets = lines.length > 1 ? new Float32Array(glyphs.length * 2) : undefined
+      if (glyphOffsets) {
+        for (let li = 0; li < lines.length; li++) {
+          const ln = lines[li]!
+          // Horizontal offset within the bbox per justify mode.
+          let lineX = 0
+          if (justify === 'right') lineX = totalAdvance - ln.width
+          else if (justify === 'left' || (justify === 'auto' && (anchor === 'left' || anchor.endsWith('-left')))) {
+            lineX = 0
+          } else lineX = (totalAdvance - ln.width) * 0.5
+          // Vertical: line `li` sits lineHeightPx*li below the first.
+          const lineY = -totalHeight + maxHeight + li * lineHeightPx
+          let pen = lineX
+          for (let gi = ln.start; gi < ln.end; gi++) {
+            glyphOffsets[gi * 2] = drawX - p.anchorX + pen
+            glyphOffsets[gi * 2 + 1] = drawY - p.anchorY + lineY
+            pen += advances[gi]!
+            if (gi < ln.end - 1) pen += letterSpacingPx
+          }
+        }
+      }
       const padding = (p.def.padding ?? 2)
       const bbox = {
         minX: drawX - padding,
-        minY: drawY - maxHeight - padding,
+        minY: drawY - totalHeight - padding,
         maxX: drawX + totalAdvance + padding,
         maxY: drawY + padding,
       }
@@ -206,6 +268,7 @@ export class TextStage {
           halo: p.def.halo,
           letterSpacingPx,
           rotateRad: p.def.rotate ? p.def.rotate * Math.PI / 180 : undefined,
+          glyphOffsets,
         },
         bbox,
         allowOverlap: p.def.allowOverlap === true,

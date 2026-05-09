@@ -149,12 +149,33 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
     utils.push(`label-letter-spacing-${letterSpacing}`)
   }
 
+  // text-max-width / text-line-height (em-units) + text-justify
+  // for multiline labels.
+  const maxWidth = layout['text-max-width']
+  if (typeof maxWidth === 'number') utils.push(`label-max-width-${maxWidth}`)
+  const lineHeight = layout['text-line-height']
+  if (typeof lineHeight === 'number') utils.push(`label-line-height-${lineHeight}`)
+  const justify = layout['text-justify']
+  if (justify === 'auto' || justify === 'left' || justify === 'center' || justify === 'right') {
+    utils.push(`label-justify-${justify}`)
+  }
+
+  // text-font: ["Noto Sans Regular", "Noto Sans CJK Regular"] →
+  // label-font-Noto-Sans-Regular (only the first; runtime fallback
+  // chain isn't wired yet — single font key for now). Spaces in
+  // Mapbox font names map to '-' since the utility parser only
+  // accepts identifier characters after the prefix.
+  const fontStack = layout['text-font']
+  if (Array.isArray(fontStack) && fontStack.length > 0 && typeof fontStack[0] === 'string') {
+    const first = fontStack[0].replace(/\s+/g, '-')
+    if (first.length > 0) utils.push(`label-font-${first}`)
+  }
+
   // What's STILL not converted — surface a precise warning so the
   // user knows which Batch the gap waits on.
   const ignoredText: string[] = []
-  for (const k of ['text-font',
-    'text-line-height', 'text-max-width',
-    'text-justify', 'text-keep-upright', 'text-writing-mode',
+  for (const k of [
+    'text-keep-upright', 'text-writing-mode',
     'symbol-placement', 'symbol-spacing',
     'icon-image', 'icon-size', 'icon-color']) {
     if (layout[k] !== undefined || paint[k] !== undefined) ignoredText.push(k)

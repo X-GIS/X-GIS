@@ -239,6 +239,10 @@ function lowerLayer(
   let labelPadding: number | undefined
   let labelRotate: number | undefined
   let labelLetterSpacing: number | undefined
+  let labelFont: string | undefined
+  let labelMaxWidth: number | undefined
+  let labelLineHeight: number | undefined
+  let labelJustify: 'auto' | 'left' | 'center' | 'right' | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -458,6 +462,10 @@ function lowerLayer(
       if (name === 'label-none') { labelTransform = 'none'; continue }
       if (name === 'label-allow-overlap') { labelAllowOverlap = true; continue }
       if (name === 'label-ignore-placement') { labelIgnorePlacement = true; continue }
+      if (name === 'label-justify-auto') { labelJustify = 'auto'; continue }
+      if (name === 'label-justify-left') { labelJustify = 'left'; continue }
+      if (name === 'label-justify-center') { labelJustify = 'center'; continue }
+      if (name === 'label-justify-right') { labelJustify = 'right'; continue }
       if (name === 'label-anchor-center') { labelAnchor = 'center'; continue }
       if (name === 'label-anchor-top') { labelAnchor = 'top'; continue }
       if (name === 'label-anchor-bottom') { labelAnchor = 'bottom'; continue }
@@ -506,6 +514,27 @@ function lowerLayer(
       if (name.startsWith('label-letter-spacing-')) {
         const num = parseFloat(name.slice('label-letter-spacing-'.length))
         if (!isNaN(num)) labelLetterSpacing = num
+        continue
+      }
+      if (name.startsWith('label-max-width-')) {
+        const num = parseFloat(name.slice('label-max-width-'.length))
+        if (!isNaN(num)) labelMaxWidth = num
+        continue
+      }
+      if (name.startsWith('label-line-height-')) {
+        const num = parseFloat(name.slice('label-line-height-'.length))
+        if (!isNaN(num)) labelLineHeight = num
+        continue
+      }
+      if (name.startsWith('label-font-')) {
+        // Font key — restore Mapbox-style spaces from the
+        // converter's `-` substitution so the runtime can match
+        // `ctx.font = "Npx Noto Sans Regular"` against the
+        // browser's font registry. Caller-authored xgis can also
+        // write spaces directly.
+        const raw = name.slice('label-font-'.length)
+        const restored = raw.replace(/-/g, ' ')
+        if (restored.length > 0) labelFont = restored
         continue
       }
 
@@ -894,7 +923,8 @@ function lowerLayer(
       labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
       labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
       labelAllowOverlap, labelIgnorePlacement, labelPadding,
-      labelRotate, labelLetterSpacing,
+      labelRotate, labelLetterSpacing, labelFont,
+      labelMaxWidth, labelLineHeight, labelJustify,
     }),
   }
 }
@@ -922,6 +952,10 @@ function foldLabelKnobs(
     labelPadding?: number
     labelRotate?: number
     labelLetterSpacing?: number
+    labelFont?: string
+    labelMaxWidth?: number
+    labelLineHeight?: number
+    labelJustify?: 'auto' | 'left' | 'center' | 'right'
   },
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
@@ -955,6 +989,10 @@ function foldLabelKnobs(
     ...(knobs.labelPadding !== undefined ? { padding: knobs.labelPadding } : {}),
     ...(knobs.labelRotate !== undefined ? { rotate: knobs.labelRotate } : {}),
     ...(knobs.labelLetterSpacing !== undefined ? { letterSpacing: knobs.labelLetterSpacing } : {}),
+    ...(knobs.labelFont !== undefined ? { font: [knobs.labelFont] } : {}),
+    ...(knobs.labelMaxWidth !== undefined ? { maxWidth: knobs.labelMaxWidth } : {}),
+    ...(knobs.labelLineHeight !== undefined ? { lineHeight: knobs.labelLineHeight } : {}),
+    ...(knobs.labelJustify !== undefined ? { justify: knobs.labelJustify } : {}),
   }
 }
 

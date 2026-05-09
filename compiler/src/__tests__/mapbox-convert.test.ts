@@ -522,6 +522,22 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
+    it('text-font: ["Noto Sans Regular", ...] → label-font-Noto-Sans-Regular', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'f', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-font': ['Noto Sans Regular', 'Noto Sans CJK Regular'],
+          } as never,
+        }],
+      })
+      // First font in stack is emitted; spaces collapsed to '-'.
+      expect(out).toContain('label-font-Noto-Sans-Regular')
+      expect(parses(out)).toBe(true)
+    })
+
     it('text-offset [dx, dy] → label-offset-x-N + label-offset-y-N', () => {
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },

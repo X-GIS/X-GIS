@@ -42,6 +42,13 @@ export interface TextDraw {
   /** Rotation in radians around the (anchorX, anchorY) point.
    *  Mapbox text-rotate is degrees clockwise — caller converts. */
   rotateRad?: number
+  /** Optional per-glyph (dx, dy) offsets from (anchorX, anchorY).
+   *  When set, the renderer positions each glyph at
+   *  (anchorX + offsets[2i], anchorY + offsets[2i+1]) and SKIPS
+   *  the pen-advance loop — used by the multiline layout path
+   *  in TextStage where line wrapping + justify happens CPU-side
+   *  before vertex generation. */
+  glyphOffsets?: Float32Array
 }
 
 const VERTS_PER_GLYPH = 6  // two triangles
@@ -197,6 +204,7 @@ export class TextRenderer {
       let penX = d.anchorX
       const baseY = d.anchorY
       const letterSpacingPx = d.letterSpacingPx ?? 0
+      const offsets = d.glyphOffsets
       // Rotation around (anchorX, anchorY). Computing once per draw
       // beats stamping out a rotation matrix per quad.
       const rot = d.rotateRad ?? 0
@@ -211,10 +219,12 @@ export class TextRenderer {
         const slotSize = g.slot.size
         const drawW = slotSize * scale
         const drawH = slotSize * scale
-        // Glyph centred in slot during rasterisation; quad is also
-        // centred horizontally on the pen + offset by glyph centre.
-        const x0 = penX + g.bearingX * scale - (drawW - g.width * scale) * 0.5
-        const y0 = baseY - g.bearingY * scale - (drawH - g.height * scale) * 0.5
+        // When per-glyph offsets are supplied, anchor is at
+        // (anchorX + dx, anchorY + dy); pen-advance loop is bypassed.
+        const baseX = offsets ? d.anchorX + offsets[gi * 2]! : penX
+        const baseY2 = offsets ? d.anchorY + offsets[gi * 2 + 1]! : baseY
+        const x0 = baseX + g.bearingX * scale - (drawW - g.width * scale) * 0.5
+        const y0 = baseY2 - g.bearingY * scale - (drawH - g.height * scale) * 0.5
         const x1 = x0 + drawW
         const y1 = y0 + drawH
         const u0 = g.slot.pxX / pageSize
@@ -237,8 +247,10 @@ export class TextRenderer {
         data[off + 16] = brx; data[off + 17] = bry; data[off + 18] = u1; data[off + 19] = v1
         data[off + 20] = trx; data[off + 21] = try_; data[off + 22] = u1; data[off + 23] = v0
 
-        penX += g.advanceWidth * scale
-        if (gi < d.glyphs.length - 1) penX += letterSpacingPx
+        if (!offsets) {
+          penX += g.advanceWidth * scale
+          if (gi < d.glyphs.length - 1) penX += letterSpacingPx
+        }
         glyphIdx += 1
       }
       const uniforms = packUniforms(d)
