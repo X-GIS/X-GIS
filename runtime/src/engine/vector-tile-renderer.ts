@@ -2592,14 +2592,29 @@ export class VectorTileRenderer {
       const camMercX = camera.centerX
       const camMercY = camera.centerY
       const PI_R = Math.PI * 6378137
+      // Per-frame distSq memo. PriorityQueue.sort() pulls O(N log N)
+      // comparisons each calling distSq twice, but the camera doesn't
+      // move within a frame — every (key → distance) is constant. The
+      // memo also serves the upload queue's priorityCallback which
+      // re-keys the same compare against `itemData[id].key`.
+      // Cleared each frame at the call site below; no need to invalidate
+      // mid-frame.
+      const distMemo = new Map<number, number>()
       const distSq = (key: number): number => {
+        const cached = distMemo.get(key)
+        if (cached !== undefined) return cached
         const [tz, tx, ty] = tileKeyUnpack(key)
-        const n = Math.pow(2, tz)
+        // 2^tz via direct accumulation (loop) avoids Math.pow's call
+        // overhead — for tz ≤ 30, 1 << tz is bounded but tz can hit
+        // 22 only, so the bit-shift form is safe AND faster than pow.
+        const n = (1 << tz) >>> 0  // unsigned to avoid sign-bit at z=31
         const tileX = ((tx + 0.5) / n) * 2 * PI_R - PI_R
         const tileY = (1 - 2 * (ty + 0.5) / n) * PI_R
         const dx = tileX - camMercX
         const dy = tileY - camMercY
-        return dx * dx + dy * dy
+        const d2 = dx * dx + dy * dy
+        distMemo.set(key, d2)
+        return d2
       }
       this.source.setFetchPriority(distSq)
       // Upload queue uses the same dispatch convention as fetch (NASA's
