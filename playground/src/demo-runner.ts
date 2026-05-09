@@ -821,17 +821,43 @@ document.addEventListener('pointerup', () => {
 })
 
 // ── Init ──
-// `?id=__import` → load whatever the /convert page stashed in
-// sessionStorage. Lets the convert page hand off a freshly-converted
-// xgis source without putting the (potentially huge) text into the
-// URL hash. Falls through to the normal demo loader on miss / errors.
+// `?id=__import` → load whatever the /convert page handed off.
+//
+// Two transport channels:
+//   1. URL hash `#src=<base64>`  (cross-origin dev path)
+//      Used when the convert page on the Astro dev server
+//      (localhost:4323) navigates to the playground dev server
+//      (localhost:3000, separate origin). sessionStorage doesn't
+//      cross origins, so the hash carries the source + a label
+//      query param. Hash never hits the server, no length cost.
+//   2. sessionStorage `__xgisImportSource`  (production path)
+//      Same-origin under x-gis.github.io/X-GIS/play/... — large
+//      payloads stay out of the URL on shareable links.
+//
+// Hash channel takes precedence: if both are present we honour the
+// most recent intent (the navigation that just happened). Falls
+// through to the regular demo loader on miss / decode errors.
 if (params.get('id') === '__import') {
   let imported: string | null = null
   let label: string | null = null
-  try {
-    imported = sessionStorage.getItem('__xgisImportSource')
-    label = sessionStorage.getItem('__xgisImportLabel')
-  } catch { /* sessionStorage unavailable */ }
+  // Channel 1: URL hash (dev cross-origin).
+  if (location.hash.startsWith('#src=')) {
+    try {
+      const encoded = location.hash.slice('#src='.length)
+      imported = decodeURIComponent(escape(atob(encoded)))
+      label = params.get('label') ?? 'Imported'
+    } catch {
+      // Malformed base64 / utf-8 — fall through to sessionStorage.
+      imported = null
+    }
+  }
+  // Channel 2: sessionStorage (prod same-origin).
+  if (!imported) {
+    try {
+      imported = sessionStorage.getItem('__xgisImportSource')
+      label = sessionStorage.getItem('__xgisImportLabel')
+    } catch { /* sessionStorage unavailable */ }
+  }
   if (imported) {
     document.title = (label ?? 'Imported') + ' — X-GIS'
     tagEl.textContent = 'imported'

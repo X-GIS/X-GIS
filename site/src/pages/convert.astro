@@ -340,13 +340,41 @@ const presets: Preset[] = [
       }
     })
 
-    $open.addEventListener('click', () => {
-      if (!$out.value) { setStatus('Convert first, then open.', 'err'); return }
+    /** Hand the converted xgis to the playground.
+     *
+     *  Production: site + playground share an origin
+     *  (x-gis.github.io/X-GIS/play/...). sessionStorage seeds work
+     *  same-origin and the demo runner reads it back.
+     *
+     *  Dev: site (localhost:4323 HTTP) and playground (localhost:3000
+     *  HTTPS) are different origins, sessionStorage doesn't cross.
+     *  Encode the source into the URL hash — modern browsers handle
+     *  multi-MB hash payloads, and the hash never reaches the server.
+     *  The demo runner detects `#src=...` and decodes ahead of its
+     *  sessionStorage fallback. */
+    function openInPlayground(source: string, label: string): void {
+      // Vite/Astro inline DEV at build — falls back to false in prod
+      // bundles so the dev branch tree-shakes out.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isDev = !!(import.meta as any).env?.DEV
+      if (isDev) {
+        const encoded = btoa(unescape(encodeURIComponent(source)))
+        const labelParam = encodeURIComponent(label)
+        // Playground dev server defaults — see playground/vite.config.ts
+        window.location.href =
+          `https://localhost:3000/demo.html?id=__import&label=${labelParam}#src=${encoded}`
+        return
+      }
       try {
-        sessionStorage.setItem('__xgisImportSource', $out.value)
-        sessionStorage.setItem('__xgisImportLabel', lastImportLabel)
+        sessionStorage.setItem('__xgisImportSource', source)
+        sessionStorage.setItem('__xgisImportLabel', label)
       } catch { /* sessionStorage may be unavailable in some embeds */ }
       window.location.href = playgroundUrl + '?id=__import'
+    }
+
+    $open.addEventListener('click', () => {
+      if (!$out.value) { setStatus('Convert first, then open.', 'err'); return }
+      openInPlayground($out.value, lastImportLabel)
     })
 
     $copyImport.addEventListener('click', async () => {
@@ -362,16 +390,13 @@ const presets: Preset[] = [
 
     $openImport.addEventListener('click', () => {
       if (!lastFetchedUrl) return
-      // The playground compiles whatever sits in `__xgisImportSource`
-      // — same channel the converted-output button uses, but seeded
-      // with the one-line splice form instead. The runtime then runs
-      // the same fetch + convert path on load.
+      // The playground compiles whatever the openInPlayground helper
+      // hands off — same channel the converted-output button uses,
+      // but seeded with the one-line splice form. The runtime then
+      // runs the same fetch + convert path on load. Goes through the
+      // same dev / prod dispatch as the converted-source button.
       const oneLiner = `import "${lastFetchedUrl}"\n`
-      try {
-        sessionStorage.setItem('__xgisImportSource', oneLiner)
-        sessionStorage.setItem('__xgisImportLabel', lastImportLabel + ' (import)')
-      } catch { /* ignored */ }
-      window.location.href = playgroundUrl + '?id=__import'
+      openInPlayground(oneLiner, lastImportLabel + ' (import)')
     })
 
     $json.addEventListener('keydown', (e) => {
