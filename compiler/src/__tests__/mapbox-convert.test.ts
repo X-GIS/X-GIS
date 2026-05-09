@@ -566,6 +566,61 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
+    it('text-rotate + text-letter-spacing → label-rotate-N + label-letter-spacing-N', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'r', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-rotate': 30,
+            'text-letter-spacing': 0.05,
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-rotate-30')
+      expect(out).toContain('label-letter-spacing-0.05')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-max-width + text-line-height + text-justify → multiline trio', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'm', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-max-width': 7,
+            'text-line-height': 1.1,
+            'text-justify': 'right',
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-max-width-7')
+      expect(out).toContain('label-line-height-1.1')
+      expect(out).toContain('label-justify-right')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-allow-overlap / text-ignore-placement / text-padding → collision opt-outs', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'c', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+            'text-padding': 4,
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-allow-overlap')
+      expect(out).toContain('label-ignore-placement')
+      expect(out).toContain('label-padding-4')
+      expect(parses(out)).toBe(true)
+    })
+
     it('skips icon-only symbol layer (no text-field)', () => {
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },

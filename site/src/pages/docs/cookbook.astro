@@ -231,6 +231,26 @@ map.clearOverlays()`,
       'Each overlay re-projects every frame against the current camera — labels stay locked to their geographic anchor through pan / zoom / pitch.',
     ],
   },
+
+  {
+    slug: 'multiline-and-fontstack',
+    title: 'Multiline labels + font-stack fallback',
+    body: '`label-max-width-<em>` triggers greedy word-break wrapping; `label-line-height-<N>` and `label-justify-<a>` control spacing and alignment within the wrapped block. Multiple `label-font-<name>` utilities stack into a CSS font-fallback chain — the browser walks it glyph-by-glyph, so a Latin font + CJK font pair covers mixed-script labels without per-glyph resolution.',
+    code: `source cities { type: geojson, url: "cities.geojson" }
+
+layer city_labels {
+  source: cities
+  | label-[.name] label-size-15
+    label-color-#fff label-halo-1 label-halo-color-#000
+    label-max-width-7 label-line-height-1.1 label-justify-center
+    label-font-Inter-Regular label-font-Noto-Sans-CJK-JP-Regular
+}`,
+    notes: [
+      'max-width is in em units (Mapbox convention) — the browser-measured glyph advances are summed and the next word breaks to a new line when the line exceeds the budget.',
+      'Justify: `left` / `center` / `right` align lines within the block; `auto` mirrors the block to the anchor side (e.g. right-aligned text for a left-anchored label).',
+      'The font-stack maps Mapbox `text-font: ["Inter Regular", "Noto Sans CJK JP Regular"]` 1:1 — converted styles inherit the same glyph fallback the browser applies to CSS.',
+    ],
+  },
 ]
 ---
 
