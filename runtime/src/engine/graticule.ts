@@ -34,23 +34,46 @@ function stepsForZoom(zoom: number): { major: number; minor: number | null } {
   return { major: 1, minor: 0.5 }
 }
 
-/** Generate graticule grid lines for a given zoom level */
+/** Per-zoom-bucket cache. `stepsForZoom` returns a discrete bucket
+ *  (5 distinct values for the supported zoom range), so the
+ *  graticule geometry is identical across all zoom levels in the same
+ *  bucket. Without the cache, every Math.round(zoom) tick during a
+ *  zoom animation re-ran the full grid generation (~130 k coordinate
+ *  conversions + Float32Array allocation), and the bucket-changing
+ *  frames ALIGN with LOD-tile-cascade frames — compounding the worst-
+ *  frame hitch the interactive perf spec measured.
+ *
+ *  Cache key derived from the (major, minor) step pair, not zoom
+ *  itself, so requests at different zooms in the same bucket share
+ *  the same cached geometry. */
+const graticuleCache = new Map<string, GraticuleData>()
+
+/** Generate graticule grid lines for a given zoom level. Cached by
+ *  zoom bucket — repeat calls within the same bucket return the same
+ *  GraticuleData instance. */
 export function generateGraticule(zoom = 2): GraticuleData {
   const { major, minor } = stepsForZoom(zoom)
+  const cacheKey = `${major}/${minor ?? 0}`
+  const cached = graticuleCache.get(cacheKey)
+  if (cached) return cached
+
+  // Pre-size: rough vertex count estimate for the major+minor pair.
+  // Each call to lonLatToMercDSFUN pushes 6 floats. Empirical for the
+  // densest bucket (z>=9, major=1, minor=0.5): ~130k vertex pushes.
+  // We slightly overshoot and trim — much faster than push() growth
+  // which copies on every doubling.
   const vertices: number[] = []
   const segmentStep = 2
 
-  // Helper: add lines for a given step, skipping multiples of `skipStep`
   function addMeridians(step: number, featId: number, skipStep?: number) {
     for (let lon = -180; lon < 180; lon += step) {
-      if (skipStep && lon % skipStep === 0) continue // skip major lines
+      if (skipStep && lon % skipStep === 0) continue
       for (let lat = -90; lat < 90; lat += segmentStep) {
         lonLatToMercDSFUN(lon, lat, featId, vertices)
         lonLatToMercDSFUN(lon, Math.min(lat + segmentStep, 90), featId, vertices)
       }
     }
   }
-
   function addParallels(step: number, featId: number, skipStep?: number) {
     for (let lat = -90 + step; lat < 90; lat += step) {
       if (skipStep && (lat + 90) % skipStep === 0) continue
@@ -61,21 +84,19 @@ export function generateGraticule(zoom = 2): GraticuleData {
     }
   }
 
-  // Major lines (feat_id = 1)
   addMeridians(major, 1)
   addParallels(major, 1)
-
-  // Minor lines (feat_id = 0) — skip where major already drawn
   if (minor) {
     addMeridians(minor, 0, major)
     addParallels(minor, 0, major)
   }
 
-  // Stride 6 f32 per vertex
-  return {
+  const data: GraticuleData = {
     vertices: new Float32Array(vertices),
     indexCount: vertices.length / 6,
   }
+  graticuleCache.set(cacheKey, data)
+  return data
 }
 
 /** Generate a circle outline for globe projections (orthographic, etc.) */
