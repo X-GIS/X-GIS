@@ -10,6 +10,11 @@ export { emitCommands } from './ir/emit-commands'
 export type { Scene, SourceDef, RenderNode, ColorValue, StrokeValue, OpacityValue, SizeValue, DataExpr, ZoomStop, ConditionalBranch } from './ir/render-node'
 export { hexToRgba, rgbaToHex, colorNone, colorConstant, opacityConstant, sizeNone, sizeConstant } from './ir/render-node'
 export { evaluate, type FeatureProps } from './eval/evaluator'
+export {
+  formatValue, parseFormatSpec, parseTextTemplate, isBareExpressionTemplate,
+  formatNumber, formatString, formatDMS, formatDM, formatBearing, formatDate,
+} from './format'
+export type { TextValue, TextPart, FormatSpec, LabelDef } from './ir/render-node'
 export { resolveImports, resolveImportsAsync, type FileReader, type AsyncFileReader } from './module/resolver'
 export { optimize } from './ir/optimize'
 export { classifyExpr, type ExprClass } from './ir/classify'
