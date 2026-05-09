@@ -319,6 +319,121 @@ describe('Mapbox → xgis converter', () => {
     expect(parses(out)).toBe(true)
   })
 
+  // ─── Batch 0: layout property transcription ────────────────────────
+  describe('Batch 0 — layout properties', () => {
+    it('transcribes visibility: none → visible: false', () => {
+      const out = convertMapboxStyle({
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'h', type: 'fill', source: 'x', 'source-layer': 'water',
+          layout: { visibility: 'none' },
+          paint: { 'fill-color': '#0000ff' },
+        }],
+      })
+      expect(out).toContain('visible: false')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('transcribes line-cap and line-join layout (utility form)', () => {
+      const out = convertMapboxStyle({
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'r', type: 'line', source: 'x', 'source-layer': 'roads',
+          layout: { 'line-cap': 'round', 'line-join': 'bevel', 'line-miter-limit': 4 },
+          paint: { 'line-color': '#000', 'line-width': 1 },
+        }],
+      })
+      expect(out).toContain('stroke-round-cap')
+      expect(out).toContain('stroke-bevel-join')
+      expect(out).toContain('stroke-miterlimit-4')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('skips line-cap on non-line layers (no spurious utility)', () => {
+      const out = convertMapboxStyle({
+        version: 8,
+        sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'f', type: 'fill', source: 'x', 'source-layer': 'water',
+          layout: { 'line-cap': 'round' },
+          paint: { 'fill-color': '#a4c8d5' },
+        }],
+      })
+      expect(out).not.toContain('stroke-round-cap')
+      expect(out).not.toContain('stroke-butt-cap')
+      expect(parses(out)).toBe(true)
+    })
+  })
+
+  // ─── Batch 0: source type expansions ───────────────────────────────
+  describe('Batch 0 — source types', () => {
+    it('emits geojson source with no URL when data is inline', () => {
+      const out = convertMapboxStyle({
+        version: 8,
+        sources: {
+          pts: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } as never,
+        },
+        layers: [],
+      })
+      expect(out).toContain('type: geojson')
+      expect(out).not.toContain('url:')
+      expect(out).toContain('inline data')
+      expect(out).toContain('setSourceData')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('emits raster-dem source registration with Batch 4 note', () => {
+      const out = convertMapboxStyle({
+        version: 8,
+        sources: {
+          terrain: { type: 'raster-dem', url: 'https://api.example.com/dem.json' } as never,
+        },
+        layers: [],
+      })
+      expect(out).toContain('type: raster-dem')
+      expect(out).toContain('Batch 4')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('warns image / video sources as not yet supported', () => {
+      const out = convertMapboxStyle({
+        version: 8,
+        sources: {
+          aerial: { type: 'image', url: 'https://x.example/a.png',
+            coordinates: [[0, 0], [1, 0], [1, 1], [0, 1]] } as never,
+        },
+        layers: [],
+      })
+      expect(out).toContain('SKIPPED')
+      expect(out).toContain('image')
+      expect(parses(out)).toBe(true)
+    })
+  })
+
+  // ─── Batch 0: clearer skipped-layer messages ───────────────────────
+  describe('Batch 0 — skipped layer reasons', () => {
+    it('symbol layer skip mentions Batch 1', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: {},
+        layers: [{ id: 'lab', type: 'symbol', source: 'x',
+          layout: { 'text-field': '{name}' } } as never],
+      })
+      expect(out).toContain('Batch 1')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('heatmap layer skip mentions Batch 3', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: {},
+        layers: [{ id: 'h', type: 'heatmap', source: 'x' } as never],
+      })
+      expect(out).toContain('Batch 3')
+      expect(parses(out)).toBe(true)
+    })
+  })
+
   it('emits parseable output for a multi-layer style', () => {
     const out = convertMapboxStyle({
       version: 8,
