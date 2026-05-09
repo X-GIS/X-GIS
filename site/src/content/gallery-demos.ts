@@ -27,6 +27,11 @@ export interface Demo {
    *  (e.g., the protomaps v4 daily basemap proxied via vite — no
    *  CORS-enabled v4 archive to point at in production). */
   devOnly?: boolean
+  /** Standalone demo URL — bypasses the unified `demo.html?id=…`
+   *  runner. Used for demos that need bespoke JS glue (e.g.
+   *  `addOverlay()` calls after `map.run()`) that doesn't fit the
+   *  declarative `.xgis`-source-only contract of demos.ts. */
+  standaloneUrl?: string
 }
 
 export interface Category {
@@ -115,6 +120,21 @@ export const galleryCategories: Category[] = [
       { id: 'procedural-circles',  title: 'Procedural circles',  body: 'Generated point grid with ramped colors.' },
       { id: 'sdf-points',          title: 'SDF points',          body: 'Signed-distance-field point rendering — crisp at any zoom.' },
       { id: 'shape-gallery',       title: 'Shape gallery',       body: 'Side-by-side comparison of every built-in symbol.' },
+    ],
+  },
+
+  {
+    title: 'Text labels',
+    body: 'SDF text rendering — anchor strings to lon/lat from feature properties or imperatively from app code.',
+    demos: [
+      // These two are STANDALONE pages (playground/examples/*.html) that
+      // don't load through demo.html?id=…. They exist to demo the SDF
+      // text pipeline end-to-end and are the source of truth for the
+      // /docs/utilities label-* family + the /docs/cookbook recipes.
+      // The gallery links route directly to the standalone page so the
+      // user sees the working result instead of a 404.
+      { id: 'labels',         title: 'Auto labels',     body: 'label-["{.name}"] resolves text from each feature\'s properties — Mapbox text-field equivalent.', standaloneUrl: 'examples/labels.html', noThumb: true },
+      { id: 'text-overlay',   title: 'Imperative overlay', body: 'map.addOverlay({text, anchor, color, halo}) — text labels added from app code, re-projected every frame.', standaloneUrl: 'examples/text-overlay.html', noThumb: true },
     ],
   },
   {

@@ -186,6 +186,18 @@ layer continents {
 
         mountedMap = new XGISMap(canvas)
         await mountedMap.run(source, baseUrl)
+        // After run(), override the bounds-fit-picked zoom. The
+        // in-memory GeoJSON tile selector has an edge case at z<1
+        // where only one z=1 tile reports visible, causing the
+        // fallback path to clip to that tile's quadrant (visible
+        // symptom: hero shows only ~1/4 of the world). Bumping to
+        // zoom 1 lands in the tile-selector's well-tested range.
+        const c = mountedMap.getCamera()
+        c.zoom = 2
+        c.centerX = 0
+        c.centerY = 0
+        mountedMap.markCameraPositioned()
+        mountedMap.invalidate()
         canvas.style.opacity = '1'
         if (fallback) fallback.style.display = 'none'
       } catch (err) {

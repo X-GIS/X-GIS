@@ -20,6 +20,18 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const playPath = import.meta.env.DEV
   ? 'https://localhost:3000/demo.html'
   : `${base}/play/demo.html`
+const playBase = import.meta.env.DEV
+  ? 'https://localhost:3000'
+  : `${base}/play`
+
+/** Pick the right URL for a demo card: standalone HTML when set,
+ *  else the unified `demo.html?id=…` runner. The standalone path
+ *  is for demos with bespoke JS glue (e.g. addOverlay calls) that
+ *  doesn't fit the .xgis-source-only contract of demos.ts. */
+function demoHref(d: typeof featuredDemos[number]): string {
+  if (d.standaloneUrl) return `${playBase}/${d.standaloneUrl}`
+  return `${playPath}?id=${runIdOf(d)}${d.defaultHash ? `#${d.defaultHash}` : ''}`
+}
 // Thumbnails captured by playground/e2e/_capture-thumbnails.spec.ts
 // land in site/public/thumbnails/<runId>.jpg, served by Astro under
 // `${base}/thumbnails/<runId>.jpg`.
@@ -74,7 +86,7 @@ const visibleFeatured = showDevOnly
       <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {visibleFeatured.map(d => (
           <a
-            href={`${playPath}?id=${runIdOf(d)}${d.defaultHash ? `#${d.defaultHash}` : ''}`}
+            href={demoHref(d)}
             class="demo-card group block rounded-2xl bg-bg-card border border-line
                    hover:border-line-strong overflow-hidden"
           >
@@ -139,7 +151,7 @@ const visibleFeatured = showDevOnly
                        hover:border-line-strong overflow-hidden"
               >
                 <a
-                  href={`${playPath}?id=${runIdOf(d)}${d.defaultHash ? `#${d.defaultHash}` : ''}`}
+                  href={demoHref(d)}
                   class="block"
                   aria-label={`Run ${d.title} demo`}
                 >

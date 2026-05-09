@@ -318,13 +318,18 @@ fn vs_main_quantized_extruded(
 fn fs_fill(input: VertexOutput) -> FragmentOutput {
   if (input.cos_c < 0.0) { discard; }
   if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
-  // Per-tile clip mask. When this draw is filling for a specific
-  // visible tile (typically a fallback parent ancestor covering a
-  // visible child), discard fragments whose mercator world position
-  // falls outside that visible tile's mercator extent. Sentinel
-  // u.clip_bounds.x == -1e30 means "no clip" — fast path for primary
-  // tiles whose own geometry already stays within own bounds.
-  if (u.clip_bounds.x > -1e29) {
+  // Per-tile clip mask: only apply when ALL FOUR sides describe a
+  // valid bounding box (east > west AND north > south). The sentinel
+  // -1e30 trips the first check; the validity check catches the case
+  // where some upstream path forgot to write all four fields and
+  // left partial / stale data — without it, a (0, 0, 0, 0) residue
+  // would silently discard most of the world (symptom: hero map
+  // shows only ~1/4 of the globe — Africa + Australia only).
+  let _clip_valid =
+    u.clip_bounds.x > -1e29 &&
+    u.clip_bounds.z > u.clip_bounds.x &&
+    u.clip_bounds.w > u.clip_bounds.y;
+  if (_clip_valid) {
     if (input.abs_merc_x < u.clip_bounds.x) { discard; }
     if (input.abs_merc_x > u.clip_bounds.z) { discard; }
     if (input.abs_merc_y < u.clip_bounds.y) { discard; }
@@ -391,8 +396,13 @@ struct OitFragmentOutput {
 fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
   if (input.cos_c < 0.0) { discard; }
   if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
-  // Per-tile clip mask (see fs_fill).
-  if (u.clip_bounds.x > -1e29) {
+  // Per-tile clip mask (see fs_fill — robust check requires both
+  // sentinel-not-tripped AND the bounds to describe a valid box).
+  let _clip_valid =
+    u.clip_bounds.x > -1e29 &&
+    u.clip_bounds.z > u.clip_bounds.x &&
+    u.clip_bounds.w > u.clip_bounds.y;
+  if (_clip_valid) {
     if (input.abs_merc_x < u.clip_bounds.x) { discard; }
     if (input.abs_merc_x > u.clip_bounds.z) { discard; }
     if (input.abs_merc_y < u.clip_bounds.y) { discard; }
@@ -416,8 +426,13 @@ fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
 fn fs_stroke(input: VertexOutput) -> FragmentOutput {
   if (input.cos_c < 0.0) { discard; }
   if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
-  // Per-tile clip mask (see fs_fill).
-  if (u.clip_bounds.x > -1e29) {
+  // Per-tile clip mask (see fs_fill — robust check requires both
+  // sentinel-not-tripped AND the bounds to describe a valid box).
+  let _clip_valid =
+    u.clip_bounds.x > -1e29 &&
+    u.clip_bounds.z > u.clip_bounds.x &&
+    u.clip_bounds.w > u.clip_bounds.y;
+  if (_clip_valid) {
     if (input.abs_merc_x < u.clip_bounds.x) { discard; }
     if (input.abs_merc_x > u.clip_bounds.z) { discard; }
     if (input.abs_merc_y < u.clip_bounds.y) { discard; }
