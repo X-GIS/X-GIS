@@ -135,13 +135,18 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
     if (offset[1] !== 0) utils.push(`label-offset-y-${offset[1]}`)
   }
 
+  // Collision controls (Batch 1e).
+  if (layout['text-allow-overlap'] === true) utils.push('label-allow-overlap')
+  if (layout['text-ignore-placement'] === true) utils.push('label-ignore-placement')
+  const padding = layout['text-padding']
+  if (typeof padding === 'number') utils.push(`label-padding-${padding}`)
+
   // What's STILL not converted — surface a precise warning so the
   // user knows which Batch the gap waits on.
   const ignoredText: string[] = []
   for (const k of ['text-font', 'text-rotate',
     'text-letter-spacing', 'text-line-height', 'text-max-width',
-    'text-justify', 'text-padding', 'text-allow-overlap',
-    'text-ignore-placement', 'text-keep-upright', 'text-writing-mode',
+    'text-justify', 'text-keep-upright', 'text-writing-mode',
     'symbol-placement', 'symbol-spacing',
     'icon-image', 'icon-size', 'icon-color']) {
     if (layout[k] !== undefined || paint[k] !== undefined) ignoredText.push(k)

@@ -234,6 +234,9 @@ function lowerLayer(
   let labelTransform: import('./render-node').LabelDef['transform'] | undefined
   let labelOffsetX: number | undefined
   let labelOffsetY: number | undefined
+  let labelAllowOverlap: boolean | undefined
+  let labelIgnorePlacement: boolean | undefined
+  let labelPadding: number | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -451,6 +454,8 @@ function lowerLayer(
       if (name === 'label-uppercase') { labelTransform = 'uppercase'; continue }
       if (name === 'label-lowercase') { labelTransform = 'lowercase'; continue }
       if (name === 'label-none') { labelTransform = 'none'; continue }
+      if (name === 'label-allow-overlap') { labelAllowOverlap = true; continue }
+      if (name === 'label-ignore-placement') { labelIgnorePlacement = true; continue }
       if (name === 'label-anchor-center') { labelAnchor = 'center'; continue }
       if (name === 'label-anchor-top') { labelAnchor = 'top'; continue }
       if (name === 'label-anchor-bottom') { labelAnchor = 'bottom'; continue }
@@ -484,6 +489,11 @@ function lowerLayer(
       if (name.startsWith('label-offset-y-')) {
         const num = parseFloat(name.slice('label-offset-y-'.length))
         if (!isNaN(num)) labelOffsetY = num
+        continue
+      }
+      if (name.startsWith('label-padding-')) {
+        const num = parseFloat(name.slice('label-padding-'.length))
+        if (!isNaN(num)) labelPadding = num
         continue
       }
 
@@ -871,6 +881,7 @@ function lowerLayer(
       labelSize, labelColor, labelHaloWidth, labelHaloColor,
       labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
       labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
+      labelAllowOverlap, labelIgnorePlacement, labelPadding,
     }),
   }
 }
@@ -893,6 +904,9 @@ function foldLabelKnobs(
     labelOffsetX?: number
     labelOffsetY?: number
     labelSizeZoomStops?: ZoomStop<number>[]
+    labelAllowOverlap?: boolean
+    labelIgnorePlacement?: boolean
+    labelPadding?: number
   },
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
@@ -921,6 +935,9 @@ function foldLabelKnobs(
     ...(offset !== undefined ? { offset } : {}),
     ...(knobs.labelSizeZoomStops && knobs.labelSizeZoomStops.length > 0
       ? { sizeZoomStops: knobs.labelSizeZoomStops } : {}),
+    ...(knobs.labelAllowOverlap !== undefined ? { allowOverlap: knobs.labelAllowOverlap } : {}),
+    ...(knobs.labelIgnorePlacement !== undefined ? { ignorePlacement: knobs.labelIgnorePlacement } : {}),
+    ...(knobs.labelPadding !== undefined ? { padding: knobs.labelPadding } : {}),
   }
 }
 

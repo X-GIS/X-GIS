@@ -141,13 +141,18 @@ export class TextStage {
       this.renderer.setDraws([])
       return
     }
-    const draws: TextDraw[] = []
+    // Phase 1: shape every label, compute its screen-space bbox, and
+    // resolve the post-anchor draw position. Bbox is needed for the
+    // greedy collision pass below.
+    interface ShapedLabel {
+      draw: TextDraw
+      bbox: { minX: number; minY: number; maxX: number; maxY: number }
+      allowOverlap: boolean
+      ignorePlacement: boolean
+    }
+    const shaped: ShapedLabel[] = []
     for (const p of this.pending) {
       const glyphs = this.host.ensureString(p.fontKey, p.text)
-      // Compute anchor offset based on label-anchor + label-offset.
-      // Anchor controls where the text BLOCK sits relative to the
-      // geo point (top → text starts above point). Offset is an
-      // additional em-unit displacement (Mapbox text-offset).
       let totalAdvance = 0
       let maxHeight = 0
       for (const g of glyphs) {
@@ -157,29 +162,71 @@ export class TextStage {
       }
       const anchor = p.def.anchor ?? 'center'
       let dx = 0, dy = 0
-      // Horizontal anchor
       if (anchor === 'left' || anchor.endsWith('-left')) dx = 0
       else if (anchor === 'right' || anchor.endsWith('-right')) dx = -totalAdvance
       else dx = -totalAdvance / 2
-      // Vertical anchor
       if (anchor === 'top' || anchor.startsWith('top-')) dy = maxHeight
       else if (anchor === 'bottom' || anchor.startsWith('bottom-')) dy = 0
-      else dy = maxHeight / 2  // center
-      // text-offset (em-units) — multiply by font size for px.
+      else dy = maxHeight / 2
       if (p.def.offset) {
         dx += p.def.offset[0] * p.def.size
         dy += p.def.offset[1] * p.def.size
       }
-      draws.push({
-        anchorX: p.anchorX + dx,
-        anchorY: p.anchorY + dy,
-        glyphs,
-        fontSize: p.def.size,
-        rasterFontSize: this.opts.rasterFontSize,
-        color: p.def.color ?? [0, 0, 0, 1],
-        halo: p.def.halo,
+      const drawX = p.anchorX + dx
+      const drawY = p.anchorY + dy
+      // Bbox in screen px (display, NOT physical). The text-renderer
+      // already operates in display px so we use the same units —
+      // Map.ts's projection puts both the anchor and text-renderer's
+      // viewport in canvas physical pixels, but at viewport-divide
+      // time the units cancel out for collision testing.
+      const padding = (p.def.padding ?? 2)
+      const bbox = {
+        minX: drawX - padding,
+        minY: drawY - maxHeight - padding,
+        maxX: drawX + totalAdvance + padding,
+        maxY: drawY + padding,
+      }
+      shaped.push({
+        draw: {
+          anchorX: drawX,
+          anchorY: drawY,
+          glyphs,
+          fontSize: p.def.size,
+          rasterFontSize: this.opts.rasterFontSize,
+          color: p.def.color ?? [0, 0, 0, 1],
+          halo: p.def.halo,
+        },
+        bbox,
+        allowOverlap: p.def.allowOverlap === true,
+        ignorePlacement: p.def.ignorePlacement === true,
       })
     }
+
+    // Phase 2: greedy bbox collision. Iterate in INPUT order (which
+    // is the per-frame queue order — typically the order the data
+    // source returned features). Skip a label whose bbox overlaps
+    // an already-placed label's bbox unless the label opts out via
+    // `label-allow-overlap`. `label-ignore-placement` keeps a label
+    // visible AND prevents it from blocking later labels (matches
+    // Mapbox semantics).
+    const placedBlocking: typeof shaped[number]['bbox'][] = []
+    const draws: TextDraw[] = []
+    for (const s of shaped) {
+      let collides = false
+      if (!s.allowOverlap) {
+        for (const placed of placedBlocking) {
+          if (s.bbox.minX < placed.maxX && s.bbox.maxX > placed.minX
+              && s.bbox.minY < placed.maxY && s.bbox.maxY > placed.minY) {
+            collides = true
+            break
+          }
+        }
+      }
+      if (collides) continue
+      draws.push(s.draw)
+      if (!s.ignorePlacement) placedBlocking.push(s.bbox)
+    }
+
     // Flush dirty SDFs to GPU BEFORE setDraws — guarantees every
     // referenced glyph slot is resident when the renderer reads
     // page0.width to compute UVs.
