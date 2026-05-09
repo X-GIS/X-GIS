@@ -27,6 +27,7 @@ import { LineRenderer } from './line-renderer'
 import { PanZoomController, type Controller } from './controller'
 import { CanvasRenderer } from './canvas-renderer'
 import { VectorTileRenderer } from './vector-tile-renderer'
+import { TextStage } from './text-stage'
 import {
   LayerIdRegistry, XGISLayer, ListenerRegistry,
   type XGISFeature, type XGISFeatureEvent, type XGISFeatureEventType, type XGISFeatureListener,
@@ -65,6 +66,41 @@ type OpaqueGroup = ExternalOpaqueGroup
  *  reports LIVE runtime state (not a simulation) so CPU debug sessions
  *  can correlate a specific frame's tile-selection decisions with the
  *  cache / budget pressure that drove them. */
+/** Map.addOverlay options. The text + anchor are required; everything
+ *  else has sensible defaults. */
+export interface TextOverlayOptions {
+  /** Display string. Use `text-transform` via `.transform`. */
+  text: string
+  /** Geo anchor [lon, lat]. The map projects per frame. */
+  anchor: [number, number]
+  /** Font size in display pixels. Default 14. */
+  size?: number
+  /** RGBA fill color (0..1 per channel). Default white. */
+  color?: [number, number, number, number]
+  /** Optional halo for legibility over busy backgrounds. */
+  halo?: { color: [number, number, number, number]; width: number }
+  /** Font key to look up in the runtime's font registry. */
+  font?: string
+  /** Mapbox `text-transform` post-processing. */
+  transform?: 'none' | 'uppercase' | 'lowercase'
+}
+
+interface TextOverlay {
+  text: string
+  lon: number
+  lat: number
+  size: number
+  color: [number, number, number, number]
+  halo?: { color: [number, number, number, number]; width: number }
+  font?: string
+  transform?: 'none' | 'uppercase' | 'lowercase'
+}
+
+export interface TextOverlayHandle {
+  /** Remove the overlay. Idempotent. */
+  remove(): void
+}
+
 export interface PipelineInspection {
   camera: {
     zoom: number
@@ -158,6 +194,10 @@ export class XGISMap {
   // Canvas 2D fallback
   private canvasRenderer: CanvasRenderer | null = null
   private useCanvas2D = false
+
+  // SDF text overlay stage. Lazy — first `addOverlay` call instantiates.
+  private textStage: TextStage | null = null
+  private overlays: TextOverlay[] = []
 
   // Vector tile sources + renderers (per .xgvt source)
   private vtSources = new Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>()
@@ -2477,6 +2517,65 @@ export class XGISMap {
           ptPass.end()
         })
       }
+
+      // ── Bucket 4: text overlays ──
+      // Project each overlay (lon, lat) to screen px via the camera's
+      // RTC matrix and draw via the SDF text stage. Lazy-init the stage
+      // on first use so a label-free map allocates no atlas pages.
+      if (this.overlays.length > 0) {
+        if (this.textStage === null) {
+          this.textStage = new TextStage(device, this.ctx.format)
+          this.textStage.prewarmGISDefaults()
+        }
+        const stage = this.textStage
+        const frame = this.camera.getFrameView(w, h, dpr)
+        const mvp = frame.matrix
+        const cx = this.camera.centerX
+        const cy = this.camera.centerY
+        for (const ov of this.overlays) {
+          const [mx, my] = lonLatToMercator(ov.lon, ov.lat)
+          const rtcX = mx - cx
+          const rtcY = my - cy
+          // 4×4 column-major matrix * vec4(rtcX, rtcY, 0, 1)
+          const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
+          if (cw <= 0) continue  // behind camera
+          const cx_ = mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!
+          const cy_ = mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!
+          const ndcX = cx_ / cw
+          const ndcY = cy_ / cw
+          if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) continue
+          const px = (ndcX + 1) * 0.5 * w
+          const py = (1 - ndcY) * 0.5 * h
+          // Synthetic TextValue.expr wrapping the literal so resolveText
+          // returns the overlay's plain string verbatim. Avoids needing
+          // a separate "raw text" path on TextStage.
+          const tv = {
+            kind: 'expr' as const,
+            expr: { ast: { kind: 'StringLiteral' as const, value: ov.text } as never },
+          }
+          stage.addLabel(tv, {}, px, py, {
+            text: tv,
+            size: ov.size,
+            color: ov.color,
+            halo: ov.halo,
+            transform: ov.transform,
+          }, ov.font)
+        }
+        stage.prepare()
+        passScope('text-overlay', () => {
+          const tPass = encoder.beginRenderPass({
+            colorAttachments: [{
+              view: colorView,
+              resolveTarget: useResolve ? screenView : undefined,
+              loadOp: 'load',
+              storeOp: 'store',
+            }],
+          })
+          stage.render(tPass, { width: w, height: h })
+          tPass.end()
+        })
+        stage.reset()
+      }
     }
 
     // Flush CPU-side uniform-ring mirrors just before submit. WebGPU
@@ -2840,6 +2939,32 @@ export class XGISMap {
     this.controller?.detach()
     this.running = false
   }
+
+  /** Add a text overlay anchored at a geographic point. The overlay
+   *  re-projects every frame so it tracks the map as the user pans /
+   *  zooms / rotates. Returns a handle for removal. */
+  addOverlay(opts: TextOverlayOptions): TextOverlayHandle {
+    const overlay: TextOverlay = {
+      text: opts.text,
+      lon: opts.anchor[0],
+      lat: opts.anchor[1],
+      size: opts.size ?? 14,
+      color: opts.color ?? [1, 1, 1, 1],
+      halo: opts.halo,
+      font: opts.font,
+      transform: opts.transform,
+    }
+    this.overlays.push(overlay)
+    return {
+      remove: () => {
+        const i = this.overlays.indexOf(overlay)
+        if (i !== -1) this.overlays.splice(i, 1)
+      },
+    }
+  }
+
+  /** Remove every text overlay. */
+  clearOverlays(): void { this.overlays.length = 0 }
 }
 
 /**
