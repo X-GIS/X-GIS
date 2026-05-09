@@ -7,6 +7,7 @@ import { generateGraticule } from './graticule'
 import {
   BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST,
   STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH,
+  STENCIL_CLIPMASK_WRITE,
   BLEND_OIT_ACCUM, BLEND_OIT_REVEALAGE,
   OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT,
   MSAA_4X, WORLD_MERC, worldCopiesFor,
@@ -77,6 +78,28 @@ struct Uniforms {
   // so polygons lift uniformly. Per-feature heights via PropertyTable
   // are a future extension.
   extrude_height_m: f32,
+  // Per-tile clip mask in absolute Mercator meters (west, south,
+  // east, north). Fragment shader discards if the fragment's world
+  // position falls outside this rect. Used to clip parent-ancestor
+  // fallback rendering to the visible tile area it's filling — a
+  // z=11 parent's geometry covers a 16×16 z=15 child area, but for
+  // any one visible-tile fallback only ONE child's worth should
+  // render. Without clip the parent renders over neighboring
+  // children too (some primary-loaded with their own buildings),
+  // causing cross-z depth fights and "wrong building wins".
+  //
+  // Sentinel: clip_bounds.x (west) == -1e30 → no clip (skip
+  // discard). Used for primary tiles where own geometry already
+  // stays within own bounds — the fragment-shader cost would be
+  // pure waste. Caller writes -1e30 for primary, real bounds for
+  // fallback.
+  //
+  // Industry-standard equivalent: MapLibre's per-tile stencil ID
+  // pre-pass + stencil-test at draw time. We use fragment discard
+  // for the 1st-pass implementation (smaller refactor, same
+  // visual outcome). Migration to hardware stencil is a follow-up
+  // perf optimisation.
+  clip_bounds: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -97,6 +120,12 @@ struct VertexOutput {
   // triangles. Fragment uses to mix between dark wall + bright
   // roof colour for a poor-man's Lambert without a real normal.
   @location(4) wall_blend: f32,
+  // Absolute mercator world position. Forwarded from the vertex
+  // shader so the fragment can clip-test against u.clip_bounds.
+  // Costs 8 bytes per vertex output but avoids reconstructing the
+  // world position from view_w in the fragment.
+  @location(5) abs_merc_x: f32,
+  @location(6) abs_merc_y: f32,
 }
 
 struct FragmentOutput {
@@ -157,6 +186,8 @@ fn vs_main(
   out.feat_id = u32(feature_id);
   out.abs_lat = abs_lat_clamped;
   out.wall_blend = 1.0; // DSFUN line pipeline isn't extruded; full brightness
+  out.abs_merc_x = abs_merc_x;
+  out.abs_merc_y = abs_merc_y;
   return out;
 }
 
@@ -223,6 +254,8 @@ fn vs_main_quantized(
   // Wall shading only meaningful when this layer is extruded; for
   // flat layers all geometry is at the roof brightness.
   out.wall_blend = select(1.0, select(0.0, 1.0, is_top), u.extrude_height_m > 0.0);
+  out.abs_merc_x = abs_merc_x;
+  out.abs_merc_y = abs_merc_y;
   return out;
 }
 
@@ -273,6 +306,8 @@ fn vs_main_quantized_extruded(
   out.feat_id = u32(feature_id);
   out.abs_lat = abs_lat_clamped;
   out.wall_blend = select(0.0, 1.0, z_attr > 0.0);
+  out.abs_merc_x = abs_merc_x;
+  out.abs_merc_y = abs_merc_y;
   return out;
 }
 
@@ -283,6 +318,18 @@ fn vs_main_quantized_extruded(
 fn fs_fill(input: VertexOutput) -> FragmentOutput {
   if (input.cos_c < 0.0) { discard; }
   if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
+  // Per-tile clip mask. When this draw is filling for a specific
+  // visible tile (typically a fallback parent ancestor covering a
+  // visible child), discard fragments whose mercator world position
+  // falls outside that visible tile's mercator extent. Sentinel
+  // u.clip_bounds.x == -1e30 means "no clip" — fast path for primary
+  // tiles whose own geometry already stays within own bounds.
+  if (u.clip_bounds.x > -1e29) {
+    if (input.abs_merc_x < u.clip_bounds.x) { discard; }
+    if (input.abs_merc_x > u.clip_bounds.z) { discard; }
+    if (input.abs_merc_y < u.clip_bounds.y) { discard; }
+    if (input.abs_merc_y > u.clip_bounds.w) { discard; }
+  }
   var out: FragmentOutput;
   // Wall shading: bottom of wall (wall_blend=0) gets a darker
   // version of fill_color, roof (wall_blend=1) full brightness.
@@ -344,6 +391,13 @@ struct OitFragmentOutput {
 fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
   if (input.cos_c < 0.0) { discard; }
   if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
+  // Per-tile clip mask (see fs_fill).
+  if (u.clip_bounds.x > -1e29) {
+    if (input.abs_merc_x < u.clip_bounds.x) { discard; }
+    if (input.abs_merc_x > u.clip_bounds.z) { discard; }
+    if (input.abs_merc_y < u.clip_bounds.y) { discard; }
+    if (input.abs_merc_y > u.clip_bounds.w) { discard; }
+  }
   let wall_shade = 0.55 + 0.45 * input.wall_blend;
   let rgb = u.fill_color.rgb * wall_shade;
   let a = u.fill_color.a;
@@ -362,6 +416,13 @@ fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
 fn fs_stroke(input: VertexOutput) -> FragmentOutput {
   if (input.cos_c < 0.0) { discard; }
   if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
+  // Per-tile clip mask (see fs_fill).
+  if (u.clip_bounds.x > -1e29) {
+    if (input.abs_merc_x < u.clip_bounds.x) { discard; }
+    if (input.abs_merc_x > u.clip_bounds.z) { discard; }
+    if (input.abs_merc_y < u.clip_bounds.y) { discard; }
+    if (input.abs_merc_y > u.clip_bounds.w) { discard; }
+  }
   // feat_id > 0 = major grid line (brighter), 0 = minor (dimmer)
   let alpha_scale = select(0.4, 1.0, input.feat_id > 0u);
   var out: FragmentOutput;
@@ -823,7 +884,13 @@ export class MapRenderer {
   private uniformStaging = new Uint8Array(0)
   private uniformDirtyLo = 0
   private uniformDirtyHi = 0
-  private static readonly UNIFORM_SIZE = 160
+  // Polygon Uniforms struct grew from 160 to 176 bytes when
+  // `clip_bounds: vec4<f32>` was added for per-tile clip masking
+  // (parent fallback z=11 ancestor's geometry clipped to the missing
+  // z=15 child's screen extent so cross-z overlaps don't fight at
+  // log-depth precision). WGSL spec requires bind group binding
+  // ranges ≥ struct size + multiple of 16.
+  private static readonly UNIFORM_SIZE = 176
   private uniformRingCapacity = 256 // slots
   private uniformSlot = 0
   fillPipeline!: GPURenderPipeline

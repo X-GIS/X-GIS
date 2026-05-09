@@ -133,7 +133,14 @@ function uploadBudgetFor(canvasW: number, canvasH: number, dpr: number = 1): num
 // ═══ Renderer ═══
 
 const UNIFORM_SLOT = 256
-const UNIFORM_SIZE = 160
+// Bind-group binding range size. Must be ≥ the WGSL Uniforms struct
+// size of every shader that reads this binding (polygon, line, point,
+// raster — see renderer.ts / line-renderer.ts / point-renderer.ts).
+// Polygon Uniforms is 176 bytes (44 floats: 36 base + 4 clip_bounds +
+// 4 reserved), so the binding must be at least 176. UNIFORM_SLOT
+// (256 bytes/slot) provides headroom for future struct growth without
+// re-tuning. WGSL spec requires this to be a multiple of 16.
+const UNIFORM_SIZE = 176
 
 /** 2π × Earth radius (m). One full mercator wrap. tile_extent_m at
  *  any zoom z is this constant divided by 2^z (vs_main_quantized
@@ -258,7 +265,12 @@ export class VectorTileRenderer {
   private _scratchParentKeysSet = new Set<number>()
   private _scratchMergedStableKeys = new Set<number>()
   private _scratchProtectedKeys = new Set<number>()
-  private uniformDataBuf = new ArrayBuffer(160)
+  // Sized to UNIFORM_SIZE (= WGSL Uniforms struct size). Grew from
+  // 160 → 176 when `clip_bounds: vec4<f32>` was added at offset 160.
+  // Out-of-bounds typed-array writes are silent no-ops in JS, so a
+  // mismatch here = uniform never reaches the GPU = shader reads
+  // garbage at the new offset. Keep this in lockstep with WGSL.
+  private uniformDataBuf = new ArrayBuffer(UNIFORM_SIZE)
   private uniformF32 = new Float32Array(this.uniformDataBuf) // reusable view over full uniform
   /** Reusable u32 view over the same uniform buffer — used to write
    *  `pick_id` (u32) into the trailing 16-byte slot at offset 144. */
@@ -2088,6 +2100,14 @@ export class VectorTileRenderer {
     // every same-frame ShowCommand render.
     let fallbackKeys: number[] = []
     let fallbackOffsets: number[] = []
+    /** Parallel to `fallbackKeys`: the visible-tile key each fallback
+     *  push is FILLING FOR. When a parent z=11 ancestor renders as
+     *  fallback for a missing visible z=15 child, the per-tile clip
+     *  mask uniform must clip the parent's geometry to the visible
+     *  z=15 child's mercator bounds — otherwise the parent's data
+     *  spills over neighboring children (some primary-loaded with
+     *  their OWN buildings, causing cross-z depth fights). */
+    let fallbackVisibleKeys: number[] = []
     const toLoad: number[] = []
     // Memoize sliceCached lookups across the per-tile + prefetch loops
     // within this render. Adjacent visible tiles share ancestors so
@@ -2189,6 +2209,7 @@ export class VectorTileRenderer {
       if (decision.kind === 'overzoom-parent') {
         fallbackKeys.push(decision.parentKey)
         fallbackOffsets.push(worldOffDeg[i])
+        fallbackVisibleKeys.push(key)
         if (decision.parentNeedsFetch) {
           parentKeysSet.add(decision.parentKey)
         } else if (decision.parentNeedsUpload) {
@@ -2233,6 +2254,7 @@ export class VectorTileRenderer {
         }
         fallbackKeys.push(inner.parentKey)
         fallbackOffsets.push(worldOffDeg[i])
+        fallbackVisibleKeys.push(key)
       } else if (inner.kind === 'child-fallback') {
         for (const ck of inner.childrenNeedingUpload) {
           const childData = this.source.getTileData(ck, sliceLayer)
@@ -2241,6 +2263,7 @@ export class VectorTileRenderer {
         for (const ck of inner.childKeys) {
           fallbackKeys.push(ck)
           fallbackOffsets.push(worldOffDeg[i])
+          fallbackVisibleKeys.push(key)
         }
       } else if (inner.kind === 'pending') {
         if (inner.requestKey !== null) toLoad.push(inner.requestKey)
@@ -2462,40 +2485,34 @@ export class VectorTileRenderer {
 
     // Render fallback ancestors (stencil test) — with world offsets for wrapping
     if (fillPipelineFallback && fallbackKeys.length > 0) {
-      // Dedup + sort fallback queue. The push-per-visible-child loop
-      // above adds the SAME parent key once per visible child that
-      // walks to it — for a z=11 parent covering 16 z=15 children, that's
-      // 16 redundant entries. Each is rendered identically (same world
-      // position, same geometry). User-reported diagnostic snapshot at
-      // Manhattan z=17.5 pitch=80° showed 35 unique parent tiles drawn
-      // 4× per frame each (140 fallback fills per frame for buildings)
-      // when only 35 unique renders are needed.
-      //
       // Sort ascending by z (smallest-z first → deepest-z last). Where
       // multiple z-level parents overlap in screen space (z=11 parent
       // covers area that z=14 parent also covers), the deepest z draws
       // last and wins LEQUAL fragment competition. Without this the
       // simpler-geometry parent could occlude the more-detailed one
       // depending on fallbackKeys insertion order.
+      //
+      // No dedup: an earlier commit (004af0f) deduped by (key, offset)
+      // tuple so identical parent renders ran ONCE instead of N times.
+      // That was correct under the old binary stencil model where every
+      // render of the same parent produced identical pixels. Reverted
+      // here because the per-tile stencil clip mask (follow-up commit)
+      // makes each push render with a DIFFERENT visible-tile clip area —
+      // each push corresponds to a unique visible-tile fallback fill, so
+      // dedup'ing them would erase coverage of N-1 visible tiles.
       if (fallbackKeys.length > 1) {
-        const seen = new Set<string>()
-        const compact: { k: number; o: number; z: number }[] = []
+        const indexed: { k: number; o: number; vk: number; z: number }[] = []
         for (let i = 0; i < fallbackKeys.length; i++) {
           const k = fallbackKeys[i]
-          const o = fallbackOffsets[i]
-          const id = `${k}_${o}`
-          if (seen.has(id)) continue
-          seen.add(id)
           // Extract z from tileKey: tileKey = 4^z + morton(x,y).
-          // Find largest z s.t. 4^z ≤ k.
           let z = 0
           while (Math.pow(4, z + 1) <= k) z++
-          compact.push({ k, o, z })
+          indexed.push({ k, o: fallbackOffsets[i], vk: fallbackVisibleKeys[i], z })
         }
-        // Ascending z: deeper parent (more detail) renders last.
-        compact.sort((a, b) => a.z - b.z)
-        fallbackKeys = compact.map(c => c.k)
-        fallbackOffsets = compact.map(c => c.o)
+        indexed.sort((a, b) => a.z - b.z)
+        fallbackKeys = indexed.map(c => c.k)
+        fallbackOffsets = indexed.map(c => c.o)
+        fallbackVisibleKeys = indexed.map(c => c.vk)
       }
       if (phase !== 'strokes') pass.setStencilReference(0)
       // Visual debug hook: when `globalThis.__XGIS_FALLBACK_RED = true` is
@@ -2525,7 +2542,7 @@ export class VectorTileRenderer {
       const fallbackFill = this.currentExtrudeMode === 'none' && fallbackGroundForLayout !== null
         ? fallbackGroundForLayout
         : fillPipelineFallback
-      this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache, this.fillPipelineExtrudedFallback, bindGroupLayout, translucentBucket)
+      this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache, this.fillPipelineExtrudedFallback, bindGroupLayout, translucentBucket, fallbackVisibleKeys)
       if (_debugRed) {
         this.uniformF32[16] = _origR
         this.uniformF32[17] = _origG
@@ -2689,6 +2706,14 @@ export class VectorTileRenderer {
      *  us which so we pick `pipelineMax` (no-depth offscreen) vs
      *  `pipeline` (regular depth-bearing). */
     translucentBucket: boolean = false,
+    /** When provided (fallback path), index-parallel to `keys`. Each
+     *  entry is the VISIBLE tile this fallback render is filling for
+     *  — its mercator bounds become the per-tile clip mask written to
+     *  uniform `clip_bounds` so the fallback parent's geometry is
+     *  clipped to the visible tile's screen area. When null (primary
+     *  path), the sentinel "-1e30" is written and the fragment shader
+     *  skips the discard test. */
+    visibleKeysForClip: number[] | null = null,
   ): void {
     const drawFills = phase !== 'strokes'
     const drawStrokes = phase !== 'fills' && phase !== 'oit-fill'
@@ -2814,6 +2839,35 @@ export class VectorTileRenderer {
       // coded for `buildings`, 0 elsewhere). Per-feature heights
       // via PropertyTable + style `extrude:` syntax are a follow-up.
       this.uniformF32[39] = this.currentExtrudeHeight
+      // clip_bounds (40-43) — per-tile mercator clip rect (west,
+      // south, east, north). When `visibleKeysForClip` is provided
+      // (fallback path), each draw clips to the visible tile it's
+      // FILLING for — a parent z=11 ancestor rendered for a missing
+      // z=15 child only draws within the z=15 child's mercator
+      // extent, instead of overflowing into adjacent z=15 tiles
+      // that have their OWN buildings. Sentinel west=-1e30 means
+      // "no clip" for the primary path (fragment shader skips the
+      // discard test).
+      if (visibleKeysForClip) {
+        const visibleKey = visibleKeysForClip[ki]
+        const [vz, vx, vy] = tileKeyUnpack(visibleKey)
+        const vn = Math.pow(2, vz)
+        const vWestLon = (vx / vn) * 360 - 180 + worldOff
+        const vEastLon = ((vx + 1) / vn) * 360 - 180 + worldOff
+        const vNorthLat = Math.atan(Math.sinh(Math.PI * (1 - 2 * vy / vn))) * 180 / Math.PI
+        const vSouthLat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (vy + 1) / vn))) * 180 / Math.PI
+        this.uniformF32[40] = Math.fround(vWestLon * DEG2RAD * R)
+        this.uniformF32[41] = Math.fround(Math.log(Math.tan(Math.PI / 4 + clampLat(vSouthLat) * DEG2RAD / 2)) * R)
+        this.uniformF32[42] = Math.fround(vEastLon * DEG2RAD * R)
+        this.uniformF32[43] = Math.fround(Math.log(Math.tan(Math.PI / 4 + clampLat(vNorthLat) * DEG2RAD / 2)) * R)
+      } else {
+        // Sentinel: no clip. Fragment shader's `clip_bounds.x > -1e29`
+        // gate skips the discard test entirely.
+        this.uniformF32[40] = -1e30
+        this.uniformF32[41] = 0
+        this.uniformF32[42] = 0
+        this.uniformF32[43] = 0
+      }
 
       // Allocate a fresh ring slot for this tile × layer × world-copy draw.
       const slotOffset = this.allocUniformSlot()

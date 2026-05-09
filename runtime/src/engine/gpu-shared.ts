@@ -157,6 +157,72 @@ export const DEPTH_READ_ONLY: GPUDepthStencilState = {
   depthBiasClamp: 0,
 }
 
+// ─── Per-tile clip mask states (MapLibre `_renderTileClippingMasks` parity) ───
+//
+// X-GIS used to use binary stencil (1 = any-primary-drew-here, 0 =
+// not). This worked for 2D fills but broke down for 3D extruded
+// fallback rendering: when a parent ancestor is used as fallback for
+// multiple visible children, the parent's geometry covers the union
+// of those children's screen areas. Without per-tile clipping the
+// parent renders OVER children that ARE primary-loaded (just with
+// different z-level data), causing "wrong building wins" depth
+// fights at log-depth precision.
+//
+// New design: each visible tile gets a unique 8-bit stencil ID
+// (1..255, 0 reserved for "no tile"). A pre-pass writes that ID to
+// the stencil within the tile's mercator extent. Then primary AND
+// fallback draws stencil-test against the VISIBLE tile's ID — the
+// draw is clipped to that single visible tile's screen area.
+//
+// Bonus: this is the same infrastructure 3D Tiles (b3dm) and terrain
+// mesh need for tile-edge clipping — single mechanism handles all of
+// them.
+
+/** Pre-pass clip mask: stencil-only write of a per-tile ID. Depth
+ *  test/write disabled, color write controlled by the pipeline (uses
+ *  empty `targets` so no fragment work). Stencil-write replaces the
+ *  destination with the call-time `setStencilReference()` value. */
+export const STENCIL_CLIPMASK_WRITE: GPUDepthStencilState = {
+  format: 'depth24plus-stencil8',
+  depthCompare: 'always',
+  depthWriteEnabled: false,
+  stencilFront: { compare: 'always', passOp: 'replace' },
+  stencilBack: { compare: 'always', passOp: 'replace' },
+  stencilWriteMask: 0xFF,
+  stencilReadMask: 0xFF,
+}
+
+/** Per-tile clip mask test for the FILL pipelines. Functionally
+ *  identical to `STENCIL_TEST` (stencil compare='equal', writeMask=0)
+ *  but depth-write stays ON because 3D extrude needs depth resolution
+ *  AT the (clipped) fragments. Caller sets `setStencilReference()` to
+ *  the visible tile's allocated ID before each draw — primaries use
+ *  their own visible-tile ID, fallback parents use the visible tile
+ *  they're filling for (NOT the parent's own ID). */
+export const STENCIL_CLIPMASK_TEST: GPUDepthStencilState = {
+  format: 'depth24plus-stencil8',
+  depthCompare: 'less-equal',
+  depthWriteEnabled: true,
+  stencilFront: { compare: 'equal', passOp: 'keep' },
+  stencilBack: { compare: 'equal', passOp: 'keep' },
+  stencilWriteMask: 0x00,
+  stencilReadMask: 0xFF,
+}
+
+/** Per-tile clip mask test for ground (depth-disabled) layers. Same
+ *  stencil behaviour as `STENCIL_CLIPMASK_TEST` but with depth test +
+ *  write off so coplanar 2D ground fragments resolve via painter's
+ *  order. */
+export const STENCIL_CLIPMASK_TEST_NO_DEPTH: GPUDepthStencilState = {
+  format: 'depth24plus-stencil8',
+  depthCompare: 'always',
+  depthWriteEnabled: false,
+  stencilFront: { compare: 'equal', passOp: 'keep' },
+  stencilBack: { compare: 'equal', passOp: 'keep' },
+  stencilWriteMask: 0x00,
+  stencilReadMask: 0xFF,
+}
+
 /** Stencil disabled: always pass, no write (raster tiles, SDF line body) */
 export const STENCIL_DISABLED: GPUDepthStencilState = {
   format: 'depth24plus-stencil8',
