@@ -554,6 +554,43 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
+    it('text-offset with NEGATIVE values uses bracket binding form', () => {
+      // Real-world repro: OpenFreeMap Bright + many basemap styles
+      // anchor labels above the point with `text-offset: [0, -0.2]`.
+      // Without bracket form the converter emitted `label-offset-y--0.2`
+      // (double dash) which the lexer rejects → playground compile
+      // error on "Open in Playground" for any converted style with
+      // negative offsets.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'o', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}', 'text-offset': [-0.5, -0.2] } as never,
+        }],
+      })
+      expect(out).toContain('label-offset-x-[-0.5]')
+      expect(out).toContain('label-offset-y-[-0.2]')
+      expect(out).not.toContain('label-offset-y--0.2')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-rotate / text-letter-spacing negatives use bracket form', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'r', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-rotate': -45,
+            'text-letter-spacing': -0.1,
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-rotate-[-45]')
+      expect(out).toContain('label-letter-spacing-[-0.1]')
+      expect(parses(out)).toBe(true)
+    })
+
     it('text-transform → label-uppercase', () => {
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },

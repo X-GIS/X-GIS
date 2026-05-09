@@ -148,6 +148,21 @@ function bindingToTextValue(binding: AST.Expr): TextValue {
   return { kind: 'template', parts: irParts }
 }
 
+/** Extract a constant number from a utility binding, supporting the
+ *  bracket form for negatives that the utility-name grammar can't
+ *  express inline (`label-offset-y-[-0.2]`, `label-rotate-[-30]`).
+ *  Accepts a `NumberLiteral` directly OR a `UnaryExpr` wrapping one.
+ *  Returns null for anything else (data-driven / non-numeric) — caller
+ *  falls through to its data-driven branch. */
+function bindingAsConstantNumber(binding: AST.Expr): number | null {
+  if (binding.kind === 'NumberLiteral') return binding.value
+  if (binding.kind === 'UnaryExpr' && binding.op === '-'
+      && binding.operand.kind === 'NumberLiteral') {
+    return -binding.operand.value
+  }
+  return null
+}
+
 function extractInterpolateZoomStops(
   expr: AST.Expr,
 ): Array<{ zoom: number; value: number }> | null {
@@ -449,6 +464,19 @@ function lowerLayer(
           // the renderers — for now this just preserves the IR so
           // Mapbox styles with `text-field` survive compilation.
           label = { text: bindingToTextValue(item.binding), size: 12 }
+        } else {
+          // Numeric label-* utilities that allow negative values use
+          // bracket-binding form (`label-offset-y-[-0.2]`) since the
+          // utility-name grammar treats `-` as a segment separator.
+          // We only accept literal-number (or unary-minus literal)
+          // bindings here — full data-driven offsets land later.
+          const n = bindingAsConstantNumber(item.binding)
+          if (n !== null) {
+            if (name === 'label-offset-x') { labelOffsetX = n; continue }
+            if (name === 'label-offset-y') { labelOffsetY = n; continue }
+            if (name === 'label-rotate') { labelRotate = n; continue }
+            if (name === 'label-letter-spacing') { labelLetterSpacing = n; continue }
+          }
         }
         continue
       }

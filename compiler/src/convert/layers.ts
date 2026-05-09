@@ -128,11 +128,15 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   // text-offset → label-offset-x-N + label-offset-y-N (em-units).
   // Mapbox shape: [number, number]. Constant only — interpolate /
   // expression forms wait until the binding-bracket utility lands.
+  // Negative values use the bracket binding form `[<n>]` because the
+  // utility-name grammar treats `-` as a segment separator — emitting
+  // `label-offset-y--0.2` would lex as a malformed double-dash name.
+  const fmtSigned = (n: number): string => n < 0 ? `[${n}]` : `${n}`
   const offset = layout['text-offset']
   if (Array.isArray(offset) && offset.length === 2
       && typeof offset[0] === 'number' && typeof offset[1] === 'number') {
-    if (offset[0] !== 0) utils.push(`label-offset-x-${offset[0]}`)
-    if (offset[1] !== 0) utils.push(`label-offset-y-${offset[1]}`)
+    if (offset[0] !== 0) utils.push(`label-offset-x-${fmtSigned(offset[0])}`)
+    if (offset[1] !== 0) utils.push(`label-offset-y-${fmtSigned(offset[1])}`)
   }
 
   // Collision controls (Batch 1e).
@@ -142,11 +146,15 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   if (typeof padding === 'number') utils.push(`label-padding-${padding}`)
 
   // text-rotate (degrees clockwise) + text-letter-spacing (em-units).
+  // Both can be negative (counter-clockwise rotation, condensed
+  // tracking) → bracket form for negatives.
   const rotate = layout['text-rotate']
-  if (typeof rotate === 'number' && rotate !== 0) utils.push(`label-rotate-${rotate}`)
+  if (typeof rotate === 'number' && rotate !== 0) {
+    utils.push(`label-rotate-${fmtSigned(rotate)}`)
+  }
   const letterSpacing = layout['text-letter-spacing']
   if (typeof letterSpacing === 'number' && letterSpacing !== 0) {
-    utils.push(`label-letter-spacing-${letterSpacing}`)
+    utils.push(`label-letter-spacing-${fmtSigned(letterSpacing)}`)
   }
 
   // text-max-width / text-line-height (em-units) + text-justify
