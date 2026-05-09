@@ -9,11 +9,9 @@
   },
   "dependencies": {
     "@xgis/compiler": "workspace:*",
-    "opentype.js": "^2.0.0",
     "pmtiles": "^4.4.1"
   },
   "devDependencies": {
-    "@types/opentype.js": "^1.3.9",
     "geojson-vt": "^4.0.2",
     "vt-pbf": "^3.1.3"
   }
