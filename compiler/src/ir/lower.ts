@@ -35,6 +35,7 @@ export function lower(program: AST.Program): Scene {
   const sources: SourceDef[] = []
   const renderNodes: RenderNode[] = []
   const symbols: import('./render-node').SymbolDef[] = []
+  const diagnostics: import('./render-node').Diagnostic[] = []
   const sourceMap = new Map<string, SourceDef>()
   const presetMap = new Map<string, AST.UtilityLine[]>()
   const styleMap = new Map<string, AST.StyleProperty[]>()
@@ -75,7 +76,7 @@ export function lower(program: AST.Program): Scene {
         break
       }
       case 'LayerStatement': {
-        const node = lowerLayer(stmt, sourceMap, presetMap, styleMap, keyframesMap)
+        const node = lowerLayer(stmt, sourceMap, presetMap, styleMap, keyframesMap, diagnostics)
         if (node) {
           // If the source was referenced but not yet added, add it
           if (!sources.find(s => s.name === node.sourceRef)) {
@@ -102,7 +103,7 @@ export function lower(program: AST.Program): Scene {
     }
   }
 
-  return { sources, renderNodes, symbols }
+  return { sources, renderNodes, symbols, diagnostics }
 }
 
 /** Detect the `interpolate(zoom, k1, v1, k2, v2, …)` call shape and
@@ -225,6 +226,7 @@ function lowerLayer(
   presetMap: Map<string, AST.UtilityLine[]>,
   styleMap: Map<string, AST.StyleProperty[]>,
   keyframesMap: Map<string, AST.KeyframesStatement>,
+  diagnostics: import('./render-node').Diagnostic[],
 ): RenderNode | null {
   // Extract block properties
   let sourceRef = ''
@@ -406,6 +408,29 @@ function lowerLayer(
 
       // ── Modifier items ──
       if (mod) {
+        // STRICT: detect the deprecated `z<N>:` zoom-modifier shape.
+        // Until f2f8929 this meant "apply at zoom N"; afterwards `z8`
+        // is just an identifier the lower pass treats as a feature-
+        // property predicate, which silently always-fails on real
+        // data. We fail loud here so the issue surfaces in CI / on
+        // the /convert page instead of producing wrong output.
+        if (/^z\d+$/.test(mod)) {
+          const zoomLevel = mod.slice(1)
+          diagnostics.push({
+            severity: 'warn',
+            code: 'X-GIS0001',
+            line: stmt.line,
+            message:
+              `Deprecated zoom modifier "${mod}:" — replaced by ` +
+              `\`<utility>-[interpolate(zoom, …)]\`. e.g. ` +
+              `\`${mod}:opacity-40\` → ` +
+              `\`opacity-[interpolate(zoom, ${zoomLevel}, 40)]\`. ` +
+              `Without the migration, the modifier is treated as a ` +
+              `feature-property predicate (\`feat.${mod}\`), is ` +
+              `always falsy on real data, and the utility never applies.`,
+          })
+          continue
+        }
         // Data modifier: friendly:fill-green-500
         // (Zoom-driven values used to live behind `zN:opacity-…`
         // modifiers; they're now expressed as `opacity-[interpolate(

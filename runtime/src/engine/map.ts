@@ -839,9 +839,26 @@ export class XGISMap {
 
     // Use IR pipeline for new syntax, fallback to legacy interpreter
     const hasNewSyntax = ast.body.some(s => s.kind === 'SourceStatement' || s.kind === 'LayerStatement')
-    const commands = hasNewSyntax
-      ? emitCommands(optimize(lower(ast), ast))
-      : interpret(ast)
+    let commands
+    if (hasNewSyntax) {
+      const scene = lower(ast)
+      // Surface compiler diagnostics to the console — silent failures
+      // (e.g. deprecated z<N>: modifier silently dropped) become loud
+      // so the user notices instead of debugging "why isn't this
+      // applying?" through the renderer. Each diagnostic carries an
+      // X-GIS<NNNN> code so the message is greppable.
+      for (const d of scene.diagnostics ?? []) {
+        const prefix = d.severity === 'warn'
+          ? `[X-GIS ${d.code ?? 'diag'} warn]`
+          : `[X-GIS ${d.code ?? 'diag'} info]`
+        const lineSuffix = d.line ? ` (line ${d.line})` : ''
+        if (d.severity === 'warn') console.warn(`${prefix}${lineSuffix} ${d.message}`)
+        else console.log(`${prefix}${lineSuffix} ${d.message}`)
+      }
+      commands = emitCommands(optimize(scene, ast))
+    } else {
+      commands = interpret(ast)
+    }
 
     // background { fill: <color> } — Mapbox-style earth-surface fill.
     // Implemented as a fullscreen-quad pre-pass via BackgroundRenderer:

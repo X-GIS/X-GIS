@@ -9,6 +9,29 @@ export interface Scene {
   sources: SourceDef[]
   renderNodes: RenderNode[]
   symbols: SymbolDef[]
+  /** Compiler diagnostics — surface in /convert page + runtime
+   *  console. Optional for back-compat; consumers should treat
+   *  `undefined` as empty array. */
+  diagnostics?: Diagnostic[]
+}
+
+/** Compiler diagnostic — one record per "this is suspicious / wrong /
+ *  silently broken" finding. Severity tiers (no errors at this level —
+ *  the lower pass never fails the build because of a diagnostic):
+ *    - 'warn'   — definitely wrong, will produce wrong output. Show
+ *                 prominently. Examples: deprecated `z<N>:` modifier,
+ *                 unknown utility name (lower can't apply), etc.
+ *    - 'info'   — heads-up that may be intentional. Example: dropped
+ *                 properties from converted Mapbox styles. */
+export interface Diagnostic {
+  severity: 'warn' | 'info'
+  /** Human-readable message. Lead with what's wrong, then what to do. */
+  message: string
+  /** Optional code so consumers can filter/categorise.
+   *  Format: 'X-GIS<NNNN>'. */
+  code?: string
+  /** Optional source line (1-based) where the issue was detected. */
+  line?: number
 }
 
 /** A user-defined shape symbol with SVG path data. */
