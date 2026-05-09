@@ -98,35 +98,151 @@ export interface RenderNode {
   label?: LabelDef
 }
 
-/** Per-layer text label spec. The text content can be a literal
- *  string, a property reference, or any expression. Layout +
- *  glyph rendering live in the runtime (Batch 1c onwards). */
+// ─── Text template AST (Batch 1c) ─────────────────────────────────
+//
+// Label text is more than a single expression: GIS labels need
+// inline format specifiers ("{lat:.4f}°N", "{coord:mgrs}", etc.).
+// We encode this as a small AST: a sequence of literal fragments
+// interleaved with `{<expr>:<spec>}` interpolations. The DSL
+// surface is Mapbox-token-compatible — `"{name}"` parses to one
+// `interp` part with no spec, exactly like the existing tokens —
+// so styles relying on the legacy form keep working. Format
+// dispatch (number / datetime / dms / mgrs / …) happens at
+// per-feature text-resolve time (worker), not on the GPU.
+//
+// `kind: 'expr'` covers the simple legacy shape (a single bare
+// expression, no surrounding literal text) without forcing every
+// label through the template machinery. `kind: 'template'` is for
+// anything richer.
+
+/** Format spec for one interpolation. Subset of Python PEP 3101
+ *  augmented with X-GIS GIS-specific types (`dms`/`mgrs`/...) and
+ *  an explicit `locale` slot for deterministic ('C') output. */
+export interface FormatSpec {
+  /** Single fill character used with `align`. Default ' '. */
+  fill?: string
+  /** `<` left, `>` right, `^` center. Default depends on `type`
+   *  (numbers right-align, strings left-align). */
+  align?: '<' | '>' | '^'
+  /** `+` always show sign, `-` only negatives (default), ` ` leave
+   *  a leading space for positives. */
+  sign?: '+' | '-' | ' '
+  /** `#` flag — alternate form (e.g. always show decimal point). */
+  alt?: boolean
+  /** `0` flag — pad numeric output with leading zeros up to width. */
+  zero?: boolean
+  /** Minimum field width. */
+  width?: number
+  /** Thousands separator. `,` standard, `_` underscore. */
+  grouping?: ',' | '_'
+  /** Digits after decimal point (numbers) OR max length (strings). */
+  precision?: number
+  /** Format type. One of:
+   *    Numbers: 'd' 'f' 'e' 'g' '%' (Python-compatible).
+   *    Strings: 's' (or omitted).
+   *    GIS:     'dms' 'dm' 'mgrs' 'utm' 'bearing'.
+   *    Dates:   any string starting with '%' is treated as strftime. */
+  type?: string
+  /** BCP-47 locale tag. Special value 'C' forces deterministic
+   *  POSIX-style output (no Intl), useful for audit / regression
+   *  testing. Default: runtime's active locale. */
+  locale?: string
+}
+
+export type TextPart =
+  | { kind: 'literal'; value: string }
+  | { kind: 'interp'; expr: DataExpr; spec?: FormatSpec }
+
+export type TextValue =
+  | { kind: 'expr'; expr: DataExpr }
+  | { kind: 'template'; parts: TextPart[] }
+
+// ─── LabelDef ─────────────────────────────────────────────────────
+
+/** Per-layer text label spec. Engine plumbing arrives in
+ *  Batch 1c-7. This interface is the contract that the converter,
+ *  the lower pass, and the renderer all agree on; expanding it
+ *  later means re-wiring all three so we capture the full
+ *  Mapbox text-* / symbol-* knob set up front. Knobs marked
+ *  `// 1d:` `// 1e:` etc. are typed but their semantics are
+ *  defined by the batch that wires them — leaving them undefined
+ *  in 1c is safe (renderer treats unset as default). */
 export interface LabelDef {
-  /** Text content. String literal becomes constant text; field
-   *  access (`.name`) reads per-feature. Function calls (concat,
-   *  match, etc.) compose dynamic text. */
-  expr: DataExpr
-  /** Font family + style key as registered with the runtime's
-   *  font loader. Maps from Mapbox `text-font: ["Open Sans Regular"]`
-   *  to a single key. Optional — runtime defaults to first loaded
-   *  font. */
-  font?: string
+  /** Text content. Most labels are a single field reference (the
+   *  `kind: 'expr'` shape that Batch 1b emits) or a Mapbox-style
+   *  template with embedded format specs (`kind: 'template'`). */
+  text: TextValue
+
+  // ── Typography ──
+  /** Font stack — first available wins. Maps from Mapbox
+   *  `text-font: ["Noto Sans Regular", "Noto Sans CJK KR Regular"]`.
+   *  Optional — runtime defaults to its first loaded font. */
+  font?: string[]
   /** Font size in PIXELS (not font units). Mapbox `text-size`. */
   size: number
-  /** Text fill colour in `[r, g, b, a]` (0-1 each). When undefined
+  /** Mapbox `text-letter-spacing` in em units. Default 0. */
+  letterSpacing?: number
+  /** Mapbox `text-line-height` in em units. Default 1.2. */
+  lineHeight?: number
+  /** Mapbox `text-max-width` in em units (wraps at word boundaries
+   *  past this). Default ~10. */
+  maxWidth?: number
+  /** Mapbox `text-transform`. */
+  transform?: 'none' | 'uppercase' | 'lowercase'
+  /** Mapbox `text-justify`. */
+  justify?: 'auto' | 'left' | 'center' | 'right'
+
+  // ── Appearance ──
+  /** Text fill colour `[r, g, b, a]` (0-1 each). When undefined
    *  the layer's `fill` value is used as the text colour. */
   color?: [number, number, number, number]
-  /** Optional halo (outline) colour + width. Mapbox `text-halo-color`
-   *  and `text-halo-width`. */
-  halo?: { color: [number, number, number, number]; width: number }
-  /** Anchor point on the glyph quad. `center` (default) for point
-   *  features, `top` puts text above the point, `bottom` below.
-   *  Mapbox `text-anchor`. */
-  anchor?: 'center' | 'top' | 'bottom' | 'left' | 'right'
-  /** When true, lay text along line geometry (for road-name labels).
-   *  Mapbox `symbol-placement: line`. Default `false` = single
-   *  positioned label per feature. */
-  alongLine?: boolean
+  /** Optional halo (outline). `blur` is the SDF feathering width
+   *  in pixels — Mapbox `text-halo-blur`. */
+  halo?: {
+    color: [number, number, number, number]
+    width: number
+    blur?: number
+  }
+
+  // ── Placement ──
+  /** Mapbox `symbol-placement`. `point` (default) anchors text at
+   *  the feature's anchor point; `line` lays text along line
+   *  geometry; `line-center` puts one label at the line's midpoint. */
+  placement?: 'point' | 'line' | 'line-center'
+  /** Distance between repeated labels along a line (`placement:
+   *  line` only), in pixels. Mapbox `symbol-spacing`. Default 250. */
+  spacing?: number
+  /** Mapbox `text-anchor`. Default `center`. */
+  anchor?:
+    | 'center' | 'top' | 'bottom' | 'left' | 'right'
+    | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  /** Mapbox `text-offset` in em units `[dx, dy]`. */
+  offset?: [number, number]
+  /** Mapbox `text-rotate` in degrees clockwise. */
+  rotate?: number
+  /** Padding (px) around the text bbox for collision testing.
+   *  Mapbox `text-padding`. Default 2. */
+  padding?: number
+
+  // ── Collision (Batch 1e) ──
+  /** When true, render even when overlapping other labels.
+   *  Mapbox `text-allow-overlap`. */
+  allowOverlap?: boolean
+  /** When true, do not let this label block others.
+   *  Mapbox `text-ignore-placement`. */
+  ignorePlacement?: boolean
+
+  // ── Deferred (placeholder typings; semantics defined later) ──
+  /** Map / viewport / auto. Default 'auto' — point labels follow
+   *  viewport, line labels follow map. Batch 1d. */
+  rotationAlignment?: 'map' | 'viewport' | 'auto'
+  /** Map / viewport / auto. Default 'auto'. Batch 1d. */
+  pitchAlignment?: 'map' | 'viewport' | 'auto'
+  /** When true (default), flip labels along curves so they read
+   *  upright. `placement: line` only. Batch 1d. */
+  keepUpright?: boolean
+  /** Horizontal (default) or vertical. CJK vertical text. Batch 1g+. */
+  writingMode?: 'horizontal' | 'vertical'
 }
 
 /**

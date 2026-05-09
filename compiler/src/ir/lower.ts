@@ -388,7 +388,7 @@ function lowerLayer(
           // quads (Batch 1c). Engine plumbing not yet wired through
           // the renderers — for now this just preserves the IR so
           // Mapbox styles with `text-field` survive compilation.
-          label = { expr: { ast: item.binding }, size: 12 }
+          label = { text: { kind: 'expr', expr: { ast: item.binding } }, size: 12 }
         }
         continue
       }
