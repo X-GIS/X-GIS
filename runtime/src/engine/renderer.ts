@@ -873,7 +873,13 @@ export function interpolateTimeColor(
 export class MapRenderer {
   private ctx: GPUContext
   // Cached per-frame allocation (avoid GC pressure in render loop)
-  private uniformDataBuf = new ArrayBuffer(160)
+  // Must equal MapRenderer.UNIFORM_SIZE (176). Inlined because
+  // class-field init can't reference static-readonly fields declared
+  // later in the same class. Grew 160 → 176 when `clip_bounds:
+  // vec4<f32>` was added to WGSL Uniforms (per-tile fallback clip
+  // mask). Out-of-bounds typed-array writes are silent no-ops so a
+  // mismatch here = uniform never reaches the GPU.
+  private uniformDataBuf = new ArrayBuffer(176)
   // Dynamic-offset uniform ring (see docs: multi-layer uniform slots)
   private static readonly UNIFORM_SLOT = 256
   /** CPU-side mirror of uniformBuffer. Each draw's uniform block is
@@ -1833,6 +1839,15 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
       // followed by 12 bytes of vec3<u32> padding so the uniform struct
       // ends on a 16-byte boundary as required by WebGPU std140-ish layout.
       new Uint32Array(uniformData, 144, 4).set([layer.pickId, 0, 0, 0])
+      // clip_bounds (160-175): sentinel "no clip" — non-tiled layers
+      // own their entire screen area, no per-tile fallback clipping
+      // applies. The fragment shader's `clip_bounds.x > -1e29` gate
+      // skips the discard test entirely. Without this write the
+      // shader reads garbage at byte 160 (the sentinel happens to be
+      // an unusual value) and discards most fragments — the symptom
+      // was the hero map showing only ~1/4 of the world after the
+      // per-tile clip mask landed in 9c026b3.
+      new Float32Array(uniformData, 160, 4).set([-1e30, 0, 0, 0])
       const slotOffset = this.allocUniformSlot()
       this.stageUniformSlot(slotOffset, uniformData)
 
@@ -1890,7 +1905,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
       const worldOffs = worldCopiesFor(projType)
 
       for (let wi = 0; wi < worldOffs.length; wi++) {
-        const gratData = new ArrayBuffer(160)
+        const gratData = new ArrayBuffer(MapRenderer.UNIFORM_SIZE)
         new Float32Array(gratData, 0, 16).set(mvp)
         new Float32Array(gratData, 64, 4).set([1, 1, 1, 0.15])
         new Float32Array(gratData, 80, 4).set([1, 1, 1, 0.15])
@@ -1908,6 +1923,8 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
         new Float32Array(gratData, 128, 4).set([0, 0, 1, frame.logDepthFc])
         // pick_id=0 — graticule is decorative, never pickable.
         new Uint32Array(gratData, 144, 4).set([0, 0, 0, 0])
+        // clip_bounds sentinel — same rationale as the polygon path.
+        new Float32Array(gratData, 160, 4).set([-1e30, 0, 0, 0])
         const gratOff = this.allocUniformSlot()
         this.stageUniformSlot(gratOff, gratData)
 
