@@ -22,6 +22,13 @@ import {
 import { formatDate } from './datetime-formatter'
 
 export { parseFormatSpec, GIS_TYPES } from './spec-parser'
+export {
+  parseTextTemplate,
+  isBareExpressionTemplate,
+} from './template-parser'
+export type {
+  TemplatePart, TemplateLiteral, TemplateInterp,
+} from './template-parser'
 export { formatNumber, formatString } from './number-formatter'
 export { formatDMS, formatDM, formatBearing, formatMGRS, formatUTM } from './gis-formatter'
 export { formatDate } from './datetime-formatter'
