@@ -126,6 +126,13 @@ export const DEMOS: Record<string, Demo> = {
     source: load('pmtiles-source.xgis'),
   },
 
+  pmtiles_labels: {
+    name: 'PMTiles labels',
+    tag: 'xgvt',
+    description: 'SDF text labels from MVT places — `label-["{.name}"]` on a vector-tile source-layer',
+    source: load('pmtiles-labels.xgis'),
+  },
+
   pmtiles_v4: {
     name: 'PMTiles — protomaps v4',
     tag: 'xgvt',

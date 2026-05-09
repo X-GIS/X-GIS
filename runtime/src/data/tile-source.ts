@@ -78,6 +78,14 @@ export interface BackendTileResult {
    *  populated for layers whose style declares
    *  `fill-extrusion-base-…`. */
   bases?: ReadonlyMap<number, number>
+  /** featId → original feature properties bag (a copy of the MVT
+   *  feature's `properties`). Populated by sources whose decode
+   *  step still has access to the per-feature property hash —
+   *  PMTiles MVT decode is the primary producer. Used by the SDF
+   *  text label pipeline to resolve `label-["{.field}"]` per
+   *  feature without round-tripping through a global PropertyTable
+   *  (PMTiles doesn't build one — features land here directly). */
+  featureProps?: ReadonlyMap<number, Record<string, unknown>>
   /** Set when this tile's polygon entirely covers its area. With
    *  empty vertices, catalog synthesises a quad via
    *  createFullCoverTileData. */

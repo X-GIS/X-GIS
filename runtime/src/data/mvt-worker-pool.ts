@@ -26,6 +26,11 @@ export interface MvtCompileSlice {
   polygons?: RingPolygon[]
   heights?: ReadonlyMap<number, number>
   bases?: ReadonlyMap<number, number>
+  /** featId → original feature properties bag. Forwarded from the
+   *  worker so the SDF text label pipeline can resolve
+   *  `label-["{.field}"]` per feature. PMTiles MVT properties are
+   *  the primary source — there's no global PropertyTable. */
+  featureProps?: ReadonlyMap<number, Record<string, unknown>>
   fullCover: boolean
   fullCoverFeatureId: number
 }
@@ -45,6 +50,7 @@ interface SliceMsg {
   outlineIndices?: ArrayBuffer
   outlineVertices?: ArrayBuffer
   outlineLineIndices?: ArrayBuffer
+  featureProps?: ReadonlyMap<number, Record<string, unknown>>
   prebuiltLineSegments?: ArrayBuffer
   prebuiltOutlineSegments?: ArrayBuffer
   polygons?: RingPolygon[]
@@ -111,6 +117,7 @@ export class MvtWorkerPool {
             polygons: s.polygons,
             heights: s.heights,
             bases: s.bases,
+            featureProps: s.featureProps,
             fullCover: s.fullCover,
             fullCoverFeatureId: s.fullCoverFeatureId,
           }))

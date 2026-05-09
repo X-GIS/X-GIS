@@ -1,0 +1,31 @@
+/* PMTiles vector-tile labels — tests the label pipeline against
+ * MVT data (NOT GeoJSON-via-rawDatasets). Same Florence archive
+ * as `pmtiles-source` but pulls the `places` source-layer and
+ * renders each city/POI's `name` property as an SDF text label
+ * via `label-["{.name}"]`.
+ *
+ * Verifies the full converter → IR → runtime path that Mapbox-style
+ * symbol layers exercise: `text-field: "{name}"` → `label-[.name]`
+ * → per-feature TextStage.addLabel from VTR's tile cache.
+ *
+ * Default zoom: 14, centered on Florence (Duomo). Pan around to
+ * see street/place labels.
+ */
+
+source pm {
+  type: pmtiles
+  url: "https://pmtiles.io/protomaps(vector)ODbL_firenze.pmtiles"
+}
+
+layer pm_buildings {
+  source: pm
+  sourceLayer: "buildings"
+  | fill-stone-300 stroke-stone-500 stroke-0.5
+}
+
+layer pm_places {
+  source: pm
+  sourceLayer: "places"
+  | label-[.name] label-color-#fff label-size-13
+    label-halo-1 label-halo-color-#000
+}

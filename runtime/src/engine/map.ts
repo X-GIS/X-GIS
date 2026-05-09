@@ -2576,8 +2576,6 @@ export class XGISMap {
 
         // (b) Per-feature labels from ShowCommand.label
         for (const show of labelShows) {
-          const data = this.rawDatasets.get(show.targetName)
-          if (!data || !data.features) continue
           // If LabelDef.color is unset, fall back to the layer's fill
           // (typical Mapbox-style symbol-on-poly pattern: the same
           // colour for the polygon AND its label). When THAT is also
@@ -2586,16 +2584,47 @@ export class XGISMap {
           const effectiveDef = def.color !== undefined
             ? def
             : { ...def, color: hexToRgbaArr(show.fill) ?? [1, 1, 1, 1] as [number, number, number, number] }
-          for (const feat of data.features) {
-            if (!feat.geometry) continue
-            const anchor = featureAnchor(feat.geometry)
-            if (!anchor) continue
-            const projected = projectLonLat(anchor[0], anchor[1])
-            if (!projected) continue
-            stage.addLabel(
-              effectiveDef.text, feat.properties ?? {},
-              projected[0], projected[1], effectiveDef, effectiveDef.font?.[0],
-            )
+
+          // Path 1: GeoJSON / inline-data sources whose features live
+          // in `rawDatasets`. Iterates the FeatureCollection directly
+          // and uses `featureAnchor` to pick a centroid per geometry.
+          const data = this.rawDatasets.get(show.targetName)
+          if (data && data.features && !(data as unknown as { _vectorTile?: boolean })._vectorTile) {
+            for (const feat of data.features) {
+              if (!feat.geometry) continue
+              const anchor = featureAnchor(feat.geometry)
+              if (!anchor) continue
+              const projected = projectLonLat(anchor[0], anchor[1])
+              if (!projected) continue
+              stage.addLabel(
+                effectiveDef.text, feat.properties ?? {},
+                projected[0], projected[1], effectiveDef, effectiveDef.font?.[0],
+              )
+            }
+            continue
+          }
+
+          // Path 2: vector-tile sources (PMTiles / .xgvt / Mapbox
+          // converter output). Features live in the VTR tile cache.
+          // We delegate iteration to VTR.forEachLabelFeature which
+          // walks `stableKeys` × `pointVertices` and rebuilds the
+          // property bag from the source's PropertyTable. Mercator
+          // coords come out in absolute meters; we go through the
+          // same projector by inverting back to lon/lat.
+          const vtEntry = this.vtSources.get(show.targetName)
+          if (vtEntry) {
+            const DEG2RAD = Math.PI / 180
+            const R = 6378137
+            vtEntry.renderer.forEachLabelFeature(show.sourceLayer, (mercX, mercY, props) => {
+              const lon = (mercX / R) / DEG2RAD
+              const lat = (2 * Math.atan(Math.exp(mercY / R)) - Math.PI / 2) / DEG2RAD
+              const projected = projectLonLat(lon, lat)
+              if (!projected) return
+              stage.addLabel(
+                effectiveDef.text, props,
+                projected[0], projected[1], effectiveDef, effectiveDef.font?.[0],
+              )
+            })
           }
         }
 

@@ -61,6 +61,14 @@ export interface TileData {
    *  Populated when the style declared `fill-extrusion-base-…` for
    *  the layer. Missing entries fall back to 0. */
   bases?: ReadonlyMap<number, number>
+  /** featId → original feature properties bag (a copy of the MVT
+   *  feature's `properties` object). Populated by sources whose
+   *  decode step still has access to the per-feature property hash —
+   *  PMTiles MVT decode + GeoJSON tiler. Used by the SDF text label
+   *  pipeline to resolve `label-["{.field}"]` expressions per
+   *  feature without round-tripping through a global PropertyTable
+   *  (PMTiles doesn't build one — features land here directly). */
+  featureProps?: ReadonlyMap<number, Record<string, unknown>>
 }
 
 // Stride constants (exported for tests + VTR upload paths)

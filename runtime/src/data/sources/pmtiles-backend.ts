@@ -503,6 +503,7 @@ export class PMTilesBackend implements TileSource {
               polygons: slice.polygons,
               heights: slice.heights,
               bases: slice.bases,
+              featureProps: slice.featureProps,
               fullCover: slice.fullCover,
               fullCoverFeatureId: slice.fullCoverFeatureId,
               prebuiltLineSegments: slice.prebuiltLineSegments,
@@ -559,6 +560,15 @@ export class PMTilesBackend implements TileSource {
         const parts = decomposeFeatures(sourceFeatures)
         const tile = compileSingleTile(parts, z, x, y, this.meta.maxZoom)
         if (!tile) return
+        // Build featureProps map for the SDF text label pipeline:
+        // featId (the index used by GPU vertex feat_id) → original
+        // properties bag. decomposeFeatures preserves source order,
+        // so featId == sourceFeatures index.
+        const featureProps = new Map<number, Record<string, unknown>>()
+        for (let fi = 0; fi < sourceFeatures.length; fi++) {
+          const props = sourceFeatures[fi]?.properties
+          if (props) featureProps.set(fi, props as Record<string, unknown>)
+        }
         const heights = extractFeatureHeights(sourceFeatures, this.extrudeExprs?.[sourceLayer])
         const bases = extractFeatureHeights(sourceFeatures, this.extrudeBaseExprs?.[sourceLayer])
         const widths = extractFeatureWidths(sourceFeatures, this.strokeWidthExprs?.[sliceKey])
@@ -605,6 +615,7 @@ export class PMTilesBackend implements TileSource {
           polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
           heights: heights.size > 0 ? heights : undefined,
           bases: bases.size > 0 ? bases : undefined,
+          featureProps: featureProps.size > 0 ? featureProps : undefined,
           fullCover: tile.fullCover,
           fullCoverFeatureId: tile.fullCoverFeatureId,
           prebuiltLineSegments,

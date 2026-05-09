@@ -723,6 +723,65 @@ export class VectorTileRenderer {
     return this.source?.getPropertyTable()
   }
 
+  /** Iterate every visible point feature in this tile source's
+   *  current frame's stableKeys. Calls `fn` with absolute Mercator
+   *  meters + a feature-property bag for each point. Used by the
+   *  TextStage label path so per-feature labels (`label-["{.name}"]`
+   *  on a vector-tile layer) can resolve text + project anchors
+   *  without re-implementing the tile cache iteration here.
+   *
+   *  No-op for sources without point geometry (polygon-only layers
+   *  return zero-length pointVertices arrays). */
+  forEachLabelFeature(
+    sliceLayer: string | undefined,
+    fn: (mercX: number, mercY: number, props: Record<string, unknown>) => void,
+  ): void {
+    if (!this.source) return
+    const table = this.source.getPropertyTable()
+    const fieldNames = table?.fieldNames ?? []
+    const values = table?.values ?? []
+    const DEG2RAD = Math.PI / 180
+    const R = 6378137
+    const LAT_LIMIT = 85.051129
+    const clampLat = (v: number): number => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
+
+    for (const key of this.stableKeys) {
+      const tileData = this.source.getTileData(key, sliceLayer)
+      if (!tileData?.pointVertices || tileData.pointVertices.length < 5) continue
+      const ptv = tileData.pointVertices
+      const tileMercX = tileData.tileWest * DEG2RAD * R
+      const tileMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(tileData.tileSouth) * DEG2RAD / 2)) * R
+      // Prefer per-tile featureProps (PMTiles MVT path — each tile
+      // carries its own properties Map). Fall back to the catalog-
+      // level PropertyTable (XGVT path — pre-built shared table
+      // indexed by global featId).
+      const tileProps = tileData.featureProps
+      for (let i = 0; i < ptv.length; i += 5) {
+        // DSFUN: tile-local high+low pair → tile-local mercator.
+        const ptMxLocal = ptv[i] + ptv[i + 2]
+        const ptMyLocal = ptv[i + 1] + ptv[i + 3]
+        const featId = ptv[i + 4] | 0
+        const mercX = tileMercX + ptMxLocal
+        const mercY = tileMercY + ptMyLocal
+        let props: Record<string, unknown>
+        if (tileProps) {
+          props = tileProps.get(featId) ?? {}
+        } else {
+          // Catalog-level PropertyTable lookup. featId may exceed
+          // values.length when the tile carries synthetic centroids
+          // for polygon features — fall back to empty bag instead of
+          // crashing; resolveText already handles missing fields.
+          const row = values[featId] as readonly (number | string | boolean | null)[] | undefined
+          props = {}
+          if (row) {
+            for (let f = 0; f < fieldNames.length; f++) props[fieldNames[f]!] = row[f]
+          }
+        }
+        fn(mercX, mercY, props)
+      }
+    }
+  }
+
   hasFeatureData(): boolean {
     return this.featureDataBuffer !== null
   }

@@ -189,6 +189,12 @@ export interface MvtCompileSlice {
   /** Companion to `heights` for Mapbox `fill-extrusion-base`. Wall
    *  bottom z (metres) per feature. Missing entries fall back to 0. */
   bases?: ReadonlyMap<number, number>
+  /** featId → original feature properties bag. Populated by the
+   *  worker so the SDF text label pipeline can resolve
+   *  `label-["{.field}"]` per feature. PMTiles MVT properties land
+   *  here directly — there's no global PropertyTable. Postmessage-
+   *  friendly: plain object keys + primitive values only. */
+  featureProps?: ReadonlyMap<number, Record<string, unknown>>
   fullCover: boolean
   fullCoverFeatureId: number
 }
@@ -255,6 +261,13 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       const parts = decomposeFeatures(sourceFeatures)
       const tile = compileSingleTile(parts, msg.z, msg.x, msg.y, msg.maxZoom)
       if (!tile) return
+      // featureProps for the SDF text label pipeline. featId == the
+      // `decomposeFeatures` index, which equals sourceFeatures index.
+      const featureProps = new Map<number, Record<string, unknown>>()
+      for (let fi = 0; fi < sourceFeatures.length; fi++) {
+        const props = sourceFeatures[fi]?.properties
+        if (props) featureProps.set(fi, props as Record<string, unknown>)
+      }
       const heights = extractFeatureHeights(sourceFeatures, msg.extrudeExprs?.[sourceLayer])
       const bases = extractFeatureHeights(sourceFeatures, msg.extrudeBaseExprs?.[sourceLayer])
       // Per-feature stroke widths / colours — keyed by sliceKey
@@ -310,6 +323,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
         polygons: tile.polygons?.map(p => ({ rings: p.rings, featId: p.featId })),
         heights: heights.size > 0 ? heights : undefined,
         bases: bases.size > 0 ? bases : undefined,
+        featureProps: featureProps.size > 0 ? featureProps : undefined,
         fullCover: tile.fullCover ?? false,
         fullCoverFeatureId: tile.fullCoverFeatureId ?? 0,
       }

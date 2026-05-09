@@ -342,6 +342,7 @@ export class TileCatalog {
       sourceLayer,
       result.heights,
       result.bases,
+      result.featureProps,
     )
   }
 
@@ -900,6 +901,7 @@ export class TileCatalog {
     sourceLayer = '',
     heights?: ReadonlyMap<number, number>,
     bases?: ReadonlyMap<number, number>,
+    featureProps?: ReadonlyMap<number, Record<string, unknown>>,
   ): void {
     const [tz, tx, ty] = tileKeyUnpack(key)
     const tn = Math.pow(2, tz)
@@ -923,6 +925,7 @@ export class TileCatalog {
       polygons,
       heights,
       bases,
+      featureProps,
     }
 
     this.setSlice(key, sourceLayer, data)

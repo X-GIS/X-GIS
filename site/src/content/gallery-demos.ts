@@ -133,8 +133,9 @@ export const galleryCategories: Category[] = [
       // /docs/utilities label-* family + the /docs/cookbook recipes.
       // The gallery links route directly to the standalone page so the
       // user sees the working result instead of a 404.
-      { id: 'labels',         title: 'Auto labels',     body: 'label-["{.name}"] resolves text from each feature\'s properties — Mapbox text-field equivalent.', standaloneUrl: 'examples/labels.html', noThumb: true },
-      { id: 'text-overlay',   title: 'Imperative overlay', body: 'map.addOverlay({text, anchor, color, halo}) — text labels added from app code, re-projected every frame.', standaloneUrl: 'examples/text-overlay.html', noThumb: true },
+      { id: 'labels',         title: 'Auto labels (GeoJSON)', body: 'label-["{.name}"] resolves text from each feature\'s properties — Mapbox text-field equivalent.', standaloneUrl: 'examples/labels.html', noThumb: true },
+      { id: 'text-overlay',   title: 'Imperative overlay',    body: 'map.addOverlay({text, anchor, color, halo}) — text labels added from app code, re-projected every frame.', standaloneUrl: 'examples/text-overlay.html', noThumb: true },
+      { id: 'pmtiles-labels', title: 'PMTiles labels (MVT)',  body: 'Same label-["{.name}"] utility against PMTiles vector-tile features — properties surface from the MVT decode worker. Florence Duomo at z=14.', defaultHash: '14/43.7733/11.2558', noThumb: true },
     ],
   },
   {
