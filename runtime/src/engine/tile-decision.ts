@@ -93,11 +93,28 @@ export interface ClassifyTileInputs {
   sliceLayer: string
 }
 
+/** Reusable decision singletons for the static / no-payload kinds.
+ *  classifyTile fires for every (sliceLayer × visibleKey) combination
+ *  per frame — Bright at z=14 with 25 unique sliceLayers × ~50
+ *  effective keys (after horizon cull) × 60 fps × 6-second transition
+ *  = 450 000 calls per session, of which most steady-state ones land
+ *  on `primary` (already on GPU). Returning a fresh object literal
+ *  per call burned through ~213 MB of GC churn (user profile flagged
+ *  `Major GC` collecting that amount in one pass). Singletons drop
+ *  the alloc to zero for the static decisions.
+ *
+ *  Object.freeze is intentional: the caller would never mutate a
+ *  decision today, and freezing surfaces any future code that tries
+ *  to (which would silently corrupt the shared instance). */
+const PRIMARY_DECISION: TileDecision = Object.freeze({ kind: 'primary' })
+const DROP_EMPTY_DECISION: TileDecision = Object.freeze({ kind: 'drop-empty-slice' })
+const DROP_NO_ARCHIVE_DECISION: TileDecision = Object.freeze({ kind: 'drop-no-archive' })
+
 /** Pure tile-resolution classifier. Replaces the per-tile loop's
  *  branched `if … continue` chain with a single decision return. */
 export function classifyTile(input: ClassifyTileInputs): TileDecision {
-  const { visible, visibleKey, maxLevel, parentAtMaxLevel, archiveAncestor,
-    layerCache, hasSliceInCatalog, hasAnySliceInCatalog, hasEntryInIndex,
+  const { visible, visibleKey, maxLevel, parentAtMaxLevel,
+    layerCache, hasSliceInCatalog, hasAnySliceInCatalog,
     sliceLayer } = input
   const tileZ = visible.z
 
@@ -114,8 +131,9 @@ export function classifyTile(input: ClassifyTileInputs): TileDecision {
     }
   }
 
-  // 2. PRIMARY — already on GPU.
-  if (layerCache.has(visibleKey)) return { kind: 'primary' }
+  // 2. PRIMARY — already on GPU. Hottest steady-state branch; reuse
+  //    the frozen singleton to skip an allocation.
+  if (layerCache.has(visibleKey)) return PRIMARY_DECISION
 
   // 3. THIS LAYER's slice in catalog → upload + walk for fallback.
   //    (Bug class commit-49d4801: walking the parent here is critical
@@ -135,7 +153,7 @@ export function classifyTile(input: ClassifyTileInputs): TileDecision {
   //    sub-tile gen which would be blocked otherwise — see comment in
   //    vector-tile-renderer.ts).
   if (sliceLayer && tileZ <= maxLevel && hasAnySliceInCatalog(visibleKey)) {
-    return { kind: 'drop-empty-slice' }
+    return DROP_EMPTY_DECISION
   }
 
   // 5. Nothing in catalog yet. Walk for fallback.
@@ -217,7 +235,7 @@ function classifyFallback(input: ClassifyTileInputs): TileDecision {
 
   // No ancestor or descendant exists in archive at all.
   if (archiveAncestor < 0 && !hasEntryInIndex(visibleKey)) {
-    return { kind: 'drop-no-archive' }
+    return DROP_NO_ARCHIVE_DECISION
   }
 
   // Pending: request the visible (or closest archive ancestor if the

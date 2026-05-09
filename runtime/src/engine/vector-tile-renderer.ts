@@ -1898,15 +1898,19 @@ export class VectorTileRenderer {
         let total = 0, ready = 0
         let stepTiles: ReturnType<typeof visibleTilesFrustum> = []
         if (!belowLayerMinzoom && !aboveLayerMaxzoom) {
-          stepTiles = (camera.pitch ?? 0) < 30
-            ? visibleTilesFrustumSampled(
-                camera, selectorProj, step,
-                canvasWidth, canvasHeight, offsetMarginPx, dpr,
-              )
-            : visibleTilesFrustum(
-                camera, selectorProj, step,
-                canvasWidth, canvasHeight, offsetMarginPx, dpr,
-              )
+          // Readiness gate uses the SAME selector as the main render
+          // path (SSE default since `1ab9ab0`). Falling back to the
+          // old frustum / sampled selectors here would (a) duplicate
+          // tile-selection cost — the user's profile flagged this as
+          // 33 % of frame time during zoom transitions, classifyTile
+          // + visit + toScreen all in `tiles.ts` — and (b) emit a
+          // DIFFERENT tile set than the renderer asks for, so the
+          // readiness check wouldn't actually predict the renderer's
+          // demand. SSE is faster AND consistent.
+          stepTiles = visibleTilesSSE(
+            camera, selectorProj, step,
+            canvasWidth, canvasHeight, offsetMarginPx, dpr,
+          )
           for (const t of stepTiles) {
             if (t.z !== step) continue
             total++
