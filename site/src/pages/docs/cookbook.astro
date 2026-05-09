@@ -178,6 +178,59 @@ layer beacon {
       'Default behaviour is "decode every source-layer any xgis layer references" — explicit listing only matters when you want to also restrict layers below the inferred set.',
     ],
   },
+
+  {
+    slug: 'text-labels',
+    title: 'Per-feature text labels',
+    body: 'A `label-[<expr>]` utility on any layer turns its features into SDF text labels. The bracket holds an xgis expression — a bare field reference (`.name`) is the simplest form; quoted templates support Mapbox `{name}` tokens AND Python-style format specs `{lat:.4f}` plus GIS specs `{coord:dms}`.',
+    code: `source cities { type: geojson, url: "cities.geojson" }
+
+layer city_labels {
+  source: cities
+  | label-["{.name}"] label-size-14
+    label-color-#fff label-halo-1 label-halo-color-#000
+    label-uppercase
+}`,
+    notes: [
+      'Text colour falls back to the layer\'s `fill-` colour when `label-color-*` is unset — handy for matching point + label tints with one declaration.',
+      'Labels render via the OffscreenCanvas worker → R8 atlas → WGSL pipeline. The first frame seeds basic Latin + degree sign so cursor / coord readouts hit the cache cold.',
+      'Non-string format specs: `{lat:dms}` → 37°33′59.4″N, `{brg:bearing}` → 045°, `{ts:%H:%M:%SZ}` → 14:32:18Z. Locale `;C` forces deterministic ASCII for audit / regression testing.',
+    ],
+  },
+
+  {
+    slug: 'imperative-overlay',
+    title: 'Imperative text overlays (addOverlay)',
+    body: '`map.addOverlay({...})` anchors a label at a (lon, lat) pair imperatively — no DSL needed. Useful for measurement results, programmatic annotations, or anything driven by app state outside the style.',
+    code: `import { XGISMap } from '@xgis/runtime'
+
+const map = new XGISMap(document.getElementById('map'))
+await map.run(stylesource)
+
+const cities = [
+  { name: 'Seoul',   anchor: [126.978,  37.5665] },
+  { name: 'Tokyo',   anchor: [139.6917, 35.6895] },
+  { name: 'Sydney',  anchor: [151.2093, -33.8688] },
+]
+
+const handles = cities.map(c => map.addOverlay({
+  text: c.name,
+  anchor: c.anchor,
+  size: 16,
+  color: [1, 1, 1, 1],
+  halo: { color: [0, 0, 0, 0.85], width: 1.5 },
+}))
+
+// Later: remove just one
+handles[0].remove()
+// Or all
+map.clearOverlays()`,
+    notes: [
+      'Same pipeline (atlas + shader) as DSL-driven labels — both paths share one TextStage instance per map.',
+      'Glyphs are LRU-cached in the atlas keyed by (font, codepoint, sdf-radius), so repeated chars across overlays only rasterise once.',
+      'Each overlay re-projects every frame against the current camera — labels stay locked to their geographic anchor through pan / zoom / pitch.',
+    ],
+  },
 ]
 ---
 

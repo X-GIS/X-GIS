@@ -72,9 +72,15 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
       </div>
 
       <Callout type="note" title="What this means in practice">
-        Most cartographic styles port cleanly. The big exception is
-        anything that depends on <strong>text labels</strong> — those
-        get skipped with a comment until the runtime ships a glyph atlas.
+        Most cartographic styles port cleanly. <strong>Text labels</strong>
+        now render end-to-end via the SDF text pipeline — Mapbox
+        <code class="font-mono">text-field</code>, <code class="font-mono">text-color</code>,
+        <code class="font-mono">text-size</code>, <code class="font-mono">text-halo-*</code>,
+        <code class="font-mono">text-anchor</code> and <code class="font-mono">text-transform</code>
+        all map to <code class="font-mono">label-*</code> utilities and
+        appear at the correct geographic anchor on every frame.
+        Along-path road labels and collision detection arrive in the
+        next batch; icons depend on the upcoming sprite atlas.
       </Callout>
     </section>
 
@@ -110,8 +116,9 @@ const xgis = convertMapboxStyle(style)
           <div class="text-emerald-300 text-[11px] uppercase tracking-wider mb-2 font-medium">Supported</div>
           <ul class="space-y-1.5 text-fg-dim leading-[1.55]">
             <li>• Sources: vector (PMTiles + TileJSON), raster, GeoJSON</li>
-            <li>• Layers: background, fill, line, fill-extrusion</li>
+            <li>• Layers: background, fill, line, fill-extrusion, symbol (text)</li>
             <li>• Paint: fill-color/-opacity, line-color/-width/-dasharray/-opacity, fill-extrusion-color/-opacity/-height/-base</li>
+            <li>• Symbol: text-field, text-color, text-size, text-halo-color/-width, text-anchor (5-way), text-transform</li>
             <li>• Filters: legacy + expression form (==/!=/&lt;/&gt;/all/any/in/!in/has/!has)</li>
             <li>• Expressions: get / coalesce / case / match / arithmetic / min / max / to-number</li>
             <li>• Zoom: <code class="font-mono">interpolate(zoom, …)</code> with linear curve</li>
@@ -124,18 +131,21 @@ const xgis = convertMapboxStyle(style)
             <li>• <code class="font-mono">fill-translate</code>, <code class="font-mono">line-translate</code> dropped</li>
             <li>• <code class="font-mono">fill-outline-color</code> emitted as a separate stroke layer when paired</li>
             <li>• <code class="font-mono">$type</code> / <code class="font-mono">$id</code> filters dropped (geometry type implied by utility)</li>
+            <li>• <code class="font-mono">text-anchor</code> diagonals (top-left / etc.) collapse to dominant axis</li>
+            <li>• <code class="font-mono">text-size</code> expression form constant-only (zoom interpolate pending)</li>
             <li>• <code class="font-mono">fill-pattern</code> / <code class="font-mono">line-pattern</code> dropped (bitmap atlases unimplemented)</li>
           </ul>
         </div>
         <div class="border border-line rounded-md p-4 bg-bg-elev">
           <div class="text-rose-300 text-[11px] uppercase tracking-wider mb-2 font-medium">Unsupported (engine)</div>
           <ul class="space-y-1.5 text-fg-dim leading-[1.55]">
-            <li>• Symbol layers (text + icons) — SDF font + glyph atlas pending</li>
+            <li>• Icon symbols + sprite atlas (icon-image / icon-size / icon-color)</li>
+            <li>• <code class="font-mono">symbol-placement: line</code> (along-path road labels)</li>
+            <li>• Text collision (text-allow-overlap, text-padding, text-ignore-placement)</li>
             <li>• Circle, heatmap, hillshade, sky layers</li>
-            <li>• <code class="font-mono">let</code> / <code class="font-mono">var</code>, <code class="font-mono">concat</code>, <code class="font-mono">downcase</code>, <code class="font-mono">number-format</code></li>
+            <li>• <code class="font-mono">let</code> / <code class="font-mono">var</code>, <code class="font-mono">downcase</code>, <code class="font-mono">number-format</code></li>
             <li>• <code class="font-mono">step</code> expressions, <code class="font-mono">at</code>, <code class="font-mono">distance</code></li>
             <li>• Top-level <code class="font-mono">light</code>, <code class="font-mono">fog</code>, <code class="font-mono">terrain</code></li>
-            <li>• Paint property <code class="font-mono">transition</code> overrides</li>
           </ul>
         </div>
       </div>
