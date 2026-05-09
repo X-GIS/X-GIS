@@ -233,6 +233,27 @@ map.clearOverlays()`,
   },
 
   {
+    slug: 'import-mapbox-style',
+    title: 'One-line import: any Mapbox v8 style',
+    body: 'Splice form `import "url"` (no name list) pulls every top-level statement from the URL into your program. The runtime auto-detects Mapbox style.json (looks for `version` + `layers`) and runs the converter before parsing — so a single line drops a full base map (OpenFreeMap, OSM Bright, your own custom Mapbox style) into the canvas, and your own layers below override or sit on top.',
+    code: `import "https://tiles.openfreemap.org/styles/bright"
+
+source places { type: geojson, url: "places.geojson" }
+
+layer my_pois {
+  source: places
+  | fill-rose-500 fill-opacity-80
+  | label-[.name] label-color-#fff label-halo-1 label-halo-color-#000
+}`,
+    notes: [
+      'Auto-detection is a one-line check (must be JSON, must have `version >= 7` and a `layers` array). xgis content goes through unchanged — same syntax works for shared `.xgis` modules.',
+      'The fetch happens once per URL per page load (module-level cache). Reload-with-edit only re-fetches if the URL itself changes.',
+      'Cherry-pick form (`import { preset_name } from "./styles.xgis"`) still works for project-internal modules — useful when you only want one preset, not a whole base map.',
+      'CORS still applies — the style host must serve `Access-Control-Allow-Origin`. OpenFreeMap and pmtiles.io do; private CDNs may not.',
+    ],
+  },
+
+  {
     slug: 'multiline-and-fontstack',
     title: 'Multiline labels + font-stack fallback',
     body: '`label-max-width-<em>` triggers greedy word-break wrapping; `label-line-height-<N>` and `label-justify-<a>` control spacing and alignment within the wrapped block. Multiple `label-font-<name>` utilities stack into a CSS font-fallback chain — the browser walks it glyph-by-glyph, so a Latin font + CJK font pair covers mixed-script labels without per-glyph resolution.',

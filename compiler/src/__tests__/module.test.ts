@@ -84,6 +84,54 @@ describe('Module resolution', () => {
     expect(() => resolveImports(ast, './', mockReader)).toThrow('Could not read file')
   })
 
+  it('splice form: `import "path"` (no names) prepends every statement', () => {
+    const ast = parse(`
+      import "./styles.xgs"
+
+      source data { type: geojson, url: "x.geojson" }
+      layer x { source: data | fill-red-500 }
+    `)
+    const stmt = ast.body[0] as AST.ImportStatement
+    expect(stmt.kind).toBe('ImportStatement')
+    expect(stmt.names).toEqual([])
+
+    const resolved = resolveImports(ast, './', mockReader)
+    // Both presets from styles.xgs land + the source + the layer.
+    const presets = resolved.body.filter(s => s.kind === 'PresetStatement')
+    expect(presets.map(p => (p as AST.PresetStatement).name).sort())
+      .toEqual(['alert_effect', 'military_track'])
+  })
+
+  it('splice form auto-detects Mapbox style.json and runs the converter', () => {
+    const mapboxFiles: Record<string, string> = {
+      './bright.json': JSON.stringify({
+        version: 8,
+        sources: { om: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [
+          { id: 'bg', type: 'background', paint: { 'background-color': '#fff' } },
+          { id: 'water', type: 'fill', source: 'om', 'source-layer': 'water',
+            paint: { 'fill-color': '#a0c8ff' } },
+        ],
+      }),
+    }
+    const reader: FileReader = (p) => mapboxFiles[p] ?? null
+
+    const ast = parse(`
+      import "./bright.json"
+
+      source local { type: geojson, url: "user.geojson" }
+      layer overlay { source: local | fill-red-500 }
+    `)
+    const resolved = resolveImports(ast, './', reader)
+    // Converted Mapbox layers + user statements all in one program.
+    const sources = resolved.body.filter(s => s.kind === 'SourceStatement')
+    const layers = resolved.body.filter(s => s.kind === 'LayerStatement')
+    const bg = resolved.body.filter(s => s.kind === 'BackgroundStatement')
+    expect(sources.length).toBeGreaterThanOrEqual(2)  // om + local
+    expect(layers.length).toBeGreaterThanOrEqual(2)   // water + overlay
+    expect(bg.length).toBeGreaterThanOrEqual(1)        // bg
+  })
+
   it('deduplicates imports from same file', () => {
     const ast = parse(`
       import { military_track } from "./styles.xgs"

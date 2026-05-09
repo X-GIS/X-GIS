@@ -334,8 +334,22 @@ export class Parser {
   private parseImportStatement(): AST.ImportStatement {
     const line = this.current().line
     this.expect(TokenType.Import)
-    this.expect(TokenType.LBrace)
 
+    // Two shapes:
+    //   1. import { name1, name2 } from "file.xgis"   ← cherry-pick
+    //   2. import "url-or-path"                       ← splice all
+    //
+    // Splice form treats the URL's content as a sub-program and prepends
+    // every top-level statement. The async resolver auto-detects Mapbox
+    // style.json (starts with `{`) and runs convertMapboxStyle before
+    // re-parsing as xgis — letting devs drop a Mapbox base style in
+    // with one line and override layers below.
+    if (this.check(TokenType.String)) {
+      const path = this.expect(TokenType.String).value
+      return { kind: 'ImportStatement', names: [], path, line }
+    }
+
+    this.expect(TokenType.LBrace)
     const names: string[] = []
     while (!this.check(TokenType.RBrace) && !this.isEnd()) {
       names.push(this.expect(TokenType.Identifier).value)

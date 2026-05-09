@@ -4,6 +4,7 @@
 
 import { Lexer } from '../lexer/lexer'
 import { Parser } from '../parser/parser'
+import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
 import type * as AST from '../parser/ast'
 
 /**
@@ -35,14 +36,22 @@ export function resolveImports(
         throw new Error(`[Module] Could not read file: ${filePath} (imported at line ${stmt.line})`)
       }
 
-      const tokens = new Lexer(source).tokenize()
+      const xgisSource = looksLikeMapboxStyle(source)
+        ? convertMapboxStyle(JSON.parse(source))
+        : source
+
+      const tokens = new Lexer(xgisSource).tokenize()
       const moduleAst = new Parser(tokens).parse()
 
-      // Extract named exports matching the import list
+      const splice = stmt.names.length === 0
       for (const modStmt of moduleAst.body) {
-        const name = getStatementName(modStmt)
-        if (name && stmt.names.includes(name)) {
-          imported.push(modStmt)
+        if (splice) {
+          if (modStmt.kind !== 'ImportStatement') imported.push(modStmt)
+        } else {
+          const name = getStatementName(modStmt)
+          if (name && stmt.names.includes(name)) {
+            imported.push(modStmt)
+          }
         }
       }
     }
@@ -99,13 +108,31 @@ export async function resolveImportsAsync(
         throw new Error(`[Module] Could not read file: ${filePath} (imported at line ${stmt.line})`)
       }
 
-      const tokens = new Lexer(source).tokenize()
+      // Auto-detect Mapbox style.json: a JSON object with `version` and
+      // `layers` is the spec shape. Detection happens BEFORE parsing
+      // because raw style.json doesn't lex as xgis. Splice form
+      // (`import "url"`, no names) feeds the converted output's full
+      // body into the host program; cherry-pick form requires xgis
+      // content because it picks named exports.
+      const xgisSource = looksLikeMapboxStyle(source)
+        ? convertMapboxStyle(JSON.parse(source))
+        : source
+
+      const tokens = new Lexer(xgisSource).tokenize()
       const moduleAst = new Parser(tokens).parse()
 
+      const splice = stmt.names.length === 0
       for (const modStmt of moduleAst.body) {
-        const name = getStatementName(modStmt)
-        if (name && stmt.names.includes(name)) {
-          imported.push(modStmt)
+        if (splice) {
+          // Splice form: take every top-level statement EXCEPT nested
+          // imports (we already walked the importing program; nested
+          // imports would need a recursion guard the v1 doesn't ship).
+          if (modStmt.kind !== 'ImportStatement') imported.push(modStmt)
+        } else {
+          const name = getStatementName(modStmt)
+          if (name && stmt.names.includes(name)) {
+            imported.push(modStmt)
+          }
         }
       }
     }
@@ -117,6 +144,22 @@ export async function resolveImportsAsync(
   ]
 
   return { kind: 'Program', body }
+}
+
+/** Heuristic: does this string look like a Mapbox v8 style.json?
+ *  Trims leading whitespace, checks the opening brace, and parses
+ *  enough to see `version` (an integer >= 7) + `layers` (array). The
+ *  full JSON.parse only happens if the prefix passes — keeps the cost
+ *  bounded for plausible-but-wrong inputs (e.g. an HTML 404 page). */
+function looksLikeMapboxStyle(s: string): boolean {
+  const trimmed = s.trimStart()
+  if (!trimmed.startsWith('{')) return false
+  try {
+    const j = JSON.parse(trimmed)
+    return j !== null && typeof j === 'object'
+      && typeof j.version === 'number' && j.version >= 7
+      && Array.isArray(j.layers)
+  } catch { return false }
 }
 
 function resolveFilePath(importPath: string, basePath: string): string {
