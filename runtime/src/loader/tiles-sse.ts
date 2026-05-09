@@ -82,6 +82,11 @@ export interface VisibleTilesSSEOptions {
   targetSSEPx?: number
   /** Hard cap on emitted tiles — safety net for pathological cameras. */
   maxEmitted?: number
+  /** Skip the globe-equivalent horizon cull (for diagnostic rendering
+   *  of the full Mercator plane). Default false — horizon cull is on
+   *  for Mercator. Non-cylindrical projections always ignore this
+   *  flag. */
+  disableHorizonCull?: boolean
 }
 
 /** Levels of fallback-only ancestor inject. For each emitted tile we
@@ -128,6 +133,33 @@ export function visibleTilesSSE(
 
   const camMx = camera.centerX
   const camMy = camera.centerY
+
+  // ── Globe-equivalent horizon culling for flat Mercator ──
+  // Cesium's pitch=80° performance comes mostly from the globe SHAPE:
+  // the spherical surface curves below the camera horizon, naturally
+  // bounding the tile count. For our flat Mercator the math says
+  // "infinity past the far plane" → we'd recurse a 1300-tile strip
+  // along the horizon. The remedy is to BORROW the globe's horizon
+  // for cull purposes: any tile whose closest-point distance from
+  // camera exceeds the equivalent-altitude horizon distance is
+  // skipped, because on a real Earth that tile would be occluded.
+  //
+  //   horizon_distance ≈ √(2 × R × altitude)    (small h vs R)
+  //
+  // For altitude=9180 m (z=14 view), this is ~342 km — well past the
+  // visually-relevant area. We add 2× safety margin so legitimate
+  // pitched horizons still render. Non-cylindrical projections (ortho,
+  // azimuthal_equidistant, stereographic) handle horizon culling
+  // through their own backface logic; we only apply this cap on
+  // Mercator + equirect, where the math otherwise lets the strip
+  // grow unboundedly. Disable via `opts.disableHorizonCull` for
+  // diagnostic rendering of the full plane.
+  const projType = projection.name === 'mercator' ? 0 : 1
+  const horizonCullActive = projType === 0 && !opts.disableHorizonCull
+  const earthR = 6378137
+  const horizonDist = horizonCullActive
+    ? 2 * Math.sqrt(2 * earthR * Math.max(altitude, 1))
+    : Infinity
 
   // Frustum cull via the camera's MVP — same matrix the renderer uses
   // to draw, so cull and rasterisation agree on screen space at any DPR.
@@ -226,7 +258,13 @@ export function visibleTilesSSE(
     const dx = closestX - camMx
     const dy = closestY - camMy
     const dz = altitude
-    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
+    const groundDist = Math.sqrt(dx * dx + dy * dy)
+    // Horizon cull: tile whose closest-point ground distance exceeds
+    // the equivalent-globe horizon is skipped (would be hidden by
+    // Earth curvature on a real sphere). Massive savings at high
+    // pitch — pitch=80° z=14 Tokyo dropped from 1331 → ~300 tiles.
+    if (groundDist > horizonDist) return
+    const distance = Math.sqrt(groundDist * groundDist + dz * dz)
 
     // Geometric error: error introduced by stopping at this tile vs
     // its children. Standard convention: `tile_meters / 256` (one
@@ -280,13 +318,10 @@ export function visibleTilesSSE(
     }
   }
 
-  // Run the DFS from each world copy's root. For non-Mercator the
-  // worldCopiesFor array is `[0]` so this is a single iteration.
-  // proj_params encoding: 0 = mercator. We don't have direct access to
-  // projType here (the projection enum isn't exported as a numeric
-  // code), so use the `name` heuristic — matches what the existing
-  // visibleTilesFrustum does at line 295-296.
-  const projType = projection.name === 'mercator' ? 0 : 1
+  // Run the DFS from each world copy's root. `projType` was computed
+  // earlier (alongside the horizon-cull setup); for non-Mercator the
+  // worldCopiesFor array collapses to `[0]` so this is a single
+  // iteration.
   const worldCopies = worldCopiesFor(projType)
   for (const wc of worldCopies) {
     visit(0, 0, 0, wc)

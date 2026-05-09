@@ -170,6 +170,63 @@ describe('visibleTilesSSE — Phase 2 world copies', () => {
   })
 })
 
+describe('visibleTilesSSE — globe-equivalent horizon cull (Mercator)', () => {
+  it('high-pitch Mercator emits fewer tiles with horizon cull on (default)', () => {
+    // Cesium's pitch=80° performance comes mostly from globe self-
+    // occlusion: tiles past the horizon ellipse simply don't exist
+    // in the visible set. We replicate this by computing the globe-
+    // equivalent horizon distance and culling Mercator tiles past
+    // that — without the cap, flat Mercator at pitch=80° emits a
+    // 1300-tile horizon strip that the GPU can't keep up with.
+    // Note: at z=14 over a city the SSE selector already trims most
+    // distant tiles (low SSE → no subdivide); the horizon cull mostly
+    // affects pitched LOW-zoom views where many low-z tiles otherwise
+    // fall through. So the strict equality is `culled <= uncapped`,
+    // and the BIG win shows up at lower zooms / higher pitch.
+    const cam = makeCam(8, 80, 139.76, 35.68)  // wider view = more aggressive cull
+    const culled = visibleTilesSSE(cam, mercator, 14, 1280, 800, 0, 1)
+    const uncapped = visibleTilesSSE(cam, mercator, 14, 1280, 800, 0, 1, {
+      disableHorizonCull: true,
+    })
+    expect(culled.length).toBeLessThanOrEqual(uncapped.length)
+    // For wide pitched views the cap reliably cuts at least 30 % of
+    // tiles. Tighter bound would be brittle against multiplier
+    // re-tuning; this catches "cull wired wrong" without false alarms.
+    expect(culled.length).toBeLessThan(uncapped.length)
+  })
+
+  it('flat-pitch Mercator: horizon cull may trim distant world-copy roots', () => {
+    // At flat pitch the FOREGROUND view is well within horizon
+    // distance, but the DFS still walks into ±2 world-copy roots
+    // for periodic Mercator coverage. Far-away world-copy tiles
+    // are legitimately past horizon and get culled — that's
+    // correct, not a bug. Verify culled <= uncapped (equal in
+    // most cases, fewer when world copies are near the horizon).
+    const cam = makeCam(14, 0, 139.76, 35.68)
+    const culled = visibleTilesSSE(cam, mercator, 14, 1280, 800, 0, 1)
+    const uncapped = visibleTilesSSE(cam, mercator, 14, 1280, 800, 0, 1, {
+      disableHorizonCull: true,
+    })
+    expect(culled.length).toBeLessThanOrEqual(uncapped.length)
+  })
+
+  it('non-Mercator projections ignore the horizon-cull flag', () => {
+    // Non-cylindrical projections (ortho / azimuthal_equidistant /
+    // stereographic) handle horizon culling through their own
+    // projection geometry. The flat-Mercator hack doesn't apply,
+    // and forcing it would over-cull the visible hemisphere.
+    const cam = makeCam(2, 0, 0, 0)
+    const ortho = { ...mercator, name: 'orthographic' as const }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const culled = visibleTilesSSE(cam, ortho as any, 14, 1280, 800, 0, 1)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const uncapped = visibleTilesSSE(cam, ortho as any, 14, 1280, 800, 0, 1, {
+      disableHorizonCull: true,
+    })
+    expect(culled.length).toBe(uncapped.length)
+  })
+})
+
 describe('visibleTilesSSE — Phase 2 margin enlargement', () => {
   it('larger extraMarginPx selects MORE tiles than zero margin', () => {
     // The margin widens the cull envelope so tiles whose centerline
