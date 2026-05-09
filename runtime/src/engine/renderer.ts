@@ -964,6 +964,16 @@ export class MapRenderer {
   private graticuleBuffer: GPUBuffer | null = null
   private graticuleVertexCount = 0
   private lastGratZoom = -1
+  /** GPU-buffer cache mirroring graticule.ts's CPU-data cache.
+   *  Keyed by GraticuleData IDENTITY — the underlying generator
+   *  returns the same object for the same zoom bucket, so a Map
+   *  keyed by reference avoids recomputing a bucket key here.
+   *
+   *  10 ms / call on Bright zoom animations (createBuffer +
+   *  writeBuffer + destroy) fired exactly on LOD-boundary frames,
+   *  doubling the worst-frame hitch. With this cache, re-entry into
+   *  a previously-seen bucket is a pointer swap (~0 ms). */
+  private graticuleBufferCache = new WeakMap<object, { buf: GPUBuffer; count: number }>()
 
 
   /** Get rendering stats for all layers */
@@ -1744,13 +1754,29 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
 
   private initGraticule(zoom = 2): void {
     const grat = generateGraticule(zoom)
-    this.graticuleBuffer?.destroy()
-    this.graticuleBuffer = this.ctx.device.createBuffer({
+    // Same GraticuleData reference → same bucket as last call →
+    // GPU buffer is already correct, no need to destroy/create/upload.
+    const cached = this.graticuleBufferCache.get(grat)
+    if (cached) {
+      this.graticuleBuffer = cached.buf
+      this.graticuleVertexCount = cached.count
+      this.lastGratZoom = zoom
+      return
+    }
+    // Don't destroy the previous buffer — it's still referenced by
+    // a cached entry for its own bucket. The WeakMap holds references
+    // alive while their bucket is reachable; when graticule.ts's
+    // bucket cache evicts (currently never), the GraticuleData object
+    // becomes unreachable and the WeakMap entry GCs along with the
+    // GPUBuffer.
+    const buf = this.ctx.device.createBuffer({
       size: grat.vertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       label: 'graticule',
     })
-    this.ctx.device.queue.writeBuffer(this.graticuleBuffer, 0, grat.vertices)
+    this.ctx.device.queue.writeBuffer(buf, 0, grat.vertices)
+    this.graticuleBufferCache.set(grat, { buf, count: grat.indexCount })
+    this.graticuleBuffer = buf
     this.graticuleVertexCount = grat.indexCount
     this.lastGratZoom = zoom
   }
