@@ -133,6 +133,13 @@ export const DEMOS: Record<string, Demo> = {
     source: load('pmtiles-labels.xgis'),
   },
 
+  multiline_labels: {
+    name: 'Multiline labels',
+    tag: 'basic',
+    description: 'Long city names wrap at label-max-width with line-height + justify-center',
+    source: load('multiline-labels.xgis'),
+  },
+
   pmtiles_v4: {
     name: 'PMTiles — protomaps v4',
     tag: 'xgvt',

@@ -1,0 +1,19 @@
+/* Multiline label layout — exercises label-max-width with greedy
+ * word-break, label-line-height for line spacing, and label-justify
+ * for horizontal alignment within the wrapped block. Also shows
+ * label-rotate + label-letter-spacing applied to the same labels.
+ *
+ * Anchors are GeoJSON Points pushed via setSourceData after run()
+ * so the demo doesn't need a network fetch. The label utility tree
+ * resolves to the full multiline text per feature.
+ */
+
+source cities { type: geojson }
+
+layer city_labels {
+  source: cities
+  | label-[.name] label-color-#fff label-size-15
+    label-halo-1 label-halo-color-#000
+    label-max-width-7 label-line-height-1.1
+    label-justify-center
+}

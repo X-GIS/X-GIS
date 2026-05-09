@@ -704,6 +704,21 @@ function applyFixtureAutoPush(id: string, map: InstanceType<typeof XGISMap>): vo
         { type: 'Feature', id: 5, geometry: { type: 'Point', coordinates: [0, -30] },  properties: {} },
       ],
     })
+  } else if (id === 'multiline_labels') {
+    // Cities with long names that exceed label-max-width-7 (em),
+    // forcing wrap. Demonstrates greedy word-break + line-height +
+    // justify-center.
+    map.setSourceData('cities', {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [-74.0060,  40.7128] }, properties: { name: 'New York City' } },
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [-122.4194, 37.7749] }, properties: { name: 'San Francisco' } },
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [-118.2437, 34.0522] }, properties: { name: 'Los Angeles' } },
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [151.2093, -33.8688] }, properties: { name: 'Sydney Australia' } },
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [-43.1729, -22.9068] }, properties: { name: 'Rio de Janeiro' } },
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [126.9780,  37.5665] }, properties: { name: 'Seoul' } },
+      ],
+    })
   } else if (id === 'fixture_typed_array_points') {
     map.setSourcePoints('tracks', {
       lon: new Float32Array([-40, -20, 0, 20, 40]),
