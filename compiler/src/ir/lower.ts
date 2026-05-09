@@ -282,7 +282,34 @@ function lowerLayer(
     }
   }
 
-  if (!sourceRef || !sourceMap.has(sourceRef)) return null
+  if (!sourceRef) {
+    diagnostics.push({
+      severity: 'warn',
+      code: 'X-GIS0002',
+      line: stmt.line,
+      message:
+        `Layer "${stmt.name}" has no \`source:\` declaration — ` +
+        `the layer is dropped from the scene. Add \`source: <name>\` ` +
+        `to a top-level \`source\` block.`,
+    })
+    return null
+  }
+  if (!sourceMap.has(sourceRef)) {
+    const known = [...sourceMap.keys()]
+    diagnostics.push({
+      severity: 'warn',
+      code: 'X-GIS0003',
+      line: stmt.line,
+      message:
+        `Layer "${stmt.name}" references unknown source "${sourceRef}". ` +
+        (known.length > 0
+          ? `Known sources: ${known.map(k => `"${k}"`).join(', ')}. `
+          : 'No sources are declared in this program. ') +
+        `The layer is dropped from the scene; check for a typo or ` +
+        `re-order the file so the \`source\` block precedes the \`layer\`.`,
+    })
+    return null
+  }
 
   // Expand presets: apply-name → inline preset's utility items
   const expandedUtilities = expandPresets(stmt.utilities, presetMap)

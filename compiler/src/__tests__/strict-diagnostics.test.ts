@@ -77,6 +77,39 @@ describe('X-GIS0001: deprecated z<N>: zoom modifier', () => {
   })
 })
 
+describe('X-GIS0002 / 0003: missing or unknown source reference', () => {
+  it('warns when layer has no `source:` declaration', () => {
+    const scene = lowerSrc(`
+      layer y { | fill-red-500 }
+    `)
+    const d = scene.diagnostics!.find(d => d.code === 'X-GIS0002')
+    expect(d).toBeDefined()
+    expect(d!.severity).toBe('warn')
+    expect(d!.message).toContain('"y"')
+    expect(d!.message).toContain('no `source:`')
+  })
+
+  it('warns when layer references an unknown source', () => {
+    const scene = lowerSrc(`
+      source places { type: geojson, url: "x.geojson" }
+      layer y { source: plces, | fill-red-500 }
+    `)
+    const d = scene.diagnostics!.find(d => d.code === 'X-GIS0003')
+    expect(d).toBeDefined()
+    expect(d!.message).toContain('"plces"')
+    expect(d!.message).toContain('"places"')   // suggests the known one
+  })
+
+  it('valid source reference produces NO X-GIS0003 diagnostic', () => {
+    const scene = lowerSrc(`
+      source places { type: geojson, url: "x.geojson" }
+      layer y { source: places, | fill-red-500 }
+    `)
+    const d = (scene.diagnostics ?? []).filter(d => d.code === 'X-GIS0003')
+    expect(d.length).toBe(0)
+  })
+})
+
 describe('Scene.diagnostics shape', () => {
   it('is an array (possibly empty) — never undefined when set', () => {
     const scene = lowerSrc(`
