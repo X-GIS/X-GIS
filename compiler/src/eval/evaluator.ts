@@ -259,9 +259,53 @@ function callBuiltin(name: string, args: unknown[]): unknown {
     case 'log2': return Math.log2(Math.max(1e-10, toNumber(args[0])))
     case 'scale': return toNumber(args[0]) * toNumber(args[1])
     case 'step': {
-      const [val, threshold, below, above] = args.map(toNumber)
-      return val < threshold ? below : above
+      // Two shapes:
+      //   (a) Legacy 4-arg:  step(val, threshold, below, above)
+      //   (b) Mapbox N-stop: step(input, def, stop1, val1, stop2, val2, …)
+      //                      result = def while input < stop1, else
+      //                      walks stops left-to-right and returns the
+      //                      val for the largest stop_i ≤ input.
+      // Distinguish by arg count: even count and >= 4 with `below`/`above`
+      // assumed numeric is shape (a); shape (b) is anything with odd
+      // count >= 4. Shape (b) is what the Mapbox converter emits.
+      if (args.length === 4) {
+        const [val, threshold, below, above] = args.map(toNumber)
+        return val < threshold ? below : above
+      }
+      if (args.length >= 4 && args.length % 2 === 0) {
+        // Mapbox N-stop. Args: [input, def, stop1, val1, stop2, val2, …]
+        const input = toNumber(args[0])
+        let result: unknown = args[1]
+        for (let i = 2; i + 1 < args.length; i += 2) {
+          const stop = toNumber(args[i])
+          if (input >= stop) result = args[i + 1]
+          else break
+        }
+        return result
+      }
+      return null
     }
+    // String concatenation — Mapbox `["concat", a, b, …]`. Coerces
+    // every arg to its string form (numbers via String(), nulls drop).
+    case 'concat': {
+      let s = ''
+      for (const a of args) {
+        if (a === null || a === undefined) continue
+        s += typeof a === 'string' ? a : String(a)
+      }
+      return s
+    }
+    // Case transforms — Mapbox `["downcase", x]` / `["upcase", x]`.
+    // Numeric coercion is undefined in spec; we coerce via String().
+    case 'downcase': return String(args[0] ?? '').toLowerCase()
+    case 'upcase': return String(args[0] ?? '').toUpperCase()
+    // PI alias — Mapbox `["pi"]` (zero-arg). The existing `PI`
+    // builtin used the SCREAMING name; expose lowercase too so the
+    // converter can emit a 1:1 name match.
+    case 'pi': return Math.PI
+    case 'e': return Math.E
+    case 'ln2': return Math.LN2
+    case 'ln': return Math.log(Math.max(1e-10, toNumber(args[0])))
     case 'interpolate': {
       // interpolate(input, x1, y1, x2, y2, …) — linear interpolation
       // between (xi, yi) stops. The first arg is the input value

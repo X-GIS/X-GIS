@@ -29,16 +29,35 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       if (obj !== undefined) {
         warnings.push(`["get", "${field}", <obj>] with explicit object — converted as plain field access; verify scope.`)
       }
+      // xgis FieldAccess only accepts bare identifiers — Mapbox vector-
+      // tile properties with `:` (e.g. `name:latin`, `name:nonlatin`)
+      // would lex as `<modifier>:` tokens and break the parse. Drop
+      // with a warning so the parent expression's fallback (`??`,
+      // `case` default) covers the gap. Real-world hit: OpenFreeMap
+      // Bright text-field uses `concat(get("name:latin"), " ",
+      // get("name:nonlatin"))` for bilingual label rendering.
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) {
+        warnings.push(`["get", "${field}"] non-identifier field — dropped (use a fallback like \`?? get("name")\`).`)
+        return null
+      }
       return `.${field}`
     }
     case 'has': {
       const field = v[1]
       if (typeof field !== 'string') return null
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) {
+        warnings.push(`["has", "${field}"] non-identifier field — dropped.`)
+        return null
+      }
       return `.${field} != null`
     }
     case '!has': {
       const field = v[1]
       if (typeof field !== 'string') return null
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) {
+        warnings.push(`["!has", "${field}"] non-identifier field — dropped.`)
+        return null
+      }
       return `.${field} == null`
     }
     case 'coalesce': {
@@ -126,6 +145,125 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // X-GIS evaluator coerces in arithmetic; pass through the inner.
       return exprToXgis(v[1], warnings)
     }
+    case 'to-string': case 'to-boolean': case 'to-color': {
+      // Same coercion-passthrough rationale as `to-number`: X-GIS
+      // evaluator coerces by context (text resolver stringifies,
+      // boolean ops toBool, color literals are already canonical
+      // hex). Dropping the cast wrapper lowers cleanly and the inner
+      // expression carries the value.
+      return exprToXgis(v[1], warnings)
+    }
+    // ─── Batch 6: math + trig + log builtins ───
+    // All of these have a 1:1 evaluator builtin (callBuiltin in
+    // compiler/src/eval/evaluator.ts). The converter just wraps the
+    // operands in a function-call shape the parser turns back into a
+    // FnCall expression.
+    case '^': {
+      // Mapbox `["^", a, b]` → xgis `pow(a, b)`. Two args required.
+      if (v.length !== 3) return null
+      const a = exprToXgis(v[1], warnings)
+      const b = exprToXgis(v[2], warnings)
+      if (a === null || b === null) return null
+      return `pow(${a}, ${b})`
+    }
+    case 'abs': case 'ceil': case 'floor': case 'round':
+    case 'sqrt': case 'sin': case 'cos': case 'tan':
+    case 'asin': case 'acos': case 'atan':
+    case 'ln': case 'log10': case 'log2':
+    case 'length': case 'downcase': case 'upcase': {
+      const inner = exprToXgis(v[1], warnings)
+      return inner !== null ? `${op}(${inner})` : null
+    }
+    case 'pi': case 'e': case 'ln2': {
+      // Zero-arg constants — Mapbox emits `["pi"]`. The evaluator
+      // resolves these as builtin calls with empty arg lists.
+      return `${op}()`
+    }
+    case 'concat': {
+      // Mapbox `["concat", a, b, …]` → xgis `concat(a, b, …)`. The
+      // evaluator coerces each arg to string with null-skipping
+      // semantics that match the Mapbox spec.
+      const parts = v.slice(1).map(a => exprToXgis(a, warnings)).filter((s): s is string => s !== null)
+      return parts.length > 0 ? `concat(${parts.join(', ')})` : null
+    }
+    case 'step': {
+      // Mapbox `["step", input, default, stop1, val1, stop2, val2, …]`.
+      // Total length is always ODD: 1 (op) + 1 (input) + 1 (default)
+      // + 2N (N pairs). Min length = 5 (one pair). The evaluator's
+      // N-stop step accepts the same positional shape (see
+      // eval/evaluator.ts callBuiltin step for the semantics).
+      if (v.length < 5 || v.length % 2 !== 1) {
+        warnings.push(`Malformed ["step"] expression: ${JSON.stringify(v).slice(0, 120)}`)
+        return null
+      }
+      const args = v.slice(1).map(a => exprToXgis(a, warnings))
+      if (args.some(a => a === null)) return null
+      return `step(${args.join(', ')})`
+    }
+    case 'let': {
+      // Mapbox `["let", "name1", expr1, "name2", expr2, …, body]`.
+      // Strategy: substitute every `["var", "name"]` reference inside
+      // body with its bound expression (Mapbox lets are pure, no side
+      // effects). We do this BEFORE recursing so the body sees the
+      // substituted form. Out of scope: shadowed names from outer
+      // lets — Mapbox styles in the wild don't shadow.
+      const args = v.slice(1)
+      if (args.length < 3 || args.length % 2 === 0) {
+        warnings.push(`Malformed ["let"] expression: ${JSON.stringify(v).slice(0, 120)}`)
+        return null
+      }
+      const body = args[args.length - 1]
+      const bindings = new Map<string, unknown>()
+      for (let i = 0; i < args.length - 1; i += 2) {
+        const name = args[i]
+        if (typeof name !== 'string') return null
+        bindings.set(name, args[i + 1])
+      }
+      const substituted = substituteVars(body, bindings)
+      return exprToXgis(substituted, warnings)
+    }
+    case 'var': {
+      // Bare `["var", "name"]` outside any `let` — invalid per spec.
+      // Returning null surfaces it in the generic "Expression not
+      // converted" warning at the bottom.
+      warnings.push(`["var"] outside ["let"]: ${JSON.stringify(v).slice(0, 80)}`)
+      return null
+    }
+    case 'at': {
+      // Mapbox `["at", index, array]` — array indexing. xgis has
+      // ArrayAccess via `arr[idx]` syntax (parsed as a postfix).
+      if (v.length !== 3) return null
+      const idx = exprToXgis(v[1], warnings)
+      const arr = exprToXgis(v[2], warnings)
+      if (idx === null || arr === null) return null
+      return `${arr}[${idx}]`
+    }
+    case 'typeof': {
+      // X-GIS is dynamically typed and doesn't expose a runtime
+      // type tag. Drop with a warning so the user knows their style
+      // had a typeof check that won't fire.
+      warnings.push(`["typeof"] dropped — X-GIS lacks a runtime type accessor.`)
+      return null
+    }
+    case 'rgb': case 'rgba': {
+      // Mapbox `["rgb", r, g, b]` / `["rgba", r, g, b, a]` — channel
+      // expressions. When all channels are constant numbers we can
+      // hex-encode at convert time; otherwise leave as a function
+      // call for the evaluator to handle (which it doesn't currently;
+      // surfaces as a warning so callers know).
+      const ch = v.slice(1)
+      const allNumeric = ch.every(c => typeof c === 'number')
+      if (allNumeric) {
+        const [r, g, b, a] = ch as number[]
+        const cl = (n: number) => Math.max(0, Math.min(255, Math.round(n)))
+        const hex = (n: number) => cl(n).toString(16).padStart(2, '0')
+        return op === 'rgb'
+          ? `#${hex(r)}${hex(g)}${hex(b)}`
+          : `#${hex(r)}${hex(g)}${hex(b)}${hex(Math.round(a * 255))}`
+      }
+      warnings.push(`["${op}"] with non-constant channels not converted: ${JSON.stringify(v).slice(0, 80)}`)
+      return null
+    }
     case 'geometry-type':
     case 'id': {
       // Pseudo-accessors used inside ["==", ["geometry-type"], …].
@@ -158,6 +296,22 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
   }
   warnings.push(`Expression not converted: ${JSON.stringify(v).slice(0, 120)}`)
   return null
+}
+
+/** Recursively replace `["var", "name"]` nodes with their bound
+ *  expression. Used by the `let` lowering — Mapbox lets are pure,
+ *  so substitution is semantically equivalent to a runtime scope
+ *  lookup and lets the rest of the converter walk a flat tree. */
+function substituteVars(expr: unknown, bindings: Map<string, unknown>): unknown {
+  if (!Array.isArray(expr)) return expr
+  if (expr[0] === 'var' && typeof expr[1] === 'string') {
+    return bindings.has(expr[1]) ? bindings.get(expr[1]) : expr
+  }
+  // Don't recurse into nested `let`s — their inner `var` references
+  // belong to the inner scope. A heuristic, but matches the way
+  // Mapbox styles in the wild are written (no shadowing).
+  if (expr[0] === 'let') return expr
+  return expr.map(c => substituteVars(c, bindings))
 }
 
 /** Lower `["match", input, k1, val1, …, default]` to a boolean

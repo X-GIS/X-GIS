@@ -29,7 +29,20 @@ const SKIP_REASONS: Record<string, string> = {
 function textFieldToXgisExpr(field: unknown, warnings: string[]): string | null {
   if (typeof field === 'string') {
     const tokenMatch = field.match(/^\{([^}]+)\}$/)
-    if (tokenMatch) return `.${tokenMatch[1]}`
+    if (tokenMatch) {
+      const name = tokenMatch[1]!
+      // Same identifier-shape constraint as exprToXgis['get']: xgis
+      // FieldAccess can't carry colons or other special chars.
+      // Mapbox locale variants like `{name:latin}` map to a JSON-
+      // string key — leave as a quoted template that the resolver
+      // turns into a raw `.name` lookup at runtime (template parser
+      // accepts the raw key form).
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+        warnings.push(`text-field token "{${name}}" — colon-bearing locale variants fall back to "name". Use a base "{name}" for cross-style portability.`)
+        return '.name'
+      }
+      return `.${name}`
+    }
     return JSON.stringify(field)
   }
   if (Array.isArray(field)) {

@@ -150,7 +150,7 @@ const xgis = convertMapboxStyle(style)
             <li>• Paint: fill-color/-opacity, line-color/-width/-dasharray/-opacity, fill-extrusion-color/-opacity/-height/-base</li>
             <li>• Symbol text: text-field, text-color, text-size (zoom-interpolated), text-halo-color/-width, text-anchor (5-way), text-transform, text-offset, text-rotate, text-letter-spacing, text-max-width + text-line-height + text-justify (multiline), text-font stack, text-allow-overlap, text-ignore-placement, text-padding (collision), <code class="font-mono">symbol-placement: line</code> + <code class="font-mono">line-center</code> (along-path)</li>
             <li>• Filters: legacy + expression form (==/!=/&lt;/&gt;/all/any/in/!in/has/!has)</li>
-            <li>• Expressions: get / coalesce / case / match / arithmetic / min / max / to-number</li>
+            <li>• Expressions: get / coalesce / case / match / arithmetic (+ - * / % ^) / min / max / abs / ceil / floor / round / sqrt / sin / cos / tan / asin / acos / atan / ln / log10 / log2 / pi / e / ln2 / concat / length / downcase / upcase / step (N-stop) / let+var / to-string / to-number / to-boolean / to-color / rgb / rgba</li>
             <li>• Zoom: <code class="font-mono">interpolate(zoom, …)</code> with linear curve</li>
           </ul>
         </div>
@@ -174,8 +174,8 @@ const xgis = convertMapboxStyle(style)
             <li>• <code class="font-mono">symbol-spacing</code> repeat-along-line (single-label per feature in v1)</li>
             <li>• <code class="font-mono">text-writing-mode: vertical</code> (CJK vertical text)</li>
             <li>• Circle, heatmap, hillshade, sky layers</li>
-            <li>• <code class="font-mono">let</code> / <code class="font-mono">var</code>, <code class="font-mono">downcase</code>, <code class="font-mono">number-format</code></li>
-            <li>• <code class="font-mono">step</code> expressions, <code class="font-mono">at</code>, <code class="font-mono">distance</code></li>
+            <li>• <code class="font-mono">number-format</code>, <code class="font-mono">format</code> (rich text)</li>
+            <li>• <code class="font-mono">distance</code>, <code class="font-mono">within</code> (geometry predicates)</li>
             <li>• Top-level <code class="font-mono">light</code>, <code class="font-mono">fog</code>, <code class="font-mono">terrain</code></li>
           </ul>
         </div>
