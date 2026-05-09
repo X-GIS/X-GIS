@@ -239,7 +239,7 @@ function lowerLayer(
   let labelPadding: number | undefined
   let labelRotate: number | undefined
   let labelLetterSpacing: number | undefined
-  let labelFont: string | undefined
+  let labelFontStack: string[] | undefined
   let labelMaxWidth: number | undefined
   let labelLineHeight: number | undefined
   let labelJustify: 'auto' | 'left' | 'center' | 'right' | undefined
@@ -527,14 +527,21 @@ function lowerLayer(
         continue
       }
       if (name.startsWith('label-font-')) {
-        // Font key — restore Mapbox-style spaces from the
-        // converter's `-` substitution so the runtime can match
-        // `ctx.font = "Npx Noto Sans Regular"` against the
-        // browser's font registry. Caller-authored xgis can also
-        // write spaces directly.
+        // Each `label-font-X` utility APPENDS one font to the
+        // fallback stack. Spaces in Mapbox font names round-trip
+        // via `-`. Stack form (multiple utilities):
+        //   | label-font-Noto-Sans-Regular label-font-Noto-Sans-CJK-Regular
+        // The runtime feeds the whole stack to ctx.font as a
+        // comma-separated CSS font value so the browser handles
+        // glyph-by-glyph fallback automatically (Latin glyphs from
+        // the first font, CJK from the second when the first lacks
+        // them).
         const raw = name.slice('label-font-'.length)
         const restored = raw.replace(/-/g, ' ')
-        if (restored.length > 0) labelFont = restored
+        if (restored.length > 0) {
+          if (!labelFontStack) labelFontStack = []
+          labelFontStack.push(restored)
+        }
         continue
       }
 
@@ -923,7 +930,7 @@ function lowerLayer(
       labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
       labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
       labelAllowOverlap, labelIgnorePlacement, labelPadding,
-      labelRotate, labelLetterSpacing, labelFont,
+      labelRotate, labelLetterSpacing, labelFontStack,
       labelMaxWidth, labelLineHeight, labelJustify,
     }),
   }
@@ -952,7 +959,7 @@ function foldLabelKnobs(
     labelPadding?: number
     labelRotate?: number
     labelLetterSpacing?: number
-    labelFont?: string
+    labelFontStack?: string[]
     labelMaxWidth?: number
     labelLineHeight?: number
     labelJustify?: 'auto' | 'left' | 'center' | 'right'
@@ -989,7 +996,8 @@ function foldLabelKnobs(
     ...(knobs.labelPadding !== undefined ? { padding: knobs.labelPadding } : {}),
     ...(knobs.labelRotate !== undefined ? { rotate: knobs.labelRotate } : {}),
     ...(knobs.labelLetterSpacing !== undefined ? { letterSpacing: knobs.labelLetterSpacing } : {}),
-    ...(knobs.labelFont !== undefined ? { font: [knobs.labelFont] } : {}),
+    ...(knobs.labelFontStack !== undefined && knobs.labelFontStack.length > 0
+      ? { font: knobs.labelFontStack } : {}),
     ...(knobs.labelMaxWidth !== undefined ? { maxWidth: knobs.labelMaxWidth } : {}),
     ...(knobs.labelLineHeight !== undefined ? { lineHeight: knobs.labelLineHeight } : {}),
     ...(knobs.labelJustify !== undefined ? { justify: knobs.labelJustify } : {}),

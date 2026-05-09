@@ -161,14 +161,18 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   }
 
   // text-font: ["Noto Sans Regular", "Noto Sans CJK Regular"] →
-  // label-font-Noto-Sans-Regular (only the first; runtime fallback
-  // chain isn't wired yet — single font key for now). Spaces in
-  // Mapbox font names map to '-' since the utility parser only
-  // accepts identifier characters after the prefix.
+  // one `label-font-Noto-Sans-Regular` utility per stack entry,
+  // appended in declaration order. The lower pass collects all
+  // `label-font-*` utilities into a stack the runtime forwards
+  // to ctx.font as a comma-separated CSS font value (browser-
+  // native glyph-by-glyph fallback). Spaces in Mapbox font names
+  // map to `-` since utility names only accept identifier chars.
   const fontStack = layout['text-font']
-  if (Array.isArray(fontStack) && fontStack.length > 0 && typeof fontStack[0] === 'string') {
-    const first = fontStack[0].replace(/\s+/g, '-')
-    if (first.length > 0) utils.push(`label-font-${first}`)
+  if (Array.isArray(fontStack) && fontStack.length > 0) {
+    for (const f of fontStack) {
+      if (typeof f !== 'string' || f.length === 0) continue
+      utils.push(`label-font-${f.replace(/\s+/g, '-')}`)
+    }
   }
 
   // What's STILL not converted — surface a precise warning so the

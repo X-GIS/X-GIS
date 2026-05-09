@@ -128,7 +128,13 @@ export class TextStage {
       anchorX: anchorScreenX,
       anchorY: anchorScreenY,
       def,
-      fontKey: fontKey ?? def.font?.[0] ?? this.opts.defaultFont,
+      // font stack → comma-separated CSS font value. The browser's
+      // ctx.font parser walks the stack glyph-by-glyph. Names with
+      // spaces are quoted to avoid the parser ambiguating them as
+      // separate entries.
+      fontKey: fontKey ?? (def.font && def.font.length > 0
+        ? def.font.map(f => f.includes(' ') ? `"${f}"` : f).join(',')
+        : this.opts.defaultFont),
     })
   }
 

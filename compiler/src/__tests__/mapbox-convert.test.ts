@@ -522,7 +522,7 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
-    it('text-font: ["Noto Sans Regular", ...] → label-font-Noto-Sans-Regular', () => {
+    it('text-font stack → multiple label-font-X utilities (browser-native fallback)', () => {
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
         layers: [{
@@ -533,8 +533,11 @@ describe('Mapbox → xgis converter', () => {
           } as never,
         }],
       })
-      // First font in stack is emitted; spaces collapsed to '-'.
+      // Each font in the stack becomes its own utility — the lower
+      // pass appends them into LabelDef.font[]. Browser walks the
+      // stack glyph-by-glyph at ctx.font time.
       expect(out).toContain('label-font-Noto-Sans-Regular')
+      expect(out).toContain('label-font-Noto-Sans-CJK-Regular')
       expect(parses(out)).toBe(true)
     })
 
