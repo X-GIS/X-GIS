@@ -63,12 +63,14 @@ describe('tile pipeline predictor', () => {
     // lower bound, not a guarantee.
     expect(pred.cacheCapacityCheck.saturated).toBe(true)
 
-    // Standard GPU caches (256/512/1024 entries): the 256 cache is
-    // smaller than what the frame alone needs — every other frame
-    // churns the cache and re-evicts tiles we just loaded. The
-    // user's log shows gpuCache=236/315/375 values, hugging the
-    // 256–512 range — consistent with this prediction.
-    expect(pred.cacheCapacityCheck.fitsIn256).toBe(false)
+    // Standard GPU caches (256/512/1024 entries). The original FLICKER
+    // bug was at the 256 cache boundary — request count exceeded 256,
+    // causing every-other-frame eviction. Commit 6d047ae tightened the
+    // pitch-mul kludge from 4× to 2× (still pre-SSE), which dropped
+    // the requested count from 300+ to ~175 — now within 256 cache,
+    // so fitsIn256 = true. The flicker scenario is mitigated by the
+    // tighter cap (and further by the SSE selector).
+    expect(pred.cacheCapacityCheck.fitsIn256).toBe(true)
 
     // Cold-start convergence: every visible tile needs a sub-tile
     // generation. At 2/frame that's tens of frames (≥ half a second)
