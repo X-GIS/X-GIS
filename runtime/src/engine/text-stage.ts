@@ -26,6 +26,7 @@ import {
 import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
 import { createRasterizer, type GlyphRasterizer } from './sdf/glyph-rasterizer'
 import { TextRenderer, type TextDraw } from './text-renderer'
+import { greedyPlaceBboxes, type CollisionItem } from './text-collision'
 
 export interface TextStageOptions {
   /** Atlas slot side length in pixels. Each glyph rasterises into
@@ -282,29 +283,18 @@ export class TextStage {
       })
     }
 
-    // Phase 2: greedy bbox collision. Iterate in INPUT order (which
-    // is the per-frame queue order — typically the order the data
-    // source returned features). Skip a label whose bbox overlaps
-    // an already-placed label's bbox unless the label opts out via
-    // `label-allow-overlap`. `label-ignore-placement` keeps a label
-    // visible AND prevents it from blocking later labels (matches
-    // Mapbox semantics).
-    const placedBlocking: typeof shaped[number]['bbox'][] = []
+    // Phase 2: greedy bbox collision via the pure helper.
+    // Input order is the per-frame queue order (= feature order from
+    // the source). See text-collision.ts for the algorithm.
+    const collisionInput: CollisionItem[] = shaped.map(s => ({
+      bbox: s.bbox,
+      allowOverlap: s.allowOverlap,
+      ignorePlacement: s.ignorePlacement,
+    }))
+    const placed = greedyPlaceBboxes(collisionInput)
     const draws: TextDraw[] = []
-    for (const s of shaped) {
-      let collides = false
-      if (!s.allowOverlap) {
-        for (const placed of placedBlocking) {
-          if (s.bbox.minX < placed.maxX && s.bbox.maxX > placed.minX
-              && s.bbox.minY < placed.maxY && s.bbox.maxY > placed.minY) {
-            collides = true
-            break
-          }
-        }
-      }
-      if (collides) continue
-      draws.push(s.draw)
-      if (!s.ignorePlacement) placedBlocking.push(s.bbox)
+    for (let i = 0; i < shaped.length; i++) {
+      if (placed[i]) draws.push(shaped[i]!.draw)
     }
 
     // Flush dirty SDFs to GPU BEFORE setDraws — guarantees every
