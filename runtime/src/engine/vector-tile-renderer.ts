@@ -7,6 +7,7 @@ import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../loader/tiles'
+import { visibleTilesSSE } from '../loader/tiles-sse'
 import { classifyTile, computeProtectedKeys, type TileDecision } from './tile-decision'
 import {
   generateWallMesh,
@@ -2043,7 +2044,22 @@ export class VectorTileRenderer {
       // Cesium-style quadtree DFS for high-pitch where mixed-LOD is
       // required for the horizon. 30° is the industry split.
       const _pitchDeg = camera.pitch ?? 0
-      tiles = _pitchDeg < 30
+      // Phase 3 (experimental): Cesium-style SSE selector at all
+      // pitches when `__XGIS_USE_SSE_SELECTOR = true`. Same return
+      // shape as the existing two — see loader/tiles-sse.ts.
+      const useSSE = typeof window !== 'undefined'
+        && (window as unknown as { __XGIS_USE_SSE_SELECTOR?: boolean }).__XGIS_USE_SSE_SELECTOR === true
+      tiles = useSSE
+        ? visibleTilesSSE(
+            camera,
+            selectorProj,
+            currentZ,
+            canvasWidth,
+            canvasHeight,
+            offsetMarginPx,
+            dpr,
+          )
+        : _pitchDeg < 30
         ? visibleTilesFrustumSampled(
             camera,
             selectorProj,
