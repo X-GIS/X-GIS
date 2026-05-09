@@ -116,7 +116,18 @@ export class MvtWorkerPool {
         slices?: SliceMsg[];
         message?: string; stack?: string;
       }>) => {
+        // Diagnostic timing: opt-in via `__XGIS_PROFILE_WORKER_MSG = true`.
+        // Distinguishes "structured-clone of e.data is slow" (browser
+        // event time pre-handler) from "our wrapping is slow" (handler
+        // body time). The user-shared profile attributed 7 ms to this
+        // listener but didn't break it down — these console marks let
+        // us see whether the cost is in `e.data` access (clone) or
+        // downstream queue ops.
+        const profileOn = typeof window !== 'undefined'
+          && (window as unknown as { __XGIS_PROFILE_WORKER_MSG?: boolean }).__XGIS_PROFILE_WORKER_MSG === true
+        const t0 = profileOn ? performance.now() : 0
         const m = e.data
+        const t1 = profileOn ? performance.now() : 0
         const job = this.pending.get(m.taskId)
         if (!job) return
         this.pending.delete(m.taskId)
@@ -127,6 +138,12 @@ export class MvtWorkerPool {
           // allocation burst is split across several frames too.
           this.resolveQueue.push({ job, slices: m.slices ?? [] })
           this.scheduleResolveDrain()
+          if (profileOn) {
+            const t2 = performance.now()
+            const sliceCount = (m.slices ?? []).length
+            // eslint-disable-next-line no-console
+            console.log(`[worker-msg] e.data=${(t1 - t0).toFixed(2)}ms queue+sched=${(t2 - t1).toFixed(2)}ms slices=${sliceCount}`)
+          }
         } else {
           // Error path stays synchronous — the rejection is light
           // (no typed-array wrapping) and prompt error reporting is
@@ -168,9 +185,14 @@ export class MvtWorkerPool {
    *  transition. */
   private drainResolveQueue(): void {
     this.resolveScheduled = false
+    const profileOn = typeof window !== 'undefined'
+      && (window as unknown as { __XGIS_PROFILE_WORKER_MSG?: boolean }).__XGIS_PROFILE_WORKER_MSG === true
+    const drainStart = profileOn ? performance.now() : 0
     let processed = 0
+    let totalSlices = 0
     while (processed < MvtWorkerPool.MAX_RESOLVES_PER_FRAME && this.resolveQueue.length > 0) {
       const { job, slices } = this.resolveQueue.shift()!
+      totalSlices += slices.length
       const wrapped: MvtCompileSlice[] = slices.map(s => ({
         layerName: s.layerName,
         vertices: new Float32Array(s.vertices),
@@ -192,6 +214,11 @@ export class MvtWorkerPool {
       }))
       job.resolve(wrapped)
       processed++
+    }
+    if (profileOn && processed > 0) {
+      const dt = performance.now() - drainStart
+      // eslint-disable-next-line no-console
+      console.log(`[worker-drain] processed=${processed} totalSlices=${totalSlices} time=${dt.toFixed(2)}ms (${(dt / Math.max(1, totalSlices)).toFixed(2)}ms/slice)`)
     }
     if (this.resolveQueue.length > 0) this.scheduleResolveDrain()
   }
