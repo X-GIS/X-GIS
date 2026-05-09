@@ -153,11 +153,20 @@ export class TextStage {
     const shaped: ShapedLabel[] = []
     for (const p of this.pending) {
       const glyphs = this.host.ensureString(p.fontKey, p.text)
+      // letter-spacing in em units (Mapbox convention) — multiplies
+      // the display font size to produce extra px between adjacent
+      // glyphs. Applied as a per-glyph advance bump that the
+      // text-renderer reads via the glyph's effective advance.
+      const letterSpacingPx = (p.def.letterSpacing ?? 0) * p.def.size
       let totalAdvance = 0
       let maxHeight = 0
-      for (const g of glyphs) {
+      for (let gi = 0; gi < glyphs.length; gi++) {
+        const g = glyphs[gi]!
         const scale = p.def.size / this.opts.rasterFontSize
         totalAdvance += g.advanceWidth * scale
+        // letter-spacing adds AFTER each glyph EXCEPT the last so
+        // trailing whitespace doesn't accumulate. Total: (n-1)*ls.
+        if (gi < glyphs.length - 1) totalAdvance += letterSpacingPx
         if (g.height * scale > maxHeight) maxHeight = g.height * scale
       }
       const anchor = p.def.anchor ?? 'center'
@@ -195,6 +204,8 @@ export class TextStage {
           rasterFontSize: this.opts.rasterFontSize,
           color: p.def.color ?? [0, 0, 0, 1],
           halo: p.def.halo,
+          letterSpacingPx,
+          rotateRad: p.def.rotate ? p.def.rotate * Math.PI / 180 : undefined,
         },
         bbox,
         allowOverlap: p.def.allowOverlap === true,

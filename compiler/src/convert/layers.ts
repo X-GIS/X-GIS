@@ -141,11 +141,19 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   const padding = layout['text-padding']
   if (typeof padding === 'number') utils.push(`label-padding-${padding}`)
 
+  // text-rotate (degrees clockwise) + text-letter-spacing (em-units).
+  const rotate = layout['text-rotate']
+  if (typeof rotate === 'number' && rotate !== 0) utils.push(`label-rotate-${rotate}`)
+  const letterSpacing = layout['text-letter-spacing']
+  if (typeof letterSpacing === 'number' && letterSpacing !== 0) {
+    utils.push(`label-letter-spacing-${letterSpacing}`)
+  }
+
   // What's STILL not converted — surface a precise warning so the
   // user knows which Batch the gap waits on.
   const ignoredText: string[] = []
-  for (const k of ['text-font', 'text-rotate',
-    'text-letter-spacing', 'text-line-height', 'text-max-width',
+  for (const k of ['text-font',
+    'text-line-height', 'text-max-width',
     'text-justify', 'text-keep-upright', 'text-writing-mode',
     'symbol-placement', 'symbol-spacing',
     'icon-image', 'icon-size', 'icon-color']) {

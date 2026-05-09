@@ -237,6 +237,8 @@ function lowerLayer(
   let labelAllowOverlap: boolean | undefined
   let labelIgnorePlacement: boolean | undefined
   let labelPadding: number | undefined
+  let labelRotate: number | undefined
+  let labelLetterSpacing: number | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -494,6 +496,16 @@ function lowerLayer(
       if (name.startsWith('label-padding-')) {
         const num = parseFloat(name.slice('label-padding-'.length))
         if (!isNaN(num)) labelPadding = num
+        continue
+      }
+      if (name.startsWith('label-rotate-')) {
+        const num = parseFloat(name.slice('label-rotate-'.length))
+        if (!isNaN(num)) labelRotate = num
+        continue
+      }
+      if (name.startsWith('label-letter-spacing-')) {
+        const num = parseFloat(name.slice('label-letter-spacing-'.length))
+        if (!isNaN(num)) labelLetterSpacing = num
         continue
       }
 
@@ -882,6 +894,7 @@ function lowerLayer(
       labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
       labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
       labelAllowOverlap, labelIgnorePlacement, labelPadding,
+      labelRotate, labelLetterSpacing,
     }),
   }
 }
@@ -907,6 +920,8 @@ function foldLabelKnobs(
     labelAllowOverlap?: boolean
     labelIgnorePlacement?: boolean
     labelPadding?: number
+    labelRotate?: number
+    labelLetterSpacing?: number
   },
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
@@ -938,6 +953,8 @@ function foldLabelKnobs(
     ...(knobs.labelAllowOverlap !== undefined ? { allowOverlap: knobs.labelAllowOverlap } : {}),
     ...(knobs.labelIgnorePlacement !== undefined ? { ignorePlacement: knobs.labelIgnorePlacement } : {}),
     ...(knobs.labelPadding !== undefined ? { padding: knobs.labelPadding } : {}),
+    ...(knobs.labelRotate !== undefined ? { rotate: knobs.labelRotate } : {}),
+    ...(knobs.labelLetterSpacing !== undefined ? { letterSpacing: knobs.labelLetterSpacing } : {}),
   }
 }
 

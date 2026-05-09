@@ -35,6 +35,13 @@ export interface TextDraw {
   color: [number, number, number, number]
   /** Optional halo. `width` is in display pixels; `color` is RGBA. */
   halo?: { color: [number, number, number, number]; width: number }
+  /** Extra pixels between adjacent glyphs (Mapbox text-letter-spacing
+   *  in em-units already converted to px by the caller). Applied
+   *  AFTER each glyph except the last. */
+  letterSpacingPx?: number
+  /** Rotation in radians around the (anchorX, anchorY) point.
+   *  Mapbox text-rotate is degrees clockwise — caller converts. */
+  rotateRad?: number
 }
 
 const VERTS_PER_GLYPH = 6  // two triangles
@@ -189,7 +196,18 @@ export class TextRenderer {
       const scale = d.fontSize / d.rasterFontSize
       let penX = d.anchorX
       const baseY = d.anchorY
-      for (const g of d.glyphs) {
+      const letterSpacingPx = d.letterSpacingPx ?? 0
+      // Rotation around (anchorX, anchorY). Computing once per draw
+      // beats stamping out a rotation matrix per quad.
+      const rot = d.rotateRad ?? 0
+      const cosR = Math.cos(rot), sinR = Math.sin(rot)
+      const rotateXY = (x: number, y: number): [number, number] => {
+        if (rot === 0) return [x, y]
+        const dx = x - d.anchorX, dy = y - d.anchorY
+        return [d.anchorX + dx * cosR - dy * sinR, d.anchorY + dx * sinR + dy * cosR]
+      }
+      for (let gi = 0; gi < d.glyphs.length; gi++) {
+        const g = d.glyphs[gi]!
         const slotSize = g.slot.size
         const drawW = slotSize * scale
         const drawH = slotSize * scale
@@ -203,18 +221,24 @@ export class TextRenderer {
         const v0 = g.slot.pxY / pageSize
         const u1 = (g.slot.pxX + slotSize) / pageSize
         const v1 = (g.slot.pxY + slotSize) / pageSize
+        // 4 quad corners — rotate each around the anchor point.
+        const [tlx, tly] = rotateXY(x0, y0)
+        const [blx, bly] = rotateXY(x0, y1)
+        const [brx, bry] = rotateXY(x1, y1)
+        const [trx, try_] = rotateXY(x1, y0)
 
         const off = glyphIdx * FLOATS_PER_GLYPH
         // tri 1: TL, BL, BR
-        data[off + 0] = x0;  data[off + 1] = y0;  data[off + 2] = u0;  data[off + 3] = v0
-        data[off + 4] = x0;  data[off + 5] = y1;  data[off + 6] = u0;  data[off + 7] = v1
-        data[off + 8] = x1;  data[off + 9] = y1;  data[off + 10] = u1; data[off + 11] = v1
+        data[off + 0] = tlx; data[off + 1] = tly; data[off + 2] = u0;  data[off + 3] = v0
+        data[off + 4] = blx; data[off + 5] = bly; data[off + 6] = u0;  data[off + 7] = v1
+        data[off + 8] = brx; data[off + 9] = bry; data[off + 10] = u1; data[off + 11] = v1
         // tri 2: TL, BR, TR
-        data[off + 12] = x0; data[off + 13] = y0; data[off + 14] = u0; data[off + 15] = v0
-        data[off + 16] = x1; data[off + 17] = y1; data[off + 18] = u1; data[off + 19] = v1
-        data[off + 20] = x1; data[off + 21] = y0; data[off + 22] = u1; data[off + 23] = v0
+        data[off + 12] = tlx; data[off + 13] = tly; data[off + 14] = u0; data[off + 15] = v0
+        data[off + 16] = brx; data[off + 17] = bry; data[off + 18] = u1; data[off + 19] = v1
+        data[off + 20] = trx; data[off + 21] = try_; data[off + 22] = u1; data[off + 23] = v0
 
         penX += g.advanceWidth * scale
+        if (gi < d.glyphs.length - 1) penX += letterSpacingPx
         glyphIdx += 1
       }
       const uniforms = packUniforms(d)
