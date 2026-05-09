@@ -113,7 +113,10 @@ export class TextRenderer {
   private bindGroup: GPUBindGroup | null = null
   private lastAtlasPage: GPUTexture | null = null
 
-  constructor(device: GPUDevice, atlas: GlyphAtlasGPU, presentationFormat: GPUTextureFormat) {
+  constructor(
+    device: GPUDevice, atlas: GlyphAtlasGPU, presentationFormat: GPUTextureFormat,
+    sampleCount: number = 1,
+  ) {
     this.device = device
     this.atlas = atlas
 
@@ -151,6 +154,7 @@ export class TextRenderer {
         }],
       },
       primitive: { topology: 'triangle-list' },
+      multisample: { count: sampleCount },
     })
 
     this.uniformBuf = device.createBuffer({

@@ -2524,7 +2524,7 @@ export class XGISMap {
       // on first use so a label-free map allocates no atlas pages.
       if (this.overlays.length > 0) {
         if (this.textStage === null) {
-          this.textStage = new TextStage(device, this.ctx.format)
+          this.textStage = new TextStage(device, this.ctx.format, {}, sc)
           this.textStage.prewarmGISDefaults()
         }
         const stage = this.textStage
@@ -2955,16 +2955,24 @@ export class XGISMap {
       transform: opts.transform,
     }
     this.overlays.push(overlay)
+    this._needsRender = true
     return {
       remove: () => {
         const i = this.overlays.indexOf(overlay)
-        if (i !== -1) this.overlays.splice(i, 1)
+        if (i !== -1) {
+          this.overlays.splice(i, 1)
+          this._needsRender = true
+        }
       },
     }
   }
 
   /** Remove every text overlay. */
-  clearOverlays(): void { this.overlays.length = 0 }
+  clearOverlays(): void {
+    if (this.overlays.length === 0) return
+    this.overlays.length = 0
+    this._needsRender = true
+  }
 }
 
 /**

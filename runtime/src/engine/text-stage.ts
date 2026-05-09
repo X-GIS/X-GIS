@@ -75,6 +75,7 @@ export class TextStage {
     device: GPUDevice,
     presentationFormat: GPUTextureFormat,
     options: TextStageOptions = {},
+    sampleCount: number = 1,
   ) {
     this.opts = { ...DEFAULTS, ...options } as Required<Omit<TextStageOptions, 'rasterizer'>>
     const rasterizer = options.rasterizer ?? createRasterizer()
@@ -88,7 +89,7 @@ export class TextStage {
       hostOpts,
     )
     this.gpu = new GlyphAtlasGPU(device, this.host, { pageSize: this.opts.pageSize })
-    this.renderer = new TextRenderer(device, this.gpu, presentationFormat)
+    this.renderer = new TextRenderer(device, this.gpu, presentationFormat, sampleCount)
   }
 
   /** Pre-warm the atlas with a glyph set. Run once at engine init
