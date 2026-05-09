@@ -45,5 +45,29 @@ export default defineConfig({
     optimizeDeps: {
       exclude: ['@xgis/compiler', '@xgis/runtime'],
     },
+    // Dev-only: proxy `/play/*` to the playground's vite dev server
+    // (https://localhost:3000). Production / GitHub Pages serves
+    // both site and playground from the same origin under `/X-GIS/play/`,
+    // so the convert page's "Open in playground" navigates correctly.
+    // In local dev they're separate ports, and clicking the button
+    // 404'd at /play/demo.html. The proxy makes dev mirror prod —
+    // /play/demo.html on the Astro dev server forwards to
+    // /demo.html on the playground server, sessionStorage works
+    // cross-page because both surfaces share the Astro dev origin.
+    //
+    // `secure: false` lets the proxy accept the playground's self-
+    // signed cert (basic-ssl plugin). `rewrite` strips the /play
+    // prefix because the playground server doesn't know about it.
+    server: {
+      proxy: {
+        '/play': {
+          target: 'https://localhost:3000',
+          changeOrigin: true,
+          secure: false,
+          ws: true,
+          rewrite: (path) => path.replace(/^\/play/, ''),
+        },
+      },
+    },
   },
 })
