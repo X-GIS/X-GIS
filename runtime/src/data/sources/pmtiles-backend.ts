@@ -151,7 +151,7 @@ export interface PMTilesBackendOptions {
    *  instead of one slice per source layer — eliminating the
    *  redundant draws when N xgis layers share one MVT layer with
    *  different filters. See `filter-eval.ts` for the contract. */
-  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }>
+  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean }>
   /** Per-sliceKey stroke-width override AST. The worker uses it to
    *  bake per-feature widths into the slice's line segment buffer so
    *  the line shader picks each feature's width without re-uploading
@@ -200,7 +200,7 @@ export class PMTilesBackend implements TileSource {
   private layers: string[] | undefined
   private extrudeExprs: Record<string, unknown> | undefined
   private extrudeBaseExprs: Record<string, unknown> | undefined
-  private showSlices: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }> | undefined
+  private showSlices: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean }> | undefined
   private strokeWidthExprs: Record<string, unknown> | undefined
   private strokeColorExprs: Record<string, unknown> | undefined
   private sink: TileSourceSink | null = null

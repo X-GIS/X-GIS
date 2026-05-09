@@ -1069,15 +1069,39 @@ export class XGISMap {
     // 9× redundant draws of the same source layer's features.
     // sliceKey is derived from (sourceLayer, filter AST) so two
     // shows with identical filters share one slice in the catalog.
-    const showSlicesBySource = new Map<string, Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }>>()
+    // Per-slice need flags — `needsFeatureProps` when ANY show on that
+    // slice has a label (text-field) utility; `needsExtrude` when ANY
+    // show has fill-extrusion-height. Worker checks these and skips
+    // emitting the matching fields when false. The structured-clone
+    // cost on the main-thread receive side dropped from ~309 ms to
+    // sub-ms per message on Bright (DevTools profile flagged
+    // `e.data` access alone at 309 ms — the entire featureProps Map +
+    // polygons array tree was being cloned even for non-symbol fill
+    // layers that never read them).
+    const showSlicesBySource = new Map<string, Array<{
+      sliceKey: string;
+      sourceLayer: string;
+      filterAst: unknown | null;
+      needsFeatureProps: boolean;
+      needsExtrude: boolean;
+    }>>()
     for (const show of commands.shows) {
       if (!show.sourceLayer) continue
       let list = showSlicesBySource.get(show.targetName)
       if (!list) { list = []; showSlicesBySource.set(show.targetName, list) }
       const filterAst = show.filterExpr?.ast ?? null
       const sliceKey = computeSliceKey(show.sourceLayer, filterAst)
-      if (!list.some(s => s.sliceKey === sliceKey)) {
-        list.push({ sliceKey, sourceLayer: show.sourceLayer, filterAst })
+      const needsFeatureProps = show.label !== undefined
+      const ex = (show as { extrude?: { kind?: string } }).extrude
+      const needsExtrude = !!ex && ex.kind !== 'none' && ex.kind !== undefined
+      const existing = list.find(s => s.sliceKey === sliceKey)
+      if (existing) {
+        // OR-aggregate: if ANY show on this slice needs the field, the
+        // slice needs it. Multiple shows can share one filter+layer.
+        if (needsFeatureProps) existing.needsFeatureProps = true
+        if (needsExtrude) existing.needsExtrude = true
+      } else {
+        list.push({ sliceKey, sourceLayer: show.sourceLayer, filterAst, needsFeatureProps, needsExtrude })
       }
     }
 

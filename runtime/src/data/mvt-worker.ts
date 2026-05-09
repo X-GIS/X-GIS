@@ -153,7 +153,7 @@ export interface MvtCompileRequest {
    *  draws that result when N shows share one MVT source layer with
    *  different `filter:` clauses (the OSM-style demo's 6 landuse_*
    *  layers all reading `landuse`). */
-  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }>
+  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null; needsFeatureProps?: boolean; needsExtrude?: boolean }>
   /** Per-sliceKey stroke-width override AST. The compound layer's
    *  width AST evaluated per feature → resolved width baked into the
    *  line segment buffer's per-segment slot so the line shader picks
@@ -256,20 +256,33 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       sliceKey: string,
       sourceLayer: string,
       sourceFeatures: GeoJSONFeature[],
+      needsFeatureProps: boolean,
+      needsExtrude: boolean,
     ): void => {
       if (sourceFeatures.length === 0) return
       const parts = decomposeFeatures(sourceFeatures)
       const tile = compileSingleTile(parts, msg.z, msg.x, msg.y, msg.maxZoom)
       if (!tile) return
-      // featureProps for the SDF text label pipeline. featId == the
-      // `decomposeFeatures` index, which equals sourceFeatures index.
+      // featureProps for the SDF text label pipeline. Skip emission for
+      // slices whose consumer shows have no `label-` utility — the
+      // structured-clone of the Map across the worker→main boundary
+      // is the dominant cost (309 ms/message on Bright transitions).
+      // Empty Map → `featureProps: undefined` below.
       const featureProps = new Map<number, Record<string, unknown>>()
-      for (let fi = 0; fi < sourceFeatures.length; fi++) {
-        const props = sourceFeatures[fi]?.properties
-        if (props) featureProps.set(fi, props as Record<string, unknown>)
+      if (needsFeatureProps) {
+        for (let fi = 0; fi < sourceFeatures.length; fi++) {
+          const props = sourceFeatures[fi]?.properties
+          if (props) featureProps.set(fi, props as Record<string, unknown>)
+        }
       }
-      const heights = extractFeatureHeights(sourceFeatures, msg.extrudeExprs?.[sourceLayer])
-      const bases = extractFeatureHeights(sourceFeatures, msg.extrudeBaseExprs?.[sourceLayer])
+      // Same skip for extrude data — only populate when ANY show on
+      // this slice declared `fill-extrusion-height-…`.
+      const heights = needsExtrude
+        ? extractFeatureHeights(sourceFeatures, msg.extrudeExprs?.[sourceLayer])
+        : new Map<number, number>()
+      const bases = needsExtrude
+        ? extractFeatureHeights(sourceFeatures, msg.extrudeBaseExprs?.[sourceLayer])
+        : new Map<number, number>()
       // Per-feature stroke widths / colours — keyed by sliceKey
       // because the compound layer's match() targets a specific
       // compound, not a raw source layer (multiple compounds can
@@ -339,23 +352,27 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
 
     if (msg.showSlices && msg.showSlices.length > 0) {
       // Pre-bucket path: one slice per UNIQUE (sourceLayer, filter)
-      // combo. Multiple xgis shows that share the same sliceKey
-      // (e.g. same filter on the same source layer) reuse one slice
-      // — the catalog stores by sliceKey, not by show identity.
+      // combo. Per-slice `needsFeatureProps` / `needsExtrude` flags
+      // gate the heaviest non-transferable fields — see emitSlice
+      // for the structured-clone-cost rationale.
       for (const desc of msg.showSlices) {
         const layerFeatures = byLayer.get(desc.sourceLayer)
         if (!layerFeatures || layerFeatures.length === 0) continue
         const subset = desc.filterAst
           ? layerFeatures.filter(f => evalFilterExpr(desc.filterAst, f.properties ?? {}))
           : layerFeatures
-        emitSlice(desc.sliceKey, desc.sourceLayer, subset)
+        emitSlice(
+          desc.sliceKey, desc.sourceLayer, subset,
+          desc.needsFeatureProps === true,
+          desc.needsExtrude === true,
+        )
       }
     } else {
       // Legacy path: one slice per MVT source layer, no filter
-      // bucketing. Preserves behaviour for callers that don't pass
-      // `showSlices` (xgvt-binary, tests).
+      // bucketing. No need flags available — emit everything for
+      // back-compat. Callers that opt into showSlices get the savings.
       for (const [layerName, layerFeatures] of byLayer) {
-        emitSlice(layerName, layerName, layerFeatures)
+        emitSlice(layerName, layerName, layerFeatures, true, true)
       }
     }
 
