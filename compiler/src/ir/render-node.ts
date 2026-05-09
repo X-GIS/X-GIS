@@ -83,6 +83,50 @@ export interface RenderNode {
    *  size, dash-offset). emit-commands reads from this field as the
    *  authoritative source of lifecycle metadata. */
   animationMeta?: { loop: boolean; easing: Easing; delayMs: number }
+  /** Optional text label for the layer's features. When set, the
+   *  point-renderer expands each feature into one quad per glyph
+   *  (text content from `text.expr`, font + size from `text.font`
+   *  and `text.size`). Mapbox `text-field` / `text-font` /
+   *  `text-size` map here. Set via the `label-[<expr>]` utility OR
+   *  the `label:` block property (added in Batch 1c).
+   *
+   *  Engine plumbing arrives in Batch 1c — this field is the
+   *  contract that both the converter (Batch 1f) and the renderer
+   *  agree on. Batch 1b only adds the field + lower.ts plumbing
+   *  so Mapbox styles can carry text intent through compilation
+   *  without throwing. Rendering stays no-op until 1c. */
+  label?: LabelDef
+}
+
+/** Per-layer text label spec. The text content can be a literal
+ *  string, a property reference, or any expression. Layout +
+ *  glyph rendering live in the runtime (Batch 1c onwards). */
+export interface LabelDef {
+  /** Text content. String literal becomes constant text; field
+   *  access (`.name`) reads per-feature. Function calls (concat,
+   *  match, etc.) compose dynamic text. */
+  expr: DataExpr
+  /** Font family + style key as registered with the runtime's
+   *  font loader. Maps from Mapbox `text-font: ["Open Sans Regular"]`
+   *  to a single key. Optional — runtime defaults to first loaded
+   *  font. */
+  font?: string
+  /** Font size in PIXELS (not font units). Mapbox `text-size`. */
+  size: number
+  /** Text fill colour in `[r, g, b, a]` (0-1 each). When undefined
+   *  the layer's `fill` value is used as the text colour. */
+  color?: [number, number, number, number]
+  /** Optional halo (outline) colour + width. Mapbox `text-halo-color`
+   *  and `text-halo-width`. */
+  halo?: { color: [number, number, number, number]; width: number }
+  /** Anchor point on the glyph quad. `center` (default) for point
+   *  features, `top` puts text above the point, `bottom` below.
+   *  Mapbox `text-anchor`. */
+  anchor?: 'center' | 'top' | 'bottom' | 'left' | 'right'
+  /** When true, lay text along line geometry (for road-name labels).
+   *  Mapbox `symbol-placement: line`. Default `false` = single
+   *  positioned label per feature. */
+  alongLine?: boolean
 }
 
 /**

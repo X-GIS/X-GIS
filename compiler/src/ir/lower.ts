@@ -183,6 +183,10 @@ function lowerLayer(
   let geometryExpr: import('../parser/ast').Expr | null = null
   let extrude: import('./render-node').ExtrudeValue = { kind: 'none' }
   let extrudeBase: import('./render-node').ExtrudeValue = { kind: 'none' }
+  // Per-feature text label. Set when a `label-[<expr>]` utility
+  // appears. Engine rendering arrives in Batch 1c; for now this is
+  // pure IR plumbing so Mapbox-imported `text-field` survives.
+  let label: import('./render-node').LabelDef | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -378,6 +382,13 @@ function lowerLayer(
           extrude = { kind: 'feature', expr: { ast: item.binding }, fallback: 0 }
         } else if (name === 'fill-extrusion-base') {
           extrudeBase = { kind: 'feature', expr: { ast: item.binding }, fallback: 0 }
+        } else if (name === 'label') {
+          // `label-[<expr>]` — text content for per-feature labels.
+          // The runtime expands each feature's text into per-glyph
+          // quads (Batch 1c). Engine plumbing not yet wired through
+          // the renderers — for now this just preserves the IR so
+          // Mapbox styles with `text-field` survive compilation.
+          label = { expr: { ast: item.binding }, size: 12 }
         }
         continue
       }
@@ -762,6 +773,7 @@ function lowerLayer(
     anchor,
     extrude,
     extrudeBase,
+    label,
   }
 }
 

@@ -414,22 +414,68 @@ describe('Mapbox → xgis converter', () => {
 
   // ─── Batch 0: clearer skipped-layer messages ───────────────────────
   describe('Batch 0 — skipped layer reasons', () => {
-    it('symbol layer skip mentions Batch 1', () => {
-      const out = convertMapboxStyle({
-        version: 8, sources: {},
-        layers: [{ id: 'lab', type: 'symbol', source: 'x',
-          layout: { 'text-field': '{name}' } } as never],
-      })
-      expect(out).toContain('Batch 1')
-      expect(parses(out)).toBe(true)
-    })
-
     it('heatmap layer skip mentions Batch 3', () => {
       const out = convertMapboxStyle({
         version: 8, sources: {},
         layers: [{ id: 'h', type: 'heatmap', source: 'x' } as never],
       })
       expect(out).toContain('Batch 3')
+      expect(parses(out)).toBe(true)
+    })
+  })
+
+  // ─── Batch 1b: symbol layer text-field → label-[<expr>] ────────────
+  describe('Batch 1b — symbol layer text labels', () => {
+    it('emits label-[.name] for token form text-field', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'place_labels', type: 'symbol', source: 'x', 'source-layer': 'places',
+          layout: { 'text-field': '{name}' } as never,
+        }],
+      })
+      expect(out).toContain('layer place_labels')
+      expect(out).toContain('label-[.name]')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('emits label-["Hello"] for plain string text-field', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'lit', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': 'Hello' } as never,
+        }],
+      })
+      expect(out).toContain('label-["Hello"]')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-color paint property maps to fill utility', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'col', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+          paint: { 'text-color': '#333' },
+        }],
+      })
+      expect(out).toContain('label-[.name]')
+      expect(out).toContain('fill-#333')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('skips icon-only symbol layer (no text-field)', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'poi_icon', type: 'symbol', source: 'x', 'source-layer': 'poi',
+          layout: { 'icon-image': 'cafe-15' } as never,
+        }],
+      })
+      expect(out).toContain('SKIPPED')
+      expect(out).toContain('icon-only')
+      expect(out).toContain('Batch 2')
       expect(parses(out)).toBe(true)
     })
   })
