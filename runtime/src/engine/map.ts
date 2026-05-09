@@ -2518,11 +2518,19 @@ export class XGISMap {
         })
       }
 
-      // ── Bucket 4: text overlays ──
-      // Project each overlay (lon, lat) to screen px via the camera's
-      // RTC matrix and draw via the SDF text stage. Lazy-init the stage
-      // on first use so a label-free map allocates no atlas pages.
-      if (this.overlays.length > 0) {
+      // ── Bucket 4: text overlays + per-feature labels ──
+      // Two sources of label work:
+      //   (a) `map.addOverlay(...)` — explicit (lon, lat) overlays
+      //       set imperatively from app code.
+      //   (b) layers whose ShowCommand carries a `.label` LabelDef
+      //       (Mapbox `text-field` / xgis `label-["{...}"]`). We
+      //       walk the source's GeoJSON features, resolve the
+      //       template against each feature's properties, and
+      //       project the centroid.
+      // Lazy-init the stage on first use so a label-free map
+      // allocates no atlas pages.
+      const labelShows = this.showCommands.filter(s => s.label !== undefined && s.visible !== false)
+      if (this.overlays.length > 0 || labelShows.length > 0) {
         if (this.textStage === null) {
           this.textStage = new TextStage(device, this.ctx.format, {}, sc)
           this.textStage.prewarmGISDefaults()
@@ -2530,30 +2538,34 @@ export class XGISMap {
         const stage = this.textStage
         const frame = this.camera.getFrameView(w, h, dpr)
         const mvp = frame.matrix
-        const cx = this.camera.centerX
-        const cy = this.camera.centerY
-        for (const ov of this.overlays) {
-          const [mx, my] = lonLatToMercator(ov.lon, ov.lat)
-          const rtcX = mx - cx
-          const rtcY = my - cy
-          // 4×4 column-major matrix * vec4(rtcX, rtcY, 0, 1)
+        const ccx = this.camera.centerX
+        const ccy = this.camera.centerY
+
+        // Inline projector — captures matrix + camera center; returns
+        // null when the point projects behind camera or far outside.
+        const projectLonLat = (lon: number, lat: number): [number, number] | null => {
+          const [mx, my] = lonLatToMercator(lon, lat)
+          const rtcX = mx - ccx
+          const rtcY = my - ccy
           const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
-          if (cw <= 0) continue  // behind camera
-          const cx_ = mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!
-          const cy_ = mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!
-          const ndcX = cx_ / cw
-          const ndcY = cy_ / cw
-          if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) continue
-          const px = (ndcX + 1) * 0.5 * w
-          const py = (1 - ndcY) * 0.5 * h
-          // Synthetic TextValue.expr wrapping the literal so resolveText
-          // returns the overlay's plain string verbatim. Avoids needing
-          // a separate "raw text" path on TextStage.
+          if (cw <= 0) return null
+          const ccx_ = mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!
+          const ccy_ = mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!
+          const ndcX = ccx_ / cw
+          const ndcY = ccy_ / cw
+          if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
+          return [(ndcX + 1) * 0.5 * w, (1 - ndcY) * 0.5 * h]
+        }
+
+        // (a) Imperative overlays
+        for (const ov of this.overlays) {
+          const projected = projectLonLat(ov.lon, ov.lat)
+          if (!projected) continue
           const tv = {
             kind: 'expr' as const,
             expr: { ast: { kind: 'StringLiteral' as const, value: ov.text } as never },
           }
-          stage.addLabel(tv, {}, px, py, {
+          stage.addLabel(tv, {}, projected[0], projected[1], {
             text: tv,
             size: ov.size,
             color: ov.color,
@@ -2561,6 +2573,32 @@ export class XGISMap {
             transform: ov.transform,
           }, ov.font)
         }
+
+        // (b) Per-feature labels from ShowCommand.label
+        for (const show of labelShows) {
+          const data = this.rawDatasets.get(show.targetName)
+          if (!data || !data.features) continue
+          // If LabelDef.color is unset, fall back to the layer's fill
+          // (typical Mapbox-style symbol-on-poly pattern: the same
+          // colour for the polygon AND its label). When THAT is also
+          // unset, default to white so dark backgrounds stay readable.
+          const def = show.label!
+          const effectiveDef = def.color !== undefined
+            ? def
+            : { ...def, color: hexToRgbaArr(show.fill) ?? [1, 1, 1, 1] as [number, number, number, number] }
+          for (const feat of data.features) {
+            if (!feat.geometry) continue
+            const anchor = featureAnchor(feat.geometry)
+            if (!anchor) continue
+            const projected = projectLonLat(anchor[0], anchor[1])
+            if (!projected) continue
+            stage.addLabel(
+              effectiveDef.text, feat.properties ?? {},
+              projected[0], projected[1], effectiveDef, effectiveDef.font?.[0],
+            )
+          }
+        }
+
         stage.prepare()
         passScope('text-overlay', () => {
           const tPass = encoder.beginRenderPass({
@@ -2973,6 +3011,65 @@ export class XGISMap {
     this.overlays.length = 0
     this._needsRender = true
   }
+}
+
+/** Pick a single (lon, lat) anchor for a label from a GeoJSON
+ *  geometry. Points use the coordinate directly; (Multi)LineString
+ *  uses the midpoint of the first ring; (Multi)Polygon uses the
+ *  bounding-box centre of the first ring. Returns null for empty
+ *  geometries. Centroid math is intentionally crude — the perceptual
+ *  cost of a slightly off-centre label is much smaller than the cost
+ *  of running a real centroid algorithm per feature per frame. */
+function featureAnchor(geom: { type: string; coordinates: unknown }): [number, number] | null {
+  const t = geom.type
+  const c = geom.coordinates as never
+  if (t === 'Point' && Array.isArray(c) && typeof c[0] === 'number') {
+    return [c[0], c[1]]
+  }
+  if (t === 'MultiPoint' && Array.isArray(c) && c.length > 0) {
+    return [c[0][0], c[0][1]]
+  }
+  if (t === 'LineString' && Array.isArray(c) && c.length >= 2) {
+    const mid = c[Math.floor(c.length / 2)] as [number, number]
+    return [mid[0], mid[1]]
+  }
+  if (t === 'MultiLineString' && Array.isArray(c) && c.length > 0 && c[0].length >= 2) {
+    const ring = c[0] as [number, number][]
+    const mid = ring[Math.floor(ring.length / 2)]!
+    return [mid[0], mid[1]]
+  }
+  if (t === 'Polygon' && Array.isArray(c) && c.length > 0) {
+    return ringBboxCentre(c[0] as [number, number][])
+  }
+  if (t === 'MultiPolygon' && Array.isArray(c) && c.length > 0 && c[0].length > 0) {
+    return ringBboxCentre(c[0][0] as [number, number][])
+  }
+  return null
+}
+
+/** Parse `#rrggbb` / `#rrggbbaa` hex into 0..1 RGBA. Returns null
+ *  for null / undefined input — caller picks its own default. */
+function hexToRgbaArr(hex: string | null | undefined): [number, number, number, number] | null {
+  if (!hex || hex[0] !== '#') return null
+  const s = hex.slice(1)
+  if (s.length !== 6 && s.length !== 8) return null
+  const r = parseInt(s.slice(0, 2), 16) / 255
+  const g = parseInt(s.slice(2, 4), 16) / 255
+  const b = parseInt(s.slice(4, 6), 16) / 255
+  const a = s.length === 8 ? parseInt(s.slice(6, 8), 16) / 255 : 1
+  return [r, g, b, a]
+}
+
+function ringBboxCentre(ring: [number, number][]): [number, number] | null {
+  if (ring.length === 0) return null
+  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity
+  for (const p of ring) {
+    if (p[0] < minLon) minLon = p[0]
+    if (p[0] > maxLon) maxLon = p[0]
+    if (p[1] < minLat) minLat = p[1]
+    if (p[1] > maxLat) maxLat = p[1]
+  }
+  return [(minLon + maxLon) / 2, (minLat + maxLat) / 2]
 }
 
 /**

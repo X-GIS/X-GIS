@@ -109,6 +109,14 @@ export interface ShowCommand {
    *  `fill-extrusion-base`). Combined with `extrude` it carves out
    *  the `min_height` podium for buildings. `none` ⇒ z=0 default. */
   extrudeBase: import('./render-node').ExtrudeValue
+  /** Optional per-feature text label spec (Batch 1c). When set, the
+   *  runtime resolves `label.text` against each feature's properties
+   *  via the format pipeline, projects the feature's anchor (point
+   *  for points, centroid for polygons) to screen px, and submits
+   *  the resulting string to the SDF text stage. Mapbox `symbol`
+   *  layers map here via the converter; xgis source uses
+   *  `label-["..."]` utility or `label { ... }` sub-block. */
+  label?: import('./render-node').LabelDef
 }
 
 export interface SceneCommands {
@@ -236,6 +244,7 @@ function emitShow(node: RenderNode): ShowCommand {
     timeOpacityDelayMs,
     extrude: node.extrude,
     extrudeBase: node.extrudeBase,
+    label: node.label,
   }
 }
 

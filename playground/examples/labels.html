@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto Labels — X-GIS</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
+<body>
+  <canvas id="map"></canvas>
+  <div id="topbar">
+    <a href="../">&larr; Examples</a>
+    <span class="sep">/</span>
+    <span class="title">Auto Labels</span>
+    <span class="desc">label-["{.name}"] from inline GeoJSON properties — Batch 1c-8e</span>
+  </div>
+  <details id="source-panel" open>
+    <summary>Source</summary>
+    <pre id="source-code">source cities { type: geojson }
+
+layer city_labels {
+  source: cities
+  | label-["{.name}"] fill-#fff
+}</pre>
+  </details>
+  <div id="status">Loading...</div>
+  <div id="error"><h2>Error</h2><pre id="error-msg"></pre></div>
+  <script type="module">
+    import { XGISMap } from '@xgis/runtime'
+    const map = new XGISMap(document.getElementById('map'))
+    map.showInspector()
+    const src = document.getElementById('source-code').textContent
+    map.run(src, '../data/').then(() => {
+      // Push inline GeoJSON with city points + a `name` property.
+      // The layer's `label-["{.name}"]` template resolves per feature.
+      map.setSourceData('cities', {
+        type: 'FeatureCollection',
+        features: [
+          { type: 'Feature', geometry: { type: 'Point', coordinates: [126.9780,  37.5665] }, properties: { name: 'Seoul'    } },
+          { type: 'Feature', geometry: { type: 'Point', coordinates: [139.6917,  35.6895] }, properties: { name: 'Tokyo'    } },
+          { type: 'Feature', geometry: { type: 'Point', coordinates: [-74.0060,  40.7128] }, properties: { name: 'New York' } },
+          { type: 'Feature', geometry: { type: 'Point', coordinates: [ -0.1276,  51.5074] }, properties: { name: 'London'   } },
+          { type: 'Feature', geometry: { type: 'Point', coordinates: [  2.3522,  48.8566] }, properties: { name: 'Paris'    } },
+          { type: 'Feature', geometry: { type: 'Point', coordinates: [ 31.2357,  30.0444] }, properties: { name: 'Cairo'    } },
+          { type: 'Feature', geometry: { type: 'Point', coordinates: [151.2093, -33.8688] }, properties: { name: 'Sydney'   } },
+          { type: 'Feature', geometry: { type: 'Point', coordinates: [-43.1729, -22.9068] }, properties: { name: 'Rio'      } },
+        ],
+      })
+      document.getElementById('status').textContent =
+        'Auto labels | scroll to zoom, drag to pan'
+    }).catch(e => {
+      document.getElementById('error').style.display = 'block'
+      document.getElementById('error-msg').textContent = String(e)
+    })
+  </script>
+</body>
+</html>
