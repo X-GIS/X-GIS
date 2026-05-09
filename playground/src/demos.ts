@@ -147,6 +147,13 @@ export const DEMOS: Record<string, Demo> = {
     source: load('along-path-roads.xgis'),
   },
 
+  step_and_concat: {
+    name: 'step + concat (Batch 6)',
+    tag: 'basic',
+    description: 'N-stop step expression sizes / colors city dots into 4 population tiers; concat composes "City, Country (NNN k)" labels with round() for rounded thousands. Demonstrates the full Mapbox math + string operator surface.',
+    source: load('step-and-concat.xgis'),
+  },
+
   multiline_labels: {
     name: 'Multiline labels',
     tag: 'basic',

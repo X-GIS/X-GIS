@@ -46,6 +46,7 @@ const groups: FnGroup[] = [
       { name: 'pow',   signature: 'pow(base, exponent)', body: 'Raise `base` to `exponent`. `pow(x, 0.5)` is equivalent to `sqrt(x)`.', examples: ['size-[pow(.population, 0.3)]'] },
       { name: 'exp',   signature: 'exp(value)',   body: 'Natural exponential — `e ^ value`.', examples: ['size-[exp(.score / 1000)]'] },
       { name: 'log',   signature: 'log(value)',   body: 'Natural log — `ln(value)`. Inputs ≤ 0 are clamped to 1e-10 to avoid `-Infinity`.', examples: ['size-[log(.population)]'] },
+      { name: 'ln',    signature: 'ln(value)',    body: 'Alias for `log` — kept so converted Mapbox styles using `["ln", x]` round-trip 1:1.', examples: [] },
       { name: 'log10', signature: 'log10(value)', body: 'Base-10 log. Same negative-input clamp as `log`.', examples: ['fill-[interpolate(log10(.population), 3, white-100, 7, red-500)]'] },
       { name: 'log2',  signature: 'log2(value)',  body: 'Base-2 log. Same clamp as `log`.', examples: ['size-[log2(.zoom)]'] },
       { name: 'scale', signature: 'scale(value, factor)', body: 'Multiply `value` by `factor`. Pure sugar over `*` for chained pipe operations: `.x | scale(2)`.', examples: ['size-[.height | scale(0.5)]'] },
@@ -77,9 +78,27 @@ const groups: FnGroup[] = [
           'stroke-[interpolate(zoom, 11, 1, 19, 2.5)]',
           'fill-[interpolate(.population, 0, white-100, 1e6, red-500)]',
         ] },
-      { name: 'step', signature: 'step(value, threshold, below, above)',
-        body: 'Discrete two-stop gate. Returns `below` when `value < threshold`, `above` otherwise. For more than two thresholds chain `step` calls or use `match`.',
-        examples: ['opacity-[step(zoom, 10, 30, 100)]'] },
+      { name: 'step', signature: 'step(input, default, stop1, val1, stop2, val2, …)  // OR  step(value, threshold, below, above)',
+        body: 'Discrete-stop gate. Two shapes: the **N-stop** form (Mapbox-spec — preferred) returns `default` while `input < stop1`, then walks stops left-to-right and returns the val for the largest `stop_i ≤ input`. The legacy **2-stop** form (4 args) is `below` when `value < threshold`, else `above`. Distinguish by arg count: even = legacy, odd ≥ 5 = N-stop.',
+        examples: [
+          'size-[step(.rank, 0.5, 5, 0.7, 10, 1)]   // N-stop: default 0.5, jumps at rank 5 → 0.7, rank 10 → 1',
+          'opacity-[step(zoom, 10, 30, 100)]        // legacy: < 10 → 30, else 100',
+        ] },
+    ],
+  },
+
+  {
+    title: 'Strings',
+    body: 'String-coercing helpers. Numeric inputs stringify via `String()`; null / undefined drop. The label resolver runs strings through these the same way it does for inline `{template}` syntax.',
+    fns: [
+      { name: 'concat', signature: 'concat(a, b, c, …)',
+        body: 'Concatenate any number of arguments after coercing each to its string form. Null / undefined are skipped (matches the Mapbox spec). Common shape inside `label-[<expr>]` for compound labels — bilingual names, prefix-suffix wraps, units suffixed to numbers.',
+        examples: [
+          'label-[concat(.name, " (", .country, ")")]',
+          'label-[concat(round(.elevation_m), " m")]',
+        ] },
+      { name: 'downcase', signature: 'downcase(value)', body: 'Lowercase the string form of `value`. Coerces non-strings via `String()`.', examples: ['label-[downcase(.name)]'] },
+      { name: 'upcase',   signature: 'upcase(value)',   body: 'Uppercase the string form of `value`. Same coercion.',                       examples: ['label-[upcase(.country_code)]'] },
     ],
   },
 
@@ -89,6 +108,9 @@ const groups: FnGroup[] = [
     fns: [
       { name: 'PI',  signature: 'PI',  body: 'π ≈ 3.14159. Half a revolution.',  examples: ['stroke-[sin(.heading * PI / 180) * 5]'] },
       { name: 'TAU', signature: 'TAU', body: '2π ≈ 6.28318. Full revolution. Often nicer than `2 * PI`.', examples: [] },
+      { name: 'pi',  signature: 'pi()',  body: 'π as a zero-arg builtin call — same value as `PI`. Kept for 1:1 round-trip with Mapbox `["pi"]`.', examples: [] },
+      { name: 'e',   signature: 'e()',   body: 'Euler\'s number — ≈ 2.71828. Mapbox `["e"]` round-trip.', examples: [] },
+      { name: 'ln2', signature: 'ln2()', body: '`ln(2)` ≈ 0.69315. Mapbox `["ln2"]` round-trip.', examples: [] },
     ],
   },
 

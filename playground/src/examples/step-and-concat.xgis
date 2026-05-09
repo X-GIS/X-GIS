@@ -1,0 +1,32 @@
+/* Batch 6 demo — `step` (N-stop discrete tiers) + `concat`
+ * (composite labels) + `pow` + `round` (math). Uses Natural Earth
+ * populated places: 243 cities with pop_max + adm0name per feature.
+ *
+ * Visual:
+ *   - circle SIZE tiers by population via N-stop step
+ *     (village / town / city / mega-city brackets)
+ *   - circle SIZE alt: continuous `pow(.pop_max, 0.25)` shows the
+ *     math operator surface for comparison
+ *   - composite "City, Country (NNN k pop)" labels via concat
+ *     with round() for thousands
+ */
+
+source places { type: geojson, url: "ne_110m_populated_places.geojson" }
+
+layer city_dots {
+  source: places
+  // N-stop step: 4 discrete size tiers by population.
+  // < 100k → r=3, < 1M → r=5, < 5M → r=7, ≥ 5M → r=10.
+  | size-[step(.pop_max, 3, 100000, 5, 1000000, 7, 5000000, 10)]
+  | fill-rose-500 fill-opacity-80
+}
+
+layer city_labels {
+  source: places
+  // concat composes "Name, Country (NNN k pop)" — round() rolls
+  // up the population to a sensible thousands display.
+  | label-[concat(.name, ", ", .adm0name, "  (", round(.pop_max / 1000), "k pop)")]
+    label-size-11 label-color-#fff
+    label-halo-1 label-halo-color-#000
+    label-anchor-top label-offset-y-0.8
+}

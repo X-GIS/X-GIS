@@ -233,6 +233,54 @@ map.clearOverlays()`,
   },
 
   {
+    slug: 'step-thresholds',
+    title: 'Discrete thresholds with `step`',
+    body: '`step(input, default, stop1, val1, stop2, val2, …)` is the discrete cousin of `interpolate`. Below `stop1` you get `default`; from each `stop_i` upward the value snaps to `val_i`. Useful for road class width tiers, opacity-on-zoom hard cuts, score-to-color buckets — anywhere a smooth gradient would be wrong because the value categories are inherently distinct.',
+    code: `source roads { type: pmtiles, url: "tiles.pmtiles" }
+
+layer road_lines {
+  source: roads
+  sourceLayer: "transportation"
+  | stroke-stone-300
+  // Width tiers by class: motorway 4 → trunk 3 → primary 2 → rest 1
+  | stroke-[step(.class_rank, 1, 1, 2, 2, 3, 3, 4, 4)]
+  // Hard cut: only paint roads from z=8 upward
+  | opacity-[step(zoom, 0, 8, 1)]
+}`,
+    notes: [
+      'Mapbox `["step", ...]` round-trips 1:1 — converted styles use the same shape.',
+      'For just one threshold the legacy 4-arg form `step(value, threshold, below, above)` still works (back-compat).',
+      'Strings (e.g. color hex) are valid val slots — `step(zoom, "#fff", 10, "#ccc", 14, "#888")` switches color tiers without blending.',
+    ],
+  },
+
+  {
+    slug: 'concat-labels',
+    title: 'Composite labels with `concat`',
+    body: '`concat(a, b, c, …)` glues any number of arguments after coercing each to its string form (numbers, booleans, even nulls — nulls drop silently). Inside `label-[<expr>]` you get the same behavior as the inline `"{template}"` form, but composable — round numbers first, format units, fall through alternatives.',
+    code: `source places { type: geojson, url: "cities.geojson" }
+
+layer city_labels {
+  source: places
+  // City + country in parens
+  | label-[concat(.name, " (", .country_code, ")")]
+    label-color-#fff label-halo-1 label-halo-color-#000
+}
+
+layer peak_labels {
+  source: peaks
+  // Peak name + elevation rounded to whole metres
+  | label-[concat(.name, "  ", round(.elevation_m), " m")]
+    label-size-12 label-color-#444
+}`,
+    notes: [
+      'Pair with `??` for safe fallbacks: `concat(.name, " — ", .role ?? "(unknown role)")`.',
+      '`downcase` / `upcase` work on the result: `upcase(concat(.iso_a2, "-", .iso_a3))`.',
+      'For coord readouts the Python-style format spec is usually cleaner: `label-["Lat: {.lat:.4f}"]`. Use `concat` when the pieces are themselves expressions (computed values, fallbacks, conditional branches).',
+    ],
+  },
+
+  {
     slug: 'along-path-roads',
     title: 'Along-path road labels (`label-along-path`)',
     body: '`label-along-path` (Mapbox `symbol-placement: line`) walks the line geometry instead of anchoring at a point — each feature gets one label per first segment, rotated to match the local tangent. Roads read along their direction, river names follow the bend, highway names align with their corridor. Pair with `label-line-center` when you want exactly one label at the midpoint of every line.',
