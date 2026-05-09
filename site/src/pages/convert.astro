@@ -102,6 +102,24 @@ const presets: Preset[] = [
       </button>
     </section>
 
+    <!-- ── Import shortcut (URL flow only) ── -->
+    <!-- Shown after a successful URL fetch — surfaces the new
+         splice-form `import "url"` directive so the user can paste a
+         single line into their xgis instead of the converted block. -->
+    <section id="import-shortcut" class="mt-6 border border-accent/30 rounded-md p-4 bg-accent/5 hidden">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-accent text-[11px] uppercase tracking-wider font-medium">1-line import</span>
+        <span class="text-fg-dim text-[11px]">
+          Skip the paste step — the runtime fetches + converts on load.
+        </span>
+        <div class="ml-auto flex gap-2">
+          <button id="copy-import-btn" class="px-3 py-1 bg-bg border border-line rounded text-[11px] text-fg-dim hover:text-fg hover:border-fg-dim transition-colors">Copy</button>
+          <button id="open-import-btn" class="px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-[11px] hover:bg-accent/25 transition-colors">Open as import</button>
+        </div>
+      </div>
+      <pre id="import-snippet" class="mt-2 bg-bg border border-line rounded px-3 py-2 text-[12px] font-mono whitespace-pre overflow-x-auto"></pre>
+    </section>
+
     <!-- ── Output ── -->
     <section class="mt-8" data-playground-url={playgroundUrl}>
       <div class="flex items-center gap-2 flex-wrap">
@@ -199,6 +217,12 @@ const presets: Preset[] = [
       ($out.closest('[data-playground-url]') as HTMLElement | null)?.dataset.playgroundUrl ?? ''
 
     let lastImportLabel = 'Imported'
+    let lastFetchedUrl = ''  // URL of last successful fetch (for import shortcut)
+
+    const $importShortcut = document.getElementById('import-shortcut') as HTMLElement
+    const $importSnippet = document.getElementById('import-snippet') as HTMLPreElement
+    const $copyImport = document.getElementById('copy-import-btn') as HTMLButtonElement
+    const $openImport = document.getElementById('open-import-btn') as HTMLButtonElement
 
     function setStatus(msg: string, kind?: 'ok' | 'err') {
       $status.textContent = msg
@@ -258,6 +282,12 @@ const presets: Preset[] = [
         const txt = await resp.text()
         $json.value = txt
         convertJsonString(txt, label)
+        // Show the splice-form import shortcut — `import "<url>"` is
+        // a one-line equivalent that the runtime resolves on load.
+        // Only valid for the URL flow (paste form has no source URL).
+        lastFetchedUrl = url
+        $importSnippet.textContent = `import "${url}"`
+        $importShortcut.classList.remove('hidden')
       } catch (e: any) {
         setStatus(
           'Fetch failed: ' + (e?.message || e) +
@@ -316,6 +346,31 @@ const presets: Preset[] = [
         sessionStorage.setItem('__xgisImportSource', $out.value)
         sessionStorage.setItem('__xgisImportLabel', lastImportLabel)
       } catch { /* sessionStorage may be unavailable in some embeds */ }
+      window.location.href = playgroundUrl + '?id=__import'
+    })
+
+    $copyImport.addEventListener('click', async () => {
+      const snip = $importSnippet.textContent ?? ''
+      if (!snip) return
+      try {
+        await navigator.clipboard.writeText(snip)
+        setStatus('Import line copied.', 'ok')
+      } catch {
+        setStatus('Copy failed (clipboard API unavailable).', 'err')
+      }
+    })
+
+    $openImport.addEventListener('click', () => {
+      if (!lastFetchedUrl) return
+      // The playground compiles whatever sits in `__xgisImportSource`
+      // — same channel the converted-output button uses, but seeded
+      // with the one-line splice form instead. The runtime then runs
+      // the same fetch + convert path on load.
+      const oneLiner = `import "${lastFetchedUrl}"\n`
+      try {
+        sessionStorage.setItem('__xgisImportSource', oneLiner)
+        sessionStorage.setItem('__xgisImportLabel', lastImportLabel + ' (import)')
+      } catch { /* ignored */ }
       window.location.href = playgroundUrl + '?id=__import'
     })
 
