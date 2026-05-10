@@ -632,6 +632,24 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
+    it('locale-variant get() keys preserved via string-literal builtin', () => {
+      // Mapbox `["get", "name:ko"]` previously dropped because xgis
+      // FieldAccess can't lex colons. With the get(<string>) special-
+      // case in the evaluator, the converter now emits `get("name:ko")`
+      // which the runtime resolves directly against props. Critical
+      // for international basemaps — without it, Korean / Japanese /
+      // Hebrew labels silently fall back to English.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'place_label', type: 'symbol', source: 'x', 'source-layer': 'place',
+          layout: { 'text-field': ['coalesce', ['get', 'name:ko'], ['get', 'name']] } as never,
+        }],
+      })
+      expect(out).toContain('label-[get("name:ko") ?? .name]')
+      expect(parses(out)).toBe(true)
+    })
+
     it('reserved xgis keywords in layer ids get a `_` suffix', () => {
       // OpenMapTiles styles use raw ids like "place", "source", "layer"
       // for symbol layers. xgis treats these as keywords (lexer/tokens.ts:
@@ -700,6 +718,72 @@ describe('Mapbox → xgis converter', () => {
         }],
       })
       expect(out).toContain('label-halo-blur-1')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('data-driven text-size (case) → label-size-[<expr>] + sizeExpr in IR', () => {
+      // Mapbox `text-size: ["case", …, n1, …, n2]` is the standard
+      // pattern for per-feature label sizing (city > town > village).
+      // The converter routes through exprToXgis (ternary chain) and
+      // lower.ts stores it as LabelDef.sizeExpr; the runtime evaluates
+      // per feature.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 's', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-size': ['case', ['==', ['get', 'class'], 'city'], 14, 10],
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-size-[')
+      expect(out).toContain('"city" ? 14 : 10')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('data-driven text-color (case) → label-color-[<expr>] + colorExpr in IR', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'c', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+          paint: {
+            'text-color': ['case', ['==', ['get', 'kind'], 'major'], '#000', '#666'],
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-color-[')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-translate (paint) → label-translate-{x,y}-N (px-space offset)', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 't', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+          paint: { 'text-translate': [-2, -8] } as never,
+        }],
+      })
+      expect(out).toContain('label-translate-x-[-2]')
+      expect(out).toContain('label-translate-y-[-8]')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-anchor variable form collapses to first valid candidate', () => {
+      // ["top","bottom"] etc. — Mapbox tries each and picks the first
+      // non-colliding one. Without full collision-aware variable
+      // anchor support, take the first candidate so the label still
+      // anchors meaningfully (was silently dropped before).
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'a', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}', 'text-anchor': ['top', 'bottom'] } as never,
+        }],
+      })
+      expect(out).toContain('label-anchor-top')
       expect(parses(out)).toBe(true)
     })
 

@@ -123,7 +123,21 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
       utils.push(`label-color-[${interp}]`)
     } else {
       const colorStr = colorToXgis(textColor, warnings)
-      if (colorStr) utils.push(`label-color-${colorStr}`)
+      if (colorStr) {
+        utils.push(`label-color-${colorStr}`)
+      } else {
+        // Data-driven shape (case / match / get). Route through the
+        // generic expression converter — produces a ternary or match
+        // body with hex literals for the leaves. lower.ts stores it
+        // as `LabelDef.colorExpr`; the runtime evaluates per feature.
+        const expr = exprToXgis(textColor, warnings)
+        if (expr !== null) {
+          utils.push(`label-color-[${expr}]`)
+        } else {
+          // Couldn't convert — fall back to Mapbox spec default.
+          utils.push('label-color-#000')
+        }
+      }
     }
   } else {
     // Mapbox text-color default = "#000000".
@@ -143,9 +157,16 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
     if (interp !== null) {
       utils.push(`label-size-[${interp}]`)
     } else {
-      warnings.push(`Symbol layer "${layer.id}" — text-size expression form not converted: ${JSON.stringify(textSize).slice(0, 80)}`)
-      // Fall back to Mapbox default so the layer still has SOME size.
-      utils.push('label-size-16')
+      // Data-driven shape (case / match / get → number). Route
+      // through the generic expression converter; lower.ts stores
+      // as `LabelDef.sizeExpr`; runtime evaluates per feature.
+      const expr = exprToXgis(textSize, warnings)
+      if (expr !== null) {
+        utils.push(`label-size-[${expr}]`)
+      } else {
+        warnings.push(`Symbol layer "${layer.id}" — text-size expression form not converted: ${JSON.stringify(textSize).slice(0, 80)}`)
+        utils.push('label-size-16')
+      }
     }
   } else {
     // Mapbox text-size default = 16.
@@ -198,6 +219,18 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   const anchor = layout['text-anchor']
   if (typeof anchor === 'string' && VALID_ANCHORS.has(anchor)) {
     utils.push(`label-anchor-${anchor}`)
+  } else if (Array.isArray(anchor) && anchor.length > 0) {
+    // Mapbox `text-variable-anchor` shape: ["top","bottom",…] —
+    // candidate list, runtime picks the first that doesn't collide.
+    // Full collision-aware placement is a larger refactor; for now
+    // pick the first valid candidate so the label at least anchors
+    // somewhere reasonable. Emit a warning so the user knows to
+    // check the visual result.
+    const first = anchor.find(a => typeof a === 'string' && VALID_ANCHORS.has(a))
+    if (typeof first === 'string') {
+      utils.push(`label-anchor-${first}`)
+      warnings.push(`Symbol layer "${layer.id}" — text-anchor variable form ${JSON.stringify(anchor)} collapsed to "${first}" (full collision-aware variable anchor pending).`)
+    }
   }
 
   // text-transform → label-uppercase / lowercase / none.
@@ -218,6 +251,17 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
       && typeof offset[0] === 'number' && typeof offset[1] === 'number') {
     if (offset[0] !== 0) utils.push(`label-offset-x-${fmtSigned(offset[0])}`)
     if (offset[1] !== 0) utils.push(`label-offset-y-${fmtSigned(offset[1])}`)
+  }
+  // text-translate (paint) → label-translate-{x,y}-N. Pixel-space
+  // offset on top of em-unit text-offset; commonly used to nudge
+  // labels off the road centreline (`text-translate: [0, -8]` for
+  // an 8-px upward shift). Negatives ride the bracket form like
+  // text-offset.
+  const translate = paint['text-translate']
+  if (Array.isArray(translate) && translate.length === 2
+      && typeof translate[0] === 'number' && typeof translate[1] === 'number') {
+    if (translate[0] !== 0) utils.push(`label-translate-x-${fmtSigned(translate[0])}`)
+    if (translate[1] !== 0) utils.push(`label-translate-y-${fmtSigned(translate[1])}`)
   }
 
   // Collision controls (Batch 1e). text-padding accepts both constant

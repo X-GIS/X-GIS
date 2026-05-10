@@ -29,36 +29,32 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       if (obj !== undefined) {
         warnings.push(`["get", "${field}", <obj>] with explicit object — converted as plain field access; verify scope.`)
       }
-      // xgis FieldAccess only accepts bare identifiers — Mapbox vector-
-      // tile properties with `:` (e.g. `name:latin`, `name:nonlatin`)
-      // would lex as `<modifier>:` tokens and break the parse. Drop
-      // with a warning so the parent expression's fallback (`??`,
-      // `case` default) covers the gap. Real-world hit: OpenFreeMap
-      // Bright text-field uses `concat(get("name:latin"), " ",
-      // get("name:nonlatin"))` for bilingual label rendering.
-      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) {
-        warnings.push(`["get", "${field}"] non-identifier field — dropped (use a fallback like \`?? get("name")\`).`)
-        return null
-      }
-      return `.${field}`
+      // Identifier-shaped key → bare field access for readability.
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) return `.${field}`
+      // Mapbox locale variants (`name:latin`, `name:nonlatin`,
+      // `name:ko`, …) carry `:` which xgis FieldAccess can't lex.
+      // Emit a `get("…")` builtin call — the evaluator special-cases
+      // this AST shape (eval/evaluator.ts) so the literal key passes
+      // straight through to props[key], preserving the locale
+      // semantics that international basemaps depend on.
+      const escaped = field.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      return `get("${escaped}")`
     }
     case 'has': {
       const field = v[1]
       if (typeof field !== 'string') return null
-      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) {
-        warnings.push(`["has", "${field}"] non-identifier field — dropped.`)
-        return null
-      }
-      return `.${field} != null`
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) return `.${field} != null`
+      // Colon-bearing locale keys round-trip through get("…") which
+      // already returns null on miss (matching Mapbox's "has" sense).
+      const escaped = field.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      return `get("${escaped}") != null`
     }
     case '!has': {
       const field = v[1]
       if (typeof field !== 'string') return null
-      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) {
-        warnings.push(`["!has", "${field}"] non-identifier field — dropped.`)
-        return null
-      }
-      return `.${field} == null`
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) return `.${field} == null`
+      const escaped = field.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      return `get("${escaped}") == null`
     }
     case 'coalesce': {
       const args = v.slice(1).map(a => exprToXgis(a, warnings))

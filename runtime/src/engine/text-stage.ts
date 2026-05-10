@@ -253,6 +253,13 @@ export class TextStage {
         dx += p.def.offset[0] * sizePx
         dy += p.def.offset[1] * sizePx
       }
+      if (p.def.translate) {
+        // text-translate is in pixels (Mapbox paint property), not
+        // em-units, so it scales by DPR alone — independent of the
+        // current font size. Stacks on top of text-offset.
+        dx += p.def.translate[0] * dpr
+        dy += p.def.translate[1] * dpr
+      }
       const drawX = p.anchorX + dx
       const drawY = p.anchorY + dy
       // Compute per-glyph offsets relative to (drawX, drawY) for

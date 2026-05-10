@@ -2686,6 +2686,35 @@ export class XGISMap {
             ...(resolvedHalo !== undefined ? { halo: resolvedHalo } : {}),
           }
 
+          // Per-feature evaluator for data-driven text-size /
+          // text-color (Mapbox `["case", …]` / `["match", …]` /
+          // arithmetic forms). Used inside the iterator paths below
+          // — wraps a feature's def with overrides resolved from
+          // sizeExpr / colorExpr against that feature's properties.
+          const applyFeatureExprs = (props: Record<string, unknown>) => {
+            const hasSizeExpr = def.sizeExpr !== undefined
+            const hasColorExpr = def.colorExpr !== undefined
+            if (!hasSizeExpr && !hasColorExpr) return effectiveDef
+            const out = { ...effectiveDef }
+            if (hasSizeExpr) {
+              try {
+                const v = evaluate(def.sizeExpr!.ast as never, props)
+                if (typeof v === 'number' && isFinite(v)) out.size = v
+              } catch { /* fall back to effectiveDef.size */ }
+            }
+            if (hasColorExpr) {
+              try {
+                const v = evaluate(def.colorExpr!.ast as never, props)
+                if (typeof v === 'string') {
+                  const hex = resolveColor(v)
+                  const rgba = hexToRgbaArr(hex ?? v)
+                  if (rgba) out.color = rgba
+                }
+              } catch { /* fall back to effectiveDef.color */ }
+            }
+            return out
+          }
+
           // Path 1: GeoJSON / inline-data sources whose features live
           // in `rawDatasets`. Iterates the FeatureCollection directly
           // and uses `featureAnchor` to pick a centroid per geometry.
@@ -2697,9 +2726,10 @@ export class XGISMap {
               if (!anchor) continue
               const projected = projectLonLat(anchor[0], anchor[1])
               if (!projected) continue
+              const featDef = applyFeatureExprs(feat.properties ?? {})
               stage.addLabel(
-                effectiveDef.text, feat.properties ?? {},
-                projected[0], projected[1], effectiveDef, effectiveDef.font?.[0],
+                featDef.text, feat.properties ?? {},
+                projected[0], projected[1], featDef, featDef.font?.[0],
               )
             }
             continue
@@ -2747,11 +2777,12 @@ export class XGISMap {
                 const y = pay + (pby - pay) * t
                 let angleDeg = Math.atan2(pby - pay, pbx - pax) * 180 / Math.PI
                 if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
+                const featDef = applyFeatureExprs(props)
                 stage.addLabel(
-                  effectiveDef.text, props,
+                  featDef.text, props,
                   x, y,
-                  { ...effectiveDef, rotate: angleDeg },
-                  effectiveDef.font?.[0],
+                  { ...featDef, rotate: angleDeg },
+                  featDef.font?.[0],
                 )
               }
               if (spacingPx > 0) {
@@ -2837,9 +2868,10 @@ export class XGISMap {
                 const [lon, lat] = mercToLonLat(mercX, mercY)
                 const projected = projectLonLat(lon, lat)
                 if (!projected) return
+                const featDef = applyFeatureExprs(props)
                 stage.addLabel(
-                  effectiveDef.text, props,
-                  projected[0], projected[1], effectiveDef, effectiveDef.font?.[0],
+                  featDef.text, props,
+                  projected[0], projected[1], featDef, featDef.font?.[0],
                 )
               })
             }
@@ -3294,11 +3326,18 @@ function featureAnchor(geom: { type: string; coordinates: unknown }): [number, n
   return null
 }
 
-/** Parse `#rrggbb` / `#rrggbbaa` hex into 0..1 RGBA. Returns null
- *  for null / undefined input — caller picks its own default. */
+/** Parse `#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa` hex into 0..1
+ *  RGBA. Returns null for null / undefined / unrecognised input.
+ *  Short (3/4) forms expand by digit doubling (CSS spec). The
+ *  Mapbox converter occasionally emits `#000` from data-driven
+ *  text-color expressions where colorToXgis preserves the source
+ *  shorthand. */
 function hexToRgbaArr(hex: string | null | undefined): [number, number, number, number] | null {
   if (!hex || hex[0] !== '#') return null
-  const s = hex.slice(1)
+  let s = hex.slice(1)
+  if (s.length === 3 || s.length === 4) {
+    s = s.split('').map(c => c + c).join('')  // #abc → #aabbcc
+  }
   if (s.length !== 6 && s.length !== 8) return null
   const r = parseInt(s.slice(0, 2), 16) / 255
   const g = parseInt(s.slice(2, 4), 16) / 255

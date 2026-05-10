@@ -273,6 +273,8 @@ function lowerLayer(
   const labelSizeZoomStops: ZoomStop<number>[] = []
   let labelColor: [number, number, number, number] | undefined
   const labelColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
+  let labelColorExpr: import('./render-node').DataExpr | undefined
+  let labelSizeExpr: import('./render-node').DataExpr | undefined
   let labelHaloWidth: number | undefined
   const labelHaloWidthZoomStops: ZoomStop<number>[] = []
   let labelHaloColor: [number, number, number, number] | undefined
@@ -283,6 +285,8 @@ function lowerLayer(
   let labelTransform: import('./render-node').LabelDef['transform'] | undefined
   let labelOffsetX: number | undefined
   let labelOffsetY: number | undefined
+  let labelTranslateX: number | undefined
+  let labelTranslateY: number | undefined
   let labelAllowOverlap: boolean | undefined
   let labelIgnorePlacement: boolean | undefined
   let labelPadding: number | undefined
@@ -532,6 +536,14 @@ function lowerLayer(
           for (const s of zoomStops) labelSizeZoomStops.push({ zoom: s.zoom, value: s.value })
           continue
         }
+        // Non-zoom-interp label-size binding → per-feature evaluation.
+        // Catches Mapbox `text-size: ["case", …]` / `["match", …]` /
+        // arithmetic forms. The static `size` field stays at its
+        // default (12) to feed any consumer that ignores sizeExpr.
+        if (name === 'label-size' && !zoomStops) {
+          labelSizeExpr = { ast: item.binding }
+          continue
+        }
         // label-halo zoom-interpolated width → full stops; runtime
         // interpolates per-frame. Last stop also seeds `halo.width`
         // as the static fallback when the runtime can't evaluate
@@ -558,6 +570,12 @@ function lowerLayer(
               continue
             }
           }
+          // Non-zoom-interp colour binding → per-feature expression.
+          // Catches `label-color-[.kind == "city" ? #ff0000 : #000000]`
+          // (the Mapbox `text-color: ["case", …]` shape). Runtime
+          // evaluates per-feature against props.
+          labelColorExpr = { ast: item.binding }
+          continue
         }
         if (name === 'label-halo-color') {
           const stops = extractInterpolateZoomColorStops(item.binding)
@@ -599,6 +617,8 @@ function lowerLayer(
           if (n !== null) {
             if (name === 'label-offset-x') { labelOffsetX = n; continue }
             if (name === 'label-offset-y') { labelOffsetY = n; continue }
+            if (name === 'label-translate-x') { labelTranslateX = n; continue }
+            if (name === 'label-translate-y') { labelTranslateY = n; continue }
             if (name === 'label-rotate') { labelRotate = n; continue }
             if (name === 'label-letter-spacing') { labelLetterSpacing = n; continue }
           }
@@ -667,6 +687,16 @@ function lowerLayer(
       if (name.startsWith('label-offset-y-')) {
         const num = parseFloat(name.slice('label-offset-y-'.length))
         if (!isNaN(num)) labelOffsetY = num
+        continue
+      }
+      if (name.startsWith('label-translate-x-')) {
+        const num = parseFloat(name.slice('label-translate-x-'.length))
+        if (!isNaN(num)) labelTranslateX = num
+        continue
+      }
+      if (name.startsWith('label-translate-y-')) {
+        const num = parseFloat(name.slice('label-translate-y-'.length))
+        if (!isNaN(num)) labelTranslateY = num
         continue
       }
       if (name.startsWith('label-padding-')) {
@@ -1101,8 +1131,10 @@ function lowerLayer(
     label: foldLabelKnobs(label, {
       labelSize, labelColor, labelHaloWidth, labelHaloColor, labelHaloBlur,
       labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
+      labelTranslateX, labelTranslateY,
       labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
       labelColorZoomStops: labelColorZoomStops.length > 0 ? labelColorZoomStops : undefined,
+      labelColorExpr, labelSizeExpr,
       labelHaloWidthZoomStops: labelHaloWidthZoomStops.length > 0 ? labelHaloWidthZoomStops : undefined,
       labelHaloColorZoomStops: labelHaloColorZoomStops.length > 0 ? labelHaloColorZoomStops : undefined,
       labelAllowOverlap, labelIgnorePlacement, labelPadding,
@@ -1131,8 +1163,12 @@ function foldLabelKnobs(
     labelTransform?: import('./render-node').LabelDef['transform']
     labelOffsetX?: number
     labelOffsetY?: number
+    labelTranslateX?: number
+    labelTranslateY?: number
     labelSizeZoomStops?: ZoomStop<number>[]
     labelColorZoomStops?: ZoomStop<[number, number, number, number]>[]
+    labelColorExpr?: import('./render-node').DataExpr
+    labelSizeExpr?: import('./render-node').DataExpr
     labelHaloWidthZoomStops?: ZoomStop<number>[]
     labelHaloColorZoomStops?: ZoomStop<[number, number, number, number]>[]
     labelAllowOverlap?: boolean
@@ -1167,6 +1203,13 @@ function foldLabelKnobs(
       knobs.labelOffsetY ?? base.offset?.[1] ?? 0,
     ]
   }
+  let translate = base.translate
+  if (knobs.labelTranslateX !== undefined || knobs.labelTranslateY !== undefined) {
+    translate = [
+      knobs.labelTranslateX ?? base.translate?.[0] ?? 0,
+      knobs.labelTranslateY ?? base.translate?.[1] ?? 0,
+    ]
+  }
   return {
     ...base,
     ...(knobs.labelSize !== undefined ? { size: knobs.labelSize } : {}),
@@ -1175,10 +1218,13 @@ function foldLabelKnobs(
     ...(knobs.labelAnchor !== undefined ? { anchor: knobs.labelAnchor } : {}),
     ...(knobs.labelTransform !== undefined ? { transform: knobs.labelTransform } : {}),
     ...(offset !== undefined ? { offset } : {}),
+    ...(translate !== undefined ? { translate } : {}),
     ...(knobs.labelSizeZoomStops && knobs.labelSizeZoomStops.length > 0
       ? { sizeZoomStops: knobs.labelSizeZoomStops } : {}),
     ...(knobs.labelColorZoomStops && knobs.labelColorZoomStops.length > 0
       ? { colorZoomStops: knobs.labelColorZoomStops } : {}),
+    ...(knobs.labelColorExpr !== undefined ? { colorExpr: knobs.labelColorExpr } : {}),
+    ...(knobs.labelSizeExpr !== undefined ? { sizeExpr: knobs.labelSizeExpr } : {}),
     ...(knobs.labelHaloWidthZoomStops && knobs.labelHaloWidthZoomStops.length > 0
       ? { haloWidthZoomStops: knobs.labelHaloWidthZoomStops } : {}),
     ...(knobs.labelHaloColorZoomStops && knobs.labelHaloColorZoomStops.length > 0
