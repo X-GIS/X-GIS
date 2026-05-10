@@ -9,6 +9,7 @@ import { getSampleCount } from '../gpu/gpu'
 import { WGSL_LOG_DEPTH_FNS } from '../shaders/log-depth'
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projection'
 import type { ShapeRegistry } from '../text/sdf-shape'
+import { parseHexColor } from '../feature-helpers'
 
 // ═══ WGSL Shader ═══
 
@@ -669,8 +670,8 @@ export class PointRenderer {
     // Parse show colors
     const fillHex = show.fill
     const strokeHex = show.stroke
-    const fill = fillHex ? this.parseHex(fillHex) : null
-    const stroke = strokeHex ? this.parseHex(strokeHex) : null
+    const fill = fillHex ? parseHexColor(fillHex) : null
+    const stroke = strokeHex ? parseHexColor(strokeHex) : null
     const opacity = show.opacity ?? 1.0
     const radiusPx = show.size ?? 6
     const strokeWidth = show.strokeWidth ?? 1  // raw px, shader converts to UV
@@ -767,13 +768,6 @@ export class PointRenderer {
     this.tilePoints = []
   }
 
-  private parseHex(hex: string): [number, number, number, number] {
-    let r = 0, g = 0, b = 0, a = 1
-    if (hex.length === 4) { r = parseInt(hex[1]+hex[1],16)/255; g = parseInt(hex[2]+hex[2],16)/255; b = parseInt(hex[3]+hex[3],16)/255 }
-    else if (hex.length === 7) { r = parseInt(hex.slice(1,3),16)/255; g = parseInt(hex.slice(3,5),16)/255; b = parseInt(hex.slice(5,7),16)/255 }
-    else if (hex.length === 9) { r = parseInt(hex.slice(1,3),16)/255; g = parseInt(hex.slice(3,5),16)/255; b = parseInt(hex.slice(5,7),16)/255; a = parseInt(hex.slice(7,9),16)/255 }
-    return [r, g, b, a]
-  }
 
   /**
    * Add a point layer from GeoJSON features.
