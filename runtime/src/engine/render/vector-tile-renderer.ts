@@ -6,7 +6,7 @@
 import type { GPUContext } from '../gpu/gpu'
 import { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
-import { visibleTilesFrustum, sortByPriority } from '../../data/tile-select'
+import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../../data/tile-select'
 import { visibleTilesSSE } from '../../loader/tiles-sse'
 import {
   classifyTile, computeProtectedKeys,
