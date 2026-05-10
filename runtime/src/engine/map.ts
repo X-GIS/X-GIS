@@ -2679,11 +2679,34 @@ export class XGISMap {
               color: c,
             }
           }
+          // text-rotation-alignment: 'map' makes point labels rotate
+          // with the map bearing (text follows the world, not the
+          // viewport). 'auto' resolves to viewport for point placement
+          // and map for line — matching our existing default behaviour
+          // (point labels = no rotation, line labels = tangent rotation
+          // computed in screen space). For explicit 'map' on points we
+          // bake camera bearing into the label rotate. Mapbox 'pitch-
+          // alignment: map' (text laid on the ground plane with
+          // perspective) requires shader-side MVP integration — not
+          // implemented; we still honour the user intent for the
+          // rotation knob since it's the more common request.
+          const isLineLabel = def.placement === 'line' || def.placement === 'line-center'
+          const rotAlign = def.rotationAlignment ?? 'auto'
+          const useMapRotForPoints = !isLineLabel
+            && (rotAlign === 'map'
+              || (rotAlign === 'auto' && false))  // auto = viewport for point, no extra rotation
+          // Bearing rotation for `map`-aligned point labels. Camera
+          // bearing is in degrees CCW; text-rotate is degrees CW.
+          // Negate so a 30° map rotation yields a 30° label rotation
+          // in the same visual direction.
+          const bearingDeg = useMapRotForPoints ? -this.camera.bearing : 0
           const effectiveDef = {
             ...def,
             size: resolvedSize,
             color: resolvedColor,
             ...(resolvedHalo !== undefined ? { halo: resolvedHalo } : {}),
+            ...(bearingDeg !== 0
+              ? { rotate: (def.rotate ?? 0) + bearingDeg } : {}),
           }
 
           // Per-feature evaluator for data-driven text-size /
@@ -2769,21 +2792,36 @@ export class XGISMap {
               const spacingCssPx = effectiveDef.placement === 'line'
                 ? (effectiveDef.spacing ?? 0) : 0
               const spacingPx = spacingCssPx > 0 ? spacingCssPx * dpr : 0
+              // Mapbox `text-rotation-alignment: viewport` for line
+              // placement keeps the label upright on screen instead of
+              // following the road tangent. 'auto' on line resolves to
+              // 'map' (= tangent), matching the historical behaviour.
+              const lineRotAlign = effectiveDef.rotationAlignment ?? 'auto'
+              const useTangentRotation = lineRotAlign !== 'viewport'
               const emitLabelAlongSegment = (
                 pax: number, pay: number, pbx: number, pby: number,
                 t: number, props: Record<string, unknown>,
               ): void => {
                 const x = pax + (pbx - pax) * t
                 const y = pay + (pby - pay) * t
-                let angleDeg = Math.atan2(pby - pay, pbx - pax) * 180 / Math.PI
-                if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
                 const featDef = applyFeatureExprs(props)
-                stage.addLabel(
-                  featDef.text, props,
-                  x, y,
-                  { ...featDef, rotate: angleDeg },
-                  featDef.font?.[0],
-                )
+                if (useTangentRotation) {
+                  let angleDeg = Math.atan2(pby - pay, pbx - pax) * 180 / Math.PI
+                  if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
+                  stage.addLabel(
+                    featDef.text, props,
+                    x, y,
+                    { ...featDef, rotate: angleDeg },
+                    featDef.font?.[0],
+                  )
+                } else {
+                  // Viewport-aligned: just place at the line position
+                  // with the def's static rotate (typically 0).
+                  stage.addLabel(
+                    featDef.text, props,
+                    x, y, featDef, featDef.font?.[0],
+                  )
+                }
               }
               if (spacingPx > 0) {
                 // Polyline path: project all vertices, accumulate

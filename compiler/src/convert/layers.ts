@@ -338,6 +338,22 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   if (placement === 'line') utils.push('label-along-path')
   else if (placement === 'line-center') utils.push('label-line-center')
 
+  // text-rotation-alignment / text-pitch-alignment — Mapbox knobs
+  // controlling how labels orient relative to map vs viewport. Default
+  // 'auto' resolves to viewport for point placement, map for line.
+  // Plumb through verbatim so the runtime can pick the right behavior;
+  // pitch-alignment: map (text projected onto the ground plane with
+  // perspective) is a future runtime task — emit anyway so the IR
+  // carries user intent.
+  const rotAlign = layout['text-rotation-alignment']
+  if (rotAlign === 'map' || rotAlign === 'viewport' || rotAlign === 'auto') {
+    utils.push(`label-rotation-alignment-${rotAlign}`)
+  }
+  const pitchAlign = layout['text-pitch-alignment']
+  if (pitchAlign === 'map' || pitchAlign === 'viewport' || pitchAlign === 'auto') {
+    utils.push(`label-pitch-alignment-${pitchAlign}`)
+  }
+
   // symbol-spacing — distance between repeated labels along a line
   // in pixels. Only meaningful for placement: line. Default 250 in
   // Mapbox; emit explicitly when missing so road-name layers don't

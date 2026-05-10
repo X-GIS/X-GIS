@@ -281,6 +281,8 @@ function lowerLayer(
   const labelHaloColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
   let labelHaloBlur: number | undefined
   let labelSpacing: number | undefined
+  let labelRotationAlignment: 'map' | 'viewport' | 'auto' | undefined
+  let labelPitchAlignment: 'map' | 'viewport' | 'auto' | undefined
   let labelAnchor: import('./render-node').LabelDef['anchor'] | undefined
   // Collect every label-anchor-X utility seen — Mapbox text-variable-
   // anchor maps to multiple emissions by the converter, in priority
@@ -647,6 +649,12 @@ function lowerLayer(
       // matching the local tangent.
       if (name === 'label-along-path') { labelPlacement = 'line'; continue }
       if (name === 'label-line-center') { labelPlacement = 'line-center'; continue }
+      if (name === 'label-rotation-alignment-map') { labelRotationAlignment = 'map'; continue }
+      if (name === 'label-rotation-alignment-viewport') { labelRotationAlignment = 'viewport'; continue }
+      if (name === 'label-rotation-alignment-auto') { labelRotationAlignment = 'auto'; continue }
+      if (name === 'label-pitch-alignment-map') { labelPitchAlignment = 'map'; continue }
+      if (name === 'label-pitch-alignment-viewport') { labelPitchAlignment = 'viewport'; continue }
+      if (name === 'label-pitch-alignment-auto') { labelPitchAlignment = 'auto'; continue }
       if (name === 'label-justify-auto') { labelJustify = 'auto'; continue }
       if (name === 'label-justify-left') { labelJustify = 'left'; continue }
       if (name === 'label-justify-center') { labelJustify = 'center'; continue }
@@ -1155,6 +1163,7 @@ function lowerLayer(
       labelRotate, labelLetterSpacing, labelFontStack,
       labelMaxWidth, labelLineHeight, labelJustify,
       labelPlacement, labelSpacing,
+      labelRotationAlignment, labelPitchAlignment,
     }),
   }
 }
@@ -1197,6 +1206,8 @@ function foldLabelKnobs(
     labelJustify?: 'auto' | 'left' | 'center' | 'right'
     labelPlacement?: 'point' | 'line' | 'line-center'
     labelSpacing?: number
+    labelRotationAlignment?: 'map' | 'viewport' | 'auto'
+    labelPitchAlignment?: 'map' | 'viewport' | 'auto'
   },
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
@@ -1257,6 +1268,8 @@ function foldLabelKnobs(
     ...(knobs.labelJustify !== undefined ? { justify: knobs.labelJustify } : {}),
     ...(knobs.labelPlacement !== undefined ? { placement: knobs.labelPlacement } : {}),
     ...(knobs.labelSpacing !== undefined ? { spacing: knobs.labelSpacing } : {}),
+    ...(knobs.labelRotationAlignment !== undefined ? { rotationAlignment: knobs.labelRotationAlignment } : {}),
+    ...(knobs.labelPitchAlignment !== undefined ? { pitchAlignment: knobs.labelPitchAlignment } : {}),
   }
 }
 

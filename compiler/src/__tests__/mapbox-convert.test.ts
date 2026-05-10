@@ -794,6 +794,23 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
+    it('text-rotation-alignment / text-pitch-alignment plumbed through', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'r', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-rotation-alignment': 'map',
+            'text-pitch-alignment': 'viewport',
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-rotation-alignment-map')
+      expect(out).toContain('label-pitch-alignment-viewport')
+      expect(parses(out)).toBe(true)
+    })
+
     it('text-letter-spacing / text-padding interpolate-by-zoom', () => {
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
