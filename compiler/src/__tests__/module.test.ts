@@ -132,6 +132,46 @@ describe('Module resolution', () => {
     expect(bg.length).toBeGreaterThanOrEqual(1)        // bg
   })
 
+  it('splice form captures inline Mapbox-style GeoJSON `source.data` into options.inlineGeoJSON', () => {
+    // The user-visible bug: a Mapbox style with an inline GeoJSON
+    // FeatureCollection silently dropped its features at import time
+    // because the converter emitted the data as a comment only and the
+    // host had to call setSourceData() manually. With the collector
+    // option threaded through, the runtime importer captures the data
+    // and auto-pushes it after run().
+    const inlineFC = {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [127, 37] },
+        properties: { name: 'seoul' },
+      }],
+    }
+    const mapboxFiles: Record<string, string> = {
+      './annotated.json': JSON.stringify({
+        version: 8,
+        sources: {
+          base: { type: 'vector', url: 'a.pmtiles' },
+          'my-pins': { type: 'geojson', data: inlineFC },
+        },
+        layers: [],
+      }),
+    }
+    const reader: FileReader = (p) => mapboxFiles[p] ?? null
+
+    const ast = parse(`import "./annotated.json"`)
+    const inlineGeoJSON = new Map<string, unknown>()
+    resolveImports(ast, './', reader, { inlineGeoJSON })
+
+    // Sanitised key matches what the converter emits as the source name
+    // — runtime looks up this exact id in rawDatasets to seed.
+    // Source string round-trips through JSON.stringify in the mock
+    // reader and JSON.parse inside the resolver, so identity isn't
+    // preserved — deep-equal is the right check.
+    expect(inlineGeoJSON.size).toBe(1)
+    expect(inlineGeoJSON.get('my_pins')).toStrictEqual(inlineFC)
+  })
+
   it('deduplicates imports from same file', () => {
     const ast = parse(`
       import { military_track } from "./styles.xgs"

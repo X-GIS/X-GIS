@@ -1,0 +1,19 @@
+/* End-to-end demo for inline GeoJSON inside an imported Mapbox style.
+ *
+ * Before the importer plumbing landed, a Mapbox style with
+ * `"data": { "type": "FeatureCollection", ... }` lost its features
+ * silently — the converter emitted a no-URL stub and the host had to
+ * call `map.setSourceData()` manually after `run()`.
+ *
+ * Now: convertMapboxStyle accepts an `inlineGeoJSON` Map collector;
+ * resolveImportsAsync threads it through; map.run seeds rawDatasets
+ * directly after Promise.all so the very first rebuildLayers includes
+ * the features. No host JS glue.
+ *
+ * Visual confirmation: two red 0.85-opacity boxes ringed in cream
+ * appear over Korea and Tokyo on a dark navy background.
+ *
+ * Default URL hash camera (#3.5/37/132) frames both boxes at once.
+ */
+
+import "/sample-mapbox-with-inline-geojson.json"

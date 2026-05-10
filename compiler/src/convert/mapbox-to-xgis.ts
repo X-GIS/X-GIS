@@ -42,14 +42,25 @@
 //   • Top-level light / fog / terrain.
 
 import type { MapboxStyle } from './types'
-import { convertSource } from './sources'
+import { convertSource, type ConvertSourceOptions } from './sources'
 import { convertLayer } from './layers'
 import { colorToXgis } from './colors'
 
+export interface ConvertMapboxStyleOptions extends ConvertSourceOptions {}
+
 /** Convert a Mapbox Style JSON (already parsed or raw string) into
  *  an xgis source string. The result is meant to be human-readable
- *  and immediately runnable against the X-GIS playground. */
-export function convertMapboxStyle(input: string | MapboxStyle): string {
+ *  and immediately runnable against the X-GIS playground.
+ *
+ *  Pass `options.inlineGeoJSON` (a `Map`) to capture any inline
+ *  `source.data` objects — the runtime importer uses this to
+ *  auto-push the data via `setSourceData` after `run()` so the host
+ *  never has to. Without the collector the inline data is dropped
+ *  (with a warning) — backwards-compatible with pre-collector callers. */
+export function convertMapboxStyle(
+  input: string | MapboxStyle,
+  options?: ConvertMapboxStyleOptions,
+): string {
   const style: MapboxStyle = typeof input === 'string' ? JSON.parse(input) : input
   const lines: string[] = []
   const warnings: string[] = []
@@ -61,7 +72,7 @@ export function convertMapboxStyle(input: string | MapboxStyle): string {
 
   // ── Sources ────────────────────────────────────────────────────────
   for (const [id, src] of Object.entries(style.sources ?? {})) {
-    lines.push(convertSource(id, src, warnings))
+    lines.push(convertSource(id, src, warnings, options))
     lines.push('')
   }
 

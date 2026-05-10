@@ -1,0 +1,67 @@
+{
+  "version": 8,
+  "name": "X-GIS inline-GeoJSON import test",
+  "sources": {
+    "annotations": {
+      "type": "geojson",
+      "data": {
+        "type": "FeatureCollection",
+        "features": [
+          {
+            "type": "Feature",
+            "geometry": {
+              "type": "Polygon",
+              "coordinates": [[
+                [126.5, 37.3],
+                [127.4, 37.3],
+                [127.4, 37.7],
+                [126.5, 37.7],
+                [126.5, 37.3]
+              ]]
+            },
+            "properties": { "id": "seoul-box", "kind": "annotation" }
+          },
+          {
+            "type": "Feature",
+            "geometry": {
+              "type": "Polygon",
+              "coordinates": [[
+                [139.5, 35.5],
+                [140.0, 35.5],
+                [140.0, 36.0],
+                [139.5, 36.0],
+                [139.5, 35.5]
+              ]]
+            },
+            "properties": { "id": "tokyo-box", "kind": "annotation" }
+          }
+        ]
+      }
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": { "background-color": "#0f172a" }
+    },
+    {
+      "id": "annotation-fill",
+      "type": "fill",
+      "source": "annotations",
+      "paint": {
+        "fill-color": "#e11d48",
+        "fill-opacity": 0.85
+      }
+    },
+    {
+      "id": "annotation-stroke",
+      "type": "line",
+      "source": "annotations",
+      "paint": {
+        "line-color": "#fef3c7",
+        "line-width": 2
+      }
+    }
+  ]
+}

@@ -1,6 +1,16 @@
 import type { MapboxSource } from './types'
 import { sanitizeId } from './utils'
 
+export interface ConvertSourceOptions {
+  /** When provided, inline GeoJSON `source.data` objects are stashed
+   *  into this map keyed by `sanitizeId(sourceId)`. The importer (the
+   *  runtime resolver) then auto-pushes each entry via setSourceData
+   *  after run() — host no longer needs to do it manually. Without a
+   *  collector the converter falls back to the original "no-URL stub
+   *  + warning" behaviour for backward compatibility. */
+  inlineGeoJSON?: Map<string, unknown>
+}
+
 /** Mapbox `sources[id]` entry → xgis `source <id> { … }` block.
  *
  *  Routing rules:
@@ -11,11 +21,17 @@ import { sanitizeId } from './utils'
  *   - `type: raster` with `tiles[]` or `url`  → `type: raster`
  *   - `type: geojson` with URL `data`         → `type: geojson` with url
  *   - `type: geojson` with inline `data`      → `type: geojson` no url
- *     (xgis runtime seeds an empty FeatureCollection; the host
- *      injects the data via `setSourceData(id, fc)` after `run()`)
+ *     (with `options.inlineGeoJSON` collector: data is captured for
+ *     auto-push; without: runtime seeds an empty FC and the host must
+ *     call `setSourceData(id, fc)` after `run()`)
  *   - `type: raster-dem`                      → emit + warn (Batch 4)
  *   - `type: image` / `video`                 → skip + warn */
-export function convertSource(id: string, src: MapboxSource, warnings: string[]): string {
+export function convertSource(
+  id: string,
+  src: MapboxSource,
+  warnings: string[],
+  options?: ConvertSourceOptions,
+): string {
   const lines: string[] = [`source ${sanitizeId(id)} {`]
   if (src.type === 'vector') {
     const url = src.url ?? src.tiles?.[0]
@@ -59,24 +75,21 @@ export function convertSource(id: string, src: MapboxSource, warnings: string[])
       lines.push('  type: geojson')
       lines.push(`  url: "${data}"`)
     } else if (data && typeof data === 'object') {
-      // Inline FeatureCollection / Feature / Geometry. xgis runtime
-      // accepts a no-url geojson source as an "inline" stub; the host
-      // application is responsible for calling `map.setSourceData(id,
-      // featureCollection)` once after `map.run(source)` to populate
-      // it. Comment block carries the JSON so readers see what would
-      // have been pushed.
       lines.push('  type: geojson')
-      lines.push('  // inline data — call map.setSourceData("' + sanitizeId(id) + '", <FeatureCollection>) after run()')
-      // Emit the data as a JSON literal in a comment so the reader
-      // can copy it. Truncate at 2KB to keep the converter output
-      // small for very large inline datasets.
-      const json = JSON.stringify(data)
-      if (json.length > 2000) {
-        lines.push(`  // data: ${json.slice(0, 2000)}...  (truncated, ${json.length} bytes total)`)
+      const safeId = sanitizeId(id)
+      if (options?.inlineGeoJSON) {
+        options.inlineGeoJSON.set(safeId, data)
+        lines.push('  // inline data captured by importer (auto-pushed via setSourceData)')
       } else {
-        lines.push(`  // data: ${json}`)
+        lines.push('  // inline data — call map.setSourceData("' + safeId + '", <FeatureCollection>) after run()')
+        const json = JSON.stringify(data)
+        if (json.length > 2000) {
+          lines.push(`  // data: ${json.slice(0, 2000)}...  (truncated, ${json.length} bytes total)`)
+        } else {
+          lines.push(`  // data: ${json}`)
+        }
+        warnings.push(`GeoJSON source "${id}" has inline data — emitted as no-URL stub; call map.setSourceData() after run().`)
       }
-      warnings.push(`GeoJSON source "${id}" has inline data — emitted as no-URL stub; call map.setSourceData() after run().`)
     } else {
       lines.push('  // TODO: GeoJSON source missing data field')
       warnings.push(`GeoJSON source "${id}" has no data field.`)

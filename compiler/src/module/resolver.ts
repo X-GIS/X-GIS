@@ -13,6 +13,14 @@ import type * as AST from '../parser/ast'
  */
 export type FileReader = (path: string) => string | null
 
+export interface ResolveImportsOptions {
+  /** Output collector for inline GeoJSON `source.data` objects found
+   *  inside imported Mapbox styles. Keyed by `sanitizeId(sourceId)`.
+   *  The runtime consumes this after sources finish loading and
+   *  seeds `rawDatasets` directly — no manual `setSourceData()`. */
+  inlineGeoJSON?: Map<string, unknown>
+}
+
 /**
  * Resolve all imports in a program, merging imported symbols.
  * Returns a new program with imported statements prepended.
@@ -21,6 +29,7 @@ export function resolveImports(
   program: AST.Program,
   basePath: string,
   readFile: FileReader,
+  options?: ResolveImportsOptions,
 ): AST.Program {
   const resolved = new Set<string>()
   const imported: AST.Statement[] = []
@@ -37,7 +46,7 @@ export function resolveImports(
       }
 
       const xgisSource = looksLikeMapboxStyle(source)
-        ? convertMapboxStyle(JSON.parse(source))
+        ? convertMapboxStyle(JSON.parse(source), options)
         : source
 
       const tokens = new Lexer(xgisSource).tokenize()
@@ -93,6 +102,7 @@ export async function resolveImportsAsync(
   program: AST.Program,
   basePath: string,
   readFile: AsyncFileReader,
+  options?: ResolveImportsOptions,
 ): Promise<AST.Program> {
   const resolved = new Set<string>()
   const imported: AST.Statement[] = []
@@ -115,7 +125,7 @@ export async function resolveImportsAsync(
       // body into the host program; cherry-pick form requires xgis
       // content because it picks named exports.
       const xgisSource = looksLikeMapboxStyle(source)
-        ? convertMapboxStyle(JSON.parse(source))
+        ? convertMapboxStyle(JSON.parse(source), options)
         : source
 
       const tokens = new Lexer(xgisSource).tokenize()

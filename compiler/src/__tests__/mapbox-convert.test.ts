@@ -384,6 +384,53 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
+    it('captures inline GeoJSON data into options.inlineGeoJSON map (importer auto-push path)', () => {
+      const fc = {
+        type: 'FeatureCollection',
+        features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: { name: 'origin' } }],
+      }
+      const inlineGeoJSON = new Map<string, unknown>()
+      const out = convertMapboxStyle(
+        {
+          version: 8,
+          sources: { pts: { type: 'geojson', data: fc } as never },
+          layers: [],
+        },
+        { inlineGeoJSON },
+      )
+      // Source still emits as a no-URL geojson stub — runtime seeds an
+      // empty FC at run() and the importer fills it from the collector.
+      expect(out).toContain('type: geojson')
+      expect(out).not.toContain('url:')
+      // With collector active, the verbose "// data: {...}" comment is
+      // replaced by a short marker — JSON belongs in the collector,
+      // not the converted source text.
+      expect(out).not.toMatch(/\/\/ data:/)
+      expect(out).toContain('captured by importer')
+      // Collector populated under sanitized id.
+      expect(inlineGeoJSON.size).toBe(1)
+      expect(inlineGeoJSON.get('pts')).toBe(fc)
+      expect(parses(out)).toBe(true)
+    })
+
+    it('inline data with id needing sanitization keys collector under sanitized id', () => {
+      const fc = { type: 'FeatureCollection', features: [] }
+      const inlineGeoJSON = new Map<string, unknown>()
+      convertMapboxStyle(
+        {
+          version: 8,
+          sources: { 'my-points': { type: 'geojson', data: fc } as never },
+          layers: [],
+        },
+        { inlineGeoJSON },
+      )
+      // sanitizeId replaces "-" with "_"; collector key must match what
+      // the runtime will look up in rawDatasets after the load command
+      // emits with the same sanitized name.
+      expect(inlineGeoJSON.has('my_points')).toBe(true)
+      expect(inlineGeoJSON.has('my-points')).toBe(false)
+    })
+
     it('emits raster-dem source registration with Batch 4 note', () => {
       const out = convertMapboxStyle({
         version: 8,

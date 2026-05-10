@@ -721,8 +721,15 @@ export class XGISMap {
         return null
       }
     }
+    // Output collector: any inline GeoJSON `source.data` objects found
+    // inside an imported Mapbox style get stashed here. Seeded into
+    // rawDatasets after the source-load Promise.all so the first
+    // rebuildLayers includes the features (no extra rebuild). Without
+    // this, inline data was silently dropped — host had to know to
+    // call setSourceData() manually.
+    const inlineGeoJSON = new Map<string, unknown>()
     if (ast.body.some(s => s.kind === 'ImportStatement')) {
-      ast = await resolveImportsAsync(ast, absBase, resolver)
+      ast = await resolveImportsAsync(ast, absBase, resolver, { inlineGeoJSON })
     }
 
     // Use IR pipeline for new syntax, fallback to legacy interpreter
@@ -903,6 +910,18 @@ export class XGISMap {
         showSlicesBySource,
       }, cameraFitState),
     ))
+
+    // Seed inline GeoJSON captured from imported Mapbox styles. Direct
+    // rawDatasets write (not setSourceData) because rebuildLayers runs
+    // unconditionally a few lines below — calling setSourceData here
+    // would fire a redundant retile.
+    for (const [id, fc] of inlineGeoJSON) {
+      if (this.rawDatasets.has(id)) {
+        this.rawDatasets.set(id, fc as GeoJSONFeatureCollection)
+      } else {
+        console.warn(`[X-GIS] Inline GeoJSON for unknown source "${id}" — dropping. (Mapbox style sources didn't emit a matching load command.)`)
+      }
+    }
 
     this.showCommands = commands.shows
     this._sceneHasAnimation = commands.shows.some(s =>

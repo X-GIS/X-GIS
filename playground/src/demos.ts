@@ -140,6 +140,13 @@ export const DEMOS: Record<string, Demo> = {
     source: load('import-mapbox-style.xgis'),
   },
 
+  import_mapbox_inline_geojson: {
+    name: 'import "mapbox-style" — inline GeoJSON',
+    tag: 'xgvt',
+    description: 'Mapbox style.json with an inline FeatureCollection in source.data. The importer captures the data via the inlineGeoJSON collector and auto-pushes it via setSourceData after run() — no host glue. Two red boxes (Korea + Tokyo) confirm the features rendered. Open #3.5/37/132 to frame both.',
+    source: load('import-mapbox-inline-geojson.xgis'),
+  },
+
   along_path_roads: {
     name: 'Along-path road labels',
     tag: 'xgvt',
