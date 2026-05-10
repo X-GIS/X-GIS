@@ -39,6 +39,10 @@ import {
   parseHexColor, hexToRgba, featureAnchor,
   applyFilter, applyGeometry,
 } from './feature-helpers'
+import {
+  inspectMapPipeline, captureMapSnapshot, replayMapSnapshot,
+  type PipelineInspection, type MapSnapshot, type ReplayResult,
+} from './diagnostics'
 import { attachPMTilesSource, prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
@@ -105,64 +109,6 @@ export interface TextOverlayHandle {
   remove(): void
 }
 
-export interface PipelineInspection {
-  camera: {
-    zoom: number
-    lon: number
-    lat: number
-    bearing: number
-    pitch: number
-    maxZoom: number
-  }
-  viewport: { canvasW: number; canvasH: number; dpr: number }
-  /** Monotonic render-loop tick counter (since run()). Useful for
-   *  comparing two snapshots taken across a known interval. */
-  frame: number
-  quality: QualityConfig
-  /** True when hash sync / pointer interaction / setView declared the
-   *  camera explicitly — post-compile bounds-fit is suppressed in that
-   *  case. Surfaces the flag the `_runBoundsFitGate` helper reads. */
-  cameraExplicitlyPositioned: boolean
-  sources: Array<{
-    name: string
-    /** Deepest zoom the source CAN serve as genuine data (e.g., 110m
-     *  Natural Earth typically caps near 7). Over-zooming past this
-     *  forces runtime sub-tile generation or parent-tile fallback. */
-    sourceMaxLevel: number
-    currentZoomRounded: number
-    /** `max(0, zoom - sourceMaxLevel)`. Non-zero means every visible
-     *  tile at this zoom requires a sub-tile-generation pass at load
-     *  time — capped by the per-frame sub-tile budget in XGVTSource. */
-    overzoomLevels: number
-    cache: {
-      size: number
-      pendingLoads: number
-      pendingUploads: number
-      subTileBudgetUsed: number
-      compileBudgetUsed: number
-      hasData: boolean
-    }
-    /** Per-source draw stats accumulated during the last renderFrame.
-     *  `missedTiles` is the count of visible tiles that had no cached
-     *  data AND no parent-tile fallback available — the population
-     *  that drives FLICKER warnings. */
-    frame: {
-      drawCalls: number
-      tilesVisible: number
-      missedTiles: number
-      triangles: number
-      lines: number
-    }
-  }>
-  /** Ring buffer of recent FLICKER events (last ~32). Oldest first. */
-  recentFlickers: Array<{
-    ts: number
-    source: string
-    missed: number
-    z: number
-    cache: number
-  }>
-}
 
 /** Filter the xgis source DSL's `type:` field down to the values
  *  `detectVectorTileFormat` understands. XGIS source `type` can also
@@ -367,63 +313,7 @@ export class XGISMap {
    *  Structured return so `JSON.stringify()` produces a copy-pasteable
    *  report. Nothing here allocates GPU work — safe to call every
    *  frame if needed. */
-  inspectPipeline(): PipelineInspection {
-    const cam = this.camera
-    const R = 6378137
-    const DEG = 180 / Math.PI
-    const canvasW = this.ctx?.canvas.width ?? 0
-    const canvasH = this.ctx?.canvas.height ?? 0
-    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-
-    const lon = (cam.centerX / R) * DEG
-    const lat = (2 * Math.atan(Math.exp(cam.centerY / R)) - Math.PI / 2) * DEG
-
-    const sources: PipelineInspection['sources'] = []
-    for (const [name, entry] of this.vtSources) {
-      const source = entry.source
-      const vtR = entry.renderer
-      const stats = vtR.getDrawStats()
-      const sourceMaxLevel = source.maxLevel
-      const overzoom = Math.max(0, Math.round(cam.zoom) - sourceMaxLevel)
-      sources.push({
-        name,
-        sourceMaxLevel,
-        currentZoomRounded: Math.round(cam.zoom),
-        overzoomLevels: overzoom,
-        cache: {
-          size: vtR.getCacheSize(),
-          pendingLoads: source.getPendingLoadCount(),
-          pendingUploads: vtR.getPendingUploadCount(),
-          subTileBudgetUsed: source.getSubTileBudgetUsed(),
-          compileBudgetUsed: source.getCompileBudgetUsed(),
-          hasData: source.hasData(),
-        },
-        frame: {
-          drawCalls: stats.drawCalls,
-          tilesVisible: stats.tilesVisible,
-          missedTiles: stats.missedTiles,
-          triangles: stats.triangles,
-          lines: stats.lines,
-        },
-      })
-    }
-
-    return {
-      camera: {
-        zoom: cam.zoom,
-        lon, lat,
-        bearing: cam.bearing,
-        pitch: cam.pitch,
-        maxZoom: cam.maxZoom,
-      },
-      viewport: { canvasW, canvasH, dpr },
-      frame: this._frameCount,
-      quality: this.getQuality(),
-      cameraExplicitlyPositioned: this._cameraExplicitlyPositioned,
-      sources,
-      recentFlickers: [...this._flickerLog],
-    }
-  }
+  inspectPipeline(): PipelineInspection { return inspectMapPipeline(this) }
 
   /** Change any combination of quality knobs at runtime. The map figures
    *  out which parts are cheap (DPR — next resizeCanvas applies) vs
@@ -1086,229 +976,11 @@ export class XGISMap {
    *  Call from a test scenario to assert deterministic behaviour or
    *  to capture a "broken" snapshot for diagnosis.
    */
-  async captureSnapshot(): Promise<{
-    /** Schema version — bump when fields change so older snapshots
-     *  can be detected on replay. */
-    schemaVersion: 1
-    /** Page URL the snapshot was taken from — replay targets this URL
-     *  so the demo source + camera hash are pre-applied via #/zoom/lat/lon. */
-    pageUrl: string
-    /** User agent — mostly informational, but a Metal-vs-Vulkan
-     *  difference can show up here as a clue. */
-    userAgent: string
-    camera: { lon: number; lat: number; zoom: number; bearing: number; pitch: number }
-    /** Backing-buffer size + CSS-pixel size + DPR. Reproduction needs
-     *  ALL THREE — the canvas backing buffer drives shader uniforms,
-     *  CSS size drives layout, DPR ties them and gates mobile-class
-     *  decisions inside the runtime (maxInflight, uploadBudget). */
-    viewport: { width: number; height: number; cssWidth: number; cssHeight: number; dpr: number }
-    /** PAGE-level viewport (window.innerWidth / innerHeight). Replay
-     *  must set the playwright context to this exact size so the
-     *  surrounding layout (editor pane, headers) sizes the canvas
-     *  identically — otherwise the canvas shrinks/grows when the
-     *  page viewport differs and we can't compare pixel hashes. */
-    pageViewport: { width: number; height: number }
-    sources: Record<string, {
-      gpuCacheCount: number
-      pendingFetch: number
-      pendingUpload: number
-      tiles: Array<{ z: number; x: number; y: number }>
-    }>
-    renderOrder: unknown[]
-    pixelHash: string
-    pixelHashBy: 'subtle' | 'fnv'
-  }> {
-    const camera = this.camera
-    const lon = (camera.centerX / 6378137) / (Math.PI / 180)
-    const lat = (2 * Math.atan(Math.exp(camera.centerY / 6378137)) - Math.PI / 2) / (Math.PI / 180)
+  async captureSnapshot(): Promise<MapSnapshot> { return captureMapSnapshot(this) }
 
-    const sources: Record<string, {
-      gpuCacheCount: number
-      pendingFetch: number
-      pendingUpload: number
-      tiles: Array<{ z: number; x: number; y: number }>
-    }> = {}
-    if (this.vtSources) {
-      for (const [name, entry] of this.vtSources) {
-        const r = (entry as unknown as { renderer?: {
-          _gpuCacheCount?: number
-          getPendingUploadCount?: () => number
-          _frameTileCache?: { tiles?: Array<{ z: number; x: number; y: number }> }
-        } }).renderer
-        const cat = (entry as unknown as { source?: { getPendingLoadCount?: () => number } }).source
-        sources[name] = {
-          gpuCacheCount: r?._gpuCacheCount ?? 0,
-          pendingFetch: cat?.getPendingLoadCount?.() ?? 0,
-          pendingUpload: r?.getPendingUploadCount?.() ?? 0,
-          tiles: r?._frameTileCache?.tiles ?? [],
-        }
-      }
-    }
-
-    const renderOrder = ((window as unknown as {
-      __xgisDrawOrderTrace?: unknown[]
-    }).__xgisDrawOrderTrace) ?? []
-
-    // Pixel hash. Web crypto SubtleDigest where available (SHA-256);
-    // FNV-1a fallback for non-secure contexts. The canvas readback
-    // uses readPixels via a one-shot copy texture — same pattern as
-    // the picking pipeline, but full-frame.
-    const canvas = this.canvas
-    let pixelHash = ''
-    let pixelHashBy: 'subtle' | 'fnv' = 'fnv'
-    try {
-      // Sample the canvas via toBlob → arrayBuffer → hash. Avoids
-      // creating an extra GPU texture; the trade-off is that toBlob
-      // re-encodes as PNG (deterministic for the same pixel data).
-      const blob = await new Promise<Blob | null>((resolve) => {
-        canvas.toBlob((b) => resolve(b), 'image/png')
-      })
-      if (blob) {
-        const buf = await blob.arrayBuffer()
-        if (typeof crypto !== 'undefined' && crypto.subtle) {
-          const digest = await crypto.subtle.digest('SHA-256', buf)
-          const bytes = Array.from(new Uint8Array(digest))
-          pixelHash = bytes.map(b => b.toString(16).padStart(2, '0')).join('')
-          pixelHashBy = 'subtle'
-        } else {
-          // FNV-1a 32-bit. Faster but lower entropy — adequate for
-          // detecting frame-by-frame drift in tests.
-          let h = 0x811c9dc5
-          const u8 = new Uint8Array(buf)
-          for (let i = 0; i < u8.length; i++) {
-            h ^= u8[i]
-            h = (h * 0x01000193) >>> 0
-          }
-          pixelHash = h.toString(16).padStart(8, '0')
-          pixelHashBy = 'fnv'
-        }
-      }
-    } catch (e) {
-      console.warn('[xgisSnapshot] pixel hash failed:', e)
-    }
-
-    const cssWidth = canvas.clientWidth || canvas.width
-    const cssHeight = canvas.clientHeight || canvas.height
-    const dpr = cssWidth > 0 ? canvas.width / cssWidth : 1
-    const pageWidth = typeof window !== 'undefined' ? window.innerWidth : cssWidth
-    const pageHeight = typeof window !== 'undefined' ? window.innerHeight : cssHeight
-
-    return {
-      schemaVersion: 1,
-      pageUrl: typeof window !== 'undefined' ? window.location.href : '',
-      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
-      camera: {
-        lon, lat,
-        zoom: camera.zoom,
-        bearing: camera.bearing ?? 0,
-        pitch: camera.pitch ?? 0,
-      },
-      viewport: {
-        width: canvas.width, height: canvas.height,
-        cssWidth, cssHeight, dpr,
-      },
-      pageViewport: { width: pageWidth, height: pageHeight },
-      sources,
-      renderOrder,
-      pixelHash,
-      pixelHashBy,
-    }
-  }
-
-  /** Replay a captured snapshot. Sets the camera back to the snapshot
-   *  position, then resolves once the live state matches the snapshot
-   *  closely enough that pixel-hash comparison is meaningful:
-   *    - Every snapshot tile is present in the live source's GPU cache
-   *    - Every source has zero pending fetch / pending upload
-   *
-   *  Caller (e2e test) is responsible for setting the viewport BEFORE
-   *  this runs — playwright's `setViewportSize` + `deviceScaleFactor`
-   *  handle that. The replay returns a fresh snapshot that the test
-   *  can compare against the input. */
-  async replaySnapshot(snap: {
-    schemaVersion?: number
-    camera: { lon: number; lat: number; zoom: number; bearing: number; pitch: number }
-    sources: Record<string, { tiles: Array<{ z: number; x: number; y: number }> }>
-  }, opts: { timeoutMs?: number } = {}): Promise<{
-    matched: boolean
-    missingTiles: number
-    pendingFetchTotal: number
-    pendingUploadTotal: number
-  }> {
-    if (snap.schemaVersion !== undefined && snap.schemaVersion !== 1) {
-      throw new Error(`replaySnapshot: unsupported schema ${snap.schemaVersion} (this build supports 1)`)
-    }
-    const timeoutMs = opts.timeoutMs ?? 30_000
-
-    // 1. Set the camera. Use lon/lat → mercator and direct field
-    // assignment; bypassing setView avoids triggering animation
-    // tweens which would non-deterministically drift the snapshot
-    // camera over the next few frames.
-    const R = 6378137
-    const DEG2RAD = Math.PI / 180
-    this.camera.centerX = snap.camera.lon * DEG2RAD * R
-    const clampedLat = Math.max(-85.051129, Math.min(85.051129, snap.camera.lat))
-    this.camera.centerY = Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) * R
-    this.camera.zoom = snap.camera.zoom
-    this.camera.bearing = snap.camera.bearing
-    this.camera.pitch = snap.camera.pitch
-    this._cameraExplicitlyPositioned = true
-    this._needsRender = true
-
-    // 2. Wait until each source has every snapshot tile in its GPU
-    // cache. Tile set comparison uses (z,x,y) tuples encoded as
-    // strings; ignores order. We DON'T require zero EXTRA tiles in
-    // the cache — replay-side may carry over fallback ancestors that
-    // the original capture didn't list, and that's harmless.
-    const start = Date.now()
-    while (Date.now() - start < timeoutMs) {
-      let pendingFetchTotal = 0
-      let pendingUploadTotal = 0
-      let missingTiles = 0
-      for (const [name, snapSrc] of Object.entries(snap.sources)) {
-        const live = (this.vtSources?.get(name) as unknown as {
-          source?: { hasTileData?: (key: number) => boolean; getPendingLoadCount?: () => number }
-          renderer?: { getPendingUploadCount?: () => number }
-        } | undefined)
-        if (!live?.source) {
-          // Source not present in live runtime — replay impossible.
-          return { matched: false, missingTiles: snapSrc.tiles.length, pendingFetchTotal: 0, pendingUploadTotal: 0 }
-        }
-        const cat = live.source as { hasTileData?: (key: number) => boolean; getPendingLoadCount?: () => number }
-        pendingFetchTotal += cat.getPendingLoadCount?.() ?? 0
-        pendingUploadTotal += live.renderer?.getPendingUploadCount?.() ?? 0
-        for (const t of snapSrc.tiles) {
-          // tileKey packing must match the runtime's encoder; pull from
-          // the compiler so we don't fork the format.
-          const key = compilerTileKey(t.z, t.x, t.y)
-          if (!cat.hasTileData?.(key)) missingTiles++
-        }
-      }
-      if (missingTiles === 0 && pendingFetchTotal === 0 && pendingUploadTotal === 0) {
-        return { matched: true, missingTiles: 0, pendingFetchTotal: 0, pendingUploadTotal: 0 }
-      }
-      // Yield to the render loop so tiles can fetch/decode/upload.
-      await new Promise<void>((res) => setTimeout(res, 100))
-    }
-    // Timeout — return current state for caller to inspect.
-    let pendingFetchTotal = 0
-    let pendingUploadTotal = 0
-    let missingTiles = 0
-    for (const [name, snapSrc] of Object.entries(snap.sources)) {
-      const live = (this.vtSources?.get(name) as unknown as {
-        source?: { hasTileData?: (key: number) => boolean; getPendingLoadCount?: () => number }
-        renderer?: { getPendingUploadCount?: () => number }
-      } | undefined)
-      if (!live?.source) continue
-      const cat = live.source as { hasTileData?: (key: number) => boolean; getPendingLoadCount?: () => number }
-      pendingFetchTotal += cat.getPendingLoadCount?.() ?? 0
-      pendingUploadTotal += live.renderer?.getPendingUploadCount?.() ?? 0
-      for (const t of snapSrc.tiles) {
-        const key = compilerTileKey(t.z, t.x, t.y)
-        if (!cat.hasTileData?.(key)) missingTiles++
-      }
-    }
-    return { matched: false, missingTiles, pendingFetchTotal, pendingUploadTotal }
+  /** Replay a captured snapshot — see diagnostics.replayMapSnapshot. */
+  async replaySnapshot(snap: Parameters<typeof replayMapSnapshot>[1], opts?: Parameters<typeof replayMapSnapshot>[2]): Promise<ReplayResult> {
+    return replayMapSnapshot(this, snap, opts)
   }
 
   /** Attach one declared `load:` from the parsed program — dispatches
