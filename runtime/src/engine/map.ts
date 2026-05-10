@@ -930,6 +930,33 @@ export class XGISMap {
     )
     this._needsRender = true
 
+    // Prewarm shader-variant pipelines BEFORE rebuildLayers so the
+    // GPU driver compiles them in parallel with the rest of init.
+    // Without this, `rebuildLayers` calls the synchronous
+    // `getOrCreateVariantPipelines` (createRenderPipeline) which
+    // returns a handle but defers driver compile to first draw —
+    // showing up as a >1 s `(idle)` block on the first post-ready
+    // frame for variant-heavy demos (filter_gdp at z=8 Europe).
+    // `createRenderPipelineAsync` lets the driver work in the
+    // background so the frame budget recovers.
+    if (!this.useCanvas2D) {
+      const variants: import('@xgis/compiler').ShaderVariant[] = []
+      const seen = new Set<string>()
+      for (const show of this.showCommands) {
+        const v = show.shaderVariant
+        if (v && (v.preamble || v.needsFeatureBuffer) && v.key && !seen.has(v.key)) {
+          seen.add(v.key)
+          variants.push(v)
+        }
+      }
+      if (variants.length > 0) {
+        try {
+          await this.renderer.prewarmShaderVariantsAsync(variants as unknown as Parameters<MapRenderer['prewarmShaderVariantsAsync']>[0])
+        } catch (e) {
+          console.warn('[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):', (e as Error).message)
+        }
+      }
+    }
 
     // 4. Build render layers + fit camera
     if (this.useCanvas2D) {

@@ -1655,6 +1655,32 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
     return pipelines
   }
 
+  /** Async prewarm — calls `createRenderPipelineAsync` for every
+   *  pipeline in every variant and awaits resolution before
+   *  populating `shaderCache`. Subsequent sync
+   *  `getOrCreateVariantPipelines` calls in `rebuildLayers` then
+   *  hit the cache and the driver is guaranteed to have already
+   *  finished compiling.
+   *
+   *  Why this exists: WebGPU's sync `createRenderPipeline` returns
+   *  a pipeline handle immediately while the driver compiles
+   *  lazily on first draw. On filter_gdp at z=8 Europe cold-start
+   *  this produced a ~1.7 s post-ready hitch frame (CPU profile
+   *  showed >60 % `(idle)` — JS thread was waiting for the GPU
+   *  queue to drain the inline compile). Switching to the async
+   *  variant + awaiting before `__xgisReady` flips moves the
+   *  driver work off the user-visible critical path. */
+  async prewarmShaderVariantsAsync(variants: ShaderVariantInfo[]): Promise<void> {
+    const tasks: Promise<void>[] = []
+    for (const v of variants) {
+      if (this.shaderCache.has(v.key)) continue
+      tasks.push(this.createVariantPipelinesAsync(v).then((pipelines) => {
+        this.shaderCache.set(v.key, pipelines)
+      }))
+    }
+    if (tasks.length > 0) await Promise.all(tasks)
+  }
+
   /** Create specialized fill + line pipelines for a shader variant.
    *  Builds two parallel sets when picking is enabled — pickable
    *  (writeMask:ALL on the pick attachment) and non-pickable
@@ -1662,6 +1688,138 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
    *  each show's `pointerEvents`. When picking is globally off, the
    *  no-pick fields alias the pickable ones (no pick attachment to
    *  mask). */
+  /** Build the per-variant pipeline descriptor set + the shared
+   *  shader module / layouts. Pure data construction — no GPU calls
+   *  beyond shader/layout creation, which the spec defines as
+   *  cheap. Used by both sync (`createVariantPipelines`) and async
+   *  (`createVariantPipelinesAsync`) entry points so the descriptor
+   *  shape stays in one place. */
+  private buildVariantDescriptors(variant: ShaderVariantInfo): {
+    descriptors: { fill: GPURenderPipelineDescriptor; fillGround: GPURenderPipelineDescriptor; line: GPURenderPipelineDescriptor; fillFallback: GPURenderPipelineDescriptor; fillGroundFallback: GPURenderPipelineDescriptor; lineFallback: GPURenderPipelineDescriptor }[]
+    pickEnabled: boolean
+  } {
+    const { device, format } = this.ctx
+    const wgsl = buildShader(variant)
+    const msaaState: GPUMultisampleState = { count: getSampleCount() }
+    const pickEnabled = isPickEnabled()
+    const colorTargets: GPUColorTargetState[] = [{ format, blend: BLEND_ALPHA }]
+    if (pickEnabled) colorTargets.push({ format: 'rg32uint' })
+    const colorTargetsNoPick: GPUColorTargetState[] = pickEnabled
+      ? [{ format, blend: BLEND_ALPHA }, { format: 'rg32uint', writeMask: 0 }]
+      : colorTargets
+
+    const module = device.createShaderModule({
+      code: wgsl,
+      label: `shader-${variant.key}`,
+    })
+
+    const layout = variant.needsFeatureBuffer ? this.featureBindGroupLayout : this.bindGroupLayout
+    const pipelineLayout = device.createPipelineLayout({
+      label: `mr-variantPipelineLayout(${variant.needsFeatureBuffer ? 'feature' : 'base'})`,
+      bindGroupLayouts: [layout],
+    })
+
+    const vertexBufferLayout: GPUVertexBufferLayout = {
+      arrayStride: 8,
+      attributes: [
+        { shaderLocation: 0, offset: 0, format: 'uint16x2' as GPUVertexFormat },
+        { shaderLocation: 2, offset: 4, format: 'float32'   as GPUVertexFormat },
+      ],
+    }
+    const lineVertexBufferLayout: GPUVertexBufferLayout = {
+      arrayStride: 24,
+      attributes: [
+        { shaderLocation: 0, offset: 0,  format: 'float32x2' as GPUVertexFormat },
+        { shaderLocation: 1, offset: 8,  format: 'float32x2' as GPUVertexFormat },
+        { shaderLocation: 2, offset: 16, format: 'float32'   as GPUVertexFormat },
+      ],
+    }
+
+    const buildSetDesc = (targets: GPUColorTargetState[], suffix: string) => ({
+      fill: {
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        fragment: { module, entryPoint: 'fs_fill', targets },
+        primitive: { topology: 'triangle-list' as const, cullMode: 'none' as const },
+        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        label: `fill-${variant.key}${suffix}`,
+      },
+      fillGround: {
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        fragment: { module, entryPoint: 'fs_fill', targets },
+        primitive: { topology: 'triangle-list' as const, cullMode: 'none' as const },
+        depthStencil: STENCIL_WRITE_NO_DEPTH, multisample: msaaState,
+        label: `fill-ground-${variant.key}${suffix}`,
+      },
+      line: {
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
+        fragment: { module, entryPoint: 'fs_stroke', targets },
+        primitive: { topology: 'line-list' as const, cullMode: 'none' as const },
+        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        label: `line-${variant.key}${suffix}`,
+      },
+      fillFallback: {
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        fragment: { module, entryPoint: 'fs_fill', targets },
+        primitive: { topology: 'triangle-list' as const, cullMode: 'none' as const },
+        depthStencil: STENCIL_TEST, multisample: msaaState,
+        label: `fill-fallback-${variant.key}${suffix}`,
+      },
+      fillGroundFallback: {
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        fragment: { module, entryPoint: 'fs_fill', targets },
+        primitive: { topology: 'triangle-list' as const, cullMode: 'none' as const },
+        depthStencil: STENCIL_TEST_NO_DEPTH, multisample: msaaState,
+        label: `fill-ground-fallback-${variant.key}${suffix}`,
+      },
+      lineFallback: {
+        layout: pipelineLayout,
+        vertex: { module, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
+        fragment: { module, entryPoint: 'fs_stroke', targets },
+        primitive: { topology: 'line-list' as const, cullMode: 'none' as const },
+        depthStencil: STENCIL_TEST, multisample: msaaState,
+        label: `line-fallback-${variant.key}${suffix}`,
+      },
+    })
+
+    const descriptors = [buildSetDesc(colorTargets, '')]
+    if (pickEnabled) descriptors.push(buildSetDesc(colorTargetsNoPick, '-nopick'))
+    return { descriptors, pickEnabled }
+  }
+
+  private async createVariantPipelinesAsync(variant: ShaderVariantInfo): Promise<CachedPipeline> {
+    const { device } = this.ctx
+    const { descriptors, pickEnabled } = this.buildVariantDescriptors(variant)
+    const built = await Promise.all(descriptors.map(async (set) => ({
+      fill:               await device.createRenderPipelineAsync(set.fill),
+      fillGround:         await device.createRenderPipelineAsync(set.fillGround),
+      line:               await device.createRenderPipelineAsync(set.line),
+      fillFallback:       await device.createRenderPipelineAsync(set.fillFallback),
+      fillGroundFallback: await device.createRenderPipelineAsync(set.fillGroundFallback),
+      lineFallback:       await device.createRenderPipelineAsync(set.lineFallback),
+    })))
+    const p = built[0]
+    const np = pickEnabled ? built[1] : p
+    return {
+      fillPipeline: p.fill,
+      fillPipelineGround: p.fillGround,
+      linePipeline: p.line,
+      fillPipelineFallback: p.fillFallback,
+      fillPipelineGroundFallback: p.fillGroundFallback,
+      linePipelineFallback: p.lineFallback,
+      fillPipelineNoPick: np.fill,
+      fillPipelineGroundNoPick: np.fillGround,
+      linePipelineNoPick: np.line,
+      fillPipelineFallbackNoPick: np.fillFallback,
+      fillPipelineGroundFallbackNoPick: np.fillGroundFallback,
+      linePipelineFallbackNoPick: np.lineFallback,
+    }
+  }
+
   private createVariantPipelines(variant: ShaderVariantInfo): CachedPipeline {
     const { device, format } = this.ctx
     const wgsl = buildShader(variant)
