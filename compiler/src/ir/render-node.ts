@@ -266,6 +266,15 @@ export interface LabelDef {
   anchor?:
     | 'center' | 'top' | 'bottom' | 'left' | 'right'
     | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  /** Mapbox `text-variable-anchor` candidates. When set, the runtime
+   *  tries each in order during collision and uses the first that
+   *  doesn't overlap an existing label. The static `anchor` field
+   *  carries the first candidate as a fallback for IR consumers
+   *  that don't implement variable placement. */
+  anchorCandidates?: Array<
+    | 'center' | 'top' | 'bottom' | 'left' | 'right'
+    | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  >
   /** Mapbox `text-offset` in em units `[dx, dy]`. */
   offset?: [number, number]
   /** Mapbox `text-translate` in display pixels `[dx, dy]`. Applied

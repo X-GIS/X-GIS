@@ -771,19 +771,26 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
-    it('text-anchor variable form collapses to first valid candidate', () => {
-      // ["top","bottom"] etc. — Mapbox tries each and picks the first
-      // non-colliding one. Without full collision-aware variable
-      // anchor support, take the first candidate so the label still
-      // anchors meaningfully (was silently dropped before).
+    it('text-anchor variable form emits one utility per candidate', () => {
+      // Mapbox `text-variable-anchor: ["top", "bottom", "top-left"]` —
+      // converter emits one `label-anchor-X` per candidate in priority
+      // order. lower.ts accumulates them: anchor = first, anchorCandidates
+      // = full list. Runtime tries each on collision (text-stage +
+      // text-collision); first non-overlapping wins.
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
         layers: [{
           id: 'a', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}', 'text-anchor': ['top', 'bottom'] } as never,
+          layout: { 'text-field': '{name}', 'text-anchor': ['top', 'bottom', 'top-left'] } as never,
         }],
       })
-      expect(out).toContain('label-anchor-top')
+      expect(out).toContain('label-anchor-top ')
+      expect(out).toContain('label-anchor-bottom')
+      expect(out).toContain('label-anchor-top-left')
+      // Order is preserved (priority).
+      const utilLine = out.split('\n').find(l => l.includes('label-anchor'))!
+      expect(utilLine.indexOf('label-anchor-top ') < utilLine.indexOf('label-anchor-bottom')).toBe(true)
+      expect(utilLine.indexOf('label-anchor-bottom') < utilLine.indexOf('label-anchor-top-left')).toBe(true)
       expect(parses(out)).toBe(true)
     })
 

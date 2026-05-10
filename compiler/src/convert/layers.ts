@@ -221,15 +221,15 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
     utils.push(`label-anchor-${anchor}`)
   } else if (Array.isArray(anchor) && anchor.length > 0) {
     // Mapbox `text-variable-anchor` shape: ["top","bottom",…] —
-    // candidate list, runtime picks the first that doesn't collide.
-    // Full collision-aware placement is a larger refactor; for now
-    // pick the first valid candidate so the label at least anchors
-    // somewhere reasonable. Emit a warning so the user knows to
-    // check the visual result.
-    const first = anchor.find(a => typeof a === 'string' && VALID_ANCHORS.has(a))
-    if (typeof first === 'string') {
-      utils.push(`label-anchor-${first}`)
-      warnings.push(`Symbol layer "${layer.id}" — text-anchor variable form ${JSON.stringify(anchor)} collapsed to "${first}" (full collision-aware variable anchor pending).`)
+    // emit one `label-anchor-X` per valid candidate, in priority
+    // order. lower.ts accumulates these into `LabelDef.anchor` (the
+    // first) + `anchorCandidates` (the full list); the runtime tries
+    // each in order during collision and picks the first that
+    // doesn't overlap an already-placed label.
+    for (const a of anchor) {
+      if (typeof a === 'string' && VALID_ANCHORS.has(a)) {
+        utils.push(`label-anchor-${a}`)
+      }
     }
   }
 

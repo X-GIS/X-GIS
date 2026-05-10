@@ -282,6 +282,12 @@ function lowerLayer(
   let labelHaloBlur: number | undefined
   let labelSpacing: number | undefined
   let labelAnchor: import('./render-node').LabelDef['anchor'] | undefined
+  // Collect every label-anchor-X utility seen — Mapbox text-variable-
+  // anchor maps to multiple emissions by the converter, in priority
+  // order. The runtime tries each on collision; first non-colliding
+  // wins. Single-anchor styles still produce a one-element list and
+  // foldLabelKnobs strips it down to just `anchor`.
+  const labelAnchorCandidates: NonNullable<import('./render-node').LabelDef['anchorCandidates']> = []
   let labelTransform: import('./render-node').LabelDef['transform'] | undefined
   let labelOffsetX: number | undefined
   let labelOffsetY: number | undefined
@@ -645,15 +651,22 @@ function lowerLayer(
       if (name === 'label-justify-left') { labelJustify = 'left'; continue }
       if (name === 'label-justify-center') { labelJustify = 'center'; continue }
       if (name === 'label-justify-right') { labelJustify = 'right'; continue }
-      if (name === 'label-anchor-center') { labelAnchor = 'center'; continue }
-      if (name === 'label-anchor-top') { labelAnchor = 'top'; continue }
-      if (name === 'label-anchor-bottom') { labelAnchor = 'bottom'; continue }
-      if (name === 'label-anchor-left') { labelAnchor = 'left'; continue }
-      if (name === 'label-anchor-right') { labelAnchor = 'right'; continue }
-      if (name === 'label-anchor-top-left') { labelAnchor = 'top-left'; continue }
-      if (name === 'label-anchor-top-right') { labelAnchor = 'top-right'; continue }
-      if (name === 'label-anchor-bottom-left') { labelAnchor = 'bottom-left'; continue }
-      if (name === 'label-anchor-bottom-right') { labelAnchor = 'bottom-right'; continue }
+      if (name.startsWith('label-anchor-')) {
+        const a = name.slice('label-anchor-'.length)
+        const valid = ['center', 'top', 'bottom', 'left', 'right',
+          'top-left', 'top-right', 'bottom-left', 'bottom-right'] as const
+        if ((valid as readonly string[]).includes(a)) {
+          // First-seen wins for the static `anchor`; later siblings
+          // become collision-fallback candidates. Avoid duplicates so
+          // an accidental `label-anchor-top label-anchor-top` doesn't
+          // bloat the candidate list.
+          if (labelAnchor === undefined) labelAnchor = a as typeof valid[number]
+          if (!labelAnchorCandidates.includes(a as typeof valid[number])) {
+            labelAnchorCandidates.push(a as typeof valid[number])
+          }
+          continue
+        }
+      }
       if (name.startsWith('label-size-')) {
         const num = parseFloat(name.slice('label-size-'.length))
         if (!isNaN(num)) labelSize = num
@@ -1135,6 +1148,7 @@ function lowerLayer(
       labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
       labelColorZoomStops: labelColorZoomStops.length > 0 ? labelColorZoomStops : undefined,
       labelColorExpr, labelSizeExpr,
+      labelAnchorCandidates: labelAnchorCandidates.length > 1 ? labelAnchorCandidates : undefined,
       labelHaloWidthZoomStops: labelHaloWidthZoomStops.length > 0 ? labelHaloWidthZoomStops : undefined,
       labelHaloColorZoomStops: labelHaloColorZoomStops.length > 0 ? labelHaloColorZoomStops : undefined,
       labelAllowOverlap, labelIgnorePlacement, labelPadding,
@@ -1160,6 +1174,7 @@ function foldLabelKnobs(
     labelHaloColor?: [number, number, number, number]
     labelHaloBlur?: number
     labelAnchor?: import('./render-node').LabelDef['anchor']
+    labelAnchorCandidates?: import('./render-node').LabelDef['anchorCandidates']
     labelTransform?: import('./render-node').LabelDef['transform']
     labelOffsetX?: number
     labelOffsetY?: number
@@ -1216,6 +1231,7 @@ function foldLabelKnobs(
     ...(knobs.labelColor !== undefined ? { color: knobs.labelColor } : {}),
     ...(halo !== undefined ? { halo } : {}),
     ...(knobs.labelAnchor !== undefined ? { anchor: knobs.labelAnchor } : {}),
+    ...(knobs.labelAnchorCandidates !== undefined ? { anchorCandidates: knobs.labelAnchorCandidates } : {}),
     ...(knobs.labelTransform !== undefined ? { transform: knobs.labelTransform } : {}),
     ...(offset !== undefined ? { offset } : {}),
     ...(translate !== undefined ? { translate } : {}),

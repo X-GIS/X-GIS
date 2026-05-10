@@ -170,8 +170,13 @@ export class TextStage {
     // resolve the post-anchor draw position. Bbox is needed for the
     // greedy collision pass below.
     interface ShapedLabel {
-      draw: TextDraw
-      bbox: { minX: number; minY: number; maxX: number; maxY: number }
+      // One layout per candidate anchor. layouts[0] is the primary
+      // (used by single-anchor labels); fallbacks come after for
+      // text-variable-anchor.
+      layouts: Array<{
+        draw: TextDraw
+        bbox: { minX: number; minY: number; maxX: number; maxY: number }
+      }>
       allowOverlap: boolean
       ignorePlacement: boolean
     }
@@ -241,71 +246,15 @@ export class TextStage {
       let totalAdvance = 0
       for (const ln of lines) if (ln.width > totalAdvance) totalAdvance = ln.width
       const totalHeight = maxHeight + (lines.length - 1) * lineHeightPx
-      const anchor = p.def.anchor ?? 'center'
-      let dx = 0, dy = 0
-      if (anchor === 'left' || anchor.endsWith('-left')) dx = 0
-      else if (anchor === 'right' || anchor.endsWith('-right')) dx = -totalAdvance
-      else dx = -totalAdvance / 2
-      if (anchor === 'top' || anchor.startsWith('top-')) dy = totalHeight
-      else if (anchor === 'bottom' || anchor.startsWith('bottom-')) dy = 0
-      else dy = totalHeight / 2
-      if (p.def.offset) {
-        dx += p.def.offset[0] * sizePx
-        dy += p.def.offset[1] * sizePx
-      }
-      if (p.def.translate) {
-        // text-translate is in pixels (Mapbox paint property), not
-        // em-units, so it scales by DPR alone — independent of the
-        // current font size. Stacks on top of text-offset.
-        dx += p.def.translate[0] * dpr
-        dy += p.def.translate[1] * dpr
-      }
-      const drawX = p.anchorX + dx
-      const drawY = p.anchorY + dy
-      // Compute per-glyph offsets relative to (drawX, drawY) for
-      // multi-line layout. Each line gets justified within the
-      // bbox according to `justify`; lines stack vertically by
-      // lineHeightPx.
-      const glyphOffsets = lines.length > 1 ? new Float32Array(glyphs.length * 2) : undefined
-      if (glyphOffsets) {
-        // Mapbox `text-justify: auto` resolves to left/right/center
-        // based on text-anchor: left-anchors → left, right-anchors →
-        // right, otherwise center. The previous condition only
-        // handled the left case, so right-anchored multiline labels
-        // got centred — visibly off when an icon's label runs
-        // multiline to the right of the icon (place names, POIs).
-        const isLeftAnchor = anchor === 'left' || anchor.endsWith('-left')
-        const isRightAnchor = anchor === 'right' || anchor.endsWith('-right')
-        const effectiveJustify = justify === 'auto'
-          ? (isLeftAnchor ? 'left' : isRightAnchor ? 'right' : 'center')
-          : justify
-        for (let li = 0; li < lines.length; li++) {
-          const ln = lines[li]!
-          let lineX = 0
-          if (effectiveJustify === 'right') lineX = totalAdvance - ln.width
-          else if (effectiveJustify === 'left') lineX = 0
-          else lineX = (totalAdvance - ln.width) * 0.5
-          // Vertical: line `li` sits lineHeightPx*li below the first.
-          const lineY = -totalHeight + maxHeight + li * lineHeightPx
-          let pen = lineX
-          for (let gi = ln.start; gi < ln.end; gi++) {
-            glyphOffsets[gi * 2] = drawX - p.anchorX + pen
-            glyphOffsets[gi * 2 + 1] = drawY - p.anchorY + lineY
-            pen += advances[gi]!
-            if (gi < ln.end - 1) pen += letterSpacingPx
-          }
-        }
-      }
+      // Variable anchor (Mapbox `text-variable-anchor`): runtime
+      // tries each candidate during collision and picks the first
+      // non-overlapping one. Single-anchor labels always have one
+      // candidate. The full draw + bbox is computed per candidate
+      // here; the post-collision phase below picks the chosen one.
+      const candidates = p.def.anchorCandidates && p.def.anchorCandidates.length > 0
+        ? p.def.anchorCandidates
+        : [p.def.anchor ?? 'center']
       const padding = (p.def.padding ?? 2) * dpr
-      const bbox = {
-        minX: drawX - padding,
-        minY: drawY - totalHeight - padding,
-        maxX: drawX + totalAdvance + padding,
-        maxY: drawY + padding,
-      }
-      // Halo width / blur are CSS-px convention → scale by DPR so
-      // the visual halo thickness + soft-edge band matches across
-      // DPRs. Mapbox `text-halo-blur` is also pixels.
       const haloOut = p.def.halo
         ? {
             color: p.def.halo.color,
@@ -313,38 +262,99 @@ export class TextStage {
             ...(p.def.halo.blur !== undefined ? { blur: p.def.halo.blur * dpr } : {}),
           }
         : undefined
+      const layouts: Array<{ draw: TextDraw; bbox: typeof shaped[number]['bboxes'][number] }> = []
+      for (const anchor of candidates) {
+        let dx = 0, dy = 0
+        if (anchor === 'left' || anchor.endsWith('-left')) dx = 0
+        else if (anchor === 'right' || anchor.endsWith('-right')) dx = -totalAdvance
+        else dx = -totalAdvance / 2
+        if (anchor === 'top' || anchor.startsWith('top-')) dy = totalHeight
+        else if (anchor === 'bottom' || anchor.startsWith('bottom-')) dy = 0
+        else dy = totalHeight / 2
+        if (p.def.offset) {
+          dx += p.def.offset[0] * sizePx
+          dy += p.def.offset[1] * sizePx
+        }
+        if (p.def.translate) {
+          // text-translate is in pixels (Mapbox paint property), not
+          // em-units, so it scales by DPR alone — independent of the
+          // current font size. Stacks on top of text-offset.
+          dx += p.def.translate[0] * dpr
+          dy += p.def.translate[1] * dpr
+        }
+        const drawX = p.anchorX + dx
+        const drawY = p.anchorY + dy
+        // Per-glyph offsets for multi-line layout. Each line gets
+        // justified within the bbox according to `justify`; lines
+        // stack vertically by lineHeightPx.
+        const glyphOffsets = lines.length > 1 ? new Float32Array(glyphs.length * 2) : undefined
+        if (glyphOffsets) {
+          // text-justify: auto resolves per anchor — left-anchors →
+          // left, right-anchors → right, else center.
+          const isLeftAnchor = anchor === 'left' || anchor.endsWith('-left')
+          const isRightAnchor = anchor === 'right' || anchor.endsWith('-right')
+          const effectiveJustify = justify === 'auto'
+            ? (isLeftAnchor ? 'left' : isRightAnchor ? 'right' : 'center')
+            : justify
+          for (let li = 0; li < lines.length; li++) {
+            const ln = lines[li]!
+            let lineX = 0
+            if (effectiveJustify === 'right') lineX = totalAdvance - ln.width
+            else if (effectiveJustify === 'left') lineX = 0
+            else lineX = (totalAdvance - ln.width) * 0.5
+            const lineY = -totalHeight + maxHeight + li * lineHeightPx
+            let pen = lineX
+            for (let gi = ln.start; gi < ln.end; gi++) {
+              glyphOffsets[gi * 2] = drawX - p.anchorX + pen
+              glyphOffsets[gi * 2 + 1] = drawY - p.anchorY + lineY
+              pen += advances[gi]!
+              if (gi < ln.end - 1) pen += letterSpacingPx
+            }
+          }
+        }
+        const bbox = {
+          minX: drawX - padding,
+          minY: drawY - totalHeight - padding,
+          maxX: drawX + totalAdvance + padding,
+          maxY: drawY + padding,
+        }
+        layouts.push({
+          draw: {
+            anchorX: drawX,
+            anchorY: drawY,
+            glyphs,
+            fontSize: sizePx,
+            rasterFontSize: this.opts.rasterFontSize,
+            color: p.def.color ?? [0, 0, 0, 1],
+            halo: haloOut,
+            letterSpacingPx,
+            rotateRad: p.def.rotate ? p.def.rotate * Math.PI / 180 : undefined,
+            glyphOffsets,
+            sdfRadius: this.opts.sdfRadius,
+          },
+          bbox,
+        })
+      }
       shaped.push({
-        draw: {
-          anchorX: drawX,
-          anchorY: drawY,
-          glyphs,
-          fontSize: sizePx,
-          rasterFontSize: this.opts.rasterFontSize,
-          color: p.def.color ?? [0, 0, 0, 1],
-          halo: haloOut,
-          letterSpacingPx,
-          rotateRad: p.def.rotate ? p.def.rotate * Math.PI / 180 : undefined,
-          glyphOffsets,
-          sdfRadius: this.opts.sdfRadius,
-        },
-        bbox,
+        layouts,
         allowOverlap: p.def.allowOverlap === true,
         ignorePlacement: p.def.ignorePlacement === true,
       })
     }
 
-    // Phase 2: greedy bbox collision via the pure helper.
+    // Phase 2: greedy bbox collision with per-label candidate fallback.
     // Input order is the per-frame queue order (= feature order from
     // the source). See text-collision.ts for the algorithm.
     const collisionInput: CollisionItem[] = shaped.map(s => ({
-      bbox: s.bbox,
+      bboxes: s.layouts.map(l => l.bbox),
       allowOverlap: s.allowOverlap,
       ignorePlacement: s.ignorePlacement,
     }))
-    const placed = greedyPlaceBboxes(collisionInput)
+    const placements = greedyPlaceBboxes(collisionInput)
     const draws: TextDraw[] = []
     for (let i = 0; i < shaped.length; i++) {
-      if (placed[i]) draws.push(shaped[i]!.draw)
+      const placement = placements[i]!
+      if (placement.placed) draws.push(shaped[i]!.layouts[placement.chosen]!.draw)
     }
 
     // Flush dirty SDFs to GPU BEFORE setDraws — guarantees every

@@ -7,6 +7,13 @@
 //   - ignorePlacement: this item places, but does NOT block later items.
 // Combining `allowOverlap + ignorePlacement` produces Mapbox's "always
 // visible, never blocks" behaviour.
+//
+// Variable anchor (Mapbox `text-variable-anchor`): a single label
+// can supply multiple candidate bboxes (one per anchor candidate).
+// The greedy pass tries each in order and picks the first that
+// doesn't collide; the chosen index is returned so the caller can
+// rebuild the label at the picked anchor's offset. Single-candidate
+// labels use a one-element array.
 
 export interface CollisionBbox {
   minX: number
@@ -16,31 +23,47 @@ export interface CollisionBbox {
 }
 
 export interface CollisionItem {
-  bbox: CollisionBbox
+  /** Candidate bboxes in priority order. Greedy pass tries each
+   *  and picks the first non-colliding one. Single-anchor labels
+   *  pass a one-element array. */
+  bboxes: CollisionBbox[]
   allowOverlap?: boolean
   ignorePlacement?: boolean
 }
 
-/** Run the greedy pass. Returns a boolean[] aligned with `items` —
- *  true = placed (visible), false = dropped (collided). */
-export function greedyPlaceBboxes(items: readonly CollisionItem[]): boolean[] {
-  const out = new Array<boolean>(items.length).fill(false)
+export interface CollisionPlacement {
+  /** True when one of the candidate bboxes survived collision. */
+  placed: boolean
+  /** Index into `bboxes` of the chosen candidate, or -1 if dropped. */
+  chosen: number
+}
+
+/** Run the greedy pass. Returns one `CollisionPlacement` per item. */
+export function greedyPlaceBboxes(items: readonly CollisionItem[]): CollisionPlacement[] {
+  const out: CollisionPlacement[] = new Array(items.length)
   const blocking: CollisionBbox[] = []
   for (let i = 0; i < items.length; i++) {
     const it = items[i]!
-    let collides = false
-    if (!it.allowOverlap) {
+    let pickedIdx = -1
+    for (let c = 0; c < it.bboxes.length; c++) {
+      const bbox = it.bboxes[c]!
+      if (it.allowOverlap) { pickedIdx = c; break }
+      let collides = false
       for (const b of blocking) {
-        if (it.bbox.minX < b.maxX && it.bbox.maxX > b.minX
-            && it.bbox.minY < b.maxY && it.bbox.maxY > b.minY) {
+        if (bbox.minX < b.maxX && bbox.maxX > b.minX
+            && bbox.minY < b.maxY && bbox.maxY > b.minY) {
           collides = true
           break
         }
       }
+      if (!collides) { pickedIdx = c; break }
     }
-    if (collides) continue
-    out[i] = true
-    if (!it.ignorePlacement) blocking.push(it.bbox)
+    if (pickedIdx < 0) {
+      out[i] = { placed: false, chosen: -1 }
+      continue
+    }
+    out[i] = { placed: true, chosen: pickedIdx }
+    if (!it.ignorePlacement) blocking.push(it.bboxes[pickedIdx]!)
   }
   return out
 }
