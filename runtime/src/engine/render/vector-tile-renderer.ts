@@ -29,6 +29,7 @@ import { computeSliceKey } from '../../data/eval/filter-eval'
 import { mercator as mercatorProj, type Projection } from '../projection/projection'
 import type { PointRenderer } from './point-renderer'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
+import { parseHexColor } from '../feature-helpers'
 
 // ═══ Types ═══
 
@@ -3611,23 +3612,3 @@ export class VectorTileRenderer {
   }
 }
 
-// ═══ Helpers ═══
-
-function parseHexColor(hex: string): [number, number, number, number] {
-  let r = 0, g = 0, b = 0, a = 1
-  if (hex.length === 4) {
-    r = parseInt(hex[1] + hex[1], 16) / 255
-    g = parseInt(hex[2] + hex[2], 16) / 255
-    b = parseInt(hex[3] + hex[3], 16) / 255
-  } else if (hex.length === 7) {
-    r = parseInt(hex.slice(1, 3), 16) / 255
-    g = parseInt(hex.slice(3, 5), 16) / 255
-    b = parseInt(hex.slice(5, 7), 16) / 255
-  } else if (hex.length === 9) {
-    r = parseInt(hex.slice(1, 3), 16) / 255
-    g = parseInt(hex.slice(3, 5), 16) / 255
-    b = parseInt(hex.slice(5, 7), 16) / 255
-    a = parseInt(hex.slice(7, 9), 16) / 255
-  }
-  return [r, g, b, a]
-}

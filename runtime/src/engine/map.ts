@@ -35,6 +35,10 @@ import {
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '../data/tile-catalog'
 import { buildShowSourceMaps, type ShowSourceMaps } from './show-source-maps'
+import {
+  parseHexColor, hexToRgba, featureAnchor,
+  applyFilter, applyGeometry,
+} from './feature-helpers'
 import { attachPMTilesSource, prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
@@ -2554,7 +2558,7 @@ export class XGISMap {
             resolvedColor = interpolateZoomRgba(def.colorZoomStops, z)
           }
           if (resolvedColor === undefined) {
-            resolvedColor = hexToRgbaArr(show.fill) ?? [1, 1, 1, 1]
+            resolvedColor = hexToRgba(show.fill) ?? [1, 1, 1, 1]
           }
           // text-halo: zoom-interpolate width and colour independently.
           let resolvedHalo = def.halo
@@ -2623,7 +2627,7 @@ export class XGISMap {
                 const v = evaluate(def.colorExpr!.ast as never, props)
                 if (typeof v === 'string') {
                   const hex = resolveColor(v)
-                  const rgba = hexToRgbaArr(hex ?? v)
+                  const rgba = hexToRgba(hex ?? v)
                   if (rgba) out.color = rgba
                 }
               } catch { /* fall back to effectiveDef.color */ }
@@ -3244,139 +3248,4 @@ export class XGISMap {
     this.overlays.length = 0
     this._needsRender = true
   }
-}
-
-/** Pick a single (lon, lat) anchor for a label from a GeoJSON
- *  geometry. Points use the coordinate directly; (Multi)LineString
- *  uses the midpoint of the first ring; (Multi)Polygon uses the
- *  bounding-box centre of the first ring. Returns null for empty
- *  geometries. Centroid math is intentionally crude — the perceptual
- *  cost of a slightly off-centre label is much smaller than the cost
- *  of running a real centroid algorithm per feature per frame. */
-function featureAnchor(geom: { type: string; coordinates: unknown }): [number, number] | null {
-  const t = geom.type
-  const c = geom.coordinates as never
-  if (t === 'Point' && Array.isArray(c) && typeof c[0] === 'number') {
-    return [c[0], c[1]]
-  }
-  if (t === 'MultiPoint' && Array.isArray(c) && c.length > 0) {
-    return [c[0][0], c[0][1]]
-  }
-  if (t === 'LineString' && Array.isArray(c) && c.length >= 2) {
-    const mid = c[Math.floor(c.length / 2)] as [number, number]
-    return [mid[0], mid[1]]
-  }
-  if (t === 'MultiLineString' && Array.isArray(c) && c.length > 0 && c[0].length >= 2) {
-    const ring = c[0] as [number, number][]
-    const mid = ring[Math.floor(ring.length / 2)]!
-    return [mid[0], mid[1]]
-  }
-  if (t === 'Polygon' && Array.isArray(c) && c.length > 0) {
-    return ringBboxCentre(c[0] as [number, number][])
-  }
-  if (t === 'MultiPolygon' && Array.isArray(c) && c.length > 0 && c[0].length > 0) {
-    return ringBboxCentre(c[0][0] as [number, number][])
-  }
-  return null
-}
-
-/** Parse `#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa` hex into 0..1
- *  RGBA. Returns null for null / undefined / unrecognised input.
- *  Short (3/4) forms expand by digit doubling (CSS spec). The
- *  Mapbox converter occasionally emits `#000` from data-driven
- *  text-color expressions where colorToXgis preserves the source
- *  shorthand. */
-function hexToRgbaArr(hex: string | null | undefined): [number, number, number, number] | null {
-  if (!hex || hex[0] !== '#') return null
-  let s = hex.slice(1)
-  if (s.length === 3 || s.length === 4) {
-    s = s.split('').map(c => c + c).join('')  // #abc → #aabbcc
-  }
-  if (s.length !== 6 && s.length !== 8) return null
-  const r = parseInt(s.slice(0, 2), 16) / 255
-  const g = parseInt(s.slice(2, 4), 16) / 255
-  const b = parseInt(s.slice(4, 6), 16) / 255
-  const a = s.length === 8 ? parseInt(s.slice(6, 8), 16) / 255 : 1
-  return [r, g, b, a]
-}
-
-function ringBboxCentre(ring: [number, number][]): [number, number] | null {
-  if (ring.length === 0) return null
-  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity
-  for (const p of ring) {
-    if (p[0] < minLon) minLon = p[0]
-    if (p[0] > maxLon) maxLon = p[0]
-    if (p[1] < minLat) minLat = p[1]
-    if (p[1] > maxLat) maxLat = p[1]
-  }
-  return [(minLon + maxLon) / 2, (minLat + maxLat) / 2]
-}
-
-/**
- * Filter GeoJSON features using a compiled filter expression.
- * Returns the original data if no filter is set.
- */
-function applyFilter(
-  data: GeoJSONFeatureCollection,
-  filterExpr?: { ast: unknown } | null,
-): GeoJSONFeatureCollection {
-  if (!filterExpr?.ast || !data.features) return data
-
-  const ast = filterExpr.ast as import('@xgis/compiler').Expr
-  const filtered = data.features.filter(f => {
-    const result = evaluate(ast, f.properties ?? {})
-    // Truthy check: non-zero numbers, true booleans, non-empty strings
-    if (typeof result === 'boolean') return result
-    if (typeof result === 'number') return result !== 0
-    return !!result
-  })
-
-  if (filtered.length === data.features.length) return data
-  return { ...data, features: filtered }
-}
-
-/**
- * Generate procedural geometry for each feature.
- * Evaluates the geometry expression per-feature, replacing each feature's
- * geometry with the computed result (e.g., circle, arc, polygon from points).
- */
-function applyGeometry(
-  data: GeoJSONFeatureCollection,
-  geometryExpr: { ast: unknown },
-): GeoJSONFeatureCollection {
-  const ast = geometryExpr.ast as import('@xgis/compiler').Expr
-  const newFeatures = data.features.map(f => {
-    const result = evaluate(ast, f.properties ?? {})
-    if (!result) return f
-
-    // Result is coordinate array → wrap as Polygon
-    if (Array.isArray(result) && result.length > 0 && Array.isArray(result[0])) {
-      return {
-        ...f,
-        geometry: { type: 'Polygon' as const, coordinates: [result as number[][]] },
-      }
-    }
-
-    // Result is GeoJSON geometry object
-    if (result && typeof result === 'object' && 'type' in result && 'coordinates' in result) {
-      return { ...f, geometry: result as typeof f.geometry }
-    }
-
-    return f
-  })
-
-  return { ...data, features: newFeatures }
-}
-
-function parseHexColor(hex: string): [number, number, number, number] {
-  let r = 0, g = 0, b = 0, a = 1
-  if (hex.length === 4) {
-    r = parseInt(hex[1] + hex[1], 16) / 255; g = parseInt(hex[2] + hex[2], 16) / 255; b = parseInt(hex[3] + hex[3], 16) / 255
-  } else if (hex.length === 7) {
-    r = parseInt(hex.slice(1, 3), 16) / 255; g = parseInt(hex.slice(3, 5), 16) / 255; b = parseInt(hex.slice(5, 7), 16) / 255
-  } else if (hex.length === 9) {
-    r = parseInt(hex.slice(1, 3), 16) / 255; g = parseInt(hex.slice(3, 5), 16) / 255; b = parseInt(hex.slice(5, 7), 16) / 255
-    a = parseInt(hex.slice(7, 9), 16) / 255
-  }
-  return [r, g, b, a]
 }
