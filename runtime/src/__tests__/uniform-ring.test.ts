@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 ;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
   UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16,
 }
-import { LineRenderer, LINE_UNIFORM_SIZE, packLineLayerUniform } from '../engine/line-renderer'
+import { LineRenderer, LINE_UNIFORM_SIZE, packLineLayerUniform } from '../engine/render/line-renderer'
 
 // These tests validate the ring-buffer math and the public guarantees of
 // the dynamic-offset layer ring without spinning up a real WebGPU device.

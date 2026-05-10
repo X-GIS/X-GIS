@@ -2,11 +2,11 @@
 // Used when WebGPU is not available (no GPU adapter, software rendering, etc.)
 // Renders vector polygons and raster tiles using Canvas 2D API with CPU projections.
 
-import type { Camera } from './camera'
+import type { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
-import { getProjection } from './projection'
-import type { GeoJSONFeatureCollection } from '../loader/geojson'
-import { visibleTiles, tileBounds, tileUrl, sortByPriority } from '../data/tile-select'
+import { getProjection } from '../projection/projection'
+import type { GeoJSONFeatureCollection } from '../../loader/geojson'
+import { visibleTiles, tileBounds, tileUrl, sortByPriority } from '../../data/tile-select'
 
 interface CanvasLayer {
   show: ShowCommand

@@ -46,7 +46,7 @@ export interface LineMeshData {
 
 // ═══ Projection helpers (CPU side, for bounds only) ═══
 
-import { MERCATOR_LAT_LIMIT } from '../engine/projection'
+import { MERCATOR_LAT_LIMIT } from '../engine/projection/projection'
 
 const EARTH_RADIUS = 6378137
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   mercator, equirectangular, naturalEarth,
   orthographic, azimuthalEquidistant, stereographic, obliqueMercator,
-} from '../engine/projection'
+} from '../engine/projection/projection'
 import {
   projMercatorWgsl,
   projEquirectangularWgsl,
@@ -12,7 +12,7 @@ import {
   projStereographicWgsl,
   projObliqueMercatorWgsl,
   cosC,
-} from '../engine/projection-wgsl-mirror'
+} from '../engine/projection/projection-wgsl-mirror'
 
 // Phase 2-A: Cross-consistency between CPU canonical (projection.ts) and
 // WGSL mirror (projection-wgsl-mirror.ts). A failure means the GPU shader

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { Camera } from '../engine/camera'
+import { Camera } from '../engine/projection/camera'
 import { visibleTilesFrustum } from '../data/tile-select'
-import { mercator } from '../engine/projection'
+import { mercator } from '../engine/projection/projection'
 
 // Animation-driven tile-selection oracles. Each test walks the camera
 // through a sequence of states and asserts invariants PER FRAME.

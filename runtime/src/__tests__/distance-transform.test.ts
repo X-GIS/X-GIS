@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeSDF, distanceTransform2D } from '../engine/sdf/distance-transform'
+import { computeSDF, distanceTransform2D } from '../engine/text/sdf/distance-transform'
 
 const INF = 1e20
 

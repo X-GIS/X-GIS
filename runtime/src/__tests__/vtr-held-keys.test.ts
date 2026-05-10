@@ -14,7 +14,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { tileKey } from '@xgis/compiler'
-import { VectorTileRenderer } from '../engine/vector-tile-renderer'
+import { VectorTileRenderer } from '../engine/render/vector-tile-renderer'
 import type { TileData } from '../data/tile-types'
 
 // Stub TileData — none of the real upload code paths run here, so the

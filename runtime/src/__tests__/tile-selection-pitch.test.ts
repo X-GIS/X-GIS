@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { Camera } from '../engine/camera'
+import { Camera } from '../engine/projection/camera'
 import { visibleTilesFrustum } from '../data/tile-select'
-import { mercator } from '../engine/projection'
+import { mercator } from '../engine/projection/projection'
 
 // Reproduces the user-reported bug: when lowering pitch to near 0 (top-down),
 // tile selection should still return a sensible set of tiles overlapping the

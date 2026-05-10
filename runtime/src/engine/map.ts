@@ -2,32 +2,32 @@
 
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, tileKey as compilerTileKey, type Program } from '@xgis/compiler'
 import type * as AST from '@xgis/compiler'
-import { BackgroundRenderer } from './background-renderer'
+import { BackgroundRenderer } from './render/background-renderer'
 import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
-import { initGPU, resizeCanvas, GPU_PROF, getSampleCount, getMaxDpr, isPickEnabled, type GPUContext } from './gpu'
-import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT } from './gpu-shared'
-import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './quality'
-import { GPUTimer } from './gpu-timer'
-import { Camera } from './camera'
-import { MapRenderer, interpolateZoom, interpolateZoomRgba, type ShowCommand } from './renderer'
+import { initGPU, resizeCanvas, GPU_PROF, getSampleCount, getMaxDpr, isPickEnabled, type GPUContext } from './gpu/gpu'
+import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT } from './gpu/gpu-shared'
+import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './gpu/quality'
+import { GPUTimer } from './gpu/gpu-timer'
+import { Camera } from './projection/camera'
+import { MapRenderer, interpolateZoom, interpolateZoomRgba, type ShowCommand } from './render/renderer'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
   groupOpaqueBySource as groupOpaqueBySourceImpl,
   planFrameSchedule,
   type ClassifiedShow as ExternalClassifiedShow,
   type OpaqueGroup as ExternalOpaqueGroup,
-} from './bucket-scheduler'
+} from './render/bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
 import { isTileTemplate } from '../data/tile-select'
-import { RasterRenderer } from './raster-renderer'
-import { PointRenderer } from './point-renderer'
-import { ShapeRegistry } from './sdf-shape'
-import { LineRenderer } from './line-renderer'
+import { RasterRenderer } from './render/raster-renderer'
+import { PointRenderer } from './render/point-renderer'
+import { ShapeRegistry } from './text/sdf-shape'
+import { LineRenderer } from './render/line-renderer'
 import { PanZoomController, type Controller } from './controller'
-import { CanvasRenderer } from './canvas-renderer'
-import { VectorTileRenderer } from './vector-tile-renderer'
-import { TextStage } from './text-stage'
+import { CanvasRenderer } from './render/canvas-renderer'
+import { VectorTileRenderer } from './render/vector-tile-renderer'
+import { TextStage } from './text/text-stage'
 import {
   LayerIdRegistry, XGISLayer, ListenerRegistry,
   type XGISFeature, type XGISFeatureEvent, type XGISFeatureEventType, type XGISFeatureListener,

@@ -1,9 +1,9 @@
 // ═══ X-GIS Map Renderer — WebGPU ═══
 
-import type { GPUContext } from './gpu'
-import type { Camera } from './camera'
-import type { MeshData, LineMeshData } from '../loader/geojson'
-import { generateGraticule } from './graticule'
+import type { GPUContext } from '../gpu/gpu'
+import type { Camera } from '../projection/camera'
+import type { MeshData, LineMeshData } from '../../loader/geojson'
+import { generateGraticule } from '../graticule'
 import {
   BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST,
   STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH,
@@ -11,10 +11,10 @@ import {
   BLEND_OIT_ACCUM, BLEND_OIT_REVEALAGE,
   OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT,
   MSAA_4X, WORLD_MERC, worldCopiesFor,
-} from './gpu-shared'
-import { isPickEnabled, getSampleCount } from './gpu'
-import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
-import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from './wgsl-projection'
+} from '../gpu/gpu-shared'
+import { isPickEnabled, getSampleCount } from '../gpu/gpu'
+import { WGSL_LOG_DEPTH_FNS } from '../projection/wgsl-log-depth'
+import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../projection/wgsl-projection'
 
 // generateGraticule(zoom) now handles zoom-adaptive steps internally
 

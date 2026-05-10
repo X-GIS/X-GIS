@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
-import { Camera } from '../engine/camera'
+import { Camera } from '../engine/projection/camera'
 import { visibleTilesFrustum } from '../data/tile-select'
-import { mercator } from '../engine/projection'
+import { mercator } from '../engine/projection/projection'
 import { TileCatalog } from '../data/tile-catalog'
 import {
   decomposeFeatures,

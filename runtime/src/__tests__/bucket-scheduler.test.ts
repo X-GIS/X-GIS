@@ -26,7 +26,7 @@ import {
   type ClassifierInput,
   type ClassifierShowEntry,
   type ClassifierVTSource,
-} from '../engine/bucket-scheduler'
+} from '../engine/render/bucket-scheduler'
 import type { SceneCommands } from '@xgis/compiler'
 
 // ── Stub helpers ───────────────────────────────────────────────────

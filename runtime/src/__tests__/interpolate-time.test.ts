@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { interpolateTime, interpolateTimeColor, type Easing } from '../engine/renderer'
+import { interpolateTime, interpolateTimeColor, type Easing } from '../engine/render/renderer'
 
 // ═══ interpolateTime: time-axis sibling of interpolateZoom ═══
 //

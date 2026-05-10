@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Lexer, Parser, lower, optimize, emitCommands } from '@xgis/compiler'
-import { packLineLayerUniform, LINE_CAP_BUTT, LINE_JOIN_MITER } from '../engine/line-renderer'
+import { packLineLayerUniform, LINE_CAP_BUTT, LINE_JOIN_MITER } from '../engine/render/line-renderer'
 
 // Replicates the exact DSL → IR → ShowCommand → VTR dash conversion →
 // packLineLayerUniform pipeline that runs in the browser, without any
@@ -146,7 +146,7 @@ describe('end-to-end dash pipeline', () => {
     // DSFUN stride-6 chain of 10 vertices spaced ~1 m apart. The arc
     // field (slot 5) carries the cumulative distance the tiler would
     // compute.
-    const { buildLineSegments, LINE_SEGMENT_STRIDE_F32 } = await import('../engine/line-renderer')
+    const { buildLineSegments, LINE_SEGMENT_STRIDE_F32 } = await import('../engine/render/line-renderer')
     const arcs = [0, 1, 2.1, 3.05, 4.2, 5.0, 6.3, 7.1, 8.4, 9.0]
     const verts = new Float32Array(arcs.length * 6)
     for (let i = 0; i < arcs.length; i++) {

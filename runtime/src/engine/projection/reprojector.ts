@@ -8,7 +8,7 @@
 // Supports: Mercator, Natural Earth, Orthographic, Azimuthal Equidistant,
 //           Stereographic, Oblique Mercator
 
-import type { GPUContext } from './gpu'
+import type { GPUContext } from '../gpu/gpu'
 
 const REPROJECT_SHADER = /* wgsl */ `
 struct Uniforms {

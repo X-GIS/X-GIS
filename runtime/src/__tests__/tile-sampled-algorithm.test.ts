@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { Camera } from '../engine/camera'
+import { Camera } from '../engine/projection/camera'
 import { visibleTilesFrustum, visibleTilesFrustumSampled } from '../data/tile-select'
-import { mercator } from '../engine/projection'
+import { mercator } from '../engine/projection/projection'
 
 // Characterization tests for the `visibleTilesFrustumSampled`
 // alternative — the industry-standard screen-space-sample-grid

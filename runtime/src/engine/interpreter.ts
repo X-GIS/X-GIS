@@ -2,7 +2,7 @@
 
 import type * as AST from '@xgis/compiler'
 import { resolveUtilities, resolveColor } from '@xgis/compiler'
-import type { ShowCommand } from './renderer'
+import type { ShowCommand } from './render/renderer'
 
 export interface LoadCommand {
   name: string

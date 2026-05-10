@@ -1,8 +1,8 @@
 // ═══ Map Camera — 줌/패닝/회전/피치 ═══
 
-import { lonLatToMercator } from '../loader/geojson'
-import { WORLD_MERC } from './gpu-shared'
-import { getMaxDpr } from './gpu'
+import { lonLatToMercator } from '../../loader/geojson'
+import { WORLD_MERC } from '../gpu/gpu-shared'
+import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from './wgsl-log-depth'
 
 export class Camera {

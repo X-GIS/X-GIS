@@ -4,7 +4,7 @@ import {
   PATTERN_UNIT_M,
   PATTERN_UNIT_PX,
   type PatternSlot,
-} from '../engine/line-renderer'
+} from '../engine/render/line-renderer'
 
 function makeSlot(overrides: Partial<PatternSlot> = {}): PatternSlot {
   return {

@@ -42,9 +42,9 @@
 // (window-level) so we can A/B against the existing selector with
 // real data + measurements before flipping the default.
 
-import type { Camera } from '../engine/camera'
-import type { Projection } from './../engine/projection'
-import { worldCopiesFor } from '../engine/gpu-shared'
+import type { Camera } from '../engine/projection/camera'
+import type { Projection } from './../engine/projection/projection'
+import { worldCopiesFor } from '../engine/gpu/gpu-shared'
 import type { TileCoord } from './tiles'
 
 const EARTH_CIRC_M = 40075016.686

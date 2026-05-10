@@ -1,13 +1,13 @@
 // ═══ Raster Tile Renderer — 텍스처 타일을 GPU 투영으로 렌더링 ═══
 
-import type { GPUContext } from './gpu'
-import type { Camera } from './camera'
-import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../data/tile-select'
-import { mercator as mercatorProj } from './projection'
-import { BLEND_ALPHA, STENCIL_DISABLED } from './gpu-shared'
-import { isPickEnabled, getSampleCount } from './gpu'
-import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
-import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from './wgsl-projection'
+import type { GPUContext } from '../gpu/gpu'
+import type { Camera } from '../projection/camera'
+import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../../data/tile-select'
+import { mercator as mercatorProj } from '../projection/projection'
+import { BLEND_ALPHA, STENCIL_DISABLED } from '../gpu/gpu-shared'
+import { isPickEnabled, getSampleCount } from '../gpu/gpu'
+import { WGSL_LOG_DEPTH_FNS } from '../projection/wgsl-log-depth'
+import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../projection/wgsl-projection'
 
 const RASTER_SHADER = /* wgsl */ `
 ${WGSL_PROJECTION_CONSTS}

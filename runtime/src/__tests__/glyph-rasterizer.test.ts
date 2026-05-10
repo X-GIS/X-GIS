@@ -3,7 +3,7 @@ import {
   MockRasterizer,
   createRasterizer,
   type GlyphRasterRequest,
-} from '../engine/sdf/glyph-rasterizer'
+} from '../engine/text/sdf/glyph-rasterizer'
 
 const baseReq: GlyphRasterRequest = {
   fontKey: 'noto-sans-regular',

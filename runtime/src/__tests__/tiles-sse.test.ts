@@ -5,8 +5,8 @@
 // frustum cull, fallback inject) doesn't silently regress the basics.
 
 import { describe, expect, it } from 'vitest'
-import { Camera } from '../engine/camera'
-import { mercator } from '../engine/projection'
+import { Camera } from '../engine/projection/camera'
+import { mercator } from '../engine/projection/projection'
 import { visibleTilesSSE } from '../loader/tiles-sse'
 
 const DEG2RAD = Math.PI / 180

@@ -3,30 +3,30 @@
 // Data loading/caching/sub-tiling is handled by TileCatalog.
 // This class manages GPU buffers, bind groups, and draw calls only.
 
-import type { GPUContext } from './gpu'
-import { Camera } from './camera'
+import type { GPUContext } from '../gpu/gpu'
+import { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
-import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../data/tile-select'
-import { visibleTilesSSE } from '../loader/tiles-sse'
+import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../../data/tile-select'
+import { visibleTilesSSE } from '../../loader/tiles-sse'
 import {
   classifyTile, computeProtectedKeys,
   collectSiblingPrefetchKeys, projectPanPrefetchTarget,
   type CameraSnapshot, type TileDecision,
-} from './tile-decision'
+} from '../tile-decision'
 import {
   generateWallMesh,
   generateWallMeshExtruded,
   quantizePolygonVertices,
   quantizePolygonVerticesExtruded,
-} from './polygon-mesh'
+} from '../polygon-mesh'
 import { tileKey, tileKeyParent, tileKeyChildren, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
-import { StagingBufferPool, asyncWriteBuffer } from './staging-buffer-pool'
-import { PriorityQueue } from '../data/priority-queue'
+import { StagingBufferPool, asyncWriteBuffer } from '../gpu/staging-buffer-pool'
+import { PriorityQueue } from '../../data/priority-queue'
 import type { ShaderVariant } from '@xgis/compiler'
-import type { TileCatalog } from '../data/tile-catalog'
-import type { TileData } from '../data/tile-types'
-import { computeSliceKey } from '../data/eval/filter-eval'
-import { mercator as mercatorProj, type Projection } from './projection'
+import type { TileCatalog } from '../../data/tile-catalog'
+import type { TileData } from '../../data/tile-types'
+import { computeSliceKey } from '../../data/eval/filter-eval'
+import { mercator as mercatorProj, type Projection } from '../projection/projection'
 import type { PointRenderer } from './point-renderer'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
 

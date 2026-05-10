@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { availableRamps } from '../engine/color-ramp'
-import { ComputeDispatcher } from '../engine/compute'
+import { ComputeDispatcher } from '../engine/gpu/compute'
 
 describe('Color Ramp', () => {
   it('has built-in ramps', () => {

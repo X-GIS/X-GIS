@@ -1,6 +1,6 @@
 // ═══ Map Controllers — 프로젝션에 따른 카메라 조작 ═══
 
-import type { Camera } from './camera'
+import type { Camera } from './projection/camera'
 
 export interface Controller {
   name: string

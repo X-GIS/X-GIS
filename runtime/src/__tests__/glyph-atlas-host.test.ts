@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { GlyphAtlasHost } from '../engine/sdf/glyph-atlas-host'
-import { MockRasterizer } from '../engine/sdf/glyph-rasterizer'
+import { GlyphAtlasHost } from '../engine/text/sdf/glyph-atlas-host'
+import { MockRasterizer } from '../engine/text/sdf/glyph-rasterizer'
 
 const cfg = { slotSize: 24, pageSize: 96 }   // 4×4 = 16 slots
 const opts = { fontSize: 16, sdfRadius: 6 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { Camera } from '../engine/camera'
+import { Camera } from '../engine/projection/camera'
 import { visibleTilesFrustum } from '../data/tile-select'
-import { mercator } from '../engine/projection'
+import { mercator } from '../engine/projection/projection'
 
 // Regression: 2026-05-04 user report. At
 //   demo.html?id=fixture_cap_arrow#8.34/-0.14642/29.19268/90.0/74.8

@@ -25,8 +25,8 @@
 // Depth/stencil format is hard-coded to 'depth24plus-stencil8' to
 // match the rest of the pipeline (gpu-shared.STENCIL_WRITE/TEST).
 
-import type { GPUContext } from './gpu'
-import { isPickEnabled, getSampleCount } from './gpu'
+import type { GPUContext } from '../gpu/gpu'
+import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 
 const BG_SHADER = /* wgsl */ `
 struct U { color: vec4<f32> }

@@ -18,8 +18,8 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { tileKey, tileKeyChildren } from '@xgis/compiler'
-import { Camera } from '../engine/camera'
-import { VectorTileRenderer } from '../engine/vector-tile-renderer'
+import { Camera } from '../engine/projection/camera'
+import { VectorTileRenderer } from '../engine/render/vector-tile-renderer'
 
 // Build a minimal "catalog" that records prefetchTiles calls. Only
 // the fields pumpPrefetch reads need to be present; everything else

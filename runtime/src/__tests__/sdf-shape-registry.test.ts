@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ShapeRegistry, BUILTIN_SHAPES } from '../engine/sdf-shape'
+import { ShapeRegistry, BUILTIN_SHAPES } from '../engine/text/sdf-shape'
 
 // The registry touches `device` only from `uploadToGPU`; constructor and
 // add/lookup methods are pure, so a stubbed device is sufficient here.

@@ -19,8 +19,8 @@
 // reproduce a reported state; use `inspectPipeline` in DevTools to
 // confirm the live instance matches.
 
-import { Camera } from '../engine/camera'
-import { mercator as mercatorProj } from '../engine/projection'
+import { Camera } from '../engine/projection/camera'
+import { mercator as mercatorProj } from '../engine/projection/projection'
 import { visibleTilesFrustum } from '../data/tile-select'
 
 /** Hard-coded per-frame sub-tile generation cap from XGVTSource.

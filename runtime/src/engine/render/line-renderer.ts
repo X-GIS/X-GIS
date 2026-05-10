@@ -38,19 +38,19 @@
 //    parallel arc length would require per-segment numerical integration
 //    and is deferred.
 
-import { isPickEnabled, getSampleCount, type GPUContext } from './gpu'
-import { asyncWriteBuffer, type StagingBufferPool } from './staging-buffer-pool'
-import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, DEPTH_READ_ONLY } from './gpu-shared'
+import { isPickEnabled, getSampleCount, type GPUContext } from '../gpu/gpu'
+import { asyncWriteBuffer, type StagingBufferPool } from '../gpu/staging-buffer-pool'
+import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, DEPTH_READ_ONLY } from '../gpu/gpu-shared'
 import {
   WGSL_DIST_TO_SEGMENT,
   WGSL_DIST_TO_QUADRATIC,
   WGSL_DIST_TO_CUBIC,
   WGSL_WINDING_LINE,
   WGSL_SHAPE_STRUCTS,
-} from './wgsl-sdf'
-import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
-import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from './wgsl-projection'
-import type { ShapeRegistry } from './sdf-shape'
+} from '../text/wgsl-sdf'
+import { WGSL_LOG_DEPTH_FNS } from '../projection/wgsl-log-depth'
+import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../projection/wgsl-projection'
+import type { ShapeRegistry } from '../text/sdf-shape'
 
 // ═══ Layer Uniform Layout ═══
 // Must match WGSL struct LineLayerUniform.
@@ -320,7 +320,7 @@ export function packLineLayerUniform(
 // magnitude and recover camera-relative meters with f64-equivalent precision.
 // Tangents stay single-f32 — they're unit vectors in a tile-local frame and
 // don't suffer from cancellation.
-import { LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES, buildLineSegments } from './line-segment-build'
+import { LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES, buildLineSegments } from '../line-segment-build'
 export { LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES, buildLineSegments }
 
 // ═══ WGSL Shader ═══

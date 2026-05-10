@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mercator, MERCATOR_LAT_LIMIT } from '../engine/projection'
+import { mercator, MERCATOR_LAT_LIMIT } from '../engine/projection/projection'
 import { lonLatToMercator } from '../loader/geojson'
 
 // Phase 1-A (A-2): CPU-side Mercator latitude clamps diverged across the

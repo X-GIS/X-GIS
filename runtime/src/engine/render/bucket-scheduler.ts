@@ -22,11 +22,11 @@
 // pure function lets `bucket-scheduler.test.ts` exercise every
 // fixture combination without spinning up the full WebGPU stack.
 
-import type { Camera } from './camera'
+import type { Camera } from '../projection/camera'
 import type { LayerDrawPhase } from './vector-tile-renderer'
 import type { SceneCommands } from '@xgis/compiler'
 import { interpolateZoom, interpolateTime, interpolateTimeColor } from './renderer'
-import { SAFE_MODE } from './gpu'
+import { SAFE_MODE } from '../gpu/gpu'
 
 // ── Output: post-classification show with all animation resolved ──
 

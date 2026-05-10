@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AtlasState, type GlyphKey } from '../engine/sdf/atlas-state'
+import { AtlasState, type GlyphKey } from '../engine/text/sdf/atlas-state'
 
 const k = (codepoint: number, fontKey = 'noto-sans', sdfRadius = 8): GlyphKey =>
   ({ fontKey, codepoint, sdfRadius })

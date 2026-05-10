@@ -6,7 +6,7 @@ import {
   LINE_SEGMENT_STRIDE_F32,
   LINE_CAP_BUTT,
   LINE_JOIN_MITER,
-} from '../engine/line-renderer'
+} from '../engine/render/line-renderer'
 
 // Layer uniform layout (matches WGSL LineLayer struct)
 const F32_COLOR = 0         // vec4<f32>  @ 0

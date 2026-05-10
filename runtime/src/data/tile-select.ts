@@ -1,5 +1,5 @@
 // ═══ Raster Tile Loader — 웹 맵 타일 로딩 ═══
-import { worldCopiesFor } from '../engine/gpu-shared'
+import { worldCopiesFor } from '../engine/gpu/gpu-shared'
 import { tileKeyParent } from '@xgis/compiler'
 
 /** Walk from `leafKey` up the quad-tree until the first parent for
@@ -169,8 +169,8 @@ export function visibleTiles(
 
 // ═══ Frustum-based tile selection ═══
 
-import type { Camera } from '../engine/camera'
-import type { Projection } from '../engine/projection'
+import type { Camera } from '../engine/projection/camera'
+import type { Projection } from '../engine/projection/projection'
 
 // Mobile GPUs choke on 300 frustum tiles — each tile is a draw call plus
 // SDF-shaded line segments. 120 keeps the foreground refined and the

@@ -3,12 +3,12 @@
 // using Signed Distance Field math in the fragment shader.
 // Single draw call for all points via per-feature storage buffer.
 
-import type { Camera } from './camera'
-import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_MERC, worldCopiesFor } from './gpu-shared'
-import { getSampleCount } from './gpu'
-import { WGSL_LOG_DEPTH_FNS } from './wgsl-log-depth'
-import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from './wgsl-projection'
-import type { ShapeRegistry } from './sdf-shape'
+import type { Camera } from '../projection/camera'
+import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_MERC, worldCopiesFor } from '../gpu/gpu-shared'
+import { getSampleCount } from '../gpu/gpu'
+import { WGSL_LOG_DEPTH_FNS } from '../projection/wgsl-log-depth'
+import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../projection/wgsl-projection'
+import type { ShapeRegistry } from '../text/sdf-shape'
 
 // ═══ WGSL Shader ═══
 

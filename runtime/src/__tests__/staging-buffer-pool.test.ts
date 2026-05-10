@@ -11,7 +11,7 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
   READ: 0x0001, WRITE: 0x0002,
 }
 
-import { StagingBufferPool, asyncWriteBuffer } from '../engine/staging-buffer-pool'
+import { StagingBufferPool, asyncWriteBuffer } from '../engine/gpu/staging-buffer-pool'
 
 // Mock GPU. Real WebGPU needs a browser context; the pool only uses
 // `createBuffer`, `mapAsync`, `getMappedRange`, `unmap`, `destroy`, and
