@@ -460,69 +460,10 @@ async function fetchTileWithRetry(url: string, tileLabel: string, signal: AbortS
   return 'failed'
 }
 
-/** Viewport-aware default skeleton depth. Mobile gets a tighter
- *  depth=2 (1+4+16 = 21 tiles, ~1 MB) — same `innerWidth ≤ 900`
- *  threshold as `maxConcurrentLoads()` / `maxCachedBytes()` so the
- *  three caps stay coherent. Desktop gets depth=3 (85 tiles, ~4 MB),
- *  enough that fast-pan to any city on the globe finds a cached
- *  ancestor within ≤ 3 walk hops at typical view zoom (z≈14). Lazy
- *  function form for the same reason as the other caps — module-init
- *  evaluation captures the wrong viewport in Playwright / mobile DPR
- *  setup. */
-function defaultSkeletonDepth(): number {
-  const w = (typeof window !== 'undefined' ? window.innerWidth : 0) || 0
-  return w > 0 && w <= 900 ? 2 : 3
-}
-
-/** Pre-fetch and pin the global z=`sourceMinzoom`..`min(depth,
- *  sourceMaxzoom)` quadtree skeleton on `source`. Fire-and-forget;
- *  caller awaits attach without waiting for the skeleton. Mirrors
- *  Cesium `QuadtreePrimitive` permanent-root retention so
- *  `classifyFallback`'s ancestor walk always finds a cached tile
- *  even on fast-pan to a brand-new region. The pin survives both
- *  byte-cap eviction (`evictTiles` filter) and backend-fetch
- *  cancellation (`cancelStale` merged set) — see `markSkeleton`
- *  doc in tile-catalog.ts.
- *
- *  Pump rationale: `TileCatalog.requestTiles` breaks at
- *  `maxConcurrentLoads()` and silently drops the rest of the keys
- *  (next-frame visible-tile fetches re-trigger via VTR, but the
- *  skeleton is never in any visible set so nothing else re-issues
- *  it). The 250 ms retry covers the gap until each wave drains.
- *  Distance-from-camera ordering inside `PMTilesBackend.fetchQueue`
- *  picks up the natural top-down order for free, so no level-by-level
- *  scheduling is needed — single bulk + retry suffices. */
-function enqueueSkeletonPrewarm(
-  source: TileCatalog,
-  depth: number,
-  sourceMinzoom: number,
-  sourceMaxzoom: number,
-): void {
-  if (depth < 0) return
-  const cap = Math.min(depth, sourceMaxzoom)
-  const start = Math.max(0, sourceMinzoom)
-  if (cap < start) return
-  const keys: number[] = []
-  for (let z = start; z <= cap; z++) {
-    const n = 1 << z
-    for (let y = 0; y < n; y++) {
-      for (let x = 0; x < n; x++) {
-        keys.push(tileKey(z, x, y))
-      }
-    }
-  }
-  // Mark BEFORE the first prefetch — guarantees protection even if
-  // an evictTiles / cancelStale fires between enqueue and the first
-  // bytes arriving.
-  source.markSkeleton(keys)
-  const tick = (): void => {
-    const remaining = keys.filter(k => !source.hasTileData(k))
-    if (remaining.length === 0) return
-    source.prefetchTiles(remaining)
-    setTimeout(tick, 250)
-  }
-  tick()
-}
+// Skeleton prewarm + default depth moved to TileCatalog.prewarmSkeleton
+// (data/tile-catalog.ts) so XGVT-binary, GeoJSON-runtime, and any
+// future source type get the same Cesium replace-refinement anchor
+// behaviour — single skeleton path across all backends.
 
 /** Attach a PMTiles archive (or a TileJSON / XYZ MVT tile server) to
  *  an existing TileCatalog as a lazy virtual catalog. Returns once the
@@ -594,12 +535,11 @@ export async function attachPMTilesSource(
         return fetchTileWithRetry(url, `tile ${z}/${x}/${y}`, signal)
       },
     }))
-    enqueueSkeletonPrewarm(
-      source,
-      opts.prewarmSkeletonDepth ?? defaultSkeletonDepth(),
-      tj.minzoom,
-      tj.maxzoom,
-    )
+    source.prewarmSkeleton({
+      depth: opts.prewarmSkeletonDepth,
+      minzoom: tj.minzoom,
+      maxzoom: tj.maxzoom,
+    })
     return
   }
 
@@ -682,12 +622,11 @@ export async function attachPMTilesSource(
       return resp ? new Uint8Array(resp.data) : null
     },
   }))
-  enqueueSkeletonPrewarm(
-    source,
-    opts.prewarmSkeletonDepth ?? defaultSkeletonDepth(),
-    header.minZoom,
-    header.maxZoom,
-  )
+  source.prewarmSkeleton({
+    depth: opts.prewarmSkeletonDepth,
+    minzoom: header.minZoom,
+    maxzoom: header.maxZoom,
+  })
 }
 
 /** Convenience: create a fresh TileCatalog and attach a PMTiles archive

@@ -40,7 +40,7 @@ import type {
 import {
   type TileData,
   DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE,
-  MAX_CACHED_TILES, maxCachedBytes, maxConcurrentLoads,
+  MAX_CACHED_TILES, maxCachedBytes, maxConcurrentLoads, defaultSkeletonDepth,
   type VirtualCatalog, type VirtualTileFetcher,
 } from './tile-types'
 
@@ -378,6 +378,13 @@ export class TileCatalog {
       // Bounds / maxZoom may have changed — re-merge.
       this.mergeBackendMeta(this.geojsonBackend)
     }
+    // No auto-prewarm: GeoJSON-runtime's prefetch path goes through
+    // compileSync, and prewarmSkeleton would burn the per-frame
+    // compile budget synchronously inside setRawParts — starving
+    // compileTileOnDemand for the same frame (xgvt-source-subtile-
+    // fullcover.test.ts repro). Lazy compile via the renderer's
+    // per-tile classifier is fine for in-memory sources; the cold-
+    // start UX issue only matters for async fetches.
   }
 
   /** Get parts that potentially overlap a tile (via grid index).
@@ -574,12 +581,14 @@ export class TileCatalog {
     await backend.loadFromBuffer(buf)
     // Index entries arrive via meta after parse — re-merge them.
     this.mergeBackendMeta(backend)
+    this.prewarmSkeleton({ minzoom: backend.meta.minZoom, maxzoom: backend.meta.maxZoom })
   }
 
   async loadFromURL(url: string): Promise<void> {
     const backend = this.getBinaryBackend()
     await backend.loadFromURL(url)
     this.mergeBackendMeta(backend)
+    this.prewarmSkeleton({ minzoom: backend.meta.minZoom, maxzoom: backend.meta.maxZoom })
   }
 
   /**
@@ -642,6 +651,15 @@ export class TileCatalog {
     }
 
     console.log(`[X-GIS] In-memory tiles loaded: ${tileCount} tiles from ${tileSet.featureCount} features`)
+    // No auto-prewarm: every tile in the compiled set is already in
+    // dataCache by the loop above, so a prefetchTiles pump would only
+    // produce duplicate cache hits — and on backends that route
+    // prefetch through compileSync (GeoJSON-runtime via setRawParts
+    // followed by loadFromTileSet) it would burn the per-frame compile
+    // budget synchronously, starving compileTileOnDemand on the same
+    // frame. Skeleton-style eviction protection isn't needed either:
+    // every level is already in the index + cache, so the catalog's
+    // ancestor walk finds them without `markSkeleton` pinning.
   }
 
   /**
@@ -745,16 +763,69 @@ export class TileCatalog {
   /** Pin `keys` as permanent skeleton — they survive `evictTiles`
    *  unconditionally and `cancelStale` never aborts their in-flight
    *  fetch. Idempotent; safe to call before or after `prefetchTiles`
-   *  for the same keys. The intended caller is the PMTiles / TileJSON
-   *  attach path (see `enqueueSkeletonPrewarm` in pmtiles-source.ts),
-   *  which marks the global low-zoom quadtree (z=0..N, default
-   *  N=3 desktop / 2 mobile) so the parent-fallback walk in
-   *  `classifyFallback` always finds a cached ancestor regardless of
-   *  pan distance. The skeleton-prewarm pump terminates by polling
-   *  the existing `hasTileData(key)` (line 509) — no separate
+   *  for the same keys. The intended caller is `prewarmSkeleton` (this
+   *  same class), invoked after every source attach — PMTiles,
+   *  TileJSON, XGVT-binary, GeoJSON-runtime — to mark the global
+   *  low-zoom quadtree (z=0..N, default N=3 desktop / 2 mobile) so
+   *  the parent-fallback walk in `classifyFallback` always finds a
+   *  cached ancestor regardless of pan distance. The skeleton-prewarm
+   *  pump terminates by polling `hasTileData(key)` — no separate
    *  predicate needed. */
   markSkeleton(keys: Iterable<number>): void {
     for (const k of keys) this._skeletonKeys.add(k)
+  }
+
+  /** Pre-fetch and pin the global low-zoom quadtree skeleton. Mirrors
+   *  Cesium `QuadtreePrimitive`'s permanent root retention so the
+   *  per-frame parent-fallback walk in `classifyFallback` always finds
+   *  a cached ancestor — bridges Rule 1's top-down request order
+   *  (replace refinement) by pre-loading the chain head.
+   *
+   *  Common entry point for ALL source types — PMTiles, TileJSON,
+   *  XGVT-binary, GeoJSON-runtime. Each source's attach path calls
+   *  this after its index is ready; the prefetchTiles dispatch routes
+   *  through whatever fetch / decode / synthesise path the backend
+   *  uses, so a TileJSON sees HTTP fetches while an XGVT-binary sees
+   *  worker decodes — same skeleton key set, same eviction protection.
+   *
+   *  Pump rationale: `requestTiles` breaks at `maxConcurrentLoads()`
+   *  and silently drops the rest. The 250 ms retry tick covers
+   *  waves; distance-from-camera ordering inside the backend's queue
+   *  handles top-down sorting for free. Fire-and-forget — caller
+   *  doesn't await. */
+  prewarmSkeleton(opts: {
+    depth?: number
+    minzoom?: number
+    maxzoom?: number
+  } = {}): void {
+    const depth = opts.depth ?? defaultSkeletonDepth()
+    const sourceMinzoom = opts.minzoom ?? 0
+    const sourceMaxzoom = opts.maxzoom ?? this.index?.header.maxLevel ?? 0
+    if (depth < 0) return
+    const cap = Math.min(depth, sourceMaxzoom)
+    const start = Math.max(0, sourceMinzoom)
+    if (cap < start) return
+    const keys: number[] = []
+    for (let z = start; z <= cap; z++) {
+      const n = 1 << z
+      for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+          keys.push(tileKey(z, x, y))
+        }
+      }
+    }
+    if (keys.length === 0) return
+    // Mark BEFORE the first prefetch — guarantees protection even if
+    // an evictTiles / cancelStale fires between enqueue and the first
+    // bytes arriving.
+    this.markSkeleton(keys)
+    const tick = (): void => {
+      const remaining = keys.filter(k => !this.hasTileData(k))
+      if (remaining.length === 0) return
+      this.prefetchTiles(remaining)
+      setTimeout(tick, 250)
+    }
+    tick()
   }
 
   /** Update the fetch-queue priority comparator on every backend that
