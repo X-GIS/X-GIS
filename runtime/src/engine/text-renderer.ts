@@ -123,7 +123,7 @@ struct VsOut {
   }
 
   // Halo blur: extra smoothstep half-width past the AA-derivative
-  // band. Mapbox `text-halo-blur` is in display pixels; we feed it
+  // band. Mapbox text-halo-blur is in display pixels; we feed it
   // in as SDF-byte units (renderer pre-multiplies). Adding to soft
   // widens the smoothstep transition without shifting the centre,
   // producing the classic soft-glow halo that sharp halos lack.
