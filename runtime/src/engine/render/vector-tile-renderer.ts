@@ -358,7 +358,7 @@ export class VectorTileRenderer {
   private featureBindGroupLayout: GPUBindGroupLayout | null = null
 
   // Per-frame draw stats
-  private renderedDraws = new Map<number, { polyCount: number; lineCount: number; vertexCount: number }>()
+  private renderedDraws = new Map<number | string, { polyCount: number; lineCount: number; vertexCount: number }>()
   // DIAG: filled in by render() at the start of each show, read by
   // renderTileKeys when pushing per-tile drawIndexed entries into the
   // trace. Both fields are flag-gated and zero-cost when the trace
@@ -3247,7 +3247,16 @@ export class VectorTileRenderer {
       const key = keys[ki]
       // For world copies: allow same key to render at different positions
       const worldOff = worldOffsets?.[ki] ?? 0
-      const drawKey = worldOff === 0 ? key : key + worldOff * 1000000 // unique draw key per copy
+      // In fallback dispatch the same parent tile renders separately for
+      // each visible child — each draw needs its own clip_bounds. Without
+      // the visibleKey component the dedup folded all four (parent, visible)
+      // pairs into the first one, so 3 of 4 visible tiles silently
+      // skipped (Korea fill-drop bug, 2026-05-10): only the first
+      // dispatch's clip_bounds rect actually let any fragment through.
+      const visibleKey = visibleKeysForClip?.[ki] ?? -1
+      const drawKey: number | string = visibleKey >= 0
+        ? `${key}:${worldOff}:${visibleKey}`
+        : worldOff === 0 ? key : key + worldOff * 1000000
       if (this.renderedDraws.has(drawKey)) continue
       const cached = layerCache.get(key)
       if (!cached) continue
