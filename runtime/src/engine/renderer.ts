@@ -782,6 +782,40 @@ export function interpolateZoom(stops: { zoom: number; value: number }[], zoom: 
   return stops[stops.length - 1].value
 }
 
+/** RGBA component-wise zoom interpolation. Sibling of interpolateZoom
+ *  but for the [r,g,b,a] tuples Mapbox text-color / text-halo-color
+ *  stops produce. Returns a freshly allocated tuple — call sites are
+ *  per-frame-per-label so allocation is cheap relative to the GPU
+ *  work, and aliasing an `out` buffer would be brittle. */
+export function interpolateZoomRgba(
+  stops: { zoom: number; value: [number, number, number, number] }[],
+  zoom: number,
+): [number, number, number, number] {
+  if (stops.length === 0) return [0, 0, 0, 1]
+  if (zoom <= stops[0].zoom) {
+    const v = stops[0].value
+    return [v[0], v[1], v[2], v[3]]
+  }
+  if (zoom >= stops[stops.length - 1].zoom) {
+    const v = stops[stops.length - 1].value
+    return [v[0], v[1], v[2], v[3]]
+  }
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (zoom >= stops[i].zoom && zoom <= stops[i + 1].zoom) {
+      const t = (zoom - stops[i].zoom) / (stops[i + 1].zoom - stops[i].zoom)
+      const a = stops[i].value, b = stops[i + 1].value
+      return [
+        a[0] + t * (b[0] - a[0]),
+        a[1] + t * (b[1] - a[1]),
+        a[2] + t * (b[2] - a[2]),
+        a[3] + t * (b[3] - a[3]),
+      ]
+    }
+  }
+  const v = stops[stops.length - 1].value
+  return [v[0], v[1], v[2], v[3]]
+}
+
 /** Easing functions applied between adjacent time stops. Maps t∈[0,1] → [0,1]. */
 const EASING_LUT: Record<Easing, (t: number) => number> = {
   'linear':      (t) => t,

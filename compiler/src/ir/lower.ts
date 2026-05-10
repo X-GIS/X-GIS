@@ -186,30 +186,31 @@ function extractInterpolateZoomStops(
   return stops.length >= 2 ? stops : null
 }
 
-/** Pull the value of the last (= highest-zoom) stop from an
- *  `interpolate(zoom, z0, c0, z1, c1, …)` binding. Used as a static
- *  fallback for label-color / label-halo-color, which the runtime
- *  doesn't yet zoom-interpolate — the last stop is what the user
- *  sees at full zoom (where labels matter most), so it's a better
- *  approximation than the alternative (silently dropping the prop).
- *  Returns null when the expression isn't an interpolate-by-zoom or
- *  its stops aren't all colour literals. */
-function extractInterpolateZoomLastColor(expr: AST.Expr): string | null {
+/** Pull the full set of `(zoom, color)` stops from an `interpolate(
+ *  zoom, z0, c0, z1, c1, …)` binding. Returns null when the
+ *  expression isn't an interpolate-by-zoom OR any value isn't a
+ *  ColorLiteral. The runtime interpolates RGBA component-wise per
+ *  frame so a colour fade at low zoom (e.g. text fading from grey
+ *  at z5 to black at z14) matches Mapbox's continuous interp rather
+ *  than snapping at one of the endpoints. */
+function extractInterpolateZoomColorStops(
+  expr: AST.Expr,
+): Array<{ zoom: number; value: string }> | null {
   if (expr.kind !== 'FnCall') return null
   if (expr.callee.kind !== 'Identifier' || expr.callee.name !== 'interpolate') return null
   const args = expr.args
   if (args.length < 5) return null  // zoom, z0, c0, z1, c1 minimum
   if (args[0].kind !== 'Identifier' || args[0].name !== 'zoom') return null
-  // Walk from the back and return the first ColorLiteral value we see,
-  // verifying the slot before it is a NumberLiteral (zoom key).
-  for (let i = args.length - 1; i >= 2; i -= 2) {
-    const vArg = args[i]
-    const zArg = args[i - 1]
-    if (vArg.kind === 'ColorLiteral' && zArg.kind === 'NumberLiteral') {
-      return vArg.value
-    }
+  if ((args.length - 1) % 2 !== 0) return null
+  const stops: Array<{ zoom: number; value: string }> = []
+  for (let i = 1; i + 1 < args.length; i += 2) {
+    const zArg = args[i]
+    const vArg = args[i + 1]
+    if (zArg.kind !== 'NumberLiteral') return null
+    if (vArg.kind !== 'ColorLiteral') return null
+    stops.push({ zoom: zArg.value, value: vArg.value })
   }
-  return null
+  return stops.length >= 2 ? stops : null
 }
 
 // ═══ New syntax lowering ═══
@@ -271,8 +272,11 @@ function lowerLayer(
   let labelSize: number | undefined
   const labelSizeZoomStops: ZoomStop<number>[] = []
   let labelColor: [number, number, number, number] | undefined
+  const labelColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
   let labelHaloWidth: number | undefined
+  const labelHaloWidthZoomStops: ZoomStop<number>[] = []
   let labelHaloColor: [number, number, number, number] | undefined
+  const labelHaloColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
   let labelAnchor: import('./render-node').LabelDef['anchor'] | undefined
   let labelTransform: import('./render-node').LabelDef['transform'] | undefined
   let labelOffsetX: number | undefined
@@ -526,28 +530,44 @@ function lowerLayer(
           for (const s of zoomStops) labelSizeZoomStops.push({ zoom: s.zoom, value: s.value })
           continue
         }
-        // label-halo zoom-interpolated width — use last stop as a
-        // static fallback. Proper per-frame interpolation lands when
-        // LabelDef gains haloWidthZoomStops.
+        // label-halo zoom-interpolated width → full stops; runtime
+        // interpolates per-frame. Last stop also seeds `halo.width`
+        // as the static fallback when the runtime can't evaluate
+        // (e.g. consumers reading the IR directly without a camera).
         if (zoomStops && name === 'label-halo') {
+          for (const s of zoomStops) labelHaloWidthZoomStops.push({ zoom: s.zoom, value: s.value })
           labelHaloWidth = zoomStops[zoomStops.length - 1]!.value
           continue
         }
-        // label-color / label-halo-color zoom-interpolated colour —
-        // pull the last (highest-zoom) stop's colour as the static
-        // value. Better than silently dropping the property.
+        // label-color zoom-interpolated colour — full stops, RGBA
+        // arrays. Runtime walks `colorZoomStops` per frame and
+        // component-interpolates. The static `color` field is
+        // populated from the last stop so non-interp consumers
+        // still see a sensible value.
         if (name === 'label-color') {
-          const last = extractInterpolateZoomLastColor(item.binding)
-          if (last) {
-            const hex = resolveColor(last)
-            if (hex) { labelColor = hexToRgba(hex); continue }
+          const stops = extractInterpolateZoomColorStops(item.binding)
+          if (stops) {
+            for (const s of stops) {
+              const hex = resolveColor(s.value)
+              if (hex) labelColorZoomStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
+            }
+            if (labelColorZoomStops.length > 0) {
+              labelColor = labelColorZoomStops[labelColorZoomStops.length - 1]!.value
+              continue
+            }
           }
         }
         if (name === 'label-halo-color') {
-          const last = extractInterpolateZoomLastColor(item.binding)
-          if (last) {
-            const hex = resolveColor(last)
-            if (hex) { labelHaloColor = hexToRgba(hex); continue }
+          const stops = extractInterpolateZoomColorStops(item.binding)
+          if (stops) {
+            for (const s of stops) {
+              const hex = resolveColor(s.value)
+              if (hex) labelHaloColorZoomStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
+            }
+            if (labelHaloColorZoomStops.length > 0) {
+              labelHaloColor = labelHaloColorZoomStops[labelHaloColorZoomStops.length - 1]!.value
+              continue
+            }
           }
         }
         if (name === 'fill') {
@@ -1070,6 +1090,9 @@ function lowerLayer(
       labelSize, labelColor, labelHaloWidth, labelHaloColor,
       labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
       labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
+      labelColorZoomStops: labelColorZoomStops.length > 0 ? labelColorZoomStops : undefined,
+      labelHaloWidthZoomStops: labelHaloWidthZoomStops.length > 0 ? labelHaloWidthZoomStops : undefined,
+      labelHaloColorZoomStops: labelHaloColorZoomStops.length > 0 ? labelHaloColorZoomStops : undefined,
       labelAllowOverlap, labelIgnorePlacement, labelPadding,
       labelRotate, labelLetterSpacing, labelFontStack,
       labelMaxWidth, labelLineHeight, labelJustify,
@@ -1096,6 +1119,9 @@ function foldLabelKnobs(
     labelOffsetX?: number
     labelOffsetY?: number
     labelSizeZoomStops?: ZoomStop<number>[]
+    labelColorZoomStops?: ZoomStop<[number, number, number, number]>[]
+    labelHaloWidthZoomStops?: ZoomStop<number>[]
+    labelHaloColorZoomStops?: ZoomStop<[number, number, number, number]>[]
     labelAllowOverlap?: boolean
     labelIgnorePlacement?: boolean
     labelPadding?: number
@@ -1134,6 +1160,12 @@ function foldLabelKnobs(
     ...(offset !== undefined ? { offset } : {}),
     ...(knobs.labelSizeZoomStops && knobs.labelSizeZoomStops.length > 0
       ? { sizeZoomStops: knobs.labelSizeZoomStops } : {}),
+    ...(knobs.labelColorZoomStops && knobs.labelColorZoomStops.length > 0
+      ? { colorZoomStops: knobs.labelColorZoomStops } : {}),
+    ...(knobs.labelHaloWidthZoomStops && knobs.labelHaloWidthZoomStops.length > 0
+      ? { haloWidthZoomStops: knobs.labelHaloWidthZoomStops } : {}),
+    ...(knobs.labelHaloColorZoomStops && knobs.labelHaloColorZoomStops.length > 0
+      ? { haloColorZoomStops: knobs.labelHaloColorZoomStops } : {}),
     ...(knobs.labelAllowOverlap !== undefined ? { allowOverlap: knobs.labelAllowOverlap } : {}),
     ...(knobs.labelIgnorePlacement !== undefined ? { ignorePlacement: knobs.labelIgnorePlacement } : {}),
     ...(knobs.labelPadding !== undefined ? { padding: knobs.labelPadding } : {}),

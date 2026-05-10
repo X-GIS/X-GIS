@@ -224,6 +224,11 @@ export interface LabelDef {
   /** Text fill colour `[r, g, b, a]` (0-1 each). When undefined
    *  the layer's `fill` value is used as the text colour. */
   color?: [number, number, number, number]
+  /** Optional zoom-interpolated colour override. When set, the
+   *  runtime evaluates RGBA component-wise per frame and uses the
+   *  result instead of the constant `color`. Maps from Mapbox
+   *  `text-color: ["interpolate", ["linear"], ["zoom"], …]`. */
+  colorZoomStops?: ZoomStop<[number, number, number, number]>[]
   /** Optional halo (outline). `blur` is the SDF feathering width
    *  in pixels — Mapbox `text-halo-blur`. */
   halo?: {
@@ -231,6 +236,12 @@ export interface LabelDef {
     width: number
     blur?: number
   }
+  /** Zoom-interpolated halo width (Mapbox `text-halo-width:
+   *  ["interpolate", ["linear"], ["zoom"], …]`). Overrides
+   *  `halo.width` when present. */
+  haloWidthZoomStops?: ZoomStop<number>[]
+  /** Zoom-interpolated halo colour. Overrides `halo.color`. */
+  haloColorZoomStops?: ZoomStop<[number, number, number, number]>[]
 
   // ── Placement ──
   /** Mapbox `symbol-placement`. `point` (default) anchors text at

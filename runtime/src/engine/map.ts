@@ -9,7 +9,7 @@ import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT } from './gpu-shared'
 import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './quality'
 import { GPUTimer } from './gpu-timer'
 import { Camera } from './camera'
-import { MapRenderer, interpolateZoom, type ShowCommand } from './renderer'
+import { MapRenderer, interpolateZoom, interpolateZoomRgba, type ShowCommand } from './renderer'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
   groupOpaqueBySource as groupOpaqueBySourceImpl,
@@ -2646,17 +2646,44 @@ export class XGISMap {
           // colour for the polygon AND its label). When THAT is also
           // unset, default to white so dark backgrounds stay readable.
           const def = show.label!
+          const z = this.camera.zoom
           // Resolve zoom-interpolated text-size against the current
           // camera zoom (Mapbox `text-size: ["interpolate", …, ["zoom"], …]`).
           const resolvedSize = def.sizeZoomStops && def.sizeZoomStops.length > 0
-            ? interpolateZoom(def.sizeZoomStops, this.camera.zoom)
+            ? interpolateZoom(def.sizeZoomStops, z)
             : def.size
+          // text-color: zoom-interpolated stops win over the static
+          // colour, which itself wins over the layer-fill fallback.
+          // RGBA components interpolate independently — alpha included
+          // so fade-in / fade-out stops work too.
+          let resolvedColor: [number, number, number, number] | undefined = def.color
+          if (def.colorZoomStops && def.colorZoomStops.length > 0) {
+            resolvedColor = interpolateZoomRgba(def.colorZoomStops, z)
+          }
+          if (resolvedColor === undefined) {
+            resolvedColor = hexToRgbaArr(show.fill) ?? [1, 1, 1, 1]
+          }
+          // text-halo: zoom-interpolate width and colour independently.
+          let resolvedHalo = def.halo
+          if (def.haloWidthZoomStops && def.haloWidthZoomStops.length > 0) {
+            const w = interpolateZoom(def.haloWidthZoomStops, z)
+            resolvedHalo = {
+              ...(resolvedHalo ?? { color: [0, 0, 0, 1], width: 0 }),
+              width: w,
+            }
+          }
+          if (def.haloColorZoomStops && def.haloColorZoomStops.length > 0) {
+            const c = interpolateZoomRgba(def.haloColorZoomStops, z)
+            resolvedHalo = {
+              ...(resolvedHalo ?? { color: c, width: 0 }),
+              color: c,
+            }
+          }
           const effectiveDef = {
             ...def,
             size: resolvedSize,
-            ...(def.color === undefined
-              ? { color: hexToRgbaArr(show.fill) ?? [1, 1, 1, 1] as [number, number, number, number] }
-              : {}),
+            color: resolvedColor,
+            ...(resolvedHalo !== undefined ? { halo: resolvedHalo } : {}),
           }
 
           // Path 1: GeoJSON / inline-data sources whose features live
