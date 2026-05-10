@@ -166,18 +166,25 @@ export function visibleTilesSSE(
   //   horizon_distance ≈ √(2 × R × altitude)    (small h vs R)
   //
   // For altitude=9180 m (z=14 view), this is ~342 km — well past the
-  // visually-relevant area. We add 2× safety margin so legitimate
-  // pitched horizons still render. Non-cylindrical projections (ortho,
-  // azimuthal_equidistant, stereographic) handle horizon culling
-  // through their own backface logic; we only apply this cap on
-  // Mercator + equirect, where the math otherwise lets the strip
-  // grow unboundedly. Disable via `opts.disableHorizonCull` for
-  // diagnostic rendering of the full plane.
+  // visually-relevant area. We add a small safety margin so legitimate
+  // pitched horizons still render. Originally 2× (~684 km at z=14
+  // view), but measurement on 2026-05-11 showed the user-visible
+  // ground extent at extreme pitch+zoom (Manhattan z=16 pitch=77°) is
+  // ~58 km vs the globe horizon ~163 km — the 2× margin was 2× more
+  // than even the WIDEST realistic pitched view could fetch. Tightened
+  // to 1.2× = 20 % buffer past the globe horizon, which still covers
+  // pan-during-fetch overshoot at 60 fps with comfortable headroom
+  // (worst-case per-frame pan ≪ 1 % of horizon distance). Non-
+  // cylindrical projections (ortho, azimuthal_equidistant,
+  // stereographic) handle horizon culling through their own backface
+  // logic; we only apply this cap on Mercator + equirect, where the
+  // math otherwise lets the strip grow unboundedly. Disable via
+  // `opts.disableHorizonCull` for diagnostic rendering.
   const projType = projection.name === 'mercator' ? 0 : 1
   const horizonCullActive = projType === 0 && !opts.disableHorizonCull
   const earthR = 6378137
   const horizonDist = horizonCullActive
-    ? 2 * Math.sqrt(2 * earthR * Math.max(altitude, 1))
+    ? 1.2 * Math.sqrt(2 * earthR * Math.max(altitude, 1))
     : Infinity
 
   // Frustum cull via the camera's MVP — same matrix the renderer uses
