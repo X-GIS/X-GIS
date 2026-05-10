@@ -369,10 +369,17 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
 
   // What's STILL not converted — surface a precise warning so the
   // user knows which Batch the gap waits on.
+  // text-keep-upright — Mapbox default is `true`, meaning glyphs flip
+  // 180° on segments whose overall direction would render the label
+  // upside-down. The runtime decides per LABEL (not per glyph) using
+  // the tangent at the label's centre. Emit only `false` since the
+  // runtime defaults to true; saving a utility on every basemap layer.
+  const keepUpright = layout['text-keep-upright']
+  if (keepUpright === false) utils.push('label-keep-upright-false')
+  else if (keepUpright === true) utils.push('label-keep-upright-true')
+
   const ignoredText: string[] = []
-  for (const k of [
-    'text-keep-upright', 'text-writing-mode',
-    'icon-image', 'icon-size', 'icon-color']) {
+  for (const k of ['text-writing-mode', 'icon-image', 'icon-size', 'icon-color']) {
     if (layout[k] !== undefined || paint[k] !== undefined) ignoredText.push(k)
   }
   if (ignoredText.length > 0) {

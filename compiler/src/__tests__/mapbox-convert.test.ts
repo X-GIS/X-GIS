@@ -794,6 +794,33 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
+    it('text-keep-upright = false plumbed (default true is implicit)', () => {
+      const explicitFalse = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'k', type: 'symbol', source: 'x', 'source-layer': 'roads',
+          layout: {
+            'text-field': '{name}',
+            'symbol-placement': 'line',
+            'text-keep-upright': false,
+          } as never,
+        }],
+      })
+      expect(explicitFalse).toContain('label-keep-upright-false')
+      expect(parses(explicitFalse)).toBe(true)
+
+      // Default: don't emit anything (runtime defaults to true).
+      const dflt = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'k', type: 'symbol', source: 'x', 'source-layer': 'roads',
+          layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
+        }],
+      })
+      expect(dflt).not.toContain('label-keep-upright')
+      expect(parses(dflt)).toBe(true)
+    })
+
     it('text-rotation-alignment / text-pitch-alignment plumbed through', () => {
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },

@@ -419,24 +419,56 @@ export class TextStage {
       const totalLineLen = cumLen[n - 1]!
       // Skip when label can't fit — Mapbox drops it rather than truncate.
       if (totalAdvancePx > totalLineLen) continue
-      const startS = p.centerOffsetPx - totalAdvancePx * 0.5
+      let startS = p.centerOffsetPx - totalAdvancePx * 0.5
       // Skip when the requested centre + label extends past the polyline.
       if (startS < 0 || startS + totalAdvancePx > totalLineLen + 0.5) continue
-      // Sample point at distance `s` along the polyline.
+
+      // Mapbox `text-keep-upright` (default true): when the label's
+      // overall direction would render text upside-down, flip the
+      // entire run by walking the polyline in reverse. Per-glyph
+      // flipping at the threshold caused adjacent glyphs across a
+      // 90°-tangent boundary to face opposite ways — visibly broken
+      // on roads with mild curves. Decide ONCE based on the tangent
+      // sampled at the label's centre; reverse the polyline walk
+      // direction if needed so all glyphs rotate coherently.
+      const keepUpright = p.def.keepUpright !== false
+      let walkReversed = false
+      if (keepUpright) {
+        // Sample tangent at label centre to gauge overall direction.
+        let cIdx = 0
+        const cs = p.centerOffsetPx
+        while (cIdx < n - 2 && cumLen[cIdx + 1]! < cs) cIdx++
+        const dxMid = px[cIdx + 1]! - px[cIdx]!
+        const dyMid = py[cIdx + 1]! - py[cIdx]!
+        const midAngle = Math.atan2(dyMid, dxMid)
+        if (midAngle > Math.PI / 2 || midAngle < -Math.PI / 2) {
+          walkReversed = true
+          // Mirror startS so glyph 0 still ends up at the same screen
+          // position the user expects — but now travelling toward the
+          // polyline's start instead of its end.
+          startS = totalLineLen - p.centerOffsetPx - totalAdvancePx * 0.5
+        }
+      }
+
+      // Sample point at distance `s` along the polyline. When
+      // walkReversed, distances are measured from the polyline END
+      // (so `s=0` ⇒ the last vertex). The angle is flipped 180° so
+      // glyphs face the new "forward" (= original-backward) direction.
       let segIdx = 0
       const sampleAt = (s: number): { x: number; y: number; angle: number } => {
-        while (segIdx < n - 2 && cumLen[segIdx + 1]! < s) segIdx++
+        const sFwd = walkReversed ? totalLineLen - s : s
+        while (segIdx < n - 2 && cumLen[segIdx + 1]! < sFwd) segIdx++
+        // For reverse walk, snap segIdx back if we overshot (sFwd
+        // monotonically decreases with each call when walkReversed).
+        while (segIdx > 0 && cumLen[segIdx]! > sFwd) segIdx--
         const segLen = cumLen[segIdx + 1]! - cumLen[segIdx]!
-        const t = segLen > 0 ? (s - cumLen[segIdx]!) / segLen : 0
+        const t = segLen > 0 ? (sFwd - cumLen[segIdx]!) / segLen : 0
         const ax = px[segIdx]!, ay = py[segIdx]!
         const bx = px[segIdx + 1]!, by = py[segIdx + 1]!
         const x = ax + (bx - ax) * t
         const y = ay + (by - ay) * t
         let angle = Math.atan2(by - ay, bx - ax)
-        // Keep-upright (lite): flip glyph rotation by 180° when the
-        // tangent points "leftward" so text reads L→R. Same heuristic
-        // the longest-segment path uses.
-        if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI
+        if (walkReversed) angle += Math.PI
         return { x, y, angle }
       }
       const glyphOffsets = new Float32Array(glyphs.length * 2)

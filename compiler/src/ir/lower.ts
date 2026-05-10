@@ -283,6 +283,7 @@ function lowerLayer(
   let labelSpacing: number | undefined
   let labelRotationAlignment: 'map' | 'viewport' | 'auto' | undefined
   let labelPitchAlignment: 'map' | 'viewport' | 'auto' | undefined
+  let labelKeepUpright: boolean | undefined
   let labelAnchor: import('./render-node').LabelDef['anchor'] | undefined
   // Collect every label-anchor-X utility seen — Mapbox text-variable-
   // anchor maps to multiple emissions by the converter, in priority
@@ -655,6 +656,8 @@ function lowerLayer(
       if (name === 'label-pitch-alignment-map') { labelPitchAlignment = 'map'; continue }
       if (name === 'label-pitch-alignment-viewport') { labelPitchAlignment = 'viewport'; continue }
       if (name === 'label-pitch-alignment-auto') { labelPitchAlignment = 'auto'; continue }
+      if (name === 'label-keep-upright-true') { labelKeepUpright = true; continue }
+      if (name === 'label-keep-upright-false') { labelKeepUpright = false; continue }
       if (name === 'label-justify-auto') { labelJustify = 'auto'; continue }
       if (name === 'label-justify-left') { labelJustify = 'left'; continue }
       if (name === 'label-justify-center') { labelJustify = 'center'; continue }
@@ -1163,7 +1166,7 @@ function lowerLayer(
       labelRotate, labelLetterSpacing, labelFontStack,
       labelMaxWidth, labelLineHeight, labelJustify,
       labelPlacement, labelSpacing,
-      labelRotationAlignment, labelPitchAlignment,
+      labelRotationAlignment, labelPitchAlignment, labelKeepUpright,
     }),
   }
 }
@@ -1208,6 +1211,7 @@ function foldLabelKnobs(
     labelSpacing?: number
     labelRotationAlignment?: 'map' | 'viewport' | 'auto'
     labelPitchAlignment?: 'map' | 'viewport' | 'auto'
+    labelKeepUpright?: boolean
   },
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
@@ -1270,6 +1274,7 @@ function foldLabelKnobs(
     ...(knobs.labelSpacing !== undefined ? { spacing: knobs.labelSpacing } : {}),
     ...(knobs.labelRotationAlignment !== undefined ? { rotationAlignment: knobs.labelRotationAlignment } : {}),
     ...(knobs.labelPitchAlignment !== undefined ? { pitchAlignment: knobs.labelPitchAlignment } : {}),
+    ...(knobs.labelKeepUpright !== undefined ? { keepUpright: knobs.labelKeepUpright } : {}),
   }
 }
 
