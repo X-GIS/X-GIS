@@ -34,7 +34,7 @@ import {
 } from './layer'
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '../data/tile-catalog'
-import { computeSliceKey } from '../data/eval/filter-eval'
+import { buildShowSourceMaps } from './show-source-maps'
 import { attachPMTilesSource, prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
@@ -979,123 +979,20 @@ export class XGISMap {
     // tile decompressions interleave on the main thread.
     let cameraFit = false
 
-    // Per-source set of MVT source-layers actually consumed by xgis
-    // layers. Forwarded into PMTilesBackend's MVT decoder filter so
-    // protomaps v4 (10+ layers per tile) doesn't compile + upload
-    // 'earth'/'natural'/'pois'/'physical_*'/'transit' slices that the
-    // demo never renders. At z=0 the unused 'earth' slice alone is
-    // world-scale geometry — eliminating it cuts GPU buffer count by
-    // 2-3× and is what stopped Chrome STATUS_BREAKPOINT for the
-    // pmtiles_layered demo. Empty / undefined set = no filter (all
-    // layers compiled).
-    const usedSourceLayers = new Map<string, Set<string>>()
-    for (const show of commands.shows) {
-      if (!show.sourceLayer) continue
-      let set = usedSourceLayers.get(show.targetName)
-      if (!set) { set = new Set(); usedSourceLayers.set(show.targetName, set) }
-      set.add(show.sourceLayer)
-    }
-
-    // Per-source extrude AST map for shows that declared
-    // `extrude: <expression>` in feature mode. Forwarded to the
-    // PMTiles backend so the MVT decode worker can evaluate the AST
-    // against each feature's properties (FieldAccess + arithmetic
-    // BinaryExpr — see evalExtrudeExpr). Constant-mode extrude
-    // doesn't need this; the layer sets currentExtrudeHeight from the
-    // literal at render time.
-    const extrudeExprsBySource = new Map<string, Record<string, unknown>>()
-    const extrudeBaseExprsBySource = new Map<string, Record<string, unknown>>()
-    for (const show of commands.shows) {
-      const ex = show.extrude
-      if (ex && ex.kind === 'feature' && show.sourceLayer) {
-        let layerMap = extrudeExprsBySource.get(show.targetName)
-        if (!layerMap) { layerMap = {}; extrudeExprsBySource.set(show.targetName, layerMap) }
-        layerMap[show.sourceLayer] = ex.expr.ast
-      }
-      // Mapbox `fill-extrusion-base` companion. Plumb the per-feature
-      // base AST so the worker can resolve each feature's wall-bottom
-      // z. `kind: 'constant'` is handled at render time uniformly;
-      // only `feature` requires per-feature decode.
-      const exb = show.extrudeBase
-      if (exb && exb.kind === 'feature' && show.sourceLayer) {
-        let layerMap = extrudeBaseExprsBySource.get(show.targetName)
-        if (!layerMap) { layerMap = {}; extrudeBaseExprsBySource.set(show.targetName, layerMap) }
-        layerMap[show.sourceLayer] = exb.expr.ast
-      }
-    }
-
-    // Per-show stroke-width override AST. Synthesized by the
-    // compiler's layer-merge pass for groups whose only stroke
-    // difference is the width (roads_minor / primary / highway).
-    // Keyed by the show's sliceKey (sourceLayer plus filterAst hash)
-    // so the worker writes per-segment width into the SAME slice the
-    // line renderer is going to read from. Multiple xgis layers
-    // sharing a sliceKey are deduplicated — they came from the same
-    // compound layer in the merge output.
-    const strokeWidthExprsBySource = new Map<string, Record<string, unknown>>()
-    for (const show of commands.shows) {
-      if (!show.strokeWidthExpr || !show.sourceLayer) continue
-      const sk = computeSliceKey(show.sourceLayer, show.filterExpr?.ast ?? null)
-      let layerMap = strokeWidthExprsBySource.get(show.targetName)
-      if (!layerMap) { layerMap = {}; strokeWidthExprsBySource.set(show.targetName, layerMap) }
-      layerMap[sk] = show.strokeWidthExpr.ast
-    }
-
-    // Per-show stroke-colour override AST. Same plumbing as the
-    // width path — the worker resolves per feature and bakes
-    // RGBA8 into the line segment buffer.
-    const strokeColorExprsBySource = new Map<string, Record<string, unknown>>()
-    for (const show of commands.shows) {
-      if (!show.strokeColorExpr || !show.sourceLayer) continue
-      const sk = computeSliceKey(show.sourceLayer, show.filterExpr?.ast ?? null)
-      let layerMap = strokeColorExprsBySource.get(show.targetName)
-      if (!layerMap) { layerMap = {}; strokeColorExprsBySource.set(show.targetName, layerMap) }
-      layerMap[sk] = show.strokeColorExpr.ast
-    }
-
-    // Per-show slice descriptors. For PMTiles sources where N xgis
-    // layers share one MVT source layer with different `filter:`
-    // clauses (the OSM-style demo: 6 landuse_*, 5 roads_*), the
-    // worker pre-buckets features into per-filter sub-slices so
-    // each xgis show gets ONLY its matching geometry — eliminating
-    // 9× redundant draws of the same source layer's features.
-    // sliceKey is derived from (sourceLayer, filter AST) so two
-    // shows with identical filters share one slice in the catalog.
-    // Per-slice need flags — `needsFeatureProps` when ANY show on that
-    // slice has a label (text-field) utility; `needsExtrude` when ANY
-    // show has fill-extrusion-height. Worker checks these and skips
-    // emitting the matching fields when false. The structured-clone
-    // cost on the main-thread receive side dropped from ~309 ms to
-    // sub-ms per message on Bright (DevTools profile flagged
-    // `e.data` access alone at 309 ms — the entire featureProps Map +
-    // polygons array tree was being cloned even for non-symbol fill
-    // layers that never read them).
-    const showSlicesBySource = new Map<string, Array<{
-      sliceKey: string;
-      sourceLayer: string;
-      filterAst: unknown | null;
-      needsFeatureProps: boolean;
-      needsExtrude: boolean;
-    }>>()
-    for (const show of commands.shows) {
-      if (!show.sourceLayer) continue
-      let list = showSlicesBySource.get(show.targetName)
-      if (!list) { list = []; showSlicesBySource.set(show.targetName, list) }
-      const filterAst = show.filterExpr?.ast ?? null
-      const sliceKey = computeSliceKey(show.sourceLayer, filterAst)
-      const needsFeatureProps = show.label !== undefined
-      const ex = (show as { extrude?: { kind?: string } }).extrude
-      const needsExtrude = !!ex && ex.kind !== 'none' && ex.kind !== undefined
-      const existing = list.find(s => s.sliceKey === sliceKey)
-      if (existing) {
-        // OR-aggregate: if ANY show on this slice needs the field, the
-        // slice needs it. Multiple shows can share one filter+layer.
-        if (needsFeatureProps) existing.needsFeatureProps = true
-        if (needsExtrude) existing.needsExtrude = true
-      } else {
-        list.push({ sliceKey, sourceLayer: show.sourceLayer, filterAst, needsFeatureProps, needsExtrude })
-      }
-    }
+    // Pre-compute the five per-source attach-time maps the data-load
+    // loop hands to PMTilesBackend (used MVT layer filter, extrude AST,
+    // stroke-width / stroke-colour overrides, slice descriptors). See
+    // engine/show-source-maps.ts for what each map carries and why
+    // the worker needs them. Pure function over commands.shows —
+    // ~1 ms total even on the dense 80-show Bright style.
+    const {
+      usedSourceLayers,
+      extrudeExprsBySource,
+      extrudeBaseExprsBySource,
+      strokeWidthExprsBySource,
+      strokeColorExprsBySource,
+      showSlicesBySource,
+    } = buildShowSourceMaps(commands.shows)
 
     const loadPromises = commands.loads.map(async (load) => {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
