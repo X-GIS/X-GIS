@@ -2595,6 +2595,12 @@ export class XGISMap {
           this.textStage.prewarmGISDefaults()
         }
         const stage = this.textStage
+        // Anchors are projected against canvas.width/height (physical
+        // px); LabelDef.size etc. are CSS-px convention. Telling the
+        // stage the current DPR keeps text the right visual size on
+        // hidpi displays — without this, a `label-size-13` renders
+        // at 6.5 CSS px on a 2x display.
+        stage.setDpr(dpr)
         const frame = this.camera.getFrameView(w, h, dpr)
         const mvp = frame.matrix
         const ccx = this.camera.centerX

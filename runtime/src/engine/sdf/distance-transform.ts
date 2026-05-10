@@ -114,12 +114,11 @@ export function computeSDF(
   const fIn = new Float64Array(N)
 
   // Threshold at alpha = 128 (= the edge). Soft anti-aliased pixels
-  // contribute fractional sub-pixel correction via the standard
-  // tiny-sdf trick: subtract 0.5 from the reported distance for
-  // pixels near the edge so the SDF sees the analytic boundary
-  // rather than the discrete one. We omit that here for the first
-  // pass to keep the implementation simple; renderers that care
-  // about sub-pixel sharpness can switch to AA-aware DT later.
+  // sit between fully-outside (0) and fully-inside (255). We classify
+  // them by the threshold for the DT seeds, then apply a sub-pixel
+  // correction term per pixel below — this is the standard tiny-sdf
+  // trick that recovers analytic-boundary sharpness from a
+  // discretely-sampled mask.
   for (let i = 0; i < N; i++) {
     const a = alpha[i]!
     if (a < 128) {
@@ -143,12 +142,17 @@ export function computeSDF(
   for (let i = 0; i < N; i++) {
     const distOut = Math.sqrt(fOut[i]!)
     const distIn = Math.sqrt(fIn[i]!)
-    // signed = +outside / -inside in pixels. We want the byte to be
-    // HIGH inside (255 = far inside) and LOW outside (0 = far
-    // outside) so the shader's `step(192/255, sdf)` lights up the
-    // glyph interior — that's the Mapbox/tiny-sdf convention every
-    // SDF text shader expects.
-    const signed = distIn - distOut
+    // Sub-pixel correction: the discrete DT measures distance to
+    // the nearest sample CENTER, which is ~0.5 px off from the
+    // analytic boundary at edge-adjacent pixels. The mask's alpha
+    // value at the pixel encodes how much of the pixel is covered
+    // (0=outside, 255=inside, intermediate=partial); shifting the
+    // distance by `(a-128)/255` recovers the sub-pixel offset of
+    // the actual edge inside the cell. Without this, the SDF edge
+    // snaps to the pixel grid and produces visibly jagged text.
+    const a = alpha[i]!
+    const subpx = (a - 128) / 255
+    const signed = (distIn - distOut) + subpx
     const v = 192 - (signed / radius) * 63
     out[i] = v < 0 ? 0 : v > 255 ? 255 : Math.round(v)
   }

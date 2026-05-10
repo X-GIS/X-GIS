@@ -49,6 +49,11 @@ export interface TextDraw {
    *  in TextStage where line wrapping + justify happens CPU-side
    *  before vertex generation. */
   glyphOffsets?: Float32Array
+  /** SDF falloff radius the atlas was rasterised with (px). Used
+   *  to convert halo-width-in-px into the SDF byte-space threshold
+   *  the shader expects. When unset, falls back to the historical
+   *  6-px assumption to preserve old call sites. */
+  sdfRadius?: number
 }
 
 const VERTS_PER_GLYPH = 6  // two triangles
@@ -60,8 +65,8 @@ struct Uniforms {
   viewport: vec2<f32>,
   fill_color: vec4<f32>,
   halo_color: vec4<f32>,
-  halo_width: f32,         // 0 = no halo
-  edge_softness: f32,      // smoothstep half-width
+  halo_width: f32,         // 0 = no halo (SDF-byte units, [0,1])
+  edge_softness: f32,      // unused — kept for layout compat
   _pad0: f32,
   _pad1: f32,
 }
@@ -87,16 +92,21 @@ struct VsOut {
 @fragment fn fs(in: VsOut) -> @location(0) vec4<f32> {
   let sdf: f32 = textureSample(atlas_tex, atlas_smp, in.uv).r;
   let edge: f32 = 192.0 / 255.0;
-  let soft: f32 = u.edge_softness;
+
+  // Adaptive AA: derive smoothstep half-width from the SDF's
+  // screen-space derivative. fwidth() returns |dF/dx|+|dF/dy|, the
+  // pixel-rate of change; using 0.7 * fwidth gives a ~1.4 px
+  // crossfade band that stays sharp across any display scale —
+  // small text, large text, mid-zoom interpolation all alias-free.
+  // Floor avoids div-by-zero on perfectly flat samples.
+  let soft: f32 = max(0.7 * fwidth(sdf), 1.0 / 255.0);
 
   // Fill mask
   let fill_a: f32 = smoothstep(edge - soft, edge + soft, sdf);
 
-  // Halo: extends halo_width SDF-units inward from the edge. The
-  // SDF byte spans +/- 63 units across radius px; we map halo_width
-  // (px) -> SDF-unit threshold by reversing that scale at the
-  // shader level via a uniform. The renderer pre-multiplies so
-  // halo_width here is already in shader-space units.
+  // Halo: extends halo_width SDF-byte units outward from the edge.
+  // halo_width is pre-converted from px to SDF-byte space by the
+  // renderer (which knows the rasterisation sdfRadius).
   if (u.halo_width <= 0.0) {
     return vec4<f32>(u.fill_color.rgb, u.fill_color.a * fill_a);
   }
@@ -104,11 +114,9 @@ struct VsOut {
   let halo_edge: f32 = edge - u.halo_width;
   let halo_a: f32 = smoothstep(halo_edge - soft, halo_edge + soft, sdf);
   // Composite: halo behind, fill in front.
-  let halo_rgb = u.halo_color.rgb * (u.halo_color.a * halo_a);
-  let fill_rgb = u.fill_color.rgb * (u.fill_color.a * fill_a);
   let fill_w = u.fill_color.a * fill_a;
   let halo_w = u.halo_color.a * halo_a * (1.0 - fill_w);
-  return vec4<f32>(fill_rgb + u.halo_color.rgb * halo_w, fill_w + halo_w);
+  return vec4<f32>(u.fill_color.rgb * fill_w + u.halo_color.rgb * halo_w, fill_w + halo_w);
 }
 `
 
@@ -161,8 +169,12 @@ export class TextRenderer {
         module, entryPoint: 'fs',
         targets: [{
           format: presentationFormat,
+          // Premultiplied-alpha blend: shader emits `rgb*a, a`, so
+          // srcFactor=one (NOT src-alpha — that double-multiplies).
+          // Mixing premul output with a non-premul blend was the
+          // root cause of dim/washed-out text + wrong halo edges.
           blend: {
-            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
+            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
             alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
           },
         }],
@@ -332,22 +344,22 @@ function packUniforms(d: TextDraw): Float32Array {
   if (d.halo) {
     buf[8] = d.halo.color[0]; buf[9] = d.halo.color[1]
     buf[10] = d.halo.color[2]; buf[11] = d.halo.color[3]
-    // halo_width is in display px; convert to SDF-unit threshold
-    // delta. SDF spans ±63 units across `radius` px (we don't know
-    // the host's sdfRadius here without threading it through; for
-    // the first pass we use a fixed 6 px rasterisation assumption,
-    // matching the GlyphAtlasHost default — the integration layer
-    // can override via a separate API if it picks a different
-    // radius). 1 px halo ≈ 63/6 = 10.5 SDF units = 10.5/255 ≈ 0.041
-    // shader-space units.
-    const SDF_UNITS_PER_PX = 63 / 6
+    // halo_width is in display px; convert to SDF-byte-space threshold.
+    // The SDF packs ±63 byte-units across the rasterisation `sdfRadius`
+    // pixels (see distance-transform.ts). So 1 px halo ≈ 63/sdfRadius
+    // byte-units; divide by 255 for the [0,1] threshold the shader
+    // smoothsteps. sdfRadius is plumbed in by TextStage; legacy callers
+    // who don't set it fall back to 6 (the historical default).
+    const sdfRadius = d.sdfRadius ?? 6
+    const SDF_UNITS_PER_PX = 63 / sdfRadius
     buf[12] = (d.halo.width * SDF_UNITS_PER_PX) / 255
   } else {
     buf[8] = 0; buf[9] = 0; buf[10] = 0; buf[11] = 0
     buf[12] = 0
   }
-  // edge_softness — heuristic 1 SDF byte ≈ 1/255
-  buf[13] = 4 / 255
+  // edge_softness slot retained for layout compat — actual AA is
+  // computed in-shader via fwidth() so the value is unused.
+  buf[13] = 0
   buf[14] = 0; buf[15] = 0
   return buf
 }

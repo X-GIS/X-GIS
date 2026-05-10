@@ -49,9 +49,14 @@ export interface TextStageOptions {
   rasterizer?: GlyphRasterizer
 }
 
+// Slot must fit (rasterFontSize + 2*sdfRadius) — ascenders/descenders
+// of a 24-px raster font extend ~28-30 px, plus 6 px SDF radius on
+// each side ⇒ 40-42 px needed. Round to 48 for some headroom on
+// CJK/diacritics. The previous 32 default clipped both descenders and
+// the SDF falloff, producing visible halo cutoffs.
 const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer'>> = {
-  slotSize: 32,
-  pageSize: 2048,
+  slotSize: 48,
+  pageSize: 2304,
   rasterFontSize: 24,
   sdfRadius: 6,
   defaultFont: 'sans-serif',
@@ -71,6 +76,12 @@ export class TextStage {
   readonly renderer: TextRenderer
   readonly opts: Required<Omit<TextStageOptions, 'rasterizer'>>
   private readonly pending: PendingLabel[] = []
+  /** DPR applied to LabelDef.size (and offset/halo/maxWidth) at
+   *  prepare() time. Anchors arrive already in physical pixels
+   *  (map.ts projects against canvas.width/height) but `size` etc.
+   *  come from xgis source in CSS-px convention — multiplying by
+   *  DPR keeps text the right visual size on hidpi displays. */
+  private dpr: number = 1
 
   constructor(
     device: GPUDevice,
@@ -98,6 +109,13 @@ export class TextStage {
    *  frame doesn't pay rasterisation cost on cold paths. */
   prewarm(codepoints: Iterable<number>, fontKey?: string): void {
     this.host.prewarm(fontKey ?? this.opts.defaultFont, codepoints)
+  }
+
+  /** Set the device pixel ratio for the current frame. Call before
+   *  prepare(). Sizes/offsets in LabelDef are CSS-px convention;
+   *  multiplying by DPR matches the physical-pixel anchor space. */
+  setDpr(dpr: number): void {
+    this.dpr = dpr > 0 ? dpr : 1
   }
 
   /** Default prewarm set: '0'..'9', '.,:;-+°\'\"NSEW '. Covers
@@ -158,20 +176,25 @@ export class TextStage {
       ignorePlacement: boolean
     }
     const shaped: ShapedLabel[] = []
+    const dpr = this.dpr
     for (const p of this.pending) {
       const glyphs = this.host.ensureString(p.fontKey, p.text)
+      // CSS-px → physical-px. The atlas is in physical px (anchors
+      // arrive projected to canvas.width/height) so every length
+      // sourced from the LabelDef has to scale by DPR.
+      const sizePx = p.def.size * dpr
       // letter-spacing in em units (Mapbox convention) — multiplies
       // the display font size to produce extra px between adjacent
       // glyphs. Applied as a per-glyph advance bump that the
       // text-renderer reads via the glyph's effective advance.
-      const letterSpacingPx = (p.def.letterSpacing ?? 0) * p.def.size
-      const scale = p.def.size / this.opts.rasterFontSize
+      const letterSpacingPx = (p.def.letterSpacing ?? 0) * sizePx
+      const scale = sizePx / this.opts.rasterFontSize
       // Multiline layout: greedy word-break at maxWidth (em-units →
       // px). When unset, treat as Infinity = single line.
       const maxWidthPx = p.def.maxWidth !== undefined
-        ? p.def.maxWidth * p.def.size : Infinity
+        ? p.def.maxWidth * sizePx : Infinity
       const lineHeightEm = p.def.lineHeight ?? 1.2
-      const lineHeightPx = lineHeightEm * p.def.size
+      const lineHeightPx = lineHeightEm * sizePx
       const justify = p.def.justify ?? 'center'
 
       // Compute per-line glyph ranges + line widths.
@@ -227,8 +250,8 @@ export class TextStage {
       else if (anchor === 'bottom' || anchor.startsWith('bottom-')) dy = 0
       else dy = totalHeight / 2
       if (p.def.offset) {
-        dx += p.def.offset[0] * p.def.size
-        dy += p.def.offset[1] * p.def.size
+        dx += p.def.offset[0] * sizePx
+        dy += p.def.offset[1] * sizePx
       }
       const drawX = p.anchorX + dx
       const drawY = p.anchorY + dy
@@ -257,25 +280,31 @@ export class TextStage {
           }
         }
       }
-      const padding = (p.def.padding ?? 2)
+      const padding = (p.def.padding ?? 2) * dpr
       const bbox = {
         minX: drawX - padding,
         minY: drawY - totalHeight - padding,
         maxX: drawX + totalAdvance + padding,
         maxY: drawY + padding,
       }
+      // Halo width is also CSS-px convention → scale by DPR so the
+      // visual halo thickness matches across DPRs.
+      const haloOut = p.def.halo
+        ? { color: p.def.halo.color, width: p.def.halo.width * dpr }
+        : undefined
       shaped.push({
         draw: {
           anchorX: drawX,
           anchorY: drawY,
           glyphs,
-          fontSize: p.def.size,
+          fontSize: sizePx,
           rasterFontSize: this.opts.rasterFontSize,
           color: p.def.color ?? [0, 0, 0, 1],
-          halo: p.def.halo,
+          halo: haloOut,
           letterSpacingPx,
           rotateRad: p.def.rotate ? p.def.rotate * Math.PI / 180 : undefined,
           glyphOffsets,
+          sdfRadius: this.opts.sdfRadius,
         },
         bbox,
         allowOverlap: p.def.allowOverlap === true,
