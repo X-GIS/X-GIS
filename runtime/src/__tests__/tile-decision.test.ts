@@ -178,6 +178,67 @@ describe('classifyTile', () => {
   })
 })
 
+describe('classifyTile — hasOtherSliceHeld coherence override', () => {
+  it('hasOtherSliceHeld=false + GPU hit → primary (back-compat)', () => {
+    const visibleKey = tileKey(8, 100, 50)
+    const layerCache = new Map<number, unknown>([[visibleKey, {}]])
+    const d = classifyTile(baseInputs({
+      visibleKey, layerCache, hasOtherSliceHeld: false,
+    }))
+    expect(d.kind).toBe('primary')
+  })
+
+  it('hasOtherSliceHeld undefined + GPU hit → primary (default safe)', () => {
+    const visibleKey = tileKey(8, 100, 50)
+    const layerCache = new Map<number, unknown>([[visibleKey, {}]])
+    // hasOtherSliceHeld omitted entirely — old call sites unaffected.
+    const d = classifyTile(baseInputs({ visibleKey, layerCache }))
+    expect(d.kind).toBe('primary')
+  })
+
+  it('hasOtherSliceHeld=true + GPU hit + cached ancestor → parent-fallback (override)', () => {
+    // The visible slice IS on GPU but a peer slice is held — primary
+    // would visually disagree with the held layer's parent stretch,
+    // so we coerce this layer to the same parent.
+    const visibleKey = tileKey(8, 100, 50)
+    const parentKey = tileKeyParent(visibleKey)
+    const layerCache = new Map<number, unknown>([
+      [visibleKey, {}],
+      [parentKey, {}],   // ancestor on GPU too — no upload needed
+    ])
+    const d = classifyTile(baseInputs({
+      visibleKey,
+      layerCache,
+      hasSliceInCatalog: (k) => k === visibleKey || k === parentKey,
+      hasOtherSliceHeld: true,
+    }))
+    expect(d.kind).toBe('parent-fallback')
+    if (d.kind === 'parent-fallback') {
+      expect(d.parentKey).toBe(parentKey)
+      expect(d.parentNeedsUpload).toBe(false)
+    }
+  })
+
+  it('hasOtherSliceHeld=true + visible-not-on-GPU + slice in catalog → queued-with-fallback (existing path)', () => {
+    // When THIS layer's slice is also still mid-upload, the existing
+    // queued-with-fallback path handles it the same way as before —
+    // the override is only meaningful when the visible IS on GPU.
+    const visibleKey = tileKey(8, 100, 50)
+    const parentKey = tileKeyParent(visibleKey)
+    const layerCache = new Map<number, unknown>([[parentKey, {}]])
+    const d = classifyTile(baseInputs({
+      visibleKey,
+      layerCache,
+      hasSliceInCatalog: (k) => k === visibleKey || k === parentKey,
+      hasOtherSliceHeld: true,
+    }))
+    expect(d.kind).toBe('queued-with-fallback')
+    if (d.kind === 'queued-with-fallback') {
+      expect(d.fallback.kind).toBe('parent-fallback')
+    }
+  })
+})
+
 describe('computeProtectedKeys', () => {
   it('always includes every stableKey', () => {
     const keys = [tileKey(8, 100, 50), tileKey(8, 200, 100)]

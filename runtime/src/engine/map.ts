@@ -2190,6 +2190,17 @@ export class XGISMap {
       // per-frame catalog budget reset can short-circuit duplicate
       // calls from the same source feeding multiple layers.
       for (const [, { renderer: vtR }] of this.vtSources) vtR.beginFrame(this._frameCount)
+      // Frame-scope prefetch pump — fires exactly once per wall-clock
+      // frame for every attached vector source. Hosts the
+      // Google-Earth-style pan-direction speculation + AMMOS
+      // 3D-Tiles-Renderer-style loadSiblings. Critical that this
+      // lives in renderFrame (not VTR.render, which the bucket
+      // scheduler invokes per ShowCommand ~80× on dense styles) so
+      // the prev-cam velocity vector and _evictShield population
+      // stay frame-stable. See VTR.pumpPrefetch doc.
+      for (const [, { renderer: vtR }] of this.vtSources) {
+        vtR.pumpPrefetch(this.camera, projType, w, h, dpr)
+      }
 
       // ══════ Bucket scheduler ══════
       //

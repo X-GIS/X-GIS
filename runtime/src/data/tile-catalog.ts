@@ -103,6 +103,21 @@ export class TileCatalog {
    *  ones. */
   private _cachedBytes = 0
 
+  /** Permanently-pinned keys: the global low-zoom skeleton that
+   *  guarantees `classifyFallback`'s ancestor walk always succeeds
+   *  during fast-pan. Mirrors Cesium `QuadtreePrimitive`'s
+   *  `_doNotDestroySubtree` (root-tile permanent retention) and
+   *  NASA-AMMOS 3D Tiles Renderer's protected `lruCache` anchors —
+   *  fast-pan to a brand-new region on the globe used to drop into
+   *  the `pending` decision (no fallback geometry pushed) and the
+   *  canvas cleared white through the gap. With a pinned z=0..N
+   *  skeleton the walk hits a cached ancestor in ≤ N hops every
+   *  time. Populated lazily by {@link markSkeleton} (called by the
+   *  PMTiles / TileJSON attach path); honoured by `evictTiles` and
+   *  `cancelStale` so it survives both LRU pressure AND backend-fetch
+   *  cancellation between prewarm pump retries. */
+  private _skeletonKeys = new Set<number>()
+
   /** Best-effort byte size of a TileData. Sums every typed-array
    *  field we hold; skips `polygons` because RingPolygon is plain
    *  JS arrays (V8-internal, no byteLength) and stress-test
@@ -727,6 +742,21 @@ export class TileCatalog {
     this._prefetchAge = 0
   }
 
+  /** Pin `keys` as permanent skeleton — they survive `evictTiles`
+   *  unconditionally and `cancelStale` never aborts their in-flight
+   *  fetch. Idempotent; safe to call before or after `prefetchTiles`
+   *  for the same keys. The intended caller is the PMTiles / TileJSON
+   *  attach path (see `enqueueSkeletonPrewarm` in pmtiles-source.ts),
+   *  which marks the global low-zoom quadtree (z=0..N, default
+   *  N=3 desktop / 2 mobile) so the parent-fallback walk in
+   *  `classifyFallback` always finds a cached ancestor regardless of
+   *  pan distance. The skeleton-prewarm pump terminates by polling
+   *  the existing `hasTileData(key)` (line 509) — no separate
+   *  predicate needed. */
+  markSkeleton(keys: Iterable<number>): void {
+    for (const k of keys) this._skeletonKeys.add(k)
+  }
+
   /** Update the fetch-queue priority comparator on every backend that
    *  has a priority queue (PMTiles). Comparator returns positive when
    *  `a` should run before `b` — i.e. closer to camera is "higher
@@ -751,12 +781,20 @@ export class TileCatalog {
    *  without a cancellation hook (XGVT-binary, GeoJSON-runtime) are
    *  no-ops here. */
   cancelStale(activeKeys: Set<number>): void {
-    const merged: Set<number> =
-      this._prefetchKeys.size === 0
-        ? activeKeys
-        : new Set(activeKeys)
+    const needsCopy = this._prefetchKeys.size > 0 || this._skeletonKeys.size > 0
+    const merged: Set<number> = needsCopy ? new Set(activeKeys) : activeKeys
     if (this._prefetchKeys.size > 0) {
       for (const k of this._prefetchKeys) merged.add(k)
+    }
+    // Skeleton keys are never abortable — they're the permanent base
+    // layer that the parent-fallback walk relies on. Without this
+    // union, the prewarm pump's 250 ms gap between retries collides
+    // with the `_prefetchAge > 12` clear below: prefetch shield drops,
+    // next cancelStale wipes in-flight skeleton fetches, and the pump
+    // has to re-issue them on the next tick. Pinning here closes the
+    // window completely.
+    if (this._skeletonKeys.size > 0) {
+      for (const k of this._skeletonKeys) merged.add(k)
     }
     for (const b of this.backends) {
       b.cancelStale?.(merged)
@@ -1353,8 +1391,17 @@ export class TileCatalog {
     // these must survive the eviction call (Cesium replacement
     // invariant). Only takes effect when invariants are enabled.
     const _inv = (globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS
+    // Both protectedKeys (frame-scoped: stableKeys + ancestors) and
+    // _skeletonKeys (permanent low-zoom base) must survive eviction.
+    // Union them into the invariant snapshot so a regression that
+    // accidentally drops a skeleton key fires the same audit error
+    // as a frame-protected drop — single failure mode, single
+    // diagnostic.
     const _protectedPresent = _inv
-      ? new Set([...protectedKeys].filter(k => this.dataCache.has(k)))
+      ? new Set(
+          [...protectedKeys, ...this._skeletonKeys]
+            .filter(k => this.dataCache.has(k)),
+        )
       : null
     // Two caps: byte-based (tight, accurate) and count-based
     // (loose safety net). Either tripping is enough to trigger
@@ -1402,8 +1449,12 @@ export class TileCatalog {
     // completing and the cz advance that puts the key into
     // stableKeys — without that bridge the gate stalls forever
     // (regression: _zoom-transition-blank-tiles.spec.ts).
+    // Skeleton keys (Cesium-style permanent base layer) are
+    // unconditionally protected — see `_skeletonKeys` doc.
     const entries = [...this.dataCache.entries()]
-      .filter(([key]) => !protectedKeys.has(key) && !this._evictShield.has(key))
+      .filter(([key]) => !protectedKeys.has(key)
+                      && !this._evictShield.has(key)
+                      && !this._skeletonKeys.has(key))
 
     // Insertion order ≈ LRU (Map iteration order is insertion order;
     // re-inserts on access would yield true LRU but cacheTileData
