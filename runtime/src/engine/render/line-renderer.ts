@@ -47,9 +47,9 @@ import {
   WGSL_DIST_TO_CUBIC,
   WGSL_WINDING_LINE,
   WGSL_SHAPE_STRUCTS,
-} from '../text/wgsl-sdf'
-import { WGSL_LOG_DEPTH_FNS } from '../projection/wgsl-log-depth'
-import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../projection/wgsl-projection'
+} from '../shaders/sdf'
+import { WGSL_LOG_DEPTH_FNS } from '../shaders/log-depth'
+import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projection'
 import type { ShapeRegistry } from '../text/sdf-shape'
 
 // ═══ Layer Uniform Layout ═══
@@ -320,7 +320,7 @@ export function packLineLayerUniform(
 // magnitude and recover camera-relative meters with f64-equivalent precision.
 // Tangents stay single-f32 — they're unit vectors in a tile-local frame and
 // don't suffer from cancellation.
-import { LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES, buildLineSegments } from '../line-segment-build'
+import { LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES, buildLineSegments } from '../../core/line-segment-build'
 export { LINE_SEGMENT_STRIDE_F32, LINE_SEGMENT_STRIDE_BYTES, buildLineSegments }
 
 // ═══ WGSL Shader ═══

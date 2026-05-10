@@ -37,14 +37,14 @@ import type {
 // runtime state. Re-exported below for back-compat with external callers
 // (loadPMTilesSource etc. import these from xgvt-source.ts today).
 import {
-  type TileData,
+  type TileData, type TileState,
   DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE,
   MAX_CACHED_TILES, maxCachedBytes, maxConcurrentLoads, defaultSkeletonDepth,
   type VirtualCatalog, type VirtualTileFetcher,
 } from './tile-types'
 
 export {
-  type TileData,
+  type TileData, type TileState,
   DSFUN_POLY_STRIDE, DSFUN_LINE_STRIDE,
   type VirtualCatalog, type VirtualTileFetcher,
 }
@@ -524,6 +524,33 @@ export class TileCatalog {
 
   isLoading(key: number): boolean {
     return this.loadingTiles.has(key)
+  }
+
+  /** Per-tile lifecycle state, derived from the catalog's tracking
+   *  structures + each backend's failure cache. Returns one of
+   *  `'unloaded' | 'loading' | 'cached' | 'failed'`. Cached wins over
+   *  loading wins over failed wins over unloaded — a tile in `dataCache`
+   *  is observably loaded even if a stale failedKeys entry hasn't been
+   *  swept yet, and a tile in `loadingTiles` may still race a previous
+   *  failure that's about to expire. See `TileState` in tile-types.ts
+   *  for the transition diagram. */
+  getTileState(key: number): TileState {
+    if (this.dataCache.has(key)) return 'cached'
+    if (this.loadingTiles.has(key)) return 'loading'
+    for (const b of this.backends) {
+      if (b.isFailed?.(key)) return 'failed'
+    }
+    return 'unloaded'
+  }
+
+  /** Diagnostic — total tile-key count partitioned by state. Cheap;
+   *  no per-key iteration of backends. Useful for FLICKER / load-curve
+   *  inspection in inspectPipeline. The `failed` count is omitted
+   *  because backend failure caches don't expose a size accessor and
+   *  failed keys are typically rare; query individual keys via
+   *  getTileState if needed. */
+  getStateBreakdown(): { cached: number; loading: number } {
+    return { cached: this.dataCache.size, loading: this.loadingTiles.size }
   }
 
   /** True when any tile is still being fetched. Read each frame by the

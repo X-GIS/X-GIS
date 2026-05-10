@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeLogDepthFc, simulateLogDepthZ } from './wgsl-log-depth'
+import { computeLogDepthFc, simulateLogDepthZ } from '../shaders/log-depth'
 
 // ═══ Log-depth CPU sim tests ═══
 //

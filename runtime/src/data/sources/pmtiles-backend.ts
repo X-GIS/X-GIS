@@ -23,8 +23,8 @@ import {
   evaluate,
   type GeoJSONFeature,
 } from '@xgis/compiler'
-import { buildLineSegments } from '../../engine/line-segment-build'
-import { EXTRUDE_FALLBACK_HEIGHT_M } from '../../engine/polygon-mesh'
+import { buildLineSegments } from '../../core/line-segment-build'
+import { EXTRUDE_FALLBACK_HEIGHT_M } from '../../core/polygon-mesh'
 import type {
   TileSource, TileSourceSink, TileSourceMeta,
 } from '../tile-source'
@@ -33,7 +33,7 @@ import { evalExtrudeExpr } from '../eval/extrude-eval'
 import { evalFilterExpr } from '../eval/filter-eval'
 import {
   PriorityQueue, PriorityQueueItemRemovedError,
-} from '../priority-queue'
+} from '../../core/priority-queue'
 
 /** Same height extractor as the worker (mvt-worker.ts). The inline
  *  fallback path can't import from mvt-worker because its module is
@@ -396,6 +396,18 @@ export class PMTilesBackend implements TileSource {
    *  Reset to FIFO by passing null. */
   setFetchPriorityCallback(cmp: ((a: number, b: number) => number) | null): void {
     this.fetchQueue.priorityCallback = cmp
+  }
+
+  /** TileSource.isFailed — true while `key`'s negative-cache TTL has
+   *  not yet expired. Used by TileCatalog.getTileState to surface the
+   *  `'failed'` lifecycle state. Self-cleaning: an expired entry is
+   *  pruned on read so subsequent calls go back to `'unloaded'`. */
+  isFailed(key: number): boolean {
+    const expiresAt = this.failedKeys.get(key)
+    if (expiresAt === undefined) return false
+    if (Date.now() < expiresAt) return true
+    this.failedKeys.delete(key)
+    return false
   }
 
   /** Cancel in-flight fetches for keys NOT in `activeKeys`. Called by
