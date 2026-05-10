@@ -20,10 +20,10 @@ import {
   evaluate,
   type GeoJSONFeature,
 } from '@xgis/compiler'
-import { buildLineSegments } from '../engine/line-segment-build'
-import { EXTRUDE_FALLBACK_HEIGHT_M } from '../engine/polygon-mesh'
-import { evalExtrudeExpr } from './extrude-eval'
-import { evalFilterExpr } from './filter-eval'
+import { buildLineSegments } from '../../engine/line-segment-build'
+import { EXTRUDE_FALLBACK_HEIGHT_M } from '../../engine/polygon-mesh'
+import { evalExtrudeExpr } from '../eval/extrude-eval'
+import { evalFilterExpr } from '../eval/filter-eval'
 
 /** Extract per-feature 3D extrude heights from a layer's features.
  *  Only runs when the style explicitly opts in via `extrude:` (the

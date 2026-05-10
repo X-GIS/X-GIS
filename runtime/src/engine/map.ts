@@ -3,7 +3,7 @@
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, tileKey as compilerTileKey, type Program } from '@xgis/compiler'
 import type * as AST from '@xgis/compiler'
 import { BackgroundRenderer } from './background-renderer'
-import { getSharedGeoJSONCompilePool } from '../data/geojson-compile-pool'
+import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
 import { initGPU, resizeCanvas, GPU_PROF, getSampleCount, getMaxDpr, isPickEnabled, type GPUContext } from './gpu'
 import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT } from './gpu-shared'
 import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './quality'
@@ -34,7 +34,7 @@ import {
 } from './layer'
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '../data/tile-catalog'
-import { computeSliceKey } from '../data/filter-eval'
+import { computeSliceKey } from '../data/eval/filter-eval'
 import { attachPMTilesSource, prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
@@ -926,7 +926,7 @@ export class XGISMap {
     if (anyVectorTile) {
       // Async import to keep the worker-pool module out of the path
       // for pure-GeoJSON demos that never touch MVT decode.
-      void import('../data/mvt-worker-pool').then(m => m.prewarmMvtWorkerPool()).catch(() => undefined)
+      void import('../data/workers/mvt-worker-pool').then(m => m.prewarmMvtWorkerPool()).catch(() => undefined)
     }
 
 

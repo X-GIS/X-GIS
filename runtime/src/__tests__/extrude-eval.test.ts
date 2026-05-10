@@ -4,7 +4,7 @@
 // expression doesn't yield a usable value.
 
 import { describe, expect, it } from 'vitest'
-import { evalExtrudeExpr } from '../data/extrude-eval'
+import { evalExtrudeExpr } from '../data/eval/extrude-eval'
 
 const lit = (value: number) => ({ kind: 'NumberLiteral' as const, value })
 const fld = (field: string) => ({ kind: 'FieldAccess' as const, object: null, field })

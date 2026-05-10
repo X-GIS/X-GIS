@@ -20,7 +20,7 @@ import {
   tileKeyUnpack,
   type TileIndexEntry,
 } from '@xgis/compiler'
-import { getSharedPool, type XGVTWorkerPool } from '../xgvt-worker-pool'
+import { getSharedPool, type XGVTWorkerPool } from '../workers/xgvt-worker-pool'
 import type {
   TileSource, TileSourceSink, TileSourceMeta, BackendTileResult,
 } from '../tile-source'

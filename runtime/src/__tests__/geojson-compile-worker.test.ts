@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest'
 import {
   runCompile,
   resolveIdResolver,
-} from '../data/geojson-compile-worker'
+} from '../data/workers/geojson-compile-worker'
 import type { GeoJSONFeatureCollection } from '../loader/geojson'
 
 function makePointFC(points: [number, number][], ids?: unknown[]): GeoJSONFeatureCollection {

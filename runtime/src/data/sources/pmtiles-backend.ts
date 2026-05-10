@@ -28,9 +28,9 @@ import { EXTRUDE_FALLBACK_HEIGHT_M } from '../../engine/polygon-mesh'
 import type {
   TileSource, TileSourceSink, TileSourceMeta,
 } from '../tile-source'
-import { getSharedMvtPool, type MvtWorkerPool } from '../mvt-worker-pool'
-import { evalExtrudeExpr } from '../extrude-eval'
-import { evalFilterExpr } from '../filter-eval'
+import { getSharedMvtPool, type MvtWorkerPool } from '../workers/mvt-worker-pool'
+import { evalExtrudeExpr } from '../eval/extrude-eval'
+import { evalFilterExpr } from '../eval/filter-eval'
 import {
   PriorityQueue, PriorityQueueItemRemovedError,
 } from '../priority-queue'

@@ -15,7 +15,7 @@ import type {
   TileLevel,
   PropertyTable,
 } from '@xgis/compiler'
-import type { GeoJSONFeatureCollection } from '../loader/geojson'
+import type { GeoJSONFeatureCollection } from '../../loader/geojson'
 // Vite ?worker import — produces a bundled Worker constructor. The module
 // also exports the sync `runCompile` helper that the fallback path uses.
 import GeoJSONWorker from './geojson-compile-worker.ts?worker'
