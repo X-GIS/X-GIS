@@ -34,7 +34,7 @@ import {
 } from './layer'
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '../data/tile-catalog'
-import { computeSliceKey } from '../data/eval/filter-eval'
+import { buildShowSourceMaps, type ShowSourceMaps } from './show-source-maps'
 import { attachPMTilesSource, prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
@@ -977,228 +977,38 @@ export class XGISMap {
     // source had to finish its index + preload decompression before the
     // next started). Promise.all lets index fetches overlap and lets
     // tile decompressions interleave on the main thread.
-    let cameraFit = false
 
-    // Per-source set of MVT source-layers actually consumed by xgis
-    // layers. Forwarded into PMTilesBackend's MVT decoder filter so
-    // protomaps v4 (10+ layers per tile) doesn't compile + upload
-    // 'earth'/'natural'/'pois'/'physical_*'/'transit' slices that the
-    // demo never renders. At z=0 the unused 'earth' slice alone is
-    // world-scale geometry — eliminating it cuts GPU buffer count by
-    // 2-3× and is what stopped Chrome STATUS_BREAKPOINT for the
-    // pmtiles_layered demo. Empty / undefined set = no filter (all
-    // layers compiled).
-    const usedSourceLayers = new Map<string, Set<string>>()
-    for (const show of commands.shows) {
-      if (!show.sourceLayer) continue
-      let set = usedSourceLayers.get(show.targetName)
-      if (!set) { set = new Set(); usedSourceLayers.set(show.targetName, set) }
-      set.add(show.sourceLayer)
-    }
+    // Pre-compute the five per-source attach-time maps the data-load
+    // loop hands to PMTilesBackend (used MVT layer filter, extrude AST,
+    // stroke-width / stroke-colour overrides, slice descriptors). See
+    // engine/show-source-maps.ts for what each map carries and why
+    // the worker needs them. Pure function over commands.shows —
+    // ~1 ms total even on the dense 80-show Bright style.
+    const {
+      usedSourceLayers,
+      extrudeExprsBySource,
+      extrudeBaseExprsBySource,
+      strokeWidthExprsBySource,
+      strokeColorExprsBySource,
+      showSlicesBySource,
+    } = buildShowSourceMaps(commands.shows)
 
-    // Per-source extrude AST map for shows that declared
-    // `extrude: <expression>` in feature mode. Forwarded to the
-    // PMTiles backend so the MVT decode worker can evaluate the AST
-    // against each feature's properties (FieldAccess + arithmetic
-    // BinaryExpr — see evalExtrudeExpr). Constant-mode extrude
-    // doesn't need this; the layer sets currentExtrudeHeight from the
-    // literal at render time.
-    const extrudeExprsBySource = new Map<string, Record<string, unknown>>()
-    const extrudeBaseExprsBySource = new Map<string, Record<string, unknown>>()
-    for (const show of commands.shows) {
-      const ex = show.extrude
-      if (ex && ex.kind === 'feature' && show.sourceLayer) {
-        let layerMap = extrudeExprsBySource.get(show.targetName)
-        if (!layerMap) { layerMap = {}; extrudeExprsBySource.set(show.targetName, layerMap) }
-        layerMap[show.sourceLayer] = ex.expr.ast
-      }
-      // Mapbox `fill-extrusion-base` companion. Plumb the per-feature
-      // base AST so the worker can resolve each feature's wall-bottom
-      // z. `kind: 'constant'` is handled at render time uniformly;
-      // only `feature` requires per-feature decode.
-      const exb = show.extrudeBase
-      if (exb && exb.kind === 'feature' && show.sourceLayer) {
-        let layerMap = extrudeBaseExprsBySource.get(show.targetName)
-        if (!layerMap) { layerMap = {}; extrudeBaseExprsBySource.set(show.targetName, layerMap) }
-        layerMap[show.sourceLayer] = exb.expr.ast
-      }
-    }
-
-    // Per-show stroke-width override AST. Synthesized by the
-    // compiler's layer-merge pass for groups whose only stroke
-    // difference is the width (roads_minor / primary / highway).
-    // Keyed by the show's sliceKey (sourceLayer plus filterAst hash)
-    // so the worker writes per-segment width into the SAME slice the
-    // line renderer is going to read from. Multiple xgis layers
-    // sharing a sliceKey are deduplicated — they came from the same
-    // compound layer in the merge output.
-    const strokeWidthExprsBySource = new Map<string, Record<string, unknown>>()
-    for (const show of commands.shows) {
-      if (!show.strokeWidthExpr || !show.sourceLayer) continue
-      const sk = computeSliceKey(show.sourceLayer, show.filterExpr?.ast ?? null)
-      let layerMap = strokeWidthExprsBySource.get(show.targetName)
-      if (!layerMap) { layerMap = {}; strokeWidthExprsBySource.set(show.targetName, layerMap) }
-      layerMap[sk] = show.strokeWidthExpr.ast
-    }
-
-    // Per-show stroke-colour override AST. Same plumbing as the
-    // width path — the worker resolves per feature and bakes
-    // RGBA8 into the line segment buffer.
-    const strokeColorExprsBySource = new Map<string, Record<string, unknown>>()
-    for (const show of commands.shows) {
-      if (!show.strokeColorExpr || !show.sourceLayer) continue
-      const sk = computeSliceKey(show.sourceLayer, show.filterExpr?.ast ?? null)
-      let layerMap = strokeColorExprsBySource.get(show.targetName)
-      if (!layerMap) { layerMap = {}; strokeColorExprsBySource.set(show.targetName, layerMap) }
-      layerMap[sk] = show.strokeColorExpr.ast
-    }
-
-    // Per-show slice descriptors. For PMTiles sources where N xgis
-    // layers share one MVT source layer with different `filter:`
-    // clauses (the OSM-style demo: 6 landuse_*, 5 roads_*), the
-    // worker pre-buckets features into per-filter sub-slices so
-    // each xgis show gets ONLY its matching geometry — eliminating
-    // 9× redundant draws of the same source layer's features.
-    // sliceKey is derived from (sourceLayer, filter AST) so two
-    // shows with identical filters share one slice in the catalog.
-    // Per-slice need flags — `needsFeatureProps` when ANY show on that
-    // slice has a label (text-field) utility; `needsExtrude` when ANY
-    // show has fill-extrusion-height. Worker checks these and skips
-    // emitting the matching fields when false. The structured-clone
-    // cost on the main-thread receive side dropped from ~309 ms to
-    // sub-ms per message on Bright (DevTools profile flagged
-    // `e.data` access alone at 309 ms — the entire featureProps Map +
-    // polygons array tree was being cloned even for non-symbol fill
-    // layers that never read them).
-    const showSlicesBySource = new Map<string, Array<{
-      sliceKey: string;
-      sourceLayer: string;
-      filterAst: unknown | null;
-      needsFeatureProps: boolean;
-      needsExtrude: boolean;
-    }>>()
-    for (const show of commands.shows) {
-      if (!show.sourceLayer) continue
-      let list = showSlicesBySource.get(show.targetName)
-      if (!list) { list = []; showSlicesBySource.set(show.targetName, list) }
-      const filterAst = show.filterExpr?.ast ?? null
-      const sliceKey = computeSliceKey(show.sourceLayer, filterAst)
-      const needsFeatureProps = show.label !== undefined
-      const ex = (show as { extrude?: { kind?: string } }).extrude
-      const needsExtrude = !!ex && ex.kind !== 'none' && ex.kind !== undefined
-      const existing = list.find(s => s.sliceKey === sliceKey)
-      if (existing) {
-        // OR-aggregate: if ANY show on this slice needs the field, the
-        // slice needs it. Multiple shows can share one filter+layer.
-        if (needsFeatureProps) existing.needsFeatureProps = true
-        if (needsExtrude) existing.needsExtrude = true
-      } else {
-        list.push({ sliceKey, sourceLayer: show.sourceLayer, filterAst, needsFeatureProps, needsExtrude })
-      }
-    }
-
-    const loadPromises = commands.loads.map(async (load) => {
-      const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
-      console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
-
-      // Source `type:` from the DSL takes precedence over URL-extension
-      // sniffing so a URL without a file extension (e.g. a TileJSON
-      // manifest at `https://tiles.example.com/planet`) still routes
-      // correctly. Without this, the misrouted URL falls into the
-      // bottom `fetch().json()` branch and the JSON gets stored as a
-      // FeatureCollection — which then crashes `applyFilter` because
-      // there's no `.features` array.
-      const declaredType = load.type
-      const looksLikeRaster = declaredType === 'raster' || isTileTemplate(url)
-      const vectorTileFormat = detectVectorTileFormat(url, asVectorTileKind(declaredType))
-
-      if (looksLikeRaster) {
-        // Store the URL — actual raster rendering is activated only when a
-        // layer references this source (in rebuildLayers)
-        this.rawDatasets.set(load.name, { _tileUrl: url } as unknown as GeoJSONFeatureCollection)
-      } else if (vectorTileFormat !== null && !this.useCanvas2D) {
-        // Vector tile file — create per-source XGVTSource + VectorTileRenderer.
-        // Three archive / manifest formats are recognised by extension:
-        //   .xgvt              native binary, range-request streamed
-        //   .pmtiles           MVT inside a PMTiles archive
-        //   .json / .tilejson  TileJSON manifest pointing at an XYZ MVT
-        //                      tile server (e.g., protomaps API). Same
-        //                      runtime backend as PMTiles — see
-        //                      attachPMTilesSource for the internal
-        //                      dispatch.
-        const source = new TileCatalog()
-        const vtRenderer = new VectorTileRenderer(this.ctx)
-        vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout) // must be set before any tile uploads
-        vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
-        vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
-      vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
-        if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
-        vtRenderer.setSource(source) // connect before load so preloaded tiles auto-upload
-        const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
-        // Single attach path for every vector tile format. attachPMTilesSource
-        // dispatches PMTiles vs TileJSON vs XGVT internally based on
-        // `kind` (or URL extension when kind='auto'). Layer filter,
-        // extrude/stroke expressions, and skeleton prewarm flow uniformly
-        // through it regardless of which backend ends up handling tile
-        // bytes. Inferred set + explicit `layers:` merge: explicit wins
-        // for any layer not in the inferred set; inferred is typically
-        // a subset of explicit.
-        const inferred = usedSourceLayers.get(load.name)
-        const filterLayers = load.layers && load.layers.length > 0
-          ? load.layers
-          : (inferred && inferred.size > 0 ? [...inferred] : undefined)
-        await attachPMTilesSource(source, {
-          url: fullUrl,
-          kind: vectorTileFormat,  // already resolved by detectVectorTileFormat above
-          layers: filterLayers,
-          extrudeExprs: extrudeExprsBySource.get(load.name),
-          extrudeBaseExprs: extrudeBaseExprsBySource.get(load.name),
-          showSlices: showSlicesBySource.get(load.name),
-          strokeWidthExprs: strokeWidthExprsBySource.get(load.name),
-          strokeColorExprs: strokeColorExprsBySource.get(load.name),
-        })
-        this.vtSources.set(load.name, { source, renderer: vtRenderer })
-        this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
-
-        // Fit camera to the FIRST source that finishes. Multi-source demos
-        // typically have the same world-bounds; picking "first to win"
-        // avoids order-dependent racing and gives deterministic-enough
-        // framing without coordinating across promises.
-        if (!cameraFit) {
-          const vtBounds = vtRenderer.getBounds()
-          if (vtBounds) {
-            cameraFit = true
-            const [minLon, minLat, maxLon, maxLat] = vtBounds
-            const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
-            const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
-            this.camera.centerX = cx
-            this.camera.centerY = cy
-            const lonSpan = maxLon - minLon
-            const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-            const cssW = this.canvas.width / dpr
-            const degPerPx = lonSpan / cssW
-            this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
-          }
-        }
-      } else if (load.url === '') {
-        // Inline source — no URL provided. Seed with an empty
-        // FeatureCollection so the host can push data later via
-        // setSourceData / setSourcePoints / updateFeature.
-        this.rawDatasets.set(load.name, { type: 'FeatureCollection', features: [] })
-      } else {
-        const response = await fetch(url)
-        if (!response.ok) {
-          throw new Error(
-            `[X-GIS] Failed to load "${load.name}" from ${url} — HTTP ${response.status}. ` +
-            `Check that the file exists at that path (iOS Safari otherwise surfaces this as the opaque ` +
-            `"string did not match the expected pattern" when response.json() runs on an HTML 404 body).`,
-          )
-        }
-        const data = await response.json() as GeoJSONFeatureCollection
-        this.rawDatasets.set(load.name, data)
-      }
-    })
-    await Promise.all(loadPromises)
+    // Per-load attach: dispatch by format (raster URL vs vector tile
+    // archive vs inline-empty vs GeoJSON URL). Body lives on
+    // `this._attachOneSource` so this loop reads as flat orchestration.
+    // cameraFit state is boxed in an object so the parallel loads
+    // share the same "first source that knows its bounds wins" gate.
+    const cameraFitState = { fit: false }
+    await Promise.all(commands.loads.map(load =>
+      this._attachOneSource(load, baseUrl, {
+        usedSourceLayers,
+        extrudeExprsBySource,
+        extrudeBaseExprsBySource,
+        strokeWidthExprsBySource,
+        strokeColorExprsBySource,
+        showSlicesBySource,
+      }, cameraFitState),
+    ))
 
     this.showCommands = commands.shows
     this._sceneHasAnimation = commands.shows.some(s =>
@@ -1495,6 +1305,116 @@ export class XGISMap {
       }
     }
     return { matched: false, missingTiles, pendingFetchTotal, pendingUploadTotal }
+  }
+
+  /** Attach one declared `load:` from the parsed program — dispatches
+   *  by URL/format into the four supported branches:
+   *    1. raster tile template (`{z}/{x}/{y}` URL)        → store URL string
+   *    2. vector tile archive (.pmtiles / .tilejson / .xgvt) → spin up
+   *       per-source TileCatalog + VectorTileRenderer, attach via the
+   *       unified vector-tile-loader, register vtSources entry
+   *    3. inline-empty source (`url: ''`)                 → empty FeatureCollection
+   *    4. GeoJSON URL                                      → fetch + JSON parse
+   *
+   *  The five preprocessed maps from `buildShowSourceMaps` flow into
+   *  the vector-tile branch only — nothing else uses them. cameraFit
+   *  is shared mutable state across parallel loads ("first source that
+   *  knows its bounds wins"); boxed in an object so each Promise sees
+   *  the same flag. */
+  private async _attachOneSource(
+    load: AST.Load,
+    baseUrl: string,
+    maps: ShowSourceMaps,
+    cameraFitState: { fit: boolean },
+  ): Promise<void> {
+    const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
+    console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
+
+    // Source `type:` from the DSL takes precedence over URL-extension
+    // sniffing so a URL without a file extension (e.g. a TileJSON
+    // manifest at `https://tiles.example.com/planet`) still routes
+    // correctly. Without this, the misrouted URL falls into the
+    // bottom `fetch().json()` branch and the JSON gets stored as a
+    // FeatureCollection — which then crashes `applyFilter` because
+    // there's no `.features` array.
+    const declaredType = load.type
+    const looksLikeRaster = declaredType === 'raster' || isTileTemplate(url)
+    const vectorTileFormat = detectVectorTileFormat(url, asVectorTileKind(declaredType))
+
+    if (looksLikeRaster) {
+      this.rawDatasets.set(load.name, { _tileUrl: url } as unknown as GeoJSONFeatureCollection)
+      return
+    }
+
+    if (vectorTileFormat !== null && !this.useCanvas2D) {
+      const source = new TileCatalog()
+      const vtRenderer = new VectorTileRenderer(this.ctx)
+      vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout) // must be set before any tile uploads
+      vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
+      vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
+      vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
+      if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
+      vtRenderer.setSource(source) // connect before load so preloaded tiles auto-upload
+      const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
+      // Inferred set + explicit `layers:` merge: explicit wins for any
+      // layer not in the inferred set; inferred is typically a subset.
+      const inferred = maps.usedSourceLayers.get(load.name)
+      const filterLayers = load.layers && load.layers.length > 0
+        ? load.layers
+        : (inferred && inferred.size > 0 ? [...inferred] : undefined)
+      await attachPMTilesSource(source, {
+        url: fullUrl,
+        kind: vectorTileFormat,
+        layers: filterLayers,
+        extrudeExprs: maps.extrudeExprsBySource.get(load.name),
+        extrudeBaseExprs: maps.extrudeBaseExprsBySource.get(load.name),
+        showSlices: maps.showSlicesBySource.get(load.name),
+        strokeWidthExprs: maps.strokeWidthExprsBySource.get(load.name),
+        strokeColorExprs: maps.strokeColorExprsBySource.get(load.name),
+      })
+      this.vtSources.set(load.name, { source, renderer: vtRenderer })
+      this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
+
+      // Fit camera to the FIRST source that finishes. Multi-source demos
+      // typically share world-bounds; "first to win" avoids order-
+      // dependent racing across parallel loads.
+      if (!cameraFitState.fit) {
+        const vtBounds = vtRenderer.getBounds()
+        if (vtBounds) {
+          cameraFitState.fit = true
+          const [minLon, minLat, maxLon, maxLat] = vtBounds
+          const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
+          const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
+          this.camera.centerX = cx
+          this.camera.centerY = cy
+          const lonSpan = maxLon - minLon
+          const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+          const cssW = this.canvas.width / dpr
+          const degPerPx = lonSpan / cssW
+          this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+        }
+      }
+      return
+    }
+
+    if (load.url === '') {
+      // Inline source — host pushes data later via setSourceData /
+      // setSourcePoints / updateFeature.
+      this.rawDatasets.set(load.name, { type: 'FeatureCollection', features: [] })
+      return
+    }
+
+    // GeoJSON URL fetch.
+    const response = await fetch(url)
+    if (!response.ok) {
+      throw new Error(
+        `[X-GIS] Failed to load "${load.name}" from ${url} — HTTP ${response.status}. ` +
+        `Check that the file exists at that path (iOS Safari otherwise surfaces this as the opaque ` +
+        `"string did not match the expected pattern" when response.json() runs on an HTML 404 body).`,
+      )
+    }
+    const data = await response.json() as GeoJSONFeatureCollection
+    this.rawDatasets.set(load.name, data)
   }
 
   /** Rebuild GPU layers from raw data with current projection */
