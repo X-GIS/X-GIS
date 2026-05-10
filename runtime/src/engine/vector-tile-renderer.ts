@@ -983,9 +983,18 @@ export class VectorTileRenderer {
    *  metres so the caller can project them through the active camera
    *  and compute a screen-space rotation angle (mercator-space angle
    *  diverges from screen-space at non-zero pitch or rotated bearing).
-   *  v1 picks the FIRST segment of each feature it sees — sufficient
-   *  for typical 1-3 segment road tiles; longer roads / repeat-along-
-   *  line spacing land in a follow-up. */
+   *
+   *  Per-feature segment selection: picks the LONGEST mercator
+   *  segment within the tile rather than the first one encountered.
+   *  First-segment was visibly broken on curved/multi-segment roads —
+   *  the picked segment was usually a tiny clip-corner fragment whose
+   *  tangent didn't match the road's overall direction, producing
+   *  labels rotated arbitrarily and stuck at the tile boundary. The
+   *  longest segment is the natural "main run" of the road inside
+   *  the tile: representative tangent, midpoint sits along the
+   *  visible road body. Mapbox's full anchor-on-curve placement
+   *  remains a follow-up; this is a 90% solution for one-label-per-
+   *  road maps. */
   forEachLineLabelFeature(
     sliceLayer: string | undefined,
     fn: (
@@ -1007,6 +1016,10 @@ export class VectorTileRenderer {
     // Same visible-only walk as forEachLabelFeature — see comment
     // there for the 30× iteration-count win at Bright z=14.
     const labelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
+    // Reusable across tiles to avoid per-tile Map allocation churn.
+    // Holds the longest segment seen so far for each featId in the
+    // CURRENT tile's iteration; cleared at tile boundary.
+    const best = new Map<number, { a: number; b: number; len2: number }>()
     for (const key of labelKeys) {
       const tileData = this.source.getTileData(key, sliceLayer)
       if (!tileData?.lineVertices || !tileData?.lineIndices) continue
@@ -1016,18 +1029,26 @@ export class VectorTileRenderer {
       const tileMercX = tileData.tileWest * DEG2RAD * R
       const tileMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(tileData.tileSouth) * DEG2RAD / 2)) * R
       const tileProps = tileData.featureProps
-      const seen = new Set<number>()
+      best.clear()
       for (let i = 0; i < li.length; i += 2) {
         const a = li[i]! * STRIDE
         const b = li[i + 1]! * STRIDE
         const featId = lv[a + 4]! | 0
         // Defensive: a degenerate segment with mismatched featIds
         // would produce a label spanning two roads. Skip rather than
-        // emit garbage — the next clean segment for this feature
-        // will catch it.
+        // emit garbage.
         if ((lv[b + 4]! | 0) !== featId) continue
-        if (seen.has(featId)) continue
-        seen.add(featId)
+        // Squared mercator length is fine for max-comparison and
+        // avoids a sqrt per segment.
+        const dx = (lv[b]! + lv[b + 2]!) - (lv[a]! + lv[a + 2]!)
+        const dy = (lv[b + 1]! + lv[b + 3]!) - (lv[a + 1]! + lv[a + 3]!)
+        const len2 = dx * dx + dy * dy
+        const cur = best.get(featId)
+        if (cur === undefined || len2 > cur.len2) {
+          best.set(featId, { a, b, len2 })
+        }
+      }
+      for (const [featId, { a, b }] of best) {
         // DSFUN tile-local high+low → tile-local mercator → absolute.
         const ax = tileMercX + lv[a]! + lv[a + 2]!
         const ay = tileMercY + lv[a + 1]! + lv[a + 3]!
