@@ -26,7 +26,7 @@ import {
   type CompiledTileSet, type TileLevel,
   type GeometryPart,
 } from '@xgis/compiler'
-import { visibleTiles } from '../loader/tiles'
+import { visibleTiles } from './tile-select'
 import { XGVTBinaryBackend } from './sources/xgvt-binary-backend'
 import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'

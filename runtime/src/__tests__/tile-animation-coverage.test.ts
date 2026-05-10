@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '../engine/camera'
-import { visibleTilesFrustum } from '../loader/tiles'
+import { visibleTilesFrustum } from '../data/tile-select'
 import { mercator } from '../engine/projection'
 
 // Animation-driven tile-selection oracles. Each test walks the camera

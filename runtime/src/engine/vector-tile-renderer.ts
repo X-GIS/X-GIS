@@ -6,7 +6,7 @@
 import type { GPUContext } from './gpu'
 import { Camera } from './camera'
 import type { ShowCommand } from './renderer'
-import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../loader/tiles'
+import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../data/tile-select'
 import { visibleTilesSSE } from '../loader/tiles-sse'
 import {
   classifyTile, computeProtectedKeys,
@@ -21,7 +21,7 @@ import {
 } from './polygon-mesh'
 import { tileKey, tileKeyParent, tileKeyChildren, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool, asyncWriteBuffer } from './staging-buffer-pool'
-import { PriorityQueue } from '../loader/priority-queue'
+import { PriorityQueue } from '../data/priority-queue'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../data/tile-catalog'
 import type { TileData } from '../data/tile-types'

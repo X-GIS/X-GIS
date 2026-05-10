@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   predictTilePipeline, SUB_TILE_BUDGET_PER_FRAME,
-} from '../loader/tile-pipeline-predictor'
+} from '../debug/tile-pipeline-predictor'
 
 // CPU reproduction of the reported FLICKER bug (Bug 2) —
 // `dashed_borders#19.80/21.55/108.05/75.0/64.2` over an `ne_110m_ocean`

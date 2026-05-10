@@ -21,7 +21,7 @@
 
 import { Camera } from '../engine/camera'
 import { mercator as mercatorProj } from '../engine/projection'
-import { visibleTilesFrustum } from './tiles'
+import { visibleTilesFrustum } from '../data/tile-select'
 
 /** Hard-coded per-frame sub-tile generation cap from XGVTSource.
  *  Re-exported so the predictor's convergence math stays in sync with

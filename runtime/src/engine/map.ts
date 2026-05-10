@@ -19,7 +19,7 @@ import {
 } from './bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
-import { isTileTemplate } from '../loader/tiles'
+import { isTileTemplate } from '../data/tile-select'
 import { RasterRenderer } from './raster-renderer'
 import { PointRenderer } from './point-renderer'
 import { ShapeRegistry } from './sdf-shape'

@@ -2,7 +2,7 @@
 
 import type { GPUContext } from './gpu'
 import type { Camera } from './camera'
-import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../loader/tiles'
+import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../data/tile-select'
 import { mercator as mercatorProj } from './projection'
 import { BLEND_ALPHA, STENCIL_DISABLED } from './gpu-shared'
 import { isPickEnabled, getSampleCount } from './gpu'

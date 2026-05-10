@@ -12,7 +12,7 @@ import {
   type CompiledTile,
 } from '@xgis/compiler'
 import { TileCatalog } from '../data/tile-catalog'
-import { firstIndexedAncestor } from '../loader/tiles'
+import { firstIndexedAncestor } from '../data/tile-select'
 
 // CROSS-PATH INVARIANTS — tests that compare the outputs of TWO
 // X-GIS subsystems against each other, on the premise that each

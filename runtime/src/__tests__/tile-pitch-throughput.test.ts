@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 import { Camera } from '../engine/camera'
-import { visibleTilesFrustum, firstIndexedAncestor } from '../loader/tiles'
+import { visibleTilesFrustum, firstIndexedAncestor } from '../data/tile-select'
 import { mercator } from '../engine/projection'
 import { TileCatalog } from '../data/tile-catalog'
 import {

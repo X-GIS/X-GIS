@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   simulateTilePipeline,
   makePitchSweep,
-} from '../loader/tile-pipeline-simulator'
-import { predictTilePipeline } from '../loader/tile-pipeline-predictor'
+} from '../debug/tile-pipeline-simulator'
+import { predictTilePipeline } from '../debug/tile-pipeline-predictor'
 
 describe('tile pipeline simulator — basic behavior', () => {
   it('steady low-demand scene converges to zero misses and zero backlog', () => {

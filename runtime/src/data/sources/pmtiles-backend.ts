@@ -33,7 +33,7 @@ import { evalExtrudeExpr } from '../extrude-eval'
 import { evalFilterExpr } from '../filter-eval'
 import {
   PriorityQueue, PriorityQueueItemRemovedError,
-} from '../../loader/priority-queue'
+} from '../priority-queue'
 
 /** Same height extractor as the worker (mvt-worker.ts). The inline
  *  fallback path can't import from mvt-worker because its module is

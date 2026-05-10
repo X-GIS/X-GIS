@@ -6,7 +6,7 @@ import type { Camera } from './camera'
 import type { ShowCommand } from './renderer'
 import { getProjection } from './projection'
 import type { GeoJSONFeatureCollection } from '../loader/geojson'
-import { visibleTiles, tileBounds, tileUrl, sortByPriority } from '../loader/tiles'
+import { visibleTiles, tileBounds, tileUrl, sortByPriority } from '../data/tile-select'
 
 interface CanvasLayer {
   show: ShowCommand

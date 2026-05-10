@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '../engine/camera'
-import { visibleTilesFrustum, visibleTilesFrustumSampled } from '../loader/tiles'
+import { visibleTilesFrustum, visibleTilesFrustumSampled } from '../data/tile-select'
 import { mercator } from '../engine/projection'
 
 // Characterization tests for the `visibleTilesFrustumSampled`

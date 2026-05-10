@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PriorityQueue, PriorityQueueItemRemovedError } from '../loader/priority-queue'
+import { PriorityQueue, PriorityQueueItemRemovedError } from '../data/priority-queue'
 
 // Sync scheduler runs `tryRunJobs` inline. Useful when tests want to
 // observe a SPECIFIC enqueue → dispatch sequence (e.g. remove before

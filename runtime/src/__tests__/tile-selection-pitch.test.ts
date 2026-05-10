@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Camera } from '../engine/camera'
-import { visibleTilesFrustum } from '../loader/tiles'
+import { visibleTilesFrustum } from '../data/tile-select'
 import { mercator } from '../engine/projection'
 
 // Reproduces the user-reported bug: when lowering pitch to near 0 (top-down),
