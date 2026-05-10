@@ -180,7 +180,7 @@ export class VectorTileRenderer {
   get sourceMaxLevel(): number {
     return this.source?.maxLevel ?? 0
   }
-  currentProjection: import('./projection').Projection | null = null
+  currentProjection: import('../projection/projection').Projection | null = null
   /** GPU tile cache keyed by `${tileKey}|${sourceLayer}`. The `sourceLayer`
    *  segment is the MVT layer slot — '' for single-layer sources
    *  (XGVT-binary, GeoJSON-runtime, sub-tiles), MVT layer name for
