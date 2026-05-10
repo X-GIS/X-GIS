@@ -245,3 +245,125 @@ function classifyFallback(input: ClassifyTileInputs): TileDecision {
     requestKey: hasEntryInIndex(visibleKey) ? visibleKey : (archiveAncestor >= 0 ? archiveAncestor : null),
   }
 }
+
+// ═══ Anticipatory prefetch decisions ═══════════════════════════════
+//
+// `classifyTile` decides what to RENDER given a per-frame snapshot.
+// The two pure functions below decide what to PREFETCH alongside
+// rendering — Google Earth-style pan-direction speculation and
+// AMMOS 3D Tiles Renderer-style `loadSiblings`. Both feed into
+// `VectorTileRenderer.pumpPrefetch`, which is invoked by
+// `map.ts:renderFrame` exactly once per wall-clock frame (NOT per
+// ShowCommand — the bucket scheduler calls VTR.render() ~80× per
+// frame on dense styles, and re-issuing prefetch in that loop would
+// flood _evictShield + race visible-tile fetches for the catalog's
+// maxConcurrent budget).
+
+/** Frame-scope camera snapshot used by `projectPanPrefetchTarget`.
+ *  Field naming matches `VectorTileRenderer._lastCamSnap`
+ *  (`{cx, cy, zoom, t}`) so call sites don't need a translation
+ *  layer. `t` is `performance.now()` ms, used to compute
+ *  velocity-per-ms instead of velocity-per-frame — that keeps the
+ *  prefetch horizon wall-clock-stable across 30 fps mobile and
+ *  60 fps desktop. */
+export interface CameraSnapshot {
+  cx: number
+  cy: number
+  zoom: number
+  t: number
+}
+
+/** Project the camera `lookAheadMs` past `cur.t` along its current
+ *  velocity vector when panning is decisive (mirrors Google Earth's
+ *  pan-direction speculative prefetch). Returns null when the
+ *  existing Tier 1/2 idle-prefetch tiers cover the case better:
+ *
+ *    - prev null (first frame, no velocity yet)
+ *    - zoom in transition (Tier 2 owns this case)
+ *    - pitch above the horizon-cull cap (low-pitch only — high pitch
+ *      shows so much of the horizon that pan-direction tiles wrap
+ *      around the screen and the AMMOS-style sibling fetch covers it
+ *      better)
+ *    - dt out of band (paused tab, debugger break, first hot frame)
+ *    - speed below threshold (camera near-still — no need to project)
+ *
+ *  Pure: testable in isolation. The caller is responsible for
+ *  feeding the result into `visibleTilesFrustumSampled` and routing
+ *  the resulting in-archive keys through `TileCatalog.prefetchTiles`. */
+export function projectPanPrefetchTarget(
+  prev: CameraSnapshot | null,
+  cur: CameraSnapshot,
+  pitchDeg: number,
+  options: {
+    lookAheadMs?: number
+    minSpeedSqPerMs?: number
+    maxPitchDeg?: number
+  } = {},
+): CameraSnapshot | null {
+  if (prev === null) return null
+  // Defer to Tier 2 prefetch during zoom transitions — its quadtree
+  // re-walk is already paid for the next-LOD frustum.
+  if (Math.abs(cur.zoom - prev.zoom) > 0.05) return null
+  if (pitchDeg > (options.maxPitchDeg ?? 45)) return null
+  const dtMs = cur.t - prev.t
+  // dt > 0 guards against debugger pauses and reordered frames; the
+  // upper bound (default 200 ms ≈ 12 frames at 60 fps) trims away
+  // tab-resume / first-hot-frame outliers where velocity would be
+  // wildly inflated.
+  if (dtMs <= 0 || dtMs >= 200) return null
+  const dx = cur.cx - prev.cx
+  const dy = cur.cy - prev.cy
+  // Speed in Mercator metres per ms. The default threshold corresponds
+  // to ≈ 30 m/frame at 60 fps over 16 ms — noisier than that and the
+  // projected camera is meaningless.
+  const vxPerMs = dx / dtMs
+  const vyPerMs = dy / dtMs
+  const speedSq = vxPerMs * vxPerMs + vyPerMs * vyPerMs
+  // Default 30 m / 16 ms ≈ 1.875 m/ms → speedSq ≈ 3.5.
+  const minSpeedSq = options.minSpeedSqPerMs ?? 3.5
+  if (speedSq < minSpeedSq) return null
+  const lookAheadMs = options.lookAheadMs ?? 50
+  return {
+    cx: cur.cx + vxPerMs * lookAheadMs,
+    cy: cur.cy + vyPerMs * lookAheadMs,
+    zoom: cur.zoom,
+    t: cur.t + lookAheadMs,
+  }
+}
+
+/** AMMOS 3D Tiles Renderer `loadSiblings` — for each visible key,
+ *  collect the (≤ 3) quad siblings that are not already visible,
+ *  not already cached, and confirmed in the source's archive index.
+ *  Capped at `maxKeys` (default 16) so dense viewports don't
+ *  exhaust the catalog's `maxConcurrentLoads` budget on mobile (8
+ *  concurrent) — visible-tile fetches must keep priority.
+ *
+ *  Pure: testable in isolation. Dedupes via an internal Set so
+ *  adjacent visible tiles sharing the same parent never push the
+ *  same sibling twice. */
+export function collectSiblingPrefetchKeys(
+  visibleKeys: readonly number[],
+  hasTileData: (key: number) => boolean,
+  hasEntryInIndex: (key: number) => boolean,
+  maxKeys = 16,
+): number[] {
+  if (visibleKeys.length === 0 || maxKeys <= 0) return []
+  const visibleSet = new Set(visibleKeys)
+  const out = new Set<number>()
+  for (const k of visibleKeys) {
+    if (out.size >= maxKeys) break
+    const parent = tileKeyParent(k)
+    if (parent < 1) continue
+    const sibs = tileKeyChildren(parent)
+    for (const s of sibs) {
+      if (s === k) continue
+      if (visibleSet.has(s)) continue
+      if (out.has(s)) continue
+      if (hasTileData(s)) continue
+      if (!hasEntryInIndex(s)) continue
+      out.add(s)
+      if (out.size >= maxKeys) break
+    }
+  }
+  return [...out]
+}
