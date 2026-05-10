@@ -145,12 +145,16 @@ export class TextRenderer {
   private readonly uniformBuf: GPUBuffer
   private vertexBuf: GPUBuffer | null = null
   private vertexCount = 0
-  /** Per-draw stride into the vertex buffer + uniform overrides. */
-  private drawSlices: Array<{ first: number; count: number; uniforms: Float32Array }> = []
-  /** Current bind group; rebuilt whenever the atlas page-0 texture
-   *  is allocated or the uniform buffer is recreated. */
-  private bindGroup: GPUBindGroup | null = null
-  private lastAtlasPage: GPUTexture | null = null
+  /** Per-draw stride into the vertex buffer + uniform overrides.
+   *  `page` is the atlas page the slice's glyphs reference; a single
+   *  TextDraw can split into multiple slices when its glyphs span
+   *  pages (CJK-heavy maps). */
+  private drawSlices: Array<{ first: number; count: number; uniforms: Float32Array; page: number }> = []
+  /** One bind group per atlas page, lazily built. The atlas only
+   *  ever GROWS pages (no destroy in-flight), so cached entries stay
+   *  valid across frames. Single-page maps populate just index 0
+   *  and never see multi-page logic. */
+  private bindGroupsByPage: GPUBindGroup[] = []
 
   constructor(
     device: GPUDevice, atlas: GlyphAtlasGPU, presentationFormat: GPUTextureFormat,
@@ -228,13 +232,28 @@ export class TextRenderer {
       : 1  // never used when no glyphs, but keeps types happy
 
     for (const d of draws) {
-      const sliceFirst = glyphIdx * VERTS_PER_GLYPH
       const scale = d.fontSize / d.rasterFontSize
       let penX = d.anchorX
       const baseY = d.anchorY
       const letterSpacingPx = d.letterSpacingPx ?? 0
       const offsets = d.glyphOffsets
       const perGlyphRot = d.glyphRotations
+      const uniforms = packUniforms(d)
+      // Track the page for the current sub-slice. A label spanning
+      // pages flushes a slice each time the active page changes;
+      // single-page maps emit exactly one slice per draw.
+      let sliceFirst = glyphIdx * VERTS_PER_GLYPH
+      let slicePage = d.glyphs.length > 0 ? d.glyphs[0]!.slot.page : 0
+      let sliceGlyphCount = 0
+      const flushSlice = () => {
+        if (sliceGlyphCount === 0) return
+        this.drawSlices.push({
+          first: sliceFirst,
+          count: sliceGlyphCount * VERTS_PER_GLYPH,
+          uniforms,
+          page: slicePage,
+        })
+      }
       // Whole-label rotation around (anchorX, anchorY). Used when
       // glyphRotations isn't set; one trig-pair beats stamping a
       // rotation matrix per quad.
@@ -247,6 +266,14 @@ export class TextRenderer {
       }
       for (let gi = 0; gi < d.glyphs.length; gi++) {
         const g = d.glyphs[gi]!
+        // Page boundary: flush the current slice and start a new one
+        // pointing at this glyph's page.
+        if (g.slot.page !== slicePage && sliceGlyphCount > 0) {
+          flushSlice()
+          sliceFirst = glyphIdx * VERTS_PER_GLYPH
+          slicePage = g.slot.page
+          sliceGlyphCount = 0
+        }
         const slotSize = g.slot.size
         const drawW = slotSize * scale
         const drawH = slotSize * scale
@@ -305,13 +332,9 @@ export class TextRenderer {
           if (gi < d.glyphs.length - 1) penX += letterSpacingPx
         }
         glyphIdx += 1
+        sliceGlyphCount += 1
       }
-      const uniforms = packUniforms(d)
-      this.drawSlices.push({
-        first: sliceFirst,
-        count: d.glyphs.length * VERTS_PER_GLYPH,
-        uniforms,
-      })
+      flushSlice()
     }
 
     this.vertexCount = totalGlyphs * VERTS_PER_GLYPH
@@ -329,27 +352,35 @@ export class TextRenderer {
   /** Encode draw commands. `viewport` is in physical pixels. */
   draw(pass: GPURenderPassEncoder, viewport: { width: number; height: number }): void {
     if (this.vertexCount === 0 || this.vertexBuf === null) return
-    const page = this.atlas.getPage(0)
-    if (!page) return  // no glyphs uploaded yet
-
-    if (page !== this.lastAtlasPage) {
-      this.bindGroup = this.device.createBindGroup({
-        label: 'text-bg',
-        layout: this.bgLayout,
-        entries: [
-          { binding: 0, resource: { buffer: this.uniformBuf } },
-          { binding: 1, resource: page.createView() },
-          { binding: 2, resource: this.atlas.sampler },
-        ],
-      })
-      this.lastAtlasPage = page
-    }
+    if (this.atlas.pageCount === 0) return  // no glyphs uploaded yet
 
     pass.setPipeline(this.pipeline)
     pass.setVertexBuffer(0, this.vertexBuf)
-    pass.setBindGroup(0, this.bindGroup!)
+    let lastBoundPage = -1
 
     for (const slice of this.drawSlices) {
+      // Multi-page binding: rebind only when the slice's atlas page
+      // differs from the one currently bound. Single-page maps hit
+      // this once and never re-enter the branch.
+      if (slice.page !== lastBoundPage) {
+        const page = this.atlas.getPage(slice.page)
+        if (!page) continue  // page evicted between flush and draw — skip
+        let bg = this.bindGroupsByPage[slice.page]
+        if (!bg) {
+          bg = this.device.createBindGroup({
+            label: `text-bg-page-${slice.page}`,
+            layout: this.bgLayout,
+            entries: [
+              { binding: 0, resource: { buffer: this.uniformBuf } },
+              { binding: 1, resource: page.createView() },
+              { binding: 2, resource: this.atlas.sampler },
+            ],
+          })
+          this.bindGroupsByPage[slice.page] = bg
+        }
+        pass.setBindGroup(0, bg)
+        lastBoundPage = slice.page
+      }
       // viewport goes in front of fill/halo so the same uniform
       // layout serves all per-draw permutations.
       slice.uniforms[0] = viewport.width
@@ -363,6 +394,7 @@ export class TextRenderer {
   destroy(): void {
     this.uniformBuf.destroy()
     this.vertexBuf?.destroy()
+    this.bindGroupsByPage.length = 0
   }
 }
 
