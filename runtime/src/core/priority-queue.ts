@@ -69,9 +69,20 @@ export class PriorityQueue<T, R = unknown> {
   }
 
   sort(): void {
-    if (this.priorityCallback !== null) {
-      this.items.sort(this.priorityCallback)
-    }
+    if (this.priorityCallback === null) return
+    // Skip sort when every queued item will dispatch in the next
+    // tryRunJobs round — priority order is moot at that point.
+    // tryRunJobs caps dispatch at `maxJobs - currJobs`, so when
+    // `items.length <= slots` the next loop pops the whole queue
+    // regardless of order. The sort skip saves N×log(N) comparator
+    // calls multiplied by however many times tryRunJobs fires this
+    // frame — and on Bright VTR.render calls drainPendingUploads
+    // once per ShowCommand (~80 / frame), so even a 4-item queue's
+    // sort showed as ~16 ms in the S1 hitch-frame attribution
+    // (`uploadQueue.priorityCallback` × 3 entries).
+    const slots = this.maxJobs - this.currJobs
+    if (this.items.length <= slots) return
+    this.items.sort(this.priorityCallback)
   }
 
   /** Enqueue. Resolves with the callback's value once it runs; rejects
