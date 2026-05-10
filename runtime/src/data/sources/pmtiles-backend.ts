@@ -192,7 +192,27 @@ function maxInflight(): number {
  *  failed tile "missing" and falls back to the nearest cached
  *  ancestor. After the TTL, the next visible-tile pass retries the
  *  fetch once (in case the upstream issue resolved). */
-const FAILED_KEY_TTL_MS = 5 * 60_000
+/** Negative cache TTL with progressive backoff. The previous flat
+ *  5-minute TTL was too aggressive for transient failures (iOS Safari
+ *  network blips, CDN edge hiccups, momentary 5xx) — once a tile
+ *  failed three retry attempts, it stayed missing for 5 full minutes
+ *  even after the upstream recovered. User-visible symptom: 21 tiles
+ *  persistently flickering on a parked iPhone view of NYC because they
+ *  failed once and got locked out.
+ *
+ *  Exponential backoff per consecutive failure:
+ *    1st failure → 15 s   (transient blip recovers fast)
+ *    2nd failure → 30 s
+ *    3rd failure → 1 min
+ *    4th failure → 2 min
+ *    5th+        → 5 min  (cap — likely permanent or upstream broken)
+ *
+ *  A successful fetch clears the count, so a tile that recovers stops
+ *  paying the longer backoff window even if it failed N-1 times before. */
+function failedKeyTtlMs(consecutiveFailures: number): number {
+  const seconds = Math.min(15 * Math.pow(2, consecutiveFailures - 1), 300)
+  return seconds * 1000
+}
 
 export class PMTilesBackend implements TileSource {
   readonly meta: TileSourceMeta
@@ -216,7 +236,7 @@ export class PMTilesBackend implements TileSource {
    *  catalog's hasTileData stays false → renderer's parent walk
    *  treats the tile as missing → ancestor fallback draws in its
    *  place. See FAILED_KEY_TTL_MS for the recovery window. */
-  private failedKeys: Map<number, number> = new Map()
+  private failedKeys: Map<number, { expiresAt: number; count: number }> = new Map()
 
   /** Per-key AbortController for in-flight fetches. cancelStale()
    *  walks this map to abort fetches the catalog no longer wants.
@@ -303,10 +323,13 @@ export class PMTilesBackend implements TileSource {
     // acceptResult here — keeping hasTileData(key) false lets the
     // renderer's parent-walk treat the tile as missing and draw the
     // nearest cached ancestor magnified into its bounds.
-    const failedAt = this.failedKeys.get(key)
-    if (failedAt !== undefined) {
-      if (Date.now() < failedAt) return
-      this.failedKeys.delete(key)
+    const failed = this.failedKeys.get(key)
+    if (failed !== undefined) {
+      if (Date.now() < failed.expiresAt) return
+      // TTL expired — drop the timestamp but KEEP the count so the
+      // next failure (if it recurs) backs off further. Successful
+      // fetches clear the entry entirely in doFetch's success path.
+      this.failedKeys.set(key, { expiresAt: 0, count: failed.count })
     }
     // Dedupe: already queued or actively fetching.
     if (this.fetchQueue.has(key)) return
@@ -351,11 +374,12 @@ export class PMTilesBackend implements TileSource {
         // and DO NOT acceptResult. The catalog will see hasTileData
         // remain false; the renderer's per-tile parent walk will find
         // the nearest cached ancestor and draw that magnified into
-        // this tile's bounds (Mapbox-style overzoom fallback). After
-        // FAILED_KEY_TTL_MS the cache entry expires and a fresh
-        // visible-tile pass retries — useful when the upstream
-        // problem was transient and has recovered.
-        this.failedKeys.set(key, Date.now() + FAILED_KEY_TTL_MS)
+        // this tile's bounds (Mapbox-style overzoom fallback). TTL
+        // grows exponentially per consecutive failure (see
+        // failedKeyTtlMs); a transient blip recovers in 15 s, a truly
+        // broken upstream is locked out for the 5-minute cap.
+        const count = (this.failedKeys.get(key)?.count ?? 0) + 1
+        this.failedKeys.set(key, { expiresAt: Date.now() + failedKeyTtlMs(count), count })
         sink.releaseLoading(key)
         return
       }
@@ -373,6 +397,10 @@ export class PMTilesBackend implements TileSource {
       // Bytes ready; queue for paced compile in tick(). Note we do
       // NOT releaseLoading here — the slot stays held until compile
       // finishes, providing back-pressure on requestTiles.
+      // Successful fetch clears any prior failure state so the next
+      // visible-tile pass after this resolves doesn't get held on
+      // exponential backoff from a previous flaky attempt.
+      this.failedKeys.delete(key)
       this.pendingMvt.push({ key, bytes: result })
     } catch (err) {
       // Aborted via signal (catalog no longer wants this tile) —
@@ -381,7 +409,8 @@ export class PMTilesBackend implements TileSource {
       // again, and a future call won't sit in the negative cache.
       const isAbort = (err as Error)?.name === 'AbortError'
       if (!isAbort) {
-        this.failedKeys.set(key, Date.now() + FAILED_KEY_TTL_MS)
+        const count = (this.failedKeys.get(key)?.count ?? 0) + 1
+        this.failedKeys.set(key, { expiresAt: Date.now() + failedKeyTtlMs(count), count })
         console.error('[pmtiles fetch]', (err as Error)?.stack ?? err)
       }
       sink.releaseLoading(key)
@@ -400,14 +429,14 @@ export class PMTilesBackend implements TileSource {
 
   /** TileSource.isFailed — true while `key`'s negative-cache TTL has
    *  not yet expired. Used by TileCatalog.getTileState to surface the
-   *  `'failed'` lifecycle state. Self-cleaning: an expired entry is
-   *  pruned on read so subsequent calls go back to `'unloaded'`. */
+   *  `'failed'` lifecycle state. Self-cleaning when the count has
+   *  reset (entry only kept around to retain the failure-count for
+   *  exponential backoff between TTL windows; once expired AND count
+   *  has been reset by a successful fetch, the entry is removed). */
   isFailed(key: number): boolean {
-    const expiresAt = this.failedKeys.get(key)
-    if (expiresAt === undefined) return false
-    if (Date.now() < expiresAt) return true
-    this.failedKeys.delete(key)
-    return false
+    const failed = this.failedKeys.get(key)
+    if (failed === undefined) return false
+    return Date.now() < failed.expiresAt
   }
 
   /** Cancel in-flight fetches for keys NOT in `activeKeys`. Called by
