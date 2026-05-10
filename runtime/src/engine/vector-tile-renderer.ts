@@ -762,6 +762,17 @@ export class VectorTileRenderer {
   private _uploadsThisFrame = 0
   private _heldUploads: { key: number; data: TileData; sourceLayer: string }[] = []
   private _heldUploadIds = new Set<string>()
+  /** Mirror of `_heldUploads`'s tile keys (sliceLayer-collapsed)
+   *  used by `classifyTile`'s `hasOtherSliceHeld` predicate to keep
+   *  every layer of a single tile on the same fallback level until
+   *  the slowest slice catches up. Without this set, the upload cap
+   *  staggers per-MVT-layer slice arrival across frames and the
+   *  renderer ends up with `primary` z=N landcover next to
+   *  `parent-fallback` z=N-1 transportation in the same screen
+   *  region — visually jarring. The set is rebuilt at
+   *  `resetUploadFrameCap` so any items the replay re-defers are
+   *  re-tracked, while peers that successfully upload drop out. */
+  private _heldUploadKeys = new Set<number>()
   /** Per-decision counts from the last render() call. Always tracked
    *  (cheap — Map of ~7 string keys). Exposed via
    *  `getLastDecisionCounts()` for inspector / console diagnosis.
@@ -1200,6 +1211,7 @@ export class VectorTileRenderer {
     if (this._uploadsThisFrame >= cap) {
       this._heldUploads.push({ key, data, sourceLayer })
       this._heldUploadIds.add(id)
+      this._heldUploadKeys.add(key)
       return
     }
     this._uploadsThisFrame++
@@ -1226,7 +1238,11 @@ export class VectorTileRenderer {
     const held = this._heldUploads
     this._heldUploads = []
     this._heldUploadIds.clear()
+    this._heldUploadKeys.clear()
     for (const item of held) {
+      // Re-deferrals (cap exceeded again) repopulate _heldUploadKeys
+      // via the push branch above; successful uploads simply leave
+      // the key out of the rebuilt set.
       this.uploadTile(item.key, item.data, item.sourceLayer)
     }
   }
@@ -2581,6 +2597,10 @@ export class VectorTileRenderer {
           hasAnySliceInCatalog: (k) => this.source!.hasTileData(k),
           hasEntryInIndex: (k) => this.source!.hasEntryInIndex(k),
           sliceLayer,
+          // Coherence: any peer slice for this tile still queued blocks
+          // primary in this layer too, so all consumers transition
+          // together. See _heldUploadKeys field doc.
+          hasOtherSliceHeld: this._heldUploadKeys.has(key),
         })
         sliceMemo.set(key, decision)
       }

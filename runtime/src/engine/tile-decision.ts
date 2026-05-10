@@ -91,6 +91,17 @@ export interface ClassifyTileInputs {
   /** True iff `key` exists in the source's archive index. */
   hasEntryInIndex: (key: number) => boolean
   sliceLayer: string
+  /** True iff some slice for `visibleKey` is still in the renderer's
+   *  deferred-upload queue. When set, even if THIS layer's slice is
+   *  already on the GPU we treat the tile as not-yet-ready and route
+   *  through the parent-walk path — keeps zoom levels coherent across
+   *  every layer consuming the same source. Without it, the upload
+   *  cap (`MAX_UPLOADS_PER_FRAME` 4 desktop / 1 mobile) splits a
+   *  tile's per-MVT-layer slices across multiple frames, so a sliver
+   *  of layers sit on `primary` (z=N) while their peers walk back to
+   *  `parent-fallback` (z=N-1) — same screen position, two zoom
+   *  levels rendering simultaneously. Default false (back-compat). */
+  hasOtherSliceHeld?: boolean
 }
 
 /** Reusable decision singletons for the static / no-payload kinds.
@@ -132,8 +143,21 @@ export function classifyTile(input: ClassifyTileInputs): TileDecision {
   }
 
   // 2. PRIMARY — already on GPU. Hottest steady-state branch; reuse
-  //    the frozen singleton to skip an allocation.
-  if (layerCache.has(visibleKey)) return PRIMARY_DECISION
+  //    the frozen singleton to skip an allocation. The
+  //    `hasOtherSliceHeld` guard suppresses primary when ANY slice
+  //    for this tile is still held in the renderer's deferred-upload
+  //    queue — see the field doc on ClassifyTileInputs.
+  if (layerCache.has(visibleKey) && !input.hasOtherSliceHeld) return PRIMARY_DECISION
+
+  // Coherence override — visible slice is on GPU but a peer slice
+  // for the same tile is still queued. Skip the
+  // `queued-with-fallback` path below (which would re-fire an
+  // upload we don't need) and go straight to parent-walk so this
+  // layer stretches alongside its peers until the held queue
+  // drains.
+  if (input.hasOtherSliceHeld && layerCache.has(visibleKey)) {
+    return classifyFallback(input)
+  }
 
   // 3. THIS LAYER's slice in catalog → upload + walk for fallback.
   //    (Bug class commit-49d4801: walking the parent here is critical
