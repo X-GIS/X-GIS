@@ -18,8 +18,8 @@ import {
 //     #10.29/30.94565/117.95751/359.5/84.0
 //
 // We test at the INDEX level (parseXGVTIndex output), NOT by
-// instantiating an XGVTSource, because:
-//   - Full XGVTSource.loadFromBuffer triggers a worker-pool parse for
+// instantiating an TileCatalog, because:
+//   - Full TileCatalog.loadFromBuffer triggers a worker-pool parse for
 //     compact tiles — Node vitest has no `Worker` global so that path
 //     fails.
 //   - The user's symptom ("tiles don't load") is ultimately decided
@@ -71,7 +71,7 @@ function makeBugCam(): Camera {
 }
 
 /** Parse an .xgvt file's index (+ property table) without instantiating
- *  an XGVTSource — bypasses the async worker-pool preload path that
+ *  an TileCatalog — bypasses the async worker-pool preload path that
  *  needs a browser Worker global. */
 function parseXgvtFromFile(path: string): XGVTIndex {
   const nodeBuf = readFileSync(path)

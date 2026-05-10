@@ -11,7 +11,7 @@ import {
   type GeoJSONFeatureCollection,
   type CompiledTile,
 } from '@xgis/compiler'
-import { XGVTSource } from '../data/xgvt-source'
+import { TileCatalog } from '../data/tile-catalog'
 import { firstIndexedAncestor } from '../loader/tiles'
 
 // CROSS-PATH INVARIANTS — tests that compare the outputs of TWO
@@ -291,7 +291,7 @@ describe('cross-path: generateSubTile area conservation', () => {
       { type: 'FeatureCollection', features: [feature] },
       { minZoom: 2, maxZoom: 2 },
     )
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     for (const level of parentSet.levels) {
       source.addTileLevel(level, parentSet.bounds, parentSet.propertyTable)
     }
@@ -384,7 +384,7 @@ describe('cross-path: firstIndexedAncestor returns a geometric ancestor', () => 
     // Build an index with only z=3 tiles.
     const gj = loadGeoJSON(COUNTRIES_PATH)
     const batchSet = compileGeoJSONToTiles(gj, { minZoom: 3, maxZoom: 3 })
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     for (const level of batchSet.levels) {
       source.addTileLevel(level, batchSet.bounds, batchSet.propertyTable)
     }

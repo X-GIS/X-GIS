@@ -1,4 +1,4 @@
-// Test the on-demand virtualCatalog fetcher path on XGVTSource.
+// Test the on-demand virtualCatalog fetcher path on TileCatalog.
 // PMTiles + similar archives plug in through this hook instead of
 // pre-fetching their entire contents.
 //
@@ -15,7 +15,7 @@ import {
   decodeMvtTile, decomposeFeatures, compileSingleTile, tileKey,
   type CompiledTile,
 } from '@xgis/compiler'
-import { XGVTSource, type VirtualTileFetcher } from '../data/xgvt-source'
+import { TileCatalog, type VirtualTileFetcher } from '../data/tile-catalog'
 
 function buildSyntheticCompiledTile(z: number, x: number, y: number): CompiledTile | null {
   const orig = {
@@ -36,9 +36,9 @@ function buildSyntheticCompiledTile(z: number, x: number, y: number): CompiledTi
   return compileSingleTile(parts, z, x, y, z)
 }
 
-describe('XGVTSource virtual catalog (on-demand fetch)', () => {
+describe('TileCatalog virtual catalog (on-demand fetch)', () => {
   it('hasEntryInIndex reports true for keys inside the catalog window', () => {
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     const fetcher: VirtualTileFetcher = async () => null
     source.setVirtualCatalog({
       fetcher, minZoom: 0, maxZoom: 4,
@@ -51,7 +51,7 @@ describe('XGVTSource virtual catalog (on-demand fetch)', () => {
   })
 
   it('skips fetcher for tiles outside the catalog bounds', () => {
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     let fetchCount = 0
     const fetcher: VirtualTileFetcher = async () => { fetchCount++; return null }
     source.setVirtualCatalog({
@@ -66,7 +66,7 @@ describe('XGVTSource virtual catalog (on-demand fetch)', () => {
   })
 
   it('fetcher fires on requestTiles, result lands in cache + onTileLoaded', async () => {
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     let fetchCount = 0
     const fetcher: VirtualTileFetcher = async (z, x, y) => {
       fetchCount++
@@ -96,7 +96,7 @@ describe('XGVTSource virtual catalog (on-demand fetch)', () => {
   })
 
   it('second requestTiles for the same cached key is a no-op', async () => {
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     let fetchCount = 0
     const fetcher: VirtualTileFetcher = async (z, x, y) => {
       fetchCount++
@@ -117,7 +117,7 @@ describe('XGVTSource virtual catalog (on-demand fetch)', () => {
   })
 
   it('null fetcher result caches an empty placeholder (no infinite re-request)', async () => {
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     let fetchCount = 0
     const fetcher: VirtualTileFetcher = async () => { fetchCount++; return null }
     source.setVirtualCatalog({
@@ -135,7 +135,7 @@ describe('XGVTSource virtual catalog (on-demand fetch)', () => {
   })
 
   it('maxLevel reports the catalog maxZoom', () => {
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     source.setVirtualCatalog({
       fetcher: async () => null, minZoom: 0, maxZoom: 14,
       bounds: [-180, -85, 180, 85],
@@ -144,7 +144,7 @@ describe('XGVTSource virtual catalog (on-demand fetch)', () => {
   })
 
   it('getBounds returns the catalog bounds (camera fit)', () => {
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     source.setVirtualCatalog({
       fetcher: async () => null, minZoom: 0, maxZoom: 4,
       bounds: [11, 43, 12, 44],

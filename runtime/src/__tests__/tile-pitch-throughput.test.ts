@@ -6,7 +6,7 @@ import { dirname, resolve } from 'node:path'
 import { Camera } from '../engine/camera'
 import { visibleTilesFrustum, firstIndexedAncestor } from '../loader/tiles'
 import { mercator } from '../engine/projection'
-import { XGVTSource } from '../data/xgvt-source'
+import { TileCatalog } from '../data/tile-catalog'
 import {
   compileGeoJSONToTiles, decomposeFeatures, tileKey, tileKeyUnpack,
 } from '@xgis/compiler'
@@ -61,11 +61,11 @@ function loadCountries(): GeoJSONFeatureCollection {
 /** Build a source whose state mirrors "just finished initial load":
  *  z=0 tile pre-compiled + raw parts ready for on-demand compile at
  *  any deeper zoom. Same setup as tile-real-data-coverage.test.ts. */
-function coldSource(): XGVTSource {
+function coldSource(): TileCatalog {
   const gj = loadCountries()
   const parts = decomposeFeatures(gj.features)
   const set = compileGeoJSONToTiles(gj, { minZoom: 0, maxZoom: 0 })
-  const source = new XGVTSource()
+  const source = new TileCatalog()
   source.addTileLevel(set.levels[0], set.bounds, set.propertyTable)
   source.setRawParts(parts, 22)
   return source
@@ -75,7 +75,7 @@ function coldSource(): XGVTSource {
  *  tile set calling compileTileOnDemand. Returns frame count at which
  *  every tile was satisfied, or maxFrames if not converged. */
 function simulateConvergence(
-  source: XGVTSource,
+  source: TileCatalog,
   tileKeys: number[],
   maxFrames: number,
 ): { framesToConverge: number; readyPerFrame: number[]; finalReady: number } {
@@ -218,10 +218,10 @@ describe('Throughput convergence: XGVT sub-tile path (the user-bug path)', () =>
   /** Build a source whose z=3 level is fully pre-compiled (mirroring a
    *  loaded XGVT ancestor), then leaf-key sub-tiles can be generated
    *  on demand from those z=3 parents. */
-  function subTileSource(): XGVTSource {
+  function subTileSource(): TileCatalog {
     const gj = loadLand()
     const set = compileGeoJSONToTiles(gj, { minZoom: 0, maxZoom: 3 })
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     for (const level of set.levels) {
       source.addTileLevel(level, set.bounds, set.propertyTable)
     }
@@ -234,7 +234,7 @@ describe('Throughput convergence: XGVT sub-tile path (the user-bug path)', () =>
    *  ocean / no-data regions — the renderer simply skips those in
    *  production, and we should too in this test (otherwise the
    *  convergence loop waits forever for tiles that never had data). */
-  function reachableSubTileKeys(source: XGVTSource, tiles: ReturnType<typeof visibleTilesFrustum>): number[] {
+  function reachableSubTileKeys(source: TileCatalog, tiles: ReturnType<typeof visibleTilesFrustum>): number[] {
     const idx = source.getIndex()
     if (!idx) return []
     const out: number[] = []
@@ -251,7 +251,7 @@ describe('Throughput convergence: XGVT sub-tile path (the user-bug path)', () =>
   /** Frame-loop simulation for the sub-tile path: reset budget, walk
    *  each target tile, find its ancestor, call generateSubTile. */
   function simulateSubTileConvergence(
-    source: XGVTSource,
+    source: TileCatalog,
     leafKeys: number[],
     maxFrames: number,
   ): { frames: number; finalReady: number } {

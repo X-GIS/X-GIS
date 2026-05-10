@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { XGVTSource } from '../data/xgvt-source'
+import { TileCatalog } from '../data/tile-catalog'
 import { decomposeFeatures, compileGeoJSONToTiles, tileKey } from '@xgis/compiler'
 import type { GeoJSONFeatureCollection } from '@xgis/compiler'
 
-// CPU regression: when XGVTSource generates an over-zoom sub-tile from
+// CPU regression: when TileCatalog generates an over-zoom sub-tile from
 // a parent tile, polygon outlines used to be re-clipped via per-segment
 // Liang-Barsky on the parent's stride-5 outlineIndices — losing arc
 // continuity at every sub-tile boundary. The fix runs the same
@@ -11,7 +11,7 @@ import type { GeoJSONFeatureCollection } from '@xgis/compiler'
 // reconstructing outlineVertices from `parent.polygons` so each sub-
 // tile's outline arc remains on the original ring's arc-space.
 //
-// This test compiles a polygon, addTileLevel into XGVTSource, then
+// This test compiles a polygon, addTileLevel into TileCatalog, then
 // triggers generateSubTile and inspects the resulting TileData. Asserts
 // outlineVertices is populated and every chain's arc values are
 // monotonic per segment (line-list pairs).
@@ -19,7 +19,7 @@ import type { GeoJSONFeatureCollection } from '@xgis/compiler'
 const STRIDE = 10
 const ARC_OFFSET = 5
 
-describe('XGVTSource sub-tile outline arc continuity', () => {
+describe('TileCatalog sub-tile outline arc continuity', () => {
   it('sub-tile inherits global ring arc from parent.polygons', () => {
     // Polygon spans roughly lon -30..30, lat -10..10 — large enough
     // that the z=1 parent tile (one of four) covers part of it and a
@@ -42,7 +42,7 @@ describe('XGVTSource sub-tile outline arc continuity', () => {
     const z1 = set.levels.find(l => l.zoom === 1)!
     expect(z1).toBeDefined()
 
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     source.addTileLevel(z1, set.bounds, set.propertyTable)
 
     // Pick a parent tile that we know has the polygon (any z=1 tile

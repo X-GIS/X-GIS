@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { XGVTSource } from '../data/xgvt-source'
+import { TileCatalog } from '../data/tile-catalog'
 import {
   decomposeFeatures,
   compileGeoJSONToTiles,
@@ -12,7 +12,7 @@ import type { GeoJSONFeatureCollection } from '@xgis/compiler'
 // fully covers a sub-tile, it clears the scratch buffers and emits
 // `fullCover: true` with empty vertices — expecting the caller to
 // synthesize the quad from the entry's fullCoverFeatureId.
-// XGVTSource.compileTileOnDemand used to route that empty buffer
+// TileCatalog.compileTileOnDemand used to route that empty buffer
 // straight into cacheTileData, so the renderer received a tile with
 // vertices.length === 0 and drew nothing. Surfaced on the
 // fixture_stress_many_layers demo — each per-layer filter's polygon
@@ -66,13 +66,13 @@ function makeSmallPolygonGeoJSON(): GeoJSONFeatureCollection {
   }
 }
 
-describe('XGVTSource full-cover sub-tile generation', () => {
+describe('TileCatalog full-cover sub-tile generation', () => {
   it('runtime-generated full-cover sub-tile is drawable (quad synthesized)', () => {
     const geojson = makeWorldCoverGeoJSON()
     const parts = decomposeFeatures(geojson.features)
     const set = compileGeoJSONToTiles(geojson, { minZoom: 0, maxZoom: 0 })
 
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     source.addTileLevel(set.levels[0], set.bounds, set.propertyTable)
     source.setRawParts(parts, 22)
 
@@ -96,7 +96,7 @@ describe('XGVTSource full-cover sub-tile generation', () => {
     const parts = decomposeFeatures(geojson.features)
     const set = compileGeoJSONToTiles(geojson, { minZoom: 0, maxZoom: 0 })
 
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     source.addTileLevel(set.levels[0], set.bounds, set.propertyTable)
     source.setRawParts(parts, 22)
 
@@ -126,7 +126,7 @@ describe('XGVTSource full-cover sub-tile generation', () => {
     const parts = decomposeFeatures(geojson.features)
     const set = compileGeoJSONToTiles(geojson, { minZoom: 0, maxZoom: 0 })
 
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     source.addTileLevel(set.levels[0], set.bounds, set.propertyTable)
     source.setRawParts(parts, 22)
 

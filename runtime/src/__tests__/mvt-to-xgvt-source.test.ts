@@ -1,8 +1,8 @@
-// Integration test for the MVT → XGVTSource bridge used by
+// Integration test for the MVT → TileCatalog bridge used by
 // loadPMTilesSource. Skips PMTiles network/file IO entirely — feeds
 // a synthetic MVT (geojson-vt + vt-pbf) through the same pipeline
 // (decodeMvtTile → decomposeFeatures → compileSingleTile →
-// XGVTSource.addTileLevel) and asserts the resulting source is
+// TileCatalog.addTileLevel) and asserts the resulting source is
 // queryable and renders non-empty geometry.
 
 import { describe, expect, it } from 'vitest'
@@ -14,10 +14,10 @@ import {
   decodeMvtTile, decomposeFeatures, compileSingleTile, tileKey,
   type CompiledTile, type PropertyTable, type TileLevel,
 } from '@xgis/compiler'
-import { XGVTSource } from '../data/xgvt-source'
+import { TileCatalog } from '../data/tile-catalog'
 
-describe('MVT → XGVTSource pipeline (PMTiles bridge core)', () => {
-  it('compiles an MVT tile into an XGVTSource that exposes the geometry', () => {
+describe('MVT → TileCatalog pipeline (PMTiles bridge core)', () => {
+  it('compiles an MVT tile into an TileCatalog that exposes the geometry', () => {
     const orig = {
       type: 'FeatureCollection',
       features: [
@@ -54,7 +54,7 @@ describe('MVT → XGVTSource pipeline (PMTiles bridge core)', () => {
     tiles.set(tileKey(z, x, y), compiled!)
     const level: TileLevel = { zoom: z, tiles }
 
-    const source = new XGVTSource()
+    const source = new TileCatalog()
     const propTable: PropertyTable = { fieldNames: [], fieldTypes: [], values: [] }
     source.addTileLevel(level, [-180, -90, 180, 90], propTable)
 

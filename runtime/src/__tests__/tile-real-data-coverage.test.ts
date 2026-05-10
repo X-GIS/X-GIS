@@ -6,7 +6,7 @@ import { dirname, resolve } from 'node:path'
 import { Camera } from '../engine/camera'
 import { visibleTilesFrustum } from '../loader/tiles'
 import { mercator } from '../engine/projection'
-import { XGVTSource } from '../data/xgvt-source'
+import { TileCatalog } from '../data/tile-catalog'
 import {
   decomposeFeatures,
   compileGeoJSONToTiles,
@@ -47,11 +47,11 @@ function makeCam(zoom: number, pitch: number, lon: number, lat: number, bearing 
   return c
 }
 
-function setupSource(): XGVTSource {
+function setupSource(): TileCatalog {
   const gj = loadCountries()
   const parts = decomposeFeatures(gj.features)
   const set = compileGeoJSONToTiles(gj, { minZoom: 0, maxZoom: 0 })
-  const source = new XGVTSource()
+  const source = new TileCatalog()
   source.addTileLevel(set.levels[0], set.bounds, set.propertyTable)
   source.setRawParts(parts, 22)
   return source
@@ -214,7 +214,7 @@ describe('Real-data: zoom-in animation over Paris', () => {
 
     for (let zoom = 5; zoom <= 15; zoom++) {
       // Reset per-frame compile budget so each iteration can compile
-      // its center tile (XGVTSource caps compilations at 4/frame).
+      // its center tile (TileCatalog caps compilations at 4/frame).
       source.resetCompileBudget()
 
       const cam = makeCam(zoom, 0, 2.3522, 48.8566)
