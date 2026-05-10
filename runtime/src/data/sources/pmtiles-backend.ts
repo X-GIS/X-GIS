@@ -23,8 +23,8 @@ import {
   evaluate,
   type GeoJSONFeature,
 } from '@xgis/compiler'
-import { buildLineSegments } from '../../engine/line-segment-build'
-import { EXTRUDE_FALLBACK_HEIGHT_M } from '../../engine/polygon-mesh'
+import { buildLineSegments } from '../../core/line-segment-build'
+import { EXTRUDE_FALLBACK_HEIGHT_M } from '../../core/polygon-mesh'
 import type {
   TileSource, TileSourceSink, TileSourceMeta,
 } from '../tile-source'
@@ -33,7 +33,7 @@ import { evalExtrudeExpr } from '../eval/extrude-eval'
 import { evalFilterExpr } from '../eval/filter-eval'
 import {
   PriorityQueue, PriorityQueueItemRemovedError,
-} from '../priority-queue'
+} from '../../core/priority-queue'
 
 /** Same height extractor as the worker (mvt-worker.ts). The inline
  *  fallback path can't import from mvt-worker because its module is

@@ -18,10 +18,10 @@ import {
   generateWallMeshExtruded,
   quantizePolygonVertices,
   quantizePolygonVerticesExtruded,
-} from '../polygon-mesh'
+} from '../../core/polygon-mesh'
 import { tileKey, tileKeyParent, tileKeyChildren, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool, asyncWriteBuffer } from '../gpu/staging-buffer-pool'
-import { PriorityQueue } from '../../data/priority-queue'
+import { PriorityQueue } from '../../core/priority-queue'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../../data/tile-catalog'
 import type { TileData } from '../../data/tile-types'
