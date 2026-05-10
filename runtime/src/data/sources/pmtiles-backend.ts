@@ -398,6 +398,18 @@ export class PMTilesBackend implements TileSource {
     this.fetchQueue.priorityCallback = cmp
   }
 
+  /** TileSource.isFailed — true while `key`'s negative-cache TTL has
+   *  not yet expired. Used by TileCatalog.getTileState to surface the
+   *  `'failed'` lifecycle state. Self-cleaning: an expired entry is
+   *  pruned on read so subsequent calls go back to `'unloaded'`. */
+  isFailed(key: number): boolean {
+    const expiresAt = this.failedKeys.get(key)
+    if (expiresAt === undefined) return false
+    if (Date.now() < expiresAt) return true
+    this.failedKeys.delete(key)
+    return false
+  }
+
   /** Cancel in-flight fetches for keys NOT in `activeKeys`. Called by
    *  the catalog (driven by VTR per-frame) when the camera moves
    *  and previously-requested tiles become irrelevant. The fetcher

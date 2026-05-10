@@ -212,4 +212,12 @@ export interface TileSource {
    *  by backends that route fetches through a PriorityQueue (PMTiles).
    *  Other backends (in-memory GeoJSON, sync compile paths) ignore. */
   setFetchPriorityCallback?(cmp: ((a: number, b: number) => number) | null): void
+
+  /** OPTIONAL: backend-side TTL'd negative cache lookup. Returns true
+   *  when a recent fetch attempt for `key` exhausted retries and the
+   *  backend is short-circuiting subsequent requests. Used by
+   *  `TileCatalog.getTileState` to surface the `'failed'` state.
+   *  Backends without retry logic (in-memory GeoJSON, XGVT-binary
+   *  range fetches) can omit. Default: never failed. */
+  isFailed?(key: number): boolean
 }

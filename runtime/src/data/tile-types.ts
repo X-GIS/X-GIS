@@ -9,6 +9,22 @@
 
 import type { CompiledTile, RingPolygon } from '@xgis/compiler'
 
+// ═══ Tile lifecycle state ═══
+
+/** Per-tile lifecycle state, modelled after NASA-AMMOS 3DTilesRenderer's
+ *  TilesRendererBase state machine. Mirrors the underlying tracking
+ *  structures inside TileCatalog (`dataCache` + `loadingTiles`) and the
+ *  per-backend failure cache (`PMTilesBackend.failedKeys`); use
+ *  `TileCatalog.getTileState(key)` to query — never assemble it from raw
+ *  maps in callers. State transitions:
+ *
+ *    unloaded → loading       (requestTiles dispatch)
+ *    loading  → cached        (acceptResult success)
+ *    loading  → failed        (PMTiles 3-attempt exhaustion → 5-min TTL)
+ *    failed   → unloaded      (TTL expiry)
+ *    cached   → unloaded      (evictTiles when over byte / count cap) */
+export type TileState = 'unloaded' | 'loading' | 'cached' | 'failed'
+
 // ═══ Tile data (CPU-side) ═══
 
 /** CPU-only tile data (no GPU dependency)
