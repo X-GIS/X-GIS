@@ -35,7 +35,7 @@ import {
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '../data/tile-catalog'
 import { computeSliceKey } from '../data/filter-eval'
-import { attachPMTilesSource, prewarmVectorTileSource } from '../loader/pmtiles-source'
+import { attachPMTilesSource, prewarmVectorTileSource, detectVectorTileFormat } from '../loader/pmtiles-source'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
@@ -160,19 +160,13 @@ export interface PipelineInspection {
   }>
 }
 
-/** True when `url` looks like a PMTiles archive or a TileJSON manifest
- *  pointing at an XYZ MVT tile server. Both go through
- *  `attachPMTilesSource`, which dispatches internally based on
- *  whether the response is binary (PMTiles archive) or JSON
- *  (TileJSON). The `.geojson` exclusion stops `data/foo.geojson`
- *  from being mis-routed into the vector-tile branch — only literal
- *  `.json` suffixes count as TileJSON. */
-function isPMTilesOrTileJSON(url: string): boolean {
-  const path = url.split('?')[0]
-  if (path.endsWith('.pmtiles')) return true
-  if (path.endsWith('.tilejson')) return true
-  if (path.endsWith('.json') && !path.endsWith('.geojson')) return true
-  return false
+/** Filter the xgis source DSL's `type:` field down to the values
+ *  `detectVectorTileFormat` understands. XGIS source `type` can also
+ *  be 'raster' / 'geojson' / 'auto' / undefined / arbitrary user string,
+ *  none of which are vector tile kinds — return undefined so the
+ *  detector falls through to URL-extension sniffing. */
+function asVectorTileKind(t: string | undefined): 'pmtiles' | 'tilejson' | 'xgvt' | 'auto' | undefined {
+  return t === 'pmtiles' || t === 'tilejson' || t === 'xgvt' || t === 'auto' ? t : undefined
 }
 
 export class XGISMap {
@@ -916,16 +910,11 @@ export class XGISMap {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
       const declaredType = (load as { type?: string }).type
       // Prewarm only the formats that route through the MVT decode
-      // worker pool. `.json` ALONE is ambiguous (could be GeoJSON),
-      // so we only fire when declaredType says tilejson — speculative
-      // fetches of every .json would waste bandwidth + pollute the
-      // manifest cache with rejections. XGVT-binary uses its own
-      // worker pool and isn't part of this prewarm channel.
-      const isMvtSource =
-        declaredType === 'pmtiles' || url.endsWith('.pmtiles') ||
-        declaredType === 'tilejson' || url.endsWith('.tilejson')
-      if (isMvtSource) {
-        prewarmVectorTileSource(url, declaredType as 'pmtiles' | 'tilejson' | undefined)
+      // worker pool — `prewarmVectorTileSource` is a no-op for XGVT
+      // and for unknown URLs, which is exactly what we want here.
+      const format = detectVectorTileFormat(url, asVectorTileKind(declaredType))
+      if (format === 'pmtiles' || format === 'tilejson') {
+        prewarmVectorTileSource(url, format)
         anyVectorTile = true
       }
     }
@@ -1121,15 +1110,13 @@ export class XGISMap {
       // there's no `.features` array.
       const declaredType = load.type
       const looksLikeRaster = declaredType === 'raster' || isTileTemplate(url)
-      const looksLikeVectorTile =
-        declaredType === 'pmtiles' || declaredType === 'tilejson' || declaredType === 'xgvt' ||
-        url.endsWith('.xgvt') || isPMTilesOrTileJSON(url)
+      const vectorTileFormat = detectVectorTileFormat(url, asVectorTileKind(declaredType))
 
       if (looksLikeRaster) {
         // Store the URL — actual raster rendering is activated only when a
         // layer references this source (in rebuildLayers)
         this.rawDatasets.set(load.name, { _tileUrl: url } as unknown as GeoJSONFeatureCollection)
-      } else if (looksLikeVectorTile && !this.useCanvas2D) {
+      } else if (vectorTileFormat !== null && !this.useCanvas2D) {
         // Vector tile file — create per-source XGVTSource + VectorTileRenderer.
         // Three archive / manifest formats are recognised by extension:
         //   .xgvt              native binary, range-request streamed
@@ -1162,9 +1149,7 @@ export class XGISMap {
           : (inferred && inferred.size > 0 ? [...inferred] : undefined)
         await attachPMTilesSource(source, {
           url: fullUrl,
-          kind: declaredType === 'pmtiles' || declaredType === 'tilejson' || declaredType === 'xgvt'
-              ? declaredType
-              : 'auto',
+          kind: vectorTileFormat,  // already resolved by detectVectorTileFormat above
           layers: filterLayers,
           extrudeExprs: extrudeExprsBySource.get(load.name),
           extrudeBaseExprs: extrudeBaseExprsBySource.get(load.name),

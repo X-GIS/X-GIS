@@ -41,47 +41,60 @@ interface CachedArchive {
 }
 const archiveCache = new Map<string, Promise<CachedArchive>>()
 
-/** Prewarm the archive cache for `url`. Fire-and-forget — any
- *  attach call later in the same session reuses the cached header +
- *  metadata instead of re-issuing the two sequential HTTP round trips
- *  (header → metadata). Call this as early as URLs become known
- *  (after IR emit) so the network round trips overlap with shader
- *  pipeline compilation, GPU adapter init, etc.
- *
- *  Errors are swallowed — a bad URL or transient network issue should
- *  fall through to the regular attach path which will retry and surface
- *  the error there. */
-export function prewarmPMTilesArchive(url: string): void {
-  prewarmVectorTileSource(url, 'pmtiles')
+/** Memoize an in-flight fetch by URL: dedupes concurrent callers, evicts
+ *  on rejection so the next call retries instead of resolving the cached
+ *  failure forever. Used by both the PMTiles archive opener and the
+ *  TileJSON manifest opener — same coordination, one helper. */
+function memoizeOpen<T>(
+  cache: Map<string, Promise<T>>,
+  url: string,
+  factory: () => Promise<T>,
+): Promise<T> {
+  const hit = cache.get(url)
+  if (hit) return hit
+  const promise = factory()
+  promise.catch(() => cache.delete(url))
+  cache.set(url, promise)
+  return promise
 }
 
-/** Prewarm the TileJSON manifest cache. Thin wrapper around
- *  {@link prewarmVectorTileSource} kept for back-compat with map.ts
- *  call sites that pre-detected the format. */
-export function prewarmTileJSONManifest(url: string): void {
-  prewarmVectorTileSource(url, 'tilejson')
+/** Normalize a TileJSON / PMTiles `vector_layers[]` entry. Both
+ *  formats use the same shape but different default-zoom plumbing, so
+ *  the per-layer minzoom/maxzoom fall back to the SOURCE's overall
+ *  zoom range when a layer omits them. Shared helper keeps the two
+ *  fallback chains identical. */
+function normalizeVectorLayers(
+  raw: Array<{ id: string; minzoom?: number; maxzoom?: number; fields?: Record<string, string> }> | undefined,
+  defaultMin: number,
+  defaultMax: number,
+): VectorLayerInfo[] {
+  return (raw ?? []).map(vl => ({
+    id: vl.id,
+    minzoom: vl.minzoom ?? defaultMin,
+    maxzoom: vl.maxzoom ?? defaultMax,
+    fields: vl.fields,
+  }))
 }
 
 /** Single entry point for cold-start metadata prefetch — auto-detects
- *  PMTiles vs TileJSON from the URL/kind and primes the appropriate
- *  cache so the later `attachPMTilesSource` call sees a hit instead of
- *  awaiting the 100-400 ms header round-trip(s). XGVT-binary URLs
- *  (`.xgvt`) are no-ops here: the binary backend manages its own
- *  byte-range cache through `loadFromURL`, so an HTTP prewarm at this
- *  level wouldn't intercept the right path. */
+ *  format from the URL/kind and primes the appropriate cache so the
+ *  later `attachPMTilesSource` call sees a hit instead of awaiting
+ *  the 100-400 ms header round-trip. Fire-and-forget; errors are
+ *  swallowed so a bad URL falls through to the regular attach path
+ *  where the same fetch surfaces the error normally. XGVT-binary
+ *  URLs are a no-op here — the binary backend manages its own byte-
+ *  range cache through `loadFromURL`, not an HTTP prewarm. */
 export function prewarmVectorTileSource(
   url: string,
   kind?: 'pmtiles' | 'tilejson' | 'xgvt' | 'auto',
 ): void {
-  if (kind === 'xgvt' || url.endsWith('.xgvt')) return
-  const dispatch = resolveDispatch(url, kind === 'xgvt' ? 'auto' : kind)
-  if (dispatch === 'tilejson') {
-    if (tileJsonCache.has(url)) return
-    void openCachedTileJSON(url).catch(() => undefined)
-  } else {
-    if (archiveCache.has(url)) return
-    void openCachedArchive(url).catch(() => undefined)
+  const format = detectVectorTileFormat(url, kind)
+  if (format === 'tilejson') {
+    if (!tileJsonCache.has(url)) void openCachedTileJSON(url).catch(() => undefined)
+  } else if (format === 'pmtiles') {
+    if (!archiveCache.has(url)) void openCachedArchive(url).catch(() => undefined)
   }
+  // 'xgvt' / null: nothing to prewarm at this layer.
 }
 
 /** Fetch the union of `vector_layers[*].fields` from a PMTiles
@@ -208,9 +221,7 @@ export interface VectorLayerInfo {
  *  HTTP round-trips entirely. Returns a Promise so concurrent calls
  *  for the same URL share one in-flight fetch. */
 async function openCachedArchive(url: string): Promise<CachedArchive> {
-  const hit = archiveCache.get(url)
-  if (hit) return hit
-  const promise = (async (): Promise<CachedArchive> => {
+  return memoizeOpen(archiveCache, url, async () => {
     const archive = new PMTiles(url)
     const header = await archive.getHeader()
     if (header.tileType !== TileType.Mvt) {
@@ -233,25 +244,13 @@ async function openCachedArchive(url: string): Promise<CachedArchive> {
       if (meta) {
         archiveName = meta.name
         attribution = meta.attribution
-        if (Array.isArray(meta.vector_layers)) {
-          vectorLayers = meta.vector_layers.map(vl => ({
-            id: vl.id,
-            minzoom: vl.minzoom ?? header.minZoom,
-            maxzoom: vl.maxzoom ?? header.maxZoom,
-            fields: vl.fields,
-          }))
-        }
+        vectorLayers = normalizeVectorLayers(meta.vector_layers, header.minZoom, header.maxZoom)
       }
     } catch (e) {
       console.warn(`[X-GIS] PMTiles metadata fetch failed (non-fatal): ${(e as Error)?.message ?? e}`)
     }
     return { archive, header, vectorLayers, archiveName, attribution }
-  })()
-  // Drop the entry on failure so the next attach retries instead of
-  // resolving the cached rejection forever.
-  promise.catch(() => archiveCache.delete(url))
-  archiveCache.set(url, promise)
-  return promise
+  })
 }
 
 // ─── TileJSON support ───
@@ -293,80 +292,72 @@ interface RawTileJSON {
 }
 
 async function openCachedTileJSON(url: string): Promise<CachedTileJSON> {
-  const hit = tileJsonCache.get(url)
-  if (hit) return hit
-  const promise = (async (): Promise<CachedTileJSON> => {
+  return memoizeOpen(tileJsonCache, url, async () => {
     const resp = await fetch(url)
     if (!resp.ok) throw new Error(`TileJSON ${url} returned HTTP ${resp.status}`)
     const tj = await resp.json() as RawTileJSON
     if (!tj.tiles || tj.tiles.length === 0) {
       throw new Error(`TileJSON ${url}: missing or empty tiles[] template`)
     }
-    const tilesTemplate = tj.tiles[0]
     const minzoom = tj.minzoom ?? 0
     const maxzoom = tj.maxzoom ?? 14
-    const bounds: [number, number, number, number] =
-      tj.bounds ?? [-180, -85.0511287, 180, 85.0511287]
-    const vectorLayers: VectorLayerInfo[] = (tj.vector_layers ?? []).map(vl => ({
-      id: vl.id,
-      minzoom: vl.minzoom ?? minzoom,
-      maxzoom: vl.maxzoom ?? maxzoom,
-      fields: vl.fields,
-    }))
     return {
-      tilesTemplate, bounds, minzoom, maxzoom, vectorLayers,
+      tilesTemplate: tj.tiles[0],
+      bounds: tj.bounds ?? [-180, -85.0511287, 180, 85.0511287],
+      minzoom, maxzoom,
+      vectorLayers: normalizeVectorLayers(tj.vector_layers, minzoom, maxzoom),
       name: tj.name,
       attribution: tj.attribution,
     }
-  })()
-  promise.catch(() => tileJsonCache.delete(url))
-  tileJsonCache.set(url, promise)
-  return promise
+  })
 }
 
-/** Decide whether `attachPMTilesSource` should take its TileJSON
- *  branch or its PMTiles-archive branch. Routing precedence
- *  (most-authoritative first):
+/** The vector tile formats this loader knows how to attach. `null`
+ *  means "the URL doesn't look like any of these" — the caller (e.g.
+ *  the data-load loop in map.ts) routes to a different branch
+ *  (raster, GeoJSON, etc.). */
+export type VectorTileFormat = 'pmtiles' | 'tilejson' | 'xgvt'
+
+/** Single source of truth for "what format is at `url`". Used by
+ *  the data-load loop to decide if a load is a vector tile source at
+ *  all, by `attachPMTilesSource` to pick which backend path to take,
+ *  and by `prewarmVectorTileSource` to pick which cache to prime.
  *
- *    1. URL extension says JSON       → 'tilejson', period.
- *       The server is the source of truth for what bytes come
- *       back; an explicit `kind: pmtiles` from a stale xgis
- *       source can't change that. Without this, the protomaps
- *       production rewrite (.pmtiles → api.protomaps.com/v4.json
- *       ?key=…) tried to read the TileJSON response as a PMTiles
- *       archive header and failed with "Wrong magic number".
- *    2. URL extension says .pmtiles   → 'pmtiles', period.
- *    3. Otherwise honour explicit `kind` ('pmtiles' | 'tilejson').
- *    4. Fall back to PMTiles for the unknown / extensionless case
- *       — that's the legacy default (`type: pmtiles` xgis sources
- *       with cleanly-named .pmtiles archives).
- *
- *  Exported so the dispatch decision is unit-testable in isolation. */
+ *  Routing precedence (most-authoritative first):
+ *    1. URL extension is decisive when present (`.tilejson` / `.json`,
+ *       `.pmtiles`, `.xgvt`). The server is the source of truth for
+ *       what bytes come back — an explicit `kind: pmtiles` from a
+ *       stale xgis source can't override a `.json` URL (that broke the
+ *       protomaps `.pmtiles → api.protomaps.com/v4.json?key=…` rewrite
+ *       with "Wrong magic number" before the URL-wins rule landed).
+ *       `.geojson` is excluded so feature-data URLs aren't mis-routed.
+ *    2. Otherwise honour explicit `kind` ('pmtiles' / 'tilejson' / 'xgvt').
+ *    3. Fall through to `null` — caller decides what to do with the
+ *       unknown URL (most paths that pre-decided "this is a vector
+ *       tile" supply `kind` so we never reach this in practice). */
+export function detectVectorTileFormat(
+  url: string,
+  kind?: VectorTileFormat | 'auto',
+): VectorTileFormat | null {
+  const path = url.split('?')[0]
+  if (path.endsWith('.tilejson')) return 'tilejson'
+  if (path.endsWith('.json') && !path.endsWith('.geojson')) return 'tilejson'
+  if (path.endsWith('.pmtiles')) return 'pmtiles'
+  if (path.endsWith('.xgvt')) return 'xgvt'
+  if (kind && kind !== 'auto') return kind
+  return null
+}
+
+/** @deprecated Use {@link detectVectorTileFormat}. PMTiles is the
+ *  legacy fallback for unknown URLs declared as a vector tile source,
+ *  preserved for back-compat with `type: pmtiles` xgis declarations
+ *  pointing at extensionless archives. */
 export function resolveDispatch(
   url: string,
   kind: 'pmtiles' | 'tilejson' | 'auto' | undefined,
 ): 'pmtiles' | 'tilejson' {
-  const urlSaysTileJSON = looksLikeTileJSON(url)
-  if (urlSaysTileJSON) return 'tilejson'
-  const urlSaysPMTiles = /\.pmtiles(\?|$)/.test(url.split('?')[0])
-  if (urlSaysPMTiles) return 'pmtiles'
-  if (kind === 'tilejson') return 'tilejson'
-  return 'pmtiles'
-}
-
-/** Heuristic: does this URL look like a TileJSON manifest rather than
- *  a single .pmtiles archive? Checks the path tail; query strings (api
- *  key params) are stripped before the test. Falls through to false
- *  for ambiguous URLs — those still hit the PMTiles archive path,
- *  which surfaces a parse error if the response is actually JSON. */
-function looksLikeTileJSON(url: string): boolean {
-  const path = url.split('?')[0]
-  if (path.endsWith('.tilejson')) return true
-  // `.json` but not `.geojson` — `.geojson` URLs are GeoJSON data
-  // (handled by a different loader), and including them here would
-  // mis-route any GeoJSON source declared with `type: pmtiles` (rare,
-  // but the gate should be honest about its detection rule).
-  return path.endsWith('.json') && !path.endsWith('.geojson')
+  const f = detectVectorTileFormat(url, kind)
+  return f === 'tilejson' ? 'tilejson' : 'pmtiles'
 }
 
 /** Per-URL "last error logged at" timestamp (ms). Lets the fetcher
@@ -502,7 +493,10 @@ interface ResolvedSource {
 }
 
 async function resolveSource(opts: PMTilesSourceOptions): Promise<ResolvedSource | null> {
-  const dispatch = resolveDispatch(opts.url, opts.kind === 'xgvt' ? 'auto' : opts.kind)
+  // XGVT was peeled off above; only PMTiles vs TileJSON remain. The
+  // detector returns pmtiles for the unknown / extensionless case,
+  // which preserves the legacy "type: pmtiles" fallback behaviour.
+  const dispatch = detectVectorTileFormat(opts.url, opts.kind) === 'tilejson' ? 'tilejson' : 'pmtiles'
   if (dispatch === 'tilejson') {
     let tj: CachedTileJSON
     try { tj = await openCachedTileJSON(opts.url) }
@@ -597,7 +591,7 @@ export async function attachPMTilesSource(
   // binary's own loader handles range-request streaming and the
   // catalog's `loadFromURL` auto-fires `prewarmSkeleton` once the
   // index is merged, so the cold-start UX matches PMTiles/TileJSON.
-  if (opts.kind === 'xgvt' || opts.url.endsWith('.xgvt')) {
+  if (detectVectorTileFormat(opts.url, opts.kind) === 'xgvt') {
     try { await source.loadFromURL(opts.url) }
     catch {
       const resp = await fetch(opts.url)
