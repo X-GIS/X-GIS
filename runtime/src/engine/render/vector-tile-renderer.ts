@@ -6,13 +6,13 @@
 import type { GPUContext } from '../gpu/gpu'
 import { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
-import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../../data/tile-select'
+import { visibleTilesFrustum, sortByPriority } from '../../data/tile-select'
 import { visibleTilesSSE } from '../../loader/tiles-sse'
 import {
   classifyTile, computeProtectedKeys,
-  collectSiblingPrefetchKeys, projectPanPrefetchTarget,
-  type CameraSnapshot, type TileDecision,
+  type TileDecision,
 } from '../tile-decision'
+import { PrefetchScheduler } from './prefetch-scheduler'
 import {
   generateWallMesh,
   generateWallMeshExtruded,
@@ -231,15 +231,11 @@ export class VectorTileRenderer {
    *  contributor on top of the visible-tile work. */
   private _lastCamSnap: { zoom: number; cx: number; cy: number; t: number } | null = null
   private _lastCamMoveAt = 0
-  /** Frame-stable previous-frame camera snapshot consumed by
-   *  {@link pumpPrefetch}'s pan-direction projection. Distinct from
-   *  `_lastCamSnap` (which the per-render() block at line ~1792-1800
-   *  overwrites multiple times per wall-clock frame on the bucket
-   *  scheduler's 80× render() loop) — `_prevPanCam` is updated
-   *  exactly once per frame inside `pumpPrefetch`, so the velocity
-   *  vector built from `(prev → cur)` reflects whole-frame motion
-   *  rather than the noise from intra-frame snapshot churn. */
-  private _prevPanCam: CameraSnapshot | null = null
+  /** Speculative prefetch routes (sibling-of-visible + pan-direction
+   *  speculation). Owns the frame-stable camera snapshot that the
+   *  velocity-vector projection depends on; updated exactly once per
+   *  frame inside `pumpPrefetch`. */
+  private readonly prefetchScheduler = new PrefetchScheduler()
   /** GPU buffer pool — keyed by `{powerOfTwoBucketSize}:{usage}`.
    *  doUploadTile and evictGPUTiles together create + destroy 5+
    *  GPUBuffers per tile, several times per frame on mobile during
@@ -608,34 +604,16 @@ export class VectorTileRenderer {
   /** Frame-scope anticipatory prefetch. Called by `map.ts:renderFrame`
    *  exactly ONCE per wall-clock frame (right after the per-source
    *  `beginFrame` loop), NOT inside `render()` — the bucket scheduler
-   *  invokes `render()` per ShowCommand, which on dense styles like
-   *  Bright reaches ~80 calls per frame. Re-firing prefetch in that
-   *  loop would flood `_evictShield`, race visible-tile fetches for
-   *  the catalog's `maxConcurrentLoads` budget, and corrupt
-   *  `_prevPanCam` (whose velocity vector depends on a stable frame
-   *  boundary).
+   *  invokes `render()` per ShowCommand, which on dense styles reaches
+   *  ~80 calls per frame; re-firing prefetch in that loop would flood
+   *  `_evictShield`, race visible-tile fetches for the catalog's
+   *  concurrency budget, and corrupt the velocity vector that route 2
+   *  depends on (whose frame-stable snapshot lives inside
+   *  PrefetchScheduler).
    *
-   *  Two routes, both feeding `TileCatalog.prefetchTiles`:
-   *
-   *    1. AMMOS 3D Tiles Renderer `loadSiblings` — for every visible
-   *       tile, request the (≤ 3) quad siblings that aren't already
-   *       visible / cached / out-of-archive. Capped at 16 keys
-   *       (`collectSiblingPrefetchKeys` default) so the mobile
-   *       8-concurrent budget isn't drained ahead of visible-tile
-   *       fetches.
-   *    2. Google Earth pan-direction speculative prefetch — when the
-   *       camera is actively panning (zoom stable, pitch ≤ 45°,
-   *       speed above the m²/ms² floor), project it `lookAheadMs`
-   *       (default 50 ms) past `cur.t` and re-walk
-   *       `visibleTilesFrustumSampled` for the future tile set. Skips
-   *       silently when `projectPanPrefetchTarget` returns null
-   *       (e.g. first frame, mid-zoom, near-still camera) — Tier 1
-   *       (`prefetchAdjacent`) and Tier 2 (zoom-direction) cover
-   *       those cases when the camera reaches `cameraIdle`.
-   *
-   *  Cheap when there's no source attached or no neededKeys yet;
-   *  otherwise dominated by one `visibleTilesFrustumSampled` walk
-   *  (~1 ms on bright at z=14 desktop). */
+   *  Both routes (sibling prefetch + pan-direction speculation) live
+   *  in `PrefetchScheduler`; this method is a thin delegate that wires
+   *  in VTR's frame-tile cache as the visible-tile signal source. */
   pumpPrefetch(
     camera: Camera,
     projType: number,
@@ -643,66 +621,16 @@ export class VectorTileRenderer {
     canvasHeight: number,
     dpr: number,
   ): void {
-    const source = this.source
-    if (!source || !source.hasData()) return
-    // We need a populated `_frameTileCache.neededKeys` to do
-    // anything — the cache is filled by the first `render()` call
-    // each frame, so on the very first frame after attach (before
-    // any render() ran) we silently skip and pick up next frame.
+    if (!this.source) return
+    // We need a populated `_frameTileCache.neededKeys` to do anything
+    // — the cache is filled by the first `render()` call each frame,
+    // so on the very first frame after attach (before any render()
+    // ran) we silently skip and pick up next frame.
     const cache = this._frameTileCache
-    const cur: CameraSnapshot = {
-      cx: camera.centerX,
-      cy: camera.centerY,
-      zoom: camera.zoom,
-      t: performance.now(),
-    }
-    const prev = this._prevPanCam
-    this._prevPanCam = cur
-
-    if (!cache || cache.neededKeys.length === 0) return
-    const needed = cache.neededKeys
-
-    // ─── Route 1: loadSiblings ───────────────────────────────────
-    const siblings = collectSiblingPrefetchKeys(
-      needed,
-      (k) => source.hasTileData(k),
-      (k) => source.hasEntryInIndex(k),
+    if (!cache) return
+    this.prefetchScheduler.pump(
+      this.source, cache, camera, projType, canvasWidth, canvasHeight, dpr,
     )
-    if (siblings.length > 0) source.prefetchTiles(siblings)
-
-    // ─── Route 2: Google Earth pan-direction speculation ─────────
-    if (prev === null) return
-    const future = projectPanPrefetchTarget(prev, cur, camera.pitch ?? 0)
-    if (future === null) return
-    // Materialise a temporary Camera at the projected position. We
-    // copy bearing / pitch / maxZoom from the live camera so the
-    // frustum walk uses the same view direction the user is heading
-    // toward. cheap — Camera's constructor is a few field assigns.
-    const futureCam = new Camera(0, 0, future.zoom)
-    futureCam.centerX = future.cx
-    futureCam.centerY = future.cy
-    futureCam.zoom = future.zoom
-    futureCam.pitch = camera.pitch
-    futureCam.bearing = camera.bearing
-    futureCam.maxZoom = camera.maxZoom
-    const targetZ = Math.max(0, Math.min(Math.floor(future.zoom), source.maxLevel))
-    // Same selectorProj derivation as render() at line ~1865 — keeps
-    // the future-frustum walk consistent with the live one.
-    const selectorProj: Projection = projType === 0
-      ? mercatorProj
-      : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
-    const futureTiles = visibleTilesFrustumSampled(
-      futureCam, selectorProj, targetZ, canvasWidth, canvasHeight, 0, dpr,
-    )
-    if (futureTiles.length === 0) return
-    const futureKeys: number[] = []
-    for (const t of futureTiles) {
-      const k = tileKey(t.z, t.x, t.y)
-      if (source.hasTileData(k)) continue
-      if (!source.hasEntryInIndex(k)) continue
-      futureKeys.push(k)
-    }
-    if (futureKeys.length > 0) source.prefetchTiles(futureKeys)
   }
 
   /** Async-upload priority queue. Replaces the previous in-place sort
