@@ -175,6 +175,14 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
       if (colorStr) utils.push(`label-halo-color-${colorStr}`)
     }
   }
+  // text-halo-blur — Mapbox feathering width in pixels. Constant
+  // form only for now; the runtime shader smoothstep widens by this
+  // value. Real-world use: most basemap styles set 0.5–1.0 px so
+  // the halo doesn't look like a hard outline.
+  const haloBlur = paint['text-halo-blur']
+  if (typeof haloBlur === 'number' && haloBlur > 0) {
+    utils.push(`label-halo-blur-${haloBlur}`)
+  }
 
   // text-anchor → label-anchor-X. Mapbox's 9-way anchor maps 1:1
   // to the IR's 9-way LabelDef.anchor (render-node.ts:244-246).

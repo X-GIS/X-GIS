@@ -277,6 +277,7 @@ function lowerLayer(
   const labelHaloWidthZoomStops: ZoomStop<number>[] = []
   let labelHaloColor: [number, number, number, number] | undefined
   const labelHaloColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
+  let labelHaloBlur: number | undefined
   let labelAnchor: import('./render-node').LabelDef['anchor'] | undefined
   let labelTransform: import('./render-node').LabelDef['transform'] | undefined
   let labelOffsetX: number | undefined
@@ -640,6 +641,11 @@ function lowerLayer(
       if (name.startsWith('label-halo-color-')) {
         const hex = resolveColor(name.slice('label-halo-color-'.length))
         if (hex) labelHaloColor = hexToRgba(hex)
+        continue
+      }
+      if (name.startsWith('label-halo-blur-')) {
+        const num = parseFloat(name.slice('label-halo-blur-'.length))
+        if (!isNaN(num)) labelHaloBlur = num
         continue
       }
       if (name.startsWith('label-halo-')) {
@@ -1087,7 +1093,7 @@ function lowerLayer(
     extrude,
     extrudeBase,
     label: foldLabelKnobs(label, {
-      labelSize, labelColor, labelHaloWidth, labelHaloColor,
+      labelSize, labelColor, labelHaloWidth, labelHaloColor, labelHaloBlur,
       labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
       labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
       labelColorZoomStops: labelColorZoomStops.length > 0 ? labelColorZoomStops : undefined,
@@ -1114,6 +1120,7 @@ function foldLabelKnobs(
     labelColor?: [number, number, number, number]
     labelHaloWidth?: number
     labelHaloColor?: [number, number, number, number]
+    labelHaloBlur?: number
     labelAnchor?: import('./render-node').LabelDef['anchor']
     labelTransform?: import('./render-node').LabelDef['transform']
     labelOffsetX?: number
@@ -1136,11 +1143,14 @@ function foldLabelKnobs(
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
   let halo = base.halo
-  if (knobs.labelHaloWidth !== undefined || knobs.labelHaloColor !== undefined) {
+  if (knobs.labelHaloWidth !== undefined
+      || knobs.labelHaloColor !== undefined
+      || knobs.labelHaloBlur !== undefined) {
+    const resolvedBlur = knobs.labelHaloBlur ?? base.halo?.blur
     halo = {
       color: knobs.labelHaloColor ?? base.halo?.color ?? [0, 0, 0, 1],
       width: knobs.labelHaloWidth ?? base.halo?.width ?? 1,
-      ...(base.halo?.blur !== undefined ? { blur: base.halo.blur } : {}),
+      ...(resolvedBlur !== undefined ? { blur: resolvedBlur } : {}),
     }
   }
   let offset = base.offset

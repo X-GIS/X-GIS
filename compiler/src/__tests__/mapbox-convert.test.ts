@@ -649,6 +649,23 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
+    it('text-halo-blur → label-halo-blur (soft-glow halos)', () => {
+      // Most basemap styles set text-halo-blur to 0.5–1 px so the halo
+      // reads as a soft glow, not a hard outline. Without this the
+      // shader's halo edge stays sharp regardless of the source style
+      // — visibly different from Mapbox.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'h', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+          paint: { 'text-halo-width': 2, 'text-halo-blur': 1, 'text-halo-color': '#fff' },
+        }],
+      })
+      expect(out).toContain('label-halo-blur-1')
+      expect(parses(out)).toBe(true)
+    })
+
     it('text-letter-spacing / text-padding interpolate-by-zoom', () => {
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },

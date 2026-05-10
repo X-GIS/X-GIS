@@ -296,10 +296,15 @@ export class TextStage {
         maxX: drawX + totalAdvance + padding,
         maxY: drawY + padding,
       }
-      // Halo width is also CSS-px convention → scale by DPR so the
-      // visual halo thickness matches across DPRs.
+      // Halo width / blur are CSS-px convention → scale by DPR so
+      // the visual halo thickness + soft-edge band matches across
+      // DPRs. Mapbox `text-halo-blur` is also pixels.
       const haloOut = p.def.halo
-        ? { color: p.def.halo.color, width: p.def.halo.width * dpr }
+        ? {
+            color: p.def.halo.color,
+            width: p.def.halo.width * dpr,
+            ...(p.def.halo.blur !== undefined ? { blur: p.def.halo.blur * dpr } : {}),
+          }
         : undefined
       shaped.push({
         draw: {

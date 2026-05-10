@@ -33,8 +33,11 @@ export interface TextDraw {
   rasterFontSize: number
   /** RGBA fill colour (0–1 each channel). */
   color: [number, number, number, number]
-  /** Optional halo. `width` is in display pixels; `color` is RGBA. */
-  halo?: { color: [number, number, number, number]; width: number }
+  /** Optional halo. `width` is in display pixels; `color` is RGBA;
+   *  `blur` is the SDF feathering width in display pixels (Mapbox
+   *  `text-halo-blur`) — extra smoothstep band on top of the
+   *  derivative-AA edge for a soft-glow halo. */
+  halo?: { color: [number, number, number, number]; width: number; blur?: number }
   /** Extra pixels between adjacent glyphs (Mapbox text-letter-spacing
    *  in em-units already converted to px by the caller). Applied
    *  AFTER each glyph except the last. */
@@ -66,7 +69,7 @@ struct Uniforms {
   fill_color: vec4<f32>,
   halo_color: vec4<f32>,
   halo_width: f32,         // 0 = no halo (SDF-byte units, [0,1])
-  edge_softness: f32,      // unused — kept for layout compat
+  halo_blur: f32,          // additional smoothstep half-width for halo
   _pad0: f32,
   _pad1: f32,
 }
@@ -111,8 +114,14 @@ struct VsOut {
     return vec4<f32>(u.fill_color.rgb, u.fill_color.a * fill_a);
   }
 
+  // Halo blur: extra smoothstep half-width past the AA-derivative
+  // band. Mapbox `text-halo-blur` is in display pixels; we feed it
+  // in as SDF-byte units (renderer pre-multiplies). Adding to soft
+  // widens the smoothstep transition without shifting the centre,
+  // producing the classic soft-glow halo that sharp halos lack.
+  let halo_soft: f32 = soft + u.halo_blur;
   let halo_edge: f32 = edge - u.halo_width;
-  let halo_a: f32 = smoothstep(halo_edge - soft, halo_edge + soft, sdf);
+  let halo_a: f32 = smoothstep(halo_edge - halo_soft, halo_edge + halo_soft, sdf);
   // Composite: halo behind, fill in front.
   let fill_w = u.fill_color.a * fill_a;
   let halo_w = u.halo_color.a * halo_a * (1.0 - fill_w);
@@ -353,13 +362,14 @@ function packUniforms(d: TextDraw): Float32Array {
     const sdfRadius = d.sdfRadius ?? 6
     const SDF_UNITS_PER_PX = 63 / sdfRadius
     buf[12] = (d.halo.width * SDF_UNITS_PER_PX) / 255
+    // halo_blur shares the same px → SDF-byte → [0,1] conversion
+    // as halo_width — both measure in the SDF's distance scale.
+    buf[13] = ((d.halo.blur ?? 0) * SDF_UNITS_PER_PX) / 255
   } else {
     buf[8] = 0; buf[9] = 0; buf[10] = 0; buf[11] = 0
     buf[12] = 0
+    buf[13] = 0
   }
-  // edge_softness slot retained for layout compat — actual AA is
-  // computed in-shader via fwidth() so the value is unused.
-  buf[13] = 0
   buf[14] = 0; buf[15] = 0
   return buf
 }
