@@ -753,8 +753,19 @@ export class VectorTileRenderer {
     const dx = tileX - this._distMemoCamX
     const dy = tileY - this._distMemoCamY
     const d2 = dx * dx + dy * dy
-    this._distMemo.set(key, d2)
-    return d2
+    // Cesium replace-refinement priority: shallow zooms ALWAYS win.
+    // Without the level offset, distance-only priority deprioritizes
+    // ancestor fetches (z=0 root tile centred at lon/lat 0,0 is far
+    // from a Japan-centred camera, so it ranked LAST behind the 871
+    // closer z=7 visible-tile requests on the user's repro). Adding
+    // tz × LEVEL_OFFSET guarantees a z=N tile sorts before any z=N+1
+    // regardless of camera distance; intra-level distance tiebreaks
+    // still apply via d2. LEVEL_OFFSET is set well above max(d²) ≈
+    // (2π·R)² ≈ 1.6e15 so the level term dominates without overflow.
+    const LEVEL_OFFSET = 1e16
+    const priority = tz * LEVEL_OFFSET + d2
+    this._distMemo.set(key, priority)
+    return priority
   }
 
   /** Per-frame dispatch counter. Phase C removed the count-based
@@ -2916,6 +2927,16 @@ export class VectorTileRenderer {
       for (const k of neededKeys) activeKeys.add(k)
       for (const k of parentKeys) activeKeys.add(k)
       for (const k of fallbackKeys) activeKeys.add(k)
+      // Rule 1 (replace refinement): classifyFallback's pending branch
+      // routes the request to the SHALLOWEST uncached ancestor, which
+      // can sit between the pinned skeleton (z=0..2/3) and the visible
+      // zoom (e.g. z=5 when skeleton ends at z=2). Without unioning
+      // toLoad, the next frame's cancelStale sees those mid-chain
+      // ancestors as "stale" (not in needed/parent/fallback/skeleton/
+      // prefetch sets) and aborts the in-flight fetch — top-down
+      // loading then never converges, the request loops forever
+      // between fire and abort.
+      for (const k of toLoad) activeKeys.add(k)
       this.source.cancelStale(activeKeys)
     }
 
