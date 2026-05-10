@@ -119,14 +119,41 @@ describe('classifyTile', () => {
     expect(d.kind).toBe('drop-no-archive')
   })
 
-  it('returns pending when nothing cached but archive has entry', () => {
+  it('returns pending requesting the SHALLOWEST uncached indexed ancestor (Cesium replace refinement)', () => {
+    // With nothing cached but every level indexed, Rule 1 says the
+    // request frontier is the root — never request a child until its
+    // parent has loaded. Visible at z=8 → request the z=0 root key.
     const visibleKey = tileKey(8, 100, 50)
     const d = classifyTile(baseInputs({
       visibleKey,
       hasEntryInIndex: () => true,
     }))
     expect(d.kind).toBe('pending')
-    if (d.kind === 'pending') expect(d.requestKey).toBe(visibleKey)
+    if (d.kind === 'pending') expect(d.requestKey).toBe(tileKey(0, 0, 0))
+  })
+
+  it('pending walks down to the first uncached ancestor when shallower ancestors are loaded', () => {
+    // Cesium replace refinement, mid-load: z=0..z=4 already in
+    // catalog (skeleton + a few children). Walk should skip them and
+    // request z=5 — the next uncached level — even though deeper
+    // levels (z=6..visible) are also uncached.
+    const visible = tile(8, 100, 50)
+    const visibleKey = tileKey(visible.z, visible.x, visible.y)
+    // Build the full ancestor chain so we can mark the loaded prefix.
+    const chain: number[] = [visibleKey]
+    while (chain[chain.length - 1] > 1) {
+      chain.push(tileKeyParent(chain[chain.length - 1]))
+    }
+    chain.reverse() // [root z=0, z=1, ..., z=8 visible]
+    const loaded = new Set(chain.slice(0, 5)) // z=0..z=4 cached
+    const d = classifyTile(baseInputs({
+      visible,
+      visibleKey,
+      hasEntryInIndex: () => true,
+      hasAnySliceInCatalog: (k) => loaded.has(k),
+    }))
+    expect(d.kind).toBe('pending')
+    if (d.kind === 'pending') expect(d.requestKey).toBe(chain[5]) // z=5 ancestor
   })
 
   it('returns pending with archive ancestor when visible not in index', () => {

@@ -220,7 +220,7 @@ export function computeProtectedKeys(
  *  (cold) so both produce the same fallback structure. */
 function classifyFallback(input: ClassifyTileInputs): TileDecision {
   const { visibleKey, maxLevel, archiveAncestor, layerCache,
-    hasSliceInCatalog, hasEntryInIndex } = input
+    hasSliceInCatalog, hasAnySliceInCatalog, hasEntryInIndex } = input
   const tileZ = input.visible.z
 
   // Per-layer walk: find the highest cached ancestor for this slice.
@@ -262,12 +262,41 @@ function classifyFallback(input: ClassifyTileInputs): TileDecision {
     return DROP_NO_ARCHIVE_DECISION
   }
 
-  // Pending: request the visible (or closest archive ancestor if the
-  // visible itself is outside the index).
-  return {
-    kind: 'pending',
-    requestKey: hasEntryInIndex(visibleKey) ? visibleKey : (archiveAncestor >= 0 ? archiveAncestor : null),
+  // Pending: Cesium-style replace refinement — request the SHALLOWEST
+  // ancestor in the archive index that is not yet in catalog, never
+  // request a child until its parent has loaded. Walk root → visible:
+  // the first key that is `hasEntryInIndex && !hasAnySliceInCatalog`
+  // is the next fetch frontier. Once it lands, the next frame's
+  // parent-walk renders it as fallback while the next-deeper level
+  // becomes the new pending — guarantees the per-frame fallback walk
+  // always finds something to render after at most z round-trips
+  // (worst case cold-start). Without this rule, a cold-start at z=N
+  // fires N requests for visible-z tiles in parallel and the screen
+  // is empty for the entire fetch latency window because no parent
+  // exists to magnify as fallback (user-visible "white tiles" symptom).
+  const chain: number[] = []
+  {
+    let walk = visibleKey
+    while (true) {
+      chain.push(walk)
+      if (walk <= 1) break
+      walk = tileKeyParent(walk)
+    }
+    chain.reverse()  // root → visible
   }
+  let requestKey: number | null = null
+  for (const k of chain) {
+    if (hasAnySliceInCatalog(k)) continue   // already loaded; deeper level is the next frontier
+    if (!hasEntryInIndex(k)) continue        // this z not in archive (below sourceMinzoom etc.)
+    requestKey = k
+    break
+  }
+  // Fallback to the legacy choice if the walk found nothing indexed
+  // (defensive: archiveAncestor>=0 implies the loop should have hit it).
+  if (requestKey === null) {
+    requestKey = hasEntryInIndex(visibleKey) ? visibleKey : (archiveAncestor >= 0 ? archiveAncestor : null)
+  }
+  return { kind: 'pending', requestKey }
 }
 
 // ═══ Anticipatory prefetch decisions ═══════════════════════════════
