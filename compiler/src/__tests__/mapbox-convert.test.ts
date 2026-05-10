@@ -649,6 +649,43 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
+    it('symbol-spacing on line placement → label-spacing-N (repeat labels)', () => {
+      // Mapbox repeats labels along long lines at symbol-spacing pixel
+      // intervals (default 250). Without this every long highway gets
+      // a single label which Mapbox would render as a chain.
+      const explicit = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'hwy', type: 'symbol', source: 'x', 'source-layer': 'roads',
+          layout: { 'text-field': '{name}', 'symbol-placement': 'line', 'symbol-spacing': 500 } as never,
+        }],
+      })
+      expect(explicit).toContain('label-spacing-500')
+      expect(parses(explicit)).toBe(true)
+
+      // Default 250 emitted when symbol-spacing is unset on line placement.
+      const dflt = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'hwy', type: 'symbol', source: 'x', 'source-layer': 'roads',
+          layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
+        }],
+      })
+      expect(dflt).toContain('label-spacing-250')
+      expect(parses(dflt)).toBe(true)
+
+      // No spacing emitted for point placement (Mapbox: it's meaningless).
+      const pt = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'pt', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+        }],
+      })
+      expect(pt).not.toContain('label-spacing')
+      expect(parses(pt)).toBe(true)
+    })
+
     it('text-halo-blur → label-halo-blur (soft-glow halos)', () => {
       // Most basemap styles set text-halo-blur to 0.5–1 px so the halo
       // reads as a soft glow, not a hard outline. Without this the

@@ -278,6 +278,7 @@ function lowerLayer(
   let labelHaloColor: [number, number, number, number] | undefined
   const labelHaloColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
   let labelHaloBlur: number | undefined
+  let labelSpacing: number | undefined
   let labelAnchor: import('./render-node').LabelDef['anchor'] | undefined
   let labelTransform: import('./render-node').LabelDef['transform'] | undefined
   let labelOffsetX: number | undefined
@@ -693,6 +694,11 @@ function lowerLayer(
         if (!isNaN(num)) labelLineHeight = num
         continue
       }
+      if (name.startsWith('label-spacing-')) {
+        const num = parseFloat(name.slice('label-spacing-'.length))
+        if (!isNaN(num)) labelSpacing = num
+        continue
+      }
       if (name.startsWith('label-font-')) {
         // Each `label-font-X` utility APPENDS one font to the
         // fallback stack. Spaces in Mapbox font names round-trip
@@ -1102,7 +1108,7 @@ function lowerLayer(
       labelAllowOverlap, labelIgnorePlacement, labelPadding,
       labelRotate, labelLetterSpacing, labelFontStack,
       labelMaxWidth, labelLineHeight, labelJustify,
-      labelPlacement,
+      labelPlacement, labelSpacing,
     }),
   }
 }
@@ -1139,6 +1145,7 @@ function foldLabelKnobs(
     labelLineHeight?: number
     labelJustify?: 'auto' | 'left' | 'center' | 'right'
     labelPlacement?: 'point' | 'line' | 'line-center'
+    labelSpacing?: number
   },
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
@@ -1187,6 +1194,7 @@ function foldLabelKnobs(
     ...(knobs.labelLineHeight !== undefined ? { lineHeight: knobs.labelLineHeight } : {}),
     ...(knobs.labelJustify !== undefined ? { justify: knobs.labelJustify } : {}),
     ...(knobs.labelPlacement !== undefined ? { placement: knobs.labelPlacement } : {}),
+    ...(knobs.labelSpacing !== undefined ? { spacing: knobs.labelSpacing } : {}),
   }
 }
 

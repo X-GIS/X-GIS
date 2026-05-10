@@ -294,12 +294,24 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   if (placement === 'line') utils.push('label-along-path')
   else if (placement === 'line-center') utils.push('label-line-center')
 
+  // symbol-spacing — distance between repeated labels along a line
+  // in pixels. Only meaningful for placement: line. Default 250 in
+  // Mapbox; emit explicitly when missing so road-name layers don't
+  // collapse to a single label per feature.
+  const symbolSpacing = layout['symbol-spacing']
+  if (placement === 'line') {
+    if (typeof symbolSpacing === 'number' && symbolSpacing > 0) {
+      utils.push(`label-spacing-${symbolSpacing}`)
+    } else {
+      utils.push('label-spacing-250')
+    }
+  }
+
   // What's STILL not converted — surface a precise warning so the
   // user knows which Batch the gap waits on.
   const ignoredText: string[] = []
   for (const k of [
     'text-keep-upright', 'text-writing-mode',
-    'symbol-spacing',
     'icon-image', 'icon-size', 'icon-color']) {
     if (layout[k] !== undefined || paint[k] !== undefined) ignoredText.push(k)
   }

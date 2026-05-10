@@ -2728,28 +2728,110 @@ export class XGISMap {
             // road through any pitch / bearing.
             const useLine = effectiveDef.placement === 'line' || effectiveDef.placement === 'line-center'
             if (useLine) {
-              vtEntry.renderer.forEachLineLabelFeature(show.sourceLayer, (ax, ay, bx, by, props) => {
-                const [aLon, aLat] = mercToLonLat(ax, ay)
-                const [bLon, bLat] = mercToLonLat(bx, by)
-                const pa = projectLonLat(aLon, aLat)
-                const pb = projectLonLat(bLon, bLat)
-                if (!pa || !pb) return
-                const midX = (pa[0] + pb[0]) * 0.5
-                const midY = (pa[1] + pb[1]) * 0.5
-                let angleDeg = Math.atan2(pb[1] - pa[1], pb[0] - pa[0]) * 180 / Math.PI
-                // Keep-upright (lite): if the natural tangent points
-                // "leftward" (would render text upside-down to a left-
-                // to-right reader), flip 180°. Mapbox's full
-                // text-keep-upright is more sophisticated (per-glyph
-                // along curve) but this catches the egregious case.
+              // Mapbox `symbol-spacing` (CSS px). When set on a line
+              // placement layer (placement === 'line' only — line-
+              // center always emits one label at the midpoint), walk
+              // the screen-projected polyline and emit a label every
+              // `spacing` pixels. Without this, long highways get a
+              // single label which Mapbox would render as a repeating
+              // chain. Spacing is in CSS px → multiply by DPR for
+              // the physical-pixel polyline space.
+              const spacingCssPx = effectiveDef.placement === 'line'
+                ? (effectiveDef.spacing ?? 0) : 0
+              const spacingPx = spacingCssPx > 0 ? spacingCssPx * dpr : 0
+              const emitLabelAlongSegment = (
+                pax: number, pay: number, pbx: number, pby: number,
+                t: number, props: Record<string, unknown>,
+              ): void => {
+                const x = pax + (pbx - pax) * t
+                const y = pay + (pby - pay) * t
+                let angleDeg = Math.atan2(pby - pay, pbx - pax) * 180 / Math.PI
                 if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
                 stage.addLabel(
                   effectiveDef.text, props,
-                  midX, midY,
+                  x, y,
                   { ...effectiveDef, rotate: angleDeg },
                   effectiveDef.font?.[0],
                 )
-              })
+              }
+              if (spacingPx > 0) {
+                // Polyline path: project all vertices, accumulate
+                // screen-space length, drop a label every spacingPx.
+                // Half-spacing offset at the start centres the run
+                // (matches Mapbox: a 1000-px line with 250-px spacing
+                // shows 4 labels at 125, 375, 625, 875 — not at 0).
+                vtEntry.renderer.forEachLineLabelPolyline(show.sourceLayer, (mxs, mys, props) => {
+                  if (mxs.length < 2) return
+                  const px = new Array<number>(mxs.length)
+                  const py = new Array<number>(mxs.length)
+                  let firstValid = -1, lastValid = -1
+                  for (let i = 0; i < mxs.length; i++) {
+                    const [lon, lat] = mercToLonLat(mxs[i]!, mys[i]!)
+                    const proj = projectLonLat(lon, lat)
+                    if (proj) {
+                      px[i] = proj[0]; py[i] = proj[1]
+                      if (firstValid < 0) firstValid = i
+                      lastValid = i
+                    }
+                  }
+                  if (firstValid < 0 || lastValid <= firstValid) return
+                  // Total length over the projected (visible) range.
+                  let total = 0
+                  for (let i = firstValid; i < lastValid; i++) {
+                    if (px[i] === undefined || px[i + 1] === undefined) continue
+                    const dx = px[i + 1]! - px[i]!
+                    const dy = py[i + 1]! - py[i]!
+                    total += Math.sqrt(dx * dx + dy * dy)
+                  }
+                  if (total < spacingPx * 0.5) {
+                    // Polyline shorter than half a spacing — emit one
+                    // label at its centre (matches Mapbox's "always
+                    // place at least one if it fits" behaviour).
+                    let acc = 0
+                    const target = total * 0.5
+                    for (let i = firstValid; i < lastValid; i++) {
+                      if (px[i] === undefined || px[i + 1] === undefined) continue
+                      const dx = px[i + 1]! - px[i]!
+                      const dy = py[i + 1]! - py[i]!
+                      const segLen = Math.sqrt(dx * dx + dy * dy)
+                      if (acc + segLen >= target) {
+                        const t = segLen > 0 ? (target - acc) / segLen : 0
+                        emitLabelAlongSegment(px[i]!, py[i]!, px[i + 1]!, py[i + 1]!, t, props)
+                        return
+                      }
+                      acc += segLen
+                    }
+                    return
+                  }
+                  // Drop labels at offsets spacing/2, 3*spacing/2, ...
+                  let nextStop = spacingPx * 0.5
+                  let acc = 0
+                  for (let i = firstValid; i < lastValid; i++) {
+                    if (px[i] === undefined || px[i + 1] === undefined) continue
+                    const dx = px[i + 1]! - px[i]!
+                    const dy = py[i + 1]! - py[i]!
+                    const segLen = Math.sqrt(dx * dx + dy * dy)
+                    while (nextStop <= acc + segLen && nextStop <= total) {
+                      const t = segLen > 0 ? (nextStop - acc) / segLen : 0
+                      emitLabelAlongSegment(px[i]!, py[i]!, px[i + 1]!, py[i + 1]!, t, props)
+                      nextStop += spacingPx
+                    }
+                    acc += segLen
+                  }
+                })
+              } else {
+                // Single-label-per-feature fallback (line-center, or
+                // line-placement with spacing=0). Uses the longest
+                // segment chosen by forEachLineLabelFeature.
+                vtEntry.renderer.forEachLineLabelFeature(show.sourceLayer, (ax, ay, bx, by, props) => {
+                  const [aLon, aLat] = mercToLonLat(ax, ay)
+                  const [bLon, bLat] = mercToLonLat(bx, by)
+                  const pa = projectLonLat(aLon, aLat)
+                  const pb = projectLonLat(bLon, bLat)
+                  if (!pa || !pb) return
+                  emitLabelAlongSegment(pa[0], pa[1], pb[0], pb[1], 0.5, props)
+                })
+              }
             } else {
               vtEntry.renderer.forEachLabelFeature(show.sourceLayer, (mercX, mercY, props) => {
                 const [lon, lat] = mercToLonLat(mercX, mercY)
