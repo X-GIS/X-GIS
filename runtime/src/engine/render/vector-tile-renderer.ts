@@ -3454,6 +3454,26 @@ export class VectorTileRenderer {
           if (drawStrokes) strokeQueue.push({ cached, slotOffset })
           continue
         }
+        // OPAQUE extrude variant of the same skip rule: when the show
+        // declares per-feature extrude but THIS tile's slice was
+        // compiled without a zBuffer (e.g., a fallback parent slice
+        // uploaded before the extrude show wired its per-feature
+        // heights, or a parent tile whose worker compile predated the
+        // per-feature config), falling through to `fillPipeline` would
+        // render the polygons FLAT at z=0 — producing the user-visible
+        // "tile-boundary building height mismatch" bug where a child
+        // tile's 3D building meets a flat-projected fallback polygon.
+        // The flat polygon depth-tests against the 3D one and wins or
+        // loses unpredictably depending on pitch / camera angle. Skip
+        // instead: showing no fallback building briefly is far less
+        // visually broken than showing a flat one. Strokes still draw.
+        const wantsExtrude = !isOitFill
+          && this.currentExtrudeMode === 'per-feature'
+          && fillPipelineExtruded !== null
+        if (wantsExtrude && cached.zBuffer === null) {
+          if (drawStrokes) strokeQueue.push({ cached, slotOffset })
+          continue
+        }
         const useExtrudedPipe = !isOitFill
           && this.currentExtrudeMode === 'per-feature'
           && cached.zBuffer !== null
