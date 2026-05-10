@@ -154,10 +154,18 @@ const TWO_PI_R_EARTH = 2 * Math.PI * 6378137
 
 /** Cesium replacement-invariant ancestor protection depth. Caps the
  *  number of pyramid levels above each visible tile that are held
- *  pinned in the catalog cache. 4 covers the typical fallback walk
- *  depth (1-2 levels of parent miss + headroom) without letting the
- *  protected set explode at deep zoom. */
-const ANCESTOR_PROTECT_DEPTH = 4
+ *  pinned in the catalog cache. 22 matches `firstIndexedAncestor`'s
+ *  MAX_WALK (DSFUN zoom ceiling) so the entire chain from leaf to
+ *  root is protected — "parents are never evicted before their
+ *  children arrive" (Cesium replace-refinement rule #2). Sibling
+ *  visibles share the bulk of their chain, so the unique-key count
+ *  scales as O(visible + log2(visible) × depth), not visible × depth;
+ *  measured ~30-50 unique ancestors at z=14 over a typical viewport,
+ *  well inside the 100/200 MB catalog cap. The previous value (4)
+ *  left mid-zoom ancestors (z=3..z=N-5) unprotected and they were
+ *  evicted during fast zoom-in even though they were the last
+ *  available fallback before the pinned skeleton at z=0..2/3. */
+const ANCESTOR_PROTECT_DEPTH = 22
 
 // Polygon mesh quantization + wall generation moved to engine/
 // polygon-mesh.ts so the math is unit-testable independent of GPU
