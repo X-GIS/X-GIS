@@ -3,7 +3,7 @@
 import { lonLatToMercator } from '../../loader/geojson'
 import { WORLD_MERC } from '../gpu/gpu-shared'
 import { getMaxDpr } from '../gpu/gpu'
-import { computeLogDepthFc } from './wgsl-log-depth'
+import { computeLogDepthFc } from '../shaders/log-depth'
 
 export class Camera {
   /** Camera center in Web Mercator coordinates */

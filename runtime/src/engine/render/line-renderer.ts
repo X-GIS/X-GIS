@@ -47,9 +47,9 @@ import {
   WGSL_DIST_TO_CUBIC,
   WGSL_WINDING_LINE,
   WGSL_SHAPE_STRUCTS,
-} from '../text/wgsl-sdf'
-import { WGSL_LOG_DEPTH_FNS } from '../projection/wgsl-log-depth'
-import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../projection/wgsl-projection'
+} from '../shaders/sdf'
+import { WGSL_LOG_DEPTH_FNS } from '../shaders/log-depth'
+import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projection'
 import type { ShapeRegistry } from '../text/sdf-shape'
 
 // ═══ Layer Uniform Layout ═══

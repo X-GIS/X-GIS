@@ -6,8 +6,8 @@ import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../../data/tile-
 import { mercator as mercatorProj } from '../projection/projection'
 import { BLEND_ALPHA, STENCIL_DISABLED } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
-import { WGSL_LOG_DEPTH_FNS } from '../projection/wgsl-log-depth'
-import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../projection/wgsl-projection'
+import { WGSL_LOG_DEPTH_FNS } from '../shaders/log-depth'
+import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projection'
 
 const RASTER_SHADER = /* wgsl */ `
 ${WGSL_PROJECTION_CONSTS}

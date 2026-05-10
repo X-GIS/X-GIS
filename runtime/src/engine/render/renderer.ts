@@ -13,8 +13,8 @@ import {
   MSAA_4X, WORLD_MERC, worldCopiesFor,
 } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
-import { WGSL_LOG_DEPTH_FNS } from '../projection/wgsl-log-depth'
-import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../projection/wgsl-projection'
+import { WGSL_LOG_DEPTH_FNS } from '../shaders/log-depth'
+import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projection'
 
 // generateGraticule(zoom) now handles zoom-adaptive steps internally
 

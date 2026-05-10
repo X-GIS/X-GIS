@@ -6,8 +6,8 @@
 import type { Camera } from '../projection/camera'
 import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_MERC, worldCopiesFor } from '../gpu/gpu-shared'
 import { getSampleCount } from '../gpu/gpu'
-import { WGSL_LOG_DEPTH_FNS } from '../projection/wgsl-log-depth'
-import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../projection/wgsl-projection'
+import { WGSL_LOG_DEPTH_FNS } from '../shaders/log-depth'
+import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projection'
 import type { ShapeRegistry } from '../text/sdf-shape'
 
 // ═══ WGSL Shader ═══
