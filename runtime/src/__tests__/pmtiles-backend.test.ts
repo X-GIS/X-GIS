@@ -203,7 +203,7 @@ describe('PMTilesBackend in isolation', () => {
   })
 })
 
-import { resolveDispatch } from '../loader/pmtiles-source'
+import { resolveDispatch } from '../loader/vector-tile-loader'
 
 describe('resolveDispatch — TileJSON vs PMTiles routing', () => {
   // URL extension wins regardless of `kind` — the server's bytes
