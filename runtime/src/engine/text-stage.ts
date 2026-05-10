@@ -70,12 +70,24 @@ interface PendingLabel {
   fontKey: string
 }
 
+interface PendingLineLabel {
+  text: string
+  /** Polyline already projected to screen pixels by the caller. */
+  polylineX: Float32Array
+  polylineY: Float32Array
+  /** Distance along the polyline (px) where the label centre sits. */
+  centerOffsetPx: number
+  def: LabelDef
+  fontKey: string
+}
+
 export class TextStage {
   readonly host: GlyphAtlasHost
   readonly gpu: GlyphAtlasGPU
   readonly renderer: TextRenderer
   readonly opts: Required<Omit<TextStageOptions, 'rasterizer'>>
   private readonly pending: PendingLabel[] = []
+  private readonly pendingLine: PendingLineLabel[] = []
   /** DPR applied to LabelDef.size (and offset/halo/maxWidth) at
    *  prepare() time. Anchors arrive already in physical pixels
    *  (map.ts projects against canvas.width/height) but `size` etc.
@@ -127,6 +139,36 @@ export class TextStage {
     this.prewarm(set, fontKey)
   }
 
+  /** Queue a curved label that follows a screen-projected polyline.
+   *  Each glyph is placed at a different sample point along the
+   *  polyline with rotation matching the local tangent — the
+   *  Mapbox `symbol-placement: line` look. Caller supplies the
+   *  polyline in physical-pixel coordinates plus a centre offset
+   *  (distance along the polyline where the label centres). When
+   *  the resolved text is wider than the available polyline length,
+   *  the label is silently skipped. */
+  addCurvedLineLabel(
+    value: TextValue,
+    props: FeatureProps,
+    polylineX: Float32Array,
+    polylineY: Float32Array,
+    centerOffsetPx: number,
+    def: LabelDef,
+    fontKey?: string,
+  ): void {
+    const text = resolveText(value, props)
+    if (text.length === 0) return
+    const transformed = applyTextTransform(text, def.transform)
+    this.pendingLine.push({
+      text: transformed,
+      polylineX, polylineY, centerOffsetPx,
+      def,
+      fontKey: fontKey ?? (def.font && def.font.length > 0
+        ? def.font.map(f => f.includes(' ') ? `"${f}"` : f).join(',')
+        : this.opts.defaultFont),
+    })
+  }
+
   /** Queue one label for the current frame. Resolve text from a
    *  TextValue + feature props inline; caller already knows the
    *  feature's screen anchor (after projection). Empty resolved
@@ -162,7 +204,7 @@ export class TextStage {
    *  before encoding the render pass; render() then encodes the
    *  draws onto the supplied pass. */
   prepare(): void {
-    if (this.pending.length === 0) {
+    if (this.pending.length === 0 && this.pendingLine.length === 0) {
       this.renderer.setDraws([])
       return
     }
@@ -342,6 +384,120 @@ export class TextStage {
       })
     }
 
+    // Phase 1b: shape curved line labels. Each glyph rides a
+    // different point on the polyline with the local tangent rotation.
+    // The static bbox used for collision is the AABB of all glyph
+    // centres (rough but cheap; precise oriented bboxes are overkill
+    // for label-vs-label dedupe at typical zoom).
+    for (const p of this.pendingLine) {
+      const glyphs = this.host.ensureString(p.fontKey, p.text)
+      if (glyphs.length === 0) continue
+      const sizePx = p.def.size * dpr
+      const scale = sizePx / this.opts.rasterFontSize
+      const letterSpacingPx = (p.def.letterSpacing ?? 0) * sizePx
+      // Total label width along the polyline (sum of advances + spacing).
+      let totalAdvancePx = 0
+      const advances: number[] = new Array(glyphs.length)
+      for (let gi = 0; gi < glyphs.length; gi++) {
+        const adv = glyphs[gi]!.advanceWidth * scale
+        advances[gi] = adv
+        totalAdvancePx += adv
+      }
+      totalAdvancePx += letterSpacingPx * Math.max(0, glyphs.length - 1)
+      // Cumulative polyline length + per-vertex distance for fast
+      // distance-to-position lookup.
+      const px = p.polylineX, py = p.polylineY
+      const n = px.length
+      if (n < 2) continue
+      const cumLen: number[] = new Array(n)
+      cumLen[0] = 0
+      for (let i = 1; i < n; i++) {
+        const dx = px[i]! - px[i - 1]!
+        const dy = py[i]! - py[i - 1]!
+        cumLen[i] = cumLen[i - 1]! + Math.sqrt(dx * dx + dy * dy)
+      }
+      const totalLineLen = cumLen[n - 1]!
+      // Skip when label can't fit — Mapbox drops it rather than truncate.
+      if (totalAdvancePx > totalLineLen) continue
+      const startS = p.centerOffsetPx - totalAdvancePx * 0.5
+      // Skip when the requested centre + label extends past the polyline.
+      if (startS < 0 || startS + totalAdvancePx > totalLineLen + 0.5) continue
+      // Sample point at distance `s` along the polyline.
+      let segIdx = 0
+      const sampleAt = (s: number): { x: number; y: number; angle: number } => {
+        while (segIdx < n - 2 && cumLen[segIdx + 1]! < s) segIdx++
+        const segLen = cumLen[segIdx + 1]! - cumLen[segIdx]!
+        const t = segLen > 0 ? (s - cumLen[segIdx]!) / segLen : 0
+        const ax = px[segIdx]!, ay = py[segIdx]!
+        const bx = px[segIdx + 1]!, by = py[segIdx + 1]!
+        const x = ax + (bx - ax) * t
+        const y = ay + (by - ay) * t
+        let angle = Math.atan2(by - ay, bx - ax)
+        // Keep-upright (lite): flip glyph rotation by 180° when the
+        // tangent points "leftward" so text reads L→R. Same heuristic
+        // the longest-segment path uses.
+        if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI
+        return { x, y, angle }
+      }
+      const glyphOffsets = new Float32Array(glyphs.length * 2)
+      const glyphRotations = new Float32Array(glyphs.length)
+      // Per-glyph centre = startS + sum(prev advances) + currentAdvance/2.
+      let cursor = startS
+      let gminX = Infinity, gmaxX = -Infinity, gminY = Infinity, gmaxY = -Infinity
+      for (let gi = 0; gi < glyphs.length; gi++) {
+        const adv = advances[gi]!
+        const center = cursor + adv * 0.5
+        const sample = sampleAt(center)
+        glyphOffsets[gi * 2] = sample.x
+        glyphOffsets[gi * 2 + 1] = sample.y
+        glyphRotations[gi] = sample.angle
+        if (sample.x < gminX) gminX = sample.x
+        if (sample.x > gmaxX) gmaxX = sample.x
+        if (sample.y < gminY) gminY = sample.y
+        if (sample.y > gmaxY) gmaxY = sample.y
+        cursor += adv + (gi < glyphs.length - 1 ? letterSpacingPx : 0)
+      }
+      // Line labels reference the polyline directly — anchor is at
+      // origin (0,0); per-glyph offsets are absolute screen coords
+      // already (the renderer computes baseX = anchorX + offset[0]
+      // so we set anchor=0 and glyphOffsets[i] = sample.x).
+      const haloOut = p.def.halo
+        ? {
+            color: p.def.halo.color,
+            width: p.def.halo.width * dpr,
+            ...(p.def.halo.blur !== undefined ? { blur: p.def.halo.blur * dpr } : {}),
+          }
+        : undefined
+      const padding = (p.def.padding ?? 2) * dpr
+      const halfH = sizePx * 0.5
+      const draw: TextDraw = {
+        anchorX: 0,
+        anchorY: 0,
+        glyphs,
+        fontSize: sizePx,
+        rasterFontSize: this.opts.rasterFontSize,
+        color: p.def.color ?? [0, 0, 0, 1],
+        halo: haloOut,
+        letterSpacingPx,
+        glyphOffsets,
+        glyphRotations,
+        sdfRadius: this.opts.sdfRadius,
+      }
+      shaped.push({
+        layouts: [{
+          draw,
+          bbox: {
+            minX: gminX - halfH - padding,
+            minY: gminY - halfH - padding,
+            maxX: gmaxX + halfH + padding,
+            maxY: gmaxY + halfH + padding,
+          },
+        }],
+        allowOverlap: p.def.allowOverlap === true,
+        ignorePlacement: p.def.ignorePlacement === true,
+      })
+    }
+
     // Phase 2: greedy bbox collision with per-label candidate fallback.
     // Input order is the per-frame queue order (= feature order from
     // the source). See text-collision.ts for the algorithm.
@@ -374,6 +530,7 @@ export class TextStage {
    *  (or immediately at frame start). */
   reset(): void {
     this.pending.length = 0
+    this.pendingLine.length = 0
   }
 
   destroy(): void {

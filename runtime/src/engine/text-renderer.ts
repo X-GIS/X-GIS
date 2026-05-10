@@ -57,6 +57,14 @@ export interface TextDraw {
    *  the shader expects. When unset, falls back to the historical
    *  6-px assumption to preserve old call sites. */
   sdfRadius?: number
+  /** Per-glyph rotation (radians, screen-space CW). When set, each
+   *  glyph quad rotates around its OWN centre instead of around the
+   *  label anchor — required for text-along-curve where neighbouring
+   *  glyphs face slightly different tangents. Length must match
+   *  glyphs.length; pairs naturally with `glyphOffsets` (which
+   *  positions each glyph at its sample point). When set, `rotateRad`
+   *  is ignored. */
+  glyphRotations?: Float32Array
 }
 
 const VERTS_PER_GLYPH = 6  // two triangles
@@ -226,8 +234,10 @@ export class TextRenderer {
       const baseY = d.anchorY
       const letterSpacingPx = d.letterSpacingPx ?? 0
       const offsets = d.glyphOffsets
-      // Rotation around (anchorX, anchorY). Computing once per draw
-      // beats stamping out a rotation matrix per quad.
+      const perGlyphRot = d.glyphRotations
+      // Whole-label rotation around (anchorX, anchorY). Used when
+      // glyphRotations isn't set; one trig-pair beats stamping a
+      // rotation matrix per quad.
       const rot = d.rotateRad ?? 0
       const cosR = Math.cos(rot), sinR = Math.sin(rot)
       const rotateXY = (x: number, y: number): [number, number] => {
@@ -252,11 +262,33 @@ export class TextRenderer {
         const v0 = g.slot.pxY / pageSize
         const u1 = (g.slot.pxX + slotSize) / pageSize
         const v1 = (g.slot.pxY + slotSize) / pageSize
-        // 4 quad corners — rotate each around the anchor point.
-        const [tlx, tly] = rotateXY(x0, y0)
-        const [blx, bly] = rotateXY(x0, y1)
-        const [brx, bry] = rotateXY(x1, y1)
-        const [trx, try_] = rotateXY(x1, y0)
+        // 4 quad corners. Rotation strategy:
+        //   - Per-glyph (glyphRotations set): rotate each quad
+        //     around its OWN centre by the per-glyph radian. Used
+        //     for text-along-curve where neighbouring glyphs face
+        //     different tangents.
+        //   - Whole-label (rotateRad / 0): rotate around the label
+        //     anchor — single trig pair, computed above.
+        let tlx: number, tly: number, blx: number, bly: number
+        let brx: number, bry: number, trx: number, try_: number
+        if (perGlyphRot !== undefined) {
+          const gRot = perGlyphRot[gi] ?? 0
+          const gcx = (x0 + x1) * 0.5, gcy = (y0 + y1) * 0.5
+          const c = Math.cos(gRot), s = Math.sin(gRot)
+          const rotateGlyph = (x: number, y: number): [number, number] => {
+            const ddx = x - gcx, ddy = y - gcy
+            return [gcx + ddx * c - ddy * s, gcy + ddx * s + ddy * c]
+          };
+          [tlx, tly] = rotateGlyph(x0, y0)
+          ;[blx, bly] = rotateGlyph(x0, y1)
+          ;[brx, bry] = rotateGlyph(x1, y1)
+          ;[trx, try_] = rotateGlyph(x1, y0)
+        } else {
+          [tlx, tly] = rotateXY(x0, y0)
+          ;[blx, bly] = rotateXY(x0, y1)
+          ;[brx, bry] = rotateXY(x1, y1)
+          ;[trx, try_] = rotateXY(x1, y0)
+        }
 
         const off = glyphIdx * FLOATS_PER_GLYPH
         // tri 1: TL, BL, BR

@@ -2824,42 +2824,67 @@ export class XGISMap {
                 }
               }
               if (spacingPx > 0) {
-                // Polyline path: project all vertices, accumulate
-                // screen-space length, drop a label every spacingPx.
-                // Half-spacing offset at the start centres the run
-                // (matches Mapbox: a 1000-px line with 250-px spacing
-                // shows 4 labels at 125, 375, 625, 875 — not at 0).
+                // Polyline path: project all vertices, walk in screen
+                // space, drop labels at spacing/2, 3*spacing/2, …. For
+                // tangent-rotation labels (the common case) we hand the
+                // polyline + offset to TextStage.addCurvedLineLabel
+                // which lays each glyph at its own sample point with
+                // the local tangent rotation — this is the Mapbox
+                // text-along-curve look. Viewport-aligned line labels
+                // (text-rotation-alignment: viewport) keep the simple
+                // single-rotation `emitLabelAlongSegment` path so the
+                // glyphs stay in a horizontal row.
                 vtEntry.renderer.forEachLineLabelPolyline(show.sourceLayer, (mxs, mys, props) => {
                   if (mxs.length < 2) return
-                  const px = new Array<number>(mxs.length)
-                  const py = new Array<number>(mxs.length)
-                  let firstValid = -1, lastValid = -1
+                  // Project every vertex to physical-pixel screen
+                  // space; pack into typed arrays for the curved-text
+                  // sampler. Drop unprojectable vertices by trimming
+                  // to the first contiguous projectable run.
+                  const px: number[] = []
+                  const py: number[] = []
                   for (let i = 0; i < mxs.length; i++) {
                     const [lon, lat] = mercToLonLat(mxs[i]!, mys[i]!)
                     const proj = projectLonLat(lon, lat)
-                    if (proj) {
-                      px[i] = proj[0]; py[i] = proj[1]
-                      if (firstValid < 0) firstValid = i
-                      lastValid = i
-                    }
+                    if (proj) { px.push(proj[0]); py.push(proj[1]) }
                   }
-                  if (firstValid < 0 || lastValid <= firstValid) return
-                  // Total length over the projected (visible) range.
+                  if (px.length < 2) return
                   let total = 0
-                  for (let i = firstValid; i < lastValid; i++) {
-                    if (px[i] === undefined || px[i + 1] === undefined) continue
+                  for (let i = 0; i < px.length - 1; i++) {
                     const dx = px[i + 1]! - px[i]!
                     const dy = py[i + 1]! - py[i]!
                     total += Math.sqrt(dx * dx + dy * dy)
                   }
+                  const featDef = applyFeatureExprs(props)
+                  if (useTangentRotation) {
+                    // Curved-text path: pack the projected polyline
+                    // and ask TextStage to lay each glyph along it.
+                    const polyX = new Float32Array(px)
+                    const polyY = new Float32Array(py)
+                    if (total < spacingPx * 0.5) {
+                      stage.addCurvedLineLabel(
+                        featDef.text, props,
+                        polyX, polyY, total * 0.5,
+                        featDef, featDef.font?.[0],
+                      )
+                      return
+                    }
+                    let nextStop = spacingPx * 0.5
+                    while (nextStop <= total) {
+                      stage.addCurvedLineLabel(
+                        featDef.text, props,
+                        polyX, polyY, nextStop,
+                        featDef, featDef.font?.[0],
+                      )
+                      nextStop += spacingPx
+                    }
+                    return
+                  }
+                  // Viewport-aligned path: keep the historical single-
+                  // rotation emission per spacing point.
                   if (total < spacingPx * 0.5) {
-                    // Polyline shorter than half a spacing — emit one
-                    // label at its centre (matches Mapbox's "always
-                    // place at least one if it fits" behaviour).
                     let acc = 0
                     const target = total * 0.5
-                    for (let i = firstValid; i < lastValid; i++) {
-                      if (px[i] === undefined || px[i + 1] === undefined) continue
+                    for (let i = 0; i < px.length - 1; i++) {
                       const dx = px[i + 1]! - px[i]!
                       const dy = py[i + 1]! - py[i]!
                       const segLen = Math.sqrt(dx * dx + dy * dy)
@@ -2872,11 +2897,9 @@ export class XGISMap {
                     }
                     return
                   }
-                  // Drop labels at offsets spacing/2, 3*spacing/2, ...
                   let nextStop = spacingPx * 0.5
                   let acc = 0
-                  for (let i = firstValid; i < lastValid; i++) {
-                    if (px[i] === undefined || px[i + 1] === undefined) continue
+                  for (let i = 0; i < px.length - 1; i++) {
                     const dx = px[i + 1]! - px[i]!
                     const dy = py[i + 1]! - py[i]!
                     const segLen = Math.sqrt(dx * dx + dy * dy)
