@@ -186,6 +186,32 @@ function extractInterpolateZoomStops(
   return stops.length >= 2 ? stops : null
 }
 
+/** Pull the value of the last (= highest-zoom) stop from an
+ *  `interpolate(zoom, z0, c0, z1, c1, …)` binding. Used as a static
+ *  fallback for label-color / label-halo-color, which the runtime
+ *  doesn't yet zoom-interpolate — the last stop is what the user
+ *  sees at full zoom (where labels matter most), so it's a better
+ *  approximation than the alternative (silently dropping the prop).
+ *  Returns null when the expression isn't an interpolate-by-zoom or
+ *  its stops aren't all colour literals. */
+function extractInterpolateZoomLastColor(expr: AST.Expr): string | null {
+  if (expr.kind !== 'FnCall') return null
+  if (expr.callee.kind !== 'Identifier' || expr.callee.name !== 'interpolate') return null
+  const args = expr.args
+  if (args.length < 5) return null  // zoom, z0, c0, z1, c1 minimum
+  if (args[0].kind !== 'Identifier' || args[0].name !== 'zoom') return null
+  // Walk from the back and return the first ColorLiteral value we see,
+  // verifying the slot before it is a NumberLiteral (zoom key).
+  for (let i = args.length - 1; i >= 2; i -= 2) {
+    const vArg = args[i]
+    const zArg = args[i - 1]
+    if (vArg.kind === 'ColorLiteral' && zArg.kind === 'NumberLiteral') {
+      return vArg.value
+    }
+  }
+  return null
+}
+
 // ═══ New syntax lowering ═══
 
 function lowerSource(stmt: AST.SourceStatement): SourceDef | null {
@@ -500,6 +526,30 @@ function lowerLayer(
           for (const s of zoomStops) labelSizeZoomStops.push({ zoom: s.zoom, value: s.value })
           continue
         }
+        // label-halo zoom-interpolated width — use last stop as a
+        // static fallback. Proper per-frame interpolation lands when
+        // LabelDef gains haloWidthZoomStops.
+        if (zoomStops && name === 'label-halo') {
+          labelHaloWidth = zoomStops[zoomStops.length - 1]!.value
+          continue
+        }
+        // label-color / label-halo-color zoom-interpolated colour —
+        // pull the last (highest-zoom) stop's colour as the static
+        // value. Better than silently dropping the property.
+        if (name === 'label-color') {
+          const last = extractInterpolateZoomLastColor(item.binding)
+          if (last) {
+            const hex = resolveColor(last)
+            if (hex) { labelColor = hexToRgba(hex); continue }
+          }
+        }
+        if (name === 'label-halo-color') {
+          const last = extractInterpolateZoomLastColor(item.binding)
+          if (last) {
+            const hex = resolveColor(last)
+            if (hex) { labelHaloColor = hexToRgba(hex); continue }
+          }
+        }
         if (name === 'fill') {
           fill = { kind: 'data-driven', expr: { ast: item.binding } }
         } else if (name === 'size') {
@@ -558,6 +608,10 @@ function lowerLayer(
       if (name === 'label-anchor-bottom') { labelAnchor = 'bottom'; continue }
       if (name === 'label-anchor-left') { labelAnchor = 'left'; continue }
       if (name === 'label-anchor-right') { labelAnchor = 'right'; continue }
+      if (name === 'label-anchor-top-left') { labelAnchor = 'top-left'; continue }
+      if (name === 'label-anchor-top-right') { labelAnchor = 'top-right'; continue }
+      if (name === 'label-anchor-bottom-left') { labelAnchor = 'bottom-left'; continue }
+      if (name === 'label-anchor-bottom-right') { labelAnchor = 'bottom-right'; continue }
       if (name.startsWith('label-size-')) {
         const num = parseFloat(name.slice('label-size-'.length))
         if (!isNaN(num)) labelSize = num

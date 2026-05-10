@@ -510,15 +510,72 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
-    it('text-anchor diagonal collapses to dominant axis', () => {
+    it('text-anchor preserves the full 9-way set (corners included)', () => {
+      // Earlier the converter collapsed top-left/top-right etc. to the
+      // dominant axis because the lower pass only handled 5 anchors.
+      // Both passes now carry the corner forms through, matching the
+      // IR's LabelDef.anchor type (render-node.ts:244-246).
+      for (const a of ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const) {
+        const out = convertMapboxStyle({
+          version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+          layers: [{
+            id: 'a', type: 'symbol', source: 'x', 'source-layer': 'pts',
+            layout: { 'text-field': '{name}', 'text-anchor': a } as never,
+          }],
+        })
+        expect(out).toContain(`label-anchor-${a}`)
+        expect(parses(out)).toBe(true)
+      }
+    })
+
+    it('text-size interpolate-by-zoom → label-size-[interpolate(zoom, …)]', () => {
+      // The converter previously dropped any non-constant text-size,
+      // leaving the layer with the default 12 px — wrong for almost
+      // every real Mapbox style (place / POI labels universally use
+      // zoom-interpolated sizes).
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
         layers: [{
-          id: 'a', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}', 'text-anchor': 'top-left' } as never,
+          id: 's', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-size': ['interpolate', ['linear'], ['zoom'], 8, 12, 14, 22],
+          } as never,
         }],
       })
-      expect(out).toContain('label-anchor-top')
+      expect(out).toContain('label-size-[interpolate(zoom, 8, 12, 14, 22)]')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-color interpolate-by-zoom → label-color-[interpolate(zoom, …)]', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'c', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+          paint: {
+            'text-color': ['interpolate', ['linear'], ['zoom'], 5, '#666', 14, '#000'],
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-color-[interpolate(zoom, 5, #666, 14, #000)]')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-halo-width / text-halo-color interpolate-by-zoom', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'h', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+          paint: {
+            'text-halo-width': ['interpolate', ['linear'], ['zoom'], 5, 1, 14, 2],
+            'text-halo-color': ['interpolate', ['linear'], ['zoom'], 5, '#fff', 14, '#eee'],
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-halo-[interpolate(zoom, 5, 1, 14, 2)]')
+      expect(out).toContain('label-halo-color-[interpolate(zoom, 5, #fff, 14, #eee)]')
       expect(parses(out)).toBe(true)
     })
 

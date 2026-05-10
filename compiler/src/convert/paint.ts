@@ -70,7 +70,7 @@ function interpolateZoomStops(v: unknown): Array<{ zoom: number; value: unknown 
  *  Returns null when any stop value can't be formatted, so the
  *  caller can fall back to a more permissive path (e.g. take the
  *  first stop, or drop the property entirely). */
-function interpolateZoomCall(
+export function interpolateZoomCall(
   v: unknown,
   warnings: string[],
   emitValue: (val: unknown, warnings: string[]) => string | null,

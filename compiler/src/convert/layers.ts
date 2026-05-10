@@ -1,7 +1,7 @@
 import type { MapboxLayer } from './types'
 import { sanitizeId } from './utils'
 import { filterToXgis, exprToXgis } from './expressions'
-import { paintToUtilities } from './paint'
+import { paintToUtilities, interpolateZoomCall } from './paint'
 import { colorToXgis } from './colors'
 
 // Layer types whose engine support is on the roadmap but not yet
@@ -89,47 +89,75 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   // back to the layer's `fill` colour when label-color is unset, so
   // emitting label-color explicitly guarantees the user-intended
   // text colour even on layers that share fill/stroke with the
-  // underlying point/polygon.
+  // underlying point/polygon. Interpolate-by-zoom routes through
+  // the `[interpolate(zoom, …)]` bracket form (every non-trivial
+  // Mapbox style uses zoom-interpolated text-color).
   const textColor = paint['text-color']
   if (textColor !== undefined) {
-    const colorStr = colorToXgis(textColor, warnings)
-    if (colorStr) utils.push(`label-color-${colorStr}`)
+    const interp = interpolateZoomCall(textColor, warnings, (val, w) => colorToXgis(val, w))
+    if (interp !== null) {
+      utils.push(`label-color-[${interp}]`)
+    } else {
+      const colorStr = colorToXgis(textColor, warnings)
+      if (colorStr) utils.push(`label-color-${colorStr}`)
+    }
   }
 
-  // text-size (constant only — interpolate stops + zoom-driven
-  // sizing fold in once 1c-8h adds zoom-interpolated label sizes).
+  // text-size — constant or interpolate-by-zoom. The bracket binding
+  // form `label-size-[interpolate(zoom, …)]` is recognised by the
+  // lower pass (lower.ts:499) and produces `LabelDef.sizeZoomStops`
+  // for per-frame interpolation.
   const textSize = layout['text-size']
   if (typeof textSize === 'number') {
     utils.push(`label-size-${textSize}`)
   } else if (textSize !== undefined) {
-    warnings.push(`Symbol layer "${layer.id}" — text-size expression form not yet converted (Batch 1c-8h).`)
+    const interp = interpolateZoomCall(textSize, warnings,
+      (val) => typeof val === 'number' ? String(val) : null)
+    if (interp !== null) {
+      utils.push(`label-size-[${interp}]`)
+    } else {
+      warnings.push(`Symbol layer "${layer.id}" — text-size expression form not converted: ${JSON.stringify(textSize).slice(0, 80)}`)
+    }
   }
 
   // text-halo-width / text-halo-color → label-halo-N + label-halo-color-X.
+  // Both accept zoom-interpolated forms (common on basemap styles
+  // that grow halos with zoom for legibility).
   const haloWidth = paint['text-halo-width']
   if (typeof haloWidth === 'number' && haloWidth > 0) {
     utils.push(`label-halo-${haloWidth}`)
+  } else if (haloWidth !== undefined) {
+    const interp = interpolateZoomCall(haloWidth, warnings,
+      (val) => typeof val === 'number' ? String(val) : null)
+    if (interp !== null) {
+      utils.push(`label-halo-[${interp}]`)
+    }
   }
   const haloColor = paint['text-halo-color']
   if (haloColor !== undefined) {
-    const colorStr = colorToXgis(haloColor, warnings)
-    if (colorStr) utils.push(`label-halo-color-${colorStr}`)
+    const interp = interpolateZoomCall(haloColor, warnings, (val, w) => colorToXgis(val, w))
+    if (interp !== null) {
+      utils.push(`label-halo-color-[${interp}]`)
+    } else {
+      const colorStr = colorToXgis(haloColor, warnings)
+      if (colorStr) utils.push(`label-halo-color-${colorStr}`)
+    }
   }
 
-  // text-anchor → label-anchor-X. Mapbox's 9-way anchor (top-left,
-  // bottom-right, etc.) collapses to the 5-way set the IR currently
-  // exposes (1d expands to the full set when anchor matters for
-  // along-path placement); diagonal anchors map to the dominant axis.
-  const anchorMap: Record<string, string> = {
-    'center': 'center',
-    'top': 'top', 'bottom': 'bottom',
-    'left': 'left', 'right': 'right',
-    'top-left': 'top', 'top-right': 'top',
-    'bottom-left': 'bottom', 'bottom-right': 'bottom',
-  }
+  // text-anchor → label-anchor-X. Mapbox's 9-way anchor maps 1:1
+  // to the IR's 9-way LabelDef.anchor (render-node.ts:244-246).
+  // Earlier versions collapsed corners to the dominant axis because
+  // the lower pass only recognised 5 anchors; that shed half the
+  // alignment information for any style that anchored labels to a
+  // POI's corner (e.g. icons-with-labels where the label sits to
+  // the bottom-right of the icon).
+  const VALID_ANCHORS = new Set([
+    'center', 'top', 'bottom', 'left', 'right',
+    'top-left', 'top-right', 'bottom-left', 'bottom-right',
+  ])
   const anchor = layout['text-anchor']
-  if (typeof anchor === 'string' && anchorMap[anchor]) {
-    utils.push(`label-anchor-${anchorMap[anchor]}`)
+  if (typeof anchor === 'string' && VALID_ANCHORS.has(anchor)) {
+    utils.push(`label-anchor-${anchor}`)
   }
 
   // text-transform → label-uppercase / lowercase / none.

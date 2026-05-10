@@ -261,14 +261,23 @@ export class TextStage {
       // lineHeightPx.
       const glyphOffsets = lines.length > 1 ? new Float32Array(glyphs.length * 2) : undefined
       if (glyphOffsets) {
+        // Mapbox `text-justify: auto` resolves to left/right/center
+        // based on text-anchor: left-anchors → left, right-anchors →
+        // right, otherwise center. The previous condition only
+        // handled the left case, so right-anchored multiline labels
+        // got centred — visibly off when an icon's label runs
+        // multiline to the right of the icon (place names, POIs).
+        const isLeftAnchor = anchor === 'left' || anchor.endsWith('-left')
+        const isRightAnchor = anchor === 'right' || anchor.endsWith('-right')
+        const effectiveJustify = justify === 'auto'
+          ? (isLeftAnchor ? 'left' : isRightAnchor ? 'right' : 'center')
+          : justify
         for (let li = 0; li < lines.length; li++) {
           const ln = lines[li]!
-          // Horizontal offset within the bbox per justify mode.
           let lineX = 0
-          if (justify === 'right') lineX = totalAdvance - ln.width
-          else if (justify === 'left' || (justify === 'auto' && (anchor === 'left' || anchor.endsWith('-left')))) {
-            lineX = 0
-          } else lineX = (totalAdvance - ln.width) * 0.5
+          if (effectiveJustify === 'right') lineX = totalAdvance - ln.width
+          else if (effectiveJustify === 'left') lineX = 0
+          else lineX = (totalAdvance - ln.width) * 0.5
           // Vertical: line `li` sits lineHeightPx*li below the first.
           const lineY = -totalHeight + maxHeight + li * lineHeightPx
           let pen = lineX
