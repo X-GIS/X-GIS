@@ -183,6 +183,23 @@ function evaluateFnCall(expr: AST.FnCall, props: FeatureProps, fnEnv?: FnEnv): u
   // osm_style demo was every road in the compound layer
   // rendering at the FIRST member's colour because the segment
   // override stayed at 0 (alpha=0 sentinel = "use layer colour").
+  // `get("name:ko")` — Mapbox locale-variant property access. xgis
+  // FieldAccess (`.foo`) lexes as identifier so colon-bearing keys
+  // (`name:ko`, `name:latin`, `name_int`-prefixed locale forms…)
+  // can't ride the bare-dot path. Detect the AST shape here so the
+  // converter can emit `get("name:ko")` instead of dropping with a
+  // warning. Numeric / dynamic keys also work — args[0] is evaluated
+  // against props before lookup, so `get(.field_name)` would chain.
+  if (name === 'get' && expr.args.length === 1) {
+    const keyArg = expr.args[0]
+    if (keyArg.kind === 'StringLiteral') {
+      return props[keyArg.value] ?? null
+    }
+    const dynKey = evaluate(keyArg, props, fnEnv)
+    if (typeof dynKey === 'string') return props[dynKey] ?? null
+    return null
+  }
+
   if (name === 'match' && expr.matchBlock && expr.args.length === 1) {
     const key = evaluate(expr.args[0], props, fnEnv)
     const keyStr = key === null || key === undefined ? null : String(key)

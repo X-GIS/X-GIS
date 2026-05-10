@@ -20,7 +20,21 @@ export function parenthesize(s: string): string {
 
 /** xgis identifiers must be `[a-zA-Z_][a-zA-Z0-9_]*` — Mapbox often
  *  uses kebab-case (`landcover_glacier` is fine, `road-major` isn't).
- *  Replace anything outside the allowed set with `_`. */
+ *  Replace anything outside the allowed set with `_`. Reserved xgis
+ *  keywords (`place`, `source`, `layer`, …) get a `_` suffix because
+ *  raw style ids like `"place"` or `"layer"` from OpenMapTiles /
+ *  OSM Liberty would otherwise produce a parse error. */
+// Mirrors compiler/src/lexer/tokens.ts:KEYWORDS — keep in sync if
+// new keywords land. Unit suffixes (px/m/km/…) are excluded; they
+// only tokenise as units after a number, not in identifier position.
+const XGIS_RESERVED = new Set([
+  'let', 'fn', 'show', 'place', 'view', 'on', 'if', 'else', 'for', 'in',
+  'return', 'simulate', 'analyze', 'import', 'struct', 'enum',
+  'source', 'layer', 'background', 'preset', 'from', 'to', 'export',
+  'symbol', 'style', 'keyframes',
+  'true', 'false',
+])
 export function sanitizeId(s: string): string {
-  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s) ? s : s.replace(/[^a-zA-Z0-9_]/g, '_')
+  const cleaned = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s) ? s : s.replace(/[^a-zA-Z0-9_]/g, '_')
+  return XGIS_RESERVED.has(cleaned) ? `${cleaned}_` : cleaned
 }

@@ -754,7 +754,12 @@ export class Parser {
         // from-red-500, to-blue-500, fade-in, etc.
         next.type === TokenType.In ||
         next.type === TokenType.From ||
-        next.type === TokenType.To
+        next.type === TokenType.To ||
+        // Bool keywords as utility-name suffix: label-keep-upright-true,
+        // label-keep-upright-false, label-allow-overlap-true, etc.
+        // Mapbox spec uses boolean knobs heavily; emitting them in the
+        // hyphen-joined utility form keeps the converter simple.
+        next.type === TokenType.Bool
       if (!isNamePart) break
       this.advance() // consume '-'
       name += '-' + this.advance().value

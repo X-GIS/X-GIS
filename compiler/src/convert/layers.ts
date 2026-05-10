@@ -1,7 +1,7 @@
 import type { MapboxLayer } from './types'
 import { sanitizeId } from './utils'
 import { filterToXgis, exprToXgis } from './expressions'
-import { paintToUtilities } from './paint'
+import { paintToUtilities, interpolateZoomCall } from './paint'
 import { colorToXgis } from './colors'
 
 // Layer types whose engine support is on the roadmap but not yet
@@ -20,10 +20,24 @@ const SKIP_REASONS: Record<string, string> = {
 }
 
 /** Convert Mapbox `text-field` value → xgis expression string.
- *  Three forms:
+ *  Forms handled:
  *    - String literal `"Hello"` → quoted xgis string `"Hello"`
- *    - Token form `"{name}"` → field access `.name`
- *    - Expression form `["concat", ["get", "name"], …]` → exprToXgis
+ *    - Single token `"{name}"` → field access `.name`
+ *    - Multi-token `"{name} ({ref})"` → quoted xgis template literal.
+ *      lower.ts:bindingToTextValue routes string-literal bindings
+ *      through parseTextTemplate so each `{field}` interpolates per
+ *      feature and the literals between them stay as-is. Without
+ *      this path German autobahn labels, US highway shields, transit
+ *      line names — anything composing two fields — render missing
+ *      or just the first token. The existing converter already does
+ *      `JSON.stringify(field)` here; this comment documents WHY
+ *      that's the right behaviour so it doesn't get "simplified" away.
+ *    - `["coalesce", ["get", "k1"], ["get", "k2"], …]` and `["concat",
+ *      …]` etc. → exprToXgis, which emits the xgis `??` operator
+ *      (parser+evaluator both support it: parser.ts:913,
+ *      evaluator.ts:89). Locale-variant keys like `["get", "name:ko"]`
+ *      are dropped with a warning because xgis FieldAccess can't
+ *      lex colons; the coalesce fallback (next operand) takes over.
  *  Returns null if the value can't be converted (caller skips the
  *  whole label utility in that case). */
 function textFieldToXgisExpr(field: unknown, warnings: string[]): string | null {
@@ -43,6 +57,8 @@ function textFieldToXgisExpr(field: unknown, warnings: string[]): string | null 
       }
       return `.${name}`
     }
+    // Multi-token / mixed-literal string. Preserved as a quoted
+    // xgis string; lower.ts walks the template at parse time.
     return JSON.stringify(field)
   }
   if (Array.isArray(field)) {
@@ -89,47 +105,132 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   // back to the layer's `fill` colour when label-color is unset, so
   // emitting label-color explicitly guarantees the user-intended
   // text colour even on layers that share fill/stroke with the
-  // underlying point/polygon.
+  // underlying point/polygon. Interpolate-by-zoom routes through
+  // the `[interpolate(zoom, …)]` bracket form (every non-trivial
+  // Mapbox style uses zoom-interpolated text-color).
+  // Mapbox spec defaults — emit explicitly when the source style
+  // omits the property. Without this the runtime falls back to its
+  // own defaults (e.g. layer fill colour for label-color, 12 px for
+  // label-size, no wrap for label-max-width) which DIVERGE from
+  // Mapbox's well-known defaults (#000, 16 px, 10 ems). The user's
+  // goal is "Mapbox 스타일이 다르게 렌더링되면 안 된다" — emit
+  // defaults here so converted styles render identically without
+  // changing baseline behaviour for hand-authored xgis.
   const textColor = paint['text-color']
   if (textColor !== undefined) {
-    const colorStr = colorToXgis(textColor, warnings)
-    if (colorStr) utils.push(`label-color-${colorStr}`)
+    const interp = interpolateZoomCall(textColor, warnings, (val, w) => colorToXgis(val, w))
+    if (interp !== null) {
+      utils.push(`label-color-[${interp}]`)
+    } else {
+      const colorStr = colorToXgis(textColor, warnings)
+      if (colorStr) {
+        utils.push(`label-color-${colorStr}`)
+      } else {
+        // Data-driven shape (case / match / get). Route through the
+        // generic expression converter — produces a ternary or match
+        // body with hex literals for the leaves. lower.ts stores it
+        // as `LabelDef.colorExpr`; the runtime evaluates per feature.
+        const expr = exprToXgis(textColor, warnings)
+        if (expr !== null) {
+          utils.push(`label-color-[${expr}]`)
+        } else {
+          // Couldn't convert — fall back to Mapbox spec default.
+          utils.push('label-color-#000')
+        }
+      }
+    }
+  } else {
+    // Mapbox text-color default = "#000000".
+    utils.push('label-color-#000')
   }
 
-  // text-size (constant only — interpolate stops + zoom-driven
-  // sizing fold in once 1c-8h adds zoom-interpolated label sizes).
+  // text-size — constant or interpolate-by-zoom. The bracket binding
+  // form `label-size-[interpolate(zoom, …)]` is recognised by the
+  // lower pass (lower.ts:499) and produces `LabelDef.sizeZoomStops`
+  // for per-frame interpolation.
   const textSize = layout['text-size']
   if (typeof textSize === 'number') {
     utils.push(`label-size-${textSize}`)
   } else if (textSize !== undefined) {
-    warnings.push(`Symbol layer "${layer.id}" — text-size expression form not yet converted (Batch 1c-8h).`)
+    const interp = interpolateZoomCall(textSize, warnings,
+      (val) => typeof val === 'number' ? String(val) : null)
+    if (interp !== null) {
+      utils.push(`label-size-[${interp}]`)
+    } else {
+      // Data-driven shape (case / match / get → number). Route
+      // through the generic expression converter; lower.ts stores
+      // as `LabelDef.sizeExpr`; runtime evaluates per feature.
+      const expr = exprToXgis(textSize, warnings)
+      if (expr !== null) {
+        utils.push(`label-size-[${expr}]`)
+      } else {
+        warnings.push(`Symbol layer "${layer.id}" — text-size expression form not converted: ${JSON.stringify(textSize).slice(0, 80)}`)
+        utils.push('label-size-16')
+      }
+    }
+  } else {
+    // Mapbox text-size default = 16.
+    utils.push('label-size-16')
   }
 
   // text-halo-width / text-halo-color → label-halo-N + label-halo-color-X.
+  // Both accept zoom-interpolated forms (common on basemap styles
+  // that grow halos with zoom for legibility).
   const haloWidth = paint['text-halo-width']
   if (typeof haloWidth === 'number' && haloWidth > 0) {
     utils.push(`label-halo-${haloWidth}`)
+  } else if (haloWidth !== undefined) {
+    const interp = interpolateZoomCall(haloWidth, warnings,
+      (val) => typeof val === 'number' ? String(val) : null)
+    if (interp !== null) {
+      utils.push(`label-halo-[${interp}]`)
+    }
   }
   const haloColor = paint['text-halo-color']
   if (haloColor !== undefined) {
-    const colorStr = colorToXgis(haloColor, warnings)
-    if (colorStr) utils.push(`label-halo-color-${colorStr}`)
+    const interp = interpolateZoomCall(haloColor, warnings, (val, w) => colorToXgis(val, w))
+    if (interp !== null) {
+      utils.push(`label-halo-color-[${interp}]`)
+    } else {
+      const colorStr = colorToXgis(haloColor, warnings)
+      if (colorStr) utils.push(`label-halo-color-${colorStr}`)
+    }
+  }
+  // text-halo-blur — Mapbox feathering width in pixels. Constant
+  // form only for now; the runtime shader smoothstep widens by this
+  // value. Real-world use: most basemap styles set 0.5–1.0 px so
+  // the halo doesn't look like a hard outline.
+  const haloBlur = paint['text-halo-blur']
+  if (typeof haloBlur === 'number' && haloBlur > 0) {
+    utils.push(`label-halo-blur-${haloBlur}`)
   }
 
-  // text-anchor → label-anchor-X. Mapbox's 9-way anchor (top-left,
-  // bottom-right, etc.) collapses to the 5-way set the IR currently
-  // exposes (1d expands to the full set when anchor matters for
-  // along-path placement); diagonal anchors map to the dominant axis.
-  const anchorMap: Record<string, string> = {
-    'center': 'center',
-    'top': 'top', 'bottom': 'bottom',
-    'left': 'left', 'right': 'right',
-    'top-left': 'top', 'top-right': 'top',
-    'bottom-left': 'bottom', 'bottom-right': 'bottom',
-  }
+  // text-anchor → label-anchor-X. Mapbox's 9-way anchor maps 1:1
+  // to the IR's 9-way LabelDef.anchor (render-node.ts:244-246).
+  // Earlier versions collapsed corners to the dominant axis because
+  // the lower pass only recognised 5 anchors; that shed half the
+  // alignment information for any style that anchored labels to a
+  // POI's corner (e.g. icons-with-labels where the label sits to
+  // the bottom-right of the icon).
+  const VALID_ANCHORS = new Set([
+    'center', 'top', 'bottom', 'left', 'right',
+    'top-left', 'top-right', 'bottom-left', 'bottom-right',
+  ])
   const anchor = layout['text-anchor']
-  if (typeof anchor === 'string' && anchorMap[anchor]) {
-    utils.push(`label-anchor-${anchorMap[anchor]}`)
+  if (typeof anchor === 'string' && VALID_ANCHORS.has(anchor)) {
+    utils.push(`label-anchor-${anchor}`)
+  } else if (Array.isArray(anchor) && anchor.length > 0) {
+    // Mapbox `text-variable-anchor` shape: ["top","bottom",…] —
+    // emit one `label-anchor-X` per valid candidate, in priority
+    // order. lower.ts accumulates these into `LabelDef.anchor` (the
+    // first) + `anchorCandidates` (the full list); the runtime tries
+    // each in order during collision and picks the first that
+    // doesn't overlap an already-placed label.
+    for (const a of anchor) {
+      if (typeof a === 'string' && VALID_ANCHORS.has(a)) {
+        utils.push(`label-anchor-${a}`)
+      }
+    }
   }
 
   // text-transform → label-uppercase / lowercase / none.
@@ -151,16 +252,36 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
     if (offset[0] !== 0) utils.push(`label-offset-x-${fmtSigned(offset[0])}`)
     if (offset[1] !== 0) utils.push(`label-offset-y-${fmtSigned(offset[1])}`)
   }
+  // text-translate (paint) → label-translate-{x,y}-N. Pixel-space
+  // offset on top of em-unit text-offset; commonly used to nudge
+  // labels off the road centreline (`text-translate: [0, -8]` for
+  // an 8-px upward shift). Negatives ride the bracket form like
+  // text-offset.
+  const translate = paint['text-translate']
+  if (Array.isArray(translate) && translate.length === 2
+      && typeof translate[0] === 'number' && typeof translate[1] === 'number') {
+    if (translate[0] !== 0) utils.push(`label-translate-x-${fmtSigned(translate[0])}`)
+    if (translate[1] !== 0) utils.push(`label-translate-y-${fmtSigned(translate[1])}`)
+  }
 
-  // Collision controls (Batch 1e).
+  // Collision controls (Batch 1e). text-padding accepts both constant
+  // and interpolate-by-zoom in Mapbox.
   if (layout['text-allow-overlap'] === true) utils.push('label-allow-overlap')
   if (layout['text-ignore-placement'] === true) utils.push('label-ignore-placement')
   const padding = layout['text-padding']
-  if (typeof padding === 'number') utils.push(`label-padding-${padding}`)
+  if (typeof padding === 'number') {
+    utils.push(`label-padding-${padding}`)
+  } else if (padding !== undefined) {
+    const interp = interpolateZoomCall(padding, warnings,
+      (val) => typeof val === 'number' ? String(val) : null)
+    if (interp !== null) utils.push(`label-padding-[${interp}]`)
+  }
 
   // text-rotate (degrees clockwise) + text-letter-spacing (em-units).
   // Both can be negative (counter-clockwise rotation, condensed
-  // tracking) → bracket form for negatives.
+  // tracking) → bracket form for negatives. Mapbox text-letter-spacing
+  // is zoom-interpolatable; large basemap styles fade tracking out at
+  // low zoom for legibility.
   const rotate = layout['text-rotate']
   if (typeof rotate === 'number' && rotate !== 0) {
     utils.push(`label-rotate-${fmtSigned(rotate)}`)
@@ -168,12 +289,24 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   const letterSpacing = layout['text-letter-spacing']
   if (typeof letterSpacing === 'number' && letterSpacing !== 0) {
     utils.push(`label-letter-spacing-${fmtSigned(letterSpacing)}`)
+  } else if (letterSpacing !== undefined && typeof letterSpacing !== 'number') {
+    const interp = interpolateZoomCall(letterSpacing, warnings,
+      (val) => typeof val === 'number' ? String(val) : null)
+    if (interp !== null) utils.push(`label-letter-spacing-[${interp}]`)
   }
 
   // text-max-width / text-line-height (em-units) + text-justify
-  // for multiline labels.
+  // for multiline labels. Mapbox's text-max-width default = 10 (ems)
+  // is "disabled by symbol-placement: line" per the spec — for line
+  // labels we mirror that by NOT emitting the default, which leaves
+  // the runtime's "undefined ⇒ no wrap" behaviour for road names etc.
   const maxWidth = layout['text-max-width']
-  if (typeof maxWidth === 'number') utils.push(`label-max-width-${maxWidth}`)
+  const placement = layout['symbol-placement']
+  if (typeof maxWidth === 'number') {
+    utils.push(`label-max-width-${maxWidth}`)
+  } else if (placement !== 'line' && placement !== 'line-center') {
+    utils.push('label-max-width-10')
+  }
   const lineHeight = layout['text-line-height']
   if (typeof lineHeight === 'number') utils.push(`label-line-height-${lineHeight}`)
   const justify = layout['text-justify']
@@ -200,17 +333,53 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   // The runtime walks line geometry and emits one label per feature,
   // anchored at a segment midpoint with rotation matching the local
   // tangent. Roads, waterway names, highway shields all rely on this.
-  const placement = layout['symbol-placement']
+  // (`placement` already pulled above for the text-max-width default
+  // gating — Mapbox disables wrap for line placement.)
   if (placement === 'line') utils.push('label-along-path')
   else if (placement === 'line-center') utils.push('label-line-center')
 
+  // text-rotation-alignment / text-pitch-alignment — Mapbox knobs
+  // controlling how labels orient relative to map vs viewport. Default
+  // 'auto' resolves to viewport for point placement, map for line.
+  // Plumb through verbatim so the runtime can pick the right behavior;
+  // pitch-alignment: map (text projected onto the ground plane with
+  // perspective) is a future runtime task — emit anyway so the IR
+  // carries user intent.
+  const rotAlign = layout['text-rotation-alignment']
+  if (rotAlign === 'map' || rotAlign === 'viewport' || rotAlign === 'auto') {
+    utils.push(`label-rotation-alignment-${rotAlign}`)
+  }
+  const pitchAlign = layout['text-pitch-alignment']
+  if (pitchAlign === 'map' || pitchAlign === 'viewport' || pitchAlign === 'auto') {
+    utils.push(`label-pitch-alignment-${pitchAlign}`)
+  }
+
+  // symbol-spacing — distance between repeated labels along a line
+  // in pixels. Only meaningful for placement: line. Default 250 in
+  // Mapbox; emit explicitly when missing so road-name layers don't
+  // collapse to a single label per feature.
+  const symbolSpacing = layout['symbol-spacing']
+  if (placement === 'line') {
+    if (typeof symbolSpacing === 'number' && symbolSpacing > 0) {
+      utils.push(`label-spacing-${symbolSpacing}`)
+    } else {
+      utils.push('label-spacing-250')
+    }
+  }
+
   // What's STILL not converted — surface a precise warning so the
   // user knows which Batch the gap waits on.
+  // text-keep-upright — Mapbox default is `true`, meaning glyphs flip
+  // 180° on segments whose overall direction would render the label
+  // upside-down. The runtime decides per LABEL (not per glyph) using
+  // the tangent at the label's centre. Emit only `false` since the
+  // runtime defaults to true; saving a utility on every basemap layer.
+  const keepUpright = layout['text-keep-upright']
+  if (keepUpright === false) utils.push('label-keep-upright-false')
+  else if (keepUpright === true) utils.push('label-keep-upright-true')
+
   const ignoredText: string[] = []
-  for (const k of [
-    'text-keep-upright', 'text-writing-mode',
-    'symbol-spacing',
-    'icon-image', 'icon-size', 'icon-color']) {
+  for (const k of ['text-writing-mode', 'icon-image', 'icon-size', 'icon-color']) {
     if (layout[k] !== undefined || paint[k] !== undefined) ignoredText.push(k)
   }
   if (ignoredText.length > 0) {

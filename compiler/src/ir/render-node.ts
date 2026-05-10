@@ -208,6 +208,12 @@ export interface LabelDef {
    *  the result instead of the constant `size`. Maps from Mapbox
    *  `text-size: ["interpolate", ["linear"], ["zoom"], …]`. */
   sizeZoomStops?: ZoomStop<number>[]
+  /** Optional per-feature size expression. Maps from Mapbox data-
+   *  driven forms like `["case", ["==", ["get","class"], "city"], 14, 10]`
+   *  or `["match", ["get","class"], "city", 14, 10]`. Runtime
+   *  evaluates against each feature's props and falls back to
+   *  `size` when the expression yields a non-numeric result. */
+  sizeExpr?: DataExpr
   /** Mapbox `text-letter-spacing` in em units. Default 0. */
   letterSpacing?: number
   /** Mapbox `text-line-height` in em units. Default 1.2. */
@@ -224,6 +230,16 @@ export interface LabelDef {
   /** Text fill colour `[r, g, b, a]` (0-1 each). When undefined
    *  the layer's `fill` value is used as the text colour. */
   color?: [number, number, number, number]
+  /** Optional zoom-interpolated colour override. When set, the
+   *  runtime evaluates RGBA component-wise per frame and uses the
+   *  result instead of the constant `color`. Maps from Mapbox
+   *  `text-color: ["interpolate", ["linear"], ["zoom"], …]`. */
+  colorZoomStops?: ZoomStop<[number, number, number, number]>[]
+  /** Optional per-feature colour expression. Maps from Mapbox data-
+   *  driven forms like `["case", ["==", ["get","kind"],"city"], "#000", "#666"]`.
+   *  Runtime evaluates per feature; result is parsed via the
+   *  shared colour resolver (hex / rgba string / named colour). */
+  colorExpr?: DataExpr
   /** Optional halo (outline). `blur` is the SDF feathering width
    *  in pixels — Mapbox `text-halo-blur`. */
   halo?: {
@@ -231,6 +247,12 @@ export interface LabelDef {
     width: number
     blur?: number
   }
+  /** Zoom-interpolated halo width (Mapbox `text-halo-width:
+   *  ["interpolate", ["linear"], ["zoom"], …]`). Overrides
+   *  `halo.width` when present. */
+  haloWidthZoomStops?: ZoomStop<number>[]
+  /** Zoom-interpolated halo colour. Overrides `halo.color`. */
+  haloColorZoomStops?: ZoomStop<[number, number, number, number]>[]
 
   // ── Placement ──
   /** Mapbox `symbol-placement`. `point` (default) anchors text at
@@ -244,8 +266,21 @@ export interface LabelDef {
   anchor?:
     | 'center' | 'top' | 'bottom' | 'left' | 'right'
     | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  /** Mapbox `text-variable-anchor` candidates. When set, the runtime
+   *  tries each in order during collision and uses the first that
+   *  doesn't overlap an existing label. The static `anchor` field
+   *  carries the first candidate as a fallback for IR consumers
+   *  that don't implement variable placement. */
+  anchorCandidates?: Array<
+    | 'center' | 'top' | 'bottom' | 'left' | 'right'
+    | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  >
   /** Mapbox `text-offset` in em units `[dx, dy]`. */
   offset?: [number, number]
+  /** Mapbox `text-translate` in display pixels `[dx, dy]`. Applied
+   *  on top of `offset`; differs from offset only by unit (pixels
+   *  vs em-units) and by Mapbox spec's "paint" vs "layout" category. */
+  translate?: [number, number]
   /** Mapbox `text-rotate` in degrees clockwise. */
   rotate?: number
   /** Padding (px) around the text bbox for collision testing.

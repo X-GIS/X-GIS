@@ -9,7 +9,7 @@ import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT } from './gpu-shared'
 import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './quality'
 import { GPUTimer } from './gpu-timer'
 import { Camera } from './camera'
-import { MapRenderer, interpolateZoom, type ShowCommand } from './renderer'
+import { MapRenderer, interpolateZoom, interpolateZoomRgba, type ShowCommand } from './renderer'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
   groupOpaqueBySource as groupOpaqueBySourceImpl,
@@ -2595,6 +2595,12 @@ export class XGISMap {
           this.textStage.prewarmGISDefaults()
         }
         const stage = this.textStage
+        // Anchors are projected against canvas.width/height (physical
+        // px); LabelDef.size etc. are CSS-px convention. Telling the
+        // stage the current DPR keeps text the right visual size on
+        // hidpi displays — without this, a `label-size-13` renders
+        // at 6.5 CSS px on a 2x display.
+        stage.setDpr(dpr)
         const frame = this.camera.getFrameView(w, h, dpr)
         const mvp = frame.matrix
         const ccx = this.camera.centerX
@@ -2640,17 +2646,96 @@ export class XGISMap {
           // colour for the polygon AND its label). When THAT is also
           // unset, default to white so dark backgrounds stay readable.
           const def = show.label!
+          const z = this.camera.zoom
           // Resolve zoom-interpolated text-size against the current
           // camera zoom (Mapbox `text-size: ["interpolate", …, ["zoom"], …]`).
           const resolvedSize = def.sizeZoomStops && def.sizeZoomStops.length > 0
-            ? interpolateZoom(def.sizeZoomStops, this.camera.zoom)
+            ? interpolateZoom(def.sizeZoomStops, z)
             : def.size
+          // text-color: zoom-interpolated stops win over the static
+          // colour, which itself wins over the layer-fill fallback.
+          // RGBA components interpolate independently — alpha included
+          // so fade-in / fade-out stops work too.
+          let resolvedColor: [number, number, number, number] | undefined = def.color
+          if (def.colorZoomStops && def.colorZoomStops.length > 0) {
+            resolvedColor = interpolateZoomRgba(def.colorZoomStops, z)
+          }
+          if (resolvedColor === undefined) {
+            resolvedColor = hexToRgbaArr(show.fill) ?? [1, 1, 1, 1]
+          }
+          // text-halo: zoom-interpolate width and colour independently.
+          let resolvedHalo = def.halo
+          if (def.haloWidthZoomStops && def.haloWidthZoomStops.length > 0) {
+            const w = interpolateZoom(def.haloWidthZoomStops, z)
+            resolvedHalo = {
+              ...(resolvedHalo ?? { color: [0, 0, 0, 1], width: 0 }),
+              width: w,
+            }
+          }
+          if (def.haloColorZoomStops && def.haloColorZoomStops.length > 0) {
+            const c = interpolateZoomRgba(def.haloColorZoomStops, z)
+            resolvedHalo = {
+              ...(resolvedHalo ?? { color: c, width: 0 }),
+              color: c,
+            }
+          }
+          // text-rotation-alignment: 'map' makes point labels rotate
+          // with the map bearing (text follows the world, not the
+          // viewport). 'auto' resolves to viewport for point placement
+          // and map for line — matching our existing default behaviour
+          // (point labels = no rotation, line labels = tangent rotation
+          // computed in screen space). For explicit 'map' on points we
+          // bake camera bearing into the label rotate. Mapbox 'pitch-
+          // alignment: map' (text laid on the ground plane with
+          // perspective) requires shader-side MVP integration — not
+          // implemented; we still honour the user intent for the
+          // rotation knob since it's the more common request.
+          const isLineLabel = def.placement === 'line' || def.placement === 'line-center'
+          const rotAlign = def.rotationAlignment ?? 'auto'
+          const useMapRotForPoints = !isLineLabel
+            && (rotAlign === 'map'
+              || (rotAlign === 'auto' && false))  // auto = viewport for point, no extra rotation
+          // Bearing rotation for `map`-aligned point labels. Camera
+          // bearing is in degrees CCW; text-rotate is degrees CW.
+          // Negate so a 30° map rotation yields a 30° label rotation
+          // in the same visual direction.
+          const bearingDeg = useMapRotForPoints ? -this.camera.bearing : 0
           const effectiveDef = {
             ...def,
             size: resolvedSize,
-            ...(def.color === undefined
-              ? { color: hexToRgbaArr(show.fill) ?? [1, 1, 1, 1] as [number, number, number, number] }
-              : {}),
+            color: resolvedColor,
+            ...(resolvedHalo !== undefined ? { halo: resolvedHalo } : {}),
+            ...(bearingDeg !== 0
+              ? { rotate: (def.rotate ?? 0) + bearingDeg } : {}),
+          }
+
+          // Per-feature evaluator for data-driven text-size /
+          // text-color (Mapbox `["case", …]` / `["match", …]` /
+          // arithmetic forms). Used inside the iterator paths below
+          // — wraps a feature's def with overrides resolved from
+          // sizeExpr / colorExpr against that feature's properties.
+          const applyFeatureExprs = (props: Record<string, unknown>) => {
+            const hasSizeExpr = def.sizeExpr !== undefined
+            const hasColorExpr = def.colorExpr !== undefined
+            if (!hasSizeExpr && !hasColorExpr) return effectiveDef
+            const out = { ...effectiveDef }
+            if (hasSizeExpr) {
+              try {
+                const v = evaluate(def.sizeExpr!.ast as never, props)
+                if (typeof v === 'number' && isFinite(v)) out.size = v
+              } catch { /* fall back to effectiveDef.size */ }
+            }
+            if (hasColorExpr) {
+              try {
+                const v = evaluate(def.colorExpr!.ast as never, props)
+                if (typeof v === 'string') {
+                  const hex = resolveColor(v)
+                  const rgba = hexToRgbaArr(hex ?? v)
+                  if (rgba) out.color = rgba
+                }
+              } catch { /* fall back to effectiveDef.color */ }
+            }
+            return out
           }
 
           // Path 1: GeoJSON / inline-data sources whose features live
@@ -2664,9 +2749,10 @@ export class XGISMap {
               if (!anchor) continue
               const projected = projectLonLat(anchor[0], anchor[1])
               if (!projected) continue
+              const featDef = applyFeatureExprs(feat.properties ?? {})
               stage.addLabel(
-                effectiveDef.text, feat.properties ?? {},
-                projected[0], projected[1], effectiveDef, effectiveDef.font?.[0],
+                featDef.text, feat.properties ?? {},
+                projected[0], projected[1], featDef, featDef.font?.[0],
               )
             }
             continue
@@ -2695,36 +2781,158 @@ export class XGISMap {
             // road through any pitch / bearing.
             const useLine = effectiveDef.placement === 'line' || effectiveDef.placement === 'line-center'
             if (useLine) {
-              vtEntry.renderer.forEachLineLabelFeature(show.sourceLayer, (ax, ay, bx, by, props) => {
-                const [aLon, aLat] = mercToLonLat(ax, ay)
-                const [bLon, bLat] = mercToLonLat(bx, by)
-                const pa = projectLonLat(aLon, aLat)
-                const pb = projectLonLat(bLon, bLat)
-                if (!pa || !pb) return
-                const midX = (pa[0] + pb[0]) * 0.5
-                const midY = (pa[1] + pb[1]) * 0.5
-                let angleDeg = Math.atan2(pb[1] - pa[1], pb[0] - pa[0]) * 180 / Math.PI
-                // Keep-upright (lite): if the natural tangent points
-                // "leftward" (would render text upside-down to a left-
-                // to-right reader), flip 180°. Mapbox's full
-                // text-keep-upright is more sophisticated (per-glyph
-                // along curve) but this catches the egregious case.
-                if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
-                stage.addLabel(
-                  effectiveDef.text, props,
-                  midX, midY,
-                  { ...effectiveDef, rotate: angleDeg },
-                  effectiveDef.font?.[0],
-                )
-              })
+              // Mapbox `symbol-spacing` (CSS px). When set on a line
+              // placement layer (placement === 'line' only — line-
+              // center always emits one label at the midpoint), walk
+              // the screen-projected polyline and emit a label every
+              // `spacing` pixels. Without this, long highways get a
+              // single label which Mapbox would render as a repeating
+              // chain. Spacing is in CSS px → multiply by DPR for
+              // the physical-pixel polyline space.
+              const spacingCssPx = effectiveDef.placement === 'line'
+                ? (effectiveDef.spacing ?? 0) : 0
+              const spacingPx = spacingCssPx > 0 ? spacingCssPx * dpr : 0
+              // Mapbox `text-rotation-alignment: viewport` for line
+              // placement keeps the label upright on screen instead of
+              // following the road tangent. 'auto' on line resolves to
+              // 'map' (= tangent), matching the historical behaviour.
+              const lineRotAlign = effectiveDef.rotationAlignment ?? 'auto'
+              const useTangentRotation = lineRotAlign !== 'viewport'
+              const emitLabelAlongSegment = (
+                pax: number, pay: number, pbx: number, pby: number,
+                t: number, props: Record<string, unknown>,
+              ): void => {
+                const x = pax + (pbx - pax) * t
+                const y = pay + (pby - pay) * t
+                const featDef = applyFeatureExprs(props)
+                if (useTangentRotation) {
+                  let angleDeg = Math.atan2(pby - pay, pbx - pax) * 180 / Math.PI
+                  if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
+                  stage.addLabel(
+                    featDef.text, props,
+                    x, y,
+                    { ...featDef, rotate: angleDeg },
+                    featDef.font?.[0],
+                  )
+                } else {
+                  // Viewport-aligned: just place at the line position
+                  // with the def's static rotate (typically 0).
+                  stage.addLabel(
+                    featDef.text, props,
+                    x, y, featDef, featDef.font?.[0],
+                  )
+                }
+              }
+              if (spacingPx > 0) {
+                // Polyline path: project all vertices, walk in screen
+                // space, drop labels at spacing/2, 3*spacing/2, …. For
+                // tangent-rotation labels (the common case) we hand the
+                // polyline + offset to TextStage.addCurvedLineLabel
+                // which lays each glyph at its own sample point with
+                // the local tangent rotation — this is the Mapbox
+                // text-along-curve look. Viewport-aligned line labels
+                // (text-rotation-alignment: viewport) keep the simple
+                // single-rotation `emitLabelAlongSegment` path so the
+                // glyphs stay in a horizontal row.
+                vtEntry.renderer.forEachLineLabelPolyline(show.sourceLayer, (mxs, mys, props) => {
+                  if (mxs.length < 2) return
+                  // Project every vertex to physical-pixel screen
+                  // space; pack into typed arrays for the curved-text
+                  // sampler. Drop unprojectable vertices by trimming
+                  // to the first contiguous projectable run.
+                  const px: number[] = []
+                  const py: number[] = []
+                  for (let i = 0; i < mxs.length; i++) {
+                    const [lon, lat] = mercToLonLat(mxs[i]!, mys[i]!)
+                    const proj = projectLonLat(lon, lat)
+                    if (proj) { px.push(proj[0]); py.push(proj[1]) }
+                  }
+                  if (px.length < 2) return
+                  let total = 0
+                  for (let i = 0; i < px.length - 1; i++) {
+                    const dx = px[i + 1]! - px[i]!
+                    const dy = py[i + 1]! - py[i]!
+                    total += Math.sqrt(dx * dx + dy * dy)
+                  }
+                  const featDef = applyFeatureExprs(props)
+                  if (useTangentRotation) {
+                    // Curved-text path: pack the projected polyline
+                    // and ask TextStage to lay each glyph along it.
+                    const polyX = new Float32Array(px)
+                    const polyY = new Float32Array(py)
+                    if (total < spacingPx * 0.5) {
+                      stage.addCurvedLineLabel(
+                        featDef.text, props,
+                        polyX, polyY, total * 0.5,
+                        featDef, featDef.font?.[0],
+                      )
+                      return
+                    }
+                    let nextStop = spacingPx * 0.5
+                    while (nextStop <= total) {
+                      stage.addCurvedLineLabel(
+                        featDef.text, props,
+                        polyX, polyY, nextStop,
+                        featDef, featDef.font?.[0],
+                      )
+                      nextStop += spacingPx
+                    }
+                    return
+                  }
+                  // Viewport-aligned path: keep the historical single-
+                  // rotation emission per spacing point.
+                  if (total < spacingPx * 0.5) {
+                    let acc = 0
+                    const target = total * 0.5
+                    for (let i = 0; i < px.length - 1; i++) {
+                      const dx = px[i + 1]! - px[i]!
+                      const dy = py[i + 1]! - py[i]!
+                      const segLen = Math.sqrt(dx * dx + dy * dy)
+                      if (acc + segLen >= target) {
+                        const t = segLen > 0 ? (target - acc) / segLen : 0
+                        emitLabelAlongSegment(px[i]!, py[i]!, px[i + 1]!, py[i + 1]!, t, props)
+                        return
+                      }
+                      acc += segLen
+                    }
+                    return
+                  }
+                  let nextStop = spacingPx * 0.5
+                  let acc = 0
+                  for (let i = 0; i < px.length - 1; i++) {
+                    const dx = px[i + 1]! - px[i]!
+                    const dy = py[i + 1]! - py[i]!
+                    const segLen = Math.sqrt(dx * dx + dy * dy)
+                    while (nextStop <= acc + segLen && nextStop <= total) {
+                      const t = segLen > 0 ? (nextStop - acc) / segLen : 0
+                      emitLabelAlongSegment(px[i]!, py[i]!, px[i + 1]!, py[i + 1]!, t, props)
+                      nextStop += spacingPx
+                    }
+                    acc += segLen
+                  }
+                })
+              } else {
+                // Single-label-per-feature fallback (line-center, or
+                // line-placement with spacing=0). Uses the longest
+                // segment chosen by forEachLineLabelFeature.
+                vtEntry.renderer.forEachLineLabelFeature(show.sourceLayer, (ax, ay, bx, by, props) => {
+                  const [aLon, aLat] = mercToLonLat(ax, ay)
+                  const [bLon, bLat] = mercToLonLat(bx, by)
+                  const pa = projectLonLat(aLon, aLat)
+                  const pb = projectLonLat(bLon, bLat)
+                  if (!pa || !pb) return
+                  emitLabelAlongSegment(pa[0], pa[1], pb[0], pb[1], 0.5, props)
+                })
+              }
             } else {
               vtEntry.renderer.forEachLabelFeature(show.sourceLayer, (mercX, mercY, props) => {
                 const [lon, lat] = mercToLonLat(mercX, mercY)
                 const projected = projectLonLat(lon, lat)
                 if (!projected) return
+                const featDef = applyFeatureExprs(props)
                 stage.addLabel(
-                  effectiveDef.text, props,
-                  projected[0], projected[1], effectiveDef, effectiveDef.font?.[0],
+                  featDef.text, props,
+                  projected[0], projected[1], featDef, featDef.font?.[0],
                 )
               })
             }
@@ -3179,11 +3387,18 @@ function featureAnchor(geom: { type: string; coordinates: unknown }): [number, n
   return null
 }
 
-/** Parse `#rrggbb` / `#rrggbbaa` hex into 0..1 RGBA. Returns null
- *  for null / undefined input — caller picks its own default. */
+/** Parse `#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa` hex into 0..1
+ *  RGBA. Returns null for null / undefined / unrecognised input.
+ *  Short (3/4) forms expand by digit doubling (CSS spec). The
+ *  Mapbox converter occasionally emits `#000` from data-driven
+ *  text-color expressions where colorToXgis preserves the source
+ *  shorthand. */
 function hexToRgbaArr(hex: string | null | undefined): [number, number, number, number] | null {
   if (!hex || hex[0] !== '#') return null
-  const s = hex.slice(1)
+  let s = hex.slice(1)
+  if (s.length === 3 || s.length === 4) {
+    s = s.split('').map(c => c + c).join('')  // #abc → #aabbcc
+  }
   if (s.length !== 6 && s.length !== 8) return null
   const r = parseInt(s.slice(0, 2), 16) / 255
   const g = parseInt(s.slice(2, 4), 16) / 255

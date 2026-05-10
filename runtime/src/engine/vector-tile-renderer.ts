@@ -983,9 +983,18 @@ export class VectorTileRenderer {
    *  metres so the caller can project them through the active camera
    *  and compute a screen-space rotation angle (mercator-space angle
    *  diverges from screen-space at non-zero pitch or rotated bearing).
-   *  v1 picks the FIRST segment of each feature it sees — sufficient
-   *  for typical 1-3 segment road tiles; longer roads / repeat-along-
-   *  line spacing land in a follow-up. */
+   *
+   *  Per-feature segment selection: picks the LONGEST mercator
+   *  segment within the tile rather than the first one encountered.
+   *  First-segment was visibly broken on curved/multi-segment roads —
+   *  the picked segment was usually a tiny clip-corner fragment whose
+   *  tangent didn't match the road's overall direction, producing
+   *  labels rotated arbitrarily and stuck at the tile boundary. The
+   *  longest segment is the natural "main run" of the road inside
+   *  the tile: representative tangent, midpoint sits along the
+   *  visible road body. Mapbox's full anchor-on-curve placement
+   *  remains a follow-up; this is a 90% solution for one-label-per-
+   *  road maps. */
   forEachLineLabelFeature(
     sliceLayer: string | undefined,
     fn: (
@@ -1007,6 +1016,10 @@ export class VectorTileRenderer {
     // Same visible-only walk as forEachLabelFeature — see comment
     // there for the 30× iteration-count win at Bright z=14.
     const labelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
+    // Reusable across tiles to avoid per-tile Map allocation churn.
+    // Holds the longest segment seen so far for each featId in the
+    // CURRENT tile's iteration; cleared at tile boundary.
+    const best = new Map<number, { a: number; b: number; len2: number }>()
     for (const key of labelKeys) {
       const tileData = this.source.getTileData(key, sliceLayer)
       if (!tileData?.lineVertices || !tileData?.lineIndices) continue
@@ -1016,18 +1029,26 @@ export class VectorTileRenderer {
       const tileMercX = tileData.tileWest * DEG2RAD * R
       const tileMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(tileData.tileSouth) * DEG2RAD / 2)) * R
       const tileProps = tileData.featureProps
-      const seen = new Set<number>()
+      best.clear()
       for (let i = 0; i < li.length; i += 2) {
         const a = li[i]! * STRIDE
         const b = li[i + 1]! * STRIDE
         const featId = lv[a + 4]! | 0
         // Defensive: a degenerate segment with mismatched featIds
         // would produce a label spanning two roads. Skip rather than
-        // emit garbage — the next clean segment for this feature
-        // will catch it.
+        // emit garbage.
         if ((lv[b + 4]! | 0) !== featId) continue
-        if (seen.has(featId)) continue
-        seen.add(featId)
+        // Squared mercator length is fine for max-comparison and
+        // avoids a sqrt per segment.
+        const dx = (lv[b]! + lv[b + 2]!) - (lv[a]! + lv[a + 2]!)
+        const dy = (lv[b + 1]! + lv[b + 3]!) - (lv[a + 1]! + lv[a + 3]!)
+        const len2 = dx * dx + dy * dy
+        const cur = best.get(featId)
+        if (cur === undefined || len2 > cur.len2) {
+          best.set(featId, { a, b, len2 })
+        }
+      }
+      for (const [featId, { a, b }] of best) {
         // DSFUN tile-local high+low → tile-local mercator → absolute.
         const ax = tileMercX + lv[a]! + lv[a + 2]!
         const ay = tileMercY + lv[a + 1]! + lv[a + 3]!
@@ -1045,6 +1066,119 @@ export class VectorTileRenderer {
         }
         fn(ax, ay, bx, by, props)
       }
+    }
+  }
+
+  /** Iterate visible line-feature polylines (Mapbox `symbol-placement:
+   *  line` with `symbol-spacing`). Unlike `forEachLineLabelFeature`
+   *  which collapses each feature to its longest segment, this method
+   *  yields the FULL polyline so the caller can walk it in screen
+   *  space and place a label every `spacing` pixels.
+   *
+   *  Polylines are grouped by featId AND segment-chain continuity:
+   *  `tessellateLineToArrays` writes consecutive segments
+   *  `(0,1),(1,2),(2,3),…` so we detect chain breaks via index
+   *  discontinuity. A MultiLineString feature produces multiple
+   *  polyline calls (one per part).
+   *
+   *  Coordinates are absolute mercator metres — the caller projects
+   *  to screen and decides spacing in pixels. */
+  forEachLineLabelPolyline(
+    sliceLayer: string | undefined,
+    fn: (
+      polylineMercX: Float64Array,
+      polylineMercY: Float64Array,
+      props: Record<string, unknown>,
+    ) => void,
+  ): void {
+    if (!this.source) return
+    const table = this.source.getPropertyTable()
+    const fieldNames = table?.fieldNames ?? []
+    const values = table?.values ?? []
+    const DEG2RAD = Math.PI / 180
+    const R = 6378137
+    const LAT_LIMIT = 85.051129
+    const clampLat = (v: number): number => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
+    const STRIDE = 10
+
+    const labelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
+    // Reusable buffers grown as needed — most polylines fit in 32 verts.
+    let xs = new Float64Array(64)
+    let ys = new Float64Array(64)
+    for (const key of labelKeys) {
+      const tileData = this.source.getTileData(key, sliceLayer)
+      if (!tileData?.lineVertices || !tileData?.lineIndices) continue
+      const lv = tileData.lineVertices
+      const li = tileData.lineIndices
+      if (lv.length < STRIDE * 2 || li.length < 2) continue
+      const tileMercX = tileData.tileWest * DEG2RAD * R
+      const tileMercY = Math.log(Math.tan(Math.PI / 4 + clampLat(tileData.tileSouth) * DEG2RAD / 2)) * R
+      const tileProps = tileData.featureProps
+
+      // Walk segments, accumulate runs that form a contiguous polyline
+      // (same feat_id AND segment[i].endIdx === segment[i+1].startIdx).
+      // Emit each run as one polyline call.
+      let runFeatId = -1
+      let runEndIdx = -1
+      let runLen = 0  // number of vertices in xs/ys
+      let runProps: Record<string, unknown> | null = null
+      const flushRun = () => {
+        if (runProps !== null && runLen >= 2) {
+          const xsView = xs.slice(0, runLen)
+          const ysView = ys.slice(0, runLen)
+          fn(xsView, ysView, runProps)
+        }
+        runLen = 0
+        runProps = null
+        runEndIdx = -1
+      }
+      const lookupProps = (featId: number): Record<string, unknown> => {
+        if (tileProps) return tileProps.get(featId) ?? {}
+        const row = values[featId] as readonly (number | string | boolean | null)[] | undefined
+        const props: Record<string, unknown> = {}
+        if (row) {
+          for (let f = 0; f < fieldNames.length; f++) props[fieldNames[f]!] = row[f]
+        }
+        return props
+      }
+      const ensureCap = (need: number) => {
+        if (need <= xs.length) return
+        let cap = xs.length
+        while (cap < need) cap *= 2
+        const nx = new Float64Array(cap)
+        const ny = new Float64Array(cap)
+        nx.set(xs); ny.set(ys)
+        xs = nx; ys = ny
+      }
+
+      for (let i = 0; i < li.length; i += 2) {
+        const aIdx = li[i]!
+        const bIdx = li[i + 1]!
+        const a = aIdx * STRIDE
+        const b = bIdx * STRIDE
+        const featId = lv[a + 4]! | 0
+        if ((lv[b + 4]! | 0) !== featId) continue
+
+        const startsNewRun = featId !== runFeatId || aIdx !== runEndIdx
+        if (startsNewRun) {
+          flushRun()
+          runFeatId = featId
+          runProps = lookupProps(featId)
+          ensureCap(2)
+          xs[0] = tileMercX + lv[a]! + lv[a + 2]!
+          ys[0] = tileMercY + lv[a + 1]! + lv[a + 3]!
+          xs[1] = tileMercX + lv[b]! + lv[b + 2]!
+          ys[1] = tileMercY + lv[b + 1]! + lv[b + 3]!
+          runLen = 2
+        } else {
+          ensureCap(runLen + 1)
+          xs[runLen] = tileMercX + lv[b]! + lv[b + 2]!
+          ys[runLen] = tileMercY + lv[b + 1]! + lv[b + 3]!
+          runLen += 1
+        }
+        runEndIdx = bIdx
+      }
+      flushRun()
     }
   }
 

@@ -186,6 +186,33 @@ function extractInterpolateZoomStops(
   return stops.length >= 2 ? stops : null
 }
 
+/** Pull the full set of `(zoom, color)` stops from an `interpolate(
+ *  zoom, z0, c0, z1, c1, …)` binding. Returns null when the
+ *  expression isn't an interpolate-by-zoom OR any value isn't a
+ *  ColorLiteral. The runtime interpolates RGBA component-wise per
+ *  frame so a colour fade at low zoom (e.g. text fading from grey
+ *  at z5 to black at z14) matches Mapbox's continuous interp rather
+ *  than snapping at one of the endpoints. */
+function extractInterpolateZoomColorStops(
+  expr: AST.Expr,
+): Array<{ zoom: number; value: string }> | null {
+  if (expr.kind !== 'FnCall') return null
+  if (expr.callee.kind !== 'Identifier' || expr.callee.name !== 'interpolate') return null
+  const args = expr.args
+  if (args.length < 5) return null  // zoom, z0, c0, z1, c1 minimum
+  if (args[0].kind !== 'Identifier' || args[0].name !== 'zoom') return null
+  if ((args.length - 1) % 2 !== 0) return null
+  const stops: Array<{ zoom: number; value: string }> = []
+  for (let i = 1; i + 1 < args.length; i += 2) {
+    const zArg = args[i]
+    const vArg = args[i + 1]
+    if (zArg.kind !== 'NumberLiteral') return null
+    if (vArg.kind !== 'ColorLiteral') return null
+    stops.push({ zoom: zArg.value, value: vArg.value })
+  }
+  return stops.length >= 2 ? stops : null
+}
+
 // ═══ New syntax lowering ═══
 
 function lowerSource(stmt: AST.SourceStatement): SourceDef | null {
@@ -245,12 +272,30 @@ function lowerLayer(
   let labelSize: number | undefined
   const labelSizeZoomStops: ZoomStop<number>[] = []
   let labelColor: [number, number, number, number] | undefined
+  const labelColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
+  let labelColorExpr: import('./render-node').DataExpr | undefined
+  let labelSizeExpr: import('./render-node').DataExpr | undefined
   let labelHaloWidth: number | undefined
+  const labelHaloWidthZoomStops: ZoomStop<number>[] = []
   let labelHaloColor: [number, number, number, number] | undefined
+  const labelHaloColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
+  let labelHaloBlur: number | undefined
+  let labelSpacing: number | undefined
+  let labelRotationAlignment: 'map' | 'viewport' | 'auto' | undefined
+  let labelPitchAlignment: 'map' | 'viewport' | 'auto' | undefined
+  let labelKeepUpright: boolean | undefined
   let labelAnchor: import('./render-node').LabelDef['anchor'] | undefined
+  // Collect every label-anchor-X utility seen — Mapbox text-variable-
+  // anchor maps to multiple emissions by the converter, in priority
+  // order. The runtime tries each on collision; first non-colliding
+  // wins. Single-anchor styles still produce a one-element list and
+  // foldLabelKnobs strips it down to just `anchor`.
+  const labelAnchorCandidates: NonNullable<import('./render-node').LabelDef['anchorCandidates']> = []
   let labelTransform: import('./render-node').LabelDef['transform'] | undefined
   let labelOffsetX: number | undefined
   let labelOffsetY: number | undefined
+  let labelTranslateX: number | undefined
+  let labelTranslateY: number | undefined
   let labelAllowOverlap: boolean | undefined
   let labelIgnorePlacement: boolean | undefined
   let labelPadding: number | undefined
@@ -500,6 +545,60 @@ function lowerLayer(
           for (const s of zoomStops) labelSizeZoomStops.push({ zoom: s.zoom, value: s.value })
           continue
         }
+        // Non-zoom-interp label-size binding → per-feature evaluation.
+        // Catches Mapbox `text-size: ["case", …]` / `["match", …]` /
+        // arithmetic forms. The static `size` field stays at its
+        // default (12) to feed any consumer that ignores sizeExpr.
+        if (name === 'label-size' && !zoomStops) {
+          labelSizeExpr = { ast: item.binding }
+          continue
+        }
+        // label-halo zoom-interpolated width → full stops; runtime
+        // interpolates per-frame. Last stop also seeds `halo.width`
+        // as the static fallback when the runtime can't evaluate
+        // (e.g. consumers reading the IR directly without a camera).
+        if (zoomStops && name === 'label-halo') {
+          for (const s of zoomStops) labelHaloWidthZoomStops.push({ zoom: s.zoom, value: s.value })
+          labelHaloWidth = zoomStops[zoomStops.length - 1]!.value
+          continue
+        }
+        // label-color zoom-interpolated colour — full stops, RGBA
+        // arrays. Runtime walks `colorZoomStops` per frame and
+        // component-interpolates. The static `color` field is
+        // populated from the last stop so non-interp consumers
+        // still see a sensible value.
+        if (name === 'label-color') {
+          const stops = extractInterpolateZoomColorStops(item.binding)
+          if (stops) {
+            for (const s of stops) {
+              const hex = resolveColor(s.value)
+              if (hex) labelColorZoomStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
+            }
+            if (labelColorZoomStops.length > 0) {
+              labelColor = labelColorZoomStops[labelColorZoomStops.length - 1]!.value
+              continue
+            }
+          }
+          // Non-zoom-interp colour binding → per-feature expression.
+          // Catches `label-color-[.kind == "city" ? #ff0000 : #000000]`
+          // (the Mapbox `text-color: ["case", …]` shape). Runtime
+          // evaluates per-feature against props.
+          labelColorExpr = { ast: item.binding }
+          continue
+        }
+        if (name === 'label-halo-color') {
+          const stops = extractInterpolateZoomColorStops(item.binding)
+          if (stops) {
+            for (const s of stops) {
+              const hex = resolveColor(s.value)
+              if (hex) labelHaloColorZoomStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
+            }
+            if (labelHaloColorZoomStops.length > 0) {
+              labelHaloColor = labelHaloColorZoomStops[labelHaloColorZoomStops.length - 1]!.value
+              continue
+            }
+          }
+        }
         if (name === 'fill') {
           fill = { kind: 'data-driven', expr: { ast: item.binding } }
         } else if (name === 'size') {
@@ -527,6 +626,8 @@ function lowerLayer(
           if (n !== null) {
             if (name === 'label-offset-x') { labelOffsetX = n; continue }
             if (name === 'label-offset-y') { labelOffsetY = n; continue }
+            if (name === 'label-translate-x') { labelTranslateX = n; continue }
+            if (name === 'label-translate-y') { labelTranslateY = n; continue }
             if (name === 'label-rotate') { labelRotate = n; continue }
             if (name === 'label-letter-spacing') { labelLetterSpacing = n; continue }
           }
@@ -549,15 +650,34 @@ function lowerLayer(
       // matching the local tangent.
       if (name === 'label-along-path') { labelPlacement = 'line'; continue }
       if (name === 'label-line-center') { labelPlacement = 'line-center'; continue }
+      if (name === 'label-rotation-alignment-map') { labelRotationAlignment = 'map'; continue }
+      if (name === 'label-rotation-alignment-viewport') { labelRotationAlignment = 'viewport'; continue }
+      if (name === 'label-rotation-alignment-auto') { labelRotationAlignment = 'auto'; continue }
+      if (name === 'label-pitch-alignment-map') { labelPitchAlignment = 'map'; continue }
+      if (name === 'label-pitch-alignment-viewport') { labelPitchAlignment = 'viewport'; continue }
+      if (name === 'label-pitch-alignment-auto') { labelPitchAlignment = 'auto'; continue }
+      if (name === 'label-keep-upright-true') { labelKeepUpright = true; continue }
+      if (name === 'label-keep-upright-false') { labelKeepUpright = false; continue }
       if (name === 'label-justify-auto') { labelJustify = 'auto'; continue }
       if (name === 'label-justify-left') { labelJustify = 'left'; continue }
       if (name === 'label-justify-center') { labelJustify = 'center'; continue }
       if (name === 'label-justify-right') { labelJustify = 'right'; continue }
-      if (name === 'label-anchor-center') { labelAnchor = 'center'; continue }
-      if (name === 'label-anchor-top') { labelAnchor = 'top'; continue }
-      if (name === 'label-anchor-bottom') { labelAnchor = 'bottom'; continue }
-      if (name === 'label-anchor-left') { labelAnchor = 'left'; continue }
-      if (name === 'label-anchor-right') { labelAnchor = 'right'; continue }
+      if (name.startsWith('label-anchor-')) {
+        const a = name.slice('label-anchor-'.length)
+        const valid = ['center', 'top', 'bottom', 'left', 'right',
+          'top-left', 'top-right', 'bottom-left', 'bottom-right'] as const
+        if ((valid as readonly string[]).includes(a)) {
+          // First-seen wins for the static `anchor`; later siblings
+          // become collision-fallback candidates. Avoid duplicates so
+          // an accidental `label-anchor-top label-anchor-top` doesn't
+          // bloat the candidate list.
+          if (labelAnchor === undefined) labelAnchor = a as typeof valid[number]
+          if (!labelAnchorCandidates.includes(a as typeof valid[number])) {
+            labelAnchorCandidates.push(a as typeof valid[number])
+          }
+          continue
+        }
+      }
       if (name.startsWith('label-size-')) {
         const num = parseFloat(name.slice('label-size-'.length))
         if (!isNaN(num)) labelSize = num
@@ -566,6 +686,11 @@ function lowerLayer(
       if (name.startsWith('label-halo-color-')) {
         const hex = resolveColor(name.slice('label-halo-color-'.length))
         if (hex) labelHaloColor = hexToRgba(hex)
+        continue
+      }
+      if (name.startsWith('label-halo-blur-')) {
+        const num = parseFloat(name.slice('label-halo-blur-'.length))
+        if (!isNaN(num)) labelHaloBlur = num
         continue
       }
       if (name.startsWith('label-halo-')) {
@@ -586,6 +711,16 @@ function lowerLayer(
       if (name.startsWith('label-offset-y-')) {
         const num = parseFloat(name.slice('label-offset-y-'.length))
         if (!isNaN(num)) labelOffsetY = num
+        continue
+      }
+      if (name.startsWith('label-translate-x-')) {
+        const num = parseFloat(name.slice('label-translate-x-'.length))
+        if (!isNaN(num)) labelTranslateX = num
+        continue
+      }
+      if (name.startsWith('label-translate-y-')) {
+        const num = parseFloat(name.slice('label-translate-y-'.length))
+        if (!isNaN(num)) labelTranslateY = num
         continue
       }
       if (name.startsWith('label-padding-')) {
@@ -611,6 +746,11 @@ function lowerLayer(
       if (name.startsWith('label-line-height-')) {
         const num = parseFloat(name.slice('label-line-height-'.length))
         if (!isNaN(num)) labelLineHeight = num
+        continue
+      }
+      if (name.startsWith('label-spacing-')) {
+        const num = parseFloat(name.slice('label-spacing-'.length))
+        if (!isNaN(num)) labelSpacing = num
         continue
       }
       if (name.startsWith('label-font-')) {
@@ -1013,13 +1153,20 @@ function lowerLayer(
     extrude,
     extrudeBase,
     label: foldLabelKnobs(label, {
-      labelSize, labelColor, labelHaloWidth, labelHaloColor,
+      labelSize, labelColor, labelHaloWidth, labelHaloColor, labelHaloBlur,
       labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
+      labelTranslateX, labelTranslateY,
       labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
+      labelColorZoomStops: labelColorZoomStops.length > 0 ? labelColorZoomStops : undefined,
+      labelColorExpr, labelSizeExpr,
+      labelAnchorCandidates: labelAnchorCandidates.length > 1 ? labelAnchorCandidates : undefined,
+      labelHaloWidthZoomStops: labelHaloWidthZoomStops.length > 0 ? labelHaloWidthZoomStops : undefined,
+      labelHaloColorZoomStops: labelHaloColorZoomStops.length > 0 ? labelHaloColorZoomStops : undefined,
       labelAllowOverlap, labelIgnorePlacement, labelPadding,
       labelRotate, labelLetterSpacing, labelFontStack,
       labelMaxWidth, labelLineHeight, labelJustify,
-      labelPlacement,
+      labelPlacement, labelSpacing,
+      labelRotationAlignment, labelPitchAlignment, labelKeepUpright,
     }),
   }
 }
@@ -1037,11 +1184,20 @@ function foldLabelKnobs(
     labelColor?: [number, number, number, number]
     labelHaloWidth?: number
     labelHaloColor?: [number, number, number, number]
+    labelHaloBlur?: number
     labelAnchor?: import('./render-node').LabelDef['anchor']
+    labelAnchorCandidates?: import('./render-node').LabelDef['anchorCandidates']
     labelTransform?: import('./render-node').LabelDef['transform']
     labelOffsetX?: number
     labelOffsetY?: number
+    labelTranslateX?: number
+    labelTranslateY?: number
     labelSizeZoomStops?: ZoomStop<number>[]
+    labelColorZoomStops?: ZoomStop<[number, number, number, number]>[]
+    labelColorExpr?: import('./render-node').DataExpr
+    labelSizeExpr?: import('./render-node').DataExpr
+    labelHaloWidthZoomStops?: ZoomStop<number>[]
+    labelHaloColorZoomStops?: ZoomStop<[number, number, number, number]>[]
     labelAllowOverlap?: boolean
     labelIgnorePlacement?: boolean
     labelPadding?: number
@@ -1052,15 +1208,22 @@ function foldLabelKnobs(
     labelLineHeight?: number
     labelJustify?: 'auto' | 'left' | 'center' | 'right'
     labelPlacement?: 'point' | 'line' | 'line-center'
+    labelSpacing?: number
+    labelRotationAlignment?: 'map' | 'viewport' | 'auto'
+    labelPitchAlignment?: 'map' | 'viewport' | 'auto'
+    labelKeepUpright?: boolean
   },
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
   let halo = base.halo
-  if (knobs.labelHaloWidth !== undefined || knobs.labelHaloColor !== undefined) {
+  if (knobs.labelHaloWidth !== undefined
+      || knobs.labelHaloColor !== undefined
+      || knobs.labelHaloBlur !== undefined) {
+    const resolvedBlur = knobs.labelHaloBlur ?? base.halo?.blur
     halo = {
       color: knobs.labelHaloColor ?? base.halo?.color ?? [0, 0, 0, 1],
       width: knobs.labelHaloWidth ?? base.halo?.width ?? 1,
-      ...(base.halo?.blur !== undefined ? { blur: base.halo.blur } : {}),
+      ...(resolvedBlur !== undefined ? { blur: resolvedBlur } : {}),
     }
   }
   let offset = base.offset
@@ -1070,16 +1233,33 @@ function foldLabelKnobs(
       knobs.labelOffsetY ?? base.offset?.[1] ?? 0,
     ]
   }
+  let translate = base.translate
+  if (knobs.labelTranslateX !== undefined || knobs.labelTranslateY !== undefined) {
+    translate = [
+      knobs.labelTranslateX ?? base.translate?.[0] ?? 0,
+      knobs.labelTranslateY ?? base.translate?.[1] ?? 0,
+    ]
+  }
   return {
     ...base,
     ...(knobs.labelSize !== undefined ? { size: knobs.labelSize } : {}),
     ...(knobs.labelColor !== undefined ? { color: knobs.labelColor } : {}),
     ...(halo !== undefined ? { halo } : {}),
     ...(knobs.labelAnchor !== undefined ? { anchor: knobs.labelAnchor } : {}),
+    ...(knobs.labelAnchorCandidates !== undefined ? { anchorCandidates: knobs.labelAnchorCandidates } : {}),
     ...(knobs.labelTransform !== undefined ? { transform: knobs.labelTransform } : {}),
     ...(offset !== undefined ? { offset } : {}),
+    ...(translate !== undefined ? { translate } : {}),
     ...(knobs.labelSizeZoomStops && knobs.labelSizeZoomStops.length > 0
       ? { sizeZoomStops: knobs.labelSizeZoomStops } : {}),
+    ...(knobs.labelColorZoomStops && knobs.labelColorZoomStops.length > 0
+      ? { colorZoomStops: knobs.labelColorZoomStops } : {}),
+    ...(knobs.labelColorExpr !== undefined ? { colorExpr: knobs.labelColorExpr } : {}),
+    ...(knobs.labelSizeExpr !== undefined ? { sizeExpr: knobs.labelSizeExpr } : {}),
+    ...(knobs.labelHaloWidthZoomStops && knobs.labelHaloWidthZoomStops.length > 0
+      ? { haloWidthZoomStops: knobs.labelHaloWidthZoomStops } : {}),
+    ...(knobs.labelHaloColorZoomStops && knobs.labelHaloColorZoomStops.length > 0
+      ? { haloColorZoomStops: knobs.labelHaloColorZoomStops } : {}),
     ...(knobs.labelAllowOverlap !== undefined ? { allowOverlap: knobs.labelAllowOverlap } : {}),
     ...(knobs.labelIgnorePlacement !== undefined ? { ignorePlacement: knobs.labelIgnorePlacement } : {}),
     ...(knobs.labelPadding !== undefined ? { padding: knobs.labelPadding } : {}),
@@ -1091,6 +1271,10 @@ function foldLabelKnobs(
     ...(knobs.labelLineHeight !== undefined ? { lineHeight: knobs.labelLineHeight } : {}),
     ...(knobs.labelJustify !== undefined ? { justify: knobs.labelJustify } : {}),
     ...(knobs.labelPlacement !== undefined ? { placement: knobs.labelPlacement } : {}),
+    ...(knobs.labelSpacing !== undefined ? { spacing: knobs.labelSpacing } : {}),
+    ...(knobs.labelRotationAlignment !== undefined ? { rotationAlignment: knobs.labelRotationAlignment } : {}),
+    ...(knobs.labelPitchAlignment !== undefined ? { pitchAlignment: knobs.labelPitchAlignment } : {}),
+    ...(knobs.labelKeepUpright !== undefined ? { keepUpright: knobs.labelKeepUpright } : {}),
   }
 }
 

@@ -510,15 +510,365 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
-    it('text-anchor diagonal collapses to dominant axis', () => {
+    it('text-anchor preserves the full 9-way set (corners included)', () => {
+      // Earlier the converter collapsed top-left/top-right etc. to the
+      // dominant axis because the lower pass only handled 5 anchors.
+      // Both passes now carry the corner forms through, matching the
+      // IR's LabelDef.anchor type (render-node.ts:244-246).
+      for (const a of ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const) {
+        const out = convertMapboxStyle({
+          version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+          layers: [{
+            id: 'a', type: 'symbol', source: 'x', 'source-layer': 'pts',
+            layout: { 'text-field': '{name}', 'text-anchor': a } as never,
+          }],
+        })
+        expect(out).toContain(`label-anchor-${a}`)
+        expect(parses(out)).toBe(true)
+      }
+    })
+
+    it('text-size interpolate-by-zoom → label-size-[interpolate(zoom, …)]', () => {
+      // The converter previously dropped any non-constant text-size,
+      // leaving the layer with the default 12 px — wrong for almost
+      // every real Mapbox style (place / POI labels universally use
+      // zoom-interpolated sizes).
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 's', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-size': ['interpolate', ['linear'], ['zoom'], 8, 12, 14, 22],
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-size-[interpolate(zoom, 8, 12, 14, 22)]')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-color interpolate-by-zoom → label-color-[interpolate(zoom, …)]', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'c', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+          paint: {
+            'text-color': ['interpolate', ['linear'], ['zoom'], 5, '#666', 14, '#000'],
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-color-[interpolate(zoom, 5, #666, 14, #000)]')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('emits Mapbox defaults when text properties are unset (parity)', () => {
+      // The user goal: a Mapbox style should render the same in xgis
+      // as it does in Mapbox GL. Mapbox's spec defaults — text-size
+      // 16, text-color #000, text-max-width 10 ems — are applied
+      // implicitly when omitted; if we let the runtime fall through
+      // to its own defaults (size 12, color = layer fill, no wrap)
+      // every basemap label diverges visibly. The converter pins
+      // these down at the source level so the IR + runtime stay
+      // unchanged for hand-authored xgis.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'bare', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+        }],
+      })
+      expect(out).toContain('label-color-#000')
+      expect(out).toContain('label-size-16')
+      expect(out).toContain('label-max-width-10')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('skips text-max-width default for symbol-placement: line', () => {
+      // Mapbox spec: "text-max-width is unused by symbol-placement: line".
+      // Mirror that here so road labels don't wrap mid-name.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'road', type: 'symbol', source: 'x', 'source-layer': 'roads',
+          layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
+        }],
+      })
+      expect(out).not.toContain('label-max-width')
+      expect(out).toContain('label-along-path')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('multi-token text-field "{name} ({ref})" resolves per feature', () => {
+      // Real-world: German autobahn labels, US highway shields, transit
+      // line labels universally compose two fields. The converter emits
+      // the multi-token string as a quoted xgis literal; lower.ts walks
+      // it through parseTextTemplate so each `{field}` interpolates per
+      // feature. Verify both the parse path and end-to-end resolution.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'hwy', type: 'symbol', source: 'x', 'source-layer': 'transportation',
+          layout: { 'text-field': '{name} ({ref})' } as never,
+        }],
+      })
+      expect(out).toContain('label-["{name} ({ref})"]')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('coalesce text-field locale fallback maps to xgis ?? operator', () => {
+      // ["coalesce", ["get", "name:ko"], ["get", "name"]] is the standard
+      // localised-label pattern in basemaps. exprToXgis already maps
+      // coalesce → `??`; locale variants with ":" drop with a warning so
+      // the fallback operand takes over. Confirm the wiring.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'place_label', type: 'symbol', source: 'x', 'source-layer': 'place',
+          layout: { 'text-field': ['coalesce', ['get', 'name'], ['get', 'name_en']] } as never,
+        }],
+      })
+      expect(out).toContain('label-[.name ?? .name_en]')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('locale-variant get() keys preserved via string-literal builtin', () => {
+      // Mapbox `["get", "name:ko"]` previously dropped because xgis
+      // FieldAccess can't lex colons. With the get(<string>) special-
+      // case in the evaluator, the converter now emits `get("name:ko")`
+      // which the runtime resolves directly against props. Critical
+      // for international basemaps — without it, Korean / Japanese /
+      // Hebrew labels silently fall back to English.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'place_label', type: 'symbol', source: 'x', 'source-layer': 'place',
+          layout: { 'text-field': ['coalesce', ['get', 'name:ko'], ['get', 'name']] } as never,
+        }],
+      })
+      expect(out).toContain('label-[get("name:ko") ?? .name]')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('reserved xgis keywords in layer ids get a `_` suffix', () => {
+      // OpenMapTiles styles use raw ids like "place", "source", "layer"
+      // for symbol layers. xgis treats these as keywords (lexer/tokens.ts:
+      // KEYWORDS map). Without a sanitiser escape, the produced source
+      // would fail to parse — visible as "Open in Playground" failure
+      // for any converted basemap that touches a place-typed source.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'place', type: 'symbol', source: 'x', 'source-layer': 'place',
+          layout: { 'text-field': '{name}' } as never,
+        }],
+      })
+      expect(out).toContain('layer place_ {')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('symbol-spacing on line placement → label-spacing-N (repeat labels)', () => {
+      // Mapbox repeats labels along long lines at symbol-spacing pixel
+      // intervals (default 250). Without this every long highway gets
+      // a single label which Mapbox would render as a chain.
+      const explicit = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'hwy', type: 'symbol', source: 'x', 'source-layer': 'roads',
+          layout: { 'text-field': '{name}', 'symbol-placement': 'line', 'symbol-spacing': 500 } as never,
+        }],
+      })
+      expect(explicit).toContain('label-spacing-500')
+      expect(parses(explicit)).toBe(true)
+
+      // Default 250 emitted when symbol-spacing is unset on line placement.
+      const dflt = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'hwy', type: 'symbol', source: 'x', 'source-layer': 'roads',
+          layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
+        }],
+      })
+      expect(dflt).toContain('label-spacing-250')
+      expect(parses(dflt)).toBe(true)
+
+      // No spacing emitted for point placement (Mapbox: it's meaningless).
+      const pt = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'pt', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+        }],
+      })
+      expect(pt).not.toContain('label-spacing')
+      expect(parses(pt)).toBe(true)
+    })
+
+    it('text-halo-blur → label-halo-blur (soft-glow halos)', () => {
+      // Most basemap styles set text-halo-blur to 0.5–1 px so the halo
+      // reads as a soft glow, not a hard outline. Without this the
+      // shader's halo edge stays sharp regardless of the source style
+      // — visibly different from Mapbox.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'h', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+          paint: { 'text-halo-width': 2, 'text-halo-blur': 1, 'text-halo-color': '#fff' },
+        }],
+      })
+      expect(out).toContain('label-halo-blur-1')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('data-driven text-size (case) → label-size-[<expr>] + sizeExpr in IR', () => {
+      // Mapbox `text-size: ["case", …, n1, …, n2]` is the standard
+      // pattern for per-feature label sizing (city > town > village).
+      // The converter routes through exprToXgis (ternary chain) and
+      // lower.ts stores it as LabelDef.sizeExpr; the runtime evaluates
+      // per feature.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 's', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-size': ['case', ['==', ['get', 'class'], 'city'], 14, 10],
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-size-[')
+      expect(out).toContain('"city" ? 14 : 10')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('data-driven text-color (case) → label-color-[<expr>] + colorExpr in IR', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'c', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+          paint: {
+            'text-color': ['case', ['==', ['get', 'kind'], 'major'], '#000', '#666'],
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-color-[')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-translate (paint) → label-translate-{x,y}-N (px-space offset)', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 't', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+          paint: { 'text-translate': [-2, -8] } as never,
+        }],
+      })
+      expect(out).toContain('label-translate-x-[-2]')
+      expect(out).toContain('label-translate-y-[-8]')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-anchor variable form emits one utility per candidate', () => {
+      // Mapbox `text-variable-anchor: ["top", "bottom", "top-left"]` —
+      // converter emits one `label-anchor-X` per candidate in priority
+      // order. lower.ts accumulates them: anchor = first, anchorCandidates
+      // = full list. Runtime tries each on collision (text-stage +
+      // text-collision); first non-overlapping wins.
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
         layers: [{
           id: 'a', type: 'symbol', source: 'x', 'source-layer': 'pts',
-          layout: { 'text-field': '{name}', 'text-anchor': 'top-left' } as never,
+          layout: { 'text-field': '{name}', 'text-anchor': ['top', 'bottom', 'top-left'] } as never,
         }],
       })
-      expect(out).toContain('label-anchor-top')
+      expect(out).toContain('label-anchor-top ')
+      expect(out).toContain('label-anchor-bottom')
+      expect(out).toContain('label-anchor-top-left')
+      // Order is preserved (priority).
+      const utilLine = out.split('\n').find(l => l.includes('label-anchor'))!
+      expect(utilLine.indexOf('label-anchor-top ') < utilLine.indexOf('label-anchor-bottom')).toBe(true)
+      expect(utilLine.indexOf('label-anchor-bottom') < utilLine.indexOf('label-anchor-top-left')).toBe(true)
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-keep-upright = false plumbed (default true is implicit)', () => {
+      const explicitFalse = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'k', type: 'symbol', source: 'x', 'source-layer': 'roads',
+          layout: {
+            'text-field': '{name}',
+            'symbol-placement': 'line',
+            'text-keep-upright': false,
+          } as never,
+        }],
+      })
+      expect(explicitFalse).toContain('label-keep-upright-false')
+      expect(parses(explicitFalse)).toBe(true)
+
+      // Default: don't emit anything (runtime defaults to true).
+      const dflt = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'k', type: 'symbol', source: 'x', 'source-layer': 'roads',
+          layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
+        }],
+      })
+      expect(dflt).not.toContain('label-keep-upright')
+      expect(parses(dflt)).toBe(true)
+    })
+
+    it('text-rotation-alignment / text-pitch-alignment plumbed through', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'r', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-rotation-alignment': 'map',
+            'text-pitch-alignment': 'viewport',
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-rotation-alignment-map')
+      expect(out).toContain('label-pitch-alignment-viewport')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-letter-spacing / text-padding interpolate-by-zoom', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'pad', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-letter-spacing': ['interpolate', ['linear'], ['zoom'], 5, 0.05, 14, 0.15],
+            'text-padding': ['interpolate', ['linear'], ['zoom'], 5, 1, 14, 4],
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-letter-spacing-[interpolate(zoom, 5, 0.05, 14, 0.15)]')
+      expect(out).toContain('label-padding-[interpolate(zoom, 5, 1, 14, 4)]')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-halo-width / text-halo-color interpolate-by-zoom', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'h', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+          paint: {
+            'text-halo-width': ['interpolate', ['linear'], ['zoom'], 5, 1, 14, 2],
+            'text-halo-color': ['interpolate', ['linear'], ['zoom'], 5, '#fff', 14, '#eee'],
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-halo-[interpolate(zoom, 5, 1, 14, 2)]')
+      expect(out).toContain('label-halo-color-[interpolate(zoom, 5, #fff, 14, #eee)]')
       expect(parses(out)).toBe(true)
     })
 
