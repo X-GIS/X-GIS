@@ -149,6 +149,20 @@ export function maxConcurrentLoads(): number {
   return w > 0 && w <= 900 ? 8 : 32
 }
 
+/** Viewport-aware default skeleton depth for `TileCatalog.prewarmSkeleton`.
+ *  Mobile gets a tighter depth=2 (1+4+16 = 21 tiles, ~1 MB) — same
+ *  `innerWidth ≤ 900` threshold as `maxConcurrentLoads()` /
+ *  `maxCachedBytes()` so the three caps stay coherent. Desktop gets
+ *  depth=3 (85 tiles, ~4 MB), enough that fast-pan to any city on the
+ *  globe finds a cached ancestor within ≤ 3 walk hops at typical view
+ *  zoom (z≈14). Lazy function form for the same reason as the other
+ *  caps — module-init evaluation captures the wrong viewport in
+ *  Playwright / mobile DPR setup. */
+export function defaultSkeletonDepth(): number {
+  const w = (typeof window !== 'undefined' ? window.innerWidth : 0) || 0
+  return w > 0 && w <= 900 ? 2 : 3
+}
+
 // ═══ VirtualCatalog (legacy hook — to be replaced by TileSource in Step 3) ═══
 
 /** External tile producer for {@link XGVTSource.setVirtualCatalog}.
