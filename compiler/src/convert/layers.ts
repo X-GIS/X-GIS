@@ -92,6 +92,14 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   // underlying point/polygon. Interpolate-by-zoom routes through
   // the `[interpolate(zoom, …)]` bracket form (every non-trivial
   // Mapbox style uses zoom-interpolated text-color).
+  // Mapbox spec defaults — emit explicitly when the source style
+  // omits the property. Without this the runtime falls back to its
+  // own defaults (e.g. layer fill colour for label-color, 12 px for
+  // label-size, no wrap for label-max-width) which DIVERGE from
+  // Mapbox's well-known defaults (#000, 16 px, 10 ems). The user's
+  // goal is "Mapbox 스타일이 다르게 렌더링되면 안 된다" — emit
+  // defaults here so converted styles render identically without
+  // changing baseline behaviour for hand-authored xgis.
   const textColor = paint['text-color']
   if (textColor !== undefined) {
     const interp = interpolateZoomCall(textColor, warnings, (val, w) => colorToXgis(val, w))
@@ -101,6 +109,9 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
       const colorStr = colorToXgis(textColor, warnings)
       if (colorStr) utils.push(`label-color-${colorStr}`)
     }
+  } else {
+    // Mapbox text-color default = "#000000".
+    utils.push('label-color-#000')
   }
 
   // text-size — constant or interpolate-by-zoom. The bracket binding
@@ -117,7 +128,12 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
       utils.push(`label-size-[${interp}]`)
     } else {
       warnings.push(`Symbol layer "${layer.id}" — text-size expression form not converted: ${JSON.stringify(textSize).slice(0, 80)}`)
+      // Fall back to Mapbox default so the layer still has SOME size.
+      utils.push('label-size-16')
     }
+  } else {
+    // Mapbox text-size default = 16.
+    utils.push('label-size-16')
   }
 
   // text-halo-width / text-halo-color → label-halo-N + label-halo-color-X.
@@ -180,15 +196,24 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
     if (offset[1] !== 0) utils.push(`label-offset-y-${fmtSigned(offset[1])}`)
   }
 
-  // Collision controls (Batch 1e).
+  // Collision controls (Batch 1e). text-padding accepts both constant
+  // and interpolate-by-zoom in Mapbox.
   if (layout['text-allow-overlap'] === true) utils.push('label-allow-overlap')
   if (layout['text-ignore-placement'] === true) utils.push('label-ignore-placement')
   const padding = layout['text-padding']
-  if (typeof padding === 'number') utils.push(`label-padding-${padding}`)
+  if (typeof padding === 'number') {
+    utils.push(`label-padding-${padding}`)
+  } else if (padding !== undefined) {
+    const interp = interpolateZoomCall(padding, warnings,
+      (val) => typeof val === 'number' ? String(val) : null)
+    if (interp !== null) utils.push(`label-padding-[${interp}]`)
+  }
 
   // text-rotate (degrees clockwise) + text-letter-spacing (em-units).
   // Both can be negative (counter-clockwise rotation, condensed
-  // tracking) → bracket form for negatives.
+  // tracking) → bracket form for negatives. Mapbox text-letter-spacing
+  // is zoom-interpolatable; large basemap styles fade tracking out at
+  // low zoom for legibility.
   const rotate = layout['text-rotate']
   if (typeof rotate === 'number' && rotate !== 0) {
     utils.push(`label-rotate-${fmtSigned(rotate)}`)
@@ -196,12 +221,24 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   const letterSpacing = layout['text-letter-spacing']
   if (typeof letterSpacing === 'number' && letterSpacing !== 0) {
     utils.push(`label-letter-spacing-${fmtSigned(letterSpacing)}`)
+  } else if (letterSpacing !== undefined && typeof letterSpacing !== 'number') {
+    const interp = interpolateZoomCall(letterSpacing, warnings,
+      (val) => typeof val === 'number' ? String(val) : null)
+    if (interp !== null) utils.push(`label-letter-spacing-[${interp}]`)
   }
 
   // text-max-width / text-line-height (em-units) + text-justify
-  // for multiline labels.
+  // for multiline labels. Mapbox's text-max-width default = 10 (ems)
+  // is "disabled by symbol-placement: line" per the spec — for line
+  // labels we mirror that by NOT emitting the default, which leaves
+  // the runtime's "undefined ⇒ no wrap" behaviour for road names etc.
   const maxWidth = layout['text-max-width']
-  if (typeof maxWidth === 'number') utils.push(`label-max-width-${maxWidth}`)
+  const placement = layout['symbol-placement']
+  if (typeof maxWidth === 'number') {
+    utils.push(`label-max-width-${maxWidth}`)
+  } else if (placement !== 'line' && placement !== 'line-center') {
+    utils.push('label-max-width-10')
+  }
   const lineHeight = layout['text-line-height']
   if (typeof lineHeight === 'number') utils.push(`label-line-height-${lineHeight}`)
   const justify = layout['text-justify']
@@ -228,7 +265,8 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   // The runtime walks line geometry and emits one label per feature,
   // anchored at a segment midpoint with rotation matching the local
   // tangent. Roads, waterway names, highway shields all rely on this.
-  const placement = layout['symbol-placement']
+  // (`placement` already pulled above for the text-max-width default
+  // gating — Mapbox disables wrap for line placement.)
   if (placement === 'line') utils.push('label-along-path')
   else if (placement === 'line-center') utils.push('label-line-center')
 

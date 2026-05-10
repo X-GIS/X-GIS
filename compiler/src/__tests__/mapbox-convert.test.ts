@@ -562,6 +562,60 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
+    it('emits Mapbox defaults when text properties are unset (parity)', () => {
+      // The user goal: a Mapbox style should render the same in xgis
+      // as it does in Mapbox GL. Mapbox's spec defaults — text-size
+      // 16, text-color #000, text-max-width 10 ems — are applied
+      // implicitly when omitted; if we let the runtime fall through
+      // to its own defaults (size 12, color = layer fill, no wrap)
+      // every basemap label diverges visibly. The converter pins
+      // these down at the source level so the IR + runtime stay
+      // unchanged for hand-authored xgis.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'bare', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: { 'text-field': '{name}' } as never,
+        }],
+      })
+      expect(out).toContain('label-color-#000')
+      expect(out).toContain('label-size-16')
+      expect(out).toContain('label-max-width-10')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('skips text-max-width default for symbol-placement: line', () => {
+      // Mapbox spec: "text-max-width is unused by symbol-placement: line".
+      // Mirror that here so road labels don't wrap mid-name.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'road', type: 'symbol', source: 'x', 'source-layer': 'roads',
+          layout: { 'text-field': '{name}', 'symbol-placement': 'line' } as never,
+        }],
+      })
+      expect(out).not.toContain('label-max-width')
+      expect(out).toContain('label-along-path')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-letter-spacing / text-padding interpolate-by-zoom', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'pad', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-letter-spacing': ['interpolate', ['linear'], ['zoom'], 5, 0.05, 14, 0.15],
+            'text-padding': ['interpolate', ['linear'], ['zoom'], 5, 1, 14, 4],
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-letter-spacing-[interpolate(zoom, 5, 0.05, 14, 0.15)]')
+      expect(out).toContain('label-padding-[interpolate(zoom, 5, 1, 14, 4)]')
+      expect(parses(out)).toBe(true)
+    })
+
     it('text-halo-width / text-halo-color interpolate-by-zoom', () => {
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
