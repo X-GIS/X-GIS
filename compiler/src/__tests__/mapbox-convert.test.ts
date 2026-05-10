@@ -599,6 +599,56 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
+    it('multi-token text-field "{name} ({ref})" resolves per feature', () => {
+      // Real-world: German autobahn labels, US highway shields, transit
+      // line labels universally compose two fields. The converter emits
+      // the multi-token string as a quoted xgis literal; lower.ts walks
+      // it through parseTextTemplate so each `{field}` interpolates per
+      // feature. Verify both the parse path and end-to-end resolution.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'hwy', type: 'symbol', source: 'x', 'source-layer': 'transportation',
+          layout: { 'text-field': '{name} ({ref})' } as never,
+        }],
+      })
+      expect(out).toContain('label-["{name} ({ref})"]')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('coalesce text-field locale fallback maps to xgis ?? operator', () => {
+      // ["coalesce", ["get", "name:ko"], ["get", "name"]] is the standard
+      // localised-label pattern in basemaps. exprToXgis already maps
+      // coalesce → `??`; locale variants with ":" drop with a warning so
+      // the fallback operand takes over. Confirm the wiring.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'place_label', type: 'symbol', source: 'x', 'source-layer': 'place',
+          layout: { 'text-field': ['coalesce', ['get', 'name'], ['get', 'name_en']] } as never,
+        }],
+      })
+      expect(out).toContain('label-[.name ?? .name_en]')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('reserved xgis keywords in layer ids get a `_` suffix', () => {
+      // OpenMapTiles styles use raw ids like "place", "source", "layer"
+      // for symbol layers. xgis treats these as keywords (lexer/tokens.ts:
+      // KEYWORDS map). Without a sanitiser escape, the produced source
+      // would fail to parse — visible as "Open in Playground" failure
+      // for any converted basemap that touches a place-typed source.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'place', type: 'symbol', source: 'x', 'source-layer': 'place',
+          layout: { 'text-field': '{name}' } as never,
+        }],
+      })
+      expect(out).toContain('layer place_ {')
+      expect(parses(out)).toBe(true)
+    })
+
     it('text-letter-spacing / text-padding interpolate-by-zoom', () => {
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },

@@ -20,10 +20,24 @@ const SKIP_REASONS: Record<string, string> = {
 }
 
 /** Convert Mapbox `text-field` value → xgis expression string.
- *  Three forms:
+ *  Forms handled:
  *    - String literal `"Hello"` → quoted xgis string `"Hello"`
- *    - Token form `"{name}"` → field access `.name`
- *    - Expression form `["concat", ["get", "name"], …]` → exprToXgis
+ *    - Single token `"{name}"` → field access `.name`
+ *    - Multi-token `"{name} ({ref})"` → quoted xgis template literal.
+ *      lower.ts:bindingToTextValue routes string-literal bindings
+ *      through parseTextTemplate so each `{field}` interpolates per
+ *      feature and the literals between them stay as-is. Without
+ *      this path German autobahn labels, US highway shields, transit
+ *      line names — anything composing two fields — render missing
+ *      or just the first token. The existing converter already does
+ *      `JSON.stringify(field)` here; this comment documents WHY
+ *      that's the right behaviour so it doesn't get "simplified" away.
+ *    - `["coalesce", ["get", "k1"], ["get", "k2"], …]` and `["concat",
+ *      …]` etc. → exprToXgis, which emits the xgis `??` operator
+ *      (parser+evaluator both support it: parser.ts:913,
+ *      evaluator.ts:89). Locale-variant keys like `["get", "name:ko"]`
+ *      are dropped with a warning because xgis FieldAccess can't
+ *      lex colons; the coalesce fallback (next operand) takes over.
  *  Returns null if the value can't be converted (caller skips the
  *  whole label utility in that case). */
 function textFieldToXgisExpr(field: unknown, warnings: string[]): string | null {
@@ -43,6 +57,8 @@ function textFieldToXgisExpr(field: unknown, warnings: string[]): string | null 
       }
       return `.${name}`
     }
+    // Multi-token / mixed-literal string. Preserved as a quoted
+    // xgis string; lower.ts walks the template at parse time.
     return JSON.stringify(field)
   }
   if (Array.isArray(field)) {
