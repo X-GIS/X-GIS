@@ -35,7 +35,7 @@ import {
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '../data/tile-catalog'
 import { computeSliceKey } from '../data/filter-eval'
-import { attachPMTilesSource, prewarmPMTilesArchive, prewarmTileJSONManifest } from '../loader/pmtiles-source'
+import { attachPMTilesSource, prewarmVectorTileSource } from '../loader/pmtiles-source'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
@@ -915,16 +915,19 @@ export class XGISMap {
       // relative paths; mirror that here.
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
       const declaredType = (load as { type?: string }).type
-      // PMTiles: declared OR `.pmtiles` extension.
-      const isPMTiles = declaredType === 'pmtiles' || url.endsWith('.pmtiles')
-      // TileJSON: declared OR `.tilejson` extension. `.json` ALONE
-      // is ambiguous (could be GeoJSON), so we only prewarm when
-      // the declaration says tilejson — speculatively fetching every
-      // .json source as TileJSON would waste bandwidth on GeoJSON
-      // demos and pollute the manifest cache with rejections.
-      const isTileJSON = declaredType === 'tilejson' || url.endsWith('.tilejson')
-      if (isPMTiles) { prewarmPMTilesArchive(url); anyVectorTile = true }
-      else if (isTileJSON) { prewarmTileJSONManifest(url); anyVectorTile = true }
+      // Prewarm only the formats that route through the MVT decode
+      // worker pool. `.json` ALONE is ambiguous (could be GeoJSON),
+      // so we only fire when declaredType says tilejson — speculative
+      // fetches of every .json would waste bandwidth + pollute the
+      // manifest cache with rejections. XGVT-binary uses its own
+      // worker pool and isn't part of this prewarm channel.
+      const isMvtSource =
+        declaredType === 'pmtiles' || url.endsWith('.pmtiles') ||
+        declaredType === 'tilejson' || url.endsWith('.tilejson')
+      if (isMvtSource) {
+        prewarmVectorTileSource(url, declaredType as 'pmtiles' | 'tilejson' | undefined)
+        anyVectorTile = true
+      }
     }
     // Prewarm the MVT decode worker pool when ANY load needs it. Each
     // worker takes 10-50 ms to spawn its JS context; lazy-spawning on
@@ -1145,45 +1148,30 @@ export class XGISMap {
         if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
         vtRenderer.setSource(source) // connect before load so preloaded tiles auto-upload
         const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
-        const isPmOrTj =
-          declaredType === 'pmtiles' || declaredType === 'tilejson' ||
-          isPMTilesOrTileJSON(url)
-        if (isPmOrTj) {
-          // Lazy attachment — only the header is fetched here; tiles
-          // are pulled on-demand when the renderer's visible-tile
-          // selection requests them. No zoom-range cap; the full
-          // archive's z range is available, including overzoom past
-          // the archive maxZoom (handled by sub-tile generation).
-          // Merge explicit `layers:` from the source DSL with the
-          // inferred set from xgis layers' `sourceLayer` filters. Either
-          // alone is enough; both means intersection (explicit wins for
-          // any layer not in the inferred set, but inferred set is
-          // typically a subset of explicit).
-          const inferred = usedSourceLayers.get(load.name)
-          const filterLayers = load.layers && load.layers.length > 0
-            ? load.layers
-            : (inferred && inferred.size > 0 ? [...inferred] : undefined)
-          await attachPMTilesSource(source, {
-            url: fullUrl,
-            kind: declaredType === 'pmtiles' ? 'pmtiles'
-                : declaredType === 'tilejson' ? 'tilejson'
-                : 'auto',
-            layers: filterLayers,
-            extrudeExprs: extrudeExprsBySource.get(load.name),
-            extrudeBaseExprs: extrudeBaseExprsBySource.get(load.name),
-            showSlices: showSlicesBySource.get(load.name),
-            strokeWidthExprs: strokeWidthExprsBySource.get(load.name),
-            strokeColorExprs: strokeColorExprsBySource.get(load.name),
-          })
-        } else {
-          try {
-            await source.loadFromURL(fullUrl)
-          } catch {
-            const vtResponse = await fetch(url)
-            const vtBuf = await vtResponse.arrayBuffer()
-            await source.loadFromBuffer(vtBuf)
-          }
-        }
+        // Single attach path for every vector tile format. attachPMTilesSource
+        // dispatches PMTiles vs TileJSON vs XGVT internally based on
+        // `kind` (or URL extension when kind='auto'). Layer filter,
+        // extrude/stroke expressions, and skeleton prewarm flow uniformly
+        // through it regardless of which backend ends up handling tile
+        // bytes. Inferred set + explicit `layers:` merge: explicit wins
+        // for any layer not in the inferred set; inferred is typically
+        // a subset of explicit.
+        const inferred = usedSourceLayers.get(load.name)
+        const filterLayers = load.layers && load.layers.length > 0
+          ? load.layers
+          : (inferred && inferred.size > 0 ? [...inferred] : undefined)
+        await attachPMTilesSource(source, {
+          url: fullUrl,
+          kind: declaredType === 'pmtiles' || declaredType === 'tilejson' || declaredType === 'xgvt'
+              ? declaredType
+              : 'auto',
+          layers: filterLayers,
+          extrudeExprs: extrudeExprsBySource.get(load.name),
+          extrudeBaseExprs: extrudeBaseExprsBySource.get(load.name),
+          showSlices: showSlicesBySource.get(load.name),
+          strokeWidthExprs: strokeWidthExprsBySource.get(load.name),
+          strokeColorExprs: strokeColorExprsBySource.get(load.name),
+        })
         this.vtSources.set(load.name, { source, renderer: vtRenderer })
         this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
 

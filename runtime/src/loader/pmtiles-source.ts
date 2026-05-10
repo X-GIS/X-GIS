@@ -52,22 +52,36 @@ const archiveCache = new Map<string, Promise<CachedArchive>>()
  *  fall through to the regular attach path which will retry and surface
  *  the error there. */
 export function prewarmPMTilesArchive(url: string): void {
-  if (archiveCache.has(url)) return
-  // openCachedArchive is module-private; call it through a tiny
-  // wrapper that swallows the rejection so unhandled-promise listeners
-  // don't fire. The real attach path awaits the same promise and
-  // surfaces the error normally.
-  void openCachedArchive(url).catch(() => undefined)
+  prewarmVectorTileSource(url, 'pmtiles')
 }
 
-/** Prewarm the TileJSON manifest cache. Companion to
- *  {@link prewarmPMTilesArchive} for the TileJSON branch — manifest
- *  fetches are a single round trip but still 50-200 ms that the
- *  attach path used to await sequentially. Same cache hits the regular
- *  attach path's `openCachedTileJSON` later. */
+/** Prewarm the TileJSON manifest cache. Thin wrapper around
+ *  {@link prewarmVectorTileSource} kept for back-compat with map.ts
+ *  call sites that pre-detected the format. */
 export function prewarmTileJSONManifest(url: string): void {
-  if (tileJsonCache.has(url)) return
-  void openCachedTileJSON(url).catch(() => undefined)
+  prewarmVectorTileSource(url, 'tilejson')
+}
+
+/** Single entry point for cold-start metadata prefetch — auto-detects
+ *  PMTiles vs TileJSON from the URL/kind and primes the appropriate
+ *  cache so the later `attachPMTilesSource` call sees a hit instead of
+ *  awaiting the 100-400 ms header round-trip(s). XGVT-binary URLs
+ *  (`.xgvt`) are no-ops here: the binary backend manages its own
+ *  byte-range cache through `loadFromURL`, so an HTTP prewarm at this
+ *  level wouldn't intercept the right path. */
+export function prewarmVectorTileSource(
+  url: string,
+  kind?: 'pmtiles' | 'tilejson' | 'xgvt' | 'auto',
+): void {
+  if (kind === 'xgvt' || url.endsWith('.xgvt')) return
+  const dispatch = resolveDispatch(url, kind === 'xgvt' ? 'auto' : kind)
+  if (dispatch === 'tilejson') {
+    if (tileJsonCache.has(url)) return
+    void openCachedTileJSON(url).catch(() => undefined)
+  } else {
+    if (archiveCache.has(url)) return
+    void openCachedArchive(url).catch(() => undefined)
+  }
 }
 
 /** Fetch the union of `vector_layers[*].fields` from a PMTiles
@@ -123,12 +137,16 @@ export function clearPMTilesArchiveCache(): void {
 
 export interface PMTilesSourceOptions {
   url: string
-  /** Explicit declaration of what's at the URL. Lets the caller
-   *  override the URL-extension heuristic when the manifest URL has
-   *  no recognizable suffix (e.g. `https://tiles.example.com/planet`
-   *  is a TileJSON manifest but doesn't end with `.json`). Defaults
-   *  to `'auto'` (sniff by URL). */
-  kind?: 'pmtiles' | 'tilejson' | 'auto'
+  /** Explicit declaration of what's at the URL. Bypasses URL-extension
+   *  sniffing when the caller already knows the format (`.pmtiles` is
+   *  unambiguous; `.json` could be TileJSON or GeoJSON; manifest URLs
+   *  often have no extension at all). Default `'auto'`.
+   *
+   *  - `'pmtiles'` — single .pmtiles archive, byte-range MVT.
+   *  - `'tilejson'` — TileJSON manifest pointing at an XYZ MVT server.
+   *  - `'xgvt'` — native X-GIS binary archive (`source.loadFromURL`).
+   *  - `'auto'` — sniff by URL extension. */
+  kind?: 'pmtiles' | 'tilejson' | 'xgvt' | 'auto'
   /** Restrict to a subset of MVT layer names (default: all layers). */
   layers?: string[]
   /** Per-MVT-layer 3D-extrude expression AST. Driven by the
@@ -465,20 +483,30 @@ async function fetchTileWithRetry(url: string, tileLabel: string, signal: AbortS
 // future source type get the same Cesium replace-refinement anchor
 // behaviour — single skeleton path across all backends.
 
-/** Attach a PMTiles archive (or a TileJSON / XYZ MVT tile server) to
- *  an existing TileCatalog as a lazy virtual catalog. Returns once the
- *  header / TileJSON manifest is read; tiles are fetched on-demand
- *  from that point on. */
-export async function attachPMTilesSource(
-  source: TileCatalog,
-  opts: PMTilesSourceOptions,
-): Promise<void> {
-  // ── TileJSON dispatch ──
-  if (resolveDispatch(opts.url, opts.kind) === 'tilejson') {
+/** Unified shape returned by `resolveSource`. PMTiles and TileJSON
+ *  produce different metadata containers (header vs manifest) but the
+ *  attach flow only needs the same six fields + a fetcher closure, so
+ *  we collapse both into this struct and the attach body becomes
+ *  format-agnostic. */
+interface ResolvedSource {
+  kind: 'pmtiles' | 'tilejson'
+  name?: string
+  attribution?: string
+  minZoom: number
+  maxZoom: number
+  bounds: [number, number, number, number]
+  vectorLayers: VectorLayerInfo[]
+  /** Format-specific log fragment ("N tile entries" vs "template=..."). */
+  logDetail: string
+  fetcher: PMTilesFetcher
+}
+
+async function resolveSource(opts: PMTilesSourceOptions): Promise<ResolvedSource | null> {
+  const dispatch = resolveDispatch(opts.url, opts.kind === 'xgvt' ? 'auto' : opts.kind)
+  if (dispatch === 'tilejson') {
     let tj: CachedTileJSON
-    try {
-      tj = await openCachedTileJSON(opts.url)
-    } catch (e) {
+    try { tj = await openCachedTileJSON(opts.url) }
+    catch (e) {
       const msg = (e as Error)?.message ?? String(e)
       console.error(
         `[X-GIS] TileJSON attach failed for ${opts.url}\n` +
@@ -487,46 +515,22 @@ export async function attachPMTilesSource(
         `  Access-Control-Allow-Origin for your origin. Use a host\n` +
         `  that allows your origin in its CORS settings.`,
       )
-      return
+      return null
     }
-    const layerSummary = tj.vectorLayers.length > 0
-      ? ` | layers: ${tj.vectorLayers.map(l => `${l.id}(z${l.minzoom}-${l.maxzoom})`).join(', ')}`
-      : ''
-    console.log(
-      `[X-GIS] TileJSON attached${tj.name ? ` "${tj.name}"` : ''}: ` +
-      `z=${tj.minzoom}..${tj.maxzoom}, ` +
-      `bounds=[${tj.bounds.join(', ')}], ` +
-      `template=${tj.tilesTemplate}${layerSummary}`,
-    )
-    if (tj.attribution) console.log(`[X-GIS] TileJSON attribution: ${tj.attribution}`)
-    if (opts.layers && tj.vectorLayers.length > 0) {
-      const known = new Set(tj.vectorLayers.map(l => l.id))
-      for (const lname of opts.layers) {
-        if (!known.has(lname)) {
-          console.warn(
-            `[X-GIS] TileJSON: requested layer "${lname}" is not in ` +
-            `vector_layers. Known: [${tj.vectorLayers.map(l => l.id).join(', ')}].`,
-          )
-        }
-      }
-    }
-    source.attachBackend(new PMTilesBackend({
+    return {
+      kind: 'tilejson',
+      name: tj.name,
+      attribution: tj.attribution,
       minZoom: tj.minzoom,
       maxZoom: tj.maxzoom,
       bounds: tj.bounds,
-      layers: opts.layers,
       vectorLayers: tj.vectorLayers,
-      extrudeExprs: opts.extrudeExprs,
-      extrudeBaseExprs: opts.extrudeBaseExprs,
-      showSlices: opts.showSlices,
-      strokeWidthExprs: opts.strokeWidthExprs,
-    strokeColorExprs: opts.strokeColorExprs,
-      // XYZ template fetcher with retry + graceful fallback.
-      // `fetch()` auto-decompresses gzip via Content-Encoding, so the
-      // bytes are raw MVT (same shape PMTilesBackend expects from the
-      // archive path). 404 / 204 = missing tile (final). 5xx + network
-      // errors → retry with backoff (300ms, 900ms), then null — see
-      // fetchTileWithRetry above for the recovery semantics.
+      logDetail: `template=${tj.tilesTemplate}`,
+      // XYZ template fetcher with retry + graceful fallback. fetch()
+      // auto-decompresses gzip via Content-Encoding, so bytes are raw
+      // MVT (same shape PMTilesBackend expects). 404 / 204 = missing
+      // tile (final); 5xx + network errors retry with backoff then
+      // null — see fetchTileWithRetry for recovery semantics.
       fetcher: async (z, x, y, signal) => {
         const url = tj.tilesTemplate
           .replace('{z}', String(z))
@@ -534,20 +538,12 @@ export async function attachPMTilesSource(
           .replace('{y}', String(y))
         return fetchTileWithRetry(url, `tile ${z}/${x}/${y}`, signal)
       },
-    }))
-    source.prewarmSkeleton({
-      depth: opts.prewarmSkeletonDepth,
-      minzoom: tj.minzoom,
-      maxzoom: tj.maxzoom,
-    })
-    return
+    }
   }
-
-  // ── PMTiles archive dispatch (original path) ──
+  // PMTiles archive
   let cached: CachedArchive
-  try {
-    cached = await openCachedArchive(opts.url)
-  } catch (e) {
+  try { cached = await openCachedArchive(opts.url) }
+  catch (e) {
     const msg = (e as Error)?.message ?? String(e)
     console.error(
       `[X-GIS] PMTiles attach failed for ${opts.url}\n` +
@@ -557,75 +553,105 @@ export async function attachPMTilesSource(
       `  host (e.g. pmtiles.io) or proxy the archive through your dev\n` +
       `  server (vite.config.ts proxy entry).`,
     )
-    return  // soft-fail: catalog stays empty, demo still loads
+    return null
   }
-  const { archive, header, vectorLayers, archiveName, attribution } = cached
+  const { archive, header } = cached
+  return {
+    kind: 'pmtiles',
+    name: cached.archiveName,
+    attribution: cached.attribution,
+    minZoom: header.minZoom,
+    maxZoom: header.maxZoom,
+    bounds: [header.minLon, header.minLat, header.maxLon, header.maxLat],
+    vectorLayers: cached.vectorLayers,
+    logDetail: `${header.numTileEntries} tile entries`,
+    fetcher: async (z, x, y, signal) => {
+      // Pre-flight abort check. The pmtiles library doesn't accept
+      // an AbortSignal natively; we short-circuit before/after the
+      // range request and throw AbortError so PMTilesBackend's catch
+      // skips the failedKeys negative cache. We do NOT race the await
+      // against the signal — pmtiles interleaves directory-page
+      // fetches inside getZxy and bailing mid-flight leaves its
+      // internal directory cache half-populated.
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+      const resp = await archive.getZxy(z, x, y)
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+      return resp ? new Uint8Array(resp.data) : null
+    },
+  }
+}
 
-  const layerSummary = vectorLayers.length > 0
-    ? ` | layers: ${vectorLayers.map(l => `${l.id}(z${l.minzoom}-${l.maxzoom})`).join(', ')}`
+/** Attach a vector tile source (PMTiles archive, TileJSON manifest, or
+ *  X-GIS native `.xgvt` binary) to an existing TileCatalog. Returns
+ *  once the header / manifest is read (or the binary file finished
+ *  loading); tiles are fetched on-demand from that point on. Format is
+ *  auto-detected from the URL extension, or supply `opts.kind` to
+ *  override. Skeleton prewarm fires automatically for all three
+ *  formats — see `TileCatalog.prewarmSkeleton`. */
+export async function attachPMTilesSource(
+  source: TileCatalog,
+  opts: PMTilesSourceOptions,
+): Promise<void> {
+  // ── XGVT-binary delegation ──
+  // Native binary archive — no PMTilesBackend / no MVT decode. The
+  // binary's own loader handles range-request streaming and the
+  // catalog's `loadFromURL` auto-fires `prewarmSkeleton` once the
+  // index is merged, so the cold-start UX matches PMTiles/TileJSON.
+  if (opts.kind === 'xgvt' || opts.url.endsWith('.xgvt')) {
+    try { await source.loadFromURL(opts.url) }
+    catch {
+      const resp = await fetch(opts.url)
+      const buf = await resp.arrayBuffer()
+      await source.loadFromBuffer(buf)
+    }
+    return
+  }
+
+  const meta = await resolveSource(opts)
+  if (!meta) return  // soft-fail: catalog stays empty, demo still loads
+
+  // Unified log + layer-filter validation (was duplicated across the
+  // PMTiles / TileJSON branches before this consolidation).
+  const formatName = meta.kind === 'pmtiles' ? 'PMTiles' : 'TileJSON'
+  const layerSummary = meta.vectorLayers.length > 0
+    ? ` | layers: ${meta.vectorLayers.map(l => `${l.id}(z${l.minzoom}-${l.maxzoom})`).join(', ')}`
     : ''
+  const boundsStr = meta.bounds.map(v => v.toFixed(4)).join(', ')
   console.log(
-    `[X-GIS] PMTiles attached${archiveName ? ` "${archiveName}"` : ''}: ` +
-    `z=${header.minZoom}..${header.maxZoom}, ` +
-    `bounds=[${header.minLon.toFixed(4)}, ${header.minLat.toFixed(4)}, ` +
-    `${header.maxLon.toFixed(4)}, ${header.maxLat.toFixed(4)}], ` +
-    `${header.numTileEntries} tile entries${layerSummary}`,
+    `[X-GIS] ${formatName} attached${meta.name ? ` "${meta.name}"` : ''}: ` +
+    `z=${meta.minZoom}..${meta.maxZoom}, bounds=[${boundsStr}], ` +
+    `${meta.logDetail}${layerSummary}`,
   )
-  if (attribution) console.log(`[X-GIS] PMTiles attribution: ${attribution}`)
-
-  // Validate user's layer filter against advertised vector_layers —
-  // catches typos in `sourceLayer: "buidings"` style declarations.
-  if (opts.layers && vectorLayers.length > 0) {
-    const known = new Set(vectorLayers.map(l => l.id))
+  if (meta.attribution) console.log(`[X-GIS] ${formatName} attribution: ${meta.attribution}`)
+  if (opts.layers && meta.vectorLayers.length > 0) {
+    const known = new Set(meta.vectorLayers.map(l => l.id))
     for (const lname of opts.layers) {
       if (!known.has(lname)) {
         console.warn(
-          `[X-GIS] PMTiles: requested layer "${lname}" is not in archive's ` +
-          `vector_layers. Known: [${vectorLayers.map(l => l.id).join(', ')}].`,
+          `[X-GIS] ${formatName}: requested layer "${lname}" is not in ` +
+          `vector_layers. Known: [${meta.vectorLayers.map(l => l.id).join(', ')}].`,
         )
       }
     }
   }
 
-  // Fetcher returns RAW MVT bytes only. PMTilesBackend defers decode +
-  // compileSingleTile to its tick() so the heavy work is paced across
-  // frames instead of blocking the main thread when many fetches
-  // resolve in the same microtask boundary.
   source.attachBackend(new PMTilesBackend({
-    minZoom: header.minZoom,
-    maxZoom: header.maxZoom,
-    bounds: [header.minLon, header.minLat, header.maxLon, header.maxLat],
+    minZoom: meta.minZoom,
+    maxZoom: meta.maxZoom,
+    bounds: meta.bounds,
     layers: opts.layers,
-    vectorLayers,
+    vectorLayers: meta.vectorLayers,
     extrudeExprs: opts.extrudeExprs,
     extrudeBaseExprs: opts.extrudeBaseExprs,
     showSlices: opts.showSlices,
-    fetcher: async (z, x, y, signal) => {
-      // Pre-flight abort check. The pmtiles library doesn't natively
-      // accept an AbortSignal; we can't kill the underlying HTTP
-      // range request in flight, but we can short-circuit before it
-      // starts AND discard the result on resolve if the catalog
-      // cancelled in the meantime. Throwing AbortError here lets
-      // PMTilesBackend.loadTile's catch path skip the failedKeys
-      // negative cache (abort isn't a real fetch error). We do NOT
-      // race the await against the signal — the pmtiles archive
-      // implementation interleaves directory-page fetches inside
-      // getZxy, and bailing early would leave the archive's internal
-      // directory cache half-populated, blocking subsequent loads.
-      if (signal.aborted) {
-        throw new DOMException('Aborted', 'AbortError')
-      }
-      const resp = await archive.getZxy(z, x, y)
-      if (signal.aborted) {
-        throw new DOMException('Aborted', 'AbortError')
-      }
-      return resp ? new Uint8Array(resp.data) : null
-    },
+    strokeWidthExprs: opts.strokeWidthExprs,
+    strokeColorExprs: opts.strokeColorExprs,
+    fetcher: meta.fetcher,
   }))
   source.prewarmSkeleton({
     depth: opts.prewarmSkeletonDepth,
-    minzoom: header.minZoom,
-    maxzoom: header.maxZoom,
+    minzoom: meta.minZoom,
+    maxzoom: meta.maxZoom,
   })
 }
 
