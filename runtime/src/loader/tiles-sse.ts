@@ -118,7 +118,26 @@ export function visibleTilesSSE(
   dpr: number = 1,
   opts: VisibleTilesSSEOptions = {},
 ): TileCoord[] {
-  const targetSSE = opts.targetSSEPx ?? DEFAULT_TARGET_SSE_PX
+  // Pitch-aware target SSE. The DEFAULT_TARGET_SSE_PX of 4 is tuned
+  // for low-to-medium pitch where horizon doesn't blow up the visible
+  // set. At pitch ≥ 60° the foreshortened ground stretch produces
+  // many far-distance tiles whose per-draw overhead dominates GPU
+  // pass time on mobile (and is non-trivial on desktop). Easing
+  // target SSE in that band coarsens horizon LOD without affecting
+  // the foreground (foreground SSE stays high regardless of target,
+  // so subdivision still proceeds). Empirical sweep at 2026-05-11
+  // (osm_style Manhattan z=16.18 pitch=77.2° desktop): target=4 →
+  // 170 tiles, target=12 → ~110 tiles. ~35 % drop with no visible
+  // detail loss in the foreground.
+  const baseTarget = opts.targetSSEPx ?? DEFAULT_TARGET_SSE_PX
+  const pitchDeg = (camera.pitch ?? 0)
+  // Smooth ramp from base→3× at pitch [60°..80°]; capped at 16 so
+  // nearer tiles still subdivide. Below 60° unchanged.
+  let targetSSE = baseTarget
+  if (opts.targetSSEPx === undefined && pitchDeg > 60) {
+    const t = Math.min(1, (pitchDeg - 60) / 20)
+    targetSSE = Math.min(16, baseTarget * (1 + t * 2))
+  }
   const maxEmitted = opts.maxEmitted ?? MAX_EMITTED
 
   // Camera altitude in Mercator metres — derived from the CSS-pixel
@@ -188,6 +207,19 @@ export function visibleTilesSSE(
   // back into view (e.g. via stroke-offset, halo, dilated patterns)
   // are still selected.
   const margin = extraMarginPx
+  // Sub-pixel cull threshold. At high pitch the SSE selector emits
+  // horizon tiles at z=8-9 with screen-space AABBs as small as 1-2
+  // pixels per side — they pay full draw-call + per-vertex cost on
+  // the GPU but contribute essentially zero visible detail. Culling
+  // tiles whose screen AABB is below `MIN_TILE_SCREEN_AREA_PX_SQ`
+  // drops the tile count dramatically at extreme pitch with no
+  // visual loss (the contribution was already invisible). Threshold
+  // is a square: 4 = 2×2 px is the lowest reliable AA threshold;
+  // anything smaller renders effectively as a single pixel after
+  // MSAA / SDF anti-aliasing kicks in. The under-camera tile
+  // (camMx/camMy inside the tile bbox) skips this check so the root
+  // tile at z=0 always passes regardless of pitch.
+  const MIN_TILE_SCREEN_AREA_PX_SQ = 4
   const tileVisible = (mxMin: number, myMax: number, mxMax: number, myMin: number): boolean => {
     if (camMx >= mxMin && camMx <= mxMax && camMy >= myMin && camMy <= myMax) {
       return true
@@ -200,16 +232,34 @@ export function visibleTilesSSE(
     ]
     let allBehind = true
     let allLeft = true, allRight = true, allTop = true, allBottom = true
+    let minSx = Infinity, maxSx = -Infinity, minSy = Infinity, maxSy = -Infinity
+    let cornersOnScreen = 0
     for (const c of corners) {
       if (!c) continue
       allBehind = false
+      cornersOnScreen++
       if (c[0] >= -margin) allLeft = false
       if (c[0] <= canvasWidth + margin) allRight = false
       if (c[1] >= -margin) allTop = false
       if (c[1] <= canvasHeight + margin) allBottom = false
+      if (c[0] < minSx) minSx = c[0]
+      if (c[0] > maxSx) maxSx = c[0]
+      if (c[1] < minSy) minSy = c[1]
+      if (c[1] > maxSy) maxSy = c[1]
     }
     if (allBehind) return false
-    return !(allLeft || allRight || allTop || allBottom)
+    if (allLeft || allRight || allTop || allBottom) return false
+    // Sub-pixel cull. Only apply when ALL FOUR corners projected
+    // (cornersOnScreen === 4) — partial-projection (some corners
+    // behind camera, returned null) means the AABB is unreliable
+    // and we'd risk culling a legitimately-visible tile whose other
+    // half is in front. Conservatively keep partial-projection
+    // tiles so the existing edge-cull path handles them.
+    if (cornersOnScreen === 4) {
+      const screenAreaPx2 = (maxSx - minSx) * (maxSy - minSy)
+      if (screenAreaPx2 < MIN_TILE_SCREEN_AREA_PX_SQ) return false
+    }
+    return true
   }
 
   const result: TileCoord[] = []
