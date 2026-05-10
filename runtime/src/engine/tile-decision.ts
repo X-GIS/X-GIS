@@ -14,7 +14,7 @@
 // decision is unit-testable with mock caches.
 
 import { tileKeyChildren, tileKeyParent } from '@xgis/compiler'
-import type { TileCoord } from '../loader/tiles'
+import type { TileCoord } from '../data/tile-select'
 
 /** What to do with a visible tile this frame. Tagged union so the
  *  TypeScript exhaustiveness check covers every branch — adding a new

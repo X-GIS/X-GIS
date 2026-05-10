@@ -28,12 +28,12 @@ import { EXTRUDE_FALLBACK_HEIGHT_M } from '../../engine/polygon-mesh'
 import type {
   TileSource, TileSourceSink, TileSourceMeta,
 } from '../tile-source'
-import { getSharedMvtPool, type MvtWorkerPool } from '../mvt-worker-pool'
-import { evalExtrudeExpr } from '../extrude-eval'
-import { evalFilterExpr } from '../filter-eval'
+import { getSharedMvtPool, type MvtWorkerPool } from '../workers/mvt-worker-pool'
+import { evalExtrudeExpr } from '../eval/extrude-eval'
+import { evalFilterExpr } from '../eval/filter-eval'
 import {
   PriorityQueue, PriorityQueueItemRemovedError,
-} from '../../loader/priority-queue'
+} from '../priority-queue'
 
 /** Same height extractor as the worker (mvt-worker.ts). The inline
  *  fallback path can't import from mvt-worker because its module is

@@ -10,8 +10,8 @@ import {
   orthographic,
   azimuthalEquidistant,
   stereographic,
-} from '../engine/projection'
-import type { Projection } from '../engine/projection'
+} from '../engine/projection/projection'
+import type { Projection } from '../engine/projection/projection'
 import {
   compileGeoJSONToTiles,
   tileKey,
