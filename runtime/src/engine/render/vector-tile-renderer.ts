@@ -2737,6 +2737,13 @@ export class VectorTileRenderer {
         fallbackKeys.push(inner.parentKey)
         fallbackOffsets.push(worldOffDeg[i])
         fallbackVisibleKeys.push(key)
+        // Advance the fetch frontier — without this push the parent
+        // fallback covers the area visually forever but the proper-z
+        // tile is never fetched, so the rendering stalls one z
+        // coarser than the source supports. catalog.requestTiles
+        // dedupes against `loadingTiles` so repeat pushes per frame
+        // collapse to one in-flight fetch.
+        if (inner.wantsRequestKey !== null) toLoad.push(inner.wantsRequestKey)
       } else if (inner.kind === 'child-fallback') {
         for (const ck of inner.childrenNeedingUpload) {
           const childData = this.source.getTileData(ck, sliceLayer)

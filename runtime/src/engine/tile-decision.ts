@@ -44,11 +44,17 @@ export type TileDecision =
     }
 
   /** Cached ancestor found (via per-layer walk). Render the parent
-   *  stretched at the visible tile's bounds. */
+   *  stretched at the visible tile's bounds. `wantsRequestKey` is
+   *  the next-deeper archive key to fetch (typically the visible
+   *  tile itself) so the parent-fallback loop advances toward
+   *  proper-z resolution instead of stalling on the parent forever
+   *  — the bug class where z=14 never loaded on desktop because
+   *  z=13 parent was always good enough to skip the pending path. */
   | {
       kind: 'parent-fallback'
       parentKey: number
       parentNeedsUpload: boolean
+      wantsRequestKey: number | null
     }
 
   /** Children at z+1 found cached — deck.gl `best-available` /
@@ -235,10 +241,29 @@ function classifyFallback(input: ClassifyTileInputs): TileDecision {
   }
 
   if (cachedAncestorKey >= 0) {
+    // Identify the next-deeper fetch frontier so the algorithm
+    // advances beyond `cachedAncestorKey`. Without this push, once
+    // any ancestor lands in catalog the parent-fallback short-
+    // circuits classifyFallback BEFORE the pending walk runs — and
+    // the visible-z tile is never requested. Symptom: desktop
+    // DPR=1 osm_style at zoom=16 over Manhattan stays at z=13
+    // forever because z=14/15 fetches are never triggered.
+    //
+    // Strategy: prefer the visible-z if in archive; otherwise walk
+    // (cachedAncestor+1 .. visible-1) for the shallowest unloaded
+    // indexed key. Mirrors the original pending-path intent
+    // (line 265-276 comment in this file: "Once it lands, the
+    // next frame's parent-walk renders it as fallback while the
+    // next-deeper level becomes the new pending").
+    let wantsRequestKey: number | null = null
+    if (!hasSliceInCatalog(visibleKey) && hasEntryInIndex(visibleKey)) {
+      wantsRequestKey = visibleKey
+    }
     return {
       kind: 'parent-fallback',
       parentKey: cachedAncestorKey,
       parentNeedsUpload: !layerCache.has(cachedAncestorKey),
+      wantsRequestKey,
     }
   }
 
