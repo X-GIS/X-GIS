@@ -1,0 +1,171 @@
+---
+import Docs from '../../layouts/Docs.astro'
+import Callout from '../../components/Callout.astro'
+import { MAPBOX_COVERAGE, type CoverageStatus, type CoverageImpact } from '@xgis/compiler'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+
+// Headings for the right-side On-this-page TOC — one entry per
+// coverage section.
+const headings = [
+  { depth: 2, slug: 'summary', text: 'Summary' },
+  ...MAPBOX_COVERAGE.map(s => ({ depth: 2, slug: s.id, text: s.title })),
+]
+
+// Compute coverage counts for the summary band.
+const totals = { supported: 0, partial: 0, unsupported: 0, na: 0 }
+for (const section of MAPBOX_COVERAGE) {
+  for (const e of section.entries) totals[e.status]++
+}
+const total = totals.supported + totals.partial + totals.unsupported + totals.na
+
+const statusBadge = (s: CoverageStatus): { label: string; cls: string } => {
+  switch (s) {
+    case 'supported':   return { label: 'supported',   cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' }
+    case 'partial':     return { label: 'partial',     cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' }
+    case 'unsupported': return { label: 'unsupported', cls: 'bg-rose-500/15 text-rose-300 border-rose-500/30' }
+    case 'na':          return { label: 'n/a',         cls: 'bg-bg-elev text-fg-mute border-line' }
+  }
+}
+const impactBadge = (i?: CoverageImpact): { label: string; cls: string } | null => {
+  if (!i) return null
+  switch (i) {
+    case 'high':   return { label: 'high',   cls: 'bg-rose-500/10 text-rose-300/90 border-rose-500/20' }
+    case 'medium': return { label: 'medium', cls: 'bg-amber-500/10 text-amber-300/90 border-amber-500/20' }
+    case 'low':    return { label: 'low',    cls: 'bg-bg-elev text-fg-mute border-line' }
+  }
+}
+---
+
+<Docs
+  current="mapbox-spec"
+  title="X-GIS — Mapbox Style Spec coverage"
+  description="Every Mapbox Style Spec property the X-GIS converter touches, classified as supported / partial / unsupported, derived from the converter source itself."
+  headings={headings}
+>
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">Reference</p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      Mapbox Style Spec coverage.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[720px]">
+      Single source of truth for what the
+      <a href={`${base}/convert`} class="text-accent hover:text-accent-hover underline">convertMapboxStyle</a>
+      pipeline handles. Each row is checked against the converter source
+      at build time — entries marked <em>supported</em> must have a
+      matching reference in the converter; new converter cases that miss
+      a table entry fail CI. See the migration guide at
+      <a href={`${base}/docs/mapbox`} class="text-accent hover:text-accent-hover underline">Mapbox migration</a>
+      for narrative context and examples.
+    </p>
+  </header>
+
+  <section id="summary" class="mb-14 scroll-mt-24">
+    <h2 class="text-[24px] sm:text-[28px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-3 pb-2 border-b border-line">
+      Summary
+    </h2>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      <div class="rounded-lg border border-line bg-bg-elev p-4">
+        <div class="text-[11px] uppercase tracking-wider text-emerald-300 font-medium mb-1.5">Supported</div>
+        <div class="text-[28px] font-medium text-fg leading-none">{totals.supported}</div>
+        <div class="text-[11px] text-fg-mute mt-1.5">{Math.round(totals.supported / total * 100)}% of {total}</div>
+      </div>
+      <div class="rounded-lg border border-line bg-bg-elev p-4">
+        <div class="text-[11px] uppercase tracking-wider text-amber-300 font-medium mb-1.5">Partial</div>
+        <div class="text-[28px] font-medium text-fg leading-none">{totals.partial}</div>
+        <div class="text-[11px] text-fg-mute mt-1.5">Lossy or runtime gap</div>
+      </div>
+      <div class="rounded-lg border border-line bg-bg-elev p-4">
+        <div class="text-[11px] uppercase tracking-wider text-rose-300 font-medium mb-1.5">Unsupported</div>
+        <div class="text-[28px] font-medium text-fg leading-none">{totals.unsupported}</div>
+        <div class="text-[11px] text-fg-mute mt-1.5">Dropped on convert</div>
+      </div>
+      <div class="rounded-lg border border-line bg-bg-elev p-4">
+        <div class="text-[11px] uppercase tracking-wider text-fg-mute font-medium mb-1.5">N/A</div>
+        <div class="text-[28px] font-medium text-fg leading-none">{totals.na}</div>
+        <div class="text-[11px] text-fg-mute mt-1.5">No xgis equivalent</div>
+      </div>
+    </div>
+    <Callout type="note" title="Reading this table">
+      <p class="text-[13px] leading-[1.6] text-fg-dim mb-2">
+        <strong class="text-fg">Supported</strong> — converter emits an
+        xgis form AND the runtime honours it.
+        <strong class="text-fg">Partial</strong> — converter emits
+        SOMETHING but loses information (e.g. exponential interpolation
+        folded to linear) or the runtime side has a gap.
+        <strong class="text-fg">Unsupported</strong> — silently dropped
+        or warned. <strong class="text-fg">N/A</strong> — Mapbox-only
+        concept with no xgis equivalent and no plan to add.
+      </p>
+      <p class="text-[13px] leading-[1.6] text-fg-dim">
+        Impact tier reflects user-visible severity in common basemap
+        styles (OFM Bright, MapLibre demo), not effort to fix.
+      </p>
+    </Callout>
+  </section>
+
+  {MAPBOX_COVERAGE.map(section => (
+    <section id={section.id} class="mb-12 scroll-mt-24">
+      <h2 class="text-[20px] sm:text-[24px] font-medium text-fg leading-[1.25] tracking-[-0.02em] mb-2 pb-2 border-b border-line">
+        {section.title}
+      </h2>
+      {section.description && (
+        <p class="text-[13px] leading-[1.6] text-fg-dim mb-4 max-w-[720px]">{section.description}</p>
+      )}
+      <div class="overflow-x-auto -mx-2 px-2">
+        <table class="w-full text-[12.5px] border-collapse">
+          <thead>
+            <tr class="text-left text-[11px] uppercase tracking-wider text-fg-mute">
+              <th class="font-medium pb-2 pr-3 align-bottom whitespace-nowrap">Property</th>
+              <th class="font-medium pb-2 pr-3 align-bottom whitespace-nowrap">Status</th>
+              <th class="font-medium pb-2 pr-3 align-bottom whitespace-nowrap">Impact</th>
+              <th class="font-medium pb-2 pr-3 align-bottom w-full">Note</th>
+              <th class="font-medium pb-2 align-bottom whitespace-nowrap">Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {section.entries.map(e => {
+              const sb = statusBadge(e.status)
+              const ib = impactBadge(e.impact)
+              return (
+                <tr class="border-t border-line/60 align-top">
+                  <td class="py-2 pr-3"><code class="font-mono text-fg">{e.name}</code></td>
+                  <td class="py-2 pr-3">
+                    <span class={`inline-block text-[10.5px] font-medium px-1.5 py-0.5 rounded border ${sb.cls}`}>{sb.label}</span>
+                  </td>
+                  <td class="py-2 pr-3">
+                    {ib ? <span class={`inline-block text-[10.5px] font-medium px-1.5 py-0.5 rounded border ${ib.cls}`}>{ib.label}</span> : <span class="text-fg-mute text-[11px]">—</span>}
+                  </td>
+                  <td class="py-2 pr-3 text-fg-dim leading-[1.5]">{e.note ?? <span class="text-fg-mute">—</span>}</td>
+                  <td class="py-2 text-fg-mute font-mono text-[11px] whitespace-nowrap">{e.source ?? '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  ))}
+
+  <section class="mt-16 pt-8 border-t border-line">
+    <h3 class="text-[16px] font-medium text-fg mb-3">Keeping this page accurate</h3>
+    <p class="text-[13px] leading-[1.6] text-fg-dim max-w-[720px]">
+      The table lives in
+      <code class="font-mono text-fg">compiler/src/convert/spec-coverage.ts</code>.
+      A vitest regression
+      (<code class="font-mono text-fg">spec-coverage-drift.test.ts</code>)
+      scans the converter source files at build time and fails when:
+    </p>
+    <ul class="text-[13px] leading-[1.6] text-fg-dim mt-3 space-y-1.5 max-w-[720px]">
+      <li>• A new <code class="font-mono text-fg">case 'X':</code>,
+        <code class="font-mono text-fg">layout['X']</code>, or
+        <code class="font-mono text-fg">paint['X']</code> reference
+        appears in the converter without a corresponding table entry, or
+      </li>
+      <li>• An entry marked <code class="font-mono text-fg">supported</code>
+        has no matching reference in the source (catches stale entries
+        after the converter loses a feature).
+      </li>
+    </ul>
+  </section>
+</Docs>
