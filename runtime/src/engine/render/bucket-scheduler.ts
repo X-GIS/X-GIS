@@ -182,6 +182,17 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     const vtEntry = input.vtSources.get(entry.sourceName)
     if (!vtEntry || !vtEntry.renderer.hasData()) continue
 
+    // Mapbox `layer.minzoom` / `layer.maxzoom` — gate per-frame so
+    // shows declared for a narrow zoom band (e.g. building extrusions
+    // at z≥14, country boundaries at z=0..5) only draw inside that
+    // band. Without this the user sees layers piling onto every zoom:
+    // country labels under city labels at z=12, suburb fills painting
+    // over road casings at z=15. Mapbox's spec uses `>= minzoom` and
+    // `< maxzoom` (exclusive upper bound), so camera.zoom == maxzoom
+    // hides the layer.
+    if (entry.show.minzoom !== undefined && input.cameraZoom < entry.show.minzoom) continue
+    if (entry.show.maxzoom !== undefined && input.cameraZoom >= entry.show.maxzoom) continue
+
     // Opacity = zoom factor × time factor. Either may be 1 if its
     // stop list is absent, leaving the existing constant opacity
     // intact.
