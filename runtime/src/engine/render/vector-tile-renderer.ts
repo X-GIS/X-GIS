@@ -885,7 +885,21 @@ export class VectorTileRenderer {
     // stableKeys; switching to ~9 neededKeys is ~30× less iteration.
     // Falls back to stableKeys when the frame cache is empty (early
     // boot, or render() hasn't been called this frame yet).
-    const labelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
+    //
+    // DEDUP across world copies. `neededKeys` repeats the same
+    // canonical tileKey once per world copy (the polygon path needs
+    // per-copy entries to draw at each world offset). For LABELS the
+    // caller in map.ts handles world-copy enumeration itself via
+    // projectLonLatCopies, so iterating each tile's pointVertices N
+    // times here only produces N× duplicate addLabel submissions at
+    // the same canonical screen positions. With N=5 (full mercator
+    // wrap) and the collision pass's "first place wins" greedy logic,
+    // the duplicates create N² overdraw and can leak through the
+    // dedup when bbox padding rounds inconsistently across iterations.
+    // Visiting each tile ONCE here matches the per-feature iteration
+    // count to the rendered label count.
+    const rawLabelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
+    const labelKeys = rawLabelKeys.length > 0 ? [...new Set(rawLabelKeys)] : rawLabelKeys
     for (const key of labelKeys) {
       const tileData = this.source.getTileData(key, sliceLayer)
       if (!tileData?.pointVertices || tileData.pointVertices.length < 5) continue
@@ -963,8 +977,10 @@ export class VectorTileRenderer {
     const STRIDE = 10  // [mx_h, my_h, mx_l, my_l, feat_id, arc, tin_x, tin_y, tout_x, tout_y]
 
     // Same visible-only walk as forEachLabelFeature — see comment
-    // there for the 30× iteration-count win at Bright z=14.
-    const labelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
+    // there for the 30× iteration-count win at Bright z=14 and the
+    // world-copy dedup rationale.
+    const rawLabelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
+    const labelKeys = rawLabelKeys.length > 0 ? [...new Set(rawLabelKeys)] : rawLabelKeys
     // Reusable across tiles to avoid per-tile Map allocation churn.
     // Holds the longest segment seen so far for each featId in the
     // CURRENT tile's iteration; cleared at tile boundary.
@@ -1050,7 +1066,9 @@ export class VectorTileRenderer {
     const clampLat = (v: number): number => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
     const STRIDE = 10
 
-    const labelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
+    // Same dedup rationale as forEachLabelFeature — see comment there.
+    const rawLabelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
+    const labelKeys = rawLabelKeys.length > 0 ? [...new Set(rawLabelKeys)] : rawLabelKeys
     // Reusable buffers grown as needed — most polylines fit in 32 verts.
     let xs = new Float64Array(64)
     let ys = new Float64Array(64)
