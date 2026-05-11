@@ -85,7 +85,7 @@ const LAYER_TYPES: readonly CoverageEntry[] = [
   { name: 'symbol (icon-only)', status: 'unsupported', impact: 'high', note: 'No text-field → skipped. Awaits Batch 2 (sprite atlas).', source: 'layers.ts:159' },
   { name: 'fill-extrusion',     status: 'supported', note: 'Extruded polygon with per-vertex z.' },
   { name: 'raster',             status: 'supported' },
-  { name: 'circle',             status: 'unsupported', impact: 'medium', note: 'PointRenderer exists but converter still drops circle layers.', source: 'layers.ts:17' },
+  { name: 'circle',             status: 'supported', note: 'Routes to the runtime PointRenderer (SDF disks). circle-radius/-color/-stroke-color/-stroke-width/-opacity all map onto the existing point utility surface, including interpolate-by-zoom + data-driven forms.', source: 'layers.ts:514' },
   { name: 'heatmap',            status: 'unsupported', impact: 'medium', note: 'Batch 3 (accumulation MRT + Gaussian blur).', source: 'layers.ts:18' },
   { name: 'hillshade',          status: 'unsupported', impact: 'medium', note: 'Batch 4 (raster-dem + lighting shader).', source: 'layers.ts:19' },
   { name: 'sky',                status: 'unsupported', impact: 'low' },
@@ -202,6 +202,20 @@ const PAINT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'icon-halo-width',  status: 'unsupported', impact: 'medium' },
   { name: 'icon-halo-blur',   status: 'unsupported', impact: 'low' },
   { name: 'icon-translate',   status: 'unsupported', impact: 'low' },
+]
+
+const PAINT_CIRCLE: readonly CoverageEntry[] = [
+  { name: 'circle-radius',       status: 'supported', note: 'Constant + interpolate-by-zoom + per-feature expression. CSS px (Mapbox radius = xgis size).', source: 'layers.ts:537' },
+  { name: 'circle-color',        status: 'supported', note: 'Constant + interpolate-by-zoom + per-feature case/match.' },
+  { name: 'circle-opacity',      status: 'supported', note: 'Mapbox 0..1 → xgis 0..100 scaled. Constant + interpolate-by-zoom.' },
+  { name: 'circle-stroke-color', status: 'supported' },
+  { name: 'circle-stroke-width', status: 'supported', note: 'CSS px; constant + interpolate-by-zoom.' },
+  { name: 'circle-blur',         status: 'unsupported', impact: 'low' },
+  { name: 'circle-stroke-opacity', status: 'unsupported', impact: 'low', note: 'Would need to fold into stroke-colour alpha.' },
+  { name: 'circle-translate',    status: 'unsupported', impact: 'low' },
+  { name: 'circle-translate-anchor', status: 'unsupported', impact: 'low' },
+  { name: 'circle-pitch-scale',  status: 'unsupported', impact: 'low' },
+  { name: 'circle-pitch-alignment', status: 'unsupported', impact: 'low' },
 ]
 
 const PAINT_FILL_EXTRUSION: readonly CoverageEntry[] = [
@@ -361,6 +375,11 @@ export const MAPBOX_COVERAGE: readonly CoverageSection[] = [
     id: 'paint-symbol',
     title: 'Paint — symbol',
     entries: PAINT_SYMBOL,
+  },
+  {
+    id: 'paint-circle',
+    title: 'Paint — circle',
+    entries: PAINT_CIRCLE,
   },
   {
     id: 'paint-fill-extrusion',

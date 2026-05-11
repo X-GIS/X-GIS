@@ -14,7 +14,6 @@ import { colorToXgis } from './colors'
 // emits a `label-[<expr>]` utility so the IR carries the text
 // intent through compilation. Rendering arrives in Batch 1c.
 const SKIP_REASONS: Record<string, string> = {
-  circle: 'circle layer — use a point layer with shape: circle once point converter lands',
   heatmap: 'heatmap layer — Batch 3 (accumulation MRT + Gaussian blur)',
   hillshade: 'hillshade layer — Batch 4 (raster-dem + lighting shader)',
 }
@@ -500,6 +499,143 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   return lines.join('\n')
 }
 
+/** Mapbox `circle` layer (Point/MultiPoint features rendered as
+ *  SDF disks). The X-GIS runtime's PointRenderer is the natural
+ *  destination — its default shape IS a circle, and it supports
+ *  fill, stroke, opacity, and per-feature data-driven sizing.
+ *
+ *  Property mapping (paint):
+ *    circle-radius        → `size-N`        (both interpret as RADIUS in CSS px;
+ *                                            PointRenderer's `radius_px` reads
+ *                                            the size attribute directly. Default 5
+ *                                            per Mapbox spec, emitted when absent.)
+ *    circle-color         → `fill-<color>`
+ *    circle-opacity       → `opacity-N`     (Mapbox 0..1 → xgis 0..100, same
+ *                                            scale-conversion `addOpacity` does)
+ *    circle-stroke-color  → `stroke-<color>`
+ *    circle-stroke-width  → `stroke-N`      (CSS px, single edge width)
+ *
+ *  Not yet honoured (warnings emitted): circle-blur, circle-translate
+ *  + circle-translate-anchor, circle-pitch-scale, circle-pitch-alignment,
+ *  circle-stroke-opacity (would need fold-into-stroke-alpha).
+ */
+function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
+  const paint = (layer as { paint?: Record<string, unknown> }).paint ?? {}
+  const lines: string[] = [`layer ${sanitizeId(layer.id)} {`]
+  if (layer.source) lines.push(`  source: ${sanitizeId(layer.source)}`)
+  if (layer['source-layer']) lines.push(`  sourceLayer: "${layer['source-layer']}"`)
+  if (typeof layer.minzoom === 'number') lines.push(`  minzoom: ${layer.minzoom}`)
+  if (typeof layer.maxzoom === 'number') lines.push(`  maxzoom: ${layer.maxzoom}`)
+  if (layer.filter !== undefined) {
+    const f = filterToXgis(layer.filter, warnings)
+    if (f) lines.push(`  filter: ${f}`)
+  }
+
+  const utils: string[] = []
+
+  // circle-radius → size. Constant + interpolate-by-zoom + per-feature
+  // expression all supported. Default 5 px per Mapbox spec — emit
+  // explicitly so the runtime doesn't fall back to its own default (8).
+  const radius = paint['circle-radius']
+  if (typeof radius === 'number') {
+    utils.push(`size-${radius}`)
+  } else if (radius !== undefined) {
+    const interp = interpolateZoomCall(radius, warnings,
+      (val) => typeof val === 'number' ? String(val) : null)
+    if (interp !== null) {
+      utils.push(`size-[${interp}]`)
+    } else {
+      const expr = exprToXgis(radius, warnings)
+      if (expr !== null) utils.push(`size-[${expr}]`)
+      else utils.push('size-5')
+    }
+  } else {
+    utils.push('size-5')
+  }
+
+  // circle-color → fill. Routes through the shared color emitters
+  // (constant + interpolate-by-zoom + data-driven case/match).
+  // Default Mapbox circle-color is #000.
+  const fillColor = paint['circle-color']
+  if (fillColor !== undefined) {
+    const interp = interpolateZoomCall(fillColor, warnings, (val, w) => colorToXgis(val, w))
+    if (interp !== null) {
+      utils.push(`fill-[${interp}]`)
+    } else {
+      const c = colorToXgis(fillColor, warnings)
+      if (c) utils.push(`fill-${c}`)
+      else {
+        const expr = exprToXgis(fillColor, warnings)
+        if (expr !== null) utils.push(`fill-[${expr}]`)
+        else utils.push('fill-#000')
+      }
+    }
+  } else {
+    utils.push('fill-#000')
+  }
+
+  // circle-opacity → opacity. Mapbox 0..1 → xgis 0..100 conversion
+  // handled inside addOpacity helper; reuse it here.
+  const opacity = paint['circle-opacity']
+  if (opacity !== undefined) {
+    // addOpacity pushes onto its `out` array; we splice into utils.
+    const tmp: string[] = []
+    // Lazy local re-route to addOpacity from paint.ts. We already have
+    // the right helper imported indirectly through paintToUtilities;
+    // but since circle isn't routed through paintToUtilities, inline
+    // the same logic to keep import surface tight.
+    if (typeof opacity === 'number') {
+      tmp.push(`opacity-${opacity <= 1 ? Math.round(opacity * 100) : opacity}`)
+    } else {
+      const interp = interpolateZoomCall(opacity, warnings, (val) => {
+        if (typeof val !== 'number') return null
+        return String(val <= 1 ? Math.round(val * 100) : val)
+      })
+      if (interp !== null) tmp.push(`opacity-[${interp}]`)
+    }
+    utils.push(...tmp)
+  }
+
+  // circle-stroke-color → stroke. Same constant + zoom-interp path
+  // as the line layer's line-color.
+  const strokeColor = paint['circle-stroke-color']
+  if (strokeColor !== undefined) {
+    const interp = interpolateZoomCall(strokeColor, warnings, (val, w) => colorToXgis(val, w))
+    if (interp !== null) {
+      utils.push(`stroke-[${interp}]`)
+    } else {
+      const c = colorToXgis(strokeColor, warnings)
+      if (c) utils.push(`stroke-${c}`)
+    }
+  }
+
+  // circle-stroke-width → stroke-N. Edge width in CSS px.
+  const strokeWidth = paint['circle-stroke-width']
+  if (typeof strokeWidth === 'number' && strokeWidth > 0) {
+    utils.push(`stroke-${strokeWidth}`)
+  } else if (strokeWidth !== undefined) {
+    const interp = interpolateZoomCall(strokeWidth, warnings,
+      (val) => typeof val === 'number' ? String(val) : null)
+    if (interp !== null) utils.push(`stroke-[${interp}]`)
+  }
+
+  // Surface dropped properties so the user knows the gap.
+  const ignored: string[] = []
+  for (const k of [
+    'circle-blur', 'circle-translate', 'circle-translate-anchor',
+    'circle-pitch-scale', 'circle-pitch-alignment', 'circle-stroke-opacity',
+  ]) {
+    if (paint[k] !== undefined) ignored.push(k)
+  }
+  if (ignored.length > 0) {
+    warnings.push(`Circle layer "${layer.id}" — ignored properties: ${ignored.join(', ')}`)
+  }
+
+  lines.push('  | ' + utils.join(' '))
+  lines.push('}')
+  return lines.join('\n')
+}
+
 /** Mapbox `layers[i]` entry → xgis `layer <id> { … }` block, or
  *  null when the layer is the top-level `background` (handled
  *  specially by `convertMapboxStyle`).
@@ -510,6 +646,9 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
 export function convertLayer(layer: MapboxLayer, warnings: string[]): string | null {
   if (layer.type === 'symbol') {
     return convertSymbolLayer(layer, warnings)
+  }
+  if (layer.type === 'circle') {
+    return convertCircleLayer(layer, warnings)
   }
   const skipReason = SKIP_REASONS[layer.type]
   if (skipReason !== undefined) {
