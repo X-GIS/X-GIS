@@ -469,33 +469,37 @@ function installLabelDebugOverlay(map: XGISMap): void {
       Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) * EARTH_R,
     ]
   }
-  function projectTestPoint(
-    mvp: Float32Array, w: number, h: number, ccx: number, ccy: number,
+  const WORLD_MERC_M = 40075016.686
+  function projectAllCopies(
+    mvp: Float32Array, ccx: number, ccy: number,
     lon: number, lat: number,
-  ): { ndcX: number; visible: boolean; cssX: number; cssY: number } {
+  ): { ndcX: number; visible: boolean }[] {
     const [mx, my] = lonLatToMerc(lon, lat)
-    const rtcX = mx - ccx
-    const rtcY = my - ccy
-    const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
-    const ccx_ = mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!
-    const ccy_ = mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!
-    const ndcX = ccx_ / cw
-    const ndcY = ccy_ / cw
-    return {
-      ndcX,
-      visible: cw > 0 && ndcX >= -1.5 && ndcX <= 1.5 && ndcY >= -1.5 && ndcY <= 1.5,
-      cssX: (ndcX + 1) * 0.5 * (w / dpr),
-      cssY: (1 - ndcY) * 0.5 * (h / dpr),
+    const out: { ndcX: number; visible: boolean }[] = []
+    for (const w of [-2, -1, 0, 1, 2]) {
+      const rtcX = (mx + w * WORLD_MERC_M) - ccx
+      const rtcY = my - ccy
+      const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
+      const ccx_ = mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!
+      const ccy_ = mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!
+      const ndcX = ccx_ / cw
+      const ndcY = ccy_ / cw
+      out.push({
+        ndcX,
+        visible: cw > 0 && ndcX >= -1.5 && ndcX <= 1.5 && ndcY >= -1.5 && ndcY <= 1.5,
+      })
     }
+    return out
   }
-  // Test points: features whose label the user reports clustering
-  // even when they should be culled. If `visible: true` for these,
-  // projection accepts them and the bug is elsewhere; if `false`,
-  // some OTHER code path is submitting them.
+  // Test points: features whose label the user reports clustering.
+  // Now testing ALL 5 world copies (matching projectLonLatCopies in
+  // map.ts) so we can see if any world-copy projection accepts them.
   const TEST_POINTS = [
     { name: 'Sweden', lon: 18, lat: 60 },
     { name: 'Mexico', lon: -100, lat: 23 },
     { name: 'Brazil', lon: -55, lat: -10 },
+    { name: 'Vietnam', lon: 108, lat: 16 },
+    { name: 'Korea-N', lon: 127, lat: 40 },
   ]
   setInterval(() => {
     const mapAny = map as unknown as {
@@ -520,9 +524,13 @@ function installLabelDebugOverlay(map: XGISMap): void {
     lines.push(`mvp[3]=${mvp[3]!.toFixed(3)} mvp[15]=${mvp[15]!.toExponential(2)}`)
     lines.push(`ccx=${(ccx / 1e6).toFixed(2)}e6 ccy=${(ccy / 1e6).toFixed(2)}e6`)
     for (const p of TEST_POINTS) {
-      const r = projectTestPoint(mvp, w, h, ccx, ccy, p.lon, p.lat)
-      const mark = r.visible ? '✓' : '✗'
-      lines.push(`${p.name}: ndcX=${r.ndcX.toFixed(2)} ${mark} css=(${r.cssX.toFixed(0)},${r.cssY.toFixed(0)})`)
+      const results = projectAllCopies(mvp, ccx, ccy, p.lon, p.lat)
+      // Compact summary: for each of [-2..+2], show ✓ or ✗.
+      const marks = results.map(r => r.visible ? '✓' : '✗').join('')
+      // Visible projection's ndcX if any, else canonical's ndcX.
+      const visible = results.find(r => r.visible)
+      const shown = visible ?? results[2]!
+      lines.push(`${p.name}: [${marks}] ndc=${shown.ndcX.toFixed(2)}`)
     }
     diagPanel.textContent = lines.join('\n')
   }, 500)
