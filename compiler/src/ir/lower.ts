@@ -736,6 +736,25 @@ function lowerLayer(
             if (name === 'label-rotate') { labelRotate = n; continue }
             if (name === 'label-letter-spacing') { labelLetterSpacing = n; continue }
           }
+          // Bracket-binding form with a name that's not in any of the
+          // handled arms above (and not a recognised negative-numeric
+          // label utility). Pre-fix this was the silent-drop hole that
+          // hid the `stroke-[interpolate_exp(zoom, …)]` regression — a
+          // `name: "stroke"` binding falls through every named handler
+          // and gets dropped without a peep, so every Mapbox
+          // `paint.line-width: ["interpolate", …]` reverted to a 1 px
+          // hairline. Surface every unhandled binding as a warn-level
+          // diagnostic so the next regression of this shape fails CI
+          // instead of shipping silently.
+          diagnostics.push({
+            severity: 'warn',
+            code: 'X-GIS0005',
+            line: stmt.line,
+            message:
+              `Bracket-binding utility "${name}-[…]" has no handler in lower.ts — ` +
+              `the expression is being dropped. Add a name==="${name}" arm in the ` +
+              `binding-form handler to thread the value into the appropriate IR field.`,
+          })
         }
         continue
       }
