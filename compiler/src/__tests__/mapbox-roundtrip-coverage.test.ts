@@ -261,15 +261,6 @@ const KNOWN_GAPS_OFM_BRIGHT: ReadonlySet<string> = new Set([
 ])
 
 const KNOWN_GAPS_MAPLIBRE_DEMO: ReadonlySet<string> = new Set([
-  // `fill-color: ["match", ["get", "ADM0_A3"], …]` per-feature
-  // data-driven fill — converter routes it to `fill-[…]` which
-  // lower.ts handles as `kind: 'data-driven'` BUT emit-commands'
-  // colorToHex() can't extract a constant fallback hex, so
-  // ShowCommand.fill ends up null. The data-driven path works at
-  // the rendering layer; the test predicate is too strict here.
-  // Follow-up: emit a `fill-[ANY-match-default]` fallback OR weaken
-  // the predicate to also accept the data-driven AST presence.
-  '[countries-fill] fill-color set but show.fill is null',
   // text-field as legacy stops: `{"stops": [[2, "{ABBREV}"], [4, "{NAME}"]]}`.
   // The converter's textFieldToXgisExpr doesn't recognise the stops
   // shape and returns null, so the entire symbol layer is SKIPPED.

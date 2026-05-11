@@ -169,7 +169,20 @@ function addFill(out: string[], v: unknown, warnings: string[]): void {
     return
   }
   const s = colorToXgis(v, warnings)
-  if (s) out.push(`fill-${s}`)
+  if (s) {
+    out.push(`fill-${s}`)
+    return
+  }
+  // Per-feature data-driven shape (`match` / `case` / etc.) — route
+  // through the generic expression converter. Without this fallback
+  // the MapLibre demo's `countries-fill` (`["match", ["get",
+  // "ADM0_A3"], …, default]`) silently dropped fill-color: the
+  // constant-only path returned null and the layer rendered without
+  // a fill. lower.ts now extracts the match default arm as a
+  // constant fallback when the runtime per-feature fill pipeline
+  // isn't yet wired.
+  const expr = exprToXgis(v, warnings)
+  if (expr !== null) out.push(`fill-[${expr}]`)
 }
 
 function addStroke(out: string[], v: unknown, warnings: string[]): void {
