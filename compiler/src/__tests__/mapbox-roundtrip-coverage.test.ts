@@ -257,14 +257,7 @@ function checkPaint(layer: MapboxLayer, show: ShowSample | undefined): string[] 
 // fixes self-policing — see /docs/mapbox-spec drift detector.
 
 const KNOWN_GAPS_OFM_BRIGHT: ReadonlySet<string> = new Set([
-  // `fill-[interpolate(zoom, …)]` zoom-color stops fall through
-  // lower.ts's `name === 'fill'` handler (only `data-driven` path).
-  // colorToHex(data-driven) returns null. Follow-up: add a
-  // `fill: { kind: 'zoom-interpolated', stops }` branch similar to
-  // the label-color handler.
-  '[building] fill-color set but show.fill is null',
-  '[landuse-residential] fill-color set but show.fill is null',
-  '[landuse-suburb] fill-color set but show.fill is null',
+  // (No outstanding gaps. All previously documented bugs are fixed.)
 ])
 
 const KNOWN_GAPS_MAPLIBRE_DEMO: ReadonlySet<string> = new Set([

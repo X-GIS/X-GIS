@@ -662,6 +662,24 @@ function lowerLayer(
           }
         }
         if (name === 'fill') {
+          // Mapbox `paint.fill-color: ["interpolate", curve, ["zoom"], …]`
+          // converts to `fill-[interpolate(zoom, z1, #hex, …)]`. The
+          // converter emits hex literals at each stop; we extract them
+          // and (for now) pick the LAST stop's value as the constant
+          // fill. Proper per-frame zoom-interpolation requires a fill
+          // shader uniform update path; this tactical pick prevents
+          // the silent null-fill drop that landuse-residential /
+          // building / landuse-suburb were hitting in OFM Bright.
+          const colorStops = extractInterpolateZoomColorStops(item.binding)
+          if (colorStops && colorStops.length > 0) {
+            const last = colorStops[colorStops.length - 1]!
+            const hex = resolveColor(last.value)
+            if (hex) {
+              const rgba = hexToRgba(hex)
+              fill = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
+              continue
+            }
+          }
           fill = { kind: 'data-driven', expr: { ast: item.binding } }
         } else if (name === 'stroke') {
           // `stroke-[<expr>]` carries either a colour expression (Mapbox
