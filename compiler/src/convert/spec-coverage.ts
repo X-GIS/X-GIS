@@ -169,7 +169,7 @@ const PAINT_FILL: readonly CoverageEntry[] = [
   { name: 'fill-color',         status: 'supported', note: 'Constant + interpolate-by-zoom + per-feature case/match expressions.', source: 'paint.ts:91' },
   { name: 'fill-opacity',       status: 'supported', source: 'paint.ts:133' },
   { name: 'fill-antialias',     status: 'unsupported', impact: 'low', note: 'Always anti-aliased; opt-out for pixel-art look not implemented.' },
-  { name: 'fill-outline-color', status: 'unsupported', impact: 'high', note: 'OFM landcover-wood / building-top / highway-area silently lose their 1-px outline.' },
+  { name: 'fill-outline-color', status: 'supported', note: 'Lowers to `stroke-<color> stroke-1` on the same fill layer — the xgis polygon renderer paints fill + outline in the same pass. Constant + interpolate-by-zoom.', source: 'paint.ts:153' },
   { name: 'fill-pattern',       status: 'unsupported', impact: 'high', note: 'Batch 2 (bitmap atlas).' },
   { name: 'fill-translate',     status: 'unsupported', impact: 'low', note: 'OFM building-top pseudo-3D roof offset dropped.' },
   { name: 'fill-translate-anchor', status: 'unsupported', impact: 'low' },
