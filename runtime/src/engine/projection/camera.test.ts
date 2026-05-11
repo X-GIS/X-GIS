@@ -384,20 +384,22 @@ import { computeLogDepthFc } from '../shaders/log-depth'
 describe('Camera — metersPerPixel formula', () => {
   // The whole tile selection + altitude pipeline keys off this constant.
   // Web Mercator equator circumference is 2π × 6378137 = 40_075_016.6855 m.
-  // X-GIS rounds to 40075016.686 (used in 4 places). At zoom z the world
-  // is 2^z × 256 CSS pixels wide, so mpp = circumference / (256 × 2^z).
-  it('matches Web Mercator equator circumference / (256 × 2^z) at canonical zooms', () => {
+  // X-GIS rounds to 40075016.686. At zoom z the world is 2^z × TILE_PX
+  // CSS pixels wide (TILE_PX = 512 to match Mapbox / MapLibre), so
+  // mpp = circumference / (TILE_PX × 2^z).
+  it('matches Web Mercator equator circumference / (512 × 2^z) at canonical zooms', () => {
     const C = 40075016.686
+    const TILE_PX = 512
     const cases: [number, number][] = [
-      [0, C / 256],
-      [10, C / 256 / 1024],
-      [22, C / 256 / 4_194_304],  // sub-cm at zoom 22
+      [0, C / TILE_PX],
+      [10, C / TILE_PX / 1024],
+      [22, C / TILE_PX / 4_194_304],  // sub-cm at zoom 22
     ]
     for (const [z, expected] of cases) {
       const cam = new Camera(0, 0, z)
       // Probe via getRTCMatrix: at this zoom the visible Y span = canvasHeight × mpp.
       // Re-derive mpp from the matrix or just assert the constant matches.
-      const mpp = C / 256 / Math.pow(2, cam.zoom)
+      const mpp = C / TILE_PX / Math.pow(2, cam.zoom)
       expect(mpp).toBeCloseTo(expected, 9)
     }
   })
@@ -483,7 +485,7 @@ describe('Camera — near/far ratio across the (zoom × pitch) grid', () => {
     cam.pitch = 84
     const { far } = cam.getFrameView(W, H)
     // CPU-mirror near calc.
-    const mpp = 40075016.686 / 256 / Math.pow(2, cam.zoom)
+    const mpp = 40075016.686 / 512 / Math.pow(2, cam.zoom)
     const altitude = (H / 1) * mpp / 2 / Math.tan(45 * Math.PI / 360)
     const near = Math.max(1.0, altitude * 0.01)
     expect(far / near).toBeLessThan(1.6e4)

@@ -7,6 +7,7 @@ import type { ShowCommand } from './renderer'
 import { getProjection } from '../projection/projection'
 import type { GeoJSONFeatureCollection } from '../../loader/geojson'
 import { visibleTiles, tileBounds, tileUrl, sortByPriority } from '../../data/tile-select'
+import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 
 interface CanvasLayer {
   show: ShowCommand
@@ -61,7 +62,7 @@ export class CanvasRenderer {
 
     const proj = getProjection(projectionName, centerLon, centerLat)
     const [cx, cy] = proj.forward(centerLon, centerLat)
-    const metersPerPixel = (40075016.686 / 256) / Math.pow(2, camera.zoom)
+    const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
 
     // Transform: world coordinates → screen pixels
     const toScreen = (lon: number, lat: number): [number, number] => {

@@ -1,5 +1,5 @@
 // ═══ Raster Tile Loader — 웹 맵 타일 로딩 ═══
-import { worldCopiesFor } from '../engine/gpu/gpu-shared'
+import { worldCopiesFor, TILE_PX } from '../engine/gpu/gpu-shared'
 import { tileKeyParent } from '@xgis/compiler'
 
 /** Walk from `leafKey` up the quad-tree until the first parent for
@@ -116,7 +116,7 @@ export function visibleTiles(
   // At camera zoom >> tile zoom, each tile covers many screen pixels
   const effectiveZoom = cameraZoom ?? zoom
   const scale = Math.pow(2, effectiveZoom - z) // how many screen-tile-sizes per actual tile
-  const tileSize = 256 * scale
+  const tileSize = TILE_PX * scale
 
   // When the map is rotated, the axis-aligned bounding box of the viewport
   // is larger than the viewport itself. Scale up by the AABB of a rotated rect.
@@ -610,7 +610,7 @@ export function visibleTilesFrustum(
   const camTYf = (1 - Math.log(Math.tan(Math.PI / 4 + camLatClamped * DEG2RAD / 2)) / Math.PI) / 2 * camN
   let minTX: number, maxTX: number, minTY: number, maxTY: number
   if (pitchDegFn < 30) {
-    const tileSizePx = 256 * Math.pow(2, (camera.zoom ?? maxZ) - maxZ)
+    const tileSizePx = TILE_PX * Math.pow(2, (camera.zoom ?? maxZ) - maxZ)
     const halfTilesX = (cssWidth / 2) / tileSizePx
     const halfTilesY = (cssHeight / 2) / tileSizePx
     minTX = Math.floor(camTXf - halfTilesX)
