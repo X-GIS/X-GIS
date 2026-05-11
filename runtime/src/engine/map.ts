@@ -5,7 +5,7 @@ import type * as AST from '@xgis/compiler'
 import { BackgroundRenderer } from './render/background-renderer'
 import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
 import { initGPU, resizeCanvas, GPU_PROF, getSampleCount, getMaxDpr, isPickEnabled, type GPUContext } from './gpu/gpu'
-import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT, WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
+import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT, WORLD_MERC, WORLD_COPIES, TILE_PX } from './gpu/gpu-shared'
 import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './gpu/quality'
 import { GPUTimer } from './gpu/gpu-timer'
 import { Camera } from './projection/camera'
@@ -2224,9 +2224,14 @@ export class XGISMap {
 
         // Inline projector — captures matrix + camera center; returns
         // null when the point projects behind camera or far outside.
-        const projectLonLat = (lon: number, lat: number): [number, number] | null => {
+        // `worldMercatorOffset` shifts the mercator X by N×WORLD_MERC
+        // so the polygon renderer's world-copy loop can be mirrored
+        // for labels (see projectLonLatCopies below).
+        const projectLonLat = (
+          lon: number, lat: number, worldMercatorOffset: number = 0,
+        ): [number, number] | null => {
           const [mx, my] = lonLatToMercator(lon, lat)
-          const rtcX = mx - ccx
+          const rtcX = (mx + worldMercatorOffset) - ccx
           const rtcY = my - ccy
           const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
           if (cw <= 0) return null
@@ -2236,6 +2241,27 @@ export class XGISMap {
           const ndcY = ccy_ / cw
           if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
           return [(ndcX + 1) * 0.5 * w, (1 - ndcY) * 0.5 * h]
+        }
+
+        // Mercator is periodic in lon, so PointRenderer / VTR emit
+        // every polygon 5× across the -2..+2 world copies. Without
+        // mirroring the same loop here, a country anchor at lon=-179
+        // gets ONE label at its primary copy and nothing on the
+        // adjacent +360° copy that's also visible at z≤2. Result: at
+        // low zoom labels visibly cluster on one side of the world
+        // map ("포인트가 한쪽에 몰림"). Non-Mercator projections
+        // collapse to a single copy — see worldCopiesFor() in
+        // gpu-shared for the rationale.
+        const worldCopyOffsets: readonly number[] = this.projectionName === 'mercator'
+          ? WORLD_COPIES
+          : [0]
+        const projectLonLatCopies = (lon: number, lat: number): Array<[number, number]> => {
+          const out: Array<[number, number]> = []
+          for (const w of worldCopyOffsets) {
+            const proj = projectLonLat(lon, lat, w * WORLD_MERC)
+            if (proj) out.push(proj)
+          }
+          return out
         }
 
         // (a) Imperative overlays
@@ -2363,8 +2389,6 @@ export class XGISMap {
               if (!feat.geometry) continue
               const anchor = featureAnchor(feat.geometry)
               if (!anchor) continue
-              const projected = projectLonLat(anchor[0], anchor[1])
-              if (!projected) continue
               const featDef = applyFeatureExprs(feat.properties ?? {})
               // Pass the full LabelDef and let TextStage.composeFontKey
               // build the ctx.font shorthand (weight, italic, CJK
@@ -2373,10 +2397,12 @@ export class XGISMap {
               // label rendered in Regular weight and lost Hangul / Han
               // fallback. Keep this comment on every call site so the
               // override doesn't quietly come back.
-              stage.addLabel(
-                featDef.text, feat.properties ?? {},
-                projected[0], projected[1], featDef,
-              )
+              for (const projected of projectLonLatCopies(anchor[0], anchor[1])) {
+                stage.addLabel(
+                  featDef.text, feat.properties ?? {},
+                  projected[0], projected[1], featDef,
+                )
+              }
             }
             continue
           }
@@ -2566,14 +2592,15 @@ export class XGISMap {
             } else {
               vtEntry.renderer.forEachLabelFeature(sliceKey, (mercX, mercY, props) => {
                 const [lon, lat] = mercToLonLat(mercX, mercY)
-                const projected = projectLonLat(lon, lat)
-                if (!projected) return
                 const featDef = applyFeatureExprs(props)
                 // No fontKey override — see note at line ~2370.
-                stage.addLabel(
-                  featDef.text, props,
-                  projected[0], projected[1], featDef,
-                )
+                // World-copy loop — see comment at projectLonLatCopies.
+                for (const projected of projectLonLatCopies(lon, lat)) {
+                  stage.addLabel(
+                    featDef.text, props,
+                    projected[0], projected[1], featDef,
+                  )
+                }
               })
             }
           }
