@@ -182,7 +182,7 @@ const PAINT_LINE: readonly CoverageEntry[] = [
   { name: 'line-dasharray', status: 'partial', impact: 'medium', note: 'Constant numeric array only — interpolate-by-zoom dasharray not lowered.', source: 'paint.ts:126' },
   { name: 'line-blur',      status: 'unsupported', impact: 'medium', note: 'Line shader has no blur uniform yet (MapLibre demo uses it).' },
   { name: 'line-gap-width', status: 'unsupported', impact: 'medium', note: 'Used for road casings.' },
-  { name: 'line-offset',    status: 'unsupported', impact: 'medium' },
+  { name: 'line-offset',    status: 'supported', note: 'Positive Mapbox values (right of travel) → `stroke-offset-right-N`; negative → `stroke-offset-left-N`. The xgis line renderer threads `strokeOffset` through to the vertex shader including offset-aware miter / join geometry. Constant only — interpolate-by-zoom warns and drops.', source: 'paint.ts:175' },
   { name: 'line-translate', status: 'unsupported', impact: 'low' },
   { name: 'line-pattern',   status: 'unsupported', impact: 'medium' },
   { name: 'line-gradient',  status: 'unsupported', impact: 'low' },
