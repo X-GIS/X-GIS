@@ -21,6 +21,7 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
   if (layer.type === 'fill') {
     addFill(out, p['fill-color'], warnings)
     addOpacity(out, p['fill-opacity'], warnings)
+    addFillOutline(out, p['fill-outline-color'], warnings)
   } else if (layer.type === 'line') {
     addStroke(out, p['line-color'], warnings)
     addStrokeWidth(out, p['line-width'], warnings)
@@ -148,6 +149,34 @@ function addStroke(out: string[], v: unknown, warnings: string[]): void {
   }
   const s = colorToXgis(v, warnings)
   if (s) out.push(`stroke-${s}`)
+}
+
+/** Mapbox `paint.fill-outline-color` → xgis `stroke-<color> stroke-1`
+ *  on the same fill layer. The xgis polygon renderer paints an outline
+ *  in the same pass when a stroke is declared alongside a fill, so the
+ *  Mapbox semantic ("fill + 1px outline") maps 1:1 with no extra
+ *  layer. Pre-fix this property was silently dropped — OFM Bright
+ *  layers like `landcover-wood`, `building-top`, and `highway-area`
+ *  lost their declared outlines, producing visibly mushy boundaries
+ *  vs MapLibre's reference rendering.
+ *
+ *  Mapbox spec defaults the outline width to 1 px; we emit `stroke-1`
+ *  unconditionally when an outline colour is present so the runtime
+ *  has a non-zero width to render (otherwise the stroke renderer
+ *  skips the layer entirely). */
+function addFillOutline(out: string[], v: unknown, warnings: string[]): void {
+  if (v === undefined) return
+  const interp = interpolateZoomCall(v, warnings, (val, w) => colorToXgis(val, w))
+  if (interp !== null) {
+    out.push(`stroke-[${interp}]`)
+    out.push('stroke-1')
+    return
+  }
+  const s = colorToXgis(v, warnings)
+  if (s) {
+    out.push(`stroke-${s}`)
+    out.push('stroke-1')
+  }
 }
 
 function addStrokeWidth(out: string[], v: unknown, warnings: string[]): void {
