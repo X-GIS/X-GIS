@@ -1472,7 +1472,14 @@ function foldLabelKnobs(
       || knobs.labelHaloBlur !== undefined) {
     const resolvedBlur = knobs.labelHaloBlur ?? base.halo?.blur
     halo = {
-      color: knobs.labelHaloColor ?? base.halo?.color ?? [0, 0, 0, 1],
+      // Mapbox `text-halo-color` default is `rgba(0,0,0,0)` (transparent
+      // black). Stops at this fallback should NOT paint a visible halo —
+      // pre-fix the [0,0,0,1] (opaque black) default rendered a hard black
+      // outline around every label that declared `text-halo-width: N` but
+      // omitted `text-halo-color`. Most visible on OFM Bright at z > 12.2
+      // where `highway-name-major` first appears: grey #666 text got
+      // smothered by an opaque black halo.
+      color: knobs.labelHaloColor ?? base.halo?.color ?? [0, 0, 0, 0],
       width: knobs.labelHaloWidth ?? base.halo?.width ?? 1,
       ...(resolvedBlur !== undefined ? { blur: resolvedBlur } : {}),
     }
