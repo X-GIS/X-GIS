@@ -71,15 +71,22 @@ function extractFeatureWidths(
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
-    // Inject `zoom` so Mapbox `paint.line-width: ["interpolate", …,
-    // ["zoom"], …]` expressions (which the converter lowers as
-    // `interpolate_exp(zoom, …)`) resolve to a per-tile width. Tile
-    // zoom is a close-enough proxy for camera zoom — the user has to
-    // be panning at the exact tile-zoom boundary for the difference
-    // to be visible, and per-feature widths bake at tile-decode time
-    // so we couldn't track camera zoom changes anyway without
-    // re-uploading the segment buffer every frame.
-    const v = evaluate(expr as never, { ...(props as Record<string, unknown>), zoom: tileZoom })
+    // Inject `$zoom` — the evaluator's RESERVED camera-zoom key
+    // (evaluator.ts:33-38 looks up `props['$zoom']` for the `zoom`
+    // identifier inside expressions like `interpolate_exp(zoom, …)`).
+    // Pre-fix this used `zoom: tileZoom` which the evaluator silently
+    // ignored — `props.$zoom` came back undefined, `toNumber(null)`
+    // collapsed to 0, every interpolation evaluated to 0, and the
+    // `v > 0` filter dropped every map entry. The runtime fell back
+    // to the default 1 px layer-uniform width on every road. Visible
+    // as hairline-thin OFM Bright highways.
+    //
+    // Tile zoom is a close-enough proxy for camera zoom — the user
+    // has to be panning at an exact tile-zoom boundary for the
+    // difference to be visible, and per-feature widths bake at tile-
+    // decode time so camera-zoom tracking would require per-frame
+    // segment-buffer re-upload (follow-up).
+    const v = evaluate(expr as never, { ...(props as Record<string, unknown>), $zoom: tileZoom })
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out

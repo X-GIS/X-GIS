@@ -69,7 +69,9 @@ function extractFeatureWidths(
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
-    const v = evaluate(expr as never, { ...(props as Record<string, unknown>), zoom: tileZoom })
+    // Inject `$zoom` — the evaluator's reserved camera-zoom key.
+    // See mvt-worker.ts's extractFeatureWidths for the rationale.
+    const v = evaluate(expr as never, { ...(props as Record<string, unknown>), $zoom: tileZoom })
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
