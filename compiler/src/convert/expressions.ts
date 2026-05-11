@@ -260,11 +260,24 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       warnings.push(`["${op}"] with non-constant channels not converted: ${JSON.stringify(v).slice(0, 80)}`)
       return null
     }
-    case 'geometry-type':
+    case 'geometry-type': {
+      // Mapbox ["geometry-type"] resolves to "Point" / "LineString" /
+      // "Polygon" (or their Multi* variants) per feature. xgis has no
+      // dedicated geometry-type keyword, so we route through the
+      // synthetic property `$geometryType` which the runtime filter
+      // path injects from `feature.geometry.type` at evaluation time.
+      // Dropping the accessor (the historical behaviour) silently
+      // collapsed filters like `["match", ["geometry-type"], …]` into
+      // null, which the parent filterToXgis then turned into "no
+      // filter" — so a water_name_line_label layer (LineString-only
+      // intent) iterated EVERY water_name feature, doubling up with
+      // the sibling Point layer on shared OMT centroids near the
+      // antimeridian.
+      return 'get("$geometryType")'
+    }
     case 'id': {
-      // Pseudo-accessors used inside ["==", ["geometry-type"], …].
-      // Same rationale as the $type / $id legacy filter case below —
-      // dropped sub-expression bubbles `null` through the parent ==/!=.
+      // No feature-id accessor yet — id-based filters bubble null
+      // through the parent and the layer's filter line is dropped.
       warnings.push(`["${op}"] dropped — no xgis feature-meta accessor.`)
       return null
     }

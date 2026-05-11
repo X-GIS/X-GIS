@@ -105,7 +105,14 @@ export function applyFilter(
   if (!filterExpr?.ast || !data.features) return data
   const ast = filterExpr.ast as AST.Expr
   const filtered = data.features.filter(f => {
-    const result = evaluate(ast, f.properties ?? {})
+    // Inject `$geometryType` so Mapbox `["geometry-type"]` filters
+    // (lowered to `get("$geometryType")` by the converter) can read
+    // the feature's geometry type without breaking the
+    // props-only evalFilter contract.
+    const propsBag = f.geometry
+      ? { ...(f.properties ?? {}), $geometryType: f.geometry.type }
+      : f.properties ?? {}
+    const result = evaluate(ast, propsBag)
     // Truthy check: non-zero numbers, true booleans, non-empty strings.
     if (typeof result === 'boolean') return result
     if (typeof result === 'number') return result !== 0
