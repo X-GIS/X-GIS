@@ -408,6 +408,12 @@ function lowerLayer(
   let fill: ColorValue = colorNone()
   let strokeColor: ColorValue = colorNone()
   let strokeWidth = 1
+  /** Per-feature / zoom-interpolated stroke-width AST. Populated from
+   *  `stroke-[<expr>]` bracket bindings when the expression is numeric
+   *  (Mapbox `paint.line-width: ["interpolate", …]` or per-feature
+   *  case/match). Stroke colour zoom-interpolation takes a parallel
+   *  path through `strokeColor` (kind: 'zoom-interpolated'). */
+  let strokeWidthExpr: import('./render-node').DataExpr | undefined
   let linecap: 'butt' | 'round' | 'square' | 'arrow' | undefined
   let linejoin: 'miter' | 'round' | 'bevel' | undefined
   let miterlimit: number | undefined
@@ -657,6 +663,49 @@ function lowerLayer(
         }
         if (name === 'fill') {
           fill = { kind: 'data-driven', expr: { ast: item.binding } }
+        } else if (name === 'stroke') {
+          // `stroke-[<expr>]` carries either a colour expression (Mapbox
+          // `paint.line-color: ["interpolate", …]`) or a width
+          // expression (`paint.line-width: ["interpolate", …]`). The
+          // converter emits the same shape for both because the
+          // utility-name grammar can't tell them apart at the lex
+          // stage. Disambiguate by inspecting the lowered expression:
+          //   - `interpolate(zoom, z, color, …)`  → colour stops
+          //   - `interpolate_exp(zoom, base, z, n, …)` → numeric stops
+          //   - everything else → per-feature `widthExpr` (numeric
+          //     case/match dominate; per-feature colour-only goes
+          //     through `colorExpr` once that path lands).
+          // Pre-fix this whole branch was missing — every OFM Bright
+          // road's `stroke-[interpolate_exp(…)]` width silently
+          // collapsed to the default 1 px, so the entire highway
+          // network rendered as hair-thin lines.
+          const colorStops = extractInterpolateZoomColorStops(item.binding)
+          if (colorStops) {
+            const stops: ZoomStop<[number, number, number, number]>[] = []
+            for (const s of colorStops) {
+              const hex = resolveColor(s.value)
+              if (hex) stops.push({ zoom: s.zoom, value: hexToRgba(hex) })
+            }
+            if (stops.length > 0) {
+              strokeColor = { kind: 'zoom-interpolated', stops }
+            }
+          } else {
+            const widthStops = extractInterpolateZoomStops(item.binding)
+            if (widthStops) {
+              // Re-emit through the existing widthExpr path so the
+              // worker per-feature evaluator handles it. (A future
+              // optimisation would carry zoom stops as a dedicated
+              // `widthZoomStops` field so the runtime can interp once
+              // per frame instead of per feature; for now widthExpr's
+              // AST contains the interpolate call and the evaluator
+              // re-walks it per feature, which is correct just less
+              // efficient.)
+              strokeWidthExpr = { ast: item.binding }
+            } else {
+              // Per-feature `case` / `match` expression on width.
+              strokeWidthExpr = { ast: item.binding }
+            }
+          }
         } else if (name === 'size') {
           size = { kind: 'data-driven', expr: { ast: item.binding }, unit: item.bindingUnit ?? null }
         } else if (name === 'opacity') {
@@ -1219,6 +1268,7 @@ function lowerLayer(
       return {
         color: strokeColor,
         width: strokeWidth,
+        ...(strokeWidthExpr !== undefined ? { widthExpr: strokeWidthExpr } : {}),
         linecap, linejoin, miterlimit,
         dashArray, dashOffset,
         patterns: validPatterns.length > 0 ? validPatterns : undefined,

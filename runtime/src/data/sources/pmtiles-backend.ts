@@ -62,13 +62,14 @@ function extractFeatureHeights(
 function extractFeatureWidths(
   features: GeoJSONFeature[],
   expr: unknown,
+  tileZoom: number,
 ): Map<number, number> {
   const out = new Map<number, number>()
   if (!expr) return out
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
-    const v = evaluate(expr as never, props as Record<string, unknown>)
+    const v = evaluate(expr as never, { ...(props as Record<string, unknown>), zoom: tileZoom })
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
@@ -612,7 +613,7 @@ export class PMTilesBackend implements TileSource {
         }
         const heights = extractFeatureHeights(sourceFeatures, this.extrudeExprs?.[sourceLayer])
         const bases = extractFeatureHeights(sourceFeatures, this.extrudeBaseExprs?.[sourceLayer])
-        const widths = extractFeatureWidths(sourceFeatures, this.strokeWidthExprs?.[sliceKey])
+        const widths = extractFeatureWidths(sourceFeatures, this.strokeWidthExprs?.[sliceKey], z)
         const colors = extractFeatureColors(sourceFeatures, this.strokeColorExprs?.[sliceKey])
         let prebuiltOutlineSegments: Float32Array | undefined
         let prebuiltLineSegments: Float32Array | undefined
