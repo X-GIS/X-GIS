@@ -27,6 +27,7 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     addStrokeWidth(out, p['line-width'], warnings)
     addStrokeDash(out, p['line-dasharray'], warnings)
     addOpacity(out, p['line-opacity'], warnings)
+    addLineOffset(out, p['line-offset'], warnings)
   } else if (layer.type === 'fill-extrusion') {
     addFill(out, p['fill-extrusion-color'], warnings)
     addOpacity(out, p['fill-extrusion-opacity'], warnings)
@@ -190,6 +191,36 @@ function addStrokeWidth(out: string[], v: unknown, warnings: string[]): void {
   if (x === null) return
   // Tailwind-style suffix: number → `stroke-1.5`, expression → bracket form.
   out.push(`stroke-${maybeBracket(x)}`)
+}
+
+/** Mapbox `paint.line-offset` (parallel lateral shift, CSS px;
+ *  positive = right of travel direction in Mapbox spec) → xgis
+ *  `stroke-offset-right-N` / `stroke-offset-left-N`. The xgis line
+ *  renderer already threads `strokeOffset` end-to-end (IR → vertex
+ *  shader, including offset-aware miter/join geometry); the
+ *  converter just needs to pick the right utility variant so the
+ *  sign convention matches.
+ *
+ *  Sign mapping: Mapbox positive = right of travel; xgis
+ *  `stroke-offset-right-N` lowers to `strokeOffset = -N` (right is
+ *  negative in xgis's internal convention). Both ends agree on the
+ *  visual side after the conversion.
+ *
+ *  Currently emits constant only. Interpolate-by-zoom / expression
+ *  forms aren't yet lowered for stroke-offset (lower.ts has no
+ *  binding-form arm for it); we surface a warning so callers know
+ *  the gap. */
+function addLineOffset(out: string[], v: unknown, warnings: string[]): void {
+  if (v === undefined) return
+  if (typeof v === 'number') {
+    if (v === 0) return
+    if (v > 0) out.push(`stroke-offset-right-${v}`)
+    else out.push(`stroke-offset-left-${-v}`)
+    return
+  }
+  // Non-constant — interpolate-by-zoom or per-feature expression.
+  // No binding-form handler in lower.ts yet; warn and skip.
+  warnings.push(`paint.line-offset: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
 }
 
 function addStrokeDash(out: string[], v: unknown, _warnings: string[]): void {
