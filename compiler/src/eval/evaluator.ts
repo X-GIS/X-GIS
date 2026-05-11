@@ -316,6 +316,98 @@ function callBuiltin(name: string, args: unknown[]): unknown {
     // Numeric coercion is undefined in spec; we coerce via String().
     case 'downcase': return String(args[0] ?? '').toLowerCase()
     case 'upcase': return String(args[0] ?? '').toUpperCase()
+    case 'typeof': {
+      // Mapbox `["typeof", value]` — returns "string" / "number" /
+      // "boolean" / "object" / null. JS typeof gives "string" /
+      // "number" / "boolean" / "object" / "undefined" / "function" /
+      // "symbol" / "bigint". Map null → "null" (Mapbox calls it that
+      // for null inputs); collapse the JS-specific kinds.
+      const v = args[0]
+      if (v === null) return 'null'
+      const t = typeof v
+      if (t === 'undefined') return 'null'
+      if (t === 'bigint') return 'number'
+      if (t === 'function' || t === 'symbol') return 'string'
+      return t
+    }
+    case 'slice': {
+      // Mapbox `["slice", input, start]` or `["slice", input, start, end]`.
+      // Works on strings (substring) and arrays (subarray). Native
+      // String#slice / Array#slice handle negative indices (count from
+      // end) which Mapbox spec doesn't formally guarantee but most
+      // styles assume.
+      const input = args[0]
+      const start = toNumber(args[1])
+      const end = args.length >= 3 ? toNumber(args[2]) : undefined
+      if (typeof input === 'string') {
+        return end === undefined ? input.slice(start) : input.slice(start, end)
+      }
+      if (Array.isArray(input)) {
+        return end === undefined ? input.slice(start) : input.slice(start, end)
+      }
+      return null
+    }
+    case 'index-of':
+    case 'index_of': {
+      // Mapbox `["index-of", needle, haystack]` or
+      // `["index-of", needle, haystack, from_index]`. Returns -1 when
+      // not found. The converter emits the underscore form
+      // (`index_of`) since the xgis identifier grammar disallows
+      // hyphens; both names route here.
+      const needle = args[0]
+      const haystack = args[1]
+      const from = args.length >= 3 ? toNumber(args[2]) : 0
+      if (typeof haystack === 'string') {
+        return haystack.indexOf(String(needle ?? ''), from)
+      }
+      if (Array.isArray(haystack)) {
+        return haystack.indexOf(needle, from)
+      }
+      return -1
+    }
+    case 'number-format':
+    case 'number_format': {
+      // Two call shapes are accepted:
+      //   - Object-options:   number_format(input, { locale, currency,
+      //                                              "min-fraction-digits",
+      //                                              "max-fraction-digits" })
+      //     Direct AST callers (legacy / Mapbox-style synthesis) use this.
+      //   - Positional:       number_format(input, minFrac, maxFrac, locale, currency)
+      //     The xgis converter emits this form since the parser has no
+      //     object-literal syntax. `null` slots mean "spec default".
+      const input = toNumber(args[0])
+      let minFrac: number | undefined
+      let maxFrac: number | undefined
+      let locale: string | undefined
+      let currency: string | undefined
+      const second = args[1]
+      if (second && typeof second === 'object' && !Array.isArray(second)) {
+        const o = second as Record<string, unknown>
+        const mf = o['min-fraction-digits'] ?? o.minFractionDigits
+        const xf = o['max-fraction-digits'] ?? o.maxFractionDigits
+        if (typeof mf === 'number') minFrac = mf
+        if (typeof xf === 'number') maxFrac = xf
+        if (typeof o.locale === 'string') locale = o.locale
+        if (typeof o.currency === 'string') currency = o.currency
+      } else {
+        if (typeof second === 'number') minFrac = second
+        const a2 = args[2]; if (typeof a2 === 'number') maxFrac = a2
+        const a3 = args[3]; if (typeof a3 === 'string') locale = a3
+        const a4 = args[4]; if (typeof a4 === 'string') currency = a4
+      }
+      const intlOpts: Intl.NumberFormatOptions = {}
+      if (currency) {
+        intlOpts.style = 'currency'
+        intlOpts.currency = currency
+      }
+      if (minFrac !== undefined) intlOpts.minimumFractionDigits = minFrac
+      if (maxFrac !== undefined) intlOpts.maximumFractionDigits = maxFrac
+      try {
+        return new Intl.NumberFormat(locale, intlOpts).format(input)
+      } catch {
+        return String(input)
+      }
+    }
     // PI alias — Mapbox `["pi"]` (zero-arg). The existing `PI`
     // builtin used the SCREAMING name; expose lowercase too so the
     // converter can emit a 1:1 name match.

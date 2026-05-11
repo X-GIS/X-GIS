@@ -107,8 +107,14 @@ describe('mapbox spec-coverage drift detector', () => {
       // Skip Mapbox internal accessor names we know are NOT meant for the
       // public table — `linear`, `exponential` are interpolate CURVE
       // types (their coverage lives under the parent `interpolate`
-      // entry). `zoom` is checked separately.
-      if (['linear', 'exponential', 'cubic-bezier', 'zoom'].includes(name)) continue
+      // entry). `zoom` is checked separately. Option-bag keys
+      // (`min-fraction-digits` / `max-fraction-digits` for number-format)
+      // live UNDER their parent expression entry and aren't standalone
+      // properties.
+      if ([
+        'linear', 'exponential', 'cubic-bezier', 'zoom',
+        'min-fraction-digits', 'max-fraction-digits',
+      ].includes(name)) continue
       missing.push(name)
     }
     expect(missing, `Converter source references these Mapbox properties without a coverage table entry — add them to convert/spec-coverage.ts: ${missing.join(', ')}`).toEqual([])
