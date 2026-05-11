@@ -276,10 +276,12 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       return 'get("$geometryType")'
     }
     case 'id': {
-      // No feature-id accessor yet — id-based filters bubble null
-      // through the parent and the layer's filter line is dropped.
-      warnings.push(`["${op}"] dropped — no xgis feature-meta accessor.`)
-      return null
+      // Mapbox ["id"] resolves to feature.id (GeoJSON RFC 7946 §3.2;
+      // MVT feature.id from the protobuf). Same routing pattern as
+      // ["geometry-type"] — the runtime filter-eval sites inject
+      // `$featureId` into the props bag at evaluation time so the
+      // ["==", ["id"], 42] / ["match", ["id"], …] filters work.
+      return 'get("$featureId")'
     }
     case 'in': {
       // Two flavours:

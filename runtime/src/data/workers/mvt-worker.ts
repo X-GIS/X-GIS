@@ -359,12 +359,14 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
         const layerFeatures = byLayer.get(desc.sourceLayer)
         if (!layerFeatures || layerFeatures.length === 0) continue
         const subset = desc.filterAst
-          ? layerFeatures.filter(f => evalFilterExpr(
-              desc.filterAst,
-              f.geometry
-                ? { ...(f.properties ?? {}), $geometryType: f.geometry.type }
-                : f.properties ?? {},
-            ))
+          ? layerFeatures.filter(f => {
+              const bag: Record<string, unknown> = { ...(f.properties ?? {}) }
+              if (f.geometry) bag.$geometryType = f.geometry.type
+              if ((f as { id?: string | number }).id !== undefined) {
+                bag.$featureId = (f as { id: string | number }).id
+              }
+              return evalFilterExpr(desc.filterAst, bag)
+            })
           : layerFeatures
         emitSlice(
           desc.sliceKey, desc.sourceLayer, subset,

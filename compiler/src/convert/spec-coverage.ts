@@ -284,7 +284,7 @@ const EXPRESSIONS: readonly CoverageEntry[] = [
   { name: 'interpolate-lab',           status: 'unsupported', impact: 'low' },
   // Feature meta
   { name: 'geometry-type',   status: 'supported', note: 'Routes via synthetic `$geometryType` prop injected at filter-eval time.', source: 'expressions.ts:263' },
-  { name: 'id',              status: 'unsupported', impact: 'low', note: 'GPU has featId but evaluator props bag does not expose it.', source: 'expressions.ts:278' },
+  { name: 'id',              status: 'supported', note: 'Routes via synthetic `$featureId` prop injected from `feature.id` (GeoJSON RFC 7946 §3.2; MVT feature.id) at every filter-eval site. Same pattern as `geometry-type`.', source: 'expressions.ts:278' },
   { name: 'properties',      status: 'unsupported', impact: 'low' },
   { name: 'feature-state',   status: 'na', note: 'Mapbox v8 dynamic property setter — no xgis equivalent.' },
   // Formatting / advanced
