@@ -603,6 +603,14 @@ export interface ShowCommand {
    *  into the line segment buffer's per-segment slot; the shader
    *  picks `segment.width_px` over the layer uniform when non-zero. */
   strokeWidthExpr?: { ast: unknown }
+  /** Mapbox `paint.line-width: ["interpolate", curve, ["zoom"], …]` —
+   *  pure zoom stops the renderer evaluates per frame against
+   *  camera.zoom. Lets the line widen smoothly inside one tile-zoom
+   *  bracket (vs. the strokeWidthExpr / worker bake which freezes
+   *  the width at tile-decode zoom). When present, overrides
+   *  `strokeWidth`. */
+  zoomStrokeWidthStops?: { zoom: number; value: number }[]
+  zoomStrokeWidthStopsBase?: number
   /** Optional per-feature stroke-colour override AST. Mirror of
    *  strokeWidthExpr; the worker resolves per feature, packs RGBA8
    *  into a u32, and writes it into the line segment buffer's
@@ -774,6 +782,8 @@ interface RenderLayer {
   zoomSizeStopsBase?: number
   zoomFillStops?: { zoom: number; value: [number, number, number, number] }[]
   zoomFillStopsBase?: number
+  zoomStrokeWidthStops?: { zoom: number; value: number }[]
+  zoomStrokeWidthStopsBase?: number
   // Animation time-stop lists. Populated from ShowCommand.time*Stops
   // in addLayer(). Null means "no animation for this property".
   timeOpacityStops: { timeMs: number; value: number }[] | null
@@ -1606,6 +1616,8 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
       zoomSizeStopsBase: show.zoomSizeStopsBase,
       zoomFillStops: show.zoomFillStops,
       zoomFillStopsBase: show.zoomFillStopsBase,
+      zoomStrokeWidthStops: show.zoomStrokeWidthStops,
+      zoomStrokeWidthStopsBase: show.zoomStrokeWidthStopsBase,
       timeOpacityStops: show.timeOpacityStops ?? null,
       timeFillStops: show.timeFillStops ?? null,
       timeStrokeStops: show.timeStrokeStops ?? null,

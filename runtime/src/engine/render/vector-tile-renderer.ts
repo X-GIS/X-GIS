@@ -6,6 +6,7 @@
 import type { GPUContext } from '../gpu/gpu'
 import { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
+import { interpolateZoom } from './renderer'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../../data/tile-select'
 import { visibleTilesSSE } from '../../loader/tiles-sse'
 import {
@@ -1980,7 +1981,13 @@ export class VectorTileRenderer {
     // gate (in hysteresis below) and by the main visible-tile selection
     // further down. Cheap pure derivations; safe to compute once up here.
     const strokeOffsetPx_h = Math.abs(show.strokeOffset ?? 0)
-    const strokeWidthPx_h = show.strokeWidth ?? 1
+    // Mirror the per-frame zoom interpolation used down at line write
+    // time so the visible-tile expansion margin matches the actual
+    // rendered width (otherwise wide low-zoom lines get clipped at
+    // tile boundaries).
+    const strokeWidthPx_h = show.zoomStrokeWidthStops && show.zoomStrokeWidthStops.length > 0
+      ? interpolateZoom(show.zoomStrokeWidthStops, camera.zoom, show.zoomStrokeWidthStopsBase ?? 1)
+      : (show.strokeWidth ?? 1)
     const alignDeltaPx_h = show.strokeAlign === 'inset' || show.strokeAlign === 'outset'
       ? strokeWidthPx_h / 2 : 0
     const offsetMarginPx = Math.ceil(strokeOffsetPx_h + alignDeltaPx_h + strokeWidthPx_h / 2 + 2)
@@ -2513,7 +2520,16 @@ export class VectorTileRenderer {
     // incidental validation surface in the translucent fill pre-pass.
     let lineLayerOffset = 0
     if (this.lineRenderer && phase !== 'fills') {
-      const strokeWidthPx = show.strokeWidth ?? 1
+      // Pure-zoom stroke-width stops (Mapbox `paint.line-width:
+      // ["interpolate", curve, ["zoom"], …]`) recompute per frame
+      // against camera.zoom — so a line widens smoothly as the user
+      // zooms inside one tile-zoom level. The static `show.strokeWidth`
+      // is the lower.ts default (1); we override it here. Per-feature
+      // widths (compound merge → `strokeWidthExpr`) still go through
+      // the worker bake + segment slot.
+      const strokeWidthPx = show.zoomStrokeWidthStops && show.zoomStrokeWidthStops.length > 0
+        ? interpolateZoom(show.zoomStrokeWidthStops, camera.zoom, show.zoomStrokeWidthStopsBase ?? 1)
+        : (show.strokeWidth ?? 1)
       const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
       const capMap = { butt: 0, round: 1, square: 2, arrow: 3 } as const
       const joinMap = { miter: 0, round: 1, bevel: 2 } as const

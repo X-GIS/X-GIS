@@ -413,6 +413,21 @@ export interface StrokeValue {
    *  instead of the layer-uniform `width_px`. When absent, the
    *  scalar `width` above wins (legacy / unmerged path). */
   widthExpr?: DataExpr
+  /** Mapbox `paint.line-width: ["interpolate", curve, ["zoom"], …]`
+   *  hoisted as zoom stops. When present the renderer recomputes
+   *  `layer.width_px` per frame from the camera zoom, sidestepping
+   *  the per-feature worker bake (which freezes width at tile-decode
+   *  time so the line doesn't grow continuously as the camera zooms).
+   *  Mutually exclusive with `widthExpr` for purely zoom-driven
+   *  widths — the compiler picks this path whenever the binding's
+   *  AST is a zoom-only interpolate. Per-feature widths (e.g.
+   *  `match(.class) { primary -> 5, secondary -> 3 }`) still go via
+   *  `widthExpr`. */
+  widthZoomStops?: ZoomStop<number>[]
+  /** Exponential base for `widthZoomStops` (Mapbox
+   *  `["interpolate", ["exponential", N], …]`). Undefined / 1 →
+   *  linear. */
+  widthZoomStopsBase?: number
   /** Optional per-feature stroke colour override. Companion to
    *  widthExpr. Synthesised by the merge pass for same-source-layer
    *  groups whose stroke colours differ — a `match(.field) { value

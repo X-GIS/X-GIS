@@ -26,7 +26,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   convertMapboxStyle, Lexer, Parser, lower, emitCommands, evaluate,
-  type MapboxLayer,
 } from '../index'
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -46,6 +45,8 @@ interface ShowWithExprs {
   strokeWidthExpr?: { ast: unknown } | null
   strokeColorExpr?: { ast: unknown } | null
   sizeExpr?: { ast: unknown } | null
+  zoomStrokeWidthStops?: { zoom: number; value: number }[]
+  zoomStrokeWidthStopsBase?: number
   label?: {
     sizeExpr?: { ast: unknown }
     colorExpr?: { ast: unknown }
@@ -134,19 +135,46 @@ function runRoundtrip(name: string, style: unknown): void {
     it('OFM Bright highway_minor stroke-width grows monotonically with zoom (sanity)', () => {
       if (name !== 'OFM Bright') return
       const minor = shows.find(s => s.layerName === 'highway_minor')
-      if (!minor?.strokeWidthExpr?.ast) {
-        // Style might not have this layer (defensive). Skip without
-        // failing — the cross-style assertion above already covers
-        // the broader "every expression resolves" property.
-        return
+      if (!minor) return
+      // Width can now flow through EITHER strokeWidthExpr (per-feature
+      // worker bake) OR zoomStrokeWidthStops (per-frame renderer
+      // interp). The latter is the common case for pure zoom curves
+      // like OFM Bright's highway-minor.
+      const stops = minor.zoomStrokeWidthStops
+      let widths: number[]
+      if (stops && stops.length >= 2) {
+        // Linear or exponential interpolation between stops mirrors
+        // the renderer's interpolateZoom helper. The roundtrip here is
+        // a sanity check; the full curve maths is exercised in
+        // runtime/render-loop tests.
+        const base = minor.zoomStrokeWidthStopsBase ?? 1
+        const interp = (z: number): number => {
+          if (z <= stops[0].zoom) return stops[0].value
+          if (z >= stops[stops.length - 1].zoom) return stops[stops.length - 1].value
+          for (let i = 0; i < stops.length - 1; i++) {
+            if (z >= stops[i].zoom && z <= stops[i + 1].zoom) {
+              const z0 = stops[i].zoom, z1 = stops[i + 1].zoom
+              const span = z1 - z0
+              const t = (base === 1 || Math.abs(base - 1) < 1e-6)
+                ? (z - z0) / span
+                : (Math.pow(base, z - z0) - 1) / (Math.pow(base, span) - 1)
+              return stops[i].value + t * (stops[i + 1].value - stops[i].value)
+            }
+          }
+          return stops[stops.length - 1].value
+        }
+        widths = [12, 14, 15, 16, 18, 20].map(interp)
+      } else if (minor.strokeWidthExpr?.ast) {
+        const props = sampleFeatureProps('transportation')
+        widths = [12, 14, 15, 16, 18, 20].map(z =>
+          evaluate(minor.strokeWidthExpr!.ast as never, { ...props, $zoom: z }) as number)
+      } else {
+        return  // style without highway-minor or with constant width — covered above
       }
-      const props = sampleFeatureProps('transportation')
-      const widths = [12, 14, 15, 16, 18, 20].map(z =>
-        evaluate(minor.strokeWidthExpr!.ast as never, { ...props, $zoom: z }))
       // Monotonically non-decreasing as zoom rises.
       for (let i = 1; i < widths.length; i++) {
         expect(widths[i], `${widths.join(' → ')} not monotonic at index ${i}`)
-          .toBeGreaterThanOrEqual(widths[i - 1] as number)
+          .toBeGreaterThanOrEqual(widths[i - 1])
       }
       // At z=20 the road should be visibly thick (last stop = 11.5 in
       // OFM source). Pin the value so a future regression of the

@@ -438,6 +438,13 @@ function lowerLayer(
    *  case/match). Stroke colour zoom-interpolation takes a parallel
    *  path through `strokeColor` (kind: 'zoom-interpolated'). */
   let strokeWidthExpr: import('./render-node').DataExpr | undefined
+  /** Pure zoom-only stroke-width stops — populated when the binding's
+   *  expression is a `interpolate(zoom, …)` / `interpolate_exp(zoom,
+   *  base, …)` with no feature-prop dependency. Routed through
+   *  `stroke.widthZoomStops` so the renderer recomputes width per
+   *  frame from camera zoom (avoids the tile-bake staleness). */
+  let strokeWidthZoomStops: ZoomStop<number>[] | undefined
+  let strokeWidthZoomStopsBase: number | undefined
   let linecap: 'butt' | 'round' | 'square' | 'arrow' | undefined
   let linejoin: 'miter' | 'round' | 'bevel' | undefined
   let miterlimit: number | undefined
@@ -764,15 +771,14 @@ function lowerLayer(
           } else {
             const widthStops = extractInterpolateZoomStops(item.binding)
             if (widthStops) {
-              // Re-emit through the existing widthExpr path so the
-              // worker per-feature evaluator handles it. (A future
-              // optimisation would carry zoom stops as a dedicated
-              // `widthZoomStops` field so the runtime can interp once
-              // per frame instead of per feature; for now widthExpr's
-              // AST contains the interpolate call and the evaluator
-              // re-walks it per feature, which is correct just less
-              // efficient.)
-              strokeWidthExpr = { ast: item.binding }
+              // Pure zoom-only width — hoist as zoom stops on the
+              // stroke value. The renderer recomputes `layer.width_px`
+              // per frame from camera.zoom, so the line widens
+              // continuously as the user zooms (vs. the widthExpr
+              // path which bakes a single width per tile at decode
+              // time and only updates on tile-zoom boundary crosses).
+              strokeWidthZoomStops = widthStops.stops
+              strokeWidthZoomStopsBase = widthStops.base
             } else {
               // Per-feature `case` / `match` expression on width.
               strokeWidthExpr = { ast: item.binding }
@@ -1360,6 +1366,10 @@ function lowerLayer(
         color: strokeColor,
         width: strokeWidth,
         ...(strokeWidthExpr !== undefined ? { widthExpr: strokeWidthExpr } : {}),
+        ...(strokeWidthZoomStops !== undefined ? {
+          widthZoomStops: strokeWidthZoomStops,
+          widthZoomStopsBase: strokeWidthZoomStopsBase,
+        } : {}),
         linecap, linejoin, miterlimit,
         dashArray, dashOffset,
         patterns: validPatterns.length > 0 ? validPatterns : undefined,
