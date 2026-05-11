@@ -66,6 +66,19 @@ export interface RenderNode {
    *  camelCase `sourceLayer`). */
   sourceLayer?: string
   zOrder: number
+  /** Mapbox `layer.minzoom` — layer is hidden below this zoom level.
+   *  Camera zoom is fractional; we apply `camera.zoom >= minzoom`
+   *  (inclusive lower bound, matching Mapbox spec). Without this gate
+   *  every sub-layer of a multi-layer style (label_city minz=3,
+   *  label_state minz=5, all POI shows minz=15+) renders at z=0
+   *  simultaneously, piling every feature into the same viewport. */
+  minzoom?: number
+  /** Mapbox `layer.maxzoom` — layer is hidden at or above this zoom
+   *  level. Camera zoom is fractional; we apply `camera.zoom <
+   *  maxzoom` (exclusive upper bound, matching Mapbox spec).
+   *  Critical for country labels (maxzoom=9) so they don't paint over
+   *  city detail at z=10+ where the city label takes over. */
+  maxzoom?: number
   fill: ColorValue
   stroke: StrokeValue
   opacity: OpacityValue

@@ -579,6 +579,15 @@ export interface ShowCommand {
    *  wrappers. Legacy syntax that lacks a separate layer name reuses
    *  `targetName`. */
   layerName?: string
+  /** Mapbox `layer.minzoom` — layer is hidden when camera.zoom <
+   *  minzoom. Without enforcement every sub-layer of a multi-zoom
+   *  style renders at every zoom level (place city + state + town +
+   *  village + POI all at z=1). The label render path and the
+   *  polygon/line draw loop both consult this. */
+  minzoom?: number
+  /** Mapbox `layer.maxzoom` — layer is hidden when camera.zoom >=
+   *  maxzoom. */
+  maxzoom?: number
   /** Optional MVT layer slice within the source. When set, the
    *  catalog returns only that slice's TileData and the renderer
    *  draws only its geometry. Mapbox-style `source-layer` semantics
