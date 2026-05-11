@@ -261,12 +261,7 @@ const KNOWN_GAPS_OFM_BRIGHT: ReadonlySet<string> = new Set([
 ])
 
 const KNOWN_GAPS_MAPLIBRE_DEMO: ReadonlySet<string> = new Set([
-  // text-field as legacy stops: `{"stops": [[2, "{ABBREV}"], [4, "{NAME}"]]}`.
-  // The converter's textFieldToXgisExpr doesn't recognise the stops
-  // shape and returns null, so the entire symbol layer is SKIPPED.
-  // Follow-up: lift legacy text-field stops to a step() / interpolate
-  // call so the label survives compilation.
-  '[countries-label] no ShowCommand emitted (layer.type=symbol)',
+  // (No outstanding gaps. All previously documented bugs are fixed.)
 ])
 
 function runCoverage(name: string, style: unknown, layers: MapboxLayer[], knownGaps: ReadonlySet<string>): void {
