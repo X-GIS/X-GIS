@@ -147,6 +147,13 @@ export const DEMOS: Record<string, Demo> = {
     source: load('import-mapbox-inline-geojson.xgis'),
   },
 
+  import_maplibre_demo: {
+    name: 'import "maplibre demo style"',
+    tag: 'xgvt',
+    description: 'Splice-imports the official MapLibre demo style (demotiles.maplibre.org/style.json). Vector TileJSON + inline crimea GeoJSON Feature + #D8F2FF background land via convertMapboxStyle; symbol layers are skipped with warnings.',
+    source: load('import-maplibre-demo.xgis'),
+  },
+
   along_path_roads: {
     name: 'Along-path road labels',
     tag: 'xgvt',
