@@ -2217,9 +2217,20 @@ export class XGISMap {
       // measure text subsystem cost vs the rest of the frame.
       const disableLabels = typeof window !== 'undefined'
         && (window as unknown as { __xgisDisableLabels?: boolean }).__xgisDisableLabels === true
+      // Mapbox `layer.minzoom` / `layer.maxzoom`: hide the layer
+      // outside its declared zoom range. Without this gate every
+      // sub-layer of a multi-zoom Mapbox style renders at every
+      // zoom level — at z=1.86 with OFM Bright that means city /
+      // state / town / village / suburb / POI labels all piling
+      // onto the antimeridian view, drowning out the few
+      // country-level labels that should be visible there.
+      const camZ = this.camera.zoom
+      const inZoomRange = (s: ShowCommand): boolean =>
+        (s.minzoom === undefined || camZ >= s.minzoom)
+        && (s.maxzoom === undefined || camZ < s.maxzoom)
       const labelShows = disableLabels
         ? []
-        : this.showCommands.filter(s => s.label !== undefined && s.visible !== false)
+        : this.showCommands.filter(s => s.label !== undefined && s.visible !== false && inZoomRange(s))
       if (!disableLabels && (this.overlays.length > 0 || labelShows.length > 0)) {
         if (this.textStage === null) {
           this.textStage = new TextStage(device, this.ctx.format, {}, sc)

@@ -30,6 +30,10 @@ export interface ShowCommand {
    *  `targetName` (source name) when two layers share a source.
    *  Legacy `show <name> { ... }` syntax mirrors `targetName` here. */
   layerName?: string
+  /** Mapbox `layer.minzoom` / `maxzoom` — gate per-frame visibility
+   *  on the current camera zoom. See RenderNode for the rationale. */
+  minzoom?: number
+  maxzoom?: number
   /** Optional MVT layer slice within the source. When set, the
    *  catalog returns only that slice's TileData and the renderer
    *  draws only its geometry. Mapbox-style `source-layer`
@@ -219,6 +223,8 @@ function emitShow(node: RenderNode): ShowCommand {
     shaderVariant,
     filterExpr: node.filter,
     geometryExpr: node.geometry,
+    minzoom: node.minzoom,
+    maxzoom: node.maxzoom,
     sizeUnit: (node.size.kind === 'constant' || node.size.kind === 'data-driven') ? (node.size.unit ?? null) : null,
     sizeExpr: node.size.kind === 'data-driven' ? node.size.expr : null,
     billboard: node.billboard,

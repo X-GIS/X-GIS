@@ -259,6 +259,8 @@ function lowerLayer(
   let sourceRef = ''
   let sourceLayer: string | undefined
   let zOrder = 0
+  let minzoom: number | undefined
+  let maxzoom: number | undefined
   let styleRef = ''
   let filterExpr: import('../parser/ast').Expr | null = null
   let geometryExpr: import('../parser/ast').Expr | null = null
@@ -320,6 +322,19 @@ function lowerLayer(
       sourceLayer = prop.value.value
     } else if (prop.name === 'z-order' && prop.value.kind === 'NumberLiteral') {
       zOrder = prop.value.value
+    } else if (prop.name === 'minzoom' && prop.value.kind === 'NumberLiteral') {
+      // Mapbox `layer.minzoom` — layer is invisible BELOW this zoom.
+      // Critical for low-zoom views: without enforcement, place
+      // sub-layers (label_city minz=3, label_state minz=5, label_town
+      // minz=6, label_village minz=9, label_other minz=8, all POIs
+      // minz=15+) all render at z=1 simultaneously, piling every
+      // OMT feature on the screen and turning the antimeridian view
+      // into a stack of all-world labels. The runtime gates per-frame
+      // visibility on `(camera.zoom >= minzoom) && (camera.zoom <
+      // maxzoom)` via the show command.
+      minzoom = prop.value.value
+    } else if (prop.name === 'maxzoom' && prop.value.kind === 'NumberLiteral') {
+      maxzoom = prop.value.value
     } else if (prop.name === 'style' && prop.value.kind === 'Identifier') {
       styleRef = prop.value.name
     } else if (prop.name === 'filter') {
@@ -1143,6 +1158,8 @@ function lowerLayer(
     sourceRef,
     sourceLayer,
     zOrder,
+    minzoom,
+    maxzoom,
     fill,
     stroke: (() => {
       const validPatterns = patternSlots.filter((p, i) =>
