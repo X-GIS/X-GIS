@@ -301,6 +301,19 @@ export class TextStage {
         const g = glyphs[gi]!
         const adv = advances[gi]!
         const ls = gi < glyphs.length - 1 ? letterSpacingPx : 0
+        // Explicit U+000A (LF) — Mapbox styles emit `\n` inside
+        // `text-field` to stack bilingual names ("Seoul\n서울"). The
+        // newline glyph has zero advance from Canvas2D, so without
+        // this branch the two names render side-by-side on one line
+        // and the user perceives "both languages drawn at once".
+        // Skip the LF glyph and start a fresh line at gi+1.
+        if (g.codepoint === 0x0a) {
+          lines.push({ start: lineStart, end: gi, width: lineW })
+          lineStart = gi + 1
+          lineW = 0
+          lastSpaceI = -1
+          continue
+        }
         // Track break candidates at U+0020 (space).
         if (g.codepoint === 0x20) {
           lastSpaceI = gi

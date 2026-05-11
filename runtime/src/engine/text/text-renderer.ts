@@ -409,6 +409,10 @@ export class TextRenderer {
 //   f32 _pad0, _pad1       (8 B)
 const UNIFORM_BYTES = 64
 
+export function packUniformsForTesting(d: TextDraw): Float32Array {
+  return packUniforms(d)
+}
+
 function packUniforms(d: TextDraw): Float32Array {
   const buf = new Float32Array(UNIFORM_BYTES / 4)
   // viewport (slots 0,1) — written by draw()
@@ -417,18 +421,30 @@ function packUniforms(d: TextDraw): Float32Array {
   if (d.halo) {
     buf[8] = d.halo.color[0]; buf[9] = d.halo.color[1]
     buf[10] = d.halo.color[2]; buf[11] = d.halo.color[3]
-    // halo_width is in display px; convert to SDF-byte-space threshold.
-    // The SDF packs ±63 byte-units across the rasterisation `sdfRadius`
-    // pixels (see distance-transform.ts). So 1 px halo ≈ 63/sdfRadius
-    // byte-units; divide by 255 for the [0,1] threshold the shader
-    // smoothsteps. sdfRadius is plumbed in by TextStage; legacy callers
-    // who don't set it fall back to 6 (the historical default).
+    // halo_width is authored in DISPLAY px (matching Mapbox text-halo-
+    // width semantics, with DPR baked in by TextStage). The SDF is
+    // rasterised at rasterFontSize and sampled at fontSize, so 1
+    // display px corresponds to `1/scale` SDF px from the glyph edge.
+    // The SDF packs ±63 byte-units across `sdfRadius` SDF px (see
+    // distance-transform.ts), so the byte-space threshold for a halo
+    // that extends `halo.width` DISPLAY px outward is
+    //   (halo.width / scale) * 63 / sdfRadius   [bytes]
+    //   ÷ 255                                    [shader [0,1] range]
+    // Earlier versions dropped the `/scale` and produced a halo that
+    // was `scale` times narrower than authored — barely visible at
+    // Bright's typical text-size 10..14 against rasterFontSize 32
+    // (scale ≈ 0.3..0.45). Halo wider than `sdfRadius * scale` display
+    // px clips to the encoded falloff window; the renderer can't
+    // represent more outward range than the SDF stored.
     const sdfRadius = d.sdfRadius ?? 6
-    const SDF_UNITS_PER_PX = 63 / sdfRadius
-    buf[12] = (d.halo.width * SDF_UNITS_PER_PX) / 255
-    // halo_blur shares the same px → SDF-byte → [0,1] conversion
-    // as halo_width — both measure in the SDF's distance scale.
-    buf[13] = ((d.halo.blur ?? 0) * SDF_UNITS_PER_PX) / 255
+    const scale = d.fontSize / d.rasterFontSize
+    const safeScale = scale > 0 ? scale : 1
+    const SDF_UNITS_PER_SDF_PX = 63 / sdfRadius
+    buf[12] = ((d.halo.width / safeScale) * SDF_UNITS_PER_SDF_PX) / 255
+    // halo_blur shares the same px → SDF-byte → [0,1] conversion as
+    // halo_width — both measure in the SDF's distance scale and both
+    // need the scale correction.
+    buf[13] = (((d.halo.blur ?? 0) / safeScale) * SDF_UNITS_PER_SDF_PX) / 255
   } else {
     buf[8] = 0; buf[9] = 0; buf[10] = 0; buf[11] = 0
     buf[12] = 0
