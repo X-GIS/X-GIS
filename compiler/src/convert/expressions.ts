@@ -235,11 +235,57 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       return `${arr}[${idx}]`
     }
     case 'typeof': {
-      // X-GIS is dynamically typed and doesn't expose a runtime
-      // type tag. Drop with a warning so the user knows their style
-      // had a typeof check that won't fire.
-      warnings.push(`["typeof"] dropped — X-GIS lacks a runtime type accessor.`)
-      return null
+      // Mapbox `["typeof", value]` → xgis `typeof(value)`. The
+      // evaluator returns "string" / "number" / "boolean" / "object" /
+      // "null" matching the Mapbox spec.
+      if (v.length !== 2) return null
+      const inner = exprToXgis(v[1], warnings)
+      return inner !== null ? `typeof(${inner})` : null
+    }
+    case 'slice': {
+      // Mapbox `["slice", input, start]` or `["slice", input, start, end]`.
+      // Routes through xgis `slice(input, start[, end])` builtin.
+      if (v.length < 3 || v.length > 4) return null
+      const parts = v.slice(1).map(a => exprToXgis(a, warnings))
+      if (parts.some(p => p === null)) return null
+      return `slice(${parts.join(', ')})`
+    }
+    case 'index-of': {
+      // Mapbox `["index-of", needle, haystack]` or
+      // `["index-of", needle, haystack, from_index]`.
+      if (v.length < 3 || v.length > 4) return null
+      const parts = v.slice(1).map(a => exprToXgis(a, warnings))
+      if (parts.some(p => p === null)) return null
+      // xgis identifier names can't contain hyphens; route to the
+      // underscore-bridged builtin which the evaluator binds.
+      return `index_of(${parts.join(', ')})`
+    }
+    case 'number-format': {
+      // Mapbox `["number-format", input, { locale?, currency?,
+      // "min-fraction-digits"?, "max-fraction-digits"? }]`. xgis has
+      // no object literal in source syntax, so flatten to a positional
+      // call:  number_format(input, minFrac, maxFrac, locale, currency).
+      // Absent fields lower to `null` literals — the evaluator treats
+      // null as "use spec default" for each slot.
+      if (v.length !== 3) return null
+      const input = exprToXgis(v[1], warnings)
+      if (input === null) return null
+      const opts = v[2]
+      if (!opts || typeof opts !== 'object' || Array.isArray(opts)) {
+        warnings.push(`["number-format"] options arg must be a literal object: ${JSON.stringify(opts).slice(0, 80)}`)
+        return null
+      }
+      const o = opts as Record<string, unknown>
+      const fmtVal = (val: unknown): string => {
+        if (val === undefined || val === null) return 'null'
+        if (typeof val === 'string') return JSON.stringify(val)
+        return String(val)
+      }
+      const minFrac = fmtVal(o['min-fraction-digits'])
+      const maxFrac = fmtVal(o['max-fraction-digits'])
+      const locale = fmtVal(o.locale)
+      const currency = fmtVal(o.currency)
+      return `number_format(${input}, ${minFrac}, ${maxFrac}, ${locale}, ${currency})`
     }
     case 'rgb': case 'rgba': {
       // Mapbox `["rgb", r, g, b]` / `["rgba", r, g, b, a]` — channel
