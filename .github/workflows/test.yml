@@ -1,0 +1,29 @@
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install
+
+      # Build first so the typescript project references (compiler →
+      # runtime → playground/site) emit and tests downstream of compiler
+      # can resolve the published types. Same step as deploy-pages.yml.
+      - run: bun run build
+
+      # vitest is hoisted to the workspace root (node_modules/.bin) by
+      # bun install. The two filesystem args correspond to the two
+      # source roots where tests live; vitest.config.* (if any) is
+      # respected automatically.
+      - run: ./node_modules/.bin/vitest run compiler/src runtime/src
