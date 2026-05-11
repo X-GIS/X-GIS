@@ -143,6 +143,37 @@ function textFieldToXgisExpr(field: unknown, warnings: string[]): string | null 
   if (Array.isArray(field)) {
     return exprToXgis(field, warnings)
   }
+  // Legacy Mapbox v0/v1 zoom-stops shape: `{"stops": [[z, value], …]}`.
+  // The MapLibre demo basemap uses this on `text-field` to switch
+  // between abbreviated and full country names with zoom:
+  //   { "stops": [[2, "{ABBREV}"], [4, "{NAME}"]] }
+  // Lift to xgis `step(zoom, v0, k1, v1, k2, v2, …)` so the runtime
+  // evaluator picks the right value per frame. Each stop's value
+  // recurses through textFieldToXgisExpr so token forms (`"{NAME}"`)
+  // become real FieldAccess returns that the step() resolves to the
+  // actual property value at evaluation time.
+  if (
+    field !== null && typeof field === 'object'
+    && Array.isArray((field as { stops?: unknown }).stops)
+  ) {
+    const stops = (field as { stops: unknown[] }).stops
+    if (stops.length < 1) return null
+    // First stop's value is the default (returned for zoom < k1).
+    const first = stops[0]
+    if (!Array.isArray(first) || first.length < 2) return null
+    const defaultVal = textFieldToXgisExpr(first[1], warnings)
+    if (defaultVal === null) return null
+    if (stops.length === 1) return defaultVal
+    const parts: string[] = [defaultVal]
+    for (let i = 1; i < stops.length; i++) {
+      const s = stops[i]
+      if (!Array.isArray(s) || s.length < 2 || typeof s[0] !== 'number') return null
+      const v = textFieldToXgisExpr(s[1], warnings)
+      if (v === null) return null
+      parts.push(String(s[0]), v)
+    }
+    return `step(zoom, ${parts.join(', ')})`
+  }
   return null
 }
 
