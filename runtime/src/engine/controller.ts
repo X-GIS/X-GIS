@@ -355,8 +355,24 @@ export class PanZoomController implements Controller {
         const remaining = activePointers.values().next().value!
         lastX = remaining.x
         lastY = remaining.y
+        lastMoveTime = performance.now()
         lastPinchDist = 0
         panVelX = 0; panVelY = 0
+        // Re-capture the world anchor under the remaining finger.
+        // Without this, dragAnchor is whatever was captured at the
+        // original 1-finger drag start (before pinch), so the next
+        // pointermove asks panToScreenAnchor to place that stale
+        // world point under the lifted-to position — a visible jump
+        // to the remaining finger's location.
+        const dprUp = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 8) : 1
+        const rUp = canvas.getBoundingClientRect()
+        const relUp = camera.unprojectToZ0(
+          (remaining.x - rUp.left) * dprUp, (remaining.y - rUp.top) * dprUp,
+          canvas.width, canvas.height, dprUp,
+        )
+        dragAnchor = relUp
+          ? [camera.centerX + relUp[0], camera.centerY + relUp[1]]
+          : null
       }
     }
 
