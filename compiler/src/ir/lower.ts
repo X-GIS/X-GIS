@@ -172,6 +172,30 @@ export interface ZoomStopsWithBase<T> {
   stops: Array<{ zoom: number; value: T }>
 }
 
+/** When the binding is `match(.field) { "k" -> #color, …, _ -> #color }`,
+ *  pull the default arm's colour out as a hex string. Used by the
+ *  `name === 'fill'` arm to provide a constant fallback when the
+ *  full per-feature data-driven path isn't yet wired through to the
+ *  fill renderer. The converter lowers Mapbox `["match", input, k,
+ *  v, …, default]` into this shape via `expressions.ts:111`. */
+function extractMatchDefaultColor(expr: AST.Expr): string | null {
+  if (expr.kind !== 'FnCall') return null
+  if (expr.callee.kind !== 'Identifier' || expr.callee.name !== 'match') return null
+  const matchBlock = expr.matchBlock
+  if (!matchBlock) return null
+  for (const arm of matchBlock.arms) {
+    if (arm.pattern === '_') {
+      if (arm.value.kind === 'ColorLiteral') return arm.value.value
+      // The converter sometimes wraps the default in resolveColor at
+      // emit time; we accept hex-shaped string literals too.
+      if (arm.value.kind === 'StringLiteral' && /^#/.test(arm.value.value)) {
+        return arm.value.value
+      }
+    }
+  }
+  return null
+}
+
 function extractInterpolateZoomStops(
   expr: AST.Expr,
 ): ZoomStopsWithBase<number> | null {
@@ -679,6 +703,21 @@ function lowerLayer(
               fill = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
               continue
             }
+          }
+          // Per-feature `match(.field) { …, _ -> #color }` (Mapbox
+          // `["match", ["get", "X"], …, default]`). Extract the
+          // default arm as a constant fallback fill so the polygon
+          // renders SOMETHING — without this, every country in the
+          // MapLibre demo's `countries-fill` rendered as no-fill.
+          // Per-feature distinct colours (the country-by-country
+          // palette) await a `fillExpr` plumbing PR that threads the
+          // full AST through ShowCommand for the worker to evaluate
+          // per feature, mirroring the existing strokeColorExpr path.
+          const defaultHex = extractMatchDefaultColor(item.binding)
+          if (defaultHex) {
+            const rgba = hexToRgba(defaultHex)
+            fill = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
+            continue
           }
           fill = { kind: 'data-driven', expr: { ast: item.binding } }
         } else if (name === 'stroke') {
