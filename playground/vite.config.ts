@@ -34,6 +34,7 @@ export default defineConfig({
       input: {
         main: 'index.html',
         demo: 'demo.html',
+        compare: 'compare.html',
       },
     },
   },

@@ -33,6 +33,7 @@ playground/test-results/
 playground/playwright-report/
 playground/.playwright/
 /test-results/
+playground/e2e/__style-parity-diff__/
 
 # Profiling + perf-debug dumps (ad-hoc, not source-controlled)
 *.cpuprofile
