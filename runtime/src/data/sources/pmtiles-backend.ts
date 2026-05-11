@@ -669,7 +669,12 @@ export class PMTilesBackend implements TileSource {
           const layerFeatures = byLayer.get(desc.sourceLayer)
           if (!layerFeatures || layerFeatures.length === 0) continue
           const subset = desc.filterAst
-            ? layerFeatures.filter(f => evalFilterExpr(desc.filterAst, f.properties ?? {}))
+            ? layerFeatures.filter(f => evalFilterExpr(
+                desc.filterAst,
+                f.geometry
+                  ? { ...(f.properties ?? {}), $geometryType: f.geometry.type }
+                  : f.properties ?? {},
+              ))
             : layerFeatures
           emitSlice(desc.sliceKey, desc.sourceLayer, subset)
         }
