@@ -490,6 +490,21 @@ export class XGISMap {
     return this.projectionName
   }
 
+  /** Attach a per-label debug hook for the text stage. The hook fires
+   *  once per addLabel / addCurvedLineLabel submission (BEFORE
+   *  collision) and receives the final text + screen-pixel anchor.
+   *  The playground wires this up when the URL hash contains
+   *  `labels-debug` to render a DOM overlay — useful on mobile where
+   *  console scripting isn't available. The hook can be cleared by
+   *  passing `undefined`. Lazy-binds: if the text stage isn't built
+   *  yet (no label show has been processed), the hook is captured
+   *  here and attached when the stage is constructed. */
+  setLabelDebugHook(hook: ((text: string, ax: number, ay: number, kind: 'point' | 'curve') => void) | undefined): void {
+    this._pendingLabelDebugHook = hook
+    this.textStage?.setLabelDebugHook(hook)
+  }
+  private _pendingLabelDebugHook?: ((text: string, ax: number, ay: number, kind: 'point' | 'curve') => void) | undefined
+
   private switchController(): void {
     this.controller?.detach()
     // Always PanZoom — panning moves camera = projection center moves
@@ -2209,6 +2224,13 @@ export class XGISMap {
         if (this.textStage === null) {
           this.textStage = new TextStage(device, this.ctx.format, {}, sc)
           this.textStage.prewarmGISDefaults()
+          // Attach any debug hook that was set before the stage existed.
+          // The hook is null/undefined-safe on the stage side, so the
+          // common no-debug path stays a single null-check inside
+          // addLabel.
+          if (this._pendingLabelDebugHook !== undefined) {
+            this.textStage.setLabelDebugHook(this._pendingLabelDebugHook)
+          }
         }
         const stage = this.textStage
         // Anchors are projected against canvas.width/height (physical
