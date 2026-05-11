@@ -113,6 +113,7 @@ const LAYOUT_FILL_LINE: readonly CoverageEntry[] = [
   { name: 'line-round-limit', status: 'unsupported', impact: 'low' },
   { name: 'fill-sort-key',    status: 'unsupported', impact: 'low' },
   { name: 'line-sort-key',    status: 'unsupported', impact: 'low' },
+  { name: 'circle-sort-key',  status: 'unsupported', impact: 'low', note: 'Per-feature draw-order key for circle layers; current renderer ignores it.' },
 ]
 
 const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
@@ -120,8 +121,7 @@ const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'symbol-spacing',       status: 'supported', note: 'Defaults to 250 px when missing on line placement.', source: 'layers.ts:471' },
   { name: 'symbol-avoid-edges',   status: 'unsupported', impact: 'low' },
   { name: 'symbol-sort-key',      status: 'unsupported', impact: 'medium', note: 'Layer draw order is style order; per-feature override not honoured.' },
-  { name: 'symbol-z-order',       status: 'unsupported', impact: 'low' },
-  { name: 'text-field',           status: 'supported', note: 'String / {token} / expression — colon-bearing locale keys route via `get("name:xx")`.', source: 'layers.ts:123' },
+  { name: 'symbol-z-order',       status: 'unsupported', impact: 'low' },  { name: 'text-field',           status: 'supported', note: 'String / {token} / expression — colon-bearing locale keys route via `get("name:xx")`.', source: 'layers.ts:123' },
   { name: 'text-font',            status: 'supported', note: 'Family extracted, weight + italic stripped into `label-font-weight-N` / `label-italic`.', source: 'layers.ts:417' },
   { name: 'text-size',            status: 'supported', note: 'Constant + interpolate-by-zoom + per-feature expression (sizeExpr).', source: 'layers.ts:231' },
   { name: 'text-max-width',       status: 'supported', note: 'Default 10 ems for non-line placement (Mapbox parity).', source: 'layers.ts:385' },
@@ -138,6 +138,7 @@ const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'text-transform',       status: 'supported', note: 'uppercase / lowercase / none literals.' },
   { name: 'text-allow-overlap',   status: 'supported' },
   { name: 'text-ignore-placement',status: 'supported' },
+  { name: 'text-overlap',         status: 'unsupported', impact: 'medium', note: 'MapLibre overlap-policy enum (never / always / cooperative); supersedes text-allow-overlap. Converter still routes text-allow-overlap; text-overlap is dropped.' },
   { name: 'text-optional',        status: 'unsupported', impact: 'low', note: 'Icons not implemented — moot.' },
   { name: 'text-rotation-alignment', status: 'supported', note: 'Literal map / viewport / auto. Honoured at runtime.', source: 'map.ts:2369' },
   { name: 'text-pitch-alignment', status: 'partial', impact: 'medium', note: 'Converter emits, runtime ignores — labels never project onto ground plane.', source: 'map.ts:2461' },
@@ -150,10 +151,13 @@ const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'icon-anchor',          status: 'unsupported', impact: 'medium' },
   { name: 'icon-offset',          status: 'unsupported', impact: 'medium' },
   { name: 'icon-allow-overlap',   status: 'unsupported', impact: 'medium' },
+  { name: 'icon-overlap',         status: 'unsupported', impact: 'medium', note: 'MapLibre overlap-policy enum; supersedes icon-allow-overlap. Same icon-pipeline gap.' },
+  { name: 'icon-ignore-placement',status: 'unsupported', impact: 'medium', note: 'Icons not implemented — collision-system flag would have no effect.' },
   { name: 'icon-optional',        status: 'unsupported', impact: 'low' },
   { name: 'icon-rotation-alignment', status: 'unsupported', impact: 'medium' },
   { name: 'icon-padding',         status: 'unsupported', impact: 'low' },
   { name: 'icon-text-fit',        status: 'unsupported', impact: 'medium', note: 'Shield/badge backgrounds depend on this.' },
+  { name: 'icon-text-fit-padding',status: 'unsupported', impact: 'low', note: 'Padding when icon-text-fit fits glyph bbox; dependent on icon-text-fit.' },
   { name: 'icon-keep-upright',    status: 'unsupported', impact: 'low' },
   { name: 'icon-pitch-alignment', status: 'unsupported', impact: 'low' },
 ]
@@ -177,13 +181,14 @@ const PAINT_FILL: readonly CoverageEntry[] = [
 
 const PAINT_LINE: readonly CoverageEntry[] = [
   { name: 'line-color',     status: 'supported', source: 'paint.ts:102' },
-  { name: 'line-width',     status: 'partial', impact: 'high', note: 'exponential `base` dropped — interpolation folded to linear. 65 layers in OFM Bright use base ≠ 1.', source: 'paint.ts:113' },
+  { name: 'line-width',     status: 'supported', note: 'Constant + interpolate-by-zoom (linear AND exponential base) + per-feature width. PR #104 added per-frame zoom-stops; PR #108 conformance test pins differential parity with MapLibre createExpression() at z=4..20 (incl. fractional zooms).', source: 'paint.ts:113' },
   { name: 'line-opacity',   status: 'supported', source: 'paint.ts:133' },
   { name: 'line-dasharray', status: 'partial', impact: 'medium', note: 'Constant numeric array only — interpolate-by-zoom dasharray not lowered.', source: 'paint.ts:126' },
   { name: 'line-blur',      status: 'supported', note: 'Edge feathering in CSS px. The line shader uses `aa_width_px` to widen both the geometry quad and the smoothstep range so the edge soft-fades over `1.5 + blur` px each side. Constant only — interpolate-by-zoom warns and drops.', source: 'paint.ts:190' },
   { name: 'line-gap-width', status: 'unsupported', impact: 'medium', note: 'Used for road casings.' },
   { name: 'line-offset',    status: 'supported', note: 'Positive Mapbox values (right of travel) → `stroke-offset-right-N`; negative → `stroke-offset-left-N`. The xgis line renderer threads `strokeOffset` through to the vertex shader including offset-aware miter / join geometry. Constant only — interpolate-by-zoom warns and drops.', source: 'paint.ts:175' },
   { name: 'line-translate', status: 'unsupported', impact: 'low' },
+  { name: 'line-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport / map coordinate space for line-translate; dependent on line-translate.' },
   { name: 'line-pattern',   status: 'unsupported', impact: 'medium' },
   { name: 'line-gradient',  status: 'unsupported', impact: 'low' },
 ]
@@ -202,6 +207,7 @@ const PAINT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'icon-halo-width',  status: 'unsupported', impact: 'medium' },
   { name: 'icon-halo-blur',   status: 'unsupported', impact: 'low' },
   { name: 'icon-translate',   status: 'unsupported', impact: 'low' },
+  { name: 'icon-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport / map coordinate space for icon-translate; dependent on icon pipeline (Batch 2).' },
 ]
 
 const PAINT_CIRCLE: readonly CoverageEntry[] = [
@@ -224,6 +230,7 @@ const PAINT_FILL_EXTRUSION: readonly CoverageEntry[] = [
   { name: 'fill-extrusion-height',  status: 'supported', note: 'Constant + interpolate-by-zoom + per-feature expression.', source: 'paint.ts:154' },
   { name: 'fill-extrusion-base',    status: 'supported', source: 'paint.ts:165' },
   { name: 'fill-extrusion-translate', status: 'unsupported', impact: 'low' },
+  { name: 'fill-extrusion-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport / map space for fill-extrusion-translate; dependent on translate.' },
   { name: 'fill-extrusion-pattern',   status: 'unsupported', impact: 'medium' },
   { name: 'fill-extrusion-vertical-gradient', status: 'unsupported', impact: 'low' },
   { name: 'fill-extrusion-ambient-occlusion-intensity', status: 'unsupported', impact: 'low' },
@@ -239,6 +246,27 @@ const PAINT_RASTER: readonly CoverageEntry[] = [
   { name: 'raster-contrast',        status: 'unsupported', impact: 'low' },
   { name: 'raster-fade-duration',   status: 'unsupported', impact: 'low' },
   { name: 'raster-resampling',      status: 'unsupported', impact: 'low' },
+  { name: 'resampling',             status: 'unsupported', impact: 'low', note: 'MapLibre v3 alias for raster-resampling — same semantic.' },
+]
+
+const PAINT_HEATMAP: readonly CoverageEntry[] = [
+  { name: 'heatmap-radius',    status: 'unsupported', impact: 'medium', note: 'Heatmap layer renderer not implemented — radius (px) defines per-feature Gaussian footprint.' },
+  { name: 'heatmap-weight',    status: 'unsupported', impact: 'medium', note: 'Per-feature contribution multiplier; no renderer.' },
+  { name: 'heatmap-intensity', status: 'unsupported', impact: 'medium', note: 'Overall density scale (per-zoom interpolated); no renderer.' },
+  { name: 'heatmap-color',     status: 'unsupported', impact: 'medium', note: 'Density → colour ramp (interpolate over `heatmap-density`); no renderer.' },
+  { name: 'heatmap-opacity',   status: 'unsupported', impact: 'medium', note: 'Layer-level opacity; no renderer.' },
+]
+
+const PAINT_HILLSHADE: readonly CoverageEntry[] = [
+  { name: 'hillshade-illumination-direction', status: 'unsupported', impact: 'medium', note: 'Hillshade renderer not implemented (raster-dem source registered but unused). Direction in degrees from N clockwise.' },
+  { name: 'hillshade-illumination-altitude',  status: 'unsupported', impact: 'medium', note: 'Light elevation angle (0–90°); no renderer.' },
+  { name: 'hillshade-illumination-anchor',    status: 'unsupported', impact: 'low', note: 'map / viewport — whether the sun follows bearing; no renderer.' },
+  { name: 'hillshade-exaggeration',           status: 'unsupported', impact: 'medium', note: 'Vertical-relief multiplier; no renderer.' },
+  { name: 'hillshade-shadow-color',           status: 'unsupported', impact: 'medium' },
+  { name: 'hillshade-highlight-color',        status: 'unsupported', impact: 'medium' },
+  { name: 'hillshade-accent-color',           status: 'unsupported', impact: 'low' },
+  { name: 'hillshade-method',                 status: 'unsupported', impact: 'low', note: 'basic / combined / igor / multidirectional — different DEM gradient algorithms.' },
+  { name: 'resampling',                       status: 'unsupported', impact: 'low', note: 'bilinear / nearest sampling of the DEM raster; depends on hillshade renderer.' },
 ]
 
 // ─── 6. Expression operators ──────────────────────────────────────────
@@ -390,6 +418,18 @@ export const MAPBOX_COVERAGE: readonly CoverageSection[] = [
     id: 'paint-raster',
     title: 'Paint — raster',
     entries: PAINT_RASTER,
+  },
+  {
+    id: 'paint-heatmap',
+    title: 'Paint — heatmap',
+    description: 'Heatmap layer renderer is not implemented; every property here is unsupported pending a roadmap entry.',
+    entries: PAINT_HEATMAP,
+  },
+  {
+    id: 'paint-hillshade',
+    title: 'Paint — hillshade',
+    description: 'Hillshade layer renderer is not implemented; raster-dem source is recognised but produces no output.',
+    entries: PAINT_HILLSHADE,
   },
   {
     id: 'expressions',
