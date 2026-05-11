@@ -162,6 +162,12 @@ function isMergeableNode(n: RenderNode): boolean {
   if (n.geometry !== null) return false
   if (n.animationMeta !== undefined) return false
   if (n.shape.kind !== 'none') return false  // points handled separately
+  // The merge synthesises a per-feature `match(.class) { v -> N, … }`
+  // AST baked into the segment buffer's width-override slot. Nodes
+  // whose width is already zoom-stops / per-feature carry their own
+  // mechanism — letting the merger collapse them to a constant would
+  // discard that information. Skip them so they render unmerged.
+  if (n.stroke.width.kind !== 'constant') return false
   return true
 }
 
@@ -435,9 +441,15 @@ export function mergeLayers(scene: Scene): Scene {
     const seenStrokeValues = new Set<string>()
     const seenWidthValues = new Set<string>()
     let widthsAllEqual = true
-    const firstWidth = group[0].node.stroke.width
+    // isMergeableNode guarantees every group member has a constant
+    // width — the `.kind === 'constant'` narrowing is exhaustive here.
+    const firstWidthSrc = group[0].node.stroke.width
+    if (firstWidthSrc.kind !== 'constant') throw new Error('merge: non-constant width slipped past isMergeableNode')
+    const firstWidth = firstWidthSrc.px
     for (const { node, filter } of group) {
-      if (node.stroke.width !== firstWidth) widthsAllEqual = false
+      const w = node.stroke.width
+      if (w.kind !== 'constant') throw new Error('merge: non-constant width slipped past isMergeableNode')
+      if (w.px !== firstWidth) widthsAllEqual = false
       const fillRgba = node.fill.kind === 'constant' ? node.fill.rgba : null
       const strokeRgba = node.stroke.color.kind === 'constant' ? node.stroke.color.rgba : null
       for (const v of filter.values) {
@@ -452,7 +464,9 @@ export function mergeLayers(scene: Scene): Scene {
           strokeNeeded = true
         }
         if (!seenWidthValues.has(v)) {
-          widthArms.push({ pattern: v, width: node.stroke.width })
+          // node.stroke.width is guaranteed constant by isMergeableNode.
+          const nw = node.stroke.width
+          widthArms.push({ pattern: v, width: nw.kind === 'constant' ? nw.px : 0 })
           seenWidthValues.add(v)
         }
       }
@@ -483,7 +497,12 @@ export function mergeLayers(scene: Scene): Scene {
     const defaultStrokeRgba = defaultArmNode?.stroke.color.kind === 'constant'
       ? defaultArmNode.stroke.color.rgba
       : null
-    const defaultWidth = defaultArmNode?.stroke.width
+    // Default-arm node is only absorbed when it passes strokesShapeEqual
+    // with the group's first member, so its width is also constant —
+    // but defensively narrow before reading the number.
+    const defaultWidth = defaultArmNode?.stroke.width.kind === 'constant'
+      ? defaultArmNode.stroke.width.px
+      : undefined
 
     const compoundFill: ColorValue = fillNeeded || defaultFillRgba
       ? {
@@ -534,15 +553,18 @@ export function mergeLayers(scene: Scene): Scene {
       stroke: {
         ...first.stroke,
         color: compoundStrokeColor,
-        widthExpr: !widthBakeNeeded
-          ? undefined
+        width: !widthBakeNeeded
+          ? { kind: 'constant', px: firstWidth }
           : {
-              ast: buildWidthMatchAst(
-                firstFilter.field,
-                widthArms,
-                defaultWidth ?? null,
-              ),
-            } as DataExpr,
+              kind: 'per-feature',
+              expr: {
+                ast: buildWidthMatchAst(
+                  firstFilter.field,
+                  widthArms,
+                  defaultWidth ?? null,
+                ),
+              } as DataExpr,
+            },
         colorExpr: compoundStrokeColorExpr,
       },
       // When a default arm absorbed: drop the filter so all

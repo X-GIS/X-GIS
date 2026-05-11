@@ -195,7 +195,7 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
     `
     const scene = compileToScene(source)
     expect(scene.renderNodes.length).toBe(1)
-    expect(scene.renderNodes[0].stroke.widthExpr).toBeDefined()
+    expect(scene.renderNodes[0].stroke.width.kind).toBe('per-feature')
     expect(scene.renderNodes[0].stroke.colorExpr).toBeDefined()
   })
 
@@ -309,7 +309,7 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
     expect(compound.filter).toBeNull()
     // Width baked because landuse_other's stroke-0.2 differs from
     // the group's stroke-0.3.
-    expect(compound.stroke.widthExpr).toBeDefined()
+    expect(compound.stroke.width.kind).toBe('per-feature')
   })
 
   it('does NOT absorb when != value set differs from || values', () => {
@@ -386,11 +386,11 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
     expect(scene.renderNodes.length).toBe(3)
     const roadsCompounds = scene.renderNodes.filter(n => n.sourceLayer === 'roads')
     expect(roadsCompounds.length).toBe(2)
-    // Both should have synthesized colorExpr + widthExpr — group
-    // members have different stroke colours AND widths.
+    // Both should have synthesized colorExpr + per-feature width —
+    // group members have different stroke colours AND widths.
     for (const r of roadsCompounds) {
       expect(r.stroke.colorExpr).toBeDefined()
-      expect(r.stroke.widthExpr).toBeDefined()
+      expect(r.stroke.width.kind).toBe('per-feature')
     }
   })
 
