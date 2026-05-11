@@ -20,6 +20,7 @@ import {
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
 import { isTileTemplate } from '../data/tile-select'
+import { computeSliceKey } from '../data/eval/filter-eval'
 import { RasterRenderer } from './render/raster-renderer'
 import { PointRenderer } from './render/point-renderer'
 import { ShapeRegistry } from './text/sdf-shape'
@@ -2395,6 +2396,19 @@ export class XGISMap {
               (mx / R) / DEG2RAD,
               (2 * Math.atan(Math.exp(my / R)) - Math.PI / 2) / DEG2RAD,
             ]
+            // The MVT worker buckets features per (sourceLayer, filter)
+            // and stores each subset under its sliceKey — so a layer
+            // with a `filter:` produces e.g. `place::abc123` instead of
+            // bare `place`. Without using sliceKey here every filtered
+            // label show (label_country_*, label_city, label_town, …
+            // for the Bright basemap — every place / poi label that
+            // isn't a single unfiltered show) silently iterated zero
+            // tiles. Unfiltered shows still work because computeSliceKey
+            // collapses the no-filter case to the bare sourceLayer.
+            const sliceKey = computeSliceKey(
+              show.sourceLayer ?? '',
+              show.filterExpr?.ast as Parameters<typeof computeSliceKey>[1],
+            )
             // Along-path placement: walk lineVertices instead of
             // pointVertices, project both segment endpoints, anchor
             // at the screen-space midpoint, rotate by the screen-
@@ -2458,7 +2472,7 @@ export class XGISMap {
                 // (text-rotation-alignment: viewport) keep the simple
                 // single-rotation `emitLabelAlongSegment` path so the
                 // glyphs stay in a horizontal row.
-                vtEntry.renderer.forEachLineLabelPolyline(show.sourceLayer, (mxs, mys, props) => {
+                vtEntry.renderer.forEachLineLabelPolyline(sliceKey, (mxs, mys, props) => {
                   if (mxs.length < 2) return
                   // Project every vertex to physical-pixel screen
                   // space; pack into typed arrays for the curved-text
@@ -2540,7 +2554,7 @@ export class XGISMap {
                 // Single-label-per-feature fallback (line-center, or
                 // line-placement with spacing=0). Uses the longest
                 // segment chosen by forEachLineLabelFeature.
-                vtEntry.renderer.forEachLineLabelFeature(show.sourceLayer, (ax, ay, bx, by, props) => {
+                vtEntry.renderer.forEachLineLabelFeature(sliceKey, (ax, ay, bx, by, props) => {
                   const [aLon, aLat] = mercToLonLat(ax, ay)
                   const [bLon, bLat] = mercToLonLat(bx, by)
                   const pa = projectLonLat(aLon, aLat)
@@ -2550,7 +2564,7 @@ export class XGISMap {
                 })
               }
             } else {
-              vtEntry.renderer.forEachLabelFeature(show.sourceLayer, (mercX, mercY, props) => {
+              vtEntry.renderer.forEachLabelFeature(sliceKey, (mercX, mercY, props) => {
                 const [lon, lat] = mercToLonLat(mercX, mercY)
                 const projected = projectLonLat(lon, lat)
                 if (!projected) return
