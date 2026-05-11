@@ -444,9 +444,14 @@ function installLabelDebugOverlay(map: XGISMap): void {
       if (overlay.childElementCount > 0) overlay.replaceChildren()
       return
     }
-    // Cluster by 5-CSS-px proximity so stacked submissions at the
-    // same anchor collapse into one marker showing their count.
-    interface Group { ax: number; ay: number; texts: Set<string>; count: number; kind: 'point' | 'curve' }
+    // Cluster by 5-CSS-px proximity AND DEDUPE by text within the
+    // window. Without text-dedup the count counts FRAME re-submissions
+    // (each frame at ~60 fps re-submits every label), so a static
+    // single-feature anchor reads as "60× per second" instead of "1
+    // unique feature". The user-visible signal is the count of
+    // DISTINCT features piling at an anchor — that's what
+    // unique-text gives us.
+    interface Group { ax: number; ay: number; texts: Set<string>; uniqueSubmits: number; kind: 'point' | 'curve' }
     const groups = new Map<string, Group>()
     for (const l of recent) {
       const cssX = l.ax / dpr
@@ -454,11 +459,15 @@ function installLabelDebugOverlay(map: XGISMap): void {
       const k = `${l.kind}|${Math.round(cssX / 5) * 5},${Math.round(cssY / 5) * 5}`
       let g = groups.get(k)
       if (!g) {
-        g = { ax: cssX, ay: cssY, texts: new Set<string>(), count: 0, kind: l.kind }
+        g = { ax: cssX, ay: cssY, texts: new Set<string>(), uniqueSubmits: 0, kind: l.kind }
         groups.set(k, g)
       }
+      // Dedupe identical (anchor, text) within the window — that's
+      // the per-frame re-submission. Distinct texts at the same anchor
+      // still count separately (= multiple features overlapping).
+      const before = g.texts.size
       g.texts.add(l.text)
-      g.count++
+      if (g.texts.size > before) g.uniqueSubmits++
     }
     overlay.replaceChildren()
     for (const g of groups.values()) {
@@ -482,7 +491,10 @@ function installLabelDebugOverlay(map: XGISMap): void {
         + `color:${color};border:1px solid ${color};`
         + 'padding:2px 4px;border-radius:3px;'
         + 'white-space:pre;max-width:240px;overflow:hidden;'
-      box.textContent = `${g.count}× ${headline}`
+      // Show DISTINCT-feature count, not raw submission count. Distinct
+      // texts at the same anchor → genuine multi-feature pile-up;
+      // single-feature anchors read 1× regardless of frame rate.
+      box.textContent = `${g.uniqueSubmits}× ${headline}`
       overlay.appendChild(box)
     }
     recent.length = 0
