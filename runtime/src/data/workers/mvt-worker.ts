@@ -64,13 +64,22 @@ function extractFeatureHeights(
 function extractFeatureWidths(
   features: GeoJSONFeature[],
   expr: unknown,
+  tileZoom: number,
 ): Map<number, number> {
   const out = new Map<number, number>()
   if (!expr) return out
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
-    const v = evaluate(expr as never, props as Record<string, unknown>)
+    // Inject `zoom` so Mapbox `paint.line-width: ["interpolate", …,
+    // ["zoom"], …]` expressions (which the converter lowers as
+    // `interpolate_exp(zoom, …)`) resolve to a per-tile width. Tile
+    // zoom is a close-enough proxy for camera zoom — the user has to
+    // be panning at the exact tile-zoom boundary for the difference
+    // to be visible, and per-feature widths bake at tile-decode time
+    // so we couldn't track camera zoom changes anyway without
+    // re-uploading the segment buffer every frame.
+    const v = evaluate(expr as never, { ...(props as Record<string, unknown>), zoom: tileZoom })
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
@@ -287,7 +296,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       // because the compound layer's match() targets a specific
       // compound, not a raw source layer (multiple compounds can
       // share one source).
-      const widths = extractFeatureWidths(sourceFeatures, msg.strokeWidthExprs?.[sliceKey])
+      const widths = extractFeatureWidths(sourceFeatures, msg.strokeWidthExprs?.[sliceKey], msg.z)
       const colors = extractFeatureColors(sourceFeatures, msg.strokeColorExprs?.[sliceKey])
       let prebuiltOutlineSegments: ArrayBuffer | undefined
       let prebuiltLineSegments: ArrayBuffer | undefined
