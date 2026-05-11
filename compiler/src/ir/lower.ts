@@ -164,26 +164,49 @@ function bindingAsConstantNumber(binding: AST.Expr): number | null {
   return null
 }
 
+/** Result of pulling stops out of an `interpolate(...)` /
+ *  `interpolate_exp(...)` binding. `base === 1` indicates the linear
+ *  branch (i.e. `interpolate(zoom, …)` with no explicit curve). */
+export interface ZoomStopsWithBase<T> {
+  base: number
+  stops: Array<{ zoom: number; value: T }>
+}
+
 function extractInterpolateZoomStops(
   expr: AST.Expr,
-): Array<{ zoom: number; value: number }> | null {
+): ZoomStopsWithBase<number> | null {
   if (expr.kind !== 'FnCall') return null
-  if (expr.callee.kind !== 'Identifier' || expr.callee.name !== 'interpolate') return null
+  if (expr.callee.kind !== 'Identifier') return null
+  const calleeName = expr.callee.name
+  const isExp = calleeName === 'interpolate_exp'
+  if (!isExp && calleeName !== 'interpolate') return null
   const args = expr.args
-  // First arg must be the bare `zoom` identifier.
   if (args.length < 3) return null
-  const input = args[0]
+  // Exponential carries a leading `base` argument before the zoom keyword:
+  //   interpolate_exp(zoom, BASE, z1, v1, z2, v2, …)
+  // Linear:
+  //   interpolate(zoom, z1, v1, z2, v2, …)
+  // So peel the base first when exponential, then the rest is identical.
+  let cursor = 0
+  const input = args[cursor++]
   if (input.kind !== 'Identifier' || input.name !== 'zoom') return null
+  let base = 1
+  if (isExp) {
+    const baseArg = args[cursor++]
+    if (baseArg === undefined || baseArg.kind !== 'NumberLiteral') return null
+    base = baseArg.value
+  }
   // Remaining args must alternate (numeric zoom, numeric value).
-  if ((args.length - 1) % 2 !== 0) return null
+  const remaining = args.length - cursor
+  if (remaining < 4 || remaining % 2 !== 0) return null
   const stops: Array<{ zoom: number; value: number }> = []
-  for (let i = 1; i + 1 < args.length; i += 2) {
+  for (let i = cursor; i + 1 < args.length; i += 2) {
     const zArg = args[i]
     const vArg = args[i + 1]
     if (zArg.kind !== 'NumberLiteral' || vArg.kind !== 'NumberLiteral') return null
     stops.push({ zoom: zArg.value, value: vArg.value })
   }
-  return stops.length >= 2 ? stops : null
+  return stops.length >= 2 ? { base, stops } : null
 }
 
 /** Pull the full set of `(zoom, color)` stops from an `interpolate(
@@ -273,12 +296,17 @@ function lowerLayer(
   let label: import('./render-node').LabelDef | undefined
   let labelSize: number | undefined
   const labelSizeZoomStops: ZoomStop<number>[] = []
+  // Mapbox `["interpolate", ["exponential", N], ["zoom"], …]` base
+  // for the size curve. 1 (default) → linear; > 1 → faster growth
+  // near the upper zoom stop, the OFM Bright road-width convention.
+  let labelSizeZoomStopsBase: number | undefined
   let labelColor: [number, number, number, number] | undefined
   const labelColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
   let labelColorExpr: import('./render-node').DataExpr | undefined
   let labelSizeExpr: import('./render-node').DataExpr | undefined
   let labelHaloWidth: number | undefined
   const labelHaloWidthZoomStops: ZoomStop<number>[] = []
+  let labelHaloWidthZoomStopsBase: number | undefined
   let labelHaloColor: [number, number, number, number] | undefined
   const labelHaloColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
   let labelHaloBlur: number | undefined
@@ -478,6 +506,12 @@ function lowerLayer(
   const fillBranches: ConditionalBranch<ColorValue>[] = []
   const opacityZoomStops: ZoomStop<number>[] = []
   const sizeZoomStops: ZoomStop<number>[] = []
+  // Mapbox `["interpolate", ["exponential", N], …]` base — preserved
+  // here so the runtime applies the same accelerated curve Mapbox
+  // does. 1 (the default) is mathematically linear; OFM Bright's
+  // 65 road-width interpolations sit between 1.3 and 1.5.
+  let opacityZoomStopsBase: number | undefined
+  let sizeZoomStopsBase: number | undefined
 
   // Animation metadata. Collected from top-level utilities like
   // `animation-pulse duration-1500 ease-in-out infinite delay-200` on the
@@ -546,20 +580,23 @@ function lowerLayer(
       if (item.binding) {
         const zoomStops = extractInterpolateZoomStops(item.binding)
         if (zoomStops && name === 'opacity') {
-          for (const s of zoomStops) {
+          for (const s of zoomStops.stops) {
             opacityZoomStops.push({
               zoom: s.zoom,
               value: s.value <= 1 ? s.value : s.value / 100,
             })
           }
+          if (zoomStops.base !== 1) opacityZoomStopsBase = zoomStops.base
           continue
         }
         if (zoomStops && name === 'size') {
-          for (const s of zoomStops) sizeZoomStops.push({ zoom: s.zoom, value: s.value })
+          for (const s of zoomStops.stops) sizeZoomStops.push({ zoom: s.zoom, value: s.value })
+          if (zoomStops.base !== 1) sizeZoomStopsBase = zoomStops.base
           continue
         }
         if (zoomStops && name === 'label-size') {
-          for (const s of zoomStops) labelSizeZoomStops.push({ zoom: s.zoom, value: s.value })
+          for (const s of zoomStops.stops) labelSizeZoomStops.push({ zoom: s.zoom, value: s.value })
+          if (zoomStops.base !== 1) labelSizeZoomStopsBase = zoomStops.base
           continue
         }
         // Non-zoom-interp label-size binding → per-feature evaluation.
@@ -575,8 +612,9 @@ function lowerLayer(
         // as the static fallback when the runtime can't evaluate
         // (e.g. consumers reading the IR directly without a camera).
         if (zoomStops && name === 'label-halo') {
-          for (const s of zoomStops) labelHaloWidthZoomStops.push({ zoom: s.zoom, value: s.value })
-          labelHaloWidth = zoomStops[zoomStops.length - 1]!.value
+          for (const s of zoomStops.stops) labelHaloWidthZoomStops.push({ zoom: s.zoom, value: s.value })
+          if (zoomStops.base !== 1) labelHaloWidthZoomStopsBase = zoomStops.base
+          labelHaloWidth = zoomStops.stops[zoomStops.stops.length - 1]!.value
           continue
         }
         // label-color zoom-interpolated colour — full stops, RGBA
@@ -1082,7 +1120,11 @@ function lowerLayer(
     }
   } else if (opacityZoomStops.length > 0) {
     opacityZoomStops.sort((a, b) => a.zoom - b.zoom)
-    opacity = { kind: 'zoom-interpolated', stops: opacityZoomStops }
+    opacity = {
+      kind: 'zoom-interpolated',
+      stops: opacityZoomStops,
+      ...(opacityZoomStopsBase !== undefined ? { base: opacityZoomStopsBase } : {}),
+    }
   }
 
   // ── PR 3: build animated fill/stroke/width/size/dashOffset ──
@@ -1150,7 +1192,11 @@ function lowerLayer(
   // Build zoom-interpolated size if stops exist
   if (sizeZoomStops.length > 0) {
     sizeZoomStops.sort((a, b) => a.zoom - b.zoom)
-    size = { kind: 'zoom-interpolated', stops: sizeZoomStops }
+    size = {
+      kind: 'zoom-interpolated',
+      stops: sizeZoomStops,
+      ...(sizeZoomStopsBase !== undefined ? { base: sizeZoomStopsBase } : {}),
+    }
   }
 
   return {
@@ -1197,10 +1243,12 @@ function lowerLayer(
       labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
       labelTranslateX, labelTranslateY,
       labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
+      labelSizeZoomStopsBase,
       labelColorZoomStops: labelColorZoomStops.length > 0 ? labelColorZoomStops : undefined,
       labelColorExpr, labelSizeExpr,
       labelAnchorCandidates: labelAnchorCandidates.length > 1 ? labelAnchorCandidates : undefined,
       labelHaloWidthZoomStops: labelHaloWidthZoomStops.length > 0 ? labelHaloWidthZoomStops : undefined,
+      labelHaloWidthZoomStopsBase,
       labelHaloColorZoomStops: labelHaloColorZoomStops.length > 0 ? labelHaloColorZoomStops : undefined,
       labelAllowOverlap, labelIgnorePlacement, labelPadding,
       labelRotate, labelLetterSpacing, labelFontStack, labelFontWeight, labelFontStyle,
@@ -1233,10 +1281,14 @@ function foldLabelKnobs(
     labelTranslateX?: number
     labelTranslateY?: number
     labelSizeZoomStops?: ZoomStop<number>[]
+    /** Mapbox `["exponential", N]` curve base for the size stops.
+     *  Undefined / 1 → linear; >1 → faster growth at higher zooms. */
+    labelSizeZoomStopsBase?: number
     labelColorZoomStops?: ZoomStop<[number, number, number, number]>[]
     labelColorExpr?: import('./render-node').DataExpr
     labelSizeExpr?: import('./render-node').DataExpr
     labelHaloWidthZoomStops?: ZoomStop<number>[]
+    labelHaloWidthZoomStopsBase?: number
     labelHaloColorZoomStops?: ZoomStop<[number, number, number, number]>[]
     labelAllowOverlap?: boolean
     labelIgnorePlacement?: boolean
@@ -1294,12 +1346,16 @@ function foldLabelKnobs(
     ...(translate !== undefined ? { translate } : {}),
     ...(knobs.labelSizeZoomStops && knobs.labelSizeZoomStops.length > 0
       ? { sizeZoomStops: knobs.labelSizeZoomStops } : {}),
+    ...(knobs.labelSizeZoomStopsBase !== undefined
+      ? { sizeZoomStopsBase: knobs.labelSizeZoomStopsBase } : {}),
     ...(knobs.labelColorZoomStops && knobs.labelColorZoomStops.length > 0
       ? { colorZoomStops: knobs.labelColorZoomStops } : {}),
     ...(knobs.labelColorExpr !== undefined ? { colorExpr: knobs.labelColorExpr } : {}),
     ...(knobs.labelSizeExpr !== undefined ? { sizeExpr: knobs.labelSizeExpr } : {}),
     ...(knobs.labelHaloWidthZoomStops && knobs.labelHaloWidthZoomStops.length > 0
       ? { haloWidthZoomStops: knobs.labelHaloWidthZoomStops } : {}),
+    ...(knobs.labelHaloWidthZoomStopsBase !== undefined
+      ? { haloWidthZoomStopsBase: knobs.labelHaloWidthZoomStopsBase } : {}),
     ...(knobs.labelHaloColorZoomStops && knobs.labelHaloColorZoomStops.length > 0
       ? { haloColorZoomStops: knobs.labelHaloColorZoomStops } : {}),
     ...(knobs.labelAllowOverlap !== undefined ? { allowOverlap: knobs.labelAllowOverlap } : {}),

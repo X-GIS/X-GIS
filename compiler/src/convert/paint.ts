@@ -38,14 +38,34 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
 
 // ─── interpolate-by-zoom support ─────────────────────────────────────
 
-/** Pull `(zoom, value)` pairs out of an `["interpolate", curve,
+interface InterpolateZoomShape {
+  /** Mapbox interpolate curve. `'linear'` (default) emits the existing
+   *  `interpolate(zoom, …)` xgis form; `'exponential'` emits
+   *  `interpolate_exp(zoom, base, …)` which the lower pass detects
+   *  and stores alongside the stops so the runtime can apply the
+   *  same accelerated curve Mapbox would. */
+  curve: 'linear' | 'exponential'
+  /** Curve base — meaningful only when `curve === 'exponential'`.
+   *  Default 1 (= linear) for the linear branch; explicit value for
+   *  the exponential branch. */
+  base: number
+  stops: Array<{ zoom: number; value: unknown }>
+}
+
+/** Pull the curve type + stops out of an `["interpolate", curve,
  *  ["zoom"], z1, v1, …]` expression. Returns null when the shape
  *  doesn't match (non-zoom input, missing stops, etc.) so callers
  *  can short-circuit and route through the generic expression
- *  converter instead. */
-function interpolateZoomStops(v: unknown): Array<{ zoom: number; value: unknown }> | null {
+ *  converter instead.
+ *
+ *  Cubic-bezier curves fall back to linear with a warning — xgis has
+ *  no per-stop control-point evaluator yet. */
+function interpolateZoomStops(
+  v: unknown,
+  warnings?: string[],
+): InterpolateZoomShape | null {
   if (!Array.isArray(v) || v[0] !== 'interpolate') return null
-  // Element 1 is the curve (we drop the type — xgis is linear-only).
+  const curveSpec = v[1]
   // Element 2 must be the `zoom` accessor.
   const input = v[2]
   if (!Array.isArray(input) || input[0] !== 'zoom') return null
@@ -55,17 +75,34 @@ function interpolateZoomStops(v: unknown): Array<{ zoom: number; value: unknown 
     if (typeof z !== 'number') return null
     stops.push({ zoom: z, value: v[i + 1] })
   }
-  return stops.length >= 2 ? stops : null
+  if (stops.length < 2) return null
+
+  let curve: 'linear' | 'exponential' = 'linear'
+  let base = 1
+  if (Array.isArray(curveSpec)) {
+    if (curveSpec[0] === 'exponential' && typeof curveSpec[1] === 'number') {
+      // base === 1 is mathematically identical to linear; collapse so
+      // the runtime takes the cheaper code path.
+      if (curveSpec[1] !== 1) {
+        curve = 'exponential'
+        base = curveSpec[1]
+      }
+    } else if (curveSpec[0] === 'cubic-bezier') {
+      // No cubic-bezier evaluator yet; warn loudly so the user knows
+      // the output is approximated as linear.
+      warnings?.push(`["interpolate", ["cubic-bezier", …], ["zoom"], …] folded to linear — xgis has no per-stop bezier interpolator.`)
+    }
+  }
+  return { curve, base, stops }
 }
 
 /** Render a Mapbox interpolate-by-zoom expression as an xgis
- *  `interpolate(zoom, …)` call. The xgis evaluator handles the
- *  builtin uniformly — zoom-driven values evaluate per-frame,
- *  feature-driven values evaluate per-feature. The curve type
- *  (linear / exponential / cubic-bezier) is dropped; xgis is
- *  linear-only. Caller supplies an `emitValue` strategy that
- *  formats each stop value (colour, number, expression) into
- *  the bit that follows its zoom key.
+ *  `interpolate(zoom, …)` or `interpolate_exp(zoom, base, …)` call.
+ *  The xgis evaluator handles the builtin uniformly — zoom-driven
+ *  values evaluate per-frame, feature-driven values evaluate per-
+ *  feature. Caller supplies an `emitValue` strategy that formats
+ *  each stop value (colour, number, expression) into the bit that
+ *  follows its zoom key.
  *
  *  Returns null when any stop value can't be formatted, so the
  *  caller can fall back to a more permissive path (e.g. take the
@@ -75,13 +112,16 @@ export function interpolateZoomCall(
   warnings: string[],
   emitValue: (val: unknown, warnings: string[]) => string | null,
 ): string | null {
-  const stops = interpolateZoomStops(v)
-  if (!stops) return null
+  const shape = interpolateZoomStops(v, warnings)
+  if (!shape) return null
   const parts: string[] = []
-  for (const s of stops) {
+  for (const s of shape.stops) {
     const out = emitValue(s.value, warnings)
     if (out === null) return null
     parts.push(`${s.zoom}, ${out}`)
+  }
+  if (shape.curve === 'exponential') {
+    return `interpolate_exp(zoom, ${shape.base}, ${parts.join(', ')})`
   }
   return `interpolate(zoom, ${parts.join(', ')})`
 }

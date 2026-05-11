@@ -237,6 +237,9 @@ export interface LabelDef {
    *  the result instead of the constant `size`. Maps from Mapbox
    *  `text-size: ["interpolate", ["linear"], ["zoom"], …]`. */
   sizeZoomStops?: ZoomStop<number>[]
+  /** Mapbox `["exponential", N]` curve base for `sizeZoomStops`.
+   *  Undefined / 1 → linear; >1 → faster growth at higher zooms. */
+  sizeZoomStopsBase?: number
   /** Optional per-feature size expression. Maps from Mapbox data-
    *  driven forms like `["case", ["==", ["get","class"], "city"], 14, 10]`
    *  or `["match", ["get","class"], "city", 14, 10]`. Runtime
@@ -280,6 +283,8 @@ export interface LabelDef {
    *  ["interpolate", ["linear"], ["zoom"], …]`). Overrides
    *  `halo.width` when present. */
   haloWidthZoomStops?: ZoomStop<number>[]
+  /** Mapbox `["exponential", N]` curve base for `haloWidthZoomStops`. */
+  haloWidthZoomStopsBase?: number
   /** Zoom-interpolated halo colour. Overrides `halo.color`. */
   haloColorZoomStops?: ZoomStop<[number, number, number, number]>[]
 
@@ -446,7 +451,13 @@ export interface StrokeValue {
 export type OpacityValue =
   | { kind: 'constant'; value: number }
   | { kind: 'data-driven'; expr: DataExpr }
-  | { kind: 'zoom-interpolated'; stops: ZoomStop<number>[] }
+  | {
+      kind: 'zoom-interpolated'
+      stops: ZoomStop<number>[]
+      /** Mapbox `["interpolate", ["exponential", N], …]` curve base.
+       *  Undefined / 1 → linear. >1 → faster growth at higher zooms. */
+      base?: number
+    }
   | {
       kind: 'time-interpolated'
       stops: TimeStop<number>[]
@@ -481,7 +492,13 @@ export type SizeValue =
   | { kind: 'constant'; value: number; unit?: string | null }
   | { kind: 'none' }
   | { kind: 'data-driven'; expr: DataExpr; unit?: string | null }
-  | { kind: 'zoom-interpolated'; stops: ZoomStop<number>[] }
+  | {
+      kind: 'zoom-interpolated'
+      stops: ZoomStop<number>[]
+      /** Mapbox `["interpolate", ["exponential", N], …]` curve base.
+       *  Undefined / 1 → linear. */
+      base?: number
+    }
   | {
       kind: 'time-interpolated'
       stops: TimeStop<number>[]
