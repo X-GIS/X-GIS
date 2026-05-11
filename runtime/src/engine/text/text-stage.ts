@@ -49,7 +49,7 @@ import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
  *  list so Mapbox styles that only declare "Noto Sans Regular"
  *  still pick up a Korean / Japanese / Chinese font from the host
  *  OS for glyphs the primary family lacks. */
-function composeFontKey(def: LabelDef, defaultFamily: string): string {
+export function composeFontKey(def: LabelDef, defaultFamily: string): string {
   const family = def.font && def.font.length > 0
     ? def.font.map(f => f.includes(' ') ? `"${f}"` : f).join(',')
       + ',' + CJK_FALLBACK_CHAIN

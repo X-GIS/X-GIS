@@ -2365,9 +2365,16 @@ export class XGISMap {
               const projected = projectLonLat(anchor[0], anchor[1])
               if (!projected) continue
               const featDef = applyFeatureExprs(feat.properties ?? {})
+              // Pass the full LabelDef and let TextStage.composeFontKey
+              // build the ctx.font shorthand (weight, italic, CJK
+              // fallback chain). Passing `def.font?.[0]` as a 6th-arg
+              // override here used to short-circuit that — every Mapbox
+              // label rendered in Regular weight and lost Hangul / Han
+              // fallback. Keep this comment on every call site so the
+              // override doesn't quietly come back.
               stage.addLabel(
                 featDef.text, feat.properties ?? {},
-                projected[0], projected[1], featDef, featDef.font?.[0],
+                projected[0], projected[1], featDef,
               )
             }
             continue
@@ -2423,18 +2430,20 @@ export class XGISMap {
                 if (useTangentRotation) {
                   let angleDeg = Math.atan2(pby - pay, pbx - pax) * 180 / Math.PI
                   if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
+                  // No fontKey override — TextStage.composeFontKey
+                  // builds the proper CSS shorthand with weight / italic
+                  // / CJK fallback from featDef. See note at line ~2370.
                   stage.addLabel(
                     featDef.text, props,
                     x, y,
                     { ...featDef, rotate: angleDeg },
-                    featDef.font?.[0],
                   )
                 } else {
                   // Viewport-aligned: just place at the line position
                   // with the def's static rotate (typically 0).
                   stage.addLabel(
                     featDef.text, props,
-                    x, y, featDef, featDef.font?.[0],
+                    x, y, featDef,
                   )
                 }
               }
@@ -2475,11 +2484,12 @@ export class XGISMap {
                     // and ask TextStage to lay each glyph along it.
                     const polyX = new Float32Array(px)
                     const polyY = new Float32Array(py)
+                    // No fontKey override — see note at line ~2370.
                     if (total < spacingPx * 0.5) {
                       stage.addCurvedLineLabel(
                         featDef.text, props,
                         polyX, polyY, total * 0.5,
-                        featDef, featDef.font?.[0],
+                        featDef,
                       )
                       return
                     }
@@ -2488,7 +2498,7 @@ export class XGISMap {
                       stage.addCurvedLineLabel(
                         featDef.text, props,
                         polyX, polyY, nextStop,
-                        featDef, featDef.font?.[0],
+                        featDef,
                       )
                       nextStop += spacingPx
                     }
@@ -2545,9 +2555,10 @@ export class XGISMap {
                 const projected = projectLonLat(lon, lat)
                 if (!projected) return
                 const featDef = applyFeatureExprs(props)
+                // No fontKey override — see note at line ~2370.
                 stage.addLabel(
                   featDef.text, props,
-                  projected[0], projected[1], featDef, featDef.font?.[0],
+                  projected[0], projected[1], featDef,
                 )
               })
             }
