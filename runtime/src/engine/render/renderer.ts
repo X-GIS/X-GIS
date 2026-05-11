@@ -618,7 +618,11 @@ export interface ShowCommand {
   opacity: number
   size?: number | null
   zoomOpacityStops?: { zoom: number; value: number }[] | null
+  /** Mapbox `["exponential", N]` curve base for `zoomOpacityStops`.
+   *  Undefined / 1 → linear. */
+  zoomOpacityStopsBase?: number
   zoomSizeStops?: { zoom: number; value: number }[] | null
+  zoomSizeStopsBase?: number
   // ── Animation (PR 1: opacity; PR 3: color/width/size/dashoffset) ──
   //
   // Every animatable property carries a parallel time-stop list.
@@ -753,7 +757,9 @@ interface RenderLayer {
   lineIndexBuffer: GPUBuffer | null
   lineIndexCount: number
   zoomOpacityStops: { zoom: number; value: number }[] | null
+  zoomOpacityStopsBase?: number
   zoomSizeStops: { zoom: number; value: number }[] | null
+  zoomSizeStopsBase?: number
   // Animation time-stop lists. Populated from ShowCommand.time*Stops
   // in addLayer(). Null means "no animation for this property".
   timeOpacityStops: { timeMs: number; value: number }[] | null
@@ -777,14 +783,40 @@ interface RenderLayer {
   pickId: number
 }
 
-/** Linearly interpolate between sorted zoom stops */
-export function interpolateZoom(stops: { zoom: number; value: number }[], zoom: number): number {
+/** Interpolate between sorted zoom stops.
+ *
+ *  `base` is the Mapbox `["exponential", base]` curve parameter — when
+ *  unset or 1, falls through to linear interpolation. When > 1, the
+ *  fraction t accelerates near the higher zoom stop (lines / dots
+ *  grow fast as you zoom in); when 0 < base < 1, t accelerates near
+ *  the lower stop. Formula matches Mapbox / MapLibre:
+ *
+ *      t = (base^(z - z_i) - 1) / (base^(z_{i+1} - z_i) - 1)
+ *
+ *  Defaults to linear so the 99 % of call sites that don't carry an
+ *  exponential curve continue to behave identically. */
+export function interpolateZoom(
+  stops: { zoom: number; value: number }[],
+  zoom: number,
+  base: number = 1,
+): number {
   if (stops.length === 0) return 1.0
   if (zoom <= stops[0].zoom) return stops[0].value
   if (zoom >= stops[stops.length - 1].zoom) return stops[stops.length - 1].value
   for (let i = 0; i < stops.length - 1; i++) {
     if (zoom >= stops[i].zoom && zoom <= stops[i + 1].zoom) {
-      const t = (zoom - stops[i].zoom) / (stops[i + 1].zoom - stops[i].zoom)
+      const z0 = stops[i].zoom
+      const z1 = stops[i + 1].zoom
+      const span = z1 - z0
+      let t: number
+      if (base === 1 || Math.abs(base - 1) < 1e-6) {
+        t = (zoom - z0) / span
+      } else {
+        // Exponential. Math.pow handles base > 1 and 0 < base < 1.
+        const numer = Math.pow(base, zoom - z0) - 1
+        const denom = Math.pow(base, span) - 1
+        t = denom === 0 ? 0 : numer / denom
+      }
       return stops[i].value + t * (stops[i + 1].value - stops[i].value)
     }
   }
@@ -1544,7 +1576,9 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
       lineIndexBuffer: null,
       lineIndexCount: 0,
       zoomOpacityStops: show.zoomOpacityStops ?? null,
+      zoomOpacityStopsBase: show.zoomOpacityStopsBase,
       zoomSizeStops: show.zoomSizeStops ?? null,
+      zoomSizeStopsBase: show.zoomSizeStopsBase,
       timeOpacityStops: show.timeOpacityStops ?? null,
       timeFillStops: show.timeFillStops ?? null,
       timeStrokeStops: show.timeStrokeStops ?? null,
@@ -2024,7 +2058,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
       // list is absent. Multiplying lets zoom-opacity act as a slow envelope
       // around a faster time-based pulse, which is what users expect.
       const zoomOpa = layer.zoomOpacityStops
-        ? interpolateZoom(layer.zoomOpacityStops, camera.zoom)
+        ? interpolateZoom(layer.zoomOpacityStops, camera.zoom, layer.zoomOpacityStopsBase ?? 1)
         : layer.props.getNumber('opacity', 1.0)
       const timeOpa = layer.timeOpacityStops
         ? interpolateTime(

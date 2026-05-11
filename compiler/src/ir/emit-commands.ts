@@ -65,7 +65,11 @@ export interface ShowCommand {
   opacity: number
   size: number | null
   zoomOpacityStops: ZoomStop<number>[] | null
+  /** Mapbox `["exponential", N]` curve base for `zoomOpacityStops`.
+   *  Undefined / 1 → linear. */
+  zoomOpacityStopsBase?: number
   zoomSizeStops: ZoomStop<number>[] | null
+  zoomSizeStopsBase?: number
   shaderVariant: ShaderVariant | null
   filterExpr: DataExpr | null
   geometryExpr: DataExpr | null
@@ -164,6 +168,8 @@ function emitShow(node: RenderNode): ShowCommand {
     op.kind === 'zoom-interpolated' ? op.stops :
     op.kind === 'zoom-time' ? op.zoomStops :
     null
+  const zoomOpacityStopsBase: number | undefined =
+    op.kind === 'zoom-interpolated' ? op.base : undefined
   const timeOpacityStops: TimeStop<number>[] | null =
     op.kind === 'time-interpolated' ? op.stops :
     op.kind === 'zoom-time' ? op.timeStops :
@@ -219,7 +225,9 @@ function emitShow(node: RenderNode): ShowCommand {
     opacity: op.kind === 'constant' ? op.value : 1.0,
     size: node.size.kind === 'constant' ? node.size.value : null,
     zoomOpacityStops,
+    zoomOpacityStopsBase,
     zoomSizeStops: node.size.kind === 'zoom-interpolated' ? node.size.stops : null,
+    zoomSizeStopsBase: node.size.kind === 'zoom-interpolated' ? node.size.base : undefined,
     shaderVariant,
     filterExpr: node.filter,
     geometryExpr: node.geometry,

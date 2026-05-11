@@ -165,6 +165,11 @@ describe('mapbox spec-coverage drift detector', () => {
       'rgb / rgba',
       'let / var',
       'interpolate (linear)',
+      // Curve-type label — Mapbox `["interpolate", ["exponential", N], …]`
+      // is detected at paint.ts level by inspecting the curve descriptor
+      // shape, not by a `case 'interpolate (exponential)':` arm. Same
+      // rationale as the `(linear)` entry above.
+      'interpolate (exponential)',
       'match (boolean form)',
       // Indirect handling — `text-variable-anchor` is processed via the
       // text-anchor array path (layers.ts:302) without an explicit

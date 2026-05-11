@@ -264,8 +264,8 @@ const EXPRESSIONS: readonly CoverageEntry[] = [
   // Colour
   { name: 'rgb / rgba',      status: 'partial', impact: 'low', note: 'Constant channels only — hex-encoded at convert time.', source: 'expressions.ts:244' },
   { name: 'interpolate (linear)',      status: 'supported' },
-  { name: 'interpolate (exponential)', status: 'partial', impact: 'high', note: 'base discarded → folded to linear. OFM Bright uses 65 exponential line-width curves.', source: 'paint.ts:46' },
-  { name: 'interpolate (cubic-bezier)',status: 'partial', impact: 'low', note: 'Folded to linear (rare).' },
+  { name: 'interpolate (exponential)', status: 'supported', note: 'Mapbox `["exponential", N]` lowers to `interpolate_exp(zoom, N, …)`; runtime applies the Mapbox curve formula. base=1 collapses to the linear fast path.', source: 'paint.ts:46' },
+  { name: 'interpolate (cubic-bezier)',status: 'partial', impact: 'low', note: 'Folded to linear with a warning — no per-stop bezier evaluator yet.' },
   { name: 'interpolate-hcl',           status: 'unsupported', impact: 'low' },
   { name: 'interpolate-lab',           status: 'unsupported', impact: 'low' },
   // Feature meta

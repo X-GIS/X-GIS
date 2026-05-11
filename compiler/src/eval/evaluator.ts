@@ -323,19 +323,25 @@ function callBuiltin(name: string, args: unknown[]): unknown {
     case 'e': return Math.E
     case 'ln2': return Math.LN2
     case 'ln': return Math.log(Math.max(1e-10, toNumber(args[0])))
-    case 'interpolate': {
+    case 'interpolate':
+    case 'interpolate_exp': {
       // interpolate(input, x1, y1, x2, y2, …) — linear interpolation
-      // between (xi, yi) stops. The first arg is the input value
-      // (typically `zoom` or a feature property); subsequent args
-      // alternate stop key + stop value. Pass-through when input is
-      // outside the stop range (clamps to first / last). Numeric
-      // values interpolate; non-numeric (e.g. color hex strings)
-      // pick the nearest stop without blending.
-      if (args.length < 3 || (args.length - 1) % 2 !== 0) return null
-      const input = toNumber(args[0])
-      // Build (x, y) pairs.
+      // between (xi, yi) stops.
+      // interpolate_exp(input, base, x1, y1, x2, y2, …) — Mapbox
+      // `["interpolate", ["exponential", base], …]`; same shape but
+      // with an extra leading `base` argument that shapes the
+      // between-stops curve. base === 1 is mathematically linear.
+      const isExp = name === 'interpolate_exp'
+      const minArgs = isExp ? 4 : 3
+      if (args.length < minArgs) return null
+      let cursor = 0
+      const input = toNumber(args[cursor++])
+      let base = 1
+      if (isExp) base = toNumber(args[cursor++])
+      const remaining = args.length - cursor
+      if (remaining < 2 || remaining % 2 !== 0) return null
       const stops: Array<{ x: number; y: unknown }> = []
-      for (let i = 1; i + 1 < args.length; i += 2) {
+      for (let i = cursor; i + 1 < args.length; i += 2) {
         stops.push({ x: toNumber(args[i]), y: args[i + 1] })
       }
       if (stops.length === 0) return null
@@ -345,7 +351,14 @@ function callBuiltin(name: string, args: unknown[]): unknown {
         const a = stops[i], b = stops[i + 1]
         if (input >= a.x && input <= b.x) {
           if (typeof a.y === 'number' && typeof b.y === 'number') {
-            const t = (input - a.x) / (b.x - a.x)
+            let t: number
+            if (base === 1 || Math.abs(base - 1) < 1e-6) {
+              t = (input - a.x) / (b.x - a.x)
+            } else {
+              const numer = Math.pow(base, input - a.x) - 1
+              const denom = Math.pow(base, b.x - a.x) - 1
+              t = denom === 0 ? 0 : numer / denom
+            }
             return a.y + (b.y - a.y) * t
           }
           // Non-numeric — pick the closer stop.

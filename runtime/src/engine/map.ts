@@ -1281,7 +1281,7 @@ export class XGISMap {
         // sufficient for static displays; a zoom-aware point uniform
         // upload path is tracked as a follow-up for live resize.
         const baseSize = show.zoomSizeStops && show.zoomSizeStops.length > 0
-          ? interpolateZoom(show.zoomSizeStops, this.camera.zoom)
+          ? interpolateZoom(show.zoomSizeStops, this.camera.zoom, show.zoomSizeStopsBase ?? 1)
           : (show.size ?? 8)
 
         // Evaluate per-feature size if data-driven
@@ -2325,7 +2325,7 @@ export class XGISMap {
           // Resolve zoom-interpolated text-size against the current
           // camera zoom (Mapbox `text-size: ["interpolate", …, ["zoom"], …]`).
           const resolvedSize = def.sizeZoomStops && def.sizeZoomStops.length > 0
-            ? interpolateZoom(def.sizeZoomStops, z)
+            ? interpolateZoom(def.sizeZoomStops, z, def.sizeZoomStopsBase ?? 1)
             : def.size
           // text-color: zoom-interpolated stops win over the static
           // colour, which itself wins over the layer-fill fallback.
@@ -2341,7 +2341,7 @@ export class XGISMap {
           // text-halo: zoom-interpolate width and colour independently.
           let resolvedHalo = def.halo
           if (def.haloWidthZoomStops && def.haloWidthZoomStops.length > 0) {
-            const w = interpolateZoom(def.haloWidthZoomStops, z)
+            const w = interpolateZoom(def.haloWidthZoomStops, z, def.haloWidthZoomStopsBase ?? 1)
             resolvedHalo = {
               ...(resolvedHalo ?? { color: [0, 0, 0, 1], width: 0 }),
               width: w,

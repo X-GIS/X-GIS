@@ -187,7 +187,7 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     // intact.
     const baseOpa = entry.show.opacity ?? 1
     const zoomOpa = entry.show.zoomOpacityStops
-      ? interpolateZoom(entry.show.zoomOpacityStops, input.cameraZoom)
+      ? interpolateZoom(entry.show.zoomOpacityStops, input.cameraZoom, entry.show.zoomOpacityStopsBase ?? 1)
       : baseOpa
     const timeOpa = entry.show.timeOpacityStops
       ? interpolateTime(
