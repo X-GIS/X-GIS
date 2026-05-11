@@ -19,6 +19,86 @@ const SKIP_REASONS: Record<string, string> = {
   hillshade: 'hillshade layer — Batch 4 (raster-dem + lighting shader)',
 }
 
+/** Mapbox font-name trailing keywords → CSS font-weight numerics.
+ *  Covers the standard 100..900 axis plus common aliases (Hairline,
+ *  UltraLight, Heavy, …) used by font foundries. Matched as a single
+ *  trailing token first; the two-word forms ("Extra Bold", "Semi
+ *  Bold") get collapsed in `parseMapboxFontName` before lookup. */
+const FONT_WEIGHT_KEYWORDS: Record<string, number> = {
+  Thin: 100, Hairline: 100,
+  ExtraLight: 200, UltraLight: 200,
+  Light: 300,
+  Regular: 400, Normal: 400, Book: 400,
+  Medium: 500,
+  SemiBold: 600, DemiBold: 600,
+  Bold: 700,
+  ExtraBold: 800, UltraBold: 800, Heavy: 800,
+  Black: 900,
+}
+const FONT_STYLE_KEYWORDS = new Set(['Italic', 'Oblique'])
+
+/** Split a Mapbox font name like "Noto Sans Bold Italic" into family +
+ *  weight + style. The trailing keywords are stripped from the family
+ *  name so the runtime can drive ctx.font with a proper CSS shorthand
+ *  ("italic 700 24px \"Noto Sans\"") instead of pushing weight info
+ *  into the family name itself.
+ *
+ *  Algorithm: peel italic/oblique and weight words from the END of
+ *  the name in either order ("Bold Italic" or "Italic Bold"), and
+ *  collapse two-word weight forms ("Extra Bold", "Semi Bold") into
+ *  their single-keyword equivalents. The remaining tokens are the
+ *  family. Unknown trailing tokens are left as part of the family.
+ *
+ *  Exported only for the unit test — it lives outside the converter
+ *  caller surface. */
+export function parseMapboxFontName(name: string): {
+  family: string
+  weight?: number
+  style?: 'italic'
+} {
+  const parts = name.trim().split(/\s+/)
+  let weight: number | undefined
+  let style: 'italic' | undefined
+  // Loop until neither end matches — handles "Bold Italic" and
+  // "Italic Bold" without ordering assumptions. Two-word weight
+  // forms ("Semi Bold", "Extra Bold") are checked BEFORE the
+  // single-word lookup so the larger match wins; otherwise "Bold"
+  // gets peeled first and "Semi" is left stranded on the family.
+  let progressed = true
+  while (progressed && parts.length > 0) {
+    progressed = false
+    const last = parts[parts.length - 1]!
+    if (style === undefined && FONT_STYLE_KEYWORDS.has(last)) {
+      style = 'italic'
+      parts.pop()
+      progressed = true
+      continue
+    }
+    if (weight === undefined) {
+      if (parts.length >= 2) {
+        const twoWord = parts[parts.length - 2] + last
+        if (twoWord in FONT_WEIGHT_KEYWORDS) {
+          weight = FONT_WEIGHT_KEYWORDS[twoWord]
+          parts.length -= 2
+          progressed = true
+          continue
+        }
+      }
+      if (last in FONT_WEIGHT_KEYWORDS) {
+        weight = FONT_WEIGHT_KEYWORDS[last]
+        parts.pop()
+        progressed = true
+        continue
+      }
+    }
+  }
+  return {
+    family: parts.join(' '),
+    ...(weight !== undefined ? { weight } : {}),
+    ...(style !== undefined ? { style } : {}),
+  }
+}
+
 /** Convert Mapbox `text-field` value → xgis expression string.
  *  Forms handled:
  *    - String literal `"Hello"` → quoted xgis string `"Hello"`
@@ -314,19 +394,48 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
     utils.push(`label-justify-${justify}`)
   }
 
-  // text-font: ["Noto Sans Regular", "Noto Sans CJK Regular"] →
-  // one `label-font-Noto-Sans-Regular` utility per stack entry,
-  // appended in declaration order. The lower pass collects all
-  // `label-font-*` utilities into a stack the runtime forwards
-  // to ctx.font as a comma-separated CSS font value (browser-
-  // native glyph-by-glyph fallback). Spaces in Mapbox font names
-  // map to `-` since utility names only accept identifier chars.
+  // text-font: ["Noto Sans Regular", "Noto Sans CJK KR Regular"] →
+  // one `label-font-Noto-Sans` utility per stack entry PLUS
+  // separate `label-font-weight-N` / `label-font-style-italic`
+  // utilities derived from the trailing weight / italic words.
+  //
+  // Previously we kept the full Mapbox font name as one identifier
+  // (e.g. `Noto-Sans-Bold`). The runtime fed that straight into
+  // ctx.font as a family name, the browser failed to match any
+  // installed face called "Noto-Sans-Bold", and silently fell back
+  // to the OS default — so every Mapbox style rendered in the same
+  // Regular weight regardless of what it asked for. Splitting
+  // family from weight/style here lets the runtime build a proper
+  // CSS shorthand ("700 24px Noto Sans, …") so the browser actually
+  // selects the Bold / Italic face.
+  //
+  // Per-stack-entry semantics: Mapbox font stacks usually share the
+  // same weight/style (entries differ in script coverage, not face
+  // — "Noto Sans Bold" + "Noto Sans CJK KR Bold"). We parse weight/
+  // style from each entry and emit a single utility for whichever
+  // value appears most often (first non-default wins).
   const fontStack = layout['text-font']
   if (Array.isArray(fontStack) && fontStack.length > 0) {
+    let emittedWeight: number | undefined
+    let emittedStyle: 'italic' | undefined
     for (const f of fontStack) {
       if (typeof f !== 'string' || f.length === 0) continue
-      utils.push(`label-font-${f.replace(/\s+/g, '-')}`)
+      const parsed = parseMapboxFontName(f)
+      utils.push(`label-font-${parsed.family.replace(/\s+/g, '-')}`)
+      if (emittedWeight === undefined && parsed.weight !== undefined && parsed.weight !== 400) {
+        emittedWeight = parsed.weight
+      }
+      if (emittedStyle === undefined && parsed.style === 'italic') {
+        emittedStyle = 'italic'
+      }
     }
+    if (emittedWeight !== undefined) utils.push(`label-font-weight-${emittedWeight}`)
+    // `label-italic` is a boolean-form utility — presence sets the
+    // italic flag, absence leaves it normal. We can't reuse the
+    // dotted `label-font-style-italic` form because `style` is a
+    // reserved xgis keyword (used by the top-level `style { … }`
+    // block) and would terminate the utility-name parser mid-token.
+    if (emittedStyle !== undefined) utils.push('label-italic')
   }
 
   // symbol-placement → label-along-path / label-line-center.

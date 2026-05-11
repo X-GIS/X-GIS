@@ -302,6 +302,8 @@ function lowerLayer(
   let labelRotate: number | undefined
   let labelLetterSpacing: number | undefined
   let labelFontStack: string[] | undefined
+  let labelFontWeight: number | undefined
+  let labelFontStyle: 'normal' | 'italic' | undefined
   let labelMaxWidth: number | undefined
   let labelLineHeight: number | undefined
   let labelJustify: 'auto' | 'left' | 'center' | 'right' | undefined
@@ -753,16 +755,37 @@ function lowerLayer(
         if (!isNaN(num)) labelSpacing = num
         continue
       }
+      if (name.startsWith('label-font-weight-')) {
+        // Numeric CSS weight (100..900). The converter normalises
+        // Mapbox's word suffixes — "Bold" → 700, "Light" → 300, etc.
+        // Hand-authored xgis can also write `label-font-weight-500`
+        // for medium without going through the converter.
+        const num = parseFloat(name.slice('label-font-weight-'.length))
+        if (!isNaN(num)) labelFontWeight = num
+        continue
+      }
+      if (name === 'label-italic') {
+        // Boolean utility — presence sets italic. The runtime composes
+        // ctx.font with `italic` as the CSS style prefix so the browser
+        // selects the italic face from the OS. Spelled `label-italic`
+        // (not `label-font-style-italic`) because `style` is reserved
+        // for the top-level `style { … }` block grammar.
+        labelFontStyle = 'italic'
+        continue
+      }
       if (name.startsWith('label-font-')) {
         // Each `label-font-X` utility APPENDS one font to the
         // fallback stack. Spaces in Mapbox font names round-trip
         // via `-`. Stack form (multiple utilities):
-        //   | label-font-Noto-Sans-Regular label-font-Noto-Sans-CJK-Regular
+        //   | label-font-Noto-Sans label-font-Noto-Sans-CJK
         // The runtime feeds the whole stack to ctx.font as a
         // comma-separated CSS font value so the browser handles
         // glyph-by-glyph fallback automatically (Latin glyphs from
         // the first font, CJK from the second when the first lacks
-        // them).
+        // them). Weight/italic words used to live IN this name; they
+        // now ride `label-font-weight-N` / `label-font-style-X` so
+        // ctx.font can apply them via CSS shorthand instead of as
+        // part of the family token.
         const raw = name.slice('label-font-'.length)
         const restored = raw.replace(/-/g, ' ')
         if (restored.length > 0) {
@@ -1163,7 +1186,7 @@ function lowerLayer(
       labelHaloWidthZoomStops: labelHaloWidthZoomStops.length > 0 ? labelHaloWidthZoomStops : undefined,
       labelHaloColorZoomStops: labelHaloColorZoomStops.length > 0 ? labelHaloColorZoomStops : undefined,
       labelAllowOverlap, labelIgnorePlacement, labelPadding,
-      labelRotate, labelLetterSpacing, labelFontStack,
+      labelRotate, labelLetterSpacing, labelFontStack, labelFontWeight, labelFontStyle,
       labelMaxWidth, labelLineHeight, labelJustify,
       labelPlacement, labelSpacing,
       labelRotationAlignment, labelPitchAlignment, labelKeepUpright,
@@ -1204,6 +1227,8 @@ function foldLabelKnobs(
     labelRotate?: number
     labelLetterSpacing?: number
     labelFontStack?: string[]
+    labelFontWeight?: number
+    labelFontStyle?: 'normal' | 'italic'
     labelMaxWidth?: number
     labelLineHeight?: number
     labelJustify?: 'auto' | 'left' | 'center' | 'right'
@@ -1267,6 +1292,8 @@ function foldLabelKnobs(
     ...(knobs.labelLetterSpacing !== undefined ? { letterSpacing: knobs.labelLetterSpacing } : {}),
     ...(knobs.labelFontStack !== undefined && knobs.labelFontStack.length > 0
       ? { font: knobs.labelFontStack } : {}),
+    ...(knobs.labelFontWeight !== undefined ? { fontWeight: knobs.labelFontWeight } : {}),
+    ...(knobs.labelFontStyle !== undefined ? { fontStyle: knobs.labelFontStyle } : {}),
     ...(knobs.labelMaxWidth !== undefined ? { maxWidth: knobs.labelMaxWidth } : {}),
     ...(knobs.labelLineHeight !== undefined ? { lineHeight: knobs.labelLineHeight } : {}),
     ...(knobs.labelJustify !== undefined ? { justify: knobs.labelJustify } : {}),

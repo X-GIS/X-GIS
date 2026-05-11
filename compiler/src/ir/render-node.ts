@@ -199,8 +199,24 @@ export interface LabelDef {
   // ── Typography ──
   /** Font stack — first available wins. Maps from Mapbox
    *  `text-font: ["Noto Sans Regular", "Noto Sans CJK KR Regular"]`.
-   *  Optional — runtime defaults to its first loaded font. */
+   *  Optional — runtime defaults to its first loaded font.
+   *  Weight/italic words ("Regular", "Bold", "Italic", "Light", …)
+   *  are STRIPPED at conversion time and surfaced as `fontWeight` /
+   *  `fontStyle` below; the names left in this array are the family
+   *  portion only (e.g. just "Noto Sans"). Without that split the
+   *  browser parses "Noto-Sans-Bold" as a literal family name, fails
+   *  to match any installed font, and falls back to the OS default
+   *  — every Mapbox style ended up looking like the same Regular
+   *  weight regardless of what the style declared. */
   font?: string[]
+  /** CSS font-weight derived from the Mapbox `text-font` entry's
+   *  trailing keyword. `"Noto Sans Bold"` → 700, `"… Light"` → 300,
+   *  etc. Numeric to match the CSS spec range (100..900). Unset =
+   *  use CSS default (400). */
+  fontWeight?: number
+  /** CSS font-style derived from the Mapbox `text-font` entry.
+   *  `"… Italic"` / `"… Oblique"` → 'italic'. Unset = 'normal'. */
+  fontStyle?: 'normal' | 'italic'
   /** Font size in PIXELS (not font units). Mapbox `text-size`. */
   size: number
   /** Optional zoom-interpolated size override. When set, the runtime
