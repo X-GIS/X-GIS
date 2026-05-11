@@ -685,6 +685,12 @@ export interface ShowCommand {
     startOffset?: number
     anchor?: 'repeat' | 'start' | 'end' | 'center'
   }[]
+  /** Lateral parallel offset in CSS px (Mapbox `paint.line-offset`). */
+  strokeOffset?: number
+  /** Stroke alignment ('inset' / 'outset' shifts by ±half-width). */
+  strokeAlign?: 'center' | 'inset' | 'outset'
+  /** Mapbox `paint.line-blur` — edge feathering in CSS px (0 = crisp). */
+  strokeBlur?: number
   // Stable u16 layer ID assigned by `XGISMap` via `LayerIdRegistry` after
   // the compiler emits this command. Threaded into every per-tile uniform
   // write so the fragment shader can stamp the pick texture's G channel

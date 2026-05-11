@@ -176,6 +176,12 @@ export function packLineLayerUniform(
   patterns: PatternSlot[] = [],
   offsetPx: number = 0,
   viewportHeight: number = 1,
+  /** Mapbox `paint.line-blur` — additional smoothstep feathering on
+   *  the edge, in CSS px. 0 (default) keeps the historical 1.5 px
+   *  AA expansion; positive values widen BOTH the geometry quad and
+   *  the smoothstep range so the edge soft-fades over `1.5 + blur`
+   *  pixels each side. */
+  blurPx: number = 0,
 ): Float32Array {
   const buf = new Float32Array(LINE_UNIFORM_SIZE / 4)
   const u32 = new Uint32Array(buf.buffer)
@@ -192,7 +198,8 @@ export function packLineLayerUniform(
   const widthAlphaScale = strokeWidthPx >= 1.0 ? 1.0 : strokeWidthPx
   buf[3] = strokeColor[3] * opacity * widthAlphaScale
   buf[4] = effectiveWidthPx
-  buf[5] = 1.5
+  // 1.5 px historical AA reserve + Mapbox-style blur extension.
+  buf[5] = 1.5 + Math.max(0, blurPx)
   buf[6] = mppAtCenter
   buf[7] = miterLimit
 

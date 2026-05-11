@@ -2586,6 +2586,7 @@ export class VectorTileRenderer {
         patternSlots,
         effectiveOffset,
         canvasHeight,
+        show.strokeBlur ?? 0,
       )
     }
 

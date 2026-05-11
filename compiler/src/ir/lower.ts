@@ -415,6 +415,7 @@ function lowerLayer(
   let dashOffset: number | undefined
   let strokeOffset: number | undefined
   let strokeAlign: 'center' | 'inset' | 'outset' | undefined
+  let strokeBlur: number | undefined
   // Phase 4: pattern stack — up to 3 slots. Slot 0 = `stroke-pattern-*`,
   // slots 1/2 = `stroke-pattern-1-*` / `stroke-pattern-2-*`.
   const patternSlots: import('./render-node').StrokePattern[] = [
@@ -919,6 +920,10 @@ function lowerLayer(
         parsePatternAttr(name.slice('stroke-pattern-2-'.length), 2)
       } else if (name.startsWith('stroke-pattern-')) {
         parsePatternAttr(name.slice('stroke-pattern-'.length), 0)
+      } else if (name.startsWith('stroke-blur-')) {
+        // Mapbox `paint.line-blur` — edge feathering in CSS px.
+        const num = parseFloat(name.slice('stroke-blur-'.length))
+        if (!isNaN(num)) strokeBlur = num
       } else if (name.startsWith('stroke-')) {
         const rest = name.slice(7)
         const num = parseFloat(rest)
@@ -1219,6 +1224,7 @@ function lowerLayer(
         patterns: validPatterns.length > 0 ? validPatterns : undefined,
         offset: strokeOffset,
         align: strokeAlign,
+        blur: strokeBlur,
         timeWidthStops: strokeWidthTimeStops.length >= 2 ? strokeWidthTimeStops : undefined,
         timeDashOffsetStops: dashOffsetTimeStops.length >= 2 ? dashOffsetTimeStops : undefined,
       }
