@@ -28,6 +28,7 @@ import { createRasterizer, type GlyphRasterizer } from './sdf/glyph-rasterizer'
 import { TextRenderer, type TextDraw } from './text-renderer'
 import { greedyPlaceBboxes, type CollisionItem } from './text-collision'
 import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
+import { stripCurveLineExtraScripts } from './text-stage-helpers'
 
 /** Compose the rasterizer-visible font key for one label.
  *
@@ -218,7 +219,12 @@ export class TextStage {
   ): void {
     const text = resolveText(value, props)
     if (text.length === 0) return
-    const transformed = applyTextTransform(text, def.transform)
+    // stripCurveLineExtraScripts drops everything from the first LF
+    // onwards — Mapbox bilingual labels render only the primary
+    // script along curves (Latin\nNonLatin would otherwise lay both
+    // scripts head-to-tail along the road).
+    const transformed = stripCurveLineExtraScripts(applyTextTransform(text, def.transform))
+    if (transformed.length === 0) return
     if (this._debugHook && polylineX.length > 0) {
       // Approximate the curve's anchor as its first vertex — enough
       // for the debug overlay to pin down a screen position. Mid-
