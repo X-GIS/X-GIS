@@ -17,7 +17,7 @@
 
 import {
   decodeMvtTile, decomposeFeatures, compileSingleTile,
-  evaluate,
+  evaluate, makeEvalProps,
   type GeoJSONFeature,
 } from '@xgis/compiler'
 import { buildLineSegments } from '../../core/line-segment-build'
@@ -86,7 +86,9 @@ function extractFeatureWidths(
     // difference to be visible, and per-feature widths bake at tile-
     // decode time so camera-zoom tracking would require per-frame
     // segment-buffer re-upload (follow-up).
-    const v = evaluate(expr as never, { ...(props as Record<string, unknown>), $zoom: tileZoom })
+    const v = evaluate(expr as never, makeEvalProps({
+      props: props as Record<string, unknown>, cameraZoom: tileZoom,
+    }))
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
@@ -376,11 +378,11 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
         if (!layerFeatures || layerFeatures.length === 0) continue
         const subset = desc.filterAst
           ? layerFeatures.filter(f => {
-              const bag: Record<string, unknown> = { ...(f.properties ?? {}) }
-              if (f.geometry) bag.$geometryType = f.geometry.type
-              if ((f as { id?: string | number }).id !== undefined) {
-                bag.$featureId = (f as { id: string | number }).id
-              }
+              const bag = makeEvalProps({
+                props: f.properties ?? undefined,
+                geometryType: f.geometry?.type,
+                featureId: (f as { id?: string | number }).id,
+              })
               return evalFilterExpr(desc.filterAst, bag)
             })
           : layerFeatures
