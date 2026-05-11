@@ -11,6 +11,11 @@
  * Symbol layers (geolines-label, countries-label) are skipped
  * with conversion warnings — text rendering isn't covered by
  * this importer path yet.
+ *
+ * If this loads + renders, X-GIS's `import "url"` is compatible
+ * with the broader MapLibre ecosystem (Versatiles, OpenFreeMap
+ * Liberty / Positron / Dark, MapTiler open styles) — all share
+ * the same Mapbox v8 style.json shape.
  */
 
 import "https://demotiles.maplibre.org/style.json"

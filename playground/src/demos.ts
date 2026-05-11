@@ -148,9 +148,9 @@ export const DEMOS: Record<string, Demo> = {
   },
 
   import_maplibre_demo: {
-    name: 'import "maplibre demo style"',
+    name: 'import "maplibre-demo-style"',
     tag: 'xgvt',
-    description: 'Splice-imports the official MapLibre demo style (demotiles.maplibre.org/style.json). Vector TileJSON + inline crimea GeoJSON Feature + #D8F2FF background land via convertMapboxStyle; symbol layers are skipped with warnings.',
+    description: 'Canonical MapLibre demo style (https://demotiles.maplibre.org/style.json). Mapbox v8 schema, ~33 layers, vector tiles via TileJSON. Verifies X-GIS imports the wider MapLibre ecosystem (Versatiles, OpenFreeMap Liberty/Positron/Dark, MapTiler open styles) which all share this shape.',
     source: load('import-maplibre-demo.xgis'),
   },
 
