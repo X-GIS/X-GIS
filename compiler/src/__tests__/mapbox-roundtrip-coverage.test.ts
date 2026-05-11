@@ -36,6 +36,7 @@ interface ShowSample {
   stroke: string | null
   strokeWidth: number
   strokeWidthExpr?: unknown
+  zoomStrokeWidthStops?: { zoom: number; value: number }[]
   strokeOffset?: number
   strokeBlur?: number
   opacity: number
@@ -120,9 +121,14 @@ function checkPaint(layer: MapboxLayer, show: ShowSample | undefined): string[] 
           fails.push(`[${layer.id}] line-width=${lw} but show.strokeWidth=${show.strokeWidth}`)
         }
       } else {
-        // interpolate / expression — must end up in strokeWidthExpr
-        if (show.strokeWidthExpr === undefined && show.strokeWidth === 1) {
-          fails.push(`[${layer.id}] line-width is non-constant but strokeWidthExpr is undefined AND strokeWidth is the default 1`)
+        // interpolate / expression — must land in EITHER strokeWidthExpr
+        // (per-feature worker bake) or zoomStrokeWidthStops (per-frame
+        // renderer interp for pure zoom-driven widths).
+        const hasExpr = show.strokeWidthExpr !== undefined
+        const hasStops = Array.isArray((show as { zoomStrokeWidthStops?: unknown[] }).zoomStrokeWidthStops)
+          && ((show as { zoomStrokeWidthStops: unknown[] }).zoomStrokeWidthStops.length >= 2)
+        if (!hasExpr && !hasStops && show.strokeWidth === 1) {
+          fails.push(`[${layer.id}] line-width is non-constant but neither strokeWidthExpr nor zoomStrokeWidthStops is set AND strokeWidth is the default 1`)
         }
       }
     }

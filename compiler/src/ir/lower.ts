@@ -438,6 +438,13 @@ function lowerLayer(
    *  case/match). Stroke colour zoom-interpolation takes a parallel
    *  path through `strokeColor` (kind: 'zoom-interpolated'). */
   let strokeWidthExpr: import('./render-node').DataExpr | undefined
+  /** Pure zoom-only stroke-width stops — populated when the binding's
+   *  expression is a `interpolate(zoom, …)` / `interpolate_exp(zoom,
+   *  base, …)` with no feature-prop dependency. Routed through
+   *  `stroke.widthZoomStops` so the renderer recomputes width per
+   *  frame from camera zoom (avoids the tile-bake staleness). */
+  let strokeWidthZoomStops: ZoomStop<number>[] | undefined
+  let strokeWidthZoomStopsBase: number | undefined
   let linecap: 'butt' | 'round' | 'square' | 'arrow' | undefined
   let linejoin: 'miter' | 'round' | 'bevel' | undefined
   let miterlimit: number | undefined
@@ -696,11 +703,21 @@ function lowerLayer(
           // building / landuse-suburb were hitting in OFM Bright.
           const colorStops = extractInterpolateZoomColorStops(item.binding)
           if (colorStops && colorStops.length > 0) {
-            const last = colorStops[colorStops.length - 1]!
-            const hex = resolveColor(last.value)
-            if (hex) {
-              const rgba = hexToRgba(hex)
-              fill = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
+            const rgbaStops: ZoomStop<[number, number, number, number]>[] = []
+            for (const s of colorStops) {
+              const hex = resolveColor(s.value)
+              if (hex) rgbaStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
+            }
+            if (rgbaStops.length > 0) {
+              // Preserve full zoom-color interpolation. The runtime
+              // (renderer.ts:render-loop) reads zoomFillStops if
+              // present and recomputes the fill RGBA per frame from
+              // the camera zoom. Without this, PR #97's "last-stop
+              // only" heuristic collapsed landuse-suburb to alpha=0
+              // (Mapbox intentionally fades it out at z=10) — every
+              // suburb polygon rendered invisible regardless of
+              // viewing zoom.
+              fill = { kind: 'zoom-interpolated', stops: rgbaStops }
               continue
             }
           }
@@ -754,15 +771,14 @@ function lowerLayer(
           } else {
             const widthStops = extractInterpolateZoomStops(item.binding)
             if (widthStops) {
-              // Re-emit through the existing widthExpr path so the
-              // worker per-feature evaluator handles it. (A future
-              // optimisation would carry zoom stops as a dedicated
-              // `widthZoomStops` field so the runtime can interp once
-              // per frame instead of per feature; for now widthExpr's
-              // AST contains the interpolate call and the evaluator
-              // re-walks it per feature, which is correct just less
-              // efficient.)
-              strokeWidthExpr = { ast: item.binding }
+              // Pure zoom-only width — hoist as zoom stops on the
+              // stroke value. The renderer recomputes `layer.width_px`
+              // per frame from camera.zoom, so the line widens
+              // continuously as the user zooms (vs. the widthExpr
+              // path which bakes a single width per tile at decode
+              // time and only updates on tile-zoom boundary crosses).
+              strokeWidthZoomStops = widthStops.stops
+              strokeWidthZoomStopsBase = widthStops.base
             } else {
               // Per-feature `case` / `match` expression on width.
               strokeWidthExpr = { ast: item.binding }
@@ -1350,6 +1366,10 @@ function lowerLayer(
         color: strokeColor,
         width: strokeWidth,
         ...(strokeWidthExpr !== undefined ? { widthExpr: strokeWidthExpr } : {}),
+        ...(strokeWidthZoomStops !== undefined ? {
+          widthZoomStops: strokeWidthZoomStops,
+          widthZoomStopsBase: strokeWidthZoomStopsBase,
+        } : {}),
         linecap, linejoin, miterlimit,
         dashArray, dashOffset,
         patterns: validPatterns.length > 0 ? validPatterns : undefined,

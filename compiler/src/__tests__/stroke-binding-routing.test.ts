@@ -6,18 +6,19 @@
 // hair-thin lines and minor / path / track classes effectively
 // disappeared on a beige background.
 //
-// Fix: route `stroke-[<expr>]` based on the inner expression's
-// numeric vs colour shape:
+// Fix: route `stroke-[<expr>]` based on the inner expression's shape:
 //   - interpolate-by-zoom colour stops → `strokeColor: 'zoom-interp'`
-//   - interpolate-by-zoom numeric stops → `strokeWidthExpr`
-//   - any other expression → `strokeWidthExpr` (per-feature case /
-//     match width)
+//   - interpolate-by-zoom numeric stops → `stroke.widthZoomStops`
+//     (per-frame renderer interp against camera zoom — supersedes the
+//     prior `widthExpr` path that baked at tile-decode zoom)
+//   - any other numeric expression → `stroke.widthExpr` (per-feature
+//     case / match width baked by the worker)
 
 import { describe, it, expect } from 'vitest'
 import { convertMapboxStyle, Lexer, Parser, lower, emitCommands } from '../index'
 
 describe('stroke binding routing — paint.line-width interpolate-by-zoom', () => {
-  it('Mapbox line-width interpolate lowers to RenderNode.stroke.widthExpr', () => {
+  it('Mapbox line-width interpolate(zoom) lowers to stroke.widthZoomStops', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -40,11 +41,16 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
     const node = scene.renderNodes[0]
-    expect(node!.stroke.widthExpr).toBeDefined()
-    expect(node!.stroke.widthExpr!.ast).toBeTruthy()
+    // Pure zoom-driven width → goes via widthZoomStops (per-frame
+    // renderer interp), NOT widthExpr (which would freeze the width
+    // at tile-decode zoom in the worker).
+    expect(node!.stroke.widthZoomStops).toBeDefined()
+    expect(node!.stroke.widthZoomStops!.length).toBe(3)
+    expect(node!.stroke.widthZoomStopsBase).toBeCloseTo(1.2, 4)
+    expect(node!.stroke.widthExpr).toBeUndefined()
   })
 
-  it('Mapbox line-width interpolate threads through ShowCommand.strokeWidthExpr', () => {
+  it('Mapbox line-width interpolate(zoom) threads through ShowCommand.zoomStrokeWidthStops', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -62,8 +68,10 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     }
     const xgis = convertMapboxStyle(style as never)
     const cmds = emitCommands(lower(new Parser(new Lexer(xgis).tokenize()).parse()))
-    const s = cmds.shows[0] as unknown as { strokeWidthExpr?: { ast: unknown }; strokeWidth: number }
-    expect(s.strokeWidthExpr).toBeDefined()
+    const s = cmds.shows[0] as unknown as { zoomStrokeWidthStops?: { zoom: number; value: number }[]; strokeWidthExpr?: unknown; strokeWidth: number }
+    expect(s.zoomStrokeWidthStops).toBeDefined()
+    expect(s.zoomStrokeWidthStops!.length).toBe(2)
+    expect(s.strokeWidthExpr).toBeUndefined()
   })
 
   it('constant line-width still routes through scalar strokeWidth', () => {
@@ -114,24 +122,25 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     expect(node!.stroke.color.rgba[0]).toBeCloseTo(0x88 / 255, 2)
   })
 
-  it('end-to-end: all OFM-Bright highway layers get a widthExpr', () => {
+  it('end-to-end: every OFM-Bright highway layer resolves a non-default width', () => {
     // Sanity that the fix actually unblocks the original OFM Bright
-    // regression — every highway-* line layer should now carry a
-    // per-feature widthExpr instead of falling back to 1 px.
+    // regression — every highway-* line layer should now carry EITHER
+    // zoom stops (pure zoom-driven width — the common case in OFM) OR
+    // a per-feature widthExpr (compound match()). The default 1 px
+    // fallback means lower.ts silently dropped the binding.
     const style = require('./fixtures/openfreemap-bright.json')
     const xgis = convertMapboxStyle(style)
     const cmds = emitCommands(lower(new Parser(new Lexer(xgis).tokenize()).parse()))
     const offenders: string[] = []
-    for (const s of cmds.shows as unknown as Array<{ layerName: string; strokeWidthExpr?: unknown; strokeWidth: number; fill?: string; stroke?: string }>) {
+    type S = { layerName: string; strokeWidthExpr?: unknown; zoomStrokeWidthStops?: unknown; strokeWidth: number }
+    for (const s of cmds.shows as unknown as S[]) {
       if (!s.layerName.startsWith('highway')) continue
-      // Skip non-line highway layers:
-      //   highway-area    — fill (parking lots, plazas)
-      //   highway-shield-*— symbol (icon+text)
-      //   highway-name-*  — symbol (along-path label)
       if (s.layerName.includes('shield')) continue
       if (s.layerName.includes('name')) continue
       if (s.layerName.includes('area')) continue
-      if (s.strokeWidthExpr === undefined && s.strokeWidth === 1) {
+      const hasExpr = s.strokeWidthExpr !== undefined
+      const hasStops = Array.isArray(s.zoomStrokeWidthStops) && (s.zoomStrokeWidthStops as unknown[]).length >= 2
+      if (!hasExpr && !hasStops && s.strokeWidth === 1) {
         offenders.push(s.layerName)
       }
     }

@@ -51,6 +51,16 @@ export interface ShowCommand {
    *  slot; the line shader picks segment.width_px over the layer
    *  uniform when non-zero. */
   strokeWidthExpr?: DataExpr
+  /** Mapbox `paint.line-width: ["interpolate", curve, ["zoom"], …]`
+   *  hoisted as zoom stops. When present, the renderer recomputes
+   *  the line `layer.width_px` per frame from camera.zoom rather
+   *  than baking a single width per tile (the worker bake stays
+   *  frozen at tile-decode zoom — visible as roads not widening
+   *  continuously as the camera zooms inside one tile-zoom level).
+   *  Mutually exclusive with `strokeWidthExpr` for pure-zoom
+   *  widths. */
+  zoomStrokeWidthStops?: ZoomStop<number>[]
+  zoomStrokeWidthStopsBase?: number
   /** Optional per-feature stroke colour override AST. Synthesised
    *  by the merge pass when group members differ in stroke colour;
    *  resolved by the worker into a packed RGBA8 u32 baked into the
@@ -70,6 +80,13 @@ export interface ShowCommand {
   zoomOpacityStopsBase?: number
   zoomSizeStops: ZoomStop<number>[] | null
   zoomSizeStopsBase?: number
+  /** Mapbox `paint.fill-color: ["interpolate", curve, ["zoom"], …]` —
+   *  per-frame interpolated RGBA. When present, the runtime ignores
+   *  the static `fill` hex (which carries the first-stop colour as a
+   *  fallback) and computes the colour each frame from these stops
+   *  against `camera.zoom`. */
+  zoomFillStops?: ZoomStop<[number, number, number, number]>[]
+  zoomFillStopsBase?: number
   shaderVariant: ShaderVariant | null
   filterExpr: DataExpr | null
   geometryExpr: DataExpr | null
@@ -220,6 +237,8 @@ function emitShow(node: RenderNode): ShowCommand {
     stroke: colorToHex(node.stroke.color),
     strokeWidth: node.stroke.width,
     strokeWidthExpr: node.stroke.widthExpr,
+    zoomStrokeWidthStops: node.stroke.widthZoomStops,
+    zoomStrokeWidthStopsBase: node.stroke.widthZoomStopsBase,
     strokeColorExpr: node.stroke.colorExpr,
     projection: node.projection,
     visible: node.visible,
@@ -230,6 +249,8 @@ function emitShow(node: RenderNode): ShowCommand {
     zoomOpacityStopsBase,
     zoomSizeStops: node.size.kind === 'zoom-interpolated' ? node.size.stops : null,
     zoomSizeStopsBase: node.size.kind === 'zoom-interpolated' ? node.size.base : undefined,
+    zoomFillStops: node.fill.kind === 'zoom-interpolated' ? node.fill.stops : undefined,
+    zoomFillStopsBase: node.fill.kind === 'zoom-interpolated' ? node.fill.base : undefined,
     shaderVariant,
     filterExpr: node.filter,
     geometryExpr: node.geometry,
@@ -272,5 +293,14 @@ function colorToHex(color: ColorValue): string | null {
   // pre-animation value — emitting it as a hex keeps the existing
   // shader-variant generator and raw pixel readback paths happy.
   if (color.kind === 'time-interpolated') return rgbaToHex(color.base)
+  // Zoom-interpolated: pick FIRST stop as the static fallback. Mapbox
+  // clamps to first-stop at zoom below the first stop boundary, and
+  // first-stop is "the colour at the wider viewing extent" — usually
+  // the most opaque / visible. Runtime path also picks up
+  // zoomFillStops below and recomputes per frame; this hex is a
+  // safety net for downstream consumers that ignore the stops.
+  if (color.kind === 'zoom-interpolated' && color.stops.length > 0) {
+    return rgbaToHex(color.stops[0]!.value)
+  }
   return null
 }

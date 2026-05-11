@@ -180,6 +180,63 @@ describe('classifyVectorTileShows — base cases', () => {
     expect(result.translucent).toHaveLength(0)
   })
 
+  it('gates shows on Mapbox minzoom (camera.zoom < minzoom → skip)', () => {
+    const sources = new Map([['src', makeVTSource()]])
+    const show = makeShow({ fill: '#ff0000', minzoom: 10 })
+    // Camera at z=5, layer demands z>=10 → skipped.
+    const below = classifyVectorTileShows(
+      makeInput([makeEntry('src', show)], sources, { cameraZoom: 5 }),
+    )
+    expect(below.opaque).toHaveLength(0)
+    // Camera at z=10 → inside the band (boundary inclusive).
+    const at = classifyVectorTileShows(
+      makeInput([makeEntry('src', show)], sources, { cameraZoom: 10 }),
+    )
+    expect(at.opaque).toHaveLength(1)
+    // Camera at z=12 → still inside.
+    const above = classifyVectorTileShows(
+      makeInput([makeEntry('src', show)], sources, { cameraZoom: 12 }),
+    )
+    expect(above.opaque).toHaveLength(1)
+  })
+
+  it('gates shows on Mapbox maxzoom (camera.zoom >= maxzoom → skip; spec is exclusive)', () => {
+    const sources = new Map([['src', makeVTSource()]])
+    const show = makeShow({ fill: '#ff0000', maxzoom: 9 })
+    // Camera at z=8 → inside.
+    const below = classifyVectorTileShows(
+      makeInput([makeEntry('src', show)], sources, { cameraZoom: 8 }),
+    )
+    expect(below.opaque).toHaveLength(1)
+    // Camera at z=9 → AT maxzoom → skipped (Mapbox uses exclusive bound).
+    const at = classifyVectorTileShows(
+      makeInput([makeEntry('src', show)], sources, { cameraZoom: 9 }),
+    )
+    expect(at.opaque).toHaveLength(0)
+    // Camera at z=10 → above → skipped.
+    const above = classifyVectorTileShows(
+      makeInput([makeEntry('src', show)], sources, { cameraZoom: 10 }),
+    )
+    expect(above.opaque).toHaveLength(0)
+  })
+
+  it('respects BOTH minzoom and maxzoom together (country boundaries band)', () => {
+    const sources = new Map([['src', makeVTSource()]])
+    const show = makeShow({ fill: '#ff0000', minzoom: 4, maxzoom: 9 })
+    const inside = classifyVectorTileShows(
+      makeInput([makeEntry('src', show)], sources, { cameraZoom: 6 }),
+    )
+    expect(inside.opaque).toHaveLength(1)
+    const justBelow = classifyVectorTileShows(
+      makeInput([makeEntry('src', show)], sources, { cameraZoom: 3.99 }),
+    )
+    expect(justBelow.opaque).toHaveLength(0)
+    const atMaxzoom = classifyVectorTileShows(
+      makeInput([makeEntry('src', show)], sources, { cameraZoom: 9 }),
+    )
+    expect(atMaxzoom.opaque).toHaveLength(0)
+  })
+
   it('safeMode disables translucent-stroke classification', () => {
     const sources = new Map([['src', makeVTSource()]])
     const result = classifyVectorTileShows(makeInput(
