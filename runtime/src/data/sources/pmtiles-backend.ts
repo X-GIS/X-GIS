@@ -20,7 +20,7 @@
 import {
   tileKeyUnpack,
   decodeMvtTile, decomposeFeatures, compileSingleTile,
-  evaluate,
+  evaluate, makeEvalProps,
   type GeoJSONFeature,
 } from '@xgis/compiler'
 import { buildLineSegments } from '../../core/line-segment-build'
@@ -71,7 +71,9 @@ function extractFeatureWidths(
     if (!props) continue
     // Inject `$zoom` — the evaluator's reserved camera-zoom key.
     // See mvt-worker.ts's extractFeatureWidths for the rationale.
-    const v = evaluate(expr as never, { ...(props as Record<string, unknown>), $zoom: tileZoom })
+    const v = evaluate(expr as never, makeEvalProps({
+      props: props as Record<string, unknown>, cameraZoom: tileZoom,
+    }))
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
@@ -673,11 +675,11 @@ export class PMTilesBackend implements TileSource {
           if (!layerFeatures || layerFeatures.length === 0) continue
           const subset = desc.filterAst
             ? layerFeatures.filter(f => {
-                const bag: Record<string, unknown> = { ...(f.properties ?? {}) }
-                if (f.geometry) bag.$geometryType = f.geometry.type
-                if ((f as { id?: string | number }).id !== undefined) {
-                  bag.$featureId = (f as { id: string | number }).id
-                }
+                const bag = makeEvalProps({
+                  props: f.properties ?? undefined,
+                  geometryType: f.geometry?.type,
+                  featureId: (f as { id?: string | number }).id,
+                })
                 return evalFilterExpr(desc.filterAst, bag)
               })
             : layerFeatures

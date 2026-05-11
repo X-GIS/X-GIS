@@ -5,7 +5,7 @@
 // live somewhere callers from multiple modules can reach without
 // reimporting from a high-level orchestrator.
 
-import { evaluate } from '@xgis/compiler'
+import { evaluate, makeEvalProps } from '@xgis/compiler'
 import type * as AST from '@xgis/compiler'
 import type { GeoJSONFeatureCollection } from '../loader/geojson'
 
@@ -110,11 +110,11 @@ export function applyFilter(
     // `get("$geometryType")` / `get("$featureId")` by the converter)
     // can read feature meta without breaking the props-only
     // evalFilter contract.
-    const propsBag: Record<string, unknown> = { ...(f.properties ?? {}) }
-    if (f.geometry) propsBag.$geometryType = f.geometry.type
-    if ((f as { id?: string | number }).id !== undefined) {
-      propsBag.$featureId = (f as { id: string | number }).id
-    }
+    const propsBag = makeEvalProps({
+      props: f.properties ?? undefined,
+      geometryType: f.geometry?.type,
+      featureId: (f as { id?: string | number }).id,
+    })
     const result = evaluate(ast, propsBag)
     // Truthy check: non-zero numbers, true booleans, non-empty strings.
     if (typeof result === 'boolean') return result

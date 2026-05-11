@@ -11,6 +11,11 @@ export type { Scene, SourceDef, RenderNode, ColorValue, StrokeValue, OpacityValu
 export { hexToRgba, rgbaToHex, colorNone, colorConstant, opacityConstant, sizeNone, sizeConstant } from './ir/render-node'
 export { evaluate, type FeatureProps } from './eval/evaluator'
 export {
+  CAMERA_ZOOM_KEY, FEATURE_ID_KEY, GEOMETRY_TYPE_KEY,
+  makeEvalProps,
+  type ReservedKey,
+} from './eval/reserved-keys'
+export {
   formatValue, parseFormatSpec, parseTextTemplate, isBareExpressionTemplate,
   formatNumber, formatString, formatDMS, formatDM, formatBearing, formatDate,
 } from './format'

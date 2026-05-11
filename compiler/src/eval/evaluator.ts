@@ -3,13 +3,14 @@
 // Used for data-driven styling: size-[speed / 50 | clamp(4, 24)]
 
 import type * as AST from '../parser/ast'
+import { CAMERA_ZOOM_KEY } from './reserved-keys'
 
 /** A bag of feature properties (e.g., from GeoJSON properties). The
- *  reserved key `$zoom` carries the current camera zoom level when
- *  the caller wants `zoom`-keyed builtins (`interpolate(zoom, …)`)
- *  to evaluate to a concrete number. Callers that don't supply
- *  `$zoom` get null for the `zoom` identifier — same shape as a
- *  missing feature property. */
+ *  reserved key {@link CAMERA_ZOOM_KEY} (`$zoom`) carries the current
+ *  camera zoom level when the caller wants `zoom`-keyed builtins
+ *  (`interpolate(zoom, …)`) to evaluate to a concrete number. Callers
+ *  that don't supply that key get null for the `zoom` identifier —
+ *  same shape as a missing feature property. */
 export type FeatureProps = Record<string, unknown>
 
 /** Environment of user-defined functions for compile-time evaluation */
@@ -32,10 +33,11 @@ export function evaluate(expr: AST.Expr, props: FeatureProps, fnEnv?: FnEnv): un
       return expr.value
     case 'Identifier':
       // Special runtime identifier `zoom` — caller injects via the
-      // `$zoom` reserved key so the same evaluator works for
-      // per-feature (worker, no zoom available) and per-frame
-      // (renderer, zoom known) call sites without API divergence.
-      if (expr.name === 'zoom') return props['$zoom'] ?? null
+      // `CAMERA_ZOOM_KEY` reserved key (see ./reserved-keys.ts) so
+      // the same evaluator works for per-feature (worker, no zoom
+      // available) and per-frame (renderer, zoom known) call sites
+      // without API divergence.
+      if (expr.name === 'zoom') return props[CAMERA_ZOOM_KEY] ?? null
       return props[expr.name] ?? null
     case 'FieldAccess':
       return evaluateFieldAccess(expr, props, fnEnv)
