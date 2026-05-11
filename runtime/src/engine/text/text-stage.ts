@@ -176,6 +176,20 @@ export class TextStage {
     this.dpr = dpr > 0 ? dpr : 1
   }
 
+  /** Optional per-call hook fired once per addLabel /
+   *  addCurvedLineLabel submission BEFORE collision. The hook receives
+   *  the final-rendered text string + the screen-pixel anchor + the
+   *  kind ('point' vs 'curve'). Used by the playground's
+   *  `#labels-debug` URL flag to attach a DOM overlay on mobile where
+   *  console debugging isn't available. Hook is called once per
+   *  submission — collision-dropped labels still trigger it (so the
+   *  user can SEE which submissions are being made even if collision
+   *  hides them visually). */
+  setLabelDebugHook(hook: ((text: string, ax: number, ay: number, kind: 'point' | 'curve') => void) | undefined): void {
+    this._debugHook = hook
+  }
+  private _debugHook?: (text: string, ax: number, ay: number, kind: 'point' | 'curve') => void
+
   /** Default prewarm set: '0'..'9', '.,:;-+°\'\"NSEW '. Covers
    *  cursor coord readouts, timestamps, distance/bearing labels. */
   prewarmGISDefaults(fontKey?: string): void {
@@ -205,6 +219,13 @@ export class TextStage {
     const text = resolveText(value, props)
     if (text.length === 0) return
     const transformed = applyTextTransform(text, def.transform)
+    if (this._debugHook && polylineX.length > 0) {
+      // Approximate the curve's anchor as its first vertex — enough
+      // for the debug overlay to pin down a screen position. Mid-
+      // point would require walking centerOffsetPx, which isn't
+      // worth the cost for a debug-only path.
+      this._debugHook(transformed, polylineX[0]!, polylineY[0]!, 'curve')
+    }
     this.pendingLine.push({
       text: transformed,
       polylineX, polylineY, centerOffsetPx,
@@ -228,6 +249,9 @@ export class TextStage {
     const text = resolveText(value, props)
     if (text.length === 0) return
     const transformed = applyTextTransform(text, def.transform)
+    if (this._debugHook) {
+      this._debugHook(transformed, anchorScreenX, anchorScreenY, 'point')
+    }
     this.pending.push({
       text: transformed,
       anchorX: anchorScreenX,

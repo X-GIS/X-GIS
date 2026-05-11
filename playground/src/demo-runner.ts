@@ -398,6 +398,97 @@ const TAG_LABELS_DROPDOWN: Record<string, string> = {
   for (const tag of [...byTag.keys()].filter(t => !seen.has(t)).sort()) addGroup(tag)
 }
 
+// ── ?debug=labels overlay ───────────────────────────────────────────
+//
+// Mobile-friendly diagnostic: install a DOM overlay that visualises
+// every label submitted to the text stage. Each addLabel /
+// addCurvedLineLabel fires a hook with (text, anchorX, anchorY, kind);
+// we accumulate ~200ms windows and group submissions whose anchors
+// land within 5 px of each other to expose stacking. Each cluster
+// renders as a colored dot + a small text box showing the unique text
+// values and submission count.
+//
+// This is the on-device equivalent of monkey-patching addLabel in the
+// browser console — useful when iOS/Android lack devtools. Pure
+// overlay; no rendering pipeline changes. Activated by `?debug=labels`
+// in the playground URL so it's opt-in and stays out of normal runs.
+function installLabelDebugOverlay(map: XGISMap): void {
+  // Reuse a previously-injected overlay if the demo is being
+  // reloaded — prevents stacked z-index ghosts across demo swaps.
+  let overlay = document.getElementById('xgis-labels-debug')
+  if (!overlay) {
+    overlay = document.createElement('div')
+    overlay.id = 'xgis-labels-debug'
+    overlay.style.cssText =
+      'position:fixed;top:0;left:0;right:0;bottom:0;'
+      + 'pointer-events:none;z-index:9999;overflow:hidden;'
+    document.body.appendChild(overlay)
+  }
+  // Recent submissions buffer. The text stage fires the hook from
+  // map.ts → addLabel for every feature in every visible label
+  // layer, every frame. Capping at 600 across both `kind`s keeps
+  // DOM updates cheap on mobile.
+  const recent: Array<{ text: string; ax: number; ay: number; kind: 'point' | 'curve' }> = []
+  const MAX_RECENT = 600
+  map.setLabelDebugHook((text, ax, ay, kind) => {
+    recent.push({ text, ax, ay, kind })
+    if (recent.length > MAX_RECENT) recent.shift()
+  })
+  const dpr = window.devicePixelRatio || 1
+  // Render the overlay periodically rather than per-frame — DOM
+  // mutation per label is too expensive even on desktop, and the
+  // user is comparing across a few seconds anyway.
+  setInterval(() => {
+    if (!overlay) return
+    if (recent.length === 0) {
+      if (overlay.childElementCount > 0) overlay.replaceChildren()
+      return
+    }
+    // Cluster by 5-CSS-px proximity so stacked submissions at the
+    // same anchor collapse into one marker showing their count.
+    interface Group { ax: number; ay: number; texts: Set<string>; count: number; kind: 'point' | 'curve' }
+    const groups = new Map<string, Group>()
+    for (const l of recent) {
+      const cssX = l.ax / dpr
+      const cssY = l.ay / dpr
+      const k = `${l.kind}|${Math.round(cssX / 5) * 5},${Math.round(cssY / 5) * 5}`
+      let g = groups.get(k)
+      if (!g) {
+        g = { ax: cssX, ay: cssY, texts: new Set<string>(), count: 0, kind: l.kind }
+        groups.set(k, g)
+      }
+      g.texts.add(l.text)
+      g.count++
+    }
+    overlay.replaceChildren()
+    for (const g of groups.values()) {
+      const color = g.kind === 'curve' ? '#0078ff' : '#e23030'
+      const dot = document.createElement('div')
+      dot.style.cssText =
+        `position:absolute;left:${g.ax}px;top:${g.ay}px;`
+        + 'width:6px;height:6px;border-radius:50%;'
+        + `background:${color};transform:translate(-50%,-50%);`
+        + 'box-shadow:0 0 0 1px #fff;'
+      overlay.appendChild(dot)
+      const box = document.createElement('div')
+      const uniqueTexts = [...g.texts]
+      const headline = uniqueTexts.length > 1
+        ? `[${uniqueTexts.length} texts] ${uniqueTexts.slice(0, 2).join(' · ').slice(0, 50)}…`
+        : (uniqueTexts[0] ?? '').slice(0, 60)
+      box.style.cssText =
+        `position:absolute;left:${g.ax + 8}px;top:${g.ay - 8}px;`
+        + 'font:10px/1.2 -apple-system,monospace;'
+        + 'background:rgba(255,255,255,0.92);'
+        + `color:${color};border:1px solid ${color};`
+        + 'padding:2px 4px;border-radius:3px;'
+        + 'white-space:pre;max-width:240px;overflow:hidden;'
+      box.textContent = `${g.count}× ${headline}`
+      overlay.appendChild(box)
+    }
+    recent.length = 0
+  }, 250)
+}
+
 // ── URL hash sync (MapLibre style: #zoom/lat/lon/bearing/pitch) ──
 const R_EARTH = 6378137
 const DEG = 180 / Math.PI
@@ -616,6 +707,14 @@ async function runSource(source: string, label: string) {
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
     // demo runner. Keep it lightweight; not part of the public API.
     ;(window as unknown as { __xgisMap?: unknown }).__xgisMap = currentMap
+    // ?debug=labels — mobile-friendly label diagnostic overlay (no
+    // dev tools required). Renders a colored dot + small text snippet
+    // at every submitted label anchor, with per-anchor submission
+    // count. Lets users SEE which labels are firing where on mobile
+    // where console scripts aren't an option.
+    if (new URL(window.location.href).searchParams.get('debug') === 'labels') {
+      installLabelDebugOverlay(currentMap)
+    }
     // ?profile=1 — render the X-GIS Inspector (tabbed live diag panel).
     // Pair with ?gpuprof=1 for WebGPU timestamp-query GPU-pass timing.
     if (new URL(window.location.href).searchParams.get('profile') === '1') {
