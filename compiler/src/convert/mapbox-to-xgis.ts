@@ -46,7 +46,50 @@ import { convertSource, type ConvertSourceOptions } from './sources'
 import { convertLayer } from './layers'
 import { colorToXgis } from './colors'
 
-export interface ConvertMapboxStyleOptions extends ConvertSourceOptions {}
+/** Per-source record emitted into the optional `coverage` collector.
+ *  `reasons` holds warnings pushed during that source's conversion
+ *  (sliced from the shared `warnings` array). `action` is derived from
+ *  the converter's output, not from a separate signal — so the record
+ *  reflects what actually happened. */
+export interface SourceCoverage {
+  id: string
+  type: string
+  action: 'converted' | 'skipped' | 'lossy'
+  reasons: string[]
+}
+
+/** Per-layer record emitted into the optional `coverage` collector.
+ *  Action derivation:
+ *   - `'skipped'`: layer body is a `// SKIPPED` comment (heatmap,
+ *     hillshade — types in SKIP_REASONS, or future unsupported types)
+ *   - `'lossy'`: layer converted but the run pushed at least one
+ *     warning attributing to this layer (e.g. ignored paint props,
+ *     symbol with non-convertible text-field, circle with extra props)
+ *   - `'converted'`: layer body emitted with zero new warnings */
+export interface LayerCoverage {
+  layerId: string
+  type: string
+  action: 'converted' | 'skipped' | 'lossy'
+  reasons: string[]
+}
+
+/** Full per-style coverage record. Pass an empty `StyleCoverage` in
+ *  via `ConvertMapboxStyleOptions.coverage`; the converter populates
+ *  it in place. The returned xgis string is byte-identical to the
+ *  no-collector call — coverage is observation, not transformation. */
+export interface StyleCoverage {
+  sources: SourceCoverage[]
+  layers: LayerCoverage[]
+  warnings: string[]
+}
+
+export interface ConvertMapboxStyleOptions extends ConvertSourceOptions {
+  /** When provided, the converter populates this collector with
+   *  per-source / per-layer coverage records derived from the
+   *  conversion run. Backwards-compatible — omit for the existing
+   *  string-only return contract. */
+  coverage?: StyleCoverage
+}
 
 /** Convert a Mapbox Style JSON (already parsed or raw string) into
  *  an xgis source string. The result is meant to be human-readable
@@ -72,8 +115,20 @@ export function convertMapboxStyle(
 
   // ── Sources ────────────────────────────────────────────────────────
   for (const [id, src] of Object.entries(style.sources ?? {})) {
-    lines.push(convertSource(id, src, warnings, options))
+    const before = warnings.length
+    const block = convertSource(id, src, warnings, options)
+    lines.push(block)
     lines.push('')
+    if (options?.coverage) {
+      const reasons = warnings.slice(before)
+      options.coverage.sources.push({
+        id,
+        type: src.type,
+        action: block.includes('// SKIPPED') ? 'skipped'
+          : reasons.length > 0 ? 'lossy' : 'converted',
+        reasons,
+      })
+    }
   }
 
   // ── Background layer (Mapbox `background` type) ────────────────────
@@ -81,21 +136,43 @@ export function convertMapboxStyle(
   // rather than a layer with `paint.background-color`.
   const bgLayer = (style.layers ?? []).find(l => l.type === 'background')
   if (bgLayer) {
+    const before = warnings.length
     const color = bgLayer.paint?.['background-color']
     const colorStr = colorToXgis(color, warnings)
     if (colorStr) {
       lines.push(`background { fill: ${colorStr} }`)
       lines.push('')
     }
+    if (options?.coverage) {
+      const reasons = warnings.slice(before)
+      options.coverage.layers.push({
+        layerId: bgLayer.id,
+        type: 'background',
+        action: colorStr ? (reasons.length > 0 ? 'lossy' : 'converted') : 'skipped',
+        reasons,
+      })
+    }
   }
 
   // ── Layers ─────────────────────────────────────────────────────────
   for (const layer of style.layers ?? []) {
     if (layer.type === 'background') continue // handled above
+    const before = warnings.length
     const block = convertLayer(layer, warnings)
     if (block) {
       lines.push(block)
       lines.push('')
+    }
+    if (options?.coverage) {
+      const reasons = warnings.slice(before)
+      const isSkipped = block === null || /^\s*\/\/ SKIPPED/.test(block ?? '')
+      options.coverage.layers.push({
+        layerId: layer.id,
+        type: layer.type,
+        action: isSkipped ? 'skipped'
+          : reasons.length > 0 ? 'lossy' : 'converted',
+        reasons,
+      })
     }
   }
 
@@ -104,6 +181,10 @@ export function convertMapboxStyle(
     lines.push('/* Conversion notes (review before running):')
     for (const w of warnings) lines.push(' *   • ' + w)
     lines.push(' */')
+  }
+
+  if (options?.coverage) {
+    options.coverage.warnings.push(...warnings)
   }
 
   return lines.join('\n').trimEnd() + '\n'
