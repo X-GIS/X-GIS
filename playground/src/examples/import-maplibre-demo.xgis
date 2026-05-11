@@ -1,0 +1,16 @@
+/* One-line `import "url"` of the official MapLibre demo style
+ * (https://demotiles.maplibre.org/style.json).
+ *
+ * Same auto-detect + splice path as `import-mapbox-style.xgis`,
+ * but pointed at the canonical MapLibre demo target. Confirms
+ * convertMapboxStyle handles:
+ *   • vector source via TileJSON URL (no .pmtiles extension)
+ *   • geojson source with inline `data` (the `crimea` Feature)
+ *   • background fill (#D8F2FF)
+ *   • country fill / boundary line layers
+ * Symbol layers (geolines-label, countries-label) are skipped
+ * with conversion warnings — text rendering isn't covered by
+ * this importer path yet.
+ */
+
+import "https://demotiles.maplibre.org/style.json"
