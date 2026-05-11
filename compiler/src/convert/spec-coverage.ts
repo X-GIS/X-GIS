@@ -180,7 +180,7 @@ const PAINT_LINE: readonly CoverageEntry[] = [
   { name: 'line-width',     status: 'partial', impact: 'high', note: 'exponential `base` dropped — interpolation folded to linear. 65 layers in OFM Bright use base ≠ 1.', source: 'paint.ts:113' },
   { name: 'line-opacity',   status: 'supported', source: 'paint.ts:133' },
   { name: 'line-dasharray', status: 'partial', impact: 'medium', note: 'Constant numeric array only — interpolate-by-zoom dasharray not lowered.', source: 'paint.ts:126' },
-  { name: 'line-blur',      status: 'unsupported', impact: 'medium', note: 'Line shader has no blur uniform yet (MapLibre demo uses it).' },
+  { name: 'line-blur',      status: 'supported', note: 'Edge feathering in CSS px. The line shader uses `aa_width_px` to widen both the geometry quad and the smoothstep range so the edge soft-fades over `1.5 + blur` px each side. Constant only — interpolate-by-zoom warns and drops.', source: 'paint.ts:190' },
   { name: 'line-gap-width', status: 'unsupported', impact: 'medium', note: 'Used for road casings.' },
   { name: 'line-offset',    status: 'supported', note: 'Positive Mapbox values (right of travel) → `stroke-offset-right-N`; negative → `stroke-offset-left-N`. The xgis line renderer threads `strokeOffset` through to the vertex shader including offset-aware miter / join geometry. Constant only — interpolate-by-zoom warns and drops.', source: 'paint.ts:175' },
   { name: 'line-translate', status: 'unsupported', impact: 'low' },

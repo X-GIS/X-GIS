@@ -428,6 +428,10 @@ export interface StrokeValue {
   patterns?: StrokePattern[]
   /** Lateral parallel offset in pixels. Positive = left of travel. */
   offset?: number
+  /** Edge feathering width in CSS pixels (Mapbox `paint.line-blur`).
+   *  0 (default) preserves crisp 1.5 px AA expansion; positive values
+   *  soft-fade the edge over `1.5 + blur` px each side. */
+  blur?: number
   /** Stroke alignment relative to the centerline. Default 'center'.
    *  Inset shifts the stroke onto the left side of travel by half-width
    *  (so the stroke's right edge sits on the original line); outset shifts

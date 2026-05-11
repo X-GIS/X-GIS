@@ -28,6 +28,7 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     addStrokeDash(out, p['line-dasharray'], warnings)
     addOpacity(out, p['line-opacity'], warnings)
     addLineOffset(out, p['line-offset'], warnings)
+    addLineBlur(out, p['line-blur'], warnings)
   } else if (layer.type === 'fill-extrusion') {
     addFill(out, p['fill-extrusion-color'], warnings)
     addOpacity(out, p['fill-extrusion-opacity'], warnings)
@@ -221,6 +222,20 @@ function addLineOffset(out: string[], v: unknown, warnings: string[]): void {
   // Non-constant — interpolate-by-zoom or per-feature expression.
   // No binding-form handler in lower.ts yet; warn and skip.
   warnings.push(`paint.line-offset: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
+}
+
+/** Mapbox `paint.line-blur` (edge feathering, CSS px) → xgis
+ *  `stroke-blur-N`. The line shader's `aa_width_px` uniform absorbs
+ *  the blur as both geometry expansion AND smoothstep widening, so a
+ *  blur of N px soft-fades the edge over `1.5 + N` px each side. */
+function addLineBlur(out: string[], v: unknown, warnings: string[]): void {
+  if (v === undefined) return
+  if (typeof v === 'number') {
+    if (v <= 0) return
+    out.push(`stroke-blur-${v}`)
+    return
+  }
+  warnings.push(`paint.line-blur: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
 }
 
 function addStrokeDash(out: string[], v: unknown, _warnings: string[]): void {

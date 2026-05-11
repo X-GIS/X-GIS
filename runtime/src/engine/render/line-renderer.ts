@@ -1233,7 +1233,12 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
 
   // Convert to pixels
   let d_px = d_m / layer.mpp;
-  let aa = 1.0;
+  // Mapbox line-blur widens both the geometry quad and the
+  // smoothstep feathering by the requested px. aa_width_px carries
+  // 1.5 + blur from packLineLayerUniform; subtract the 0.5 quad
+  // margin reserved for sub-pixel coverage so the fragment edge sits
+  // at the requested smoothstep distance.
+  let aa = max(1.0, layer.aa_width_px - 0.5);
   let alpha = 1.0 - smoothstep(-aa, aa, d_px);
   if (alpha < 0.005) { discard; }
   // Per-segment stroke colour override (RGBA8 packed). Compound
@@ -1613,6 +1618,7 @@ export class LineRenderer {
     patterns: PatternSlot[] = [],
     offsetPx: number = 0,
     viewportHeight: number = 1,
+    blurPx: number = 0,
   ): number {
     // Pattern sanity checks (deduped, one warning per condition per
     // LineRenderer instance). Runs on the parameter set BEFORE packing so
@@ -1627,7 +1633,7 @@ export class LineRenderer {
     this.layerSlot++
     const data = packLineLayerUniform(
       strokeColor, strokeWidthPx, opacity, mppAtCenter,
-      cap, join, miterLimit, dash, patterns, offsetPx, viewportHeight,
+      cap, join, miterLimit, dash, patterns, offsetPx, viewportHeight, blurPx,
     )
     // Stage into the CPU mirror; flushLayerStaging (called from the
     // map's render loop via `endFrame()`) emits a single writeBuffer

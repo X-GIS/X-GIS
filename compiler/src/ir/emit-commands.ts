@@ -92,6 +92,8 @@ export interface ShowCommand {
   strokeOffset?: number
   /** Stroke alignment — 'inset' / 'outset' shift by ±half_width at runtime. */
   strokeAlign?: 'center' | 'inset' | 'outset'
+  /** Mapbox `paint.line-blur` edge feathering in CSS px (0 = crisp). */
+  strokeBlur?: number
   // ── Animation ──
   //
   // PR 1 shipped time*Opacity; PR 3 adds time* stops for fill/stroke
@@ -247,6 +249,7 @@ function emitShow(node: RenderNode): ShowCommand {
     patterns: node.stroke.patterns,
     strokeOffset: node.stroke.offset,
     strokeAlign: node.stroke.align,
+    strokeBlur: node.stroke.blur,
     timeOpacityStops,
     timeFillStops,
     timeStrokeStops,
