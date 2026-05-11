@@ -116,7 +116,7 @@ const LAYOUT_FILL_LINE: readonly CoverageEntry[] = [
 ]
 
 const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
-  { name: 'symbol-placement',     status: 'partial', impact: 'medium', note: 'point / line / line-center literals only — zoom-step expression form not lowered (OFM Bright highway-shield-* layers).', source: 'layers.ts:447' },
+  { name: 'symbol-placement',     status: 'supported', note: 'point / line / line-center literals; `["step", ["zoom"], …]` form expands to multiple layers with intersected minzoom/maxzoom + segment-resolved placement (OFM Bright highway-shield-* coverage). Non-zoom step inputs fall back to default placement.', source: 'layers.ts:447' },
   { name: 'symbol-spacing',       status: 'supported', note: 'Defaults to 250 px when missing on line placement.', source: 'layers.ts:471' },
   { name: 'symbol-avoid-edges',   status: 'unsupported', impact: 'low' },
   { name: 'symbol-sort-key',      status: 'unsupported', impact: 'medium', note: 'Layer draw order is style order; per-feature override not honoured.' },
