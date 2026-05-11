@@ -22,11 +22,44 @@
 
 import { computeSDF } from './distance-transform'
 
+/** Sentinel prefix that marks a fontKey as carrying weight/style.
+ *
+ *  Format: `<SENTINEL><style><SENTINEL><weight><SENTINEL><family-list>`.
+ *  Plain family-list strings (no sentinel) keep the legacy code path
+ *  (weight defaults to 400 / normal). Tucking the fields into the
+ *  fontKey itself keeps the atlas cache key (`fontKey` opaque) doing
+ *  the right thing for free — Regular and Bold of the same family
+ *  hash to different slots without atlas-state needing to know they
+ *  exist. \x01 (Start-of-Heading) is non-printable + can never appear
+ *  in a real CSS font family name, so the split is unambiguous. */
+export const FONT_KEY_SENTINEL = '\x01'
+
+/** Unpack a fontKey produced by `composeFontKey` (text-stage.ts).
+ *  Exported for the round-trip unit test only — production callers
+ *  go through `rasterize()` which does the split internally. */
+export function parseFontKey(fontKey: string): { style: string; weight: string; family: string } {
+  if (!fontKey.startsWith(FONT_KEY_SENTINEL)) {
+    return { style: 'normal', weight: '400', family: fontKey }
+  }
+  const parts = fontKey.split(FONT_KEY_SENTINEL)
+  // After leading-sentinel split: ["", style, weight, family, ...]
+  // Defensive defaults — a malformed key still rasterises rather than
+  // throwing, which would blank an entire label layer at render time.
+  return {
+    style: parts[1] && parts[1].length > 0 ? parts[1] : 'normal',
+    weight: parts[2] && parts[2].length > 0 ? parts[2] : '400',
+    family: parts[3] ?? '',
+  }
+}
+
 export interface GlyphRasterRequest {
   /** CSS-style font shorthand the Canvas2D ctx.font expects.
    *  E.g. "16px Noto Sans". The atlas key uses just `fontKey`
    *  (the family + style portion) so multiple display sizes
-   *  share one rasterisation. */
+   *  share one rasterisation. May be either a plain family-list
+   *  (legacy) or a sentinel-encoded `style|weight|family-list`
+   *  produced by text-stage's composeFontKey — the rasterizer
+   *  unpacks the latter into proper CSS shorthand. */
   fontKey: string
   /** Pixel size to rasterise at. The atlas typically uses one
    *  fixed size per font and lets the shader scale at draw time
@@ -95,7 +128,13 @@ export class Canvas2DRasterizer implements GlyphRasterizer {
 
     ctx.clearRect(0, 0, slotSize, slotSize)
     ctx.fillStyle = '#000'
-    ctx.font = `${fontSize}px ${fontKey}`
+    // CSS font shorthand requires style/variant/weight/stretch BEFORE
+    // size/family. Composing `${size}px ${fontKey}` only works when
+    // fontKey is bare family; sentinel-encoded keys carry weight/style
+    // that the browser would otherwise parse as part of the family
+    // name (and silently fall back to the OS default font).
+    const parsed = parseFontKey(fontKey)
+    ctx.font = `${parsed.style} ${parsed.weight} ${fontSize}px ${parsed.family}`
     ctx.textBaseline = 'alphabetic'
     ctx.textAlign = 'left'
 

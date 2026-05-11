@@ -919,7 +919,7 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
-    it('text-font stack → multiple label-font-X utilities (browser-native fallback)', () => {
+    it('text-font stack → one label-font-FAMILY utility per entry with weight stripped', () => {
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
         layers: [{
@@ -930,11 +930,80 @@ describe('Mapbox → xgis converter', () => {
           } as never,
         }],
       })
-      // Each font in the stack becomes its own utility — the lower
-      // pass appends them into LabelDef.font[]. Browser walks the
-      // stack glyph-by-glyph at ctx.font time.
-      expect(out).toContain('label-font-Noto-Sans-Regular')
-      expect(out).toContain('label-font-Noto-Sans-CJK-Regular')
+      // Family-only utilities (the "Regular" suffix is parsed into
+      // a separate weight value — 400 = CSS default, so nothing else
+      // is emitted here). The lower pass appends each family into
+      // LabelDef.font[]; the runtime joins them as a CSS family list
+      // so the browser walks the stack glyph-by-glyph at ctx.font time.
+      expect(out).toContain('label-font-Noto-Sans ')
+      expect(out).toContain('label-font-Noto-Sans-CJK')
+      // Weight 400 is the CSS default — no utility emitted to keep
+      // the converted output minimal.
+      expect(out).not.toContain('label-font-weight-')
+      expect(out).not.toContain('label-italic')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-font Bold suffix → label-font-weight-700 alongside family-only utility', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'f', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-font': ['Noto Sans Bold'],
+          } as never,
+        }],
+      })
+      // Family stripped of its weight word — browser can now match
+      // "Noto Sans" as a real family name and apply weight 700 via
+      // the ctx.font shorthand the runtime composes.
+      expect(out).toContain('label-font-Noto-Sans')
+      expect(out).toContain('label-font-weight-700')
+      // Old behaviour was `label-font-Noto-Sans-Bold` as a single
+      // family name — the browser failed to match it and silently
+      // fell back to default Regular. This regression guards the fix.
+      expect(out).not.toContain('label-font-Noto-Sans-Bold')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-font Italic suffix → label-italic boolean utility', () => {
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'f', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-font': ['Noto Sans Italic'],
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-font-Noto-Sans')
+      expect(out).toContain('label-italic')
+      // `style` is a reserved xgis keyword (top-level `style { … }`
+      // block) — the dotted `label-font-style-italic` form would
+      // break the utility-name parser mid-token.
+      expect(out).not.toContain('label-font-style-')
+      expect(parses(out)).toBe(true)
+    })
+
+    it('text-font two-word weight ("Semi Bold", "Extra Bold") → numeric label-font-weight-N', () => {
+      // Real-world: many MapTiler / OpenMapTiles styles emit
+      // ["Noto Sans Semi Bold"] — the two-word form has to fold to a
+      // single 600/800 weight or the family ends up with "Semi Bold"
+      // stuck onto its name.
+      const out = convertMapboxStyle({
+        version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
+        layers: [{
+          id: 'f', type: 'symbol', source: 'x', 'source-layer': 'pts',
+          layout: {
+            'text-field': '{name}',
+            'text-font': ['Noto Sans Semi Bold'],
+          } as never,
+        }],
+      })
+      expect(out).toContain('label-font-Noto-Sans')
+      expect(out).toContain('label-font-weight-600')
       expect(parses(out)).toBe(true)
     })
 

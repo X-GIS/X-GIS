@@ -27,6 +27,40 @@ import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
 import { createRasterizer, type GlyphRasterizer } from './sdf/glyph-rasterizer'
 import { TextRenderer, type TextDraw } from './text-renderer'
 import { greedyPlaceBboxes, type CollisionItem } from './text-collision'
+import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
+
+/** Compose the rasterizer-visible font key for one label.
+ *
+ *  Format when weight/style are unset: plain CSS family-list string
+ *  ("Foo, Bar, sans-serif"). When the LabelDef carries a fontWeight
+ *  or fontStyle, the helper prepends a sentinel-delimited prefix:
+ *
+ *      \x01<style>\x01<weight>\x01<family-list>
+ *
+ *  glyph-rasterizer.ts detects the sentinel and unpacks the three
+ *  fields into a properly-ordered CSS font shorthand
+ *  ("italic 700 24px Foo, sans-serif"). Without this, the only way
+ *  to carry weight info through ctx.font is to embed it in the
+ *  family name itself, which CSS parses literally and the browser
+ *  silently falls back to its default font — the root cause of "all
+ *  Mapbox labels look the same Regular weight".
+ *
+ *  CJK_FALLBACK_CHAIN is appended after any user-supplied family
+ *  list so Mapbox styles that only declare "Noto Sans Regular"
+ *  still pick up a Korean / Japanese / Chinese font from the host
+ *  OS for glyphs the primary family lacks. */
+function composeFontKey(def: LabelDef, defaultFamily: string): string {
+  const family = def.font && def.font.length > 0
+    ? def.font.map(f => f.includes(' ') ? `"${f}"` : f).join(',')
+      + ',' + CJK_FALLBACK_CHAIN
+    : defaultFamily
+  if (def.fontStyle === undefined && def.fontWeight === undefined) {
+    return family
+  }
+  const style = def.fontStyle ?? 'normal'
+  const weight = def.fontWeight ?? 400
+  return `${FONT_KEY_SENTINEL}${style}${FONT_KEY_SENTINEL}${weight}${FONT_KEY_SENTINEL}${family}`
+}
 
 export interface TextStageOptions {
   /** Atlas slot side length in pixels. Each glyph rasterises into
@@ -50,16 +84,28 @@ export interface TextStageOptions {
 }
 
 // Slot must fit (rasterFontSize + 2*sdfRadius) — ascenders/descenders
-// of a 24-px raster font extend ~28-30 px, plus 6 px SDF radius on
-// each side ⇒ 40-42 px needed. Round to 48 for some headroom on
-// CJK/diacritics. The previous 32 default clipped both descenders and
-// the SDF falloff, producing visible halo cutoffs.
+// of a 32-px raster font extend ~38-40 px, plus 8 px SDF radius on
+// each side ⇒ 54-56 px needed. Round to 64 for some headroom on
+// CJK/diacritics. The previous 24-px raster lost too much stroke
+// detail on Hangul / Han and visibly softened any label drawn above
+// ~32 px display size (POI labels at high zoom).
+//
+// pageSize 2304 = 36 slots/side at slotSize 64 → 1296 slots per
+// page. Multi-page atlases handle CJK-heavy maps via the renderer's
+// per-page bind groups; no change to that path.
+//
+// defaultFont chains common CJK fallbacks AFTER sans-serif so an
+// engine-level label without a Mapbox font stack still reads
+// Hangul/Han correctly on every host OS we ship on (macOS / Win /
+// Linux). Per-label font stacks coming from Mapbox styles get the
+// same fallback chain appended in addLabel/addCurvedLineLabel.
+const CJK_FALLBACK_CHAIN = '"Noto Sans CJK KR","Apple SD Gothic Neo","Malgun Gothic","Microsoft YaHei","Noto Sans CJK JP","Hiragino Sans","Yu Gothic",sans-serif'
 const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer'>> = {
-  slotSize: 48,
+  slotSize: 64,
   pageSize: 2304,
-  rasterFontSize: 24,
-  sdfRadius: 6,
-  defaultFont: 'sans-serif',
+  rasterFontSize: 32,
+  sdfRadius: 8,
+  defaultFont: CJK_FALLBACK_CHAIN,
 }
 
 interface PendingLabel {
@@ -163,9 +209,7 @@ export class TextStage {
       text: transformed,
       polylineX, polylineY, centerOffsetPx,
       def,
-      fontKey: fontKey ?? (def.font && def.font.length > 0
-        ? def.font.map(f => f.includes(' ') ? `"${f}"` : f).join(',')
-        : this.opts.defaultFont),
+      fontKey: fontKey ?? composeFontKey(def, this.opts.defaultFont),
     })
   }
 
@@ -189,13 +233,7 @@ export class TextStage {
       anchorX: anchorScreenX,
       anchorY: anchorScreenY,
       def,
-      // font stack → comma-separated CSS font value. The browser's
-      // ctx.font parser walks the stack glyph-by-glyph. Names with
-      // spaces are quoted to avoid the parser ambiguating them as
-      // separate entries.
-      fontKey: fontKey ?? (def.font && def.font.length > 0
-        ? def.font.map(f => f.includes(' ') ? `"${f}"` : f).join(',')
-        : this.opts.defaultFont),
+      fontKey: fontKey ?? composeFontKey(def, this.opts.defaultFont),
     })
   }
 
