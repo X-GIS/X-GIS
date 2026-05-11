@@ -605,15 +605,42 @@ export class TextStage {
       })
     }
 
-    // Phase 2: greedy bbox collision with per-label candidate fallback.
-    // Input order is the per-frame queue order (= feature order from
-    // the source). See text-collision.ts for the algorithm.
+    // Phase 2: greedy bbox collision.
+    //
+    // Mapbox / MapLibre collision semantic: a label belonging to a
+    // LATER layer in the style takes precedence over an earlier
+    // layer's label when their bboxes overlap. The mental model is
+    // "the layer you draw on top wins the screen real-estate
+    // contest" — countries (last in OFM Bright) beat water_name
+    // labels (first) at the antimeridian; POI labels (mid-stack)
+    // beat road shields when they collide.
+    //
+    // Our `pending` queue is populated in style order — water first,
+    // country last — because map.ts iterates showCommands forward.
+    // greedyPlaceBboxes is first-wins, so a naïve forward call lets
+    // water labels claim the bbox real-estate and drops the country
+    // ones. That's the wrong precedence and visibly so on low-zoom
+    // mobile views (multiple sea names crowd out country labels
+    // around the antimeridian).
+    //
+    // Fix: iterate the collision input in REVERSE so later layers
+    // place first. Draw order stays in original `shaped` order so
+    // the layered rendering effect (country text on top of water
+    // halo) is preserved — only the collision dedup priority flips.
     const collisionInput: CollisionItem[] = shaped.map(s => ({
       bboxes: s.layouts.map(l => l.bbox),
       allowOverlap: s.allowOverlap,
       ignorePlacement: s.ignorePlacement,
     }))
-    const placements = greedyPlaceBboxes(collisionInput)
+    const reversed: CollisionItem[] = []
+    for (let i = collisionInput.length - 1; i >= 0; i--) reversed.push(collisionInput[i]!)
+    const placementsReversed = greedyPlaceBboxes(reversed)
+    // Map back to original index space so the draw loop below reads
+    // the right placement per shaped[i].
+    const placements: typeof placementsReversed = new Array(shaped.length)
+    for (let i = 0; i < placementsReversed.length; i++) {
+      placements[shaped.length - 1 - i] = placementsReversed[i]!
+    }
     const draws: TextDraw[] = []
     for (let i = 0; i < shaped.length; i++) {
       const placement = placements[i]!

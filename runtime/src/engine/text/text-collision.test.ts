@@ -114,4 +114,40 @@ describe('greedyPlaceBboxes', () => {
       expect(r[1]).toEqual({ placed: true, chosen: 0 })
     })
   })
+
+  describe('Mapbox / MapLibre layer-order semantic (reverse-iterate)', () => {
+    // The text-stage's prepare() reverses the collision input order so
+    // that later layers (country) win over earlier layers (water_name)
+    // when bboxes overlap. This pins the algorithmic pattern.
+
+    it('reverse-iteration: later overlapping item wins, earlier drops', () => {
+      // Two overlapping labels — item 0 is "water" (earlier in style),
+      // item 1 is "country" (later in style). Both compete for the
+      // same screen real-estate.
+      const items = [
+        { bboxes: [bbox(0, 0, 10, 10)] },
+        { bboxes: [bbox(5, 5, 15, 15)] }, // overlaps item 0
+      ]
+      // Forward order (legacy first-wins): item 0 placed, item 1 drops.
+      const fwd = greedyPlaceBboxes(items)
+      expect(fwd[0].placed).toBe(true)
+      expect(fwd[1].placed).toBe(false)
+      // Reversed input: item 1 placed first (= country wins), item 0
+      // (water) drops. The text-stage maps the placements back to
+      // original indices before submitting to the renderer.
+      const reversed = [items[1], items[0]]
+      const rev = greedyPlaceBboxes(reversed)
+      expect(rev[0].placed).toBe(true)  // country
+      expect(rev[1].placed).toBe(false) // water
+    })
+
+    it('non-overlapping labels are unaffected by iteration order', () => {
+      const items = [
+        { bboxes: [bbox(0, 0, 10, 10)] },
+        { bboxes: [bbox(100, 100, 110, 110)] },
+      ]
+      expect(placedFlags(greedyPlaceBboxes(items))).toEqual([true, true])
+      expect(placedFlags(greedyPlaceBboxes([items[1], items[0]]))).toEqual([true, true])
+    })
+  })
 })
