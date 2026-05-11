@@ -51,25 +51,50 @@ describe('user-reported dateline cluster — what actually projects?', () => {
   const DPR = 3
   const PHYS_W = CSS_W * DPR, PHYS_H = CSS_H * DPR
 
-  it('dumps every world-copy projection for Korea/USA/Mexico/Russia/India at camera (178, 35.26, z=1.86)', () => {
-    const cam = new Camera(178.21660, 35.26713, 1.86)
-    cam.bearing = 0.3
-    cam.pitch = 2.2
+  it('dumps every world-copy projection at user hash #1.55/14.76/-179.31', () => {
+    // User-reported case where countries from Sweden / UK / Mexico
+    // / Vietnam / Australia all stack into a single vertical column
+    // near the antimeridian. Camera at lon=-179.31, near dateline,
+    // very low zoom (z=1.55 → world span ~94° on a mobile canvas).
+    const cam = new Camera(-179.31472, 14.76339, 1.55)
+    cam.bearing = 358.3
+    cam.pitch = 0
     const mvp = cam.getRTCMatrix(PHYS_W, PHYS_H, DPR)
     const ccx = cam.centerX
     const ccy = cam.centerY
+    // eslint-disable-next-line no-console
+    console.log('MVP matrix (column-major):')
+    for (let r = 0; r < 4; r++) {
+      const row: number[] = []
+      for (let c = 0; c < 4; c++) row.push(mvp[c * 4 + r]!)
+      // eslint-disable-next-line no-console
+      console.log('  ', row.map(v => v.toExponential(3)).join('  '))
+    }
 
     const features = [
-      { name: 'Gangwon (Korea)', lon: 128.5, lat: 37.7 },
-      { name: 'Kansas (USA)',    lon: -98.0, lat: 38.5 },
-      { name: 'Querétaro (Mex)', lon: -100.4, lat: 20.6 },
-      { name: 'Hubei (China)',   lon: 113.0, lat: 30.5 },
-      { name: 'Meghalaya (Ind)', lon: 91.0, lat: 25.5 },
-      { name: 'Sakha (Russia)',  lon: 130.0, lat: 65.0 },
-      { name: 'Kamchatka',       lon: 160.0, lat: 56.0 },
-      { name: 'Bering Sea',      lon: 175.0, lat: 60.0 },
-      { name: 'Sea of Japan',    lon: 135.0, lat: 40.0 },
-      { name: 'Pacific Ocean',   lon: 175.0, lat: 0.0 },
+      { name: 'Canada',          lon: -100, lat: 56 },
+      { name: 'Sweden',          lon: 18, lat: 60 },
+      { name: 'United Kingdom',  lon: -2, lat: 54 },
+      { name: 'Belgium',         lon: 4, lat: 50 },
+      { name: 'France',          lon: 2, lat: 46 },
+      { name: 'Italy',           lon: 12, lat: 42 },
+      { name: 'Portugal',        lon: -8, lat: 39 },
+      { name: 'Japan',           lon: 138, lat: 36 },
+      { name: 'Pakistan',        lon: 70, lat: 30 },
+      { name: 'Mexico',          lon: -100, lat: 23 },
+      { name: 'Vietnam',         lon: 108, lat: 16 },
+      { name: 'Ethiopia',        lon: 38, lat: 9 },
+      { name: 'Colombia',        lon: -74, lat: 4 },
+      { name: 'Indonesia',       lon: 113, lat: -0.5 },
+      { name: 'Peru',            lon: -75, lat: -10 },
+      { name: 'Brazil',          lon: -55, lat: -10 },
+      { name: 'Zambia',          lon: 28, lat: -15 },
+      { name: 'Bolivia',         lon: -65, lat: -17 },
+      { name: 'Australia',       lon: 135, lat: -25 },
+      { name: 'South Africa',    lon: 25, lat: -30 },
+      { name: 'Chile',           lon: -71, lat: -35 },
+      { name: 'Argentina',       lon: -64, lat: -34 },
+      { name: 'New Zealand',     lon: 174, lat: -41 },
     ]
     const worldCopies = [-2, -1, 0, 1, 2]
 

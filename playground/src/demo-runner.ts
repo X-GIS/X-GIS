@@ -435,6 +435,98 @@ function installLabelDebugOverlay(map: XGISMap): void {
     if (recent.length > MAX_RECENT) recent.shift()
   })
   const dpr = window.devicePixelRatio || 1
+
+  // ── On-device camera + projection diagnostic ─────────────────────
+  //
+  // Mobile testers can't open devtools. This panel exposes the
+  // numbers that would normally be `console.log`'d so projection
+  // anomalies (a label landing on screen despite ndcX > 1.5, or the
+  // matrix differing from what code review predicts) are visible
+  // without leaving the page.
+  //
+  // The panel shows: canvas physical / CSS dims, DPR, the four mvp
+  // matrix corners that drive ndcX/cw, and the projected ndcX of a
+  // canonical test point (Sweden, lon=18, lat=60). The user can
+  // cross-check the panel reading against the actual screen
+  // position of the Sweden label.
+  const diagPanel = document.createElement('div')
+  diagPanel.style.cssText =
+    'position:fixed;top:6px;right:6px;'
+    + 'z-index:10000;pointer-events:none;'
+    + 'background:rgba(0,0,0,0.78);color:#fff;'
+    + 'font:9px/1.25 monospace;padding:4px 6px;'
+    + 'border-radius:3px;max-width:240px;white-space:pre;'
+  document.body.appendChild(diagPanel)
+
+  // Approximate the same projection math map.ts uses, so the panel
+  // reads correspond 1:1 to the runtime call.
+  const DEG2RAD = Math.PI / 180
+  const EARTH_R = 6378137
+  function lonLatToMerc(lon: number, lat: number): [number, number] {
+    const clampedLat = Math.max(-85.0511, Math.min(85.0511, lat))
+    return [
+      lon * DEG2RAD * EARTH_R,
+      Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) * EARTH_R,
+    ]
+  }
+  function projectTestPoint(
+    mvp: Float32Array, w: number, h: number, ccx: number, ccy: number,
+    lon: number, lat: number,
+  ): { ndcX: number; visible: boolean; cssX: number; cssY: number } {
+    const [mx, my] = lonLatToMerc(lon, lat)
+    const rtcX = mx - ccx
+    const rtcY = my - ccy
+    const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
+    const ccx_ = mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!
+    const ccy_ = mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!
+    const ndcX = ccx_ / cw
+    const ndcY = ccy_ / cw
+    return {
+      ndcX,
+      visible: cw > 0 && ndcX >= -1.5 && ndcX <= 1.5 && ndcY >= -1.5 && ndcY <= 1.5,
+      cssX: (ndcX + 1) * 0.5 * (w / dpr),
+      cssY: (1 - ndcY) * 0.5 * (h / dpr),
+    }
+  }
+  // Test points: features whose label the user reports clustering
+  // even when they should be culled. If `visible: true` for these,
+  // projection accepts them and the bug is elsewhere; if `false`,
+  // some OTHER code path is submitting them.
+  const TEST_POINTS = [
+    { name: 'Sweden', lon: 18, lat: 60 },
+    { name: 'Mexico', lon: -100, lat: 23 },
+    { name: 'Brazil', lon: -55, lat: -10 },
+  ]
+  setInterval(() => {
+    const mapAny = map as unknown as {
+      ctx?: { canvas?: HTMLCanvasElement }
+      camera?: {
+        centerX: number; centerY: number;
+        getRTCMatrix?: (w: number, h: number, dpr: number) => Float32Array
+      }
+    }
+    const canvas = mapAny.ctx?.canvas
+    const cam = mapAny.camera
+    if (!canvas || !cam || !cam.getRTCMatrix) {
+      diagPanel.textContent = 'diag: camera/canvas not ready'
+      return
+    }
+    const w = canvas.width, h = canvas.height
+    const mvp = cam.getRTCMatrix(w, h, dpr)
+    const ccx = cam.centerX, ccy = cam.centerY
+    const lines: string[] = []
+    lines.push(`canvas: ${w}×${h} phys / ${w / dpr | 0}×${h / dpr | 0} css (dpr=${dpr})`)
+    lines.push(`mvp[0]=${mvp[0]!.toFixed(3)} mvp[5]=${mvp[5]!.toFixed(3)}`)
+    lines.push(`mvp[3]=${mvp[3]!.toFixed(3)} mvp[15]=${mvp[15]!.toExponential(2)}`)
+    lines.push(`ccx=${(ccx / 1e6).toFixed(2)}e6 ccy=${(ccy / 1e6).toFixed(2)}e6`)
+    for (const p of TEST_POINTS) {
+      const r = projectTestPoint(mvp, w, h, ccx, ccy, p.lon, p.lat)
+      const mark = r.visible ? '✓' : '✗'
+      lines.push(`${p.name}: ndcX=${r.ndcX.toFixed(2)} ${mark} css=(${r.cssX.toFixed(0)},${r.cssY.toFixed(0)})`)
+    }
+    diagPanel.textContent = lines.join('\n')
+  }, 500)
+
   // Render the overlay periodically rather than per-frame — DOM
   // mutation per label is too expensive even on desktop, and the
   // user is comparing across a few seconds anyway.
