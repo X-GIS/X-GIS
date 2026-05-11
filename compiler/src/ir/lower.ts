@@ -737,14 +737,19 @@ function lowerLayer(
           // collapsed to the default 1 px, so the entire highway
           // network rendered as hair-thin lines.
           const colorStops = extractInterpolateZoomColorStops(item.binding)
-          if (colorStops) {
-            const stops: ZoomStop<[number, number, number, number]>[] = []
-            for (const s of colorStops) {
-              const hex = resolveColor(s.value)
-              if (hex) stops.push({ zoom: s.zoom, value: hexToRgba(hex) })
-            }
-            if (stops.length > 0) {
-              strokeColor = { kind: 'zoom-interpolated', stops }
+          if (colorStops && colorStops.length > 0) {
+            // Last stop is the constant fallback. ColorValue doesn't
+            // (yet) have a `zoom-interpolated` variant for stroke; a
+            // proper per-frame stroke colour update path is parallel
+            // to the fill follow-up (see `name === 'fill'` arm).
+            // For now picking the highest-zoom colour gives the right
+            // appearance at typical viewing zoom and prevents the
+            // silent null-stroke drop.
+            const last = colorStops[colorStops.length - 1]!
+            const hex = resolveColor(last.value)
+            if (hex) {
+              const rgba = hexToRgba(hex)
+              strokeColor = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
             }
           } else {
             const widthStops = extractInterpolateZoomStops(item.binding)
