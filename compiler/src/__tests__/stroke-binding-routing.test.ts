@@ -41,13 +41,13 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     const ast = new Parser(tokens).parse()
     const scene = lower(ast)
     const node = scene.renderNodes[0]
-    // Pure zoom-driven width → goes via widthZoomStops (per-frame
-    // renderer interp), NOT widthExpr (which would freeze the width
-    // at tile-decode zoom in the worker).
-    expect(node!.stroke.widthZoomStops).toBeDefined()
-    expect(node!.stroke.widthZoomStops!.length).toBe(3)
-    expect(node!.stroke.widthZoomStopsBase).toBeCloseTo(1.2, 4)
-    expect(node!.stroke.widthExpr).toBeUndefined()
+    // Pure zoom-driven width → goes via the `zoom-stops` discriminant
+    // (per-frame renderer interp), NOT `per-feature` (which would
+    // freeze the width at tile-decode zoom in the worker).
+    expect(node!.stroke.width.kind).toBe('zoom-stops')
+    if (node!.stroke.width.kind !== 'zoom-stops') return
+    expect(node!.stroke.width.stops.length).toBe(3)
+    expect(node!.stroke.width.base).toBeCloseTo(1.2, 4)
   })
 
   it('Mapbox line-width interpolate(zoom) threads through ShowCommand.zoomStrokeWidthStops', () => {

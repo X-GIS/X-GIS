@@ -401,33 +401,41 @@ export interface StrokePattern {
   anchor?: 'repeat' | 'start' | 'end' | 'center'
 }
 
+/** A stroke width expressed as exactly ONE of three mutually-exclusive
+ *  forms. Pre-discriminated-union version, `StrokeValue` had four
+ *  optional fields (`width: number`, `widthExpr?`, `widthZoomStops?`,
+ *  `widthZoomStopsBase?`) where any combination — including all empty
+ *  — was a valid TypeScript value. That permitted PR #95 / #97 / #104:
+ *  lower.ts emitted a stroke with NONE of the four forms set, the
+ *  fallback `width = 1` shipped, and every road on OFM Bright rendered
+ *  as a 1-pixel hairline. With the discriminated union, lower.ts MUST
+ *  pick a kind — there is no way to construct a `StrokeWidthValue`
+ *  that means "no width" except by explicitly writing
+ *  `{ kind: 'constant', px: 0 }`. */
+export type StrokeWidthValue =
+  /** Single static width in CSS pixels. Mapbox `line-width: <number>`. */
+  | { kind: 'constant'; px: number }
+  /** Per-frame zoom-interpolated width — the renderer evaluates
+   *  `interpolateZoom(stops, camera.zoom, base)` each frame. Mapbox
+   *  `line-width: ["interpolate", curve, ["zoom"], …]`. */
+  | {
+      kind: 'zoom-stops'
+      stops: ZoomStop<number>[]
+      /** Mapbox `["exponential", N]` curve base. 1 / undefined = linear. */
+      base?: number
+    }
+  /** Per-feature AST evaluated by the worker at tile-decode time —
+   *  result is baked into the segment buffer's width-override slot.
+   *  Mapbox per-feature expressions like
+   *  `["match", ["get","class"], "primary", 5, …, 1]`. */
+  | { kind: 'per-feature'; expr: DataExpr }
+
 export interface StrokeValue {
   color: ColorValue
-  width: number
-  /** Optional per-feature width override. Compiler-synthesized only
-   *  by the `mergeLayers` pass when it folds same-source-layer xgis
-   *  layers whose only stroke difference is the width — the AST is
-   *  a `match(.field) { ... }` expression that the runtime worker
-   *  evaluates per feature, writing the resolved width into the line
-   *  segment buffer's per-segment slot so the shader reads it
-   *  instead of the layer-uniform `width_px`. When absent, the
-   *  scalar `width` above wins (legacy / unmerged path). */
-  widthExpr?: DataExpr
-  /** Mapbox `paint.line-width: ["interpolate", curve, ["zoom"], …]`
-   *  hoisted as zoom stops. When present the renderer recomputes
-   *  `layer.width_px` per frame from the camera zoom, sidestepping
-   *  the per-feature worker bake (which freezes width at tile-decode
-   *  time so the line doesn't grow continuously as the camera zooms).
-   *  Mutually exclusive with `widthExpr` for purely zoom-driven
-   *  widths — the compiler picks this path whenever the binding's
-   *  AST is a zoom-only interpolate. Per-feature widths (e.g.
-   *  `match(.class) { primary -> 5, secondary -> 3 }`) still go via
-   *  `widthExpr`. */
-  widthZoomStops?: ZoomStop<number>[]
-  /** Exponential base for `widthZoomStops` (Mapbox
-   *  `["interpolate", ["exponential", N], …]`). Undefined / 1 →
-   *  linear. */
-  widthZoomStopsBase?: number
+  /** Width expressed as a discriminated union — see {@link
+   *  StrokeWidthValue}. Required: every stroke MUST resolve to one
+   *  of the three kinds. */
+  width: StrokeWidthValue
   /** Optional per-feature stroke colour override. Companion to
    *  widthExpr. Synthesised by the merge pass for same-source-layer
    *  groups whose stroke colours differ — a `match(.field) { value

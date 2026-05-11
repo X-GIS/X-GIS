@@ -1362,14 +1362,24 @@ function lowerLayer(
       const validPatterns = patternSlots.filter((p, i) =>
         patternDirty[i] && p.shape && p.size > 0 && (p.spacing > 0 || p.anchor !== 'repeat' && p.anchor !== undefined)
       )
+      // Resolve the three local accumulators into a single
+      // discriminated union. Priority — per-feature AST wins over
+      // zoom stops, which win over the static constant — mirrors the
+      // runtime resolution order (worker bake > per-frame stops >
+      // layer uniform).
+      let widthSource: import('./render-node').StrokeWidthValue
+      if (strokeWidthExpr !== undefined) {
+        widthSource = { kind: 'per-feature', expr: strokeWidthExpr }
+      } else if (strokeWidthZoomStops !== undefined && strokeWidthZoomStops.length > 0) {
+        widthSource = strokeWidthZoomStopsBase !== undefined
+          ? { kind: 'zoom-stops', stops: strokeWidthZoomStops, base: strokeWidthZoomStopsBase }
+          : { kind: 'zoom-stops', stops: strokeWidthZoomStops }
+      } else {
+        widthSource = { kind: 'constant', px: strokeWidth }
+      }
       return {
         color: strokeColor,
-        width: strokeWidth,
-        ...(strokeWidthExpr !== undefined ? { widthExpr: strokeWidthExpr } : {}),
-        ...(strokeWidthZoomStops !== undefined ? {
-          widthZoomStops: strokeWidthZoomStops,
-          widthZoomStopsBase: strokeWidthZoomStopsBase,
-        } : {}),
+        width: widthSource,
         linecap, linejoin, miterlimit,
         dashArray, dashOffset,
         patterns: validPatterns.length > 0 ? validPatterns : undefined,
@@ -1786,7 +1796,7 @@ function lowerShow(stmt: AST.ShowStatement): RenderNode | null {
     sourceRef: targetName,
     zOrder: 0,
     fill,
-    stroke: { color: strokeColor, width: strokeWidth },
+    stroke: { color: strokeColor, width: { kind: 'constant', px: strokeWidth } },
     opacity: opacityConstant(opacity),
     size: sizeNone(),
     projection,

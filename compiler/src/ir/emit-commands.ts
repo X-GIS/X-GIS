@@ -235,10 +235,16 @@ function emitShow(node: RenderNode): ShowCommand {
     layerName: node.name,
     fill: colorToHex(node.fill),
     stroke: colorToHex(node.stroke.color),
-    strokeWidth: node.stroke.width,
-    strokeWidthExpr: node.stroke.widthExpr,
-    zoomStrokeWidthStops: node.stroke.widthZoomStops,
-    zoomStrokeWidthStopsBase: node.stroke.widthZoomStopsBase,
+    // Flatten the discriminated `StrokeWidthValue` into the three
+    // back-compat ShowCommand fields the runtime currently consumes.
+    // Exhaustive switch — TypeScript fails the build if a new variant
+    // is added to StrokeWidthValue and emitting forgets to handle it,
+    // which is exactly the safety net WS-4 of the spec-drift plan
+    // installs against the PR #95 / #97 / #104 silent-default class.
+    strokeWidth: node.stroke.width.kind === 'constant' ? node.stroke.width.px : 1,
+    strokeWidthExpr: node.stroke.width.kind === 'per-feature' ? node.stroke.width.expr : undefined,
+    zoomStrokeWidthStops: node.stroke.width.kind === 'zoom-stops' ? node.stroke.width.stops : undefined,
+    zoomStrokeWidthStopsBase: node.stroke.width.kind === 'zoom-stops' ? node.stroke.width.base : undefined,
     strokeColorExpr: node.stroke.colorExpr,
     projection: node.projection,
     visible: node.visible,
