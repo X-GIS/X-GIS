@@ -70,6 +70,13 @@ export interface ShowCommand {
   zoomOpacityStopsBase?: number
   zoomSizeStops: ZoomStop<number>[] | null
   zoomSizeStopsBase?: number
+  /** Mapbox `paint.fill-color: ["interpolate", curve, ["zoom"], …]` —
+   *  per-frame interpolated RGBA. When present, the runtime ignores
+   *  the static `fill` hex (which carries the first-stop colour as a
+   *  fallback) and computes the colour each frame from these stops
+   *  against `camera.zoom`. */
+  zoomFillStops?: ZoomStop<[number, number, number, number]>[]
+  zoomFillStopsBase?: number
   shaderVariant: ShaderVariant | null
   filterExpr: DataExpr | null
   geometryExpr: DataExpr | null
@@ -230,6 +237,8 @@ function emitShow(node: RenderNode): ShowCommand {
     zoomOpacityStopsBase,
     zoomSizeStops: node.size.kind === 'zoom-interpolated' ? node.size.stops : null,
     zoomSizeStopsBase: node.size.kind === 'zoom-interpolated' ? node.size.base : undefined,
+    zoomFillStops: node.fill.kind === 'zoom-interpolated' ? node.fill.stops : undefined,
+    zoomFillStopsBase: node.fill.kind === 'zoom-interpolated' ? node.fill.base : undefined,
     shaderVariant,
     filterExpr: node.filter,
     geometryExpr: node.geometry,
@@ -272,5 +281,14 @@ function colorToHex(color: ColorValue): string | null {
   // pre-animation value — emitting it as a hex keeps the existing
   // shader-variant generator and raw pixel readback paths happy.
   if (color.kind === 'time-interpolated') return rgbaToHex(color.base)
+  // Zoom-interpolated: pick FIRST stop as the static fallback. Mapbox
+  // clamps to first-stop at zoom below the first stop boundary, and
+  // first-stop is "the colour at the wider viewing extent" — usually
+  // the most opaque / visible. Runtime path also picks up
+  // zoomFillStops below and recomputes per frame; this hex is a
+  // safety net for downstream consumers that ignore the stops.
+  if (color.kind === 'zoom-interpolated' && color.stops.length > 0) {
+    return rgbaToHex(color.stops[0]!.value)
+  }
   return null
 }

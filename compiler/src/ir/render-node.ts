@@ -362,6 +362,12 @@ export type ColorValue =
   | { kind: 'data-driven'; expr: DataExpr }
   | { kind: 'conditional'; branches: ConditionalBranch<ColorValue>[]; fallback: ColorValue }
   | {
+      kind: 'zoom-interpolated'
+      stops: ZoomStop<[number, number, number, number]>[]
+      /** Mapbox `["exponential", N]` curve base. Undefined / 1 → linear. */
+      base?: number
+    }
+  | {
       kind: 'time-interpolated'
       /** Fallback color when t < first stop (respecting delay). Used by
        *  emit-commands to pick a sensible `fill:` hex so pre-animation

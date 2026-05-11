@@ -696,11 +696,21 @@ function lowerLayer(
           // building / landuse-suburb were hitting in OFM Bright.
           const colorStops = extractInterpolateZoomColorStops(item.binding)
           if (colorStops && colorStops.length > 0) {
-            const last = colorStops[colorStops.length - 1]!
-            const hex = resolveColor(last.value)
-            if (hex) {
-              const rgba = hexToRgba(hex)
-              fill = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
+            const rgbaStops: ZoomStop<[number, number, number, number]>[] = []
+            for (const s of colorStops) {
+              const hex = resolveColor(s.value)
+              if (hex) rgbaStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
+            }
+            if (rgbaStops.length > 0) {
+              // Preserve full zoom-color interpolation. The runtime
+              // (renderer.ts:render-loop) reads zoomFillStops if
+              // present and recomputes the fill RGBA per frame from
+              // the camera zoom. Without this, PR #97's "last-stop
+              // only" heuristic collapsed landuse-suburb to alpha=0
+              // (Mapbox intentionally fades it out at z=10) — every
+              // suburb polygon rendered invisible regardless of
+              // viewing zoom.
+              fill = { kind: 'zoom-interpolated', stops: rgbaStops }
               continue
             }
           }

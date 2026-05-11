@@ -623,6 +623,12 @@ export interface ShowCommand {
   zoomOpacityStopsBase?: number
   zoomSizeStops?: { zoom: number; value: number }[] | null
   zoomSizeStopsBase?: number
+  /** Mapbox `paint.fill-color: ["interpolate", …, ["zoom"], …]` —
+   *  per-frame interpolated RGBA. When present, the renderer
+   *  computes the fill colour each frame from these stops + the
+   *  current camera zoom, overriding the static `fill` hex. */
+  zoomFillStops?: { zoom: number; value: [number, number, number, number] }[]
+  zoomFillStopsBase?: number
   // ── Animation (PR 1: opacity; PR 3: color/width/size/dashoffset) ──
   //
   // Every animatable property carries a parallel time-stop list.
@@ -766,6 +772,8 @@ interface RenderLayer {
   zoomOpacityStopsBase?: number
   zoomSizeStops: { zoom: number; value: number }[] | null
   zoomSizeStopsBase?: number
+  zoomFillStops?: { zoom: number; value: [number, number, number, number] }[]
+  zoomFillStopsBase?: number
   // Animation time-stop lists. Populated from ShowCommand.time*Stops
   // in addLayer(). Null means "no animation for this property".
   timeOpacityStops: { timeMs: number; value: number }[] | null
@@ -837,6 +845,7 @@ export function interpolateZoom(
 export function interpolateZoomRgba(
   stops: { zoom: number; value: [number, number, number, number] }[],
   zoom: number,
+  base: number = 1,
 ): [number, number, number, number] {
   if (stops.length === 0) return [0, 0, 0, 1]
   if (zoom <= stops[0].zoom) {
@@ -849,7 +858,17 @@ export function interpolateZoomRgba(
   }
   for (let i = 0; i < stops.length - 1; i++) {
     if (zoom >= stops[i].zoom && zoom <= stops[i + 1].zoom) {
-      const t = (zoom - stops[i].zoom) / (stops[i + 1].zoom - stops[i].zoom)
+      const z0 = stops[i].zoom
+      const z1 = stops[i + 1].zoom
+      const span = z1 - z0
+      let t: number
+      if (base === 1 || Math.abs(base - 1) < 1e-6) {
+        t = (zoom - z0) / span
+      } else {
+        const numer = Math.pow(base, zoom - z0) - 1
+        const denom = Math.pow(base, span) - 1
+        t = denom === 0 ? 0 : numer / denom
+      }
       const a = stops[i].value, b = stops[i + 1].value
       return [
         a[0] + t * (b[0] - a[0]),
@@ -1585,6 +1604,8 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
       zoomOpacityStopsBase: show.zoomOpacityStopsBase,
       zoomSizeStops: show.zoomSizeStops ?? null,
       zoomSizeStopsBase: show.zoomSizeStopsBase,
+      zoomFillStops: show.zoomFillStops,
+      zoomFillStopsBase: show.zoomFillStopsBase,
       timeOpacityStops: show.timeOpacityStops ?? null,
       timeFillStops: show.timeFillStops ?? null,
       timeStrokeStops: show.timeStrokeStops ?? null,
@@ -2080,6 +2101,15 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
       // `fill:` / `stroke:` hex).
       let fillRaw = layer.props.getColor('fill')
       let strokeRaw = layer.props.getColor('stroke')
+      // Mapbox `paint.fill-color: ["interpolate", …, ["zoom"], …]` —
+      // per-frame interpolated RGBA wins over the static fill. Without
+      // this branch the renderer used emit-commands' first-stop hex
+      // fallback at every zoom, which made every zoom-faded landuse
+      // polygon (e.g. landuse-suburb: 40 % alpha → 0 % alpha at z=10)
+      // render at its low-zoom alpha forever.
+      if (layer.zoomFillStops && layer.zoomFillStops.length > 0) {
+        fillRaw = interpolateZoomRgba(layer.zoomFillStops, camera.zoom, layer.zoomFillStopsBase ?? 1)
+      }
       if (layer.timeFillStops) {
         fillRaw = interpolateTimeColor(
           layer.timeFillStops, elapsedMs,
