@@ -81,10 +81,12 @@ describe('Douglas-Peucker Simplification', () => {
   })
 
   it('tolerance decreases with zoom', () => {
-    // Tolerance = 360 / (4096 * 2^z) — ~1/16 pixel at each zoom level
-    expect(toleranceForZoom(0)).toBeCloseTo(360 / 4096)
-    expect(toleranceForZoom(1)).toBeCloseTo(360 / 8192)
-    expect(toleranceForZoom(10)).toBeCloseTo(360 / (4096 * 1024))
+    // Tolerance = 360 / (8192 * 2^z) — ~1/16 pixel at each zoom level
+    // with the Mapbox / MapLibre 512-px tile convention (TILE_PX * 16
+    // = 512 * 16 = 8192).
+    expect(toleranceForZoom(0)).toBeCloseTo(360 / 8192)
+    expect(toleranceForZoom(1)).toBeCloseTo(360 / 16384)
+    expect(toleranceForZoom(10)).toBeCloseTo(360 / (8192 * 1024))
     // Each zoom level halves the tolerance
     expect(toleranceForZoom(1)).toBeCloseTo(toleranceForZoom(0) / 2)
   })

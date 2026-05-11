@@ -4,7 +4,7 @@
 // Single draw call for all points via per-feature storage buffer.
 
 import type { Camera } from '../projection/camera'
-import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_MERC, worldCopiesFor } from '../gpu/gpu-shared'
+import { BLEND_ALPHA, DEPTH_TEST_WRITE, WORLD_MERC, TILE_PX, worldCopiesFor } from '../gpu/gpu-shared'
 import { getSampleCount } from '../gpu/gpu'
 import { WGSL_LOG_DEPTH_FNS } from '../shaders/log-depth'
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projection'
@@ -743,7 +743,7 @@ export class PointRenderer {
     uf.set(frame.matrix, 0)
     uf[16] = projType; uf[17] = projCenterLon; uf[18] = projCenterLat; uf[19] = 0
     uf[20] = 0; uf[21] = 0; uf[22] = 0; uf[23] = 0
-    const metersPerPixel = (40075016.686 / 256) / Math.pow(2, camera.zoom)
+    const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
     // viewport.w = log_depth_fc so fs_point can write @builtin(frag_depth)
     uf[24] = canvasWidth; uf[25] = canvasHeight; uf[26] = metersPerPixel; uf[27] = frame.logDepthFc
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uf)
@@ -962,7 +962,7 @@ export class PointRenderer {
     uf[22] = 0
     uf[23] = 0
     // viewport: xy = size, z = meters_per_pixel, w = log_depth_fc
-    const metersPerPixel = (40075016.686 / 256) / Math.pow(2, camera.zoom)
+    const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
     uf[24] = canvasWidth
     uf[25] = canvasHeight
     uf[26] = metersPerPixel

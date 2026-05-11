@@ -5,7 +5,7 @@ import type * as AST from '@xgis/compiler'
 import { BackgroundRenderer } from './render/background-renderer'
 import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
 import { initGPU, resizeCanvas, GPU_PROF, getSampleCount, getMaxDpr, isPickEnabled, type GPUContext } from './gpu/gpu'
-import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT } from './gpu/gpu-shared'
+import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT, WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
 import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './gpu/quality'
 import { GPUTimer } from './gpu/gpu-timer'
 import { Camera } from './projection/camera'
@@ -1657,7 +1657,7 @@ export class XGISMap {
     const MAX_MERC = 20037508.34
     const WORLD_MERC_FULL = MAX_MERC * 2 // full circumference
     const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-    const mpp = (40075016.686 / 256) / Math.pow(2, this.camera.zoom)
+    const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, this.camera.zoom)
     const visHalfY = (h / dpr) * mpp / 2
     const maxY = Math.max(0, MAX_MERC - visHalfY)
     this.camera.centerY = Math.max(-maxY, Math.min(maxY, this.camera.centerY))

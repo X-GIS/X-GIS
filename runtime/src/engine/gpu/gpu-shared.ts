@@ -284,6 +284,18 @@ export function uploadBuffer(
 /** Earth circumference in Mercator meters */
 export const WORLD_MERC = 40075016.686
 
+/** Tile pixel size used as the anchor of the
+ *  `metersPerPixel = WORLD_MERC / TILE_PX / 2^zoom` formula.
+ *
+ *  Set to 512 to match the Mapbox / MapLibre convention — sharing
+ *  the same numeric `zoom` value between the two engines now
+ *  produces the same `m/px` ground sampling, so hash URLs and
+ *  authored `view zoom: N` values transfer 1:1 between X-GIS and
+ *  the reference implementation. Previously this lived as a literal
+ *  `256` scattered across 8+ call sites, which made X-GIS render at
+ *  one effective zoom level closer than MapLibre for the same hash. */
+export const TILE_PX = 512
+
 /** World copy offsets: primary + N copies each side. Used as the
  *  Mercator-path enumeration; other projections collapse to a single
  *  world via `worldCopiesFor()`. */

@@ -21,6 +21,7 @@ import {
 } from '../../core/polygon-mesh'
 import { tileKey, tileKeyParent, tileKeyChildren, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool, asyncWriteBuffer } from '../gpu/staging-buffer-pool'
+import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { PriorityQueue } from '../../core/priority-queue'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../../data/tile-catalog'
@@ -2495,7 +2496,7 @@ export class VectorTileRenderer {
     let lineLayerOffset = 0
     if (this.lineRenderer && phase !== 'fills') {
       const strokeWidthPx = show.strokeWidth ?? 1
-      const mpp = (40075016.686 / 256) / Math.pow(2, camera.zoom)
+      const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
       const capMap = { butt: 0, round: 1, square: 2, arrow: 3 } as const
       const joinMap = { miter: 0, round: 1, bevel: 2 } as const
       // Default cap/join = round. Round is a stable circle SDF that fills

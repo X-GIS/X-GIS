@@ -44,7 +44,7 @@
 
 import type { Camera } from '../engine/projection/camera'
 import type { Projection } from './../engine/projection/projection'
-import { worldCopiesFor } from '../engine/gpu/gpu-shared'
+import { worldCopiesFor, TILE_PX } from '../engine/gpu/gpu-shared'
 import type { TileCoord } from './tiles'
 
 const EARTH_CIRC_M = 40075016.686
@@ -146,7 +146,7 @@ export function visibleTilesSSE(
   const cssHeight = canvasHeight / dpr
   const halfFovRad = (FOV_DEG * Math.PI / 180) / 2
   const tanHalfFov = Math.tan(halfFovRad)
-  const metersPerPixelGround = (EARTH_CIRC_M / 256) / Math.pow(2, camera.zoom)
+  const metersPerPixelGround = (EARTH_CIRC_M / TILE_PX) / Math.pow(2, camera.zoom)
   const viewHeightMetersGround = cssHeight * metersPerPixelGround
   const altitude = viewHeightMetersGround / 2 / tanHalfFov
 
@@ -324,9 +324,10 @@ export function visibleTilesSSE(
     const distance = Math.sqrt(groundDist * groundDist + dz * dz)
 
     // Geometric error: error introduced by stopping at this tile vs
-    // its children. Standard convention: `tile_meters / 256` (one
+    // its children. Standard convention: `tile_meters / TILE_PX` (one
     // pixel-equivalent of detail in mercator metres at this zoom).
-    const geometricError = tileSize / 256
+    // TILE_PX = 512 to match Mapbox / MapLibre tile-pyramid convention.
+    const geometricError = tileSize / TILE_PX
 
     // Cesium screen-space-error formula. Direct port — no projection-
     // specific terms because the perspective division (canvasHeight /

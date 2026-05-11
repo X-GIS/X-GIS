@@ -1,7 +1,7 @@
 // ═══ Map Camera — 줌/패닝/회전/피치 ═══
 
 import { lonLatToMercator } from '../../loader/geojson'
-import { WORLD_MERC } from '../gpu/gpu-shared'
+import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
 
@@ -36,7 +36,7 @@ export class Camera {
   getMatrix(canvasWidth: number, canvasHeight: number): Float32Array {
     // Scale: at zoom 0, the whole world (~40M meters) fits in the viewport
     // Each zoom level doubles the scale
-    const metersPerPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
+    const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
     const scaleX = 2 / (canvasWidth * metersPerPixel)
     const scaleY = 2 / (canvasHeight * metersPerPixel)
 
@@ -99,7 +99,7 @@ export class Camera {
     ) {
       return this._cacheFar
     }
-    const metersPerPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
+    const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
     const m = this.rtcMatrix
 
     // ── Always use perspective path (no ortho/perspective discontinuity) ──
@@ -272,7 +272,7 @@ export class Camera {
   /** Compute the maximum camera Y offset for the current zoom (content stays on screen) */
   private maxCameraY(canvasHeight: number): number {
     const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-    const metersPerPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
+    const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
     const visibleHalf = (canvasHeight / dpr) * metersPerPixel / 2
     // Camera can move until the Mercator edge reaches the screen edge
     return Math.max(0, Camera.MAX_Y - visibleHalf)
@@ -280,15 +280,18 @@ export class Camera {
 
   /** Pan by CSS pixels (clientX/clientY delta), accounting for map rotation */
   pan(dx: number, dy: number, _canvasWidth: number, canvasHeight: number): void {
-    // mpp from the formula `40075016.686 / 256 / 2^zoom` is meters per
-    // CSS pixel — the Mapbox tile-pyramid convention. After the MVP
+    // mpp from the formula `WORLD_MERC / TILE_PX / 2^zoom` is meters per
+    // CSS pixel — the Mapbox / MapLibre tile-pyramid convention
+    // (TILE_PX = 512). A given numeric `zoom` produces the same m/px
+    // X-GIS and MapLibre, so hash URLs transfer between the two
+    // engines without visual drift. After the MVP
     // DPR-invariance fix (ee1f394), 1 input CSS pixel of drag maps
     // directly to `mpp` meters of world motion at any DPR. The prior
     // `× dpr` factor was needed for the old DPR-dependent altitude
     // semantic (1 CSS px = mpp × dpr m); leaving it in now would make
     // the map pan DPR× too fast — symptom: the user-reported "pan
     // feels DPR× more sensitive" on a DPR=3 phone.
-    const metersPerInputPixel = (40075016.686 / 256) / Math.pow(2, this.zoom)
+    const metersPerInputPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
 
     // Rotate screen delta by bearing to get map-space delta
     const rad = this.bearing * Math.PI / 180

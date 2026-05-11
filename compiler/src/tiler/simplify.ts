@@ -99,10 +99,12 @@ function sqDistToSegment(p: number[], a: number[], b: number[]): number {
  * Higher zoom = lower tolerance = more detail.
  */
 export function toleranceForZoom(zoom: number): number {
-  // Tolerance = ~1/16 pixel at each zoom level
-  // At zoom z, one pixel ≈ 360/(256*2^z) degrees
-  // Using 1/16 pixel ensures inter-feature gaps are invisible even with overzoom
-  return 360 / (4096 * Math.pow(2, zoom))
+  // Tolerance = ~1/16 pixel at each zoom level.
+  // At zoom z, one pixel ≈ 360/(TILE_PX*2^z) degrees with the
+  // Mapbox / MapLibre 512-px convention (1/16 pixel = 360 / 8192).
+  // Using 1/16 pixel keeps inter-feature gaps invisible even with
+  // overzoom.
+  return 360 / (8192 * Math.pow(2, zoom))
 }
 
 /**
@@ -134,7 +136,8 @@ export function simplifyLine(coords: number[][], zoom: number, isLocked?: (coord
 
 /** Tolerance in Mercator meters for line simplification (lines are clipped in Mercator). */
 export function mercatorToleranceForZoom(zoom: number): number {
-  // At zoom z, one pixel ≈ 2π * R / (256 * 2^z) meters
-  // Using 1/16 pixel to match toleranceForZoom's ratio
-  return 2 * Math.PI * 6378137 / (4096 * Math.pow(2, zoom))
+  // At zoom z, one pixel ≈ 2π * R / (TILE_PX * 2^z) meters with the
+  // 512-px convention. Using 1/16 pixel to match toleranceForZoom's
+  // ratio (1/16 * 512 = 32; 2πR/8192/2^z = 2πR / 32 / 256 / 2^z).
+  return 2 * Math.PI * 6378137 / (8192 * Math.pow(2, zoom))
 }
