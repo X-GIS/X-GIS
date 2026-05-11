@@ -67,6 +67,36 @@ function interpolateZoomStops(
   v: unknown,
   warnings?: string[],
 ): InterpolateZoomShape | null {
+  // Legacy stops shape (Mapbox style spec v0 / v1, still emitted by
+  // many older styles — incl. the MapLibre demo basemap):
+  //   { "stops": [[zoom, value], …], "base"?: number }
+  // Modern equivalent:
+  //   ["interpolate", ["exponential", base], ["zoom"], zoom, value, …]
+  // Lift the legacy shape into the same InterpolateZoomShape so all
+  // downstream emit/lower code (interpolate_exp / interpolate-zoom-
+  // color stops / etc.) sees one canonical form. Without this lift,
+  // every legacy-style line-width / fill-color / text-size silently
+  // collapsed to its default in the converter output.
+  if (
+    v !== null && typeof v === 'object' && !Array.isArray(v)
+    && Array.isArray((v as { stops?: unknown }).stops)
+  ) {
+    const rawStops = (v as { stops: unknown[] }).stops
+    const legacyStops: Array<{ zoom: number; value: unknown }> = []
+    for (const s of rawStops) {
+      if (!Array.isArray(s) || s.length < 2 || typeof s[0] !== 'number') return null
+      legacyStops.push({ zoom: s[0], value: s[1] })
+    }
+    if (legacyStops.length < 2) return null
+    const rawBase = (v as { base?: unknown }).base
+    const base = typeof rawBase === 'number' && rawBase !== 1 ? rawBase : 1
+    return {
+      curve: base === 1 ? 'linear' : 'exponential',
+      base,
+      stops: legacyStops,
+    }
+  }
+
   if (!Array.isArray(v) || v[0] !== 'interpolate') return null
   const curveSpec = v[1]
   // Element 2 must be the `zoom` accessor.

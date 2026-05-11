@@ -261,12 +261,6 @@ const KNOWN_GAPS_OFM_BRIGHT: ReadonlySet<string> = new Set([
 ])
 
 const KNOWN_GAPS_MAPLIBRE_DEMO: ReadonlySet<string> = new Set([
-  // Legacy `{"stops": [[zoom, value], ...]}` syntax not converted.
-  // paint.ts's interpolateZoomStops only recognises the expression
-  // form `["interpolate", curve, ["zoom"], …]`. Follow-up: add a
-  // legacy-stops parser that lifts the shape into the same shape.
-  '[coastline] line-width is non-constant but strokeWidthExpr is undefined AND strokeWidth is the default 1',
-  '[countries-boundary] line-width is non-constant but strokeWidthExpr is undefined AND strokeWidth is the default 1',
   // `fill-color: ["match", ["get", "ADM0_A3"], …]` per-feature
   // data-driven fill — converter routes it to `fill-[…]` which
   // lower.ts handles as `kind: 'data-driven'` BUT emit-commands'
