@@ -150,7 +150,24 @@ function textFieldToXgisExpr(field: unknown, warnings: string[]): string | null 
  *  intent; Batch 1c wires the renderer; Batch 2 adds icons. For now,
  *  text-field becomes `label-[<expr>]` and text-color maps to a
  *  fill utility — the IR's `label?` field captures the rest. */
-function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
+interface SymbolLayerOverrides {
+  /** Override the layer id (used when splitting one Mapbox layer
+   *  into multiple xgis blocks for zoom-step symbol-placement). */
+  idSuffix?: string
+  /** Constant `symbol-placement` value to use, bypassing the value
+   *  read from `layout`. Used by the step expansion. */
+  placement?: 'point' | 'line' | 'line-center'
+  /** Override `minzoom` / `maxzoom` on the emitted block (the layer's
+   *  own minzoom/maxzoom is overlaid by the step segment range). */
+  minzoom?: number
+  maxzoom?: number
+}
+
+function convertSymbolLayer(
+  layer: MapboxLayer,
+  warnings: string[],
+  overrides?: SymbolLayerOverrides,
+): string {
   const layout = (layer as { layout?: Record<string, unknown> }).layout ?? {}
   const paint = (layer as { paint?: Record<string, unknown> }).paint ?? {}
   const textField = layout['text-field']
@@ -168,11 +185,16 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
     return `// SKIPPED layer "${layer.id}" type="symbol" — text-field expression not convertible.`
   }
 
-  const lines: string[] = [`layer ${sanitizeId(layer.id)} {`]
+  const layerId = overrides?.idSuffix
+    ? `${sanitizeId(layer.id)}_${overrides.idSuffix}`
+    : sanitizeId(layer.id)
+  const lines: string[] = [`layer ${layerId} {`]
   if (layer.source) lines.push(`  source: ${sanitizeId(layer.source)}`)
   if (layer['source-layer']) lines.push(`  sourceLayer: "${layer['source-layer']}"`)
-  if (typeof layer.minzoom === 'number') lines.push(`  minzoom: ${layer.minzoom}`)
-  if (typeof layer.maxzoom === 'number') lines.push(`  maxzoom: ${layer.maxzoom}`)
+  const effectiveMin = overrides?.minzoom !== undefined ? overrides.minzoom : layer.minzoom
+  const effectiveMax = overrides?.maxzoom !== undefined ? overrides.maxzoom : layer.maxzoom
+  if (typeof effectiveMin === 'number') lines.push(`  minzoom: ${effectiveMin}`)
+  if (typeof effectiveMax === 'number') lines.push(`  maxzoom: ${effectiveMax}`)
   if (layer.filter !== undefined) {
     const f = filterToXgis(layer.filter, warnings)
     if (f) lines.push(`  filter: ${f}`)
@@ -380,7 +402,13 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   // labels we mirror that by NOT emitting the default, which leaves
   // the runtime's "undefined ⇒ no wrap" behaviour for road names etc.
   const maxWidth = layout['text-max-width']
-  const placement = layout['symbol-placement']
+  // When an override is supplied (zoom-step layer split), it WINS
+  // over the layout value. The outer dispatcher computes one segment
+  // per step range and re-runs convertSymbolLayer with the segment's
+  // resolved placement string.
+  const placement: unknown = overrides?.placement !== undefined
+    ? overrides.placement
+    : layout['symbol-placement']
   if (typeof maxWidth === 'number') {
     utils.push(`label-max-width-${maxWidth}`)
   } else if (placement !== 'line' && placement !== 'line-center') {
@@ -497,6 +525,73 @@ function convertSymbolLayer(layer: MapboxLayer, warnings: string[]): string {
   lines.push('  | ' + utils.join(' '))
   lines.push('}')
   return lines.join('\n')
+}
+
+/** Detect Mapbox `["step", ["zoom"], v0, z1, v1, z2, v2, …]` shape on
+ *  the layer's `symbol-placement` layout property. Returns the parsed
+ *  segments (one per zoom range, each with the resolved placement
+ *  value) or null when the shape doesn't match — caller falls through
+ *  to single-layer emission with the literal-string handling already
+ *  in convertSymbolLayer.
+ *
+ *  OFM Bright's three highway-shield layers use this form:
+ *      ["step", ["zoom"], "point", 11, "line"]
+ *  which we expand to TWO xgis layers:
+ *      layer X_lo { maxzoom: 11, ... }  // point placement (default)
+ *      layer X_hi { minzoom: 11, ... }  // along-path placement
+ *  Without the split, the literal-string-only path picks "point" and
+ *  the high-zoom road shields render anchored to one segment instead
+ *  of following the road. */
+function parseSymbolPlacementStep(
+  layer: MapboxLayer,
+): Array<{ minzoom?: number; maxzoom?: number; placement: 'point' | 'line' | 'line-center' }> | null {
+  const layout = (layer as { layout?: Record<string, unknown> }).layout ?? {}
+  const sp = layout['symbol-placement']
+  if (!Array.isArray(sp) || sp[0] !== 'step') return null
+  const input = sp[1]
+  if (!Array.isArray(input) || input[0] !== 'zoom') return null
+  // ["step", ["zoom"], default, z1, v1, z2, v2, …]
+  // Args after the input: default + N (zoom, value) pairs.
+  const rest = sp.slice(2)
+  if (rest.length < 3 || rest.length % 2 !== 1) return null
+  const defaultVal = rest[0]
+  const isValidPlacement = (v: unknown): v is 'point' | 'line' | 'line-center' =>
+    v === 'point' || v === 'line' || v === 'line-center'
+  if (!isValidPlacement(defaultVal)) return null
+  // Build segments. Each step boundary z_i splits the zoom axis;
+  // segment i has [z_i, z_{i+1}) range with placement v_i. Pre-step
+  // (below z_1) uses the default.
+  const breakpoints: Array<{ zoom: number; placement: 'point' | 'line' | 'line-center' }> = []
+  for (let i = 1; i < rest.length; i += 2) {
+    const z = rest[i]
+    const v = rest[i + 1]
+    if (typeof z !== 'number' || !isValidPlacement(v)) return null
+    breakpoints.push({ zoom: z, placement: v })
+  }
+  const segments: Array<{ minzoom?: number; maxzoom?: number; placement: 'point' | 'line' | 'line-center' }> = []
+  // Pre-step segment.
+  segments.push({ maxzoom: breakpoints[0]!.zoom, placement: defaultVal })
+  for (let i = 0; i < breakpoints.length; i++) {
+    const start = breakpoints[i]!
+    const end = breakpoints[i + 1]
+    segments.push({
+      minzoom: start.zoom,
+      ...(end ? { maxzoom: end.zoom } : {}),
+      placement: start.placement,
+    })
+  }
+  // Collapse adjacent segments with identical placement (e.g. the
+  // OFM `["step", ["zoom"], "point", 7, "line", 8, "line"]` case).
+  const collapsed: typeof segments = []
+  for (const seg of segments) {
+    const prev = collapsed[collapsed.length - 1]
+    if (prev && prev.placement === seg.placement && prev.maxzoom === seg.minzoom) {
+      prev.maxzoom = seg.maxzoom
+    } else {
+      collapsed.push({ ...seg })
+    }
+  }
+  return collapsed
 }
 
 /** Mapbox `circle` layer (Point/MultiPoint features rendered as
@@ -645,6 +740,34 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
  *  know whether the gap is permanent or coming. */
 export function convertLayer(layer: MapboxLayer, warnings: string[]): string | null {
   if (layer.type === 'symbol') {
+    // `symbol-placement: ["step", ["zoom"], …]` (OFM Bright highway
+    // shields) splits into one xgis layer per zoom-step segment so
+    // each segment can carry its own minzoom/maxzoom + resolved
+    // placement utility. Literal-string placement falls through to
+    // the single-layer path below.
+    const segments = parseSymbolPlacementStep(layer)
+    if (segments && segments.length > 1) {
+      const blocks: string[] = []
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i]!
+        // Intersect the segment's range with the layer's declared
+        // minzoom/maxzoom so a layer that's already gated outside
+        // the step's full domain stays gated.
+        const minzoom = seg.minzoom !== undefined
+          ? (typeof layer.minzoom === 'number' ? Math.max(layer.minzoom, seg.minzoom) : seg.minzoom)
+          : layer.minzoom
+        const maxzoom = seg.maxzoom !== undefined
+          ? (typeof layer.maxzoom === 'number' ? Math.min(layer.maxzoom, seg.maxzoom) : seg.maxzoom)
+          : layer.maxzoom
+        blocks.push(convertSymbolLayer(layer, warnings, {
+          idSuffix: String(i),
+          placement: seg.placement,
+          minzoom,
+          maxzoom,
+        }))
+      }
+      return blocks.join('\n\n')
+    }
     return convertSymbolLayer(layer, warnings)
   }
   if (layer.type === 'circle') {
