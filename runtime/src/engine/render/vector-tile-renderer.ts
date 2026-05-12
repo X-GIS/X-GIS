@@ -8,6 +8,7 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
 import { interpolateZoom } from './renderer'
+import type { ResolvedShow } from './resolved-show'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../../data/tile-select'
 import { visibleTilesSSE } from '../../loader/tiles-sse'
 import {
@@ -1970,6 +1971,12 @@ export class VectorTileRenderer {
      *  on the main pass (fully opaque even though the fill is
      *  translucent), so phase alone isn't enough to dispatch. */
     translucentBucket: boolean = false,
+    /** Phase 4c: per-frame ResolvedShow snapshot. When set, paint
+     *  reads pick up zoom × time-resolved values from here instead
+     *  of the legacy mutable `show.opacity` / `show.resolvedFillRgba`
+     *  / etc. Optional during the migration; Phase 4c-final makes it
+     *  required and removes the in-place mutation in bucket-scheduler. */
+    resolvedShow?: ResolvedShow,
   ): void {
     if (!this.source?.hasData()) return
     const index = this.source.getIndex()
@@ -2070,8 +2077,10 @@ export class VectorTileRenderer {
     // further down. Cheap pure derivations; safe to compute once up here.
     const strokeOffsetPx_h = Math.abs(show.strokeOffset ?? 0)
     // Stroke width is already resolved (zoom or time) by the bucket
-    // scheduler into `show.strokeWidth`. See bucket-scheduler.ts.
-    const strokeWidthPx_h = show.strokeWidth ?? 1
+    // scheduler. Prefer the Phase 4b ResolvedShow snapshot when the
+    // caller passes it; fall back to the legacy mutable
+    // show.strokeWidth for callers that haven't migrated yet.
+    const strokeWidthPx_h = resolvedShow?.strokeWidth ?? show.strokeWidth ?? 1
     const alignDeltaPx_h = show.strokeAlign === 'inset' || show.strokeAlign === 'outset'
       ? strokeWidthPx_h / 2 : 0
     const offsetMarginPx = Math.ceil(strokeOffsetPx_h + alignDeltaPx_h + strokeWidthPx_h / 2 + 2)
@@ -2549,10 +2558,11 @@ export class VectorTileRenderer {
     // check AND the hex parse. The cached base color stays intact so a
     // subsequent static frame can re-use it.
     // Opacity is already resolved (zoom × time) by the bucket
-    // scheduler into `show.opacity`. We just read the plain field.
-    // See bucket-scheduler.ts — that file is the single choke point
-    // for ALL zoom/time stop evaluation.
-    this.currentOpacity = show.opacity ?? 1.0
+    // scheduler. Prefer the Phase 4b ResolvedShow snapshot when the
+    // caller passes it; fall back to the legacy `show.opacity` mutable
+    // clone for callers that haven't migrated yet. Both surfaces
+    // produce identical values (pinned by bucket-scheduler.test.ts).
+    this.currentOpacity = resolvedShow?.opacity ?? show.opacity ?? 1.0
     this.currentPickId = show.pickId ?? 0
     // 3D extrusion: driven by the layer's `extrude:` style keyword.
     //   * `extrude: 50`     → constant uniform path (currentExtrudeHeight)
@@ -2571,11 +2581,16 @@ export class VectorTileRenderer {
       this.currentExtrudeHeight = 0
       this.currentExtrudeMode = 'none'
     }
-    if (show.resolvedFillRgba) {
-      this.cachedFillColor[0] = show.resolvedFillRgba[0]
-      this.cachedFillColor[1] = show.resolvedFillRgba[1]
-      this.cachedFillColor[2] = show.resolvedFillRgba[2]
-      this.cachedFillColor[3] = show.resolvedFillRgba[3]
+    // Per-frame resolved fill RGBA — animated stops were already
+    // collapsed by the bucket scheduler. Prefer the Phase 4b snapshot
+    // when available; fall back to the legacy `show.resolvedFillRgba`
+    // staging slot for callers that haven't passed resolvedShow yet.
+    const resolvedFill = resolvedShow?.fill ?? show.resolvedFillRgba
+    if (resolvedFill) {
+      this.cachedFillColor[0] = resolvedFill[0]
+      this.cachedFillColor[1] = resolvedFill[1]
+      this.cachedFillColor[2] = resolvedFill[2]
+      this.cachedFillColor[3] = resolvedFill[3]
       this.cachedShowFill = ''
     } else if (show.fill !== this.cachedShowFill) {
       this.cachedShowFill = show.fill ?? ''
@@ -2585,11 +2600,12 @@ export class VectorTileRenderer {
       this.cachedFillColor[2] = raw ? raw[2] : 0
       this.cachedFillColor[3] = raw ? raw[3] : 0
     }
-    if (show.resolvedStrokeRgba) {
-      this.cachedStrokeColor[0] = show.resolvedStrokeRgba[0]
-      this.cachedStrokeColor[1] = show.resolvedStrokeRgba[1]
-      this.cachedStrokeColor[2] = show.resolvedStrokeRgba[2]
-      this.cachedStrokeColor[3] = show.resolvedStrokeRgba[3]
+    const resolvedStroke = resolvedShow?.stroke ?? show.resolvedStrokeRgba
+    if (resolvedStroke) {
+      this.cachedStrokeColor[0] = resolvedStroke[0]
+      this.cachedStrokeColor[1] = resolvedStroke[1]
+      this.cachedStrokeColor[2] = resolvedStroke[2]
+      this.cachedStrokeColor[3] = resolvedStroke[3]
       this.cachedShowStroke = ''
     } else if (show.stroke !== this.cachedShowStroke) {
       this.cachedShowStroke = show.stroke ?? ''
@@ -2638,7 +2654,8 @@ export class VectorTileRenderer {
       // widths (compound merge → `strokeWidthExpr`) still go through
       // the worker bake + segment slot.
       // Pre-resolved by bucket-scheduler (zoom × time → plain scalar).
-      const strokeWidthPx = show.strokeWidth ?? 1
+      // Prefer the Phase 4b snapshot; fall back to legacy mutable field.
+      const strokeWidthPx = resolvedShow?.strokeWidth ?? show.strokeWidth ?? 1
       const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
       const capMap = { butt: 0, round: 1, square: 2, arrow: 3 } as const
       const joinMap = { miter: 0, round: 1, bevel: 2 } as const
@@ -2661,7 +2678,7 @@ export class VectorTileRenderer {
       const dash = (show.dashArray && show.dashArray.length >= 2)
         ? {
             array: show.dashArray.map(v => v * dashWidthScalePx * mpp),
-            offset: (show.dashOffset ?? 0) * dashWidthScalePx * mpp,
+            offset: (resolvedShow?.dashOffset ?? show.dashOffset ?? 0) * dashWidthScalePx * mpp,
           }
         : null
 

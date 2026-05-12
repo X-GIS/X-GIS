@@ -2386,6 +2386,7 @@ export class XGISMap {
                 cs.fillPhase,
                 dpr,
                 fpG, fpGF,
+                false, cs.resolvedShow,
               )
             }
             for (let si = 0; si < group.shows.length; si++) {
@@ -2443,6 +2444,7 @@ export class XGISMap {
               null, 'oit-fill',
               dpr,
               cs.fpG, cs.fpGF,
+              false, cs.resolvedShow,
             )
           }
           oitPass.end()
@@ -2489,6 +2491,7 @@ export class XGISMap {
               dpr,
               cs.fpG, cs.fpGF,
               true, // translucentBucket — offscreen pass has no depth
+              cs.resolvedShow,
             )
             offPass.end()
           })
