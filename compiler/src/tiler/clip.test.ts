@@ -13,7 +13,7 @@
 // pattern in the user's screenshot is fully explained.
 
 import { describe, it, expect } from 'vitest'
-import { clipPolygonToRect } from './clip'
+import { clipPolygonToRect, clipPolygonToRectV2 } from './clip'
 
 describe('clipPolygonToRect — polygon containment behaviour (Yellow Sea bug)', () => {
   // Standard tile rect: a 2×2 square at origin.
@@ -92,6 +92,30 @@ describe('clipPolygonToRect — polygon containment behaviour (Yellow Sea bug)',
     expect(out).toHaveLength(1)
     expect(out[0].length).toBeGreaterThanOrEqual(4)
   })
+})
+
+// Run every V1 case against V2 to confirm behaviour parity. V2 must
+// produce a ring covering the same bounding region for each input —
+// vertex order / count may differ.
+describe('clipPolygonToRectV2 — parity with V1 on the same cases', () => {
+  const W = -1, S = -1, E = 1, N = 1
+  const cases: { name: string; ring: number[][]; expectLen: number }[] = [
+    { name: 'big square containing rect', ring: [[-10, -10], [10, -10], [10, 10], [-10, 10], [-10, -10]], expectLen: 1 },
+    { name: 'elongated ribbon containing rect', ring: [[-180, -5], [180, -5], [180, 5], [-180, 5], [-180, -5]], expectLen: 1 },
+    { name: 'one corner pokes into rect', ring: [[0.5, 0.5], [5, 0.5], [5, 5], [0.5, 5], [0.5, 0.5]], expectLen: 1 },
+    { name: 'polygon entirely outside', ring: [[10, 10], [20, 10], [20, 20], [10, 20], [10, 10]], expectLen: 0 },
+    { name: 'CW-wound ring containing rect', ring: [[-10, -10], [-10, 10], [10, 10], [10, -10], [-10, -10]], expectLen: 1 },
+    { name: 'unclosed ring containing rect', ring: [[-10, -10], [10, -10], [10, 10], [-10, 10]], expectLen: 1 },
+    { name: 'triangle containing rect', ring: [[-10, -10], [10, -10], [0, 10], [-10, -10]], expectLen: 1 },
+    { name: 'narrow U-shape with bottom under rect', ring: [[-10, -2], [-0.5, -2], [-0.5, 5], [0.5, 5], [0.5, -2], [10, -2], [10, -3], [-10, -3], [-10, -2]], expectLen: 1 },
+  ]
+  for (const c of cases) {
+    it(`V2: ${c.name}`, () => {
+      const out = clipPolygonToRectV2([c.ring], W, S, E, N)
+      expect(out.length).toBe(c.expectLen)
+      if (c.expectLen > 0) expect(out[0].length).toBeGreaterThanOrEqual(3)
+    })
+  }
 })
 
 describe('clipPolygonToRect — Yellow Sea repro coordinates', () => {

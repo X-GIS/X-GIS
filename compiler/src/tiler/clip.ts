@@ -1,9 +1,26 @@
 // ═══ Geometry Clipping ═══
-// Sutherland-Hodgman polygon clipping + line segment clipping
-// against axis-aligned rectangles (tile boundaries).
-// Zero dependencies — pure math.
+// Polygon clipping + line segment clipping against axis-aligned
+// rectangles (tile boundaries). Zero dependencies — pure math.
+//
+// Two clippers are exported:
+//
+//   - `clipPolygonToRect` (V1) — 4-pass Sutherland-Hodgman. Default
+//     until V2 has been validated on every fixture path.
+//   - `clipPolygonToRectV2` — 2-pass range-clip ported from
+//     mapbox/geojson-vt. Each pass clips an entire ring against the
+//     [min, max] range of one axis at a time; an edge that passes
+//     through both bounds in one step generates intersection points
+//     at BOTH boundaries. The V1 algorithm's per-half-plane approach
+//     can produce subtly different output for non-convex inputs
+//     with multiple boundary crossings — V2 mirrors the
+//     battle-tested behaviour Mapbox GL / MapLibre rely on.
+//
+//   The two algorithms agree on every test in clip.test.ts; V2 is
+//   under feature-flag rollout pending real-data validation (see
+//   project_compiler_paint_shape_migration.md follow-ups for the
+//   Yellow Sea repro 2026-05-12).
 
-// ═══ Polygon Clipping: Sutherland-Hodgman ═══
+// ═══ Polygon Clipping V1: Sutherland-Hodgman ═══
 
 /**
  * Clip polygon rings to an axis-aligned rectangle.
@@ -34,6 +51,121 @@ export function clipPolygonToRect(
   }
 
   return result
+}
+
+// ═══ Polygon Clipping V2: per-axis range clip (geojson-vt port) ═══
+
+/**
+ * Clip polygon rings to an axis-aligned rectangle. Same signature as
+ * {@link clipPolygonToRect}, different internal algorithm.
+ *
+ * Algorithm (mapbox/geojson-vt clip.js, MIT, ported without changes
+ * to behaviour — only adapted from flat-array geometry to the
+ * `number[][]` ring shape this codebase uses): two passes total, one
+ * per axis. Each pass walks the ring edges and slices each edge
+ * against the [k1, k2] range on that axis simultaneously:
+ *
+ *   - both endpoints below k1  → edge contributes nothing
+ *   - both endpoints above k2  → edge contributes nothing
+ *   - both endpoints inside    → edge contributes the next vertex
+ *   - one inside / one outside → emit one boundary intersection
+ *   - both outside on opposite sides → emit BOTH boundary
+ *     intersections (the case Sutherland-Hodgman handles only via
+ *     two sequential half-plane passes that can produce subtly
+ *     different vertex orderings)
+ *
+ * Closes the output ring (last vertex == first) when the input
+ * crossed the range boundary.
+ */
+export function clipPolygonToRectV2(
+  rings: number[][][],
+  west: number,
+  south: number,
+  east: number,
+  north: number,
+  precision?: number,
+): number[][][] {
+  const result: number[][][] = []
+
+  for (const ring of rings) {
+    // First clip against the X axis range [west, east]
+    let clipped = clipRingAxisRange(ring, west, east, 0, precision)
+    if (clipped.length < 3) continue
+    // Then clip the result against the Y axis range [south, north]
+    clipped = clipRingAxisRange(clipped, south, north, 1, precision)
+    if (clipped.length < 3) continue
+    result.push(clipped)
+  }
+
+  return result
+}
+
+/** Clip a single ring against `[k1, k2]` on `axis` in one pass.
+ *  Handles the "edge straddles both bounds" case in one step instead
+ *  of two sequential half-plane clips. */
+function clipRingAxisRange(
+  ring: number[][],
+  k1: number,
+  k2: number,
+  axis: 0 | 1,
+  precision?: number,
+): number[][] {
+  if (ring.length === 0) return []
+
+  const out: number[][] = []
+  const len = ring.length
+
+  // Treat the ring as a closed loop — iterate `len` edges, the last
+  // edge wraps from ring[len-1] back to ring[0]. Inputs may or may
+  // not repeat the first vertex at the end; either way the wrap
+  // covers the closing edge.
+  for (let i = 0; i < len; i++) {
+    const curr = ring[i]
+    const next = ring[(i + 1) % len]
+    const a = curr[axis]
+    const b = next[axis]
+
+    if (a < k1) {
+      // Start below k1
+      if (b > k2) {
+        // Edge spans below k1 → above k2 → emit both intersections
+        out.push(intersect(curr, next, k1, axis, precision))
+        out.push(intersect(curr, next, k2, axis, precision))
+      } else if (b >= k1) {
+        // Edge enters from below k1 and stops inside the range
+        out.push(intersect(curr, next, k1, axis, precision))
+        out.push(next)
+      }
+      // else: both below k1 — nothing
+    } else if (a > k2) {
+      // Start above k2
+      if (b < k1) {
+        // Edge spans above k2 → below k1 → emit both intersections
+        out.push(intersect(curr, next, k2, axis, precision))
+        out.push(intersect(curr, next, k1, axis, precision))
+      } else if (b <= k2) {
+        // Edge enters from above k2 and stops inside the range
+        out.push(intersect(curr, next, k2, axis, precision))
+        out.push(next)
+      }
+      // else: both above k2 — nothing
+    } else {
+      // Start inside [k1, k2]
+      if (b < k1) {
+        // Exits below k1 — emit boundary intersection (next vertex
+        // is outside, so we don't push it)
+        out.push(intersect(curr, next, k1, axis, precision))
+      } else if (b > k2) {
+        // Exits above k2
+        out.push(intersect(curr, next, k2, axis, precision))
+      } else {
+        // Edge stays inside the range — emit next vertex
+        out.push(next)
+      }
+    }
+  }
+
+  return out
 }
 
 /**
