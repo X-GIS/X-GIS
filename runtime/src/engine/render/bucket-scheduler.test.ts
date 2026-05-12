@@ -361,7 +361,7 @@ describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', (
       { cameraZoom: 5, elapsedMs: 500 },
     ))
     // zoom = 0.5, time = 0.6 → opacity = 0.3
-    expect(result.opaque[0].show.opacity).toBeCloseTo(0.3, 6)
+    expect(result.opaque[0].resolvedShow.opacity).toBeCloseTo(0.3, 6)
   })
 
   it('resolves animated fill into resolvedFillRgba per frame', () => {
@@ -378,7 +378,7 @@ describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', (
       sources,
       { elapsedMs: 500 },
     ))
-    const rgba = result.opaque[0].show.resolvedFillRgba!
+    const rgba = result.opaque[0].resolvedShow.fill!
     // Halfway between red [1,0,0,1] and blue [0,0,1,1]
     expect(rgba[0]).toBeCloseTo(0.5, 6)
     expect(rgba[1]).toBeCloseTo(0, 6)
@@ -399,7 +399,7 @@ describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', (
       sources,
       { elapsedMs: 500 },
     ))
-    expect(result.opaque[0].show.strokeWidth).toBe(5) // halfway 2→8
+    expect(result.opaque[0].resolvedShow.strokeWidth).toBe(5) // halfway 2→8
   })
 
   it('overrides dashOffset from timeDashOffsetStops', () => {
@@ -416,7 +416,7 @@ describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', (
       sources,
       { elapsedMs: 250 },
     ))
-    expect(result.opaque[0].show.dashOffset).toBeCloseTo(15, 6)
+    expect(result.opaque[0].resolvedShow.dashOffset).toBeCloseTo(15, 6)
   })
 
   it('Bug 1 regression: animated fill keeps cycling past first iteration', () => {
@@ -440,7 +440,7 @@ describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', (
         sources,
         { elapsedMs },
       ))
-      return r.opaque[0].show.resolvedFillRgba!
+      return r.opaque[0].resolvedShow.fill!
     }
     // t=0, t=500, t=1000 = first cycle: red, green, red
     // t=2500 = third cycle midpoint = green again (proves looping)
@@ -592,8 +592,12 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
   })
 })
 
-describe('classifyVectorTileShows — ResolvedShow snapshot (Phase 4b)', () => {
-  it('populates resolvedShow alongside the legacy mutable show.opacity', () => {
+describe('classifyVectorTileShows — ResolvedShow snapshot (Phase 4b/4c)', () => {
+  // Phase 4c-final: the classifier no longer clones / mutates show
+  // — paint state lives EXCLUSIVELY on resolvedShow. cs.show is the
+  // immutable source. The tests below pin that contract.
+
+  it('resolvedShow.opacity reflects the per-frame zoom resolution', () => {
     const sources = new Map([['src', makeVTSource()]])
     const result = classifyVectorTileShows(makeInput(
       [makeEntry('src', makeShow({
@@ -605,11 +609,9 @@ describe('classifyVectorTileShows — ResolvedShow snapshot (Phase 4b)', () => {
     ))
     const cs = result.opaque[0]!
     expect(cs.resolvedShow.opacity).toBeCloseTo(0.5, 3)
-    // Should agree with the legacy in-place clone.
-    expect(cs.resolvedShow.opacity).toBeCloseTo(cs.show.opacity!, 6)
   })
 
-  it('resolvedShow.fill matches the legacy resolvedFillRgba for animated fill', () => {
+  it('resolvedShow.fill carries the time-interpolated RGBA', () => {
     const sources = new Map([['src', makeVTSource()]])
     const result = classifyVectorTileShows(makeInput(
       [makeEntry('src', makeShow({
@@ -623,13 +625,11 @@ describe('classifyVectorTileShows — ResolvedShow snapshot (Phase 4b)', () => {
       sources,
       { elapsedMs: 500 },
     ))
-    const cs = result.opaque[0]!
-    const legacy = cs.show.resolvedFillRgba!
-    const snap = cs.resolvedShow.fill!
-    expect(snap[0]).toBeCloseTo(legacy[0]!, 6)
-    expect(snap[1]).toBeCloseTo(legacy[1]!, 6)
-    expect(snap[2]).toBeCloseTo(legacy[2]!, 6)
-    expect(snap[3]).toBeCloseTo(legacy[3]!, 6)
+    const snap = result.opaque[0]!.resolvedShow.fill!
+    // Halfway between red and blue.
+    expect(snap[0]).toBeCloseTo(0.5, 6)
+    expect(snap[1]).toBeCloseTo(0, 6)
+    expect(snap[2]).toBeCloseTo(0.5, 6)
   })
 
   it('resolvedShow.layerName comes from the show', () => {
@@ -639,5 +639,27 @@ describe('classifyVectorTileShows — ResolvedShow snapshot (Phase 4b)', () => {
       sources,
     ))
     expect(result.opaque[0]!.resolvedShow.layerName).toBe('countries-boundary')
+  })
+
+  it('cs.show stays the immutable source — animation does NOT leak in', () => {
+    // Phase 4c-final invariant: classifier doesn't clone or mutate.
+    // The source ShowCommand's static `opacity` is preserved on
+    // cs.show even when the resolver produced a different per-frame
+    // value (which now lives on cs.resolvedShow).
+    const sources = new Map([['src', makeVTSource()]])
+    const source = makeShow({
+      opacity: 0.9,  // static base
+      zoomOpacityStops: [{ zoom: 0, value: 0 }, { zoom: 10, value: 1 }],
+    })
+    const result = classifyVectorTileShows(makeInput(
+      [makeEntry('src', source)],
+      sources,
+      { cameraZoom: 5 },
+    ))
+    const cs = result.opaque[0]!
+    // The per-frame value goes on resolvedShow…
+    expect(cs.resolvedShow.opacity).toBeCloseTo(0.5, 3)
+    // …while cs.show stays === entry.show (no mutation, no clone).
+    expect(cs.show).toBe(source)
   })
 })

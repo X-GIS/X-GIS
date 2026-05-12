@@ -92,17 +92,25 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
   // matching the legacy `zoomOpa * timeOpa` rule.
   const opacity = resolveNumberShape(ps.opacity, cameraZoom, elapsedMs).value
 
-  // Stroke width — fall back to the static field when the shape is
-  // `constant` / `data-driven`. The classifier had a 4-way branch on
-  // shape.kind here; the resolver above already returns the static
-  // value for those cases, so we can read it unconditionally.
-  const strokeWidth = resolveNumberShape(ps.strokeWidth, cameraZoom, elapsedMs).value
+  // Stroke width — three branches:
+  //   - animated   → per-frame value from resolveNumberShape
+  //   - constant   → the shape's baked-in value (== show.strokeWidth)
+  //   - data-driven → the layer's static `show.strokeWidth` base;
+  //                  per-feature buffer slot overrides downstream.
+  //                  resolveNumberShape returns `1` here as a
+  //                  per-layer fallback that loses the user's
+  //                  declared base width — so we read show
+  //                  directly for this case.
+  const strokeWidth = ps.strokeWidth.kind === 'data-driven'
+    ? (show.strokeWidth ?? 1)
+    : resolveNumberShape(ps.strokeWidth, cameraZoom, elapsedMs).value
 
-  // Size — `data-driven` returns `1` from the resolver as a per-layer
-  // fallback; the per-feature bake handles the actual size downstream.
-  const size = ps.size !== null
-    ? resolveNumberShape(ps.size, cameraZoom, elapsedMs).value
-    : (show.size ?? 0)
+  // Size — same rule as strokeWidth.
+  const size = ps.size === null
+    ? (show.size ?? 0)
+    : ps.size.kind === 'data-driven'
+      ? (show.size ?? 0)
+      : resolveNumberShape(ps.size, cameraZoom, elapsedMs).value
 
   // Dash offset — only `time-interpolated` is currently supported on
   // the parent StrokeValue. Read from the legacy timeDashOffsetStops

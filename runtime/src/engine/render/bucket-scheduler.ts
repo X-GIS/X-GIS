@@ -25,8 +25,7 @@
 import type { Camera } from '../projection/camera'
 import type { LayerDrawPhase } from './vector-tile-renderer'
 import type { SceneCommands } from '@xgis/compiler'
-import { interpolateTime } from './renderer'
-import { hasZoomOrTime, resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
+import { resolveNumberShape } from './paint-shape-resolve'
 import { resolveShow, type ResolvedShow } from './resolved-show'
 import { SAFE_MODE } from '../gpu/gpu'
 import type { RenderTraceRecorder, RGBA } from '../../diagnostics/render-trace'
@@ -237,119 +236,31 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     // zoomOpacityStops) silently lost the ramp on the demotiles
     // countries-boundary border — the kind of bug centralisation
     // prevents.
-    const loop = entry.show.timeOpacityLoop ?? false
-    const easing = entry.show.timeOpacityEasing ?? 'linear'
-    const delayMs = entry.show.timeOpacityDelayMs ?? 0
+    // Opacity (zoom × time, composed) is the only paint value the
+    // classifier needs INLINE, because it drives bucket placement
+    // (translucent threshold + OIT routing). Everything else lives
+    // on the resolvedShow snapshot below — single source of truth,
+    // no parallel `resolvedXxx` locals to keep in sync.
+    const composedOpa = resolveNumberShape(
+      entry.show.paintShapes.opacity, input.cameraZoom, input.elapsedMs,
+    ).value
 
-    // ── Opacity (zoom × time, composed) ──
-    //
-    // Step 1c: read the typed PaintShapes.opacity bundle emitted by
-    // BOTH the compiler (emit-commands) AND the legacy interpreter
-    // (interpreter.ts:synthesizeConstantPaintShapes). resolveNumberShape
-    // composes zoom and time multiplicatively for the `zoom-time`
-    // variant, matching the legacy `zoomOpa * timeOpa` calculation 1:1.
-    const opacityShape = entry.show.paintShapes.opacity
-    const opaResolved = resolveNumberShape(opacityShape, input.cameraZoom, input.elapsedMs)
-    const composedOpa = opaResolved.value
-
-    // ── Stroke width (time overrides zoom overrides scalar) ──
-    //
-    // emit-commands' composeStrokeWidthShape folds the spatial
-    // (StrokeWidthValue) and temporal (StrokeValue.timeWidthStops)
-    // halves into a single shape: `constant` / `data-driven` for
-    // baked / per-feature paths (renderer uses entry.show.strokeWidth
-    // scalar or the per-feature segment-buffer slot), or one of the
-    // three animated kinds for per-frame eval here.
-    const swShape = entry.show.paintShapes.strokeWidth
-    let resolvedStrokeWidth: number | undefined
-    if (swShape.kind === 'zoom-interpolated' || swShape.kind === 'time-interpolated' || swShape.kind === 'zoom-time') {
-      resolvedStrokeWidth = resolveNumberShape(swShape, input.cameraZoom, input.elapsedMs).value
-    }
-
-    // ── Size (point markers, label paths) ──
-    const sizeShape = entry.show.paintShapes.size
-    let resolvedSize: number | undefined
-    if (sizeShape !== null &&
-        (sizeShape.kind === 'zoom-interpolated' || sizeShape.kind === 'time-interpolated' || sizeShape.kind === 'zoom-time')) {
-      resolvedSize = resolveNumberShape(sizeShape, input.cameraZoom, input.elapsedMs).value
-    }
-
-    // ── Dash offset (time only — not part of PaintShapes) ──
-    //
-    // Stroke dash offset is a structural attribute, not a "paint"
-    // colour/numeric — it lives on the parent StrokeValue alongside
-    // dashArray + patterns and only carries a `time-interpolated`
-    // animation form. Kept on the flat field for now.
-    let resolvedDashOffset: number | undefined
-    if (entry.show.timeDashOffsetStops) {
-      resolvedDashOffset = interpolateTime(
-        entry.show.timeDashOffsetStops, input.elapsedMs, loop, easing, delayMs,
-      )
-    }
-
-    // ── Fill colour ──
-    const fillShape = entry.show.paintShapes.fill
-    let resolvedFillRgba: [number, number, number, number] | undefined
-    if (fillShape !== null) {
-      const r = resolveColorShape(fillShape, input.cameraZoom, input.elapsedMs)
-      if (r !== null) resolvedFillRgba = r.value as [number, number, number, number]
-    }
-
-    // ── Stroke colour ──
-    const strokeShape = entry.show.paintShapes.stroke
-    let resolvedStrokeRgba: [number, number, number, number] | undefined
-    if (strokeShape !== null) {
-      const r = resolveColorShape(strokeShape, input.cameraZoom, input.elapsedMs)
-      if (r !== null) resolvedStrokeRgba = r.value as [number, number, number, number]
-    }
-
-    // Clone decision: do any of the five PaintShapes axes carry zoom-
-    // or time-driven dependencies (in which case the per-frame
-    // resolution above produced a value distinct from
-    // `entry.show.opacity` and we must clone the show to write the new
-    // value)? Read straight off paintShapes — the legacy flat-field
-    // OR-chain reached for 10 separate fields and got it wrong silently
-    // when emit-commands grew a new field without updating this list.
-    // dashOffset is the lone non-PaintShapes time-stop field still
-    // checked here.
-    const ps = entry.show.paintShapes
-    const needsClone =
-      hasZoomOrTime(ps.opacity) ||
-      hasZoomOrTime(ps.strokeWidth) ||
-      (ps.fill !== null && hasZoomOrTime(ps.fill)) ||
-      (ps.stroke !== null && hasZoomOrTime(ps.stroke)) ||
-      (ps.size !== null && hasZoomOrTime(ps.size)) ||
-      !!entry.show.timeDashOffsetStops
-    const effectiveShow: SceneCommands['shows'][0] = needsClone
-      ? { ...entry.show, opacity: composedOpa }
-      : entry.show
-    if (resolvedStrokeWidth !== undefined) effectiveShow.strokeWidth = resolvedStrokeWidth
-    if (resolvedSize !== undefined) effectiveShow.size = resolvedSize
-    if (resolvedDashOffset !== undefined) effectiveShow.dashOffset = resolvedDashOffset
-    if (resolvedFillRgba !== undefined) effectiveShow.resolvedFillRgba = resolvedFillRgba
-    if (resolvedStrokeRgba !== undefined) effectiveShow.resolvedStrokeRgba = resolvedStrokeRgba
-
-    if ((effectiveShow.opacity ?? 1) < 0.005) continue
+    // Phase 4c-final: no more effectiveShow clone + mutation. The
+    // per-frame resolved scalars / RGBA live on `resolvedShow` below;
+    // consumers (VectorTileRenderer.render, line composite, point
+    // labels) read from THERE. `show` stays the immutable source
+    // ShowCommand. Visibility, pipeline, pointer-events decisions
+    // still come from the static show — they're not zoom/time-driven.
+    if (composedOpa < 0.005) continue
 
     const isTranslucentStroke =
-      !safeMode && (effectiveShow.opacity ?? 1) < 0.999 && !!effectiveShow.stroke
-    // Translucent extruded fills route through Weighted-Blended
-    // OIT — the layer's fill phase moves to the OIT pass, leaving
-    // outlines (if any) on the regular line path. Detected purely
-    // from the show's effective opacity + presence of an
-    // `extrude:` keyword; no per-feature decision (an extruded
-    // layer with mixed alphas still routes its entire fill through
-    // OIT, which is the whole point — no sort).
+      !safeMode && composedOpa < 0.999 && !!entry.show.stroke
+    // Translucent extruded fills route through Weighted-Blended OIT.
     const isOitExtrude =
-      !safeMode && (effectiveShow.opacity ?? 1) < 0.999
-      && effectiveShow.extrude !== undefined
-      && effectiveShow.extrude.kind !== 'none'
-    // pointer-events: none routes through the writeMask:0 mirror set
-    // so the layer's pickId never lands in the pick texture (picks
-    // fall through to whatever drew underneath). Falls back to the
-    // pickable pipeline if the no-pick mirror isn't available — that's
-    // a stub/test scenario, not an expected production path.
-    const noPick = effectiveShow.pointerEvents === 'none'
+      !safeMode && composedOpa < 0.999
+      && entry.show.extrude !== undefined
+      && entry.show.extrude.kind !== 'none'
+    const noPick = entry.show.pointerEvents === 'none'
     const fp = noPick
       ? (entry.pipelines?.fillPipelineNoPick ?? defaults.fillPipelineNoPick ?? entry.pipelines?.fillPipeline ?? defaults.fillPipeline)
       : (entry.pipelines?.fillPipeline ?? defaults.fillPipeline)
@@ -396,20 +307,18 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
         : isTranslucentStroke
           ? 'fills'
           : 'all'
-    // Phase 4b ResolvedShow snapshot. Constructed alongside the
-    // in-place `effectiveShow` mutation; the two carry identical
-    // resolved values. resolveShow() re-runs the paint-shape
-    // resolution from scratch on entry.show (PaintShapes-based),
-    // which is correct: the mutation above only writes COMPUTED
-    // values back onto a clone, never changes the source paintShapes
-    // the resolver reads.
+    // Phase 4c-final: ResolvedShow snapshot is the SOLE per-frame
+    // paint-state carrier. The classifier no longer clones / mutates
+    // a ShowCommand; `show` on ClassifiedShow is the original
+    // immutable source. All downstream consumers read the resolved
+    // scalars / RGBA from resolvedShow.
     const resolvedShow = resolveShow(entry.show, {
       cameraZoom: input.cameraZoom, elapsedMs: input.elapsedMs,
     })
     const classified: ClassifiedShow = {
       sourceName: entry.sourceName,
       vtEntry,
-      show: effectiveShow,
+      show: entry.show,
       resolvedShow,
       fp, lp, bgl, fpF, lpF, fpG, fpGF,
       isTranslucentStroke,
@@ -423,14 +332,14 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     // layer with its fully zoom × time-resolved paint state. Branch
     // is predicted away when recorder is null (production path).
     if (input.traceRecorder !== null && input.traceRecorder !== undefined) {
-      const layerName = (effectiveShow as { layerName?: string }).layerName ?? ''
+      const layerName = resolvedShow.layerName
       input.traceRecorder.recordLayer({
         layerName,
         fillPhase,
-        resolvedOpacity: composedOpa,
-        resolvedStrokeWidth: resolvedStrokeWidth ?? entry.show.strokeWidth ?? 0,
-        resolvedFill: resolvedFillRgba as RGBA | undefined,
-        resolvedStroke: resolvedStrokeRgba as RGBA | undefined,
+        resolvedOpacity: resolvedShow.opacity,
+        resolvedStrokeWidth: resolvedShow.strokeWidth,
+        resolvedFill: resolvedShow.fill as RGBA | undefined,
+        resolvedStroke: resolvedShow.stroke as RGBA | undefined,
       })
     }
   }
