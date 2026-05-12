@@ -1234,21 +1234,23 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
 
   // Convert to pixels
   let d_px = d_m / layer.mpp;
-  // Mapbox line-blur widens both the geometry quad and the
-  // smoothstep feathering by the requested px. aa_width_px carries
-  // 1.0 + blur from packLineLayerUniform.
+  // MapLibre line-blur spec: paint property in pixels, default 0.
+  // aa_width_px is packed as (1.0 + blur_px) on the CPU side, so
+  // we split it back into a sub-pixel BASE AA band and the spec
+  // blur addition:
+  //   base_aa  — sub-pixel coverage feathering (0.5 px),
+  //              the bit MapLibre derives from fwidth() natively
+  //   blur_px  — author-controlled extra feather, added on top
   //
-  // Cap the smoothstep half-width by the LINE'S OWN half-width
-  // (plus a small sub-pixel margin) so the AA band never grows
-  // wider than the line itself. Earlier code always reserved
-  // ≥1.0 px AA — fine for ≥2 px lines, but at low zoom a 0.5 px
-  // stroke ends up with a 1.0 px AA fade on each side, so the
-  // outline blur dominates the visible line body and the user
-  // sees a fuzzy halo instead of a thin line. Mapbox / MapLibre
-  // scale AA with line width to avoid this. The +0.5 sub-pixel
-  // buffer keeps very thin lines (0.5 px) from collapsing to
-  // a single hard pixel (no AA at all).
-  let aa = max(0.5, min(layer.aa_width_px, effective_width_px * 0.5 + 0.5));
+  // Earlier code reserved a flat 1.0+ px AA regardless of blur,
+  // which at low zoom made the AA band wider than the line itself
+  // (1 px AA on each side of a 0.5 px stroke = "outline blur larger
+  // than line"). Keeping base AA at 0.5 px and letting blur_px
+  // grow additively matches the spec exactly: with line-blur: 0
+  // the line renders with sub-pixel AA only, identical to what
+  // MapLibre produces.
+  let blur_px = max(0.0, layer.aa_width_px - 1.0);
+  let aa = 0.5 + blur_px;
   let alpha = 1.0 - smoothstep(-aa, aa, d_px);
   if (alpha < 0.005) { discard; }
   // Per-segment stroke colour override (RGBA8 packed). Compound
