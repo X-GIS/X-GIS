@@ -78,7 +78,14 @@ export function convertSource(
       lines.push('  type: geojson')
       const safeId = sanitizeId(id)
       if (options?.inlineGeoJSON) {
-        options.inlineGeoJSON.set(safeId, data)
+        // Mapbox/MapLibre `source.data` permits FeatureCollection,
+        // Feature, OR a bare Geometry. The runtime's rebuildLayers
+        // path indexes `.features` directly — feeding a single Feature
+        // (e.g. the `crimea` source in the MapLibre demo style) or a
+        // raw Geometry trips `.features[0]` access on undefined.
+        // Normalise here so the inline-push path always seeds a
+        // FeatureCollection regardless of which valid shape arrived.
+        options.inlineGeoJSON.set(safeId, normaliseInlineGeoJSON(data))
         lines.push('  // inline data captured by importer (auto-pushed via setSourceData)')
       } else {
         lines.push('  // inline data — call map.setSourceData("' + safeId + '", <FeatureCollection>) after run()')
@@ -103,4 +110,32 @@ export function convertSource(
   }
   lines.push('}')
   return lines.join('\n')
+}
+
+/** Wrap a Mapbox-style `source.data` value into a FeatureCollection.
+ *  Mapbox / MapLibre allow:
+ *   - FeatureCollection  → pass through
+ *   - Feature            → wrap as { type: FC, features: [feat] }
+ *   - Geometry           → wrap as { type: FC, features: [{ type: Feature, geometry }] }
+ *  Anything else returns a single-feature collection with an
+ *  empty-properties feature pointing at the raw value — defensive
+ *  fallback so the runtime's `.features` access never undefines. */
+function normaliseInlineGeoJSON(data: unknown): unknown {
+  if (data === null || typeof data !== 'object') {
+    return { type: 'FeatureCollection', features: [] }
+  }
+  const obj = data as { type?: string; features?: unknown[]; geometry?: unknown; properties?: unknown }
+  if (obj.type === 'FeatureCollection' && Array.isArray(obj.features)) return obj
+  if (obj.type === 'Feature') {
+    return { type: 'FeatureCollection', features: [obj] }
+  }
+  // Bare Geometry (`Point`, `LineString`, `Polygon`, `MultiPoint`, …)
+  // — wrap in a Feature, then a FeatureCollection.
+  if (typeof obj.type === 'string') {
+    return {
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', geometry: obj, properties: {} }],
+    }
+  }
+  return { type: 'FeatureCollection', features: [] }
 }
