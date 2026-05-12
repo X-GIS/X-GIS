@@ -2442,7 +2442,16 @@ export class VectorTileRenderer {
     // a keyframes block. Use it directly — skipping both the hex cache
     // check AND the hex parse. The cached base color stays intact so a
     // subsequent static frame can re-use it.
-    const opacity = show.opacity ?? 1.0
+    // Resolve zoom-interpolated opacity per frame — the demotiles
+    // countries-boundary uses `line-opacity: {stops:[[3,0.5],[6,1]]}`
+    // which lower.ts emits as zoomOpacityStops with values 0.5 / 1.0.
+    // Pre-fix the runtime read only `show.opacity` (the constant
+    // fallback, set to 1.0 by emit-commands for non-constant kinds)
+    // so the border rendered at full opacity at z < 3 — visibly
+    // thicker / more opaque than MapLibre at world zoom.
+    const opacity = show.zoomOpacityStops && show.zoomOpacityStops.length > 0
+      ? interpolateZoom(show.zoomOpacityStops, camera.zoom, show.zoomOpacityStopsBase ?? 1)
+      : (show.opacity ?? 1.0)
     this.currentOpacity = opacity
     this.currentPickId = show.pickId ?? 0
     // 3D extrusion: driven by the layer's `extrude:` style keyword.
