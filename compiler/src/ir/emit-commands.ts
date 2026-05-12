@@ -4,6 +4,13 @@
 
 import type { Scene, RenderNode, ColorValue, ZoomStop, TimeStop, Easing, DataExpr } from './render-node'
 import { rgbaToHex } from './render-node'
+import type { PaintShapes } from './property-types'
+import {
+  colorValueToShape,
+  opacityValueToShape,
+  strokeWidthValueToShape,
+  sizeValueToShape,
+} from './to-property-shape'
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
 
 export type { ShaderVariant } from '../codegen/shader-gen'
@@ -144,6 +151,17 @@ export interface ShowCommand {
    *  layers map here via the converter; xgis source uses
    *  `label-["..."]` utility or `label { ... }` sub-block. */
   label?: import('./render-node').LabelDef
+  /** Typed, post-discriminated-union paint property bundle (Plan
+   *  Step 1b). Mirrors the flat `fill` / `stroke` / `opacity` /
+   *  `strokeWidth` / `size` + their `zoom*Stops` / `time*Stops`
+   *  companions above. Consumers migrating to the unified
+   *  `PropertyShape<T>` model read this instead of stitching the
+   *  flat fields together at every callsite — eliminating the
+   *  "which field is truth-of-record" bug class that produced
+   *  PR #95 / #97 / #104. Dual-written for now; flat fields will
+   *  be removed once every runtime consumer has migrated
+   *  (Step 1c). */
+  paintShapes: PaintShapes
 }
 
 export interface SceneCommands {
@@ -289,7 +307,60 @@ function emitShow(node: RenderNode): ShowCommand {
     extrude: node.extrude,
     extrudeBase: node.extrudeBase,
     label: node.label,
+    paintShapes: {
+      fill: colorValueToShape(node.fill),
+      stroke: colorValueToShape(node.stroke.color),
+      // Stroke-width is the only paint property whose spatial
+      // dependency (constant / zoom-stops / per-feature) and temporal
+      // dependency (timeWidthStops on the parent StrokeValue) live
+      // apart. Compose them here so paintShapes.strokeWidth is the
+      // single authoritative shape — `zoom-time` if both exist,
+      // `time-interpolated` if only time, otherwise the bare spatial
+      // shape. Composition rule mirrors what bucket-scheduler does
+      // today for opacity.
+      strokeWidth: composeStrokeWidthShape(node.stroke.width, node.stroke.timeWidthStops, meta),
+      opacity: opacityValueToShape(node.opacity),
+      size: sizeValueToShape(node.size),
+    },
   }
+}
+
+/** Compose stroke-width's spatial half (StrokeWidthValue) with its
+ *  temporal half (node.stroke.timeWidthStops) into a single
+ *  PropertyShape. Mirrors emit-commands' existing dual-field output
+ *  but produces one typed value instead of two parallel arrays. */
+function composeStrokeWidthShape(
+  spatial: import('./render-node').StrokeWidthValue,
+  timeStops: TimeStop<number>[] | undefined,
+  meta: { loop: boolean; easing: Easing; delayMs: number },
+): import('./property-types').PropertyShape<number> {
+  const sp = strokeWidthValueToShape(spatial)
+  if (timeStops === undefined || timeStops.length === 0) return sp
+  if (sp.kind === 'zoom-interpolated') {
+    return {
+      kind: 'zoom-time',
+      zoomStops: sp.stops,
+      timeStops,
+      loop: meta.loop,
+      easing: meta.easing,
+      delayMs: meta.delayMs,
+    }
+  }
+  // Spatial is constant or data-driven — keep time as the dominant
+  // axis. data-driven + time is rare (the worker bakes spatial into
+  // segment slots; time stays per-frame); we surface it as the spatial
+  // shape and let the renderer pick up the time stops separately
+  // (matching today's behaviour where data-driven width ignores time).
+  if (sp.kind === 'constant') {
+    return {
+      kind: 'time-interpolated',
+      stops: timeStops,
+      loop: meta.loop,
+      easing: meta.easing,
+      delayMs: meta.delayMs,
+    }
+  }
+  return sp
 }
 
 function colorToHex(color: ColorValue): string | null {
