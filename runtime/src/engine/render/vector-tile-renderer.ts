@@ -877,21 +877,26 @@ export class VectorTileRenderer {
     const LAT_LIMIT = 85.051129
     const clampLat = (v: number): number => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
 
-    // Walk ONLY the current-frame visible-tile set (neededKeys) — NOT
-    // stableKeys, which also contains fallback ancestors that get
-    // drawn as fill-behind-the-missing-z=14 placeholders. Iterating
-    // those for labels is wasted work and produces label density
-    // mismatch (a z=13 ancestor's labels at z=14 viewport are too
-    // sparse + already-superseded by the eventual z=14 labels).
-    // Bright at z=14 Tokyo measured 308 ms/frame walking 279
-    // stableKeys; switching to ~9 neededKeys is ~30× less iteration.
-    // Falls back to stableKeys when the frame cache is empty (early
-    // boot, or render() hasn't been called this frame yet).
+    // Walk BOTH neededKeys (camera-visible) AND stableKeys (broader
+    // cache) for label features. We previously walked only neededKeys
+    // to avoid label density mismatch when zoom-9 ancestors served as
+    // fallback for missing zoom-14 tiles — but that exclusion HIDES
+    // opposite-world tiles which only become cached after the camera
+    // has panned past the antimeridian, while their features still
+    // need label emissions on the current side via the caller's
+    // projectLonLatCopies wrap. Visible repro (2026-05-13 OFM Bright
+    // zoom=0.5/lon=175): tile 1/1/0 (east hemisphere, camera-near)
+    // only carries antimeridian-wrap copies of Western-Hemisphere
+    // features (Canada/UK/Portugal at mercX=±WORLD_MERC_HALF). With
+    // neededKeys-only iteration the wrap copies were the ONLY anchors
+    // emitted; the caller's name-dedup then permanently skipped the
+    // real centroids living in tile 1/0/0 (camera-far). Drop wrap
+    // copies in the emit step below AND broaden the tile set so the
+    // real centroids are visited.
     //
-    // DEDUP across world copies. `neededKeys` repeats the same
-    // canonical tileKey once per world copy (the polygon path needs
-    // per-copy entries to draw at each world offset). For LABELS the
-    // caller in map.ts handles world-copy enumeration itself via
+    // DEDUP across world copies. Both `neededKeys` and stable copies
+    // repeat the same canonical tileKey once per world copy. For
+    // LABELS the caller in map.ts handles world-copy enumeration via
     // projectLonLatCopies, so iterating each tile's pointVertices N
     // times here only produces N× duplicate addLabel submissions at
     // the same canonical screen positions. With N=5 (full mercator
@@ -900,7 +905,9 @@ export class VectorTileRenderer {
     // dedup when bbox padding rounds inconsistently across iterations.
     // Visiting each tile ONCE here matches the per-feature iteration
     // count to the rendered label count.
-    const rawLabelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
+    const rawLabelKeys: number[] = []
+    if (this._frameTileCache?.neededKeys) rawLabelKeys.push(...this._frameTileCache.neededKeys)
+    rawLabelKeys.push(...this.stableKeys)
     // ALWAYS dedupe — stableKeys (the fallback path when neededKeys is
     // empty during early-frame loading) can also contain the same
     // canonical tileKey N times across world copies, and without the
@@ -955,6 +962,26 @@ export class VectorTileRenderer {
       // Emit in featId-first-encounter order for caller determinism.
       const ordered = [...bestByFeatId.entries()].sort((a, b) => a[1].firstIdx - b[1].firstIdx)
       for (const [featId, pt] of ordered) {
+        // SKIP antimeridian-edge anchors. When a tile only contains
+        // wrap copies of a feature (e.g., the East-Hemisphere tile
+        // 1/1/0 carries Canada's wrap copy at mercX=+WORLD_MERC_HALF
+        // so its polygon can render at the world's right edge), the
+        // bestByFeatId selection above falls back to the wrap copy
+        // because no inner alternative exists in THIS tile. Emitting
+        // those copies as label anchors makes the caller's cross-tile
+        // name-dedup (map.ts:3089 emittedPointNames) latch on to the
+        // first one it sees — typically the camera-near tile's wrap
+        // copy — and PERMANENTLY skip the real centroid living in the
+        // opposite-world tile. Visible symptom (2026-05-13 OFM Bright
+        // at zoom=0.5/lon=175): Canada, UK, Portugal, Mexico, Brazil
+        // etc. all stack at the antimeridian column on screen.
+        //
+        // The caller (map.ts) handles world-copy projection through
+        // `projectLonLatCopies` starting from the real centroid, so
+        // wrap copies as label anchors are pure noise. Drop them.
+        const atAntimeridian = Math.abs(Math.abs(pt.mercX) - WORLD_MERC_HALF) <= ANTIMERIDIAN_TOL
+        if (atAntimeridian) continue
+
         let props: Record<string, unknown>
         if (tileProps) {
           props = tileProps.get(featId) ?? {}
