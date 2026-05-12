@@ -16,11 +16,9 @@ exports[`style coverage > maplibre-demotiles coverage matches snapshot 1`] = `
       "type": "line",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "countries-fill",
-      "reasons": [
-        "Color expression not converted: ["match",["get","ADM0_A3"],["ARM","ATG","AUS","BTN","CAN","COG","CZE","GHA","GIN","HTI","ISL","JOR","KHM","KOR","LVA","M",
-      ],
+      "reasons": [],
       "type": "fill",
     },
     {
@@ -72,7 +70,6 @@ exports[`style coverage > maplibre-demotiles coverage matches snapshot 1`] = `
   ],
   "warnings": [
     "GeoJSON source "crimea" has inline data — emitted as no-URL stub; call map.setSourceData() after run().",
-    "Color expression not converted: ["match",["get","ADM0_A3"],["ARM","ATG","AUS","BTN","CAN","COG","CZE","GHA","GIN","HTI","ISL","JOR","KHM","KOR","LVA","M",
   ],
 }
 `;

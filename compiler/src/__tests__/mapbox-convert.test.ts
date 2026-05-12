@@ -127,7 +127,7 @@ describe('Mapbox → xgis converter', () => {
     expect(out).toContain('fill-extrusion-height-[.height ?? 50]')
   })
 
-  it('converts ["match", get(kind), …] to xgis match()', () => {
+  it('splits ["match", get(kind), …] fill-color into one sublayer per colour', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { s: { type: 'vector', url: 'a.pmtiles' } },
@@ -142,9 +142,22 @@ describe('Mapbox → xgis converter', () => {
         },
       }],
     })
-    // Mapbox `match` to colour is a non-trivial mapping; converter
-    // currently warns rather than emit. Verify the warning surface.
-    expect(out).toMatch(/Color expression not converted|match\(/)
+    // expand-color-match preprocessor splits the match into 3
+    // sublayers — one per unique colour — each with a value-set
+    // filter. Lets runtime fills render correct per-feature colours
+    // without per-feature vertex-attribute support. The colours
+    // appear as constant fill utilities in the output.
+    expect(out).toContain('fill-#cfe7c1')
+    expect(out).toContain('fill-#a4c8d5')
+    expect(out).toContain('fill-#dadada')
+    expect(out).toMatch(/\.kind == "park"/)
+    expect(out).toMatch(/\.kind == "water"/)
+    // Default arm becomes a NOT-IN filter over the union of explicit
+    // values — emitted as `!(...||...)` since filterToXgis lowers
+    // the expression-form `["in"]` to an OR-chain. The default
+    // sublayer covers every feature whose .kind is neither park
+    // nor water.
+    expect(out).toMatch(/!\(\.kind == "park" \|\| \.kind == "water"\)/)
   })
 
   it('skips unsupported layer types with a comment', () => {

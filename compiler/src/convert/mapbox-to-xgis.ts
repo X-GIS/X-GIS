@@ -41,10 +41,11 @@
 //     to linear.
 //   • Top-level light / fog / terrain.
 
-import type { MapboxStyle } from './types'
+import type { MapboxStyle, MapboxLayer } from './types'
 import { convertSource, type ConvertSourceOptions } from './sources'
 import { convertLayer } from './layers'
 import { colorToXgis } from './colors'
+import { expandPerFeatureColorMatch } from './expand-color-match'
 
 /** Per-source record emitted into the optional `coverage` collector.
  *  `reasons` holds warnings pushed during that source's conversion
@@ -158,18 +159,33 @@ export function convertMapboxStyle(
   for (const layer of style.layers ?? []) {
     if (layer.type === 'background') continue // handled above
     const before = warnings.length
-    const block = convertLayer(layer, warnings)
-    if (block) {
-      lines.push(block)
-      lines.push('')
+    // Preprocess: a `fill-color: ["match", ["get", field], …]` with
+    // many distinct constant colours (typical "one colour per country"
+    // basemap pattern — MapLibre demotiles is the canonical case)
+    // would otherwise collapse to a single default colour at lower.ts.
+    // Split the layer into one sublayer per unique colour with a
+    // value-set filter, so each colour renders correctly without any
+    // runtime per-feature support.
+    const expanded = expandPerFeatureColorMatch(layer as MapboxLayer)
+    const sublayers = expanded ?? [layer as MapboxLayer]
+    let anyEmitted = false
+    let anyLossy = false
+    for (const sub of sublayers) {
+      const block = convertLayer(sub, warnings)
+      if (block) {
+        lines.push(block)
+        lines.push('')
+        anyEmitted = true
+        if (/^\s*\/\/ SKIPPED/.test(block)) anyLossy = true
+      }
     }
     if (options?.coverage) {
       const reasons = warnings.slice(before)
-      const isSkipped = block === null || /^\s*\/\/ SKIPPED/.test(block ?? '')
+      const isSkipped = !anyEmitted
       options.coverage.layers.push({
         layerId: layer.id,
         type: layer.type,
-        action: isSkipped ? 'skipped'
+        action: isSkipped || anyLossy ? 'skipped'
           : reasons.length > 0 ? 'lossy' : 'converted',
         reasons,
       })

@@ -92,8 +92,13 @@ describe('MapLibre demo style → xgis full pipeline', () => {
     // Background fill (#D8F2FF → lowercased by colorToXgis).
     expect(xgis.toLowerCase()).toContain('background { fill: #d8f2ff }')
 
-    // Country fill / boundary layers survive conversion.
-    expect(xgis).toContain('layer countries_fill {')
+    // Country fill / boundary layers survive conversion. countries-fill
+    // is a multi-colour match split by expand-color-match into N
+    // sublayers named `countries_fill__c0`, `..._c1`, ..., `..._cd`
+    // (the trailing default arm) — one per unique colour in the
+    // Mapbox match expression.
+    expect(xgis).toContain('layer countries_fill__c0 {')
+    expect(xgis).toContain('layer countries_fill__cd {')
     expect(xgis).toContain('layer countries_boundary {')
     expect(xgis).toContain('layer crimea_fill {')
   })

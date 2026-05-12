@@ -83,7 +83,14 @@ function findShow(shows: ShowSample[], mapboxId: string): ShowSample | undefined
   // symbol-placement step splits one Mapbox layer into multiple xgis
   // blocks suffixed `_0`, `_1`, … Pick the first one (the split keeps
   // every paint/layout property uniform across segments).
-  return shows.find(s => s.layerName === id || s.layerName?.startsWith(id + '_0'))
+  // expand-color-match splits a per-feature fill-color match into
+  // sublayers suffixed `__c0`, `__c1`, …, `__cd` (default arm). Each
+  // sublayer has a constant fill colour so the checkPaint assertions
+  // about fill-color presence pass; pick the first colour bucket.
+  return shows.find(s =>
+    s.layerName === id
+    || s.layerName?.startsWith(id + '_0')
+    || s.layerName?.startsWith(id + '__c'))
 }
 
 // ── Per-property assertions ─────────────────────────────────────────
