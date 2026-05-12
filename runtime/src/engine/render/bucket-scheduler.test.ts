@@ -32,36 +32,90 @@ import type { SceneCommands, PaintShapes, PropertyShape } from '@xgis/compiler'
 /** Synthesize a PaintShapes bundle from the legacy flat fields a test
  *  fixture sets. Mirrors what emit-commands.ts does for compiled
  *  programs — keeps test fixtures from having to spell out the typed
- *  shape AND the legacy fallback both. The bucket-scheduler reads
- *  paintShapes.opacity directly (Step 1c migration), so this is what
- *  feeds it. */
+ *  shape AND the legacy fields both. The bucket-scheduler reads
+ *  paintShapes.{opacity,fill,stroke,strokeWidth,size} directly
+ *  (Step 1c / 1c.3 migrations), so this is what feeds it. */
 function synthesizePaintShapes(show: {
   opacity?: number | null
+  strokeWidth?: number
   zoomOpacityStops?: { zoom: number; value: number }[] | null
   zoomOpacityStopsBase?: number
   timeOpacityStops?: { timeMs: number; value: number }[] | null
   timeOpacityLoop?: boolean
   timeOpacityEasing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
   timeOpacityDelayMs?: number
+  zoomFillStops?: { zoom: number; value: [number, number, number, number] }[] | null
+  zoomFillStopsBase?: number
+  timeFillStops?: { timeMs: number; value: [number, number, number, number] }[] | null
+  timeStrokeStops?: { timeMs: number; value: [number, number, number, number] }[] | null
+  zoomStrokeWidthStops?: { zoom: number; value: number }[] | null
+  zoomStrokeWidthStopsBase?: number
+  timeStrokeWidthStops?: { timeMs: number; value: number }[] | null
+  zoomSizeStops?: { zoom: number; value: number }[] | null
+  zoomSizeStopsBase?: number
+  timeSizeStops?: { timeMs: number; value: number }[] | null
 }): PaintShapes {
-  const z = show.zoomOpacityStops ?? null
-  const t = show.timeOpacityStops ?? null
   const loop = show.timeOpacityLoop ?? false
   const easing = show.timeOpacityEasing ?? 'linear'
   const delayMs = show.timeOpacityDelayMs ?? 0
+
+  // Opacity: 4-way (constant / zoom / time / zoom-time)
+  const oz = show.zoomOpacityStops ?? null
+  const ot = show.timeOpacityStops ?? null
   let opacity: PropertyShape<number>
-  if (z !== null && t !== null) {
-    opacity = {
-      kind: 'zoom-time', zoomStops: z, timeStops: t, loop, easing, delayMs,
-    }
-  } else if (z !== null) {
-    opacity = { kind: 'zoom-interpolated', stops: z, base: show.zoomOpacityStopsBase ?? 1 }
-  } else if (t !== null) {
-    opacity = { kind: 'time-interpolated', stops: t, loop, easing, delayMs }
+  if (oz !== null && ot !== null) {
+    opacity = { kind: 'zoom-time', zoomStops: oz, timeStops: ot, loop, easing, delayMs }
+  } else if (oz !== null) {
+    opacity = { kind: 'zoom-interpolated', stops: oz, base: show.zoomOpacityStopsBase ?? 1 }
+  } else if (ot !== null) {
+    opacity = { kind: 'time-interpolated', stops: ot, loop, easing, delayMs }
   } else {
     opacity = { kind: 'constant', value: show.opacity ?? 1 }
   }
-  return { fill: null, stroke: null, opacity, strokeWidth: { kind: 'constant', value: 1 }, size: null }
+
+  // Fill: 3-way (zoom / time / null). The bucket-scheduler ignores
+  // constant — the renderer uses the static hex — so test fixtures
+  // with no animation set fill to null.
+  const fz = show.zoomFillStops ?? null
+  const ft = show.timeFillStops ?? null
+  let fill: PropertyShape<readonly [number, number, number, number]> | null = null
+  if (ft !== null) {
+    fill = { kind: 'time-interpolated', stops: ft, loop, easing, delayMs }
+  } else if (fz !== null) {
+    fill = { kind: 'zoom-interpolated', stops: fz, base: show.zoomFillStopsBase ?? 1 }
+  }
+
+  // Stroke colour: time only (no zoom stops field exists today)
+  const st = show.timeStrokeStops ?? null
+  const stroke: PropertyShape<readonly [number, number, number, number]> | null = st !== null
+    ? { kind: 'time-interpolated', stops: st, loop, easing, delayMs }
+    : null
+
+  // Stroke width: composeStrokeWidthShape mirror.
+  const swz = show.zoomStrokeWidthStops ?? null
+  const swt = show.timeStrokeWidthStops ?? null
+  let strokeWidth: PropertyShape<number>
+  if (swz !== null && swt !== null) {
+    strokeWidth = { kind: 'zoom-time', zoomStops: swz, timeStops: swt, loop, easing, delayMs }
+  } else if (swz !== null) {
+    strokeWidth = { kind: 'zoom-interpolated', stops: swz, base: show.zoomStrokeWidthStopsBase ?? 1 }
+  } else if (swt !== null) {
+    strokeWidth = { kind: 'time-interpolated', stops: swt, loop, easing, delayMs }
+  } else {
+    strokeWidth = { kind: 'constant', value: show.strokeWidth ?? 1 }
+  }
+
+  // Size: 3-way (constant / zoom / time / null)
+  const sz = show.zoomSizeStops ?? null
+  const stm = show.timeSizeStops ?? null
+  let size: PropertyShape<number> | null = null
+  if (stm !== null) {
+    size = { kind: 'time-interpolated', stops: stm, loop, easing, delayMs }
+  } else if (sz !== null) {
+    size = { kind: 'zoom-interpolated', stops: sz, base: show.zoomSizeStopsBase ?? 1 }
+  }
+
+  return { fill, stroke, opacity, strokeWidth, size }
 }
 
 // ── Stub helpers ───────────────────────────────────────────────────

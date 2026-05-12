@@ -77,6 +77,49 @@ function resolveNumberShape(
   }
 }
 
+/** RGBA companion to {@link resolveNumberShape}. Reuses
+ *  interpolateZoomRgba / interpolateTimeColor (the same per-channel
+ *  blenders the renderer already calls). For `constant` and
+ *  `data-driven` returns null — the renderer uses the static fill hex
+ *  (constant) or the per-feature bake (data-driven) and clone-on-
+ *  resolution would be wasted work. */
+function resolveColorShape(
+  shape: PropertyShape<RGBA>,
+  cameraZoom: number,
+  elapsedMs: number,
+): { value: RGBA; hasZoom: boolean; hasTime: boolean } | null {
+  switch (shape.kind) {
+    case 'constant':
+      return null
+    case 'zoom-interpolated':
+      return {
+        value: interpolateZoomRgba(shape.stops, cameraZoom, shape.base ?? 1) as RGBA,
+        hasZoom: true, hasTime: false,
+      }
+    case 'time-interpolated':
+      return {
+        value: interpolateTimeColor(
+          shape.stops, elapsedMs, shape.loop, shape.easing, shape.delayMs,
+        ) as RGBA,
+        hasZoom: false, hasTime: true,
+      }
+    case 'zoom-time': {
+      // Spec doesn't define zoom × time composition for colour; pick
+      // the time-axis value (the dominant animation in observed
+      // styles). Emit-commands doesn't currently produce zoom-time
+      // colour shapes, so this branch is defensive only.
+      return {
+        value: interpolateTimeColor(
+          shape.timeStops, elapsedMs, shape.loop, shape.easing, shape.delayMs,
+        ) as RGBA,
+        hasZoom: true, hasTime: true,
+      }
+    }
+    case 'data-driven':
+      return null
+  }
+}
+
 // ── Output: post-classification show with all animation resolved ──
 
 /** A vector-tile show after zoom-opacity resolution and bucket
@@ -288,32 +331,33 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     const composedOpa = opaResolved.value
 
     // ── Stroke width (time overrides zoom overrides scalar) ──
+    //
+    // emit-commands' composeStrokeWidthShape folds the spatial
+    // (StrokeWidthValue) and temporal (StrokeValue.timeWidthStops)
+    // halves into a single shape: `constant` / `data-driven` for
+    // baked / per-feature paths (renderer uses entry.show.strokeWidth
+    // scalar or the per-feature segment-buffer slot), or one of the
+    // three animated kinds for per-frame eval here.
+    const swShape = entry.show.paintShapes.strokeWidth
     let resolvedStrokeWidth: number | undefined
-    if (entry.show.timeStrokeWidthStops) {
-      resolvedStrokeWidth = interpolateTime(
-        entry.show.timeStrokeWidthStops, input.elapsedMs, loop, easing, delayMs,
-      )
-    } else if (entry.show.zoomStrokeWidthStops) {
-      resolvedStrokeWidth = interpolateZoom(
-        entry.show.zoomStrokeWidthStops, input.cameraZoom,
-        entry.show.zoomStrokeWidthStopsBase ?? 1,
-      )
+    if (swShape.kind === 'zoom-interpolated' || swShape.kind === 'time-interpolated' || swShape.kind === 'zoom-time') {
+      resolvedStrokeWidth = resolveNumberShape(swShape, input.cameraZoom, input.elapsedMs).value
     }
 
     // ── Size (point markers, label paths) ──
+    const sizeShape = entry.show.paintShapes.size
     let resolvedSize: number | undefined
-    if (entry.show.timeSizeStops) {
-      resolvedSize = interpolateTime(
-        entry.show.timeSizeStops, input.elapsedMs, loop, easing, delayMs,
-      )
-    } else if (entry.show.zoomSizeStops) {
-      resolvedSize = interpolateZoom(
-        entry.show.zoomSizeStops, input.cameraZoom,
-        entry.show.zoomSizeStopsBase ?? 1,
-      )
+    if (sizeShape !== null &&
+        (sizeShape.kind === 'zoom-interpolated' || sizeShape.kind === 'time-interpolated' || sizeShape.kind === 'zoom-time')) {
+      resolvedSize = resolveNumberShape(sizeShape, input.cameraZoom, input.elapsedMs).value
     }
 
-    // ── Dash offset (time only — no zoom-stops field exists) ──
+    // ── Dash offset (time only — not part of PaintShapes) ──
+    //
+    // Stroke dash offset is a structural attribute, not a "paint"
+    // colour/numeric — it lives on the parent StrokeValue alongside
+    // dashArray + patterns and only carries a `time-interpolated`
+    // animation form. Kept on the flat field for now.
     let resolvedDashOffset: number | undefined
     if (entry.show.timeDashOffsetStops) {
       resolvedDashOffset = interpolateTime(
@@ -322,24 +366,19 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     }
 
     // ── Fill colour ──
+    const fillShape = entry.show.paintShapes.fill
     let resolvedFillRgba: [number, number, number, number] | undefined
-    if (entry.show.timeFillStops) {
-      resolvedFillRgba = interpolateTimeColor(
-        entry.show.timeFillStops, input.elapsedMs, loop, easing, delayMs,
-      )
-    } else if (entry.show.zoomFillStops) {
-      resolvedFillRgba = interpolateZoomRgba(
-        entry.show.zoomFillStops, input.cameraZoom,
-        entry.show.zoomFillStopsBase ?? 1,
-      )
+    if (fillShape !== null) {
+      const r = resolveColorShape(fillShape, input.cameraZoom, input.elapsedMs)
+      if (r !== null) resolvedFillRgba = r.value as [number, number, number, number]
     }
 
-    // ── Stroke colour (time-only — no zoom-stops field) ──
+    // ── Stroke colour ──
+    const strokeShape = entry.show.paintShapes.stroke
     let resolvedStrokeRgba: [number, number, number, number] | undefined
-    if (entry.show.timeStrokeStops) {
-      resolvedStrokeRgba = interpolateTimeColor(
-        entry.show.timeStrokeStops, input.elapsedMs, loop, easing, delayMs,
-      )
+    if (strokeShape !== null) {
+      const r = resolveColorShape(strokeShape, input.cameraZoom, input.elapsedMs)
+      if (r !== null) resolvedStrokeRgba = r.value as [number, number, number, number]
     }
 
     const hasAnyTimeAnim =
