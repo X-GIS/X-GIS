@@ -158,7 +158,7 @@ map.setProjection(proj)`,
       {
         name: 'loadGeoJSON',
         signature: 'loadGeoJSON(url: string, baseUrl?: string): Promise<GeoJSON>',
-        body: 'Fetch a GeoJSON file (or a pre-tiled .xgvt binary — auto-detected). Resolves to the parsed FeatureCollection.',
+        body: 'Fetch a GeoJSON file. Resolves to the parsed FeatureCollection.',
       },
       {
         name: 'loadPMTilesSource',
@@ -259,7 +259,7 @@ map.setProjection(proj)`,
 
     <RuntimeSupport rows={[
       { label: 'WebGPU',        state: 'yes',     body: 'Chrome 113+ · Safari 17.4+ · Firefox 130+ · Edge 113+' },
-      { label: 'Canvas 2D fallback', state: 'limited', body: 'Activates when no WebGPU adapter is present. GeoJSON paths only — PMTiles / XGVT / extruded buildings unsupported.' },
+      { label: 'Canvas 2D fallback', state: 'limited', body: 'Activates when no WebGPU adapter is present. GeoJSON paths only — PMTiles and extruded buildings unsupported.' },
       { label: 'Mobile',        state: 'limited', body: 'iOS Safari 17.4+ · Android Chrome with WebGPU enabled. Heavier scenes may throttle.' },
       { label: 'Web workers',   state: 'yes',     body: 'Required — used for off-main-thread MVT decode + GeoJSON tessellation.' },
     ]} />

@@ -21,7 +21,7 @@ const sourceTypes: SourceType[] = [
     type: 'geojson',
     badge: 'Default',
     short: 'Full GeoJSON file. Loaded once, tiled on-demand.',
-    body: 'Pulls the entire FeatureCollection over HTTP, then tiles it client-side via the GeoJSON compile worker. Best for moderate datasets (≤ ~50 MB) — countries, ports, points of interest. For large worlds use PMTiles or XGVT instead.',
+    body: 'Pulls the entire FeatureCollection over HTTP, then tiles it client-side in a worker (geojson-vt port) before routing per-tile MVT through the same compile pipeline PMTiles archives use. Best for moderate datasets (≤ ~50 MB) — countries, ports, points of interest. For larger worlds reach for PMTiles.',
     fields: [
       { key: 'url',  required: true,  body: 'HTTP(S) URL of the .geojson file. Relative paths resolve against the playground / host page baseURL.' },
     ],
@@ -94,30 +94,13 @@ const sourceTypes: SourceType[] = [
     ],
   },
 
-  {
-    type: 'xgvt',
-    badge: 'Pre-tessellated binary',
-    short: 'X-GIS\'s native vector-tile binary format. Streamed via byte-range.',
-    body: 'Pre-tessellated GeoJSON in a single binary archive — no per-tile compile cost at runtime. Generate via `xgvt-cli` (compiler workspace) from a source GeoJSON. Ideal for static datasets you ship with the app.',
-    fields: [
-      { key: 'url', required: true, body: 'URL of the `.xgvt` file. Server must support byte-range requests.' },
-    ],
-    example: `source land {
-  type: xgvt
-  url: "/data/ne_110m_land.xgvt"
-}`,
-    notes: [
-      'Source kind is auto-detected from the `.xgvt` extension when used with `type: geojson` — explicit `type: xgvt` is for clarity.',
-      'XGVT format details live in <a class="text-accent hover:text-accent-hover underline" href="https://github.com/X-GIS/X-GIS/blob/main/SPEC.md" target="_blank" rel="noopener">SPEC.md</a>.',
-    ],
-  },
 ]
 ---
 
 <Docs
   current="sources"
   title="X-GIS — Source types"
-  description="Every source type the runtime accepts — GeoJSON, PMTiles, TileJSON, raster XYZ, and XGVT — with required fields, options, and caveats."
+  description="Every source type the runtime accepts — GeoJSON, PMTiles, TileJSON, and raster XYZ — with required fields, options, and caveats."
   headings={sourceTypes.map(s => ({ depth: 2, slug: s.type, text: s.type }))}
 >
   <header class="mb-12">
@@ -194,7 +177,6 @@ const sourceTypes: SourceType[] = [
     { body: 'PMTiles',   title: 'PMTiles v3 specification', url: 'https://github.com/protomaps/PMTiles/blob/main/spec/v3/spec.md' },
     { body: 'Mapbox',    title: 'TileJSON 3.0 specification', url: 'https://github.com/mapbox/tilejson-spec/tree/master/3.0.0' },
     { body: 'OSM',       title: 'Slippy map tilenames', url: 'https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames' },
-    { body: 'X-GIS',     title: 'XGVT binary format (SPEC.md)', url: 'https://github.com/X-GIS/X-GIS/blob/main/SPEC.md' },
   ]} />
 
   <SeeAlso links={[

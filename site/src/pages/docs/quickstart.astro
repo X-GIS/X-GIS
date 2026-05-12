@@ -46,7 +46,7 @@ const playUrl = import.meta.env.DEV
       <Callout type="note">
         WebGPU is required. The runtime falls back to a Canvas&nbsp;2D
         renderer when no adapter is available, but only the basic
-        GeoJSON path runs there — no PMTiles, no XGVT, no extruded buildings.
+        GeoJSON path runs there — no PMTiles, no extruded buildings.
       </Callout>
     </section>
 
@@ -55,7 +55,7 @@ const playUrl = import.meta.env.DEV
         2. Declare a data source
       </h2>
       <p class="text-[14px] leading-[1.6] text-fg-dim mb-3 max-w-[720px]">
-        A <code class="font-mono text-fg">source</code> block points at the data. Three fields — <code class="font-mono text-fg">type</code>, <code class="font-mono text-fg">url</code>, and an optional <code class="font-mono text-fg">layers</code> filter — cover GeoJSON, PMTiles, TileJSON, raster XYZ, and XGVT.
+        A <code class="font-mono text-fg">source</code> block points at the data. Three fields — <code class="font-mono text-fg">type</code>, <code class="font-mono text-fg">url</code>, and an optional <code class="font-mono text-fg">layers</code> filter — cover GeoJSON, PMTiles, TileJSON, and raster XYZ.
       </p>
       <Code lang="xgis" title="map.xgis" code={`source world {
   type: geojson

@@ -99,7 +99,7 @@ export function buildSearchIndex(base: string): SearchRecord[] {
   out.push({
     id: 'doc:sources',
     title: 'Source types',
-    body: 'GeoJSON, PMTiles, TileJSON, raster XYZ, and XGVT — required fields, options, and caveats per source kind.',
+    body: 'GeoJSON, PMTiles, TileJSON, and raster XYZ — required fields, options, and caveats per source kind.',
     type: 'doc',
     tag: 'Language',
     url: `${base}/docs/sources`,
@@ -176,7 +176,6 @@ export function buildSearchIndex(base: string): SearchRecord[] {
     { slug: 'pmtiles',  page: 'sources', tag: 'Source', title: 'pmtiles — single archive',     body: 'pmtiles archive byte-range MVT vector source-layer' },
     { slug: 'tilejson', page: 'sources', tag: 'Source', title: 'tilejson — XYZ MVT manifest',  body: 'tilejson manifest XYZ MVT vector tile server openfreemap' },
     { slug: 'raster',   page: 'sources', tag: 'Source', title: 'raster — XYZ tile server',     body: 'raster XYZ tile server PNG JPG OSM basemap' },
-    { slug: 'xgvt',     page: 'sources', tag: 'Source', title: 'xgvt — pre-tessellated binary',body: 'xgvt binary pre-tessellated byte-range native format' },
     // /docs/cookbook
     { slug: '3d-buildings',           page: 'cookbook', tag: 'Recipe', title: 'Extruded 3D buildings',         body: 'fill-extrusion-height height render_height building 3d extrude' },
     { slug: 'categorical-fill',       page: 'cookbook', tag: 'Recipe', title: 'Categorical fill from a property', body: 'match continent category property fill color discrete' },
@@ -209,7 +208,7 @@ export function buildSearchIndex(base: string): SearchRecord[] {
     { slug: 'orthographic',  page: 'api', tag: 'API', title: 'orthographic',               body: 'globe view orthographic hemispherical back-face cull' },
     { slug: 'getprojection', page: 'api', tag: 'API', title: 'getProjection',              body: 'getProjection look up name args projection' },
     { slug: 'loaders',       page: 'api', tag: 'API', title: 'Loaders',                    body: 'loadGeoJSON loadPMTilesSource attachPMTilesSource lonLatToMercator' },
-    { slug: 'loadgeojson',   page: 'api', tag: 'API', title: 'loadGeoJSON',                body: 'loadGeoJSON fetch xgvt auto-detect FeatureCollection' },
+    { slug: 'loadgeojson',   page: 'api', tag: 'API', title: 'loadGeoJSON',                body: 'loadGeoJSON fetch FeatureCollection auto-detect' },
     { slug: 'loadpmtilessource',   page: 'api', tag: 'API', title: 'loadPMTilesSource',    body: 'loadPMTilesSource streaming PMTiles backend header range' },
     { slug: 'attachpmtilessource', page: 'api', tag: 'API', title: 'attachPMTilesSource',  body: 'attachPMTilesSource catalog source backend wire' },
     { slug: 'lonlattomercator', page: 'api', tag: 'API', title: 'lonLatToMercator',        body: 'lonLatToMercator project coordinate web mercator meters' },

@@ -70,16 +70,6 @@ export const galleryCategories: Category[] = [
     ],
   },
   {
-    title: 'Vector tiles (XGVT binary)',
-    body: 'Pre-tessellated GeoJSON in a single binary file, streamed via HTTP Range Requests.',
-    demos: [
-      { id: 'vector-tiles',               title: 'XGVT basics',           body: 'Compiled .xgvt loaded with HTTP Range Requests.' },
-      { id: 'vector-categorical',         title: 'Categorical fill',      body: 'Per-feature color from feature properties.' },
-      { id: 'countries-categorical-xgvt', title: 'Countries categorical', body: 'Categorical world map sourced from .xgvt.' },
-      { id: 'physical-map-xgvt',          title: 'Physical map',          body: 'Multi-layer physical Earth from compiled tiles.' },
-    ],
-  },
-  {
     title: 'Data-driven styling',
     body: 'Bind feature properties to colors, sizes, and opacity through match(), filters, and gradients.',
     demos: [

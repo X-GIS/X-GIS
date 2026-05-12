@@ -62,7 +62,7 @@ const terms: Term[] = [
     see: [{ label: 'Filter predicate', href: ref('/docs/expressions#filter-predicate') }] },
 
   { slug: 'geojson', term: 'GeoJSON',
-    body: 'JSON-encoded feature collection (RFC 7946). Geometry types: Point / LineString / Polygon / Multi*. xgis sources of `type: geojson` accept either a `.geojson` URL or a pre-tessellated `.xgvt` (auto-detected by extension).',
+    body: 'JSON-encoded feature collection (RFC 7946). Geometry types: Point / LineString / Polygon / Multi*. xgis sources of `type: geojson` accept a `.geojson` URL; the runtime tiles it client-side in a worker before routing through the same MVT compile pipeline PMTiles archives use.',
     see: [{ label: 'geojson source', href: ref('/docs/sources#geojson') }] },
 
   { slug: 'ir', term: 'IR (intermediate representation)',
@@ -139,10 +139,6 @@ const terms: Term[] = [
     body: 'See [EPSG:3857](#epsg-3857).' },
   { slug: 'worker', term: 'Worker (web worker)',
     body: 'Off-main-thread JavaScript. X-GIS runs MVT decoding + GeoJSON tessellation in workers so a slow tile decode never stalls the render loop. Each source kind has its own worker pool.' },
-
-  { slug: 'xgvt', term: 'XGVT',
-    body: 'X-GIS\'s native vector-tile binary format. Pre-tessellated GeoJSON in a single byte-range-served file. Generated via `xgvt-cli`; no per-tile compile cost at runtime. Spec lives in `SPEC.md` in the repo.',
-    see: [{ label: 'xgvt source', href: ref('/docs/sources#xgvt') }] },
 
   { slug: 'zoom', term: 'Zoom',
     body: 'Camera magnification level. Each integer step doubles the resolution — z=0 fits the whole world in 256 px, z=1 in 512 px, z=14 in 4 194 304 px. Continuous between integers (z=14.5 is a smooth interpolation). Available as a runtime accessor inside `interpolate(zoom, …)`.' },

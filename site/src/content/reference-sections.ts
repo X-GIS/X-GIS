@@ -49,12 +49,6 @@ source land {
   url: "land.geojson"
 }
 
-// XGVT — pre-tiled binary, HTTP Range Requests
-source land_xgvt {
-  type: geojson           // the geojson loader auto-detects .xgvt
-  url: "land.xgvt"
-}
-
 // PMTiles — single archive, per-MVT-layer slicing
 source pm {
   type: pmtiles
