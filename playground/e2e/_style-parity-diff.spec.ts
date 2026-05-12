@@ -17,8 +17,8 @@
 // for a labels-removed apples-to-apples comparison. Until then the
 // captured metrics include the symbol-layer gap.
 
-import { test } from '@playwright/test'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { test, expect } from '@playwright/test'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pixelmatch from 'pixelmatch'
@@ -27,6 +27,18 @@ import { PNG } from 'pngjs'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const OUT = join(HERE, '__style-parity-diff__')
 mkdirSync(OUT, { recursive: true })
+
+// Per-preset diffRatio ceilings. Source of truth in BASELINES.json so
+// the gate can be rebased without touching the spec — every edit must
+// land in a PR that explains the regression / improvement.
+interface BaselineDoc {
+  _doc: string
+  _headroom: number
+  presets: Record<string, number>
+}
+const BASELINES: BaselineDoc = JSON.parse(
+  readFileSync(join(OUT, 'BASELINES.json'), 'utf8'),
+) as BaselineDoc
 
 interface Preset {
   fixture: string  // style id in compare-runner.ts STYLES catalogue
@@ -150,8 +162,22 @@ for (const preset of PRESETS) {
       console.log(`[parity] ${slug} errors:\n` + consoleErrors.map(e => '  - ' + e).join('\n'))
     }
 
-    // Soft gate: no expect() on diffRatio. Once symbol rendering
-    // lands, per-preset thresholds + expect() flip the gate.
+    // Hard gate. Diff ratio must stay below the per-preset baseline
+    // × headroom. A failure here means VISIBLE drift from the last
+    // captured-good state — investigate the diff PNG, then either fix
+    // the cause or update BASELINES.json explicitly in the same PR.
+    const baseline = BASELINES.presets[slug]
+    if (baseline !== undefined) {
+      const ceiling = baseline * BASELINES._headroom
+      expect(
+        diffRatio,
+        `${slug} diffRatio=${(diffRatio * 100).toFixed(2)}% exceeded ` +
+        `baseline ${(baseline * 100).toFixed(2)}% × headroom ${BASELINES._headroom} ` +
+        `(=${(ceiling * 100).toFixed(2)}%). Investigate the diff PNG at ` +
+        `__style-parity-diff__/${slug}/diff.png. If the regression is intentional ` +
+        `update BASELINES.json with a note explaining what changed.`,
+      ).toBeLessThanOrEqual(ceiling)
+    }
   })
 }
 

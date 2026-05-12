@@ -34,20 +34,34 @@ describe('visibleTilesSSE — basic emission', () => {
     expect(tiles.length).toBeGreaterThan(0)
   })
 
-  it('emits at least one tile at z >= currentZ - 2 around the camera centre', () => {
-    // Closest-point distance + SSE means the tile under the camera
-    // gets the highest SSE → subdivides deepest. With the default
-    // target=4 px, the deepest emitted zoom under the camera is
-    // approximately currentZ - 2 (each zoom level halves SSE; 1 →
-    // 2 → 4 stops at the third level above currentZ). This tradeoff
-    // is documented on DEFAULT_TARGET_SSE_PX in tiles-sse.ts —
-    // tightening the target eliminates the gap but blows up tile
-    // count at high pitch. The "currentZ - 2" floor is the agreed
-    // compromise for v1; revisit if visual quality complaints land.
+  it('emits the camera native cz under the camera centre', () => {
+    // The default SSE target was lowered from 4 to 1 px in commit
+    // 79c8b4b (Korea sparse-source visual regression). With target=1
+    // the closest-point tile under the camera subdivides all the way
+    // to currentZ — matching the historical Mapbox/MapLibre frustum-
+    // selector behaviour the SSE selector replaced when it became
+    // default. The pitch>60° ramp re-introduces horizon coarsening,
+    // but for FLAT pitch under-camera tiles must hit native zoom.
     const cam = makeCam(14, 0, 139.76, 35.68)
     const tiles = visibleTilesSSE(cam, mercator, 14, 1280, 800, 0, 1)
-    const maxZ = Math.max(...tiles.map(t => t.z))
-    expect(maxZ).toBeGreaterThanOrEqual(12)
+    const maxZ = Math.max(...tiles.filter(t => !t.fallbackOnly).map(t => t.z))
+    expect(maxZ,
+      'primary tiles must reach the camera native cz at flat pitch — ' +
+      'a regression here means DEFAULT_TARGET_SSE_PX climbed back above 1.',
+    ).toBe(14)
+  })
+
+  it('zoom=6.93 emits z=7 native (Korea sparse-source regression repro)', () => {
+    // Specific repro for the OFM Bright + ne_110m wedge-cut visual:
+    // before commit 79c8b4b this view emitted ONLY one z=5 tile (the
+    // SSE DFS stopped at z=5 because `ssePx ≈ 3.83 < 4`), so a single
+    // heavily-simplified polygon was rendered upscaled across the
+    // whole viewport. After the fix, the camera-native cz=7 must
+    // appear in the primary set.
+    const cam = makeCam(6.93, 0, 126.52, 37.09)
+    const tiles = visibleTilesSSE(cam, mercator, 7, 900, 700, 0, 1)
+    const maxZ = Math.max(...tiles.filter(t => !t.fallbackOnly).map(t => t.z))
+    expect(maxZ).toBe(7)
   })
 
   it('high pitch selects far FEWER tiles than the old frustum selector did at its budget cap', () => {
