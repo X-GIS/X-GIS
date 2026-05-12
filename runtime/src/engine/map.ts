@@ -2685,7 +2685,7 @@ export class XGISMap {
             color: ov.color,
             halo: ov.halo,
             transform: ov.transform,
-          }, ov.font)
+          }, ov.font, '__overlay')
         }
 
         // (b) Per-feature labels from ShowCommand.label
@@ -2695,6 +2695,13 @@ export class XGISMap {
           // colour for the polygon AND its label). When THAT is also
           // unset, default to white so dark backgrounds stay readable.
           const def = show.label!
+          // Stable per-show layer identifier for the trace recorder
+          // (FrameTrace.labels[i].layerName). Prefer the DSL layer
+          // name; fall back to the source layer for legacy syntax
+          // and the source name for inline / unfiltered shows. Used
+          // by parity diagnostics + invariants to group labels by
+          // their origin layer (`label_country_2`, `poi_r1`, …).
+          const labelLayerName = show.layerName ?? show.sourceLayer ?? show.targetName ?? ''
           const z = this.camera.zoom
           // Resolve zoom-interpolated text-size against the current
           // camera zoom (Mapbox `text-size: ["interpolate", …, ["zoom"], …]`).
@@ -2808,6 +2815,7 @@ export class XGISMap {
                 stage.addLabel(
                   featDef.text, feat.properties ?? {},
                   projected[0], projected[1], featDef,
+                  undefined, labelLayerName,
                 )
               }
             }
@@ -2884,6 +2892,7 @@ export class XGISMap {
                     featDef.text, props,
                     x, y,
                     { ...featDef, rotate: angleDeg },
+                    undefined, labelLayerName,
                   )
                 } else {
                   // Viewport-aligned: just place at the line position
@@ -2891,6 +2900,7 @@ export class XGISMap {
                   stage.addLabel(
                     featDef.text, props,
                     x, y, featDef,
+                    undefined, labelLayerName,
                   )
                 }
               }
@@ -3013,6 +3023,7 @@ export class XGISMap {
                           featDef.text, props,
                           polyX, polyY, total * 0.5,
                           featDef,
+                          undefined, labelLayerName,
                         )
                         recordTextPosition(resolvedTextForDedupe, at.x, at.y)
                       }
@@ -3026,6 +3037,7 @@ export class XGISMap {
                           featDef.text, props,
                           polyX, polyY, nextStop,
                           featDef,
+                          undefined, labelLayerName,
                         )
                         recordTextPosition(resolvedTextForDedupe, at.x, at.y)
                       }
@@ -3102,6 +3114,7 @@ export class XGISMap {
                   stage.addLabel(
                     featDef.text, props,
                     projected[0], projected[1], featDef,
+                    undefined, labelLayerName,
                   )
                 }
               })
