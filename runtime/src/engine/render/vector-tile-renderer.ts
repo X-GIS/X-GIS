@@ -901,7 +901,12 @@ export class VectorTileRenderer {
     // Visiting each tile ONCE here matches the per-feature iteration
     // count to the rendered label count.
     const rawLabelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
-    const labelKeys = rawLabelKeys.length > 0 ? [...new Set(rawLabelKeys)] : rawLabelKeys
+    // ALWAYS dedupe — stableKeys (the fallback path when neededKeys is
+    // empty during early-frame loading) can also contain the same
+    // canonical tileKey N times across world copies, and without the
+    // dedupe we emit N labels per feature → duplicate country names
+    // stacked at the same screen position.
+    const labelKeys = [...new Set(rawLabelKeys)]
     for (const key of labelKeys) {
       const tileData = this.source.getTileData(key, sliceLayer)
       if (!tileData?.pointVertices || tileData.pointVertices.length < 5) continue
@@ -913,28 +918,54 @@ export class VectorTileRenderer {
       // level PropertyTable (XGVT path — pre-built shared table
       // indexed by global featId).
       const tileProps = tileData.featureProps
+      // PMTiles MVT often carries antimeridian-wrap COPIES of point
+      // features as separate vertices with the SAME featId — e.g.,
+      // "North Atlantic Ocean" gets 3 points (lng=-40 real centroid +
+      // lng=180 + lng=-180 wrap copies) so the polygon renderer can
+      // draw it at any visible world copy. For LABELS each feature
+      // should emit ONCE at its real centroid — the map.ts projector
+      // handles world wrap itself, so emitting the wrap copies here
+      // would stack duplicate country names at antimeridian-edge
+      // positions.
+      //
+      // First pass: collect the BEST point per featId (the one whose
+      // mercator-X falls strictly inside the world ±WORLD_MERC/2,
+      // preferring centres away from the antimeridian seam). Second
+      // pass emits in featId-encounter order so callers see a
+      // deterministic sequence.
+      const WORLD_MERC_HALF = 20037508.342789244  // π × earth_radius
+      const ANTIMERIDIAN_TOL = 1.0  // metres; tile-edge wrap copies sit at exactly ±half
+      const bestByFeatId = new Map<number, { mercX: number; mercY: number; firstIdx: number }>()
       for (let i = 0; i < ptv.length; i += 5) {
-        // DSFUN: tile-local high+low pair → tile-local mercator.
         const ptMxLocal = ptv[i] + ptv[i + 2]
         const ptMyLocal = ptv[i + 1] + ptv[i + 3]
         const featId = ptv[i + 4] | 0
         const mercX = tileMercX + ptMxLocal
         const mercY = tileMercY + ptMyLocal
+        const isInner = Math.abs(Math.abs(mercX) - WORLD_MERC_HALF) > ANTIMERIDIAN_TOL
+        const existing = bestByFeatId.get(featId)
+        if (!existing) {
+          bestByFeatId.set(featId, { mercX, mercY, firstIdx: i })
+        } else if (isInner) {
+          // Real centroid beats any wrap-edge copy already stored.
+          const existingIsInner = Math.abs(Math.abs(existing.mercX) - WORLD_MERC_HALF) > ANTIMERIDIAN_TOL
+          if (!existingIsInner) bestByFeatId.set(featId, { mercX, mercY, firstIdx: existing.firstIdx })
+        }
+      }
+      // Emit in featId-first-encounter order for caller determinism.
+      const ordered = [...bestByFeatId.entries()].sort((a, b) => a[1].firstIdx - b[1].firstIdx)
+      for (const [featId, pt] of ordered) {
         let props: Record<string, unknown>
         if (tileProps) {
           props = tileProps.get(featId) ?? {}
         } else {
-          // Catalog-level PropertyTable lookup. featId may exceed
-          // values.length when the tile carries synthetic centroids
-          // for polygon features — fall back to empty bag instead of
-          // crashing; resolveText already handles missing fields.
           const row = values[featId] as readonly (number | string | boolean | null)[] | undefined
           props = {}
           if (row) {
             for (let f = 0; f < fieldNames.length; f++) props[fieldNames[f]!] = row[f]
           }
         }
-        fn(mercX, mercY, props)
+        fn(pt.mercX, pt.mercY, props)
       }
     }
   }
@@ -1087,15 +1118,40 @@ export class VectorTileRenderer {
       // Walk segments, accumulate runs that form a contiguous polyline
       // (same feat_id AND segment[i].endIdx === segment[i+1].startIdx).
       // Emit each run as one polyline call.
+      //
+      // PER-TILE dedupe by featId: a road feature often breaks into
+      // multiple disjoint polyline runs inside a single tile (its
+      // geometry sliced by tile clip + non-monotone segment ordering),
+      // and emitting a label run for each one stacks the same road
+      // name 3-5× on top of itself at high zoom. We collect ALL runs
+      // for each featId in this tile, keep the LONGEST one (most
+      // representative of the road's true direction + the run least
+      // likely to be a corner clip artifact), and emit only that.
+      // Cross-tile dedupe is a separate concern handled in map.ts via
+      // featId-Set tracking — featIds are tile-local in PMTiles MVT.
+      type RunEntry = { xs: Float64Array; ys: Float64Array; len: number; props: Record<string, unknown> }
+      const tileRuns = new Map<number, RunEntry>()
       let runFeatId = -1
       let runEndIdx = -1
       let runLen = 0  // number of vertices in xs/ys
       let runProps: Record<string, unknown> | null = null
       const flushRun = () => {
         if (runProps !== null && runLen >= 2) {
-          const xsView = xs.slice(0, runLen)
-          const ysView = ys.slice(0, runLen)
-          fn(xsView, ysView, runProps)
+          let total = 0
+          for (let j = 0; j < runLen - 1; j++) {
+            const dxR = xs[j + 1]! - xs[j]!
+            const dyR = ys[j + 1]! - ys[j]!
+            total += Math.sqrt(dxR * dxR + dyR * dyR)
+          }
+          const existing = tileRuns.get(runFeatId)
+          if (!existing || existing.len < total) {
+            tileRuns.set(runFeatId, {
+              xs: xs.slice(0, runLen),
+              ys: ys.slice(0, runLen),
+              len: total,
+              props: runProps,
+            })
+          }
         }
         runLen = 0
         runProps = null
@@ -1148,6 +1204,10 @@ export class VectorTileRenderer {
         runEndIdx = bIdx
       }
       flushRun()
+      // Emit the best (longest) run per featId for this tile.
+      for (const run of tileRuns.values()) {
+        fn(run.xs, run.ys, run.props)
+      }
     }
   }
 

@@ -30,6 +30,7 @@ import { PanZoomController, type Controller } from './controller'
 import { CanvasRenderer } from './render/canvas-renderer'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { TextStage } from './text/text-stage'
+import { resolveText } from './text/text-resolver'
 import {
   LayerIdRegistry, XGISLayer, ListenerRegistry,
   type XGISFeature, type XGISFeatureEvent, type XGISFeatureEventType, type XGISFeatureListener,
@@ -2332,16 +2333,35 @@ export class XGISMap {
         // map ("포인트가 한쪽에 몰림"). Non-Mercator projections
         // collapse to a single copy — see worldCopiesFor() in
         // gpu-shared for the rationale.
-        const worldCopyOffsets: readonly number[] = this.projectionName === 'mercator'
-          ? WORLD_COPIES
-          : [0]
+        // Label-specific world-copy iteration. Polygon / line draws
+        // enumerate WORLD_COPIES = [-2..+2] so geometry wraps cleanly
+        // at the antimeridian. For LABELS, projecting the same
+        // anchor through every world copy stacks duplicate country
+        // names onto the visible canvas — at z=0/lng=180 the ±360°
+        // copies all land within projectLonLat's NDC ±1.5 window and
+        // the user sees Belgium / Russia / etc. drawn 2-3× across
+        // the Pacific. MapLibre renders each feature's label exactly
+        // once at its primary world position. Match that here by
+        // trying offsets in `|offset|` order [0, ±1, ±2] and
+        // returning the FIRST that projects; the primary copy wins
+        // whenever it's visible, and only the antimeridian-seam
+        // case falls through to an adjacent wrap.
         const projectLonLatCopies = (lon: number, lat: number): Array<[number, number]> => {
-          const out: Array<[number, number]> = []
-          for (const w of worldCopyOffsets) {
-            const proj = projectLonLat(lon, lat, w * WORLD_MERC)
-            if (proj) out.push(proj)
+          if (this.projectionName !== 'mercator') {
+            const proj = projectLonLat(lon, lat, 0)
+            return proj ? [proj] : []
           }
-          return out
+          // Try world copies in increasing |offset| order: 0, then ±1,
+          // then ±2. First copy that projects within the projector's
+          // NDC ±1.5 window wins. Matches MapLibre: every label is
+          // anchored to its primary world copy when visible, and only
+          // wraps to an adjacent copy when the primary projects off-
+          // screen (e.g., at the antimeridian seam).
+          for (const wo of [0, -1, 1, -2, 2]) {
+            const proj = projectLonLat(lon, lat, wo * WORLD_MERC)
+            if (proj) return [proj]
+          }
+          return []
         }
 
         // (a) Imperative overlays
@@ -2578,6 +2598,26 @@ export class XGISMap {
                 // (text-rotation-alignment: viewport) keep the simple
                 // single-rotation `emitLabelAlongSegment` path so the
                 // glyphs stay in a horizontal row.
+                //
+                // Cross-tile dedupe: cap line labels at ONE emission
+                // per unique road name per ShowCommand pass. PMTiles
+                // slices a single road into separate featId per tile,
+                // so the same road name emits as N independent
+                // polylines across N visible tiles — at z=17 a
+                // one-screen-wide road crossing 5 tile boundaries
+                // would stamp its name 5× along itself. MapLibre's
+                // collision system collapses these via bbox overlap,
+                // but X-GIS's line-label bboxes are narrow strips
+                // along the road tangent and adjacent tile segments
+                // don't overlap enough to trigger the collision drop.
+                // Hard-cap here matches the reference output.
+                const emittedTextNames = new Set<string>()
+                const isTooCloseToSameText = (resolvedText: string, _sx: number, _sy: number): boolean => {
+                  return emittedTextNames.has(resolvedText)
+                }
+                const recordTextPosition = (resolvedText: string, _sx: number, _sy: number): void => {
+                  emittedTextNames.add(resolvedText)
+                }
                 vtEntry.renderer.forEachLineLabelPolyline(sliceKey, (mxs, mys, props) => {
                   if (mxs.length < 2) return
                   // Project every vertex to physical-pixel screen
@@ -2622,6 +2662,37 @@ export class XGISMap {
                     total += Math.sqrt(dx * dx + dy * dy)
                   }
                   const featDef = applyFeatureExprs(props)
+                  // Cross-tile dedupe key. resolveText() varies across
+                  // road segments when one segment carries
+                  // `name:nonlatin` and the next doesn't — the concat
+                  // expression returns different strings even though
+                  // the road is the same. Prefer the most stable name
+                  // field (`name` → `name_en` → resolved fallback) so
+                  // the dedupe matches across heterogeneous segments.
+                  const propsRec = props as Record<string, unknown>
+                  const stableName = typeof propsRec.name === 'string' ? propsRec.name
+                    : typeof propsRec.name_en === 'string' ? propsRec.name_en
+                    : resolveText(featDef.text, props)
+                  const resolvedTextForDedupe = stableName
+                  // Walk the polyline and compute the screen-pixel
+                  // position for an offset s along it. Used by the
+                  // cross-tile dedupe to evaluate "is this position
+                  // too close to one already labelled with the same
+                  // text?" without re-running the full glyph layout.
+                  const samplePosAt = (s: number): { x: number; y: number } | null => {
+                    let acc = 0
+                    for (let i = 0; i < px.length - 1; i++) {
+                      const dx = px[i + 1]! - px[i]!
+                      const dy = py[i + 1]! - py[i]!
+                      const segLen = Math.sqrt(dx * dx + dy * dy)
+                      if (acc + segLen >= s) {
+                        const t = segLen > 0 ? (s - acc) / segLen : 0
+                        return { x: px[i]! + dx * t, y: py[i]! + dy * t }
+                      }
+                      acc += segLen
+                    }
+                    return null
+                  }
                   if (useTangentRotation) {
                     // Curved-text path: pack the projected polyline
                     // and ask TextStage to lay each glyph along it.
@@ -2629,20 +2700,28 @@ export class XGISMap {
                     const polyY = new Float32Array(py)
                     // No fontKey override — see note at line ~2370.
                     if (total < spacingPx * 0.5) {
-                      stage.addCurvedLineLabel(
-                        featDef.text, props,
-                        polyX, polyY, total * 0.5,
-                        featDef,
-                      )
+                      const at = samplePosAt(total * 0.5)
+                      if (at && !isTooCloseToSameText(resolvedTextForDedupe, at.x, at.y)) {
+                        stage.addCurvedLineLabel(
+                          featDef.text, props,
+                          polyX, polyY, total * 0.5,
+                          featDef,
+                        )
+                        recordTextPosition(resolvedTextForDedupe, at.x, at.y)
+                      }
                       return
                     }
                     let nextStop = spacingPx * 0.5
                     while (nextStop <= total) {
-                      stage.addCurvedLineLabel(
-                        featDef.text, props,
-                        polyX, polyY, nextStop,
-                        featDef,
-                      )
+                      const at = samplePosAt(nextStop)
+                      if (at && !isTooCloseToSameText(resolvedTextForDedupe, at.x, at.y)) {
+                        stage.addCurvedLineLabel(
+                          featDef.text, props,
+                          polyX, polyY, nextStop,
+                          featDef,
+                        )
+                        recordTextPosition(resolvedTextForDedupe, at.x, at.y)
+                      }
                       nextStop += spacingPx
                     }
                     return
