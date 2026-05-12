@@ -391,6 +391,24 @@ export function mergeLayers(scene: Scene): Scene {
       continue
     }
 
+    // Cap the merge by total value count across the group. Beyond
+    // this threshold the synthesized `match()` WGSL switch becomes
+    // a > 100-branch if-chain and the runtime per-feature category
+    // lookup amortises poorly relative to N separate constant-fill
+    // draws. The `expand-color-match` preprocessor emits one
+    // sublayer per palette colour for styles like MapLibre demotiles
+    // `countries-fill` (8 colours × ~30 country codes = 192 values)
+    // — keeping those split costs ~8 draws vs a 192-branch shader
+    // that, empirically, was rendering most features as the fallback
+    // colour anyway. OSM osm_style landuse merges have < 30 total
+    // values across the group and continue to fold as before.
+    const totalValues = group.reduce((n, g) => n + g.filter.values.length, 0)
+    if (totalValues > 50) {
+      out.push(first)
+      i++
+      continue
+    }
+
     // Default-arm absorption: after the contiguous `||`-chain group
     // is built, check whether the NEXT layer is the complementary
     // `&&`-chain on the same field with the same value set. That's
