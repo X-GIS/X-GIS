@@ -114,6 +114,11 @@ describe('mapbox spec-coverage drift detector', () => {
       if ([
         'linear', 'exponential', 'cubic-bezier', 'zoom',
         'min-fraction-digits', 'max-fraction-digits',
+        // JavaScript typeof results — picked up by the
+        // `.type === 'X'` extractor regex when the source has
+        // `typeof obj.type === 'string'` (sources.ts:134). Not
+        // Mapbox layer / source / expression names.
+        'string', 'number', 'boolean', 'object', 'undefined', 'function',
       ].includes(name)) continue
       missing.push(name)
     }
