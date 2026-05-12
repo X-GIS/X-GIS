@@ -527,6 +527,27 @@ export class XGISMap {
   }
   private _pendingTraceRecorder: import('../diagnostics/render-trace').RenderTraceRecorder | null = null
 
+  /** One-shot helper: attaches a fresh recorder, waits TWO requestAnimationFrame
+   *  ticks (the first ensures any in-flight frame settles, the second
+   *  captures a clean one), then detaches and returns the snapshot.
+   *  Used by e2e invariant tests via `window.__xgisMap.captureNextFrameTrace()`
+   *  so test code doesn't have to import the recorder class through the
+   *  page context. */
+  async captureNextFrameTrace(): Promise<import('../diagnostics/render-trace').FrameTrace> {
+    const { createTraceRecorder } = await import('../diagnostics/render-trace')
+    const recorder = createTraceRecorder()
+    this.setTraceRecorder(recorder)
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    // Force a render so labels/layers get emitted even if the camera
+    // is idle (no auto-renderFrame queued).
+    this.invalidate()
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    const trace = recorder.snapshot()
+    this.setTraceRecorder(null)
+    return trace
+  }
+
   private switchController(): void {
     this.controller?.detach()
     // Always PanZoom — panning moves camera = projection center moves
