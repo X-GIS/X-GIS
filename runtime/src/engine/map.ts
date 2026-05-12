@@ -511,6 +511,22 @@ export class XGISMap {
   }
   private _pendingLabelDebugHook?: ((text: string, ax: number, ay: number, kind: 'point' | 'curve') => void) | undefined
 
+  /** Render-trace recorder. When set, every frame pushes its resolved
+   *  paint state + label submissions into the recorder. Used by spec
+   *  invariant tests (compiler/src/__tests__/spec-invariants/) and by
+   *  diagnostic e2e specs to assert on the GPU INTENT rather than the
+   *  pixel output. Pass `null` to detach.
+   *
+   *  Distinct from `setLabelDebugHook` — the trace recorder captures
+   *  layer-level paint state in addition to label metadata, and is
+   *  forwarded into the bucket scheduler's `traceRecorder` field on
+   *  the next `renderFrame()` via `_pendingTraceRecorder`. */
+  setTraceRecorder(recorder: import('../diagnostics/render-trace').RenderTraceRecorder | null): void {
+    this._pendingTraceRecorder = recorder
+    this.textStage?.setTraceRecorder(recorder)
+  }
+  private _pendingTraceRecorder: import('../diagnostics/render-trace').RenderTraceRecorder | null = null
+
   private switchController(): void {
     this.controller?.detach()
     // Always PanZoom — panning moves camera = projection center moves
@@ -1641,6 +1657,7 @@ export class XGISMap {
         fillPipelineGroundFallbackNoPick: this.renderer.fillPipelineGroundFallback,
         linePipelineFallbackNoPick: this.renderer.linePipelineFallbackNoPick,
       },
+      traceRecorder: this._pendingTraceRecorder,
     })
   }
 
@@ -1888,6 +1905,17 @@ export class XGISMap {
       // declared before an opaque layer: the translucent composite
       // would run BEFORE the later opaque fill, and the opaque fill
       // would cover the translucent strokes.
+      // Push camera frame info to the trace recorder so invariant
+      // tests can correlate layer/label records with the frame state
+      // that produced them.
+      if (this._pendingTraceRecorder !== null) {
+        const camMx = this.camera.centerX
+        const camMy = this.camera.centerY
+        const R = 6378137
+        const lon = (camMx / R) * (180 / Math.PI)
+        const lat = (Math.atan(Math.exp(camMy / R)) * 2 - Math.PI / 2) * (180 / Math.PI)
+        this._pendingTraceRecorder.recordCamera(this.camera.zoom, lon, lat)
+      }
       const { opaque, translucent, oit } = this.classifyVectorTileShows()
       const opaqueGroups = this.groupOpaqueBySource(opaque)
       const hasTranslucent = translucent.length > 0 && this.lineRenderer !== null
@@ -2292,6 +2320,9 @@ export class XGISMap {
           // addLabel.
           if (this._pendingLabelDebugHook !== undefined) {
             this.textStage.setLabelDebugHook(this._pendingLabelDebugHook)
+          }
+          if (this._pendingTraceRecorder !== null) {
+            this.textStage.setTraceRecorder(this._pendingTraceRecorder)
           }
         }
         const stage = this.textStage

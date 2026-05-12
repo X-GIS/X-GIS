@@ -27,6 +27,7 @@ import type { LayerDrawPhase } from './vector-tile-renderer'
 import type { SceneCommands } from '@xgis/compiler'
 import { interpolateZoom, interpolateZoomRgba, interpolateTime, interpolateTimeColor } from './renderer'
 import { SAFE_MODE } from '../gpu/gpu'
+import type { RenderTraceRecorder, RGBA } from '../../diagnostics/render-trace'
 
 // ── Output: post-classification show with all animation resolved ──
 
@@ -147,6 +148,14 @@ export interface ClassifierInput {
    *  Tests use this to flip translucent-stroke detection on/off
    *  without touching the global. */
   safeMode?: boolean
+  /** Optional render-trace recorder. When non-null, the classifier
+   *  pushes one `TraceLayer` per visible layer with its fully-
+   *  resolved paint state. Production code path leaves this null —
+   *  V8 branch-predicts the null check away, zero hot-loop cost.
+   *  Recorder hooks land here (not in VTR.render) because this is
+   *  the single choke point where every paint property's final
+   *  zoom × time-interpolated value is known. */
+  traceRecorder?: RenderTraceRecorder | null
 }
 
 export interface ClassifierResult {
@@ -387,6 +396,21 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     if (!skipOpaque) opaque.push(classified)
     if (isTranslucentStroke) translucent.push(classified)
     if (isOitExtrude) oit.push(classified)
+
+    // Render-trace recorder hook. Pushes one TraceLayer per visible
+    // layer with its fully zoom × time-resolved paint state. Branch
+    // is predicted away when recorder is null (production path).
+    if (input.traceRecorder !== null && input.traceRecorder !== undefined) {
+      const layerName = (effectiveShow as { layerName?: string }).layerName ?? ''
+      input.traceRecorder.recordLayer({
+        layerName,
+        fillPhase,
+        resolvedOpacity: composedOpa,
+        resolvedStrokeWidth: resolvedStrokeWidth ?? entry.show.strokeWidth ?? 0,
+        resolvedFill: resolvedFillRgba as RGBA | undefined,
+        resolvedStroke: resolvedStrokeRgba as RGBA | undefined,
+      })
+    }
   }
 
   return { opaque, translucent, oit }

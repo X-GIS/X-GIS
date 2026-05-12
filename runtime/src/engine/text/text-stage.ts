@@ -188,6 +188,17 @@ export class TextStage {
   }
   private cameraZoom: number | undefined
 
+  /** Optional render-trace recorder. When non-null, every addLabel /
+   *  addCurvedLineLabel call pushes a rich `TraceLabel` (text, colour,
+   *  halo, font, placement, anchor) for downstream invariant tests.
+   *  Distinct from the older `_debugHook`, which only carries the
+   *  (text, x, y, kind) tuple — kept for back-compat with the
+   *  `#labels-debug` URL flag. Both can be active simultaneously. */
+  setTraceRecorder(recorder: import('../../diagnostics/render-trace').RenderTraceRecorder | null): void {
+    this._traceRecorder = recorder
+  }
+  private _traceRecorder: import('../../diagnostics/render-trace').RenderTraceRecorder | null = null
+
   /** Optional per-call hook fired once per addLabel /
    *  addCurvedLineLabel submission BEFORE collision. The hook receives
    *  the final-rendered text string + the screen-pixel anchor + the
@@ -227,6 +238,7 @@ export class TextStage {
     centerOffsetPx: number,
     def: LabelDef,
     fontKey?: string,
+    layerName?: string,
   ): void {
     const text = resolveText(value, props, this.cameraZoom)
     if (text.length === 0) return
@@ -242,6 +254,26 @@ export class TextStage {
       // point would require walking centerOffsetPx, which isn't
       // worth the cost for a debug-only path.
       this._debugHook(transformed, polylineX[0]!, polylineY[0]!, 'curve')
+    }
+    if (this._traceRecorder !== null && polylineX.length > 0) {
+      this._traceRecorder.recordLabel({
+        layerName: layerName ?? '',
+        text: transformed,
+        color: (def.color ?? [0, 0, 0, 1]) as readonly [number, number, number, number],
+        halo: def.halo ? {
+          color: def.halo.color as readonly [number, number, number, number],
+          width: def.halo.width,
+          blur: def.halo.blur ?? 0,
+        } : undefined,
+        fontFamily: (def.font && def.font[0]) ?? 'sans-serif',
+        fontWeight: def.fontWeight ?? 400,
+        fontStyle: def.fontStyle ?? 'normal',
+        sizePx: def.size,
+        placement: 'curve',
+        state: 'placed',
+        anchorScreenX: polylineX[0]!,
+        anchorScreenY: polylineY[0]!,
+      })
     }
     this.pendingLine.push({
       text: transformed,
@@ -262,12 +294,33 @@ export class TextStage {
     anchorScreenY: number,
     def: LabelDef,
     fontKey?: string,
+    layerName?: string,
   ): void {
     const text = resolveText(value, props, this.cameraZoom)
     if (text.length === 0) return
     const transformed = applyTextTransform(text, def.transform)
     if (this._debugHook) {
       this._debugHook(transformed, anchorScreenX, anchorScreenY, 'point')
+    }
+    if (this._traceRecorder !== null) {
+      this._traceRecorder.recordLabel({
+        layerName: layerName ?? '',
+        text: transformed,
+        color: (def.color ?? [0, 0, 0, 1]) as readonly [number, number, number, number],
+        halo: def.halo ? {
+          color: def.halo.color as readonly [number, number, number, number],
+          width: def.halo.width,
+          blur: def.halo.blur ?? 0,
+        } : undefined,
+        fontFamily: (def.font && def.font[0]) ?? 'sans-serif',
+        fontWeight: def.fontWeight ?? 400,
+        fontStyle: def.fontStyle ?? 'normal',
+        sizePx: def.size,
+        placement: 'point',
+        state: 'placed',  // collision result not known yet at submit time
+        anchorScreenX,
+        anchorScreenY,
+      })
     }
     this.pending.push({
       text: transformed,
