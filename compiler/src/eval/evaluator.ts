@@ -284,10 +284,18 @@ function callBuiltin(name: string, args: unknown[]): unknown {
       //                      result = def while input < stop1, else
       //                      walks stops left-to-right and returns the
       //                      val for the largest stop_i ≤ input.
-      // Distinguish by arg count: even count and >= 4 with `below`/`above`
-      // assumed numeric is shape (a); shape (b) is anything with odd
-      // count >= 4. Shape (b) is what the Mapbox converter emits.
-      if (args.length === 4) {
+      //
+      // Both shapes have args.length === 4 in the minimal N-stop case,
+      // so arg-count alone can't disambiguate. Look at args[2]:
+      //   - Legacy: args[2] = `below` (any type — colour, string, etc.)
+      //   - N-stop: args[2] = `stop1` (MUST be numeric — the cutoff)
+      // → numeric args[2] picks N-stop, non-numeric picks legacy.
+      // Pre-fix the 4-arg branch unconditionally treated as legacy,
+      // which broke the Mapbox-converter emission for label text
+      // zoom-stops like `step(zoom, .ABBREV, 4, .NAME)`: .ABBREV
+      // became `toNumber("China") = NaN` and labels rendered as
+      // "NaN" / blank instead of the intended ABBREV / NAME.
+      if (args.length === 4 && typeof args[2] !== 'number') {
         const [val, threshold, below, above] = args.map(toNumber)
         return val < threshold ? below : above
       }
