@@ -1246,18 +1246,28 @@ export class XGISMap {
     }
     const data = await response.json() as GeoJSONFeatureCollection
 
-    // Phase 5e opt-in: route GeoJSON through the same TileCatalog +
-    // MVT-worker pipeline PMTiles uses. Two equivalent toggles so
-    // the live demo can be probed without code changes:
-    //   - `window.__XGIS_USE_VIRTUAL_PMTILES = true` in DevTools
-    //   - `?virt=1` query param on the URL
-    // Defaults off — Phase 5f flips it after the Yellow Sea repro
-    // validates on the live URL.
-    const useVirtualPMTiles = typeof window !== 'undefined' && (
-      (window as unknown as { __XGIS_USE_VIRTUAL_PMTILES?: boolean }).__XGIS_USE_VIRTUAL_PMTILES === true
-      || /[?&]virt=1\b/.test(window.location.search)
+    // Phase 5f: VirtualPMTilesBackend is now the default route for
+    // GeoJSON URL sources. The legacy main-thread compileSync path
+    // (GeoJSONRuntimeBackend) is still available for opt-out
+    // diagnostics during the rollout via either:
+    //   - `window.__XGIS_USE_LEGACY_GEOJSON = true` in DevTools
+    //   - `?legacy=1` query param
+    // The opt-out keeps the safety net while we confirm the new
+    // path is stable across every demo + fixture. Once the e2e
+    // suite has run green for a stretch, the legacy path comes
+    // out entirely (Phase 5f follow-up).
+    const useLegacy = typeof window !== 'undefined' && (
+      (window as unknown as { __XGIS_USE_LEGACY_GEOJSON?: boolean }).__XGIS_USE_LEGACY_GEOJSON === true
+      || /[?&]legacy=1\b/.test(window.location.search)
     )
+    const useVirtualPMTiles = !useLegacy
     if (useVirtualPMTiles && !this.useCanvas2D) {
+      // Diagnostic flag — set on `window` so the Phase 5e regression
+      // spec can assert the route taken without parsing console
+      // output. Cheap: one property write at attach time.
+      if (typeof window !== 'undefined') {
+        (window as unknown as { __xgisVirtualPMTilesActive?: boolean }).__xgisVirtualPMTilesActive = true
+      }
       await this._attachGeoJSONViaVirtualPMTiles(load.name, data, maps, cameraFitState)
       return
     }

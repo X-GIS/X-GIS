@@ -1,13 +1,16 @@
-// Phase 5e validation — Yellow Sea repro with/without VirtualPMTilesBackend.
+// Phase 5e/5f validation — Yellow Sea repro with the new
+// VirtualPMTilesBackend (default) vs the legacy
+// GeoJSONRuntimeBackend (opt-out via `?legacy=1`).
 //
 // Loads the styled_world demo at the camera the user reported the
-// GeoJSON tile dropout against. Runs twice:
-//   1. baseline (no flag) — should still show the dropout pattern
-//   2. ?virt=1 — should render contiguous ocean
+// GeoJSON tile pattern against. Runs twice:
+//   1. legacy (`?legacy=1`) — old main-thread compileSync path
+//   2. default (no flag) — new worker + MVT pipeline
 //
-// Pass criterion: virt=1's dark-pixel ratio (background bleed-through)
-// is meaningfully lower than the baseline. Both screenshots saved to
-// __phase5e-yellow-sea-verify__/ for visual inspection.
+// Pass criterion: both runs paint and produce equivalent ocean
+// coverage. The original screenshots saved to
+// __phase5e-yellow-sea-verify__/ confirmed the visual is dominated
+// by Natural Earth 110m resolution limits, not a clipper bug.
 
 import { test, expect, type Page } from '@playwright/test'
 import { writeFileSync, mkdirSync } from 'node:fs'
@@ -22,11 +25,6 @@ const REPRO_HASH = '#7.06/37.13808/126.52451/352.4/8.7'
 
 async function captureDarkRatio(page: Page, query: string): Promise<{ darkRatio: number; oceanRatio: number; total: number; virtRouted: boolean }> {
   const sep = query.length > 0 ? '&' : ''
-  let virtRouted = false
-  page.on('console', (m) => {
-    const t = m.text()
-    if (t.includes('[X-GIS Phase 5e]')) virtRouted = true
-  })
   await page.goto(`/demo.html?id=styled_world${sep}${query.replace(/^\?/, '')}${REPRO_HASH}`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
@@ -58,39 +56,50 @@ async function captureDarkRatio(page: Page, query: string): Promise<{ darkRatio:
       else if (r < 35 && g < 35 && b < 40) dark++
     }
     return { darkRatio: dark / total, oceanRatio: ocean / total, total }
-  }).then(r => ({ ...r, virtRouted }))
+  }).then(async (r) => {
+    const virtRouted = await page.evaluate(() =>
+      (window as unknown as { __xgisVirtualPMTilesActive?: boolean }).__xgisVirtualPMTilesActive === true,
+    )
+    return { ...r, virtRouted }
+  })
 }
 
 test('phase5e — Yellow Sea ocean tile coverage with vs without VirtualPMTilesBackend', async ({ page }) => {
   test.setTimeout(90_000)
   await page.setViewportSize({ width: 1000, height: 1200 })
 
-  // Baseline first (no flag).
-  const baselineShot = await page.screenshot({ omitBackground: false }).catch(() => null)
-  void baselineShot
-  const baseline = await captureDarkRatio(page, '')
-  const baselinePng = await page.locator('canvas').first().screenshot()
-  writeFileSync(join(ART, 'baseline.png'), baselinePng)
+  // Legacy path (opt-out via ?legacy=1).
+  const legacy = await captureDarkRatio(page, '?legacy=1')
+  const legacyPng = await page.locator('canvas').first().screenshot()
+  writeFileSync(join(ART, 'legacy.png'), legacyPng)
   // eslint-disable-next-line no-console
-  console.log('[phase5e baseline]', baseline)
+  console.log('[phase5f legacy]', legacy)
 
-  // With VirtualPMTilesBackend.
-  const withFlag = await captureDarkRatio(page, '?virt=1')
-  const flagPng = await page.locator('canvas').first().screenshot()
-  writeFileSync(join(ART, 'virt-on.png'), flagPng)
+  // Default (VirtualPMTilesBackend).
+  const def = await captureDarkRatio(page, '')
+  const defPng = await page.locator('canvas').first().screenshot()
+  writeFileSync(join(ART, 'default-virt.png'), defPng)
   // eslint-disable-next-line no-console
-  console.log('[phase5e virt=1]', withFlag)
+  console.log('[phase5f default]', def)
 
   // Both runs paint SOMETHING (not entirely empty / white).
-  expect(baseline.total, 'baseline has pixels').toBeGreaterThan(0)
-  expect(withFlag.total, 'virt=1 has pixels').toBeGreaterThan(0)
+  expect(legacy.total, 'legacy has pixels').toBeGreaterThan(0)
+  expect(def.total, 'default has pixels').toBeGreaterThan(0)
 
-  // Pass criterion: virt=1 covers more ocean than baseline AND has
-  // less dark gap. Either metric improving is a signal; both
-  // improving is the strong success case.
+  // The default path must route through VirtualPMTilesBackend.
+  expect(def.virtRouted, 'default routes through VirtualPMTilesBackend').toBe(true)
+  expect(legacy.virtRouted, 'legacy stays on the old path').toBe(false)
+
+  // Equivalence: both paths produce within statistical noise of
+  // each other. Tolerance picked at 1 % to absorb antialiasing.
+  expect(
+    Math.abs(def.oceanRatio - legacy.oceanRatio),
+    'ocean coverage matches legacy within 1 %',
+  ).toBeLessThan(0.01)
+
   // eslint-disable-next-line no-console
-  console.log('[phase5e diff]', {
-    oceanGain: withFlag.oceanRatio - baseline.oceanRatio,
-    darkReduction: baseline.darkRatio - withFlag.darkRatio,
+  console.log('[phase5f diff]', {
+    oceanGain: def.oceanRatio - legacy.oceanRatio,
+    darkReduction: legacy.darkRatio - def.darkRatio,
   })
 })
