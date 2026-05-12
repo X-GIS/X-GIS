@@ -21,10 +21,20 @@ describe('InMemoryTraceRecorder', () => {
 
   it('records camera state', () => {
     const rec = new InMemoryTraceRecorder()
-    rec.recordCamera(4.5, 139.76, 35.68)
+    rec.recordCamera({
+      zoom: 4.5, centerLon: 139.76, centerLat: 35.68,
+      bearing: 30, pitch: 45,
+      projection: 'mercator',
+      viewportWidthPx: 1280, viewportHeightPx: 720, dpr: 2,
+    })
     const trace = rec.snapshot()
     expect(trace.cameraZoom).toBe(4.5)
     expect(trace.cameraCenter).toEqual([139.76, 35.68])
+    expect(trace.cameraBearing).toBe(30)
+    expect(trace.cameraPitch).toBe(45)
+    expect(trace.projection).toBe('mercator')
+    expect(trace.viewportPx).toEqual([1280, 720])
+    expect(trace.dpr).toBe(2)
   })
 
   it('records tile-LOD decision', () => {
@@ -80,7 +90,11 @@ describe('InMemoryTraceRecorder', () => {
 
   it('snapshot resets internal state so the recorder is reusable', () => {
     const rec = new InMemoryTraceRecorder()
-    rec.recordCamera(3, 0, 0)
+    rec.recordCamera({
+      zoom: 3, centerLon: 0, centerLat: 0,
+      bearing: 0, pitch: 0, projection: 'mercator',
+      viewportWidthPx: 100, viewportHeightPx: 100, dpr: 1,
+    })
     rec.recordLayer({
       layerName: 'a',
       fillPhase: 'all',
@@ -89,16 +103,27 @@ describe('InMemoryTraceRecorder', () => {
     })
     rec.snapshot()  // discard
 
-    rec.recordCamera(5, 1, 2)
+    rec.recordCamera({
+      zoom: 5, centerLon: 1, centerLat: 2,
+      bearing: 90, pitch: 30, projection: 'equirect',
+      viewportWidthPx: 200, viewportHeightPx: 200, dpr: 1,
+    })
     const second = rec.snapshot()
     expect(second.cameraZoom).toBe(5)
     expect(second.cameraCenter).toEqual([1, 2])
+    expect(second.cameraBearing).toBe(90)
+    expect(second.cameraPitch).toBe(30)
+    expect(second.projection).toBe('equirect')
     expect(second.layers).toEqual([])  // reset cleared
   })
 
   it('createTraceRecorder factory returns a working recorder', () => {
     const rec: RenderTraceRecorder = createTraceRecorder()
-    rec.recordCamera(7, -73.97, 40.78)
+    rec.recordCamera({
+      zoom: 7, centerLon: -73.97, centerLat: 40.78,
+      bearing: 0, pitch: 0, projection: 'mercator',
+      viewportWidthPx: 800, viewportHeightPx: 600, dpr: 1,
+    })
     const trace = rec.snapshot()
     expect(trace.cameraZoom).toBe(7)
     expect(trace.cameraCenter).toEqual([-73.97, 40.78])

@@ -122,6 +122,16 @@ export interface FrameTrace {
   cameraZoom: number
   /** Camera centre as [lon, lat]. */
   cameraCenter: readonly [number, number]
+  /** Camera bearing in degrees, 0-360. 0 = north up. */
+  cameraBearing: number
+  /** Camera pitch (tilt) in degrees, 0-85. 0 = top-down. */
+  cameraPitch: number
+  /** Map projection name (e.g. 'mercator', 'equirect'). */
+  projection: string
+  /** Render target size in physical pixels (canvas.width / height). */
+  viewportPx: readonly [number, number]
+  /** Device pixel ratio (canvas.width / CSS px width). */
+  dpr: number
   /** Tile-LOD selection for the frame. */
   tileLOD: TraceTileLOD
   /** Layer paint state, ordered by ShowCommand declaration order. */
@@ -144,8 +154,20 @@ export interface FrameTrace {
  *  The interface is intentionally small — every new record method
  *  pushes us toward shipping a new GPU-side detail. Avoid bloating
  *  beyond paint / label / tile-LOD until a concrete invariant needs it. */
+export interface CameraTraceSnapshot {
+  zoom: number
+  centerLon: number
+  centerLat: number
+  bearing: number
+  pitch: number
+  projection: string
+  viewportWidthPx: number
+  viewportHeightPx: number
+  dpr: number
+}
+
 export interface RenderTraceRecorder {
-  recordCamera(zoom: number, centerLon: number, centerLat: number): void
+  recordCamera(snap: CameraTraceSnapshot): void
   recordTileLOD(lod: TraceTileLOD): void
   recordLayer(layer: TraceLayer): void
   recordLabel(label: TraceLabel): void
@@ -161,13 +183,23 @@ export interface RenderTraceRecorder {
 export class InMemoryTraceRecorder implements RenderTraceRecorder {
   private cameraZoom = 0
   private cameraCenter: [number, number] = [0, 0]
+  private cameraBearing = 0
+  private cameraPitch = 0
+  private projection = 'mercator'
+  private viewportPx: [number, number] = [0, 0]
+  private dpr = 1
   private tileLOD: TraceTileLOD = { selectedCz: 0, fetchedKeys: [] }
   private layers: TraceLayer[] = []
   private labels: TraceLabel[] = []
 
-  recordCamera(zoom: number, centerLon: number, centerLat: number): void {
-    this.cameraZoom = zoom
-    this.cameraCenter = [centerLon, centerLat]
+  recordCamera(snap: CameraTraceSnapshot): void {
+    this.cameraZoom = snap.zoom
+    this.cameraCenter = [snap.centerLon, snap.centerLat]
+    this.cameraBearing = snap.bearing
+    this.cameraPitch = snap.pitch
+    this.projection = snap.projection
+    this.viewportPx = [snap.viewportWidthPx, snap.viewportHeightPx]
+    this.dpr = snap.dpr
   }
 
   recordTileLOD(lod: TraceTileLOD): void {
@@ -187,12 +219,22 @@ export class InMemoryTraceRecorder implements RenderTraceRecorder {
     const out: FrameTrace = {
       cameraZoom: this.cameraZoom,
       cameraCenter: this.cameraCenter,
+      cameraBearing: this.cameraBearing,
+      cameraPitch: this.cameraPitch,
+      projection: this.projection,
+      viewportPx: this.viewportPx,
+      dpr: this.dpr,
       tileLOD: this.tileLOD,
       layers: this.layers,
       labels: this.labels,
     }
     this.cameraZoom = 0
     this.cameraCenter = [0, 0]
+    this.cameraBearing = 0
+    this.cameraPitch = 0
+    this.projection = 'mercator'
+    this.viewportPx = [0, 0]
+    this.dpr = 1
     this.tileLOD = { selectedCz: 0, fetchedKeys: [] }
     this.layers = []
     this.labels = []

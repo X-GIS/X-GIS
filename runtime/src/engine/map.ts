@@ -1935,7 +1935,20 @@ export class XGISMap {
         const R = 6378137
         const lon = (camMx / R) * (180 / Math.PI)
         const lat = (Math.atan(Math.exp(camMy / R)) * 2 - Math.PI / 2) * (180 / Math.PI)
-        this._pendingTraceRecorder.recordCamera(this.camera.zoom, lon, lat)
+        const canvas = this.ctx?.canvas
+        const cw = canvas?.width ?? 0
+        const ch = canvas?.height ?? 0
+        this._pendingTraceRecorder.recordCamera({
+          zoom: this.camera.zoom,
+          centerLon: lon,
+          centerLat: lat,
+          bearing: this.camera.bearing,
+          pitch: this.camera.pitch,
+          projection: this.projectionName ?? 'mercator',
+          viewportWidthPx: cw,
+          viewportHeightPx: ch,
+          dpr: dpr,
+        })
       }
       const { opaque, translucent, oit } = this.classifyVectorTileShows()
       const opaqueGroups = this.groupOpaqueBySource(opaque)

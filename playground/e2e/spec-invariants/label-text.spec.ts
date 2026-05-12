@@ -17,6 +17,11 @@ import type { Page } from '@playwright/test'
 interface FrameTrace {
   cameraZoom: number
   cameraCenter: readonly [number, number]
+  cameraBearing: number
+  cameraPitch: number
+  projection: string
+  viewportPx: readonly [number, number]
+  dpr: number
   tileLOD: { selectedCz: number; fetchedKeys: readonly string[] }
   layers: Array<{
     layerName: string
