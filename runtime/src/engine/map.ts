@@ -2208,7 +2208,21 @@ export class XGISMap {
                 storeOp: 'store',
               }],
             })
-            this.lineRenderer!.composite(compPass, cs.show.opacity ?? 1)
+            // Translucent-stroke composite opacity: zoom-interpolated
+            // stops win over the constant fallback. Earlier this
+            // path read `cs.show.opacity` directly (always 1.0 for
+            // layers that author opacity as `interpolate(zoom, …)`,
+            // because emit-commands stores the interpolation in
+            // `zoomOpacityStops` and leaves the scalar at its 1.0
+            // default), so demotiles `countries-boundary`'s
+            // `[3, 0.5], [6, 1]` ramp was lost — the border drew at
+            // full opacity at z=3 (visibly thicker / brighter than
+            // the MapLibre reference). Match the per-frame resolve
+            // the VTR already does for the offscreen RT.
+            const composeOpacity = cs.show.zoomOpacityStops && cs.show.zoomOpacityStops.length > 0
+              ? interpolateZoom(cs.show.zoomOpacityStops, this.camera.zoom, cs.show.zoomOpacityStopsBase ?? 1)
+              : (cs.show.opacity ?? 1)
+            this.lineRenderer!.composite(compPass, composeOpacity)
             compPass.end()
           })
         }
