@@ -402,10 +402,19 @@ export function mergeLayers(scene: Scene): Scene {
     // that, empirically, was rendering most features as the fallback
     // colour anyway. OSM osm_style landuse merges have < 30 total
     // values across the group and continue to fold as before.
+    //
+    // Critical: when the cap rejects, ADVANCE PAST THE WHOLE GROUP
+    // rather than just `first`. Naively pushing first + i++ would let
+    // the next iteration restart from member 2 and possibly find a
+    // SMALLER sub-group that passes the threshold — exactly the
+    // demotiles `countries-fill` regression where c6+c7 (36 values)
+    // got merged into a compound after c0..c7 (192) was rejected,
+    // dropping North Korea (PRK ∈ c6) into the data-driven fill path
+    // that doesn't render at all.
     const totalValues = group.reduce((n, g) => n + g.filter.values.length, 0)
     if (totalValues > 50) {
-      out.push(first)
-      i++
+      for (const g of group) out.push(g.node)
+      i = j
       continue
     }
 
