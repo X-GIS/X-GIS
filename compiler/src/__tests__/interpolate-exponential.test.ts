@@ -164,8 +164,8 @@ layer pts {
     const scene = lower(ast)
     const cmds = emitCommands(scene)
     const show = cmds.shows[0]!
-    expect(show.zoomSizeStopsBase).toBe(2.0)
-    expect(show.zoomOpacityStopsBase).toBe(1.8)
+    expect(show.paintShapes.size).toMatchObject({ kind: 'zoom-interpolated', base: 2.0 })
+    expect(show.paintShapes.opacity).toMatchObject({ kind: 'zoom-interpolated', base: 1.8 })
   })
 })
 

@@ -188,8 +188,8 @@ describe('Full Pipeline: emit with shader variants', () => {
     expect(show.size).toBe(12)
 
     // Zoom stops preserved
-    expect(show.zoomOpacityStops).not.toBeNull()
-    expect(show.zoomOpacityStops).toHaveLength(2)
+    expect(show.paintShapes.opacity.kind).toBe('zoom-interpolated')
+    expect((show.paintShapes.opacity as { stops: unknown[] }).stops).toHaveLength(2)
 
     // Shader variant generated
     expect(show.shaderVariant).not.toBeNull()

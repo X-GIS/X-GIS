@@ -45,8 +45,7 @@ interface ShowWithExprs {
   strokeWidthExpr?: { ast: unknown } | null
   strokeColorExpr?: { ast: unknown } | null
   sizeExpr?: { ast: unknown } | null
-  zoomStrokeWidthStops?: { zoom: number; value: number }[]
-  zoomStrokeWidthStopsBase?: number
+  paintShapes: import('../../src/ir/property-types').PaintShapes
   label?: {
     sizeExpr?: { ast: unknown }
     colorExpr?: { ast: unknown }
@@ -137,17 +136,18 @@ function runRoundtrip(name: string, style: unknown): void {
       const minor = shows.find(s => s.layerName === 'highway_minor')
       if (!minor) return
       // Width can now flow through EITHER strokeWidthExpr (per-feature
-      // worker bake) OR zoomStrokeWidthStops (per-frame renderer
-      // interp). The latter is the common case for pure zoom curves
-      // like OFM Bright's highway-minor.
-      const stops = minor.zoomStrokeWidthStops
+      // worker bake) OR paintShapes.strokeWidth ZoomShape (per-frame
+      // renderer interp). The latter is the common case for pure zoom
+      // curves like OFM Bright's highway-minor.
+      const swShape = minor.paintShapes.strokeWidth
+      const stops = swShape.kind === 'zoom-interpolated' ? swShape.stops : null
       let widths: number[]
-      if (stops && stops.length >= 2) {
+      if (stops !== null && stops.length >= 2) {
         // Linear or exponential interpolation between stops mirrors
         // the renderer's interpolateZoom helper. The roundtrip here is
         // a sanity check; the full curve maths is exercised in
         // runtime/render-loop tests.
-        const base = minor.zoomStrokeWidthStopsBase ?? 1
+        const base = (swShape as { base?: number }).base ?? 1
         const interp = (z: number): number => {
           if (z <= stops[0].zoom) return stops[0].value
           if (z >= stops[stops.length - 1].zoom) return stops[stops.length - 1].value

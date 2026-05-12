@@ -2,7 +2,7 @@
 // Converts IR Scene to the existing runtime SceneCommands format.
 // This bridge allows the runtime to consume IR without changes.
 
-import type { Scene, RenderNode, ColorValue, ZoomStop, TimeStop, Easing, DataExpr } from './render-node'
+import type { Scene, RenderNode, ColorValue, TimeStop, Easing, DataExpr } from './render-node'
 import { rgbaToHex } from './render-node'
 import type { PaintShapes } from './property-types'
 import {
@@ -58,16 +58,6 @@ export interface ShowCommand {
    *  slot; the line shader picks segment.width_px over the layer
    *  uniform when non-zero. */
   strokeWidthExpr?: DataExpr
-  /** Mapbox `paint.line-width: ["interpolate", curve, ["zoom"], …]`
-   *  hoisted as zoom stops. When present, the renderer recomputes
-   *  the line `layer.width_px` per frame from camera.zoom rather
-   *  than baking a single width per tile (the worker bake stays
-   *  frozen at tile-decode zoom — visible as roads not widening
-   *  continuously as the camera zooms inside one tile-zoom level).
-   *  Mutually exclusive with `strokeWidthExpr` for pure-zoom
-   *  widths. */
-  zoomStrokeWidthStops?: ZoomStop<number>[]
-  zoomStrokeWidthStopsBase?: number
   /** Optional per-feature stroke colour override AST. Synthesised
    *  by the merge pass when group members differ in stroke colour;
    *  resolved by the worker into a packed RGBA8 u32 baked into the
@@ -79,21 +69,14 @@ export interface ShowCommand {
    *  (writeMask:0 on the pick attachment so picks fall through). 'auto'
    *  is the default. */
   pointerEvents: 'auto' | 'none'
+  /** Per-frame composed opacity (the resolved-value channel).
+   *  Bucket-scheduler writes this in `effectiveShow` after evaluating
+   *  paintShapes.opacity; downstream renderers (VTR, line-renderer,
+   *  point-renderer, map.ts composite) read it as a plain scalar. */
   opacity: number
+  /** Per-frame composed size. Same resolved-value channel pattern as
+   *  `opacity`. `null` when the layer doesn't author a size. */
   size: number | null
-  zoomOpacityStops: ZoomStop<number>[] | null
-  /** Mapbox `["exponential", N]` curve base for `zoomOpacityStops`.
-   *  Undefined / 1 → linear. */
-  zoomOpacityStopsBase?: number
-  zoomSizeStops: ZoomStop<number>[] | null
-  zoomSizeStopsBase?: number
-  /** Mapbox `paint.fill-color: ["interpolate", curve, ["zoom"], …]` —
-   *  per-frame interpolated RGBA. When present, the runtime ignores
-   *  the static `fill` hex (which carries the first-stop colour as a
-   *  fallback) and computes the colour each frame from these stops
-   *  against `camera.zoom`. */
-  zoomFillStops?: ZoomStop<[number, number, number, number]>[]
-  zoomFillStopsBase?: number
   shaderVariant: ShaderVariant | null
   filterExpr: DataExpr | null
   geometryExpr: DataExpr | null
@@ -120,15 +103,14 @@ export interface ShowCommand {
   strokeBlur?: number
   // ── Animation ──
   //
-  // PR 1 shipped time*Opacity; PR 3 adds time* stops for fill/stroke
-  // color, stroke width, point size, and dash offset. All share the
-  // same loop/easing/delay metadata because a single layer only hosts
-  // one animation reference (`animation-<name>`) at a time.
-  timeOpacityStops: TimeStop<number>[] | null
-  timeFillStops: TimeStop<[number, number, number, number]>[] | null
-  timeStrokeStops: TimeStop<[number, number, number, number]>[] | null
-  timeStrokeWidthStops: TimeStop<number>[] | null
-  timeSizeStops: TimeStop<number>[] | null
+  // PaintShapes.* below carries every paint-property animation
+  // (opacity / fill / stroke / strokeWidth / size). Only dashOffset
+  // — a structural stroke attribute, not a paint axis — keeps its
+  // own time-stop field here. The shared lifecycle metadata (loop /
+  // easing / delayMs) is read off any animated PaintShape variant
+  // (zoom-time / time-interpolated); these three flat fields stay
+  // populated as the canonical metadata source for dashOffset's
+  // animation, which has no PaintShape of its own.
   timeDashOffsetStops: TimeStop<number>[] | null
   timeOpacityLoop: boolean
   timeOpacityEasing: Easing
@@ -196,33 +178,7 @@ function emitShow(node: RenderNode): ShowCommand {
   // Generate shader variant for this layer
   const shaderVariant = generateShaderVariant(node)
 
-  // Project opacity through the three shapes: constant / zoom / time / hybrid.
-  // The zoom-time hybrid populates BOTH zoomOpacityStops and timeOpacityStops;
-  // the runtime composes them multiplicatively so zoom-opacity acts as a
-  // slow envelope around the faster animation pulse.
   const op = node.opacity
-  const zoomOpacityStops: ZoomStop<number>[] | null =
-    op.kind === 'zoom-interpolated' ? op.stops :
-    op.kind === 'zoom-time' ? op.zoomStops :
-    null
-  const zoomOpacityStopsBase: number | undefined =
-    op.kind === 'zoom-interpolated' ? op.base : undefined
-  const timeOpacityStops: TimeStop<number>[] | null =
-    op.kind === 'time-interpolated' ? op.stops :
-    op.kind === 'zoom-time' ? op.timeStops :
-    null
-
-  // PR 3: project animated color / size stops off each union. Because
-  // ColorValue.time-interpolated carries a `base` fallback, we emit the
-  // base through `fill:` / `stroke:` — downstream code uses it when
-  // time-factor reads aren't active yet (pre-delay frames).
-  const timeFillStops: TimeStop<[number, number, number, number]>[] | null =
-    node.fill.kind === 'time-interpolated' ? node.fill.stops : null
-  const timeStrokeStops: TimeStop<[number, number, number, number]>[] | null =
-    node.stroke.color.kind === 'time-interpolated' ? node.stroke.color.stops : null
-  const timeSizeStops: TimeStop<number>[] | null =
-    node.size.kind === 'time-interpolated' ? node.size.stops : null
-  const timeStrokeWidthStops = node.stroke.timeWidthStops ?? null
   const timeDashOffsetStops = node.stroke.timeDashOffsetStops ?? null
 
   // Lifecycle metadata (loop / easing / delayMs) is shared across every
@@ -261,20 +217,12 @@ function emitShow(node: RenderNode): ShowCommand {
     // installs against the PR #95 / #97 / #104 silent-default class.
     strokeWidth: node.stroke.width.kind === 'constant' ? node.stroke.width.px : 1,
     strokeWidthExpr: node.stroke.width.kind === 'per-feature' ? node.stroke.width.expr : undefined,
-    zoomStrokeWidthStops: node.stroke.width.kind === 'zoom-stops' ? node.stroke.width.stops : undefined,
-    zoomStrokeWidthStopsBase: node.stroke.width.kind === 'zoom-stops' ? node.stroke.width.base : undefined,
     strokeColorExpr: node.stroke.colorExpr,
     projection: node.projection,
     visible: node.visible,
     pointerEvents: node.pointerEvents,
     opacity: op.kind === 'constant' ? op.value : 1.0,
     size: node.size.kind === 'constant' ? node.size.value : null,
-    zoomOpacityStops,
-    zoomOpacityStopsBase,
-    zoomSizeStops: node.size.kind === 'zoom-interpolated' ? node.size.stops : null,
-    zoomSizeStopsBase: node.size.kind === 'zoom-interpolated' ? node.size.base : undefined,
-    zoomFillStops: node.fill.kind === 'zoom-interpolated' ? node.fill.stops : undefined,
-    zoomFillStopsBase: node.fill.kind === 'zoom-interpolated' ? node.fill.base : undefined,
     shaderVariant,
     filterExpr: node.filter,
     geometryExpr: node.geometry,
@@ -295,11 +243,6 @@ function emitShow(node: RenderNode): ShowCommand {
     strokeOffset: node.stroke.offset,
     strokeAlign: node.stroke.align,
     strokeBlur: node.stroke.blur,
-    timeOpacityStops,
-    timeFillStops,
-    timeStrokeStops,
-    timeStrokeWidthStops,
-    timeSizeStops,
     timeDashOffsetStops,
     timeOpacityLoop,
     timeOpacityEasing,

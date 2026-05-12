@@ -36,13 +36,11 @@ interface ShowSample {
   stroke: string | null
   strokeWidth: number
   strokeWidthExpr?: unknown
-  zoomStrokeWidthStops?: { zoom: number; value: number }[]
   strokeOffset?: number
   strokeBlur?: number
   opacity: number
-  zoomOpacityStops: unknown
   size: number | null
-  zoomSizeStops: unknown
+  paintShapes: import('../../src/ir/property-types').PaintShapes
   visible: boolean
   filterExpr: unknown
   minzoom?: number
@@ -129,13 +127,14 @@ function checkPaint(layer: MapboxLayer, show: ShowSample | undefined): string[] 
         }
       } else {
         // interpolate / expression — must land in EITHER strokeWidthExpr
-        // (per-feature worker bake) or zoomStrokeWidthStops (per-frame
-        // renderer interp for pure zoom-driven widths).
+        // (per-feature worker bake) or paintShapes.strokeWidth as a zoom-
+        // interpolated shape (per-frame renderer interp for pure zoom-
+        // driven widths).
         const hasExpr = show.strokeWidthExpr !== undefined
-        const hasStops = Array.isArray((show as { zoomStrokeWidthStops?: unknown[] }).zoomStrokeWidthStops)
-          && ((show as { zoomStrokeWidthStops: unknown[] }).zoomStrokeWidthStops.length >= 2)
+        const sw = show.paintShapes.strokeWidth
+        const hasStops = sw.kind === 'zoom-interpolated' && sw.stops.length >= 2
         if (!hasExpr && !hasStops && show.strokeWidth === 1) {
-          fails.push(`[${layer.id}] line-width is non-constant but neither strokeWidthExpr nor zoomStrokeWidthStops is set AND strokeWidth is the default 1`)
+          fails.push(`[${layer.id}] line-width is non-constant but neither strokeWidthExpr nor paintShapes.strokeWidth zoom-stops is set AND strokeWidth is the default 1`)
         }
       }
     }
@@ -176,9 +175,11 @@ function checkPaint(layer: MapboxLayer, show: ShowSample | undefined): string[] 
           fails.push(`[${layer.id}] circle-radius=${r} but show.size=${show.size}`)
         }
       } else {
-        // non-constant → zoomSizeStops or sizeExpr
-        if ((!show.zoomSizeStops || (show.zoomSizeStops as unknown[]).length === 0) && show.size === null) {
-          fails.push(`[${layer.id}] circle-radius is non-constant but no zoomSizeStops and size=null`)
+        // non-constant → paintShapes.size zoom-stops or sizeExpr
+        const sz = show.paintShapes.size
+        const hasSizeStops = sz !== null && sz.kind === 'zoom-interpolated' && sz.stops.length > 0
+        if (!hasSizeStops && show.size === null) {
+          fails.push(`[${layer.id}] circle-radius is non-constant but no paintShapes.size zoom-stops and size=null`)
         }
       }
     }

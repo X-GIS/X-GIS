@@ -37,10 +37,11 @@ describe('Zoom interpolation pipeline', () => {
     `)
 
     const show = commands.shows[0]
-    expect(show.zoomOpacityStops).not.toBeNull()
-    expect(show.zoomOpacityStops).toHaveLength(2)
-    expect(show.zoomOpacityStops![0]).toEqual({ zoom: 8, value: 0.4 })
-    expect(show.zoomOpacityStops![1]).toEqual({ zoom: 16, value: 1.0 })
+    expect(show.paintShapes.opacity.kind).toBe('zoom-interpolated')
+    const opaStops = (show.paintShapes.opacity as { stops: { zoom: number; value: number }[] }).stops
+    expect(opaStops).toHaveLength(2)
+    expect(opaStops[0]).toEqual({ zoom: 8, value: 0.4 })
+    expect(opaStops[1]).toEqual({ zoom: 16, value: 1.0 })
   })
 
   it('carries size zoom stops', () => {
@@ -53,9 +54,11 @@ describe('Zoom interpolation pipeline', () => {
     `)
 
     const show = commands.shows[0]
-    expect(show.zoomSizeStops).toHaveLength(2)
-    expect(show.zoomSizeStops![0]).toEqual({ zoom: 8, value: 4 })
-    expect(show.zoomSizeStops![1]).toEqual({ zoom: 14, value: 12 })
+    expect(show.paintShapes.size?.kind).toBe('zoom-interpolated')
+    const sizeStops = (show.paintShapes.size as { stops: { zoom: number; value: number }[] }).stops
+    expect(sizeStops).toHaveLength(2)
+    expect(sizeStops[0]).toEqual({ zoom: 8, value: 4 })
+    expect(sizeStops[1]).toEqual({ zoom: 14, value: 12 })
   })
 
   it('preserves constant size through pipeline', () => {

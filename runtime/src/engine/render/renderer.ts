@@ -637,31 +637,21 @@ export interface ShowCommand {
    *  write — picks fall through to the layer beneath. 'auto' (default)
    *  is fully pickable. */
   pointerEvents?: 'auto' | 'none'
+  /** Per-frame composed opacity (resolved-value channel). Bucket-
+   *  scheduler writes this in `effectiveShow` after evaluating
+   *  paintShapes.opacity; downstream renderers read it as a scalar. */
   opacity: number
+  /** Per-frame composed size. Same resolved-value channel pattern as
+   *  `opacity`. `null` when the layer doesn't author a size. */
   size?: number | null
-  zoomOpacityStops?: { zoom: number; value: number }[] | null
-  /** Mapbox `["exponential", N]` curve base for `zoomOpacityStops`.
-   *  Undefined / 1 → linear. */
-  zoomOpacityStopsBase?: number
-  zoomSizeStops?: { zoom: number; value: number }[] | null
-  zoomSizeStopsBase?: number
-  /** Mapbox `paint.fill-color: ["interpolate", …, ["zoom"], …]` —
-   *  per-frame interpolated RGBA. When present, the renderer
-   *  computes the fill colour each frame from these stops + the
-   *  current camera zoom, overriding the static `fill` hex. */
-  zoomFillStops?: { zoom: number; value: [number, number, number, number] }[]
-  zoomFillStopsBase?: number
-  // ── Animation (PR 1: opacity; PR 3: color/width/size/dashoffset) ──
+  // ── Animation ──
   //
-  // Every animatable property carries a parallel time-stop list.
-  // Shared loop/easing/delayMs come from the single `animation-<name>`
-  // reference on the layer — one animation block drives every stop
-  // list, even cross-property.
-  timeOpacityStops?: { timeMs: number; value: number }[] | null
-  timeFillStops?: { timeMs: number; value: [number, number, number, number] }[] | null
-  timeStrokeStops?: { timeMs: number; value: [number, number, number, number] }[] | null
-  timeStrokeWidthStops?: { timeMs: number; value: number }[] | null
-  timeSizeStops?: { timeMs: number; value: number }[] | null
+  // PaintShapes.* below carries every paint-property animation
+  // (opacity / fill / stroke / strokeWidth / size). Only dashOffset —
+  // a structural stroke attribute, not a paint axis — keeps its own
+  // time-stop field here, with the shared lifecycle metadata in the
+  // three timeOpacity* fields (legacy naming retained because the
+  // dashOffset animation reuses the same `animation-<name>` block).
   timeDashOffsetStops?: { timeMs: number; value: number }[] | null
   timeOpacityLoop?: boolean
   timeOpacityEasing?: Easing

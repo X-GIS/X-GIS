@@ -47,12 +47,7 @@ interface ShowLikeLabel {
   stroke: string | null
   strokeWidth: number
   strokeWidthExpr?: { ast: unknown }
-  zoomStrokeWidthStops?: { zoom: number; value: number }[]
-  zoomStrokeWidthStopsBase?: number
-  zoomFillStops?: { zoom: number; value: [number, number, number, number] }[]
-  zoomFillStopsBase?: number
-  zoomSizeStops?: { zoom: number; value: number }[] | null
-  zoomSizeStopsBase?: number
+  paintShapes: import('../../src/ir/property-types').PaintShapes
   sizeExpr?: { ast: unknown }
   size?: number | null
   strokeBlur?: number
@@ -345,8 +340,9 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
       // Pick the right AST / stops source on the compiled show.
       const valueAt = (z: number): number => {
         if (c.propertyName === 'line-width') {
-          if (show.zoomStrokeWidthStops && show.zoomStrokeWidthStops.length >= 2) {
-            return interpolateNumberStops(show.zoomStrokeWidthStops, z, show.zoomStrokeWidthStopsBase ?? 1)
+          const sw = show.paintShapes.strokeWidth
+          if (sw.kind === 'zoom-interpolated' && sw.stops.length >= 2) {
+            return interpolateNumberStops(sw.stops, z, sw.base ?? 1)
           }
           if (show.strokeWidthExpr) {
             return evaluate(show.strokeWidthExpr.ast as never,
@@ -412,8 +408,9 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
         }
         for (const z of ZOOMS) {
           let ours: number
-          if (show.zoomStrokeWidthStops && show.zoomStrokeWidthStops.length >= 2) {
-            ours = interpolateNumberStops(show.zoomStrokeWidthStops, z, show.zoomStrokeWidthStopsBase ?? 1)
+          const sw = show.paintShapes.strokeWidth
+          if (sw.kind === 'zoom-interpolated' && sw.stops.length >= 2) {
+            ours = interpolateNumberStops(sw.stops, z, sw.base ?? 1)
           } else if (show.strokeWidthExpr) {
             // Per-feature width AST. The test feature props are an
             // empty bag; for layers whose original expression depended

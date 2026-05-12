@@ -50,7 +50,7 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     expect(node!.stroke.width.base).toBeCloseTo(1.2, 4)
   })
 
-  it('Mapbox line-width interpolate(zoom) threads through ShowCommand.zoomStrokeWidthStops', () => {
+  it('Mapbox line-width interpolate(zoom) threads through paintShapes.strokeWidth', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -68,9 +68,9 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     }
     const xgis = convertMapboxStyle(style as never)
     const cmds = emitCommands(lower(new Parser(new Lexer(xgis).tokenize()).parse()))
-    const s = cmds.shows[0] as unknown as { zoomStrokeWidthStops?: { zoom: number; value: number }[]; strokeWidthExpr?: unknown; strokeWidth: number }
-    expect(s.zoomStrokeWidthStops).toBeDefined()
-    expect(s.zoomStrokeWidthStops!.length).toBe(2)
+    const s = cmds.shows[0]!
+    expect(s.paintShapes.strokeWidth.kind).toBe('zoom-interpolated')
+    expect((s.paintShapes.strokeWidth as { stops: unknown[] }).stops).toHaveLength(2)
     expect(s.strokeWidthExpr).toBeUndefined()
   })
 
@@ -132,14 +132,14 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     const xgis = convertMapboxStyle(style)
     const cmds = emitCommands(lower(new Parser(new Lexer(xgis).tokenize()).parse()))
     const offenders: string[] = []
-    type S = { layerName: string; strokeWidthExpr?: unknown; zoomStrokeWidthStops?: unknown; strokeWidth: number }
-    for (const s of cmds.shows as unknown as S[]) {
-      if (!s.layerName.startsWith('highway')) continue
+    for (const s of cmds.shows) {
+      if (!s.layerName || !s.layerName.startsWith('highway')) continue
       if (s.layerName.includes('shield')) continue
       if (s.layerName.includes('name')) continue
       if (s.layerName.includes('area')) continue
       const hasExpr = s.strokeWidthExpr !== undefined
-      const hasStops = Array.isArray(s.zoomStrokeWidthStops) && (s.zoomStrokeWidthStops as unknown[]).length >= 2
+      const swShape = s.paintShapes.strokeWidth
+      const hasStops = swShape.kind === 'zoom-interpolated' && swShape.stops.length >= 2
       if (!hasExpr && !hasStops && s.strokeWidth === 1) {
         offenders.push(s.layerName)
       }

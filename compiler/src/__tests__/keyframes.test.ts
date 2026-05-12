@@ -172,7 +172,7 @@ describe('Keyframes lowering', () => {
     `)).toThrow(/Unknown keyframes reference/)
   })
 
-  it('emits ShowCommand.timeOpacityStops / Loop / Easing / DelayMs', () => {
+  it('emits paintShapes.opacity time-interpolated + animationMeta Loop / Easing / DelayMs', () => {
     const scene = compile(`
       keyframes pulse {
         0%:   opacity-100
@@ -187,13 +187,16 @@ describe('Keyframes lowering', () => {
     `)
     const commands = emitCommands(scene)
     const show = commands.shows[0]
-    expect(show.timeOpacityStops).toEqual([
+    expect(show.paintShapes.opacity).toMatchObject({
+      kind: 'time-interpolated',
+      loop: true,
+      easing: 'ease-out',
+      delayMs: 200,
+    })
+    expect((show.paintShapes.opacity as { stops: { timeMs: number; value: number }[] }).stops).toEqual([
       { timeMs: 0, value: 1.0 },
       { timeMs: 800, value: 0.1 },
     ])
-    expect(show.timeOpacityLoop).toBe(true)
-    expect(show.timeOpacityEasing).toBe('ease-out')
-    expect(show.timeOpacityDelayMs).toBe(200)
   })
 })
 
@@ -328,7 +331,7 @@ describe('Keyframes — multi-property (PR 3)', () => {
     expect(node.stroke.timeWidthStops).toHaveLength(2)
   })
 
-  it('emits ShowCommand.timeFillStops / timeStrokeStops / timeStrokeWidthStops / timeDashOffsetStops / timeSizeStops', () => {
+  it('emits paintShapes.{fill,stroke,strokeWidth,size} time-interpolated + dashOffset stops', () => {
     const scene = compile(`
       keyframes combo {
         0%:   fill-blue-500 stroke-amber-300 stroke-2 stroke-dashoffset-0  size-10
@@ -343,17 +346,19 @@ describe('Keyframes — multi-property (PR 3)', () => {
     `)
     const commands = emitCommands(scene)
     const show = commands.shows[0]
-    expect(show.timeFillStops).toHaveLength(2)
-    expect(show.timeStrokeStops).toHaveLength(2)
-    expect(show.timeStrokeWidthStops).toEqual([
+    const ps = show.paintShapes
+    expect((ps.fill as { stops: unknown[] }).stops).toHaveLength(2)
+    expect((ps.stroke as { stops: unknown[] }).stops).toHaveLength(2)
+    expect((ps.strokeWidth as { stops: { timeMs: number; value: number }[] }).stops).toEqual([
       { timeMs: 0, value: 2 },
       { timeMs: 1500, value: 6 },
     ])
+    // Dash offset is structural — still on the flat field
     expect(show.timeDashOffsetStops).toEqual([
       { timeMs: 0, value: 0 },
       { timeMs: 1500, value: 40 },
     ])
-    expect(show.timeSizeStops).toEqual([
+    expect((ps.size as { stops: { timeMs: number; value: number }[] }).stops).toEqual([
       { timeMs: 0, value: 10 },
       { timeMs: 1500, value: 20 },
     ])
@@ -380,9 +385,9 @@ describe('Keyframes — multi-property (PR 3)', () => {
     `)
     const commands = emitCommands(scene)
     const show = commands.shows[0]
-    expect(show.timeFillStops).toHaveLength(3)
-    expect(show.timeOpacityLoop).toBe(true)
-    expect(show.timeOpacityEasing).toBe('ease-in-out')
+    expect((show.paintShapes.fill as { stops: unknown[] }).stops).toHaveLength(3)
+    expect((show.paintShapes.fill as { loop: boolean }).loop).toBe(true)
+    expect((show.paintShapes.fill as { easing: string }).easing).toBe('ease-in-out')
   })
 
   it('stroke-width-only animation inherits loop=true from the stroke IR (regression)', () => {
@@ -400,8 +405,8 @@ describe('Keyframes — multi-property (PR 3)', () => {
     `)
     const commands = emitCommands(scene)
     const show = commands.shows[0]
-    expect(show.timeStrokeWidthStops).toHaveLength(2)
-    expect(show.timeOpacityLoop).toBe(true)
+    expect((show.paintShapes.strokeWidth as { stops: unknown[] }).stops).toHaveLength(2)
+    expect((show.paintShapes.strokeWidth as { loop: boolean }).loop).toBe(true)
   })
 
   it('single-stop property does not promote to time-interpolated', () => {
@@ -456,21 +461,25 @@ describe('Keyframes — all-property metadata propagation (Bug 1 structural)', (
     `)
     const commands = emitCommands(scene)
     const show = commands.shows[0]
+    const ps = show.paintShapes
 
     // Every property got its own time stop list:
-    expect(show.timeOpacityStops).toHaveLength(3)
-    expect(show.timeFillStops).toHaveLength(3)
-    expect(show.timeStrokeStops).toHaveLength(3)
-    expect(show.timeStrokeWidthStops).toHaveLength(3)
-    expect(show.timeSizeStops).toHaveLength(3)
+    expect((ps.opacity as { stops: unknown[] }).stops).toHaveLength(3)
+    expect((ps.fill as { stops: unknown[] }).stops).toHaveLength(3)
+    expect((ps.stroke as { stops: unknown[] }).stops).toHaveLength(3)
+    expect((ps.strokeWidth as { stops: unknown[] }).stops).toHaveLength(3)
+    expect((ps.size as { stops: unknown[] }).stops).toHaveLength(3)
+    // Dash offset is structural — still on its flat field
     expect(show.timeDashOffsetStops).toHaveLength(3)
 
     // And the SHARED lifecycle metadata applies to every one of
-    // them. This is the structural property Bug 1 violated — under
-    // the bug, only opacity got the right loop value.
-    expect(show.timeOpacityLoop).toBe(true)
-    expect(show.timeOpacityEasing).toBe('ease-in-out')
-    expect(show.timeOpacityDelayMs).toBe(100)
+    // them. Bug 1: only opacity got the right loop value. Every
+    // animated paintShape carries the same loop/easing/delayMs.
+    for (const shape of [ps.opacity, ps.fill, ps.stroke, ps.strokeWidth, ps.size]) {
+      expect((shape as { loop: boolean }).loop).toBe(true)
+      expect((shape as { easing: string }).easing).toBe('ease-in-out')
+      expect((shape as { delayMs: number }).delayMs).toBe(100)
+    }
   })
 
   it('Bug 1 mirror: drop opacity from the keyframes — the other 5 still inherit lifecycle', () => {
@@ -495,21 +504,24 @@ describe('Keyframes — all-property metadata propagation (Bug 1 structural)', (
     `)
     const commands = emitCommands(scene)
     const show = commands.shows[0]
+    const ps = show.paintShapes
 
-    // Opacity is NOT animated:
-    expect(show.timeOpacityStops).toBeNull()
-    // But every OTHER property IS:
-    expect(show.timeFillStops).toHaveLength(3)
-    expect(show.timeStrokeStops).toHaveLength(3)
-    expect(show.timeStrokeWidthStops).toHaveLength(3)
-    expect(show.timeSizeStops).toHaveLength(3)
+    // Opacity stays constant (not animated):
+    expect(ps.opacity.kind).toBe('constant')
+    // But every OTHER property IS animated:
+    expect(ps.fill?.kind).toBe('time-interpolated')
+    expect(ps.stroke?.kind).toBe('time-interpolated')
+    expect(ps.strokeWidth.kind).toBe('time-interpolated')
+    expect(ps.size?.kind).toBe('time-interpolated')
     expect(show.timeDashOffsetStops).toHaveLength(3)
 
-    // And — critically — they all inherit the lifecycle from
-    // animationMeta even though opacity itself isn't time-interp:
-    expect(show.timeOpacityLoop).toBe(true)
-    expect(show.timeOpacityEasing).toBe('ease-out')
-    expect(show.timeOpacityDelayMs).toBe(0)
+    // And — critically — every animated shape inherits the lifecycle
+    // from animationMeta even though opacity isn't time-interp:
+    for (const shape of [ps.fill!, ps.stroke!, ps.strokeWidth, ps.size!]) {
+      expect((shape as { loop: boolean }).loop).toBe(true)
+      expect((shape as { easing: string }).easing).toBe('ease-out')
+      expect((shape as { delayMs: number }).delayMs).toBe(0)
+    }
   })
 
   it('IR has node.animationMeta populated whenever any keyframes is referenced', () => {
@@ -555,8 +567,8 @@ describe('Keyframes — all-property metadata propagation (Bug 1 structural)', (
     `)
     const commands = emitCommands(scene)
     const show = commands.shows[0]
-    expect(show.timeOpacityLoop).toBe(false)
-    expect(show.timeFillStops).toHaveLength(2)
-    expect(show.timeSizeStops).toHaveLength(2)
+    expect((show.paintShapes.fill as { loop: boolean }).loop).toBe(false)
+    expect((show.paintShapes.fill as { stops: unknown[] }).stops).toHaveLength(2)
+    expect((show.paintShapes.size as { stops: unknown[] }).stops).toHaveLength(2)
   })
 })

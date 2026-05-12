@@ -74,8 +74,6 @@ describe('emit-commands paintShapes (Step 1b)', () => {
       }
     `)
     expect(show.paintShapes.opacity.kind).toBe('zoom-interpolated')
-    // Legacy zoomOpacityStops still populated (dual-write).
-    expect(show.zoomOpacityStops).not.toBeNull()
-    expect(show.zoomOpacityStops!.length).toBe(2)
+    expect((show.paintShapes.opacity as { stops: unknown[] }).stops).toHaveLength(2)
   })
 })
