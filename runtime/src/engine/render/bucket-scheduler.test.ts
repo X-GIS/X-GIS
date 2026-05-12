@@ -27,7 +27,42 @@ import {
   type ClassifierShowEntry,
   type ClassifierVTSource,
 } from './bucket-scheduler'
-import type { SceneCommands } from '@xgis/compiler'
+import type { SceneCommands, PaintShapes, PropertyShape } from '@xgis/compiler'
+
+/** Synthesize a PaintShapes bundle from the legacy flat fields a test
+ *  fixture sets. Mirrors what emit-commands.ts does for compiled
+ *  programs — keeps test fixtures from having to spell out the typed
+ *  shape AND the legacy fallback both. The bucket-scheduler reads
+ *  paintShapes.opacity directly (Step 1c migration), so this is what
+ *  feeds it. */
+function synthesizePaintShapes(show: {
+  opacity?: number | null
+  zoomOpacityStops?: { zoom: number; value: number }[] | null
+  zoomOpacityStopsBase?: number
+  timeOpacityStops?: { timeMs: number; value: number }[] | null
+  timeOpacityLoop?: boolean
+  timeOpacityEasing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
+  timeOpacityDelayMs?: number
+}): PaintShapes {
+  const z = show.zoomOpacityStops ?? null
+  const t = show.timeOpacityStops ?? null
+  const loop = show.timeOpacityLoop ?? false
+  const easing = show.timeOpacityEasing ?? 'linear'
+  const delayMs = show.timeOpacityDelayMs ?? 0
+  let opacity: PropertyShape<number>
+  if (z !== null && t !== null) {
+    opacity = {
+      kind: 'zoom-time', zoomStops: z, timeStops: t, loop, easing, delayMs,
+    }
+  } else if (z !== null) {
+    opacity = { kind: 'zoom-interpolated', stops: z, base: show.zoomOpacityStopsBase ?? 1 }
+  } else if (t !== null) {
+    opacity = { kind: 'time-interpolated', stops: t, loop, easing, delayMs }
+  } else {
+    opacity = { kind: 'constant', value: show.opacity ?? 1 }
+  }
+  return { fill: null, stroke: null, opacity, strokeWidth: { kind: 'constant', value: 1 }, size: null }
+}
 
 // ── Stub helpers ───────────────────────────────────────────────────
 //
@@ -52,7 +87,7 @@ function makeShow(overrides: Partial<SceneCommands['shows'][0]> = {}): SceneComm
   // Minimal valid show. Intentionally conservative — opacity 1,
   // no animation, no zoom interpolation. Tests override exactly
   // the fields they want to exercise.
-  return {
+  const base = {
     targetName: 'src',
     fill: '#334155',
     stroke: null,
@@ -78,9 +113,16 @@ function makeShow(overrides: Partial<SceneCommands['shows'][0]> = {}): SceneComm
     timeSizeStops: null,
     timeDashOffsetStops: null,
     timeOpacityLoop: false,
-    timeOpacityEasing: 'linear',
+    timeOpacityEasing: 'linear' as const,
     timeOpacityDelayMs: 0,
     ...overrides,
+  }
+  return {
+    ...base,
+    // Dual-write: bucket-scheduler now reads `paintShapes.opacity`
+    // (Step 1c). Mirror the legacy flat fields here so existing
+    // tests don't have to spell out the typed shape explicitly.
+    paintShapes: synthesizePaintShapes(base),
   } as unknown as SceneCommands['shows'][0]
 }
 

@@ -8,6 +8,7 @@ export { resolveUtilities, type ResolvedProperties } from './ir/utility-resolver
 export { lower } from './ir/lower'
 export { emitCommands } from './ir/emit-commands'
 export type { Scene, SourceDef, RenderNode, ColorValue, StrokeValue, OpacityValue, SizeValue, DataExpr, ZoomStop, ConditionalBranch } from './ir/render-node'
+export type { PropertyShape, PaintShapes, RGBA as PropertyRGBA } from './ir/property-types'
 export { hexToRgba, rgbaToHex, colorNone, colorConstant, opacityConstant, sizeNone, sizeConstant } from './ir/render-node'
 export { evaluate, type FeatureProps } from './eval/evaluator'
 export {

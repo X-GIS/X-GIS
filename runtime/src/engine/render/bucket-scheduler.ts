@@ -25,9 +25,82 @@
 import type { Camera } from '../projection/camera'
 import type { LayerDrawPhase } from './vector-tile-renderer'
 import type { SceneCommands } from '@xgis/compiler'
+import type { PropertyShape } from '@xgis/compiler'
 import { interpolateZoom, interpolateZoomRgba, interpolateTime, interpolateTimeColor } from './renderer'
 import { SAFE_MODE } from '../gpu/gpu'
 import type { RenderTraceRecorder, RGBA } from '../../diagnostics/render-trace'
+
+/** Synthesize a PropertyShape<number> from the legacy flat opacity
+ *  fields on a ShowCommand — used as a fallback path until every
+ *  upstream (compiler `emitCommands` AND runtime `interpret`)
+ *  populates `paintShapes` directly. Step 1d removes both this helper
+ *  and the dispatch site that calls it. */
+function legacyOpacityToShape(
+  show: { opacity?: number | null; zoomOpacityStops?: { zoom: number; value: number }[] | null; zoomOpacityStopsBase?: number; timeOpacityStops?: { timeMs: number; value: number }[] | null },
+  loop: boolean,
+  easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out',
+  delayMs: number,
+): PropertyShape<number> {
+  const z = show.zoomOpacityStops ?? null
+  const t = show.timeOpacityStops ?? null
+  if (z !== null && t !== null) {
+    return { kind: 'zoom-time', zoomStops: z, timeStops: t, loop, easing, delayMs }
+  }
+  if (z !== null) {
+    return { kind: 'zoom-interpolated', stops: z, base: show.zoomOpacityStopsBase ?? 1 }
+  }
+  if (t !== null) {
+    return { kind: 'time-interpolated', stops: t, loop, easing, delayMs }
+  }
+  return { kind: 'constant', value: show.opacity ?? 1 }
+}
+
+/** Evaluate a `PropertyShape<number>` (PR Step 1c migration target)
+ *  to a per-frame scalar. The five variants map to the renderer's
+ *  existing interpolators:
+ *
+ *    constant            → shape.value
+ *    zoom-interpolated   → interpolateZoom(stops, cameraZoom, base)
+ *    time-interpolated   → interpolateTime(stops, elapsedMs, …)
+ *    zoom-time           → zoomFactor × timeFactor (the spec's
+ *                          composition rule for opacity; same shape
+ *                          used here so callers don't branch)
+ *    data-driven         → 1 (per-feature evaluation happens
+ *                          downstream in the worker; the per-layer
+ *                          fallback is "no animation")
+ *
+ *  Returns the resolved scalar plus flags telling the caller whether
+ *  zoom and/or time contributed — used by the clone decision so the
+ *  hot path (static shows) stays zero-allocation. */
+function resolveNumberShape(
+  shape: PropertyShape<number>,
+  cameraZoom: number,
+  elapsedMs: number,
+): { value: number; hasZoom: boolean; hasTime: boolean } {
+  switch (shape.kind) {
+    case 'constant':
+      return { value: shape.value, hasZoom: false, hasTime: false }
+    case 'zoom-interpolated':
+      return {
+        value: interpolateZoom(shape.stops, cameraZoom, shape.base ?? 1),
+        hasZoom: true, hasTime: false,
+      }
+    case 'time-interpolated':
+      return {
+        value: interpolateTime(shape.stops, elapsedMs, shape.loop, shape.easing, shape.delayMs),
+        hasZoom: false, hasTime: true,
+      }
+    case 'zoom-time': {
+      const zoomFactor = interpolateZoom(shape.zoomStops, cameraZoom, 1)
+      const timeFactor = interpolateTime(
+        shape.timeStops, elapsedMs, shape.loop, shape.easing, shape.delayMs,
+      )
+      return { value: zoomFactor * timeFactor, hasZoom: true, hasTime: true }
+    }
+    case 'data-driven':
+      return { value: 1, hasZoom: false, hasTime: false }
+  }
+}
 
 // ── Output: post-classification show with all animation resolved ──
 
@@ -229,17 +302,21 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     const delayMs = entry.show.timeOpacityDelayMs ?? 0
 
     // ── Opacity (zoom × time, composed) ──
-    const baseOpa = entry.show.opacity ?? 1
-    const zoomOpa = entry.show.zoomOpacityStops
-      ? interpolateZoom(entry.show.zoomOpacityStops, input.cameraZoom, entry.show.zoomOpacityStopsBase ?? 1)
-      : baseOpa
-    const timeOpa = entry.show.timeOpacityStops
-      ? interpolateTime(
-          entry.show.timeOpacityStops, input.elapsedMs,
-          loop, easing, delayMs,
-        )
-      : 1
-    const composedOpa = zoomOpa * timeOpa
+    //
+    // Step 1c migration: prefer the typed PaintShapes.opacity bundle
+    // emitted by the compiler. Falls back to the legacy flat fields
+    // (`opacity` scalar + `zoomOpacityStops` + `timeOpacityStops`)
+    // for shows that came from the legacy interpreter path
+    // (runtime/src/engine/interpreter.ts, which doesn't yet populate
+    // paintShapes) — that path will be migrated in Step 1c.2, then
+    // the fallback can go away. resolveNumberShape composes zoom and
+    // time multiplicatively for the `zoom-time` variant, matching
+    // the legacy `zoomOpa * timeOpa` calculation 1:1.
+    const opacityShape: PropertyShape<number> =
+      (entry.show as { paintShapes?: { opacity: PropertyShape<number> } }).paintShapes?.opacity
+      ?? legacyOpacityToShape(entry.show, loop, easing, delayMs)
+    const opaResolved = resolveNumberShape(opacityShape, input.cameraZoom, input.elapsedMs)
+    const composedOpa = opaResolved.value
 
     // ── Stroke width (time overrides zoom overrides scalar) ──
     let resolvedStrokeWidth: number | undefined
