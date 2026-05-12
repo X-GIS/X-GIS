@@ -27,6 +27,7 @@ import type { LayerDrawPhase } from './vector-tile-renderer'
 import type { SceneCommands } from '@xgis/compiler'
 import { interpolateTime } from './renderer'
 import { hasZoomOrTime, resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
+import { resolveShow, type ResolvedShow } from './resolved-show'
 import { SAFE_MODE } from '../gpu/gpu'
 import type { RenderTraceRecorder, RGBA } from '../../diagnostics/render-trace'
 
@@ -51,6 +52,17 @@ export interface ClassifiedShow {
   sourceName: string
   vtEntry: ClassifierVTSource
   show: SceneCommands['shows'][0]
+  /** Per-frame snapshot of the show's paint state with every
+   *  zoom-stop / time-stop / shape kind already collapsed to a
+   *  scalar / RGBA. New consumers should read paint properties
+   *  from `resolvedShow` instead of `show.opacity` / `show.fill`
+   *  — the latter still works for backwards compatibility but
+   *  carries the legacy mutable-clone semantics.
+   *
+   *  Phase 4b (this field): populated alongside the in-place
+   *  `effectiveShow` mutation. Phase 4c will remove the mutation
+   *  and migrate every callsite to read from this snapshot. */
+  resolvedShow: ResolvedShow
   fp: GPURenderPipeline
   lp: GPURenderPipeline
   bgl: GPUBindGroupLayout
@@ -384,10 +396,21 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
         : isTranslucentStroke
           ? 'fills'
           : 'all'
+    // Phase 4b ResolvedShow snapshot. Constructed alongside the
+    // in-place `effectiveShow` mutation; the two carry identical
+    // resolved values. resolveShow() re-runs the paint-shape
+    // resolution from scratch on entry.show (PaintShapes-based),
+    // which is correct: the mutation above only writes COMPUTED
+    // values back onto a clone, never changes the source paintShapes
+    // the resolver reads.
+    const resolvedShow = resolveShow(entry.show, {
+      cameraZoom: input.cameraZoom, elapsedMs: input.elapsedMs,
+    })
     const classified: ClassifiedShow = {
       sourceName: entry.sourceName,
       vtEntry,
       show: effectiveShow,
+      resolvedShow,
       fp, lp, bgl, fpF, lpF, fpG, fpGF,
       isTranslucentStroke,
       fillPhase,

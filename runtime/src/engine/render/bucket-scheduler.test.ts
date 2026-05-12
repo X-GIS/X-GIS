@@ -591,3 +591,53 @@ describe('planFrameSchedule — bucket flags + resolveOwner', () => {
     expect(plan.resolveOwner).toBe('points')
   })
 })
+
+describe('classifyVectorTileShows — ResolvedShow snapshot (Phase 4b)', () => {
+  it('populates resolvedShow alongside the legacy mutable show.opacity', () => {
+    const sources = new Map([['src', makeVTSource()]])
+    const result = classifyVectorTileShows(makeInput(
+      [makeEntry('src', makeShow({
+        opacity: 1,
+        zoomOpacityStops: [{ zoom: 0, value: 0 }, { zoom: 10, value: 1 }],
+      }))],
+      sources,
+      { cameraZoom: 5 },
+    ))
+    const cs = result.opaque[0]!
+    expect(cs.resolvedShow.opacity).toBeCloseTo(0.5, 3)
+    // Should agree with the legacy in-place clone.
+    expect(cs.resolvedShow.opacity).toBeCloseTo(cs.show.opacity!, 6)
+  })
+
+  it('resolvedShow.fill matches the legacy resolvedFillRgba for animated fill', () => {
+    const sources = new Map([['src', makeVTSource()]])
+    const result = classifyVectorTileShows(makeInput(
+      [makeEntry('src', makeShow({
+        fill: '#ff0000',
+        timeFillStops: [
+          { timeMs: 0, value: [1, 0, 0, 1] },
+          { timeMs: 1000, value: [0, 0, 1, 1] },
+        ],
+        timeOpacityLoop: true,
+      }))],
+      sources,
+      { elapsedMs: 500 },
+    ))
+    const cs = result.opaque[0]!
+    const legacy = cs.show.resolvedFillRgba!
+    const snap = cs.resolvedShow.fill!
+    expect(snap[0]).toBeCloseTo(legacy[0]!, 6)
+    expect(snap[1]).toBeCloseTo(legacy[1]!, 6)
+    expect(snap[2]).toBeCloseTo(legacy[2]!, 6)
+    expect(snap[3]).toBeCloseTo(legacy[3]!, 6)
+  })
+
+  it('resolvedShow.layerName comes from the show', () => {
+    const sources = new Map([['src', makeVTSource()]])
+    const result = classifyVectorTileShows(makeInput(
+      [makeEntry('src', makeShow({ layerName: 'countries-boundary' }))],
+      sources,
+    ))
+    expect(result.opaque[0]!.resolvedShow.layerName).toBe('countries-boundary')
+  })
+})
