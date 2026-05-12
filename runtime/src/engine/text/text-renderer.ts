@@ -123,26 +123,27 @@ struct VsOut {
   }
 
   // Halo blur: extra smoothstep half-width past the AA-derivative
-  // band. Mapbox text-halo-blur is in display pixels; we feed it
-  // in as SDF-byte units (renderer pre-multiplies). Adding to soft
-  // widens the smoothstep transition without shifting the centre,
-  // producing the classic soft-glow halo that sharp halos lack.
+  // band. Mapbox text-halo-blur is in display pixels and applies
+  // ONLY to the OUTER fade of the halo (per spec: blur is a softer
+  // outer transition; the inner edge sharply meets the glyph).
+  // Earlier centered-smoothstep behaviour put half the AA band
+  // OUTSIDE the authored halo extent (halo too large, fill thin);
+  // a lower-aligned variant from the previous fix pushed the fade
+  // INSIDE the halo extent (halo barely visible at small text
+  // sizes like demotiles geolines-label).
   //
-  // The smoothstep is positioned with its LOWER edge AT halo_edge
-  // (= halo visibility ENDS at the authored extent, soft fade
-  // extends INWARD toward the fill). Earlier versions centered the
-  // smoothstep on halo_edge, which placed half of the soft band
-  // OUTSIDE the authored extent — so the halo's visible outer
-  // boundary sat ~halo_soft SDF-px BEYOND the authored width.
-  // Users perceived the halo as too large and the fill colour as
-  // too thin (the broad halo dominated the glyph silhouette).
-  // Lower-aligned smoothstep makes the authored width the OUTER
-  // visible boundary, matching the Mapbox-spec intuition "halo
-  // extends halo-width px outward" rather than "halo midpoint is
-  // at halo-width px outward".
-  let halo_soft: f32 = soft + u.halo_blur;
+  // Spec-aligned form:
+  //   inner edge:  glyph-edge meets halo at sdf = halo_edge,
+  //                soft-AA only (no blur expansion inward)
+  //   outer edge:  fade out across (halo_blur + soft) SDF units
+  //
+  //   halo_a = smoothstep(halo_edge - blur - soft, halo_edge + soft, sdf)
+  //
+  // Inner transition stays sub-pixel sharp; outer transition gets
+  // the spec blur amount, exactly matching MapLibre's two-pass
+  // composite behaviour.
   let halo_edge: f32 = edge - u.halo_width;
-  let halo_a: f32 = smoothstep(halo_edge, halo_edge + 2.0 * halo_soft, sdf);
+  let halo_a: f32 = smoothstep(halo_edge - u.halo_blur - soft, halo_edge + soft, sdf);
   // Composite: halo behind, fill in front.
   let fill_w = u.fill_color.a * fill_a;
   let halo_w = u.halo_color.a * halo_a * (1.0 - fill_w);

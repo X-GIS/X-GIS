@@ -567,14 +567,32 @@ export class TextStage {
       const glyphOffsets = new Float32Array(glyphs.length * 2)
       const glyphRotations = new Float32Array(glyphs.length)
       // Per-glyph centre = startS + sum(prev advances) + currentAdvance/2.
+      // Vertical alignment: sample.y is the polyline anchor; the text
+      // renderer treats it as the glyph BASELINE (glyphs grow upward
+      // from there via bearingY). For along-path labels we want the
+      // VISUAL CENTRE of the glyph row sitting on the line — meaning
+      // the line passes through the cap-height midpoint, not under
+      // the descender. Shift each anchor PERPENDICULAR to the local
+      // tangent (so the offset still tracks curving roads / lat
+      // lines) by ~0.35 * sizePx, which puts the cap-height midpoint
+      // on the polyline for a typical Latin face. Earlier code used
+      // sample.y as-is and the glyph rendered ABOVE the line —
+      // visible on demotiles Tropic of Cancer / Equator labels and
+      // on OFM road labels that fall inside the road carriageway.
+      const verticalOffsetPx = sizePx * 0.4
       let cursor = startS
       let gminX = Infinity, gmaxX = -Infinity, gminY = Infinity, gmaxY = -Infinity
       for (let gi = 0; gi < glyphs.length; gi++) {
         const adv = advances[gi]!
         const center = cursor + adv * 0.5
         const sample = sampleAt(center)
-        glyphOffsets[gi * 2] = sample.x
-        glyphOffsets[gi * 2 + 1] = sample.y
+        // Perpendicular shift: rotate (0, verticalOffsetPx) by the
+        // sample's tangent angle. cos/sin of (angle + 90°) =
+        // (-sin angle, cos angle). Multiply by the desired offset.
+        const perpX = -Math.sin(sample.angle) * verticalOffsetPx
+        const perpY = Math.cos(sample.angle) * verticalOffsetPx
+        glyphOffsets[gi * 2] = sample.x + perpX
+        glyphOffsets[gi * 2 + 1] = sample.y + perpY
         glyphRotations[gi] = sample.angle
         if (sample.x < gminX) gminX = sample.x
         if (sample.x > gmaxX) gmaxX = sample.x
