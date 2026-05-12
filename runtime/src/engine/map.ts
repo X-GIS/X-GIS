@@ -11,6 +11,7 @@ import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './g
 import { GPUTimer } from './gpu/gpu-timer'
 import { Camera } from './projection/camera'
 import { MapRenderer, interpolateZoom, interpolateZoomRgba, type ShowCommand } from './render/renderer'
+import { resolveNumberShape } from './render/paint-shape-resolve'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
   groupOpaqueBySource as groupOpaqueBySourceImpl,
@@ -1337,13 +1338,17 @@ export class XGISMap {
         const fill = fillHex ? parseHexColor(fillHex) : null
         const stroke = strokeHex ? parseHexColor(strokeHex) : null
 
-        // Resolve zoom-interpolated size to a concrete value at the
-        // current camera zoom. Evaluated once at layer build time —
-        // sufficient for static displays; a zoom-aware point uniform
-        // upload path is tracked as a follow-up for live resize.
-        const baseSize = show.zoomSizeStops && show.zoomSizeStops.length > 0
-          ? interpolateZoom(show.zoomSizeStops, this.camera.zoom, show.zoomSizeStopsBase ?? 1)
-          : (show.size ?? 8)
+        // Resolve the typed size PropertyShape to a concrete scalar
+        // at the current camera state. Evaluated once at layer build
+        // time — sufficient for static displays; live resize for
+        // animated sizes runs through pointRenderer.updateDynamicSizes
+        // each frame.
+        const sizeShape = show.paintShapes.size
+        const baseSize = sizeShape !== null
+          ? (sizeShape.kind === 'constant'
+              ? sizeShape.value
+              : resolveNumberShape(sizeShape, this.camera.zoom, performance.now()).value)
+          : 8
 
         // Evaluate per-feature size if data-driven
         let perFeatureSizes: number[] | null = null
@@ -1369,7 +1374,7 @@ export class XGISMap {
           show.billboard,
           shapeId,
           show.anchor,
-          show.zoomSizeStops ?? null,
+          show.paintShapes.size,
         )
         continue
       }
@@ -2323,7 +2328,7 @@ export class XGISMap {
           // Re-evaluate zoom-interpolated point sizes against the
           // current camera before drawing. No-op for layers without
           // zoomSizeStops; internally skipped when zoom is unchanged.
-          this.pointRenderer!.updateDynamicSizes(this.camera.zoom, interpolateZoom)
+          this.pointRenderer!.updateDynamicSizes(this.camera.zoom, performance.now())
           this.pointRenderer!.render(ptPass, this.camera, projType, centerLon, centerLat, w, h, dpr)
           ptPass.end()
         })

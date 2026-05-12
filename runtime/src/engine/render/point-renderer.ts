@@ -10,6 +10,7 @@ import { WGSL_LOG_DEPTH_FNS } from '../shaders/log-depth'
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projection'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import { parseHexColor } from '../feature-helpers'
+import { hasZoomOrTime, resolveNumberShape } from './paint-shape-resolve'
 
 // ═══ WGSL Shader ═══
 
@@ -397,12 +398,19 @@ interface PointLayer {
    *  depth ordering). A layer is translucent when opacity, fill.a, or
    *  stroke.a (all multiplied together) drops below 1. */
   isTranslucent: boolean
-  /** Zoom stops for dynamic size — present only when a layer was built
-   *  with `z5:size-N z15:size-M` style utilities. Interpolated each frame
-   *  against camera.zoom and written back into featData[i*STRIDE+0]. */
-  zoomSizeStops: { zoom: number; value: number }[] | null
+  /** Typed point-size PropertyShape (Plan Step 1d). When the layer
+   *  doesn't author a size (`paintShapes.size === null`) the field is
+   *  also null and the live-resize loop in `updateDynamicSizes` skips
+   *  the layer entirely. Otherwise the loop dispatches through the
+   *  five PropertyShape variants — `constant` and `data-driven` are
+   *  no-ops at the layer level (size is baked into featData at addLayer
+   *  time, or per-feature evaluated by the worker); the three
+   *  animated kinds resolve per-frame. */
+  sizeShape: import('@xgis/compiler').PropertyShape<number> | null
   /** Last zoom value the dynamic size was uploaded for, used to skip
-   *  redundant queue.writeBuffer calls when the camera is idle. */
+   *  redundant queue.writeBuffer calls when the camera is idle. Only
+   *  meaningful for zoom-only shapes — time-animated layers always
+   *  update because elapsedMs always advances. */
   lastDynZoom: number
   // Expanded buffers for 3× world copies (created on first render)
   _expandedVertBuf?: GPUBuffer
@@ -790,7 +798,7 @@ export class PointRenderer {
     billboard?: boolean,
     shapeId?: number,
     anchor?: 'center' | 'bottom' | 'top',
-    zoomSizeStops?: { zoom: number; value: number }[] | null,
+    sizeShape?: import('@xgis/compiler').PropertyShape<number> | null,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -903,27 +911,33 @@ export class PointRenderer {
       bindGroup,
       isFlat: billboard === false,
       isTranslucent,
-      zoomSizeStops: zoomSizeStops ?? null,
+      sizeShape: sizeShape ?? null,
       lastDynZoom: Number.NaN,
     })
 
     console.log(`[X-GIS] SDF point layer: ${points.length} points`)
   }
 
-  /** Re-evaluate zoom-interpolated point sizes against the current
-   *  camera zoom and patch layer.featData in place. Caller invokes
-   *  this once per frame before render(). No-op for layers without
-   *  zoomSizeStops. render() copies from layer.featData into the
-   *  per-world expanded buffer each frame, so the patched values
-   *  propagate naturally — no need to touch the expanded buffer. */
-  updateDynamicSizes(cameraZoom: number, interpolate: (stops: { zoom: number; value: number }[], zoom: number) => number): void {
+  /** Re-evaluate animated point sizes against the current camera
+   *  state and patch `layer.featData` in place. Caller invokes once
+   *  per frame before render(). No-op for layers whose `sizeShape` is
+   *  null or `constant` / `data-driven` (those are baked into
+   *  featData at addLayer time or evaluated per-feature by the
+   *  worker). render() copies from layer.featData into the per-world
+   *  expanded buffer each frame, so the patched values propagate
+   *  naturally — no need to touch the expanded buffer. */
+  updateDynamicSizes(cameraZoom: number, elapsedMs: number): void {
     const STRIDE = 14
     for (const layer of this.layers) {
-      const stops = layer.zoomSizeStops
-      if (!stops || stops.length === 0) continue
-      if (Math.abs(layer.lastDynZoom - cameraZoom) < 0.001) continue
-
-      const size = interpolate(stops, cameraZoom)
+      const shape = layer.sizeShape
+      if (shape === null) continue
+      if (!hasZoomOrTime(shape)) continue
+      const r = resolveNumberShape(shape, cameraZoom, elapsedMs)
+      // Zoom-only optimization — skip when camera hasn't moved.
+      // Time-animated shapes always update because elapsedMs always
+      // advances.
+      if (!r.hasTime && Math.abs(layer.lastDynZoom - cameraZoom) < 0.001) continue
+      const size = r.value
       for (let i = 0; i < layer.pointCount; i++) {
         layer.featData[i * STRIDE + 0] = size
       }

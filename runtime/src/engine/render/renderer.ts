@@ -16,6 +16,7 @@ import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { WGSL_LOG_DEPTH_FNS } from '../shaders/log-depth'
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projection'
+import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 
 // generateGraticule(zoom) now handles zoom-adaptive steps internally
 
@@ -799,25 +800,6 @@ interface RenderLayer {
   lineVertexBuffer: GPUBuffer | null
   lineIndexBuffer: GPUBuffer | null
   lineIndexCount: number
-  zoomOpacityStops: { zoom: number; value: number }[] | null
-  zoomOpacityStopsBase?: number
-  zoomSizeStops: { zoom: number; value: number }[] | null
-  zoomSizeStopsBase?: number
-  zoomFillStops?: { zoom: number; value: [number, number, number, number] }[]
-  zoomFillStopsBase?: number
-  zoomStrokeWidthStops?: { zoom: number; value: number }[]
-  zoomStrokeWidthStopsBase?: number
-  // Animation time-stop lists. Populated from ShowCommand.time*Stops
-  // in addLayer(). Null means "no animation for this property".
-  timeOpacityStops: { timeMs: number; value: number }[] | null
-  timeFillStops: { timeMs: number; value: [number, number, number, number] }[] | null
-  timeStrokeStops: { timeMs: number; value: [number, number, number, number] }[] | null
-  timeStrokeWidthStops: { timeMs: number; value: number }[] | null
-  timeSizeStops: { timeMs: number; value: number }[] | null
-  timeDashOffsetStops: { timeMs: number; value: number }[] | null
-  timeOpacityLoop: boolean
-  timeOpacityEasing: Easing
-  timeOpacityDelayMs: number
   // Per-layer specialized pipelines (null = use shared default)
   fillPipeline: GPURenderPipeline | null
   linePipeline: GPURenderPipeline | null
@@ -1792,23 +1774,6 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
       lineVertexBuffer: null,
       lineIndexBuffer: null,
       lineIndexCount: 0,
-      zoomOpacityStops: show.zoomOpacityStops ?? null,
-      zoomOpacityStopsBase: show.zoomOpacityStopsBase,
-      zoomSizeStops: show.zoomSizeStops ?? null,
-      zoomSizeStopsBase: show.zoomSizeStopsBase,
-      zoomFillStops: show.zoomFillStops,
-      zoomFillStopsBase: show.zoomFillStopsBase,
-      zoomStrokeWidthStops: show.zoomStrokeWidthStops,
-      zoomStrokeWidthStopsBase: show.zoomStrokeWidthStopsBase,
-      timeOpacityStops: show.timeOpacityStops ?? null,
-      timeFillStops: show.timeFillStops ?? null,
-      timeStrokeStops: show.timeStrokeStops ?? null,
-      timeStrokeWidthStops: show.timeStrokeWidthStops ?? null,
-      timeSizeStops: show.timeSizeStops ?? null,
-      timeDashOffsetStops: show.timeDashOffsetStops ?? null,
-      timeOpacityLoop: show.timeOpacityLoop ?? false,
-      timeOpacityEasing: show.timeOpacityEasing ?? 'linear',
-      timeOpacityDelayMs: show.timeOpacityDelayMs ?? 0,
       fillPipeline: layerFillPipeline,
       linePipeline: layerLinePipeline,
       featureDataBuffer: null,
@@ -2280,46 +2245,26 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
       // Read from dynamic properties (supports runtime override)
       if (!layer.props.getBool('visible')) continue
 
-      // Opacity = zoom factor × time factor. Either may be 1 if its stop
-      // list is absent. Multiplying lets zoom-opacity act as a slow envelope
-      // around a faster time-based pulse, which is what users expect.
-      const zoomOpa = layer.zoomOpacityStops
-        ? interpolateZoom(layer.zoomOpacityStops, camera.zoom, layer.zoomOpacityStopsBase ?? 1)
-        : layer.props.getNumber('opacity', 1.0)
-      const timeOpa = layer.timeOpacityStops
-        ? interpolateTime(
-            layer.timeOpacityStops, elapsedMs,
-            layer.timeOpacityLoop, layer.timeOpacityEasing, layer.timeOpacityDelayMs,
-          )
-        : 1.0
-      const opacity = zoomOpa * timeOpa
+      // Opacity / fill / stroke — read straight off the typed
+      // `paintShapes` bundle the compiler / interpreter populated.
+      // For `constant` shapes the renderer keeps using the dynamic
+      // `props` store so `props.setOverride('opacity', X)` keeps
+      // working at runtime; for the four animated kinds the resolver
+      // takes precedence.
+      const ps = layer.show.paintShapes
+      const opacity = ps.opacity.kind === 'constant'
+        ? layer.props.getNumber('opacity', 1.0)
+        : resolveNumberShape(ps.opacity, camera.zoom, elapsedMs).value
 
-      // Fill / stroke color — if keyframes animate them, sample the stop
-      // list each frame. Otherwise fall back to the base color from the
-      // dynamic property store (which itself originated from the compiled
-      // `fill:` / `stroke:` hex).
       let fillRaw = layer.props.getColor('fill')
       let strokeRaw = layer.props.getColor('stroke')
-      // Mapbox `paint.fill-color: ["interpolate", …, ["zoom"], …]` —
-      // per-frame interpolated RGBA wins over the static fill. Without
-      // this branch the renderer used emit-commands' first-stop hex
-      // fallback at every zoom, which made every zoom-faded landuse
-      // polygon (e.g. landuse-suburb: 40 % alpha → 0 % alpha at z=10)
-      // render at its low-zoom alpha forever.
-      if (layer.zoomFillStops && layer.zoomFillStops.length > 0) {
-        fillRaw = interpolateZoomRgba(layer.zoomFillStops, camera.zoom, layer.zoomFillStopsBase ?? 1)
+      if (ps.fill !== null) {
+        const r = resolveColorShape(ps.fill, camera.zoom, elapsedMs)
+        if (r !== null) fillRaw = [r.value[0], r.value[1], r.value[2], r.value[3]]
       }
-      if (layer.timeFillStops) {
-        fillRaw = interpolateTimeColor(
-          layer.timeFillStops, elapsedMs,
-          layer.timeOpacityLoop, layer.timeOpacityEasing, layer.timeOpacityDelayMs,
-        )
-      }
-      if (layer.timeStrokeStops) {
-        strokeRaw = interpolateTimeColor(
-          layer.timeStrokeStops, elapsedMs,
-          layer.timeOpacityLoop, layer.timeOpacityEasing, layer.timeOpacityDelayMs,
-        )
+      if (ps.stroke !== null) {
+        const r = resolveColorShape(ps.stroke, camera.zoom, elapsedMs)
+        if (r !== null) strokeRaw = [r.value[0], r.value[1], r.value[2], r.value[3]]
       }
       const fillColor = fillRaw ? [fillRaw[0], fillRaw[1], fillRaw[2], fillRaw[3] * opacity] : [0, 0, 0, 0]
       const strokeColor = strokeRaw ? [strokeRaw[0], strokeRaw[1], strokeRaw[2], strokeRaw[3] * opacity] : [0, 0, 0, 0]
