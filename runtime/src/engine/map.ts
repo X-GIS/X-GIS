@@ -2502,10 +2502,13 @@ export class XGISMap {
                 storeOp: 'store',
               }],
             })
-            // Composite opacity is the bucket scheduler's pre-resolved
-            // `cs.show.opacity` (zoom × time evaluated once per frame
-            // in bucket-scheduler.ts). No re-evaluation here.
-            this.lineRenderer!.composite(compPass, cs.show.opacity ?? 1)
+            // Composite opacity reads the Phase 4b ResolvedShow
+            // snapshot: zoom × time already collapsed by the bucket
+            // scheduler. Was `cs.show.opacity` — equivalent value,
+            // narrower type (the snapshot is readonly, so a future
+            // refactor that mutates `cs.show.opacity` mid-frame
+            // can't accidentally drift this composite's input).
+            this.lineRenderer!.composite(compPass, cs.resolvedShow.opacity)
             compPass.end()
           })
         }
