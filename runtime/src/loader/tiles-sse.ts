@@ -56,21 +56,32 @@ const FOV_DEG = 45  // Camera.FOV — fixed in this engine
  *  Cesium ships 16 px because their `geometricError` measures *terrain
  *  mesh simplification error in metres* — a real perceptual quantity
  *  where 16 px error is genuinely invisible. For our 2D vector-tile
- *  case `geometricError(z) = tileSize/256` is a synthetic proxy.
+ *  case `geometricError(z) = tileSize/256` is a synthetic proxy and a
+ *  much tighter budget matches the historical Mapbox/MapLibre frustum-
+ *  selector behaviour (emit at the camera's native zoom — `cz =
+ *  floor(zoom + 0.7)` per commit 4e348ff).
  *
  *  Empirical sweep on Bright at z=14 Tokyo (1280×800):
  *
  *    target  pitch=0      pitch=40    pitch=80    note
- *      1     15.6 ms(64)  19 ms(53)   154 ms(6)   over-subdivides horizon
- *      4     ~14 ms       ~17 ms      ~50 ms      good balance
- *     16      7 ms        7 ms        12 ms       fast but z=10 max under cam
+ *      1     15.6 ms(64)  19 ms(53)   154 ms(6)   horizon explodes at pitch
+ *      4     ~14 ms       ~17 ms      ~50 ms      historical balance
+ *     16      7 ms        7 ms        12 ms       fast but z=10 max
  *
- *  4 px is the sweet spot for Mercator vector tiles: good detail
- *  under-camera (z near currentZoom) without horizon over-detail at
- *  high pitch. Cesium's 16-px convention transposes neatly here as
- *  an equal-quality "perceptual budget" since our pixel→meter scaling
- *  is consistent across the metric. */
-const DEFAULT_TARGET_SSE_PX = 4
+ *  Was 4 — chosen for the high-pitch perf cliff. The cost at low pitch
+ *  was effectively invisible on Bright (a feature-dense basemap where
+ *  z=14 still fills the viewport with many tiles even at target=4).
+ *  But on sparse vector sources (one-layer geojson countries) the
+ *  selector stops at z=5 for a zoom=6.93 camera — `ssePx≈3.83 < 4` —
+ *  and the single z=5 tile renders the same 19-vertex polygon spread
+ *  across a 2500 km × 2500 km area, producing visibly coarse wedge
+ *  edges where the user expected z=7 native detail.
+ *
+ *  Lowered to 1 to match Mapbox/MapLibre native-zoom rendering at low
+ *  pitch (ssePx≈0.96 at z=7 → emit z=7). The high-pitch ramp below
+ *  re-injects horizon coarsening so pitch=80° still hits the historical
+ *  target=12 sweet spot. */
+const DEFAULT_TARGET_SSE_PX = 1
 
 /** Hard cap on emitted tile count. Safety net only — well-tuned SSE
  *  in a typical view emits 9-100 tiles, but a degenerate camera (e.g.
@@ -131,12 +142,17 @@ export function visibleTilesSSE(
   // detail loss in the foreground.
   const baseTarget = opts.targetSSEPx ?? DEFAULT_TARGET_SSE_PX
   const pitchDeg = (camera.pitch ?? 0)
-  // Smooth ramp from base→3× at pitch [60°..80°]; capped at 16 so
-  // nearer tiles still subdivide. Below 60° unchanged.
+  // High-pitch horizon protection. base=1 gives Mapbox-style native
+  // zoom at low pitch but the foreshortened ground at pitch>60° emits
+  // too many horizon tiles (table above: target=1 pitch=80° → 154 ms).
+  // Ramp toward target=12 at pitch=80° — matches the historical
+  // pitch=80°/target=12 sweet spot. Below 60° we keep base unchanged
+  // (the visual fidelity reason for lowering the default in the first
+  // place).
   let targetSSE = baseTarget
   if (opts.targetSSEPx === undefined && pitchDeg > 60) {
     const t = Math.min(1, (pitchDeg - 60) / 20)
-    targetSSE = Math.min(16, baseTarget * (1 + t * 2))
+    targetSSE = Math.min(16, baseTarget + t * (12 - baseTarget))
   }
   const maxEmitted = opts.maxEmitted ?? MAX_EMITTED
 
