@@ -25,7 +25,7 @@
 import type { Camera } from '../projection/camera'
 import type { LayerDrawPhase } from './vector-tile-renderer'
 import type { SceneCommands } from '@xgis/compiler'
-import { interpolateZoom, interpolateTime, interpolateTimeColor } from './renderer'
+import { interpolateZoom, interpolateZoomRgba, interpolateTime, interpolateTimeColor } from './renderer'
 import { SAFE_MODE } from '../gpu/gpu'
 
 // ── Output: post-classification show with all animation resolved ──
@@ -193,9 +193,33 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     if (entry.show.minzoom !== undefined && input.cameraZoom < entry.show.minzoom) continue
     if (entry.show.maxzoom !== undefined && input.cameraZoom >= entry.show.maxzoom) continue
 
-    // Opacity = zoom factor × time factor. Either may be 1 if its
-    // stop list is absent, leaving the existing constant opacity
-    // intact.
+    // Per-frame paint resolution. Every animation/zoom-driven paint
+    // property is evaluated HERE so downstream renderers
+    // (VectorTileRenderer, LineRenderer, PointRenderer, the text
+    // stage's composite step) read plain scalar / RGBA fields. Each
+    // property follows the same precedence:
+    //
+    //   resolved = time-interpolated  if timeXxxStops set
+    //            else zoom-interpolated if zoomXxxStops set
+    //            else show.<scalar>
+    //
+    // Opacity is the only field that COMPOSES zoom × time (a layer
+    // can pulse via time while ramping in via zoom — common for
+    // "fade in at z=12 then breathe" animations). All others let
+    // time override zoom outright.
+    //
+    // Single choke point means: adding a new zoom-driven paint
+    // property only touches THIS function. The previous
+    // architecture re-evaluated zoom*Stops in 4-5 callsites; a
+    // missing branch (composite step forgot to evaluate
+    // zoomOpacityStops) silently lost the ramp on the demotiles
+    // countries-boundary border — the kind of bug centralisation
+    // prevents.
+    const loop = entry.show.timeOpacityLoop ?? false
+    const easing = entry.show.timeOpacityEasing ?? 'linear'
+    const delayMs = entry.show.timeOpacityDelayMs ?? 0
+
+    // ── Opacity (zoom × time, composed) ──
     const baseOpa = entry.show.opacity ?? 1
     const zoomOpa = entry.show.zoomOpacityStops
       ? interpolateZoom(entry.show.zoomOpacityStops, input.cameraZoom, entry.show.zoomOpacityStopsBase ?? 1)
@@ -203,22 +227,66 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     const timeOpa = entry.show.timeOpacityStops
       ? interpolateTime(
           entry.show.timeOpacityStops, input.elapsedMs,
-          entry.show.timeOpacityLoop ?? false,
-          entry.show.timeOpacityEasing ?? 'linear',
-          entry.show.timeOpacityDelayMs ?? 0,
+          loop, easing, delayMs,
         )
       : 1
     const composedOpa = zoomOpa * timeOpa
 
-    // PR 3: resolve animated color/width/size/dashoffset here so
-    // the downstream VTR, line-renderer, and point-renderer all
-    // see a plain static show object and don't need to know about
-    // time stops. The classifier is the single choke point that
-    // turns animation IR back into concrete uniform values every
-    // frame.
-    const loop = entry.show.timeOpacityLoop ?? false
-    const easing = entry.show.timeOpacityEasing ?? 'linear'
-    const delayMs = entry.show.timeOpacityDelayMs ?? 0
+    // ── Stroke width (time overrides zoom overrides scalar) ──
+    let resolvedStrokeWidth: number | undefined
+    if (entry.show.timeStrokeWidthStops) {
+      resolvedStrokeWidth = interpolateTime(
+        entry.show.timeStrokeWidthStops, input.elapsedMs, loop, easing, delayMs,
+      )
+    } else if (entry.show.zoomStrokeWidthStops) {
+      resolvedStrokeWidth = interpolateZoom(
+        entry.show.zoomStrokeWidthStops, input.cameraZoom,
+        entry.show.zoomStrokeWidthStopsBase ?? 1,
+      )
+    }
+
+    // ── Size (point markers, label paths) ──
+    let resolvedSize: number | undefined
+    if (entry.show.timeSizeStops) {
+      resolvedSize = interpolateTime(
+        entry.show.timeSizeStops, input.elapsedMs, loop, easing, delayMs,
+      )
+    } else if (entry.show.zoomSizeStops) {
+      resolvedSize = interpolateZoom(
+        entry.show.zoomSizeStops, input.cameraZoom,
+        entry.show.zoomSizeStopsBase ?? 1,
+      )
+    }
+
+    // ── Dash offset (time only — no zoom-stops field exists) ──
+    let resolvedDashOffset: number | undefined
+    if (entry.show.timeDashOffsetStops) {
+      resolvedDashOffset = interpolateTime(
+        entry.show.timeDashOffsetStops, input.elapsedMs, loop, easing, delayMs,
+      )
+    }
+
+    // ── Fill colour ──
+    let resolvedFillRgba: [number, number, number, number] | undefined
+    if (entry.show.timeFillStops) {
+      resolvedFillRgba = interpolateTimeColor(
+        entry.show.timeFillStops, input.elapsedMs, loop, easing, delayMs,
+      )
+    } else if (entry.show.zoomFillStops) {
+      resolvedFillRgba = interpolateZoomRgba(
+        entry.show.zoomFillStops, input.cameraZoom,
+        entry.show.zoomFillStopsBase ?? 1,
+      )
+    }
+
+    // ── Stroke colour (time-only — no zoom-stops field) ──
+    let resolvedStrokeRgba: [number, number, number, number] | undefined
+    if (entry.show.timeStrokeStops) {
+      resolvedStrokeRgba = interpolateTimeColor(
+        entry.show.timeStrokeStops, input.elapsedMs, loop, easing, delayMs,
+      )
+    }
+
     const hasAnyTimeAnim =
       !!entry.show.timeOpacityStops ||
       !!entry.show.timeFillStops ||
@@ -226,35 +294,21 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
       !!entry.show.timeStrokeWidthStops ||
       !!entry.show.timeSizeStops ||
       !!entry.show.timeDashOffsetStops
-    const needsClone = !!entry.show.zoomOpacityStops || hasAnyTimeAnim
+    const hasAnyZoomStops =
+      !!entry.show.zoomOpacityStops ||
+      !!entry.show.zoomFillStops ||
+      !!entry.show.zoomStrokeWidthStops ||
+      !!entry.show.zoomSizeStops
+    const needsClone = hasAnyZoomStops || hasAnyTimeAnim
     const effectiveShow: SceneCommands['shows'][0] = needsClone
       ? { ...entry.show, opacity: composedOpa }
       : entry.show
-    if (entry.show.timeFillStops) {
-      effectiveShow.resolvedFillRgba = interpolateTimeColor(
-        entry.show.timeFillStops, input.elapsedMs, loop, easing, delayMs,
-      )
-    }
-    if (entry.show.timeStrokeStops) {
-      effectiveShow.resolvedStrokeRgba = interpolateTimeColor(
-        entry.show.timeStrokeStops, input.elapsedMs, loop, easing, delayMs,
-      )
-    }
-    if (entry.show.timeStrokeWidthStops) {
-      effectiveShow.strokeWidth = interpolateTime(
-        entry.show.timeStrokeWidthStops, input.elapsedMs, loop, easing, delayMs,
-      )
-    }
-    if (entry.show.timeDashOffsetStops) {
-      effectiveShow.dashOffset = interpolateTime(
-        entry.show.timeDashOffsetStops, input.elapsedMs, loop, easing, delayMs,
-      )
-    }
-    if (entry.show.timeSizeStops) {
-      effectiveShow.size = interpolateTime(
-        entry.show.timeSizeStops, input.elapsedMs, loop, easing, delayMs,
-      )
-    }
+    if (resolvedStrokeWidth !== undefined) effectiveShow.strokeWidth = resolvedStrokeWidth
+    if (resolvedSize !== undefined) effectiveShow.size = resolvedSize
+    if (resolvedDashOffset !== undefined) effectiveShow.dashOffset = resolvedDashOffset
+    if (resolvedFillRgba !== undefined) effectiveShow.resolvedFillRgba = resolvedFillRgba
+    if (resolvedStrokeRgba !== undefined) effectiveShow.resolvedStrokeRgba = resolvedStrokeRgba
+
     if ((effectiveShow.opacity ?? 1) < 0.005) continue
 
     const isTranslucentStroke =

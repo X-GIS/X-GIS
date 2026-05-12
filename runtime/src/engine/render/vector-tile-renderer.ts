@@ -2042,13 +2042,9 @@ export class VectorTileRenderer {
     // gate (in hysteresis below) and by the main visible-tile selection
     // further down. Cheap pure derivations; safe to compute once up here.
     const strokeOffsetPx_h = Math.abs(show.strokeOffset ?? 0)
-    // Mirror the per-frame zoom interpolation used down at line write
-    // time so the visible-tile expansion margin matches the actual
-    // rendered width (otherwise wide low-zoom lines get clipped at
-    // tile boundaries).
-    const strokeWidthPx_h = show.zoomStrokeWidthStops && show.zoomStrokeWidthStops.length > 0
-      ? interpolateZoom(show.zoomStrokeWidthStops, camera.zoom, show.zoomStrokeWidthStopsBase ?? 1)
-      : (show.strokeWidth ?? 1)
+    // Stroke width is already resolved (zoom or time) by the bucket
+    // scheduler into `show.strokeWidth`. See bucket-scheduler.ts.
+    const strokeWidthPx_h = show.strokeWidth ?? 1
     const alignDeltaPx_h = show.strokeAlign === 'inset' || show.strokeAlign === 'outset'
       ? strokeWidthPx_h / 2 : 0
     const offsetMarginPx = Math.ceil(strokeOffsetPx_h + alignDeltaPx_h + strokeWidthPx_h / 2 + 2)
@@ -2525,17 +2521,11 @@ export class VectorTileRenderer {
     // a keyframes block. Use it directly — skipping both the hex cache
     // check AND the hex parse. The cached base color stays intact so a
     // subsequent static frame can re-use it.
-    // Resolve zoom-interpolated opacity per frame — the demotiles
-    // countries-boundary uses `line-opacity: {stops:[[3,0.5],[6,1]]}`
-    // which lower.ts emits as zoomOpacityStops with values 0.5 / 1.0.
-    // Pre-fix the runtime read only `show.opacity` (the constant
-    // fallback, set to 1.0 by emit-commands for non-constant kinds)
-    // so the border rendered at full opacity at z < 3 — visibly
-    // thicker / more opaque than MapLibre at world zoom.
-    const opacity = show.zoomOpacityStops && show.zoomOpacityStops.length > 0
-      ? interpolateZoom(show.zoomOpacityStops, camera.zoom, show.zoomOpacityStopsBase ?? 1)
-      : (show.opacity ?? 1.0)
-    this.currentOpacity = opacity
+    // Opacity is already resolved (zoom × time) by the bucket
+    // scheduler into `show.opacity`. We just read the plain field.
+    // See bucket-scheduler.ts — that file is the single choke point
+    // for ALL zoom/time stop evaluation.
+    this.currentOpacity = show.opacity ?? 1.0
     this.currentPickId = show.pickId ?? 0
     // 3D extrusion: driven by the layer's `extrude:` style keyword.
     //   * `extrude: 50`     → constant uniform path (currentExtrudeHeight)
@@ -2601,9 +2591,9 @@ export class VectorTileRenderer {
     const uf = this.uniformF32
     uf.set(mvp, 0) // offset 0: mvp (16 floats)
     uf[16] = this.cachedFillColor[0]; uf[17] = this.cachedFillColor[1]
-    uf[18] = this.cachedFillColor[2]; uf[19] = this.cachedFillColor[3] * opacity
+    uf[18] = this.cachedFillColor[2]; uf[19] = this.cachedFillColor[3] * this.currentOpacity
     uf[20] = this.cachedStrokeColor[0]; uf[21] = this.cachedStrokeColor[1]
-    uf[22] = this.cachedStrokeColor[2]; uf[23] = this.cachedStrokeColor[3] * opacity
+    uf[22] = this.cachedStrokeColor[2]; uf[23] = this.cachedStrokeColor[3] * this.currentOpacity
     uf[24] = projType; uf[25] = projCenterLon; uf[26] = projCenterLat; uf[27] = 0
 
     // Allocate + write SDF line layer slot for this render() call. All
@@ -2620,9 +2610,8 @@ export class VectorTileRenderer {
       // is the lower.ts default (1); we override it here. Per-feature
       // widths (compound merge → `strokeWidthExpr`) still go through
       // the worker bake + segment slot.
-      const strokeWidthPx = show.zoomStrokeWidthStops && show.zoomStrokeWidthStops.length > 0
-        ? interpolateZoom(show.zoomStrokeWidthStops, camera.zoom, show.zoomStrokeWidthStopsBase ?? 1)
-        : (show.strokeWidth ?? 1)
+      // Pre-resolved by bucket-scheduler (zoom × time → plain scalar).
+      const strokeWidthPx = show.strokeWidth ?? 1
       const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
       const capMap = { butt: 0, round: 1, square: 2, arrow: 3 } as const
       const joinMap = { miter: 0, round: 1, bevel: 2 } as const
@@ -2675,7 +2664,7 @@ export class VectorTileRenderer {
       // In 'strokes' phase the offscreen RT holds the FULL color + stroke
       // alpha (no opacity multiply). The composite step then blends with the
       // layer opacity — otherwise we'd double-apply it.
-      const layerOpacity = phase === 'strokes' ? 1.0 : opacity
+      const layerOpacity = phase === 'strokes' ? 1.0 : this.currentOpacity
 
       // Resolve stroke alignment to an effective offset. Inset/outset
       // shift by ±half_width; combines additively with explicit
