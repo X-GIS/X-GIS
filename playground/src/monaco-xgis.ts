@@ -567,7 +567,7 @@ export async function discoverFields(source: string, baseUrl: string): Promise<v
   const perLayer: Record<string, { name: string; sample: string }[]> = {}
 
   for (const [, url] of urlMatches) {
-    if (url.endsWith('.xgvt') || url.includes('{z}')) continue // skip binary + tile templates
+    if (url.includes('{z}')) continue // skip tile templates
     const fullUrl = url.startsWith('http') || url.startsWith('/') ? url : baseUrl + url
 
     // Schema (per-layer) cache check.
