@@ -1236,10 +1236,19 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
   let d_px = d_m / layer.mpp;
   // Mapbox line-blur widens both the geometry quad and the
   // smoothstep feathering by the requested px. aa_width_px carries
-  // 1.5 + blur from packLineLayerUniform; subtract the 0.5 quad
-  // margin reserved for sub-pixel coverage so the fragment edge sits
-  // at the requested smoothstep distance.
-  let aa = max(1.0, layer.aa_width_px - 0.5);
+  // 1.0 + blur from packLineLayerUniform.
+  //
+  // Cap the smoothstep half-width by the LINE'S OWN half-width
+  // (plus a small sub-pixel margin) so the AA band never grows
+  // wider than the line itself. Earlier code always reserved
+  // ≥1.0 px AA — fine for ≥2 px lines, but at low zoom a 0.5 px
+  // stroke ends up with a 1.0 px AA fade on each side, so the
+  // outline blur dominates the visible line body and the user
+  // sees a fuzzy halo instead of a thin line. Mapbox / MapLibre
+  // scale AA with line width to avoid this. The +0.5 sub-pixel
+  // buffer keeps very thin lines (0.5 px) from collapsing to
+  // a single hard pixel (no AA at all).
+  let aa = max(0.5, min(layer.aa_width_px, effective_width_px * 0.5 + 0.5));
   let alpha = 1.0 - smoothstep(-aa, aa, d_px);
   if (alpha < 0.005) { discard; }
   // Per-segment stroke colour override (RGBA8 packed). Compound

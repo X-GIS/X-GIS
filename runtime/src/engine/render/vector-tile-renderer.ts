@@ -2619,15 +2619,20 @@ export class VectorTileRenderer {
       const cap = capMap[show.linecap ?? 'round']
       const join = joinMap[show.linejoin ?? 'round']
       const miterLimit = show.miterlimit ?? 4.0
-      // DSL dash values default to pixels (matching stroke-width convention).
-      // Convert to Mercator meters here so the shader's meter-based arc_pos
-      // comparison renders the pattern at a consistent on-screen size across
-      // zoom levels. TODO: add explicit unit suffixes (20m_10m, 20km_5km) to
-      // the parser if real-world length dashes are needed later.
+      // Dash values are in LINE-WIDTH UNITS (Mapbox spec:
+      // "The lengths are later multiplied by the line width").
+      // A `[2, 3]` dash on a 4-px line is 8 px dash + 12 px gap;
+      // the same dash on a 6-px line is 12 + 18. Earlier the code
+      // treated dash values as raw pixels, which produced near-
+      // invisible dashes on thin admin-boundary / bridge-casing
+      // lines (boundary_3 has [1,1] dash + 1-2 px width — without
+      // the multiply, 1-px dashes against a 1-px line gave near-
+      // continuous coverage and looked solid).
+      const dashWidthScalePx = strokeWidthPx_h
       const dash = (show.dashArray && show.dashArray.length >= 2)
         ? {
-            array: show.dashArray.map(v => v * mpp),
-            offset: (show.dashOffset ?? 0) * mpp,
+            array: show.dashArray.map(v => v * dashWidthScalePx * mpp),
+            offset: (show.dashOffset ?? 0) * dashWidthScalePx * mpp,
           }
         : null
 
