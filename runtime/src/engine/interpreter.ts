@@ -1,8 +1,42 @@
 // ═══ AST Interpreter — AST를 실행 가능한 명령으로 변환 ═══
 
 import type * as AST from '@xgis/compiler'
-import { resolveUtilities, resolveColor } from '@xgis/compiler'
+import { resolveUtilities, resolveColor, hexToRgba } from '@xgis/compiler'
+import type { PaintShapes, PropertyShape, PropertyRGBA } from '@xgis/compiler'
 import type { ShowCommand } from './render/renderer'
+
+/** Synthesize a PaintShapes bundle from a constant-only legacy show.
+ *  The legacy `let`/`show` and the simple `source`/`layer` utility
+ *  syntax only carry compile-time-constant paint values — no zoom
+ *  stops, no time animation, no per-feature data-driven exprs. So
+ *  every PropertyShape comes out as `kind: 'constant'`, and
+ *  unauthored slots (no fill / no stroke / no size) become `null`.
+ *  Step 1c.3 will extend this when consumers off the flat fields
+ *  request the typed bundle for non-opacity properties; until then
+ *  fill/stroke/strokeWidth/size still also live on the flat fields
+ *  bucket-scheduler reads. */
+function synthesizeConstantPaintShapes(args: {
+  fill: string | null
+  stroke: string | null
+  strokeWidth: number
+  opacity: number
+}): PaintShapes {
+  const fillRgba = args.fill !== null ? hexToRgba(args.fill) : null
+  const strokeRgba = args.stroke !== null ? hexToRgba(args.stroke) : null
+  const fill: PropertyShape<PropertyRGBA> | null = fillRgba !== null
+    ? { kind: 'constant', value: fillRgba as PropertyRGBA }
+    : null
+  const stroke: PropertyShape<PropertyRGBA> | null = strokeRgba !== null
+    ? { kind: 'constant', value: strokeRgba as PropertyRGBA }
+    : null
+  return {
+    fill,
+    stroke,
+    opacity: { kind: 'constant', value: args.opacity },
+    strokeWidth: { kind: 'constant', value: args.strokeWidth },
+    size: null,
+  }
+}
 
 export interface LoadCommand {
   name: string
@@ -173,6 +207,12 @@ function extractLayer(
       visible: resolved.visible,
       opacity: resolved.opacity,
       pointerEvents: resolved.pointerEvents,
+      paintShapes: synthesizeConstantPaintShapes({
+        fill: resolved.fill,
+        stroke: resolved.stroke,
+        strokeWidth: resolved.strokeWidth,
+        opacity: resolved.opacity,
+      }),
     },
   }
 }
@@ -238,5 +278,8 @@ function extractShow(stmt: AST.ShowStatement): ShowCommand | null {
     }
   }
 
-  return { targetName, fill, stroke, strokeWidth, projection, visible, opacity }
+  return {
+    targetName, fill, stroke, strokeWidth, projection, visible, opacity,
+    paintShapes: synthesizeConstantPaintShapes({ fill, stroke, strokeWidth, opacity }),
+  }
 }

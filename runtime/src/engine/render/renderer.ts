@@ -723,6 +723,16 @@ export interface ShowCommand {
   // write so the fragment shader can stamp the pick texture's G channel
   // with `(instanceId << 16) | layerId`. 0 = unregistered (sentinel).
   pickId?: number
+  /** Typed paint-property bundle (Plan Step 1b/1c). Mirrors the legacy
+   *  flat fields above (fill / stroke / strokeWidth / opacity / size +
+   *  their zoom* / time* companions). Consumers migrating off the
+   *  flat-field stitching pattern read paintShapes directly — the
+   *  bucket-scheduler's opacity resolution does this today, with
+   *  fill / stroke / strokeWidth / size to follow (Step 1c.3). The
+   *  field is required because the legacy interpreter (interpreter.ts)
+   *  and the compiler's emit-commands both populate it; bucket-
+   *  scheduler can drop its legacy-field fallback now. */
+  paintShapes: import('@xgis/compiler').PaintShapes
 }
 
 /**

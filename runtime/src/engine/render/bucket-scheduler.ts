@@ -30,31 +30,6 @@ import { interpolateZoom, interpolateZoomRgba, interpolateTime, interpolateTimeC
 import { SAFE_MODE } from '../gpu/gpu'
 import type { RenderTraceRecorder, RGBA } from '../../diagnostics/render-trace'
 
-/** Synthesize a PropertyShape<number> from the legacy flat opacity
- *  fields on a ShowCommand — used as a fallback path until every
- *  upstream (compiler `emitCommands` AND runtime `interpret`)
- *  populates `paintShapes` directly. Step 1d removes both this helper
- *  and the dispatch site that calls it. */
-function legacyOpacityToShape(
-  show: { opacity?: number | null; zoomOpacityStops?: { zoom: number; value: number }[] | null; zoomOpacityStopsBase?: number; timeOpacityStops?: { timeMs: number; value: number }[] | null },
-  loop: boolean,
-  easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out',
-  delayMs: number,
-): PropertyShape<number> {
-  const z = show.zoomOpacityStops ?? null
-  const t = show.timeOpacityStops ?? null
-  if (z !== null && t !== null) {
-    return { kind: 'zoom-time', zoomStops: z, timeStops: t, loop, easing, delayMs }
-  }
-  if (z !== null) {
-    return { kind: 'zoom-interpolated', stops: z, base: show.zoomOpacityStopsBase ?? 1 }
-  }
-  if (t !== null) {
-    return { kind: 'time-interpolated', stops: t, loop, easing, delayMs }
-  }
-  return { kind: 'constant', value: show.opacity ?? 1 }
-}
-
 /** Evaluate a `PropertyShape<number>` (PR Step 1c migration target)
  *  to a per-frame scalar. The five variants map to the renderer's
  *  existing interpolators:
@@ -303,18 +278,12 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
 
     // ── Opacity (zoom × time, composed) ──
     //
-    // Step 1c migration: prefer the typed PaintShapes.opacity bundle
-    // emitted by the compiler. Falls back to the legacy flat fields
-    // (`opacity` scalar + `zoomOpacityStops` + `timeOpacityStops`)
-    // for shows that came from the legacy interpreter path
-    // (runtime/src/engine/interpreter.ts, which doesn't yet populate
-    // paintShapes) — that path will be migrated in Step 1c.2, then
-    // the fallback can go away. resolveNumberShape composes zoom and
-    // time multiplicatively for the `zoom-time` variant, matching
-    // the legacy `zoomOpa * timeOpa` calculation 1:1.
-    const opacityShape: PropertyShape<number> =
-      (entry.show as { paintShapes?: { opacity: PropertyShape<number> } }).paintShapes?.opacity
-      ?? legacyOpacityToShape(entry.show, loop, easing, delayMs)
+    // Step 1c: read the typed PaintShapes.opacity bundle emitted by
+    // BOTH the compiler (emit-commands) AND the legacy interpreter
+    // (interpreter.ts:synthesizeConstantPaintShapes). resolveNumberShape
+    // composes zoom and time multiplicatively for the `zoom-time`
+    // variant, matching the legacy `zoomOpa * timeOpa` calculation 1:1.
+    const opacityShape = entry.show.paintShapes.opacity
     const opaResolved = resolveNumberShape(opacityShape, input.cameraZoom, input.elapsedMs)
     const composedOpa = opaResolved.value
 
