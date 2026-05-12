@@ -111,4 +111,9 @@ describe('geojson-vt TypeScript port — oracle parity vs upstream JS', () => {
     expect(DEFAULT_OPTIONS.tolerance).toBe(6)
     expect(DEFAULT_OPTIONS.maxZoom).toBe(14)
   })
+
+  it('rejects maxZoom > 25 (Morton tileKey safe-integer ceiling)', () => {
+    expect(() => geojsonvtOurs(SIMPLE_FC, { maxZoom: 26 })).toThrow(/0-25/)
+    expect(() => geojsonvtOurs(SIMPLE_FC, { maxZoom: -1 })).toThrow(/0-25/)
+  })
 })

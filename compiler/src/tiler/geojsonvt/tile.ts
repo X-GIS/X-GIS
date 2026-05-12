@@ -31,7 +31,7 @@ export function createTile(
     maxY: 0,
   }
   for (const feature of features) {
-    addFeature(tile, feature, tolerance, options)
+    addFeature(tile, feature, tolerance)
   }
   return tile
 }
@@ -40,7 +40,6 @@ function addFeature(
   tile: InternalTile,
   feature: ProjectedFeature,
   tolerance: number,
-  options: GeoJSONVTOptions,
 ): void {
   const geom = feature.geometry
   const type = feature.type
@@ -77,15 +76,7 @@ function addFeature(
 
   const len = (simplified as unknown as { length: number }).length
   if (len) {
-    let tags = feature.tags ?? null
-
-    if (type === 'LineString' && options.lineMetrics) {
-      const g = geom as FlatLine
-      tags = {}
-      for (const key in feature.tags) tags[key] = feature.tags[key]
-      tags['mapbox_clip_start'] = (g.start ?? 0) / (g.size ?? 1)
-      tags['mapbox_clip_end'] = (g.end ?? 0) / (g.size ?? 1)
-    }
+    const tags = feature.tags ?? null
 
     const tileFeature: TileFeature = {
       geometry: simplified as FlatLine | FlatLine[],

@@ -14,11 +14,11 @@ export function wrap(
 ): ProjectedFeature[] {
   const buffer = options.buffer / options.extent
   let merged: ProjectedFeature[] = features
-  const left = clip(features, 1, -1 - buffer, buffer, 0, -1, 2, options)
-  const right = clip(features, 1, 1 - buffer, 2 + buffer, 0, -1, 2, options)
+  const left = clip(features, 1, -1 - buffer, buffer, 0, -1, 2)
+  const right = clip(features, 1, 1 - buffer, 2 + buffer, 0, -1, 2)
 
   if (left || right) {
-    merged = clip(features, 1, -buffer, 1 + buffer, 0, -1, 2, options) ?? []
+    merged = clip(features, 1, -buffer, 1 + buffer, 0, -1, 2) ?? []
     if (left) merged = shiftFeatureCoords(left, 1).concat(merged)
     if (right) merged = merged.concat(shiftFeatureCoords(right, -1))
   }

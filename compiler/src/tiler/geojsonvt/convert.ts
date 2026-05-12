@@ -58,17 +58,7 @@ function convertFeature(
   } else if (type === 'LineString') {
     convertLine(coords as number[][], geometry as FlatLine, tolerance, false)
   } else if (type === 'MultiLineString') {
-    if (options.lineMetrics) {
-      // Explode into linestrings so per-line metrics survive
-      for (const line of coords as number[][][]) {
-        geometry = []
-        convertLine(line, geometry as FlatLine, tolerance, false)
-        features.push(createFeature(id ?? null, 'LineString', geometry, geojson.properties ?? null))
-      }
-      return
-    } else {
-      convertLines(coords as number[][][], geometry as FlatLine[], tolerance, false)
-    }
+    convertLines(coords as number[][][], geometry as FlatLine[], tolerance, false)
   } else if (type === 'Polygon') {
     convertLines(coords as number[][][], geometry as FlatLine[], tolerance, true)
   } else if (type === 'MultiPolygon') {

@@ -118,16 +118,11 @@ export interface GeoJSONVTOptions {
    *  cracking at tile boundaries. MapLibre's convention: `cssPx *
    *  (extent / tileSize)`. Default: 128 css px × 16 = 2048. */
   buffer: number
-  /** Whether to track line metrics (start / end fractions). */
-  lineMetrics: boolean
   /** Optional property name to promote to `feature.id`. */
   promoteId: string | null
   /** Whether to auto-generate sequential feature ids. Mutually
    *  exclusive with `promoteId`. */
   generateId: boolean
-  /** 0 = silent, 1 = high-level, 2 = per-tile (best left at 0 in
-   *  production paths — every log is on the hot path). */
-  debug: 0 | 1 | 2
 }
 
 export interface GeoJSONInput {
