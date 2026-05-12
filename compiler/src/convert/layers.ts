@@ -58,6 +58,18 @@ export function parseMapboxFontName(name: string): {
   const parts = name.trim().split(/\s+/)
   let weight: number | undefined
   let style: 'italic' | undefined
+  // Case-insensitive lookup tables: font foundries inconsistently
+  // capitalise weight / style keywords ("Semibold" vs "SemiBold"
+  // vs "semibold"). OFM Bright + MapLibre demotiles ship the
+  // "Semibold" form, which previously fell through the lookup,
+  // dropped the weight, and rendered every label at regular
+  // weight — making demotiles labels look thin vs the MapLibre
+  // reference. Normalise input to lowercase before matching.
+  const weightKeysByLower: Record<string, number> = {}
+  for (const k of Object.keys(FONT_WEIGHT_KEYWORDS)) {
+    weightKeysByLower[k.toLowerCase()] = FONT_WEIGHT_KEYWORDS[k]!
+  }
+  const styleKeysLower = new Set([...FONT_STYLE_KEYWORDS].map(s => s.toLowerCase()))
   // Loop until neither end matches — handles "Bold Italic" and
   // "Italic Bold" without ordering assumptions. Two-word weight
   // forms ("Semi Bold", "Extra Bold") are checked BEFORE the
@@ -67,7 +79,8 @@ export function parseMapboxFontName(name: string): {
   while (progressed && parts.length > 0) {
     progressed = false
     const last = parts[parts.length - 1]!
-    if (style === undefined && FONT_STYLE_KEYWORDS.has(last)) {
+    const lastLower = last.toLowerCase()
+    if (style === undefined && styleKeysLower.has(lastLower)) {
       style = 'italic'
       parts.pop()
       progressed = true
@@ -75,16 +88,16 @@ export function parseMapboxFontName(name: string): {
     }
     if (weight === undefined) {
       if (parts.length >= 2) {
-        const twoWord = parts[parts.length - 2] + last
-        if (twoWord in FONT_WEIGHT_KEYWORDS) {
-          weight = FONT_WEIGHT_KEYWORDS[twoWord]
+        const twoWord = (parts[parts.length - 2]! + last).toLowerCase()
+        if (twoWord in weightKeysByLower) {
+          weight = weightKeysByLower[twoWord]
           parts.length -= 2
           progressed = true
           continue
         }
       }
-      if (last in FONT_WEIGHT_KEYWORDS) {
-        weight = FONT_WEIGHT_KEYWORDS[last]
+      if (lastLower in weightKeysByLower) {
+        weight = weightKeysByLower[lastLower]
         parts.pop()
         progressed = true
         continue
