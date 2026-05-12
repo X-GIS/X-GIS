@@ -2121,9 +2121,14 @@ export class VectorTileRenderer {
     const z = camera.zoom
     let cz: number
     if (this._hysteresisZ < 0) {
-      cz = Math.round(z)
+      // Promote to the next LOD as soon as the camera crosses z+0.3
+      // — user-requested 2026-05-12 ("MapLibre seems to load the
+      // next tile a level earlier"). Pure Math.round (advance at
+      // z+0.5) felt visibly behind MapLibre at z=N.3 framings where
+      // ML's geometry already used the finer tile.
+      cz = Math.floor(z + 0.7)
       this._czPendingAdvance = null
-    } else if (Math.abs(Math.round(z) - this._hysteresisZ) > 4) {
+    } else if (Math.abs(Math.floor(z + 0.7) - this._hysteresisZ) > 4) {
       // Bulk camera move (URL hash, programmatic camera reset,
       // jumpTo). The gate is designed for incremental user-driven
       // transitions; for jumps spanning more than ~4 LODs we'd
@@ -2131,14 +2136,22 @@ export class VectorTileRenderer {
       // looks broken. Snap straight to target and let the normal
       // visible-tile pipeline + parent walk render whatever
       // ancestors happen to be cached on the way.
-      cz = Math.round(z)
+      // Promote to the next LOD as soon as the camera crosses z+0.3
+      // — user-requested 2026-05-12 ("MapLibre seems to load the
+      // next tile a level earlier"). Pure Math.round (advance at
+      // z+0.5) felt visibly behind MapLibre at z=N.3 framings where
+      // ML's geometry already used the finer tile.
+      cz = Math.floor(z + 0.7)
       this._czPendingAdvance = null
     } else {
       cz = this._hysteresisZ
-      const target = Math.round(z)
+      const target = Math.floor(z + 0.7)
       let wantAdvance = false
-      const zoomingIn = target > cz && z > cz + 0.5 + HYST_MARGIN
-      const zoomingOut = target < cz && z < cz - 0.5 + HYST_MARGIN
+      // Tile-LOD advance threshold lowered to z + 0.3 (was 0.5):
+      // promote 1 LOD earlier so X-GIS's rendered detail matches
+      // MapLibre's "1 level higher" appearance at z=N.3 framings.
+      const zoomingIn = target > cz && z > cz + 0.3 + HYST_MARGIN
+      const zoomingOut = target < cz && z < cz - 0.7 + HYST_MARGIN
       if (zoomingIn) wantAdvance = true
       else if (zoomingOut) {
         // Zoom-out: do NOT gate. Holding cz at the higher LOD while
