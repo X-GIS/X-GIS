@@ -48,6 +48,7 @@ import {
   type PipelineInspection, type MapSnapshot, type ReplayResult,
 } from './diagnostics'
 import { attachPMTilesSource, prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
+import { VirtualPMTilesBackend } from '../data/sources/virtual-pmtiles-backend'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
@@ -142,6 +143,36 @@ function sceneHasAnyAnimation(shows: { paintShapes: import('@xgis/compiler').Pai
       || (p.size !== null && isTimeAnimated(p.size.kind))
       || !!s.timeDashOffsetStops
   })
+}
+
+/** Walk every coordinate in a GeoJSON FeatureCollection and return
+ *  the lon/lat bbox. Used by the Phase 5e VirtualPMTilesBackend
+ *  attach path to pick a camera-fit position when the source has
+ *  no external metadata (unlike PMTiles' `bounds` field). Returns
+ *  null when the collection has no usable geometry. */
+function computeGeoJSONBounds(
+  fc: GeoJSONFeatureCollection,
+): [number, number, number, number] | null {
+  let minLon = Infinity, minLat = Infinity
+  let maxLon = -Infinity, maxLat = -Infinity
+  const visit = (c: unknown): void => {
+    if (!Array.isArray(c)) return
+    // Coordinate pair: [lon, lat, ...]
+    if (typeof c[0] === 'number' && typeof c[1] === 'number') {
+      const lon = c[0] as number, lat = c[1] as number
+      if (lon < minLon) minLon = lon
+      if (lon > maxLon) maxLon = lon
+      if (lat < minLat) minLat = lat
+      if (lat > maxLat) maxLat = lat
+      return
+    }
+    for (const inner of c) visit(inner)
+  }
+  for (const f of fc.features ?? []) {
+    if (f.geometry) visit((f.geometry as { coordinates?: unknown }).coordinates)
+  }
+  if (!isFinite(minLon)) return null
+  return [minLon, minLat, maxLon, maxLat]
 }
 
 export class XGISMap {
@@ -1214,7 +1245,83 @@ export class XGISMap {
       )
     }
     const data = await response.json() as GeoJSONFeatureCollection
+
+    // Phase 5e opt-in: route GeoJSON through the same TileCatalog +
+    // MVT-worker pipeline PMTiles uses. Two equivalent toggles so
+    // the live demo can be probed without code changes:
+    //   - `window.__XGIS_USE_VIRTUAL_PMTILES = true` in DevTools
+    //   - `?virt=1` query param on the URL
+    // Defaults off — Phase 5f flips it after the Yellow Sea repro
+    // validates on the live URL.
+    const useVirtualPMTiles = typeof window !== 'undefined' && (
+      (window as unknown as { __XGIS_USE_VIRTUAL_PMTILES?: boolean }).__XGIS_USE_VIRTUAL_PMTILES === true
+      || /[?&]virt=1\b/.test(window.location.search)
+    )
+    if (useVirtualPMTiles && !this.useCanvas2D) {
+      await this._attachGeoJSONViaVirtualPMTiles(load.name, data, maps, cameraFitState)
+      return
+    }
+
     this.rawDatasets.set(load.name, data)
+  }
+
+  /** Phase 5e: attach a GeoJSON source through VirtualPMTilesBackend
+   *  so it flows through the catalog + MVT-worker pipeline instead
+   *  of the synchronous main-thread compileSync path. Mirrors the
+   *  PMTiles attach branch above — same TileCatalog + VectorTileRenderer
+   *  setup, same camera-fit logic, same vtSources registry — only
+   *  the backend instance differs. */
+  private async _attachGeoJSONViaVirtualPMTiles(
+    sourceName: string,
+    data: GeoJSONFeatureCollection,
+    maps: ShowSourceMaps,
+    cameraFitState: { fit: boolean },
+  ): Promise<void> {
+    const source = new TileCatalog()
+    const vtRenderer = new VectorTileRenderer(this.ctx)
+    vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
+    vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
+    vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
+    vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
+    if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
+    vtRenderer.setSource(source)
+
+    const inferred = maps.usedSourceLayers.get(sourceName)
+    const filterLayers = inferred && inferred.size > 0 ? [...inferred] : undefined
+
+    const backend = new VirtualPMTilesBackend({
+      sourceName,
+      geojson: data,
+      layers: filterLayers,
+      extrudeExprs: maps.extrudeExprsBySource.get(sourceName),
+      extrudeBaseExprs: maps.extrudeBaseExprsBySource.get(sourceName),
+      showSlices: maps.showSlicesBySource.get(sourceName),
+      strokeWidthExprs: maps.strokeWidthExprsBySource.get(sourceName),
+      strokeColorExprs: maps.strokeColorExprsBySource.get(sourceName),
+    })
+    source.attachBackend(backend)
+
+    this.vtSources.set(sourceName, { source, renderer: vtRenderer })
+    this.rawDatasets.set(sourceName, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
+
+    // Camera-fit: derive bounds from the GeoJSON features themselves
+    // (no remote metadata to consult, unlike PMTiles).
+    if (!cameraFitState.fit) {
+      const bounds = computeGeoJSONBounds(data)
+      if (bounds) {
+        cameraFitState.fit = true
+        const [minLon, minLat, maxLon, maxLat] = bounds
+        const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
+        const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
+        this.camera.centerX = cx
+        this.camera.centerY = cy
+        const lonSpan = maxLon - minLon
+        const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+        const cssW = this.canvas.width / dpr
+        const degPerPx = lonSpan / cssW
+        this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+      }
+    }
   }
 
   /** Rebuild GPU layers from raw data with current projection */
