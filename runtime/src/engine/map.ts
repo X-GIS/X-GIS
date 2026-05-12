@@ -2584,12 +2584,35 @@ export class XGISMap {
                   // space; pack into typed arrays for the curved-text
                   // sampler. Drop unprojectable vertices by trimming
                   // to the first contiguous projectable run.
+                  //
+                  // Subdivide each segment so a world-spanning line
+                  // (e.g. demotiles geolines: Tropic of Cancer with 2
+                  // vertices at lng=±180) gets enough sample points
+                  // for the on-screen portion to project successfully.
+                  // Without this, both raw endpoints land outside the
+                  // NDC ±1.5 window and `projectLonLat` rejects them,
+                  // leaving px.length === 0 and the label silently
+                  // dropping. Sample density (16 cuts per segment) is
+                  // sufficient for the labelling pass — the actual
+                  // line geometry is rendered separately by the line
+                  // renderer which handles its own viewport clipping.
+                  const SUBDIVS_PER_SEG = 16
                   const px: number[] = []
                   const py: number[] = []
-                  for (let i = 0; i < mxs.length; i++) {
-                    const [lon, lat] = mercToLonLat(mxs[i]!, mys[i]!)
-                    const proj = projectLonLat(lon, lat)
-                    if (proj) { px.push(proj[0]); py.push(proj[1]) }
+                  const N = mxs.length
+                  for (let i = 0; i < N - 1; i++) {
+                    const ax = mxs[i]!, ay = mys[i]!
+                    const bx = mxs[i + 1]!, by = mys[i + 1]!
+                    const steps = i === 0 ? SUBDIVS_PER_SEG : SUBDIVS_PER_SEG - 1
+                    const startT = i === 0 ? 0 : 1 / SUBDIVS_PER_SEG
+                    for (let s = 0; s <= steps; s++) {
+                      const t = startT + s * (1 - startT) / steps
+                      const sx = ax + (bx - ax) * t
+                      const sy = ay + (by - ay) * t
+                      const [lon, lat] = mercToLonLat(sx, sy)
+                      const proj = projectLonLat(lon, lat)
+                      if (proj) { px.push(proj[0]); py.push(proj[1]) }
+                    }
                   }
                   if (px.length < 2) return
                   let total = 0
