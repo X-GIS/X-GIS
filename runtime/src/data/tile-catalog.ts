@@ -25,7 +25,6 @@ import {
   type GeometryPart,
 } from '@xgis/compiler'
 import { visibleTiles } from './tile-select'
-import { XGVTBinaryBackend } from './sources/xgvt-binary-backend'
 import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
 import { SubTileGenerator } from './sub-tile-generator'
@@ -77,11 +76,6 @@ export class TileCatalog {
    *  fallback in requestTiles. */
   private entryToBackend = new Map<number, TileSource>()
 
-  /** Lazy reference to the binary backend instance that this catalog
-   *  manages, if any. Used by loadFromBuffer/URL to call the
-   *  XGVT-binary-specific loader methods (parseXGVTIndex, preload).
-   *  Other catalog code paths use the generic backends list. */
-  private binaryBackend: XGVTBinaryBackend | null = null
   /** Lazy reference to the in-memory GeoJSON backend, used by
    *  setRawParts to feed raw parts in. */
   private geojsonBackend: GeoJSONRuntimeBackend | null = null
@@ -591,34 +585,6 @@ export class TileCatalog {
   }
 
   // ── Loading ──
-
-  /** Lazy-build the binary backend instance + attach it. The binary
-   *  backend's loadFromBuffer/URL methods are exposed here as
-   *  delegates because they have parsing-specific signatures that
-   *  don't fit the generic TileSource interface (they're load-time,
-   *  not request-time). */
-  private getBinaryBackend(): XGVTBinaryBackend {
-    if (!this.binaryBackend) {
-      this.binaryBackend = new XGVTBinaryBackend()
-      this.attachBackend(this.binaryBackend)
-    }
-    return this.binaryBackend
-  }
-
-  async loadFromBuffer(buf: ArrayBuffer): Promise<void> {
-    const backend = this.getBinaryBackend()
-    await backend.loadFromBuffer(buf)
-    // Index entries arrive via meta after parse — re-merge them.
-    this.mergeBackendMeta(backend)
-    this.prewarmSkeleton({ minzoom: backend.meta.minZoom, maxzoom: backend.meta.maxZoom })
-  }
-
-  async loadFromURL(url: string): Promise<void> {
-    const backend = this.getBinaryBackend()
-    await backend.loadFromURL(url)
-    this.mergeBackendMeta(backend)
-    this.prewarmSkeleton({ minzoom: backend.meta.minZoom, maxzoom: backend.meta.maxZoom })
-  }
 
   /**
    * Load from an in-memory CompiledTileSet (from compileGeoJSONToTiles).

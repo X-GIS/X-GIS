@@ -120,8 +120,8 @@ export interface TextOverlayHandle {
  *  be 'raster' / 'geojson' / 'auto' / undefined / arbitrary user string,
  *  none of which are vector tile kinds — return undefined so the
  *  detector falls through to URL-extension sniffing. */
-function asVectorTileKind(t: string | undefined): 'pmtiles' | 'tilejson' | 'xgvt' | 'auto' | undefined {
-  return t === 'pmtiles' || t === 'tilejson' || t === 'xgvt' || t === 'auto' ? t : undefined
+function asVectorTileKind(t: string | undefined): 'pmtiles' | 'tilejson' | 'auto' | undefined {
+  return t === 'pmtiles' || t === 'tilejson' || t === 'auto' ? t : undefined
 }
 
 /** Scene-level animation detection. `true` when ANY ShowCommand

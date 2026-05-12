@@ -9,7 +9,7 @@ export {
   fetchPMTilesVectorLayerFields, fetchPMTilesVectorLayerSchema,
   // Class-based API
   VectorTileLoader, VectorTileSource,
-  PMTilesArchiveSource, TileJSONSource, XGVTBinarySource,
+  PMTilesArchiveSource, TileJSONSource,
   // Types
   type PMTilesSourceOptions, type VectorLayerInfo, type VectorTileFormat,
 } from './loader/vector-tile-loader'

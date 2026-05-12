@@ -45,7 +45,7 @@ export interface VectorLayerInfo {
  *  means "the URL doesn't look like any of these" — the caller (e.g.
  *  the data-load loop in map.ts) routes to a different branch (raster,
  *  GeoJSON, etc.). */
-export type VectorTileFormat = 'pmtiles' | 'tilejson' | 'xgvt'
+export type VectorTileFormat = 'pmtiles' | 'tilejson'
 
 export interface PMTilesSourceOptions {
   url: string
@@ -56,7 +56,6 @@ export interface PMTilesSourceOptions {
    *
    *  - `'pmtiles'` — single .pmtiles archive, byte-range MVT.
    *  - `'tilejson'` — TileJSON manifest pointing at an XYZ MVT server.
-   *  - `'xgvt'` — native X-GIS binary archive (`source.loadFromURL`).
    *  - `'auto'` — sniff by URL extension. */
   kind?: VectorTileFormat | 'auto'
   /** Restrict to a subset of MVT layer names (default: all layers). */
@@ -153,7 +152,6 @@ export function detectVectorTileFormat(
   if (path.endsWith('.tilejson')) return 'tilejson'
   if (path.endsWith('.json') && !path.endsWith('.geojson')) return 'tilejson'
   if (path.endsWith('.pmtiles')) return 'pmtiles'
-  if (path.endsWith('.xgvt')) return 'xgvt'
   if (kind && kind !== 'auto') return kind
   return null
 }
@@ -451,32 +449,6 @@ export class TileJSONSource extends VectorTileSource {
   }
 }
 
-export class XGVTBinarySource extends VectorTileSource {
-  readonly format = 'xgvt' as const
-
-  /** XGVT-binary doesn't go through PMTilesBackend — `attachTo` overrides
-   *  to delegate to TileCatalog.loadFromURL directly. resolve() is only
-   *  meaningful for the PMTilesBackend path so it always returns null. */
-  async resolve(): Promise<ResolvedSource | null> { return null }
-
-  /** No HTTP-level prewarm — the binary backend manages its own byte-
-   *  range cache through `loadFromURL`. */
-  prewarm(): void {}
-
-  async attachTo(catalog: TileCatalog, _opts: PMTilesSourceOptions): Promise<void> {
-    // Native binary archive — no PMTilesBackend / no MVT decode. The
-    // binary's own loader handles range-request streaming and the
-    // catalog's `loadFromURL` auto-fires `prewarmSkeleton` once the
-    // index is merged, so the cold-start UX matches PMTiles/TileJSON.
-    try { await catalog.loadFromURL(this.url) }
-    catch {
-      const resp = await fetch(this.url)
-      const buf = await resp.arrayBuffer()
-      await catalog.loadFromBuffer(buf)
-    }
-  }
-}
-
 // ─── Loader ────────────────────────────────────────────────────────
 
 /** Owns the archive + manifest caches and dispatches URLs to the right
@@ -493,7 +465,6 @@ export class VectorTileLoader {
     switch (detectVectorTileFormat(url, kind)) {
       case 'pmtiles':  return new PMTilesArchiveSource(url, this)
       case 'tilejson': return new TileJSONSource(url, this)
-      case 'xgvt':     return new XGVTBinarySource(url)
       default:         return null
     }
   }
