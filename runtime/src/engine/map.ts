@@ -2772,7 +2772,21 @@ export class XGISMap {
                 })
               }
             } else {
+              // Cross-tile point-label dedupe: large named polygon
+              // features (countries, oceans) cross tile boundaries
+              // at low zoom and the worker emits a centroid PER tile
+              // for the polygon's tile-clipped sub-shape. Without
+              // dedupe the same name appears 2-3× across adjacent
+              // tiles. Mirror the line-label dedupe (Set keyed by
+              // stable name) to keep one emission per ShowCommand.
+              const emittedPointNames = new Set<string>()
               vtEntry.renderer.forEachLabelFeature(sliceKey, (mercX, mercY, props) => {
+                const propsRec = props as Record<string, unknown>
+                const stableName = typeof propsRec.name === 'string' ? propsRec.name
+                  : typeof propsRec.name_en === 'string' ? propsRec.name_en
+                  : ''
+                if (stableName !== '' && emittedPointNames.has(stableName)) return
+                if (stableName !== '') emittedPointNames.add(stableName)
                 const [lon, lat] = mercToLonLat(mercX, mercY)
                 const featDef = applyFeatureExprs(props)
                 // No fontKey override — see note at line ~2370.

@@ -2098,7 +2098,17 @@ export class VectorTileRenderer {
     this._lastCamSnap = { zoom: camera.zoom, cx: camera.centerX, cy: camera.centerY, t: nowCam }
     const cameraIdle = nowCam - this._lastCamMoveAt > IDLE_GRACE_MS
 
-    const HYST_MARGIN = 0.1
+    // Was 0.1 — added originally to suppress iOS-Safari pinch-zoom
+    // jitter at the integer-half boundary (camera.zoom oscillates
+    // 4.49 ↔ 4.51 producing a 4 ↔ 5 cz flip every frame). User
+    // 2026-05-12 review: MapLibre advances tile-zoom at the exact
+    // round boundary (z=4.5 → tile-z=5) so X-GIS at z=4.6 was still
+    // serving the lower-z tile while MapLibre had already switched.
+    // Match the reference: zero margin = pure Math.round semantics.
+    // The jitter case is now handled by IDLE_GRACE_MS suppression
+    // of speculative fetches during active gestures — actually
+    // selecting the right cz still matters for what gets rendered.
+    const HYST_MARGIN = 0
     // Readiness-gate timeout: once a transition is "wanted" (camera
     // has crossed the hysteresis threshold), we hold the OLD cz —
     // so the user keeps seeing the previous LOD over-zoomed — until

@@ -127,9 +127,22 @@ struct VsOut {
   // in as SDF-byte units (renderer pre-multiplies). Adding to soft
   // widens the smoothstep transition without shifting the centre,
   // producing the classic soft-glow halo that sharp halos lack.
+  //
+  // The smoothstep is positioned with its LOWER edge AT halo_edge
+  // (= halo visibility ENDS at the authored extent, soft fade
+  // extends INWARD toward the fill). Earlier versions centered the
+  // smoothstep on halo_edge, which placed half of the soft band
+  // OUTSIDE the authored extent — so the halo's visible outer
+  // boundary sat ~halo_soft SDF-px BEYOND the authored width.
+  // Users perceived the halo as too large and the fill colour as
+  // too thin (the broad halo dominated the glyph silhouette).
+  // Lower-aligned smoothstep makes the authored width the OUTER
+  // visible boundary, matching the Mapbox-spec intuition "halo
+  // extends halo-width px outward" rather than "halo midpoint is
+  // at halo-width px outward".
   let halo_soft: f32 = soft + u.halo_blur;
   let halo_edge: f32 = edge - u.halo_width;
-  let halo_a: f32 = smoothstep(halo_edge - halo_soft, halo_edge + halo_soft, sdf);
+  let halo_a: f32 = smoothstep(halo_edge, halo_edge + 2.0 * halo_soft, sdf);
   // Composite: halo behind, fill in front.
   let fill_w = u.fill_color.a * fill_a;
   let halo_w = u.halo_color.a * halo_a * (1.0 - fill_w);
