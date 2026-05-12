@@ -53,6 +53,96 @@ export function clipPolygonToRect(
   return result
 }
 
+// ═══ Boundary back-track repair ═══
+
+/**
+ * Split a clipped ring at boundary back-tracks. When the input polygon
+ * enters and exits the clip rect multiple times, Sutherland-Hodgman
+ * (and the simpler V2 range-clip) emit a single ring that traverses
+ * the SAME rect edge in BOTH directions to stitch interior parts back
+ * together. That overlapping segment creates a self-intersection
+ * earcut interprets as overlapping triangles (256 % area coverage on
+ * Korea z=7 tile (108,49)).
+ *
+ * The repair detects pairs of segments lying on the same rect edge
+ * going opposite directions with overlapping parameter ranges, and
+ * splits the ring into two cleanly closed sub-rings. Recurses to
+ * handle multiple back-tracks. Returns `[ring]` when no back-track is
+ * found, so non-pathological tiles are pass-through.
+ */
+export function splitBoundaryBacktracks(
+  ring: number[][],
+  west: number,
+  south: number,
+  east: number,
+  north: number,
+  eps: number = 1.0,
+): number[][][] {
+  if (ring.length < 4) return [ring]
+  const n = ring.length
+
+  // Classify a vertex by which rect edge it sits on (if any). Corners
+  // can match two edges; we prefer the edge whose tag the SEGMENT
+  // (both endpoints) shares, so corner ambiguity is resolved by the
+  // segment-classification step below.
+  const onEdges = (p: number[]): Array<'E'|'W'|'N'|'S'> => {
+    const out: Array<'E'|'W'|'N'|'S'> = []
+    if (Math.abs(p[0]! - east)  < eps) out.push('E')
+    if (Math.abs(p[0]! - west)  < eps) out.push('W')
+    if (Math.abs(p[1]! - north) < eps) out.push('N')
+    if (Math.abs(p[1]! - south) < eps) out.push('S')
+    return out
+  }
+
+  type BSeg = { i: number; edge: 'E'|'W'|'N'|'S'; pStart: number; pEnd: number }
+  const segs: BSeg[] = []
+  for (let i = 0; i < n; i++) {
+    const a = ring[i]!, b = ring[(i + 1) % n]!
+    const ea = onEdges(a), eb = onEdges(b)
+    // The segment lies on an edge iff both endpoints share that tag.
+    for (const tag of ea) {
+      if (eb.includes(tag)) {
+        const param = tag === 'E' || tag === 'W' ? 1 : 0
+        segs.push({ i, edge: tag, pStart: a[param]!, pEnd: b[param]! })
+        break  // one segment can match at most one shared edge tag
+      }
+    }
+  }
+
+  // Find the first opposing-direction pair with parameter overlap.
+  for (let i1 = 0; i1 < segs.length; i1++) {
+    for (let i2 = i1 + 1; i2 < segs.length; i2++) {
+      const s1 = segs[i1]!, s2 = segs[i2]!
+      if (s1.edge !== s2.edge) continue
+      const d1 = Math.sign(s1.pEnd - s1.pStart)
+      const d2 = Math.sign(s2.pEnd - s2.pStart)
+      if (d1 === 0 || d2 === 0 || d1 === d2) continue
+      const lo1 = Math.min(s1.pStart, s1.pEnd), hi1 = Math.max(s1.pStart, s1.pEnd)
+      const lo2 = Math.min(s2.pStart, s2.pEnd), hi2 = Math.max(s2.pStart, s2.pEnd)
+      if (Math.max(lo1, lo2) >= Math.min(hi1, hi2) - eps) continue
+
+      // Back-track confirmed at segments s1 (ring[s1.i..s1.i+1]) and
+      // s2 (ring[s2.i..s2.i+1]). Split into two rings:
+      //   inner = ring[s1.i+1 .. s2.i]   (the loop traced between the
+      //                                   opposing boundary segments)
+      //   outer = ring[0..s1.i] + ring[s2.i+1..n-1]  (the rest)
+      // Each closes implicitly by earcut. The recursion handles the
+      // case where one sub-ring still contains another back-track.
+      const inner: number[][] = []
+      for (let j = s1.i + 1; j <= s2.i; j++) inner.push(ring[j]!)
+      const outer: number[][] = []
+      for (let j = 0; j <= s1.i; j++) outer.push(ring[j]!)
+      for (let j = s2.i + 1; j < n; j++) outer.push(ring[j]!)
+
+      const outerOut = outer.length >= 3 ? splitBoundaryBacktracks(outer, west, south, east, north, eps) : []
+      const innerOut = inner.length >= 3 ? splitBoundaryBacktracks(inner, west, south, east, north, eps) : []
+      return [...outerOut, ...innerOut]
+    }
+  }
+
+  return [ring]
+}
+
 // ═══ Polygon Clipping V2: per-axis range clip (geojson-vt port) ═══
 
 /**

@@ -5,7 +5,7 @@
 
 import earcut from 'earcut'
 import { simplifyPolygon, simplifyLine, mercatorToleranceForZoom } from './simplify'
-import { clipPolygonToRect, clipLineToRect } from './clip'
+import { clipPolygonToRect, clipLineToRect, splitBoundaryBacktracks } from './clip'
 import { precisionForZoomMM } from './encoding'
 import type { GeoJSONFeatureCollection, GeoJSONFeature } from './geojson-types'
 
@@ -1338,10 +1338,27 @@ function processZoomLevelShared(
             } else {
               postSimplifyVerts += preSimplifyVerts
             }
-            if (dataRings.length > 0 && dataRings[0].length >= 3) {
-              tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap)
+            // Sutherland-Hodgman emits a SINGLE ring even when the
+            // source polygon enters/exits the rect multiple times —
+            // the boundary "stitches" can back-track over each other,
+            // producing a self-intersecting ring that earcut renders
+            // as overlapping triangles. The repair detects opposing-
+            // direction segments on the same rect edge and splits the
+            // ring at those points; non-pathological rings are
+            // pass-through. Originally surfaced on ne_110m_countries
+            // South Korea at z=7 tile (108,49) with 256 % triangle-
+            // area coverage (debug-korea-z7-triangulation.test.ts).
+            const repairedRings = dataRings.length > 0
+              ? dataRings.flatMap(r => splitBoundaryBacktracks(r, tbMxW, tbMyS, tbMxE, tbMyN))
+              : []
+            if (repairedRings.length > 0 && repairedRings[0]!.length >= 3) {
+              for (const subRing of repairedRings) {
+                if (subRing.length >= 3) {
+                  tessellatePolygonToArrays([subRing], fid, scratch.pv, scratch.pi, dedupMap)
+                }
+              }
               featureIds.add(fid)
-              tilePolygons.push({ rings: dataRings, featId: fid })
+              tilePolygons.push({ rings: repairedRings, featId: fid })
             }
             // Outline: extract the ORIGINAL polygon edges from the
             // clipped ring, dropping the synthetic tile-rect edges
@@ -1525,10 +1542,22 @@ export function compileSingleTile(
       const clipped = clipPolygonToRect(part.rings, stMxW, stMyS, stMxE, stMyN, precisionMM)
       if (clipped.length > 0 && clipped[0].length >= 3) {
         const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryMerc, mercatorToleranceForZoom(z)) : clipped
-        if (dataRings.length > 0 && dataRings[0].length >= 3) {
-          tessellatePolygonToArrays(dataRings, fid, scratch.pv, scratch.pi, dedupMap)
+        // See compileGeoJSONToTiles for the back-track repair rationale —
+        // splits a self-intersecting clipped ring into clean sub-rings
+        // before tessellate. Each sub-ring becomes its own polygon
+        // (separate tessellate call) since they represent disconnected
+        // interior components.
+        const repairedRings = dataRings.length > 0
+          ? dataRings.flatMap(r => splitBoundaryBacktracks(r, stMxW, stMyS, stMxE, stMyN))
+          : []
+        if (repairedRings.length > 0 && repairedRings[0]!.length >= 3) {
+          for (const subRing of repairedRings) {
+            if (subRing.length >= 3) {
+              tessellatePolygonToArrays([subRing], fid, scratch.pv, scratch.pi, dedupMap)
+            }
+          }
           featureIds.add(fid)
-          tilePolygons.push({ rings: dataRings, featId: fid })
+          tilePolygons.push({ rings: repairedRings, featId: fid })
         }
         // Outline shares the MM-clipped rings with the fill — endpoints
         // land on the exact same tile-boundary MM points the fill
