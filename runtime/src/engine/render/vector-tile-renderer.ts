@@ -4,6 +4,7 @@
 // This class manages GPU buffers, bind groups, and draw calls only.
 
 import type { GPUContext } from '../gpu/gpu'
+import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
 import { interpolateZoom } from './renderer'
@@ -3004,9 +3005,15 @@ export class VectorTileRenderer {
       //     accept depth-write — better z-fighting than a layout
       //     mismatch that drops the whole encoder.
       const groundIsBase = bindGroupLayout === this.baseBindGroupLayout
-      const groundForLayout: GPURenderPipeline | null = groundIsBase
-        ? this.fillPipelineGround
-        : (fillPipelineGroundOverride ?? null)
+      // ?debug=overdraw: VTR's internal `fillPipelineGround` targets the
+      // swapchain format, but the caller's `fillPipelineGroundOverride`
+      // is the r16float debug variant. Always prefer the override here
+      // so the entire opaque pass agrees on the r16float attachment.
+      const groundForLayout: GPURenderPipeline | null = DEBUG_OVERDRAW
+        ? (fillPipelineGroundOverride ?? fillPipeline)
+        : (groundIsBase
+            ? this.fillPipelineGround
+            : (fillPipelineGroundOverride ?? null))
       const mainFill = this.currentExtrudeMode === 'none' && groundForLayout !== null
         ? groundForLayout
         : fillPipeline
@@ -3066,9 +3073,11 @@ export class VectorTileRenderer {
       // base layout uses the renderer-level fallback ground; feature
       // layout uses the variant's fallback ground override.
       const fallbackGroundIsBase = bindGroupLayout === this.baseBindGroupLayout
-      const fallbackGroundForLayout: GPURenderPipeline | null = fallbackGroundIsBase
-        ? this.fillPipelineGroundFallback
-        : (fillPipelineGroundFallbackOverride ?? null)
+      const fallbackGroundForLayout: GPURenderPipeline | null = DEBUG_OVERDRAW
+        ? (fillPipelineGroundFallbackOverride ?? fillPipelineFallback ?? null)
+        : (fallbackGroundIsBase
+            ? this.fillPipelineGroundFallback
+            : (fillPipelineGroundFallbackOverride ?? null))
       const fallbackFill = this.currentExtrudeMode === 'none' && fallbackGroundForLayout !== null
         ? fallbackGroundForLayout
         : fillPipelineFallback
@@ -3530,11 +3539,17 @@ export class VectorTileRenderer {
           && this.currentExtrudeMode === 'per-feature'
           && cached.zBuffer !== null
           && fillPipelineExtruded !== null
-        const activePipe = useOitPipe
-          ? this.fillPipelineExtrudedOIT!
-          : useExtrudedPipe
-            ? fillPipelineExtruded!
-            : fillPipeline
+        // Debug=overdraw: collapse OIT + extruded paths onto the
+        // single overdraw pipeline supplied as `fillPipeline`. The
+        // OIT / extruded variants target their own formats which
+        // don't match the r16float accumulator attached to this pass.
+        const activePipe = DEBUG_OVERDRAW
+          ? fillPipeline
+          : (useOitPipe
+              ? this.fillPipelineExtrudedOIT!
+              : useExtrudedPipe
+                ? fillPipelineExtruded!
+                : fillPipeline)
         pass.setPipeline(activePipe)
         pass.setBindGroup(0, currentTileBg, [slotOffset])
         pass.setVertexBuffer(0, cached.vertexBuffer)

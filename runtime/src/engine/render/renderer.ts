@@ -13,6 +13,7 @@ import {
   MSAA_4X, WORLD_MERC, worldCopiesFor,
 } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
+import { DEBUG_OVERDRAW } from '../debug-flags'
 import { WGSL_LOG_DEPTH_FNS } from '../shaders/log-depth'
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projection'
 
@@ -445,6 +446,18 @@ fn fs_stroke(input: VertexOutput) -> FragmentOutput {
   __PICK_WRITE__
   out.depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
   return out;
+}
+
+// ?debug=overdraw — single constant-output entry shared by every
+// debug-variant pipeline (fill, stroke, fallback, etc.). Vertex
+// shaders still project correctly so the rasterizer produces the
+// SAME fragments as the normal path; FS work collapses to one
+// write that an additive blend sums into the r16float accumulator.
+// Counts SUBMITTED overdraw — depth is forced always, no stencil,
+// no clip-bounds discard — matching the MapLibre debug convention.
+@fragment
+fn fs_overdraw() -> @location(0) vec4<f32> {
+  return vec4<f32>(1.0, 0.0, 0.0, 0.0);
 }
 `
 
@@ -1048,6 +1061,25 @@ export class MapRenderer {
    *  recovered translucent color onto the opaque framebuffer. */
   oitComposePipeline!: GPURenderPipeline
   oitComposeBindGroupLayout!: GPUBindGroupLayout
+  /** `?debug=overdraw` final pass — fullscreen quad samples the
+   *  r16float overdraw accumulator and writes a heat-colormapped RGBA
+   *  to the swapchain. Built lazily on first call to ensureOverdrawCompose. */
+  overdrawComposePipeline: GPURenderPipeline | null = null
+  overdrawComposeBindGroupLayout!: GPUBindGroupLayout
+  /** `?debug=overdraw` — fill pipeline mirror (base bind group
+   *  layout). FS replaced with `fs_overdraw`, color target r16float
+   *  + additive. Variant shows that use the feature bind group
+   *  layout select `fillPipelineOverdrawFeature` instead. */
+  fillPipelineOverdraw: GPURenderPipeline | null = null
+  /** `?debug=overdraw` — fill pipeline mirror for feature-layout
+   *  shows (data-driven variants that bind a per-feature storage
+   *  buffer alongside the uniform). */
+  fillPipelineOverdrawFeature: GPURenderPipeline | null = null
+  /** `?debug=overdraw` — line pipeline mirror (base bind group
+   *  layout). Lines go through LineRenderer.drawSegments today,
+   *  which is gated off in debug mode; this pipeline is here for
+   *  completeness in case a future caller setPipelines it. */
+  linePipelineOverdraw: GPURenderPipeline | null = null
   linePipeline!: GPURenderPipeline
   // Stencil-test pipelines: only draw where stencil = 0 (not covered by children)
   fillPipelineFallback!: GPURenderPipeline
@@ -1129,6 +1161,83 @@ export class MapRenderer {
     // render when `getOrCreateVariantPipelines` sees a cache miss.
     this.shaderCache.clear()
     this.initPipelines()
+    this.overdrawComposePipeline = null
+  }
+
+  /** Lazy-build the `?debug=overdraw` final compose pipeline. Samples
+   *  the r16float overdraw accumulator and writes a heat-colormapped
+   *  RGBA to the swapchain. SampleCount = 1 (debug mode forces MSAA
+   *  off in `quality.ts`), so this pipeline never needs MSAA variants.
+   *  Idempotent — first call builds, subsequent calls reuse. */
+  ensureOverdrawCompose(): GPURenderPipeline {
+    if (this.overdrawComposePipeline) return this.overdrawComposePipeline
+    const { device, format } = this.ctx
+    const code = /* wgsl */ `
+struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> }
+
+@vertex
+fn vs_full(@builtin(vertex_index) idx: u32) -> VsOut {
+  // Oversized triangle covering NDC — same trick as oit-compose.
+  var pos: vec2<f32>;
+  if (idx == 0u)      { pos = vec2<f32>(-1.0, -1.0); }
+  else if (idx == 1u) { pos = vec2<f32>( 3.0, -1.0); }
+  else                { pos = vec2<f32>(-1.0,  3.0); }
+  var out: VsOut;
+  out.pos = vec4<f32>(pos, 0.0, 1.0);
+  // y-flip — texture origin top-left, NDC origin bottom-left.
+  out.uv = vec2<f32>((pos.x + 1.0) * 0.5, 1.0 - (pos.y + 1.0) * 0.5);
+  return out;
+}
+
+@group(0) @binding(0) var accum_tex: texture_2d<f32>;
+
+// Heat colormap — black → blue → green → yellow → red → white. Tuned
+// so 1-2 overdraws are visibly cool, 8 mid-warm, 16+ saturated red.
+fn colormap(t: f32) -> vec3<f32> {
+  let s = clamp(t, 0.0, 1.0);
+  // 4-stop piecewise: dark navy (0, 0.05, 0.2) → cyan (0, 0.6, 0.6) →
+  // yellow (1, 1, 0) → red (1, 0.2, 0). Polynomial fit, no branching.
+  let r = clamp(s * 3.0 - 0.5, 0.0, 1.0);
+  let g = clamp(s * 2.5, 0.0, 1.0) * clamp(2.0 - s * 2.0, 0.0, 1.0);
+  let b = clamp(0.6 - s * 1.5, 0.0, 1.0);
+  return vec3<f32>(r, g, b);
+}
+
+@fragment
+fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
+  let dim = vec2<f32>(textureDimensions(accum_tex));
+  let uv = vec2<i32>(in.uv * dim);
+  let count = textureLoad(accum_tex, uv, 0).r;
+  if (count < 0.5) {
+    // No fragments → empty pixel, leave dark to distinguish from "1 draw".
+    return vec4<f32>(0.02, 0.02, 0.04, 1.0);
+  }
+  // Exposure: 16 overdraws → fully saturated. Tunable constant; viable
+  // range 8 (label-heavy scenes) to 32 (extruded-building scenes).
+  let t = count / 16.0;
+  return vec4<f32>(colormap(t), 1.0);
+}
+`
+    const module = device.createShaderModule({ code, label: 'overdraw-compose-shader' })
+    this.overdrawComposeBindGroupLayout = device.createBindGroupLayout({
+      label: 'overdraw-compose-bgl',
+      entries: [{
+        binding: 0, visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: 'unfilterable-float', multisampled: false },
+      }],
+    })
+    this.overdrawComposePipeline = device.createRenderPipeline({
+      label: 'overdraw-compose-pipeline',
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.overdrawComposeBindGroupLayout] }),
+      vertex: { module, entryPoint: 'vs_full' },
+      fragment: {
+        module, entryPoint: 'fs_compose',
+        targets: [{ format }],
+      },
+      primitive: { topology: 'triangle-list' },
+      multisample: { count: 1 },
+    })
+    return this.overdrawComposePipeline
   }
 
   private initPipelines(): void {
@@ -1317,6 +1426,69 @@ export class MapRenderer {
     this.fillPipelineGroundFallback = pickable.fillGroundFallback
     this.fillPipelineExtrudedFallback = pickable.fillExtrudedFallback
     this.linePipelineFallback = pickable.lineFallback
+
+    // `?debug=overdraw` — fill + line debug mirrors. Same VS as the
+    // opaque pipelines so the rasterizer produces matching fragment
+    // coverage; FS collapses to `fs_overdraw` (constant 1.0 R, alpha
+    // 0). Color target r16float + additive blend accumulates fragment
+    // counts. Depth-stencil `always` + no writes so every rasterized
+    // fragment contributes (submitted overdraw, the MapLibre debug-
+    // mode convention). One pipeline per primitive type covers every
+    // fill / line draw in the opaque bucket — map.ts overrides
+    // cs.fp / cs.lp / cs.fpF etc. to point at these in debug mode.
+    if (DEBUG_OVERDRAW) {
+      const overdrawTargets: GPUColorTargetState[] = [{
+        format: 'r16float',
+        blend: {
+          color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+        },
+      }]
+      const overdrawDepthStencil: GPUDepthStencilState = {
+        format: 'depth24plus-stencil8',
+        depthCompare: 'always',
+        depthWriteEnabled: false,
+        stencilFront: { compare: 'always', passOp: 'keep' },
+        stencilBack: { compare: 'always', passOp: 'keep' },
+        stencilWriteMask: 0x00,
+        stencilReadMask: 0x00,
+      }
+      this.fillPipelineOverdraw = device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_overdraw', targets: overdrawTargets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: overdrawDepthStencil,
+        multisample: { count: 1 },
+        label: 'fill-pipeline-overdraw',
+      })
+      // Feature-layout variant — for data-driven shows whose bgl is
+      // `featureBindGroupLayout`. WebGPU compares bind-group layouts
+      // by identity, so we need a dedicated pipeline whose
+      // pipelineLayout references the same featureBindGroupLayout.
+      const featurePipelineLayout = device.createPipelineLayout({
+        label: 'mr-overdrawPipelineLayout(feature)',
+        bindGroupLayouts: [this.featureBindGroupLayout],
+      })
+      this.fillPipelineOverdrawFeature = device.createRenderPipeline({
+        layout: featurePipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_overdraw', targets: overdrawTargets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: overdrawDepthStencil,
+        multisample: { count: 1 },
+        label: 'fill-pipeline-overdraw-feature',
+      })
+      this.linePipelineOverdraw = device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main', buffers: [lineVertexBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_overdraw', targets: overdrawTargets },
+        primitive: { topology: 'line-list', cullMode: 'none' },
+        depthStencil: overdrawDepthStencil,
+        multisample: { count: 1 },
+        label: 'line-pipeline-overdraw',
+      })
+    }
 
     // OIT translucent extrude pipeline — separate from buildSet
     // because it targets the OIT MRT pair (rgba16float accum +
@@ -2081,6 +2253,11 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
 
   /** Render all layers into an existing render pass (RTC projection) */
   renderToPass(pass: GPURenderPassEncoder, camera: Camera, projType = 0, projCenterLon = 0, projCenterLat = 20, elapsedMs = 0): void {
+    // Overdraw-debug v1: legacy MapRenderer layers (graticule, etc.)
+    // bake their pipeline against the swapchain format. The pass
+    // attachment in debug mode is r16float — formats mismatch. Skip
+    // entirely. Vector content goes through VTR, not this path.
+    if (DEBUG_OVERDRAW) return
     const { device, canvas } = this.ctx
     // RTC: no translation in MVP, projection center is at (0,0).
     // Compute the live DPR so the camera matrix uses CSS-pixel altitude

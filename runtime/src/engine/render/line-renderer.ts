@@ -39,6 +39,7 @@
 //    and is deferred.
 
 import { isPickEnabled, getSampleCount, type GPUContext } from '../gpu/gpu'
+import { DEBUG_OVERDRAW } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool } from '../gpu/staging-buffer-pool'
 import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, DEPTH_READ_ONLY } from '../gpu/gpu-shared'
 import {
@@ -1712,6 +1713,11 @@ export class LineRenderer {
     translucent: boolean = false,
   ): void {
     if (segmentCount === 0) return
+    // Overdraw-debug v1: SDF stroke pipeline targets the swapchain
+    // format; r16float accumulator would mismatch. Skip — strokes
+    // don't contribute to the v1 heatmap. Phase 2 adds an additive
+    // r16float variant so line overdraw counts too.
+    if (DEBUG_OVERDRAW) return
     pass.setPipeline(translucent ? this.pipelineMax : this.pipeline)
     pass.setBindGroup(0, tileBindGroup, [tileOffset])
     pass.setBindGroup(1, layerBindGroup, [layerOffset])

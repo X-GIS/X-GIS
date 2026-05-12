@@ -5,6 +5,7 @@ import type * as AST from '@xgis/compiler'
 import { BackgroundRenderer } from './render/background-renderer'
 import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
 import { initGPU, resizeCanvas, GPU_PROF, getSampleCount, getMaxDpr, isPickEnabled, type GPUContext } from './gpu/gpu'
+import { DEBUG_OVERDRAW } from './debug-flags'
 import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT, WORLD_MERC, WORLD_COPIES, TILE_PX } from './gpu/gpu-shared'
 import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './gpu/quality'
 import { GPUTimer } from './gpu/gpu-timer'
@@ -211,6 +212,10 @@ export class XGISMap {
   // alpha blending in a single translucent draw pass.
   private oitAccumTexture: GPUTexture | null = null
   private oitRevealageTexture: GPUTexture | null = null
+  /** `?debug=overdraw` accumulator — every renderer's debug pipeline
+   *  writes 1.0 (additive) to this r16float target instead of the
+   *  swapchain. A final compose pass colormaps the result to RGBA. */
+  private overdrawAccumTexture: GPUTexture | null = null
   private msaaWidth = 0
   private msaaHeight = 0
 
@@ -1749,6 +1754,8 @@ export class XGISMap {
         this.pickTexture?.destroy()
         this.oitAccumTexture?.destroy()
         this.oitRevealageTexture?.destroy()
+        this.overdrawAccumTexture?.destroy()
+        this.overdrawAccumTexture = null
         // Allocate the MSAA color attachment ONLY when MSAA is on. When
         // sc === 1 we render straight to the swapchain (no resolveTarget)
         // and the MSAA texture would just waste w×h×4 bytes per frame.
@@ -1797,6 +1804,18 @@ export class XGISMap {
           usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
           label: 'oit-revealage',
         })
+        if (DEBUG_OVERDRAW) {
+          // r16float lets per-pixel additive accumulation grow well
+          // past the [0, 1] swapchain range. MSAA forced to 1× in
+          // quality.ts when debug=overdraw, so sampleCount=1 here.
+          this.overdrawAccumTexture = device.createTexture({
+            size: { width: w, height: h },
+            format: 'r16float',
+            sampleCount: 1,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            label: 'overdraw-accum',
+          })
+        }
         this.msaaWidth = w
         this.msaaHeight = h
       }
@@ -1804,7 +1823,16 @@ export class XGISMap {
       // When SAMPLE_COUNT === 1 (mobile / no MSAA), render DIRECTLY to the
       // swapchain texture and never set a resolveTarget — single-sample
       // attachments cannot have a resolve target per WebGPU spec.
-      const colorView = useResolve ? this.msaaTexture!.createView() : screenView
+      //
+      // `?debug=overdraw` reroutes every opaque/translucent pass into the
+      // r16float accumulator instead. A trailing compose pass at the end
+      // of the frame samples the accumulator and writes the colormap to
+      // the swapchain. Translucent/OIT paths still run — their debug
+      // pipeline mirrors emit into the same accumulator with additive
+      // blend, so the heatmap counts every contributing draw.
+      const colorView = DEBUG_OVERDRAW
+        ? this.overdrawAccumTexture!.createView()
+        : (useResolve ? this.msaaTexture!.createView() : screenView)
 
       // Reset per-frame uniform ring cursors (dynamic-offset slots).
       this.renderer.beginFrame()
@@ -1948,8 +1976,14 @@ export class XGISMap {
             // corners outside the sphere). Mapbox `background`
             // semantics — earth-surface fill — is now handled
             // through the regular tile pipeline via a synthetic
-            // GeoJSON source injected at parse time.
-            clearValue: isFirst ? { r: 0.039, g: 0.039, b: 0.063, a: 1 } : undefined,
+            // GeoJSON source injected at parse time. In debug=overdraw
+            // mode the r16float accumulator clears to 0 — every fragment
+            // count starts from zero.
+            clearValue: isFirst
+              ? (DEBUG_OVERDRAW
+                  ? { r: 0, g: 0, b: 0, a: 0 }
+                  : { r: 0.039, g: 0.039, b: 0.063, a: 1 })
+              : undefined,
             loadOp: isFirst ? 'clear' : 'load',
             storeOp: 'store',
           }]
@@ -2028,22 +2062,35 @@ export class XGISMap {
               const ex = (cs.show as { extrude?: { kind?: string } }).extrude
               return !!ex && ex.kind !== undefined && ex.kind !== 'none'
             }
+            // Debug=overdraw: collapse every fill variant onto the
+            // single fill debug pipeline whose bgl matches the show's.
+            // VTR's setPipeline calls use it uniformly — fallback /
+            // ground / extruded variants all output the same constant
+            // fragment count. Line pipeline is unused inside VTR's
+            // debug path (strokes route through LineRenderer which is
+            // gated off too), but we still pass a non-null override
+            // for completeness.
             const drawShow = (cs: typeof group.shows[number]) => {
-              // Always pass pointRenderer so VTR can flush any TILE
-              // points stored on this source's xgvt data. The tile
-              // loop short-circuits when no point vertices exist,
-              // so there's no cost for plain polygon/line sources.
-              // Direct-layer points (pointRenderer.addLayer
-              // registered) are rendered separately in bucket 3
-              // below.
+              const debugFp = DEBUG_OVERDRAW
+                ? (cs.bgl === this.renderer.featureBindGroupLayout
+                    ? this.renderer.fillPipelineOverdrawFeature!
+                    : this.renderer.fillPipelineOverdraw!)
+                : null
+              const debugLp = DEBUG_OVERDRAW ? this.renderer.linePipelineOverdraw! : null
+              const fp = debugFp ?? cs.fp
+              const lp = debugLp ?? cs.lp
+              const fpF = debugFp ?? cs.fpF
+              const lpF = debugLp ?? cs.lpF
+              const fpG = debugFp ?? cs.fpG
+              const fpGF = debugFp ?? cs.fpGF
               cs.vtEntry.renderer.render(
                 subPass, this.camera, projType, centerLon, centerLat, w, h,
-                cs.show, cs.fp, cs.lp, this.renderer.uniformBuffer, cs.bgl,
-                cs.fpF, cs.lpF,
-                this.pointRenderer,
+                cs.show, fp, lp, this.renderer.uniformBuffer, cs.bgl,
+                fpF, lpF,
+                DEBUG_OVERDRAW ? null : this.pointRenderer,
                 cs.fillPhase,
                 dpr,
-                cs.fpG, cs.fpGF,
+                fpG, fpGF,
               )
             }
             for (let si = 0; si < group.shows.length; si++) {
@@ -2064,7 +2111,7 @@ export class XGISMap {
       // then blend the recovered colour onto the resolved main
       // colour with a full-screen compose draw. Order-independent
       // by construction — no back-to-front sort.
-      if (hasOit) {
+      if (hasOit && !DEBUG_OVERDRAW) {
         passScope('oit-fill', () => {
           // OIT pass shares the opaque pass's MSAA depth-stencil
           // (depthLoadOp='load' so the opaque depth is what
@@ -2130,7 +2177,7 @@ export class XGISMap {
       }
 
       // ── Bucket 2: translucent offscreen + composite ──
-      if (hasTranslucent) {
+      if (hasTranslucent && !DEBUG_OVERDRAW) {
         for (let li = 0; li < translucent.length; li++) {
           const cs = translucent[li]
           const isLastTranslucent = li === translucent.length - 1
@@ -2171,7 +2218,7 @@ export class XGISMap {
       // pointRenderer.addLayer in rebuildLayers). Always runs when
       // direct layers exist; tile-points are handled inline in
       // bucket 1 via VTR.render's pointRenderer parameter.
-      if (hasPoints) {
+      if (hasPoints && !DEBUG_OVERDRAW) {
         passScope('points', () => {
           const ptPass = encoder.beginRenderPass({
             colorAttachments: [{
@@ -2640,20 +2687,53 @@ export class XGISMap {
         }
 
         stage.prepare()
-        passScope('text-overlay', () => {
-          const tPass = encoder.beginRenderPass({
-            colorAttachments: [{
-              view: colorView,
-              resolveTarget: useResolve ? screenView : undefined,
-              loadOp: 'load',
-              storeOp: 'store',
-            }],
+        // Text overlay v1: skipped in debug=overdraw — text pipeline
+        // targets the swapchain format, not r16float. Phase 2 adds
+        // a text debug pipeline so glyph + halo overdraw counts.
+        if (!DEBUG_OVERDRAW) {
+          passScope('text-overlay', () => {
+            const tPass = encoder.beginRenderPass({
+              colorAttachments: [{
+                view: colorView,
+                resolveTarget: useResolve ? screenView : undefined,
+                loadOp: 'load',
+                storeOp: 'store',
+              }],
+            })
+            stage.render(tPass, { width: w, height: h })
+            tPass.end()
           })
-          stage.render(tPass, { width: w, height: h })
-          tPass.end()
-        })
+        }
         stage.reset()
       }
+    }
+
+    // ── Debug overdraw compose ──
+    // Read the r16float accumulator and write a colormapped RGBA to
+    // the swapchain. Runs as the LAST pass of the frame so it owns
+    // the swapchain attachment.
+    if (DEBUG_OVERDRAW && this.overdrawAccumTexture) {
+      passScope('overdraw-compose', () => {
+        const pipeline = this.renderer.ensureOverdrawCompose()
+        const compPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: screenView,
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: 'clear', storeOp: 'store',
+          }],
+        })
+        const bg = this.ctx.device.createBindGroup({
+          layout: this.renderer.overdrawComposeBindGroupLayout,
+          entries: [{
+            binding: 0,
+            resource: this.overdrawAccumTexture!.createView(),
+          }],
+        })
+        compPass.setPipeline(pipeline)
+        compPass.setBindGroup(0, bg)
+        compPass.draw(3)
+        compPass.end()
+      })
     }
 
     // Flush CPU-side uniform-ring mirrors just before submit. WebGPU

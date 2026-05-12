@@ -27,6 +27,13 @@
 
 import type { GPUContext } from '../gpu/gpu'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
+import {
+  DEBUG_OVERDRAW,
+  OVERDRAW_ACCUM_FORMAT,
+  OVERDRAW_FS_SOURCE,
+  OVERDRAW_BLEND_STATE,
+  OVERDRAW_DEPTH_STENCIL,
+} from '../debug-flags'
 
 const BG_SHADER = /* wgsl */ `
 struct U { color: vec4<f32> }
@@ -68,6 +75,10 @@ fn fs(in: VOut) -> FOut {
 export class BackgroundRenderer {
   private device: GPUDevice
   private bgPipeline: GPURenderPipeline | null = null
+  /** Debug-overdraw variant — same VS, FS replaced with constant
+   *  output (`fs_overdraw`), color target swapped to r16float
+   *  additive. Lazy-built on first render when DEBUG_OVERDRAW is on. */
+  private bgPipelineOverdraw: GPURenderPipeline | null = null
   private bgUniformBuffer: GPUBuffer
   private bgBindGroup: GPUBindGroup | null = null
   private bgBindGroupLayout: GPUBindGroupLayout
@@ -151,13 +162,54 @@ export class BackgroundRenderer {
     })
   }
 
+  /** Debug-overdraw pipeline — additive accumulation into the
+   *  r16float overdraw RT. Shares the same VS as the main pipeline
+   *  (a fullscreen quad needs no projection), so the only differences
+   *  are the FS entry point, the color target format/blend, and the
+   *  depth-stencil state (always-pass, no writes — counts SUBMITTED
+   *  overdraw to match the MapLibre debug convention). */
+  private buildPipelineOverdraw(): GPURenderPipeline {
+    // Reuse the same vertex shader; replace FS by appending the
+    // shared overdraw FS. The BG shader's fs_main entry stays alive
+    // but is unused in this pipeline.
+    const code = BG_SHADER
+      .replace(/__PICK_FIELD__/g, '')
+      .replace(/__PICK_OUT_FIELD__/g, '')
+      .replace(/__PICK_WRITE__/g, '')
+      + OVERDRAW_FS_SOURCE
+    const module = this.device.createShaderModule({ code, label: 'bg-overdraw-shader' })
+    return this.device.createRenderPipeline({
+      layout: this.device.createPipelineLayout({
+        bindGroupLayouts: [this.bgBindGroupLayout],
+        label: 'bg-overdraw-pl',
+      }),
+      vertex: { module, entryPoint: 'vs' },
+      fragment: {
+        module, entryPoint: 'fs_overdraw',
+        targets: [{ format: OVERDRAW_ACCUM_FORMAT, blend: OVERDRAW_BLEND_STATE }],
+      },
+      primitive: { topology: 'triangle-list' },
+      depthStencil: OVERDRAW_DEPTH_STENCIL,
+      multisample: { count: 1 },
+      label: 'bg-overdraw-pipeline',
+    })
+  }
+
   /** Rebuild pipeline (call from setQuality reroll). */
   rebuildForQuality(): void {
     this.bgPipeline = null
+    this.bgPipelineOverdraw = null
   }
 
   render(pass: GPURenderPassEncoder): void {
     if (!this.fillRgba) return
+    if (DEBUG_OVERDRAW) {
+      if (!this.bgPipelineOverdraw) this.bgPipelineOverdraw = this.buildPipelineOverdraw()
+      pass.setPipeline(this.bgPipelineOverdraw)
+      pass.setBindGroup(0, this.bgBindGroup!)
+      pass.draw(6)
+      return
+    }
     if (!this.bgPipeline) this.bgPipeline = this.buildPipeline()
     // Skip writeBuffer when color hasn't changed since last render.
     if (

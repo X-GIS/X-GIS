@@ -175,6 +175,20 @@ function resolveQuality(): QualityConfig {
     base.msaa = 1
   }
 
+  // ?debug=overdraw — fragment-count heatmap mode. Forces msaa=1
+  // (debug pipelines mirror only the single-sample path; adding 4×
+  // variants for a debug mode isn't worth the pipeline-state matrix
+  // blow-up) and picking=false (the uint pick attachment confuses
+  // the additive r16float accumulator routing). debug-flags.ts is
+  // the source of truth for the flag itself; we re-read the URL
+  // here to avoid an import cycle (debug-flags depends on nothing,
+  // quality.ts depends on nothing — they meet here at the resolver).
+  const debugParam = params.get('debug')
+  if (debugParam === 'overdraw') {
+    base.msaa = 1
+    base.picking = false
+  }
+
   // Adaptive MSAA: at DPR ≥ 2 the device-pixel density already
   // super-samples polygon edges (a single CSS pixel becomes 4 — at
   // DPR=2 — or 9 — at DPR=3 — device sub-pixels). Stacking MSAA=4
