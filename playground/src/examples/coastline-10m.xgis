@@ -11,7 +11,7 @@
 
 source coast {
   type: geojson
-  url: "ne_110m_coastline.xgvt"
+  url: "ne_110m_coastline.geojson"
 }
 
 /* Dark halo beneath the main stroke */

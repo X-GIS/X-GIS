@@ -7,22 +7,22 @@
 
 source land_110 {
   type: geojson
-  url: "ne_110m_land.xgvt"
+  url: "ne_110m_land.geojson"
 }
 
 source land_10 {
   type: geojson
-  url: "ne_10m_land.xgvt"
+  url: "ne_10m_land.geojson"
 }
 
 source rivers_50 {
   type: geojson
-  url: "ne_50m_rivers.xgvt"
+  url: "ne_50m_rivers.geojson"
 }
 
 source rivers_10 {
   type: geojson
-  url: "ne_10m_rivers.xgvt"
+  url: "ne_10m_rivers.geojson"
 }
 
 /* Coarse land — fade OUT after z5 so it doesn't double up on land_high */

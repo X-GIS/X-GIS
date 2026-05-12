@@ -8,17 +8,17 @@
 
 source land {
   type: geojson
-  url: "ne_10m_land.xgvt"
+  url: "ne_10m_land.geojson"
 }
 
 source rivers {
   type: geojson
-  url: "ne_10m_rivers.xgvt"
+  url: "ne_10m_rivers.geojson"
 }
 
 source lakes {
   type: geojson
-  url: "ne_10m_lakes.xgvt"
+  url: "ne_10m_lakes.geojson"
 }
 
 layer land {

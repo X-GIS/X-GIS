@@ -6,12 +6,12 @@
 
 source land {
   type: geojson
-  url: "ne_10m_land.xgvt"
+  url: "ne_10m_land.geojson"
 }
 
 source states {
   type: geojson
-  url: "ne_10m_states.xgvt"
+  url: "ne_10m_states.geojson"
 }
 
 source cities {

@@ -359,13 +359,13 @@ editor.addAction({
 const TAG_ORDER_DROPDOWN: string[] = [
   'basic', 'style', 'raster', 'zoom', 'layer',
   'line', 'point', 'per-feature', 'data-driven',
-  'xgvt', 'natural-earth', '10m', 'thematic',
+  'vector-tiles', 'natural-earth', '10m', 'thematic',
   'fixture',
 ]
 const TAG_LABELS_DROPDOWN: Record<string, string> = {
   basic: 'Basic', style: 'Style & Filter', raster: 'Raster',
   zoom: 'Zoom', layer: 'Multi-Layer', 'per-feature': 'Per-Feature',
-  xgvt: 'Vector Tiles (XGVT)', 'natural-earth': 'Natural Earth',
+  'vector-tiles': 'Vector Tiles', 'natural-earth': 'Natural Earth',
   'data-driven': 'Data-Driven', point: 'Points & Shapes',
   line: 'SDF Lines', '10m': 'High Detail (10m)',
   thematic: 'Thematic', fixture: 'Fixtures',

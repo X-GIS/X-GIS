@@ -1,6 +1,6 @@
 source states {
   type: geojson
-  url: "ne_50m_states.xgvt"
+  url: "ne_50m_states.geojson"
 }
 
 layer states {

@@ -7,7 +7,7 @@
 
 source ocean {
   type: geojson
-  url: "ne_110m_ocean.xgvt"
+  url: "ne_110m_ocean.geojson"
 }
 
 source countries {
@@ -17,12 +17,12 @@ source countries {
 
 source states_50 {
   type: geojson
-  url: "ne_50m_states.xgvt"
+  url: "ne_50m_states.geojson"
 }
 
 source states_10 {
   type: geojson
-  url: "ne_10m_states.xgvt"
+  url: "ne_10m_states.geojson"
 }
 
 layer sea {

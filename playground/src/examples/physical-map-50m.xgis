@@ -1,21 +1,21 @@
 source ocean {
   type: geojson
-  url: "ne_110m_ocean.xgvt"
+  url: "ne_110m_ocean.geojson"
 }
 
 source land {
   type: geojson
-  url: "ne_110m_land.xgvt"
+  url: "ne_110m_land.geojson"
 }
 
 source rivers {
   type: geojson
-  url: "ne_50m_rivers.xgvt"
+  url: "ne_50m_rivers.geojson"
 }
 
 source lakes {
   type: geojson
-  url: "ne_50m_lakes.xgvt"
+  url: "ne_50m_lakes.geojson"
 }
 
 layer ocean {

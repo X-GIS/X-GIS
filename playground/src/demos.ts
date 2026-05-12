@@ -105,58 +105,51 @@ export const DEMOS: Record<string, Demo> = {
     source: load('categorical.xgis'),
   },
 
-  vector_tiles: {
-    name: 'Vector Tiles',
-    tag: 'xgvt',
-    description: 'Pre-tiled .xgvt file — COG-style Range Requests, adaptive zoom levels',
-    source: load('vector-tiles.xgis'),
-  },
-
   vector_categorical: {
-    name: 'VT + Categorical',
-    tag: 'xgvt',
-    description: 'Per-feature categorical colors on vector tiles with PropertyTable',
+    name: 'Categorical (Countries)',
+    tag: 'natural-earth',
+    description: 'Per-feature categorical colors on Natural Earth 110m country borders',
     source: load('vector-categorical.xgis'),
   },
 
   pmtiles_source: {
     name: 'PMTiles (MVT)',
-    tag: 'xgvt',
+    tag: 'vector-tiles',
     description: 'MVT-in-PMTiles archive — drop sample.pmtiles into playground/public to render',
     source: load('pmtiles-source.xgis'),
   },
 
   pmtiles_labels: {
     name: 'PMTiles labels',
-    tag: 'xgvt',
+    tag: 'vector-tiles',
     description: 'SDF text labels from MVT places — `label-["{.name}"]` on a vector-tile source-layer',
     source: load('pmtiles-labels.xgis'),
   },
 
   import_mapbox_style: {
     name: 'import "mapbox-style-url"',
-    tag: 'xgvt',
+    tag: 'vector-tiles',
     description: 'One-line splice import: runtime fetches OpenFreeMap Bright style.json, runs convertMapboxStyle, prepends the converted xgis. Zero JS glue.',
     source: load('import-mapbox-style.xgis'),
   },
 
   import_mapbox_inline_geojson: {
     name: 'import "mapbox-style" — inline GeoJSON',
-    tag: 'xgvt',
+    tag: 'vector-tiles',
     description: 'Mapbox style.json with an inline FeatureCollection in source.data. The importer captures the data via the inlineGeoJSON collector and auto-pushes it via setSourceData after run() — no host glue. Two red boxes (Korea + Tokyo) confirm the features rendered. Open #3.5/37/132 to frame both.',
     source: load('import-mapbox-inline-geojson.xgis'),
   },
 
   import_maplibre_demo: {
     name: 'import "maplibre-demo-style"',
-    tag: 'xgvt',
+    tag: 'vector-tiles',
     description: 'Canonical MapLibre demo style (https://demotiles.maplibre.org/style.json). Mapbox v8 schema, ~33 layers, vector tiles via TileJSON. Verifies X-GIS imports the wider MapLibre ecosystem (Versatiles, OpenFreeMap Liberty/Positron/Dark, MapTiler open styles) which all share this shape.',
     source: load('import-maplibre-demo.xgis'),
   },
 
   along_path_roads: {
     name: 'Along-path road labels',
-    tag: 'xgvt',
+    tag: 'vector-tiles',
     description: 'symbol-placement: line — label-along-path rotates each road name to match its segment tangent, so streets read along their geometry instead of horizontally.',
     source: load('along-path-roads.xgis'),
   },
@@ -177,35 +170,35 @@ export const DEMOS: Record<string, Demo> = {
 
   pmtiles_v4: {
     name: 'PMTiles — protomaps v4',
-    tag: 'xgvt',
+    tag: 'vector-tiles',
     description: 'Production protomaps daily world basemap (~6 GB, 176M tiles, z=0..15)',
     source: load('pmtiles-protomaps-v4.xgis'),
   },
 
   pmtiles_layered: {
     name: 'PMTiles — per-layer styling',
-    tag: 'xgvt',
+    tag: 'vector-tiles',
     description: 'Same v4 archive split into water/landuse/roads/buildings, each styled independently. Navigate to a city: #14/35.68/139.76 (Tokyo)',
     source: load('pmtiles-layered.xgis'),
   },
 
   openfreemap_bright: {
     name: 'OpenFreeMap — Bright (converted)',
-    tag: 'xgvt',
+    tag: 'vector-tiles',
     description: 'Live OpenFreeMap "bright" Mapbox style, run through the /convert pipeline. 93 layers, OpenMapTiles schema (water, landuse, building, transportation, …). Use this to stress-test pitched / panned views against a real-world style. Navigate to a city: #14/35.68/139.76 (Tokyo), #14/40.78/-73.97 (Manhattan).',
     source: load('openfreemap-bright.xgis'),
   },
 
   pmtiles_only_landuse: {
     name: 'PMTiles — landuse only (diag)',
-    tag: 'xgvt',
+    tag: 'vector-tiles',
     description: 'Diagnostic — single MVT layer (landuse) rendered alone in green. Used to isolate stripe artefacts.',
     source: load('pmtiles-only-landuse.xgis'),
   },
 
   osm_style: {
     name: 'OSM-style cartography',
-    tag: 'xgvt',
+    tag: 'vector-tiles',
     description: 'Richer cartographic rendering on protomaps v4: per-kind landuse + road hierarchy (minor/secondary/primary/highway/rail) + buildings. Navigate to a city: #14/35.68/139.76 (Tokyo), #14/40.78/-73.97 (Manhattan).',
     source: load('osm-style.xgis'),
   },
@@ -256,32 +249,18 @@ export const DEMOS: Record<string, Demo> = {
     source: load('physical-map.xgis'),
   },
 
-  physical_map_xgvt: {
-    name: 'Physical Map (XGVT)',
-    tag: 'xgvt',
-    description: 'Land, rivers, and lakes — all as .xgvt vector tiles',
-    source: load('physical-map-xgvt.xgis'),
-  },
-
   physical_map_50m: {
     name: 'Physical Map 50m',
-    tag: 'xgvt',
-    description: 'High-detail land + ocean + rivers + lakes (50m XGVT)',
+    tag: 'natural-earth',
+    description: 'High-detail land + ocean + rivers + lakes at 50m resolution',
     source: load('physical-map-50m.xgis'),
   },
 
   states_provinces: {
     name: 'States & Provinces',
-    tag: 'xgvt',
-    description: '50m admin-1 boundaries with categorical colors (XGVT)',
+    tag: 'natural-earth',
+    description: '50m admin-1 boundaries with categorical colors',
     source: load('states-provinces.xgis'),
-  },
-
-  countries_categorical_xgvt: {
-    name: 'Countries 110m (XGVT)',
-    tag: 'xgvt',
-    description: 'Natural Earth 110m countries as vector tiles with categorical colors',
-    source: load('countries-categorical-xgvt.xgis'),
   },
 
   // ── Data-driven styling (match/gradient) ──
