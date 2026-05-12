@@ -344,10 +344,22 @@ export class TextStage {
           lastSpaceI = -1
           continue
         }
-        // Track break candidates at U+0020 (space).
+        // Track break candidates at U+0020 (space). Spaces adjacent
+        // to U+002F (`/`) are NOT break candidates — multi-language
+        // compound names like "Sea of Japan / 日本海 / 동해" would
+        // otherwise wrap into "Sea of\nJapan /\n日本海 /\n동해…"
+        // (slashes orphaned at line ends). MapLibre keeps the slash
+        // wedged between its operands. The check looks at the previous
+        // codepoint (already a glyph) AND the next codepoint (look-
+        // ahead by one glyph) — both must be non-slash for the space
+        // to register.
         if (g.codepoint === 0x20) {
-          lastSpaceI = gi
-          lastSpaceW = lineW
+          const prevCp = gi > 0 ? glyphs[gi - 1]!.codepoint : 0
+          const nextCp = gi < glyphs.length - 1 ? glyphs[gi + 1]!.codepoint : 0
+          if (prevCp !== 0x2f && nextCp !== 0x2f) {
+            lastSpaceI = gi
+            lastSpaceW = lineW
+          }
         }
         if (lineW + adv > maxWidthPx && lastSpaceI > lineStart) {
           // Wrap at the most recent space. The space itself is
