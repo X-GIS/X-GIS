@@ -147,6 +147,7 @@ async function mountBoth(url: string): Promise<void> {
     attributionControl: { compact: true },
   })
   mlMap.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right')
+  ;(window as unknown as { __mlMap?: maplibregl.Map }).__mlMap = mlMap
 
   mlMap.on('load', () => {
     ;(window as unknown as { __mlReady?: boolean }).__mlReady = true
@@ -181,6 +182,7 @@ async function mountBoth(url: string): Promise<void> {
   }
 
   xgMap = new XGISMap(xgCanvas)
+  ;(window as unknown as { __xgisMap?: XGISMap }).__xgisMap = xgMap
   try {
     await xgMap.run(xgisSrc, location.origin + '/')
   } catch (e) {
