@@ -177,10 +177,14 @@ export function packLineLayerUniform(
   offsetPx: number = 0,
   viewportHeight: number = 1,
   /** Mapbox `paint.line-blur` — additional smoothstep feathering on
-   *  the edge, in CSS px. 0 (default) keeps the historical 1.5 px
-   *  AA expansion; positive values widen BOTH the geometry quad and
-   *  the smoothstep range so the edge soft-fades over `1.5 + blur`
-   *  pixels each side. */
+   *  the edge, in CSS px. The base AA reserve below (1.0 px) matches
+   *  MapLibre's native line antialiasing budget; `blur` adds on top
+   *  per the Mapbox spec ("Blur applied to the line, in pixels.").
+   *  Pre-fix the base was 1.5 px which over-softened every line edge
+   *  vs MapLibre side-by-side — the surplus 0.5 px each side showed
+   *  up as the coastline-band pixel diff dominating demotiles
+   *  parity-check (97 % of differing pixels at Korea z=5 sat in the
+   *  stroke band). */
   blurPx: number = 0,
 ): Float32Array {
   const buf = new Float32Array(LINE_UNIFORM_SIZE / 4)
@@ -198,8 +202,8 @@ export function packLineLayerUniform(
   const widthAlphaScale = strokeWidthPx >= 1.0 ? 1.0 : strokeWidthPx
   buf[3] = strokeColor[3] * opacity * widthAlphaScale
   buf[4] = effectiveWidthPx
-  // 1.5 px historical AA reserve + Mapbox-style blur extension.
-  buf[5] = 1.5 + Math.max(0, blurPx)
+  // AA reserve (1.0 px ≈ MapLibre native) + Mapbox-style blur on top.
+  buf[5] = 1.0 + Math.max(0, blurPx)
   buf[6] = mppAtCenter
   buf[7] = miterLimit
 
