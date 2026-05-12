@@ -1275,6 +1275,62 @@ export class XGISMap {
     this.rawDatasets.set(load.name, data)
   }
 
+  /** Phase 5f-2 opt-in: attach an INLINE GeoJSON source (filtered,
+   *  per-show) through VirtualPMTilesBackend, bypassing the legacy
+   *  pool.compile + setRawParts + GeoJSONRuntimeBackend chain. Run
+   *  when `__XGIS_USE_VIRTUAL_INLINE_GEOJSON` / `?virt_inline=1` is
+   *  set AND the show is simple (no filter, no geometryExpr, no
+   *  per-feature buffer variant — those still take the legacy path
+   *  until showSlices and feature-buffer build ordering are wired
+   *  through VirtualPMTilesBackend). */
+  private _attachInlineGeoJSONViaVirtualPMTiles(
+    vtKey: string,
+    filtered: GeoJSONFeatureCollection,
+    _show: ShowCommand,
+    source: TileCatalog,
+  ): void {
+    const backend = new VirtualPMTilesBackend({
+      sourceName: vtKey,
+      geojson: filtered,
+      // No per-show filter / extrude / stroke overrides here — those
+      // are exactly the cases the gate above rejects.
+    })
+    source.attachBackend(backend)
+
+    // Camera fit from the data's bounds. Same heuristic the legacy
+    // compile callback uses; the bounds come from a sync walk
+    // because we don't get a tileSet callback in this path.
+    this._runBoundsFitGate(() => {
+      let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity
+      const visit = (c: unknown): void => {
+        if (!Array.isArray(c)) return
+        if (typeof c[0] === 'number' && typeof c[1] === 'number') {
+          const lon = c[0] as number, lat = c[1] as number
+          if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon
+          if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat
+          return
+        }
+        for (const inner of c) visit(inner)
+      }
+      for (const f of filtered.features) {
+        if (f.geometry) visit((f.geometry as { coordinates?: unknown }).coordinates)
+      }
+      if (minLon < Infinity) {
+        const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
+        const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
+        this.camera.centerX = cx
+        this.camera.centerY = cy
+        const lonSpan = maxLon - minLon
+        const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+        const cssW = this.canvas.width / dpr
+        const degPerPx = lonSpan / cssW
+        this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+      }
+    })
+
+    this.invalidate()
+  }
+
   /** Phase 5e: attach a GeoJSON source through VirtualPMTilesBackend
    *  so it flows through the catalog + MVT-worker pipeline instead
    *  of the synchronous main-thread compileSync path. Mirrors the
@@ -1506,12 +1562,51 @@ export class XGISMap {
       vtRenderer.setSource(source)
       this.vtSources.set(vtKey, { source, renderer: vtRenderer })
 
+      // Phase 5f-2 opt-in path: route inline GeoJSON sources through
+      // VirtualPMTilesBackend (the same pipeline URL-loaded GeoJSON
+      // takes since Phase 5f-1). Gated behind a flag so the rollout
+      // can expand demo-by-demo as we confirm parity. Skipped when:
+      //   - the show carries a shader variant that needs the
+      //     per-feature data buffer (the legacy path's addTileLevel
+      //     + buildFeatureDataBuffer ordering is load-bearing for
+      //     match() / gradient() variants)
+      //   - the show carries a geometryExpr (procedural geometry
+      //     reads raw features, not tile geometry)
+      //   - filter is set (per-show filtering needs showSlices wiring
+      //     into VirtualPMTilesBackend — separate work)
+      const needsFeatureBuffer = !!(show.shaderVariant?.needsFeatureBuffer)
+      const useVirtualForInline = typeof window !== 'undefined'
+        && ((window as unknown as { __XGIS_USE_VIRTUAL_INLINE_GEOJSON?: boolean }).__XGIS_USE_VIRTUAL_INLINE_GEOJSON === true
+            || /[?&]virt_inline=1\b/.test(window.location.search))
+        && !hasFilter
+        && !show.geometryExpr?.ast
+        && !needsFeatureBuffer
+      if (useVirtualForInline) {
+        this._attachInlineGeoJSONViaVirtualPMTiles(vtKey, filtered, show, source)
+        // Setup shader variant pipelines + layout synchronously so the
+        // render loop has them on the first frame. needsFeatureBuffer
+        // shows take the legacy path above; the variant pipeline here
+        // is only the non-feature-buffer kind.
+        const variantSync = show.shaderVariant
+        let syncPipelines: typeof this.vtVariantPipelines = null
+        let syncLayout: GPUBindGroupLayout | null = null
+        if (variantSync && variantSync.preamble) {
+          try {
+            syncPipelines = this.renderer.getOrCreateVariantPipelines(variantSync as any)
+            syncLayout = this.renderer.bindGroupLayout
+          } catch (e) {
+            console.warn('[X-GIS] GeoJSON VT variant pipeline failed:', e)
+          }
+        }
+        this.vectorTileShows.push({ sourceName: vtKey, show, pipelines: syncPipelines, layout: syncLayout })
+        continue
+      }
+
+      // Legacy path: worker compile → setRawParts → GeoJSONRuntimeBackend.
       // Offload `decomposeFeatures` + `compileGeoJSONToTiles(z0)` to a
       // worker so earcut over 10k+ features no longer blocks the main
       // thread. The source is created empty up-front; when the pool
       // returns we call `addTileLevel` + `setRawParts` + fit the camera.
-      // Legacy behaviour (synchronous fit + first-frame z0) is preserved
-      // in the fallback path when the worker pool is unavailable.
       //
       // Stable-id policy (`feature.id` → `properties.id` → index) lives
       // in the worker now via the `'feature-id-fallback'` mode; see
