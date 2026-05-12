@@ -244,20 +244,23 @@ export class PanZoomController implements Controller {
 
       if (activePointers.size === 2) {
         // Two-finger: rotation + pinch zoom + pitch (vertical drag).
-        // User rotates their fingers CW (visually) — the bearing
-        // change should match the user's "rotate the compass right"
-        // intuition: bearing increases. getPinchAngle uses screen-Y-
-        // down atan2, so a CW finger rotation produces a positive
-        // delta; feeding it into rotate(delta) gives bearing+, the
-        // same direction the single-pointer drag uses above. (Old
-        // code had this inverted relative to the drag handler;
-        // gestures didn't agree.)
+        // Pinch uses the "grab the map and twist it" intuition: when
+        // the user rotates their fingers CW, the map content rotates
+        // CW with the fingers. getPinchAngle is screen-Y-down atan2
+        // so CW finger motion produces a positive delta; bearing
+        // must DECREASE to make the world rotate CW from the user's
+        // POV (Mapbox/MapLibre convention has bearing+ = camera
+        // turns CW, which makes the world appear to rotate CCW).
+        // Mouse drag rotation up there uses the opposite "drag the
+        // compass needle" intuition (drag right = needle rotates CW
+        // = bearing+) because a single contact point reads as
+        // pointing an indicator, not grabbing the surface.
         const angle = getPinchAngle(activePointers)
         if (lastPinchAngle !== 0) {
           let delta = angle - lastPinchAngle
           if (delta > 180) delta -= 360
           if (delta < -180) delta += 360
-          camera.rotate(delta)
+          camera.rotate(-delta)
         }
         lastPinchAngle = angle
 
