@@ -2301,6 +2301,13 @@ export class XGISMap {
         // hidpi displays — without this, a `label-size-13` renders
         // at 6.5 CSS px on a 2x display.
         stage.setDpr(dpr)
+        // Mapbox `text-field` expressions that depend on zoom (e.g.
+        // demotiles `text-field: {stops:[[2,"{ABBREV}"],[4,"{NAME}"]]}`
+        // → step(zoom, .ABBREV, 4, .NAME)) need the camera zoom in the
+        // evaluator props bag. Without this, zoom = undefined → NaN
+        // → step()'s default arm forever, so country labels never
+        // switched from "S. Kor" to "S. Korea" past z=4.
+        stage.setCameraZoom(this.camera.zoom)
         const frame = this.camera.getFrameView(w, h, dpr)
         const mvp = frame.matrix
         const ccx = this.camera.centerX

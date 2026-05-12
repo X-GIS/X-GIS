@@ -177,6 +177,17 @@ export class TextStage {
     this.dpr = dpr > 0 ? dpr : 1
   }
 
+  /** Camera zoom for zoom-dependent text-field expressions (Mapbox
+   *  `text-field: ["step", ["zoom"], …]` / legacy stops shape).
+   *  Forwarded into the evaluator's props bag under the
+   *  CAMERA_ZOOM_KEY sigil so `step(zoom, …)` evaluates correctly.
+   *  Call once per frame BEFORE addLabel / addCurvedLineLabel
+   *  submissions. */
+  setCameraZoom(zoom: number): void {
+    this.cameraZoom = zoom
+  }
+  private cameraZoom: number | undefined
+
   /** Optional per-call hook fired once per addLabel /
    *  addCurvedLineLabel submission BEFORE collision. The hook receives
    *  the final-rendered text string + the screen-pixel anchor + the
@@ -217,7 +228,7 @@ export class TextStage {
     def: LabelDef,
     fontKey?: string,
   ): void {
-    const text = resolveText(value, props)
+    const text = resolveText(value, props, this.cameraZoom)
     if (text.length === 0) return
     // stripCurveLineExtraScripts drops everything from the first LF
     // onwards — Mapbox bilingual labels render only the primary
@@ -252,7 +263,7 @@ export class TextStage {
     def: LabelDef,
     fontKey?: string,
   ): void {
-    const text = resolveText(value, props)
+    const text = resolveText(value, props, this.cameraZoom)
     if (text.length === 0) return
     const transformed = applyTextTransform(text, def.transform)
     if (this._debugHook) {

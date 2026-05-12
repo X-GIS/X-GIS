@@ -17,17 +17,33 @@
 // Falls back gracefully on missing fields / evaluation errors so
 // a single bad feature doesn't crash an entire frame's labels.
 
-import { evaluate, formatValue, type TextValue } from '@xgis/compiler'
+import { evaluate, formatValue, CAMERA_ZOOM_KEY, type TextValue } from '@xgis/compiler'
 
 export type FeatureProps = Record<string, unknown>
 
 /** Resolve a TextValue against a feature's property bag.
  *  Returns the empty string when the value is null/undefined to
  *  match Mapbox's `text-field: null` skip semantics — caller
- *  treats the empty string as "don't render". */
-export function resolveText(value: TextValue, props: FeatureProps): string {
+ *  treats the empty string as "don't render".
+ *
+ *  `cameraZoom` is the OPTIONAL current camera zoom. Mapbox text-field
+ *  expressions that depend on zoom (e.g. demotiles
+ *  `text-field: {stops:[[2,"{ABBREV}"],[4,"{NAME}"]]}` — converted to
+ *  `step(zoom, .ABBREV, 4, .NAME)`) need it in the evaluator's props
+ *  bag under the CAMERA_ZOOM_KEY sigil. Without this injection
+ *  `zoom` evaluated to `undefined` → toNumber → NaN → `step()`
+ *  returned its default arm forever and country labels never
+ *  switched from "S. Kor" to "S. Korea" at z>=4. */
+export function resolveText(
+  value: TextValue,
+  props: FeatureProps,
+  cameraZoom?: number,
+): string {
+  const enrichedProps = cameraZoom !== undefined
+    ? { ...props, [CAMERA_ZOOM_KEY]: cameraZoom }
+    : props
   if (value.kind === 'expr') {
-    const v = safeEval(value.expr.ast, props)
+    const v = safeEval(value.expr.ast, enrichedProps)
     if (v === null || v === undefined) return ''
     return String(v)
   }
@@ -38,7 +54,7 @@ export function resolveText(value: TextValue, props: FeatureProps): string {
       out += part.value
       continue
     }
-    const v = safeEval(part.expr.ast, props)
+    const v = safeEval(part.expr.ast, enrichedProps)
     out += formatValue(v, part.spec)
   }
   return out
