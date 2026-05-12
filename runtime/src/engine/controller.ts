@@ -230,15 +230,28 @@ export class PanZoomController implements Controller {
         lastRotateX = e.clientX
         lastRotateY = e.clientY
 
-        // Horizontal → bearing rotation
-        camera.rotate(-dx * 0.5)
+        // Horizontal cursor delta → bearing change. Drag right
+        // (dx > 0) increases bearing — the user's "drag the compass
+        // needle right" / "grab and twist clockwise" intuition.
+        // Previous sign rotated the world the opposite direction;
+        // reported as inverted. Matches the two-finger pinch
+        // direction below.
+        camera.rotate(dx * 0.5)
         // Vertical → pitch (drag up = increase pitch, drag down = decrease)
         camera.pitch = Math.max(0, Math.min(85, camera.pitch - dy * 0.3))
         return
       }
 
       if (activePointers.size === 2) {
-        // Two-finger: rotation + pinch zoom + pitch (vertical drag)
+        // Two-finger: rotation + pinch zoom + pitch (vertical drag).
+        // User rotates their fingers CW (visually) — the bearing
+        // change should match the user's "rotate the compass right"
+        // intuition: bearing increases. getPinchAngle uses screen-Y-
+        // down atan2, so a CW finger rotation produces a positive
+        // delta; feeding it into rotate(delta) gives bearing+, the
+        // same direction the single-pointer drag uses above. (Old
+        // code had this inverted relative to the drag handler;
+        // gestures didn't agree.)
         const angle = getPinchAngle(activePointers)
         if (lastPinchAngle !== 0) {
           let delta = angle - lastPinchAngle
