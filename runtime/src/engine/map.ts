@@ -122,6 +122,27 @@ function asVectorTileKind(t: string | undefined): 'pmtiles' | 'tilejson' | 'xgvt
   return t === 'pmtiles' || t === 'tilejson' || t === 'xgvt' || t === 'auto' ? t : undefined
 }
 
+/** Scene-level animation detection. `true` when ANY ShowCommand
+ *  carries a per-frame time-driven paint property — opacity / fill /
+ *  stroke / strokeWidth / size (read from the typed PaintShapes
+ *  bundle), or dashOffset (still on the legacy flat field). Drives
+ *  the render loop's continuous-redraw decision: a static scene
+ *  renders once and idles; an animated scene requestAnimationFrame's
+ *  every tick. */
+function sceneHasAnyAnimation(shows: { paintShapes: import('@xgis/compiler').PaintShapes; timeDashOffsetStops?: unknown }[]): boolean {
+  const isTimeAnimated = (k: string): boolean =>
+    k === 'time-interpolated' || k === 'zoom-time'
+  return shows.some(s => {
+    const p = s.paintShapes
+    return isTimeAnimated(p.opacity.kind)
+      || isTimeAnimated(p.strokeWidth.kind)
+      || (p.fill !== null && isTimeAnimated(p.fill.kind))
+      || (p.stroke !== null && isTimeAnimated(p.stroke.kind))
+      || (p.size !== null && isTimeAnimated(p.size.kind))
+      || !!s.timeDashOffsetStops
+  })
+}
+
 export class XGISMap {
   private ctx!: GPUContext
   private camera: Camera
@@ -983,10 +1004,7 @@ export class XGISMap {
     }
 
     this.showCommands = commands.shows
-    this._sceneHasAnimation = commands.shows.some(s =>
-      !!s.timeOpacityStops || !!s.timeFillStops || !!s.timeStrokeStops ||
-      !!s.timeStrokeWidthStops || !!s.timeSizeStops || !!s.timeDashOffsetStops
-    )
+    this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
     this._needsRender = true
 
     // Prewarm shader-variant pipelines BEFORE rebuildLayers so the
@@ -1536,10 +1554,7 @@ export class XGISMap {
     }
 
     this.showCommands = commands.shows
-    this._sceneHasAnimation = commands.shows.some(s =>
-      !!s.timeOpacityStops || !!s.timeFillStops || !!s.timeStrokeStops ||
-      !!s.timeStrokeWidthStops || !!s.timeSizeStops || !!s.timeDashOffsetStops
-    )
+    this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
     this._needsRender = true
     this.rebuildLayers()
 

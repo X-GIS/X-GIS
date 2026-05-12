@@ -77,6 +77,20 @@ function resolveNumberShape(
   }
 }
 
+/** `true` when a PropertyShape's `kind` carries a per-frame zoom or
+ *  time dependency — i.e. its resolved value depends on
+ *  cameraZoom/elapsedMs and may differ from frame to frame. The
+ *  bucket-scheduler uses this to decide whether to clone the show
+ *  object before writing the resolved value. `constant` and
+ *  `data-driven` return false: their resolved value is either the
+ *  static `kind: 'constant'` payload (no overwrite needed) or a
+ *  per-feature evaluation that happens downstream in the worker. */
+function hasZoomOrTime(shape: PropertyShape<unknown>): boolean {
+  return shape.kind === 'zoom-interpolated'
+    || shape.kind === 'time-interpolated'
+    || shape.kind === 'zoom-time'
+}
+
 /** RGBA companion to {@link resolveNumberShape}. Reuses
  *  interpolateZoomRgba / interpolateTimeColor (the same per-channel
  *  blenders the renderer already calls). For `constant` and
@@ -381,19 +395,23 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
       if (r !== null) resolvedStrokeRgba = r.value as [number, number, number, number]
     }
 
-    const hasAnyTimeAnim =
-      !!entry.show.timeOpacityStops ||
-      !!entry.show.timeFillStops ||
-      !!entry.show.timeStrokeStops ||
-      !!entry.show.timeStrokeWidthStops ||
-      !!entry.show.timeSizeStops ||
+    // Clone decision: do any of the five PaintShapes axes carry zoom-
+    // or time-driven dependencies (in which case the per-frame
+    // resolution above produced a value distinct from
+    // `entry.show.opacity` and we must clone the show to write the new
+    // value)? Read straight off paintShapes — the legacy flat-field
+    // OR-chain reached for 10 separate fields and got it wrong silently
+    // when emit-commands grew a new field without updating this list.
+    // dashOffset is the lone non-PaintShapes time-stop field still
+    // checked here.
+    const ps = entry.show.paintShapes
+    const needsClone =
+      hasZoomOrTime(ps.opacity) ||
+      hasZoomOrTime(ps.strokeWidth) ||
+      (ps.fill !== null && hasZoomOrTime(ps.fill)) ||
+      (ps.stroke !== null && hasZoomOrTime(ps.stroke)) ||
+      (ps.size !== null && hasZoomOrTime(ps.size)) ||
       !!entry.show.timeDashOffsetStops
-    const hasAnyZoomStops =
-      !!entry.show.zoomOpacityStops ||
-      !!entry.show.zoomFillStops ||
-      !!entry.show.zoomStrokeWidthStops ||
-      !!entry.show.zoomSizeStops
-    const needsClone = hasAnyZoomStops || hasAnyTimeAnim
     const effectiveShow: SceneCommands['shows'][0] = needsClone
       ? { ...entry.show, opacity: composedOpa }
       : entry.show
