@@ -17,7 +17,7 @@ describe('RenderNode → PropertyShape conversion', () => {
 
   it('ColorValue { constant } → Static', () => {
     const v: ColorValue = { kind: 'constant', rgba: [1, 0, 0, 1] }
-    expect(colorValueToShape(v)).toEqual({ kind: 'Static', value: [1, 0, 0, 1] })
+    expect(colorValueToShape(v)).toEqual({ kind: 'constant', value: [1, 0, 0, 1] })
   })
 
   it('ColorValue { zoom-interpolated } → ZoomOnly', () => {
@@ -30,7 +30,7 @@ describe('RenderNode → PropertyShape conversion', () => {
       base: 1.2,
     }
     const shape = colorValueToShape(v)
-    expect(shape).toMatchObject({ kind: 'ZoomOnly', base: 1.2 })
+    expect(shape).toMatchObject({ kind: 'zoom-interpolated', base: 1.2 })
     expect((shape as { stops: unknown[] }).stops).toHaveLength(2)
   })
 
@@ -48,7 +48,7 @@ describe('RenderNode → PropertyShape conversion', () => {
     }
     const shape = colorValueToShape(v)
     expect(shape).toMatchObject({
-      kind: 'TimeOnly',
+      kind: 'time-interpolated',
       loop: true,
       easing: 'ease-in',
       delayMs: 100,
@@ -58,7 +58,7 @@ describe('RenderNode → PropertyShape conversion', () => {
   it('ColorValue { data-driven } → FeatureOnly', () => {
     const expr = { ast: {} as never } as never
     const v: ColorValue = { kind: 'data-driven', expr }
-    expect(colorValueToShape(v)).toEqual({ kind: 'FeatureOnly', expr })
+    expect(colorValueToShape(v)).toEqual({ kind: 'data-driven', expr })
   })
 
   it('ColorValue { conditional } folds to its fallback', () => {
@@ -68,7 +68,7 @@ describe('RenderNode → PropertyShape conversion', () => {
       fallback: { kind: 'constant', rgba: [0.5, 0.5, 0.5, 1] },
     }
     expect(colorValueToShape(v)).toEqual({
-      kind: 'Static',
+      kind: 'constant',
       value: [0.5, 0.5, 0.5, 1],
     })
   })
@@ -77,7 +77,7 @@ describe('RenderNode → PropertyShape conversion', () => {
 
   it('OpacityValue { constant } → Static', () => {
     expect(opacityValueToShape({ kind: 'constant', value: 0.7 })).toEqual({
-      kind: 'Static', value: 0.7,
+      kind: 'constant', value: 0.7,
     })
   })
 
@@ -87,7 +87,7 @@ describe('RenderNode → PropertyShape conversion', () => {
       stops: [{ zoom: 3, value: 0.5 }, { zoom: 6, value: 1 }],
       base: 1,
     }
-    expect(opacityValueToShape(v)).toMatchObject({ kind: 'ZoomOnly', base: 1 })
+    expect(opacityValueToShape(v)).toMatchObject({ kind: 'zoom-interpolated', base: 1 })
   })
 
   it('OpacityValue { zoom-time } → ZoomTime', () => {
@@ -99,14 +99,14 @@ describe('RenderNode → PropertyShape conversion', () => {
       easing: 'linear',
       delayMs: 0,
     }
-    expect(opacityValueToShape(v)).toMatchObject({ kind: 'ZoomTime', loop: false })
+    expect(opacityValueToShape(v)).toMatchObject({ kind: 'zoom-time', loop: false })
   })
 
   // ─── StrokeWidthValue ────────────────────────────────────────────
 
   it('StrokeWidthValue { constant } → Static', () => {
     expect(strokeWidthValueToShape({ kind: 'constant', px: 3 })).toEqual({
-      kind: 'Static', value: 3,
+      kind: 'constant', value: 3,
     })
   })
 
@@ -115,13 +115,13 @@ describe('RenderNode → PropertyShape conversion', () => {
       kind: 'zoom-stops',
       stops: [{ zoom: 0, value: 1 }, { zoom: 14, value: 6 }],
     }
-    expect(strokeWidthValueToShape(v)).toMatchObject({ kind: 'ZoomOnly' })
+    expect(strokeWidthValueToShape(v)).toMatchObject({ kind: 'zoom-interpolated' })
   })
 
   it('StrokeWidthValue { per-feature } → FeatureOnly', () => {
     const expr = { ast: {} as never } as never
     const v: StrokeWidthValue = { kind: 'per-feature', expr }
-    expect(strokeWidthValueToShape(v)).toEqual({ kind: 'FeatureOnly', expr })
+    expect(strokeWidthValueToShape(v)).toEqual({ kind: 'data-driven', expr })
   })
 
   // ─── SizeValue ───────────────────────────────────────────────────
@@ -132,7 +132,7 @@ describe('RenderNode → PropertyShape conversion', () => {
 
   it('SizeValue { constant } → Static (drops unit)', () => {
     expect(sizeValueToShape({ kind: 'constant', value: 12, unit: 'px' })).toEqual({
-      kind: 'Static', value: 12,
+      kind: 'constant', value: 12,
     })
   })
 
@@ -141,6 +141,6 @@ describe('RenderNode → PropertyShape conversion', () => {
       kind: 'zoom-interpolated',
       stops: [{ zoom: 0, value: 10 }, { zoom: 8, value: 14 }],
     }
-    expect(sizeValueToShape(v)).toMatchObject({ kind: 'ZoomOnly' })
+    expect(sizeValueToShape(v)).toMatchObject({ kind: 'zoom-interpolated' })
   })
 })

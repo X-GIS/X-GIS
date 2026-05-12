@@ -479,33 +479,14 @@ export interface StrokeValue {
 }
 
 /**
- * Opacity value. Phase 0: constant only.
+ * Opacity value. Now a thin alias over the unified `PropertyShape<number>`
+ * — every variant the legacy OpacityValue carried (constant / zoom-
+ * interpolated / time-interpolated / zoom-time / data-driven) matches
+ * PropertyShape one-to-one in both kind name and field shape. The
+ * alias means callsites continue to type-check without change; new
+ * callsites should reach for `PropertyShape<number>` directly.
  */
-export type OpacityValue =
-  | { kind: 'constant'; value: number }
-  | { kind: 'data-driven'; expr: DataExpr }
-  | {
-      kind: 'zoom-interpolated'
-      stops: ZoomStop<number>[]
-      /** Mapbox `["interpolate", ["exponential", N], …]` curve base.
-       *  Undefined / 1 → linear. >1 → faster growth at higher zooms. */
-      base?: number
-    }
-  | {
-      kind: 'time-interpolated'
-      stops: TimeStop<number>[]
-      loop: boolean
-      easing: Easing
-      delayMs: number
-    }
-  | {
-      kind: 'zoom-time'
-      zoomStops: ZoomStop<number>[]
-      timeStops: TimeStop<number>[]
-      loop: boolean
-      easing: Easing
-      delayMs: number
-    }
+export type OpacityValue = import('./property-types').PropertyShape<number>
 
 /** A time stop for keyframe-interpolated values. Time axis is milliseconds
  *  from the start of the animation. */
