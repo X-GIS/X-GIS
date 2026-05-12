@@ -51,14 +51,33 @@ describe('quantizePolygonVertices', () => {
   it('roundtrip precision is sub-mm at zoom 22', () => {
     const z = 22
     const ext = TILE_EXTENT_M(z)
+    // Deterministic PRNG (xorshift32) so CI runs aren't flaky on
+    // worst-case quantization-boundary samples. `Math.random()`
+    // occasionally returned a value whose round-trip error landed
+    // exactly at 0.5 * step, tripping the strict `<` comparison
+    // (observed on the GHA Linux runner — local Windows passed).
+    let seed = 0x9E3779B1
+    const next = (): number => {
+      seed ^= seed << 13; seed >>>= 0
+      seed ^= seed >>> 17
+      seed ^= seed << 5; seed >>>= 0
+      return seed / 0xFFFFFFFF
+    }
     const points: number[] = []
     const N = 50
     for (let i = 0; i < N; i++) {
-      points.push(Math.random() * ext, Math.random() * ext, 0, 0, i)
+      points.push(next() * ext, next() * ext, 0, 0, i)
     }
     const buf = quantizePolygonVertices(new Float32Array(points), ext)
     const u16 = new Uint16Array(buf)
-    const tolMeters = ext / POS_RANGE * 0.5
+    // Quantization step is `ext / POS_RANGE`; the worst-case
+    // round-trip error is HALF a step. The strict `<` against the
+    // exact half-step boundary can tie when a point sits exactly on
+    // the midpoint between two grid points — round-to-even semantics
+    // pick one neighbour but the error stays at 0.5 step. Use a
+    // 1.01× cushion so the bound captures "no worse than the
+    // theoretical maximum" without flagging boundary ties.
+    const tolMeters = (ext / POS_RANGE) * 0.5 * 1.01
     for (let i = 0; i < N; i++) {
       const mxQ = u16[i * 4] & 0x7FFF
       const myQ = u16[i * 4 + 1]
