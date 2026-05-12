@@ -110,7 +110,16 @@ export class Camera {
     const halfFov = fovRad / 2
     const aspect = canvasWidth / canvasHeight
     const pitchRad = this.pitch * Math.PI / 180
-    const bearingRad = -this.bearing * Math.PI / 180
+    // Mapbox / MapLibre convention: `bearing=90` makes the map face
+    // east, so `RotateZ(+bearing)` is the world→camera transform that
+    // brings east into camera-forward. X-GIS previously used
+    // `-bearing` here, which inverted the rotation direction relative
+    // to MapLibre — visible as bearing=90 facing west instead of east
+    // when compared side-by-side. The pan handler below uses the
+    // same convention (`+bearing` rotates screen-space input into
+    // world-space delta) so drag direction stays consistent after
+    // the sign fix.
+    const bearingRad = this.bearing * Math.PI / 180
 
     // Camera altitude in Mercator meters — based on the CSS-pixel
     // viewport height. Tying it to the device-pixel `canvasHeight`
