@@ -108,19 +108,14 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
       ? (show.size ?? 0)
       : resolveNumberShape(ps.size, cameraZoom, elapsedMs).value
 
-  // Dash offset is a STRUCTURAL stroke attribute, not a paint axis —
-  // it lives on the parent StrokeValue rather than getting its own
-  // PaintShape slot. Only `time-interpolated` is supported (the dash
-  // phase animation pattern: drift the pattern along the line). The
-  // resolver constructs the PropertyShape inline so dashOffset goes
-  // through the same `resolveNumberShape` path as the paint axes.
-  const dashOffset = show.timeDashOffsetStops
-    ? resolveNumberShape(
-        { kind: 'time-interpolated', stops: show.timeDashOffsetStops,
-          loop: false, easing: 'linear', delayMs: 0 } as never,
-        cameraZoom, elapsedMs,
-      ).value
-    : (show.dashOffset ?? 0)
+  // Dash offset is a STRUCTURAL stroke attribute (drift of the dash
+  // pattern along the line) — it has its own PropertyShape outside the
+  // PaintShapes bundle. emit-commands composes the shape from the
+  // static `stroke.dashOffset` and any time-interpolated animation
+  // with the layer-level lifecycle metadata baked in.
+  const dashOffset = show.dashOffsetShape
+    ? resolveNumberShape(show.dashOffsetShape, cameraZoom, elapsedMs).value
+    : 0
 
   // Fill / stroke colour — `null` from the resolver means "the
   // ShowCommand's static `fill` hex is authoritative this frame".
