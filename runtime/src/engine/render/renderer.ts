@@ -649,13 +649,14 @@ export interface ShowCommand {
   // PaintShapes.* below carries every paint-property animation
   // (opacity / fill / stroke / strokeWidth / size). Only dashOffset —
   // a structural stroke attribute, not a paint axis — keeps its own
-  // time-stop field here, with the shared lifecycle metadata in the
-  // three timeOpacity* fields (legacy naming retained because the
-  // dashOffset animation reuses the same `animation-<name>` block).
+  // time-stop field here. `animLoop` / `animEasing` / `animDelayMs`
+  // are the layer-level lifecycle metadata shared by every animated
+  // property; dashOffset reads them directly, paint axes read them
+  // off their PaintShape variant.
   timeDashOffsetStops?: { timeMs: number; value: number }[] | null
-  timeOpacityLoop?: boolean
-  timeOpacityEasing?: Easing
-  timeOpacityDelayMs?: number
+  animLoop?: boolean
+  animEasing?: Easing
+  animDelayMs?: number
   // Per-frame animated overrides. Populated by map.ts
   // classifyVectorTileShows() when an animation is active, so VTR and
   // line-renderer don't need to know about time stops — they just read
