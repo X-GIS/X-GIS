@@ -39,23 +39,18 @@ export function optimize(scene: Scene, program?: AST.Program): Scene {
   // OSM-style six-`landuse_*` / five-`roads_*` pattern.
   return mergeLayers(optimized)
 
-  // Note: foldTrivialStopsPass remains standalone-tested but
-  // intentionally NOT integrated here. The pass's
-  // .integration.test.ts pins runtime equivalence at the
-  // resolveNumberShape / resolveColorShape level — every show
-  // command's resolved scalars/RGBA match before vs after across
-  // 11 sample zooms. Yet enabling the pass in this flow
-  // CONSISTENTLY regresses Bright Tokyo parity by 1.5 pts
-  // (8.79 % → 10.3-10.4 % across 3 back-to-back runs), so some
-  // downstream consumer branches on `shape.kind` directly rather
-  // than going through the resolver. Likely culprits to audit
-  // before the next integration attempt:
-  //   - The MVT worker's "bake into feature buffer" decision
-  //     (compile time)
-  //   - Shader-gen variant selection that emits different WGSL
-  //     for `kind: 'zoom-interpolated'` vs `kind: 'constant'`
-  //   - hasZoomOrTime checks in bucket-scheduler (Phase 4c
-  //     removed most of them but trace recorder may still branch)
+  // foldTrivialStopsPass intentionally NOT integrated here. It's
+  // standalone-tested in passes/ and registered for future use, but
+  // even the .integration.test.ts proving resolver-level equivalence
+  // wasn't enough — wiring the pass into this flow yields an
+  // INTERMITTENT spike on Bright Tokyo (4/5 runs land at 8.6 % as
+  // expected, 5th spikes to 10.3 % past the 9.67 % gate). The fold
+  // itself fires ZERO times on the OFM fixtures (per
+  // fold-stats.test.ts), so the divergence must be tile-load timing
+  // or Vite HMR rather than the fold's output. Need a more
+  // deterministic parity harness before re-attempting integration —
+  // until then a flaky gate is worse than a missing optimisation
+  // that already does nothing for production.
 }
 
 function optimizeNode(node: RenderNode, fnEnv: FnEnv): RenderNode {
