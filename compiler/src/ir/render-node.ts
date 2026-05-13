@@ -585,7 +585,7 @@ export function buildLabelShapes(input: {
   color?: [number, number, number, number]
   colorZoomStops?: import('./render-node').ZoomStop<[number, number, number, number]>[]
   colorExpr?: import('./render-node').DataExpr
-  halo?: { color: [number, number, number, number]; width: number }
+  halo?: { color: [number, number, number, number]; width: number; blur?: number }
   haloWidthZoomStops?: import('./render-node').ZoomStop<number>[]
   haloWidthZoomStopsBase?: number
   haloColorZoomStops?: import('./render-node').ZoomStop<[number, number, number, number]>[]
@@ -595,14 +595,8 @@ export function buildLabelShapes(input: {
    *  those into `fontWeight` / `fontStyle` before invoking this
    *  builder. */
   fontStack?: readonly string[]
-  fontZoomStops?: import('./render-node').ZoomStop<readonly string[]>[]
-  fontExpr?: import('./render-node').DataExpr
   fontWeight?: number
-  fontWeightZoomStops?: import('./render-node').ZoomStop<number>[]
-  fontWeightExpr?: import('./render-node').DataExpr
   fontStyle?: 'normal' | 'italic'
-  fontStyleZoomStops?: import('./render-node').ZoomStop<'normal' | 'italic'>[]
-  fontStyleExpr?: import('./render-node').DataExpr
 }): import('./property-types').LabelShapes {
   type RGBA = readonly [number, number, number, number]
   type Shape<T> = import('./property-types').PropertyShape<T>
@@ -649,34 +643,23 @@ export function buildLabelShapes(input: {
     haloColor = { kind: 'constant', value: input.halo.color }
   }
 
-  let font: Shape<readonly string[]> | null = null
-  if (input.fontExpr) {
-    font = { kind: 'data-driven', expr: input.fontExpr }
-  } else if (input.fontZoomStops && input.fontZoomStops.length > 0) {
-    font = { kind: 'zoom-interpolated', stops: input.fontZoomStops }
-  } else if (input.fontStack && input.fontStack.length > 0) {
-    font = { kind: 'constant', value: input.fontStack }
-  }
+  const haloBlur: Shape<number> | null = input.halo?.blur !== undefined
+    ? { kind: 'constant', value: input.halo.blur }
+    : null
 
-  let fontWeight: Shape<number> | null = null
-  if (input.fontWeightExpr) {
-    fontWeight = { kind: 'data-driven', expr: input.fontWeightExpr }
-  } else if (input.fontWeightZoomStops && input.fontWeightZoomStops.length > 0) {
-    fontWeight = { kind: 'zoom-interpolated', stops: input.fontWeightZoomStops }
-  } else if (input.fontWeight !== undefined) {
-    fontWeight = { kind: 'constant', value: input.fontWeight }
-  }
+  const font: Shape<readonly string[]> | null = input.fontStack && input.fontStack.length > 0
+    ? { kind: 'constant', value: input.fontStack }
+    : null
 
-  let fontStyle: Shape<'normal' | 'italic'> | null = null
-  if (input.fontStyleExpr) {
-    fontStyle = { kind: 'data-driven', expr: input.fontStyleExpr }
-  } else if (input.fontStyleZoomStops && input.fontStyleZoomStops.length > 0) {
-    fontStyle = { kind: 'zoom-interpolated', stops: input.fontStyleZoomStops }
-  } else if (input.fontStyle !== undefined) {
-    fontStyle = { kind: 'constant', value: input.fontStyle }
-  }
+  const fontWeight: Shape<number> | null = input.fontWeight !== undefined
+    ? { kind: 'constant', value: input.fontWeight }
+    : null
 
-  return { size, color, haloWidth, haloColor, font, fontWeight, fontStyle }
+  const fontStyle: Shape<'normal' | 'italic'> | null = input.fontStyle !== undefined
+    ? { kind: 'constant', value: input.fontStyle }
+    : null
+
+  return { size, color, haloWidth, haloColor, haloBlur, font, fontWeight, fontStyle }
 }
 
 /**
