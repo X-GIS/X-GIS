@@ -23,6 +23,21 @@
 // on the pick attachment). Phase 4 adds addEventListener.
 
 import type { ShowCommand } from './render/renderer'
+import { parseHexColor as parseHexColorRaw } from './feature-helpers'
+
+/** Wrapper that returns `null` on parse failure so the setters can
+ *  short-circuit without touching paintShapes when given a malformed
+ *  hex. The raw helper throws / returns garbage on bad input. */
+function parseHexColor(
+  hex: string,
+): readonly [number, number, number, number] | null {
+  if (typeof hex !== 'string' || hex.length === 0) return null
+  try {
+    return parseHexColorRaw(hex)
+  } catch {
+    return null
+  }
+}
 
 const MAX_LAYER_ID = 0xffff
 
@@ -131,6 +146,11 @@ export class XGISLayerStyle {
   set opacity(v: number) {
     this.snapshot('opacity', this.host.show.opacity ?? 1)
     this.host.show.opacity = v
+    // bucket-scheduler reads `paintShapes.opacity` per-frame, not the
+    // flat `show.opacity` field. Update both so the WebGPU draw path
+    // picks up the imperative override. (Was silently ineffective
+    // post-Step-1d before this commit.)
+    this.host.show.paintShapes.opacity = { kind: 'constant', value: v }
     this.host.invalidate()
   }
 
@@ -138,6 +158,16 @@ export class XGISLayerStyle {
   set fill(v: string | null) {
     this.snapshot('fill', this.host.show.fill)
     this.host.show.fill = v
+    // paintShapes.fill is the truth-of-record for the WebGPU draw path.
+    // Hex → RGBA tuple; `null` clears the shape.
+    if (v === null) {
+      this.host.show.paintShapes.fill = null
+    } else {
+      const rgba = parseHexColor(v)
+      if (rgba !== null) {
+        this.host.show.paintShapes.fill = { kind: 'constant', value: rgba }
+      }
+    }
     this.host.invalidate()
   }
 
@@ -145,6 +175,14 @@ export class XGISLayerStyle {
   set stroke(v: string | null) {
     this.snapshot('stroke', this.host.show.stroke)
     this.host.show.stroke = v
+    if (v === null) {
+      this.host.show.paintShapes.stroke = null
+    } else {
+      const rgba = parseHexColor(v)
+      if (rgba !== null) {
+        this.host.show.paintShapes.stroke = { kind: 'constant', value: rgba }
+      }
+    }
     this.host.invalidate()
   }
 
@@ -152,6 +190,7 @@ export class XGISLayerStyle {
   set strokeWidth(v: number) {
     this.snapshot('strokeWidth', this.host.show.strokeWidth)
     this.host.show.strokeWidth = v
+    this.host.show.paintShapes.strokeWidth = { kind: 'constant', value: v }
     this.host.invalidate()
   }
 

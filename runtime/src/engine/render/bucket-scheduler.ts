@@ -205,6 +205,14 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     const vtEntry = input.vtSources.get(entry.sourceName)
     if (!vtEntry || !vtEntry.renderer.hasData()) continue
 
+    // Explicit author / imperative-API hide. The
+    // `XGISLayerStyle.visible = false` setter flips this flag; the
+    // classifier must respect it (parallel to the minzoom/maxzoom
+    // gate below). Previously the WebGPU draw path ignored
+    // `show.visible`, only the canvas-fallback renderer checked it,
+    // so toggling visibility was silently no-op for typical users.
+    if (entry.show.visible === false) continue
+
     // Mapbox `layer.minzoom` / `layer.maxzoom` — gate per-frame so
     // shows declared for a narrow zoom band (e.g. building extrusions
     // at z≥14, country boundaries at z=0..5) only draw inside that

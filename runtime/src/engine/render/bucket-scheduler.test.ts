@@ -230,6 +230,20 @@ describe('classifyVectorTileShows — base cases', () => {
     expect(result.opaque).toHaveLength(0)
   })
 
+  it('skips entries with show.visible === false (Layer.visible setter)', () => {
+    // `XGISLayerStyle.visible = false` flips `show.visible`; the
+    // classifier must respect it. Regression guard for the bug where
+    // the WebGPU draw path ignored the flag and only the canvas-fallback
+    // renderer honoured it.
+    const sources = new Map([['src', makeVTSource()]])
+    const result = classifyVectorTileShows(makeInput(
+      [makeEntry('src', makeShow({ visible: false, fill: '#ff0000' }))],
+      sources,
+    ))
+    expect(result.opaque).toHaveLength(0)
+    expect(result.translucent).toHaveLength(0)
+  })
+
   it('classifies a fully-opaque layer into the opaque bucket only', () => {
     const sources = new Map([['src', makeVTSource()]])
     const result = classifyVectorTileShows(makeInput(
