@@ -10,6 +10,7 @@ import { colorConstant, opacityConstant, sizeConstant, hexToRgba } from './rende
 import { classifyExpr, type FnEnv } from './classify'
 import { constFold } from './const-fold'
 import { mergeLayers } from './merge-layers'
+import { foldTrivialStopsPass } from './passes/fold-trivial-stops'
 
 /**
  * Optimize a Scene by classifying expressions and folding constants.
@@ -37,20 +38,17 @@ export function optimize(scene: Scene, program?: AST.Program): Scene {
   // draw fanout from N (one per xgis layer) to 1 (one compound layer
   // with a `match()` dispatch on the shared filter field) for the
   // OSM-style six-`landuse_*` / five-`roads_*` pattern.
-  return mergeLayers(optimized)
+  const merged = mergeLayers(optimized)
 
-  // foldTrivialStopsPass intentionally NOT integrated here. It's
-  // standalone-tested in passes/ and registered for future use, but
-  // even the .integration.test.ts proving resolver-level equivalence
-  // wasn't enough — wiring the pass into this flow yields an
-  // INTERMITTENT spike on Bright Tokyo (4/5 runs land at 8.6 % as
-  // expected, 5th spikes to 10.3 % past the 9.67 % gate). The fold
-  // itself fires ZERO times on the OFM fixtures (per
-  // fold-stats.test.ts), so the divergence must be tile-load timing
-  // or Vite HMR rather than the fold's output. Need a more
-  // deterministic parity harness before re-attempting integration —
-  // until then a flaky gate is worse than a missing optimisation
-  // that already does nothing for production.
+  // fold-trivial-stops: zoom-interpolated paint values whose every
+  // stop carries the same payload collapse to `constant`. Pure
+  // optimisation — runtime-equivalent per
+  // passes/fold-trivial-stops.integration.test.ts. Fires zero times
+  // on the OFM Bright / Liberty / Positron fixtures (per
+  // fold-stats.test.ts) — wired so any future machine-generated
+  // style that DOES emit trivial stops gets the benefit
+  // automatically; production styles see no change.
+  return foldTrivialStopsPass.run(merged)
 }
 
 function optimizeNode(node: RenderNode, fnEnv: FnEnv): RenderNode {
