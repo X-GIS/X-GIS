@@ -131,16 +131,19 @@ export interface ShowCommand {
    *  layers map here via the converter; xgis source uses
    *  `label-["..."]` utility or `label { ... }` sub-block. */
   label?: import('./render-node').LabelDef
-  /** Typed, post-discriminated-union paint property bundle (Plan
-   *  Step 1b). Mirrors the flat `fill` / `stroke` / `opacity` /
-   *  `strokeWidth` / `size` + their `zoom*Stops` / `time*Stops`
-   *  companions above. Consumers migrating to the unified
-   *  `PropertyShape<T>` model read this instead of stitching the
-   *  flat fields together at every callsite — eliminating the
-   *  "which field is truth-of-record" bug class that produced
-   *  PR #95 / #97 / #104. Dual-written for now; flat fields will
-   *  be removed once every runtime consumer has migrated
-   *  (Step 1c). */
+  /** Typed `PropertyShape<T>` bundle for every animatable / shape-able
+   *  paint axis. The flat `fill` / `stroke` / `opacity` / `strokeWidth`
+   *  / `size` fields above are RESOLVED views of the same data:
+   *  - `fill` / `stroke` carry the static-hex form used by shader
+   *    uniform binding (no per-frame allocation for the common case).
+   *  - `opacity` / `size` carry the per-frame resolved scalar that
+   *    bucket-scheduler computes from the corresponding shape.
+   *  - `paintShapes.*` carry the full evaluation shape (constant /
+   *    zoom-interpolated / time-interpolated / zoom-time / data-driven)
+   *    for the animation + classifier pipeline.
+   *
+   *  Different roles, different access patterns — not redundant. Reads
+   *  go to whichever view fits the caller's cost model. */
   paintShapes: PaintShapes
 }
 
