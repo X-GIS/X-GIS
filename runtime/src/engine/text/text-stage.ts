@@ -420,10 +420,23 @@ export class TextStage {
         if (g.codepoint === 0x20) {
           const prevCp = gi > 0 ? glyphs[gi - 1]!.codepoint : 0
           const nextCp = gi < glyphs.length - 1 ? glyphs[gi + 1]!.codepoint : 0
-          if (prevCp !== 0x2f && nextCp !== 0x2f) {
+          // Fullwidth slash U+FF0F has the same orphan-risk as ASCII
+          // U+002F in CJK compound names ("東京／大阪"). Middle-dots
+          // (U+00B7, U+30FB) bind tighter and rarely sit next to a
+          // space — not added.
+          const isSlash = (cp: number) => cp === 0x2f || cp === 0xff0f
+          if (!isSlash(prevCp) && !isSlash(nextCp)) {
             lastSpaceI = gi
             lastSpaceW = lineW
           }
+        } else if (g.codepoint === 0x3000) {
+          // U+3000 (ideographic space) — CJK convention uses it as a
+          // wide between-token separator ("東京 大阪"). Same break
+          // semantics as ASCII space; the slash-orphan guard doesn't
+          // apply (rarely wrapped around slashes in practice). Dropped
+          // at wrap via `lineStart = lastSpaceI + 1` like U+0020.
+          lastSpaceI = gi
+          lastSpaceW = lineW
         }
         if (lineW + adv > maxWidthPx && lastSpaceI > lineStart) {
           // Wrap at the most recent space. The space itself is
@@ -431,9 +444,17 @@ export class TextStage {
           lines.push({ start: lineStart, end: lastSpaceI, width: lastSpaceW })
           lineStart = lastSpaceI + 1
           lineW = 0
+          // Non-wrap branch (below) adds `advance + post-glyph
+          // letter-spacing` per iter, so lineW semantically includes
+          // a "trailing spacing slot" for the next glyph. Match that
+          // here — for each carry-over glyph add advance + trailing
+          // spacing (zero only when j is the global last glyph).
+          // Skipping the trailing slot under-counts by one letter-
+          // spacing per wrap, drifting wrap positions on caps-tracking
+          // styles.
           for (let j = lineStart; j <= gi; j++) {
             lineW += advances[j]!
-            if (j < gi) lineW += letterSpacingPx
+            if (j < glyphs.length - 1) lineW += letterSpacingPx
           }
           lastSpaceI = -1
         } else {

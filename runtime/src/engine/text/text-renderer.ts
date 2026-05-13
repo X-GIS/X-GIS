@@ -122,28 +122,20 @@ struct VsOut {
     return vec4<f32>(u.fill_color.rgb, u.fill_color.a * fill_a);
   }
 
-  // Halo blur: extra smoothstep half-width past the AA-derivative
-  // band. Mapbox text-halo-blur is in display pixels and applies
-  // ONLY to the OUTER fade of the halo (per spec: blur is a softer
-  // outer transition; the inner edge sharply meets the glyph).
-  // Earlier centered-smoothstep behaviour put half the AA band
-  // OUTSIDE the authored halo extent (halo too large, fill thin);
-  // a lower-aligned variant from the previous fix pushed the fade
-  // INSIDE the halo extent (halo barely visible at small text
-  // sizes like demotiles geolines-label).
-  //
-  // Spec-aligned form:
-  //   inner edge:  glyph-edge meets halo at sdf = halo_edge,
-  //                soft-AA only (no blur expansion inward)
-  //   outer edge:  fade out across (halo_blur + soft) SDF units
-  //
-  //   halo_a = smoothstep(halo_edge - blur - soft, halo_edge + soft, sdf)
-  //
-  // Inner transition stays sub-pixel sharp; outer transition gets
-  // the spec blur amount, exactly matching MapLibre's two-pass
-  // composite behaviour.
+  // Halo blur: symmetric crossfade across halo_edge, matching
+  // MapLibre symbol_sdf.fragment.glsl (gamma applied to BOTH sides
+  // of 'buff') and line-renderer.ts:1289 (smoothstep(-aa,+aa,d)).
+  // Blur widens the transition equally inward and outward. The fill
+  // composite below subtracts halo_w by fill_w so the inner softening
+  // is masked by the glyph fill — visible only outside the body, which
+  // is where text-halo-blur is expected to soften.
+  //   halo_a = smoothstep(halo_edge - (blur+soft), halo_edge + (blur+soft), sdf)
+  // halo_blur==0 collapses to a pure AA-soft step, identical to the
+  // no-blur path. soft stays derivative-driven so the AA band is
+  // display-rate-correct at every zoom.
   let halo_edge: f32 = edge - u.halo_width;
-  let halo_a: f32 = smoothstep(halo_edge - u.halo_blur - soft, halo_edge + soft, sdf);
+  let halo_aa: f32 = u.halo_blur + soft;
+  let halo_a: f32 = smoothstep(halo_edge - halo_aa, halo_edge + halo_aa, sdf);
   // Composite: halo behind, fill in front.
   let fill_w = u.fill_color.a * fill_a;
   let halo_w = u.halo_color.a * halo_a * (1.0 - fill_w);
