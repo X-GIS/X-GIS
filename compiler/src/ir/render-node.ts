@@ -230,22 +230,13 @@ export interface LabelDef {
   /** CSS font-style derived from the Mapbox `text-font` entry.
    *  `"… Italic"` / `"… Oblique"` → 'italic'. Unset = 'normal'. */
   fontStyle?: 'normal' | 'italic'
-  /** Font size in PIXELS (not font units). Mapbox `text-size`. */
+  /** Font size in PIXELS (not font units). The static baseline; the
+   *  unified `shapes.size` PropertyShape (built by `buildLabelShapes`)
+   *  carries the full zoom-interpolated / data-driven form. Runtime
+   *  consumers read `shapes.size` for per-frame values; `size` stays
+   *  on LabelDef as the default the resolver falls back to when a
+   *  data-driven shape can't evaluate against a feature. */
   size: number
-  /** Optional zoom-interpolated size override. When set, the runtime
-   *  evaluates interpolateZoom(stops, camera.zoom) per frame and uses
-   *  the result instead of the constant `size`. Maps from Mapbox
-   *  `text-size: ["interpolate", ["linear"], ["zoom"], …]`. */
-  sizeZoomStops?: ZoomStop<number>[]
-  /** Mapbox `["exponential", N]` curve base for `sizeZoomStops`.
-   *  Undefined / 1 → linear; >1 → faster growth at higher zooms. */
-  sizeZoomStopsBase?: number
-  /** Optional per-feature size expression. Maps from Mapbox data-
-   *  driven forms like `["case", ["==", ["get","class"], "city"], 14, 10]`
-   *  or `["match", ["get","class"], "city", 14, 10]`. Runtime
-   *  evaluates against each feature's props and falls back to
-   *  `size` when the expression yields a non-numeric result. */
-  sizeExpr?: DataExpr
   /** Mapbox `text-letter-spacing` in em units. Default 0. */
   letterSpacing?: number
   /** Mapbox `text-line-height` in em units. Default 1.2. */
@@ -259,34 +250,20 @@ export interface LabelDef {
   justify?: 'auto' | 'left' | 'center' | 'right'
 
   // ── Appearance ──
-  /** Text fill colour `[r, g, b, a]` (0-1 each). When undefined
-   *  the layer's `fill` value is used as the text colour. */
+  /** Text fill colour `[r, g, b, a]` (0-1 each). Static baseline; the
+   *  unified `shapes.color` PropertyShape carries zoom-interpolated /
+   *  data-driven forms. When undefined the layer's `fill` value is
+   *  used as the text colour. */
   color?: [number, number, number, number]
-  /** Optional zoom-interpolated colour override. When set, the
-   *  runtime evaluates RGBA component-wise per frame and uses the
-   *  result instead of the constant `color`. Maps from Mapbox
-   *  `text-color: ["interpolate", ["linear"], ["zoom"], …]`. */
-  colorZoomStops?: ZoomStop<[number, number, number, number]>[]
-  /** Optional per-feature colour expression. Maps from Mapbox data-
-   *  driven forms like `["case", ["==", ["get","kind"],"city"], "#000", "#666"]`.
-   *  Runtime evaluates per feature; result is parsed via the
-   *  shared colour resolver (hex / rgba string / named colour). */
-  colorExpr?: DataExpr
-  /** Optional halo (outline). `blur` is the SDF feathering width
+  /** Optional halo (outline). Static baseline; the unified
+   *  `shapes.haloWidth` / `shapes.haloColor` PropertyShapes carry
+   *  zoom-interpolated forms. `blur` is the SDF feathering width
    *  in pixels — Mapbox `text-halo-blur`. */
   halo?: {
     color: [number, number, number, number]
     width: number
     blur?: number
   }
-  /** Zoom-interpolated halo width (Mapbox `text-halo-width:
-   *  ["interpolate", ["linear"], ["zoom"], …]`). Overrides
-   *  `halo.width` when present. */
-  haloWidthZoomStops?: ZoomStop<number>[]
-  /** Mapbox `["exponential", N]` curve base for `haloWidthZoomStops`. */
-  haloWidthZoomStopsBase?: number
-  /** Zoom-interpolated halo colour. Overrides `halo.color`. */
-  haloColorZoomStops?: ZoomStop<[number, number, number, number]>[]
 
   // ── Placement ──
   /** Mapbox `symbol-placement`. `point` (default) anchors text at
@@ -600,67 +577,77 @@ export function shapeNone(): ShapeRef {
   return { kind: 'none' }
 }
 
-/** Build the unified PropertyShape bundle for a label from the
- *  populated LabelDef mixed-bag fields. Pure transformation — same
- *  inputs always produce the same shapes. Precedence within each
- *  axis matches the runtime resolver in `map.ts:2710-2800` (the
- *  pre-migration source of truth):
+/** Build the unified PropertyShape bundle for a label from explicit
+ *  inputs. Pure transformation — same inputs always produce the same
+ *  shapes. Precedence within each axis matches the runtime resolver
+ *  in `map.ts:2710-2800` (the pre-migration source of truth):
  *
  *    data-driven (xxxExpr) > zoom-interpolated (xxxZoomStops) > constant
  *
  *  `size` always returns a non-null PropertyShape because the runtime
  *  needs a numeric font size for every label; the other three return
- *  `null` when the source omitted that axis. */
-export function buildLabelShapes(
-  label: import('./render-node').LabelDef,
-): import('./property-types').LabelShapes {
+ *  `null` when the source omitted that axis.
+ *
+ *  Inputs are passed explicitly (rather than reading off LabelDef)
+ *  so the LabelDef type stays clean of `xxxZoomStops` / `xxxExpr`
+ *  siblings — those existed only as a staging buffer between
+ *  utility-knob parsing in lower.ts and this builder. */
+export function buildLabelShapes(input: {
+  size: number
+  sizeZoomStops?: import('./render-node').ZoomStop<number>[]
+  sizeZoomStopsBase?: number
+  sizeExpr?: import('./render-node').DataExpr
+  color?: [number, number, number, number]
+  colorZoomStops?: import('./render-node').ZoomStop<[number, number, number, number]>[]
+  colorExpr?: import('./render-node').DataExpr
+  halo?: { color: [number, number, number, number]; width: number }
+  haloWidthZoomStops?: import('./render-node').ZoomStop<number>[]
+  haloWidthZoomStopsBase?: number
+  haloColorZoomStops?: import('./render-node').ZoomStop<[number, number, number, number]>[]
+}): import('./property-types').LabelShapes {
   type RGBA = readonly [number, number, number, number]
   type Shape<T> = import('./property-types').PropertyShape<T>
 
-  // text-size — always present. Default 16 px matches the Mapbox spec.
   let size: Shape<number>
-  if (label.sizeExpr) {
-    size = { kind: 'data-driven', expr: label.sizeExpr }
-  } else if (label.sizeZoomStops && label.sizeZoomStops.length > 0) {
+  if (input.sizeExpr) {
+    size = { kind: 'data-driven', expr: input.sizeExpr }
+  } else if (input.sizeZoomStops && input.sizeZoomStops.length > 0) {
     size = {
       kind: 'zoom-interpolated',
-      stops: label.sizeZoomStops,
-      ...(label.sizeZoomStopsBase !== undefined
-        ? { base: label.sizeZoomStopsBase } : {}),
+      stops: input.sizeZoomStops,
+      ...(input.sizeZoomStopsBase !== undefined
+        ? { base: input.sizeZoomStopsBase } : {}),
     }
   } else {
-    size = { kind: 'constant', value: label.size }
+    size = { kind: 'constant', value: input.size }
   }
 
-  // text-color — null when omitted (runtime falls back to layer fill).
   let color: Shape<RGBA> | null = null
-  if (label.colorExpr) {
-    color = { kind: 'data-driven', expr: label.colorExpr }
-  } else if (label.colorZoomStops && label.colorZoomStops.length > 0) {
-    color = { kind: 'zoom-interpolated', stops: label.colorZoomStops }
-  } else if (label.color) {
-    color = { kind: 'constant', value: label.color }
+  if (input.colorExpr) {
+    color = { kind: 'data-driven', expr: input.colorExpr }
+  } else if (input.colorZoomStops && input.colorZoomStops.length > 0) {
+    color = { kind: 'zoom-interpolated', stops: input.colorZoomStops }
+  } else if (input.color) {
+    color = { kind: 'constant', value: input.color }
   }
 
-  // text-halo-width — null when no halo authored.
   let haloWidth: Shape<number> | null = null
-  if (label.haloWidthZoomStops && label.haloWidthZoomStops.length > 0) {
+  if (input.haloWidthZoomStops && input.haloWidthZoomStops.length > 0) {
     haloWidth = {
       kind: 'zoom-interpolated',
-      stops: label.haloWidthZoomStops,
-      ...(label.haloWidthZoomStopsBase !== undefined
-        ? { base: label.haloWidthZoomStopsBase } : {}),
+      stops: input.haloWidthZoomStops,
+      ...(input.haloWidthZoomStopsBase !== undefined
+        ? { base: input.haloWidthZoomStopsBase } : {}),
     }
-  } else if (label.halo?.width !== undefined) {
-    haloWidth = { kind: 'constant', value: label.halo.width }
+  } else if (input.halo?.width !== undefined) {
+    haloWidth = { kind: 'constant', value: input.halo.width }
   }
 
-  // text-halo-color — null when no halo authored.
   let haloColor: Shape<RGBA> | null = null
-  if (label.haloColorZoomStops && label.haloColorZoomStops.length > 0) {
-    haloColor = { kind: 'zoom-interpolated', stops: label.haloColorZoomStops }
-  } else if (label.halo?.color) {
-    haloColor = { kind: 'constant', value: label.halo.color }
+  if (input.haloColorZoomStops && input.haloColorZoomStops.length > 0) {
+    haloColor = { kind: 'zoom-interpolated', stops: input.haloColorZoomStops }
+  } else if (input.halo?.color) {
+    haloColor = { kind: 'constant', value: input.halo.color }
   }
 
   return { size, color, haloWidth, haloColor }

@@ -2796,23 +2796,27 @@ export class XGISMap {
 
           // Per-feature evaluator for data-driven text-size /
           // text-color (Mapbox `["case", …]` / `["match", …]` /
-          // arithmetic forms). Used inside the iterator paths below
-          // — wraps a feature's def with overrides resolved from
-          // sizeExpr / colorExpr against that feature's properties.
+          // arithmetic forms). Wraps a feature's def with overrides
+          // resolved from the data-driven PropertyShapes against
+          // that feature's properties. Pulls AST from
+          // `def.shapes.size.expr` / `def.shapes.color.expr` — the
+          // LabelShapes bundle is the single source of truth post-L2.
+          const sizeExprAst = shapes && shapes.size.kind === 'data-driven'
+            ? shapes.size.expr.ast : null
+          const colorExprAst = shapes && shapes.color !== null && shapes.color.kind === 'data-driven'
+            ? shapes.color.expr.ast : null
           const applyFeatureExprs = (props: Record<string, unknown>) => {
-            const hasSizeExpr = def.sizeExpr !== undefined
-            const hasColorExpr = def.colorExpr !== undefined
-            if (!hasSizeExpr && !hasColorExpr) return effectiveDef
+            if (sizeExprAst === null && colorExprAst === null) return effectiveDef
             const out = { ...effectiveDef }
-            if (hasSizeExpr) {
+            if (sizeExprAst !== null) {
               try {
-                const v = evaluate(def.sizeExpr!.ast as never, props)
+                const v = evaluate(sizeExprAst as never, props)
                 if (typeof v === 'number' && isFinite(v)) out.size = v
               } catch { /* fall back to effectiveDef.size */ }
             }
-            if (hasColorExpr) {
+            if (colorExprAst !== null) {
               try {
-                const v = evaluate(def.colorExpr!.ast as never, props)
+                const v = evaluate(colorExprAst as never, props)
                 if (typeof v === 'string') {
                   const hex = resolveColor(v)
                   const rgba = hexToRgba(hex ?? v)

@@ -55,20 +55,13 @@ interface ShowLikeLabel {
   label?: {
     text?: unknown
     size: number
-    sizeZoomStops?: { zoom: number; value: number }[]
-    sizeZoomStopsBase?: number
-    sizeExpr?: { ast: unknown }
     color?: [number, number, number, number]
-    colorZoomStops?: { zoom: number; value: [number, number, number, number] }[]
-    colorExpr?: { ast: unknown }
     halo?: { color: [number, number, number, number]; width: number; blur?: number }
-    haloWidthZoomStops?: { zoom: number; value: number }[]
-    haloWidthZoomStopsBase?: number
-    haloColorZoomStops?: { zoom: number; value: [number, number, number, number] }[]
     letterSpacing?: number
     lineHeight?: number
     maxWidth?: number
     padding?: number
+    shapes?: import('../../src/ir/property-types').LabelShapes
   }
 }
 
@@ -352,11 +345,12 @@ describe('3b. Evaluator differential — our evaluate() vs MapLibre createExpres
         }
         if (c.propertyName === 'text-size') {
           const lbl = show.label!
-          if (lbl.sizeZoomStops && lbl.sizeZoomStops.length >= 2) {
-            return interpolateNumberStops(lbl.sizeZoomStops, z, lbl.sizeZoomStopsBase ?? 1)
+          const sz = lbl.shapes?.size
+          if (sz?.kind === 'zoom-interpolated') {
+            return interpolateNumberStops(sz.stops, z, sz.base ?? 1)
           }
-          if (lbl.sizeExpr) {
-            return evaluate(lbl.sizeExpr.ast as never,
+          if (sz?.kind === 'data-driven') {
+            return evaluate(sz.expr.ast as never,
               { ...(c.props ?? {}), $zoom: z }) as number
           }
           return lbl.size

@@ -1519,20 +1519,6 @@ function foldLabelKnobs(
     ...(knobs.labelTransform !== undefined ? { transform: knobs.labelTransform } : {}),
     ...(offset !== undefined ? { offset } : {}),
     ...(translate !== undefined ? { translate } : {}),
-    ...(knobs.labelSizeZoomStops && knobs.labelSizeZoomStops.length > 0
-      ? { sizeZoomStops: knobs.labelSizeZoomStops } : {}),
-    ...(knobs.labelSizeZoomStopsBase !== undefined
-      ? { sizeZoomStopsBase: knobs.labelSizeZoomStopsBase } : {}),
-    ...(knobs.labelColorZoomStops && knobs.labelColorZoomStops.length > 0
-      ? { colorZoomStops: knobs.labelColorZoomStops } : {}),
-    ...(knobs.labelColorExpr !== undefined ? { colorExpr: knobs.labelColorExpr } : {}),
-    ...(knobs.labelSizeExpr !== undefined ? { sizeExpr: knobs.labelSizeExpr } : {}),
-    ...(knobs.labelHaloWidthZoomStops && knobs.labelHaloWidthZoomStops.length > 0
-      ? { haloWidthZoomStops: knobs.labelHaloWidthZoomStops } : {}),
-    ...(knobs.labelHaloWidthZoomStopsBase !== undefined
-      ? { haloWidthZoomStopsBase: knobs.labelHaloWidthZoomStopsBase } : {}),
-    ...(knobs.labelHaloColorZoomStops && knobs.labelHaloColorZoomStops.length > 0
-      ? { haloColorZoomStops: knobs.labelHaloColorZoomStops } : {}),
     ...(knobs.labelAllowOverlap !== undefined ? { allowOverlap: knobs.labelAllowOverlap } : {}),
     ...(knobs.labelIgnorePlacement !== undefined ? { ignorePlacement: knobs.labelIgnorePlacement } : {}),
     ...(knobs.labelPadding !== undefined ? { padding: knobs.labelPadding } : {}),
@@ -1551,10 +1537,27 @@ function foldLabelKnobs(
     ...(knobs.labelPitchAlignment !== undefined ? { pitchAlignment: knobs.labelPitchAlignment } : {}),
     ...(knobs.labelKeepUpright !== undefined ? { keepUpright: knobs.labelKeepUpright } : {}),
   }
-  // Plan Label L1: stamp the unified PropertyShape bundle. Dual-write
-  // with the legacy mixed-bag fields above for now; L3 deletes the
-  // siblings once every runtime callsite reads from `merged.shapes`.
-  merged.shapes = buildLabelShapes(merged)
+  // Plan Label L3: the LabelDef no longer carries `xxxZoomStops` /
+  // `xxxExpr` siblings — those were dead-staging fields. Build the
+  // unified shapes bundle from the knob inputs (the actual source
+  // of the data) + the merged label's static fallbacks.
+  merged.shapes = buildLabelShapes({
+    size: merged.size,
+    sizeZoomStops: knobs.labelSizeZoomStops && knobs.labelSizeZoomStops.length > 0
+      ? knobs.labelSizeZoomStops : undefined,
+    sizeZoomStopsBase: knobs.labelSizeZoomStopsBase,
+    sizeExpr: knobs.labelSizeExpr,
+    color: merged.color,
+    colorZoomStops: knobs.labelColorZoomStops && knobs.labelColorZoomStops.length > 0
+      ? knobs.labelColorZoomStops : undefined,
+    colorExpr: knobs.labelColorExpr,
+    halo: merged.halo,
+    haloWidthZoomStops: knobs.labelHaloWidthZoomStops && knobs.labelHaloWidthZoomStops.length > 0
+      ? knobs.labelHaloWidthZoomStops : undefined,
+    haloWidthZoomStopsBase: knobs.labelHaloWidthZoomStopsBase,
+    haloColorZoomStops: knobs.labelHaloColorZoomStops && knobs.labelHaloColorZoomStops.length > 0
+      ? knobs.labelHaloColorZoomStops : undefined,
+  })
   return merged
 }
 
