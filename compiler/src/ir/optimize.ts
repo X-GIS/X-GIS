@@ -11,6 +11,7 @@ import { classifyExpr, type FnEnv } from './classify'
 import { constFold } from './const-fold'
 import { mergeLayers } from './merge-layers'
 import { foldTrivialStopsPass } from './passes/fold-trivial-stops'
+import { foldTrivialCasePass } from './passes/fold-trivial-case'
 import { deadLayerElimPass } from './passes/dead-layer-elim'
 
 /**
@@ -51,13 +52,22 @@ export function optimize(scene: Scene, program?: AST.Program): Scene {
   // automatically; production styles see no change.
   const folded = foldTrivialStopsPass.run(merged)
 
+  // fold-trivial-case: match() expressions where every arm produces
+  // the same literal collapse to that literal. Per
+  // case-stats.test.ts, fires zero times on production OFM
+  // fixtures (the convert/expand-color-match preprocessor splits
+  // colour matches into sublayers BEFORE the IR). Wired here as
+  // defensive completion for non-fill match expressions (line
+  // colour, width) and any future user-authored AST.
+  const caseFolded = foldTrivialCasePass.run(folded)
+
   // dead-layer-elim: drop RenderNodes that can never produce a
   // visible pixel — `visible:false`, empty zoom range, or no
   // paint surface at all. Conservative on opacity:0 (animations
   // may revive). On OFM Bright/Liberty/Positron drops 1/4/3
   // nodes — all shield-layers with minz>=maxz or pattern-only
   // layers X-GIS doesn't render (per dead-layer-stats.test.ts).
-  return deadLayerElimPass.run(folded)
+  return deadLayerElimPass.run(caseFolded)
 }
 
 function optimizeNode(node: RenderNode, fnEnv: FnEnv): RenderNode {
