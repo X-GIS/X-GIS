@@ -11,9 +11,8 @@
 //     command, every frame. A trivial-stops shape that's been folded
 //     to `constant` short-circuits to a single field read.
 //
-//   - **Stable IR for downstream.** Once folded, `hasZoomOrTime` is
-//     `false`, the clone-decision (when it returns in Phase 4d's
-//     trace recorder integration) skips the allocation, the
+//   - **Stable IR for downstream.** Once folded to `constant`, the
+//     per-frame clone-decision skips the allocation, and the
 //     bucket-scheduler's classifier emits fewer animated paths.
 //
 //   - **Spec-equivalent.** Mapbox's interpolate evaluator returns

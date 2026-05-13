@@ -119,17 +119,6 @@ export function resolveColorShape(
   }
 }
 
-/** `true` when a PropertyShape's `kind` carries a per-frame zoom or
- *  time dependency — i.e. its resolved value depends on
- *  cameraZoom/elapsedMs and may differ from frame to frame. Used by
- *  the clone decision in the bucket scheduler so static shows stay
- *  on the zero-allocation hot path. */
-export function hasZoomOrTime(shape: PropertyShape<unknown>): boolean {
-  return shape.kind === 'zoom-interpolated'
-    || shape.kind === 'time-interpolated'
-    || shape.kind === 'zoom-time'
-}
-
 /** Stepped resolver for non-interpolable `PropertyShape<T>` (font
  *  stack, enum strings, …). Returns the value picked at the last
  *  zoom stop whose `zoom <= cameraZoom`, the constant value, or

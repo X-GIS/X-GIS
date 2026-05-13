@@ -10,7 +10,7 @@ import { WGSL_LOG_DEPTH_FNS } from '../shaders/log-depth'
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projection'
 import type { ShapeRegistry } from '../text/sdf-shape'
 import { parseHexColor } from '../feature-helpers'
-import { hasZoomOrTime, resolveNumberShape } from './paint-shape-resolve'
+import { resolveNumberShape } from './paint-shape-resolve'
 
 // ═══ WGSL Shader ═══
 
@@ -931,7 +931,11 @@ export class PointRenderer {
     for (const layer of this.layers) {
       const shape = layer.sizeShape
       if (shape === null) continue
-      if (!hasZoomOrTime(shape)) continue
+      // Skip constant / data-driven shapes — only zoom/time kinds
+      // need per-frame re-resolution.
+      if (shape.kind !== 'zoom-interpolated'
+          && shape.kind !== 'time-interpolated'
+          && shape.kind !== 'zoom-time') continue
       const r = resolveNumberShape(shape, cameraZoom, elapsedMs)
       // Zoom-only optimization — skip when camera hasn't moved.
       // Time-animated shapes always update because elapsedMs always
