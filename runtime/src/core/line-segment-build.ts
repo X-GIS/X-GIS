@@ -289,12 +289,20 @@ export function buildLineSegments(
         }
       }
     }
-    let isRealEndpointA = false
-    if (stride === 10) {
-      const toutAx = vertices[a * stride + 8], toutAy = vertices[a * stride + 9]
-      isRealEndpointA = (prevTx === 0 && prevTy === 0) && (Math.abs(toutAx) > 1e-6 || Math.abs(toutAy) > 1e-6)
-    }
-    if (prevTx === 0 && prevTy === 0 && !isRealEndpointA && vertOnBoundary(a)) {
+    // Tile-boundary endpoint → suppress cap so adjacent tiles' arcs
+    // join visually. The previous `!isRealEndpointA` guard tried to
+    // preserve caps when the input explicitly marked a "real" chain
+    // start via vertex tout — but that marker fires for EVERY
+    // polygon-outline arc clipped at the tile boundary (augmentChain
+    // WithArc emits tout!=0 at chain start by design). The result
+    // was caps stacking up along tile-rect edges wherever many
+    // polygons clipped at the same longitude (user-reported
+    // countries_boundary vertical-line on demotiles Russia z=2.40).
+    // Boundary is a stronger signal than the tout marker — a real
+    // polyline that genuinely ends ON the tile boundary still
+    // continues in the adjacent tile, so no-cap is correct there
+    // too.
+    if (prevTx === 0 && prevTy === 0 && vertOnBoundary(a)) {
       prevTx = dxUnit; prevTy = dyUnit
     }
     out[off + 8] = prevTx
@@ -323,12 +331,10 @@ export function buildLineSegments(
         }
       }
     }
-    let isRealEndpointB = false
-    if (stride === 10) {
-      const tinBx = vertices[b * stride + 6], tinBy = vertices[b * stride + 7]
-      isRealEndpointB = (nextTx === 0 && nextTy === 0) && (Math.abs(tinBx) > 1e-6 || Math.abs(tinBy) > 1e-6)
-    }
-    if (nextTx === 0 && nextTy === 0 && !isRealEndpointB && vertOnBoundary(b)) {
+    // Same rationale as the prevTx branch above — boundary trumps
+    // the tin marker so clipped polygon outline arcs don't pile up
+    // round caps at the tile boundary.
+    if (nextTx === 0 && nextTy === 0 && vertOnBoundary(b)) {
       nextTx = dxUnit; nextTy = dyUnit
     }
     out[off + 10] = nextTx
