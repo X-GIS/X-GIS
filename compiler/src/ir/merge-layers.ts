@@ -623,3 +623,19 @@ export function mergeLayers(scene: Scene): Scene {
 
   return { ...scene, renderNodes: out }
 }
+
+// ─── IRPass wrapper ───
+//
+// Phase 2b (Plan Step 2): expose mergeLayers as an IRPass so it can
+// drop into the PassManager pipeline. The pass requires `lower` to
+// have produced PaintShapes-bearing RenderNodes — that's the
+// implicit precondition this transform has always had; the
+// dependency declaration just makes it explicit.
+import type { IRPass } from './pass-manager'
+
+export const mergeLayersPass: IRPass = {
+  name: 'merge-layers',
+  dependencies: ['lower'],
+  run: mergeLayers,
+}
+
