@@ -145,8 +145,14 @@ fn vs_full(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs_full(in: VsOut) -> @location(0) vec4<f32> {
   let c = textureSample(src, samp, in.uv);
-  // Pre-multiplied alpha output for use with standard alpha blending.
-  return vec4<f32>(c.rgb * cu.opacity, c.a * cu.opacity);
+  // The MAX-blend offscreen stores NON-premultiplied (rgb, a_aa).
+  // BLEND_ALPHA_PREMULT below expects PREMULTIPLIED source — premultiply
+  // here. The previous output (c.rgb * cu.opacity) left rgb full-strength
+  // at anti-aliased edges (a_aa < 1) and doubled the line brightness vs
+  // MapLibre's color * alpha * opacity. Visible as a brightness jump
+  // between zoom 5.99 (translucent path) and 6.01 (opaque path), where
+  // demotiles countries-boundary opacity stops cross 1.0.
+  return vec4<f32>(c.rgb * c.a * cu.opacity, c.a * cu.opacity);
 }
 `
 

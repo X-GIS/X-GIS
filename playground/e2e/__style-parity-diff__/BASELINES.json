@@ -1,12 +1,12 @@
 {
-  "_doc": "Per-preset diffRatio ceilings for the MapLibre parity gate. The spec asserts measured diffRatio ≤ baseline × HEADROOM. Values captured 2026-05-13 after line AA spec realignment (aa_width_px = 1/dpr + blur; alpha = clamp(-d_px / aa, 0, 1)). Tokyo presets regressed because X-GIS now produces sharper line edges than MapLibre's fragment-shader fwidth() AA — visually spec-correct but pixel-misaligned to the ML reference around every road edge. Rebake on every PR that explicitly notes a regression or improvement; do not silently relax.",
+  "_doc": "Per-preset diffRatio ceilings for the MapLibre parity gate. The spec asserts measured diffRatio ≤ baseline × HEADROOM. Values captured 2026-05-13 after (a) line AA spec realignment (aa_width_px = 1/dpr + blur) and (b) translucent composite premultiply fix (c.rgb * c.a * opacity instead of c.rgb * opacity, so AA edge pixels no longer doubled in brightness vs MapLibre below the opacity=1.0 threshold). Tokyo / Manhattan diffs reflect sharper-than-ML road edges; demotiles_world moved slightly because the previous brightness bug was masking a small line-width mismatch. Rebake on every PR that explicitly notes a regression or improvement; do not silently relax.",
   "_headroom": 1.10,
   "presets": {
-    "maplibre-demotiles__world":    0.0385,
-    "openfreemap-bright__world":    0.0711,
+    "maplibre-demotiles__world":    0.0427,
+    "openfreemap-bright__world":    0.0680,
     "openfreemap-bright__tokyo":    0.1034,
-    "openfreemap-bright__manhattan": 0.1183,
-    "openfreemap-liberty__tokyo":   0.1049,
-    "openfreemap-positron__world":  0.0690
+    "openfreemap-bright__manhattan": 0.1094,
+    "openfreemap-liberty__tokyo":   0.1041,
+    "openfreemap-positron__world":  0.0654
   }
 }
