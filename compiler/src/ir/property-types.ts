@@ -87,6 +87,36 @@ export interface PaintShapes {
   size: PropertyShape<number> | null
 }
 
+/** PropertyShape bundle for the four "shape-able" label paint
+ *  properties — the label-surface analogue of PaintShapes. The Mapbox
+ *  spec defines exactly these four with full constant / zoom-interp /
+ *  per-feature semantics:
+ *
+ *    text-size       → size: PropertyShape<number>
+ *    text-color      → color: PropertyShape<RGBA>
+ *    text-halo-width → haloWidth: PropertyShape<number>
+ *    text-halo-color → haloColor: PropertyShape<RGBA>
+ *
+ *  Pre-Plan label IR scattered each of these into 3-4 sibling fields
+ *  on `LabelDef` (`size` + `sizeZoomStops` + `sizeZoomStopsBase` +
+ *  `sizeExpr`). Callsites had to stitch the right field together
+ *  every time — the same "truth-of-record drift" bug class Plan
+ *  Step 1 cleaned up on the paint side. LabelShapes is the
+ *  paint-side cleanup mirrored to the label surface.
+ *
+ *  `null` for properties the label doesn't author (e.g. a label
+ *  with no halo has `haloWidth: null` AND `haloColor: null`).
+ *  `text-size` always resolves to a concrete `PropertyShape<number>`
+ *  because the runtime needs a numeric font size — lower.ts seeds
+ *  `kind: 'constant'` with the spec default (16 px) when the source
+ *  omits text-size. */
+export interface LabelShapes {
+  size: PropertyShape<number>
+  color: PropertyShape<readonly [number, number, number, number]> | null
+  haloWidth: PropertyShape<number> | null
+  haloColor: PropertyShape<readonly [number, number, number, number]> | null
+}
+
 // ─── Shared atomic types ───────────────────────────────────────────
 
 /** RGBA tuple. Readonly alias prevents callers from mutating a

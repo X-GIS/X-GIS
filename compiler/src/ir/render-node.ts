@@ -340,6 +340,19 @@ export interface LabelDef {
   keepUpright?: boolean
   /** Horizontal (default) or vertical. CJK vertical text. Batch 1g+. */
   writingMode?: 'horizontal' | 'vertical'
+
+  /** Unified PropertyShape bundle for the four "shape-able" paint
+   *  properties (text-size, text-color, text-halo-width,
+   *  text-halo-color). Populated by lower.ts alongside the legacy
+   *  scalar + `xxxZoomStops` + `xxxExpr` sibling fields above. New
+   *  runtime consumers should read paint values through this bundle
+   *  instead of stitching the siblings — the same "truth-of-record"
+   *  cleanup that Plan Step 1 applied to PaintShapes.
+   *
+   *  Optional during the migration; will become required once every
+   *  runtime callsite reads from `shapes` and the legacy siblings are
+   *  deleted (mirror of paint Step 1d). */
+  shapes?: import('./property-types').LabelShapes
 }
 
 /**
@@ -585,6 +598,72 @@ export function sizeConstant(value: number, unit?: string | null): SizeValue {
 
 export function shapeNone(): ShapeRef {
   return { kind: 'none' }
+}
+
+/** Build the unified PropertyShape bundle for a label from the
+ *  populated LabelDef mixed-bag fields. Pure transformation — same
+ *  inputs always produce the same shapes. Precedence within each
+ *  axis matches the runtime resolver in `map.ts:2710-2800` (the
+ *  pre-migration source of truth):
+ *
+ *    data-driven (xxxExpr) > zoom-interpolated (xxxZoomStops) > constant
+ *
+ *  `size` always returns a non-null PropertyShape because the runtime
+ *  needs a numeric font size for every label; the other three return
+ *  `null` when the source omitted that axis. */
+export function buildLabelShapes(
+  label: import('./render-node').LabelDef,
+): import('./property-types').LabelShapes {
+  type RGBA = readonly [number, number, number, number]
+  type Shape<T> = import('./property-types').PropertyShape<T>
+
+  // text-size — always present. Default 16 px matches the Mapbox spec.
+  let size: Shape<number>
+  if (label.sizeExpr) {
+    size = { kind: 'data-driven', expr: label.sizeExpr }
+  } else if (label.sizeZoomStops && label.sizeZoomStops.length > 0) {
+    size = {
+      kind: 'zoom-interpolated',
+      stops: label.sizeZoomStops,
+      ...(label.sizeZoomStopsBase !== undefined
+        ? { base: label.sizeZoomStopsBase } : {}),
+    }
+  } else {
+    size = { kind: 'constant', value: label.size }
+  }
+
+  // text-color — null when omitted (runtime falls back to layer fill).
+  let color: Shape<RGBA> | null = null
+  if (label.colorExpr) {
+    color = { kind: 'data-driven', expr: label.colorExpr }
+  } else if (label.colorZoomStops && label.colorZoomStops.length > 0) {
+    color = { kind: 'zoom-interpolated', stops: label.colorZoomStops }
+  } else if (label.color) {
+    color = { kind: 'constant', value: label.color }
+  }
+
+  // text-halo-width — null when no halo authored.
+  let haloWidth: Shape<number> | null = null
+  if (label.haloWidthZoomStops && label.haloWidthZoomStops.length > 0) {
+    haloWidth = {
+      kind: 'zoom-interpolated',
+      stops: label.haloWidthZoomStops,
+      ...(label.haloWidthZoomStopsBase !== undefined
+        ? { base: label.haloWidthZoomStopsBase } : {}),
+    }
+  } else if (label.halo?.width !== undefined) {
+    haloWidth = { kind: 'constant', value: label.halo.width }
+  }
+
+  // text-halo-color — null when no halo authored.
+  let haloColor: Shape<RGBA> | null = null
+  if (label.haloColorZoomStops && label.haloColorZoomStops.length > 0) {
+    haloColor = { kind: 'zoom-interpolated', stops: label.haloColorZoomStops }
+  } else if (label.halo?.color) {
+    haloColor = { kind: 'constant', value: label.halo.color }
+  }
+
+  return { size, color, haloWidth, haloColor }
 }
 
 /**

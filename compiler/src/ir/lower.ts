@@ -25,6 +25,7 @@ import {
   sizeConstant,
   shapeNone,
   hexToRgba,
+  buildLabelShapes,
   type ShapeRef,
 } from './render-node'
 
@@ -1508,7 +1509,7 @@ function foldLabelKnobs(
       knobs.labelTranslateY ?? base.translate?.[1] ?? 0,
     ]
   }
-  return {
+  const merged: import('./render-node').LabelDef = {
     ...base,
     ...(knobs.labelSize !== undefined ? { size: knobs.labelSize } : {}),
     ...(knobs.labelColor !== undefined ? { color: knobs.labelColor } : {}),
@@ -1550,6 +1551,11 @@ function foldLabelKnobs(
     ...(knobs.labelPitchAlignment !== undefined ? { pitchAlignment: knobs.labelPitchAlignment } : {}),
     ...(knobs.labelKeepUpright !== undefined ? { keepUpright: knobs.labelKeepUpright } : {}),
   }
+  // Plan Label L1: stamp the unified PropertyShape bundle. Dual-write
+  // with the legacy mixed-bag fields above for now; L3 deletes the
+  // siblings once every runtime callsite reads from `merged.shapes`.
+  merged.shapes = buildLabelShapes(merged)
+  return merged
 }
 
 /**
