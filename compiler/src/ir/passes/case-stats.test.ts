@@ -17,7 +17,7 @@ const FIX = join(HERE, '..', '..', '__tests__', 'fixtures')
 
 function probeMatchExprs(fixture: string) {
   const json = JSON.parse(readFileSync(join(FIX, fixture), 'utf8'))
-  const xgis = convertMapboxStyle(json, { warn: () => {} })
+  const xgis = convertMapboxStyle(json)
   const tokens = new Lexer(xgis).tokenize()
   const program = new Parser(tokens).parse()
   const scene = optimize(lower(program), program)

@@ -32,7 +32,7 @@ function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
 }
 
 function sceneOf(nodes: RenderNode[]): Scene {
-  return { sources: [], renderNodes: nodes }
+  return { sources: [], renderNodes: nodes, symbols: [] }
 }
 
 describe('dead-layer-elim — explicit hidden', () => {

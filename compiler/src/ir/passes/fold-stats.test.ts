@@ -19,7 +19,7 @@ const FIX = join(HERE, '..', '..', '__tests__', 'fixtures')
 
 function compileFixture(path: string): Scene {
   const json = JSON.parse(readFileSync(path, 'utf8'))
-  const xgis = convertMapboxStyle(json, { warn: () => {} })
+  const xgis = convertMapboxStyle(json)
   const tokens = new Lexer(xgis).tokenize()
   const program = new Parser(tokens).parse()
   return optimize(lower(program), program)

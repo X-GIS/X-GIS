@@ -10,6 +10,7 @@ import type { Scene } from './render-node'
 const emptyScene: Scene = {
   sources: [],
   renderNodes: [],
+  symbols: [],
 }
 
 // Build a recording pass whose run() appends its name to a shared log.
@@ -71,9 +72,9 @@ describe('PassManager — topological run order', () => {
 
   it('threads the scene through every pass — each receives previous output', () => {
     const seenScenes: Scene[] = []
-    const sceneA: Scene = { sources: [], renderNodes: [] }
-    const sceneB: Scene = { sources: [], renderNodes: [{ kind: 'fill' } as never] }
-    const sceneC: Scene = { sources: [], renderNodes: [{ kind: 'line' } as never] }
+    const sceneA: Scene = { sources: [], renderNodes: [], symbols: [] }
+    const sceneB: Scene = { sources: [], renderNodes: [{ kind: 'fill' } as never], symbols: [] }
+    const sceneC: Scene = { sources: [], renderNodes: [{ kind: 'line' } as never], symbols: [] }
     const mgr = new PassManager()
     mgr.register({ name: 'a', dependencies: [], run(s) { seenScenes.push(s); return sceneB } })
     mgr.register({ name: 'b', dependencies: ['a'], run(s) { seenScenes.push(s); return sceneC } })
