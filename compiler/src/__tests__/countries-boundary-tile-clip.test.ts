@@ -48,16 +48,12 @@ describe('countries-boundary tile-clip artifact (demotiles repro)', () => {
 
     // The eastern edge of tile x=9 is at lon=45°, which in MM is:
     const tb = tileBounds(z, x, y)
-    const [, , mxE] = lonLatToMercF64(tb.east, tb.north)
-    // Note: lonLatToMercF64 returns [x, y]; the easternmost mx is for tb.east.
-    const [eastMxRaw] = lonLatToMercF64(tb.east, 0)
-    const eastMx = eastMxRaw
+    const eastMx = lonLatToMercF64(tb.east, 0)[0]
 
     // outline vertices stride-10: [mx_h, my_h, mx_l, my_l, arc, tinX, tinY, toutX, toutY, _].
     // Reconstruct mx by mx_h + mx_l (DSFUN pair). Tile-local: vertices are
     // relative to (tileWest, tileSouth) in MM. Convert to absolute MM:
     const tileWestMx = lonLatToMercF64(tb.west, 0)[0]
-    const tileSouthMy = lonLatToMercF64(0, tb.south)[1]
 
     const STRIDE = 10
     let segmentsOnEastEdge = 0
