@@ -1286,7 +1286,7 @@ function lowerLayer(
     // `base` is the fill color the layer had before keyframes touched
     // it, so pre-animation frames still look right. If the layer had no
     // explicit fill, fall back to the first stop's value.
-    const baseRgba: [number, number, number, number] =
+    const baseRgba: import('./property-types').RGBA =
       fill.kind === 'constant' ? fill.rgba : fillTimeStops[0].value
     fill = {
       kind: 'time-interpolated',
@@ -1300,7 +1300,7 @@ function lowerLayer(
 
   if (strokeColorTimeStops.length >= 2) {
     strokeColorTimeStops.sort((a, b) => a.timeMs - b.timeMs)
-    const baseRgba: [number, number, number, number] =
+    const baseRgba: import('./property-types').RGBA =
       strokeColor.kind === 'constant' ? strokeColor.rgba : strokeColorTimeStops[0].value
     strokeColor = {
       kind: 'time-interpolated',

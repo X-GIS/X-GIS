@@ -206,13 +206,13 @@ function canExtendGroup(first: RenderNode, candidate: RenderNode): boolean {
  *  none-color }` expression for the merged group. */
 function buildMatchAst(
   field: string,
-  arms: Array<{ pattern: string; rgba: [number, number, number, number] }>,
+  arms: Array<{ pattern: string; rgba: import('../property-types').RGBA }>,
   /** Override for the `_` default arm. When the merge pass absorbs
    *  a complementary `&&`-chain `!=` layer (e.g. `landuse_other`),
    *  its fill / stroke colour becomes the default. Without it the
    *  default is alpha=0 — equivalent to "discard" since the line /
    *  fill SDF threshold drops fragments with alpha < 0.005. */
-  defaultRgba?: [number, number, number, number] | null,
+  defaultRgba?: import('../property-types').RGBA | null,
 ): AST.Expr {
   const defaultHex = defaultRgba ? rgbaToHex(defaultRgba) : '#00000000'
   const defaultArm: AST.MatchArm = {
@@ -296,7 +296,7 @@ function buildWidthMatchAst(
   } as unknown as AST.Expr
 }
 
-function rgbaToHex(rgba: [number, number, number, number]): string {
+function rgbaToHex(rgba: import('../property-types').RGBA): string {
   const r = Math.round(rgba[0] * 255).toString(16).padStart(2, '0')
   const g = Math.round(rgba[1] * 255).toString(16).padStart(2, '0')
   const b = Math.round(rgba[2] * 255).toString(16).padStart(2, '0')
@@ -459,8 +459,8 @@ export function mergeLayers(scene: Scene): Scene {
     // from every group member so a feature gets the styling of the
     // FIRST member whose filter matched it (declaration order
     // preserved by the arm-emission order).
-    const fillArms: Array<{ pattern: string; rgba: [number, number, number, number] }> = []
-    const strokeArms: Array<{ pattern: string; rgba: [number, number, number, number] }> = []
+    const fillArms: Array<{ pattern: string; rgba: import('../property-types').RGBA }> = []
+    const strokeArms: Array<{ pattern: string; rgba: import('../property-types').RGBA }> = []
     const widthArms: Array<{ pattern: string; width: number }> = []
     let strokeNeeded = false
     let fillNeeded = false
