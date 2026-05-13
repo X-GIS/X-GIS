@@ -41,9 +41,9 @@ function synthesizePaintShapes(show: {
   zoomOpacityStops?: { zoom: number; value: number }[] | null
   zoomOpacityStopsBase?: number
   timeOpacityStops?: { timeMs: number; value: number }[] | null
-  timeOpacityLoop?: boolean
-  timeOpacityEasing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
-  timeOpacityDelayMs?: number
+  animLoop?: boolean
+  animEasing?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
+  animDelayMs?: number
   zoomFillStops?: { zoom: number; value: [number, number, number, number] }[] | null
   zoomFillStopsBase?: number
   timeFillStops?: { timeMs: number; value: [number, number, number, number] }[] | null
@@ -55,9 +55,9 @@ function synthesizePaintShapes(show: {
   zoomSizeStopsBase?: number
   timeSizeStops?: { timeMs: number; value: number }[] | null
 }): PaintShapes {
-  const loop = show.timeOpacityLoop ?? false
-  const easing = show.timeOpacityEasing ?? 'linear'
-  const delayMs = show.timeOpacityDelayMs ?? 0
+  const loop = show.animLoop ?? false
+  const easing = show.animEasing ?? 'linear'
+  const delayMs = show.animDelayMs ?? 0
 
   // Opacity: 4-way (constant / zoom / time / zoom-time)
   const oz = show.zoomOpacityStops ?? null
@@ -165,9 +165,9 @@ function makeShow(overrides: Partial<SceneCommands['shows'][0]> = {}): SceneComm
     timeStrokeWidthStops: null,
     timeSizeStops: null,
     timeDashOffsetStops: null,
-    timeOpacityLoop: false,
-    timeOpacityEasing: 'linear' as const,
-    timeOpacityDelayMs: 0,
+    animLoop: false,
+    animEasing: 'linear' as const,
+    animDelayMs: 0,
     ...overrides,
   }
   return {
@@ -366,9 +366,9 @@ describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', (
         opacity: 1,
         zoomOpacityStops: [{ zoom: 0, value: 0.5 }, { zoom: 10, value: 0.5 }],
         timeOpacityStops: [{ timeMs: 0, value: 0.6 }, { timeMs: 1000, value: 0.6 }],
-        timeOpacityLoop: true,
-        timeOpacityEasing: 'linear',
-        timeOpacityDelayMs: 0,
+        animLoop: true,
+        animEasing: 'linear',
+        animDelayMs: 0,
       }))],
       sources,
       { cameraZoom: 5, elapsedMs: 500 },
@@ -386,7 +386,7 @@ describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', (
           { timeMs: 0, value: [1, 0, 0, 1] },
           { timeMs: 1000, value: [0, 0, 1, 1] },
         ],
-        timeOpacityLoop: true,
+        animLoop: true,
       }))],
       sources,
       { elapsedMs: 500 },
@@ -407,7 +407,7 @@ describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', (
           { timeMs: 0, value: 2 },
           { timeMs: 1000, value: 8 },
         ],
-        timeOpacityLoop: true,
+        animLoop: true,
       }))],
       sources,
       { elapsedMs: 500 },
@@ -424,7 +424,7 @@ describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', (
           { timeMs: 0, value: 0 },
           { timeMs: 1000, value: 60 },
         ],
-        timeOpacityLoop: true,
+        animLoop: true,
       }))],
       sources,
       { elapsedMs: 250 },
@@ -448,7 +448,7 @@ describe('classifyVectorTileShows — animation resolution (Bug 1 territory)', (
             { timeMs: 500, value: [0, 1, 0, 1] },
             { timeMs: 1000, value: [1, 0, 0, 1] },
           ],
-          timeOpacityLoop: true,
+          animLoop: true,
         }))],
         sources,
         { elapsedMs },
@@ -633,7 +633,7 @@ describe('classifyVectorTileShows — ResolvedShow snapshot (Phase 4b/4c)', () =
           { timeMs: 0, value: [1, 0, 0, 1] },
           { timeMs: 1000, value: [0, 0, 1, 1] },
         ],
-        timeOpacityLoop: true,
+        animLoop: true,
       }))],
       sources,
       { elapsedMs: 500 },

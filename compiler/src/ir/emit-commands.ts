@@ -104,15 +104,17 @@ export interface ShowCommand {
   // PaintShapes.* below carries every paint-property animation
   // (opacity / fill / stroke / strokeWidth / size). Only dashOffset
   // — a structural stroke attribute, not a paint axis — keeps its
-  // own time-stop field here. The shared lifecycle metadata (loop /
-  // easing / delayMs) is read off any animated PaintShape variant
-  // (zoom-time / time-interpolated); these three flat fields stay
-  // populated as the canonical metadata source for dashOffset's
-  // animation, which has no PaintShape of its own.
+  // own time-stop field here. `animLoop` / `animEasing` /
+  // `animDelayMs` are the layer-level lifecycle metadata (sourced
+  // from `RenderNode.animationMeta`) that ALL animated properties
+  // share; dashOffset reads them directly, paint axes read them
+  // from their PaintShape variant. Naming "anim" rather than the
+  // legacy "timeOpacity" reflects that the metadata applies to any
+  // animated property, not opacity specifically.
   timeDashOffsetStops: TimeStop<number>[] | null
-  timeOpacityLoop: boolean
-  timeOpacityEasing: Easing
-  timeOpacityDelayMs: number
+  animLoop: boolean
+  animEasing: Easing
+  animDelayMs: number
   /** 3D extrusion height. `none` = flat polygon (default). `constant`
    *  = uniform metres for every feature. `feature` = per-feature
    *  property name + fallback metres. The runtime branches the upload
@@ -195,9 +197,9 @@ function emitShow(node: RenderNode): ShowCommand {
   // frozen at the last stop. The animationMeta single source of truth
   // makes that miscall structurally impossible.
   const meta = node.animationMeta ?? { loop: false, easing: 'linear' as Easing, delayMs: 0 }
-  const timeOpacityLoop = meta.loop
-  const timeOpacityEasing = meta.easing
-  const timeOpacityDelayMs = meta.delayMs
+  const animLoop = meta.loop
+  const animEasing = meta.easing
+  const animDelayMs = meta.delayMs
 
   return {
     targetName: node.sourceRef,
@@ -244,9 +246,9 @@ function emitShow(node: RenderNode): ShowCommand {
     strokeAlign: node.stroke.align,
     strokeBlur: node.stroke.blur,
     timeDashOffsetStops,
-    timeOpacityLoop,
-    timeOpacityEasing,
-    timeOpacityDelayMs,
+    animLoop,
+    animEasing,
+    animDelayMs,
     extrude: node.extrude,
     extrudeBase: node.extrudeBase,
     label: node.label,
