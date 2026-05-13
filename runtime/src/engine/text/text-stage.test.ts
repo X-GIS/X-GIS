@@ -7,7 +7,7 @@
 // public `host` to verify the wiring is correct.
 
 import { describe, it, expect } from 'vitest'
-import { applyTextTransformForTesting } from './text-stage-helpers'
+import { applyTextTransform } from './text-stage-helpers'
 import { composeFontKey } from './text-stage'
 import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
 import type { LabelDef } from '@xgis/compiler'
@@ -19,17 +19,17 @@ const baseLabel: LabelDef = {
 
 describe('text-transform helper', () => {
   it('uppercase', () => {
-    expect(applyTextTransformForTesting('Hello', 'uppercase')).toBe('HELLO')
+    expect(applyTextTransform('Hello', 'uppercase')).toBe('HELLO')
   })
   it('lowercase', () => {
-    expect(applyTextTransformForTesting('Hello', 'lowercase')).toBe('hello')
+    expect(applyTextTransform('Hello', 'lowercase')).toBe('hello')
   })
   it('none / undefined → passthrough', () => {
-    expect(applyTextTransformForTesting('Hello', 'none')).toBe('Hello')
-    expect(applyTextTransformForTesting('Hello', undefined)).toBe('Hello')
+    expect(applyTextTransform('Hello', 'none')).toBe('Hello')
+    expect(applyTextTransform('Hello', undefined)).toBe('Hello')
   })
   it('CJK passes through (no case mapping)', () => {
-    expect(applyTextTransformForTesting('서울', 'uppercase')).toBe('서울')
+    expect(applyTextTransform('서울', 'uppercase')).toBe('서울')
   })
 })
 
