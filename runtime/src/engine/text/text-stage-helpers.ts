@@ -1,8 +1,11 @@
-// Re-exports the bits of text-stage that are testable without
-// WebGPU. Keeps the test file from importing text-stage directly
-// (which would pull in TextRenderer's WGSL pipeline + GPU types).
+// Pure (WebGPU-free) text-stage helpers. text-stage.ts imports from
+// here for production use; tests can import without pulling in
+// TextRenderer's WGSL pipeline + GPU types.
 
-export function applyTextTransformForTesting(
+/** Mapbox `text-transform` — uppercase / lowercase / none.
+ *  Note for CJK: case mapping is undefined for ideographs and
+ *  hangul — Unicode default-cased mappings pass them through. */
+export function applyTextTransform(
   s: string,
   t?: 'none' | 'uppercase' | 'lowercase',
 ): string {

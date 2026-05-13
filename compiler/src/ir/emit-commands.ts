@@ -83,14 +83,15 @@ export interface ShowCommand {
   billboard: boolean
   anchor?: 'center' | 'bottom' | 'top'
   shape: string | null
-  // Phase 2: line styling
   linecap?: 'butt' | 'round' | 'square' | 'arrow'
   linejoin?: 'miter' | 'round' | 'bevel'
   miterlimit?: number
-  // Phase 3: dash array
   dashArray?: number[]
   dashOffset?: number
-  // Phase 4: pattern stack (up to 3 slots)
+  /** Stroke pattern stack — up to 3 repeated symbol slots laid along
+   *  the line (Mapbox `line-pattern` superset). Each slot picks a
+   *  shape from `ShapeRegistry` and gets its own spacing / anchor /
+   *  offset. The line renderer evaluates all active slots per fragment. */
   patterns?: import('./render-node').StrokePattern[]
   /** Lateral parallel offset in pixels (positive = left of travel). */
   strokeOffset?: number

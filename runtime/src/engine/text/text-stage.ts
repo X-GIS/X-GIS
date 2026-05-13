@@ -28,7 +28,7 @@ import { createRasterizer, type GlyphRasterizer } from './sdf/glyph-rasterizer'
 import { TextRenderer, type TextDraw } from './text-renderer'
 import { greedyPlaceBboxes, type CollisionItem } from './text-collision'
 import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
-import { stripCurveLineExtraScripts } from './text-stage-helpers'
+import { applyTextTransform, stripCurveLineExtraScripts } from './text-stage-helpers'
 
 /** Compose the rasterizer-visible font key for one label.
  *
@@ -794,11 +794,3 @@ export class TextStage {
   }
 }
 
-/** Mapbox `text-transform` — uppercase / lowercase / none.
- *  Note for CJK: case mapping is undefined for ideographs and
- *  hangul — Unicode default-cased mappings just pass them through. */
-function applyTextTransform(s: string, t?: 'none' | 'uppercase' | 'lowercase'): string {
-  if (t === 'uppercase') return s.toUpperCase()
-  if (t === 'lowercase') return s.toLowerCase()
-  return s
-}
