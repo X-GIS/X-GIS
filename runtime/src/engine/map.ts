@@ -737,8 +737,8 @@ export class XGISMap {
   }
 
   /** Convert a CSS-coordinate point to longitude/latitude using the
-   *  current camera. Phase 4 supports Mercator; other projections
-   *  return null for now (the dispatcher coerces to NaN, NaN). */
+   *  current camera. Mercator-only; other projections return null and
+   *  the dispatcher coerces to [NaN, NaN]. */
   private clientToLngLat(clientX: number, clientY: number): readonly [number, number] | null {
     if (!this.ctx) return null
     const canvas = this.ctx.canvas

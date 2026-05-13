@@ -108,9 +108,12 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
       ? (show.size ?? 0)
       : resolveNumberShape(ps.size, cameraZoom, elapsedMs).value
 
-  // Dash offset — only `time-interpolated` is currently supported on
-  // the parent StrokeValue. Read from the legacy timeDashOffsetStops
-  // for now; will move into a PaintShape in the next pass.
+  // Dash offset is a STRUCTURAL stroke attribute, not a paint axis —
+  // it lives on the parent StrokeValue rather than getting its own
+  // PaintShape slot. Only `time-interpolated` is supported (the dash
+  // phase animation pattern: drift the pattern along the line). The
+  // resolver constructs the PropertyShape inline so dashOffset goes
+  // through the same `resolveNumberShape` path as the paint axes.
   const dashOffset = show.timeDashOffsetStops
     ? resolveNumberShape(
         { kind: 'time-interpolated', stops: show.timeDashOffsetStops,
