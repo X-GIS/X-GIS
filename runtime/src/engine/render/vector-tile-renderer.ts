@@ -1971,12 +1971,14 @@ export class VectorTileRenderer {
      *  on the main pass (fully opaque even though the fill is
      *  translucent), so phase alone isn't enough to dispatch. */
     translucentBucket: boolean = false,
-    /** Phase 4c: per-frame ResolvedShow snapshot. When set, paint
-     *  reads pick up zoom × time-resolved values from here instead
-     *  of the legacy mutable `show.opacity` / `show.resolvedFillRgba`
-     *  / etc. Optional during the migration; Phase 4c-final makes it
-     *  required and removes the in-place mutation in bucket-scheduler. */
-    resolvedShow?: ResolvedShow,
+    /** Per-frame ResolvedShow snapshot — required as of Phase 4c-final.
+     *  Carries every zoom × time-resolved paint scalar / RGBA the
+     *  draw path needs. The bucket scheduler (`classifyVectorTileShows`)
+     *  is the sole authority that builds these; map.ts forwards them
+     *  to every `VTR.render` call. New consumers MUST read paint values
+     *  from here — `show.*` paint fields stay around for trace +
+     *  introspection only. */
+    resolvedShow: ResolvedShow,
   ): void {
     if (!this.source?.hasData()) return
     const index = this.source.getIndex()
@@ -2076,11 +2078,9 @@ export class VectorTileRenderer {
     // gate (in hysteresis below) and by the main visible-tile selection
     // further down. Cheap pure derivations; safe to compute once up here.
     const strokeOffsetPx_h = Math.abs(show.strokeOffset ?? 0)
-    // Stroke width is already resolved (zoom or time) by the bucket
-    // scheduler. Prefer the Phase 4b ResolvedShow snapshot when the
-    // caller passes it; fall back to the legacy mutable
-    // show.strokeWidth for callers that haven't migrated yet.
-    const strokeWidthPx_h = resolvedShow?.strokeWidth ?? show.strokeWidth ?? 1
+    // Stroke width — zoom × time already collapsed by the bucket
+    // scheduler. ResolvedShow is the SOLE per-frame source.
+    const strokeWidthPx_h = resolvedShow.strokeWidth
     const alignDeltaPx_h = show.strokeAlign === 'inset' || show.strokeAlign === 'outset'
       ? strokeWidthPx_h / 2 : 0
     const offsetMarginPx = Math.ceil(strokeOffsetPx_h + alignDeltaPx_h + strokeWidthPx_h / 2 + 2)
@@ -2558,11 +2558,8 @@ export class VectorTileRenderer {
     // check AND the hex parse. The cached base color stays intact so a
     // subsequent static frame can re-use it.
     // Opacity is already resolved (zoom × time) by the bucket
-    // scheduler. Prefer the Phase 4b ResolvedShow snapshot when the
-    // caller passes it; fall back to the legacy `show.opacity` mutable
-    // clone for callers that haven't migrated yet. Both surfaces
-    // produce identical values (pinned by bucket-scheduler.test.ts).
-    this.currentOpacity = resolvedShow?.opacity ?? show.opacity ?? 1.0
+    // scheduler — ResolvedShow is the SOLE per-frame source.
+    this.currentOpacity = resolvedShow.opacity
     this.currentPickId = show.pickId ?? 0
     // 3D extrusion: driven by the layer's `extrude:` style keyword.
     //   * `extrude: 50`     → constant uniform path (currentExtrudeHeight)
@@ -2582,10 +2579,10 @@ export class VectorTileRenderer {
       this.currentExtrudeMode = 'none'
     }
     // Per-frame resolved fill RGBA — animated stops were already
-    // collapsed by the bucket scheduler. Prefer the Phase 4b snapshot
-    // when available; fall back to the legacy `show.resolvedFillRgba`
-    // staging slot for callers that haven't passed resolvedShow yet.
-    const resolvedFill = resolvedShow?.fill ?? show.resolvedFillRgba
+    // collapsed by the bucket scheduler. ResolvedShow is the SOLE
+    // per-frame source; static hex still flows via show.fill below
+    // when the ShowCommand declared a `kind: 'constant'` fill.
+    const resolvedFill = resolvedShow.fill
     if (resolvedFill) {
       this.cachedFillColor[0] = resolvedFill[0]
       this.cachedFillColor[1] = resolvedFill[1]
@@ -2600,7 +2597,7 @@ export class VectorTileRenderer {
       this.cachedFillColor[2] = raw ? raw[2] : 0
       this.cachedFillColor[3] = raw ? raw[3] : 0
     }
-    const resolvedStroke = resolvedShow?.stroke ?? show.resolvedStrokeRgba
+    const resolvedStroke = resolvedShow.stroke
     if (resolvedStroke) {
       this.cachedStrokeColor[0] = resolvedStroke[0]
       this.cachedStrokeColor[1] = resolvedStroke[1]
@@ -2654,8 +2651,7 @@ export class VectorTileRenderer {
       // widths (compound merge → `strokeWidthExpr`) still go through
       // the worker bake + segment slot.
       // Pre-resolved by bucket-scheduler (zoom × time → plain scalar).
-      // Prefer the Phase 4b snapshot; fall back to legacy mutable field.
-      const strokeWidthPx = resolvedShow?.strokeWidth ?? show.strokeWidth ?? 1
+      const strokeWidthPx = resolvedShow.strokeWidth
       const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, camera.zoom)
       const capMap = { butt: 0, round: 1, square: 2, arrow: 3 } as const
       const joinMap = { miter: 0, round: 1, bevel: 2 } as const
@@ -2678,7 +2674,7 @@ export class VectorTileRenderer {
       const dash = (show.dashArray && show.dashArray.length >= 2)
         ? {
             array: show.dashArray.map(v => v * dashWidthScalePx * mpp),
-            offset: (resolvedShow?.dashOffset ?? show.dashOffset ?? 0) * dashWidthScalePx * mpp,
+            offset: resolvedShow.dashOffset * dashWidthScalePx * mpp,
           }
         : null
 

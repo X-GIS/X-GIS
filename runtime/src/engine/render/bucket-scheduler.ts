@@ -58,9 +58,11 @@ export interface ClassifiedShow {
    *  — the latter still works for backwards compatibility but
    *  carries the legacy mutable-clone semantics.
    *
-   *  Phase 4b (this field): populated alongside the in-place
-   *  `effectiveShow` mutation. Phase 4c will remove the mutation
-   *  and migrate every callsite to read from this snapshot. */
+   *  Phase 4c-final: the SOLE per-frame paint-state carrier. The
+   *  classifier no longer mutates a ShowCommand clone; `show` on
+   *  ClassifiedShow is the original immutable source. Every
+   *  downstream consumer (VTR.render, line composite, point labels)
+   *  reads paint values from THIS field. */
   resolvedShow: ResolvedShow
   fp: GPURenderPipeline
   lp: GPURenderPipeline

@@ -7,15 +7,13 @@
 // fields directly — no per-callsite zoom-stop evaluation, no
 // mutable `cs.show.opacity = composedOpa` writeback.
 //
-// Phase 4a (this file): introduce the type + the `resolveShow`
-// helper. The bucket scheduler still resolves inline and writes back
-// to a cloned ShowCommand; both surfaces share the same resolver
-// helpers (paint-shape-resolve.ts) so the values stay in sync.
-//
-// Phase 4b / 4c (follow-up commits): migrate `classifyVectorTileShows`
-// output to `ClassifiedShow<ResolvedShow>` and narrow the renderer
-// signatures so a TypeScript error fires when someone tries to mutate
-// the resolved paint state.
+// Phase 4 complete: this is the SOLE per-frame paint-state carrier.
+// `classifyVectorTileShows` builds one ResolvedShow per ClassifiedShow,
+// every downstream consumer (VTR.render, line composite, point
+// labels) reads from it. ShowCommand keeps its static / authored
+// paint fields for the imperative `layer.opacity =` API and the
+// canvas-fallback renderer; the WebGPU draw path no longer touches
+// them per-frame.
 
 // SceneCommands isn't on the public @xgis/compiler barrel surface but
 // `bucket-scheduler.ts` already imports it the same way; both
@@ -79,11 +77,9 @@ export interface ResolveEnv {
 /** Collapse every per-frame-variable axis of a ShowCommand into a
  *  ResolvedShow snapshot.
  *
- *  Mirrors the in-place resolution in `bucket-scheduler.ts:184-318` so
- *  both paths produce identical scalars. Phase 4b will switch the
- *  classifier to populate ResolvedShow directly; Phase 4c removes the
- *  mutable `effectiveShow.opacity = …` writebacks once every consumer
- *  reads from the snapshot instead. */
+ *  The classifier in `bucket-scheduler.ts:classifyVectorTileShows`
+ *  calls this once per ShowCommand per frame; downstream consumers
+ *  read scalars / RGBA off the returned snapshot. */
 export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
   const { cameraZoom, elapsedMs } = env
   const ps = show.paintShapes
