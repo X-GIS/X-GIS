@@ -119,15 +119,36 @@ export function resolveColorShape(
   }
 }
 
-/** `true` when a PropertyShape's `kind` carries a per-frame zoom or
- *  time dependency — i.e. its resolved value depends on
- *  cameraZoom/elapsedMs and may differ from frame to frame. Used by
- *  the clone decision in the bucket scheduler so static shows stay
- *  on the zero-allocation hot path. */
-export function hasZoomOrTime(shape: PropertyShape<unknown>): boolean {
-  return shape.kind === 'zoom-interpolated'
-    || shape.kind === 'time-interpolated'
-    || shape.kind === 'zoom-time'
+/** Stepped resolver for non-interpolable `PropertyShape<T>` (font
+ *  stack, enum strings, …). Returns the value picked at the last
+ *  zoom stop whose `zoom <= cameraZoom`, the constant value, or
+ *  `null` for `data-driven` (caller evaluates per-feature). The
+ *  time-axis variants fall back to the first stop's value —
+ *  `time-interpolated` / `zoom-time` aren't produced for enum / array
+ *  properties by the converter, so this branch is defensive only. */
+export function resolveSteppedShape<T>(
+  shape: PropertyShape<T>,
+  cameraZoom: number,
+): T | null {
+  switch (shape.kind) {
+    case 'constant':
+      return shape.value
+    case 'zoom-interpolated': {
+      const stops = shape.stops
+      if (stops.length === 0) return null
+      let pick = stops[0]!.value
+      for (const s of stops) {
+        if (s.zoom <= cameraZoom) pick = s.value
+      }
+      return pick
+    }
+    case 'data-driven':
+      return null
+    case 'time-interpolated':
+      return shape.stops[0]?.value ?? null
+    case 'zoom-time':
+      return shape.zoomStops[0]?.value ?? null
+  }
 }
 
 /** Stepped resolver for non-interpolable `PropertyShape<T>` (font
