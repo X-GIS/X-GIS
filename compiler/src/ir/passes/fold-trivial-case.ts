@@ -95,10 +95,10 @@ function foldSize(value: SizeValue): SizeValue {
 }
 
 function foldStrokeWidth(value: StrokeWidthValue): StrokeWidthValue {
-  if (value.kind !== 'per-feature') return value
+  if (value.kind !== 'data-driven') return value
   const lit = commonLiteralArm(value.expr.ast)
   if (lit === null || lit.kind !== 'NumberLiteral') return value
-  return { kind: 'constant', px: lit.value }
+  return { kind: 'constant', value: lit.value }
 }
 
 function foldStroke(stroke: StrokeValue): StrokeValue {

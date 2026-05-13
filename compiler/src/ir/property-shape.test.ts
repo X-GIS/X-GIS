@@ -103,24 +103,27 @@ describe('RenderNode → PropertyShape conversion', () => {
   })
 
   // ─── StrokeWidthValue ────────────────────────────────────────────
+  // Post-migration StrokeWidthValue is `PropertyShape<number>` and
+  // strokeWidthValueToShape is identity. The cases below verify each
+  // PropertyShape variant survives the shim unchanged.
 
   it('StrokeWidthValue { constant } → Static', () => {
-    expect(strokeWidthValueToShape({ kind: 'constant', px: 3 })).toEqual({
+    expect(strokeWidthValueToShape({ kind: 'constant', value: 3 })).toEqual({
       kind: 'constant', value: 3,
     })
   })
 
-  it('StrokeWidthValue { zoom-stops } → ZoomOnly', () => {
+  it('StrokeWidthValue { zoom-interpolated } → ZoomOnly', () => {
     const v: StrokeWidthValue = {
-      kind: 'zoom-stops',
+      kind: 'zoom-interpolated',
       stops: [{ zoom: 0, value: 1 }, { zoom: 14, value: 6 }],
     }
     expect(strokeWidthValueToShape(v)).toMatchObject({ kind: 'zoom-interpolated' })
   })
 
-  it('StrokeWidthValue { per-feature } → FeatureOnly', () => {
+  it('StrokeWidthValue { data-driven } → FeatureOnly', () => {
     const expr = { ast: {} as never } as never
-    const v: StrokeWidthValue = { kind: 'per-feature', expr }
+    const v: StrokeWidthValue = { kind: 'data-driven', expr }
     expect(strokeWidthValueToShape(v)).toEqual({ kind: 'data-driven', expr })
   })
 

@@ -67,20 +67,15 @@ export function opacityValueToShape(v: OpacityValue): PropertyShape<number> {
 
 /** Convert a StrokeWidthValue to a PropertyShape<number>.
  *
- *  StrokeWidthValue only carries the SPATIAL dependency (constant /
- *  zoom-stops / per-feature). Time stops for stroke width live on the
- *  parent StrokeValue as `timeWidthStops` (see render-node.ts:478) —
- *  emit-commands composes them with the spatial shape when populating
- *  PaintShapes.strokeWidth. This helper only handles the spatial
+ *  StrokeWidthValue is now an alias of `PropertyShape<number>` (post
+ *  kinds + field rename); the helper survives as identity for callsite
+ *  compatibility. Time stops for stroke width live on the parent
+ *  StrokeValue as `timeWidthStops` (see render-node.ts) — emit-commands
+ *  composes them with the spatial shape when populating
+ *  PaintShapes.strokeWidth. This helper only forwards the spatial
  *  half; time composition is the caller's job. */
 export function strokeWidthValueToShape(v: StrokeWidthValue): PropertyShape<number> {
-  switch (v.kind) {
-    case 'constant': return { kind: 'constant', value: v.px }
-    case 'zoom-stops':
-      return { kind: 'zoom-interpolated', stops: v.stops, base: v.base }
-    case 'per-feature':
-      return { kind: 'data-driven', expr: v.expr }
-  }
+  return v
 }
 
 /** Convert a SizeValue to a PropertyShape<number>. `kind: 'none'`

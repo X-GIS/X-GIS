@@ -33,7 +33,7 @@ function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
     fill: { kind: 'constant', rgba: [1, 0, 0, 1] },
     stroke: {
       color: { kind: 'constant', rgba: [0, 0, 0, 1] },
-      width: { kind: 'constant', px: 1 },
+      width: { kind: 'constant', value: 1 },
     },
     opacity: { kind: 'constant', value: 1 },
     size: { kind: 'constant', value: 8 },
@@ -120,14 +120,14 @@ describe('fold-trivial-case — size match', () => {
 })
 
 describe('fold-trivial-case — stroke width match', () => {
-  it('folds all-equal NumberLiteral arms on per-feature width', () => {
+  it('folds all-equal NumberLiteral arms on data-driven width', () => {
     const width: StrokeWidthValue = {
-      kind: 'per-feature',
+      kind: 'data-driven',
       expr: { ast: matchAst([NUM_5, NUM_5]) },
     }
     const out = foldTrivialCasePass.run(sceneOf([makeNode({ stroke: { color: { kind: 'constant', rgba: [0, 0, 0, 1] }, width } })]))
     expect(out.renderNodes[0]!.stroke.width.kind).toBe('constant')
-    expect((out.renderNodes[0]!.stroke.width as { px: number }).px).toBe(5)
+    expect((out.renderNodes[0]!.stroke.width as { value: number }).value).toBe(5)
   })
 })
 

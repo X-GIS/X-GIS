@@ -1370,13 +1370,13 @@ function lowerLayer(
       // layer uniform).
       let widthSource: import('./render-node').StrokeWidthValue
       if (strokeWidthExpr !== undefined) {
-        widthSource = { kind: 'per-feature', expr: strokeWidthExpr }
+        widthSource = { kind: 'data-driven', expr: strokeWidthExpr }
       } else if (strokeWidthZoomStops !== undefined && strokeWidthZoomStops.length > 0) {
         widthSource = strokeWidthZoomStopsBase !== undefined
-          ? { kind: 'zoom-stops', stops: strokeWidthZoomStops, base: strokeWidthZoomStopsBase }
-          : { kind: 'zoom-stops', stops: strokeWidthZoomStops }
+          ? { kind: 'zoom-interpolated', stops: strokeWidthZoomStops, base: strokeWidthZoomStopsBase }
+          : { kind: 'zoom-interpolated', stops: strokeWidthZoomStops }
       } else {
-        widthSource = { kind: 'constant', px: strokeWidth }
+        widthSource = { kind: 'constant', value: strokeWidth }
       }
       return {
         color: strokeColor,
@@ -1805,7 +1805,7 @@ function lowerShow(stmt: AST.ShowStatement): RenderNode | null {
     sourceRef: targetName,
     zOrder: 0,
     fill,
-    stroke: { color: strokeColor, width: { kind: 'constant', px: strokeWidth } },
+    stroke: { color: strokeColor, width: { kind: 'constant', value: strokeWidth } },
     opacity: opacityConstant(opacity),
     size: sizeNone(),
     projection,
