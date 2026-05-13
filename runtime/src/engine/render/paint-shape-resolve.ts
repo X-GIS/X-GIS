@@ -122,31 +122,22 @@ export function resolveColorShape(
 /** Stepped resolver for non-interpolable `PropertyShape<T>` (font
  *  stack, enum strings, …). Returns the value picked at the last
  *  zoom stop whose `zoom <= cameraZoom`, the constant value, or
- *  `null` for `data-driven` (caller evaluates per-feature). The
- *  time-axis variants fall back to the first stop's value —
- *  `time-interpolated` / `zoom-time` aren't produced for enum / array
- *  properties by the converter, so this branch is defensive only. */
+ *  `null` otherwise — `data-driven` is resolved per-feature by the
+ *  caller, and `time-interpolated` / `zoom-time` aren't produced
+ *  for the axes that use this resolver. */
 export function resolveSteppedShape<T>(
   shape: PropertyShape<T>,
   cameraZoom: number,
 ): T | null {
-  switch (shape.kind) {
-    case 'constant':
-      return shape.value
-    case 'zoom-interpolated': {
-      const stops = shape.stops
-      if (stops.length === 0) return null
-      let pick = stops[0]!.value
-      for (const s of stops) {
-        if (s.zoom <= cameraZoom) pick = s.value
-      }
-      return pick
+  if (shape.kind === 'constant') return shape.value
+  if (shape.kind === 'zoom-interpolated') {
+    const stops = shape.stops
+    if (stops.length === 0) return null
+    let pick = stops[0]!.value
+    for (const s of stops) {
+      if (s.zoom <= cameraZoom) pick = s.value
     }
-    case 'data-driven':
-      return null
-    case 'time-interpolated':
-      return shape.stops[0]?.value ?? null
-    case 'zoom-time':
-      return shape.zoomStops[0]?.value ?? null
+    return pick
   }
+  return null
 }
