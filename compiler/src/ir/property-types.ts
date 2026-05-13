@@ -29,6 +29,12 @@
 
 import type { ZoomStop, TimeStop, Easing, DataExpr } from './render-node'
 
+// ─── Shared atomic types ───────────────────────────────────────────
+
+/** RGBA tuple. Readonly alias prevents callers from mutating a
+ *  stops array's `value` field by accident. */
+export type RGBA = readonly [number, number, number, number]
+
 // ─── PropertyShape<T> ──────────────────────────────────────────────
 
 /** A paint property's evaluation shape. T is the property's value
@@ -75,72 +81,59 @@ export type PropertyShape<T> =
    *  AST against {feature props + camera-zoom prop}). */
   | { kind: 'data-driven'; expr: DataExpr }
 
-/** A typed bundle of paint-property shapes for one ShowCommand.
- *  `null` for properties the layer doesn't author (legacy `kind:
- *  'none'` from ColorValue / SizeValue collapses to null here —
- *  callers check for null, not for a kind string). */
+/** PropertyShape bundle for a polygon / line ShowCommand. `null`
+ *  fields mean the layer didn't author that axis — callers branch
+ *  on null, not on a `kind: 'none'` sentinel. `opacity` and
+ *  `strokeWidth` are non-null because they always resolve to a
+ *  numeric value (lower.ts seeds defaults if the source omits them). */
 export interface PaintShapes {
-  fill: PropertyShape<readonly [number, number, number, number]> | null
-  stroke: PropertyShape<readonly [number, number, number, number]> | null
+  /** Polygon fill colour. */
+  fill: PropertyShape<RGBA> | null
+  /** Line / polygon outline colour. */
+  stroke: PropertyShape<RGBA> | null
+  /** Layer-wide opacity multiplier (0..1). */
   opacity: PropertyShape<number>
+  /** Line / outline width in CSS pixels. */
   strokeWidth: PropertyShape<number>
+  /** Point / symbol size in CSS pixels. */
   size: PropertyShape<number> | null
 }
 
-/** PropertyShape bundle for the four "shape-able" label paint
- *  properties — the label-surface analogue of PaintShapes. The Mapbox
- *  spec defines exactly these four with full constant / zoom-interp /
- *  per-feature semantics:
+/** PropertyShape bundle for one label's eight paint axes. The
+ *  label-surface analogue of {@link PaintShapes}. Each axis is an
+ *  independent shape so source-format expressions that vary one
+ *  dimension at a time (e.g. font weight per feature with a fixed
+ *  family stack) lower cleanly.
  *
- *    text-size       → size: PropertyShape<number>
- *    text-color      → color: PropertyShape<RGBA>
- *    text-halo-width → haloWidth: PropertyShape<number>
- *    text-halo-color → haloColor: PropertyShape<RGBA>
+ *  `null` fields mean the layer didn't author that axis. `size`
+ *  is non-null because the runtime needs a numeric font size to
+ *  rasterise — lower.ts seeds a constant with the spec default
+ *  when the source omits text-size.
  *
- *  Pre-Plan label IR scattered each of these into 3-4 sibling fields
- *  on `LabelDef` (`size` + `sizeZoomStops` + `sizeZoomStopsBase` +
- *  `sizeExpr`). Callsites had to stitch the right field together
- *  every time — the same "truth-of-record drift" bug class Plan
- *  Step 1 cleaned up on the paint side. LabelShapes is the
- *  paint-side cleanup mirrored to the label surface.
- *
- *  `null` for properties the label doesn't author (e.g. a label
- *  with no halo has `haloWidth: null` AND `haloColor: null`).
- *  `text-size` always resolves to a concrete `PropertyShape<number>`
- *  because the runtime needs a numeric font size — lower.ts seeds
- *  `kind: 'constant'` with the spec default (16 px) when the source
- *  omits text-size.
- *
- *  Consumers MUST NOT mix legacy `LabelDef.{size,color,halo}`
- *  fields with shapes at read time. The runtime resolves shapes
- *  → legacy in exactly one place (map.ts label paint resolution)
- *  and hands a resolved `effectiveDef` to text-stage. Downstream
- *  code (text-stage, curved-label paths, trace recorder) reads
+ *  Consumers MUST NOT mix legacy `LabelDef.{size,color,halo,...}`
+ *  fields with shapes at read time. The runtime resolves shapes →
+ *  legacy in exactly one place (map.ts label paint resolution) and
+ *  hands a resolved `effectiveDef` to text-stage. Downstream code
+ *  (text-stage, curved-label paths, trace recorder) reads
  *  `effectiveDef.*` only. */
 export interface LabelShapes {
+  /** Font size in CSS pixels. */
   size: PropertyShape<number>
-  color: PropertyShape<readonly [number, number, number, number]> | null
+  /** Text fill colour. */
+  color: PropertyShape<RGBA> | null
+  /** Halo (outline) width in CSS pixels. */
   haloWidth: PropertyShape<number> | null
-  haloColor: PropertyShape<readonly [number, number, number, number]> | null
-  /** Halo edge softness in pixels. Independent shape so the blur
-   *  amount can vary with zoom or per feature alongside the halo
-   *  width / colour axes. */
+  /** Halo colour. */
+  haloColor: PropertyShape<RGBA> | null
+  /** Halo edge softness in CSS pixels (Gaussian-style feathering). */
   haloBlur: PropertyShape<number> | null
   /** Font family stack (analogous to CSS font-family — first
-   *  available wins). Stored as a list of family names only; weight
-   *  and style live on their own shapes so each axis can vary
-   *  independently across zoom / features. */
+   *  available wins). Family names only; embedded weight / style
+   *  suffixes are split into the parallel `fontWeight` / `fontStyle`
+   *  shapes by the source-format converter. */
   font: PropertyShape<readonly string[]> | null
-  /** CSS font-weight (100..900). Independent shape so a single
-   *  family stack can carry per-zoom or per-feature weight changes. */
+  /** CSS font-weight (100..900). */
   fontWeight: PropertyShape<number> | null
-  /** CSS font-style. Independent shape so italic / normal can vary
-   *  per zoom or per feature independently of the family stack. */
+  /** CSS font-style. */
   fontStyle: PropertyShape<'normal' | 'italic'> | null
 }
-
-// ─── Shared atomic types ───────────────────────────────────────────
-
-/** RGBA tuple. Readonly alias prevents callers from mutating a
- *  stops array's `value` field by accident. */
-export type RGBA = readonly [number, number, number, number]
