@@ -2770,6 +2770,44 @@ export class XGISMap {
               }
             }
           }
+          // Font resolution: family stack / weight / style are three
+          // independent PropertyShapes. The runtime resolves each to
+          // its current value and writes scalars to effectiveDef —
+          // no font-name parsing happens here; the source-format
+          // converter is responsible for splitting embedded weight /
+          // style suffixes before they reach the IR.
+          let resolvedFont = def.font
+          let resolvedFontWeight = def.fontWeight
+          let resolvedFontStyle = def.fontStyle
+          if (shapes?.font && shapes.font.kind !== 'data-driven') {
+            if (shapes.font.kind === 'constant') {
+              resolvedFont = [...shapes.font.value]
+            } else if (shapes.font.kind === 'zoom-interpolated') {
+              // Font stacks don't interpolate — step at the last stop
+              // whose zoom <= current camera zoom.
+              const stops = shapes.font.stops
+              let pick: readonly string[] | undefined = stops[0]?.value
+              for (const s of stops) {
+                if (s.zoom <= z) pick = s.value
+              }
+              if (pick !== undefined) resolvedFont = [...pick]
+            }
+          }
+          if (shapes?.fontWeight && shapes.fontWeight.kind !== 'data-driven') {
+            resolvedFontWeight = resolveNumberShape(shapes.fontWeight, z, elapsedMs).value
+          }
+          if (shapes?.fontStyle && shapes.fontStyle.kind !== 'data-driven') {
+            if (shapes.fontStyle.kind === 'constant') {
+              resolvedFontStyle = shapes.fontStyle.value
+            } else if (shapes.fontStyle.kind === 'zoom-interpolated') {
+              const stops = shapes.fontStyle.stops
+              let pick: 'normal' | 'italic' | undefined = stops[0]?.value
+              for (const s of stops) {
+                if (s.zoom <= z) pick = s.value
+              }
+              if (pick !== undefined) resolvedFontStyle = pick
+            }
+          }
           // text-rotation-alignment: 'map' makes point labels rotate
           // with the map bearing (text follows the world, not the
           // viewport). 'auto' resolves to viewport for point placement
@@ -2796,6 +2834,9 @@ export class XGISMap {
             size: resolvedSize,
             color: resolvedColor,
             ...(resolvedHalo !== undefined ? { halo: resolvedHalo } : {}),
+            ...(resolvedFont !== undefined ? { font: resolvedFont } : {}),
+            ...(resolvedFontWeight !== undefined ? { fontWeight: resolvedFontWeight } : {}),
+            ...(resolvedFontStyle !== undefined ? { fontStyle: resolvedFontStyle } : {}),
             ...(bearingDeg !== 0
               ? { rotate: (def.rotate ?? 0) + bearingDeg } : {}),
           }
@@ -2811,8 +2852,16 @@ export class XGISMap {
             ? shapes.size.expr.ast : null
           const colorExprAst = shapes && shapes.color !== null && shapes.color.kind === 'data-driven'
             ? shapes.color.expr.ast : null
+          const fontExprAst = shapes && shapes.font !== null && shapes.font.kind === 'data-driven'
+            ? shapes.font.expr.ast : null
+          const fontWeightExprAst = shapes && shapes.fontWeight !== null && shapes.fontWeight.kind === 'data-driven'
+            ? shapes.fontWeight.expr.ast : null
+          const fontStyleExprAst = shapes && shapes.fontStyle !== null && shapes.fontStyle.kind === 'data-driven'
+            ? shapes.fontStyle.expr.ast : null
           const applyFeatureExprs = (props: Record<string, unknown>) => {
-            if (sizeExprAst === null && colorExprAst === null) return effectiveDef
+            if (sizeExprAst === null && colorExprAst === null
+                && fontExprAst === null && fontWeightExprAst === null
+                && fontStyleExprAst === null) return effectiveDef
             const out = { ...effectiveDef }
             if (sizeExprAst !== null) {
               try {
@@ -2829,6 +2878,27 @@ export class XGISMap {
                   if (rgba) out.color = rgba
                 }
               } catch { /* fall back to effectiveDef.color */ }
+            }
+            if (fontExprAst !== null) {
+              try {
+                const v = evaluate(fontExprAst as never, props)
+                if (Array.isArray(v) && v.length > 0
+                    && v.every((s: unknown) => typeof s === 'string')) {
+                  out.font = v as string[]
+                }
+              } catch { /* fall back to effectiveDef.font */ }
+            }
+            if (fontWeightExprAst !== null) {
+              try {
+                const v = evaluate(fontWeightExprAst as never, props)
+                if (typeof v === 'number' && isFinite(v)) out.fontWeight = v
+              } catch { /* fall back to effectiveDef.fontWeight */ }
+            }
+            if (fontStyleExprAst !== null) {
+              try {
+                const v = evaluate(fontStyleExprAst as never, props)
+                if (v === 'italic' || v === 'normal') out.fontStyle = v
+              } catch { /* fall back to effectiveDef.fontStyle */ }
             }
             return out
           }

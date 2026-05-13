@@ -129,6 +129,17 @@ export interface LabelShapes {
   color: PropertyShape<readonly [number, number, number, number]> | null
   haloWidth: PropertyShape<number> | null
   haloColor: PropertyShape<readonly [number, number, number, number]> | null
+  /** Font family stack (analogous to CSS font-family — first
+   *  available wins). Stored as a list of family names only; weight
+   *  and style live on their own shapes so each axis can vary
+   *  independently across zoom / features. */
+  font: PropertyShape<readonly string[]> | null
+  /** CSS font-weight (100..900). Independent shape so a single
+   *  family stack can carry per-zoom or per-feature weight changes. */
+  fontWeight: PropertyShape<number> | null
+  /** CSS font-style. Independent shape so italic / normal can vary
+   *  per zoom or per feature independently of the family stack. */
+  fontStyle: PropertyShape<'normal' | 'italic'> | null
 }
 
 // ─── Shared atomic types ───────────────────────────────────────────
