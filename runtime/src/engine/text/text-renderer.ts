@@ -122,20 +122,23 @@ struct VsOut {
     return vec4<f32>(u.fill_color.rgb, u.fill_color.a * fill_a);
   }
 
-  // Halo blur: symmetric crossfade across halo_edge, matching
-  // MapLibre symbol_sdf.fragment.glsl (gamma applied to BOTH sides
-  // of 'buff') and line-renderer.ts:1289 (smoothstep(-aa,+aa,d)).
-  // Blur widens the transition equally inward and outward. The fill
-  // composite below subtracts halo_w by fill_w so the inner softening
-  // is masked by the glyph fill — visible only outside the body, which
-  // is where text-halo-blur is expected to soften.
-  //   halo_a = smoothstep(halo_edge - (blur+soft), halo_edge + (blur+soft), sdf)
-  // halo_blur==0 collapses to a pure AA-soft step, identical to the
-  // no-blur path. soft stays derivative-driven so the AA band is
-  // display-rate-correct at every zoom.
+  // Halo blur: asymmetric. The inner edge (glyph-facing side of the
+  // halo) stays at derivative-AA half-width 'soft' so the solid halo
+  // region between the glyph body and halo_edge survives. The outer
+  // edge widens by halo_blur so the halo softly fades away from the
+  // glyph into the background. Previously this was a symmetric
+  // smoothstep — halo_blur widened the transition equally inward
+  // and outward, which collapsed the solid halo into pure fade once
+  // blur >= halo_width. Visible on demotiles geolines-label
+  // ("Tropic of Capricorn" with text-halo-width: 1, blur: 1): the
+  // dashed latitude line bled through the halo because the halo
+  // never reached alpha=1 outside the glyph.
+  //   halo_a = smoothstep(halo_edge - (blur+soft), halo_edge + soft, sdf)
+  // halo_blur==0 collapses to a near-symmetric AA-soft step (identical
+  // to the no-blur path within a single derivative-AA half-width).
   let halo_edge: f32 = edge - u.halo_width;
-  let halo_aa: f32 = u.halo_blur + soft;
-  let halo_a: f32 = smoothstep(halo_edge - halo_aa, halo_edge + halo_aa, sdf);
+  let halo_outer_aa: f32 = u.halo_blur + soft;
+  let halo_a: f32 = smoothstep(halo_edge - halo_outer_aa, halo_edge + soft, sdf);
   // Composite: halo behind, fill in front.
   let fill_w = u.fill_color.a * fill_a;
   let halo_w = u.halo_color.a * halo_a * (1.0 - fill_w);
