@@ -38,6 +38,13 @@ export function optimize(scene: Scene, program?: AST.Program): Scene {
   // with a `match()` dispatch on the shared filter field) for the
   // OSM-style six-`landuse_*` / five-`roads_*` pattern.
   return mergeLayers(optimized)
+  // Note: foldTrivialStopsPass is defined in passes/fold-trivial-
+  // stops.ts and unit-tested, but NOT yet active in the default
+  // optimize() flow — an initial integration regressed Bright
+  // Tokyo parity by 1.5 pts (8.79 % → 10.32 %), suggesting some
+  // downstream consumer expects zoom-interpolated shape identity
+  // even when the value is trivially constant. Investigate before
+  // turning this on; the pass itself is correct per its unit tests.
 }
 
 function optimizeNode(node: RenderNode, fnEnv: FnEnv): RenderNode {
