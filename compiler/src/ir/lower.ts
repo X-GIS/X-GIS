@@ -1466,6 +1466,8 @@ function foldLabelKnobs(
     labelFontStack?: string[]
     labelFontWeight?: number
     labelFontStyle?: 'normal' | 'italic'
+    labelFontZoomStops?: ZoomStop<readonly string[]>[]
+    labelFontExpr?: import('./render-node').DataExpr
     labelMaxWidth?: number
     labelLineHeight?: number
     labelJustify?: 'auto' | 'left' | 'center' | 'right'
@@ -1557,6 +1559,12 @@ function foldLabelKnobs(
     haloWidthZoomStopsBase: knobs.labelHaloWidthZoomStopsBase,
     haloColorZoomStops: knobs.labelHaloColorZoomStops && knobs.labelHaloColorZoomStops.length > 0
       ? knobs.labelHaloColorZoomStops : undefined,
+    fontStack: merged.font,
+    fontZoomStops: knobs.labelFontZoomStops && knobs.labelFontZoomStops.length > 0
+      ? knobs.labelFontZoomStops : undefined,
+    fontExpr: knobs.labelFontExpr,
+    fontWeight: merged.fontWeight,
+    fontStyle: merged.fontStyle,
   })
   return merged
 }
