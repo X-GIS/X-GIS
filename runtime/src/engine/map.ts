@@ -10,8 +10,8 @@ import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT, WORLD_MERC, WORLD_COPIES, TILE_
 import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './gpu/quality'
 import { GPUTimer } from './gpu/gpu-timer'
 import { Camera } from './projection/camera'
-import { MapRenderer, interpolateZoom, interpolateZoomRgba, type ShowCommand } from './render/renderer'
-import { resolveNumberShape } from './render/paint-shape-resolve'
+import { MapRenderer, type ShowCommand } from './render/renderer'
+import { resolveNumberShape, resolveColorShape } from './render/paint-shape-resolve'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
   groupOpaqueBySource as groupOpaqueBySourceImpl,
@@ -2709,36 +2709,59 @@ export class XGISMap {
           // their origin layer (`label_country_2`, `poi_r1`, …).
           const labelLayerName = show.layerName ?? show.sourceLayer ?? show.targetName ?? ''
           const z = this.camera.zoom
-          // Resolve zoom-interpolated text-size against the current
-          // camera zoom (Mapbox `text-size: ["interpolate", …, ["zoom"], …]`).
-          const resolvedSize = def.sizeZoomStops && def.sizeZoomStops.length > 0
-            ? interpolateZoom(def.sizeZoomStops, z, def.sizeZoomStopsBase ?? 1)
+          const elapsedMs = performance.now()
+          // Per-frame label paint resolution flows through the unified
+          // LabelShapes bundle (Plan Label L2). Same resolvers
+          // (`resolveNumberShape` / `resolveColorShape`) the paint side
+          // uses — keeps the value-derivation path consistent and lets
+          // a new dependency form (e.g. time-interpolated text-size)
+          // land in one place. Per-feature `sizeExpr` / `colorExpr` are
+          // expressed as `kind: 'data-driven'` shapes (see
+          // `applyFeatureExprs` below) — the resolver returns the
+          // layer-level fallback (1 for numbers, null for colour),
+          // which we override with the static defaults here.
+          const shapes = def.shapes
+          // text-size: constant / zoom-interpolated paths resolve to a
+          // concrete number; data-driven needs the per-feature eval
+          // path, so we treat its placeholder as the static `def.size`.
+          const resolvedSize = shapes && shapes.size.kind !== 'data-driven'
+            ? resolveNumberShape(shapes.size, z, elapsedMs).value
             : def.size
-          // text-color: zoom-interpolated stops win over the static
-          // colour, which itself wins over the layer-fill fallback.
-          // RGBA components interpolate independently — alpha included
-          // so fade-in / fade-out stops work too.
-          let resolvedColor: [number, number, number, number] | undefined = def.color
-          if (def.colorZoomStops && def.colorZoomStops.length > 0) {
-            resolvedColor = interpolateZoomRgba(def.colorZoomStops, z)
+          // text-color: null shape → fall back to the layer fill hex.
+          // data-driven goes through applyFeatureExprs.
+          let resolvedColor: [number, number, number, number] | undefined
+          if (shapes && shapes.color !== null && shapes.color.kind !== 'data-driven') {
+            const c = resolveColorShape(shapes.color, z, elapsedMs)
+            if (c !== null) resolvedColor = c.value as [number, number, number, number]
+            else if (shapes.color.kind === 'constant') resolvedColor = shapes.color.value as [number, number, number, number]
           }
           if (resolvedColor === undefined) {
             resolvedColor = hexToRgba(show.fill) ?? [1, 1, 1, 1]
           }
-          // text-halo: zoom-interpolate width and colour independently.
+          // text-halo: width + colour resolve independently. When the
+          // shape is null the halo axis was never authored; reuse the
+          // legacy `def.halo` object as the static fallback so a halo
+          // declared without zoom-stops still applies.
           let resolvedHalo = def.halo
-          if (def.haloWidthZoomStops && def.haloWidthZoomStops.length > 0) {
-            const w = interpolateZoom(def.haloWidthZoomStops, z, def.haloWidthZoomStopsBase ?? 1)
+          if (shapes?.haloWidth && shapes.haloWidth.kind !== 'data-driven') {
+            const w = resolveNumberShape(shapes.haloWidth, z, elapsedMs).value
             resolvedHalo = {
               ...(resolvedHalo ?? { color: [0, 0, 0, 1], width: 0 }),
               width: w,
             }
           }
-          if (def.haloColorZoomStops && def.haloColorZoomStops.length > 0) {
-            const c = interpolateZoomRgba(def.haloColorZoomStops, z)
-            resolvedHalo = {
-              ...(resolvedHalo ?? { color: c, width: 0 }),
-              color: c,
+          if (shapes?.haloColor && shapes.haloColor.kind !== 'data-driven') {
+            const c = resolveColorShape(shapes.haloColor, z, elapsedMs)
+            const cv = c !== null
+              ? c.value as [number, number, number, number]
+              : (shapes.haloColor.kind === 'constant'
+                ? shapes.haloColor.value as [number, number, number, number]
+                : undefined)
+            if (cv !== undefined) {
+              resolvedHalo = {
+                ...(resolvedHalo ?? { color: cv, width: 0 }),
+                color: cv,
+              }
             }
           }
           // text-rotation-alignment: 'map' makes point labels rotate

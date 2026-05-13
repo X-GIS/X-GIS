@@ -17,7 +17,7 @@ function baseLabel(overrides: Partial<LabelDef> = {}): LabelDef {
 
 const FAKE_EXPR: DataExpr = { ast: { kind: 'NumberLiteral', value: 0, unit: null } as never }
 const SIZE_STOPS: ZoomStop<number>[] = [{ zoom: 4, value: 10 }, { zoom: 16, value: 22 }]
-const COLOR_STOPS: ZoomStop<readonly [number, number, number, number]>[] = [
+const COLOR_STOPS: ZoomStop<[number, number, number, number]>[] = [
   { zoom: 4, value: [1, 0, 0, 1] },
   { zoom: 16, value: [0, 0, 1, 1] },
 ]
