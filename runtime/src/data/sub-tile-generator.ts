@@ -19,6 +19,7 @@ import {
   tileKeyUnpack, lonLatToMercF64,
   clipPolygonToRect, clipLineToRect,
   augmentRingWithArc, tessellateLineToArrays, packDSFUNLineVertices,
+  extractNonSyntheticArcs, makeSameBoundarySidePredicateMerc,
 } from '@xgis/compiler'
 import { type TileData, DSFUN_LINE_STRIDE } from './tile-types'
 
@@ -57,6 +58,10 @@ export class SubTileGenerator {
     // meter space, so we convert every bound to meters and work with
     // reconstructed f64 values.
     const [parentMx, parentMy] = lonLatToMercF64(parent.tileWest, parent.tileSouth)
+    const [parentMxE, parentMyN] = lonLatToMercF64(
+      parent.tileWest + parent.tileWidth,
+      parent.tileSouth + parent.tileHeight,
+    )
     const [subMxW, subMyS] = lonLatToMercF64(subWest, subSouth)
     const [subMxE, subMyN] = lonLatToMercF64(subEast, subNorth)
     const clipW = subMxW - parentMx
@@ -208,18 +213,36 @@ export class SubTileGenerator {
     // dropped polygons during its own re-pack), we fall back to the old
     // legacy path — dash bug recurs there but no visible regression vs.
     // previous behaviour.
+    // Parent's rings carry synthetic axis-aligned edges introduced by
+    // Sutherland-Hodgman when the parent itself was clipped to its own
+    // tile rect (e.g. Russia's eastern fill-edge at lon=90° in the
+    // parent z=2 tile x=4). Without filtering, those synthetic edges
+    // become visible vertical/horizontal strokes inside every sub-tile
+    // they intersect — the user-visible "vertical line through Russia"
+    // bug at z<3. extractNonSyntheticArcs walks each parent ring with a
+    // predicate built from the PARENT tile's bounds and drops edges
+    // whose both endpoints lie on the same parent-rect side.
+    const parentMxE_local = parentMxE - parentMx  // parent's east in parent-local MM
+    const parentMyN_local = parentMyN - parentMy
+    const isSameParentBoundarySide = makeSameBoundarySidePredicateMerc(
+      0, 0, parentMxE_local, parentMyN_local,
+    )
     const olvScratch: number[] = []
     const oliScratch: number[] = []
     if (parent.polygons && parent.polygons.length > 0) {
       for (const poly of parent.polygons) {
         for (const ring of poly.rings) {
           if (ring.length < 3) continue
-          const arcRing = augmentRingWithArc(ring)
-          if (arcRing.length < 2) continue
-          const segments = clipLineToRect(arcRing, subMxW, subMyS, subMxE, subMyN)
-          for (const seg of segments) {
-            if (seg.length >= 2) {
-              tessellateLineToArrays(seg, poly.featId, olvScratch, oliScratch)
+          const interiorArcs = extractNonSyntheticArcs(ring, isSameParentBoundarySide)
+          for (const arc of interiorArcs) {
+            if (arc.length < 2) continue
+            const arcRing = augmentRingWithArc(arc)
+            if (arcRing.length < 2) continue
+            const segments = clipLineToRect(arcRing, subMxW, subMyS, subMxE, subMyN)
+            for (const seg of segments) {
+              if (seg.length >= 2) {
+                tessellateLineToArrays(seg, poly.featId, olvScratch, oliScratch)
+              }
             }
           }
         }

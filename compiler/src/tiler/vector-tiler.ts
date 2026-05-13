@@ -1001,7 +1001,7 @@ export function augmentRingWithArc(ring: number[][], opts?: { mmInput?: boolean 
  *    polygon edges inside this tile). When the polygon is
  *    entirely inside the tile, a single closed ring is returned.
  */
-function extractNonSyntheticArcs(
+export function extractNonSyntheticArcs(
   ring: number[][],
   isSameBoundarySide: (a: number[], b: number[]) => boolean,
 ): number[][][] {
@@ -1054,7 +1054,7 @@ function extractNonSyntheticArcs(
 }
 
 /** Build the `isSameBoundarySide` predicate for a MM tile rect. */
-function makeSameBoundarySidePredicateMerc(
+export function makeSameBoundarySidePredicateMerc(
   mxW: number, myS: number, mxE: number, myN: number, eps: number = 1.0,
 ): (a: number[], b: number[]) => boolean {
   return (a, b) => {
