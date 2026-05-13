@@ -1335,33 +1335,26 @@ function processZoomLevelShared(
             // the previous flatMap path painted over every hole, which
             // is how Lake Baikal turned into Russia's fill colour.
             if (dataRings.length > 0 && dataRings[0]!.length >= 3) {
+              // See compileSingleTile for the fallback rationale —
+              // splitBoundaryBacktracks on a 4-vertex ring can return
+              // empty when its recursive split halves both fall below
+              // the 3-vertex threshold; keep the original outer in
+              // that case so the feature stays visible.
               const outerSubs = splitBoundaryBacktracks(dataRings[0]!, tbMxW, tbMyS, tbMxE, tbMyN)
+              const usableOuters = outerSubs.filter(r => r.length >= 3)
+              const effectiveOuters = usableOuters.length > 0 ? usableOuters : [dataRings[0]!]
               const holes = dataRings.slice(1).filter(r => r.length >= 3)
-              if (outerSubs.length === 1 && outerSubs[0]!.length >= 3) {
-                const repairedRings = [outerSubs[0]!, ...holes]
+              if (effectiveOuters.length === 1) {
+                const repairedRings = [effectiveOuters[0]!, ...holes]
                 tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap)
                 featureIds.add(fid)
                 tilePolygons.push({ rings: repairedRings, featId: fid })
-              } else if (outerSubs.length > 1) {
-                for (const sub of outerSubs) {
-                  if (sub.length >= 3) {
-                    tessellatePolygonToArrays([sub], fid, scratch.pv, scratch.pi, dedupMap)
-                  }
-                }
-                featureIds.add(fid)
-                tilePolygons.push({ rings: outerSubs, featId: fid })
               } else {
-                // Outer collapsed during repair. Fallback to legacy
-                // every-ring-as-outer behaviour so features stay visible.
-                const all = dataRings.flatMap(r => splitBoundaryBacktracks(r, tbMxW, tbMyS, tbMxE, tbMyN))
-                  .filter(r => r.length >= 3)
-                for (const sub of all) {
+                for (const sub of effectiveOuters) {
                   tessellatePolygonToArrays([sub], fid, scratch.pv, scratch.pi, dedupMap)
                 }
-                if (all.length > 0) {
-                  featureIds.add(fid)
-                  tilePolygons.push({ rings: all, featId: fid })
-                }
+                featureIds.add(fid)
+                tilePolygons.push({ rings: effectiveOuters, featId: fid })
               }
             }
             // Outline: treat each ORIGINAL ring as a closed
@@ -1548,43 +1541,33 @@ export function compileSingleTile(
         // lake into Russia's fill colour, while at z=6 the same data
         // arrived hole-free and looked correct).
         if (dataRings.length > 0 && dataRings[0]!.length >= 3) {
+          // Repair self-intersecting outer ring. If the split algorithm
+          // returns no usable sub-ring (e.g. a 4-vertex ring whose
+          // edges happen to ride the tile boundary trips the back-
+          // track heuristic but neither resulting fragment has 3
+          // vertices), fall back to the original outer — losing the
+          // feature entirely is worse than a possibly-imperfect split.
           const outerSubs = splitBoundaryBacktracks(dataRings[0]!, stMxW, stMyS, stMxE, stMyN)
+          const usableOuters = outerSubs.filter(r => r.length >= 3)
+          const effectiveOuters = usableOuters.length > 0 ? usableOuters : [dataRings[0]!]
           const holes = dataRings.slice(1).filter(r => r.length >= 3)
-          if (outerSubs.length === 1 && outerSubs[0]!.length >= 3) {
-            // Common path: one repaired outer + N holes → one tessellate
-            // call so earcut treats holes correctly.
-            const repairedRings = [outerSubs[0]!, ...holes]
+          if (effectiveOuters.length === 1) {
+            // Common path: one outer + N holes → single earcut call
+            // so holes are interior negative areas.
+            const repairedRings = [effectiveOuters[0]!, ...holes]
             tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap)
             featureIds.add(fid)
             tilePolygons.push({ rings: repairedRings, featId: fid })
-          } else if (outerSubs.length > 1) {
-            // Self-intersecting outer was split into multiple polygons.
+          } else {
+            // Self-intersecting outer split into multiple polygons.
             // Holes are dropped — point-in-polygon distribution is
             // expensive and this combination is rare (Korea z=7 had
             // no holes).
-            for (const sub of outerSubs) {
-              if (sub.length >= 3) {
-                tessellatePolygonToArrays([sub], fid, scratch.pv, scratch.pi, dedupMap)
-              }
-            }
-            featureIds.add(fid)
-            tilePolygons.push({ rings: outerSubs, featId: fid })
-          } else {
-            // Outer collapsed during repair (split returned no length-3+
-            // sub-ring). Fall back to legacy behaviour: tessellate every
-            // ring as its own outer so the feature stays visible.
-            // Painting holes as fills is wrong, but losing the entire
-            // feature is worse for OFM polygons whose outer rings ride
-            // the tile boundary and split into short fragments.
-            const all = dataRings.flatMap(r => splitBoundaryBacktracks(r, stMxW, stMyS, stMxE, stMyN))
-              .filter(r => r.length >= 3)
-            for (const sub of all) {
+            for (const sub of effectiveOuters) {
               tessellatePolygonToArrays([sub], fid, scratch.pv, scratch.pi, dedupMap)
             }
-            if (all.length > 0) {
-              featureIds.add(fid)
-              tilePolygons.push({ rings: all, featId: fid })
-            }
+            featureIds.add(fid)
+            tilePolygons.push({ rings: effectiveOuters, featId: fid })
           }
         }
         // Outline emission: treat each ORIGINAL ring as a closed
