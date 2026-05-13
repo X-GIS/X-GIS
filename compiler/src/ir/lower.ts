@@ -697,11 +697,14 @@ function lowerLayer(
           // Mapbox `paint.fill-color: ["interpolate", curve, ["zoom"], …]`
           // converts to `fill-[interpolate(zoom, z1, #hex, …)]`. The
           // converter emits hex literals at each stop; we extract them
-          // and (for now) pick the LAST stop's value as the constant
-          // fill. Proper per-frame zoom-interpolation requires a fill
-          // shader uniform update path; this tactical pick prevents
-          // the silent null-fill drop that landuse-residential /
-          // building / landuse-suburb were hitting in OFM Bright.
+          // into the zoom-interpolated ColorValue here. The runtime
+          // (renderer.ts:render-loop) reads `zoomFillStops` if present
+          // and recomputes the fill RGBA per frame from the camera
+          // zoom. PR #97's earlier "last-stop only" heuristic collapsed
+          // landuse-suburb to alpha=0 (Mapbox intentionally fades it
+          // out at z=10) — every suburb polygon rendered invisible
+          // regardless of viewing zoom; full preservation prevents
+          // that regression class.
           const colorStops = extractInterpolateZoomColorStops(item.binding)
           if (colorStops && colorStops.length > 0) {
             const rgbaStops: ZoomStop<[number, number, number, number]>[] = []
@@ -710,14 +713,6 @@ function lowerLayer(
               if (hex) rgbaStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
             }
             if (rgbaStops.length > 0) {
-              // Preserve full zoom-color interpolation. The runtime
-              // (renderer.ts:render-loop) reads zoomFillStops if
-              // present and recomputes the fill RGBA per frame from
-              // the camera zoom. Without this, PR #97's "last-stop
-              // only" heuristic collapsed landuse-suburb to alpha=0
-              // (Mapbox intentionally fades it out at z=10) — every
-              // suburb polygon rendered invisible regardless of
-              // viewing zoom.
               fill = { kind: 'zoom-interpolated', stops: rgbaStops }
               continue
             }
@@ -795,10 +790,10 @@ function lowerLayer(
           extrudeBase = { kind: 'feature', expr: { ast: item.binding }, fallback: 0 }
         } else if (name === 'label') {
           // `label-[<expr>]` — text content for per-feature labels.
-          // The runtime expands each feature's text into per-glyph
-          // quads (Batch 1c). Engine plumbing not yet wired through
-          // the renderers — for now this just preserves the IR so
-          // Mapbox styles with `text-field` survive compilation.
+          // The runtime (TextStage) resolves the expression against
+          // each feature's properties and emits per-glyph quads. The
+          // 12-px size seed is a default; subsequent `label-size-N`
+          // utilities override it before foldLabelKnobs.
           label = { text: bindingToTextValue(item.binding), size: 12 }
         } else {
           // Numeric label-* utilities that allow negative values use
