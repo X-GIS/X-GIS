@@ -7,8 +7,6 @@ import { rgbaToHex } from './render-node'
 import type { PaintShapes } from './property-types'
 import {
   colorValueToShape,
-  opacityValueToShape,
-  strokeWidthValueToShape,
   sizeValueToShape,
 } from './to-property-shape'
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
@@ -85,7 +83,6 @@ export interface ShowCommand {
   billboard: boolean
   anchor?: 'center' | 'bottom' | 'top'
   shape: string | null
-  shapeDefs: { name: string; paths: string[] }[]
   // Phase 2: line styling
   linecap?: 'butt' | 'round' | 'square' | 'arrow'
   linejoin?: 'miter' | 'round' | 'bevel'
@@ -233,7 +230,6 @@ function emitShow(node: RenderNode): ShowCommand {
     billboard: node.billboard,
     anchor: node.anchor,
     shape: node.shape.kind === 'named' ? node.shape.name : null,
-    shapeDefs: [],
     linecap: node.stroke.linecap,
     linejoin: node.stroke.linejoin,
     miterlimit: node.stroke.miterlimit,
@@ -262,7 +258,7 @@ function emitShow(node: RenderNode): ShowCommand {
       // shape. Composition rule mirrors what bucket-scheduler does
       // today for opacity.
       strokeWidth: composeStrokeWidthShape(node.stroke.width, node.stroke.timeWidthStops, meta),
-      opacity: opacityValueToShape(node.opacity),
+      opacity: node.opacity,
       size: sizeValueToShape(node.size),
     },
   }
@@ -277,7 +273,7 @@ function composeStrokeWidthShape(
   timeStops: TimeStop<number>[] | undefined,
   meta: { loop: boolean; easing: Easing; delayMs: number },
 ): import('./property-types').PropertyShape<number> {
-  const sp = strokeWidthValueToShape(spatial)
+  const sp = spatial
   if (timeStops === undefined || timeStops.length === 0) return sp
   if (sp.kind === 'zoom-interpolated') {
     return {

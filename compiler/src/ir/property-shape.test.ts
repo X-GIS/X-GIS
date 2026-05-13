@@ -1,11 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
   colorValueToShape,
-  opacityValueToShape,
-  strokeWidthValueToShape,
   sizeValueToShape,
 } from './to-property-shape'
-import type { ColorValue, OpacityValue, StrokeWidthValue, SizeValue } from './render-node'
+import type { ColorValue, SizeValue } from './render-node'
 
 describe('RenderNode → PropertyShape conversion', () => {
   // ─── ColorValue ──────────────────────────────────────────────────
@@ -71,60 +69,6 @@ describe('RenderNode → PropertyShape conversion', () => {
       kind: 'constant',
       value: [0.5, 0.5, 0.5, 1],
     })
-  })
-
-  // ─── OpacityValue ────────────────────────────────────────────────
-
-  it('OpacityValue { constant } → Static', () => {
-    expect(opacityValueToShape({ kind: 'constant', value: 0.7 })).toEqual({
-      kind: 'constant', value: 0.7,
-    })
-  })
-
-  it('OpacityValue { zoom-interpolated } → ZoomOnly', () => {
-    const v: OpacityValue = {
-      kind: 'zoom-interpolated',
-      stops: [{ zoom: 3, value: 0.5 }, { zoom: 6, value: 1 }],
-      base: 1,
-    }
-    expect(opacityValueToShape(v)).toMatchObject({ kind: 'zoom-interpolated', base: 1 })
-  })
-
-  it('OpacityValue { zoom-time } → ZoomTime', () => {
-    const v: OpacityValue = {
-      kind: 'zoom-time',
-      zoomStops: [{ zoom: 3, value: 0.5 }],
-      timeStops: [{ timeMs: 0, value: 1 }],
-      loop: false,
-      easing: 'linear',
-      delayMs: 0,
-    }
-    expect(opacityValueToShape(v)).toMatchObject({ kind: 'zoom-time', loop: false })
-  })
-
-  // ─── StrokeWidthValue ────────────────────────────────────────────
-  // Post-migration StrokeWidthValue is `PropertyShape<number>` and
-  // strokeWidthValueToShape is identity. The cases below verify each
-  // PropertyShape variant survives the shim unchanged.
-
-  it('StrokeWidthValue { constant } → Static', () => {
-    expect(strokeWidthValueToShape({ kind: 'constant', value: 3 })).toEqual({
-      kind: 'constant', value: 3,
-    })
-  })
-
-  it('StrokeWidthValue { zoom-interpolated } → ZoomOnly', () => {
-    const v: StrokeWidthValue = {
-      kind: 'zoom-interpolated',
-      stops: [{ zoom: 0, value: 1 }, { zoom: 14, value: 6 }],
-    }
-    expect(strokeWidthValueToShape(v)).toMatchObject({ kind: 'zoom-interpolated' })
-  })
-
-  it('StrokeWidthValue { data-driven } → FeatureOnly', () => {
-    const expr = { ast: {} as never } as never
-    const v: StrokeWidthValue = { kind: 'data-driven', expr }
-    expect(strokeWidthValueToShape(v)).toEqual({ kind: 'data-driven', expr })
   })
 
   // ─── SizeValue ───────────────────────────────────────────────────

@@ -159,7 +159,6 @@ function makeShow(overrides: Partial<SceneCommands['shows'][0]> = {}): SceneComm
     sizeExpr: null,
     billboard: true,
     shape: null,
-    shapeDefs: [],
     timeOpacityStops: null,
     timeFillStops: null,
     timeStrokeStops: null,
