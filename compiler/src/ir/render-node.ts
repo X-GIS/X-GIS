@@ -347,13 +347,13 @@ export type ShapeRef =
  * Phase 0: only 'constant' is used.
  */
 export type ColorValue =
-  | { kind: 'constant'; rgba: [number, number, number, number] }
+  | { kind: 'constant'; rgba: import('./property-types').RGBA }
   | { kind: 'none' }
   | { kind: 'data-driven'; expr: DataExpr }
   | { kind: 'conditional'; branches: ConditionalBranch<ColorValue>[]; fallback: ColorValue }
   | {
       kind: 'zoom-interpolated'
-      stops: ZoomStop<[number, number, number, number]>[]
+      stops: ZoomStop<import('./property-types').RGBA>[]
       /** Mapbox `["exponential", N]` curve base. Undefined / 1 → linear. */
       base?: number
     }
@@ -362,8 +362,8 @@ export type ColorValue =
       /** Fallback color when t < first stop (respecting delay). Used by
        *  emit-commands to pick a sensible `fill:` hex so pre-animation
        *  frames look right. */
-      base: [number, number, number, number]
-      stops: TimeStop<[number, number, number, number]>[]
+      base: import('./property-types').RGBA
+      stops: TimeStop<import('./property-types').RGBA>[]
       loop: boolean
       easing: Easing
       delayMs: number
@@ -692,7 +692,7 @@ export function hexToRgba(hex: string): [number, number, number, number] {
 /**
  * Convert RGBA tuple (0-1) to hex string.
  */
-export function rgbaToHex(rgba: [number, number, number, number]): string {
+export function rgbaToHex(rgba: import('./property-types').RGBA): string {
   const [r, g, b, a] = rgba
   const toHex = (v: number) => Math.round(v * 255).toString(16).padStart(2, '0')
   if (a >= 0.999) {

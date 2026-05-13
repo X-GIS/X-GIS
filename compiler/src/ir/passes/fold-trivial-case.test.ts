@@ -62,7 +62,7 @@ describe('fold-trivial-case — color match', () => {
     }
     const out = foldTrivialCasePass.run(sceneOf([makeNode({ fill })]))
     expect(out.renderNodes[0]!.fill.kind).toBe('constant')
-    expect((out.renderNodes[0]!.fill as { rgba: number[] }).rgba).toEqual([0, 1, 0, 1])
+    expect((out.renderNodes[0]!.fill as { rgba: readonly number[] }).rgba).toEqual([0, 1, 0, 1])
   })
 
   it('does NOT fold when arm colours differ', () => {

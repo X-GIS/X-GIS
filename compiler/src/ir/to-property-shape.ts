@@ -22,13 +22,13 @@ import type { PropertyShape, RGBA } from './property-types'
 export function colorValueToShape(v: ColorValue): PropertyShape<RGBA> | null {
   switch (v.kind) {
     case 'none': return null
-    case 'constant': return { kind: 'constant', value: v.rgba as RGBA }
+    case 'constant': return { kind: 'constant', value: v.rgba }
     case 'zoom-interpolated':
-      return { kind: 'zoom-interpolated', stops: v.stops as ReadonlyArray<{ zoom: number; value: RGBA }> as never, base: v.base }
+      return { kind: 'zoom-interpolated', stops: v.stops, base: v.base }
     case 'time-interpolated':
       return {
         kind: 'time-interpolated',
-        stops: v.stops as ReadonlyArray<{ timeMs: number; value: RGBA }> as never,
+        stops: v.stops,
         loop: v.loop, easing: v.easing, delayMs: v.delayMs,
       }
     case 'data-driven':
