@@ -391,34 +391,19 @@ export interface StrokePattern {
   anchor?: 'repeat' | 'start' | 'end' | 'center'
 }
 
-/** A stroke width expressed as exactly ONE of three mutually-exclusive
- *  forms. Pre-discriminated-union version, `StrokeValue` had four
- *  optional fields (`width: number`, `widthExpr?`, `widthZoomStops?`,
- *  `widthZoomStopsBase?`) where any combination — including all empty
- *  — was a valid TypeScript value. That permitted PR #95 / #97 / #104:
- *  lower.ts emitted a stroke with NONE of the four forms set, the
- *  fallback `width = 1` shipped, and every road on OFM Bright rendered
- *  as a 1-pixel hairline. With the discriminated union, lower.ts MUST
- *  pick a kind — there is no way to construct a `StrokeWidthValue`
- *  that means "no width" except by explicitly writing
- *  `{ kind: 'constant', px: 0 }`. */
-export type StrokeWidthValue =
-  /** Single static width in CSS pixels. Mapbox `line-width: <number>`. */
-  | { kind: 'constant'; px: number }
-  /** Per-frame zoom-interpolated width — the renderer evaluates
-   *  `interpolateZoom(stops, camera.zoom, base)` each frame. Mapbox
-   *  `line-width: ["interpolate", curve, ["zoom"], …]`. */
-  | {
-      kind: 'zoom-stops'
-      stops: ZoomStop<number>[]
-      /** Mapbox `["exponential", N]` curve base. 1 / undefined = linear. */
-      base?: number
-    }
-  /** Per-feature AST evaluated by the worker at tile-decode time —
-   *  result is baked into the segment buffer's width-override slot.
-   *  Mapbox per-feature expressions like
-   *  `["match", ["get","class"], "primary", 5, …, 1]`. */
-  | { kind: 'per-feature'; expr: DataExpr }
+/** A stroke width expressed as exactly ONE form. Now an alias over the
+ *  unified `PropertyShape<number>` — every variant the legacy
+ *  StrokeWidthValue carried (constant / zoom-stops / per-feature)
+ *  matches PropertyShape one-to-one after renaming kinds and the
+ *  `px` field to `value`. The alias means callsites continue to
+ *  type-check; new callsites should reach for `PropertyShape<number>`
+ *  directly.
+ *
+ *  Pre-union safety guarantee preserved: every stroke MUST pick a
+ *  kind — there is no way to construct a `StrokeWidthValue` that
+ *  means "no width" except by explicitly writing
+ *  `{ kind: 'constant', value: 0 }`. */
+export type StrokeWidthValue = import('./property-types').PropertyShape<number>
 
 export interface StrokeValue {
   color: ColorValue

@@ -472,11 +472,11 @@ export function mergeLayers(scene: Scene): Scene {
     // width — the `.kind === 'constant'` narrowing is exhaustive here.
     const firstWidthSrc = group[0].node.stroke.width
     if (firstWidthSrc.kind !== 'constant') throw new Error('merge: non-constant width slipped past isMergeableNode')
-    const firstWidth = firstWidthSrc.px
+    const firstWidth = firstWidthSrc.value
     for (const { node, filter } of group) {
       const w = node.stroke.width
       if (w.kind !== 'constant') throw new Error('merge: non-constant width slipped past isMergeableNode')
-      if (w.px !== firstWidth) widthsAllEqual = false
+      if (w.value !== firstWidth) widthsAllEqual = false
       const fillRgba = node.fill.kind === 'constant' ? node.fill.rgba : null
       const strokeRgba = node.stroke.color.kind === 'constant' ? node.stroke.color.rgba : null
       for (const v of filter.values) {
@@ -493,7 +493,7 @@ export function mergeLayers(scene: Scene): Scene {
         if (!seenWidthValues.has(v)) {
           // node.stroke.width is guaranteed constant by isMergeableNode.
           const nw = node.stroke.width
-          widthArms.push({ pattern: v, width: nw.kind === 'constant' ? nw.px : 0 })
+          widthArms.push({ pattern: v, width: nw.kind === 'constant' ? nw.value : 0 })
           seenWidthValues.add(v)
         }
       }
@@ -528,7 +528,7 @@ export function mergeLayers(scene: Scene): Scene {
     // with the group's first member, so its width is also constant —
     // but defensively narrow before reading the number.
     const defaultWidth = defaultArmNode?.stroke.width.kind === 'constant'
-      ? defaultArmNode.stroke.width.px
+      ? defaultArmNode.stroke.width.value
       : undefined
 
     const compoundFill: ColorValue = fillNeeded || defaultFillRgba
@@ -581,9 +581,9 @@ export function mergeLayers(scene: Scene): Scene {
         ...first.stroke,
         color: compoundStrokeColor,
         width: !widthBakeNeeded
-          ? { kind: 'constant', px: firstWidth }
+          ? { kind: 'constant', value: firstWidth }
           : {
-              kind: 'per-feature',
+              kind: 'data-driven',
               expr: {
                 ast: buildWidthMatchAst(
                   firstFilter.field,

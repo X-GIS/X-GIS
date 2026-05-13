@@ -17,7 +17,7 @@ function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
     fill: { kind: 'constant', rgba: [1, 0, 0, 1] },
     stroke: {
       color: { kind: 'constant', rgba: [0, 0, 0, 1] },
-      width: { kind: 'constant', px: 1 },
+      width: { kind: 'constant', value: 1 },
     },
     opacity: { kind: 'constant', value: 1 },
     size: { kind: 'constant', value: 8 },
@@ -103,11 +103,11 @@ describe('fold-trivial-stops — stroke', () => {
     const node = makeNode({
       stroke: {
         color: { kind: 'constant', rgba: [0, 0, 0, 1] },
-        width: { kind: 'zoom-stops', stops: [{ zoom: 0, value: 2 }, { zoom: 10, value: 2 }] },
+        width: { kind: 'zoom-interpolated', stops: [{ zoom: 0, value: 2 }, { zoom: 10, value: 2 }] },
       },
     })
     const out = foldTrivialStopsPass.run(sceneOf([node]))
-    expect(out.renderNodes[0]!.stroke.width).toEqual({ kind: 'constant', px: 2 })
+    expect(out.renderNodes[0]!.stroke.width).toEqual({ kind: 'constant', value: 2 })
   })
 
   it('folds stroke colour and width independently', () => {
@@ -117,12 +117,12 @@ describe('fold-trivial-stops — stroke', () => {
           kind: 'zoom-interpolated', base: 1,
           stops: [{ zoom: 0, value: [1, 1, 1, 1] }, { zoom: 5, value: [1, 1, 1, 1] }],
         },
-        width: { kind: 'zoom-stops', stops: [{ zoom: 0, value: 3 }, { zoom: 5, value: 3 }] },
+        width: { kind: 'zoom-interpolated', stops: [{ zoom: 0, value: 3 }, { zoom: 5, value: 3 }] },
       },
     })
     const out = foldTrivialStopsPass.run(sceneOf([node]))
     expect(out.renderNodes[0]!.stroke.color).toEqual({ kind: 'constant', rgba: [1, 1, 1, 1] })
-    expect(out.renderNodes[0]!.stroke.width).toEqual({ kind: 'constant', px: 3 })
+    expect(out.renderNodes[0]!.stroke.width).toEqual({ kind: 'constant', value: 3 })
   })
 })
 

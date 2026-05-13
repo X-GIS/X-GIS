@@ -215,8 +215,8 @@ function emitShow(node: RenderNode): ShowCommand {
     // is added to StrokeWidthValue and emitting forgets to handle it,
     // which is exactly the safety net WS-4 of the spec-drift plan
     // installs against the PR #95 / #97 / #104 silent-default class.
-    strokeWidth: node.stroke.width.kind === 'constant' ? node.stroke.width.px : 1,
-    strokeWidthExpr: node.stroke.width.kind === 'per-feature' ? node.stroke.width.expr : undefined,
+    strokeWidth: node.stroke.width.kind === 'constant' ? node.stroke.width.value : 1,
+    strokeWidthExpr: node.stroke.width.kind === 'data-driven' ? node.stroke.width.expr : undefined,
     strokeColorExpr: node.stroke.colorExpr,
     projection: node.projection,
     visible: node.visible,

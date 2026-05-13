@@ -62,7 +62,7 @@ function isDeadLayer(node: RenderNode): boolean {
   // intent is "no stroke" — pair it with hasStrokeColour for the
   // full check. We require strokeWidth>0 AND colour to render a stroke.
   const hasStrokeWidth = node.stroke.width.kind !== 'constant'
-    || node.stroke.width.px > 0
+    || node.stroke.width.value > 0
   const hasStroke = hasStrokeColour && hasStrokeWidth
   const hasLabel = node.label !== undefined
   const hasProcedural = node.geometry !== null

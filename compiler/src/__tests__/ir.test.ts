@@ -47,7 +47,7 @@ describe('IR Lower', () => {
         expect(node.fill.rgba[2]).toBeCloseTo(0.98, 2)
       }
       expect(node.stroke.color.kind).toBe('constant')
-      expect(node.stroke.width).toEqual({ kind: 'constant', px: 2 })
+      expect(node.stroke.width).toEqual({ kind: 'constant', value: 2 })
       expect(node.opacity).toEqual({ kind: 'constant', value: 0.8 })
     })
   })
@@ -73,7 +73,7 @@ describe('IR Lower', () => {
         expect(node.fill.rgba[1]).toBeCloseTo(0.0)
         expect(node.fill.rgba[2]).toBeCloseTo(0.0)
       }
-      expect(node.stroke.width).toEqual({ kind: 'constant', px: 2 })
+      expect(node.stroke.width).toEqual({ kind: 'constant', value: 2 })
       expect(node.opacity).toEqual({ kind: 'constant', value: 0.5 })
     })
   })
@@ -172,7 +172,7 @@ describe('IR Presets', () => {
       expect(node.fill.rgba[0]).toBeCloseTo(0.937, 2) // red-500
     }
     // Stroke from preset
-    expect(node.stroke.width).toEqual({ kind: 'constant', px: 2 })
+    expect(node.stroke.width).toEqual({ kind: 'constant', value: 2 })
     // opacity-80 from layer overrides
     expect(node.opacity).toEqual({ kind: 'constant', value: 0.8 })
   })
@@ -220,7 +220,7 @@ describe('IR Styles (CSS-like)', () => {
       expect(node.fill.rgba[2]).toBeCloseTo(0.631, 2)
     }
     expect(node.stroke.color.kind).toBe('constant')
-    expect(node.stroke.width).toEqual({ kind: 'constant', px: 2 })
+    expect(node.stroke.width).toEqual({ kind: 'constant', value: 2 })
     expect(node.opacity).toEqual({ kind: 'constant', value: 0.8 })
   })
 
@@ -247,7 +247,7 @@ describe('IR Styles (CSS-like)', () => {
       expect(node.fill.rgba[2]).toBeCloseTo(0.141, 2)
     }
     expect(node.stroke.color.kind).toBe('constant')
-    expect(node.stroke.width).toEqual({ kind: 'constant', px: 1 })
+    expect(node.stroke.width).toEqual({ kind: 'constant', value: 1 })
   })
 
   it('inline CSS overrides named style', () => {
@@ -273,7 +273,7 @@ describe('IR Styles (CSS-like)', () => {
     }
     // stroke should still be from base style
     expect(node.stroke.color.kind).toBe('constant')
-    expect(node.stroke.width).toEqual({ kind: 'constant', px: 1 })
+    expect(node.stroke.width).toEqual({ kind: 'constant', value: 1 })
   })
 
   it('utilities override both named style and inline CSS', () => {

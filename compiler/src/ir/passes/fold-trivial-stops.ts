@@ -84,13 +84,13 @@ function foldColor(value: ColorValue): ColorValue {
 }
 
 function foldStrokeWidth(value: StrokeWidthValue): StrokeWidthValue {
-  if (value.kind !== 'zoom-stops') return value
+  if (value.kind !== 'zoom-interpolated') return value
   if (value.stops.length === 0) return value
   const first = value.stops[0]!.value
   for (let i = 1; i < value.stops.length; i++) {
     if (!numbersEqual(value.stops[i]!.value, first)) return value
   }
-  return { kind: 'constant', px: first }
+  return { kind: 'constant', value: first }
 }
 
 function foldSize(value: SizeValue): SizeValue {

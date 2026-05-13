@@ -14,7 +14,7 @@ function makeNode(overrides: Partial<RenderNode> = {}): RenderNode {
     fill: { kind: 'constant', rgba: [1, 0, 0, 1] },
     stroke: {
       color: { kind: 'constant', rgba: [0, 0, 0, 1] },
-      width: { kind: 'constant', px: 1 },
+      width: { kind: 'constant', value: 1 },
     },
     opacity: { kind: 'constant', value: 1 },
     size: { kind: 'constant', value: 8 },
@@ -78,7 +78,7 @@ describe('dead-layer-elim — nothing to draw', () => {
       fill: { kind: 'none' },
       stroke: {
         color: { kind: 'none' },
-        width: { kind: 'constant', px: 1 },
+        width: { kind: 'constant', value: 1 },
       },
     })
     const out = deadLayerElimPass.run(sceneOf([noop]))
@@ -90,7 +90,7 @@ describe('dead-layer-elim — nothing to draw', () => {
       fill: { kind: 'none' },
       stroke: {
         color: { kind: 'constant', rgba: [1, 1, 1, 1] },
-        width: { kind: 'constant', px: 0 },
+        width: { kind: 'constant', value: 0 },
       },
     })
     const out = deadLayerElimPass.run(sceneOf([zeroWidth]))
@@ -101,7 +101,7 @@ describe('dead-layer-elim — nothing to draw', () => {
     const fillOnly = makeNode({
       stroke: {
         color: { kind: 'none' },
-        width: { kind: 'constant', px: 0 },
+        width: { kind: 'constant', value: 0 },
       },
     })
     const out = deadLayerElimPass.run(sceneOf([fillOnly]))
@@ -121,7 +121,7 @@ describe('dead-layer-elim — nothing to draw', () => {
       fill: { kind: 'none' },
       stroke: {
         color: { kind: 'none' },
-        width: { kind: 'constant', px: 0 },
+        width: { kind: 'constant', value: 0 },
       },
       label: { text: { kind: 'expr', expr: { ast: {} as never } } } as never,
     })
