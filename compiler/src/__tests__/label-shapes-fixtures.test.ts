@@ -63,7 +63,7 @@ describe('LabelShapes inference on OFM Bright', () => {
     const color = layer!.label!.shapes!.color
     expect(color).not.toBeNull()
     expect(color!.kind).toBe('constant')
-    if (color!.kind === 'constant') {
+    if (color !== null && color.kind === 'constant') {
       expect(color.value[0]).toBeCloseTo(73 / 255, 3)
       expect(color.value[1]).toBeCloseTo(94 / 255, 3)
       expect(color.value[2]).toBeCloseTo(145 / 255, 3)
