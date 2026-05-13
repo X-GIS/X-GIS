@@ -178,6 +178,18 @@ struct TileUniforms {
   _pad_layer_offset: f32,
   _pad_tile_extent: f32,
   outline_z_lift_m: f32,
+  // Per-tile clip mask in absolute Mercator meters (west, south,
+  // east, north). Matches the polygon Uniforms.clip_bounds field
+  // at f32 offset 40-43, populated by
+  // vector-tile-renderer.ts:3544-3547 for every tile (sentinel
+  // -1e30 for primary direct-archive tiles, real bounds for parent-
+  // ancestor fallback). Fragment shader discards if abs Mercator
+  // position falls outside the rect — same pattern as fs_fill
+  // (renderer.ts:330-339). Without this, fallback parent SDF
+  // outlines bleed across child tile boundaries and produce
+  // boundary-aligned vertical / horizontal strokes (user-reported
+  // countries_boundary lines on demotiles Russia z=4.68 / 5.19).
+  clip_bounds: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> tile: TileUniforms;
 
@@ -733,6 +745,37 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
     let abs_lat = lat_rad / DEG2RAD;
     if (needs_backface_cull(abs_lon, abs_lat, tile.proj_params) < 0.0) { discard; }
   }
+
+  // Per-tile clip mask (parity with fs_fill in renderer.ts:330-339).
+  // Active when a fallback parent tile clips its geometry to the
+  // visible child's mercator bounds. Without this, parent SDF
+  // outlines bleed across child tile boundaries and produce
+  // boundary-aligned vertical / horizontal strokes (user-reported
+  // countries_boundary lines on demotiles Russia z=4.68 / 5.19).
+  // Sentinel -1e30 in clip_bounds.x skips the check (primary
+  // direct-archive tiles never set real bounds).
+  let _clip_valid =
+    tile.clip_bounds.x > -1e29 &&
+    tile.clip_bounds.z > tile.clip_bounds.x &&
+    tile.clip_bounds.w > tile.clip_bounds.y;
+  if (_clip_valid) {
+    // world_local frame depends on projection: Mercator branch is
+    // CAM-RELATIVE projected XY, non-Mercator is TILE-LOCAL source
+    // Mercator. Reconstruct absolute Mercator accordingly. For
+    // Mercator add back the DSFUN cam offset (cam_h + cam_l =
+    // cam_merc - tile_origin_merc per the Uniforms.cam_h comment).
+    let cam_offset = select(
+      vec2<f32>(0.0, 0.0),
+      tile.cam_h + tile.cam_l,
+      tile.proj_params.x < 0.5,
+    );
+    let abs_merc_clip = in.world_local + cam_offset + tile.tile_origin_merc;
+    if (abs_merc_clip.x < tile.clip_bounds.x) { discard; }
+    if (abs_merc_clip.x > tile.clip_bounds.z) { discard; }
+    if (abs_merc_clip.y < tile.clip_bounds.y) { discard; }
+    if (abs_merc_clip.y > tile.clip_bounds.w) { discard; }
+  }
+
   let seg = segments[in.seg_id];
   let p = in.world_local;
   // Reconstruct p0/p1 in the SAME geometry frame as in.world_local

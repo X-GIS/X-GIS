@@ -215,7 +215,14 @@ export function buildLineSegments(
     arcStart[i] = vertices[a * stride + 5]
   }
 
-  const EPS_M = 10
+  // Tile-boundary tolerance in Mercator meters. Matches the compile-
+  // time `makeSameBoundarySidePredicateMerc` default in
+  // `compiler/src/tiler/vector-tiler.ts:1057` so a vertex the compiler
+  // considered "real edge" (not synthetic) doesn't get its cap
+  // suppressed at runtime by mistake. The previous 10 m was 10× looser
+  // than the compiler's filter and over-fired suppression on real
+  // polyline endpoints 1-10 m off the boundary.
+  const EPS_M = 1
   const onBoundary = (mxLocal: number, myLocal: number): boolean => {
     if (tileWidthMerc <= 0 || tileHeightMerc <= 0) return false
     return (
