@@ -125,13 +125,15 @@ function asVectorTileKind(t: string | undefined): 'pmtiles' | 'tilejson' | 'auto
 }
 
 /** Scene-level animation detection. `true` when ANY ShowCommand
- *  carries a per-frame time-driven paint property — opacity / fill /
- *  stroke / strokeWidth / size (read from the typed PaintShapes
- *  bundle), or dashOffset (still on the legacy flat field). Drives
- *  the render loop's continuous-redraw decision: a static scene
- *  renders once and idles; an animated scene requestAnimationFrame's
- *  every tick. */
-function sceneHasAnyAnimation(shows: { paintShapes: import('@xgis/compiler').PaintShapes; timeDashOffsetStops?: unknown }[]): boolean {
+ *  carries a per-frame time-driven property — the paint axes
+ *  (opacity / fill / stroke / strokeWidth / size) on PaintShapes
+ *  or the structural dashOffsetShape. Drives the render loop's
+ *  continuous-redraw decision: a static scene renders once and
+ *  idles; an animated scene requestAnimationFrame's every tick. */
+function sceneHasAnyAnimation(shows: {
+  paintShapes: import('@xgis/compiler').PaintShapes
+  dashOffsetShape?: import('@xgis/compiler').PropertyShape<number> | null
+}[]): boolean {
   const isTimeAnimated = (k: string): boolean =>
     k === 'time-interpolated' || k === 'zoom-time'
   return shows.some(s => {
@@ -141,7 +143,7 @@ function sceneHasAnyAnimation(shows: { paintShapes: import('@xgis/compiler').Pai
       || (p.fill !== null && isTimeAnimated(p.fill.kind))
       || (p.stroke !== null && isTimeAnimated(p.stroke.kind))
       || (p.size !== null && isTimeAnimated(p.size.kind))
-      || !!s.timeDashOffsetStops
+      || (s.dashOffsetShape !== null && s.dashOffsetShape !== undefined && isTimeAnimated(s.dashOffsetShape.kind))
   })
 }
 

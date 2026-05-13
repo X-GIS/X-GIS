@@ -644,19 +644,13 @@ export interface ShowCommand {
   /** Per-frame composed size. Same resolved-value channel pattern as
    *  `opacity`. `null` when the layer doesn't author a size. */
   size?: number | null
-  // ── Animation ──
-  //
-  // PaintShapes.* below carries every paint-property animation
-  // (opacity / fill / stroke / strokeWidth / size). Only dashOffset —
-  // a structural stroke attribute, not a paint axis — keeps its own
-  // time-stop field here. `animLoop` / `animEasing` / `animDelayMs`
-  // are the layer-level lifecycle metadata shared by every animated
-  // property; dashOffset reads them directly, paint axes read them
-  // off their PaintShape variant.
-  timeDashOffsetStops?: { timeMs: number; value: number }[] | null
-  animLoop?: boolean
-  animEasing?: Easing
-  animDelayMs?: number
+  /** Dash offset as a PropertyShape — composed by emit-commands from
+   *  the static `stroke.dashOffset` and any time-interpolated
+   *  animation plus the layer-level lifecycle metadata. `null` means
+   *  no offset authored. dashOffset is a STRUCTURAL stroke attribute
+   *  (drift of the dash pattern along the line), not a paint axis —
+   *  that's why it lives outside the PaintShapes bundle. */
+  dashOffsetShape?: import('@xgis/compiler').PropertyShape<number> | null
   // Per-frame animated overrides. Populated by map.ts
   // classifyVectorTileShows() when an animation is active, so VTR and
   // line-renderer don't need to know about time stops — they just read
@@ -691,7 +685,6 @@ export interface ShowCommand {
   linejoin?: 'miter' | 'round' | 'bevel'
   miterlimit?: number
   dashArray?: number[]
-  dashOffset?: number
   patterns?: {
     shape: string
     spacing: number

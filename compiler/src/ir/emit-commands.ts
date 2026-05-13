@@ -87,7 +87,15 @@ export interface ShowCommand {
   linejoin?: 'miter' | 'round' | 'bevel'
   miterlimit?: number
   dashArray?: number[]
-  dashOffset?: number
+  /** Dash offset as a PropertyShape — composed from the static
+   *  `stroke.dashOffset` and any `time-interpolated` animation
+   *  (`stroke.timeDashOffsetStops`) plus the layer-level lifecycle
+   *  metadata (loop / easing / delayMs). `null` means no offset
+   *  authored; `kind: 'constant'` carries the static-only case.
+   *  dashOffset is a STRUCTURAL stroke attribute (drift of the dash
+   *  pattern along the line), not a paint axis — that's why it has
+   *  its own field instead of joining the PaintShapes bundle. */
+  dashOffsetShape: import('./property-types').PropertyShape<number> | null
   /** Stroke pattern stack — up to 3 repeated symbol slots laid along
    *  the line (Mapbox `line-pattern` superset). Each slot picks a
    *  shape from `ShapeRegistry` and gets its own spacing / anchor /
@@ -99,22 +107,6 @@ export interface ShowCommand {
   strokeAlign?: 'center' | 'inset' | 'outset'
   /** Mapbox `paint.line-blur` edge feathering in CSS px (0 = crisp). */
   strokeBlur?: number
-  // ── Animation ──
-  //
-  // PaintShapes.* below carries every paint-property animation
-  // (opacity / fill / stroke / strokeWidth / size). Only dashOffset
-  // — a structural stroke attribute, not a paint axis — keeps its
-  // own time-stop field here. `animLoop` / `animEasing` /
-  // `animDelayMs` are the layer-level lifecycle metadata (sourced
-  // from `RenderNode.animationMeta`) that ALL animated properties
-  // share; dashOffset reads them directly, paint axes read them
-  // from their PaintShape variant. Naming "anim" rather than the
-  // legacy "timeOpacity" reflects that the metadata applies to any
-  // animated property, not opacity specifically.
-  timeDashOffsetStops: TimeStop<number>[] | null
-  animLoop: boolean
-  animEasing: Easing
-  animDelayMs: number
   /** 3D extrusion height. `none` = flat polygon (default). `constant`
    *  = uniform metres for every feature. `feature` = per-feature
    *  property name + fallback metres. The runtime branches the upload
@@ -182,7 +174,6 @@ function emitShow(node: RenderNode): ShowCommand {
   const shaderVariant = generateShaderVariant(node)
 
   const op = node.opacity
-  const timeDashOffsetStops = node.stroke.timeDashOffsetStops ?? null
 
   // Lifecycle metadata (loop / easing / delayMs) is shared across every
   // animated property on a layer because a layer hosts one
@@ -190,16 +181,24 @@ function emitShow(node: RenderNode): ShowCommand {
   // `node.animationMeta` when ANY property is keyframe-animated;
   // emit-commands just reads it. Falls back to safe defaults when no
   // animation is attached at all.
-  //
-  // BUG FIX (PR 3 follow-up): previously we read these from the opacity
-  // union only. A layer that animated color / width / dash-offset but
-  // kept opacity constant got loop=false silently — one full cycle then
-  // frozen at the last stop. The animationMeta single source of truth
-  // makes that miscall structurally impossible.
   const meta = node.animationMeta ?? { loop: false, easing: 'linear' as Easing, delayMs: 0 }
-  const animLoop = meta.loop
-  const animEasing = meta.easing
-  const animDelayMs = meta.delayMs
+
+  // dashOffset: compose into a single PropertyShape carrying lifecycle
+  // metadata inline. Time-interpolated when keyframes exist, constant
+  // otherwise. `null` means no offset authored.
+  const dashOffsetTimeStops = node.stroke.timeDashOffsetStops ?? null
+  let dashOffsetShape: import('./property-types').PropertyShape<number> | null = null
+  if (dashOffsetTimeStops !== null && dashOffsetTimeStops.length > 0) {
+    dashOffsetShape = {
+      kind: 'time-interpolated',
+      stops: dashOffsetTimeStops,
+      loop: meta.loop,
+      easing: meta.easing,
+      delayMs: meta.delayMs,
+    }
+  } else if (node.stroke.dashOffset !== undefined) {
+    dashOffsetShape = { kind: 'constant', value: node.stroke.dashOffset }
+  }
 
   return {
     targetName: node.sourceRef,
@@ -240,15 +239,11 @@ function emitShow(node: RenderNode): ShowCommand {
     linejoin: node.stroke.linejoin,
     miterlimit: node.stroke.miterlimit,
     dashArray: node.stroke.dashArray,
-    dashOffset: node.stroke.dashOffset,
+    dashOffsetShape,
     patterns: node.stroke.patterns,
     strokeOffset: node.stroke.offset,
     strokeAlign: node.stroke.align,
     strokeBlur: node.stroke.blur,
-    timeDashOffsetStops,
-    animLoop,
-    animEasing,
-    animDelayMs,
     extrude: node.extrude,
     extrudeBase: node.extrudeBase,
     label: node.label,

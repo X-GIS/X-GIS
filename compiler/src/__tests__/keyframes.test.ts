@@ -353,8 +353,9 @@ describe('Keyframes — multi-property (PR 3)', () => {
       { timeMs: 0, value: 2 },
       { timeMs: 1500, value: 6 },
     ])
-    // Dash offset is structural — still on the flat field
-    expect(show.timeDashOffsetStops).toEqual([
+    // Dash offset is structural — its own PropertyShape outside paintShapes
+    expect(show.dashOffsetShape?.kind).toBe('time-interpolated')
+    expect((show.dashOffsetShape as { stops: unknown[] }).stops).toEqual([
       { timeMs: 0, value: 0 },
       { timeMs: 1500, value: 40 },
     ])
@@ -469,8 +470,8 @@ describe('Keyframes — all-property metadata propagation (Bug 1 structural)', (
     expect((ps.stroke as { stops: unknown[] }).stops).toHaveLength(3)
     expect((ps.strokeWidth as { stops: unknown[] }).stops).toHaveLength(3)
     expect((ps.size as { stops: unknown[] }).stops).toHaveLength(3)
-    // Dash offset is structural — still on its flat field
-    expect(show.timeDashOffsetStops).toHaveLength(3)
+    // Dash offset is structural — its own PropertyShape outside paintShapes
+    expect((show.dashOffsetShape as { stops: unknown[] }).stops).toHaveLength(3)
 
     // And the SHARED lifecycle metadata applies to every one of
     // them. Bug 1: only opacity got the right loop value. Every
@@ -513,7 +514,7 @@ describe('Keyframes — all-property metadata propagation (Bug 1 structural)', (
     expect(ps.stroke?.kind).toBe('time-interpolated')
     expect(ps.strokeWidth.kind).toBe('time-interpolated')
     expect(ps.size?.kind).toBe('time-interpolated')
-    expect(show.timeDashOffsetStops).toHaveLength(3)
+    expect((show.dashOffsetShape as { stops: unknown[] }).stops).toHaveLength(3)
 
     // And — critically — every animated shape inherits the lifecycle
     // from animationMeta even though opacity isn't time-interp:

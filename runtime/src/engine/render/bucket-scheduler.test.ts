@@ -170,12 +170,28 @@ function makeShow(overrides: Partial<SceneCommands['shows'][0]> = {}): SceneComm
     animDelayMs: 0,
     ...overrides,
   }
+  // Synthesize dashOffsetShape from the legacy timeDashOffsetStops +
+  // dashOffset + anim* fixture fields. Production emit-commands does
+  // this at compile time; the test helper mirrors it so existing
+  // fixture writes (timeDashOffsetStops: [...], animLoop: true) still
+  // drive the resolver correctly.
+  const loop = base.animLoop ?? false
+  const easing = base.animEasing ?? 'linear'
+  const delayMs = base.animDelayMs ?? 0
+  type Shape = PropertyShape<number> | null
+  let dashOffsetShape: Shape = null
+  if (base.timeDashOffsetStops !== null && base.timeDashOffsetStops !== undefined) {
+    dashOffsetShape = {
+      kind: 'time-interpolated', stops: base.timeDashOffsetStops,
+      loop, easing, delayMs,
+    }
+  } else if (typeof base.dashOffset === 'number') {
+    dashOffsetShape = { kind: 'constant', value: base.dashOffset }
+  }
   return {
     ...base,
-    // Dual-write: bucket-scheduler now reads `paintShapes.opacity`
-    // (Step 1c). Mirror the legacy flat fields here so existing
-    // tests don't have to spell out the typed shape explicitly.
     paintShapes: synthesizePaintShapes(base),
+    dashOffsetShape,
   } as unknown as SceneCommands['shows'][0]
 }
 
