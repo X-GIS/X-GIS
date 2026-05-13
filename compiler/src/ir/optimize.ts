@@ -11,6 +11,7 @@ import { classifyExpr, type FnEnv } from './classify'
 import { constFold } from './const-fold'
 import { mergeLayers } from './merge-layers'
 import { foldTrivialStopsPass } from './passes/fold-trivial-stops'
+import { deadLayerElimPass } from './passes/dead-layer-elim'
 
 /**
  * Optimize a Scene by classifying expressions and folding constants.
@@ -48,7 +49,15 @@ export function optimize(scene: Scene, program?: AST.Program): Scene {
   // fold-stats.test.ts) — wired so any future machine-generated
   // style that DOES emit trivial stops gets the benefit
   // automatically; production styles see no change.
-  return foldTrivialStopsPass.run(merged)
+  const folded = foldTrivialStopsPass.run(merged)
+
+  // dead-layer-elim: drop RenderNodes that can never produce a
+  // visible pixel — `visible:false`, empty zoom range, or no
+  // paint surface at all. Conservative on opacity:0 (animations
+  // may revive). On OFM Bright/Liberty/Positron drops 1/4/3
+  // nodes — all shield-layers with minz>=maxz or pattern-only
+  // layers X-GIS doesn't render (per dead-layer-stats.test.ts).
+  return deadLayerElimPass.run(folded)
 }
 
 function optimizeNode(node: RenderNode, fnEnv: FnEnv): RenderNode {

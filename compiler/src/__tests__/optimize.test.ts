@@ -125,7 +125,7 @@ describe('Optimize Pass', () => {
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
-        | size-[360 / 12]
+        | fill-white size-[360 / 12]
       }
     `)
     const optimized = optimize(scene, ast)
@@ -138,7 +138,7 @@ describe('Optimize Pass', () => {
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
-        | opacity-[0.5 * 0.8]
+        | fill-white opacity-[0.5 * 0.8]
       }
     `)
     const optimized = optimize(scene, ast)
@@ -150,7 +150,7 @@ describe('Optimize Pass', () => {
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
-        | size-[speed * 2]
+        | fill-white size-[speed * 2]
       }
     `)
     const optimized = optimize(scene, ast)
@@ -180,7 +180,7 @@ describe('Optimize Pass', () => {
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
-        | size-[double(15)]
+        | fill-white size-[double(15)]
       }
     `)
     const optimized = optimize(scene, ast)

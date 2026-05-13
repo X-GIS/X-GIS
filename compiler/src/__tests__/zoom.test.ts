@@ -32,7 +32,7 @@ describe('Zoom interpolation pipeline', () => {
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
-        | opacity-[interpolate(zoom, 8, 40, 16, 100)]
+        | fill-white opacity-[interpolate(zoom, 8, 40, 16, 100)]
       }
     `)
 
@@ -49,7 +49,7 @@ describe('Zoom interpolation pipeline', () => {
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
-        | size-[interpolate(zoom, 8, 4, 14, 12)]
+        | fill-white size-[interpolate(zoom, 8, 4, 14, 12)]
       }
     `)
 
@@ -66,7 +66,7 @@ describe('Zoom interpolation pipeline', () => {
       source data { type: geojson, url: "x.geojson" }
       layer tracks {
         source: data
-        | size-12
+        | fill-white size-12
       }
     `)
     expect(commands.shows[0].size).toBe(12)
