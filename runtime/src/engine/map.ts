@@ -2745,8 +2745,14 @@ export class XGISMap {
           let resolvedHalo = def.halo
           if (shapes?.haloWidth && shapes.haloWidth.kind !== 'data-driven') {
             const w = resolveNumberShape(shapes.haloWidth, z, elapsedMs).value
+            // Mapbox spec default for text-halo-color is rgba(0,0,0,0)
+            // (transparent). Matches lower.ts halo merging — keeps the
+            // fallback symmetric so a haloWidth-only authored style
+            // doesn't paint an opaque black outline. Prior [0,0,0,1]
+            // re-introduced the opaque-black-halo bug class on the
+            // runtime side.
             resolvedHalo = {
-              ...(resolvedHalo ?? { color: [0, 0, 0, 1], width: 0 }),
+              ...(resolvedHalo ?? { color: [0, 0, 0, 0], width: 0 }),
               width: w,
             }
           }

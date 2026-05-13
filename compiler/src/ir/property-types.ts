@@ -109,7 +109,21 @@ export interface PaintShapes {
  *  `text-size` always resolves to a concrete `PropertyShape<number>`
  *  because the runtime needs a numeric font size — lower.ts seeds
  *  `kind: 'constant'` with the spec default (16 px) when the source
- *  omits text-size. */
+ *  omits text-size.
+ *
+ *  NOTE: `text-halo-blur` is intentionally NOT in LabelShapes.
+ *  Consumed as a constant on `LabelDef.halo.blur` only — see
+ *  spec-coverage.ts ("Constant only.") and lower.ts for the
+ *  lowering. Adding it later means: extend with
+ *  `haloBlur: PropertyShape<number> | null`, resolve in map.ts
+ *  alongside haloWidth/haloColor, flip spec-coverage status.
+ *
+ *  Consumers MUST NOT mix legacy `LabelDef.{size,color,halo}`
+ *  fields with shapes at read time. The runtime resolves shapes
+ *  → legacy in exactly one place (map.ts label paint resolution)
+ *  and hands a resolved `effectiveDef` to text-stage. Downstream
+ *  code (text-stage, curved-label paths, trace recorder) reads
+ *  `effectiveDef.*` only. */
 export interface LabelShapes {
   size: PropertyShape<number>
   color: PropertyShape<readonly [number, number, number, number]> | null
