@@ -198,7 +198,7 @@ const PAINT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'text-opacity',     status: 'unsupported', impact: 'low' },
   { name: 'text-halo-color',  status: 'supported', note: 'Constant + interpolate-by-zoom.', source: 'layers.ts:269' },
   { name: 'text-halo-width',  status: 'supported', note: 'Constant + interpolate-by-zoom; PR #76 fixed scaling into SDF units.', source: 'layers.ts:259' },
-  { name: 'text-halo-blur',   status: 'supported', note: 'Constant only.', source: 'layers.ts:283' },
+  { name: 'text-halo-blur',   status: 'supported', note: 'Constant only at conversion; IR exposes a PropertyShape so future zoom-interp / data-driven emit lands without IR changes.', source: 'layers.ts:283' },
   { name: 'text-translate',   status: 'supported', note: 'Pixel-space offset added on top of em-unit text-offset.', source: 'layers.ts:340' },
   { name: 'text-translate-anchor', status: 'unsupported', impact: 'low' },
   { name: 'icon-color',       status: 'unsupported', impact: 'high' },
