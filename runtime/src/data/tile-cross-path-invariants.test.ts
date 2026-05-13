@@ -244,8 +244,19 @@ describe('cross-path: polygon fill boundary == stroke outline endpoints', () => 
         }
         if (minSq > maxDistSq) maxDistSq = minSq
       }
+      // Tolerance: 10 m in tile-local Mercator. Sub-pixel at any
+      // visible zoom (z=4 has 9.7 km/px; z=14 has ~9.5 m/px). Since
+      // commit 3227174 the outline emits from the ORIGINAL ring line-
+      // clipped (Liang-Barsky) while the fill uses the polygon-clipped
+      // + simplified ring — for polygons that cross MULTIPLE tile
+      // edges, the two paths may resolve intersections at slightly
+      // different float-precision points (≤ 5 m observed). The trade
+      // is intentional: shared `clipped` rings (old path) introduced
+      // visible tile-rect strokes that user reports flagged; line-
+      // clip eliminates that entire bug class. Sub-pixel endpoint
+      // drift is below any visible threshold.
       expect(Math.sqrt(maxDistSq), `${c.label}: worst outline-endpoint-off-fill distance`)
-        .toBeLessThanOrEqual(1.0) // 1 m in tile-local Mercator
+        .toBeLessThanOrEqual(10.0)
     })
   }
 })
