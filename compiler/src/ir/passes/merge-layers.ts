@@ -36,8 +36,8 @@
 // converts a faithful render into a different visual; if any
 // constraint fails, the original list is preserved verbatim.
 
-import type * as AST from '../parser/ast'
-import type { Scene, RenderNode, ColorValue, DataExpr } from './render-node'
+import type * as AST from '../../parser/ast'
+import type { Scene, RenderNode, ColorValue, DataExpr } from '../render-node'
 
 interface FilterAnalysis {
   field: string
@@ -631,11 +631,16 @@ export function mergeLayers(scene: Scene): Scene {
 // have produced PaintShapes-bearing RenderNodes — that's the
 // implicit precondition this transform has always had; the
 // dependency declaration just makes it explicit.
-import type { IRPass } from './pass-manager'
+import type { IRPass } from '../pass-manager'
 
 export const mergeLayersPass: IRPass = {
   name: 'merge-layers',
-  dependencies: ['lower'],
+  // No registered dependencies — `mergeLayers` operates on the
+  // canonical `Scene` produced by `lower()`. `lower` is the IR
+  // entry frontend (Program → Scene), not a Scene → Scene pass,
+  // so it never registers with the PassManager. Treat lower as
+  // a system invariant of the pipeline's input.
+  dependencies: [],
   run: mergeLayers,
 }
 

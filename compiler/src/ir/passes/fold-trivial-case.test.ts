@@ -152,9 +152,11 @@ describe('fold-trivial-case — identity preservation', () => {
 })
 
 describe('fold-trivial-case — pass metadata', () => {
-  it('declares the right name and depends on merge-layers', () => {
+  it('declares the right name and depends on merge-layers + fold-trivial-stops', () => {
     expect(foldTrivialCasePass.name).toBe('fold-trivial-case')
-    expect(foldTrivialCasePass.dependencies).toEqual(['merge-layers'])
+    expect(foldTrivialCasePass.dependencies).toEqual([
+      'merge-layers', 'fold-trivial-stops',
+    ])
   })
 })
 

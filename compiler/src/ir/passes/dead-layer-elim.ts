@@ -77,10 +77,12 @@ export const deadLayerElimPass: IRPass = {
   // After merge-layers because the merge pass produces compound
   // nodes whose paint surfaces are the UNION of the inputs — a
   // pre-merge `none` slot can become `match()` driven after merge.
-  // After fold-trivial-stops because a folded `kind: 'constant'
-  // opacity = 0` doesn't make a layer dead (animation may revive
-  // it) but the fold should already have happened before we look.
-  dependencies: ['merge-layers'],
+  // After fold-trivial-stops and fold-trivial-case so PassManager
+  // has a deterministic order; the folds may convert a
+  // `data-driven` match into `constant`, which doesn't change
+  // dead-elim's decisions (it only looks at `kind`s, not values)
+  // but the deterministic order keeps trace replays stable.
+  dependencies: ['merge-layers', 'fold-trivial-stops', 'fold-trivial-case'],
   run(scene: Scene): Scene {
     const live = scene.renderNodes.filter(n => !isDeadLayer(n))
     if (live.length === scene.renderNodes.length) return scene

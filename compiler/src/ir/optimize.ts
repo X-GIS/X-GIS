@@ -9,7 +9,8 @@ import type {
 import { colorConstant, opacityConstant, sizeConstant, hexToRgba } from './render-node'
 import { classifyExpr, type FnEnv } from './classify'
 import { constFold } from './const-fold'
-import { mergeLayers } from './merge-layers'
+import { PassManager } from './pass-manager'
+import { mergeLayersPass } from './passes/merge-layers'
 import { foldTrivialStopsPass } from './passes/fold-trivial-stops'
 import { foldTrivialCasePass } from './passes/fold-trivial-case'
 import { deadLayerElimPass } from './passes/dead-layer-elim'
@@ -35,39 +36,43 @@ export function optimize(scene: Scene, program?: AST.Program): Scene {
     renderNodes: scene.renderNodes.map(node => optimizeNode(node, fnEnv)),
     symbols: scene.symbols,
   }
-  // Merge contiguous same-source-layer RenderNodes that differ only
-  // in `filter:` + `fill:` + `stroke colour`. Reduces the per-tile
-  // draw fanout from N (one per xgis layer) to 1 (one compound layer
-  // with a `match()` dispatch on the shared filter field) for the
-  // OSM-style six-`landuse_*` / five-`roads_*` pattern.
-  const merged = mergeLayers(optimized)
 
-  // fold-trivial-stops: zoom-interpolated paint values whose every
-  // stop carries the same payload collapse to `constant`. Pure
-  // optimisation — runtime-equivalent per
-  // passes/fold-trivial-stops.integration.test.ts. Fires zero times
-  // on the OFM Bright / Liberty / Positron fixtures (per
-  // fold-stats.test.ts) — wired so any future machine-generated
-  // style that DOES emit trivial stops gets the benefit
-  // automatically; production styles see no change.
-  const folded = foldTrivialStopsPass.run(merged)
+  // Scene-level IR transforms now flow through PassManager. The
+  // manager topologically sorts by `dependencies`, producing the
+  // execution order:
+  //
+  //   1. merge-layers       — collapse same-source-layer groups
+  //                           into compound RenderNodes (~OSM six
+  //                           landuse_* / five roads_* pattern).
+  //   2. fold-trivial-stops — zoom-interpolated paint values whose
+  //                           every stop carries the same payload
+  //                           collapse to constant.
+  //   3. fold-trivial-case  — match() expressions whose every arm
+  //                           produces the same literal collapse
+  //                           to that literal.
+  //   4. dead-layer-elim    — drop RenderNodes that can never
+  //                           produce a visible pixel (visible:
+  //                           false, empty zoom range, no paint
+  //                           surface).
+  //
+  // Each pass has its own stats / unit / integration tests
+  // (passes/*.test.ts) and is byte-stable against MapLibre parity
+  // baselines.
+  return runScenePipeline(optimized)
+}
 
-  // fold-trivial-case: match() expressions where every arm produces
-  // the same literal collapse to that literal. Per
-  // case-stats.test.ts, fires zero times on production OFM
-  // fixtures (the convert/expand-color-match preprocessor splits
-  // colour matches into sublayers BEFORE the IR). Wired here as
-  // defensive completion for non-fill match expressions (line
-  // colour, width) and any future user-authored AST.
-  const caseFolded = foldTrivialCasePass.run(folded)
+const PIPELINE = buildPipeline()
+function buildPipeline(): PassManager {
+  const pm = new PassManager()
+  pm.register(mergeLayersPass)
+  pm.register(foldTrivialStopsPass)
+  pm.register(foldTrivialCasePass)
+  pm.register(deadLayerElimPass)
+  return pm
+}
 
-  // dead-layer-elim: drop RenderNodes that can never produce a
-  // visible pixel — `visible:false`, empty zoom range, or no
-  // paint surface at all. Conservative on opacity:0 (animations
-  // may revive). On OFM Bright/Liberty/Positron drops 1/4/3
-  // nodes — all shield-layers with minz>=maxz or pattern-only
-  // layers X-GIS doesn't render (per dead-layer-stats.test.ts).
-  return deadLayerElimPass.run(caseFolded)
+function runScenePipeline(scene: Scene): Scene {
+  return PIPELINE.run(scene).scene
 }
 
 function optimizeNode(node: RenderNode, fnEnv: FnEnv): RenderNode {

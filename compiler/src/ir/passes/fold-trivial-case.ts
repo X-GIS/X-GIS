@@ -124,8 +124,10 @@ export const foldTrivialCasePass: IRPass = {
   name: 'fold-trivial-case',
   // After merge-layers because merge may introduce synthesised
   // match() expressions on stroke colour for compound layers — we
-  // want a chance to fold those when all variants agree.
-  dependencies: ['merge-layers'],
+  // want a chance to fold those when all variants agree. After
+  // fold-trivial-stops only so the PassManager has a deterministic
+  // execution order (no semantic dependency between the two folds).
+  dependencies: ['merge-layers', 'fold-trivial-stops'],
   run(scene: Scene): Scene {
     const folded = scene.renderNodes.map(foldRenderNode)
     const changed = folded.some((n, i) => n !== scene.renderNodes[i])
