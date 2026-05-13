@@ -1,12 +1,12 @@
 {
-  "_doc": "Per-preset diffRatio ceilings for the MapLibre parity gate. The spec asserts measured diffRatio ≤ baseline × HEADROOM. Values captured 2026-05-13 after (a) line AA spec realignment (aa_width_px = 1/dpr + blur) and (b) translucent composite premultiply fix (c.rgb * c.a * opacity instead of c.rgb * opacity, so AA edge pixels no longer doubled in brightness vs MapLibre below the opacity=1.0 threshold). Tokyo / Manhattan diffs reflect sharper-than-ML road edges; demotiles_world moved slightly because the previous brightness bug was masking a small line-width mismatch. Rebake on every PR that explicitly notes a regression or improvement; do not silently relax.",
+  "_doc": "Per-preset diffRatio ceilings for the MapLibre parity gate. The spec asserts measured diffRatio ≤ baseline × HEADROOM. Values captured 2026-05-13 after (a) translucent composite premultiply fix (c.rgb * c.a * opacity instead of c.rgb * opacity, so AA edge pixels no longer doubled in brightness vs MapLibre below the opacity=1.0 threshold) and (b) polygon-hole preservation through clip+repair. The earlier line-AA spec-alignment attempt was reverted because the geometry/shader formulas matched MapLibre's spec but the resulting visible line shifted by ~1 device px versus MapLibre's actual rendering, which raised Tokyo parity even though the math was correct. Rebake on every PR that explicitly notes a regression or improvement; do not silently relax.",
   "_headroom": 1.10,
   "presets": {
-    "maplibre-demotiles__world":    0.0427,
-    "openfreemap-bright__world":    0.0680,
-    "openfreemap-bright__tokyo":    0.1034,
-    "openfreemap-bright__manhattan": 0.1094,
-    "openfreemap-liberty__tokyo":   0.1041,
-    "openfreemap-positron__world":  0.0654
+    "maplibre-demotiles__world":    0.0411,
+    "openfreemap-bright__world":    0.0692,
+    "openfreemap-bright__tokyo":    0.0879,
+    "openfreemap-bright__manhattan": 0.1236,
+    "openfreemap-liberty__tokyo":   0.0898,
+    "openfreemap-positron__world":  0.0677
   }
 }

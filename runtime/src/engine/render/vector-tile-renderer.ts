@@ -2730,7 +2730,6 @@ export class VectorTileRenderer {
         effectiveOffset,
         canvasHeight,
         show.strokeBlur ?? 0,
-        dpr,
       )
     }
 

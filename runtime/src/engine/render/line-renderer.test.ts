@@ -87,10 +87,7 @@ describe('packLineLayerUniform', () => {
     // alpha is pre-multiplied by opacity
     expect(buf[F32_COLOR + 3]).toBeCloseTo(0.8 * 0.5)
     expect(buf[F32_WIDTH_PX]).toBe(3)
-    // AA reserve (1.0 px) matches MapLibre's native line AA budget;
-    // see `aa_width_px` calc in packLineLayerUniform. Previously 1.5
-    // here — the 0.5 px surplus showed up as over-softened stroke
-    // edges vs MapLibre side-by-side.
+    // AA reserve = 1.0 px (sub-pixel coverage + Mapbox blur on top).
     expect(buf[F32_AA_WIDTH]).toBeCloseTo(1.0)
     expect(buf[F32_MPP]).toBe(2500)
   })

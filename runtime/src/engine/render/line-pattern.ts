@@ -176,16 +176,11 @@ export function packLineLayerUniform(
   patterns: PatternSlot[] = [],
   offsetPx: number = 0,
   viewportHeight: number = 1,
-  /** Mapbox `paint.line-blur` — additional fade distance on the
-   *  edge, in CSS px. Composed with the device-pixel base AA below
-   *  (`1/dpr` CSS px) to form `aa_width_px`, the total alpha
-   *  falloff width fed to the shader. Per the MapLibre formula
-   *  `blur2 = (blur + 1/dpr) * gamma_scale`. */
+  /** Mapbox `paint.line-blur` — additional smoothstep feathering on
+   *  the edge, in CSS px. The base AA reserve below (1.0 px) matches
+   *  MapLibre's native line antialiasing budget; `blur` adds on top
+   *  per the Mapbox spec ("Blur applied to the line, in pixels."). */
   blurPx: number = 0,
-  /** Device pixel ratio. The base AA budget is `1/dpr` CSS px so
-   *  the fade always covers ~1 DEVICE pixel — sub-pixel coverage
-   *  feathering, matching what MapLibre derives from `fwidth()`. */
-  dpr: number = 1,
 ): Float32Array {
   const buf = new Float32Array(LINE_UNIFORM_SIZE / 4)
   const u32 = new Uint32Array(buf.buffer)
@@ -202,10 +197,8 @@ export function packLineLayerUniform(
   const widthAlphaScale = strokeWidthPx >= 1.0 ? 1.0 : strokeWidthPx
   buf[3] = strokeColor[3] * opacity * widthAlphaScale
   buf[4] = effectiveWidthPx
-  // Total alpha-fade width in CSS px (= MapLibre's `blur2`). Base
-  // is `1/dpr` so the fade always lands on ~1 device pixel; the
-  // author-controlled `paint.line-blur` adds on top.
-  buf[5] = 1.0 / Math.max(dpr, 0.5) + Math.max(0, blurPx)
+  // AA reserve (1.0 px ≈ MapLibre native) + Mapbox-style blur on top.
+  buf[5] = 1.0 + Math.max(0, blurPx)
   buf[6] = mppAtCenter
   buf[7] = miterLimit
 
