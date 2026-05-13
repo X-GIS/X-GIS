@@ -1277,24 +1277,19 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
 
   // Convert to pixels
   let d_px = d_m / layer.mpp;
-  // MapLibre line-blur spec: paint property in pixels, default 0.
-  // aa_width_px is packed as (1.0 + blur_px) on the CPU side, so
-  // we split it back into a sub-pixel BASE AA band and the spec
-  // blur addition:
-  //   base_aa  — sub-pixel coverage feathering (0.5 px),
-  //              the bit MapLibre derives from fwidth() natively
-  //   blur_px  — author-controlled extra feather, added on top
-  //
-  // Earlier code reserved a flat 1.0+ px AA regardless of blur,
-  // which at low zoom made the AA band wider than the line itself
-  // (1 px AA on each side of a 0.5 px stroke = "outline blur larger
-  // than line"). Keeping base AA at 0.5 px and letting blur_px
-  // grow additively matches the spec exactly: with line-blur: 0
-  // the line renders with sub-pixel AA only, identical to what
-  // MapLibre produces.
-  let blur_px = max(0.0, layer.aa_width_px - 1.0);
-  let aa = 0.5 + blur_px;
-  let alpha = 1.0 - smoothstep(-aa, aa, d_px);
+  // MapLibre line shader alpha — solid core + outer fade.
+  // blur2 = blur + 1/dpr (in CSS px) is packed as layer.aa_width_px.
+  // d_px is the signed distance from the OUTER edge of the
+  // tessellated quad; the geometry is expanded by aa_width_px
+  // beyond width/2 (see half_w_m above), so the solid line core
+  // sits at d_px <= -aa_width_px and the alpha ramp 1→0 occupies
+  // the outer aa_width_px band — equivalent to MapLibre's
+  //   clamp(min(dist - (t - blur2), s - dist) / blur2, 0, 1)
+  // for normal widths (the inner-side branch fires only when blur
+  // exceeds halfWidth, which collapses both sides simultaneously
+  // and doesn't apply here).
+  let aa = max(layer.aa_width_px, 1e-4);
+  let alpha = clamp(-d_px / aa, 0.0, 1.0);
   if (alpha < 0.005) { discard; }
   // Per-segment stroke colour override (RGBA8 packed). Compound
   // mergeLayers groups whose members had different stroke colours
@@ -1674,6 +1669,7 @@ export class LineRenderer {
     offsetPx: number = 0,
     viewportHeight: number = 1,
     blurPx: number = 0,
+    dpr: number = 1,
   ): number {
     // Pattern sanity checks (deduped, one warning per condition per
     // LineRenderer instance). Runs on the parameter set BEFORE packing so
@@ -1688,7 +1684,7 @@ export class LineRenderer {
     this.layerSlot++
     const data = packLineLayerUniform(
       strokeColor, strokeWidthPx, opacity, mppAtCenter,
-      cap, join, miterLimit, dash, patterns, offsetPx, viewportHeight, blurPx,
+      cap, join, miterLimit, dash, patterns, offsetPx, viewportHeight, blurPx, dpr,
     )
     // Stage into the CPU mirror; flushLayerStaging (called from the
     // map's render loop via `endFrame()`) emits a single writeBuffer
