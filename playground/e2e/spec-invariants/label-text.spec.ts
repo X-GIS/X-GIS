@@ -131,4 +131,20 @@ test.describe('label-text spec invariants', () => {
       expect(ocean.color[2]).toBeCloseTo(145 / 255, 2)
     }
   })
+
+  test('OFM Bright label_country_2 uses Noto Sans Bold (fontWeight 700)', async ({ page }) => {
+    test.setTimeout(60_000)
+    // Spec snippet (compiler/src/__tests__/fixtures/openfreemap-bright.json):
+    //   "id": "label_country_2", "text-font": ["Noto Sans Bold"]
+    // OFM Bright country labels at rank=2 should render Bold (700), not
+    // Regular / Semibold. A regression in the font-name → weight mapping
+    // would silently downgrade the weight; this pins it.
+    const trace = await captureTrace(page, '#3/40/0', 'openfreemap-bright')
+    const country = trace.labels.find(l => /label_country_2/.test(l.layerName))
+    if (country) {
+      expect(country.fontWeight).toBe(700)
+    }
+    // If label_country_2 isn't visible at this camera, the test is a no-op
+    // (assertion only fires when the layer renders).
+  })
 })
