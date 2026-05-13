@@ -1070,25 +1070,6 @@ export function makeSameBoundarySidePredicateMerc(
   }
 }
 
-/** Remove consecutive duplicate (lon, lat) vertices from a ring.
- *  clipPolygonToRect occasionally emits rings that start with a
- *  duplicate of the first vertex; such duplicates become zero-length
- *  degenerate segments downstream and poison buildLineSegments'
- *  adjacency lookup. Epsilon of 1e-12 deg (~0.1 nm) matches the
- *  tolerance used by augmentChainWithArc for the closing-duplicate
- *  detection. */
-function dedupAdjacentVertices(ring: number[][]): number[][] {
-  if (ring.length < 2) return ring
-  const out: number[][] = [ring[0]]
-  for (let i = 1; i < ring.length; i++) {
-    const prev = out[out.length - 1]
-    const cur = ring[i]
-    if (Math.abs(prev[0] - cur[0]) < 1e-12 && Math.abs(prev[1] - cur[1]) < 1e-12) continue
-    out.push(cur)
-  }
-  return out
-}
-
 /** Open polyline → arc-augmented chain. Thin shim around
  *  `augmentChainWithArc` for call-site readability. */
 function augmentLineWithArc(coords: number[][]): number[][] {
@@ -1360,32 +1341,20 @@ function processZoomLevelShared(
               featureIds.add(fid)
               tilePolygons.push({ rings: repairedRings, featId: fid })
             }
-            // Outline: extract the ORIGINAL polygon edges from the
-            // clipped ring, dropping the synthetic tile-rect edges
-            // Sutherland-Hodgman added for closure. Without this
-            // filter every tile boundary renders as a visible stroke
-            // wherever a polygon crosses it (user-reported on filter_gdp).
-            const isSameBoundarySide = makeSameBoundarySidePredicateMerc(
-              tbMxW, tbMyS, tbMxE, tbMyN,
-            )
-            for (const ring of clipped) {
-              const ringDedup = dedupAdjacentVertices(ring)
-              if (ringDedup.length < 3) continue
-              const interiorArcs = extractNonSyntheticArcs(ringDedup, isSameBoundarySide)
-              // If the single emitted arc IS the whole ring (polygon
-              // fully inside the tile — no synthetic edges at all),
-              // treat as closed so the last→first wrap renders.
-              // Otherwise each arc is an open chain clipped at the
-              // tile rect.
-              const wholeRing = interiorArcs.length === 1 && interiorArcs[0] === ringDedup
-              for (const arc of interiorArcs) {
-                const augmented = augmentChainWithArc(arc, wholeRing, { mmInput: true })
-                if (augmented.length < 2) continue
-                const segments = clipLineToRect(augmented, tbMxW, tbMyS, tbMxE, tbMyN)
-                for (const seg of segments) {
-                  if (seg.length >= 2) {
-                    tessellateLineToArrays(seg, fid, scratch.olv, scratch.oli)
-                  }
+            // Outline: treat each ORIGINAL ring as a closed
+            // LineString and line-clip to the tile rect (MapLibre
+            // approach). Line-clipping doesn't introduce synthetic
+            // axis-aligned edges, so the outline buffer is free of
+            // tile-rect artifacts by construction — no need for
+            // extractNonSyntheticArcs filtering.
+            for (const ring of sp.rings) {
+              if (ring.length < 2) continue
+              const augmented = augmentRingWithArc(ring, { mmInput: true })
+              if (augmented.length < 2) continue
+              const segments = clipLineToRect(augmented, tbMxW, tbMyS, tbMxE, tbMyN)
+              for (const seg of segments) {
+                if (seg.length >= 2) {
+                  tessellateLineToArrays(seg, fid, scratch.olv, scratch.oli)
                 }
               }
             }
@@ -1559,35 +1528,31 @@ export function compileSingleTile(
           featureIds.add(fid)
           tilePolygons.push({ rings: repairedRings, featId: fid })
         }
-        // Outline shares the MM-clipped rings with the fill — endpoints
-        // land on the exact same tile-boundary MM points the fill
-        // terminates at, eliminating the fill/stroke alignment bug
-        // (d34aed2) at the space-choice level rather than requiring
-        // a downstream patch.
+        // Outline emission: treat each ORIGINAL ring as a closed
+        // LineString and line-clip to the tile rect. This is what
+        // MapLibre does for `type:line` layers on a polygon source —
+        // line-clipping (Liang-Barsky) doesn't introduce synthetic
+        // axis-aligned tile-rect edges the way Sutherland-Hodgman
+        // polygon-clipping does, so the outline buffer is free of
+        // boundary-coincident artifacts by construction. No
+        // `extractNonSyntheticArcs` filter, no synthetic-edge
+        // detection — geometry is preserved if and only if it was a
+        // real edge of the source polygon.
         //
-        // augmentRingWithArc accepts LL input historically but the
-        // clipped rings here are MM. Feed MM directly — augmentRingWithArc
-        // branches on `LL_INPUT` via the `mmInput` parameter so the arc
-        // projection step is a no-op.
-        // See parallel comment on compileGeoJSONToTiles outline path —
-        // extract original polygon edges from the clipped ring so
-        // synthetic tile-rect edges don't emit visible strokes.
-        const isSameBoundarySide = makeSameBoundarySidePredicateMerc(
-          stMxW, stMyS, stMxE, stMyN,
-        )
-        for (const ring of clipped) {
-          const ringDedup = dedupAdjacentVertices(ring)
-          if (ringDedup.length < 3) continue
-          const interiorArcs = extractNonSyntheticArcs(ringDedup, isSameBoundarySide)
-          const wholeRing = interiorArcs.length === 1 && interiorArcs[0] === ringDedup
-          for (const arc of interiorArcs) {
-            const augmented = augmentChainWithArc(arc, wholeRing, { mmInput: true })
-            if (augmented.length < 2) continue
-            const segments = clipLineToRect(augmented, stMxW, stMyS, stMxE, stMyN)
-            for (const seg of segments) {
-              if (seg.length >= 2) {
-                tessellateLineToArrays(seg, fid, scratch.olv, scratch.oli)
-              }
+        // Trade-off vs the prior `clipped`-based path: outline
+        // endpoints land where the ORIGINAL ring crossed the tile
+        // boundary, which is geometrically identical to the
+        // polygon-clipped intersection points (both Liang-Barsky and
+        // Sutherland-Hodgman produce the same crossing). So fill /
+        // stroke endpoints still agree by construction.
+        for (const ring of part.rings) {
+          if (ring.length < 2) continue
+          const augmented = augmentRingWithArc(ring, { mmInput: true })
+          if (augmented.length < 2) continue
+          const segments = clipLineToRect(augmented, stMxW, stMyS, stMxE, stMyN)
+          for (const seg of segments) {
+            if (seg.length >= 2) {
+              tessellateLineToArrays(seg, fid, scratch.olv, scratch.oli)
             }
           }
         }
