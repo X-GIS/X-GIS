@@ -121,6 +121,47 @@ test('OFM Bright — compile-time optimisation breakdown', () => {
     // eslint-disable-next-line no-console
     console.log(formatStyleProfile(profile).split('\n').map(l => `    ${l}`).join('\n'))
 
+    // ─── Feature-dep paint axis enumeration ────────────────────
+    // Compute plan reports 1/114 feature-dep axes captured. Walk
+    // every node × axis and dump (kind, AST top-level-kind) for
+    // feature-dep axes so we can see WHY 113 are dropped.
+    interface Axis { node: string; axis: string; valueKind: string; astKind: string | null }
+    const allAxes: Axis[] = []
+    const probe = (node: { name?: string; sourceLayer?: string }, axis: string, v: unknown): void => {
+      if (typeof v !== 'object' || v === null) return
+      const k = (v as { kind?: string }).kind
+      if (!k) return
+      let astKind: string | null = null
+      if (k === 'data-driven') {
+        const expr = (v as { expr?: { ast?: { kind?: string } } }).expr
+        astKind = expr?.ast?.kind ?? null
+      }
+      allAxes.push({
+        node: node.name ?? node.sourceLayer ?? '?',
+        axis, valueKind: k, astKind,
+      })
+    }
+    const featureAxes = allAxes.filter(a => a.valueKind === 'data-driven' || a.valueKind === 'conditional')
+    for (const node of opt.renderNodes) {
+      probe(node, 'fill', node.fill)
+      probe(node, 'stroke.color', node.stroke?.color)
+      probe(node, 'opacity', node.opacity)
+      probe(node, 'size', node.size)
+      probe(node, 'stroke.width', (node.stroke as unknown as { width?: unknown })?.width)
+    }
+    const byShape = new Map<string, number>()
+    for (const a of allAxes) {
+      const key = `${a.axis.padEnd(14)} kind=${a.valueKind}${a.astKind ? ' / ast=' + a.astKind : ''}`
+      byShape.set(key, (byShape.get(key) ?? 0) + 1)
+    }
+    const shapes = [...byShape.entries()].sort((a, b) => b[1] - a[1])
+    // eslint-disable-next-line no-console
+    console.log(`\n  ALL paint axes (${allAxes.length} entries, feature/cond=${featureAxes.length}):`)
+    for (const [shape, count] of shapes) {
+      // eslint-disable-next-line no-console
+      console.log(`    ${String(count).padStart(4)}× ${shape}`)
+    }
+
     return { sceneRaw, opt, profile, timing: { lex: t1 - t0, parse: t2 - t1, lower: t3 - t2, optimize: t5 - t4 } }
   }
 
