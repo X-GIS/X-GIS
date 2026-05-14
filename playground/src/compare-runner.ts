@@ -144,9 +144,14 @@ async function mountBoth(url: string): Promise<void> {
     bearing: initialView.bearing,
     pitch: initialView.pitch,
     hash: false,
-    attributionControl: { compact: true },
+    // ML chrome OFF for fair pixel-parity measurement (X-GIS pane has
+    // neither attribution nor navigation controls). The compare page
+    // is a dev tool; production embeds should opt the controls back in.
+    attributionControl: false,
   })
-  mlMap.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right')
+  // No NavigationControl — same rationale as attributionControl above.
+  // The top-right `+ / − / compass` widget only existed on the ML side
+  // and dominated the pixel-diff with chrome rather than map content.
   ;(window as unknown as { __mlMap?: maplibregl.Map }).__mlMap = mlMap
 
   mlMap.on('load', () => {

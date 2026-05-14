@@ -42,7 +42,7 @@
     }
     #layout {
       display: grid;
-      grid-template-rows: 44px 1fr 28px;
+      grid-template-rows: 44px 24px 1fr 28px;
       height: 100vh;
       height: 100dvh;
     }
@@ -94,24 +94,28 @@
       overflow: hidden;
     }
     .pane + .pane { border-left: 1px solid var(--border); }
+    /* Pane labels live above the panes (own grid row) — keeping them
+       outside the pane element makes pane.screenshot() in e2e specs
+       capture only map pixels, not the debug banner. Diff measurements
+       were dominated by banner pixels before this change. */
+    #pane-titles {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
     .pane-title {
-      position: absolute;
-      top: 8px; left: 8px;
-      z-index: 5;
       font-family: var(--font-mono);
       font-size: 10px;
       color: var(--text-dim);
-      background: rgba(10, 14, 22, 0.75);
-      backdrop-filter: blur(8px);
-      border: 1px solid var(--border);
-      border-radius: 5px;
-      padding: 3px 8px;
+      padding: 5px 12px;
       pointer-events: none;
       text-transform: uppercase;
       letter-spacing: 0.06em;
     }
-    .pane-title.left { color: #c084fc; border-color: #c084fc40; }
-    .pane-title.right { color: var(--accent); border-color: #38bdf840; }
+    .pane-title.right { border-left: 1px solid var(--border); }
+    .pane-title.left { color: #c084fc; }
+    .pane-title.right { color: var(--accent); }
     #ml-map {
       width: 100%; height: 100%;
     }
@@ -160,13 +164,16 @@
       <span class="label">MapLibre ↔ X-GIS</span>
     </div>
 
+    <div id="pane-titles">
+      <div class="pane-title left">MapLibre GL JS</div>
+      <div class="pane-title right">X-GIS (WebGPU)</div>
+    </div>
+
     <div id="panes">
       <div class="pane">
-        <div class="pane-title left">MapLibre GL JS</div>
         <div id="ml-map"></div>
       </div>
       <div class="pane">
-        <div class="pane-title right">X-GIS (WebGPU)</div>
         <canvas id="xg-canv"></canvas>
       </div>
     </div>
