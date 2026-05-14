@@ -14,6 +14,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   COMPUTE_WORKGROUP_SIZE,
+  emitInterpolateComputeKernel,
   emitMatchComputeKernel,
   emitTernaryComputeKernel,
 } from './compute-gen'
@@ -269,6 +270,113 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
     expect(k.dispatchSize(64)).toBe(1)
     expect(k.dispatchSize(65)).toBe(2)
     expect(k.dispatchSize(1000)).toBe(16)
+  })
+})
+
+describe('compute-gen — emitInterpolateComputeKernel', () => {
+  it('emits the standard binding header (parity with match/case kernels)', () => {
+    const k = emitInterpolateComputeKernel({
+      fieldName: 'rank',
+      stops: [{ input: 0, colorHex: '#fff' }, { input: 10, colorHex: '#000' }],
+    })
+    expect(k.wgsl).toContain('@group(0) @binding(0) var<storage, read> feat_data: array<f32>')
+    expect(k.wgsl).toContain('@group(0) @binding(1) var<storage, read_write> out_color: array<u32>')
+    expect(k.wgsl).toContain('@group(0) @binding(2) var<uniform> u_count: vec4<u32>')
+  })
+
+  it('clamps left below the first stop (v <= s0 → c0)', () => {
+    const k = emitInterpolateComputeKernel({
+      fieldName: 'rank',
+      stops: [
+        { input: 0,  colorHex: '#ff0000' },
+        { input: 10, colorHex: '#00ff00' },
+      ],
+    })
+    expect(k.wgsl).toContain('if (v_rank <= 0.0)')
+    expect(k.wgsl).toMatch(/color = vec4<f32>\(1\.0, 0\.0, 0\.0, 1\.0\);/)
+  })
+
+  it('emits piecewise mix() between adjacent stops', () => {
+    const k = emitInterpolateComputeKernel({
+      fieldName: 'rank',
+      stops: [
+        { input: 0,  colorHex: '#ff0000' },
+        { input: 10, colorHex: '#00ff00' },
+      ],
+    })
+    expect(k.wgsl).toContain('let t = (v_rank - 0.0) / 10.0;')
+    expect(k.wgsl).toContain('color = mix(')
+  })
+
+  it('clamps right above the last stop (v > sN → cN)', () => {
+    const k = emitInterpolateComputeKernel({
+      fieldName: 'rank',
+      stops: [
+        { input: 0,  colorHex: '#ff0000' },
+        { input: 10, colorHex: '#00ff00' },
+      ],
+    })
+    // The trailing else uses the LAST stop's colour. Match against
+    // (0,1,0,1) which is #00ff00.
+    expect(k.wgsl).toMatch(/else \{ color = vec4<f32>\(0\.0, 1\.0, 0\.0, 1\.0\);/)
+  })
+
+  it('emits middle ranges in ascending stop order (3-stop ramp)', () => {
+    const k = emitInterpolateComputeKernel({
+      fieldName: 'pop',
+      stops: [
+        { input: 0,    colorHex: '#000000' },
+        { input: 1000, colorHex: '#ff0000' },
+        { input: 5000, colorHex: '#ffffff' },
+      ],
+    })
+    const idx1 = k.wgsl.indexOf('<= 1000.0')
+    const idx2 = k.wgsl.indexOf('<= 5000.0')
+    expect(idx1).toBeGreaterThan(0)
+    expect(idx2).toBeGreaterThan(idx1)
+  })
+
+  it('single-stop spec emits a constant colour (no mix())', () => {
+    const k = emitInterpolateComputeKernel({
+      fieldName: 'x',
+      stops: [{ input: 5, colorHex: '#ff0000' }],
+    })
+    expect(k.wgsl).not.toContain('mix(')
+    expect(k.wgsl).toContain('color = vec4<f32>(1.0, 0.0, 0.0, 1.0);')
+  })
+
+  it('empty stops emits transparent fallback (degenerate but valid)', () => {
+    const k = emitInterpolateComputeKernel({ fieldName: 'x', stops: [] })
+    expect(k.wgsl).toContain('color = vec4<f32>(0.0, 0.0, 0.0, 0.0);')
+    expect(k.wgsl).toContain('@compute @workgroup_size(64)')
+  })
+
+  it('returns single-field metadata (stride 1, fieldOrder = [name])', () => {
+    const k = emitInterpolateComputeKernel({
+      fieldName: 'rank',
+      stops: [{ input: 0, colorHex: '#fff' }, { input: 1, colorHex: '#000' }],
+    })
+    expect(k.featureStrideF32).toBe(1)
+    expect(k.fieldOrder).toEqual(['rank'])
+  })
+
+  it('packs colour via pack4x8unorm (output parity with other kernels)', () => {
+    const k = emitInterpolateComputeKernel({
+      fieldName: 'x',
+      stops: [{ input: 0, colorHex: '#fff' }, { input: 1, colorHex: '#000' }],
+    })
+    expect(k.wgsl).toContain('out_color[fid] = pack4x8unorm(color);')
+  })
+
+  it('emits compute shader function name "eval_interpolate" (distinct from match/case)', () => {
+    // Pipeline dispatch keys off the entry-point name. The three
+    // kernels must have distinct names so the runtime can build
+    // separate ComputePipeline objects without collision.
+    const k = emitInterpolateComputeKernel({
+      fieldName: 'x',
+      stops: [{ input: 0, colorHex: '#fff' }, { input: 1, colorHex: '#000' }],
+    })
+    expect(k.wgsl).toContain('fn eval_interpolate(')
   })
 })
 
