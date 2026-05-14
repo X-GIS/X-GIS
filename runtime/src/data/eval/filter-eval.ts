@@ -44,16 +44,34 @@ export function evalFilterExpr(ast: FilterAst, props: Record<string, unknown>): 
  *
  *  When `filterAst` is null/undefined the key collapses to plain
  *  `sourceLayer` — preserving back-compat for the prior "one slice
- *  per MVT layer" behaviour for legacy demos / unfiltered shows. */
+ *  per MVT layer" behaviour for legacy demos / unfiltered shows.
+ *
+ *  Memo: filterAst is a compile-time-frozen POJO (parser output,
+ *  never mutated after IR build). VTR.render + show-source-maps call
+ *  this ~80×/frame on Bright; the JSON.stringify of even moderate
+ *  filter ASTs was 19.5 ms/frame on the pan-hitch CPU profile.
+ *  Memoising by AST object identity drops the steady-state cost to
+ *  one Map.get per call. */
+const _sliceKeyCache = new WeakMap<object, Map<string, string>>()
 export function computeSliceKey(sourceLayer: string, filterAst: FilterAst | null | undefined): string {
   if (!filterAst) return sourceLayer
+  let inner = _sliceKeyCache.get(filterAst as object)
+  if (inner) {
+    const hit = inner.get(sourceLayer)
+    if (hit !== undefined) return hit
+  } else {
+    inner = new Map()
+    _sliceKeyCache.set(filterAst as object, inner)
+  }
   const json = JSON.stringify(filterAst)
   let h = 5381
   for (let i = 0; i < json.length; i++) {
     h = (h * 33) ^ json.charCodeAt(i)
     h |= 0
   }
-  return `${sourceLayer}::${(h >>> 0).toString(36)}`
+  const key = `${sourceLayer}::${(h >>> 0).toString(36)}`
+  inner.set(sourceLayer, key)
+  return key
 }
 
 /** Per-show slice descriptor. Map.ts collects one entry per UNIQUE
