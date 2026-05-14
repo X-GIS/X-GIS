@@ -565,6 +565,29 @@ function coordsBBox(coords: number[][]): { minLon: number; minLat: number; maxLo
   return ringsBBox(coords)
 }
 
+/** Even-odd-rule point-in-polygon test for a single ring. Returns
+ *  true when (x, y) is strictly inside `ring`, false otherwise.
+ *  Boundary classification is technically undefined per the
+ *  algorithm; in practice the caller (hole-distribution loop in
+ *  compileSingleTile) tests the hole's first vertex which is
+ *  always interior to the source polygon, so boundary cases don't
+ *  fire. */
+function pointInRing(x: number, y: number, ring: number[][]): boolean {
+  let inside = false
+  const n = ring.length
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = ring[i]![0]!, yi = ring[i]![1]!
+    const xj = ring[j]![0]!, yj = ring[j]![1]!
+    // Ray from (x, y) extending right (positive X). Edge crosses
+    // iff its endpoints straddle the ray's Y AND the intersection X
+    // is to the right of `x`.
+    const crosses = ((yi > y) !== (yj > y))
+      && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+    if (crosses) inside = !inside
+  }
+  return inside
+}
+
 // ═══ Tile Math ═══
 
 function tileBounds(z: number, x: number, y: number): { west: number; south: number; east: number; north: number } {
@@ -1350,11 +1373,28 @@ function processZoomLevelShared(
                 featureIds.add(fid)
                 tilePolygons.push({ rings: repairedRings, featId: fid })
               } else {
-                for (const sub of effectiveOuters) {
-                  tessellatePolygonToArrays([sub], fid, scratch.pv, scratch.pi, dedupMap)
+                // Distribute holes via point-in-polygon — mirror of
+                // the equivalent branch at the main-tile site below
+                // (~line 1591). See its comment for the rationale.
+                const subHoles: number[][][][] = effectiveOuters.map(() => [])
+                for (const hole of holes) {
+                  const px = hole[0]![0]!
+                  const py = hole[0]![1]!
+                  for (let si = 0; si < effectiveOuters.length; si++) {
+                    if (pointInRing(px, py, effectiveOuters[si]!)) {
+                      subHoles[si]!.push(hole)
+                      break
+                    }
+                  }
+                }
+                const allRingsForFeature: number[][][] = []
+                for (let si = 0; si < effectiveOuters.length; si++) {
+                  const subRings = [effectiveOuters[si]!, ...subHoles[si]!]
+                  tessellatePolygonToArrays(subRings, fid, scratch.pv, scratch.pi, dedupMap)
+                  for (const r of subRings) allRingsForFeature.push(r)
                 }
                 featureIds.add(fid)
-                tilePolygons.push({ rings: effectiveOuters, featId: fid })
+                tilePolygons.push({ rings: allRingsForFeature, featId: fid })
               }
             }
             // Outline: treat each ORIGINAL ring as a closed
@@ -1559,15 +1599,46 @@ export function compileSingleTile(
             featureIds.add(fid)
             tilePolygons.push({ rings: repairedRings, featId: fid })
           } else {
-            // Self-intersecting outer split into multiple polygons.
-            // Holes are dropped — point-in-polygon distribution is
-            // expensive and this combination is rare (Korea z=7 had
-            // no holes).
-            for (const sub of effectiveOuters) {
-              tessellatePolygonToArrays([sub], fid, scratch.pv, scratch.pi, dedupMap)
+            // Self-intersecting outer split into multiple sub-polygons.
+            // Distribute each hole into the sub-outer that CONTAINS
+            // its first vertex (point-in-polygon test). Holes outside
+            // every sub-outer are dropped (degenerate — shouldn't
+            // happen for well-formed polygons but is a defensive
+            // fallback). Cost: O(holes × subs × avg-sub-vertices)
+            // per tile compile, amortised across the tile's lifetime.
+            // demotiles z=4 China: 28 holes × 2 subs × ~700 verts =
+            // ~40k point-in-polygon ops, single-digit ms.
+            //
+            // Previously holes were dropped UNCONDITIONALLY here with
+            // a "Korea z=7 had no holes" justification — that turned
+            // out to be wrong for demotiles where the China polygon's
+            // 28 lakes / river hole rings all vanished, painting the
+            // Yangtze region with the country fill colour.
+            const subHoles: number[][][][] = effectiveOuters.map(() => [])
+            for (const hole of holes) {
+              const px = hole[0]![0]!
+              const py = hole[0]![1]!
+              let assigned = false
+              for (let si = 0; si < effectiveOuters.length; si++) {
+                if (pointInRing(px, py, effectiveOuters[si]!)) {
+                  subHoles[si]!.push(hole)
+                  assigned = true
+                  break
+                }
+              }
+              // assigned=false → hole has no enclosing sub-outer.
+              // Defensive drop with no logging (silent for now to
+              // avoid console spam on real-world data quirks).
+              void assigned
+            }
+            const allRingsForFeature: number[][][] = []
+            for (let si = 0; si < effectiveOuters.length; si++) {
+              const subRings = [effectiveOuters[si]!, ...subHoles[si]!]
+              tessellatePolygonToArrays(subRings, fid, scratch.pv, scratch.pi, dedupMap)
+              for (const r of subRings) allRingsForFeature.push(r)
             }
             featureIds.add(fid)
-            tilePolygons.push({ rings: effectiveOuters, featId: fid })
+            tilePolygons.push({ rings: allRingsForFeature, featId: fid })
           }
         }
         // Outline emission: treat each ORIGINAL ring as a closed

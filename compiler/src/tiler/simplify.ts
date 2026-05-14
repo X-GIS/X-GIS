@@ -119,9 +119,34 @@ export function simplifyPolygon(rings: number[][][], zoom: number, isLocked?: (c
   // to the deg-based `toleranceForZoom(z)` which silently no-ops on
   // MM rings (deg tolerance ≈ 0.003 vs MM distances ~10^6).
   const tolerance = toleranceOverride ?? toleranceForZoom(zoom)
-  return rings
-    .map(ring => simplify(ring, tolerance, isLocked))
-    .filter(ring => ring.length >= 3) // discard degenerate rings
+  // Holes (rings[1..]) are by definition INSIDE the outer — they
+  // describe features at a strictly smaller scale (lakes, river
+  // cutouts). The tolerance calibrated for the outer ring's scale
+  // can collapse small holes to < 3 vertices, which then drops them
+  // via the degenerate-filter — visible regression at demotiles
+  // z=9 China (the Yangtze river hole gets simplified to nothing
+  // and the country fill paints over the river).
+  //
+  // Fix: keep holes that survive simplification with >= 3 verts;
+  // FALL BACK to the original unsimplified hole when simplification
+  // collapses it. Outer ring keeps the strict `length >= 3` filter
+  // (a collapsed outer means the polygon is degenerate at this zoom
+  // and should be culled).
+  const result: number[][][] = []
+  for (let i = 0; i < rings.length; i++) {
+    const ring = rings[i]!
+    const simplified = simplify(ring, tolerance, isLocked)
+    if (simplified.length >= 3) {
+      result.push(simplified)
+    } else if (i > 0 && ring.length >= 3) {
+      // Hole — keep the unsimplified original rather than dropping.
+      // Original is already small (that's why simplification killed
+      // it); keeping it costs negligible extra triangulation work.
+      result.push(ring)
+    }
+    // else: outer ring collapsed → polygon is degenerate, drop.
+  }
+  return result
 }
 
 /**
