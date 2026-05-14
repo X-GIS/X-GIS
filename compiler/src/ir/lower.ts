@@ -29,10 +29,34 @@ import {
   type ShapeRef,
 } from './render-node'
 
+/** Lower-pass options. Reserved for opt-in features that change the
+ *  IR shape produced from a given AST — bypass flags for collapses
+ *  that exist because a runtime feature wasn't available yet. */
+export interface LowerOptions {
+  /** Skip `extractMatchDefaultColor` for fill bindings (the second
+   *  Mapbox `match(.field) { ..., _ -> default }` collapse — see
+   *  `convert/mapbox-to-xgis.ts:bypassExpandColorMatch` for the
+   *  first). When true, the match() expression survives as
+   *  `kind: 'data-driven'` so the P4 compute path (or the fragment-
+   *  shader if-else fallback for variants with per-feature props)
+   *  evaluates every arm GPU-side.
+   *
+   *  Default false (preserves existing collapse-to-default
+   *  behaviour). Combined with `bypassExpandColorMatch: true`,
+   *  this is the second half of the gate that lets Mapbox styles
+   *  flow large match() expressions into the compute path. Without
+   *  the runtime support (VTR compute integration), the lowered
+   *  data-driven shape STILL renders correctly via the existing
+   *  fragment-shader if-else path for any source that has a
+   *  populated PropertyTable + variant.featureFields wired in
+   *  (commit ba348aa). */
+  bypassExtractMatchDefaultColor?: boolean
+}
+
 /**
  * Lower an AST Program into an IR Scene.
  */
-export function lower(program: AST.Program): Scene {
+export function lower(program: AST.Program, options: LowerOptions = {}): Scene {
   const sources: SourceDef[] = []
   const renderNodes: RenderNode[] = []
   const symbols: import('./render-node').SymbolDef[] = []
@@ -77,7 +101,7 @@ export function lower(program: AST.Program): Scene {
         break
       }
       case 'LayerStatement': {
-        const node = lowerLayer(stmt, sourceMap, presetMap, styleMap, keyframesMap, diagnostics)
+        const node = lowerLayer(stmt, sourceMap, presetMap, styleMap, keyframesMap, diagnostics, options)
         if (node) {
           // If the source was referenced but not yet added, add it
           if (!sources.find(s => s.name === node.sourceRef)) {
@@ -302,6 +326,7 @@ function lowerLayer(
   styleMap: Map<string, AST.StyleProperty[]>,
   keyframesMap: Map<string, AST.KeyframesStatement>,
   diagnostics: import('./render-node').Diagnostic[],
+  options: LowerOptions,
 ): RenderNode | null {
   // Extract block properties
   let sourceRef = ''
@@ -732,11 +757,18 @@ function lowerLayer(
           // palette) await a `fillExpr` plumbing PR that threads the
           // full AST through ShowCommand for the worker to evaluate
           // per feature, mirroring the existing strokeColorExpr path.
-          const defaultHex = extractMatchDefaultColor(item.binding)
-          if (defaultHex) {
-            const rgba = hexToRgba(defaultHex)
-            fill = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
-            continue
+          // The default-arm collapse is gated by
+          // `LowerOptions.bypassExtractMatchDefaultColor` — when true
+          // (P4 runtime opt-in), match() falls through to data-driven
+          // even when an explicit `_` arm exists. The compute path
+          // then evaluates every arm GPU-side.
+          if (!options.bypassExtractMatchDefaultColor) {
+            const defaultHex = extractMatchDefaultColor(item.binding)
+            if (defaultHex) {
+              const rgba = hexToRgba(defaultHex)
+              fill = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
+              continue
+            }
           }
           fill = { kind: 'data-driven', expr: { ast: item.binding } }
         } else if (name === 'stroke') {
