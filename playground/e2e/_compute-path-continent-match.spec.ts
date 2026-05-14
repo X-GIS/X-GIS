@@ -85,3 +85,37 @@ test.describe('Plan P4 — continent_match with ?compute=1', () => {
     ).toBeLessThan(0.05)
   })
 })
+
+// Compute-eligible direct xgis fixtures. Each fixture has at least
+// one `match()` data-driven fill or stroke that the compiler routes
+// through the compute path. Verified via /tmp/find-compute-fixtures
+// helper: every entry below produces ≥1 ComputePlanEntry +
+// variant.computeBindings when emitCommands runs with
+// enableComputePath: true.
+const COMPUTE_FIXTURE_DEMOS = [
+  'continent_match',
+  'income_match',
+  'continent_outlines',
+  'fixture_categorical',
+  'reftest_triangle_match',
+  'fixture_picking',
+]
+
+test.describe('Plan P4 — broader fixture coverage with ?compute=1', () => {
+  for (const id of COMPUTE_FIXTURE_DEMOS) {
+    test(`${id} — compute=1 visual matches compute=0 baseline`, async ({ page }) => {
+      test.setTimeout(PER_TEST_TIMEOUT_MS * 2 + 10_000)
+
+      await page.goto(`/demo.html?id=${id}`, { waitUntil: 'domcontentloaded' })
+      const baselinePng = await captureCanvas(page, { readyTimeoutMs: PER_TEST_TIMEOUT_MS })
+
+      await page.goto(`/demo.html?id=${id}&compute=1`, { waitUntil: 'domcontentloaded' })
+      const computePng = await captureCanvas(page, { readyTimeoutMs: PER_TEST_TIMEOUT_MS })
+
+      const ratio = await pixelDiffRatio(page, baselinePng, computePng, 12)
+      expect(ratio,
+        `[${id}] compute=1 vs compute=0 pixel diff = ${(ratio * 100).toFixed(3)}%`,
+      ).toBeLessThan(0.05)
+    })
+  }
+})
