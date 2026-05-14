@@ -450,6 +450,100 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
   })
 })
 
+describe('emitMatchComputeKernel — LUT branch (P5 large-match)', () => {
+  /** Build a match spec with N distinct arms (auto-generated patterns). */
+  function bigMatch(n: number) {
+    const arms: { pattern: string; colorHex: string }[] = []
+    for (let i = 0; i < n; i++) {
+      const r = (i * 17) % 256
+      const g = (i * 31) % 256
+      const b = (i * 53) % 256
+      const hex = '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('')
+      arms.push({ pattern: `k${String(i).padStart(3, '0')}`, colorHex: hex })
+    }
+    return { fieldName: 'cls', arms, defaultColorHex: '#888888' }
+  }
+
+  it('below threshold (15 arms) → if-else chain, no LUT', () => {
+    const k = emitMatchComputeKernel(bigMatch(15))
+    expect(k.wgsl).not.toContain('const LUT:')
+    const compareCount = (k.wgsl.match(/v_cls == /g) ?? []).length
+    expect(compareCount).toBe(15)
+  })
+
+  it('at threshold (16 arms) → emits LUT, no if-else comparisons', () => {
+    const k = emitMatchComputeKernel(bigMatch(16))
+    expect(k.wgsl).toContain('const LUT: array<vec4<f32>, 16>')
+    const compareCount = (k.wgsl.match(/v_cls == /g) ?? []).length
+    expect(compareCount).toBe(0)
+  })
+
+  it('large-arm (50 arms) → LUT length matches arm count', () => {
+    const k = emitMatchComputeKernel(bigMatch(50))
+    expect(k.wgsl).toContain('const LUT: array<vec4<f32>, 50>')
+    // 50 LUT entries + 1 default-branch vec4 = 51 total.
+    const vec4Count = (k.wgsl.match(/vec4<f32>\(/g) ?? []).length
+    expect(vec4Count).toBe(51)
+  })
+
+  it('LUT id-bounds branch: < N hits LUT, ≥ N hits default', () => {
+    const k = emitMatchComputeKernel(bigMatch(20))
+    expect(k.wgsl).toMatch(/if \(id < 20u\)\s*\{\s*color = LUT\[id\];/)
+    expect(k.wgsl).toMatch(/\} else \{\s*color = vec4<f32>\(/)
+  })
+
+  it('LUT entries appear in alphabetical pattern order (matches packer IDs)', () => {
+    // Generate arms with intentionally non-alphabetical input order;
+    // sorted order must STILL drive LUT[i] so packer IDs align.
+    const arms: { pattern: string; colorHex: string }[] = []
+    for (let i = 0; i < 20; i++) {
+      // i=0 generates k099, i=19 generates k080.
+      arms.push({ pattern: `k${String(99 - i).padStart(3, '0')}`, colorHex: `#${i.toString(16).padStart(2, '0')}0000` })
+    }
+    const k = emitMatchComputeKernel({ fieldName: 'x', arms, defaultColorHex: '#ffffff' })
+    expect(k.categoryOrder?.x?.[0]).toBe('k080')
+    expect(k.wgsl).toContain('const LUT: array<vec4<f32>, 20>')
+  })
+
+  it('LUT kernel preserves entryPoint + dispatchSize contract', () => {
+    const small = emitMatchComputeKernel(bigMatch(10))
+    const large = emitMatchComputeKernel(bigMatch(20))
+    expect(small.entryPoint).toBe('eval_match')
+    expect(large.entryPoint).toBe('eval_match')
+    expect(small.dispatchSize(1000)).toBe(Math.ceil(1000 / 64))
+    expect(large.dispatchSize(1000)).toBe(Math.ceil(1000 / 64))
+  })
+
+  it('out_color write path is identical between LUT + if-else paths', () => {
+    const small = emitMatchComputeKernel(bigMatch(10))
+    const large = emitMatchComputeKernel(bigMatch(20))
+    expect(small.wgsl).toContain('out_color[fid] = pack4x8unorm(color);')
+    expect(large.wgsl).toContain('out_color[fid] = pack4x8unorm(color);')
+  })
+
+  it('demotiles-scale (214 arms) emits valid LUT WGSL', () => {
+    const k = emitMatchComputeKernel(bigMatch(214))
+    expect(k.wgsl).toContain('const LUT: array<vec4<f32>, 214>')
+    expect(k.wgsl).toContain('if (id < 214u)')
+    expect(k.wgsl).toContain('@compute @workgroup_size(64)')
+    // No O(N) comparisons in the kernel body for the LUT path.
+    expect((k.wgsl.match(/v_cls == /g) ?? []).length).toBe(0)
+  })
+
+  it('WGSL length scales linearly with arm count for LUT (no quadratic blowup)', () => {
+    const k20 = emitMatchComputeKernel(bigMatch(20))
+    const k200 = emitMatchComputeKernel(bigMatch(200))
+    // Linear scaling check: 200/20 = 10× arms → expect ~10× length
+    // The preamble + kernel body have a fixed overhead, so the
+    // ratio is less than 10× — checking that it's clearly more than
+    // 5× (proves linear, not constant) AND clearly less than 11×
+    // (proves no quadratic blowup).
+    const ratio = k200.wgsl.length / k20.wgsl.length
+    expect(ratio).toBeGreaterThan(5)
+    expect(ratio).toBeLessThan(11)
+  })
+})
+
 /** Mirror `fmt()` in compute-gen.ts for round-trip assertions. */
 function formatNumber(n: number): string {
   if (Number.isInteger(n)) return `${n}.0`

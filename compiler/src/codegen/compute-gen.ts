@@ -58,6 +58,20 @@ import { resolveColor } from '../tokens/colors'
  *  larger workgroups don't help. */
 export const COMPUTE_WORKGROUP_SIZE = 64
 
+/** Threshold (plan P5) above which `emitMatchComputeKernel` switches
+ *  from an O(N) if-else chain to an O(1) `LUT[u32(v_field)]` access.
+ *  For arm counts below this, the if-else is competitive (branch
+ *  prediction + early-out per fragment) and avoids the WGSL const-
+ *  array slot. For arm counts at/above, the constant LUT array is
+ *  faster + scales — demotiles' 428-arm `ADM0_A3` country palette
+ *  is the canonical real-fixture target.
+ *
+ *  16 picked to align with the plan's recommended threshold; OFM
+ *  fixtures have no surviving match()'s above 8 arms so 16 is well
+ *  past anything observed there. Adjust if profiling shows a
+ *  different crossover. */
+export const MATCH_LUT_THRESHOLD = 16
+
 /** Result of an emitter call. `wgsl` is the complete compute-shader
  *  module source ready to feed `createShaderModule`. `dispatchSize`
  *  helper tells the runtime how many workgroups to launch for a
@@ -149,6 +163,38 @@ export function emitMatchComputeKernel(spec: MatchEmitSpec): ComputeKernel {
   lines.push('@group(0) @binding(1) var<storage, read_write> out_color: array<u32>;')
   lines.push('@group(0) @binding(2) var<uniform> u_count: vec4<u32>;')
   lines.push('')
+
+  // P5 LUT branch: at MATCH_LUT_THRESHOLD arms or more, emit a
+  // constant array LUT + `LUT[u32(v_field)]` access instead of an
+  // O(N) if-else chain. WGSL const-array values are baked into the
+  // shader module — no runtime upload, no extra binding. Caveats:
+  //   - Out-of-range index reads return 0 in WGSL spec, so the
+  //     packer's "unknown value → ID outside arms range" sentinel
+  //     produces transparent black, matching the legacy default-arm
+  //     intent only for `defaultColorHex == '#00000000'`. For
+  //     non-transparent defaults we explicitly clamp + branch.
+  //   - WGSL const arrays cap at 16384 elements in current
+  //     implementations — 428 (demotiles) is fine; multi-thousand
+  //     arms would need a storage-buffer LUT instead (P5 follow-up).
+  const useLut = sortedPatterns.length >= MATCH_LUT_THRESHOLD
+  if (useLut) {
+    // Emit the const LUT — one vec4<f32> per arm, indexed by the
+    // sorted-pattern position (matches packer's ID).
+    const lutLines: string[] = []
+    lutLines.push(
+      `const LUT: array<vec4<f32>, ${sortedPatterns.length}> = array<vec4<f32>, ${sortedPatterns.length}>(`,
+    )
+    for (let i = 0; i < sortedPatterns.length; i++) {
+      const arm = armByPattern.get(sortedPatterns[i]!)!
+      const [r, g, b, a] = colorHexToRGBA(arm.colorHex)
+      const comma = i === sortedPatterns.length - 1 ? '' : ','
+      lutLines.push(`  vec4<f32>(${fmt(r)}, ${fmt(g)}, ${fmt(b)}, ${fmt(a)})${comma}`)
+    }
+    lutLines.push(');')
+    lutLines.push('')
+    lines.push(...lutLines)
+  }
+
   lines.push(`@compute @workgroup_size(${COMPUTE_WORKGROUP_SIZE})`)
   lines.push('fn eval_match(@builtin(global_invocation_id) gid: vec3<u32>) {')
   lines.push('  let fid = gid.x;')
@@ -159,29 +205,43 @@ export function emitMatchComputeKernel(spec: MatchEmitSpec): ComputeKernel {
   lines.push(`  let v_${spec.fieldName} = feat_data[fid];`)
   lines.push('  var color: vec4<f32>;')
 
-  // if-else chain mirroring shader-gen's match() WGSL emission.
-  // Pattern-to-ID mapping = position in sortedPatterns; runtime
-  // packs the same ID into feat_data.
-  for (let i = 0; i < sortedPatterns.length; i++) {
-    const pat = sortedPatterns[i]!
-    const arm = armByPattern.get(pat)!
-    const [r, g, b, a] = colorHexToRGBA(arm.colorHex)
-    const keyword = i === 0 ? 'if' : 'else if'
+  if (useLut) {
+    // O(1) LUT branch — clamp the ID to the valid arm range; any
+    // index out of [0, N) falls through to the default branch so
+    // unknown / sentinel feature values (packer maps these to
+    // arms.length+) produce the explicit default colour.
+    const [dr, dg, db, da] = colorHexToRGBA(spec.defaultColorHex)
+    lines.push(`  let id = u32(max(0.0, v_${spec.fieldName}));`)
+    lines.push(`  if (id < ${sortedPatterns.length}u) {`)
+    lines.push(`    color = LUT[id];`)
+    lines.push(`  } else {`)
+    lines.push(`    color = vec4<f32>(${fmt(dr)}, ${fmt(dg)}, ${fmt(db)}, ${fmt(da)});`)
+    lines.push(`  }`)
+  } else {
+    // Legacy if-else chain — mirrors shader-gen's match() WGSL
+    // emission, branch-predicted per fragment. Cheaper than the
+    // LUT path for small arm counts because there's no const-array
+    // backing storage in the shader module.
+    for (let i = 0; i < sortedPatterns.length; i++) {
+      const pat = sortedPatterns[i]!
+      const arm = armByPattern.get(pat)!
+      const [r, g, b, a] = colorHexToRGBA(arm.colorHex)
+      const keyword = i === 0 ? 'if' : 'else if'
+      lines.push(
+        `  ${keyword} (v_${spec.fieldName} == ${fmt(i)}) {`
+        + ` color = vec4<f32>(${fmt(r)}, ${fmt(g)}, ${fmt(b)}, ${fmt(a)});`
+        + ` }`,
+      )
+    }
+    // Default branch — always present, mirrors shader-gen's
+    // `fallbackColor`. Compound merge-layers commonly produces
+    // `#00000000` (transparent fall-through) so non-listed feature
+    // classes silently skip rendering.
+    const [dr, dg, db, da] = colorHexToRGBA(spec.defaultColorHex)
     lines.push(
-      `  ${keyword} (v_${spec.fieldName} == ${fmt(i)}) {`
-      + ` color = vec4<f32>(${fmt(r)}, ${fmt(g)}, ${fmt(b)}, ${fmt(a)});`
-      + ` }`,
+      `  else { color = vec4<f32>(${fmt(dr)}, ${fmt(dg)}, ${fmt(db)}, ${fmt(da)}); }`,
     )
   }
-
-  // Default branch — always present, mirrors shader-gen's
-  // `fallbackColor`. Compound merge-layers commonly produces
-  // `#00000000` (transparent fall-through) so non-listed feature
-  // classes silently skip rendering.
-  const [dr, dg, db, da] = colorHexToRGBA(spec.defaultColorHex)
-  lines.push(
-    `  else { color = vec4<f32>(${fmt(dr)}, ${fmt(dg)}, ${fmt(db)}, ${fmt(da)}); }`,
-  )
 
   lines.push('  out_color[fid] = pack4x8unorm(color);')
   lines.push('}')
