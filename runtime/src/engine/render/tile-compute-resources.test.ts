@@ -319,3 +319,112 @@ describe('TileComputeResources — forEachOutput / destroy', () => {
     expect(dispatches).toHaveLength(0)
   })
 })
+
+describe('TileComputeResources — kernel dedup (P4-6 runtime half)', () => {
+  // Helper: build two entries that REFERENCE the same ComputeKernel
+  // object (simulating compute-plan's dedup output for fill + stroke
+  // axes that emit identical WGSL). The kernel object is shared by
+  // reference — that's the dedup signal the runtime keys on.
+  function makeSharedKernelEntries(): ComputePlanEntry[] {
+    const kernel = emitMatchComputeKernel({
+      fieldName: 'class',
+      arms: [{ pattern: 'a', colorHex: '#ff0000' }],
+      defaultColorHex: '#000000',
+    })
+    return [
+      {
+        renderNodeIndex: 0, paintAxis: 'fill', kernel,
+        fieldOrder: kernel.fieldOrder, categoryOrder: kernel.categoryOrder ?? {},
+      },
+      {
+        renderNodeIndex: 0, paintAxis: 'stroke-color', kernel, // SAME kernel reference
+        fieldOrder: kernel.fieldOrder, categoryOrder: kernel.categoryOrder ?? {},
+      },
+    ]
+  }
+
+  it('two entries with shared kernel → 3 buffers allocated (not 6)', () => {
+    const { dispatcher, buffers } = makeFakeContext()
+    new TileComputeResources(dispatcher, makeSharedKernelEntries())
+    // Dedup: 1 unique kernel × 3 buffers = 3 (was 6 pre-dedup).
+    expect(buffers).toHaveLength(3)
+  })
+
+  it('uniqueKernelCount reflects ref-equal kernels, not plan length', () => {
+    const { dispatcher } = makeFakeContext()
+    const r = new TileComputeResources(dispatcher, makeSharedKernelEntries())
+    expect(r.entryCount).toBe(2)
+    expect(r.uniqueKernelCount).toBe(1)
+  })
+
+  it('getOutBuffer for both axes returns the SAME shared buffer', () => {
+    const { dispatcher } = makeFakeContext()
+    const r = new TileComputeResources(dispatcher, makeSharedKernelEntries())
+    const fillOut = r.getOutBuffer(0, 'fill')
+    const strokeOut = r.getOutBuffer(0, 'stroke-color')
+    expect(fillOut).not.toBeNull()
+    expect(strokeOut).not.toBeNull()
+    expect(fillOut).toBe(strokeOut) // reference equality
+  })
+
+  it('dispatch fires ONCE per unique kernel, not per entry', () => {
+    const { dispatcher, dispatches, encoder } = makeFakeContext()
+    const r = new TileComputeResources(dispatcher, makeSharedKernelEntries())
+    r.uploadFromProps(() => ({ class: 'a' }), 10)
+    r.dispatch(encoder)
+    expect(dispatches).toHaveLength(1) // not 2
+  })
+
+  it('uploadFromProps packs ONCE per unique kernel, not per entry', () => {
+    const { dispatcher, writes } = makeFakeContext()
+    const r = new TileComputeResources(dispatcher, makeSharedKernelEntries())
+    r.uploadFromProps(() => ({ class: 'a' }), 10)
+    // 1 unique kernel × (1 feat write + 1 count write) = 2 writes
+    // (was 4 pre-dedup).
+    expect(writes).toHaveLength(2)
+  })
+
+  it('forEachOutput still walks every binding — same outBuffer reported twice', () => {
+    const { dispatcher } = makeFakeContext()
+    const r = new TileComputeResources(dispatcher, makeSharedKernelEntries())
+    const seen: { axis: string; buf: GPUBuffer }[] = []
+    r.forEachOutput((_k, out, _i, axis) => { seen.push({ axis, buf: out }) })
+    expect(seen).toHaveLength(2)
+    expect(seen[0]!.buf).toBe(seen[1]!.buf) // same shared buffer
+  })
+
+  it('destroy fires once per unique kernel (not per entry)', () => {
+    const { dispatcher, buffers } = makeFakeContext()
+    const r = new TileComputeResources(dispatcher, makeSharedKernelEntries())
+    r.destroy()
+    // 3 buffers from one kernel, all destroyed.
+    expect(buffers).toHaveLength(3)
+    expect(buffers.every(b => b.destroyed)).toBe(true)
+  })
+
+  it('three entries with shared kernel + one distinct → 6 buffers total', () => {
+    const { dispatcher, buffers } = makeFakeContext()
+    const sharedKernel = emitMatchComputeKernel({
+      fieldName: 'class',
+      arms: [{ pattern: 'a', colorHex: '#ff0000' }],
+      defaultColorHex: '#000000',
+    })
+    const distinctKernel = emitTernaryComputeKernel({
+      fields: ['flag'],
+      branches: [{ pred: 'v_flag != 0.0', colorHex: '#00ff00' }],
+      defaultColorHex: '#000000',
+    })
+    new TileComputeResources(dispatcher, [
+      { renderNodeIndex: 0, paintAxis: 'fill', kernel: sharedKernel,
+        fieldOrder: sharedKernel.fieldOrder, categoryOrder: sharedKernel.categoryOrder ?? {} },
+      { renderNodeIndex: 0, paintAxis: 'stroke-color', kernel: sharedKernel,
+        fieldOrder: sharedKernel.fieldOrder, categoryOrder: sharedKernel.categoryOrder ?? {} },
+      { renderNodeIndex: 1, paintAxis: 'fill', kernel: sharedKernel,
+        fieldOrder: sharedKernel.fieldOrder, categoryOrder: sharedKernel.categoryOrder ?? {} },
+      { renderNodeIndex: 2, paintAxis: 'fill', kernel: distinctKernel,
+        fieldOrder: distinctKernel.fieldOrder, categoryOrder: distinctKernel.categoryOrder ?? {} },
+    ])
+    // 2 unique kernels × 3 buffers = 6 (was 12 pre-dedup).
+    expect(buffers).toHaveLength(6)
+  })
+})

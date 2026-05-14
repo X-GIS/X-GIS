@@ -30,54 +30,87 @@ import type { ComputeKernel, ComputePlanEntry } from '@xgis/compiler'
 import { ComputeDispatcher } from '../gpu/compute'
 import { packFeatureData, type FeaturePropertyBag } from './compute-feature-packer'
 
-/** One plan-entry's GPU resources, kept together so dispatch() can
- *  walk them in plan order. */
-interface PerEntryResources {
-  entry: ComputePlanEntry
+/** One unique-kernel's GPU resources. Entries that share a kernel
+ *  reference (compute-plan dedup, P4-6) share these buffers — the
+ *  output is functionally identical, so we save 3 buffers + 1
+ *  dispatch per shared kernel. */
+interface KernelResources {
+  /** Representative entry — any entry pointing at this kernel has
+   *  the same fieldOrder + categoryOrder + featureStrideF32 (those
+   *  are derived from the kernel emit, identical for shared kernels). */
+  representative: ComputePlanEntry
   featBuffer: GPUBuffer
   outBuffer: GPUBuffer
   countBuffer: GPUBuffer
   /** How many features have been uploaded so far. Drives dispatch
-   *  workgroup count; 0 means "skip this entry this frame". */
+   *  workgroup count; 0 means "skip this kernel this frame". */
   featureCount: number
+}
+
+/** One plan-entry's binding metadata. Points to the SHARED
+ *  KernelResources via the kernel object reference; the actual
+ *  buffers live in the kernels map. */
+interface EntryBinding {
+  entry: ComputePlanEntry
+  kernel: ComputeKernel
 }
 
 /** A tile's worth of compute-pass resources. One instance per tile
  *  per scene (per-scene reusability would require recreating
  *  resources on style change anyway, so the lifetime is tied to
- *  the tile, not the scene). */
+ *  the tile, not the scene).
+ *
+ *  Kernel-level dedup: compute-plan emits the same ComputeKernel
+ *  reference for entries whose WGSL fingerprints match (P4-6). This
+ *  class follows suit — one (feat / out / count) buffer trio per
+ *  UNIQUE kernel, indexed via `Map<ComputeKernel, KernelResources>`.
+ *  Entries sharing a kernel share the buffers; `getOutBuffer` walks
+ *  through the entry → kernel → resources chain to return the
+ *  shared buffer. */
 export class TileComputeResources {
   private dispatcher: ComputeDispatcher
-  private entries: PerEntryResources[]
+  private bindings: EntryBinding[]
+  private kernels: Map<ComputeKernel, KernelResources>
 
   constructor(dispatcher: ComputeDispatcher, plan: readonly ComputePlanEntry[]) {
     this.dispatcher = dispatcher
-    this.entries = plan.map((entry) => ({
-      entry,
-      featBuffer: dispatcher.createFeatDataBuffer(
-        entry.kernel.featureStrideF32,
-        // Allocate to a reasonable starting capacity; the upload
-        // path reallocates when feature count exceeds the buffer.
-        // Worst case (no features yet) goes through the 16-byte
-        // stub inside createFeatDataBuffer.
-        0,
-        `tile-feat:${entry.kernel.entryPoint}`,
-      ),
-      outBuffer: dispatcher.createOutColorBuffer(
-        0,
-        `tile-out:${entry.kernel.entryPoint}`,
-      ),
-      countBuffer: dispatcher.createCountBuffer(
-        `tile-count:${entry.kernel.entryPoint}`,
-      ),
-      featureCount: 0,
-    }))
+    this.bindings = plan.map((entry) => ({ entry, kernel: entry.kernel }))
+    this.kernels = new Map()
+    for (const entry of plan) {
+      if (this.kernels.has(entry.kernel)) continue
+      // Allocate the (feat / out / count) trio for this unique
+      // kernel. Worst case (no features yet) goes through the
+      // 16-byte stub inside createFeatDataBuffer.
+      this.kernels.set(entry.kernel, {
+        representative: entry,
+        featBuffer: dispatcher.createFeatDataBuffer(
+          entry.kernel.featureStrideF32,
+          0,
+          `tile-feat:${entry.kernel.entryPoint}`,
+        ),
+        outBuffer: dispatcher.createOutColorBuffer(
+          0,
+          `tile-out:${entry.kernel.entryPoint}`,
+        ),
+        countBuffer: dispatcher.createCountBuffer(
+          `tile-count:${entry.kernel.entryPoint}`,
+        ),
+        featureCount: 0,
+      })
+    }
   }
 
   /** Number of plan entries bound to this tile. Equals
-   *  `plan.length` from construction. */
+   *  `plan.length` from construction; can exceed `uniqueKernelCount`
+   *  when compute-plan deduped shared kernels. */
   get entryCount(): number {
-    return this.entries.length
+    return this.bindings.length
+  }
+
+  /** Number of unique compute kernels backing the entries. Counts
+   *  the (feat / out / count) trios actually allocated. */
+  get uniqueKernelCount(): number {
+    return this.kernels.size
   }
 
   /** Output buffer for the kernel that evaluates `paintAxis` on the
@@ -86,28 +119,29 @@ export class TileComputeResources {
    *  paint axis. Returns null when no entry in the plan targets
    *  that coordinate. */
   getOutBuffer(renderNodeIndex: number, paintAxis: 'fill' | 'stroke-color'): GPUBuffer | null {
-    for (const e of this.entries) {
-      if (e.entry.renderNodeIndex === renderNodeIndex && e.entry.paintAxis === paintAxis) {
-        return e.outBuffer
+    for (const b of this.bindings) {
+      if (b.entry.renderNodeIndex === renderNodeIndex && b.entry.paintAxis === paintAxis) {
+        return this.kernels.get(b.kernel)?.outBuffer ?? null
       }
     }
     return null
   }
 
-  /** Pack feature properties for every entry on this tile and
-   *  upload to GPU. Resizes the per-entry feat / out buffers when
-   *  featureCount exceeds the previous capacity. Idempotent — call
-   *  once per tile decode; per-frame work is just dispatch(). */
+  /** Pack feature properties for every unique kernel on this tile
+   *  and upload to GPU. Resizes the per-kernel feat / out buffers
+   *  when featureCount exceeds the previous capacity. Idempotent —
+   *  call once per tile decode; per-frame work is just dispatch().
+   *
+   *  Each unique kernel is packed independently because different
+   *  kernels have different fieldOrder + categoryOrder. Entries
+   *  sharing a kernel share the packed data — that's the win. */
   uploadFromProps(getProps: (fid: number) => FeaturePropertyBag | null | undefined, featureCount: number): void {
-    for (const e of this.entries) {
-      // Each entry's packer has its own fieldOrder + categoryOrder
-      // (different kernels read different fields), so the typed
-      // arrays don't share. The packer skips fields with 0-length
-      // category maps gracefully.
+    for (const r of this.kernels.values()) {
+      const entry = r.representative
       const data = packFeatureData({
         getProps,
-        fieldOrder: e.entry.fieldOrder,
-        categoryOrder: e.entry.categoryOrder,
+        fieldOrder: entry.fieldOrder,
+        categoryOrder: entry.categoryOrder,
         featureCount,
       })
 
@@ -115,51 +149,51 @@ export class TileComputeResources {
       // allocation. The new buffer absorbs the old one's role; the
       // old buffer's `destroy()` is called so we don't leak when
       // tile re-decode pumps a larger feature count.
-      const needFeatBytes = Math.max(16, featureCount * Math.max(1, e.entry.kernel.featureStrideF32) * 4)
+      const needFeatBytes = Math.max(16, featureCount * Math.max(1, entry.kernel.featureStrideF32) * 4)
       const needOutBytes = Math.max(16, featureCount * 4)
-      if (((e.featBuffer as unknown) as { size: number }).size < needFeatBytes) {
-        e.featBuffer.destroy()
-        e.featBuffer = this.dispatcher.createFeatDataBuffer(
-          e.entry.kernel.featureStrideF32,
+      if (((r.featBuffer as unknown) as { size: number }).size < needFeatBytes) {
+        r.featBuffer.destroy()
+        r.featBuffer = this.dispatcher.createFeatDataBuffer(
+          entry.kernel.featureStrideF32,
           featureCount,
-          `tile-feat:${e.entry.kernel.entryPoint}`,
+          `tile-feat:${entry.kernel.entryPoint}`,
         )
       }
-      if (((e.outBuffer as unknown) as { size: number }).size < needOutBytes) {
-        e.outBuffer.destroy()
-        e.outBuffer = this.dispatcher.createOutColorBuffer(
+      if (((r.outBuffer as unknown) as { size: number }).size < needOutBytes) {
+        r.outBuffer.destroy()
+        r.outBuffer = this.dispatcher.createOutColorBuffer(
           featureCount,
-          `tile-out:${e.entry.kernel.entryPoint}`,
+          `tile-out:${entry.kernel.entryPoint}`,
         )
       }
 
-      this.dispatcher.uploadFeatData(e.featBuffer, data)
-      this.dispatcher.writeCount(e.countBuffer, featureCount)
-      e.featureCount = featureCount
+      this.dispatcher.uploadFeatData(r.featBuffer, data)
+      this.dispatcher.writeCount(r.countBuffer, featureCount)
+      r.featureCount = featureCount
     }
   }
 
-  /** Dispatch every kernel in plan order onto the supplied encoder.
-   *  Each entry produces one compute pass — the WebGPU spec allows
-   *  multiple compute passes per encoder, so we don't try to fuse
-   *  them. Plan order is the source of truth for output buffer
-   *  binding lookups (no other coupling between entries). */
+  /** Dispatch every UNIQUE kernel onto the supplied encoder. Each
+   *  kernel produces one compute pass; shared kernels (multiple
+   *  entries pointing at the same ComputeKernel reference) dispatch
+   *  once — that's the runtime half of P4-6 dedup. */
   dispatch(encoder: GPUCommandEncoder): void {
-    for (const e of this.entries) {
+    for (const r of this.kernels.values()) {
       this.dispatcher.dispatchKernel(
         encoder,
-        e.entry.kernel,
-        e.featBuffer,
-        e.outBuffer,
-        e.countBuffer,
-        e.featureCount,
+        r.representative.kernel,
+        r.featBuffer,
+        r.outBuffer,
+        r.countBuffer,
+        r.featureCount,
       )
     }
   }
 
-  /** Walk a callback over every entry's kernel + outBuffer pair.
-   *  Used by the fragment-side bind-group setup (P4-5) to attach
-   *  each output buffer to the right show's paint slot. */
+  /** Walk a callback over every entry's (kernel, outBuffer,
+   *  renderNodeIndex, paintAxis). Entries sharing a kernel are
+   *  reported separately with the SAME outBuffer reference — caller
+   *  decides whether to dedup at the bind-group level. */
   forEachOutput(
     fn: (
       kernel: ComputeKernel,
@@ -168,21 +202,24 @@ export class TileComputeResources {
       paintAxis: 'fill' | 'stroke-color',
     ) => void,
   ): void {
-    for (const e of this.entries) {
-      fn(e.entry.kernel, e.outBuffer, e.entry.renderNodeIndex, e.entry.paintAxis)
+    for (const b of this.bindings) {
+      const r = this.kernels.get(b.kernel)
+      if (!r) continue
+      fn(b.kernel, r.outBuffer, b.entry.renderNodeIndex, b.entry.paintAxis)
     }
   }
 
   /** Release every GPU buffer this bundle owns. Call when the tile
    *  evicts from the visible set. After dispose, all methods are
-   *  no-ops (the entries array is cleared to keep the references
-   *  from holding device memory alive). */
+   *  no-ops (the bindings + kernels collections are cleared so the
+   *  references don't pin device memory). */
   destroy(): void {
-    for (const e of this.entries) {
-      e.featBuffer.destroy()
-      e.outBuffer.destroy()
-      e.countBuffer.destroy()
+    for (const r of this.kernels.values()) {
+      r.featBuffer.destroy()
+      r.outBuffer.destroy()
+      r.countBuffer.destroy()
     }
-    this.entries.length = 0
+    this.kernels.clear()
+    this.bindings.length = 0
   }
 }
