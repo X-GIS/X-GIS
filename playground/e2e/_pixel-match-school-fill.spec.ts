@@ -12,6 +12,12 @@
 // identical / ≥99% within small delta.
 
 import { test, expect } from '@playwright/test'
+
+// Pixel-match specs run serially. Multiple parallel WebGPU contexts
+// thrash the adapter — measurements showed 4 workers running pixel
+// match concurrently became >2× slower than serial. Same gate
+// applies to every _pixel-match-*.spec.ts file.
+test.describe.configure({ mode: 'serial' })
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'

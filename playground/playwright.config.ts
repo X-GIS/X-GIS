@@ -20,23 +20,21 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
-  // Worker parallelization. The bottleneck is GPU contention, NOT
-  // CPU — Windows headed Chromium can only sustain ~4-5 simultaneous
-  // WebGPU contexts before they start failing to enumerate adapters
-  // or losing tiles between frames. Empirical measurements on a
-  // 16-logical-core machine:
+  // Worker parallelization. The bottleneck is GPU contention, not
+  // CPU — Windows headed Chromium throttles aggressively when
+  // multiple WebGPU contexts share an adapter. Empirical: 4+ workers
+  // produced 2-3× slower runs than 1-2 workers on the user's dev
+  // environment (sustained WebGPU contention starves each session
+  // of GPU time even though task counts look low).
   //
-  //   workers=4  → 1m23s, 54/54 pass  (sweet spot)
-  //   workers=6  → 1m37s, 51/54 pass
-  //   workers=8  → 1m46s, 48/54 pass
-  //   workers=16 → 2m46s, 24/54 pass  (GPU thrashing)
-  //
-  // 4 is faster AND more stable than any higher count, because the
-  // GPU is the bottleneck. Override via WORKERS env var if a future
-  // CI runner has different headroom (e.g. Linux + Vulkan + multiple
-  // virtual GPUs may sustain more).
+  // Historical note (pre-2026-05-15): config defaulted to 4 with a
+  // comment claiming "sweet spot". That measurement came from a
+  // different GPU / driver combination; on the production dev box
+  // 4 workers consistently REGRESSES wall-time. Default lowered to
+  // 2 (overrideable via WORKERS env). Pixel-match specs use serial
+  // mode unconditionally — see _pixel-match-*.spec.ts.
   fullyParallel: true,
-  workers: Number(process.env.WORKERS ?? 4),
+  workers: Number(process.env.WORKERS ?? 2),
   reporter: [['list']],
   // Visual regression baselines (PR B). Per-pixel match is too strict
   // for WebGPU output across drivers / GPU vendors — a small tolerance

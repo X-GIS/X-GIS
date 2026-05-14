@@ -10,6 +10,9 @@
 // __pixel-match-demotiles-user__/.
 
 import { test } from '@playwright/test'
+
+// Serial execution — see _pixel-match-school-fill.spec.ts.
+test.describe.configure({ mode: 'serial' })
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'

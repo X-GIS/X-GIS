@@ -16,6 +16,10 @@
 // Per-view delta-PNGs go under __pixel-match-survey__/<view>/.
 
 import { test } from '@playwright/test'
+
+// Serial execution — see _pixel-match-school-fill.spec.ts for the
+// GPU-contention rationale.
+test.describe.configure({ mode: 'serial' })
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
