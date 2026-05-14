@@ -248,3 +248,155 @@ describe('planComputeKernels', () => {
     expect(plan[0]!.categoryOrder).toEqual({})
   })
 })
+
+describe('planComputeKernels — kernel dedup', () => {
+  it('fill + stroke with IDENTICAL match() ASTs share the same ComputeKernel reference', () => {
+    // Motivating case: same match() in fill and stroke axes. Both
+    // entries should appear (different bind sites), but they share
+    // ONE ComputeKernel object so the runtime can collapse to one
+    // dispatch + one output buffer.
+    const sameMatch = (): ColorValue => ({
+      kind: 'data-driven',
+      expr: matchAst('class', [
+        { pattern: 'school', hex: '#aaaaaa' },
+        { pattern: '_',      hex: '#000000' },
+      ]),
+    })
+    const plan = planComputeKernels(makeScene([
+      makeNode({
+        fill: sameMatch(),
+        stroke: {
+          color: sameMatch(),
+          width: { kind: 'constant', value: 1 } as PropertyShape<number>,
+        } as StrokeValue,
+      }),
+    ]))
+    expect(plan).toHaveLength(2)
+    expect(plan[0]!.kernel).toBe(plan[1]!.kernel) // reference equality
+  })
+
+  it('two layers with same match() across layers share kernel reference', () => {
+    const fillA: ColorValue = {
+      kind: 'data-driven',
+      expr: matchAst('class', [{ pattern: 'a', hex: '#ff0000' }]),
+    }
+    const fillB: ColorValue = {
+      kind: 'data-driven',
+      expr: matchAst('class', [{ pattern: 'a', hex: '#ff0000' }]),
+    }
+    const plan = planComputeKernels(makeScene([
+      makeNode({ fill: fillA }),
+      makeNode({ fill: fillB }),
+    ]))
+    expect(plan).toHaveLength(2)
+    expect(plan[0]!.kernel).toBe(plan[1]!.kernel)
+    expect(plan[0]!.renderNodeIndex).toBe(0)
+    expect(plan[1]!.renderNodeIndex).toBe(1)
+  })
+
+  it('different match() arms → distinct kernel references', () => {
+    const fillA: ColorValue = {
+      kind: 'data-driven',
+      expr: matchAst('class', [{ pattern: 'school', hex: '#aaaaaa' }]),
+    }
+    const fillB: ColorValue = {
+      kind: 'data-driven',
+      expr: matchAst('class', [{ pattern: 'hospital', hex: '#bbbbbb' }]),
+    }
+    const plan = planComputeKernels(makeScene([
+      makeNode({ fill: fillA }),
+      makeNode({ fill: fillB }),
+    ]))
+    expect(plan).toHaveLength(2)
+    expect(plan[0]!.kernel).not.toBe(plan[1]!.kernel)
+  })
+
+  it('different fields → distinct kernel references', () => {
+    const fillA: ColorValue = {
+      kind: 'data-driven',
+      expr: matchAst('class', [{ pattern: 'a', hex: '#ff0000' }]),
+    }
+    const fillB: ColorValue = {
+      kind: 'data-driven',
+      expr: matchAst('rank', [{ pattern: 'a', hex: '#ff0000' }]),
+    }
+    const plan = planComputeKernels(makeScene([
+      makeNode({ fill: fillA }),
+      makeNode({ fill: fillB }),
+    ]))
+    expect(plan).toHaveLength(2)
+    expect(plan[0]!.kernel).not.toBe(plan[1]!.kernel)
+  })
+
+  it('match arms in different order → SAME kernel (emitter sorts alphabetically)', () => {
+    // The match-kernel emitter sorts arms alphabetically before
+    // emitting WGSL. So `match(class, A, hex1, B, hex2)` and
+    // `match(class, B, hex2, A, hex1)` produce identical WGSL.
+    const fillForward: ColorValue = {
+      kind: 'data-driven',
+      expr: matchAst('class', [
+        { pattern: 'a', hex: '#aaaaaa' },
+        { pattern: 'b', hex: '#bbbbbb' },
+      ]),
+    }
+    const fillReversed: ColorValue = {
+      kind: 'data-driven',
+      expr: matchAst('class', [
+        { pattern: 'b', hex: '#bbbbbb' },
+        { pattern: 'a', hex: '#aaaaaa' },
+      ]),
+    }
+    const plan = planComputeKernels(makeScene([
+      makeNode({ fill: fillForward }),
+      makeNode({ fill: fillReversed }),
+    ]))
+    expect(plan).toHaveLength(2)
+    expect(plan[0]!.kernel).toBe(plan[1]!.kernel)
+  })
+
+  it('conditional + match() with same field → distinct kernels (different entry points)', () => {
+    // The cache key includes entryPoint so a ternary kernel (eval_case)
+    // and a match kernel (eval_match) never collide even if WGSL
+    // happens to overlap.
+    const fillCond: ColorValue = {
+      kind: 'conditional',
+      branches: [{ field: 'class', value: { kind: 'constant', rgba: RED } }],
+      fallback: { kind: 'constant', rgba: BLUE },
+    }
+    const fillMatch: ColorValue = {
+      kind: 'data-driven',
+      expr: matchAst('class', [{ pattern: 'a', hex: '#ff0000' }]),
+    }
+    const plan = planComputeKernels(makeScene([
+      makeNode({ fill: fillCond }),
+      makeNode({ fill: fillMatch }),
+    ]))
+    expect(plan).toHaveLength(2)
+    expect(plan[0]!.kernel.entryPoint).toBe('eval_case')
+    expect(plan[1]!.kernel.entryPoint).toBe('eval_match')
+    expect(plan[0]!.kernel).not.toBe(plan[1]!.kernel)
+  })
+
+  it('three entries from same match() → all three share one kernel reference', () => {
+    const same = (): ColorValue => ({
+      kind: 'data-driven',
+      expr: matchAst('class', [
+        { pattern: 'school', hex: '#aaaaaa' },
+        { pattern: '_',      hex: '#000000' },
+      ]),
+    })
+    const plan = planComputeKernels(makeScene([
+      makeNode({
+        fill: same(),
+        stroke: {
+          color: same(),
+          width: { kind: 'constant', value: 1 } as PropertyShape<number>,
+        } as StrokeValue,
+      }),
+      makeNode({ fill: same() }),
+    ]))
+    expect(plan).toHaveLength(3)
+    expect(plan[0]!.kernel).toBe(plan[1]!.kernel)
+    expect(plan[1]!.kernel).toBe(plan[2]!.kernel)
+  })
+})

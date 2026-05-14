@@ -22,9 +22,32 @@
 //   - Decide tile-level dispatch scheduling — that's the runtime's
 //     job. The plan only says "kernel K is needed by show S's fill
 //     axis"; the runtime decides when to run it.
-//   - Dedup kernels via CSE. Two identical match() expressions
-//     produce two entries today; CSE (P0 step 3) can fold them in
-//     a later pass.
+//   - Dedup ENTRIES. Two entries with the same kernel still occupy
+//     two slots — the runtime decides whether to share output
+//     buffers based on `kernel` reference equality (see below).
+//
+// Kernel reference dedup:
+//
+// Two entries whose emitted kernel WGSL + entryPoint are identical
+// share the SAME `ComputeKernel` object (reference equality). This
+// lets the runtime detect "same kernel, different bind site" by
+// `entries[i].kernel === entries[j].kernel` without re-hashing the
+// WGSL string. Common case: fill + stroke axes both reference the
+// same `match(get(class), school, '#f00', _, '#000')` expression.
+// Today each axis produces an entry, but they share one
+// ComputeKernel → the runtime can collapse them to one dispatch +
+// one output buffer with two bind group entries pointing at it.
+//
+// The dedup operates on the emitted WGSL fingerprint, NOT the AST.
+// This catches:
+//   - Identical ASTs at different sites (the obvious case).
+//   - Lowering-equivalent ASTs (e.g. arms in different declared
+//     order but the kernel emitter sorts them alphabetically before
+//     emitting code).
+// And does NOT catch:
+//   - ASTs that lower to different kernels (e.g. one match() with
+//     a `_` default vs one without — the emitter produces distinct
+//     default-color branches).
 //
 // Paint axes scanned:
 //
@@ -88,19 +111,46 @@ export interface ComputePlanEntry {
  *  ComputePlanEntry per axis the router accepts and the lowering
  *  succeeds at. Unrouted (cpu / palette / inline) and unloweable
  *  shapes are silently skipped — the runtime's fragment path still
- *  handles them via the legacy paint-shape-resolve. */
+ *  handles them via the legacy paint-shape-resolve.
+ *
+ *  Kernels are deduplicated by WGSL+entryPoint fingerprint: two
+ *  entries whose emitted kernel is byte-identical share the same
+ *  ComputeKernel object reference, so the runtime can collapse them
+ *  to one dispatch without re-hashing the WGSL. */
 export function planComputeKernels(scene: Scene): ComputePlanEntry[] {
   const out: ComputePlanEntry[] = []
+  const cache = new Map<string, ComputeKernel>()
   for (let i = 0; i < scene.renderNodes.length; i++) {
     const node = scene.renderNodes[i]!
-    pushAxis(out, i, 'fill', node.fill)
-    pushAxis(out, i, 'stroke-color', node.stroke.color)
+    pushAxis(out, cache, i, 'fill', node.fill)
+    pushAxis(out, cache, i, 'stroke-color', node.stroke.color)
   }
   return out
 }
 
+/** Fingerprint a kernel for cache lookup. `entryPoint` is included
+ *  so two kernels with the same WGSL but different entry-point names
+ *  (which a future emitter expansion could produce) don't collide.
+ *  The `\x1F` separator is a unit-separator control char — can't
+ *  appear in legal WGSL or identifier strings. */
+function kernelFingerprint(k: ComputeKernel): string {
+  return k.entryPoint + '\x1F' + k.wgsl
+}
+
+function shareOrCache(
+  cache: Map<string, ComputeKernel>,
+  kernel: ComputeKernel,
+): ComputeKernel {
+  const key = kernelFingerprint(kernel)
+  const existing = cache.get(key)
+  if (existing) return existing
+  cache.set(key, kernel)
+  return kernel
+}
+
 function pushAxis(
   out: ComputePlanEntry[],
+  cache: Map<string, ComputeKernel>,
   renderNodeIndex: number,
   paintAxis: PaintAxis,
   value: RenderNode['fill'],
@@ -122,7 +172,7 @@ function pushAxis(
   if (value.kind === 'conditional') {
     const spec = lowerConditionalColorToTernary(value)
     if (!spec) return
-    const kernel = emitTernaryComputeKernel(spec)
+    const kernel = shareOrCache(cache, emitTernaryComputeKernel(spec))
     out.push({
       renderNodeIndex, paintAxis, kernel,
       fieldOrder: kernel.fieldOrder,
@@ -134,7 +184,7 @@ function pushAxis(
   if (value.kind === 'data-driven') {
     const spec = lowerMatchColorToMatch(value.expr)
     if (!spec) return
-    const kernel = emitMatchComputeKernel(spec)
+    const kernel = shareOrCache(cache, emitMatchComputeKernel(spec))
     out.push({
       renderNodeIndex, paintAxis, kernel,
       fieldOrder: kernel.fieldOrder,
@@ -144,5 +194,5 @@ function pushAxis(
   }
 
   // Other FEATURE-dep shapes (data-driven non-match ASTs, future
-  // composite axes) fall through. Future P4-6 can revisit.
+  // composite axes) fall through.
 }
