@@ -33,6 +33,12 @@ export interface LoadCommand {
 }
 
 export interface ShowCommand {
+  /** Position of this show in `Scene.renderNodes` — the key the P4
+   *  compute plan uses to route output buffers back to fragment-
+   *  shader paint axes. Set at emit time; immutable from there.
+   *  Optional for back-compat with hand-built ShowCommands in
+   *  tests; the compute path requires it. */
+  renderNodeIndex?: number
   targetName: string
   /** DSL layer name from `layer <name> { ... }`. Distinct from
    *  `targetName` (source name) when two layers share a source.
@@ -231,7 +237,11 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
   // mr-baseBindGroupLayout.
   const palette = collectPalette(scene)
   const variantPalette = opts?.enablePaletteSampling ? palette : undefined
-  const shows: ShowCommand[] = scene.renderNodes.map(node => emitShow(node, variantPalette))
+  const shows: ShowCommand[] = scene.renderNodes.map((node, i) => {
+    const show = emitShow(node, variantPalette)
+    show.renderNodeIndex = i
+    return show
+  })
 
   // Compute plan is walked unconditionally — the cost is one scene
   // walk per compile, dominated by paint-routing's deps analysis
