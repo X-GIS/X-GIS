@@ -7,6 +7,8 @@ import { rgbaToHex, hexToRgba } from '../ir/render-node'
 import { exprToWGSL, collectFields, type WGSLFnEnv } from './wgsl-expr'
 import { generatePaletteWGSL } from './categorical-encoder'
 import { resolveColor } from '../tokens/colors'
+import type { Palette } from './palette'
+import { emitColorGradientSample, emitPaletteBindings } from './palette-emit'
 
 /**
  * A specialized shader variant for a layer.
@@ -46,32 +48,62 @@ export interface ShaderVariant {
    *  encode school=0 — colliding with cemetery's slot in the
    *  shader's if-else chain. */
   categoryOrder: Record<string, string[]>
+  /** P3 Step 3 — non-empty when this variant sampled a gradient from
+   *  the palette atlas. The runtime uses this signal to:
+   *    (a) bind the palette textures + sampler to the variant's
+   *        pipeline (Step 3c).
+   *    (b) skip the zoom-interpolated CPU resolve path for these
+   *        properties (Step 4) — the shader reads the per-zoom
+   *        value via textureSampleLevel each frame instead.
+   *  Empty when `palette` is omitted from generateShaderVariant or
+   *  the node has no zoom-interpolated paint properties. */
+  paletteColorGradients: number[]
 }
 
 /**
  * Generate a shader variant for a RenderNode.
  * Determines what can be inlined as constants vs what needs uniforms/storage.
+ *
+ * When `palette` is supplied (Step 3b onward), zoom-interpolated
+ * paint values emit a `textureSampleLevel` of the pre-baked gradient
+ * atlas instead of falling through to `u.fill_color`. Omitting
+ * `palette` (default) preserves the legacy uniform path byte-
+ * identical — every existing caller is unchanged.
  */
 export function generateShaderVariant(
   node: RenderNode,
   fnEnv?: WGSLFnEnv,
+  palette?: Palette,
 ): ShaderVariant {
   const preambleLines: string[] = []
   const uniformFields: string[] = ['mvp', 'proj_params']
   const allFeatureFields = new Set<string>()
   let needsFeatureBuffer = false
 
+  // Collected palette gradient indices. Non-empty when ANY paint
+  // property routed through the textureSampleLevel path (Step 3b).
+  // Runtime (Step 3c) reads `paletteColorGradients` from the
+  // ShaderVariant to decide whether to bind the atlas textures +
+  // skip the zoom-interpolated CPU resolve.
+  const paletteColorGradients: number[] = []
+
   // ── Fill ──
-  const fillResult = processColorValue(node.fill, 'FILL', allFeatureFields, fnEnv)
+  const fillResult = processColorValue(node.fill, 'FILL', allFeatureFields, fnEnv, palette)
   preambleLines.push(...fillResult.preamble)
   if (!fillResult.isConst) uniformFields.push('fill_color')
   if (fillResult.needsFeatures) needsFeatureBuffer = true
+  if (fillResult.paletteGradientIdx !== undefined) {
+    paletteColorGradients.push(fillResult.paletteGradientIdx)
+  }
 
   // ── Stroke ──
-  const strokeResult = processColorValue(node.stroke.color, 'STROKE', allFeatureFields, fnEnv)
+  const strokeResult = processColorValue(node.stroke.color, 'STROKE', allFeatureFields, fnEnv, palette)
   preambleLines.push(...strokeResult.preamble)
   if (!strokeResult.isConst) uniformFields.push('stroke_color')
   if (strokeResult.needsFeatures) needsFeatureBuffer = true
+  if (strokeResult.paletteGradientIdx !== undefined) {
+    paletteColorGradients.push(strokeResult.paletteGradientIdx)
+  }
 
   // ── Opacity ──
   const opacityResult = processOpacity(node.opacity, allFeatureFields, fnEnv)
@@ -115,6 +147,14 @@ export function generateShaderVariant(
     ...(strokeResult.categoryOrder ?? {}),
   }
 
+  // Prepend palette binding declarations when the variant actually
+  // samples a gradient. Skipped when `paletteColorGradients` is
+  // empty so existing (non-palette) variants stay byte-identical.
+  if (palette && paletteColorGradients.length > 0) {
+    const bindings = emitPaletteBindings(palette)
+    if (bindings) preambleLines.unshift(bindings)
+  }
+
   return {
     key,
     preamble: preambleLines.join('\n'),
@@ -126,6 +166,7 @@ export function generateShaderVariant(
     featureFields,
     uniformFields,
     categoryOrder,
+    paletteColorGradients,
   }
 }
 
@@ -134,6 +175,10 @@ export function generateShaderVariant(
 interface ColorResult {
   preamble: string[]
   isConst: boolean
+  /** Index into `palette.colorGradients` when this result was routed
+   *  through the textureSampleLevel path. Undefined for every legacy
+   *  path (constant, time-interpolated, data-driven, conditional). */
+  paletteGradientIdx?: number
   needsFeatures: boolean
   isVec4: boolean  // true if expr already returns vec4f (categorical/gradient)
   expr: string // WGSL expression for the color
@@ -152,6 +197,7 @@ function processColorValue(
   prefix: string,
   featureFields: Set<string>,
   fnEnv?: WGSLFnEnv,
+  palette?: Palette,
 ): ColorResult {
   if (value.kind === 'none') {
     return {
@@ -316,7 +362,28 @@ function processColorValue(
     }
   }
 
-  // conditional, zoom-interpolated → fall back to uniform
+  // Zoom-interpolated path: when a palette is provided AND the
+  // gradient is already collected (P3 Step 1), emit the
+  // textureSampleLevel call so the GPU samples the pre-baked atlas
+  // (P3 Step 2) once per fragment. Falls back to the legacy
+  // `u.fill_color` uniform when no palette is wired — preserves
+  // every existing caller's WGSL output byte-identical.
+  if (value.kind === 'zoom-interpolated' && palette) {
+    const gradientIdx = palette.findColorGradient({
+      stops: value.stops,
+      base: value.base ?? 1,
+    })
+    if (gradientIdx >= 0) {
+      return {
+        preamble: [],
+        isConst: false, needsFeatures: false, isVec4: true,
+        expr: emitColorGradientSample(palette, gradientIdx),
+        paletteGradientIdx: gradientIdx,
+      }
+    }
+  }
+
+  // conditional, zoom-interpolated (no palette), …  → fall back to uniform
   return {
     preamble: [],
     isConst: false, needsFeatures: false, isVec4: true,
