@@ -2793,12 +2793,41 @@ export class XGISMap {
           }
         }
         const stage = this.textStage
+        // Lazy IconStage — only built when the style has a `sprite`
+        // URL AND at least one currently-active label show declares
+        // an `iconImage`. Both gates avoid the network fetch on
+        // styles that don't need icons.
+        if (this.iconStage === null && this.spriteUrl !== null
+            && labelShows.some(s => s.label?.iconImage !== undefined)) {
+          this.iconStage = new IconStage(device, this.ctx.format, {
+            spriteUrl: this.spriteUrl, dpr,
+          }, sc)
+        }
+        const iStage = this.iconStage
         // Anchors are projected against canvas.width/height (physical
         // px); LabelDef.size etc. are CSS-px convention. Telling the
         // stage the current DPR keeps text the right visual size on
         // hidpi displays — without this, a `label-size-13` renders
         // at 6.5 CSS px on a 2x display.
         stage.setDpr(dpr)
+        iStage?.setDpr(dpr)
+        // Per-label icon dispatch helper. Captures dpr + iStage from
+        // the render-frame scope so the call sites below stay one
+        // line — every per-feature addLabel that follows gets a
+        // matching maybeAddIcon. Line / curve placement intentionally
+        // doesn't call this (icon-along-curve is a Phase B+ feature);
+        // point-anchored POI symbols (the demotiles + OFM Bright bus-
+        // stop / school / amenity layers) flow through here.
+        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconRotate?: number }, ax: number, ay: number): void => {
+          if (!iStage || def.iconImage === undefined) return
+          const offDx = (def.iconOffset?.[0] ?? 0) * dpr
+          const offDy = (def.iconOffset?.[1] ?? 0) * dpr
+          iStage.addIcon(ax + offDx, ay + offDy, def.iconImage, {
+            sizeScale: def.iconSize ?? 1,
+            rotateRad: ((def.iconRotate ?? 0) * Math.PI) / 180,
+            anchor: def.iconAnchor ?? 'center',
+          })
+        }
         // Mapbox `text-field` expressions that depend on zoom (e.g.
         // demotiles `text-field: {stops:[[2,"{ABBREV}"],[4,"{NAME}"]]}`
         // → step(zoom, .ABBREV, 4, .NAME)) need the camera zoom in the
@@ -3082,6 +3111,7 @@ export class XGISMap {
                   projected[0], projected[1], featDef,
                   undefined, labelLayerName,
                 )
+                dispatchIcon(featDef, projected[0], projected[1])
               }
             }
             continue
@@ -3381,6 +3411,7 @@ export class XGISMap {
                     projected[0], projected[1], featDef,
                     undefined, labelLayerName,
                   )
+                  dispatchIcon(featDef, projected[0], projected[1])
                 }
               })
             }
@@ -3388,6 +3419,7 @@ export class XGISMap {
         }
 
         stage.prepare()
+        iStage?.prepare()
         // Text overlay v1: skipped in debug=overdraw — text pipeline
         // targets the swapchain format, not r16float. Phase 2 adds
         // a text debug pipeline so glyph + halo overdraw counts.
@@ -3401,6 +3433,9 @@ export class XGISMap {
                 storeOp: 'store',
               }],
             })
+            // Icons render BEFORE text so labels read on top of their
+            // POI badges — matches MapLibre's symbol-stage ordering.
+            iStage?.render(tPass, { width: w, height: h })
             stage.render(tPass, { width: w, height: h })
             tPass.end()
           })

@@ -363,6 +363,12 @@ function lowerLayer(
   let labelLineHeight: number | undefined
   let labelJustify: 'auto' | 'left' | 'center' | 'right' | undefined
   let labelPlacement: 'point' | 'line' | 'line-center' | undefined
+  // ── Icon (Batch 2) ──
+  let labelIconImage: string | undefined
+  let labelIconSize: number | undefined
+  let labelIconAnchor: import('./render-node').LabelDef['iconAnchor'] | undefined
+  let labelIconOffset: [number, number] | undefined
+  let labelIconRotate: number | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -809,6 +815,11 @@ function lowerLayer(
             if (name === 'label-translate-y') { labelTranslateY = n; continue }
             if (name === 'label-rotate') { labelRotate = n; continue }
             if (name === 'label-letter-spacing') { labelLetterSpacing = n; continue }
+            // Bracket-binding form for negative icon-offset components.
+            if (name === 'label-icon-offset-x') { labelIconOffset = [n, labelIconOffset?.[1] ?? 0]; continue }
+            if (name === 'label-icon-offset-y') { labelIconOffset = [labelIconOffset?.[0] ?? 0, n]; continue }
+            if (name === 'label-icon-rotate') { labelIconRotate = n; continue }
+            if (name === 'label-icon-size') { labelIconSize = n; continue }
           }
           // Bracket-binding form with a name that's not in any of the
           // handled arms above (and not a recognised negative-numeric
@@ -944,6 +955,43 @@ function lowerLayer(
       if (name.startsWith('label-line-height-')) {
         const num = parseFloat(name.slice('label-line-height-'.length))
         if (!isNaN(num)) labelLineHeight = num
+        continue
+      }
+      // ── Icon (Batch 2 — sprite atlas) ──
+      // Mapbox `icon-image` (constant string only for now). The
+      // utility carries the raw atlas key; downstream IconStage looks
+      // it up in the sprite metadata on draw.
+      if (name.startsWith('label-icon-image-')) {
+        labelIconImage = name.slice('label-icon-image-'.length)
+        continue
+      }
+      if (name.startsWith('label-icon-size-')) {
+        const num = parseFloat(name.slice('label-icon-size-'.length))
+        if (!isNaN(num)) labelIconSize = num
+        continue
+      }
+      if (name.startsWith('label-icon-anchor-')) {
+        const a = name.slice('label-icon-anchor-'.length)
+        const valid = ['center', 'top', 'bottom', 'left', 'right',
+          'top-left', 'top-right', 'bottom-left', 'bottom-right'] as const
+        if ((valid as readonly string[]).includes(a)) {
+          labelIconAnchor = a as typeof valid[number]
+        }
+        continue
+      }
+      if (name.startsWith('label-icon-offset-x-')) {
+        const num = parseFloat(name.slice('label-icon-offset-x-'.length))
+        if (!isNaN(num)) labelIconOffset = [num, labelIconOffset?.[1] ?? 0]
+        continue
+      }
+      if (name.startsWith('label-icon-offset-y-')) {
+        const num = parseFloat(name.slice('label-icon-offset-y-'.length))
+        if (!isNaN(num)) labelIconOffset = [labelIconOffset?.[0] ?? 0, num]
+        continue
+      }
+      if (name.startsWith('label-icon-rotate-')) {
+        const num = parseFloat(name.slice('label-icon-rotate-'.length))
+        if (!isNaN(num)) labelIconRotate = num
         continue
       }
       if (name.startsWith('label-spacing-')) {
@@ -1418,6 +1466,7 @@ function lowerLayer(
       labelMaxWidth, labelLineHeight, labelJustify,
       labelPlacement, labelSpacing,
       labelRotationAlignment, labelPitchAlignment, labelKeepUpright,
+      labelIconImage, labelIconSize, labelIconAnchor, labelIconOffset, labelIconRotate,
     }),
   }
 }
@@ -1469,6 +1518,11 @@ function foldLabelKnobs(
     labelRotationAlignment?: 'map' | 'viewport' | 'auto'
     labelPitchAlignment?: 'map' | 'viewport' | 'auto'
     labelKeepUpright?: boolean
+    labelIconImage?: string
+    labelIconSize?: number
+    labelIconAnchor?: import('./render-node').LabelDef['iconAnchor']
+    labelIconOffset?: [number, number]
+    labelIconRotate?: number
   },
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
@@ -1531,6 +1585,12 @@ function foldLabelKnobs(
     ...(knobs.labelRotationAlignment !== undefined ? { rotationAlignment: knobs.labelRotationAlignment } : {}),
     ...(knobs.labelPitchAlignment !== undefined ? { pitchAlignment: knobs.labelPitchAlignment } : {}),
     ...(knobs.labelKeepUpright !== undefined ? { keepUpright: knobs.labelKeepUpright } : {}),
+    // Batch 2 — sprite icon fields
+    ...(knobs.labelIconImage !== undefined ? { iconImage: knobs.labelIconImage } : {}),
+    ...(knobs.labelIconSize !== undefined ? { iconSize: knobs.labelIconSize } : {}),
+    ...(knobs.labelIconAnchor !== undefined ? { iconAnchor: knobs.labelIconAnchor } : {}),
+    ...(knobs.labelIconOffset !== undefined ? { iconOffset: knobs.labelIconOffset } : {}),
+    ...(knobs.labelIconRotate !== undefined ? { iconRotate: knobs.labelIconRotate } : {}),
   }
   // Plan Label L3: the LabelDef no longer carries `xxxZoomStops` /
   // `xxxExpr` siblings — those were dead-staging fields. Build the

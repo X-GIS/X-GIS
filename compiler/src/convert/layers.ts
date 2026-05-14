@@ -215,15 +215,21 @@ function convertSymbolLayer(
   const layout = (layer as { layout?: Record<string, unknown> }).layout ?? {}
   const paint = (layer as { paint?: Record<string, unknown> }).paint ?? {}
   const textField = layout['text-field']
+  const iconImage = layout['icon-image']
+  const iconOnly = textField === undefined && typeof iconImage === 'string'
 
-  if (textField === undefined) {
-    // No text-field → likely icon-only symbol. Sprite atlas (Batch 2)
-    // not yet here.
-    warnings.push(`Symbol layer "${layer.id}" — icon-only (no text-field) — Batch 2 (sprite atlas).`)
-    return `// SKIPPED layer "${layer.id}" type="symbol" — icon-only, awaits Batch 2 (sprite atlas).`
+  if (textField === undefined && !iconOnly) {
+    // No text-field AND no icon-image — nothing renderable.
+    warnings.push(`Symbol layer "${layer.id}" — neither text-field nor icon-image; dropping.`)
+    return `// SKIPPED layer "${layer.id}" type="symbol" — no text-field or icon-image.`
   }
 
-  const labelExpr = textFieldToXgisExpr(textField, warnings)
+  // Icon-only symbols emit a label with empty text — runtime renders
+  // just the sprite. Both-text-and-icon layers proceed via the
+  // existing text path with the icon utilities layered on top.
+  const labelExpr = iconOnly
+    ? '""'
+    : textFieldToXgisExpr(textField, warnings)
   if (labelExpr === null) {
     warnings.push(`Symbol layer "${layer.id}" — text-field "${JSON.stringify(textField).slice(0, 60)}" not convertible.`)
     return `// SKIPPED layer "${layer.id}" type="symbol" — text-field expression not convertible.`
@@ -558,12 +564,45 @@ function convertSymbolLayer(
   if (keepUpright === false) utils.push('label-keep-upright-false')
   else if (keepUpright === true) utils.push('label-keep-upright-true')
 
+  // ── Icon (Batch 2 — sprite atlas) ──
+  // `icon-image` is a sprite-atlas key. Constant string form only;
+  // data-driven (`["get", "marker"]`) silently drops to no-icon for
+  // now and surfaces a warning. icon-size / icon-anchor / icon-offset
+  // / icon-rotate take their Mapbox defaults when absent.
+  if (typeof iconImage === 'string') {
+    utils.push(`label-icon-image-${iconImage}`)
+  } else if (iconImage !== undefined) {
+    warnings.push(`Symbol layer "${layer.id}" — data-driven icon-image not yet supported (Phase B+).`)
+  }
+  const iconSize = layout['icon-size']
+  if (typeof iconSize === 'number' && iconSize !== 1) {
+    utils.push(`label-icon-size-${fmtSigned(iconSize)}`)
+  }
+  const iconAnchor = layout['icon-anchor']
+  if (typeof iconAnchor === 'string' && iconAnchor !== 'center') {
+    utils.push(`label-icon-anchor-${iconAnchor}`)
+  }
+  const iconOffset = layout['icon-offset']
+  if (Array.isArray(iconOffset) && iconOffset.length === 2
+      && typeof iconOffset[0] === 'number' && typeof iconOffset[1] === 'number') {
+    // Two utilities so the xgis-utility-name grammar (`-` is the
+    // segment separator) can carry signed numbers without a custom
+    // string-comma syntax. Mirrors the `label-offset-x-N` /
+    // `label-offset-y-M` split for text-offset.
+    if (iconOffset[0] !== 0) utils.push(`label-icon-offset-x-${fmtSigned(iconOffset[0])}`)
+    if (iconOffset[1] !== 0) utils.push(`label-icon-offset-y-${fmtSigned(iconOffset[1])}`)
+  }
+  const iconRotate = layout['icon-rotate']
+  if (typeof iconRotate === 'number' && iconRotate !== 0) {
+    utils.push(`label-icon-rotate-${fmtSigned(iconRotate)}`)
+  }
+
   const ignoredText: string[] = []
-  for (const k of ['text-writing-mode', 'icon-image', 'icon-size', 'icon-color']) {
+  for (const k of ['text-writing-mode', 'icon-color']) {
     if (layout[k] !== undefined || paint[k] !== undefined) ignoredText.push(k)
   }
   if (ignoredText.length > 0) {
-    warnings.push(`Symbol layer "${layer.id}" — ignored properties (Batch 1d/1e/2): ${ignoredText.join(', ')}`)
+    warnings.push(`Symbol layer "${layer.id}" — ignored properties (Batch 1d/1e+): ${ignoredText.join(', ')}`)
   }
 
   lines.push('  | ' + utils.join(' '))

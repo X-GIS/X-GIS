@@ -318,6 +318,27 @@ export interface LabelDef {
   /** Horizontal (default) or vertical. CJK vertical text. Batch 1g+. */
   writingMode?: 'horizontal' | 'vertical'
 
+  // ── Icon (Batch 2 — sprite atlas) ──
+  /** Mapbox `icon-image` name (sprite atlas lookup key). Constant
+   *  string form only for now — data-driven (`["get", "marker"]`)
+   *  resolution lands when the rest of the icon pipeline (colour
+   *  tinting, text-fit) matures. When set, the runtime dispatches
+   *  the named sprite to IconStage at the same anchor as the label;
+   *  text-less symbol layers omit `text` entirely and render the
+   *  icon alone. */
+  iconImage?: string
+  /** Mapbox `icon-size` scale factor on the sprite's design size.
+   *  Default 1.0. Constant only for now. */
+  iconSize?: number
+  /** Mapbox `icon-anchor`. Default `center`. */
+  iconAnchor?:
+    | 'center' | 'top' | 'bottom' | 'left' | 'right'
+    | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  /** Mapbox `icon-offset` in display pixels `[dx, dy]`. Default [0,0]. */
+  iconOffset?: [number, number]
+  /** Mapbox `icon-rotate` in degrees clockwise. Default 0. */
+  iconRotate?: number
+
   /** Unified PropertyShape bundle for the four "shape-able" paint
    *  properties (text-size, text-color, text-halo-width,
    *  text-halo-color). Populated by lower.ts alongside the legacy
