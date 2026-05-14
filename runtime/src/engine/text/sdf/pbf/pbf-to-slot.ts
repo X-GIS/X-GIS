@@ -21,6 +21,13 @@ const PBF_REF_SIZE = 24       // MapLibre rasterises all glyph PBFs at 24 px
 const PBF_BUFFER = 3          // px of outer buffer around the glyph bbox
 const PBF_EDGE_BYTE = 192     // SDF byte value at the glyph edge
 
+// Module-level alpha scratch. Glyphs are pure consumers — they hand
+// the byte mask to computeSDF which returns its own Uint8Array; the
+// alpha buffer never escapes. Pre-cache one buffer per slotSize to
+// avoid the 100-glyph cold-start burst allocating ~400 KB of
+// per-call mask buffers (4 KB × 100 = 400 KB → 1 KB once + clear).
+let _alphaScratch: Uint8Array = new Uint8Array(0)
+
 export function pbfGlyphToSlot(
   g: PbfGlyph,
   fontKey: string,
@@ -32,7 +39,14 @@ export function pbfGlyphToSlot(
   const drawW = Math.round(g.width * scale)
   const drawH = Math.round(g.height * scale)
 
-  const alpha = new Uint8Array(slotSize * slotSize)
+  // Reuse the scratch when the slot size matches; grow if needed.
+  // Always zero out — the bilinear loop only writes inside the
+  // glyph bbox, leaving stale bytes from a prior larger glyph's
+  // ROI visible to computeSDF as phantom edges.
+  const N = slotSize * slotSize
+  if (_alphaScratch.length < N) _alphaScratch = new Uint8Array(N)
+  const alpha = _alphaScratch.subarray(0, N)
+  alpha.fill(0)
 
   if (g.bitmap.length > 0 && drawW > 0 && drawH > 0) {
     const bw = g.width + 2 * PBF_BUFFER
