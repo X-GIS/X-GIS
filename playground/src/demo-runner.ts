@@ -978,11 +978,15 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
         // honours the URL the moment it's there.
         const styleObj = typeof json === 'string' ? JSON.parse(json) : json
         const glyphsUrl = (styleObj as { glyphs?: unknown }).glyphs
+        const spriteUrl = (styleObj as { sprite?: unknown }).sprite
         const xgis = convertMapboxStyle(styleObj)
         editor.setValue(xgis)
         await runSource(xgis, 'Imported (Mapbox)')
         if (typeof glyphsUrl === 'string' && glyphsUrl.length > 0) {
           currentMap?.setGlyphsUrl(glyphsUrl)
+        }
+        if (typeof spriteUrl === 'string' && spriteUrl.length > 0) {
+          currentMap?.setSpriteUrl(spriteUrl)
         }
       } catch (e) {
         console.error('[X-GIS] Mapbox import failed:', e)

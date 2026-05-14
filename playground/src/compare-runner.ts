@@ -197,6 +197,12 @@ async function mountBoth(url: string): Promise<void> {
   if (typeof glyphsUrl === 'string' && glyphsUrl.length > 0) {
     xgMap.setGlyphsUrl(glyphsUrl)
   }
+  // Same handoff for the sprite atlas — the runtime IconStage will
+  // lazily fetch `${url}.json` + `${url}.png` on its first prepare().
+  const spriteUrl = (styleJson as { sprite?: unknown }).sprite
+  if (typeof spriteUrl === 'string' && spriteUrl.length > 0) {
+    xgMap.setSpriteUrl(spriteUrl)
+  }
   try {
     await xgMap.run(xgisSrc, location.origin + '/')
   } catch (e) {

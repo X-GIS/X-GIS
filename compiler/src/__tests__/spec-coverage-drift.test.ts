@@ -100,7 +100,9 @@ const TABLE_NOISE = new Set([
   'tilejson', 'pmtiles', 'inline', 'icon-only', 'text', 'and',
   'linear', 'exponential', 'cubic-bezier', 'form', 'boolean',
   'expression', 'legacy', 'url',
-  'glyphs',
+  // Same situation as 'glyphs' — supported end-to-end but the URL
+  // flow bypasses the compiler converter (importer → runtime setter).
+  'glyphs', 'sprite',
 ])
 
 describe('mapbox spec-coverage drift detector', () => {

@@ -32,6 +32,7 @@ import { CanvasRenderer } from './render/canvas-renderer'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { TextStage, type TextStageOptions } from './text/text-stage'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
+import { IconStage } from './sprite/icon-stage'
 import { resolveText } from './text/text-resolver'
 import {
   LayerIdRegistry, XGISLayer, ListenerRegistry,
@@ -213,6 +214,11 @@ export interface XGISMapOptions {
     url?: string
     inline?: NonNullable<TextStageOptions['inlineGlyphs']>
   }
+  /** Sprite atlas URL prefix (e.g. `https://.../sprites/ofm`). The
+   *  IconStage fetches `${url}.json` + `${url}.png` on first label-
+   *  bearing frame. Optional — leaving it unset means icon-image
+   *  layers from imported styles render nothing (current default). */
+  spriteUrl?: string
   /** Raw provider chain — escape hatch for custom backends (IndexedDB,
    *  S3, etc.). Sits between inline and HTTP in the chain. */
   glyphProviders?: GlyphProvider[]
@@ -290,6 +296,13 @@ export class XGISMap {
   private glyphsUrl: string | null = null
   private inlineGlyphs: NonNullable<TextStageOptions['inlineGlyphs']> | null = null
   private glyphProviders: NonNullable<TextStageOptions['glyphProviders']> = []
+  /** Sprite atlas URL prefix from the imported style's top-level
+   *  `sprite` field. Used by the lazy IconStage to fetch
+   *  `${url}.json` + `${url}.png`. Null = no icons rendered. */
+  private spriteUrl: string | null = null
+  /** Icon overlay stage — lazy, constructed on first frame after a
+   *  spriteUrl is set. */
+  private iconStage: IconStage | null = null
 
   // Vector tile sources + renderers (per .xgvt source)
   private vtSources = new Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>()
@@ -450,6 +463,7 @@ export class XGISMap {
     if (options.glyphs?.url) this.glyphsUrl = options.glyphs.url
     if (options.glyphs?.inline) this.inlineGlyphs = options.glyphs.inline
     if (options.glyphProviders) this.glyphProviders.push(...options.glyphProviders)
+    if (options.spriteUrl) this.spriteUrl = options.spriteUrl
     // Font registration is fire-and-forget — the FontFace promise
     // resolves on the browser's font thread. Callers who need
     // guaranteed-loaded fonts should await `map.fontsReady` before
@@ -708,6 +722,17 @@ export class XGISMap {
   addGlyphProvider(provider: GlyphProvider): void {
     this.glyphProviders.push(provider)
     this.textStage?.addGlyphProvider(provider)
+  }
+
+  /** Set the style's `sprite` URL prefix (e.g.
+   *  `https://demotiles.maplibre.org/styles/sprites/ofm`). The
+   *  IconStage lazy-fetches `${url}.json` + `${url}.png` on first
+   *  label-bearing frame. Once the stage is built, the URL is fixed
+   *  for the session — set BEFORE the first label-producing show
+   *  command lands, typically from the style importer. Passing
+   *  `null` clears the setting. */
+  setSpriteUrl(url: string | null): void {
+    this.spriteUrl = url
   }
 
   /** Attach a per-label debug hook for the text stage. The hook fires

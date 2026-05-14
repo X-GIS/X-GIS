@@ -11,7 +11,13 @@ export interface MapboxStyle {
    *  JSON and forwards it to `XGISMap.setGlyphsUrl()`. Declared here
    *  for type safety on importers that read the field directly. */
   glyphs?: string
-  // Other top-level fields (sprite, metadata) still ignored.
+  /** Sprite atlas URL prefix. The runtime fetches `${sprite}.json`
+   *  and `${sprite}.png` (or `@2x` variants on hidpi) to load icon
+   *  metadata + raster. Same plumbing pattern as `glyphs` — the
+   *  importer forwards this to `XGISMap.setSpriteUrl()`; the
+   *  compiler does NOT encode it into xgis source. */
+  sprite?: string
+  // Other top-level fields (metadata) still ignored.
 }
 
 export interface MapboxSource {
