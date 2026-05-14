@@ -87,6 +87,22 @@ export class MvtWorkerPool {
   private resolveScheduled = false
   private static readonly MAX_RESOLVES_PER_FRAME = 4
 
+  // Diagnostic counters — incremented by every drain; specs poll for
+  // perf attribution. Cost: 3 integer writes per resolved tile.
+  // Production code never reads them.
+  /** Cumulative tiles processed by drainResolveQueue since pool init. */
+  totalResolved = 0
+  /** Number of times drainResolveQueue ran. */
+  totalDrains = 0
+  /** Maximum tiles processed in a single drain call. */
+  maxDrainSize = 0
+  /** Cumulative wall-time spent in drain (ms). */
+  totalDrainMs = 0
+  /** Current queue length — direct accessor for the rAF-stage gate. */
+  get queueLength(): number { return this.resolveQueue.length }
+  /** Current pending compile count (in-flight worker jobs). */
+  get pendingCount(): number { return this.pending.size }
+
   constructor() {
     const hc = typeof navigator !== 'undefined' && navigator.hardwareConcurrency
       ? navigator.hardwareConcurrency
@@ -168,6 +184,7 @@ export class MvtWorkerPool {
    *  transition. */
   private drainResolveQueue(): void {
     this.resolveScheduled = false
+    const drainStart = performance.now()
     let processed = 0
     while (processed < MvtWorkerPool.MAX_RESOLVES_PER_FRAME && this.resolveQueue.length > 0) {
       const { job, slices } = this.resolveQueue.shift()!
@@ -194,6 +211,11 @@ export class MvtWorkerPool {
       processed++
     }
     if (this.resolveQueue.length > 0) this.scheduleResolveDrain()
+    // Diagnostic accumulators (see field comments).
+    this.totalResolved += processed
+    this.totalDrains++
+    if (processed > this.maxDrainSize) this.maxDrainSize = processed
+    this.totalDrainMs += performance.now() - drainStart
   }
 
   /** Dispatch one MVT compile job; returns ALL per-layer slices the
@@ -244,7 +266,16 @@ export class MvtWorkerPool {
 
 let sharedPool: MvtWorkerPool | null = null
 export function getSharedMvtPool(): MvtWorkerPool {
-  if (!sharedPool) sharedPool = new MvtWorkerPool()
+  if (!sharedPool) {
+    sharedPool = new MvtWorkerPool()
+    // Best-effort test-only diagnostic surface. Specs poll
+    // `globalThis.__XGIS_MVT_POOL` for pending / drain counts.
+    // Production code never touches the global; the assignment
+    // is one extra property write at first construction.
+    if (typeof globalThis !== 'undefined') {
+      ;(globalThis as { __XGIS_MVT_POOL?: MvtWorkerPool }).__XGIS_MVT_POOL = sharedPool
+    }
+  }
   return sharedPool
 }
 
