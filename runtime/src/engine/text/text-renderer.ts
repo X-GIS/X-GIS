@@ -122,23 +122,31 @@ struct VsOut {
     return vec4<f32>(u.fill_color.rgb, u.fill_color.a * fill_a);
   }
 
-  // Halo blur: asymmetric. The inner edge (glyph-facing side of the
-  // halo) stays at derivative-AA half-width 'soft' so the solid halo
-  // region between the glyph body and halo_edge survives. The outer
-  // edge widens by halo_blur so the halo softly fades away from the
-  // glyph into the background. Previously this was a symmetric
-  // smoothstep — halo_blur widened the transition equally inward
-  // and outward, which collapsed the solid halo into pure fade once
-  // blur >= halo_width. Visible on demotiles geolines-label
-  // ("Tropic of Capricorn" with text-halo-width: 1, blur: 1): the
-  // dashed latitude line bled through the halo because the halo
-  // never reached alpha=1 outside the glyph.
-  //   halo_a = smoothstep(halo_edge - (blur+soft), halo_edge + soft, sdf)
-  // halo_blur==0 collapses to a near-symmetric AA-soft step (identical
-  // to the no-blur path within a single derivative-AA half-width).
+  // Halo blur: SYMMETRIC fade centred on halo_edge. Matches MapLibre's
+  // symbol_sdf.fragment.glsl, which renders the halo as
+  //   smoothstep(halo_edge - gamma_scaled_halo,
+  //              halo_edge + gamma_scaled_halo, dist)
+  // and masks the inside via a second smoothstep on inner_edge_halo.
+  // The spec text ("fadeout distance towards the outside") describes
+  // the visual intent; the actual implementation feathers BOTH sides
+  // of halo_edge so blur > 0 looks like a soft glow — the same shape
+  // line-blur uses for stroke fadeout, and what MapLibre actually
+  // ships.
+  //
+  // Inner masking: the (1.0 - fill_w) factor in the composite below
+  // plays the same role as MapLibre's inner smoothstep — it suppresses
+  // halo wherever the fill is opaque, so a transparent text-fill can
+  // still see the halo through the glyph body.
+  //
+  // Note: pre-fix this was asymmetric (halo_edge - blur - soft .. halo_edge + soft),
+  // chosen at #126 to preserve a fully-solid halo band at small width.
+  // That made X-GIS halos visibly harder than MapLibre's; pulled back
+  // to the spec-correct symmetric form after re-reading the upstream
+  // shader. blur == 0 still produces a solid halo band (aa_halo ==
+  // soft, fade region collapses to derivative-AA only).
   let halo_edge: f32 = edge - u.halo_width;
-  let halo_outer_aa: f32 = u.halo_blur + soft;
-  let halo_a: f32 = smoothstep(halo_edge - halo_outer_aa, halo_edge + soft, sdf);
+  let aa_halo: f32 = u.halo_blur + soft;
+  let halo_a: f32 = smoothstep(halo_edge - aa_halo, halo_edge + aa_halo, sdf);
   // Composite: halo behind, fill in front.
   let fill_w = u.fill_color.a * fill_a;
   let halo_w = u.halo_color.a * halo_a * (1.0 - fill_w);
