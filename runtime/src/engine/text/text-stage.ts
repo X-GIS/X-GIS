@@ -26,6 +26,8 @@ import {
 import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
 import { createRasterizer, type GlyphRasterizer } from './sdf/glyph-rasterizer'
 import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
+import { InlineGlyphProvider, type InlineGlyphSource } from './sdf/pbf/inline-glyph-provider'
+import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import { TextRenderer, type TextDraw } from './text-renderer'
 import { greedyPlaceBboxes, type CollisionItem } from './text-collision'
@@ -87,12 +89,21 @@ export interface TextStageOptions {
   /** Style-spec `glyphs` URL template (`{fontstack}` + `{range}`).
    *  When provided AND no explicit `rasterizer` is supplied, the stage
    *  wraps the Canvas2D rasterizer with one that fetches MapLibre SDF
-   *  PBF glyphs in the background. Cache hits use the PBF glyph; misses
-   *  return the Canvas2D fallback immediately and schedule a fetch.
-   *  When the fetch lands, the affected slot is re-rasterised on the
-   *  next prepare() and the visual upgrades silently. Failed fetches
-   *  (offline / 404 / CORS) stay on Canvas2D for the session. */
+   *  PBF glyphs in the background. Failed fetches (offline / 404 / CORS)
+   *  stay on Canvas2D for the session. Combined with `inlineGlyphs` /
+   *  `glyphProviders`, the URL provider sits at the END of the chain
+   *  so cheap inline / IDB sources shadow network requests. */
   glyphsUrl?: string
+  /** Pre-loaded PBF range data keyed by `{ fontstack: { rangeStart:
+   *  Uint8Array } }`. Used for closed-network / military / air-gapped
+   *  deployments where the host application bundles its own PBF
+   *  bytes. Stacks at the TOP of the provider chain — inline data
+   *  shadows network requests for any range the host pre-bundled. */
+  inlineGlyphs?: { [fontstack: string]: InlineGlyphSource }
+  /** Raw provider chain — escape hatch for custom backends (IndexedDB,
+   *  S3, IPFS). Appended AFTER `inlineGlyphs` and BEFORE the URL-based
+   *  HTTP provider. Implement the `GlyphProvider` interface to plug in. */
+  glyphProviders?: GlyphProvider[]
 }
 
 // Slot must fit (rasterFontSize + 2*sdfRadius) — ascenders/descenders
@@ -112,7 +123,7 @@ export interface TextStageOptions {
 // Linux). Per-label font stacks coming from Mapbox styles get the
 // same fallback chain appended in addLabel/addCurvedLineLabel.
 const CJK_FALLBACK_CHAIN = '"Noto Sans CJK KR","Apple SD Gothic Neo","Malgun Gothic","Microsoft YaHei","Noto Sans CJK JP","Hiragino Sans","Yu Gothic",sans-serif'
-const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl'>> = {
+const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders'>> = {
   slotSize: 64,
   pageSize: 2304,
   rasterFontSize: 32,
@@ -143,7 +154,12 @@ export class TextStage {
   readonly host: GlyphAtlasHost
   readonly gpu: GlyphAtlasGPU
   readonly renderer: TextRenderer
-  readonly opts: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl'>>
+  readonly opts: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders'>>
+  /** The PBF rasterizer when this stage was built with PBF/inline/
+   *  custom-provider config; null when no PBF chain is active.
+   *  Exposed so `addGlyphProvider` can extend the chain after the
+   *  stage is up. */
+  private readonly pbfRasterizer: PbfRasterizer | null
   private readonly pending: PendingLabel[] = []
   private readonly pendingLine: PendingLineLabel[] = []
   /** DPR applied to LabelDef.size (and offset/halo/maxWidth) at
@@ -159,31 +175,42 @@ export class TextStage {
     options: TextStageOptions = {},
     sampleCount: number = 1,
   ) {
-    this.opts = { ...DEFAULTS, ...options } as Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl'>>
+    this.opts = { ...DEFAULTS, ...options } as Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders'>>
     // Rasterizer selection:
-    //   1. explicit override   → use it as-is
-    //   2. glyphsUrl supplied  → wrap Canvas2D with PbfRasterizer so
-    //      MapLibre SDF PBF glyphs upgrade the visual when available
-    //      (and the Canvas2D path keeps every other case identical to
-    //      the no-glyphsUrl flow)
-    //   3. neither             → plain Canvas2D / Mock (existing path)
+    //   1. explicit `rasterizer` override     → use as-is
+    //   2. ANY of {glyphsUrl, inlineGlyphs,
+    //      glyphProviders} supplied           → wrap Canvas2D with a
+    //                                           PbfRasterizer chain
+    //   3. neither                            → plain Canvas2D / Mock
+    //                                           (existing path, byte-
+    //                                           identical to pre-PBF)
     //
-    // The PBF wrapper's onLanded callback forward-references `this.host`
-    // via an arrow — only invoked async after the host is assigned a few
-    // lines below, so the temporal coupling is sound.
+    // Chain order (cheapest-source-first):
+    //   [InlineGlyphProvider, ...glyphProviders, GlyphPbfCache]
+    //
+    // The PbfRasterizer's `onLanded` forward-references `this.pbfRas`
+    // via the constructor closure — only invoked async, after the
+    // host is assigned a few lines below, so the temporal coupling
+    // is sound.
     let rasterizer: GlyphRasterizer
+    let pbfRas: PbfRasterizer | null = null
     if (options.rasterizer) {
       rasterizer = options.rasterizer
-    } else if (options.glyphsUrl) {
+    } else if (options.glyphsUrl || options.inlineGlyphs || options.glyphProviders) {
       const fallback = createRasterizer()
-      const cache = new GlyphPbfCache({ glyphsUrl: options.glyphsUrl })
-      rasterizer = new PbfRasterizer({
-        fallback, cache,
+      const providers: GlyphProvider[] = []
+      if (options.inlineGlyphs) providers.push(new InlineGlyphProvider(options.inlineGlyphs))
+      if (options.glyphProviders) providers.push(...options.glyphProviders)
+      if (options.glyphsUrl) providers.push(new GlyphPbfCache({ glyphsUrl: options.glyphsUrl }))
+      pbfRas = new PbfRasterizer({
+        fallback, providers,
         onLanded: (fontKey, codepoint) => this.host.invalidate(fontKey, codepoint),
       })
+      rasterizer = pbfRas
     } else {
       rasterizer = createRasterizer()
     }
+    this.pbfRasterizer = pbfRas
     const hostOpts: GlyphAtlasHostOptions = {
       fontSize: this.opts.rasterFontSize,
       sdfRadius: this.opts.sdfRadius,
@@ -202,6 +229,16 @@ export class TextStage {
    *  frame doesn't pay rasterisation cost on cold paths. */
   prewarm(codepoints: Iterable<number>, fontKey?: string): void {
     this.host.prewarm(fontKey ?? this.opts.defaultFont, codepoints)
+  }
+
+  /** Append a glyph provider to the PBF chain. No-op when this stage
+   *  was built without any PBF/inline/custom-provider config (no
+   *  PbfRasterizer to extend). The provider is consulted from the
+   *  next `ensure()` onward — already-cached atlas slots keep their
+   *  current bytes until invalidated. Used by `XGISMap.addGlyph
+   *  Provider` for runtime composition. */
+  addGlyphProvider(provider: GlyphProvider): void {
+    this.pbfRasterizer?.addProvider(provider)
   }
 
   /** Set the device pixel ratio for the current frame. Call before

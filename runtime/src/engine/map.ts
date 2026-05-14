@@ -30,7 +30,8 @@ import { LineRenderer } from './render/line-renderer'
 import { PanZoomController, type Controller } from './controller'
 import { CanvasRenderer } from './render/canvas-renderer'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
-import { TextStage } from './text/text-stage'
+import { TextStage, type TextStageOptions } from './text/text-stage'
+import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
 import { resolveText } from './text/text-resolver'
 import {
   LayerIdRegistry, XGISLayer, ListenerRegistry,
@@ -177,6 +178,61 @@ function computeGeoJSONBounds(
   return [minLon, minLat, maxLon, maxLat]
 }
 
+/** A single font face to register via the CSS FontFace API. The
+ *  pre-loaded `data` lets the map run completely offline — the host
+ *  application embeds the WOFF/TTF bytes in its own bundle and hands
+ *  them in. `weight` accepts a CSS-spec range string for variable
+ *  fonts (e.g. `"300 800"`) or a single value (`"600"`). */
+export interface XGISFontResource {
+  family: string
+  data: ArrayBuffer | Uint8Array
+  weight?: string
+  style?: string
+}
+
+/** Resource-injection bag for XGISMap. All fields are optional so the
+ *  no-arg constructor (`new XGISMap(canvas)`) still works. Resources
+ *  attached here are picked up by the TextStage on first construction
+ *  (lazy — happens on the first label-bearing frame). Setters + `add
+ *  GlyphProvider` cover the late-binding case. */
+export interface XGISMapOptions {
+  /** Glyph sources. `url` points at a MapLibre PBF server template;
+   *  `inline` seeds the cache with pre-loaded PBF range bytes per
+   *  fontstack — useful for air-gapped deployments. */
+  glyphs?: {
+    url?: string
+    inline?: NonNullable<TextStageOptions['inlineGlyphs']>
+  }
+  /** Raw provider chain — escape hatch for custom backends (IndexedDB,
+   *  S3, etc.). Sits between inline and HTTP in the chain. */
+  glyphProviders?: GlyphProvider[]
+  /** Pre-loaded WOFF/TTF fonts registered via the CSS FontFace API.
+   *  Same effect as <link rel="preload"> + @font-face, but driven from
+   *  JS so the host can ship the bytes inside its own bundle. */
+  fonts?: XGISFontResource[]
+}
+
+/** Register a batch of fonts via the FontFace API, returning a promise
+ *  that resolves once every face has finished loading. No-op (and
+ *  resolved immediately) in environments without `document.fonts`. */
+async function registerFonts(fonts: readonly XGISFontResource[]): Promise<void> {
+  if (typeof document === 'undefined' || !document.fonts) return
+  await Promise.all(fonts.map(async f => {
+    try {
+      const face = new FontFace(f.family, f.data as BufferSource, {
+        weight: f.weight ?? 'normal',
+        style: f.style ?? 'normal',
+      })
+      await face.load()
+      document.fonts.add(face)
+    } catch (e) {
+      // One bad font shouldn't bring down the rest. Swallow + log so
+      // the developer can spot it without crashing the page.
+      console.warn(`[XGISMap] FontFace load failed for "${f.family}":`, e)
+    }
+  }))
+}
+
 export class XGISMap {
   private ctx!: GPUContext
   private camera: Camera
@@ -200,12 +256,14 @@ export class XGISMap {
   // SDF text overlay stage. Lazy — first `addOverlay` call instantiates.
   private textStage: TextStage | null = null
   private overlays: TextOverlay[] = []
-  /** Optional `glyphs` URL from the imported style — gets forwarded to
-   *  TextStage on first construction so MapLibre PBF glyphs can upgrade
-   *  the visual when the network has them. Null leaves Canvas2D as the
-   *  only rasterizer (current default behaviour). Set via
-   *  `setGlyphsUrl()` by the style importer (demo-runner.ts). */
+  /** Resource bundle the TextStage uses to populate its glyph chain
+   *  on first construction. Mutated by `setGlyphsUrl`, `addGlyph
+   *  Provider`, and the constructor options bag. After the stage is
+   *  built, late additions go through `textStage.addGlyphProvider`
+   *  directly. */
   private glyphsUrl: string | null = null
+  private inlineGlyphs: NonNullable<TextStageOptions['inlineGlyphs']> | null = null
+  private glyphProviders: NonNullable<TextStageOptions['glyphProviders']> = []
 
   // Vector tile sources + renderers (per .xgvt source)
   private vtSources = new Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>()
@@ -357,8 +415,36 @@ export class XGISMap {
    *  camera (setSourceData, updateFeature, tile load completion, etc.). */
   invalidate(): void { this._needsRender = true }
 
-  constructor(private canvas: HTMLCanvasElement) {
+  constructor(private canvas: HTMLCanvasElement, options: XGISMapOptions = {}) {
     this.camera = new Camera(0, 20, 2)
+    // Apply resource options BEFORE the first render frame so the
+    // lazy TextStage construction sees the full bundle. Setters
+    // remain available for late binding (e.g. style importer adds
+    // glyphs URL after constructor runs).
+    if (options.glyphs?.url) this.glyphsUrl = options.glyphs.url
+    if (options.glyphs?.inline) this.inlineGlyphs = options.glyphs.inline
+    if (options.glyphProviders) this.glyphProviders.push(...options.glyphProviders)
+    // Font registration is fire-and-forget — the FontFace promise
+    // resolves on the browser's font thread. Callers who need
+    // guaranteed-loaded fonts should await `map.fontsReady` before
+    // their first label submission.
+    if (options.fonts) this.fontsReady = registerFonts(options.fonts)
+    else this.fontsReady = Promise.resolve()
+  }
+
+  /** Resolves once every font passed via `options.fonts` (or `add
+   *  Font`) has finished loading. Importers should await this before
+   *  the first label-producing frame to keep the atlas from caching
+   *  system-fallback glyphs that the loaded font would later replace. */
+  readonly fontsReady: Promise<void>
+
+  /** Late-bound font loader — same shape as the constructor option.
+   *  Useful for code-paths that don't own the constructor (style
+   *  importer, plugin). Returns a promise that resolves when the
+   *  added fonts are ready. The class-level `fontsReady` doesn't
+   *  fold in subsequent calls — await the per-call return instead. */
+  addFonts(fonts: XGISFontResource[]): Promise<void> {
+    return registerFonts(fonts)
   }
 
   /** Get current rendering stats */
@@ -559,12 +645,32 @@ export class XGISMap {
 
   /** Set the style's `glyphs` URL template (e.g.
    *  `https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf`).
-   *  TextStage lazily picks this up on its first construction — once
-   *  built, the stage's rasterizer is fixed for the session. Call this
-   *  BEFORE the first label-producing show command lands, typically
-   *  from the style importer. Passing `null` clears the setting. */
+   *  Used by the HTTP-backed `GlyphPbfCache` provider in the chain.
+   *  Call BEFORE the first label-producing frame to pre-stage the
+   *  URL; for late binding (style imported after the map mounted),
+   *  the provider gets wired on the next TextStage construction.
+   *  Passing `null` clears the URL. */
   setGlyphsUrl(url: string | null): void {
     this.glyphsUrl = url
+  }
+
+  /** Seed the glyph chain with pre-loaded PBF range bytes. Keyed as
+   *  `{ fontstack: { rangeStart: Uint8Array } }`. Same chain semantics
+   *  as `setGlyphsUrl` — call before first label frame. For embedded
+   *  / air-gapped deployments where the host ships PBF data inside
+   *  its own bundle. */
+  setInlineGlyphs(seed: NonNullable<TextStageOptions['inlineGlyphs']> | null): void {
+    this.inlineGlyphs = seed
+  }
+
+  /** Append a custom glyph provider (IndexedDB, S3, IPFS, etc.) to
+   *  the chain. If the TextStage already exists, the provider is
+   *  hooked in immediately and visible to the next `ensure()`. If
+   *  not, it's queued for first-construction. Order matters: earlier
+   *  providers take priority on sync `get()` probes. */
+  addGlyphProvider(provider: GlyphProvider): void {
+    this.glyphProviders.push(provider)
+    this.textStage?.addGlyphProvider(provider)
   }
 
   /** Attach a per-label debug hook for the text stage. The hook fires
@@ -2602,11 +2708,15 @@ export class XGISMap {
         : this.showCommands.filter(s => s.label !== undefined && s.visible !== false && inZoomRange(s))
       if (!disableLabels && (this.overlays.length > 0 || labelShows.length > 0)) {
         if (this.textStage === null) {
-          this.textStage = new TextStage(
-            device, this.ctx.format,
-            this.glyphsUrl !== null ? { glyphsUrl: this.glyphsUrl } : {},
-            sc,
-          )
+          // Assemble the TextStage's glyph-resource options from
+          // everything the host has handed us via constructor /
+          // setters / addGlyphProvider. Empty bag → byte-identical
+          // pre-PBF behaviour.
+          const tsOpts: TextStageOptions = {}
+          if (this.glyphsUrl !== null) tsOpts.glyphsUrl = this.glyphsUrl
+          if (this.inlineGlyphs !== null) tsOpts.inlineGlyphs = this.inlineGlyphs
+          if (this.glyphProviders.length > 0) tsOpts.glyphProviders = this.glyphProviders
+          this.textStage = new TextStage(device, this.ctx.format, tsOpts, sc)
           this.textStage.prewarmGISDefaults()
           // Attach any debug hook that was set before the stage existed.
           // The hook is null/undefined-safe on the stage side, so the

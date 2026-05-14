@@ -45,12 +45,12 @@ describe('PbfRasterizer', () => {
   it('returns PBF SDF on cache hit', async () => {
     const fetchOK = () => Promise.resolve(new Response(PBF_BYTES, { status: 200 }))
     const cache = new GlyphPbfCache({ glyphsUrl: 'https://x/{fontstack}/{range}.pbf', fetch: fetchOK })
-    await new Promise<void>(r => cache.ensureRange('Open Sans Semibold', 0x41, r))
+    await new Promise<void>(r => cache.ensure('Open Sans Semibold', 0x41, r))
 
     const fallback = new MockRasterizer()
     const landed: Array<{ fontKey: string; codepoint: number }> = []
     const ras = new PbfRasterizer({
-      fallback, cache, onLanded: (fontKey, codepoint) => landed.push({ fontKey, codepoint }),
+      fallback, providers: [cache], onLanded: (fontKey, codepoint) => landed.push({ fontKey, codepoint }),
     })
 
     const fontKey = fontKeyOf('normal', 600, 'Open Sans')
@@ -74,7 +74,7 @@ describe('PbfRasterizer', () => {
     const landed: Array<{ fontKey: string; codepoint: number }> = []
 
     const ras = new PbfRasterizer({
-      fallback, cache, onLanded: (fontKey, codepoint) => landed.push({ fontKey, codepoint }),
+      fallback, providers: [cache], onLanded: (fontKey, codepoint) => landed.push({ fontKey, codepoint }),
     })
 
     const fontKey = fontKeyOf('normal', 600, 'Open Sans')
@@ -105,7 +105,7 @@ describe('PbfRasterizer', () => {
     const fallback = new MockRasterizer()
     const landed: Array<unknown> = []
     const ras = new PbfRasterizer({
-      fallback, cache, onLanded: () => landed.push(1),
+      fallback, providers: [cache], onLanded: () => landed.push(1),
     })
 
     const fontKey = fontKeyOf('normal', 600, 'Open Sans')
@@ -122,7 +122,7 @@ describe('PbfRasterizer', () => {
     const fallback = new MockRasterizer()
     const landed: Array<unknown> = []
     const ras = new PbfRasterizer({
-      fallback, cache, onLanded: () => landed.push(1),
+      fallback, providers: [cache], onLanded: () => landed.push(1),
     })
 
     const fontKey = fontKeyOf('normal', 600, 'Open Sans')

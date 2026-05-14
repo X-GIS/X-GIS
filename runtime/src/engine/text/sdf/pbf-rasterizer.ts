@@ -1,16 +1,23 @@
-// Wraps a fallback (typically Canvas2DRasterizer) with a PBF-glyph
-// cache. The interface stays synchronous: cache-hit returns the PBF
-// SDF, cache-miss returns the fallback immediately AND schedules a
-// background fetch. When the fetch lands, `onLanded(fontKey, codepoint)`
-// is invoked so the atlas host can mark the slot for re-rasterise on
-// the next frame — at which point this rasterizer will hit the now-
-// warm cache and emit the PBF SDF, upgrading the visual silently.
+// Wraps a fallback (typically Canvas2DRasterizer) with a chain of
+// GlyphProvider implementations. The interface stays synchronous:
+// the first provider whose sync `get()` hits wins; if no provider has
+// the glyph yet, every `ensure()`-capable provider gets a chance to
+// schedule a background load AND the fallback rasterizer runs so the
+// frame doesn't blank. When any provider lands the glyph,
+// `onLanded(fontKey, codepoint)` invalidates the atlas slot — the
+// next prepare() re-rasterises through this chain and now hits the
+// fresh data, silently upgrading the visual.
+//
+// Provider order is meaningful: cheapest source first. A typical
+// "online-or-offline" setup is `[InlineGlyphProvider, GlyphPbfCache]`
+// — inline data wins instantly with zero network; HTTP only fires
+// for codepoints the host didn't pre-bundle.
 
 import type {
   GlyphRasterizer, GlyphRasterRequest, GlyphRasterResult,
 } from './glyph-rasterizer'
 import { parseFontKey } from './glyph-rasterizer'
-import { GlyphPbfCache } from './pbf/glyph-pbf-cache'
+import type { GlyphProvider } from './pbf/glyph-provider'
 import { pbfGlyphToSlot } from './pbf/pbf-to-slot'
 
 // CSS-weight number → MapLibre fontstack-name keyword. MapLibre's
@@ -46,41 +53,61 @@ export function deriveFontstack(fontKey: string): string {
 
 export interface PbfRasterizerDeps {
   fallback: GlyphRasterizer
-  cache: GlyphPbfCache
-  /** Called after a PBF range fetch resolves and contains the awaited
-   *  codepoint. The atlas-host invalidates the slot so the next frame
-   *  re-rasterises via this rasterizer's cache-hit path. */
+  /** Ordered chain of glyph sources. Walked left-to-right per glyph;
+   *  the first sync hit wins. Adding a provider later via
+   *  `addProvider()` appends to the chain. */
+  providers: GlyphProvider[]
+  /** Called after one of the chain's `ensure()` resolves AND now has
+   *  the awaited codepoint in `get()`. The atlas-host invalidates the
+   *  slot so the next frame re-rasterises through the chain. */
   onLanded: (fontKey: string, codepoint: number) => void
 }
 
 export class PbfRasterizer implements GlyphRasterizer {
   private readonly fallback: GlyphRasterizer
-  private readonly cache: GlyphPbfCache
+  private readonly providers: GlyphProvider[]
   private readonly onLanded: (fontKey: string, codepoint: number) => void
 
   constructor(deps: PbfRasterizerDeps) {
     this.fallback = deps.fallback
-    this.cache = deps.cache
+    // Defensive copy — caller's array can still be mutated, but our
+    // walking-order isn't affected by their later splices.
+    this.providers = [...deps.providers]
     this.onLanded = deps.onLanded
+  }
+
+  /** Append a provider to the end of the chain. Visible to subsequent
+   *  `rasterize()` calls; in-flight `ensure()`-scheduled invalidations
+   *  from earlier providers fire normally. Used by `XGISMap.addGlyph
+   *  Provider` for runtime composition. */
+  addProvider(p: GlyphProvider): void {
+    this.providers.push(p)
   }
 
   rasterize(req: GlyphRasterRequest): GlyphRasterResult {
     const fontstack = deriveFontstack(req.fontKey)
-    const g = this.cache.get(fontstack, req.codepoint)
-    if (g) {
-      return pbfGlyphToSlot(g, req.fontKey, req.slotSize, req.sdfRadius, req.fontSize)
+
+    // 1. Sync probe — first hit wins.
+    for (const p of this.providers) {
+      const g = p.get(fontstack, req.codepoint)
+      if (g) return pbfGlyphToSlot(g, req.fontKey, req.slotSize, req.sdfRadius, req.fontSize)
     }
-    if (!this.cache.isResolved(fontstack, req.codepoint)) {
-      const { fontKey, codepoint } = req
-      this.cache.ensureRange(fontstack, codepoint, () => {
-        // Re-check: the PBF might not actually contain this specific
-        // codepoint (e.g. range 0-255 covers Latin but glyph 0x00 is
-        // typically absent). Only invalidate when there's a real
-        // upgrade to apply — otherwise the next frame would fall back
-        // again and we'd loop.
-        if (this.cache.get(fontstack, codepoint)) this.onLanded(fontKey, codepoint)
+
+    // 2. No hit yet — let every async-capable provider schedule a load.
+    //    Their `ensure` is idempotent so calling each one repeatedly is
+    //    safe; whichever wins the race lands its data first and fires
+    //    `onLanded`. The re-check inside the callback guards against
+    //    a provider that resolves its range but the codepoint isn't
+    //    present (e.g. range 0-255 has 'A' but not 0x00).
+    const { fontKey, codepoint } = req
+    for (const p of this.providers) {
+      if (!p.ensure) continue
+      p.ensure(fontstack, codepoint, () => {
+        if (p.get(fontstack, codepoint)) this.onLanded(fontKey, codepoint)
       })
     }
+
+    // 3. Fall back to the Canvas2D / system path so this frame draws.
     return this.fallback.rasterize(req)
   }
 }
