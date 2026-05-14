@@ -59,6 +59,7 @@ export {
 } from './codegen/compute-variant'
 export type { ComputeVariantAddendum } from './codegen/compute-variant'
 export { mergeComputeAddendumIntoVariant } from './codegen/compute-variant-merge'
+export { buildPerShowMergedVariant } from './codegen/compute-variant-build'
 export { TILE_FLAG_FULL_COVER, type XGVTIndex, type XGVTHeader, type TileIndexEntry } from './tiler/tile-format'
 export { tileKey, tileKeyUnpack, tileKeyParent, tileKeyChildren, compileGeoJSONToTiles, compileGeoJSONToTilesAsync, compileSingleTile, decomposeFeatures, lonLatToMercF64, splitF64, packDSFUNPolygonVertices, packDSFUNLineVertices, packQuantizedPolygonVertices, QUANT_POLY_STRIDE_BYTES, QUANT_POLY_RANGE, augmentRingWithArc, tessellateLineToArrays, extractNonSyntheticArcs, makeSameBoundarySidePredicateMerc, type GeometryPart, type PropertyTable, type PropertyFieldType, type CompiledTileSet, type CompiledTile, type TileLevel, type TilerOptions, type FeatureIdResolver } from './tiler/vector-tiler'
 export { clipPolygonToRect, clipPolygonToRectV2, clipLineToRect } from './tiler/clip'
