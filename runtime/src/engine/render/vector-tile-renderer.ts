@@ -159,11 +159,14 @@ const UNIFORM_SLOT = 256
 // Bind-group binding range size. Must be ≥ the WGSL Uniforms struct
 // size of every shader that reads this binding (polygon, line, point,
 // raster — see renderer.ts / line-renderer.ts / point-renderer.ts).
-// Polygon Uniforms is 176 bytes (44 floats: 36 base + 4 clip_bounds +
-// 4 reserved), so the binding must be at least 176. UNIFORM_SLOT
-// (256 bytes/slot) provides headroom for future struct growth without
-// re-tuning. WGSL spec requires this to be a multiple of 16.
-const UNIFORM_SIZE = 176
+// Polygon Uniforms is 192 bytes (48 floats: 36 base + 4 clip_bounds +
+// 4 zoom-block + 4 pad), so the binding must be at least 192.
+// UNIFORM_SLOT (256 bytes/slot) keeps headroom for future struct
+// growth without re-tuning. WGSL spec requires multiple of 16.
+// Grew 176 → 192 when `zoom: f32` joined for P3 palette gradient
+// sampling — the variant shader reads `u.zoom` to map zoom into the
+// gradient atlas's U coord (see emitColorGradientSample).
+const UNIFORM_SIZE = 192
 
 /** 2π × Earth radius (m). One full mercator wrap. tile_extent_m at
  *  any zoom z is this constant divided by 2^z (vs_main_quantized
@@ -3759,6 +3762,19 @@ export class VectorTileRenderer {
         this.uniformF32[42] = 0
         this.uniformF32[43] = 0
       }
+
+      // zoom (44) — per-frame camera zoom. Read by the palette
+      // gradient sample (P3 Step 3c): the variant shader maps
+      // (zoom - zMin) / span into the gradient atlas's U coord. The
+      // surrounding 3 floats (45-47) are struct alignment padding
+      // and stay zero. Total uniform struct size = 192 bytes
+      // (UNIFORM_SIZE constant above). `this.lastZoom` is the cached
+      // frame zoom set by VTR.render's caller before renderTileKeys
+      // dispatches — camera isn't in this closure's scope.
+      this.uniformF32[44] = this.lastZoom
+      this.uniformF32[45] = 0
+      this.uniformF32[46] = 0
+      this.uniformF32[47] = 0
 
       // Allocate a fresh ring slot for this tile × layer × world-copy draw.
       const slotOffset = this.allocUniformSlot()
