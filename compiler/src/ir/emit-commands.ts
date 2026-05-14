@@ -12,6 +12,7 @@ import {
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
 import { collectPalette, type Palette } from '../codegen/palette'
 import { planComputeKernels, type ComputePlanEntry } from '../codegen/compute-plan'
+import { buildPerShowMergedVariant } from '../codegen/compute-variant-build'
 
 export type { ShaderVariant } from '../codegen/shader-gen'
 
@@ -186,6 +187,30 @@ export interface EmitOptions {
    *  layout to include @binding(2..4) palette texture / sampler
    *  entries and bound them via `uploadPalette`. */
   enablePaletteSampling?: boolean
+  /** P4-5 gate. When true, each ShowCommand's shaderVariant is
+   *  produced via `buildPerShowMergedVariant` — fill / stroke axes
+   *  that routed to compute get their fillExpr / strokeExpr replaced
+   *  by `unpack4x8unorm(compute_out_*[input.feat_id])`, the preamble
+   *  carries the matching `@group/@binding var<storage,read> ...`
+   *  decls, and the variant exposes `computeBindings` so the runtime
+   *  can wire the right output buffers per tile. When false (default),
+   *  the legacy variant is emitted unchanged. Runtime callers MUST
+   *  set this true ONLY after extending the polygon bind-group
+   *  layout to include the compute-output bindings and feeding
+   *  TileComputeResources.getOutBuffer() into the matching slots
+   *  per tile. The compiler picks slot indices via
+   *  `computePathBindGroup` / `computePathBaseBinding` below. */
+  enableComputePath?: boolean
+  /** Bind group index the compute output bindings occupy. Defaults
+   *  to 0 (same group as the main uniform); pick whatever your
+   *  runtime layout reserves. Ignored when `enableComputePath` is
+   *  false. */
+  computePathBindGroup?: number
+  /** First binding slot to allocate for compute outputs. Each
+   *  additional axis takes the next sequential slot. Defaults to
+   *  16 — high enough to avoid colliding with the existing uniform
+   *  / feature buffer / palette bindings in the polygon layout. */
+  computePathBaseBinding?: number
 }
 
 export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
@@ -214,6 +239,29 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
   // ignores `computePlan` when its compute path isn't wired up yet,
   // so emitting it is back-compat by construction.
   const computePlan = planComputeKernels(scene)
+
+  // Compile-side merge gate. When the caller opts in AND the plan
+  // has entries, replace each show's variant with the per-show
+  // merged version. The runtime sees `shaderVariant.computeBindings`
+  // populated and switches to the compute-aware bind-group layout;
+  // without `enableComputePath`, variants are byte-identical to the
+  // legacy path so existing pipelines validate unchanged.
+  if (opts?.enableComputePath && computePlan.length > 0) {
+    const bindGroup = opts.computePathBindGroup ?? 0
+    const baseBinding = opts.computePathBaseBinding ?? 16
+    for (let i = 0; i < shows.length; i++) {
+      const show = shows[i]!
+      const original = show.shaderVariant
+      if (!original) continue
+      const merged = buildPerShowMergedVariant(original, computePlan, i, bindGroup, baseBinding)
+      // buildPerShowMergedVariant returns by reference when nothing
+      // routes to compute for this show — avoid a needless object
+      // rebuild in that case.
+      if (merged !== original) {
+        show.shaderVariant = merged
+      }
+    }
+  }
 
   return {
     loads, shows, symbols: scene.symbols, palette,

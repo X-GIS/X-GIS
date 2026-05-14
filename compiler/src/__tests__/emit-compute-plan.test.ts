@@ -145,6 +145,89 @@ describe('emitCommands — computePlan emission', () => {
     expect(cmds.computePlan).toBeUndefined()
   })
 
+  it('enableComputePath OFF (default): show.shaderVariant unchanged (no computeBindings)', () => {
+    const scene = makeScene([
+      makeNode({
+        fill: {
+          kind: 'data-driven',
+          expr: matchExpr('class', [
+            { pattern: 'a', hex: '#ff0000' },
+            { pattern: '_', hex: '#000000' },
+          ]),
+        },
+      }),
+    ])
+    const cmds = emitCommands(scene)
+    expect(cmds.computePlan).toBeDefined()
+    expect(cmds.shows[0]!.shaderVariant!.computeBindings).toBeUndefined()
+    // Legacy fillExpr path preserved.
+    expect(cmds.shows[0]!.shaderVariant!.fillExpr).not.toContain('unpack4x8unorm')
+  })
+
+  it('enableComputePath ON: show.shaderVariant carries computeBindings', () => {
+    const scene = makeScene([
+      makeNode({
+        fill: {
+          kind: 'data-driven',
+          expr: matchExpr('class', [
+            { pattern: 'a', hex: '#ff0000' },
+            { pattern: '_', hex: '#000000' },
+          ]),
+        },
+      }),
+    ])
+    const cmds = emitCommands(scene, { enableComputePath: true })
+    const variant = cmds.shows[0]!.shaderVariant!
+    expect(variant.computeBindings).toBeDefined()
+    expect(variant.computeBindings!.length).toBe(1)
+    expect(variant.fillExpr).toContain('unpack4x8unorm(compute_out_fill')
+    // Default base binding = 16 (avoids existing slot collisions).
+    expect(variant.computeBindings![0]!.binding).toBe(16)
+  })
+
+  it('enableComputePath ON + custom slot config: bindings honour overrides', () => {
+    const scene = makeScene([
+      makeNode({
+        fill: {
+          kind: 'data-driven',
+          expr: matchExpr('k', [
+            { pattern: 'a', hex: '#ff0000' },
+            { pattern: '_', hex: '#000000' },
+          ]),
+        },
+      }),
+    ])
+    const cmds = emitCommands(scene, {
+      enableComputePath: true,
+      computePathBindGroup: 3,
+      computePathBaseBinding: 7,
+    })
+    const variant = cmds.shows[0]!.shaderVariant!
+    expect(variant.computeBindings![0]!.bindGroup).toBe(3)
+    expect(variant.computeBindings![0]!.binding).toBe(7)
+    expect(variant.preamble).toContain('@group(3) @binding(7)')
+  })
+
+  it('enableComputePath ON but no entry for this show: variant remains the legacy reference', () => {
+    const scene = makeScene([
+      makeNode({ fill: { kind: 'constant', rgba: RED } }),  // constant — no compute
+      makeNode({
+        fill: {
+          kind: 'data-driven',
+          expr: matchExpr('class', [
+            { pattern: 'a', hex: '#ff0000' },
+            { pattern: '_', hex: '#000000' },
+          ]),
+        },
+      }),
+    ])
+    const cmds = emitCommands(scene, { enableComputePath: true })
+    // Show 0 has no compute paint → variant identity preserved.
+    expect(cmds.shows[0]!.shaderVariant!.computeBindings).toBeUndefined()
+    // Show 1 has compute paint → merged variant.
+    expect(cmds.shows[1]!.shaderVariant!.computeBindings).toBeDefined()
+  })
+
   it('computePlan entry kernel.entryPoint matches a fn declared in the wgsl', () => {
     const scene = makeScene([
       makeNode({
