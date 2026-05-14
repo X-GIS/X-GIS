@@ -13,12 +13,34 @@
 //
 // No real GPUDevice — every WebGPU object is a recording sentinel.
 
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { ComputeDispatcher } from './compute'
 import {
   emitMatchComputeKernel,
   type ComputeKernel,
 } from '@xgis/compiler'
+
+// Vitest runs in a Node environment with no WebGPU globals.
+// GPUBufferUsage is a runtime-supplied bitmask enum; we polyfill
+// just the flags the buffer factories reference (verbatim from the
+// WebGPU spec). Without this the buffer-factory tests throw
+// "GPUBufferUsage is not defined" at module load time.
+beforeAll(() => {
+  if (typeof globalThis.GPUBufferUsage === 'undefined') {
+    ;(globalThis as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
+      MAP_READ:      0x0001,
+      MAP_WRITE:     0x0002,
+      COPY_SRC:      0x0004,
+      COPY_DST:      0x0008,
+      INDEX:         0x0010,
+      VERTEX:        0x0020,
+      UNIFORM:       0x0040,
+      STORAGE:       0x0080,
+      INDIRECT:      0x0100,
+      QUERY_RESOLVE: 0x0200,
+    }
+  }
+})
 
 interface RecordedPass {
   label: string
@@ -38,10 +60,24 @@ interface RecordedBindGroupCreate {
   entries: GPUBindGroupEntry[]
 }
 
+interface RecordedBufferCreate {
+  size: number
+  usage: GPUBufferUsageFlags
+  label: string
+}
+
+interface RecordedBufferWrite {
+  buffer: unknown
+  offset: number
+  bytes: number
+}
+
 function makeFakeContext() {
   const passes: RecordedPass[] = []
   const pipelineCreates: RecordedPipelineCreate[] = []
   const bindGroupCreates: RecordedBindGroupCreate[] = []
+  const bufferCreates: RecordedBufferCreate[] = []
+  const bufferWrites: RecordedBufferWrite[] = []
 
   const fakePipeline = (entryPoint: string): GPUComputePipeline => ({
     _entryPoint: entryPoint,
@@ -69,11 +105,28 @@ function makeFakeContext() {
       })
       return { _label: desc.label } as unknown as GPUBindGroup
     },
-    createBuffer(_desc: GPUBufferDescriptor): GPUBuffer {
-      return { _stub: true } as unknown as GPUBuffer
+    createBuffer(desc: GPUBufferDescriptor): GPUBuffer {
+      bufferCreates.push({
+        size: desc.size,
+        usage: desc.usage,
+        label: desc.label ?? '<unlabeled>',
+      })
+      return { _label: desc.label, _size: desc.size, _usage: desc.usage } as unknown as GPUBuffer
     },
     queue: {
-      writeBuffer() { /* no-op */ },
+      writeBuffer(
+        buffer: GPUBuffer,
+        offset: number,
+        _data: BufferSource,
+        _dataOffset?: number,
+        size?: number,
+      ) {
+        bufferWrites.push({
+          buffer,
+          offset,
+          bytes: size ?? (_data as ArrayBuffer).byteLength,
+        })
+      },
     },
   } as unknown as GPUDevice
 
@@ -105,6 +158,8 @@ function makeFakeContext() {
     passes,
     pipelineCreates,
     bindGroupCreates,
+    bufferCreates,
+    bufferWrites,
     fakeBuffer: () => ({ _stub: true } as unknown as GPUBuffer),
   }
 }
@@ -216,5 +271,80 @@ describe('ComputeDispatcher.dispatchKernel', () => {
     const p1 = dispatcher.getOrCreateKernelPipeline(kernel)
     const p2 = dispatcher.getOrCreateKernelPipeline(kernel)
     expect(p1).toBe(p2)
+  })
+})
+
+describe('ComputeDispatcher — buffer factories', () => {
+  it('createCountBuffer allocates 16 bytes with UNIFORM | COPY_DST', () => {
+    const { dispatcher, bufferCreates } = makeFakeContext()
+    dispatcher.createCountBuffer('test-count')
+    expect(bufferCreates).toHaveLength(1)
+    expect(bufferCreates[0]!.size).toBe(16)
+    expect(bufferCreates[0]!.label).toBe('test-count')
+    expect(bufferCreates[0]!.usage & GPUBufferUsage.UNIFORM).not.toBe(0)
+    expect(bufferCreates[0]!.usage & GPUBufferUsage.COPY_DST).not.toBe(0)
+  })
+
+  it('writeCount writes 4 bytes at offset 0 (rest of 16-byte buffer untouched)', () => {
+    const { dispatcher, bufferWrites } = makeFakeContext()
+    const buf = dispatcher.createCountBuffer()
+    dispatcher.writeCount(buf, 42)
+    expect(bufferWrites).toHaveLength(1)
+    expect(bufferWrites[0]!.offset).toBe(0)
+    expect(bufferWrites[0]!.bytes).toBe(4)
+  })
+
+  it('createFeatDataBuffer sizes to stride * features * 4', () => {
+    const { dispatcher, bufferCreates } = makeFakeContext()
+    dispatcher.createFeatDataBuffer(2, 100)
+    expect(bufferCreates[0]!.size).toBe(2 * 100 * 4)  // 800
+    expect(bufferCreates[0]!.usage & GPUBufferUsage.STORAGE).not.toBe(0)
+    expect(bufferCreates[0]!.usage & GPUBufferUsage.COPY_DST).not.toBe(0)
+  })
+
+  it('createFeatDataBuffer stubs to 16 bytes when features = 0 (WebGPU rejects 0-size)', () => {
+    const { dispatcher, bufferCreates } = makeFakeContext()
+    dispatcher.createFeatDataBuffer(1, 0)
+    expect(bufferCreates[0]!.size).toBe(16)
+  })
+
+  it('createFeatDataBuffer handles stride 0 by treating as 1', () => {
+    // Some kernels (eval_case with empty fields) have stride 0 in
+    // their metadata. The buffer factory must not divide by zero or
+    // emit a 0-byte buffer.
+    const { dispatcher, bufferCreates } = makeFakeContext()
+    dispatcher.createFeatDataBuffer(0, 100)
+    expect(bufferCreates[0]!.size).toBe(100 * 1 * 4)  // 400
+  })
+
+  it('createOutColorBuffer sizes to featureCount * 4 (one u32 per feature)', () => {
+    const { dispatcher, bufferCreates } = makeFakeContext()
+    dispatcher.createOutColorBuffer(50)
+    expect(bufferCreates[0]!.size).toBe(50 * 4)  // 200
+    expect(bufferCreates[0]!.usage & GPUBufferUsage.STORAGE).not.toBe(0)
+    expect(bufferCreates[0]!.usage & GPUBufferUsage.COPY_SRC).not.toBe(0)
+  })
+
+  it('createOutColorBuffer stubs to 16 bytes when features = 0', () => {
+    const { dispatcher, bufferCreates } = makeFakeContext()
+    dispatcher.createOutColorBuffer(0)
+    expect(bufferCreates[0]!.size).toBe(16)
+  })
+
+  it('uploadFeatData writes the typed array byteLength at offset 0', () => {
+    const { dispatcher, bufferWrites } = makeFakeContext()
+    const buf = dispatcher.createFeatDataBuffer(1, 4)
+    const data = new Float32Array([1, 2, 3, 4])
+    dispatcher.uploadFeatData(buf, data)
+    expect(bufferWrites).toHaveLength(1)
+    expect(bufferWrites[0]!.offset).toBe(0)
+    expect(bufferWrites[0]!.bytes).toBe(16)  // 4 f32 = 16 bytes
+  })
+
+  it('uploadFeatData skips empty Float32Array (no-op, no GPU write)', () => {
+    const { dispatcher, bufferWrites } = makeFakeContext()
+    const buf = dispatcher.createFeatDataBuffer(1, 0)
+    dispatcher.uploadFeatData(buf, new Float32Array(0))
+    expect(bufferWrites).toHaveLength(0)
   })
 })

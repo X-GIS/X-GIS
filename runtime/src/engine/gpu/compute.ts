@@ -174,6 +174,72 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     return pipeline
   }
 
+  // ── Buffer factories ─────────────────────────────────────────
+  //
+  // Three buffer roles the kernel reads/writes. Each helper sets
+  // the right `usage` flags; callers shouldn't need to touch the
+  // GPUBufferUsage constants directly.
+
+  /** Allocate a 16-byte uniform buffer for the `u_count` binding.
+   *  WebGPU's minimum uniform binding size is 16 bytes, so a single
+   *  u32 is wrapped as `vec4<u32>` on the WGSL side — the buffer
+   *  still holds the count in its first 4 bytes, pads the rest. */
+  createCountBuffer(label = 'compute-count'): GPUBuffer {
+    return this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      label,
+    })
+  }
+
+  /** Write a feature count into a count buffer created by
+   *  `createCountBuffer`. Only the first u32 slot is updated; the
+   *  trailing 12 bytes stay at their last value (don't care). */
+  writeCount(buffer: GPUBuffer, count: number): void {
+    const data = new Uint32Array(1)
+    data[0] = count
+    this.device.queue.writeBuffer(buffer, 0, data.buffer, 0, 4)
+  }
+
+  /** Allocate a storage buffer sized for the kernel's per-feature
+   *  feat_data array. `strideF32` is `kernel.featureStrideF32`;
+   *  `featureCount` is the dispatch target. Buffer is created with
+   *  STORAGE | COPY_DST so the runtime can upload Float32Array data
+   *  via writeBuffer. A featureCount of 0 yields a 16-byte stub so
+   *  the bind group can still be wired (WebGPU rejects 0-sized
+   *  bindings). */
+  createFeatDataBuffer(strideF32: number, featureCount: number, label = 'compute-feat-data'): GPUBuffer {
+    const bytes = Math.max(16, featureCount * Math.max(1, strideF32) * 4)
+    return this.device.createBuffer({
+      size: bytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      label,
+    })
+  }
+
+  /** Allocate a storage buffer sized for one packed-RGBA8 per
+   *  feature (the compute kernel writes u32 via pack4x8unorm). The
+   *  buffer must be readable from a fragment shader, so STORAGE
+   *  alone — COPY_SRC is added so the caller can optionally read
+   *  back via mapAsync for debugging. 0-feature case stubbed to
+   *  16 bytes (same reason as createFeatDataBuffer). */
+  createOutColorBuffer(featureCount: number, label = 'compute-out-color'): GPUBuffer {
+    const bytes = Math.max(16, featureCount * 4)
+    return this.device.createBuffer({
+      size: bytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+      label,
+    })
+  }
+
+  /** Upload a Float32Array of feature data into a buffer made by
+   *  `createFeatDataBuffer`. Thin convenience around writeBuffer
+   *  that takes the typed array's underlying ArrayBuffer. */
+  uploadFeatData(buffer: GPUBuffer, data: Float32Array): void {
+    if (data.byteLength === 0) return
+    this.device.queue.writeBuffer(buffer, 0, data.buffer, data.byteOffset, data.byteLength)
+  }
+
   /**
    * Dispatch a compute kernel produced by the compiler's compute-gen
    * emitters. The caller is responsible for the lifetime of the
