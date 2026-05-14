@@ -80,11 +80,20 @@ describe('palette-texture — packPalette', () => {
     }
     const packed = packPalette(makePalette({ colorGradients: [g] }))
     expect(packed.colorGradientCount).toBe(1)
-    // rgba16float: each channel is a half-float bit pattern in a
-    // Uint16 slot. Decode via DataView's getFloat16 to assert.
-    const dv = new DataView(packed.colorGradientBytes.buffer)
+    // Manual half-float decoder — DataView.getFloat16 only landed
+    // in Node 22 and isn't available on every CI runner. The
+    // bit-pattern reverse is short + matches f32ToHalf's encoder.
+    const halfToF32 = (h: number): number => {
+      const sign = (h & 0x8000) >>> 15
+      const exp = (h & 0x7c00) >>> 10
+      const mant = h & 0x3ff
+      if (exp === 0) return sign ? -0 : 0  // zero / subnormal → zero
+      if (exp === 31) return sign ? -Infinity : Infinity
+      const f = (1 + mant / 1024) * Math.pow(2, exp - 15)
+      return sign ? -f : f
+    }
     const getHalf = (texelIndex: number, channel: number): number =>
-      dv.getFloat16(texelIndex * 8 + channel * 2, true /* little-endian */)
+      halfToF32(packed.colorGradientBytes[texelIndex * 4 + channel]!)
     // First texel = stop 0 (red)
     expect(getHalf(0, 0)).toBeCloseTo(1.0)
     expect(getHalf(0, 1)).toBeCloseTo(0.0)
@@ -134,11 +143,14 @@ describe('palette-texture — packPalette', () => {
     expect(packed.colorGradientCount).toBe(2)
     // Uint16Array storing rgba16float: 4 channels × 2 bytes × W texels × N rows.
     expect(packed.colorGradientBytes.byteLength).toBe(2 * GRADIENT_WIDTH * 4 * 2)
-    const dv = new DataView(packed.colorGradientBytes.buffer)
-    // Row 0 starts with red, row 1 starts with blue.
-    expect(dv.getFloat16(0, true)).toBeCloseTo(1.0)  // row 0, texel 0, R
-    const row1ByteOffset = GRADIENT_WIDTH * 4 * 2
-    expect(dv.getFloat16(row1ByteOffset + 4, true)).toBeCloseTo(1.0)  // row 1, texel 0, B
+    // Bit-pattern compare for the endpoint half-floats (avoids the
+    // DataView.getFloat16 dependency that older Node lacks).
+    // half-float 1.0 = 0x3C00, half-float 0.0 = 0x0000.
+    expect(packed.colorGradientBytes[0]).toBe(0x3C00)  // row 0, texel 0, R = 1
+    expect(packed.colorGradientBytes[2]).toBe(0x0000)  // row 0, texel 0, B = 0
+    const row1U16Offset = GRADIENT_WIDTH * 4
+    expect(packed.colorGradientBytes[row1U16Offset + 0]).toBe(0x0000)  // row 1, R = 0
+    expect(packed.colorGradientBytes[row1U16Offset + 2]).toBe(0x3C00)  // row 1, B = 1
   })
 
   it('clamps RGBA channels to [0,1] before quantising to byte', () => {
