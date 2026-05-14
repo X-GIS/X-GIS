@@ -213,6 +213,62 @@ describe('mergeComputeAddendumIntoVariant — cache key', () => {
   })
 })
 
+describe('mergeComputeAddendumIntoVariant — computeBindings surface', () => {
+  it('absent on identity (empty addendum) merge', () => {
+    const v = makeLegacyVariant()
+    const merged = mergeComputeAddendumIntoVariant(v, buildComputeVariantAddendum([], 0, 0))
+    // Identity path returns the input verbatim; legacy variants
+    // never carry computeBindings.
+    expect(merged.computeBindings).toBeUndefined()
+  })
+
+  it('populated on fill merge (one binding, axis=fill)', () => {
+    const v = makeLegacyVariant()
+    const addendum = buildComputeVariantAddendum([makeFillEntry()], 2, 5)
+    const merged = mergeComputeAddendumIntoVariant(v, addendum)
+    expect(merged.computeBindings).toBeDefined()
+    expect(merged.computeBindings!.length).toBe(1)
+    expect(merged.computeBindings![0]!.paintAxis).toBe('fill')
+    expect(merged.computeBindings![0]!.bindGroup).toBe(2)
+    expect(merged.computeBindings![0]!.binding).toBe(5)
+  })
+
+  it('populated on fill + stroke merge with sequential bindings', () => {
+    const v = makeLegacyVariant()
+    const addendum = buildComputeVariantAddendum(
+      [makeFillEntry(), makeStrokeEntry()],
+      0, 3,
+    )
+    const merged = mergeComputeAddendumIntoVariant(v, addendum)
+    expect(merged.computeBindings!.map(b => b.binding)).toEqual([3, 4])
+    expect(merged.computeBindings!.map(b => b.paintAxis)).toEqual(['fill', 'stroke-color'])
+  })
+
+  it('runtime "compute layout needed?" check is a single property test', () => {
+    // The intended runtime usage — variant.computeBindings is the
+    // signal to switch to the compute-aware bind-group layout.
+    const legacy = makeLegacyVariant()
+    expect(legacy.computeBindings).toBeUndefined()
+
+    const merged = mergeComputeAddendumIntoVariant(
+      legacy,
+      buildComputeVariantAddendum([makeFillEntry()], 0, 1),
+    )
+    expect(merged.computeBindings).toBeDefined()
+    expect(Boolean(merged.computeBindings)).toBe(true)
+  })
+
+  it('addendum bindings are copied (defensive — caller can mutate the addendum)', () => {
+    const v = makeLegacyVariant()
+    const addendum = buildComputeVariantAddendum([makeFillEntry()], 0, 1)
+    const merged = mergeComputeAddendumIntoVariant(v, addendum)
+    // Mutating the addendum's bindings array after merge must NOT
+    // affect the merged variant.
+    ;(addendum.bindings as { binding: number }[])[0]!.binding = 99
+    expect(merged.computeBindings![0]!.binding).toBe(1)
+  })
+})
+
 describe('mergeComputeAddendumIntoVariant — invariant preservation', () => {
   it('does not mutate the original variant', () => {
     const v = makeLegacyVariant({

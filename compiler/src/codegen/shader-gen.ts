@@ -67,6 +67,15 @@ export interface ShaderVariant {
   fillUsesPalette: boolean
   /** Stroke counterpart to `fillUsesPalette`. */
   strokeUsesPalette: boolean
+  /** P4-5 — populated by `mergeComputeAddendumIntoVariant` when the
+   *  fill / stroke axis routed through a compute kernel. Each entry
+   *  is `(paintAxis, bindGroup, binding)` so the runtime can detect
+   *  "this variant needs the compute bind-group layout" via existence
+   *  + iterate to attach the right `TileComputeResources.getOutBuffer`
+   *  per binding without re-parsing the preamble. Absent on legacy
+   *  variants and on variants whose computePlan filter returned
+   *  empty for this show. */
+  computeBindings?: readonly import('./compute-output-binding').ComputeOutputBindingSpec[]
 }
 
 /**

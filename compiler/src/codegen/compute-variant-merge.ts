@@ -108,5 +108,15 @@ export function mergeComputeAddendumIntoVariant(
     fillPreamble: hasFill ? undefined : variant.fillPreamble,
     strokePreamble: hasStroke ? undefined : variant.strokePreamble,
     uniformFields,
+    // Surface the bindings on the merged variant so the runtime can
+    // (a) detect "compute layout needed" via existence-check and
+    // (b) iterate the (axis, group, binding) triples to attach the
+    // right output buffer per slot when creating the per-tile bind
+    // group. Preserve insertion order — addendum sets it from the
+    // ComputePlanEntry walk, which the runtime's bind-group creator
+    // expects to match the preamble decl order. Deep-copy each spec
+    // so a later mutation on the addendum (e.g. caller reusing the
+    // builder output) can't reach into the merged variant's state.
+    computeBindings: addendum.bindings.map(b => ({ ...b })),
   }
 }
