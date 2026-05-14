@@ -63,6 +63,19 @@ function dt1d(f: Float64Array, n: number, out: Float64Array, v: Int32Array, z: F
   }
 }
 
+// Module-level scratch buffers reused across distanceTransform2D
+// calls. Glyph rasterisation runs this once per (rare-but-bursty)
+// new glyph; profile on OFM Bright z=13 cold-start showed
+// distanceTransform2D self time at 12.8 ms / frame (29.9 %) when
+// 100+ new label codepoints landed simultaneously. Each call
+// previously allocated 4 typed arrays — ~1.5 KB × 100 glyphs =
+// 150 KB of GC pressure + alloc overhead. Reusing the scratch
+// caps allocation at "grow once, never shrink".
+let _dt_buf: Float64Array = new Float64Array(0)
+let _dt_out: Float64Array = new Float64Array(0)
+let _dt_v: Int32Array = new Int32Array(0)
+let _dt_z: Float64Array = new Float64Array(0)
+
 /** Run 2D DT on a w×h field. `field` is mutated in place — for
  *  each pixel it ends up holding squared distance to the nearest
  *  "0" sample (inside or outside, depending on which mask the
@@ -71,10 +84,17 @@ export function distanceTransform2D(
   field: Float64Array, w: number, h: number,
 ): Float64Array {
   const dim = Math.max(w, h)
-  const buf = new Float64Array(dim)
-  const out = new Float64Array(dim)
-  const v = new Int32Array(dim)
-  const z = new Float64Array(dim + 1)
+  // Lazy-grow the scratch buffers. Glyph slots are typically 64²
+  // so after the first call all subsequent calls hit the cached
+  // capacity — zero allocation per call.
+  if (_dt_buf.length < dim) _dt_buf = new Float64Array(dim)
+  if (_dt_out.length < dim) _dt_out = new Float64Array(dim)
+  if (_dt_v.length < dim) _dt_v = new Int32Array(dim)
+  if (_dt_z.length < dim + 1) _dt_z = new Float64Array(dim + 1)
+  const buf = _dt_buf
+  const out = _dt_out
+  const v = _dt_v
+  const z = _dt_z
 
   // Rows
   for (let y = 0; y < h; y++) {
@@ -91,6 +111,13 @@ export function distanceTransform2D(
   return field
 }
 
+// Module-level scratch for computeSDF's outside/inside distance
+// fields. At slot 64² = 4096 elements × 8 bytes × 2 fields = 65 KB
+// allocated per glyph pre-cache; 100-glyph cold-start burst = 6.5 MB
+// of GC pressure. Reused like the dt1d scratch above.
+let _sdf_fOut: Float64Array = new Float64Array(0)
+let _sdf_fIn: Float64Array = new Float64Array(0)
+
 /** Build a signed distance field from an 8-bit alpha mask.
  *
  *  alpha[y*w + x] in [0, 255]: 0 outside glyph, 255 inside,
@@ -102,16 +129,23 @@ export function distanceTransform2D(
  *    - 192 - 192 at `radius` px inside (max IN)
  *    - linear in pixels in between
  *  This packing matches tiny-sdf / Mapbox glyph PBF, so any text
- *  shader written for those drops in unchanged. */
+ *  shader written for those drops in unchanged.
+ *
+ *  Output `Uint8Array` is freshly allocated per call (callers
+ *  retain it as the glyph's SDF data in the atlas). The fOut/fIn
+ *  scratch is recycled between calls — they're write-before-read
+ *  inside the seed loop. */
 export function computeSDF(
   alpha: Uint8Array | Uint8ClampedArray,
   w: number, h: number,
   radius: number,
 ): Uint8Array {
   const N = w * h
-  // Fields for outside-distance and inside-distance DT respectively.
-  const fOut = new Float64Array(N)
-  const fIn = new Float64Array(N)
+  // Grow the scratch on demand; reuse on every subsequent call.
+  if (_sdf_fOut.length < N) _sdf_fOut = new Float64Array(N)
+  if (_sdf_fIn.length < N) _sdf_fIn = new Float64Array(N)
+  const fOut = _sdf_fOut
+  const fIn = _sdf_fIn
 
   // Threshold at alpha = 128 (= the edge). Soft anti-aliased pixels
   // sit between fully-outside (0) and fully-inside (255). We classify
