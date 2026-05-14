@@ -137,7 +137,7 @@ export function maxCachedBytes(): number {
   // forces tighter LRU churn on mobile while desktop stays at
   // 200 MB for headroom. Evaluated lazily for the same Playwright /
   // mobile-DPR-init reasons as the concurrency caps.
-  const w = (typeof window !== 'undefined' ? window.innerWidth : 0) || 0
+  const w = readInnerWidthMemoised()
   return (w > 0 && w <= 900 ? 100 : 200) * 1024 * 1024
 }
 /** @deprecated Use {@link maxCachedBytes}() instead — module-init
@@ -160,8 +160,33 @@ export const MAX_CACHED_BYTES = 200 * 1024 * 1024
  *  page's viewport apply (Playwright in tests + real mobile DPR
  *  setup), capturing the wrong value before innerWidth is laid
  *  out. Each call is one property read + one comparison.  */
-export function maxConcurrentLoads(): number {
+// Per-task-tick memo for window.innerWidth lookups. `window.innerWidth`
+// READS force a synchronous layout flush on browsers with pending
+// style / DOM changes — measurable on profile (1.3 ms accumulated
+// across ~50 maxConcurrentLoads calls in one frame on OFM Bright
+// z=13). Memoising for the lifespan of one microtask makes 50
+// reads → 1 read.
+//
+// Invalidated via microtask queue (queueMicrotask schedules right
+// after the current task ends, so the next requestAnimationFrame
+// or pointer handler reads fresh) — the cache is valid for "this
+// call stack" and any sync continuation, but never across rAF
+// frames, gesture handlers, or resize events.
+let _cachedInnerW = -1
+function readInnerWidthMemoised(): number {
+  if (_cachedInnerW >= 0) return _cachedInnerW
   const w = (typeof window !== 'undefined' ? window.innerWidth : 0) || 0
+  _cachedInnerW = w
+  if (typeof queueMicrotask === 'function') {
+    queueMicrotask(() => { _cachedInnerW = -1 })
+  } else {
+    Promise.resolve().then(() => { _cachedInnerW = -1 })
+  }
+  return w
+}
+
+export function maxConcurrentLoads(): number {
+  const w = readInnerWidthMemoised()
   return w > 0 && w <= 900 ? 8 : 32
 }
 
@@ -175,7 +200,7 @@ export function maxConcurrentLoads(): number {
  *  caps — module-init evaluation captures the wrong viewport in
  *  Playwright / mobile DPR setup. */
 export function defaultSkeletonDepth(): number {
-  const w = (typeof window !== 'undefined' ? window.innerWidth : 0) || 0
+  const w = readInnerWidthMemoised()
   return w > 0 && w <= 900 ? 2 : 3
 }
 
