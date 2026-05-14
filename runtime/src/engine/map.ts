@@ -2997,10 +2997,22 @@ export class XGISMap {
         // `worldMercatorOffset` shifts the mercator X by N×WORLD_MERC
         // so the polygon renderer's world-copy loop can be mirrored
         // for labels (see projectLonLatCopies below).
-        const projectLonLat = (
-          lon: number, lat: number, worldMercatorOffset: number = 0,
+        // Hot-path scalar projection. The line-label polyline path used to
+        // be merc → lonLat → merc → screen (mercToLonLat + lonLatToMercator
+        // back-to-back, both allocating `[x, y]` per vertex). Inlining a
+        // direct merc → screen projector eliminates both round-trips +
+        // both allocations. Profile on OFM Bright z=13: forEachLineLabel-
+        // Polyline ran at 31ms/frame, with lonLatToMercator + mercToLonLat
+        // alone consuming 25ms (80% of the function's time). The
+        // direct projector caps that at the matrix-multiply core.
+        //
+        // Returns negative cw / out-of-NDC-window via `null` as before.
+        // `projectScreen` is a SHARED 2-element scratch — caller copies
+        // values out before the next call.
+        const _projScratch: [number, number] = [0, 0]
+        const projectMerc = (
+          mx: number, my: number, worldMercatorOffset: number = 0,
         ): [number, number] | null => {
-          const [mx, my] = lonLatToMercator(lon, lat)
           const rtcX = (mx + worldMercatorOffset) - ccx
           const rtcY = my - ccy
           const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
@@ -3010,7 +3022,28 @@ export class XGISMap {
           const ndcX = ccx_ / cw
           const ndcY = ccy_ / cw
           if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
-          return [(ndcX + 1) * 0.5 * w, (1 - ndcY) * 0.5 * h]
+          _projScratch[0] = (ndcX + 1) * 0.5 * w
+          _projScratch[1] = (1 - ndcY) * 0.5 * h
+          return _projScratch
+        }
+
+        const projectLonLat = (
+          lon: number, lat: number, worldMercatorOffset: number = 0,
+        ): [number, number] | null => {
+          // Inlined lonLatToMercator to skip the per-call allocation
+          // (used to be `[mx, my] = lonLatToMercator(lon, lat)`).
+          const DEG2RAD = Math.PI / 180
+          const R = 6378137
+          const LAT_LIMIT = 85.051129
+          const lat_c = lat < -LAT_LIMIT ? -LAT_LIMIT : (lat > LAT_LIMIT ? LAT_LIMIT : lat)
+          const mx = lon * DEG2RAD * R
+          const my = Math.log(Math.tan(Math.PI / 4 + lat_c * DEG2RAD / 2)) * R
+          const proj = projectMerc(mx, my, worldMercatorOffset)
+          if (!proj) return null
+          // Return a FRESH 2-tuple — projectMerc's scratch can't survive
+          // across multiple projectLonLat calls in the same expression
+          // (`projectLonLatCopies` builds a list of results).
+          return [proj[0], proj[1]]
         }
 
         // Mercator is periodic in lon, so PointRenderer / VTR emit
@@ -3413,8 +3446,11 @@ export class XGISMap {
                       const t = startT + s * (1 - startT) / steps
                       const sx = ax + (bx - ax) * t
                       const sy = ay + (by - ay) * t
-                      const [lon, lat] = mercToLonLat(sx, sy)
-                      const proj = projectLonLat(lon, lat)
+                      // Direct merc → screen projection. Skips the
+                      // mercToLonLat + lonLatToMercator round-trip that
+                      // accounted for ~80 % of forEachLineLabelPolyline's
+                      // frame time pre-optimisation (OFM Bright z=13).
+                      const proj = projectMerc(sx, sy)
                       if (proj) { px.push(proj[0]); py.push(proj[1]) }
                     }
                   }

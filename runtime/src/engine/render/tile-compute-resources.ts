@@ -45,6 +45,16 @@ interface KernelResources {
   /** How many features have been uploaded so far. Drives dispatch
    *  workgroup count; 0 means "skip this kernel this frame". */
   featureCount: number
+  /** Dirty flag: true when feature data has been (re)uploaded but
+   *  the dispatch hasn't run yet. match() kernels are deterministic
+   *  — `out_color[fid]` is a pure function of `feat_data[fid]` —
+   *  so re-dispatching every frame when the data hasn't changed is
+   *  pure GPU waste. uploadFromProps sets this; dispatch clears it.
+   *
+   *  Effective at 60 fps over a typical 100-tile scene: ~6000 extra
+   *  compute dispatches/sec without the flag → ~100 with (one per
+   *  tile-upload, amortised over the tile's lifetime). */
+  dirty: boolean
 }
 
 /** One plan-entry's binding metadata. Points to the SHARED
@@ -96,6 +106,7 @@ export class TileComputeResources {
           `tile-count:${entry.kernel.entryPoint}`,
         ),
         featureCount: 0,
+        dirty: false,
       })
     }
   }
@@ -170,6 +181,9 @@ export class TileComputeResources {
       this.dispatcher.uploadFeatData(r.featBuffer, data)
       this.dispatcher.writeCount(r.countBuffer, featureCount)
       r.featureCount = featureCount
+      // Mark the kernel as needing a dispatch — the new data hasn't
+      // been processed by the compute pass yet.
+      r.dirty = true
     }
   }
 
@@ -179,6 +193,12 @@ export class TileComputeResources {
    *  once — that's the runtime half of P4-6 dedup. */
   dispatch(encoder: GPUCommandEncoder): void {
     for (const r of this.kernels.values()) {
+      // Skip when nothing's changed since the last dispatch — the
+      // output buffer still holds the last frame's correct values
+      // (match() kernels are deterministic per feature data). At
+      // steady state (panning a populated viewport), this skips
+      // 100% of compute dispatches.
+      if (!r.dirty) continue
       this.dispatcher.dispatchKernel(
         encoder,
         r.representative.kernel,
@@ -187,6 +207,7 @@ export class TileComputeResources {
         r.countBuffer,
         r.featureCount,
       )
+      r.dirty = false
     }
   }
 
