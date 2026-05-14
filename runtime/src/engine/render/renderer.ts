@@ -22,7 +22,13 @@ import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 
 // ═══ Shader Source ═══
 
-const POLYGON_SHADER = /* wgsl */ `
+// Exported for the marker-drift invariant test (polygon-shader-
+// markers.test.ts). Marker constants below MUST stay byte-identical
+// to a substring of this template — `String.replace` silently no-ops
+// on miss, so a stale marker turns every variant fragment shader
+// into the legacy uniform path. That's the bug class that hid the
+// OFM Bright school fill (P1 root cause, fix 5/5 in 8e1aa08).
+export const POLYGON_SHADER_SOURCE: string = /* wgsl */ `
 ${WGSL_PROJECTION_CONSTS}
 ${WGSL_LOG_DEPTH_FNS}
 
@@ -477,15 +483,26 @@ fn fs_overdraw() -> @location(0) vec4<f32> {
 // `out.color = ...;` assignment in fs_fill / fs_stroke so variants can
 // swap in a data-driven color expression without touching the FragmentOutput
 // plumbing or the log-depth write.
-// Marker string used by `buildShader` to splice variant-specific fill
-// emission into the fragment shader. MUST be byte-identical to the
-// `out.color = …;` line in `fs_fill` below — `String.replace` silently
-// no-ops when the search string isn't found, so a stale marker turns
-// every data-driven fill into the zero-uniform color (root cause of
-// the OFM Bright school-fill bug 2026-05-14). When `fs_fill`'s line
-// changes, update this string in lock-step (or fail a snapshot test).
-const FILL_RETURN_MARKER = 'out.color = vec4<f32>(u.fill_color.rgb * wall_shade, u.fill_color.a);'
-const STROKE_RETURN_MARKER = 'out.color = vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);'
+// Marker strings used by `buildShader` to splice variant-specific
+// fill / stroke emission into the fragment shader. MUST be byte-
+// identical to a substring of `POLYGON_SHADER_SOURCE` —
+// `String.replace` silently no-ops when the search string isn't
+// found, so a stale marker turns every data-driven fill / stroke
+// into the legacy uniform path (root cause of the OFM Bright
+// school-fill bug 2026-05-14, fix 5/5 in commit 8e1aa08).
+//
+// Exported so polygon-shader-markers.test.ts can assert each
+// marker appears exactly once in the shader source. CI fails
+// before the silent no-op reaches production.
+export const FILL_RETURN_MARKER = 'out.color = vec4<f32>(u.fill_color.rgb * wall_shade, u.fill_color.a);'
+export const STROKE_RETURN_MARKER = 'out.color = vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);'
+/** Template tokens replaced via regex (not literal string replace),
+ *  so the no-op risk is different — a missed token simply stays in
+ *  the WGSL and trips a compile error rather than rendering as a
+ *  silent legacy path. Exported anyway so the same invariant test
+ *  asserts they're present (catch deletion in fs_fill / fs_stroke). */
+export const PICK_FIELD_TOKEN = '__PICK_FIELD__'
+export const PICK_WRITE_TOKEN = '__PICK_WRITE__'
 
 export interface ShaderVariantInfo {
   key: string
@@ -540,9 +557,9 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
     .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
     .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(input.feat_id, u.pick_id);' : '')
 
-  if (!variant || (!variant.preamble && !variant.needsFeatureBuffer)) return applyPick(POLYGON_SHADER)
+  if (!variant || (!variant.preamble && !variant.needsFeatureBuffer)) return applyPick(POLYGON_SHADER_SOURCE)
 
-  let shader = POLYGON_SHADER
+  let shader = POLYGON_SHADER_SOURCE
   const insertPoint = '@group(0) @binding(0) var<uniform> u: Uniforms;'
 
   // Insert storage buffer declaration for per-feature data
@@ -1249,7 +1266,7 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
     // Splice the pick output into the shader template when `?picking=1`
     // is enabled. Keeps the default (no-pick) shader byte-identical with
     // the prior build — existing deployments see no change.
-    const pickShader = POLYGON_SHADER
+    const pickShader = POLYGON_SHADER_SOURCE
       .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
       .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(input.feat_id, u.pick_id);' : '')
     const shaderModule = device.createShaderModule({
