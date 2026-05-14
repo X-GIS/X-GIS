@@ -3690,6 +3690,73 @@ export class XGISMap {
     return Array.from(this.xgisLayers.values())
   }
 
+  /** Mapbox GL JS-style paint property mutation (plan P6 first cut).
+   *  Maps a Mapbox property name onto the corresponding XGISLayerStyle
+   *  setter; returns true on a recognised (layer, property) pair, false
+   *  for unknown layer or unsupported property. The setter path already
+   *  invalidates the next frame and propagates into paintShapes /
+   *  bucket-scheduler (commit 7724b5c), so no render-loop coupling.
+   *
+   *  Supported properties (constant scalar / hex string values):
+   *    fill-color / line-color / fill-opacity / line-opacity / opacity
+   *    line-width / visibility
+   *
+   *  Out of scope for this cut: expression values (e.g. `["match", ...]`)
+   *  — those still require a full re-compile via the regular setStyle
+   *  path. The plan's P6 incremental-recompile pass is a follow-up. */
+  setPaintProperty(layerId: string, property: string, value: unknown): boolean {
+    const layer = this.getLayer(layerId)
+    if (!layer) return false
+    switch (property) {
+      case 'fill-color':
+        if (typeof value !== 'string' && value !== null) return false
+        layer.style.fill = value as string | null
+        return true
+      case 'line-color':
+        if (typeof value !== 'string' && value !== null) return false
+        layer.style.stroke = value as string | null
+        return true
+      case 'fill-opacity':
+      case 'line-opacity':
+      case 'opacity':
+        if (typeof value !== 'number') return false
+        layer.style.opacity = value
+        return true
+      case 'line-width':
+        if (typeof value !== 'number') return false
+        layer.style.strokeWidth = value
+        return true
+      case 'visibility':
+        // Mapbox-style: 'visible' | 'none'. Coerce to boolean for the
+        // XGISLayerStyle setter; reject other strings.
+        if (value !== 'visible' && value !== 'none') return false
+        layer.style.visible = value === 'visible'
+        return true
+      default:
+        return false
+    }
+  }
+
+  /** Mapbox GL JS-style paint property query (plan P6 first cut). Mirrors
+   *  `setPaintProperty` — returns the current value for recognised
+   *  properties, undefined for unknown layer or property. Read from the
+   *  XGISLayerStyle accessor which reflects any prior setPaintProperty
+   *  override OR the compiled default. */
+  getPaintProperty(layerId: string, property: string): unknown {
+    const layer = this.getLayer(layerId)
+    if (!layer) return undefined
+    switch (property) {
+      case 'fill-color':   return layer.style.fill
+      case 'line-color':   return layer.style.stroke
+      case 'fill-opacity':
+      case 'line-opacity':
+      case 'opacity':      return layer.style.opacity
+      case 'line-width':   return layer.style.strokeWidth
+      case 'visibility':   return layer.style.visible ? 'visible' : 'none'
+      default:             return undefined
+    }
+  }
+
   /** Map-level event delegation. Fires for any layer that gets hit —
    *  the event's `target` is the hit layer. Same `XGISFeatureEvent`
    *  shape as layer-level handlers. Layer-level listeners run first;
