@@ -1256,6 +1256,22 @@ export class XGISMap {
     this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
     this._needsRender = true
 
+    // Hand the compute plan to the renderer BEFORE rebuildLayers so
+    // its addLayer calls can attach ComputeLayerHandles for variants
+    // carrying `computeBindings`. `commands.computePlan` is
+    // undefined when the compile didn't go through emitCommands
+    // (binary load path) or when the scene had no compute-feature
+    // paint shapes — the setter handles both as a clear. No effect
+    // on production today: no callsite passes `enableComputePath`,
+    // so variants never carry `computeBindings`.
+    //
+    // Cast: interpreter's SceneCommands type doesn't carry
+    // `computePlan` (compiler-only field). The runtime field-access
+    // returns undefined uniformly when absent.
+    this.renderer.setComputePlan(
+      (commands as { computePlan?: import('@xgis/compiler').ComputePlanEntry[] }).computePlan,
+    )
+
     // Prewarm shader-variant pipelines BEFORE rebuildLayers so the
     // GPU driver compiles them in parallel with the rest of init.
     // Without this, `rebuildLayers` calls the synchronous
@@ -2200,6 +2216,13 @@ export class XGISMap {
 
     const encoder = device.createCommandEncoder()
     const screenView = context.getCurrentTexture().createView()
+    // P4 compute pass: run every attached ComputeLayerHandle's
+    // kernel(s) BEFORE any render pass begins so the fragment shader
+    // can read populated output buffers. No-op when no compute layer
+    // is attached (no variant carries `computeBindings` in production
+    // today). Must run after encoder creation, before the first
+    // beginRenderPass.
+    this.renderer.dispatchComputePass(encoder)
     // Reset per-frame sub-pass assignment in the timer. Subsequent
     // passWrites() calls will return contiguous timestamp ranges
     // starting at sub-pass 0.
