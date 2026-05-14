@@ -121,7 +121,15 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
     if (!list) { list = []; showSlicesBySource.set(show.targetName, list) }
     const filterAst = show.filterExpr?.ast ?? null
     const sliceKey = computeSliceKey(show.sourceLayer, filterAst)
+    // Worker emits featureProps Map when ANY downstream consumer reads per-
+    // feature attributes: SDF label pipeline (show.label), per-feature paint
+    // expressions that the variant shader branches on (data-driven fill /
+    // stroke via match(.field) etc. → `needsFeatureBuffer`). Without the
+    // shaderVariant gate, merge-layers' compound fill (e.g. OFM Bright
+    // landuse `class` match) ships a variant that indexes feat_data[fid]
+    // but the buffer is empty because the worker dropped featureProps.
     const needsFeatureProps = show.label !== undefined
+      || show.shaderVariant?.needsFeatureBuffer === true
     const ex = (show as { extrude?: { kind?: string } }).extrude
     const needsExtrude = !!ex && ex.kind !== 'none' && ex.kind !== undefined
     const existing = list.find(s => s.sliceKey === sliceKey)

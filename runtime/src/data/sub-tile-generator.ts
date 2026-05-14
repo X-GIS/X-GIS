@@ -295,6 +295,17 @@ export class SubTileGenerator {
       // sub-tiles fall back to the legacy outlineIndices and the dash
       // bug recurs at very high zoom levels).
       polygons: parent.polygons,
+      // Per-feature attribute maps are keyed by tile-local featId,
+      // which the clipper preserves (every emitted vertex carries its
+      // parent's fid). So forwarding the parent's maps is safe — same
+      // index space. Without this, over-zoom levels lose data-driven
+      // fill (OFM Bright landuse `class` match disappeared at z>14)
+      // and extruded buildings flatten to z=0. Heights/bases were
+      // previously implicit via the over-zoom fallback; making the
+      // contract explicit here fixes the OFM Bright school-fill bug.
+      featureProps: parent.featureProps,
+      heights: parent.heights,
+      bases: parent.bases,
     }
   }
 }

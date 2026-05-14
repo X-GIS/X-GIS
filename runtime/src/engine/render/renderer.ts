@@ -466,7 +466,14 @@ fn fs_overdraw() -> @location(0) vec4<f32> {
 // `out.color = ...;` assignment in fs_fill / fs_stroke so variants can
 // swap in a data-driven color expression without touching the FragmentOutput
 // plumbing or the log-depth write.
-const FILL_RETURN_MARKER = 'out.color = u.fill_color;'
+// Marker string used by `buildShader` to splice variant-specific fill
+// emission into the fragment shader. MUST be byte-identical to the
+// `out.color = …;` line in `fs_fill` below — `String.replace` silently
+// no-ops when the search string isn't found, so a stale marker turns
+// every data-driven fill into the zero-uniform color (root cause of
+// the OFM Bright school-fill bug 2026-05-14). When `fs_fill`'s line
+// changes, update this string in lock-step (or fail a snapshot test).
+const FILL_RETURN_MARKER = 'out.color = vec4<f32>(u.fill_color.rgb * wall_shade, u.fill_color.a);'
 const STROKE_RETURN_MARKER = 'out.color = vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);'
 
 export interface ShaderVariantInfo {

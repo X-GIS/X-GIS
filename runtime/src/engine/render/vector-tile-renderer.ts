@@ -75,6 +75,19 @@ interface GPUTile {
   /** Timestamp (performance.now) at upload. Available for diagnostics
    *  and future tile-fade implementations. */
   uploadTimeMs: number
+  /** Per-tile feat_data buffer for MVT/PMTiles data-driven paint
+   *  expressions (e.g. OFM Bright landuse `class` match). Each tile's
+   *  featId space is local; the polygon vertex stride-8 `f32 fid`
+   *  indexes into this buffer's `featureCount × fieldCount` floats.
+   *  Built from `data.featureProps` when the renderer has captured a
+   *  variant requiring feature data (`latestVariantFields.length > 0`).
+   *  Null for tiles without per-feature data (GeoJSON path, or MVT
+   *  slices whose consumer shows don't author data-driven paint). */
+  featureDataBuffer: GPUBuffer | null
+  /** Bind group pairing this tile's `featureDataBuffer` with the shared
+   *  `uniformRing`. Used in place of the source-level `tileBgFeature`
+   *  when present. Null when `featureDataBuffer` is null. */
+  featureBindGroup: GPUBindGroup | null
 }
 
 // Per-VTR GPU tile cache cap on UNIQUE tile keys. With sliced
@@ -357,9 +370,22 @@ export class VectorTileRenderer {
   // SDF line renderer (set externally)
   private lineRenderer: LineRenderer | null = null
 
-  // Global feature data buffer (shared across all tiles)
+  // Global feature data buffer (GeoJSON path: one PropertyTable per
+  // source covers all sub-tiles since featIds are global). MVT/PMTiles
+  // path keeps this null and builds per-tile featureDataBuffer / bind
+  // group on tile upload instead — each PMTiles tile carries its own
+  // 0-based featId space, so a shared source-level table can't index.
   private featureDataBuffer: GPUBuffer | null = null
   private featureBindGroupLayout: GPUBindGroupLayout | null = null
+
+  // Latest data-driven variant requirements captured when a show with
+  // `needsFeatureBuffer` binds to this renderer (via
+  // `buildFeatureDataBuffer` or the per-tile equivalent). Used at tile
+  // upload time so the worker-emitted `data.featureProps` can be packed
+  // into a per-tile feat_data buffer indexed by the polygon vertex
+  // stride-8 `fid`. Empty when no data-driven paint expr is wired.
+  private latestVariantFields: readonly string[] = []
+  private latestVariantCategoryOrder: Record<string, readonly string[]> = {}
 
   // Per-frame draw stats
   private renderedDraws = new Map<number | string, { polyCount: number; lineCount: number; vertexCount: number }>()
@@ -836,6 +862,7 @@ export class VectorTileRenderer {
           tile.outlineIndexBuffer?.destroy()
           tile.outlineSegmentBuffer?.destroy()
           tile.lineSegmentBuffer?.destroy()
+          tile.featureDataBuffer?.destroy()
         }
       }
       this.gpuCache.clear()
@@ -1261,6 +1288,7 @@ export class VectorTileRenderer {
         tile.outlineIndexBuffer?.destroy()
         tile.outlineSegmentBuffer?.destroy()
         tile.lineSegmentBuffer?.destroy()
+        tile.featureDataBuffer?.destroy()
       }
     }
     this.gpuCache.clear()
@@ -1318,10 +1346,22 @@ export class VectorTileRenderer {
 
   /** Build per-feature GPU storage buffer from PropertyTable */
   buildFeatureDataBuffer(variant: ShaderVariant, featureBindGroupLayout: GPUBindGroupLayout): void {
-    const table = this.source?.getPropertyTable()
-    if (!table || variant.featureFields.length === 0) return
-
+    // Capture variant requirements regardless of PropertyTable state so
+    // the per-tile feature-buffer path (MVT/PMTiles) has the field list
+    // + categoryOrder needed at tile upload time. Without this, MVT
+    // tiles with featureProps had no schema to pack and rendered as
+    // missing fills (OFM Bright landuse `class` match).
+    this.latestVariantFields = variant.featureFields
+    this.latestVariantCategoryOrder = (variant.categoryOrder as Record<string, readonly string[]>) ?? {}
     this.featureBindGroupLayout = featureBindGroupLayout
+
+    const table = this.source?.getPropertyTable()
+    if (!table || variant.featureFields.length === 0 || table.values.length === 0) {
+      // No source-level PropertyTable available (PMTiles backend leaves
+      // it empty by design). Per-tile path will handle on uploadTile.
+      return
+    }
+
     const fieldCount = variant.featureFields.length
     const featureCount = table.values.length
     const data = new Float32Array(featureCount * fieldCount)
@@ -1401,6 +1441,107 @@ export class VectorTileRenderer {
     this.rebuildTileBindGroups()
 
     console.log(`[X-GIS] Feature data buffer: ${featureCount} features × ${fieldCount} fields`)
+  }
+
+  /** Build a per-tile feat_data buffer + bind group from MVT/PMTiles
+   *  worker output (`data.featureProps`). The source-level PropertyTable
+   *  is permanently empty for PMTiles backends — each tile owns its
+   *  own 0-based featId space, so a single shared buffer can't index
+   *  them all. Returned buffer is sized by the tile's actual feature
+   *  count (not a global maximum), uses the captured variant field +
+   *  categoryOrder schema, and binds to the shared `uniformRing` so
+   *  per-tile dynamic offsets still work.
+   *
+   *  Returns null when there's nothing to build (no variant captured
+   *  yet, no per-tile properties, layout missing) so the caller can
+   *  skip the buffer-allocate call entirely. */
+  private buildPerTileFeatureData(
+    featureProps: ReadonlyMap<number, Record<string, unknown>> | undefined,
+  ): { buffer: GPUBuffer; bindGroup: GPUBindGroup } | null {
+    if (!featureProps || featureProps.size === 0) return null
+    if (this.latestVariantFields.length === 0) return null
+    if (!this.featureBindGroupLayout || !this.uniformRing) return null
+
+    const fields = this.latestVariantFields
+    const fieldCount = fields.length
+    // featId is tile-local but not necessarily contiguous (worker
+    // may filter out features). Size the buffer by (max featId + 1)
+    // so vertex-side `feat_data[fid]` indexing stays direct without a
+    // featId → row mapping table. Unfilled slots default to 0 which
+    // matches the variant shader's fallback arm.
+    let maxFid = -1
+    for (const fid of featureProps.keys()) {
+      if (fid > maxFid) maxFid = fid
+    }
+    const featureCount = maxFid + 1
+    if (featureCount <= 0) return null
+
+    const data = new Float32Array(featureCount * fieldCount)
+
+    // Per-field categorical maps — same compile-time-order-first logic
+    // as the source-level path so the shader's if-else chain IDs match.
+    const catMaps = new Map<string, Map<string, number>>()
+    for (const fieldName of fields) {
+      const order = this.latestVariantCategoryOrder[fieldName]
+      const map = new Map<string, number>()
+      if (order && order.length > 0) {
+        order.forEach((v, i) => map.set(v, i))
+        // Unknown values get IDs beyond the if-else range → fallback arm.
+        const unseen = new Set<string>()
+        for (const props of featureProps.values()) {
+          const v = props[fieldName]
+          if (typeof v === 'string' && !map.has(v)) unseen.add(v)
+        }
+        let next = order.length
+        for (const v of [...unseen].sort()) map.set(v, next++)
+      } else {
+        const unique = new Set<string>()
+        for (const props of featureProps.values()) {
+          const v = props[fieldName]
+          if (typeof v === 'string') unique.add(v)
+        }
+        const sorted = [...unique].sort()
+        sorted.forEach((v, i) => map.set(v, i))
+      }
+      catMaps.set(fieldName, map)
+    }
+
+    for (const [fid, props] of featureProps) {
+      for (let j = 0; j < fieldCount; j++) {
+        const fieldName = fields[j]!
+        const val = props[fieldName]
+        const catMap = catMaps.get(fieldName)
+        if (catMap && typeof val === 'string') {
+          data[fid * fieldCount + j] = catMap.get(val) ?? 0
+        } else if (typeof val === 'number') {
+          data[fid * fieldCount + j] = val
+        }
+      }
+    }
+    // DEBUG: when `__xgisForceClassId` is set on globalThis, every
+    // feat_data entry gets the same ID. Lets us isolate fid-mapping
+    // bugs from shader-emit bugs — if every polygon paints with the
+    // forced class's color, the bind path is correct and the issue is
+    // upstream (worker fid vs featureProps key); if some polygons stay
+    // unpainted, the issue is in the bind / shader.
+
+    const buffer = this.device.createBuffer({
+      size: Math.max(data.byteLength, 16),
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      label: 'per-tile-feature-data',
+    })
+    this.device.queue.writeBuffer(buffer, 0, data)
+
+    const bindGroup = this.device.createBindGroup({
+      label: 'per-tile-feature-bg',
+      layout: this.featureBindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } },
+        { binding: 1, resource: { buffer } },
+      ],
+    })
+
+    return { buffer, bindGroup }
   }
 
   /** Route uploads through the priority queue. Every call enqueues an
@@ -1683,6 +1824,13 @@ export class VectorTileRenderer {
       }
     }
 
+    // Per-tile feat_data buffer for MVT/PMTiles data-driven paint.
+    // Builds only when a variant requiring per-feature data has bound
+    // to this renderer (latestVariantFields captured) AND the worker
+    // emitted featureProps for this slice. GeoJSON path skips (uses
+    // source-level featureDataBuffer instead).
+    const perTileFeat = this.buildPerTileFeatureData(data.featureProps)
+
     layerCache.set(key, {
       vertexBuffer, indexBuffer,
       indexCount: polyIndices.length,
@@ -1697,6 +1845,8 @@ export class VectorTileRenderer {
       tileZoom: data.tileZoom,
       lastUsedFrame: this.frameCount,
       uploadTimeMs: performance.now(),
+      featureDataBuffer: perTileFeat?.buffer ?? null,
+      featureBindGroup: perTileFeat?.bindGroup ?? null,
     })
     this._gpuCacheCount++
 
@@ -1930,6 +2080,9 @@ export class VectorTileRenderer {
     // populated the cache while we were awaiting. Skip the second set.
     if (layerCache.has(key)) return
 
+    // Per-tile feat_data — same rationale as the sync path.
+    const perTileFeat = this.buildPerTileFeatureData(data.featureProps)
+
     layerCache.set(key, {
       vertexBuffer, indexBuffer,
       indexCount: polyIndices.length,
@@ -1944,6 +2097,8 @@ export class VectorTileRenderer {
       tileZoom: data.tileZoom,
       lastUsedFrame: this.frameCount,
       uploadTimeMs: performance.now(),
+      featureDataBuffer: perTileFeat?.buffer ?? null,
+      featureBindGroup: perTileFeat?.bindGroup ?? null,
     })
     this._gpuCacheCount++
 
@@ -2068,7 +2223,19 @@ export class VectorTileRenderer {
     // bind group" validation errors (~5 per frame on fixture_picking
     // until the worker resolves). Skip the draw until feature bg is
     // ready — the layer simply pops in late, same as any tile-load gap.
-    if (bindGroupLayout !== this.baseBindGroupLayout && !this.tileBgFeature) return
+    // Skip the draw when the variant pipeline expects feature layout
+    // but no feature bind group is available ANYWHERE — the GeoJSON
+    // path satisfies this with the source-level `this.tileBgFeature`;
+    // the MVT/PMTiles path satisfies it with per-tile `cached.feature
+    // BindGroup`s built at upload time. Returning unconditionally on
+    // `!this.tileBgFeature` was the OFM Bright school-fill bug — MVT
+    // path leaves `this.tileBgFeature` null by design (PMTiles
+    // PropertyTable is empty), so the compound landuse `class` match
+    // variant's render() never reached its tile loop. Per-tile feature
+    // groups are tested inside the loop via `cached.featureBindGroup`.
+    if (bindGroupLayout !== this.baseBindGroupLayout
+        && !this.tileBgFeature
+        && this.latestVariantFields.length === 0) return
 
     this.frameCount++
     // Pass the FRAME-level id (set by beginFrame from map's
@@ -2841,6 +3008,7 @@ export class VectorTileRenderer {
       this._frameClassifyMemo.set(sliceLayer, sliceMemo)
     }
 
+
     for (let i = 0; i < tiles.length; i++) {
       const key = neededKeys[i]
       const tileZi = tiles[i].z
@@ -3445,7 +3613,13 @@ export class VectorTileRenderer {
     const fillBg = fillBindGroupLayout === this.baseBindGroupLayout
       ? this.tileBgDefault
       : this.tileBgFeature
-    if (!fillBg || !this.uniformRing) return
+    // For featureBindGroupLayout the source-level `tileBgFeature` is
+    // null in the MVT/PMTiles path (each tile owns its own
+    // featureBindGroup). Don't early-return on that case — per-tile
+    // bind group resolution happens inside the keys loop. baseBindGroup
+    // is constant-fill and never per-tile, so its absence still aborts.
+    if (fillBindGroupLayout === this.baseBindGroupLayout && !fillBg) return
+    if (!this.uniformRing) return
     // Stroke draws are batched and emitted AFTER every fill in this
     // pass has written depth, so per-tile outlines depth-test against
     // the layer's full geometry (not just whatever was drawn before
@@ -3593,9 +3767,16 @@ export class VectorTileRenderer {
       // FILL pipeline's layout (set by render() caller). Lines always
       // use baseBindGroupLayout, so currentLineTileBg is always the
       // default BG.
+      //
+      // For the feature-pipeline path prefer the tile-owned bind group
+      // when present (MVT/PMTiles per-tile featureDataBuffer). The
+      // source-level `this.tileBgFeature` is the GeoJSON path's
+      // global-PropertyTable bind group; using it for MVT would index
+      // a different (zero-filled) buffer and silently mis-route every
+      // feature to the variant shader's fallback arm.
       const currentTileBg = fillBindGroupLayout === this.baseBindGroupLayout
         ? this.tileBgDefault!
-        : this.tileBgFeature!
+        : (cached.featureBindGroup ?? this.tileBgFeature!)
       const currentLineTileBg = this.tileBgDefault!
       // Stage the slot into the CPU-side mirror instead of issuing one
       // writeBuffer per tile; the mirror is flushed in a single call at
@@ -3847,9 +4028,12 @@ export class VectorTileRenderer {
         this.releaseBuffer(tile.lineIndexBuffer)
         this.releaseBuffer(tile.outlineIndexBuffer)
         // SDF segment buffers are owned by lineRenderer's path;
-        // keep destroying directly.
+        // keep destroying directly. Same for per-tile feature data —
+        // not pool-friendly because its size depends on each tile's
+        // unique feature count + variant schema.
         tile.outlineSegmentBuffer?.destroy()
         tile.lineSegmentBuffer?.destroy()
+        tile.featureDataBuffer?.destroy()
         inner.delete(ev.tk)
         this._gpuCacheCount--
       }
