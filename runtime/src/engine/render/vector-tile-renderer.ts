@@ -1330,14 +1330,46 @@ export class VectorTileRenderer {
     for (const fieldName of variant.featureFields) {
       const fi = table.fieldNames.indexOf(fieldName)
       if (fi >= 0 && table.fieldTypes[fi] === 'string') {
-        const uniqueVals = new Set<string>()
-        for (const row of table.values) {
-          const v = row[fi]
-          if (typeof v === 'string') uniqueVals.add(v)
-        }
-        const sorted = [...uniqueVals].sort()
+        // PRIMARY source of category IDs: the shader's compile-time
+        // pattern list (`variant.categoryOrder[field]`). Without this
+        // path, the runtime fell back to "alphabetical sort of unique
+        // values in THIS tile's data" — which collides with the
+        // shader's IDs whenever the data is a proper subset of the
+        // pattern set. For OFM Bright's compound `landuse__merged_4`
+        // (cemetery/hospital/school/railway), a tile containing only
+        // school features would otherwise assign school=0, matching
+        // the shader's cemetery branch and painting school polygons
+        // in cemetery green. With this stable map, school is always
+        // ID 3 regardless of which subset of values the tile carries.
+        const compileTimeOrder = variant.categoryOrder?.[fieldName]
         const map = new Map<string, number>()
-        sorted.forEach((v, i) => map.set(v, i))
+        if (compileTimeOrder && compileTimeOrder.length > 0) {
+          compileTimeOrder.forEach((v, i) => map.set(v, i))
+          // Append any unexpected values (e.g. data has a new class the
+          // style didn't author for) at the END so they map to indices
+          // outside the shader's if-else range — those features fall
+          // through to the fallback colour, matching the match()
+          // expression's `_` default arm intent.
+          const uniqueVals = new Set<string>()
+          for (const row of table.values) {
+            const v = row[fi]
+            if (typeof v === 'string' && !map.has(v)) uniqueVals.add(v)
+          }
+          let next = compileTimeOrder.length
+          for (const v of [...uniqueVals].sort()) map.set(v, next++)
+        } else {
+          // Legacy path: variant doesn't expose category order (e.g.
+          // shader uses `categorical()` palette, not `match()`). Sort
+          // unique data values alphabetically; matches the historic
+          // assignment behaviour.
+          const uniqueVals = new Set<string>()
+          for (const row of table.values) {
+            const v = row[fi]
+            if (typeof v === 'string') uniqueVals.add(v)
+          }
+          const sorted = [...uniqueVals].sort()
+          sorted.forEach((v, i) => map.set(v, i))
+        }
         catMaps.set(fieldName, map)
       }
     }

@@ -35,6 +35,17 @@ export interface ShaderVariant {
   featureFields: string[]
   /** Which uniform fields are still needed (not inlined) */
   uniformFields: string[]
+  /** For every field consumed by a `match()` expression, the
+   *  AUTHORITATIVE sorted list of string patterns the shader's
+   *  if-else chain expects. The runtime must use this list as the
+   *  string → integer-ID map when packing the per-feature data
+   *  buffer; otherwise the IDs computed from "unique values in this
+   *  tile's data" can collide with the shader's compile-time IDs.
+   *  Example: shader knows {cemetery,hospital,railway,school}={0,1,
+   *  2,3} but a tile with only "school" features would otherwise
+   *  encode school=0 — colliding with cemetery's slot in the
+   *  shader's if-else chain. */
+  categoryOrder: Record<string, string[]>
 }
 
 /**
@@ -95,6 +106,15 @@ export function generateShaderVariant(
     // injected match preambles disambiguates them.
     + matchArmsKey(fillResult.matchPreamble, strokeResult.matchPreamble)
 
+  // Aggregate categoryOrder from fill + stroke results. Both code
+  // paths sort patterns alphabetically, so a field used by BOTH fill
+  // and stroke matches gets the same order (later spread overrides
+  // identical values harmlessly). Opacity doesn't use match() today.
+  const categoryOrder: Record<string, string[]> = {
+    ...(fillResult.categoryOrder ?? {}),
+    ...(strokeResult.categoryOrder ?? {}),
+  }
+
   return {
     key,
     preamble: preambleLines.join('\n'),
@@ -105,6 +125,7 @@ export function generateShaderVariant(
     needsFeatureBuffer,
     featureFields,
     uniformFields,
+    categoryOrder,
   }
 }
 
@@ -117,6 +138,13 @@ interface ColorResult {
   isVec4: boolean  // true if expr already returns vec4f (categorical/gradient)
   expr: string // WGSL expression for the color
   matchPreamble?: string // if-else chain for match() — injected before return in fragment
+  /** field → ordered list of patterns the if-else chain expects. The
+   *  runtime uses this to assign matching integer IDs into the per-
+   *  feature data buffer. Without this, IDs would be derived from
+   *  the data's unique values (alphabetical), which collide with the
+   *  shader's compile-time pattern order whenever the data is a
+   *  proper subset of the patterns. */
+  categoryOrder?: Record<string, string[]>
 }
 
 function processColorValue(
@@ -213,11 +241,23 @@ function processColorValue(
         ifElse += `  if (${wgsl} == ${fmt(id)}) { ${varName} = vec4f(${fmt(r)}, ${fmt(g)}, ${fmt(b)}, ${fmt(a)}); }\n`
       }
 
+      // Surface the (sortedPatterns) list for THIS field so the runtime
+      // can encode feature data with matching IDs. Only the simple
+      // `match(.field) { … }` shape with a FieldAccess argument exposes
+      // a single field — chained / function-call arguments fall through
+      // to the legacy "unique-data sort" path (which is correct when
+      // the patterns cover every possible feature value).
+      const categoryOrder: Record<string, string[]> = {}
+      if (fieldExpr.kind === 'FieldAccess' && fieldExpr.object === null) {
+        categoryOrder[fieldExpr.field] = sortedPatterns
+      }
+
       return {
         preamble: [],
         isConst: false, needsFeatures: true, isVec4: true,
         expr: `/* match */ ${varName}`,
         matchPreamble: ifElse,
+        categoryOrder,
       } as ColorResult
     }
 
