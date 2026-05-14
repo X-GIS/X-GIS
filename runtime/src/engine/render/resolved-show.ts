@@ -119,6 +119,21 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
 
   // Fill / stroke colour — `null` from the resolver means "the
   // ShowCommand's static `fill` hex is authoritative this frame".
+  //
+  // P3 Step 4 (skipped, deferred): when `shaderVariant.fillUsesPalette`
+  // is true the fragment shader samples colour from the gradient
+  // atlas via textureSampleLevel and the per-frame `u.fill_color`
+  // write is a dead store. Skipping the CPU resolve regressed the
+  // ML pixel match from 96.89 % → 68.29 % identical because the
+  // 256-texel rgba8unorm atlas quantises each channel to 8 bits —
+  // a 1-RGB delta on most pixels. Plan's verification target is
+  // ≤1 RGB delta vs MapLibre, so the precision shortfall blocks the
+  // skip. Future: bump atlas format to rgba16float (16-bit per
+  // channel) or widen GRADIENT_WIDTH to 1024 to recover precision,
+  // then flip the gate back on. The CPU side stays authoritative
+  // until then; the GPU sample's quantised output is still correct
+  // for `_skipFillDraw`'s `variantProducesFill` guard but it costs
+  // a few microseconds per frame per layer.
   const fillResolved = ps.fill !== null
     ? resolveColorShape(ps.fill, cameraZoom, elapsedMs)
     : null

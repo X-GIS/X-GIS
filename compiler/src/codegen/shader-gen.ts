@@ -58,6 +58,15 @@ export interface ShaderVariant {
    *  Empty when `palette` is omitted from generateShaderVariant or
    *  the node has no zoom-interpolated paint properties. */
   paletteColorGradients: number[]
+  /** P3 Step 4 — true when fill's zoom-interpolated colour routed
+   *  through `textureSampleLevel`. The bucket-scheduler skips the
+   *  per-frame `resolveColorShape(paintShapes.fill, …)` CPU eval
+   *  for these axes — the fragment shader reads from the gradient
+   *  atlas directly, so the CPU result would be a dead write into
+   *  `u.fill_color`. */
+  fillUsesPalette: boolean
+  /** Stroke counterpart to `fillUsesPalette`. */
+  strokeUsesPalette: boolean
 }
 
 /**
@@ -167,6 +176,8 @@ export function generateShaderVariant(
     uniformFields,
     categoryOrder,
     paletteColorGradients,
+    fillUsesPalette: fillResult.paletteGradientIdx !== undefined,
+    strokeUsesPalette: strokeResult.paletteGradientIdx !== undefined,
   }
 }
 
