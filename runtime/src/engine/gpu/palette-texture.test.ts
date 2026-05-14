@@ -46,7 +46,8 @@ describe('palette-texture — packPalette', () => {
     // Buffers padded to ≥1 entry so writeTexture has something to copy.
     expect(packed.colorBytes.byteLength).toBe(4)
     expect(packed.scalarF32.byteLength).toBe(4)
-    expect(packed.colorGradientBytes.byteLength).toBe(GRADIENT_WIDTH * 4)
+    // rgba16float color gradient atlas: 8 bytes per texel.
+    expect(packed.colorGradientBytes.byteLength).toBe(GRADIENT_WIDTH * 4 * 2)
     expect(packed.scalarGradientF32.byteLength).toBe(GRADIENT_WIDTH * 4)
   })
 
@@ -72,27 +73,32 @@ describe('palette-texture — packPalette', () => {
     expect(packed.scalarF32[1]).toBe(4.0)
   })
 
-  it('color gradient bake → both endpoints exact, midpoint interpolated', () => {
+  it('color gradient bake → half-float endpoints + midpoint interpolated', () => {
     const g: ColorGradient = {
       stops: [{ zoom: 0, value: RED }, { zoom: 10, value: BLUE }],
       base: 1,
     }
     const packed = packPalette(makePalette({ colorGradients: [g] }))
     expect(packed.colorGradientCount).toBe(1)
+    // rgba16float: each channel is a half-float bit pattern in a
+    // Uint16 slot. Decode via DataView's getFloat16 to assert.
+    const dv = new DataView(packed.colorGradientBytes.buffer)
+    const getHalf = (texelIndex: number, channel: number): number =>
+      dv.getFloat16(texelIndex * 8 + channel * 2, true /* little-endian */)
     // First texel = stop 0 (red)
-    expect(packed.colorGradientBytes[0]).toBe(255)
-    expect(packed.colorGradientBytes[1]).toBe(0)
-    expect(packed.colorGradientBytes[2]).toBe(0)
+    expect(getHalf(0, 0)).toBeCloseTo(1.0)
+    expect(getHalf(0, 1)).toBeCloseTo(0.0)
+    expect(getHalf(0, 2)).toBeCloseTo(0.0)
+    expect(getHalf(0, 3)).toBeCloseTo(1.0)
     // Last texel = stop 1 (blue)
-    const lastPx = (GRADIENT_WIDTH - 1) * 4
-    expect(packed.colorGradientBytes[lastPx]).toBe(0)
-    expect(packed.colorGradientBytes[lastPx + 1]).toBe(0)
-    expect(packed.colorGradientBytes[lastPx + 2]).toBe(255)
-    // Midpoint (t = 0.5) under linear curve → r=g=b≈127, exactly
-    // halfway between red and blue components.
-    const midPx = Math.floor(GRADIENT_WIDTH / 2) * 4
-    expect(Math.abs(packed.colorGradientBytes[midPx]! - 127)).toBeLessThanOrEqual(2)
-    expect(Math.abs(packed.colorGradientBytes[midPx + 2]! - 127)).toBeLessThanOrEqual(2)
+    const lastIdx = GRADIENT_WIDTH - 1
+    expect(getHalf(lastIdx, 0)).toBeCloseTo(0.0)
+    expect(getHalf(lastIdx, 1)).toBeCloseTo(0.0)
+    expect(getHalf(lastIdx, 2)).toBeCloseTo(1.0)
+    // Midpoint (t = 0.5) under linear curve → r=b≈0.5.
+    const midIdx = Math.floor(GRADIENT_WIDTH / 2)
+    expect(getHalf(midIdx, 0)).toBeCloseTo(0.5, 1)
+    expect(getHalf(midIdx, 2)).toBeCloseTo(0.5, 1)
   })
 
   it('color gradient meta encodes (zMin, zMax, base, _pad)', () => {
@@ -121,16 +127,18 @@ describe('palette-texture — packPalette', () => {
     expect(packed.scalarGradientF32[Math.floor(GRADIENT_WIDTH / 2)]).toBeCloseTo(50, 0)
   })
 
-  it('two gradients pack to two rows', () => {
+  it('two gradients pack to two rows (rgba16float, 8 bytes per texel)', () => {
     const g1: ColorGradient = { stops: [{ zoom: 0, value: RED }, { zoom: 10, value: BLUE }], base: 1 }
     const g2: ColorGradient = { stops: [{ zoom: 0, value: BLUE }, { zoom: 10, value: RED }], base: 1 }
     const packed = packPalette(makePalette({ colorGradients: [g1, g2] }))
     expect(packed.colorGradientCount).toBe(2)
-    expect(packed.colorGradientBytes.byteLength).toBe(2 * GRADIENT_WIDTH * 4)
+    // Uint16Array storing rgba16float: 4 channels × 2 bytes × W texels × N rows.
+    expect(packed.colorGradientBytes.byteLength).toBe(2 * GRADIENT_WIDTH * 4 * 2)
+    const dv = new DataView(packed.colorGradientBytes.buffer)
     // Row 0 starts with red, row 1 starts with blue.
-    expect(packed.colorGradientBytes[0]).toBe(255)  // r
-    const row1Start = GRADIENT_WIDTH * 4
-    expect(packed.colorGradientBytes[row1Start + 2]).toBe(255)  // b
+    expect(dv.getFloat16(0, true)).toBeCloseTo(1.0)  // row 0, texel 0, R
+    const row1ByteOffset = GRADIENT_WIDTH * 4 * 2
+    expect(dv.getFloat16(row1ByteOffset + 4, true)).toBeCloseTo(1.0)  // row 1, texel 0, B
   })
 
   it('clamps RGBA channels to [0,1] before quantising to byte', () => {

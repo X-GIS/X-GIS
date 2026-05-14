@@ -59,9 +59,11 @@ export interface PackedPalette {
   scalarF32: Float32Array
   scalarCount: number
   /** Width = GRADIENT_WIDTH, height = colorGradients.length,
-   *  format = rgba8unorm. Each row is one zoom-stop ramp pre-baked
-   *  to GRADIENT_WIDTH texels. */
-  colorGradientBytes: Uint8Array
+   *  format = rgba16float. Each row is one zoom-stop ramp pre-baked
+   *  to GRADIENT_WIDTH texels. Half-float (16-bit) channels keep the
+   *  GPU sample's quantisation below MapLibre's exact CPU
+   *  interpolation by a sub-1-RGB delta — Plan Step 4 verification. */
+  colorGradientBytes: Uint16Array
   colorGradientCount: number
   /** Width = GRADIENT_WIDTH, height = scalarGradients.length,
    *  format = r32float. */
@@ -153,18 +155,44 @@ function gradientZRange(stops: readonly { zoom: number }[]): [number, number] {
   return [stops[0]!.zoom, stops[stops.length - 1]!.zoom]
 }
 
-function bakeColorGradient(g: ColorGradient, out: Uint8Array, rowByteOffset: number): void {
+/** Float32 → IEEE-754 half-float (16-bit) bit pattern. Returns the
+ *  16-bit unsigned integer that represents the value when stored in
+ *  a `rgba16float` texture. Used for the gradient atlas precision
+ *  upgrade (rgba8unorm → rgba16float) — 8-bit channels quantised
+ *  zoom-interp samples to a 1-RGB delta vs MapLibre's float64
+ *  interpolation; half-float's ~11-bit mantissa pushes the delta
+ *  below the eyeball + the `≤1 RGB` plan-verification gate. */
+function f32ToHalf(val: number): number {
+  // Reinterpret the float32 bit pattern; trivial close-form
+  // conversion handles the common (non-subnormal, non-NaN) case.
+  // Color channels are clamped to [0,1] before reaching here so
+  // edge cases (Infinity, NaN) can't occur — input is always a
+  // finite small number.
+  const buf = new ArrayBuffer(4)
+  new Float32Array(buf)[0] = val
+  const bits = new Uint32Array(buf)[0]!
+  const sign = (bits >>> 16) & 0x8000
+  const exp = (bits >>> 23) & 0xff
+  const mant = bits & 0x7fffff
+  if (exp === 0) return sign   // zero / subnormal → zero
+  const newExp = exp - 127 + 15
+  if (newExp >= 31) return sign | 0x7c00   // overflow → ±Infinity
+  if (newExp <= 0) return sign             // underflow → zero
+  return sign | (newExp << 10) | (mant >>> 13)
+}
+
+function bakeColorGradient(g: ColorGradient, out: Uint16Array, rowU16Offset: number): void {
   const [zMin, zMax] = gradientZRange(g.stops)
   const span = zMax - zMin || 1
   for (let i = 0; i < GRADIENT_WIDTH; i++) {
     const t = i / (GRADIENT_WIDTH - 1)
     const zoom = zMin + t * span
     const [r, gC, b, a] = evalColorGradientAt(g, zoom)
-    const px = rowByteOffset + i * 4
-    out[px] = Math.round(clamp01(r) * 255)
-    out[px + 1] = Math.round(clamp01(gC) * 255)
-    out[px + 2] = Math.round(clamp01(b) * 255)
-    out[px + 3] = Math.round(clamp01(a) * 255)
+    const px = rowU16Offset + i * 4
+    out[px] = f32ToHalf(clamp01(r))
+    out[px + 1] = f32ToHalf(clamp01(gC))
+    out[px + 2] = f32ToHalf(clamp01(b))
+    out[px + 3] = f32ToHalf(clamp01(a))
   }
 }
 
@@ -198,7 +226,9 @@ export function packPalette(palette: Palette): PackedPalette {
   for (let i = 0; i < scalarCount; i++) scalarF32[i] = palette.scalars[i]!
 
   const colorGradientCount = palette.colorGradients.length
-  const colorGradientBytes = new Uint8Array(Math.max(colorGradientCount, 1) * GRADIENT_WIDTH * 4)
+  // Uint16Array for rgba16float — 4 half-floats per texel × GRADIENT_WIDTH
+  // texels per row. Each row offset is `i * GRADIENT_WIDTH * 4` u16 slots.
+  const colorGradientBytes = new Uint16Array(Math.max(colorGradientCount, 1) * GRADIENT_WIDTH * 4)
   const colorGradientMeta = new Float32Array(Math.max(colorGradientCount, 1) * GRADIENT_META_STRIDE_F32)
   for (let i = 0; i < colorGradientCount; i++) {
     const g = palette.colorGradients[i]!
@@ -288,15 +318,19 @@ export function uploadPalette(device: GPUDevice, packed: PackedPalette): Palette
     { width: Math.max(packed.scalarCount, 1), height: 1 },
   )
 
+  // rgba16float: 8 bytes per texel (4 half-floats). HW linear filter
+  // works out-of-the-box (rgba16float is filterable without the
+  // float32-filterable feature flag). Bind-group layout's
+  // `sampleType: 'float'` covers both rgba8unorm + rgba16float.
   const colorGradientAtlas = make2D(
     GRADIENT_WIDTH, Math.max(packed.colorGradientCount, 1),
-    'rgba8unorm', 'palette-color-gradient',
+    'rgba16float', 'palette-color-gradient',
   )
   if (packed.colorGradientCount > 0) {
     device.queue.writeTexture(
       { texture: colorGradientAtlas },
       packed.colorGradientBytes,
-      { bytesPerRow: GRADIENT_WIDTH * 4 },
+      { bytesPerRow: GRADIENT_WIDTH * 8 },
       { width: GRADIENT_WIDTH, height: packed.colorGradientCount },
     )
   }

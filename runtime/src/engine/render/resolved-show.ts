@@ -120,20 +120,20 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
   // Fill / stroke colour — `null` from the resolver means "the
   // ShowCommand's static `fill` hex is authoritative this frame".
   //
-  // P3 Step 4 (skipped, deferred): when `shaderVariant.fillUsesPalette`
-  // is true the fragment shader samples colour from the gradient
-  // atlas via textureSampleLevel and the per-frame `u.fill_color`
-  // write is a dead store. Skipping the CPU resolve regressed the
-  // ML pixel match from 96.89 % → 68.29 % identical because the
-  // 256-texel rgba8unorm atlas quantises each channel to 8 bits —
-  // a 1-RGB delta on most pixels. Plan's verification target is
-  // ≤1 RGB delta vs MapLibre, so the precision shortfall blocks the
-  // skip. Future: bump atlas format to rgba16float (16-bit per
-  // channel) or widen GRADIENT_WIDTH to 1024 to recover precision,
-  // then flip the gate back on. The CPU side stays authoritative
-  // until then; the GPU sample's quantised output is still correct
-  // for `_skipFillDraw`'s `variantProducesFill` guard but it costs
-  // a few microseconds per frame per layer.
+  // P3 Step 4 (deferred, attempt 2): even with the gradient atlas
+  // upgraded from rgba8unorm to rgba16float (half-float channels,
+  // ~11-bit mantissa), the ML pixel match still drops 96.89 % →
+  // 68.29 % identical when the CPU resolve is skipped. Root cause
+  // moved: it's no longer atlas quantisation but the canvas
+  // surface itself — Chrome's swap-chain is 8-bit RGB regardless of
+  // atlas precision, so any path that produces a fractional channel
+  // value (CPU exact float64 lerp vs GPU rgba16float + HW linear
+  // filter + back-to-8bit quantisation at display) ends up with a
+  // ±1 RGB round-off at byte boundary. ≤8 RGB delta stays at
+  // 97.79 % — visually indistinguishable, but breaks the plan's
+  // strict ≤1 RGB delta verification target. Defer until 10-bit
+  // HDR canvas / non-byte display surface is wired (browser
+  // dependency, separate phase).
   const fillResolved = ps.fill !== null
     ? resolveColorShape(ps.fill, cameraZoom, elapsedMs)
     : null
