@@ -37,7 +37,20 @@ const WEIGHT_TO_KEYWORD: Record<number, string> = {
 }
 
 /** Reconstruct the PBF fontstack name from a runtime fontKey. Exported
- *  for unit testing. */
+ *  for unit testing.
+ *
+ *  Mapbox/MapLibre naming convention has a quirk: when a style asks
+ *  for `text-font: ["Noto Sans Italic"]`, the glyph server ships that
+ *  exact stack name — NOT "Noto Sans Regular Italic". So default-
+ *  weight + italic omits the explicit "Regular" token. Every other
+ *  combination keeps the weight: "Noto Sans Bold", "Noto Sans Bold
+ *  Italic", "Open Sans Semibold". Pre-fix bug: OFM Bright label
+ *  layers using "Noto Sans Italic" all 404'd on the PBF fetch and
+ *  silently dropped back to Canvas2D font synthesis — visible as
+ *  italic Latin labels drawn from a synthesised oblique of the
+ *  bundled wght-only Variable WOFF2 + CJK glyphs falling through to
+ *  the OS Malgun Gothic / Apple SD Gothic Neo (visibly different
+ *  letterforms than the OFM-served Noto Sans Italic Korean). */
 export function deriveFontstack(fontKey: string): string {
   const { style, weight, family } = parseFontKey(fontKey)
   // The family field may be a comma-separated CSS list (the engine
@@ -46,9 +59,17 @@ export function deriveFontstack(fontKey: string): string {
   // family first.
   const firstFamily = family.split(',')[0]!.trim().replace(/^["']|["']$/g, '')
   const weightNum = parseInt(weight, 10) || 400
-  const weightKw = WEIGHT_TO_KEYWORD[weightNum] ?? 'Regular'
-  const styleKw = style === 'italic' || style === 'oblique' ? ' Italic' : ''
-  return `${firstFamily} ${weightKw}${styleKw}`
+  const isItalic = style === 'italic' || style === 'oblique'
+  let token: string
+  if (weightNum === 400 && isItalic) {
+    token = 'Italic'                                          // "Noto Sans Italic"
+  } else if (weightNum === 400) {
+    token = 'Regular'                                         // "Noto Sans Regular"
+  } else {
+    const w = WEIGHT_TO_KEYWORD[weightNum] ?? 'Regular'
+    token = isItalic ? `${w} Italic` : w                      // "... Bold Italic" / "... Bold"
+  }
+  return `${firstFamily} ${token}`
 }
 
 export interface PbfRasterizerDeps {

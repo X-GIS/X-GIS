@@ -25,6 +25,14 @@ describe('deriveFontstack', () => {
     expect(deriveFontstack(fontKeyOf('normal', 900, 'Heavy Sans'))).toBe('Heavy Sans Black')
   })
 
+  it('default-weight italic emits "Italic" alone — no "Regular Italic" middle', () => {
+    // Matches OFM Bright + Mapbox demo glyph servers, which ship
+    // "Noto Sans Italic" (not "Noto Sans Regular Italic"). Pre-fix
+    // bug 404'd every italic OFM label.
+    expect(deriveFontstack(fontKeyOf('italic', 400, 'Noto Sans'))).toBe('Noto Sans Italic')
+    expect(deriveFontstack(fontKeyOf('oblique', 400, 'Open Sans'))).toBe('Open Sans Italic')
+  })
+
   it('picks the first family from a CSS comma list (CJK fallback chain)', () => {
     expect(deriveFontstack(fontKeyOf('normal', 600,
       'Open Sans, "Noto Sans CJK KR", sans-serif'))).toBe('Open Sans Semibold')
