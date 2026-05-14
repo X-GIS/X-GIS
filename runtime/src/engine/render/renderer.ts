@@ -17,6 +17,8 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { WGSL_LOG_DEPTH_FNS } from '../shaders/log-depth'
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projection'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
+import { ComputeDispatcher } from '../gpu/compute'
+import { ComputeLayerRegistry } from './compute-layer-registry'
 
 // generateGraticule(zoom) now handles zoom-adaptive steps internally
 
@@ -1163,10 +1165,39 @@ export class MapRenderer {
   // Shader variant cache: variant key → compiled pipeline set
   private shaderCache = new Map<string, CachedPipeline>()
 
+  // Compute-paint scaffolding (plan P4-5). Lazily initialised on the
+  // first request — the registry owns ComputeLayerHandle instances
+  // and dispatches their kernels once per frame. Stays null until a
+  // variant with `computeBindings` is encountered, so the production
+  // path (no enableComputePath flag) pays nothing.
+  private computeRegistry: ComputeLayerRegistry | null = null
+  private computeDispatcher: ComputeDispatcher | null = null
+
   constructor(ctx: GPUContext) {
     this.ctx = ctx
     this.initPipelines()
     this.initGraticule()
+  }
+
+  /** Get-or-create the compute registry. Lazy because most scenes
+   *  don't use the compute path; we don't want to allocate the
+   *  dispatcher unless we actually have a compute kernel to run. */
+  private ensureComputeRegistry(): ComputeLayerRegistry {
+    if (this.computeRegistry) return this.computeRegistry
+    this.computeDispatcher = new ComputeDispatcher(this.ctx)
+    this.computeRegistry = new ComputeLayerRegistry(this.computeDispatcher)
+    return this.computeRegistry
+  }
+
+  /** Run every attached compute kernel onto the encoder. Call ONCE
+   *  per frame from the orchestrator (map.ts) BEFORE the first
+   *  beginRenderPass — compute output buffers must be populated
+   *  before the fragment shader reads them.
+   *
+   *  No-op when no compute layer is attached (the registry is null
+   *  or empty). Safe to call unconditionally from the orchestrator. */
+  dispatchComputePass(encoder: GPUCommandEncoder): void {
+    this.computeRegistry?.dispatchAll(encoder)
   }
 
   /** Rebuild all pipelines + invalidate shader variant cache. Called by
@@ -2358,6 +2389,11 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
       layer.featureDataBuffer?.destroy()
     }
     this.layers = []
+    // Drop every compute handle's GPU buffers. The registry survives
+    // (lazy-allocated, cheap to re-fill); `destroyAll` only frees
+    // owned device memory. Production never enters this branch
+    // because no variant carries `computeBindings` today.
+    this.computeRegistry?.destroyAll()
   }
 
   /** Render all layers into an existing render pass (RTC projection) */
