@@ -22,7 +22,11 @@ const field = (f: string) => ({
 const num = (value: number) => ({
   kind: 'NumberLiteral' as const, value, unit: null,
 })
-const fnCall = (calleeName: string, args: ReturnType<typeof field>[], matchArms: Array<{ pattern: string; value: { kind: 'ColorLiteral'; value: string } }> = []) => ({
+// Args / arm-values accept any Expr shape (mixed FieldAccess /
+// NumberLiteral / nested FnCall etc.). `unknown` keeps the helper
+// from over-constraining its argument types in tests — the analyzer
+// itself walks any AST shape via discriminated kind unions.
+const fnCall = (calleeName: string, args: unknown[], matchArms: Array<{ pattern: string; value: unknown }> = []) => ({
   kind: 'FnCall' as const,
   callee: ident(calleeName),
   args,
