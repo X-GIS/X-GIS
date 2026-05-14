@@ -115,6 +115,15 @@ describe('compute-gen — emitMatchComputeKernel', () => {
     expect(k.fieldOrder).toEqual(['class'])
   })
 
+  it('sets entryPoint to "eval_match" in returned metadata', () => {
+    const k = emitMatchComputeKernel({
+      fieldName: 'class',
+      arms: [{ pattern: 'a', colorHex: '#fff' }],
+      defaultColorHex: '#000',
+    })
+    expect(k.entryPoint).toBe('eval_match')
+  })
+
   it('dispatchSize ceils features / workgroup_size', () => {
     const k = emitMatchComputeKernel({
       fieldName: 'x',
@@ -150,6 +159,20 @@ describe('compute-gen — emitMatchComputeKernel', () => {
       defaultColorHex: '#000',
     })
     expect(k.wgsl).toContain('let v_rank = feat_data[fid];')
+  })
+
+  it('emitted entryPoint matches a fn declared in the WGSL', () => {
+    // Cross-check: the runtime will pass `kernel.entryPoint` to
+    // createComputePipeline; if the field disagrees with the actual
+    // emitted fn name the pipeline create will fail at runtime. This
+    // test catches drift between the constant string in the emitter
+    // and the metadata field.
+    const k = emitMatchComputeKernel({
+      fieldName: 'class',
+      arms: [{ pattern: 'a', colorHex: '#fff' }],
+      defaultColorHex: '#000',
+    })
+    expect(k.wgsl).toContain(`fn ${k.entryPoint}(`)
   })
 })
 
@@ -236,6 +259,15 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
       defaultColorHex: '#000',
     })
     expect(k.wgsl).toContain('if ((v_a > 0.0) && (v_b < 10.0))')
+  })
+
+  it('sets entryPoint to "eval_case" in returned metadata', () => {
+    const k = emitTernaryComputeKernel({
+      fields: ['x'],
+      branches: [{ pred: 'v_x > 0.0', colorHex: '#fff' }],
+      defaultColorHex: '#000',
+    })
+    expect(k.entryPoint).toBe('eval_case')
   })
 
   it('packs color via pack4x8unorm (same write path as match kernel)', () => {
@@ -366,6 +398,14 @@ describe('compute-gen — emitInterpolateComputeKernel', () => {
       stops: [{ input: 0, colorHex: '#fff' }, { input: 1, colorHex: '#000' }],
     })
     expect(k.wgsl).toContain('out_color[fid] = pack4x8unorm(color);')
+  })
+
+  it('sets entryPoint to "eval_interpolate" in returned metadata', () => {
+    const k = emitInterpolateComputeKernel({
+      fieldName: 'x',
+      stops: [{ input: 0, colorHex: '#fff' }, { input: 1, colorHex: '#000' }],
+    })
+    expect(k.entryPoint).toBe('eval_interpolate')
   })
 
   it('emits compute shader function name "eval_interpolate" (distinct from match/case)', () => {

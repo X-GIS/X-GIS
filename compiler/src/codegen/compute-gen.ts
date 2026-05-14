@@ -64,6 +64,12 @@ export const COMPUTE_WORKGROUP_SIZE = 64
  *  given feature count: `ceil(features / COMPUTE_WORKGROUP_SIZE)`. */
 export interface ComputeKernel {
   wgsl: string
+  /** WGSL function name to use as the pipeline entry point. Each
+   *  emitter picks a distinct name (`eval_match`, `eval_case`,
+   *  `eval_interpolate`) so the runtime can build separate
+   *  ComputePipeline objects without name collision when multiple
+   *  kernels share a pipeline-cache key family. */
+  entryPoint: string
   /** Number of f32 slots per feature in the feat_data buffer the
    *  runtime must populate. The emitter packs one slot per field
    *  referenced (typed-array stride). */
@@ -176,6 +182,7 @@ export function emitMatchComputeKernel(spec: MatchEmitSpec): ComputeKernel {
 
   return {
     wgsl: lines.join('\n'),
+    entryPoint: 'eval_match',
     featureStrideF32: 1,
     fieldOrder: [spec.fieldName],
     dispatchSize(featureCount: number): number {
@@ -271,6 +278,7 @@ export function emitTernaryComputeKernel(spec: TernaryEmitSpec): ComputeKernel {
 
   return {
     wgsl: lines.join('\n'),
+    entryPoint: 'eval_case',
     featureStrideF32: Math.max(1, stride),
     fieldOrder: [...spec.fields],
     dispatchSize(featureCount: number): number {
@@ -390,6 +398,7 @@ export function emitInterpolateComputeKernel(spec: InterpolateEmitSpec): Compute
 
   return {
     wgsl: lines.join('\n'),
+    entryPoint: 'eval_interpolate',
     featureStrideF32: 1,
     fieldOrder: [spec.fieldName],
     dispatchSize(featureCount: number): number {
