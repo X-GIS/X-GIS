@@ -1185,7 +1185,13 @@ describe('Mapbox → xgis converter', () => {
       expect(parses(out)).toBe(true)
     })
 
-    it('skips icon-only symbol layer (no text-field)', () => {
+    it('converts icon-only symbol layer (no text-field) to a label with icon-image', () => {
+      // Phase B (sprite atlas, commit d97fac0) added support for the
+      // icon-image / icon-size pair on symbol layers. Before that,
+      // icon-only layers were emitted as "SKIPPED — icon-only (Batch 2)"
+      // placeholder comments. Now the converter produces a real layer
+      // whose label carries the icon-image utility — the renderer
+      // resolves it against the sprite atlas at draw time.
       const out = convertMapboxStyle({
         version: 8, sources: { x: { type: 'vector', url: 'a.pmtiles' } },
         layers: [{
@@ -1193,9 +1199,8 @@ describe('Mapbox → xgis converter', () => {
           layout: { 'icon-image': 'cafe-15' } as never,
         }],
       })
-      expect(out).toContain('SKIPPED')
-      expect(out).toContain('icon-only')
-      expect(out).toContain('Batch 2')
+      expect(out).toContain('layer poi_icon')
+      expect(out).toContain('label-icon-image-cafe-15')
       expect(parses(out)).toBe(true)
     })
   })

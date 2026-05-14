@@ -86,7 +86,11 @@ describe('reserved keys — no literal `$zoom` / `$featureId` / `$geometryType` 
     const runtimeSrc = join(ROOT, 'runtime/src')
     const allFiles = [...walk(compilerSrc), ...walk(runtimeSrc)]
     for (const abs of allFiles) {
-      const rel = abs.replace(`${ROOT}/`, '')
+      // Normalise to forward-slash for cross-platform allowlist
+      // comparison — Windows `path.join` returns backslash paths,
+      // so `abs.replace(${ROOT}/, '')` was a no-op there and every
+      // allowlist entry missed.
+      const rel = abs.replace(ROOT, '').replace(/\\/g, '/').replace(/^\//, '')
       if (ALLOWED_FILES.has(rel)) continue
       const text = stripComments(readFileSync(abs, 'utf8'))
       for (const key of RESERVED_LITERALS) {
