@@ -92,10 +92,183 @@ const PALETTE: Record<string, Record<number, string>> = {
   },
 }
 
+// ─────────────────────────────────────────────────────────────────
+// CSS named colors (Color Module Level 4, 147 X11 + rebeccapurple +
+// transparent = 148 entries). Lowercase only — resolveColor lowers
+// the input before lookup. Verbatim values from
+// https://www.w3.org/TR/css-color-4/#named-colors.
+//
+// Naming overlap with the Tailwind PALETTE keys ('red', 'blue',
+// 'green', etc.) is intentional and resolves correctly because the
+// dispatch is identifier-shape-based, not name-based:
+//
+//   - Bare identifier  ('red')      → NAMED_COLORS lookup  → "#ff0000"
+//   - Hyphenated form  ('red-500')  → PALETTE['red'][500]  → "#ef4444"
+//
+// So Tailwind utilities (`fill-red-500`) and CSS named colors
+// (`fill-red`) coexist without ambiguity.
+// ─────────────────────────────────────────────────────────────────
 const NAMED_COLORS: Record<string, string> = {
-  white: '#ffffff',
-  black: '#000000',
-  transparent: '#00000000',
+  // Special
+  transparent:          '#00000000',
+  // Greyscale + neutrals
+  white:                '#ffffff',
+  black:                '#000000',
+  silver:               '#c0c0c0',
+  gray:                 '#808080',
+  grey:                 '#808080',
+  dimgray:              '#696969',
+  dimgrey:              '#696969',
+  lightgray:            '#d3d3d3',
+  lightgrey:            '#d3d3d3',
+  darkgray:             '#a9a9a9',
+  darkgrey:             '#a9a9a9',
+  slategray:            '#708090',
+  slategrey:            '#708090',
+  lightslategray:       '#778899',
+  lightslategrey:       '#778899',
+  darkslategray:        '#2f4f4f',
+  darkslategrey:        '#2f4f4f',
+  gainsboro:            '#dcdcdc',
+  // Reds + pinks
+  red:                  '#ff0000',
+  darkred:              '#8b0000',
+  firebrick:            '#b22222',
+  crimson:              '#dc143c',
+  indianred:            '#cd5c5c',
+  lightcoral:           '#f08080',
+  salmon:               '#fa8072',
+  darksalmon:           '#e9967a',
+  lightsalmon:          '#ffa07a',
+  pink:                 '#ffc0cb',
+  lightpink:            '#ffb6c1',
+  hotpink:              '#ff69b4',
+  deeppink:             '#ff1493',
+  palevioletred:        '#db7093',
+  mediumvioletred:      '#c71585',
+  // Oranges + browns
+  tomato:               '#ff6347',
+  orangered:            '#ff4500',
+  coral:                '#ff7f50',
+  orange:               '#ffa500',
+  darkorange:           '#ff8c00',
+  brown:                '#a52a2a',
+  saddlebrown:          '#8b4513',
+  sienna:               '#a0522d',
+  chocolate:            '#d2691e',
+  peru:                 '#cd853f',
+  rosybrown:            '#bc8f8f',
+  sandybrown:           '#f4a460',
+  goldenrod:            '#daa520',
+  darkgoldenrod:        '#b8860b',
+  tan:                  '#d2b48c',
+  burlywood:            '#deb887',
+  // Yellows
+  gold:                 '#ffd700',
+  yellow:               '#ffff00',
+  lightyellow:          '#ffffe0',
+  lemonchiffon:         '#fffacd',
+  lightgoldenrodyellow: '#fafad2',
+  papayawhip:           '#ffefd5',
+  moccasin:             '#ffe4b5',
+  peachpuff:            '#ffdab9',
+  palegoldenrod:        '#eee8aa',
+  khaki:                '#f0e68c',
+  darkkhaki:            '#bdb76b',
+  // Greens
+  greenyellow:          '#adff2f',
+  chartreuse:           '#7fff00',
+  lawngreen:            '#7cfc00',
+  lime:                 '#00ff00',
+  limegreen:            '#32cd32',
+  yellowgreen:          '#9acd32',
+  olive:                '#808000',
+  darkolivegreen:       '#556b2f',
+  olivedrab:            '#6b8e23',
+  darkseagreen:         '#8fbc8f',
+  palegreen:            '#98fb98',
+  lightgreen:           '#90ee90',
+  forestgreen:          '#228b22',
+  green:                '#008000',
+  darkgreen:            '#006400',
+  mediumseagreen:       '#3cb371',
+  seagreen:             '#2e8b57',
+  springgreen:          '#00ff7f',
+  mediumspringgreen:    '#00fa9a',
+  mediumaquamarine:     '#66cdaa',
+  aquamarine:           '#7fffd4',
+  // Cyans / teals
+  aqua:                 '#00ffff',
+  cyan:                 '#00ffff',
+  lightcyan:            '#e0ffff',
+  paleturquoise:        '#afeeee',
+  turquoise:            '#40e0d0',
+  mediumturquoise:      '#48d1cc',
+  darkturquoise:        '#00ced1',
+  darkcyan:             '#008b8b',
+  teal:                 '#008080',
+  cadetblue:            '#5f9ea0',
+  lightseagreen:        '#20b2aa',
+  // Blues
+  steelblue:            '#4682b4',
+  lightsteelblue:       '#b0c4de',
+  powderblue:           '#b0e0e6',
+  lightblue:            '#add8e6',
+  skyblue:              '#87ceeb',
+  lightskyblue:         '#87cefa',
+  deepskyblue:          '#00bfff',
+  dodgerblue:           '#1e90ff',
+  cornflowerblue:       '#6495ed',
+  royalblue:            '#4169e1',
+  blue:                 '#0000ff',
+  mediumblue:           '#0000cd',
+  darkblue:             '#00008b',
+  navy:                 '#000080',
+  midnightblue:         '#191970',
+  // Purples
+  blueviolet:           '#8a2be2',
+  indigo:               '#4b0082',
+  darkslateblue:        '#483d8b',
+  slateblue:            '#6a5acd',
+  mediumslateblue:      '#7b68ee',
+  mediumpurple:         '#9370db',
+  rebeccapurple:        '#663399',
+  purple:               '#800080',
+  darkmagenta:          '#8b008b',
+  darkviolet:           '#9400d3',
+  darkorchid:           '#9932cc',
+  mediumorchid:         '#ba55d3',
+  thistle:              '#d8bfd8',
+  plum:                 '#dda0dd',
+  violet:               '#ee82ee',
+  magenta:              '#ff00ff',
+  fuchsia:              '#ff00ff',
+  orchid:               '#da70d6',
+  maroon:               '#800000',
+  // Off-whites
+  ivory:                '#fffff0',
+  snow:                 '#fffafa',
+  floralwhite:          '#fffaf0',
+  ghostwhite:           '#f8f8ff',
+  seashell:             '#fff5ee',
+  oldlace:              '#fdf5e6',
+  beige:                '#f5f5dc',
+  whitesmoke:           '#f5f5f5',
+  linen:                '#faf0e6',
+  antiquewhite:         '#faebd7',
+  bisque:               '#ffe4c4',
+  blanchedalmond:       '#ffebcd',
+  wheat:                '#f5deb3',
+  cornsilk:             '#fff8dc',
+  honeydew:             '#f0fff0',
+  azure:                '#f0ffff',
+  aliceblue:            '#f0f8ff',
+  lavender:             '#e6e6fa',
+  lavenderblush:        '#fff0f5',
+  mistyrose:            '#ffe4e1',
+  mintcream:            '#f5fffa',
+  // Misc
+  navajowhite:          '#ffdead',
 }
 
 /**
@@ -119,8 +292,10 @@ export function resolveColor(name: string): string | null {
     return name.toLowerCase()
   }
 
-  // Check named colors first
-  if (NAMED_COLORS[name]) return NAMED_COLORS[name]
+  // CSS named colors are case-insensitive per spec; lowercase the
+  // input so `CornflowerBlue`, `RED`, etc. match the table.
+  const lower = name.toLowerCase()
+  if (NAMED_COLORS[lower]) return NAMED_COLORS[lower]
 
   // CSS rgb/rgba/hsl/hsla function — try before the palette regex
   // so `rgb(255,0,0)` doesn't fall through to "Expected utility
