@@ -10,6 +10,7 @@ import {
   sizeValueToShape,
 } from './to-property-shape'
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
+import { collectPalette, type Palette } from '../codegen/palette'
 
 export type { ShaderVariant } from '../codegen/shader-gen'
 
@@ -150,13 +151,34 @@ export interface SceneCommands {
    *  runtime applies it as the WebGPU clearValue. Absent → renderer
    *  default (dark navy). */
   background?: string
+  /** Scene-wide constant/gradient pool (P3 Step 1, see palette.ts).
+   *  Runtime calls `uploadPalette` to create the GPU storage textures
+   *  and binds them to every variant whose `paletteColorGradients`
+   *  is non-empty. Empty (or absent) when no zoom-interpolated paint
+   *  property was eligible for textureSampleLevel routing. */
+  palette?: import('../codegen/palette').Palette
 }
 
 /**
  * Convert an IR Scene to the legacy SceneCommands format
  * that the existing runtime expects.
  */
-export function emitCommands(scene: Scene): SceneCommands {
+/** Compiler emit options. Reserved for opt-in features that need
+ *  matching runtime infrastructure before they're safe to enable —
+ *  flipping these unconditionally would generate WGSL that fails
+ *  pipeline validation against the existing bind-group layouts. */
+export interface EmitOptions {
+  /** P3 Step 3c gate. When true, scene-level zoom-interpolated paint
+   *  properties emit `textureSampleLevel` against the gradient atlas
+   *  (P3 Step 3b emission); when false (default), they keep the
+   *  legacy `u.fill_color` uniform path. Runtime callers MUST set
+   *  this to true ONLY after they've extended the polygon bind-group
+   *  layout to include @binding(2..4) palette texture / sampler
+   *  entries and bound them via `uploadPalette`. */
+  enablePaletteSampling?: boolean
+}
+
+export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
   const loads: LoadCommand[] = scene.sources.map(src => ({
     name: src.name,
     url: src.url,
@@ -164,14 +186,27 @@ export function emitCommands(scene: Scene): SceneCommands {
     layers: src.layers,
   }))
 
-  const shows: ShowCommand[] = scene.renderNodes.map(emitShow)
+  // Walk the IR once to collect every ZOOM-only paint literal /
+  // gradient (P3 Step 1). Always emit the palette into SceneCommands
+  // so a runtime that opts INTO `enablePaletteSampling` later in
+  // its boot has the data ready. Shader-gen integration is gated
+  // separately — without the runtime bind-group extension, an
+  // active palette would generate WGSL with @binding(2..4)
+  // references that fail pipeline validation against
+  // mr-baseBindGroupLayout.
+  const palette = collectPalette(scene)
+  const variantPalette = opts?.enablePaletteSampling ? palette : undefined
+  const shows: ShowCommand[] = scene.renderNodes.map(node => emitShow(node, variantPalette))
 
-  return { loads, shows, symbols: scene.symbols }
+  return { loads, shows, symbols: scene.symbols, palette }
 }
 
-function emitShow(node: RenderNode): ShowCommand {
-  // Generate shader variant for this layer
-  const shaderVariant = generateShaderVariant(node)
+function emitShow(node: RenderNode, palette?: Palette): ShowCommand {
+  // Generate shader variant for this layer. Palette is only forwarded
+  // when the caller set `enablePaletteSampling`; otherwise the
+  // variant falls back to the legacy `u.fill_color` uniform path
+  // (P3 Step 3b's strict back-compat branch).
+  const shaderVariant = generateShaderVariant(node, undefined, palette)
 
   const op = node.opacity
 
