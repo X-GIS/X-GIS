@@ -6,35 +6,27 @@ refresh by running `bun x vitest run compiler/src/__tests__/style-coverage-repor
 | Fixture | Sources | Layers | Converted | Lossy | Skipped |
 |---|---:|---:|---:|---:|---:|
 | maplibre-demotiles | 2 | 8 | 8 | 0 | 0 |
-| openfreemap-bright | 2 | 119 | 105 | 12 | 2 |
-| openfreemap-liberty | 2 | 111 | 97 | 12 | 2 |
-| openfreemap-positron | 2 | 55 | 47 | 8 | 0 |
+| openfreemap-bright | 2 | 119 | 108 | 11 | 0 |
+| openfreemap-liberty | 2 | 111 | 100 | 11 | 0 |
+| openfreemap-positron | 2 | 55 | 48 | 7 | 0 |
 
 ## maplibre-demotiles
 
 ## openfreemap-bright
 
-### Skipped layer types
-
-- `symbol` × 2
-
 ### Lossy layer types
 
-- `symbol` × 12
+- `symbol` × 11
 
 ## openfreemap-liberty
 
-### Skipped layer types
-
-- `symbol` × 2
-
 ### Lossy layer types
 
-- `symbol` × 12
+- `symbol` × 11
 
 ## openfreemap-positron
 
 ### Lossy layer types
 
-- `symbol` × 8
+- `symbol` × 7
 
