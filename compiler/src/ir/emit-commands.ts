@@ -11,6 +11,7 @@ import {
 } from './to-property-shape'
 import { generateShaderVariant, type ShaderVariant } from '../codegen/shader-gen'
 import { collectPalette, type Palette } from '../codegen/palette'
+import { planComputeKernels, type ComputePlanEntry } from '../codegen/compute-plan'
 
 export type { ShaderVariant } from '../codegen/shader-gen'
 
@@ -157,6 +158,15 @@ export interface SceneCommands {
    *  is non-empty. Empty (or absent) when no zoom-interpolated paint
    *  property was eligible for textureSampleLevel routing. */
   palette?: import('../codegen/palette').Palette
+  /** P4 plan — one entry per (renderNodeIndex, paintAxis) that
+   *  needs a compute kernel evaluation. The runtime consumes this
+   *  to build TileComputeResources per visible tile, dispatch
+   *  kernels each frame, and merge the compute output buffer
+   *  references into the per-show ShaderVariant via
+   *  `mergeComputeAddendumIntoVariant`. Absent (or empty) when no
+   *  paint axis routes to compute — runtime falls back to the
+   *  legacy uniform / inline-fragment path uniformly. */
+  computePlan?: ComputePlanEntry[]
 }
 
 /**
@@ -198,7 +208,17 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
   const variantPalette = opts?.enablePaletteSampling ? palette : undefined
   const shows: ShowCommand[] = scene.renderNodes.map(node => emitShow(node, variantPalette))
 
-  return { loads, shows, symbols: scene.symbols, palette }
+  // Compute plan is walked unconditionally — the cost is one scene
+  // walk per compile, dominated by paint-routing's deps analysis
+  // (already linear in the scene's expression count). The runtime
+  // ignores `computePlan` when its compute path isn't wired up yet,
+  // so emitting it is back-compat by construction.
+  const computePlan = planComputeKernels(scene)
+
+  return {
+    loads, shows, symbols: scene.symbols, palette,
+    ...(computePlan.length > 0 ? { computePlan } : {}),
+  }
 }
 
 function emitShow(node: RenderNode, palette?: Palette): ShowCommand {
