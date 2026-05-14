@@ -83,27 +83,26 @@ export function emitPaletteBindings(
   palette: Palette,
   slots: PaletteBindingSlots = DEFAULT_PALETTE_SLOTS,
 ): string {
+  // P3 Step 3c: scalar gradient atlas binding (binding 3) is NOT
+  // emitted yet — the runtime bind-group layout only includes the
+  // color atlas + sampler (binding 2 + 4). Scalar zoom-interpolated
+  // paint values (line widths, sizes, opacity stops) keep using the
+  // legacy CPU resolve → uniform path until r32float-vs-filterable
+  // support lands. Until then, ANY scalar declaration would trigger
+  // `Binding doesn't exist in [mr-baseBindGroupLayout]` validation
+  // on every pipeline that emits the variant shader.
   const hasColor = palette.colorGradients.length > 0
-  const hasScalar = palette.scalarGradients.length > 0
-  if (!hasColor && !hasScalar) return ''
+  if (!hasColor) return ''
 
   const lines: string[] = ['']
   lines.push('// ── Palette bindings (zoom-stop gradients) ──')
-  if (hasColor) {
-    lines.push(
-      `@group(${slots.group}) @binding(${slots.colorGradientBinding}) `
-      + `var color_grad_atlas: texture_2d<f32>;`,
-    )
-  }
-  if (hasScalar) {
-    lines.push(
-      `@group(${slots.group}) @binding(${slots.scalarGradientBinding}) `
-      + `var scalar_grad_atlas: texture_2d<f32>;`,
-    )
-  }
-  // One sampler shared by both atlases. LinearFilter + clampToEdge
-  // (Step 3c configures it on the GPU side) lets HW interp smooth
-  // the inter-texel residual without bleeding past the row edges.
+  lines.push(
+    `@group(${slots.group}) @binding(${slots.colorGradientBinding}) `
+    + `var color_grad_atlas: texture_2d<f32>;`,
+  )
+  // Shared sampler — linear filter + clampToEdge (configured on the
+  // GPU side in renderer.ts). HW interp smooths the inter-texel
+  // residual without bleeding past the row edges.
   lines.push(
     `@group(${slots.group}) @binding(${slots.samplerBinding}) `
     + `var palette_samp: sampler;`,

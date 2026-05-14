@@ -1,6 +1,7 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, tileKey as compilerTileKey, type Program } from '@xgis/compiler'
+import { packPalette, uploadPalette, type PaletteTextures } from './gpu/palette-texture'
 import type * as AST from '@xgis/compiler'
 import { BackgroundRenderer } from './render/background-renderer'
 import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
@@ -430,6 +431,10 @@ export class XGISMap {
    *  Forwarded to BackgroundRenderer after GPU init. null = no
    *  background block declared, canvas clearValue dominates. */
   private _backgroundColor: [number, number, number, number] | null = null
+  /** P3 Step 3c — scene-scoped palette GPU textures. Held for
+   *  destruction on the next scene reload; the underlying view is
+   *  bound to every VTR + MapRenderer via setPaletteColorAtlas. */
+  private _paletteHandles: PaletteTextures | null = null
   private backgroundRenderer: BackgroundRenderer | null = null
 
   // ── Idle-render skip ──
@@ -1048,7 +1053,7 @@ export class XGISMap {
         if (d.severity === 'warn') console.warn(`${prefix}${lineSuffix} ${d.message}`)
         else console.log(`${prefix}${lineSuffix} ${d.message}`)
       }
-      commands = emitCommands(optimize(scene, ast))
+      commands = emitCommands(optimize(scene, ast), { enablePaletteSampling: true })
     } else {
       commands = interpret(ast)
     }
@@ -1087,6 +1092,32 @@ export class XGISMap {
       if (color) bgColor = color
     }
     if (bgColor) this._backgroundColor = parseHexColor(bgColor)
+
+    // P3 Step 3c — upload the scene-level color gradient palette to
+    // GPU, then push the resulting view through MapRenderer +
+    // every freshly-built VTR so their bind groups sample the real
+    // atlas instead of the 1×1 stub installed at MapRenderer init.
+    if (commands.palette && commands.palette.colorGradients.length > 0) {
+      // Guard with try/catch — palette upload races scene compile
+      // and a transient GPU error (cold device, low-memory) shouldn't
+      // kill the whole map. Fall back to the 1×1 stub atlas; legacy
+      // `u.fill_color` uniform path keeps working for every variant.
+      try {
+        const packed = packPalette(commands.palette)
+        const handles = uploadPalette(this.ctx.device, packed)
+        if (this._paletteHandles) {
+          this._paletteHandles.colorPalette.destroy()
+          this._paletteHandles.scalarPalette.destroy()
+          this._paletteHandles.colorGradientAtlas.destroy()
+          this._paletteHandles.scalarGradientAtlas.destroy()
+        }
+        this._paletteHandles = handles
+        this.renderer.setPaletteColorAtlas(handles.colorGradientAtlas.createView())
+      } catch (e) {
+        console.warn('[X-GIS] palette upload failed; falling back to legacy uniform path:',
+          (e as Error)?.message)
+      }
+    }
 
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
@@ -1366,7 +1397,9 @@ export class XGISMap {
     if (vectorTileFormat !== null && !this.useCanvas2D) {
       const source = new TileCatalog()
       const vtRenderer = new VectorTileRenderer(this.ctx)
-      vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout) // must be set before any tile uploads
+      vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
+    vtRenderer.setPaletteResources(this.renderer.paletteColorAtlasView, this.renderer.paletteSampler) // must be set before any tile uploads
+      vtRenderer.setPaletteResources(this.renderer.paletteColorAtlasView, this.renderer.paletteSampler)
       vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
       vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
       vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
@@ -1532,6 +1565,7 @@ export class XGISMap {
     const source = new TileCatalog()
     const vtRenderer = new VectorTileRenderer(this.ctx)
     vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
+    vtRenderer.setPaletteResources(this.renderer.paletteColorAtlasView, this.renderer.paletteSampler)
     vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
     vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
     vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
@@ -1741,6 +1775,7 @@ export class XGISMap {
       const source = new TileCatalog()
       const vtRenderer = new VectorTileRenderer(this.ctx)
       vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
+    vtRenderer.setPaletteResources(this.renderer.paletteColorAtlasView, this.renderer.paletteSampler)
       vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
       vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
       vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)

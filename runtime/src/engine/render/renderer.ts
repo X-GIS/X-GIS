@@ -1094,6 +1094,16 @@ export class MapRenderer {
   uniformBuffer!: GPUBuffer
   bindGroupLayout!: GPUBindGroupLayout
   featureBindGroupLayout!: GPUBindGroupLayout
+  // P3 Step 3c palette atlas resources. The texture starts as a 1×1
+  // transparent stub so every bind group is valid even before the
+  // real atlas (uploadPalette result) lands. `setPaletteColorAtlas`
+  // swaps the view in-place when the scene compile finishes.
+  paletteStubTexture!: GPUTexture
+  paletteStubTextureView!: GPUTextureView
+  /** Currently-bound color gradient atlas view. Defaults to the 1×1
+   *  stub; set to the real atlas via `setPaletteColorAtlas`. */
+  paletteColorAtlasView!: GPUTextureView
+  paletteSampler!: GPUSampler
   private bindGroup!: GPUBindGroup
   private layers: RenderLayer[] = []
   private graticuleBuffer: GPUBuffer | null = null
@@ -1247,13 +1257,40 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
       label: 'xgis-shader',
     })
 
+    // P3 Step 3c — palette gradient atlas bindings on group 0:
+    //   binding 2: rgba8unorm 2-D atlas of pre-baked color gradients
+    //              (one row per gradient, GRADIENT_WIDTH texels wide).
+    //   binding 4: linear-filter sampler shared by every gradient
+    //              sample call site. (Binding 3 is reserved for the
+    //              scalar atlas; not wired yet — scalars stay on the
+    //              CPU resolve path until r32float-vs-filterable is
+    //              resolved.)
+    // Both base and feature layouts include these so the variant
+    // pipeline can validate against either, regardless of whether the
+    // layer also needs the per-feature data buffer.
+    const paletteLayoutEntries: GPUBindGroupLayoutEntry[] = [
+      {
+        binding: 2,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: 'float', viewDimension: '2d' },
+      },
+      {
+        binding: 4,
+        visibility: GPUShaderStage.FRAGMENT,
+        sampler: { type: 'filtering' },
+      },
+    ]
+
     this.bindGroupLayout = device.createBindGroupLayout({
       label: 'mr-baseBindGroupLayout',
-      entries: [{
-        binding: 0,
-        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-        buffer: { type: 'uniform', hasDynamicOffset: true },
-      }],
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform', hasDynamicOffset: true },
+        },
+        ...paletteLayoutEntries,
+      ],
     })
 
     this.featureBindGroupLayout = device.createBindGroupLayout({
@@ -1269,8 +1306,39 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
           visibility: GPUShaderStage.FRAGMENT,
           buffer: { type: 'read-only-storage' },
         },
+        ...paletteLayoutEntries,
       ],
     })
+
+    // Device-lifetime 1×1 stub color texture + linear sampler. Every
+    // pipeline created against the layouts above must bind SOMETHING
+    // at bindings 2 / 4 to satisfy WebGPU validation, even when the
+    // layer has no zoom-interpolated paint. P3 Step 3c proper will
+    // swap the stub for `uploadPalette`'s real atlas; until then the
+    // stubs keep existing bind groups valid + the visual unchanged.
+    this.paletteStubTexture = device.createTexture({
+      label: 'mr-palette-stub-color',
+      size: { width: 1, height: 1 },
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    })
+    device.queue.writeTexture(
+      { texture: this.paletteStubTexture },
+      new Uint8Array([0, 0, 0, 0]),
+      { bytesPerRow: 4 },
+      { width: 1, height: 1 },
+    )
+    this.paletteStubTextureView = this.paletteStubTexture.createView()
+    this.paletteColorAtlasView = this.paletteStubTextureView
+    this.paletteSampler = device.createSampler({
+      label: 'mr-palette-sampler',
+      magFilter: 'linear',
+      minFilter: 'linear',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
+    })
+    // Outer scope of constructor — methods that need re-bind on
+    // palette swap close over `device` via `this.ctx.device`.
 
     const pipelineLayout = device.createPipelineLayout({
       label: 'mr-mainPipelineLayout(base-only)',
@@ -1642,7 +1710,11 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
 
     this.bindGroup = device.createBindGroup({
       layout: this.bindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } }],
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
+        { binding: 2, resource: this.paletteColorAtlasView },
+        { binding: 4, resource: this.paletteSampler },
+      ],
     })
   }
 
@@ -1717,7 +1789,11 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
     this.uniformStaging = grown
     this.bindGroup = device.createBindGroup({
       layout: this.bindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } }],
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
+        { binding: 2, resource: this.paletteColorAtlasView },
+        { binding: 4, resource: this.paletteSampler },
+      ],
     })
     for (const layer of this.layers) {
       if (layer.featureDataBuffer) {
@@ -1726,6 +1802,8 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
           entries: [
             { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
+            { binding: 2, resource: this.paletteColorAtlasView },
+            { binding: 4, resource: this.paletteSampler },
           ],
         })
       }
@@ -1830,6 +1908,8 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
           entries: [
             { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
+            { binding: 2, resource: this.paletteColorAtlasView },
+            { binding: 4, resource: this.paletteSampler },
           ],
         })
 
@@ -1874,6 +1954,42 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
     }
 
     this.layers.push(layer)
+  }
+
+  /** P3 Step 3c — swap the bound color gradient atlas. Caller uploads
+   *  the texture via `uploadPalette` (palette-texture.ts), then hands
+   *  the returned `colorPalette.createView()` here. We rebuild every
+   *  bind group that referenced the previous view (default + every
+   *  per-layer feature group) so the next frame samples the real
+   *  atlas instead of the 1×1 transparent stub.
+   *
+   *  Mirrors `setBindGroupLayout` lifecycle — caller invokes once per
+   *  scene compile (palette is scene-scoped). */
+  setPaletteColorAtlas(view: GPUTextureView): void {
+    this.paletteColorAtlasView = view
+    if (this.bindGroup) {
+      this.bindGroup = this.ctx.device.createBindGroup({
+        layout: this.bindGroupLayout,
+        entries: [
+          { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
+          { binding: 2, resource: this.paletteColorAtlasView },
+          { binding: 4, resource: this.paletteSampler },
+        ],
+      })
+    }
+    for (const layer of this.layers) {
+      if (layer.featureDataBuffer) {
+        layer.perLayerBindGroup = this.ctx.device.createBindGroup({
+          layout: this.featureBindGroupLayout,
+          entries: [
+            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
+            { binding: 1, resource: { buffer: layer.featureDataBuffer } },
+            { binding: 2, resource: this.paletteColorAtlasView },
+            { binding: 4, resource: this.paletteSampler },
+          ],
+        })
+      }
+    }
   }
 
   /** Get or create variant pipelines (public for vector tile renderer) */

@@ -71,24 +71,27 @@ describe('palette-emit — emitPaletteBindings', () => {
     expect(out).toContain('@binding(4) var palette_samp: sampler')
   })
 
-  it('scalar gradient → emits scalar atlas binding + sampler, no color', () => {
+  it('scalar gradient only → empty until scalar atlas binding wires (P3 Step 3c deferred)', () => {
+    // Scalar zoom-interpolated paint values stay on the CPU resolve
+    // path until the r32float-vs-filterable scalar atlas binding
+    // lands. emitPaletteBindings deliberately skips the scalar
+    // binding declaration to keep variant pipelines validatable
+    // against the current `mr-baseBindGroupLayout` (binding 2 +
+    // sampler 4 only).
     const palette = collectPalette(sceneFromNodes(makeNode({
       size: { kind: 'zoom-interpolated', stops: [zs(0, 4), zs(20, 16)] } as SizeValue,
     })))
-    const out = emitPaletteBindings(palette)
-    expect(out).toContain('@binding(3) var scalar_grad_atlas: texture_2d<f32>')
-    expect(out).not.toContain('color_grad_atlas')
-    expect(out).toContain('palette_samp')
+    expect(emitPaletteBindings(palette)).toBe('')
   })
 
-  it('mixed gradients → emits both atlases + one shared sampler', () => {
+  it('mixed gradients → color emitted, scalar deferred', () => {
     const palette = collectPalette(sceneFromNodes(
       makeNode({ fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] } as ColorValue }),
       makeNode({ size: { kind: 'zoom-interpolated', stops: [zs(0, 4), zs(20, 16)] } as SizeValue }),
     ))
     const out = emitPaletteBindings(palette)
     expect(out).toContain('color_grad_atlas')
-    expect(out).toContain('scalar_grad_atlas')
+    expect(out).not.toContain('scalar_grad_atlas')
     expect((out.match(/palette_samp/g) ?? []).length).toBe(1)
   })
 

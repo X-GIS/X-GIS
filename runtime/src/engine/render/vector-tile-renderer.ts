@@ -482,6 +482,18 @@ export class VectorTileRenderer {
     this.ensureUniformRing()
   }
 
+  /** P3 Step 3c — set palette atlas resources used by binding 2 + 4
+   *  on the polygon bind-group layout. Caller (MapRenderer) hands
+   *  the 1×1 stub by default; once `uploadPalette` lands the real
+   *  atlas, the same call rebuilds the tile bind groups in place. */
+  setPaletteResources(colorAtlasView: GPUTextureView, sampler: GPUSampler): void {
+    this.paletteColorAtlasView = colorAtlasView
+    this.paletteSampler = sampler
+    this.rebuildTileBindGroups()
+  }
+  private paletteColorAtlasView: GPUTextureView | null = null
+  private paletteSampler: GPUSampler | null = null
+
   private ensureUniformRing(): void {
     if (this.uniformRing) return
     this.uniformRing = this.device.createBuffer({
@@ -494,10 +506,19 @@ export class VectorTileRenderer {
 
   private rebuildTileBindGroups(): void {
     if (!this.uniformRing || !this.baseBindGroupLayout) return
+    // Palette bindings 2/4 are part of mr-baseBindGroupLayout /
+    // mr-featureBindGroupLayout. Defer bind-group construction until
+    // both palette resources are wired so we don't ever build a
+    // group missing those entries.
+    if (!this.paletteColorAtlasView || !this.paletteSampler) return
     this.tileBgDefault = this.device.createBindGroup({
       label: 'vtr-tileBg-default',
       layout: this.baseBindGroupLayout,
-      entries: [{ binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } }],
+      entries: [
+        { binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } },
+        { binding: 2, resource: this.paletteColorAtlasView },
+        { binding: 4, resource: this.paletteSampler },
+      ],
     })
     if (this.featureBindGroupLayout && this.featureDataBuffer) {
       this.tileBgFeature = this.device.createBindGroup({
@@ -506,6 +527,8 @@ export class VectorTileRenderer {
         entries: [
           { binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } },
           { binding: 1, resource: { buffer: this.featureDataBuffer } },
+          { binding: 2, resource: this.paletteColorAtlasView },
+          { binding: 4, resource: this.paletteSampler },
         ],
       })
     } else {
@@ -1535,12 +1558,19 @@ export class VectorTileRenderer {
     })
     this.device.queue.writeBuffer(buffer, 0, data)
 
+    // mr-featureBindGroupLayout requires palette bindings 2 + 4
+    // (added in P3 Step 3c). When the renderer hasn't pushed palette
+    // resources yet, return null buffer so the caller falls back to
+    // a non-feature pipeline rather than producing an invalid group.
+    if (!this.paletteColorAtlasView || !this.paletteSampler) return null
     const bindGroup = this.device.createBindGroup({
       label: 'per-tile-feature-bg',
       layout: this.featureBindGroupLayout,
       entries: [
         { binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } },
         { binding: 1, resource: { buffer } },
+        { binding: 2, resource: this.paletteColorAtlasView },
+        { binding: 4, resource: this.paletteSampler },
       ],
     })
 

@@ -59,6 +59,11 @@ export interface SceneCommands {
    *  block. Renderer applies it as the canvas clearValue; absent
    *  → renderer keeps its built-in default. */
   background?: string
+  /** P3 Step 3c — scene-wide color gradient pool surfaced by
+   *  `emitCommands(scene)`. Runtime uploads via `uploadPalette` and
+   *  binds via `setPaletteColorAtlas`. Absent for interpreter-only
+   *  paths (which don't run the compile pipeline). */
+  palette?: import('@xgis/compiler').Palette
 }
 
 /**
