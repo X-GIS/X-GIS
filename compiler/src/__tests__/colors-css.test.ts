@@ -35,6 +35,52 @@ describe('resolveColor — CSS rgb()', () => {
   })
 })
 
+describe('resolveColor — CSS hwb()', () => {
+  it('hwb(0, 0%, 0%) = pure red (no white, no black)', () => {
+    expect(resolveColor('hwb(0, 0%, 0%)')).toBe('#ff0000')
+  })
+
+  it('hwb(120, 0%, 0%) = pure green', () => {
+    expect(resolveColor('hwb(120, 0%, 0%)')).toBe('#00ff00')
+  })
+
+  it('hwb(240, 0%, 0%) = pure blue', () => {
+    expect(resolveColor('hwb(240, 0%, 0%)')).toBe('#0000ff')
+  })
+
+  it('hwb with 50% whiteness → light tint', () => {
+    // hue=0 (red), whiteness=50%, blackness=0%
+    // → (1*1+0.5)*255 on R, 0.5*255 on G/B = (255, 128, 128) ≈ pink
+    expect(resolveColor('hwb(0, 50%, 0%)')).toBe('#ff8080')
+  })
+
+  it('hwb with 50% blackness → dark shade', () => {
+    // hue=0, whiteness=0%, blackness=50%
+    // → R = 1*0.5*255 = 128, G/B = 0
+    expect(resolveColor('hwb(0, 0%, 50%)')).toBe('#800000')
+  })
+
+  it('hwb whiteness + blackness ≥ 100% normalises to grey', () => {
+    // 50/50 split → mid grey
+    expect(resolveColor('hwb(0, 50%, 50%)')).toBe('#808080')
+    // 75% white, 25% black → 75% grey
+    expect(resolveColor('hwb(0, 75%, 25%)')).toBe('#bfbfbf')
+  })
+
+  it('hwb modern slash alpha', () => {
+    expect(resolveColor('hwb(0 0% 0% / 0.5)')).toBe('#ff000080')
+  })
+
+  it('hwb accepts deg unit on hue', () => {
+    expect(resolveColor('hwb(120deg, 0%, 0%)')).toBe('#00ff00')
+  })
+
+  it('returns null for malformed hwb()', () => {
+    expect(resolveColor('hwb(0)')).toBeNull()
+    expect(resolveColor('hwb(a, b, c)')).toBeNull()
+  })
+})
+
 describe('resolveColor — CSS hsl()', () => {
   it('parses 3-arg hsl()', () => {
     // hsl(0, 100%, 50%) = pure red

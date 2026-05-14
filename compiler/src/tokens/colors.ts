@@ -314,14 +314,16 @@ export function resolveColor(name: string): string | null {
   return palette[parseInt(shade)] ?? null
 }
 
-/** Parse a CSS rgb / rgba / hsl / hsla function call into a `#RRGGBB`
- *  or `#RRGGBBAA` string. Accepts comma-separated and modern slash-
- *  separated alpha (`rgb(0 0 0 / 0.5)`). Returns null when the
- *  input isn't a recognized colour function. */
+/** Parse a CSS rgb / rgba / hsl / hsla / hwb function call into a
+ *  `#RRGGBB` or `#RRGGBBAA` string. Accepts comma-separated and
+ *  modern slash-separated alpha (`rgb(0 0 0 / 0.5)`). hwb is the
+ *  CSS Color Module 4 hue/whiteness/blackness colour space — its
+ *  parser is identical to hsl, only the channel→RGB step differs.
+ *  Returns null when the input isn't a recognized colour function. */
 function parseCssColorFn(input: string): string | null {
   // Strip whitespace inside but keep the structure tokens
   const trimmed = input.trim()
-  const m = trimmed.match(/^(rgb|rgba|hsl|hsla)\((.*)\)$/i)
+  const m = trimmed.match(/^(rgb|rgba|hsl|hsla|hwb)\((.*)\)$/i)
   if (!m) return null
   const fn = m[1].toLowerCase()
   // Accept comma OR whitespace separation; the CSS-modern alpha
@@ -343,14 +345,27 @@ function parseCssColorFn(input: string): string | null {
     return rgbToHex(r, g, b, 1)
   }
 
-  // hsl / hsla
+  if (fn === 'hsl' || fn === 'hsla') {
+    const h = parseHue(parts[0])
+    const sat = parsePercent(parts[1])
+    const lig = parsePercent(parts[2])
+    if (h === null || sat === null || lig === null) return null
+    const alpha = parts.length === 4 ? parseAlpha(parts[3]) : 1
+    if (alpha === null) return null
+    const [r, g, b] = hslToRgb(h, sat, lig)
+    return rgbToHex(r, g, b, alpha)
+  }
+
+  // hwb(H, W%, B%, [A]) — CSS Color Module 4. Whiteness + blackness
+  // > 1 → grey (clamp per spec). Otherwise mix the hue colour with
+  // whiteness towards 1 and blackness towards 0.
   const h = parseHue(parts[0])
-  const sat = parsePercent(parts[1])
-  const lig = parsePercent(parts[2])
-  if (h === null || sat === null || lig === null) return null
+  const wht = parsePercent(parts[1])
+  const blk = parsePercent(parts[2])
+  if (h === null || wht === null || blk === null) return null
   const alpha = parts.length === 4 ? parseAlpha(parts[3]) : 1
   if (alpha === null) return null
-  const [r, g, b] = hslToRgb(h, sat, lig)
+  const [r, g, b] = hwbToRgb(h, wht, blk)
   return rgbToHex(r, g, b, alpha)
 }
 
@@ -403,6 +418,31 @@ function parseHue(p: string): number | null {
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v
+}
+
+/** CSS Color Module 4 hwb → sRGB. When whiteness + blackness ≥ 1
+ *  the colour is achromatic and equals whiteness / (w + b) on every
+ *  channel (per spec normalisation). Otherwise the pure hue colour
+ *  (saturation 1, lightness 0.5) is multiplied by (1 - w - b) and
+ *  summed with whiteness — straight from the spec definition:
+ *
+ *    final = hue × (1 - whiteness - blackness) + whiteness
+ *
+ *  Verbatim from https://www.w3.org/TR/css-color-4/#the-hwb-notation
+ *  This is intentionally NOT the `hue * (1 - blackness) + whiteness`
+ *  formula that overshoots 1.0 when whiteness > 0 and blackness = 0. */
+function hwbToRgb(h: number, w: number, b: number): [number, number, number] {
+  if (w + b >= 1) {
+    const grey = w / (w + b)
+    return [grey * 255, grey * 255, grey * 255]
+  }
+  const [hr, hg, hb] = hslToRgb(h, 1, 0.5)
+  const hueScale = 1 - w - b
+  return [
+    ((hr / 255) * hueScale + w) * 255,
+    ((hg / 255) * hueScale + w) * 255,
+    ((hb / 255) * hueScale + w) * 255,
+  ]
 }
 
 function hslToRgb(h: number, s: number, l: number): [number, number, number] {
