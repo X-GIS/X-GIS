@@ -251,6 +251,85 @@ describe('P4 end-to-end — compiler ↔ runtime contract', () => {
     expect(dispatches[0]!.workgroups).toBe(4)
   })
 
+  it('end-to-end dedup — fill + stroke same match() → 1 unique kernel, 3 buffers, 1 dispatch', () => {
+    // Build a scene where BOTH fill and stroke evaluate the same
+    // match(class, school -> '#f0e8f8', hospital -> '#f5deb3', _ ->
+    // '#888'). emitCommands runs the compiler-side dedup
+    // (compute-plan WGSL fingerprint cache); TileComputeResources
+    // runs the runtime-side dedup (Map<ComputeKernel, ...>).
+    // Cross-boundary: when both sides agree on identity, the
+    // observable GPU footprint shrinks.
+    function buildSharedMatchScene(): Scene {
+      const buildExpr = (): DataExpr => ({
+        ast: {
+          kind: 'FnCall',
+          callee: { kind: 'Identifier', name: 'match' },
+          args: [{ kind: 'FieldAccess', object: null, field: 'class' }],
+          matchBlock: {
+            kind: 'MatchBlock',
+            arms: [
+              { pattern: 'school',   value: { kind: 'ColorLiteral', value: '#f0e8f8' } },
+              { pattern: 'hospital', value: { kind: 'ColorLiteral', value: '#f5deb3' } },
+              { pattern: '_',        value: { kind: 'ColorLiteral', value: '#888888' } },
+            ],
+          },
+        },
+      })
+      const fill: ColorValue = { kind: 'data-driven', expr: buildExpr() }
+      const strokeColor: ColorValue = { kind: 'data-driven', expr: buildExpr() }
+      const node: RenderNode = {
+        name: 'landuse', sourceRef: 'lu', zOrder: 0,
+        fill,
+        stroke: {
+          color: strokeColor,
+          width: { kind: 'constant', value: 1 } as PropertyShape<number>,
+        } as StrokeValue,
+        opacity: { kind: 'constant', value: 1 },
+        size: { kind: 'none' } as SizeValue,
+        extrude: { kind: 'none' } as never,
+        extrudeBase: { kind: 'none' } as never,
+        projection: 'mercator', visible: true, pointerEvents: 'auto',
+        filter: null, geometry: null, billboard: true,
+        shape: { kind: 'named', name: 'circle' } as never,
+      }
+      return { sources: [], symbols: [], renderNodes: [node] } as Scene
+    }
+
+    const cmds = emitCommands(buildSharedMatchScene())
+    // Compiler-side dedup: 2 plan entries (fill + stroke) but they
+    // SHARE the same ComputeKernel reference.
+    expect(cmds.computePlan).toBeDefined()
+    expect(cmds.computePlan!.length).toBe(2)
+    expect(cmds.computePlan![0]!.paintAxis).toBe('fill')
+    expect(cmds.computePlan![1]!.paintAxis).toBe('stroke-color')
+    expect(cmds.computePlan![0]!.kernel).toBe(cmds.computePlan![1]!.kernel)
+
+    // Runtime-side dedup: the shared kernel reference collapses to
+    // one (feat / out / count) trio.
+    const { dispatcher, buffers, encoder, dispatches, writes } = makeFakeContext()
+    const resources = new TileComputeResources(dispatcher, cmds.computePlan ?? [])
+    expect(resources.entryCount).toBe(2)
+    expect(resources.uniqueKernelCount).toBe(1)
+    // 1 unique kernel × 3 buffers = 3 (would be 6 pre-dedup).
+    expect(buffers).toHaveLength(3)
+
+    // Both axes resolve to the SAME outBuffer reference.
+    const fillOut = resources.getOutBuffer(0, 'fill')
+    const strokeOut = resources.getOutBuffer(0, 'stroke-color')
+    expect(fillOut).not.toBeNull()
+    expect(fillOut).toBe(strokeOut)
+
+    // uploadFromProps packs once (1 feat-data write + 1 count write =
+    // 2 writes, not 4).
+    resources.uploadFromProps(() => ({ class: 'school' }), 100)
+    expect(writes).toHaveLength(2)
+
+    // Dispatch fires once for the unique kernel.
+    resources.dispatch(encoder)
+    expect(dispatches).toHaveLength(1)
+    expect(dispatches[0]!.entryPoint).toBe('eval_match')
+  })
+
   it('no-compute scene → empty computePlan, identity-merged variant, no resources', () => {
     const scene: Scene = {
       sources: [], symbols: [],
