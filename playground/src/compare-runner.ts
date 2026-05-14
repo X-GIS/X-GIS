@@ -148,6 +148,15 @@ async function mountBoth(url: string): Promise<void> {
     // neither attribution nor navigation controls). The compare page
     // is a dev tool; production embeds should opt the controls back in.
     attributionControl: false,
+    // Disable ALL MapLibre input handlers. The default interactive
+    // mode auto-attaches dragRotate / dragPan / scrollZoom /
+    // doubleClickZoom / boxZoom / keyboard / touchPitch handlers, which
+    // can subtly shift the camera state via inertia / momentum on the
+    // first frame after `load` even when the user hasn't interacted.
+    // Pixel-parity measurement needs ML's camera state to track
+    // X-GIS's deterministic camera exactly — disabling interaction
+    // pins both sides to the URL hash with no drift.
+    interactive: false,
   })
   // No NavigationControl — same rationale as attributionControl above.
   // The top-right `+ / − / compass` widget only existed on the ML side
@@ -155,6 +164,22 @@ async function mountBoth(url: string): Promise<void> {
   ;(window as unknown as { __mlMap?: maplibregl.Map }).__mlMap = mlMap
 
   mlMap.on('load', () => {
+    // Remove every MapLibre-injected control container before flipping
+    // ready. The DEFAULT MapLibre v3+ Map auto-adds a LogoControl
+    // (bottom-left wordmark) — there's no constructor option to
+    // suppress it, only post-load `removeControl`. The X-GIS pane has
+    // no such overlay, so this chrome was dominating the pixel-diff
+    // (~2-4% of all "differing" pixels were just the logo region).
+    //
+    // Sledgehammer: walk every `.maplibregl-ctrl` container and detach.
+    // Any future MapLibre release that adds new chrome (CompassControl,
+    // GlobeControl, etc.) is covered automatically.
+    if (mlContainer) {
+      const ctrls = mlContainer.querySelectorAll('.maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-top-left, .maplibregl-ctrl-top-right')
+      for (const c of ctrls) {
+        ;(c as HTMLElement).style.display = 'none'
+      }
+    }
     ;(window as unknown as { __mlReady?: boolean }).__mlReady = true
   })
 
