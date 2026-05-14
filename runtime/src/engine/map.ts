@@ -227,6 +227,23 @@ export interface XGISMapOptions {
    *  Same effect as <link rel="preload"> + @font-face, but driven from
    *  JS so the host can ship the bytes inside its own bundle. */
   fonts?: XGISFontResource[]
+  /** Plan P4 opt-in: route per-feature paint expressions
+   *  (`match(get(field), ...)`, `case(...)`) through a GPU compute
+   *  kernel instead of the legacy fragment-shader if-else chain.
+   *
+   *  When set to `true`, `emitCommands` runs with
+   *  `enableComputePath: true`: the compiler emits a `computePlan`
+   *  + variants carrying `computeBindings`, and MapRenderer attaches
+   *  `ComputeLayerHandle` instances that dispatch per-frame compute
+   *  kernels (see `compute-layer-registry.ts`).
+   *
+   *  Default is `false` (legacy fragment-shader path) until the
+   *  per-style pixel-match verification gate flips. Direct .xgis
+   *  fixtures with `match()` data-driven fills exercise the path
+   *  cleanly; Mapbox-converted styles (OFM Bright etc.) get their
+   *  match() expressions pre-expanded by `expand-color-match` so
+   *  the compute path sees 0 entries on them — still safe to enable. */
+  enableComputePath?: boolean
 }
 
 /** Map of CSS family name → per-font typography overrides. Built once
@@ -479,7 +496,17 @@ export class XGISMap {
     } else {
       this.fontsReady = Promise.resolve()
     }
+    // P4 opt-in for compute-driven paint evaluation. Stored as a
+    // simple flag the run() method reads when invoking emitCommands.
+    if (options.enableComputePath) this._enableComputePath = true
   }
+
+  /** P4 opt-in flag. When true, run() invokes
+   *  `emitCommands(scene, { enableComputePath: true, ... })`. The
+   *  rest of the wire-up (handle attach, dispatch, bind groups) is
+   *  unconditional but no-op when the variant carries no
+   *  computeBindings. */
+  private _enableComputePath = false
 
   /** Per-font typography overrides keyed by CSS family ("Open Sans"
    *  → { letterSpacingEm: -0.02, lineHeightScale: 1.05 }). Built from
@@ -1053,7 +1080,14 @@ export class XGISMap {
         if (d.severity === 'warn') console.warn(`${prefix}${lineSuffix} ${d.message}`)
         else console.log(`${prefix}${lineSuffix} ${d.message}`)
       }
-      commands = emitCommands(optimize(scene, ast), { enablePaletteSampling: true })
+      commands = emitCommands(optimize(scene, ast), {
+        enablePaletteSampling: true,
+        // P4 opt-in: user-supplied via XGISMapOptions.enableComputePath.
+        // When false (default) the compiler emits variants without
+        // computeBindings, and every renderer-side compute branch
+        // short-circuits to legacy paint resolve.
+        enableComputePath: this._enableComputePath,
+      })
     } else {
       commands = interpret(ast)
     }
