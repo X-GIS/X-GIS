@@ -46,6 +46,13 @@ export class PriorityQueue<T, R = unknown> {
   private currJobs = 0
   private scheduled = false
   private readonly schedulingCallback: (fn: () => void) => void
+  /** Sort idempotency flag. `sort()` no-ops when this is false —
+   *  the items haven't changed nor has the comparator's behaviour
+   *  signalled an update. `add()` / `remove()` / explicit
+   *  `markDirty()` set this to true. VTR clears its distance-memo
+   *  on camera move and calls `markDirty()` so the next `sort()`
+   *  reorders against the new camera position. */
+  private dirty = true
 
   constructor(opts: { schedulingCallback?: (fn: () => void) => void } = {}) {
     this.schedulingCallback = opts.schedulingCallback ?? ((fn) => queueMicrotask(fn))
@@ -68,8 +75,24 @@ export class PriorityQueue<T, R = unknown> {
     return this.currJobs
   }
 
+  /** Force the next `sort()` to actually run. Call when the
+   *  comparator's BEHAVIOUR changes for an unchanged item set —
+   *  e.g. when VTR clears its distance-memo on camera move, the
+   *  same items now compare in a different order. `add()` /
+   *  `remove()` mark dirty automatically. */
+  markDirty(): void {
+    this.dirty = true
+  }
+
   sort(): void {
     if (this.priorityCallback === null) return
+    // Idempotency skip — no add/remove and the camera (or other
+    // comparator input) hasn't signalled dirty since the last
+    // sort. On Bright the same render frame calls sort() once per
+    // ShowCommand (~80×); the previous frame already sorted the
+    // queue against the current camera, so all but the FIRST call
+    // would just re-do the same comparator work.
+    if (!this.dirty) return
     // Skip sort when every queued item will dispatch in the next
     // tryRunJobs round — priority order is moot at that point.
     // tryRunJobs caps dispatch at `maxJobs - currJobs`, so when
@@ -83,6 +106,7 @@ export class PriorityQueue<T, R = unknown> {
     const slots = this.maxJobs - this.currJobs
     if (this.items.length <= slots) return
     this.items.sort(this.priorityCallback)
+    this.dirty = false
   }
 
   /** Enqueue. Resolves with the callback's value once it runs; rejects
@@ -95,6 +119,7 @@ export class PriorityQueue<T, R = unknown> {
     const data: ItemData<T, R> = { callback, resolve, reject, promise }
     this.items.unshift(item)
     this.callbacks.set(item, data)
+    this.dirty = true
     if (this.autoUpdate) this.scheduleJobRun()
     return promise
   }
@@ -113,6 +138,11 @@ export class PriorityQueue<T, R = unknown> {
     info.reject(new PriorityQueueItemRemovedError())
     this.items.splice(index, 1)
     this.callbacks.delete(item)
+    // Removal can't unsettle remaining items' relative order, but
+    // it can drop an item that was BLOCKING earlier ones from the
+    // "top N slots" partition — re-sort is safest. (Net cost stays
+    // zero in steady-state since we only re-sort when called.)
+    this.dirty = true
   }
 
   /** Drop every queued item for which `filter` returns true. */

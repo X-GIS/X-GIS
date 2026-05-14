@@ -3427,6 +3427,12 @@ export class VectorTileRenderer {
     if (this._distMemoCamX !== camera.centerX || this._distMemoCamY !== camera.centerY) {
       this._distMemoCamX = camera.centerX
       this._distMemoCamY = camera.centerY
+      // Camera moved → previously-sorted items now compare against
+      // different distances. Force the next uploadQueue.sort() to
+      // re-execute (the per-frame idempotency skip would otherwise
+      // keep the stale ordering when the queue's items haven't
+      // changed since last frame).
+      this.uploadQueue.markDirty()
       this._distMemo.clear()
     }
     if (this._installedPriorityFns !== this.uploadQueue) {
