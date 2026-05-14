@@ -160,10 +160,22 @@ export function checkPatternParams(
   }
 }
 
+// Module-level scratch buffer reused across packLineLayerUniform
+// calls. Called per line layer per frame — 71 calls on OFM Bright
+// z=13 = ~13 KB of fresh Float32Array allocations per frame. The
+// caller passes the result straight to `writeBuffer`, which COPIES
+// synchronously, so reuse is safe (no caller retention).
+const _lineUniformScratchF32 = new Float32Array(LINE_UNIFORM_SIZE / 4)
+const _lineUniformScratchU32 = new Uint32Array(_lineUniformScratchF32.buffer)
+
 /** Pack layer uniform data into a Float32Array for upload. The layout
  *  is documented at the top of this file; the 192-byte struct is
  *  ABI-coupled to WGSL `LineLayerUniform` and any field reordering must
- *  happen here AND in the shader simultaneously. */
+ *  happen here AND in the shader simultaneously.
+ *
+ *  Returns a SHARED scratch buffer — caller MUST upload via
+ *  writeBuffer (which copies synchronously) before the next call
+ *  to `packLineLayerUniform`. Never retain the returned reference. */
 export function packLineLayerUniform(
   strokeColor: [number, number, number, number],
   strokeWidthPx: number,
@@ -182,8 +194,13 @@ export function packLineLayerUniform(
    *  per the Mapbox spec ("Blur applied to the line, in pixels."). */
   blurPx: number = 0,
 ): Float32Array {
-  const buf = new Float32Array(LINE_UNIFORM_SIZE / 4)
-  const u32 = new Uint32Array(buf.buffer)
+  const buf = _lineUniformScratchF32
+  const u32 = _lineUniformScratchU32
+  // Zero the scratch — the function only writes selected slots,
+  // and stale values from a prior call would leak into the GPU
+  // upload (e.g. dash cycle from a solid-stroke layer's prior
+  // dashed-stroke caller).
+  buf.fill(0)
   buf[0] = strokeColor[0]
   buf[1] = strokeColor[1]
   buf[2] = strokeColor[2]
