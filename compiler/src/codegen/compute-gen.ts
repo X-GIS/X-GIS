@@ -1,0 +1,228 @@
+// ═══════════════════════════════════════════════════════════════════
+// Compute-kernel WGSL emitter — first piece of P4
+// ═══════════════════════════════════════════════════════════════════
+//
+// Plan Phase 4 (wild-finding-starlight). The full P4 vision is to
+// move every per-feature paint evaluation off the fragment shader
+// and onto a single compute dispatch per frame:
+//
+//   compute pass:
+//     for each feature in scene → eval data-driven exprs → write
+//     packed RGBA into a storage buffer
+//   draw pass:
+//     fragment shader textureLoads / readsBuffer the pre-computed
+//     value at the feature's fid
+//
+// This commit ships the FIRST piece: a pure WGSL string builder
+// that converts ONE `match(get(.field), k0 -> v0, k1 -> v1, …, _ -> default)`
+// expression into a compute kernel. Future commits wire it into:
+//
+//   - shader-gen (alternate code path that emits compute-kernel
+//     references instead of inline if-else chains),
+//   - runtime (the actual `ComputeDispatcher` call site that runs
+//     the kernel once per frame and binds the output buffer to the
+//     fragment shader),
+//   - the dependency / CSE machinery (P0 Step 3) — only routes
+//     expressions whose deps ⊆ {FEATURE} through compute; ZOOM-only
+//     paths stay on the gradient-atlas path (P3).
+//
+// Why a pure string emitter:
+//
+//   - Unit-testable without a GPUDevice. The output is just text,
+//     comparable byte-for-byte against an expected kernel.
+//   - Mirrors the shader-gen.ts pattern (fragment match() emit) —
+//     two emitters using the same canonical match() AST shape,
+//     producing two specialised outputs for two execution models.
+//   - Keeps the compute kernel + runtime dispatch decoupled. The
+//     emitter doesn't know about ComputeDispatcher; the dispatcher
+//     doesn't know how the WGSL was generated.
+//
+// What this module DOES NOT do:
+//
+//   - Emit anything besides match(). The full P4 vision covers
+//     case(), interpolate() with feature deps, scale(), etc. Each
+//     gets its own emit helper in a later commit.
+//   - Decide whether to use compute. shader-gen's routing layer
+//     picks compute vs inline if-else based on the variant's
+//     deps + feature count, NOT this module.
+//   - Compose multiple kernels. The runtime concatenates per-show
+//     kernel emissions into one dispatched compute pass; this
+//     emitter ships one match() at a time.
+
+import { resolveColor } from '../tokens/colors'
+
+/** Workgroup size used by every emitted kernel. 64 is the WebGPU
+ *  spec's lowest-common-denominator that maps cleanly to NVIDIA
+ *  warps (32) and AMD wavefronts (32 / 64) without sub-occupancy.
+ *  Per-feature material eval has no shared-memory cooperation, so
+ *  larger workgroups don't help. */
+export const COMPUTE_WORKGROUP_SIZE = 64
+
+/** Result of an emitter call. `wgsl` is the complete compute-shader
+ *  module source ready to feed `createShaderModule`. `dispatchSize`
+ *  helper tells the runtime how many workgroups to launch for a
+ *  given feature count: `ceil(features / COMPUTE_WORKGROUP_SIZE)`. */
+export interface ComputeKernel {
+  wgsl: string
+  /** Number of f32 slots per feature in the feat_data buffer the
+   *  runtime must populate. The emitter packs one slot per field
+   *  referenced (typed-array stride). */
+  featureStrideF32: number
+  /** Ordered field names the runtime must lay out in feat_data —
+   *  matches the offsets the kernel reads. `fieldOffsets[i]` = i. */
+  fieldOrder: string[]
+  /** Convenience: dispatch X count for a given total feature count. */
+  dispatchSize(featureCount: number): number
+}
+
+/** One arm of the input match() expression. `pattern` is the string
+ *  the kernel matches against the feature field value; the runtime
+ *  assigns each pattern an integer ID at decode time (the
+ *  categoryOrder convention from shader-gen). `colorHex` is the
+ *  RGBA literal the kernel emits when the arm matches. */
+export interface MatchArmSpec {
+  pattern: string
+  colorHex: string
+}
+
+/** Inputs for `emitMatchComputeKernel`. `fieldName` is the feature
+ *  property the match() pivots on (a single FieldAccess). `arms` is
+ *  the ordered, pattern-to-colour list. `defaultColorHex` is the
+ *  fallback emitted when no arm matches (often the `_` arm or the
+ *  compound-fill `#00000000` synthesised by merge-layers). */
+export interface MatchEmitSpec {
+  fieldName: string
+  arms: MatchArmSpec[]
+  defaultColorHex: string
+}
+
+/** Emit a complete WGSL compute kernel for one match() expression.
+ *  Output layout:
+ *
+ *    @group(0) @binding(0) var<storage, read>       feat_data:  array<f32>;
+ *    @group(0) @binding(1) var<storage, read_write> out_color:  array<u32>;
+ *    @group(0) @binding(2) var<uniform>             u_count:    vec4<u32>;
+ *
+ *    @compute @workgroup_size(64)
+ *    fn eval_match(@builtin(global_invocation_id) gid: vec3<u32>) {
+ *      let fid = gid.x;
+ *      if (fid >= u_count.x) { return; }
+ *      let cls = feat_data[fid * STRIDE + 0];
+ *      var color: vec4<f32>;
+ *      if (cls == 0.0) { color = …; }
+ *      else if (cls == 1.0) { color = …; }
+ *      …
+ *      else { color = …; }  // default
+ *      out_color[fid] = pack4x8unorm(color);
+ *    }
+ *
+ *  `u_count` uses a vec4<u32> wrapper so the uniform buffer is the
+ *  16-byte minimum WebGPU requires for uniform bindings.
+ */
+export function emitMatchComputeKernel(spec: MatchEmitSpec): ComputeKernel {
+  // Sort patterns alphabetically — must match shader-gen's
+  // `sortedPatterns` (line ~227 in shader-gen.ts) so the runtime's
+  // string→ID assignment lines up across fragment + compute paths.
+  // Two kernels emitted from the same arm set produce IDENTICAL
+  // category IDs; the per-feature buffer fills exactly once.
+  const sortedPatterns = [...spec.arms.map(a => a.pattern)].sort()
+  const armByPattern = new Map(spec.arms.map(a => [a.pattern, a]))
+
+  const lines: string[] = []
+  lines.push('// Auto-generated by compiler/src/codegen/compute-gen.ts')
+  lines.push('// Per-feature match() evaluation — one workgroup invocation per fid.')
+  lines.push('')
+  lines.push('@group(0) @binding(0) var<storage, read> feat_data: array<f32>;')
+  lines.push('@group(0) @binding(1) var<storage, read_write> out_color: array<u32>;')
+  lines.push('@group(0) @binding(2) var<uniform> u_count: vec4<u32>;')
+  lines.push('')
+  lines.push(`@compute @workgroup_size(${COMPUTE_WORKGROUP_SIZE})`)
+  lines.push('fn eval_match(@builtin(global_invocation_id) gid: vec3<u32>) {')
+  lines.push('  let fid = gid.x;')
+  lines.push('  if (fid >= u_count.x) { return; }')
+  // Single field → stride 1 → offset 0. The full P4 emitter will
+  // grow to handle multi-field match()/case combos with a real
+  // stride > 1.
+  lines.push(`  let v_${spec.fieldName} = feat_data[fid];`)
+  lines.push('  var color: vec4<f32>;')
+
+  // if-else chain mirroring shader-gen's match() WGSL emission.
+  // Pattern-to-ID mapping = position in sortedPatterns; runtime
+  // packs the same ID into feat_data.
+  for (let i = 0; i < sortedPatterns.length; i++) {
+    const pat = sortedPatterns[i]!
+    const arm = armByPattern.get(pat)!
+    const [r, g, b, a] = colorHexToRGBA(arm.colorHex)
+    const keyword = i === 0 ? 'if' : 'else if'
+    lines.push(
+      `  ${keyword} (v_${spec.fieldName} == ${fmt(i)}) {`
+      + ` color = vec4<f32>(${fmt(r)}, ${fmt(g)}, ${fmt(b)}, ${fmt(a)});`
+      + ` }`,
+    )
+  }
+
+  // Default branch — always present, mirrors shader-gen's
+  // `fallbackColor`. Compound merge-layers commonly produces
+  // `#00000000` (transparent fall-through) so non-listed feature
+  // classes silently skip rendering.
+  const [dr, dg, db, da] = colorHexToRGBA(spec.defaultColorHex)
+  lines.push(
+    `  else { color = vec4<f32>(${fmt(dr)}, ${fmt(dg)}, ${fmt(db)}, ${fmt(da)}); }`,
+  )
+
+  lines.push('  out_color[fid] = pack4x8unorm(color);')
+  lines.push('}')
+  lines.push('')
+
+  return {
+    wgsl: lines.join('\n'),
+    featureStrideF32: 1,
+    fieldOrder: [spec.fieldName],
+    dispatchSize(featureCount: number): number {
+      return Math.ceil(featureCount / COMPUTE_WORKGROUP_SIZE)
+    },
+  }
+}
+
+/** Parse a hex color literal (`#rrggbb` / `#rrggbbaa` / `#rgb` /
+ *  `#rgba` / named via `resolveColor`) into normalised RGBA floats.
+ *  Mirrors shader-gen's `resolveColorFromAST` but takes raw hex
+ *  since the compute emitter has already extracted the arm value.
+ */
+function colorHexToRGBA(hex: string): [number, number, number, number] {
+  // Accept named colors too — `resolveColor` returns null if the
+  // input is already a hex literal that the lookup can't match.
+  const resolved = hex.startsWith('#') ? hex : (resolveColor(hex) ?? hex)
+  let r = 0, g = 0, b = 0, a = 1
+  if (resolved.length === 4) {
+    // #RGB
+    r = parseInt(resolved[1]! + resolved[1]!, 16) / 255
+    g = parseInt(resolved[2]! + resolved[2]!, 16) / 255
+    b = parseInt(resolved[3]! + resolved[3]!, 16) / 255
+  } else if (resolved.length === 5) {
+    // #RGBA
+    r = parseInt(resolved[1]! + resolved[1]!, 16) / 255
+    g = parseInt(resolved[2]! + resolved[2]!, 16) / 255
+    b = parseInt(resolved[3]! + resolved[3]!, 16) / 255
+    a = parseInt(resolved[4]! + resolved[4]!, 16) / 255
+  } else if (resolved.length === 7) {
+    // #RRGGBB
+    r = parseInt(resolved.slice(1, 3), 16) / 255
+    g = parseInt(resolved.slice(3, 5), 16) / 255
+    b = parseInt(resolved.slice(5, 7), 16) / 255
+  } else if (resolved.length === 9) {
+    // #RRGGBBAA
+    r = parseInt(resolved.slice(1, 3), 16) / 255
+    g = parseInt(resolved.slice(3, 5), 16) / 255
+    b = parseInt(resolved.slice(5, 7), 16) / 255
+    a = parseInt(resolved.slice(7, 9), 16) / 255
+  }
+  return [r, g, b, a]
+}
+
+/** WGSL float literal — trims trailing zeros, ensures decimal point.
+ *  Local copy to avoid a cross-module import of shader-gen's `fmt`. */
+function fmt(n: number): string {
+  if (Number.isInteger(n)) return `${n}.0`
+  return n.toString()
+}
