@@ -19,6 +19,7 @@ import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projecti
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 import { ComputeDispatcher } from '../gpu/compute'
 import { ComputeLayerRegistry } from './compute-layer-registry'
+import { extendBindGroupLayoutEntriesForCompute, buildComputeBindGroupEntries } from './compute-bind-layout'
 
 // generateGraticule(zoom) now handles zoom-adaptive steps internally
 
@@ -1172,6 +1173,19 @@ export class MapRenderer {
   // path (no enableComputePath flag) pays nothing.
   private computeRegistry: ComputeLayerRegistry | null = null
   private computeDispatcher: ComputeDispatcher | null = null
+  /** Per-variant cached extended bind-group layout (legacy feature
+   *  entries + one read-only-storage per computeBindings spec). Keyed
+   *  by `variant.key` — same key as `shaderCache` so a cache hit on
+   *  one implies a hit on the other. Pipelines built against the
+   *  legacy `featureBindGroupLayout` use that directly; compute
+   *  variants take a freshly-built per-variant layout from here. */
+  private variantComputeLayoutCache = new Map<string, GPUBindGroupLayout>()
+  /** Scene plan provided by the orchestrator before addLayer is
+   *  called. ComputeLayerHandle filters this by renderNodeIndex —
+   *  the runtime never holds an opinion about which subset goes
+   *  where; the variant.computeBindings + plan filter agree by
+   *  construction (compiler post-condition). */
+  private currentComputePlan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined
 
   constructor(ctx: GPUContext) {
     this.ctx = ctx
@@ -1199,6 +1213,68 @@ export class MapRenderer {
   dispatchComputePass(encoder: GPUCommandEncoder): void {
     this.computeRegistry?.dispatchAll(encoder)
   }
+
+  /** Hand the scene's compute plan to the renderer before issuing
+   *  addLayer calls. ComputeLayerHandle filters the plan by
+   *  `show.renderNodeIndex`; calling this with `undefined` clears
+   *  the plan (back-compat for scenes without compute kernels). */
+  setComputePlan(plan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined): void {
+    this.currentComputePlan = plan
+  }
+
+  /** Return the bind-group layout the renderer should bind for a
+   *  given variant. Variants without `computeBindings` keep using
+   *  the shared `featureBindGroupLayout`; variants WITH compute
+   *  bindings get a per-key extended layout (cached). The returned
+   *  layout matches the bind-group entries `addLayer` constructs
+   *  for the same variant — drift between the two surfaces as a
+   *  WebGPU validation error at pipeline / bind-group create. */
+  private getOrBuildVariantLayout(variant: ShaderVariantInfo): GPUBindGroupLayout {
+    if (!variant.computeBindings || variant.computeBindings.length === 0) {
+      return variant.needsFeatureBuffer ? this.featureBindGroupLayout : this.bindGroupLayout
+    }
+    const cached = this.variantComputeLayoutCache.get(variant.key)
+    if (cached) return cached
+    // Build extended entries from the legacy feature entries (the
+    // single source of truth for the polygon path's uniform / feature-
+    // data / palette layout). `extendBindGroupLayoutEntriesForCompute`
+    // appends one read-only-storage entry per computeBindings spec at
+    // the binding indices the compiler chose.
+    const legacy = MapRenderer.FEATURE_LAYOUT_ENTRIES
+    // FRAGMENT bit = 2 (raw spec value; see FEATURE_LAYOUT_ENTRIES
+    // comment for why we don't reference GPUShaderStage here).
+    const extended = extendBindGroupLayoutEntriesForCompute(
+      variant, legacy, /* FRAGMENT */ 2,
+    )
+    const layout = this.ctx.device.createBindGroupLayout({
+      label: `mr-featureBindGroupLayout-compute(${variant.key})`,
+      entries: extended as GPUBindGroupLayoutEntry[],
+    })
+    this.variantComputeLayoutCache.set(variant.key, layout)
+    return layout
+  }
+
+  /** Single source of truth for the legacy feature-bind-group entries.
+   *  The constructor builds `featureBindGroupLayout` from these same
+   *  values; `getOrBuildVariantLayout` reuses them as the base for
+   *  compute-extended layouts so the two layouts agree on legacy
+   *  bindings 0/1/2/4.
+   *
+   *  Visibility bits use the raw spec values (VERTEX=1, FRAGMENT=2,
+   *  COMPUTE=4) instead of `GPUShaderStage.X` because this is a
+   *  class-field initializer evaluated at module load; Node test
+   *  environments don't define the WebGPU globals at that time.
+   *  Browsers' WebGPU runtimes assign the same numeric values. */
+  private static readonly FEATURE_LAYOUT_ENTRIES: readonly GPUBindGroupLayoutEntry[] = [
+    { binding: 0, visibility: /* VERTEX|FRAGMENT */ 3,
+      buffer: { type: 'uniform' as const, hasDynamicOffset: true } },
+    { binding: 1, visibility: /* FRAGMENT */ 2,
+      buffer: { type: 'read-only-storage' as const } },
+    { binding: 2, visibility: /* FRAGMENT */ 2,
+      texture: { sampleType: 'float' as const, viewDimension: '2d' as const } },
+    { binding: 4, visibility: /* FRAGMENT */ 2,
+      sampler: { type: 'filtering' as const } },
+  ]
 
   /** Rebuild all pipelines + invalidate shader variant cache. Called by
    *  `map.setQuality()` when MSAA or picking flip at runtime — both force
@@ -1951,13 +2027,47 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
         })
         device.queue.writeBuffer(layer.featureDataBuffer, 0, data)
 
+        // ─── Compute path attach (P4-5 integration step 2) ───
+        // When the variant carries `computeBindings`, attach a handle
+        // BEFORE building the per-layer bind group so the compute
+        // output buffer exists by the time we append its entry. The
+        // registry filters the scene plan by renderNodeIndex; drift
+        // between (variant.computeBindings.length) and
+        // (plan entries with this index) propagates as a thrown error
+        // from ComputeLayerHandle — surfacing the
+        // compiler / runtime contract violation before the WebGPU
+        // pipeline build does.
+        let extraComputeEntries: { binding: number; resource: { buffer: GPUBuffer } }[] = []
+        if ((variant.computeBindings?.length ?? 0) > 0 && show.renderNodeIndex !== undefined) {
+          const registry = this.ensureComputeRegistry()
+          const handle = registry.attach(
+            show.targetName,
+            variant,
+            this.currentComputePlan,
+            show.renderNodeIndex,
+          )
+          if (handle) {
+            // Pack feature properties for the compute kernel(s). The
+            // handle's TileComputeResources owns its own packer; we
+            // pass a fid→props lookup mirroring the polygon feature
+            // array's order (fid = polygons.features index).
+            handle.uploadFromProps(
+              (fid) => polygons.features[fid]?.properties ?? null,
+              featureCount,
+            )
+            const bg = handle.getBindGroupEntries()
+            if (bg) extraComputeEntries = bg
+          }
+        }
+
         layer.perLayerBindGroup = device.createBindGroup({
-          layout: this.featureBindGroupLayout,
+          layout: this.getOrBuildVariantLayout(variant),
           entries: [
             { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
+            ...extraComputeEntries,
           ],
         })
 
@@ -2027,13 +2137,23 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
     }
     for (const layer of this.layers) {
       if (layer.featureDataBuffer) {
+        // Preserve compute output entries on palette swap. The
+        // registry still owns the handle (palette changes are scene-
+        // level, layer set is untouched); we look up the handle by
+        // the same `targetName` key addLayer used. No-op for legacy
+        // variants.
+        const variant = layer.show.shaderVariant as ShaderVariantInfo | null | undefined
+        const computeEntries = variant?.computeBindings
+          ? (this.computeRegistry?.getHandle(layer.show.targetName)?.getBindGroupEntries() ?? [])
+          : []
         layer.perLayerBindGroup = this.ctx.device.createBindGroup({
-          layout: this.featureBindGroupLayout,
+          layout: variant ? this.getOrBuildVariantLayout(variant) : this.featureBindGroupLayout,
           entries: [
             { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
+            ...computeEntries,
           ],
         })
       }
@@ -2107,9 +2227,17 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
       label: `shader-${variant.key}`,
     })
 
-    const layout = variant.needsFeatureBuffer ? this.featureBindGroupLayout : this.bindGroupLayout
+    // Compute-aware layout pick: extended layout when the variant
+    // carries `computeBindings`, otherwise the legacy
+    // featureBindGroupLayout / bindGroupLayout. Pipeline + per-layer
+    // bind group must agree on the extended layout — both reach the
+    // same `getOrBuildVariantLayout` cache entry.
+    const layout = this.getOrBuildVariantLayout(variant)
+    const layoutLabel = (variant.computeBindings?.length ?? 0) > 0
+      ? 'compute'
+      : (variant.needsFeatureBuffer ? 'feature' : 'base')
     const pipelineLayout = device.createPipelineLayout({
-      label: `mr-variantPipelineLayout(${variant.needsFeatureBuffer ? 'feature' : 'base'})`,
+      label: `mr-variantPipelineLayout(${layoutLabel})`,
       bindGroupLayouts: [layout],
     })
 
@@ -2230,10 +2358,15 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
       label: `shader-${variant.key}`,
     })
 
-    // Use feature bind group layout if storage buffer is needed
-    const layout = variant.needsFeatureBuffer ? this.featureBindGroupLayout : this.bindGroupLayout
+    // Use the compute-aware layout (extended when variant carries
+    // computeBindings, legacy otherwise). Matches `buildVariantDescriptors`
+    // above so the cache key + pipeline layout stay in sync.
+    const layout = this.getOrBuildVariantLayout(variant)
+    const layoutLabel = (variant.computeBindings?.length ?? 0) > 0
+      ? 'compute'
+      : (variant.needsFeatureBuffer ? 'feature' : 'base')
     const pipelineLayout = device.createPipelineLayout({
-      label: `mr-variantPipelineLayout(${variant.needsFeatureBuffer ? 'feature' : 'base'})`,
+      label: `mr-variantPipelineLayout(${layoutLabel})`,
       bindGroupLayouts: [layout],
     })
 
