@@ -55,7 +55,7 @@ const TOP_LEVEL: readonly CoverageEntry[] = [
   { name: 'sources',  status: 'supported', source: 'sources.ts' },
   { name: 'layers',   status: 'supported', source: 'layers.ts' },
   { name: 'sprite',   status: 'unsupported', impact: 'high', note: 'Icon atlas not loaded — needed for Batch 2 (icons / patterns).' },
-  { name: 'glyphs',   status: 'na', note: 'Runtime uses Canvas2D font rasterisation; no SDF glyph atlas fetch.' },
+  { name: 'glyphs',   status: 'supported', note: 'Importer extracts the URL from raw JSON and forwards to XGISMap.setGlyphsUrl(). Runtime TextStage fetches MapLibre SDF PBFs and upgrades visually when available; Canvas2D fallback stays on for offline / missing-glyph cases. Not encoded in xgis source.' },
   { name: 'transition', status: 'unsupported', impact: 'low', note: 'Per-property fade-in dropped.' },
   { name: 'light',    status: 'unsupported', impact: 'low', note: 'No fill-extrusion ambient lighting model.' },
   { name: 'fog',      status: 'unsupported', impact: 'low' },

@@ -90,11 +90,17 @@ const TABLE_NAMES = (() => {
 
 // Symbols / structural words that appear in the table's display
 // labels but never as Mapbox property names. Excluded from the
-// drift check.
+// drift check. `glyphs` is supported END-TO-END but bypasses the
+// converter on the way: the runtime style importer reads
+// `style.glyphs` from the raw JSON and forwards to
+// XGISMap.setGlyphsUrl(). The converter source has no reference to
+// the field by design — runtime parts of the system shouldn't have
+// to thread URL state through the xgis-source intermediate.
 const TABLE_NOISE = new Set([
   'tilejson', 'pmtiles', 'inline', 'icon-only', 'text', 'and',
   'linear', 'exponential', 'cubic-bezier', 'form', 'boolean',
   'expression', 'legacy', 'url',
+  'glyphs',
 ])
 
 describe('mapbox spec-coverage drift detector', () => {

@@ -181,8 +181,22 @@ async function mountBoth(url: string): Promise<void> {
     return
   }
 
+  // Same font-loading prerequisite as demo-runner — see comment there
+  // for the rationale. Without this, X-GIS atlas caches glyphs in the
+  // host's system fallback before our @font-face WOFF2 lands, and the
+  // visual stays "wrong" until eviction.
+  try { await document.fonts?.ready } catch { /* no-op */ }
   xgMap = new XGISMap(xgCanvas)
   ;(window as unknown as { __xgisMap?: XGISMap }).__xgisMap = xgMap
+  // Forward the style's `glyphs` URL — TextStage uses it to fetch
+  // MapLibre SDF PBF glyphs so labels render with the authored font
+  // (e.g. "Open Sans Semibold") rather than the host's nearest match.
+  // Canvas2D stays the fallback when the network is offline or a
+  // requested codepoint isn't in the PBF range.
+  const glyphsUrl = (styleJson as { glyphs?: unknown }).glyphs
+  if (typeof glyphsUrl === 'string' && glyphsUrl.length > 0) {
+    xgMap.setGlyphsUrl(glyphsUrl)
+  }
   try {
     await xgMap.run(xgisSrc, location.origin + '/')
   } catch (e) {

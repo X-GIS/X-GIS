@@ -814,6 +814,15 @@ async function runSource(source: string, label: string) {
     status.textContent = `Loading ${label}...`
     status.style.opacity = '1'
 
+    // Wait for any @font-face declarations (map-fonts.css → Open Sans,
+    // Noto Sans Variable) to finish loading BEFORE we let the engine
+    // rasterise its first glyph. Without this, the atlas caches glyphs
+    // drawn with the host's system fallback, and the loaded WOFF2 never
+    // takes effect for that codepoint until the slot is evicted. Cheap
+    // in practice: <link rel="preload"> kicks the fetch off at parse
+    // time, so by the time we get here the promise typically resolves
+    // immediately. Try/catch covers browsers without the FontFaceSet API.
+    try { await document.fonts?.ready } catch { /* no-op */ }
     currentMap = new XGISMap(canvas)
     // Debug hook — Playwright tests + DevTools console can poke at
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
@@ -959,11 +968,22 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
 // devtools console / a future test harness.
 ;(window as unknown as { __xgisImportMapbox?: (json: string | object) => void })
   .__xgisImportMapbox = (json: string | object) => {
-    import('@xgis/compiler').then(({ convertMapboxStyle }) => {
+    import('@xgis/compiler').then(async ({ convertMapboxStyle }) => {
       try {
-        const xgis = convertMapboxStyle(json)
+        // Parse once so we can read the top-level `glyphs` URL without
+        // touching the xgis source. `glyphs` is a pure runtime concern
+        // (SDF PBF fetch URL); the compiler doesn't encode it into the
+        // xgis intermediate. We forward it to the map after the source
+        // runs — TextStage builds lazily on the first label frame and
+        // honours the URL the moment it's there.
+        const styleObj = typeof json === 'string' ? JSON.parse(json) : json
+        const glyphsUrl = (styleObj as { glyphs?: unknown }).glyphs
+        const xgis = convertMapboxStyle(styleObj)
         editor.setValue(xgis)
-        runSource(xgis, 'Imported (Mapbox)')
+        await runSource(xgis, 'Imported (Mapbox)')
+        if (typeof glyphsUrl === 'string' && glyphsUrl.length > 0) {
+          currentMap?.setGlyphsUrl(glyphsUrl)
+        }
       } catch (e) {
         console.error('[X-GIS] Mapbox import failed:', e)
       }

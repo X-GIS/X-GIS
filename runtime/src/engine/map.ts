@@ -200,6 +200,12 @@ export class XGISMap {
   // SDF text overlay stage. Lazy — first `addOverlay` call instantiates.
   private textStage: TextStage | null = null
   private overlays: TextOverlay[] = []
+  /** Optional `glyphs` URL from the imported style — gets forwarded to
+   *  TextStage on first construction so MapLibre PBF glyphs can upgrade
+   *  the visual when the network has them. Null leaves Canvas2D as the
+   *  only rasterizer (current default behaviour). Set via
+   *  `setGlyphsUrl()` by the style importer (demo-runner.ts). */
+  private glyphsUrl: string | null = null
 
   // Vector tile sources + renderers (per .xgvt source)
   private vtSources = new Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>()
@@ -549,6 +555,16 @@ export class XGISMap {
 
   getProjectionName(): string {
     return this.projectionName
+  }
+
+  /** Set the style's `glyphs` URL template (e.g.
+   *  `https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf`).
+   *  TextStage lazily picks this up on its first construction — once
+   *  built, the stage's rasterizer is fixed for the session. Call this
+   *  BEFORE the first label-producing show command lands, typically
+   *  from the style importer. Passing `null` clears the setting. */
+  setGlyphsUrl(url: string | null): void {
+    this.glyphsUrl = url
   }
 
   /** Attach a per-label debug hook for the text stage. The hook fires
@@ -2586,7 +2602,11 @@ export class XGISMap {
         : this.showCommands.filter(s => s.label !== undefined && s.visible !== false && inZoomRange(s))
       if (!disableLabels && (this.overlays.length > 0 || labelShows.length > 0)) {
         if (this.textStage === null) {
-          this.textStage = new TextStage(device, this.ctx.format, {}, sc)
+          this.textStage = new TextStage(
+            device, this.ctx.format,
+            this.glyphsUrl !== null ? { glyphsUrl: this.glyphsUrl } : {},
+            sc,
+          )
           this.textStage.prewarmGISDefaults()
           // Attach any debug hook that was set before the stage existed.
           // The hook is null/undefined-safe on the stage side, so the

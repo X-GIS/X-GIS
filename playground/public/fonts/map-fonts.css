@@ -1,0 +1,36 @@
+/* Self-hosted Variable fonts for map labels.
+ *
+ * These cover the typical Mapbox/MapLibre style font names so labels
+ * render with the authored typeface even when:
+ *   - the host OS doesn't have the font installed (e.g. Open Sans on
+ *     a clean Windows box), AND
+ *   - the network is unavailable (sea, military base, air-gapped
+ *     deployments).
+ *
+ * Variable axis covers the full weight range (300..800) in one file,
+ * so a single src URL serves Regular/Semibold/Bold without per-weight
+ * downloads. Latin coverage only — CJK glyphs intentionally fall back
+ * to the OS-installed CJK chain ('Malgun Gothic' on Windows, 'Apple SD
+ * Gothic Neo' on macOS, 'Noto Sans CJK' on Linux). Bundling CJK would
+ * add several MB; every CJK-capable OS already ships these fonts.
+ *
+ * Files sourced from @fontsource (jsdelivr) — SIL OFL licensed,
+ * redistribution-OK. Vendored to keep first-paint offline-safe. */
+
+@font-face {
+  font-family: 'Open Sans';
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: block;
+  src: url('/fonts/open-sans-latin-variable.woff2') format('woff2-variations'),
+       url('/fonts/open-sans-latin-variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans';
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: block;
+  src: url('/fonts/noto-sans-latin-variable.woff2') format('woff2-variations'),
+       url('/fonts/noto-sans-latin-variable.woff2') format('woff2');
+}

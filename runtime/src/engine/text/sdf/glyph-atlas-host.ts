@@ -70,6 +70,12 @@ export class GlyphAtlasHost {
   /** Newly evicted glyphs whose vertex data the renderer needs to
    *  invalidate. Drained by `consumeEvictions()`. */
   private evictions: GlyphKey[] = []
+  /** Glyph keys marked stale via `invalidate()`. The next `ensure()`
+   *  call for one of these re-rasterises in place — same slot stays
+   *  bound, metrics overwrite, dirty queue gets a fresh upload. Used
+   *  by the PBF rasterizer to upgrade a Canvas2D-fallback glyph after
+   *  the async PBF fetch lands. */
+  private readonly stale = new Set<string>()
 
   constructor(
     config: AtlasConfig,
@@ -84,7 +90,9 @@ export class GlyphAtlasHost {
 
   /** Ensure one glyph is in the atlas. Cache hit → returns cached
    *  metrics; cache miss → rasterises, queues dirty, returns fresh
-   *  metrics. */
+   *  metrics. A previously-invalidated glyph (see `invalidate`) is
+   *  treated as a miss even when its slot still exists: same slot
+   *  is kept, but the rasterizer runs again and the SDF re-uploads. */
   ensure(fontKey: string, codepoint: number): GlyphInfo {
     const key: GlyphKey = { fontKey, codepoint, sdfRadius: this.sdfRadius }
     const ensured = this.state.ensure(key)
@@ -94,12 +102,14 @@ export class GlyphAtlasHost {
       this.evictions.push(ensured.evictedKey)
       this.metrics.delete(this.metricsKey(ensured.evictedKey))
     }
-    if (ensured.created) {
+    const mk = this.metricsKey(key)
+    const forceRasterize = ensured.created || this.stale.has(mk)
+    if (forceRasterize) {
       const result = this.rasterizer.rasterize({
         fontKey, fontSize: this.fontSize, codepoint,
         sdfRadius: this.sdfRadius, slotSize: ensured.slot.size,
       })
-      this.metrics.set(this.metricsKey(key), {
+      this.metrics.set(mk, {
         advanceWidth: result.advanceWidth,
         bearingX: result.bearingX,
         bearingY: result.bearingY,
@@ -107,10 +117,11 @@ export class GlyphAtlasHost {
         height: result.height,
       })
       this.dirty.push({ key, slot: ensured.slot, sdf: result.sdf })
+      this.stale.delete(mk)
       return this.assembleInfo(codepoint, ensured.slot, result)
     }
     // Cache hit: pull metrics from the cache.
-    const m = this.metrics.get(this.metricsKey(key))!
+    const m = this.metrics.get(mk)!
     return {
       codepoint, slot: ensured.slot,
       advanceWidth: m.advanceWidth,
@@ -119,6 +130,19 @@ export class GlyphAtlasHost {
       width: m.width,
       height: m.height,
     }
+  }
+
+  /** Mark one glyph as stale so its next `ensure()` call re-rasterises
+   *  in place (slot kept, dirty queue re-fires). Used by the PBF
+   *  rasterizer to swap in a freshly-fetched SDF without disturbing
+   *  vertex buffers that already reference the slot.
+   *
+   *  No-op if the glyph isn't currently in the atlas (nothing to
+   *  invalidate) — callers should not rely on invalidate() to populate. */
+  invalidate(fontKey: string, codepoint: number): void {
+    const key: GlyphKey = { fontKey, codepoint, sdfRadius: this.sdfRadius }
+    const mk = this.metricsKey(key)
+    if (this.metrics.has(mk)) this.stale.add(mk)
   }
 
   /** Ensure every glyph in `text` is in the atlas. Returns one

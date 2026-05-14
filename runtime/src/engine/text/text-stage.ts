@@ -25,6 +25,8 @@ import {
 } from './sdf/glyph-atlas-host'
 import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
 import { createRasterizer, type GlyphRasterizer } from './sdf/glyph-rasterizer'
+import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
+import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import { TextRenderer, type TextDraw } from './text-renderer'
 import { greedyPlaceBboxes, type CollisionItem } from './text-collision'
 import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
@@ -82,6 +84,15 @@ export interface TextStageOptions {
    *  injected by the integration layer). When omitted, picks the best
    *  available for the current environment via createRasterizer(). */
   rasterizer?: GlyphRasterizer
+  /** Style-spec `glyphs` URL template (`{fontstack}` + `{range}`).
+   *  When provided AND no explicit `rasterizer` is supplied, the stage
+   *  wraps the Canvas2D rasterizer with one that fetches MapLibre SDF
+   *  PBF glyphs in the background. Cache hits use the PBF glyph; misses
+   *  return the Canvas2D fallback immediately and schedule a fetch.
+   *  When the fetch lands, the affected slot is re-rasterised on the
+   *  next prepare() and the visual upgrades silently. Failed fetches
+   *  (offline / 404 / CORS) stay on Canvas2D for the session. */
+  glyphsUrl?: string
 }
 
 // Slot must fit (rasterFontSize + 2*sdfRadius) — ascenders/descenders
@@ -101,7 +112,7 @@ export interface TextStageOptions {
 // Linux). Per-label font stacks coming from Mapbox styles get the
 // same fallback chain appended in addLabel/addCurvedLineLabel.
 const CJK_FALLBACK_CHAIN = '"Noto Sans CJK KR","Apple SD Gothic Neo","Malgun Gothic","Microsoft YaHei","Noto Sans CJK JP","Hiragino Sans","Yu Gothic",sans-serif'
-const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer'>> = {
+const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl'>> = {
   slotSize: 64,
   pageSize: 2304,
   rasterFontSize: 32,
@@ -132,7 +143,7 @@ export class TextStage {
   readonly host: GlyphAtlasHost
   readonly gpu: GlyphAtlasGPU
   readonly renderer: TextRenderer
-  readonly opts: Required<Omit<TextStageOptions, 'rasterizer'>>
+  readonly opts: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl'>>
   private readonly pending: PendingLabel[] = []
   private readonly pendingLine: PendingLineLabel[] = []
   /** DPR applied to LabelDef.size (and offset/halo/maxWidth) at
@@ -148,8 +159,31 @@ export class TextStage {
     options: TextStageOptions = {},
     sampleCount: number = 1,
   ) {
-    this.opts = { ...DEFAULTS, ...options } as Required<Omit<TextStageOptions, 'rasterizer'>>
-    const rasterizer = options.rasterizer ?? createRasterizer()
+    this.opts = { ...DEFAULTS, ...options } as Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl'>>
+    // Rasterizer selection:
+    //   1. explicit override   → use it as-is
+    //   2. glyphsUrl supplied  → wrap Canvas2D with PbfRasterizer so
+    //      MapLibre SDF PBF glyphs upgrade the visual when available
+    //      (and the Canvas2D path keeps every other case identical to
+    //      the no-glyphsUrl flow)
+    //   3. neither             → plain Canvas2D / Mock (existing path)
+    //
+    // The PBF wrapper's onLanded callback forward-references `this.host`
+    // via an arrow — only invoked async after the host is assigned a few
+    // lines below, so the temporal coupling is sound.
+    let rasterizer: GlyphRasterizer
+    if (options.rasterizer) {
+      rasterizer = options.rasterizer
+    } else if (options.glyphsUrl) {
+      const fallback = createRasterizer()
+      const cache = new GlyphPbfCache({ glyphsUrl: options.glyphsUrl })
+      rasterizer = new PbfRasterizer({
+        fallback, cache,
+        onLanded: (fontKey, codepoint) => this.host.invalidate(fontKey, codepoint),
+      })
+    } else {
+      rasterizer = createRasterizer()
+    }
     const hostOpts: GlyphAtlasHostOptions = {
       fontSize: this.opts.rasterFontSize,
       sdfRadius: this.opts.sdfRadius,
