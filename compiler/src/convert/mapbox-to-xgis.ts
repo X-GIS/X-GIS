@@ -90,6 +90,23 @@ export interface ConvertMapboxStyleOptions extends ConvertSourceOptions {
    *  conversion run. Backwards-compatible — omit for the existing
    *  string-only return contract. */
   coverage?: StyleCoverage
+  /** Skip the `expandPerFeatureColorMatch` preprocessor that splits
+   *  Mapbox `fill-color: ["match", …]` layers into one sublayer per
+   *  unique colour. Default (false) keeps the existing draw-call
+   *  fanout pattern; flip to true when the runtime compute path is
+   *  available end-to-end (plan P4) — match() then survives lower()
+   *  as a single data-driven shape, the compute kernel evaluates
+   *  every arm GPU-side, and the draw count drops back to one per
+   *  source layer instead of one per colour.
+   *
+   *  Today this is forward-looking: the MapRenderer (GeoJSON) path
+   *  fully consumes data-driven match() compute (commit 215bbe1),
+   *  but Mapbox styles route through VectorTileRenderer which still
+   *  needs its own compute integration. Enabling the bypass without
+   *  VTR compute results in match() collapsing to its default arm
+   *  at lower.ts → visible regression. Diagnostic / measurement use
+   *  only until VTR compute lands. */
+  bypassExpandColorMatch?: boolean
 }
 
 /** Convert a Mapbox Style JSON (already parsed or raw string) into
@@ -166,7 +183,9 @@ export function convertMapboxStyle(
     // Split the layer into one sublayer per unique colour with a
     // value-set filter, so each colour renders correctly without any
     // runtime per-feature support.
-    const expanded = expandPerFeatureColorMatch(layer as MapboxLayer)
+    const expanded = options?.bypassExpandColorMatch
+      ? null
+      : expandPerFeatureColorMatch(layer as MapboxLayer)
     const sublayers = expanded ?? [layer as MapboxLayer]
     let anyEmitted = false
     let anyLossy = false
