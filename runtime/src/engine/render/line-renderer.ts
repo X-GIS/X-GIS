@@ -156,7 +156,13 @@ fn fs_full(in: VsOut) -> @location(0) vec4<f32> {
 }
 `
 
-const LINE_SHADER = /* wgsl */ `
+// Exported for the marker-drift invariant test (renderer-shader-
+// markers.test.ts). The PICK_FIELD / PICK_WRITE regex replacements
+// silently no-op when the token is absent — a stale shader-source
+// edit could drop a token unnoticed and the pick attachment would
+// stop receiving line writes. Mirror of POLYGON_SHADER_SOURCE
+// export in renderer.ts.
+export const LINE_SHADER_SOURCE: string = /* wgsl */ `
 ${WGSL_PROJECTION_CONSTS}
 struct TileUniforms {
   mvp: mat4x4<f32>,
@@ -1411,7 +1417,7 @@ export class LineRenderer {
     // so writing (0, 0) from the line stroke would OVERWRITE the fill's
     // pick — which is why the `writeMask: 0` on the second target skips
     // pick output entirely for the line pipeline.
-    const linePickShader = LINE_SHADER
+    const linePickShader = LINE_SHADER_SOURCE
       .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
       .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(0u, 0u);' : '')
     const module = this.device.createShaderModule({ code: linePickShader, label: 'line-shader' })
@@ -1511,7 +1517,7 @@ export class LineRenderer {
    *  has no pick target, so it doesn't need rebuilding. Bind group
    *  layouts, shape buffers, and the uniform ring survive unchanged. */
   rebuildForQuality(): void {
-    const linePickShader = LINE_SHADER
+    const linePickShader = LINE_SHADER_SOURCE
       .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
       .replace(/__PICK_WRITE__/g, isPickEnabled() ? 'out.pick = vec2<u32>(0u, 0u);' : '')
     const module = this.device.createShaderModule({ code: linePickShader, label: 'line-shader-rebuilt' })

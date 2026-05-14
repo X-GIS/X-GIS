@@ -35,7 +35,12 @@ import {
   OVERDRAW_DEPTH_STENCIL,
 } from '../debug-flags'
 
-const BG_SHADER = /* wgsl */ `
+// Marker-drift invariant export (renderer-shader-markers.test.ts).
+// Background shader uses three PICK tokens (PICK_FIELD,
+// PICK_OUT_FIELD, PICK_WRITE) — twice the surface area of the
+// polygon shader, twice the chance for a stale rename to drop a
+// token unnoticed.
+export const BG_SHADER_SOURCE: string = /* wgsl */ `
 struct U { color: vec4<f32> }
 @group(0) @binding(0) var<uniform> u: U;
 
@@ -122,7 +127,7 @@ export class BackgroundRenderer {
    *  those change. */
   private buildPipeline(): GPURenderPipeline {
     const pickEnabled = isPickEnabled()
-    const code = BG_SHADER
+    const code = BG_SHADER_SOURCE
       .replace(/__PICK_FIELD__/g, pickEnabled ? '@location(0) @interpolate(flat) _pad: u32,' : '')
       .replace(/__PICK_OUT_FIELD__/g, pickEnabled ? '@location(1) pick: vec2<u32>,' : '')
       .replace(/__PICK_WRITE__/g, pickEnabled ? 'out.pick = vec2<u32>(0u, 0u);' : '')
@@ -172,7 +177,7 @@ export class BackgroundRenderer {
     // Reuse the same vertex shader; replace FS by appending the
     // shared overdraw FS. The BG shader's fs_main entry stays alive
     // but is unused in this pipeline.
-    const code = BG_SHADER
+    const code = BG_SHADER_SOURCE
       .replace(/__PICK_FIELD__/g, '')
       .replace(/__PICK_OUT_FIELD__/g, '')
       .replace(/__PICK_WRITE__/g, '')

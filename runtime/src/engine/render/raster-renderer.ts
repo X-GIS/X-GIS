@@ -10,7 +10,10 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { WGSL_LOG_DEPTH_FNS } from '../shaders/log-depth'
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projection'
 
-const RASTER_SHADER = /* wgsl */ `
+// Marker-drift invariant export (renderer-shader-markers.test.ts).
+// Same rationale as POLYGON_SHADER_SOURCE / LINE_SHADER_SOURCE —
+// PICK token regex replacements silently no-op when stale.
+export const RASTER_SHADER_SOURCE: string = /* wgsl */ `
 ${WGSL_PROJECTION_CONSTS}
 ${WGSL_LOG_DEPTH_FNS}
 
@@ -217,7 +220,7 @@ export class RasterRenderer {
    *  MSAA / picking setting. Used at construction time AND from
    *  `rebuildForQuality()` — each call produces a fresh module + pipeline. */
   private buildPipeline(): GPURenderPipeline {
-    const pickShader = RASTER_SHADER
+    const pickShader = RASTER_SHADER_SOURCE
       .replace(/__PICK_FIELD__/g, isPickEnabled() ? '@location(1) @interpolate(flat) pick: vec2<u32>,' : '')
       // Raster tiles don't carry a feature id — always emit (0, 0) so the
       // pick texture stays at "no feature" where the basemap is the front-most
