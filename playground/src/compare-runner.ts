@@ -205,7 +205,17 @@ async function mountBoth(url: string): Promise<void> {
   const inlineGeoJSON = new Map<string, unknown>()
   let xgisSrc: string
   try {
-    xgisSrc = convertMapboxStyle(styleJson as Parameters<typeof convertMapboxStyle>[0], { inlineGeoJSON })
+    // When ?compute=1 is set, also bypass the convert-side match()
+    // pre-splitter so data-driven fills survive into the compute
+    // path (paired with the lower.ts bypass via run()'s
+    // emitCommands flag chain). Without this, every Mapbox match()
+    // fill is expanded into per-colour sublayers at the convert
+    // stage and never reaches the compute router.
+    const computeOptInConv = new URL(window.location.href).searchParams.get('compute') === '1'
+    xgisSrc = convertMapboxStyle(
+      styleJson as Parameters<typeof convertMapboxStyle>[0],
+      { inlineGeoJSON, bypassExpandColorMatch: computeOptInConv },
+    )
   } catch (e) {
     setStatus(`convertMapboxStyle failed: ${(e as Error).message}`)
     return
@@ -216,7 +226,10 @@ async function mountBoth(url: string): Promise<void> {
   // host's system fallback before our @font-face WOFF2 lands, and the
   // visual stays "wrong" until eviction.
   try { await document.fonts?.ready } catch { /* no-op */ }
-  xgMap = new XGISMap(xgCanvas)
+  // Mirror demo-runner.ts:?compute=1 — opt into the GPU compute paint
+  // path for direct visual comparison against MapLibre.
+  const computeOptIn = new URL(window.location.href).searchParams.get('compute') === '1'
+  xgMap = new XGISMap(xgCanvas, { enableComputePath: computeOptIn })
   ;(window as unknown as { __xgisMap?: XGISMap }).__xgisMap = xgMap
   // Forward the style's `glyphs` URL — TextStage uses it to fetch
   // MapLibre SDF PBF glyphs so labels render with the authored font
