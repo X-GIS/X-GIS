@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest'
 import {
   COMPUTE_WORKGROUP_SIZE,
   emitMatchComputeKernel,
+  emitTernaryComputeKernel,
 } from './compute-gen'
 
 describe('compute-gen — emitMatchComputeKernel', () => {
@@ -148,6 +149,126 @@ describe('compute-gen — emitMatchComputeKernel', () => {
       defaultColorHex: '#000',
     })
     expect(k.wgsl).toContain('let v_rank = feat_data[fid];')
+  })
+})
+
+describe('compute-gen — emitTernaryComputeKernel', () => {
+  it('emits the same binding header as match() (cross-kernel layout)', () => {
+    const k = emitTernaryComputeKernel({
+      fields: ['rank'],
+      branches: [{ pred: 'v_rank == 0.0', colorHex: '#fff' }],
+      defaultColorHex: '#000',
+    })
+    expect(k.wgsl).toContain('@group(0) @binding(0) var<storage, read> feat_data: array<f32>')
+    expect(k.wgsl).toContain('@group(0) @binding(1) var<storage, read_write> out_color: array<u32>')
+    expect(k.wgsl).toContain('@group(0) @binding(2) var<uniform> u_count: vec4<u32>')
+  })
+
+  it('emits the workgroup-size annotation', () => {
+    const k = emitTernaryComputeKernel({
+      fields: ['x'],
+      branches: [{ pred: 'v_x > 0.0', colorHex: '#fff' }],
+      defaultColorHex: '#000',
+    })
+    expect(k.wgsl).toContain(`@compute @workgroup_size(${COMPUTE_WORKGROUP_SIZE})`)
+  })
+
+  it('emits branches in INPUT order (case() semantics — first match wins)', () => {
+    // case() differs from match(): order is significant. The first
+    // matching predicate wins, so the emitter must preserve insertion
+    // order rather than sorting alphabetically.
+    const k = emitTernaryComputeKernel({
+      fields: ['cls'],
+      branches: [
+        { pred: 'v_cls == 0.0', colorHex: '#ff0000' },
+        { pred: 'v_cls == 1.0', colorHex: '#00ff00' },
+        { pred: 'v_cls == 2.0', colorHex: '#0000ff' },
+      ],
+      defaultColorHex: '#888',
+    })
+    const idx0 = k.wgsl.indexOf('v_cls == 0.0')
+    const idx1 = k.wgsl.indexOf('v_cls == 1.0')
+    const idx2 = k.wgsl.indexOf('v_cls == 2.0')
+    expect(idx0).toBeGreaterThan(0)
+    expect(idx1).toBeGreaterThan(idx0)
+    expect(idx2).toBeGreaterThan(idx1)
+  })
+
+  it('emits the default arm as the trailing else', () => {
+    const k = emitTernaryComputeKernel({
+      fields: ['x'],
+      branches: [{ pred: 'v_x > 0.0', colorHex: '#fff' }],
+      defaultColorHex: '#00ff00',
+    })
+    expect(k.wgsl).toMatch(/}\s+else\s+\{\s+color = vec4<f32>\(0\.0,\s*1\.0,\s*0\.0,\s*1\.0\)/)
+  })
+
+  it('loads a single field at offset 0 with no stride multiplier', () => {
+    const k = emitTernaryComputeKernel({
+      fields: ['rank'],
+      branches: [{ pred: 'v_rank > 0.0', colorHex: '#fff' }],
+      defaultColorHex: '#000',
+    })
+    expect(k.wgsl).toContain('let v_rank = feat_data[fid];')
+  })
+
+  it('loads multiple fields with stride + offset (multi-field case)', () => {
+    const k = emitTernaryComputeKernel({
+      fields: ['cls', 'rank'],
+      branches: [{ pred: 'v_cls == 0.0 && v_rank > 5.0', colorHex: '#fff' }],
+      defaultColorHex: '#000',
+    })
+    expect(k.wgsl).toContain('let v_cls = feat_data[fid * 2u + 0u];')
+    expect(k.wgsl).toContain('let v_rank = feat_data[fid * 2u + 1u];')
+    expect(k.featureStrideF32).toBe(2)
+    expect(k.fieldOrder).toEqual(['cls', 'rank'])
+  })
+
+  it('passes through compound predicates verbatim (caller emits valid WGSL)', () => {
+    // The emitter trusts caller-supplied predicate strings. Composite
+    // predicates with &&, ||, parens come through unchanged.
+    const k = emitTernaryComputeKernel({
+      fields: ['a', 'b'],
+      branches: [
+        { pred: '(v_a > 0.0) && (v_b < 10.0)', colorHex: '#fff' },
+      ],
+      defaultColorHex: '#000',
+    })
+    expect(k.wgsl).toContain('if ((v_a > 0.0) && (v_b < 10.0))')
+  })
+
+  it('packs color via pack4x8unorm (same write path as match kernel)', () => {
+    const k = emitTernaryComputeKernel({
+      fields: ['x'],
+      branches: [{ pred: 'v_x > 0.0', colorHex: '#fff' }],
+      defaultColorHex: '#000',
+    })
+    expect(k.wgsl).toContain('out_color[fid] = pack4x8unorm(color);')
+  })
+
+  it('empty branches list emits just the default branch', () => {
+    const k = emitTernaryComputeKernel({
+      fields: [],
+      branches: [],
+      defaultColorHex: '#888',
+    })
+    expect(k.wgsl).toContain('@compute @workgroup_size(64)')
+    expect(k.wgsl).toContain('var color: vec4<f32>;')
+    expect(k.wgsl).toMatch(/else \{ color = vec4<f32>/)
+    // No fields → no v_* loads.
+    expect(k.wgsl).not.toMatch(/let v_/)
+  })
+
+  it('dispatchSize ceils features / workgroup_size', () => {
+    const k = emitTernaryComputeKernel({
+      fields: ['x'],
+      branches: [{ pred: 'v_x > 0.0', colorHex: '#fff' }],
+      defaultColorHex: '#000',
+    })
+    expect(k.dispatchSize(0)).toBe(0)
+    expect(k.dispatchSize(64)).toBe(1)
+    expect(k.dispatchSize(65)).toBe(2)
+    expect(k.dispatchSize(1000)).toBe(16)
   })
 })
 
