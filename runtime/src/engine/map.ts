@@ -3589,17 +3589,40 @@ export class XGISMap {
                   : ''
                 if (stableName !== '' && emittedPointNames.has(stableName)) return
                 if (stableName !== '') emittedPointNames.add(stableName)
-                const [lon, lat] = mercToLonLat(mercX, mercY)
                 const featDef = applyFeatureExprs(props)
                 // No fontKey override — see note at line ~2370.
-                // World-copy loop — see comment at projectLonLatCopies.
-                for (const projected of projectLonLatCopies(lon, lat)) {
+                // World-copy loop on MERCATOR coords directly — skips
+                // the merc → lonLat → merc round-trip the previous
+                // path did (one allocation + two trig stacks per call).
+                // Mirror of `projectLonLatCopies` for non-mercator
+                // projections is still needed because those reproject
+                // through lonLat space; we handle that here inline.
+                if (this.projectionName !== 'mercator') {
+                  const [lon, lat] = mercToLonLat(mercX, mercY)
+                  for (const projected of projectLonLatCopies(lon, lat)) {
+                    stage.addLabel(
+                      featDef.text, props,
+                      projected[0], projected[1], featDef,
+                      undefined, labelLayerName,
+                    )
+                    dispatchIcon(featDef, projected[0], projected[1])
+                  }
+                  return
+                }
+                // Mercator world-copy iteration: try offset 0, ±1, ±2
+                // (same order projectLonLatCopies uses) directly on
+                // merc coords. First copy that projects within the
+                // NDC window wins.
+                for (const wo of [0, -1, 1, -2, 2]) {
+                  const proj = projectMerc(mercX, mercY, wo * WORLD_MERC)
+                  if (!proj) continue
                   stage.addLabel(
                     featDef.text, props,
-                    projected[0], projected[1], featDef,
+                    proj[0], proj[1], featDef,
                     undefined, labelLayerName,
                   )
-                  dispatchIcon(featDef, projected[0], projected[1])
+                  dispatchIcon(featDef, proj[0], proj[1])
+                  break
                 }
               })
             }
