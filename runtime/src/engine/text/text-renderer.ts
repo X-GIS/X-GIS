@@ -290,8 +290,19 @@ export class TextRenderer {
         // (anchorX + dx, anchorY + dy); pen-advance loop is bypassed.
         const baseX = offsets ? d.anchorX + offsets[gi * 2]! : penX
         const baseY2 = offsets ? d.anchorY + offsets[gi * 2 + 1]! : baseY
-        const x0 = baseX + g.bearingX * scale - (drawW - g.width * scale) * 0.5
-        const y0 = baseY2 - g.bearingY * scale - (drawH - g.height * scale) * 0.5
+        const x0Raw = baseX + g.bearingX * scale - (drawW - g.width * scale) * 0.5
+        const y0Raw = baseY2 - g.bearingY * scale - (drawH - g.height * scale) * 0.5
+        // Pixel-snap the quad's TL when axis-aligned. fontSize/rasterFontSize
+        // ratios are typically non-integer (e.g. 24/32 = 0.75), and the bearing
+        // offsets carry sub-pixel components that propagate into the quad
+        // origin. Linear sampling of an SDF whose origin sits at a non-integer
+        // physical pixel produces per-glyph thickness jitter — visible as the
+        // uneven strokes in MapLibre-demo "Tropic of Capricorn". Snapping only
+        // applies when neither whole-label nor per-glyph rotation is active;
+        // rotated quads land at arbitrary angles and can't honour the grid.
+        const snap = rot === 0 && perGlyphRot === undefined
+        const x0 = snap ? Math.round(x0Raw) : x0Raw
+        const y0 = snap ? Math.round(y0Raw) : y0Raw
         const x1 = x0 + drawW
         const y1 = y0 + drawH
         const u0 = g.slot.pxX / pageSize
