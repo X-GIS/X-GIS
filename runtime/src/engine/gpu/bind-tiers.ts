@@ -172,3 +172,63 @@ export function tierLayoutOrder(
   }
   return out
 }
+
+// ─── Device-aware registry ─────────────────────────────────────────
+
+/** Owns the GPU side of the 4-tier hierarchy: materialises one
+ *  `GPUBindGroupLayout` per non-empty tier and caches it. One
+ *  registry per renderer instance — caller hands it to every
+ *  pipeline/bind-group construction site instead of inline
+ *  `createBindGroupLayout` calls.
+ *
+ *  Lifetime: registry is held for as long as the device is alive.
+ *  Layouts created here aren't disposable individually — WebGPU
+ *  reference-counts them and GC drops them when the last
+ *  pipeline+bindGroup referencing them goes away.
+ *
+ *  Why a class (vs a free function): caching. Each `getLayout` call
+ *  must return the SAME GPUBindGroupLayout handle so two pipelines
+ *  built against tier 0 share validation state. A free function
+ *  would either create N copies or require the caller to memoise. */
+export class BindTierRegistry {
+  private readonly layouts = new Map<BindTierValue, GPUBindGroupLayout>()
+  private readonly planned: PlannedTiers
+  private readonly device: GPUDevice
+  private readonly labelPrefix: string
+
+  constructor(device: GPUDevice, planned: PlannedTiers, labelPrefix = 'bind-tier') {
+    this.device = device
+    this.planned = planned
+    this.labelPrefix = labelPrefix
+  }
+
+  /** Return the `GPUBindGroupLayout` for this tier, creating it on
+   *  first request. Returns `null` if the tier has no slots — caller
+   *  should skip the corresponding `setBindGroup` call entirely. */
+  getLayout(tier: BindTierValue): GPUBindGroupLayout | null {
+    if (!this.planned.hasTier.get(tier)) return null
+    const cached = this.layouts.get(tier)
+    if (cached) return cached
+    const entries = this.planned.entries.get(tier)!
+    const layout = this.device.createBindGroupLayout({
+      label: `${this.labelPrefix}-tier${tier}`,
+      entries,
+    })
+    this.layouts.set(tier, layout)
+    return layout
+  }
+
+  /** Pipeline-layout-ready list of layouts in tier order (skips
+   *  empty tiers). Wraps `tierLayoutOrder` with the registry's own
+   *  `getLayout` so callers don't have to thread a resolver. */
+  pipelineLayoutOrder(): GPUBindGroupLayout[] {
+    return tierLayoutOrder(this.planned, t => this.getLayout(t)!)
+  }
+
+  /** Read-only access to the underlying plan — useful for tests +
+   *  diagnostic logs that want to inspect the slot shape without
+   *  triggering GPU allocation. */
+  get plan(): PlannedTiers {
+    return this.planned
+  }
+}

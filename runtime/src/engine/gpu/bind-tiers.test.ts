@@ -7,7 +7,7 @@
 // every assertion is on plain TypeScript objects.
 
 import { describe, expect, it } from 'vitest'
-import { BindTier, planTierLayout, tierLayoutOrder, type TierSlot } from './bind-tiers'
+import { BindTier, BindTierRegistry, planTierLayout, tierLayoutOrder, type TierSlot } from './bind-tiers'
 
 // Avoid hard import of GPUShaderStage (WebGPU typings) in tests —
 // the planner doesn't care about the actual numeric value, just
@@ -133,5 +133,100 @@ describe('bind-tiers — tierLayoutOrder', () => {
       () => ({} as GPUBindGroupLayout),
     )
     expect(ordered).toEqual([])
+  })
+})
+
+describe('bind-tiers — BindTierRegistry', () => {
+  // Minimal GPUDevice stub: every createBindGroupLayout returns a
+  // distinct sentinel object tagged with the label so the test can
+  // verify the registry created the right entries.
+  function makeFakeDevice(): {
+    device: GPUDevice
+    createdLabels: string[]
+    createdEntries: GPUBindGroupLayoutEntry[][]
+  } {
+    const createdLabels: string[] = []
+    const createdEntries: GPUBindGroupLayoutEntry[][] = []
+    const device = {
+      createBindGroupLayout(desc: GPUBindGroupLayoutDescriptor): GPUBindGroupLayout {
+        createdLabels.push(desc.label ?? '<unlabeled>')
+        createdEntries.push([...desc.entries])
+        return { _label: desc.label } as unknown as GPUBindGroupLayout
+      },
+    } as unknown as GPUDevice
+    return { device, createdLabels, createdEntries }
+  }
+
+  it('creates a layout only on first getLayout per tier (caches afterwards)', () => {
+    const { device, createdLabels } = makeFakeDevice()
+    const planned = planTierLayout([
+      { tier: BindTier.Constants, binding: 2, visibility: 2, resourceType: 'texture-float-2d' },
+      { tier: BindTier.Constants, binding: 4, visibility: 2, resourceType: 'sampler-filtering' },
+      { tier: BindTier.Tile, binding: 0, visibility: 3, resourceType: 'uniform-dynamic' },
+    ])
+    const reg = new BindTierRegistry(device, planned)
+    const c1 = reg.getLayout(BindTier.Constants)
+    const c2 = reg.getLayout(BindTier.Constants)
+    const t1 = reg.getLayout(BindTier.Tile)
+    expect(c1).toBe(c2)             // cached on second call
+    expect(c1).not.toBe(t1)         // different tier → different layout
+    expect(createdLabels.length).toBe(2)  // one per tier, not per get
+  })
+
+  it('returns null for tiers with no slots', () => {
+    const { device } = makeFakeDevice()
+    const planned = planTierLayout([
+      { tier: BindTier.Camera, binding: 0, visibility: 1, resourceType: 'uniform' },
+    ])
+    const reg = new BindTierRegistry(device, planned)
+    expect(reg.getLayout(BindTier.Constants)).toBeNull()
+    expect(reg.getLayout(BindTier.Feature)).toBeNull()
+    expect(reg.getLayout(BindTier.Camera)).not.toBeNull()
+  })
+
+  it('applies labelPrefix to the created bind-group layout label', () => {
+    const { device, createdLabels } = makeFakeDevice()
+    const planned = planTierLayout([
+      { tier: BindTier.Tile, binding: 0, visibility: 1, resourceType: 'uniform-dynamic' },
+    ])
+    const reg = new BindTierRegistry(device, planned, 'vtr')
+    reg.getLayout(BindTier.Tile)
+    expect(createdLabels).toEqual(['vtr-tier2'])
+  })
+
+  it('pipelineLayoutOrder returns layouts in tier 0..3 order, lazy-creating each', () => {
+    const { device, createdLabels } = makeFakeDevice()
+    const planned = planTierLayout([
+      { tier: BindTier.Feature, binding: 0, visibility: 2, resourceType: 'storage-readonly' },
+      { tier: BindTier.Constants, binding: 0, visibility: 2, resourceType: 'texture-float-2d' },
+    ])
+    const reg = new BindTierRegistry(device, planned)
+    const ordered = reg.pipelineLayoutOrder()
+    expect(ordered).toHaveLength(2)
+    expect(createdLabels).toEqual(['bind-tier-tier0', 'bind-tier-tier3'])
+  })
+
+  it('plan getter surfaces the same PlannedTiers for diagnostic introspection', () => {
+    const { device } = makeFakeDevice()
+    const planned = planTierLayout([
+      { tier: BindTier.Camera, binding: 0, visibility: 1, resourceType: 'uniform' },
+    ])
+    const reg = new BindTierRegistry(device, planned)
+    expect(reg.plan).toBe(planned)
+  })
+
+  it('entries handed to GPUDevice.createBindGroupLayout match the planner output', () => {
+    const { device, createdEntries } = makeFakeDevice()
+    const planned = planTierLayout([
+      { tier: BindTier.Constants, binding: 2, visibility: 2, resourceType: 'texture-float-2d', label: 'tex' },
+      { tier: BindTier.Constants, binding: 4, visibility: 2, resourceType: 'sampler-filtering', label: 'samp' },
+    ])
+    const reg = new BindTierRegistry(device, planned)
+    reg.getLayout(BindTier.Constants)
+    expect(createdEntries).toHaveLength(1)
+    expect(createdEntries[0]).toEqual([
+      { binding: 2, visibility: 2, texture: { sampleType: 'float', viewDimension: '2d' } },
+      { binding: 4, visibility: 2, sampler: { type: 'filtering' } },
+    ])
   })
 })
