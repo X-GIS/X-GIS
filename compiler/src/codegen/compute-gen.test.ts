@@ -161,6 +161,24 @@ describe('compute-gen — emitMatchComputeKernel', () => {
     expect(k.wgsl).toContain('let v_rank = feat_data[fid];')
   })
 
+  it('match kernel exposes categoryOrder with alphabetised patterns', () => {
+    // Lock in cross-path category-ID assignment: the runtime packer
+    // converts strings → IDs by indexOf into the sorted pattern
+    // list. The kernel's if-else chain compares against the same
+    // IDs. Both halves must agree on the alphabetical sort.
+    const k = emitMatchComputeKernel({
+      fieldName: 'class',
+      arms: [
+        { pattern: 'school',   colorHex: '#aaa' },
+        { pattern: 'cemetery', colorHex: '#bbb' },
+        { pattern: 'hospital', colorHex: '#ccc' },
+      ],
+      defaultColorHex: '#000',
+    })
+    expect(k.categoryOrder).toBeDefined()
+    expect(k.categoryOrder!['class']).toEqual(['cemetery', 'hospital', 'school'])
+  })
+
   it('emitted entryPoint matches a fn declared in the WGSL', () => {
     // Cross-check: the runtime will pass `kernel.entryPoint` to
     // createComputePipeline; if the field disagrees with the actual
@@ -268,6 +286,18 @@ describe('compute-gen — emitTernaryComputeKernel', () => {
       defaultColorHex: '#000',
     })
     expect(k.entryPoint).toBe('eval_case')
+  })
+
+  it('ternary kernel has no categoryOrder (predicates are pure numeric)', () => {
+    const k = emitTernaryComputeKernel({
+      fields: ['x'],
+      branches: [{ pred: 'v_x > 0.0', colorHex: '#fff' }],
+      defaultColorHex: '#000',
+    })
+    // Absence is the contract — packer skips fields without an
+    // entry. Match kernel populates this; ternary doesn't because
+    // its predicates compare numeric values directly.
+    expect(k.categoryOrder).toBeUndefined()
   })
 
   it('packs color via pack4x8unorm (same write path as match kernel)', () => {

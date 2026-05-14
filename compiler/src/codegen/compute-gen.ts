@@ -77,6 +77,13 @@ export interface ComputeKernel {
   /** Ordered field names the runtime must lay out in feat_data —
    *  matches the offsets the kernel reads. `fieldOffsets[i]` = i. */
   fieldOrder: string[]
+  /** For kernels that match string-typed feature properties (today:
+   *  only the match() kernel), the alphabetised pattern list per
+   *  field. ID == index into the list; the runtime packer uses this
+   *  to convert string feature values into f32 IDs before upload.
+   *  Empty / absent for kernels whose predicates are pure numeric
+   *  comparisons (ternary, interpolate). */
+  categoryOrder?: Record<string, readonly string[]>
   /** Convenience: dispatch X count for a given total feature count. */
   dispatchSize(featureCount: number): number
 }
@@ -185,6 +192,7 @@ export function emitMatchComputeKernel(spec: MatchEmitSpec): ComputeKernel {
     entryPoint: 'eval_match',
     featureStrideF32: 1,
     fieldOrder: [spec.fieldName],
+    categoryOrder: { [spec.fieldName]: sortedPatterns },
     dispatchSize(featureCount: number): number {
       return Math.ceil(featureCount / COMPUTE_WORKGROUP_SIZE)
     },

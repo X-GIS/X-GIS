@@ -221,4 +221,30 @@ describe('planComputeKernels', () => {
     expect(plan[0]!.fieldOrder).toEqual(plan[0]!.kernel.fieldOrder)
     expect(plan[0]!.fieldOrder).toEqual(['a', 'b'])
   })
+
+  it('match entry exposes categoryOrder with sorted patterns per field', () => {
+    // Use 7-char hex literals — resolveColorOfAST mirrors shader-
+    // gen and rejects 3-char short form.
+    const fill: ColorValue = {
+      kind: 'data-driven',
+      expr: matchAst('class', [
+        { pattern: 'school',   hex: '#aaaaaa' },
+        { pattern: 'cemetery', hex: '#bbbbbb' },
+        { pattern: 'hospital', hex: '#cccccc' },
+        { pattern: '_',        hex: '#000000' },
+      ]),
+    }
+    const plan = planComputeKernels(makeScene([makeNode({ fill })]))
+    expect(plan[0]!.categoryOrder['class']).toEqual(['cemetery', 'hospital', 'school'])
+  })
+
+  it('conditional entry has empty categoryOrder (numeric predicates only)', () => {
+    const fill: ColorValue = {
+      kind: 'conditional',
+      branches: [{ field: 'x', value: { kind: 'constant', rgba: RED } }],
+      fallback: { kind: 'constant', rgba: BLUE },
+    }
+    const plan = planComputeKernels(makeScene([makeNode({ fill })]))
+    expect(plan[0]!.categoryOrder).toEqual({})
+  })
 })

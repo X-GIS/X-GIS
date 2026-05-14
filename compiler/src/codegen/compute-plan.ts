@@ -77,6 +77,11 @@ export interface ComputePlanEntry {
    *  to the entry level so the scheduler doesn't have to peek into
    *  kernel metadata. */
   fieldOrder: readonly string[]
+  /** Per-field alphabetised pattern list for match() kernels (empty
+   *  for ternary / interpolate kernels). Lifted from
+   *  kernel.categoryOrder so the runtime packer can do the
+   *  string→ID conversion without re-walking the kernel struct. */
+  categoryOrder: Record<string, readonly string[]>
 }
 
 /** Walk every RenderNode × paint axis in the Scene; produce one
@@ -118,7 +123,11 @@ function pushAxis(
     const spec = lowerConditionalColorToTernary(value)
     if (!spec) return
     const kernel = emitTernaryComputeKernel(spec)
-    out.push({ renderNodeIndex, paintAxis, kernel, fieldOrder: kernel.fieldOrder })
+    out.push({
+      renderNodeIndex, paintAxis, kernel,
+      fieldOrder: kernel.fieldOrder,
+      categoryOrder: kernel.categoryOrder ?? {},
+    })
     return
   }
 
@@ -126,7 +135,11 @@ function pushAxis(
     const spec = lowerMatchColorToMatch(value.expr)
     if (!spec) return
     const kernel = emitMatchComputeKernel(spec)
-    out.push({ renderNodeIndex, paintAxis, kernel, fieldOrder: kernel.fieldOrder })
+    out.push({
+      renderNodeIndex, paintAxis, kernel,
+      fieldOrder: kernel.fieldOrder,
+      categoryOrder: kernel.categoryOrder ?? {},
+    })
     return
   }
 
