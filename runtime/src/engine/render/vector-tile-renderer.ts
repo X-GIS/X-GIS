@@ -619,10 +619,20 @@ export class VectorTileRenderer {
     // previous frame's tile array drop sooner if the ShowCommand
     // list shrinks (e.g. layer toggle).
     this._frameTileCache = null
-    // Safe to destroy rings that were grown out of last frame: by now the
-    // previous frame's command buffer has been submitted and its GPU-side
-    // lifetime is the device's responsibility, not the buffer handle.
-    for (const b of this.retiredUniformRings) b.destroy()
+    // Retired rings are NO LONGER explicitly destroyed here. The
+    // previous frame's `queue.submit()` was called before the rAF
+    // callback that fired this `beginFrame`, so validation already
+    // passed — but a separate code path (teardownSource → VTR.destroy
+    // mid-frame, or a setBindGroup call that captured a ring just
+    // before grow) can still race the destroy ahead of submit, which
+    // surfaces as "Buffer vtr-uniform-ring used in submit while
+    // destroyed" on OFM Bright load (user-reported 2026-05-14).
+    //
+    // Replaced with a plain array clear: drop our refs, let JS GC +
+    // the WebGPU implementation's internal refcount free the underlying
+    // GPU resource at the right time. Bounded memory cost — ring grows
+    // double capacity, so the retired pool tops out at log2(maxCap)
+    // buffers (a handful, ~MB-scale transient).
     this.retiredUniformRings.length = 0
     // Same safety window applies to tile-buffer eviction. Eviction used to
     // run inline at the end of render() (`this.gpuCache.size > MAX_GPU_TILES`
