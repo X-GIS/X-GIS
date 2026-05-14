@@ -785,8 +785,17 @@ export class TextStage {
       let gminX = Infinity, gmaxX = -Infinity, gminY = Infinity, gmaxY = -Infinity
       for (let gi = 0; gi < glyphs.length; gi++) {
         const adv = advances[gi]!
-        const center = cursor + adv * 0.5
-        const sample = sampleAt(center)
+        // Sample at the LEFT edge of the advance box, NOT its centre.
+        // The text-renderer's bearing application places the visible
+        // glyph's LEFT edge at `baseX + bearingX*scale`, so passing
+        // the polyline position at advance-box-left here yields the
+        // correct per-glyph anchor — `Tropic of Cancer` reads with
+        // even spacing.
+        // Sampling at the box centre (the pre-fix code) was off by
+        // `bearingX + glyphWidth/2` per glyph; since glyph widths
+        // vary, gap distance varied too — visible as "Tr o pi c of
+        // Cancer" with wide / narrow alternations.
+        const sample = sampleAt(cursor)
         // Perpendicular shift: rotate (0, verticalOffsetPx) by the
         // sample's tangent angle. cos/sin of (angle + 90°) =
         // (-sin angle, cos angle). Multiply by the desired offset.
