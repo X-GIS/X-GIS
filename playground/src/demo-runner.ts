@@ -823,7 +823,13 @@ async function runSource(source: string, label: string) {
     // time, so by the time we get here the promise typically resolves
     // immediately. Try/catch covers browsers without the FontFaceSet API.
     try { await document.fonts?.ready } catch { /* no-op */ }
-    currentMap = new XGISMap(canvas)
+    // ?compute=1 — opt into Plan P4 GPU compute paint evaluation.
+    // Threads through XGISMapOptions.enableComputePath → compiler
+    // emit flag → variant.computeBindings → ComputeLayerRegistry
+    // → per-frame dispatch. Default off; demos that don't pass the
+    // flag render through the legacy fragment-shader path unchanged.
+    const computeOptIn = new URL(window.location.href).searchParams.get('compute') === '1'
+    currentMap = new XGISMap(canvas, { enableComputePath: computeOptIn })
     // Debug hook — Playwright tests + DevTools console can poke at
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
     // demo runner. Keep it lightweight; not part of the public API.
