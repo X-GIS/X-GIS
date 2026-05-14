@@ -1228,8 +1228,13 @@ export class MapRenderer {
    *  bindings get a per-key extended layout (cached). The returned
    *  layout matches the bind-group entries `addLayer` constructs
    *  for the same variant — drift between the two surfaces as a
-   *  WebGPU validation error at pipeline / bind-group create. */
-  private getOrBuildVariantLayout(variant: ShaderVariantInfo): GPUBindGroupLayout {
+   *  WebGPU validation error at pipeline / bind-group create.
+   *
+   *  Public so VTR / point-renderer (which build their own per-tile
+   *  bind groups against this same layout) can request the right
+   *  layout per variant during their setBindGroupLayout / pipeline-
+   *  build call sites. */
+  getOrBuildVariantLayout(variant: ShaderVariantInfo): GPUBindGroupLayout {
     if (!variant.computeBindings || variant.computeBindings.length === 0) {
       return variant.needsFeatureBuffer ? this.featureBindGroupLayout : this.bindGroupLayout
     }

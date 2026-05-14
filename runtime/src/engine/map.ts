@@ -1726,9 +1726,13 @@ export class XGISMap {
         if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
           try {
             pipelines = this.renderer.getOrCreateVariantPipelines(variant as any)
-            layout = variant.needsFeatureBuffer
-              ? this.renderer.featureBindGroupLayout
-              : this.renderer.bindGroupLayout
+            // Compute-aware layout selection: when the variant
+            // carries `computeBindings`, MapRenderer returns the
+            // per-variant extended layout (legacy entries + read-only
+            // storage at the compiler-chosen binding indices) — VTR
+            // builds its per-tile bind groups against this layout so
+            // its pipeline + bind groups agree.
+            layout = this.renderer.getOrBuildVariantLayout(variant as never)
             if (variant.needsFeatureBuffer && !vtEntry.renderer.hasFeatureData()) {
               vtEntry.renderer.buildFeatureDataBuffer(variant as any, layout)
             }
@@ -1755,8 +1759,7 @@ export class XGISMap {
         if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
           try {
             pipelines = this.renderer.getOrCreateVariantPipelines(variant as any)
-            layout = variant.needsFeatureBuffer
-              ? this.renderer.featureBindGroupLayout : this.renderer.bindGroupLayout
+            layout = this.renderer.getOrBuildVariantLayout(variant as never)
             if (variant.needsFeatureBuffer && !vtEntry.renderer.hasFeatureData()) {
               vtEntry.renderer.buildFeatureDataBuffer(variant as any, layout)
             }
@@ -1916,7 +1919,14 @@ export class XGISMap {
         // of bind group".
         const variant = show.shaderVariant
         if (variant && variant.needsFeatureBuffer && !vtRenderer.hasFeatureData()) {
-          vtRenderer.buildFeatureDataBuffer(variant as import('@xgis/compiler').ShaderVariant, this.renderer.featureBindGroupLayout)
+          // Compute-aware layout selection — matches the same call in
+          // rebuildLayers (lines 1729 / 1758) so the VTR per-tile
+          // bind group uses the extended layout when the variant
+          // carries computeBindings.
+          vtRenderer.buildFeatureDataBuffer(
+            variant as import('@xgis/compiler').ShaderVariant,
+            this.renderer.getOrBuildVariantLayout(variant as never),
+          )
         }
         // Worker result just landed — wake the render loop to paint it.
         this.invalidate()
@@ -1958,9 +1968,7 @@ export class XGISMap {
       if (variantSync && (variantSync.preamble || variantSync.needsFeatureBuffer)) {
         try {
           pipelines = this.renderer.getOrCreateVariantPipelines(variantSync as any)
-          layout = variantSync.needsFeatureBuffer
-            ? this.renderer.featureBindGroupLayout
-            : this.renderer.bindGroupLayout
+          layout = this.renderer.getOrBuildVariantLayout(variantSync as never)
         } catch (e) {
           console.warn('[X-GIS] GeoJSON VT variant pipeline failed:', e)
         }
