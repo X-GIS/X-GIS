@@ -34,6 +34,8 @@ import { mercator as mercatorProj, type Projection } from '../projection/project
 import type { PointRenderer } from './point-renderer'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
 import { parseHexColor } from '../feature-helpers'
+import { ComputeDispatcher } from '../gpu/compute'
+import { ComputeLayerHandle } from './compute-layer-handle'
 
 // ═══ Types ═══
 
@@ -389,6 +391,23 @@ export class VectorTileRenderer {
   // stride-8 `fid`. Empty when no data-driven paint expr is wired.
   private latestVariantFields: readonly string[] = []
   private latestVariantCategoryOrder: Record<string, readonly string[]> = {}
+  /** Compute path (P4) — captured at `buildFeatureDataBuffer` time
+   *  when the show's variant carries `computeBindings`. Drives
+   *  per-tile `ComputeLayerHandle` construction inside
+   *  `buildPerTileFeatureData`. All three null when the variant has
+   *  no compute paint (legacy path, no behaviour change). */
+  private latestVariant: import('@xgis/compiler').ShaderVariant | null = null
+  private latestComputePlan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined
+  private latestRenderNodeIndex: number | undefined
+  /** Per-tile compute handles for THIS VTR's variant. Keyed by the
+   *  `tileKey:sourceLayer` string the tile uploader already uses for
+   *  the layer cache, so handle lifetime tracks the tile's bind
+   *  group lifetime. Cleared from `destroy()` + on tile eviction. */
+  private computeHandlesByTile = new Map<string, import('./compute-layer-handle').ComputeLayerHandle>()
+  /** Singleton ComputeDispatcher shared by every per-tile handle.
+   *  Lazy-created on first compute-variant attach so non-compute
+   *  scenes don't pay any allocation. */
+  private computeDispatcher: import('../gpu/compute').ComputeDispatcher | null = null
 
   // Per-frame draw stats
   private renderedDraws = new Map<number | string, { polyCount: number; lineCount: number; vertexCount: number }>()
@@ -480,6 +499,35 @@ export class VectorTileRenderer {
     this.lastBindGroupLayout = layout
     this.baseBindGroupLayout = layout
     this.ensureUniformRing()
+  }
+
+  /** Hand the scene's compute plan to the VTR so per-tile feature
+   *  uploads can attach a `ComputeLayerHandle`. The renderNodeIndex
+   *  is intentionally NOT captured here — it's captured atomically
+   *  with the variant inside `buildFeatureDataBuffer` so the two
+   *  can't drift across shows that share a VTR (the previous design
+   *  let a non-compute show's setComputeContext mutate
+   *  latestRenderNodeIndex while latestVariant still pointed at a
+   *  prior compute show — variant.computeBindings.length=1 + plan
+   *  filter at non-matching idx = 0 → ComputeLayerHandle throw). */
+  setComputePlan(
+    plan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined,
+  ): void {
+    this.latestComputePlan = plan
+  }
+
+  /** Run every attached compute kernel onto the encoder. Call ONCE
+   *  per frame from the orchestrator (map.ts) BEFORE the first
+   *  beginRenderPass — the fragment shader reads the kernel's output
+   *  buffer at draw time and must see populated data.
+   *
+   *  No-op when no compute handle is attached (every legacy non-
+   *  compute VTR call site stays at zero cost). */
+  dispatchComputePass(encoder: GPUCommandEncoder): void {
+    if (this.computeHandlesByTile.size === 0) return
+    for (const handle of this.computeHandlesByTile.values()) {
+      handle.dispatch(encoder)
+    }
   }
 
   /** P3 Step 3c — set palette atlas resources used by binding 2 + 4
@@ -1315,6 +1363,13 @@ export class VectorTileRenderer {
    *  whole map is disposed. After destroy() the renderer is dead —
    *  create a new VectorTileRenderer if another upload is needed. */
   destroy(): void {
+    // P4 compute resources: per-tile ComputeLayerHandle instances
+    // own (feat / out / count) buffer trios. Free them before the
+    // legacy buffer loop so device memory is reclaimed in one pass.
+    for (const handle of this.computeHandlesByTile.values()) {
+      handle.destroy()
+    }
+    this.computeHandlesByTile.clear()
     for (const inner of this.gpuCache.values()) {
       for (const tile of inner.values()) {
         tile.vertexBuffer?.destroy()
@@ -1381,7 +1436,11 @@ export class VectorTileRenderer {
   }
 
   /** Build per-feature GPU storage buffer from PropertyTable */
-  buildFeatureDataBuffer(variant: ShaderVariant, featureBindGroupLayout: GPUBindGroupLayout): void {
+  buildFeatureDataBuffer(
+    variant: ShaderVariant,
+    featureBindGroupLayout: GPUBindGroupLayout,
+    renderNodeIndex?: number,
+  ): void {
     // Capture variant requirements regardless of PropertyTable state so
     // the per-tile feature-buffer path (MVT/PMTiles) has the field list
     // + categoryOrder needed at tile upload time. Without this, MVT
@@ -1390,6 +1449,20 @@ export class VectorTileRenderer {
     this.latestVariantFields = variant.featureFields
     this.latestVariantCategoryOrder = (variant.categoryOrder as Record<string, readonly string[]>) ?? {}
     this.featureBindGroupLayout = featureBindGroupLayout
+    // Capture variant + renderNodeIndex ATOMICALLY when the show's
+    // paint routes through the P4 compute path. Per-tile handle
+    // construction in `buildPerTileFeatureData` reads BOTH and
+    // throws on drift — capturing them together prevents the
+    // cross-show drift bug where a subsequent non-compute show
+    // would mutate `latestRenderNodeIndex` while leaving
+    // `latestVariant` pointing at a prior compute show's variant.
+    if ((variant.computeBindings?.length ?? 0) > 0) {
+      this.latestVariant = variant
+      this.latestRenderNodeIndex = renderNodeIndex
+    } else {
+      this.latestVariant = null
+      this.latestRenderNodeIndex = undefined
+    }
 
     const table = this.source?.getPropertyTable()
     if (!table || variant.featureFields.length === 0 || table.values.length === 0) {
@@ -1493,6 +1566,7 @@ export class VectorTileRenderer {
    *  skip the buffer-allocate call entirely. */
   private buildPerTileFeatureData(
     featureProps: ReadonlyMap<number, Record<string, unknown>> | undefined,
+    handleKey: string = '',
   ): { buffer: GPUBuffer; bindGroup: GPUBindGroup } | null {
     if (!featureProps || featureProps.size === 0) return null
     if (this.latestVariantFields.length === 0) return null
@@ -1573,6 +1647,50 @@ export class VectorTileRenderer {
     // resources yet, return null buffer so the caller falls back to
     // a non-feature pipeline rather than producing an invalid group.
     if (!this.paletteColorAtlasView || !this.paletteSampler) return null
+
+    // P4 compute path: when the captured variant carries
+    // computeBindings, build (or refresh) a per-tile
+    // ComputeLayerHandle for this (variant, tile) pair and append
+    // its output buffer entries to the bind group. Legacy (no
+    // computeBindings) shows skip this entirely — the bind group
+    // stays at the legacy 4-entry shape.
+    let extraComputeEntries: { binding: number; resource: { buffer: GPUBuffer } }[] = []
+    if (this.latestVariant
+      && (this.latestVariant.computeBindings?.length ?? 0) > 0
+      && this.latestComputePlan
+      && this.latestRenderNodeIndex !== undefined
+      && handleKey) {
+      // Lazy-init the dispatcher on first compute attach.
+      if (!this.computeDispatcher) {
+        this.computeDispatcher = new ComputeDispatcher({ device: this.device } as never)
+      }
+      // Build or refresh the handle for THIS tile.
+      let handle = this.computeHandlesByTile.get(handleKey)
+      if (!handle) {
+        handle = new ComputeLayerHandle(
+          this.computeDispatcher,
+          this.latestVariant,
+          this.latestComputePlan,
+          this.latestRenderNodeIndex,
+        )
+        this.computeHandlesByTile.set(handleKey, handle)
+      }
+      // Upload feature props through the handle. featureProps is a
+      // Map<fid, props>; the handle's packer takes a `getProps(fid)`
+      // closure so we adapt.
+      let maxFid = -1
+      for (const fid of featureProps.keys()) if (fid > maxFid) maxFid = fid
+      const featureCount = maxFid + 1
+      handle!.uploadFromProps(
+        (fid: number) => featureProps.get(fid) ?? null,
+        featureCount,
+      )
+      // Append the handle's bind-group entries (compute output
+      // storage buffer at binding 16 by default).
+      const compEntries = handle!.getBindGroupEntries()
+      if (compEntries) extraComputeEntries = compEntries
+    }
+
     const bindGroup = this.device.createBindGroup({
       label: 'per-tile-feature-bg',
       layout: this.featureBindGroupLayout,
@@ -1581,6 +1699,7 @@ export class VectorTileRenderer {
         { binding: 1, resource: { buffer } },
         { binding: 2, resource: this.paletteColorAtlasView },
         { binding: 4, resource: this.paletteSampler },
+        ...extraComputeEntries,
       ],
     })
 
@@ -1872,7 +1991,10 @@ export class VectorTileRenderer {
     // to this renderer (latestVariantFields captured) AND the worker
     // emitted featureProps for this slice. GeoJSON path skips (uses
     // source-level featureDataBuffer instead).
-    const perTileFeat = this.buildPerTileFeatureData(data.featureProps)
+    // Compute-handle keying matches the legacy `${key}:${sourceLayer}`
+    // identity already used by the upload queue + held set, so the
+    // handle's lifetime tracks the tile's bind-group lifetime.
+    const perTileFeat = this.buildPerTileFeatureData(data.featureProps, `${key}:${sourceLayer}`)
 
     layerCache.set(key, {
       vertexBuffer, indexBuffer,
@@ -2124,7 +2246,10 @@ export class VectorTileRenderer {
     if (layerCache.has(key)) return
 
     // Per-tile feat_data — same rationale as the sync path.
-    const perTileFeat = this.buildPerTileFeatureData(data.featureProps)
+    // Compute-handle keying matches the legacy `${key}:${sourceLayer}`
+    // identity already used by the upload queue + held set, so the
+    // handle's lifetime tracks the tile's bind-group lifetime.
+    const perTileFeat = this.buildPerTileFeatureData(data.featureProps, `${key}:${sourceLayer}`)
 
     layerCache.set(key, {
       vertexBuffer, indexBuffer,

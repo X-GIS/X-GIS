@@ -507,6 +507,12 @@ export class XGISMap {
    *  unconditional but no-op when the variant carries no
    *  computeBindings. */
   private _enableComputePath = false
+  /** Cached compute plan from the last successful run() so non-run
+   *  paths (rebuildLayers after setProjection, etc.) can hand it to
+   *  VTR.setComputeContext. Undefined when the scene didn't go
+   *  through emitCommands w/ enableComputePath or had no compute
+   *  paint expressions. */
+  private _currentComputePlan: readonly import('@xgis/compiler').ComputePlanEntry[] | undefined
 
   /** Per-font typography overrides keyed by CSS family ("Open Sans"
    *  → { letterSpacingEm: -0.02, lineHeightScale: 1.05 }). Built from
@@ -1066,7 +1072,16 @@ export class XGISMap {
     const hasNewSyntax = ast.body.some(s => s.kind === 'SourceStatement' || s.kind === 'LayerStatement')
     let commands
     if (hasNewSyntax) {
-      const scene = lower(ast)
+      // P4: bypass `extractMatchDefaultColor` when the compute path
+      // is opted in, so match() fills survive lowering as data-
+      // driven rather than collapsing to their default arm. Paired
+      // with convertMapboxStyle's `bypassExpandColorMatch` (set by
+      // the compare/demo runner when ?compute=1) for the symmetric
+      // gate — both flags MUST be true for Mapbox-converted styles
+      // to reach the compute kernel emit.
+      const scene = lower(ast, {
+        bypassExtractMatchDefaultColor: this._enableComputePath,
+      })
       // Surface compiler diagnostics to the console — silent failures
       // (e.g. deprecated z<N>: modifier silently dropped) become loud
       // so the user notices instead of debugging "why isn't this
@@ -1289,6 +1304,12 @@ export class XGISMap {
     this.showCommands = commands.shows
     this._sceneHasAnimation = sceneHasAnyAnimation(commands.shows)
     this._needsRender = true
+    // Cache the compute plan on `this` so non-run paths (e.g.
+    // rebuildLayers after a setProjection, which re-creates VTR
+    // sources WITHOUT a fresh emitCommands run) can still hand the
+    // current plan to VTR.setComputeContext. Cleared on binary load
+    // (which has no compute plan).
+    this._currentComputePlan = (commands as { computePlan?: import('@xgis/compiler').ComputePlanEntry[] }).computePlan
 
     // Hand the compute plan to the renderer BEFORE rebuildLayers so
     // its addLayer calls can attach ComputeLayerHandles for variants
@@ -1733,8 +1754,19 @@ export class XGISMap {
             // builds its per-tile bind groups against this layout so
             // its pipeline + bind groups agree.
             layout = this.renderer.getOrBuildVariantLayout(variant as never)
+            // P4 compute context: when the variant carries compute
+            // bindings, hand the scene plan + renderNodeIndex to the
+            // VTR so per-tile uploads can attach a ComputeLayerHandle.
+            // Always called (no-op for non-compute variants).
+            // Plan goes through `setComputePlan`; renderNodeIndex
+            // travels with the variant via `buildFeatureDataBuffer`
+            // so the two CANNOT drift across shows that share this
+            // VTR. The plan setter is idempotent + scene-scoped.
+            vtEntry.renderer.setComputePlan(this._currentComputePlan)
             if (variant.needsFeatureBuffer && !vtEntry.renderer.hasFeatureData()) {
-              vtEntry.renderer.buildFeatureDataBuffer(variant as any, layout)
+              vtEntry.renderer.buildFeatureDataBuffer(
+                variant as any, layout, show.renderNodeIndex,
+              )
             }
           } catch (e) {
             console.warn('[X-GIS] VT variant pipeline failed:', e)
@@ -1760,8 +1792,18 @@ export class XGISMap {
           try {
             pipelines = this.renderer.getOrCreateVariantPipelines(variant as any)
             layout = this.renderer.getOrBuildVariantLayout(variant as never)
+            // Mirror of the sibling branch above — same compute-
+            // context hand-off so this code path (existing VT source)
+            // sees the compute plan for the new show.
+            // Plan goes through `setComputePlan`; renderNodeIndex
+            // travels with the variant via `buildFeatureDataBuffer`
+            // so the two CANNOT drift across shows that share this
+            // VTR. The plan setter is idempotent + scene-scoped.
+            vtEntry.renderer.setComputePlan(this._currentComputePlan)
             if (variant.needsFeatureBuffer && !vtEntry.renderer.hasFeatureData()) {
-              vtEntry.renderer.buildFeatureDataBuffer(variant as any, layout)
+              vtEntry.renderer.buildFeatureDataBuffer(
+                variant as any, layout, show.renderNodeIndex,
+              )
             }
           } catch (e) { console.warn('[X-GIS] VT variant pipeline failed:', e) }
         }
@@ -1926,7 +1968,9 @@ export class XGISMap {
           vtRenderer.buildFeatureDataBuffer(
             variant as import('@xgis/compiler').ShaderVariant,
             this.renderer.getOrBuildVariantLayout(variant as never),
+            show.renderNodeIndex,
           )
+          vtRenderer.setComputePlan(this._currentComputePlan)
         }
         // Worker result just landed — wake the render loop to paint it.
         this.invalidate()
@@ -2265,6 +2309,14 @@ export class XGISMap {
     // today). Must run after encoder creation, before the first
     // beginRenderPass.
     this.renderer.dispatchComputePass(encoder)
+    // Every active VTR also runs its per-tile compute kernels here
+    // — they need to fire BEFORE the first render pass for the same
+    // reason as MapRenderer: fragment shaders read the kernel output
+    // buffer at draw time. No-op when no VTR has a compute-bound
+    // show attached.
+    for (const vtSource of this.vtSources.values()) {
+      vtSource.renderer.dispatchComputePass(encoder)
+    }
     // Reset per-frame sub-pass assignment in the timer. Subsequent
     // passWrites() calls will return contiguous timestamp ranges
     // starting at sub-pass 0.
