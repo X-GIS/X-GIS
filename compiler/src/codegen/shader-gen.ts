@@ -546,17 +546,15 @@ function resolveColorFromAST(node: import('../parser/ast').Expr): [number, numbe
     if (hex) return hexToRgba(hex)
   }
   // Hex literal direct from a synthesized AST (e.g. mergeLayers'
-  // `match() { value -> #rrggbbaa }` arms). The user-authored
-  // surface always reaches this resolver via Identifier / hyphen
-  // BinaryExpr above; ColorLiteral is the compiler-internal path.
-  // Without this branch the synthesized arms collapse to "no
-  // colour" → match preambles end up containing only the default
-  // variable declaration → variant cache key collision (every
-  // compound on the same field hashes identically) → wrong
-  // pipeline shared across compounds.
+  // `match() { value -> #rrggbbaa }` arms) AND user-authored short
+  // forms (`fill: #fff`). Without the 4/5 lengths the short form
+  // would collapse to "no colour" — fragment match preambles end up
+  // containing only the default variable declaration, variant cache
+  // keys collide across compounds, and the wrong pipeline gets
+  // shared. CSS allows 3/4/6/8 hex digits (lengths 4/5/7/9 with #).
   if (node.kind === 'ColorLiteral' && typeof node.value === 'string') {
     const hex = node.value
-    if (hex.startsWith('#') && (hex.length === 7 || hex.length === 9)) {
+    if (/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
       return hexToRgba(hex)
     }
   }

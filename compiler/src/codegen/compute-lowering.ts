@@ -116,20 +116,24 @@ export function lowerMatchColorToMatch(
   return { fieldName: fieldExpr.field, arms, defaultColorHex }
 }
 
-/** Pure-string resolver for arm value ASTs. Accepts the three shapes
- *  the compiler produces:
+/** Pure-string resolver for arm value ASTs. Accepts the shapes the
+ *  compiler produces:
  *
- *    - Identifier 'cornflowerblue'        → named colour lookup
- *    - StringLiteral '"cornflowerblue"'   → same lookup
- *    - ColorLiteral '#rrggbb' / '#rrggbbaa' → verbatim
+ *    - Identifier 'cornflowerblue'           → CSS named colour
+ *    - StringLiteral '"cornflowerblue"'      → same
+ *    - StringLiteral '"rgb(255,0,0)"'        → CSS rgb/hsl function
+ *    - ColorLiteral  '#f00' / '#f00f' /
+ *                    '#ff0000' / '#ff0000ff' → verbatim CSS hex
  *
- *  Returns null for anything else (compound expressions, var refs,
- *  rgb()/hsl() calls — those require pre-evaluation by const-fold
- *  P0, which hasn't shipped yet). */
+ *  All four CSS hex shapes pass through (3 / 4 / 6 / 8 digits) so
+ *  user-authored styles like `match(.class) { fire -> #f00 }` work
+ *  on the compute path the same way they work on the inline-shader
+ *  path. Anything else (compound expressions, var refs) returns
+ *  null and the runtime falls back to inline-fragment emit. */
 function resolveColorOfAST(node: Expr): string | null {
   if (node.kind === 'ColorLiteral') {
     const v = node.value
-    if (typeof v === 'string' && v.startsWith('#') && (v.length === 7 || v.length === 9)) {
+    if (typeof v === 'string' && /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v)) {
       return v
     }
     return null

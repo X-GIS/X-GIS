@@ -694,6 +694,12 @@ export function hexToRgba(hex: string): [number, number, number, number] {
     r = parseInt(hex[1] + hex[1], 16) / 255
     g = parseInt(hex[2] + hex[2], 16) / 255
     b = parseInt(hex[3] + hex[3], 16) / 255
+  } else if (hex.length === 5) {
+    // #RGBA
+    r = parseInt(hex[1] + hex[1], 16) / 255
+    g = parseInt(hex[2] + hex[2], 16) / 255
+    b = parseInt(hex[3] + hex[3], 16) / 255
+    a = parseInt(hex[4] + hex[4], 16) / 255
   } else if (hex.length === 7) {
     // #RRGGBB
     r = parseInt(hex.slice(1, 3), 16) / 255
