@@ -36,6 +36,33 @@ const WEIGHT_TO_KEYWORD: Record<number, string> = {
   900: 'Black',
 }
 
+// CJK fallback chain marker — composeFontKey appends a fixed CSS family
+// list AFTER the user-specified families so Canvas2D can hit OS Han /
+// Hangul glyphs. The PBF server doesn't recognise these CSS-only
+// families, so we strip them when deriving the fontstack name. The
+// marker is the first known CJK entry; the boundary is deterministic
+// because composeFontKey controls the chain.
+const CJK_CHAIN_MARKERS = [
+  '"Noto Sans CJK KR"', 'Noto Sans CJK KR',
+]
+
+/** Split the family list from a composeFontKey output into user-
+ *  specified families (the ones the style author asked for) and the
+ *  CJK fallback chain (engine-injected). Pure helper exported for
+ *  unit testing. */
+export function splitUserFamilies(familyList: string): string[] {
+  let userPortion = familyList
+  for (const marker of CJK_CHAIN_MARKERS) {
+    const idx = familyList.indexOf(marker)
+    if (idx >= 0) { userPortion = familyList.slice(0, idx); break }
+  }
+  return userPortion
+    .replace(/,\s*$/, '')
+    .split(',')
+    .map(f => f.trim().replace(/^["']|["']$/g, ''))
+    .filter(Boolean)
+}
+
 /** Reconstruct the PBF fontstack name from a runtime fontKey. Exported
  *  for unit testing.
  *
@@ -53,11 +80,15 @@ const WEIGHT_TO_KEYWORD: Record<number, string> = {
  *  letterforms than the OFM-served Noto Sans Italic Korean). */
 export function deriveFontstack(fontKey: string): string {
   const { style, weight, family } = parseFontKey(fontKey)
-  // The family field may be a comma-separated CSS list (the engine
-  // appends a CJK fallback chain). Take the first entry as the PBF
-  // fontstack root — Mapbox styles always put the intended primary
-  // family first.
-  const firstFamily = family.split(',')[0]!.trim().replace(/^["']|["']$/g, '')
+  // Pick the first user-specified family. Multi-entry text-font
+  // (text-font: ["Noto Sans", "Arial Unicode MS"]) is rare among the
+  // styles we support today (OFM, MapLibre demo: all single-entry),
+  // AND tested glyph servers (OFM, Demotiles) don't support a comma-
+  // joined fontstack URL — they 404. Proper multi-stack support
+  // requires client-side multi-fetch (one URL per fontstack, per-
+  // codepoint priority resolution); deferred to Phase 2 until a
+  // real style needs it.
+  const firstFamily = splitUserFamilies(family)[0] ?? family.split(',')[0]!.trim().replace(/^["']|["']$/g, '')
   const weightNum = parseInt(weight, 10) || 400
   const isItalic = style === 'italic' || style === 'oblique'
   let token: string

@@ -54,6 +54,27 @@ import { applyTextTransform, stripCurveLineExtraScripts } from './text-stage-hel
  *  list so Mapbox styles that only declare "Noto Sans Regular"
  *  still pick up a Korean / Japanese / Chinese font from the host
  *  OS for glyphs the primary family lacks. */
+/** Resolve per-font typography overrides for the given fontKey against
+ *  a typography table. The primary family is the first entry of the
+ *  comma-separated CSS list inside the (possibly sentinel-encoded)
+ *  fontKey. Returns identity values (0 / 1) when no override is
+ *  registered, so callers always get a usable result. Pure helper —
+ *  exported for unit testing. */
+export function resolveTypography(
+  fontKey: string,
+  table: Map<string, { letterSpacingEm: number; lineHeightScale: number }> | null | undefined,
+): { letterSpacingEm: number; lineHeightScale: number } {
+  if (!table) return { letterSpacingEm: 0, lineHeightScale: 1 }
+  // Skip the sentinel prefix if present; the family list is the last
+  // segment. composeFontKey appends the CJK fallback chain, so the
+  // primary family is whatever comes before the first comma.
+  const familyList = fontKey.startsWith(FONT_KEY_SENTINEL)
+    ? (fontKey.split(FONT_KEY_SENTINEL)[3] ?? '')
+    : fontKey
+  const primary = familyList.split(',')[0]!.trim().replace(/^["']|["']$/g, '')
+  return table.get(primary) ?? { letterSpacingEm: 0, lineHeightScale: 1 }
+}
+
 export function composeFontKey(def: LabelDef, defaultFamily: string): string {
   const family = def.font && def.font.length > 0
     ? def.font.map(f => f.includes(' ') ? `"${f}"` : f).join(',')
@@ -104,6 +125,14 @@ export interface TextStageOptions {
    *  S3, IPFS). Appended AFTER `inlineGlyphs` and BEFORE the URL-based
    *  HTTP provider. Implement the `GlyphProvider` interface to plug in. */
   glyphProviders?: GlyphProvider[]
+  /** Per-font typography overrides — `{ family → { letterSpacingEm,
+   *  lineHeightScale } }`. The letter-spacing offset is ADDED to the
+   *  layer-level `text-letter-spacing` (in em-units), and the line-
+   *  height scale multiplies the layer-level `text-line-height`. Lets
+   *  callers tune multi-font bundles where the bundled families have
+   *  different intrinsic tracking / leading without forking the style
+   *  spec. Missing-family lookups are no-ops (identity 0 / 1). */
+  fontTypography?: Map<string, { letterSpacingEm: number; lineHeightScale: number }>
 }
 
 // Slot must fit (rasterFontSize + 2*sdfRadius) — ascenders/descenders
@@ -123,7 +152,7 @@ export interface TextStageOptions {
 // Linux). Per-label font stacks coming from Mapbox styles get the
 // same fallback chain appended in addLabel/addCurvedLineLabel.
 const CJK_FALLBACK_CHAIN = '"Noto Sans CJK KR","Apple SD Gothic Neo","Malgun Gothic","Microsoft YaHei","Noto Sans CJK JP","Hiragino Sans","Yu Gothic",sans-serif'
-const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders'>> = {
+const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography'>> = {
   slotSize: 64,
   pageSize: 2304,
   rasterFontSize: 32,
@@ -154,12 +183,15 @@ export class TextStage {
   readonly host: GlyphAtlasHost
   readonly gpu: GlyphAtlasGPU
   readonly renderer: TextRenderer
-  readonly opts: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders'>>
+  readonly opts: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography'>>
   /** The PBF rasterizer when this stage was built with PBF/inline/
    *  custom-provider config; null when no PBF chain is active.
    *  Exposed so `addGlyphProvider` can extend the chain after the
    *  stage is up. */
   private readonly pbfRasterizer: PbfRasterizer | null
+  /** Per-font typography table — see TextStageOptions.fontTypography.
+   *  Null when no overrides were configured (default identity behaviour). */
+  private readonly fontTypography: TextStageOptions['fontTypography'] | null
   private readonly pending: PendingLabel[] = []
   private readonly pendingLine: PendingLineLabel[] = []
   /** DPR applied to LabelDef.size (and offset/halo/maxWidth) at
@@ -175,7 +207,7 @@ export class TextStage {
     options: TextStageOptions = {},
     sampleCount: number = 1,
   ) {
-    this.opts = { ...DEFAULTS, ...options } as Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders'>>
+    this.opts = { ...DEFAULTS, ...options } as Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography'>>
     // Rasterizer selection:
     //   1. explicit `rasterizer` override     → use as-is
     //   2. ANY of {glyphsUrl, inlineGlyphs,
@@ -211,6 +243,7 @@ export class TextStage {
       rasterizer = createRasterizer()
     }
     this.pbfRasterizer = pbfRas
+    this.fontTypography = options.fontTypography ?? null
     const hostOpts: GlyphAtlasHostOptions = {
       fontSize: this.opts.rasterFontSize,
       sdfRadius: this.opts.sdfRadius,
@@ -246,6 +279,11 @@ export class TextStage {
    *  multiplying by DPR matches the physical-pixel anchor space. */
   setDpr(dpr: number): void {
     this.dpr = dpr > 0 ? dpr : 1
+  }
+
+  /** Resolve per-font typography overrides for the given fontKey. */
+  private typographyFor(fontKey: string): { letterSpacingEm: number; lineHeightScale: number } {
+    return resolveTypography(fontKey, this.fontTypography)
   }
 
   /** Camera zoom for zoom-dependent text-field expressions (Mapbox
@@ -435,15 +473,17 @@ export class TextStage {
       const sizePx = p.def.size * dpr
       // letter-spacing in em units (Mapbox convention) — multiplies
       // the display font size to produce extra px between adjacent
-      // glyphs. Applied as a per-glyph advance bump that the
-      // text-renderer reads via the glyph's effective advance.
-      const letterSpacingPx = (p.def.letterSpacing ?? 0) * sizePx
+      // glyphs. Per-font override (from fontTypography table) is ADDED
+      // to the layer-level value so multi-font bundles can rebalance
+      // intrinsic tracking differences without forking the style.
+      const typo = this.typographyFor(p.fontKey)
+      const letterSpacingPx = ((p.def.letterSpacing ?? 0) + typo.letterSpacingEm) * sizePx
       const scale = sizePx / this.opts.rasterFontSize
       // Multiline layout: greedy word-break at maxWidth (em-units →
       // px). When unset, treat as Infinity = single line.
       const maxWidthPx = p.def.maxWidth !== undefined
         ? p.def.maxWidth * sizePx : Infinity
-      const lineHeightEm = p.def.lineHeight ?? 1.2
+      const lineHeightEm = (p.def.lineHeight ?? 1.2) * typo.lineHeightScale
       const lineHeightPx = lineHeightEm * sizePx
       const justify = p.def.justify ?? 'center'
 
@@ -643,7 +683,12 @@ export class TextStage {
       if (glyphs.length === 0) continue
       const sizePx = p.def.size * dpr
       const scale = sizePx / this.opts.rasterFontSize
-      const letterSpacingPx = (p.def.letterSpacing ?? 0) * sizePx
+      // Same per-font override path as the point-label branch above —
+      // see the comment there for rationale. Curve labels reuse the
+      // same letter-spacing semantics (extra em between adjacent
+      // glyphs along the polyline arc).
+      const typo = this.typographyFor(p.fontKey)
+      const letterSpacingPx = ((p.def.letterSpacing ?? 0) + typo.letterSpacingEm) * sizePx
       // Total label width along the polyline (sum of advances + spacing).
       let totalAdvancePx = 0
       const advances: number[] = new Array(glyphs.length)

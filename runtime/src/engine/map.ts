@@ -188,6 +188,16 @@ export interface XGISFontResource {
   data: ArrayBuffer | Uint8Array
   weight?: string
   style?: string
+  /** Em-unit offset ADDED to layer-level `text-letter-spacing` for any
+   *  label whose primary font matches this family. Default 0. Useful
+   *  when bundling fonts whose intrinsic tracking differs — e.g. Noto
+   *  Sans looks slightly looser than Open Sans at the same nominal
+   *  spacing, so a -0.02 offset re-balances multi-font layouts. */
+  letterSpacingEm?: number
+  /** Multiplier on the layer-level `text-line-height` (default 1.2em).
+   *  Default 1.0. Some fonts authored with a tight UPM benefit from a
+   *  small expansion (e.g. 1.05) for multi-line labels. */
+  lineHeightScale?: number
 }
 
 /** Resource-injection bag for XGISMap. All fields are optional so the
@@ -210,6 +220,22 @@ export interface XGISMapOptions {
    *  Same effect as <link rel="preload"> + @font-face, but driven from
    *  JS so the host can ship the bytes inside its own bundle. */
   fonts?: XGISFontResource[]
+}
+
+/** Map of CSS family name → per-font typography overrides. Built once
+ *  from the constructor options and consulted in TextStage when
+ *  computing per-label letter-spacing and line-height. */
+export type FontTypographyMap = Map<string, { letterSpacingEm: number; lineHeightScale: number }>
+
+function buildTypographyMap(fonts: readonly XGISFontResource[]): FontTypographyMap | null {
+  const map: FontTypographyMap = new Map()
+  for (const f of fonts) {
+    const ls = f.letterSpacingEm ?? 0
+    const lh = f.lineHeightScale ?? 1
+    if (ls === 0 && lh === 1) continue
+    map.set(f.family, { letterSpacingEm: ls, lineHeightScale: lh })
+  }
+  return map.size > 0 ? map : null
 }
 
 /** Register a batch of fonts via the FontFace API, returning a promise
@@ -428,9 +454,20 @@ export class XGISMap {
     // resolves on the browser's font thread. Callers who need
     // guaranteed-loaded fonts should await `map.fontsReady` before
     // their first label submission.
-    if (options.fonts) this.fontsReady = registerFonts(options.fonts)
-    else this.fontsReady = Promise.resolve()
+    if (options.fonts) {
+      this.fontsReady = registerFonts(options.fonts)
+      this.fontTypography = buildTypographyMap(options.fonts)
+    } else {
+      this.fontsReady = Promise.resolve()
+    }
   }
+
+  /** Per-font typography overrides keyed by CSS family ("Open Sans"
+   *  → { letterSpacingEm: -0.02, lineHeightScale: 1.05 }). Built from
+   *  `options.fonts[].letterSpacingEm / lineHeightScale` at constructor
+   *  time and passed through to TextStage so layer-level spacing /
+   *  line-height can be tuned per font without forking the style spec. */
+  private fontTypography: FontTypographyMap | null = null
 
   /** Resolves once every font passed via `options.fonts` (or `add
    *  Font`) has finished loading. Importers should await this before
@@ -2716,6 +2753,7 @@ export class XGISMap {
           if (this.glyphsUrl !== null) tsOpts.glyphsUrl = this.glyphsUrl
           if (this.inlineGlyphs !== null) tsOpts.inlineGlyphs = this.inlineGlyphs
           if (this.glyphProviders.length > 0) tsOpts.glyphProviders = this.glyphProviders
+          if (this.fontTypography !== null) tsOpts.fontTypography = this.fontTypography
           this.textStage = new TextStage(device, this.ctx.format, tsOpts, sc)
           this.textStage.prewarmGISDefaults()
           // Attach any debug hook that was set before the stage existed.
