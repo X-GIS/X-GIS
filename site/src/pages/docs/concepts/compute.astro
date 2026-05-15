@@ -1744,11 +1744,21 @@ const initialPreset = presets[0]
       const t0 = performance.now()
       try {
         clearError()
+        const tLex0 = performance.now()
         const tokens = new Lexer(src).tokenize()
+        const tLex = performance.now() - tLex0
+        const tParse0 = performance.now()
         const program = new Parser(tokens).parse()
+        const tParse = performance.now() - tParse0
+        const tLower0 = performance.now()
         const sceneRaw = lower(program)
+        const tLower = performance.now() - tLower0
+        const tOpt0 = performance.now()
         const scene = optimize(sceneRaw, program)
+        const tOpt = performance.now() - tOpt0
+        const tPal0 = performance.now()
         const palette = collectPalette(scene)
+        const tPal = performance.now() - tPal0
 
         // Stage 1 — tokens
         $statTokens.textContent = String(tokens.length)
@@ -1898,7 +1908,7 @@ const initialPreset = presets[0]
         if (setter) setter(benchKernels)
 
         const ms = performance.now() - t0
-        $status.textContent = `compiled in ${ms.toFixed(1)} ms`
+        $status.textContent = `${ms.toFixed(1)} ms · lex ${tLex.toFixed(1)} · parse ${tParse.toFixed(1)} · lower ${tLower.toFixed(1)} · opt ${tOpt.toFixed(1)} · palette ${tPal.toFixed(1)}`
       } catch (e: any) {
         setError(e?.message ?? String(e))
         $status.textContent = ''
