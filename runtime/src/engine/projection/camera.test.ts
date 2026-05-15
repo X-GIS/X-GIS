@@ -484,9 +484,10 @@ describe('Camera — near/far ratio across the (zoom × pitch) grid', () => {
     const cam = new Camera(0, 0, 0)
     cam.pitch = 84
     const { far } = cam.getFrameView(W, H)
-    // CPU-mirror near calc.
+    // CPU-mirror near calc — mirror camera.ts:130. halfFov derives
+    // from Camera.FOV so the calc tracks any future FOV change.
     const mpp = 40075016.686 / 512 / Math.pow(2, cam.zoom)
-    const altitude = (H / 1) * mpp / 2 / Math.tan(45 * Math.PI / 360)
+    const altitude = (H / 1) * mpp / 2 / Math.tan(Camera.FOV * Math.PI / 360)
     const near = Math.max(1.0, altitude * 0.01)
     expect(far / near).toBeLessThan(1.6e4)
   })

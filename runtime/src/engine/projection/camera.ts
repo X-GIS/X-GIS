@@ -22,8 +22,15 @@ export class Camera {
    *  unlimited" for high-detail sources. */
   maxZoom = 22
 
-  /** Perspective field of view in degrees */
-  static readonly FOV = 45
+  /** Perspective field of view in degrees.
+   *  Matches MapLibre's default `_fovInRadians = 0.6435011087932844`
+   *  (≈ 36.87°). The earlier 45° was visibly wider than ML at pitched
+   *  views: at z=4.96 pitch=45 over Korea, X-GIS rendered up to
+   *  Khabarovsk while ML's frustum cut off around Tongliao. Pitch-0
+   *  views are FOV-invariant (altitude derives from FOV to fit the
+   *  zoom-determined ground viewport), so this change is visually
+   *  inert at pitch=0 and tightens horizon parity at pitch>0. */
+  static readonly FOV = 0.6435011087932844 * 180 / Math.PI
 
   constructor(lon = 0, lat = 0, zoom = 2) {
     const [mx, my] = lonLatToMercator(lon, lat)
