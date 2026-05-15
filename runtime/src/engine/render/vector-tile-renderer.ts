@@ -1785,6 +1785,68 @@ export class VectorTileRenderer {
     this.uploadQueue.tryRunJobs()
   }
 
+  /** Drop queued uploads for tiles the camera has moved past. Mirrors
+   *  the source-side `cancelStale` (which drops in-flight FETCHES) for
+   *  the renderer-side GPU upload queue. The two queues are unrelated:
+   *  cancelStale aborts network/decode work; this drops staging-buffer
+   *  writes whose target tile is no longer visible.
+   *
+   *  Bug class this fixes: under fast zoom + pan, every visible tile
+   *  along the way queued an `uploadTile` job. With ~80 layers per
+   *  style and several hundred frames of camera motion, the queue
+   *  accumulates hundreds of stale uploads that maxJobs=4-8 dispatches
+   *  per frame can't drain. Meanwhile each new visible tile gets a
+   *  fresh upload job queued BEHIND the stale ones — so the new
+   *  visible tile never reaches the GPU and classifyTile keeps
+   *  returning parent-fallback for it. Visual symptom: parent's
+   *  simplified low-zoom geometry painted as "stale fill" that
+   *  persists across pan / zoom long past when it should have been
+   *  replaced. (User-reported: Korea Positron, fast zoom + pan,
+   *  red fallback regions visible 8+ s after settle.)
+   *
+   *  `activeKeys` is the same set the source-side cancelStale uses —
+   *  union of visible / parent / fallback / toLoad keys. Items
+   *  outside this set are safe to drop; either they're for tiles the
+   *  camera has left behind (won't be drawn this frame) or they're
+   *  prefetch / pending entries we'll re-queue on the next render if
+   *  they become relevant again.
+   *
+   *  Also walks `_heldUploads` (cap-deferred queue) since stale items
+   *  could be sitting there too. */
+  cancelStaleUploads(activeKeys: ReadonlySet<number>): void {
+    const itemData = this.uploadItemData
+    // Filter the queue first — `removeByFilter` is O(N) and rejects the
+    // dropped items' promises with PriorityQueueItemRemovedError. The
+    // queue.add caller's `.catch` clause (see uploadTile) already
+    // handles that error class as a silent drop.
+    const staleIds: string[] = []
+    for (const [id, item] of itemData) {
+      if (!activeKeys.has(item.key)) staleIds.push(id)
+    }
+    if (staleIds.length === 0 && this._heldUploads.length === 0) return
+    if (staleIds.length > 0) {
+      const staleSet = new Set(staleIds)
+      this.uploadQueue.removeByFilter(id => staleSet.has(id))
+      for (const id of staleIds) itemData.delete(id)
+    }
+    // Compact _heldUploads in-place. _heldUploadIds + _heldUploadKeys
+    // are rebuilt from the survivors so the coherence guard in
+    // classifyTile (`hasOtherSliceHeld`) stays accurate.
+    if (this._heldUploads.length > 0) {
+      const kept: typeof this._heldUploads = []
+      this._heldUploadIds.clear()
+      this._heldUploadKeys.clear()
+      for (const item of this._heldUploads) {
+        if (activeKeys.has(item.key)) {
+          kept.push(item)
+          this._heldUploadIds.add(`${item.key}:${item.sourceLayer}`)
+          this._heldUploadKeys.add(item.key)
+        }
+      }
+      this._heldUploads = kept
+    }
+  }
+
   private doUploadTile(key: number, data: TileData, sourceLayer = ''): void {
     const layerCache = this.getOrCreateLayerCache(sourceLayer)
     if (layerCache.has(key)) return // already uploaded
@@ -3391,7 +3453,7 @@ export class VectorTileRenderer {
     // network transfers and dropping decode-queued bytes for keys
     // the catalog no longer wants. Backends without cancellation
     // (XGVT-binary, GeoJSON-runtime) are no-ops.
-    if (this.source.cancelStale) {
+    {
       const activeKeys = this._scratchActiveKeys
       activeKeys.clear()
       for (const k of neededKeys) activeKeys.add(k)
@@ -3407,7 +3469,13 @@ export class VectorTileRenderer {
       // loading then never converges, the request loops forever
       // between fire and abort.
       for (const k of toLoad) activeKeys.add(k)
-      this.source.cancelStale(activeKeys)
+      if (this.source.cancelStale) this.source.cancelStale(activeKeys)
+      // Same active-set for the renderer-side upload queue. Without
+      // this, the queue accumulates hundreds of stale `uploadTile`
+      // jobs across fast zoom+pan and per-frame maxJobs (4-8) can't
+      // drain fast enough — new visible tiles never reach the GPU and
+      // parent-fallback fills persist. See cancelStaleUploads doc.
+      this.cancelStaleUploads(activeKeys)
     }
 
     // Update the fetch-queue priority comparator with the current
