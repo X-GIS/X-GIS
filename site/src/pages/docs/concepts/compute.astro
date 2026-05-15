@@ -181,14 +181,22 @@ const initialPreset = presets[0]
 
   <!-- Editor + summary row -->
   <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-5 mb-8">
-    <!-- Editor -->
+    <!-- Editor — textarea sits on top of a syntax-highlighted <pre>.
+         Both share the exact same font / size / line-height / padding
+         so the highlighted layer registers character-for-character with
+         the textarea's caret. textarea text is transparent (the user
+         sees the highlighted layer instead) but caret + selection stay
+         visible. Scroll position is kept in sync on input + scroll. -->
     <div class="flex flex-col">
       <div class="flex items-center justify-between mb-2">
         <label for="xgis-src" class="text-fg-mute text-[11px] uppercase tracking-wider">xgis source</label>
         <span id="compile-status" class="text-[11px] text-fg-mute tabular-nums"></span>
       </div>
-      <textarea id="xgis-src" spellcheck="false"
-                class="flex-1 min-h-[420px] bg-bg-card border border-line rounded-md p-4 text-[12.5px] font-mono leading-[1.55] text-fg whitespace-pre focus:outline-none focus:border-accent resize-none">{initialPreset.source}</textarea>
+      <div class="xgis-editor flex-1 min-h-[420px] bg-bg-card border border-line rounded-md focus-within:border-accent">
+        <pre id="xgis-src-highlight" class="xgis-editor-highlight"></pre>
+        <textarea id="xgis-src" spellcheck="false"
+                  class="xgis-editor-input">{initialPreset.source}</textarea>
+      </div>
     </div>
 
     <!-- Summary stats -->
@@ -725,6 +733,58 @@ const initialPreset = presets[0]
       color: var(--color-fg-dim, #9ca3af);
     }
 
+    /* ── XGIS source editor (overlay-highlight) ── */
+    .xgis-editor {
+      position: relative;
+      overflow: hidden;
+    }
+    .xgis-editor-highlight,
+    .xgis-editor-input {
+      font: 12.5px/1.55 'DM Mono', 'Geist Mono', monospace;
+      padding: 16px;
+      margin: 0;
+      border: 0;
+      white-space: pre;
+      overflow-wrap: normal;
+      tab-size: 2;
+      box-sizing: border-box;
+    }
+    .xgis-editor-highlight {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      color: var(--color-fg, #c8d3e0);
+      overflow: hidden;
+    }
+    .xgis-editor-input {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 420px;
+      background: transparent;
+      /* Transparent text; caret colour stays visible. */
+      color: transparent;
+      caret-color: var(--color-fg, #c8d3e0);
+      resize: none;
+      outline: none;
+      overflow: auto;
+      /* Some browsers show a faint default highlight under selection;
+         force a visible selection background. */
+    }
+    .xgis-editor-input::selection {
+      background: rgba(56, 189, 248, 0.30);
+    }
+    /* Token classes for the xgis source highlight. Mirror the WGSL
+       tokeniser palette so the two code views read consistently. */
+    .xs-kw       { color: #c084fc; }   /* source / layer / type / filter / … */
+    .xs-builtin  { color: #fde68a; }   /* match / interpolate / get / …      */
+    .xs-str      { color: #86efac; }
+    .xs-num      { color: #fb923c; }
+    .xs-cmt      { color: #5a6a7e; font-style: italic; }
+    .xs-prop     { color: #38bdf8; }   /* property names: filter / source / … */
+    .xs-util     { color: #a8c6fa; }   /* | fill-... stroke-... utilities    */
+    .xs-op       { color: #f9a8d4; }   /* -> | == != …                       */
+
     /* ── Palette atlas viz ── */
     .palette-section-label {
       font: 500 10px/1 'DM Mono', monospace;
@@ -1200,6 +1260,78 @@ const initialPreset = presets[0]
         lines.push('</div>')
       }
       target.innerHTML = lines.join('\n')
+    }
+
+    // ── XGIS source overlay highlighter ──
+    // Tokenises the editor's plain-text content into spans the overlay
+    // <pre> renders below the (transparent) textarea. The two share
+    // identical font / padding / line-height (see .xgis-editor-* CSS)
+    // so character columns line up exactly under the caret.
+    const XGIS_KEYWORDS = new Set([
+      'source', 'layer', 'background', 'symbol', 'import', 'from',
+      'true', 'false', 'null',
+    ])
+    const XGIS_PROPS = new Set([
+      'type', 'url', 'sourceLayer', 'source-layer', 'filter', 'minzoom',
+      'maxzoom', 'sourceRef',
+    ])
+    const XGIS_BUILTINS = new Set([
+      'match', 'interpolate', 'interpolate_exp', 'step', 'case', 'concat',
+      'get', 'has', 'zoom', 'feature-state', 'literal', 'coalesce',
+      'rgb', 'rgba', 'hsl', 'hsla',
+    ])
+    // Master tokeniser: comments / strings / numbers / utility prefix /
+    // identifiers / operators / whitespace. Walks left→right consuming
+    // the longest match first.
+    const XGIS_TOKEN = /\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\|\s*[a-zA-Z][\w-]*(?:-\[[^\]]*\])?|[A-Za-z_][\w-]*|[0-9]+(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?|->|==|!=|<=|>=|&&|\|\||[?:{}[\]().,;|+\-*/<>!=&]|\s+/g
+
+    function highlightXgis(src: string): string {
+      const out: string[] = []
+      for (const m of src.matchAll(XGIS_TOKEN)) {
+        const t = m[0]
+        if (!t) continue
+        if (t.startsWith('//') || t.startsWith('/*')) {
+          out.push(`<span class="xs-cmt">${escapeHtml(t)}</span>`); continue
+        }
+        if (t.startsWith('"') || t.startsWith("'")) {
+          out.push(`<span class="xs-str">${escapeHtml(t)}</span>`); continue
+        }
+        if (t.startsWith('|')) {
+          // Utility line marker — bar + utility name (e.g. `| fill-emerald-500`)
+          out.push(`<span class="xs-op">|</span><span class="xs-util">${escapeHtml(t.slice(1))}</span>`)
+          continue
+        }
+        if (/^[0-9]/.test(t)) {
+          out.push(`<span class="xs-num">${escapeHtml(t)}</span>`); continue
+        }
+        if (/^[A-Za-z_]/.test(t)) {
+          // Detect "property:" form by looking at what follows. The
+          // tokeniser doesn't carry that context, so we just mark every
+          // known property name and let the user's eye recognise it.
+          if (XGIS_KEYWORDS.has(t)) {
+            out.push(`<span class="xs-kw">${escapeHtml(t)}</span>`); continue
+          }
+          if (XGIS_PROPS.has(t)) {
+            out.push(`<span class="xs-prop">${escapeHtml(t)}</span>`); continue
+          }
+          if (XGIS_BUILTINS.has(t)) {
+            out.push(`<span class="xs-builtin">${escapeHtml(t)}</span>`); continue
+          }
+          out.push(escapeHtml(t)); continue
+        }
+        if (/^[\s]/.test(t)) {
+          out.push(t); continue
+        }
+        // Operators / punctuation
+        if (/^(->|==|!=|<=|>=|&&|\|\||[+\-*/<>!=&])$/.test(t)) {
+          out.push(`<span class="xs-op">${escapeHtml(t)}</span>`); continue
+        }
+        out.push(escapeHtml(t))
+      }
+      // Append a trailing newline span so the overlay extends to a
+      // final empty line if the source ended with `\n` (textarea
+      // renders the empty line; <pre> would otherwise collapse it).
+      return out.join('') + (src.endsWith('\n') ? '\n' : '')
     }
 
     // ── Palette atlas visualisation ──
@@ -1738,6 +1870,24 @@ const initialPreset = presets[0]
       }
     }
 
+    // ── Source highlight overlay sync ──
+    // Update the highlighted layer on every input + keep its scroll
+    // aligned with the textarea so the user-visible characters stay
+    // exactly under the caret. The textarea owns the scroll position;
+    // we mirror it to the overlay via the scroll event.
+    const $srcHl = document.getElementById('xgis-src-highlight') as HTMLElement
+    function syncHighlight(): void {
+      $srcHl.innerHTML = highlightXgis($src.value)
+      $srcHl.scrollTop = $src.scrollTop
+      $srcHl.scrollLeft = $src.scrollLeft
+    }
+    function syncScroll(): void {
+      $srcHl.scrollTop = $src.scrollTop
+      $srcHl.scrollLeft = $src.scrollLeft
+    }
+    $src.addEventListener('scroll', syncScroll)
+    syncHighlight()
+
     // Debounced live recompile — 150 ms is fast enough to feel
     // immediate while skipping intermediate keystrokes during fast typing.
     let pending = 0
@@ -1748,7 +1898,10 @@ const initialPreset = presets[0]
         compile($src.value)
       }, 150)
     }
-    $src.addEventListener('input', scheduleCompile)
+    $src.addEventListener('input', () => {
+      syncHighlight()
+      scheduleCompile()
+    })
 
     // Preset chips — swap source + visual state.
     document.querySelectorAll<HTMLButtonElement>('.preset-chip').forEach(btn => {
@@ -1757,6 +1910,7 @@ const initialPreset = presets[0]
         const src = presetSources[id]
         if (!src) return
         $src.value = src
+        syncHighlight()
         $blurb.textContent = btn.title || (btn.parentElement?.querySelector(`[data-preset-id="${id}"]`) as HTMLElement)?.textContent || ''
         document.querySelectorAll<HTMLButtonElement>('.preset-chip').forEach(b => {
           b.classList.remove('border-accent', 'bg-accent/15', 'text-accent')
