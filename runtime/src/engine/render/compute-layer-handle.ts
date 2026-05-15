@@ -105,9 +105,16 @@ export class ComputeLayerHandle {
     this.resources.uploadFromProps(getProps, featureCount)
   }
 
-  /** Run every kernel onto the encoder before render passes. */
-  dispatch(encoder: GPUCommandEncoder): void {
-    this.resources.dispatch(encoder)
+  /** Run every kernel onto the encoder before render passes. When a
+   *  GPUTimer-shaped `timestampWritesProvider` is supplied, its
+   *  `computeWrites()` is consulted per kernel — the first non-null
+   *  return attaches timestampWrites to that kernel's compute pass
+   *  so the 'compute' breakdown ring lands a sample for this frame. */
+  dispatch(
+    encoder: GPUCommandEncoder,
+    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
+  ): void {
+    this.resources.dispatch(encoder, timestampWritesProvider)
   }
 
   /** Bind-group entries for the layer's per-tile bind group. Caller

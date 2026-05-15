@@ -103,9 +103,12 @@ export class ComputeLayerRegistry {
    *  insertion order. Call ONCE per frame from the orchestrator
    *  before any render pass begins. No-op when the registry is
    *  empty — the renderer can call this unconditionally. */
-  dispatchAll(encoder: GPUCommandEncoder): void {
+  dispatchAll(
+    encoder: GPUCommandEncoder,
+    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
+  ): void {
     for (const handle of this.handles.values()) {
-      handle.dispatch(encoder)
+      handle.dispatch(encoder, timestampWritesProvider)
     }
   }
 

@@ -523,10 +523,13 @@ export class VectorTileRenderer {
    *
    *  No-op when no compute handle is attached (every legacy non-
    *  compute VTR call site stays at zero cost). */
-  dispatchComputePass(encoder: GPUCommandEncoder): void {
+  dispatchComputePass(
+    encoder: GPUCommandEncoder,
+    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
+  ): void {
     if (this.computeHandlesByTile.size === 0) return
     for (const handle of this.computeHandlesByTile.values()) {
-      handle.dispatch(encoder)
+      handle.dispatch(encoder, timestampWritesProvider)
     }
   }
 

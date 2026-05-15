@@ -190,15 +190,33 @@ export class TileComputeResources {
   /** Dispatch every UNIQUE kernel onto the supplied encoder. Each
    *  kernel produces one compute pass; shared kernels (multiple
    *  entries pointing at the same ComputeKernel reference) dispatch
-   *  once — that's the runtime half of P4-6 dedup. */
-  dispatch(encoder: GPUCommandEncoder): void {
+   *  once — that's the runtime half of P4-6 dedup.
+   *
+   *  When a `timestampWritesProvider` is supplied (the GPUTimer), the
+   *  FIRST kernel dispatched this frame attaches its timestampWrites
+   *  to its compute pass — the provider returns non-null only once
+   *  per frame (see GPUTimer.computeWrites). Multi-kernel scenes get
+   *  the first kernel's time as a representative sample; single-kernel
+   *  scenes (continent-match etc.) get full compute time. */
+  dispatch(
+    encoder: GPUCommandEncoder,
+    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
+  ): void {
+    // Debug override — when set on globalThis, the dirty short-circuit is
+    // bypassed so the compute pass dispatches every frame. Used by the
+    // `_perf-compute-strategy.spec.ts` A/B benchmark to surface kernel
+    // timing on a static scene whose output buffer would otherwise be
+    // valid across frames. Production code never sets this.
+    const forceEveryFrame = typeof globalThis !== 'undefined'
+      && (globalThis as { __XGIS_FORCE_COMPUTE_DISPATCH?: boolean }).__XGIS_FORCE_COMPUTE_DISPATCH === true
     for (const r of this.kernels.values()) {
       // Skip when nothing's changed since the last dispatch — the
       // output buffer still holds the last frame's correct values
       // (match() kernels are deterministic per feature data). At
       // steady state (panning a populated viewport), this skips
       // 100% of compute dispatches.
-      if (!r.dirty) continue
+      if (!forceEveryFrame && !r.dirty) continue
+      const tw = timestampWritesProvider?.computeWrites() ?? null
       this.dispatcher.dispatchKernel(
         encoder,
         r.representative.kernel,
@@ -206,6 +224,7 @@ export class TileComputeResources {
         r.outBuffer,
         r.countBuffer,
         r.featureCount,
+        tw,
       )
       r.dirty = false
     }

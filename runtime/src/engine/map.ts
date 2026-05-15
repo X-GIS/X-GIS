@@ -2302,25 +2302,29 @@ export class XGISMap {
 
     const encoder = device.createCommandEncoder()
     const screenView = context.getCurrentTexture().createView()
+    // Reset per-frame timer state BEFORE compute dispatch so the
+    // first compute pass gets timestampWrites attached. `beginFrame()`
+    // clears both the sub-pass counter AND the
+    // `computeRanThisFrame` latch — moving it after compute dispatch
+    // (the original order) left the latch stale → second-frame onward
+    // would skip compute timestamps even though compute was running.
+    this.gpuTimer?.beginFrame()
     // P4 compute pass: run every attached ComputeLayerHandle's
     // kernel(s) BEFORE any render pass begins so the fragment shader
     // can read populated output buffers. No-op when no compute layer
     // is attached (no variant carries `computeBindings` in production
     // today). Must run after encoder creation, before the first
     // beginRenderPass.
-    this.renderer.dispatchComputePass(encoder)
+    this.renderer.dispatchComputePass(encoder, this.gpuTimer)
     // Every active VTR also runs its per-tile compute kernels here
     // — they need to fire BEFORE the first render pass for the same
     // reason as MapRenderer: fragment shaders read the kernel output
     // buffer at draw time. No-op when no VTR has a compute-bound
-    // show attached.
+    // show attached. Timer is consulted by the FIRST kernel that
+    // dispatches each frame — see GPUTimer.computeWrites().
     for (const vtSource of this.vtSources.values()) {
-      vtSource.renderer.dispatchComputePass(encoder)
+      vtSource.renderer.dispatchComputePass(encoder, this.gpuTimer)
     }
-    // Reset per-frame sub-pass assignment in the timer. Subsequent
-    // passWrites() calls will return contiguous timestamp ranges
-    // starting at sub-pass 0.
-    this.gpuTimer?.beginFrame()
     // DIAG: when set to `true`, the next frame's VTR.render() calls
     // log into __xgisDrawOrderTrace; we capture + console.log the
     // sequence at the end of the frame and clear the flag so only

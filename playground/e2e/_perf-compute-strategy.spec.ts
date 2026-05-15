@@ -29,15 +29,27 @@ import * as path from 'node:path'
 test.describe.configure({ mode: 'serial' })
 
 interface Sample {
+  /** Compute pass timing (ns) — populated only when the GPUTimer
+   *  attached `timestampWrites` to the first kernel dispatch of this
+   *  frame. Isolates kernel cost from the surrounding render work. */
+  compute: number
+  /** Render-side `vt` segment timing (ns). Kept for context — should
+   *  stay near constant across the A/B since only the kernel WGSL
+   *  changes, not the render pipeline. */
   vt: number
-  total: number
 }
 
 async function setup(page: Page, lutThreshold: number) {
   await page.addInitScript((threshold: number) => {
-    ;(globalThis as { __XGIS_MATCH_LUT_THRESHOLD?: number }).__XGIS_MATCH_LUT_THRESHOLD = threshold
+    ;(globalThis as {
+      __XGIS_MATCH_LUT_THRESHOLD?: number
+      __XGIS_FORCE_COMPUTE_DISPATCH?: boolean
+    }).__XGIS_MATCH_LUT_THRESHOLD = threshold
+    ;(globalThis as {
+      __XGIS_FORCE_COMPUTE_DISPATCH?: boolean
+    }).__XGIS_FORCE_COMPUTE_DISPATCH = true
   }, lutThreshold)
-  await page.goto('/demo.html?id=continent_match&gpuprof=1', { waitUntil: 'domcontentloaded' })
+  await page.goto('/demo.html?id=continent_match&gpuprof=1&compute=1', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
     null, { timeout: 30_000 },
@@ -59,7 +71,7 @@ async function measure(page: Page, durationMs: number): Promise<Sample[]> {
       invalidate: () => void
       gpuTimer: { getBreakdown(): Record<string, number[]>; resetTimings(): void } | null
     }
-    interface Sample { vt: number; total: number }
+    interface Sample { compute: number; vt: number }
     const map = (window as unknown as { __xgisMap?: M }).__xgisMap
     if (!map) throw new Error('__xgisMap missing')
     const timer = map.gpuTimer
@@ -73,13 +85,16 @@ async function measure(page: Page, durationMs: number): Promise<Sample[]> {
       const tick = () => {
         const elapsed = performance.now() - t0
         if (elapsed >= ms) {
-          // Grab everything the timer has accumulated.
           const b = timer.getBreakdown()
+          const compute = b.compute ?? []
           const vt = b.vt ?? b.total ?? []
-          const total = b.total ?? vt
-          const n = Math.min(vt.length, total.length)
+          // Compute samples land less frequently than render samples
+          // (only on frames where a kernel actually dispatched). Pair
+          // by index — compute[i] and vt[i] both belong to the i-th
+          // frame the timer recorded.
+          const n = Math.min(compute.length, vt.length)
           for (let i = 0; i < n; i++) {
-            samples.push({ vt: vt[i]!, total: total[i]! })
+            samples.push({ compute: compute[i]!, vt: vt[i]! })
           }
           resolve(samples)
           return
@@ -99,15 +114,15 @@ function pct(arr: number[], p: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))]!
 }
 
-function summarise(samples: Sample[]): { n: number; median: number; p95: number; mean: number } {
+function summariseField(samples: Sample[], field: 'compute' | 'vt'): { n: number; median: number; p95: number; mean: number } {
   if (samples.length === 0) return { n: 0, median: 0, p95: 0, mean: 0 }
-  const vt = samples.map(s => s.vt).filter(v => v > 0)
-  if (vt.length === 0) return { n: samples.length, median: 0, p95: 0, mean: 0 }
+  const arr = samples.map(s => s[field]).filter(v => v > 0)
+  if (arr.length === 0) return { n: samples.length, median: 0, p95: 0, mean: 0 }
   return {
-    n: vt.length,
-    median: pct(vt, 50),
-    p95: pct(vt, 95),
-    mean: vt.reduce((a, b) => a + b, 0) / vt.length,
+    n: arr.length,
+    median: pct(arr, 50),
+    p95: pct(arr, 95),
+    mean: arr.reduce((a, b) => a + b, 0) / arr.length,
   }
 }
 
@@ -133,28 +148,38 @@ test('continent-match GPU strategy A/B — if-chain vs LUT', async ({ browser })
   const lines: string[] = []
   lines.push('\n══ continent-match · compute kernel strategy A/B ══')
   lines.push('Scene: 7-arm match(CONTINENT) on Natural Earth countries (~250 features)')
-  lines.push('Metric: GPU `vt` segment time per frame (timestamp-query inside-passes)')
   lines.push('')
+  lines.push('── Compute pass timing (first kernel per frame, isolated) ──')
+  lines.push(`${'Threshold'.padEnd(38)} ${'frames'.padStart(8)} ${'median μs'.padStart(11)} ${'p95 μs'.padStart(11)} ${'mean μs'.padStart(11)}`)
+  const toUs = (ns: number) => ns / 1000
+  for (const run of runs) {
+    const s = summariseField(run.samples, 'compute')
+    lines.push(`${run.label.padEnd(38)} ${String(s.n).padStart(8)} `
+      + `${toUs(s.median).toFixed(2).padStart(11)} `
+      + `${toUs(s.p95).toFixed(2).padStart(11)} `
+      + `${toUs(s.mean).toFixed(2).padStart(11)}`)
+  }
+  lines.push('')
+  lines.push('── Render `vt` segment timing (context — should stay constant) ──')
   lines.push(`${'Threshold'.padEnd(38)} ${'frames'.padStart(8)} ${'median μs'.padStart(11)} ${'p95 μs'.padStart(11)} ${'mean μs'.padStart(11)}`)
   for (const run of runs) {
-    const s = summarise(run.samples)
-    // gpu-timer returns nanoseconds — convert to μs for readability.
-    const toUs = (ns: number) => ns / 1000
+    const s = summariseField(run.samples, 'vt')
     lines.push(`${run.label.padEnd(38)} ${String(s.n).padStart(8)} `
-      + `${toUs(s.median).toFixed(1).padStart(11)} `
-      + `${toUs(s.p95).toFixed(1).padStart(11)} `
-      + `${toUs(s.mean).toFixed(1).padStart(11)}`)
+      + `${toUs(s.median).toFixed(2).padStart(11)} `
+      + `${toUs(s.p95).toFixed(2).padStart(11)} `
+      + `${toUs(s.mean).toFixed(2).padStart(11)}`)
   }
-  const sIf  = summarise(runs[0]!.samples)
-  const sLut = summarise(runs[1]!.samples)
+
+  // Verdict — use COMPUTE timing since that's the kernel-level isolation.
+  const sIf  = summariseField(runs[0]!.samples, 'compute')
+  const sLut = summariseField(runs[1]!.samples, 'compute')
+  lines.push('')
   if (sIf.median > 0 && sLut.median > 0) {
     const delta = ((sLut.median - sIf.median) / sIf.median) * 100
     const verdict = delta < -5 ? 'LUT WINS' : delta > 5 ? 'if-chain WINS' : 'within noise'
-    lines.push('')
-    lines.push(`Δ median: LUT vs if-chain = ${delta > 0 ? '+' : ''}${delta.toFixed(1)} %  →  ${verdict}`)
+    lines.push(`Δ kernel median: LUT vs if-chain = ${delta > 0 ? '+' : ''}${delta.toFixed(1)} %  →  ${verdict}`)
   } else {
-    lines.push('')
-    lines.push('Δ: insufficient samples (gpu timing returned 0 — check ?gpuprof=1 support)')
+    lines.push('Δ: insufficient kernel samples (compute timing 0 — adapter may lack the feature)')
   }
   // eslint-disable-next-line no-console
   console.log(lines.join('\n'))
@@ -165,8 +190,9 @@ test('continent-match GPU strategy A/B — if-chain vs LUT', async ({ browser })
     JSON.stringify({
       runs: runs.map(r => ({
         label: r.label, threshold: r.threshold,
-        ...summarise(r.samples),
-        rawVtNs: r.samples.map(s => s.vt),
+        compute: summariseField(r.samples, 'compute'),
+        vt: summariseField(r.samples, 'vt'),
+        rawComputeNs: r.samples.map(s => s.compute),
       })),
     }, null, 2),
   )

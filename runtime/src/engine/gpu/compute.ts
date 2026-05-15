@@ -258,6 +258,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     outputBuffer: GPUBuffer,
     countBuffer: GPUBuffer,
     featureCount: number,
+    timestampWrites?: GPUComputePassTimestampWrites | null,
   ): void {
     if (featureCount <= 0) return
 
@@ -273,9 +274,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       label: `kernel-bind:${kernel.entryPoint}`,
     })
 
-    const pass = encoder.beginComputePass({
+    const passDesc: GPUComputePassDescriptor = {
       label: `kernel-pass:${kernel.entryPoint}`,
-    })
+    }
+    if (timestampWrites) passDesc.timestampWrites = timestampWrites
+    const pass = encoder.beginComputePass(passDesc)
     pass.setPipeline(pipeline)
     pass.setBindGroup(0, bindGroup)
     pass.dispatchWorkgroups(kernel.dispatchSize(featureCount))

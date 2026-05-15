@@ -1210,8 +1210,11 @@ export class MapRenderer {
    *
    *  No-op when no compute layer is attached (the registry is null
    *  or empty). Safe to call unconditionally from the orchestrator. */
-  dispatchComputePass(encoder: GPUCommandEncoder): void {
-    this.computeRegistry?.dispatchAll(encoder)
+  dispatchComputePass(
+    encoder: GPUCommandEncoder,
+    timestampWritesProvider?: { computeWrites(): GPUComputePassTimestampWrites | null } | null,
+  ): void {
+    this.computeRegistry?.dispatchAll(encoder, timestampWritesProvider)
   }
 
   /** Hand the scene's compute plan to the renderer before issuing

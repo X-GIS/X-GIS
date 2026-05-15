@@ -61,6 +61,10 @@ interface Slot {
   // to the frame's deltas. Inactive sub-passes' query slots stay at
   // their prior value (or 0); reading them would push noise into vt.
   activeSubpasses: number
+  /** True when the compute pass ran this frame (so the begin/end query
+   *  slots carry a real measurement). False frames are skipped to keep
+   *  the 'compute' ring noise-free. */
+  computeActive: boolean
 }
 
 const SEGMENT_LABELS_INSIDE = ['bg', 'raster', 'legacy', 'vt'] as const
@@ -73,6 +77,7 @@ function firstPassMarkerCount(insidePasses: boolean): number {
   return insidePasses ? SEGMENT_LABELS_INSIDE.length + 1 : 2
 }
 const SUBPASS_N_MARKERS = 2 // additional sub-passes: just begin + end
+const COMPUTE_PASS_MARKERS = 2 // begin + end of the P4 compute pass
 
 export class GPUTimer {
   readonly enabled: boolean
@@ -88,6 +93,10 @@ export class GPUTimer {
   // wires its timestamps.
   private nextSubpassToAssign = 0
   private subpassFirstMarkerIdx: number[] = []
+  /** Latched by `computeWrites()` on its first non-null return each
+   *  frame so the readback knows the compute query slots carry a real
+   *  sample. Reset at `beginFrame()`. */
+  private computeRanThisFrame = false
   // Parallel rings — one entry per segment, all kept the same length.
   // Inside-passes: 4 rings (bg, raster, legacy, vt).
   // Begin/end-only: 1 ring ('total').
@@ -95,12 +104,23 @@ export class GPUTimer {
   private segmentNames: readonly string[]
   private static readonly MAX_SAMPLES = 600 // ~10 s at 60 Hz
 
+  /** Index of the FIRST compute-pass query slot (begin); end is +1.
+   *  Compute pass writes are reserved at the end of the query set so
+   *  the sub-pass indexing math above stays untouched. */
+  private computeFirstMarker: number
+
   constructor(ctx: GPUContext) {
     this.enabled = ctx.timestampQuerySupported
     this.insidePasses = ctx.timestampInsidePassesSupported
     this.firstPassMarkers = firstPassMarkerCount(this.insidePasses)
-    this.totalMarkers = this.firstPassMarkers + (MAX_SUBPASSES - 1) * SUBPASS_N_MARKERS
-    this.segmentNames = this.insidePasses ? SEGMENT_LABELS_INSIDE : ['total']
+    const renderMarkers = this.firstPassMarkers + (MAX_SUBPASSES - 1) * SUBPASS_N_MARKERS
+    this.computeFirstMarker = renderMarkers
+    this.totalMarkers = renderMarkers + COMPUTE_PASS_MARKERS
+    // 'compute' ring trails the render-pass segments. Available whether
+    // or not inside-passes is supported — `beginComputePass` accepts
+    // `timestampWrites` independently of the inside-passes flag.
+    const renderSegments = this.insidePasses ? SEGMENT_LABELS_INSIDE : (['total'] as const)
+    this.segmentNames = [...renderSegments, 'compute']
     this.segmentSamples = this.segmentNames.map(() => [])
     if (!this.enabled) return
     const queryByteSize = this.totalMarkers * TIMESTAMP_BYTES
@@ -116,7 +136,8 @@ export class GPUTimer {
           usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
         }),
         state: 'idle',
-      activeSubpasses: 0,
+        activeSubpasses: 0,
+        computeActive: false,
       })
     }
   }
@@ -126,6 +147,7 @@ export class GPUTimer {
   beginFrame(): void {
     this.nextSubpassToAssign = 0
     this.subpassFirstMarkerIdx.length = 0
+    this.computeRanThisFrame = false
   }
 
   /** Pass descriptor `timestampWrites` for the next opaque sub-pass.
@@ -153,6 +175,30 @@ export class GPUTimer {
       querySet: this.querySet,
       beginningOfPassWriteIndex: firstMarker,
       endOfPassWriteIndex: lastMarker,
+    }
+  }
+
+  /** Descriptor `timestampWrites` for the first compute pass of the
+   *  frame. Returns null when the timer is disabled OR when this
+   *  method has already returned a non-null this frame — every kernel
+   *  begins its own `beginComputePass`, but timestamp markers are
+   *  per-pass and we only have one slot pair, so the FIRST dispatch
+   *  alone is timed. continent-match-style scenes have exactly one
+   *  compute pass per frame, so single-pass timing equals total compute
+   *  time there. Multi-kernel scenes get the first kernel's time as a
+   *  representative sample.
+   *
+   *  Caller (the dispatcher) feeds the result straight into
+   *  `encoder.beginComputePass({timestampWrites})`; a frame's begin..end
+   *  delta lands in the 'compute' segment of `getBreakdown()`. */
+  computeWrites(): GPUComputePassTimestampWrites | null {
+    if (!this.enabled || !this.querySet) return null
+    if (this.computeRanThisFrame) return null
+    this.computeRanThisFrame = true
+    return {
+      querySet: this.querySet,
+      beginningOfPassWriteIndex: this.computeFirstMarker,
+      endOfPassWriteIndex: this.computeFirstMarker + 1,
     }
   }
 
@@ -196,6 +242,7 @@ export class GPUTimer {
     encoder.copyBufferToBuffer(this.resolveBuf, 0, slot.buf, 0, nBytes)
     slot.state = 'copy'
     slot.activeSubpasses = this.nextSubpassToAssign
+    slot.computeActive = this.computeRanThisFrame
     this.writeIdx = (chosen + 1) % RING_SIZE
   }
 
@@ -209,6 +256,7 @@ export class GPUTimer {
         const big = new BigUint64Array(range, 0, this.totalMarkers)
         const nSubpasses = slot.activeSubpasses
         if (nSubpasses > 0) this.parseFrame(big, nSubpasses)
+        if (slot.computeActive) this.parseComputeFrame(big)
         slot.buf.unmap()
         slot.state = 'idle'
       }
@@ -266,21 +314,38 @@ export class GPUTimer {
     }
   }
 
+  // Extract the (begin..end) delta from the compute query slot pair
+  // and push into the 'compute' ring. Last segment in segmentNames so
+  // index = segmentNames.length - 1.
+  private parseComputeFrame(big: BigUint64Array): void {
+    const a = big[this.computeFirstMarker]
+    const b = big[this.computeFirstMarker + 1]
+    if (b < a) return
+    const computeIdx = this.segmentNames.length - 1
+    this.push(computeIdx, Number(b - a))
+  }
+
   private push(segmentIdx: number, ns: number): void {
     const ring = this.segmentSamples[segmentIdx]
     ring.push(ns)
     if (ring.length > GPUTimer.MAX_SAMPLES) ring.shift()
   }
 
-  /** Snapshot of pass times in nanoseconds (in arrival order). When
-   *  inside-passes is active, returns the SUM across segments per
-   *  frame so existing single-number consumers see the whole pass
-   *  cost. Use `getBreakdown()` for the per-segment split. */
+  /** Snapshot of RENDER pass times in nanoseconds (in arrival order).
+   *  Sums across the render segments (bg + raster + legacy + vt when
+   *  inside-passes is active, or a single 'total' otherwise). Excludes
+   *  the 'compute' segment so the legacy frame-time inspector keeps
+   *  the same number it had before compute timing was wired in — use
+   *  `getBreakdown()` to read per-segment values including 'compute'. */
   getTimings(): number[] {
-    if (this.segmentSamples.length === 1) return this.segmentSamples[0].slice()
+    // segmentNames = [...renderSegments, 'compute']. Render segments
+    // are everything except the last entry.
+    const renderSegCount = this.segmentNames.length - 1
+    if (renderSegCount === 1) return this.segmentSamples[0].slice()
     const len = this.segmentSamples[0].length
     const out = new Array(len).fill(0)
-    for (const ring of this.segmentSamples) {
+    for (let s = 0; s < renderSegCount; s++) {
+      const ring = this.segmentSamples[s]
       for (let i = 0; i < len; i++) out[i] += ring[i] ?? 0
     }
     return out
