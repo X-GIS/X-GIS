@@ -3,7 +3,7 @@
 import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 
-import { XGISMap } from '@xgis/runtime'
+import { XGISMap, lonLatToMercator } from '@xgis/runtime'
 import { DEMOS } from './demos'
 import { registerXGISLanguage, registerXGISTheme, validateSource, discoverFields } from './monaco-xgis'
 
@@ -985,6 +985,16 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
         const styleObj = typeof json === 'string' ? JSON.parse(json) : json
         const glyphsUrl = (styleObj as { glyphs?: unknown }).glyphs
         const spriteUrl = (styleObj as { sprite?: unknown }).sprite
+        // Style root camera (center / zoom / bearing / pitch). Applied
+        // AFTER runSource so the bounds-fit gate inside Mapbox/runtime
+        // doesn't fight us — markCameraPositioned shuts the gate. URL
+        // hash camera still wins because demo-runner's hash parser ran
+        // BEFORE this branch and already positioned the camera; we
+        // re-check the flag here and skip when hash already won.
+        const styleCenter = (styleObj as { center?: [number, number] }).center
+        const styleZoom = (styleObj as { zoom?: number }).zoom
+        const styleBearing = (styleObj as { bearing?: number }).bearing
+        const stylePitch = (styleObj as { pitch?: number }).pitch
         const xgis = convertMapboxStyle(styleObj)
         editor.setValue(xgis)
         await runSource(xgis, 'Imported (Mapbox)')
@@ -993,6 +1003,37 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
         }
         if (typeof spriteUrl === 'string' && spriteUrl.length > 0) {
           currentMap?.setSpriteUrl(spriteUrl)
+        }
+        // Apply style-declared camera when nothing else (URL hash or
+        // bounds-fit) explicitly positioned us yet. URL hash camera
+        // (parseHash → markCameraPositioned at boot) wins because the
+        // flag check below short-circuits.
+        if (currentMap && !currentMap._cameraPositionedFlag) {
+          const cam = currentMap.getCamera()
+          let anyApplied = false
+          if (Array.isArray(styleCenter) && styleCenter.length === 2) {
+            const [lng, lat] = styleCenter
+            const m = lonLatToMercator(lng, lat)
+            cam.centerX = m[0]
+            cam.centerY = m[1]
+            anyApplied = true
+          }
+          if (typeof styleZoom === 'number') {
+            cam.zoom = Math.max(0, Math.min(cam.maxZoom, styleZoom))
+            anyApplied = true
+          }
+          if (typeof styleBearing === 'number') {
+            cam.bearing = styleBearing
+            anyApplied = true
+          }
+          if (typeof stylePitch === 'number') {
+            cam.pitch = stylePitch
+            anyApplied = true
+          }
+          if (anyApplied) {
+            currentMap.markCameraPositioned()
+            currentMap.invalidate()
+          }
         }
       } catch (e) {
         console.error('[X-GIS] Mapbox import failed:', e)

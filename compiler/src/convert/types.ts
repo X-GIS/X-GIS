@@ -5,6 +5,16 @@ export interface MapboxStyle {
   name?: string
   sources?: Record<string, MapboxSource>
   layers?: MapboxLayer[]
+  /** Initial map state — same five fields Mapbox / MapLibre expose at
+   *  the style root. The compiler doesn't encode these into xgis source
+   *  (no top-level camera directive in xgis); the importer reads them
+   *  directly off the raw JSON and applies via Camera assignment +
+   *  `markCameraPositioned()`. URL-hash camera still wins because the
+   *  importer applies AFTER hash parsing, so a deep-link survives. */
+  center?: [number, number]
+  zoom?: number
+  bearing?: number
+  pitch?: number
   /** SDF glyph PBF URL template (`{fontstack}` + `{range}` placeholders).
    *  The compiler doesn't encode this into xgis source — it's a pure
    *  runtime concern, so the style importer extracts it from the raw

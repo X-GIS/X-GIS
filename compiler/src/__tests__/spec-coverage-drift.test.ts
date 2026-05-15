@@ -103,6 +103,12 @@ const TABLE_NOISE = new Set([
   // Same situation as 'glyphs' — supported end-to-end but the URL
   // flow bypasses the compiler converter (importer → runtime setter).
   'glyphs', 'sprite',
+  // Initial-camera fields. Same runtime-side-only pattern as glyphs /
+  // sprite — demo-runner.ts (playground) reads them off the raw style
+  // JSON after `convertMapboxStyle()`, applies via `Camera` assignment
+  // + `markCameraPositioned()`. No converter touchpoint by design;
+  // the xgis DSL doesn't carry top-level camera state.
+  'center', 'bearing', 'pitch',
 ])
 
 describe('mapbox spec-coverage drift detector', () => {
