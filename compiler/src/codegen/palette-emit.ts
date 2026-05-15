@@ -92,6 +92,20 @@ export function emitPaletteBindings(
   // ×2 + `mix` to match the layout, so the WGSL the compiler emits
   // remains identical across adapters — the variation lives in the
   // helper's body.
+  //
+  // *** ARCHITECTURE LIMIT — scalar atlas should NOT carry layer-uniform
+  // axes (opacity, stroke-width). Those values are constant across every
+  // fragment of a single layer's draw, so sampling them per-fragment
+  // multiplies their cost by the rendered pixel count. Measured on OFM
+  // Bright Seoul z=17 (14 zoom-interp opacity axes routed to scalar
+  // atlas, manual interp mode): median frame 7.0 → 37 ms idle, 6.9 →
+  // 50 ms zoom — 5-7× regression purely from fragment overhead. The
+  // legacy CPU-resolve → uniform path is the correct architecture for
+  // layer-uniform scalars: one lerp per layer per frame (~50 ns × 84
+  // axes ≈ 4 µs) costs vastly less than per-fragment work at millions
+  // of pixels. Scalar sampling is reserved for FUTURE data-driven
+  // scalar shapes (varying per feature) — those already route through
+  // the P4 compute kernel, not this gradient atlas. */
   const hasColor = palette.colorGradients.length > 0
   const hasScalar = palette.scalarGradients.length > 0
   if (!hasColor && !hasScalar) return ''
