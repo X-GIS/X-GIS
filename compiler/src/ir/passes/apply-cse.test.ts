@@ -8,10 +8,8 @@ import { analyzeCSE } from './cse'
 import type {
   ColorValue, DataExpr, RenderNode, Scene, SizeValue, StrokeValue,
 } from '../render-node'
-import type { PropertyShape, RGBA } from '../property-types'
+import type { PropertyShape } from '../property-types'
 import type { Expr } from '../../parser/ast'
-
-const RED: RGBA = [1, 0, 0, 1]
 
 const ident = (name: string): Expr => ({ kind: 'Identifier' as const, name })
 const field = (f: string): Expr => ({

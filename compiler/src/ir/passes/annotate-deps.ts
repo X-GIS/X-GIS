@@ -44,7 +44,7 @@
 //     ergonomic for single-site checks; the pass is for bulk
 //     consumers.
 
-import type { Scene, RenderNode, ColorValue, DataExpr } from '../render-node'
+import type { Scene, ColorValue, DataExpr } from '../render-node'
 import type { PropertyShape } from '../property-types'
 import { getColorDeps, getPropertyShapeDeps, getDataExprDeps, type DepBits } from '../deps'
 
