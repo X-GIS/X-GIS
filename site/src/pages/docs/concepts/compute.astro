@@ -99,6 +99,44 @@ layer all {
 }
 `,
   },
+  {
+    id: 'large-match',
+    label: 'large match (LUT)',
+    blurb: 'At 16+ arms the kernel switches from an if-chain to a const-array LUT — O(1) lookup',
+    source: `source roads {
+  type: geojson
+  url: "roads.geojson"
+}
+
+/* 18-arm match — exceeds MATCH_LUT_THRESHOLD (16), so compute-gen
+ * emits \`const LUT: array<vec4<f32>, 18>\` + a single \`LUT[id]\`
+ * read instead of an if-else chain. */
+layer roads_by_kind {
+  source: roads
+  | fill match(.kind) {
+      "highway"      -> orange-500,
+      "trunk"        -> orange-400,
+      "primary"      -> amber-400,
+      "secondary"    -> yellow-300,
+      "tertiary"     -> yellow-200,
+      "residential"  -> stone-300,
+      "service"      -> stone-200,
+      "path"         -> stone-100,
+      "track"        -> amber-200,
+      "footway"      -> lime-200,
+      "cycleway"     -> emerald-300,
+      "bridleway"    -> emerald-200,
+      "steps"        -> rose-200,
+      "pedestrian"   -> violet-200,
+      "living_street"-> indigo-200,
+      "raceway"      -> red-500,
+      "rail"         -> slate-500,
+      "subway"       -> slate-400,
+      _              -> gray-300
+    }
+}
+`,
+  },
 ]
 const presetById = Object.fromEntries(presets.map(p => [p.id, p]))
 const initialPreset = presets[0]
@@ -302,6 +340,26 @@ const initialPreset = presets[0]
         <p class="mt-1 text-fg-dim">CPU resolves every frame, writes a uniform. Spec-complete but never the fast path.</p>
       </div>
     </div>
+
+    <h2 class="text-[18px] font-medium text-fg mt-8 mb-3">Kernel lowering — strategies</h2>
+    <p class="text-[13px] text-fg-dim mb-3 max-w-[820px]">
+      Inside a ComputeFeature kernel, <code class="font-mono text-[12px] text-fg">compute-gen</code>
+      picks the WGSL shape based on arm count. The threshold is
+      <code class="font-mono text-[12px] text-fg">MATCH_LUT_THRESHOLD = 16</code>
+      in <code class="font-mono text-[12px] text-fg">compiler/src/codegen/compute-gen.ts</code>.
+    </p>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-[12px]">
+      <div class="border border-line rounded-md p-3 bg-bg-elev">
+        <span class="strategy-tag strategy-ifchain">if-chain · O(N)</span>
+        <span class="text-fg-mute ml-2">arms &lt; 16</span>
+        <p class="mt-2 text-fg-dim">Sequential <code class="font-mono text-[11px]">if (id == K0)</code> / <code class="font-mono text-[11px]">else if</code> branches. Cheap for small arm sets — the WGSL compiler reduces them well + branch prediction matches per fragment.</p>
+      </div>
+      <div class="border border-line rounded-md p-3 bg-bg-elev">
+        <span class="strategy-tag strategy-lut">LUT · O(1)</span>
+        <span class="text-fg-mute ml-2">arms ≥ 16</span>
+        <p class="mt-2 text-fg-dim">Const <code class="font-mono text-[11px]">array&lt;vec4&lt;f32&gt;, N&gt;</code> baked into the shader module. Single <code class="font-mono text-[11px]">LUT[id]</code> indexed read regardless of arm count. Demotiles' 428-country palette is the canonical fit.</p>
+      </div>
+    </div>
   </section>
 
   <style>
@@ -469,6 +527,20 @@ const initialPreset = presets[0]
     .route-tag.palette-zoom    { background: rgba(99,102,241,0.18);  color: #a5b4fc; }
     .route-tag.compute-feature { background: rgba(56,189,248,0.20);  color: #38bdf8; }
     .route-tag.cpu-uniform     { background: rgba(245,158,11,0.18);  color: #fbbf24; }
+
+    .strategy-tag {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 500;
+      font-family: 'DM Mono', monospace;
+      letter-spacing: 0.01em;
+    }
+    .strategy-tag.inline { margin-left: 6px; }
+    .strategy-tag.strategy-lut      { background: rgba(34,197,94,0.18);  color: #86efac; }
+    .strategy-tag.strategy-ifchain  { background: rgba(251,191,36,0.15); color: #fde047; }
+    .strategy-tag.strategy-other    { background: rgba(120,140,160,0.18); color: #cbd5e1; }
   </style>
 
   <script define:vars={{ presetSources: Object.fromEntries(presets.map(p => [p.id, p.source])) }}>
@@ -702,6 +774,29 @@ const initialPreset = presets[0]
       fields: string[]
       armCount: number
       wgsl: string
+      /** Which lowering strategy compute-gen picked. Derived from the
+       *  emitted body — `const LUT: array<...>` decl means the LUT
+       *  path fired; otherwise it's the if-else chain. The threshold
+       *  is MATCH_LUT_THRESHOLD (=16) in compute-gen.ts. */
+      strategy: 'if-chain' | 'lut' | 'ternary' | 'unknown'
+    }
+
+    function detectStrategy(wgsl: string, entryPoint: string): PlanView['strategy'] {
+      if (/^const LUT:\s*array</m.test(wgsl)) return 'lut'
+      if (entryPoint === 'eval_match' || entryPoint === 'eval_case') return 'if-chain'
+      if (entryPoint?.startsWith('eval_ternary')) return 'ternary'
+      return 'unknown'
+    }
+    function strategyLabel(s: PlanView['strategy']): string {
+      return s === 'lut'      ? 'LUT · O(1)'
+           : s === 'if-chain' ? 'if-chain · O(N)'
+           : s === 'ternary'  ? 'ternary'
+           : 'kernel'
+    }
+    function strategyClass(s: PlanView['strategy']): string {
+      return s === 'lut'      ? 'strategy-lut'
+           : s === 'if-chain' ? 'strategy-ifchain'
+           : 'strategy-other'
     }
     function renderPlanTable(entries: PlanView[]): void {
       if (entries.length === 0) {
@@ -711,13 +806,14 @@ const initialPreset = presets[0]
         return
       }
       const html = ['<table class="routing-table"><thead><tr>']
-      html.push('<th>Render node</th><th>Axis</th><th>Fields</th><th>Arms</th><th>Kernel</th>')
+      html.push('<th>Render node</th><th>Axis</th><th>Fields</th><th>Arms</th><th>Strategy</th><th>Kernel</th>')
       html.push('</tr></thead><tbody>')
       for (const e of entries) {
         html.push(`<tr><td>${escapeHtml(e.nodeName)}</td>`)
         html.push(`<td>${escapeHtml(e.axis)}</td>`)
         html.push(`<td>${escapeHtml(e.fields.join(', ') || '—')}</td>`)
         html.push(`<td>${e.armCount > 0 ? e.armCount : '—'}</td>`)
+        html.push(`<td><span class="strategy-tag ${strategyClass(e.strategy)}">${strategyLabel(e.strategy)}</span></td>`)
         html.push(`<td>${escapeHtml(e.kernelName)}</td></tr>`)
       }
       html.push('</tbody></table>')
@@ -733,7 +829,8 @@ const initialPreset = presets[0]
         const btn = document.createElement('button')
         btn.type = 'button'
         btn.className = 'kernel-tab' + (first ? ' active' : '')
-        btn.textContent = `${e.kernelName} · ${e.fields.join(',') || '—'} · ${e.armCount} arm${e.armCount === 1 ? '' : 's'}`
+        btn.innerHTML = `${escapeHtml(e.kernelName)} · ${escapeHtml(e.fields.join(',') || '—')} · ${e.armCount} arm${e.armCount === 1 ? '' : 's'}`
+          + ` <span class="strategy-tag inline ${strategyClass(e.strategy)}">${strategyLabel(e.strategy)}</span>`
         btn.addEventListener('click', () => {
           $kernelTabs.querySelectorAll('.kernel-tab').forEach(b => b.classList.remove('active'))
           btn.classList.add('active')
@@ -839,14 +936,16 @@ const initialPreset = presets[0]
           const armCount = Object.values(e.categoryOrder ?? {}).reduce(
             (sum: number, arr: any) => sum + (Array.isArray(arr) ? arr.length : 0), 0,
           ) as number
+          const wgsl = k.wgsl ?? ''
           return {
             nodeName: node?.name || `<${e.renderNodeIndex}>`,
             axis: e.paintAxis,
             kernelName: k.entryPoint ?? `kernel_${i}`,
-            fingerprint: (k.entryPoint ?? '') + '\x1F' + (k.wgsl ?? ''),
+            fingerprint: (k.entryPoint ?? '') + '\x1F' + wgsl,
             fields: e.fieldOrder ?? [],
             armCount,
-            wgsl: k.wgsl ?? '',
+            wgsl,
+            strategy: detectStrategy(wgsl, k.entryPoint ?? ''),
           }
         })
         renderPlanTable(planViews)
