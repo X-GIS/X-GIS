@@ -145,13 +145,35 @@ export class PriorityQueue<T, R = unknown> {
     this.dirty = true
   }
 
-  /** Drop every queued item for which `filter` returns true. */
+  /** Drop every queued item for which `filter` returns true. Compacts
+   *  in-place: O(N) walk + reject + delete. The naive implementation
+   *  called `remove(item)` per match — each remove does indexOf (O(N))
+   *  and splice (O(N)) so the whole pass was O(N²) when many items
+   *  matched. Per-frame `cancelStale` on PMTilesBackend hits this with
+   *  the full fetch queue every render frame; in the pan-hitch CPU
+   *  profile that bubbled up as `cancelStale` 5.4% of total time on
+   *  OFM Bright. */
   removeByFilter(filter: (item: T) => boolean): void {
-    for (let i = 0; i < this.items.length; i++) {
-      if (filter(this.items[i])) {
-        this.remove(this.items[i])
-        i--
+    const items = this.items
+    let removed = 0
+    let w = 0
+    for (let r = 0; r < items.length; r++) {
+      const it = items[r]
+      if (filter(it)) {
+        const info = this.callbacks.get(it)!
+        info.promise.catch((err: unknown) => {
+          if (!(err instanceof PriorityQueueItemRemovedError)) throw err
+        })
+        info.reject(new PriorityQueueItemRemovedError())
+        this.callbacks.delete(it)
+        removed++
+      } else {
+        items[w++] = it
       }
+    }
+    if (removed > 0) {
+      items.length = w
+      this.dirty = true
     }
   }
 

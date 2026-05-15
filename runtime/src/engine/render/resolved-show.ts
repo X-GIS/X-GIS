@@ -20,10 +20,42 @@
 // references stay consistent through @xgis/compiler's workspace
 // resolution. (Adding the export to compiler/src/index.ts surfaces
 // stale field references elsewhere — separate cleanup task.)
-import type { SceneCommands } from '@xgis/compiler'
+import type { SceneCommands, PropertyShape } from '@xgis/compiler'
 import { resolveNumberShape, resolveColorShape } from './paint-shape-resolve'
 
 type ShowCommand = SceneCommands['shows'][0]
+type ShapeRef = PropertyShape<unknown> | null | undefined
+
+// Per-show cache for ResolvedShow snapshots. The classifier hits
+// resolveShow once per show per frame — Bright at 115 shows × 60 fps
+// = 6,900 allocations/sec. Most frames have stable zoom (pan-only
+// motion); for shows with no time-interpolated axis (Bright: all 115)
+// the resolved value is byte-identical across frames as long as zoom
+// holds. The cache stores the SHAPE references we resolved against so
+// `XGISLayerStyle.opacity = 0.5` (setter replaces paintShapes.opacity)
+// invalidates the entry automatically via reference inequality.
+interface ResolveCacheEntry {
+  opacity: ShapeRef
+  strokeWidth: ShapeRef
+  size: ShapeRef
+  fill: ShapeRef
+  stroke: ShapeRef
+  dashOffset: ShapeRef
+  zoom: number
+  elapsedMs: number
+  /** True iff any cached axis is time-interpolated / zoom-time. When
+   *  true, elapsedMs MUST match for a hit; otherwise the elapsedMs
+   *  field is ignored (zoom-only or constant axes don't depend on
+   *  the clock and benefit from cache hits even as time advances). */
+  hasTimeDep: boolean
+  resolved: ResolvedShow
+}
+const _resolveCache = new WeakMap<ShowCommand, ResolveCacheEntry>()
+
+function shapeIsTimeDep(s: ShapeRef): boolean {
+  if (s === null || s === undefined) return false
+  return s.kind === 'time-interpolated' || s.kind === 'zoom-time'
+}
 
 /** RGBA tuple in straight-alpha sRGB unit floats (0..1 per channel).
  *  Matches the convention used throughout the runtime — the GPU
@@ -83,6 +115,25 @@ export interface ResolveEnv {
 export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
   const { cameraZoom, elapsedMs } = env
   const ps = show.paintShapes
+
+  // Allocation-free hot path: reuse the previous frame's ResolvedShow
+  // when (a) every paint-shape reference is identical to last call's
+  // (catches setter-driven mutations cleanly) AND (b) zoom hasn't
+  // moved AND (c) for shows with a time-driven axis, elapsedMs is
+  // unchanged too. Bright pan motion holds zoom — all 115 shows hit.
+  const cached = _resolveCache.get(show)
+  if (cached
+    && cached.opacity === ps.opacity
+    && cached.strokeWidth === ps.strokeWidth
+    && cached.size === ps.size
+    && cached.fill === ps.fill
+    && cached.stroke === ps.stroke
+    && cached.dashOffset === show.dashOffsetShape
+    && cached.zoom === cameraZoom
+    && (!cached.hasTimeDep || cached.elapsedMs === elapsedMs)
+  ) {
+    return cached.resolved
+  }
 
   // Opacity — `zoom-time` kind composes both axes multiplicatively,
   // matching the legacy `zoomOpa * timeOpa` rule.
@@ -152,9 +203,44 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
     ? (strokeResolved.value as RGBA)
     : (show.resolvedStrokeRgba ?? null)
 
-  return {
+  const resolved: ResolvedShow = {
     layerName: show.layerName ?? show.sourceLayer ?? show.targetName ?? '',
     opacity, strokeWidth, size, dashOffset,
     fill, stroke,
   }
+
+  const hasTimeDep =
+    shapeIsTimeDep(ps.opacity as ShapeRef)
+    || shapeIsTimeDep(ps.strokeWidth as ShapeRef)
+    || shapeIsTimeDep(ps.size as ShapeRef)
+    || shapeIsTimeDep(ps.fill as ShapeRef)
+    || shapeIsTimeDep(ps.stroke as ShapeRef)
+    || shapeIsTimeDep(show.dashOffsetShape as ShapeRef)
+  if (cached) {
+    cached.opacity = ps.opacity as ShapeRef
+    cached.strokeWidth = ps.strokeWidth as ShapeRef
+    cached.size = ps.size as ShapeRef
+    cached.fill = ps.fill as ShapeRef
+    cached.stroke = ps.stroke as ShapeRef
+    cached.dashOffset = show.dashOffsetShape as ShapeRef
+    cached.zoom = cameraZoom
+    cached.elapsedMs = elapsedMs
+    cached.hasTimeDep = hasTimeDep
+    cached.resolved = resolved
+  } else {
+    _resolveCache.set(show, {
+      opacity: ps.opacity as ShapeRef,
+      strokeWidth: ps.strokeWidth as ShapeRef,
+      size: ps.size as ShapeRef,
+      fill: ps.fill as ShapeRef,
+      stroke: ps.stroke as ShapeRef,
+      dashOffset: show.dashOffsetShape as ShapeRef,
+      zoom: cameraZoom,
+      elapsedMs,
+      hasTimeDep,
+      resolved,
+    })
+  }
+
+  return resolved
 }
