@@ -251,19 +251,23 @@ const initialPreset = presets[0]
       </div>
     </details>
 
-    <details class="stage-card group">
+    <details class="stage-card group" open>
       <summary class="stage-summary">
         <span class="stage-num">3</span>
         <span class="stage-title">IR Scene</span>
-        <span class="stage-sub">lower() · pre-optimisation</span>
+        <span class="stage-sub">lower() · pre-optimisation · blueprint-style</span>
         <span class="stage-arrow"></span>
       </summary>
       <div class="stage-body">
-        <pre id="out-ir" class="stage-pre"></pre>
+        <div id="out-ir" class="ir-graph"></div>
+        <details class="ir-raw-toggle">
+          <summary>raw IR JSON</summary>
+          <pre id="out-ir-json" class="stage-pre"></pre>
+        </details>
       </div>
     </details>
 
-    <details class="stage-card group">
+    <details class="stage-card group" open>
       <summary class="stage-summary">
         <span class="stage-num">4</span>
         <span class="stage-title">Optimised IR</span>
@@ -271,7 +275,11 @@ const initialPreset = presets[0]
         <span class="stage-arrow"></span>
       </summary>
       <div class="stage-body">
-        <pre id="out-ir-opt" class="stage-pre"></pre>
+        <div id="out-ir-opt" class="ir-graph"></div>
+        <details class="ir-raw-toggle">
+          <summary>raw optimised IR JSON</summary>
+          <pre id="out-ir-opt-json" class="stage-pre"></pre>
+        </details>
       </div>
     </details>
 
@@ -548,6 +556,150 @@ const initialPreset = presets[0]
       tabular-nums: tabular-nums;
     }
 
+    /* ── Blueprint-style IR scene graph ── */
+    .ir-graph { display: flex; flex-direction: column; gap: 14px; }
+    .ir-section-label {
+      font: 500 10px/1 'DM Mono', monospace;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--color-fg-mute, #5a6a7e);
+      margin-bottom: 4px;
+    }
+    .ir-source-row {
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    .ir-source-card {
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      background: rgba(56, 189, 248, 0.07);
+      border-radius: 6px;
+      padding: 8px 12px;
+      min-width: 160px;
+      font-family: 'DM Mono', monospace;
+      font-size: 11.5px;
+    }
+    .ir-source-card .ir-card-title {
+      font-weight: 600;
+      color: #38bdf8;
+      font-size: 12px;
+    }
+    .ir-source-card .ir-card-meta {
+      color: var(--color-fg-mute, #5a6a7e);
+      font-size: 10.5px;
+      margin-top: 2px;
+    }
+    .ir-source-card .ir-card-url {
+      color: var(--color-fg-dim, #9ca3af);
+      font-size: 10.5px;
+      margin-top: 4px;
+      word-break: break-all;
+    }
+    .ir-node-list {
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .ir-node-card {
+      border: 1px solid rgba(129, 140, 248, 0.35);
+      background: rgba(129, 140, 248, 0.05);
+      border-left: 3px solid rgba(129, 140, 248, 0.7);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-family: 'DM Mono', monospace;
+      font-size: 11.5px;
+    }
+    .ir-node-header {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+    .ir-node-name {
+      font-weight: 600;
+      color: #a5b4fc;
+      font-size: 12.5px;
+    }
+    .ir-node-source {
+      color: var(--color-fg-mute, #5a6a7e);
+      font-size: 10.5px;
+    }
+    .ir-node-sublayer {
+      color: var(--color-fg-dim, #9ca3af);
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.04);
+      margin-left: 4px;
+    }
+    .ir-node-filter {
+      color: var(--color-fg-dim, #9ca3af);
+      font-size: 11px;
+      margin-bottom: 6px;
+    }
+    .ir-node-filter code {
+      color: #fde68a;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 10.5px;
+    }
+    .ir-meta-label {
+      color: var(--color-fg-mute, #5a6a7e);
+      margin-right: 4px;
+    }
+    .ir-node-axes {
+      display: flex; flex-direction: column; gap: 3px;
+      border-top: 1px dashed rgba(255, 255, 255, 0.06);
+      padding-top: 6px;
+    }
+    .ir-axis-row {
+      display: grid;
+      grid-template-columns: 100px 110px 1fr;
+      gap: 8px;
+      align-items: center;
+      font-size: 11px;
+    }
+    .ir-axis-name {
+      color: #c8d3e0;
+      font-weight: 500;
+    }
+    .ir-axis-detail {
+      color: var(--color-fg-dim, #9ca3af);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ir-node-noaxes {
+      color: var(--color-fg-mute, #5a6a7e);
+      font-style: italic;
+      font-size: 10.5px;
+    }
+    .ir-empty {
+      color: var(--color-fg-mute, #5a6a7e);
+      font-style: italic;
+      font-size: 11.5px;
+      padding: 6px 0;
+    }
+    .ir-raw-toggle {
+      margin-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      padding-top: 8px;
+    }
+    .ir-raw-toggle > summary {
+      cursor: pointer;
+      color: var(--color-fg-mute, #5a6a7e);
+      font: 500 10.5px/1 'DM Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      list-style: none;
+      user-select: none;
+    }
+    .ir-raw-toggle > summary::before {
+      content: '▸ ';
+      color: var(--color-fg-faint, #6b7280);
+    }
+    .ir-raw-toggle[open] > summary::before {
+      content: '▾ ';
+    }
+    .ir-raw-toggle > summary:hover {
+      color: var(--color-fg-dim, #9ca3af);
+    }
+
     .routing-table {
       width: 100%;
       font-family: 'DM Mono', monospace;
@@ -674,6 +826,8 @@ const initialPreset = presets[0]
     const $outAst = document.getElementById('out-ast') as HTMLElement
     const $outIr = document.getElementById('out-ir') as HTMLElement
     const $outIrOpt = document.getElementById('out-ir-opt') as HTMLElement
+    const $outIrJson = document.getElementById('out-ir-json') as HTMLElement
+    const $outIrOptJson = document.getElementById('out-ir-opt-json') as HTMLElement
     const $outRouting = document.getElementById('out-routing') as HTMLElement
     const $outPlan = document.getElementById('out-plan') as HTMLElement
     const $outWgsl = document.getElementById('out-wgsl') as HTMLElement
@@ -808,6 +962,144 @@ const initialPreset = presets[0]
           out.push(escapeHtml(t))
       }
       return out.join('')
+    }
+
+    // ── IR scene → blueprint-style node graph ──
+    // Replaces the JSON pretty-print with a card layout: sources at
+    // the top (cyan), render nodes below (indigo). Each render node
+    // shows its filter + paint axes with route classification baked
+    // in, so the user reads "which paint expression is data-driven /
+    // zoom-interpolated / constant" without diffing JSON.
+    function compactExpr(e: unknown, depth = 0): string {
+      if (e === null || e === undefined) return '—'
+      if (typeof e === 'string') return JSON.stringify(e)
+      if (typeof e === 'number' || typeof e === 'boolean') return String(e)
+      if (Array.isArray(e)) {
+        if (depth > 2) return '[…]'
+        return '[' + e.map(x => compactExpr(x, depth + 1)).join(', ') + ']'
+      }
+      const o = e as Record<string, unknown>
+      if (typeof o.kind === 'string') {
+        // AST-ish node — compact "Kind(arg1, arg2)" form
+        if (o.kind === 'StringLiteral') return JSON.stringify(o.value)
+        if (o.kind === 'NumberLiteral') return String(o.value)
+        if (o.kind === 'Identifier') return String(o.name ?? o.value ?? '?')
+        if (o.kind === 'GetProperty') return `.${o.field ?? '?'}`
+        if (o.kind === 'Call' && typeof o.callee === 'object' && o.callee) {
+          const callee = (o.callee as Record<string, unknown>).name
+            ?? (o.callee as Record<string, unknown>).value
+            ?? '?'
+          const args = Array.isArray(o.args) ? o.args.map(a => compactExpr(a, depth + 1)).join(', ') : ''
+          return `${callee}(${args})`
+        }
+        if (depth > 2) return `${o.kind}(…)`
+        const summary = Object.keys(o).filter(k => k !== 'kind').slice(0, 3).map(k =>
+          `${k}=${compactExpr(o[k], depth + 1)}`,
+        ).join(' ')
+        return `${o.kind}(${summary})`
+      }
+      if (depth > 2) return '{…}'
+      const keys = Object.keys(o).slice(0, 4)
+      return '{' + keys.map(k => `${k}: ${compactExpr(o[k], depth + 1)}`).join(', ') + '}'
+    }
+
+    interface ColorRouteLike { kind: string }
+    interface IrSceneLike {
+      sources: ReadonlyArray<{ name?: string; type?: string; url?: string; sourceLayer?: string }>
+      renderNodes: ReadonlyArray<{
+        name?: string
+        sourceRef?: string
+        sourceLayer?: string
+        filter?: unknown
+        fill?: { kind: string; rgba?: number[]; value?: unknown; expr?: { ast?: unknown } }
+        stroke?: {
+          color?: { kind: string; rgba?: number[]; value?: unknown; expr?: { ast?: unknown } }
+          width?: unknown
+        }
+        opacity?: unknown
+        label?: { text?: unknown }
+      }>
+    }
+
+    function renderIrCards(target: HTMLElement, scene: IrSceneLike, palette: unknown): void {
+      const lines: string[] = []
+      // Sources strip — one row of cards.
+      lines.push('<div class="ir-section-label">Sources</div>')
+      lines.push('<div class="ir-source-row">')
+      if (scene.sources.length === 0) {
+        lines.push('<div class="ir-empty">No sources declared</div>')
+      } else {
+        for (const s of scene.sources) {
+          const name = s.name ?? '<unnamed>'
+          const type = s.type ?? '?'
+          const url = s.url ?? ''
+          lines.push(
+            `<div class="ir-source-card">`
+            + `<div class="ir-card-title">${escapeHtml(name)}</div>`
+            + `<div class="ir-card-meta">${escapeHtml(type)}</div>`
+            + (url ? `<div class="ir-card-url">${escapeHtml(url)}</div>` : '')
+            + `</div>`,
+          )
+        }
+      }
+      lines.push('</div>')
+
+      lines.push('<div class="ir-section-label">Render nodes</div>')
+      if (scene.renderNodes.length === 0) {
+        lines.push('<div class="ir-empty">No render nodes</div>')
+      } else {
+        lines.push('<div class="ir-node-list">')
+        for (const node of scene.renderNodes) {
+          const name = node.name || '<unnamed>'
+          const src = node.sourceRef ?? '—'
+          const sourceLayer = node.sourceLayer
+          const axes: Array<{ axis: string; expr: string; route: string }> = []
+          if (node.fill && node.fill.kind !== 'none') {
+            const r = routeColorValue(node.fill as never, palette as never) as ColorRouteLike
+            axes.push({ axis: 'fill', expr: describeRoute(node.fill, r), route: r.kind })
+          }
+          if (node.stroke?.color && node.stroke.color.kind !== 'none') {
+            const r = routeColorValue(node.stroke.color as never, palette as never) as ColorRouteLike
+            axes.push({ axis: 'stroke', expr: describeRoute(node.stroke.color, r), route: r.kind })
+          }
+          if (node.opacity) {
+            const r = routePropertyShape(node.opacity as never, palette as never) as ColorRouteLike
+            axes.push({ axis: 'opacity', expr: describeRoute(node.opacity, r), route: r.kind })
+          }
+          if (node.stroke?.width) {
+            const r = routePropertyShape(node.stroke.width as never, palette as never) as ColorRouteLike
+            axes.push({ axis: 'stroke-width', expr: describeRoute(node.stroke.width, r), route: r.kind })
+          }
+          if (node.label?.text !== undefined) {
+            axes.push({ axis: 'label', expr: compactExpr(node.label.text), route: 'cpu-uniform' })
+          }
+          const filterStr = node.filter !== undefined ? compactExpr(node.filter) : ''
+          lines.push(`<div class="ir-node-card">`)
+          lines.push(`  <div class="ir-node-header">`)
+          lines.push(`    <span class="ir-node-name">${escapeHtml(name)}</span>`)
+          lines.push(`    <span class="ir-node-source">← ${escapeHtml(src)}${sourceLayer ? ` <span class="ir-node-sublayer">${escapeHtml(sourceLayer)}</span>` : ''}</span>`)
+          lines.push(`  </div>`)
+          if (filterStr) {
+            lines.push(`  <div class="ir-node-filter"><span class="ir-meta-label">filter</span> <code>${escapeHtml(filterStr)}</code></div>`)
+          }
+          if (axes.length === 0) {
+            lines.push(`  <div class="ir-node-noaxes">no paint axes</div>`)
+          } else {
+            lines.push(`  <div class="ir-node-axes">`)
+            for (const a of axes) {
+              lines.push(`    <div class="ir-axis-row">`)
+              lines.push(`      <span class="ir-axis-name">${escapeHtml(a.axis)}</span>`)
+              lines.push(`      <span class="route-tag ${a.route}">${routeLabel(a.route)}</span>`)
+              lines.push(`      <span class="ir-axis-detail">${escapeHtml(a.expr)}</span>`)
+              lines.push(`    </div>`)
+            }
+            lines.push(`  </div>`)
+          }
+          lines.push(`</div>`)
+        }
+        lines.push('</div>')
+      }
+      target.innerHTML = lines.join('\n')
     }
 
     function renderRoutes(routes: Array<{ count: number; key: string; label: string; color: string }>): void {
@@ -974,21 +1266,23 @@ const initialPreset = presets[0]
         $badgeAst.textContent = String(program.body.length)
         $outAst.textContent = pretty(program, 8)
 
-        // Stage 3 — raw IR
+        // Stage 3 — raw IR (blueprint-style node cards + collapsed JSON)
         $statNodes.textContent = String(sceneRaw.renderNodes.length)
-        $outIr.textContent = pretty({
+        renderIrCards($outIr, sceneRaw as unknown as IrSceneLike, palette)
+        $outIrJson.textContent = pretty({
           sources: sceneRaw.sources,
           renderNodes: sceneRaw.renderNodes,
           symbols: sceneRaw.symbols,
-        }, 5)
+        }, 8)
 
         // Stage 4 — optimised IR
         $statOptimised.textContent = String(scene.renderNodes.length)
-        $outIrOpt.textContent = pretty({
+        renderIrCards($outIrOpt, scene as unknown as IrSceneLike, palette)
+        $outIrOptJson.textContent = pretty({
           sources: scene.sources,
           renderNodes: scene.renderNodes,
           symbols: scene.symbols,
-        }, 5)
+        }, 8)
 
         // Stage 5 — paint routing per axis
         const routeCounts: Record<string, number> = {
