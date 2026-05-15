@@ -168,6 +168,76 @@ export class Canvas2DRasterizer implements GlyphRasterizer {
   }
 }
 
+// ─── Canvas2D metrics-only rasterizer (PBF placeholder) ──────────
+//
+// Sync metrics, zero SDF. Used as the PbfRasterizer fallback when a
+// glyph server URL is configured: the assumption is "PBF will land
+// in 50-200 ms and overwrite this entry via atlas.invalidate", so
+// the right behaviour during the wait is to be FAST (don't freeze
+// the frame) rather than to render a temporary Canvas2D-shaped
+// glyph that gets immediately replaced.
+//
+// Cost profile vs the full Canvas2DRasterizer:
+//   - full:    measureText + fillText + getImageData + computeSDF
+//              → 8-15 ms / glyph at slotSize=64 (12-glyph cold frame
+//              = 100-180 ms freeze, user-reported pan stutter).
+//   - metrics: measureText only → ~0.05 ms / glyph (250-300× cheaper).
+//
+// Visual trade-off during the PBF fetch window: the glyph occupies
+// its correct layout slot (metrics are accurate) but renders blank.
+// As soon as the PBF range lands, `atlas.invalidate` marks the slot
+// stale and the next ensure() call upgrades to the real SDF.
+//
+// Falls through to a full Canvas2D path when measureText returns
+// zero advance — common for unsupported codepoints (emoji, rare CJK
+// not in OFM PBF). Without the upgrade, those glyphs would stay
+// blank forever; with it, we pay the one-time SDF cost only when
+// PBF truly can't help.
+export class Canvas2DMetricsRasterizer implements GlyphRasterizer {
+  private readonly canvas: OffscreenCanvas | HTMLCanvasElement
+  private readonly ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D
+  private readonly fullFallback: GlyphRasterizer
+
+  constructor(
+    canvas: OffscreenCanvas | HTMLCanvasElement,
+    fullFallback: GlyphRasterizer,
+  ) {
+    this.canvas = canvas
+    const ctx = canvas.getContext('2d', { willReadFrequently: false })
+    if (!ctx) throw new Error('Canvas2DMetricsRasterizer: failed to acquire 2d context')
+    this.ctx = ctx as OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D
+    this.fullFallback = fullFallback
+  }
+
+  rasterize(req: GlyphRasterRequest): GlyphRasterResult {
+    const { fontKey, fontSize, codepoint, sdfRadius, slotSize } = req
+    const ctx = this.ctx
+    // Minimal canvas — we never read pixels, only need a 2D context
+    // to call measureText against. 1×1 is enough; resizing per slot
+    // would be pointless.
+    if (this.canvas.width !== 1) { this.canvas.width = 1; this.canvas.height = 1 }
+    const parsed = parseFontKey(fontKey)
+    ctx.font = `${parsed.style} ${parsed.weight} ${fontSize}px ${parsed.family}`
+    ctx.textBaseline = 'alphabetic'
+    ctx.textAlign = 'left'
+    const ch = String.fromCodePoint(codepoint)
+    const metrics = ctx.measureText(ch)
+    // Unsupported codepoint (browser drew tofu but reported zero
+    // metrics): bail to the full path so the user gets SOMETHING
+    // even if PBF never delivers this character.
+    if (metrics.width === 0) return this.fullFallback.rasterize(req)
+    return {
+      fontKey, codepoint, sdfRadius,
+      sdf: new Uint8Array(slotSize * slotSize),  // all zeros = invisible
+      advanceWidth: metrics.width,
+      bearingX: -metrics.actualBoundingBoxLeft,
+      bearingY: metrics.actualBoundingBoxAscent,
+      width: metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight,
+      height: metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent,
+    }
+  }
+}
+
 // ─── Mock rasterizer (tests + headless fallback) ───────────────────
 
 /** Deterministic stand-in for environments without Canvas2D. Emits
@@ -225,4 +295,22 @@ export function createRasterizer(): GlyphRasterizer {
     return new Canvas2DRasterizer(c)
   }
   return new MockRasterizer()
+}
+
+/** Companion to `createRasterizer` that wires a metrics-only fast
+ *  rasterizer. Falls back to `fullFallback` on the same environment
+ *  detection chain when an OffscreenCanvas / HTMLCanvas isn't
+ *  available. */
+export function createMetricsRasterizer(fullFallback: GlyphRasterizer): GlyphRasterizer {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    try {
+      return new Canvas2DMetricsRasterizer(new OffscreenCanvas(1, 1), fullFallback)
+    } catch { /* fall through */ }
+  }
+  if (typeof document !== 'undefined') {
+    const c = document.createElement('canvas')
+    c.width = 1; c.height = 1
+    return new Canvas2DMetricsRasterizer(c, fullFallback)
+  }
+  return fullFallback
 }

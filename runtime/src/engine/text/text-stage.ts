@@ -24,7 +24,7 @@ import {
   GlyphAtlasHost, type GlyphAtlasHostOptions,
 } from './sdf/glyph-atlas-host'
 import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
-import { createRasterizer, type GlyphRasterizer } from './sdf/glyph-rasterizer'
+import { createRasterizer, createMetricsRasterizer, type GlyphRasterizer } from './sdf/glyph-rasterizer'
 import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
 import { InlineGlyphProvider, type InlineGlyphSource } from './sdf/pbf/inline-glyph-provider'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
@@ -358,7 +358,20 @@ export class TextStage {
     if (options.rasterizer) {
       rasterizer = options.rasterizer
     } else if (options.glyphsUrl || options.inlineGlyphs || options.glyphProviders) {
-      const fallback = createRasterizer()
+      // PBF environment: glyphs arrive async from the network in
+      // 50-200 ms typical. The sync fallback fires PER GLYPH on cold
+      // frames (rapid pan / zoom in-out) — the full Canvas2D path
+      // (fillText + getImageData + computeSDF) burns ~8 ms / glyph,
+      // accumulating to 100+ ms freezes on dense label scenes.
+      // Substitute a metrics-only fast path: measureText keeps the
+      // layout correct, SDF is zero (glyph invisible) for the brief
+      // window before the PBF range arrives and atlas.invalidate
+      // triggers an upgrade to the real SDF on the next frame. The
+      // full Canvas2D path is wired as the last-resort fallback for
+      // codepoints PBF can't deliver (returns zero advance from
+      // measureText → upgrade to full).
+      const fullFallback = createRasterizer()
+      const fallback = createMetricsRasterizer(fullFallback)
       const providers: GlyphProvider[] = []
       if (options.inlineGlyphs) providers.push(new InlineGlyphProvider(options.inlineGlyphs))
       if (options.glyphProviders) providers.push(...options.glyphProviders)
