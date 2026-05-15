@@ -205,30 +205,23 @@ layer continents {
       }
     }
 
-    // Trigger 1: viewport intersection. `rootMargin: 200px` starts the
-    // mount slightly before the canvas scrolls into view so by the time
-    // the user actually sees it, the runtime is already loading.
-    if (typeof IntersectionObserver !== 'undefined') {
-      const io = new IntersectionObserver((entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            io.disconnect()
-            startMount()
-            break
-          }
-        }
-      }, { rootMargin: '200px' })
-      io.observe(canvas)
-    } else {
-      // Fallback: very old browsers without IO get an idle-callback
-      // mount instead of "never".
-      const idle = (window as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback
-        ?? ((cb: () => void) => setTimeout(cb, 1))
-      idle(startMount)
-    }
+    // Defer @xgis/runtime import past the entrance-animation tail.
+    // The fade-up cascade ends ~2000-2100ms in (last keyframe at 900ms
+    // delay × 1100ms duration; scale-fade on the map card at 700ms ×
+    // 1400ms). Eagerly mounting during this window puts a ~400-500ms
+    // parse-and-init long task right on top of the animations and
+    // drops 20+ frames at 4× CPU throttle. `requestIdleCallback` alone
+    // wasn't enough — idle gaps DO open between animation frames, so
+    // the runtime import slotted into one and still blocked the
+    // composite. Belt-and-braces: a setTimeout floor at 2200ms (after
+    // animations) + requestIdleCallback ceiling to pick the actual
+    // dispatch moment. User interaction (pointerdown / focus) still
+    // shortcuts both — once the user touches the canvas the animation
+    // budget doesn't matter.
+    const requestIdle = (window as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback
+      ?? ((cb: () => void) => setTimeout(cb, 0))
+    setTimeout(() => requestIdle(() => { startMount() }, { timeout: 1500 }), 2200)
 
-    // Trigger 2: any interaction shortcuts the IO wait — wheel/click
-    // /keyboard means the user is engaging with the map area.
     const onInteract = (): void => {
       canvas.removeEventListener('pointerdown', onInteract)
       canvas.removeEventListener('focus', onInteract)

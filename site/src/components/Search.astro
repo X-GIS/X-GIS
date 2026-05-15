@@ -84,7 +84,17 @@ const indexJson = buildSearchIndexJSON(base)
   }
 
   const indexEl = document.getElementById('search-index')
-  const records: SearchRecord[] = indexEl ? JSON.parse(indexEl.textContent || '[]') : []
+  // Defer JSON.parse until the modal first opens. The inline index is
+  // ~27 KB and parsing it on every landing-page load was a measurable
+  // chunk of the first-paint long task at 4× CPU throttle. Search is
+  // strictly an interaction-time feature — there's no need for the
+  // records to exist before the user hits ⌘K / clicks the trigger.
+  let records: SearchRecord[] | null = null
+  const getRecords = (): SearchRecord[] => {
+    if (records) return records
+    records = indexEl ? JSON.parse(indexEl.textContent || '[]') : []
+    return records!
+  }
 
   const trigger = document.getElementById('search-trigger') as HTMLButtonElement | null
   const modal = document.getElementById('search-modal') as HTMLDivElement | null
@@ -175,13 +185,14 @@ const indexJson = buildSearchIndexJSON(base)
     const render = (q: string) => {
       // Trim + lowercase. Empty query shows everything (capped at 30).
       const needle = q.trim().toLowerCase()
+      const recs = getRecords()
       const filtered = needle
-        ? records.filter(r =>
+        ? recs.filter(r =>
             r.title.toLowerCase().includes(needle) ||
             r.body.toLowerCase().includes(needle) ||
             r.tag.toLowerCase().includes(needle))
             .slice(0, 60)
-        : records.slice(0, 30)
+        : recs.slice(0, 30)
       lastFiltered = filtered
       if (filtered.length === 0) {
         results.innerHTML = `<li class="px-5 py-6 text-[13px] text-fg-mute">No matches for "${escapeHtml(q)}"</li>`
