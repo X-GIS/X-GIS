@@ -71,6 +71,18 @@ const VIEWS: ViewSpec[] = [
     style: 'openfreemap-liberty',
     hash: '#19.49/35.87387/139.95634',
     expected: 'missing river / drainage / road-name labels' },
+  { id: 'bright-korea-z5',
+    style: 'openfreemap-bright',
+    hash: '#4.96/36.61525/127.95946/0.8/1.0',
+    expected: 'water_name italic blue color + white halo (user-reported)' },
+  { id: 'bright-korea-z8',
+    style: 'openfreemap-bright',
+    hash: '#8.0/36.61525/127.95946',
+    expected: 'water_name halo at larger size — halo should be obvious' },
+  { id: 'bright-yellowsea-z7',
+    style: 'openfreemap-bright',
+    hash: '#7.0/36.0/124.0',
+    expected: 'Yellow Sea water_name label at larger size — halo prominence check' },
 ]
 
 interface Buckets {
