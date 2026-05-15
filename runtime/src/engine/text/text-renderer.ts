@@ -141,7 +141,10 @@ struct VsOut {
   // boundary; the (1 - fill_w) composite factor below still masks
   // the portion that overlaps the fill.
   let halo_edge: f32 = edge - u.halo_width;
-  let aa_halo: f32 = u.halo_blur + soft;
+  // halo_blur is now MapLibre's gamma_halo (already includes the
+  // per-DPR EDGE_GAMMA AA constant). Don't add soft on top — that
+  // would double-count the AA term and over-blur every halo.
+  let aa_halo: f32 = max(u.halo_blur, soft);
   let inner_edge_halo: f32 = edge + aa_halo;
   let outer_a: f32 = smoothstep(halo_edge - aa_halo, halo_edge + aa_halo, sdf);
   let inner_a: f32 = smoothstep(inner_edge_halo - aa_halo, inner_edge_halo + aa_halo, sdf);
@@ -449,30 +452,36 @@ function packUniforms(d: TextDraw): Float32Array {
   if (d.halo) {
     buf[8] = d.halo.color[0]; buf[9] = d.halo.color[1]
     buf[10] = d.halo.color[2]; buf[11] = d.halo.color[3]
-    // halo_width is authored in DISPLAY px (matching Mapbox text-halo-
-    // width semantics, with DPR baked in by TextStage). The SDF is
-    // rasterised at rasterFontSize and sampled at fontSize, so 1
-    // display px corresponds to `1/scale` SDF px from the glyph edge.
-    // The SDF packs ±63 byte-units across `sdfRadius` SDF px (see
-    // distance-transform.ts), so the byte-space threshold for a halo
-    // that extends `halo.width` DISPLAY px outward is
-    //   (halo.width / scale) * 63 / sdfRadius   [bytes]
-    //   ÷ 255                                    [shader [0,1] range]
-    // Earlier versions dropped the `/scale` and produced a halo that
-    // was `scale` times narrower than authored — barely visible at
-    // Bright's typical text-size 10..14 against rasterFontSize 32
-    // (scale ≈ 0.3..0.45). Halo wider than `sdfRadius * scale` display
-    // px clips to the encoded falloff window; the renderer can't
-    // represent more outward range than the SDF stored.
-    const sdfRadius = d.sdfRadius ?? 6
-    const scale = d.fontSize / d.rasterFontSize
-    const safeScale = scale > 0 ? scale : 1
-    const SDF_UNITS_PER_SDF_PX = 63 / sdfRadius
-    buf[12] = ((d.halo.width / safeScale) * SDF_UNITS_PER_SDF_PX) / 255
-    // halo_blur shares the same px → SDF-byte → [0,1] conversion as
-    // halo_width — both measure in the SDF's distance scale and both
-    // need the scale correction.
-    buf[13] = (((d.halo.blur ?? 0) / safeScale) * SDF_UNITS_PER_SDF_PX) / 255
+    // MapLibre-derived halo math. The previous formula computed
+    // halo_width / halo_blur in slot-pixel distance units which
+    // produced a halo ~3× narrower and ~5× harder than MapLibre on
+    // the same PBF data — visible as "할로 거의 안 보임" on Bright
+    // z=4.7 country labels even though halo_color was reaching the
+    // shader correctly.
+    //
+    // MapLibre's symbol_sdf.fragment.glsl normalises both knobs
+    // against fontScale_CSS = sizePx_CSS / 24:
+    //
+    //   halo_edge   = (6 - halo_width_CSS / fontScale_CSS) / 8
+    //   gamma_halo  = (halo_blur_CSS × 1.19 / 8 + EDGE_GAMMA) / fontScale_CSS
+    //   EDGE_GAMMA  = 0.105 / DPR
+    //
+    // The DPR factors cancel when we substitute *_CSS = *_phys / DPR
+    // and sizePx_CSS = d.fontSize / DPR:
+    //
+    //   halo_width_norm = halo_width_phys × 3 / sizePx_phys
+    //                                       └── 24/8 = 3
+    //   halo_blur_norm  = (halo_blur_phys × 1.19/8 + 0.105) × 24 / sizePx_phys
+    //                                       └── 0.149       └── DPR cancels
+    //
+    // Net effect at Bright z=4.7 country label (size=32 phys,
+    // halo_width=2 phys, halo_blur=2 phys):
+    //   halo_width_norm: 0.061 → 0.188  (3.1× wider)
+    //   halo_blur_norm:  0.061 → 0.302  (5.0× wider transition)
+    // Halo opacity at 3 slot-px outside glyph edge: 16 % → 72 %,
+    // matching MapLibre's render on the same PBF input.
+    buf[12] = d.halo.width * 3 / d.fontSize
+    buf[13] = ((d.halo.blur ?? 0) * 0.149 + 0.105) * 24 / d.fontSize
   } else {
     buf[8] = 0; buf[9] = 0; buf[10] = 0; buf[11] = 0
     buf[12] = 0
