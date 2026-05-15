@@ -79,7 +79,7 @@ layer roads_primary {
 
 layer ocean {
   source: countries
-  | fill interpolate(zoom, 0, sky-200, 8, sky-500, 16, sky-700)
+  | fill-[interpolate(zoom, 0, sky-200, 8, sky-500, 16, sky-700)]
     opacity-90
 }
 `,
@@ -407,7 +407,15 @@ const initialPreset = presets[0]
     </div>
   </section>
 
-  <style>
+  <style is:global>
+    /* These rules style content injected via innerHTML from the live
+       compile script (tok-* WGSL spans, route-tag / strategy-tag
+       badges, bench rows, kernel tabs). Astro's default CSS scoping
+       attaches a hash attribute to component-rendered DOM only —
+       runtime-built nodes don't receive it, so the rules wouldn't
+       reach them without `is:global`. The selectors are
+       compute-page-specific (`tok-*` / `stage-*` / `route-*` etc.)
+       so leakage to other pages is benign. */
     .stage-card {
       border: 1px solid var(--color-line, #1f2937);
       border-radius: 8px;
@@ -741,48 +749,65 @@ const initialPreset = presets[0]
     }
 
     // ── WGSL syntax highlighter ──
-    // Minimal regex sweep — covers the keywords compute-gen.ts emits,
-    // which is a tiny subset of WGSL. False-positives are fine inside
-    // string literals (none exist in emitted kernels). Avoid lookbehind
-    // for Safari ≤ 16 compatibility.
+    // Single-regex tokeniser that picks up everything compute-gen emits:
+    // comments, attributes (`@compute`, `@group`, …), numbers with WGSL
+    // suffixes (`18u`, `0.5f`), identifiers, operators. Order matters —
+    // comments first, then attributes (otherwise the `@` would peel off
+    // and the rest become a bare identifier).
     const WGSL_KW = new Set([
       'fn', 'var', 'let', 'const', 'if', 'else', 'return',
       'struct', 'storage', 'read', 'read_write', 'uniform', 'array',
+      'for', 'while', 'break', 'continue', 'switch', 'case', 'default',
+      'true', 'false',
     ])
     const WGSL_TY = new Set([
-      'f32', 'i32', 'u32', 'bool',
-      'vec2', 'vec3', 'vec4', 'mat4x4', 'mat3x3',
-      'vec2<f32>', 'vec3<f32>', 'vec4<f32>', 'vec3<u32>', 'vec4<u32>',
+      'f32', 'i32', 'u32', 'bool', 'f16',
+      'vec2', 'vec3', 'vec4',
+      'mat2x2', 'mat3x3', 'mat4x4',
+      'atomic', 'ptr',
     ])
-    const WGSL_FN = new Set([
-      'pack4x8unorm', 'unpack4x8unorm', 'floor', 'min', 'max', 'mix', 'clamp',
-      'textureSampleLevel', 'textureLoad', 'textureDimensions',
+    const WGSL_BUILTIN = new Set([
+      // Functions compute-gen actually emits + a useful superset for
+      // hand-written examples (textureSampleLevel etc.).
+      'pack4x8unorm', 'unpack4x8unorm',
+      'floor', 'ceil', 'round', 'fract', 'sign', 'abs',
+      'min', 'max', 'clamp', 'mix', 'step', 'smoothstep',
+      'sin', 'cos', 'tan', 'pow', 'sqrt', 'log', 'log2', 'exp', 'exp2',
+      'textureSampleLevel', 'textureSample', 'textureLoad', 'textureDimensions',
+      'select', 'dot', 'cross', 'normalize', 'length', 'distance',
+      'atomicAdd', 'atomicLoad', 'atomicStore',
     ])
+    // Master tokenizer regex. Each alternative is anchored so it
+    // consumes maximum length first (longest-match wins).
+    //   1. //… line comment
+    //   2. /* … */ block comment (compute-gen doesn't emit these but
+    //      hand-edited examples might).
+    //   3. @ident attribute
+    //   4. number with optional decimal, exponent, type suffix (uifh)
+    //   5. identifier (letters, digits, underscore)
+    //   6. anything else (single char operator/punctuation)
+    const WGSL_TOKEN = /\/\/[^\n]*|\/\*[\s\S]*?\*\/|@[A-Za-z_][\w]*|[0-9]+\.[0-9]*(?:[eE][+-]?[0-9]+)?[fhiu]?|\.[0-9]+(?:[eE][+-]?[0-9]+)?[fhiu]?|[0-9]+(?:[eE][+-]?[0-9]+)?[fhiu]?|[A-Za-z_][\w]*|\s+|[^A-Za-z0-9_\s]/g
     function highlightWgsl(src: string): string {
       const out: string[] = []
-      // Line-by-line — handle `// …` comments per line.
-      for (const rawLine of src.split('\n')) {
-        const cmtIdx = rawLine.indexOf('//')
-        const code = cmtIdx === -1 ? rawLine : rawLine.slice(0, cmtIdx)
-        const cmt = cmtIdx === -1 ? '' : rawLine.slice(cmtIdx)
-        // Tokenise code part by splitting on a wide separator regex
-        // that captures the delimiters so we can preserve them.
-        const parts = code.split(/(\s+|[(){}\[\]<>,;:=+\-*/.@])/)
-        const html: string[] = []
-        for (const part of parts) {
-          if (!part) continue
-          if (/^\s+$/.test(part)) { html.push(part); continue }
-          if (WGSL_KW.has(part))         html.push(`<span class="tok-kw">${escapeHtml(part)}</span>`)
-          else if (WGSL_TY.has(part))    html.push(`<span class="tok-type">${escapeHtml(part)}</span>`)
-          else if (WGSL_FN.has(part))    html.push(`<span class="tok-fn">${escapeHtml(part)}</span>`)
-          else if (/^@\w+$/.test(part))  html.push(`<span class="tok-attr">${escapeHtml(part)}</span>`)
-          else if (/^-?\d/.test(part))   html.push(`<span class="tok-num">${escapeHtml(part)}</span>`)
-          else                           html.push(escapeHtml(part))
-        }
-        if (cmt) html.push(`<span class="tok-cmt">${escapeHtml(cmt)}</span>`)
-        out.push(html.join(''))
+      for (const m of src.matchAll(WGSL_TOKEN)) {
+        const t = m[0]
+        if (!t) continue
+        if (t.startsWith('//') || t.startsWith('/*'))
+          out.push(`<span class="tok-cmt">${escapeHtml(t)}</span>`)
+        else if (t.startsWith('@'))
+          out.push(`<span class="tok-attr">${escapeHtml(t)}</span>`)
+        else if (/^[0-9]|^\.[0-9]/.test(t))
+          out.push(`<span class="tok-num">${escapeHtml(t)}</span>`)
+        else if (WGSL_KW.has(t))
+          out.push(`<span class="tok-kw">${escapeHtml(t)}</span>`)
+        else if (WGSL_TY.has(t))
+          out.push(`<span class="tok-type">${escapeHtml(t)}</span>`)
+        else if (WGSL_BUILTIN.has(t))
+          out.push(`<span class="tok-fn">${escapeHtml(t)}</span>`)
+        else
+          out.push(escapeHtml(t))
       }
-      return out.join('\n')
+      return out.join('')
     }
 
     function renderRoutes(routes: Array<{ count: number; key: string; label: string; color: string }>): void {
