@@ -459,6 +459,22 @@ export class PMTilesBackend implements TileSource {
    *  filtered on receipt — see tick().) */
   cancelStale(activeKeys: Set<number>): void {
     if (!this.sink) return
+    // Idle-frame fast path: no in-flight fetches, no queued fetches, no
+    // un-compiled bytes — every branch inside the function is a no-op
+    // anyway, so skip the function call's work entirely (per-frame in
+    // VTR.render at 60 fps when the camera is static). Top contributor
+    // 5.4% on idle Seoul z=17 disappears here. The three sources cover
+    // every entry point that could plant work for cancelStale to find:
+    //   - fetchQueue gains items only via loadTile / scheduleFetch
+    //   - abortControllers gains entries only via doFetch
+    //   - pendingMvt gains items only via doFetch's bytes-ready branch
+    // None of them tick autonomously, so re-running cancelStale with all
+    // three empty is provably idempotent.
+    if (this.fetchQueue.size() === 0
+        && this.abortControllers.size === 0
+        && this.pendingMvt.length === 0) {
+      return
+    }
     const sink = this.sink
     // Drop queued-but-not-yet-dispatched fetches first. Their .catch
     // handler in loadTile() catches PriorityQueueItemRemovedError and
