@@ -363,6 +363,17 @@ const initialPreset = presets[0]
         <span class="stage-arrow"></span>
       </summary>
       <div class="stage-body">
+        <p class="text-fg-dim text-[12px] leading-[1.55] mb-3 max-w-[820px]">
+          Each compute kernel emitted above is dispatched onto your local
+          WebGPU device with synthetic feature data, the compute pass is
+          wrapped in a <code class="font-mono text-[11px]">timestamp-query</code>
+          pair, and the median / p95 / mean ± std over a few hundred
+          dispatches are reported. <strong class="text-fg">Use it to compare
+          strategies</strong> — change the source between a small match()
+          (if-chain) and a large match() (LUT) and watch the median shift,
+          or bump the synthetic feature count to see how the kernel scales.
+          Output buffers are read-and-discarded; nothing renders.
+        </p>
         <div id="gpu-bench-unavailable" class="hidden text-fg-mute text-[12px] italic px-3 py-2">
           Live timing isn't available on this device — the WebGPU adapter doesn't
           advertise <code class="font-mono text-[11px]">timestamp-query</code>.
@@ -388,12 +399,6 @@ const initialPreset = presets[0]
             </button>
           </div>
           <div id="gpu-bench-results" class="space-y-2"></div>
-          <p class="text-fg-mute text-[10px] mt-3">
-            Dispatches the actually-emitted kernel(s) above onto your GPU with
-            uniform-random feature IDs, times the compute pass via timestamp
-            queries, drops the warmup samples. Output buffers are discarded —
-            nothing renders.
-          </p>
         </div>
       </div>
     </details>
@@ -1654,9 +1659,12 @@ const initialPreset = presets[0]
       paletteColorGradients: number[]
       needsFeatureBuffer: boolean
     }
-    function assembleRenderShader(v: RenderShaderView): string {
+    function assembleRenderShader(v: RenderShaderView, consumers: ReadonlyArray<string>): string {
       const out: string[] = []
       out.push(`// variant key: ${v.key}`)
+      if (consumers.length > 1) {
+        out.push(`// shared by ${consumers.length} render nodes: ${consumers.join(', ')}`)
+      }
       if (v.paletteColorGradients.length > 0) {
         out.push(`// palette colour gradients: [${v.paletteColorGradients.join(', ')}]`)
       }
@@ -1683,7 +1691,27 @@ const initialPreset = presets[0]
       return out.join('\n')
     }
     function renderRenderShaderTabs(views: RenderShaderView[]): void {
-      $badgeRenderShaders.textContent = String(views.length)
+      // Dedup by variant key. Two render nodes that compile to the
+      // SAME shader (same fill / stroke / opacity expressions, same
+      // palette indices, same feature-data shape) share one GPU
+      // pipeline at runtime — surfacing them as duplicate tabs misled
+      // the user into thinking the compiler emits redundant variants
+      // ("동일 베리언트 키로 여러개가 생성됨"). Group here, show one
+      // tab per unique key, list the consuming nodes in the tab body
+      // header so the relationship is visible.
+      const byKey = new Map<string, { view: RenderShaderView; consumers: string[] }>()
+      for (const v of views) {
+        const existing = byKey.get(v.key)
+        if (existing) {
+          existing.consumers.push(v.nodeName)
+        } else {
+          byKey.set(v.key, { view: v, consumers: [v.nodeName] })
+        }
+      }
+      const uniqueCount = byKey.size
+      $badgeRenderShaders.textContent = views.length === uniqueCount
+        ? String(uniqueCount)
+        : `${uniqueCount} unique / ${views.length} nodes`
       $renderShaderTabs.innerHTML = ''
       if (views.length === 0) {
         $outRenderShader.innerHTML = '<div style="color:#5a6a7e;font-style:italic">No render-node shaders emitted — empty scene?</div>'
@@ -1691,12 +1719,15 @@ const initialPreset = presets[0]
       }
       let first = true
       let activeWgsl = ''
-      for (const v of views) {
+      byKey.forEach(({ view, consumers }) => {
         const btn = document.createElement('button')
         btn.type = 'button'
         btn.className = 'kernel-tab' + (first ? ' active' : '')
-        btn.innerHTML = escapeHtml(v.nodeName)
-        const wgsl = assembleRenderShader(v)
+        const tabLabel = consumers.length === 1
+          ? escapeHtml(view.nodeName)
+          : `${escapeHtml(consumers[0]!)} <span class="ir-node-sublayer">×${consumers.length}</span>`
+        btn.innerHTML = tabLabel
+        const wgsl = assembleRenderShader(view, consumers)
         btn.addEventListener('click', () => {
           $renderShaderTabs.querySelectorAll('.kernel-tab').forEach(b => b.classList.remove('active'))
           btn.classList.add('active')
@@ -1705,7 +1736,7 @@ const initialPreset = presets[0]
         if (first) activeWgsl = wgsl
         first = false
         $renderShaderTabs.appendChild(btn)
-      }
+      })
       $outRenderShader.innerHTML = highlightWgsl(activeWgsl)
     }
 
