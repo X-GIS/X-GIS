@@ -2590,14 +2590,16 @@ export class VectorTileRenderer {
     const z = camera.zoom
     let cz: number
     if (this._hysteresisZ < 0) {
-      // Promote to the next LOD as soon as the camera crosses z+0.3
-      // — user-requested 2026-05-12 ("MapLibre seems to load the
-      // next tile a level earlier"). Pure Math.round (advance at
-      // z+0.5) felt visibly behind MapLibre at z=N.3 framings where
-      // ML's geometry already used the finer tile.
-      cz = Math.floor(z + 0.7)
+      // MapLibre vector-source LOD: tile zoom = floor(camera zoom).
+      // The earlier 2026-05-12 attempt to "load next tile earlier"
+      // shipped floor(z + 0.7), which actually loads ONE LOD DEEPER
+      // than ML at every fractional zoom (z=4.96 → z=5 vs ML's z=4).
+      // Diagnosis 2026-05-15: forest-polygon over-exposure and
+      // label-density drift on Liberty Korea z=4.96 trace to that
+      // off-by-one. Reverted to plain floor for vector parity.
+      cz = Math.floor(z)
       this._czPendingAdvance = null
-    } else if (Math.abs(Math.floor(z + 0.7) - this._hysteresisZ) > 4) {
+    } else if (Math.abs(Math.floor(z) - this._hysteresisZ) > 4) {
       // Bulk camera move (URL hash, programmatic camera reset,
       // jumpTo). The gate is designed for incremental user-driven
       // transitions; for jumps spanning more than ~4 LODs we'd
@@ -2605,22 +2607,20 @@ export class VectorTileRenderer {
       // looks broken. Snap straight to target and let the normal
       // visible-tile pipeline + parent walk render whatever
       // ancestors happen to be cached on the way.
-      // Promote to the next LOD as soon as the camera crosses z+0.3
-      // — user-requested 2026-05-12 ("MapLibre seems to load the
-      // next tile a level earlier"). Pure Math.round (advance at
-      // z+0.5) felt visibly behind MapLibre at z=N.3 framings where
-      // ML's geometry already used the finer tile.
-      cz = Math.floor(z + 0.7)
+      cz = Math.floor(z)
       this._czPendingAdvance = null
     } else {
       cz = this._hysteresisZ
-      const target = Math.floor(z + 0.7)
+      const target = Math.floor(z)
       let wantAdvance = false
-      // Tile-LOD advance threshold lowered to z + 0.3 (was 0.5):
-      // promote 1 LOD earlier so X-GIS's rendered detail matches
-      // MapLibre's "1 level higher" appearance at z=N.3 framings.
-      const zoomingIn = target > cz && z > cz + 0.3 + HYST_MARGIN
-      const zoomingOut = target < cz && z < cz - 0.7 + HYST_MARGIN
+      // Match MapLibre's floor(z) promotion: advance the tile LOD
+      // when the camera crosses the integer boundary. The earlier
+      // z+0.3 threshold paired with the +0.7 selector — both
+      // produced the off-by-one over-detail. Zoom-out hysteresis
+      // (z < cz - 0.4) keeps the prior LOD alive briefly to avoid
+      // flicker when crossing back below an integer.
+      const zoomingIn = target > cz && z >= cz + 1 + HYST_MARGIN
+      const zoomingOut = target < cz && z < cz - 0.4 + HYST_MARGIN
       if (zoomingIn) wantAdvance = true
       else if (zoomingOut) {
         // Zoom-out: do NOT gate. Holding cz at the higher LOD while

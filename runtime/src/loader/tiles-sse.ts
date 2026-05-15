@@ -59,7 +59,9 @@ const FOV_DEG = 45  // Camera.FOV — fixed in this engine
  *  case `geometricError(z) = tileSize/256` is a synthetic proxy and a
  *  much tighter budget matches the historical Mapbox/MapLibre frustum-
  *  selector behaviour (emit at the camera's native zoom — `cz =
- *  floor(zoom + 0.7)` per commit 4e348ff).
+ *  floor(zoom)` for vector sources at tileSize=512, restored 2026-05-15
+ *  after diagnosing that the prior `floor(zoom + 0.7)` loaded one LOD
+ *  deeper than ML at fractional camera zooms).
  *
  *  Empirical sweep on Bright at z=14 Tokyo (1280×800):
  *

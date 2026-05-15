@@ -105,8 +105,8 @@ export interface TraceLabel {
 
 export interface TraceTileLOD {
   /** The currentZ (cz) the VTR settled on for the active frame.
-   *  Mapped to the round-up rule introduced in commit 4e348ff —
-   *  `cz = floor(camera.zoom + 0.7)`. */
+   *  Vector-source parity rule (2026-05-15): `cz = floor(camera.zoom)`,
+   *  matching MapLibre's `coveringZoomLevel` for tileSize=512 sources. */
   selectedCz: number
   /** Canonical tileKey strings the frame ATTEMPTED to fetch (one per
    *  visible viewport tile at cz). Distinct from cached ancestors. */
