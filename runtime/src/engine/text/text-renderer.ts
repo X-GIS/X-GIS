@@ -122,32 +122,32 @@ struct VsOut {
     return vec4<f32>(u.fill_color.rgb, u.fill_color.a * fill_a);
   }
 
-  // Halo blur: SYMMETRIC fade centred on halo_edge. Matches MapLibre's
-  // symbol_sdf.fragment.glsl, which renders the halo as
-  //   smoothstep(halo_edge - gamma_scaled_halo,
-  //              halo_edge + gamma_scaled_halo, dist)
-  // and masks the inside via a second smoothstep on inner_edge_halo.
-  // The spec text ("fadeout distance towards the outside") describes
-  // the visual intent; the actual implementation feathers BOTH sides
-  // of halo_edge so blur > 0 looks like a soft glow — the same shape
-  // line-blur uses for stroke fadeout, and what MapLibre actually
-  // ships.
+  // Halo: TWO smoothsteps combined via min() — matches MapLibre's
+  // symbol_sdf.fragment.glsl. The previous implementation used a
+  // single smoothstep centred on halo_edge, which never produced a
+  // solid halo band when (halo_blur + soft) ≥ halo_width / 2 — the
+  // typical case for 1px halos on light backgrounds (Positron city
+  // labels). Result: halos at <=50% opacity everywhere outside the
+  // glyph, visually invisible against near-white tiles.
   //
-  // Inner masking: the (1.0 - fill_w) factor in the composite below
-  // plays the same role as MapLibre's inner smoothstep — it suppresses
-  // halo wherever the fill is opaque, so a transparent text-fill can
-  // still see the halo through the glyph body.
-  //
-  // Note: pre-fix this was asymmetric (halo_edge - blur - soft .. halo_edge + soft),
-  // chosen at #126 to preserve a fully-solid halo band at small width.
-  // That made X-GIS halos visibly harder than MapLibre's; pulled back
-  // to the spec-correct symmetric form after re-reading the upstream
-  // shader. blur == 0 still produces a solid halo band (aa_halo ==
-  // soft, fade region collapses to derivative-AA only).
+  // The MapLibre formula:
+  //   outer = smoothstep(halo_edge - aa, halo_edge + aa, sdf)  // fade IN
+  //   inner = smoothstep(inner_edge_halo - aa,                 // fade OUT
+  //                       inner_edge_halo + aa, sdf)
+  //   halo  = min(outer, 1 - inner)
+  // produces a flat-top "table" — solid 1.0 between the two
+  // transitions, feathered edges. inner_edge_halo sits just past the
+  // glyph edge so the halo flat-tops up to and including the visible
+  // boundary; the (1 - fill_w) composite factor below still masks
+  // the portion that overlaps the fill.
   let halo_edge: f32 = edge - u.halo_width;
   let aa_halo: f32 = u.halo_blur + soft;
-  let halo_a: f32 = smoothstep(halo_edge - aa_halo, halo_edge + aa_halo, sdf);
-  // Composite: halo behind, fill in front.
+  let inner_edge_halo: f32 = edge + aa_halo;
+  let outer_a: f32 = smoothstep(halo_edge - aa_halo, halo_edge + aa_halo, sdf);
+  let inner_a: f32 = smoothstep(inner_edge_halo - aa_halo, inner_edge_halo + aa_halo, sdf);
+  let halo_a: f32 = min(outer_a, 1.0 - inner_a);
+  // Composite: halo behind, fill in front. (1 - fill_w) factor lets
+  // a partially-transparent text-fill show the halo through it.
   let fill_w = u.fill_color.a * fill_a;
   let halo_w = u.halo_color.a * halo_a * (1.0 - fill_w);
   return vec4<f32>(u.fill_color.rgb * fill_w + u.halo_color.rgb * halo_w, fill_w + halo_w);
