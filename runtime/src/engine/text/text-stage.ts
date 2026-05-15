@@ -53,6 +53,37 @@ function composeFontShorthand(fontKey: string, fontSizePx: number): string {
 
 interface WrappedLineRange { start: number; end: number; width: number }
 
+/** LRU cache for pretext wrap results. Same (text, font, size,
+ *  letter-spacing, maxWidth) tuple produces identical line breaks —
+ *  pretext's prepareWithSegments + walkLineRanges are deterministic.
+ *  On rapid zoom in / out the same label text reappears with a
+ *  small set of sizes; without this cache, every "cold" frame re-
+ *  ran pretext for every label, dominating prepare() at 44 ms /
+ *  frame on the user's Bright + compute=1 zoom-oscillation test.
+ *
+ *  LRU eviction by re-insert: Map preserves insertion order, so
+ *  `delete + set` on hit moves the entry to the tail. When size
+ *  exceeds the cap, drop the head (oldest). */
+const PRETEXT_CACHE_MAX = 1024
+const _pretextCache = new Map<string, WrappedLineRange[]>()
+function pretextCacheKey(
+  glyphs: readonly GlyphInfo[],
+  fontKey: string, fontSizePx: number,
+  letterSpacingPx: number, maxWidthPx: number,
+): string {
+  // Sub-pixel font sizes round to 0.1 px and letter-spacing similarly
+  // — collapses near-duplicate camera-zoom variations onto one cache
+  // entry without visible drift.
+  const sz = fontSizePx.toFixed(1)
+  const ls = letterSpacingPx.toFixed(2)
+  const mw = maxWidthPx === Infinity ? 'inf' : maxWidthPx.toFixed(1)
+  // Codepoint sequence (no String.fromCodePoint allocation — pack as
+  // raw separator-joined ints; same uniqueness as the text itself).
+  let cps = ''
+  for (const g of glyphs) cps += g.codepoint.toString(36) + ','
+  return `${fontKey}|${sz}|${ls}|${mw}|${cps}`
+}
+
 /** Greedy multiline wrap powered by pretext. The output ranges index
  *  into the caller's `glyphs[]` array — pretext produces line ranges
  *  by (segmentIndex, graphemeIndex) cursor, which we back-map by
@@ -74,6 +105,14 @@ function wrapWithPretext(
   letterSpacingPx: number,
   maxWidthPx: number,
 ): WrappedLineRange[] {
+  const cacheKey = pretextCacheKey(glyphs, fontKey, fontSizePx, letterSpacingPx, maxWidthPx)
+  const hit = _pretextCache.get(cacheKey)
+  if (hit) {
+    // LRU touch: re-insert to move to tail (most-recently-used).
+    _pretextCache.delete(cacheKey)
+    _pretextCache.set(cacheKey, hit)
+    return hit
+  }
   if (glyphs.length === 0) return []
   const text = String.fromCodePoint(...glyphs.map(g => g.codepoint))
   const font = composeFontShorthand(fontKey, fontSizePx)
@@ -115,6 +154,12 @@ function wrapWithPretext(
   // the renderer expects at least one (empty) range so the anchor
   // positioning code still has a bbox to work with.
   if (lines.length === 0) lines.push({ start: 0, end: 0, width: 0 })
+  // Cache write + LRU eviction.
+  _pretextCache.set(cacheKey, lines)
+  if (_pretextCache.size > PRETEXT_CACHE_MAX) {
+    const oldest = _pretextCache.keys().next().value
+    if (oldest !== undefined) _pretextCache.delete(oldest)
+  }
   return lines
 }
 
