@@ -25,7 +25,7 @@ import {
 import { tileKey, tileKeyParent, tileKeyChildren, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool, asyncWriteBuffer } from '../gpu/staging-buffer-pool'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
-import { PriorityQueue } from '../../core/priority-queue'
+import { PriorityQueue, PriorityQueueItemRemovedError } from '../../core/priority-queue'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../../data/tile-catalog'
 import type { TileData } from '../../data/tile-types'
@@ -1753,6 +1753,11 @@ export class VectorTileRenderer {
       await this.doUploadTileAsync(item.key, item.data, item.sourceLayer)
     }).catch((err: unknown) => {
       this.uploadItemData.delete(id)
+      // PriorityQueueItemRemovedError is the expected outcome when
+      // `cancelStaleUploads` drops a queued upload (camera has moved
+      // past the target tile). It's a normal flow signal, not an
+      // error — surface the others.
+      if (err instanceof PriorityQueueItemRemovedError) return
       console.error('[upload queue]', err)
     })
   }
