@@ -97,6 +97,19 @@ function pretextCacheKey(
  *  + anchor offset) away from where the renderer actually places
  *  glyphs. So we hand pretext the break decisions and recompute
  *  widths from our cached advances. */
+/** Compute the rendered width of glyph range [start, end) using the
+ *  per-glyph advances + letter-spacing convention the renderer uses. */
+function rangeWidth(
+  advances: readonly number[], start: number, end: number, letterSpacingPx: number,
+): number {
+  let w = 0
+  for (let j = start; j < end; j++) {
+    w += advances[j]!
+    if (j < end - 1) w += letterSpacingPx
+  }
+  return w
+}
+
 function wrapWithPretext(
   glyphs: readonly GlyphInfo[],
   advances: readonly number[],
@@ -113,6 +126,84 @@ function wrapWithPretext(
     _pretextCache.set(cacheKey, hit)
     return hit
   }
+
+  // Pre-split on hard newlines (Mapbox text-field expressions use `\n`
+  // between scripts: `concat(name:latin, "\n", name:nonlatin)`). For
+  // each segment we decide:
+  //   - has a Latin word-break opportunity (space / tab) → hand to
+  //     pretext for normal greedy wrap
+  //   - pure-CJK (no spaces, no break points) → emit as ONE line
+  //     even if it exceeds maxWidth. Mapbox/MapLibre's shaper does
+  //     the same: a CJK-only run is never force-broken since the
+  //     `word-break: keep-all` semantic has no internal break points.
+  //     Pretext's force-break-on-overflow (no CSS `overflow-wrap`
+  //     option exposed at the API) was producing the "조선민주주의 /
+  //     인민공화국" wrap that didn't match ML on Liberty Korea z=4.96.
+  const segments: { start: number; end: number }[] = []
+  {
+    let segStart = 0
+    for (let i = 0; i < glyphs.length; i++) {
+      if (glyphs[i]!.codepoint === 10 /* \n */) {
+        segments.push({ start: segStart, end: i })
+        segStart = i + 1
+      }
+    }
+    segments.push({ start: segStart, end: glyphs.length })
+  }
+
+  if (segments.length > 1) {
+    // Multi-segment path. Each segment either passes through pretext
+    // (if it has a natural break point) or is kept as one line.
+    const lines: WrappedLineRange[] = []
+    for (const seg of segments) {
+      if (seg.start === seg.end) {
+        lines.push({ start: seg.start, end: seg.end, width: 0 })
+        continue
+      }
+      let hasNaturalBreak = false
+      for (let j = seg.start; j < seg.end; j++) {
+        const cp = glyphs[j]!.codepoint
+        if (cp === 32 || cp === 9) { hasNaturalBreak = true; break }
+      }
+      if (!hasNaturalBreak) {
+        lines.push({
+          start: seg.start, end: seg.end,
+          width: rangeWidth(advances, seg.start, seg.end, letterSpacingPx),
+        })
+        continue
+      }
+      // Inline pretext wrap for this segment (no `\n` inside).
+      const segText = String.fromCodePoint(
+        ...glyphs.slice(seg.start, seg.end).map(g => g.codepoint),
+      )
+      const segFont = composeFontShorthand(fontKey, fontSizePx)
+      const segPrepared = prepareWithSegments(segText, segFont, {
+        letterSpacing: letterSpacingPx,
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'keep-all',
+      })
+      let segIdx = seg.start
+      walkLineRanges(segPrepared, maxWidthPx, range => {
+        const lineText = materializeLineRange(segPrepared, range).text
+        const cps = [...lineText].map(c => c.codePointAt(0)!)
+        const lineStart = segIdx
+        for (let i = 0; i < cps.length; i++) {
+          while (segIdx < seg.end && glyphs[segIdx]!.codepoint !== cps[i]) segIdx++
+          if (segIdx < seg.end) segIdx++
+        }
+        lines.push({
+          start: lineStart, end: segIdx,
+          width: rangeWidth(advances, lineStart, segIdx, letterSpacingPx),
+        })
+      })
+    }
+    _pretextCache.set(cacheKey, lines)
+    if (_pretextCache.size > PRETEXT_CACHE_MAX) {
+      const oldest = _pretextCache.keys().next().value
+      if (oldest !== undefined) _pretextCache.delete(oldest)
+    }
+    return lines
+  }
   if (glyphs.length === 0) return []
   const text = String.fromCodePoint(...glyphs.map(g => g.codepoint))
   const font = composeFontShorthand(fontKey, fontSizePx)
@@ -123,6 +214,16 @@ function wrapWithPretext(
     // pretext collapses LF into a regular break opportunity and the
     // hard-break intent is lost.
     whiteSpace: 'pre-wrap',
+    // CSS `word-break: keep-all` — break only at Latin spaces and
+    // explicit `\n`, never at CJK / Hangul character boundaries.
+    // Mapbox / MapLibre's shaper has the same behaviour: a CJK-only
+    // run of any length is rendered as one line. With the default
+    // `normal` mode pretext breaks `조선민주주의인민공화국` (11 chars)
+    // at maxWidth=6.25em, producing the "조선민주주의 / 인민공화국"
+    // wrap that didn't match ML on OFM Liberty Korea z=4.96.
+    // `keep-all` collapses CJK runs and lets the line exceed maxWidth
+    // when it has no space break points — exactly ML behaviour.
+    wordBreak: 'keep-all',
   })
 
   const lines: WrappedLineRange[] = []
