@@ -72,6 +72,20 @@ export const COMPUTE_WORKGROUP_SIZE = 64
  *  different crossover. */
 export const MATCH_LUT_THRESHOLD = 16
 
+/** Runtime override for the LUT threshold. Set
+ *  `globalThis.__XGIS_MATCH_LUT_THRESHOLD = N` BEFORE the scene
+ *  compiles to force LUT emission at a lower arm count for A/B
+ *  benchmarks. Returns the override when set + >= 1, otherwise
+ *  undefined so callers fall back to the const above. Used by the
+ *  `_perf-compute-strategy.spec.ts` measurement spec — flip the
+ *  threshold between runs to compare GPU timing on the same scene. */
+function readMatchLutThresholdOverride(): number | undefined {
+  if (typeof globalThis === 'undefined') return undefined
+  const v = (globalThis as { __XGIS_MATCH_LUT_THRESHOLD?: number })
+    .__XGIS_MATCH_LUT_THRESHOLD
+  return typeof v === 'number' && v >= 1 ? v : undefined
+}
+
 /** Result of an emitter call. `wgsl` is the complete compute-shader
  *  module source ready to feed `createShaderModule`. `dispatchSize`
  *  helper tells the runtime how many workgroups to launch for a
@@ -176,7 +190,7 @@ export function emitMatchComputeKernel(spec: MatchEmitSpec): ComputeKernel {
   //   - WGSL const arrays cap at 16384 elements in current
   //     implementations — 428 (demotiles) is fine; multi-thousand
   //     arms would need a storage-buffer LUT instead (P5 follow-up).
-  const useLut = sortedPatterns.length >= MATCH_LUT_THRESHOLD
+  const useLut = sortedPatterns.length >= (readMatchLutThresholdOverride() ?? MATCH_LUT_THRESHOLD)
   if (useLut) {
     // Emit the const LUT — one vec4<f32> per arm, indexed by the
     // sorted-pattern position (matches packer's ID).
