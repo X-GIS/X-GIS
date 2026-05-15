@@ -66,6 +66,25 @@ export function pbfGlyphToSlot(
     const ox = Math.floor((slotSize - drawW) / 2)
     const oy = Math.floor((slotSize - drawH) / 2)
 
+    // PBF byte SDF is encoded for the NATIVE 24-px raster: each PBF
+    // pixel of signed distance from the edge changes the byte by
+    // (255-192)/8 ≈ 7.875. After upscaling to the engine slot at
+    // `rasterFontSize` (default 32), 1 slot pixel = 1/scale PBF
+    // pixels. The shader assumes the byte changes by 63/sdfRadius
+    // per SLOT pixel — so without rescaling, our bilinear-resampled
+    // bytes still encode PBF-pixel distances and the shader reads
+    // every SDF distance ~0.75× narrower than authored:
+    //   - halo at width=1 renders ~0.75 px wide
+    //   - edge-AA softer than designed
+    //   - net visual: every PBF glyph ~25 % thinner than MapLibre
+    //     on the same PBF data (user-reported on OFM Bright Korea
+    //     z=4.7: "라벨이 너무 얇게 렌더링").
+    //
+    // Rescale signed distance from edge: byte_new = 192 +
+    // (byte_pbf − 192) × scale. Clamps to [0, 255]; pixels past
+    // sdfRadius × 0.75 PBF px from edge already saturate at 0 / 255
+    // and bottom out the shader's smoothstep regardless.
+    const rescale = scale  // = rasterFontSize / 24
     for (let y = 0; y < drawH; y++) {
       const srcY = (y + 0.5) / scale - 0.5 + PBF_BUFFER
       const yi = Math.floor(srcY)
@@ -89,18 +108,14 @@ export function pbfGlyphToSlot(
         const bot = i01 + (i11 - i01) * xf
         const s = top + (bot - top) * yf
 
-        // Clamp to byte range. Bilinear of byte values stays in
-        // [0, 255] by construction, but the round-trip via the +/−
-        // operations leaves an imprecise FP residue we discard.
-        sdf[outRowBase + x] = s < 0 ? 0 : s > 255 ? 255 : (s | 0)
+        // Rescale PBF-pixel-distance byte → slot-pixel-distance byte
+        // around the 192 edge midpoint, then clamp + integer-round.
+        const rescaled = 192 + (s - 192) * rescale
+        sdf[outRowBase + x] = rescaled < 0 ? 0 : rescaled > 255 ? 255 : (rescaled | 0)
       }
     }
   }
-  // sdfRadius is no longer used by this function — the PBF already
-  // encodes the radius via its byte-per-SDF-px convention, and we
-  // pass the SDF through untouched. Kept in the signature for
-  // backward compatibility with the rasterizer chain.
-  void sdfRadius
+  void sdfRadius  // signature compat — distance encoding now matches engine convention
 
   return {
     fontKey,
