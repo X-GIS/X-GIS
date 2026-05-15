@@ -157,23 +157,37 @@ struct VsOut {
 }
 `
 
+/** Uniform buffer slot stride — 256 B safely exceeds every WebGPU
+ *  device's minUniformBufferOffsetAlignment (typical = 256, lower
+ *  bound = 64). The 64 B uniform pack lives at offset 0 within each
+ *  256 B slot; remaining bytes are unused padding. */
+const UNIFORM_STRIDE = 256
+const UNIFORM_STRIDE_F32 = UNIFORM_STRIDE / 4
+
 export class TextRenderer {
   private readonly device: GPUDevice
   private readonly atlas: GlyphAtlasGPU
   private readonly bgLayout: GPUBindGroupLayout
   private readonly pipeline: GPURenderPipeline
-  private readonly uniformBuf: GPUBuffer
+  private uniformBuf: GPUBuffer
+  private uniformBufCapacityBytes: number
   private vertexBuf: GPUBuffer | null = null
   private vertexCount = 0
-  /** Per-draw stride into the vertex buffer + uniform overrides.
+  /** Per-draw stride into the vertex buffer + uniform slot index.
    *  `page` is the atlas page the slice's glyphs reference; a single
    *  TextDraw can split into multiple slices when its glyphs span
-   *  pages (CJK-heavy maps). */
-  private drawSlices: Array<{ first: number; count: number; uniforms: Float32Array; page: number }> = []
+   *  pages (CJK-heavy maps). `dynamicOffset` (bytes) points at this
+   *  slice's 64-B uniform pack inside the shared uniform buffer. */
+  private drawSlices: Array<{ first: number; count: number; uniforms: Float32Array; page: number; dynamicOffset: number }> = []
+  /** Combined uniforms for all slices, laid out at UNIFORM_STRIDE
+   *  intervals. Rebuilt per frame in setDraws; viewport patched in
+   *  draw() before the single GPU upload. */
+  private allUniforms: Float32Array | null = null
   /** One bind group per atlas page, lazily built. The atlas only
    *  ever GROWS pages (no destroy in-flight), so cached entries stay
    *  valid across frames. Single-page maps populate just index 0
-   *  and never see multi-page logic. */
+   *  and never see multi-page logic. Invalidated when uniformBuf is
+   *  reallocated. */
   private bindGroupsByPage: GPUBindGroup[] = []
 
   constructor(
@@ -186,7 +200,14 @@ export class TextRenderer {
     this.bgLayout = device.createBindGroupLayout({
       label: 'text-renderer-bgl',
       entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+        // hasDynamicOffset lets every draw point at its own UNIFORM_STRIDE
+        // slot inside the shared uniform buffer. Without this, all draws
+        // share the same offset-0 slot and the LAST queue.writeBuffer
+        // before submission "wins" for every draw — labels with multiple
+        // distinct fill colors rendered with the last-submitted color
+        // (water_name blue overwritten by city black).
+        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: UNIFORM_BYTES } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
       ],
@@ -224,8 +245,10 @@ export class TextRenderer {
       multisample: { count: sampleCount },
     })
 
+    // Initial capacity covers a single slot — grows on demand in setDraws().
+    this.uniformBufCapacityBytes = UNIFORM_STRIDE
     this.uniformBuf = device.createBuffer({
-      size: UNIFORM_BYTES,
+      size: this.uniformBufCapacityBytes,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: 'text-uniform',
     })
@@ -272,6 +295,10 @@ export class TextRenderer {
           count: sliceGlyphCount * VERTS_PER_GLYPH,
           uniforms,
           page: slicePage,
+          // dynamicOffset assigned in the post-loop assembly so each
+          // slice gets its own UNIFORM_STRIDE slot regardless of which
+          // draw produced it.
+          dynamicOffset: 0,
         })
       }
       // Whole-label rotation around (anchorX, anchorY). Used when
@@ -378,6 +405,41 @@ export class TextRenderer {
       })
     }
     this.device.queue.writeBuffer(this.vertexBuf, 0, data.buffer, data.byteOffset, data.byteLength)
+
+    // ── Assemble shared uniform array indexed by dynamic offset ──
+    // Pack each slice's 64-byte uniform block into its own UNIFORM_STRIDE
+    // slot. Viewport (slots 0,1) is patched in draw() to keep that
+    // hot-path branchless w.r.t. resize events.
+    const numSlices = this.drawSlices.length
+    if (numSlices === 0) {
+      this.allUniforms = null
+    } else {
+      const totalBytes = numSlices * UNIFORM_STRIDE
+      if (this.allUniforms === null || this.allUniforms.length < numSlices * UNIFORM_STRIDE_F32) {
+        this.allUniforms = new Float32Array(numSlices * UNIFORM_STRIDE_F32)
+      }
+      for (let i = 0; i < numSlices; i++) {
+        const slice = this.drawSlices[i]!
+        const base = i * UNIFORM_STRIDE_F32
+        // Copy the 16-float uniform pack (64 B) into slot i.
+        for (let j = 0; j < UNIFORM_BYTES / 4; j++) {
+          this.allUniforms[base + j] = slice.uniforms[j]!
+        }
+        slice.dynamicOffset = i * UNIFORM_STRIDE
+      }
+      // Grow uniformBuf if needed; invalidate bind groups since they
+      // reference the buffer instance.
+      if (totalBytes > this.uniformBufCapacityBytes) {
+        this.uniformBuf.destroy()
+        this.uniformBufCapacityBytes = Math.max(totalBytes, this.uniformBufCapacityBytes * 2)
+        this.uniformBuf = this.device.createBuffer({
+          size: this.uniformBufCapacityBytes,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          label: 'text-uniform',
+        })
+        this.bindGroupsByPage.length = 0
+      }
+    }
   }
 
   /** Encode draw commands. `viewport` is in physical pixels. */
@@ -385,39 +447,47 @@ export class TextRenderer {
     if (this.vertexCount === 0 || this.vertexBuf === null) return
     if (this.atlas.pageCount === 0) return  // no glyphs uploaded yet
 
+    if (this.allUniforms === null) return
+
+    // Patch viewport (slots 0,1) into every slice slot. The remaining
+    // 14 floats per slot were filled by setDraws and don't change here.
+    const numSlices = this.drawSlices.length
+    for (let i = 0; i < numSlices; i++) {
+      const base = i * UNIFORM_STRIDE_F32
+      this.allUniforms[base + 0] = viewport.width
+      this.allUniforms[base + 1] = viewport.height
+    }
+    // Single GPU upload — covers all slices' uniforms. Critical: prior
+    // implementation called writeBuffer per slice at offset 0, but
+    // WebGPU executes ALL queued writes before any draw within a
+    // submit, so the LAST write would dominate every draw.
+    this.device.queue.writeBuffer(this.uniformBuf, 0,
+      this.allUniforms.buffer, this.allUniforms.byteOffset,
+      numSlices * UNIFORM_STRIDE)
+
     pass.setPipeline(this.pipeline)
     pass.setVertexBuffer(0, this.vertexBuf)
-    let lastBoundPage = -1
 
     for (const slice of this.drawSlices) {
-      // Multi-page binding: rebind only when the slice's atlas page
-      // differs from the one currently bound. Single-page maps hit
-      // this once and never re-enter the branch.
-      if (slice.page !== lastBoundPage) {
-        const page = this.atlas.getPage(slice.page)
-        if (!page) continue  // page evicted between flush and draw — skip
-        let bg = this.bindGroupsByPage[slice.page]
-        if (!bg) {
-          bg = this.device.createBindGroup({
-            label: `text-bg-page-${slice.page}`,
-            layout: this.bgLayout,
-            entries: [
-              { binding: 0, resource: { buffer: this.uniformBuf } },
-              { binding: 1, resource: page.createView() },
-              { binding: 2, resource: this.atlas.sampler },
-            ],
-          })
-          this.bindGroupsByPage[slice.page] = bg
-        }
-        pass.setBindGroup(0, bg)
-        lastBoundPage = slice.page
+      const page = this.atlas.getPage(slice.page)
+      if (!page) continue  // page evicted between flush and draw — skip
+      let bg = this.bindGroupsByPage[slice.page]
+      if (!bg) {
+        bg = this.device.createBindGroup({
+          label: `text-bg-page-${slice.page}`,
+          layout: this.bgLayout,
+          entries: [
+            // Use minBindingSize-sized window (64 B) into the shared
+            // uniform buffer. The dynamic offset picks which slice's
+            // pack is visible to the draw.
+            { binding: 0, resource: { buffer: this.uniformBuf, offset: 0, size: UNIFORM_BYTES } },
+            { binding: 1, resource: page.createView() },
+            { binding: 2, resource: this.atlas.sampler },
+          ],
+        })
+        this.bindGroupsByPage[slice.page] = bg
       }
-      // viewport goes in front of fill/halo so the same uniform
-      // layout serves all per-draw permutations.
-      slice.uniforms[0] = viewport.width
-      slice.uniforms[1] = viewport.height
-      this.device.queue.writeBuffer(this.uniformBuf, 0, slice.uniforms.buffer,
-        slice.uniforms.byteOffset, slice.uniforms.byteLength)
+      pass.setBindGroup(0, bg, [slice.dynamicOffset])
       pass.draw(slice.count, 1, slice.first, 0)
     }
   }
