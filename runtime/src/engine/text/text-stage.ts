@@ -31,8 +31,92 @@ import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import { TextRenderer, type TextDraw } from './text-renderer'
 import { greedyPlaceBboxes, type CollisionItem } from './text-collision'
-import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
+import { FONT_KEY_SENTINEL, parseFontKey } from './sdf/glyph-rasterizer'
+import type { GlyphInfo } from './sdf/glyph-atlas-host'
 import { applyTextTransform, stripCurveLineExtraScripts } from './text-stage-helpers'
+import {
+  prepareWithSegments,
+  walkLineRanges,
+  materializeLineRange,
+} from '@chenglou/pretext'
+
+/** Compose the CSS font shorthand pretext expects, mirroring what
+ *  `glyph-rasterizer.ts:137` builds for Canvas2D. Format:
+ *  `[style] [weight] [size]px [family]`. Pretext uses this to call
+ *  Canvas measureText internally on a hidden context; only the side
+ *  shapes a few graphemes per unique label string then caches by
+ *  prepared-text identity. */
+function composeFontShorthand(fontKey: string, fontSizePx: number): string {
+  const p = parseFontKey(fontKey)
+  return `${p.style} ${p.weight} ${fontSizePx}px ${p.family}`
+}
+
+interface WrappedLineRange { start: number; end: number; width: number }
+
+/** Greedy multiline wrap powered by pretext. The output ranges index
+ *  into the caller's `glyphs[]` array — pretext produces line ranges
+ *  by (segmentIndex, graphemeIndex) cursor, which we back-map by
+ *  codepoint-sequential match against the original glyph stream.
+ *
+ *  Why we don't use pretext's line widths: pretext measures via
+ *  Canvas2D `measureText` at the actual font size, but our SDF atlas
+ *  pre-rasterised glyphs at `opts.rasterFontSize` and the renderer
+ *  positions per-glyph from `glyph.advanceWidth * scale`. Mixing
+ *  measurement sources would drift the bbox math (used by collision
+ *  + anchor offset) away from where the renderer actually places
+ *  glyphs. So we hand pretext the break decisions and recompute
+ *  widths from our cached advances. */
+function wrapWithPretext(
+  glyphs: readonly GlyphInfo[],
+  advances: readonly number[],
+  fontKey: string,
+  fontSizePx: number,
+  letterSpacingPx: number,
+  maxWidthPx: number,
+): WrappedLineRange[] {
+  if (glyphs.length === 0) return []
+  const text = String.fromCodePoint(...glyphs.map(g => g.codepoint))
+  const font = composeFontShorthand(fontKey, fontSizePx)
+  const prepared = prepareWithSegments(text, font, {
+    letterSpacing: letterSpacingPx,
+    // `pre-wrap` honours explicit `\n` Mapbox styles emit inside
+    // text-field for bilingual stacks ("Seoul\n서울"). Without it
+    // pretext collapses LF into a regular break opportunity and the
+    // hard-break intent is lost.
+    whiteSpace: 'pre-wrap',
+  })
+
+  const lines: WrappedLineRange[] = []
+  let glyphIdx = 0
+  walkLineRanges(prepared, maxWidthPx, range => {
+    const lineText = materializeLineRange(prepared, range).text
+    const cps = [...lineText].map(c => c.codePointAt(0)!)
+    const lineStart = glyphIdx
+    // Sequential match — find each codepoint in glyphs[] from current
+    // position. Pretext drops trailing space at break points, so the
+    // glyph stream may have intervening characters we need to skip
+    // (e.g. the space that pretext consumed at the line boundary).
+    for (let i = 0; i < cps.length; i++) {
+      while (glyphIdx < glyphs.length && glyphs[glyphIdx]!.codepoint !== cps[i]) glyphIdx++
+      if (glyphIdx < glyphs.length) glyphIdx++
+    }
+    const lineEnd = glyphIdx
+    // Recompute width from our advances + letter-spacing (matches
+    // how the renderer pens out the glyphs).
+    let w = 0
+    for (let j = lineStart; j < lineEnd; j++) {
+      w += advances[j]!
+      if (j < lineEnd - 1) w += letterSpacingPx
+    }
+    lines.push({ start: lineStart, end: lineEnd, width: w })
+  })
+
+  // Empty-text fallback — pretext returns zero lines for `''`, but
+  // the renderer expects at least one (empty) range so the anchor
+  // positioning code still has a bbox to work with.
+  if (lines.length === 0) lines.push({ start: 0, end: 0, width: 0 })
+  return lines
+}
 
 /** Compose the rasterizer-visible font key for one label.
  *
@@ -488,91 +572,27 @@ export class TextStage {
       const justify = p.def.justify ?? 'center'
 
       // Compute per-line glyph ranges + line widths.
-      interface LineRange { start: number; end: number; width: number }
-      const lines: LineRange[] = []
-      let lineStart = 0
-      let lineW = 0
-      let lastSpaceI = -1
-      let lastSpaceW = 0
-      let maxHeight = 0
       const advances: number[] = new Array(glyphs.length)
+      let maxHeight = 0
       for (let gi = 0; gi < glyphs.length; gi++) {
         const g = glyphs[gi]!
-        const adv = g.advanceWidth * scale
-        advances[gi] = adv
+        advances[gi] = g.advanceWidth * scale
         if (g.height * scale > maxHeight) maxHeight = g.height * scale
       }
-      for (let gi = 0; gi < glyphs.length; gi++) {
-        const g = glyphs[gi]!
-        const adv = advances[gi]!
-        const ls = gi < glyphs.length - 1 ? letterSpacingPx : 0
-        // Explicit U+000A (LF) — Mapbox styles emit `\n` inside
-        // `text-field` to stack bilingual names ("Seoul\n서울"). The
-        // newline glyph has zero advance from Canvas2D, so without
-        // this branch the two names render side-by-side on one line
-        // and the user perceives "both languages drawn at once".
-        // Skip the LF glyph and start a fresh line at gi+1.
-        if (g.codepoint === 0x0a) {
-          lines.push({ start: lineStart, end: gi, width: lineW })
-          lineStart = gi + 1
-          lineW = 0
-          lastSpaceI = -1
-          continue
-        }
-        // Track break candidates at U+0020 (space). Spaces adjacent
-        // to U+002F (`/`) are NOT break candidates — multi-language
-        // compound names like "Sea of Japan / 日本海 / 동해" would
-        // otherwise wrap into "Sea of\nJapan /\n日本海 /\n동해…"
-        // (slashes orphaned at line ends). MapLibre keeps the slash
-        // wedged between its operands. The check looks at the previous
-        // codepoint (already a glyph) AND the next codepoint (look-
-        // ahead by one glyph) — both must be non-slash for the space
-        // to register.
-        if (g.codepoint === 0x20) {
-          const prevCp = gi > 0 ? glyphs[gi - 1]!.codepoint : 0
-          const nextCp = gi < glyphs.length - 1 ? glyphs[gi + 1]!.codepoint : 0
-          // Fullwidth slash U+FF0F has the same orphan-risk as ASCII
-          // U+002F in CJK compound names ("東京／大阪"). Middle-dots
-          // (U+00B7, U+30FB) bind tighter and rarely sit next to a
-          // space — not added.
-          const isSlash = (cp: number) => cp === 0x2f || cp === 0xff0f
-          if (!isSlash(prevCp) && !isSlash(nextCp)) {
-            lastSpaceI = gi
-            lastSpaceW = lineW
-          }
-        } else if (g.codepoint === 0x3000) {
-          // U+3000 (ideographic space) — CJK convention uses it as a
-          // wide between-token separator ("東京 大阪"). Same break
-          // semantics as ASCII space; the slash-orphan guard doesn't
-          // apply (rarely wrapped around slashes in practice). Dropped
-          // at wrap via `lineStart = lastSpaceI + 1` like U+0020.
-          lastSpaceI = gi
-          lastSpaceW = lineW
-        }
-        if (lineW + adv > maxWidthPx && lastSpaceI > lineStart) {
-          // Wrap at the most recent space. The space itself is
-          // dropped (it would otherwise sit at the end of the line).
-          lines.push({ start: lineStart, end: lastSpaceI, width: lastSpaceW })
-          lineStart = lastSpaceI + 1
-          lineW = 0
-          // Non-wrap branch (below) adds `advance + post-glyph
-          // letter-spacing` per iter, so lineW semantically includes
-          // a "trailing spacing slot" for the next glyph. Match that
-          // here — for each carry-over glyph add advance + trailing
-          // spacing (zero only when j is the global last glyph).
-          // Skipping the trailing slot under-counts by one letter-
-          // spacing per wrap, drifting wrap positions on caps-tracking
-          // styles.
-          for (let j = lineStart; j <= gi; j++) {
-            lineW += advances[j]!
-            if (j < glyphs.length - 1) lineW += letterSpacingPx
-          }
-          lastSpaceI = -1
-        } else {
-          lineW += adv + ls
-        }
-      }
-      lines.push({ start: lineStart, end: glyphs.length, width: lineW })
+
+      // Pretext handles the line-break decisions — Intl.Segmenter for
+      // grapheme clusters (proper emoji ZWJ + combining marks),
+      // streaming line-break with locale-aware break opportunities
+      // around CJK/Hangul, soft hyphen support. We back-map its line
+      // text to OUR glyph indices and recompute widths from our
+      // SDF-rasterised advances so the renderer's per-glyph pen
+      // positions stay consistent (the alternative — using pretext's
+      // canvas-measured widths — would diverge from advanceWidth and
+      // smear the bbox math).
+      const lines = wrapWithPretext(
+        glyphs, advances, p.fontKey, sizePx,
+        letterSpacingPx, maxWidthPx,
+      )
       // Total bounding box width = max line width.
       let totalAdvance = 0
       for (const ln of lines) if (ln.width > totalAdvance) totalAdvance = ln.width
@@ -593,7 +613,7 @@ export class TextStage {
             ...(p.def.halo.blur !== undefined ? { blur: p.def.halo.blur * dpr } : {}),
           }
         : undefined
-      const layouts: Array<{ draw: TextDraw; bbox: typeof shaped[number]['bboxes'][number] }> = []
+      const layouts: Array<{ draw: TextDraw; bbox: typeof shaped[number]['layouts'][number]['bbox'] }> = []
       for (const anchor of candidates) {
         let dx = 0, dy = 0
         if (anchor === 'left' || anchor.endsWith('-left')) dx = 0

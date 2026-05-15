@@ -8,6 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@chenglou/pretext": "^0.0.7",
     "@xgis/compiler": "workspace:*",
     "pmtiles": "^4.4.1"
   },
