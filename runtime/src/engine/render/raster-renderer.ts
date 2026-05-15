@@ -21,6 +21,10 @@ struct Uniforms {
   mvp: mat4x4<f32>,
   // proj_params: x=type, y=centerLon, z=centerLat, w=log_depth_fc
   proj_params: vec4<f32>,
+  // raster_params: x=opacity (0..1, layer-uniform per frame), yzw reserved
+  // for future hooks (gamma, brightness, contrast — MapLibre spec has
+  // them but no observed usage in OFM yet).
+  raster_params: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -124,7 +128,13 @@ fn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut {
 fn fs_tile(input: VsOut) -> RasterFragmentOutput {
   if (input.vis < 0.0) { discard; }
   var out: RasterFragmentOutput;
-  out.color = textureSample(tex, tex_sampler, input.uv);
+  let c = textureSample(tex, tex_sampler, input.uv);
+  // Mapbox raster-opacity multiplies the alpha (canvas is premultiplied
+  // by the WebGPU configure call, so the blend pipeline handles the
+  // straight→premultiplied conversion). RGB stays at texel value so a
+  // half-opacity raster fades over the background instead of darkening
+  // toward black.
+  out.color = vec4<f32>(c.rgb, c.a * u.raster_params.x);
   __PICK_WRITE__
   out.depth = compute_log_frag_depth(input.view_w, u.proj_params.w);
   return out;
@@ -168,6 +178,13 @@ export class RasterRenderer {
   private lastVisibleKeys: Set<string> = new Set()
 
   private urlTemplate = ''
+  /** Mapbox `raster-opacity`, resolved per frame by the orchestrator.
+   *  1.0 = fully opaque (the default for layers that didn't author
+   *  `raster-opacity`). The fragment shader multiplies the sampled
+   *  alpha by this value so the basemap can fade over the background
+   *  the way MapLibre handles e.g. OFM Liberty's natural-earth
+   *  shaded relief. */
+  private _opacity = 1.0
   // Pool of per-draw tile uniform buffers (avoids writeBuffer race with draw).
   // Each buffer has a matching pre-built bind group in `tileBindGroupPool` so
   // the hot path never calls createBindGroup — a major frame-time win when
@@ -245,6 +262,16 @@ export class RasterRenderer {
 
   setUrlTemplate(url: string): void {
     this.urlTemplate = url
+  }
+
+  /** Set the per-frame opacity multiplier (Mapbox `raster-opacity`).
+   *  Caller resolves the show's PropertyShape<number> via
+   *  `resolveNumberShape` before the frame's `render()` call.
+   *  Defaults to 1.0; a show that doesn't author opacity leaves the
+   *  previous value in place — single-raster scenes are fine but
+   *  multi-raster mixing would need a per-tile or per-show extension. */
+  setOpacity(opacity: number): void {
+    this._opacity = Math.max(0, Math.min(1, opacity))
   }
 
   /** True while any tile fetch is still in flight. The map's render loop
@@ -347,6 +374,8 @@ export class RasterRenderer {
     const uniformData = new ArrayBuffer(128)
     new Float32Array(uniformData, 0, 16).set(mvp)
     new Float32Array(uniformData, 64, 4).set([projType, projCenterLon, projCenterLat, frame.logDepthFc])
+    // raster_params at offset 80 — x = opacity, yzw reserved.
+    new Float32Array(uniformData, 80, 4).set([this._opacity, 0, 0, 0])
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
 
     pass.setPipeline(this.pipeline)

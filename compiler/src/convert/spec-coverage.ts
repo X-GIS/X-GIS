@@ -238,7 +238,7 @@ const PAINT_FILL_EXTRUSION: readonly CoverageEntry[] = [
 ]
 
 const PAINT_RASTER: readonly CoverageEntry[] = [
-  { name: 'raster-opacity',         status: 'unsupported', impact: 'medium' },
+  { name: 'raster-opacity',         status: 'supported', note: 'Constant + interpolate-by-zoom + data-driven (all PropertyShape kinds) routed through the global RasterRenderer opacity uniform. Single raster show per scene is supported; multi-raster styles fall back to the first declared show.', source: 'paint.ts:38' },
   { name: 'raster-hue-rotate',      status: 'unsupported', impact: 'low' },
   { name: 'raster-brightness-min',  status: 'unsupported', impact: 'low' },
   { name: 'raster-brightness-max',  status: 'unsupported', impact: 'low' },

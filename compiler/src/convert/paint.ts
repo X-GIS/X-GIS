@@ -34,6 +34,15 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     addOpacity(out, p['fill-extrusion-opacity'], warnings)
     addExtrudeHeight(out, p['fill-extrusion-height'], warnings)
     addExtrudeBase(out, p['fill-extrusion-base'], warnings)
+  } else if (layer.type === 'raster') {
+    // raster-opacity reuses the layer-uniform `opacity` resolver path
+    // every other layer type goes through — same interpolate(zoom, …)
+    // + constant + data-driven shapes all work. The runtime side
+    // multiplies the sampled texel by the resolved opacity in the
+    // raster fragment shader so the basemap shaded-relief styles
+    // (OFM Liberty's `natural_earth`) fade out at higher zooms the
+    // way they do in MapLibre.
+    addOpacity(out, p['raster-opacity'], warnings)
   }
 
   return out

@@ -288,6 +288,11 @@ export class XGISMap {
   private camera: Camera
   private renderer!: MapRenderer
   private rasterRenderer!: RasterRenderer
+  /** Show whose source backs the active raster URL — single-tracked
+   *  for now (one raster basemap per scene is the realistic case).
+   *  Per-frame `render()` resolves `paintShapes.opacity` here and
+   *  pushes it to the renderer. Null when no raster show is active. */
+  private _rasterShow: typeof this.showCommands[0] | null = null
   /** Optional GPU pass timer. Null when timestamp-query is unsupported or
    *  `?gpuprof=1` is not set. When set, the FIRST opaque sub-pass each
    *  frame is timed; samples drain to `getGpuTimings()`. */
@@ -1700,6 +1705,10 @@ export class XGISMap {
 
     // Reset raster renderer — only activate if a layer references a raster source
     if (!this.useCanvas2D) this.rasterRenderer.setUrlTemplate('')
+    // Drop any previously-tracked raster show. A new active one (if any)
+    // is captured below by the same `_tileUrl` test that arms the
+    // renderer.
+    this._rasterShow = null
 
     for (const show of this.showCommands) {
       const data = this.rawDatasets.get(show.targetName)
@@ -1732,6 +1741,11 @@ export class XGISMap {
       const tileUrl = (data as unknown as { _tileUrl?: string })._tileUrl
       if (tileUrl) {
         if (!this.useCanvas2D) this.rasterRenderer.setUrlTemplate(tileUrl)
+        // Capture the show so the frame loop can resolve its
+        // `paintShapes.opacity` per zoom (OFM Liberty's natural_earth
+        // raster fades 0.6 → 0.1 across z=0..6). First-wins — multi-
+        // raster scenes pick the earliest declared raster show.
+        if (!this._rasterShow) this._rasterShow = show
         continue
       }
 
@@ -2660,6 +2674,20 @@ export class XGISMap {
             // freely on top with no depth-buffer interaction.
             this.backgroundRenderer?.render(subPass)
             this.gpuTimer?.mark(subPass, 'after_bg')
+            // Per-frame raster-opacity resolve. resolveNumberShape
+            // honours constant / zoom-interpolated / time-interpolated
+            // / zoom-time shapes — same code that drives every other
+            // layer's opacity, just driving the global raster
+            // renderer's uniform.
+            if (this._rasterShow) {
+              const op = resolveNumberShape(
+                this._rasterShow.paintShapes.opacity,
+                this.camera.zoom, this._elapsedMs,
+              ).value
+              this.rasterRenderer.setOpacity(op)
+            } else {
+              this.rasterRenderer.setOpacity(1)
+            }
             this.rasterRenderer.render(subPass, this.camera, projType, centerLon, centerLat, w, h, dpr)
             this.gpuTimer?.mark(subPass, 'after_raster')
             this.renderer.renderToPass(subPass, this.camera, projType, centerLon, centerLat, this._elapsedMs)
