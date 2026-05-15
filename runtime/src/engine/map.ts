@@ -1147,32 +1147,6 @@ export class XGISMap {
     }
     if (bgColor) this._backgroundColor = parseHexColor(bgColor)
 
-    // P3 Step 3c — upload the scene-level color gradient palette to
-    // GPU, then push the resulting view through MapRenderer +
-    // every freshly-built VTR so their bind groups sample the real
-    // atlas instead of the 1×1 stub installed at MapRenderer init.
-    if (commands.palette && commands.palette.colorGradients.length > 0) {
-      // Guard with try/catch — palette upload races scene compile
-      // and a transient GPU error (cold device, low-memory) shouldn't
-      // kill the whole map. Fall back to the 1×1 stub atlas; legacy
-      // `u.fill_color` uniform path keeps working for every variant.
-      try {
-        const packed = packPalette(commands.palette)
-        const handles = uploadPalette(this.ctx.device, packed)
-        if (this._paletteHandles) {
-          this._paletteHandles.colorPalette.destroy()
-          this._paletteHandles.scalarPalette.destroy()
-          this._paletteHandles.colorGradientAtlas.destroy()
-          this._paletteHandles.scalarGradientAtlas.destroy()
-        }
-        this._paletteHandles = handles
-        this.renderer.setPaletteColorAtlas(handles.colorGradientAtlas.createView())
-      } catch (e) {
-        console.warn('[X-GIS] palette upload failed; falling back to legacy uniform path:',
-          (e as Error)?.message)
-      }
-    }
-
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
     // Prewarm PMTiles archive caches in parallel with the rest of init
@@ -1227,6 +1201,35 @@ export class XGISMap {
       this.backgroundRenderer = new BackgroundRenderer(this.ctx)
       if (this._backgroundColor) this.backgroundRenderer.setFill(this._backgroundColor)
       if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
+
+      // P3 Step 3c — upload the scene-level color gradient palette to
+      // GPU, then push the resulting view through MapRenderer +
+      // every freshly-built VTR so their bind groups sample the real
+      // atlas instead of the 1×1 stub installed at MapRenderer init.
+      // Must run AFTER ctx + renderer init (was previously ahead of
+      // both; the silent try/catch fallback masked it as "always-
+      // fail" for the entire P3 path — user saw the warning fire).
+      if (commands.palette && commands.palette.colorGradients.length > 0) {
+        // Guard with try/catch — palette upload races scene compile
+        // and a transient GPU error (cold device, low-memory) shouldn't
+        // kill the whole map. Fall back to the 1×1 stub atlas; legacy
+        // `u.fill_color` uniform path keeps working for every variant.
+        try {
+          const packed = packPalette(commands.palette)
+          const handles = uploadPalette(this.ctx.device, packed)
+          if (this._paletteHandles) {
+            this._paletteHandles.colorPalette.destroy()
+            this._paletteHandles.scalarPalette.destroy()
+            this._paletteHandles.colorGradientAtlas.destroy()
+            this._paletteHandles.scalarGradientAtlas.destroy()
+          }
+          this._paletteHandles = handles
+          this.renderer.setPaletteColorAtlas(handles.colorGradientAtlas.createView())
+        } catch (e) {
+          console.warn('[X-GIS] palette upload failed; falling back to legacy uniform path:',
+            (e as Error)?.message)
+        }
+      }
       try {
         this.pointRenderer = new PointRenderer(this.ctx)
         this.shapeRegistry = new ShapeRegistry(this.ctx.device)
