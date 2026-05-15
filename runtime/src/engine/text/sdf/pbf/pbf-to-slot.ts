@@ -14,19 +14,16 @@
 // behaviour applies as for Canvas2D-rasterised glyphs.
 
 import type { GlyphRasterResult } from '../glyph-rasterizer'
-import { computeSDF } from '../distance-transform'
 import type { PbfGlyph } from './glyphs-proto'
 
 const PBF_REF_SIZE = 24       // MapLibre rasterises all glyph PBFs at 24 px
 const PBF_BUFFER = 3          // px of outer buffer around the glyph bbox
-const PBF_EDGE_BYTE = 192     // SDF byte value at the glyph edge
 
-// Module-level alpha scratch. Glyphs are pure consumers — they hand
-// the byte mask to computeSDF which returns its own Uint8Array; the
-// alpha buffer never escapes. Pre-cache one buffer per slotSize to
-// avoid the 100-glyph cold-start burst allocating ~400 KB of
-// per-call mask buffers (4 KB × 100 = 400 KB → 1 KB once + clear).
-let _alphaScratch: Uint8Array = new Uint8Array(0)
+// One fresh Uint8Array per call — the result is returned and the
+// caller (atlas-host) takes ownership. A shared scratch would alias
+// the previous call's output. ~4 KB per 64×64 slot is cheap; the
+// 100-glyph cold-start burst is bounded by LRU cache size, not
+// per-call allocation.
 
 export function pbfGlyphToSlot(
   g: PbfGlyph,
@@ -39,14 +36,29 @@ export function pbfGlyphToSlot(
   const drawW = Math.round(g.width * scale)
   const drawH = Math.round(g.height * scale)
 
-  // Reuse the scratch when the slot size matches; grow if needed.
-  // Always zero out — the bilinear loop only writes inside the
-  // glyph bbox, leaving stale bytes from a prior larger glyph's
-  // ROI visible to computeSDF as phantom edges.
+  // The PBF arrives pre-rendered as an SDF with byte 192 = edge and
+  // the same falloff convention the shader expects (sdfRadius bytes
+  // per SDF px). We bilinearly resample the byte SDF directly into
+  // the slot — no intermediate binary alpha + recompute.
+  //
+  // Previous behaviour (commit history before this change): threshold
+  // each bilinear sample to 0/255 and re-run computeSDF on the binary
+  // mask. The threshold step discarded the original PBF's sub-pixel
+  // edge precision (any sample 191.9 was rounded to 0), eroding the
+  // glyph silhouette by ~0.5 px per side. Net visual effect: every
+  // PBF-sourced label rendered ~1 px thinner than MapLibre on the
+  // same PBF data — the user-reported "labels too thin" on the
+  // Korea pitched compare view (#12.21/37.19319/127.26829/0/69).
+  // Sampling the SDF directly keeps the precision the upstream tile
+  // server already encoded.
+  //
+  // Background pixels OUTSIDE the glyph bbox are set to 0 (= "deep
+  // outside the glyph"), matching the PBF buffer-region convention
+  // where SDF bytes far from any glyph stroke saturate at 0. The
+  // shader smoothstep around edge=192/255 reads these as fully
+  // transparent.
   const N = slotSize * slotSize
-  if (_alphaScratch.length < N) _alphaScratch = new Uint8Array(N)
-  const alpha = _alphaScratch.subarray(0, N)
-  alpha.fill(0)
+  const sdf = new Uint8Array(N)
 
   if (g.bitmap.length > 0 && drawW > 0 && drawH > 0) {
     const bw = g.width + 2 * PBF_BUFFER
@@ -54,10 +66,6 @@ export function pbfGlyphToSlot(
     const ox = Math.floor((slotSize - drawW) / 2)
     const oy = Math.floor((slotSize - drawH) / 2)
 
-    // For each output pixel inside the glyph bbox, bilinearly sample the
-    // PBF SDF and threshold to recover binary alpha. The +PBF_BUFFER
-    // offsets jump past the PBF's outer buffer band — we just want the
-    // glyph silhouette, the engine recomputes its own SDF falloff.
     for (let y = 0; y < drawH; y++) {
       const srcY = (y + 0.5) / scale - 0.5 + PBF_BUFFER
       const yi = Math.floor(srcY)
@@ -81,12 +89,18 @@ export function pbfGlyphToSlot(
         const bot = i01 + (i11 - i01) * xf
         const s = top + (bot - top) * yf
 
-        alpha[outRowBase + x] = s >= PBF_EDGE_BYTE ? 255 : 0
+        // Clamp to byte range. Bilinear of byte values stays in
+        // [0, 255] by construction, but the round-trip via the +/−
+        // operations leaves an imprecise FP residue we discard.
+        sdf[outRowBase + x] = s < 0 ? 0 : s > 255 ? 255 : (s | 0)
       }
     }
   }
-
-  const sdf = computeSDF(alpha, slotSize, slotSize, sdfRadius)
+  // sdfRadius is no longer used by this function — the PBF already
+  // encodes the radius via its byte-per-SDF-px convention, and we
+  // pass the SDF through untouched. Kept in the signature for
+  // backward compatibility with the rasterizer chain.
+  void sdfRadius
 
   return {
     fontKey,
