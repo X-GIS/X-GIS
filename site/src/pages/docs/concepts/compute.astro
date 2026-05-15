@@ -1756,8 +1756,12 @@ const initialPreset = presets[0]
         $outTokens.innerHTML = renderTokens(tokens)
 
         // Stage 2 — AST
+        // Bumped maxDepth so deeply-nested match()/case expressions
+        // don't truncate to `…`. Programs over a few thousand lines
+        // would still trip this, but the live editor only handles
+        // hand-sized presets.
         $badgeAst.textContent = String(program.body.length)
-        $outAst.textContent = pretty(program, 8)
+        $outAst.textContent = pretty(program, 20)
 
         // Stage 3 — raw IR (blueprint-style node cards + collapsed JSON)
         $statNodes.textContent = String(sceneRaw.renderNodes.length)
