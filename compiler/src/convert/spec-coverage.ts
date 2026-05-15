@@ -138,7 +138,7 @@ const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'text-transform',       status: 'supported', note: 'uppercase / lowercase / none literals.' },
   { name: 'text-allow-overlap',   status: 'supported' },
   { name: 'text-ignore-placement',status: 'supported' },
-  { name: 'text-overlap',         status: 'unsupported', impact: 'medium', note: 'MapLibre overlap-policy enum (never / always / cooperative); supersedes text-allow-overlap. Converter still routes text-allow-overlap; text-overlap is dropped.' },
+  { name: 'text-overlap',         status: 'partial', impact: 'low', note: 'MapLibre overlap-policy enum (never / always / cooperative). always → label-allow-overlap; never → default; cooperative approximated as always (priority-aware collision pending) + warning. Wins over legacy text-allow-overlap when both declared.', source: 'layers.ts:418' },
   { name: 'text-optional',        status: 'unsupported', impact: 'low', note: 'Icons not implemented — moot.' },
   { name: 'text-rotation-alignment', status: 'supported', note: 'Literal map / viewport / auto. Honoured at runtime.', source: 'map.ts:2369' },
   { name: 'text-pitch-alignment', status: 'partial', impact: 'medium', note: 'Converter emits, runtime ignores — labels never project onto ground plane.', source: 'map.ts:2461' },

@@ -417,7 +417,51 @@ function convertSymbolLayer(
 
   // Collision controls (Batch 1e). text-padding accepts both constant
   // and interpolate-by-zoom in Mapbox.
-  if (layout['text-allow-overlap'] === true) utils.push('label-allow-overlap')
+  //
+  // text-allow-overlap (Mapbox v8) and text-overlap (MapLibre 2+,
+  // supersedes allow-overlap with an enum) both map onto the same
+  // engine-side "always place this label regardless of collision"
+  // flag. text-overlap wins if BOTH are present — MapLibre semantics
+  // make text-overlap the modern source of truth.
+  //   'always'      → label-allow-overlap (place ignoring collision)
+  //   'never'       → no utility (default — collision applies)
+  //   'cooperative' → label-allow-overlap (MapLibre's third state is
+  //                   "place only if no higher-priority overlap" — we
+  //                   don't have priority-aware collision yet, so the
+  //                   conservative fallback is to place; a warning
+  //                   surfaces so the style author knows).
+  const textOverlap = layout['text-overlap']
+  if (textOverlap === 'always') {
+    utils.push('label-allow-overlap')
+  } else if (textOverlap === 'cooperative') {
+    utils.push('label-allow-overlap')
+    warnings.push(`Symbol layer "${layer.id}" — text-overlap: "cooperative" approximated as "always" (priority-aware collision pending).`)
+  } else if (textOverlap === 'never') {
+    // Default — no utility needed.
+  } else if (textOverlap !== undefined) {
+    warnings.push(`Symbol layer "${layer.id}" — unrecognised text-overlap value ${JSON.stringify(textOverlap)}; ignored.`)
+  } else if (layout['text-allow-overlap'] === true) {
+    // Legacy fallback only when the new property is absent.
+    utils.push('label-allow-overlap')
+  }
+  // icon-overlap mirrors text-overlap for the icon collision flag. The
+  // engine routes both through the same per-label collision pass today
+  // (icons + text inherit the layer-level allow-overlap), so emitting
+  // label-allow-overlap covers icon-only symbol layers too. Once a
+  // dedicated icon-allow-overlap exists in the IR this branch flips.
+  const iconOverlap = layout['icon-overlap']
+  if (iconOverlap === 'always' || iconOverlap === 'cooperative') {
+    // De-dup: text-overlap already emitted the utility above on the
+    // same symbol layer.
+    if (!utils.includes('label-allow-overlap')) utils.push('label-allow-overlap')
+    if (iconOverlap === 'cooperative') {
+      warnings.push(`Symbol layer "${layer.id}" — icon-overlap: "cooperative" approximated as "always" (priority-aware collision pending).`)
+    }
+  } else if (iconOverlap !== undefined && iconOverlap !== 'never') {
+    warnings.push(`Symbol layer "${layer.id}" — unrecognised icon-overlap value ${JSON.stringify(iconOverlap)}; ignored.`)
+  } else if (layout['icon-allow-overlap'] === true) {
+    if (!utils.includes('label-allow-overlap')) utils.push('label-allow-overlap')
+  }
   if (layout['text-ignore-placement'] === true) utils.push('label-ignore-placement')
   const padding = layout['text-padding']
   if (typeof padding === 'number') {
