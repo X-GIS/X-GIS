@@ -13,6 +13,7 @@ import {
   emitColorGradientSample,
   emitPaletteBindings,
   emitScalarGradientSample,
+  emitScalarSampleHelper,
 } from './palette-emit'
 import { collectPalette } from './palette'
 import type { ColorValue, RenderNode, Scene, SizeValue, StrokeValue, ZoomStop } from '../ir/render-node'
@@ -71,27 +72,28 @@ describe('palette-emit — emitPaletteBindings', () => {
     expect(out).toContain('@binding(4) var palette_samp: sampler')
   })
 
-  it('scalar gradient only → empty until scalar atlas binding wires (P3 Step 3c deferred)', () => {
-    // Scalar zoom-interpolated paint values stay on the CPU resolve
-    // path until the r32float-vs-filterable scalar atlas binding
-    // lands. emitPaletteBindings deliberately skips the scalar
-    // binding declaration to keep variant pipelines validatable
-    // against the current `mr-baseBindGroupLayout` (binding 2 +
-    // sampler 4 only).
+  it('scalar gradient only → emits scalar atlas binding + sampler, no color', () => {
+    // Scalar zoom-interpolated paint values now wire through binding 3
+    // alongside the shared sampler. The bind-group layout in
+    // renderer.ts picks sampleType based on `float32-filterable`
+    // capability — WGSL declaration stays `texture_2d<f32>` either way.
     const palette = collectPalette(sceneFromNodes(makeNode({
       size: { kind: 'zoom-interpolated', stops: [zs(0, 4), zs(20, 16)] } as SizeValue,
     })))
-    expect(emitPaletteBindings(palette)).toBe('')
+    const out = emitPaletteBindings(palette)
+    expect(out).toContain('@binding(3) var scalar_grad_atlas: texture_2d<f32>')
+    expect(out).not.toContain('color_grad_atlas')
+    expect(out).toContain('palette_samp')
   })
 
-  it('mixed gradients → color emitted, scalar deferred', () => {
+  it('mixed gradients → both atlases + single shared sampler', () => {
     const palette = collectPalette(sceneFromNodes(
       makeNode({ fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] } as ColorValue }),
       makeNode({ size: { kind: 'zoom-interpolated', stops: [zs(0, 4), zs(20, 16)] } as SizeValue }),
     ))
     const out = emitPaletteBindings(palette)
     expect(out).toContain('color_grad_atlas')
-    expect(out).not.toContain('scalar_grad_atlas')
+    expect(out).toContain('scalar_grad_atlas')
     expect((out.match(/palette_samp/g) ?? []).length).toBe(1)
   })
 
@@ -173,17 +175,47 @@ describe('palette-emit — emitColorGradientSample', () => {
 })
 
 describe('palette-emit — emitScalarGradientSample', () => {
-  it('emits .r-unpacked textureSampleLevel', () => {
+  it('emits xgis_scalar_sample call with bakedin (idx, zMin, zMax)', () => {
     const palette = collectPalette(sceneFromNodes(makeNode({
       size: { kind: 'zoom-interpolated', stops: [zs(0, 4), zs(20, 16)] } as SizeValue,
     })))
     const out = emitScalarGradientSample(palette, 0)
-    expect(out).toContain('textureSampleLevel(scalar_grad_atlas, palette_samp')
-    expect(out.endsWith('.r')).toBe(true)
+    // Both filtering and manual modes go through the same call site —
+    // the helper definition (separate emit) picks the implementation.
+    expect(out).toBe('xgis_scalar_sample(0u, u.zoom, 0.0, 20.0)')
   })
 
   it('out-of-range → zero fallback', () => {
     const palette = collectPalette(sceneFromNodes())
     expect(emitScalarGradientSample(palette, 5)).toBe('0.0')
+  })
+})
+
+describe('palette-emit — emitScalarSampleHelper', () => {
+  it('empty palette → empty string (no helper needed)', () => {
+    const palette = collectPalette(sceneFromNodes())
+    expect(emitScalarSampleHelper(palette, 'filtering')).toBe('')
+    expect(emitScalarSampleHelper(palette, 'manual')).toBe('')
+  })
+
+  it('filtering mode → textureSampleLevel body', () => {
+    const palette = collectPalette(sceneFromNodes(makeNode({
+      size: { kind: 'zoom-interpolated', stops: [zs(0, 4), zs(20, 16)] } as SizeValue,
+    })))
+    const out = emitScalarSampleHelper(palette, 'filtering')
+    expect(out).toContain('fn xgis_scalar_sample(')
+    expect(out).toContain('textureSampleLevel(scalar_grad_atlas, palette_samp')
+    expect(out).not.toContain('textureLoad')
+  })
+
+  it('manual mode → textureLoad ×2 + mix body', () => {
+    const palette = collectPalette(sceneFromNodes(makeNode({
+      size: { kind: 'zoom-interpolated', stops: [zs(0, 4), zs(20, 16)] } as SizeValue,
+    })))
+    const out = emitScalarSampleHelper(palette, 'manual')
+    expect(out).toContain('fn xgis_scalar_sample(')
+    expect((out.match(/textureLoad\(scalar_grad_atlas/g) ?? []).length).toBe(2)
+    expect(out).toContain('mix(a, b, frac)')
+    expect(out).not.toContain('textureSampleLevel')
   })
 })

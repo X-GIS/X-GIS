@@ -17,7 +17,9 @@ function legacyVariant(): ShaderVariant {
     featureFields: [], uniformFields: [],
     categoryOrder: {},
     paletteColorGradients: [],
+    paletteScalarGradients: [],
     fillUsesPalette: false, strokeUsesPalette: false,
+    opacityUsesPalette: false,
   }
 }
 

@@ -8,7 +8,13 @@ import { exprToWGSL, collectFields, type WGSLFnEnv } from './wgsl-expr'
 import { generatePaletteWGSL } from './categorical-encoder'
 import { resolveColor } from '../tokens/colors'
 import type { Palette } from './palette'
-import { emitColorGradientSample, emitPaletteBindings } from './palette-emit'
+import {
+  emitColorGradientSample,
+  emitScalarGradientSample,
+  emitScalarSampleHelper,
+  emitPaletteBindings,
+  type ScalarPaletteMode,
+} from './palette-emit'
 
 /**
  * A specialized shader variant for a layer.
@@ -58,6 +64,11 @@ export interface ShaderVariant {
    *  Empty when `palette` is omitted from generateShaderVariant or
    *  the node has no zoom-interpolated paint properties. */
   paletteColorGradients: number[]
+  /** P3 Step 3c-scalar — non-empty when the variant samples a scalar
+   *  gradient (opacity / stroke-width zoom-interpolated). Runtime uses
+   *  it to bind the scalar atlas + sampler and skip the per-frame
+   *  `resolveNumberShape(...)` CPU eval for the routed axes. */
+  paletteScalarGradients: number[]
   /** P3 Step 4 — true when fill's zoom-interpolated colour routed
    *  through `textureSampleLevel`. The bucket-scheduler skips the
    *  per-frame `resolveColorShape(paintShapes.fill, …)` CPU eval
@@ -67,6 +78,11 @@ export interface ShaderVariant {
   fillUsesPalette: boolean
   /** Stroke counterpart to `fillUsesPalette`. */
   strokeUsesPalette: boolean
+  /** True when opacity's zoom-interpolated value routed through the
+   *  scalar atlas. The bucket-scheduler skips the per-frame
+   *  `resolveNumberShape(paintShapes.opacity, …)` CPU eval and the
+   *  paired `u.opacity` writeBuffer when this is set. */
+  opacityUsesPalette: boolean
   /** P4-5 — populated by `mergeComputeAddendumIntoVariant` when the
    *  fill / stroke axis routed through a compute kernel. Each entry
    *  is `(paintAxis, bindGroup, binding)` so the runtime can detect
@@ -92,6 +108,7 @@ export function generateShaderVariant(
   node: RenderNode,
   fnEnv?: WGSLFnEnv,
   palette?: Palette,
+  scalarPaletteMode: ScalarPaletteMode = 'manual',
 ): ShaderVariant {
   const preambleLines: string[] = []
   const uniformFields: string[] = ['mvp', 'proj_params']
@@ -104,6 +121,7 @@ export function generateShaderVariant(
   // ShaderVariant to decide whether to bind the atlas textures +
   // skip the zoom-interpolated CPU resolve.
   const paletteColorGradients: number[] = []
+  const paletteScalarGradients: number[] = []
 
   // ── Fill ──
   const fillResult = processColorValue(node.fill, 'FILL', allFeatureFields, fnEnv, palette)
@@ -124,10 +142,13 @@ export function generateShaderVariant(
   }
 
   // ── Opacity ──
-  const opacityResult = processOpacity(node.opacity, allFeatureFields, fnEnv)
+  const opacityResult = processOpacity(node.opacity, allFeatureFields, fnEnv, palette)
   preambleLines.push(...opacityResult.preamble)
   if (opacityResult.needsUniform) uniformFields.push('opacity')
   if (opacityResult.needsFeatures) needsFeatureBuffer = true
+  if (opacityResult.paletteScalarIdx !== undefined) {
+    paletteScalarGradients.push(opacityResult.paletteScalarIdx)
+  }
 
   // ── Build final expressions ──
   // When the layer has no fill at all (`kind: 'none'`), emit the default
@@ -165,12 +186,17 @@ export function generateShaderVariant(
     ...(strokeResult.categoryOrder ?? {}),
   }
 
-  // Prepend palette binding declarations when the variant actually
-  // samples a gradient. Skipped when `paletteColorGradients` is
-  // empty so existing (non-palette) variants stay byte-identical.
-  if (palette && paletteColorGradients.length > 0) {
+  // Prepend palette binding declarations + helper functions when the
+  // variant actually samples either atlas. Skipped when both gradient
+  // lists are empty so existing (non-palette) variants stay
+  // byte-identical with the legacy path.
+  if (palette && (paletteColorGradients.length > 0 || paletteScalarGradients.length > 0)) {
     const bindings = emitPaletteBindings(palette)
-    if (bindings) preambleLines.unshift(bindings)
+    const scalarHelper = paletteScalarGradients.length > 0
+      ? emitScalarSampleHelper(palette, scalarPaletteMode)
+      : ''
+    const prefix = bindings + scalarHelper
+    if (prefix) preambleLines.unshift(prefix)
   }
 
   return {
@@ -185,8 +211,10 @@ export function generateShaderVariant(
     uniformFields,
     categoryOrder,
     paletteColorGradients,
+    paletteScalarGradients,
     fillUsesPalette: fillResult.paletteGradientIdx !== undefined,
     strokeUsesPalette: strokeResult.paletteGradientIdx !== undefined,
+    opacityUsesPalette: opacityResult.paletteScalarIdx !== undefined,
   }
 }
 
@@ -416,12 +444,18 @@ interface OpacityResult {
   needsUniform: boolean
   needsFeatures: boolean
   expr: string
+  /** Set when this opacity is `zoom-interpolated` AND a matching
+   *  scalar gradient was collected into the palette pool. Variant
+   *  caller pushes onto `paletteScalarGradients` so the runtime can
+   *  skip the per-frame `u.opacity` CPU write. */
+  paletteScalarIdx?: number
 }
 
 function processOpacity(
   value: OpacityValue,
   featureFields: Set<string>,
   fnEnv?: WGSLFnEnv,
+  palette?: Palette,
 ): OpacityResult {
   if (value.kind === 'constant') {
     return {
@@ -445,7 +479,41 @@ function processOpacity(
     }
   }
 
-  // zoom-interpolated → uniform (CPU interpolates per frame)
+  // zoom-interpolated: route through the scalar atlas when the palette
+  // is supplied AND it carries scalar gradients (collectPalette dedups
+  // by stops shape — multiple shows with identical stops share one
+  // row). Caller decides between filtering / manual mode via
+  // generateShaderVariant's scalarPaletteMode argument.
+  //
+  // Empty scalarGradients == the runtime hasn't opted INTO scalar
+  // sampling yet — emit-commands sets this by only passing a
+  // scalar-gradient-bearing palette when the caller flipped
+  // `enableScalarPaletteSampling`. Keeps the bind-group layout
+  // contract bidirectional with the runtime side.
+  if (value.kind === 'zoom-interpolated' && palette && palette.scalarGradients.length > 0) {
+    // The shape of OpacityValue's zoom-interpolated stops matches
+    // PropertyShape<number>, so findScalarGradient lookup works
+    // identically across the codepaths that feed collectPalette.
+    const idx = palette.findScalarGradient({
+      stops: value.stops,
+      base: value.base ?? 1,
+    })
+    if (idx >= 0) {
+      return {
+        preamble: [],
+        needsUniform: false,
+        needsFeatures: false,
+        // emitScalarGradientSample emits `xgis_scalar_sample(...)` —
+        // the helper definition is appended once per variant by
+        // generateShaderVariant.
+        expr: emitScalarGradientSample(palette, idx),
+        paletteScalarIdx: idx,
+      }
+    }
+  }
+
+  // Fallback: zoom-interpolated without a palette entry, or any other
+  // unhandled kind → uniform write per frame (legacy path).
   return {
     preamble: [],
     needsUniform: true,

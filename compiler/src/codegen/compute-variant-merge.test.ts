@@ -21,8 +21,10 @@ function makeLegacyVariant(overrides: Partial<ShaderVariant> = {}): ShaderVarian
     uniformFields: ['mvp', 'proj_params', 'fill_color', 'stroke_color'],
     categoryOrder: {},
     paletteColorGradients: [],
+    paletteScalarGradients: [],
     fillUsesPalette: false,
     strokeUsesPalette: false,
+    opacityUsesPalette: false,
     ...overrides,
   }
 }

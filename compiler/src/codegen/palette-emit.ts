@@ -83,47 +83,39 @@ export function emitPaletteBindings(
   palette: Palette,
   slots: PaletteBindingSlots = DEFAULT_PALETTE_SLOTS,
 ): string {
-  // P3 Step 3c: scalar gradient atlas binding (binding 3) is NOT
-  // emitted yet — the runtime bind-group layout only includes the
-  // color atlas + sampler (binding 2 + 4). Scalar zoom-interpolated
-  // paint values (line widths, sizes, opacity stops) keep using the
-  // legacy CPU resolve → uniform path. Two ways to land this:
-  //
-  //   (a) request `float32-filterable` adapter feature → r32float
-  //       gradient atlas samples with HW linear filtering via the
-  //       shared `palette_samp`. Status (2026): Chrome 121+ /
-  //       Safari TP ✓, iPhone Safari + iPhone Chrome ✗. Mobile
-  //       fallback would still need (b) or CPU path, so a feature
-  //       gate split adds permanent code-path divergence.
-  //   (b) emit `unfilterable-float` binding + `textureLoad` × 2 +
-  //       `mix(a, b, frac)` manual interpolation. Universal: works
-  //       on every WebGPU adapter including iOS. No sampler needed
-  //       (textureLoad bypasses it). Shader cost: 2 loads + mix vs
-  //       1 sample — fragment-cost delta is negligible.
-  //
-  // Measured benefit on OFM Bright: 84 scalar zoom-interp axes ×
-  // ~50 ns CPU lerp + uniform writes ≈ 1-2 ms / sec at 60 fps
-  // (< 0.2 % of frame budget). Until either a use case raises
-  // that estimate or a P2/P6 dependency lands that needs scalar
-  // sampling for other reasons, the CPU resolve path remains the
-  // pragmatic choice — wiring this through 7 files for sub-µs
-  // per-frame savings isn't justified by measurement.
-  //
-  // Until then, ANY scalar declaration here would trigger
-  // `Binding doesn't exist in [mr-baseBindGroupLayout]` validation
-  // on every pipeline that emits the variant shader.
+  // Color and scalar atlases are emitted independently based on what
+  // the palette pool collected. The texture type in WGSL is identical
+  // (`texture_2d<f32>` in both cases) — the bind-group layout decides
+  // sampleType (`float` filterable when the device has
+  // `float32-filterable`, `unfilterable-float` otherwise). The scalar
+  // sample helper below picks `textureSampleLevel` vs `textureLoad`
+  // ×2 + `mix` to match the layout, so the WGSL the compiler emits
+  // remains identical across adapters — the variation lives in the
+  // helper's body.
   const hasColor = palette.colorGradients.length > 0
-  if (!hasColor) return ''
+  const hasScalar = palette.scalarGradients.length > 0
+  if (!hasColor && !hasScalar) return ''
 
   const lines: string[] = ['']
   lines.push('// ── Palette bindings (zoom-stop gradients) ──')
-  lines.push(
-    `@group(${slots.group}) @binding(${slots.colorGradientBinding}) `
-    + `var color_grad_atlas: texture_2d<f32>;`,
-  )
+  if (hasColor) {
+    lines.push(
+      `@group(${slots.group}) @binding(${slots.colorGradientBinding}) `
+      + `var color_grad_atlas: texture_2d<f32>;`,
+    )
+  }
+  if (hasScalar) {
+    lines.push(
+      `@group(${slots.group}) @binding(${slots.scalarGradientBinding}) `
+      + `var scalar_grad_atlas: texture_2d<f32>;`,
+    )
+  }
   // Shared sampler — linear filter + clampToEdge (configured on the
   // GPU side in renderer.ts). HW interp smooths the inter-texel
-  // residual without bleeding past the row edges.
+  // residual without bleeding past the row edges. Bound regardless
+  // of which atlases are active so pipelines that sample only the
+  // scalar atlas via textureSampleLevel (filterable path) still
+  // satisfy the layout.
   lines.push(
     `@group(${slots.group}) @binding(${slots.samplerBinding}) `
     + `var palette_samp: sampler;`,
@@ -171,8 +163,79 @@ export function emitColorGradientSample(
   )
 }
 
-/** Same as `emitColorGradientSample` but reads from the r32float
- *  scalar atlas. Returns an `f32` expression. */
+/** Scalar-gradient sample mode. Picked at variant emission by the
+ *  runtime based on `GPUContext.float32FilterableSupported`:
+ *
+ *  - 'filtering' — adapter has `float32-filterable`. Helper body is a
+ *    single `textureSampleLevel` against the r32float atlas through
+ *    the shared filtering sampler. Bind-group entry uses
+ *    `sampleType: 'float'`.
+ *
+ *  - 'manual' — adapter lacks the feature (iPhone Safari / iPhone
+ *    Chrome as of 2026). Helper body does `textureLoad` × 2 +
+ *    `mix(a, b, frac)`. Bind-group entry uses
+ *    `sampleType: 'unfilterable-float'`. Sampler is not consulted
+ *    (textureLoad bypasses it).
+ *
+ *  Call sites are identical across modes (`xgis_scalar_sample(...)`)
+ *  so the shader-gen output remains adapter-agnostic — only the
+ *  helper's body and the bind-group layout differ. The "define" is
+ *  effectively this `mode` parameter at variant emit time. */
+export type ScalarPaletteMode = 'filtering' | 'manual'
+
+/** WGSL helper function that samples a scalar gradient row by index
+ *  + per-frame zoom. Emit once per variant alongside the bindings
+ *  (after `emitPaletteBindings`). Returns empty when no scalar
+ *  gradients exist in the palette — the call site is dead code in
+ *  that case and the shader compiles unchanged.
+ *
+ *  Pre-baked literals: gradient count comes from the palette so the
+ *  v-coord math is a literal divide. Per-gradient zMin / zMax are
+ *  passed by the caller (`emitScalarGradientSample` inlines them per
+ *  call site) to avoid a uniform-buffer indirection. */
+export function emitScalarSampleHelper(
+  palette: Palette,
+  mode: ScalarPaletteMode,
+): string {
+  if (palette.scalarGradients.length === 0) return ''
+  const count = palette.scalarGradients.length
+  if (mode === 'filtering') {
+    return [
+      '',
+      '// Scalar gradient sample helper (filterable HW path).',
+      'fn xgis_scalar_sample(idx: u32, zoom: f32, zMin: f32, zMax: f32) -> f32 {',
+      '  let t = clamp((zoom - zMin) / max(zMax - zMin, 1.0e-6), 0.0, 1.0);',
+      `  let v = (f32(idx) + 0.5) / ${fmtF(count)};`,
+      '  return textureSampleLevel(scalar_grad_atlas, palette_samp, vec2f(t, v), 0.0).r;',
+      '}',
+      '',
+    ].join('\n')
+  }
+  // mode === 'manual' — textureLoad ×2 + mix. textureDimensions reads
+  // GRADIENT_WIDTH from the atlas; one branch per row pair.
+  return [
+    '',
+    '// Scalar gradient sample helper (manual interp — unfilterable r32float).',
+    'fn xgis_scalar_sample(idx: u32, zoom: f32, zMin: f32, zMax: f32) -> f32 {',
+    '  let t = clamp((zoom - zMin) / max(zMax - zMin, 1.0e-6), 0.0, 1.0);',
+    '  let dims = textureDimensions(scalar_grad_atlas);',
+    '  let u = t * f32(dims.x - 1u);',
+    '  let u0 = u32(floor(u));',
+    '  let u1 = min(u0 + 1u, dims.x - 1u);',
+    '  let frac = u - f32(u0);',
+    '  let a = textureLoad(scalar_grad_atlas, vec2u(u0, idx), 0).r;',
+    '  let b = textureLoad(scalar_grad_atlas, vec2u(u1, idx), 0).r;',
+    '  return mix(a, b, frac);',
+    '}',
+    '',
+  ].join('\n')
+}
+
+/** Sample a scalar gradient at the current camera zoom. Emits a call
+ *  to `xgis_scalar_sample` (declared by `emitScalarSampleHelper`)
+ *  with pre-baked zMin / zMax literals so the helper stays a single
+ *  shared definition regardless of how many gradient rows the
+ *  palette holds. Returns an `f32` expression. */
 export function emitScalarGradientSample(
   palette: Palette,
   gradientIndex: number,
@@ -183,15 +246,7 @@ export function emitScalarGradientSample(
   const stops = g.stops
   const zMin = stops[0]!.zoom
   const zMax = stops[stops.length - 1]!.zoom
-  const total = palette.scalarGradients.length
-  const v = (gradientIndex + 0.5) / total
-  // textureSampleLevel of an r32float returns vec4f with the value
-  // in `.r`; the .r unpacks it to f32.
-  return (
-    `textureSampleLevel(scalar_grad_atlas, palette_samp, vec2f(`
-    + `clamp((${zoomExpr} - ${fmtF(zMin)}) / ${fmtF(zMax - zMin || 1)}, 0.0, 1.0), `
-    + `${fmtF(v)}), 0.0).r`
-  )
+  return `xgis_scalar_sample(${gradientIndex}u, ${zoomExpr}, ${fmtF(zMin)}, ${fmtF(zMax)})`
 }
 
 /** Format an f32 literal the same way shader-gen.ts does — trims

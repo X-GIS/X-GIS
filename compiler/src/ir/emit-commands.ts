@@ -185,14 +185,28 @@ export interface SceneCommands {
  *  flipping these unconditionally would generate WGSL that fails
  *  pipeline validation against the existing bind-group layouts. */
 export interface EmitOptions {
-  /** P3 Step 3c gate. When true, scene-level zoom-interpolated paint
-   *  properties emit `textureSampleLevel` against the gradient atlas
-   *  (P3 Step 3b emission); when false (default), they keep the
-   *  legacy `u.fill_color` uniform path. Runtime callers MUST set
-   *  this to true ONLY after they've extended the polygon bind-group
-   *  layout to include @binding(2..4) palette texture / sampler
-   *  entries and bound them via `uploadPalette`. */
+  /** P3 Step 3c gate (COLOR atlas only — scalar atlas is the
+   *  separate `enableScalarPaletteSampling` flag below). When true,
+   *  zoom-interpolated FILL / STROKE colour values emit
+   *  `textureSampleLevel(color_grad_atlas, …)`; when false (default),
+   *  they keep the legacy `u.fill_color` / `u.stroke_color` uniform
+   *  path. Runtime callers MUST set this to true ONLY after they've
+   *  extended the polygon bind-group layout to include @binding(2,4)
+   *  texture / sampler entries and bound them via `uploadPalette`. */
   enablePaletteSampling?: boolean
+  /** Scalar-axis (opacity / stroke-width) zoom-interpolated palette
+   *  routing. Independent of `enablePaletteSampling` because the
+   *  runtime side requires an additional `@binding(3)` scalar atlas
+   *  texture entry that the legacy bind-group layout lacks. When
+   *  false (default) every scalar zoom-interpolated axis keeps the
+   *  CPU resolve → uniform path, and the variant shader never
+   *  references `scalar_grad_atlas` — so pipelines still validate
+   *  against bind-group layouts that don't include binding 3.
+   *
+   *  Pair with `scalarPaletteMode` (filtering vs manual interp) once
+   *  flipping this on; defaults to `'manual'` for universal
+   *  WebGPU-adapter compatibility. */
+  enableScalarPaletteSampling?: boolean
   /** P4-5 gate. When true, each ShowCommand's shaderVariant is
    *  produced via `buildPerShowMergedVariant` — fill / stroke axes
    *  that routed to compute get their fillExpr / strokeExpr replaced
@@ -217,6 +231,14 @@ export interface EmitOptions {
    *  16 — high enough to avoid colliding with the existing uniform
    *  / feature buffer / palette bindings in the polygon layout. */
   computePathBaseBinding?: number
+  /** Scalar-gradient sample mode — `'filtering'` when the runtime
+   *  has the `float32-filterable` adapter feature (r32float atlas
+   *  sampled with HW linear interp via shared filtering sampler),
+   *  `'manual'` otherwise (textureLoad ×2 + mix in the shader).
+   *  Compiler emits the same call site (`xgis_scalar_sample(...)`)
+   *  regardless; only the helper definition's body differs. Default
+   *  `'manual'` — universal compatibility, no feature dependency. */
+  scalarPaletteMode?: import('../codegen/palette-emit').ScalarPaletteMode
 }
 
 export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
@@ -236,9 +258,28 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
   // references that fail pipeline validation against
   // mr-baseBindGroupLayout.
   const palette = collectPalette(scene)
-  const variantPalette = opts?.enablePaletteSampling ? palette : undefined
+  // Variant-time palette is COLOR-only when only `enablePaletteSampling`
+  // is set; scalar gradients are stripped so processOpacity falls back
+  // to the legacy `u.opacity` uniform path. Once
+  // `enableScalarPaletteSampling` flips on, the full palette flows
+  // through and processOpacity routes zoom-interpolated axes to the
+  // scalar atlas. Two flags because the runtime needs to extend its
+  // bind-group layout BEFORE pipelines that reference
+  // `scalar_grad_atlas` are created — flipping per-call lets the
+  // runtime side ship in a separate commit without breaking validation.
+  let variantPalette: Palette | undefined
+  if (opts?.enablePaletteSampling) {
+    if (opts.enableScalarPaletteSampling) {
+      variantPalette = palette
+    } else {
+      // Strip scalar gradients (immutable view via a shallow clone).
+      // Color path stays identical.
+      variantPalette = stripScalarGradients(palette)
+    }
+  }
+  const scalarMode = opts?.scalarPaletteMode ?? 'manual'
   const shows: ShowCommand[] = scene.renderNodes.map((node, i) => {
-    const show = emitShow(node, variantPalette)
+    const show = emitShow(node, variantPalette, scalarMode)
     show.renderNodeIndex = i
     return show
   })
@@ -279,12 +320,34 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
   }
 }
 
-function emitShow(node: RenderNode, palette?: Palette): ShowCommand {
+/** Return a Palette view with scalarGradients hidden (empty array,
+ *  `findScalarGradient` always returns -1). Used to keep the existing
+ *  color-only palette wire-up byte-identical when the caller hasn't
+ *  opted INTO scalar palette sampling — the runtime side needs its
+ *  scalar atlas binding wired first. */
+function stripScalarGradients(p: Palette): Palette {
+  return {
+    colors: p.colors,
+    scalars: p.scalars,
+    colorGradients: p.colorGradients,
+    scalarGradients: [],
+    findColor: (r) => p.findColor(r),
+    findScalar: (v) => p.findScalar(v),
+    findColorGradient: (g) => p.findColorGradient(g),
+    findScalarGradient: () => -1,
+  }
+}
+
+function emitShow(
+  node: RenderNode,
+  palette?: Palette,
+  scalarMode: import('../codegen/palette-emit').ScalarPaletteMode = 'manual',
+): ShowCommand {
   // Generate shader variant for this layer. Palette is only forwarded
   // when the caller set `enablePaletteSampling`; otherwise the
   // variant falls back to the legacy `u.fill_color` uniform path
   // (P3 Step 3b's strict back-compat branch).
-  const shaderVariant = generateShaderVariant(node, undefined, palette)
+  const shaderVariant = generateShaderVariant(node, undefined, palette, scalarMode)
 
   const op = node.opacity
 

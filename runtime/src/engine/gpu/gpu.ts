@@ -71,6 +71,14 @@ export interface GPUContext {
    *  fill vs line vs extruded). Strictly a superset of
    *  `timestamp-query`. */
   timestampInsidePassesSupported: boolean
+  /** True when the device was created with `float32-filterable`. Used
+   *  by palette-emit's scalar-gradient sample emission to pick between
+   *  HW linear filtering (`textureSampleLevel`) and a `textureLoad`
+   *  ×2 + `mix` manual interpolation. iPhone Safari + iPhone Chrome
+   *  do NOT advertise the feature (2026 status), so the manual path
+   *  is the universal fallback — chosen at shader emit time via a
+   *  build-time string substitution rather than a runtime branch. */
+  float32FilterableSupported: boolean
   /** Validation error queue — the global `uncapturederror` handler
    *  pushes every WebGPU validation error here. Tests poll this
    *  via `getValidationErrors(ctx)` and assert it stays empty;
@@ -131,6 +139,18 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   } else if (GPU_PROF) {
     console.warn('[X-GIS] ?gpuprof=1 requested but adapter lacks timestamp-query feature — GPU timing disabled')
   }
+  // r32float linear filtering. Where present (Chrome 121+ / Safari TP
+  // desktop) the scalar gradient atlas samples via textureSampleLevel
+  // with the shared filtering sampler. Where missing (notably iPhone
+  // Safari / iPhone Chrome as of 2026) the shader emits a textureLoad
+  // ×2 + mix manual interp instead — bind-group layout uses
+  // `unfilterable-float` sampleType in that case. Both paths produce
+  // visually-identical output.
+  let float32FilterableSupported = false
+  if (adapter.features.has('float32-filterable')) {
+    requiredFeatures.push('float32-filterable')
+    float32FilterableSupported = true
+  }
   const device = await adapter.requestDevice(
     requiredFeatures.length > 0 ? { requiredFeatures } : undefined,
   )
@@ -150,6 +170,7 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     sampleCount: SAMPLE_COUNT,
     timestampQuerySupported,
     timestampInsidePassesSupported,
+    float32FilterableSupported,
     _validationErrors: [],
   }
 

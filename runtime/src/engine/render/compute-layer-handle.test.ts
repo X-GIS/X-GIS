@@ -73,8 +73,8 @@ function legacyVariant(): ShaderVariant {
   return {
     key: 'L', preamble: '', fillExpr: 'u.fill_color', strokeExpr: 'u.stroke_color',
     needsFeatureBuffer: false, featureFields: [], uniformFields: [],
-    categoryOrder: {}, paletteColorGradients: [],
-    fillUsesPalette: false, strokeUsesPalette: false,
+    categoryOrder: {}, paletteColorGradients: [], paletteScalarGradients: [],
+    fillUsesPalette: false, strokeUsesPalette: false, opacityUsesPalette: false,
   }
 }
 
