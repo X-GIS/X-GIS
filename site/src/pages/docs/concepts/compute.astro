@@ -297,6 +297,18 @@ const initialPreset = presets[0]
 
     <details class="stage-card group" open>
       <summary class="stage-summary">
+        <span class="stage-num">5b</span>
+        <span class="stage-title">Palette atlas</span>
+        <span class="stage-sub">collectPalette · <span id="badge-palette-colors">—</span> constants · <span id="badge-palette-gradients">—</span> gradients</span>
+        <span class="stage-arrow"></span>
+      </summary>
+      <div class="stage-body">
+        <div id="out-palette"></div>
+      </div>
+    </details>
+
+    <details class="stage-card group" open>
+      <summary class="stage-summary">
         <span class="stage-num">6</span>
         <span class="stage-title">Compute plan</span>
         <span class="stage-sub">planComputeKernels · <span id="badge-plan">—</span> entries, <span id="badge-unique">—</span> unique kernels</span>
@@ -713,6 +725,78 @@ const initialPreset = presets[0]
       color: var(--color-fg-dim, #9ca3af);
     }
 
+    /* ── Palette atlas viz ── */
+    .palette-section-label {
+      font: 500 10px/1 'DM Mono', monospace;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--color-fg-mute, #5a6a7e);
+      margin: 10px 0 6px 0;
+    }
+    .palette-section-label:first-child { margin-top: 0; }
+    .palette-color-swatches {
+      display: flex; flex-wrap: wrap; gap: 6px;
+    }
+    .palette-swatch {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 6px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.02);
+      font: 500 10.5px/1 'DM Mono', monospace;
+      color: var(--color-fg-dim, #9ca3af);
+    }
+    .palette-swatch-fill {
+      width: 14px; height: 14px;
+      border-radius: 3px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .palette-scalar-row {
+      display: flex; flex-wrap: wrap; gap: 6px;
+    }
+    .palette-scalar-chip {
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(120, 130, 160, 0.12);
+      color: var(--color-fg-dim, #9ca3af);
+      font: 500 10.5px/1 'DM Mono', monospace;
+    }
+    .palette-gradient-list {
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .palette-gradient-row {
+      display: grid;
+      grid-template-columns: 30px 70px 1fr 70px 90px;
+      align-items: center;
+      gap: 8px;
+      font: 500 10.5px/1 'DM Mono', monospace;
+      color: var(--color-fg-dim, #9ca3af);
+    }
+    .palette-grad-id { color: #a5b4fc; font-weight: 600; }
+    .palette-grad-min,
+    .palette-grad-max {
+      color: var(--color-fg-mute, #5a6a7e);
+      text-align: center;
+      font-size: 10px;
+    }
+    .palette-grad-strip {
+      position: relative;
+      height: 16px;
+      border-radius: 3px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .palette-stop {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 1px;
+      background: rgba(255, 255, 255, 0.4);
+      pointer-events: none;
+    }
+    .palette-grad-base {
+      color: var(--color-fg-mute, #5a6a7e);
+      font-size: 9.5px;
+    }
+
     .routing-table {
       width: 100%;
       font-family: 'DM Mono', monospace;
@@ -1118,6 +1202,162 @@ const initialPreset = presets[0]
       target.innerHTML = lines.join('\n')
     }
 
+    // ── Palette atlas visualisation ──
+    // The compiler's `collectPalette()` walks the optimised IR and
+    // pulls every paint property whose deps are constant-or-zoom into
+    // a centralised pool (4 arrays: colors / scalars / colorGradients
+    // / scalarGradients). Runtime uploads each gradient as one row of
+    // an Nx1 storage texture and the shader samples it via
+    // `textureSampleLevel(palette, ...)` instead of CPU-resolving the
+    // zoom interpolate every frame.
+    //
+    // Visualising the pool answers the user's "팔레트 줌이 실제로
+    //쓰이는지" question directly: a non-empty colorGradients list
+    // means the compiler routed at least one paint axis through the
+    // palette atlas and the runtime is sampling textures (not
+    // writing per-frame uniforms) for that paint. Each gradient is
+    // rendered as a horizontal CSS strip so the colour ramp at each
+    // zoom level is immediately readable.
+    interface PaletteLike {
+      colors: ReadonlyArray<readonly [number, number, number, number]>
+      scalars: ReadonlyArray<number>
+      colorGradients: ReadonlyArray<{
+        stops: ReadonlyArray<{ zoom: number; value: readonly [number, number, number, number] }>
+        base: number
+      }>
+      scalarGradients: ReadonlyArray<{
+        stops: ReadonlyArray<{ zoom: number; value: number }>
+        base: number
+      }>
+    }
+    function rgbaToCss(rgba: readonly [number, number, number, number]): string {
+      const r = Math.round(rgba[0] * 255)
+      const g = Math.round(rgba[1] * 255)
+      const b = Math.round(rgba[2] * 255)
+      return `rgba(${r}, ${g}, ${b}, ${rgba[3].toFixed(2)})`
+    }
+    function rgbaToHex(rgba: readonly [number, number, number, number]): string {
+      const hex = (n: number): string => Math.round(n * 255).toString(16).padStart(2, '0')
+      return `#${hex(rgba[0])}${hex(rgba[1])}${hex(rgba[2])}`
+    }
+    function buildColorGradientCss(g: PaletteLike['colorGradients'][number]): string {
+      // Map stop.zoom into 0..100% across the [minZoom, maxZoom] range
+      if (g.stops.length === 0) return ''
+      if (g.stops.length === 1) return rgbaToCss(g.stops[0]!.value)
+      const minZ = g.stops[0]!.zoom
+      const maxZ = g.stops[g.stops.length - 1]!.zoom
+      const span = maxZ - minZ
+      if (span <= 0) return rgbaToCss(g.stops[0]!.value)
+      const stops = g.stops.map(s => {
+        const pct = ((s.zoom - minZ) / span * 100).toFixed(2)
+        return `${rgbaToCss(s.value)} ${pct}%`
+      })
+      return `linear-gradient(to right, ${stops.join(', ')})`
+    }
+    function buildScalarGradientCss(g: PaletteLike['scalarGradients'][number]): string {
+      if (g.stops.length === 0) return ''
+      // Normalise values to 0..1 and render as grayscale so the user
+      // sees the shape of the interpolation rather than the absolute
+      // magnitude (the label below shows min/max).
+      const vals = g.stops.map(s => s.value)
+      const vMin = Math.min(...vals)
+      const vMax = Math.max(...vals)
+      const vSpan = vMax - vMin || 1
+      const minZ = g.stops[0]!.zoom
+      const maxZ = g.stops[g.stops.length - 1]!.zoom
+      const span = maxZ - minZ
+      if (span <= 0) return `rgb(${Math.round((vals[0]! - vMin) / vSpan * 255)}, 0, 200)`
+      const stops = g.stops.map(s => {
+        const pct = ((s.zoom - minZ) / span * 100).toFixed(2)
+        const gray = Math.round((s.value - vMin) / vSpan * 255)
+        // Tint with indigo so it's visually distinct from RGB gradients
+        return `rgb(${Math.round(gray * 0.4)}, ${Math.round(gray * 0.5)}, ${Math.round(gray * 0.9 + 30)}) ${pct}%`
+      })
+      return `linear-gradient(to right, ${stops.join(', ')})`
+    }
+    function renderPaletteAtlas(target: HTMLElement, palette: PaletteLike): void {
+      const $badgeColors = document.getElementById('badge-palette-colors') as HTMLElement
+      const $badgeGrads = document.getElementById('badge-palette-gradients') as HTMLElement
+      const cConst = palette.colors.length
+      const sConst = palette.scalars.length
+      const cGrad = palette.colorGradients.length
+      const sGrad = palette.scalarGradients.length
+      $badgeColors.textContent = String(cConst + sConst)
+      $badgeGrads.textContent = String(cGrad + sGrad)
+
+      const lines: string[] = []
+      if (cConst === 0 && sConst === 0 && cGrad === 0 && sGrad === 0) {
+        lines.push('<div class="ir-empty">Palette is empty — no constant or zoom-interpolated paint axes in this scene.</div>')
+        target.innerHTML = lines.join('\n')
+        return
+      }
+
+      if (cConst > 0) {
+        lines.push('<div class="palette-section-label">Constant colours</div>')
+        lines.push('<div class="palette-color-swatches">')
+        for (let i = 0; i < palette.colors.length; i++) {
+          const c = palette.colors[i]!
+          const css = rgbaToCss(c)
+          const hex = rgbaToHex(c)
+          lines.push(`<div class="palette-swatch" title="${hex}"><span class="palette-swatch-fill" style="background:${css}"></span><span class="palette-swatch-label">#${i} ${hex}</span></div>`)
+        }
+        lines.push('</div>')
+      }
+
+      if (sConst > 0) {
+        lines.push('<div class="palette-section-label">Constant scalars</div>')
+        lines.push('<div class="palette-scalar-row">')
+        for (let i = 0; i < palette.scalars.length; i++) {
+          lines.push(`<span class="palette-scalar-chip">#${i} ${palette.scalars[i]!.toFixed(3)}</span>`)
+        }
+        lines.push('</div>')
+      }
+
+      if (cGrad > 0) {
+        lines.push('<div class="palette-section-label">Colour zoom gradients</div>')
+        lines.push('<div class="palette-gradient-list">')
+        for (let i = 0; i < palette.colorGradients.length; i++) {
+          const g = palette.colorGradients[i]!
+          const minZ = g.stops[0]?.zoom ?? 0
+          const maxZ = g.stops[g.stops.length - 1]?.zoom ?? 0
+          const css = buildColorGradientCss(g)
+          const swatchTags = g.stops.map(s => `<span class="palette-stop" title="z=${s.zoom}: ${rgbaToHex(s.value)}"></span>`).join('')
+          lines.push(`<div class="palette-gradient-row">`)
+          lines.push(`  <span class="palette-grad-id">#${i}</span>`)
+          lines.push(`  <span class="palette-grad-min">z${minZ.toFixed(1)}</span>`)
+          lines.push(`  <div class="palette-grad-strip" style="background:${css}">${swatchTags}</div>`)
+          lines.push(`  <span class="palette-grad-max">z${maxZ.toFixed(1)}</span>`)
+          lines.push(`  <span class="palette-grad-base">base ${g.base === 1 ? 'linear' : g.base.toFixed(2)}</span>`)
+          lines.push(`</div>`)
+        }
+        lines.push('</div>')
+      }
+
+      if (sGrad > 0) {
+        lines.push('<div class="palette-section-label">Scalar zoom gradients</div>')
+        lines.push('<div class="palette-gradient-list">')
+        for (let i = 0; i < palette.scalarGradients.length; i++) {
+          const g = palette.scalarGradients[i]!
+          const minZ = g.stops[0]?.zoom ?? 0
+          const maxZ = g.stops[g.stops.length - 1]?.zoom ?? 0
+          const vals = g.stops.map(s => s.value)
+          const vMin = Math.min(...vals).toFixed(2)
+          const vMax = Math.max(...vals).toFixed(2)
+          const css = buildScalarGradientCss(g)
+          lines.push(`<div class="palette-gradient-row">`)
+          lines.push(`  <span class="palette-grad-id">#${i}</span>`)
+          lines.push(`  <span class="palette-grad-min">z${minZ.toFixed(1)} v${vMin}</span>`)
+          lines.push(`  <div class="palette-grad-strip" style="background:${css}"></div>`)
+          lines.push(`  <span class="palette-grad-max">z${maxZ.toFixed(1)} v${vMax}</span>`)
+          lines.push(`  <span class="palette-grad-base">base ${g.base === 1 ? 'linear' : g.base.toFixed(2)}</span>`)
+          lines.push(`</div>`)
+        }
+        lines.push('</div>')
+      }
+
+      target.innerHTML = lines.join('\n')
+    }
+
     function renderRoutes(routes: Array<{ count: number; key: string; label: string; color: string }>): void {
       const total = routes.reduce((a, b) => a + b.count, 0) || 1
       $routeBars.innerHTML = ''
@@ -1414,6 +1654,10 @@ const initialPreset = presets[0]
             label: 'CpuUniform',     color: 'rgba(245,158,11,0.65)'  },
         ])
         renderRoutingTable(routingRows)
+
+        // Stage 5b — palette atlas visualisation (constants + gradients)
+        const $outPalette = document.getElementById('out-palette') as HTMLElement
+        renderPaletteAtlas($outPalette, palette as unknown as PaletteLike)
 
         // Stage 6 + 7 + 8 — compute plan + render shaders + compute kernels
         const commands = emitCommands(scene, {
