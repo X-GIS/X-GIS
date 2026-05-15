@@ -310,8 +310,21 @@ const initialPreset = presets[0]
     <details class="stage-card group" open>
       <summary class="stage-summary">
         <span class="stage-num">7</span>
-        <span class="stage-title">Emitted WGSL</span>
-        <span class="stage-sub">compute-gen · kernel-by-kernel</span>
+        <span class="stage-title">Render-node WGSL</span>
+        <span class="stage-sub">shader-gen · <span id="badge-render-shaders">—</span> variants · inline constants visible</span>
+        <span class="stage-arrow"></span>
+      </summary>
+      <div class="stage-body">
+        <div id="render-shader-tabs" class="flex flex-wrap gap-1 mb-2"></div>
+        <pre id="out-render-shader" class="stage-pre"></pre>
+      </div>
+    </details>
+
+    <details class="stage-card group" open>
+      <summary class="stage-summary">
+        <span class="stage-num">8</span>
+        <span class="stage-title">Emitted compute kernels</span>
+        <span class="stage-sub">compute-gen · kernel-by-kernel · data-driven only</span>
         <span class="stage-arrow"></span>
       </summary>
       <div class="stage-body">
@@ -322,7 +335,7 @@ const initialPreset = presets[0]
 
     <details class="stage-card group" open>
       <summary class="stage-summary">
-        <span class="stage-num">8</span>
+        <span class="stage-num">9</span>
         <span class="stage-title">Live GPU timing</span>
         <span class="stage-sub">
           <span id="gpu-bench-status">measure runs in your browser via <code class="font-mono text-[11px]">timestamp-query</code></span>
@@ -832,6 +845,9 @@ const initialPreset = presets[0]
     const $outPlan = document.getElementById('out-plan') as HTMLElement
     const $outWgsl = document.getElementById('out-wgsl') as HTMLElement
     const $kernelTabs = document.getElementById('kernel-tabs') as HTMLElement
+    const $outRenderShader = document.getElementById('out-render-shader') as HTMLElement
+    const $renderShaderTabs = document.getElementById('render-shader-tabs') as HTMLElement
+    const $badgeRenderShaders = document.getElementById('badge-render-shaders') as HTMLElement
 
     function setError(msg: string) {
       $errBadge.textContent = msg
@@ -1247,6 +1263,80 @@ const initialPreset = presets[0]
       $outWgsl.innerHTML = highlightWgsl(activeWgsl)
     }
 
+    // ── Stage 7: per-render-node shader emit ──
+    // Renders the WGSL preamble + fillExpr + strokeExpr of each
+    // ShowCommand's shaderVariant. Unlike Stage 8 (compute kernels),
+    // this includes EVERY render node — constant fills, zoom-
+    // interpolated, and data-driven — so the user can see how the
+    // compiler folded constants (e.g. `fill-#334155` becomes a
+    // literal `vec4<f32>(0.20, 0.31, 0.33, 1.0)` in fillExpr) and
+    // wired up palette atlas sampling vs compute-buffer reads.
+    interface RenderShaderView {
+      nodeName: string
+      key: string
+      preamble: string
+      fillExpr: string
+      strokeExpr: string
+      fillPreamble: string
+      strokePreamble: string
+      paletteColorGradients: number[]
+      needsFeatureBuffer: boolean
+    }
+    function assembleRenderShader(v: RenderShaderView): string {
+      const out: string[] = []
+      out.push(`// variant key: ${v.key}`)
+      if (v.paletteColorGradients.length > 0) {
+        out.push(`// palette colour gradients: [${v.paletteColorGradients.join(', ')}]`)
+      }
+      if (v.needsFeatureBuffer) {
+        out.push(`// needs per-feature data buffer (data-driven paint)`)
+      }
+      out.push('')
+      if (v.preamble.trim()) {
+        out.push('// ── preamble ──')
+        out.push(v.preamble.trim())
+        out.push('')
+      }
+      out.push('// ── fillExpr ──')
+      if (v.fillPreamble.trim()) {
+        out.push(v.fillPreamble.trim())
+      }
+      out.push(`fn fill_color() -> vec4<f32> { return ${v.fillExpr}; }`)
+      out.push('')
+      out.push('// ── strokeExpr ──')
+      if (v.strokePreamble.trim()) {
+        out.push(v.strokePreamble.trim())
+      }
+      out.push(`fn stroke_color() -> vec4<f32> { return ${v.strokeExpr}; }`)
+      return out.join('\n')
+    }
+    function renderRenderShaderTabs(views: RenderShaderView[]): void {
+      $badgeRenderShaders.textContent = String(views.length)
+      $renderShaderTabs.innerHTML = ''
+      if (views.length === 0) {
+        $outRenderShader.innerHTML = '<div style="color:#5a6a7e;font-style:italic">No render-node shaders emitted — empty scene?</div>'
+        return
+      }
+      let first = true
+      let activeWgsl = ''
+      for (const v of views) {
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'kernel-tab' + (first ? ' active' : '')
+        btn.innerHTML = escapeHtml(v.nodeName)
+        const wgsl = assembleRenderShader(v)
+        btn.addEventListener('click', () => {
+          $renderShaderTabs.querySelectorAll('.kernel-tab').forEach(b => b.classList.remove('active'))
+          btn.classList.add('active')
+          $outRenderShader.innerHTML = highlightWgsl(wgsl)
+        })
+        if (first) activeWgsl = wgsl
+        first = false
+        $renderShaderTabs.appendChild(btn)
+      }
+      $outRenderShader.innerHTML = highlightWgsl(activeWgsl)
+    }
+
     function compile(src: string): void {
       const t0 = performance.now()
       try {
@@ -1325,11 +1415,32 @@ const initialPreset = presets[0]
         ])
         renderRoutingTable(routingRows)
 
-        // Stage 6 + 7 — compute plan + WGSL
+        // Stage 6 + 7 + 8 — compute plan + render shaders + compute kernels
         const commands = emitCommands(scene, {
           enablePaletteSampling: true,
           enableComputePath: true,
-        }) as { computePlan?: any[] }
+        }) as { computePlan?: any[]; shows?: any[] }
+
+        // Stage 7 — per-render-node shader emit (fill/stroke + preamble)
+        const shows = commands.shows ?? []
+        const renderShaderViews: RenderShaderView[] = []
+        for (const show of shows) {
+          const v = show.shaderVariant
+          if (!v) continue
+          renderShaderViews.push({
+            nodeName: show.targetName || show.layerName || show.sourceLayer || `<unnamed>`,
+            key: v.key ?? '',
+            preamble: v.preamble ?? '',
+            fillExpr: v.fillExpr ?? 'vec4<f32>(0.0)',
+            strokeExpr: v.strokeExpr ?? 'vec4<f32>(0.0)',
+            fillPreamble: v.fillPreamble ?? '',
+            strokePreamble: v.strokePreamble ?? '',
+            paletteColorGradients: v.paletteColorGradients ?? [],
+            needsFeatureBuffer: !!v.needsFeatureBuffer,
+          })
+        }
+        renderRenderShaderTabs(renderShaderViews)
+
         const plan = commands.computePlan ?? []
         $statEntries.textContent = String(plan.length)
         $badgePlan.textContent = String(plan.length)
