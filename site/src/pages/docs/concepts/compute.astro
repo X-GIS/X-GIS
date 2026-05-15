@@ -1,608 +1,895 @@
 ---
 import Docs from '../../../layouts/Docs.astro'
 
-// Sample source + WGSL emit for the "Example: match() → kernel" section.
-// Kept in frontmatter so Astro's JSX parser doesn't try to interpret
-// the curly braces inside the WGSL body as expression delimiters.
-const EXAMPLE_DSL = `fill: match(get("class"),
-  "school",   #f0e8f8,
-  "hospital", #f7e8e8,
-  "library",  #f3e5d5,
-  #f0f0f0       // default
-)`
+interface Preset {
+  id: string
+  label: string
+  blurb: string
+  source: string
+}
 
-const EXAMPLE_WGSL = `@group(0) @binding(0)
-var<storage,read>  feat_data: array<f32>;
-@group(0) @binding(1)
-var<storage,read_write> out_color: array<u32>;
+// Real xgis examples — each one round-trips through the actual
+// compiler. Match the surface area in playground/src/examples/*.xgis
+// so the user sees idioms that work in the live engine.
+const presets: Preset[] = [
+  {
+    id: 'continent-match',
+    label: 'continent-match',
+    blurb: 'match() on a string property — lowers to a compute kernel',
+    source: `source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
 
-@compute @workgroup_size(64)
-fn eval_fill(@builtin(global_invocation_id) gid: vec3<u32>) {
-  let fid = gid.x;
-  if (fid >= u_feature_count) { return; }
-  let cls = feat_data[fid * STRIDE + CLASS_OFFSET];
-  var c: vec4<f32>;
-  if      (cls == ID_SCHOOL)   { c = vec4(0.941, 0.910, 0.973, 1.0); }
-  else if (cls == ID_HOSPITAL) { c = vec4(0.969, 0.910, 0.910, 1.0); }
-  else if (cls == ID_LIBRARY)  { c = vec4(0.953, 0.898, 0.835, 1.0); }
-  else                         { c = vec4(0.941, 0.941, 0.941, 1.0); }
-  out_color[fid] = pack4x8unorm(c);
-}`
+layer continents {
+  source: countries
+  | fill match(.CONTINENT) {
+      "Africa"        -> amber-600,
+      "Asia"          -> rose-500,
+      "Europe"        -> sky-500,
+      "North America" -> emerald-500,
+      "South America" -> lime-500,
+      "Oceania"       -> violet-500,
+      "Antarctica"    -> slate-300,
+      _               -> gray-400
+    }
+    stroke-slate-700 stroke-0.5 opacity-90
+}
+`,
+  },
+  {
+    id: 'osm-roads',
+    label: 'osm-roads',
+    blurb: 'Per-kind filter + tailwind paint — splits into six layers, merge-layers folds them',
+    source: `source pm_world {
+  type: pmtiles
+  url: "/pmtiles-proxy/protomaps/v4.pmtiles"
+}
+
+layer roads_minor {
+  source: pm_world
+  sourceLayer: "roads"
+  filter: .kind == "minor_road" || .kind == "service" || .kind == "path"
+  | stroke-stone-400 stroke-0.5
+}
+
+layer roads_secondary {
+  source: pm_world
+  sourceLayer: "roads"
+  filter: .kind == "secondary" || .kind == "tertiary"
+  | stroke-yellow-200 stroke-1.5
+}
+
+layer roads_primary {
+  source: pm_world
+  sourceLayer: "roads"
+  filter: .kind == "primary"
+  | stroke-amber-300 stroke-2.5
+}
+`,
+  },
+  {
+    id: 'zoom-interp',
+    label: 'zoom interpolate',
+    blurb: 'interpolate(zoom, …) — routes to the palette atlas, not compute',
+    source: `source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer ocean {
+  source: countries
+  | fill interpolate(zoom, 0, sky-200, 8, sky-500, 16, sky-700)
+    opacity-90
+}
+`,
+  },
+  {
+    id: 'constant',
+    label: 'constant fill',
+    blurb: 'No deps — fills get inlined as WGSL literals',
+    source: `source countries {
+  type: geojson
+  url: "ne_110m_countries.geojson"
+}
+
+layer all {
+  source: countries
+  | fill-emerald-500 stroke-emerald-700 stroke-1 opacity-90
+}
+`,
+  },
+]
+const presetById = Object.fromEntries(presets.map(p => [p.id, p]))
+const initialPreset = presets[0]
 ---
 
 <Docs
   current="concepts/compute"
   title="X-GIS — Compute paint evaluation"
-  description="How X-GIS routes data-driven paint expressions to WebGPU compute kernels: paint-routing, ComputePlanEntry, WGSL emit, and per-tile dispatch. Interactive analyzer for any Mapbox style."
+  description="Live compile-graph viewer. Type xgis source, watch the lexer / parser / IR / paint-routing / compute plan / WGSL kernel update in place."
 >
-  <header class="mb-12">
+  <header class="mb-10">
     <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">
-      Concept
+      Concept · interactive
     </p>
     <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
-      Compute paint evaluation.
+      Compile graph — live.
     </h1>
-    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
-      How a <code class="font-mono text-[15px] text-fg">match("class", "school", "#f0e8f8", …)</code>
-      expression becomes a WebGPU compute kernel that paints every feature
-      in parallel — and how to tell, for any style, which paint axes are
-      taking the fast path.
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[720px]">
+      Type xgis on the left, the compiler runs in the browser, every
+      stage on the right updates as you type — tokens, AST, IR Scene,
+      optimised IR, paint-routing decisions, ComputePlanEntry list,
+      and the actual WGSL the runtime would hand to WebGPU.
     </p>
   </header>
 
-  <article class="space-y-14 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
+  <!-- Preset chips -->
+  <div class="mb-3 flex flex-wrap gap-2 items-center">
+    <span class="text-fg-mute text-[11px] uppercase tracking-wider mr-1">Preset</span>
+    {presets.map(p => (
+      <button type="button" data-preset-id={p.id}
+              class:list={[
+                'preset-chip px-3 py-1.5 rounded-md border text-[12px] transition-colors',
+                p.id === initialPreset.id
+                  ? 'border-accent bg-accent/15 text-accent'
+                  : 'border-line bg-bg-elev text-fg-dim hover:border-accent hover:text-accent',
+              ]}>
+        {p.label}
+      </button>
+    ))}
+  </div>
+  <p id="preset-blurb" class="text-fg-mute text-[12px] mb-5">{initialPreset.blurb}</p>
 
-    <!-- ── Section 1: Compile-time pipeline diagram ── -->
-    <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
-        Compile-time routing
-      </h2>
-      <p class="mb-6">
-        Every paint axis (fill colour, stroke colour, opacity, stroke width)
-        on every layer is classified by <code class="font-mono text-[13px] text-fg">paint-routing.ts</code>
-        based on its dependencies. The router picks one of four execution
-        paths; only the data-driven one becomes a compute kernel.
-      </p>
-
-      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden p-6 sm:p-10">
-        <svg viewBox="0 0 900 380" class="w-full h-auto" role="img" aria-label="Compile-time compute routing flow: AST through IR through paint-routing into four execution paths.">
-          <defs>
-            <marker id="cm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M0,0 L10,5 L0,10 z" fill="#5a6a7e"/>
-            </marker>
-          </defs>
-
-          <!-- Source -->
-          <g>
-            <rect x="20" y="160" width="160" height="50" rx="8" fill="#1a2233" stroke="#2a3a52" stroke-width="1"/>
-            <text x="100" y="182" text-anchor="middle" font-family="DM Mono, monospace" font-size="13" fill="#c8d3e0">Paint AST</text>
-            <text x="100" y="198" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10" fill="#5a6a7e">e.g. match(get(class)…)</text>
-          </g>
-          <line x1="180" y1="185" x2="210" y2="185" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#cm-arrow)"/>
-
-          <!-- Routing decision -->
-          <g>
-            <rect x="210" y="155" width="160" height="60" rx="8" fill="#0f1825" stroke="#38bdf8" stroke-width="1.5"/>
-            <text x="290" y="180" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">paint-routing</text>
-            <text x="290" y="196" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">classify deps</text>
-            <text x="290" y="208" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">none / zoom / time / feature</text>
-          </g>
-
-          <!-- 4 routes fan-out -->
-          <line x1="370" y1="170" x2="420" y2="60"  stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#cm-arrow)"/>
-          <line x1="370" y1="180" x2="420" y2="135" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#cm-arrow)"/>
-          <line x1="370" y1="190" x2="420" y2="235" stroke="#38bdf8" stroke-width="2.0" marker-end="url(#cm-arrow)"/>
-          <line x1="370" y1="200" x2="420" y2="310" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#cm-arrow)"/>
-
-          <!-- Route boxes -->
-          <g>
-            <rect x="420" y="30" width="220" height="60" rx="8" fill="#0f1825" stroke="#2a3a52" stroke-width="1"/>
-            <text x="430" y="50" font-family="DM Sans, sans-serif" font-size="12" fill="#c8d3e0" font-weight="500">InlineConstant</text>
-            <text x="430" y="66" font-family="DM Mono, monospace" font-size="10" fill="#5a6a7e">deps = ∅ → WGSL literal</text>
-            <text x="430" y="80" font-family="DM Mono, monospace" font-size="10" fill="#5a6a7e">Cost: 0</text>
-          </g>
-          <g>
-            <rect x="420" y="105" width="220" height="60" rx="8" fill="#0f1825" stroke="#2a3a52" stroke-width="1"/>
-            <text x="430" y="125" font-family="DM Sans, sans-serif" font-size="12" fill="#c8d3e0" font-weight="500">PaletteZoom</text>
-            <text x="430" y="141" font-family="DM Mono, monospace" font-size="10" fill="#5a6a7e">deps = zoom-only → atlas sample</text>
-            <text x="430" y="155" font-family="DM Mono, monospace" font-size="10" fill="#5a6a7e">Cost: 1 texture lookup</text>
-          </g>
-          <g>
-            <rect x="420" y="205" width="220" height="60" rx="8" fill="#0f1825" stroke="#38bdf8" stroke-width="1.5"/>
-            <text x="430" y="225" font-family="DM Sans, sans-serif" font-size="12" fill="#c8d3e0" font-weight="500">ComputeFeature</text>
-            <text x="430" y="241" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">deps has feature → kernel</text>
-            <text x="430" y="255" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">Cost: 1 storage read per frag</text>
-          </g>
-          <g>
-            <rect x="420" y="280" width="220" height="60" rx="8" fill="#0f1825" stroke="#2a3a52" stroke-width="1"/>
-            <text x="430" y="300" font-family="DM Sans, sans-serif" font-size="12" fill="#c8d3e0" font-weight="500">CpuUniform</text>
-            <text x="430" y="316" font-family="DM Mono, monospace" font-size="10" fill="#5a6a7e">time / conditional → CPU</text>
-            <text x="430" y="330" font-family="DM Mono, monospace" font-size="10" fill="#5a6a7e">Cost: per-frame eval + write</text>
-          </g>
-
-          <!-- Compute kernel emit chain -->
-          <line x1="640" y1="235" x2="680" y2="235" stroke="#38bdf8" stroke-width="2.0" marker-end="url(#cm-arrow)"/>
-          <g>
-            <rect x="680" y="200" width="200" height="70" rx="8" fill="#1a2233" stroke="#38bdf8" stroke-width="1.5"/>
-            <text x="780" y="222" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">ComputePlanEntry</text>
-            <text x="780" y="238" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">kernel + fieldOrder +</text>
-            <text x="780" y="250" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">categoryOrder + paintAxis</text>
-            <text x="780" y="264" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">deduped by WGSL fingerprint</text>
-          </g>
-        </svg>
+  <!-- Editor + summary row -->
+  <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-5 mb-8">
+    <!-- Editor -->
+    <div class="flex flex-col">
+      <div class="flex items-center justify-between mb-2">
+        <label for="xgis-src" class="text-fg-mute text-[11px] uppercase tracking-wider">xgis source</label>
+        <span id="compile-status" class="text-[11px] text-fg-mute tabular-nums"></span>
       </div>
-    </section>
+      <textarea id="xgis-src" spellcheck="false"
+                class="flex-1 min-h-[420px] bg-bg-card border border-line rounded-md p-4 text-[12.5px] font-mono leading-[1.55] text-fg whitespace-pre focus:outline-none focus:border-accent resize-none">{initialPreset.source}</textarea>
+    </div>
 
-    <!-- ── Section 2: Runtime dispatch diagram ── -->
-    <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
-        Runtime dispatch
-      </h2>
-      <p class="mb-6">
-        Each tile carries a per-feature data buffer (one row per feature,
-        columns = fields the kernel reads). The compute pass runs the
-        kernel once per feature, packs <code class="font-mono text-[13px] text-fg">vec4&lt;f32&gt;</code>
-        colour into <code class="font-mono text-[13px] text-fg">pack4x8unorm</code>,
-        writes to a per-tile storage buffer. The fragment shader then reads
-        <code class="font-mono text-[13px] text-fg">unpack4x8unorm(compute_out[feat_id])</code>
-        instead of evaluating the expression per pixel.
-      </p>
-
-      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden p-6 sm:p-10">
-        <svg viewBox="0 0 900 280" class="w-full h-auto" role="img" aria-label="Runtime compute dispatch: tile feature data feeds a compute pass that writes a per-feature output buffer; the fragment shader reads from that buffer.">
-          <defs>
-            <marker id="rt-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M0,0 L10,5 L0,10 z" fill="#5a6a7e"/>
-            </marker>
-          </defs>
-
-          <!-- Tile data -->
-          <g>
-            <rect x="20" y="100" width="170" height="80" rx="8" fill="#1a2233" stroke="#2a3a52" stroke-width="1"/>
-            <text x="105" y="125" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">Feature data</text>
-            <text x="105" y="143" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#5a6a7e">feat_data[N × stride]</text>
-            <text x="105" y="158" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">class ID, height,</text>
-            <text x="105" y="170" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">brunnel, …</text>
-          </g>
-
-          <line x1="190" y1="140" x2="225" y2="140" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#rt-arrow)"/>
-
-          <!-- Compute pass -->
-          <g>
-            <rect x="225" y="80" width="220" height="120" rx="8" fill="#0f1825" stroke="#38bdf8" stroke-width="1.5"/>
-            <text x="335" y="105" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">Compute pass</text>
-            <text x="335" y="125" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">@workgroup_size(64)</text>
-            <text x="335" y="143" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">if (cls == SCHOOL)    rgba</text>
-            <text x="335" y="155" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">else if (cls == HOSPITAL)…</text>
-            <text x="335" y="175" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">out[fid] = pack4x8unorm(rgba)</text>
-            <text x="335" y="190" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#38bdf8">1 dispatch per tile per frame</text>
-          </g>
-
-          <line x1="445" y1="140" x2="480" y2="140" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#rt-arrow)"/>
-
-          <!-- Output buffer -->
-          <g>
-            <rect x="480" y="100" width="170" height="80" rx="8" fill="#1a2233" stroke="#38bdf8" stroke-width="1.5"/>
-            <text x="565" y="125" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">compute_out</text>
-            <text x="565" y="143" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">array&lt;u32, N&gt;</text>
-            <text x="565" y="158" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">per-feature</text>
-            <text x="565" y="170" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">packed colour</text>
-          </g>
-
-          <line x1="650" y1="140" x2="685" y2="140" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#rt-arrow)"/>
-
-          <!-- Fragment shader -->
-          <g>
-            <rect x="685" y="100" width="195" height="80" rx="8" fill="#0f1825" stroke="#2a3a52" stroke-width="1"/>
-            <text x="782" y="125" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">Fragment shader</text>
-            <text x="782" y="145" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">color = unpack4x8unorm(</text>
-            <text x="782" y="157" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">  compute_out[feat_id])</text>
-            <text x="782" y="172" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#38bdf8">no per-pixel eval</text>
-          </g>
-        </svg>
+    <!-- Summary stats -->
+    <div class="flex flex-col">
+      <div class="flex items-center mb-2">
+        <span class="text-fg-mute text-[11px] uppercase tracking-wider">Summary</span>
+        <span id="err-badge" class="hidden ml-2 px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30 text-[10px]"></span>
       </div>
-    </section>
-
-    <!-- ── Section 3: Worked WGSL example ── -->
-    <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
-        Example: match() → kernel
-      </h2>
-      <p class="mb-6">
-        OpenFreeMap Bright's school-fill layer routes <code class="font-mono text-[13px] text-fg">match(get(class), "school", "#f0e8f8", …)</code>
-        to a compute kernel. Here's the AST and the emitted WGSL side by side.
-      </p>
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div class="border border-line rounded-md p-4 bg-bg-elev">
-          <div class="text-fg text-[11px] uppercase tracking-wider mb-2">Source — xgis paint expression</div>
-          <pre class="text-[12px] font-mono whitespace-pre-wrap text-fg-dim overflow-x-auto">{EXAMPLE_DSL}</pre>
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <div class="border border-line rounded-md p-3 bg-bg-elev">
+          <div class="text-fg-mute text-[10px] uppercase tracking-wider">Tokens</div>
+          <div id="stat-tokens" class="text-fg text-[20px] font-medium tabular-nums">—</div>
         </div>
-        <div class="border border-line rounded-md p-4 bg-bg-elev">
-          <div class="text-fg text-[11px] uppercase tracking-wider mb-2">Emitted — compute kernel WGSL</div>
-          <pre class="text-[12px] font-mono whitespace-pre-wrap text-fg-dim overflow-x-auto">{EXAMPLE_WGSL}</pre>
+        <div class="border border-line rounded-md p-3 bg-bg-elev">
+          <div class="text-fg-mute text-[10px] uppercase tracking-wider">Render nodes</div>
+          <div id="stat-nodes" class="text-fg text-[20px] font-medium tabular-nums">—</div>
         </div>
-      </div>
-      <p class="mt-4 text-[14px]">
-        The <code class="font-mono text-[13px] text-fg">categoryOrder</code> field
-        on each <code class="font-mono text-[13px] text-fg">ComputePlanEntry</code>
-        records the alphabetised string-pattern list so the worker-side
-        feature packer can convert <code class="font-mono text-[13px] text-fg">"school"</code> →
-        <code class="font-mono text-[13px] text-fg">ID_SCHOOL</code> with the same
-        integers the kernel's if-chain expects.
-      </p>
-    </section>
-
-    <!-- ── Section 4: Interactive analyzer ── -->
-    <section>
-      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
-        Analyzer
-      </h2>
-      <p class="mb-6">
-        Pick a public Mapbox style, paste your own, or hand in a URL — the
-        compiler runs in the browser and surfaces every routing decision +
-        the WGSL it emits.
-      </p>
-
-      <!-- Preset chips -->
-      <div class="mb-4">
-        <div class="text-fg-mute text-[11px] uppercase tracking-wider mb-2">Try a public style</div>
-        <div class="flex flex-wrap gap-2">
-          <button type="button" class="preset-chip text-left px-3 py-2 rounded-md border border-line bg-bg-elev hover:border-accent hover:bg-accent/10 transition-colors"
-                  data-preset-url="https://tiles.openfreemap.org/styles/bright" data-preset-name="OpenFreeMap · Bright">
-            <div class="text-fg text-[13px] font-medium">OFM Bright</div>
-            <div class="text-fg-dim text-[11px] mt-0.5">119 layers, road-heavy</div>
-          </button>
-          <button type="button" class="preset-chip text-left px-3 py-2 rounded-md border border-line bg-bg-elev hover:border-accent hover:bg-accent/10 transition-colors"
-                  data-preset-url="https://tiles.openfreemap.org/styles/liberty" data-preset-name="OpenFreeMap · Liberty">
-            <div class="text-fg text-[13px] font-medium">OFM Liberty</div>
-            <div class="text-fg-dim text-[11px] mt-0.5">111 layers, OSM-Liberty flavour</div>
-          </button>
-          <button type="button" class="preset-chip text-left px-3 py-2 rounded-md border border-line bg-bg-elev hover:border-accent hover:bg-accent/10 transition-colors"
-                  data-preset-url="https://tiles.openfreemap.org/styles/positron" data-preset-name="OpenFreeMap · Positron">
-            <div class="text-fg text-[13px] font-medium">OFM Positron</div>
-            <div class="text-fg-dim text-[11px] mt-0.5">Minimal monochrome basemap</div>
-          </button>
-          <button type="button" class="preset-chip text-left px-3 py-2 rounded-md border border-line bg-bg-elev hover:border-accent hover:bg-accent/10 transition-colors"
-                  data-preset-url="https://demotiles.maplibre.org/style.json" data-preset-name="MapLibre · Demotiles">
-            <div class="text-fg text-[13px] font-medium">MapLibre demo</div>
-            <div class="text-fg-dim text-[11px] mt-0.5">Countries + geolines</div>
-          </button>
+        <div class="border border-line rounded-md p-3 bg-bg-elev">
+          <div class="text-fg-mute text-[10px] uppercase tracking-wider">Optimised</div>
+          <div id="stat-optimised" class="text-fg text-[20px] font-medium tabular-nums">—</div>
+        </div>
+        <div class="border border-line rounded-md p-3 bg-bg-elev">
+          <div class="text-fg-mute text-[10px] uppercase tracking-wider">Compute entries</div>
+          <div id="stat-entries" class="text-fg text-[20px] font-medium tabular-nums">—</div>
         </div>
       </div>
 
-      <!-- URL + paste fallback -->
-      <section class="border border-line rounded-md p-4 bg-bg-elev mb-4">
-        <label for="style-url" class="block text-fg text-[12px] tracking-wide uppercase">URL</label>
-        <div class="mt-2 flex flex-wrap gap-2 items-center">
-          <input id="style-url" type="url" placeholder="https://example.com/style.json"
-                 class="flex-1 min-w-[280px] bg-bg border border-line rounded px-3 py-2 text-[13px] focus:outline-none focus:border-accent"/>
-          <button id="analyze-fetch-btn" class="px-4 py-2 bg-accent/15 border border-accent text-accent rounded text-[12px] hover:bg-accent/25 transition-colors">
-            Fetch &amp; analyze
-          </button>
-        </div>
-        <p class="mt-2 text-fg-dim text-[11px]">
-          Or <button type="button" id="analyze-show-paste" class="underline text-accent hover:text-accent-bright">paste JSON manually</button>.
-        </p>
-      </section>
-
-      <section id="analyze-paste-section" class="border border-line rounded-md p-4 bg-bg-elev mb-4 hidden">
-        <label for="style-json" class="block text-fg text-[12px] tracking-wide uppercase">Paste JSON</label>
-        <textarea id="style-json" rows="6"
-                  placeholder="Paste your Mapbox style JSON here"
-                  class="mt-2 w-full bg-bg border border-line rounded px-3 py-2 text-[12px] font-mono focus:outline-none focus:border-accent"></textarea>
-        <button id="analyze-btn" class="mt-3 px-4 py-2 bg-accent/15 border border-accent text-accent rounded text-[12px] hover:bg-accent/25 transition-colors">
-          Analyze
-        </button>
-      </section>
-
-      <p id="analyze-status" class="text-fg-dim text-[11px] min-h-[1.2em]"></p>
-
-      <!-- Results — hidden until analyzer runs -->
-      <div id="analyze-results" class="hidden mt-6 space-y-8">
-
-        <!-- Stats summary -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div class="border border-line rounded-md p-3 bg-bg-elev">
-            <div class="text-fg-mute text-[11px] uppercase tracking-wider">Render nodes</div>
-            <div id="stat-nodes" class="text-fg text-[22px] font-medium tabular-nums">—</div>
-          </div>
-          <div class="border border-line rounded-md p-3 bg-bg-elev">
-            <div class="text-fg-mute text-[11px] uppercase tracking-wider">Compute entries</div>
-            <div id="stat-entries" class="text-fg text-[22px] font-medium tabular-nums">—</div>
-          </div>
-          <div class="border border-line rounded-md p-3 bg-bg-elev">
-            <div class="text-fg-mute text-[11px] uppercase tracking-wider">Unique kernels</div>
-            <div id="stat-kernels" class="text-fg text-[22px] font-medium tabular-nums">—</div>
-          </div>
-          <div class="border border-line rounded-md p-3 bg-bg-elev">
-            <div class="text-fg-mute text-[11px] uppercase tracking-wider">Dedup wins</div>
-            <div id="stat-dedup" class="text-fg text-[22px] font-medium tabular-nums">—</div>
-          </div>
-        </div>
-
-        <!-- Routing histogram -->
-        <div>
-          <h3 class="text-[18px] font-medium text-fg leading-[1.2] mb-3">Paint axis routing</h3>
-          <div id="route-histogram" class="space-y-2"></div>
-          <p class="mt-2 text-fg-dim text-[11px]">
-            Every (renderNode × paint-axis) pair routes through exactly one
-            of the four execution paths.
-          </p>
-        </div>
-
-        <!-- Compute plan table -->
-        <div>
-          <h3 class="text-[18px] font-medium text-fg leading-[1.2] mb-3">Compute plan entries</h3>
-          <div id="plan-empty" class="hidden text-fg-dim text-[13px] italic">
-            No compute entries — this style has no data-driven match() / conditional paint values that lower to a kernel.
-          </div>
-          <div id="plan-table-wrapper" class="overflow-x-auto hidden">
-            <table class="w-full text-[12px] border border-line rounded-md">
-              <thead class="bg-bg-elev">
-                <tr class="text-left">
-                  <th class="px-3 py-2 text-fg-mute font-medium uppercase tracking-wider text-[11px]">Node</th>
-                  <th class="px-3 py-2 text-fg-mute font-medium uppercase tracking-wider text-[11px]">Axis</th>
-                  <th class="px-3 py-2 text-fg-mute font-medium uppercase tracking-wider text-[11px]">Kernel</th>
-                  <th class="px-3 py-2 text-fg-mute font-medium uppercase tracking-wider text-[11px]">Fields</th>
-                  <th class="px-3 py-2 text-fg-mute font-medium uppercase tracking-wider text-[11px]">Arms</th>
-                </tr>
-              </thead>
-              <tbody id="plan-tbody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- WGSL viewer -->
-        <div id="wgsl-section" class="hidden">
-          <h3 class="text-[18px] font-medium text-fg leading-[1.2] mb-3">Emitted WGSL</h3>
-          <div class="mb-2 flex flex-wrap gap-2">
-            <label for="kernel-picker" class="text-fg-mute text-[11px] uppercase tracking-wider self-center">Kernel</label>
-            <select id="kernel-picker" class="bg-bg border border-line rounded px-3 py-1 text-[12px] text-fg focus:outline-none focus:border-accent"></select>
-          </div>
-          <pre id="wgsl-out" class="text-[12px] font-mono whitespace-pre bg-bg-card border border-line rounded-md p-4 overflow-x-auto leading-[1.5]"></pre>
-        </div>
-
+      <!-- Paint axis routing — horizontal bar -->
+      <div class="border border-line rounded-md p-3 bg-bg-elev flex-1">
+        <div class="text-fg-mute text-[10px] uppercase tracking-wider mb-2">Paint axis routing</div>
+        <div id="route-bars" class="space-y-1.5"></div>
       </div>
-    </section>
+    </div>
+  </div>
 
-  </article>
+  <!-- Stages — each <details> collapsible -->
+  <div class="space-y-2">
 
-  <script>
-    // Real-time analyzer. Imports the compiler + diagnostics directly so
-    // the same code that runs at engine compile time runs here. Mirrors
-    // `convert.astro`'s pattern for fetch + paste fallback, but the
-    // output stays in this page (no playground redirect) — we want the
-    // user to see the routing decisions, not the rendered map.
-    import { convertMapboxStyle, Lexer, Parser, lower, optimize, emitCommands } from '@xgis/compiler'
-    import { routeColorValue } from '../../../../../compiler/src/codegen/paint-routing'
-    import { collectPalette } from '../../../../../compiler/src/codegen/palette'
+    <details class="stage-card group" open>
+      <summary class="stage-summary">
+        <span class="stage-num">1</span>
+        <span class="stage-title">Tokens</span>
+        <span class="stage-sub">Lexer · <span id="badge-tokens">—</span> tokens</span>
+        <span class="stage-arrow"></span>
+      </summary>
+      <div class="stage-body">
+        <pre id="out-tokens" class="stage-pre"></pre>
+      </div>
+    </details>
 
-    const $url = document.getElementById('style-url') as HTMLInputElement
-    const $json = document.getElementById('style-json') as HTMLTextAreaElement
-    const $fetch = document.getElementById('analyze-fetch-btn') as HTMLButtonElement
-    const $analyze = document.getElementById('analyze-btn') as HTMLButtonElement
-    const $showPaste = document.getElementById('analyze-show-paste') as HTMLButtonElement
-    const $pasteSection = document.getElementById('analyze-paste-section') as HTMLElement
-    const $status = document.getElementById('analyze-status') as HTMLParagraphElement
-    const $results = document.getElementById('analyze-results') as HTMLElement
-    const $statNodes = document.getElementById('stat-nodes') as HTMLElement
-    const $statEntries = document.getElementById('stat-entries') as HTMLElement
-    const $statKernels = document.getElementById('stat-kernels') as HTMLElement
-    const $statDedup = document.getElementById('stat-dedup') as HTMLElement
-    const $histogram = document.getElementById('route-histogram') as HTMLElement
-    const $planEmpty = document.getElementById('plan-empty') as HTMLElement
-    const $planWrapper = document.getElementById('plan-table-wrapper') as HTMLElement
-    const $planBody = document.getElementById('plan-tbody') as HTMLElement
-    const $wgslSection = document.getElementById('wgsl-section') as HTMLElement
-    const $kernelPicker = document.getElementById('kernel-picker') as HTMLSelectElement
-    const $wgslOut = document.getElementById('wgsl-out') as HTMLElement
+    <details class="stage-card group">
+      <summary class="stage-summary">
+        <span class="stage-num">2</span>
+        <span class="stage-title">AST</span>
+        <span class="stage-sub">Parser · top-level statements: <span id="badge-ast">—</span></span>
+        <span class="stage-arrow"></span>
+      </summary>
+      <div class="stage-body">
+        <pre id="out-ast" class="stage-pre"></pre>
+      </div>
+    </details>
 
-    function setStatus(msg: string, kind?: 'ok' | 'err') {
-      $status.textContent = msg
-      $status.style.color = kind === 'err' ? '#f87171' : kind === 'ok' ? '#86efac' : ''
+    <details class="stage-card group">
+      <summary class="stage-summary">
+        <span class="stage-num">3</span>
+        <span class="stage-title">IR Scene</span>
+        <span class="stage-sub">lower() · pre-optimisation</span>
+        <span class="stage-arrow"></span>
+      </summary>
+      <div class="stage-body">
+        <pre id="out-ir" class="stage-pre"></pre>
+      </div>
+    </details>
+
+    <details class="stage-card group">
+      <summary class="stage-summary">
+        <span class="stage-num">4</span>
+        <span class="stage-title">Optimised IR</span>
+        <span class="stage-sub">optimize() · merge-layers + fold-stops + fold-case + dead-layer-elim</span>
+        <span class="stage-arrow"></span>
+      </summary>
+      <div class="stage-body">
+        <pre id="out-ir-opt" class="stage-pre"></pre>
+      </div>
+    </details>
+
+    <details class="stage-card group" open>
+      <summary class="stage-summary">
+        <span class="stage-num">5</span>
+        <span class="stage-title">Paint routing</span>
+        <span class="stage-sub">paint-routing · per axis classification</span>
+        <span class="stage-arrow"></span>
+      </summary>
+      <div class="stage-body">
+        <div id="out-routing" class="overflow-x-auto"></div>
+      </div>
+    </details>
+
+    <details class="stage-card group" open>
+      <summary class="stage-summary">
+        <span class="stage-num">6</span>
+        <span class="stage-title">Compute plan</span>
+        <span class="stage-sub">planComputeKernels · <span id="badge-plan">—</span> entries, <span id="badge-unique">—</span> unique kernels</span>
+        <span class="stage-arrow"></span>
+      </summary>
+      <div class="stage-body">
+        <div id="out-plan" class="overflow-x-auto"></div>
+      </div>
+    </details>
+
+    <details class="stage-card group" open>
+      <summary class="stage-summary">
+        <span class="stage-num">7</span>
+        <span class="stage-title">Emitted WGSL</span>
+        <span class="stage-sub">compute-gen · kernel-by-kernel</span>
+        <span class="stage-arrow"></span>
+      </summary>
+      <div class="stage-body">
+        <div id="kernel-tabs" class="flex flex-wrap gap-1 mb-2"></div>
+        <pre id="out-wgsl" class="stage-pre"></pre>
+      </div>
+    </details>
+
+  </div>
+
+  <!-- Reference card — kept compact, route definitions are the only
+       static content that survived the rewrite. -->
+  <section class="mt-12 pt-6 border-t border-line">
+    <h2 class="text-[18px] font-medium text-fg mb-3">Routes — quick reference</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-[12px]">
+      <div class="border border-line rounded-md p-3 bg-bg-elev">
+        <span class="font-medium text-fg">InlineConstant</span>
+        <span class="text-fg-mute"> · deps = ∅</span>
+        <p class="mt-1 text-fg-dim">Folded to a WGSL literal at compile time. Zero per-frame cost.</p>
+      </div>
+      <div class="border border-line rounded-md p-3 bg-bg-elev">
+        <span class="font-medium text-fg">PaletteZoom</span>
+        <span class="text-fg-mute"> · deps ⊆ zoom</span>
+        <p class="mt-1 text-fg-dim">Pre-baked gradient atlas. One <code class="font-mono text-[11px]">textureSampleLevel</code> per fragment.</p>
+      </div>
+      <div class="border border-line rounded-md p-3 bg-bg-elev border-l-[3px] border-l-accent">
+        <span class="font-medium text-accent">ComputeFeature</span>
+        <span class="text-fg-mute"> · deps include feature</span>
+        <p class="mt-1 text-fg-dim">Per-feature compute kernel. Fragment shader reads from <code class="font-mono text-[11px]">compute_out[feat_id]</code>.</p>
+      </div>
+      <div class="border border-line rounded-md p-3 bg-bg-elev">
+        <span class="font-medium text-fg">CpuUniform</span>
+        <span class="text-fg-mute"> · time / conditional</span>
+        <p class="mt-1 text-fg-dim">CPU resolves every frame, writes a uniform. Spec-complete but never the fast path.</p>
+      </div>
+    </div>
+  </section>
+
+  <style>
+    .stage-card {
+      border: 1px solid var(--color-line, #1f2937);
+      border-radius: 8px;
+      background: var(--color-bg-elev, #0f1825);
+      overflow: hidden;
+    }
+    .stage-card[open] {
+      border-color: rgba(56, 189, 248, 0.35);
+    }
+    .stage-summary {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+    .stage-summary::-webkit-details-marker { display: none; }
+    .stage-num {
+      width: 22px; height: 22px;
+      display: inline-flex;
+      align-items: center; justify-content: center;
+      border-radius: 11px;
+      background: rgba(56, 189, 248, 0.12);
+      color: #38bdf8;
+      font: 600 11px/1 'DM Mono', monospace;
+      flex-shrink: 0;
+    }
+    .stage-title {
+      font-weight: 500;
+      color: var(--color-fg, #c8d3e0);
+      font-size: 13.5px;
+    }
+    .stage-sub {
+      flex: 1;
+      color: var(--color-fg-mute, #5a6a7e);
+      font-size: 11.5px;
+      font-family: 'DM Mono', monospace;
+    }
+    .stage-arrow {
+      width: 8px; height: 8px;
+      border-right: 1.5px solid #5a6a7e;
+      border-bottom: 1.5px solid #5a6a7e;
+      transform: rotate(45deg);
+      transition: transform 0.15s;
+    }
+    .stage-card[open] .stage-arrow {
+      transform: rotate(225deg);
+    }
+    .stage-body {
+      padding: 0 14px 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+      padding-top: 12px;
+    }
+    .stage-pre {
+      margin: 0;
+      padding: 12px 14px;
+      background: #0a1320;
+      border: 1px solid #1f2937;
+      border-radius: 6px;
+      font-family: 'DM Mono', monospace;
+      font-size: 11.5px;
+      line-height: 1.55;
+      color: #c8d3e0;
+      overflow-x: auto;
+      white-space: pre;
+      max-height: 460px;
+      overflow-y: auto;
     }
 
-    function renderHistogram(buckets: { label: string; count: number; color: string; blurb: string }[]) {
-      const total = buckets.reduce((a, b) => a + b.count, 0) || 1
-      $histogram.innerHTML = ''
-      for (const b of buckets) {
-        const pct = (b.count / total) * 100
+    /* Light syntax highlighting for emitted WGSL — same colour set the
+       expressive-code default theme uses so the page reads consistent. */
+    .tok-kw    { color: #c084fc; }
+    .tok-type  { color: #38bdf8; }
+    .tok-fn    { color: #fde68a; }
+    .tok-num   { color: #fb923c; }
+    .tok-str   { color: #86efac; }
+    .tok-cmt   { color: #5a6a7e; font-style: italic; }
+    .tok-attr  { color: #f9a8d4; }
+
+    .kernel-tab {
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: 1px solid var(--color-line, #1f2937);
+      background: var(--color-bg-card, #0a1320);
+      color: var(--color-fg-mute, #5a6a7e);
+      font: 500 11px/1.3 'DM Mono', monospace;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .kernel-tab:hover {
+      color: var(--color-fg, #c8d3e0);
+      border-color: rgba(56, 189, 248, 0.35);
+    }
+    .kernel-tab.active {
+      color: #38bdf8;
+      border-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.08);
+    }
+
+    .route-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+    }
+    .route-bar-label {
+      width: 130px;
+      flex-shrink: 0;
+      color: var(--color-fg-dim, #9ca3af);
+    }
+    .route-bar-track {
+      flex: 1;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .route-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.18s ease;
+    }
+    .route-bar-count {
+      width: 40px;
+      text-align: right;
+      color: var(--color-fg, #c8d3e0);
+      tabular-nums: tabular-nums;
+    }
+
+    .routing-table {
+      width: 100%;
+      font-family: 'DM Mono', monospace;
+      font-size: 11.5px;
+      border-collapse: collapse;
+    }
+    .routing-table th,
+    .routing-table td {
+      padding: 6px 12px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .routing-table th {
+      color: var(--color-fg-mute, #5a6a7e);
+      font-weight: 500;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .routing-table td:nth-child(1) { color: #c8d3e0; }
+    .routing-table td:nth-child(2) { color: #9ca3af; }
+    .route-tag {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 3px;
+      font-size: 10.5px;
+      font-weight: 500;
+    }
+    .route-tag.inline-constant { background: rgba(120,140,160,0.18); color: #cbd5e1; }
+    .route-tag.palette-zoom    { background: rgba(99,102,241,0.18);  color: #a5b4fc; }
+    .route-tag.compute-feature { background: rgba(56,189,248,0.20);  color: #38bdf8; }
+    .route-tag.cpu-uniform     { background: rgba(245,158,11,0.18);  color: #fbbf24; }
+  </style>
+
+  <script define:vars={{ presetSources: Object.fromEntries(presets.map(p => [p.id, p.source])) }}>
+    // Pulls the preset map into the module-scope `presetSources` so the
+    // chip click handler doesn't have to re-fetch.
+    window.__xgisComputePresets = presetSources
+  </script>
+
+  <script>
+    // Live compile graph. Runs the actual compiler stages — Lexer →
+    // Parser → lower → optimize → emitCommands — on every keystroke
+    // (debounced). Each stage gets its own card; the WGSL output is
+    // tokenised + colourised here in the browser so users don't need
+    // an external highlight library.
+    import { Lexer, Parser, lower, optimize, emitCommands } from '@xgis/compiler'
+    import { TokenType } from '../../../../../compiler/src/lexer/tokens'
+    import { routeColorValue, routePropertyShape } from '../../../../../compiler/src/codegen/paint-routing'
+    import { collectPalette } from '../../../../../compiler/src/codegen/palette'
+
+    const presetSources = (window as unknown as { __xgisComputePresets: Record<string, string> }).__xgisComputePresets
+
+    const $src = document.getElementById('xgis-src') as HTMLTextAreaElement
+    const $status = document.getElementById('compile-status') as HTMLElement
+    const $errBadge = document.getElementById('err-badge') as HTMLElement
+    const $blurb = document.getElementById('preset-blurb') as HTMLElement
+    const $statTokens = document.getElementById('stat-tokens') as HTMLElement
+    const $statNodes = document.getElementById('stat-nodes') as HTMLElement
+    const $statOptimised = document.getElementById('stat-optimised') as HTMLElement
+    const $statEntries = document.getElementById('stat-entries') as HTMLElement
+    const $routeBars = document.getElementById('route-bars') as HTMLElement
+    const $badgeTokens = document.getElementById('badge-tokens') as HTMLElement
+    const $badgeAst = document.getElementById('badge-ast') as HTMLElement
+    const $badgePlan = document.getElementById('badge-plan') as HTMLElement
+    const $badgeUnique = document.getElementById('badge-unique') as HTMLElement
+    const $outTokens = document.getElementById('out-tokens') as HTMLElement
+    const $outAst = document.getElementById('out-ast') as HTMLElement
+    const $outIr = document.getElementById('out-ir') as HTMLElement
+    const $outIrOpt = document.getElementById('out-ir-opt') as HTMLElement
+    const $outRouting = document.getElementById('out-routing') as HTMLElement
+    const $outPlan = document.getElementById('out-plan') as HTMLElement
+    const $outWgsl = document.getElementById('out-wgsl') as HTMLElement
+    const $kernelTabs = document.getElementById('kernel-tabs') as HTMLElement
+
+    function setError(msg: string) {
+      $errBadge.textContent = msg
+      $errBadge.classList.remove('hidden')
+    }
+    function clearError() {
+      $errBadge.classList.add('hidden')
+      $errBadge.textContent = ''
+    }
+
+    // Pretty-print JSON with a stable key order so the user can diff
+    // by eye across edits. Drops verbose / circular-ish fields (e.g.
+    // shaderVariant.preamble — multi-kilobyte) so the IR view stays
+    // skimmable. Replacer preserves arrays + numbers + strings.
+    const HIDE_FIELDS = new Set([
+      'preamble', 'fillExpr', 'strokeExpr', 'shaderVariant',
+      'paintShapes', 'classification',
+    ])
+    function pretty(obj: unknown, maxDepth = 6): string {
+      const seen = new WeakSet<object>()
+      function walk(v: unknown, depth: number): unknown {
+        if (depth > maxDepth) return '…'
+        if (v === null || typeof v !== 'object') return v
+        if (seen.has(v as object)) return '«cycle»'
+        seen.add(v as object)
+        if (Array.isArray(v)) return v.map(item => walk(item, depth + 1))
+        const out: Record<string, unknown> = {}
+        for (const k of Object.keys(v as object)) {
+          if (HIDE_FIELDS.has(k)) continue
+          out[k] = walk((v as Record<string, unknown>)[k], depth + 1)
+        }
+        return out
+      }
+      return JSON.stringify(walk(obj, 0), null, 2)
+    }
+
+    // ── Token-type label table (for pretty token output) ──
+    // Build at module init by scanning the runtime enum so the labels
+    // stay in lockstep with the lexer definitions.
+    const tokenLabels: Record<number, string> = {}
+    for (const k of Object.keys(TokenType)) {
+      const v = (TokenType as Record<string, unknown>)[k]
+      if (typeof v === 'number') tokenLabels[v] = k
+    }
+
+    function escapeHtml(s: string): string {
+      return s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+    }
+
+    function renderTokens(tokens: Array<{ type: number; value: string; line: number; col: number }>): string {
+      const lines: string[] = []
+      let lastLine = 0
+      for (const tok of tokens) {
+        if (tok.line !== lastLine) {
+          if (lines.length > 0) lines.push('')
+          lines.push(`<span class="tok-cmt">L${tok.line.toString().padStart(3, ' ')}</span>`)
+          lastLine = tok.line
+        }
+        const label = tokenLabels[tok.type] ?? String(tok.type)
+        const val = tok.value.length > 0 && tok.value !== label
+          ? ` <span class="tok-str">${escapeHtml(JSON.stringify(tok.value))}</span>`
+          : ''
+        lines.push(`  <span class="tok-kw">${label.padEnd(14)}</span>${val}`)
+      }
+      return lines.join('\n')
+    }
+
+    // ── WGSL syntax highlighter ──
+    // Minimal regex sweep — covers the keywords compute-gen.ts emits,
+    // which is a tiny subset of WGSL. False-positives are fine inside
+    // string literals (none exist in emitted kernels). Avoid lookbehind
+    // for Safari ≤ 16 compatibility.
+    const WGSL_KW = new Set([
+      'fn', 'var', 'let', 'const', 'if', 'else', 'return',
+      'struct', 'storage', 'read', 'read_write', 'uniform', 'array',
+    ])
+    const WGSL_TY = new Set([
+      'f32', 'i32', 'u32', 'bool',
+      'vec2', 'vec3', 'vec4', 'mat4x4', 'mat3x3',
+      'vec2<f32>', 'vec3<f32>', 'vec4<f32>', 'vec3<u32>', 'vec4<u32>',
+    ])
+    const WGSL_FN = new Set([
+      'pack4x8unorm', 'unpack4x8unorm', 'floor', 'min', 'max', 'mix', 'clamp',
+      'textureSampleLevel', 'textureLoad', 'textureDimensions',
+    ])
+    function highlightWgsl(src: string): string {
+      const out: string[] = []
+      // Line-by-line — handle `// …` comments per line.
+      for (const rawLine of src.split('\n')) {
+        const cmtIdx = rawLine.indexOf('//')
+        const code = cmtIdx === -1 ? rawLine : rawLine.slice(0, cmtIdx)
+        const cmt = cmtIdx === -1 ? '' : rawLine.slice(cmtIdx)
+        // Tokenise code part by splitting on a wide separator regex
+        // that captures the delimiters so we can preserve them.
+        const parts = code.split(/(\s+|[(){}\[\]<>,;:=+\-*/.@])/)
+        const html: string[] = []
+        for (const part of parts) {
+          if (!part) continue
+          if (/^\s+$/.test(part)) { html.push(part); continue }
+          if (WGSL_KW.has(part))         html.push(`<span class="tok-kw">${escapeHtml(part)}</span>`)
+          else if (WGSL_TY.has(part))    html.push(`<span class="tok-type">${escapeHtml(part)}</span>`)
+          else if (WGSL_FN.has(part))    html.push(`<span class="tok-fn">${escapeHtml(part)}</span>`)
+          else if (/^@\w+$/.test(part))  html.push(`<span class="tok-attr">${escapeHtml(part)}</span>`)
+          else if (/^-?\d/.test(part))   html.push(`<span class="tok-num">${escapeHtml(part)}</span>`)
+          else                           html.push(escapeHtml(part))
+        }
+        if (cmt) html.push(`<span class="tok-cmt">${escapeHtml(cmt)}</span>`)
+        out.push(html.join(''))
+      }
+      return out.join('\n')
+    }
+
+    function renderRoutes(routes: Array<{ count: number; key: string; label: string; color: string }>): void {
+      const total = routes.reduce((a, b) => a + b.count, 0) || 1
+      $routeBars.innerHTML = ''
+      for (const r of routes) {
+        const pct = (r.count / total) * 100
         const row = document.createElement('div')
-        row.className = 'flex items-center gap-3'
+        row.className = 'route-bar-row'
         row.innerHTML = `
-          <div class="w-[140px] text-[12px] text-fg-dim flex-shrink-0">${b.label}</div>
-          <div class="flex-1 h-[20px] bg-bg-card rounded-md overflow-hidden relative">
-            <div style="width:${pct.toFixed(1)}%;background:${b.color}" class="h-full transition-all"></div>
-            <span class="absolute inset-0 flex items-center px-2 text-[11px] font-mono text-fg">${b.count} <span class="text-fg-mute ml-1">(${pct.toFixed(1)}%)</span></span>
+          <div class="route-bar-label">${r.label}</div>
+          <div class="route-bar-track">
+            <div class="route-bar-fill" style="width:${pct.toFixed(1)}%;background:${r.color}"></div>
           </div>
-          <div class="w-[280px] text-[11px] text-fg-mute hidden md:block">${b.blurb}</div>
+          <div class="route-bar-count">${r.count}</div>
         `
-        $histogram.appendChild(row)
+        $routeBars.appendChild(row)
       }
     }
 
-    interface PlanEntryView {
-      renderNodeIndex: number
-      paintAxis: string
+    interface RoutingRow {
+      nodeName: string
+      axis: string
+      route: string
+      detail: string
+    }
+    function renderRoutingTable(rows: RoutingRow[]): void {
+      if (rows.length === 0) {
+        $outRouting.innerHTML = '<div class="text-fg-mute text-[12px] italic">No paint axes — empty scene?</div>'
+        return
+      }
+      const html = ['<table class="routing-table"><thead><tr>']
+      html.push('<th>Render node</th><th>Axis</th><th>Route</th><th>Detail</th>')
+      html.push('</tr></thead><tbody>')
+      for (const r of rows) {
+        html.push(`<tr><td>${escapeHtml(r.nodeName)}</td>`)
+        html.push(`<td>${escapeHtml(r.axis)}</td>`)
+        html.push(`<td><span class="route-tag ${r.route}">${routeLabel(r.route)}</span></td>`)
+        html.push(`<td>${escapeHtml(r.detail)}</td></tr>`)
+      }
+      html.push('</tbody></table>')
+      $outRouting.innerHTML = html.join('')
+    }
+    function routeLabel(kind: string): string {
+      return kind === 'inline-constant' ? 'InlineConstant'
+           : kind === 'palette-zoom'    ? 'PaletteZoom'
+           : kind === 'compute-feature' ? 'ComputeFeature'
+           : kind === 'cpu-uniform'     ? 'CpuUniform'
+           : kind
+    }
+
+    function describeRoute(value: any, route: any): string {
+      if (route.kind === 'inline-constant') {
+        if (value.kind === 'constant' && Array.isArray(value.rgba)) {
+          const hex = '#' + value.rgba.slice(0, 3)
+            .map((c: number) => Math.round(c * 255).toString(16).padStart(2, '0')).join('')
+          return `constant ${hex}${value.rgba[3] < 1 ? ` @${(value.rgba[3] * 100).toFixed(0)}%` : ''}`
+        }
+        if (value.kind === 'constant') return `constant ${value.value}`
+        return 'inlined'
+      }
+      if (route.kind === 'palette-zoom') {
+        return `gradient #${route.gradientIndex} · zoom-interpolated`
+      }
+      if (route.kind === 'compute-feature') {
+        return 'kernel dispatched per tile'
+      }
+      return value.kind ?? 'cpu eval'
+    }
+
+    interface PlanView {
+      nodeName: string
+      axis: string
       kernelName: string
-      kernelKey: string
+      fingerprint: string
       fields: string[]
       armCount: number
       wgsl: string
     }
-
-    function renderPlanTable(entries: PlanEntryView[]) {
-      $planBody.innerHTML = ''
+    function renderPlanTable(entries: PlanView[]): void {
       if (entries.length === 0) {
-        $planEmpty.classList.remove('hidden')
-        $planWrapper.classList.add('hidden')
-        $wgslSection.classList.add('hidden')
+        $outPlan.innerHTML = '<div class="text-fg-mute text-[12px] italic">No data-driven paint axes — nothing routed to compute.</div>'
+        $outWgsl.innerHTML = '<div style="color:#5a6a7e;font-style:italic">No WGSL — change the source to introduce a match() / data-driven expression.</div>'
+        $kernelTabs.innerHTML = ''
         return
       }
-      $planEmpty.classList.add('hidden')
-      $planWrapper.classList.remove('hidden')
-      $wgslSection.classList.remove('hidden')
+      const html = ['<table class="routing-table"><thead><tr>']
+      html.push('<th>Render node</th><th>Axis</th><th>Fields</th><th>Arms</th><th>Kernel</th>')
+      html.push('</tr></thead><tbody>')
       for (const e of entries) {
-        const tr = document.createElement('tr')
-        tr.className = 'border-t border-line'
-        tr.innerHTML = `
-          <td class="px-3 py-2 text-fg-dim tabular-nums">${e.renderNodeIndex}</td>
-          <td class="px-3 py-2 text-fg">${e.paintAxis}</td>
-          <td class="px-3 py-2 font-mono text-[11px] text-fg-dim">${e.kernelName}</td>
-          <td class="px-3 py-2 font-mono text-[11px] text-fg-dim">${e.fields.join(', ')}</td>
-          <td class="px-3 py-2 tabular-nums text-fg-dim">${e.armCount > 0 ? e.armCount : '—'}</td>
-        `
-        $planBody.appendChild(tr)
+        html.push(`<tr><td>${escapeHtml(e.nodeName)}</td>`)
+        html.push(`<td>${escapeHtml(e.axis)}</td>`)
+        html.push(`<td>${escapeHtml(e.fields.join(', ') || '—')}</td>`)
+        html.push(`<td>${e.armCount > 0 ? e.armCount : '—'}</td>`)
+        html.push(`<td>${escapeHtml(e.kernelName)}</td></tr>`)
       }
+      html.push('</tbody></table>')
+      $outPlan.innerHTML = html.join('')
 
-      // Kernel picker — one option per unique kernel (deduped by fingerprint).
-      const uniqueByKey = new Map<string, PlanEntryView>()
-      for (const e of entries) if (!uniqueByKey.has(e.kernelKey)) uniqueByKey.set(e.kernelKey, e)
-      $kernelPicker.innerHTML = ''
-      for (const [_, e] of uniqueByKey) {
-        const opt = document.createElement('option')
-        opt.value = e.kernelKey
-        opt.textContent = `${e.kernelName} (${e.fields.join(',')})`
-        $kernelPicker.appendChild(opt)
-      }
-      $kernelPicker.onchange = () => {
-        const sel = $kernelPicker.value
-        const hit = uniqueByKey.get(sel)
-        if (hit) $wgslOut.textContent = hit.wgsl
-      }
-      const first = uniqueByKey.values().next().value
-      if (first) $wgslOut.textContent = first.wgsl
+      // Unique kernel tabs.
+      const uniqByKey = new Map<string, PlanView>()
+      for (const e of entries) if (!uniqByKey.has(e.fingerprint)) uniqByKey.set(e.fingerprint, e)
+      $kernelTabs.innerHTML = ''
+      let first = true
+      let activeWgsl = ''
+      uniqByKey.forEach((e, key) => {
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'kernel-tab' + (first ? ' active' : '')
+        btn.textContent = `${e.kernelName} · ${e.fields.join(',') || '—'} · ${e.armCount} arm${e.armCount === 1 ? '' : 's'}`
+        btn.addEventListener('click', () => {
+          $kernelTabs.querySelectorAll('.kernel-tab').forEach(b => b.classList.remove('active'))
+          btn.classList.add('active')
+          $outWgsl.innerHTML = highlightWgsl(e.wgsl)
+        })
+        if (first) activeWgsl = e.wgsl
+        first = false
+        $kernelTabs.appendChild(btn)
+      })
+      $outWgsl.innerHTML = highlightWgsl(activeWgsl)
     }
 
-    function analyze(xgisSrc: string) {
+    function compile(src: string): void {
+      const t0 = performance.now()
       try {
-        const tokens = new Lexer(xgisSrc).tokenize()
+        clearError()
+        const tokens = new Lexer(src).tokenize()
         const program = new Parser(tokens).parse()
         const sceneRaw = lower(program)
         const scene = optimize(sceneRaw, program)
-
-        // Collect palette so paint-routing can resolve PaletteZoom.
         const palette = collectPalette(scene)
 
-        // Walk every render node × paint axis → classify route.
-        const routeCounts = { inline: 0, palette: 0, compute: 0, cpu: 0 }
+        // Stage 1 — tokens
+        $statTokens.textContent = String(tokens.length)
+        $badgeTokens.textContent = String(tokens.length)
+        $outTokens.innerHTML = renderTokens(tokens)
+
+        // Stage 2 — AST
+        $badgeAst.textContent = String(program.body.length)
+        $outAst.textContent = pretty(program, 8)
+
+        // Stage 3 — raw IR
+        $statNodes.textContent = String(sceneRaw.renderNodes.length)
+        $outIr.textContent = pretty({
+          sources: sceneRaw.sources,
+          renderNodes: sceneRaw.renderNodes,
+          symbols: sceneRaw.symbols,
+        }, 5)
+
+        // Stage 4 — optimised IR
+        $statOptimised.textContent = String(scene.renderNodes.length)
+        $outIrOpt.textContent = pretty({
+          sources: scene.sources,
+          renderNodes: scene.renderNodes,
+          symbols: scene.symbols,
+        }, 5)
+
+        // Stage 5 — paint routing per axis
+        const routeCounts: Record<string, number> = {
+          'inline-constant': 0, 'palette-zoom': 0,
+          'compute-feature': 0, 'cpu-uniform': 0,
+        }
+        const routingRows: RoutingRow[] = []
         for (const node of scene.renderNodes) {
-          const axes: Array<{ value: any; name: string }> = [
-            { value: node.fill, name: 'fill' },
-            { value: node.stroke?.color, name: 'stroke' },
-          ]
-          for (const ax of axes) {
-            if (!ax.value || ax.value.kind === 'none') continue
-            const route = routeColorValue(ax.value, palette)
-            switch (route.kind) {
-              case 'inline-constant': routeCounts.inline++; break
-              case 'palette-zoom':    routeCounts.palette++; break
-              case 'compute-feature': routeCounts.compute++; break
-              case 'cpu-uniform':     routeCounts.cpu++; break
-            }
+          const nodeName = node.name || `<unnamed ${routingRows.length}>`
+          if (node.fill && node.fill.kind !== 'none') {
+            const r = routeColorValue(node.fill, palette)
+            routeCounts[r.kind] = (routeCounts[r.kind] ?? 0) + 1
+            routingRows.push({ nodeName, axis: 'fill', route: r.kind, detail: describeRoute(node.fill, r) })
+          }
+          if (node.stroke?.color && node.stroke.color.kind !== 'none') {
+            const r = routeColorValue(node.stroke.color, palette)
+            routeCounts[r.kind] = (routeCounts[r.kind] ?? 0) + 1
+            routingRows.push({ nodeName, axis: 'stroke', route: r.kind, detail: describeRoute(node.stroke.color, r) })
+          }
+          if (node.opacity) {
+            const r = routePropertyShape(node.opacity, palette)
+            routeCounts[r.kind] = (routeCounts[r.kind] ?? 0) + 1
+            routingRows.push({ nodeName, axis: 'opacity', route: r.kind, detail: describeRoute(node.opacity, r) })
+          }
+          if (node.stroke?.width) {
+            const r = routePropertyShape(node.stroke.width, palette)
+            routeCounts[r.kind] = (routeCounts[r.kind] ?? 0) + 1
+            routingRows.push({ nodeName, axis: 'stroke-width', route: r.kind, detail: describeRoute(node.stroke.width, r) })
           }
         }
-
-        renderHistogram([
-          { label: 'InlineConstant', count: routeCounts.inline,
-            color: 'rgba(120,140,160,0.6)',
-            blurb: 'Bakedin WGSL literal — no per-frame work' },
-          { label: 'PaletteZoom',    count: routeCounts.palette,
-            color: 'rgba(99,102,241,0.6)',
-            blurb: 'Atlas texture sample on u.zoom' },
-          { label: 'ComputeFeature', count: routeCounts.compute,
-            color: 'rgba(56,189,248,0.7)',
-            blurb: 'GPU compute kernel → storage buffer' },
-          { label: 'CpuUniform',     count: routeCounts.cpu,
-            color: 'rgba(245,158,11,0.6)',
-            blurb: 'CPU resolves per frame → uniform write' },
+        renderRoutes([
+          { count: routeCounts['inline-constant'], key: 'inline-constant',
+            label: 'InlineConstant', color: 'rgba(120,140,160,0.55)' },
+          { count: routeCounts['palette-zoom'],    key: 'palette-zoom',
+            label: 'PaletteZoom',    color: 'rgba(99,102,241,0.65)'  },
+          { count: routeCounts['compute-feature'], key: 'compute-feature',
+            label: 'ComputeFeature', color: 'rgba(56,189,248,0.75)'  },
+          { count: routeCounts['cpu-uniform'],     key: 'cpu-uniform',
+            label: 'CpuUniform',     color: 'rgba(245,158,11,0.65)'  },
         ])
+        renderRoutingTable(routingRows)
 
-        // Emit full SceneCommands so we have the actual compute plan +
-        // kernels the runtime would use. enablePaletteSampling on, scalar
-        // off, computePath on (matches the runtime's emit options).
+        // Stage 6 + 7 — compute plan + WGSL
         const commands = emitCommands(scene, {
           enablePaletteSampling: true,
           enableComputePath: true,
-        })
-        const plan = (commands as { computePlan?: any[] }).computePlan ?? []
-
-        $statNodes.textContent = String(scene.renderNodes.length)
+        }) as { computePlan?: any[] }
+        const plan = commands.computePlan ?? []
         $statEntries.textContent = String(plan.length)
-        const uniqueKernels = new Set(plan.map((e: any) => e.kernel)).size
-        $statKernels.textContent = String(uniqueKernels)
-        $statDedup.textContent = String(Math.max(0, plan.length - uniqueKernels))
+        $badgePlan.textContent = String(plan.length)
+        const uniqueKernels = new Set(plan.map(e => e.kernel)).size
+        $badgeUnique.textContent = String(uniqueKernels)
 
-        const entryViews: PlanEntryView[] = plan.map((e: any, i: number) => {
+        const planViews: PlanView[] = plan.map((e: any, i: number) => {
+          const node = scene.renderNodes[e.renderNodeIndex]
           const k = e.kernel
           const armCount = Object.values(e.categoryOrder ?? {}).reduce(
             (sum: number, arr: any) => sum + (Array.isArray(arr) ? arr.length : 0), 0,
           ) as number
           return {
-            renderNodeIndex: e.renderNodeIndex,
-            paintAxis: e.paintAxis,
+            nodeName: node?.name || `<${e.renderNodeIndex}>`,
+            axis: e.paintAxis,
             kernelName: k.entryPoint ?? `kernel_${i}`,
-            kernelKey: (k.entryPoint ?? '') + '\x1F' + (k.wgsl ?? ''),
+            fingerprint: (k.entryPoint ?? '') + '\x1F' + (k.wgsl ?? ''),
             fields: e.fieldOrder ?? [],
             armCount,
             wgsl: k.wgsl ?? '',
           }
         })
-        renderPlanTable(entryViews)
+        renderPlanTable(planViews)
 
-        $results.classList.remove('hidden')
-        setStatus(
-          plan.length > 0
-            ? `Analyzed — ${plan.length} compute entries, ${uniqueKernels} unique kernel${uniqueKernels === 1 ? '' : 's'}.`
-            : `Analyzed — no compute entries (style has no data-driven paint).`,
-          'ok',
-        )
+        const ms = performance.now() - t0
+        $status.textContent = `compiled in ${ms.toFixed(1)} ms`
       } catch (e: any) {
-        setStatus('Analyze failed: ' + (e?.message || e), 'err')
-        $results.classList.add('hidden')
+        setError(e?.message ?? String(e))
+        $status.textContent = ''
       }
     }
 
-    function runOnMapbox(mapboxJson: string) {
-      try {
-        const parsed = JSON.parse(mapboxJson)
-        const xgis = convertMapboxStyle(parsed)
-        analyze(xgis)
-      } catch (e: any) {
-        setStatus('Conversion failed: ' + (e?.message || e), 'err')
-      }
+    // Debounced live recompile — 150 ms is fast enough to feel
+    // immediate while skipping intermediate keystrokes during fast typing.
+    let pending = 0
+    function scheduleCompile() {
+      if (pending) clearTimeout(pending)
+      pending = window.setTimeout(() => {
+        pending = 0
+        compile($src.value)
+      }, 150)
     }
+    $src.addEventListener('input', scheduleCompile)
 
-    // Preset chip → fill URL + fetch.
+    // Preset chips — swap source + visual state.
     document.querySelectorAll<HTMLButtonElement>('.preset-chip').forEach(btn => {
       btn.addEventListener('click', () => {
-        $url.value = btn.dataset.presetUrl ?? ''
-        $fetch.click()
+        const id = btn.dataset.presetId ?? ''
+        const src = presetSources[id]
+        if (!src) return
+        $src.value = src
+        $blurb.textContent = btn.title || (btn.parentElement?.querySelector(`[data-preset-id="${id}"]`) as HTMLElement)?.textContent || ''
+        document.querySelectorAll<HTMLButtonElement>('.preset-chip').forEach(b => {
+          b.classList.remove('border-accent', 'bg-accent/15', 'text-accent')
+          b.classList.add('border-line', 'bg-bg-elev', 'text-fg-dim')
+        })
+        btn.classList.remove('border-line', 'bg-bg-elev', 'text-fg-dim')
+        btn.classList.add('border-accent', 'bg-accent/15', 'text-accent')
+        compile(src)
       })
     })
 
-    $fetch.addEventListener('click', async () => {
-      const url = $url.value.trim()
-      if (!url) { setStatus('Enter a URL or pick a preset.', 'err'); return }
-      setStatus('Fetching…')
-      try {
-        const resp = await fetch(url, { mode: 'cors' })
-        if (!resp.ok) { setStatus(`HTTP ${resp.status} ${resp.statusText}`, 'err'); return }
-        const text = await resp.text()
-        runOnMapbox(text)
-      } catch (e: any) {
-        setStatus('Fetch failed (likely CORS): ' + (e?.message || e), 'err')
-      }
-    })
-
-    $analyze.addEventListener('click', () => {
-      const text = $json.value.trim()
-      if (!text) { setStatus('Paste JSON first.', 'err'); return }
-      runOnMapbox(text)
-    })
-
-    $showPaste.addEventListener('click', () => {
-      $pasteSection.classList.toggle('hidden')
-    })
+    // First paint — run the initial preset through the pipeline.
+    compile($src.value)
   </script>
 </Docs>
