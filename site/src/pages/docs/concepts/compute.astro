@@ -312,6 +312,51 @@ const initialPreset = presets[0]
       </div>
     </details>
 
+    <details class="stage-card group" open>
+      <summary class="stage-summary">
+        <span class="stage-num">8</span>
+        <span class="stage-title">Live GPU timing</span>
+        <span class="stage-sub">
+          <span id="gpu-bench-status">measure runs in your browser via <code class="font-mono text-[11px]">timestamp-query</code></span>
+        </span>
+        <span class="stage-arrow"></span>
+      </summary>
+      <div class="stage-body">
+        <div id="gpu-bench-unavailable" class="hidden text-fg-mute text-[12px] italic px-3 py-2">
+          Live timing isn't available on this device — the WebGPU adapter doesn't
+          advertise <code class="font-mono text-[11px]">timestamp-query</code>.
+          The strategy badges above still tell you which path the runtime would
+          take; numbers measured on a Chrome 121+ desktop are baked into the
+          reference card below.
+        </div>
+        <div id="gpu-bench-panel" class="hidden">
+          <div class="flex items-center gap-3 mb-3 flex-wrap">
+            <label class="text-fg-mute text-[11px] uppercase tracking-wider">Synthetic features</label>
+            <select id="gpu-bench-count" class="bg-bg border border-line rounded px-2 py-1 text-[12px] text-fg focus:outline-none focus:border-accent">
+              <option value="256">256</option>
+              <option value="1024">1024</option>
+              <option value="4096" selected>4096</option>
+              <option value="16384">16384</option>
+              <option value="65536">65536</option>
+            </select>
+            <span class="text-fg-mute text-[11px]">×</span>
+            <span id="gpu-bench-iter-info" class="text-fg-mute text-[11px]">200 dispatches</span>
+            <button id="gpu-bench-run" type="button"
+                    class="ml-auto px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-[12px] hover:bg-accent/25 transition-colors">
+              Re-measure
+            </button>
+          </div>
+          <div id="gpu-bench-results" class="space-y-2"></div>
+          <p class="text-fg-mute text-[10px] mt-3">
+            Dispatches the actually-emitted kernel(s) above onto your GPU with
+            uniform-random feature IDs, times the compute pass via timestamp
+            queries, drops the warmup samples. Output buffers are discarded —
+            nothing renders.
+          </p>
+        </div>
+      </div>
+    </details>
+
   </div>
 
   <!-- Reference card — kept compact, route definitions are the only
@@ -541,6 +586,48 @@ const initialPreset = presets[0]
     .strategy-tag.strategy-lut      { background: rgba(34,197,94,0.18);  color: #86efac; }
     .strategy-tag.strategy-ifchain  { background: rgba(251,191,36,0.15); color: #fde047; }
     .strategy-tag.strategy-other    { background: rgba(120,140,160,0.18); color: #cbd5e1; }
+
+    .bench-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 90px 90px 90px;
+      gap: 12px;
+      padding: 10px 14px;
+      background: #0a1320;
+      border: 1px solid #1f2937;
+      border-radius: 6px;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      align-items: center;
+    }
+    .bench-row + .bench-row { margin-top: 6px; }
+    .bench-row-head {
+      background: transparent;
+      border: none;
+      padding: 2px 14px;
+      color: #5a6a7e;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .bench-name { color: #c8d3e0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bench-num  { text-align: right; color: #38bdf8; tabular-nums: tabular-nums; }
+    .bench-num.muted { color: #9ca3af; }
+    .bench-bar {
+      position: relative;
+      height: 4px;
+      background: rgba(56,189,248,0.08);
+      border-radius: 2px;
+      margin-top: 6px;
+      grid-column: 1 / -1;
+      overflow: hidden;
+    }
+    .bench-bar > span {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, #38bdf8 0%, #818cf8 100%);
+      border-radius: 2px;
+      transition: width 0.18s;
+    }
   </style>
 
   <script define:vars={{ presetSources: Object.fromEntries(presets.map(p => [p.id, p.source])) }}>
@@ -950,6 +1037,25 @@ const initialPreset = presets[0]
         })
         renderPlanTable(planViews)
 
+        // Hand the unique-kernel set to the live GPU bench. dedup by
+        // fingerprint so re-measuring the same kernel twice doesn't
+        // double the work. setBenchKernels is defined further down in
+        // this script block; it triggers a measurement if WebGPU +
+        // timestamp-query are both available, otherwise no-op.
+        const uniqByKernelKey = new Map<string, PlanView>()
+        for (const v of planViews) {
+          if (!uniqByKernelKey.has(v.fingerprint)) uniqByKernelKey.set(v.fingerprint, v)
+        }
+        const benchKernels = [...uniqByKernelKey.values()].map(v => ({
+          kernelName: v.kernelName,
+          strategy: v.strategy,
+          armCount: v.armCount,
+          wgsl: v.wgsl,
+          categoryOrder: {},
+        }))
+        const setter = (window as unknown as { __setBenchKernels?: (k: typeof benchKernels) => void }).__setBenchKernels
+        if (setter) setter(benchKernels)
+
         const ms = performance.now() - t0
         $status.textContent = `compiled in ${ms.toFixed(1)} ms`
       } catch (e: any) {
@@ -988,7 +1094,292 @@ const initialPreset = presets[0]
       })
     })
 
-    // First paint — run the initial preset through the pipeline.
+    // ════════════════════════════════════════════════════════════════
+    // Live GPU timing — dispatches each unique emitted kernel onto a
+    // local WebGPU device + measures with timestamp-query. Pure CSR;
+    // never blocks the compile graph display (no-ops if WebGPU /
+    // timestamp-query aren't available).
+    // ════════════════════════════════════════════════════════════════
+
+    const $benchStatus = document.getElementById('gpu-bench-status') as HTMLElement
+    const $benchPanel = document.getElementById('gpu-bench-panel') as HTMLElement
+    const $benchUnavail = document.getElementById('gpu-bench-unavailable') as HTMLElement
+    const $benchCount = document.getElementById('gpu-bench-count') as HTMLSelectElement
+    const $benchIterInfo = document.getElementById('gpu-bench-iter-info') as HTMLElement
+    const $benchRun = document.getElementById('gpu-bench-run') as HTMLButtonElement
+    const $benchResults = document.getElementById('gpu-bench-results') as HTMLElement
+
+    interface GpuCtx {
+      device: GPUDevice
+      hasTimestamp: boolean
+    }
+    let gpuCtxPromise: Promise<GpuCtx | null> | null = null
+
+    /** Initialise (and cache) a WebGPU device with `timestamp-query`
+     *  when the adapter offers it. Null on adapter failure or browser
+     *  without WebGPU support. Cached so re-measure clicks reuse the
+     *  same device. */
+    function getGpuCtx(): Promise<GpuCtx | null> {
+      if (gpuCtxPromise) return gpuCtxPromise
+      gpuCtxPromise = (async (): Promise<GpuCtx | null> => {
+        if (typeof navigator === 'undefined' || !navigator.gpu) return null
+        try {
+          const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })
+            ?? await navigator.gpu.requestAdapter()
+          if (!adapter) return null
+          const features: GPUFeatureName[] = []
+          const hasTimestamp = adapter.features.has('timestamp-query')
+          if (hasTimestamp) features.push('timestamp-query')
+          const device = await adapter.requestDevice(features.length > 0 ? { requiredFeatures: features } : undefined)
+          device.lost.then(() => { gpuCtxPromise = null })
+          return { device, hasTimestamp }
+        } catch {
+          return null
+        }
+      })()
+      return gpuCtxPromise
+    }
+
+    interface BenchResult {
+      kernelName: string
+      strategy: string
+      armCount: number
+      medianNs: number
+      p95Ns: number
+      meanNs: number
+      stdNs: number
+      sampleCount: number
+    }
+
+    interface KernelToBench {
+      kernelName: string
+      strategy: string
+      armCount: number
+      wgsl: string
+      categoryOrder: Record<string, readonly string[]>
+    }
+
+    /** Dispatch `iterations` of one kernel against `featureCount`
+     *  synthetic features (uniform random IDs in [0, armCount)).
+     *  Returns per-dispatch ns deltas extracted from a 2-slot timestamp
+     *  pair (begin + end of each compute pass). Warmup runs are dropped
+     *  by the caller. */
+    async function timeKernel(
+      ctx: GpuCtx,
+      kernel: KernelToBench,
+      featureCount: number,
+      iterations: number,
+    ): Promise<number[]> {
+      const { device, hasTimestamp } = ctx
+      if (!hasTimestamp) return []
+
+      let module: GPUShaderModule
+      try {
+        module = device.createShaderModule({ code: kernel.wgsl })
+      } catch { return [] }
+      const pipeline = device.createComputePipeline({
+        layout: 'auto',
+        compute: { module, entryPoint: kernel.kernelName.startsWith('eval_') ? kernel.kernelName : 'eval_match' },
+      })
+
+      // Synthetic feature data: one f32 per feature in [0, armCount).
+      // armCount=0 (ternary / non-categorical) falls back to a tiny
+      // [0..1) spread.
+      const arm = kernel.armCount > 0 ? kernel.armCount : 4
+      const feat = new Float32Array(Math.max(featureCount, 1))
+      for (let i = 0; i < feat.length; i++) feat[i] = Math.floor(Math.random() * arm)
+      const featBuf = device.createBuffer({
+        size: Math.max(feat.byteLength, 16),
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      })
+      device.queue.writeBuffer(featBuf, 0, feat)
+
+      const outBuf = device.createBuffer({
+        size: Math.max(feat.length * 4, 16),
+        usage: GPUBufferUsage.STORAGE,
+      })
+
+      // u_count is a vec4<u32> uniform (16 bytes minimum for uniform
+      // bindings in WebGPU) — kernel reads .x.
+      const countBuf = device.createBuffer({
+        size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      })
+      device.queue.writeBuffer(countBuf, 0, new Uint32Array([feat.length, 0, 0, 0]))
+
+      const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: featBuf } },
+          { binding: 1, resource: { buffer: outBuf } },
+          { binding: 2, resource: { buffer: countBuf } },
+        ],
+      })
+
+      const totalSlots = iterations * 2
+      const querySet = device.createQuerySet({ type: 'timestamp', count: totalSlots })
+      const resolveBuf = device.createBuffer({
+        size: totalSlots * 8,
+        usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+      })
+      const readBuf = device.createBuffer({
+        size: totalSlots * 8,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      })
+
+      const encoder = device.createCommandEncoder()
+      const workgroups = Math.ceil(feat.length / 64)
+      for (let i = 0; i < iterations; i++) {
+        const pass = encoder.beginComputePass({
+          timestampWrites: {
+            querySet,
+            beginningOfPassWriteIndex: i * 2,
+            endOfPassWriteIndex: i * 2 + 1,
+          },
+        })
+        pass.setPipeline(pipeline)
+        pass.setBindGroup(0, bindGroup)
+        pass.dispatchWorkgroups(workgroups)
+        pass.end()
+      }
+      encoder.resolveQuerySet(querySet, 0, totalSlots, resolveBuf, 0)
+      encoder.copyBufferToBuffer(resolveBuf, 0, readBuf, 0, totalSlots * 8)
+      device.queue.submit([encoder.finish()])
+
+      await readBuf.mapAsync(GPUMapMode.READ)
+      const view = new BigUint64Array(readBuf.getMappedRange())
+      const out: number[] = []
+      for (let i = 0; i < iterations; i++) {
+        const a = view[i * 2], b = view[i * 2 + 1]
+        if (b > a) out.push(Number(b - a))
+      }
+      readBuf.unmap()
+      // Cleanup — buffers are tied to this dispatch's lifetime only.
+      featBuf.destroy(); outBuf.destroy(); countBuf.destroy()
+      resolveBuf.destroy(); readBuf.destroy(); querySet.destroy()
+      return out
+    }
+
+    function stats(arr: number[]): { median: number; p95: number; mean: number; std: number } {
+      if (arr.length === 0) return { median: 0, p95: 0, mean: 0, std: 0 }
+      const sorted = [...arr].sort((a, b) => a - b)
+      const median = sorted[Math.floor(sorted.length / 2)]!
+      const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]!
+      const mean = arr.reduce((a, b) => a + b, 0) / arr.length
+      const variance = arr.reduce((s, v) => s + (v - mean) ** 2, 0) / arr.length
+      return { median, p95, mean, std: Math.sqrt(variance) }
+    }
+
+    function renderBenchResults(results: BenchResult[]): void {
+      $benchResults.innerHTML = ''
+      if (results.length === 0) {
+        $benchResults.innerHTML = '<div class="text-fg-mute text-[12px] italic">No kernels to measure — change the source to introduce a match() that lowers to compute.</div>'
+        return
+      }
+      // Header row.
+      const head = document.createElement('div')
+      head.className = 'bench-row bench-row-head'
+      head.innerHTML = `
+        <span>Kernel · strategy</span>
+        <span class="bench-num">median μs</span>
+        <span class="bench-num">p95 μs</span>
+        <span class="bench-num">mean ± std</span>
+      `
+      $benchResults.appendChild(head)
+      // Find max for relative bar width.
+      const maxMedian = Math.max(...results.map(r => r.medianNs), 1)
+      for (const r of results) {
+        const row = document.createElement('div')
+        row.className = 'bench-row'
+        const us = (ns: number) => (ns / 1000).toFixed(2)
+        row.innerHTML = `
+          <span class="bench-name">${escapeHtml(r.kernelName)} <span class="strategy-tag inline ${strategyClass(r.strategy as never)}">${strategyLabel(r.strategy as never)}</span></span>
+          <span class="bench-num">${us(r.medianNs)}</span>
+          <span class="bench-num muted">${us(r.p95Ns)}</span>
+          <span class="bench-num muted">${us(r.meanNs)} ± ${us(r.stdNs)}</span>
+          <div class="bench-bar"><span style="width:${(r.medianNs / maxMedian * 100).toFixed(1)}%"></span></div>
+        `
+        $benchResults.appendChild(row)
+      }
+    }
+
+    let lastKernels: KernelToBench[] = []
+
+    async function runBench(): Promise<void> {
+      $benchStatus.textContent = 'measuring…'
+      $benchRun.disabled = true
+      try {
+        const ctx = await getGpuCtx()
+        if (!ctx || !ctx.hasTimestamp) {
+          $benchPanel.classList.add('hidden')
+          $benchUnavail.classList.remove('hidden')
+          $benchStatus.textContent = 'unavailable'
+          return
+        }
+        $benchPanel.classList.remove('hidden')
+        $benchUnavail.classList.add('hidden')
+
+        const featureCount = parseInt($benchCount.value, 10) || 4096
+        const totalIter = 250
+        const warmup = 50
+        $benchIterInfo.textContent = `${totalIter - warmup} dispatches (after ${warmup} warmup)`
+
+        const results: BenchResult[] = []
+        for (const k of lastKernels) {
+          const samples = await timeKernel(ctx, k, featureCount, totalIter)
+          const useful = samples.slice(warmup)
+          const s = stats(useful)
+          results.push({
+            kernelName: k.kernelName,
+            strategy: k.strategy,
+            armCount: k.armCount,
+            medianNs: s.median,
+            p95Ns: s.p95,
+            meanNs: s.mean,
+            stdNs: s.std,
+            sampleCount: useful.length,
+          })
+        }
+        renderBenchResults(results)
+        $benchStatus.textContent = `${featureCount.toLocaleString()} features × ${totalIter - warmup} dispatches`
+      } catch (e: any) {
+        $benchStatus.textContent = `error: ${e?.message ?? e}`
+      } finally {
+        $benchRun.disabled = false
+      }
+    }
+
+    /** Caller (compile()) hands a snapshot of the unique kernels —
+     *  same data the WGSL viewer renders. The bench section reuses
+     *  the strategy detection + arm count already computed there. */
+    ;(window as unknown as { __setBenchKernels: (k: KernelToBench[]) => void }).__setBenchKernels = (kernels: KernelToBench[]) => {
+      lastKernels = kernels
+      if (kernels.length === 0) {
+        renderBenchResults([])
+        return
+      }
+      runBench()
+    }
+
+    $benchRun.addEventListener('click', () => { runBench() })
+    $benchCount.addEventListener('change', () => { runBench() })
+
+    // First-paint kernel sync — run the initial preset NOW that the
+    // bench's `__setBenchKernels` setter is wired up, so compile() can
+    // trigger the GPU bench immediately. The earlier (pre-bench) call
+    // to compile() during module init wouldn't have found the setter.
+    getGpuCtx().then(ctx => {
+      if (!ctx) {
+        $benchPanel.classList.add('hidden')
+        $benchUnavail.classList.remove('hidden')
+        $benchStatus.textContent = 'WebGPU unavailable'
+      } else if (!ctx.hasTimestamp) {
+        $benchPanel.classList.add('hidden')
+        $benchUnavail.classList.remove('hidden')
+        $benchStatus.textContent = 'timestamp-query unsupported'
+      } else {
+        $benchPanel.classList.remove('hidden')
+      }
+    })
     compile($src.value)
   </script>
 </Docs>
