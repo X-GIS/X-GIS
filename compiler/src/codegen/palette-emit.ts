@@ -87,8 +87,29 @@ export function emitPaletteBindings(
   // emitted yet — the runtime bind-group layout only includes the
   // color atlas + sampler (binding 2 + 4). Scalar zoom-interpolated
   // paint values (line widths, sizes, opacity stops) keep using the
-  // legacy CPU resolve → uniform path until r32float-vs-filterable
-  // support lands. Until then, ANY scalar declaration would trigger
+  // legacy CPU resolve → uniform path. Two ways to land this:
+  //
+  //   (a) request `float32-filterable` adapter feature → r32float
+  //       gradient atlas samples with HW linear filtering via the
+  //       shared `palette_samp`. Status (2026): Chrome 121+ /
+  //       Safari TP ✓, iPhone Safari + iPhone Chrome ✗. Mobile
+  //       fallback would still need (b) or CPU path, so a feature
+  //       gate split adds permanent code-path divergence.
+  //   (b) emit `unfilterable-float` binding + `textureLoad` × 2 +
+  //       `mix(a, b, frac)` manual interpolation. Universal: works
+  //       on every WebGPU adapter including iOS. No sampler needed
+  //       (textureLoad bypasses it). Shader cost: 2 loads + mix vs
+  //       1 sample — fragment-cost delta is negligible.
+  //
+  // Measured benefit on OFM Bright: 84 scalar zoom-interp axes ×
+  // ~50 ns CPU lerp + uniform writes ≈ 1-2 ms / sec at 60 fps
+  // (< 0.2 % of frame budget). Until either a use case raises
+  // that estimate or a P2/P6 dependency lands that needs scalar
+  // sampling for other reasons, the CPU resolve path remains the
+  // pragmatic choice — wiring this through 7 files for sub-µs
+  // per-frame savings isn't justified by measurement.
+  //
+  // Until then, ANY scalar declaration here would trigger
   // `Binding doesn't exist in [mr-baseBindGroupLayout]` validation
   // on every pipeline that emits the variant shader.
   const hasColor = palette.colorGradients.length > 0
