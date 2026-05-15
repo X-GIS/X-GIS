@@ -1,0 +1,608 @@
+---
+import Docs from '../../../layouts/Docs.astro'
+
+// Sample source + WGSL emit for the "Example: match() → kernel" section.
+// Kept in frontmatter so Astro's JSX parser doesn't try to interpret
+// the curly braces inside the WGSL body as expression delimiters.
+const EXAMPLE_DSL = `fill: match(get("class"),
+  "school",   #f0e8f8,
+  "hospital", #f7e8e8,
+  "library",  #f3e5d5,
+  #f0f0f0       // default
+)`
+
+const EXAMPLE_WGSL = `@group(0) @binding(0)
+var<storage,read>  feat_data: array<f32>;
+@group(0) @binding(1)
+var<storage,read_write> out_color: array<u32>;
+
+@compute @workgroup_size(64)
+fn eval_fill(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let fid = gid.x;
+  if (fid >= u_feature_count) { return; }
+  let cls = feat_data[fid * STRIDE + CLASS_OFFSET];
+  var c: vec4<f32>;
+  if      (cls == ID_SCHOOL)   { c = vec4(0.941, 0.910, 0.973, 1.0); }
+  else if (cls == ID_HOSPITAL) { c = vec4(0.969, 0.910, 0.910, 1.0); }
+  else if (cls == ID_LIBRARY)  { c = vec4(0.953, 0.898, 0.835, 1.0); }
+  else                         { c = vec4(0.941, 0.941, 0.941, 1.0); }
+  out_color[fid] = pack4x8unorm(c);
+}`
+---
+
+<Docs
+  current="concepts/compute"
+  title="X-GIS — Compute paint evaluation"
+  description="How X-GIS routes data-driven paint expressions to WebGPU compute kernels: paint-routing, ComputePlanEntry, WGSL emit, and per-tile dispatch. Interactive analyzer for any Mapbox style."
+>
+  <header class="mb-12">
+    <p class="text-[13px] font-medium text-accent mb-3 tracking-[-0.01em]">
+      Concept
+    </p>
+    <h1 class="text-[36px] sm:text-[44px] lg:text-[52px] font-medium text-fg leading-[1.1] tracking-[-0.035em]">
+      Compute paint evaluation.
+    </h1>
+    <p class="mt-5 text-[16px] sm:text-[17px] leading-[1.6] text-fg-dim max-w-[700px]">
+      How a <code class="font-mono text-[15px] text-fg">match("class", "school", "#f0e8f8", …)</code>
+      expression becomes a WebGPU compute kernel that paints every feature
+      in parallel — and how to tell, for any style, which paint axes are
+      taking the fast path.
+    </p>
+  </header>
+
+  <article class="space-y-14 text-[15px] sm:text-[16px] leading-[1.65] text-fg-dim">
+
+    <!-- ── Section 1: Compile-time pipeline diagram ── -->
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Compile-time routing
+      </h2>
+      <p class="mb-6">
+        Every paint axis (fill colour, stroke colour, opacity, stroke width)
+        on every layer is classified by <code class="font-mono text-[13px] text-fg">paint-routing.ts</code>
+        based on its dependencies. The router picks one of four execution
+        paths; only the data-driven one becomes a compute kernel.
+      </p>
+
+      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden p-6 sm:p-10">
+        <svg viewBox="0 0 900 380" class="w-full h-auto" role="img" aria-label="Compile-time compute routing flow: AST through IR through paint-routing into four execution paths.">
+          <defs>
+            <marker id="cm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#5a6a7e"/>
+            </marker>
+          </defs>
+
+          <!-- Source -->
+          <g>
+            <rect x="20" y="160" width="160" height="50" rx="8" fill="#1a2233" stroke="#2a3a52" stroke-width="1"/>
+            <text x="100" y="182" text-anchor="middle" font-family="DM Mono, monospace" font-size="13" fill="#c8d3e0">Paint AST</text>
+            <text x="100" y="198" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10" fill="#5a6a7e">e.g. match(get(class)…)</text>
+          </g>
+          <line x1="180" y1="185" x2="210" y2="185" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#cm-arrow)"/>
+
+          <!-- Routing decision -->
+          <g>
+            <rect x="210" y="155" width="160" height="60" rx="8" fill="#0f1825" stroke="#38bdf8" stroke-width="1.5"/>
+            <text x="290" y="180" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">paint-routing</text>
+            <text x="290" y="196" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">classify deps</text>
+            <text x="290" y="208" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">none / zoom / time / feature</text>
+          </g>
+
+          <!-- 4 routes fan-out -->
+          <line x1="370" y1="170" x2="420" y2="60"  stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#cm-arrow)"/>
+          <line x1="370" y1="180" x2="420" y2="135" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#cm-arrow)"/>
+          <line x1="370" y1="190" x2="420" y2="235" stroke="#38bdf8" stroke-width="2.0" marker-end="url(#cm-arrow)"/>
+          <line x1="370" y1="200" x2="420" y2="310" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#cm-arrow)"/>
+
+          <!-- Route boxes -->
+          <g>
+            <rect x="420" y="30" width="220" height="60" rx="8" fill="#0f1825" stroke="#2a3a52" stroke-width="1"/>
+            <text x="430" y="50" font-family="DM Sans, sans-serif" font-size="12" fill="#c8d3e0" font-weight="500">InlineConstant</text>
+            <text x="430" y="66" font-family="DM Mono, monospace" font-size="10" fill="#5a6a7e">deps = ∅ → WGSL literal</text>
+            <text x="430" y="80" font-family="DM Mono, monospace" font-size="10" fill="#5a6a7e">Cost: 0</text>
+          </g>
+          <g>
+            <rect x="420" y="105" width="220" height="60" rx="8" fill="#0f1825" stroke="#2a3a52" stroke-width="1"/>
+            <text x="430" y="125" font-family="DM Sans, sans-serif" font-size="12" fill="#c8d3e0" font-weight="500">PaletteZoom</text>
+            <text x="430" y="141" font-family="DM Mono, monospace" font-size="10" fill="#5a6a7e">deps = zoom-only → atlas sample</text>
+            <text x="430" y="155" font-family="DM Mono, monospace" font-size="10" fill="#5a6a7e">Cost: 1 texture lookup</text>
+          </g>
+          <g>
+            <rect x="420" y="205" width="220" height="60" rx="8" fill="#0f1825" stroke="#38bdf8" stroke-width="1.5"/>
+            <text x="430" y="225" font-family="DM Sans, sans-serif" font-size="12" fill="#c8d3e0" font-weight="500">ComputeFeature</text>
+            <text x="430" y="241" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">deps has feature → kernel</text>
+            <text x="430" y="255" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">Cost: 1 storage read per frag</text>
+          </g>
+          <g>
+            <rect x="420" y="280" width="220" height="60" rx="8" fill="#0f1825" stroke="#2a3a52" stroke-width="1"/>
+            <text x="430" y="300" font-family="DM Sans, sans-serif" font-size="12" fill="#c8d3e0" font-weight="500">CpuUniform</text>
+            <text x="430" y="316" font-family="DM Mono, monospace" font-size="10" fill="#5a6a7e">time / conditional → CPU</text>
+            <text x="430" y="330" font-family="DM Mono, monospace" font-size="10" fill="#5a6a7e">Cost: per-frame eval + write</text>
+          </g>
+
+          <!-- Compute kernel emit chain -->
+          <line x1="640" y1="235" x2="680" y2="235" stroke="#38bdf8" stroke-width="2.0" marker-end="url(#cm-arrow)"/>
+          <g>
+            <rect x="680" y="200" width="200" height="70" rx="8" fill="#1a2233" stroke="#38bdf8" stroke-width="1.5"/>
+            <text x="780" y="222" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">ComputePlanEntry</text>
+            <text x="780" y="238" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">kernel + fieldOrder +</text>
+            <text x="780" y="250" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">categoryOrder + paintAxis</text>
+            <text x="780" y="264" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">deduped by WGSL fingerprint</text>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- ── Section 2: Runtime dispatch diagram ── -->
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Runtime dispatch
+      </h2>
+      <p class="mb-6">
+        Each tile carries a per-feature data buffer (one row per feature,
+        columns = fields the kernel reads). The compute pass runs the
+        kernel once per feature, packs <code class="font-mono text-[13px] text-fg">vec4&lt;f32&gt;</code>
+        colour into <code class="font-mono text-[13px] text-fg">pack4x8unorm</code>,
+        writes to a per-tile storage buffer. The fragment shader then reads
+        <code class="font-mono text-[13px] text-fg">unpack4x8unorm(compute_out[feat_id])</code>
+        instead of evaluating the expression per pixel.
+      </p>
+
+      <div class="rounded-2xl bg-bg-card border border-line overflow-hidden p-6 sm:p-10">
+        <svg viewBox="0 0 900 280" class="w-full h-auto" role="img" aria-label="Runtime compute dispatch: tile feature data feeds a compute pass that writes a per-feature output buffer; the fragment shader reads from that buffer.">
+          <defs>
+            <marker id="rt-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#5a6a7e"/>
+            </marker>
+          </defs>
+
+          <!-- Tile data -->
+          <g>
+            <rect x="20" y="100" width="170" height="80" rx="8" fill="#1a2233" stroke="#2a3a52" stroke-width="1"/>
+            <text x="105" y="125" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">Feature data</text>
+            <text x="105" y="143" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#5a6a7e">feat_data[N × stride]</text>
+            <text x="105" y="158" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">class ID, height,</text>
+            <text x="105" y="170" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">brunnel, …</text>
+          </g>
+
+          <line x1="190" y1="140" x2="225" y2="140" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#rt-arrow)"/>
+
+          <!-- Compute pass -->
+          <g>
+            <rect x="225" y="80" width="220" height="120" rx="8" fill="#0f1825" stroke="#38bdf8" stroke-width="1.5"/>
+            <text x="335" y="105" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">Compute pass</text>
+            <text x="335" y="125" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">@workgroup_size(64)</text>
+            <text x="335" y="143" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">if (cls == SCHOOL)    rgba</text>
+            <text x="335" y="155" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">else if (cls == HOSPITAL)…</text>
+            <text x="335" y="175" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">out[fid] = pack4x8unorm(rgba)</text>
+            <text x="335" y="190" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#38bdf8">1 dispatch per tile per frame</text>
+          </g>
+
+          <line x1="445" y1="140" x2="480" y2="140" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#rt-arrow)"/>
+
+          <!-- Output buffer -->
+          <g>
+            <rect x="480" y="100" width="170" height="80" rx="8" fill="#1a2233" stroke="#38bdf8" stroke-width="1.5"/>
+            <text x="565" y="125" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">compute_out</text>
+            <text x="565" y="143" text-anchor="middle" font-family="DM Mono, monospace" font-size="10" fill="#38bdf8">array&lt;u32, N&gt;</text>
+            <text x="565" y="158" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">per-feature</text>
+            <text x="565" y="170" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">packed colour</text>
+          </g>
+
+          <line x1="650" y1="140" x2="685" y2="140" stroke="#5a6a7e" stroke-width="1.5" marker-end="url(#rt-arrow)"/>
+
+          <!-- Fragment shader -->
+          <g>
+            <rect x="685" y="100" width="195" height="80" rx="8" fill="#0f1825" stroke="#2a3a52" stroke-width="1"/>
+            <text x="782" y="125" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="#c8d3e0" font-weight="500">Fragment shader</text>
+            <text x="782" y="145" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">color = unpack4x8unorm(</text>
+            <text x="782" y="157" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#5a6a7e">  compute_out[feat_id])</text>
+            <text x="782" y="172" text-anchor="middle" font-family="DM Mono, monospace" font-size="9" fill="#38bdf8">no per-pixel eval</text>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- ── Section 3: Worked WGSL example ── -->
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Example: match() → kernel
+      </h2>
+      <p class="mb-6">
+        OpenFreeMap Bright's school-fill layer routes <code class="font-mono text-[13px] text-fg">match(get(class), "school", "#f0e8f8", …)</code>
+        to a compute kernel. Here's the AST and the emitted WGSL side by side.
+      </p>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="border border-line rounded-md p-4 bg-bg-elev">
+          <div class="text-fg text-[11px] uppercase tracking-wider mb-2">Source — xgis paint expression</div>
+          <pre class="text-[12px] font-mono whitespace-pre-wrap text-fg-dim overflow-x-auto">{EXAMPLE_DSL}</pre>
+        </div>
+        <div class="border border-line rounded-md p-4 bg-bg-elev">
+          <div class="text-fg text-[11px] uppercase tracking-wider mb-2">Emitted — compute kernel WGSL</div>
+          <pre class="text-[12px] font-mono whitespace-pre-wrap text-fg-dim overflow-x-auto">{EXAMPLE_WGSL}</pre>
+        </div>
+      </div>
+      <p class="mt-4 text-[14px]">
+        The <code class="font-mono text-[13px] text-fg">categoryOrder</code> field
+        on each <code class="font-mono text-[13px] text-fg">ComputePlanEntry</code>
+        records the alphabetised string-pattern list so the worker-side
+        feature packer can convert <code class="font-mono text-[13px] text-fg">"school"</code> →
+        <code class="font-mono text-[13px] text-fg">ID_SCHOOL</code> with the same
+        integers the kernel's if-chain expects.
+      </p>
+    </section>
+
+    <!-- ── Section 4: Interactive analyzer ── -->
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Analyzer
+      </h2>
+      <p class="mb-6">
+        Pick a public Mapbox style, paste your own, or hand in a URL — the
+        compiler runs in the browser and surfaces every routing decision +
+        the WGSL it emits.
+      </p>
+
+      <!-- Preset chips -->
+      <div class="mb-4">
+        <div class="text-fg-mute text-[11px] uppercase tracking-wider mb-2">Try a public style</div>
+        <div class="flex flex-wrap gap-2">
+          <button type="button" class="preset-chip text-left px-3 py-2 rounded-md border border-line bg-bg-elev hover:border-accent hover:bg-accent/10 transition-colors"
+                  data-preset-url="https://tiles.openfreemap.org/styles/bright" data-preset-name="OpenFreeMap · Bright">
+            <div class="text-fg text-[13px] font-medium">OFM Bright</div>
+            <div class="text-fg-dim text-[11px] mt-0.5">119 layers, road-heavy</div>
+          </button>
+          <button type="button" class="preset-chip text-left px-3 py-2 rounded-md border border-line bg-bg-elev hover:border-accent hover:bg-accent/10 transition-colors"
+                  data-preset-url="https://tiles.openfreemap.org/styles/liberty" data-preset-name="OpenFreeMap · Liberty">
+            <div class="text-fg text-[13px] font-medium">OFM Liberty</div>
+            <div class="text-fg-dim text-[11px] mt-0.5">111 layers, OSM-Liberty flavour</div>
+          </button>
+          <button type="button" class="preset-chip text-left px-3 py-2 rounded-md border border-line bg-bg-elev hover:border-accent hover:bg-accent/10 transition-colors"
+                  data-preset-url="https://tiles.openfreemap.org/styles/positron" data-preset-name="OpenFreeMap · Positron">
+            <div class="text-fg text-[13px] font-medium">OFM Positron</div>
+            <div class="text-fg-dim text-[11px] mt-0.5">Minimal monochrome basemap</div>
+          </button>
+          <button type="button" class="preset-chip text-left px-3 py-2 rounded-md border border-line bg-bg-elev hover:border-accent hover:bg-accent/10 transition-colors"
+                  data-preset-url="https://demotiles.maplibre.org/style.json" data-preset-name="MapLibre · Demotiles">
+            <div class="text-fg text-[13px] font-medium">MapLibre demo</div>
+            <div class="text-fg-dim text-[11px] mt-0.5">Countries + geolines</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- URL + paste fallback -->
+      <section class="border border-line rounded-md p-4 bg-bg-elev mb-4">
+        <label for="style-url" class="block text-fg text-[12px] tracking-wide uppercase">URL</label>
+        <div class="mt-2 flex flex-wrap gap-2 items-center">
+          <input id="style-url" type="url" placeholder="https://example.com/style.json"
+                 class="flex-1 min-w-[280px] bg-bg border border-line rounded px-3 py-2 text-[13px] focus:outline-none focus:border-accent"/>
+          <button id="analyze-fetch-btn" class="px-4 py-2 bg-accent/15 border border-accent text-accent rounded text-[12px] hover:bg-accent/25 transition-colors">
+            Fetch &amp; analyze
+          </button>
+        </div>
+        <p class="mt-2 text-fg-dim text-[11px]">
+          Or <button type="button" id="analyze-show-paste" class="underline text-accent hover:text-accent-bright">paste JSON manually</button>.
+        </p>
+      </section>
+
+      <section id="analyze-paste-section" class="border border-line rounded-md p-4 bg-bg-elev mb-4 hidden">
+        <label for="style-json" class="block text-fg text-[12px] tracking-wide uppercase">Paste JSON</label>
+        <textarea id="style-json" rows="6"
+                  placeholder="Paste your Mapbox style JSON here"
+                  class="mt-2 w-full bg-bg border border-line rounded px-3 py-2 text-[12px] font-mono focus:outline-none focus:border-accent"></textarea>
+        <button id="analyze-btn" class="mt-3 px-4 py-2 bg-accent/15 border border-accent text-accent rounded text-[12px] hover:bg-accent/25 transition-colors">
+          Analyze
+        </button>
+      </section>
+
+      <p id="analyze-status" class="text-fg-dim text-[11px] min-h-[1.2em]"></p>
+
+      <!-- Results — hidden until analyzer runs -->
+      <div id="analyze-results" class="hidden mt-6 space-y-8">
+
+        <!-- Stats summary -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="border border-line rounded-md p-3 bg-bg-elev">
+            <div class="text-fg-mute text-[11px] uppercase tracking-wider">Render nodes</div>
+            <div id="stat-nodes" class="text-fg text-[22px] font-medium tabular-nums">—</div>
+          </div>
+          <div class="border border-line rounded-md p-3 bg-bg-elev">
+            <div class="text-fg-mute text-[11px] uppercase tracking-wider">Compute entries</div>
+            <div id="stat-entries" class="text-fg text-[22px] font-medium tabular-nums">—</div>
+          </div>
+          <div class="border border-line rounded-md p-3 bg-bg-elev">
+            <div class="text-fg-mute text-[11px] uppercase tracking-wider">Unique kernels</div>
+            <div id="stat-kernels" class="text-fg text-[22px] font-medium tabular-nums">—</div>
+          </div>
+          <div class="border border-line rounded-md p-3 bg-bg-elev">
+            <div class="text-fg-mute text-[11px] uppercase tracking-wider">Dedup wins</div>
+            <div id="stat-dedup" class="text-fg text-[22px] font-medium tabular-nums">—</div>
+          </div>
+        </div>
+
+        <!-- Routing histogram -->
+        <div>
+          <h3 class="text-[18px] font-medium text-fg leading-[1.2] mb-3">Paint axis routing</h3>
+          <div id="route-histogram" class="space-y-2"></div>
+          <p class="mt-2 text-fg-dim text-[11px]">
+            Every (renderNode × paint-axis) pair routes through exactly one
+            of the four execution paths.
+          </p>
+        </div>
+
+        <!-- Compute plan table -->
+        <div>
+          <h3 class="text-[18px] font-medium text-fg leading-[1.2] mb-3">Compute plan entries</h3>
+          <div id="plan-empty" class="hidden text-fg-dim text-[13px] italic">
+            No compute entries — this style has no data-driven match() / conditional paint values that lower to a kernel.
+          </div>
+          <div id="plan-table-wrapper" class="overflow-x-auto hidden">
+            <table class="w-full text-[12px] border border-line rounded-md">
+              <thead class="bg-bg-elev">
+                <tr class="text-left">
+                  <th class="px-3 py-2 text-fg-mute font-medium uppercase tracking-wider text-[11px]">Node</th>
+                  <th class="px-3 py-2 text-fg-mute font-medium uppercase tracking-wider text-[11px]">Axis</th>
+                  <th class="px-3 py-2 text-fg-mute font-medium uppercase tracking-wider text-[11px]">Kernel</th>
+                  <th class="px-3 py-2 text-fg-mute font-medium uppercase tracking-wider text-[11px]">Fields</th>
+                  <th class="px-3 py-2 text-fg-mute font-medium uppercase tracking-wider text-[11px]">Arms</th>
+                </tr>
+              </thead>
+              <tbody id="plan-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- WGSL viewer -->
+        <div id="wgsl-section" class="hidden">
+          <h3 class="text-[18px] font-medium text-fg leading-[1.2] mb-3">Emitted WGSL</h3>
+          <div class="mb-2 flex flex-wrap gap-2">
+            <label for="kernel-picker" class="text-fg-mute text-[11px] uppercase tracking-wider self-center">Kernel</label>
+            <select id="kernel-picker" class="bg-bg border border-line rounded px-3 py-1 text-[12px] text-fg focus:outline-none focus:border-accent"></select>
+          </div>
+          <pre id="wgsl-out" class="text-[12px] font-mono whitespace-pre bg-bg-card border border-line rounded-md p-4 overflow-x-auto leading-[1.5]"></pre>
+        </div>
+
+      </div>
+    </section>
+
+  </article>
+
+  <script>
+    // Real-time analyzer. Imports the compiler + diagnostics directly so
+    // the same code that runs at engine compile time runs here. Mirrors
+    // `convert.astro`'s pattern for fetch + paste fallback, but the
+    // output stays in this page (no playground redirect) — we want the
+    // user to see the routing decisions, not the rendered map.
+    import { convertMapboxStyle, Lexer, Parser, lower, optimize, emitCommands } from '@xgis/compiler'
+    import { routeColorValue } from '../../../../../compiler/src/codegen/paint-routing'
+    import { collectPalette } from '../../../../../compiler/src/codegen/palette'
+
+    const $url = document.getElementById('style-url') as HTMLInputElement
+    const $json = document.getElementById('style-json') as HTMLTextAreaElement
+    const $fetch = document.getElementById('analyze-fetch-btn') as HTMLButtonElement
+    const $analyze = document.getElementById('analyze-btn') as HTMLButtonElement
+    const $showPaste = document.getElementById('analyze-show-paste') as HTMLButtonElement
+    const $pasteSection = document.getElementById('analyze-paste-section') as HTMLElement
+    const $status = document.getElementById('analyze-status') as HTMLParagraphElement
+    const $results = document.getElementById('analyze-results') as HTMLElement
+    const $statNodes = document.getElementById('stat-nodes') as HTMLElement
+    const $statEntries = document.getElementById('stat-entries') as HTMLElement
+    const $statKernels = document.getElementById('stat-kernels') as HTMLElement
+    const $statDedup = document.getElementById('stat-dedup') as HTMLElement
+    const $histogram = document.getElementById('route-histogram') as HTMLElement
+    const $planEmpty = document.getElementById('plan-empty') as HTMLElement
+    const $planWrapper = document.getElementById('plan-table-wrapper') as HTMLElement
+    const $planBody = document.getElementById('plan-tbody') as HTMLElement
+    const $wgslSection = document.getElementById('wgsl-section') as HTMLElement
+    const $kernelPicker = document.getElementById('kernel-picker') as HTMLSelectElement
+    const $wgslOut = document.getElementById('wgsl-out') as HTMLElement
+
+    function setStatus(msg: string, kind?: 'ok' | 'err') {
+      $status.textContent = msg
+      $status.style.color = kind === 'err' ? '#f87171' : kind === 'ok' ? '#86efac' : ''
+    }
+
+    function renderHistogram(buckets: { label: string; count: number; color: string; blurb: string }[]) {
+      const total = buckets.reduce((a, b) => a + b.count, 0) || 1
+      $histogram.innerHTML = ''
+      for (const b of buckets) {
+        const pct = (b.count / total) * 100
+        const row = document.createElement('div')
+        row.className = 'flex items-center gap-3'
+        row.innerHTML = `
+          <div class="w-[140px] text-[12px] text-fg-dim flex-shrink-0">${b.label}</div>
+          <div class="flex-1 h-[20px] bg-bg-card rounded-md overflow-hidden relative">
+            <div style="width:${pct.toFixed(1)}%;background:${b.color}" class="h-full transition-all"></div>
+            <span class="absolute inset-0 flex items-center px-2 text-[11px] font-mono text-fg">${b.count} <span class="text-fg-mute ml-1">(${pct.toFixed(1)}%)</span></span>
+          </div>
+          <div class="w-[280px] text-[11px] text-fg-mute hidden md:block">${b.blurb}</div>
+        `
+        $histogram.appendChild(row)
+      }
+    }
+
+    interface PlanEntryView {
+      renderNodeIndex: number
+      paintAxis: string
+      kernelName: string
+      kernelKey: string
+      fields: string[]
+      armCount: number
+      wgsl: string
+    }
+
+    function renderPlanTable(entries: PlanEntryView[]) {
+      $planBody.innerHTML = ''
+      if (entries.length === 0) {
+        $planEmpty.classList.remove('hidden')
+        $planWrapper.classList.add('hidden')
+        $wgslSection.classList.add('hidden')
+        return
+      }
+      $planEmpty.classList.add('hidden')
+      $planWrapper.classList.remove('hidden')
+      $wgslSection.classList.remove('hidden')
+      for (const e of entries) {
+        const tr = document.createElement('tr')
+        tr.className = 'border-t border-line'
+        tr.innerHTML = `
+          <td class="px-3 py-2 text-fg-dim tabular-nums">${e.renderNodeIndex}</td>
+          <td class="px-3 py-2 text-fg">${e.paintAxis}</td>
+          <td class="px-3 py-2 font-mono text-[11px] text-fg-dim">${e.kernelName}</td>
+          <td class="px-3 py-2 font-mono text-[11px] text-fg-dim">${e.fields.join(', ')}</td>
+          <td class="px-3 py-2 tabular-nums text-fg-dim">${e.armCount > 0 ? e.armCount : '—'}</td>
+        `
+        $planBody.appendChild(tr)
+      }
+
+      // Kernel picker — one option per unique kernel (deduped by fingerprint).
+      const uniqueByKey = new Map<string, PlanEntryView>()
+      for (const e of entries) if (!uniqueByKey.has(e.kernelKey)) uniqueByKey.set(e.kernelKey, e)
+      $kernelPicker.innerHTML = ''
+      for (const [_, e] of uniqueByKey) {
+        const opt = document.createElement('option')
+        opt.value = e.kernelKey
+        opt.textContent = `${e.kernelName} (${e.fields.join(',')})`
+        $kernelPicker.appendChild(opt)
+      }
+      $kernelPicker.onchange = () => {
+        const sel = $kernelPicker.value
+        const hit = uniqueByKey.get(sel)
+        if (hit) $wgslOut.textContent = hit.wgsl
+      }
+      const first = uniqueByKey.values().next().value
+      if (first) $wgslOut.textContent = first.wgsl
+    }
+
+    function analyze(xgisSrc: string) {
+      try {
+        const tokens = new Lexer(xgisSrc).tokenize()
+        const program = new Parser(tokens).parse()
+        const sceneRaw = lower(program)
+        const scene = optimize(sceneRaw, program)
+
+        // Collect palette so paint-routing can resolve PaletteZoom.
+        const palette = collectPalette(scene)
+
+        // Walk every render node × paint axis → classify route.
+        const routeCounts = { inline: 0, palette: 0, compute: 0, cpu: 0 }
+        for (const node of scene.renderNodes) {
+          const axes: Array<{ value: any; name: string }> = [
+            { value: node.fill, name: 'fill' },
+            { value: node.stroke?.color, name: 'stroke' },
+          ]
+          for (const ax of axes) {
+            if (!ax.value || ax.value.kind === 'none') continue
+            const route = routeColorValue(ax.value, palette)
+            switch (route.kind) {
+              case 'inline-constant': routeCounts.inline++; break
+              case 'palette-zoom':    routeCounts.palette++; break
+              case 'compute-feature': routeCounts.compute++; break
+              case 'cpu-uniform':     routeCounts.cpu++; break
+            }
+          }
+        }
+
+        renderHistogram([
+          { label: 'InlineConstant', count: routeCounts.inline,
+            color: 'rgba(120,140,160,0.6)',
+            blurb: 'Bakedin WGSL literal — no per-frame work' },
+          { label: 'PaletteZoom',    count: routeCounts.palette,
+            color: 'rgba(99,102,241,0.6)',
+            blurb: 'Atlas texture sample on u.zoom' },
+          { label: 'ComputeFeature', count: routeCounts.compute,
+            color: 'rgba(56,189,248,0.7)',
+            blurb: 'GPU compute kernel → storage buffer' },
+          { label: 'CpuUniform',     count: routeCounts.cpu,
+            color: 'rgba(245,158,11,0.6)',
+            blurb: 'CPU resolves per frame → uniform write' },
+        ])
+
+        // Emit full SceneCommands so we have the actual compute plan +
+        // kernels the runtime would use. enablePaletteSampling on, scalar
+        // off, computePath on (matches the runtime's emit options).
+        const commands = emitCommands(scene, {
+          enablePaletteSampling: true,
+          enableComputePath: true,
+        })
+        const plan = (commands as { computePlan?: any[] }).computePlan ?? []
+
+        $statNodes.textContent = String(scene.renderNodes.length)
+        $statEntries.textContent = String(plan.length)
+        const uniqueKernels = new Set(plan.map((e: any) => e.kernel)).size
+        $statKernels.textContent = String(uniqueKernels)
+        $statDedup.textContent = String(Math.max(0, plan.length - uniqueKernels))
+
+        const entryViews: PlanEntryView[] = plan.map((e: any, i: number) => {
+          const k = e.kernel
+          const armCount = Object.values(e.categoryOrder ?? {}).reduce(
+            (sum: number, arr: any) => sum + (Array.isArray(arr) ? arr.length : 0), 0,
+          ) as number
+          return {
+            renderNodeIndex: e.renderNodeIndex,
+            paintAxis: e.paintAxis,
+            kernelName: k.entryPoint ?? `kernel_${i}`,
+            kernelKey: (k.entryPoint ?? '') + '\x1F' + (k.wgsl ?? ''),
+            fields: e.fieldOrder ?? [],
+            armCount,
+            wgsl: k.wgsl ?? '',
+          }
+        })
+        renderPlanTable(entryViews)
+
+        $results.classList.remove('hidden')
+        setStatus(
+          plan.length > 0
+            ? `Analyzed — ${plan.length} compute entries, ${uniqueKernels} unique kernel${uniqueKernels === 1 ? '' : 's'}.`
+            : `Analyzed — no compute entries (style has no data-driven paint).`,
+          'ok',
+        )
+      } catch (e: any) {
+        setStatus('Analyze failed: ' + (e?.message || e), 'err')
+        $results.classList.add('hidden')
+      }
+    }
+
+    function runOnMapbox(mapboxJson: string) {
+      try {
+        const parsed = JSON.parse(mapboxJson)
+        const xgis = convertMapboxStyle(parsed)
+        analyze(xgis)
+      } catch (e: any) {
+        setStatus('Conversion failed: ' + (e?.message || e), 'err')
+      }
+    }
+
+    // Preset chip → fill URL + fetch.
+    document.querySelectorAll<HTMLButtonElement>('.preset-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        $url.value = btn.dataset.presetUrl ?? ''
+        $fetch.click()
+      })
+    })
+
+    $fetch.addEventListener('click', async () => {
+      const url = $url.value.trim()
+      if (!url) { setStatus('Enter a URL or pick a preset.', 'err'); return }
+      setStatus('Fetching…')
+      try {
+        const resp = await fetch(url, { mode: 'cors' })
+        if (!resp.ok) { setStatus(`HTTP ${resp.status} ${resp.statusText}`, 'err'); return }
+        const text = await resp.text()
+        runOnMapbox(text)
+      } catch (e: any) {
+        setStatus('Fetch failed (likely CORS): ' + (e?.message || e), 'err')
+      }
+    })
+
+    $analyze.addEventListener('click', () => {
+      const text = $json.value.trim()
+      if (!text) { setStatus('Paste JSON first.', 'err'); return }
+      runOnMapbox(text)
+    })
+
+    $showPaste.addEventListener('click', () => {
+      $pasteSection.classList.toggle('hidden')
+    })
+  </script>
+</Docs>
