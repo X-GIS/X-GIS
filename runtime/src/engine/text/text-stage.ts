@@ -698,6 +698,16 @@ export class TextStage {
     // The static bbox used for collision is the AABB of all glyph
     // centres (rough but cheap; precise oriented bboxes are overkill
     // for label-vs-label dedupe at typical zoom).
+    //
+    // Shared per-phase scratches. Sized once across the curved-label
+    // loop so we don't allocate `advances` / `cumLen` arrays per
+    // label. The per-label sample loop also targets a shared
+    // 3-element tuple instead of returning a fresh `{ x, y, angle }`
+    // closure result per glyph — that was the dominant GC source
+    // when many road labels project onto the same frame.
+    let _advanceScratch = new Float32Array(0)
+    let _cumLenScratch = new Float32Array(0)
+    const _sampleOut: [number, number, number] = [0, 0, 0]
     for (const p of this.pendingLine) {
       const glyphs = this.host.ensureString(p.fontKey, p.text)
       if (glyphs.length === 0) continue
@@ -710,8 +720,11 @@ export class TextStage {
       const typo = this.typographyFor(p.fontKey)
       const letterSpacingPx = ((p.def.letterSpacing ?? 0) + typo.letterSpacingEm) * sizePx
       // Total label width along the polyline (sum of advances + spacing).
+      if (_advanceScratch.length < glyphs.length) {
+        _advanceScratch = new Float32Array(glyphs.length * 2)
+      }
+      const advances = _advanceScratch
       let totalAdvancePx = 0
-      const advances: number[] = new Array(glyphs.length)
       for (let gi = 0; gi < glyphs.length; gi++) {
         const adv = glyphs[gi]!.advanceWidth * scale
         advances[gi] = adv
@@ -723,7 +736,10 @@ export class TextStage {
       const px = p.polylineX, py = p.polylineY
       const n = px.length
       if (n < 2) continue
-      const cumLen: number[] = new Array(n)
+      if (_cumLenScratch.length < n) {
+        _cumLenScratch = new Float32Array(n * 2)
+      }
+      const cumLen = _cumLenScratch
       cumLen[0] = 0
       for (let i = 1; i < n; i++) {
         const dx = px[i]! - px[i - 1]!
@@ -764,26 +780,24 @@ export class TextStage {
         }
       }
 
-      // Sample point at distance `s` along the polyline. When
-      // walkReversed, distances are measured from the polyline END
-      // (so `s=0` ⇒ the last vertex). The angle is flipped 180° so
-      // glyphs face the new "forward" (= original-backward) direction.
+      // Sample point at distance `s` along the polyline — writes to
+      // `_sampleOut` shared tuple [x, y, angle] (no per-call object
+      // alloc). When walkReversed, distances are measured from the
+      // polyline END; the angle is flipped 180°.
       let segIdx = 0
-      const sampleAt = (s: number): { x: number; y: number; angle: number } => {
+      const sampleAt = (s: number): void => {
         const sFwd = walkReversed ? totalLineLen - s : s
         while (segIdx < n - 2 && cumLen[segIdx + 1]! < sFwd) segIdx++
-        // For reverse walk, snap segIdx back if we overshot (sFwd
-        // monotonically decreases with each call when walkReversed).
         while (segIdx > 0 && cumLen[segIdx]! > sFwd) segIdx--
         const segLen = cumLen[segIdx + 1]! - cumLen[segIdx]!
         const t = segLen > 0 ? (sFwd - cumLen[segIdx]!) / segLen : 0
         const ax = px[segIdx]!, ay = py[segIdx]!
         const bx = px[segIdx + 1]!, by = py[segIdx + 1]!
-        const x = ax + (bx - ax) * t
-        const y = ay + (by - ay) * t
+        _sampleOut[0] = ax + (bx - ax) * t
+        _sampleOut[1] = ay + (by - ay) * t
         let angle = Math.atan2(by - ay, bx - ax)
         if (walkReversed) angle += Math.PI
-        return { x, y, angle }
+        _sampleOut[2] = angle
       }
       const glyphOffsets = new Float32Array(glyphs.length * 2)
       const glyphRotations = new Float32Array(glyphs.length)
@@ -815,19 +829,20 @@ export class TextStage {
         // `bearingX + glyphWidth/2` per glyph; since glyph widths
         // vary, gap distance varied too — visible as "Tr o pi c of
         // Cancer" with wide / narrow alternations.
-        const sample = sampleAt(cursor)
+        sampleAt(cursor)
+        const sx = _sampleOut[0], sy = _sampleOut[1], sAngle = _sampleOut[2]
         // Perpendicular shift: rotate (0, verticalOffsetPx) by the
         // sample's tangent angle. cos/sin of (angle + 90°) =
         // (-sin angle, cos angle). Multiply by the desired offset.
-        const perpX = -Math.sin(sample.angle) * verticalOffsetPx
-        const perpY = Math.cos(sample.angle) * verticalOffsetPx
-        glyphOffsets[gi * 2] = sample.x + perpX
-        glyphOffsets[gi * 2 + 1] = sample.y + perpY
-        glyphRotations[gi] = sample.angle
-        if (sample.x < gminX) gminX = sample.x
-        if (sample.x > gmaxX) gmaxX = sample.x
-        if (sample.y < gminY) gminY = sample.y
-        if (sample.y > gmaxY) gmaxY = sample.y
+        const perpX = -Math.sin(sAngle) * verticalOffsetPx
+        const perpY = Math.cos(sAngle) * verticalOffsetPx
+        glyphOffsets[gi * 2] = sx + perpX
+        glyphOffsets[gi * 2 + 1] = sy + perpY
+        glyphRotations[gi] = sAngle
+        if (sx < gminX) gminX = sx
+        if (sx > gmaxX) gmaxX = sx
+        if (sy < gminY) gminY = sy
+        if (sy > gmaxY) gmaxY = sy
         cursor += adv + (gi < glyphs.length - 1 ? letterSpacingPx : 0)
       }
       // Line labels reference the polyline directly — anchor is at
