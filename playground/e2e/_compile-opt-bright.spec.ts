@@ -35,15 +35,15 @@ import { getStyleProfile, formatStyleProfile } from '../../compiler/src/diagnost
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-test('OFM Bright — compile-time optimisation breakdown', () => {
-  const fixturePath = path.resolve(__dirname, '__convert-fixtures/bright.json')
+function runBreakdown(fixtureName: string, label: string): void {
+  const fixturePath = path.resolve(__dirname, `__convert-fixtures/${fixtureName}`)
   const raw = fs.readFileSync(fixturePath, 'utf8')
   const styleJson = JSON.parse(raw) as { layers: unknown[] }
 
   // ─── Stage 0: input ──────────────────────────────────────────
   const rawLayers = styleJson.layers.length
   // eslint-disable-next-line no-console
-  console.log(`\n══ OFM Bright compile pipeline ══`)
+  console.log(`\n══ ${label} compile pipeline ══`)
   // eslint-disable-next-line no-console
   console.log(`stage 0  raw Mapbox layers:                ${rawLayers}`)
 
@@ -167,4 +167,90 @@ test('OFM Bright — compile-time optimisation breakdown', () => {
 
   compileFullyInstrumented(xgisDefault, 'compute=0 (default)')
   compileFullyInstrumented(xgisCompute, 'compute=1 (bypass match-expansion)')
+}
+
+test('OFM Bright — compile-time optimisation breakdown', () => {
+  runBreakdown('bright.json', 'OFM Bright')
+})
+
+test('OFM Liberty — compile-time optimisation breakdown', () => {
+  runBreakdown('liberty.json', 'OFM Liberty')
+})
+
+// xgis-native styles bypass the Mapbox converter and go straight to
+// lex → parse → lower. Different shape than the Mapbox path — these
+// surface what the compile-time optimiser does on hand-authored DSL.
+function runNativeBreakdown(xgisFile: string, label: string): void {
+  const filePath = path.resolve(__dirname, `../src/examples/${xgisFile}`)
+  const src = fs.readFileSync(filePath, 'utf8')
+
+  // eslint-disable-next-line no-console
+  console.log(`\n══ ${label} (xgis-native) compile pipeline ══`)
+  // eslint-disable-next-line no-console
+  console.log(`stage 0  raw .xgis bytes:                    ${src.length}`)
+
+  const t0 = performance.now()
+  const tokens = new Lexer(src).tokenize()
+  const t1 = performance.now()
+  const program = new Parser(tokens).parse()
+  const t2 = performance.now()
+  const sceneRaw = lower(program)
+  const t3 = performance.now()
+  // eslint-disable-next-line no-console
+  console.log(`  lex+parse+lower:                          ${sceneRaw.renderNodes.length} renderNodes`
+    + `  (lex ${(t1 - t0).toFixed(1)} / parse ${(t2 - t1).toFixed(1)} / lower ${(t3 - t2).toFixed(1)} ms)`)
+
+  const afterMerge = mergeLayersPass.run(sceneRaw)
+  const afterStops = foldTrivialStopsPass.run(sceneRaw)
+  const afterCase = foldTrivialCasePass.run(sceneRaw)
+  const afterDead = deadLayerElimPass.run(sceneRaw)
+  // eslint-disable-next-line no-console
+  console.log(`  merge-layers       (alone):              ${afterMerge.renderNodes.length}  Δ ${afterMerge.renderNodes.length - sceneRaw.renderNodes.length}`)
+  // eslint-disable-next-line no-console
+  console.log(`  fold-trivial-stops (alone):              ${afterStops.renderNodes.length}  Δ ${afterStops.renderNodes.length - sceneRaw.renderNodes.length}`)
+  // eslint-disable-next-line no-console
+  console.log(`  fold-trivial-case  (alone):              ${afterCase.renderNodes.length}  Δ ${afterCase.renderNodes.length - sceneRaw.renderNodes.length}`)
+  // eslint-disable-next-line no-console
+  console.log(`  dead-layer-elim    (alone):              ${afterDead.renderNodes.length}  Δ ${afterDead.renderNodes.length - sceneRaw.renderNodes.length}`)
+
+  const t4 = performance.now()
+  const opt = optimize(sceneRaw, program)
+  const t5 = performance.now()
+  // eslint-disable-next-line no-console
+  console.log(`  optimize() composed:                      ${opt.renderNodes.length}  (${(t5 - t4).toFixed(1)} ms)`)
+  // eslint-disable-next-line no-console
+  console.log(`  ── total reduction: ${sceneRaw.renderNodes.length} → ${opt.renderNodes.length}`
+    + (sceneRaw.renderNodes.length > 0
+      ? `  (${((1 - opt.renderNodes.length / sceneRaw.renderNodes.length) * 100).toFixed(1)}%)`
+      : ''))
+
+  const profile = getStyleProfile(opt)
+  // eslint-disable-next-line no-console
+  console.log(`\n  StyleProfile (formatted):`)
+  // eslint-disable-next-line no-console
+  console.log(formatStyleProfile(profile).split('\n').map(l => `    ${l}`).join('\n'))
+}
+
+test('osm-style — xgis-native breakdown', () => {
+  runNativeBreakdown('osm-style.xgis', 'osm-style')
+})
+
+test('maplibre demo — xgis-native breakdown', () => {
+  runNativeBreakdown('import-maplibre-demo.xgis', 'maplibre demo')
+})
+
+test('openfreemap-bright (xgis) — DSL version of the same style', () => {
+  runNativeBreakdown('openfreemap-bright.xgis', 'OFM Bright (xgis DSL)')
+})
+
+test('continent-match — xgis-native breakdown', () => {
+  runNativeBreakdown('continent-match.xgis', 'continent-match')
+})
+
+test('animation-showcase — xgis-native breakdown (time-interp)', () => {
+  runNativeBreakdown('animation-showcase.xgis', 'animation-showcase')
+})
+
+test('step-and-concat — xgis-native breakdown', () => {
+  runNativeBreakdown('step-and-concat.xgis', 'step-and-concat')
 })
