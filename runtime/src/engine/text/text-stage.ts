@@ -629,14 +629,29 @@ export class TextStage {
       const lineHeightPx = lineHeightEm * sizePx
       const justify = p.def.justify ?? 'center'
 
-      // Compute per-line glyph ranges + line widths.
+      // Compute per-line glyph ranges + line widths. We track maxAscent
+      // (= max bearingY) and maxDescent (= max(height-bearingY)) so the
+      // anchor math below can place the BBOX BOTTOM (incl. descenders)
+      // at the anchor for text-anchor='bottom' — matches Mapbox /
+      // MapLibre semantics. Earlier code used `maxHeight` alone and put
+      // the BASELINE at the anchor, leaving descenders dangling
+      // ~descent_px below the authored position. User saw this on
+      // OFM Liberty Korea z=4.96 with bearing/pitch: Pyongyang's
+      // text-anchor='bottom' label drifted into the country label's
+      // wrap zone "조선민주주의인민공화국" because city's baseline (and
+      // therefore visible glyphs) sat ~descent px lower than ML.
       const advances: number[] = new Array(glyphs.length)
-      let maxHeight = 0
+      let maxAscent = 0
+      let maxDescent = 0
       for (let gi = 0; gi < glyphs.length; gi++) {
         const g = glyphs[gi]!
         advances[gi] = g.advanceWidth * scale
-        if (g.height * scale > maxHeight) maxHeight = g.height * scale
+        const ascent = g.bearingY * scale
+        const descent = (g.height - g.bearingY) * scale
+        if (ascent > maxAscent) maxAscent = ascent
+        if (descent > maxDescent) maxDescent = descent
       }
+      const maxHeight = maxAscent + maxDescent
 
       // Pretext handles the line-break decisions — Intl.Segmenter for
       // grapheme clusters (proper emoji ZWJ + combining marks),
@@ -677,9 +692,17 @@ export class TextStage {
         if (anchor === 'left' || anchor.endsWith('-left')) dx = 0
         else if (anchor === 'right' || anchor.endsWith('-right')) dx = -totalAdvance
         else dx = -totalAdvance / 2
-        if (anchor === 'top' || anchor.startsWith('top-')) dy = totalHeight
-        else if (anchor === 'bottom' || anchor.startsWith('bottom-')) dy = 0
-        else dy = totalHeight / 2
+        // drawY (set below) lands on the LAST-line baseline. For each
+        // anchor mode we solve "where should baseline_last sit so that
+        // bbox_{top|center|bottom} aligns with anchorY?" The
+        // `-maxDescent` term shifts the baseline UP by the descender
+        // height so descenders end up AT bbox bottom (i.e. AT the
+        // anchor for bottom-anchored labels) instead of dangling BELOW
+        // it. `B = totalHeight - maxDescent` is the distance from
+        // bbox_top to baseline_last.
+        if (anchor === 'top' || anchor.startsWith('top-')) dy = totalHeight - maxDescent
+        else if (anchor === 'bottom' || anchor.startsWith('bottom-')) dy = -maxDescent
+        else dy = totalHeight / 2 - maxDescent
         if (p.def.offset) {
           dx += p.def.offset[0] * sizePx
           dy += p.def.offset[1] * sizePx
