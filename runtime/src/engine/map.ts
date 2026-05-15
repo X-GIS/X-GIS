@@ -3447,6 +3447,22 @@ export class XGISMap {
                 const recordTextPosition = (resolvedText: string, _sx: number, _sy: number): void => {
                   emittedTextNames.add(resolvedText)
                 }
+                const SUBDIVS_PER_SEG = 16
+                // Polyline projection scratch — sized once per show, big
+                // enough to hold the worst-case sample count across any
+                // polyline encountered in this layer. Each callback
+                // writes into the head and uses a per-call `count` so we
+                // never have to clear. `new Float32Array(px)` inside the
+                // callback was the dominant GC source on z=12 Korea
+                // (`forEachLineLabelPolyline.prepare` ~30 ms with visible
+                // GC sweeps in profile); reusing one buffer per layer
+                // collapses that to near-zero.
+                let _pxScratch = new Float32Array(0)
+                let _pyScratch = new Float32Array(0)
+                // Static return holder for samplePosAt — closure used to
+                // return `{ x, y }` on every call, which fired in the
+                // hot loop below per spacing point.
+                const _samplePosOut: [number, number] = [0, 0]
                 vtEntry.renderer.forEachLineLabelPolyline(sliceKey, (mxs, mys, props) => {
                   if (mxs.length < 2) return
                   // Project every vertex to physical-pixel screen
@@ -3465,10 +3481,20 @@ export class XGISMap {
                   // sufficient for the labelling pass — the actual
                   // line geometry is rendered separately by the line
                   // renderer which handles its own viewport clipping.
-                  const SUBDIVS_PER_SEG = 16
-                  const px: number[] = []
-                  const py: number[] = []
                   const N = mxs.length
+                  // Upper-bound sample count for this polyline. First
+                  // segment emits SUBDIVS_PER_SEG+1 samples (including
+                  // both endpoints), every later segment emits
+                  // SUBDIVS_PER_SEG samples (start vertex skipped to
+                  // avoid duplicating the previous segment's end).
+                  // Total = SUBDIVS_PER_SEG * N - (N - 2). projectMerc
+                  // rejections only shorten this — they never grow it.
+                  const upper = SUBDIVS_PER_SEG * N + 1
+                  if (_pxScratch.length < upper) {
+                    _pxScratch = new Float32Array(upper * 2)  // 2× to amortise growth
+                    _pyScratch = new Float32Array(upper * 2)
+                  }
+                  let pn = 0  // active sample count
                   for (let i = 0; i < N - 1; i++) {
                     const ax = mxs[i]!, ay = mys[i]!
                     const bx = mxs[i + 1]!, by = mys[i + 1]!
@@ -3483,14 +3509,18 @@ export class XGISMap {
                       // accounted for ~80 % of forEachLineLabelPolyline's
                       // frame time pre-optimisation (OFM Bright z=13).
                       const proj = projectMerc(sx, sy)
-                      if (proj) { px.push(proj[0]); py.push(proj[1]) }
+                      if (proj) {
+                        _pxScratch[pn] = proj[0]
+                        _pyScratch[pn] = proj[1]
+                        pn++
+                      }
                     }
                   }
-                  if (px.length < 2) return
+                  if (pn < 2) return
                   let total = 0
-                  for (let i = 0; i < px.length - 1; i++) {
-                    const dx = px[i + 1]! - px[i]!
-                    const dy = py[i + 1]! - py[i]!
+                  for (let i = 0; i < pn - 1; i++) {
+                    const dx = _pxScratch[i + 1]! - _pxScratch[i]!
+                    const dy = _pyScratch[i + 1]! - _pyScratch[i]!
                     total += Math.sqrt(dx * dx + dy * dy)
                   }
                   const featDef = applyFeatureExprs(props)
@@ -3511,50 +3541,61 @@ export class XGISMap {
                   // cross-tile dedupe to evaluate "is this position
                   // too close to one already labelled with the same
                   // text?" without re-running the full glyph layout.
-                  const samplePosAt = (s: number): { x: number; y: number } | null => {
+                  // Returns true into `_samplePosOut` (shared) or false.
+                  const samplePosAt = (s: number): boolean => {
                     let acc = 0
-                    for (let i = 0; i < px.length - 1; i++) {
-                      const dx = px[i + 1]! - px[i]!
-                      const dy = py[i + 1]! - py[i]!
+                    for (let i = 0; i < pn - 1; i++) {
+                      const dx = _pxScratch[i + 1]! - _pxScratch[i]!
+                      const dy = _pyScratch[i + 1]! - _pyScratch[i]!
                       const segLen = Math.sqrt(dx * dx + dy * dy)
                       if (acc + segLen >= s) {
                         const t = segLen > 0 ? (s - acc) / segLen : 0
-                        return { x: px[i]! + dx * t, y: py[i]! + dy * t }
+                        _samplePosOut[0] = _pxScratch[i]! + dx * t
+                        _samplePosOut[1] = _pyScratch[i]! + dy * t
+                        return true
                       }
                       acc += segLen
                     }
-                    return null
+                    return false
                   }
                   if (useTangentRotation) {
                     // Curved-text path: pack the projected polyline
                     // and ask TextStage to lay each glyph along it.
-                    const polyX = new Float32Array(px)
-                    const polyY = new Float32Array(py)
+                    // Slice to the actual count — TextStage stores the
+                    // view, so we have to hand it a fresh typed array
+                    // that survives past the next callback iteration
+                    // (the shared scratch gets overwritten).
+                    const polyX = _pxScratch.slice(0, pn)
+                    const polyY = _pyScratch.slice(0, pn)
                     // No fontKey override — see note at line ~2370.
                     if (total < spacingPx * 0.5) {
-                      const at = samplePosAt(total * 0.5)
-                      if (at && !isTooCloseToSameText(resolvedTextForDedupe, at.x, at.y)) {
-                        stage.addCurvedLineLabel(
-                          featDef.text, props,
-                          polyX, polyY, total * 0.5,
-                          featDef,
-                          undefined, labelLayerName,
-                        )
-                        recordTextPosition(resolvedTextForDedupe, at.x, at.y)
+                      if (samplePosAt(total * 0.5)) {
+                        const sx = _samplePosOut[0], sy = _samplePosOut[1]
+                        if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)) {
+                          stage.addCurvedLineLabel(
+                            featDef.text, props,
+                            polyX, polyY, total * 0.5,
+                            featDef,
+                            undefined, labelLayerName,
+                          )
+                          recordTextPosition(resolvedTextForDedupe, sx, sy)
+                        }
                       }
                       return
                     }
                     let nextStop = spacingPx * 0.5
                     while (nextStop <= total) {
-                      const at = samplePosAt(nextStop)
-                      if (at && !isTooCloseToSameText(resolvedTextForDedupe, at.x, at.y)) {
-                        stage.addCurvedLineLabel(
-                          featDef.text, props,
-                          polyX, polyY, nextStop,
-                          featDef,
-                          undefined, labelLayerName,
-                        )
-                        recordTextPosition(resolvedTextForDedupe, at.x, at.y)
+                      if (samplePosAt(nextStop)) {
+                        const sx = _samplePosOut[0], sy = _samplePosOut[1]
+                        if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)) {
+                          stage.addCurvedLineLabel(
+                            featDef.text, props,
+                            polyX, polyY, nextStop,
+                            featDef,
+                            undefined, labelLayerName,
+                          )
+                          recordTextPosition(resolvedTextForDedupe, sx, sy)
+                        }
                       }
                       nextStop += spacingPx
                     }
@@ -3565,13 +3606,13 @@ export class XGISMap {
                   if (total < spacingPx * 0.5) {
                     let acc = 0
                     const target = total * 0.5
-                    for (let i = 0; i < px.length - 1; i++) {
-                      const dx = px[i + 1]! - px[i]!
-                      const dy = py[i + 1]! - py[i]!
+                    for (let i = 0; i < pn - 1; i++) {
+                      const dx = _pxScratch[i + 1]! - _pxScratch[i]!
+                      const dy = _pyScratch[i + 1]! - _pyScratch[i]!
                       const segLen = Math.sqrt(dx * dx + dy * dy)
                       if (acc + segLen >= target) {
                         const t = segLen > 0 ? (target - acc) / segLen : 0
-                        emitLabelAlongSegment(px[i]!, py[i]!, px[i + 1]!, py[i + 1]!, t, props)
+                        emitLabelAlongSegment(_pxScratch[i]!, _pyScratch[i]!, _pxScratch[i + 1]!, _pyScratch[i + 1]!, t, props)
                         return
                       }
                       acc += segLen
@@ -3580,13 +3621,13 @@ export class XGISMap {
                   }
                   let nextStop = spacingPx * 0.5
                   let acc = 0
-                  for (let i = 0; i < px.length - 1; i++) {
-                    const dx = px[i + 1]! - px[i]!
-                    const dy = py[i + 1]! - py[i]!
+                  for (let i = 0; i < pn - 1; i++) {
+                    const dx = _pxScratch[i + 1]! - _pxScratch[i]!
+                    const dy = _pyScratch[i + 1]! - _pyScratch[i]!
                     const segLen = Math.sqrt(dx * dx + dy * dy)
                     while (nextStop <= acc + segLen && nextStop <= total) {
                       const t = segLen > 0 ? (nextStop - acc) / segLen : 0
-                      emitLabelAlongSegment(px[i]!, py[i]!, px[i + 1]!, py[i + 1]!, t, props)
+                      emitLabelAlongSegment(_pxScratch[i]!, _pyScratch[i]!, _pxScratch[i + 1]!, _pyScratch[i + 1]!, t, props)
                       nextStop += spacingPx
                     }
                     acc += segLen
