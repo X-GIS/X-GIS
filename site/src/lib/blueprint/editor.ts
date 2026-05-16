@@ -272,6 +272,12 @@ export class BlueprintEditor {
       card.appendChild(ports)
     }
 
+    if (n.type === 'map') {
+      const order = document.createElement('div')
+      order.className = 'bp-order'
+      card.appendChild(order)
+    }
+
     if (spec.fields.length) {
       const fields = document.createElement('div')
       fields.className = 'bp-fields'
@@ -586,7 +592,76 @@ export class BlueprintEditor {
     this.ctx.style.display = ''
   }
 
+  /** Keep the Map node's draw-order list in sync with what's wired,
+   *  and (re)render its reorder UI. data.order is the source of truth
+   *  codegen reads; here we reconcile it with live connections. */
+  private syncMapNode() {
+    const map = this.nodes.find((n) => n.type === 'map')
+    if (!map) return
+    const el = this.nodeEls.get(map.id)
+    const box = el?.querySelector('.bp-order') as HTMLElement | null
+    if (!box) return
+
+    const connected = this.edges
+      .filter((e) => e.to.node === map.id && e.to.pin === 'layers')
+      .map((e) => e.from.node)
+      .filter((id) => this.nodes.find((n) => n.id === id)?.type === 'layer')
+    const stored = (map.data.order || '').split(',').filter(Boolean)
+    const ids = [
+      ...stored.filter((id) => connected.includes(id)),
+      ...connected.filter((id) => !stored.includes(id)),
+    ]
+    map.data.order = ids.join(',')
+
+    box.innerHTML = '<div class="bp-order-h">draw order — top drawn first (under)</div>'
+    if (ids.length === 0) {
+      const hint = document.createElement('div')
+      hint.className = 'bp-order-empty'
+      hint.textContent = 'Wire layer outputs into this node.'
+      box.appendChild(hint)
+      return
+    }
+    ids.forEach((id, i) => {
+      const lname = this.nodes.find((n) => n.id === id)?.data.name || 'layer'
+      const row = document.createElement('div')
+      row.className = 'bp-order-row'
+      const up = document.createElement('button')
+      up.type = 'button'
+      up.className = 'bp-ord-btn'
+      up.textContent = '▲'
+      up.disabled = i === 0
+      const dn = document.createElement('button')
+      dn.type = 'button'
+      dn.className = 'bp-ord-btn'
+      dn.textContent = '▼'
+      dn.disabled = i === ids.length - 1
+      const move = (delta: number) => {
+        const j = i + delta
+        if (j < 0 || j >= ids.length) return
+        ;[ids[i], ids[j]] = [ids[j], ids[i]]
+        map.data.order = ids.join(',')
+        this.emit()
+      }
+      up.addEventListener('pointerdown', (e) => e.stopPropagation())
+      dn.addEventListener('pointerdown', (e) => e.stopPropagation())
+      up.addEventListener('click', (e) => {
+        e.stopPropagation()
+        move(-1)
+      })
+      dn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        move(1)
+      })
+      const lab = document.createElement('span')
+      lab.className = 'bp-ord-name'
+      lab.textContent = `${i + 1}. ${lname}`
+      row.append(up, dn, lab)
+      box.appendChild(row)
+    })
+  }
+
   private emit() {
+    this.syncMapNode()
     this.onChange()
   }
 }

@@ -116,29 +116,55 @@ const playgroundUrl = `${base}/play/demo.html`
       >
       </div>
 
-      <div class="flex flex-col rounded-md border border-line bg-bg-elev" data-playground-url={playgroundUrl}>
-        <div class="flex items-center gap-2 px-3 py-2 border-b border-line">
-          <span class="text-fg text-[11px] tracking-wide uppercase">xgis source</span>
-          <div class="ml-auto flex gap-2">
+      <div class="flex flex-col gap-3 min-h-0" data-playground-url={playgroundUrl}>
+        <!-- Live preview -->
+        <div class="flex flex-col rounded-md border border-line bg-bg-elev overflow-hidden">
+          <div class="flex items-center gap-2 px-3 py-2 border-b border-line">
+            <span class="text-fg text-[11px] tracking-wide uppercase">live preview</span>
+            <label class="ml-auto flex items-center gap-1.5 text-[11px] text-fg-dim cursor-pointer select-none">
+              <input id="bp-live" type="checkbox" checked class="accent-accent" />
+              live
+            </label>
             <button
-              id="bp-copy"
+              id="bp-render"
               class="px-2.5 py-1 bg-bg border border-line rounded text-[11px] text-fg-dim hover:text-fg hover:border-fg-dim transition-colors"
-              >Copy</button
-            >
-            <button
-              id="bp-open"
-              class="px-2.5 py-1 bg-accent/15 border border-accent text-accent rounded text-[11px] hover:bg-accent/25 transition-colors"
-              >Open in playground</button
+              >Render now</button
             >
           </div>
+          <div class="relative bg-bg" style="height: 300px;">
+            <canvas id="bp-canvas" class="absolute inset-0 w-full h-full block"></canvas>
+            <div
+              id="bp-prev-msg"
+              class="absolute inset-x-0 bottom-0 px-3 py-1.5 text-[11px] text-fg-dim bg-bg/80 backdrop-blur-sm pointer-events-none"
+            ></div>
+          </div>
         </div>
-        <textarea
-          id="bp-out"
-          readonly
-          spellcheck="false"
-          class="flex-1 min-h-[260px] bg-bg px-3 py-2 text-[12px] font-mono whitespace-pre resize-none focus:outline-none"
-        ></textarea>
-        <p id="bp-msg" class="px-3 py-2 text-fg-dim text-[11px] border-t border-line min-h-[1.6em]"></p>
+
+        <!-- Source -->
+        <div class="flex flex-col flex-1 min-h-0 rounded-md border border-line bg-bg-elev">
+          <div class="flex items-center gap-2 px-3 py-2 border-b border-line">
+            <span class="text-fg text-[11px] tracking-wide uppercase">xgis source</span>
+            <div class="ml-auto flex gap-2">
+              <button
+                id="bp-copy"
+                class="px-2.5 py-1 bg-bg border border-line rounded text-[11px] text-fg-dim hover:text-fg hover:border-fg-dim transition-colors"
+                >Copy</button
+              >
+              <button
+                id="bp-open"
+                class="px-2.5 py-1 bg-accent/15 border border-accent text-accent rounded text-[11px] hover:bg-accent/25 transition-colors"
+                >Open in playground</button
+              >
+            </div>
+          </div>
+          <textarea
+            id="bp-out"
+            readonly
+            spellcheck="false"
+            class="flex-1 min-h-[160px] bg-bg px-3 py-2 text-[12px] font-mono whitespace-pre resize-none focus:outline-none"
+          ></textarea>
+          <p id="bp-msg" class="px-3 py-2 text-fg-dim text-[11px] border-t border-line min-h-[1.6em]"></p>
+        </div>
       </div>
     </div>
   </main>
@@ -325,6 +351,54 @@ const playgroundUrl = `${base}/play/demo.html`
       font-family: var(--font-mono, monospace);
       line-height: 1.4;
     }
+    .bp-order {
+      padding: 7px 9px 9px;
+      border-top: 1px solid var(--color-line);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .bp-order-h {
+      color: var(--color-fg-mute);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .bp-order-empty {
+      color: var(--color-fg-mute);
+      font-size: 11px;
+      font-style: italic;
+    }
+    .bp-order-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .bp-ord-btn {
+      width: 18px;
+      height: 18px;
+      line-height: 1;
+      font-size: 9px;
+      border-radius: 4px;
+      color: var(--color-fg-dim);
+      background: var(--color-bg);
+      border: 1px solid var(--color-line);
+      flex: none;
+    }
+    .bp-ord-btn:hover:not(:disabled) {
+      color: var(--color-fg);
+      border-color: var(--color-accent);
+    }
+    .bp-ord-btn:disabled {
+      opacity: 0.3;
+    }
+    .bp-ord-name {
+      font-size: 11px;
+      color: var(--color-fg-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     .bp-ctx {
       position: absolute;
       z-index: 9999;
@@ -403,6 +477,51 @@ const playgroundUrl = `${base}/play/demo.html`
       (document.querySelector('[data-playground-url]') as HTMLElement | null)?.dataset
         .playgroundUrl ?? ''
 
+    // ── Live preview (runtime embedded in-page) ──
+    // The heavy WebGPU runtime is dynamically imported on first
+    // render so it code-splits out of the initial page bundle.
+    const $canvas = document.getElementById('bp-canvas') as HTMLCanvasElement
+    const $prevMsg = document.getElementById('bp-prev-msg') as HTMLElement
+    const $live = document.getElementById('bp-live') as HTMLInputElement
+    const $render = document.getElementById('bp-render') as HTMLButtonElement
+    const dataBase = (import.meta.env.BASE_URL || '/') + 'data/'
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let MapCtor: any = null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let preview: any = null
+    let renderToken = 0
+    let prevTimer: number | undefined
+
+    async function renderPreview(src: string) {
+      if (!src.trim()) return
+      const token = ++renderToken
+      $prevMsg.textContent = 'Rendering…'
+      try {
+        if (!MapCtor) {
+          const mod = await import('@xgis/runtime')
+          MapCtor = mod.XGISMap
+        }
+        if (token !== renderToken) return // a newer render superseded us
+        try {
+          preview?.stop()
+        } catch {
+          /* prior map may not have started */
+        }
+        preview = new MapCtor($canvas)
+        await preview.run(src, dataBase)
+        if (token !== renderToken) return
+        $prevMsg.textContent = ''
+      } catch (e: any) {
+        if (token === renderToken) $prevMsg.textContent = 'Preview: ' + String(e?.message || e)
+      }
+    }
+
+    function schedulePreview(src: string) {
+      window.clearTimeout(prevTimer)
+      prevTimer = window.setTimeout(() => void renderPreview(src), 450)
+    }
+
     function setStatus(ok: boolean, text: string) {
       $status.textContent = text
       $status.style.color = ok ? '#86efac' : '#fca5a5'
@@ -436,6 +555,7 @@ const playgroundUrl = `${base}/play/demo.html`
       if (!src.trim()) {
         setStatus(true, 'empty')
         $msg.textContent = 'Add nodes (or right-click the canvas) to start.'
+        $prevMsg.textContent = 'Nothing to preview yet.'
         return
       }
       try {
@@ -444,9 +564,11 @@ const playgroundUrl = `${base}/play/demo.html`
         $msg.textContent =
           g.nodes.length + ' node' + (g.nodes.length === 1 ? '' : 's') + ' · ' +
           g.edges.length + ' wire' + (g.edges.length === 1 ? '' : 's')
+        if ($live.checked) schedulePreview(src)
       } catch (e: any) {
         setStatus(false, 'parse error')
         $msg.textContent = String(e?.message || e)
+        $prevMsg.textContent = 'Preview paused — fix the parse error.'
       }
     }
 
@@ -536,6 +658,14 @@ const playgroundUrl = `${base}/play/demo.html`
         return
       }
       void openInPlayground(src)
+    })
+
+    $render.addEventListener('click', () => {
+      window.clearTimeout(prevTimer)
+      void renderPreview($out.value)
+    })
+    $live.addEventListener('change', () => {
+      if ($live.checked) void renderPreview($out.value)
     })
 
     // ── Style → blueprint import ──

@@ -157,13 +157,22 @@ export function graphToXgis(g: BPGraph): string {
   const bg = pick('background')[0]
   if (bg) blocks.push(emitBackground(bg))
 
-  // Layers: those wired into the Map sink first, in wire order; any
-  // unwired layers still emit (after) so nothing silently vanishes.
+  // Layers: draw order is the Map node's explicit order list
+  // (data.order), reconciled with what's actually wired — stored ids
+  // still connected keep their slot; newly-wired layers append; any
+  // unwired layer still emits last so nothing silently vanishes.
   const mapNode = pick('map')[0]
   const ordered: BPNode[] = []
   const seen = new Set<string>()
   if (mapNode) {
-    for (const id of incoming(g, mapNode.id, 'layers')) {
+    const connected = incoming(g, mapNode.id, 'layers')
+    const connSet = new Set(connected)
+    const stored = (mapNode.data.order || '').split(',').filter(Boolean)
+    const finalIds = [
+      ...stored.filter((id) => connSet.has(id)),
+      ...connected.filter((id) => !stored.includes(id)),
+    ]
+    for (const id of finalIds) {
       const ln = nodes.get(id)
       if (ln && ln.type === 'layer' && !seen.has(id)) {
         ordered.push(ln)
