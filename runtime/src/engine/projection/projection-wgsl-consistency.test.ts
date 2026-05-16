@@ -20,9 +20,10 @@ import {
 // land on different screen positions for the same geographic point.
 //
 // These tests use a 10×10 grid of (lon, lat) samples. Tolerance is 1mm
-// for exact-formula pairs; Natural Earth is expected to diverge by meters
-// because the CPU implementation is a table-based interpolation while the
-// GPU uses a polynomial approximation of the same Natural Earth projection.
+// for exact-formula pairs. Natural Earth also agrees to 1mm now (A-1):
+// projection.ts was unified onto the same Šavrič et al. (2015) polynomial
+// the GPU uses, replacing the old table-based interpolation. See the
+// Natural Earth describe block below.
 
 const TOLERANCE_EXACT_MM = 0.001
 

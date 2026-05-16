@@ -28,9 +28,11 @@ export function projMercatorWgsl(lon: number, lat: number): [number, number] {
 }
 
 /** Mirror of `fn proj_natural_earth` in wgsl-projection.ts.
- *  Uses the Šavrič et al. (2015) 6th-order polynomial — NOT the table-based
- *  interpolation in projection.ts `naturalEarth.forward`. The divergence is
- *  real and intentional on the GPU side for shader-friendly evaluation. */
+ *  Šavrič et al. (2015) 6th-order polynomial. projection.ts
+ *  `naturalEarth.forward` now uses this SAME polynomial — the old
+ *  table-based interpolation (which drifted ~8145 km at the poles) was
+ *  removed; see the history note in projection.ts. CPU, WGSL, and this
+ *  mirror agree to ≤1mm, locked by projection-wgsl-consistency.test.ts. */
 export function projNaturalEarthWgsl(lon: number, lat: number): [number, number] {
   const latR = lat * DEG2RAD
   const lat2 = latR * latR

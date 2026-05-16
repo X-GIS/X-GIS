@@ -135,6 +135,10 @@ export function orthographic(centerLon: number, centerLat: number): Projection {
 
     inverse(x: number, y: number): [number, number] {
       const rho = Math.sqrt(x * x + y * y)
+      // At the projection centre rho→0 makes the lat/lon terms divide by
+      // zero (0/0 → NaN). azimuthalEquidistant/stereographic.inverse and
+      // reprojector.ts inv_orthographic all guard this; mirror them.
+      if (rho < 0.001) return [centerLon, centerLat]
       if (rho > EARTH_RADIUS) return [NaN, NaN]
       const c = Math.asin(rho / EARTH_RADIUS)
       const cosC = Math.cos(c)
