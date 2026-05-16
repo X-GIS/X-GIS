@@ -31,35 +31,18 @@ import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
 import { TextRenderer, type TextDraw } from './text-renderer'
 import { greedyPlaceBboxes, type CollisionItem } from './text-collision'
-import { FONT_KEY_SENTINEL, parseFontKey } from './sdf/glyph-rasterizer'
+import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
 import type { GlyphInfo } from './sdf/glyph-atlas-host'
 import { applyTextTransform, stripCurveLineExtraScripts } from './text-stage-helpers'
-import {
-  prepareWithSegments,
-  walkLineRanges,
-  materializeLineRange,
-} from '@chenglou/pretext'
-
-/** Compose the CSS font shorthand pretext expects, mirroring what
- *  `glyph-rasterizer.ts:137` builds for Canvas2D. Format:
- *  `[style] [weight] [size]px [family]`. Pretext uses this to call
- *  Canvas measureText internally on a hidden context; only the side
- *  shapes a few graphemes per unique label string then caches by
- *  prepared-text identity. */
-function composeFontShorthand(fontKey: string, fontSizePx: number): string {
-  const p = parseFontKey(fontKey)
-  return `${p.style} ${p.weight} ${fontSizePx}px ${p.family}`
-}
 
 interface WrappedLineRange { start: number; end: number; width: number }
 
-/** LRU cache for pretext wrap results. Same (text, font, size,
- *  letter-spacing, maxWidth) tuple produces identical line breaks —
- *  pretext's prepareWithSegments + walkLineRanges are deterministic.
- *  On rapid zoom in / out the same label text reappears with a
- *  small set of sizes; without this cache, every "cold" frame re-
- *  ran pretext for every label, dominating prepare() at 44 ms /
- *  frame on the user's Bright + compute=1 zoom-oscillation test.
+/** LRU cache for wrap results. Same (glyph sequence, font, size,
+ *  letter-spacing, maxWidth) tuple produces identical line breaks. On
+ *  rapid zoom in / out the same label text reappears with a small set
+ *  of sizes; without this cache, every "cold" frame re-ran the wrap
+ *  algorithm for every label, dominating prepare() at 44 ms / frame on
+ *  Bright + compute=1 zoom oscillation.
  *
  *  LRU eviction by re-insert: Map preserves insertion order, so
  *  `delete + set` on hit moves the entry to the tail. When size
@@ -84,19 +67,6 @@ function pretextCacheKey(
   return `${fontKey}|${sz}|${ls}|${mw}|${cps}`
 }
 
-/** Greedy multiline wrap powered by pretext. The output ranges index
- *  into the caller's `glyphs[]` array — pretext produces line ranges
- *  by (segmentIndex, graphemeIndex) cursor, which we back-map by
- *  codepoint-sequential match against the original glyph stream.
- *
- *  Why we don't use pretext's line widths: pretext measures via
- *  Canvas2D `measureText` at the actual font size, but our SDF atlas
- *  pre-rasterised glyphs at `opts.rasterFontSize` and the renderer
- *  positions per-glyph from `glyph.advanceWidth * scale`. Mixing
- *  measurement sources would drift the bbox math (used by collision
- *  + anchor offset) away from where the renderer actually places
- *  glyphs. So we hand pretext the break decisions and recompute
- *  widths from our cached advances. */
 /** Compute the rendered width of glyph range [start, end) using the
  *  per-glyph advances + letter-spacing convention the renderer uses. */
 function rangeWidth(
@@ -110,7 +80,179 @@ function rangeWidth(
   return w
 }
 
-function wrapWithPretext(
+// ─── Knuth-Plass-style line breaking (port of MapLibre tagged_string) ───
+//
+// The old `wrapWithPretext` path delegated to the browser line breaker
+// (greedy fit-as-much-as-possible per line). On real map labels —
+// "Yellow Sea", "Sea of Japan", "黄海 / 황해 / 조선서해" — the greedy
+// algorithm broke EVERY line at the first opportunity it could,
+// producing 5-7 line stacks where MapLibre kept text on 2-3 lines.
+//
+// MapLibre uses the algorithm from `src/symbol/tagged_string.ts`:
+//   1. averageLineWidth = totalWidth / ceil(totalWidth / maxWidth)
+//   2. At each breakable codepoint (space, hyphen, ideographic, `\n`,
+//      …) record a potential break with badness = (lineWidth -
+//      targetWidth)^2 + penalty²
+//   3. Dynamic programming: each break's "best prior break" is the
+//      one minimising cumulative badness. The final answer follows
+//      the chain back from the last break.
+//   4. Last-line badness halves when shorter than target (favours
+//      ragged-right paragraphs) and doubles when longer.
+//
+// Key correctness detail copied verbatim: WHITESPACE codepoints
+// (0x20, 0x09, 0x0a, 0x0d, 0x3000) do NOT contribute to currentX —
+// they collapse against the break point ahead. Without this we'd
+// over-count line widths by `~spacing per inter-word gap` and force
+// more breaks than necessary.
+const _BREAKABLE_CP: Record<number, true> = {
+  0x0a: true, 0x20: true, 0x26: true, 0x29: true, 0x2b: true, 0x2d: true,
+  0x2f: true, 0xad: true, 0xb7: true, 0x200b: true, 0x2010: true,
+  0x2013: true, 0x2027: true,
+}
+const _BREAKABLE_BEFORE_CP: Record<number, true> = { 0x28: true }
+function _charIsWhitespace(cp: number): boolean {
+  return cp === 0x09 || cp === 0x0a || cp === 0x0d || cp === 0x20 || cp === 0x3000
+}
+// MapLibre's regex-based `codePointAllowsIdeographicBreaking` covers
+// the CJK + Hangul + Hiragana + Katakana + CJK Symbols + Fullwidth
+// ranges. The numeric range form below matches the BMP-only cases the
+// regex tests for — adequate for everything OFM/Bright/Liberty source
+// data ships. Supplementary-plane ideographs (rare CJK extensions)
+// fall through to the Latin-style breakable-only path.
+function _allowsIdeographicBreaking(cp: number): boolean {
+  return (cp >= 0x2e80 && cp <= 0x2fdf)
+    || (cp >= 0x2ff0 && cp <= 0x303f)
+    || (cp >= 0x3041 && cp <= 0x3096)
+    || (cp >= 0x309d && cp <= 0x309f)
+    || (cp >= 0x30a1 && cp <= 0x30fa)
+    || (cp >= 0x30fd && cp <= 0x30ff)
+    || (cp >= 0x3105 && cp <= 0x312f)
+    || (cp >= 0x31a0 && cp <= 0x4dbf)
+    || (cp >= 0x4e00 && cp <= 0xa48c)
+    || (cp >= 0xa490 && cp <= 0xa4c6)
+    || (cp >= 0xac00 && cp <= 0xd7a3)   // Hangul syllables
+    || (cp >= 0xf900 && cp <= 0xfa6d)
+    || (cp >= 0xfa70 && cp <= 0xfad9)
+    || (cp >= 0xfe10 && cp <= 0xfe1f)
+    || (cp >= 0xfe30 && cp <= 0xfe4f)
+    || (cp >= 0xff00 && cp <= 0xffef)
+    || cp === 0x02ea || cp === 0x02eb
+}
+
+interface KPBreak {
+  index: number
+  x: number
+  prior: KPBreak | null
+  badness: number
+}
+
+function _kpBadness(lineWidth: number, targetWidth: number, penalty: number, isLast: boolean): number {
+  const ragged = (lineWidth - targetWidth) ** 2
+  if (isLast) return lineWidth < targetWidth ? ragged / 2 : ragged * 2
+  return ragged + Math.abs(penalty) * penalty
+}
+
+function _kpPenalty(cp: number, nextCp: number, penalisableIdeo: boolean): number {
+  let penalty = 0
+  if (cp === 0x0a) penalty -= 10000
+  if (penalisableIdeo) penalty += 150
+  if (cp === 0x28 || cp === 0xff08) penalty += 50
+  if (nextCp === 0x29 || nextCp === 0xff09) penalty += 50
+  return penalty
+}
+
+function _kpEvaluateBreak(
+  breakIndex: number,
+  breakX: number,
+  targetWidth: number,
+  potentialBreaks: KPBreak[],
+  penalty: number,
+  isLast: boolean,
+): KPBreak {
+  let bestPrior: KPBreak | null = null
+  let bestBadness = _kpBadness(breakX, targetWidth, penalty, isLast)
+  for (const p of potentialBreaks) {
+    const lineW = breakX - p.x
+    const b = _kpBadness(lineW, targetWidth, penalty, isLast) + p.badness
+    if (b <= bestBadness) {
+      bestPrior = p
+      bestBadness = b
+    }
+  }
+  return { index: breakIndex, x: breakX, prior: bestPrior, badness: bestBadness }
+}
+
+function _kpCollectBreakIndices(last: KPBreak | null): number[] {
+  const out: number[] = []
+  for (let b = last; b !== null; b = b.prior) out.push(b.index)
+  return out.reverse()
+}
+
+/** Knuth-Plass line break for a single segment (no `\n` inside).
+ *  Returns the list of WrappedLineRange covering glyphs[start..end). */
+function _kpWrapSegment(
+  glyphs: readonly GlyphInfo[],
+  advances: readonly number[],
+  letterSpacingPx: number,
+  maxWidthPx: number,
+  segStart: number, segEnd: number,
+): WrappedLineRange[] {
+  const n = segEnd - segStart
+  if (n <= 0) return [{ start: segStart, end: segEnd, width: 0 }]
+  if (maxWidthPx === Infinity) {
+    return [{
+      start: segStart, end: segEnd,
+      width: rangeWidth(advances, segStart, segEnd, letterSpacingPx),
+    }]
+  }
+  // 1. totalWidth = sum of (advance + spacing) for NON-WHITESPACE chars.
+  //    Matches MapLibre's `if (!charIsWhitespace(cp)) currentX += ...`.
+  let totalWidth = 0
+  for (let i = segStart; i < segEnd; i++) {
+    const cp = glyphs[i]!.codepoint
+    if (!_charIsWhitespace(cp)) totalWidth += advances[i]! + letterSpacingPx
+  }
+  const lineCount = Math.max(1, Math.ceil(totalWidth / maxWidthPx))
+  const targetWidth = totalWidth / lineCount
+  // 2. Walk; record potential breaks at every breakable codepoint.
+  const potential: KPBreak[] = []
+  let currentX = 0
+  for (let i = segStart; i < segEnd; i++) {
+    const cp = glyphs[i]!.codepoint
+    if (!_charIsWhitespace(cp)) currentX += advances[i]! + letterSpacingPx
+    const isLast = i === segEnd - 1
+    if (isLast) continue  // only emit the FINAL break via evaluateBreak below
+    const nextCp = glyphs[i + 1]!.codepoint
+    const ideoBreak = _allowsIdeographicBreaking(cp)
+    const allowBreakBefore = i + 2 < segEnd ? _BREAKABLE_BEFORE_CP[nextCp] === true : false
+    if (_BREAKABLE_CP[cp] === true || ideoBreak || allowBreakBefore) {
+      const penalty = _kpPenalty(cp, nextCp, ideoBreak)
+      potential.push(_kpEvaluateBreak(i + 1, currentX, targetWidth, potential, penalty, false))
+    }
+  }
+  // 3. Final break at segment end (isLast=true).
+  const finalBreak = _kpEvaluateBreak(n + segStart, currentX, targetWidth, potential, 0, true)
+  // 4. Walk back to collect break indices (each is the START of the
+  //    next line). Convert to WrappedLineRange[].
+  const indices = _kpCollectBreakIndices(finalBreak)
+  const lines: WrappedLineRange[] = []
+  let prev = segStart
+  for (const idx of indices) {
+    if (idx > prev) {
+      lines.push({
+        start: prev, end: idx,
+        width: rangeWidth(advances, prev, idx, letterSpacingPx),
+      })
+    }
+    prev = idx
+  }
+  return lines.length > 0 ? lines : [{
+    start: segStart, end: segEnd,
+    width: rangeWidth(advances, segStart, segEnd, letterSpacingPx),
+  }]
+}
+
+function wrapWithKnuthPlass(
   glyphs: readonly GlyphInfo[],
   advances: readonly number[],
   fontKey: string,
@@ -127,18 +269,10 @@ function wrapWithPretext(
     return hit
   }
 
-  // Pre-split on hard newlines (Mapbox text-field expressions use `\n`
-  // between scripts: `concat(name:latin, "\n", name:nonlatin)`). For
-  // each segment we decide:
-  //   - has a Latin word-break opportunity (space / tab) → hand to
-  //     pretext for normal greedy wrap
-  //   - pure-CJK (no spaces, no break points) → emit as ONE line
-  //     even if it exceeds maxWidth. Mapbox/MapLibre's shaper does
-  //     the same: a CJK-only run is never force-broken since the
-  //     `word-break: keep-all` semantic has no internal break points.
-  //     Pretext's force-break-on-overflow (no CSS `overflow-wrap`
-  //     option exposed at the API) was producing the "조선민주주의 /
-  //     인민공화국" wrap that didn't match ML on Liberty Korea z=4.96.
+  // Pre-split on hard newlines. Mapbox text-field expressions use `\n`
+  // between bilingual scripts (`concat(name:latin, "\n", name:nonlatin)`).
+  // Each segment runs through the Knuth-Plass DP independently — a
+  // forced newline never carries badness into the next segment.
   const segments: { start: number; end: number }[] = []
   {
     let segStart = 0
@@ -151,111 +285,17 @@ function wrapWithPretext(
     segments.push({ start: segStart, end: glyphs.length })
   }
 
-  if (segments.length > 1) {
-    // Multi-segment path. Each segment either passes through pretext
-    // (if it has a natural break point) or is kept as one line.
-    const lines: WrappedLineRange[] = []
-    for (const seg of segments) {
-      if (seg.start === seg.end) {
-        lines.push({ start: seg.start, end: seg.end, width: 0 })
-        continue
-      }
-      let hasNaturalBreak = false
-      for (let j = seg.start; j < seg.end; j++) {
-        const cp = glyphs[j]!.codepoint
-        if (cp === 32 || cp === 9) { hasNaturalBreak = true; break }
-      }
-      if (!hasNaturalBreak) {
-        lines.push({
-          start: seg.start, end: seg.end,
-          width: rangeWidth(advances, seg.start, seg.end, letterSpacingPx),
-        })
-        continue
-      }
-      // Inline pretext wrap for this segment (no `\n` inside).
-      const segText = String.fromCodePoint(
-        ...glyphs.slice(seg.start, seg.end).map(g => g.codepoint),
-      )
-      const segFont = composeFontShorthand(fontKey, fontSizePx)
-      const segPrepared = prepareWithSegments(segText, segFont, {
-        letterSpacing: letterSpacingPx,
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'keep-all',
-      })
-      let segIdx = seg.start
-      walkLineRanges(segPrepared, maxWidthPx, range => {
-        const lineText = materializeLineRange(segPrepared, range).text
-        const cps = [...lineText].map(c => c.codePointAt(0)!)
-        const lineStart = segIdx
-        for (let i = 0; i < cps.length; i++) {
-          while (segIdx < seg.end && glyphs[segIdx]!.codepoint !== cps[i]) segIdx++
-          if (segIdx < seg.end) segIdx++
-        }
-        lines.push({
-          start: lineStart, end: segIdx,
-          width: rangeWidth(advances, lineStart, segIdx, letterSpacingPx),
-        })
-      })
-    }
-    _pretextCache.set(cacheKey, lines)
-    if (_pretextCache.size > PRETEXT_CACHE_MAX) {
-      const oldest = _pretextCache.keys().next().value
-      if (oldest !== undefined) _pretextCache.delete(oldest)
-    }
-    return lines
-  }
-  if (glyphs.length === 0) return []
-  const text = String.fromCodePoint(...glyphs.map(g => g.codepoint))
-  const font = composeFontShorthand(fontKey, fontSizePx)
-  const prepared = prepareWithSegments(text, font, {
-    letterSpacing: letterSpacingPx,
-    // `pre-wrap` honours explicit `\n` Mapbox styles emit inside
-    // text-field for bilingual stacks ("Seoul\n서울"). Without it
-    // pretext collapses LF into a regular break opportunity and the
-    // hard-break intent is lost.
-    whiteSpace: 'pre-wrap',
-    // CSS `word-break: keep-all` — break only at Latin spaces and
-    // explicit `\n`, never at CJK / Hangul character boundaries.
-    // Mapbox / MapLibre's shaper has the same behaviour: a CJK-only
-    // run of any length is rendered as one line. With the default
-    // `normal` mode pretext breaks `조선민주주의인민공화국` (11 chars)
-    // at maxWidth=6.25em, producing the "조선민주주의 / 인민공화국"
-    // wrap that didn't match ML on OFM Liberty Korea z=4.96.
-    // `keep-all` collapses CJK runs and lets the line exceed maxWidth
-    // when it has no space break points — exactly ML behaviour.
-    wordBreak: 'keep-all',
-  })
-
   const lines: WrappedLineRange[] = []
-  let glyphIdx = 0
-  walkLineRanges(prepared, maxWidthPx, range => {
-    const lineText = materializeLineRange(prepared, range).text
-    const cps = [...lineText].map(c => c.codePointAt(0)!)
-    const lineStart = glyphIdx
-    // Sequential match — find each codepoint in glyphs[] from current
-    // position. Pretext drops trailing space at break points, so the
-    // glyph stream may have intervening characters we need to skip
-    // (e.g. the space that pretext consumed at the line boundary).
-    for (let i = 0; i < cps.length; i++) {
-      while (glyphIdx < glyphs.length && glyphs[glyphIdx]!.codepoint !== cps[i]) glyphIdx++
-      if (glyphIdx < glyphs.length) glyphIdx++
+  for (const seg of segments) {
+    if (seg.start === seg.end) {
+      lines.push({ start: seg.start, end: seg.end, width: 0 })
+      continue
     }
-    const lineEnd = glyphIdx
-    // Recompute width from our advances + letter-spacing (matches
-    // how the renderer pens out the glyphs).
-    let w = 0
-    for (let j = lineStart; j < lineEnd; j++) {
-      w += advances[j]!
-      if (j < lineEnd - 1) w += letterSpacingPx
-    }
-    lines.push({ start: lineStart, end: lineEnd, width: w })
-  })
+    const segLines = _kpWrapSegment(glyphs, advances, letterSpacingPx, maxWidthPx, seg.start, seg.end)
+    for (const ln of segLines) lines.push(ln)
+  }
 
-  // Empty-text fallback — pretext returns zero lines for `''`, but
-  // the renderer expects at least one (empty) range so the anchor
-  // positioning code still has a bbox to work with.
   if (lines.length === 0) lines.push({ start: 0, end: 0, width: 0 })
-  // Cache write + LRU eviction.
   _pretextCache.set(cacheKey, lines)
   if (_pretextCache.size > PRETEXT_CACHE_MAX) {
     const oldest = _pretextCache.keys().next().value
@@ -763,7 +803,7 @@ export class TextStage {
       // positions stay consistent (the alternative — using pretext's
       // canvas-measured widths — would diverge from advanceWidth and
       // smear the bbox math).
-      const lines = wrapWithPretext(
+      const lines = wrapWithKnuthPlass(
         glyphs, advances, p.fontKey, sizePx,
         letterSpacingPx, maxWidthPx,
       )
