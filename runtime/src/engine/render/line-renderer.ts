@@ -188,7 +188,11 @@ struct TileUniforms {
   // for extruded layers.
   _pad_pick: u32,
   _pad_layer_offset: f32,
-  _pad_tile_extent: f32,
+  // Tile-local Mercator-meter extent at this tile's zoom (slot 38,
+  // written by VTR for the shared uniform). The line shader reads it to
+  // derive the per-tile unwrap reference longitude for project_geom so
+  // seam-straddling strokes stay contiguous under equirect/natural_earth.
+  tile_extent_m: f32,
   outline_z_lift_m: f32,
   // Per-tile clip mask in absolute Mercator meters (west, south,
   // east, north). Matches the polygon Uniforms.clip_bounds field
@@ -283,7 +287,8 @@ fn finalize_corner(corner: vec2<f32>) -> vec2<f32> {
   let abs_lon = abs_merc.x / (DEG2RAD * EARTH_R);
   let lat_rad = 2.0 * atan(exp(abs_merc.y / EARTH_R)) - PI / 2.0;
   let abs_lat = lat_rad / DEG2RAD;
-  let proj_xy = project(abs_lon, abs_lat, tile.proj_params);
+  let tile_ref_lon = (tile.tile_origin_merc.x + 0.5 * tile.tile_extent_m) / (DEG2RAD * EARTH_R);
+  let proj_xy = project_geom(abs_lon, abs_lat, tile.proj_params, tile_ref_lon);
   let center_xy = project(tile.proj_params.y, tile.proj_params.z, tile.proj_params);
   return proj_xy - center_xy;
 }

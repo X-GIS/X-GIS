@@ -43,18 +43,46 @@ export function projMercatorWgsl(lon: number, lat: number): [number, number] {
  *  removed; see the history note in projection.ts. CPU, WGSL, and this
  *  mirror agree to ≤1mm, locked by projection-wgsl-consistency.test.ts. */
 export function projNaturalEarthWgsl(lon: number, lat: number, clon = 0): [number, number] {
+  return projNaturalEarthDWgsl(wrapLonDelta(lon - clon), lat)
+}
+
+/** Mirror of `fn proj_natural_earth_d` — Natural Earth from an
+ *  already-resolved recentred longitude delta (no internal wrap). */
+export function projNaturalEarthDWgsl(lonRel: number, lat: number): [number, number] {
   const latR = lat * DEG2RAD
   const lat2 = latR * latR
   const lat4 = lat2 * lat2
   const lat6 = lat2 * lat4
   const xScale = 0.8707 - 0.131979 * lat2 + 0.013791 * lat4 - 0.0081435 * lat6
   const yVal = latR * (1.007226 + lat2 * (0.015085 + lat2 * (-0.044475 + 0.028874 * lat2 - 0.005916 * lat4)))
-  return [wrapLonDelta(lon - clon) * DEG2RAD * xScale * EARTH_R, yVal * EARTH_R]
+  return [lonRel * DEG2RAD * xScale * EARTH_R, yVal * EARTH_R]
 }
 
 /** Mirror of `fn proj_equirectangular` in wgsl-projection.ts. */
 export function projEquirectangularWgsl(lon: number, lat: number, clon = 0): [number, number] {
-  return [wrapLonDelta(lon - clon) * DEG2RAD * EARTH_R, lat * DEG2RAD * EARTH_R]
+  return projEquirectangularDWgsl(wrapLonDelta(lon - clon), lat)
+}
+
+/** Mirror of `fn proj_equirectangular_d` — equirect from an
+ *  already-resolved recentred longitude delta (no internal wrap). */
+export function projEquirectangularDWgsl(lonRel: number, lat: number): [number, number] {
+  return [lonRel * DEG2RAD * EARTH_R, lat * DEG2RAD * EARTH_R]
+}
+
+/** Mirror of `fn unwrap_lon_near` — brings `value` into the 360°-wide
+ *  window centred on `ref` → [ref − 180, ref + 180). floor() (not
+ *  round()) so this matches the WGSL bit-for-bit. Used by
+ *  projectGeomWgsl to keep CPU raster tile_rtc consistent with the GPU
+ *  per-vertex tile projection at the antimeridian seam. */
+export function unwrapLonNear(value: number, ref: number): number {
+  return value - 360 * Math.floor((value - ref + 180) / 360)
+}
+
+/** Mirror of `fn unwrap_rad_near` — 2π-window analogue for the
+ *  oblique_mercator rotated longitude (atan2 ±π branch cut). */
+export function unwrapRadNear(value: number, ref: number): number {
+  const twoPi = 2 * Math.PI
+  return value - twoPi * Math.floor((value - ref + Math.PI) / twoPi)
 }
 
 /** Mirror of `fn proj_orthographic` in wgsl-projection.ts.
@@ -111,8 +139,8 @@ export function projStereographicWgsl(lon: number, lat: number, clon: number, cl
   ]
 }
 
-/** Mirror of `fn proj_oblique_mercator` in wgsl-projection.ts. */
-export function projObliqueMercatorWgsl(lon: number, lat: number, clon: number, clat: number): [number, number] {
+/** Mirror of `fn oblique_rot` — rotated (lon, lat) radians. */
+export function obliqueRotWgsl(lon: number, lat: number, clon: number, clat: number): [number, number] {
   const lam = lon * DEG2RAD, phi = lat * DEG2RAD
   const l0 = clon * DEG2RAD, p0 = clat * DEG2RAD
   const dLam = lam - l0
@@ -123,9 +151,20 @@ export function projObliqueMercatorWgsl(lon: number, lat: number, clon: number, 
     Math.cos(phi) * Math.sin(dLam),
     Math.sin(phi) * Math.sin(p0) + Math.cos(phi) * Math.cos(p0) * Math.cos(dLam),
   )
+  return [lamRot, phiRot]
+}
+
+/** Mirror of `fn proj_oblique_mercator_d` — rotated frame → XY. */
+export function projObliqueMercatorDWgsl(lamRot: number, phiRot: number): [number, number] {
   const MERC_LIMIT_RAD = 85.051129 * DEG2RAD
   const phiClamped = Math.max(-MERC_LIMIT_RAD, Math.min(MERC_LIMIT_RAD, phiRot))
   return [EARTH_R * lamRot, EARTH_R * Math.log(Math.tan(Math.PI / 4 + phiClamped / 2))]
+}
+
+/** Mirror of `fn proj_oblique_mercator` in wgsl-projection.ts. */
+export function projObliqueMercatorWgsl(lon: number, lat: number, clon: number, clat: number): [number, number] {
+  const [lamRot, phiRot] = obliqueRotWgsl(lon, lat, clon, clat)
+  return projObliqueMercatorDWgsl(lamRot, phiRot)
 }
 
 // ═══ Dispatchers — mirror the WGSL `project()` / `needs_backface_cull()`
@@ -154,6 +193,31 @@ export function projectWgsl(
   if (projType < 4.5) return projAzimuthalEquidistantWgsl(lon, lat, clon, clat)
   if (projType < 5.5) return projStereographicWgsl(lon, lat, clon, clat)
   return projObliqueMercatorWgsl(lon, lat, clon, clat)
+}
+
+/** Mirror of WGSL `project_geom()` in shaders/projection.ts. Equal to
+ *  projectWgsl for every projection except the seam ones — equirect=1,
+ *  natural_earth=2 (hard wrap at clon±180) and oblique_mercator=6
+ *  (atan2 ±π branch cut) — where the recentred coordinate is unwrapped
+ *  toward `refLon` (per-tile centre longitude) in CAMERA-RELATIVE space
+ *  so a seam-straddling tile stays contiguous AND correctly placed even
+ *  when the camera is near ±180°. raster-renderer.ts uses this for the
+ *  CPU tile_rtc SW corner so the telescoping `project_geom(v) −
+ *  project_geom(SW) + tile_rtc` stays exact at the seam. */
+export function projectGeomWgsl(
+  projType: number, lon: number, lat: number, clon: number, clat: number, refLon: number,
+): [number, number] {
+  if (projType > 0.5 && projType < 2.5) {
+    const refD = wrapLonDelta(refLon - clon)
+    const d = unwrapLonNear(lon - clon, refD)
+    return projType < 1.5 ? projEquirectangularDWgsl(d, lat) : projNaturalEarthDWgsl(d, lat)
+  }
+  if (projType > 5.5) {
+    const [lamRot, phiRot] = obliqueRotWgsl(lon, lat, clon, clat)
+    const [refLamRot] = obliqueRotWgsl(refLon, clat, clon, clat)
+    return projObliqueMercatorDWgsl(unwrapRadNear(lamRot, refLamRot), phiRot)
+  }
+  return projectWgsl(projType, lon, lat, clon, clat)
 }
 
 /** Mirror of WGSL `needs_backface_cull()` in shaders/projection.ts.
