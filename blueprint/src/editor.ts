@@ -29,6 +29,12 @@ import {
   type PinSpec,
   type PinType,
 } from './types'
+import { bezier } from './geometry'
+import { History } from './history'
+import { computeNodeIssues } from './diagnostics'
+import { renderMinimap } from './minimap'
+import { openSearchPalette } from './palette'
+import { peekData } from './datapeek'
 
 interface Opts {
   viewport: HTMLElement
@@ -80,8 +86,7 @@ export class BlueprintEditor {
   private drag: Drag = null
   private ctxWorld = { x: 0, y: 0 }
   private rafPending = false
-  private past: string[] = []
-  private future: string[] = []
+  private history = new History()
   private fieldDirty = false
 
   constructor(o: Opts) {
@@ -173,16 +178,12 @@ export class BlueprintEditor {
   }
 
   undo() {
-    if (!this.past.length) return
-    this.future.push(this.snapshot())
-    const s = this.past.pop()!
-    this.restore(s)
+    const s = this.history.undo(this.snapshot())
+    if (s !== null) this.restore(s)
   }
   redo() {
-    if (!this.future.length) return
-    this.past.push(this.snapshot())
-    const s = this.future.pop()!
-    this.restore(s)
+    const s = this.history.redo(this.snapshot())
+    if (s !== null) this.restore(s)
   }
 
   fit(selectionOnly = false) {
@@ -242,9 +243,7 @@ export class BlueprintEditor {
     return JSON.stringify({ nodes: this.nodes, edges: this.edges, frames: this.frames })
   }
   private record() {
-    this.past.push(this.snapshot())
-    if (this.past.length > 100) this.past.shift()
-    this.future = []
+    this.history.record(this.snapshot())
   }
   private restore(s: string) {
     const g = JSON.parse(s)
@@ -868,7 +867,7 @@ export class BlueprintEditor {
         (x) => x.from.node === out.node && x.from.pin === out.pin && x.to.node === inp.node && x.to.pin === inp.pin,
       )
     ) {
-      this.past.pop()
+      this.history.cancel()
       return
     }
     this.edges.push({ id: uid('e'), from: { node: out.node, pin: out.pin }, to: { node: inp.node, pin: inp.pin } })
@@ -1093,141 +1092,46 @@ export class BlueprintEditor {
 
   // ── minimap ──
   private drawMini() {
-    const ns = this.nodes
-    // Only worth the corner real-estate on busy graphs; keep the
-    // canvas clean for the common small case.
-    if (ns.length < 12) {
-      this.mini.style.display = 'none'
-      this.mini.innerHTML = ''
-      return
-    }
-    this.mini.style.display = ''
-    let minX = Infinity
-    let minY = Infinity
-    let maxX = -Infinity
-    let maxY = -Infinity
-    for (const n of ns) {
-      const el = this.nodeEls.get(n.id)
-      const w = el?.offsetWidth ?? 232
-      const h = el?.offsetHeight ?? 120
-      minX = Math.min(minX, n.x)
-      minY = Math.min(minY, n.y)
-      maxX = Math.max(maxX, n.x + w)
-      maxY = Math.max(maxY, n.y + h)
-    }
-    const pad = 80
-    minX -= pad
-    minY -= pad
-    maxX += pad
-    maxY += pad
-    const MW = 180
-    const MH = 120
-    const s = Math.min(MW / (maxX - minX), MH / (maxY - minY))
-    let html = ''
-    for (const n of ns) {
-      const el = this.nodeEls.get(n.id)
-      const w = (el?.offsetWidth ?? 232) * s
-      const h = (el?.offsetHeight ?? 120) * s
-      html += `<i style="left:${(n.x - minX) * s}px;top:${(n.y - minY) * s}px;width:${Math.max(2, w)}px;height:${Math.max(2, h)}px;background:${NODE_SPECS[n.type].accent}"></i>`
-    }
     const r = this.vp.getBoundingClientRect()
-    const vx = (-this.pan.x / this.zoom - minX) * s
-    const vy = (-this.pan.y / this.zoom - minY) * s
-    const vw = (r.width / this.zoom) * s
-    const vh = (r.height / this.zoom) * s
-    html += `<b style="left:${vx}px;top:${vy}px;width:${vw}px;height:${vh}px"></b>`
-    this.mini.innerHTML = html
-    ;(this.mini as unknown as { _s?: number })._s = s
-    ;(this.mini as unknown as { _o?: [number, number] })._o = [minX, minY]
-  }
-
-  // ── data peek ──
-  private async peekData(n: BPNode, out: HTMLElement) {
-    const url = (n.data.url || '').trim()
-    if (!url || (n.data.type && n.data.type !== 'geojson')) {
-      out.textContent = 'Peek works for geojson sources only.'
-      return
-    }
-    out.textContent = 'Peeking…'
-    try {
-      const abs = url.startsWith('http') ? url : new URL(url, location.href).href
-      const j = await (await fetch(abs)).json()
-      const feats = Array.isArray(j.features) ? j.features : Array.isArray(j) ? j : []
-      const keys = feats.length && feats[0]?.properties ? Object.keys(feats[0].properties) : []
-      out.textContent = `${feats.length} features · ${keys.slice(0, 6).join(', ') || 'no properties'}`
-    } catch {
-      out.textContent = 'Peek failed (network / CORS).'
-    }
+    renderMinimap(this.mini, {
+      nodes: this.nodes,
+      sizeOf: (id) => {
+        const el = this.nodeEls.get(id)
+        return { w: el?.offsetWidth ?? 232, h: el?.offsetHeight ?? 120 }
+      },
+      pan: this.pan,
+      zoom: this.zoom,
+      vp: { width: r.width, height: r.height },
+    })
   }
 
   // ── palette (search + contextual create) ──
   private openPalette(clientX: number, clientY: number, from?: { node: string; pin: string; ptype: PinType }) {
-    const r = this.vp.getBoundingClientRect()
     this.ctxWorld = this.toWorld(clientX, clientY)
     const fromDir = from ? this.pinDir(from.node, from.pin) : null
     const wantDir = fromDir === 'out' ? 'in' : 'out'
-    const types = (Object.keys(NODE_SPECS) as NodeType[]).filter((t) => {
-      if (!from) return true
-      const spec = NODE_SPECS[t]
-      const pins = wantDir === 'in' ? spec.inputs : spec.outputs
-      return pins.some((p) => pinCompatible(p.type, from.ptype))
-    })
-    this.palette.innerHTML = ''
-    const search = document.createElement('input')
-    search.className = 'bp-ctx-search'
-    search.placeholder = from ? 'Create compatible node…' : 'Search nodes…'
-    this.palette.appendChild(search)
-    const list = document.createElement('div')
-    list.className = 'bp-ctx-list'
-    this.palette.appendChild(list)
-
-    const render = (q: string) => {
-      list.innerHTML = ''
-      const ql = q.toLowerCase()
-      const matches = types.filter(
-        (t) =>
-          NODE_SPECS[t].title.toLowerCase().includes(ql) || NODE_SPECS[t].blurb.toLowerCase().includes(ql),
-      )
-      matches.forEach((t, i) => {
+    const items = (Object.keys(NODE_SPECS) as NodeType[])
+      .filter((t) => {
+        if (!from) return true
         const spec = NODE_SPECS[t]
-        const disabled = !!spec.singleton && this.nodes.some((n) => n.type === t)
-        const item = document.createElement('button')
-        item.type = 'button'
-        item.className = 'bp-ctx-item' + (i === 0 ? ' bp-ctx-active' : '')
-        item.disabled = disabled
-        item.innerHTML = `<span class="bp-ctx-dot" style="background:${spec.accent}"></span><span><b>${spec.title}</b><small>${spec.blurb}</small></span>`
-        item.addEventListener('click', () => this.commitPalette(t, from))
-        list.appendChild(item)
+        const pins = wantDir === 'in' ? spec.inputs : spec.outputs
+        return pins.some((p) => pinCompatible(p.type, from.ptype))
       })
-    }
-    render('')
-    search.addEventListener('input', () => render(search.value))
-    search.addEventListener('keydown', (ev) => {
-      const items = [...list.querySelectorAll<HTMLButtonElement>('.bp-ctx-item:not(:disabled)')]
-      const cur = list.querySelector('.bp-ctx-active')
-      let idx = items.findIndex((x) => x === cur)
-      if (ev.key === 'ArrowDown') {
-        ev.preventDefault()
-        idx = Math.min(items.length - 1, idx + 1)
-      } else if (ev.key === 'ArrowUp') {
-        ev.preventDefault()
-        idx = Math.max(0, idx - 1)
-      } else if (ev.key === 'Enter') {
-        ev.preventDefault()
-        items[Math.max(0, idx)]?.click()
-        return
-      } else if (ev.key === 'Escape') {
-        this.palette.style.display = 'none'
-        return
-      } else return
-      items.forEach((x) => x.classList.remove('bp-ctx-active'))
-      items[idx]?.classList.add('bp-ctx-active')
-      items[idx]?.scrollIntoView({ block: 'nearest' })
+      .map((t) => ({
+        type: t,
+        title: NODE_SPECS[t].title,
+        blurb: NODE_SPECS[t].blurb,
+        accent: NODE_SPECS[t].accent,
+        disabled: !!NODE_SPECS[t].singleton && this.nodes.some((n) => n.type === t),
+      }))
+    openSearchPalette(this.palette, {
+      vpRect: this.vp.getBoundingClientRect(),
+      clientX,
+      clientY,
+      contextual: !!from,
+      items,
+      onPick: (t) => this.commitPalette(t, from),
     })
-    this.palette.style.left = `${Math.min(clientX - r.left, r.width - 270)}px`
-    this.palette.style.top = `${Math.min(clientY - r.top, r.height - 280)}px`
-    this.palette.style.display = ''
-    search.focus()
   }
   private commitPalette(t: NodeType, from?: { node: string; pin: string; ptype: PinType }) {
     this.palette.style.display = 'none'
@@ -1328,7 +1232,7 @@ export class BlueprintEditor {
       peek.textContent = 'Peek data'
       const res = document.createElement('div')
       res.className = 'bp-insp-peekres'
-      peek.addEventListener('click', () => void this.peekData(n, res))
+      peek.addEventListener('click', () => void peekData(n, res))
       box.append(peek, res)
     }
   }
@@ -1425,38 +1329,16 @@ export class BlueprintEditor {
 
   // ── diagnostics ──
   private updateBadges() {
-    const dupe = (kind: NodeType) => {
-      const seen = new Map<string, number>()
-      this.nodes.filter((n) => n.type === kind).forEach((n) => {
-        const k = (n.data.name || '').trim()
-        if (k) seen.set(k, (seen.get(k) ?? 0) + 1)
-      })
-      return seen
-    }
-    const srcDupes = dupe('source')
-    const layDupes = dupe('layer')
+    const issues = computeNodeIssues(this.nodes, this.edges)
     for (const n of this.nodes) {
       const el = this.nodeEls.get(n.id)
       const badge = el?.querySelector('.bp-badge') as HTMLElement | null
       if (!badge) continue
-      const issues: string[] = []
-      const hasName = NODE_SPECS[n.type].fields.some((f) => f.key === 'name')
-      if (hasName && !(n.data.name || '').trim()) issues.push('name is empty')
-      if (n.type === 'layer') {
-        if (!this.edges.some((e) => e.to.node === n.id && e.to.pin === 'source')) issues.push('no source wired')
-        if ((layDupes.get((n.data.name || '').trim()) ?? 0) > 1) issues.push('duplicate layer name')
-      }
-      if (n.type === 'source') {
-        if (!(n.data.url || '').trim()) issues.push('url is empty')
-        if ((srcDupes.get((n.data.name || '').trim()) ?? 0) > 1) issues.push('duplicate source name')
-      }
-      if (n.type === 'import' && !(n.data.path || '').trim()) issues.push('path is empty')
-      if (n.type === 'map' && !this.edges.some((e) => e.to.node === n.id && e.to.pin === 'layers'))
-        issues.push('no layers wired')
-      if (issues.length) {
+      const list = issues.get(n.id)
+      if (list) {
         badge.style.display = ''
         badge.textContent = '⚠'
-        badge.title = issues.join(' · ')
+        badge.title = list.join(' · ')
       } else {
         badge.style.display = 'none'
       }
@@ -1468,9 +1350,4 @@ export class BlueprintEditor {
     this.updateBadges()
     this.onChange()
   }
-}
-
-function bezier(x1: number, y1: number, x2: number, y2: number): string {
-  const dx = Math.max(30, Math.min(160, Math.abs(x2 - x1) * 0.5))
-  return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`
 }
