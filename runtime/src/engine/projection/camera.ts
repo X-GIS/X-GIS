@@ -38,6 +38,13 @@ export class Camera {
    *  the globe re-derives from them — usable, but true drag-to-rotate /
    *  cursor-anchored globe zoom is the remaining interaction wiring. */
   globeMode = false
+  /** When in globeMode, use a parallel (orthographic) orbit-camera
+   *  projection instead of the perspective one. Set by the Map for the
+   *  azimuthal set (ortho / azimuthal_equidistant / stereographic) so a
+   *  tilt is a true orthographic 3D tilt — no perspective foreshortening,
+   *  and byte-identical to the flat 2D disc at pitch=0. The true `globe`
+   *  leaves this false (keeps its perspective orbit camera). */
+  globeOrtho = false
   /** Resolved projection kind (0=mercator … 3=orthographic … 7=globe),
    *  pushed by the Map each frame. zoomAt reads it to choose a
    *  projection-correct cursor anchor — the flat-plane Mercator
@@ -255,6 +262,7 @@ export class Camera {
     const v = buildGlobeMatrix(
       lon, lat, this.zoom, this.pitch, this.bearing,
       canvasWidth / dpr, canvasHeight / dpr,
+      this.globeOrtho,
     )
     this._globeMatrix.set(v.rtcMatrix)
     return { matrix: this._globeMatrix, far: v.far }
@@ -437,7 +445,7 @@ export class Camera {
     // fingers (Cesium-style) by inverse-projecting it through the disc.
     const before = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
 
-    if (this.projType === 3) {
+    if (this.projType === 3 && !this.globeMode) {
       const R = 6378137
       // Only geo-anchor when the fingers are solidly on the visible
       // hemisphere. Near the limb (|q| → R) the orthographic inverse is

@@ -304,3 +304,61 @@ describe('globe — Cesium-style pitch', () => {
     expect(facingCount(0)).toBeGreaterThan(0)
   })
 })
+
+// The azimuthal set (orthographic / azimuthal_equidistant / stereographic)
+// promotes to this sphere path with a PARALLEL orbit camera when tilted.
+// The contract that makes the pitch=0 → pitch>0 transition seamless for
+// orthographic: an ortho-camera sphere at pitch=0 is byte-identical to
+// the flat 2D orthographic disc (orthographic projection of a sphere
+// along the surface normal IS that disc).
+describe('globe — orthographic (parallel) orbit camera', () => {
+  const d2r = Math.PI / 180
+  const projOrtho = (lon: number, lat: number, clon: number, clat: number) => {
+    const lam = lon * d2r, phi = lat * d2r, l0 = clon * d2r, p0 = clat * d2r
+    return [
+      EARTH_R * Math.cos(phi) * Math.sin(lam - l0),
+      EARTH_R * (Math.cos(p0) * Math.sin(phi) - Math.sin(p0) * Math.cos(phi) * Math.cos(lam - l0)),
+    ]
+  }
+  const ndc = (m: ArrayLike<number>, v: number[]) => {
+    const w = m[3] * v[0] + m[7] * v[1] + m[11] * v[2] + m[15] * v[3]
+    return [
+      (m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12] * v[3]) / w,
+      (m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13] * v[3]) / w,
+    ]
+  }
+
+  it('pitch=0 ortho-globe matches the flat 2D orthographic disc', async () => {
+    const { Camera } = await import('./camera')
+    const clon = 10, clat = 30, zoom = 2
+    const cam = new Camera(clon, clat, zoom)
+    cam.projType = 3 // flat 2D azimuthal path
+    const m2d = cam.getRTCMatrix(W, H, 1)
+    const v = buildGlobeMatrix(clon, clat, zoom, 0, 0, W, H, true)
+    const fc = globeForward(clon, clat)
+    for (const [lon, lat] of [[10, 30], [15, 35], [5, 25], [30, 10], [-10, 50], [40, -5]]) {
+      const a = ndc(m2d, [...projOrtho(lon, lat, clon, clat), 0, 1])
+      const g = globeForward(lon, lat)
+      const b = ndc(v.rtcMatrix, [g[0] - fc[0], g[1] - fc[1], g[2] - fc[2], 1])
+      expect(Math.abs(a[0] - b[0])).toBeLessThan(2e-3)
+      expect(Math.abs(a[1] - b[1])).toBeLessThan(2e-3)
+    }
+  })
+
+  it('parallel projection (clip.w ≡ 1) and a real tilt at pitch>0', () => {
+    const fc = globeForward(0, 0)
+    const rel = (lon: number, lat: number) => {
+      const g = globeForward(lon, lat)
+      return [g[0] - fc[0], g[1] - fc[1], g[2] - fc[2], 1]
+    }
+    const flat = buildGlobeMatrix(0, 0, 2, 0, 0, W, H, true)
+    const tilt = buildGlobeMatrix(0, 0, 2, 45, 0, W, H, true)
+    // No perspective divide under the parallel camera.
+    const m = tilt.rtcMatrix, p = rel(20, 15)
+    const w = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15] * p[3]
+    expect(Math.abs(w - 1)).toBeLessThan(1e-6)
+    // Tilting moves an off-centre point vertically on screen.
+    expect(Math.abs(ndc(tilt.rtcMatrix, rel(0, 10))[1] - ndc(flat.rtcMatrix, rel(0, 10))[1]))
+      .toBeGreaterThan(0.05)
+  })
+})
