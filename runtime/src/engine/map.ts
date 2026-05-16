@@ -124,6 +124,12 @@ export interface TextOverlayHandle {
  *  none of which are vector tile kinds — return undefined so the
  *  detector falls through to URL-extension sniffing. */
 function asVectorTileKind(t: string | undefined): 'pmtiles' | 'tilejson' | 'auto' | undefined {
+  // Mapbox-style sources declare `type: vector`; treat that as `auto`
+  // so the URL-based detector picks the right format. Without this
+  // mapping, sources like Protomaps `type:vector, tiles:[".../{z}/{x}/{y}.mvt"]`
+  // fell through to raster classification via `isTileTemplate(url)`
+  // and rendered as empty tiles (user-reported 2026-05-16).
+  if (t === 'vector') return 'auto'
   return t === 'pmtiles' || t === 'tilejson' || t === 'auto' ? t : undefined
 }
 
@@ -1465,7 +1471,15 @@ export class XGISMap {
     // FeatureCollection — which then crashes `applyFilter` because
     // there's no `.features` array.
     const declaredType = load.type
-    const looksLikeRaster = declaredType === 'raster' || isTileTemplate(url)
+    // Mapbox styles declare `type: vector` / converted to `type: tilejson`
+    // for MVT XYZ endpoints whose URL contains the `{z}/{x}/{y}` template.
+    // Don't let the template-shape heuristic re-route those into the
+    // raster path — declared vector-family type wins.
+    const isDeclaredVector = declaredType === 'vector'
+      || declaredType === 'tilejson'
+      || declaredType === 'pmtiles'
+    const looksLikeRaster = declaredType === 'raster'
+      || (!isDeclaredVector && isTileTemplate(url))
     const vectorTileFormat = detectVectorTileFormat(url, asVectorTileKind(declaredType))
 
     if (looksLikeRaster) {

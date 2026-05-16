@@ -152,6 +152,14 @@ export function detectVectorTileFormat(
   if (path.endsWith('.tilejson')) return 'tilejson'
   if (path.endsWith('.json') && !path.endsWith('.geojson')) return 'tilejson'
   if (path.endsWith('.pmtiles')) return 'pmtiles'
+  // Mapbox-style vector sources can declare `tiles: ["…/{z}/{x}/{y}.mvt"]`
+  // (single-tile XYZ endpoint, no TileJSON manifest). Route those into
+  // the MVT path; the loader synthesises a minimal TileJSON wrapper
+  // around the template so the rest of the vector-tile pipeline doesn't
+  // need to know whether the source had a real manifest or not.
+  if (kind === 'auto' || kind === 'tilejson') {
+    if (path.endsWith('.mvt') || path.endsWith('.pbf')) return 'tilejson'
+  }
   if (kind && kind !== 'auto') return kind
   return null
 }
@@ -563,6 +571,27 @@ export class VectorTileLoader {
   /** Open and parse a TileJSON manifest (or return a cached one). */
   openTileJSON(url: string): Promise<CachedTileJSON> {
     return memoizeOpen(this.tileJsonCache, url, async () => {
+      // Mapbox-style sources can carry `tiles: ["…/{z}/{x}/{y}.mvt"]`
+      // inline — no TileJSON manifest exists, the template IS the source.
+      // Detect by the presence of XYZ placeholders and synthesize a
+      // minimal manifest in-memory rather than fetching the template
+      // URL as JSON (which would 404 or return MVT bytes for tile 0/0/0
+      // depending on the server). Caller passes the template directly.
+      if (url.includes('{z}') && url.includes('{x}') && url.includes('{y}')) {
+        return {
+          tilesTemplate: url,
+          bounds: [-180, -85.0511287, 180, 85.0511287],
+          minzoom: 0,
+          maxzoom: 14,
+          // No vector-layers metadata available without a manifest. The
+          // runtime path that needs per-source-layer field schemas
+          // (paint-shape data-driven evaluation) falls back to inferring
+          // from MVT tile contents on the fly.
+          vectorLayers: [],
+          name: undefined,
+          attribution: undefined,
+        }
+      }
       const resp = await fetch(url)
       if (!resp.ok) throw new Error(`TileJSON ${url} returned HTTP ${resp.status}`)
       const tj = await resp.json() as RawTileJSON
