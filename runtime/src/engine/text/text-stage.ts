@@ -525,22 +525,34 @@ export class TextStage {
     // (Hangul/Han on OFM Bright etc.) are Canvas2D-rasterised once at
     // this size and then GPU-scaled to the physical display size. On
     // a hidpi phone (dpr 2-3) a 24-px raster gets upscaled ~dpr×,
-    // visibly soft. Baking at rasterFontSize·dpr makes that GPU step
-    // ~1:1 for typical label sizes. Capped so the glyph + its SDF
-    // falloff still fits a slot (rasterFontSize + 2·sdfRadius ≤
-    // slotSize) — at the defaults that's 64−16 = 48 px (= 2× the
-    // 24-px base, the practical ceiling without growing slots). PBF
-    // glyphs resample through pbf-to-slot's sub-pixel-preserving
-    // bilinear at the same factor; SDF upscales gracefully so Latin
-    // fidelity is unaffected. All downstream consumers (atlas raster,
-    // display `scale`, TextDraw.rasterFontSize, halo normalisation)
-    // read this one value so they stay consistent.
+    // visibly soft. Baking at base·k (k = dpr) makes that GPU step
+    // ~1:1 for typical label sizes.
+    //
+    // rasterFontSize AND sdfRadius scale by the SAME factor k so the
+    // SDF falloff stays a FIXED fraction of the glyph (em-relative).
+    // Scaling only rasterFontSize (the original #134) left the 8-px
+    // band a smaller share of the bigger raster, halving the usable
+    // halo/AA headroom in display px → halo width/blur clamped and
+    // "evaluated strangely" on hidpi (user-reported). With both
+    // scaled, #133's halo math (which already divides by sdfRadius)
+    // is dpr-invariant. k is capped so glyph + 2·falloff still fits a
+    // slot: k ≤ slotSize/(base+2·baseRadius) = 64/40 = 1.6 at the
+    // defaults (raster 38, radius 13 — no slot growth). floor() keeps
+    // the sum ≤ slotSize. PBF resamples through pbf-to-slot's
+    // sub-pixel bilinear at the same factor; SDF upscales gracefully
+    // so Latin fidelity is unaffected. All downstream consumers
+    // (atlas raster, display `scale`, TextDraw.rasterFontSize/sdfRadius,
+    // halo normalisation) read these two values so they stay
+    // consistent.
     const dpr = options.dpr && options.dpr > 0 ? options.dpr : 1
-    const rasterCap = this.opts.slotSize - 2 * this.opts.sdfRadius
-    this.opts.rasterFontSize = Math.max(
-      this.opts.rasterFontSize,
-      Math.min(Math.round(this.opts.rasterFontSize * dpr), rasterCap),
+    const baseRaster = this.opts.rasterFontSize
+    const baseRadius = this.opts.sdfRadius
+    const k = Math.max(
+      1,
+      Math.min(dpr, this.opts.slotSize / (baseRaster + 2 * baseRadius)),
     )
+    this.opts.rasterFontSize = Math.floor(baseRaster * k)
+    this.opts.sdfRadius = Math.floor(baseRadius * k)
     // Rasterizer selection:
     //   1. explicit `rasterizer` override     → use as-is
     //   2. ANY of {glyphsUrl, inlineGlyphs,
@@ -974,8 +986,15 @@ export class TextStage {
             const lineY = -totalHeight + maxHeight + li * lineHeightPx
             let pen = lineX
             for (let gi = ln.start; gi < ln.end; gi++) {
-              glyphOffsets[gi * 2] = drawX - p.anchorX + pen
-              glyphOffsets[gi * 2 + 1] = drawY - p.anchorY + lineY
+              // Offsets are relative to the draw's anchor (drawX/drawY):
+              // the renderer computes baseX = d.anchorX + offset, and
+              // d.anchorX is set to drawX below. Adding (drawX-p.anchorX)
+              // here too double-counted the anchor delta (dx,dy) — every
+              // multi-line label landed an extra `dx` left / `dy` off,
+              // while single-line labels (pen path, no offsets) were
+              // correct. Pure within-block pen/lineY is the right delta.
+              glyphOffsets[gi * 2] = pen
+              glyphOffsets[gi * 2 + 1] = lineY
               pen += advances[gi]!
               if (gi < ln.end - 1) pen += letterSpacingPx
             }
