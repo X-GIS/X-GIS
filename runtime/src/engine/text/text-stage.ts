@@ -220,6 +220,7 @@ function _kpWrapSegment(
   letterSpacingPx: number,
   maxWidthPx: number,
   segStart: number, segEnd: number,
+  hasZeroWidthSpaces: boolean,
 ): WrappedLineRange[] {
   const n = segEnd - segStart
   if (n <= 0) return [{ start: segStart, end: segEnd, width: 0 }]
@@ -229,12 +230,15 @@ function _kpWrapSegment(
       width: rangeWidth(advances, segStart, segEnd, letterSpacingPx),
     }]
   }
-  // 1. totalWidth = sum of (advance + spacing) for NON-WHITESPACE chars.
-  //    Matches MapLibre's `if (!charIsWhitespace(cp)) currentX += ...`.
+  // 1. targetWidth = totalWidth / ceil(totalWidth / maxWidth).
+  //    MapLibre `determineAverageLineWidth` sums getGlyphAdvance
+  //    (advance + spacing) for EVERY char INCLUDING whitespace —
+  //    only the break-position walk below skips whitespace. Skipping
+  //    it here too shrank totalWidth, picking a smaller lineCount /
+  //    targetWidth than MapLibre → over-wrapped CJK/Latin labels.
   let totalWidth = 0
   for (let i = segStart; i < segEnd; i++) {
-    const cp = glyphs[i]!.codepoint
-    if (!_charIsWhitespace(cp)) totalWidth += advances[i]! + letterSpacingPx
+    totalWidth += advances[i]! + letterSpacingPx
   }
   const lineCount = Math.max(1, Math.ceil(totalWidth / maxWidthPx))
   const targetWidth = totalWidth / lineCount
@@ -250,7 +254,13 @@ function _kpWrapSegment(
     const ideoBreak = _allowsIdeographicBreaking(cp)
     const allowBreakBefore = i + 2 < segEnd ? _BREAKABLE_BEFORE_CP[nextCp] === true : false
     if (_BREAKABLE_CP[cp] === true || ideoBreak || allowBreakBefore) {
-      const penalty = _kpPenalty(cp, nextCp, ideoBreak)
+      // MapLibre only penalises ideographic breaks (+150) when the
+      // text has a U+200B somewhere — `calculatePenalty(cp, next,
+      // ideographicBreak && hasZeroWidthSpaces)`. Without a ZWSP a
+      // CJK/Latin label freely breaks between ideographs; penalising
+      // unconditionally made it dodge CJK breaks and split the Latin
+      // word ("Yellow Sea" → "Yellow"/"Sea").
+      const penalty = _kpPenalty(cp, nextCp, ideoBreak && hasZeroWidthSpaces)
       potential.push(_kpEvaluateBreak(i + 1, currentX, targetWidth, potential, penalty, false))
     }
   }
@@ -309,13 +319,18 @@ function wrapWithKnuthPlass(
     segments.push({ start: segStart, end: glyphs.length })
   }
 
+  // MapLibre's `hasZeroWidthSpaces` tests the WHOLE string
+  // (`this.text.includes('​')`), not per-segment — compute once
+  // over every glyph and share across the `\n`-split segments.
+  const hasZeroWidthSpaces = glyphs.some(g => g.codepoint === 0x200b)
+
   const lines: WrappedLineRange[] = []
   for (const seg of segments) {
     if (seg.start === seg.end) {
       lines.push({ start: seg.start, end: seg.end, width: 0 })
       continue
     }
-    const segLines = _kpWrapSegment(glyphs, advances, letterSpacingPx, maxWidthPx, seg.start, seg.end)
+    const segLines = _kpWrapSegment(glyphs, advances, letterSpacingPx, maxWidthPx, seg.start, seg.end, hasZeroWidthSpaces)
     for (const ln of segLines) lines.push(ln)
   }
 
@@ -326,6 +341,25 @@ function wrapWithKnuthPlass(
     if (oldest !== undefined) _pretextCache.delete(oldest)
   }
   return lines
+}
+
+/** Test-only entry into the Knuth-Plass line breaker. Builds minimal
+ *  GlyphInfo stubs from raw codepoints (wrap only reads `.codepoint`)
+ *  and returns the line ranges. Mirrors MapLibre `tagged_string.ts`
+ *  `determineLineBreaks`; the parity assertions live in
+ *  text-wrap.test.ts. */
+export function wrapForTesting(
+  codepoints: readonly number[],
+  advances: readonly number[],
+  maxWidthPx: number,
+  letterSpacingPx = 0,
+): { start: number; end: number; width: number }[] {
+  const glyphs = codepoints.map(
+    cp => ({ codepoint: cp } as unknown as GlyphInfo),
+  )
+  return wrapWithKnuthPlass(
+    glyphs, advances, '__wrap_test__', 16, letterSpacingPx, maxWidthPx,
+  ).map(l => ({ start: l.start, end: l.end, width: l.width }))
 }
 
 /** Compose the rasterizer-visible font key for one label.
