@@ -32,7 +32,16 @@ export function pbfGlyphToSlot(
   sdfRadius: number,
   rasterFontSize: number,
 ): GlyphRasterResult {
-  const scale = rasterFontSize / PBF_REF_SIZE
+  // PBF is ALWAYS baked at its native 24-px reference (scale = 1):
+  // an identity byte copy into the slot, no bilinear upsample, no
+  // byte rescale. The global rasterFontSize is DPR-scaled for the
+  // local Canvas2D path (crisp Hangul); coupling PBF to it
+  // reintroduced the resample softening ae5fdab eliminated (thin
+  // Latin "Seoul"/"l"). The returned `rasterFontSize: PBF_REF_SIZE`
+  // tells the renderer to scale this glyph by sizePx/24 at draw
+  // time, so display size is unchanged while the SDF stays 1:1.
+  const scale = 1
+  void rasterFontSize  // PBF size is source-fixed, not the global raster
   const drawW = Math.round(g.width * scale)
   const drawH = Math.round(g.height * scale)
 
@@ -127,5 +136,6 @@ export function pbfGlyphToSlot(
     bearingY: g.top * scale,
     width: g.width * scale,
     height: g.height * scale,
+    rasterFontSize: PBF_REF_SIZE,
   }
 }

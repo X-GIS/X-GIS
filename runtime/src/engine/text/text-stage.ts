@@ -836,7 +836,6 @@ export class TextStage {
       // intrinsic tracking differences without forking the style.
       const typo = this.typographyFor(p.fontKey)
       const letterSpacingPx = ((p.def.letterSpacing ?? 0) + typo.letterSpacingEm) * sizePx
-      const scale = sizePx / this.opts.rasterFontSize
       // Multiline layout: greedy word-break at maxWidth (em-units →
       // px). When unset, treat as Infinity = single line.
       const maxWidthPx = p.def.maxWidth !== undefined
@@ -861,6 +860,10 @@ export class TextStage {
       let maxDescent = 0
       for (let gi = 0; gi < glyphs.length; gi++) {
         const g = glyphs[gi]!
+        // Per-glyph slot→display scale: PBF runs are baked at 24 px,
+        // local Hangul at the DPR-scaled raster — one bilingual label
+        // mixes both, so the factor can't be label-wide.
+        const scale = sizePx / (g.rasterFontSize ?? this.opts.rasterFontSize)
         advances[gi] = g.advanceWidth * scale
         const ascent = g.bearingY * scale
         const descent = (g.height - g.bearingY) * scale
@@ -1049,7 +1052,6 @@ export class TextStage {
       const glyphs = this.host.ensureString(p.fontKey, p.text)
       if (glyphs.length === 0) continue
       const sizePx = p.def.size * dpr
-      const scale = sizePx / this.opts.rasterFontSize
       // Same per-font override path as the point-label branch above —
       // see the comment there for rationale. Curve labels reuse the
       // same letter-spacing semantics (extra em between adjacent
@@ -1063,7 +1065,9 @@ export class TextStage {
       const advances = _advanceScratch
       let totalAdvancePx = 0
       for (let gi = 0; gi < glyphs.length; gi++) {
-        const adv = glyphs[gi]!.advanceWidth * scale
+        const gg = glyphs[gi]!
+        const adv = gg.advanceWidth
+          * (sizePx / (gg.rasterFontSize ?? this.opts.rasterFontSize))
         advances[gi] = adv
         totalAdvancePx += adv
       }
