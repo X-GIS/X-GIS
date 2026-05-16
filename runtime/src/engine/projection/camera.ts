@@ -38,6 +38,13 @@ export class Camera {
    *  the globe re-derives from them — usable, but true drag-to-rotate /
    *  cursor-anchored globe zoom is the remaining interaction wiring. */
   globeMode = false
+  /** Resolved projection kind (0=mercator … 3=orthographic … 7=globe),
+   *  pushed by the Map each frame. zoomAt reads it to choose a
+   *  projection-correct cursor anchor — the flat-plane Mercator
+   *  unproject is only valid for the cylindrical/pseudocylindrical set;
+   *  orthographic needs the spherical inverse so the geographic point
+   *  under the fingers stays pinned (Cesium-style) during pinch zoom. */
+  projType = 0
   private _globeMatrix = new Float32Array(16)
   /** Upper bound for `zoom`. Set by the Map based on source.maxLevel so
    *  that user pan/zoom input and hash restoration can't push us past the
@@ -421,8 +428,50 @@ export class Camera {
     const syDev = screenY * dpr
 
     // World point under cursor BEFORE zoom — relative to current
-    // camera (rel coords).
+    // camera (rel coords). For orthographic these are points on the
+    // azimuthal DISC plane (RTC, projection-centre-relative), NOT the
+    // Mercator plane, so the Mercator-meter centre shift below would be
+    // wrong-scale and fling the globe off-screen on every pinch step
+    // (reported as "orthographic pinch zoom doesn't work"). The
+    // orthographic branch instead pins the GEOGRAPHIC point under the
+    // fingers (Cesium-style) by inverse-projecting it through the disc.
     const before = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
+
+    if (this.projType === 3) {
+      // Geographic point under the fingers BEFORE zoom, resolved against
+      // the current projection centre (= camera centre, Mercator-encoded).
+      const R = 6378137
+      const lon0 = this.centerX / R
+      const lat0 = 2 * Math.atan(Math.exp(this.centerY / R)) - Math.PI / 2
+      const anchor = before ? invOrthographic(before[0], before[1], lon0, lat0) : null
+
+      this.zoom = Math.max(0, Math.min(this.maxZoom, this.zoom + delta))
+
+      if (anchor) {
+        // Same screen point, new zoom, UNCHANGED centre → the disc
+        // scaled about the projection centre so a different geographic
+        // point now sits under the fingers. Rotate the globe by that
+        // geographic difference so the originally-touched point returns
+        // under the fingers. Pinch streams many small deltas, so the
+        // local-linear residual self-corrects across the gesture.
+        const q = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
+        const cur = q ? invOrthographic(q[0], q[1], lon0, lat0) : null
+        if (cur) {
+          let newLon = lon0 + (anchor[0] - cur[0])
+          // Mercator-finite latitude bound — matches the Map's per-frame
+          // centerLat clamp so centerY stays representable.
+          const LAT_LIM = 85.051129 * Math.PI / 180
+          const newLat = Math.max(-LAT_LIM, Math.min(LAT_LIM, lat0 + (anchor[1] - cur[1])))
+          // Wrap longitude to (-π, π].
+          newLon = ((newLon + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI
+          this.centerX = newLon * R
+          this.centerY = R * Math.log(Math.tan(Math.PI / 4 + newLat / 2))
+        }
+      }
+      const maxYO = this.maxCameraY(canvasHeight)
+      this.centerY = Math.max(-maxYO, Math.min(maxYO, this.centerY))
+      return
+    }
 
     // Apply zoom; this also invalidates the MVP cache so the next
     // unproject below rebuilds against the new MPP.
@@ -489,6 +538,23 @@ export class Camera {
 }
 
 // ═══ Matrix Utilities ═══
+
+/** Inverse of `proj_orthographic` (shaders/projection.ts): disc-plane
+ *  metres (relative to the projection centre `lon0`/`lat0`, radians) →
+ *  geographic `[lon, lat]` radians. Snyder's azimuthal-orthographic
+ *  inverse. Returns the centre itself for points at/near the origin and
+ *  clamps the limb so a finger just off the disc still resolves. */
+function invOrthographic(x: number, y: number, lon0: number, lat0: number): [number, number] {
+  const R = 6378137
+  const rho = Math.hypot(x, y)
+  if (rho < 1e-6) return [lon0, lat0]
+  const c = Math.asin(Math.min(1, rho / R))
+  const sinC = Math.sin(c), cosC = Math.cos(c)
+  const sinP0 = Math.sin(lat0), cosP0 = Math.cos(lat0)
+  const lat = Math.asin(cosC * sinP0 + (y * sinC * cosP0) / rho)
+  const lon = lon0 + Math.atan2(x * sinC, rho * cosC * cosP0 - y * sinC * sinP0)
+  return [lon, lat]
+}
 
 /** Multiply 4×4 matrix (column-major) by vec4 */
 function mulVec4(m: Float32Array, v: number[]): number[] {

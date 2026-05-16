@@ -2307,6 +2307,10 @@ export class XGISMap {
       orthographic: 3, azimuthal_equidistant: 4, stereographic: 5,
       oblique_mercator: 6, globe: 7,
     }[this.projectionName] ?? 0
+    // Hand the resolved projection kind to the camera so zoomAt can pick
+    // a projection-correct cursor anchor (orthographic needs the spherical
+    // inverse, not the flat-Mercator-plane unproject).
+    this.camera.projType = projType
     const { device, context, canvas } = this.ctx
     const w = canvas.width, h = canvas.height
     if (w === 0 || h === 0) { requestAnimationFrame(this.renderLoop); return }
