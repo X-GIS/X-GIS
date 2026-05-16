@@ -741,17 +741,27 @@ export class XGISMap {
       this.camera.zoom = Math.max(this.camera.zoom, 1.5)
     }
 
-    // The FLAT azimuthal projections are 2D discs — a pitched 2D camera
-    // just lays the disc on its side (the reported "globe 모드 pitch →
-    // 2D" bug). Lock pitch to 0 for them and snap any current tilt away.
-    // The true 3D `globe` is NOT in this set: it has a real orbit
-    // camera (projection/globe.ts) where pitch is meaningful.
-    const FLAT_AZIMUTHAL = ['orthographic', 'azimuthal_equidistant', 'stereographic']
-    this.camera.pitchLocked = FLAT_AZIMUTHAL.includes(name)
-    if (this.camera.pitchLocked) this.camera.pitch = 0
+    // The azimuthal projections (ortho / azimuthal_equidistant /
+    // stereographic) are exact 2D discs at pitch=0. A pitched 2D camera
+    // would just lay the disc on its side, so instead of locking pitch
+    // we promote them to the true 3D sphere when tilted: renderFrame
+    // flips them to the globe vertex path (projType 7) with an
+    // ORTHOGRAPHIC orbit camera (camera.globeOrtho) once pitch>0, giving
+    // a real parallel-projection 3D tilt that is byte-identical to the
+    // 2D disc at pitch=0 (orthographic projection of a sphere from the
+    // surface normal IS the disc). pitch is no longer locked; it starts
+    // at 0 on a projection switch so the view opens flat/exact.
+    const AZIMUTHAL = ['orthographic', 'azimuthal_equidistant', 'stereographic']
+    const isAzimuthal = AZIMUTHAL.includes(name)
+    this.camera.pitchLocked = false
+    if (isAzimuthal || name === 'globe') this.camera.pitch = 0
+    // Azimuthal-when-tilted uses the parallel (orthographic) orbit
+    // camera; the true `globe` keeps its perspective orbit camera.
+    this.camera.globeOrtho = isAzimuthal
 
-    // True 3D globe: the camera emits the orbit view-projection instead
-    // of the 2D Mercator-plane MVP (renderers branch on projType 7).
+    // True 3D globe always emits the orbit view-projection; the
+    // azimuthal set switches to it dynamically in renderFrame when
+    // pitch>0 (renderers branch on projType 7).
     this.camera.globeMode = name === 'globe'
 
     this.invalidate()
@@ -2302,11 +2312,21 @@ export class XGISMap {
     if (this._startTime === null) this._startTime = performance.now()
     this._elapsedMs = performance.now() - this._startTime
 
-    const projType = {
+    let projType = {
       mercator: 0, equirectangular: 1, natural_earth: 2,
       orthographic: 3, azimuthal_equidistant: 4, stereographic: 5,
       oblique_mercator: 6, globe: 7,
     }[this.projectionName] ?? 0
+    // Azimuthal-when-tilted: ortho/azimuthal_eq/stereographic are exact
+    // 2D discs at pitch=0 but promote to the true 3D sphere once the
+    // user tilts. At pitch>0 we drive the globe vertex path (projType 7
+    // → proj_globe) with the camera's ORTHOGRAPHIC orbit matrix
+    // (globeOrtho was set in setProjection). At pitch=0 they stay on
+    // their exact 2D projection so the CPU/GPU consistency contract and
+    // each projection's identity (stereographic ≠ ortho) are preserved.
+    const azimuthalTilted = (projType >= 3 && projType <= 5) && this.camera.pitch > 0
+    if (azimuthalTilted) projType = 7
+    this.camera.globeMode = (projType === 7)
     // Hand the resolved projection kind to the camera so zoomAt can pick
     // a projection-correct cursor anchor (orthographic needs the spherical
     // inverse, not the flat-Mercator-plane unproject).

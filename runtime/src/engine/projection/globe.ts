@@ -137,11 +137,23 @@ function mul4(out: number[], a: number[], b: number[]): void {
  *             sphere stays 3D (this is the fix for the reported
  *             "globe pitch → 2D" bug).
  *  bearing  → rotates the tilt/heading around the surface normal.
+ *
+ *  `ortho`  → use a PARALLEL (orthographic) projection instead of the
+ *             perspective one. The orbit eye/lookAt (and thus the
+ *             pitch/bearing tilt) are unchanged; only the projection
+ *             matrix differs. With the half-extents tied to the same
+ *             metres-per-pixel as the 2D pyramid, an `ortho` globe at
+ *             pitch=0 is byte-identical to the flat 2D orthographic
+ *             disc (orthographic projection of a sphere along the
+ *             surface normal IS that disc), and pitch>0 is a true
+ *             no-perspective 3D tilt. Used by the azimuthal projection
+ *             set; the true `globe` leaves this false (perspective).
  */
 export function buildGlobeMatrix(
   centerLon: number, centerLat: number,
   zoom: number, pitchDeg: number, bearingDeg: number,
   cssWidthPx: number, cssHeightPx: number,
+  ortho = false,
 ): GlobeView {
   const target = globeForward(centerLon, centerLat)
   const { up: n, east, north } = localFrame(centerLon, centerLat)
@@ -184,7 +196,6 @@ export function buildGlobeMatrix(
     -dot(s, eye), -dot(u, eye), dot(fwd, eye), 1,
   ]
 
-  // Perspective — identical convention to Camera._buildRTCMatrix.
   const aspect = cssWidthPx / cssHeightPx
   const f = 1 / Math.tan(FOV_RAD / 2)
   const eyeDist = len(eye) // distance from sphere centre
@@ -193,12 +204,34 @@ export function buildGlobeMatrix(
   // most eyeDist + R. ×1.5 leaves headroom like the 2D path.
   const far = (eyeDist + EARTH_R) * 1.5
   const nf = 1 / (near - far)
-  const P = [
-    f / aspect, 0, 0, 0,
-    0, f, 0, 0,
-    0, 0, (far + near) * nf, -1,
-    0, 0, 2 * far * near * nf, 0,
-  ]
+
+  let P: number[]
+  if (ortho) {
+    // Parallel projection. Half-extents tied to the SAME metres-per-pixel
+    // as the 2D tile pyramid (WORLD_MERC / TILE_PX / 2^zoom) so a given
+    // numeric `zoom` frames the sphere at exactly the scale the flat 2D
+    // orthographic disc had — at pitch=0 the two are byte-identical.
+    // Same column-major GL z-convention ([-1,1]) as the perspective P
+    // below so the shared apply_log_depth path is unaffected.
+    const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, zoom)
+    const rx = (cssWidthPx / 2) * mpp
+    const ry = (cssHeightPx / 2) * mpp
+    const fn = 1 / (far - near)
+    P = [
+      1 / rx, 0, 0, 0,
+      0, 1 / ry, 0, 0,
+      0, 0, -2 * fn, 0,
+      0, 0, -(far + near) * fn, 1,
+    ]
+  } else {
+    // Perspective — identical convention to Camera._buildRTCMatrix.
+    P = [
+      f / aspect, 0, 0, 0,
+      0, f, 0, 0,
+      0, 0, (far + near) * nf, -1,
+      0, 0, 2 * far * near * nf, 0,
+    ]
+  }
 
   const out = new Array(16)
   mul4(out, P, view)
