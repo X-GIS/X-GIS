@@ -296,13 +296,13 @@ export class BlueprintEditor {
       const t = e.target as HTMLElement
       const empty = t === this.vp || t === this.world || t === (this.svg as unknown as HTMLElement)
       if (!empty) return
-      if (e.button === 1 || this.spaceDown) {
-        this.drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, px: this.pan.x, py: this.pan.y }
-        document.body.classList.add('bp-grabbing')
-      } else {
-        if (!e.shiftKey) this.selectNone()
+      if (e.shiftKey) {
         const w = this.toWorld(e.clientX, e.clientY)
         this.drag = { kind: 'marquee', x0: w.x, y0: w.y }
+      } else {
+        this.selectNone()
+        this.drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, px: this.pan.x, py: this.pan.y }
+        document.body.classList.add('bp-grabbing')
       }
     })
     window.addEventListener('pointermove', (e) => this.onMove(e))
@@ -595,20 +595,6 @@ export class BlueprintEditor {
       fields.className = 'bp-fields'
       for (const f of spec.fields) fields.appendChild(this.mountField(n, f))
       card.appendChild(fields)
-    }
-
-    if (n.type === 'source') {
-      const peek = document.createElement('button')
-      peek.type = 'button'
-      peek.className = 'bp-peek'
-      peek.textContent = 'Peek data'
-      peek.title = 'Fetch a GeoJSON source and report feature count + fields'
-      peek.addEventListener('pointerdown', (e) => e.stopPropagation())
-      peek.addEventListener('click', (e) => {
-        e.stopPropagation()
-        void this.peekData(n, peek)
-      })
-      card.appendChild(peek)
     }
 
     this.world.appendChild(card)
@@ -1113,10 +1099,14 @@ export class BlueprintEditor {
   // ── minimap ──
   private drawMini() {
     const ns = this.nodes
-    if (!ns.length) {
+    // Only worth the corner real-estate on busy graphs; keep the
+    // canvas clean for the common small case.
+    if (ns.length < 12) {
+      this.mini.style.display = 'none'
       this.mini.innerHTML = ''
       return
     }
+    this.mini.style.display = ''
     let minX = Infinity
     let minY = Infinity
     let maxX = -Infinity
@@ -1157,22 +1147,21 @@ export class BlueprintEditor {
   }
 
   // ── data peek ──
-  private async peekData(n: BPNode, btn: HTMLButtonElement) {
+  private async peekData(n: BPNode, out: HTMLElement) {
     const url = (n.data.url || '').trim()
     if (!url || (n.data.type && n.data.type !== 'geojson')) {
-      btn.textContent = 'Peek: geojson only'
+      out.textContent = 'Peek works for geojson sources only.'
       return
     }
-    btn.textContent = 'Peeking…'
+    out.textContent = 'Peeking…'
     try {
       const abs = url.startsWith('http') ? url : new URL(url, location.href).href
       const j = await (await fetch(abs)).json()
       const feats = Array.isArray(j.features) ? j.features : Array.isArray(j) ? j : []
       const keys = feats.length && feats[0]?.properties ? Object.keys(feats[0].properties) : []
-      btn.textContent = `${feats.length} features · ${keys.slice(0, 4).join(', ') || 'no props'}`
-      btn.title = keys.join(', ')
-    } catch (e: unknown) {
-      btn.textContent = 'Peek failed (CORS?)'
+      out.textContent = `${feats.length} features · ${keys.slice(0, 6).join(', ') || 'no properties'}`
+    } catch {
+      out.textContent = 'Peek failed (network / CORS).'
     }
   }
 
@@ -1265,7 +1254,28 @@ export class BlueprintEditor {
   private renderInspector() {
     const box = this.inspectorEl
     if (this.selNodes.size !== 1) {
-      box.innerHTML = `<div class="bp-insp-empty">${this.selNodes.size > 1 ? this.selNodes.size + ' nodes selected' : 'Select a node to edit its properties.'}</div>`
+      if (this.selNodes.size < 2) {
+        box.innerHTML = `<div class="bp-insp-empty">Select a node to edit its properties.</div>`
+        return
+      }
+      box.innerHTML = `<div class="bp-insp-h">${this.selNodes.size} nodes selected</div>`
+      const row = document.createElement('div')
+      row.className = 'bp-insp-align'
+      const mk = (label: string, title: string, mode: 'left' | 'top' | 'hdist' | 'vdist') => {
+        const b = document.createElement('button')
+        b.type = 'button'
+        b.textContent = label
+        b.title = title
+        b.addEventListener('click', () => this.align(mode))
+        return b
+      }
+      row.append(
+        mk('⇤', 'Align left edges', 'left'),
+        mk('⤒', 'Align top edges', 'top'),
+        mk('↔', 'Distribute horizontally', 'hdist'),
+        mk('↕', 'Distribute vertically', 'vdist'),
+      )
+      box.appendChild(row)
       return
     }
     const n = this.nodes.find((x) => this.selNodes.has(x.id))
@@ -1315,6 +1325,16 @@ export class BlueprintEditor {
       })
       wrap.appendChild(input)
       box.appendChild(wrap)
+    }
+    if (n.type === 'source') {
+      const peek = document.createElement('button')
+      peek.type = 'button'
+      peek.className = 'bp-insp-peek'
+      peek.textContent = 'Peek data'
+      const res = document.createElement('div')
+      res.className = 'bp-insp-peekres'
+      peek.addEventListener('click', () => void this.peekData(n, res))
+      box.append(peek, res)
     }
   }
   private syncInspector(n: BPNode) {

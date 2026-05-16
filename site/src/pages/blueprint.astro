@@ -18,9 +18,8 @@ const playgroundUrl = `${base}/play/demo.html`
     <div class="flex items-baseline justify-between flex-wrap gap-2">
       <h1 class="text-[22px] font-medium tracking-tight">Blueprint</h1>
       <p class="text-fg-dim text-[12px]">
-        Drag-select · Space/middle-drag pan · right-click or
-        <kbd class="px-1 border border-line rounded">A</kbd> add ·
-        drag a pin out to create+wire · double-click a wire = reroute ·
+        Drag canvas to pan · <kbd class="px-1 border border-line rounded">⇧</kbd>+drag to box-select ·
+        right-click to add · drag a pin to connect ·
         <kbd class="px-1 border border-line rounded">⌘Z</kbd> undo
       </p>
     </div>
@@ -49,12 +48,6 @@ const playgroundUrl = `${base}/play/demo.html`
       </div>
       <button id="bp-fit" class="px-3 py-2 bg-bg-elev border border-line rounded text-fg-dim hover:text-fg hover:border-fg-dim transition-colors">Fit</button>
       <button id="bp-comment" class="px-3 py-2 bg-bg-elev border border-line rounded text-fg-dim hover:text-fg hover:border-fg-dim transition-colors">+ Comment</button>
-      <div class="flex rounded border border-line overflow-hidden bg-bg-elev">
-        <button id="bp-al" title="Align left" class="px-2.5 py-2 text-fg-dim hover:text-fg hover:bg-bg-hover transition-colors">⇤</button>
-        <button id="bp-at" title="Align top" class="px-2.5 py-2 text-fg-dim hover:text-fg hover:bg-bg-hover transition-colors border-l border-line">⤒</button>
-        <button id="bp-dh" title="Distribute horizontally" class="px-2.5 py-2 text-fg-dim hover:text-fg hover:bg-bg-hover transition-colors border-l border-line">↔</button>
-        <button id="bp-dv" title="Distribute vertically" class="px-2.5 py-2 text-fg-dim hover:text-fg hover:bg-bg-hover transition-colors border-l border-line">↕</button>
-      </div>
       <label class="flex items-center gap-1.5 px-3 py-2 bg-bg-elev border border-line rounded text-fg-dim cursor-pointer select-none">
         <input id="bp-snap" type="checkbox" class="accent-accent" /> snap
       </label>
@@ -553,25 +546,6 @@ const playgroundUrl = `${base}/play/demo.html`
       cursor: help;
     }
 
-    /* Source data-peek */
-    .bp-peek {
-      margin: 0 9px 9px;
-      padding: 4px 6px;
-      font-size: 10.5px;
-      color: var(--color-fg-dim);
-      background: var(--color-bg);
-      border: 1px solid var(--color-line);
-      border-radius: 5px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: calc(100% - 18px);
-    }
-    .bp-peek:hover {
-      color: var(--color-fg);
-      border-color: var(--color-accent);
-    }
-
     /* Comment frame */
     .bp-frame {
       position: absolute;
@@ -651,24 +625,26 @@ const playgroundUrl = `${base}/play/demo.html`
       z-index: 9998;
     }
 
-    /* Minimap */
+    /* Minimap — hidden until a graph gets busy (set by editor.ts) */
     .bp-mini {
+      display: none;
       position: absolute;
       left: 10px;
       bottom: 10px;
-      width: 180px;
-      height: 120px;
-      background: rgba(0, 0, 0, 0.55);
-      border: 1px solid var(--color-line-strong);
+      width: 148px;
+      height: 96px;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--color-line);
       border-radius: 6px;
       overflow: hidden;
       z-index: 30;
       pointer-events: none;
+      opacity: 0.7;
     }
     .bp-mini i {
       position: absolute;
       border-radius: 1px;
-      opacity: 0.85;
+      opacity: 0.8;
     }
     .bp-mini b {
       position: absolute;
@@ -679,7 +655,6 @@ const playgroundUrl = `${base}/play/demo.html`
     /* Node level-of-detail when zoomed far out */
     .bp-lod .bp-fields,
     .bp-lod .bp-order,
-    .bp-lod .bp-peek,
     .bp-lod .bp-plabel {
       display: none;
     }
@@ -708,6 +683,43 @@ const playgroundUrl = `${base}/play/demo.html`
       gap: 2px;
       margin-bottom: 8px;
     }
+    .bp-insp-align {
+      display: flex;
+      gap: 4px;
+      margin-top: 10px;
+    }
+    .bp-insp-align button {
+      flex: 1;
+      padding: 6px 0;
+      background: var(--color-bg);
+      border: 1px solid var(--color-line);
+      border-radius: 5px;
+      color: var(--color-fg-dim);
+      font-size: 13px;
+    }
+    .bp-insp-align button:hover {
+      color: var(--color-fg);
+      border-color: var(--color-accent);
+    }
+    .bp-insp-peek {
+      margin-top: 10px;
+      padding: 5px 9px;
+      background: var(--color-bg);
+      border: 1px solid var(--color-line);
+      border-radius: 5px;
+      color: var(--color-fg-dim);
+      font-size: 11px;
+    }
+    .bp-insp-peek:hover {
+      color: var(--color-fg);
+      border-color: var(--color-accent);
+    }
+    .bp-insp-peekres {
+      margin-top: 6px;
+      color: var(--color-fg-mute);
+      font-size: 10.5px;
+      word-break: break-word;
+    }
   </style>
 
   <script>
@@ -735,10 +747,6 @@ const playgroundUrl = `${base}/play/demo.html`
     const $fit = document.getElementById('bp-fit') as HTMLButtonElement
     const $comment = document.getElementById('bp-comment') as HTMLButtonElement
     const $snap = document.getElementById('bp-snap') as HTMLInputElement
-    const $al = document.getElementById('bp-al') as HTMLButtonElement
-    const $at = document.getElementById('bp-at') as HTMLButtonElement
-    const $dh = document.getElementById('bp-dh') as HTMLButtonElement
-    const $dv = document.getElementById('bp-dv') as HTMLButtonElement
     const playgroundUrl =
       (document.querySelector('[data-playground-url]') as HTMLElement | null)?.dataset
         .playgroundUrl ?? ''
@@ -869,10 +877,6 @@ const playgroundUrl = `${base}/play/demo.html`
     $fit.addEventListener('click', () => editor.fit())
     $comment.addEventListener('click', () => editor.addFrame())
     $snap.addEventListener('change', () => editor.setSnap($snap.checked))
-    $al.addEventListener('click', () => editor.align('left'))
-    $at.addEventListener('click', () => editor.align('top'))
-    $dh.addEventListener('click', () => editor.align('hdist'))
-    $dv.addEventListener('click', () => editor.align('vdist'))
 
     $copy.addEventListener('click', async () => {
       if (!$out.value.trim()) return
