@@ -78,6 +78,21 @@ fn reproject_point(rtc_merc: vec2<f32>) -> vec2<f32> {
   return proj_xy - center_xy;
 }
 
+// True 3D globe (projType 7): same lon/lat recovery as reproject_point,
+// but the anchor is a point ON THE SPHERE relative to the focus. The
+// BILLBOARD branch only needs a correct projected anchor (its quad
+// corners are screen-space offsets), so this is all globe markers /
+// labels need to sit on the 3D earth.
+fn reproject_point_globe(rtc_merc: vec2<f32>) -> vec3<f32> {
+  let cam_lat = clamp(u.proj_params.z, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
+  let cam_merc_x = u.proj_params.y * DEG2RAD * EARTH_R;
+  let cam_merc_y = log(tan(PI / 4.0 + cam_lat * DEG2RAD / 2.0)) * EARTH_R;
+  let abs_lon = (rtc_merc.x + cam_merc_x) / (DEG2RAD * EARTH_R);
+  let lat_rad = 2.0 * atan(exp((rtc_merc.y + cam_merc_y) / EARTH_R)) - PI / 2.0;
+  let abs_lat = lat_rad / DEG2RAD;
+  return proj_globe(abs_lon, abs_lat) - proj_globe(u.proj_params.y, u.proj_params.z);
+}
+
 // Backface signal at a point's center. Same lon/lat reconstruction as
 // reproject_point's non-Mercator branch, dispatched through
 // needs_backface_cull. Cheap for flat projections — that helper
@@ -249,7 +264,15 @@ fn vs_point(
   let pos = reproject_point(rtc_merc);
   let rtc_x = pos.x;
   let rtc_y = pos.y;
-  let center_clip = u.mvp * vec4f(rtc_x, rtc_y, 0.0, 1.0);
+  // Globe (projType 7): anchor on the sphere via the orbit MVP; the
+  // billboard branch below offsets in screen-space around this, so
+  // markers/labels sit on the 3D earth. (Flat-quad points on the
+  // sphere are a later refinement — they reuse this anchor.)
+  let center_clip = select(
+    u.mvp * vec4f(rtc_x, rtc_y, 0.0, 1.0),
+    u.mvp * vec4f(reproject_point_globe(rtc_merc), 1.0),
+    u.proj_params.x > 6.5,
+  );
 
   let is_flat = (u32(feat_data[fid * STRIDE + 10u]) & 8u) != 0u;  // bit 3 = flat
   radius_px = max(radius_px, 1.0);

@@ -13,11 +13,13 @@ import {
   projObliqueMercatorWgsl,
   cosC,
   projObliqueMercatorWgsl,
+  projGlobeWgsl,
   projectWgsl,
   projectGeomWgsl,
   unwrapLonNear,
   needsBackfaceCullWgsl,
 } from './projection-wgsl-mirror'
+import { globeForward } from './globe'
 
 // Phase 2-A: Cross-consistency between CPU canonical (projection.ts) and
 // WGSL mirror (projection-wgsl-mirror.ts). A failure means the GPU shader
@@ -273,6 +275,11 @@ describe('needsBackfaceCullWgsl matches WGSL needs_backface_cull thresholds', ()
       expect(needsBackfaceCullWgsl(3, lon, lat, CL, CT)).toBeCloseTo(cosC(lon, lat, CL, CT), 6)
     }
   })
+  it('globe (7) culls like ortho — raw cos(c), strict hemisphere', () => {
+    for (const [lon, lat] of sampleGrid()) {
+      expect(needsBackfaceCullWgsl(7, lon, lat, CL, CT)).toBeCloseTo(cosC(lon, lat, CL, CT), 6)
+    }
+  })
   it('azimuthal culls at cc ≤ -0.85, stereographic at cc ≤ -0.8', () => {
     for (const [lon, lat] of sampleGrid()) {
       const cc = cosC(lon, lat, CL, CT)
@@ -452,6 +459,29 @@ describe('project_geom — antimeridian seam continuity', () => {
         expect(projectGeomWgsl(projType, lon, lat, 30, 20, 999))
           .toEqual(projectWgsl(projType, lon, lat, 30, 20))
       }
+    }
+  })
+})
+
+// Globe is the true 3D mode: its canonical CPU side is projection/
+// globe.ts `globeForward` (NOT a projection.ts 2D Projection — it
+// returns x,y,z on the sphere). The WGSL `proj_globe` must match it so
+// the GPU sphere lines up with CPU tile-cap selection / unproject.
+describe('CPU/GPU projection consistency — Globe (true 3D, projType 7)', () => {
+  it('canonical globeForward matches WGSL mirror projGlobeWgsl to ≤1mm at 100 sample points', () => {
+    for (const [lon, lat] of sampleGrid()) {
+      const [xA, yA, zA] = globeForward(lon, lat)
+      const [xB, yB, zB] = projGlobeWgsl(lon, lat)
+      expect(xB).toBeCloseTo(xA, 3)
+      expect(yB).toBeCloseTo(yA, 3)
+      expect(zB).toBeCloseTo(zA, 3)
+    }
+  })
+
+  it('every mirrored point lies on the sphere (radius invariant, no plane projection)', () => {
+    for (const [lon, lat] of sampleGrid()) {
+      const [x, y, z] = projGlobeWgsl(lon, lat)
+      expect(Math.sqrt(x * x + y * y + z * z)).toBeCloseTo(6378137, 0)
     }
   })
 })

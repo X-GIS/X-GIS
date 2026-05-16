@@ -92,6 +92,20 @@ fn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut {
 
   var local_y: f32;
   let t = u.proj_params.x;
+  if (t > 6.5) {
+    // True 3D globe (projType 7): sphere RTC against the focus point +
+    // the orbit-camera MVP (camera emits it in globe mode). The
+    // Mercator tile_rtc offset is irrelevant here — recompute straight
+    // from absolute lon/lat like the other-projection branch does.
+    let g = proj_globe(lon, lat) - proj_globe(u.proj_params.y, u.proj_params.z);
+    var go: VsOut;
+    let gclip = u.mvp * vec4<f32>(g, 1.0);
+    go.pos = apply_log_depth(gclip, u.proj_params.w);
+    go.view_w = gclip.w;
+    go.uv = vec2<f32>(uu, vv);
+    go.vis = center_cos_c(lon, lat, u.proj_params.y, u.proj_params.z);
+    return go;
+  }
   if (t < 0.5) {
     // Mercator: linear in Mercator Y — merc_y_offset is already relative to tileSouth
     // (computed as (1-vv) * merc_diff) so no catastrophic subtraction of near-equal values.

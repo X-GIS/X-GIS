@@ -12,6 +12,7 @@ import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './g
 import { GPUTimer } from './gpu/gpu-timer'
 import { Camera } from './projection/camera'
 import { projectWgsl, needsBackfaceCullWgsl } from './projection/projection-wgsl-mirror'
+import { globeForward } from './projection/globe'
 import { MapRenderer, type ShowCommand } from './render/renderer'
 import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from './render/paint-shape-resolve'
 import {
@@ -730,13 +731,29 @@ export class XGISMap {
     this.projectionName = name
 
     // Adjust zoom for different projection scale
-    // Globe projections (ortho/azimuthal/stereo) need wider view
-    const isGlobe = (n: string) => ['orthographic', 'azimuthal_equidistant', 'stereographic'].includes(n)
-    if (!isGlobe(prevProj) && isGlobe(name)) {
+    // The wide-view set (flat azimuthal discs + the true 3D globe) all
+    // frame the whole earth, so they need the zoomed-out view.
+    const isWideView = (n: string) =>
+      ['orthographic', 'azimuthal_equidistant', 'stereographic', 'globe'].includes(n)
+    if (!isWideView(prevProj) && isWideView(name)) {
       this.camera.zoom = Math.min(this.camera.zoom, 1.5)
-    } else if (isGlobe(prevProj) && !isGlobe(name)) {
+    } else if (isWideView(prevProj) && !isWideView(name)) {
       this.camera.zoom = Math.max(this.camera.zoom, 1.5)
     }
+
+    // The FLAT azimuthal projections are 2D discs — a pitched 2D camera
+    // just lays the disc on its side (the reported "globe 모드 pitch →
+    // 2D" bug). Lock pitch to 0 for them and snap any current tilt away.
+    // The true 3D `globe` is NOT in this set: it has a real orbit
+    // camera (projection/globe.ts) where pitch is meaningful.
+    const FLAT_AZIMUTHAL = ['orthographic', 'azimuthal_equidistant', 'stereographic']
+    this.camera.pitchLocked = FLAT_AZIMUTHAL.includes(name)
+    if (this.camera.pitchLocked) this.camera.pitch = 0
+
+    // True 3D globe: the camera emits the orbit view-projection instead
+    // of the 2D Mercator-plane MVP (renderers branch on projType 7).
+    this.camera.globeMode = name === 'globe'
+
     this.invalidate()
   }
 
@@ -2288,7 +2305,7 @@ export class XGISMap {
     const projType = {
       mercator: 0, equirectangular: 1, natural_earth: 2,
       orthographic: 3, azimuthal_equidistant: 4, stereographic: 5,
-      oblique_mercator: 6,
+      oblique_mercator: 6, globe: 7,
     }[this.projectionName] ?? 0
     const { device, context, canvas } = this.ctx
     const w = canvas.width, h = canvas.height
@@ -3090,7 +3107,14 @@ export class XGISMap {
         // centerLat / projType are renderFrame constants) so the hot
         // per-label path stays allocation-free.
         const _lblIsMerc = this.projectionName === 'mercator'
-        const _lblCenter: [number, number] = _lblIsMerc
+        const _lblIsGlobe = this.projectionName === 'globe'
+        // Globe label anchor = sphere RTC against the focus, then the
+        // full 4×4 orbit MVP (camera emits it in globe mode). Hoisted
+        // per frame like _lblCenter.
+        const _lblGlobeCenter = _lblIsGlobe
+          ? globeForward(centerLon, centerLat)
+          : ([0, 0, 0] as [number, number, number])
+        const _lblCenter: [number, number] = _lblIsMerc || _lblIsGlobe
           ? [0, 0]
           : projectWgsl(projType, centerLon, centerLat, centerLon, centerLat)
 
@@ -3112,6 +3136,22 @@ export class XGISMap {
             // across multiple projectLonLat calls in the same expression
             // (`projectLonLatCopies` builds a list of results).
             return [proj[0], proj[1]]
+          }
+          if (_lblIsGlobe) {
+            // True 3D globe: hemisphere-cull, then sphere RTC against
+            // the focus through the FULL 4×4 orbit MVP (the z column is
+            // significant here, unlike the flat path which drops it).
+            if (needsBackfaceCullWgsl(projType, lon, lat, centerLon, centerLat) < 0) return null
+            const g = globeForward(lon, lat)
+            const rx = g[0] - _lblGlobeCenter[0]
+            const ry = g[1] - _lblGlobeCenter[1]
+            const rz = g[2] - _lblGlobeCenter[2]
+            const cw = mvp[3]! * rx + mvp[7]! * ry + mvp[11]! * rz + mvp[15]!
+            if (cw <= 0) return null
+            const ndcX = (mvp[0]! * rx + mvp[4]! * ry + mvp[8]! * rz + mvp[12]!) / cw
+            const ndcY = (mvp[1]! * rx + mvp[5]! * ry + mvp[9]! * rz + mvp[13]!) / cw
+            if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
+            return [(ndcX + 1) * 0.5 * w, (1 - ndcY) * 0.5 * h]
           }
           // Non-Mercator: exact CPU mirror of the GPU per-vertex path.
           // Cull the back hemisphere first (same thresholds as the

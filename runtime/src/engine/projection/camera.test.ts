@@ -564,3 +564,103 @@ describe('Camera — bearing + zoom accumulation', () => {
     expect(cam.bearing).toBe(0)
   })
 })
+
+describe('Camera — pitchLocked (flat azimuthal projections)', () => {
+  it('defaults unlocked: pitch behaves exactly as before', () => {
+    const cam = new Camera(0, 0, 5)
+    expect(cam.pitchLocked).toBe(false)
+    cam.pitch = 60
+    expect(cam.pitch).toBe(60)
+  })
+
+  it('locked: pitch always reads 0 no matter what any caller sets', () => {
+    const cam = new Camera(0, 0, 5)
+    cam.pitch = 45
+    cam.pitchLocked = true
+    expect(cam.pitch).toBe(0)
+    // Mirrors a controller gesture writing pitch while locked.
+    cam.pitch = Math.max(0, Math.min(85, cam.pitch - 30 * 0.3))
+    expect(cam.pitch).toBe(0)
+  })
+
+  it('locked camera builds the same MVP as an explicitly pitch-0 camera', () => {
+    const locked = new Camera(0, 0, 5)
+    locked.pitch = 70
+    locked.pitchLocked = true
+    const flat = new Camera(0, 0, 5) // pitch 0
+    const a = locked.getRTCMatrix(W, H, DPR)
+    const b = flat.getRTCMatrix(W, H, DPR)
+    for (let i = 0; i < 16; i++) expect(a[i]).toBeCloseTo(b[i], 6)
+  })
+
+  it('unlocking restores the stored pitch', () => {
+    const cam = new Camera(0, 0, 5)
+    cam.pitch = 55
+    cam.pitchLocked = true
+    expect(cam.pitch).toBe(0)
+    cam.pitchLocked = false
+    expect(cam.pitch).toBe(55)
+  })
+})
+
+describe('Camera — globeMode (orbit matrix for the true 3D globe)', () => {
+  it('off by default; 2D MVP unchanged', () => {
+    const a = new Camera(0, 0, 5)
+    const b = new Camera(0, 0, 5)
+    expect(a.globeMode).toBe(false)
+    const m2d = a.getRTCMatrix(W, H, DPR)
+    b.globeMode = false
+    for (let i = 0; i < 16; i++) expect(b.getRTCMatrix(W, H, DPR)[i]).toBeCloseTo(m2d[i], 6)
+  })
+
+  it('globeMode swaps in a DIFFERENT matrix than the 2D path', () => {
+    const cam = new Camera(0, 0, 3)
+    const flat = cam.getRTCMatrix(W, H, DPR).slice()
+    cam.globeMode = true
+    const globe = cam.getRTCMatrix(W, H, DPR)
+    let differs = false
+    for (let i = 0; i < 16; i++) if (Math.abs(globe[i] - flat[i]) > 1e-3) differs = true
+    expect(differs).toBe(true)
+  })
+
+  it('getFrameView in globeMode returns finite far + logDepthFc', () => {
+    const cam = new Camera(0, 0, 3)
+    cam.globeMode = true
+    const fv = cam.getFrameView(W, H, DPR)
+    expect(fv.far).toBeGreaterThan(0)
+    expect(Number.isFinite(fv.far)).toBe(true)
+    expect(Number.isFinite(fv.logDepthFc)).toBe(true)
+    expect(fv.matrix.length).toBe(16)
+  })
+
+  it('pitch is NOT locked in globeMode (Cesium-style tilt is meaningful)', () => {
+    const cam = new Camera(0, 0, 3)
+    cam.globeMode = true
+    cam.pitch = 55
+    expect(cam.pitch).toBe(55) // globe ≠ flat azimuthal — pitch lives
+  })
+
+  it('globe drag rotates the sphere (centre lon/lat moves, content follows cursor)', () => {
+    const R = 6378137
+    const cam = new Camera(0, 0, 3)
+    cam.globeMode = true
+    cam.pan(100, 0, W, H) // drag right
+    const lon = cam.centerX / R * (180 / Math.PI)
+    expect(lon).toBeLessThan(0) // dragging right brings western land into view
+    const cam2 = new Camera(0, 0, 3)
+    cam2.globeMode = true
+    cam2.pan(0, 80, W, H) // drag down
+    const lat = (2 * Math.atan(Math.exp(cam2.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
+    expect(lat).toBeGreaterThan(0) // drag down → look further south… content moves down
+  })
+
+  it('globe drag clamps latitude to the Mercator-storable range', () => {
+    const R = 6378137
+    const cam = new Camera(0, 85, 1)
+    cam.globeMode = true
+    cam.pan(0, -5000, W, H) // huge upward drag
+    const lat = (2 * Math.atan(Math.exp(cam.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
+    expect(lat).toBeLessThanOrEqual(85.0512)
+    expect(Number.isFinite(cam.centerX)).toBe(true)
+  })
+})

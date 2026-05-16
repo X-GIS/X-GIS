@@ -177,8 +177,8 @@ fn vs_main(
   let abs_lat = lat_rad / DEG2RAD;
   let abs_lat_clamped = clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
 
-  var rtc: vec2<f32>;
   let t = u.proj_params.x;
+  var rtc: vec2<f32>;
   if (t < 0.5) {
     // Pure Mercator: rel is already camera-relative meters.
     rtc = rel;
@@ -196,9 +196,16 @@ fn vs_main(
     let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
     rtc = proj_xy - center_xy;
   }
+  // True 3D globe (projType 7): RTC against the focus point ON THE
+  // sphere, then the orbit-camera MVP the camera emits in globe mode.
+  let globe_rtc = proj_globe(abs_lon, abs_lat) - proj_globe(u.proj_params.y, u.proj_params.z);
 
   var out: VertexOutput;
-  let clip = u.mvp * vec4<f32>(rtc, 0.0, 1.0);
+  let clip = select(
+    u.mvp * vec4<f32>(rtc, 0.0, 1.0),
+    u.mvp * vec4<f32>(globe_rtc, 1.0),
+    t > 6.5,
+  );
   // Log-depth rewrite of clip.z. Three.js equivalent — preserves near-plane
   // precision at high pitch and when rendering 3D geometry.
   out.position = apply_log_depth(clip, u.log_depth_fc);
@@ -252,8 +259,8 @@ fn vs_main_quantized(
   let abs_lat = lat_rad / DEG2RAD;
   let abs_lat_clamped = clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
 
-  var rtc: vec2<f32>;
   let t = u.proj_params.x;
+  var rtc: vec2<f32>;
   if (t < 0.5) {
     rtc = rel;
   } else {
@@ -262,6 +269,7 @@ fn vs_main_quantized(
     let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
     rtc = proj_xy - center_xy;
   }
+  let globe_rtc = proj_globe(abs_lon, abs_lat) - proj_globe(u.proj_params.y, u.proj_params.z);
 
   var out: VertexOutput;
   // 3D extrusion: top vertices lift to z=extrude_height_m, bottom
@@ -270,7 +278,13 @@ fn vs_main_quantized(
   // extruded layers set extrude_height_m=0 → both branches yield
   // z=0 → identical to the flat path.
   let z_world = select(0.0, u.extrude_height_m, is_top);
-  let clip = u.mvp * vec4<f32>(rtc, z_world, 1.0);
+  // Globe (projType 7) uses the sphere RTC + orbit MVP; extrusion on
+  // the sphere is a later refinement (flat basemap path unaffected).
+  let clip = select(
+    u.mvp * vec4<f32>(rtc, z_world, 1.0),
+    u.mvp * vec4<f32>(globe_rtc, 1.0),
+    t > 6.5,
+  );
   out.position = apply_log_depth(clip, u.log_depth_fc);
   out.position.z = out.position.z - u.layer_depth_offset * out.position.w;
   out.view_w = clip.w;
@@ -313,8 +327,8 @@ fn vs_main_quantized_extruded(
   let abs_lat = lat_rad / DEG2RAD;
   let abs_lat_clamped = clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
 
-  var rtc: vec2<f32>;
   let t = u.proj_params.x;
+  var rtc: vec2<f32>;
   if (t < 0.5) {
     rtc = rel;
   } else {
@@ -323,9 +337,14 @@ fn vs_main_quantized_extruded(
     let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
     rtc = proj_xy - center_xy;
   }
+  let globe_rtc = proj_globe(abs_lon, abs_lat) - proj_globe(u.proj_params.y, u.proj_params.z);
 
   var out: VertexOutput;
-  let clip = u.mvp * vec4<f32>(rtc, z_attr, 1.0);
+  let clip = select(
+    u.mvp * vec4<f32>(rtc, z_attr, 1.0),
+    u.mvp * vec4<f32>(globe_rtc, 1.0),
+    t > 6.5,
+  );
   out.position = apply_log_depth(clip, u.log_depth_fc);
   out.position.z = out.position.z - u.layer_depth_offset * out.position.w;
   out.view_w = clip.w;
