@@ -51,6 +51,7 @@ const PRETEXT_CACHE_MAX = 1024
 const _pretextCache = new Map<string, WrappedLineRange[]>()
 function pretextCacheKey(
   glyphs: readonly GlyphInfo[],
+  advances: readonly number[],
   fontKey: string, fontSizePx: number,
   letterSpacingPx: number, maxWidthPx: number,
 ): string {
@@ -62,9 +63,22 @@ function pretextCacheKey(
   const mw = maxWidthPx === Infinity ? 'inf' : maxWidthPx.toFixed(1)
   // Codepoint sequence (no String.fromCodePoint allocation — pack as
   // raw separator-joined ints; same uniqueness as the text itself).
+  //
+  // Advance signature: rounded to 0.1 px and joined into the key so the
+  // cache invalidates the moment PBF glyphs land and shift metrics from
+  // Canvas2D-fallback advance to PBF-native advance. Pre-fix bug: first
+  // frame computed wrap with wide Canvas2D advances, cached the lines;
+  // PBF italic landed → atlas advances narrowed → host.ensureString
+  // returned fresh advances → BUT wrap cache keyed by codepoints-only
+  // still returned the OLD (wider, more-breaks) lines. Result: bbox +
+  // anchor math kept thinking the label was wider than it actually
+  // rendered, glyphs looked "small inside an oversized bbox". User-
+  // reported on OFM Bright water_name labels 2026-05-16.
   let cps = ''
   for (const g of glyphs) cps += g.codepoint.toString(36) + ','
-  return `${fontKey}|${sz}|${ls}|${mw}|${cps}`
+  let advs = ''
+  for (const a of advances) advs += a.toFixed(1) + ','
+  return `${fontKey}|${sz}|${ls}|${mw}|${cps}|${advs}`
 }
 
 /** Compute the rendered width of glyph range [start, end) using the
@@ -260,7 +274,7 @@ function wrapWithKnuthPlass(
   letterSpacingPx: number,
   maxWidthPx: number,
 ): WrappedLineRange[] {
-  const cacheKey = pretextCacheKey(glyphs, fontKey, fontSizePx, letterSpacingPx, maxWidthPx)
+  const cacheKey = pretextCacheKey(glyphs, advances, fontKey, fontSizePx, letterSpacingPx, maxWidthPx)
   const hit = _pretextCache.get(cacheKey)
   if (hit) {
     // LRU touch: re-insert to move to tail (most-recently-used).
