@@ -38,23 +38,43 @@ export const mercator: Projection = {
   },
 }
 
+// Longitude delta wrapped to [-180, 180]. Identity inside that range so
+// the pure (central-meridian = 0) definitions are byte-unchanged; only
+// the recentred (camera-longitude) case shifts. The GPU shader
+// (shaders/projection.ts `wrap_lon_delta`) and projection-wgsl-mirror.ts
+// (`wrapLonDelta`) use the IDENTICAL formula so CPU tile-bounds / the
+// Canvas2D fallback agree with GPU rendering at any central meridian.
+export function wrapLonDelta(d: number): number {
+  if (d > 180) return d - 360 * Math.ceil((d - 180) / 360)
+  if (d < -180) return d + 360 * Math.ceil((-d - 180) / 360)
+  return d
+}
+
 // ═══ Equirectangular (Plate Carrée, EPSG:4326) ═══
 // 가장 단순. 경위도를 직접 x, y로.
+//
+// Pseudocylindrical → fixed central parallel (equator). Interactive use
+// recentres the central MERIDIAN on the camera longitude (D3
+// `.rotate([-λ, 0])` convention) so the viewed region sits where
+// distortion is minimal instead of being sheared at the world-oval edge.
+// `centralLon = 0` reproduces textbook Plate Carrée.
 
-export const equirectangular: Projection = {
-  name: 'equirectangular',
+export function equirectangular(centralLon = 0): Projection {
+  return {
+    name: 'equirectangular',
 
-  forward(lon: number, lat: number): [number, number] {
-    const x = lon * DEG2RAD * EARTH_RADIUS
-    const y = lat * DEG2RAD * EARTH_RADIUS
-    return [x, y]
-  },
+    forward(lon: number, lat: number): [number, number] {
+      const x = wrapLonDelta(lon - centralLon) * DEG2RAD * EARTH_RADIUS
+      const y = lat * DEG2RAD * EARTH_RADIUS
+      return [x, y]
+    },
 
-  inverse(x: number, y: number): [number, number] {
-    const lon = (x / EARTH_RADIUS) * RAD2DEG
-    const lat = (y / EARTH_RADIUS) * RAD2DEG
-    return [lon, lat]
-  },
+    inverse(x: number, y: number): [number, number] {
+      const lon = wrapLonDelta((x / EARTH_RADIUS) * RAD2DEG + centralLon)
+      const lat = (y / EARTH_RADIUS) * RAD2DEG
+      return [lon, lat]
+    },
+  }
 }
 
 // ═══ Natural Earth ═══
@@ -69,44 +89,51 @@ export const equirectangular: Projection = {
 // old output; external users were getting a "Natural Earth I"-shaped
 // map on CPU while the GPU rendered "Natural Earth II". Unified here.
 
-export const naturalEarth: Projection = {
-  name: 'natural_earth',
+//
+// Pseudocylindrical, like equirectangular: fixed central parallel,
+// interactive central-meridian recentre on `centralLon` (longitude-only
+// — a latitude rotation would be a non-standard oblique aspect).
+// `centralLon = 0` reproduces the textbook Šavrič et al. (2015) form.
+export function naturalEarth(centralLon = 0): Projection {
+  return {
+    name: 'natural_earth',
 
-  forward(lon: number, lat: number): [number, number] {
-    const latR = lat * DEG2RAD
-    const lat2 = latR * latR
-    const lat4 = lat2 * lat2
-    const lat6 = lat2 * lat4
-    const xScale = 0.8707 - 0.131979 * lat2 + 0.013791 * lat4 - 0.0081435 * lat6
-    const yVal = latR * (1.007226 + lat2 * (0.015085 + lat2 * (-0.044475 + 0.028874 * lat2 - 0.005916 * lat4)))
-    return [lon * DEG2RAD * xScale * EARTH_RADIUS, yVal * EARTH_RADIUS]
-  },
+    forward(lon: number, lat: number): [number, number] {
+      const latR = lat * DEG2RAD
+      const lat2 = latR * latR
+      const lat4 = lat2 * lat2
+      const lat6 = lat2 * lat4
+      const xScale = 0.8707 - 0.131979 * lat2 + 0.013791 * lat4 - 0.0081435 * lat6
+      const yVal = latR * (1.007226 + lat2 * (0.015085 + lat2 * (-0.044475 + 0.028874 * lat2 - 0.005916 * lat4)))
+      return [wrapLonDelta(lon - centralLon) * DEG2RAD * xScale * EARTH_RADIUS, yVal * EARTH_RADIUS]
+    },
 
-  inverse(x: number, y: number): [number, number] {
-    // Newton-Raphson on the latitude polynomial, 5 iterations. Mirrors
-    // reprojector.ts inv_natural_earth.
-    const goalY = y / EARTH_RADIUS
-    let t = goalY / 1.007226
-    for (let i = 0; i < 5; i++) {
+    inverse(x: number, y: number): [number, number] {
+      // Newton-Raphson on the latitude polynomial, 5 iterations. Mirrors
+      // reprojector.ts inv_natural_earth.
+      const goalY = y / EARTH_RADIUS
+      let t = goalY / 1.007226
+      for (let i = 0; i < 5; i++) {
+        const t2 = t * t
+        const t4 = t2 * t2
+        const t6 = t2 * t4
+        const t8 = t4 * t4
+        const yVal = t * (1.007226 + t2 * (0.015085 + t2 * (-0.044475 + 0.028874 * t2 - 0.005916 * t4)))
+        const f = yVal - goalY
+        const dy = 1.007226 + 0.045255 * t2 - 0.222375 * t4 + 0.202118 * t6 - 0.053244 * t8
+        if (Math.abs(dy) < 1e-10) break
+        t = t - f / dy
+      }
       const t2 = t * t
       const t4 = t2 * t2
       const t6 = t2 * t4
-      const t8 = t4 * t4
-      const yVal = t * (1.007226 + t2 * (0.015085 + t2 * (-0.044475 + 0.028874 * t2 - 0.005916 * t4)))
-      const f = yVal - goalY
-      const dy = 1.007226 + 0.045255 * t2 - 0.222375 * t4 + 0.202118 * t6 - 0.053244 * t8
-      if (Math.abs(dy) < 1e-10) break
-      t = t - f / dy
-    }
-    const t2 = t * t
-    const t4 = t2 * t2
-    const t6 = t2 * t4
-    const xScale = 0.8707 - 0.131979 * t2 + 0.013791 * t4 - 0.0081435 * t6
-    if (Math.abs(xScale) < 1e-6) return [NaN, NaN]
-    const lon = (x / (xScale * EARTH_RADIUS)) * RAD2DEG
-    const lat = t * RAD2DEG
-    return [lon, lat]
-  },
+      const xScale = 0.8707 - 0.131979 * t2 + 0.013791 * t4 - 0.0081435 * t6
+      if (Math.abs(xScale) < 1e-6) return [NaN, NaN]
+      const lon = wrapLonDelta((x / (xScale * EARTH_RADIUS)) * RAD2DEG + centralLon)
+      const lat = t * RAD2DEG
+      return [lon, lat]
+    },
+  }
 }
 
 // ═══ Orthographic (지구 사진처럼 보이는 투영) ═══
@@ -135,6 +162,10 @@ export function orthographic(centerLon: number, centerLat: number): Projection {
 
     inverse(x: number, y: number): [number, number] {
       const rho = Math.sqrt(x * x + y * y)
+      // At the projection centre rho→0 makes the lat/lon terms divide by
+      // zero (0/0 → NaN). azimuthalEquidistant/stereographic.inverse and
+      // reprojector.ts inv_orthographic all guard this; mirror them.
+      if (rho < 0.001) return [centerLon, centerLat]
       if (rho > EARTH_RADIUS) return [NaN, NaN]
       const c = Math.asin(rho / EARTH_RADIUS)
       const cosC = Math.cos(c)
@@ -269,8 +300,8 @@ export function obliqueMercator(centerLon: number, centerLat: number): Projectio
 
 const PROJECTIONS: Record<string, Projection | ((...args: number[]) => Projection)> = {
   mercator,
-  equirectangular,
-  natural_earth: naturalEarth,
+  equirectangular: (lon = 0) => equirectangular(lon),
+  natural_earth: (lon = 0) => naturalEarth(lon),
   orthographic: (lon = 0, lat = 20) => orthographic(lon, lat),
   azimuthal_equidistant: (lon = 0, lat = 20) => azimuthalEquidistant(lon, lat),
   stereographic: (lon = 0, lat = 20) => stereographic(lon, lat),

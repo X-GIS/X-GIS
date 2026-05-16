@@ -170,7 +170,7 @@ export function visibleTiles(
 // ═══ Frustum-based tile selection ═══
 
 import type { Camera } from '../engine/projection/camera'
-import type { Projection } from '../engine/projection/projection'
+import { type Projection, MERCATOR_LAT_LIMIT } from '../engine/projection/projection'
 
 // Mobile GPUs choke on 300 frustum tiles — each tile is a draw call plus
 // SDF-shaded line segments. 120 keeps the foreground refined and the
@@ -330,7 +330,7 @@ export function visibleTilesFrustum(
   // Lon/lat → Mercator meters
   const lonToMerc = (lon: number) => lon * DEG2RAD * R
   const latToMerc = (lat: number) => {
-    const cl = Math.max(-85.051, Math.min(85.051, lat))
+    const cl = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
     return Math.log(Math.tan(Math.PI / 4 + cl * DEG2RAD / 2)) * R
   }
 
@@ -530,7 +530,7 @@ export function visibleTilesFrustum(
       const childN = tn * 2
       const camChildX = Math.floor((camLon + 180) / 360 * childN)
       const camChildY = Math.floor(
-        (1 - Math.log(Math.tan(Math.PI / 4 + Math.max(-85.0511, Math.min(85.0511, camLat)) * DEG2RAD / 2)) / Math.PI) / 2 * childN,
+        (1 - Math.log(Math.tan(Math.PI / 4 + Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, camLat)) * DEG2RAD / 2)) / Math.PI) / 2 * childN,
       )
       const idealDx = camChildX <= ox * 2 ? 0 : 1
       const idealDy = camChildY <= y * 2 ? 0 : 1
@@ -606,7 +606,7 @@ export function visibleTilesFrustum(
   //                ground-renders regression.
   const camN = Math.pow(2, maxZ)
   const camTXf = (camLon + 180) / 360 * camN
-  const camLatClamped = Math.max(-85.0511, Math.min(85.0511, camLat))
+  const camLatClamped = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, camLat))
   const camTYf = (1 - Math.log(Math.tan(Math.PI / 4 + camLatClamped * DEG2RAD / 2)) / Math.PI) / 2 * camN
   let minTX: number, maxTX: number, minTY: number, maxTY: number
   if (pitchDegFn < 30) {
@@ -773,7 +773,7 @@ export function visibleTilesFrustumSampled(
     const lon = (absMx / R) / DEG2RAD
     const lat = (2 * Math.atan(Math.exp(absMy / R)) - Math.PI / 2) / DEG2RAD
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) return
-    const clampedLat = Math.max(-85.051129, Math.min(85.051129, lat))
+    const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
     const absTileFx = (lon + 180) / 360 * n
     const tileFy = (1 - Math.log(Math.tan(Math.PI / 4 + clampedLat * DEG2RAD / 2)) / Math.PI) / 2 * n
     const tileXFloor = Math.floor(absTileFx)

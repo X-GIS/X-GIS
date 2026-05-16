@@ -1,4 +1,10 @@
 // ═══ Unified Reprojector ═══
+// STATUS: currently unused. The active non-Mercator render path projects
+// in-shader via WGSL_PROJECTION_FNS `project()` (see point-renderer.ts
+// `reproject_point`). This class is preserved for a future tile-coordinate
+// RTT approach (map.ts). It has no test coverage, so on any edit keep the
+// inverse fns a faithful mirror of projection.ts.
+//
 // Pass 2 of 2-pass rendering for ALL projections:
 // Resamples an equirectangular texture into the target projection via fullscreen quad.
 //
@@ -165,19 +171,22 @@ fn inv_oblique_mercator(px: f32, py: f32, clon: f32, clat: f32) -> vec2<f32> {
   let sin_p0 = sin(phi0);
   let cos_p0 = cos(phi0);
 
-  // Undo Mercator on rotated coordinates
+  // Inverse Mercator on the rotated frame, then unrotate. Mirrors
+  // projection.ts obliqueMercator.inverse exactly. NO PI/2 shift: the
+  // forward encodes rotation directly into rotated lat/lon (see
+  // shaders/projection.ts proj_oblique_mercator), so re-adding PI/2 here
+  // — as this function did — collapsed the map (the regression
+  // projection-wgsl-consistency.test.ts guards on the CPU side).
+  let phi_rot = 2.0 * atan(exp(py / R)) - PI / 2.0;
   let lam_rot = px / R;
-  let phi_shifted = 2.0 * atan(exp(py / R)) - PI / 2.0;
-  let phi_rot = phi_shifted + PI / 2.0;
 
-  // Rotate back to geographic
   let sin_pr = sin(phi_rot);
   let cos_pr = cos(phi_rot);
   let sin_lr = sin(lam_rot);
   let cos_lr = cos(lam_rot);
 
-  let lat = asin(clamp(sin_p0 * sin_pr + cos_p0 * cos_pr * cos_lr, -1.0, 1.0)) * RAD2DEG;
-  let lon = (lam0 + atan2(cos_pr * sin_lr, sin_p0 * cos_pr * cos_lr - cos_p0 * sin_pr)) * RAD2DEG;
+  let lat = asin(clamp(sin_pr * cos_p0 + cos_pr * cos_lr * sin_p0, -1.0, 1.0)) * RAD2DEG;
+  let lon = (lam0 + atan2(cos_pr * sin_lr, -sin_pr * sin_p0 + cos_pr * cos_lr * cos_p0)) * RAD2DEG;
   return vec2<f32>(lon, lat);
 }
 

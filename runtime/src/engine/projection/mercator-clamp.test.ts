@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { mercator, MERCATOR_LAT_LIMIT } from './projection'
 import { lonLatToMercator } from '../../loader/geojson'
@@ -49,5 +51,31 @@ describe('Mercator latitude clamp consistency', () => {
     const [, y86] = mercator.forward(0, 86)
     const [, y89] = mercator.forward(0, 89)
     expect(y86).toBeCloseTo(y89, 3)
+  })
+})
+
+// The Phase 1-A fix above only locked projection.ts + geojson.ts. The tile
+// selector (data/tile-select.ts) kept its own inline clamps — 85.051 in
+// the frustum classifier, 85.0511 in the child / camera-tile math — so the
+// CPU tile-corner Mercator Y diverged from the renderer's canonical
+// 85.051129 by ~166 m at the clamp latitude (dy/dφ = R/cosφ ≈ 7.4e7 m/rad
+// there). Lock the selector to the imported MERCATOR_LAT_LIMIT so the
+// "split clamp across modules" regression projection.ts:10-13 warns about
+// can't reappear in the selector path.
+describe('tile selector uses the canonical Mercator clamp', () => {
+  const src = readFileSync(
+    fileURLToPath(new URL('../../data/tile-select.ts', import.meta.url)),
+    'utf8',
+  )
+
+  it('imports MERCATOR_LAT_LIMIT from projection.ts', () => {
+    expect(src).toMatch(
+      /import\s*\{[^}]*\bMERCATOR_LAT_LIMIT\b[^}]*\}\s*from\s*['"][^'"]*projection['"]/,
+    )
+  })
+
+  it('bakes in no divergent Mercator latitude literal (must use the constant)', () => {
+    const offenders = src.match(/85\.05\d*/g) ?? []
+    expect(offenders).toEqual([])
   })
 })

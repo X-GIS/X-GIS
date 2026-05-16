@@ -12,6 +12,8 @@ import {
   projStereographicWgsl,
   projObliqueMercatorWgsl,
   cosC,
+  projectWgsl,
+  needsBackfaceCullWgsl,
 } from './projection-wgsl-mirror'
 
 // Phase 2-A: Cross-consistency between CPU canonical (projection.ts) and
@@ -20,9 +22,10 @@ import {
 // land on different screen positions for the same geographic point.
 //
 // These tests use a 10×10 grid of (lon, lat) samples. Tolerance is 1mm
-// for exact-formula pairs; Natural Earth is expected to diverge by meters
-// because the CPU implementation is a table-based interpolation while the
-// GPU uses a polynomial approximation of the same Natural Earth projection.
+// for exact-formula pairs. Natural Earth also agrees to 1mm now (A-1):
+// projection.ts was unified onto the same Šavrič et al. (2015) polynomial
+// the GPU uses, replacing the old table-based interpolation. See the
+// Natural Earth describe block below.
 
 const TOLERANCE_EXACT_MM = 0.001
 
@@ -51,8 +54,9 @@ describe('CPU/GPU projection consistency — Mercator', () => {
 
 describe('CPU/GPU projection consistency — Equirectangular', () => {
   it('CPU equirectangular.forward matches WGSL projEquirectangularWgsl to ≤1mm at 100 sample points', () => {
+    const eq = equirectangular()
     for (const [lon, lat] of sampleGrid()) {
-      const [xA, yA] = equirectangular.forward(lon, lat)
+      const [xA, yA] = eq.forward(lon, lat)
       const [xB, yB] = projEquirectangularWgsl(lon, lat)
       expect(xB).toBeCloseTo(xA, 3)
       expect(yB).toBeCloseTo(yA, 3)
@@ -65,8 +69,9 @@ describe('CPU/GPU projection consistency — Natural Earth', () => {
   // inverse to the same Šavrič et al. (2015) polynomial the WGSL shaders
   // use. The previous ~8145 km divergence is now zero.
   it('CPU naturalEarth.forward matches WGSL projNaturalEarthWgsl to ≤1mm at 100 sample points', () => {
+    const ne = naturalEarth()
     for (const [lon, lat] of sampleGrid()) {
-      const [xA, yA] = naturalEarth.forward(lon, lat)
+      const [xA, yA] = ne.forward(lon, lat)
       const [xB, yB] = projNaturalEarthWgsl(lon, lat)
       expect(xB).toBeCloseTo(xA, 3)
       expect(yB).toBeCloseTo(yA, 3)
@@ -77,10 +82,11 @@ describe('CPU/GPU projection consistency — Natural Earth', () => {
     // Forward then inverse should recover the original lon/lat. Test
     // mid-latitudes where the Newton-Raphson converges cleanly; the
     // deep polar region has slower convergence and wider tolerance.
+    const ne = naturalEarth()
     for (let lon = -170; lon <= 170; lon += 40) {
       for (let lat = -60; lat <= 60; lat += 20) {
-        const [x, y] = naturalEarth.forward(lon, lat)
-        const [lon2, lat2] = naturalEarth.inverse(x, y)
+        const [x, y] = ne.forward(lon, lat)
+        const [lon2, lat2] = ne.inverse(x, y)
         expect(lon2).toBeCloseTo(lon, 6)
         expect(lat2).toBeCloseTo(lat, 6)
       }
@@ -211,6 +217,119 @@ describe('CPU/GPU projection consistency — Oblique Mercator', () => {
       const [lon2, lat2] = proj.inverse(x, y)
       expect(lon2).toBeCloseTo(lon, 3)
       expect(lat2).toBeCloseTo(lat, 3)
+    }
+  })
+})
+
+// projectWgsl / needsBackfaceCullWgsl are the CPU dispatchers that label
+// anchors (map.ts) and raster tile_rtc (raster-renderer.ts) use to stay
+// pixel-aligned with the GPU. They must route by the SAME proj_params.x
+// encoding and back-face thresholds as the WGSL project() /
+// needs_backface_cull() in shaders/projection.ts — a boundary slip here
+// detaches every label/raster from the geometry under that projection.
+describe('projectWgsl dispatch matches the per-projection mirrors', () => {
+  const CL = 0, CT = 20
+  const cases: Array<[number, (l: number, a: number) => [number, number]]> = [
+    [0, (l, a) => projMercatorWgsl(l, a)],
+    [1, (l, a) => projEquirectangularWgsl(l, a)],
+    [2, (l, a) => projNaturalEarthWgsl(l, a)],
+    [3, (l, a) => projOrthographicWgsl(l, a, CL, CT)],
+    [4, (l, a) => projAzimuthalEquidistantWgsl(l, a, CL, CT)],
+    [5, (l, a) => projStereographicWgsl(l, a, CL, CT)],
+    [6, (l, a) => projObliqueMercatorWgsl(l, a, CL, CT)],
+  ]
+  it('every projType routes to its own forward at sample points', () => {
+    for (const [pt, fn] of cases) {
+      for (const [lon, lat] of sampleGrid()) {
+        const [ax, ay] = projectWgsl(pt, lon, lat, CL, CT)
+        const [bx, by] = fn(lon, lat)
+        if (!Number.isFinite(bx)) continue
+        expect(ax).toBeCloseTo(bx, 6)
+        expect(ay).toBeCloseTo(by, 6)
+      }
+    }
+  })
+})
+
+describe('needsBackfaceCullWgsl matches WGSL needs_backface_cull thresholds', () => {
+  const CL = 0, CT = 20
+  // mercator(0) equirect(1) natural_earth(2) oblique_mercator(6) are all
+  // whole-sphere (cylindrical / flat) — no hemisphere back-face. oblique
+  // used to fall through the shader's `t > 2.5` block to the stereo
+  // threshold and got a spurious antipodal clip → half-rendered /
+  // overlapping map. It must never cull, like the other cylindricals.
+  it('cylindrical / flat projections never cull (always ≥ 1)', () => {
+    for (const pt of [0, 1, 2, 6]) {
+      for (const [lon, lat] of sampleGrid()) {
+        expect(needsBackfaceCullWgsl(pt, lon, lat, CL, CT)).toBeGreaterThanOrEqual(1)
+      }
+    }
+  })
+  it('orthographic returns raw cos(c) (sign = visibility)', () => {
+    for (const [lon, lat] of sampleGrid()) {
+      expect(needsBackfaceCullWgsl(3, lon, lat, CL, CT)).toBeCloseTo(cosC(lon, lat, CL, CT), 6)
+    }
+  })
+  it('azimuthal culls at cc ≤ -0.85, stereographic at cc ≤ -0.8', () => {
+    for (const [lon, lat] of sampleGrid()) {
+      const cc = cosC(lon, lat, CL, CT)
+      expect(needsBackfaceCullWgsl(4, lon, lat, CL, CT) > 0).toBe(cc > -0.85)
+      expect(needsBackfaceCullWgsl(5, lon, lat, CL, CT) > 0).toBe(cc > -0.8)
+    }
+  })
+})
+
+// Pseudocylindrical central-meridian recentre: equirectangular &
+// natural_earth now recentre on the camera longitude (clon) so the
+// viewed region (e.g. Korea) sits at the low-distortion centre instead
+// of being sheared at the world-oval edge. The GPU mirror MUST equal the
+// projection.ts canonical at any clon, or labels/rasters detach from the
+// geometry the moment the camera leaves longitude 0.
+describe('Pseudocylindrical central-meridian recentring', () => {
+  it('camera longitude maps to x = 0 (the undistorted centre)', () => {
+    for (const clon of [0, 60, 127, -150, 179]) {
+      for (const lat of [-80, -30, 0, 37, 75]) {
+        expect(projNaturalEarthWgsl(clon, lat, clon)[0]).toBeCloseTo(0, 6)
+        expect(projEquirectangularWgsl(clon, lat, clon)[0]).toBeCloseTo(0, 6)
+      }
+    }
+  })
+
+  it('GPU mirror equals projection.ts canonical at any central meridian', () => {
+    for (const clon of [0, 45, 127, -150]) {
+      const ne = naturalEarth(clon)
+      const eq = equirectangular(clon)
+      for (const [lon, lat] of sampleGrid()) {
+        const [neAx, neAy] = ne.forward(lon, lat)
+        const [neBx, neBy] = projNaturalEarthWgsl(lon, lat, clon)
+        expect(neBx).toBeCloseTo(neAx, 3)
+        expect(neBy).toBeCloseTo(neAy, 3)
+        const [eqAx, eqAy] = eq.forward(lon, lat)
+        const [eqBx, eqBy] = projEquirectangularWgsl(lon, lat, clon)
+        expect(eqBx).toBeCloseTo(eqAx, 3)
+        expect(eqBy).toBeCloseTo(eqAy, 3)
+      }
+    }
+  })
+
+  it('projectWgsl dispatch forwards clon to equirect / natural_earth', () => {
+    for (const clon of [0, 127, -150]) {
+      for (const [lon, lat] of sampleGrid()) {
+        expect(projectWgsl(1, lon, lat, clon, 0)).toEqual(projEquirectangularWgsl(lon, lat, clon))
+        expect(projectWgsl(2, lon, lat, clon, 0)).toEqual(projNaturalEarthWgsl(lon, lat, clon))
+      }
+    }
+  })
+
+  it('clon = 0 is identity on [-180,180] (textbook form unchanged)', () => {
+    const ne = naturalEarth()
+    for (const [lon, lat] of sampleGrid()) {
+      // sampleGrid spans lon ∈ [-180,180]; wrapLonDelta must not alter it
+      // at clon = 0, so the recentred path is byte-identical to before.
+      const [ax, ay] = ne.forward(lon, lat)
+      const [bx, by] = naturalEarth(0).forward(lon, lat)
+      expect(ax).toBe(bx)
+      expect(ay).toBe(by)
     }
   })
 })

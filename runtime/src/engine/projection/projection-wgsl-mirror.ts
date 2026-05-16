@@ -19,6 +19,15 @@
 const EARTH_R = 6378137
 const DEG2RAD = Math.PI / 180
 
+/** Mirror of `fn wrap_lon_delta` in wgsl-projection.ts (and identical to
+ *  projection.ts wrapLonDelta). Identity inside [-180,180] so clon = 0
+ *  leaves the pseudocylindrical projections byte-unchanged. */
+function wrapLonDelta(d: number): number {
+  if (d > 180) return d - 360 * Math.ceil((d - 180) / 360)
+  if (d < -180) return d + 360 * Math.ceil((-d - 180) / 360)
+  return d
+}
+
 /** Mirror of `fn proj_mercator` in wgsl-projection.ts. */
 export function projMercatorWgsl(lon: number, lat: number): [number, number] {
   const clamped = Math.max(-85.051129, Math.min(85.051129, lat))
@@ -28,22 +37,24 @@ export function projMercatorWgsl(lon: number, lat: number): [number, number] {
 }
 
 /** Mirror of `fn proj_natural_earth` in wgsl-projection.ts.
- *  Uses the Šavrič et al. (2015) 6th-order polynomial — NOT the table-based
- *  interpolation in projection.ts `naturalEarth.forward`. The divergence is
- *  real and intentional on the GPU side for shader-friendly evaluation. */
-export function projNaturalEarthWgsl(lon: number, lat: number): [number, number] {
+ *  Šavrič et al. (2015) 6th-order polynomial. projection.ts
+ *  `naturalEarth.forward` now uses this SAME polynomial — the old
+ *  table-based interpolation (which drifted ~8145 km at the poles) was
+ *  removed; see the history note in projection.ts. CPU, WGSL, and this
+ *  mirror agree to ≤1mm, locked by projection-wgsl-consistency.test.ts. */
+export function projNaturalEarthWgsl(lon: number, lat: number, clon = 0): [number, number] {
   const latR = lat * DEG2RAD
   const lat2 = latR * latR
   const lat4 = lat2 * lat2
   const lat6 = lat2 * lat4
   const xScale = 0.8707 - 0.131979 * lat2 + 0.013791 * lat4 - 0.0081435 * lat6
   const yVal = latR * (1.007226 + lat2 * (0.015085 + lat2 * (-0.044475 + 0.028874 * lat2 - 0.005916 * lat4)))
-  return [lon * DEG2RAD * xScale * EARTH_R, yVal * EARTH_R]
+  return [wrapLonDelta(lon - clon) * DEG2RAD * xScale * EARTH_R, yVal * EARTH_R]
 }
 
 /** Mirror of `fn proj_equirectangular` in wgsl-projection.ts. */
-export function projEquirectangularWgsl(lon: number, lat: number): [number, number] {
-  return [lon * DEG2RAD * EARTH_R, lat * DEG2RAD * EARTH_R]
+export function projEquirectangularWgsl(lon: number, lat: number, clon = 0): [number, number] {
+  return [wrapLonDelta(lon - clon) * DEG2RAD * EARTH_R, lat * DEG2RAD * EARTH_R]
 }
 
 /** Mirror of `fn proj_orthographic` in wgsl-projection.ts.
@@ -115,4 +126,52 @@ export function projObliqueMercatorWgsl(lon: number, lat: number, clon: number, 
   const MERC_LIMIT_RAD = 85.051129 * DEG2RAD
   const phiClamped = Math.max(-MERC_LIMIT_RAD, Math.min(MERC_LIMIT_RAD, phiRot))
   return [EARTH_R * lamRot, EARTH_R * Math.log(Math.tan(Math.PI / 4 + phiClamped / 2))]
+}
+
+// ═══ Dispatchers — mirror the WGSL `project()` / `needs_backface_cull()`
+// dispatch in shaders/projection.ts (same proj_params.x encoding:
+// 0=merc 1=equirect 2=natearth 3=ortho 4=azieqd 5=stereo 6=oblmerc).
+//
+// Any CPU computation that must land on the SAME screen position as the
+// GPU per-vertex projection (label anchors in map.ts, raster tile_rtc in
+// raster-renderer.ts) MUST go through these — NOT projection.ts
+// `getProjection`. projection.ts is the canonical CPU projection and
+// intentionally diverges from the shader on ortho/stereo back-face
+// (returns NaN / different sentinel — the documented A-3 convention),
+// so using it for GPU-coupled math detaches labels/rasters from the
+// geometry under non-Mercator projections. These mirrors compute
+// coords unconditionally exactly like the shader and defer culling to
+// needsBackfaceCullWgsl, matching the GPU's project-then-cull split.
+
+/** Mirror of WGSL `project()` in shaders/projection.ts. */
+export function projectWgsl(
+  projType: number, lon: number, lat: number, clon: number, clat: number,
+): [number, number] {
+  if (projType < 0.5) return projMercatorWgsl(lon, lat)
+  if (projType < 1.5) return projEquirectangularWgsl(lon, lat, clon)
+  if (projType < 2.5) return projNaturalEarthWgsl(lon, lat, clon)
+  if (projType < 3.5) return projOrthographicWgsl(lon, lat, clon, clat)
+  if (projType < 4.5) return projAzimuthalEquidistantWgsl(lon, lat, clon, clat)
+  if (projType < 5.5) return projStereographicWgsl(lon, lat, clon, clat)
+  return projObliqueMercatorWgsl(lon, lat, clon, clat)
+}
+
+/** Mirror of WGSL `needs_backface_cull()` in shaders/projection.ts.
+ *  Positive ⇒ visible, negative ⇒ cull. Thresholds match the shader
+ *  byte-for-byte: ortho returns raw cos(c) (cull when < 0), azimuthal
+ *  culls at cc ≤ -0.85, stereographic at cc ≤ -0.8. oblique_mercator is
+ *  cylindrical (the whole sphere maps to a strip, like Mercator) so it
+ *  is NEVER hemisphere-culled — same as the flat projections and
+ *  natural_earth. */
+export function needsBackfaceCullWgsl(
+  projType: number, lon: number, lat: number, clon: number, clat: number,
+): number {
+  if (projType > 2.5) {
+    const cc = cosC(lon, lat, clon, clat)
+    if (projType < 3.5) return cc
+    if (projType < 4.5) return cc > -0.85 ? 1 : -1
+    if (projType < 5.5) return cc > -0.8 ? 1 : -1
+    return 1 // oblique_mercator — cylindrical, no back-face
+  }
+  return 1
 }
