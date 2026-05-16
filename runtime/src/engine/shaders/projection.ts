@@ -106,15 +106,15 @@ fn proj_natural_earth(lon_deg: f32, lat_deg: f32, clon: f32) -> vec2<f32> {
 // whole, off-edge sliver clipped by the world oval) instead of being
 // split into a full-width horizontal smear. floor() (not round()) so
 // the WGSL shader and the TS mirror agree bit-for-bit.
-fn unwrap_lon_near(value: f32, ref: f32) -> f32 {
-  return value - 360.0 * floor((value - ref + 180.0) / 360.0);
+fn unwrap_lon_near(value: f32, ref_v: f32) -> f32 {
+  return value - 360.0 * floor((value - ref_v + 180.0) / 360.0);
 }
 
 // Radian analogue (window 2π) for the oblique_mercator rotated
 // longitude, which jumps at atan2's ±π branch cut.
-fn unwrap_rad_near(value: f32, ref: f32) -> f32 {
+fn unwrap_rad_near(value: f32, ref_v: f32) -> f32 {
   let two_pi = 2.0 * PI;
-  return value - two_pi * floor((value - ref + PI) / two_pi);
+  return value - two_pi * floor((value - ref_v + PI) / two_pi);
 }
 
 fn proj_orthographic(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
