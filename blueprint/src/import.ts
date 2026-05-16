@@ -128,6 +128,11 @@ export function xgisToGraph(src: string): BPGraph {
   const sourceByName = new Map<string, string>()
   const styleByName = new Map<string, string>()
   const layers: { node: BPNode; src?: string; style?: string }[] = []
+  // GeoJSON sources with no URL are the converter's "inline/missing
+  // data" stub — unrepresentable here and unloadable at runtime, so
+  // they (and the layers wired to them) are skipped rather than
+  // emitted as a broken source that blanks the whole preview.
+  const skippedSources = new Set<string>()
 
   for (const block of splitBlocks(src)) {
     const kw = block.match(/^([a-z]+)\b/)?.[1]
@@ -136,11 +141,17 @@ export function xgisToGraph(src: string): BPGraph {
     const lines = bodyLines(block)
 
     if (kw === 'source') {
+      const stype = prop(lines, 'type') || 'geojson'
+      const surl = prop(lines, 'url') || ''
+      if (stype === 'geojson' && !surl.trim()) {
+        if (name) skippedSources.add(name)
+        continue
+      }
       const layersProp = prop(lines, 'layers') ?? ''
       const n = mk('source', {
         name,
-        type: prop(lines, 'type') || 'geojson',
-        url: prop(lines, 'url') || '',
+        type: stype,
+        url: surl,
         layers: layersProp
           .replace(/^\[|\]$/g, '')
           .split(',')
@@ -196,6 +207,8 @@ export function xgisToGraph(src: string): BPGraph {
         }),
       )
     } else if (kw === 'layer') {
+      const srcRef = prop(lines, 'source')
+      if (srcRef && skippedSources.has(srcRef)) continue
       const n = mk('layer', {
         name,
         sourceLayer: prop(lines, 'sourceLayer') || '',
@@ -220,6 +233,12 @@ export function xgisToGraph(src: string): BPGraph {
       edges.push({ id: uid('e'), from: { node: styleByName.get(st)!, pin: 'out' }, to: { node: node.id, pin: 'style' } })
     edges.push({ id: uid('e'), from: { node: node.id, pin: 'out' }, to: { node: map.id, pin: 'layers' } })
   }
+
+  if (skippedSources.size)
+    console.warn(
+      `[@xgis/blueprint] skipped ${skippedSources.size} GeoJSON source(s) with no URL ` +
+        `(inline data isn't representable in the editor): ${[...skippedSources].join(', ')}`,
+    )
 
   autoLayout(nodes)
   return { nodes, edges }

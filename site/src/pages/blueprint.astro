@@ -243,9 +243,15 @@ const playgroundUrl = `${base}/play/demo.html`
     let preview: any = null
     let renderToken = 0
     let prevTimer: number | undefined
+    let lastPreviewSrc = ''
 
-    async function renderPreview(src: string) {
+    async function renderPreview(src: string, force = false) {
       if (!src.trim()) return
+      // Most editor changes (drag, select, marquee, undo landing on
+      // the same graph) don't change the generated source. Rebuilding
+      // the whole WebGPU map for those is the main mobile slowdown —
+      // skip when the source is identical to what's already running.
+      if (!force && preview && src === lastPreviewSrc) return
       const token = ++renderToken
       $prevMsg.textContent = 'Rendering…'
       try {
@@ -262,6 +268,7 @@ const playgroundUrl = `${base}/play/demo.html`
         preview = new MapCtor($canvas)
         await preview.run(src, dataBase)
         if (token !== renderToken) return
+        lastPreviewSrc = src
         $prevMsg.textContent = ''
       } catch (e: any) {
         if (token === renderToken) $prevMsg.textContent = 'Preview: ' + String(e?.message || e)
@@ -418,10 +425,10 @@ const playgroundUrl = `${base}/play/demo.html`
 
     $render.addEventListener('click', () => {
       window.clearTimeout(prevTimer)
-      void renderPreview($out.value)
+      void renderPreview($out.value, true)
     })
     $live.addEventListener('change', () => {
-      if ($live.checked) void renderPreview($out.value)
+      if ($live.checked) void renderPreview($out.value, true)
     })
 
     // ── Style → blueprint import ──
