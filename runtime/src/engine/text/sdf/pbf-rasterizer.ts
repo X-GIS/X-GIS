@@ -142,7 +142,16 @@ export class PbfRasterizer implements GlyphRasterizer {
     // 1. Sync probe — first hit wins.
     for (const p of this.providers) {
       const g = p.get(fontstack, req.codepoint)
-      if (g) return pbfGlyphToSlot(g, req.fontKey, req.slotSize, req.sdfRadius, req.fontSize)
+      if (g) {
+        // PBF-server SDF: byte slope matches the renderer's `·3` halo
+        // constant. Tag it so packUniforms keeps that path unchanged
+        // (locally-rasterised fallbacks below stay untagged → the
+        // SDF-consistent halo normalisation applies to them instead).
+        return {
+          ...pbfGlyphToSlot(g, req.fontKey, req.slotSize, req.sdfRadius, req.fontSize),
+          pbf: true,
+        }
+      }
     }
 
     // 2. No hit yet — let every async-capable provider schedule a load.
