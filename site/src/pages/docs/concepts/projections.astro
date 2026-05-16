@@ -17,6 +17,7 @@ const projections = [
   { name: 'azimuthal_equidistant',    args: '(lon, lat)',      title: 'Azimuthal equidistant', body: 'Distances from center are exact. Used for radio range maps + polar projections.' },
   { name: 'stereographic',            args: '(lon, lat)',      title: 'Stereographic',         body: 'Conformal projection from a sphere onto a plane. Good for polar regions; everything-on-one-page world map.' },
   { name: 'oblique_mercator',         args: '(lon, lat)',      title: 'Oblique Mercator',      body: 'Tilted Mercator centered on (lon, lat). Useful for narrow regions that span continents (e.g., the Hawaiian Islands chain).' },
+  { name: 'globe',                    args: '',                title: 'Globe (3D)',            body: 'True 3D sphere with an orbit camera — Cesium-style. Two-finger vertical drag tilts (pitch), pinch zooms, drag rotates. Pitch is a real 3D tilt, not a flattened disc like orthographic.' },
 ]
 ---
 
