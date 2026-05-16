@@ -275,7 +275,6 @@ export class TextRenderer {
       : 1  // never used when no glyphs, but keeps types happy
 
     for (const d of draws) {
-      const scale = d.fontSize / d.rasterFontSize
       let penX = d.anchorX
       const baseY = d.anchorY
       const letterSpacingPx = d.letterSpacingPx ?? 0
@@ -321,6 +320,11 @@ export class TextRenderer {
           slicePage = g.slot.page
           sliceGlyphCount = 0
         }
+        // Per-glyph slot→display scale. PBF glyphs are baked at their
+        // 24-px native reference, local Hangul at the DPR-scaled
+        // raster; a bilingual label mixes both in one draw, so the
+        // factor is per-glyph (g.rasterFontSize), not per-draw.
+        const scale = d.fontSize / (g.rasterFontSize ?? d.rasterFontSize)
         const slotSize = g.slot.size
         const drawW = slotSize * scale
         const drawH = slotSize * scale

@@ -35,6 +35,13 @@ export interface GlyphInfo {
   /** SDF source — see GlyphRasterResult.pbf. Threaded through so the
    *  renderer can pick the matching halo-width normalisation. */
   pbf: boolean
+  /** Pixel size this glyph's SDF + metrics were baked at (see
+   *  GlyphRasterResult.rasterFontSize). Per-glyph so a label mixing
+   *  24-px PBF Latin and DPR-scaled local Hangul scales each run
+   *  correctly. Optional only to keep external test fixtures terse;
+   *  the host always populates it — consumers fall back to the
+   *  draw-level rasterFontSize when absent. */
+  rasterFontSize?: number
 }
 
 export interface DirtyGlyph {
@@ -59,6 +66,7 @@ interface CachedMetrics {
   width: number
   height: number
   pbf: boolean
+  rasterFontSize: number
 }
 
 export class GlyphAtlasHost {
@@ -120,6 +128,7 @@ export class GlyphAtlasHost {
         width: result.width,
         height: result.height,
         pbf: result.pbf === true,
+        rasterFontSize: result.rasterFontSize,
       })
       this.dirty.push({ key, slot: ensured.slot, sdf: result.sdf })
       this.stale.delete(mk)
@@ -135,6 +144,7 @@ export class GlyphAtlasHost {
       width: m.width,
       height: m.height,
       pbf: m.pbf,
+      rasterFontSize: m.rasterFontSize,
     }
   }
 
@@ -209,6 +219,7 @@ export class GlyphAtlasHost {
       width: r.width,
       height: r.height,
       pbf: r.pbf === true,
+      rasterFontSize: r.rasterFontSize,
     }
   }
 }

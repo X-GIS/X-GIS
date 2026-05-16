@@ -99,6 +99,14 @@ export interface GlyphRasterResult {
    *  width must be normalised differently — see packUniforms.
    *  Absent/false ⇒ locally rasterised. */
   pbf?: boolean
+  /** Pixel size the SDF + metrics in this result were baked at. The
+   *  renderer scales each glyph to its display size by
+   *  sizePx / rasterFontSize. Source-dependent: PBF is fixed at its
+   *  24-px native reference (identity copy, DPR-independent); local
+   *  Canvas2D uses the requested (DPR-scaled) `fontSize`. Keeping
+   *  this per-glyph lets one bilingual label mix a 24-px PBF Latin
+   *  run with a higher-res local Hangul run, each crisp. */
+  rasterFontSize: number
 }
 
 export interface GlyphRasterizer {
@@ -171,6 +179,7 @@ export class Canvas2DRasterizer implements GlyphRasterizer {
     return {
       fontKey, codepoint, sdfRadius, sdf,
       advanceWidth, bearingX, bearingY, width, height,
+      rasterFontSize: fontSize,
     }
   }
 }
@@ -241,6 +250,7 @@ export class Canvas2DMetricsRasterizer implements GlyphRasterizer {
       bearingY: metrics.actualBoundingBoxAscent,
       width: metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight,
       height: metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent,
+      rasterFontSize: fontSize,
     }
   }
 }
@@ -274,6 +284,7 @@ export class MockRasterizer implements GlyphRasterizer {
       bearingY: fontSize * 0.7,
       width: fontSize * 0.6,
       height: fontSize,
+      rasterFontSize: fontSize,
     }
   }
 }

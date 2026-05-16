@@ -27,15 +27,20 @@ describe('pbfGlyphToSlot — scaled SDF re-encoding', () => {
     expect(edgeHit).toBe(true)
   })
 
-  it('scales metrics from PBF 24-px reference to engine raster size', () => {
+  it('keeps metrics at the PBF 24-px native reference (identity, DPR-independent)', () => {
+    // PBF is now baked 1:1 at its 24-px reference regardless of the
+    // (DPR-scaled) engine rasterFontSize — the renderer scales each
+    // glyph by sizePx / rasterFontSize at draw time, and pbf-to-slot
+    // reports rasterFontSize = 24 so display size is unchanged while
+    // the SDF stays an identity copy (no resample softening).
     const A = stack.glyphs.get(0x41)!
     const out = pbfGlyphToSlot(A, 'Open Sans Semibold', slotSize, sdfRadius, rasterFontSize)
-    const expectedScale = rasterFontSize / 24
-    expect(out.advanceWidth).toBeCloseTo(A.advance * expectedScale, 5)
-    expect(out.bearingX).toBeCloseTo(A.left * expectedScale, 5)
-    expect(out.bearingY).toBeCloseTo(A.top * expectedScale, 5)
-    expect(out.width).toBeCloseTo(A.width * expectedScale, 5)
-    expect(out.height).toBeCloseTo(A.height * expectedScale, 5)
+    expect(out.rasterFontSize).toBe(24)
+    expect(out.advanceWidth).toBeCloseTo(A.advance, 5)
+    expect(out.bearingX).toBeCloseTo(A.left, 5)
+    expect(out.bearingY).toBeCloseTo(A.top, 5)
+    expect(out.width).toBeCloseTo(A.width, 5)
+    expect(out.height).toBeCloseTo(A.height, 5)
   })
 
   it('threads fontKey + codepoint + sdfRadius through unchanged', () => {
