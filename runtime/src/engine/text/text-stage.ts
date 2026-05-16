@@ -395,6 +395,16 @@ export interface TextStageOptions {
   /** SDF falloff radius in pixels. Determines edge smoothness +
    *  halo headroom. */
   sdfRadius?: number
+  /** Device-pixel-ratio the atlas rasterises for. `rasterFontSize`
+   *  is multiplied by this (capped so rasterFontSize + 2*sdfRadius
+   *  still fits slotSize) so locally Canvas2D-rasterised glyphs
+   *  (Hangul/Han — not served by the PBF glyph endpoint) are baked
+   *  near their physical-pixel display size instead of being
+   *  GPU-upscaled ~dpr× from a 24-px raster (visible as low-res
+   *  CJK labels on hidpi phones). Fixed at construction — the atlas
+   *  is built once; matches the existing single-build lifecycle.
+   *  Defaults to 1 (no scaling). */
+  dpr?: number
   /** Default font key when LabelDef doesn't specify a font stack. */
   defaultFont?: string
   /** Optional rasterizer override (e.g. a worker-backed implementation
@@ -455,7 +465,7 @@ export interface TextStageOptions {
 // Linux). Per-label font stacks coming from Mapbox styles get the
 // same fallback chain appended in addLabel/addCurvedLineLabel.
 const CJK_FALLBACK_CHAIN = '"Noto Sans CJK KR","Apple SD Gothic Neo","Malgun Gothic","Microsoft YaHei","Noto Sans CJK JP","Hiragino Sans","Yu Gothic",sans-serif'
-const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography'>> = {
+const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr'>> = {
   slotSize: 64,
   pageSize: 2304,
   rasterFontSize: 24,
@@ -486,7 +496,7 @@ export class TextStage {
   readonly host: GlyphAtlasHost
   readonly gpu: GlyphAtlasGPU
   readonly renderer: TextRenderer
-  readonly opts: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography'>>
+  readonly opts: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr'>>
   /** The PBF rasterizer when this stage was built with PBF/inline/
    *  custom-provider config; null when no PBF chain is active.
    *  Exposed so `addGlyphProvider` can extend the chain after the
@@ -510,7 +520,27 @@ export class TextStage {
     options: TextStageOptions = {},
     sampleCount: number = 1,
   ) {
-    this.opts = { ...DEFAULTS, ...options } as Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography'>>
+    this.opts = { ...DEFAULTS, ...options } as Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr'>>
+    // DPR-aware raster size. Glyphs the PBF endpoint doesn't serve
+    // (Hangul/Han on OFM Bright etc.) are Canvas2D-rasterised once at
+    // this size and then GPU-scaled to the physical display size. On
+    // a hidpi phone (dpr 2-3) a 24-px raster gets upscaled ~dpr×,
+    // visibly soft. Baking at rasterFontSize·dpr makes that GPU step
+    // ~1:1 for typical label sizes. Capped so the glyph + its SDF
+    // falloff still fits a slot (rasterFontSize + 2·sdfRadius ≤
+    // slotSize) — at the defaults that's 64−16 = 48 px (= 2× the
+    // 24-px base, the practical ceiling without growing slots). PBF
+    // glyphs resample through pbf-to-slot's sub-pixel-preserving
+    // bilinear at the same factor; SDF upscales gracefully so Latin
+    // fidelity is unaffected. All downstream consumers (atlas raster,
+    // display `scale`, TextDraw.rasterFontSize, halo normalisation)
+    // read this one value so they stay consistent.
+    const dpr = options.dpr && options.dpr > 0 ? options.dpr : 1
+    const rasterCap = this.opts.slotSize - 2 * this.opts.sdfRadius
+    this.opts.rasterFontSize = Math.max(
+      this.opts.rasterFontSize,
+      Math.min(Math.round(this.opts.rasterFontSize * dpr), rasterCap),
+    )
     // Rasterizer selection:
     //   1. explicit `rasterizer` override     → use as-is
     //   2. ANY of {glyphsUrl, inlineGlyphs,
