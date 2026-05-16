@@ -602,3 +602,41 @@ describe('Camera — pitchLocked (flat azimuthal projections)', () => {
     expect(cam.pitch).toBe(55)
   })
 })
+
+describe('Camera — globeMode (orbit matrix for the true 3D globe)', () => {
+  it('off by default; 2D MVP unchanged', () => {
+    const a = new Camera(0, 0, 5)
+    const b = new Camera(0, 0, 5)
+    expect(a.globeMode).toBe(false)
+    const m2d = a.getRTCMatrix(W, H, DPR)
+    b.globeMode = false
+    for (let i = 0; i < 16; i++) expect(b.getRTCMatrix(W, H, DPR)[i]).toBeCloseTo(m2d[i], 6)
+  })
+
+  it('globeMode swaps in a DIFFERENT matrix than the 2D path', () => {
+    const cam = new Camera(0, 0, 3)
+    const flat = cam.getRTCMatrix(W, H, DPR).slice()
+    cam.globeMode = true
+    const globe = cam.getRTCMatrix(W, H, DPR)
+    let differs = false
+    for (let i = 0; i < 16; i++) if (Math.abs(globe[i] - flat[i]) > 1e-3) differs = true
+    expect(differs).toBe(true)
+  })
+
+  it('getFrameView in globeMode returns finite far + logDepthFc', () => {
+    const cam = new Camera(0, 0, 3)
+    cam.globeMode = true
+    const fv = cam.getFrameView(W, H, DPR)
+    expect(fv.far).toBeGreaterThan(0)
+    expect(Number.isFinite(fv.far)).toBe(true)
+    expect(Number.isFinite(fv.logDepthFc)).toBe(true)
+    expect(fv.matrix.length).toBe(16)
+  })
+
+  it('pitch is NOT locked in globeMode (Cesium-style tilt is meaningful)', () => {
+    const cam = new Camera(0, 0, 3)
+    cam.globeMode = true
+    cam.pitch = 55
+    expect(cam.pitch).toBe(55) // globe ≠ flat azimuthal — pitch lives
+  })
+})

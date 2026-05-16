@@ -202,6 +202,35 @@ describe('globe — dateline-wrapping tile selection', () => {
   })
 })
 
+describe('globe — RTC matrix (renderer feeds proj_globe(v) − proj_globe(center))', () => {
+  it('the focus point (rtc origin) projects to NDC (0,0)', () => {
+    for (const [lon, lat, p] of [[0, 0, 0], [127, 37, 40], [-150, -20, 70]] as const) {
+      const v = buildGlobeMatrix(lon, lat, 4, p, 0, W, H)
+      const c = mulVec4(v.rtcMatrix, [0, 0, 0, 1]) // focus − focus = 0
+      expect(c[3]).toBeGreaterThan(0)
+      expect(c[0] / c[3]).toBeCloseTo(0, 4)
+      expect(c[1] / c[3]).toBeCloseTo(0, 4)
+    }
+  })
+
+  it('rtcMatrix·(p−focus) lands at the same NDC as matrix·p (RTC of the absolute MVP)', () => {
+    // The ABSOLUTE path multiplies a f32 matrix by ~6.37e6 coords and
+    // loses precision in raw clip space — that loss is the very reason
+    // RTC exists, so compare the meaningful quantity (NDC = screen pos),
+    // not raw clip components, and only near the focus where the
+    // absolute path is still trustworthy.
+    const v = buildGlobeMatrix(30, 15, 5, 35, 50, W, H)
+    const focus = globeForward(30, 15)
+    for (const [lon, lat] of [[30.5, 15.5], [29.5, 14.5], [31, 16]] as const) {
+      const p = globeForward(lon, lat)
+      const a = mulVec4(v.matrix, [p[0], p[1], p[2], 1])
+      const r = mulVec4(v.rtcMatrix, [p[0] - focus[0], p[1] - focus[1], p[2] - focus[2], 1])
+      expect(r[0] / r[3]).toBeCloseTo(a[0] / a[3], 2)
+      expect(r[1] / r[3]).toBeCloseTo(a[1] / a[3], 2)
+    }
+  })
+})
+
 // Cesium's camera tilts AROUND the focus point at a CONSTANT range:
 // pitch ≈ -90° looks straight down (nadir); raising it sweeps the view
 // toward the horizon while the focus stays put — a real perspective

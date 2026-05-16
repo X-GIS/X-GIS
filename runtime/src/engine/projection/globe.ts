@@ -99,11 +99,19 @@ export function globeAltitude(zoom: number, cssHeightPx: number): number {
 }
 
 export interface GlobeView {
-  /** Column-major MVP (P × lookAt), absolute sphere coords. */
+  /** Column-major MVP (P × lookAt), ABSOLUTE sphere coords. Used by
+   *  unproject (ray↔sphere) and the camera/unit tests. */
   matrix: Float32Array
+  /** Column-major MVP relative to the focus point (RTC): the vertex
+   *  shaders feed `proj_globe(lon,lat) − proj_globe(clon,clat)` (= the
+   *  sphere point minus the focus) into THIS, exactly mirroring the 2D
+   *  path's `project(v) − project(center)` RTC scheme — keeps f32
+   *  vertex precision on a 6.3 Mm sphere. */
+  rtcMatrix: Float32Array
   /** Eye position in sphere coords. */
   eye: Vec3
-  /** Look-at target = surface point at (centerLon, centerLat). */
+  /** Look-at target = surface point at (centerLon, centerLat) = the
+   *  RTC origin the shader subtracts. */
   target: Vec3
   near: number
   far: number
@@ -194,7 +202,22 @@ export function buildGlobeMatrix(
 
   const out = new Array(16)
   mul4(out, P, view)
-  return { matrix: new Float32Array(out), eye, target, near, far }
+
+  // RTC variant: same rotation (direction-only, translation-invariant),
+  // eye expressed relative to the focus so the shader can subtract the
+  // focus from each vertex. lookAt is invariant under shifting eye AND
+  // target by the same vector, so this is the exact RTC of `matrix`.
+  const eyeR = sub(eye, target)
+  const rtcView = [
+    s[0], u[0], -fwd[0], 0,
+    s[1], u[1], -fwd[1], 0,
+    s[2], u[2], -fwd[2], 0,
+    -dot(s, eyeR), -dot(u, eyeR), dot(fwd, eyeR), 1,
+  ]
+  const rtcOut = new Array(16)
+  mul4(rtcOut, P, rtcView)
+
+  return { matrix: new Float32Array(out), rtcMatrix: new Float32Array(rtcOut), eye, target, near, far }
 }
 
 /** Invert a column-major 4×4 (mirror of camera.ts invert4x4 — kept

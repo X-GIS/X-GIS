@@ -749,6 +749,10 @@ export class XGISMap {
     this.camera.pitchLocked = FLAT_AZIMUTHAL.includes(name)
     if (this.camera.pitchLocked) this.camera.pitch = 0
 
+    // True 3D globe: the camera emits the orbit view-projection instead
+    // of the 2D Mercator-plane MVP (renderers branch on projType 7).
+    this.camera.globeMode = name === 'globe'
+
     this.invalidate()
   }
 

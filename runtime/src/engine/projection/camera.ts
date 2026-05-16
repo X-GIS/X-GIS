@@ -4,6 +4,7 @@ import { lonLatToMercator } from '../../loader/geojson'
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
+import { buildGlobeMatrix } from './globe'
 
 export class Camera {
   /** Camera center in Web Mercator coordinates */
@@ -26,6 +27,18 @@ export class Camera {
   /** Camera pitch/tilt in degrees (0 = top-down, 85 = nearly horizontal) */
   get pitch(): number { return this.pitchLocked ? 0 : this._pitch }
   set pitch(deg: number) { this._pitch = deg }
+
+  /** Set by Map for the true 3D `globe` projection (projType 7). When
+   *  on, the matrix the renderers consume is the orbit-camera view-proj
+   *  (projection/globe.ts) instead of the 2D Mercator-plane MVP — this
+   *  is what makes pitch a Cesium-style 3D tilt rather than laying a
+   *  flat map on its side. The 2D path below is untouched (guard-claused
+   *  in getRTCMatrix / getFrameView) so projType 0..6 stay byte-identical.
+   *  NOTE: pan/zoom still mutate centerX/Y/zoom in Mercator terms and
+   *  the globe re-derives from them — usable, but true drag-to-rotate /
+   *  cursor-anchored globe zoom is the remaining interaction wiring. */
+  globeMode = false
+  private _globeMatrix = new Float32Array(16)
   /** Upper bound for `zoom`. Set by the Map based on source.maxLevel so
    *  that user pan/zoom input and hash restoration can't push us past the
    *  data's usable range (beyond which tile-local float32 precision and
@@ -225,11 +238,27 @@ export class Camera {
     return far
   }
 
+  /** Globe orbit view-projection (RTC, focus-relative) from the current
+   *  camera state. centerLon/Lat are the Mercator-inverse of centerX/Y
+   *  so existing pan/zoom (which move centerX/Y) recenter the globe. */
+  private _globeFrame(canvasWidth: number, canvasHeight: number, dpr: number): { matrix: Float32Array; far: number } {
+    const R = 6378137
+    const lon = this.centerX / R * (180 / Math.PI)
+    const lat = (2 * Math.atan(Math.exp(this.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
+    const v = buildGlobeMatrix(
+      lon, lat, this.zoom, this.pitch, this.bearing,
+      canvasWidth / dpr, canvasHeight / dpr,
+    )
+    this._globeMatrix.set(v.rtcMatrix)
+    return { matrix: this._globeMatrix, far: v.far }
+  }
+
   /** RTC matrix: perspective projection × view (pitch + bearing).
    *  When pitch=0, reduces to the same orthographic-like result as before.
    *  Discards the far-plane value — use getFrameView() when you also
    *  need far / log-depth. */
   getRTCMatrix(canvasWidth: number, canvasHeight: number, dpr: number = 1): Float32Array {
+    if (this.globeMode) return this._globeFrame(canvasWidth, canvasHeight, dpr).matrix
     this._buildRTCMatrix(canvasWidth, canvasHeight, dpr)
     return this.rtcMatrix
   }
@@ -247,6 +276,10 @@ export class Camera {
     far: number
     logDepthFc: number
   } {
+    if (this.globeMode) {
+      const g = this._globeFrame(canvasWidth, canvasHeight, dpr)
+      return { matrix: g.matrix, far: g.far, logDepthFc: computeLogDepthFc(g.far) }
+    }
     const far = this._buildRTCMatrix(canvasWidth, canvasHeight, dpr)
     return { matrix: this.rtcMatrix, far, logDepthFc: computeLogDepthFc(far) }
   }
