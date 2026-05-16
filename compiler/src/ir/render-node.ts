@@ -292,6 +292,26 @@ export interface LabelDef {
    *  on top of `offset`; differs from offset only by unit (pixels
    *  vs em-units) and by Mapbox spec's "paint" vs "layout" category. */
   translate?: [number, number]
+  /** Mapbox `text-radial-offset` in em units. Only meaningful with
+   *  variable placement (`anchorCandidates`): the runtime offsets the
+   *  text away from the anchor point by this radius in the direction
+   *  implied by each candidate anchor (MapLibre `evaluateVariableOffset`
+   *  / `fromRadialOffset`). When set it supersedes `offset` for the
+   *  per-anchor radial nudge, matching the Mapbox spec note that
+   *  text-offset and text-radial-offset shouldn't be used together. */
+  radialOffset?: number
+  /** Mapbox `text-variable-anchor-offset` — the modern combined form
+   *  of variable-anchor + per-anchor offset. Ordered list of
+   *  `[anchor, [dx, dy]]` pairs in em units; the anchors ARE the
+   *  variable-placement candidates (mirrors `anchorCandidates`). The
+   *  runtime applies the matching pair's offset (plus MapLibre's
+   *  top/bottom baseline shift) for whichever candidate wins
+   *  collision. Supersedes `offset` / `radialOffset` when present. */
+  variableAnchorOffset?: Array<[
+    'center' | 'top' | 'bottom' | 'left' | 'right'
+    | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
+    [number, number],
+  ]>
   /** Mapbox `text-rotate` in degrees clockwise. */
   rotate?: number
   /** Padding (px) around the text bbox for collision testing.

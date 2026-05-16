@@ -376,6 +376,17 @@ function lowerLayer(
   let labelOffsetY: number | undefined
   let labelTranslateX: number | undefined
   let labelTranslateY: number | undefined
+  let labelRadialOffset: number | undefined
+  // `text-variable-anchor-offset` em offsets, keyed by the 0-based
+  // pair index the converter emitted; zipped back onto the ordered
+  // anchor candidates at assembly time.
+  const labelVao: Array<[number, number] | undefined> = []
+  const setVao = (idx: number, axis: string, n: number): void => {
+    const cur = labelVao[idx] ?? [0, 0]
+    if (axis === 'x') cur[0] = n
+    else if (axis === 'y') cur[1] = n
+    labelVao[idx] = cur
+  }
   let labelAllowOverlap: boolean | undefined
   let labelIgnorePlacement: boolean | undefined
   let labelPadding: number | undefined
@@ -845,6 +856,12 @@ function lowerLayer(
             if (name === 'label-offset-y') { labelOffsetY = n; continue }
             if (name === 'label-translate-x') { labelTranslateX = n; continue }
             if (name === 'label-translate-y') { labelTranslateY = n; continue }
+            if (name === 'label-radial-offset') { labelRadialOffset = n; continue }
+            if (name.startsWith('label-vao-')) {
+              // `label-vao-<idx>-<x|y>` bracket form (negative em).
+              const m = /^label-vao-(\d+)-([xy])$/.exec(name)
+              if (m) { setVao(parseInt(m[1]!, 10), m[2]!, n); continue }
+            }
             if (name === 'label-rotate') { labelRotate = n; continue }
             if (name === 'label-letter-spacing') { labelLetterSpacing = n; continue }
             if (name === 'label-padding') { labelPadding = n; continue }
@@ -968,6 +985,21 @@ function lowerLayer(
       if (name.startsWith('label-padding-')) {
         const num = parseFloat(name.slice('label-padding-'.length))
         if (!isNaN(num)) labelPadding = num
+        continue
+      }
+      if (name.startsWith('label-radial-offset-')) {
+        const num = parseFloat(name.slice('label-radial-offset-'.length))
+        if (!isNaN(num)) labelRadialOffset = num
+        continue
+      }
+      if (name.startsWith('label-vao-')) {
+        // `label-vao-<idx>-<x|y>-<n>` (positive em; negatives use the
+        // bracket-binding form handled above).
+        const m = /^label-vao-(\d+)-([xy])-(.+)$/.exec(name)
+        if (m) {
+          const num = parseFloat(m[3]!)
+          if (!isNaN(num)) setVao(parseInt(m[1]!, 10), m[2]!, num)
+        }
         continue
       }
       if (name.startsWith('label-rotate-')) {
@@ -1427,6 +1459,19 @@ function lowerLayer(
     }
   }
 
+  // Mapbox `text-variable-anchor-offset`: zip the i-th emitted anchor
+  // candidate with the i-th `label-vao-*` offset pair. Only built when
+  // the converter actually emitted vao pairs — plain text-variable-
+  // anchor / text-radial-offset leave this undefined and the runtime
+  // falls back to the radial / text-offset path.
+  const labelVariableAnchorOffset = labelVao.length > 0
+    ? labelAnchorCandidates
+        .slice(0, labelVao.length)
+        .map((a, i) => [a, labelVao[i] ?? [0, 0]] as [
+          typeof a, [number, number],
+        ])
+    : undefined
+
   return {
     name: stmt.name,
     sourceRef,
@@ -1485,7 +1530,8 @@ function lowerLayer(
     label: foldLabelKnobs(label, {
       labelSize, labelColor, labelHaloWidth, labelHaloColor, labelHaloBlur,
       labelAnchor, labelTransform, labelOffsetX, labelOffsetY,
-      labelTranslateX, labelTranslateY,
+      labelTranslateX, labelTranslateY, labelRadialOffset,
+      labelVariableAnchorOffset,
       labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
       labelSizeZoomStopsBase,
       labelColorZoomStops: labelColorZoomStops.length > 0 ? labelColorZoomStops : undefined,
@@ -1525,6 +1571,8 @@ function foldLabelKnobs(
     labelOffsetY?: number
     labelTranslateX?: number
     labelTranslateY?: number
+    labelRadialOffset?: number
+    labelVariableAnchorOffset?: import('./render-node').LabelDef['variableAnchorOffset']
     labelSizeZoomStops?: ZoomStop<number>[]
     /** Mapbox `["exponential", N]` curve base for the size stops.
      *  Undefined / 1 → linear; >1 → faster growth at higher zooms. */
@@ -1601,6 +1649,9 @@ function foldLabelKnobs(
     ...(knobs.labelTransform !== undefined ? { transform: knobs.labelTransform } : {}),
     ...(offset !== undefined ? { offset } : {}),
     ...(translate !== undefined ? { translate } : {}),
+    ...(knobs.labelRadialOffset !== undefined ? { radialOffset: knobs.labelRadialOffset } : {}),
+    ...(knobs.labelVariableAnchorOffset !== undefined && knobs.labelVariableAnchorOffset.length > 0
+      ? { variableAnchorOffset: knobs.labelVariableAnchorOffset } : {}),
     ...(knobs.labelAllowOverlap !== undefined ? { allowOverlap: knobs.labelAllowOverlap } : {}),
     ...(knobs.labelIgnorePlacement !== undefined ? { ignorePlacement: knobs.labelIgnorePlacement } : {}),
     ...(knobs.labelPadding !== undefined ? { padding: knobs.labelPadding } : {}),

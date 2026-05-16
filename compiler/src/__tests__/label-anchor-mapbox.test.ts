@@ -157,3 +157,51 @@ describe('Mapbox text-justify → LabelDef.justify (4-way)', () => {
     expect(lbl.justify).toBeUndefined()
   })
 })
+
+describe('Mapbox text-variable-anchor (real layout property) → anchorCandidates', () => {
+  it('the dedicated property (NOT array-in-text-anchor) populates candidates', () => {
+    // Real OFM Bright / Liberty / demotiles styles put the candidate
+    // list in `text-variable-anchor`, not as an array in `text-anchor`.
+    // Before the fix the converter only read `text-anchor`, so every
+    // such POI / place label silently fell back to the default center
+    // anchor — the user-reported "label not on point" bug.
+    const lbl = labelDefFor({ 'text-variable-anchor': ['top', 'bottom', 'left', 'right'] })
+    expect(lbl.anchor).toBe('top')
+    expect(lbl.anchorCandidates).toEqual(['top', 'bottom', 'left', 'right'])
+  })
+})
+
+describe('Mapbox text-radial-offset → LabelDef.radialOffset', () => {
+  it('constant em preserved verbatim (runtime applies fromRadialOffset)', () => {
+    const lbl = labelDefFor({
+      'text-variable-anchor': ['top', 'bottom'],
+      'text-radial-offset': 0.8,
+    })
+    expect(lbl.radialOffset).toBe(0.8)
+    expect(lbl.anchorCandidates).toEqual(['top', 'bottom'])
+  })
+
+  it('omitted text-radial-offset → LabelDef.radialOffset undefined', () => {
+    const lbl = labelDefFor({ 'text-variable-anchor': ['top', 'bottom'] })
+    expect(lbl.radialOffset).toBeUndefined()
+  })
+})
+
+describe('Mapbox text-variable-anchor-offset → LabelDef.variableAnchorOffset', () => {
+  it('zips ordered anchors with per-anchor em offsets, including negatives', () => {
+    const lbl = labelDefFor({
+      'text-variable-anchor-offset': [
+        'top', [0, 1],
+        'left', [1, 0],
+        'bottom-right', [-0.5, -0.5],
+      ],
+    })
+    expect(lbl.variableAnchorOffset).toEqual([
+      ['top', [0, 1]],
+      ['left', [1, 0]],
+      ['bottom-right', [-0.5, -0.5]],
+    ])
+    // The vao anchors double as the variable-placement candidates.
+    expect(lbl.anchorCandidates).toEqual(['top', 'left', 'bottom-right'])
+  })
+})

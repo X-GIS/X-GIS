@@ -33,7 +33,11 @@ import { TextRenderer, type TextDraw } from './text-renderer'
 import { greedyPlaceBboxes, type CollisionItem } from './text-collision'
 import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
 import type { GlyphInfo } from './sdf/glyph-atlas-host'
-import { applyTextTransform, stripCurveLineExtraScripts } from './text-stage-helpers'
+import {
+  applyTextTransform, stripCurveLineExtraScripts,
+  evaluateVariableOffsetEm, variableAnchorOffsetEm,
+  type LabelAnchor,
+} from './text-stage-helpers'
 
 interface WrappedLineRange { start: number; end: number; width: number }
 
@@ -845,9 +849,23 @@ export class TextStage {
       // non-overlapping one. Single-anchor labels always have one
       // candidate. The full draw + bbox is computed per candidate
       // here; the post-collision phase below picks the chosen one.
-      const candidates = p.def.anchorCandidates && p.def.anchorCandidates.length > 0
-        ? p.def.anchorCandidates
-        : [p.def.anchor ?? 'center']
+      // Mapbox variable placement. `text-variable-anchor-offset`
+      // carries its own ordered anchor list (so it doubles as the
+      // candidate set); otherwise `anchorCandidates` (text-variable-
+      // anchor) drives it, falling back to the single static anchor.
+      const vao = p.def.variableAnchorOffset
+      const candidates: readonly LabelAnchor[] = vao
+        ? vao.map(pair => pair[0])
+        : (p.def.anchorCandidates && p.def.anchorCandidates.length > 0
+            ? p.def.anchorCandidates
+            : [p.def.anchor ?? 'center'])
+      // MapLibre routes text-offset / text-radial-offset through the
+      // per-anchor sign/axis rules ONLY for variable-placement labels.
+      // A static single text-anchor keeps the plain offset add (no
+      // baseline shift) — matching MapLibre's non-variable path.
+      const variableMode = vao !== undefined
+        || p.def.radialOffset !== undefined
+        || (p.def.anchorCandidates !== undefined && p.def.anchorCandidates.length > 1)
       const padding = (p.def.padding ?? 2) * dpr
       const haloOut = p.def.halo
         ? {
@@ -873,7 +891,26 @@ export class TextStage {
         if (anchor === 'top' || anchor.startsWith('top-')) dy = totalHeight - maxDescent
         else if (anchor === 'bottom' || anchor.startsWith('bottom-')) dy = -maxDescent
         else dy = totalHeight / 2 - maxDescent
-        if (p.def.offset) {
+        if (variableMode) {
+          // Per-anchor variable offset (MapLibre evaluateVariableOffset
+          // / variable-anchor-offset), in em → scale by sizePx like
+          // text-offset. Supersedes the plain text-offset add: MapLibre
+          // folds text-offset INTO the variable offset and drops it
+          // when text-radial-offset is also present.
+          let vx = 0, vy = 0
+          if (vao) {
+            const pair = vao.find(pr => pr[0] === anchor)
+            const off = pair ? pair[1] : [0, 0] as [number, number]
+            ;[vx, vy] = variableAnchorOffsetEm(anchor, off)
+          } else if (p.def.radialOffset !== undefined) {
+            ;[vx, vy] = evaluateVariableOffsetEm(anchor, [p.def.radialOffset, 0], true)
+          } else {
+            ;[vx, vy] = evaluateVariableOffsetEm(
+              anchor, p.def.offset ?? [0, 0], false)
+          }
+          dx += vx * sizePx
+          dy += vy * sizePx
+        } else if (p.def.offset) {
           dx += p.def.offset[0] * sizePx
           dy += p.def.offset[1] * sizePx
         }

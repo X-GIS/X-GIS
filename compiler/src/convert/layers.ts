@@ -367,16 +367,33 @@ function convertSymbolLayer(
     'center', 'top', 'bottom', 'left', 'right',
     'top-left', 'top-right', 'bottom-left', 'bottom-right',
   ])
+  // Precedence (Mapbox spec): `text-variable-anchor-offset` is the
+  // modern combined form and supersedes everything else; it is emitted
+  // in the offset block below (anchors + per-anchor `label-vao-*`).
+  // Otherwise `text-variable-anchor` (the real layout property — NOT
+  // an array stuffed into `text-anchor`) lists the candidates; falling
+  // back to the static 9-way `text-anchor`. The legacy "array in
+  // text-anchor" shape is kept for callers that pre-fold it that way.
+  const variableAnchorOffset = layout['text-variable-anchor-offset']
+  const hasVAO = Array.isArray(variableAnchorOffset) && variableAnchorOffset.length >= 2
+  const variableAnchor = layout['text-variable-anchor']
   const anchor = layout['text-anchor']
-  if (typeof anchor === 'string' && VALID_ANCHORS.has(anchor)) {
+  if (hasVAO) {
+    // handled in the offset block (needs fmtSigned in scope)
+  } else if (Array.isArray(variableAnchor) && variableAnchor.length > 0) {
+    // Mapbox `text-variable-anchor`: ["top","bottom",…] — emit one
+    // `label-anchor-X` per valid candidate, in priority order. lower.ts
+    // accumulates these into `LabelDef.anchor` (the first) +
+    // `anchorCandidates`; the runtime tries each during collision and
+    // picks the first that doesn't overlap an already-placed label.
+    for (const a of variableAnchor) {
+      if (typeof a === 'string' && VALID_ANCHORS.has(a)) {
+        utils.push(`label-anchor-${a}`)
+      }
+    }
+  } else if (typeof anchor === 'string' && VALID_ANCHORS.has(anchor)) {
     utils.push(`label-anchor-${anchor}`)
   } else if (Array.isArray(anchor) && anchor.length > 0) {
-    // Mapbox `text-variable-anchor` shape: ["top","bottom",…] —
-    // emit one `label-anchor-X` per valid candidate, in priority
-    // order. lower.ts accumulates these into `LabelDef.anchor` (the
-    // first) + `anchorCandidates` (the full list); the runtime tries
-    // each in order during collision and picks the first that
-    // doesn't overlap an already-placed label.
     for (const a of anchor) {
       if (typeof a === 'string' && VALID_ANCHORS.has(a)) {
         utils.push(`label-anchor-${a}`)
@@ -413,6 +430,36 @@ function convertSymbolLayer(
       && typeof translate[0] === 'number' && typeof translate[1] === 'number') {
     if (translate[0] !== 0) utils.push(`label-translate-x-${fmtSigned(translate[0])}`)
     if (translate[1] !== 0) utils.push(`label-translate-y-${fmtSigned(translate[1])}`)
+  }
+  // text-radial-offset (em) → label-radial-offset-N. Only meaningful
+  // alongside text-variable-anchor: the runtime pushes the label away
+  // from the anchor point by this radius in each candidate anchor's
+  // direction (MapLibre fromRadialOffset). Negatives ride the bracket
+  // form, though Mapbox clamps a negative radial offset to 0 anyway.
+  const radialOffset = layout['text-radial-offset']
+  if (typeof radialOffset === 'number' && radialOffset !== 0) {
+    utils.push(`label-radial-offset-${fmtSigned(radialOffset)}`)
+  }
+  // text-variable-anchor-offset → ordered `label-anchor-X` candidates
+  // plus a `label-vao-<i>-{x,y}-N` per pair (em units). `<i>` is the
+  // 0-based pair index so the anchor name's own hyphen (`top-left`)
+  // can't make the utility name ambiguous; lower.ts zips index i back
+  // onto the i-th emitted candidate. Zero components are dropped (the
+  // missing axis defaults to 0, mirroring text-offset).
+  if (hasVAO) {
+    let idx = 0
+    for (let i = 0; i + 1 < variableAnchorOffset!.length; i += 2) {
+      const a = variableAnchorOffset![i]
+      const off = variableAnchorOffset![i + 1]
+      if (typeof a === 'string' && VALID_ANCHORS.has(a)
+          && Array.isArray(off) && off.length === 2
+          && typeof off[0] === 'number' && typeof off[1] === 'number') {
+        utils.push(`label-anchor-${a}`)
+        if (off[0] !== 0) utils.push(`label-vao-${idx}-x-${fmtSigned(off[0])}`)
+        if (off[1] !== 0) utils.push(`label-vao-${idx}-y-${fmtSigned(off[1])}`)
+        idx++
+      }
+    }
   }
 
   // Collision controls (Batch 1e). text-padding accepts both constant
