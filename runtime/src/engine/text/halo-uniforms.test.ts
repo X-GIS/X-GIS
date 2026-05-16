@@ -16,14 +16,20 @@ import { packUniformsForTesting, type TextDraw } from './text-renderer'
 
 const baseGlyph = {
   codepoint: 65,
-  slot: { page: 0, pxX: 0, pxY: 0, size: 64 },
+  slot: { page: 0, cellX: 0, cellY: 0, pxX: 0, pxY: 0, size: 64 },
   advanceWidth: 16, bearingX: 0, bearingY: 16, width: 16, height: 20,
+  pbf: true,
 }
 
-function makeDraw(fontSize: number, haloWidthPx: number, haloBlurPx = 0): TextDraw {
+// `pbf` defaults to true so the existing MapLibre-parity assertions
+// keep exercising the PBF (`·3`) path. The local-rasterised path
+// (pbf:false) is covered in its own describe below.
+function makeDraw(
+  fontSize: number, haloWidthPx: number, haloBlurPx = 0, pbf = true,
+): TextDraw {
   return {
     anchorX: 0, anchorY: 0,
-    glyphs: [baseGlyph],
+    glyphs: [{ ...baseGlyph, pbf }],
     fontSize,
     rasterFontSize: 32,
     sdfRadius: 8,
@@ -75,6 +81,40 @@ describe('packUniforms — halo MapLibre-parity formula', () => {
     })
     expect(u[12]).toBe(0)
     expect(u[13]).toBe(0)
+  })
+})
+
+describe('packUniforms — local (computeSDF) glyph halo normalisation', () => {
+  // Locally-rasterised glyphs (CJK / Hangul fallback, icons, any font
+  // absent from the glyph server) encode a 63-per-sdfRadius byte
+  // slope, NOT the PBF 255-per-radius slope the `·3` constant assumes.
+  // The SDF-consistent constant is rasterFontSize·63 / (sdfRadius·255).
+  const localK = (32 * 63) / (8 * 255) // makeDraw uses rasterFontSize=32, sdfRadius=8
+
+  it('all-local draw normalises halo with rasterFontSize·63/(sdfRadius·255)', () => {
+    const u = packUniformsForTesting(makeDraw(32, 1, 0, /* pbf */ false))
+    expect(u[HALO_WIDTH_SLOT]).toBeCloseTo(1 * localK / 32, 6)
+  })
+
+  it('local halo is ~4.05× thinner than the PBF formula for the same input', () => {
+    const local = packUniformsForTesting(makeDraw(32, 2, 0, false))[HALO_WIDTH_SLOT]
+    const pbf = packUniformsForTesting(makeDraw(32, 2, 0, true))[HALO_WIDTH_SLOT]
+    expect(pbf / local).toBeCloseTo(3 / localK, 4) // = 255·8 / (32·63) ≈ 4.05
+  })
+
+  it('a draw with ANY pbf glyph keeps the `·3` PBF formula (no Latin regression)', () => {
+    const mixed: TextDraw = {
+      ...makeDraw(32, 1, 0, false),
+      glyphs: [{ ...baseGlyph, pbf: false }, { ...baseGlyph, pbf: true }],
+    }
+    const u = packUniformsForTesting(mixed)
+    expect(u[HALO_WIDTH_SLOT]).toBeCloseTo(3 / 32, 6)
+  })
+
+  it('sdfRadius scales the local constant inversely', () => {
+    const r8 = packUniformsForTesting(makeDraw(32, 1, 0, false))[HALO_WIDTH_SLOT]
+    const r16: TextDraw = { ...makeDraw(32, 1, 0, false), sdfRadius: 16 }
+    expect(packUniformsForTesting(r16)[HALO_WIDTH_SLOT]).toBeCloseTo(r8 / 2, 6)
   })
 })
 

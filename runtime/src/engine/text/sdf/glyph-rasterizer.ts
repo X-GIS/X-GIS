@@ -92,6 +92,13 @@ export interface GlyphRasterResult {
   width: number
   /** Glyph bounding-box height (px). */
   height: number
+  /** True when this SDF came from a Mapbox glyph-server PBF whose
+   *  byte slope matches the renderer's `·3` halo constant (MapLibre
+   *  SDF_PX=8 / 255-per-radius convention). Locally rasterised glyphs
+   *  (computeSDF) use a 63-per-`sdfRadius` byte slope, so their halo
+   *  width must be normalised differently — see packUniforms.
+   *  Absent/false ⇒ locally rasterised. */
+  pbf?: boolean
 }
 
 export interface GlyphRasterizer {

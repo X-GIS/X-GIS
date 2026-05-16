@@ -32,6 +32,9 @@ export interface GlyphInfo {
   bearingY: number
   width: number
   height: number
+  /** SDF source — see GlyphRasterResult.pbf. Threaded through so the
+   *  renderer can pick the matching halo-width normalisation. */
+  pbf: boolean
 }
 
 export interface DirtyGlyph {
@@ -55,6 +58,7 @@ interface CachedMetrics {
   bearingY: number
   width: number
   height: number
+  pbf: boolean
 }
 
 export class GlyphAtlasHost {
@@ -115,6 +119,7 @@ export class GlyphAtlasHost {
         bearingY: result.bearingY,
         width: result.width,
         height: result.height,
+        pbf: result.pbf === true,
       })
       this.dirty.push({ key, slot: ensured.slot, sdf: result.sdf })
       this.stale.delete(mk)
@@ -129,6 +134,7 @@ export class GlyphAtlasHost {
       bearingY: m.bearingY,
       width: m.width,
       height: m.height,
+      pbf: m.pbf,
     }
   }
 
@@ -202,6 +208,7 @@ export class GlyphAtlasHost {
       bearingY: r.bearingY,
       width: r.width,
       height: r.height,
+      pbf: r.pbf === true,
     }
   }
 }

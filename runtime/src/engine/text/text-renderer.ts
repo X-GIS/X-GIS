@@ -550,7 +550,22 @@ function packUniforms(d: TextDraw): Float32Array {
     //   halo_blur_norm:  0.061 → 0.302  (5.0× wider transition)
     // Halo opacity at 3 slot-px outside glyph edge: 16 % → 72 %,
     // matching MapLibre's render on the same PBF input.
-    buf[12] = d.halo.width * 3 / d.fontSize
+    // The `·3` constant (= ONE_EM/SDF_PX = 24/8) is correct ONLY for
+    // PBF-server SDFs whose byte slope is 255-per-radius (MapLibre
+    // SDF_PX=8). computeSDF-rasterised glyphs (CJK / Hangul fallback,
+    // icons, any font absent from the glyph server) encode a
+    // 63-per-`sdfRadius` slope — ~4.05× shallower — so the SAME `·3`
+    // made their halo ~4× too thick (user-reported on Mapbox styles
+    // with locally-rasterised Korean place labels). For an all-local
+    // draw, normalise with the SDF's own convention:
+    // rasterFontSize·63 / (sdfRadius·255). Mixed / any-PBF draws keep
+    // `·3` so Latin (PBF) halo stays MapLibre-correct (no regression).
+    const sdfRadius = d.sdfRadius ?? 8
+    const allLocal = d.glyphs.length > 0 && !d.glyphs.some(g => g.pbf)
+    const haloK = allLocal
+      ? (d.rasterFontSize * 63) / (sdfRadius * 255)
+      : 3
+    buf[12] = d.halo.width * haloK / d.fontSize
     buf[13] = ((d.halo.blur ?? 0) * 0.149 + 0.105) * 24 / d.fontSize
   } else {
     buf[8] = 0; buf[9] = 0; buf[10] = 0; buf[11] = 0
