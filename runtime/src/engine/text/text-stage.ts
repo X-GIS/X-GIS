@@ -419,12 +419,21 @@ export interface TextStageOptions {
   fontTypography?: Map<string, { letterSpacingEm: number; lineHeightScale: number }>
 }
 
-// Slot must fit (rasterFontSize + 2*sdfRadius) — ascenders/descenders
-// of a 32-px raster font extend ~38-40 px, plus 8 px SDF radius on
-// each side ⇒ 54-56 px needed. Round to 64 for some headroom on
-// CJK/diacritics. The previous 24-px raster lost too much stroke
-// detail on Hangul / Han and visibly softened any label drawn above
-// ~32 px display size (POI labels at high zoom).
+// Slot must fit (rasterFontSize + 2*sdfRadius). PBF arrives at 24 px
+// native (MapLibre's ONE_EM). Setting rasterFontSize to match means
+// PBF→atlas is a 1:1 byte copy with no bilinear resample — every
+// PBF-sourced glyph keeps the upstream tile server's sub-pixel SDF
+// precision exactly. The byte rescale in pbf-to-slot.ts becomes a
+// no-op at scale=1 (`192 + (b-192) * 1.0 == b`), eliminating the
+// resampling blur that softened OFM Bright country labels relative
+// to MapLibre.
+//
+// Canvas2D fallback still works at 24 px raster — it's the cold-
+// frame fallback that disappears after the first PBF range lands,
+// so its slightly lower stroke fidelity is invisible in steady
+// state. (Earlier code raised this to 32 px specifically for the
+// Hangul/Han Canvas2D path, but the user-visible labels go through
+// PBF on every supported style; the trade-off swung the wrong way.)
 //
 // pageSize 2304 = 36 slots/side at slotSize 64 → 1296 slots per
 // page. Multi-page atlases handle CJK-heavy maps via the renderer's
@@ -439,7 +448,7 @@ const CJK_FALLBACK_CHAIN = '"Noto Sans CJK KR","Apple SD Gothic Neo","Malgun Got
 const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography'>> = {
   slotSize: 64,
   pageSize: 2304,
-  rasterFontSize: 32,
+  rasterFontSize: 24,
   sdfRadius: 8,
   defaultFont: CJK_FALLBACK_CHAIN,
 }
