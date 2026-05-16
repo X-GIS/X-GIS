@@ -1,0 +1,486 @@
+---
+import Base from '../layouts/Base.astro'
+import Header from '../components/Header.astro'
+import Footer from '../components/Footer.astro'
+
+// Same playground handoff contract the /convert page uses: prod is
+// same-origin (sessionStorage), dev is cross-origin (base64 URL hash).
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const playgroundUrl = `${base}/play/demo.html`
+---
+
+<Base
+  title="X-GIS — Blueprint"
+  description="Compose X-GIS maps visually: a node-based blueprint editor that generates .xgis source and opens it in the playground."
+>
+  <Header />
+  <main class="max-w-[1400px] mx-auto px-6 pt-20 pb-16">
+    <div class="flex items-baseline justify-between flex-wrap gap-2">
+      <h1 class="text-[22px] font-medium tracking-tight">Blueprint</h1>
+      <p class="text-fg-dim text-[12px]">
+        Wire nodes into an X-GIS map. Right-click the canvas to add a node ·
+        drag a pin to a matching pin to connect.
+      </p>
+    </div>
+
+    <!-- ── Toolbar ── -->
+    <div class="mt-5 flex flex-wrap items-center gap-2">
+      <select
+        id="bp-add"
+        class="bg-bg-elev border border-line rounded px-3 py-2 text-[12px] focus:outline-none focus:border-accent"
+      >
+        <option value="">+ Add node…</option>
+        <option value="source">Source</option>
+        <option value="layer">Layer</option>
+        <option value="style">Style</option>
+        <option value="preset">Preset</option>
+        <option value="symbol">Symbol</option>
+        <option value="fn">Function</option>
+        <option value="import">Import</option>
+        <option value="background">Background</option>
+        <option value="map">Map (output)</option>
+      </select>
+      <button
+        id="bp-reset"
+        class="px-3 py-2 bg-bg-elev border border-line rounded text-[12px] text-fg-dim hover:text-fg hover:border-fg-dim transition-colors"
+        >Reset view</button
+      >
+      <button
+        id="bp-new"
+        class="px-3 py-2 bg-bg-elev border border-line rounded text-[12px] text-fg-dim hover:text-fg hover:border-fg-dim transition-colors"
+        >New (clear)</button
+      >
+      <span id="bp-status" class="ml-auto text-[11px] px-2 py-1 rounded-full border"></span>
+    </div>
+
+    <!-- ── Editor + source ── -->
+    <div class="mt-3 grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-3">
+      <div
+        id="bp-viewport"
+        class="relative overflow-hidden rounded-md border border-line bg-bg-elev"
+        style="height: min(74vh, 760px); min-height: 460px;"
+      >
+      </div>
+
+      <div class="flex flex-col rounded-md border border-line bg-bg-elev" data-playground-url={playgroundUrl}>
+        <div class="flex items-center gap-2 px-3 py-2 border-b border-line">
+          <span class="text-fg text-[11px] tracking-wide uppercase">xgis source</span>
+          <div class="ml-auto flex gap-2">
+            <button
+              id="bp-copy"
+              class="px-2.5 py-1 bg-bg border border-line rounded text-[11px] text-fg-dim hover:text-fg hover:border-fg-dim transition-colors"
+              >Copy</button
+            >
+            <button
+              id="bp-open"
+              class="px-2.5 py-1 bg-accent/15 border border-accent text-accent rounded text-[11px] hover:bg-accent/25 transition-colors"
+              >Open in playground</button
+            >
+          </div>
+        </div>
+        <textarea
+          id="bp-out"
+          readonly
+          spellcheck="false"
+          class="flex-1 min-h-[260px] bg-bg px-3 py-2 text-[12px] font-mono whitespace-pre resize-none focus:outline-none"
+        ></textarea>
+        <p id="bp-msg" class="px-3 py-2 text-fg-dim text-[11px] border-t border-line min-h-[1.6em]"></p>
+      </div>
+    </div>
+  </main>
+  <Footer />
+
+  <style is:global>
+    /* Editor chrome. Classes are bp- prefixed and only created at
+       runtime by editor.ts, so this must be is:global (Astro scoped
+       styles don't reach JS-inserted nodes). Colours come from the
+       site @theme tokens so it tracks the rest of the UI. */
+    .bp-vp {
+      cursor: grab;
+      background-color: var(--color-bg-elev);
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+      background-size: 26px 26px;
+      touch-action: none;
+    }
+    body.bp-grabbing,
+    body.bp-grabbing * {
+      cursor: grabbing !important;
+      user-select: none;
+    }
+    .bp-svg {
+      position: absolute;
+      inset: 0;
+      overflow: visible;
+      pointer-events: none;
+    }
+    .bp-world {
+      position: absolute;
+      inset: 0;
+      transform-origin: 0 0;
+    }
+    .bp-wire {
+      fill: none;
+      stroke-width: 2;
+      opacity: 0.85;
+    }
+    .bp-wire-temp {
+      stroke-dasharray: 5 4;
+      opacity: 0.9;
+    }
+    .bp-wire-sel {
+      stroke: #f87171 !important;
+      stroke-width: 3;
+      opacity: 1;
+    }
+    .bp-wire-hit {
+      fill: none;
+      stroke: transparent;
+      stroke-width: 14;
+      pointer-events: stroke;
+      cursor: pointer;
+    }
+    .bp-node {
+      position: absolute;
+      width: 232px;
+      background: var(--color-bg-card);
+      border: 1px solid var(--color-line-strong);
+      border-radius: 9px;
+      box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+      font-size: 12px;
+      color: var(--color-fg);
+    }
+    .bp-node.bp-selected {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 1px var(--color-accent), 0 6px 22px rgba(0, 0, 0, 0.5);
+    }
+    .bp-head {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 9px;
+      border-bottom: 1px solid var(--color-line);
+      border-radius: 8px 8px 0 0;
+      cursor: grab;
+      background: color-mix(in srgb, var(--accent) 16%, var(--color-bg-card));
+    }
+    .bp-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex: none;
+    }
+    .bp-title {
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .bp-del {
+      margin-left: auto;
+      width: 18px;
+      height: 18px;
+      line-height: 1;
+      border-radius: 4px;
+      color: var(--color-fg-mute);
+      font-size: 15px;
+    }
+    .bp-del:hover {
+      color: #f87171;
+      background: rgba(248, 113, 113, 0.12);
+    }
+    .bp-ports {
+      display: flex;
+      justify-content: space-between;
+      padding: 7px 0;
+      gap: 8px;
+    }
+    .bp-col {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .bp-col-out {
+      align-items: flex-end;
+    }
+    .bp-port {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 1px 9px;
+    }
+    .bp-plabel {
+      color: var(--color-fg-dim);
+      font-size: 11px;
+    }
+    .bp-pin {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      border: 2px solid var(--color-bg-card);
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+      cursor: crosshair;
+      flex: none;
+    }
+    .bp-port-in .bp-pin {
+      position: absolute;
+      left: -6px;
+    }
+    .bp-port-out .bp-pin {
+      position: absolute;
+      right: -6px;
+    }
+    .bp-pin:hover {
+      transform: scale(1.25);
+    }
+    .bp-fields {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 8px 9px 10px;
+      border-top: 1px solid var(--color-line);
+    }
+    .bp-field {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .bp-flabel {
+      color: var(--color-fg-mute);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .bp-input {
+      background: var(--color-bg);
+      border: 1px solid var(--color-line);
+      border-radius: 5px;
+      padding: 4px 6px;
+      color: var(--color-fg);
+      font-size: 12px;
+      font-family: inherit;
+      width: 100%;
+    }
+    .bp-input:focus {
+      outline: none;
+      border-color: var(--color-accent);
+    }
+    textarea.bp-input {
+      resize: vertical;
+      font-family: var(--font-mono, monospace);
+      line-height: 1.4;
+    }
+    .bp-ctx {
+      position: absolute;
+      z-index: 9999;
+      width: 250px;
+      max-height: 70%;
+      overflow-y: auto;
+      background: var(--color-bg-card);
+      border: 1px solid var(--color-line-strong);
+      border-radius: 8px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+      padding: 5px;
+    }
+    .bp-ctx-h {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--color-fg-mute);
+      padding: 6px 8px 4px;
+    }
+    .bp-ctx-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      width: 100%;
+      text-align: left;
+      padding: 7px 8px;
+      border-radius: 6px;
+      color: var(--color-fg);
+    }
+    .bp-ctx-item:hover:not(:disabled) {
+      background: var(--color-bg-hover);
+    }
+    .bp-ctx-item:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .bp-ctx-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-top: 4px;
+      flex: none;
+    }
+    .bp-ctx-item b {
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .bp-ctx-item small {
+      display: block;
+      color: var(--color-fg-mute);
+      font-size: 10.5px;
+      margin-top: 1px;
+    }
+  </style>
+
+  <script>
+    // Real ES module (see /convert page note): required for the
+    // `@xgis/compiler` workspace import + local lib imports to resolve.
+    import { Lexer, Parser } from '@xgis/compiler'
+    import { BlueprintEditor } from '../lib/blueprint/editor'
+    import { graphToXgis } from '../lib/blueprint/codegen'
+    import { starterGraph, type BPGraph, type NodeType } from '../lib/blueprint/types'
+
+    const LS_KEY = 'xgis-blueprint-v1'
+    const vp = document.getElementById('bp-viewport') as HTMLElement
+    const $out = document.getElementById('bp-out') as HTMLTextAreaElement
+    const $msg = document.getElementById('bp-msg') as HTMLParagraphElement
+    const $status = document.getElementById('bp-status') as HTMLElement
+    const $add = document.getElementById('bp-add') as HTMLSelectElement
+    const $reset = document.getElementById('bp-reset') as HTMLButtonElement
+    const $new = document.getElementById('bp-new') as HTMLButtonElement
+    const $copy = document.getElementById('bp-copy') as HTMLButtonElement
+    const $open = document.getElementById('bp-open') as HTMLButtonElement
+    const playgroundUrl =
+      (document.querySelector('[data-playground-url]') as HTMLElement | null)?.dataset
+        .playgroundUrl ?? ''
+
+    function setStatus(ok: boolean, text: string) {
+      $status.textContent = text
+      $status.style.color = ok ? '#86efac' : '#fca5a5'
+      $status.style.borderColor = ok
+        ? 'rgba(134,239,172,0.35)'
+        : 'rgba(252,165,165,0.35)'
+      $status.style.background = ok
+        ? 'rgba(134,239,172,0.10)'
+        : 'rgba(252,165,165,0.10)'
+    }
+
+    let saveTimer: number | undefined
+    function persist(g: BPGraph) {
+      window.clearTimeout(saveTimer)
+      saveTimer = window.setTimeout(() => {
+        try {
+          localStorage.setItem(LS_KEY, JSON.stringify(g))
+        } catch {
+          /* storage may be unavailable / full */
+        }
+      }, 400)
+    }
+
+    /** Regenerate source + validate it with the real compiler front
+     *  end so the badge reflects whether the graph actually parses. */
+    function refresh() {
+      const g = editor.getGraph()
+      const src = graphToXgis(g)
+      $out.value = src
+      persist(g)
+      if (!src.trim()) {
+        setStatus(true, 'empty')
+        $msg.textContent = 'Add nodes (or right-click the canvas) to start.'
+        return
+      }
+      try {
+        new Parser(new Lexer(src).tokenize()).parse()
+        setStatus(true, 'parses ✓')
+        $msg.textContent =
+          g.nodes.length + ' node' + (g.nodes.length === 1 ? '' : 's') + ' · ' +
+          g.edges.length + ' wire' + (g.edges.length === 1 ? '' : 's')
+      } catch (e: any) {
+        setStatus(false, 'parse error')
+        $msg.textContent = String(e?.message || e)
+      }
+    }
+
+    const editor = new BlueprintEditor({ viewport: vp, onChange: refresh })
+
+    // Restore last session, else the README-style starter graph.
+    let initial: BPGraph
+    try {
+      const raw = localStorage.getItem(LS_KEY)
+      const parsed = raw ? JSON.parse(raw) : null
+      initial =
+        parsed && Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)
+          ? parsed
+          : starterGraph()
+    } catch {
+      initial = starterGraph()
+    }
+    editor.load(initial)
+    refresh()
+
+    $add.addEventListener('change', () => {
+      const t = $add.value as NodeType | ''
+      if (t) editor.addNode(t)
+      $add.value = ''
+    })
+    $reset.addEventListener('click', () => editor.resetView())
+    $new.addEventListener('click', () => {
+      if (confirm('Clear the whole blueprint?')) editor.clear()
+    })
+
+    $copy.addEventListener('click', async () => {
+      if (!$out.value.trim()) return
+      try {
+        await navigator.clipboard.writeText($out.value)
+        $msg.textContent = 'Copied to clipboard.'
+      } catch {
+        $out.select()
+        document.execCommand('copy')
+        $msg.textContent = 'Copied (fallback).'
+      }
+    })
+
+    /** Identical dev/prod dispatch to /convert: prod ferries via
+     *  sessionStorage same-origin; dev probes the playground server
+     *  and passes the source through the URL hash cross-origin. */
+    async function openInPlayground(source: string): Promise<void> {
+      const label = 'Blueprint'
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isDev = !!(import.meta as any).env?.DEV
+      if (isDev) {
+        let running = false
+        try {
+          const probe = await fetch('https://localhost:3000/@vite/client', {
+            mode: 'no-cors',
+            cache: 'no-store',
+          })
+          running = probe.ok || probe.type === 'opaque'
+        } catch {
+          running = false
+        }
+        if (!running) {
+          $msg.textContent =
+            'Playground dev server not running on https://localhost:3000. ' +
+            'Start it with `bun run dev` in playground/ (or `bun run dev:all`).'
+          return
+        }
+        const encoded = btoa(unescape(encodeURIComponent(source)))
+        window.location.href =
+          `https://localhost:3000/demo.html?id=__import&label=${encodeURIComponent(
+            label,
+          )}#src=${encoded}`
+        return
+      }
+      try {
+        sessionStorage.setItem('__xgisImportSource', source)
+        sessionStorage.setItem('__xgisImportLabel', label)
+      } catch {
+        /* sessionStorage may be unavailable in some embeds */
+      }
+      window.location.href = playgroundUrl + '?id=__import'
+    }
+
+    $open.addEventListener('click', () => {
+      const src = $out.value
+      if (!src.trim()) {
+        $msg.textContent = 'Nothing to open — build a graph first.'
+        return
+      }
+      void openInPlayground(src)
+    })
+  </script>
+</Base>
