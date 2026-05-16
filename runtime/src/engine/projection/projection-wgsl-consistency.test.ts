@@ -13,6 +13,8 @@ import {
   projObliqueMercatorWgsl,
   cosC,
   projectWgsl,
+  projectGeomWgsl,
+  unwrapLonNear,
   needsBackfaceCullWgsl,
 } from './projection-wgsl-mirror'
 
@@ -330,6 +332,85 @@ describe('Pseudocylindrical central-meridian recentring', () => {
       const [bx, by] = naturalEarth(0).forward(lon, lat)
       expect(ax).toBe(bx)
       expect(ay).toBe(by)
+    }
+  })
+})
+
+// ═══ Antimeridian-seam tile projection (project_geom) ═══
+//
+// Pseudocylindrical projections recentre on the camera longitude by
+// per-vertex `wrap_lon_delta(lon − clon)`. That hard ±180 modulo splits
+// any tile primitive straddling the clon±180 seam into a full-width
+// horizontal smear (user-reported "natural_earth breaks near the
+// dateline"). project_geom unwraps each vertex toward the tile-centre
+// longitude instead, keeping every primitive in a tile contiguous.
+describe('project_geom — antimeridian seam continuity', () => {
+  it('unwrapLonNear brings (lon − ref) into [-180,180) and is continuous near the seam', () => {
+    expect(unwrapLonNear(0, 0)).toBe(0)
+    expect(unwrapLonNear(170, 0)).toBe(170)
+    expect(unwrapLonNear(-170, 0)).toBe(-170)
+    // ref = +175 (tile near the +180 dateline). A point that wrap()
+    // would throw to −179 stays at +181 → contiguous with the tile.
+    expect(unwrapLonNear(-179, 175)).toBe(181)
+    expect(unwrapLonNear(179, 175)).toBe(179)
+    // Result is always within [-180,180) of the reference.
+    for (const ref of [-150, 0, 60, 175]) {
+      for (let lon = -180; lon < 180; lon += 7) {
+        const d = unwrapLonNear(lon, ref) - ref
+        expect(d).toBeGreaterThanOrEqual(-180)
+        expect(d).toBeLessThan(180)
+      }
+    }
+  })
+
+  it('a tile straddling the clon±180 seam projects CONTIGUOUSLY (no full-width smear)', () => {
+    // Camera over the Pacific: clon = −160 ⇒ the back seam sits at
+    // lon = +20. A 10°-wide tile spanning lon 15..25 straddles it.
+    const clon = -160
+    const west = 15, east = 25
+    const refLon = (west + east) / 2
+    for (const projType of [1 /* equirect */, 2 /* natural_earth */]) {
+      // OLD per-vertex hard wrap: the two tile edges land a near-whole-
+      // world apart — this is the smear.
+      const smearW = projectWgsl(projType, west, 0, clon, 0)[0]
+      const smearE = projectWgsl(projType, east, 0, clon, 0)[0]
+      expect(Math.abs(smearE - smearW)).toBeGreaterThan(1e7)
+      // project_geom with the tile-centre reference: the edges are ~10°
+      // apart in projected metres — the tile is drawn whole.
+      const gW = projectGeomWgsl(projType, west, 0, clon, 0, refLon)[0]
+      const gE = projectGeomWgsl(projType, east, 0, clon, 0, refLon)[0]
+      const tenDegM = (east - west) * (Math.PI / 180) * 6378137
+      expect(Math.abs(gE - gW)).toBeLessThan(tenDegM * 1.1)
+    }
+  })
+
+  it('with refLon = clon reproduces projectWgsl (no regression: the wrap is a special case)', () => {
+    // unwrap_lon_near(lon, clon) − clon ≡ wrap_lon_delta(lon − clon)
+    // everywhere except the exact ±180 tie (floor vs ceil). So a tile
+    // whose reference is the camera longitude is byte-equivalent to the
+    // old behaviour — project_geom only diverges where it must, at the
+    // seam, and only for tiles whose centre is elsewhere.
+    for (const clon of [0, 60, -120]) {
+      for (const projType of [1, 2]) {
+        for (const [lon, lat] of sampleGrid()) {
+          // Skip the exact ±180 boundary — wrap() (ceil) and
+          // unwrap_lon_near (floor) legitimately differ only there.
+          if (((lon - clon) % 360 + 540) % 360 === 0) continue
+          const a = projectWgsl(projType, lon, lat, clon, 0)
+          const b = projectGeomWgsl(projType, lon, lat, clon, 0, clon)
+          expect(b[0]).toBeCloseTo(a[0], 3)
+          expect(b[1]).toBeCloseTo(a[1], 3)
+        }
+      }
+    }
+  })
+
+  it('is identical to projectWgsl for non-pseudocylindrical projections (fallback)', () => {
+    for (const projType of [0, 3, 4, 5, 6]) {
+      for (const [lon, lat] of sampleGrid()) {
+        expect(projectGeomWgsl(projType, lon, lat, 30, 20, 999))
+          .toEqual(projectWgsl(projType, lon, lat, 30, 20))
+      }
     }
   })
 })

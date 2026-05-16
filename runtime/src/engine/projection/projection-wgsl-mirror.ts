@@ -43,18 +43,39 @@ export function projMercatorWgsl(lon: number, lat: number): [number, number] {
  *  removed; see the history note in projection.ts. CPU, WGSL, and this
  *  mirror agree to ≤1mm, locked by projection-wgsl-consistency.test.ts. */
 export function projNaturalEarthWgsl(lon: number, lat: number, clon = 0): [number, number] {
+  return projNaturalEarthDWgsl(wrapLonDelta(lon - clon), lat)
+}
+
+/** Mirror of `fn proj_natural_earth_d` — Natural Earth from an
+ *  already-resolved recentred longitude delta (no internal wrap). */
+export function projNaturalEarthDWgsl(lonRel: number, lat: number): [number, number] {
   const latR = lat * DEG2RAD
   const lat2 = latR * latR
   const lat4 = lat2 * lat2
   const lat6 = lat2 * lat4
   const xScale = 0.8707 - 0.131979 * lat2 + 0.013791 * lat4 - 0.0081435 * lat6
   const yVal = latR * (1.007226 + lat2 * (0.015085 + lat2 * (-0.044475 + 0.028874 * lat2 - 0.005916 * lat4)))
-  return [wrapLonDelta(lon - clon) * DEG2RAD * xScale * EARTH_R, yVal * EARTH_R]
+  return [lonRel * DEG2RAD * xScale * EARTH_R, yVal * EARTH_R]
 }
 
 /** Mirror of `fn proj_equirectangular` in wgsl-projection.ts. */
 export function projEquirectangularWgsl(lon: number, lat: number, clon = 0): [number, number] {
-  return [wrapLonDelta(lon - clon) * DEG2RAD * EARTH_R, lat * DEG2RAD * EARTH_R]
+  return projEquirectangularDWgsl(wrapLonDelta(lon - clon), lat)
+}
+
+/** Mirror of `fn proj_equirectangular_d` — equirect from an
+ *  already-resolved recentred longitude delta (no internal wrap). */
+export function projEquirectangularDWgsl(lonRel: number, lat: number): [number, number] {
+  return [lonRel * DEG2RAD * EARTH_R, lat * DEG2RAD * EARTH_R]
+}
+
+/** Mirror of `fn unwrap_lon_near` in shaders/projection.ts. Continuous
+ *  unwrap of `lon` toward `refLon`, bringing (lon − refLon) into
+ *  [-180, 180). floor() (not round()) so this matches the WGSL bit-for-
+ *  bit. Used by projectGeomWgsl to keep CPU raster tile_rtc consistent
+ *  with the GPU per-vertex tile projection at the antimeridian seam. */
+export function unwrapLonNear(lon: number, refLon: number): number {
+  return lon - 360 * Math.floor((lon - refLon + 180) / 360)
 }
 
 /** Mirror of `fn proj_orthographic` in wgsl-projection.ts.
@@ -154,6 +175,21 @@ export function projectWgsl(
   if (projType < 4.5) return projAzimuthalEquidistantWgsl(lon, lat, clon, clat)
   if (projType < 5.5) return projStereographicWgsl(lon, lat, clon, clat)
   return projObliqueMercatorWgsl(lon, lat, clon, clat)
+}
+
+/** Mirror of WGSL `project_geom()` in shaders/projection.ts. Equal to
+ *  projectWgsl for every projection except the pseudocylindrical pair
+ *  (equirect=1, natural_earth=2), where the longitude is unwrapped
+ *  toward `refLon` (per-tile centre longitude) instead of hard-wrapped
+ *  to clon±180. raster-renderer.ts uses this for the CPU tile_rtc SW
+ *  corner so the telescoping `project_geom(v) − project_geom(SW) +
+ *  tile_rtc` stays exact at the seam. */
+export function projectGeomWgsl(
+  projType: number, lon: number, lat: number, clon: number, clat: number, refLon: number,
+): [number, number] {
+  if (projType > 0.5 && projType < 1.5) return projEquirectangularDWgsl(unwrapLonNear(lon, refLon) - clon, lat)
+  if (projType > 1.5 && projType < 2.5) return projNaturalEarthDWgsl(unwrapLonNear(lon, refLon) - clon, lat)
+  return projectWgsl(projType, lon, lat, clon, clat)
 }
 
 /** Mirror of WGSL `needs_backface_cull()` in shaders/projection.ts.

@@ -189,7 +189,10 @@ fn vs_main(
     // limited to the f32 reconstruction, which is fine because non-Mercator
     // projections are only used at low/global zoom.
     // NOTE: avoid the reserved word "target" as an identifier.
-    let proj_xy = project(abs_lon, abs_lat, u.proj_params);
+    // Tile centre longitude — the per-tile unwrap reference that keeps a
+    // seam-straddling tile contiguous under equirect / natural_earth.
+    let tile_ref_lon = (u.tile_origin_merc.x + 0.5 * u.tile_extent_m) / (DEG2RAD * EARTH_R);
+    let proj_xy = project_geom(abs_lon, abs_lat, u.proj_params, tile_ref_lon);
     let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
     rtc = proj_xy - center_xy;
   }
@@ -254,7 +257,8 @@ fn vs_main_quantized(
   if (t < 0.5) {
     rtc = rel;
   } else {
-    let proj_xy = project(abs_lon, abs_lat, u.proj_params);
+    let tile_ref_lon = (u.tile_origin_merc.x + 0.5 * u.tile_extent_m) / (DEG2RAD * EARTH_R);
+    let proj_xy = project_geom(abs_lon, abs_lat, u.proj_params, tile_ref_lon);
     let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
     rtc = proj_xy - center_xy;
   }
@@ -314,7 +318,8 @@ fn vs_main_quantized_extruded(
   if (t < 0.5) {
     rtc = rel;
   } else {
-    let proj_xy = project(abs_lon, abs_lat, u.proj_params);
+    let tile_ref_lon = (u.tile_origin_merc.x + 0.5 * u.tile_extent_m) / (DEG2RAD * EARTH_R);
+    let proj_xy = project_geom(abs_lon, abs_lat, u.proj_params, tile_ref_lon);
     let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
     rtc = proj_xy - center_xy;
   }

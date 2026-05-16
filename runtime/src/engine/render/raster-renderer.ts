@@ -4,7 +4,7 @@ import type { GPUContext } from '../gpu/gpu'
 import type { Camera } from '../projection/camera'
 import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../../data/tile-select'
 import { mercator as mercatorProj } from '../projection/projection'
-import { projectWgsl } from '../projection/projection-wgsl-mirror'
+import { projectWgsl, projectGeomWgsl } from '../projection/projection-wgsl-mirror'
 import { BLEND_ALPHA, STENCIL_DISABLED } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -100,9 +100,15 @@ fn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut {
     // Equirectangular
     local_y = (lat - origin_lat) * DEG2RAD * EARTH_R;
   } else {
-    // Other projections: project absolute then subtract origin
-    let projected = project(lon, lat, u.proj_params);
-    let origin_projected = project(tile.tile_rtc.z, origin_lat, u.proj_params);
+    // Other projections: project absolute then subtract origin. Use
+    // project_geom with the tile-centre longitude as the unwrap
+    // reference so a tile straddling the clon±180 seam stays contiguous
+    // under natural_earth (equirect took the linear branch above). The
+    // CPU tile_rtc SW corner uses the matching reference (raster-
+    // renderer.ts projectGeomWgsl) so this telescopes exactly.
+    let ref_lon = (tile.bounds.x + tile.bounds.z) * 0.5;
+    let projected = project_geom(lon, lat, u.proj_params, ref_lon);
+    let origin_projected = project_geom(tile.tile_rtc.z, origin_lat, u.proj_params, ref_lon);
     let rtc_other = projected - origin_projected + tile.tile_rtc.xy;
     var out: VsOut;
     let clip_other = u.mvp * vec4<f32>(rtc_other, 0.0, 1.0);
@@ -483,7 +489,16 @@ export class RasterRenderer {
         tileY = Math.log(Math.tan(Math.PI / 4 + clampMerc(south) * DEG2RAD / 2)) * R
         centerY = Math.log(Math.tan(Math.PI / 4 + clampMerc(projCenterLat) * DEG2RAD / 2)) * R
       } else {
-        const sw = projectWgsl(projType, west, south, projCenterLon, projCenterLat)
+        // natural_earth & centre-based projections take the shader's
+        // project_geom else-branch — the SW corner must use the SAME
+        // per-tile unwrap reference (tile centre lon) so the
+        // telescoping project_geom(v) − project_geom(SW) + tile_rtc
+        // stays exact across the antimeridian seam. equirect (1) keeps
+        // the tile-relative branch (projectWgsl / wrap).
+        const refLon = (west + east) / 2
+        const sw = projType < 1.5
+          ? projectWgsl(projType, west, south, projCenterLon, projCenterLat)
+          : projectGeomWgsl(projType, west, south, projCenterLon, projCenterLat, refLon)
         const cen = projectWgsl(projType, projCenterLon, projCenterLat, projCenterLon, projCenterLat)
         tileX = sw[0]; tileY = sw[1]; centerX = cen[0]; centerY = cen[1]
       }
