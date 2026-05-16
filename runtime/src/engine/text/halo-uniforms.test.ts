@@ -1,15 +1,18 @@
-// Halo uniform packing — matches MapLibre's symbol_sdf.fragment.glsl
-// gamma_halo formula. `halo_width` and `halo_blur` in the packed
-// uniform are in normalised SDF byte range [0, 1] derived as:
+// Halo uniform packing. `halo_width` and `halo_blur` in the packed
+// uniform are distances in the normalised SDF byte range [0, 1],
+// both derived through the SAME source-aware px→SDF factor
+// pxToSdf = haloK / sizePx_phys:
 //
-//   halo_width_norm = halo_width_phys * 3 / sizePx_phys
-//   halo_blur_norm  = (halo_blur_phys * 0.149 + 0.105) * 24 / sizePx_phys
+//   halo_width_norm = halo_width_phys * pxToSdf
+//   halo_blur_norm  = halo_blur_phys  * 1.19 * pxToSdf
 //
-// (See `packUniforms` in text-renderer.ts for the derivation from
-// MapLibre's gamma_halo + halo_edge.) Earlier X-GIS used a different
-// "byte-per-slot-pixel" derivation which produced a halo ~3× narrower
-// and ~5× harder than MapLibre on the same PBF — user-reported on
-// OFM Bright z=4.7 country labels.
+// where haloK = 3 for PBF-server SDFs (255-per-radius slope) and
+// rasterFontSize·63/(sdfRadius·255) for locally-rasterised computeSDF
+// glyphs (4× shallower slope). The 1.19 is MapLibre's symbol_sdf
+// blur-spread constant; no EDGE_GAMMA base term — the fragment shader
+// floors halo AA at the fwidth-derived `soft` via
+// max(u.halo_blur, soft), so a fixed gamma would double-count AA.
+// (See `packUniforms` in text-renderer.ts.)
 
 import { describe, it, expect } from 'vitest'
 import { packUniformsForTesting, type TextDraw } from './text-renderer'
@@ -59,17 +62,19 @@ describe('packUniforms — halo MapLibre-parity formula', () => {
     expect(u[HALO_WIDTH_SLOT]).toBeCloseTo(3 / 12, 6)
   })
 
-  it('halo_blur_norm = (blur_phys × 0.149 + 0.105) × 24 / sizePx_phys', () => {
-    // blur=2 phys, sizePx=32 → (2*0.149 + 0.105) * 24 / 32 = 0.403 * 0.75 = 0.302
+  it('halo_blur_norm = blur_phys × 1.19 × 3 / sizePx_phys (PBF)', () => {
+    // blur=2 phys, sizePx=32 → 2 * 1.19 * 3 / 32 = 0.223125.
+    // Equivalent to the old formula's authored component
+    // (2*0.149*24/32 = 0.2235) minus the dropped EDGE_GAMMA base.
     const u = packUniformsForTesting(makeDraw(32, 1, 2))
-    expect(u[HALO_BLUR_SLOT]).toBeCloseTo(0.403 * 0.75, 4)
+    expect(u[HALO_BLUR_SLOT]).toBeCloseTo(2 * 1.19 * 3 / 32, 4)
   })
 
-  it('halo_blur_norm includes the EDGE_GAMMA constant even when blur=0', () => {
-    // blur=0 still produces a non-zero AA term from the 0.105 EDGE_GAMMA.
+  it('halo_blur_norm is exactly 0 when the style authored blur=0', () => {
+    // No baked EDGE_GAMMA: the fragment shader floors AA at `soft`
+    // (fwidth-derived), so packUniforms emits a pure 0 here.
     const u = packUniformsForTesting(makeDraw(32, 1, 0))
-    expect(u[HALO_BLUR_SLOT]).toBeCloseTo(0.105 * 24 / 32, 4)
-    expect(u[HALO_BLUR_SLOT]).toBeGreaterThan(0)
+    expect(u[HALO_BLUR_SLOT]).toBe(0)
   })
 
   it('halo absent → both slots zero', () => {
@@ -116,6 +121,21 @@ describe('packUniforms — local (computeSDF) glyph halo normalisation', () => {
     const r16: TextDraw = { ...makeDraw(32, 1, 0, false), sdfRadius: 16 }
     expect(packUniformsForTesting(r16)[HALO_WIDTH_SLOT]).toBeCloseTo(r8 / 2, 6)
   })
+
+  it('local halo_blur uses the same source-aware factor as width', () => {
+    // Regression for the user-reported OFM Bright Korean glow: commit
+    // #130 fixed local halo_width but left halo_blur on the PBF `·24`
+    // formula → local blur ~4× too wide. Both knobs must now share
+    // the local pxToSdf = localK / fontSize.
+    const u = packUniformsForTesting(makeDraw(32, 1, 2, /* pbf */ false))
+    expect(u[HALO_BLUR_SLOT]).toBeCloseTo(2 * 1.19 * localK / 32, 6)
+  })
+
+  it('local halo_blur is ~4.05× thinner than the PBF formula', () => {
+    const local = packUniformsForTesting(makeDraw(32, 1, 2, false))[HALO_BLUR_SLOT]
+    const pbf = packUniformsForTesting(makeDraw(32, 1, 2, true))[HALO_BLUR_SLOT]
+    expect(pbf / local).toBeCloseTo(3 / localK, 4)
+  })
 })
 
 // ─── Halo smoothstep behaviour (mirrors the WGSL fragment shader) ──
@@ -141,7 +161,7 @@ function shaderHaloAlpha(args: {
   haloWidthPx: number; haloBlurPx: number;
 }): { halo_a: number; fill_a: number; halo_edge: number } {
   const halo_width_norm = args.haloWidthPx * 3 / args.fontSize
-  const halo_blur_norm = (args.haloBlurPx * 0.149 + 0.105) * 24 / args.fontSize
+  const halo_blur_norm = args.haloBlurPx * 1.19 * 3 / args.fontSize
   const halo_edge = EDGE - halo_width_norm
   const aa_halo = Math.max(halo_blur_norm, args.soft)
   const inner_edge_halo = EDGE + aa_halo
