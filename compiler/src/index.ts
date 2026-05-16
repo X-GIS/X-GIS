@@ -78,3 +78,13 @@ export { analyzeCSE, hasCSEOpportunities, type CSEReport, type CSEEntry } from '
 export { applyCSE, applyCSEFromReport, sameCSE, type CSEAnnotation } from './ir/passes/apply-cse'
 export { annotateDeps, fillIsZoomOnly, hasFeatureDep, type DepsAnnotation, type DepsEntry, type NodeDepsAnnotation } from './ir/passes/annotate-deps'
 export { Dep, hasDep, mergeDeps, formatDeps, depsSubsetOf, getColorDeps, getDataExprDeps, getPropertyShapeDeps, DEPS_NONE, DEPS_ZOOM, DEPS_TIME, DEPS_FEATURE, DEPS_ZOOM_TIME, DEPS_ZOOM_FEATURE, type DepBits } from './ir/deps'
+export {
+  LANGUAGE_SCHEMA,
+  SOURCE_TYPES,
+  ANCHORS,
+  type ConstructDef,
+  type SchemaProperty,
+  type SchemaRef,
+  type SchemaValueKind,
+  type SchemaPinType,
+} from './schema/language'

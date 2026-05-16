@@ -1,0 +1,16 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "baseUrl": ".",
+    // Consume @xgis/compiler's emitted declarations (built first via
+    // the project reference below) instead of recompiling its source
+    // — keeps blueprint's typecheck to its own code.
+    "paths": {
+      "@xgis/compiler": ["../compiler/dist/index.d.ts"]
+    }
+  },
+  "references": [{ "path": "../compiler" }],
+  "include": ["src/**/*.ts"]
+}

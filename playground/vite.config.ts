@@ -27,7 +27,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['@xgis/compiler', '@xgis/runtime'],
+    exclude: ['@xgis/compiler', '@xgis/blueprint', '@xgis/runtime'],
   },
   build: {
     rollupOptions: {

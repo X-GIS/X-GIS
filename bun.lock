@@ -15,6 +15,13 @@
         "vitest": "^3.0.0",
       },
     },
+    "blueprint": {
+      "name": "@xgis/blueprint",
+      "version": "0.0.1",
+      "dependencies": {
+        "@xgis/compiler": "workspace:*",
+      },
+    },
     "compiler": {
       "name": "@xgis/compiler",
       "version": "0.0.1",
@@ -68,6 +75,7 @@
         "@fontsource-variable/geist": "^5.2.8",
         "@fontsource-variable/geist-mono": "^5.2.7",
         "@tailwindcss/vite": "^4.0.0",
+        "@xgis/blueprint": "workspace:*",
         "@xgis/compiler": "workspace:*",
         "@xgis/runtime": "workspace:*",
         "astro": "^5.1.0",
@@ -444,6 +452,8 @@
     "@vitest/utils": ["@vitest/utils@3.2.4", "", { "dependencies": { "@vitest/pretty-format": "3.2.4", "loupe": "^3.1.4", "tinyrainbow": "^2.0.0" } }, "sha512-fB2V0JFrQSMsCo9HiSq3Ezpdv4iYaXRG1Sx8edX3MwxfyNn83mKiGzOcH+Fkxt4MHxr3y42fQi1oeAInqgX2QA=="],
 
     "@webgpu/types": ["@webgpu/types@0.1.69", "", {}, "sha512-RPmm6kgRbI8e98zSD3RVACvnuktIja5+yLgDAkTmxLr90BEwdTXRQWNLF3ETTTyH/8mKhznZuN5AveXYFEsMGQ=="],
+
+    "@xgis/blueprint": ["@xgis/blueprint@workspace:blueprint"],
 
     "@xgis/compiler": ["@xgis/compiler@workspace:compiler"],
 

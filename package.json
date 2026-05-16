@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "workspaces": ["compiler", "runtime", "playground", "site"],
+  "workspaces": ["compiler", "blueprint", "runtime", "playground", "site"],
   "scripts": {
     "build": "bun run --filter '*' build",
     "test": "vitest run",

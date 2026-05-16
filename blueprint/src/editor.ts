@@ -78,7 +78,6 @@ export class BlueprintEditor {
   private selEdge: string | null = null
 
   private drag: Drag = null
-  private spaceDown = false
   private ctxWorld = { x: 0, y: 0 }
   private rafPending = false
   private past: string[] = []
@@ -334,7 +333,6 @@ export class BlueprintEditor {
     })
 
     window.addEventListener('keydown', (e) => {
-      if (e.code === 'Space') this.spaceDown = true
       const ae = document.activeElement as HTMLElement | null
       const typing = ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName)
       if (typing) return
@@ -367,9 +365,6 @@ export class BlueprintEditor {
         const r = this.vp.getBoundingClientRect()
         this.openPalette(r.left + r.width / 2, r.top + r.height / 2)
       }
-    })
-    window.addEventListener('keyup', (e) => {
-      if (e.code === 'Space') this.spaceDown = false
     })
     window.addEventListener('resize', () => {
       this.resizeSvg()
