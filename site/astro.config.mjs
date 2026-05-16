@@ -43,7 +43,7 @@ export default defineConfig({
     // their TS exports correctly through symlinks). Same fix the
     // playground uses.
     optimizeDeps: {
-      exclude: ['@xgis/compiler', '@xgis/runtime'],
+      exclude: ['@xgis/compiler', '@xgis/blueprint', '@xgis/runtime'],
     },
     // (No /play proxy here — earlier attempt at HTTPS-target proxy
     // returned HTTP 500 because the playground's basic-ssl cert /

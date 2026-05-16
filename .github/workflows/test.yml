@@ -23,7 +23,7 @@ jobs:
       - run: bun run build
 
       # vitest is hoisted to the workspace root (node_modules/.bin) by
-      # bun install. The two filesystem args correspond to the two
-      # source roots where tests live; vitest.config.* (if any) is
-      # respected automatically.
-      - run: ./node_modules/.bin/vitest run compiler/src runtime/src
+      # bun install. The filesystem args correspond to the source roots
+      # where tests live; vitest.config.* (if any) is respected
+      # automatically.
+      - run: ./node_modules/.bin/vitest run compiler/src blueprint/src runtime/src
