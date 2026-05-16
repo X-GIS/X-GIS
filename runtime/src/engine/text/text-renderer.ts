@@ -529,27 +529,21 @@ function packUniforms(d: TextDraw): Float32Array {
     // z=4.7 country labels even though halo_color was reaching the
     // shader correctly.
     //
-    // MapLibre's symbol_sdf.fragment.glsl normalises both knobs
+    // MapLibre's symbol_sdf.fragment.glsl normalises halo_width
     // against fontScale_CSS = sizePx_CSS / 24:
     //
-    //   halo_edge   = (6 - halo_width_CSS / fontScale_CSS) / 8
-    //   gamma_halo  = (halo_blur_CSS × 1.19 / 8 + EDGE_GAMMA) / fontScale_CSS
-    //   EDGE_GAMMA  = 0.105 / DPR
+    //   halo_edge = (6 - halo_width_CSS / fontScale_CSS) / 8
     //
     // The DPR factors cancel when we substitute *_CSS = *_phys / DPR
     // and sizePx_CSS = d.fontSize / DPR:
     //
     //   halo_width_norm = halo_width_phys × 3 / sizePx_phys
     //                                       └── 24/8 = 3
-    //   halo_blur_norm  = (halo_blur_phys × 1.19/8 + 0.105) × 24 / sizePx_phys
-    //                                       └── 0.149       └── DPR cancels
     //
     // Net effect at Bright z=4.7 country label (size=32 phys,
-    // halo_width=2 phys, halo_blur=2 phys):
-    //   halo_width_norm: 0.061 → 0.188  (3.1× wider)
-    //   halo_blur_norm:  0.061 → 0.302  (5.0× wider transition)
-    // Halo opacity at 3 slot-px outside glyph edge: 16 % → 72 %,
-    // matching MapLibre's render on the same PBF input.
+    // halo_width=2 phys): halo_width_norm 0.061 → 0.188 (3.1× wider),
+    // matching MapLibre's render on the same PBF input. halo_blur
+    // shares the same px→SDF factor (see the buf[13] note below).
     // The `·3` constant (= ONE_EM/SDF_PX = 24/8) is correct ONLY for
     // PBF-server SDFs whose byte slope is 255-per-radius (MapLibre
     // SDF_PX=8). computeSDF-rasterised glyphs (CJK / Hangul fallback,
@@ -565,8 +559,31 @@ function packUniforms(d: TextDraw): Float32Array {
     const haloK = allLocal
       ? (d.rasterFontSize * 63) / (sdfRadius * 255)
       : 3
-    buf[12] = d.halo.width * haloK / d.fontSize
-    buf[13] = ((d.halo.blur ?? 0) * 0.149 + 0.105) * 24 / d.fontSize
+    // px → normalised-SDF conversion. haloK/fontSize maps one physical
+    // pixel of edge distance into the [0,1] SDF byte space for THIS
+    // draw's glyph source (PBF 255-per-radius vs computeSDF 63-per-
+    // sdfRadius — see haloK above). Both halo_width and halo_blur are
+    // distances in that same space, so both scale by the same factor.
+    const pxToSdf = haloK / d.fontSize
+    buf[12] = d.halo.width * pxToSdf
+    // halo_blur was previously normalised with the PBF-only constant
+    // `·24/fontSize` plus a baked `+0.105` EDGE_GAMMA term, regardless
+    // of glyph source. That left commit #130's source-aware width fix
+    // half-applied: locally-rasterised Hangul/CJK labels (4× shallower
+    // SDF slope) got a blur ~4× too wide — the user-reported heavy
+    // white glow on OFM Bright Korean place labels at z≈5, which also
+    // made the dark fill read as too thin against the glow.
+    //
+    // Now blur uses the same source-aware pxToSdf as width. The 1.19
+    // factor is MapLibre's symbol_sdf blur-spread constant (kept so
+    // authored-blur magnitude on PBF stays MapLibre-equivalent:
+    // 1.19·3 ≈ old 0.149·24). The EDGE_GAMMA base is dropped — the
+    // fragment shader already floors halo AA at the fwidth-derived
+    // `soft` via `aa_halo = max(u.halo_blur, soft)`, so re-adding a
+    // fixed gamma double-counted AA and over-blurred every halo
+    // (worst on the shallow local SDF) even when the style authored
+    // blur = 0.
+    buf[13] = (d.halo.blur ?? 0) * 1.19 * pxToSdf
   } else {
     buf[8] = 0; buf[9] = 0; buf[10] = 0; buf[11] = 0
     buf[12] = 0
