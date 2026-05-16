@@ -1104,6 +1104,31 @@ function lowerLayer(
         continue
       }
 
+      // Catch-all safety net for unrecognised `label-*` utilities,
+      // mirroring the bracket-binding X-GIS0005 guard. Every handled
+      // label utility above `continue`s; anything that starts with
+      // `label-` and reaches here had NO parsing arm, so the converter
+      // emitted a value that lower.ts silently drops — the exact
+      // failure mode of the text-variable-anchor regression (converter
+      // emitted `label-anchor-*`, but for the real layout property the
+      // emission was missing entirely). Surface it as a warn so a
+      // future converter/lower mismatch fails CI instead of shipping a
+      // silently-ignored knob. (Malformed values like an invalid
+      // `label-anchor-<x>` also land here — equally worth flagging.)
+      if (name.startsWith('label-')) {
+        diagnostics.push({
+          severity: 'warn',
+          code: 'X-GIS0006',
+          line: stmt.line,
+          message:
+            `Label utility "${name}" has no handler in lower.ts — the ` +
+            `value is being dropped. Add a matching arm in the label-` +
+            `utility parser so the converter's emission threads into ` +
+            `LabelDef.`,
+        })
+        continue
+      }
+
       if (name.startsWith('fill-extrusion-height-')) {
         // Mapbox `fill-extrusion-height` paint property as a tailwind-
         // shaped utility. Value is a static metres count; data-driven
