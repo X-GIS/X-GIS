@@ -12,6 +12,7 @@ import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './g
 import { GPUTimer } from './gpu/gpu-timer'
 import { Camera } from './projection/camera'
 import { projectWgsl, needsBackfaceCullWgsl } from './projection/projection-wgsl-mirror'
+import { globeForward } from './projection/globe'
 import { MapRenderer, type ShowCommand } from './render/renderer'
 import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from './render/paint-shape-resolve'
 import {
@@ -3106,7 +3107,14 @@ export class XGISMap {
         // centerLat / projType are renderFrame constants) so the hot
         // per-label path stays allocation-free.
         const _lblIsMerc = this.projectionName === 'mercator'
-        const _lblCenter: [number, number] = _lblIsMerc
+        const _lblIsGlobe = this.projectionName === 'globe'
+        // Globe label anchor = sphere RTC against the focus, then the
+        // full 4×4 orbit MVP (camera emits it in globe mode). Hoisted
+        // per frame like _lblCenter.
+        const _lblGlobeCenter = _lblIsGlobe
+          ? globeForward(centerLon, centerLat)
+          : ([0, 0, 0] as [number, number, number])
+        const _lblCenter: [number, number] = _lblIsMerc || _lblIsGlobe
           ? [0, 0]
           : projectWgsl(projType, centerLon, centerLat, centerLon, centerLat)
 
@@ -3128,6 +3136,22 @@ export class XGISMap {
             // across multiple projectLonLat calls in the same expression
             // (`projectLonLatCopies` builds a list of results).
             return [proj[0], proj[1]]
+          }
+          if (_lblIsGlobe) {
+            // True 3D globe: hemisphere-cull, then sphere RTC against
+            // the focus through the FULL 4×4 orbit MVP (the z column is
+            // significant here, unlike the flat path which drops it).
+            if (needsBackfaceCullWgsl(projType, lon, lat, centerLon, centerLat) < 0) return null
+            const g = globeForward(lon, lat)
+            const rx = g[0] - _lblGlobeCenter[0]
+            const ry = g[1] - _lblGlobeCenter[1]
+            const rz = g[2] - _lblGlobeCenter[2]
+            const cw = mvp[3]! * rx + mvp[7]! * ry + mvp[11]! * rz + mvp[15]!
+            if (cw <= 0) return null
+            const ndcX = (mvp[0]! * rx + mvp[4]! * ry + mvp[8]! * rz + mvp[12]!) / cw
+            const ndcY = (mvp[1]! * rx + mvp[5]! * ry + mvp[9]! * rz + mvp[13]!) / cw
+            if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
+            return [(ndcX + 1) * 0.5 * w, (1 - ndcY) * 0.5 * h]
           }
           // Non-Mercator: exact CPU mirror of the GPU per-vertex path.
           // Cull the back hemisphere first (same thresholds as the

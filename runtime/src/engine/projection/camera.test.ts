@@ -639,4 +639,28 @@ describe('Camera — globeMode (orbit matrix for the true 3D globe)', () => {
     cam.pitch = 55
     expect(cam.pitch).toBe(55) // globe ≠ flat azimuthal — pitch lives
   })
+
+  it('globe drag rotates the sphere (centre lon/lat moves, content follows cursor)', () => {
+    const R = 6378137
+    const cam = new Camera(0, 0, 3)
+    cam.globeMode = true
+    cam.pan(100, 0, W, H) // drag right
+    const lon = cam.centerX / R * (180 / Math.PI)
+    expect(lon).toBeLessThan(0) // dragging right brings western land into view
+    const cam2 = new Camera(0, 0, 3)
+    cam2.globeMode = true
+    cam2.pan(0, 80, W, H) // drag down
+    const lat = (2 * Math.atan(Math.exp(cam2.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
+    expect(lat).toBeGreaterThan(0) // drag down → look further south… content moves down
+  })
+
+  it('globe drag clamps latitude to the Mercator-storable range', () => {
+    const R = 6378137
+    const cam = new Camera(0, 85, 1)
+    cam.globeMode = true
+    cam.pan(0, -5000, W, H) // huge upward drag
+    const lat = (2 * Math.atan(Math.exp(cam.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
+    expect(lat).toBeLessThanOrEqual(85.0512)
+    expect(Number.isFinite(cam.centerX)).toBe(true)
+  })
 })

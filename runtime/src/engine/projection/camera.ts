@@ -340,6 +340,28 @@ export class Camera {
 
   /** Pan by CSS pixels (clientX/clientY delta), accounting for map rotation */
   pan(dx: number, dy: number, _canvasWidth: number, canvasHeight: number): void {
+    if (this.globeMode) {
+      // Globe: drag rotates the sphere (content follows the cursor).
+      // Pixel delta → lon/lat at the same per-pixel feel as the 2D map
+      // (meters-per-pixel converted to degrees on the surface), bearing-
+      // rotated. Not a pixel-exact arcball, but Cesium-style drag-to-
+      // rotate; centerX/Y stay Mercator so the rest of the camera and
+      // tile selection keep working unchanged.
+      const R = 6378137
+      const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
+      const rb = this.bearing * Math.PI / 180
+      const cb = Math.cos(rb), sb = Math.sin(rb)
+      const gdx = dx * cb + dy * sb
+      const gdy = -dx * sb + dy * cb
+      const degPerPx = (mpp / R) * (180 / Math.PI)
+      let lon = this.centerX / R * (180 / Math.PI) - gdx * degPerPx
+      let lat = (2 * Math.atan(Math.exp(this.centerY / R)) - Math.PI / 2) * (180 / Math.PI) + gdy * degPerPx
+      lat = Math.max(-85.051129, Math.min(85.051129, lat))
+      lon = ((lon + 180) % 360 + 360) % 360 - 180
+      this.centerX = lon * (Math.PI / 180) * R
+      this.centerY = Math.log(Math.tan(Math.PI / 4 + lat * (Math.PI / 180) / 2)) * R
+      return
+    }
     // mpp from the formula `WORLD_MERC / TILE_PX / 2^zoom` is meters per
     // CSS pixel — the Mapbox / MapLibre tile-pyramid convention
     // (TILE_PX = 512). A given numeric `zoom` produces the same m/px

@@ -293,6 +293,17 @@ fn finalize_corner(corner: vec2<f32>) -> vec2<f32> {
   return proj_xy - center_xy;
 }
 
+// True 3D globe (projType 7): same Mercator-corner → abs lon/lat
+// recovery as finalize_corner, but the corner lands ON THE SPHERE
+// relative to the focus so thick strokes wrap the globe surface.
+fn finalize_corner_globe(corner: vec2<f32>) -> vec3<f32> {
+  let abs_merc = corner + tile.tile_origin_merc;
+  let abs_lon = abs_merc.x / (DEG2RAD * EARTH_R);
+  let lat_rad = 2.0 * atan(exp(abs_merc.y / EARTH_R)) - PI / 2.0;
+  let abs_lat = lat_rad / DEG2RAD;
+  return proj_globe(abs_lon, abs_lat) - proj_globe(tile.proj_params.y, tile.proj_params.z);
+}
+
 struct PatternSlot {
   id: u32,
   flags: u32,
@@ -699,13 +710,18 @@ fn vs_line(
   // fragment SDF works in a consistent space.
   var out: LineOut;
   let corner_proj = finalize_corner(corner_local);
+  let corner_globe = finalize_corner_globe(corner_local);
   // seg.z_lift_m: per-segment world-z lift in metres. Baked at line-
   // segment build time from the slice's heights map (looked up by
   // featId). 0 = stay on the ground (default for non-extruded
   // layers). For per-feature extrude this matches each building's
   // own height so the outline rides exactly on its roof — tall
   // buildings get tall outlines, short buildings get short outlines.
-  let clip = tile.mvp * vec4<f32>(corner_proj, seg.z_lift_m, 1.0);
+  let clip = select(
+    tile.mvp * vec4<f32>(corner_proj, seg.z_lift_m, 1.0),
+    tile.mvp * vec4<f32>(corner_globe, 1.0),
+    tile.proj_params.x > 6.5,
+  );
   out.position = apply_log_depth(clip, tile.log_depth_fc);
   out.view_w = clip.w;
   out.world_local = corner_local; // geometry-frame; matches compute_line_color
