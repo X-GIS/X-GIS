@@ -347,3 +347,42 @@ layer F {
     expect(drops).toEqual([])
   })
 })
+
+describe('lower silent-drop diagnostic — X-GIS0006 (non-bracket label-*)', () => {
+  it('unrecognised non-bracket label utility surfaces as a diagnostic', () => {
+    // The text-variable-anchor regression was a converter/lower
+    // mismatch in the NON-bracket label path (no `-[expr]`). The
+    // bracket guard (X-GIS0005) never covered it. This is the net.
+    const src = `
+source v { type: pmtiles, url: "x.pmtiles" }
+layer L {
+  source: v
+  sourceLayer: "x"
+  | label-["{name}"] label-mystery-knob-3
+}
+`
+    const tokens = new Lexer(src).tokenize()
+    const ast = new Parser(tokens).parse()
+    const scene = lower(ast)
+    const drops = (scene.diagnostics ?? []).filter(d => d.code === 'X-GIS0006')
+    expect(drops.length).toBeGreaterThan(0)
+    expect(drops[0]!.severity).toBe('warn')
+    expect(drops[0]!.message).toContain('label-mystery-knob-3')
+  })
+
+  it('known label utilities (anchor / size / radial-offset / vao) do NOT trip it', () => {
+    const src = `
+source v { type: pmtiles, url: "x.pmtiles" }
+layer L {
+  source: v
+  sourceLayer: "x"
+  | label-["{name}"] label-anchor-top label-anchor-bottom label-size-12 label-radial-offset-0.8 label-vao-0-x-1
+}
+`
+    const tokens = new Lexer(src).tokenize()
+    const ast = new Parser(tokens).parse()
+    const scene = lower(ast)
+    const drops = (scene.diagnostics ?? []).filter(d => d.code === 'X-GIS0006')
+    expect(drops).toEqual([])
+  })
+})
