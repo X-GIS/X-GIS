@@ -847,6 +847,7 @@ function lowerLayer(
             if (name === 'label-translate-y') { labelTranslateY = n; continue }
             if (name === 'label-rotate') { labelRotate = n; continue }
             if (name === 'label-letter-spacing') { labelLetterSpacing = n; continue }
+            if (name === 'label-padding') { labelPadding = n; continue }
             // Bracket-binding form for negative icon-offset components.
             if (name === 'label-icon-offset-x') { labelIconOffset = [n, labelIconOffset?.[1] ?? 0]; continue }
             if (name === 'label-icon-offset-y') { labelIconOffset = [labelIconOffset?.[0] ?? 0, n]; continue }
