@@ -98,16 +98,23 @@ fn proj_natural_earth(lon_deg: f32, lat_deg: f32, clon: f32) -> vec2<f32> {
   return proj_natural_earth_d(wrap_lon_delta(lon_deg - clon), lat_deg);
 }
 
-// Continuous longitude unwrap toward a reference longitude. Brings
-// (lon − ref_lon) into [-180, 180) WITHOUT the hard wrap_lon_delta()
-// modulo. Used per-vertex by project_geom with a PER-TILE reference so
-// every vertex of one tile resolves to the same 360° branch — a tile
-// straddling the clon±180 seam stays contiguous (drawn whole, its
-// off-edge sliver clipped by the world oval) instead of being split
-// into a full-width horizontal smear. floor() (not round()) so the WGSL
-// shader and the TS mirror agree bit-for-bit.
-fn unwrap_lon_near(lon_deg: f32, ref_lon: f32) -> f32 {
-  return lon_deg - 360.0 * floor((lon_deg - ref_lon + 180.0) / 360.0);
+// Bring 'value' into the 360-degree-wide window centred on 'ref' →
+// [ref − 180, ref + 180). Continuous (no hard modulo). Used by
+// project_geom on the CAMERA-RELATIVE longitude delta with a PER-TILE
+// reference delta so every vertex of one tile resolves to the same 360°
+// branch — a tile straddling the clon±180 seam stays contiguous (drawn
+// whole, off-edge sliver clipped by the world oval) instead of being
+// split into a full-width horizontal smear. floor() (not round()) so
+// the WGSL shader and the TS mirror agree bit-for-bit.
+fn unwrap_lon_near(value: f32, ref: f32) -> f32 {
+  return value - 360.0 * floor((value - ref + 180.0) / 360.0);
+}
+
+// Radian analogue (window 2π) for the oblique_mercator rotated
+// longitude, which jumps at atan2's ±π branch cut.
+fn unwrap_rad_near(value: f32, ref: f32) -> f32 {
+  let two_pi = 2.0 * PI;
+  return value - two_pi * floor((value - ref + PI) / two_pi);
 }
 
 fn proj_orthographic(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
@@ -149,7 +156,11 @@ fn proj_stereographic(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<
 // of the rotated frame. Center (clon, clat) maps to (0, 0); points to its
 // rotated-north have positive y, rotated-south have negative y. Rotation
 // is encoded directly into rotated lat/lon; no PI/2 shift needed.
-fn proj_oblique_mercator(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
+//
+// Split into oblique_rot (rotated lon/lat radians) + proj_oblique_mercator_d
+// (rotated frame → XY) so project_geom can unwrap lam_rot per-tile across
+// the atan2 ±π branch cut — the oblique analogue of the equirect/NE seam.
+fn oblique_rot(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
   let lam = lon_deg * DEG2RAD; let phi = lat_deg * DEG2RAD;
   let l0 = clon * DEG2RAD; let p0 = clat * DEG2RAD;
   let d_lam = lam - l0;
@@ -163,11 +174,20 @@ fn proj_oblique_mercator(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> ve
     cos(phi) * sin(d_lam),
     sin(phi) * sin(p0) + cos(phi) * cos(p0) * cos(d_lam)
   );
+  return vec2<f32>(lam_rot, phi_rot);
+}
+
+fn proj_oblique_mercator_d(lam_rot: f32, phi_rot: f32) -> vec2<f32> {
   // Mercator clamp on the rotated latitude (matches proj_mercator).
   let phi_clamped = clamp(phi_rot, -MERCATOR_LAT_LIMIT * DEG2RAD, MERCATOR_LAT_LIMIT * DEG2RAD);
   let x = EARTH_R * lam_rot;
   let y = EARTH_R * log(tan(PI / 4.0 + phi_clamped / 2.0));
   return vec2<f32>(x, y);
+}
+
+fn proj_oblique_mercator(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
+  let r = oblique_rot(lon_deg, lat_deg, clon, clat);
+  return proj_oblique_mercator_d(r.x, r.y);
 }
 
 // cos(c) helper — angular distance from projection center. Used by
@@ -193,20 +213,43 @@ fn project(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> vec2<f32> {
 }
 
 // Tile-geometry projection. Identical to project() for every projection
-// EXCEPT the pseudocylindrical pair (equirect, natural_earth), where the
-// per-vertex longitude is unwrapped toward ref_lon (the tile's centre
-// longitude) instead of hard-wrapped to clon±180. This keeps every
-// primitive in a seam-straddling tile contiguous. ref_lon is a per-tile
-// uniform-derived constant, so all vertices of a tile share one branch.
-// Points/labels (single coords, no straddle) keep using project().
+// EXCEPT the ones with a longitude seam — the pseudocylindrical pair
+// (equirect, natural_earth: hard wrap_lon_delta at clon±180) and
+// oblique_mercator (atan2 ±π branch cut on the rotated longitude).
+//
+// For those, the recentred coordinate is unwrapped toward the TILE
+// CENTRE's value instead of hard-wrapped, so every vertex of a tile
+// resolves to one branch and a seam-straddling tile stays contiguous
+// (drawn whole; the off-edge sliver clips against the world bound)
+// instead of smearing full-width. ref_lon is a per-tile uniform-derived
+// constant (tile centre longitude) so all vertices share one branch,
+// and it is unwrapped in CAMERA-RELATIVE space (ref_d = wrap(ref_lon −
+// clon)) so the tile also lands at the correct on-screen position even
+// when the camera sits near ±180° (raw |lon − clon| > 180). Mercator /
+// ortho / azimuthal / stereographic have no longitude discontinuity
+// (Mercator: world-copy wrap; the azimuthals: smooth trig in lon, the
+// only edge is the culled hemisphere limb / antipode) so they fall
+// through to project() unchanged. Points/labels keep using project().
 fn project_geom(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, ref_lon: f32) -> vec2<f32> {
   let t = proj_params.x;
   let clon = proj_params.y;
-  if (t > 0.5 && t < 1.5) {
-    return proj_equirectangular_d(unwrap_lon_near(lon_deg, ref_lon) - clon, lat_deg);
+  let clat = proj_params.z;
+  if (t > 0.5 && t < 2.5) {
+    // equirect / natural_earth: unwrap the camera-relative lon delta
+    // toward the tile centre's wrapped delta.
+    let ref_d = wrap_lon_delta(ref_lon - clon);
+    let d = unwrap_lon_near(lon_deg - clon, ref_d);
+    if (t < 1.5) { return proj_equirectangular_d(d, lat_deg); }
+    return proj_natural_earth_d(d, lat_deg);
   }
-  if (t > 1.5 && t < 2.5) {
-    return proj_natural_earth_d(unwrap_lon_near(lon_deg, ref_lon) - clon, lat_deg);
+  if (t > 5.5) {
+    // oblique_mercator: unwrap the rotated longitude toward the tile
+    // centre's rotated longitude (evaluated at the projection-centre
+    // latitude so it is a per-tile constant).
+    let r = oblique_rot(lon_deg, lat_deg, clon, clat);
+    let ref_r = oblique_rot(ref_lon, clat, clon, clat);
+    let lam_u = unwrap_rad_near(r.x, ref_r.x);
+    return proj_oblique_mercator_d(lam_u, r.y);
   }
   return project(lon_deg, lat_deg, proj_params);
 }

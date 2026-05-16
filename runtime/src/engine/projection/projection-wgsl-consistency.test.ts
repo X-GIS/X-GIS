@@ -12,6 +12,7 @@ import {
   projStereographicWgsl,
   projObliqueMercatorWgsl,
   cosC,
+  projObliqueMercatorWgsl,
   projectWgsl,
   projectGeomWgsl,
   unwrapLonNear,
@@ -405,8 +406,48 @@ describe('project_geom — antimeridian seam continuity', () => {
     }
   })
 
-  it('is identical to projectWgsl for non-pseudocylindrical projections (fallback)', () => {
-    for (const projType of [0, 3, 4, 5, 6]) {
+  it('refLon = lon reproduces projectWgsl even when |lon − clon| > 180 (placement regression)', () => {
+    // Guards the camera-near-±180 bug: a point-centred tile must land at
+    // its TRUE camera-relative position, never a whole world off. With
+    // refLon = lon, project_geom must equal the wrap projection for ANY
+    // clon — including a camera at the dateline where raw |lon − clon|
+    // exceeds 180 for the visible wrap-around tiles.
+    for (const clon of [175, -175, 160, -30]) {
+      for (const projType of [1, 2, 6]) {
+        for (const [lon, lat] of sampleGrid()) {
+          if (((lon - clon) % 360 + 540) % 360 === 0) continue // ±180 tie
+          const a = projectWgsl(projType, lon, lat, clon, 20)
+          const b = projectGeomWgsl(projType, lon, lat, clon, 20, lon)
+          expect(b[0]).toBeCloseTo(a[0], 2)
+          expect(b[1]).toBeCloseTo(a[1], 2)
+        }
+      }
+    }
+  })
+
+  it('oblique_mercator: a tile straddling the rotated antimeridian stays contiguous', () => {
+    // oblique_mercator has NO hemisphere cull and an atan2 ±π branch cut
+    // on the rotated longitude — the same class of full-width smear as
+    // natural_earth. Centre the projection at (clon,clat)=(0,40); the
+    // rotated antimeridian runs roughly along lon≈180. A 4°-wide tile
+    // spanning lon 178..182 (abs_lon from a dateline tile's mercX)
+    // straddles it.
+    const west = 178, east = 182
+    const refLon = (west + east) / 2
+    const smearW = projObliqueMercatorWgsl(west, 5, 0, 40)[0]
+    const smearE = projObliqueMercatorWgsl(east, 5, 0, 40)[0]
+    expect(Math.abs(smearE - smearW)).toBeGreaterThan(1e7) // raw atan2 jump
+    const gW = projectGeomWgsl(6, west, 5, 0, 40, refLon)[0]
+    const gE = projectGeomWgsl(6, east, 5, 0, 40, refLon)[0]
+    // Contiguous: a few-degree tile, not a near-whole-world span.
+    expect(Math.abs(gE - gW)).toBeLessThan(2e6)
+  })
+
+  it('is identical to projectWgsl for projections with no longitude seam (fallback)', () => {
+    // mercator (world-copy wrap), orthographic / azimuthal /
+    // stereographic (smooth trig in lon; only the culled hemisphere
+    // limb / antipode is an edge) have no in-primitive discontinuity.
+    for (const projType of [0, 3, 4, 5]) {
       for (const [lon, lat] of sampleGrid()) {
         expect(projectGeomWgsl(projType, lon, lat, 30, 20, 999))
           .toEqual(projectWgsl(projType, lon, lat, 30, 20))
