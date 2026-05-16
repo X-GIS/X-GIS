@@ -12,6 +12,8 @@ import {
   projStereographicWgsl,
   projObliqueMercatorWgsl,
   cosC,
+  projectWgsl,
+  needsBackfaceCullWgsl,
 } from './projection-wgsl-mirror'
 
 // Phase 2-A: Cross-consistency between CPU canonical (projection.ts) and
@@ -212,6 +214,60 @@ describe('CPU/GPU projection consistency — Oblique Mercator', () => {
       const [lon2, lat2] = proj.inverse(x, y)
       expect(lon2).toBeCloseTo(lon, 3)
       expect(lat2).toBeCloseTo(lat, 3)
+    }
+  })
+})
+
+// projectWgsl / needsBackfaceCullWgsl are the CPU dispatchers that label
+// anchors (map.ts) and raster tile_rtc (raster-renderer.ts) use to stay
+// pixel-aligned with the GPU. They must route by the SAME proj_params.x
+// encoding and back-face thresholds as the WGSL project() /
+// needs_backface_cull() in shaders/projection.ts — a boundary slip here
+// detaches every label/raster from the geometry under that projection.
+describe('projectWgsl dispatch matches the per-projection mirrors', () => {
+  const CL = 0, CT = 20
+  const cases: Array<[number, (l: number, a: number) => [number, number]]> = [
+    [0, (l, a) => projMercatorWgsl(l, a)],
+    [1, (l, a) => projEquirectangularWgsl(l, a)],
+    [2, (l, a) => projNaturalEarthWgsl(l, a)],
+    [3, (l, a) => projOrthographicWgsl(l, a, CL, CT)],
+    [4, (l, a) => projAzimuthalEquidistantWgsl(l, a, CL, CT)],
+    [5, (l, a) => projStereographicWgsl(l, a, CL, CT)],
+    [6, (l, a) => projObliqueMercatorWgsl(l, a, CL, CT)],
+  ]
+  it('every projType routes to its own forward at sample points', () => {
+    for (const [pt, fn] of cases) {
+      for (const [lon, lat] of sampleGrid()) {
+        const [ax, ay] = projectWgsl(pt, lon, lat, CL, CT)
+        const [bx, by] = fn(lon, lat)
+        if (!Number.isFinite(bx)) continue
+        expect(ax).toBeCloseTo(bx, 6)
+        expect(ay).toBeCloseTo(by, 6)
+      }
+    }
+  })
+})
+
+describe('needsBackfaceCullWgsl matches WGSL needs_backface_cull thresholds', () => {
+  const CL = 0, CT = 20
+  it('flat / natural_earth never cull (always ≥ 1)', () => {
+    for (const pt of [0, 1, 2]) {
+      for (const [lon, lat] of sampleGrid()) {
+        expect(needsBackfaceCullWgsl(pt, lon, lat, CL, CT)).toBeGreaterThanOrEqual(1)
+      }
+    }
+  })
+  it('orthographic returns raw cos(c) (sign = visibility)', () => {
+    for (const [lon, lat] of sampleGrid()) {
+      expect(needsBackfaceCullWgsl(3, lon, lat, CL, CT)).toBeCloseTo(cosC(lon, lat, CL, CT), 6)
+    }
+  })
+  it('azimuthal culls at cc ≤ -0.85, stereo & oblique at cc ≤ -0.8', () => {
+    for (const [lon, lat] of sampleGrid()) {
+      const cc = cosC(lon, lat, CL, CT)
+      expect(needsBackfaceCullWgsl(4, lon, lat, CL, CT) > 0).toBe(cc > -0.85)
+      expect(needsBackfaceCullWgsl(5, lon, lat, CL, CT) > 0).toBe(cc > -0.8)
+      expect(needsBackfaceCullWgsl(6, lon, lat, CL, CT) > 0).toBe(cc > -0.8)
     }
   })
 })

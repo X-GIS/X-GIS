@@ -118,3 +118,50 @@ export function projObliqueMercatorWgsl(lon: number, lat: number, clon: number, 
   const phiClamped = Math.max(-MERC_LIMIT_RAD, Math.min(MERC_LIMIT_RAD, phiRot))
   return [EARTH_R * lamRot, EARTH_R * Math.log(Math.tan(Math.PI / 4 + phiClamped / 2))]
 }
+
+// ═══ Dispatchers — mirror the WGSL `project()` / `needs_backface_cull()`
+// dispatch in shaders/projection.ts (same proj_params.x encoding:
+// 0=merc 1=equirect 2=natearth 3=ortho 4=azieqd 5=stereo 6=oblmerc).
+//
+// Any CPU computation that must land on the SAME screen position as the
+// GPU per-vertex projection (label anchors in map.ts, raster tile_rtc in
+// raster-renderer.ts) MUST go through these — NOT projection.ts
+// `getProjection`. projection.ts is the canonical CPU projection and
+// intentionally diverges from the shader on ortho/stereo back-face
+// (returns NaN / different sentinel — the documented A-3 convention),
+// so using it for GPU-coupled math detaches labels/rasters from the
+// geometry under non-Mercator projections. These mirrors compute
+// coords unconditionally exactly like the shader and defer culling to
+// needsBackfaceCullWgsl, matching the GPU's project-then-cull split.
+
+/** Mirror of WGSL `project()` in shaders/projection.ts. */
+export function projectWgsl(
+  projType: number, lon: number, lat: number, clon: number, clat: number,
+): [number, number] {
+  if (projType < 0.5) return projMercatorWgsl(lon, lat)
+  if (projType < 1.5) return projEquirectangularWgsl(lon, lat)
+  if (projType < 2.5) return projNaturalEarthWgsl(lon, lat)
+  if (projType < 3.5) return projOrthographicWgsl(lon, lat, clon, clat)
+  if (projType < 4.5) return projAzimuthalEquidistantWgsl(lon, lat, clon, clat)
+  if (projType < 5.5) return projStereographicWgsl(lon, lat, clon, clat)
+  return projObliqueMercatorWgsl(lon, lat, clon, clat)
+}
+
+/** Mirror of WGSL `needs_backface_cull()` in shaders/projection.ts.
+ *  Positive ⇒ visible, negative ⇒ cull. Thresholds match the shader
+ *  byte-for-byte: ortho returns raw cos(c) (cull when < 0), azimuthal
+ *  culls at cc ≤ -0.85, stereographic AND oblique_mercator at cc ≤ -0.8
+ *  (the shader's `t > 2.5` block falls through to the stereo threshold
+ *  for t = 6 — mirrored, not "fixed", so labels track the geometry).
+ *  Flat projections and natural_earth never cull. */
+export function needsBackfaceCullWgsl(
+  projType: number, lon: number, lat: number, clon: number, clat: number,
+): number {
+  if (projType > 2.5) {
+    const cc = cosC(lon, lat, clon, clat)
+    if (projType < 3.5) return cc
+    if (projType < 4.5) return cc > -0.85 ? 1 : -1
+    return cc > -0.8 ? 1 : -1
+  }
+  return 1
+}

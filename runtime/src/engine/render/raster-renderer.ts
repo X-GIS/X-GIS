@@ -4,6 +4,7 @@ import type { GPUContext } from '../gpu/gpu'
 import type { Camera } from '../projection/camera'
 import { visibleTilesFrustum, tileUrl, loadImageTexture } from '../../data/tile-select'
 import { mercator as mercatorProj } from '../projection/projection'
+import { projectWgsl } from '../projection/projection-wgsl-mirror'
 import { BLEND_ALPHA, STENCIL_DISABLED } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
@@ -461,16 +462,27 @@ export class RasterRenderer {
       // Uses SW corner as origin — identical to vector tile renderer
       const DEG2RAD = Math.PI / 180
       const R = 6378137
-      const tileX = west * DEG2RAD * R
-      const centerX = projCenterLon * DEG2RAD * R
       const MERC_LIMIT = 85.051129
       const clampMerc = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
-      const tileY = projType < 0.5
-        ? Math.log(Math.tan(Math.PI / 4 + clampMerc(south) * DEG2RAD / 2)) * R
-        : south * DEG2RAD * R
-      const centerY = projType < 0.5
-        ? Math.log(Math.tan(Math.PI / 4 + clampMerc(projCenterLat) * DEG2RAD / 2)) * R
-        : projCenterLat * DEG2RAD * R
+      // tile_rtc must be project(tileSW) - project(camera) in the ACTIVE
+      // projection so the shader's `project(v) - project(SW) + tile_rtc`
+      // telescopes to `project(v) - project(camera)`. Mercator stays
+      // inline (clamped log/tan). Every other projection MUST mirror the
+      // GPU project() dispatch exactly via projectWgsl — the previous
+      // plain `lat*R` (equirectangular) here detached raster tiles from
+      // the vector layers under natural_earth / orthographic / azimuthal
+      // / stereographic / oblique (offset grew with camera distance).
+      let tileX: number, tileY: number, centerX: number, centerY: number
+      if (projType < 0.5) {
+        tileX = west * DEG2RAD * R
+        centerX = projCenterLon * DEG2RAD * R
+        tileY = Math.log(Math.tan(Math.PI / 4 + clampMerc(south) * DEG2RAD / 2)) * R
+        centerY = Math.log(Math.tan(Math.PI / 4 + clampMerc(projCenterLat) * DEG2RAD / 2)) * R
+      } else {
+        const sw = projectWgsl(projType, west, south, projCenterLon, projCenterLat)
+        const cen = projectWgsl(projType, projCenterLon, projCenterLat, projCenterLon, projCenterLat)
+        tileX = sw[0]; tileY = sw[1]; centerX = cen[0]; centerY = cen[1]
+      }
 
       // Precompute Mercator Y bounds in f64 — crucially, store merc_south and the
       // small diff (merc_north - merc_south) separately, avoiding catastrophic
