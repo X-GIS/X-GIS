@@ -279,7 +279,7 @@ function runProjectionCrossCheck(
 //   inverse N=6 → 5e-7 deg ≈ 5 cm at equator; plenty for Newton-Raphson
 //     convergence (natural earth) or analytic inverse (the others).
 
-runProjectionCrossCheck('Equirectangular', equirectangular,
+runProjectionCrossCheck('Equirectangular', equirectangular(),
   fixture.projections.equirectangular,
   { forwardPrecision: 2, invLonPrecision: 6, invLatPrecision: 6 })
 

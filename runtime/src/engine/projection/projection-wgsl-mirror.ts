@@ -19,6 +19,15 @@
 const EARTH_R = 6378137
 const DEG2RAD = Math.PI / 180
 
+/** Mirror of `fn wrap_lon_delta` in wgsl-projection.ts (and identical to
+ *  projection.ts wrapLonDelta). Identity inside [-180,180] so clon = 0
+ *  leaves the pseudocylindrical projections byte-unchanged. */
+function wrapLonDelta(d: number): number {
+  if (d > 180) return d - 360 * Math.ceil((d - 180) / 360)
+  if (d < -180) return d + 360 * Math.ceil((-d - 180) / 360)
+  return d
+}
+
 /** Mirror of `fn proj_mercator` in wgsl-projection.ts. */
 export function projMercatorWgsl(lon: number, lat: number): [number, number] {
   const clamped = Math.max(-85.051129, Math.min(85.051129, lat))
@@ -33,19 +42,19 @@ export function projMercatorWgsl(lon: number, lat: number): [number, number] {
  *  table-based interpolation (which drifted ~8145 km at the poles) was
  *  removed; see the history note in projection.ts. CPU, WGSL, and this
  *  mirror agree to ≤1mm, locked by projection-wgsl-consistency.test.ts. */
-export function projNaturalEarthWgsl(lon: number, lat: number): [number, number] {
+export function projNaturalEarthWgsl(lon: number, lat: number, clon = 0): [number, number] {
   const latR = lat * DEG2RAD
   const lat2 = latR * latR
   const lat4 = lat2 * lat2
   const lat6 = lat2 * lat4
   const xScale = 0.8707 - 0.131979 * lat2 + 0.013791 * lat4 - 0.0081435 * lat6
   const yVal = latR * (1.007226 + lat2 * (0.015085 + lat2 * (-0.044475 + 0.028874 * lat2 - 0.005916 * lat4)))
-  return [lon * DEG2RAD * xScale * EARTH_R, yVal * EARTH_R]
+  return [wrapLonDelta(lon - clon) * DEG2RAD * xScale * EARTH_R, yVal * EARTH_R]
 }
 
 /** Mirror of `fn proj_equirectangular` in wgsl-projection.ts. */
-export function projEquirectangularWgsl(lon: number, lat: number): [number, number] {
-  return [lon * DEG2RAD * EARTH_R, lat * DEG2RAD * EARTH_R]
+export function projEquirectangularWgsl(lon: number, lat: number, clon = 0): [number, number] {
+  return [wrapLonDelta(lon - clon) * DEG2RAD * EARTH_R, lat * DEG2RAD * EARTH_R]
 }
 
 /** Mirror of `fn proj_orthographic` in wgsl-projection.ts.
@@ -139,8 +148,8 @@ export function projectWgsl(
   projType: number, lon: number, lat: number, clon: number, clat: number,
 ): [number, number] {
   if (projType < 0.5) return projMercatorWgsl(lon, lat)
-  if (projType < 1.5) return projEquirectangularWgsl(lon, lat)
-  if (projType < 2.5) return projNaturalEarthWgsl(lon, lat)
+  if (projType < 1.5) return projEquirectangularWgsl(lon, lat, clon)
+  if (projType < 2.5) return projNaturalEarthWgsl(lon, lat, clon)
   if (projType < 3.5) return projOrthographicWgsl(lon, lat, clon, clat)
   if (projType < 4.5) return projAzimuthalEquidistantWgsl(lon, lat, clon, clat)
   if (projType < 5.5) return projStereographicWgsl(lon, lat, clon, clat)
