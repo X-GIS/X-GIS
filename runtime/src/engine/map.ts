@@ -730,13 +730,25 @@ export class XGISMap {
     this.projectionName = name
 
     // Adjust zoom for different projection scale
-    // Globe projections (ortho/azimuthal/stereo) need wider view
-    const isGlobe = (n: string) => ['orthographic', 'azimuthal_equidistant', 'stereographic'].includes(n)
-    if (!isGlobe(prevProj) && isGlobe(name)) {
+    // The wide-view set (flat azimuthal discs + the true 3D globe) all
+    // frame the whole earth, so they need the zoomed-out view.
+    const isWideView = (n: string) =>
+      ['orthographic', 'azimuthal_equidistant', 'stereographic', 'globe'].includes(n)
+    if (!isWideView(prevProj) && isWideView(name)) {
       this.camera.zoom = Math.min(this.camera.zoom, 1.5)
-    } else if (isGlobe(prevProj) && !isGlobe(name)) {
+    } else if (isWideView(prevProj) && !isWideView(name)) {
       this.camera.zoom = Math.max(this.camera.zoom, 1.5)
     }
+
+    // The FLAT azimuthal projections are 2D discs — a pitched 2D camera
+    // just lays the disc on its side (the reported "globe 모드 pitch →
+    // 2D" bug). Lock pitch to 0 for them and snap any current tilt away.
+    // The true 3D `globe` is NOT in this set: it has a real orbit
+    // camera (projection/globe.ts) where pitch is meaningful.
+    const FLAT_AZIMUTHAL = ['orthographic', 'azimuthal_equidistant', 'stereographic']
+    this.camera.pitchLocked = FLAT_AZIMUTHAL.includes(name)
+    if (this.camera.pitchLocked) this.camera.pitch = 0
+
     this.invalidate()
   }
 
@@ -2288,7 +2300,7 @@ export class XGISMap {
     const projType = {
       mercator: 0, equirectangular: 1, natural_earth: 2,
       orthographic: 3, azimuthal_equidistant: 4, stereographic: 5,
-      oblique_mercator: 6,
+      oblique_mercator: 6, globe: 7,
     }[this.projectionName] ?? 0
     const { device, context, canvas } = this.ctx
     const w = canvas.width, h = canvas.height

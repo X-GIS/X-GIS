@@ -1,0 +1,203 @@
+// ═══ True 3D Globe (projType 7) — CPU core + interaction ═══
+//
+// This environment has no GPU, so these unit tests ARE the verification
+// for slice 1. They pin: sphere forward/inverse round-trip, the orbit
+// camera invariants (incl. the "pitch must keep the globe 3D, not flat"
+// regression that motivated the work), ray↔sphere unproject as a true
+// inverse of the camera, and the dateline-wrapping tile selection.
+
+import { describe, expect, it } from 'vitest'
+import {
+  EARTH_R,
+  GLOBE_PROJ_TYPE,
+  buildGlobeMatrix,
+  globeForward,
+  globeInverse,
+  globeVisibleTiles,
+  unprojectGlobe,
+} from './globe'
+
+const W = 1280, H = 720
+
+function mulVec4(m: Float32Array, v: [number, number, number, number]): [number, number, number, number] {
+  const r: [number, number, number, number] = [0, 0, 0, 0]
+  for (let row = 0; row < 4; row++) {
+    let s = 0
+    for (let k = 0; k < 4; k++) s += m[k * 4 + row] * v[k]
+    r[row] = s
+  }
+  return r
+}
+
+function projectNDC(view: ReturnType<typeof buildGlobeMatrix>, lon: number, lat: number) {
+  const p = globeForward(lon, lat)
+  const clip = mulVec4(view.matrix, [p[0], p[1], p[2], 1])
+  return { ndc: [clip[0] / clip[3], clip[1] / clip[3], clip[2] / clip[3]] as const, w: clip[3] }
+}
+
+describe('globe — projType', () => {
+  it('is appended as 7 (0..6 untouched)', () => {
+    expect(GLOBE_PROJ_TYPE).toBe(7)
+  })
+})
+
+describe('globe — forward / inverse', () => {
+  it('lon=0,lat=0 → +X axis on the sphere', () => {
+    const [x, y, z] = globeForward(0, 0)
+    expect(x).toBeCloseTo(EARTH_R, 3)
+    expect(y).toBeCloseTo(0, 3)
+    expect(z).toBeCloseTo(0, 3)
+  })
+
+  it('north pole → +Z, lon=90 → +Y', () => {
+    const np = globeForward(0, 90)
+    expect(np[2]).toBeCloseTo(EARTH_R, 3)
+    const e = globeForward(90, 0)
+    expect(e[1]).toBeCloseTo(EARTH_R, 3)
+  })
+
+  it('every sample point sits on the sphere of radius EARTH_R', () => {
+    for (let lon = -180; lon <= 180; lon += 45)
+      for (let lat = -80; lat <= 80; lat += 40) {
+        const [x, y, z] = globeForward(lon, lat)
+        expect(Math.sqrt(x * x + y * y + z * z)).toBeCloseTo(EARTH_R, 0)
+      }
+  })
+
+  it('inverse round-trips to ≤1e-6° across the globe', () => {
+    for (let lon = -179; lon <= 179; lon += 37)
+      for (let lat = -85; lat <= 85; lat += 23) {
+        const [x, y, z] = globeForward(lon, lat)
+        const [lon2, lat2] = globeInverse(x, y, z)
+        expect(lon2).toBeCloseTo(lon, 6)
+        expect(lat2).toBeCloseTo(lat, 6)
+      }
+  })
+
+  it('inverse is radius-agnostic (any point on the ray → same lon/lat)', () => {
+    const [x, y, z] = globeForward(127, 37)
+    const [lon, lat] = globeInverse(x * 0.3, y * 0.3, z * 0.3)
+    expect(lon).toBeCloseTo(127, 6)
+    expect(lat).toBeCloseTo(37, 6)
+  })
+})
+
+describe('globe — orbit camera', () => {
+  it('camera centre projects to NDC (0,0) at pitch 0', () => {
+    const v = buildGlobeMatrix(127, 37, 3, 0, 0, W, H)
+    const c = projectNDC(v, 127, 37)
+    expect(c.w).toBeGreaterThan(0)
+    expect(c.ndc[0]).toBeCloseTo(0, 4)
+    expect(c.ndc[1]).toBeCloseTo(0, 4)
+  })
+
+  it('centre stays at NDC (0,0) under pitch + bearing', () => {
+    for (const pitch of [0, 30, 60]) {
+      for (const bearing of [0, 90, 200]) {
+        const v = buildGlobeMatrix(10, 20, 4, pitch, bearing, W, H)
+        const c = projectNDC(v, 10, 20)
+        expect(c.w).toBeGreaterThan(0)
+        expect(c.ndc[0]).toBeCloseTo(0, 3)
+        expect(c.ndc[1]).toBeCloseTo(0, 3)
+      }
+    }
+  })
+
+  it('the antipode of the centre is behind the camera (a real sphere, not a flat disc)', () => {
+    const v = buildGlobeMatrix(0, 0, 2, 0, 0, W, H)
+    // Front (centre) is in front; the opposite side of the globe must
+    // NOT also be in front — that is exactly what a flattened 2D disc
+    // would wrongly do.
+    const front = projectNDC(v, 0, 0)
+    const back = projectNDC(v, 180, 0)
+    expect(front.w).toBeGreaterThan(0)
+    // The antipode is a full diameter farther from the eye than the
+    // near point: clip.w (camera-space depth) must differ by ≈ 2·R.
+    // A flattened 2D disc would collapse that gap to ~0 — this is the
+    // precise discriminator between a true sphere and the reported bug.
+    expect(back.w - front.w).toBeGreaterThan(EARTH_R)
+    expect(back.w - front.w).toBeCloseTo(2 * EARTH_R, -2)
+  })
+
+  it('PITCH KEEPS THE GLOBE 3D: depth varies across the surface when pitched', () => {
+    // The reported bug: pitching "lays the map flat to 2D". In a true
+    // 3D globe a pitched view must have real depth spread — the near
+    // edge of the visible cap is closer than the far edge. A flattened
+    // disc would collapse that to ~one depth.
+    const flat = buildGlobeMatrix(0, 0, 3, 0, 0, W, H)
+    const pitched = buildGlobeMatrix(0, 0, 3, 60, 0, W, H)
+    const nearPt = projectNDC(pitched, 0, -8) // toward the eye (south, bearing 0 leans north)
+    const farPt = projectNDC(pitched, 0, 8) // toward the horizon
+    expect(nearPt.w).toBeGreaterThan(0)
+    expect(farPt.w).toBeGreaterThan(0)
+    // Genuine perspective depth separation under pitch…
+    expect(Math.abs(farPt.ndc[2] - nearPt.ndc[2])).toBeGreaterThan(1e-4)
+    // …and pitch actually changes the projection (not a no-op / not flat).
+    const a = projectNDC(flat, 0, 8)
+    expect(Math.abs(a.ndc[1] - farPt.ndc[1])).toBeGreaterThan(1e-3)
+  })
+})
+
+describe('globe — unproject (ray ↔ sphere)', () => {
+  it('screen centre unprojects back to the camera centre', () => {
+    for (const [lon, lat, pitch] of [[0, 0, 0], [127, 37, 0], [127, 37, 45], [-150, -20, 30]] as const) {
+      const v = buildGlobeMatrix(lon, lat, 4, pitch, 0, W, H)
+      const hit = unprojectGlobe(W / 2, H / 2, W, H, v)
+      expect(hit).not.toBeNull()
+      expect(hit![0]).toBeCloseTo(lon, 2)
+      expect(hit![1]).toBeCloseTo(lat, 2)
+    }
+  })
+
+  it('round-trips an off-centre screen pixel', () => {
+    const v = buildGlobeMatrix(20, 10, 4, 20, 45, W, H)
+    // A point we know is on the visible front hemisphere.
+    const truthLon = 24, truthLat = 13
+    const p = globeForward(truthLon, truthLat)
+    const clip = mulVec4(v.matrix, [p[0], p[1], p[2], 1])
+    const sx = (clip[0] / clip[3] + 1) * 0.5 * W
+    const sy = (1 - clip[1] / clip[3]) * 0.5 * H
+    const hit = unprojectGlobe(sx, sy, W, H, v)
+    expect(hit).not.toBeNull()
+    expect(hit![0]).toBeCloseTo(truthLon, 1)
+    expect(hit![1]).toBeCloseTo(truthLat, 1)
+  })
+
+  it('a pixel pointing past the limb misses the globe (null)', () => {
+    const v = buildGlobeMatrix(0, 0, 3, 0, 0, W, H)
+    expect(unprojectGlobe(2, 2, W, H, v)).toBeNull()
+  })
+})
+
+describe('globe — dateline-wrapping tile selection', () => {
+  it('a view centred on the antimeridian keeps tiles on BOTH sides (the half-tiles bug)', () => {
+    const tiles = globeVisibleTiles(180, 0, 2, 4, 512, 512)
+    expect(tiles.length).toBeGreaterThan(0)
+    const n = (z: number) => Math.pow(2, z)
+    // West-of-dateline tiles have lon near -180 → small x;
+    // east-of-dateline tiles have lon near +180 → large x.
+    const hasWest = tiles.some(t => t.x / n(t.z) < 0.15)
+    const hasEast = tiles.some(t => (t.x + 1) / n(t.z) > 0.85)
+    expect(hasWest).toBe(true)
+    expect(hasEast).toBe(true)
+  })
+
+  it('only the camera-facing hemisphere is selected (centre lon 0 → no lon≈180 tiles)', () => {
+    const tiles = globeVisibleTiles(0, 0, 2, 4, 512, 512)
+    expect(tiles.length).toBeGreaterThan(0)
+    for (const t of tiles) {
+      const n = Math.pow(2, t.z)
+      const lonW = t.x / n * 360 - 180
+      const lonE = (t.x + 1) / n * 360 - 180
+      // No selected tile should be entirely on the far side (|lon|>110).
+      expect(Math.min(Math.abs(lonW), Math.abs(lonE))).toBeLessThan(120)
+    }
+  })
+
+  it('tile count is bounded and ox === x (globe renders a single world)', () => {
+    const tiles = globeVisibleTiles(127, 37, 3, 5, 1280, 720)
+    expect(tiles.length).toBeGreaterThan(0)
+    expect(tiles.length).toBeLessThanOrEqual(512)
+    for (const t of tiles) expect(t.ox).toBe(t.x)
+  })
+})

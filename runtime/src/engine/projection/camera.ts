@@ -13,8 +13,19 @@ export class Camera {
   zoom: number
   /** Map rotation in degrees (0 = north up, clockwise positive) */
   bearing = 0
+  private _pitch = 0
+  /** Set by Map for the FLAT azimuthal projections (orthographic /
+   *  azimuthal_equidistant / stereographic): their 2D disc has no
+   *  meaningful tilt, so a pitched 2D camera just lays the disc on its
+   *  side ("지도가 2D로 눕는다"). While locked, `pitch` reads 0 — every
+   *  caller (controller gestures, diagnostics restore, prefetch) is
+   *  funnelled through the accessor so none can bypass it. The true 3D
+   *  `globe` mode does NOT lock this; it uses a real orbit camera
+   *  (projection/globe.ts) where pitch is meaningful. */
+  pitchLocked = false
   /** Camera pitch/tilt in degrees (0 = top-down, 85 = nearly horizontal) */
-  pitch = 0
+  get pitch(): number { return this.pitchLocked ? 0 : this._pitch }
+  set pitch(deg: number) { this._pitch = deg }
   /** Upper bound for `zoom`. Set by the Map based on source.maxLevel so
    *  that user pan/zoom input and hash restoration can't push us past the
    *  data's usable range (beyond which tile-local float32 precision and

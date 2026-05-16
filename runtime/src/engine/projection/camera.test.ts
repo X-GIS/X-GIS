@@ -564,3 +564,41 @@ describe('Camera — bearing + zoom accumulation', () => {
     expect(cam.bearing).toBe(0)
   })
 })
+
+describe('Camera — pitchLocked (flat azimuthal projections)', () => {
+  it('defaults unlocked: pitch behaves exactly as before', () => {
+    const cam = new Camera(0, 0, 5)
+    expect(cam.pitchLocked).toBe(false)
+    cam.pitch = 60
+    expect(cam.pitch).toBe(60)
+  })
+
+  it('locked: pitch always reads 0 no matter what any caller sets', () => {
+    const cam = new Camera(0, 0, 5)
+    cam.pitch = 45
+    cam.pitchLocked = true
+    expect(cam.pitch).toBe(0)
+    // Mirrors a controller gesture writing pitch while locked.
+    cam.pitch = Math.max(0, Math.min(85, cam.pitch - 30 * 0.3))
+    expect(cam.pitch).toBe(0)
+  })
+
+  it('locked camera builds the same MVP as an explicitly pitch-0 camera', () => {
+    const locked = new Camera(0, 0, 5)
+    locked.pitch = 70
+    locked.pitchLocked = true
+    const flat = new Camera(0, 0, 5) // pitch 0
+    const a = locked.getRTCMatrix(W, H, DPR)
+    const b = flat.getRTCMatrix(W, H, DPR)
+    for (let i = 0; i < 16; i++) expect(a[i]).toBeCloseTo(b[i], 6)
+  })
+
+  it('unlocking restores the stored pitch', () => {
+    const cam = new Camera(0, 0, 5)
+    cam.pitch = 55
+    cam.pitchLocked = true
+    expect(cam.pitch).toBe(0)
+    cam.pitchLocked = false
+    expect(cam.pitch).toBe(55)
+  })
+})
