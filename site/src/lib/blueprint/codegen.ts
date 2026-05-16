@@ -10,11 +10,25 @@ function byId(g: BPGraph): Map<string, BPNode> {
   return new Map(g.nodes.map((n) => [n.id, n]))
 }
 
-/** Source node ids feeding a given (node,pin) input, in wire order. */
+/** Source node ids feeding a given (node,pin) input, in wire order.
+ *  Reroute knots are transparent: a wire arriving from a reroute
+ *  resolves to whatever feeds the reroute's `in` pin (recursively). */
 function incoming(g: BPGraph, node: string, pin: string): string[] {
-  return g.edges
-    .filter((e) => e.to.node === node && e.to.pin === pin)
-    .map((e) => e.from.node)
+  const types = new Map(g.nodes.map((n) => [n.id, n.type]))
+  const out: string[] = []
+  const walk = (nId: string, pId: string, seen: Set<string>) => {
+    for (const e of g.edges) {
+      if (e.to.node !== nId || e.to.pin !== pId) continue
+      if (types.get(e.from.node) === 'reroute') {
+        if (seen.has(e.from.node)) continue // guard against wire loops
+        walk(e.from.node, 'in', new Set(seen).add(e.from.node))
+      } else {
+        out.push(e.from.node)
+      }
+    }
+  }
+  walk(node, pin, new Set())
+  return out
 }
 
 function nameOf(n: BPNode | undefined, fallback: string): string {

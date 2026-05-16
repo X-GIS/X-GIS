@@ -18,16 +18,18 @@ const playgroundUrl = `${base}/play/demo.html`
     <div class="flex items-baseline justify-between flex-wrap gap-2">
       <h1 class="text-[22px] font-medium tracking-tight">Blueprint</h1>
       <p class="text-fg-dim text-[12px]">
-        Wire nodes into an X-GIS map. Right-click the canvas to add a node ·
-        drag a pin to a matching pin to connect.
+        Drag-select · Space/middle-drag pan · right-click or
+        <kbd class="px-1 border border-line rounded">A</kbd> add ·
+        drag a pin out to create+wire · double-click a wire = reroute ·
+        <kbd class="px-1 border border-line rounded">⌘Z</kbd> undo
       </p>
     </div>
 
     <!-- ── Toolbar ── -->
-    <div class="mt-5 flex flex-wrap items-center gap-2">
+    <div class="mt-5 flex flex-wrap items-center gap-2 text-[12px]">
       <select
         id="bp-add"
-        class="bg-bg-elev border border-line rounded px-3 py-2 text-[12px] focus:outline-none focus:border-accent"
+        class="bg-bg-elev border border-line rounded px-3 py-2 focus:outline-none focus:border-accent"
       >
         <option value="">+ Add node…</option>
         <option value="source">Source</option>
@@ -38,17 +40,33 @@ const playgroundUrl = `${base}/play/demo.html`
         <option value="fn">Function</option>
         <option value="import">Import</option>
         <option value="background">Background</option>
+        <option value="reroute">Reroute</option>
         <option value="map">Map (output)</option>
       </select>
+      <div class="flex rounded border border-line overflow-hidden bg-bg-elev">
+        <button id="bp-undo" title="Undo (⌘Z)" class="px-2.5 py-2 text-fg-dim hover:text-fg hover:bg-bg-hover transition-colors">↶</button>
+        <button id="bp-redo" title="Redo (⌘⇧Z)" class="px-2.5 py-2 text-fg-dim hover:text-fg hover:bg-bg-hover transition-colors border-l border-line">↷</button>
+      </div>
+      <button id="bp-fit" class="px-3 py-2 bg-bg-elev border border-line rounded text-fg-dim hover:text-fg hover:border-fg-dim transition-colors">Fit</button>
+      <button id="bp-comment" class="px-3 py-2 bg-bg-elev border border-line rounded text-fg-dim hover:text-fg hover:border-fg-dim transition-colors">+ Comment</button>
+      <div class="flex rounded border border-line overflow-hidden bg-bg-elev">
+        <button id="bp-al" title="Align left" class="px-2.5 py-2 text-fg-dim hover:text-fg hover:bg-bg-hover transition-colors">⇤</button>
+        <button id="bp-at" title="Align top" class="px-2.5 py-2 text-fg-dim hover:text-fg hover:bg-bg-hover transition-colors border-l border-line">⤒</button>
+        <button id="bp-dh" title="Distribute horizontally" class="px-2.5 py-2 text-fg-dim hover:text-fg hover:bg-bg-hover transition-colors border-l border-line">↔</button>
+        <button id="bp-dv" title="Distribute vertically" class="px-2.5 py-2 text-fg-dim hover:text-fg hover:bg-bg-hover transition-colors border-l border-line">↕</button>
+      </div>
+      <label class="flex items-center gap-1.5 px-3 py-2 bg-bg-elev border border-line rounded text-fg-dim cursor-pointer select-none">
+        <input id="bp-snap" type="checkbox" class="accent-accent" /> snap
+      </label>
       <button
         id="bp-reset"
-        class="px-3 py-2 bg-bg-elev border border-line rounded text-[12px] text-fg-dim hover:text-fg hover:border-fg-dim transition-colors"
+        class="px-3 py-2 bg-bg-elev border border-line rounded text-fg-dim hover:text-fg hover:border-fg-dim transition-colors"
         >Reset view</button
       >
       <button
         id="bp-new"
-        class="px-3 py-2 bg-bg-elev border border-line rounded text-[12px] text-fg-dim hover:text-fg hover:border-fg-dim transition-colors"
-        >New (clear)</button
+        class="px-3 py-2 bg-bg-elev border border-line rounded text-fg-dim hover:text-fg hover:border-fg-dim transition-colors"
+        >New</button
       >
       <span id="bp-status" class="ml-auto text-[11px] px-2 py-1 rounded-full border"></span>
     </div>
@@ -138,6 +156,18 @@ const playgroundUrl = `${base}/play/demo.html`
               class="absolute inset-x-0 bottom-0 px-3 py-1.5 text-[11px] text-fg-dim bg-bg/80 backdrop-blur-sm pointer-events-none"
             ></div>
           </div>
+        </div>
+
+        <!-- Inspector -->
+        <div class="flex flex-col rounded-md border border-line bg-bg-elev overflow-hidden">
+          <div class="px-3 py-2 border-b border-line text-fg text-[11px] tracking-wide uppercase">
+            inspector
+          </div>
+          <div
+            id="bp-inspector"
+            class="px-3 py-2.5 overflow-y-auto"
+            style="max-height: 26vh;"
+          ></div>
         </div>
 
         <!-- Source -->
@@ -452,6 +482,232 @@ const playgroundUrl = `${base}/play/demo.html`
       font-size: 10.5px;
       margin-top: 1px;
     }
+    .bp-ctx-search {
+      width: 100%;
+      background: var(--color-bg);
+      border: 1px solid var(--color-line);
+      border-radius: 6px;
+      padding: 6px 8px;
+      color: var(--color-fg);
+      font-size: 12px;
+      margin-bottom: 5px;
+    }
+    .bp-ctx-search:focus {
+      outline: none;
+      border-color: var(--color-accent);
+    }
+    .bp-ctx-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .bp-ctx-item.bp-ctx-active {
+      background: var(--color-bg-hover);
+      outline: 1px solid var(--color-accent);
+    }
+
+    /* Reroute knot */
+    .bp-reroute {
+      width: 16px !important;
+      height: 16px;
+      background: var(--color-bg-card);
+      border-radius: 50%;
+      box-shadow: none;
+      border: 1px solid var(--color-line-strong);
+    }
+    .bp-reroute .bp-port {
+      position: absolute;
+      inset: 0;
+      padding: 0;
+    }
+    .bp-reroute .bp-pin {
+      position: absolute;
+      top: 2px;
+    }
+    .bp-reroute .bp-rr-in .bp-pin {
+      left: 1px;
+    }
+    .bp-reroute .bp-rr-out .bp-pin {
+      right: 1px;
+    }
+    .bp-reroute .bp-plabel {
+      display: none;
+    }
+
+    /* Pin connection hints during a wire drag */
+    .bp-pin-ok {
+      box-shadow: 0 0 0 3px rgba(41, 151, 255, 0.5);
+      transform: scale(1.2);
+    }
+    .bp-pin-dim {
+      opacity: 0.28;
+    }
+
+    /* Diagnostics badge */
+    .bp-badge {
+      margin-left: 6px;
+      color: #fbbf24;
+      font-size: 12px;
+      cursor: help;
+    }
+
+    /* Source data-peek */
+    .bp-peek {
+      margin: 0 9px 9px;
+      padding: 4px 6px;
+      font-size: 10.5px;
+      color: var(--color-fg-dim);
+      background: var(--color-bg);
+      border: 1px solid var(--color-line);
+      border-radius: 5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: calc(100% - 18px);
+    }
+    .bp-peek:hover {
+      color: var(--color-fg);
+      border-color: var(--color-accent);
+    }
+
+    /* Comment frame */
+    .bp-frame {
+      position: absolute;
+      border: 1.5px solid color-mix(in srgb, var(--fc) 55%, transparent);
+      background: color-mix(in srgb, var(--fc) 7%, transparent);
+      border-radius: 9px;
+      z-index: 0;
+    }
+    .bp-frame-bar {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      height: 26px;
+      padding: 0 6px;
+      background: color-mix(in srgb, var(--fc) 22%, var(--color-bg-card));
+      border-radius: 7px 7px 0 0;
+      cursor: grab;
+    }
+    .bp-frame-tog {
+      color: var(--color-fg);
+      font-size: 10px;
+      width: 16px;
+      flex: none;
+    }
+    .bp-frame-title {
+      flex: 1;
+      min-width: 0;
+      background: transparent;
+      border: none;
+      color: var(--color-fg);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 2px 4px;
+    }
+    .bp-frame-title:focus {
+      outline: none;
+      background: var(--color-bg);
+      border-radius: 4px;
+    }
+    .bp-frame-sw {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--fc);
+      flex: none;
+    }
+    .bp-frame-del {
+      color: var(--color-fg-mute);
+      font-size: 14px;
+      width: 16px;
+      flex: none;
+    }
+    .bp-frame-del:hover {
+      color: #f87171;
+    }
+    .bp-frame-grip {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      width: 16px;
+      height: 16px;
+      cursor: nwse-resize;
+      background: linear-gradient(
+        135deg,
+        transparent 50%,
+        color-mix(in srgb, var(--fc) 60%, transparent) 50%
+      );
+      border-radius: 0 0 7px 0;
+    }
+
+    /* Marquee selection */
+    .bp-marquee {
+      position: absolute;
+      border: 1px solid var(--color-accent);
+      background: rgba(41, 151, 255, 0.12);
+      pointer-events: none;
+      z-index: 9998;
+    }
+
+    /* Minimap */
+    .bp-mini {
+      position: absolute;
+      left: 10px;
+      bottom: 10px;
+      width: 180px;
+      height: 120px;
+      background: rgba(0, 0, 0, 0.55);
+      border: 1px solid var(--color-line-strong);
+      border-radius: 6px;
+      overflow: hidden;
+      z-index: 30;
+      pointer-events: none;
+    }
+    .bp-mini i {
+      position: absolute;
+      border-radius: 1px;
+      opacity: 0.85;
+    }
+    .bp-mini b {
+      position: absolute;
+      border: 1px solid var(--color-accent);
+      background: rgba(41, 151, 255, 0.12);
+    }
+
+    /* Node level-of-detail when zoomed far out */
+    .bp-lod .bp-fields,
+    .bp-lod .bp-order,
+    .bp-lod .bp-peek,
+    .bp-lod .bp-plabel {
+      display: none;
+    }
+
+    /* Inspector */
+    .bp-insp-empty {
+      color: var(--color-fg-mute);
+      font-size: 12px;
+    }
+    .bp-insp-h {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--color-fg);
+    }
+    .bp-insp-blurb {
+      color: var(--color-fg-mute);
+      font-size: 11px;
+      margin: 3px 0 10px;
+    }
+    #bp-inspector .bp-field {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-bottom: 8px;
+    }
   </style>
 
   <script>
@@ -473,6 +729,16 @@ const playgroundUrl = `${base}/play/demo.html`
     const $new = document.getElementById('bp-new') as HTMLButtonElement
     const $copy = document.getElementById('bp-copy') as HTMLButtonElement
     const $open = document.getElementById('bp-open') as HTMLButtonElement
+    const $inspector = document.getElementById('bp-inspector') as HTMLElement
+    const $undo = document.getElementById('bp-undo') as HTMLButtonElement
+    const $redo = document.getElementById('bp-redo') as HTMLButtonElement
+    const $fit = document.getElementById('bp-fit') as HTMLButtonElement
+    const $comment = document.getElementById('bp-comment') as HTMLButtonElement
+    const $snap = document.getElementById('bp-snap') as HTMLInputElement
+    const $al = document.getElementById('bp-al') as HTMLButtonElement
+    const $at = document.getElementById('bp-at') as HTMLButtonElement
+    const $dh = document.getElementById('bp-dh') as HTMLButtonElement
+    const $dv = document.getElementById('bp-dv') as HTMLButtonElement
     const playgroundUrl =
       (document.querySelector('[data-playground-url]') as HTMLElement | null)?.dataset
         .playgroundUrl ?? ''
@@ -572,7 +838,7 @@ const playgroundUrl = `${base}/play/demo.html`
       }
     }
 
-    const editor = new BlueprintEditor({ viewport: vp, onChange: refresh })
+    const editor = new BlueprintEditor({ viewport: vp, inspector: $inspector, onChange: refresh })
 
     // Restore last session, else the README-style starter graph.
     let initial: BPGraph
@@ -598,6 +864,15 @@ const playgroundUrl = `${base}/play/demo.html`
     $new.addEventListener('click', () => {
       if (confirm('Clear the whole blueprint?')) editor.clear()
     })
+    $undo.addEventListener('click', () => editor.undo())
+    $redo.addEventListener('click', () => editor.redo())
+    $fit.addEventListener('click', () => editor.fit())
+    $comment.addEventListener('click', () => editor.addFrame())
+    $snap.addEventListener('change', () => editor.setSnap($snap.checked))
+    $al.addEventListener('click', () => editor.align('left'))
+    $at.addEventListener('click', () => editor.align('top'))
+    $dh.addEventListener('click', () => editor.align('hdist'))
+    $dv.addEventListener('click', () => editor.align('vdist'))
 
     $copy.addEventListener('click', async () => {
       if (!$out.value.trim()) return

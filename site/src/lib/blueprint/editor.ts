@@ -1,66 +1,93 @@
-// Vanilla DOM + SVG node editor — Unreal-Blueprint flavour:
-// draggable node cards with typed input/output pins, bezier wires,
-// canvas pan/zoom, right-click "add node" palette. No framework, no
-// deps (matches the site's zero-runtime convention).
+// Vanilla DOM + SVG node editor — Unreal-Blueprint grade. No deps
+// (matches the site's zero-runtime convention).
 //
-// Geometry model: a `world` <div> (CSS transform translate+scale)
-// holds absolutely-positioned node cards; an <svg><g> with the same
-// transform holds the wires. Wire endpoints are read back from the
-// live pin DOM rects (screen→world), so cards of any height stay
-// connected without a hand-maintained layout.
+// Geometry: a `world` <div> (CSS transform translate+scale) holds
+// absolutely-positioned node cards + comment frames; an <svg><g>
+// with the same transform holds the wires. Wire endpoints are read
+// back from live pin DOM rects (screen→world) so cards of any height
+// stay connected without a hand-maintained layout.
+//
+// Capabilities: history (undo/redo), marquee + multi-select, group
+// move/duplicate/copy-paste, comment frames (move/resize/collapse),
+// reroute knots, drag-from-pin contextual search-create, search
+// palette, on-node diagnostics, minimap, zoom-to-fit/selection,
+// snap-to-grid, align/distribute, inspector panel, pin
+// highlight/dim, tooltips, node LOD, source data peek.
 
 import {
   NODE_SPECS,
   PIN_COLOR,
   defaultData,
+  pinCompatible,
   uid,
   type BPEdge,
+  type BPFrame,
   type BPGraph,
   type BPNode,
+  type FieldSpec,
   type NodeType,
   type PinSpec,
+  type PinType,
 } from './types'
-
-type Sel = { kind: 'node' | 'edge'; id: string } | null
 
 interface Opts {
   viewport: HTMLElement
+  inspector: HTMLElement
   onChange: () => void
 }
 
 const SVGNS = 'http://www.w3.org/2000/svg'
+const GRID = 20
+const FRAME_COLORS = ['#2997ff', '#34d399', '#f5a623', '#f472b6', '#a78bfa', '#8a8f98']
+
+type Drag =
+  | { kind: 'pan'; sx: number; sy: number; px: number; py: number }
+  | { kind: 'node'; id: string; ox: Map<string, [number, number]>; mx: number; my: number }
+  | { kind: 'frame'; id: string; ox: Map<string, [number, number]>; fx: number; fy: number; mx: number; my: number }
+  | { kind: 'resize'; id: string; mx: number; my: number; w: number; h: number }
+  | { kind: 'wire'; from: { node: string; pin: string; ptype: PinType } }
+  | { kind: 'marquee'; x0: number; y0: number }
+  | null
 
 export class BlueprintEditor {
   private vp: HTMLElement
+  private inspectorEl: HTMLElement
   private world!: HTMLElement
   private svg!: SVGSVGElement
   private gEdges!: SVGGElement
   private tempPath!: SVGPathElement
-  private ctx!: HTMLElement
+  private marqueeEl!: HTMLElement
+  private mini!: HTMLElement
+  private palette!: HTMLElement
   private onChange: () => void
 
   private nodes: BPNode[] = []
   private edges: BPEdge[] = []
+  private frames: BPFrame[] = []
   private pan = { x: 40, y: 40 }
   private zoom = 1
   private zTop = 1
+  private snap = false
 
   private nodeEls = new Map<string, HTMLElement>()
   private pinEls = new Map<string, HTMLElement>()
   private edgeEls = new Map<string, { hit: SVGPathElement; vis: SVGPathElement }>()
-  private sel: Sel = null
+  private frameEls = new Map<string, HTMLElement>()
+  private selNodes = new Set<string>()
+  private selFrames = new Set<string>()
+  private selEdge: string | null = null
 
-  // transient interaction state
-  private drag:
-    | { kind: 'pan'; sx: number; sy: number; px: number; py: number }
-    | { kind: 'node'; id: string; offx: number; offy: number }
-    | { kind: 'wire'; from: { node: string; pin: string; ptype: string } }
-    | null = null
+  private drag: Drag = null
+  private spaceDown = false
   private ctxWorld = { x: 0, y: 0 }
   private rafPending = false
+  private past: string[] = []
+  private future: string[] = []
+  private fieldDirty = false
 
   constructor(o: Opts) {
     this.vp = o.viewport
+    this.inspectorEl = o.inspector
     this.onChange = o.onChange
     this.build()
     this.wire()
@@ -70,6 +97,10 @@ export class BlueprintEditor {
   load(g: BPGraph) {
     this.nodes = g.nodes.map((n) => ({ ...n, data: { ...n.data } }))
     this.edges = g.edges.map((e) => ({ ...e }))
+    this.frames = (g.frames ?? []).map((f) => ({ ...f }))
+    this.selNodes.clear()
+    this.selFrames.clear()
+    this.selEdge = null
     this.renderAll()
     this.emit()
   }
@@ -77,12 +108,17 @@ export class BlueprintEditor {
     return {
       nodes: this.nodes.map((n) => ({ ...n, data: { ...n.data } })),
       edges: this.edges.map((e) => ({ ...e })),
+      frames: this.frames.map((f) => ({ ...f })),
     }
   }
   clear() {
+    this.record()
     this.nodes = []
     this.edges = []
-    this.sel = null
+    this.frames = []
+    this.selNodes.clear()
+    this.selFrames.clear()
+    this.selEdge = null
     this.renderAll()
     this.emit()
   }
@@ -92,10 +128,12 @@ export class BlueprintEditor {
     this.applyTransform()
     this.scheduleRedraw()
   }
-  addNode(type: NodeType, wx?: number, wy?: number) {
-    if (NODE_SPECS[type].singleton && this.nodes.some((n) => n.type === type)) {
-      return
-    }
+  setSnap(on: boolean) {
+    this.snap = on
+  }
+  addNode(type: NodeType, wx?: number, wy?: number): string | null {
+    if (NODE_SPECS[type].singleton && this.nodes.some((n) => n.type === type)) return null
+    this.record()
     const n: BPNode = {
       id: uid('n'),
       type,
@@ -107,12 +145,123 @@ export class BlueprintEditor {
     this.mountNode(n)
     this.scheduleRedraw()
     this.emit()
+    return n.id
+  }
+
+  addFrame() {
+    this.record()
+    let x: number
+    let y: number
+    let w = 360
+    let h = 240
+    const sel = [...this.selNodes].map((id) => this.nodes.find((n) => n.id === id)).filter(Boolean) as BPNode[]
+    if (sel.length) {
+      const xs = sel.map((n) => n.x)
+      const ys = sel.map((n) => n.y)
+      x = Math.min(...xs) - 30
+      y = Math.min(...ys) - 56
+      w = Math.max(...xs) - x + 270
+      h = Math.max(...ys) - y + 200
+    } else {
+      x = -this.pan.x / this.zoom + 60
+      y = -this.pan.y / this.zoom + 60
+    }
+    const f: BPFrame = { id: uid('f'), x, y, w, h, title: 'Comment', color: FRAME_COLORS[this.frames.length % FRAME_COLORS.length] }
+    this.frames.push(f)
+    this.mountFrame(f)
+    this.scheduleRedraw()
+    this.emit()
+  }
+
+  undo() {
+    if (!this.past.length) return
+    this.future.push(this.snapshot())
+    const s = this.past.pop()!
+    this.restore(s)
+  }
+  redo() {
+    if (!this.future.length) return
+    this.past.push(this.snapshot())
+    const s = this.future.pop()!
+    this.restore(s)
+  }
+
+  fit(selectionOnly = false) {
+    const ns = selectionOnly && this.selNodes.size ? this.nodes.filter((n) => this.selNodes.has(n.id)) : this.nodes
+    if (!ns.length) return
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const n of ns) {
+      const el = this.nodeEls.get(n.id)
+      const w = el?.offsetWidth ?? 232
+      const h = el?.offsetHeight ?? 120
+      minX = Math.min(minX, n.x)
+      minY = Math.min(minY, n.y)
+      maxX = Math.max(maxX, n.x + w)
+      maxY = Math.max(maxY, n.y + h)
+    }
+    const r = this.vp.getBoundingClientRect()
+    const pad = 60
+    const z = Math.min(2, Math.max(0.2, Math.min(r.width / (maxX - minX + pad * 2), r.height / (maxY - minY + pad * 2))))
+    this.zoom = z
+    this.pan.x = r.width / 2 - ((minX + maxX) / 2) * z
+    this.pan.y = r.height / 2 - ((minY + maxY) / 2) * z
+    this.applyTransform()
+    this.scheduleRedraw()
+  }
+
+  align(mode: 'left' | 'top' | 'hdist' | 'vdist') {
+    const sel = [...this.selNodes].map((id) => this.nodes.find((n) => n.id === id)).filter(Boolean) as BPNode[]
+    if (sel.length < 2) return
+    this.record()
+    if (mode === 'left') {
+      const x = Math.min(...sel.map((n) => n.x))
+      sel.forEach((n) => (n.x = x))
+    } else if (mode === 'top') {
+      const y = Math.min(...sel.map((n) => n.y))
+      sel.forEach((n) => (n.y = y))
+    } else if (mode === 'hdist') {
+      sel.sort((a, b) => a.x - b.x)
+      const span = sel[sel.length - 1].x - sel[0].x
+      const step = span / (sel.length - 1)
+      sel.forEach((n, i) => (n.x = sel[0].x + step * i))
+    } else {
+      sel.sort((a, b) => a.y - b.y)
+      const span = sel[sel.length - 1].y - sel[0].y
+      const step = span / (sel.length - 1)
+      sel.forEach((n, i) => (n.y = sel[0].y + step * i))
+    }
+    sel.forEach((n) => this.placeNode(n))
+    this.scheduleRedraw()
+    this.emit()
+  }
+
+  // ── history ──
+  private snapshot(): string {
+    return JSON.stringify({ nodes: this.nodes, edges: this.edges, frames: this.frames })
+  }
+  private record() {
+    this.past.push(this.snapshot())
+    if (this.past.length > 100) this.past.shift()
+    this.future = []
+  }
+  private restore(s: string) {
+    const g = JSON.parse(s)
+    this.nodes = g.nodes
+    this.edges = g.edges
+    this.frames = g.frames ?? []
+    this.selNodes.clear()
+    this.selFrames.clear()
+    this.selEdge = null
+    this.renderAll()
+    this.emit()
   }
 
   // ── scaffold ──
   private build() {
     this.vp.classList.add('bp-vp')
-
     this.svg = document.createElementNS(SVGNS, 'svg')
     this.svg.classList.add('bp-svg')
     this.gEdges = document.createElementNS(SVGNS, 'g')
@@ -125,27 +274,37 @@ export class BlueprintEditor {
     this.world = document.createElement('div')
     this.world.className = 'bp-world'
 
-    this.ctx = document.createElement('div')
-    this.ctx.className = 'bp-ctx'
-    this.ctx.style.display = 'none'
+    this.marqueeEl = document.createElement('div')
+    this.marqueeEl.className = 'bp-marquee'
+    this.marqueeEl.style.display = 'none'
 
-    this.vp.append(this.svg, this.world, this.ctx)
+    this.palette = document.createElement('div')
+    this.palette.className = 'bp-ctx'
+    this.palette.style.display = 'none'
+
+    this.mini = document.createElement('div')
+    this.mini.className = 'bp-mini'
+
+    this.vp.append(this.svg, this.world, this.marqueeEl, this.mini, this.palette)
     this.resizeSvg()
     this.applyTransform()
   }
 
   private wire() {
-    // pan / deselect on empty-canvas press
     this.vp.addEventListener('pointerdown', (e) => {
       if (e.button === 2) return
       const t = e.target as HTMLElement
-      if (t === this.vp || t === this.world || t === (this.svg as unknown as HTMLElement)) {
-        this.select(null)
+      const empty = t === this.vp || t === this.world || t === (this.svg as unknown as HTMLElement)
+      if (!empty) return
+      if (e.button === 1 || this.spaceDown) {
         this.drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, px: this.pan.x, py: this.pan.y }
         document.body.classList.add('bp-grabbing')
+      } else {
+        if (!e.shiftKey) this.selectNone()
+        const w = this.toWorld(e.clientX, e.clientY)
+        this.drag = { kind: 'marquee', x0: w.x, y0: w.y }
       }
     })
-
     window.addEventListener('pointermove', (e) => this.onMove(e))
     window.addEventListener('pointerup', (e) => this.onUp(e))
 
@@ -156,9 +315,7 @@ export class BlueprintEditor {
         const r = this.vp.getBoundingClientRect()
         const cx = e.clientX - r.left
         const cy = e.clientY - r.top
-        const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1
-        const z = Math.min(2.4, Math.max(0.25, this.zoom * factor))
-        // keep the point under the cursor fixed
+        const z = Math.min(2.4, Math.max(0.2, this.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)))
         this.pan.x = cx - ((cx - this.pan.x) * z) / this.zoom
         this.pan.y = cy - ((cy - this.pan.y) * z) / this.zoom
         this.zoom = z
@@ -170,23 +327,50 @@ export class BlueprintEditor {
 
     this.vp.addEventListener('contextmenu', (e) => {
       e.preventDefault()
-      this.openCtx(e.clientX, e.clientY)
+      this.openPalette(e.clientX, e.clientY)
     })
     this.vp.addEventListener('pointerdown', (e) => {
-      if (!this.ctx.contains(e.target as Node)) this.ctx.style.display = 'none'
+      if (!this.palette.contains(e.target as Node)) this.palette.style.display = 'none'
     })
 
     window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') this.spaceDown = true
       const ae = document.activeElement as HTMLElement | null
-      if (ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName)) return
-      if ((e.key === 'Delete' || e.key === 'Backspace') && this.sel) {
+      const typing = ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName)
+      if (typing) return
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault()
-        if (this.sel.kind === 'node') this.removeNode(this.sel.id)
-        else this.removeEdge(this.sel.id)
+        e.shiftKey ? this.redo() : this.undo()
+      } else if (mod && e.key.toLowerCase() === 'y') {
+        e.preventDefault()
+        this.redo()
+      } else if (mod && e.key.toLowerCase() === 'd') {
+        e.preventDefault()
+        this.duplicateSelection()
+      } else if (mod && e.key.toLowerCase() === 'c') {
+        this.copySelection()
+      } else if (mod && e.key.toLowerCase() === 'v') {
+        void this.pasteClipboard()
+      } else if (mod && e.key.toLowerCase() === 'a') {
+        e.preventDefault()
+        this.selectAll()
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault()
+        this.deleteSelection()
+      } else if (e.key === 'Escape') {
+        this.cancelWire()
+        this.palette.style.display = 'none'
+      } else if (e.key === 'f' || e.key === 'F') {
+        this.fit(this.selNodes.size > 0)
+      } else if (e.key === 'a' || e.key === 'A') {
+        const r = this.vp.getBoundingClientRect()
+        this.openPalette(r.left + r.width / 2, r.top + r.height / 2)
       }
-      if (e.key === 'Escape') this.cancelWire()
     })
-
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space') this.spaceDown = false
+    })
     window.addEventListener('resize', () => {
       this.resizeSvg()
       this.scheduleRedraw()
@@ -198,43 +382,175 @@ export class BlueprintEditor {
     this.svg.setAttribute('width', String(r.width))
     this.svg.setAttribute('height', String(r.height))
   }
-
   private applyTransform() {
-    const t = `translate(${this.pan.x}px, ${this.pan.y}px) scale(${this.zoom})`
-    this.world.style.transform = t
-    this.gEdges.setAttribute(
-      'transform',
-      `translate(${this.pan.x},${this.pan.y}) scale(${this.zoom})`,
-    )
+    this.world.style.transform = `translate(${this.pan.x}px, ${this.pan.y}px) scale(${this.zoom})`
+    this.gEdges.setAttribute('transform', `translate(${this.pan.x},${this.pan.y}) scale(${this.zoom})`)
+    this.world.classList.toggle('bp-lod', this.zoom < 0.5)
+    this.drawMini()
+  }
+  private toWorld(clientX: number, clientY: number) {
+    const r = this.vp.getBoundingClientRect()
+    return { x: (clientX - r.left - this.pan.x) / this.zoom, y: (clientY - r.top - this.pan.y) / this.zoom }
   }
 
   // ── render ──
   private renderAll() {
     this.nodeEls.forEach((el) => el.remove())
+    this.frameEls.forEach((el) => el.remove())
     this.nodeEls.clear()
+    this.frameEls.clear()
     this.pinEls.clear()
     this.edgeEls.forEach(({ hit, vis }) => {
       hit.remove()
       vis.remove()
     })
     this.edgeEls.clear()
+    for (const f of this.frames) this.mountFrame(f)
     for (const n of this.nodes) this.mountNode(n)
     this.scheduleRedraw()
+    this.renderInspector()
+  }
+
+  private placeNode(n: BPNode) {
+    const el = this.nodeEls.get(n.id)
+    if (el) {
+      el.style.left = `${n.x}px`
+      el.style.top = `${n.y}px`
+    }
+  }
+
+  private mountFrame(f: BPFrame) {
+    const el = document.createElement('div')
+    el.className = 'bp-frame'
+    el.style.left = `${f.x}px`
+    el.style.top = `${f.y}px`
+    el.style.width = `${f.w}px`
+    el.style.height = f.collapsed ? '34px' : `${f.h}px`
+    el.style.setProperty('--fc', f.color)
+    el.dataset.id = f.id
+
+    const bar = document.createElement('div')
+    bar.className = 'bp-frame-bar'
+    const tog = document.createElement('button')
+    tog.type = 'button'
+    tog.className = 'bp-frame-tog'
+    tog.textContent = f.collapsed ? '▸' : '▾'
+    tog.title = 'Collapse / expand'
+    tog.addEventListener('pointerdown', (e) => e.stopPropagation())
+    tog.addEventListener('click', (e) => {
+      e.stopPropagation()
+      this.record()
+      f.collapsed = !f.collapsed
+      this.renderAll()
+      this.emit()
+    })
+    const title = document.createElement('input')
+    title.className = 'bp-frame-title'
+    title.value = f.title
+    title.addEventListener('pointerdown', (e) => e.stopPropagation())
+    title.addEventListener('focus', () => this.recordFieldOnce())
+    title.addEventListener('input', () => {
+      f.title = title.value
+      this.emit()
+    })
+    const sw = document.createElement('button')
+    sw.type = 'button'
+    sw.className = 'bp-frame-sw'
+    sw.title = 'Cycle colour'
+    sw.addEventListener('pointerdown', (e) => e.stopPropagation())
+    sw.addEventListener('click', (e) => {
+      e.stopPropagation()
+      this.record()
+      f.color = FRAME_COLORS[(FRAME_COLORS.indexOf(f.color) + 1) % FRAME_COLORS.length]
+      el.style.setProperty('--fc', f.color)
+      this.emit()
+    })
+    const del = document.createElement('button')
+    del.type = 'button'
+    del.className = 'bp-frame-del'
+    del.textContent = '×'
+    del.title = 'Delete frame (keeps nodes)'
+    del.addEventListener('pointerdown', (e) => e.stopPropagation())
+    del.addEventListener('click', (e) => {
+      e.stopPropagation()
+      this.record()
+      this.frames = this.frames.filter((x) => x.id !== f.id)
+      el.remove()
+      this.frameEls.delete(f.id)
+      this.emit()
+    })
+    bar.append(tog, title, sw, del)
+    bar.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return
+      e.stopPropagation()
+      this.record()
+      const inside = new Map<string, [number, number]>()
+      for (const n of this.nodes) if (this.nodeInFrame(n, f)) inside.set(n.id, [n.x, n.y])
+      this.drag = { kind: 'frame', id: f.id, ox: inside, fx: f.x, fy: f.y, mx: e.clientX, my: e.clientY }
+      document.body.classList.add('bp-grabbing')
+    })
+    el.appendChild(bar)
+
+    if (!f.collapsed) {
+      const grip = document.createElement('div')
+      grip.className = 'bp-frame-grip'
+      grip.addEventListener('pointerdown', (e) => {
+        e.stopPropagation()
+        this.record()
+        this.drag = { kind: 'resize', id: f.id, mx: e.clientX, my: e.clientY, w: f.w, h: f.h }
+        document.body.classList.add('bp-grabbing')
+      })
+      el.appendChild(grip)
+    }
+    this.world.appendChild(el)
+    this.frameEls.set(f.id, el)
+  }
+
+  private nodeInFrame(n: BPNode, f: BPFrame): boolean {
+    const el = this.nodeEls.get(n.id)
+    const w = el?.offsetWidth ?? 232
+    const h = el?.offsetHeight ?? 120
+    const cx = n.x + w / 2
+    const cy = n.y + h / 2
+    return cx >= f.x && cx <= f.x + f.w && cy >= f.y && cy <= f.y + f.h
   }
 
   private mountNode(n: BPNode) {
     const spec = NODE_SPECS[n.type]
     const card = document.createElement('div')
-    card.className = 'bp-node'
+    card.className = n.type === 'reroute' ? 'bp-node bp-reroute' : 'bp-node'
     card.style.left = `${n.x}px`
     card.style.top = `${n.y}px`
     card.style.zIndex = String((this.zTop += 1))
     card.dataset.id = n.id
+    if (this.selNodes.has(n.id)) card.classList.add('bp-selected')
+
+    if (n.type === 'reroute') {
+      const inP = this.mountPort(n, spec.inputs[0], 'in')
+      const outP = this.mountPort(n, spec.outputs[0], 'out')
+      inP.classList.add('bp-rr-in')
+      outP.classList.add('bp-rr-out')
+      card.append(inP, outP)
+      card.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return
+        if ((e.target as HTMLElement).classList.contains('bp-pin')) return
+        e.stopPropagation()
+        this.beginNodeDrag(n, e, card)
+      })
+      this.world.appendChild(card)
+      this.nodeEls.set(n.id, card)
+      return
+    }
 
     const head = document.createElement('div')
     head.className = 'bp-head'
     head.style.setProperty('--accent', spec.accent)
+    head.title = spec.blurb
     head.innerHTML = `<span class="bp-dot"></span><span class="bp-title">${spec.title}</span>`
+    const badge = document.createElement('span')
+    badge.className = 'bp-badge'
+    badge.style.display = 'none'
+    head.appendChild(badge)
     const del = document.createElement('button')
     del.className = 'bp-del'
     del.type = 'button'
@@ -243,19 +559,15 @@ export class BlueprintEditor {
     del.addEventListener('pointerdown', (e) => e.stopPropagation())
     del.addEventListener('click', (e) => {
       e.stopPropagation()
+      this.record()
       this.removeNode(n.id)
+      this.emit()
     })
     head.appendChild(del)
     head.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return
       e.stopPropagation()
-      this.select({ kind: 'node', id: n.id })
-      card.style.zIndex = String((this.zTop += 1))
-      const r = this.vp.getBoundingClientRect()
-      const mx = (e.clientX - r.left - this.pan.x) / this.zoom
-      const my = (e.clientY - r.top - this.pan.y) / this.zoom
-      this.drag = { kind: 'node', id: n.id, offx: mx - n.x, offy: my - n.y }
-      document.body.classList.add('bp-grabbing')
+      this.beginNodeDrag(n, e, card)
     })
     card.appendChild(head)
 
@@ -281,51 +593,70 @@ export class BlueprintEditor {
     if (spec.fields.length) {
       const fields = document.createElement('div')
       fields.className = 'bp-fields'
-      for (const f of spec.fields) {
-        const wrap = document.createElement('label')
-        wrap.className = 'bp-field'
-        const lab = document.createElement('span')
-        lab.className = 'bp-flabel'
-        lab.textContent = f.label
-        wrap.appendChild(lab)
-        let input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-        if (f.kind === 'select') {
-          input = document.createElement('select')
-          for (const opt of f.options ?? []) {
-            const o = document.createElement('option')
-            o.value = opt
-            o.textContent = opt
-            input.appendChild(o)
-          }
-          input.value = n.data[f.key] ?? ''
-        } else if (f.kind === 'textarea') {
-          input = document.createElement('textarea')
-          input.rows = 2
-          input.value = n.data[f.key] ?? ''
-          if (f.placeholder) input.placeholder = f.placeholder
-        } else {
-          input = document.createElement('input')
-          input.type = 'text'
-          input.value = n.data[f.key] ?? ''
-          if (f.placeholder) input.placeholder = f.placeholder
-        }
-        input.className = 'bp-input'
-        input.addEventListener('pointerdown', (e) => e.stopPropagation())
-        const handler = () => {
-          n.data[f.key] = input.value
-          if (f.kind === 'textarea') this.scheduleRedraw()
-          this.emit()
-        }
-        input.addEventListener('input', handler)
-        input.addEventListener('change', handler)
-        wrap.appendChild(input)
-        fields.appendChild(wrap)
-      }
+      for (const f of spec.fields) fields.appendChild(this.mountField(n, f))
       card.appendChild(fields)
+    }
+
+    if (n.type === 'source') {
+      const peek = document.createElement('button')
+      peek.type = 'button'
+      peek.className = 'bp-peek'
+      peek.textContent = 'Peek data'
+      peek.title = 'Fetch a GeoJSON source and report feature count + fields'
+      peek.addEventListener('pointerdown', (e) => e.stopPropagation())
+      peek.addEventListener('click', (e) => {
+        e.stopPropagation()
+        void this.peekData(n, peek)
+      })
+      card.appendChild(peek)
     }
 
     this.world.appendChild(card)
     this.nodeEls.set(n.id, card)
+  }
+
+  private mountField(n: BPNode, f: FieldSpec): HTMLElement {
+    const wrap = document.createElement('label')
+    wrap.className = 'bp-field'
+    const lab = document.createElement('span')
+    lab.className = 'bp-flabel'
+    lab.textContent = f.label
+    wrap.appendChild(lab)
+    let input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    if (f.kind === 'select') {
+      input = document.createElement('select')
+      for (const opt of f.options ?? []) {
+        const o = document.createElement('option')
+        o.value = opt
+        o.textContent = opt
+        input.appendChild(o)
+      }
+      input.value = n.data[f.key] ?? ''
+    } else if (f.kind === 'textarea') {
+      input = document.createElement('textarea')
+      input.rows = 2
+      input.value = n.data[f.key] ?? ''
+      if (f.placeholder) input.placeholder = f.placeholder
+    } else {
+      input = document.createElement('input')
+      input.type = 'text'
+      input.value = n.data[f.key] ?? ''
+      if (f.placeholder) input.placeholder = f.placeholder
+    }
+    input.className = 'bp-input'
+    input.dataset.k = f.key
+    input.addEventListener('pointerdown', (e) => e.stopPropagation())
+    input.addEventListener('focus', () => this.recordFieldOnce())
+    const handler = () => {
+      n.data[f.key] = input.value
+      if (f.kind === 'textarea') this.scheduleRedraw()
+      this.syncInspector(n)
+      this.emit()
+    }
+    input.addEventListener('input', handler)
+    input.addEventListener('change', handler)
+    wrap.appendChild(input)
+    return wrap
   }
 
   private mountPort(n: BPNode, p: PinSpec, dir: 'in' | 'out'): HTMLElement {
@@ -338,6 +669,7 @@ export class BlueprintEditor {
     pin.dataset.pin = p.id
     pin.dataset.dir = dir
     pin.dataset.ptype = p.type
+    pin.title = `${p.label || p.id} : ${p.type}`
     const lab = document.createElement('span')
     lab.className = 'bp-plabel'
     lab.textContent = p.label + (p.required ? ' *' : '')
@@ -352,35 +684,90 @@ export class BlueprintEditor {
     return row
   }
 
+  private beginNodeDrag(n: BPNode, e: PointerEvent, card: HTMLElement) {
+    if (!this.selNodes.has(n.id)) {
+      if (!e.shiftKey) this.selectNone()
+      this.selNodes.add(n.id)
+    } else if (e.shiftKey) {
+      this.selNodes.delete(n.id)
+    }
+    this.refreshSelection()
+    this.renderInspector()
+    card.style.zIndex = String((this.zTop += 1))
+    this.record()
+    const ox = new Map<string, [number, number]>()
+    for (const id of this.selNodes) {
+      const nn = this.nodes.find((x) => x.id === id)
+      if (nn) ox.set(id, [nn.x, nn.y])
+    }
+    if (!ox.has(n.id)) ox.set(n.id, [n.x, n.y])
+    this.drag = { kind: 'node', id: n.id, ox, mx: e.clientX, my: e.clientY }
+    document.body.classList.add('bp-grabbing')
+  }
+
   // ── interaction ──
   private onMove(e: PointerEvent) {
-    if (!this.drag) return
-    const r = this.vp.getBoundingClientRect()
-    if (this.drag.kind === 'pan') {
-      this.pan.x = this.drag.px + (e.clientX - this.drag.sx)
-      this.pan.y = this.drag.py + (e.clientY - this.drag.sy)
+    const d = this.drag
+    if (!d) return
+    if (d.kind === 'pan') {
+      this.pan.x = d.px + (e.clientX - d.sx)
+      this.pan.y = d.py + (e.clientY - d.sy)
       this.applyTransform()
       this.scheduleRedraw()
-    } else if (this.drag.kind === 'node') {
-      const n = this.nodes.find((x) => x.id === (this.drag as any).id)
-      if (!n) return
-      n.x = (e.clientX - r.left - this.pan.x) / this.zoom - this.drag.offx
-      n.y = (e.clientY - r.top - this.pan.y) / this.zoom - this.drag.offy
-      const el = this.nodeEls.get(n.id)
-      if (el) {
-        el.style.left = `${n.x}px`
-        el.style.top = `${n.y}px`
+    } else if (d.kind === 'node') {
+      const dx = (e.clientX - d.mx) / this.zoom
+      const dy = (e.clientY - d.my) / this.zoom
+      for (const [id, [ox, oy]] of d.ox) {
+        const nn = this.nodes.find((x) => x.id === id)
+        if (!nn) continue
+        nn.x = ox + dx
+        nn.y = oy + dy
+        this.placeNode(nn)
       }
       this.scheduleRedraw()
-    } else if (this.drag.kind === 'wire') {
-      const wx = (e.clientX - r.left - this.pan.x) / this.zoom
-      const wy = (e.clientY - r.top - this.pan.y) / this.zoom
-      const a = this.pinCenter(this.drag.from.node, this.drag.from.pin)
+    } else if (d.kind === 'frame') {
+      const dx = (e.clientX - d.mx) / this.zoom
+      const dy = (e.clientY - d.my) / this.zoom
+      const f = this.frames.find((x) => x.id === d.id)!
+      f.x = d.fx + dx
+      f.y = d.fy + dy
+      const el = this.frameEls.get(f.id)!
+      el.style.left = `${f.x}px`
+      el.style.top = `${f.y}px`
+      for (const [id, [ox, oy]] of d.ox) {
+        const nn = this.nodes.find((x) => x.id === id)
+        if (!nn) continue
+        nn.x = ox + dx
+        nn.y = oy + dy
+        this.placeNode(nn)
+      }
+      this.scheduleRedraw()
+    } else if (d.kind === 'resize') {
+      const f = this.frames.find((x) => x.id === d.id)!
+      f.w = Math.max(160, d.w + (e.clientX - d.mx) / this.zoom)
+      f.h = Math.max(90, d.h + (e.clientY - d.my) / this.zoom)
+      const el = this.frameEls.get(f.id)!
+      el.style.width = `${f.w}px`
+      el.style.height = `${f.h}px`
+    } else if (d.kind === 'wire') {
+      const w = this.toWorld(e.clientX, e.clientY)
+      const a = this.pinCenter(d.from.node, d.from.pin)
       if (a) {
         this.tempPath.style.display = ''
-        this.tempPath.setAttribute('stroke', PIN_COLOR[this.drag.from.ptype as keyof typeof PIN_COLOR])
-        this.tempPath.setAttribute('d', bezier(a.x, a.y, wx, wy))
+        this.tempPath.setAttribute('stroke', PIN_COLOR[d.from.ptype])
+        this.tempPath.setAttribute('d', bezier(a.x, a.y, w.x, w.y))
       }
+    } else if (d.kind === 'marquee') {
+      const w = this.toWorld(e.clientX, e.clientY)
+      const x = Math.min(d.x0, w.x)
+      const y = Math.min(d.y0, w.y)
+      const ww = Math.abs(w.x - d.x0)
+      const hh = Math.abs(w.y - d.y0)
+      this.marqueeEl.style.display = ''
+      this.marqueeEl.style.left = `${this.pan.x + x * this.zoom}px`
+      this.marqueeEl.style.top = `${this.pan.y + y * this.zoom}px`
+      this.marqueeEl.style.width = `${ww * this.zoom}px`
+      this.marqueeEl.style.height = `${hh * this.zoom}px`
     }
   }
 
@@ -389,108 +776,254 @@ export class BlueprintEditor {
     this.drag = null
     document.body.classList.remove('bp-grabbing')
     if (!d) return
-    if (d.kind === 'node') this.emit()
-    if (d.kind === 'wire') {
+    if (d.kind === 'node') {
+      if (this.snap)
+        for (const id of d.ox.keys()) {
+          const nn = this.nodes.find((x) => x.id === id)
+          if (nn) {
+            nn.x = Math.round(nn.x / GRID) * GRID
+            nn.y = Math.round(nn.y / GRID) * GRID
+            this.placeNode(nn)
+          }
+        }
+      this.scheduleRedraw()
+      this.emit()
+    } else if (d.kind === 'frame' || d.kind === 'resize') {
+      this.scheduleRedraw()
+      this.emit()
+    } else if (d.kind === 'wire') {
       this.tempPath.style.display = 'none'
+      this.clearPinHints()
       const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
       if (el && el.classList.contains('bp-pin')) {
         this.tryConnect(d.from, {
           node: el.dataset.node!,
           pin: el.dataset.pin!,
           dir: el.dataset.dir as 'in' | 'out',
-          ptype: el.dataset.ptype!,
+          ptype: el.dataset.ptype as PinType,
         })
+      } else {
+        // dropped on empty canvas → contextual create + auto-wire
+        this.openPalette(e.clientX, e.clientY, d.from)
+      }
+    } else if (d.kind === 'marquee') {
+      this.marqueeEl.style.display = 'none'
+      const m = this.marqueeEl
+      const left = parseFloat(m.style.left)
+      const top = parseFloat(m.style.top)
+      const w = parseFloat(m.style.width)
+      const h = parseFloat(m.style.height)
+      if (w > 4 && h > 4) {
+        const vp = this.vp.getBoundingClientRect()
+        for (const n of this.nodes) {
+          const el = this.nodeEls.get(n.id)
+          if (!el) continue
+          const r = el.getBoundingClientRect()
+          const rx = r.left - vp.left
+          const ry = r.top - vp.top
+          if (rx + r.width > left && rx < left + w && ry + r.height > top && ry < top + h)
+            this.selNodes.add(n.id)
+        }
+        this.refreshSelection()
+        this.renderInspector()
       }
     }
   }
 
   private startWire(nodeId: string, p: PinSpec, dir: 'in' | 'out') {
-    // Re-grabbing an occupied input detaches its wire for re-routing.
     if (dir === 'in') {
       const ex = this.edges.find((x) => x.to.node === nodeId && x.to.pin === p.id)
       if (ex) {
+        this.record()
         const fromNode = ex.from.node
         const fromPin = ex.from.pin
+        const ft = this.pinType(fromNode, fromPin) ?? p.type
         this.edges = this.edges.filter((x) => x.id !== ex.id)
         this.renderEdges()
         this.emit()
-        this.drag = { kind: 'wire', from: { node: fromNode, pin: fromPin, ptype: p.type } }
+        this.drag = { kind: 'wire', from: { node: fromNode, pin: fromPin, ptype: ft } }
+        this.showPinHints('out', ft)
         return
       }
     }
     this.drag = { kind: 'wire', from: { node: nodeId, pin: p.id, ptype: p.type } }
+    this.showPinHints(dir === 'out' ? 'in' : 'out', p.type)
   }
-
   private cancelWire() {
     if (this.drag?.kind === 'wire') {
       this.tempPath.style.display = 'none'
+      this.clearPinHints()
       this.drag = null
     }
   }
+  private showPinHints(wantDir: 'in' | 'out', t: PinType) {
+    this.pinEls.forEach((el) => {
+      const ok = el.dataset.dir === wantDir && pinCompatible(el.dataset.ptype as PinType, t)
+      el.classList.toggle('bp-pin-ok', ok)
+      el.classList.toggle('bp-pin-dim', !ok)
+    })
+  }
+  private clearPinHints() {
+    this.pinEls.forEach((el) => el.classList.remove('bp-pin-ok', 'bp-pin-dim'))
+  }
 
   private tryConnect(
-    a: { node: string; pin: string; ptype: string },
-    b: { node: string; pin: string; dir: 'in' | 'out'; ptype: string },
+    a: { node: string; pin: string; ptype: PinType },
+    b: { node: string; pin: string; dir: 'in' | 'out'; ptype: PinType },
   ) {
-    // a is whatever the user grabbed (always treated as the "from"
-    // end of the drag). Resolve which side is the output.
     const aDir = this.pinDir(a.node, a.pin)
-    if (!aDir || aDir === b.dir) return // need one out + one in
+    if (!aDir || aDir === b.dir) return
     if (a.node === b.node) return
-    if (a.ptype !== b.ptype) return
+    if (!pinCompatible(a.ptype, b.ptype)) return
     const out = aDir === 'out' ? a : b
     const inp = aDir === 'out' ? b : a
-    // single-capacity input → replace
+    this.record()
     const spec = NODE_SPECS[this.nodeType(inp.node)]
     const pinSpec = spec.inputs.find((p) => p.id === inp.pin)
-    if (!pinSpec?.multi) {
+    if (!pinSpec?.multi)
       this.edges = this.edges.filter((x) => !(x.to.node === inp.node && x.to.pin === inp.pin))
-    }
     if (
       this.edges.some(
-        (x) =>
-          x.from.node === out.node &&
-          x.from.pin === out.pin &&
-          x.to.node === inp.node &&
-          x.to.pin === inp.pin,
+        (x) => x.from.node === out.node && x.from.pin === out.pin && x.to.node === inp.node && x.to.pin === inp.pin,
       )
-    )
+    ) {
+      this.past.pop()
       return
-    this.edges.push({
-      id: uid('e'),
-      from: { node: out.node, pin: out.pin },
-      to: { node: inp.node, pin: inp.pin },
-    })
+    }
+    this.edges.push({ id: uid('e'), from: { node: out.node, pin: out.pin }, to: { node: inp.node, pin: inp.pin } })
     this.renderEdges()
     this.emit()
   }
 
+  /** Double-clicking a wire drops a reroute knot that splits it. */
+  private insertReroute(edgeId: string, clientX: number, clientY: number) {
+    const e = this.edges.find((x) => x.id === edgeId)
+    if (!e) return
+    this.record()
+    const w = this.toWorld(clientX, clientY)
+    const rr: BPNode = { id: uid('n'), type: 'reroute', x: w.x - 7, y: w.y - 7, data: {} }
+    this.nodes.push(rr)
+    this.edges = this.edges.filter((x) => x.id !== edgeId)
+    this.edges.push({ id: uid('e'), from: { ...e.from }, to: { node: rr.id, pin: 'in' } })
+    this.edges.push({ id: uid('e'), from: { node: rr.id, pin: 'out' }, to: { ...e.to } })
+    this.mountNode(rr)
+    this.renderEdges()
+    this.emit()
+  }
+
+  // ── selection / clipboard ──
+  private selectNone() {
+    this.selNodes.clear()
+    this.selFrames.clear()
+    this.selEdge = null
+    this.refreshSelection()
+    this.renderInspector()
+  }
+  private selectAll() {
+    this.nodes.forEach((n) => this.selNodes.add(n.id))
+    this.refreshSelection()
+    this.renderInspector()
+  }
+  private refreshSelection() {
+    this.nodeEls.forEach((el, id) => el.classList.toggle('bp-selected', this.selNodes.has(id)))
+    this.edgeEls.forEach(({ vis }, id) => vis.classList.toggle('bp-wire-sel', this.selEdge === id))
+  }
+  private deleteSelection() {
+    if (!this.selNodes.size && !this.selEdge && !this.selFrames.size) return
+    this.record()
+    if (this.selEdge) this.edges = this.edges.filter((e) => e.id !== this.selEdge)
+    if (this.selNodes.size) {
+      const ids = this.selNodes
+      this.nodes = this.nodes.filter((n) => !ids.has(n.id))
+      this.edges = this.edges.filter((e) => !ids.has(e.from.node) && !ids.has(e.to.node))
+      ids.forEach((id) => {
+        this.nodeEls.get(id)?.remove()
+        this.nodeEls.delete(id)
+      })
+    }
+    if (this.selFrames.size) {
+      this.frames = this.frames.filter((f) => !this.selFrames.has(f.id))
+    }
+    this.selNodes.clear()
+    this.selFrames.clear()
+    this.selEdge = null
+    this.renderAll()
+    this.emit()
+  }
   private removeNode(id: string) {
     this.nodes = this.nodes.filter((n) => n.id !== id)
     this.edges = this.edges.filter((e) => e.from.node !== id && e.to.node !== id)
-    const el = this.nodeEls.get(id)
-    if (el) el.remove()
+    this.nodeEls.get(id)?.remove()
     this.nodeEls.delete(id)
-    if (this.sel?.id === id) this.sel = null
+    this.selNodes.delete(id)
     this.renderEdges()
+    this.renderInspector()
+  }
+  private collectSelection(): BPGraph {
+    const ns = this.nodes.filter((n) => this.selNodes.has(n.id))
+    const idset = new Set(ns.map((n) => n.id))
+    const es = this.edges.filter((e) => idset.has(e.from.node) && idset.has(e.to.node))
+    const fs = this.frames.filter((f) => this.selFrames.has(f.id))
+    return { nodes: ns.map((n) => ({ ...n, data: { ...n.data } })), edges: es.map((e) => ({ ...e })), frames: fs }
+  }
+  private copySelection() {
+    if (!this.selNodes.size) return
+    const txt = JSON.stringify(this.collectSelection())
+    try {
+      void navigator.clipboard.writeText('xgis-bp:' + txt)
+    } catch {
+      /* clipboard blocked — internal duplicate still works */
+    }
+    ;(this as unknown as { _clip: string })._clip = txt
+  }
+  private spawn(g: BPGraph, dx: number, dy: number) {
+    this.record()
+    const idmap = new Map<string, string>()
+    this.selNodes.clear()
+    this.selFrames.clear()
+    for (const n of g.nodes) {
+      if (NODE_SPECS[n.type].singleton && this.nodes.some((x) => x.type === n.type)) continue
+      const nid = uid('n')
+      idmap.set(n.id, nid)
+      const nn: BPNode = { ...n, id: nid, x: n.x + dx, y: n.y + dy, data: { ...n.data } }
+      this.nodes.push(nn)
+      this.mountNode(nn)
+      this.selNodes.add(nid)
+    }
+    for (const e of g.edges) {
+      const f = idmap.get(e.from.node)
+      const t = idmap.get(e.to.node)
+      if (f && t) this.edges.push({ id: uid('e'), from: { node: f, pin: e.from.pin }, to: { node: t, pin: e.to.pin } })
+    }
+    for (const fr of g.frames ?? []) {
+      const nf: BPFrame = { ...fr, id: uid('f'), x: fr.x + dx, y: fr.y + dy }
+      this.frames.push(nf)
+      this.mountFrame(nf)
+    }
+    this.refreshSelection()
+    this.renderInspector()
+    this.scheduleRedraw()
     this.emit()
   }
-
-  private removeEdge(id: string) {
-    this.edges = this.edges.filter((e) => e.id !== id)
-    if (this.sel?.id === id) this.sel = null
-    this.renderEdges()
-    this.emit()
+  private duplicateSelection() {
+    if (!this.selNodes.size) return
+    this.spawn(this.collectSelection(), 36, 36)
   }
-
-  private select(s: Sel) {
-    this.sel = s
-    this.nodeEls.forEach((el, id) =>
-      el.classList.toggle('bp-selected', s?.kind === 'node' && s.id === id),
-    )
-    this.edgeEls.forEach(({ vis }, id) =>
-      vis.classList.toggle('bp-wire-sel', s?.kind === 'edge' && s.id === id),
-    )
+  private async pasteClipboard() {
+    let txt = ''
+    try {
+      txt = await navigator.clipboard.readText()
+    } catch {
+      /* fall back to internal buffer */
+    }
+    let json = txt.startsWith('xgis-bp:') ? txt.slice(8) : ''
+    if (!json) json = (this as unknown as { _clip?: string })._clip ?? ''
+    if (!json) return
+    try {
+      this.spawn(JSON.parse(json), 28, 28)
+    } catch {
+      /* not a blueprint payload */
+    }
   }
 
   // ── geometry / redraw ──
@@ -498,12 +1031,25 @@ export class BlueprintEditor {
     const el = this.pinEls.get(`${node}:${pin}`)
     return el ? (el.dataset.dir as 'in' | 'out') : null
   }
+  private pinType(node: string, pin: string): PinType | null {
+    const el = this.pinEls.get(`${node}:${pin}`)
+    return el ? (el.dataset.ptype as PinType) : null
+  }
   private nodeType(id: string): NodeType {
     return this.nodes.find((n) => n.id === id)!.type
   }
   private pinCenter(node: string, pin: string): { x: number; y: number } | null {
     const el = this.pinEls.get(`${node}:${pin}`)
     if (!el) return null
+    // collapsed-frame node → anchor crossing wires to the frame edge
+    const nd = this.nodes.find((n) => n.id === node)
+    if (nd) {
+      const fr = this.frames.find((f) => f.collapsed && this.nodeInFrame(nd, f))
+      if (fr) {
+        const left = pin === 'in' || NODE_SPECS[nd.type].inputs.some((p) => p.id === pin)
+        return { x: left ? fr.x : fr.x + fr.w, y: fr.y + 17 }
+      }
+    }
     const vp = this.vp.getBoundingClientRect()
     const pr = el.getBoundingClientRect()
     return {
@@ -511,16 +1057,15 @@ export class BlueprintEditor {
       y: (pr.top + pr.height / 2 - vp.top - this.pan.y) / this.zoom,
     }
   }
-
   private scheduleRedraw() {
     if (this.rafPending) return
     this.rafPending = true
     requestAnimationFrame(() => {
       this.rafPending = false
       this.renderEdges()
+      this.drawMini()
     })
   }
-
   private renderEdges() {
     const live = new Set(this.edges.map((e) => e.id))
     this.edgeEls.forEach(({ hit, vis }, id) => {
@@ -540,7 +1085,14 @@ export class BlueprintEditor {
         hit.classList.add('bp-wire-hit')
         hit.addEventListener('pointerdown', (ev) => {
           ev.stopPropagation()
-          this.select({ kind: 'edge', id: e.id })
+          this.selNodes.clear()
+          this.selEdge = e.id
+          this.refreshSelection()
+          this.renderInspector()
+        })
+        hit.addEventListener('dblclick', (ev) => {
+          ev.stopPropagation()
+          this.insertReroute(e.id, ev.clientX, ev.clientY)
         })
         const vis = document.createElementNS(SVGNS, 'path')
         vis.classList.add('bp-wire')
@@ -549,72 +1101,256 @@ export class BlueprintEditor {
         pair = { hit, vis }
         this.edgeEls.set(e.id, pair)
       }
-      const ptype = (this.pinEls.get(`${e.from.node}:${e.from.pin}`)?.dataset.ptype ??
-        'layer') as keyof typeof PIN_COLOR
+      const pt = (this.pinEls.get(`${e.from.node}:${e.from.pin}`)?.dataset.ptype ?? 'layer') as PinType
       const d = bezier(a.x, a.y, b.x, b.y)
       pair.hit.setAttribute('d', d)
       pair.vis.setAttribute('d', d)
-      pair.vis.setAttribute('stroke', PIN_COLOR[ptype])
-      pair.vis.classList.toggle(
-        'bp-wire-sel',
-        this.sel?.kind === 'edge' && this.sel.id === e.id,
-      )
+      pair.vis.setAttribute('stroke', PIN_COLOR[pt])
+      pair.vis.classList.toggle('bp-wire-sel', this.selEdge === e.id)
     }
   }
 
-  // ── context menu ──
-  private openCtx(clientX: number, clientY: number) {
+  // ── minimap ──
+  private drawMini() {
+    const ns = this.nodes
+    if (!ns.length) {
+      this.mini.innerHTML = ''
+      return
+    }
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const n of ns) {
+      const el = this.nodeEls.get(n.id)
+      const w = el?.offsetWidth ?? 232
+      const h = el?.offsetHeight ?? 120
+      minX = Math.min(minX, n.x)
+      minY = Math.min(minY, n.y)
+      maxX = Math.max(maxX, n.x + w)
+      maxY = Math.max(maxY, n.y + h)
+    }
+    const pad = 80
+    minX -= pad
+    minY -= pad
+    maxX += pad
+    maxY += pad
+    const MW = 180
+    const MH = 120
+    const s = Math.min(MW / (maxX - minX), MH / (maxY - minY))
+    let html = ''
+    for (const n of ns) {
+      const el = this.nodeEls.get(n.id)
+      const w = (el?.offsetWidth ?? 232) * s
+      const h = (el?.offsetHeight ?? 120) * s
+      html += `<i style="left:${(n.x - minX) * s}px;top:${(n.y - minY) * s}px;width:${Math.max(2, w)}px;height:${Math.max(2, h)}px;background:${NODE_SPECS[n.type].accent}"></i>`
+    }
     const r = this.vp.getBoundingClientRect()
-    this.ctxWorld = {
-      x: (clientX - r.left - this.pan.x) / this.zoom,
-      y: (clientY - r.top - this.pan.y) / this.zoom,
-    }
-    this.ctx.innerHTML = '<div class="bp-ctx-h">Add node</div>'
-    ;(Object.keys(NODE_SPECS) as NodeType[]).forEach((t) => {
-      const spec = NODE_SPECS[t]
-      const disabled =
-        !!spec.singleton && this.nodes.some((n) => n.type === t)
-      const item = document.createElement('button')
-      item.type = 'button'
-      item.className = 'bp-ctx-item'
-      item.disabled = disabled
-      item.innerHTML =
-        `<span class="bp-ctx-dot" style="background:${spec.accent}"></span>` +
-        `<span><b>${spec.title}</b><small>${spec.blurb}</small></span>`
-      item.addEventListener('click', () => {
-        this.ctx.style.display = 'none'
-        this.addNode(t, this.ctxWorld.x, this.ctxWorld.y)
-      })
-      this.ctx.appendChild(item)
-    })
-    this.ctx.style.left = `${clientX - r.left}px`
-    this.ctx.style.top = `${clientY - r.top}px`
-    this.ctx.style.display = ''
+    const vx = (-this.pan.x / this.zoom - minX) * s
+    const vy = (-this.pan.y / this.zoom - minY) * s
+    const vw = (r.width / this.zoom) * s
+    const vh = (r.height / this.zoom) * s
+    html += `<b style="left:${vx}px;top:${vy}px;width:${vw}px;height:${vh}px"></b>`
+    this.mini.innerHTML = html
+    ;(this.mini as unknown as { _s?: number })._s = s
+    ;(this.mini as unknown as { _o?: [number, number] })._o = [minX, minY]
   }
 
-  /** Keep the Map node's draw-order list in sync with what's wired,
-   *  and (re)render its reorder UI. data.order is the source of truth
-   *  codegen reads; here we reconcile it with live connections. */
+  // ── data peek ──
+  private async peekData(n: BPNode, btn: HTMLButtonElement) {
+    const url = (n.data.url || '').trim()
+    if (!url || (n.data.type && n.data.type !== 'geojson')) {
+      btn.textContent = 'Peek: geojson only'
+      return
+    }
+    btn.textContent = 'Peeking…'
+    try {
+      const abs = url.startsWith('http') ? url : new URL(url, location.href).href
+      const j = await (await fetch(abs)).json()
+      const feats = Array.isArray(j.features) ? j.features : Array.isArray(j) ? j : []
+      const keys = feats.length && feats[0]?.properties ? Object.keys(feats[0].properties) : []
+      btn.textContent = `${feats.length} features · ${keys.slice(0, 4).join(', ') || 'no props'}`
+      btn.title = keys.join(', ')
+    } catch (e: unknown) {
+      btn.textContent = 'Peek failed (CORS?)'
+    }
+  }
+
+  // ── palette (search + contextual create) ──
+  private openPalette(clientX: number, clientY: number, from?: { node: string; pin: string; ptype: PinType }) {
+    const r = this.vp.getBoundingClientRect()
+    this.ctxWorld = this.toWorld(clientX, clientY)
+    const fromDir = from ? this.pinDir(from.node, from.pin) : null
+    const wantDir = fromDir === 'out' ? 'in' : 'out'
+    const types = (Object.keys(NODE_SPECS) as NodeType[]).filter((t) => {
+      if (!from) return true
+      const spec = NODE_SPECS[t]
+      const pins = wantDir === 'in' ? spec.inputs : spec.outputs
+      return pins.some((p) => pinCompatible(p.type, from.ptype))
+    })
+    this.palette.innerHTML = ''
+    const search = document.createElement('input')
+    search.className = 'bp-ctx-search'
+    search.placeholder = from ? 'Create compatible node…' : 'Search nodes…'
+    this.palette.appendChild(search)
+    const list = document.createElement('div')
+    list.className = 'bp-ctx-list'
+    this.palette.appendChild(list)
+
+    const render = (q: string) => {
+      list.innerHTML = ''
+      const ql = q.toLowerCase()
+      const matches = types.filter(
+        (t) =>
+          NODE_SPECS[t].title.toLowerCase().includes(ql) || NODE_SPECS[t].blurb.toLowerCase().includes(ql),
+      )
+      matches.forEach((t, i) => {
+        const spec = NODE_SPECS[t]
+        const disabled = !!spec.singleton && this.nodes.some((n) => n.type === t)
+        const item = document.createElement('button')
+        item.type = 'button'
+        item.className = 'bp-ctx-item' + (i === 0 ? ' bp-ctx-active' : '')
+        item.disabled = disabled
+        item.innerHTML = `<span class="bp-ctx-dot" style="background:${spec.accent}"></span><span><b>${spec.title}</b><small>${spec.blurb}</small></span>`
+        item.addEventListener('click', () => this.commitPalette(t, from))
+        list.appendChild(item)
+      })
+    }
+    render('')
+    search.addEventListener('input', () => render(search.value))
+    search.addEventListener('keydown', (ev) => {
+      const items = [...list.querySelectorAll<HTMLButtonElement>('.bp-ctx-item:not(:disabled)')]
+      const cur = list.querySelector('.bp-ctx-active')
+      let idx = items.findIndex((x) => x === cur)
+      if (ev.key === 'ArrowDown') {
+        ev.preventDefault()
+        idx = Math.min(items.length - 1, idx + 1)
+      } else if (ev.key === 'ArrowUp') {
+        ev.preventDefault()
+        idx = Math.max(0, idx - 1)
+      } else if (ev.key === 'Enter') {
+        ev.preventDefault()
+        items[Math.max(0, idx)]?.click()
+        return
+      } else if (ev.key === 'Escape') {
+        this.palette.style.display = 'none'
+        return
+      } else return
+      items.forEach((x) => x.classList.remove('bp-ctx-active'))
+      items[idx]?.classList.add('bp-ctx-active')
+      items[idx]?.scrollIntoView({ block: 'nearest' })
+    })
+    this.palette.style.left = `${Math.min(clientX - r.left, r.width - 270)}px`
+    this.palette.style.top = `${Math.min(clientY - r.top, r.height - 280)}px`
+    this.palette.style.display = ''
+    search.focus()
+  }
+  private commitPalette(t: NodeType, from?: { node: string; pin: string; ptype: PinType }) {
+    this.palette.style.display = 'none'
+    const id = this.addNode(t, this.ctxWorld.x, this.ctxWorld.y)
+    if (id && from) {
+      const fromDir = this.pinDir(from.node, from.pin)
+      const spec = NODE_SPECS[t]
+      const wantPins = fromDir === 'out' ? spec.inputs : spec.outputs
+      const target = wantPins.find((p) => pinCompatible(p.type, from.ptype))
+      if (target) {
+        const a = from
+        const b = { node: id, pin: target.id, dir: (fromDir === 'out' ? 'in' : 'out') as 'in' | 'out', ptype: target.type }
+        this.tryConnect(a, b)
+      }
+    }
+  }
+
+  // ── inspector ──
+  private renderInspector() {
+    const box = this.inspectorEl
+    if (this.selNodes.size !== 1) {
+      box.innerHTML = `<div class="bp-insp-empty">${this.selNodes.size > 1 ? this.selNodes.size + ' nodes selected' : 'Select a node to edit its properties.'}</div>`
+      return
+    }
+    const n = this.nodes.find((x) => this.selNodes.has(x.id))
+    if (!n) return
+    const spec = NODE_SPECS[n.type]
+    box.innerHTML = `<div class="bp-insp-h"><span class="bp-dot" style="background:${spec.accent}"></span>${spec.title}</div><div class="bp-insp-blurb">${spec.blurb}</div>`
+    for (const f of spec.fields) {
+      const wrap = document.createElement('label')
+      wrap.className = 'bp-field'
+      const lab = document.createElement('span')
+      lab.className = 'bp-flabel'
+      lab.textContent = f.label
+      wrap.appendChild(lab)
+      let input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+      if (f.kind === 'select') {
+        input = document.createElement('select')
+        for (const opt of f.options ?? []) {
+          const o = document.createElement('option')
+          o.value = opt
+          o.textContent = opt
+          input.appendChild(o)
+        }
+        input.value = n.data[f.key] ?? ''
+      } else if (f.kind === 'textarea') {
+        input = document.createElement('textarea')
+        input.rows = 4
+        input.value = n.data[f.key] ?? ''
+      } else {
+        input = document.createElement('input')
+        input.type = 'text'
+        input.value = n.data[f.key] ?? ''
+      }
+      input.className = 'bp-input'
+      input.addEventListener('focus', () => this.recordFieldOnce())
+      input.addEventListener('input', () => {
+        n.data[f.key] = input.value
+        const cardInput = this.nodeEls
+          .get(n.id)
+          ?.querySelector<HTMLElement>(`.bp-input[data-k="${f.key}"]`) as
+          | HTMLInputElement
+          | HTMLTextAreaElement
+          | HTMLSelectElement
+          | null
+        if (cardInput) cardInput.value = input.value
+        this.scheduleRedraw()
+        this.emit()
+      })
+      wrap.appendChild(input)
+      box.appendChild(wrap)
+    }
+  }
+  private syncInspector(n: BPNode) {
+    if (this.selNodes.size === 1 && this.selNodes.has(n.id)) {
+      const inputs = this.inspectorEl.querySelectorAll<HTMLElement>('.bp-input')
+      const spec = NODE_SPECS[n.type]
+      inputs.forEach((el, i) => {
+        const f = spec.fields[i]
+        if (f) (el as HTMLInputElement).value = n.data[f.key] ?? ''
+      })
+    }
+  }
+
+  private recordFieldOnce() {
+    if (this.fieldDirty) return
+    this.fieldDirty = true
+    this.record()
+    setTimeout(() => (this.fieldDirty = false), 600)
+  }
+
+  // ── Map order panel ──
   private syncMapNode() {
     const map = this.nodes.find((n) => n.type === 'map')
     if (!map) return
     const el = this.nodeEls.get(map.id)
     const box = el?.querySelector('.bp-order') as HTMLElement | null
     if (!box) return
-
     const connected = this.edges
       .filter((e) => e.to.node === map.id && e.to.pin === 'layers')
-      .map((e) => e.from.node)
-      .filter((id) => this.nodes.find((n) => n.id === id)?.type === 'layer')
+      .map((e) => this.resolveLayer(e.from.node))
+      .filter((id): id is string => !!id)
     const stored = (map.data.order || '').split(',').filter(Boolean)
-    const ids = [
-      ...stored.filter((id) => connected.includes(id)),
-      ...connected.filter((id) => !stored.includes(id)),
-    ]
+    const ids = [...stored.filter((id) => connected.includes(id)), ...connected.filter((id) => !stored.includes(id))]
     map.data.order = ids.join(',')
-
     box.innerHTML = '<div class="bp-order-h">draw order — top drawn first (under)</div>'
-    if (ids.length === 0) {
+    if (!ids.length) {
       const hint = document.createElement('div')
       hint.className = 'bp-order-empty'
       hint.textContent = 'Wire layer outputs into this node.'
@@ -638,12 +1374,12 @@ export class BlueprintEditor {
       const move = (delta: number) => {
         const j = i + delta
         if (j < 0 || j >= ids.length) return
+        this.record()
         ;[ids[i], ids[j]] = [ids[j], ids[i]]
         map.data.order = ids.join(',')
         this.emit()
       }
-      up.addEventListener('pointerdown', (e) => e.stopPropagation())
-      dn.addEventListener('pointerdown', (e) => e.stopPropagation())
+      ;[up, dn].forEach((b) => b.addEventListener('pointerdown', (e) => e.stopPropagation()))
       up.addEventListener('click', (e) => {
         e.stopPropagation()
         move(-1)
@@ -659,14 +1395,66 @@ export class BlueprintEditor {
       box.appendChild(row)
     })
   }
+  /** Follow reroute knots to the real layer node id (for the order panel). */
+  private resolveLayer(id: string, seen = new Set<string>()): string | null {
+    const n = this.nodes.find((x) => x.id === id)
+    if (!n) return null
+    if (n.type === 'layer') return id
+    if (n.type === 'reroute' && !seen.has(id)) {
+      seen.add(id)
+      const up = this.edges.find((e) => e.to.node === id && e.to.pin === 'in')
+      return up ? this.resolveLayer(up.from.node, seen) : null
+    }
+    return null
+  }
+
+  // ── diagnostics ──
+  private updateBadges() {
+    const dupe = (kind: NodeType) => {
+      const seen = new Map<string, number>()
+      this.nodes.filter((n) => n.type === kind).forEach((n) => {
+        const k = (n.data.name || '').trim()
+        if (k) seen.set(k, (seen.get(k) ?? 0) + 1)
+      })
+      return seen
+    }
+    const srcDupes = dupe('source')
+    const layDupes = dupe('layer')
+    for (const n of this.nodes) {
+      const el = this.nodeEls.get(n.id)
+      const badge = el?.querySelector('.bp-badge') as HTMLElement | null
+      if (!badge) continue
+      const issues: string[] = []
+      const hasName = NODE_SPECS[n.type].fields.some((f) => f.key === 'name')
+      if (hasName && !(n.data.name || '').trim()) issues.push('name is empty')
+      if (n.type === 'layer') {
+        if (!this.edges.some((e) => e.to.node === n.id && e.to.pin === 'source')) issues.push('no source wired')
+        if ((layDupes.get((n.data.name || '').trim()) ?? 0) > 1) issues.push('duplicate layer name')
+      }
+      if (n.type === 'source') {
+        if (!(n.data.url || '').trim()) issues.push('url is empty')
+        if ((srcDupes.get((n.data.name || '').trim()) ?? 0) > 1) issues.push('duplicate source name')
+      }
+      if (n.type === 'import' && !(n.data.path || '').trim()) issues.push('path is empty')
+      if (n.type === 'map' && !this.edges.some((e) => e.to.node === n.id && e.to.pin === 'layers'))
+        issues.push('no layers wired')
+      if (issues.length) {
+        badge.style.display = ''
+        badge.textContent = '⚠'
+        badge.title = issues.join(' · ')
+      } else {
+        badge.style.display = 'none'
+      }
+    }
+  }
 
   private emit() {
     this.syncMapNode()
+    this.updateBadges()
     this.onChange()
   }
 }
 
-/** Horizontal-tangent cubic bezier between two world points. */
 function bezier(x1: number, y1: number, x2: number, y2: number): string {
   const dx = Math.max(30, Math.min(160, Math.abs(x2 - x1) * 0.5))
   return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`

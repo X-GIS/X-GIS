@@ -7,7 +7,7 @@
 // from and the codegen walks — keep them faithful to the compiler
 // grammar (see SPEC / parser.ts).
 
-export type PinType = 'source' | 'style' | 'preset' | 'symbol' | 'layer'
+export type PinType = 'source' | 'style' | 'preset' | 'symbol' | 'layer' | 'any'
 
 /** Wire colour per data type — kept distinct so a glance at the
  *  canvas reads the dependency graph (Unreal-style typed pins). */
@@ -17,6 +17,13 @@ export const PIN_COLOR: Record<PinType, string> = {
   preset: '#34d399', // emerald— reusable utility combos
   symbol: '#f472b6', // pink   — vector symbols
   layer: '#2997ff', // blue   — rendered layers (site accent)
+  any: '#8a8f98', // grey   — reroute (adopts whatever flows through)
+}
+
+/** Two pin types may connect when equal, or when either is the
+ *  wildcard `any` (reroute knots). */
+export function pinCompatible(a: PinType, b: PinType): boolean {
+  return a === b || a === 'any' || b === 'any'
 }
 
 export interface PinSpec {
@@ -46,6 +53,7 @@ export type NodeType =
   | 'layer'
   | 'background'
   | 'map'
+  | 'reroute'
 
 export interface NodeSpec {
   type: NodeType
@@ -57,6 +65,22 @@ export interface NodeSpec {
   outputs: PinSpec[]
   /** Only one instance allowed (the `map` output sink). */
   singleton?: boolean
+  /** A pass-through knot — never emitted; connections resolve
+   *  transitively through it. Rendered as a tiny dot. */
+  passthrough?: boolean
+}
+
+/** A comment frame: a titled, coloured region that groups nodes.
+ *  Purely visual — codegen ignores frames entirely. */
+export interface BPFrame {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  title: string
+  color: string
+  collapsed?: boolean
 }
 
 const SOURCE_TYPES = [
@@ -261,6 +285,17 @@ export const NODE_SPECS: Record<NodeType, NodeSpec> = {
     outputs: [],
     singleton: true,
   },
+
+  reroute: {
+    type: 'reroute',
+    title: 'Reroute',
+    accent: '#8a8f98',
+    blurb: 'A wire knot for tidy routing — passes any type through.',
+    fields: [],
+    inputs: [{ id: 'in', label: '', type: 'any' }],
+    outputs: [{ id: 'out', label: '', type: 'any' }],
+    passthrough: true,
+  },
 }
 
 export interface BPNode {
@@ -280,6 +315,7 @@ export interface BPEdge {
 export interface BPGraph {
   nodes: BPNode[]
   edges: BPEdge[]
+  frames?: BPFrame[]
 }
 
 let _id = 0
@@ -316,6 +352,8 @@ export function defaultData(type: NodeType): Record<string, string> {
     case 'background':
       return { fill: 'sky-900' }
     case 'map':
+      return {}
+    case 'reroute':
       return {}
   }
 }
