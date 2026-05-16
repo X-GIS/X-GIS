@@ -170,3 +170,4 @@ describe('compileSingleTile — hole preservation', () => {
     expect(donutIndices).toBeGreaterThan(solidIndices)
   })
 })
+

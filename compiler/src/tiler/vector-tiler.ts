@@ -782,6 +782,60 @@ function subdivideTriangleMM(
   subdivideTriangleMM(i01, i12, i20, featureId, outVerts, outIdx, dedupMap, depth + 1)
 }
 
+/** Detect whether Sutherland-Hodgman's clipped output ring would cause
+ *  earcut to produce overlapping triangles — the failure mode the
+ *  `splitBoundaryBacktracks` repair was written for. The test runs a
+ *  cheap probe-earcut on the outer ring (with holes treated as negative
+ *  regions per earcut's contract) and compares the triangle-area sum
+ *  to the polygon's signed area. A self-touching ring produces ≥ 1.5×
+ *  coverage (Korea z=7's canonical case is 2.57×). A clean complex
+ *  polygon — even a heavily non-convex coastline like demotiles z=6
+ *  China — produces ≈ 1.00× coverage.
+ *
+ *  Returns true when the outer ring has visible self-overlap (caller
+ *  should apply the splitter repair); false when earcut would produce
+ *  a clean tessellation without help (caller should pass the ring
+ *  through unchanged). The cost is one earcut call, which we already
+ *  pay during the real tessellation — the probe earcut is a small
+ *  overhead specific to this safety check.
+ */
+function needsBacktrackRepair(outer: number[][], holes: number[][][]): boolean {
+  const flat: number[] = []
+  const holeIdx: number[] = []
+  for (const p of outer) flat.push(p[0]!, p[1]!)
+  for (const hole of holes) {
+    holeIdx.push(flat.length / 2)
+    for (const p of hole) flat.push(p[0]!, p[1]!)
+  }
+  const idx = earcut(flat, holeIdx.length > 0 ? holeIdx : undefined)
+  let triArea = 0
+  for (let t = 0; t < idx.length; t += 3) {
+    const i0 = idx[t]! * 2, i1 = idx[t + 1]! * 2, i2 = idx[t + 2]! * 2
+    triArea += Math.abs(
+      (flat[i1]! - flat[i0]!) * (flat[i2 + 1]! - flat[i0 + 1]!)
+      - (flat[i2]! - flat[i0]!) * (flat[i1 + 1]! - flat[i0 + 1]!),
+    ) * 0.5
+  }
+  let ringArea = 0
+  for (let i = 0, j = outer.length - 1; i < outer.length; j = i++) {
+    ringArea += (outer[j]![0]! - outer[i]![0]!) * (outer[j]![1]! + outer[i]![1]!)
+  }
+  ringArea = Math.abs(ringArea / 2)
+  for (const hole of holes) {
+    let a = 0
+    for (let i = 0, j = hole.length - 1; i < hole.length; j = i++) {
+      a += (hole[j]![0]! - hole[i]![0]!) * (hole[j]![1]! + hole[i]![1]!)
+    }
+    ringArea -= Math.abs(a / 2)
+  }
+  if (ringArea <= 0) return false
+  // 1.2× threshold: anything materially over 1.0 means earcut produced
+  // overlapping triangles. The Korea regression's broken case is 2.57×;
+  // China z=6 is 1.00× to floating-point precision. 1.2 sits well
+  // above realistic numerical noise from the simplify + clip pipeline.
+  return triArea / ringArea > 1.2
+}
+
 function tessellatePolygonToArrays(
   rings: number[][][],
   featureId: number,
@@ -1342,59 +1396,56 @@ function processZoomLevelShared(
             } else {
               postSimplifyVerts += preSimplifyVerts
             }
-            // Sutherland-Hodgman emits a SINGLE ring even when the
-            // source polygon enters/exits the rect multiple times —
-            // the boundary "stitches" can back-track over each other,
-            // producing a self-intersecting ring that earcut renders
-            // as overlapping triangles. The repair detects opposing-
-            // direction segments on the same rect edge and splits the
-            // ring at those points; non-pathological rings are
-            // pass-through. Originally surfaced on ne_110m_countries
-            // South Korea at z=7 tile (108,49) with 256 % triangle-
-            // area coverage (debug-korea-z7-triangulation.test.ts).
-            // Repair self-intersecting OUTER ring only. Holes (rings 1+)
-            // pass through unchanged so earcut sees them as interior
-            // negative areas. See compileSingleTile for the rationale —
-            // the previous flatMap path painted over every hole, which
-            // is how Lake Baikal turned into Russia's fill colour.
+            // Sutherland-Hodgman can emit a self-touching ring when the
+            // source polygon enters/exits the tile rect multiple times.
+            // Run the back-track repair, but only KEEP its split output
+            // when earcut on the un-split ring would actually produce
+            // overlapping triangles. The triangle-area-vs-ring-area
+            // check distinguishes a TRUE clipper artifact (Korea z=7,
+            // coverage ~2.57) from a legitimate complex coastline
+            // (demotiles z=6 China, coverage ~1.00 — the splitter
+            // would otherwise destroy the Yangtze river concavity by
+            // chord-cutting through it).
             if (dataRings.length > 0 && dataRings[0]!.length >= 3) {
-              // See compileSingleTile for the fallback rationale —
-              // splitBoundaryBacktracks on a 4-vertex ring can return
-              // empty when its recursive split halves both fall below
-              // the 3-vertex threshold; keep the original outer in
-              // that case so the feature stays visible.
-              const outerSubs = splitBoundaryBacktracks(dataRings[0]!, tbMxW, tbMyS, tbMxE, tbMyN)
-              const usableOuters = outerSubs.filter(r => r.length >= 3)
-              const effectiveOuters = usableOuters.length > 0 ? usableOuters : [dataRings[0]!]
               const holes = dataRings.slice(1).filter(r => r.length >= 3)
-              if (effectiveOuters.length === 1) {
-                const repairedRings = [effectiveOuters[0]!, ...holes]
+              const acceptSplit = needsBacktrackRepair(dataRings[0]!, holes)
+              if (!acceptSplit) {
+                const repairedRings = [dataRings[0]!, ...holes]
                 tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap)
                 featureIds.add(fid)
                 tilePolygons.push({ rings: repairedRings, featId: fid })
               } else {
-                // Distribute holes via point-in-polygon — mirror of
-                // the equivalent branch at the main-tile site below
-                // (~line 1591). See its comment for the rationale.
-                const subHoles: number[][][][] = effectiveOuters.map(() => [])
-                for (const hole of holes) {
-                  const px = hole[0]![0]!
-                  const py = hole[0]![1]!
-                  for (let si = 0; si < effectiveOuters.length; si++) {
-                    if (pointInRing(px, py, effectiveOuters[si]!)) {
-                      subHoles[si]!.push(hole)
-                      break
+                const outerSubs = splitBoundaryBacktracks(dataRings[0]!, tbMxW, tbMyS, tbMxE, tbMyN)
+                const usableOuters = outerSubs.filter(r => r.length >= 3)
+                const effectiveOuters = usableOuters.length > 0 ? usableOuters : [dataRings[0]!]
+                if (effectiveOuters.length === 1) {
+                  const repairedRings = [effectiveOuters[0]!, ...holes]
+                  tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap)
+                  featureIds.add(fid)
+                  tilePolygons.push({ rings: repairedRings, featId: fid })
+                } else {
+                  // Distribute holes via point-in-polygon — each clipper
+                  // sub-outer gets only the holes that fall inside it.
+                  const subHoles: number[][][][] = effectiveOuters.map(() => [])
+                  for (const hole of holes) {
+                    const px = hole[0]![0]!
+                    const py = hole[0]![1]!
+                    for (let si = 0; si < effectiveOuters.length; si++) {
+                      if (pointInRing(px, py, effectiveOuters[si]!)) {
+                        subHoles[si]!.push(hole)
+                        break
+                      }
                     }
                   }
+                  const allRingsForFeature: number[][][] = []
+                  for (let si = 0; si < effectiveOuters.length; si++) {
+                    const subRings = [effectiveOuters[si]!, ...subHoles[si]!]
+                    tessellatePolygonToArrays(subRings, fid, scratch.pv, scratch.pi, dedupMap)
+                    for (const r of subRings) allRingsForFeature.push(r)
+                  }
+                  featureIds.add(fid)
+                  tilePolygons.push({ rings: allRingsForFeature, featId: fid })
                 }
-                const allRingsForFeature: number[][][] = []
-                for (let si = 0; si < effectiveOuters.length; si++) {
-                  const subRings = [effectiveOuters[si]!, ...subHoles[si]!]
-                  tessellatePolygonToArrays(subRings, fid, scratch.pv, scratch.pi, dedupMap)
-                  for (const r of subRings) allRingsForFeature.push(r)
-                }
-                featureIds.add(fid)
-                tilePolygons.push({ rings: allRingsForFeature, featId: fid })
               }
             }
             // Outline: treat each ORIGINAL ring as a closed
@@ -1567,78 +1618,47 @@ export function compileSingleTile(
       const clipped = clipPolygonToRect(part.rings, stMxW, stMyS, stMxE, stMyN, precisionMM)
       if (clipped.length > 0 && clipped[0].length >= 3) {
         const dataRings = z < maxZoom ? simplifyPolygon(clipped, z, isOnBoundaryMerc, mercatorToleranceForZoom(z)) : clipped
-        // See compileGeoJSONToTiles for the back-track repair rationale —
-        // splits a self-intersecting clipped ring into clean sub-rings
-        // before tessellate. Each sub-ring becomes its own polygon
-        // (separate tessellate call) since they represent disconnected
-        // interior components.
-        // Repair self-intersecting OUTER ring only. Holes (rings 1+)
-        // pass through unchanged so earcut sees them as interior
-        // negative areas. Previous code `flatMap(splitBoundaryBacktracks)`
-        // flattened all rings together and then tessellated each as
-        // its own outer polygon — the resulting fill PAINTED over
-        // every hole (e.g. Lake Baikal at demotiles z=5 turned the
-        // lake into Russia's fill colour, while at z=6 the same data
-        // arrived hole-free and looked correct).
+        // Repair self-intersecting OUTER ring only — but only when an
+        // earcut probe actually detects the overlap. See
+        // `needsBacktrackRepair` for the coverage-based detection.
         if (dataRings.length > 0 && dataRings[0]!.length >= 3) {
-          // Repair self-intersecting outer ring. If the split algorithm
-          // returns no usable sub-ring (e.g. a 4-vertex ring whose
-          // edges happen to ride the tile boundary trips the back-
-          // track heuristic but neither resulting fragment has 3
-          // vertices), fall back to the original outer — losing the
-          // feature entirely is worse than a possibly-imperfect split.
-          const outerSubs = splitBoundaryBacktracks(dataRings[0]!, stMxW, stMyS, stMxE, stMyN)
-          const usableOuters = outerSubs.filter(r => r.length >= 3)
-          const effectiveOuters = usableOuters.length > 0 ? usableOuters : [dataRings[0]!]
           const holes = dataRings.slice(1).filter(r => r.length >= 3)
-          if (effectiveOuters.length === 1) {
-            // Common path: one outer + N holes → single earcut call
-            // so holes are interior negative areas.
-            const repairedRings = [effectiveOuters[0]!, ...holes]
+          const acceptSplit = needsBacktrackRepair(dataRings[0]!, holes)
+          if (!acceptSplit) {
+            const repairedRings = [dataRings[0]!, ...holes]
             tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap)
             featureIds.add(fid)
             tilePolygons.push({ rings: repairedRings, featId: fid })
           } else {
-            // Self-intersecting outer split into multiple sub-polygons.
-            // Distribute each hole into the sub-outer that CONTAINS
-            // its first vertex (point-in-polygon test). Holes outside
-            // every sub-outer are dropped (degenerate — shouldn't
-            // happen for well-formed polygons but is a defensive
-            // fallback). Cost: O(holes × subs × avg-sub-vertices)
-            // per tile compile, amortised across the tile's lifetime.
-            // demotiles z=4 China: 28 holes × 2 subs × ~700 verts =
-            // ~40k point-in-polygon ops, single-digit ms.
-            //
-            // Previously holes were dropped UNCONDITIONALLY here with
-            // a "Korea z=7 had no holes" justification — that turned
-            // out to be wrong for demotiles where the China polygon's
-            // 28 lakes / river hole rings all vanished, painting the
-            // Yangtze region with the country fill colour.
-            const subHoles: number[][][][] = effectiveOuters.map(() => [])
-            for (const hole of holes) {
-              const px = hole[0]![0]!
-              const py = hole[0]![1]!
-              let assigned = false
-              for (let si = 0; si < effectiveOuters.length; si++) {
-                if (pointInRing(px, py, effectiveOuters[si]!)) {
-                  subHoles[si]!.push(hole)
-                  assigned = true
-                  break
+            const outerSubs = splitBoundaryBacktracks(dataRings[0]!, stMxW, stMyS, stMxE, stMyN)
+            const usableOuters = outerSubs.filter(r => r.length >= 3)
+            const effectiveOuters = usableOuters.length > 0 ? usableOuters : [dataRings[0]!]
+            if (effectiveOuters.length === 1) {
+              const repairedRings = [effectiveOuters[0]!, ...holes]
+              tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap)
+              featureIds.add(fid)
+              tilePolygons.push({ rings: repairedRings, featId: fid })
+            } else {
+              const subHoles: number[][][][] = effectiveOuters.map(() => [])
+              for (const hole of holes) {
+                const px = hole[0]![0]!
+                const py = hole[0]![1]!
+                for (let si = 0; si < effectiveOuters.length; si++) {
+                  if (pointInRing(px, py, effectiveOuters[si]!)) {
+                    subHoles[si]!.push(hole)
+                    break
+                  }
                 }
               }
-              // assigned=false → hole has no enclosing sub-outer.
-              // Defensive drop with no logging (silent for now to
-              // avoid console spam on real-world data quirks).
-              void assigned
+              const allRingsForFeature: number[][][] = []
+              for (let si = 0; si < effectiveOuters.length; si++) {
+                const subRings = [effectiveOuters[si]!, ...subHoles[si]!]
+                tessellatePolygonToArrays(subRings, fid, scratch.pv, scratch.pi, dedupMap)
+                for (const r of subRings) allRingsForFeature.push(r)
+              }
+              featureIds.add(fid)
+              tilePolygons.push({ rings: allRingsForFeature, featId: fid })
             }
-            const allRingsForFeature: number[][][] = []
-            for (let si = 0; si < effectiveOuters.length; si++) {
-              const subRings = [effectiveOuters[si]!, ...subHoles[si]!]
-              tessellatePolygonToArrays(subRings, fid, scratch.pv, scratch.pi, dedupMap)
-              for (const r of subRings) allRingsForFeature.push(r)
-            }
-            featureIds.add(fid)
-            tilePolygons.push({ rings: allRingsForFeature, featId: fid })
           }
         }
         // Outline emission: treat each ORIGINAL ring as a closed
