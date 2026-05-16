@@ -190,6 +190,24 @@ fn proj_oblique_mercator(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> ve
   return proj_oblique_mercator_d(r.x, r.y);
 }
 
+// True 3D globe (projType 7). Unlike the 2D projections this returns a
+// point ON THE SPHERE (x,y,z), not a plane coord — the globe vertex
+// path applies the orbit-camera MVP to this directly (see
+// projection/globe.ts buildGlobeMatrix). It is intentionally OUTSIDE
+// the vec2 project() dispatch so projType 0..6 stay byte-identical.
+// MUST mirror projection/globe.ts globeForward and
+// projection-wgsl-mirror.ts projGlobeWgsl exactly (consistency test).
+fn proj_globe(lon_deg: f32, lat_deg: f32) -> vec3<f32> {
+  let lam = lon_deg * DEG2RAD;
+  let phi = lat_deg * DEG2RAD;
+  let cphi = cos(phi);
+  return vec3<f32>(
+    EARTH_R * cphi * cos(lam),
+    EARTH_R * cphi * sin(lam),
+    EARTH_R * sin(phi),
+  );
+}
+
 // cos(c) helper — angular distance from projection center. Used by
 // back-face culling and by ortho/azimuthal/stereo dispatch internals.
 fn center_cos_c(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> f32 {
@@ -267,7 +285,8 @@ fn needs_backface_cull(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f3
     if (t < 3.5) { return cc; }                                  // ortho — strict hemisphere
     if (t < 4.5) { return select(-1.0, 1.0, cc > -0.85); }       // azimuthal equidistant
     if (t < 5.5) { return select(-1.0, 1.0, cc > -0.8); }        // stereographic
-    return 1.0;                                                  // oblique_mercator — cylindrical (whole sphere maps to a strip), no hemisphere back-face
+    if (t < 6.5) { return 1.0; }                                 // oblique_mercator — cylindrical (whole sphere maps to a strip), no hemisphere back-face
+    return cc;                                                   // globe (7) — true sphere, strict hemisphere like ortho
   }
   return 1.0; // flat projections — no culling
 }

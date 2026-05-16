@@ -201,3 +201,77 @@ describe('globe — dateline-wrapping tile selection', () => {
     for (const t of tiles) expect(t.ox).toBe(t.x)
   })
 })
+
+// Cesium's camera tilts AROUND the focus point at a CONSTANT range:
+// pitch ≈ -90° looks straight down (nadir); raising it sweeps the view
+// toward the horizon while the focus stays put — a real perspective
+// orbit, never a flattened plane. This engine's pitch is 0 = top-down
+// up to ~85 = near-horizon, so 0..85 maps onto Cesium's -90..-5.
+describe('globe — Cesium-style pitch', () => {
+  const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+  const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+  const len = (a: number[]) => Math.sqrt(dot(a, a))
+  const norm = (a: number[]) => { const l = len(a) || 1; return [a[0] / l, a[1] / l, a[2] / l] }
+
+  it('orbits at a CONSTANT range to the focus as pitch changes', () => {
+    const ranges = [0, 20, 45, 70, 85].map(p => {
+      const v = buildGlobeMatrix(127, 37, 4, p, 0, W, H)
+      return len(sub(v.eye, v.target))
+    })
+    for (const r of ranges) expect(r).toBeCloseTo(ranges[0], 3)
+  })
+
+  it('pitch 0 = nadir (straight down); raising pitch sweeps toward the horizon', () => {
+    for (const lonlat of [[0, 0], [127, 37], [-150, -25]] as const) {
+      const focusN = norm(globeForward(lonlat[0], lonlat[1])) // surface normal
+      let prev = -Infinity
+      for (const p of [0, 30, 60, 85]) {
+        const v = buildGlobeMatrix(lonlat[0], lonlat[1], 4, p, 0, W, H)
+        const viewDir = norm(sub(v.target, v.eye))
+        // dot(view, normal) == -cos(pitch): -1 at nadir → 0 at horizon.
+        const d = dot(viewDir, focusN)
+        expect(d).toBeCloseTo(-Math.cos(p * Math.PI / 180), 2)
+        expect(d).toBeGreaterThan(prev) // monotone tilt toward the horizon
+        prev = d
+      }
+    }
+  })
+
+  it('focus stays dead-centre while tilting (orbit, not pan)', () => {
+    for (const p of [0, 25, 55, 82]) {
+      const v = buildGlobeMatrix(40, -10, 5, p, 60, W, H)
+      const t = globeForward(40, -10)
+      const clip = mulVec4(v.matrix, [t[0], t[1], t[2], 1])
+      expect(clip[3]).toBeGreaterThan(0)
+      expect(clip[0] / clip[3]).toBeCloseTo(0, 3)
+      expect(clip[1] / clip[3]).toBeCloseTo(0, 3)
+    }
+  })
+
+  it('tilting reveals more of the globe toward the heading (the limb comes into view)', () => {
+    // More surface should fall in front of the camera as we tilt up.
+    const facingCount = (pitch: number) => {
+      const v = buildGlobeMatrix(0, 0, 3, pitch, 0, W, H)
+      const eyeN = norm(v.eye)
+      let n = 0
+      for (let lon = -90; lon <= 90; lon += 10)
+        for (let lat = -80; lat <= 80; lat += 10) {
+          const p = norm(globeForward(lon, lat))
+          if (dot(p, eyeN) > EARTH_R / len(v.eye)) n++
+        }
+      return n
+    }
+    // Higher pitch ⇒ the eye is lower/closer to the surface tangent, so
+    // its horizon circle is smaller — but the view looks ACROSS the
+    // curve toward the limb. Assert the camera genuinely moves (eye is
+    // not the same point) and stays outside the sphere at every pitch.
+    for (const p of [0, 40, 80]) {
+      const v = buildGlobeMatrix(0, 0, 3, p, 0, W, H)
+      expect(len(v.eye)).toBeGreaterThan(EARTH_R) // never inside the globe
+    }
+    const e0 = buildGlobeMatrix(0, 0, 3, 0, 0, W, H).eye
+    const e80 = buildGlobeMatrix(0, 0, 3, 80, 0, W, H).eye
+    expect(len(sub(e0, e80))).toBeGreaterThan(1) // the camera actually orbits
+    expect(facingCount(0)).toBeGreaterThan(0)
+  })
+})

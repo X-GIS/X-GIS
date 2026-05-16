@@ -167,6 +167,21 @@ export function projObliqueMercatorWgsl(lon: number, lat: number, clon: number, 
   return projObliqueMercatorDWgsl(lamRot, phiRot)
 }
 
+/** Mirror of `fn proj_globe` in shaders/projection.ts — the true 3D
+ *  globe (projType 7). Returns a 3D point ON THE SPHERE, so it is NOT
+ *  part of the vec2 `projectWgsl` dispatch (projType 0..6). Canonical
+ *  CPU side is projection/globe.ts `globeForward`; the consistency test
+ *  pins this mirror to it (the WGSL must match the same formula). */
+export function projGlobeWgsl(lon: number, lat: number): [number, number, number] {
+  const lam = lon * DEG2RAD, phi = lat * DEG2RAD
+  const cphi = Math.cos(phi)
+  return [
+    EARTH_R * cphi * Math.cos(lam),
+    EARTH_R * cphi * Math.sin(lam),
+    EARTH_R * Math.sin(phi),
+  ]
+}
+
 // ═══ Dispatchers — mirror the WGSL `project()` / `needs_backface_cull()`
 // dispatch in shaders/projection.ts (same proj_params.x encoding:
 // 0=merc 1=equirect 2=natearth 3=ortho 4=azieqd 5=stereo 6=oblmerc).
@@ -235,7 +250,8 @@ export function needsBackfaceCullWgsl(
     if (projType < 3.5) return cc
     if (projType < 4.5) return cc > -0.85 ? 1 : -1
     if (projType < 5.5) return cc > -0.8 ? 1 : -1
-    return 1 // oblique_mercator — cylindrical, no back-face
+    if (projType < 6.5) return 1 // oblique_mercator — cylindrical, no back-face
+    return cc // globe (7) — true sphere, strict hemisphere like ortho
   }
   return 1
 }
