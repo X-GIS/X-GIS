@@ -2981,6 +2981,10 @@ export class XGISMap {
           if (this.inlineGlyphs !== null) tsOpts.inlineGlyphs = this.inlineGlyphs
           if (this.glyphProviders.length > 0) tsOpts.glyphProviders = this.glyphProviders
           if (this.fontTypography !== null) tsOpts.fontTypography = this.fontTypography
+          // Bake locally-rasterised (non-PBF) glyphs at physical-pixel
+          // resolution so Hangul/Han labels aren't GPU-upscaled ~dpr×
+          // from a 24-px atlas raster (low-res CJK on hidpi screens).
+          tsOpts.dpr = dpr
           this.textStage = new TextStage(device, this.ctx.format, tsOpts, sc)
           this.textStage.prewarmGISDefaults()
           // Attach any debug hook that was set before the stage existed.
