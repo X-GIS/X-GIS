@@ -150,10 +150,10 @@ export function projectWgsl(
 /** Mirror of WGSL `needs_backface_cull()` in shaders/projection.ts.
  *  Positive ⇒ visible, negative ⇒ cull. Thresholds match the shader
  *  byte-for-byte: ortho returns raw cos(c) (cull when < 0), azimuthal
- *  culls at cc ≤ -0.85, stereographic AND oblique_mercator at cc ≤ -0.8
- *  (the shader's `t > 2.5` block falls through to the stereo threshold
- *  for t = 6 — mirrored, not "fixed", so labels track the geometry).
- *  Flat projections and natural_earth never cull. */
+ *  culls at cc ≤ -0.85, stereographic at cc ≤ -0.8. oblique_mercator is
+ *  cylindrical (the whole sphere maps to a strip, like Mercator) so it
+ *  is NEVER hemisphere-culled — same as the flat projections and
+ *  natural_earth. */
 export function needsBackfaceCullWgsl(
   projType: number, lon: number, lat: number, clon: number, clat: number,
 ): number {
@@ -161,7 +161,8 @@ export function needsBackfaceCullWgsl(
     const cc = cosC(lon, lat, clon, clat)
     if (projType < 3.5) return cc
     if (projType < 4.5) return cc > -0.85 ? 1 : -1
-    return cc > -0.8 ? 1 : -1
+    if (projType < 5.5) return cc > -0.8 ? 1 : -1
+    return 1 // oblique_mercator — cylindrical, no back-face
   }
   return 1
 }

@@ -170,7 +170,8 @@ fn needs_backface_cull(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f3
     let cc = center_cos_c(lon_deg, lat_deg, clon, clat);
     if (t < 3.5) { return cc; }                                  // ortho — strict hemisphere
     if (t < 4.5) { return select(-1.0, 1.0, cc > -0.85); }       // azimuthal equidistant
-    return select(-1.0, 1.0, cc > -0.8);                         // stereographic
+    if (t < 5.5) { return select(-1.0, 1.0, cc > -0.8); }        // stereographic
+    return 1.0;                                                  // oblique_mercator — cylindrical (whole sphere maps to a strip), no hemisphere back-face
   }
   return 1.0; // flat projections — no culling
 }

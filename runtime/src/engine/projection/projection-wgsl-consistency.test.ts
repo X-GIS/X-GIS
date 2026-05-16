@@ -250,8 +250,13 @@ describe('projectWgsl dispatch matches the per-projection mirrors', () => {
 
 describe('needsBackfaceCullWgsl matches WGSL needs_backface_cull thresholds', () => {
   const CL = 0, CT = 20
-  it('flat / natural_earth never cull (always ≥ 1)', () => {
-    for (const pt of [0, 1, 2]) {
+  // mercator(0) equirect(1) natural_earth(2) oblique_mercator(6) are all
+  // whole-sphere (cylindrical / flat) — no hemisphere back-face. oblique
+  // used to fall through the shader's `t > 2.5` block to the stereo
+  // threshold and got a spurious antipodal clip → half-rendered /
+  // overlapping map. It must never cull, like the other cylindricals.
+  it('cylindrical / flat projections never cull (always ≥ 1)', () => {
+    for (const pt of [0, 1, 2, 6]) {
       for (const [lon, lat] of sampleGrid()) {
         expect(needsBackfaceCullWgsl(pt, lon, lat, CL, CT)).toBeGreaterThanOrEqual(1)
       }
@@ -262,12 +267,11 @@ describe('needsBackfaceCullWgsl matches WGSL needs_backface_cull thresholds', ()
       expect(needsBackfaceCullWgsl(3, lon, lat, CL, CT)).toBeCloseTo(cosC(lon, lat, CL, CT), 6)
     }
   })
-  it('azimuthal culls at cc ≤ -0.85, stereo & oblique at cc ≤ -0.8', () => {
+  it('azimuthal culls at cc ≤ -0.85, stereographic at cc ≤ -0.8', () => {
     for (const [lon, lat] of sampleGrid()) {
       const cc = cosC(lon, lat, CL, CT)
       expect(needsBackfaceCullWgsl(4, lon, lat, CL, CT) > 0).toBe(cc > -0.85)
       expect(needsBackfaceCullWgsl(5, lon, lat, CL, CT) > 0).toBe(cc > -0.8)
-      expect(needsBackfaceCullWgsl(6, lon, lat, CL, CT) > 0).toBe(cc > -0.8)
     }
   })
 })
