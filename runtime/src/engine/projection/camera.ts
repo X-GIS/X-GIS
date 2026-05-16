@@ -438,12 +438,22 @@ export class Camera {
     const before = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
 
     if (this.projType === 3) {
-      // Geographic point under the fingers BEFORE zoom, resolved against
-      // the current projection centre (= camera centre, Mercator-encoded).
       const R = 6378137
+      // Only geo-anchor when the fingers are solidly on the visible
+      // hemisphere. Near the limb (|q| → R) the orthographic inverse is
+      // singular: a sub-pixel screen move maps to a huge lon/lat swing,
+      // so anchoring there flings the globe ~tens of degrees per step
+      // (the "still doesn't work on mobile" case — the pinch midpoint is
+      // rarely dead-centre on the disc). Off the disc / near the limb we
+      // fall back to a plain centre-anchored scale, which is exactly how
+      // Cesium behaves when you pinch on empty space beside the globe.
+      const DISC_SAFE = 0.85 * R
+      const onDisc = (p: [number, number] | null): boolean =>
+        !!p && Math.hypot(p[0], p[1]) < DISC_SAFE
+
       const lon0 = this.centerX / R
       const lat0 = 2 * Math.atan(Math.exp(this.centerY / R)) - Math.PI / 2
-      const anchor = before ? invOrthographic(before[0], before[1], lon0, lat0) : null
+      const anchor = onDisc(before) ? invOrthographic(before![0], before![1], lon0, lat0) : null
 
       this.zoom = Math.max(0, Math.min(this.maxZoom, this.zoom + delta))
 
@@ -455,13 +465,19 @@ export class Camera {
         // under the fingers. Pinch streams many small deltas, so the
         // local-linear residual self-corrects across the gesture.
         const q = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
-        const cur = q ? invOrthographic(q[0], q[1], lon0, lat0) : null
+        const cur = onDisc(q) ? invOrthographic(q![0], q![1], lon0, lat0) : null
         if (cur) {
-          let newLon = lon0 + (anchor[0] - cur[0])
+          // Clamp the per-call rotation. A legitimate pinch step nudges
+          // the centre by a fraction of a degree; anything larger is a
+          // numerical spike from the still-nonlinear inverse and must
+          // not be allowed to fling the globe.
+          const STEP_LIM = 0.12 // rad ≈ 6.9° — invisibly large for real pinch
+          const clamp = (v: number) => Math.max(-STEP_LIM, Math.min(STEP_LIM, v))
+          let newLon = lon0 + clamp(anchor[0] - cur[0])
           // Mercator-finite latitude bound — matches the Map's per-frame
           // centerLat clamp so centerY stays representable.
           const LAT_LIM = 85.051129 * Math.PI / 180
-          const newLat = Math.max(-LAT_LIM, Math.min(LAT_LIM, lat0 + (anchor[1] - cur[1])))
+          const newLat = Math.max(-LAT_LIM, Math.min(LAT_LIM, lat0 + clamp(anchor[1] - cur[1])))
           // Wrap longitude to (-π, π].
           newLon = ((newLon + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI
           this.centerX = newLon * R
