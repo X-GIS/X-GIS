@@ -21,6 +21,7 @@ const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const docsUrl = `${base}/docs`
 const examplesUrl = `${base}/examples`
 const convertUrl = `${base}/convert`
+const blueprintUrl = `${base}/blueprint`
 
 interface NavGroup {
   title?: string
@@ -31,6 +32,7 @@ const groups: NavGroup[] = [
   {
     links: [
       { label: 'Examples',  href: examplesUrl },
+      { label: 'Blueprint', href: blueprintUrl },
       { label: 'Convert',   href: convertUrl },
     ],
   },
