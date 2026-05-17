@@ -283,6 +283,11 @@ const NAMED_COLORS: Record<string, string> = {
  * Returns null if unrecognized.
  */
 export function resolveColor(name: string): string | null {
+  // Non-string input → null (instead of throwing on .toLowerCase /
+  // .match). Some callers pass `unknown` through TypeScript-as-
+  // string casts; a runtime number or undefined would otherwise crash
+  // the whole resolveUtilities pipeline.
+  if (typeof name !== 'string') return null
   // Hex literals pass through. Accepted shapes:
   //   #rgb / #rgba / #rrggbb / #rrggbbaa
   // Without this, utility classes that bake a hex directly into the
