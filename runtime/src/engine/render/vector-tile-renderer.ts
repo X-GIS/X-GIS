@@ -2361,9 +2361,9 @@ export class VectorTileRenderer {
     linePipeline: GPURenderPipeline,
     _uniformBuffer: GPUBuffer,
     bindGroupLayout: GPUBindGroupLayout,
-    fillPipelineFallback?: GPURenderPipeline,
-    linePipelineFallback?: GPURenderPipeline,
-    pointRenderer?: PointRenderer | null,
+    fillPipelineFallback: GPURenderPipeline | undefined,
+    linePipelineFallback: GPURenderPipeline | undefined,
+    pointRenderer: PointRenderer | null | undefined,
     /** Which draws to emit for this layer.
      *  - 'all':     fills + strokes in the current pass (opaque default)
      *  - 'fills':   polygon fills only (main pass, baked opacity)
@@ -2373,30 +2373,30 @@ export class VectorTileRenderer {
      *               where an OIT-extruded layer kept its outlines on
      *               the main pass (regular `pipeline`). The caller
      *               disambiguates via `translucentLines`. */
-    phase: LayerDrawPhase = 'all',
+    phase: LayerDrawPhase,
     /** Backing-buffer:CSS-pixel ratio for the canvas. Tile budget /
      *  mobile classification / subdivide threshold are perceptual
      *  CSS-pixel concepts and must stay DPR-invariant; without this
      *  param a DPR=3 phone gets 9× more tiles loaded than a DPR=1
      *  desktop at the same logical viewport size. */
-    dpr: number = 1,
+    dpr: number,
     /** Depth-disabled (`STENCIL_WRITE_NO_DEPTH`) ground pipeline
      *  matching `bindGroupLayout` — used for `extrude.kind === 'none'`
      *  layers so coplanar painter's-order resolves without depth-test
-     *  fighting. When omitted (e.g. legacy callers, tests), VTR falls
-     *  back to the renderer-level `fillPipelineGround` which is base-
-     *  layout only. */
-    fillPipelineGroundOverride?: GPURenderPipeline,
-    fillPipelineGroundFallbackOverride?: GPURenderPipeline,
+     *  fighting. Pass `undefined` to fall back to the renderer-level
+     *  `fillPipelineGround` (base-layout only — for legacy / test
+     *  paths). */
+    fillPipelineGroundOverride: GPURenderPipeline | undefined,
+    fillPipelineGroundFallbackOverride: GPURenderPipeline | undefined,
     /** True when the caller's pass is the translucent offscreen
      *  MAX-blend RT (no depth attachment) — line draws must use
-     *  `pipelineMax`. False (default) when the pass has a depth
-     *  attachment (opaque bucket); line draws use the regular
-     *  `pipeline`. The opaque bucket can also reach `phase ===
-     *  'strokes'` for OIT-extruded layers whose outlines stayed
-     *  on the main pass (fully opaque even though the fill is
-     *  translucent), so phase alone isn't enough to dispatch. */
-    translucentBucket: boolean = false,
+     *  `pipelineMax`. False when the pass has a depth attachment
+     *  (opaque bucket); line draws use the regular `pipeline`. The
+     *  opaque bucket can also reach `phase === 'strokes'` for
+     *  OIT-extruded layers whose outlines stayed on the main pass
+     *  (fully opaque even though the fill is translucent), so phase
+     *  alone isn't enough to dispatch. */
+    translucentBucket: boolean,
     /** Per-frame ResolvedShow snapshot — required as of Phase 4c-final.
      *  Carries every zoom × time-resolved paint scalar / RGBA the
      *  draw path needs. The bucket scheduler (`classifyVectorTileShows`)
