@@ -35,6 +35,11 @@ const XGIS_RESERVED = new Set([
   'true', 'false',
 ])
 export function sanitizeId(s: string): string {
+  // Coerce non-string ids to string. Real-world Mapbox styles
+  // sometimes carry numeric ids (legacy v0/v1 tooling, hand-edited
+  // JSON). Pre-fix a numeric id crashed at `s.replace(...)` because
+  // numbers don't have `.replace`, and the whole layer dropped.
+  if (typeof s !== 'string') s = String(s)
   let cleaned = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s) ? s : s.replace(/[^a-zA-Z0-9_]/g, '_')
   // An id that starts with a digit ("1km-grid", "3d-buildings", …) — the
   // dash-replacement above doesn't help: the result still starts with a
