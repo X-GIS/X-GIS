@@ -35,6 +35,15 @@ const XGIS_RESERVED = new Set([
   'true', 'false',
 ])
 export function sanitizeId(s: string): string {
-  const cleaned = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s) ? s : s.replace(/[^a-zA-Z0-9_]/g, '_')
+  let cleaned = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s) ? s : s.replace(/[^a-zA-Z0-9_]/g, '_')
+  // An id that starts with a digit ("1km-grid", "3d-buildings", …) — the
+  // dash-replacement above doesn't help: the result still starts with a
+  // digit and the parser rejects it at lex time. Prefix with `_` so the
+  // identifier is well-formed without losing the original token.
+  // Pre-fix Mapbox styles authored with digit-leading layer ids (common
+  // in OSM tooling and gridded overlays) failed conversion silently —
+  // the emitted layer block parsed as an expression, the whole style
+  // failed to load.
+  if (/^[0-9]/.test(cleaned)) cleaned = `_${cleaned}`
   return XGIS_RESERVED.has(cleaned) ? `${cleaned}_` : cleaned
 }
