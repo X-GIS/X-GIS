@@ -269,7 +269,15 @@ export function convertMapboxStyle(
     // explicit < 1 silently downgrades to fully opaque and the user
     // never knows. background-pattern is the bitmap-atlas equivalent
     // (Batch 2 follow-up).
-    const bgPaint = bgLayer.paint ?? {}
+    // Defensive: coerce non-object bgLayer.paint to {} (mirror of the
+    // layers.ts safePropsBag guard). A string paint value previously
+    // let bgPaint['background-opacity'] index a char and the warning
+    // list leaked garbage property names.
+    const rawBgPaint = bgLayer.paint
+    const bgPaint = (rawBgPaint !== null && rawBgPaint !== undefined
+      && typeof rawBgPaint === 'object' && !Array.isArray(rawBgPaint))
+      ? rawBgPaint as Record<string, unknown>
+      : {}
     const bgIgnored: string[] = []
     // Treat null the same as undefined per Mapbox spec.
     const bgOpacity = bgPaint['background-opacity']
