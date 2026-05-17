@@ -299,6 +299,65 @@ describe('converter warning coverage', () => {
     expect(w.some(s => s.includes('"d"') && s.includes('promoteId'))).toBe(true)
   })
 
+  it('source tileSize: 256 → wrong-zoom-scale warning', () => {
+    // Pins 20af7b6.
+    const w = warningsOf({
+      version: 8,
+      sources: {
+        relief: {
+          type: 'raster',
+          tiles: ['https://example.com/ne2/{z}/{x}/{y}.png'],
+          tileSize: 256,
+        },
+      },
+      layers: [{ id: 'r', type: 'raster', source: 'relief' }],
+    })
+    expect(w.some(s => s.includes('"relief"') && s.includes('tileSize: 256')))
+      .toBe(true)
+  })
+
+  it('fill-extrusion-base non-zero → unhonoured-base warning', () => {
+    // Pins 4682b0d.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'floating_building',
+        type: 'fill-extrusion',
+        source: 'v',
+        'source-layer': 'building',
+        paint: {
+          'fill-extrusion-height': 40,
+          'fill-extrusion-base': 10,
+          'fill-extrusion-color': '#888',
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('"floating_building"') && s.includes('fill-extrusion-base')))
+      .toBe(true)
+  })
+
+  it('fill-extrusion-base: 0 → no unhonoured warning', () => {
+    // Default 0 is the no-op case; the warning would be noise.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'ground_building',
+        type: 'fill-extrusion',
+        source: 'v',
+        'source-layer': 'building',
+        paint: {
+          'fill-extrusion-height': 40,
+          'fill-extrusion-base': 0,
+          'fill-extrusion-color': '#888',
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('ground_building') && s.includes('fill-extrusion-base')))
+      .toBe(false)
+  })
+
   it('glyphs / sprite must NOT appear in the top-level warning (host-integration handled)', () => {
     // Regression for 2819cd6 — these used to be flagged here even
     // though the playground importers forward them via setGlyphsUrl /
