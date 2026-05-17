@@ -423,6 +423,24 @@ describe('converter warning coverage', () => {
     expect(out).toContain('label-icon-offset-y-4')
   })
 
+  it('["to-color", hex] unwraps to constant fill utility', () => {
+    // Pins 51bfaf1 — `["to-color", "#aef"]` should emit `fill-#aef`,
+    // not collapse to a per-feature bracket-binding eval.
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'to_color_fill',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'park',
+        paint: { 'fill-color': ['to-color', '#aef'] },
+      }],
+    } as never)
+    expect(out).toContain('fill-#aef')
+    expect(out).not.toMatch(/fill-\["#aef"\]/)
+  })
+
   it('literal-wrapped fill-color → constant fill utility (not data-driven)', () => {
     // Pins the colors.ts literal-unwrap. Mapbox v8 `["literal", "#fff"]`
     // pre-fix fell to exprToXgis as a quoted string and emitted
