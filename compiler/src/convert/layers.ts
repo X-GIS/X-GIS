@@ -478,7 +478,11 @@ function convertSymbolLayer(
     // accumulates these into `LabelDef.anchor` (the first) +
     // `anchorCandidates`; the runtime tries each during collision and
     // picks the first that doesn't overlap an already-placed label.
-    for (const a of variableAnchor) {
+    for (let a of variableAnchor) {
+      // Per-element v8 literal-wrap unwrap. Mirror of the match-handler
+      // double-wrap fix — outer tuple unwrap already happened, but
+      // individual anchor names may still be wrapped.
+      if (Array.isArray(a) && a.length === 2 && a[0] === 'literal') a = a[1]
       if (typeof a === 'string' && VALID_ANCHORS.has(a)) {
         utils.push(`label-anchor-${a}`)
       }
@@ -486,7 +490,8 @@ function convertSymbolLayer(
   } else if (typeof anchor === 'string' && VALID_ANCHORS.has(anchor)) {
     utils.push(`label-anchor-${anchor}`)
   } else if (Array.isArray(anchor) && anchor.length > 0) {
-    for (const a of anchor) {
+    for (let a of anchor) {
+      if (Array.isArray(a) && a.length === 2 && a[0] === 'literal') a = a[1]
       if (typeof a === 'string' && VALID_ANCHORS.has(a)) {
         utils.push(`label-anchor-${a}`)
       }
@@ -721,7 +726,10 @@ function convertSymbolLayer(
   if (Array.isArray(fontStack) && fontStack.length > 0) {
     let emittedWeight: number | undefined
     let emittedStyle: 'italic' | undefined
-    for (const f of fontStack) {
+    for (let f of fontStack) {
+      // Per-element v8 literal-wrap unwrap — mirror of the
+      // text-variable-anchor + text-anchor inner unwrap.
+      if (Array.isArray(f) && f.length === 2 && f[0] === 'literal') f = f[1]
       if (typeof f !== 'string' || f.length === 0) continue
       const parsed = parseMapboxFontName(f)
       utils.push(`label-font-${parsed.family.replace(/\s+/g, '-')}`)
