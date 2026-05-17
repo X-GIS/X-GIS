@@ -34,6 +34,12 @@ describe('legacy filter forms with literal-wrapped values', () => {
       .toBe('.level >= 3')
   })
 
+  it('legacy ["!in", "kind"] (empty) lowers to constant true', () => {
+    // Mirror of ["in", x] → false. Empty !in always matches.
+    const w: string[] = []
+    expect(filterToXgis(['!in', 'kind'], w)).toBe('true')
+  })
+
   it('bare legacy form still works (regression guard)', () => {
     const w: string[] = []
     expect(filterToXgis(['==', 'kind', 'park'], w)).toBe('.kind == "park"')

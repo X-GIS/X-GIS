@@ -765,6 +765,10 @@ export function filterToXgis(v: unknown, warnings: string[]): string | null {
   // (`["literal", "park"]`) and pre-fix the equality emit
   // JSON.stringify'd the wrapper.
   if (op === '!in' && typeof v[1] === 'string') {
+    // Empty values list — `["!in", field]` (no keys) means "field is
+    // never in this empty set" → ALWAYS true (always matches). Mirror
+    // of the `in` empty-list → false handling.
+    if (v.length === 2) return 'true'
     const field = v[1]
     const eqs = v.slice(2).map(k => {
       if (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
