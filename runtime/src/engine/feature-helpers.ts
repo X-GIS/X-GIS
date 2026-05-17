@@ -143,6 +143,12 @@ export function applyGeometry(
   geometryExpr: { ast: unknown },
   cameraZoom?: number,
 ): GeoJSONFeatureCollection {
+  // Guard against a malformed FeatureCollection — `applyFilter` has
+  // the same `!data.features` short-circuit. Without this, `.map(...)`
+  // throws when the runtime receives a no-features payload (e.g. an
+  // empty source or a partial transfer mid-load) and the host's data-
+  // load step crashes the whole rebuild.
+  if (!data.features) return data
   const ast = geometryExpr.ast as AST.Expr
   const newFeatures = data.features.map(f => {
     const bag = makeEvalProps({
