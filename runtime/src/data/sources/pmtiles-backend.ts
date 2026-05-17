@@ -704,6 +704,7 @@ export class PMTilesBackend implements TileSource {
                   props: f.properties ?? undefined,
                   geometryType: f.geometry?.type,
                   featureId: (f as { id?: string | number }).id,
+                  cameraZoom: z,
                 })
                 return evalFilterExpr(desc.filterAst, bag)
               })

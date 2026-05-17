@@ -395,6 +395,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
                 props: f.properties ?? undefined,
                 geometryType: f.geometry?.type,
                 featureId: (f as { id?: string | number }).id,
+                cameraZoom: msg.z,
               })
               return evalFilterExpr(desc.filterAst, bag)
             })
