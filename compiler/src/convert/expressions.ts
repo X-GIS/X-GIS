@@ -720,16 +720,33 @@ export function filterToXgis(v: unknown, warnings: string[]): string | null {
 
   // Legacy filter syntax (Mapbox GL JS v0.x / v1.x style spec): the
   // FIELD is the second element, not an ["get", "field"] sub-expr.
-  if ((op === '==' || op === '!=' || op === '<' || op === '<=' || op === '>' || op === '>=') &&
-      typeof v[1] === 'string' && !Array.isArray(v[2])) {
-    const field = v[1]
-    const val = v[2]
-    return `.${field} ${op} ${typeof val === 'string' ? JSON.stringify(val) : val}`
+  // Unwrap v8 strict `["literal", v]` on the value arg before the
+  // is-array gate so the legacy `[\"==\", \"kind\", [\"literal\", \"park\"]]`
+  // shape still hits the bare-value fast path. Pre-fix the wrapper
+  // pushed the value through to exprToXgis which emitted
+  // \`\"kind\" == \"park\"\` (literal-vs-literal), always false.
+  if (op === '==' || op === '!=' || op === '<' || op === '<=' || op === '>' || op === '>=') {
+    if (typeof v[1] === 'string') {
+      let rawVal = v[2]
+      if (Array.isArray(rawVal) && rawVal.length === 2 && rawVal[0] === 'literal') {
+        rawVal = rawVal[1]
+      }
+      if (!Array.isArray(rawVal)) {
+        const field = v[1]
+        return `.${field} ${op} ${typeof rawVal === 'string' ? JSON.stringify(rawVal) : rawVal}`
+      }
+    }
   }
-  // Legacy `!in` — Mapbox v0/v1 style spec.
+  // Legacy `!in` — Mapbox v0/v1 style spec. Per-key unwrap mirrors
+  // the `in` op handling — v8 strict tooling can wrap each value
+  // (`["literal", "park"]`) and pre-fix the equality emit
+  // JSON.stringify'd the wrapper.
   if (op === '!in' && typeof v[1] === 'string') {
     const field = v[1]
-    const eqs = v.slice(2).map(k => `.${field} != ${typeof k === 'string' ? JSON.stringify(k) : k}`)
+    const eqs = v.slice(2).map(k => {
+      if (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
+      return `.${field} != ${typeof k === 'string' ? JSON.stringify(k) : k}`
+    })
     return eqs.join(' && ')
   }
   // Otherwise route through the expression converter — it covers
