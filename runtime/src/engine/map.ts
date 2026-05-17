@@ -752,8 +752,20 @@ export class XGISMap {
 
   /** Change projection at runtime — GPU uniform only, no re-tessellation! */
   setProjection(name: string): void {
+    // Normalize common aliases so URL `?proj=equirect` / Monaco's
+    // hyphen-separated names ('natural-earth') resolve to the canonical
+    // key the projType lookup uses. Unknown values silently fell back to
+    // mercator (renderFrame's `?? 0`) — a silent footgun.
+    const ALIASES: Record<string, string> = {
+      equirect: 'equirectangular',
+      'natural-earth': 'natural_earth',
+      'azimuthal-equidistant': 'azimuthal_equidistant',
+      'oblique-mercator': 'oblique_mercator',
+    }
+    const canonical = ALIASES[name] ?? name
     const prevProj = this.projectionName
-    this.projectionName = name
+    this.projectionName = canonical
+    name = canonical
 
     // Adjust zoom for different projection scale
     // The wide-view set (flat azimuthal discs + the true 3D globe) all
