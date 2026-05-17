@@ -127,6 +127,11 @@ export function convertSource(
   // correct pattern as the zoom-bound gap above.
   if (Array.isArray(src.bounds) && src.bounds.length === 4) {
     warnings.push(`Source "${id}" declares bounds [${src.bounds.join(', ')}]; the runtime tile selector doesn't yet clip requests to the spatial extent, so tiles outside the box will be requested and 404. Filter coverage at the host (geojson clip / pre-cropped PMTiles archive) until native bounds support lands.`)
+  } else if (Array.isArray(src.bounds)) {
+    // Malformed bounds (wrong length) silently slipped past the spec
+    // gate. Warn so style authors know the bounds field is being
+    // ignored entirely.
+    warnings.push(`Source "${id}" bounds must be [west, south, east, north] (4 numbers); got length ${src.bounds.length} — ignored.`)
   }
 
   // Mapbox source-level `tileSize` declares the native pixel size of
