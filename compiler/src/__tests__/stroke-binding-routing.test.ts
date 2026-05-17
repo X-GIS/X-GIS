@@ -122,6 +122,44 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     expect(node!.stroke.color.rgba[0]).toBeCloseTo(0x88 / 255, 2)
   })
 
+  it('Mapbox line-color data-driven match expression survives conversion', () => {
+    // Regression: addStroke previously bailed when colorToXgis returned
+    // null on a `["match", …]` shape, silently dropping the stroke
+    // colour. Result was a transparent stroke (kind=none) for any line
+    // layer authoring per-feature colour — the entire layer then went
+    // dead via dead-layer-elim when fill was also unset. Mirror of the
+    // existing addFill data-driven fallback (the parallel match-on-fill
+    // pattern OFM/demotiles use).
+    const style = {
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'roads_by_class',
+        type: 'line',
+        source: 'v',
+        'source-layer': 'transportation',
+        paint: {
+          'line-color': ['match', ['get', 'class'],
+            'primary',   '#ff0000',
+            'secondary', '#00ff00',
+            '#000000'],
+          'line-width': 2,
+        },
+      }],
+    }
+    const xgis = convertMapboxStyle(style as never)
+    expect(xgis, 'converter must emit a stroke utility for data-driven colour').toMatch(/stroke-\[/)
+    const scene = lower(new Parser(new Lexer(xgis).tokenize()).parse())
+    const node = scene.renderNodes.find(n => n.name === 'roads_by_class')
+    expect(node, 'roads_by_class render node must survive lower').toBeDefined()
+    // The lowered ColorValue must carry the data-driven shape — the
+    // match arms (or at minimum the default arm). The pre-fix
+    // behaviour was kind: 'none' (stroke entirely dropped), which then
+    // produced a transparent stroke + a dead layer for stroke-only
+    // styles.
+    expect(node!.stroke.color.kind, 'stroke colour kind').not.toBe('none')
+  })
+
   it('end-to-end: every OFM-Bright highway layer resolves a non-default width', () => {
     // Sanity that the fix actually unblocks the original OFM Bright
     // regression — every highway-* line layer should now carry EITHER

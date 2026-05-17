@@ -481,6 +481,13 @@ function lowerLayer(
    *  case/match). Stroke colour zoom-interpolation takes a parallel
    *  path through `strokeColor` (kind: 'zoom-interpolated'). */
   let strokeWidthExpr: import('./render-node').DataExpr | undefined
+  /** Per-feature stroke-colour AST. Populated from `stroke-[<expr>]`
+   *  whose binding's `extractMatchDefaultColor` returns a hex —
+   *  parallel to fill's data-driven kind. Mirror of the merge-pass
+   *  synthesised strokeColorExpr; the runtime line-renderer's worker
+   *  evaluates this against each feature and packs RGBA8 into the
+   *  segment buffer's `color_packed` slot. */
+  let strokeColorExpr: import('./render-node').DataExpr | undefined
   /** Pure zoom-only stroke-width stops — populated when the binding's
    *  expression is a `interpolate(zoom, …)` / `interpolate_exp(zoom,
    *  base, …)` with no feature-prop dependency. Routed through
@@ -814,6 +821,19 @@ function lowerLayer(
               strokeColor = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
             }
           } else {
+            // Disambiguate WIDTH vs COLOUR expression. Numeric zoom
+            // stops (`interpolate_exp(zoom, base, z, n, …)` or
+            // `interpolate(zoom, z, n, …)`) take the width path. A
+            // colour-valued `match(.field) { v -> #rrggbb, …, _ ->
+            // #default }` (Mapbox `paint.line-color: ["match", …]`)
+            // walks the default-arm color extractor — if it yields a
+            // hex, the binding is colour-shaped → route through the
+            // strokeColorExpr field (mirror of the fill data-driven
+            // arm above) so the runtime can evaluate per feature via
+            // the line segment buffer's color_packed slot. Without
+            // this branch a standalone data-driven stroke colour fell
+            // straight through to `strokeWidthExpr`, the layer gained
+            // no resolved colour, and dead-layer-elim dropped it.
             const widthStops = extractInterpolateZoomStops(item.binding)
             if (widthStops) {
               // Pure zoom-only width — hoist as zoom stops on the
@@ -825,8 +845,21 @@ function lowerLayer(
               strokeWidthZoomStops = widthStops.stops
               strokeWidthZoomStopsBase = widthStops.base
             } else {
-              // Per-feature `case` / `match` expression on width.
-              strokeWidthExpr = { ast: item.binding }
+              const defaultHex = extractMatchDefaultColor(item.binding)
+              if (defaultHex) {
+                // Colour-shaped per-feature expression. Bake the
+                // default arm as a constant fallback (so the layer
+                // renders SOMETHING even before the per-feature
+                // packer runs) and stash the full AST in
+                // strokeColorExpr. Mirror of merge-layers' synthetic
+                // strokeColorExpr emission.
+                const rgba = hexToRgba(defaultHex)
+                strokeColor = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
+                strokeColorExpr = { ast: item.binding }
+              } else {
+                // Per-feature `case` / `match` expression on width.
+                strokeWidthExpr = { ast: item.binding }
+              }
             }
           }
         } else if (name === 'size') {
@@ -1527,6 +1560,7 @@ function lowerLayer(
       return {
         color: strokeColor,
         width: widthSource,
+        ...(strokeColorExpr !== undefined ? { colorExpr: strokeColorExpr } : {}),
         linecap, linejoin, miterlimit,
         dashArray, dashOffset,
         patterns: validPatterns.length > 0 ? validPatterns : undefined,

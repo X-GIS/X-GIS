@@ -218,7 +218,20 @@ function addStroke(out: string[], v: unknown, warnings: string[]): void {
     return
   }
   const s = colorToXgis(v, warnings)
-  if (s) out.push(`stroke-${s}`)
+  if (s) {
+    out.push(`stroke-${s}`)
+    return
+  }
+  // Per-feature data-driven shape (`match` / `case` / etc.) — mirror
+  // of the addFill fallback. Without this branch, a stroke colour
+  // expression like `["match", ["get", "class"], "primary", "#f00",
+  // "#000"]` silently dropped: colorToXgis returns null on the
+  // expression form, and addStroke used to bail. The line renderer
+  // already evaluates synthesised match() ASTs per feature via the
+  // worker's segment buffer slot, so the runtime side accepts the
+  // bracket-binding form on emission.
+  const expr = exprToXgis(v, warnings)
+  if (expr !== null) out.push(`stroke-[${expr}]`)
 }
 
 /** Mapbox `paint.fill-outline-color` → xgis `stroke-<color> stroke-1`
