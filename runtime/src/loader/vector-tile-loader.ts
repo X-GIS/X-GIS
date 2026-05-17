@@ -466,10 +466,16 @@ export class TileJSONSource extends VectorTileSource {
       // auto-decompresses gzip via Content-Encoding, so bytes are raw
       // MVT (same shape PMTilesBackend expects).
       fetcher: async (z, x, y, signal) => {
+        // Global replace so URL templates with multiple occurrences
+        // of {z}/{x}/{y} substitute correctly. Pre-fix single-pass
+        // .replace only replaced the FIRST occurrence; a URL like
+        // "https://example.com/{z}/{x}/{y}/{z}-{x}.mvt" left the
+        // second {z} and {x} intact and the fetch 400'd on the
+        // unsubstituted placeholders.
         const url = tj.tilesTemplate
-          .replace('{z}', String(z))
-          .replace('{x}', String(x))
-          .replace('{y}', String(y))
+          .replace(/\{z\}/g, String(z))
+          .replace(/\{x\}/g, String(x))
+          .replace(/\{y\}/g, String(y))
         return fetchTileWithRetry(url, `tile ${z}/${x}/${y}`, signal)
       },
     }
