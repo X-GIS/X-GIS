@@ -435,6 +435,15 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
 
 function addOpacity(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
+  // Mapbox v8 `["literal", 0.5]` — unwrap before the type dispatch so
+  // the scalar-scale conversion fires. Pre-fix the literal-wrapped
+  // shape fell through to exprToXgis → emitted `opacity-0.5` (0.5% in
+  // the xgis utility's 0..100 scale interpretation) instead of the
+  // correct `opacity-50`. Sibling to colorToXgis literal unwrap
+  // (e3c5c62).
+  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
+    v = v[1]
+  }
   if (typeof v === 'number') {
     // Mapbox 0..1, X-GIS opacity-N where N can be 0..100 or 0..1.
     out.push(`opacity-${v <= 1 ? Math.round(v * 100) : v}`)

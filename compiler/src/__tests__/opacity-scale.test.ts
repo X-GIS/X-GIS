@@ -45,6 +45,13 @@ describe('opacity scale conversion (Mapbox 0..1 → xgis 0..100)', () => {
     expect(emitFill(50)).toContain('opacity-50')
   })
 
+  it('fill-opacity: ["literal", 0.5] → opacity-50 (v8 wrapper unwrapped)', () => {
+    // Pins the addOpacity literal-unwrap. Pre-fix the v8-wrapped 0.5
+    // fell through to exprToXgis and emitted `opacity-0.5` (0.5% in
+    // the 0..100 scale) instead of the correct opacity-50.
+    expect(emitFill(['literal', 0.5])).toContain('opacity-50')
+  })
+
   it('zoom-interpolated fill-opacity stops scale individually', () => {
     const out = convertMapboxStyle({
       version: 8,
