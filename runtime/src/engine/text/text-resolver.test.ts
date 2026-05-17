@@ -113,4 +113,35 @@ describe('resolveText', () => {
       expect(resolveText(tv, { brg: 45 })).toBe('045°')
     })
   })
+
+  describe('reserved-key injection', () => {
+    // Pins cf5c7a7 — the feature + cameraZoom passthrough makes
+    // text-field expressions referencing `["zoom"]` / `["id"]` /
+    // `["geometry-type"]` resolve to live values. Without this
+    // wiring the reserved identifiers come back undefined and the
+    // surrounding expression collapses to its default arm.
+
+    it('$zoom resolves to the provided cameraZoom', () => {
+      const tv: TextValue = { kind: 'expr', expr: { ast: fld('$zoom') } }
+      expect(resolveText(tv, {}, 11.5)).toBe('11.5')
+    })
+
+    it('$featureId resolves from feature.id', () => {
+      const tv: TextValue = { kind: 'expr', expr: { ast: fld('$featureId') } }
+      expect(resolveText(tv, {}, undefined, { id: 42 })).toBe('42')
+    })
+
+    it('$geometryType resolves from feature.geometry.type', () => {
+      const tv: TextValue = { kind: 'expr', expr: { ast: fld('$geometryType') } }
+      expect(resolveText(tv, {}, undefined, { geometry: { type: 'Point' } }))
+        .toBe('Point')
+    })
+
+    it('back-compat: omitting both cameraZoom + feature keeps the raw props path', () => {
+      // A template with no reserved-key references must still work
+      // when callers haven't migrated to passing the feature.
+      const tv: TextValue = { kind: 'expr', expr: { ast: fld('name') } }
+      expect(resolveText(tv, { name: 'Tokyo' })).toBe('Tokyo')
+    })
+  })
 })
