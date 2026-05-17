@@ -46,7 +46,11 @@ jobs:
   # introduction shows up in seconds, not as part of the 9-min sweep.
   regression-specs:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 30 min: the projection-coverage spec is 108 cells; on the
+    # SwiftShader-WebGPU runner each cell takes 5–8 s vs 1 s on real GPU,
+    # so the spec alone needs ~10–14 min. The previous 15-min cap cancelled
+    # the job mid-sweep.
+    timeout-minutes: 30
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
