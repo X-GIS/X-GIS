@@ -2853,7 +2853,25 @@ export class VectorTileRenderer {
       const _pitchDeg = camera.pitch ?? 0
       const sseDisabled = typeof window !== 'undefined'
         && (window as unknown as { __XGIS_USE_SSE_SELECTOR?: boolean }).__XGIS_USE_SSE_SELECTOR === false
-      if (camera.globeMode) {
+      // Sphere-aware tile selection: in addition to globe (projType 7
+      // — fixes the empty-hemisphere regression where globe at
+      // #2/0/180 rendered almost nothing — PR #138 added the function
+      // but never wired a production caller), also use it for
+      // equirectangular (projType 1) and natural_earth (projType 2)
+      // when the camera sits within 45° of the antimeridian. The
+      // mercator selectors used otherwise only sample the central
+      // world copy, which leaves the far side of the dateline blank
+      // for these pseudocylindrical projections (the vertex shader's
+      // `unwrap_lon_near` per-tile reference IS already in place; the
+      // gap was only that selectors weren't asking for the wrap-side
+      // tiles to feed it). 45° is conservative — far enough from
+      // dateline that the regular SSE/frustum selectors still serve
+      // correctly, avoiding the slight over-selection bias the globe
+      // selector has on flat 2D projections.
+      const projType = (camera as { projType?: number }).projType ?? 0
+      const nearAntimeridian = (projType === 1 || projType === 2)
+        && Math.abs(((camera.centerX / 6378137 * (180 / Math.PI)) + 540) % 360 - 180) > 135
+      if (camera.globeMode || nearAntimeridian) {
         // Globe (projType 7): sphere-aware tile selection. The
         // mercator selectors below all reason about a flat viewport
         // and don't know about hemisphere culling or the antimeridian
@@ -2861,11 +2879,7 @@ export class VectorTileRenderer {
         // web-mercator pyramid (so tile IDs match the catalog the
         // downstream code expects) but culls by sphere visibility
         // and keeps tiles on BOTH sides of the dateline when the
-        // camera faces the antimeridian — fixing the empty-hemisphere
-        // regression where globe at #2/0/180 rendered almost nothing.
-        // PR #138 added the function but never wired it into the
-        // render path; tiles came from visibleTilesSSE which doesn't
-        // model the sphere.
+        // camera faces the antimeridian.
         const R = 6378137
         const lon = camera.centerX / R * (180 / Math.PI)
         const lat = (2 * Math.atan(Math.exp(camera.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
