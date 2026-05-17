@@ -529,8 +529,17 @@ function callBuiltin(name: string, args: unknown[]): unknown {
     case 'atan': return Math.atan(toNumber(args[0]))
     case 'atan2': return Math.atan2(toNumber(args[0]), toNumber(args[1]))
     // Exponential
-    case 'pow': return Math.pow(toNumber(args[0]), toNumber(args[1]))
-    case 'exp': return Math.exp(toNumber(args[0]))
+    case 'pow': {
+      // Math.pow(-1, 0.5) = NaN, Math.pow(0, -1) = Infinity. Guard
+      // both via non-finite → 0 mirror of c6aa3b0 / 2e6e623.
+      const r = Math.pow(toNumber(args[0]), toNumber(args[1]))
+      return Number.isFinite(r) ? r : 0
+    }
+    case 'exp': {
+      // Math.exp(very-large) = Infinity. Guard.
+      const r = Math.exp(toNumber(args[0]))
+      return Number.isFinite(r) ? r : 0
+    }
     case 'log': return Math.log(Math.max(1e-10, toNumber(args[0])))
     // Constants
     case 'PI': return Math.PI
