@@ -191,6 +191,19 @@ export function convertMapboxStyle(
       lines.push(`background { fill: ${colorStr} }`)
       lines.push('')
     }
+    // Surface dropped background paint props. xgis's `background {
+    // fill: # }` directive doesn't carry opacity / pattern. Mapbox
+    // background-opacity defaults to 1 so a missing value is fine;
+    // explicit < 1 silently downgrades to fully opaque and the user
+    // never knows. background-pattern is the bitmap-atlas equivalent
+    // (Batch 2 follow-up).
+    const bgPaint = bgLayer.paint ?? {}
+    const bgIgnored: string[] = []
+    if (bgPaint['background-opacity'] !== undefined) bgIgnored.push('background-opacity')
+    if (bgPaint['background-pattern'] !== undefined) bgIgnored.push('background-pattern (Batch 2)')
+    if (bgIgnored.length > 0) {
+      warnings.push(`Background layer "${bgLayer.id}" — ignored properties: ${bgIgnored.join(', ')}`)
+    }
     if (options?.coverage) {
       const reasons = warnings.slice(before)
       options.coverage.layers.push({
