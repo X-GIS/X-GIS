@@ -1,6 +1,6 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { Lexer, Parser, lower, optimize, emitCommands, evaluate, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, tileKey as compilerTileKey, type Program } from '@xgis/compiler'
+import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, tileKey as compilerTileKey, type Program } from '@xgis/compiler'
 import { packPalette, uploadPalette, type PaletteTextures } from './gpu/palette-texture'
 import type * as AST from '@xgis/compiler'
 import { BackgroundRenderer } from './render/background-renderer'
@@ -3442,18 +3442,27 @@ export class XGISMap {
             ? shapes.size.expr.ast : null
           const colorExprAst = shapes && shapes.color !== null && shapes.color.kind === 'data-driven'
             ? shapes.color.expr.ast : null
+          const cameraZoom = this.camera.zoom
           const applyFeatureExprs = (props: Record<string, unknown>) => {
             if (sizeExprAst === null && colorExprAst === null) return effectiveDef
+            // makeEvalProps injects the reserved `$zoom` key so label
+            // text-size / text-color expressions referencing
+            // `interpolate(zoom, …)` resolve to the current camera
+            // zoom rather than undefined (which evaluate() folds to
+            // null → number coercion 0 → label size = 0 / label
+            // colour collapses to default). Mirrors the
+            // extractFeatureWidths reserved-key contract.
+            const bag = makeEvalProps({ props, cameraZoom })
             const out = { ...effectiveDef }
             if (sizeExprAst !== null) {
               try {
-                const v = evaluate(sizeExprAst as never, props)
+                const v = evaluate(sizeExprAst as never, bag)
                 if (typeof v === 'number' && isFinite(v)) out.size = v
               } catch { /* fall back to effectiveDef.size */ }
             }
             if (colorExprAst !== null) {
               try {
-                const v = evaluate(colorExprAst as never, props)
+                const v = evaluate(colorExprAst as never, bag)
                 if (typeof v === 'string') {
                   const hex = resolveColor(v)
                   const rgba = hexToRgba(hex ?? v)
