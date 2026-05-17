@@ -54,14 +54,27 @@ export function colorToXgis(v: unknown, warnings: string[]): string | null {
     if (hex) return hex
     return v
   }
+  // Unwrap v8 strict `["literal", N]` per-channel wrappers so a
+  // double-wrapped tuple like `["rgba", ["literal", 255], ["literal", 0],
+  // ["literal", 0], ["literal", 0.5]]` still resolves to a constant hex.
+  // Pre-fix any wrapped channel landed as a stringified array inside
+  // the CSS-function expression, resolveColor failed, and the layer
+  // fell to the data-driven bracket path or null.
+  const unwrapChan = (x: unknown): unknown =>
+    Array.isArray(x) && x.length === 2 && x[0] === 'literal' ? x[1] : x
   if (Array.isArray(v) && v[0] === 'rgba' && v.length === 5) {
-    const [, r, g, b, a] = v
+    const r = unwrapChan(v[1])
+    const g = unwrapChan(v[2])
+    const b = unwrapChan(v[3])
+    const a = unwrapChan(v[4])
     const A = typeof a === 'number' ? a : 1
     const hex = resolveColor(`rgba(${r}, ${g}, ${b}, ${A})`)
     if (hex) return hex
   }
   if (Array.isArray(v) && v[0] === 'rgb' && v.length === 4) {
-    const [, r, g, b] = v
+    const r = unwrapChan(v[1])
+    const g = unwrapChan(v[2])
+    const b = unwrapChan(v[3])
     const hex = resolveColor(`rgb(${r}, ${g}, ${b})`)
     if (hex) return hex
   }
