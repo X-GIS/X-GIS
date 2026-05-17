@@ -897,7 +897,7 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   // circle-radius → size. Constant + interpolate-by-zoom + per-feature
   // expression all supported. Default 5 px per Mapbox spec — emit
   // explicitly so the runtime doesn't fall back to its own default (8).
-  const radius = paint['circle-radius']
+  const radius = unwrapLiteralScalar(paint['circle-radius'])
   if (typeof radius === 'number') {
     utils.push(`size-${radius}`)
   } else if (radius !== undefined) {
@@ -937,7 +937,7 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
 
   // circle-opacity → opacity. Mapbox 0..1 → xgis 0..100 conversion
   // handled inside addOpacity helper; reuse it here.
-  const opacity = paint['circle-opacity']
+  const opacity = unwrapLiteralScalar(paint['circle-opacity'])
   if (opacity !== undefined) {
     // addOpacity pushes onto its `out` array; we splice into utils.
     const tmp: string[] = []
@@ -987,7 +987,7 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   }
 
   // circle-stroke-width → stroke-N. Edge width in CSS px.
-  const strokeWidth = paint['circle-stroke-width']
+  const strokeWidth = unwrapLiteralScalar(paint['circle-stroke-width'])
   if (typeof strokeWidth === 'number' && strokeWidth > 0) {
     utils.push(`stroke-${strokeWidth}`)
   } else if (strokeWidth !== undefined) {
