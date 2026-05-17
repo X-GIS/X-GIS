@@ -460,7 +460,12 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
       && /^[a-z][a-z-]+$/.test(first)
       && /^(interpolate|interpolate-exp|interpolate-lab|interpolate-hcl|step|case|match|coalesce|to-number)$/.test(first)
     if (!looksLikeExpression) {
-      const nums = v.filter(n => typeof n === 'number')
+      // Mapbox spec: dash values are non-negative. Clamp at convert
+      // time so a typo'd negative doesn't emit
+      // `stroke-dasharray--4-2` (double-dash utility name) which the
+      // parser splits incorrectly. Same class as the line-width /
+      // opacity / text-size clamps.
+      const nums = v.filter(n => typeof n === 'number').map(n => Math.max(0, n as number))
       if (nums.length >= 2) {
         out.push('stroke-dasharray-' + nums.join('-'))
         return
