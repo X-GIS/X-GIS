@@ -9,8 +9,9 @@ import { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
 import { interpolateZoom } from './renderer'
 import type { ResolvedShow } from './resolved-show'
-import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority } from '../../data/tile-select'
+import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority, makeTileCoord } from '../../data/tile-select'
 import { visibleTilesSSE } from '../../loader/tiles-sse'
+import { globeVisibleTiles } from '../projection/globe'
 import {
   classifyTile, computeProtectedKeys,
   type TileDecision,
@@ -2852,35 +2853,63 @@ export class VectorTileRenderer {
       const _pitchDeg = camera.pitch ?? 0
       const sseDisabled = typeof window !== 'undefined'
         && (window as unknown as { __XGIS_USE_SSE_SELECTOR?: boolean }).__XGIS_USE_SSE_SELECTOR === false
-      tiles = !sseDisabled
-        ? visibleTilesSSE(
-            camera,
-            selectorProj,
-            currentZ,
-            canvasWidth,
-            canvasHeight,
-            offsetMarginPx,
-            dpr,
-          )
-        : _pitchDeg < 30
-        ? visibleTilesFrustumSampled(
-            camera,
-            selectorProj,
-            currentZ,
-            canvasWidth,
-            canvasHeight,
-            offsetMarginPx,
-            dpr,
-          )
-        : visibleTilesFrustum(
-            camera,
-            selectorProj,
-            currentZ,
-            canvasWidth,
-            canvasHeight,
-            offsetMarginPx,
-            dpr,
-          )
+      if (camera.globeMode) {
+        // Globe (projType 7): sphere-aware tile selection. The
+        // mercator selectors below all reason about a flat viewport
+        // and don't know about hemisphere culling or the antimeridian
+        // wrap that globe needs. globeVisibleTiles walks the same
+        // web-mercator pyramid (so tile IDs match the catalog the
+        // downstream code expects) but culls by sphere visibility
+        // and keeps tiles on BOTH sides of the dateline when the
+        // camera faces the antimeridian — fixing the empty-hemisphere
+        // regression where globe at #2/0/180 rendered almost nothing.
+        // PR #138 added the function but never wired it into the
+        // render path; tiles came from visibleTilesSSE which doesn't
+        // model the sphere.
+        const R = 6378137
+        const lon = camera.centerX / R * (180 / Math.PI)
+        const lat = (2 * Math.atan(Math.exp(camera.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
+        const cssW = canvasWidth / dpr
+        const cssH = canvasHeight / dpr
+        const globeTiles = globeVisibleTiles(
+          lon, lat, camera.zoom, currentZ, cssW, cssH,
+          camera.pitch ?? 0, camera.bearing ?? 0,
+        )
+        // GlobeTile (z/x/y/ox) matches the TileCoord shape exactly;
+        // makeTileCoord wraps with the absolute-x contract (ox===x
+        // for globe which renders a single world copy).
+        tiles = globeTiles.map(t => makeTileCoord(t.z, t.x, t.y, 0))
+      } else {
+        tiles = !sseDisabled
+          ? visibleTilesSSE(
+              camera,
+              selectorProj,
+              currentZ,
+              canvasWidth,
+              canvasHeight,
+              offsetMarginPx,
+              dpr,
+            )
+          : _pitchDeg < 30
+          ? visibleTilesFrustumSampled(
+              camera,
+              selectorProj,
+              currentZ,
+              canvasWidth,
+              canvasHeight,
+              offsetMarginPx,
+              dpr,
+            )
+          : visibleTilesFrustum(
+              camera,
+              selectorProj,
+              currentZ,
+              canvasWidth,
+              canvasHeight,
+              offsetMarginPx,
+              dpr,
+            )
+      }
 
       // Phase 2 selector-shape invariant — single-zoom emission was
       // an artefact of the Mapbox/MapLibre sampled-grid path and only
