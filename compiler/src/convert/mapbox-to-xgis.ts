@@ -193,10 +193,16 @@ export function convertMapboxStyle(
     // fill anyway and over-painted whatever canvas-clear / underlying
     // colour the host expected to show through. Same v8 literal-wrap
     // unwrap as the visibility gate on other layer types.
-    const bgVisibility = bgLayer.layout?.visibility
+    // Loop peel for multi-level wraps mirror of unwrapLiteralScalar
+    // (0532bc3). Pre-fix only single-level ['literal', 'none'] was
+    // recognised; ['literal', ['literal', 'none']] from preprocessor
+    // chains left the layer rendering despite the author's hide.
+    let bgVisibility: unknown = bgLayer.layout?.visibility
+    while (Array.isArray(bgVisibility) && bgVisibility.length === 2
+        && bgVisibility[0] === 'literal') {
+      bgVisibility = bgVisibility[1]
+    }
     const bgVisibilityNone = bgVisibility === 'none'
-      || (Array.isArray(bgVisibility) && bgVisibility.length === 2
-        && bgVisibility[0] === 'literal' && bgVisibility[1] === 'none')
     const color = bgLayer.paint?.['background-color']
     const colorStr = bgVisibilityNone ? null : colorToXgis(color, warnings)
     if (colorStr) {
