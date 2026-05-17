@@ -84,20 +84,41 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       return `get(${inner})`
     }
     case 'has': {
-      const field = v[1]
-      if (typeof field !== 'string') return null
-      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) return `.${field} != null`
-      // Colon-bearing locale keys round-trip through get("…") which
-      // already returns null on miss (matching Mapbox's "has" sense).
-      const escaped = field.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-      return `get("${escaped}") != null`
+      // Same v8 literal-wrap + dynamic-key shape as `get`. Pre-fix
+      // bailed on non-string field, so `["has", ["concat", "name:",
+      // ["get", "lang"]]]` collapsed to null and the filter dropped
+      // every feature regardless of presence.
+      let field: unknown = v[1]
+      if (Array.isArray(field) && field.length === 2 && field[0] === 'literal'
+          && typeof field[1] === 'string') {
+        field = field[1]
+      }
+      if (typeof field === 'string') {
+        if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) return `.${field} != null`
+        // Colon-bearing locale keys round-trip through get("…") which
+        // already returns null on miss (matching Mapbox's "has" sense).
+        const escaped = field.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+        return `get("${escaped}") != null`
+      }
+      const inner = exprToXgis(v[1], warnings)
+      if (inner === null) return null
+      return `get(${inner}) != null`
     }
     case '!has': {
-      const field = v[1]
-      if (typeof field !== 'string') return null
-      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) return `.${field} == null`
-      const escaped = field.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-      return `get("${escaped}") == null`
+      // Mirror of the `has` dynamic-key fix.
+      let field: unknown = v[1]
+      if (Array.isArray(field) && field.length === 2 && field[0] === 'literal'
+          && typeof field[1] === 'string') {
+        field = field[1]
+      }
+      if (typeof field === 'string') {
+        if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) return `.${field} == null`
+        const escaped = field.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+        return `get("${escaped}") == null`
+      }
+      const inner = exprToXgis(v[1], warnings)
+      if (inner === null) return null
+      return `get(${inner}) == null`
     }
     case 'coalesce': {
       const args = v.slice(1).map(a => exprToXgis(a, warnings))

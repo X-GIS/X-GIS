@@ -33,6 +33,26 @@ describe('["get", <expression>] dynamic key access', () => {
     expect(out).toBe('get(concat("name:", .lang))')
   })
 
+  it('["has", ["concat", "name:", lang]] lowers to get(concat(…)) != null', () => {
+    const w: string[] = []
+    expect(
+      exprToXgis(['has', ['concat', 'name:', ['get', 'lang']]], w),
+    ).toBe('get(concat("name:", .lang)) != null')
+  })
+
+  it('["!has", ...] mirrors the has form with == null', () => {
+    const w: string[] = []
+    expect(
+      exprToXgis(['!has', ['concat', 'name:', ['get', 'lang']]], w),
+    ).toBe('get(concat("name:", .lang)) == null')
+  })
+
+  it('["has", ["literal", "name:en"]] unwraps to colon-key has', () => {
+    const w: string[] = []
+    expect(exprToXgis(['has', ['literal', 'name:en']], w))
+      .toBe('get("name:en") != null')
+  })
+
   it('dynamic-key get round-trips through the evaluator', () => {
     // Hand-built FnCall AST mirroring the converter's emission shape.
     // The evaluator's get() builtin treats args[0] of type 'string'
