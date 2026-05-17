@@ -17,7 +17,7 @@
 // Falls back gracefully on missing fields / evaluation errors so
 // a single bad feature doesn't crash an entire frame's labels.
 
-import { evaluate, formatValue, CAMERA_ZOOM_KEY, type TextValue } from '@xgis/compiler'
+import { evaluate, formatValue, makeEvalProps, type TextValue } from '@xgis/compiler'
 
 export type FeatureProps = Record<string, unknown>
 
@@ -33,14 +33,27 @@ export type FeatureProps = Record<string, unknown>
  *  bag under the CAMERA_ZOOM_KEY sigil. Without this injection
  *  `zoom` evaluated to `undefined` → toNumber → NaN → `step()`
  *  returned its default arm forever and country labels never
- *  switched from "S. Kor" to "S. Korea" at z>=4. */
+ *  switched from "S. Kor" to "S. Korea" at z>=4.
+ *
+ *  `feature` (optional) wires `["id"]` / `["geometry-type"]` accessors
+ *  through the matching reserved keys so a text-field expression like
+ *  `["case", ["==", ["geometry-type"], "Point"], "•", .name]` (mixed-
+ *  shape POI labels) resolves correctly. Mirror of the reserved-key
+ *  contract the filter / width / colour / height eval paths already
+ *  use (c1080d0 / 6018086 / 6633ca4 / 73f3880 / d4ffa24). */
 export function resolveText(
   value: TextValue,
   props: FeatureProps,
   cameraZoom?: number,
+  feature?: { id?: string | number; geometry?: { type?: string } },
 ): string {
-  const enrichedProps = cameraZoom !== undefined
-    ? { ...props, [CAMERA_ZOOM_KEY]: cameraZoom }
+  const enrichedProps = (cameraZoom !== undefined || feature !== undefined)
+    ? makeEvalProps({
+        props,
+        cameraZoom,
+        geometryType: feature?.geometry?.type,
+        featureId: feature?.id,
+      })
     : props
   if (value.kind === 'expr') {
     const v = safeEval(value.expr.ast, enrichedProps)
