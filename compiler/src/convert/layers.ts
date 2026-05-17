@@ -607,7 +607,8 @@ function convertSymbolLayer(
   // arrives a dedicated `icon-allow-overlap` IR field threads them
   // through; until then they're no-ops for the text collision path.
   const iconOverlap = unwrapLiteralScalar(layout['icon-overlap'])
-  if (iconOverlap !== undefined && iconOverlap !== 'always' && iconOverlap !== 'never' && iconOverlap !== 'cooperative') {
+  if (iconOverlap !== undefined && iconOverlap !== null
+      && iconOverlap !== 'always' && iconOverlap !== 'never' && iconOverlap !== 'cooperative') {
     warnings.push(`Symbol layer "${layer.id}" — unrecognised icon-overlap value ${JSON.stringify(iconOverlap)}; ignored.`)
   }
   if (unwrapLiteralScalar(layout['text-ignore-placement']) === true) utils.push('label-ignore-placement')
