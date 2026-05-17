@@ -54,6 +54,18 @@ export function convertSource(
     warnings.push(`Source "${id}" declares scheme: "tms" but the X-GIS tile selector assumes XYZ (top-left origin) — tiles will render Y-flipped. Convert the URL template to XYZ form, or wait for native scheme support.`)
   }
 
+  // Mapbox source-level `minzoom` / `maxzoom` constrain which tile
+  // zooms the source actually serves. X-GIS's tile selector uses
+  // LAYER-level minzoom/maxzoom (per-show culling) but doesn't yet
+  // consume the SOURCE-level bounds, so a raster source with
+  // `maxzoom: 6` (typical for low-res shaded relief like ne2_shaded)
+  // gets tile requests at z=7+ from the renderer, all of which return
+  // 404 and fall back to parent ancestors. Wasteful, not incorrect —
+  // surface so the style author knows fetch volume isn't optimal.
+  if (typeof src.minzoom === 'number' || typeof src.maxzoom === 'number') {
+    warnings.push(`Source "${id}" declares minzoom/maxzoom (${src.minzoom ?? '-'}…${src.maxzoom ?? '-'}); the runtime tile selector doesn't yet honour source-level zoom bounds, so out-of-range tiles will be requested and 404. Use layer-level minzoom/maxzoom to limit fetch volume.`)
+  }
+
   if (src.type === 'vector') {
     const url = src.url ?? src.tiles?.[0]
     if (url && /\.pmtiles(\?|$)/.test(url)) {
