@@ -56,7 +56,22 @@ export function colorToXgis(v: unknown, warnings: string[]): string | null {
     if (typeof inner === 'string') v = inner
   }
   if (typeof v === 'string') {
-    if (v.startsWith('#')) return v
+    if (v.startsWith('#')) {
+      // Validate hex shape per CSS Color Module 4 (#rgb / #rgba /
+      // #rrggbb / #rrggbbaa). Pre-fix any `#xxx`-ish string was
+      // passed through verbatim — a typo like `#zzz` or `#12345`
+      // (5-char malformed) landed in the emitted xgis as
+      // `fill-#zzz`, the runtime's parseHexColor regex-gate rejected
+      // it and silently rendered black with NO compile-time
+      // diagnostic. Warn + fall through to null so the caller can
+      // skip emission and the layer doesn't masquerade as solid
+      // black.
+      if (/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v)) {
+        return v.toLowerCase()
+      }
+      warnings.push(`Color "${v.slice(0, 60)}" looks like a hex literal but doesn't match #rgb / #rgba / #rrggbb / #rrggbbaa — emission skipped.`)
+      return null
+    }
     const hex = resolveColor(v.trim())
     if (hex) return hex
     // Unrecognised colour name → return null so the caller can warn /
