@@ -67,7 +67,17 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer): MapboxLayer[] | 
   const byColour = new Map<string, (string | number)[]>()
   const allVals: (string | number)[] = []
   for (let i = 0; i + 1 < args.length - 1; i += 2) {
-    const vals = args[i]
+    // Mapbox v8 strict tooling can wrap the keys-array form
+    // (`["literal", ["v1", "v2"]]`) — same case the main match handler
+    // handles. Without unwrap the outer Array.isArray passed and the
+    // inner iteration treated "literal" + the inner array as keys,
+    // bailing the whole expand at the typeof check and falling back
+    // to lower.ts's pick-first-stop fallback — the layer rendered
+    // ONE colour instead of per-feature palette.
+    let vals = args[i]
+    if (Array.isArray(vals) && vals.length === 2 && vals[0] === 'literal') {
+      vals = vals[1]
+    }
     const out = args[i + 1]
     if (typeof out !== 'string') return null  // every arm must be a colour string
     const valList = Array.isArray(vals) ? vals : [vals]
