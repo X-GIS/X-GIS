@@ -121,9 +121,13 @@ jobs:
       # `if: always()` ensures the audit still runs even when the
       # regression specs fail. Both are informational on SwiftShader; we
       # want artifacts from both regardless of which one signalled.
+      # workers=4: audit is now per-demo test() (123 tests) so Playwright
+      # parallelizes across workers. ubuntu-latest has 4 vCPU / 16 GB so
+      # 4 chrome instances fit. Sequential single-test baseline was
+      # ~13 min; with 4 workers ~3-4 min wall-clock.
       - name: Demo + fixture audit
         if: always()
-        run: bunx playwright test e2e/_demo-fixture-audit.spec.ts --workers=1 --reporter=line
+        run: bunx playwright test e2e/_demo-fixture-audit.spec.ts --workers=4 --reporter=line
         working-directory: playground
 
       - uses: actions/upload-artifact@v4

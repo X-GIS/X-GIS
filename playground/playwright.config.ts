@@ -19,6 +19,7 @@ import { defineConfig, devices } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './e2e',
+  globalTeardown: './e2e/_demo-audit-report.ts',
   timeout: 60_000,
   // Worker parallelization. The bottleneck is GPU contention, not
   // CPU — Windows headed Chromium throttles aggressively when
