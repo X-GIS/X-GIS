@@ -131,6 +131,39 @@ export function convertMapboxStyle(
     lines.push('')
   }
 
+  // ── Top-level style fields without an X-GIS equivalent ─────────────
+  // The Mapbox style spec defines several top-level fields beyond
+  // `sources` / `layers` / `name`. Most are unsupported today; the
+  // ones that meaningfully affect rendering deserve an explicit note
+  // so style authors don't quietly inherit the X-GIS default.
+  //
+  //   projection — runtime supports multiple projections via the
+  //                `?proj=` URL flag, but the style-spec field isn't
+  //                read. A style declaring `projection: { type:
+  //                "globe" }` renders flat-Mercator.
+  //   glyphs     — custom-font URL template. X-GIS self-hosts a Noto
+  //                Sans / CJK stack; a style author's hosted font
+  //                family won't be picked up.
+  //   sprite     — bitmap sprite atlas (Batch 2 roadmap). Icons
+  //                + fill-pattern / line-pattern all wait on this.
+  //   fog / light / terrain / transition / imports — Mapbox v3
+  //                additions, none implemented.
+  //
+  // Centre / zoom / pitch / bearing are deliberately omitted from
+  // this list — they're CAMERA STATE, not style intent, and the host
+  // sets them via the URL hash / `XGISMap` API.
+  const styleAny = style as unknown as Record<string, unknown>
+  const topLevelGaps: string[] = []
+  if (styleAny.projection !== undefined) topLevelGaps.push('projection')
+  if (typeof styleAny.glyphs === 'string') topLevelGaps.push('glyphs (custom font URL template)')
+  if (typeof styleAny.sprite === 'string') topLevelGaps.push('sprite (Batch 2 — sprite atlas)')
+  for (const k of ['fog', 'light', 'terrain', 'transition', 'imports']) {
+    if (styleAny[k] !== undefined) topLevelGaps.push(k)
+  }
+  if (topLevelGaps.length > 0) {
+    warnings.push(`Top-level style fields ignored: ${topLevelGaps.join(', ')}`)
+  }
+
   // ── Sources ────────────────────────────────────────────────────────
   for (const [id, src] of Object.entries(style.sources ?? {})) {
     const before = warnings.length
