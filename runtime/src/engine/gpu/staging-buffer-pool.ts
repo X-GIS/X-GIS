@@ -41,13 +41,36 @@ export class StagingBufferPool {
   private free: StagingSlot[][] = TIER_SIZES.map(() => [])
   /** Total buffers ever created — diagnostic for tuning tier sizes. */
   private created = 0
+  /** Implementation-defined: some software adapters (Mesa/SwiftShader-
+   *  WebGPU, seen on Linux GH Actions runners with no GPU) reject
+   *  `createBuffer({ mappedAtCreation: true })` even at 4 KB with
+   *  `RangeError: size N is too large for the implementation when
+   *  mappedAtCreation == true`. When that happens the entire staging
+   *  pipeline collapses — every tile upload throws and nothing
+   *  renders. The fallback path uses `device.queue.writeBuffer`
+   *  directly: slower (the driver does its own staging copy), but
+   *  works on the software adapter. Set lazily on first failure;
+   *  exposed for tests. */
+  private mappedAtCreationFails = false
+
+  /** Read-only view of the SwiftShader-style fallback flag. */
+  get hasMappedAtCreationFallback(): boolean { return this.mappedAtCreationFails }
+  /** Test seam — flip without provoking the GPU. */
+  _forceDirectWriteFallback(): void { this.mappedAtCreationFails = true }
+
+  /** Expose the device so `asyncWriteBuffer` can route around this
+   *  pool when the fallback is engaged. */
+  get gpuDevice(): GPUDevice { return this.device }
 
   constructor(device: GPUDevice) {
     this.device = device
   }
 
   /** Borrow a staging buffer ≥ `byteLength` bytes. Returned buffer is
-   *  mapped for write — call `getMappedRange()` to fill it. */
+   *  mapped for write — call `getMappedRange()` to fill it. Throws
+   *  RangeError on the SwiftShader-WebGPU fallback path; callers use
+   *  `asyncWriteBuffer` which catches and routes around via
+   *  `device.queue.writeBuffer`. */
   async borrow(byteLength: number): Promise<StagingSlot> {
     if (byteLength <= 0) throw new Error(`StagingBufferPool.borrow: byteLength must be positive (got ${byteLength})`)
 
@@ -57,12 +80,7 @@ export class StagingBufferPool {
 
     if (tier === TIER_SIZES.length) {
       // Bigger than the largest tier — one-off buffer, destroy on release.
-      const buffer = this.device.createBuffer({
-        size: byteLength,
-        usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
-        mappedAtCreation: true,
-        label: `staging-oversize-${byteLength}`,
-      })
+      const buffer = this._createMappedBuffer(byteLength, `staging-oversize-${byteLength}`)
       this.created++
       return { buffer, tier: -1, byteCapacity: byteLength }
     }
@@ -77,14 +95,31 @@ export class StagingBufferPool {
     }
 
     // No free buffer in this tier — create a fresh one, mapped at birth.
-    const buffer = this.device.createBuffer({
-      size: TIER_SIZES[tier],
-      usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
-      mappedAtCreation: true,
-      label: `staging-tier-${tier}-${TIER_SIZES[tier]}`,
-    })
+    const buffer = this._createMappedBuffer(TIER_SIZES[tier]!, `staging-tier-${tier}-${TIER_SIZES[tier]}`)
     this.created++
-    return { buffer, tier, byteCapacity: TIER_SIZES[tier] }
+    return { buffer, tier, byteCapacity: TIER_SIZES[tier]! }
+  }
+
+  /** mappedAtCreation createBuffer with the SwiftShader-fallback flag
+   *  flip. The flag is read by `asyncWriteBuffer` which takes the
+   *  direct `queue.writeBuffer` path once tripped. */
+  private _createMappedBuffer(size: number, label: string): GPUBuffer {
+    try {
+      return this.device.createBuffer({
+        size,
+        usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
+        mappedAtCreation: true,
+        label,
+      })
+    } catch (e) {
+      // SwiftShader-WebGPU rejects mappedAtCreation buffers even at 4 KB.
+      // Mark the flag and re-throw — asyncWriteBuffer's catch routes
+      // this call and every subsequent one through queue.writeBuffer.
+      if (e instanceof RangeError && /mappedAtCreation/.test(e.message)) {
+        this.mappedAtCreationFails = true
+      }
+      throw e
+    }
   }
 
   /** Return a slot to the pool. Caller must have already unmapped the
@@ -141,7 +176,28 @@ export async function asyncWriteBuffer(
   if (byteLength === 0) {
     return { release: () => {} }
   }
-  const slot = await pool.borrow(byteLength)
+
+  // Fast direct-write path when the staging pool can't allocate
+  // mappedAtCreation buffers (SwiftShader-WebGPU on headless Linux CI).
+  // `queue.writeBuffer` is the canonical fallback — the driver does an
+  // internal staging copy, which is slower but always works.
+  if (pool.hasMappedAtCreationFallback) {
+    pool.gpuDevice.queue.writeBuffer(dst, dstOffset, data as BufferSource)
+    return { release: () => {} }
+  }
+
+  let slot
+  try {
+    slot = await pool.borrow(byteLength)
+  } catch (e) {
+    if (pool.hasMappedAtCreationFallback) {
+      // First-fail: flag was just flipped by borrow's catch. Retry
+      // through the direct path so this very write doesn't drop.
+      pool.gpuDevice.queue.writeBuffer(dst, dstOffset, data as BufferSource)
+      return { release: () => {} }
+    }
+    throw e
+  }
   const mapped = slot.buffer.getMappedRange(0, byteLength)
   // Copy data into the mapped range. Both ArrayBuffer and typed-array
   // inputs map to a Uint8Array view for the byte-level memcpy.
@@ -155,6 +211,6 @@ export async function asyncWriteBuffer(
   // closure rather than auto-releasing so a multi-write tile can batch
   // its uploads into ONE submit, then bulk-release all slots after.
   return {
-    release: () => pool.release(slot),
+    release: () => pool.release(slot!),
   }
 }

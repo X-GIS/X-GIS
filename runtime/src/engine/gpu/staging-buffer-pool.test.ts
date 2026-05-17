@@ -127,6 +127,73 @@ describe('StagingBufferPool', () => {
     expect(created.length).toBe(0)
   })
 
+  // CI regression guard. Headless Chromium on Linux GH runners served
+  // by Mesa's SwiftShader-WebGPU adapter rejects every
+  // `createBuffer({ mappedAtCreation: true })` with
+  // `RangeError: size N is too large for the implementation when
+  // mappedAtCreation == true` — even at 4 KB. Without a fallback,
+  // every tile upload throws and nothing renders.
+  it('falls back to queue.writeBuffer when mappedAtCreation throws', async () => {
+    // Simulate a SwiftShader-style adapter: createBuffer rejects when
+    // mappedAtCreation is true.
+    const writes: Array<{ dst: GPUBuffer; offset: number; data: unknown }> = []
+    const swDevice = {
+      createBuffer: vi.fn((desc: GPUBufferDescriptor) => {
+        if (desc.mappedAtCreation) {
+          throw new RangeError(`Failed to execute 'createBuffer' on 'GPUDevice': ` +
+            `createBuffer failed, size (${desc.size}) is too large for the ` +
+            `implementation when mappedAtCreation == true`)
+        }
+        return new MockBuffer(desc.size, false) as unknown as GPUBuffer
+      }),
+      queue: {
+        writeBuffer: vi.fn((dst: GPUBuffer, off: number, data: BufferSource) => {
+          writes.push({ dst, offset: off, data })
+        }),
+      },
+    } as unknown as GPUDevice
+    const swPool = new StagingBufferPool(swDevice)
+    const encoder = makeMockEncoder()
+    const dstBuf = { _name: 'dst' } as unknown as GPUBuffer
+    const data = new Uint8Array([10, 20, 30, 40])
+
+    // FIRST write: borrow throws → flag flips → retry direct.
+    const handle1 = await asyncWriteBuffer(swPool, encoder, dstBuf, 0, data)
+    handle1.release()
+    expect(swPool.hasMappedAtCreationFallback).toBe(true)
+    expect(writes.length).toBe(1)
+    expect(writes[0]!.dst).toBe(dstBuf)
+    expect(writes[0]!.offset).toBe(0)
+
+    // SECOND write: flag is already set → direct path from the top,
+    // no borrow attempt at all.
+    const handle2 = await asyncWriteBuffer(swPool, encoder, dstBuf, 100, data)
+    handle2.release()
+    expect(writes.length).toBe(2)
+    expect(writes[1]!.offset).toBe(100)
+
+    // No copyBufferToBuffer emitted on the fallback path — driver
+    // does its own internal staging copy inside queue.writeBuffer.
+    expect((encoder as unknown as { _copies: unknown[] })._copies.length).toBe(0)
+  })
+
+  it('_forceDirectWriteFallback test seam triggers the same path without throwing', async () => {
+    const writes: Array<{ dst: GPUBuffer; offset: number }> = []
+    const swDevice = {
+      createBuffer: vi.fn(() => { throw new Error('should not be called') }),
+      queue: {
+        writeBuffer: vi.fn((dst: GPUBuffer, off: number) => { writes.push({ dst, offset: off }) }),
+      },
+    } as unknown as GPUDevice
+    const swPool = new StagingBufferPool(swDevice)
+    swPool._forceDirectWriteFallback()
+    const encoder = makeMockEncoder()
+    const dst = { _name: 'dst' } as unknown as GPUBuffer
+    const handle = await asyncWriteBuffer(swPool, encoder, dst, 0, new Uint8Array([1, 2, 3]))
+    handle.release()
+    expect(writes.length).toBe(1)
+  })
+
   it('asyncWriteBuffer copies data and emits copyBufferToBuffer', async () => {
     const encoder = makeMockEncoder()
     const dst = (device as unknown as { _buffers: MockBuffer[] })._buffers
