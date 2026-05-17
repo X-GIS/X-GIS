@@ -217,6 +217,49 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       if (valid.length === 1) return valid[0]!
       return valid.join(' ?? ')
     }
+    case 'interpolate':
+    case 'interpolate-lab':
+    case 'interpolate-hcl': {
+      // Mapbox `["interpolate", curve, input, x1, y1, x2, y2, …]`. The
+      // converter has a dedicated zoom-stops path (paint.ts /
+      // interpolateZoomCall) that wraps everything in
+      // `interpolate(zoom, …)` and `interpolate_exp(zoom, base, …)`
+      // when the input IS `["zoom"]`. NON-zoom inputs — `["get",
+      // "magnitude"]`, `["heatmap-density"]`, `["feature-state",
+      // "hover"]`, etc. — fall through here so per-feature
+      // interpolations don't drop. Common pattern: `circle-radius:
+      // interpolate(linear, get("mag"), 0, 1, 10, 20)` for earthquake
+      // magnitude scaling, similar for per-feature line-width / opacity.
+      // LAB/HCL colour-space interpolation is approximated as
+      // linear-RGB — the evaluator has no per-stop colour-space
+      // walker yet (same trade-off paint.ts uses for the zoom path).
+      if (v.length < 5) return null
+      const curveSpec = v[1]
+      const input = exprToXgis(v[2], warnings)
+      if (input === null) return null
+      let isExp = false
+      let base = 1
+      if (Array.isArray(curveSpec)) {
+        if (curveSpec[0] === 'exponential' && typeof curveSpec[1] === 'number') {
+          if (curveSpec[1] !== 1) { isExp = true; base = curveSpec[1] }
+        } else if (curveSpec[0] === 'cubic-bezier') {
+          warnings.push(`["interpolate", ["cubic-bezier", …], …] folded to linear — xgis has no per-stop bezier interpolator.`)
+        }
+      }
+      if (op === 'interpolate-lab' || op === 'interpolate-hcl') {
+        warnings.push(`${op}(…) approximated as linear-RGB — xgis has no LAB/HCL per-stop evaluator yet.`)
+      }
+      const stopArgs: string[] = []
+      for (let i = 3; i + 1 < v.length; i += 2) {
+        const z = exprToXgis(v[i], warnings)
+        const y = exprToXgis(v[i + 1], warnings)
+        if (z === null || y === null) return null
+        stopArgs.push(z, y)
+      }
+      if (stopArgs.length < 4) return null
+      if (isExp) return `interpolate_exp(${input}, ${base}, ${stopArgs.join(', ')})`
+      return `interpolate(${input}, ${stopArgs.join(', ')})`
+    }
     // ─── Batch 6: math + trig + log builtins ───
     // All of these have a 1:1 evaluator builtin (callBuiltin in
     // compiler/src/eval/evaluator.ts). The converter just wraps the
