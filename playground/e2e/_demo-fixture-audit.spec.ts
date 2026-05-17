@@ -317,4 +317,21 @@ test('audit every DEMOS entry', async ({ page }) => {
     `\n[demo-audit] DONE: ${results.length} demos, ${broken.length} broken.`
     + `\n  Report: ${join(OUT, 'REPORT.md')}`,
   )
+
+  // Actually fail the test when something is broken — otherwise CI
+  // sees a green check even with 14 NO-READY demos. The report stays
+  // informational AND the gate is real.
+  if (broken.length > 0) {
+    const summary = broken.slice(0, 10).map(r => {
+      const reason = !r.ready ? 'NO-READY'
+        : !r.cameraFinite ? 'CAM-NONFINITE'
+        : r.errors.length > 0 ? `ERR(${r.errors[0]?.slice(0, 60) ?? '?'})`
+        : `BLANK(paint=${r.paintedPx})`
+      return `  ${r.id} [${r.tag}]: ${reason}`
+    }).join('\n')
+    throw new Error(
+      `[demo-audit] ${broken.length} of ${results.length} demos broken:\n${summary}` +
+      (broken.length > 10 ? `\n  …and ${broken.length - 10} more (see REPORT.md)` : ''),
+    )
+  }
 })
