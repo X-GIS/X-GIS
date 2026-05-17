@@ -42,7 +42,15 @@ type InFilter = [string, [string, string], [string, (string | number)[]]]
  *  that needs per-feature colour. */
 export function expandPerFeatureColorMatch(layer: MapboxLayer): MapboxLayer[] | null {
   if (layer.type !== 'fill') return null
-  const paint = (layer.paint ?? {}) as Record<string, unknown>
+  // Defensive: layer.paint should be an object per spec. A non-object
+  // form (string, array, etc. from malformed JSON) would otherwise let
+  // `paint['fill-color']` index a char or undefined.
+  const rawPaint = layer.paint
+  if (rawPaint !== null && rawPaint !== undefined
+      && (typeof rawPaint !== 'object' || Array.isArray(rawPaint))) {
+    return null
+  }
+  const paint = (rawPaint ?? {}) as Record<string, unknown>
   const fc = paint['fill-color']
   if (!Array.isArray(fc) || fc[0] !== 'match') return null
 

@@ -77,7 +77,15 @@ function surfaceIgnoredPaint(
 
 export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string[] {
   const out: string[] = []
-  const p = layer.paint ?? {}
+  // Defensive: paint should be an object per spec. Non-object forms
+  // (string from copy-paste, array, etc.) would otherwise let
+  // `p['fill-color']` index a char or undefined. Mirror of the
+  // expand-color-match guard.
+  const rawPaint = (layer as { paint?: unknown }).paint
+  const p = (rawPaint !== null && rawPaint !== undefined
+    && typeof rawPaint === 'object' && !Array.isArray(rawPaint))
+    ? rawPaint as Record<string, unknown>
+    : {}
 
   if (layer.type === 'fill') {
     addFill(out, p['fill-color'], warnings)
