@@ -14,6 +14,28 @@ import { colorToXgis } from './colors'
 import { exprToXgis } from './expressions'
 import { maybeBracket } from './utils'
 
+/** Consolidated "ignored paint property" diagnostic. Pushes ONE
+ *  warning per layer listing every property that's been declared but
+ *  isn't honoured by the runtime today. Mirror of the symbol-layer
+ *  `ignoredText` block in layers.ts — one warning per layer keeps
+ *  the conversion-notes section readable while still surfacing every
+ *  gap. Callers pass the list of property names that the layer
+ *  TYPE doesn't currently process. */
+function surfaceIgnoredPaint(
+  layerId: string,
+  paint: Record<string, unknown>,
+  warnings: string[],
+  candidates: readonly string[],
+): void {
+  const hits: string[] = []
+  for (const k of candidates) {
+    if (paint[k] !== undefined) hits.push(k)
+  }
+  if (hits.length > 0) {
+    warnings.push(`Layer "${layerId}" — ignored paint properties: ${hits.join(', ')}`)
+  }
+}
+
 export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string[] {
   const out: string[] = []
   const p = layer.paint ?? {}
@@ -33,6 +55,9 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     if (p['fill-pattern'] !== undefined && p['fill-color'] === undefined) {
       warnings.push(`Layer "${layer.id}" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
     }
+    surfaceIgnoredPaint(layer.id, p, warnings, [
+      'fill-translate', 'fill-translate-anchor', 'fill-sort-key',
+    ])
   } else if (layer.type === 'line') {
     addStroke(out, p['line-color'], warnings)
     addStrokeWidth(out, p['line-width'], warnings)
@@ -45,6 +70,10 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     if (p['line-pattern'] !== undefined && p['line-color'] === undefined) {
       warnings.push(`Layer "${layer.id}" — line-pattern declared without line-color; the layer's only visual is a bitmap stroke which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
     }
+    surfaceIgnoredPaint(layer.id, p, warnings, [
+      'line-translate', 'line-translate-anchor', 'line-sort-key',
+      'line-gap-width', 'line-round-limit', 'line-gradient',
+    ])
   } else if (layer.type === 'fill-extrusion') {
     addFill(out, p['fill-extrusion-color'], warnings)
     addOpacity(out, p['fill-extrusion-opacity'], warnings)
