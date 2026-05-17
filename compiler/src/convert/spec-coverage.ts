@@ -275,7 +275,7 @@ const PAINT_HILLSHADE: readonly CoverageEntry[] = [
 // ─── 6. Expression operators ──────────────────────────────────────────
 const EXPRESSIONS: readonly CoverageEntry[] = [
   // Lookups + control flow
-  { name: 'literal',         status: 'supported' },
+  { name: 'literal',         status: 'supported', note: 'Scalar + array forms. Null-valued wrappers (`[\"literal\", null]`) treated as "property omitted" by the paint-helper gate (isOmitted in paint.ts).', source: 'expressions.ts:33' },
   { name: 'get',             status: 'supported', note: 'Bare field for identifier-safe names; `get("name:xx")` for colon-bearing locale keys.', source: 'expressions.ts:25' },
   { name: 'has',             status: 'supported', source: 'expressions.ts:43' },
   { name: '!has',            status: 'supported', source: 'expressions.ts:52' },
