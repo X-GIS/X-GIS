@@ -632,7 +632,26 @@ export class XGISMap {
       // rebuild those references go stale — same pipeline-attachment-
       // mismatch panic, just one indirection deeper. Re-wire every
       // VTR to the freshly built pipelines.
+      //
+      // ALSO re-wire the bind-group layouts: VTR caches
+      // `baseBindGroupLayout` (set once via setBindGroupLayout) AND
+      // `featureBindGroupLayout` (captured per-variant by
+      // buildFeatureDataBuffer). After `initPipelines` replaces both
+      // layout objects on the renderer, every per-tile bind group VTR
+      // already built (tileBgDefault, tileBgFeature, per-tile-feature-
+      // bg) still references the OLD layouts. Drawing those bind
+      // groups against the freshly-rebuilt fillPipeline (whose
+      // pipelineLayout points at the NEW base BGL) is a layout
+      // mismatch — WebGPU drops the draw call but does not throw a
+      // catchable JS error (the validation error fires in the GPU
+      // process and is async / silent at the JS layer), so the canvas
+      // just goes dark with no console signal. multi_layer + countries
+      // demo regressed this way after setQuality({picking:true}); fixed
+      // by re-wiring the base BGL here. featureBindGroupLayout is
+      // re-captured inside `_reResolveVariantPipelines` when each
+      // variant-bearing show re-calls getOrBuildVariantLayout.
       for (const { renderer: vtRenderer } of this.vtSources.values()) {
+        vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
         vtRenderer.setExtrudedPipelines(
           this.renderer.fillPipelineExtruded,
           this.renderer.fillPipelineExtrudedFallback,
