@@ -1974,12 +1974,24 @@ export class XGISMap {
               : resolveNumberShape(sizeShape, this.camera.zoom, performance.now()).value)
           : 8
 
-        // Evaluate per-feature size if data-driven
+        // Evaluate per-feature size if data-driven. Inject reserved
+        // keys (`$zoom` / `$geometryType` / `$featureId`) via
+        // makeEvalProps so size expressions like
+        // `interpolate(zoom, …)` or `case([==, ["geometry-type"],
+        // "Point"], …)` see the live values. Pre-fix the raw props
+        // bag meant size-by-zoom collapsed to baseSize uniformly.
         let perFeatureSizes: number[] | null = null
         if (show.sizeExpr?.ast) {
           const ast = show.sizeExpr.ast as import('@xgis/compiler').Expr
+          const cameraZoom = this.camera.zoom
           perFeatureSizes = filtered.features.map(f => {
-            const r = evaluate(ast, f.properties ?? {})
+            const bag = makeEvalProps({
+              props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
+              geometryType: f.geometry?.type,
+              featureId: (f as { id?: string | number }).id,
+              cameraZoom,
+            })
+            const r = evaluate(ast, bag)
             return typeof r === 'number' ? r : baseSize
           })
         }
