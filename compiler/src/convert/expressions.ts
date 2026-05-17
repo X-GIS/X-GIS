@@ -43,7 +43,17 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // not converted" because a bare `[1, 2, 3]` has no operator
       // string. Emit an xgis array literal instead so the evaluator
       // sees a real array at runtime.
-      const inner = v[1]
+      let inner = v[1]
+      // Loop peel multi-level wraps: `["literal", ["literal", v]]` is
+      // emitted by some v8 strict preprocessor chains. Pre-fix the
+      // inner literal-wrap was treated as a 2-element array literal —
+      // the converter emitted `["literal", 5]` as an xgis array of
+      // ["literal", 5], which the evaluator stored as a real 2-elt
+      // array, breaking downstream consumers expecting the scalar.
+      // Mirror of colorToXgis's loop unwrap (921d5ad).
+      while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') {
+        inner = inner[1]
+      }
       if (Array.isArray(inner)) {
         const parts: string[] = []
         for (const el of inner) {
@@ -177,8 +187,10 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
         // Array.isArray check passed and the iteration produced
         // arms `"literal" -> val`, `[k1, k2] -> val` — both wrong.
         // The bare-array shape `[k1, k2]` is still accepted.
+        // Loop peel for multi-level wraps emitted by some v8 strict
+        // preprocessor chains (`["literal", ["literal", k]]`).
         let key = args[i]
-        if (Array.isArray(key) && key.length === 2 && key[0] === 'literal') {
+        while (Array.isArray(key) && key.length === 2 && key[0] === 'literal') {
           key = key[1]
         }
         const val = exprToXgis(args[i + 1], warnings)
