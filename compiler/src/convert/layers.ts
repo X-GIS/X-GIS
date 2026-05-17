@@ -725,6 +725,15 @@ function convertSymbolLayer(
     'icon-halo-blur',
     'icon-rotation-alignment',
     'icon-text-fit',
+    // Symbol placement controls — `symbol-z-order` and `symbol-sort-key`
+    // change draw ordering at the layer level (Mapbox `symbol-sort-key`
+    // = per-feature priority), `symbol-avoid-edges` skips labels at
+    // tile boundaries to avoid clipped glyphs. Our placement passes
+    // use style-order + greedy collision; none of these knobs is
+    // honoured today.
+    'symbol-z-order',
+    'symbol-sort-key',
+    'symbol-avoid-edges',
   ]) {
     if (layout[k] !== undefined || paint[k] !== undefined) ignoredText.push(k)
   }
