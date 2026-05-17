@@ -441,6 +441,73 @@ describe('converter warning coverage', () => {
     expect(out).not.toMatch(/fill-\["#aef"\]/)
   })
 
+  it('literal-wrapped visibility: "none" hides the layer (visible: false)', () => {
+    // Pins f47ca12. `["literal", "none"]` should resolve to the
+    // visibility-none → `visible: false` block property.
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'hidden',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'park',
+        layout: { 'visibility': ['literal', 'none'] },
+        paint: { 'fill-color': '#0f0' },
+      }],
+    } as never)
+    expect(out).toContain('visible: false')
+  })
+
+  it('literal-wrapped line-cap: "round" emits stroke-round-cap utility', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'rounded',
+        type: 'line',
+        source: 'v',
+        'source-layer': 'transportation',
+        layout: { 'line-cap': ['literal', 'round'] },
+        paint: { 'line-color': '#000' },
+      }],
+    } as never)
+    expect(out).toContain('stroke-round-cap')
+  })
+
+  it('literal-wrapped text-anchor: "top-left" emits label-anchor utility', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: {},
+      layers: [{
+        id: 'corner_label',
+        type: 'symbol',
+        source: 'x',
+        layout: {
+          'text-field': 'L',
+          'text-anchor': ['literal', 'top-left'],
+        },
+      }],
+    } as never)
+    expect(out).toContain('label-anchor-top-left')
+  })
+
+  it('literal-wrapped icon-image emits label-icon-image utility', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: {},
+      layers: [{
+        id: 'sprite_layer',
+        type: 'symbol',
+        source: 'x',
+        layout: {
+          'icon-image': ['literal', 'shield-us'],
+        },
+      }],
+    } as never)
+    expect(out).toContain('label-icon-image-shield-us')
+  })
+
   it('literal-wrapped fill-color → constant fill utility (not data-driven)', () => {
     // Pins the colors.ts literal-unwrap. Mapbox v8 `["literal", "#fff"]`
     // pre-fix fell to exprToXgis as a quoted string and emitted
