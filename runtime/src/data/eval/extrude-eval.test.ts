@@ -87,4 +87,37 @@ describe('evalExtrudeExpr', () => {
     const ast = fn('abs', [fld('delta')])
     expect(evalExtrudeExpr(ast, { delta: -42 })).toBe(42)
   })
+
+  describe('reserved-key injection', () => {
+    // Pins the tileZoom + feature.id + feature.geometry.type passthrough
+    // added in 6018086 / 73f3880. Without makeEvalProps the helper
+    // saw undefined for the reserved identifiers — a future refactor
+    // that drops the reserved-key wiring would silently regress
+    // every per-feature extrude using `["zoom"]` / `["geometry-type"]`
+    // / `["id"]`.
+
+    // FieldAccess('$zoom') simulates the AST lowered from `["zoom"]`
+    // / `interpolate(zoom, …)` — the evaluator reads props['$zoom']
+    // for the reserved camera-zoom slot.
+    it('resolves the reserved $zoom key when tileZoom is provided', () => {
+      const ast = fld('$zoom')
+      expect(evalExtrudeExpr(ast, {}, 14)).toBe(14)
+      // Backward-compat: tileZoom omitted ⇒ raw props bag ⇒ $zoom
+      // resolves to undefined ⇒ helper returns null.
+      expect(evalExtrudeExpr(ast, {})).toBeNull()
+    })
+
+    it('resolves $featureId from feature.id when feature is provided', () => {
+      const ast = fld('$featureId')
+      expect(evalExtrudeExpr(ast, {}, 14, { id: 42 })).toBe(42)
+    })
+
+    it('does not blow up when feature is provided but tileZoom is not', () => {
+      // The geometryType / featureId branches inside makeEvalProps
+      // must work without cameraZoom — sanity that the gate is on
+      // "ANY reserved key present" rather than "tileZoom present".
+      const ast = fld('$featureId')
+      expect(evalExtrudeExpr(ast, {}, undefined, { id: 7 })).toBe(7)
+    })
+  })
 })
