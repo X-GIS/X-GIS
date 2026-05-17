@@ -497,13 +497,19 @@ function callBuiltin(name: string, args: unknown[]): unknown {
         if (input >= a.x && input <= b.x) {
           if (typeof a.y === 'number' && typeof b.y === 'number') {
             let t: number
-            if (base === 1 || Math.abs(base - 1) < 1e-6) {
+            // Guard against duplicate-x stops (a.x === b.x) which
+            // would otherwise produce division by zero → Infinity → t
+            // NaN-propagates into the final result.
+            if (b.x === a.x) {
+              t = 0
+            } else if (base === 1 || Math.abs(base - 1) < 1e-6) {
               t = (input - a.x) / (b.x - a.x)
             } else {
               const numer = Math.pow(base, input - a.x) - 1
               const denom = Math.pow(base, b.x - a.x) - 1
               t = denom === 0 ? 0 : numer / denom
             }
+            if (!Number.isFinite(t)) t = 0
             return a.y + (b.y - a.y) * t
           }
           // Non-numeric — pick the closer stop.
