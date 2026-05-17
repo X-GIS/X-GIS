@@ -391,8 +391,12 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // Mapbox `["concat", a, b, …]` → xgis `concat(a, b, …)`. The
       // evaluator coerces each arg to string with null-skipping
       // semantics that match the Mapbox spec.
+      // Zero-arg `["concat"]` and all-null `["concat", null, null]`
+      // both return empty string per Mapbox spec. Pre-fix the empty
+      // case returned null which silently dropped the property
+      // (e.g. text-field collapsed to no label).
       const parts = v.slice(1).map(a => exprToXgis(a, warnings)).filter((s): s is string => s !== null)
-      return parts.length > 0 ? `concat(${parts.join(', ')})` : null
+      return parts.length > 0 ? `concat(${parts.join(', ')})` : '""'
     }
     case 'format': {
       // Mapbox `["format", text1, opts1, text2, opts2, …]`. Each
