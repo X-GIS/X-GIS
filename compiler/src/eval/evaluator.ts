@@ -348,8 +348,15 @@ function callBuiltin(name: string, args: unknown[]): unknown {
       // became `toNumber("China") = NaN` and labels rendered as
       // "NaN" / blank instead of the intended ABBREV / NAME.
       if (args.length === 4 && typeof args[2] !== 'number') {
-        const [val, threshold, below, above] = args.map(toNumber)
-        return val < threshold ? below : above
+        // Legacy step(val, threshold, below, above) — only the input
+        // value + threshold are numeric; the below/above payloads
+        // pass through verbatim (could be strings, colours, anything).
+        // Pre-fix `args.map(toNumber)` coerced ALL FOUR, so
+        // step(.size, 12, "small", "large") returned 0 either branch
+        // and the label fell back to literal "0" / NaN.
+        const val = toNumber(args[0])
+        const threshold = toNumber(args[1])
+        return val < threshold ? args[2] : args[3]
       }
       if (args.length >= 4 && args.length % 2 === 0) {
         // Mapbox N-stop. Args: [input, def, stop1, val1, stop2, val2, …]
