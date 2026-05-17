@@ -56,6 +56,14 @@ function literalArmsEqual(a: AST.Expr, b: AST.Expr): boolean {
   if (a.kind === 'BoolLiteral' && b.kind === 'BoolLiteral') {
     return a.value === b.value
   }
+  // StringLiteral added so a match() whose arms all return the same
+  // hex via JSON.stringify'd path (e.g. user-authored `"#abc"`) folds
+  // to a constant the same way ColorLiteral does. Mirror of the
+  // lower.ts StringLiteral-hex acceptance in extractInterpolate
+  // ZoomColorStops (3d91486).
+  if (a.kind === 'StringLiteral' && b.kind === 'StringLiteral') {
+    return a.value === b.value
+  }
   return false
 }
 
@@ -75,8 +83,15 @@ function commonLiteralArm(ast: AST.Expr): AST.Expr | null {
 function foldColor(value: ColorValue): ColorValue {
   if (value.kind !== 'data-driven') return value
   const lit = commonLiteralArm(value.expr.ast)
-  if (lit === null || lit.kind !== 'ColorLiteral') return value
-  return colorConstant(...hexToRgba(lit.value))
+  if (lit === null) return value
+  if (lit.kind === 'ColorLiteral') return colorConstant(...hexToRgba(lit.value))
+  // StringLiteral hex (`"#abc"`) folds the same way — match arms
+  // built via the JSON.stringify'd converter path can carry hex
+  // strings as StringLiterals rather than the bare-hex ColorLiteral.
+  if (lit.kind === 'StringLiteral' && /^#[0-9a-fA-F]{3,8}$/.test(lit.value)) {
+    return colorConstant(...hexToRgba(lit.value))
+  }
+  return value
 }
 
 function foldOpacity(value: OpacityValue): OpacityValue {
