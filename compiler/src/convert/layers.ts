@@ -511,8 +511,19 @@ function convertSymbolLayer(
   // utility-name grammar treats `-` as a segment separator — emitting
   // `label-offset-y--0.2` would lex as a malformed double-dash name.
   const fmtSigned = (n: number): string => n < 0 ? `[${n}]` : `${n}`
-  const offset = unwrapLiteralTuple(layout['text-offset'])
-  if (Array.isArray(offset) && offset.length === 2
+  // Per-element v8 literal-wrap unwrap so a double-wrap shape like
+  // `["literal", [["literal", 0], ["literal", -1.5]]]` resolves to
+  // [0, -1.5]. Outer unwrap above gave the inner array but each
+  // scalar may still be wrapped — pre-fix the typeof === 'number'
+  // gate failed and the offset silently dropped.
+  const unwrapPairScalars = (t: unknown): unknown[] | null => {
+    if (!Array.isArray(t) || t.length !== 2) return null
+    return t.map(c =>
+      Array.isArray(c) && c.length === 2 && c[0] === 'literal' ? c[1] : c,
+    )
+  }
+  const offset = unwrapPairScalars(unwrapLiteralTuple(layout['text-offset']))
+  if (offset !== null
       && typeof offset[0] === 'number' && typeof offset[1] === 'number') {
     if (offset[0] !== 0) utils.push(`label-offset-x-${fmtSigned(offset[0])}`)
     if (offset[1] !== 0) utils.push(`label-offset-y-${fmtSigned(offset[1])}`)
@@ -522,8 +533,8 @@ function convertSymbolLayer(
   // labels off the road centreline (`text-translate: [0, -8]` for
   // an 8-px upward shift). Negatives ride the bracket form like
   // text-offset.
-  const translate = unwrapLiteralTuple(paint['text-translate'])
-  if (Array.isArray(translate) && translate.length === 2
+  const translate = unwrapPairScalars(unwrapLiteralTuple(paint['text-translate']))
+  if (translate !== null
       && typeof translate[0] === 'number' && typeof translate[1] === 'number') {
     if (translate[0] !== 0) utils.push(`label-translate-x-${fmtSigned(translate[0])}`)
     if (translate[1] !== 0) utils.push(`label-translate-y-${fmtSigned(translate[1])}`)
@@ -553,9 +564,16 @@ function convertSymbolLayer(
       // Per-pair offset can be the bare [x, y] OR Mapbox v8's
       // `["literal", [x, y]]` wrapper. Mirror of the unwrap applied
       // to text-offset / icon-offset (7986ea5).
-      const off = unwrapLiteralTuple(variableAnchorOffset![i + 1])
+      const offRaw = unwrapLiteralTuple(variableAnchorOffset![i + 1])
+      // Per-element scalar wrap unwrap so `[["literal", 0], ["literal", -1]]`
+      // resolves correctly. Mirror of text-offset / icon-offset.
+      const off = Array.isArray(offRaw) && offRaw.length === 2
+        ? offRaw.map(c =>
+            Array.isArray(c) && c.length === 2 && c[0] === 'literal' ? c[1] : c,
+          )
+        : null
       if (typeof a === 'string' && VALID_ANCHORS.has(a)
-          && Array.isArray(off) && off.length === 2
+          && off !== null
           && typeof off[0] === 'number' && typeof off[1] === 'number') {
         utils.push(`label-anchor-${a}`)
         if (off[0] !== 0) utils.push(`label-vao-${idx}-x-${fmtSigned(off[0])}`)
@@ -821,8 +839,14 @@ function convertSymbolLayer(
   if (typeof iconAnchor === 'string' && iconAnchor !== 'center') {
     utils.push(`label-icon-anchor-${iconAnchor}`)
   }
-  const iconOffset = unwrapLiteralTuple(layout['icon-offset'])
-  if (Array.isArray(iconOffset) && iconOffset.length === 2
+  // Per-element v8 literal-wrap unwrap (mirror of text-offset / text-translate).
+  const iconOffsetRaw = unwrapLiteralTuple(layout['icon-offset'])
+  const iconOffset = Array.isArray(iconOffsetRaw) && iconOffsetRaw.length === 2
+    ? iconOffsetRaw.map(c =>
+        Array.isArray(c) && c.length === 2 && c[0] === 'literal' ? c[1] : c,
+      )
+    : null
+  if (iconOffset !== null
       && typeof iconOffset[0] === 'number' && typeof iconOffset[1] === 'number') {
     // Two utilities so the xgis-utility-name grammar (`-` is the
     // segment separator) can carry signed numbers without a custom
