@@ -38,11 +38,16 @@ function unwrapStopLiteral(v: unknown): unknown {
  *  as a runtime `null` identifier binding (commit a969be5). */
 function isOmitted(v: unknown): boolean {
   if (v === undefined || v === null) return true
-  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal'
-      && (v[1] === null || v[1] === undefined)) {
-    return true
+  // Loop peel so multi-wrapped null (`["literal", ["literal", null]]`)
+  // also falls through to "omitted". Mirror of the loop unwrap in
+  // colorToXgis (921d5ad) + unwrapStopLiteral (0532bc3). Pre-fix the
+  // single-pass check missed double-wrapped nulls and they leaked
+  // through to exprToXgis as `null` identifier bindings.
+  let cur: unknown = v
+  while (Array.isArray(cur) && cur.length === 2 && cur[0] === 'literal') {
+    cur = cur[1]
   }
-  return false
+  return cur === null || cur === undefined
 }
 
 /** Consolidated "ignored paint property" diagnostic. Pushes ONE
