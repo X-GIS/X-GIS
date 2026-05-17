@@ -219,7 +219,11 @@ export function convertMapboxStyle(
   // Defensive null/object guard: malformed styles can have null entries
   // in the layers array. `l.type` would crash; emit nothing for null
   // entries and warn so the rest still converts.
-  const bgLayer = (style.layers ?? []).find(
+  // Defensive: style.layers should be an array per spec. Non-array
+  // forms (object / string / null) would otherwise crash .find /
+  // for...of. Coerce to [] when malformed.
+  const layersArr = Array.isArray(style.layers) ? style.layers : []
+  const bgLayer = layersArr.find(
     l => l !== null && typeof l === 'object' && (l as { type?: unknown }).type === 'background',
   )
   if (bgLayer) {
@@ -273,7 +277,7 @@ export function convertMapboxStyle(
   }
 
   // ── Layers ─────────────────────────────────────────────────────────
-  for (const layer of style.layers ?? []) {
+  for (const layer of layersArr) {
     // Defensive guard: null / non-object layer entry (malformed style).
     // Pre-fix `layer.type` crashed at runtime and the entire style
     // failed to convert past the bad entry.
