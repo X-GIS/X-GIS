@@ -179,7 +179,7 @@ function interpolateZoomStops(
     const legacyStops: Array<{ zoom: number; value: unknown }> = []
     for (const s of rawStops) {
       if (!Array.isArray(s) || s.length < 2 || typeof s[0] !== 'number') return null
-      legacyStops.push({ zoom: s[0], value: s[1] })
+      legacyStops.push({ zoom: s[0], value: unwrapStopLiteral(s[1]) })
     }
     if (legacyStops.length < 2) return null
     const rawBase = (v as { base?: unknown }).base
