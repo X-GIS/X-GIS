@@ -310,7 +310,13 @@ function callBuiltin(name: string, args: unknown[]): unknown {
     case 'floor': return Math.floor(toNumber(args[0]))
     case 'ceil': return Math.ceil(toNumber(args[0]))
     case 'abs': return Math.abs(toNumber(args[0]))
-    case 'sqrt': return Math.sqrt(toNumber(args[0]))
+    case 'sqrt': {
+      // Math.sqrt(-1) = NaN; clamp negative inputs to 0 so the NaN
+      // doesn't propagate into downstream arithmetic (consistent with
+      // toNumber's non-finite → 0 fallback at c6aa3b0).
+      const x = toNumber(args[0])
+      return x < 0 ? 0 : Math.sqrt(x)
+    }
     case 'log10': return Math.log10(Math.max(1e-10, toNumber(args[0])))
     case 'log2': return Math.log2(Math.max(1e-10, toNumber(args[0])))
     case 'scale': return toNumber(args[0]) * toNumber(args[1])
@@ -510,8 +516,16 @@ function callBuiltin(name: string, args: unknown[]): unknown {
     case 'sin': return Math.sin(toNumber(args[0]))
     case 'cos': return Math.cos(toNumber(args[0]))
     case 'tan': return Math.tan(toNumber(args[0]))
-    case 'asin': return Math.asin(toNumber(args[0]))
-    case 'acos': return Math.acos(toNumber(args[0]))
+    case 'asin': {
+      // Math.asin domain [-1, 1] — outside returns NaN. Clamp so the
+      // NaN doesn't propagate downstream (consistent with sqrt clamp).
+      const x = toNumber(args[0])
+      return Math.asin(Math.max(-1, Math.min(1, x)))
+    }
+    case 'acos': {
+      const x = toNumber(args[0])
+      return Math.acos(Math.max(-1, Math.min(1, x)))
+    }
     case 'atan': return Math.atan(toNumber(args[0]))
     case 'atan2': return Math.atan2(toNumber(args[0]), toNumber(args[1]))
     // Exponential
