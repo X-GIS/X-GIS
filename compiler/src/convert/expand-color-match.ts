@@ -96,7 +96,11 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer): MapboxLayer[] | 
     }
     if (typeof out !== 'string') return null  // every arm must be a colour string
     const valList = Array.isArray(vals) ? vals : [vals]
-    for (const v of valList) {
+    for (let v of valList) {
+      // Inner per-element literal-wrap, mirror of the match-handler
+      // double-wrap fix (47d1d81). The outer unwrap above only peels
+      // the array wrapper; each element may still be `["literal", x]`.
+      if (Array.isArray(v) && v.length === 2 && v[0] === 'literal') v = v[1]
       if (typeof v !== 'string' && typeof v !== 'number') return null
       allVals.push(v)
       const bucket = byColour.get(out) ?? []
