@@ -841,6 +841,13 @@ export interface ShowCommand {
    *  and the compiler's emit-commands both populate it; bucket-
    *  scheduler can drop its legacy-field fallback now. */
   paintShapes: import('@xgis/compiler').PaintShapes
+  /** Per-feature label spec (Mapbox `symbol` text / icon). Compiler's
+   *  ShowCommand carries the full LabelDef; the runtime renderer only
+   *  needs the presence check + text/size for the SDF stage, so the
+   *  type here is the structurally-narrower compiler export. Without
+   *  this field, show-source-maps.ts:149's `show.label !== undefined`
+   *  check failed TS2339. */
+  label?: import('@xgis/compiler').LabelDef
 }
 
 /**
