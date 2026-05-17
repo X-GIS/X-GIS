@@ -1990,7 +1990,15 @@ export class XGISMap {
               featureId: (f as { id?: string | number }).id,
               cameraZoom,
             })
-            const r = evaluate(ast, bag)
+            // Per-feature throw isolation — mirror of applyFilter
+            // (566ab36). One pathological size expression must not
+            // collapse every point's size to NaN.
+            let r: unknown
+            try {
+              r = evaluate(ast, bag)
+            } catch {
+              return baseSize
+            }
             return typeof r === 'number' ? r : baseSize
           })
         }
