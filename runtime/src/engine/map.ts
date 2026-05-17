@@ -251,6 +251,11 @@ export interface XGISMapOptions {
    *  match() expressions pre-expanded by `expand-color-match` so
    *  the compute path sees 0 entries on them — still safe to enable. */
   enableComputePath?: boolean
+  /** Show the lat/lon graticule grid lines. Default `false` — the
+   *  graticule was a debugging aid that shipped on by default; for
+   *  basemap-quality output it should opt in. Toggle at runtime via
+   *  `map.setGraticuleEnabled(bool)`. */
+  graticule?: boolean
 }
 
 /** Map of CSS family name → per-font typography overrides. Built once
@@ -507,6 +512,25 @@ export class XGISMap {
     // P4 opt-in for compute-driven paint evaluation. Stored as a
     // simple flag the run() method reads when invoking emitCommands.
     if (options.enableComputePath) this._enableComputePath = true
+    // Graticule default off (was implicitly on). Applied AFTER renderer
+    // construction via setGraticuleEnabled — held here until renderer
+    // exists (initGPU resolves in run()).
+    this._graticuleInitial = options.graticule === true
+  }
+
+  /** Captured at ctor time so run() can apply it once MapRenderer exists. */
+  private _graticuleInitial = false
+
+  /** Toggle the lat/lon grid overlay. Default off. */
+  setGraticuleEnabled(on: boolean): void {
+    this.renderer?.setGraticuleEnabled(on)
+    this._graticuleInitial = on
+    this.invalidate()
+  }
+
+  /** Current graticule on/off state. */
+  isGraticuleEnabled(): boolean {
+    return this.renderer?.isGraticuleEnabled() ?? this._graticuleInitial
   }
 
   /** P4 opt-in flag. When true, run() invokes
@@ -1309,6 +1333,7 @@ export class XGISMap {
     if (result instanceof Error) throw result
     this.ctx = result
     this.renderer = new MapRenderer(this.ctx)
+    this.renderer.setGraticuleEnabled(this._graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
     this.backgroundRenderer = new BackgroundRenderer(this.ctx)
     if (this._backgroundColor) this.backgroundRenderer.setFill(this._backgroundColor)
@@ -2141,6 +2166,7 @@ export class XGISMap {
 
     this.ctx = await initGPU(this.canvas)
     this.renderer = new MapRenderer(this.ctx)
+    this.renderer.setGraticuleEnabled(this._graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
     if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
       try { this.pointRenderer = new PointRenderer(this.ctx) } catch (e) { console.warn('[X-GIS] PointRenderer init failed:', e) }

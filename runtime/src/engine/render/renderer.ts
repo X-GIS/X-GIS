@@ -1153,6 +1153,11 @@ export class MapRenderer {
   private graticuleBuffer: GPUBuffer | null = null
   private graticuleVertexCount = 0
   private lastGratZoom = -1
+  /** Toggle for the lat/lon grid overlay. Default OFF — the graticule
+   *  was a dev/debug aid that shipped enabled; basemap-quality output
+   *  should opt in. XGISMap exposes `setGraticuleEnabled()` so the
+   *  host app + URL flags can flip it without rebuilding renderers. */
+  private graticuleEnabled = false
   /** GPU-buffer cache mirroring graticule.ts's CPU-data cache.
    *  Keyed by GraticuleData IDENTITY — the underlying generator
    *  returns the same object for the same zoom bucket, so a Map
@@ -1214,7 +1219,20 @@ export class MapRenderer {
   constructor(ctx: GPUContext) {
     this.ctx = ctx
     this.initPipelines()
-    this.initGraticule()
+    // Graticule init is lazy — first frame after setGraticuleEnabled(true)
+    // builds the buffer. Default off so the ctor stays cheap and the
+    // grid doesn't render unless the host opts in.
+  }
+
+  /** Toggle the lat/lon grid overlay at runtime. Default off. */
+  setGraticuleEnabled(on: boolean): void {
+    this.graticuleEnabled = on
+    if (on && !this.graticuleBuffer) this.initGraticule(this.lastGratZoom >= 0 ? this.lastGratZoom : 2)
+  }
+
+  /** Read the current graticule on/off state. */
+  isGraticuleEnabled(): boolean {
+    return this.graticuleEnabled
   }
 
   /** Get-or-create the compute registry. Lazy because most scenes
@@ -2684,15 +2702,19 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
       }
     }
 
-    // Regenerate graticule if zoom level changed (adaptive spacing)
-    const gratZoom = Math.round(camera.zoom)
-    if (gratZoom !== this.lastGratZoom) {
-      this.initGraticule(gratZoom)
+    // Regenerate graticule if zoom level changed (adaptive spacing).
+    // Skip entirely when disabled so the GPU buffer + writeBuffer
+    // churn stays out of the hot path for default-off basemaps.
+    if (this.graticuleEnabled) {
+      const gratZoom = Math.round(camera.zoom)
+      if (gratZoom !== this.lastGratZoom) {
+        this.initGraticule(gratZoom)
+      }
     }
 
     // Draw graticule grid lines (primary world + copies)
     // Each world copy needs its own uniform buffer (WebGPU batches writeBuffer)
-    if (this.graticuleBuffer) {
+    if (this.graticuleEnabled && this.graticuleBuffer) {
       const gDEG2RAD = Math.PI / 180
       const gR = 6378137
       const gcy = Math.log(Math.tan(Math.PI / 4 + Math.max(-85.051129, Math.min(85.051129, projCenterLat)) * gDEG2RAD / 2)) * gR
