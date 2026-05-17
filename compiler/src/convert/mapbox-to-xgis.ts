@@ -122,7 +122,24 @@ export function convertMapboxStyle(
   input: string | MapboxStyle,
   options?: ConvertMapboxStyleOptions,
 ): string {
-  const style: MapboxStyle = typeof input === 'string' ? JSON.parse(input) : input
+  let parsed: unknown
+  if (typeof input === 'string') {
+    try {
+      parsed = JSON.parse(input)
+    } catch (e) {
+      // Malformed JSON — emit a comment + empty style instead of
+      // letting the SyntaxError propagate up through every caller.
+      return `/* Mapbox style conversion failed: invalid JSON — ${(e as Error).message.replace(/\*\//g, '* /')} */`
+    }
+  } else {
+    parsed = input
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    // Null / non-object style body — pre-fix the function then accessed
+    // `style.name` on null and crashed.
+    return `/* Mapbox style conversion failed: expected an object, got ${parsed === null ? 'null' : typeof parsed} */`
+  }
+  const style: MapboxStyle = parsed as MapboxStyle
   const lines: string[] = []
   const warnings: string[] = []
 
