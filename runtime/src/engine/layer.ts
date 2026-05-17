@@ -151,13 +151,19 @@ export class XGISLayerStyle {
 
   get opacity(): number { return this.host.show.opacity ?? 1 }
   set opacity(v: number) {
+    // Mapbox spec: opacity ∈ [0, 1]; reject NaN/Infinity. Mirror of
+    // setPaintProperty clamp (62dfd1e). Pre-fix a direct
+    // `style.opacity = -1` (host-side) bypassed the API gate and
+    // pushed a negative value into the WebGPU draw path.
+    if (typeof v !== 'number' || !Number.isFinite(v)) return
+    const clamped = Math.max(0, Math.min(1, v))
     this.snapshot('opacity', this.host.show.opacity ?? 1)
-    this.host.show.opacity = v
+    this.host.show.opacity = clamped
     // bucket-scheduler reads `paintShapes.opacity` per-frame, not the
     // flat `show.opacity` field. Update both so the WebGPU draw path
     // picks up the imperative override. (Was silently ineffective
     // post-Step-1d before this commit.)
-    this.host.show.paintShapes.opacity = { kind: 'constant', value: v }
+    this.host.show.paintShapes.opacity = { kind: 'constant', value: clamped }
     this.host.invalidate()
   }
 
@@ -201,9 +207,12 @@ export class XGISLayerStyle {
 
   get strokeWidth(): number { return this.host.show.strokeWidth }
   set strokeWidth(v: number) {
+    // Mapbox spec: line-width >= 0; reject NaN/Infinity.
+    if (typeof v !== 'number' || !Number.isFinite(v)) return
+    const clamped = Math.max(0, v)
     this.snapshot('strokeWidth', this.host.show.strokeWidth)
-    this.host.show.strokeWidth = v
-    this.host.show.paintShapes.strokeWidth = { kind: 'constant', value: v }
+    this.host.show.strokeWidth = clamped
+    this.host.show.paintShapes.strokeWidth = { kind: 'constant', value: clamped }
     this.host.invalidate()
   }
 
