@@ -851,7 +851,14 @@ function convertSymbolLayer(
     'symbol-sort-key',
     'symbol-avoid-edges',
   ]) {
-    if (layout[k] !== undefined || paint[k] !== undefined) ignoredText.push(k)
+    // Treat null the same as undefined per Mapbox spec — both mean
+    // "property omitted, use default". Pre-fix a null value emitted
+    // a spurious warning even though no real declaration existed.
+    const lv = layout[k]
+    const pv = paint[k]
+    if ((lv !== undefined && lv !== null) || (pv !== undefined && pv !== null)) {
+      ignoredText.push(k)
+    }
   }
   if (ignoredText.length > 0) {
     warnings.push(`Symbol layer "${layer.id}" — ignored properties (Batch 1d/1e+): ${ignoredText.join(', ')}`)
@@ -1112,7 +1119,10 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
     'circle-pitch-scale', 'circle-pitch-alignment', 'circle-stroke-opacity',
     'circle-sort-key',
   ]) {
-    if (paint[k] !== undefined) ignored.push(k)
+    // Treat null the same as undefined — see the symbol-ignored
+    // gate above for the rationale.
+    const pv = paint[k]
+    if (pv !== undefined && pv !== null) ignored.push(k)
   }
   const layoutForCircle = (layer as { layout?: Record<string, unknown> }).layout ?? {}
   if (layoutForCircle['circle-sort-key'] !== undefined) ignored.push('circle-sort-key (layout)')
