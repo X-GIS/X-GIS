@@ -173,7 +173,7 @@ export function convertSource(
     // source data carries on the id slot, undefined when absent.
     const promoteId = (src as { promoteId?: unknown }).promoteId
     if (promoteId !== undefined) {
-      warnings.push(`GeoJSON source "${id}" declares promoteId; the runtime doesn't promote feature properties to feature.id, so the `[id]` accessor reads the original id slot only.`)
+      warnings.push(`GeoJSON source "${id}" declares promoteId; the runtime doesn't promote feature properties to feature.id, so the ["id"] accessor reads the original id slot only.`)
     }
     const data = (src as { data?: string | unknown }).data
     if (typeof data === 'string') {

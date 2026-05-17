@@ -262,6 +262,43 @@ describe('converter warning coverage', () => {
     expect(w.some(s => s.includes('"protomaps"') && s.includes('unsupported type'))).toBe(false)
   })
 
+  it('background-opacity / background-pattern → ignored-properties warning', () => {
+    // Pins 00f8834.
+    const w = warningsOf({
+      version: 8,
+      sources: {},
+      layers: [{
+        id: 'bg',
+        type: 'background',
+        paint: {
+          'background-color': '#f8f4f0',
+          'background-opacity': 0.7,
+          'background-pattern': 'paper',
+        },
+      }],
+    })
+    const note = w.find(s => s.includes('"bg"') && s.includes('ignored properties'))
+    expect(note, `expected background ignored-properties note: ${JSON.stringify(w)}`).toBeDefined()
+    expect(note).toContain('background-opacity')
+    expect(note).toContain('background-pattern')
+  })
+
+  it('GeoJSON promoteId → reserved-id warning', () => {
+    // Pins f8aed39.
+    const w = warningsOf({
+      version: 8,
+      sources: {
+        d: {
+          type: 'geojson',
+          data: 'https://example.com/d.geojson',
+          promoteId: 'osm_id',
+        },
+      },
+      layers: [{ id: 'l', type: 'circle', source: 'd' }],
+    })
+    expect(w.some(s => s.includes('"d"') && s.includes('promoteId'))).toBe(true)
+  })
+
   it('glyphs / sprite must NOT appear in the top-level warning (host-integration handled)', () => {
     // Regression for 2819cd6 — these used to be flagged here even
     // though the playground importers forward them via setGlyphsUrl /
