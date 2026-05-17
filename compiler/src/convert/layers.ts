@@ -335,6 +335,14 @@ function convertSymbolLayer(
       (val) => typeof val === 'number' ? String(val) : null)
     if (interp !== null) {
       utils.push(`label-halo-[${interp}]`)
+    } else {
+      // Per-feature halo width — `["case", …]` / `["match", …]` selecting
+      // halo size by feature class. lower.ts has no binding-form arm
+      // for the bracket numeric here yet (mirror of text-size's expr
+      // path), but emitting the utility lets the IR carry the AST so
+      // a follow-up plumbing PR doesn't need a converter change.
+      const expr = exprToXgis(haloWidth, warnings)
+      if (expr !== null) utils.push(`label-halo-[${expr}]`)
     }
   }
   const haloColor = paint['text-halo-color']
@@ -344,7 +352,17 @@ function convertSymbolLayer(
       utils.push(`label-halo-color-[${interp}]`)
     } else {
       const colorStr = colorToXgis(haloColor, warnings)
-      if (colorStr) utils.push(`label-halo-color-${colorStr}`)
+      if (colorStr) {
+        utils.push(`label-halo-color-${colorStr}`)
+      } else {
+        // Per-feature halo colour (`["match", ["get","class"], …]`).
+        // Mirror of the text-color data-driven path above. Without this
+        // fallback, halos with a match expression silently dropped and
+        // labels rendered without their declared halo — typical pattern
+        // for road shields that pick halo colour by network class.
+        const expr = exprToXgis(haloColor, warnings)
+        if (expr !== null) utils.push(`label-halo-color-[${expr}]`)
+      }
     }
   }
   // text-halo-blur — Mapbox feathering width in pixels. Constant
