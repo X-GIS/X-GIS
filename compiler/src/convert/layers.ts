@@ -820,7 +820,10 @@ function parseSymbolPlacementStep(
   // Args after the input: default + N (zoom, value) pairs.
   const rest = sp.slice(2)
   if (rest.length < 3 || rest.length % 2 !== 1) return null
-  const defaultVal = rest[0]
+  // v8 strict tooling may emit `["literal", "point"]` for each step
+  // value; unwrap at the validity check so both bare and wrapped
+  // shapes feed the same code path.
+  const defaultVal = unwrapLiteralScalar(rest[0])
   const isValidPlacement = (v: unknown): v is 'point' | 'line' | 'line-center' =>
     v === 'point' || v === 'line' || v === 'line-center'
   if (!isValidPlacement(defaultVal)) return null
@@ -830,7 +833,7 @@ function parseSymbolPlacementStep(
   const breakpoints: Array<{ zoom: number; placement: 'point' | 'line' | 'line-center' }> = []
   for (let i = 1; i < rest.length; i += 2) {
     const z = rest[i]
-    const v = rest[i + 1]
+    const v = unwrapLiteralScalar(rest[i + 1])
     if (typeof z !== 'number' || !isValidPlacement(v)) return null
     breakpoints.push({ zoom: z, placement: v })
   }
