@@ -204,19 +204,48 @@ export interface ZoomStopsWithBase<T> {
  *  fill renderer. The converter lowers Mapbox `["match", input, k,
  *  v, …, default]` into this shape via `expressions.ts:111`. */
 function extractMatchDefaultColor(expr: AST.Expr): string | null {
-  if (expr.kind !== 'FnCall') return null
-  if (expr.callee.kind !== 'Identifier' || expr.callee.name !== 'match') return null
-  const matchBlock = expr.matchBlock
-  if (!matchBlock) return null
-  for (const arm of matchBlock.arms) {
-    if (arm.pattern === '_') {
-      if (arm.value.kind === 'ColorLiteral') return arm.value.value
-      // The converter sometimes wraps the default in resolveColor at
-      // emit time; we accept hex-shaped string literals too.
-      if (arm.value.kind === 'StringLiteral' && /^#/.test(arm.value.value)) {
-        return arm.value.value
+  // Match form: `match(.field) { v -> #colour, …, _ -> #default }`.
+  if (expr.kind === 'FnCall'
+      && expr.callee.kind === 'Identifier'
+      && expr.callee.name === 'match'
+      && expr.matchBlock) {
+    for (const arm of expr.matchBlock.arms) {
+      if (arm.pattern === '_') {
+        if (arm.value.kind === 'ColorLiteral') return arm.value.value
+        // The converter sometimes wraps the default in resolveColor at
+        // emit time; we accept hex-shaped string literals too.
+        if (arm.value.kind === 'StringLiteral' && /^#/.test(arm.value.value)) {
+          return arm.value.value
+        }
       }
     }
+    return null
+  }
+  // Ternary / `case()` form: `cond ? #c1 : cond2 ? #c2 : #default`.
+  // The converter's case-lowering emits a right-leaning ConditionalExpr
+  // chain (`expressions.ts` case 'case'). Walk down the elseExpr side
+  // until we hit a ColorLiteral or hex-shaped StringLiteral leaf —
+  // that's the default arm. Any branch returning a non-colour leaf
+  // (number, identifier, etc.) means this isn't a colour expression
+  // and we bail with null so the caller routes through the width path.
+  if (expr.kind === 'ConditionalExpr') {
+    let cur: AST.Expr = expr
+    while (cur.kind === 'ConditionalExpr') {
+      // Check the THEN branch carries a colour leaf — first non-colour
+      // branch disqualifies the whole expression.
+      const t = cur.thenExpr
+      if (t.kind === 'ColorLiteral') {
+        // ok
+      } else if (t.kind === 'StringLiteral' && /^#/.test(t.value)) {
+        // ok
+      } else {
+        return null
+      }
+      cur = cur.elseExpr
+    }
+    if (cur.kind === 'ColorLiteral') return cur.value
+    if (cur.kind === 'StringLiteral' && /^#/.test(cur.value)) return cur.value
+    return null
   }
   return null
 }
