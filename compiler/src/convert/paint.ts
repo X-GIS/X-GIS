@@ -514,6 +514,13 @@ function addOpacity(out: string[], v: unknown, warnings: string[]): void {
 function addExtrudeHeight(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
   v = unwrapLiteralNumeric(v)
+  // Mapbox spec: fill-extrusion-height >= 0. Clamp constant
+  // literals so a typo'd negative doesn't emit
+  // `fill-extrusion-height--5` (double-dash utility name).
+  if (typeof v === 'number') {
+    out.push(`fill-extrusion-height-${Math.max(0, v)}`)
+    return
+  }
   const interp = interpolateZoomCall(v, warnings, (val, w) => exprToXgis(val, w))
   if (interp !== null) {
     out.push(`fill-extrusion-height-[${interp}]`)
@@ -526,6 +533,12 @@ function addExtrudeHeight(out: string[], v: unknown, warnings: string[]): void {
 function addExtrudeBase(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
   v = unwrapLiteralNumeric(v)
+  // Mapbox spec: fill-extrusion-base >= 0. Mirror of the
+  // addExtrudeHeight clamp.
+  if (typeof v === 'number') {
+    out.push(`fill-extrusion-base-${Math.max(0, v)}`)
+    return
+  }
   const interp = interpolateZoomCall(v, warnings, (val, w) => exprToXgis(val, w))
   if (interp !== null) {
     out.push(`fill-extrusion-base-[${interp}]`)
