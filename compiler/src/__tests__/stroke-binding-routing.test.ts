@@ -171,6 +171,38 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     expect(show!.strokeColorExpr, 'ShowCommand.strokeColorExpr (consumed by worker color_packed slot)').toBeDefined()
   })
 
+  it('Mapbox fill-color ["case", …] ternary resolves the default arm', () => {
+    // Sibling pin for the fill arm — extractMatchDefaultColor (used by
+    // both fill and stroke lowering) recognises ConditionalExpr after
+    // 2b168d8. A regression would re-collapse case() fills to kind=
+    // 'none' and the layer would drop via dead-layer-elim if it had no
+    // stroke either.
+    const style = {
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'toggle_fill',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'landuse',
+        paint: {
+          'fill-color': ['case',
+            ['==', ['get', 'class'], 'park'], '#00ff00',
+            '#cccccc'],
+        },
+      }],
+    }
+    const xgis = convertMapboxStyle(style as never)
+    const scene = lower(new Parser(new Lexer(xgis).tokenize()).parse())
+    const node = scene.renderNodes.find(n => n.name === 'toggle_fill')
+    expect(node, 'toggle_fill render node must survive lower').toBeDefined()
+    // Default arm = #cccccc → leading byte 0xcc.
+    expect(node!.fill.kind).not.toBe('none')
+    if (node!.fill.kind === 'constant') {
+      expect(node!.fill.rgba[0]).toBeCloseTo(0xcc / 255, 2)
+    }
+  })
+
   it('Mapbox line-color ["case", …] ternary survives conversion', () => {
     // Pins 2b168d8 — extractMatchDefaultColor walks ConditionalExpr
     // ternaries (the xgis lowering of Mapbox `["case", c1, v1, …,
