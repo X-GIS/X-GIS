@@ -112,6 +112,26 @@ export function convertSource(
       warnings.push(`raster-dem source "${id}" has no URL.`)
     }
   } else if (src.type === 'geojson') {
+    // Mapbox cluster fields (`cluster: true` etc.) instruct MapLibre
+    // to KDBush-cluster the point features client-side. X-GIS has no
+    // clustering pipeline today, so a style authoring point clusters
+    // gets unclustered points — visible as crowded marker pile-ups
+    // where MapLibre would show one numbered super-marker. Warn so
+    // the gap is visible.
+    const clusterCfg = src as {
+      cluster?: unknown
+      clusterRadius?: unknown
+      clusterMaxZoom?: unknown
+      clusterMinPoints?: unknown
+      clusterProperties?: unknown
+    }
+    if (clusterCfg.cluster === true
+        || clusterCfg.clusterRadius !== undefined
+        || clusterCfg.clusterMaxZoom !== undefined
+        || clusterCfg.clusterMinPoints !== undefined
+        || clusterCfg.clusterProperties !== undefined) {
+      warnings.push(`GeoJSON source "${id}" declares clustering (cluster / clusterRadius / clusterMaxZoom / clusterMinPoints / clusterProperties); X-GIS has no point-clustering pipeline today, so all features render at their authored positions. Pre-cluster the data at the host until native cluster support lands.`)
+    }
     const data = (src as { data?: string | unknown }).data
     if (typeof data === 'string') {
       // External URL — runtime fetches and decodes lazily.
