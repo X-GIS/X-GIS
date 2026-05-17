@@ -97,6 +97,22 @@ function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv
     if (typeof left === 'number' && !Number.isFinite(left)) return evaluate(expr.right, props, fnEnv)
     return left
   }
+  // Short-circuit boolean operators BEFORE eagerly evaluating RHS.
+  // Matches JS semantics + Mapbox spec for `all` / `any` (which the
+  // converter lowers to chains of && / ||). Skipping the right side
+  // when the left is determinative saves work on expensive subtrees
+  // AND prevents RHS exceptions from poisoning a filter whose LHS
+  // already short-circuited (a divide-by-zero on field X in `["all",
+  // ["==", .kind, "park"], ["/", .area, 0]]` previously evaluated
+  // .area/0 even for non-park features).
+  if (expr.op === '&&') {
+    if (!toBool(left)) return false
+    return toBool(evaluate(expr.right, props, fnEnv))
+  }
+  if (expr.op === '||') {
+    if (toBool(left)) return true
+    return toBool(evaluate(expr.right, props, fnEnv))
+  }
   const right = evaluate(expr.right, props, fnEnv)
 
   const l = toNumber(left)
@@ -114,8 +130,6 @@ function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv
     case '>': return l > r
     case '<=': return l <= r
     case '>=': return l >= r
-    case '&&': return toBool(left) && toBool(right)
-    case '||': return toBool(left) || toBool(right)
     default: return null
   }
 }
