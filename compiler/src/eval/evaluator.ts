@@ -304,8 +304,17 @@ function callBuiltin(name: string, args: unknown[]): unknown {
       const [val, min, max] = args.map(toNumber)
       return Math.max(min, Math.min(max, val))
     }
-    case 'min': return Math.min(...args.map(toNumber))
-    case 'max': return Math.max(...args.map(toNumber))
+    case 'min': {
+      // Math.min() with no args returns +Infinity. Guard to 0 so the
+      // non-finite doesn't propagate. Mirror of c6aa3b0 / c1a30b7.
+      if (args.length === 0) return 0
+      return Math.min(...args.map(toNumber))
+    }
+    case 'max': {
+      // Math.max() with no args returns -Infinity.
+      if (args.length === 0) return 0
+      return Math.max(...args.map(toNumber))
+    }
     case 'round': return Math.round(toNumber(args[0]))
     case 'floor': return Math.floor(toNumber(args[0]))
     case 'ceil': return Math.ceil(toNumber(args[0]))
