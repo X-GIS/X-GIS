@@ -4341,9 +4341,18 @@ export class XGISMap {
       this._pendingPatches.set(sourceId, bySource)
     }
     const existing = bySource.get(featureId)
+    // Defensive: coerce non-plain-object patch.properties to {} so a
+    // host passing a string / array (TypeScript-cast at the boundary)
+    // doesn't spread char/index keys into the patched feature props.
+    // Mirror of the makeEvalProps coercion (4e11bb7).
+    const patchProps = patch.properties
+    const safePatchProps = patchProps !== null && patchProps !== undefined
+      && typeof patchProps === 'object' && !Array.isArray(patchProps)
+      ? patchProps
+      : {}
     bySource.set(featureId, {
       geometry: patch.geometry ?? existing?.geometry,
-      properties: { ...(existing?.properties ?? {}), ...(patch.properties ?? {}) },
+      properties: { ...(existing?.properties ?? {}), ...safePatchProps },
     })
     this.scheduleFlushPendingUpdates()
     this.invalidate()
