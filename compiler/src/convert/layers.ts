@@ -162,6 +162,14 @@ export function parseMapboxFontName(name: string): {
  *  Returns null if the value can't be converted (caller skips the
  *  whole label utility in that case). */
 function textFieldToXgisExpr(field: unknown, warnings: string[]): string | null {
+  // Numeric / boolean text-field values are stringified by the
+  // runtime per Mapbox spec — emit them as the matching xgis literal
+  // so the lower pass + text resolver see the same scalar form.
+  // Pre-fix any non-string non-array text-field (e.g. 42) fell to
+  // the null return and the whole symbol layer dropped.
+  if (typeof field === 'number' || typeof field === 'boolean') {
+    return String(field)
+  }
   if (typeof field === 'string') {
     const tokenMatch = field.match(/^\{([^}]+)\}$/)
     if (tokenMatch) {
