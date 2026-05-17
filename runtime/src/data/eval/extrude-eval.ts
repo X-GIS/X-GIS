@@ -59,7 +59,15 @@ export function evalExtrudeExpr(
         featureId: feature?.id,
       })
     : (props ?? {})
-  const v = evaluate(node as never, bag)
+  // Per-feature throw isolation — mirror of applyFilter (566ab36).
+  // The extrude bake loops in mvt-worker / pmtiles-backend call this
+  // once per polygon; one throw used to crash the whole tile compile.
+  let v: unknown
+  try {
+    v = evaluate(node as never, bag)
+  } catch {
+    return null
+  }
   if (typeof v !== 'number') return null
   if (!Number.isFinite(v) || v <= 0) return null
   return v
