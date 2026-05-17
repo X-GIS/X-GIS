@@ -57,8 +57,13 @@ describe('@xgis/blueprint codegen contract', () => {
 
   it('starter graph round-trips through the real compiler', () => {
     const src = graphToXgis(starterGraph())
-    expect(src).toContain('source world')
-    expect(src).toMatch(/layer countries/)
+    // Names match the starter graph defaults in src/types.ts —
+    // commit 7e0e711 renamed `world → land` + `countries → continents`
+    // so the default `url: "land.geojson"` resolves under both site
+    // and playground (site/public/data ships land.geojson; playground/
+    // public/data mirrors it under the same name).
+    expect(src).toContain('source land')
+    expect(src).toMatch(/layer continents/)
     expect(() => parses(src)).not.toThrow()
   })
 
