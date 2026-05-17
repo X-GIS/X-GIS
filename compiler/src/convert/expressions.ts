@@ -20,8 +20,31 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
   if (!Array.isArray(v)) return null
   const op = v[0]
   switch (op) {
-    case 'literal':
-      return exprToXgis(v[1], warnings)
+    case 'literal': {
+      // Mapbox `["literal", value]` wraps a constant so the inner
+      // value isn't re-interpreted as an expression. Scalars (number /
+      // boolean / string) round-trip through the scalar-emitter
+      // recursion. Inner ARRAYS (`["literal", [1, 2, 3]]`) are the
+      // pattern Mapbox styles use to emit constant arrays — e.g.
+      // `["at", 0, ["literal", [1, 2, 3]]]`, `["match", x, "a",
+      // ["literal", [1,2,3]], default]`, dash arrays via
+      // `["literal", [4, 2]]` inside a non-paint context. The
+      // generic exprToXgis recursion fell through to "Expression
+      // not converted" because a bare `[1, 2, 3]` has no operator
+      // string. Emit an xgis array literal instead so the evaluator
+      // sees a real array at runtime.
+      const inner = v[1]
+      if (Array.isArray(inner)) {
+        const parts: string[] = []
+        for (const el of inner) {
+          const sub = exprToXgis(el, warnings)
+          if (sub === null) return null
+          parts.push(sub)
+        }
+        return `[${parts.join(', ')}]`
+      }
+      return exprToXgis(inner, warnings)
+    }
     case 'get': {
       const field = v[1]
       const obj = v[2]
