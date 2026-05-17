@@ -184,7 +184,15 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
         const val = exprToXgis(args[i + 1], warnings)
         if (val === null) continue
         const keyStrs = Array.isArray(key) ? key : [key]
-        for (const k of keyStrs) {
+        for (let k of keyStrs) {
+          // Inner per-element literal-wrap. Mapbox v8 strict tooling
+          // can emit `["literal", [["literal", "x"], "y"]]` — outer
+          // unwrap gave the inner array but each k might still be a
+          // wrapped scalar. Without this, `[object Object]` / `literal,x`
+          // landed in the arm patterns and the match never matched.
+          if (Array.isArray(k) && k.length === 2 && k[0] === 'literal') {
+            k = k[1]
+          }
           arms.push(`    ${typeof k === 'string' ? JSON.stringify(k) : k} -> ${val}`)
         }
       }
@@ -674,7 +682,10 @@ export function matchToBooleanFilter(v: unknown[], warnings: string[]): string |
     const val = unwrapBool(args[i + 1])
     if (val !== targetVal) continue
     const keys = Array.isArray(key) ? key : [key]
-    for (const k of keys) {
+    for (let k of keys) {
+      // Inner per-element literal-wrap, mirror of the main + ternary
+      // match handlers — keep all three in sync.
+      if (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
       parts.push(`${inputXgis} ${eqOp} ${typeof k === 'string' ? JSON.stringify(k) : k}`)
     }
   }
@@ -704,7 +715,11 @@ export function matchToTernary(input: unknown, args: unknown[], warnings: string
     const val = exprToXgis(args[i + 1], warnings)
     if (val === null) continue
     const keyStrs = Array.isArray(key) ? key : [key]
-    const cond = keyStrs.map(k => `${inputXgis} == ${typeof k === 'string' ? JSON.stringify(k) : k}`).join(' || ')
+    const cond = keyStrs.map(k => {
+      // Inner per-element literal-wrap, mirror of the main match handler.
+      if (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
+      return `${inputXgis} == ${typeof k === 'string' ? JSON.stringify(k) : k}`
+    }).join(' || ')
     result = `(${cond}) ? ${val} : ${result}`
   }
   return result

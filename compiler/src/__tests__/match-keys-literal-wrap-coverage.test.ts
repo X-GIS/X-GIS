@@ -74,6 +74,26 @@ describe('match keys-array literal-wrap unwrap', () => {
     expect(out).not.toContain('"literal"')
   })
 
+  it('match unwraps INNER per-element literal-wrap on keys-array', () => {
+    // Double-wrap shape: outer ["literal", [inner-elements]] where
+    // each inner element ALSO carries its own ["literal", "x"] wrap.
+    // Pre-fix only the outer unwrap fired; the inner elements landed
+    // as wrapper arrays in the arm patterns ("[object Object]" /
+    // "literal,x" in the JSON.stringify result) and the match never
+    // matched.
+    const w: string[] = []
+    const out = exprToXgis(
+      ['match', ['get', 'class'],
+        ['literal', [['literal', 'primary'], ['literal', 'trunk']]], '#f00',
+        '#000',
+      ],
+      w,
+    )
+    expect(out).toContain('"primary" -> "#f00"')
+    expect(out).toContain('"trunk" -> "#f00"')
+    expect(out).not.toContain('"literal"')
+  })
+
   it('matchToTernary unwraps wrapped keys (complex input fallback)', () => {
     // Match on a non-field-access input forces matchToTernary path.
     const w: string[] = []
