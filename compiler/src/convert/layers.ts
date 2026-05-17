@@ -59,6 +59,17 @@ function unwrapLiteralScalar(v: unknown): unknown {
  *  emitting `fill-[null]` / `label-color-[null]` instead of falling
  *  to the property's spec default). Mirror of paint.ts:isOmitted
  *  (dd06a99). */
+/** Coerce a (possibly malformed) layer.layout / layer.paint value to a
+ *  plain Record. Mirror of paint.ts's same guard — non-object forms
+ *  (string copy-paste, array, etc.) used to let property-name index
+ *  return a char of the string or undefined, leaking garbage into
+ *  the emitted utility list. */
+function safePropsBag(v: unknown): Record<string, unknown> {
+  if (v === null || v === undefined) return {}
+  if (typeof v !== 'object' || Array.isArray(v)) return {}
+  return v as Record<string, unknown>
+}
+
 function isOmittedValue(v: unknown): boolean {
   if (v === undefined || v === null) return true
   let cur: unknown = v
@@ -284,8 +295,8 @@ function convertSymbolLayer(
   warnings: string[],
   overrides?: SymbolLayerOverrides,
 ): string {
-  const layout = (layer as { layout?: Record<string, unknown> }).layout ?? {}
-  const paint = (layer as { paint?: Record<string, unknown> }).paint ?? {}
+  const layout = safePropsBag((layer as { layout?: unknown }).layout)
+  const paint = safePropsBag((layer as { paint?: unknown }).paint)
   const textField = layout['text-field']
   const iconImage = unwrapLiteralScalar(layout['icon-image'])
   // Mapbox spec: text-field === null means "no text" (same as
@@ -966,7 +977,7 @@ function convertSymbolLayer(
 function parseSymbolPlacementStep(
   layer: MapboxLayer,
 ): Array<{ minzoom?: number; maxzoom?: number; placement: 'point' | 'line' | 'line-center' }> | null {
-  const layout = (layer as { layout?: Record<string, unknown> }).layout ?? {}
+  const layout = safePropsBag((layer as { layout?: unknown }).layout)
   const sp = layout['symbol-placement']
   if (!Array.isArray(sp) || sp[0] !== 'step') return null
   const input = sp[1]
@@ -1045,8 +1056,8 @@ function parseSymbolPlacementStep(
  *  circle-stroke-opacity (would need fold-into-stroke-alpha).
  */
 function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
-  const paint = (layer as { paint?: Record<string, unknown> }).paint ?? {}
-  const layout = (layer as { layout?: Record<string, unknown> }).layout ?? {}
+  const paint = safePropsBag((layer as { paint?: unknown }).paint)
+  const layout = safePropsBag((layer as { layout?: unknown }).layout)
   const lines: string[] = [`layer ${sanitizeId(layer.id)} {`]
   if (layer.source) lines.push(`  source: ${sanitizeId(layer.source)}`)
   if (layer['source-layer']) lines.push(`  sourceLayer: ${JSON.stringify(layer['source-layer'])}`)
@@ -1293,7 +1304,7 @@ export function convertLayer(layer: MapboxLayer, warnings: string[]): string | n
   // qualifies; `stroke-linecap` does not, hence the utility route
   // for cap/join). Engine support: `compiler/src/ir/lower.ts:903`
   // for `visible:` block prop, lines 402-417 for cap/join utilities.
-  const layout = (layer as { layout?: Record<string, unknown> }).layout ?? {}
+  const layout = safePropsBag((layer as { layout?: unknown }).layout)
   if (unwrapLiteralScalar(layout['visibility']) === 'none') {
     lines.push(`  visible: false`)
   }
