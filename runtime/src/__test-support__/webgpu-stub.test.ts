@@ -52,6 +52,18 @@ describe('webgpu-stub', () => {
     expect(stub.callCounts['context.configure']).toBeGreaterThanOrEqual(1)
   })
 
+  it('uninstall is idempotent + cleanly drops navigator when none existed before', () => {
+    // Repro for the Node-CI failure where navigator wasn't predefined.
+    // Stub install + uninstall must not throw and must leave globalThis
+    // in the same state it found.
+    const g = globalThis as { navigator?: unknown }
+    const had = 'navigator' in g
+    const inst = installWebGPUStub()
+    expect((globalThis as { navigator: { gpu: unknown } }).navigator.gpu).toBeTruthy()
+    inst.uninstall()
+    expect(('navigator' in g)).toBe(had)
+  })
+
   it('createBindGroupLayout descriptor is preserved on the returned handle', async () => {
     const adapter = (await navigator.gpu!.requestAdapter())!
     const device = await adapter.requestDevice()

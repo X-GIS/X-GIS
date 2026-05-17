@@ -157,15 +157,17 @@ export function installWebGPUStub(): StubInstallation {
   }
 
   // Snapshot prior state for clean restore.
-  const priorGpu = (globalThis as { navigator?: { gpu?: unknown } }).navigator?.gpu
+  const g = globalThis as { navigator?: Record<string, unknown> }
+  const navExistedBefore = g.navigator !== undefined
+  const priorGpu = g.navigator?.gpu
+
   const priorGetContext = typeof HTMLCanvasElement !== 'undefined'
     ? HTMLCanvasElement.prototype.getContext : null
 
-  // Install navigator.gpu. JSDOM doesn't ship it; define if missing,
-  // otherwise replace.
-  const nav = (globalThis as { navigator?: Record<string, unknown> }).navigator
-  if (nav) (nav as { gpu?: unknown }).gpu = gpuStub
-  else (globalThis as { navigator?: { gpu: unknown } }).navigator = { gpu: gpuStub }
+  // Install navigator.gpu. Node + happy-dom both ship navigator; bare
+  // vitest-node sometimes doesn't. Define-if-missing then assign.
+  if (!g.navigator) g.navigator = {}
+  g.navigator.gpu = gpuStub
 
   // Stub canvas.getContext('webgpu'). Real Canvas2D / WebGL still need
   // to work for non-WebGPU tests, so we only intercept the 'webgpu' arg.
@@ -185,10 +187,12 @@ export function installWebGPUStub(): StubInstallation {
   return {
     callCounts: calls,
     uninstall: () => {
-      if (priorGpu === undefined) {
-        delete (nav as { gpu?: unknown }).gpu
-      } else if (nav) {
-        (nav as { gpu?: unknown }).gpu = priorGpu
+      if (!navExistedBefore) {
+        delete g.navigator
+      } else if (priorGpu === undefined) {
+        delete g.navigator!.gpu
+      } else {
+        g.navigator!.gpu = priorGpu
       }
       if (priorGetContext && typeof HTMLCanvasElement !== 'undefined') {
         HTMLCanvasElement.prototype.getContext = priorGetContext
