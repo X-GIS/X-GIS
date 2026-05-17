@@ -384,8 +384,12 @@ function convertSymbolLayer(
   // Both accept zoom-interpolated forms (common on basemap styles
   // that grow halos with zoom for legibility).
   const haloWidth = unwrapLiteralScalar(paint['text-halo-width'])
-  if (typeof haloWidth === 'number' && haloWidth > 0) {
-    utils.push(`label-halo-${haloWidth}`)
+  if (typeof haloWidth === 'number') {
+    // Same negative + zero skip as the circle-stroke-width fix.
+    // Both legitimately mean "no halo"; without the tighter type
+    // guard a negative literal fell through to the else-if interp
+    // path and emitted label-halo-[-N] as a bracket binding.
+    if (haloWidth > 0) utils.push(`label-halo-${haloWidth}`)
   } else if (haloWidth !== undefined && haloWidth !== null) {
     // Same negative-clamp guard as text-size — Mapbox spec
     // text-halo-width >= 0.
