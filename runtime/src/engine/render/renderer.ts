@@ -242,7 +242,16 @@ fn vs_main(
   // range (perspective-divide cancels the w factor).
   out.position.z = out.position.z - u.layer_depth_offset * out.position.w;
   out.view_w = clip.w;
-  out.cos_c = needs_backface_cull(abs_lon, abs_lat, u.proj_params);
+  // cos_c kept as a varying-layout placeholder — fragments now
+  // recompute hemisphere cull per-pixel via polygon_cos_c_fragment()
+  // (commit c205871) since linear interpolation of cos_c across
+  // large triangles diverges from the true sphere distance. Writing
+  // 0 avoids the per-vertex needs_backface_cull() call which on
+  // globe/ortho computes sin/cos; flat projections were already a
+  // no-op (returns 1.0) so this is a perf win on the projection
+  // paths that benefit AND a clarity win everywhere else (no
+  // misleading "this varying gets read" implication).
+  out.cos_c = 0.0;
   out.feat_id = u32(feature_id);
   out.abs_lat = abs_lat_clamped;
   out.wall_blend = 1.0; // DSFUN line pipeline isn't extruded; full brightness
@@ -316,7 +325,16 @@ fn vs_main_quantized(
   out.position = apply_log_depth(clip, u.log_depth_fc);
   out.position.z = out.position.z - u.layer_depth_offset * out.position.w;
   out.view_w = clip.w;
-  out.cos_c = needs_backface_cull(abs_lon, abs_lat, u.proj_params);
+  // cos_c kept as a varying-layout placeholder — fragments now
+  // recompute hemisphere cull per-pixel via polygon_cos_c_fragment()
+  // (commit c205871) since linear interpolation of cos_c across
+  // large triangles diverges from the true sphere distance. Writing
+  // 0 avoids the per-vertex needs_backface_cull() call which on
+  // globe/ortho computes sin/cos; flat projections were already a
+  // no-op (returns 1.0) so this is a perf win on the projection
+  // paths that benefit AND a clarity win everywhere else (no
+  // misleading "this varying gets read" implication).
+  out.cos_c = 0.0;
   out.feat_id = u32(feature_id);
   out.abs_lat = abs_lat_clamped;
   // Wall shading only meaningful when this layer is extruded; for
@@ -376,7 +394,16 @@ fn vs_main_quantized_extruded(
   out.position = apply_log_depth(clip, u.log_depth_fc);
   out.position.z = out.position.z - u.layer_depth_offset * out.position.w;
   out.view_w = clip.w;
-  out.cos_c = needs_backface_cull(abs_lon, abs_lat, u.proj_params);
+  // cos_c kept as a varying-layout placeholder — fragments now
+  // recompute hemisphere cull per-pixel via polygon_cos_c_fragment()
+  // (commit c205871) since linear interpolation of cos_c across
+  // large triangles diverges from the true sphere distance. Writing
+  // 0 avoids the per-vertex needs_backface_cull() call which on
+  // globe/ortho computes sin/cos; flat projections were already a
+  // no-op (returns 1.0) so this is a perf win on the projection
+  // paths that benefit AND a clarity win everywhere else (no
+  // misleading "this varying gets read" implication).
+  out.cos_c = 0.0;
   out.feat_id = u32(feature_id);
   out.abs_lat = abs_lat_clamped;
   out.wall_blend = select(0.0, 1.0, z_attr > 0.0);
