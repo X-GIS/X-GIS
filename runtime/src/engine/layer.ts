@@ -117,7 +117,7 @@ export type PointerEvents = 'auto' | 'none'
  *  fields on `XGISLayerStyle`. */
 export type XGISLayerStyleKey =
   | 'opacity' | 'fill' | 'stroke' | 'strokeWidth'
-  | 'visible' | 'pointerEvents'
+  | 'visible' | 'pointerEvents' | 'extrude'
 
 export interface XGISFeatureEventInit {
   // Phase 4 will populate this with click / mouseenter / mouseleave /
@@ -198,6 +198,29 @@ export class XGISLayerStyle {
   set visible(v: boolean) {
     this.snapshot('visible', this.host.show.visible)
     this.host.show.visible = v
+    this.host.invalidate()
+  }
+
+  /** 3D extrusion height in metres for the polygon layer. Read returns
+   *  the constant value when the compiled extrude shape is uniform
+   *  (`kind: 'constant'`), or `null` when the layer is flat / per-feature
+   *  driven. Set accepts a number to force a constant height, or `null`
+   *  to flatten the layer. Per-feature `extrude.kind: 'feature'` shapes
+   *  (the typical building-height pattern) remain untouched by API
+   *  mutation — the per-feature AST is data-driven and survives style
+   *  edits independently. */
+  get extrude(): number | null {
+    const e = this.host.show.extrude
+    if (e.kind === 'constant') return e.value
+    return null
+  }
+  set extrude(v: number | null) {
+    this.snapshot('extrude', this.host.show.extrude)
+    if (v === null) {
+      this.host.show.extrude = { kind: 'none' }
+    } else {
+      this.host.show.extrude = { kind: 'constant', value: v }
+    }
     this.host.invalidate()
   }
 
