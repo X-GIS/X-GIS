@@ -588,7 +588,13 @@ function addExtrudeHeight(out: string[], v: unknown, warnings: string[]): void {
     out.push(`fill-extrusion-height-${Math.max(0, v)}`)
     return
   }
-  const interp = interpolateZoomCall(v, warnings, (val, w) => exprToXgis(val, w))
+  const interp = interpolateZoomCall(v, warnings, (val, w) => {
+    // Mirror of the constant-path clamp: fill-extrusion-height >= 0.
+    // Pre-fix a negative numeric stop landed verbatim into the
+    // interpolate() emission and the runtime walled below z=0.
+    if (typeof val === 'number') return String(Math.max(0, val))
+    return exprToXgis(val, w)
+  })
   if (interp !== null) {
     out.push(`fill-extrusion-height-[${interp}]`)
     return
@@ -606,7 +612,11 @@ function addExtrudeBase(out: string[], v: unknown, warnings: string[]): void {
     out.push(`fill-extrusion-base-${Math.max(0, v)}`)
     return
   }
-  const interp = interpolateZoomCall(v, warnings, (val, w) => exprToXgis(val, w))
+  const interp = interpolateZoomCall(v, warnings, (val, w) => {
+    // Mirror of the constant-path clamp: fill-extrusion-base >= 0.
+    if (typeof val === 'number') return String(Math.max(0, val))
+    return exprToXgis(val, w)
+  })
   if (interp !== null) {
     out.push(`fill-extrusion-base-[${interp}]`)
     return
