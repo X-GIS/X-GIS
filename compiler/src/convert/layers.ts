@@ -298,7 +298,7 @@ function convertSymbolLayer(
     : sanitizeId(layer.id)
   const lines: string[] = [`layer ${layerId} {`]
   if (layer.source) lines.push(`  source: ${sanitizeId(layer.source)}`)
-  if (layer['source-layer']) lines.push(`  sourceLayer: "${layer['source-layer']}"`)
+  if (layer['source-layer']) lines.push(`  sourceLayer: ${JSON.stringify(layer['source-layer'])}`)
   const effectiveMin = overrides?.minzoom !== undefined ? overrides.minzoom : layer.minzoom
   const effectiveMax = overrides?.maxzoom !== undefined ? overrides.maxzoom : layer.maxzoom
   if (typeof effectiveMin === 'number') lines.push(`  minzoom: ${effectiveMin}`)
@@ -1024,7 +1024,7 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   const layout = (layer as { layout?: Record<string, unknown> }).layout ?? {}
   const lines: string[] = [`layer ${sanitizeId(layer.id)} {`]
   if (layer.source) lines.push(`  source: ${sanitizeId(layer.source)}`)
-  if (layer['source-layer']) lines.push(`  sourceLayer: "${layer['source-layer']}"`)
+  if (layer['source-layer']) lines.push(`  sourceLayer: ${JSON.stringify(layer['source-layer'])}`)
   if (typeof layer.minzoom === 'number') lines.push(`  minzoom: ${layer.minzoom}`)
   if (typeof layer.maxzoom === 'number') lines.push(`  maxzoom: ${layer.maxzoom}`)
   if (layer.filter !== undefined) {
@@ -1253,7 +1253,7 @@ export function convertLayer(layer: MapboxLayer, warnings: string[]): string | n
 
   const lines: string[] = [`layer ${sanitizeId(layer.id)} {`]
   if (layer.source) lines.push(`  source: ${sanitizeId(layer.source)}`)
-  if (layer['source-layer']) lines.push(`  sourceLayer: "${layer['source-layer']}"`)
+  if (layer['source-layer']) lines.push(`  sourceLayer: ${JSON.stringify(layer['source-layer'])}`)
   if (typeof layer.minzoom === 'number') lines.push(`  minzoom: ${layer.minzoom}`)
   if (typeof layer.maxzoom === 'number') lines.push(`  maxzoom: ${layer.maxzoom}`)
   if (layer.filter !== undefined) {

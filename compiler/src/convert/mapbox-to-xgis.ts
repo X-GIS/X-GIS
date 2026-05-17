@@ -127,7 +127,12 @@ export function convertMapboxStyle(
   const warnings: string[] = []
 
   if (style.name) {
-    lines.push(`/* Converted from Mapbox style: "${style.name}" */`)
+    // Strip C-style comment terminators from the name to avoid
+    // prematurely closing the surrounding /* … */ block. A style
+    // authored with `name: "foo */ malicious */"` would otherwise let
+    // arbitrary content slip past the comment boundary.
+    const safeName = String(style.name).replace(/\*\//g, '* /')
+    lines.push(`/* Converted from Mapbox style: "${safeName}" */`)
     lines.push('')
   }
 
