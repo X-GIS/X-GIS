@@ -49,6 +49,23 @@ function unwrapLiteralScalar(v: unknown): unknown {
   return v
 }
 
+/** True when v should be treated as "property omitted" per Mapbox
+ *  spec — bare null/undefined OR any depth of `["literal", … null]`
+ *  wrap. Used by the layer-level paint accessor gates that previously
+ *  checked only `!== undefined && !== null` (which let multi-wrapped
+ *  nulls leak through to exprToXgis as the `null` identifier binding,
+ *  emitting `fill-[null]` / `label-color-[null]` instead of falling
+ *  to the property's spec default). Mirror of paint.ts:isOmitted
+ *  (dd06a99). */
+function isOmittedValue(v: unknown): boolean {
+  if (v === undefined || v === null) return true
+  let cur: unknown = v
+  while (Array.isArray(cur) && cur.length === 2 && cur[0] === 'literal') {
+    cur = cur[1]
+  }
+  return cur === null || cur === undefined
+}
+
 // Layer types whose engine support is on the roadmap but not yet
 // landed. Each type gets a more informative SKIPPED comment that
 // names the engine work it's waiting on, so users reading the
@@ -337,7 +354,7 @@ function convertSymbolLayer(
   // value falls back to property default. Same pattern as the paint.ts
   // add* helpers (26b8b20).
   const textColor = paint['text-color']
-  if (textColor !== undefined && textColor !== null) {
+  if (!isOmittedValue(textColor)) {
     const interp = interpolateZoomCall(textColor, warnings, (val, w) => colorToXgis(val, w))
     if (interp !== null) {
       utils.push(`label-color-[${interp}]`)
@@ -424,7 +441,7 @@ function convertSymbolLayer(
     }
   }
   const haloColor = paint['text-halo-color']
-  if (haloColor !== undefined && haloColor !== null) {
+  if (!isOmittedValue(haloColor)) {
     const interp = interpolateZoomCall(haloColor, warnings, (val, w) => colorToXgis(val, w))
     if (interp !== null) {
       utils.push(`label-halo-color-[${interp}]`)
@@ -1072,7 +1089,7 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   // identifier, and the runtime resolved it to no-fill instead of
   // the spec default #000.
   const fillColor = paint['circle-color']
-  if (fillColor !== undefined && fillColor !== null) {
+  if (!isOmittedValue(fillColor)) {
     const interp = interpolateZoomCall(fillColor, warnings, (val, w) => colorToXgis(val, w))
     if (interp !== null) {
       utils.push(`fill-[${interp}]`)
@@ -1131,7 +1148,7 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   // dropped (same regression class as the line-color fix).
   // Same null-as-omit treatment as circle-color above.
   const strokeColor = paint['circle-stroke-color']
-  if (strokeColor !== undefined && strokeColor !== null) {
+  if (!isOmittedValue(strokeColor)) {
     const interp = interpolateZoomCall(strokeColor, warnings, (val, w) => colorToXgis(val, w))
     if (interp !== null) {
       utils.push(`stroke-[${interp}]`)
