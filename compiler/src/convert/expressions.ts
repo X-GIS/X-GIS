@@ -202,7 +202,9 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
           // unwrap gave the inner array but each k might still be a
           // wrapped scalar. Without this, `[object Object]` / `literal,x`
           // landed in the arm patterns and the match never matched.
-          if (Array.isArray(k) && k.length === 2 && k[0] === 'literal') {
+          // Loop peel for multi-level wraps emitted by preprocessor
+          // chains. Mirror of colorToXgis (921d5ad).
+          while (Array.isArray(k) && k.length === 2 && k[0] === 'literal') {
             k = k[1]
           }
           arms.push(`    ${typeof k === 'string' ? JSON.stringify(k) : k} -> ${val}`)
@@ -547,9 +549,10 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // `["rgb", ["literal", 255], ["literal", 0], ["literal", 0]]`
       // still hex-encodes at convert time. Mirror of the same
       // unwrap inside colorToXgis (commit 1927580).
-      const ch = v.slice(1).map((c) =>
-        Array.isArray(c) && c.length === 2 && c[0] === 'literal' ? c[1] : c,
-      )
+      const ch = v.slice(1).map((c) => {
+        while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
+        return c
+      })
       const allNumeric = ch.every(c => typeof c === 'number')
       if (allNumeric) {
         const [r, g, b, a] = ch as number[]
@@ -616,7 +619,7 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
         // (Mapbox strict tooling: `["literal", [["literal", "a"], "b"]]`).
         // Unwrap eagerly so the equality emit sees the bare value.
         const eqs = list[1].map((k: unknown) => {
-          if (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
+          while (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
           return `${fxg} == ${typeof k === 'string' ? JSON.stringify(k) : k}`
         })
         return eqs.join(' || ')
@@ -625,7 +628,7 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
         // Same empty-list contract for the legacy form.
         if (v.length === 2) return 'false'
         const eqs = v.slice(2).map(k => {
-          if (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
+          while (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
           return `.${field} == ${typeof k === 'string' ? JSON.stringify(k) : k}`
         })
         return eqs.join(' || ')
@@ -677,8 +680,10 @@ export function matchToBooleanFilter(v: unknown[], warnings: string[]): string |
   // matchToBooleanFilter returned null — the filter fell to the
   // generic match() path and the merge / dispatch lost its
   // boolean-fast-path opportunity.
-  const unwrapBool = (x: unknown): unknown =>
-    Array.isArray(x) && x.length === 2 && x[0] === 'literal' ? x[1] : x
+  const unwrapBool = (x: unknown): unknown => {
+    while (Array.isArray(x) && x.length === 2 && x[0] === 'literal') x = x[1]
+    return x
+  }
   const defUnwrapped = unwrapBool(def)
   // All values + default must be boolean literals.
   const allBool = (() => {
@@ -707,7 +712,7 @@ export function matchToBooleanFilter(v: unknown[], warnings: string[]): string |
     // mirror of the main match handler. Pre-fix the wrapped form
     // iterated "literal" + the actual key list as separate arms.
     let key = args[i]
-    if (Array.isArray(key) && key.length === 2 && key[0] === 'literal') {
+    while (Array.isArray(key) && key.length === 2 && key[0] === 'literal') {
       key = key[1]
     }
     const val = unwrapBool(args[i + 1])
@@ -716,7 +721,7 @@ export function matchToBooleanFilter(v: unknown[], warnings: string[]): string |
     for (let k of keys) {
       // Inner per-element literal-wrap, mirror of the main + ternary
       // match handlers — keep all three in sync.
-      if (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
+      while (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
       parts.push(`${inputXgis} ${eqOp} ${typeof k === 'string' ? JSON.stringify(k) : k}`)
     }
   }
@@ -740,7 +745,7 @@ export function matchToTernary(input: unknown, args: unknown[], warnings: string
     // Same literal-wrap unwrap pattern as the main match + boolean
     // filter paths — keep the three match handlers in sync.
     let key = args[i]
-    if (Array.isArray(key) && key.length === 2 && key[0] === 'literal') {
+    while (Array.isArray(key) && key.length === 2 && key[0] === 'literal') {
       key = key[1]
     }
     const val = exprToXgis(args[i + 1], warnings)
@@ -748,7 +753,7 @@ export function matchToTernary(input: unknown, args: unknown[], warnings: string
     const keyStrs = Array.isArray(key) ? key : [key]
     const cond = keyStrs.map(k => {
       // Inner per-element literal-wrap, mirror of the main match handler.
-      if (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
+      while (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
       return `${inputXgis} == ${typeof k === 'string' ? JSON.stringify(k) : k}`
     }).join(' || ')
     result = `(${cond}) ? ${val} : ${result}`
@@ -797,7 +802,7 @@ export function filterToXgis(v: unknown, warnings: string[]): string | null {
   if (op === '==' || op === '!=' || op === '<' || op === '<=' || op === '>' || op === '>=') {
     if (typeof v[1] === 'string') {
       let rawVal = v[2]
-      if (Array.isArray(rawVal) && rawVal.length === 2 && rawVal[0] === 'literal') {
+      while (Array.isArray(rawVal) && rawVal.length === 2 && rawVal[0] === 'literal') {
         rawVal = rawVal[1]
       }
       if (!Array.isArray(rawVal)) {
@@ -817,7 +822,7 @@ export function filterToXgis(v: unknown, warnings: string[]): string | null {
     if (v.length === 2) return 'true'
     const field = v[1]
     const eqs = v.slice(2).map(k => {
-      if (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
+      while (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
       return `.${field} != ${typeof k === 'string' ? JSON.stringify(k) : k}`
     })
     return eqs.join(' && ')
