@@ -66,6 +66,31 @@ describe('renderer construction smoke (stub)', () => {
     expect(() => new BackgroundRenderer(ctx)).not.toThrow()
   })
 
+  it('BackgroundRenderer.render fires exactly one draw(6) per pass', async () => {
+    // Draw-call surface check: with a colour set, BackgroundRenderer
+    // emits a fullscreen-quad pass (6 vertices). The stub tracks
+    // pass.draw call counts, so we can verify the renderer actually
+    // dispatches without needing pixel output. Catches "render() bailed
+    // silently because uniform upload moved" regressions.
+    const ctx = await makeCtx()
+    const bg = new BackgroundRenderer(ctx)
+    bg.setFill([0.1, 0.2, 0.3, 1])
+    const enc = ctx.device.createCommandEncoder()
+    const pass = enc.beginRenderPass({
+      colorAttachments: [{
+        view: ctx.context.getCurrentTexture().createView(),
+        loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 },
+      }],
+    })
+    const drawsBefore = stub.callCounts['pass.draw'] ?? 0
+    bg.render(pass)
+    pass.end()
+    const drawsAfter = stub.callCounts['pass.draw'] ?? 0
+    expect(drawsAfter - drawsBefore,
+      'BackgroundRenderer.render should emit exactly one fullscreen-quad draw')
+      .toBe(1)
+  })
+
   it('all 5 renderers construct in the same order map.ts uses', async () => {
     // map.ts wires them in this order: MapRenderer first (its BGL is
     // a dep for VTR + LineRenderer), then VTR, then BackgroundRenderer,

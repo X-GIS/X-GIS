@@ -50,16 +50,16 @@ function makePipeline(): unknown {
   }
 }
 
-function makeEncoder(): unknown {
+function makeEncoder(bump: (k: string) => void): unknown {
   const pass = {
-    setPipeline: () => undefined,
-    setBindGroup: () => undefined,
-    setVertexBuffer: () => undefined,
-    setIndexBuffer: () => undefined,
-    draw: () => undefined,
-    drawIndexed: () => undefined,
-    drawIndirect: () => undefined,
-    end: () => undefined,
+    setPipeline: () => { bump('pass.setPipeline') },
+    setBindGroup: () => { bump('pass.setBindGroup') },
+    setVertexBuffer: () => { bump('pass.setVertexBuffer') },
+    setIndexBuffer: () => { bump('pass.setIndexBuffer') },
+    draw: () => { bump('pass.draw') },
+    drawIndexed: () => { bump('pass.drawIndexed') },
+    drawIndirect: () => { bump('pass.drawIndirect') },
+    end: () => { bump('pass.end') },
     setViewport: () => undefined,
     setScissorRect: () => undefined,
   }
@@ -130,7 +130,7 @@ export function installWebGPUStub(): StubInstallation {
     createComputePipeline: () => { bump('createComputePipeline'); return makePipeline() },
     createComputePipelineAsync: () => { bump('createComputePipelineAsync'); return Promise.resolve(makePipeline()) },
     createShaderModule: () => { bump('createShaderModule'); return {} },
-    createCommandEncoder: () => { bump('createCommandEncoder'); return makeEncoder() },
+    createCommandEncoder: () => { bump('createCommandEncoder'); return makeEncoder(bump) },
     createQuerySet: () => ({ destroy: () => undefined }),
     pushErrorScope: () => undefined,
     popErrorScope: () => Promise.resolve(null),
