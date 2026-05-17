@@ -458,6 +458,17 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       warnings.push(`["${op}"] with non-constant channels not converted: ${JSON.stringify(v).slice(0, 80)}`)
       return null
     }
+    case 'zoom': {
+      // Mapbox `["zoom"]` accessor → xgis bare `zoom` identifier.
+      // The evaluator special-cases the name (eval/evaluator.ts:40)
+      // to read `props[CAMERA_ZOOM_KEY]`, so the dedicated zoom-stops
+      // path in paint.ts AND this generic exprToXgis route both
+      // resolve to the same live camera zoom at evaluation time.
+      // Pre-fix `["zoom"]` outside the dedicated path (e.g. nested
+      // inside a `case` / `match` arm) fell to "Expression not
+      // converted" and the containing expression dropped silently.
+      return 'zoom'
+    }
     case 'geometry-type': {
       // Mapbox ["geometry-type"] resolves to "Point" / "LineString" /
       // "Polygon" (or their Multi* variants) per feature. xgis has no

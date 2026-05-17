@@ -73,25 +73,19 @@ describe('data-driven interpolate (non-zoom input)', () => {
     expect(exprToXgis(['interpolate', ['linear'], ['get', 'x']], w)).toBeNull()
   })
 
-  it('zoom input still routes through this generic path (parity)', () => {
-    // The dedicated paint.ts path handles zoom specially for
-    // pre-bucketing; this generic exprToXgis path should ALSO
-    // succeed when called directly on a zoom interpolate so
-    // exprToXgis remains complete.
+  it('zoom input also routes through this generic path', () => {
+    // The dedicated paint.ts path handles zoom for pre-bucketing
+    // BUT this generic exprToXgis route also succeeds for direct
+    // calls — important because `["interpolate", ["linear"], ["zoom"],
+    // …]` can appear nested inside a `case`/`match`/`coalesce` arm
+    // that paint.ts doesn't recursively descend into.
     const w: string[] = []
     const out = exprToXgis(
       ['interpolate', ['linear'], ['zoom'],
         10, 1, 16, 8],
       w,
     )
-    // Note: at this level we don't special-case zoom — the input
-    // lowers via the `case 'zoom'` handler if one exists, else
-    // returns null. We accept either outcome here: success means
-    // zoom resolved via a converter case; null means the dedicated
-    // paint path is authoritative. Current state: exprToXgis has
-    // no `zoom` case so v[2] = ["zoom"] lowers to null and the
-    // whole interpolate returns null. Pin that contract so a future
-    // addition is intentional.
-    expect(out).toBeNull()
+    expect(out).toBe('interpolate(zoom, 10, 1, 16, 8)')
+    expect(w).toEqual([])
   })
 })
