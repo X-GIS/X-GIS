@@ -92,7 +92,7 @@ export function convertSource(
 
   if (src.type === 'vector') {
     const url = src.url ?? src.tiles?.[0]
-    if (url && /\.pmtiles(\?|$)/.test(url)) {
+    if (url && /\.pmtiles(\?|#|$)/.test(url)) {
       lines.push('  type: pmtiles')
       lines.push(`  url: "${url}"`)
     } else if (url) {
