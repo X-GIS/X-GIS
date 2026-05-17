@@ -177,7 +177,15 @@ export function applyGeometry(
       featureId: (f as { id?: string | number }).id,
       cameraZoom,
     })
-    const result = evaluate(ast, bag)
+    // Same per-feature isolation as applyFilter (566ab36): a throw in
+    // evaluate on ONE feature must not nuke the whole collection.
+    // Treat a throw as 'keep original geometry'.
+    let result: unknown
+    try {
+      result = evaluate(ast, bag)
+    } catch {
+      return f
+    }
     if (!result) return f
     if (Array.isArray(result) && result.length > 0 && Array.isArray(result[0])) {
       return {
