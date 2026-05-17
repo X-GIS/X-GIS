@@ -294,14 +294,30 @@ export function convertMapboxStyle(
     // Split the layer into one sublayer per unique colour with a
     // value-set filter, so each colour renders correctly without any
     // runtime per-feature support.
-    const expanded = options?.bypassExpandColorMatch
-      ? null
-      : expandPerFeatureColorMatch(layer as MapboxLayer)
+    // Wrap the per-layer conversion in try/catch so one corrupt
+    // layer (unexpected AST shape, malformed expression, etc.) does
+    // NOT kill conversion of the rest of the style. Pre-fix any throw
+    // inside expandPerFeatureColorMatch / convertLayer propagated all
+    // the way up and every subsequent layer in the array dropped.
+    let expanded: MapboxLayer[] | null = null
+    try {
+      expanded = options?.bypassExpandColorMatch
+        ? null
+        : expandPerFeatureColorMatch(layer as MapboxLayer)
+    } catch (e) {
+      warnings.push(`Layer "${(layer as { id?: unknown }).id ?? '<unknown>'}" expand-color-match threw: ${(e as Error).message}`)
+    }
     const sublayers = expanded ?? [layer as MapboxLayer]
     let anyEmitted = false
     let anyLossy = false
     for (const sub of sublayers) {
-      const block = convertLayer(sub, warnings)
+      let block: string | null = null
+      try {
+        block = convertLayer(sub, warnings)
+      } catch (e) {
+        warnings.push(`Layer "${(sub as { id?: unknown }).id ?? '<unknown>'}" conversion threw: ${(e as Error).message}`)
+        block = `// SKIPPED layer "${(sub as { id?: unknown }).id ?? '<unknown>'}" — converter threw: ${(e as Error).message.slice(0, 80)}`
+      }
       if (block) {
         lines.push(block)
         lines.push('')
