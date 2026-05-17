@@ -148,7 +148,13 @@ export function detectVectorTileFormat(
   url: string,
   kind?: VectorTileFormat | 'auto',
 ): VectorTileFormat | null {
-  const path = url.split('?')[0]
+  // Strip BOTH query (?…) and fragment (#…) before extension matching.
+  // Pre-fix only `?` was split off, so a URL like 'x.pmtiles#frag'
+  // kept '#frag' in the path → endsWith('.pmtiles') failed → fell to
+  // null and the caller defaulted to PMTiles which crashed on the
+  // wrong-magic-number boundary. Mirror of the compiler-side fragment
+  // detection fix (8885924).
+  const path = url.split('?')[0]!.split('#')[0]!
   if (path.endsWith('.tilejson')) return 'tilejson'
   if (path.endsWith('.json') && !path.endsWith('.geojson')) return 'tilejson'
   if (path.endsWith('.pmtiles')) return 'pmtiles'
