@@ -58,8 +58,18 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer): MapboxLayer[] | 
   // The input must be `['get', field]` — a literal expression input
   // can't be split into a value-set filter.
   const input = fc[1]
-  if (!Array.isArray(input) || input[0] !== 'get' || typeof input[1] !== 'string') return null
-  const field = input[1] as string
+  if (!Array.isArray(input) || input[0] !== 'get') return null
+  // Peel wrapped field name on the get accessor — mirror of the legacy
+  // comparison fix (8013bc3). Pre-fix `['get', ['literal', 'kind']]`
+  // failed the typeof gate and the whole expand bailed → layer fell
+  // back to the pick-first-stop fallback (single colour for every
+  // feature on a per-country palette match).
+  let getField: unknown = input[1]
+  while (Array.isArray(getField) && getField.length === 2 && getField[0] === 'literal') {
+    getField = getField[1]
+  }
+  if (typeof getField !== 'string') return null
+  const field = getField
 
   const args = fc.slice(2)
   // Need at least one (vals, out) pair and a default — i.e. 3 args.
