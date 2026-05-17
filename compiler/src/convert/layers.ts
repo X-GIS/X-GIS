@@ -4,6 +4,35 @@ import { filterToXgis, exprToXgis } from './expressions'
 import { paintToUtilities, interpolateZoomCall } from './paint'
 import { colorToXgis } from './colors'
 
+// Mapbox v8 wraps inline arrays in `["literal", […]]`. Symbol-layer
+// numeric-tuple knobs (text-offset, text-translate, icon-offset,
+// text-variable-anchor-offset) all accept either the bare array OR
+// the literal-wrapped form per the spec. Helper unwraps once so the
+// downstream `Array.isArray + typeof number` checks work uniformly
+// for both shapes — without it MapLibre-2-strict styles emitting
+// `["literal", [0, -1.5]]` for text-offset get the offset silently
+// dropped (outer length === 2 + offset[0] === "literal" fails the
+// numeric check).
+function unwrapLiteralTuple(v: unknown): unknown {
+  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal' && Array.isArray(v[1])) {
+    return v[1]
+  }
+  return v
+}
+
+// Scalar-numeric sibling — `["literal", 16]` for text-size /
+// text-halo-* / text-padding / icon-size etc. Same scope: covers the
+// wrap pattern without changing the bare-numeric fast path. Mirror
+// of paint.ts:unwrapLiteralNumeric from 240c5fb.
+function unwrapLiteralScalar(v: unknown): unknown {
+  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal'
+      && (typeof v[1] === 'number' || typeof v[1] === 'string'
+          || typeof v[1] === 'boolean')) {
+    return v[1]
+  }
+  return v
+}
+
 // Layer types whose engine support is on the roadmap but not yet
 // landed. Each type gets a more informative SKIPPED comment that
 // names the engine work it's waiting on, so users reading the
@@ -299,7 +328,7 @@ function convertSymbolLayer(
   // form `label-size-[interpolate(zoom, …)]` is recognised by the
   // lower pass (lower.ts:499) and produces `LabelDef.sizeZoomStops`
   // for per-frame interpolation.
-  const textSize = layout['text-size']
+  const textSize = unwrapLiteralScalar(layout['text-size'])
   if (typeof textSize === 'number') {
     utils.push(`label-size-${textSize}`)
   } else if (textSize !== undefined) {
@@ -327,7 +356,7 @@ function convertSymbolLayer(
   // text-halo-width / text-halo-color → label-halo-N + label-halo-color-X.
   // Both accept zoom-interpolated forms (common on basemap styles
   // that grow halos with zoom for legibility).
-  const haloWidth = paint['text-halo-width']
+  const haloWidth = unwrapLiteralScalar(paint['text-halo-width'])
   if (typeof haloWidth === 'number' && haloWidth > 0) {
     utils.push(`label-halo-${haloWidth}`)
   } else if (haloWidth !== undefined) {
@@ -369,7 +398,7 @@ function convertSymbolLayer(
   // form only for now; the runtime shader smoothstep widens by this
   // value. Real-world use: most basemap styles set 0.5–1.0 px so
   // the halo doesn't look like a hard outline.
-  const haloBlur = paint['text-halo-blur']
+  const haloBlur = unwrapLiteralScalar(paint['text-halo-blur'])
   if (typeof haloBlur === 'number' && haloBlur > 0) {
     utils.push(`label-halo-blur-${haloBlur}`)
   }
@@ -432,21 +461,6 @@ function convertSymbolLayer(
   // utility-name grammar treats `-` as a segment separator — emitting
   // `label-offset-y--0.2` would lex as a malformed double-dash name.
   const fmtSigned = (n: number): string => n < 0 ? `[${n}]` : `${n}`
-  // Mapbox v8 wraps inline arrays in `["literal", […]]`. Symbol-layer
-  // numeric-tuple knobs (text-offset, text-translate, icon-offset,
-  // text-variable-anchor-offset) all accept either the bare array OR
-  // the literal-wrapped form per the spec. Helper unwraps once so the
-  // downstream `Array.isArray + typeof number` checks work uniformly
-  // for both shapes — without it MapLibre-2-strict styles emitting
-  // `["literal", [0, -1.5]]` for text-offset get the offset silently
-  // dropped (outer length === 2 + offset[0] === "literal" fails the
-  // numeric check).
-  const unwrapLiteralTuple = (v: unknown): unknown => {
-    if (Array.isArray(v) && v.length === 2 && v[0] === 'literal' && Array.isArray(v[1])) {
-      return v[1]
-    }
-    return v
-  }
   const offset = unwrapLiteralTuple(layout['text-offset'])
   if (Array.isArray(offset) && offset.length === 2
       && typeof offset[0] === 'number' && typeof offset[1] === 'number') {
@@ -469,7 +483,7 @@ function convertSymbolLayer(
   // from the anchor point by this radius in each candidate anchor's
   // direction (MapLibre fromRadialOffset). Negatives ride the bracket
   // form, though Mapbox clamps a negative radial offset to 0 anyway.
-  const radialOffset = layout['text-radial-offset']
+  const radialOffset = unwrapLiteralScalar(layout['text-radial-offset'])
   if (typeof radialOffset === 'number' && radialOffset !== 0) {
     utils.push(`label-radial-offset-${fmtSigned(radialOffset)}`)
   }
@@ -548,7 +562,7 @@ function convertSymbolLayer(
     warnings.push(`Symbol layer "${layer.id}" — unrecognised icon-overlap value ${JSON.stringify(iconOverlap)}; ignored.`)
   }
   if (layout['text-ignore-placement'] === true) utils.push('label-ignore-placement')
-  const padding = layout['text-padding']
+  const padding = unwrapLiteralScalar(layout['text-padding'])
   if (typeof padding === 'number') {
     utils.push(`label-padding-${padding}`)
   } else if (padding !== undefined) {
@@ -562,7 +576,7 @@ function convertSymbolLayer(
   // tracking) → bracket form for negatives. Mapbox text-letter-spacing
   // is zoom-interpolatable; large basemap styles fade tracking out at
   // low zoom for legibility.
-  const rotate = layout['text-rotate']
+  const rotate = unwrapLiteralScalar(layout['text-rotate'])
   if (typeof rotate === 'number' && rotate !== 0) {
     utils.push(`label-rotate-${fmtSigned(rotate)}`)
   } else if (rotate !== undefined && typeof rotate !== 'number') {
@@ -718,7 +732,7 @@ function convertSymbolLayer(
   } else if (iconImage !== undefined) {
     warnings.push(`Symbol layer "${layer.id}" — data-driven icon-image not yet supported (Phase B+).`)
   }
-  const iconSize = layout['icon-size']
+  const iconSize = unwrapLiteralScalar(layout['icon-size'])
   if (typeof iconSize === 'number' && iconSize !== 1) {
     utils.push(`label-icon-size-${fmtSigned(iconSize)}`)
   }
