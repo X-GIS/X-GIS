@@ -12,7 +12,7 @@
 // height. NaN, Infinity, zero, negative numbers, strings, booleans,
 // nulls, and unsupported AST kinds all collapse to that same null.
 
-import { evaluate } from '@xgis/compiler'
+import { evaluate, makeEvalProps } from '@xgis/compiler'
 
 export type ExtrudeAst = unknown // serialized AST node, structurally typed by evaluate()
 
@@ -23,8 +23,20 @@ export type ExtrudeAst = unknown // serialized AST node, structurally typed by e
  *  (literals, FieldAccess, BinaryExpr, UnaryExpr, FnCall, MatchBlock,
  *  ConditionalExpr, ArrayLiteral / ArrayAccess, PipeExpr); anything
  *  the user can write inside `fill: ...` works inside `extrude: ...`
- *  too. */
-export function evalExtrudeExpr(node: ExtrudeAst, props: Record<string, unknown>): number | null {
+ *  too.
+ *
+ *  `tileZoom` (optional) gets injected as the reserved `$zoom` key so
+ *  height expressions like `interpolate(zoom, …)` resolve correctly.
+ *  Pre-fix the raw props bag let `["zoom"]` collapse to undefined and
+ *  the surrounding interpolate evaluator returned 0 — every feature's
+ *  height baked at the first-stop value regardless of zoom band.
+ *  Tile zoom is a close-enough proxy for camera zoom (heights bake at
+ *  tile-decode time; per-frame re-bake is a separate follow-up). */
+export function evalExtrudeExpr(
+  node: ExtrudeAst,
+  props: Record<string, unknown>,
+  tileZoom?: number,
+): number | null {
   if (!node || typeof node !== 'object') return null
   // The cast is structural — evaluate() expects an AST.Expr but
   // accepts anything matching the node-kind dispatch shape we get
@@ -32,7 +44,10 @@ export function evalExtrudeExpr(node: ExtrudeAst, props: Record<string, unknown>
   // worker would force the worker to re-export the compiler's AST
   // surface; using `unknown` at the boundary is functionally
   // equivalent and keeps the call sites straightforward.
-  const v = evaluate(node as never, props)
+  const bag = tileZoom === undefined
+    ? props
+    : makeEvalProps({ props, cameraZoom: tileZoom })
+  const v = evaluate(node as never, bag)
   if (typeof v !== 'number') return null
   if (!Number.isFinite(v) || v <= 0) return null
   return v

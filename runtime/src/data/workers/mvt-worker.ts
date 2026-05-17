@@ -36,6 +36,7 @@ import { evalFilterExpr } from '../eval/filter-eval'
 function extractFeatureHeights(
   features: GeoJSONFeature[],
   expr: unknown,
+  tileZoom: number,
 ): Map<number, number> {
   const out = new Map<number, number>()
   if (!expr) return out
@@ -51,7 +52,7 @@ function extractFeatureHeights(
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
-    const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
+    const v = evalExtrudeExpr(expr, props as Record<string, unknown>, tileZoom)
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
@@ -308,10 +309,10 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       // Same skip for extrude data — only populate when ANY show on
       // this slice declared `fill-extrusion-height-…`.
       const heights = needsExtrude
-        ? extractFeatureHeights(sourceFeatures, msg.extrudeExprs?.[sourceLayer])
+        ? extractFeatureHeights(sourceFeatures, msg.extrudeExprs?.[sourceLayer], msg.z)
         : new Map<number, number>()
       const bases = needsExtrude
-        ? extractFeatureHeights(sourceFeatures, msg.extrudeBaseExprs?.[sourceLayer])
+        ? extractFeatureHeights(sourceFeatures, msg.extrudeBaseExprs?.[sourceLayer], msg.z)
         : new Map<number, number>()
       // Per-feature stroke widths / colours — keyed by sliceKey
       // because the compound layer's match() targets a specific

@@ -42,6 +42,7 @@ import {
 function extractFeatureHeights(
   features: GeoJSONFeature[],
   expr: unknown,
+  tileZoom: number,
 ): Map<number, number> {
   // Mirrors mvt-worker.ts — only emit entries for features whose
   // expression evaluates to a usable height. Missing / null /
@@ -53,7 +54,7 @@ function extractFeatureHeights(
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
-    const v = evalExtrudeExpr(expr, props as Record<string, unknown>)
+    const v = evalExtrudeExpr(expr, props as Record<string, unknown>, tileZoom)
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
@@ -639,8 +640,8 @@ export class PMTilesBackend implements TileSource {
           const props = sourceFeatures[fi]?.properties
           if (props) featureProps.set(fi, props as Record<string, unknown>)
         }
-        const heights = extractFeatureHeights(sourceFeatures, this.extrudeExprs?.[sourceLayer])
-        const bases = extractFeatureHeights(sourceFeatures, this.extrudeBaseExprs?.[sourceLayer])
+        const heights = extractFeatureHeights(sourceFeatures, this.extrudeExprs?.[sourceLayer], z)
+        const bases = extractFeatureHeights(sourceFeatures, this.extrudeBaseExprs?.[sourceLayer], z)
         const widths = extractFeatureWidths(sourceFeatures, this.strokeWidthExprs?.[sliceKey], z)
         const colors = extractFeatureColors(sourceFeatures, this.strokeColorExprs?.[sliceKey], z)
         let prebuiltOutlineSegments: Float32Array | undefined
