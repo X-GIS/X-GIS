@@ -160,11 +160,18 @@ export function detectVectorTileFormat(
   // URL; without the strip the format detection still routed pmtiles
   // (since the inner URL ends with .pmtiles) but the subsequent
   // fetch failed on the `pmtiles:` scheme.
-  const stripped = url.startsWith('pmtiles://') ? url.slice('pmtiles://'.length) : url
+  // Case-insensitive scheme strip per RFC 3986 §3.1 — `PMTILES://...`
+  // is the same URI as `pmtiles://...`. Path extension matching is
+  // ALSO case-insensitive so `.PMTILES` / `.JSON` / `.TILEJSON` from a
+  // case-tolerant server (Windows-style or S3 keys uppercased by an
+  // upstream rewrite) route correctly instead of falling to the null
+  // return + PMTiles-default crash on Wrong magic number.
+  const stripped = /^pmtiles:\/\//i.test(url) ? url.slice('pmtiles://'.length) : url
   const path = stripped.split('?')[0]!.split('#')[0]!
-  if (path.endsWith('.tilejson')) return 'tilejson'
-  if (path.endsWith('.json') && !path.endsWith('.geojson')) return 'tilejson'
-  if (path.endsWith('.pmtiles')) return 'pmtiles'
+  const lcPath = path.toLowerCase()
+  if (lcPath.endsWith('.tilejson')) return 'tilejson'
+  if (lcPath.endsWith('.json') && !lcPath.endsWith('.geojson')) return 'tilejson'
+  if (lcPath.endsWith('.pmtiles')) return 'pmtiles'
   // Mapbox-style vector sources can declare `tiles: ["…/{z}/{x}/{y}.mvt"]`
   // (single-tile XYZ endpoint, no TileJSON manifest). Route those into
   // the MVT path; the loader synthesises a minimal TileJSON wrapper
@@ -178,7 +185,7 @@ export function detectVectorTileFormat(
   // to PMTiles, which then failed with "Wrong magic number" on the
   // first fetch.
   if (kind === 'auto' || kind === 'tilejson') {
-    if (path.endsWith('.mvt') || path.endsWith('.pbf')) return 'tilejson'
+    if (lcPath.endsWith('.mvt') || lcPath.endsWith('.pbf')) return 'tilejson'
     if (url.includes('{z}') && url.includes('{x}') && url.includes('{y}')) {
       return 'tilejson'
     }
@@ -576,7 +583,9 @@ export class VectorTileLoader {
     // the request fails on the made-up scheme. Memoise key uses the
     // stripped form so callers that pass either shape hit the same
     // cache entry.
-    const cleanUrl = url.startsWith('pmtiles://') ? url.slice('pmtiles://'.length) : url
+    // Case-insensitive per RFC 3986 §3.1 — mirror of the
+    // detectVectorTileFormat strip and compiler-side stripPmtilesScheme.
+    const cleanUrl = /^pmtiles:\/\//i.test(url) ? url.slice('pmtiles://'.length) : url
     return memoizeOpen(this.archiveCache, cleanUrl, async () => {
       const archive = new PMTiles(cleanUrl)
       const header = await archive.getHeader()

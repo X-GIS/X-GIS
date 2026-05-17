@@ -167,7 +167,13 @@ export function convertSource(
   const stripPmtilesScheme = (u: unknown): unknown => {
     if (typeof u !== 'string') return u
     let trimmed = u.trim()
-    if (trimmed.startsWith('pmtiles://')) {
+    // Case-insensitive per RFC 3986 §3.1 — schemes ARE case-insensitive
+    // ("Although schemes are case-insensitive, the canonical form is
+    // lowercase"). A style author writing `PMTILES://...` or
+    // `Pmtiles://...` is producing a valid URI; the pre-fix
+    // `startsWith('pmtiles://')` check failed those and the verbatim
+    // URI fell through to fetch which 400'd on the unknown scheme.
+    if (/^pmtiles:\/\//i.test(trimmed)) {
       trimmed = trimmed.slice('pmtiles://'.length)
     }
     return trimmed
@@ -180,7 +186,7 @@ export function convertSource(
   }
   if (src.type === 'vector') {
     const url = src.url ?? src.tiles?.[0]
-    if (url && /\.pmtiles(\?|#|$)/.test(url)) {
+    if (url && /\.pmtiles(\?|#|$)/i.test(url)) {
       lines.push('  type: pmtiles')
       lines.push(`  url: ${JSON.stringify(url)}`)
     } else if (url) {
