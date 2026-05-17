@@ -102,6 +102,20 @@ export function convertSource(
       lines.push('  // TODO: vector source without url/tiles — fill in PMTiles archive URL')
       warnings.push(`Source "${id}" has neither url nor tiles[]; emitted placeholder.`)
     }
+  } else if (src.type === 'tilejson') {
+    // Non-spec but observed in third-party tooling — author writes
+    // `"type": "tilejson"` directly instead of relying on `type:
+    // vector` + URL sniffing. Accept and route to the runtime's
+    // tilejson backend. Without this arm the converter fell to
+    // "unsupported source type" and the layer dropped entirely.
+    const url = src.url ?? src.tiles?.[0]
+    if (url) {
+      lines.push('  type: tilejson')
+      lines.push(`  url: "${url}"`)
+    } else {
+      lines.push('  // TODO: tilejson source missing url')
+      warnings.push(`TileJSON source "${id}" has no URL.`)
+    }
   } else if (src.type === 'pmtiles') {
     // Non-spec but common community-extension shape — Protomaps tooling
     // and several third-party styles author `"type": "pmtiles"` directly
