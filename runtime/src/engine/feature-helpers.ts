@@ -101,6 +101,7 @@ export function ringBboxCentre(ring: [number, number][]): [number, number] | nul
 export function applyFilter(
   data: GeoJSONFeatureCollection,
   filterExpr?: { ast: unknown } | null,
+  cameraZoom?: number,
 ): GeoJSONFeatureCollection {
   if (!filterExpr?.ast || !data.features) return data
   const ast = filterExpr.ast as AST.Expr
@@ -109,11 +110,15 @@ export function applyFilter(
     // `["geometry-type"]` and `["id"]` accessors (lowered to
     // `get("$geometryType")` / `get("$featureId")` by the converter)
     // can read feature meta without breaking the props-only
-    // evalFilter contract.
+    // evalFilter contract. `cameraZoom` rounds out the reserved-key
+    // set so filters like `["all", [">=", ["zoom"], 14], ...]` see
+    // the live camera value — mirror of the PMTiles filter eval
+    // contract (mvt-worker / pmtiles-backend feed `tileZoom`).
     const propsBag = makeEvalProps({
       props: f.properties ?? undefined,
       geometryType: f.geometry?.type,
       featureId: (f as { id?: string | number }).id,
+      cameraZoom,
     })
     const result = evaluate(ast, propsBag)
     // Truthy check: non-zero numbers, true booleans, non-empty strings.
@@ -136,10 +141,17 @@ export function applyFilter(
 export function applyGeometry(
   data: GeoJSONFeatureCollection,
   geometryExpr: { ast: unknown },
+  cameraZoom?: number,
 ): GeoJSONFeatureCollection {
   const ast = geometryExpr.ast as AST.Expr
   const newFeatures = data.features.map(f => {
-    const result = evaluate(ast, f.properties ?? {})
+    const bag = makeEvalProps({
+      props: f.properties ?? undefined,
+      geometryType: f.geometry?.type,
+      featureId: (f as { id?: string | number }).id,
+      cameraZoom,
+    })
+    const result = evaluate(ast, bag)
     if (!result) return f
     if (Array.isArray(result) && result.length > 0 && Array.isArray(result[0])) {
       return {

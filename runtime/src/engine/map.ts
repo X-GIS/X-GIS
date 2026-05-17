@@ -1947,11 +1947,11 @@ export class XGISMap {
         continue
       }
 
-      let filtered = applyFilter(data, show.filterExpr)
+      let filtered = applyFilter(data, show.filterExpr, this.camera.zoom)
 
       // Procedural geometry: evaluate geometry expression per feature
       if (show.geometryExpr?.ast) {
-        filtered = applyGeometry(filtered, show.geometryExpr)
+        filtered = applyGeometry(filtered, show.geometryExpr, this.camera.zoom)
       }
 
       // Point geometry → SDF point renderer (skip polygon tiling pipeline)
