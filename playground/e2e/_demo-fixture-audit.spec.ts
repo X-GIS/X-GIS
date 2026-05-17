@@ -42,6 +42,7 @@ interface DemoResult {
   ready: boolean
   readyMs: number
   paintedPx: number
+  centerPx: number
   cameraZoom: number | null
   cameraFinite: boolean
   errors: string[]
@@ -117,6 +118,7 @@ test('audit every DEMOS entry', async ({ page }) => {
     let ready = false
     let readyMs = 0
     let paintedPx = 0
+    let centerPx = 0
     let screenshotPath = ''
     let camera: { zoom: number; centerX: number; centerY: number; pitch: number; bearing: number } | null = null
 
@@ -180,7 +182,20 @@ test('audit every DEMOS entry', async ({ page }) => {
 
       // Count non-background pixels. Demo background is dark
       // (~#06080c, see other specs); anything visibly bright counts.
-      paintedPx = await page.evaluate(async (bytes) => {
+      // Counts THREE regions independently so a "passing" status
+      // requires more than UI chrome:
+      //   - whole: any non-bg pixel anywhere
+      //   - center: non-bg pixels in the central 60×60% region
+      //     (excludes top-left zoom badge, top-right snapshot button,
+      //     bottom status bar)
+      //   - corners: combined count from each viewport corner — a sanity
+      //     "did anything paint outside the centre" gauge for demos that
+      //     legitimately paint near edges (world maps, etc)
+      // The `picking_demo` + `raster_overlay` regression (commit 05f5888)
+      // showed up because UI-chrome `whole > 200` passed while the map
+      // area was completely dark; the `center` check below would have
+      // caught it.
+      const paintCounts = await page.evaluate(async (bytes) => {
         const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' })
         const url = URL.createObjectURL(blob)
         const img = new Image()
@@ -191,15 +206,28 @@ test('audit every DEMOS entry', async ({ page }) => {
         const off = new OffscreenCanvas(img.width, img.height)
         const ctx = off.getContext('2d')!
         ctx.drawImage(img, 0, 0)
-        const data = ctx.getImageData(0, 0, img.width, img.height).data
-        let n = 0
-        for (let i = 0; i < data.length; i += 4) {
-          const r = data[i], g = data[i + 1], b = data[i + 2]
-          if (r > 15 || g > 15 || b > 18) n++
+        const w = img.width, h = img.height
+        const data = ctx.getImageData(0, 0, w, h).data
+        const isPaint = (i: number): boolean => {
+          const r = data[i]!, g = data[i + 1]!, b = data[i + 2]!
+          return r > 15 || g > 15 || b > 18
+        }
+        let whole = 0, center = 0
+        const xMin = Math.floor(w * 0.20), xMax = Math.floor(w * 0.80)
+        const yMin = Math.floor(h * 0.20), yMax = Math.floor(h * 0.80)
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const i = (y * w + x) * 4
+            if (!isPaint(i)) continue
+            whole++
+            if (x >= xMin && x < xMax && y >= yMin && y < yMax) center++
+          }
         }
         URL.revokeObjectURL(url)
-        return n
+        return { whole, center }
       }, Array.from(png))
+      paintedPx = paintCounts.whole
+      centerPx = paintCounts.center
     } catch (err) {
       errors.push(`[spec-error] ${(err as Error).message}`)
     }
@@ -220,6 +248,7 @@ test('audit every DEMOS entry', async ({ page }) => {
       ready,
       readyMs,
       paintedPx,
+      centerPx,
       cameraZoom: camera?.zoom ?? null,
       cameraFinite,
       errors: [...new Set(errors)],
@@ -229,17 +258,22 @@ test('audit every DEMOS entry', async ({ page }) => {
     }
     results.push(result)
 
-    // Live progress so the user can watch the sweep.
+    // Live progress so the user can watch the sweep. Central-region
+    // < 200 catches "UI chrome only" demos that the legacy
+    // `paintedPx < 200` whole-canvas check missed (picking_demo /
+    // raster_overlay before commit 05f5888).
     const status = !ready ? '✗ NO-READY'
       : result.errors.length > 0 ? '✗ ERR'
       : !cameraFinite ? '✗ CAM-NONFINITE'
       : paintedPx < 200 ? '⚠ BLANK'
+      : centerPx < 200 ? '⚠ UI-ONLY'
       : '✓'
     // eslint-disable-next-line no-console
     console.log(
       `[demo-audit] ${status} ${meta.id.padEnd(38)} `
       + `tag=${meta.tag.padEnd(14)} `
       + `paint=${paintedPx.toString().padStart(7)} `
+      + `centre=${centerPx.toString().padStart(7)} `
       + `zoom=${(camera?.zoom ?? 'n/a').toString().padStart(6)} `
       + `err=${result.errors.length} `
       + `warn=${result.warns.length} `
@@ -248,8 +282,12 @@ test('audit every DEMOS entry', async ({ page }) => {
   }
 
   // ── REPORT.md ─────────────────────────────────────────────────────
+  // `centerPx < 200` catches the "UI chrome alone" case that fooled
+  // the prior `paintedPx < 200` check (picking_demo / raster_overlay
+  // pre-05f5888 had paintedPx ~40k but centerPx near 0).
   const broken = results.filter(r =>
-    !r.ready || r.errors.length > 0 || !r.cameraFinite || r.paintedPx < 200,
+    !r.ready || r.errors.length > 0 || !r.cameraFinite
+    || r.paintedPx < 200 || r.centerPx < 200,
   )
   const lines: string[] = []
   lines.push('# Demo + fixture audit')
