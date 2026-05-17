@@ -67,13 +67,17 @@ export function evaluate(expr: AST.Expr, props: FeatureProps, fnEnv?: FnEnv): un
   }
 }
 
-function evaluateFieldAccess(expr: AST.FieldAccess, props: FeatureProps, _fnEnv?: FnEnv): unknown {
+function evaluateFieldAccess(expr: AST.FieldAccess, props: FeatureProps, fnEnv?: FnEnv): unknown {
   if (expr.object === null) {
     // Implicit field access: .speed → props["speed"]
     return props[expr.field] ?? null
   }
-  // Chained: obj.field
-  const obj = evaluate(expr.object, props)
+  // Chained: obj.field — forward fnEnv so a user-defined fn nested
+  // inside the object expression still resolves (e.g. `myFn(.x).b`).
+  // Pre-fix the omitted forward dropped fnEnv at the chain boundary
+  // and the inner FnCall fell back to props-only lookup, returning
+  // null for any user-defined fn.
+  const obj = evaluate(expr.object, props, fnEnv)
   if (obj && typeof obj === 'object') {
     return (obj as Record<string, unknown>)[expr.field] ?? null
   }
