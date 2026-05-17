@@ -1095,7 +1095,7 @@ export function convertLayer(layer: MapboxLayer, warnings: string[]): string | n
   // for cap/join). Engine support: `compiler/src/ir/lower.ts:903`
   // for `visible:` block prop, lines 402-417 for cap/join utilities.
   const layout = (layer as { layout?: Record<string, unknown> }).layout ?? {}
-  if (layout['visibility'] === 'none') {
+  if (unwrapLiteralScalar(layout['visibility']) === 'none') {
     lines.push(`  visible: false`)
   }
 
@@ -1105,15 +1105,15 @@ export function convertLayer(layer: MapboxLayer, warnings: string[]): string | n
   // resolver (lower.ts:402-422).
   const layoutUtils: string[] = []
   if (layer.type === 'line') {
-    const cap = layout['line-cap']
+    const cap = unwrapLiteralScalar(layout['line-cap'])
     if (cap === 'butt') layoutUtils.push('stroke-butt-cap')
     else if (cap === 'round') layoutUtils.push('stroke-round-cap')
     else if (cap === 'square') layoutUtils.push('stroke-square-cap')
-    const join = layout['line-join']
+    const join = unwrapLiteralScalar(layout['line-join'])
     if (join === 'miter') layoutUtils.push('stroke-miter-join')
     else if (join === 'round') layoutUtils.push('stroke-round-join')
     else if (join === 'bevel') layoutUtils.push('stroke-bevel-join')
-    const miter = layout['line-miter-limit']
+    const miter = unwrapLiteralScalar(layout['line-miter-limit'])
     if (typeof miter === 'number') layoutUtils.push(`stroke-miterlimit-${miter}`)
   }
 
