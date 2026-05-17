@@ -59,7 +59,13 @@ export function colorToXgis(v: unknown, warnings: string[]): string | null {
     if (v.startsWith('#')) return v
     const hex = resolveColor(v.trim())
     if (hex) return hex
-    return v
+    // Unrecognised colour name → return null so the caller can warn /
+    // skip emission. Pre-fix the converter returned `v` verbatim,
+    // which then became e.g. `fill-rainbow` in the emitted xgis;
+    // the runtime utility resolver failed to find a colour and the
+    // layer rendered transparent without any diagnostic.
+    warnings.push(`Color "${v.slice(0, 60)}" not recognised (not hex / named-colour / rgb()-fn) — emission skipped.`)
+    return null
   }
   // Unwrap v8 strict `["literal", N]` per-channel wrappers so a
   // double-wrapped tuple like `["rgba", ["literal", 255], ["literal", 0],
