@@ -93,8 +93,7 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
         // this AST shape (eval/evaluator.ts) so the literal key passes
         // straight through to props[key], preserving the locale
         // semantics that international basemaps depend on.
-        const escaped = f.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-        return `get("${escaped}")`
+        return `get(${JSON.stringify(f)})`
       }
       // Dynamic key — the field arg is itself an expression
       // (`["get", ["concat", "name:", ["get", "lang"]]]`). The
@@ -121,8 +120,7 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
         if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) return `.${field} != null`
         // Colon-bearing locale keys round-trip through get("…") which
         // already returns null on miss (matching Mapbox's "has" sense).
-        const escaped = field.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-        return `get("${escaped}") != null`
+        return `get(${JSON.stringify(field)}) != null`
       }
       const inner = exprToXgis(v[1], warnings)
       if (inner === null) return null
@@ -136,8 +134,7 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       }
       if (typeof field === 'string') {
         if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) return `.${field} == null`
-        const escaped = field.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-        return `get("${escaped}") == null`
+        return `get(${JSON.stringify(field)}) == null`
       }
       const inner = exprToXgis(v[1], warnings)
       if (inner === null) return null
