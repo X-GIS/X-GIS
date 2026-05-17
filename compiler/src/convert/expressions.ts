@@ -504,7 +504,13 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // hex-encode at convert time; otherwise leave as a function
       // call for the evaluator to handle (which it doesn't currently;
       // surfaces as a warning so callers know).
-      const ch = v.slice(1)
+      // Per-channel literal-wrap unwrap so v8 strict tooling's
+      // `["rgb", ["literal", 255], ["literal", 0], ["literal", 0]]`
+      // still hex-encodes at convert time. Mirror of the same
+      // unwrap inside colorToXgis (commit 1927580).
+      const ch = v.slice(1).map((c) =>
+        Array.isArray(c) && c.length === 2 && c[0] === 'literal' ? c[1] : c,
+      )
       const allNumeric = ch.every(c => typeof c === 'number')
       if (allNumeric) {
         const [r, g, b, a] = ch as number[]

@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { colorToXgis } from '../convert/colors'
+import { exprToXgis } from '../convert/expressions'
 
 describe('rgb/rgba per-channel literal-wrap unwrap', () => {
   it('bare ["rgb", 255, 0, 0] resolves to #ff0000', () => {
@@ -34,6 +35,16 @@ describe('rgb/rgba per-channel literal-wrap unwrap', () => {
     const w: string[] = []
     const out = colorToXgis(['rgba', 255, 0, 0, 0.5], w)
     expect(out).toMatch(/^#ff0000[78]0$/i)  // alpha 0.5 → 0x80 or 0x7f depending on rounding
+  })
+
+  it('exprToXgis path: nested ["rgb", ["literal", 255], …] inside case also hex-encodes', () => {
+    // Mirror of the colorToXgis unwrap, applied at exprToXgis case
+    // 'rgb' / 'rgba' for expressions that don't reach the color-only
+    // path (e.g. an `["rgb", ...]` constant deep inside a
+    // `["case", cond, ["rgb", ...], default]`).
+    const w: string[] = []
+    const out = exprToXgis(['rgb', ['literal', 0], ['literal', 255], ['literal', 0]], w)
+    expect(out).toBe('#00ff00')
   })
 
   it('fully wrapped ["rgba", ["literal", 255], …, ["literal", 0.5]] also resolves', () => {
