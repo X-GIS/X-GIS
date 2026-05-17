@@ -287,7 +287,7 @@ const EXPRESSIONS: readonly CoverageEntry[] = [
   { name: 'any',             status: 'supported' },
   { name: '!',               status: 'supported' },
   { name: '== / != / < / <= / > / >=', status: 'supported' },
-  { name: 'in',              status: 'supported', note: 'Both expression form and legacy form.' },
+  { name: 'in',              status: 'supported', note: 'Both expression form and legacy form. Empty value list lowers to constant `false` per spec.', source: 'expressions.ts:560' },
   { name: '!in',             status: 'supported' },
   // Arithmetic + math
   { name: '+ / - / * / / / %', status: 'supported' },
