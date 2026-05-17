@@ -160,17 +160,29 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       const args = v.slice(1).map(x => exprToXgis(x, warnings)).filter((s): s is string => s !== null)
       return args.length > 0 ? `${op}(${args.join(', ')})` : null
     }
-    case 'to-number': case 'number': {
-      // X-GIS evaluator coerces in arithmetic; pass through the inner.
-      return exprToXgis(v[1], warnings)
-    }
-    case 'to-string': case 'to-boolean': case 'to-color': {
-      // Same coercion-passthrough rationale as `to-number`: X-GIS
-      // evaluator coerces by context (text resolver stringifies,
-      // boolean ops toBool, color literals are already canonical
-      // hex). Dropping the cast wrapper lowers cleanly and the inner
-      // expression carries the value.
-      return exprToXgis(v[1], warnings)
+    case 'to-number': case 'number':
+    case 'to-string': case 'string':
+    case 'to-boolean': case 'boolean':
+    case 'to-color': {
+      // Mapbox spec: `["number", value, fallback1, fallback2, …]`
+      // (and the `to-number` / `string` / `boolean` / `to-color`
+      // variants) returns the FIRST arg of the right type, else the
+      // next fallback. X-GIS evaluator coerces by context — there's
+      // no per-type "is the right type" check — so we use coalesce()
+      // as a best-effort fallback chain.
+      //
+      // Pre-fix the multi-arg fallback was dropped (only the first
+      // value passed through). That hurt styles that author
+      // `["number", ["get", "height"], 0]` to default missing fields
+      // to 0 — when the property was missing, the inner returned
+      // null and the layer's height collapsed to whatever the
+      // evaluator's null-arithmetic default was (typically 0, but
+      // for layouts like `interpolate(zoom, … null …)` could break).
+      const args = v.slice(1).map(a => exprToXgis(a, warnings))
+      const valid = args.filter((a): a is string => a !== null)
+      if (valid.length === 0) return null
+      if (valid.length === 1) return valid[0]!
+      return valid.join(' ?? ')
     }
     // ─── Batch 6: math + trig + log builtins ───
     // All of these have a 1:1 evaluator builtin (callBuiltin in
