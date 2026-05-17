@@ -245,9 +245,14 @@ function convertSymbolLayer(
   const paint = (layer as { paint?: Record<string, unknown> }).paint ?? {}
   const textField = layout['text-field']
   const iconImage = unwrapLiteralScalar(layout['icon-image'])
-  const iconOnly = textField === undefined && typeof iconImage === 'string'
+  // Mapbox spec: text-field === null means "no text" (same as
+  // undefined). Pre-fix only undefined fell to the icon-only path;
+  // an explicit `text-field: null` (uncommon but spec-valid)
+  // dropped the layer entirely even when icon-image was set.
+  const hasText = textField !== undefined && textField !== null
+  const iconOnly = !hasText && typeof iconImage === 'string'
 
-  if (textField === undefined && !iconOnly) {
+  if (!hasText && !iconOnly) {
     // No text-field AND no icon-image — nothing renderable.
     warnings.push(`Symbol layer "${layer.id}" — neither text-field nor icon-image; dropping.`)
     return `// SKIPPED layer "${layer.id}" type="symbol" — no text-field or icon-image.`
