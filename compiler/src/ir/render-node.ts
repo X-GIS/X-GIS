@@ -708,6 +708,14 @@ export function buildLabelShapes(input: {
  */
 export function hexToRgba(hex: string): [number, number, number, number] {
   let r = 0, g = 0, b = 0, a = 1
+  // Reject non-hex content before parseInt — mirror of feature-helpers
+  // parseHexColor regex gate (caad699). Without it `parseInt('zz',
+  // 16)` = NaN propagated through and downstream consumers (shader-gen
+  // resolveColorFromAST, fold-trivial-case foldColor) stored NaN
+  // tuples.
+  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
+    return [0, 0, 0, 1]
+  }
 
   if (hex.length === 4) {
     // #RGB
