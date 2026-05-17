@@ -309,8 +309,8 @@ const EXPRESSIONS: readonly CoverageEntry[] = [
   { name: 'interpolate (linear)',      status: 'supported' },
   { name: 'interpolate (exponential)', status: 'supported', note: 'Mapbox `["exponential", N]` lowers to `interpolate_exp(zoom, N, …)`; runtime applies the Mapbox curve formula. base=1 collapses to the linear fast path.', source: 'paint.ts:46' },
   { name: 'interpolate (cubic-bezier)',status: 'partial', impact: 'low', note: 'Folded to linear with a warning — no per-stop bezier evaluator yet.' },
-  { name: 'interpolate-hcl',           status: 'unsupported', impact: 'low' },
-  { name: 'interpolate-lab',           status: 'unsupported', impact: 'low' },
+  { name: 'interpolate-hcl',           status: 'partial', impact: 'low', note: 'Approximated as linear-RGB with a warning — no LAB/HCL per-stop evaluator yet.', source: 'expressions.ts:220' },
+  { name: 'interpolate-lab',           status: 'partial', impact: 'low', note: 'Approximated as linear-RGB with a warning — no LAB/HCL per-stop evaluator yet.', source: 'expressions.ts:220' },
   // Feature meta
   { name: 'geometry-type',   status: 'supported', note: 'Routes via synthetic `$geometryType` prop injected at filter-eval time.', source: 'expressions.ts:263' },
   { name: 'id',              status: 'supported', note: 'Routes via synthetic `$featureId` prop injected from `feature.id` (GeoJSON RFC 7946 §3.2; MVT feature.id) at every filter-eval site. Same pattern as `geometry-type`.', source: 'expressions.ts:278' },
@@ -328,7 +328,7 @@ const EXPRESSIONS: readonly CoverageEntry[] = [
   { name: 'slice',           status: 'supported', note: 'String or array; Mapbox `["slice", input, start[, end]]`. Routes to JS String/Array `.slice` semantics.', source: 'expressions.ts:248' },
   { name: 'index-of',        status: 'supported', note: 'Lowers to xgis `index_of(needle, haystack[, from])`. Returns -1 when not found.', source: 'expressions.ts:257' },
   // Camera / spatial
-  { name: 'zoom',            status: 'supported', note: 'In `interpolate(zoom, …)` and `step(zoom, …)` contexts.' },
+  { name: 'zoom',            status: 'supported', note: 'Lowers to bare `zoom` identifier. Works in `interpolate(zoom, …)` / `step(zoom, …)` AND anywhere else (filter compare, case condition, arithmetic).', source: 'expressions.ts:471' },
   { name: 'pitch',           status: 'unsupported', impact: 'low' },
   { name: 'distance-from-center', status: 'unsupported', impact: 'low' },
   { name: 'distance',        status: 'unsupported', impact: 'low' },
