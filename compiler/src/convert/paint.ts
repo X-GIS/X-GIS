@@ -14,6 +14,19 @@ import { colorToXgis } from './colors'
 import { exprToXgis } from './expressions'
 import { maybeBracket } from './utils'
 
+/** Unwrap Mapbox v8's `["literal", value]` wrapper for any scalar /
+ *  array stop value or paint scalar input. The callbacks downstream
+ *  type-check against the inner concrete type (number / string / array)
+ *  and reject the wrapper as "not the shape I expected"; unwrapping
+ *  eagerly lets a uniform code path handle both the bare and v8-
+ *  strict forms. */
+function unwrapStopLiteral(v: unknown): unknown {
+  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
+    return v[1]
+  }
+  return v
+}
+
 /** Consolidated "ignored paint property" diagnostic. Pushes ONE
  *  warning per layer listing every property that's been declared but
  *  isn't honoured by the runtime today. Mirror of the symbol-layer
@@ -196,7 +209,12 @@ function interpolateZoomStops(
   for (let i = 3; i + 1 < v.length; i += 2) {
     const z = v[i]
     if (typeof z !== 'number') return null
-    stops.push({ zoom: z, value: v[i + 1] })
+    // Mapbox v8 allows each stop's value to be wrapped in `["literal",
+    // …]`. Unwrap eagerly so the numeric / colour callbacks
+    // downstream see the bare value — without this each
+    // `(val) => typeof val === 'number' ? String(val) : null` callback
+    // returns null on the wrap and the whole interpolate fails.
+    stops.push({ zoom: z, value: unwrapStopLiteral(v[i + 1]) })
   }
   if (stops.length < 2) return null
 
