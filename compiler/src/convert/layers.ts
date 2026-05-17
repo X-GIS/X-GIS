@@ -338,10 +338,13 @@ function convertSymbolLayer(
   // for per-frame interpolation.
   const textSize = unwrapLiteralScalar(layout['text-size'])
   if (typeof textSize === 'number') {
-    utils.push(`label-size-${textSize}`)
+    // Mapbox spec: text-size >= 0. Clamp to prevent
+    // `label-size--5` (double-dash utility name) on typo'd
+    // negatives. Same class as the line-width / opacity clamps.
+    utils.push(`label-size-${Math.max(0, textSize)}`)
   } else if (textSize !== undefined) {
     const interp = interpolateZoomCall(textSize, warnings,
-      (val) => typeof val === 'number' ? String(val) : null)
+      (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
     if (interp !== null) {
       utils.push(`label-size-[${interp}]`)
     } else {
@@ -368,8 +371,10 @@ function convertSymbolLayer(
   if (typeof haloWidth === 'number' && haloWidth > 0) {
     utils.push(`label-halo-${haloWidth}`)
   } else if (haloWidth !== undefined) {
+    // Same negative-clamp guard as text-size — Mapbox spec
+    // text-halo-width >= 0.
     const interp = interpolateZoomCall(haloWidth, warnings,
-      (val) => typeof val === 'number' ? String(val) : null)
+      (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
     if (interp !== null) {
       utils.push(`label-halo-[${interp}]`)
     } else {
