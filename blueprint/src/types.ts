@@ -131,10 +131,10 @@ const PRESENTATION: Record<string, Presentation> = {
     fields: {
       name: { label: 'Name', kind: 'text', placeholder: 'world' },
       type: { label: 'Type', kind: 'select' },
-      url: { label: 'URL', kind: 'text', placeholder: './data/countries.geojson' },
+      url: { label: 'URL', kind: 'text', placeholder: 'land.geojson' },
       layers: { label: 'MVT layers (opt, comma)', kind: 'text', placeholder: 'water, roads' },
     },
-    defaults: { name: 'world', type: 'geojson', url: './data/countries.geojson', layers: '' },
+    defaults: { name: 'world', type: 'geojson', url: 'land.geojson', layers: '' },
   },
   symbol: {
     title: 'Symbol',
@@ -338,7 +338,7 @@ export function starterGraph(): BPGraph {
     type: 'source',
     x: 60,
     y: 120,
-    data: { name: 'world', type: 'geojson', url: './data/countries.geojson', layers: '' },
+    data: { name: 'land', type: 'geojson', url: 'land.geojson', layers: '' },
   }
   const lay: BPNode = {
     id: uid('n'),
@@ -346,7 +346,7 @@ export function starterGraph(): BPGraph {
     x: 440,
     y: 80,
     data: {
-      name: 'countries',
+      name: 'continents',
       sourceLayer: '',
       minzoom: '',
       maxzoom: '',

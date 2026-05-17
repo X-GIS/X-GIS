@@ -28,6 +28,14 @@ playground/public/data/*
 !playground/public/data/ne_110m_lakes.geojson
 !playground/public/data/ne_110m_populated_places.geojson
 
+# `land.geojson` — small (232KB) Natural-Earth land-only feature set,
+# mirrored from site/public/data/land.geojson so the blueprint editor's
+# default starter graph (`source land { url: "land.geojson" }`) works
+# identically in both contexts. Avoids the "blueprint Open-in-
+# Playground 404" gap when the user lands the default scene without
+# changing the URL field.
+!playground/public/data/land.geojson
+
 # Playwright e2e artifacts
 playground/test-results/
 playground/playwright-report/
