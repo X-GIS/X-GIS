@@ -117,7 +117,7 @@ export type PointerEvents = 'auto' | 'none'
  *  fields on `XGISLayerStyle`. */
 export type XGISLayerStyleKey =
   | 'opacity' | 'fill' | 'stroke' | 'strokeWidth'
-  | 'visible' | 'pointerEvents' | 'extrude'
+  | 'visible' | 'pointerEvents' | 'extrude' | 'extrudeBase'
 
 export interface XGISFeatureEventInit {
   // Phase 4 will populate this with click / mouseenter / mouseleave /
@@ -220,6 +220,25 @@ export class XGISLayerStyle {
       this.host.show.extrude = { kind: 'none' }
     } else {
       this.host.show.extrude = { kind: 'constant', value: v }
+    }
+    this.host.invalidate()
+  }
+
+  /** Companion to `extrude` — the BASE z of the wall (Mapbox
+   *  `fill-extrusion-base`). Combined with `extrude`, this carves out a
+   *  `min_height` podium for buildings: walls run from `extrudeBase` to
+   *  `extrude` metres. Read/write contract identical to `extrude`. */
+  get extrudeBase(): number | null {
+    const e = this.host.show.extrudeBase
+    if (e.kind === 'constant') return e.value
+    return null
+  }
+  set extrudeBase(v: number | null) {
+    this.snapshot('extrudeBase', this.host.show.extrudeBase)
+    if (v === null) {
+      this.host.show.extrudeBase = { kind: 'none' }
+    } else {
+      this.host.show.extrudeBase = { kind: 'constant', value: v }
     }
     this.host.invalidate()
   }
