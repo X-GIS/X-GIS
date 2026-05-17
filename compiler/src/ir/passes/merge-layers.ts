@@ -193,6 +193,15 @@ function canExtendGroup(first: RenderNode, candidate: RenderNode): boolean {
   if (first.projection !== candidate.projection) return false
   if (first.visible !== candidate.visible) return false
   if (first.pointerEvents !== candidate.pointerEvents) return false
+  // Zoom range must match — the merged node uses first.minzoom /
+  // first.maxzoom (via `...first` spread at the compound build site),
+  // so a candidate with a different range would inherit first's range
+  // and either over-render at zooms it wasn't meant to (candidate's
+  // minzoom > first.minzoom) or under-render (candidate's maxzoom <
+  // first.maxzoom). OSM landuse styles where _residential authors
+  // minzoom: 10 but _park authors minzoom: 8 must stay separate.
+  if (first.minzoom !== candidate.minzoom) return false
+  if (first.maxzoom !== candidate.maxzoom) return false
   if (!strokesShapeEqual(first.stroke, candidate.stroke)) return false
   // Stroke colour difference IS folded structurally — same pattern
   // as the per-feature stroke width: the worker evaluates a
