@@ -586,7 +586,11 @@ function callBuiltin(name: string, args: unknown[]): unknown {
     // Geometry generators — return coordinate arrays
     case 'circle': {
       const [cx, cy, r, s] = args.map(toNumber)
-      const steps = Math.max(4, Math.floor(s || 32))
+      // Clamp steps to a reasonable upper bound. A user-authored
+      // `circle(x, y, r, 1e9)` would otherwise allocate a billion-
+      // entry array and hang the worker. 4096 is the geo-builtin's
+      // practical limit (matches MAX_LOOP_ITERATIONS class).
+      const steps = Math.max(4, Math.min(4096, Math.floor(s || 32)))
       const pts: number[][] = []
       for (let i = 0; i <= steps; i++) {
         const a = (i % steps) * Math.PI * 2 / steps
@@ -596,7 +600,8 @@ function callBuiltin(name: string, args: unknown[]): unknown {
     }
     case 'arc': {
       const [cx, cy, r, startA, endA, s] = args.map(toNumber)
-      const steps = Math.max(2, Math.floor(s || 32))
+      // Upper bound matches `circle` (above) — prevent runaway alloc.
+      const steps = Math.max(2, Math.min(4096, Math.floor(s || 32)))
       const pts: number[][] = []
       for (let i = 0; i <= steps; i++) {
         const a = startA + (endA - startA) * i / steps
