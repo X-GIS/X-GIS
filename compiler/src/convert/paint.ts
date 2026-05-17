@@ -372,7 +372,17 @@ function unwrapLiteralNumeric(v: unknown): unknown {
 function addStrokeWidth(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
   v = unwrapLiteralNumeric(v)
-  const interp = interpolateZoomCall(v, warnings, (val) => typeof val === 'number' ? String(val) : null)
+  // Mapbox spec: line-width >= 0. Clamp negative literals at convert
+  // time — otherwise `addStrokeWidth(-5)` would emit `stroke--5`,
+  // a double-dash utility name the parser splits incorrectly. Lower
+  // priority than the opacity-clamp (negative widths are even rarer
+  // in real styles) but the malformed output crashes the layer.
+  if (typeof v === 'number') {
+    const clamped = Math.max(0, v)
+    out.push(`stroke-${clamped}`)
+    return
+  }
+  const interp = interpolateZoomCall(v, warnings, (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
   if (interp !== null) {
     out.push(`stroke-[${interp}]`)
     return
