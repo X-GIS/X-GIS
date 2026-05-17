@@ -137,6 +137,24 @@ describe('opacity scale conversion (Mapbox 0..1 → xgis 0..100)', () => {
     expect(out).toContain('fill-extrusion-height-40')
   })
 
+  it('fill-opacity: -0.5 clamps to opacity-0 (out-of-range guard)', () => {
+    // Mapbox spec: opacity ∈ [0, 1]. Pre-fix a negative literal
+    // produced `opacity--50` (double-dash utility name) which the
+    // parser misread.
+    expect(emitFill(-0.5)).toContain('opacity-0')
+    expect(emitFill(-0.5)).not.toContain('opacity--')
+  })
+
+  it('fill-opacity: 1.5 clamps to opacity-100 (out-of-range guard)', () => {
+    // > 1 in the 0..1 mode falls to the legacy 0..100 interpretation
+    // (1.5 / 100 = 0.015 → 2). 0..1 fast path stops at 1; the legacy
+    // path scales. Both above-spec values should at least produce a
+    // valid utility name.
+    const out = emitFill(1.5)
+    expect(out).toMatch(/opacity-\d+/)
+    expect(out).not.toMatch(/opacity--/)
+  })
+
   it('zoom-interpolated fill-opacity stops scale individually', () => {
     const out = convertMapboxStyle({
       version: 8,

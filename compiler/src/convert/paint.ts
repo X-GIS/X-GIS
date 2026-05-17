@@ -474,8 +474,12 @@ function addOpacity(out: string[], v: unknown, warnings: string[]): void {
   // unwrap (e3c5c62).
   v = unwrapLiteralNumeric(v)
   if (typeof v === 'number') {
-    // Mapbox 0..1, X-GIS opacity-N where N can be 0..100 or 0..1.
-    out.push(`opacity-${v <= 1 ? Math.round(v * 100) : v}`)
+    // Mapbox spec: opacity ∈ [0, 1]. Clamp at convert time so a
+    // typo'd negative or > 1 value doesn't produce a malformed
+    // utility name (`opacity--50` lexes as an utility name with
+    // double-dash that the parser splits on the wrong segment).
+    const clamped = Math.max(0, Math.min(1, v <= 1 ? v : v / 100))
+    out.push(`opacity-${Math.round(clamped * 100)}`)
     return
   }
   const interp = interpolateZoomCall(v, warnings, (val) => {
