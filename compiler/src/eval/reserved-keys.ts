@@ -26,11 +26,28 @@ export const CAMERA_ZOOM_KEY = '$zoom' as const
  *  Worker / runtime inject `feature.id` here when present. */
 export const FEATURE_ID_KEY = '$featureId' as const
 
-/** Reserved key for the feature's geometry type ('Point' |
- *  'LineString' | 'Polygon' | 'MultiPoint' | …). Mapbox
- *  `["geometry-type"]` lowers to `["get", "$geometryType"]` and the
- *  worker / runtime inject `feature.geometry.type` here. */
+/** Reserved key for the feature's geometry type — Mapbox spec
+ *  NORMALIZES Multi* shapes to their base form:
+ *      MultiPoint      → 'Point'
+ *      MultiLineString → 'LineString'
+ *      MultiPolygon    → 'Polygon'
+ *  Mapbox `["geometry-type"]` lowers to `["get", "$geometryType"]`
+ *  and `makeEvalProps` applies the normalisation so a filter
+ *  `["==", ["geometry-type"], "Polygon"]` matches BOTH Polygon and
+ *  MultiPolygon features (MapLibre's behaviour). Pre-fix workers /
+ *  runtime injected the raw `feature.geometry.type`, so MultiPolygon
+ *  features silently failed `==="Polygon"` filters. */
 export const GEOMETRY_TYPE_KEY = '$geometryType' as const
+
+/** Normalize a raw GeoJSON geometry-type string to the form Mapbox's
+ *  `["geometry-type"]` accessor returns. Multi* → base. Pass-through
+ *  for already-base shapes and unrecognised inputs. */
+export function normalizeGeometryType(t: string | undefined): string | undefined {
+  if (t === 'MultiPoint') return 'Point'
+  if (t === 'MultiLineString') return 'LineString'
+  if (t === 'MultiPolygon') return 'Polygon'
+  return t
+}
 
 /** Union of every reserved key — useful for "is this prop name
  *  reserved" checks in lower.ts / converter. */
@@ -66,6 +83,8 @@ export function makeEvalProps(opts: {
   const out: Record<string, unknown> = { ...(opts.props ?? {}) }
   if (opts.cameraZoom !== undefined) out[CAMERA_ZOOM_KEY] = opts.cameraZoom
   if (opts.featureId !== undefined) out[FEATURE_ID_KEY] = opts.featureId
-  if (opts.geometryType !== undefined) out[GEOMETRY_TYPE_KEY] = opts.geometryType
+  if (opts.geometryType !== undefined) {
+    out[GEOMETRY_TYPE_KEY] = normalizeGeometryType(opts.geometryType)
+  }
   return out
 }

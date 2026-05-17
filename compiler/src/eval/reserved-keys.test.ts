@@ -15,6 +15,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   CAMERA_ZOOM_KEY, FEATURE_ID_KEY, GEOMETRY_TYPE_KEY, makeEvalProps,
+  normalizeGeometryType,
 } from './reserved-keys'
 import { evaluate } from './evaluator'
 import type { Identifier } from '../parser/ast'
@@ -129,6 +130,35 @@ describe('reserved keys — no literal `$zoom` / `$featureId` / `$geometryType` 
     expect(CAMERA_ZOOM_KEY).toBe('$zoom')
     expect(FEATURE_ID_KEY).toBe('$featureId')
     expect(GEOMETRY_TYPE_KEY).toBe('$geometryType')
+  })
+
+  it('makeEvalProps normalizes Multi* geometry types to their base form', () => {
+    // Mapbox spec: `["geometry-type"]` returns "Point" / "LineString"
+    // / "Polygon" — never the "Multi*" form. A filter
+    // `["==", ["geometry-type"], "Polygon"]` MUST match both Polygon
+    // AND MultiPolygon features (the common case for country borders
+    // — single-country polygons vs. archipelago multipolygons).
+    // Pre-fix the runtime injected the raw `feature.geometry.type`,
+    // so MultiPolygon features silently failed every Polygon-typed
+    // filter — visible as missing fills on multi-island countries.
+    expect(makeEvalProps({ geometryType: 'MultiPoint' })[GEOMETRY_TYPE_KEY]).toBe('Point')
+    expect(makeEvalProps({ geometryType: 'MultiLineString' })[GEOMETRY_TYPE_KEY]).toBe('LineString')
+    expect(makeEvalProps({ geometryType: 'MultiPolygon' })[GEOMETRY_TYPE_KEY]).toBe('Polygon')
+    // Base shapes pass through unchanged.
+    expect(makeEvalProps({ geometryType: 'Polygon' })[GEOMETRY_TYPE_KEY]).toBe('Polygon')
+    expect(makeEvalProps({ geometryType: 'LineString' })[GEOMETRY_TYPE_KEY]).toBe('LineString')
+    expect(makeEvalProps({ geometryType: 'Point' })[GEOMETRY_TYPE_KEY]).toBe('Point')
+  })
+
+  it('normalizeGeometryType helper exposes the same normalization rules', () => {
+    expect(normalizeGeometryType('MultiPoint')).toBe('Point')
+    expect(normalizeGeometryType('MultiLineString')).toBe('LineString')
+    expect(normalizeGeometryType('MultiPolygon')).toBe('Polygon')
+    expect(normalizeGeometryType('Polygon')).toBe('Polygon')
+    expect(normalizeGeometryType(undefined)).toBeUndefined()
+    // Unknown / garbage shapes pass through — runtime invariant
+    // (worker may inject a third-party geometry type we haven't seen).
+    expect(normalizeGeometryType('GeometryCollection')).toBe('GeometryCollection')
   })
 
   it('makeEvalProps wires camera zoom to the evaluator\'s `zoom` identifier', () => {
