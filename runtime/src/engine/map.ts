@@ -31,7 +31,6 @@ import { PointRenderer } from './render/point-renderer'
 import { ShapeRegistry } from './text/sdf-shape'
 import { LineRenderer } from './render/line-renderer'
 import { PanZoomController, type Controller } from './controller'
-import { CanvasRenderer } from './render/canvas-renderer'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { TextStage, type TextStageOptions } from './text/text-stage'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
@@ -311,10 +310,6 @@ export class XGISMap {
   private running = false
   private projectionName = 'mercator'
   private controller: Controller | null = null
-
-  // Canvas 2D fallback
-  private canvasRenderer: CanvasRenderer | null = null
-  private useCanvas2D = false
 
   // SDF text overlay stage. Lazy — first `addOverlay` call instantiates.
   private textStage: TextStage | null = null
@@ -1306,75 +1301,64 @@ export class XGISMap {
     }
 
 
-    // 2. Await the GPU init that was kicked off at step 0. By now the
-    // request has either resolved (typical case — IR finished after
-    // requestDevice) or is about to. Same fallback path as before for
-    // unsupported environments.
-    try {
-      const result = await gpuInit
-      if (result instanceof Error) throw result
-      this.ctx = result
-      this.renderer = new MapRenderer(this.ctx)
-      this.rasterRenderer = new RasterRenderer(this.ctx)
-      this.backgroundRenderer = new BackgroundRenderer(this.ctx)
-      if (this._backgroundColor) this.backgroundRenderer.setFill(this._backgroundColor)
-      if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
+    // 2. Await the GPU init kicked off at step 0. WebGPU is required —
+    // any failure here propagates so the caller knows the map can't
+    // mount (no silent Canvas2D fallback any more; the fallback path
+    // could only render a tiny subset of the pipeline correctly).
+    const result = await gpuInit
+    if (result instanceof Error) throw result
+    this.ctx = result
+    this.renderer = new MapRenderer(this.ctx)
+    this.rasterRenderer = new RasterRenderer(this.ctx)
+    this.backgroundRenderer = new BackgroundRenderer(this.ctx)
+    if (this._backgroundColor) this.backgroundRenderer.setFill(this._backgroundColor)
+    if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
 
-      // P3 Step 3c — upload the scene-level color gradient palette to
-      // GPU, then push the resulting view through MapRenderer +
-      // every freshly-built VTR so their bind groups sample the real
-      // atlas instead of the 1×1 stub installed at MapRenderer init.
-      // Must run AFTER ctx + renderer init (was previously ahead of
-      // both; the silent try/catch fallback masked it as "always-
-      // fail" for the entire P3 path — user saw the warning fire).
-      if (commands.palette && commands.palette.colorGradients.length > 0) {
-        // Guard with try/catch — palette upload races scene compile
-        // and a transient GPU error (cold device, low-memory) shouldn't
-        // kill the whole map. Fall back to the 1×1 stub atlas; legacy
-        // `u.fill_color` uniform path keeps working for every variant.
-        try {
-          const packed = packPalette(commands.palette)
-          const handles = uploadPalette(this.ctx.device, packed)
-          if (this._paletteHandles) {
-            this._paletteHandles.colorPalette.destroy()
-            this._paletteHandles.scalarPalette.destroy()
-            this._paletteHandles.colorGradientAtlas.destroy()
-            this._paletteHandles.scalarGradientAtlas.destroy()
-          }
-          this._paletteHandles = handles
-          this.renderer.setPaletteColorAtlas(handles.colorGradientAtlas.createView())
-        } catch (e) {
-          console.warn('[X-GIS] palette upload failed; falling back to legacy uniform path:',
-            (e as Error)?.message)
+    // P3 Step 3c — upload the scene-level color gradient palette to GPU
+    // so MapRenderer + freshly-built VTRs sample the real atlas instead
+    // of the 1×1 stub installed at MapRenderer init.
+    if (commands.palette && commands.palette.colorGradients.length > 0) {
+      // Guard with try/catch — palette upload races scene compile and a
+      // transient GPU error (cold device, low-memory) shouldn't kill the
+      // whole map. Falls back to the 1×1 stub atlas; legacy
+      // `u.fill_color` uniform path keeps working for every variant.
+      try {
+        const packed = packPalette(commands.palette)
+        const handles = uploadPalette(this.ctx.device, packed)
+        if (this._paletteHandles) {
+          this._paletteHandles.colorPalette.destroy()
+          this._paletteHandles.scalarPalette.destroy()
+          this._paletteHandles.colorGradientAtlas.destroy()
+          this._paletteHandles.scalarGradientAtlas.destroy()
+        }
+        this._paletteHandles = handles
+        this.renderer.setPaletteColorAtlas(handles.colorGradientAtlas.createView())
+      } catch (e) {
+        console.warn('[X-GIS] palette upload failed; falling back to legacy uniform path:',
+          (e as Error)?.message)
+      }
+    }
+    try {
+      this.pointRenderer = new PointRenderer(this.ctx)
+      this.shapeRegistry = new ShapeRegistry(this.ctx.device)
+      // Register user-defined symbols from DSL under the `user:` namespace
+      // so they shadow built-ins of the same name instead of being silently
+      // dropped by the duplicate-name guard in `addShape`.
+      for (const sym of commands.symbols ?? []) {
+        for (const path of sym.paths) {
+          this.shapeRegistry.addUserShape(sym.name, path)
         }
       }
-      try {
-        this.pointRenderer = new PointRenderer(this.ctx)
-        this.shapeRegistry = new ShapeRegistry(this.ctx.device)
-        // Register user-defined symbols from DSL under the `user:` namespace
-        // so they shadow built-ins of the same name instead of being silently
-        // dropped by the duplicate-name guard in `addShape`.
-        for (const sym of commands.symbols ?? []) {
-          for (const path of sym.paths) {
-            this.shapeRegistry.addUserShape(sym.name, path)
-          }
-        }
-        this.shapeRegistry.uploadToGPU()
-        this.pointRenderer.setShapeRegistry(this.shapeRegistry)
-      } catch (e) { console.warn('[X-GIS] PointRenderer init failed:', e) }
+      this.shapeRegistry.uploadToGPU()
+      this.pointRenderer.setShapeRegistry(this.shapeRegistry)
+    } catch (e) { console.warn('[X-GIS] PointRenderer init failed:', e) }
 
-      // SDF line renderer (shared by all VTR instances)
-      try {
-        this.lineRenderer = new LineRenderer(this.ctx, this.renderer.bindGroupLayout)
-        if (this.shapeRegistry) this.lineRenderer.setShapeRegistry(this.shapeRegistry)
-      } catch (e) { console.warn('[X-GIS] LineRenderer init failed:', e) }
-      // VT sources/renderers created per .xgvt file in the load loop
-      this.useCanvas2D = false
-    } catch (err) {
-      console.warn('[X-GIS] WebGPU unavailable, falling back to Canvas 2D:', (err as Error).message)
-      this.canvasRenderer = new CanvasRenderer(this.canvas)
-      this.useCanvas2D = true
-    }
+    // SDF line renderer (shared by all VTR instances)
+    try {
+      this.lineRenderer = new LineRenderer(this.ctx, this.renderer.bindGroupLayout)
+      if (this.shapeRegistry) this.lineRenderer.setShapeRegistry(this.shapeRegistry)
+    } catch (e) { console.warn('[X-GIS] LineRenderer init failed:', e) }
+    // VT sources/renderers created per .xgvt file in the load loop
 
 
     // 3. Load data — all sources in parallel. Sequential awaits used to
@@ -1462,44 +1446,34 @@ export class XGISMap {
     // frame for variant-heavy demos (filter_gdp at z=8 Europe).
     // `createRenderPipelineAsync` lets the driver work in the
     // background so the frame budget recovers.
-    if (!this.useCanvas2D) {
-      const variants: import('@xgis/compiler').ShaderVariant[] = []
-      const seen = new Set<string>()
-      for (const show of this.showCommands) {
-        const v = show.shaderVariant
-        if (v && (v.preamble || v.needsFeatureBuffer) && v.key && !seen.has(v.key)) {
-          seen.add(v.key)
-          variants.push(v)
-        }
+    const variants: import('@xgis/compiler').ShaderVariant[] = []
+    const seen = new Set<string>()
+    for (const show of this.showCommands) {
+      const v = show.shaderVariant
+      if (v && (v.preamble || v.needsFeatureBuffer) && v.key && !seen.has(v.key)) {
+        seen.add(v.key)
+        variants.push(v)
       }
-      if (variants.length > 0) {
-        try {
-          await this.renderer.prewarmShaderVariantsAsync(variants as unknown as Parameters<MapRenderer['prewarmShaderVariantsAsync']>[0])
-        } catch (e) {
-          console.warn('[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):', (e as Error).message)
-        }
+    }
+    if (variants.length > 0) {
+      try {
+        await this.renderer.prewarmShaderVariantsAsync(variants as unknown as Parameters<MapRenderer['prewarmShaderVariantsAsync']>[0])
+      } catch (e) {
+        console.warn('[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):', (e as Error).message)
       }
     }
 
     // 4. Build render layers + fit camera
-    if (this.useCanvas2D) {
-      this.rebuildLayersCanvas2D()
-    } else {
-      this.rebuildLayers()
-    }
+    this.rebuildLayers()
 
     // 5. Setup controller
     this.switchController()
 
     // 6. Start render loop
     this.running = true
-    if (this.useCanvas2D) {
-      this.renderLoopCanvas2D()
-    } else {
-      this.renderLoop()
-    }
+    this.renderLoop()
 
-    console.log(`[X-GIS] Map running (${this.useCanvas2D ? 'Canvas 2D fallback' : 'WebGPU'})`)
+    console.log('[X-GIS] Map running')
 
     // Expose a ready signal for headless e2e / smoke tests. The test
     // harness (playground/e2e/smoke.spec.ts) polls window.__xgisReady
@@ -1599,7 +1573,7 @@ export class XGISMap {
       return
     }
 
-    if (vectorTileFormat !== null && !this.useCanvas2D) {
+    if (vectorTileFormat !== null) {
       const source = new TileCatalog()
       const vtRenderer = new VectorTileRenderer(this.ctx)
       vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
@@ -1683,7 +1657,7 @@ export class XGISMap {
       || /[?&]legacy=1\b/.test(window.location.search)
     )
     const useVirtualPMTiles = !useLegacy
-    if (useVirtualPMTiles && !this.useCanvas2D) {
+    if (useVirtualPMTiles) {
       // Diagnostic flag — set on `window` so the Phase 5e regression
       // spec can assert the route taken without parsing console
       // output. Cheap: one property write at attach time.
@@ -1827,7 +1801,7 @@ export class XGISMap {
     this.xgisLayers.clear()
 
     // Reset raster renderer — only activate if a layer references a raster source
-    if (!this.useCanvas2D) this.rasterRenderer.setUrlTemplate('')
+    this.rasterRenderer.setUrlTemplate('')
     // Drop any previously-tracked raster show. A new active one (if any)
     // is captured below by the same `_tileUrl` test that arms the
     // renderer.
@@ -1863,7 +1837,7 @@ export class XGISMap {
       // Raster tile source referenced by a layer → activate raster renderer
       const tileUrl = (data as unknown as { _tileUrl?: string })._tileUrl
       if (tileUrl) {
-        if (!this.useCanvas2D) this.rasterRenderer.setUrlTemplate(tileUrl)
+        this.rasterRenderer.setUrlTemplate(tileUrl)
         // Capture the show so the frame loop can resolve its
         // `paintShapes.opacity` per zoom (OFM Liberty's natural_earth
         // raster fades 0.6 → 0.1 across z=0..6). First-wins — multi-
@@ -2156,54 +2130,6 @@ export class XGISMap {
     }
 
     console.log(`[X-GIS] Rebuilt layers (GPU projection: ${this.projectionName})`)
-  }
-
-  /** Build layers for Canvas 2D fallback */
-  private rebuildLayersCanvas2D(): void {
-    if (!this.canvasRenderer) return
-
-    for (const show of this.showCommands) {
-      const data = this.rawDatasets.get(show.targetName)
-      if (!data) continue
-
-      const isTile = (data as unknown as { _tileUrl?: string })._tileUrl
-      if (isTile) {
-        this.canvasRenderer.addLayer(show, null, isTile as string)
-      } else {
-        const filtered = applyFilter(data, show.filterExpr)
-        this.canvasRenderer.addLayer(show, filtered, null)
-
-        // Fit camera to data bounds
-        if (data.features?.length) {
-          let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity
-          for (const f of data.features) {
-            if (!f.geometry) continue
-            const coords = JSON.stringify(f.geometry.coordinates)
-            const nums = coords.match(/-?\d+\.?\d*/g)?.map(Number) ?? []
-            for (let i = 0; i < nums.length - 1; i += 2) {
-              const lon = nums[i], lat = nums[i + 1]
-              if (Math.abs(lon) <= 180 && Math.abs(lat) <= 90) {
-                minLon = Math.min(minLon, lon); maxLon = Math.max(maxLon, lon)
-                minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat)
-              }
-            }
-          }
-          if (minLon < Infinity) {
-            const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, (minLat + maxLat) / 2)
-            this.camera.centerX = cx
-            this.camera.centerY = cy
-            this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, this.canvas.clientWidth)
-          }
-        }
-      }
-    }
-  }
-
-  /** Canvas 2D render loop */
-  private renderLoopCanvas2D = (): void => {
-    if (!this.running || !this.canvasRenderer) return
-    this.canvasRenderer.render(this.camera, this.projectionName)
-    requestAnimationFrame(this.renderLoopCanvas2D)
   }
 
   /** Load and run a pre-compiled .xgb binary */
