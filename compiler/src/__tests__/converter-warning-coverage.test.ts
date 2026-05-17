@@ -228,6 +228,40 @@ describe('converter warning coverage', () => {
       .toBe(true)
   })
 
+  it('source "type": "pmtiles" routes through to xgis pmtiles source', () => {
+    // Pins 1c61b9f — Protomaps community-extension shape ("type":
+    // "pmtiles" instead of "vector" + .pmtiles URL detection) must
+    // emit a real pmtiles source block, not the terminal
+    // "unsupported source type" warning.
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: {
+        protomaps: {
+          type: 'pmtiles',
+          url: 'https://example.com/regions.pmtiles',
+        },
+      },
+      layers: [{
+        id: 'water',
+        type: 'fill',
+        source: 'protomaps',
+        'source-layer': 'water',
+        paint: { 'fill-color': '#aef' },
+      }],
+    } as never)
+    expect(out, 'xgis output should declare a pmtiles source').toMatch(/source\s+protomaps\s*\{[^}]*type:\s*pmtiles/)
+    // And the layer block survives the conversion (sanity that the
+    // dropped-source path isn't re-routed here).
+    expect(out).toContain('layer water')
+    // No "unsupported source type" warning either.
+    const w = warningsOf({
+      version: 8,
+      sources: { protomaps: { type: 'pmtiles', url: 'https://example.com/x.pmtiles' } },
+      layers: [],
+    })
+    expect(w.some(s => s.includes('"protomaps"') && s.includes('unsupported type'))).toBe(false)
+  })
+
   it('glyphs / sprite must NOT appear in the top-level warning (host-integration handled)', () => {
     // Regression for 2819cd6 — these used to be flagged here even
     // though the playground importers forward them via setGlyphsUrl /
