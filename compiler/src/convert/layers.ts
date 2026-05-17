@@ -432,7 +432,22 @@ function convertSymbolLayer(
   // utility-name grammar treats `-` as a segment separator — emitting
   // `label-offset-y--0.2` would lex as a malformed double-dash name.
   const fmtSigned = (n: number): string => n < 0 ? `[${n}]` : `${n}`
-  const offset = layout['text-offset']
+  // Mapbox v8 wraps inline arrays in `["literal", […]]`. Symbol-layer
+  // numeric-tuple knobs (text-offset, text-translate, icon-offset,
+  // text-variable-anchor-offset) all accept either the bare array OR
+  // the literal-wrapped form per the spec. Helper unwraps once so the
+  // downstream `Array.isArray + typeof number` checks work uniformly
+  // for both shapes — without it MapLibre-2-strict styles emitting
+  // `["literal", [0, -1.5]]` for text-offset get the offset silently
+  // dropped (outer length === 2 + offset[0] === "literal" fails the
+  // numeric check).
+  const unwrapLiteralTuple = (v: unknown): unknown => {
+    if (Array.isArray(v) && v.length === 2 && v[0] === 'literal' && Array.isArray(v[1])) {
+      return v[1]
+    }
+    return v
+  }
+  const offset = unwrapLiteralTuple(layout['text-offset'])
   if (Array.isArray(offset) && offset.length === 2
       && typeof offset[0] === 'number' && typeof offset[1] === 'number') {
     if (offset[0] !== 0) utils.push(`label-offset-x-${fmtSigned(offset[0])}`)
@@ -443,7 +458,7 @@ function convertSymbolLayer(
   // labels off the road centreline (`text-translate: [0, -8]` for
   // an 8-px upward shift). Negatives ride the bracket form like
   // text-offset.
-  const translate = paint['text-translate']
+  const translate = unwrapLiteralTuple(paint['text-translate'])
   if (Array.isArray(translate) && translate.length === 2
       && typeof translate[0] === 'number' && typeof translate[1] === 'number') {
     if (translate[0] !== 0) utils.push(`label-translate-x-${fmtSigned(translate[0])}`)
@@ -708,7 +723,7 @@ function convertSymbolLayer(
   if (typeof iconAnchor === 'string' && iconAnchor !== 'center') {
     utils.push(`label-icon-anchor-${iconAnchor}`)
   }
-  const iconOffset = layout['icon-offset']
+  const iconOffset = unwrapLiteralTuple(layout['icon-offset'])
   if (Array.isArray(iconOffset) && iconOffset.length === 2
       && typeof iconOffset[0] === 'number' && typeof iconOffset[1] === 'number') {
     // Two utilities so the xgis-utility-name grammar (`-` is the
