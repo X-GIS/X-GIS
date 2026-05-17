@@ -9,8 +9,6 @@ import { Camera } from '../engine/projection/camera'
 import { mercator } from '../engine/projection/projection'
 import { visibleTilesSSE } from './tiles-sse'
 
-const DEG2RAD = Math.PI / 180
-
 function makeCam(zoom: number, pitch: number, lon: number, lat: number, bearing = 0): Camera {
   const c = new Camera(lon, lat, zoom)
   c.pitch = pitch

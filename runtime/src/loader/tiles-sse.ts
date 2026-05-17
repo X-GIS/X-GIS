@@ -45,7 +45,7 @@
 import type { Camera } from '../engine/projection/camera'
 import type { Projection } from './../engine/projection/projection'
 import { worldCopiesFor, TILE_PX } from '../engine/gpu/gpu-shared'
-import type { TileCoord } from './tiles'
+import type { TileCoord } from '../data/tile-select'
 
 const EARTH_CIRC_M = 40075016.686
 const PI_R = Math.PI * 6378137
