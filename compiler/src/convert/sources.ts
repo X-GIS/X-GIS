@@ -94,10 +94,10 @@ export function convertSource(
     const url = src.url ?? src.tiles?.[0]
     if (url && /\.pmtiles(\?|#|$)/.test(url)) {
       lines.push('  type: pmtiles')
-      lines.push(`  url: "${url}"`)
+      lines.push(`  url: ${JSON.stringify(url)}`)
     } else if (url) {
       lines.push('  type: tilejson')
-      lines.push(`  url: "${url}"`)
+      lines.push(`  url: ${JSON.stringify(url)}`)
     } else {
       lines.push('  // TODO: vector source without url/tiles — fill in PMTiles archive URL')
       warnings.push(`Source "${id}" has neither url nor tiles[]; emitted placeholder.`)
@@ -111,7 +111,7 @@ export function convertSource(
     const url = src.url ?? src.tiles?.[0]
     if (url) {
       lines.push('  type: tilejson')
-      lines.push(`  url: "${url}"`)
+      lines.push(`  url: ${JSON.stringify(url)}`)
     } else {
       lines.push('  // TODO: tilejson source missing url')
       warnings.push(`TileJSON source "${id}" has no URL.`)
@@ -126,7 +126,7 @@ export function convertSource(
     const url = src.url ?? src.tiles?.[0]
     if (url) {
       lines.push('  type: pmtiles')
-      lines.push(`  url: "${url}"`)
+      lines.push(`  url: ${JSON.stringify(url)}`)
     } else {
       lines.push('  // TODO: pmtiles source missing url')
       warnings.push(`PMTiles source "${id}" has no URL.`)
@@ -135,7 +135,7 @@ export function convertSource(
     const url = src.tiles?.[0] ?? src.url
     if (url) {
       lines.push('  type: raster')
-      lines.push(`  url: "${url}"`)
+      lines.push(`  url: ${JSON.stringify(url)}`)
     } else {
       lines.push('  // TODO: raster source missing url/tiles')
       warnings.push(`Raster source "${id}" has no URL.`)
@@ -147,7 +147,7 @@ export function convertSource(
     const url = src.tiles?.[0] ?? src.url
     if (url) {
       lines.push('  type: raster-dem')
-      lines.push(`  url: "${url}"`)
+      lines.push(`  url: ${JSON.stringify(url)}`)
       lines.push('  // NOTE: raster-dem rendering (hillshade / 3D terrain) — Batch 4 of the Mapbox compatibility roadmap.')
       warnings.push(`Source "${id}" type="raster-dem" registered but rendering not yet supported (Batch 4 — hillshade + 3D terrain).`)
     } else {
@@ -209,7 +209,7 @@ export function convertSource(
     if (typeof data === 'string') {
       // External URL — runtime fetches and decodes lazily.
       lines.push('  type: geojson')
-      lines.push(`  url: "${data}"`)
+      lines.push(`  url: ${JSON.stringify(data)}`)
     } else if (data && typeof data === 'object') {
       lines.push('  type: geojson')
       const safeId = sanitizeId(id)
