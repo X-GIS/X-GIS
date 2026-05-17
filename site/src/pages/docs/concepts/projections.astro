@@ -178,6 +178,32 @@ map.setProjection(getProjection("orthographic", 127, 37.5))</code></pre>
 
     <section>
       <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
+        Known limitations
+      </h2>
+      <h3 class="text-[18px] font-medium text-fg mt-6 mb-2">Globe: polar caps render empty (±85.05°)</h3>
+      <p class="mb-4">
+        Tile data is keyed to the <strong class="text-fg">Web Mercator pyramid</strong> across all projections —
+        even the 3D globe. Mercator's projection diverges at the poles
+        and the spec clamps coverage to ±85.051129° (EPSG:3857). Tiles
+        beyond that latitude band simply don't exist, so the globe
+        renders a small circular "no-data" disk centred on each pole.
+        The shader's <code class="font-mono text-fg">proj_globe()</code>
+        function itself handles ±90° fine; only the tile pyramid
+        truncates.
+      </p>
+      <p class="mb-4">
+        Workarounds: (a) accept the limitation — most map data is
+        irrelevant at the geographic poles; (b) overlay a single
+        <code class="font-mono text-fg">land</code> polygon clipped to
+        the polar cap as a separate non-tiled draw; (c) wait for a
+        future <em>polar tile scheme</em> follow-up that synthesises
+        cap tiles at the source-compile step. The first option is
+        recommended for typical world-map demos.
+      </p>
+    </section>
+
+    <section>
+      <h2 class="text-[24px] font-medium text-fg leading-[1.2] tracking-[-0.02em] mb-4 pb-3 border-b border-line">
         CPU/GPU consistency
       </h2>
       <p>
