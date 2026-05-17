@@ -52,6 +52,42 @@ describe('opacity scale conversion (Mapbox 0..1 → xgis 0..100)', () => {
     expect(emitFill(['literal', 0.5])).toContain('opacity-50')
   })
 
+  it('literal-wrapped line-width → bare numeric stroke utility', () => {
+    // Pins the addStrokeWidth unwrap. `["literal", 3]` should emit
+    // `stroke-3`, not the data-driven bracket form.
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'wrapped_width',
+        type: 'line',
+        source: 'v',
+        'source-layer': 'transportation',
+        paint: { 'line-color': '#000', 'line-width': ['literal', 3] },
+      }],
+    } as never)
+    expect(out).toContain('stroke-3')
+    expect(out).not.toMatch(/stroke-\["3"\]/)
+  })
+
+  it('literal-wrapped fill-extrusion-height emits bare utility', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'wrapped_height',
+        type: 'fill-extrusion',
+        source: 'v',
+        'source-layer': 'building',
+        paint: {
+          'fill-extrusion-color': '#888',
+          'fill-extrusion-height': ['literal', 40],
+        },
+      }],
+    } as never)
+    expect(out).toContain('fill-extrusion-height-40')
+  })
+
   it('zoom-interpolated fill-opacity stops scale individually', () => {
     const out = convertMapboxStyle({
       version: 8,
