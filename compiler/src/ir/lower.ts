@@ -765,6 +765,22 @@ function lowerLayer(
               continue
             }
           }
+          // Per-feature `match(.field) { v -> #color, …, _ -> #default }`
+          // — mirror of the fill arm below. Without this branch, a halo
+          // colour authored as a match() (e.g. road shields picking
+          // halo colour by network class) silently dropped: the
+          // colour-stop extractor returns null on a non-interpolate
+          // shape, and the arm previously fell through without setting
+          // labelHaloColor. Bake the default arm as the static fallback
+          // so the runtime renders SOMETHING; per-feature halo dispatch
+          // through colorExpr lands in a follow-up IR change (LabelDef
+          // currently has no haloColorExpr field).
+          const defaultHex = extractMatchDefaultColor(item.binding)
+          if (defaultHex) {
+            const rgba = hexToRgba(defaultHex)
+            labelHaloColor = [rgba[0], rgba[1], rgba[2], rgba[3]]
+            continue
+          }
         }
         if (name === 'fill') {
           // Mapbox `paint.fill-color: ["interpolate", curve, ["zoom"], …]`
