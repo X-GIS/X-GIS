@@ -129,7 +129,18 @@ export function applyFilter(
       featureId: (f as { id?: string | number }).id,
       cameraZoom,
     })
-    const result = evaluate(ast, propsBag)
+    // Wrap evaluate in try/catch so one malformed feature (or a
+    // pathological filter expression hitting a stack-overflow / null
+    // chain on one feature only) does not nuke every other feature
+    // in the collection. Treat a throw as "filter rejects" — same as
+    // a null/false return. Mirror of the per-layer try/catch isolation
+    // (compiler/0c81006) at the runtime applyFilter boundary.
+    let result: unknown
+    try {
+      result = evaluate(ast, propsBag)
+    } catch {
+      return false
+    }
     // Truthy check: non-zero numbers, true booleans, non-empty strings.
     if (typeof result === 'boolean') return result
     if (typeof result === 'number') return result !== 0
