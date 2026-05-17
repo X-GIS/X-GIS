@@ -324,6 +324,7 @@ const EXPRESSIONS: readonly CoverageEntry[] = [
   { name: 'collator',        status: 'unsupported', impact: 'low' },
   { name: 'resolved-locale', status: 'unsupported', impact: 'low' },
   { name: 'is-supported-script', status: 'unsupported', impact: 'low' },
+  { name: 'array',           status: 'partial', impact: 'low', note: 'Type-assertion drops to value pass-through (X-GIS arrays carry no per-element type tag, so the spec\'s "abort if not array" semantic is lost; in paint/filter use a non-array would null-cascade anyway).', source: 'expressions.ts:163' },
   { name: 'slice',           status: 'supported', note: 'String or array; Mapbox `["slice", input, start[, end]]`. Routes to JS String/Array `.slice` semantics.', source: 'expressions.ts:248' },
   { name: 'index-of',        status: 'supported', note: 'Lowers to xgis `index_of(needle, haystack[, from])`. Returns -1 when not found.', source: 'expressions.ts:257' },
   // Camera / spatial

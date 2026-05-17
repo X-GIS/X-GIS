@@ -150,11 +150,44 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
     // Comparison / arithmetic operators map identically.
     case '==': case '!=': case '<': case '<=': case '>': case '>=':
     case '+': case '-': case '*': case '/': case '%': {
+      // Mapbox spec allows comparison ops to accept a trailing
+      // `["collator", {…}]` arg that controls case-sensitivity /
+      // locale-aware ordering of string compares (`["==", a, b,
+      // ["collator", { "case-sensitive": false }]]`). X-GIS string
+      // comparison is byte-exact — we drop the collator with a warning
+      // and proceed with the bare a/b. Without this branch the 4-arg
+      // form fell to the length-check below and returned null, hiding
+      // the entire predicate.
+      if (v.length === 4
+          && (op === '==' || op === '!=' || op === '<' || op === '<=' || op === '>' || op === '>=')) {
+        const collator = v[3]
+        if (Array.isArray(collator) && collator[0] === 'collator') {
+          warnings.push(`["${op}"] trailing ["collator", …] dropped — X-GIS string compare is byte-exact (no case-insensitive / locale-aware ordering).`)
+          const a = exprToXgis(v[1], warnings)
+          const b = exprToXgis(v[2], warnings)
+          if (a === null || b === null) return null
+          return `${a} ${op} ${b}`
+        }
+      }
       if (v.length !== 3) return null
       const a = exprToXgis(v[1], warnings)
       const b = exprToXgis(v[2], warnings)
       if (a === null || b === null) return null
       return `${a} ${op} ${b}`
+    }
+    case 'array': {
+      // Mapbox `["array", value]` / `["array", "type", value]` /
+      // `["array", "type", N, value]` — type assertion that returns
+      // the value if it's an array (with optional element-type / length
+      // checks). X-GIS arrays carry no per-element type tag so we
+      // just pass the underlying value through; the spec's "abort if
+      // not array" semantic is lost but for paint/filter use that's
+      // already implicit (an interpolate over a missing array would
+      // null-cascade anyway).
+      // Last arg is always the value; preceding args are type/length
+      // metadata we ignore.
+      const value = v[v.length - 1]
+      return exprToXgis(value, warnings)
     }
     case 'min': case 'max': {
       const args = v.slice(1).map(x => exprToXgis(x, warnings)).filter((s): s is string => s !== null)
