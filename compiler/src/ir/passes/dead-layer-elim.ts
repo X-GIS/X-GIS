@@ -37,7 +37,7 @@
 import type { IRPass } from '../pass-manager'
 import type { Scene, RenderNode } from '../render-node'
 
-function isDeadLayer(node: RenderNode): boolean {
+function isDeadLayer(node: RenderNode, rasterSources: Set<string>): boolean {
   // Explicit author intent.
   if (node.visible === false) return true
 
@@ -50,6 +50,15 @@ function isDeadLayer(node: RenderNode): boolean {
       && node.minzoom >= node.maxzoom) {
     return true
   }
+
+  // Raster (and raster-dem) layers draw via texture sampling — they
+  // declare no fill / stroke / label, so the "nothing to draw" check
+  // below would falsely eliminate them. The runtime's RasterRenderer
+  // activates whenever a ShowCommand points at a raster source; keep
+  // the node so that ShowCommand survives. Symptom this guards
+  // against: OFM Liberty's `natural_earth` shaded-relief raster
+  // silently dropped, leaving the base map without ne2_shaded.
+  if (rasterSources.has(node.sourceRef)) return false
 
   // Nothing to draw. A layer must declare at least ONE of: a fill
   // colour, a stroke (colour or width), a label, or procedural
@@ -84,7 +93,12 @@ export const deadLayerElimPass: IRPass = {
   // but the deterministic order keeps trace replays stable.
   dependencies: ['merge-layers', 'fold-trivial-stops', 'fold-trivial-case'],
   run(scene: Scene): Scene {
-    const live = scene.renderNodes.filter(n => !isDeadLayer(n))
+    const rasterSources = new Set(
+      scene.sources
+        .filter(s => s.type === 'raster' || s.type === 'raster-dem')
+        .map(s => s.name),
+    )
+    const live = scene.renderNodes.filter(n => !isDeadLayer(n, rasterSources))
     if (live.length === scene.renderNodes.length) return scene
     return { ...scene, renderNodes: live }
   },

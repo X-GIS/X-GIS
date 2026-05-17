@@ -144,6 +144,72 @@ describe('dead-layer-elim — conservative about animation', () => {
   })
 })
 
+describe('dead-layer-elim — raster source preservation', () => {
+  it('KEEPS layers that reference a raster source despite no fill / stroke', () => {
+    // Raster layers carry no fill / stroke / label — they paint via
+    // texture sampling in the runtime. The pass must not eliminate
+    // them on the "nothing to draw" heuristic; the OFM Liberty
+    // natural_earth shaded-relief layer otherwise gets dropped and
+    // the basemap loses its low-zoom hillshade underlay.
+    const rasterNode = makeNode({
+      name: 'natural_earth',
+      sourceRef: 'ne2_shaded',
+      fill: { kind: 'none' },
+      stroke: {
+        color: { kind: 'none' },
+        width: { kind: 'constant', value: 0 },
+      },
+    })
+    const scene: Scene = {
+      sources: [{ name: 'ne2_shaded', type: 'raster', url: 'https://x/{z}/{x}/{y}.png' }],
+      renderNodes: [rasterNode],
+      symbols: [],
+    }
+    const out = deadLayerElimPass.run(scene)
+    expect(out.renderNodes).toHaveLength(1)
+    expect(out.renderNodes[0]).toBe(rasterNode)
+  })
+
+  it('KEEPS layers that reference a raster-dem source', () => {
+    const demNode = makeNode({
+      name: 'hillshade',
+      sourceRef: 'terrain',
+      fill: { kind: 'none' },
+      stroke: {
+        color: { kind: 'none' },
+        width: { kind: 'constant', value: 0 },
+      },
+    })
+    const scene: Scene = {
+      sources: [{ name: 'terrain', type: 'raster-dem', url: 'https://x/{z}/{x}/{y}.webp' }],
+      renderNodes: [demNode],
+      symbols: [],
+    }
+    const out = deadLayerElimPass.run(scene)
+    expect(out.renderNodes).toHaveLength(1)
+  })
+
+  it('still drops empty-zoom-range raster layers (raster gate is not unconditional)', () => {
+    const dead = makeNode({
+      sourceRef: 'ne2_shaded',
+      fill: { kind: 'none' },
+      stroke: {
+        color: { kind: 'none' },
+        width: { kind: 'constant', value: 0 },
+      },
+      minzoom: 5,
+      maxzoom: 5,
+    })
+    const scene: Scene = {
+      sources: [{ name: 'ne2_shaded', type: 'raster', url: 'https://x/{z}/{x}/{y}.png' }],
+      renderNodes: [dead],
+      symbols: [],
+    }
+    const out = deadLayerElimPass.run(scene)
+    expect(out.renderNodes).toHaveLength(0)
+  })
+})
+
 describe('dead-layer-elim — identity preservation', () => {
   it('returns the same scene reference when nothing was dropped', () => {
     const scene = sceneOf([makeNode(), makeNode({ name: 'L2' })])
