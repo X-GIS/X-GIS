@@ -358,6 +358,30 @@ describe('converter warning coverage', () => {
       .toBe(false)
   })
 
+  it('zoom-interp line-dasharray → non-constant warning', () => {
+    // Pins ccb126b — addStrokeDash warns on the non-array shape
+    // (interpolate-by-zoom dasharray that the IR has no consumer for
+    // today).
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'dashed_zoom',
+        type: 'line',
+        source: 'v',
+        'source-layer': 'transportation',
+        paint: {
+          'line-color': '#000',
+          'line-dasharray': ['interpolate', ['linear'], ['zoom'],
+            8, ['literal', [4, 2]],
+            16, ['literal', [8, 2]]],
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('paint.line-dasharray') && s.includes('non-constant')))
+      .toBe(true)
+  })
+
   it('glyphs / sprite must NOT appear in the top-level warning (host-integration handled)', () => {
     // Regression for 2819cd6 — these used to be flagged here even
     // though the playground importers forward them via setGlyphsUrl /

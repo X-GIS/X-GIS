@@ -398,12 +398,23 @@ function addLineBlur(out: string[], v: unknown, warnings: string[]): void {
 function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
   if (Array.isArray(v)) {
-    const nums = v.filter(n => typeof n === 'number')
-    if (nums.length >= 2) {
-      out.push('stroke-dasharray-' + nums.join('-'))
-      return
+    // Mapbox expression / interpolate shape — leading element is an
+    // operator string ("interpolate", "step", "case", etc.). Don't
+    // treat numeric children as dash values (the would-be filter
+    // would silently match the zoom stops as a 2-element dash array).
+    // Fall through to the warning path so the user sees the gap.
+    const first = v[0]
+    const looksLikeExpression = typeof first === 'string'
+      && /^[a-z][a-z-]+$/.test(first)
+      && /^(interpolate|interpolate-exp|interpolate-lab|interpolate-hcl|step|case|match|coalesce|literal|to-number)$/.test(first)
+    if (!looksLikeExpression) {
+      const nums = v.filter(n => typeof n === 'number')
+      if (nums.length >= 2) {
+        out.push('stroke-dasharray-' + nums.join('-'))
+        return
+      }
     }
-    // Non-numeric array shape — fall through to the warning.
+    // Otherwise fall through to the warning.
   }
   // `["interpolate", curve, ["zoom"], z1, [a,b], …]` is the canonical
   // zoom-interp dasharray shape; the IR currently has no binding-form
