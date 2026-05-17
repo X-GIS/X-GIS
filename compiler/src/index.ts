@@ -71,7 +71,7 @@ export { simplify, simplifyPolygon, simplifyLine, toleranceForZoom, mercatorTole
 export { interpolateGreatCircle, haversineDistance } from './tiler/geodesic'
 export { type RingPolygon } from './tiler/encoding'
 export { decodeMvtTile, type MvtDecodeOptions } from './input/mvt-decoder'
-export type { GeoJSONFeature, GeoJSONGeometry } from './tiler/geojson-types'
+export type { GeoJSONFeature, GeoJSONGeometry, GeoJSONFeatureCollection } from './tiler/geojson-types'
 export { convertMapboxStyle, type MapboxStyle, type MapboxLayer, type MapboxSource, type ConvertMapboxStyleOptions } from './convert/mapbox-to-xgis'
 export { MAPBOX_COVERAGE, flattenCoverage, type CoverageEntry, type CoverageSection, type CoverageStatus, type CoverageImpact } from './convert/spec-coverage'
 export { getStyleProfile, formatStyleProfile, type StyleProfile, type DepHistogramRow, type CSESummary, type ComputePlanSummary, type PaletteSummary, type MatchArmBand } from './diagnostics/style-profile'

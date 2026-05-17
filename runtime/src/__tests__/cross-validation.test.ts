@@ -111,7 +111,6 @@ describe('Cross-validation: Mercator forward (vs pyproj EPSG:3857)', () => {
   // Tolerance: 1 µm (1e-6 m). pyproj uses the same earth radius
   // (6378137 m per EPSG:3857 spec), so agreement should be essentially
   // perfect modulo floating-point rounding.
-  const TOL_M = 1e-6
   it(`matches pyproj at ${fixture.mercator_forward.length} sample points`, () => {
     for (const s of fixture.mercator_forward) {
       const [x, y] = mercator.forward(s.lon, s.lat)
