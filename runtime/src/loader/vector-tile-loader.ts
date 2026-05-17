@@ -154,7 +154,14 @@ export function detectVectorTileFormat(
   // null and the caller defaulted to PMTiles which crashed on the
   // wrong-magic-number boundary. Mirror of the compiler-side fragment
   // detection fix (8885924).
-  const path = url.split('?')[0]!.split('#')[0]!
+  // Strip the Protomaps `pmtiles://` scheme prefix if a host passed
+  // it through bypassing the converter side. Mirror of the compiler
+  // strip (3b81145). The protomaps/PMTiles library expects a bare
+  // URL; without the strip the format detection still routed pmtiles
+  // (since the inner URL ends with .pmtiles) but the subsequent
+  // fetch failed on the `pmtiles:` scheme.
+  const stripped = url.startsWith('pmtiles://') ? url.slice('pmtiles://'.length) : url
+  const path = stripped.split('?')[0]!.split('#')[0]!
   if (path.endsWith('.tilejson')) return 'tilejson'
   if (path.endsWith('.json') && !path.endsWith('.geojson')) return 'tilejson'
   if (path.endsWith('.pmtiles')) return 'pmtiles'
