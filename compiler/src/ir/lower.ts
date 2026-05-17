@@ -247,6 +247,23 @@ function extractMatchDefaultColor(expr: AST.Expr): string | null {
     if (cur.kind === 'StringLiteral' && /^#/.test(cur.value)) return cur.value
     return null
   }
+  // Coalesce form: `.a ?? .b ?? "#default"` — the converter emits this
+  // for Mapbox `["coalesce", ["get","a"], ["get","b"], <hex>]`. The
+  // chain is right-leaning BinaryExpr nodes with op '??'; the deepest
+  // right operand is the default. Walk down right.right.right… until
+  // we hit a non-'??' operator; if THAT leaf is a colour literal /
+  // hex StringLiteral, the whole expression is colour-shaped. Any
+  // non-colour leaf disqualifies (a coalesce returning numbers /
+  // booleans / strings belongs on a different paint axis).
+  if (expr.kind === 'BinaryExpr' && expr.op === '??') {
+    let cur: AST.Expr = expr
+    while (cur.kind === 'BinaryExpr' && cur.op === '??') {
+      cur = cur.right
+    }
+    if (cur.kind === 'ColorLiteral') return cur.value
+    if (cur.kind === 'StringLiteral' && /^#/.test(cur.value)) return cur.value
+    return null
+  }
   return null
 }
 
