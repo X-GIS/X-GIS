@@ -564,8 +564,15 @@ export class VectorTileLoader {
   /** Open a PMTiles archive (or return a cached open one). Caches by
    *  URL. Drops the cache entry on failure so the next call retries. */
   openArchive(url: string): Promise<CachedArchive> {
-    return memoizeOpen(this.archiveCache, url, async () => {
-      const archive = new PMTiles(url)
+    // Strip Protomaps `pmtiles://` prefix before the PMTiles library
+    // sees it. Mirror of the detectVectorTileFormat strip (a5fd65a).
+    // Without this the library calls fetch on the prefixed URL and
+    // the request fails on the made-up scheme. Memoise key uses the
+    // stripped form so callers that pass either shape hit the same
+    // cache entry.
+    const cleanUrl = url.startsWith('pmtiles://') ? url.slice('pmtiles://'.length) : url
+    return memoizeOpen(this.archiveCache, cleanUrl, async () => {
+      const archive = new PMTiles(cleanUrl)
       const header = await archive.getHeader()
       if (header.tileType !== TileType.Mvt) {
         throw new Error(`[vector-tile-loader] tileType ${header.tileType} not supported — only MVT (1)`)
