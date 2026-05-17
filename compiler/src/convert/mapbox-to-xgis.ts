@@ -187,7 +187,16 @@ export function convertMapboxStyle(
   }
 
   // ── Sources ────────────────────────────────────────────────────────
-  for (const [id, src] of Object.entries(style.sources ?? {})) {
+  // Defensive: style.sources should be a plain object per spec. A
+  // string / array / null would otherwise either crash (null) or
+  // produce garbage entries (string iterates chars, array iterates
+  // indices). Coerce to {} when malformed.
+  const stylesSources = style.sources
+  const sourcesObj = stylesSources !== null && typeof stylesSources === 'object'
+    && !Array.isArray(stylesSources)
+    ? stylesSources
+    : {}
+  for (const [id, src] of Object.entries(sourcesObj)) {
     const before = warnings.length
     const block = convertSource(id, src, warnings, options)
     lines.push(block)
