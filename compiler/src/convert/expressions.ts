@@ -353,6 +353,18 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       if (op === 'interpolate-lab' || op === 'interpolate-hcl') {
         warnings.push(`${op}(…) approximated as linear-RGB — xgis has no LAB/HCL per-stop evaluator yet.`)
       }
+      // Stops follow as flat (xi, yi) pairs. The trailing-arg-count
+      // parity check fires BEFORE the loop so a malformed
+      // ["interpolate", curve, input, x1, y1, x2] (missing y2) emits
+      // a warning rather than silently dropping x2. Pre-fix the loop
+      // bound `i + 1 < v.length` short-circuited on the odd-trailing
+      // arg and the authored stop vanished without any diagnostic —
+      // styles in the wild that hand-edited a stop pair off centre
+      // lost the trailing transition silently.
+      const stopArgCount = v.length - 3
+      if (stopArgCount % 2 !== 0) {
+        warnings.push(`["${op}"] has an odd number of stop arguments (${stopArgCount}); trailing unpaired value dropped.`)
+      }
       const stopArgs: string[] = []
       for (let i = 3; i + 1 < v.length; i += 2) {
         const z = exprToXgis(v[i], warnings)
