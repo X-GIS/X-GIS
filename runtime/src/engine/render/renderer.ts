@@ -7,10 +7,9 @@ import { generateGraticule } from '../graticule'
 import {
   BLEND_ALPHA, STENCIL_WRITE, STENCIL_TEST,
   STENCIL_WRITE_NO_DEPTH, STENCIL_TEST_NO_DEPTH,
-  STENCIL_CLIPMASK_WRITE,
   BLEND_OIT_ACCUM, BLEND_OIT_REVEALAGE,
   OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT,
-  MSAA_4X, WORLD_MERC, worldCopiesFor,
+  WORLD_MERC, worldCopiesFor,
 } from '../gpu/gpu-shared'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
