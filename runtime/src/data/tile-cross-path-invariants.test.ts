@@ -9,7 +9,6 @@ import {
   decomposeFeatures,
   tileKey,
   type GeoJSONFeatureCollection,
-  type CompiledTile,
 } from '@xgis/compiler'
 import { TileCatalog } from './tile-catalog'
 import { firstIndexedAncestor } from './tile-select'
@@ -118,13 +117,12 @@ describe('cross-path: compileGeoJSONToTiles(batch) ≡ compileSingleTile(on-dema
     // output's vertex count within ±2 (floating-point edge ordering
     // in the tessellator can flip a vertex's dedup outcome).
     const gj = loadGeoJSON(COUNTRIES_PATH)
-    const parts = decomposeFeatures(gj.features)
     const batchSet = compileGeoJSONToTiles(gj, { minZoom: 3, maxZoom: 3 })
     const z3 = batchSet.levels.find(l => l.zoom === 3)!
 
     let diverged = 0
     const divergences: string[] = []
-    for (const [key, batchTile] of z3.tiles) {
+    for (const [key] of z3.tiles) {
       const [, x, y] = [z3.zoom, (key >>> 0) & 0x3FFFFFF, ((key / 0x4000000) & 0x3FFFFFF) >>> 0]
         .map((v, i) => i === 0 ? z3.zoom : v)
       // Simpler: extract via tileKeyUnpack
