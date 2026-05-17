@@ -1,0 +1,104 @@
+name: playground-audit
+
+# Run the full demo + fixture audit (every entry in DEMOS, ~9 min) on
+# every PR and push to main. This is the cross-cutting gate that
+# catches "did this demo actually render" regressions — the kind that
+# narrow per-feature specs miss. See playground/e2e/
+# _demo-fixture-audit.spec.ts for the contract.
+
+on:
+  pull_request:
+    paths:
+      # Touching any of these can break a demo's ability to render.
+      # Skip on doc-only PRs.
+      - 'runtime/**'
+      - 'compiler/**'
+      - 'blueprint/**'
+      - 'playground/**'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/playground-audit.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # Fast regression specs — narrow guards on the 5 bugs the audit
+  # surfaced (commit 6080a2f). Each pins one specific failure mode
+  # (picking BGL mismatch, single-point Infinity zoom, font 404, zoom-
+  # interpolated point size, orthographic tilt backface) so a re-
+  # introduction shows up in seconds, not as part of the 9-min sweep.
+  regression-specs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun run build
+      - run: bunx playwright install --with-deps chromium
+        working-directory: playground
+      - name: Run targeted regression specs
+        run: bunx playwright test
+          e2e/_picking-bgl-mismatch.spec.ts
+          e2e/_font-vendoring.spec.ts
+          e2e/_single-point-bounds-fit.spec.ts
+          e2e/_zoom-interp-point-size.spec.ts
+          e2e/_ortho-tilt-backface.spec.ts
+          --workers=1 --reporter=line
+        working-directory: playground
+        env:
+          HEADED: '0'
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: regression-specs-trace
+          path: playground/test-results/
+          retention-days: 7
+
+  # Full demo + fixture audit — sweeps every DEMOS entry checking
+  # (ready, console errors, painted pixels, camera finite). The cross-
+  # cutting gate that catches "did this demo render at all" regressions
+  # the narrow specs above can't anticipate.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun run build
+
+      # Playwright pulls its bundled Chromium. The audit spec runs
+      # headless against it; --enable-unsafe-webgpu + --enable-features
+      # =Vulkan come from playground/playwright.config.ts launchOptions.
+      # On Linux GH runners, Vulkan is provided by Mesa's SwiftShader
+      # fallback when no GPU is present — WebGPU works through that
+      # software adapter even though it's slower than a real GPU.
+      - run: bunx playwright install --with-deps chromium
+        working-directory: playground
+
+      # HEADED=0 forces the playwright config into headless mode (the
+      # default is headed because Windows dev needs it). With Mesa +
+      # SwiftShader on Linux, headless WebGPU is fine.
+      - name: Run audit
+        run: bunx playwright test e2e/_demo-fixture-audit.spec.ts --workers=1 --reporter=line
+        working-directory: playground
+        env:
+          HEADED: '0'
+
+      # On failure, upload the report + screenshots so the PR author
+      # can inspect what broke without re-running locally.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: demo-audit-artifacts
+          path: |
+            playground/e2e/__demo-audit__/REPORT.md
+            playground/e2e/__demo-audit__/full.json
+            playground/e2e/__demo-audit__/screens/
+          retention-days: 7

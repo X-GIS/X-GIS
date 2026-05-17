@@ -1315,9 +1315,15 @@ export class MapRenderer {
    *  uniform ring, graticule geometry) survives the rebuild unchanged. */
   rebuildForQuality(): void {
     // Toss the per-show variant pipelines — their shader embeds the
-    // PICK markers too, and their `multisample.count` is frozen. A new
-    // variant pipeline will be recreated lazily on the next frame's
-    // render when `getOrCreateVariantPipelines` sees a cache miss.
+    // PICK markers too, and their `multisample.count` is frozen.
+    // map.setQuality (the only caller) follows up with an eager
+    // re-resolve loop over vectorTileShows that calls
+    // getOrCreateVariantPipelines + getOrBuildVariantLayout so
+    // pipelines AND layouts stay self-consistent. Lazy rebuild from the
+    // draw path was previously promised in a comment here but never
+    // wired — that promise let entry.pipelines stay null with
+    // entry.layout still feature/compute, tripping per-frame
+    // BindGroupLayout validation (see commit 6080a2f).
     this.shaderCache.clear()
     this.initPipelines()
     this.overdrawComposePipeline = null

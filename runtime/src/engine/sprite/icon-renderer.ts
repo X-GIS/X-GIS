@@ -78,8 +78,13 @@ export class IconRenderer {
   private readonly uniformBuf: GPUBuffer
   private vertexBuf: GPUBuffer | null = null
   private vertexCount = 0
-  /** Bind group lazily built once the atlas texture exists. Reset to
-   *  null when the atlas changes (rare — only on a fresh setSpriteUrl). */
+  /** Bind group lazily built once the atlas texture exists, then held
+   *  for the life of the renderer. `map.setSpriteUrl` only stores a
+   *  URL for the not-yet-built stage — atlas hot-swap is NOT supported
+   *  (URL is fixed for the session, see map.ts:setSpriteUrl). The only
+   *  null reset lives in `destroy()`. Re-introducing hot-swap requires
+   *  also nulling this here so the next render rebuilds against the
+   *  new atlas texture. */
   private bindGroup: GPUBindGroup | null = null
 
   constructor(

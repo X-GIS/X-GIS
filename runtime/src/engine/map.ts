@@ -626,22 +626,7 @@ export class XGISMap {
       // the data-driven match() polygons stopped painting (fixture_
       // picking regression). Re-resolve both immediately so the entry
       // stays internally consistent.
-      for (const entry of this.vectorTileShows) {
-        const variant = entry.show.shaderVariant
-        if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
-          try {
-            entry.pipelines = this.renderer.getOrCreateVariantPipelines(variant as never)
-            entry.layout = this.renderer.getOrBuildVariantLayout(variant as never)
-          } catch (e) {
-            console.warn('[X-GIS] Variant pipeline re-resolve after setQuality failed:', e)
-            entry.pipelines = null
-            entry.layout = null
-          }
-        } else {
-          entry.pipelines = null
-          entry.layout = null
-        }
-      }
+      this._reResolveVariantPipelines()
       // VTRs hold their own references to the renderer's `extruded`
       // and `ground` pipelines (set once at attach time). After a
       // rebuild those references go stale — same pipeline-attachment-
@@ -955,6 +940,36 @@ export class XGISMap {
     if (this._cameraExplicitlyPositioned) return false
     apply()
     return true
+  }
+
+  /** Re-resolve `entry.pipelines` AND `entry.layout` for every
+   *  `vectorTileShows` entry from each show's current `shaderVariant`.
+   *  Called from `setQuality` after `rebuildForQuality()` so the per-
+   *  show pipelines + layouts the bucket-scheduler reads are consistent
+   *  with the freshly rebuilt base / feature bind-group-layouts. The
+   *  invariant the bucket-scheduler depends on:
+   *
+   *    (entry.pipelines === null) ↔ (entry.layout === null)
+   *
+   *  Violating it produces the BGL mismatch (commit 6080a2f). The
+   *  invariant is verified by `map-set-quality-invariant.test.ts`. */
+  _reResolveVariantPipelines(): void {
+    for (const entry of this.vectorTileShows) {
+      const variant = entry.show.shaderVariant
+      if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
+        try {
+          entry.pipelines = this.renderer.getOrCreateVariantPipelines(variant as never)
+          entry.layout = this.renderer.getOrBuildVariantLayout(variant as never)
+        } catch (e) {
+          console.warn('[X-GIS] Variant pipeline re-resolve after setQuality failed:', e)
+          entry.pipelines = null
+          entry.layout = null
+        }
+      } else {
+        entry.pipelines = null
+        entry.layout = null
+      }
+    }
   }
 
   /** Map a feature-bounds lon-span to the auto-fit camera zoom. Shared
