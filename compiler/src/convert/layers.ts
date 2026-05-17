@@ -862,13 +862,24 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
         if (typeof val !== 'number') return null
         return String(val <= 1 ? Math.round(val * 100) : val)
       })
-      if (interp !== null) tmp.push(`opacity-[${interp}]`)
+      if (interp !== null) {
+        tmp.push(`opacity-[${interp}]`)
+      } else {
+        // Per-feature case/match opacity. Mirror the line-opacity path
+        // in paint.ts:addOpacity — drop the binding into the bracket
+        // form so the runtime PropertyShape resolver gets the full AST.
+        const expr = exprToXgis(opacity, warnings)
+        if (expr !== null) tmp.push(`opacity-[${expr}]`)
+      }
     }
     utils.push(...tmp)
   }
 
-  // circle-stroke-color → stroke. Same constant + zoom-interp path
-  // as the line layer's line-color.
+  // circle-stroke-color → stroke. Constant + zoom-interp + per-feature
+  // case/match — full set, mirroring circle-color above and the line
+  // layer's line-color path. Without the data-driven fallback a
+  // standalone `["match", ["get","class"], …]` stroke colour silently
+  // dropped (same regression class as the line-color fix).
   const strokeColor = paint['circle-stroke-color']
   if (strokeColor !== undefined) {
     const interp = interpolateZoomCall(strokeColor, warnings, (val, w) => colorToXgis(val, w))
@@ -876,7 +887,12 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
       utils.push(`stroke-[${interp}]`)
     } else {
       const c = colorToXgis(strokeColor, warnings)
-      if (c) utils.push(`stroke-${c}`)
+      if (c) {
+        utils.push(`stroke-${c}`)
+      } else {
+        const expr = exprToXgis(strokeColor, warnings)
+        if (expr !== null) utils.push(`stroke-[${expr}]`)
+      }
     }
   }
 
@@ -887,7 +903,16 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   } else if (strokeWidth !== undefined) {
     const interp = interpolateZoomCall(strokeWidth, warnings,
       (val) => typeof val === 'number' ? String(val) : null)
-    if (interp !== null) utils.push(`stroke-[${interp}]`)
+    if (interp !== null) {
+      utils.push(`stroke-[${interp}]`)
+    } else {
+      // Per-feature numeric expression (`case` / `match` / etc.) —
+      // route through the bracket form the same way circle-radius does.
+      // Without this branch a per-feature stroke-width silently dropped
+      // and the circle's edge collapsed to zero.
+      const expr = exprToXgis(strokeWidth, warnings)
+      if (expr !== null) utils.push(`stroke-[${expr}]`)
+    }
   }
 
   // Surface dropped properties so the user knows the gap.
