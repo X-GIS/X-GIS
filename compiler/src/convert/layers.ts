@@ -595,7 +595,7 @@ function convertSymbolLayer(
       if (expr !== null) utils.push(`label-rotate-[${expr}]`)
     }
   }
-  const letterSpacing = layout['text-letter-spacing']
+  const letterSpacing = unwrapLiteralScalar(layout['text-letter-spacing'])
   if (typeof letterSpacing === 'number' && letterSpacing !== 0) {
     utils.push(`label-letter-spacing-${fmtSigned(letterSpacing)}`)
   } else if (letterSpacing !== undefined && typeof letterSpacing !== 'number') {
@@ -609,7 +609,7 @@ function convertSymbolLayer(
   // is "disabled by symbol-placement: line" per the spec — for line
   // labels we mirror that by NOT emitting the default, which leaves
   // the runtime's "undefined ⇒ no wrap" behaviour for road names etc.
-  const maxWidth = layout['text-max-width']
+  const maxWidth = unwrapLiteralScalar(layout['text-max-width'])
   // When an override is supplied (zoom-step layer split), it WINS
   // over the layout value. The outer dispatcher computes one segment
   // per step range and re-runs convertSymbolLayer with the segment's
@@ -622,7 +622,7 @@ function convertSymbolLayer(
   } else if (placement !== 'line' && placement !== 'line-center') {
     utils.push('label-max-width-10')
   }
-  const lineHeight = layout['text-line-height']
+  const lineHeight = unwrapLiteralScalar(layout['text-line-height'])
   if (typeof lineHeight === 'number') utils.push(`label-line-height-${lineHeight}`)
   const justify = layout['text-justify']
   if (justify === 'auto' || justify === 'left' || justify === 'center' || justify === 'right') {
@@ -702,7 +702,7 @@ function convertSymbolLayer(
   // in pixels. Only meaningful for placement: line. Default 250 in
   // Mapbox; emit explicitly when missing so road-name layers don't
   // collapse to a single label per feature.
-  const symbolSpacing = layout['symbol-spacing']
+  const symbolSpacing = unwrapLiteralScalar(layout['symbol-spacing'])
   if (placement === 'line') {
     if (typeof symbolSpacing === 'number' && symbolSpacing > 0) {
       utils.push(`label-spacing-${symbolSpacing}`)
@@ -750,7 +750,7 @@ function convertSymbolLayer(
     if (iconOffset[0] !== 0) utils.push(`label-icon-offset-x-${fmtSigned(iconOffset[0])}`)
     if (iconOffset[1] !== 0) utils.push(`label-icon-offset-y-${fmtSigned(iconOffset[1])}`)
   }
-  const iconRotate = layout['icon-rotate']
+  const iconRotate = unwrapLiteralScalar(layout['icon-rotate'])
   if (typeof iconRotate === 'number' && iconRotate !== 0) {
     utils.push(`label-icon-rotate-${fmtSigned(iconRotate)}`)
   }
