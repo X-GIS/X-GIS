@@ -9,7 +9,6 @@ import { dirname, join } from 'node:path'
 import { Lexer } from '../../lexer/lexer'
 import { Parser } from '../../parser/parser'
 import { lower } from '../lower'
-import { optimize } from '../optimize'
 import { convertMapboxStyle } from '../../convert/mapbox-to-xgis'
 import { deadLayerElimPass } from './dead-layer-elim'
 import type { Scene } from '../render-node'
@@ -17,18 +16,21 @@ import type { Scene } from '../render-node'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FIX = join(HERE, '..', '..', '__tests__', 'fixtures')
 
-function compileFixture(path: string): Scene {
+// Lower without running optimize() so we can observe deadLayerElim's
+// drop count in isolation. Running optimize first would show 0 every
+// time (the pass is part of the optimize pipeline now).
+function lowerFixture(path: string): Scene {
   const json = JSON.parse(readFileSync(path, 'utf8'))
   const xgis = convertMapboxStyle(json)
   const tokens = new Lexer(xgis).tokenize()
   const program = new Parser(tokens).parse()
-  return optimize(lower(program), program)
+  return lower(program)
 }
 
 describe('dead-layer-elim — fixture statistics', () => {
   for (const fixture of ['openfreemap-bright.json', 'openfreemap-liberty.json', 'openfreemap-positron.json']) {
     it(`reports drop counts on ${fixture}`, () => {
-      const before = compileFixture(join(FIX, fixture))
+      const before = lowerFixture(join(FIX, fixture))
       const after = deadLayerElimPass.run(before)
       const dropped = before.renderNodes.length - after.renderNodes.length
       const droppedNames: string[] = []
