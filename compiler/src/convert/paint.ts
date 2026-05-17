@@ -338,8 +338,22 @@ function addFillOutline(out: string[], v: unknown, warnings: string[]): void {
   }
 }
 
+/** Unwrap Mapbox v8's `["literal", value]` wrapper for numeric paint
+ *  helpers. The downstream `typeof === 'number'` shortcut fires only
+ *  on the bare numeric form; without this unwrap a v8-wrapped numeric
+ *  fell through to exprToXgis and emitted a bracket-binding form
+ *  with the inner number as a quoted string. Mirror of the literal-
+ *  unwrap pattern in colorToXgis (e3c5c62) and addOpacity (718d21a). */
+function unwrapLiteralNumeric(v: unknown): unknown {
+  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
+    return v[1]
+  }
+  return v
+}
+
 function addStrokeWidth(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
+  v = unwrapLiteralNumeric(v)
   const interp = interpolateZoomCall(v, warnings, (val) => typeof val === 'number' ? String(val) : null)
   if (interp !== null) {
     out.push(`stroke-[${interp}]`)
@@ -370,6 +384,7 @@ function addStrokeWidth(out: string[], v: unknown, warnings: string[]): void {
  *  the gap. */
 function addLineOffset(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
+  v = unwrapLiteralNumeric(v)
   if (typeof v === 'number') {
     if (v === 0) return
     if (v > 0) out.push(`stroke-offset-right-${v}`)
@@ -387,6 +402,7 @@ function addLineOffset(out: string[], v: unknown, warnings: string[]): void {
  *  blur of N px soft-fades the edge over `1.5 + N` px each side. */
 function addLineBlur(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
+  v = unwrapLiteralNumeric(v)
   if (typeof v === 'number') {
     if (v <= 0) return
     out.push(`stroke-blur-${v}`)
@@ -435,15 +451,10 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
 
 function addOpacity(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
-  // Mapbox v8 `["literal", 0.5]` — unwrap before the type dispatch so
-  // the scalar-scale conversion fires. Pre-fix the literal-wrapped
-  // shape fell through to exprToXgis → emitted `opacity-0.5` (0.5% in
-  // the xgis utility's 0..100 scale interpretation) instead of the
-  // correct `opacity-50`. Sibling to colorToXgis literal unwrap
-  // (e3c5c62).
-  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
-    v = v[1]
-  }
+  // See unwrapLiteralNumeric — covers `["literal", 0.5]` so the
+  // scalar-scale conversion fires. Sibling to colorToXgis literal
+  // unwrap (e3c5c62).
+  v = unwrapLiteralNumeric(v)
   if (typeof v === 'number') {
     // Mapbox 0..1, X-GIS opacity-N where N can be 0..100 or 0..1.
     out.push(`opacity-${v <= 1 ? Math.round(v * 100) : v}`)
@@ -465,6 +476,7 @@ function addOpacity(out: string[], v: unknown, warnings: string[]): void {
 
 function addExtrudeHeight(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
+  v = unwrapLiteralNumeric(v)
   const interp = interpolateZoomCall(v, warnings, (val, w) => exprToXgis(val, w))
   if (interp !== null) {
     out.push(`fill-extrusion-height-[${interp}]`)
@@ -476,6 +488,7 @@ function addExtrudeHeight(out: string[], v: unknown, warnings: string[]): void {
 
 function addExtrudeBase(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
+  v = unwrapLiteralNumeric(v)
   const interp = interpolateZoomCall(v, warnings, (val, w) => exprToXgis(val, w))
   if (interp !== null) {
     out.push(`fill-extrusion-base-[${interp}]`)
