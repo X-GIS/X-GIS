@@ -506,11 +506,14 @@ function convertSymbolLayer(
   // text-radial-offset (em) → label-radial-offset-N. Only meaningful
   // alongside text-variable-anchor: the runtime pushes the label away
   // from the anchor point by this radius in each candidate anchor's
-  // direction (MapLibre fromRadialOffset). Negatives ride the bracket
-  // form, though Mapbox clamps a negative radial offset to 0 anyway.
+  // direction (MapLibre fromRadialOffset). Mapbox spec clamps a
+  // negative radial offset to 0, so we apply the same clamp at convert
+  // time — also avoids emitting `label-radial-offset-[-0.5]` (bracket
+  // form for the negative) which the runtime then would honour
+  // against spec.
   const radialOffset = unwrapLiteralScalar(layout['text-radial-offset'])
-  if (typeof radialOffset === 'number' && radialOffset !== 0) {
-    utils.push(`label-radial-offset-${fmtSigned(radialOffset)}`)
+  if (typeof radialOffset === 'number' && radialOffset > 0) {
+    utils.push(`label-radial-offset-${radialOffset}`)
   }
   // text-variable-anchor-offset → ordered `label-anchor-X` candidates
   // plus a `label-vao-<i>-{x,y}-N` per pair (em units). `<i>` is the
