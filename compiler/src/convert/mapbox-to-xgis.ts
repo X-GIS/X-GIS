@@ -198,14 +198,28 @@ export function convertMapboxStyle(
     : {}
   for (const [id, src] of Object.entries(sourcesObj)) {
     const before = warnings.length
-    const block = convertSource(id, src, warnings, options)
+    // Mirror of the per-layer try/catch isolation (0c81006): a throw
+    // inside convertSource (unexpected runtime conditions) would
+    // otherwise propagate up and every subsequent source drop. Also
+    // safely read src.type for coverage even when src is null/non-object
+    // — convertSource itself returns a placeholder block in that case.
+    let block: string
+    try {
+      block = convertSource(id, src, warnings, options)
+    } catch (e) {
+      warnings.push(`Source "${id}" conversion threw: ${(e as Error).message}`)
+      block = `source ${id} {\n  // SKIPPED — converter threw: ${(e as Error).message.slice(0, 80)}\n}`
+    }
     lines.push(block)
     lines.push('')
     if (options?.coverage) {
       const reasons = warnings.slice(before)
+      const srcType = src !== null && typeof src === 'object' && !Array.isArray(src)
+        ? (src as { type?: string }).type
+        : undefined
       options.coverage.sources.push({
         id,
-        type: src.type,
+        type: srcType as never,
         action: block.includes('// SKIPPED') ? 'skipped'
           : reasons.length > 0 ? 'lossy' : 'converted',
         reasons,
