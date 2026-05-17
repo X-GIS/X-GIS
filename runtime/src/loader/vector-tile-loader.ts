@@ -157,8 +157,18 @@ export function detectVectorTileFormat(
   // the MVT path; the loader synthesises a minimal TileJSON wrapper
   // around the template so the rest of the vector-tile pipeline doesn't
   // need to know whether the source had a real manifest or not.
+  // ALSO accept extensionless `{z}/{x}/{y}` URLs — some Mapbox styles
+  // (and OSM-derived hosts) author the XYZ template without a file
+  // extension. The presence of all three placeholders is a strong
+  // signal the URL is a per-tile fetch template, not a manifest. Pre-
+  // fix this case fell to the `null` return and the caller defaulted
+  // to PMTiles, which then failed with "Wrong magic number" on the
+  // first fetch.
   if (kind === 'auto' || kind === 'tilejson') {
     if (path.endsWith('.mvt') || path.endsWith('.pbf')) return 'tilejson'
+    if (url.includes('{z}') && url.includes('{x}') && url.includes('{y}')) {
+      return 'tilejson'
+    }
   }
   if (kind && kind !== 'auto') return kind
   return null

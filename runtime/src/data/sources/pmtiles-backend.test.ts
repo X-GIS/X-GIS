@@ -253,4 +253,30 @@ describe('resolveDispatch — TileJSON vs PMTiles routing', () => {
     expect(resolveDispatch('https://example.com/some-archive', undefined))
       .toBe('pmtiles')
   })
+
+  it('routes XYZ template URLs ({z}/{x}/{y}) to tilejson even without extension', () => {
+    // Mapbox sources can author `tiles: ["https://srv/{z}/{x}/{y}"]`
+    // — no manifest, no file extension. The {z}/{x}/{y} placeholders
+    // make it unambiguous as a per-tile XYZ template. Pre-fix this
+    // case fell to the null return and the caller defaulted to
+    // PMTiles, which then failed with "Wrong magic number" on the
+    // first fetch.
+    expect(resolveDispatch('https://example.com/tiles/{z}/{x}/{y}', 'auto'))
+      .toBe('tilejson')
+    // .mvt extension form still works (regression guard).
+    expect(resolveDispatch('https://example.com/tiles/{z}/{x}/{y}.mvt', 'auto'))
+      .toBe('tilejson')
+    // Mixed XYZ template with query params.
+    expect(resolveDispatch('https://example.com/v1/{z}/{x}/{y}?token=abc', 'auto'))
+      .toBe('tilejson')
+  })
+
+  it('explicit kind: pmtiles still wins over an XYZ template (kind is authoritative when explicit)', () => {
+    // A user that explicitly says pmtiles on an XYZ-template URL is
+    // probably wrong, but we honour the declaration — the URL-wins
+    // rule only applies for ext-bearing URLs where the bytes are
+    // unambiguous. The placeholder fallback is auto-only.
+    expect(resolveDispatch('https://example.com/tiles/{z}/{x}/{y}', 'pmtiles'))
+      .toBe('pmtiles')
+  })
 })
