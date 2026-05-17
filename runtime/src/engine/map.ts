@@ -3491,8 +3491,14 @@ export class XGISMap {
             // isn't a single unfiltered show) silently iterated zero
             // tiles. Unfiltered shows still work because computeSliceKey
             // collapses the no-filter case to the bare sourceLayer.
+            // Mirrors show-source-maps.ts `effectiveLayer`: fall back to
+            // `targetName` when `sourceLayer` is empty (inline GeoJSON).
+            // Worker emits slices keyed under the source name, so without
+            // this fallback every label show on an inline GeoJSON source
+            // looked up the wrong sliceKey and silently iterated zero
+            // tiles (same class as filter_gdp emerald/yellow).
             const sliceKey = computeSliceKey(
-              show.sourceLayer ?? '',
+              show.sourceLayer || show.targetName || '',
               show.filterExpr?.ast as Parameters<typeof computeSliceKey>[1],
             )
             // Along-path placement: walk lineVertices instead of

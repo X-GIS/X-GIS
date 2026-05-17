@@ -65,35 +65,50 @@ export interface ShowSourceMaps {
  *  fused into one mega-loop, since the per-show preprocessing on dense
  *  styles is < 1 ms total (≪ the await on tile fetch that follows). */
 export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMaps {
+  // Centralised fallback rule: inline GeoJSON shows have no explicit
+  // `sourceLayer` (the source IS the layer). The tilingPool emits MVT
+  // bytes whose `_layer` field equals the source name, so callers must
+  // address those features via `targetName`. This helper is the single
+  // source of truth so every map below addresses the same key the
+  // worker emits — without it, extrude / strokeWidth / strokeColor /
+  // labels silently dropped on inline GeoJSON shows (same class as
+  // the filter_gdp emerald/yellow miss that fix(filter) addressed).
+  const effectiveLayer = (show: ShowCommand): string => show.sourceLayer || show.targetName
+
   const usedSourceLayers = new Map<string, Set<string>>()
   for (const show of shows) {
-    if (!show.sourceLayer) continue
+    const layer = effectiveLayer(show)
+    if (!layer) continue
     let set = usedSourceLayers.get(show.targetName)
     if (!set) { set = new Set(); usedSourceLayers.set(show.targetName, set) }
-    set.add(show.sourceLayer)
+    set.add(layer)
   }
 
   const extrudeExprsBySource = new Map<string, Record<string, unknown>>()
   const extrudeBaseExprsBySource = new Map<string, Record<string, unknown>>()
   for (const show of shows) {
+    const layer = effectiveLayer(show)
+    if (!layer) continue
     const ex = show.extrude
-    if (ex && ex.kind === 'feature' && show.sourceLayer) {
+    if (ex && ex.kind === 'feature') {
       let layerMap = extrudeExprsBySource.get(show.targetName)
       if (!layerMap) { layerMap = {}; extrudeExprsBySource.set(show.targetName, layerMap) }
-      layerMap[show.sourceLayer] = ex.expr.ast
+      layerMap[layer] = ex.expr.ast
     }
     const exb = show.extrudeBase
-    if (exb && exb.kind === 'feature' && show.sourceLayer) {
+    if (exb && exb.kind === 'feature') {
       let layerMap = extrudeBaseExprsBySource.get(show.targetName)
       if (!layerMap) { layerMap = {}; extrudeBaseExprsBySource.set(show.targetName, layerMap) }
-      layerMap[show.sourceLayer] = exb.expr.ast
+      layerMap[layer] = exb.expr.ast
     }
   }
 
   const strokeWidthExprsBySource = new Map<string, Record<string, unknown>>()
   for (const show of shows) {
-    if (!show.strokeWidthExpr || !show.sourceLayer) continue
-    const sk = computeSliceKey(show.sourceLayer, show.filterExpr?.ast ?? null)
+    if (!show.strokeWidthExpr) continue
+    const layer = effectiveLayer(show)
+    if (!layer) continue
+    const sk = computeSliceKey(layer, show.filterExpr?.ast ?? null)
     let layerMap = strokeWidthExprsBySource.get(show.targetName)
     if (!layerMap) { layerMap = {}; strokeWidthExprsBySource.set(show.targetName, layerMap) }
     layerMap[sk] = show.strokeWidthExpr.ast
@@ -101,8 +116,10 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
 
   const strokeColorExprsBySource = new Map<string, Record<string, unknown>>()
   for (const show of shows) {
-    if (!show.strokeColorExpr || !show.sourceLayer) continue
-    const sk = computeSliceKey(show.sourceLayer, show.filterExpr?.ast ?? null)
+    if (!show.strokeColorExpr) continue
+    const layer = effectiveLayer(show)
+    if (!layer) continue
+    const sk = computeSliceKey(layer, show.filterExpr?.ast ?? null)
     let layerMap = strokeColorExprsBySource.get(show.targetName)
     if (!layerMap) { layerMap = {}; strokeColorExprsBySource.set(show.targetName, layerMap) }
     layerMap[sk] = show.strokeColorExpr.ast
@@ -116,20 +133,12 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
     needsExtrude: boolean
   }>>()
   for (const show of shows) {
-    // Inline GeoJSON shows have no explicit `sourceLayer` (the source
-    // IS the layer). Fall back to `targetName` so they get a slice
-    // entry too — without it, the worker's slice path doesn't bucket
-    // per-filter, so wealthy/top_economies-style filtered layers
-    // render the unfiltered base data (filter_gdp emerald/yellow
-    // silently invisible bug). decodeMvtTile's `_layer` for
-    // tilingPool-emitted bytes equals `sourceName`, so `byLayer.get`
-    // resolves correctly.
-    const effectiveSourceLayer = show.sourceLayer || show.targetName
-    if (!effectiveSourceLayer) continue
+    const layer = effectiveLayer(show)
+    if (!layer) continue
     let list = showSlicesBySource.get(show.targetName)
     if (!list) { list = []; showSlicesBySource.set(show.targetName, list) }
     const filterAst = show.filterExpr?.ast ?? null
-    const sliceKey = computeSliceKey(effectiveSourceLayer, filterAst)
+    const sliceKey = computeSliceKey(layer, filterAst)
     // Worker emits featureProps Map when ANY downstream consumer reads per-
     // feature attributes: SDF label pipeline (show.label), per-feature paint
     // expressions that the variant shader branches on (data-driven fill /
@@ -146,7 +155,7 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
       if (needsFeatureProps) existing.needsFeatureProps = true
       if (needsExtrude) existing.needsExtrude = true
     } else {
-      list.push({ sliceKey, sourceLayer: effectiveSourceLayer, filterAst, needsFeatureProps, needsExtrude })
+      list.push({ sliceKey, sourceLayer: layer, filterAst, needsFeatureProps, needsExtrude })
     }
   }
 
