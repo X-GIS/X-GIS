@@ -66,6 +66,16 @@ export function convertSource(
     warnings.push(`Source "${id}" declares minzoom/maxzoom (${src.minzoom ?? '-'}…${src.maxzoom ?? '-'}); the runtime tile selector doesn't yet honour source-level zoom bounds, so out-of-range tiles will be requested and 404. Use layer-level minzoom/maxzoom to limit fetch volume.`)
   }
 
+  // Mapbox source-level `bounds: [west, south, east, north]` is the
+  // spatial-extent gate — tiles outside the box should never be
+  // requested. X-GIS's tile selector is global-only today, so a
+  // regional source (e.g. a city basemap with bounds covering one
+  // metro area) gets requests for ocean tiles too. Same wasteful-but-
+  // correct pattern as the zoom-bound gap above.
+  if (Array.isArray(src.bounds) && src.bounds.length === 4) {
+    warnings.push(`Source "${id}" declares bounds [${src.bounds.join(', ')}]; the runtime tile selector doesn't yet clip requests to the spatial extent, so tiles outside the box will be requested and 404. Filter coverage at the host (geojson clip / pre-cropped PMTiles archive) until native bounds support lands.`)
+  }
+
   if (src.type === 'vector') {
     const url = src.url ?? src.tiles?.[0]
     if (url && /\.pmtiles(\?|$)/.test(url)) {
