@@ -82,13 +82,21 @@ function extractFeatureWidths(
 function extractFeatureColors(
   features: GeoJSONFeature[],
   expr: unknown,
+  tileZoom: number,
 ): Map<number, number> {
   const out = new Map<number, number>()
   if (!expr) return out
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
-    const v = evaluate(expr as never, props as Record<string, unknown>)
+    // makeEvalProps mirrors the width path (extractFeatureWidths) so
+    // colour expressions referencing `["zoom"]` / `["geometry-type"]`
+    // / `["id"]` see the reserved keys. Pre-fix the raw props bag
+    // resolved those identifiers to undefined → match default arm
+    // (alpha=0) fired uniformly → per-feature colour intent dropped.
+    const v = evaluate(expr as never, makeEvalProps({
+      props: props as Record<string, unknown>, cameraZoom: tileZoom,
+    }))
     if (typeof v === 'string' && v.startsWith('#') && (v.length === 7 || v.length === 9)) {
       const r = parseInt(v.slice(1, 3), 16)
       const g = parseInt(v.slice(3, 5), 16)
@@ -634,7 +642,7 @@ export class PMTilesBackend implements TileSource {
         const heights = extractFeatureHeights(sourceFeatures, this.extrudeExprs?.[sourceLayer])
         const bases = extractFeatureHeights(sourceFeatures, this.extrudeBaseExprs?.[sourceLayer])
         const widths = extractFeatureWidths(sourceFeatures, this.strokeWidthExprs?.[sliceKey], z)
-        const colors = extractFeatureColors(sourceFeatures, this.strokeColorExprs?.[sliceKey])
+        const colors = extractFeatureColors(sourceFeatures, this.strokeColorExprs?.[sliceKey], z)
         let prebuiltOutlineSegments: Float32Array | undefined
         let prebuiltLineSegments: Float32Array | undefined
         if (tile.outlineVertices && tile.outlineVertices.length > 0

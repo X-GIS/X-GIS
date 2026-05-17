@@ -107,13 +107,25 @@ function extractFeatureWidths(
 function extractFeatureColors(
   features: GeoJSONFeature[],
   expr: unknown,
+  tileZoom: number,
 ): Map<number, number> {
   const out = new Map<number, number>()
   if (!expr) return out
   for (let i = 0; i < features.length; i++) {
     const props = features[i].properties
     if (!props) continue
-    const v = evaluate(expr as never, props as Record<string, unknown>)
+    // Inject reserved keys (`$zoom`, `$featureId`, `$geometryType`) via
+    // makeEvalProps — matches the width path above. Pre-fix the raw
+    // `props` bag meant any colour expression referencing `["zoom"]` /
+    // `["geometry-type"]` / `["id"]` saw undefined for the reserved
+    // identifier, evaluate() collapsed it to null, and the resolved
+    // colour fell to the match's default arm (alpha=0 → "no override").
+    // Per-feature colour-by-zoom and colour-by-id-class dispatched to
+    // the layer-uniform fallback uniformly, dropping the per-feature
+    // intent on the floor.
+    const v = evaluate(expr as never, makeEvalProps({
+      props: props as Record<string, unknown>, cameraZoom: tileZoom,
+    }))
     // Color expressions resolve to a vec4 in shader; in JS via
     // evaluate() they come back as either an integer (vec4 packed
     // into a number) or a string '#rrggbbaa'. Match arms in
@@ -306,7 +318,7 @@ self.addEventListener('message', (e: MessageEvent<InMsg>) => {
       // compound, not a raw source layer (multiple compounds can
       // share one source).
       const widths = extractFeatureWidths(sourceFeatures, msg.strokeWidthExprs?.[sliceKey], msg.z)
-      const colors = extractFeatureColors(sourceFeatures, msg.strokeColorExprs?.[sliceKey])
+      const colors = extractFeatureColors(sourceFeatures, msg.strokeColorExprs?.[sliceKey], msg.z)
       let prebuiltOutlineSegments: ArrayBuffer | undefined
       let prebuiltLineSegments: ArrayBuffer | undefined
       if (tile.outlineVertices && tile.outlineVertices.length > 0
