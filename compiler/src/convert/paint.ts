@@ -197,8 +197,14 @@ function interpolateZoomStops(
     const rawStops = (v as { stops: unknown[] }).stops
     const legacyStops: Array<{ zoom: number; value: unknown }> = []
     for (const s of rawStops) {
-      if (!Array.isArray(s) || s.length < 2 || typeof s[0] !== 'number') return null
-      legacyStops.push({ zoom: s[0], value: unwrapStopLiteral(s[1]) })
+      if (!Array.isArray(s) || s.length < 2) return null
+      // Unwrap v8 strict `["literal", N]` on the zoom key — same pattern
+      // as the modern interpolate path. Pre-fix a wrapped zoom key
+      // failed the typeof === 'number' gate and the legacy stops form
+      // returned null, dropping the property to its default.
+      const z = unwrapStopLiteral(s[0])
+      if (typeof z !== 'number') return null
+      legacyStops.push({ zoom: z, value: unwrapStopLiteral(s[1]) })
     }
     if (legacyStops.length < 2) return null
     const rawBase = (v as { base?: unknown }).base
@@ -226,7 +232,12 @@ function interpolateZoomStops(
   if (!Array.isArray(input) || input[0] !== 'zoom') return null
   const stops: Array<{ zoom: number; value: unknown }> = []
   for (let i = 3; i + 1 < v.length; i += 2) {
-    const z = v[i]
+    // Unwrap v8 strict `["literal", N]` on the zoom key — mirror of
+    // the same unwrap applied to each stop value below. Pre-fix a
+    // wrapped zoom key failed the typeof === 'number' gate and the
+    // entire interpolate-zoom returned null → property fell to its
+    // default (e.g. line-width snapping to 1px regardless of zoom).
+    const z = unwrapStopLiteral(v[i])
     if (typeof z !== 'number') return null
     // Mapbox v8 allows each stop's value to be wrapped in `["literal",
     // …]`. Unwrap eagerly so the numeric / colour callbacks
