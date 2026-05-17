@@ -77,12 +77,18 @@ function extractFeatureWidths(
     // key set so width expressions like `["case", ["==",
     // ["geometry-type"], "LineString"], 4, 1]` resolve correctly. See
     // mvt-worker.ts's extractFeatureWidths for the rationale.
-    const v = evaluate(expr as never, makeEvalProps({
-      props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
-      cameraZoom: tileZoom,
-      geometryType: f.geometry?.type,
-      featureId: (f as { id?: string | number }).id,
-    }))
+    // Per-feature throw isolation — mirror of applyFilter (566ab36).
+    let v: unknown
+    try {
+      v = evaluate(expr as never, makeEvalProps({
+        props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
+        cameraZoom: tileZoom,
+        geometryType: f.geometry?.type,
+        featureId: (f as { id?: string | number }).id,
+      }))
+    } catch {
+      continue
+    }
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
@@ -101,12 +107,18 @@ function extractFeatureColors(
     // all resolve. Pre-fix the raw props bag (and the cameraZoom-only
     // bag prior to this iteration) collapsed match() expressions that
     // referenced any of those identifiers to their default arm.
-    const v = evaluate(expr as never, makeEvalProps({
-      props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
-      cameraZoom: tileZoom,
-      geometryType: f.geometry?.type,
-      featureId: (f as { id?: string | number }).id,
-    }))
+    // Per-feature throw isolation — mirror of applyFilter (566ab36).
+    let v: unknown
+    try {
+      v = evaluate(expr as never, makeEvalProps({
+        props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
+        cameraZoom: tileZoom,
+        geometryType: f.geometry?.type,
+        featureId: (f as { id?: string | number }).id,
+      }))
+    } catch {
+      continue
+    }
     if (typeof v === 'string' && v.startsWith('#')
         && (v.length === 4 || v.length === 5 || v.length === 7 || v.length === 9)) {
       // Accept all four CSS hex forms. Mirror of the mvt-worker fix —

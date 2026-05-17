@@ -98,12 +98,18 @@ function extractFeatureWidths(
     // "Polygon"]` and `interpolate(zoom, …)` are valid against an
     // empty props bag, so don't short-circuit on `!props`.
     const f = features[i]
-    const v = evaluate(expr as never, makeEvalProps({
-      props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
-      cameraZoom: tileZoom,
-      geometryType: f.geometry?.type,
-      featureId: (f as { id?: string | number }).id,
-    }))
+    // Per-feature throw isolation — mirror of applyFilter (566ab36).
+    let v: unknown
+    try {
+      v = evaluate(expr as never, makeEvalProps({
+        props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
+        cameraZoom: tileZoom,
+        geometryType: f.geometry?.type,
+        featureId: (f as { id?: string | number }).id,
+      }))
+    } catch {
+      continue
+    }
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
@@ -139,12 +145,18 @@ function extractFeatureColors(
     // Properties-less features still get a clean eval against reserved
     // keys (e.g. colour-by-geometry-type or colour-by-zoom).
     const f = features[i]
-    const v = evaluate(expr as never, makeEvalProps({
-      props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
-      cameraZoom: tileZoom,
-      geometryType: f.geometry?.type,
-      featureId: (f as { id?: string | number }).id,
-    }))
+    // Per-feature throw isolation — mirror of applyFilter (566ab36).
+    let v: unknown
+    try {
+      v = evaluate(expr as never, makeEvalProps({
+        props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
+        cameraZoom: tileZoom,
+        geometryType: f.geometry?.type,
+        featureId: (f as { id?: string | number }).id,
+      }))
+    } catch {
+      continue
+    }
     // Color expressions resolve to a vec4 in shader; in JS via
     // evaluate() they come back as either an integer (vec4 packed
     // into a number) or a string '#rrggbbaa'. Match arms in
