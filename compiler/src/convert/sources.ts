@@ -134,7 +134,17 @@ export function convertSource(
   }
 
   if (src.type === 'vector') {
-    const url = src.url ?? src.tiles?.[0]
+    let url = src.url ?? src.tiles?.[0]
+    // Strip the Protomaps-tooling `pmtiles://` scheme prefix. The
+    // protomaps/PMTiles library expects a bare https:// URL and
+    // `pmtiles://https://...` is fetched verbatim → "Failed to fetch"
+    // / CORS preflight failure. Drop the prefix so the underlying
+    // URL reaches fetch unchanged. (The xgis source still routes
+    // through the pmtiles backend because the inner URL ends with
+    // .pmtiles.)
+    if (typeof url === 'string' && url.startsWith('pmtiles://')) {
+      url = url.slice('pmtiles://'.length)
+    }
     if (url && /\.pmtiles(\?|#|$)/.test(url)) {
       lines.push('  type: pmtiles')
       lines.push(`  url: ${JSON.stringify(url)}`)
