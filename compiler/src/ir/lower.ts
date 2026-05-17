@@ -296,10 +296,14 @@ function extractInterpolateZoomStops(
   if (remaining < 4 || remaining % 2 !== 0) return null
   const stops: Array<{ zoom: number; value: number }> = []
   for (let i = cursor; i + 1 < args.length; i += 2) {
-    const zArg = args[i]
-    const vArg = args[i + 1]
-    if (zArg.kind !== 'NumberLiteral' || vArg.kind !== 'NumberLiteral') return null
-    stops.push({ zoom: zArg.value, value: vArg.value })
+    // Accept both bare NumberLiteral and `-N` UnaryExpr around one
+    // (negative-stop interpolations like stroke-offset / text-rotate
+    // fall to UnaryExpr in the parser). Reuse the existing
+    // bindingAsConstantNumber helper so the rule stays in one place.
+    const z = bindingAsConstantNumber(args[i])
+    const v = bindingAsConstantNumber(args[i + 1])
+    if (z === null || v === null) return null
+    stops.push({ zoom: z, value: v })
   }
   return stops.length >= 2 ? { base, stops } : null
 }
