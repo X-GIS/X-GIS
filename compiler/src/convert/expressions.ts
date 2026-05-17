@@ -307,8 +307,18 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       let isExp = false
       let base = 1
       if (Array.isArray(curveSpec)) {
-        if (curveSpec[0] === 'exponential' && typeof curveSpec[1] === 'number') {
-          if (curveSpec[1] !== 1) { isExp = true; base = curveSpec[1] }
+        if (curveSpec[0] === 'exponential') {
+          // v8 strict tooling can wrap the base scalar as
+          // `["exponential", ["literal", 2]]`. Without the unwrap the
+          // typeof === 'number' gate failed and the exponential curve
+          // silently fell back to linear interpolation — the visible
+          // diff was line-width / text-size growing on a straight
+          // ramp instead of the authored eased curve.
+          const baseRaw = curveSpec[1]
+          const b = Array.isArray(baseRaw) && baseRaw.length === 2 && baseRaw[0] === 'literal'
+            ? baseRaw[1]
+            : baseRaw
+          if (typeof b === 'number' && b !== 1) { isExp = true; base = b }
         } else if (curveSpec[0] === 'cubic-bezier') {
           warnings.push(`["interpolate", ["cubic-bezier", …], …] folded to linear — xgis has no per-stop bezier interpolator.`)
         }

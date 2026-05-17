@@ -251,12 +251,21 @@ function interpolateZoomStops(
   let curve: 'linear' | 'exponential' = 'linear'
   let base = 1
   if (Array.isArray(curveSpec)) {
-    if (curveSpec[0] === 'exponential' && typeof curveSpec[1] === 'number') {
+    if (curveSpec[0] === 'exponential') {
+      // v8 strict tooling can wrap the base scalar as
+      // `["exponential", ["literal", 2]]`. Mirror of the same unwrap
+      // in expressions.ts's interpolate handler. Without it the
+      // typeof === 'number' gate failed and the exponential curve
+      // silently fell back to linear interpolation.
+      const baseRaw = curveSpec[1]
+      const b = Array.isArray(baseRaw) && baseRaw.length === 2 && baseRaw[0] === 'literal'
+        ? baseRaw[1]
+        : baseRaw
       // base === 1 is mathematically identical to linear; collapse so
       // the runtime takes the cheaper code path.
-      if (curveSpec[1] !== 1) {
+      if (typeof b === 'number' && b !== 1) {
         curve = 'exponential'
-        base = curveSpec[1]
+        base = b
       }
     } else if (curveSpec[0] === 'cubic-bezier') {
       // No cubic-bezier evaluator yet; warn loudly so the user knows
