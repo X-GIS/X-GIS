@@ -259,6 +259,17 @@ function addFillOutline(out: string[], v: unknown, warnings: string[]): void {
   if (s) {
     out.push(`stroke-${s}`)
     out.push('stroke-1')
+    return
+  }
+  // Per-feature data-driven outline colour (`["match", ["get","class"], …]`).
+  // Mirror of addStroke's data-driven fallback (the standalone line-color
+  // path) — without this the outline silently dropped, leaving the fill
+  // un-outlined even though the style declared the colour. Routes through
+  // `stroke.colorExpr` via the lower pass's match-default-colour arm.
+  const expr = exprToXgis(v, warnings)
+  if (expr !== null) {
+    out.push(`stroke-[${expr}]`)
+    out.push('stroke-1')
   }
 }
 
