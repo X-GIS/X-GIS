@@ -171,6 +171,40 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     expect(show!.strokeColorExpr, 'ShowCommand.strokeColorExpr (consumed by worker color_packed slot)').toBeDefined()
   })
 
+  it('Mapbox line-color ["coalesce", …, hex-default] resolves as colour', () => {
+    // Pins ba5a155 — coalesce-shape colour expressions lower to a
+    // BinaryExpr `??` chain. Pre-fix the helper returned null and the
+    // lower-pass routed the AST to strokeWidthExpr (colour-as-width
+    // misroute, same class as the case() / ternary fix 2b168d8).
+    const style = {
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'fallback_line',
+        type: 'line',
+        source: 'v',
+        'source-layer': 'transportation',
+        paint: {
+          'line-color': ['coalesce',
+            ['get', 'colorOverride'],
+            ['get', 'colorFallback'],
+            '#888888'],
+          'line-width': 2,
+        },
+      }],
+    }
+    const xgis = convertMapboxStyle(style as never)
+    const scene = lower(new Parser(new Lexer(xgis).tokenize()).parse())
+    const node = scene.renderNodes.find(n => n.name === 'fallback_line')
+    expect(node).toBeDefined()
+    expect(node!.stroke.color.kind).not.toBe('none')
+    expect(node!.stroke.colorExpr, 'coalesce should land in stroke.colorExpr').toBeDefined()
+    if (node!.stroke.color.kind === 'constant') {
+      // Default arm #888888 → leading byte 0x88.
+      expect(node!.stroke.color.rgba[0]).toBeCloseTo(0x88 / 255, 2)
+    }
+  })
+
   it('Mapbox fill-color ["case", …] ternary resolves the default arm', () => {
     // Sibling pin for the fill arm — extractMatchDefaultColor (used by
     // both fill and stroke lowering) recognises ConditionalExpr after
