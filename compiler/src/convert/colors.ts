@@ -78,6 +78,26 @@ export function colorToXgis(v: unknown, warnings: string[]): string | null {
     const hex = resolveColor(`rgb(${r}, ${g}, ${b})`)
     if (hex) return hex
   }
+  // `["hsla", h, s, l, a]` / `["hsl", h, s, l]` array forms — Mapbox
+  // spec accepts both. s + l carry the implicit % unit in the
+  // function form (50 means 50%), so we re-wrap them when stitching
+  // the CSS string. Per-channel literal unwrap mirrors the rgb path.
+  if (Array.isArray(v) && v[0] === 'hsla' && v.length === 5) {
+    const h = unwrapChan(v[1])
+    const s = unwrapChan(v[2])
+    const l = unwrapChan(v[3])
+    const a = unwrapChan(v[4])
+    const A = typeof a === 'number' ? a : 1
+    const hex = resolveColor(`hsla(${h}, ${s}%, ${l}%, ${A})`)
+    if (hex) return hex
+  }
+  if (Array.isArray(v) && v[0] === 'hsl' && v.length === 4) {
+    const h = unwrapChan(v[1])
+    const s = unwrapChan(v[2])
+    const l = unwrapChan(v[3])
+    const hex = resolveColor(`hsl(${h}, ${s}%, ${l}%)`)
+    if (hex) return hex
+  }
   warnings.push(`Color expression not converted: ${JSON.stringify(v).slice(0, 120)}`)
   return null
 }
