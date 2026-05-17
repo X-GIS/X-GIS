@@ -16,7 +16,7 @@ async function waitForXgisReady(page: Page) {
   )
 }
 
-async function snapAndCount(page: Page, target: 'amber' | 'cyan' | 'red') {
+async function snapAndCount(page: Page, target: 'amber' | 'cyan' | 'red' | 'blue') {
   const sShot = await page.screenshot({ type: 'png' })
   return await page.evaluate(async ({ pngBytes, target }) => {
     const blob = new Blob([new Uint8Array(pngBytes)], { type: 'image/png' })
@@ -36,6 +36,10 @@ async function snapAndCount(page: Page, target: 'amber' | 'cyan' | 'red') {
       if (target === 'amber' && r > 180 && g > 130 && g < 200 && b < 100) hits++
       if (target === 'cyan' && r < 100 && g > 200 && b > 200) hits++
       if (target === 'red' && r > 200 && g < 100 && b < 100) hits++
+      // fill-blue-500 = #3b82f6 — Tailwind palette. Detection band:
+      //   R∈[40,110], G∈[100,170], B∈[200,255]. Generous to absorb
+      //   AA + blend toward background.
+      if (target === 'blue' && r > 40 && r < 120 && g > 100 && g < 180 && b > 200) hits++
     }
     URL.revokeObjectURL(url)
     return hits
@@ -89,4 +93,14 @@ test('orthographic: triangle stroke on BACK hemisphere is culled', async ({ page
   const amber = await snapAndCount(page, 'amber')
   console.log(`[back-tri] amber pixels: ${amber}`)
   expect(amber, 'triangle stroke on back hemisphere must be culled').toBeLessThan(100)
+  // ALSO check fill (blue). Pre-fix the polygon fragment shader used
+  // input.cos_c (per-vertex interpolation) for cull; a triangle whose
+  // three vertices are all on the back hemisphere interpolates to a
+  // negative value everywhere so this case wasn't exposed. After the
+  // per-fragment recompute (renderer.ts polygon_cos_c_fragment) both
+  // paths agree on back-hemisphere triangles — assertion pins that
+  // they don't regress to a leakage state.
+  const blue = await snapAndCount(page, 'blue')
+  console.log(`[back-tri] blue pixels: ${blue}`)
+  expect(blue, 'triangle fill on back hemisphere must be culled').toBeLessThan(100)
 })
