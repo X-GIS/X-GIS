@@ -190,7 +190,12 @@ export function convertMapboxStyle(
   // ── Background layer (Mapbox `background` type) ────────────────────
   // X-GIS has a top-level `background { fill: <color> }` directive
   // rather than a layer with `paint.background-color`.
-  const bgLayer = (style.layers ?? []).find(l => l.type === 'background')
+  // Defensive null/object guard: malformed styles can have null entries
+  // in the layers array. `l.type` would crash; emit nothing for null
+  // entries and warn so the rest still converts.
+  const bgLayer = (style.layers ?? []).find(
+    l => l !== null && typeof l === 'object' && (l as { type?: unknown }).type === 'background',
+  )
   if (bgLayer) {
     const before = warnings.length
     // Respect `layout.visibility: 'none'` on background layers per
@@ -243,6 +248,13 @@ export function convertMapboxStyle(
 
   // ── Layers ─────────────────────────────────────────────────────────
   for (const layer of style.layers ?? []) {
+    // Defensive guard: null / non-object layer entry (malformed style).
+    // Pre-fix `layer.type` crashed at runtime and the entire style
+    // failed to convert past the bad entry.
+    if (layer === null || typeof layer !== 'object' || Array.isArray(layer)) {
+      warnings.push(`Layers array contains a non-object entry (${typeof layer}); skipped.`)
+      continue
+    }
     if (layer.type === 'background') continue // handled above
     const before = warnings.length
     // Preprocess: a `fill-color: ["match", ["get", field], …]` with
