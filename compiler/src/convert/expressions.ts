@@ -605,7 +605,15 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       //   expression-form: ["in", value, ["literal", [...]]]
       //   legacy:          ["in", "field", v1, v2, …]
       const field = v[1]
-      const list = v[2]
+      let list = v[2]
+      // Loop peel for multi-level wraps so doubly-wrapped lists
+      // (`["literal", ["literal", [...]]]`) from preprocessor chains
+      // still hit the expression-form path. Mirror of colorToXgis
+      // loop unwrap (921d5ad).
+      while (Array.isArray(list) && list.length === 2 && list[0] === 'literal'
+          && Array.isArray(list[1]) && list[1][0] === 'literal') {
+        list = list[1]
+      }
       if (Array.isArray(list) && list[0] === 'literal' && Array.isArray(list[1])) {
         const fxg = typeof field === 'string'
           ? `.${field}`
