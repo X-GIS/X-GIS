@@ -994,9 +994,14 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
 
   // circle-color → fill. Routes through the shared color emitters
   // (constant + interpolate-by-zoom + data-driven case/match).
-  // Default Mapbox circle-color is #000.
+  // Default Mapbox circle-color is #000. Treat `null` the same as
+  // `undefined` (omit) — Mapbox spec: a null paint value falls back
+  // to the property default. Pre-fix `null` flowed through the
+  // emission path, lowered to a bracket-binding with the `null`
+  // identifier, and the runtime resolved it to no-fill instead of
+  // the spec default #000.
   const fillColor = paint['circle-color']
-  if (fillColor !== undefined) {
+  if (fillColor !== undefined && fillColor !== null) {
     const interp = interpolateZoomCall(fillColor, warnings, (val, w) => colorToXgis(val, w))
     if (interp !== null) {
       utils.push(`fill-[${interp}]`)
@@ -1052,8 +1057,9 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   // layer's line-color path. Without the data-driven fallback a
   // standalone `["match", ["get","class"], …]` stroke colour silently
   // dropped (same regression class as the line-color fix).
+  // Same null-as-omit treatment as circle-color above.
   const strokeColor = paint['circle-stroke-color']
-  if (strokeColor !== undefined) {
+  if (strokeColor !== undefined && strokeColor !== null) {
     const interp = interpolateZoomCall(strokeColor, warnings, (val, w) => colorToXgis(val, w))
     if (interp !== null) {
       utils.push(`stroke-[${interp}]`)
