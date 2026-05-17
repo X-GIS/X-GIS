@@ -611,16 +611,37 @@ export class XGISMap {
       this.rasterRenderer.rebuildForQuality()
       this.lineRenderer?.rebuildForQuality()
       this.pointRenderer?.rebuildForQuality()
-      // Drop per-show variant pipeline refs so the bucket-scheduler
-      // falls back to the defaults (which we just rebuilt). Without
-      // this, `vectorTileShows[i].pipelines` would still point at the
-      // OLD variant pipelines that have the wrong target count — the
-      // bucket-scheduler hands them to VTR.render() and WebGPU rejects
-      // the pass as "Attachment state of RenderPipeline ... is not
-      // compatible with RenderPassEncoder". They'll be re-built lazily
-      // on the next draw when `getOrCreateVariantPipelines` sees a
-      // shaderCache miss.
-      for (const entry of this.vectorTileShows) entry.pipelines = null
+      // Per-show variant pipelines + layouts both went stale: the
+      // pipelines embed the OLD pick-attachment/MSAA target state, and
+      // the layouts reference the OLD base/feature bind-group-layouts
+      // that initPipelines just replaced. We can't simply null
+      // `entry.pipelines` and rely on a "lazy rebuild" — the
+      // bucket-scheduler never calls `getOrCreateVariantPipelines`; it
+      // just falls back to `defaults.fillPipeline` (base-only) while
+      // `entry.layout` still points at the old feature/compute layout.
+      // That mismatch tripped per-frame `[BindGroupLayout
+      // "mr-baseBindGroupLayout"] of pipeline layout
+      // "mr-mainPipelineLayout(base-only)" does not match layout
+      // [BindGroupLayout "mr-featureBindGroupLayout"]` validation and
+      // the data-driven match() polygons stopped painting (fixture_
+      // picking regression). Re-resolve both immediately so the entry
+      // stays internally consistent.
+      for (const entry of this.vectorTileShows) {
+        const variant = entry.show.shaderVariant
+        if (variant && (variant.preamble || variant.needsFeatureBuffer)) {
+          try {
+            entry.pipelines = this.renderer.getOrCreateVariantPipelines(variant as never)
+            entry.layout = this.renderer.getOrBuildVariantLayout(variant as never)
+          } catch (e) {
+            console.warn('[X-GIS] Variant pipeline re-resolve after setQuality failed:', e)
+            entry.pipelines = null
+            entry.layout = null
+          }
+        } else {
+          entry.pipelines = null
+          entry.layout = null
+        }
+      }
       // VTRs hold their own references to the renderer's `extruded`
       // and `ground` pipelines (set once at attach time). After a
       // rebuild those references go stale — same pipeline-attachment-
@@ -934,6 +955,23 @@ export class XGISMap {
     if (this._cameraExplicitlyPositioned) return false
     apply()
     return true
+  }
+
+  /** Map a feature-bounds lon-span to the auto-fit camera zoom. Shared
+   *  across the four bounds-fit sites (sync setRawParts, async GeoJSON
+   *  compile lands, VirtualPMTiles attach). Pulled into one place
+   *  because a degenerate `lonSpan === 0` (single-point or co-linear
+   *  fixtures like fixture-point.geojson) made the inline
+   *  `Math.log2(360 / (degPerPx * 256))` collapse to Infinity → camera.
+   *  zoom = Infinity → broken projection matrix → blank canvas with a
+   *  `#Infinity/0/0` badge. */
+  private _fitZoomToLonSpan(lonSpan: number, cssWidthPx: number): number {
+    // Degenerate bounds → pin a country-level zoom. SDF point billboards
+    // (size-40-class fixtures) read cleanly here, and the user can still
+    // wheel-zoom out.
+    if (!(lonSpan > 1e-9) || !(cssWidthPx > 0)) return 4
+    const degPerPx = lonSpan / cssWidthPx
+    return Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
   }
 
   /** Read-only flag so tests can assert the state machine without
@@ -1558,11 +1596,9 @@ export class XGISMap {
           const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
           this.camera.centerX = cx
           this.camera.centerY = cy
-          const lonSpan = maxLon - minLon
           const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
           const cssW = this.canvas.width / dpr
-          const degPerPx = lonSpan / cssW
-          this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+          this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
         }
       }
       return
@@ -1660,11 +1696,9 @@ export class XGISMap {
         const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
         this.camera.centerX = cx
         this.camera.centerY = cy
-        const lonSpan = maxLon - minLon
         const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
         const cssW = this.canvas.width / dpr
-        const degPerPx = lonSpan / cssW
-        this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+        this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
       }
     })
 
@@ -1722,11 +1756,9 @@ export class XGISMap {
         const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
         this.camera.centerX = cx
         this.camera.centerY = cy
-        const lonSpan = maxLon - minLon
         const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
         const cssW = this.canvas.width / dpr
-        const degPerPx = lonSpan / cssW
-        this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+        this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
       }
     }
   }
@@ -2048,11 +2080,9 @@ export class XGISMap {
             const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
             this.camera.centerX = cx
             this.camera.centerY = cy
-            const lonSpan = maxLon - minLon
             const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
             const cssW = this.canvas.width / dpr
-            const degPerPx = lonSpan / cssW
-            this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPx * 256)) - 1)
+            this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
           }
         })
       }).catch((err) => {
@@ -2116,9 +2146,7 @@ export class XGISMap {
             const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, (minLat + maxLat) / 2)
             this.camera.centerX = cx
             this.camera.centerY = cy
-            const lonSpan = maxLon - minLon
-            const degPerPixel = lonSpan / this.canvas.clientWidth
-            this.camera.zoom = Math.max(0.5, Math.log2(360 / (degPerPixel * 256)) - 1)
+            this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, this.canvas.clientWidth)
           }
         }
       }

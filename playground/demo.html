@@ -19,13 +19,19 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
-  <!-- Self-hosted Variable fonts for map labels (Open Sans + Noto Sans).
-       Lets imported Mapbox/MapLibre styles render with the authored
-       typeface offline (sea / military / air-gapped). Total ~84 KB
-       added to the bundle, one-time. See map-fonts.css for rationale. -->
+  <!-- Self-hosted Open Sans / Noto Sans were planned (see
+       public/fonts/map-fonts.css) but the actual .woff2 files were
+       never vendored — the CSS @font-face declarations triggered
+       /fonts/*.woff2 fetches that resolved to the SPA index.html
+       fallback, which OTS rejected with "invalid sfntVersion:
+       1008813135" (bytes `<!DI`) on every demo. Disabled here to
+       keep the console clean; the OS font chain handles Latin labels
+       fine. Re-enable with the actual woff2 files committed. -->
+  <!--
   <link rel="preload" href="/fonts/open-sans-latin-variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/noto-sans-latin-variable.woff2" as="font" type="font/woff2" crossorigin>
   <link href="/fonts/map-fonts.css" rel="stylesheet">
+  -->
   <style>
     :root {
       --bg: #06080c;

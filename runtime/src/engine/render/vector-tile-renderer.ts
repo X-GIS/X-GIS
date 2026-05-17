@@ -3774,7 +3774,18 @@ export class VectorTileRenderer {
     // would draw circle dots over every building centroid using
     // PointRenderer's default style (the user reported these as
     // "POI points appearing without being declared").
-    const hasPointStyle = show.size !== null || show.shape !== null || show.sizeExpr !== null
+    // Detect "this layer authors point style" across every SizeValue
+    // shape. `sizeValueToShape` collapses 'none' to null and emits a
+    // typed shape for everything else (constant / data-driven /
+    // zoom-interpolated / time-interpolated), so checking
+    // `paintShapes.size != null` is the single source of truth.
+    // Pre-fix the gate only saw `show.size` (constant) and
+    // `show.sizeExpr` (data-driven), so zoom- / time-interpolated
+    // sizes flowed past as "no point style" and never drew —
+    // fixture_size_zoom surfaced this with `size-[interpolate(zoom,
+    // 0, 30, 20, 80)]`. Keep `show.shape` in the OR — shapes can carry
+    // point intent independent of a declared size.
+    const hasPointStyle = show.paintShapes?.size != null || show.shape !== null
     if (hasPointStyle && pointRenderer && typeof pointRenderer.addTilePoint === 'function') {
       const DEG2RAD = Math.PI / 180
       const R = 6378137
