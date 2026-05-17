@@ -26,7 +26,13 @@ jobs:
 
       - run: bun install
 
+      # XGIS_DEPLOY_BASE=1 switches playground/vite.config.ts to emit
+      # asset URLs prefixed with /X-GIS/play/ for the Pages deploy.
+      # Other CI workflows (playground-audit.yml) leave it unset so
+      # they serve at `/` to match e2e specs.
       - run: bun run build
+        env:
+          XGIS_DEPLOY_BASE: '1'
 
       # Merge the runnable playground under /play/ inside the
       # marketing-site artifact. /X-GIS/ serves the docs + examples

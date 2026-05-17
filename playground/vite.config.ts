@@ -2,11 +2,16 @@ import { defineConfig } from 'vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 
 export default defineConfig({
-  // CI deploys the playground under /X-GIS/play/ so the marketing
-  // site (Astro) can occupy /X-GIS/ root. Local dev keeps the bare `/`
-  // so the existing https://localhost:3000/demo.html paths in e2e
-  // specs and the README still resolve without rewrites.
-  base: process.env.GITHUB_ACTIONS ? '/X-GIS/play/' : '/',
+  // Pages-deploy serves the playground under /X-GIS/play/ so the
+  // marketing site (Astro) can occupy /X-GIS/ root. Local dev keeps
+  // the bare `/` so existing https://localhost:3000/demo.html paths
+  // in e2e specs and the README still resolve without rewrites.
+  // `XGIS_DEPLOY_BASE=1` is set ONLY by deploy-pages.yml's build step;
+  // other CI workflows (playground-audit.yml) leave it unset so they
+  // serve at `/` and the e2e specs' hard-coded URLs work as-is. Using
+  // the generic `GITHUB_ACTIONS` flag here previously broke every CI
+  // playwright run because GitHub auto-sets it for ALL CI jobs.
+  base: process.env.XGIS_DEPLOY_BASE === '1' ? '/X-GIS/play/' : '/',
   plugins: [basicSsl()],
   server: {
     port: 3000,
