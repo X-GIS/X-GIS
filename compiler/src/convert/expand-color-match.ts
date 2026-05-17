@@ -61,7 +61,13 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer): MapboxLayer[] | 
   // colours (e.g. ['v1', 'v2'] → '#abc', 'v3' → '#abc' both
   // resolve to same colour) — coalesce them so we emit one sublayer
   // per UNIQUE colour rather than per (vals, out) tuple.
-  const defaultOut = args[args.length - 1]
+  // Default colour can also be v8-literal-wrapped — same unwrap as
+  // the per-arm out below.
+  let defaultOut = args[args.length - 1]
+  if (Array.isArray(defaultOut) && defaultOut.length === 2 && defaultOut[0] === 'literal'
+      && typeof defaultOut[1] === 'string') {
+    defaultOut = defaultOut[1]
+  }
   if (typeof defaultOut !== 'string') return null  // non-colour-string default
 
   const byColour = new Map<string, (string | number)[]>()
@@ -78,7 +84,16 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer): MapboxLayer[] | 
     if (Array.isArray(vals) && vals.length === 2 && vals[0] === 'literal') {
       vals = vals[1]
     }
-    const out = args[i + 1]
+    // Same v8 literal-wrap unwrap on the value (colour string) side.
+    // Strict tooling can emit `["literal", "#abc"]` for the colour
+    // arm; pre-fix the typeof string check failed on the wrap and
+    // the whole expand bailed → layer fell to lower.ts's pick-first-
+    // stop fallback (one colour for every feature).
+    let out = args[i + 1]
+    if (Array.isArray(out) && out.length === 2 && out[0] === 'literal'
+        && typeof out[1] === 'string') {
+      out = out[1]
+    }
     if (typeof out !== 'string') return null  // every arm must be a colour string
     const valList = Array.isArray(vals) ? vals : [vals]
     for (const v of valList) {

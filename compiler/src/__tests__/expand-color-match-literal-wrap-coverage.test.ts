@@ -65,6 +65,19 @@ describe('expandPerFeatureColorMatch — v8 literal-wrap on keys', () => {
     }
   })
 
+  it('wrapped colour arm value (out) ALSO unwraps + expand succeeds', () => {
+    // Pre-fix the per-arm out's typeof string check failed on the
+    // wrap and the whole expand bailed → layer fell to lower.ts's
+    // pick-first-stop fallback (one colour for every feature).
+    const expanded = expandPerFeatureColorMatch(buildLayer([
+      'ocean', ['literal', '#001'],
+      'lake', ['literal', '#0a0'],
+      ['literal', '#888'],
+    ]))
+    expect(expanded).not.toBeNull()
+    expect(expanded!.length).toBe(3)
+  })
+
   it('mixed bare + wrapped keys both unwrap correctly', () => {
     const expanded = expandPerFeatureColorMatch(buildLayer([
       'ocean', '#001',
