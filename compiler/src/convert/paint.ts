@@ -275,10 +275,8 @@ function interpolateZoomStops(
       // in expressions.ts's interpolate handler. Without it the
       // typeof === 'number' gate failed and the exponential curve
       // silently fell back to linear interpolation.
-      const baseRaw = curveSpec[1]
-      const b = Array.isArray(baseRaw) && baseRaw.length === 2 && baseRaw[0] === 'literal'
-        ? baseRaw[1]
-        : baseRaw
+      let b: unknown = curveSpec[1]
+      while (Array.isArray(b) && b.length === 2 && b[0] === 'literal') b = b[1]
       // base === 1 is mathematically identical to linear; collapse so
       // the runtime takes the cheaper code path.
       if (typeof b === 'number' && b !== 1) {

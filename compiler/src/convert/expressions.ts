@@ -340,10 +340,8 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
           // silently fell back to linear interpolation — the visible
           // diff was line-width / text-size growing on a straight
           // ramp instead of the authored eased curve.
-          const baseRaw = curveSpec[1]
-          const b = Array.isArray(baseRaw) && baseRaw.length === 2 && baseRaw[0] === 'literal'
-            ? baseRaw[1]
-            : baseRaw
+          let b: unknown = curveSpec[1]
+          while (Array.isArray(b) && b.length === 2 && b[0] === 'literal') b = b[1]
           if (typeof b === 'number' && b !== 1) { isExp = true; base = b }
         } else if (curveSpec[0] === 'cubic-bezier') {
           warnings.push(`["interpolate", ["cubic-bezier", …], …] folded to linear — xgis has no per-stop bezier interpolator.`)
