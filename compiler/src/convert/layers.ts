@@ -944,7 +944,13 @@ function parseSymbolPlacementStep(
   // (below z_1) uses the default.
   const breakpoints: Array<{ zoom: number; placement: 'point' | 'line' | 'line-center' }> = []
   for (let i = 1; i < rest.length; i += 2) {
-    const z = rest[i]
+    // Unwrap v8 strict `["literal", N]` on the zoom key (mirror of the
+    // unwrap on the placement value below). Pre-fix a wrapped zoom key
+    // failed the typeof === 'number' gate and parseSymbolPlacementStep
+    // returned null, collapsing the step expansion to a single fallback
+    // layer with the default placement (line-shield labels lost their
+    // zoom-driven point/line-center split).
+    const z = unwrapLiteralScalar(rest[i])
     const v = unwrapLiteralScalar(rest[i + 1])
     if (typeof z !== 'number' || !isValidPlacement(v)) return null
     breakpoints.push({ zoom: z, placement: v })
