@@ -2,37 +2,29 @@ name: playground-audit
 
 # Status: INFORMATIONAL (continue-on-error: true).
 #
-# Runs the demo + fixture audit and the targeted regression specs under
-# headless Chromium on Ubuntu runners. Chromium falls back to Mesa's
-# SwiftShader-WebGPU on runners with no GPU, which currently CANNOT
-# render the X-GIS pipeline visibly — point billboards stay blank,
-# polygons fill with the wrong colours, and device-lost panics fire on
-# ~10/123 demos. So pixel-counting assertions and camera-finite checks
-# fire false-positives that don't reproduce locally on real WebGPU.
+# Tier-2 in the Cesium-style split: full demo + fixture audit + every
+# regression spec. Runs on main push + nightly + manual dispatch only —
+# the fast PR-gate (projection-coverage) lives in playground-smoke.yml
+# so contributors don't wait ~12 min on every PR for what is mostly
+# SwiftShader noise.
 #
-# Until a self-hosted GPU runner lands, the canonical visual regression
-# workflow is: `bun x playwright test e2e/_demo-fixture-audit.spec.ts`
-# locally on real WebGPU (0 broken across 123 demos there). On CI we
-# still surface artifacts (REPORT.md + screenshots + traces) so PR
-# authors can inspect what changed. Specs that signal `XGIS_SOFTWARE_GPU`
-# (see _projection-coverage.spec.ts) skip their pixel-count assertions
-# in this environment but keep the logic-only ones (NaN matrix,
-# alias misroute, console error scan) which are GPU-independent.
+# SwiftShader-WebGPU on the GH Linux runner can't render the X-GIS
+# pipeline visibly — point billboards stay blank, polygons fill with the
+# wrong colours, ~10/123 demos crash. Pixel-based assertions self-skip
+# when XGIS_SOFTWARE_GPU=1 (see _projection-coverage.spec.ts); the
+# logic-only checks (NaN matrix, alias misroute, console errors) remain
+# meaningful. PR authors get artifacts (REPORT.md + screenshots +
+# traces) so visual regressions are inspectable even when the gate is
+# informational. The day a self-hosted GPU runner lands, flipping
+# continue-on-error to false turns this into a real merge gate.
 
 on:
-  pull_request:
-    paths:
-      # Touching any of these can break a demo's ability to render.
-      # Skip on doc-only PRs.
-      - 'runtime/**'
-      - 'compiler/**'
-      - 'blueprint/**'
-      - 'playground/**'
-      - 'package.json'
-      - 'bun.lock'
-      - '.github/workflows/playground-audit.yml'
   push:
     branches: [main]
+  schedule:
+    # Nightly UTC 14:00 (≈ KST 23:00) — catches upstream regressions
+    # in any merged PR even when no new push lands.
+    - cron: '0 14 * * *'
   workflow_dispatch:
 
 jobs:

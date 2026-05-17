@@ -1,0 +1,99 @@
+name: playground-smoke
+
+# Status: INFORMATIONAL (continue-on-error: true).
+#
+# Fast PR-gate tier. Runs a focused subset of e2e specs that surface
+# the silent-bug classes the user-experience escalation identified
+# (alias misroute / NaN matrix / projection silent fallback). The full
+# 123-demo audit is gated to main push + nightly schedule via
+# playground-audit.yml so PRs get green/red feedback in ~3 min instead
+# of ~12 min.
+#
+# Tier split rationale (Cesium pattern):
+#   - Tier 1 (every PR, this file + `test`): lint + unit + projection
+#     coverage. ~3 min combined.
+#   - Tier 2 (main push + nightly + manual): full demo + fixture
+#     audit. ~12 min, run via playground-audit.yml.
+#
+# SwiftShader-WebGPU caveats still apply — see playground-audit.yml
+# header. Pixel-based assertions self-skip when XGIS_SOFTWARE_GPU=1.
+
+on:
+  pull_request:
+    paths:
+      - 'runtime/**'
+      - 'compiler/**'
+      - 'blueprint/**'
+      - 'playground/**'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/playground-smoke.yml'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    env:
+      HEADED: '0'
+      XGIS_SOFTWARE_GPU: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache bun + node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+            playground/node_modules
+            runtime/node_modules
+            compiler/node_modules
+            blueprint/node_modules
+            site/node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            pw-${{ runner.os }}-
+
+      - run: bun install
+      - run: bun run build
+
+      - name: Install Playwright (browsers if not cached, system deps always)
+        run: |
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            bunx playwright install-deps chromium
+          else
+            bunx playwright install --with-deps chromium
+          fi
+        working-directory: playground
+
+      # Smoke tier: projection-coverage (17 page-reuse tests) is the
+      # logic-only gate that caught the alias misroute + would catch any
+      # NaN / silent-fallback regression. Other regression specs
+      # (picking BGL, font 404, etc.) are pinned narrow guards on past
+      # bugs and run only via playground-audit.yml's regression-specs
+      # batch — moving them here would push smoke past 5 min.
+      - name: Projection coverage spec
+        run: bunx playwright test e2e/_projection-coverage.spec.ts
+          --workers=3 --reporter=line
+        working-directory: playground
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: smoke-traces
+          path: playground/test-results/
+          retention-days: 7
