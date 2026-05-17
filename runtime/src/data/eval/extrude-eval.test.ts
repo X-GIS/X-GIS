@@ -119,5 +119,16 @@ describe('evalExtrudeExpr', () => {
       const ast = fld('$featureId')
       expect(evalExtrudeExpr(ast, {}, undefined, { id: 7 })).toBe(7)
     })
+
+    it('accepts null / undefined props (properties-less features)', () => {
+      // MVT and GeoJSON both allow features with no properties bag.
+      // The reserved keys ($zoom / $geometryType / $featureId) must
+      // still resolve so a zoom-gated or geometry-type-only extrude
+      // expression isn't silently skipped. Pre-fix the caller's
+      // `if (!props) continue` early-skip dropped these features.
+      const ast = fld('$zoom')
+      expect(evalExtrudeExpr(ast, null, 14)).toBe(14)
+      expect(evalExtrudeExpr(ast, undefined, 14)).toBe(14)
+    })
   })
 })

@@ -51,9 +51,16 @@ function extractFeatureHeights(
   // author wants). The engine doesn't fabricate a default.
   for (let i = 0; i < features.length; i++) {
     const f = features[i]
-    const props = f.properties
-    if (!props) continue
-    const v = evalExtrudeExpr(expr, props as Record<string, unknown>, tileZoom, f)
+    // Properties-less features still resolve via the reserved keys
+    // ($zoom / $geometryType / $featureId), so a geometry-type-only
+    // or zoom-gated extrude expression evaluates cleanly against an
+    // empty bag. Don't short-circuit on missing properties.
+    const v = evalExtrudeExpr(
+      expr,
+      (f.properties ?? undefined) as Record<string, unknown> | undefined,
+      tileZoom,
+      f,
+    )
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
@@ -71,8 +78,6 @@ function extractFeatureWidths(
   const out = new Map<number, number>()
   if (!expr) return out
   for (let i = 0; i < features.length; i++) {
-    const props = features[i].properties
-    if (!props) continue
     // Inject `$zoom` — the evaluator's RESERVED camera-zoom key
     // (evaluator.ts:33-38 looks up `props['$zoom']` for the `zoom`
     // identifier inside expressions like `interpolate_exp(zoom, …)`).
@@ -88,9 +93,14 @@ function extractFeatureWidths(
     // difference to be visible, and per-feature widths bake at tile-
     // decode time so camera-zoom tracking would require per-frame
     // segment-buffer re-upload (follow-up).
+    //
+    // Properties-less features (MVT/GeoJSON allows `null` properties)
+    // still resolve via the reserved keys — `["==", ["geometry-type"],
+    // "Polygon"]` and `interpolate(zoom, …)` are valid against an
+    // empty props bag, so don't short-circuit on `!props`.
     const f = features[i]
     const v = evaluate(expr as never, makeEvalProps({
-      props: props as Record<string, unknown>,
+      props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
       cameraZoom: tileZoom,
       geometryType: f.geometry?.type,
       featureId: (f as { id?: string | number }).id,
@@ -118,8 +128,6 @@ function extractFeatureColors(
   const out = new Map<number, number>()
   if (!expr) return out
   for (let i = 0; i < features.length; i++) {
-    const props = features[i].properties
-    if (!props) continue
     // Inject reserved keys (`$zoom`, `$featureId`, `$geometryType`) via
     // makeEvalProps — matches the width path above. Pre-fix the raw
     // `props` bag meant any colour expression referencing `["zoom"]` /
@@ -129,9 +137,11 @@ function extractFeatureColors(
     // Per-feature colour-by-zoom and colour-by-id-class dispatched to
     // the layer-uniform fallback uniformly, dropping the per-feature
     // intent on the floor.
+    // Properties-less features still get a clean eval against reserved
+    // keys (e.g. colour-by-geometry-type or colour-by-zoom).
     const f = features[i]
     const v = evaluate(expr as never, makeEvalProps({
-      props: props as Record<string, unknown>,
+      props: (f.properties ?? undefined) as Record<string, unknown> | undefined,
       cameraZoom: tileZoom,
       geometryType: f.geometry?.type,
       featureId: (f as { id?: string | number }).id,

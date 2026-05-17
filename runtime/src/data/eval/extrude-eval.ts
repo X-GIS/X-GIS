@@ -34,7 +34,7 @@ export type ExtrudeAst = unknown // serialized AST node, structurally typed by e
  *  tile-decode time; per-frame re-bake is a separate follow-up). */
 export function evalExtrudeExpr(
   node: ExtrudeAst,
-  props: Record<string, unknown>,
+  props: Record<string, unknown> | null | undefined,
   tileZoom?: number,
   feature?: { id?: string | number; geometry?: { type?: string } },
 ): number | null {
@@ -45,15 +45,20 @@ export function evalExtrudeExpr(
   // worker would force the worker to re-export the compiler's AST
   // surface; using `unknown` at the boundary is functionally
   // equivalent and keeps the call sites straightforward.
+  //
+  // Properties-less features (`props` null/undefined) still resolve
+  // via the reserved keys ($zoom / $geometryType / $featureId), so
+  // a geometry-type-only or zoom-only extrude expression evaluates
+  // cleanly against an empty bag.
   const useReservedKeys = tileZoom !== undefined || feature !== undefined
   const bag = useReservedKeys
     ? makeEvalProps({
-        props,
+        props: props ?? undefined,
         cameraZoom: tileZoom,
         geometryType: feature?.geometry?.type,
         featureId: feature?.id,
       })
-    : props
+    : (props ?? {})
   const v = evaluate(node as never, bag)
   if (typeof v !== 'number') return null
   if (!Number.isFinite(v) || v <= 0) return null
