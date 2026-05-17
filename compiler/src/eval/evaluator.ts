@@ -115,6 +115,22 @@ function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv
   }
   const right = evaluate(expr.right, props, fnEnv)
 
+  // Mapbox spec: ordered comparison (< > <= >=) works on numbers AND
+  // strings (lex compare). Pre-fix the evaluator coerced both sides
+  // via toNumber → toNumber("abc")=0, toNumber("xyz")=0 → 0<0=false
+  // → the entire ordered string compare was always-false. Names
+  // like ["<", "name1", "name2"] for symbol-sort-key emulation
+  // silently broke. Fall to lex compare when both sides are strings.
+  if (expr.op === '<' || expr.op === '>' || expr.op === '<=' || expr.op === '>=') {
+    if (typeof left === 'string' && typeof right === 'string') {
+      switch (expr.op) {
+        case '<': return left < right
+        case '>': return left > right
+        case '<=': return left <= right
+        case '>=': return left >= right
+      }
+    }
+  }
   const l = toNumber(left)
   const r = toNumber(right)
 
