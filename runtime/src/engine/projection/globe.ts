@@ -168,6 +168,19 @@ export function buildGlobeMatrix(
   ]
 
   const alt = globeAltitude(zoom, cssHeightPx)
+  // The azimuthal set asks for an ORTHOGRAPHIC (parallel) tilt. A true
+  // parallel matrix has clip.w ≡ 1, which collapses the w-driven
+  // log-depth buffer to a constant → the far hemisphere is no longer
+  // depth-occluded and renders THROUGH the near one ("뒷면 렌더링").
+  // Instead we keep the proven perspective orbit camera (clip.w varies,
+  // so log-depth + front/back occlusion work exactly as the shipped
+  // globe) but push the eye far back and narrow the FOV by the SAME
+  // factor: on-screen framing is preserved while perspective
+  // foreshortening across the sphere shrinks to ~1/ORTHO_TELE — a
+  // telephoto that is visually parallel (≈0.6% at whole-globe zoom).
+  const ORTHO_TELE = 96
+  const tele = ortho ? ORTHO_TELE : 1
+  const altUse = alt * tele
   // Eye direction from the target: radial at pitch 0, tilting toward
   // -heading as pitch grows so the camera looks along +heading.
   const eyeDir: Vec3 = norm([
@@ -176,9 +189,9 @@ export function buildGlobeMatrix(
     Math.cos(pitch) * n[2] - Math.sin(pitch) * heading[2],
   ])
   const eye: Vec3 = [
-    target[0] + alt * eyeDir[0],
-    target[1] + alt * eyeDir[1],
-    target[2] + alt * eyeDir[2],
+    target[0] + altUse * eyeDir[0],
+    target[1] + altUse * eyeDir[1],
+    target[2] + altUse * eyeDir[2],
   ]
 
   // lookAt (right-handed, camera looks down -Z), column-major.
@@ -197,41 +210,30 @@ export function buildGlobeMatrix(
   ]
 
   const aspect = cssWidthPx / cssHeightPx
-  const f = 1 / Math.tan(FOV_RAD / 2)
+  // Narrow the FOV by the same factor the eye was pushed back: the
+  // tangent ratio (object_size / distance) that sets on-screen size is
+  // invariant, so framing matches the 2D orthographic scale at every
+  // zoom while the camera behaves as a near-parallel telephoto.
+  const f = (1 / Math.tan(FOV_RAD / 2)) * tele
   const eyeDist = len(eye) // distance from sphere centre
-  const near = Math.max(1, alt * 0.01)
-  // Far must reach the back of the visible sphere: eye→far-limb is at
-  // most eyeDist + R. ×1.5 leaves headroom like the 2D path.
-  const far = (eyeDist + EARTH_R) * 1.5
+  // Perspective globe keeps its original near/far. The telephoto camera
+  // pushes the eye ~ORTHO_TELE× farther, so the old `alt*0.01 .. (eyeDist
+  // +R)*1.5` would strand the whole sphere in a sliver of the depth
+  // range and re-open the front/back z-fight — bracket it tightly to the
+  // shell (within R of the limb-tangent, ±1.5 R headroom) instead.
+  const near = ortho ? Math.max(1, eyeDist - EARTH_R * 1.5) : Math.max(1, alt * 0.01)
+  const far = ortho ? eyeDist + EARTH_R * 1.5 : (eyeDist + EARTH_R) * 1.5
   const nf = 1 / (near - far)
 
-  let P: number[]
-  if (ortho) {
-    // Parallel projection. Half-extents tied to the SAME metres-per-pixel
-    // as the 2D tile pyramid (WORLD_MERC / TILE_PX / 2^zoom) so a given
-    // numeric `zoom` frames the sphere at exactly the scale the flat 2D
-    // orthographic disc had — at pitch=0 the two are byte-identical.
-    // Same column-major GL z-convention ([-1,1]) as the perspective P
-    // below so the shared apply_log_depth path is unaffected.
-    const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, zoom)
-    const rx = (cssWidthPx / 2) * mpp
-    const ry = (cssHeightPx / 2) * mpp
-    const fn = 1 / (far - near)
-    P = [
-      1 / rx, 0, 0, 0,
-      0, 1 / ry, 0, 0,
-      0, 0, -2 * fn, 0,
-      0, 0, -(far + near) * fn, 1,
-    ]
-  } else {
-    // Perspective — identical convention to Camera._buildRTCMatrix.
-    P = [
-      f / aspect, 0, 0, 0,
-      0, f, 0, 0,
-      0, 0, (far + near) * nf, -1,
-      0, 0, 2 * far * near * nf, 0,
-    ]
-  }
+  // Perspective — identical convention to Camera._buildRTCMatrix. With
+  // the telephoto f/eye this is visually parallel yet keeps a varying
+  // clip.w so the shared log-depth buffer occludes the far hemisphere.
+  const P = [
+    f / aspect, 0, 0, 0,
+    0, f, 0, 0,
+    0, 0, (far + near) * nf, -1,
+    0, 0, 2 * far * near * nf, 0,
+  ]
 
   const out = new Array(16)
   mul4(out, P, view)
