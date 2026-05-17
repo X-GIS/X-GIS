@@ -1008,11 +1008,15 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
     // but since circle isn't routed through paintToUtilities, inline
     // the same logic to keep import surface tight.
     if (typeof opacity === 'number') {
-      tmp.push(`opacity-${opacity <= 1 ? Math.round(opacity * 100) : opacity}`)
+      // Mapbox spec: opacity ∈ [0, 1]. Clamp at convert time;
+      // same class as the addOpacity clamp (dc0e32a).
+      const clamped = Math.max(0, Math.min(1, opacity <= 1 ? opacity : opacity / 100))
+      tmp.push(`opacity-${Math.round(clamped * 100)}`)
     } else {
       const interp = interpolateZoomCall(opacity, warnings, (val) => {
         if (typeof val !== 'number') return null
-        return String(val <= 1 ? Math.round(val * 100) : val)
+        const clamped = Math.max(0, Math.min(1, val <= 1 ? val : val / 100))
+        return String(Math.round(clamped * 100))
       })
       if (interp !== null) {
         tmp.push(`opacity-[${interp}]`)
