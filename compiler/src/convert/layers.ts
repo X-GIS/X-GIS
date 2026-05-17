@@ -292,7 +292,13 @@ function convertSymbolLayer(
   // undefined). Pre-fix only undefined fell to the icon-only path;
   // an explicit `text-field: null` (uncommon but spec-valid)
   // dropped the layer entirely even when icon-image was set.
-  const hasText = textField !== undefined && textField !== null
+  // Multi-wrap null detection — `["literal", null]` / deeper means
+  // "no text" per Mapbox spec (null falls back to property default,
+  // which for text-field is no rendering). Without this peel hasText
+  // stayed true (the wrapper is non-null), iconOnly stayed false, and
+  // the layer emitted `label-[null]` instead of going through the
+  // icon-only branch.
+  const hasText = !isOmittedValue(textField)
   const iconOnly = !hasText && typeof iconImage === 'string'
 
   if (!hasText && !iconOnly) {
