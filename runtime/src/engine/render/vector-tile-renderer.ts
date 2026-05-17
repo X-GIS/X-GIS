@@ -2925,6 +2925,42 @@ export class VectorTileRenderer {
             )
       }
 
+      // Non-Mercator z=0 root-tile split. The z=0 root tile covers the
+      // whole world in a single mercator tile; rings that physically
+      // cross the antimeridian (Antarctica, Aleutians, ocean wrap
+      // polygons) live INTACT inside it because no tile boundary cuts
+      // them apart. The vertex shader's `project_geom` then projects
+      // the edge between, say, vertex lon=+175 and vertex lon=-175
+      // along the LONG way around the world — a ~340° smear that
+      // sweeps across the entire equirect / natural_earth / oblique_
+      // mercator viewport at low zoom. Mercator is unaffected because
+      // its 5-world-copy enumeration draws the same ring at the
+      // wrap-shifted position too, hiding the long edge.
+      //
+      // Fix: for any non-mercator projection, swap any z=0 root tile in
+      // the selector output for its 4 z=1 children. The z=1 tile
+      // boundary at lon=0 forces geojson-vt's clip stage to split AM-
+      // crossing rings into two halves (one in tile x=0 / lon=-180..0,
+      // one in tile x=1 / lon=0..180) — no single tile contains the
+      // long edge any more and the smear disappears. Globe already
+      // goes through `globeVisibleTiles` above (different branch).
+      const projTypeForSplit = (camera as { projType?: number }).projType ?? 0
+      if (projTypeForSplit !== 0 && projTypeForSplit !== 7 && !camera.globeMode) {
+        const withoutRoot: typeof tiles = []
+        let rootSeen = false
+        for (const t of tiles) {
+          if (t.z === 0 && t.x === 0 && t.y === 0) { rootSeen = true; continue }
+          withoutRoot.push(t)
+        }
+        if (rootSeen) {
+          withoutRoot.push(makeTileCoord(1, 0, 0, 0))
+          withoutRoot.push(makeTileCoord(1, 0, 1, 0))
+          withoutRoot.push(makeTileCoord(1, 1, 0, 0))
+          withoutRoot.push(makeTileCoord(1, 1, 1, 0))
+          tiles = withoutRoot
+        }
+      }
+
       // Phase 2 selector-shape invariant — single-zoom emission was
       // an artefact of the Mapbox/MapLibre sampled-grid path and only
       // applied when that selector was active. Phase 3's SSE selector
