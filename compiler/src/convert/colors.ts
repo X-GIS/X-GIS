@@ -35,11 +35,18 @@ export function colorToXgis(v: unknown, warnings: string[]): string | null {
   // resulting fill / stroke emits as a direct hex utility instead of
   // collapsing to a bracket-binding data-driven path through
   // exprToXgis. (`to-color` of an expression — e.g. `["to-color",
-  // ["get", "color"]]` — still needs the data-driven route; the
-  // recursion only fires when the inner is a literal string.)
-  if (Array.isArray(v) && v.length === 2 && v[0] === 'to-color'
-      && typeof v[1] === 'string') {
-    v = v[1]
+  // ["get", "color"]]` — still needs the data-driven route.)
+  // Accept BOTH bare string inner (`["to-color", "#fff"]`) AND v8
+  // double-wrap `["to-color", ["literal", "#fff"]]` — strict tooling
+  // emits the latter shape. Pre-fix the double-wrap fell to "Color
+  // expression not converted" because the inner array failed the
+  // typeof === 'string' gate.
+  if (Array.isArray(v) && v.length === 2 && v[0] === 'to-color') {
+    let inner = v[1]
+    if (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') {
+      inner = inner[1]
+    }
+    if (typeof inner === 'string') v = inner
   }
   if (typeof v === 'string') {
     if (v.startsWith('#')) return v
