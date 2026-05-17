@@ -126,7 +126,16 @@ export function convertSource(
   // metro area) gets requests for ocean tiles too. Same wasteful-but-
   // correct pattern as the zoom-bound gap above.
   if (Array.isArray(src.bounds) && src.bounds.length === 4) {
-    warnings.push(`Source "${id}" declares bounds [${src.bounds.join(', ')}]; the runtime tile selector doesn't yet clip requests to the spatial extent, so tiles outside the box will be requested and 404. Filter coverage at the host (geojson clip / pre-cropped PMTiles archive) until native bounds support lands.`)
+    // Also validate every entry is a finite number; a malformed pair
+    // (e.g. ['west', 'south', 'east', 'north'] as strings) used to
+    // emit the original warning verbatim and the runtime later
+    // crashed on the non-numeric compare in tileIntersectsBounds.
+    const allNumeric = src.bounds.every(b => typeof b === 'number' && Number.isFinite(b))
+    if (!allNumeric) {
+      warnings.push(`Source "${id}" bounds must contain 4 finite numbers; got ${JSON.stringify(src.bounds).slice(0, 80)} — ignored.`)
+    } else {
+      warnings.push(`Source "${id}" declares bounds [${src.bounds.join(', ')}]; the runtime tile selector doesn't yet clip requests to the spatial extent, so tiles outside the box will be requested and 404. Filter coverage at the host (geojson clip / pre-cropped PMTiles archive) until native bounds support lands.`)
+    }
   } else if (Array.isArray(src.bounds)) {
     // Malformed bounds (wrong length) silently slipped past the spec
     // gate. Warn so style authors know the bounds field is being
