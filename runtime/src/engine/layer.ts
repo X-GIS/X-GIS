@@ -32,6 +32,13 @@ function parseHexColor(
   hex: string,
 ): readonly [number, number, number, number] | null {
   if (typeof hex !== 'string' || hex.length === 0) return null
+  // Reject non-hex shapes (e.g. CSS name 'red', empty, malformed
+  // length). parseHexColorRaw silently returns [0,0,0,1] for anything
+  // it doesn't recognise — letting that opaque-black sentinel flow
+  // through to the renderer would silently corrupt the layer colour.
+  // Mirror of the CSS spec hex pattern: #rgb / #rgba / #rrggbb /
+  // #rrggbbaa.
+  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) return null
   try {
     return parseHexColorRaw(hex)
   } catch {
