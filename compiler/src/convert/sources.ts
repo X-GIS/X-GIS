@@ -44,6 +44,16 @@ export function convertSource(
     warnings.push(`Source "${id}" declares ${src.tiles.length} tile endpoint mirrors (subdomain rotation); the runtime uses only the first — others are ignored. Affects fetch parallelism, not correctness.`)
   }
 
+  // Mapbox `scheme: "tms"` flips the Y axis (origin bottom-left vs the
+  // XYZ default top-left). X-GIS's tile selector assumes XYZ throughout
+  // — if a style declares TMS, every tile renders mirrored on Y. Stadia,
+  // Stamen, and older OSM mirrors ship TMS endpoints; modern Mapbox /
+  // MapLibre / OFM all use the default XYZ. Surface the mismatch so the
+  // user doesn't silently get an upside-down map.
+  if (src.scheme === 'tms') {
+    warnings.push(`Source "${id}" declares scheme: "tms" but the X-GIS tile selector assumes XYZ (top-left origin) — tiles will render Y-flipped. Convert the URL template to XYZ form, or wait for native scheme support.`)
+  }
+
   if (src.type === 'vector') {
     const url = src.url ?? src.tiles?.[0]
     if (url && /\.pmtiles(\?|$)/.test(url)) {
