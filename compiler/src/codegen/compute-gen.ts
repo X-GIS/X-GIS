@@ -499,6 +499,13 @@ function colorHexToRGBA(hex: string): [number, number, number, number] {
   // input is already a hex literal that the lookup can't match.
   const resolved = hex.startsWith('#') ? hex : (resolveColor(hex) ?? hex)
   let r = 0, g = 0, b = 0, a = 1
+  // Reject non-hex content — mirror of hexToRgba regex gate (d5c3e28).
+  // Without it parseInt('zz', 16) = NaN propagated through to the
+  // compute-shader colour branch and the GPU sampled undefined
+  // behaviour.
+  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(resolved)) {
+    return [0, 0, 0, 1]
+  }
   if (resolved.length === 4) {
     // #RGB
     r = parseInt(resolved[1]! + resolved[1]!, 16) / 255
