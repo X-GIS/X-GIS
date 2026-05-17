@@ -362,6 +362,56 @@ export function wrapForTesting(
   ).map(l => ({ start: l.start, end: l.end, width: l.width }))
 }
 
+/** ONE_EM / SHAPING_DEFAULT_OFFSET — MapLibre `shaping.ts` constants.
+ *  MapLibre lays text in a 24-unit em space; the baseline of every
+ *  line sits a FIXED −17/24 em below the line-box top, independent of
+ *  the glyphs' own ink metrics. We work in display px, so the em→px
+ *  factor is sizePx/ONE_EM. */
+const ONE_EM = 24
+const SHAPING_DEFAULT_OFFSET = -17
+
+export interface MlVerticalLayout {
+  /** Per-line baseline Y in px, relative to the label anchor
+   *  (screen-down positive). The renderer converts baseline→quad-top
+   *  by subtracting each glyph's own bearingY. */
+  baselineY: number[]
+  /** Block bbox edges in px relative to the anchor (collision). */
+  blockTop: number
+  blockBottom: number
+}
+
+/** MapLibre `shapeLines` + `align()` vertical model for the common
+ *  single-section (scale=1, no inline images) case — every map label
+ *  in OFM/MapLibre-demo styles. Each line occupies a CONSTANT
+ *  `lineHeightPx` box; the per-line baseline is
+ *  `li·LH + OFF + (−vAlign·n·LH + 0.5·LH)` (the `maxLineHeight ===
+ *  lineHeight` branch of MapLibre `align`), with `OFF = −17·sizePx/24`.
+ *  This replaces the old per-glyph maxAscent/maxDescent box, which
+ *  diverged from MapLibre whenever line scripts had different ink
+ *  metrics (bilingual Latin+Hangul). `vAlign` is MapLibre
+ *  `getAnchorAlignment`: top→0, bottom→1, else 0.5. */
+export function mlVerticalLayout(
+  vAlign: 0 | 0.5 | 1, lineCount: number,
+  lineHeightPx: number, sizePx: number,
+): MlVerticalLayout {
+  const LH = lineHeightPx
+  const n = lineCount
+  const off = (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM
+  const shiftY = -vAlign * n * LH + 0.5 * LH
+  const baselineY: number[] = new Array(n)
+  for (let li = 0; li < n; li++) baselineY[li] = li * LH + off + shiftY
+  const blockTop = -vAlign * n * LH
+  return { baselineY, blockTop, blockBottom: blockTop + n * LH }
+}
+
+/** Test seam for `mlVerticalLayout`. */
+export function verticalLayoutForTesting(
+  vAlign: 0 | 0.5 | 1, lineCount: number,
+  lineHeightPx: number, sizePx: number,
+): MlVerticalLayout {
+  return mlVerticalLayout(vAlign, lineCount, lineHeightPx, sizePx)
+}
+
 /** Compose the rasterizer-visible font key for one label.
  *
  *  Format when weight/style are unset: plain CSS family-list string
@@ -878,20 +928,11 @@ export class TextStage {
       const lineHeightPx = lineHeightEm * sizePx
       const justify = p.def.justify ?? 'center'
 
-      // Compute per-line glyph ranges + line widths. We track maxAscent
-      // (= max bearingY) and maxDescent (= max(height-bearingY)) so the
-      // anchor math below can place the BBOX BOTTOM (incl. descenders)
-      // at the anchor for text-anchor='bottom' — matches Mapbox /
-      // MapLibre semantics. Earlier code used `maxHeight` alone and put
-      // the BASELINE at the anchor, leaving descenders dangling
-      // ~descent_px below the authored position. User saw this on
-      // OFM Liberty Korea z=4.96 with bearing/pitch: Pyongyang's
-      // text-anchor='bottom' label drifted into the country label's
-      // wrap zone "조선민주주의인민공화국" because city's baseline (and
-      // therefore visible glyphs) sat ~descent px lower than ML.
+      // Per-glyph display advances (slot→px). Vertical placement does
+      // NOT use ink metrics anymore — it follows MapLibre's constant
+      // lineHeight-box model via `mlVerticalLayout` per candidate
+      // anchor below.
       const advances: number[] = new Array(glyphs.length)
-      let maxAscent = 0
-      let maxDescent = 0
       for (let gi = 0; gi < glyphs.length; gi++) {
         const g = glyphs[gi]!
         // Per-glyph slot→display scale: PBF runs are baked at 24 px,
@@ -899,12 +940,7 @@ export class TextStage {
         // mixes both, so the factor can't be label-wide.
         const scale = sizePx / (g.rasterFontSize ?? this.opts.rasterFontSize)
         advances[gi] = g.advanceWidth * scale
-        const ascent = g.bearingY * scale
-        const descent = (g.height - g.bearingY) * scale
-        if (ascent > maxAscent) maxAscent = ascent
-        if (descent > maxDescent) maxDescent = descent
       }
-      const maxHeight = maxAscent + maxDescent
 
       // Pretext handles the line-break decisions — Intl.Segmenter for
       // grapheme clusters (proper emoji ZWJ + combining marks),
@@ -922,7 +958,6 @@ export class TextStage {
       // Total bounding box width = max line width.
       let totalAdvance = 0
       for (const ln of lines) if (ln.width > totalAdvance) totalAdvance = ln.width
-      const totalHeight = maxHeight + (lines.length - 1) * lineHeightPx
       // Variable anchor (Mapbox `text-variable-anchor`): runtime
       // tries each candidate during collision and picks the first
       // non-overlapping one. Single-anchor labels always have one
@@ -959,17 +994,17 @@ export class TextStage {
         if (anchor === 'left' || anchor.endsWith('-left')) dx = 0
         else if (anchor === 'right' || anchor.endsWith('-right')) dx = -totalAdvance
         else dx = -totalAdvance / 2
-        // drawY (set below) lands on the LAST-line baseline. For each
-        // anchor mode we solve "where should baseline_last sit so that
-        // bbox_{top|center|bottom} aligns with anchorY?" The
-        // `-maxDescent` term shifts the baseline UP by the descender
-        // height so descenders end up AT bbox bottom (i.e. AT the
-        // anchor for bottom-anchored labels) instead of dangling BELOW
-        // it. `B = totalHeight - maxDescent` is the distance from
-        // bbox_top to baseline_last.
-        if (anchor === 'top' || anchor.startsWith('top-')) dy = totalHeight - maxDescent
-        else if (anchor === 'bottom' || anchor.startsWith('bottom-')) dy = -maxDescent
-        else dy = totalHeight / 2 - maxDescent
+        // Vertical placement follows MapLibre `shapeLines`+`align()`:
+        // a constant lineHeight box per line + a fixed
+        // SHAPING_DEFAULT_OFFSET baseline, aligned by getAnchorAlignment
+        // (top→0, bottom→1, else 0.5). `dy` no longer carries an
+        // ink-metric anchor term — it's purely text-offset / translate
+        // / variable below; the per-line baseline comes from `vlay`.
+        const vAlign: 0 | 0.5 | 1 =
+          (anchor === 'top' || anchor.startsWith('top-')) ? 0
+          : (anchor === 'bottom' || anchor.startsWith('bottom-')) ? 1
+          : 0.5
+        const vlay = mlVerticalLayout(vAlign, lines.length, lineHeightPx, sizePx)
         if (variableMode) {
           // Per-anchor variable offset (MapLibre evaluateVariableOffset
           // / variable-anchor-offset), in em → scale by sizePx like
@@ -1005,8 +1040,15 @@ export class TextStage {
         // Per-glyph offsets for multi-line layout. Each line gets
         // justified within the bbox according to `justify`; lines
         // stack vertically by lineHeightPx.
-        const glyphOffsets = lines.length > 1 ? new Float32Array(glyphs.length * 2) : undefined
-        if (glyphOffsets) {
+        // Per-glyph offsets (x = within-line justified pen,
+        // y = MapLibre per-line baseline). Emitted for EVERY label
+        // (not just multi-line) so single- and multi-line take the
+        // identical renderer path — the old split anchored them
+        // differently and was the source of the #140 double-count.
+        // Offsets are pure deltas from the draw anchor (drawX/drawY);
+        // the renderer does base = d.anchor + offset.
+        const glyphOffsets = new Float32Array(glyphs.length * 2)
+        {
           // text-justify: auto resolves per anchor — left-anchors →
           // left, right-anchors → right, else center.
           const isLeftAnchor = anchor === 'left' || anchor.endsWith('-left')
@@ -1020,16 +1062,9 @@ export class TextStage {
             if (effectiveJustify === 'right') lineX = totalAdvance - ln.width
             else if (effectiveJustify === 'left') lineX = 0
             else lineX = (totalAdvance - ln.width) * 0.5
-            const lineY = -totalHeight + maxHeight + li * lineHeightPx
+            const lineY = vlay.baselineY[li]!
             let pen = lineX
             for (let gi = ln.start; gi < ln.end; gi++) {
-              // Offsets are relative to the draw's anchor (drawX/drawY):
-              // the renderer computes baseX = d.anchorX + offset, and
-              // d.anchorX is set to drawX below. Adding (drawX-p.anchorX)
-              // here too double-counted the anchor delta (dx,dy) — every
-              // multi-line label landed an extra `dx` left / `dy` off,
-              // while single-line labels (pen path, no offsets) were
-              // correct. Pure within-block pen/lineY is the right delta.
               glyphOffsets[gi * 2] = pen
               glyphOffsets[gi * 2 + 1] = lineY
               pen += advances[gi]!
@@ -1039,9 +1074,9 @@ export class TextStage {
         }
         const bbox = {
           minX: drawX - padding,
-          minY: drawY - totalHeight - padding,
+          minY: drawY + vlay.blockTop - padding,
           maxX: drawX + totalAdvance + padding,
-          maxY: drawY + padding,
+          maxY: drawY + vlay.blockBottom + padding,
         }
         layouts.push({
           draw: {
