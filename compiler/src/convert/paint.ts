@@ -270,7 +270,12 @@ export function interpolateZoomCall(
 // ─── per-property emitters ───────────────────────────────────────────
 
 function addFill(out: string[], v: unknown, warnings: string[]): void {
-  if (v === undefined) return
+  // Treat null the same as undefined — Mapbox spec: a null paint
+  // value falls back to the property default. Without this gate
+  // null flowed through to exprToXgis (commit a969be5 made null
+  // lower to the `null` identifier), emitted `fill-[null]`, and the
+  // runtime resolved to no-fill instead of the spec default.
+  if (v === undefined || v === null) return
   const interp = interpolateZoomCall(v, warnings, (val, w) => colorToXgis(val, w))
   if (interp !== null) {
     out.push(`fill-[${interp}]`)
@@ -294,7 +299,8 @@ function addFill(out: string[], v: unknown, warnings: string[]): void {
 }
 
 function addStroke(out: string[], v: unknown, warnings: string[]): void {
-  if (v === undefined) return
+  // Same null-as-omit treatment as addFill.
+  if (v === undefined || v === null) return
   const interp = interpolateZoomCall(v, warnings, (val, w) => colorToXgis(val, w))
   if (interp !== null) {
     out.push(`stroke-[${interp}]`)
@@ -331,7 +337,7 @@ function addStroke(out: string[], v: unknown, warnings: string[]): void {
  *  has a non-zero width to render (otherwise the stroke renderer
  *  skips the layer entirely). */
 function addFillOutline(out: string[], v: unknown, warnings: string[]): void {
-  if (v === undefined) return
+  if (v === undefined || v === null) return
   const interp = interpolateZoomCall(v, warnings, (val, w) => colorToXgis(val, w))
   if (interp !== null) {
     out.push(`stroke-[${interp}]`)
@@ -370,7 +376,7 @@ function unwrapLiteralNumeric(v: unknown): unknown {
 }
 
 function addStrokeWidth(out: string[], v: unknown, warnings: string[]): void {
-  if (v === undefined) return
+  if (v === undefined || v === null) return
   v = unwrapLiteralNumeric(v)
   // Mapbox spec: line-width >= 0. Clamp negative literals at convert
   // time — otherwise `addStrokeWidth(-5)` would emit `stroke--5`,
@@ -411,7 +417,7 @@ function addStrokeWidth(out: string[], v: unknown, warnings: string[]): void {
  *  binding-form arm for it); we surface a warning so callers know
  *  the gap. */
 function addLineOffset(out: string[], v: unknown, warnings: string[]): void {
-  if (v === undefined) return
+  if (v === undefined || v === null) return
   v = unwrapLiteralNumeric(v)
   if (typeof v === 'number') {
     if (v === 0) return
@@ -429,7 +435,7 @@ function addLineOffset(out: string[], v: unknown, warnings: string[]): void {
  *  the blur as both geometry expansion AND smoothstep widening, so a
  *  blur of N px soft-fades the edge over `1.5 + N` px each side. */
 function addLineBlur(out: string[], v: unknown, warnings: string[]): void {
-  if (v === undefined) return
+  if (v === undefined || v === null) return
   v = unwrapLiteralNumeric(v)
   if (typeof v === 'number') {
     if (v <= 0) return
@@ -440,7 +446,7 @@ function addLineBlur(out: string[], v: unknown, warnings: string[]): void {
 }
 
 function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
-  if (v === undefined) return
+  if (v === undefined || v === null) return
   // Mapbox v8 `["literal", [4, 2]]` wrapper — unwrap to the inner
   // array before the numeric-array check so the modern form behaves
   // identically to the legacy bare `[4, 2]` shape.
@@ -483,7 +489,7 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
 }
 
 function addOpacity(out: string[], v: unknown, warnings: string[]): void {
-  if (v === undefined) return
+  if (v === undefined || v === null) return
   // See unwrapLiteralNumeric — covers `["literal", 0.5]` so the
   // scalar-scale conversion fires. Sibling to colorToXgis literal
   // unwrap (e3c5c62).
@@ -512,7 +518,7 @@ function addOpacity(out: string[], v: unknown, warnings: string[]): void {
 }
 
 function addExtrudeHeight(out: string[], v: unknown, warnings: string[]): void {
-  if (v === undefined) return
+  if (v === undefined || v === null) return
   v = unwrapLiteralNumeric(v)
   // Mapbox spec: fill-extrusion-height >= 0. Clamp constant
   // literals so a typo'd negative doesn't emit
@@ -531,7 +537,7 @@ function addExtrudeHeight(out: string[], v: unknown, warnings: string[]): void {
 }
 
 function addExtrudeBase(out: string[], v: unknown, warnings: string[]): void {
-  if (v === undefined) return
+  if (v === undefined || v === null) return
   v = unwrapLiteralNumeric(v)
   // Mapbox spec: fill-extrusion-base >= 0. Mirror of the
   // addExtrudeHeight clamp.
