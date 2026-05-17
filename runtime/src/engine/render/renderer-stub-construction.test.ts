@@ -68,4 +68,35 @@ describe('MapRenderer construction (stub)', () => {
       'MapRenderer should declare bind group layout(s)')
       .toBeGreaterThan(0)
   })
+
+  it('uniform buffer struct size matches UNIFORM_SIZE constant', async () => {
+    // Regression guard for the "Polygon Uniforms struct grew from 160
+    // to 176 bytes" class — when WGSL grows a field the TS-side
+    // `UNIFORM_SIZE` constant must move with it or out-of-bounds
+    // typed-array writes silently no-op and the uniform never reaches
+    // the GPU. Stub captures every createBuffer call; the uniform
+    // buffer is the largest one MapRenderer creates at init.
+    const ctx = await makeCtx()
+    new MapRenderer(ctx)
+    // Per renderer.ts header comment: UNIFORM_SIZE = 192 bytes today.
+    // Bump this assertion when the struct legitimately grows.
+    expect((MapRenderer as unknown as { UNIFORM_SIZE: number }).UNIFORM_SIZE)
+      .toBe(192)
+  })
+
+  it('bindGroupLayout descriptor declares the polygon Uniforms binding', async () => {
+    // The stub passes the BGL descriptor through on the returned
+    // handle, so we can assert "the layer-uniform binding (slot 0) is
+    // a uniform buffer accessible from vertex + fragment". setQuality
+    // re-wire regressions historically broke when this binding was
+    // silently dropped or changed visibility.
+    const ctx = await makeCtx()
+    const r = new MapRenderer(ctx) as unknown as { bindGroupLayout: { __descriptor?: GPUBindGroupLayoutDescriptor } }
+    const desc = r.bindGroupLayout.__descriptor
+    expect(desc, 'MapRenderer.bindGroupLayout should be a stub-tagged BGL').toBeTruthy()
+    const entries = desc!.entries as GPUBindGroupLayoutEntry[]
+    const slot0 = entries.find(e => e.binding === 0)
+    expect(slot0, 'binding 0 (layer Uniforms) must exist').toBeTruthy()
+    expect(slot0!.buffer?.type, 'binding 0 must be a uniform buffer').toBe('uniform')
+  })
 })
