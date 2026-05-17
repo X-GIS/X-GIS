@@ -572,7 +572,7 @@ function callBuiltin(name: string, args: unknown[]): unknown {
 // ═══ Type coercion helpers ═══
 
 function toNumber(val: unknown): number {
-  if (typeof val === 'number') return val
+  if (typeof val === 'number') return Number.isFinite(val) ? val : 0
   if (typeof val === 'string') {
     const n = parseFloat(val)
     return isNaN(n) ? 0 : n
