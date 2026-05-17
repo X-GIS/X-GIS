@@ -17,6 +17,18 @@ import { resolveColor } from '../tokens/colors'
  *  match, …) so the caller falls back to a more permissive path. */
 export function colorToXgis(v: unknown, warnings: string[]): string | null {
   if (v == null) return null
+  // Mapbox v8 wraps constants in `["literal", …]` so the inner value
+  // can't be mistaken for an expression. Unwrap before the type
+  // dispatch so `["literal", "#fff"]` lowers to the same constant
+  // path as a bare "#fff". Without this the literal shape fell to
+  // the "Color expression not converted" warning and the caller
+  // routed it through exprToXgis as a quoted string — emitted a
+  // data-driven `fill-["#fff"]` bracket binding instead of the
+  // constant `fill-#fff` utility, paying per-feature eval cost for
+  // a constant value.
+  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
+    v = v[1]
+  }
   if (typeof v === 'string') {
     if (v.startsWith('#')) return v
     const hex = resolveColor(v.trim())

@@ -423,6 +423,27 @@ describe('converter warning coverage', () => {
     expect(out).toContain('label-icon-offset-y-4')
   })
 
+  it('literal-wrapped fill-color → constant fill utility (not data-driven)', () => {
+    // Pins the colors.ts literal-unwrap. Mapbox v8 `["literal", "#fff"]`
+    // pre-fix fell to exprToXgis as a quoted string and emitted
+    // `fill-["#fff"]` (a data-driven bracket binding) — wasteful eval
+    // per-feature. Now unwrapped to the constant `fill-#fff` utility.
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'literal_fill',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'park',
+        paint: { 'fill-color': ['literal', '#aef'] },
+      }],
+    } as never)
+    // Constant fill, not bracket binding.
+    expect(out).toContain('fill-#aef')
+    expect(out).not.toMatch(/fill-\["#aef"\]/)
+  })
+
   it('zoom-interp line-dasharray → non-constant warning', () => {
     // Pins ccb126b — addStrokeDash warns on the non-array shape
     // (interpolate-by-zoom dasharray that the IR has no consumer for
