@@ -22,6 +22,17 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     addFill(out, p['fill-color'], warnings)
     addOpacity(out, p['fill-opacity'], warnings)
     addFillOutline(out, p['fill-outline-color'], warnings)
+    // Bitmap-fill rendering (sprite atlas) is Batch 2 roadmap work.
+    // Surface the gap explicitly when a layer's ONLY visual cue is a
+    // pattern: without this, the layer collapses to fill: none and
+    // dead-layer-elim eliminates it silently. OFM Liberty's
+    // `landcover_wetland` + `road_area_pattern` are the canonical
+    // cases. Warns when fill-pattern is present AND no fill-color is
+    // authored — the pattern-augmented case (fill-color + fill-pattern)
+    // still renders the colour today.
+    if (p['fill-pattern'] !== undefined && p['fill-color'] === undefined) {
+      warnings.push(`Layer "${layer.id}" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
+    }
   } else if (layer.type === 'line') {
     addStroke(out, p['line-color'], warnings)
     addStrokeWidth(out, p['line-width'], warnings)
@@ -29,6 +40,11 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     addOpacity(out, p['line-opacity'], warnings)
     addLineOffset(out, p['line-offset'], warnings)
     addLineBlur(out, p['line-blur'], warnings)
+    // Same gap as fill-pattern: when a line layer's only visual is a
+    // repeating sprite (no line-color), the layer goes dead silently.
+    if (p['line-pattern'] !== undefined && p['line-color'] === undefined) {
+      warnings.push(`Layer "${layer.id}" — line-pattern declared without line-color; the layer's only visual is a bitmap stroke which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
+    }
   } else if (layer.type === 'fill-extrusion') {
     addFill(out, p['fill-extrusion-color'], warnings)
     addOpacity(out, p['fill-extrusion-opacity'], warnings)

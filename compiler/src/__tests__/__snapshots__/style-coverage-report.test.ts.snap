@@ -902,9 +902,11 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "type": "fill",
     },
     {
-      "action": "converted",
+      "action": "lossy",
       "layerId": "landcover_wetland",
-      "reasons": [],
+      "reasons": [
+        "Layer "landcover_wetland" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.",
+      ],
       "type": "fill",
     },
     {
@@ -1100,9 +1102,11 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "type": "line",
     },
     {
-      "action": "converted",
+      "action": "lossy",
       "layerId": "road_area_pattern",
-      "reasons": [],
+      "reasons": [
+        "Layer "road_area_pattern" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.",
+      ],
       "type": "fill",
     },
     {
@@ -1560,6 +1564,8 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
     },
   ],
   "warnings": [
+    "Layer "landcover_wetland" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.",
+    "Layer "road_area_pattern" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.",
     "Symbol layer "poi_r20" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "poi_r7" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "poi_r1" — data-driven icon-image not yet supported (Phase B+).",
