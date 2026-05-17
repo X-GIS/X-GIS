@@ -349,8 +349,17 @@ function extractInterpolateZoomColorStops(
     const zArg = args[i]
     const vArg = args[i + 1]
     if (zArg.kind !== 'NumberLiteral') return null
-    if (vArg.kind !== 'ColorLiteral') return null
-    stops.push({ zoom: zArg.value, value: vArg.value })
+    // Bare-hex `#abc` lowers to ColorLiteral; user-authored xgis or a
+    // future converter path emitting JSON.stringify-quoted hex would
+    // produce StringLiteral. Accept both shapes so hex stops survive
+    // either lowering route.
+    if (vArg.kind === 'ColorLiteral') {
+      stops.push({ zoom: zArg.value, value: vArg.value })
+    } else if (vArg.kind === 'StringLiteral' && /^#[0-9a-fA-F]{3,8}$/.test(vArg.value)) {
+      stops.push({ zoom: zArg.value, value: vArg.value })
+    } else {
+      return null
+    }
   }
   return stops.length >= 2 ? stops : null
 }
