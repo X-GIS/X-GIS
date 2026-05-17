@@ -555,6 +555,16 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
         while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
         return c
       })
+      // Arity check: rgb needs 3 channels, rgba needs 4. Pre-fix a
+      // malformed `["rgba", r, g, b]` (missing alpha) left `a` as
+      // undefined; Math.round(undefined * 255) gave NaN and the
+      // emitted hex carried the literal string 'NaN' (e.g. #ff0000NaN)
+      // which the runtime hex parser then failed silently on.
+      const requiredCh = op === 'rgb' ? 3 : 4
+      if (ch.length !== requiredCh) {
+        warnings.push(`["${op}"] expected ${requiredCh} channels, got ${ch.length}: ${JSON.stringify(v).slice(0, 80)}`)
+        return null
+      }
       const allNumeric = ch.every(c => typeof c === 'number')
       if (allNumeric) {
         const [r, g, b, a] = ch as number[]
