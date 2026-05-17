@@ -630,7 +630,7 @@ function convertSymbolLayer(
   const rotate = unwrapLiteralScalar(layout['text-rotate'])
   if (typeof rotate === 'number' && rotate !== 0) {
     utils.push(`label-rotate-${fmtSigned(rotate)}`)
-  } else if (rotate !== undefined && typeof rotate !== 'number') {
+  } else if (rotate !== undefined && rotate !== null && typeof rotate !== 'number') {
     // zoom-interpolated or per-feature rotate. Routes through the
     // bracket-binding form so the IR carries the expression; the
     // lower pass currently has no `label-rotate-[…]` consumer (per
@@ -649,7 +649,7 @@ function convertSymbolLayer(
   const letterSpacing = unwrapLiteralScalar(layout['text-letter-spacing'])
   if (typeof letterSpacing === 'number' && letterSpacing !== 0) {
     utils.push(`label-letter-spacing-${fmtSigned(letterSpacing)}`)
-  } else if (letterSpacing !== undefined && typeof letterSpacing !== 'number') {
+  } else if (letterSpacing !== undefined && letterSpacing !== null && typeof letterSpacing !== 'number') {
     const interp = interpolateZoomCall(letterSpacing, warnings,
       (val) => typeof val === 'number' ? String(val) : null)
     if (interp !== null) utils.push(`label-letter-spacing-[${interp}]`)
