@@ -589,10 +589,11 @@ function convertSymbolLayer(
   if (unwrapLiteralScalar(layout['text-ignore-placement']) === true) utils.push('label-ignore-placement')
   const padding = unwrapLiteralScalar(layout['text-padding'])
   if (typeof padding === 'number') {
-    utils.push(`label-padding-${padding}`)
+    // Mapbox spec: text-padding >= 0.
+    utils.push(`label-padding-${Math.max(0, padding)}`)
   } else if (padding !== undefined) {
     const interp = interpolateZoomCall(padding, warnings,
-      (val) => typeof val === 'number' ? String(val) : null)
+      (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
     if (interp !== null) utils.push(`label-padding-[${interp}]`)
   }
 
@@ -649,12 +650,14 @@ function convertSymbolLayer(
     ? overrides.placement
     : unwrapLiteralScalar(layout['symbol-placement'])
   if (typeof maxWidth === 'number') {
-    utils.push(`label-max-width-${maxWidth}`)
+    // Mapbox spec: text-max-width >= 0 (em units).
+    utils.push(`label-max-width-${Math.max(0, maxWidth)}`)
   } else if (placement !== 'line' && placement !== 'line-center') {
     utils.push('label-max-width-10')
   }
   const lineHeight = unwrapLiteralScalar(layout['text-line-height'])
-  if (typeof lineHeight === 'number') utils.push(`label-line-height-${lineHeight}`)
+  // Spec: text-line-height >= 0 (em units).
+  if (typeof lineHeight === 'number') utils.push(`label-line-height-${Math.max(0, lineHeight)}`)
   const justify = unwrapLiteralScalar(layout['text-justify'])
   if (justify === 'auto' || justify === 'left' || justify === 'center' || justify === 'right') {
     utils.push(`label-justify-${justify}`)
