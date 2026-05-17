@@ -306,11 +306,23 @@ function addLineBlur(out: string[], v: unknown, warnings: string[]): void {
   warnings.push(`paint.line-blur: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
 }
 
-function addStrokeDash(out: string[], v: unknown, _warnings: string[]): void {
-  if (!Array.isArray(v)) return
-  const nums = v.filter(n => typeof n === 'number')
-  if (nums.length < 2) return
-  out.push('stroke-dasharray-' + nums.join('-'))
+function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
+  if (v === undefined) return
+  if (Array.isArray(v)) {
+    const nums = v.filter(n => typeof n === 'number')
+    if (nums.length >= 2) {
+      out.push('stroke-dasharray-' + nums.join('-'))
+      return
+    }
+    // Non-numeric array shape — fall through to the warning.
+  }
+  // `["interpolate", curve, ["zoom"], z1, [a,b], …]` is the canonical
+  // zoom-interp dasharray shape; the IR currently has no binding-form
+  // arm for it (mirror of stroke-offset / line-blur). Drop with a
+  // warning so the gap is visible in conversion notes rather than
+  // silently producing an undashed line — matches addLineOffset /
+  // addLineBlur behaviour for the same not-yet-supported case.
+  warnings.push(`paint.line-dasharray: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
 }
 
 function addOpacity(out: string[], v: unknown, warnings: string[]): void {

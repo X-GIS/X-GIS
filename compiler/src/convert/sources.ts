@@ -33,6 +33,17 @@ export function convertSource(
   options?: ConvertSourceOptions,
 ): string {
   const lines: string[] = [`source ${sanitizeId(id)} {`]
+  // Mapbox source spec permits `tiles: [url0, url1, ...]` — the array
+  // describes EQUIVALENT endpoints (typically subdomain-rotated mirrors
+  // like `a.tile.example.com`, `b.tile.example.com`). MapLibre rotates
+  // requests across them to spread load and bypass per-host concurrency
+  // caps. The X-GIS runtime currently consumes a single URL per source,
+  // so we pick `tiles[0]` here and warn so style authors aren't
+  // surprised by the missing parallelism.
+  if (Array.isArray(src.tiles) && src.tiles.length > 1) {
+    warnings.push(`Source "${id}" declares ${src.tiles.length} tile endpoint mirrors (subdomain rotation); the runtime uses only the first — others are ignored. Affects fetch parallelism, not correctness.`)
+  }
+
   if (src.type === 'vector') {
     const url = src.url ?? src.tiles?.[0]
     if (url && /\.pmtiles(\?|$)/.test(url)) {
