@@ -157,16 +157,20 @@ export function convertSource(
     warnings.push(`Source "${id}" declares tileSize: ${tileSize}; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.`)
   }
 
-  // Strip the Protomaps-tooling `pmtiles://` scheme prefix from any
-  // URL across all source-type branches. The protomaps/PMTiles
-  // library expects a bare URL; passing the prefixed form through to
-  // fetch fails on the made-up `pmtiles:` scheme. (Vector / pmtiles
-  // / raster / raster-dem branches all share this helper now.)
+  // Strip the Protomaps-tooling `pmtiles://` scheme prefix + trim
+  // leading/trailing whitespace from any URL across all source-type
+  // branches. The protomaps/PMTiles library expects a bare URL with
+  // no whitespace; passing the prefixed form / whitespace-padded form
+  // through to fetch fails (`pmtiles:` scheme / 400 on URL with
+  // leading space). (Vector / pmtiles / raster / raster-dem branches
+  // all share this helper now.)
   const stripPmtilesScheme = (u: unknown): unknown => {
-    if (typeof u === 'string' && u.startsWith('pmtiles://')) {
-      return u.slice('pmtiles://'.length)
+    if (typeof u !== 'string') return u
+    let trimmed = u.trim()
+    if (trimmed.startsWith('pmtiles://')) {
+      trimmed = trimmed.slice('pmtiles://'.length)
     }
-    return u
+    return trimmed
   }
   if (Array.isArray(src.tiles)) {
     ;(src as { tiles?: unknown }).tiles = (src.tiles as unknown[]).map(stripPmtilesScheme)
