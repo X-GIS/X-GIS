@@ -156,6 +156,13 @@ export class XGISLayerStyle {
 
   get fill(): string | null { return this.host.show.fill }
   set fill(v: string | null) {
+    // Validate BEFORE the snapshot+write: if hex parse fails, keep the
+    // previous state so show.fill and paintShapes.fill stay in sync.
+    // Pre-fix an unparseable colour (e.g. CSS name 'red' that the
+    // runtime parser doesn't know) updated show.fill but left
+    // paintShapes.fill at the old value — getters then reported the
+    // new string while the renderer still drew the old colour.
+    if (v !== null && parseHexColor(v) === null) return
     this.snapshot('fill', this.host.show.fill)
     this.host.show.fill = v
     // paintShapes.fill is the truth-of-record for the WebGPU draw path.
@@ -163,25 +170,24 @@ export class XGISLayerStyle {
     if (v === null) {
       this.host.show.paintShapes.fill = null
     } else {
-      const rgba = parseHexColor(v)
-      if (rgba !== null) {
-        this.host.show.paintShapes.fill = { kind: 'constant', value: rgba }
-      }
+      const rgba = parseHexColor(v)!
+      this.host.show.paintShapes.fill = { kind: 'constant', value: rgba }
     }
     this.host.invalidate()
   }
 
   get stroke(): string | null { return this.host.show.stroke }
   set stroke(v: string | null) {
+    // Mirror of the fill setter — validate first to keep show.stroke +
+    // paintShapes.stroke in sync.
+    if (v !== null && parseHexColor(v) === null) return
     this.snapshot('stroke', this.host.show.stroke)
     this.host.show.stroke = v
     if (v === null) {
       this.host.show.paintShapes.stroke = null
     } else {
-      const rgba = parseHexColor(v)
-      if (rgba !== null) {
-        this.host.show.paintShapes.stroke = { kind: 'constant', value: rgba }
-      }
+      const rgba = parseHexColor(v)!
+      this.host.show.paintShapes.stroke = { kind: 'constant', value: rgba }
     }
     this.host.invalidate()
   }
