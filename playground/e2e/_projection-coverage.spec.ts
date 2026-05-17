@@ -216,7 +216,56 @@ test.describe('projection-coverage pitch sweep', () => {
   }
 })
 
-// ─── 3. SUDDEN SETPROJECTION SWITCH ──────────────────────────────────────
+// ─── 3. REGION SWEEP (user-experience grid) ─────────────────────────────
+// Per-region snapshot at high zoom for each projection. Mirrors what a
+// user actually does — pan to a specific city / antipodal point and
+// expect the data to render. The earlier audit only covered z=0..3
+// default cameras which missed the styled_world z=8 Korea + filter_gdp
+// z=0.2 NYC cases the user-experience escalation surfaced.
+test.describe('projection-coverage region sweep', () => {
+  // hash format: #zoom/lat/lon
+  const REGIONS = [
+    { tag: 'seoul_z8',    hash: '#8/37.30/126.42' },
+    { tag: 'nyc_z6',      hash: '#6/40.71/-74.00' },
+    { tag: 'europe_z4',   hash: '#4/50/10' },
+    { tag: 'pacific_z2',  hash: '#2/0/180' },     // antimeridian
+    { tag: 'north_pole_z3', hash: '#3/85/0' },
+    { tag: 'south_pole_z3', hash: '#3/-85/0' },
+  ] as const
+
+  for (const proj of PROJECTIONS) {
+    test(`region_${proj}`, async ({ page }) => {
+      test.setTimeout(60_000)
+      const errs: string[] = []
+      page.on('console', m => { if (m.type() === 'error') errs.push(m.text()) })
+      page.on('pageerror', e => errs.push('PAGEERR: ' + e.message))
+      await page.setViewportSize({ width: 768, height: 560 })
+      await page.goto(`/demo.html?id=dark&proj=${proj}${REGIONS[0]!.hash}`,
+        { waitUntil: 'domcontentloaded' })
+      await page.waitForFunction(() => (window as any).__xgisReady === true,
+        null, { timeout: 12_000 })
+      await page.waitForTimeout(1200)
+
+      const failures: string[] = []
+      for (const r of REGIONS) {
+        await setCameraViaHash(page, r.hash)
+        const cell = await snapshot(page)
+        cell.consoleErrs = errs.slice()
+        await page.locator('canvas').first()
+          .screenshot({ path: path.join(OUT, `region-${proj}-${r.tag}.png`) })
+
+        collect(failures, r.tag, () => {
+          expect(cell.hasNaN, 'NaN/Infinity in camera state').toBe(false)
+          expect(cell.projName, 'projection silently fell back').toBe(proj)
+        })
+      }
+      expect(failures, `${proj} region failures:\n  ${failures.join('\n  ')}`)
+        .toEqual([])
+    })
+  }
+})
+
+// ─── 4. SUDDEN SETPROJECTION SWITCH ──────────────────────────────────────
 // Single test runs all 8 switches sequentially from one mounted page.
 // Stricter than per-pair isolated tests — also catches "GPU state
 // corruption accumulates across N switches" (resource leak class).
