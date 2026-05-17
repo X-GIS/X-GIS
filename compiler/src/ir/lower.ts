@@ -269,13 +269,37 @@ function extractInterpolateZoomColorStops(
   expr: AST.Expr,
 ): Array<{ zoom: number; value: string }> | null {
   if (expr.kind !== 'FnCall') return null
-  if (expr.callee.kind !== 'Identifier' || expr.callee.name !== 'interpolate') return null
+  if (expr.callee.kind !== 'Identifier') return null
+  const calleeName = expr.callee.name
+  const isExp = calleeName === 'interpolate_exp'
+  if (!isExp && calleeName !== 'interpolate') return null
   const args = expr.args
-  if (args.length < 5) return null  // zoom, z0, c0, z1, c1 minimum
-  if (args[0].kind !== 'Identifier' || args[0].name !== 'zoom') return null
-  if ((args.length - 1) % 2 !== 0) return null
+  // Exponential carries a leading `base` argument before the zoom keyword:
+  //   interpolate_exp(zoom, BASE, z1, c1, z2, c2, …)
+  // Linear:
+  //   interpolate(zoom, z1, c1, z2, c2, …)
+  // Mirrors the numeric extractInterpolateZoomStops shape. We peel
+  // the `base` here for parity but the colour path currently doesn't
+  // route the curve to the runtime — `kind: 'zoom-interpolated'`
+  // ColorValue only carries linear stops. Returning the stops at
+  // least lets the lower pass take the interpolation branch (last-
+  // stop fallback / per-frame RGBA interp) instead of dropping the
+  // colour entirely to a default. The exponential curve will collapse
+  // to linear for now — accurate enough for OFM-style fill-color
+  // fades that span 1-2 stops, and matches the existing line-color
+  // exponential behaviour (extractInterpolateZoomStops keeps the
+  // base but the lower arm for stroke-color hasn't yet routed it).
+  let cursor = 0
+  const input = args[cursor++]
+  if (input === undefined || input.kind !== 'Identifier' || input.name !== 'zoom') return null
+  if (isExp) {
+    const baseArg = args[cursor++]
+    if (baseArg === undefined || baseArg.kind !== 'NumberLiteral') return null
+  }
+  const remaining = args.length - cursor
+  if (remaining < 4 || remaining % 2 !== 0) return null
   const stops: Array<{ zoom: number; value: string }> = []
-  for (let i = 1; i + 1 < args.length; i += 2) {
+  for (let i = cursor; i + 1 < args.length; i += 2) {
     const zArg = args[i]
     const vArg = args[i + 1]
     if (zArg.kind !== 'NumberLiteral') return null
