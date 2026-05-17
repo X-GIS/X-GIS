@@ -958,14 +958,21 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
     }
   }
 
-  // Surface dropped properties so the user knows the gap.
+  // Surface dropped properties so the user knows the gap. Includes
+  // the layout/paint subset that the circle helper doesn't honour;
+  // `circle-sort-key` (per-feature draw order) and
+  // `visibility:none` (caller-route via the layer-level visible
+  // property) belong here too.
   const ignored: string[] = []
   for (const k of [
     'circle-blur', 'circle-translate', 'circle-translate-anchor',
     'circle-pitch-scale', 'circle-pitch-alignment', 'circle-stroke-opacity',
+    'circle-sort-key',
   ]) {
     if (paint[k] !== undefined) ignored.push(k)
   }
+  const layoutForCircle = (layer as { layout?: Record<string, unknown> }).layout ?? {}
+  if (layoutForCircle['circle-sort-key'] !== undefined) ignored.push('circle-sort-key (layout)')
   if (ignored.length > 0) {
     warnings.push(`Circle layer "${layer.id}" — ignored properties: ${ignored.join(', ')}`)
   }
