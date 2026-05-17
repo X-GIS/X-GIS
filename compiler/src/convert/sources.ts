@@ -268,7 +268,16 @@ export function convertSource(
         lines.push('  // inline data captured by importer (auto-pushed via setSourceData)')
       } else {
         lines.push('  // inline data — call map.setSourceData("' + safeId + '", <FeatureCollection>) after run()')
-        const json = JSON.stringify(data)
+        // Catch circular references — JSON.stringify throws TypeError
+        // on cycles. Pre-fix the throw propagated up and crashed the
+        // whole convertMapboxStyle call. Inline preview is purely
+        // informational so we can downgrade to a notice line.
+        let json: string
+        try {
+          json = JSON.stringify(data)
+        } catch (e) {
+          json = `[unserialisable: ${(e as Error).message.slice(0, 60)}]`
+        }
         if (json.length > 2000) {
           lines.push(`  // data: ${json.slice(0, 2000)}...  (truncated, ${json.length} bytes total)`)
         } else {
