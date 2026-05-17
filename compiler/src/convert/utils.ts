@@ -40,6 +40,11 @@ export function sanitizeId(s: string): string {
   // JSON). Pre-fix a numeric id crashed at `s.replace(...)` because
   // numbers don't have `.replace`, and the whole layer dropped.
   if (typeof s !== 'string') s = String(s)
+  // Empty id: substitute a placeholder identifier so the emitted block
+  // (`layer ${id} {`) still has a name. Pre-fix the empty case let the
+  // formatter emit `layer  {` (two spaces, no id), the xgis parser
+  // rejected it at lex time, and the host's load step crashed.
+  if (s === '') s = 'unnamed'
   let cleaned = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s) ? s : s.replace(/[^a-zA-Z0-9_]/g, '_')
   // An id that starts with a digit ("1km-grid", "3d-buildings", …) — the
   // dash-replacement above doesn't help: the result still starts with a
