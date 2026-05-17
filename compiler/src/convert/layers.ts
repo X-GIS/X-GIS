@@ -709,7 +709,23 @@ function convertSymbolLayer(
   }
 
   const ignoredText: string[] = []
-  for (const k of ['text-writing-mode', 'icon-color']) {
+  // Unsupported symbol properties — surface ONE consolidated note per
+  // layer so style authors know which knobs landed without effect.
+  // Excludes properties whose absence is invisible (text-optional,
+  // text-padding when icon-padding isn't used) and the per-Batch
+  // already-warned set (data-driven icon-image is its own warning).
+  for (const k of [
+    'text-writing-mode',     // CJK vertical text — per-glyph rotation pipeline pending
+    'text-max-angle',        // along-path glyph orientation clamp
+    'text-opacity',          // Per-property fade; text uses layer opacity today
+    'icon-color',
+    'icon-opacity',
+    'icon-halo-color',
+    'icon-halo-width',
+    'icon-halo-blur',
+    'icon-rotation-alignment',
+    'icon-text-fit',
+  ]) {
     if (layout[k] !== undefined || paint[k] !== undefined) ignoredText.push(k)
   }
   if (ignoredText.length > 0) {
