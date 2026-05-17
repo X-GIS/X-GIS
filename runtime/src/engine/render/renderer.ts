@@ -128,6 +128,34 @@ struct Uniforms {
 
 ${WGSL_PROJECTION_FNS}
 
+// Per-fragment recompute of the hemisphere-cull signal. The vertex
+// shader emits cos_c as a varying (location 0), but cos_c is a non-
+// linear function of position — linear interpolation across a triangle
+// spanning the visible-hemisphere boundary on globe / orthographic /
+// azimuthal projections diverges from the true per-fragment value.
+// A long polygon edge crossing the terminator can interpolate to a
+// positive cos_c even where the fragment is on the back hemisphere
+// (false visibility), or to a negative cos_c where it is on the front
+// (false hole). Recompute from the absolute-Mercator varyings (which
+// telescope exactly under linear interpolation) and call the shared
+// needs_backface_cull entry that the vertex path uses.
+//
+// Cost: 1 atan + 1 exp + a few muls per fragment in the cull path.
+// Flat projections (proj_params.x < 2.5) short-circuit inside
+// needs_backface_cull to +1 so the per-pixel cost stays at ~0 for the
+// common Mercator / equirect / natural-earth cases.
+//
+// Pattern mirrors line-renderer.ts:779 and point-renderer.ts:340,
+// which already recompute per-fragment after the same vertex-
+// interpolation correctness regression was identified for those
+// renderers.
+fn polygon_cos_c_fragment(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
+  let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
+  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let abs_lat = lat_rad / DEG2RAD;
+  return needs_backface_cull(abs_lon, abs_lat, u.proj_params);
+}
+
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) cos_c: f32,
@@ -362,7 +390,14 @@ fn vs_main_quantized_extruded(
 
 @fragment
 fn fs_fill(input: VertexOutput) -> FragmentOutput {
-  if (input.cos_c < 0.0) { discard; }
+  // Per-fragment recompute (see polygon_cos_c_fragment doc above).
+  // Interpolating the per-vertex cos_c across a triangle that crosses
+  // the visible-hemisphere boundary diverges from the true sphere
+  // distance, so vertex-only cull leaks fragments on the back
+  // hemisphere or punches false holes on the front. The fragment
+  // recompute uses abs_merc_x/y, which DO telescope exactly under
+  // linear interpolation.
+  if (polygon_cos_c_fragment(input.abs_merc_x, input.abs_merc_y) < 0.0) { discard; }
   if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
   // Per-tile clip mask: only apply when ALL FOUR sides describe a
   // valid bounding box (east > west AND north > south). The sentinel
@@ -440,7 +475,7 @@ struct OitFragmentOutput {
 
 @fragment
 fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
-  if (input.cos_c < 0.0) { discard; }
+  if (polygon_cos_c_fragment(input.abs_merc_x, input.abs_merc_y) < 0.0) { discard; }
   if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
   // Per-tile clip mask (see fs_fill — robust check requires both
   // sentinel-not-tripped AND the bounds to describe a valid box).
@@ -470,7 +505,7 @@ fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
 
 @fragment
 fn fs_stroke(input: VertexOutput) -> FragmentOutput {
-  if (input.cos_c < 0.0) { discard; }
+  if (polygon_cos_c_fragment(input.abs_merc_x, input.abs_merc_y) < 0.0) { discard; }
   if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
   // Per-tile clip mask (see fs_fill — robust check requires both
   // sentinel-not-tripped AND the bounds to describe a valid box).
