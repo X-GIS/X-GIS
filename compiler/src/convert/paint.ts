@@ -162,7 +162,16 @@ function interpolateZoomStops(
     }
   }
 
-  if (!Array.isArray(v) || v[0] !== 'interpolate') return null
+  // `interpolate-lab` / `interpolate-hcl` (Mapbox v3 perceptually-uniform
+  // colour interp in CIELAB / CIEHCL space) accepted as a graceful
+  // downgrade to linear-RGB interpolation. X-GIS doesn't have a per-
+  // stop colour-space evaluator yet, so falling back to linear is the
+  // same loss-prevention pattern cubic-bezier already uses below.
+  if (!Array.isArray(v)) return null
+  if (v[0] !== 'interpolate' && v[0] !== 'interpolate-lab' && v[0] !== 'interpolate-hcl') return null
+  if ((v[0] === 'interpolate-lab' || v[0] === 'interpolate-hcl') && warnings) {
+    warnings.push(`${v[0]}(…) approximated as linear-RGB — xgis has no LAB/HCL per-stop evaluator yet.`)
+  }
   const curveSpec = v[1]
   // Element 2 must be the `zoom` accessor.
   const input = v[2]
