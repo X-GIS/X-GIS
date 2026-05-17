@@ -241,7 +241,7 @@ function interpolateZoomStops(
   // the curve recognition fell through, and the authored exponential
   // / bezier curve collapsed to linear without a warning.
   let curveSpec: unknown = v[1]
-  if (Array.isArray(curveSpec) && curveSpec.length === 2 && curveSpec[0] === 'literal'
+  while (Array.isArray(curveSpec) && curveSpec.length === 2 && curveSpec[0] === 'literal'
       && Array.isArray(curveSpec[1])) {
     curveSpec = curveSpec[1]
   }
@@ -509,7 +509,7 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
   // Mapbox v8 `["literal", [4, 2]]` wrapper — unwrap to the inner
   // array before the numeric-array check so the modern form behaves
   // identically to the legacy bare `[4, 2]` shape.
-  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal' && Array.isArray(v[1])) {
+  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal' && Array.isArray(v[1])) {
     v = v[1]
   }
   if (Array.isArray(v)) {

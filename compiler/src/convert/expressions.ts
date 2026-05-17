@@ -114,8 +114,7 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // ["get", "lang"]]]` collapsed to null and the filter dropped
       // every feature regardless of presence.
       let field: unknown = v[1]
-      if (Array.isArray(field) && field.length === 2 && field[0] === 'literal'
-          && typeof field[1] === 'string') {
+      while (Array.isArray(field) && field.length === 2 && field[0] === 'literal') {
         field = field[1]
       }
       if (typeof field === 'string') {
@@ -132,8 +131,7 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
     case '!has': {
       // Mirror of the `has` dynamic-key fix.
       let field: unknown = v[1]
-      if (Array.isArray(field) && field.length === 2 && field[0] === 'literal'
-          && typeof field[1] === 'string') {
+      while (Array.isArray(field) && field.length === 2 && field[0] === 'literal') {
         field = field[1]
       }
       if (typeof field === 'string') {
@@ -326,7 +324,7 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // exponential branch never fired, and the authored curve fell
       // back to linear silently.
       let curveSpec: unknown = v[1]
-      if (Array.isArray(curveSpec) && curveSpec.length === 2 && curveSpec[0] === 'literal'
+      while (Array.isArray(curveSpec) && curveSpec.length === 2 && curveSpec[0] === 'literal'
           && Array.isArray(curveSpec[1])) {
         curveSpec = curveSpec[1]
       }

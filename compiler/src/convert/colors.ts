@@ -49,7 +49,8 @@ export function colorToXgis(v: unknown, warnings: string[]): string | null {
   // typeof === 'string' gate.
   if (Array.isArray(v) && v.length === 2 && v[0] === 'to-color') {
     let inner = v[1]
-    if (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') {
+    // Loop peel for multi-level wraps. Mirror of colorToXgis (921d5ad).
+    while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') {
       inner = inner[1]
     }
     if (typeof inner === 'string') v = inner

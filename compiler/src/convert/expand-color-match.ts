@@ -64,8 +64,9 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer): MapboxLayer[] | 
   // Default colour can also be v8-literal-wrapped — same unwrap as
   // the per-arm out below.
   let defaultOut = args[args.length - 1]
-  if (Array.isArray(defaultOut) && defaultOut.length === 2 && defaultOut[0] === 'literal'
-      && typeof defaultOut[1] === 'string') {
+  // Loop peel for multi-level wraps. Drop the inner === 'string' gate
+  // so doubly-wrapped colours peel through. Mirror of colorToXgis (921d5ad).
+  while (Array.isArray(defaultOut) && defaultOut.length === 2 && defaultOut[0] === 'literal') {
     defaultOut = defaultOut[1]
   }
   if (typeof defaultOut !== 'string') return null  // non-colour-string default
@@ -81,7 +82,7 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer): MapboxLayer[] | 
     // to lower.ts's pick-first-stop fallback — the layer rendered
     // ONE colour instead of per-feature palette.
     let vals = args[i]
-    if (Array.isArray(vals) && vals.length === 2 && vals[0] === 'literal') {
+    while (Array.isArray(vals) && vals.length === 2 && vals[0] === 'literal') {
       vals = vals[1]
     }
     // Same v8 literal-wrap unwrap on the value (colour string) side.
@@ -90,8 +91,7 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer): MapboxLayer[] | 
     // the whole expand bailed → layer fell to lower.ts's pick-first-
     // stop fallback (one colour for every feature).
     let out = args[i + 1]
-    if (Array.isArray(out) && out.length === 2 && out[0] === 'literal'
-        && typeof out[1] === 'string') {
+    while (Array.isArray(out) && out.length === 2 && out[0] === 'literal') {
       out = out[1]
     }
     if (typeof out !== 'string') return null  // every arm must be a colour string
