@@ -22,6 +22,15 @@ export function parseHexColor(hex: string): [number, number, number, number] {
     r = parseInt(hex[1] + hex[1], 16) / 255
     g = parseInt(hex[2] + hex[2], 16) / 255
     b = parseInt(hex[3] + hex[3], 16) / 255
+  } else if (hex.length === 5) {
+    // CSS Color Module 4 short-alpha form `#rgba` — each digit doubles
+    // to a full byte. Pre-fix this length fell to the default
+    // [0,0,0,1] and the colour silently turned black on any style
+    // emitting `#xxxa`.
+    r = parseInt(hex[1] + hex[1], 16) / 255
+    g = parseInt(hex[2] + hex[2], 16) / 255
+    b = parseInt(hex[3] + hex[3], 16) / 255
+    a = parseInt(hex[4] + hex[4], 16) / 255
   } else if (hex.length === 7) {
     r = parseInt(hex.slice(1, 3), 16) / 255
     g = parseInt(hex.slice(3, 5), 16) / 255
