@@ -158,6 +158,17 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     // produced a transparent stroke + a dead layer for stroke-only
     // styles.
     expect(node!.stroke.color.kind, 'stroke colour kind').not.toBe('none')
+    // ALSO assert the per-feature AST landed on stroke.colorExpr so the
+    // worker's segment-buffer color_packed slot gets populated at decode
+    // time. Without this the line shader's per-segment unpack would only
+    // see the constant default colour and the per-feature arms would
+    // collapse to the fallback uniformly.
+    expect(node!.stroke.colorExpr, 'stroke colorExpr (per-feature AST)').toBeDefined()
+    // And confirm it flows through emit-commands.
+    const cmds = emitCommands(scene)
+    const show = cmds.shows.find(s => s.layerName === 'roads_by_class')
+    expect(show, 'ShowCommand must exist').toBeDefined()
+    expect(show!.strokeColorExpr, 'ShowCommand.strokeColorExpr (consumed by worker color_packed slot)').toBeDefined()
   })
 
   it('end-to-end: every OFM-Bright highway layer resolves a non-default width', () => {
