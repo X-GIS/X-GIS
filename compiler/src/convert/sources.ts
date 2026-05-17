@@ -167,6 +167,14 @@ export function convertSource(
     if (geoIgnored.length > 0) {
       warnings.push(`GeoJSON source "${id}" — ignored tuning fields: ${geoIgnored.join(', ')}`)
     }
+    // `promoteId` selects which feature property becomes feature.id —
+    // used by Mapbox `["id"]` accessor + map.setFeatureState(). X-GIS
+    // doesn't promote ids today; `["id"]` resolves to whatever the
+    // source data carries on the id slot, undefined when absent.
+    const promoteId = (src as { promoteId?: unknown }).promoteId
+    if (promoteId !== undefined) {
+      warnings.push(`GeoJSON source "${id}" declares promoteId; the runtime doesn't promote feature properties to feature.id, so the `[id]` accessor reads the original id slot only.`)
+    }
     const data = (src as { data?: string | unknown }).data
     if (typeof data === 'string') {
       // External URL — runtime fetches and decodes lazily.
