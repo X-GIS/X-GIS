@@ -32,7 +32,7 @@ export const SAFE_MODE: boolean = readSafeFlag()
 // At runtime `map.setQuality(patch)` mutates QUALITY in place and
 // dispatches rebuilds; these exports stay as thin getters so every read
 // site sees the current value (no stale snapshots).
-import { QUALITY, onQualityChange } from './quality'
+import { QUALITY } from './quality'
 
 // Function-accessor form for values that change at runtime. A plain
 // `export const X = QUALITY.msaa` would snapshot at module load and

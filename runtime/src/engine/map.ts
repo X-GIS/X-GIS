@@ -1,6 +1,6 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, tileKey as compilerTileKey, type Program } from '@xgis/compiler'
+import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, type Program } from '@xgis/compiler'
 import { packPalette, uploadPalette, type PaletteTextures } from './gpu/palette-texture'
 import type * as AST from '@xgis/compiler'
 import { BackgroundRenderer } from './render/background-renderer'
