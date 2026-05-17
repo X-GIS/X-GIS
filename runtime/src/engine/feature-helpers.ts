@@ -105,10 +105,21 @@ export function featureAnchor(geom: { type: string; coordinates: unknown }): [nu
 export function ringBboxCentre(ring: [number, number][]): [number, number] | null {
   if (!ring || ring.length === 0) return null
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-  for (const [x, y] of ring) {
+  for (const pt of ring) {
+    // Skip malformed points (null, non-array, < 2 entries, non-numeric).
+    // Pre-fix `for (const [x, y] of ring)` destructure threw on null
+    // points and tore down the whole symbol-placement loop for the
+    // entire tile.
+    if (!Array.isArray(pt) || pt.length < 2) continue
+    const x = pt[0]
+    const y = pt[1]
+    if (typeof x !== 'number' || typeof y !== 'number') continue
     if (x < minX) minX = x; if (x > maxX) maxX = x
     if (y < minY) minY = y; if (y > maxY) maxY = y
   }
+  // If every point was malformed, minX/maxX stay at ±Infinity →
+  // (Infinity + -Infinity) / 2 = NaN. Return null cleanly instead.
+  if (!Number.isFinite(minX)) return null
   return [(minX + maxX) / 2, (minY + maxY) / 2]
 }
 
