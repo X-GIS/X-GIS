@@ -444,7 +444,12 @@ function convertSymbolLayer(
   const variableAnchorOffset = unwrapLiteralTuple(layout['text-variable-anchor-offset'])
   const hasVAO = Array.isArray(variableAnchorOffset) && variableAnchorOffset.length >= 2
   const variableAnchor = unwrapLiteralTuple(layout['text-variable-anchor'])
-  const anchor = unwrapLiteralScalar(layout['text-anchor'])
+  // Legacy v0/v1 styles can use array form `text-anchor: ["top", "bottom"]`
+  // as a pseudo-candidate list (before text-variable-anchor landed).
+  // Accept both scalar (`unwrapLiteralScalar` for `["literal", "top"]`)
+  // and tuple (`unwrapLiteralTuple` for `["literal", ["top", "bottom"]]`)
+  // wrap forms so the iteration below sees the actual values.
+  const anchor = unwrapLiteralTuple(unwrapLiteralScalar(layout['text-anchor']))
   if (hasVAO) {
     // handled in the offset block (needs fmtSigned in scope)
   } else if (Array.isArray(variableAnchor) && variableAnchor.length > 0) {
