@@ -137,6 +137,11 @@ function strokesShapeEqual(a: RenderNode['stroke'], b: RenderNode['stroke']): bo
   if (a.dashOffset !== b.dashOffset) return false
   if (a.offset !== b.offset) return false
   if (a.align !== b.align) return false
+  // Edge-feather width (Mapbox `paint.line-blur`) lives on the layer
+  // uniform — there's no per-segment override slot for it. Members
+  // that author different blur values must stay separate or the merge
+  // would render one of them with the wrong feather radius.
+  if ((a.blur ?? 0) !== (b.blur ?? 0)) return false
   if ((a.dashArray?.length ?? 0) !== (b.dashArray?.length ?? 0)) return false
   if (a.dashArray && b.dashArray) {
     for (let i = 0; i < a.dashArray.length; i++) {

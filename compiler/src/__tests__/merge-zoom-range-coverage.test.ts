@@ -74,6 +74,33 @@ describe('merge-layers: zoom-range invariant', () => {
     expect(scene.renderNodes[1]!.minzoom).toBe(10)
   })
 
+  it('two line layers with DIFFERENT line-blur stay separate', () => {
+    // Pre-fix strokesShapeEqual didn't check `blur`. Two contiguous
+    // line layers could fold despite different edge-feather radii;
+    // the merged compound would render every absorbed kind with
+    // the FIRST member's blur — half the road network came out
+    // crisp / soft against author intent.
+    const scene = compileAndOptimize({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [
+        {
+          id: 'road_primary',
+          type: 'line', source: 'v', 'source-layer': 'transportation',
+          filter: ['==', ['get', 'class'], 'primary'],
+          paint: { 'line-color': '#000', 'line-width': 2, 'line-blur': 0 },
+        },
+        {
+          id: 'road_secondary',
+          type: 'line', source: 'v', 'source-layer': 'transportation',
+          filter: ['==', ['get', 'class'], 'secondary'],
+          paint: { 'line-color': '#000', 'line-width': 2, 'line-blur': 4 },
+        },
+      ],
+    })
+    expect(scene.renderNodes.length).toBe(2)
+  })
+
   it('two layers with DIFFERENT maxzoom stay separate', () => {
     const scene = compileAndOptimize({
       version: 8,
