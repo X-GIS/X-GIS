@@ -683,6 +683,13 @@ function buildShader(variant?: ShaderVariantInfo | null): string {
 
 function parseColor(hex: string): [number, number, number, number] {
   let r = 0, g = 0, b = 0, a = 1
+  // Reject non-hex content early. Mirror of the feature-helpers
+  // parseHexColor regex gate (caad699) — without it `parseInt('zz',
+  // 16)` = NaN propagated to colour channels and the GPU sampled
+  // undefined behaviour.
+  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
+    return [0, 0, 0, 1]
+  }
   if (hex.length === 4) {
     // #RGB
     r = parseInt(hex[1] + hex[1], 16) / 255
