@@ -74,6 +74,12 @@ export function convertSource(
     warnings.push(`Source "${id}" url must be a string — ignoring non-string value (was ${typeof src.url}).`)
     ;(src as { url?: unknown }).url = undefined
   }
+  // Also drop empty-string url. Mirror of the tiles[] empty-string
+  // filter — an explicit `url: ""` would otherwise emit `url: ""` in
+  // the xgis output and the runtime fetch 404'd on every request.
+  if (typeof src.url === 'string' && src.url.length === 0) {
+    ;(src as { url?: unknown }).url = undefined
+  }
   // Drop non-string tile entries so .tiles?.[0] hands downstream a real
   // URL string. A mixed `tiles: [42, "real-url"]` would otherwise pick
   // up the 42 (first index), the regex.test coerced it to "42", and the
