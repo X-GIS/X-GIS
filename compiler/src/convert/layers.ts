@@ -483,7 +483,10 @@ function convertSymbolLayer(
     let idx = 0
     for (let i = 0; i + 1 < variableAnchorOffset!.length; i += 2) {
       const a = variableAnchorOffset![i]
-      const off = variableAnchorOffset![i + 1]
+      // Per-pair offset can be the bare [x, y] OR Mapbox v8's
+      // `["literal", [x, y]]` wrapper. Mirror of the unwrap applied
+      // to text-offset / icon-offset (7986ea5).
+      const off = unwrapLiteralTuple(variableAnchorOffset![i + 1])
       if (typeof a === 'string' && VALID_ANCHORS.has(a)
           && Array.isArray(off) && off.length === 2
           && typeof off[0] === 'number' && typeof off[1] === 'number') {
