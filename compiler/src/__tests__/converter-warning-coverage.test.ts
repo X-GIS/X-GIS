@@ -120,6 +120,72 @@ describe('converter warning coverage', () => {
     }
   })
 
+  it('GeoJSON source clustering → conversion-notes warning', () => {
+    // Pins 754e4b9 — the five Mapbox cluster fields surface as a
+    // single per-source warning so style authors know X-GIS has no
+    // clustering pipeline.
+    const w = warningsOf({
+      version: 8,
+      sources: {
+        poi: {
+          type: 'geojson',
+          data: 'https://example.com/poi.geojson',
+          cluster: true,
+          clusterRadius: 50,
+          clusterMaxZoom: 14,
+        },
+      },
+      layers: [{ id: 'p', type: 'circle', source: 'poi' }],
+    })
+    expect(w.some(s => s.includes('"poi"') && s.includes('clustering')))
+      .toBe(true)
+  })
+
+  it('GeoJSON source tuning fields → ignored-tuning warning', () => {
+    // Pins e700bd0 — tolerance / buffer / lineMetrics / generateId
+    // each surface in the consolidated note.
+    const w = warningsOf({
+      version: 8,
+      sources: {
+        lines: {
+          type: 'geojson',
+          data: 'https://example.com/roads.geojson',
+          tolerance: 0.3,
+          buffer: 128,
+          lineMetrics: true,
+          generateId: true,
+        },
+      },
+      layers: [{ id: 'l', type: 'line', source: 'lines' }],
+    })
+    const note = w.find(s => s.includes('"lines"') && s.includes('ignored tuning fields'))
+    expect(note, `expected ignored-tuning note: ${JSON.stringify(w)}`).toBeDefined()
+    for (const k of ['tolerance', 'buffer', 'lineMetrics', 'generateId']) {
+      expect(note, `expected "${k}" in: ${note}`).toContain(k)
+    }
+  })
+
+  it('source minzoom / maxzoom / bounds → unhandled-bounds warnings', () => {
+    // Pins bc32a5c (minzoom/maxzoom) + 39a3cee (bounds).
+    const w = warningsOf({
+      version: 8,
+      sources: {
+        regional: {
+          type: 'raster',
+          tiles: ['https://example.com/{z}/{x}/{y}.png'],
+          minzoom: 4,
+          maxzoom: 12,
+          bounds: [125, 33, 132, 39],
+        },
+      },
+      layers: [{ id: 'r', type: 'raster', source: 'regional' }],
+    })
+    expect(w.some(s => s.includes('"regional"') && s.includes('minzoom/maxzoom')))
+      .toBe(true)
+    expect(w.some(s => s.includes('"regional"') && s.includes('bounds')))
+      .toBe(true)
+  })
+
   it('glyphs / sprite must NOT appear in the top-level warning (host-integration handled)', () => {
     // Regression for 2819cd6 — these used to be flagged here even
     // though the playground importers forward them via setGlyphsUrl /
