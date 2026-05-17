@@ -1,14 +1,14 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
-import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor, type Program } from '@xgis/compiler'
+import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor } from '@xgis/compiler'
 import { packPalette, uploadPalette, type PaletteTextures } from './gpu/palette-texture'
 import type * as AST from '@xgis/compiler'
 import { BackgroundRenderer } from './render/background-renderer'
 import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
 import { initGPU, resizeCanvas, GPU_PROF, getSampleCount, getMaxDpr, isPickEnabled, type GPUContext } from './gpu/gpu'
 import { DEBUG_OVERDRAW } from './debug-flags'
-import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT, WORLD_MERC, WORLD_COPIES, TILE_PX } from './gpu/gpu-shared'
-import { QUALITY, updateQuality, onQualityChange, type QualityConfig } from './gpu/quality'
+import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT, WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
+import { QUALITY, updateQuality, type QualityConfig } from './gpu/quality'
 import { GPUTimer } from './gpu/gpu-timer'
 import { Camera } from './projection/camera'
 import { projectWgsl, needsBackfaceCullWgsl } from './projection/projection-wgsl-mirror'
@@ -18,7 +18,6 @@ import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from './re
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
   groupOpaqueBySource as groupOpaqueBySourceImpl,
-  planFrameSchedule,
   type ClassifiedShow as ExternalClassifiedShow,
   type OpaqueGroup as ExternalOpaqueGroup,
 } from './render/bucket-scheduler'
