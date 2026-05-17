@@ -1091,8 +1091,12 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   // that already drops negatives; the interp-zoom callback clamps
   // per-stop to avoid double-dash utility names.
   const strokeWidth = unwrapLiteralScalar(paint['circle-stroke-width'])
-  if (typeof strokeWidth === 'number' && strokeWidth > 0) {
-    utils.push(`stroke-${strokeWidth}`)
+  if (typeof strokeWidth === 'number') {
+    // Negative + zero both mean "no stroke" — skip utility emission.
+    // Pre-fix a negative number fell through the `> 0` gate into the
+    // else-if interp/expr branch and emitted `stroke-[-5]` as a
+    // bracket binding.
+    if (strokeWidth > 0) utils.push(`stroke-${strokeWidth}`)
   } else if (strokeWidth !== undefined && strokeWidth !== null) {
     const interp = interpolateZoomCall(strokeWidth, warnings,
       (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
