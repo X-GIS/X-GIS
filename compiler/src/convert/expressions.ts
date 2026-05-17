@@ -48,20 +48,40 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
     case 'get': {
       const field = v[1]
       const obj = v[2]
-      if (typeof field !== 'string') return null
       if (obj !== undefined) {
-        warnings.push(`["get", "${field}", <obj>] with explicit object — converted as plain field access; verify scope.`)
+        const fieldStr = typeof field === 'string' ? field : JSON.stringify(field).slice(0, 60)
+        warnings.push(`["get", "${fieldStr}", <obj>] with explicit object — converted as plain field access; verify scope.`)
       }
-      // Identifier-shaped key → bare field access for readability.
-      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) return `.${field}`
-      // Mapbox locale variants (`name:latin`, `name:nonlatin`,
-      // `name:ko`, …) carry `:` which xgis FieldAccess can't lex.
-      // Emit a `get("…")` builtin call — the evaluator special-cases
-      // this AST shape (eval/evaluator.ts) so the literal key passes
-      // straight through to props[key], preserving the locale
-      // semantics that international basemaps depend on.
-      const escaped = field.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-      return `get("${escaped}")`
+      // Mapbox v8 wraps the constant string in `["literal", "name"]`.
+      // Unwrap eagerly so the identifier-shape detection below still
+      // fires on the inner string.
+      let f = field
+      if (Array.isArray(f) && f.length === 2 && f[0] === 'literal' && typeof f[1] === 'string') {
+        f = f[1]
+      }
+      if (typeof f === 'string') {
+        // Identifier-shaped key → bare field access for readability.
+        if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(f)) return `.${f}`
+        // Mapbox locale variants (`name:latin`, `name:nonlatin`,
+        // `name:ko`, …) carry `:` which xgis FieldAccess can't lex.
+        // Emit a `get("…")` builtin call — the evaluator special-cases
+        // this AST shape (eval/evaluator.ts) so the literal key passes
+        // straight through to props[key], preserving the locale
+        // semantics that international basemaps depend on.
+        const escaped = f.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+        return `get("${escaped}")`
+      }
+      // Dynamic key — the field arg is itself an expression
+      // (`["get", ["concat", "name:", ["get", "lang"]]]`). The
+      // evaluator's `get(...)` builtin special-cases the case where
+      // args[0] evaluates to a string and uses it as the prop key
+      // (evaluator.ts:200-202). Pre-fix the converter bailed at the
+      // `typeof field !== 'string'` gate and the whole property
+      // dropped to null — locale-aware basemaps that pick `name:<lang>`
+      // dynamically lost every label.
+      const inner = exprToXgis(field, warnings)
+      if (inner === null) return null
+      return `get(${inner})`
     }
     case 'has': {
       const field = v[1]
