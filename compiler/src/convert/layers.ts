@@ -584,7 +584,7 @@ function convertSymbolLayer(
     warnings.push(`Symbol layer "${layer.id}" — text-overlap: "cooperative" approximated as "always" (priority-aware collision pending).`)
   } else if (textOverlap === 'never') {
     // Default — no utility needed.
-  } else if (textOverlap !== undefined) {
+  } else if (textOverlap !== undefined && textOverlap !== null) {
     warnings.push(`Symbol layer "${layer.id}" — unrecognised text-overlap value ${JSON.stringify(textOverlap)}; ignored.`)
   } else if (textAllowOverlap === true) {
     // Legacy fallback only when the new property is absent.
@@ -797,7 +797,7 @@ function convertSymbolLayer(
   // / icon-rotate take their Mapbox defaults when absent.
   if (typeof iconImage === 'string') {
     utils.push(`label-icon-image-${iconImage}`)
-  } else if (iconImage !== undefined) {
+  } else if (iconImage !== undefined && iconImage !== null) {
     warnings.push(`Symbol layer "${layer.id}" — data-driven icon-image not yet supported (Phase B+).`)
   }
   const iconSize = unwrapLiteralScalar(layout['icon-size'])
