@@ -634,9 +634,15 @@ function convertSymbolLayer(
   // over the layout value. The outer dispatcher computes one segment
   // per step range and re-runs convertSymbolLayer with the segment's
   // resolved placement string.
+  // Unwrap literal here so v8-strict `["literal", "line"]` resolves
+  // to the bare enum BEFORE every downstream `=== 'line'` /
+  // `=== 'line-center'` check. parseSymbolPlacementStep separately
+  // handles the `["step", ["zoom"], …]` shape and feeds the segment's
+  // resolved placement through overrides.placement, which is always
+  // a bare string by construction.
   const placement: unknown = overrides?.placement !== undefined
     ? overrides.placement
-    : layout['symbol-placement']
+    : unwrapLiteralScalar(layout['symbol-placement'])
   if (typeof maxWidth === 'number') {
     utils.push(`label-max-width-${maxWidth}`)
   } else if (placement !== 'line' && placement !== 'line-center') {
@@ -714,11 +720,16 @@ function convertSymbolLayer(
   // pitch-alignment: map (text projected onto the ground plane with
   // perspective) is a future runtime task — emit anyway so the IR
   // carries user intent.
-  const rotAlign = layout['text-rotation-alignment']
+  // Both alignment knobs accept the v8 strict `["literal", "<enum>"]`
+  // wrapper. Without unwrap the raw === comparison missed every
+  // wrapped value — the label fell back to the runtime's auto-default
+  // (viewport for point, map for line) even when the style explicitly
+  // requested otherwise.
+  const rotAlign = unwrapLiteralScalar(layout['text-rotation-alignment'])
   if (rotAlign === 'map' || rotAlign === 'viewport' || rotAlign === 'auto') {
     utils.push(`label-rotation-alignment-${rotAlign}`)
   }
-  const pitchAlign = layout['text-pitch-alignment']
+  const pitchAlign = unwrapLiteralScalar(layout['text-pitch-alignment'])
   if (pitchAlign === 'map' || pitchAlign === 'viewport' || pitchAlign === 'auto') {
     utils.push(`label-pitch-alignment-${pitchAlign}`)
   }
