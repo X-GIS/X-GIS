@@ -24,6 +24,13 @@ import * as path from 'node:path'
 const OUT = path.resolve('e2e/__projection-coverage__')
 fs.mkdirSync(OUT, { recursive: true })
 
+// SwiftShader-WebGPU (the CI fallback on GH Linux runners) can't render
+// the X-GIS pipeline correctly — pixel-based assertions false-positive
+// there. The workflow sets XGIS_SOFTWARE_GPU=1 so we skip the paint
+// checks but keep the GPU-independent assertions (NaN matrix, alias
+// misroute, console errors) which are the real silent-bug catchers.
+const SOFTWARE_GPU = process.env.XGIS_SOFTWARE_GPU === '1'
+
 const PROJECTIONS = [
   'mercator', 'equirectangular', 'natural_earth',
   'orthographic', 'azimuthal_equidistant', 'stereographic',
@@ -163,8 +170,9 @@ test.describe('projection-coverage zoom sweep', () => {
         expect(cell.projName, `setProjection silently fell back @ requested=${proj}`).toBe(proj)
         // (c) zero paint at zoom where data is in view — should always have
         //     SOME ink at z≥0 for dark/countries except oblique_mercator at
-        //     extreme zooms where the data's not in the visible band
-        if (z >= 1 && proj !== 'oblique_mercator') {
+        //     extreme zooms where the data's not in the visible band. Skip
+        //     under SwiftShader-WebGPU where pixel output is unreliable.
+        if (!SOFTWARE_GPU && z >= 1 && proj !== 'oblique_mercator') {
           expect(cell.paint, `0% paint @ ${proj} z${z} (tiler dropped features?)`).toBeGreaterThan(0.001)
         }
       })
@@ -266,8 +274,11 @@ test.describe('projection-coverage setProjection switch', () => {
       expect(after.hasNaN, `NaN camera state after switch to ${to}`).toBe(false)
       // Post-switch frame must paint SOMETHING (catches "blank after switch"
       // / "GPU resources not rebuilt" class). 0.1% threshold is loose
-      // intentionally — we just don't want a fully empty frame.
-      expect(after.paint, `0% paint after switch ${from}→${to} (resource leak?)`).toBeGreaterThan(0.001)
+      // intentionally — we just don't want a fully empty frame. Skipped on
+      // SwiftShader (unreliable pixel output).
+      if (!SOFTWARE_GPU) {
+        expect(after.paint, `0% paint after switch ${from}→${to} (resource leak?)`).toBeGreaterThan(0.001)
+      }
     })
   }
 })

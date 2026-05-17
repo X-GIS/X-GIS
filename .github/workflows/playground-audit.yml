@@ -1,26 +1,23 @@
 name: playground-audit
 
-# Status: INFORMATIONAL (continue-on-error: true on both jobs).
+# Status: INFORMATIONAL (continue-on-error: true).
 #
-# These jobs run the demo + fixture audit and the targeted regression
-# specs under headless Chromium on Ubuntu runners. Chromium falls back
-# to Mesa's SwiftShader-WebGPU on runners with no GPU, which currently
-# CANNOT render the X-GIS pipeline visibly — point billboards stay
-# blank, polygons fill with the wrong colours, and device-lost panics
-# fire on ~10/123 demos. So pixel-counting assertions and
-# camera-finite/render-error checks both fire false-positives that
-# don't reproduce locally on real WebGPU.
+# Runs the demo + fixture audit and the targeted regression specs under
+# headless Chromium on Ubuntu runners. Chromium falls back to Mesa's
+# SwiftShader-WebGPU on runners with no GPU, which currently CANNOT
+# render the X-GIS pipeline visibly — point billboards stay blank,
+# polygons fill with the wrong colours, and device-lost panics fire on
+# ~10/123 demos. So pixel-counting assertions and camera-finite checks
+# fire false-positives that don't reproduce locally on real WebGPU.
 #
-# We still run them so:
-#   1. PR authors get artifacts (REPORT.md + screenshots + traces) on
-#      every failure to inspect what changed.
-#   2. The day a self-hosted GPU runner lands, flipping
-#      `continue-on-error: false` immediately turns this into a real
-#      PR gate without any other config change.
-#
-# Until then, the canonical visual regression workflow remains: run
-# `bun x playwright test e2e/_demo-fixture-audit.spec.ts` locally on a
-# real GPU (where the audit reports 0 broken across 123 demos).
+# Until a self-hosted GPU runner lands, the canonical visual regression
+# workflow is: `bun x playwright test e2e/_demo-fixture-audit.spec.ts`
+# locally on real WebGPU (0 broken across 123 demos there). On CI we
+# still surface artifacts (REPORT.md + screenshots + traces) so PR
+# authors can inspect what changed. Specs that signal `XGIS_SOFTWARE_GPU`
+# (see _projection-coverage.spec.ts) skip their pixel-count assertions
+# in this environment but keep the logic-only ones (NaN matrix,
+# alias misroute, console error scan) which are GPU-independent.
 
 on:
   pull_request:
@@ -39,29 +36,78 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Fast regression specs — narrow guards on the 5 bugs the audit
-  # surfaced (commit 6080a2f). Each pins one specific failure mode
-  # (picking BGL mismatch, single-point Infinity zoom, font 404, zoom-
-  # interpolated point size, orthographic tilt backface) so a re-
-  # introduction shows up in seconds, not as part of the 9-min sweep.
-  regression-specs:
+  # Single job: regression specs + full demo audit share one setup/
+  # install/build. Was split into two parallel jobs; merge cuts ~3-4 min
+  # of duplicated install + playwright-install + build off the workflow.
+  # Both spec batches still run (audit has `if: always()`) so a
+  # regression-spec failure doesn't mask audit-only regressions.
+  e2e:
     runs-on: ubuntu-latest
-    # 30 min: the projection-coverage spec is 108 cells; on the
-    # SwiftShader-WebGPU runner each cell takes 5–8 s vs 1 s on real GPU,
-    # so the spec alone needs ~10–14 min. The previous 15-min cap cancelled
-    # the job mid-sweep.
-    timeout-minutes: 30
+    # 45 min: regression-specs alone needs ~16 min on SwiftShader (the
+    # projection-coverage spec is 108 cells × ~5-8s each there), and the
+    # demo audit needs ~13 min. Running them sequentially in one job
+    # needs the sum.
+    timeout-minutes: 45
     continue-on-error: true
+    env:
+      HEADED: '0'
+      # Surface to specs so pixel-count assertions can self-skip on
+      # SwiftShader (where rendering false-positives drown signal),
+      # while keeping logic assertions (NaN matrix, alias misroute) on.
+      XGIS_SOFTWARE_GPU: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      # Cache the bun package store + repo node_modules + Playwright's
+      # bundled browsers. Hits save ~2-3 min of `bun install` and
+      # ~30-60 s of `playwright install --with-deps chromium`. Key is
+      # bun.lock-hashed so it invalidates correctly on dep bump.
+      - name: Cache bun + node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+            playground/node_modules
+            runtime/node_modules
+            compiler/node_modules
+            blueprint/node_modules
+            site/node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          # Playwright pin lives in package.json; key by the lockfile
+          # which captures the exact resolved version.
+          key: pw-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            pw-${{ runner.os }}-
+
       - run: bun install
       - run: bun run build
-      - run: bunx playwright install --with-deps chromium
+
+      # Skip the heavy download if the cache restored a working
+      # browser. Always install system deps (--with-deps) because GH
+      # runners don't persist apt packages across runs.
+      - name: Install Playwright (browsers if not cached, system deps always)
+        run: |
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            bunx playwright install-deps chromium
+          else
+            bunx playwright install --with-deps chromium
+          fi
         working-directory: playground
-      - name: Run targeted regression specs
+
+      - name: Targeted regression specs
+        id: specs
         run: bunx playwright test
           e2e/_picking-bgl-mismatch.spec.ts
           e2e/_font-vendoring.spec.ts
@@ -71,56 +117,21 @@ jobs:
           e2e/_projection-coverage.spec.ts
           --workers=1 --reporter=line
         working-directory: playground
-        env:
-          HEADED: '0'
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: regression-specs-trace
-          path: playground/test-results/
-          retention-days: 7
 
-  # Full demo + fixture audit — sweeps every DEMOS entry checking
-  # (ready, console errors, painted pixels, camera finite). The cross-
-  # cutting gate that catches "did this demo render at all" regressions
-  # the narrow specs above can't anticipate.
-  audit:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - run: bun install
-      - run: bun run build
-
-      # Playwright pulls its bundled Chromium. The audit spec runs
-      # headless against it; --enable-unsafe-webgpu + --enable-features
-      # =Vulkan come from playground/playwright.config.ts launchOptions.
-      # On Linux GH runners, Vulkan is provided by Mesa's SwiftShader
-      # fallback when no GPU is present — WebGPU works through that
-      # software adapter even though it's slower than a real GPU.
-      - run: bunx playwright install --with-deps chromium
-        working-directory: playground
-
-      # HEADED=0 forces the playwright config into headless mode (the
-      # default is headed because Windows dev needs it). With Mesa +
-      # SwiftShader on Linux, headless WebGPU is fine.
-      - name: Run audit
+      # `if: always()` ensures the audit still runs even when the
+      # regression specs fail. Both are informational on SwiftShader; we
+      # want artifacts from both regardless of which one signalled.
+      - name: Demo + fixture audit
+        if: always()
         run: bunx playwright test e2e/_demo-fixture-audit.spec.ts --workers=1 --reporter=line
         working-directory: playground
-        env:
-          HEADED: '0'
 
-      # On failure, upload the report + screenshots so the PR author
-      # can inspect what broke without re-running locally.
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: demo-audit-artifacts
+          name: e2e-traces
           path: |
+            playground/test-results/
             playground/e2e/__demo-audit__/REPORT.md
             playground/e2e/__demo-audit__/full.json
             playground/e2e/__demo-audit__/screens/
