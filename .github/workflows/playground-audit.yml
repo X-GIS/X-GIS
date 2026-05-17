@@ -115,7 +115,7 @@ jobs:
           e2e/_zoom-interp-point-size.spec.ts
           e2e/_ortho-tilt-backface.spec.ts
           e2e/_projection-coverage.spec.ts
-          --workers=1 --reporter=line
+          --workers=3 --reporter=line
         working-directory: playground
 
       # `if: always()` ensures the audit still runs even when the
