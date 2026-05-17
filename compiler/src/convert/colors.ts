@@ -66,8 +66,10 @@ export function colorToXgis(v: unknown, warnings: string[]): string | null {
   // Pre-fix any wrapped channel landed as a stringified array inside
   // the CSS-function expression, resolveColor failed, and the layer
   // fell to the data-driven bracket path or null.
-  const unwrapChan = (x: unknown): unknown =>
-    Array.isArray(x) && x.length === 2 && x[0] === 'literal' ? x[1] : x
+  const unwrapChan = (x: unknown): unknown => {
+    while (Array.isArray(x) && x.length === 2 && x[0] === 'literal') x = x[1]
+    return x
+  }
   if (Array.isArray(v) && v[0] === 'rgba' && v.length === 5) {
     const r = unwrapChan(v[1])
     const g = unwrapChan(v[2])

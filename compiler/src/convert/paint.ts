@@ -535,9 +535,10 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
       // above gave the inner array but each element may still be a
       // `["literal", 4]` scalar wrap. Without this, the typeof === 'number'
       // filter rejected every element and the dash silently dropped.
-      const unwrapped = v.map(n =>
-        Array.isArray(n) && n.length === 2 && n[0] === 'literal' ? n[1] : n,
-      )
+      const unwrapped = v.map(n => {
+        while (Array.isArray(n) && n.length === 2 && n[0] === 'literal') n = n[1]
+        return n
+      })
       const nums = unwrapped.filter(n => typeof n === 'number').map(n => Math.max(0, n as number))
       if (nums.length >= 2) {
         out.push('stroke-dasharray-' + nums.join('-'))

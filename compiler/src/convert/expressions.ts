@@ -76,7 +76,12 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // Unwrap eagerly so the identifier-shape detection below still
       // fires on the inner string.
       let f = field
-      if (Array.isArray(f) && f.length === 2 && f[0] === 'literal' && typeof f[1] === 'string') {
+      // Loop peel for multi-level wraps. Drop the inner === 'string'
+      // gate so a doubly-wrapped name like ['literal', ['literal', 'x']]
+      // also peels down to the bare string and hits the readable bare-
+      // field-access path below (instead of falling to the dynamic-
+      // key get("x") path, which still works but obscures the AST).
+      while (Array.isArray(f) && f.length === 2 && f[0] === 'literal') {
         f = f[1]
       }
       if (typeof f === 'string') {

@@ -495,10 +495,9 @@ function convertSymbolLayer(
     // `anchorCandidates`; the runtime tries each during collision and
     // picks the first that doesn't overlap an already-placed label.
     for (let a of variableAnchor) {
-      // Per-element v8 literal-wrap unwrap. Mirror of the match-handler
-      // double-wrap fix — outer tuple unwrap already happened, but
-      // individual anchor names may still be wrapped.
-      if (Array.isArray(a) && a.length === 2 && a[0] === 'literal') a = a[1]
+      // Per-element v8 literal-wrap unwrap. Loop peel for multi-level
+      // wraps from preprocessor chains. Mirror of colorToXgis (921d5ad).
+      while (Array.isArray(a) && a.length === 2 && a[0] === 'literal') a = a[1]
       if (typeof a === 'string' && VALID_ANCHORS.has(a)) {
         utils.push(`label-anchor-${a}`)
       }
@@ -507,7 +506,7 @@ function convertSymbolLayer(
     utils.push(`label-anchor-${anchor}`)
   } else if (Array.isArray(anchor) && anchor.length > 0) {
     for (let a of anchor) {
-      if (Array.isArray(a) && a.length === 2 && a[0] === 'literal') a = a[1]
+      while (Array.isArray(a) && a.length === 2 && a[0] === 'literal') a = a[1]
       if (typeof a === 'string' && VALID_ANCHORS.has(a)) {
         utils.push(`label-anchor-${a}`)
       }
@@ -534,9 +533,10 @@ function convertSymbolLayer(
   // gate failed and the offset silently dropped.
   const unwrapPairScalars = (t: unknown): unknown[] | null => {
     if (!Array.isArray(t) || t.length !== 2) return null
-    return t.map(c =>
-      Array.isArray(c) && c.length === 2 && c[0] === 'literal' ? c[1] : c,
-    )
+    return t.map(c => {
+      while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
+      return c
+    })
   }
   const offset = unwrapPairScalars(unwrapLiteralTuple(layout['text-offset']))
   if (offset !== null
@@ -584,9 +584,10 @@ function convertSymbolLayer(
       // Per-element scalar wrap unwrap so `[["literal", 0], ["literal", -1]]`
       // resolves correctly. Mirror of text-offset / icon-offset.
       const off = Array.isArray(offRaw) && offRaw.length === 2
-        ? offRaw.map(c =>
-            Array.isArray(c) && c.length === 2 && c[0] === 'literal' ? c[1] : c,
-          )
+        ? offRaw.map(c => {
+            while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
+            return c
+          })
         : null
       if (typeof a === 'string' && VALID_ANCHORS.has(a)
           && off !== null
@@ -761,9 +762,9 @@ function convertSymbolLayer(
     let emittedWeight: number | undefined
     let emittedStyle: 'italic' | undefined
     for (let f of fontStack) {
-      // Per-element v8 literal-wrap unwrap — mirror of the
-      // text-variable-anchor + text-anchor inner unwrap.
-      if (Array.isArray(f) && f.length === 2 && f[0] === 'literal') f = f[1]
+      // Per-element v8 literal-wrap unwrap — loop peel for multi-level
+      // wraps. Mirror of colorToXgis (921d5ad).
+      while (Array.isArray(f) && f.length === 2 && f[0] === 'literal') f = f[1]
       if (typeof f !== 'string' || f.length === 0) continue
       const parsed = parseMapboxFontName(f)
       utils.push(`label-font-${parsed.family.replace(/\s+/g, '-')}`)
@@ -858,9 +859,10 @@ function convertSymbolLayer(
   // Per-element v8 literal-wrap unwrap (mirror of text-offset / text-translate).
   const iconOffsetRaw = unwrapLiteralTuple(layout['icon-offset'])
   const iconOffset = Array.isArray(iconOffsetRaw) && iconOffsetRaw.length === 2
-    ? iconOffsetRaw.map(c =>
-        Array.isArray(c) && c.length === 2 && c[0] === 'literal' ? c[1] : c,
-      )
+    ? iconOffsetRaw.map(c => {
+        while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
+        return c
+      })
     : null
   if (iconOffset !== null
       && typeof iconOffset[0] === 'number' && typeof iconOffset[1] === 'number') {
