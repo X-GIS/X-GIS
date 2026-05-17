@@ -444,6 +444,32 @@ describe('converter warning coverage', () => {
     expect(out).not.toMatch(/fill-\["#aef"\]/)
   })
 
+  it('literal-wrapped text-variable-anchor-offset pairs survive', () => {
+    // Pins 8db3d26 — the VAO inner [x, y] can be literal-wrapped per
+    // Mapbox v8. Pre-fix the bare-array check failed and the
+    // anchor + offset silently dropped.
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: {},
+      layers: [{
+        id: 'vao_literal',
+        type: 'symbol',
+        source: 'x',
+        layout: {
+          'text-field': 'L',
+          'text-variable-anchor-offset': [
+            'top', ['literal', [0, -1]],
+            'bottom', ['literal', [0, 1]],
+          ],
+        },
+      }],
+    } as never)
+    expect(out).toContain('label-anchor-top')
+    expect(out).toContain('label-anchor-bottom')
+    expect(out).toMatch(/label-vao-0-y-\[-1\]/)
+    expect(out).toMatch(/label-vao-1-y-1/)
+  })
+
   it('zoom-interp line-dasharray → non-constant warning', () => {
     // Pins ccb126b — addStrokeDash warns on the non-array shape
     // (interpolate-by-zoom dasharray that the IR has no consumer for
