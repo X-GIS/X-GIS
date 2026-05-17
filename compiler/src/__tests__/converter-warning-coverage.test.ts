@@ -358,6 +358,32 @@ describe('converter warning coverage', () => {
       .toBe(false)
   })
 
+  it('literal-wrapped line-dasharray emits the dash utility (no warning)', () => {
+    // Mapbox v8 `["literal", [4, 2]]` wraps the bare-array shape.
+    // Pre-fix the operator-string guard treated "literal" as an
+    // expression and fell through to the non-constant warning. Now
+    // unwrapped before the numeric check so the modern form behaves
+    // identically to the legacy `[4, 2]` shape.
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'literal_dash',
+        type: 'line',
+        source: 'v',
+        'source-layer': 'transportation',
+        paint: {
+          'line-color': '#000',
+          'line-dasharray': ['literal', [4, 2]],
+        },
+      }],
+    } as never)
+    expect(out, 'literal-wrapped dasharray should emit stroke-dasharray-4-2')
+      .toContain('stroke-dasharray-4-2')
+    // No "non-constant" warning either.
+    expect(out.includes('paint.line-dasharray: non-constant')).toBe(false)
+  })
+
   it('zoom-interp line-dasharray → non-constant warning', () => {
     // Pins ccb126b — addStrokeDash warns on the non-array shape
     // (interpolate-by-zoom dasharray that the IR has no consumer for

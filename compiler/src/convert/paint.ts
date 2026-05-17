@@ -397,16 +397,24 @@ function addLineBlur(out: string[], v: unknown, warnings: string[]): void {
 
 function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
   if (v === undefined) return
+  // Mapbox v8 `["literal", [4, 2]]` wrapper — unwrap to the inner
+  // array before the numeric-array check so the modern form behaves
+  // identically to the legacy bare `[4, 2]` shape.
+  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal' && Array.isArray(v[1])) {
+    v = v[1]
+  }
   if (Array.isArray(v)) {
     // Mapbox expression / interpolate shape — leading element is an
     // operator string ("interpolate", "step", "case", etc.). Don't
     // treat numeric children as dash values (the would-be filter
     // would silently match the zoom stops as a 2-element dash array).
     // Fall through to the warning path so the user sees the gap.
+    // (`literal` is intentionally NOT in this list — the literal
+    //  wrapper got unwrapped above.)
     const first = v[0]
     const looksLikeExpression = typeof first === 'string'
       && /^[a-z][a-z-]+$/.test(first)
-      && /^(interpolate|interpolate-exp|interpolate-lab|interpolate-hcl|step|case|match|coalesce|literal|to-number)$/.test(first)
+      && /^(interpolate|interpolate-exp|interpolate-lab|interpolate-hcl|step|case|match|coalesce|to-number)$/.test(first)
     if (!looksLikeExpression) {
       const nums = v.filter(n => typeof n === 'number')
       if (nums.length >= 2) {
