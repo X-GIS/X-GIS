@@ -18,6 +18,14 @@ import type { GeoJSONFeatureCollection } from '../loader/geojson'
  *  in map.ts and vector-tile-renderer.ts; consolidated here. */
 export function parseHexColor(hex: string): [number, number, number, number] {
   let r = 0, g = 0, b = 0, a = 1
+  // Reject non-hex content early. Without this, `parseInt("zz", 16)` =
+  // NaN propagated through to the colour buffer; the renderer's
+  // float-array view stored NaN per channel and the GPU sampled
+  // undefined behaviour (typically black-with-jitter depending on
+  // driver). Mirror of the layer.ts wrapper regex guard.
+  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
+    return [0, 0, 0, 1]
+  }
   if (hex.length === 4) {
     r = parseInt(hex[1] + hex[1], 16) / 255
     g = parseInt(hex[2] + hex[2], 16) / 255
