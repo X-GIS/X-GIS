@@ -384,6 +384,45 @@ describe('converter warning coverage', () => {
     expect(out.includes('paint.line-dasharray: non-constant')).toBe(false)
   })
 
+  it('literal-wrapped text-offset emits label-offset utilities', () => {
+    // Pins 7986ea5 — Mapbox v8 `["literal", [0, -1.5]]` shape used to
+    // fail the numeric-tuple check (outer length === 2 but offset[0]
+    // === "literal" string). Now unwrapped before the check.
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: {},
+      layers: [{
+        id: 'wrapped',
+        type: 'symbol',
+        source: 'x',
+        layout: {
+          'text-field': 'A',
+          'text-offset': ['literal', [0, -1.5]],
+        },
+      }],
+    } as never)
+    // Negative y should ride the bracket binding form per fmtSigned.
+    expect(out).toMatch(/label-offset-y-\[-1\.5\]/)
+  })
+
+  it('literal-wrapped icon-offset survives conversion', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: {},
+      layers: [{
+        id: 'shield',
+        type: 'symbol',
+        source: 'x',
+        layout: {
+          'icon-image': 'shield',
+          'icon-offset': ['literal', [3, 4]],
+        },
+      }],
+    } as never)
+    expect(out).toContain('label-icon-offset-x-3')
+    expect(out).toContain('label-icon-offset-y-4')
+  })
+
   it('zoom-interp line-dasharray → non-constant warning', () => {
     // Pins ccb126b — addStrokeDash warns on the non-array shape
     // (interpolate-by-zoom dasharray that the IR has no consumer for
