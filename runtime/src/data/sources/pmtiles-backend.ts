@@ -68,12 +68,18 @@ function extractFeatureWidths(
   const out = new Map<number, number>()
   if (!expr) return out
   for (let i = 0; i < features.length; i++) {
-    const props = features[i].properties
+    const f = features[i]
+    const props = f.properties
     if (!props) continue
-    // Inject `$zoom` — the evaluator's reserved camera-zoom key.
-    // See mvt-worker.ts's extractFeatureWidths for the rationale.
+    // Inject `$zoom` + `$geometryType` + `$featureId` — full reserved-
+    // key set so width expressions like `["case", ["==",
+    // ["geometry-type"], "LineString"], 4, 1]` resolve correctly. See
+    // mvt-worker.ts's extractFeatureWidths for the rationale.
     const v = evaluate(expr as never, makeEvalProps({
-      props: props as Record<string, unknown>, cameraZoom: tileZoom,
+      props: props as Record<string, unknown>,
+      cameraZoom: tileZoom,
+      geometryType: f.geometry?.type,
+      featureId: (f as { id?: string | number }).id,
     }))
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
@@ -88,15 +94,18 @@ function extractFeatureColors(
   const out = new Map<number, number>()
   if (!expr) return out
   for (let i = 0; i < features.length; i++) {
-    const props = features[i].properties
+    const f = features[i]
+    const props = f.properties
     if (!props) continue
-    // makeEvalProps mirrors the width path (extractFeatureWidths) so
-    // colour expressions referencing `["zoom"]` / `["geometry-type"]`
-    // / `["id"]` see the reserved keys. Pre-fix the raw props bag
-    // resolved those identifiers to undefined → match default arm
-    // (alpha=0) fired uniformly → per-feature colour intent dropped.
+    // Full reserved-key bag — `["zoom"]` / `["geometry-type"]` / `["id"]`
+    // all resolve. Pre-fix the raw props bag (and the cameraZoom-only
+    // bag prior to this iteration) collapsed match() expressions that
+    // referenced any of those identifiers to their default arm.
     const v = evaluate(expr as never, makeEvalProps({
-      props: props as Record<string, unknown>, cameraZoom: tileZoom,
+      props: props as Record<string, unknown>,
+      cameraZoom: tileZoom,
+      geometryType: f.geometry?.type,
+      featureId: (f as { id?: string | number }).id,
     }))
     if (typeof v === 'string' && v.startsWith('#') && (v.length === 7 || v.length === 9)) {
       const r = parseInt(v.slice(1, 3), 16)

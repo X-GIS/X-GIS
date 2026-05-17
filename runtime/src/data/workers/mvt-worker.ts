@@ -87,8 +87,12 @@ function extractFeatureWidths(
     // difference to be visible, and per-feature widths bake at tile-
     // decode time so camera-zoom tracking would require per-frame
     // segment-buffer re-upload (follow-up).
+    const f = features[i]
     const v = evaluate(expr as never, makeEvalProps({
-      props: props as Record<string, unknown>, cameraZoom: tileZoom,
+      props: props as Record<string, unknown>,
+      cameraZoom: tileZoom,
+      geometryType: f.geometry?.type,
+      featureId: (f as { id?: string | number }).id,
     }))
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
@@ -124,8 +128,12 @@ function extractFeatureColors(
     // Per-feature colour-by-zoom and colour-by-id-class dispatched to
     // the layer-uniform fallback uniformly, dropping the per-feature
     // intent on the floor.
+    const f = features[i]
     const v = evaluate(expr as never, makeEvalProps({
-      props: props as Record<string, unknown>, cameraZoom: tileZoom,
+      props: props as Record<string, unknown>,
+      cameraZoom: tileZoom,
+      geometryType: f.geometry?.type,
+      featureId: (f as { id?: string | number }).id,
     }))
     // Color expressions resolve to a vec4 in shader; in JS via
     // evaluate() they come back as either an integer (vec4 packed
