@@ -950,10 +950,13 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   // explicitly so the runtime doesn't fall back to its own default (8).
   const radius = unwrapLiteralScalar(paint['circle-radius'])
   if (typeof radius === 'number') {
-    utils.push(`size-${radius}`)
+    // Mapbox spec: circle-radius >= 0. Clamp at convert time;
+    // same class as the other paint-numeric clamps. `size--5`
+    // would lex as double-dash and crash the layer.
+    utils.push(`size-${Math.max(0, radius)}`)
   } else if (radius !== undefined) {
     const interp = interpolateZoomCall(radius, warnings,
-      (val) => typeof val === 'number' ? String(val) : null)
+      (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
     if (interp !== null) {
       utils.push(`size-[${interp}]`)
     } else {
@@ -1038,12 +1041,15 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   }
 
   // circle-stroke-width → stroke-N. Edge width in CSS px.
+  // Spec: circle-stroke-width >= 0. Constant arm has a `> 0` gate
+  // that already drops negatives; the interp-zoom callback clamps
+  // per-stop to avoid double-dash utility names.
   const strokeWidth = unwrapLiteralScalar(paint['circle-stroke-width'])
   if (typeof strokeWidth === 'number' && strokeWidth > 0) {
     utils.push(`stroke-${strokeWidth}`)
   } else if (strokeWidth !== undefined) {
     const interp = interpolateZoomCall(strokeWidth, warnings,
-      (val) => typeof val === 'number' ? String(val) : null)
+      (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
     if (interp !== null) {
       utils.push(`stroke-[${interp}]`)
     } else {
