@@ -32,6 +32,19 @@ describe('["in"] per-key literal-wrap unwrap', () => {
     expect(out).toBe('.kind == "park" || .kind == "forest"')
   })
 
+  it('empty values list lowers to constant `false`', () => {
+    // Mapbox spec: in over an empty set → never matches → false.
+    // Pre-fix the empty join returned an empty string and the
+    // surrounding filter parser failed.
+    const w: string[] = []
+    expect(filterToXgis(['in', ['get', 'kind'], ['literal', []]], w)).toBe('false')
+  })
+
+  it('legacy form ["in", "kind"] (no values) also lowers to false', () => {
+    const w: string[] = []
+    expect(filterToXgis(['in', 'kind'], w)).toBe('false')
+  })
+
   it('numeric keys still emit unquoted', () => {
     const w: string[] = []
     expect(

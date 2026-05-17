@@ -568,6 +568,11 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
           ? `.${field}`
           : exprToXgis(field, warnings)
         if (fxg === null) return null
+        // Empty values list — `["in", x, ["literal", []]]` means "x
+        // is never in this set" per Mapbox spec → constant `false`.
+        // Pre-fix `eqs.join('||')` on an empty array returned '' and
+        // the surrounding filter parser failed on the blank predicate.
+        if (list[1].length === 0) return 'false'
         // Each key in the values list can itself be v8-literal-wrapped
         // (Mapbox strict tooling: `["literal", [["literal", "a"], "b"]]`).
         // Unwrap eagerly so the equality emit sees the bare value.
@@ -578,6 +583,8 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
         return eqs.join(' || ')
       }
       if (typeof field === 'string') {
+        // Same empty-list contract for the legacy form.
+        if (v.length === 2) return 'false'
         const eqs = v.slice(2).map(k => {
           if (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
           return `.${field} == ${typeof k === 'string' ? JSON.stringify(k) : k}`
