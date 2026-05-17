@@ -29,11 +29,13 @@ function unwrapLiteralTuple(v: unknown): unknown {
 function unwrapLiteralScalar(v: unknown): unknown {
   // Loop unwrap so `["literal", ["literal", 16]]` (rare v8 strict
   // double-wrap) peels in one pass. Each iteration peels one layer
-  // only when the inner is a bare scalar — preserves the existing
-  // behaviour on tuple wrappers (those route through unwrapLiteralTuple).
+  // only when the inner is a bare scalar OR null — preserves the
+  // existing behaviour on tuple wrappers (those route through
+  // unwrapLiteralTuple) while letting wrapped-null bubble down so
+  // downstream `!== null` gates fire as Mapbox-spec intends.
   while (Array.isArray(v) && v.length === 2 && v[0] === 'literal'
       && (typeof v[1] === 'number' || typeof v[1] === 'string'
-          || typeof v[1] === 'boolean')) {
+          || typeof v[1] === 'boolean' || v[1] === null)) {
     v = v[1]
   }
   // Handle the mixed case: `["literal", ["literal", 16]]` where the
@@ -43,7 +45,7 @@ function unwrapLiteralScalar(v: unknown): unknown {
   while (Array.isArray(v) && v.length === 2 && v[0] === 'literal'
       && Array.isArray(v[1]) && v[1].length === 2 && v[1][0] === 'literal'
       && (typeof v[1][1] === 'number' || typeof v[1][1] === 'string'
-          || typeof v[1][1] === 'boolean')) {
+          || typeof v[1][1] === 'boolean' || v[1][1] === null)) {
     v = v[1][1]
   }
   return v
