@@ -29,6 +29,18 @@ export function colorToXgis(v: unknown, warnings: string[]): string | null {
   if (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
     v = v[1]
   }
+  // `["to-color", "#fff"]` — Mapbox v8 type-coercion wrapper. The
+  // evaluator passes through to the inner value at runtime; the
+  // converter can drop the wrapper for the constant case so the
+  // resulting fill / stroke emits as a direct hex utility instead of
+  // collapsing to a bracket-binding data-driven path through
+  // exprToXgis. (`to-color` of an expression — e.g. `["to-color",
+  // ["get", "color"]]` — still needs the data-driven route; the
+  // recursion only fires when the inner is a literal string.)
+  if (Array.isArray(v) && v.length === 2 && v[0] === 'to-color'
+      && typeof v[1] === 'string') {
+    v = v[1]
+  }
   if (typeof v === 'string') {
     if (v.startsWith('#')) return v
     const hex = resolveColor(v.trim())
