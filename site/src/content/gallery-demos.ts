@@ -66,7 +66,14 @@ export const galleryCategories: Category[] = [
       { id: 'osm-style',              runId: 'osm_style',                title: 'OSM-style cartography',   body: 'Per-kind landuse + road hierarchy + extruded buildings (3D walls visible at high pitch).', defaultHash: '17/40.7580/-73.9855/0/75' },
       { id: 'pmtiles-only-landuse',   title: 'Landuse slice',           body: 'Filter a PMTiles archive down to a single MVT layer.', defaultHash: '12/35.68/139.76' },
       { id: 'pmtiles-protomaps-v4',   runId: 'pmtiles_v4',              title: 'Protomaps v4',            body: 'Protomaps v4 daily world basemap — earth source-layer + vector_layers metadata.', defaultHash: '3/30/0' },
-      { id: 'openfreemap-bright',     runId: 'openfreemap_bright',      title: 'OpenFreeMap · Bright',    body: 'Live OpenFreeMap "bright" Mapbox style, run through the /convert pipeline. 93 layers from a real-world cartographic style.', defaultHash: '14/35.68/139.76' },
+      // `noThumb: true`: openfreemap-bright's 93-layer style takes
+      // longer than the capture spec's 20 s tile-settle to render the
+      // first visible frame, so the captured JPG comes out as the
+      // background fill. Until either the capture path is fixed (longer
+      // settle window for this demo) or a hand-curated screenshot is
+      // committed, fall back to the live-only card style — same path
+      // pmtiles-labels / text-overlay use.
+      { id: 'openfreemap-bright',     runId: 'openfreemap_bright',      title: 'OpenFreeMap · Bright',    body: 'Live OpenFreeMap "bright" Mapbox style, run through the /convert pipeline. 93 layers from a real-world cartographic style.', defaultHash: '14/35.68/139.76', noThumb: true },
     ],
   },
   {

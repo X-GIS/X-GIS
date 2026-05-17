@@ -35,6 +35,7 @@ const GALLERY_DEMOS = [
   'minimal', 'ocean_land', 'dark', 'styled_world',
   // PMTiles + MVT
   'pmtiles_source', 'pmtiles_layered', 'osm_style', 'pmtiles_only_landuse', 'pmtiles_v4',
+  'openfreemap_bright',
   // Vector tiles (XGVT binary)
   'vector_tiles', 'vector_categorical', 'countries_categorical_xgvt', 'physical_map_xgvt',
   // Data-driven styling
@@ -93,6 +94,7 @@ test.describe('Capture demo thumbnails for site/examples gallery', () => {
         osm_style: '#17/40.7580/-73.9855/0/75',
         pmtiles_only_landuse: '#12/35.68/139.76',
         pmtiles_v4: '#3/30/0',
+        openfreemap_bright: '#14/35.68/139.76',
       }
       const hash = HASH_OVERRIDE[id] ?? ''
       await page.goto(`/demo.html?id=${id}${hash}`, { waitUntil: 'domcontentloaded' })
