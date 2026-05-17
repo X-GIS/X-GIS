@@ -771,7 +771,9 @@ export function matchToBooleanFilter(v: unknown[], warnings: string[]): string |
 export function matchToTernary(input: unknown, args: unknown[], warnings: string[]): string | null {
   const inputXgis = exprToXgis(input, warnings)
   if (inputXgis === null) return null
-  const def = exprToXgis(args[args.length - 1], warnings) ?? '0'
+  // Type-neutral fallback (mirror of case-default fix 4c6fd74).
+  // Pre-fix '0' fallback type-mismatched colour matches.
+  const def = exprToXgis(args[args.length - 1], warnings) ?? 'null'
   let result = def
   for (let i = args.length - 3; i >= 0; i -= 2) {
     // Same literal-wrap unwrap pattern as the main match + boolean
