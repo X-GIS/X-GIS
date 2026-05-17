@@ -599,11 +599,21 @@ export function matchToBooleanFilter(v: unknown[], warnings: string[]): string |
   if (args.length % 2 !== 1) return null
   const def = args[args.length - 1]
 
+  // Unwrap v8 literal-wraps on the boolean values + default. A
+  // strict-tooling-emitted form like
+  // `["match", input, k, ["literal", true], ["literal", false]]`
+  // would pre-fix fail the `typeof ... === 'boolean'` gate and
+  // matchToBooleanFilter returned null — the filter fell to the
+  // generic match() path and the merge / dispatch lost its
+  // boolean-fast-path opportunity.
+  const unwrapBool = (x: unknown): unknown =>
+    Array.isArray(x) && x.length === 2 && x[0] === 'literal' ? x[1] : x
+  const defUnwrapped = unwrapBool(def)
   // All values + default must be boolean literals.
   const allBool = (() => {
-    if (typeof def !== 'boolean') return false
+    if (typeof defUnwrapped !== 'boolean') return false
     for (let i = 1; i < args.length - 1; i += 2) {
-      if (typeof args[i] !== 'boolean') return false
+      if (typeof unwrapBool(args[i]) !== 'boolean') return false
     }
     return true
   })()
@@ -615,7 +625,7 @@ export function matchToBooleanFilter(v: unknown[], warnings: string[]): string |
   // Polarity: default `false` → OR of equality for true-arms.
   // Default `true` → AND of inequality for false-arms (the "not in
   // <keys>" form).
-  const polarity = def === false
+  const polarity = defUnwrapped === false
   const eqOp = polarity ? '==' : '!='
   const join = polarity ? ' || ' : ' && '
   const targetVal = polarity
@@ -629,7 +639,7 @@ export function matchToBooleanFilter(v: unknown[], warnings: string[]): string |
     if (Array.isArray(key) && key.length === 2 && key[0] === 'literal') {
       key = key[1]
     }
-    const val = args[i + 1]
+    const val = unwrapBool(args[i + 1])
     if (val !== targetVal) continue
     const keys = Array.isArray(key) ? key : [key]
     for (const k of keys) {
@@ -638,7 +648,7 @@ export function matchToBooleanFilter(v: unknown[], warnings: string[]): string |
   }
   if (parts.length === 0) {
     // No matching arms — match collapses to the default literal.
-    return String(def)
+    return String(defUnwrapped)
   }
   return parts.join(join)
 }

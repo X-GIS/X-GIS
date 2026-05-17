@@ -39,6 +39,24 @@ describe('match keys-array literal-wrap unwrap', () => {
     expect(out).toContain('"trunk" -> "#f00"')
   })
 
+  it('matchToBooleanFilter unwraps wrapped boolean values + default', () => {
+    // Strict v8 tooling can wrap the boolean values themselves:
+    // ["match", input, k, ["literal", true], ["literal", false]].
+    // Pre-fix the typeof === 'boolean' gate failed on the wrap and
+    // matchToBooleanFilter returned null — the filter fell to the
+    // generic match() path and lost its boolean-fast-path role.
+    const w: string[] = []
+    const out = filterToXgis(
+      ['match', ['get', 'class'],
+        ['literal', ['park', 'forest']], ['literal', true],
+        ['literal', false],
+      ],
+      w,
+    )
+    expect(out).toContain('.class == "park"')
+    expect(out).toContain('.class == "forest"')
+  })
+
   it('matchToBooleanFilter unwraps wrapped keys', () => {
     // Boolean-shape match used inside filter context. Default false,
     // wrapped key array.
