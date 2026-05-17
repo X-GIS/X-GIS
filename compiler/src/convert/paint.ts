@@ -42,7 +42,10 @@ function surfaceIgnoredPaint(
 ): void {
   const hits: string[] = []
   for (const k of candidates) {
-    if (paint[k] !== undefined) hits.push(k)
+    // Both undefined AND null mean "property omitted" per Mapbox
+    // spec — no warning needed when the author explicitly set it
+    // to null to fall back to the default.
+    if (paint[k] !== undefined && paint[k] !== null) hits.push(k)
   }
   if (hits.length > 0) {
     warnings.push(`Layer "${layerId}" — ignored paint properties: ${hits.join(', ')}`)
@@ -65,7 +68,8 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     // cases. Warns when fill-pattern is present AND no fill-color is
     // authored — the pattern-augmented case (fill-color + fill-pattern)
     // still renders the colour today.
-    if (p['fill-pattern'] !== undefined && p['fill-color'] === undefined) {
+    if (p['fill-pattern'] !== undefined && p['fill-pattern'] !== null
+        && p['fill-color'] === undefined) {
       warnings.push(`Layer "${layer.id}" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
     }
     surfaceIgnoredPaint(layer.id, p, warnings, [
@@ -80,7 +84,8 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     addLineBlur(out, p['line-blur'], warnings)
     // Same gap as fill-pattern: when a line layer's only visual is a
     // repeating sprite (no line-color), the layer goes dead silently.
-    if (p['line-pattern'] !== undefined && p['line-color'] === undefined) {
+    if (p['line-pattern'] !== undefined && p['line-pattern'] !== null
+        && p['line-color'] === undefined) {
       warnings.push(`Layer "${layer.id}" — line-pattern declared without line-color; the layer's only visual is a bitmap stroke which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
     }
     surfaceIgnoredPaint(layer.id, p, warnings, [
