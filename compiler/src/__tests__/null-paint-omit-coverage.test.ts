@@ -90,4 +90,28 @@ describe('null paint values omit per Mapbox spec', () => {
     const out = emitSymbol({}, { 'text-field': '{name}', 'text-size': null })
     expect(out).not.toMatch(/label-size-\[null\]/)
   })
+
+  it('fill-color: ["literal", null] (v8 double-wrap) also omits', () => {
+    // The isOmitted helper covers ["literal", null] / ["literal", undefined]
+    // so v8 strict tooling that double-wraps a null literal still
+    // routes to the spec default instead of leaking through as the
+    // null identifier.
+    const out = emitFill(['literal', null])
+    expect(out).not.toMatch(/fill-\[null\]/)
+  })
+
+  it('fill-opacity: ["literal", null] also omits', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'l',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'water',
+        paint: { 'fill-color': '#abc', 'fill-opacity': ['literal', null] },
+      }],
+    } as never)
+    expect(out).not.toMatch(/opacity-\[null\]/)
+  })
 })
