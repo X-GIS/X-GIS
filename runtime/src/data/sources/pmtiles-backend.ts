@@ -24,7 +24,6 @@ import {
   type GeoJSONFeature,
 } from '@xgis/compiler'
 import { buildLineSegments } from '../../core/line-segment-build'
-import { EXTRUDE_FALLBACK_HEIGHT_M } from '../../core/polygon-mesh'
 import type {
   TileSource, TileSourceSink, TileSourceMeta,
 } from '../tile-source'
