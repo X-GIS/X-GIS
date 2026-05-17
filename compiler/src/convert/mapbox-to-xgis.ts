@@ -153,9 +153,12 @@ export function convertMapboxStyle(
   // XGISMap setters), not converter ones.
   const styleAny = style as unknown as Record<string, unknown>
   const topLevelGaps: string[] = []
-  if (styleAny.projection !== undefined) topLevelGaps.push('projection')
+  if (styleAny.projection !== undefined && styleAny.projection !== null) {
+    topLevelGaps.push('projection')
+  }
   for (const k of ['fog', 'light', 'terrain', 'transition', 'imports']) {
-    if (styleAny[k] !== undefined) topLevelGaps.push(k)
+    const v = styleAny[k]
+    if (v !== undefined && v !== null) topLevelGaps.push(k)
   }
   if (topLevelGaps.length > 0) {
     warnings.push(`Top-level style fields ignored: ${topLevelGaps.join(', ')}`)
@@ -208,8 +211,11 @@ export function convertMapboxStyle(
     // (Batch 2 follow-up).
     const bgPaint = bgLayer.paint ?? {}
     const bgIgnored: string[] = []
-    if (bgPaint['background-opacity'] !== undefined) bgIgnored.push('background-opacity')
-    if (bgPaint['background-pattern'] !== undefined) bgIgnored.push('background-pattern (Batch 2)')
+    // Treat null the same as undefined per Mapbox spec.
+    const bgOpacity = bgPaint['background-opacity']
+    const bgPattern = bgPaint['background-pattern']
+    if (bgOpacity !== undefined && bgOpacity !== null) bgIgnored.push('background-opacity')
+    if (bgPattern !== undefined && bgPattern !== null) bgIgnored.push('background-pattern (Batch 2)')
     if (bgIgnored.length > 0) {
       warnings.push(`Background layer "${bgLayer.id}" — ignored properties: ${bgIgnored.join(', ')}`)
     }
