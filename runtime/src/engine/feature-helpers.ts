@@ -74,7 +74,13 @@ export function hexToRgba(hex: string | null | undefined): [number, number, numb
 export function featureAnchor(geom: { type: string; coordinates: unknown }): [number, number] | null {
   if (!geom) return null
   const c = geom.coordinates as unknown
-  if (geom.type === 'Point') return c as [number, number]
+  if (geom.type === 'Point') {
+    // Validate Point coords shape — a malformed Point with missing /
+    // non-numeric coordinates would otherwise let the caller deref
+    // [0]/[1] on null and crash downstream. Return null cleanly.
+    if (!Array.isArray(c) || c.length < 2 || typeof c[0] !== 'number' || typeof c[1] !== 'number') return null
+    return c as [number, number]
+  }
   if (geom.type === 'MultiPoint' && Array.isArray(c) && c.length > 0) {
     return c[0] as [number, number]
   }
