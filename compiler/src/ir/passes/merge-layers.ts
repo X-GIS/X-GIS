@@ -167,6 +167,15 @@ function isMergeableNode(n: RenderNode): boolean {
   if (n.geometry !== null) return false
   if (n.animationMeta !== undefined) return false
   if (n.shape.kind !== 'none') return false  // points handled separately
+  // Symbol layers carry per-layer label specs (text content + font +
+  // size + halo + collision priority). The merge collapses N layers
+  // into ONE compound — only the first layer's label survives, so
+  // every absorbed label gets dropped from the render. Symbol layers
+  // share source-layers all the time (place_label / poi_label /
+  // road_label all read 'place' or 'transportation'), so without
+  // this gate adjacent text layers were folding into a single
+  // compound and labels disappeared from the map.
+  if (n.label !== undefined) return false
   // The merge synthesises a per-feature `match(.class) { v -> N, … }`
   // AST baked into the segment buffer's width-override slot. Nodes
   // whose width is already zoom-stops / per-feature carry their own
