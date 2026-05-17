@@ -542,7 +542,12 @@ function convertSymbolLayer(
   //                   don't have priority-aware collision yet, so the
   //                   conservative fallback is to place; a warning
   //                   surfaces so the style author knows).
-  const textOverlap = layout['text-overlap']
+  // text-overlap + text-allow-overlap both accept v8 strict
+  // `["literal", "always"]` / `["literal", true]` wrappers. Without
+  // the unwrap the raw `=== 'always'` / `=== true` comparison missed
+  // the wrapped form and the label silently obeyed default collision.
+  const textOverlap = unwrapLiteralScalar(layout['text-overlap'])
+  const textAllowOverlap = unwrapLiteralScalar(layout['text-allow-overlap'])
   if (textOverlap === 'always') {
     utils.push('label-allow-overlap')
   } else if (textOverlap === 'cooperative') {
@@ -552,7 +557,7 @@ function convertSymbolLayer(
     // Default — no utility needed.
   } else if (textOverlap !== undefined) {
     warnings.push(`Symbol layer "${layer.id}" — unrecognised text-overlap value ${JSON.stringify(textOverlap)}; ignored.`)
-  } else if (layout['text-allow-overlap'] === true) {
+  } else if (textAllowOverlap === true) {
     // Legacy fallback only when the new property is absent.
     utils.push('label-allow-overlap')
   }
@@ -572,11 +577,11 @@ function convertSymbolLayer(
   // 0/69). Now: we silently drop these flags. When icon rendering
   // arrives a dedicated `icon-allow-overlap` IR field threads them
   // through; until then they're no-ops for the text collision path.
-  const iconOverlap = layout['icon-overlap']
+  const iconOverlap = unwrapLiteralScalar(layout['icon-overlap'])
   if (iconOverlap !== undefined && iconOverlap !== 'always' && iconOverlap !== 'never' && iconOverlap !== 'cooperative') {
     warnings.push(`Symbol layer "${layer.id}" — unrecognised icon-overlap value ${JSON.stringify(iconOverlap)}; ignored.`)
   }
-  if (layout['text-ignore-placement'] === true) utils.push('label-ignore-placement')
+  if (unwrapLiteralScalar(layout['text-ignore-placement']) === true) utils.push('label-ignore-placement')
   const padding = unwrapLiteralScalar(layout['text-padding'])
   if (typeof padding === 'number') {
     utils.push(`label-padding-${padding}`)
@@ -738,7 +743,7 @@ function convertSymbolLayer(
   // upside-down. The runtime decides per LABEL (not per glyph) using
   // the tangent at the label's centre. Emit only `false` since the
   // runtime defaults to true; saving a utility on every basemap layer.
-  const keepUpright = layout['text-keep-upright']
+  const keepUpright = unwrapLiteralScalar(layout['text-keep-upright'])
   if (keepUpright === false) utils.push('label-keep-upright-false')
   else if (keepUpright === true) utils.push('label-keep-upright-true')
 
