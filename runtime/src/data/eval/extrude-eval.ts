@@ -36,6 +36,7 @@ export function evalExtrudeExpr(
   node: ExtrudeAst,
   props: Record<string, unknown>,
   tileZoom?: number,
+  feature?: { id?: string | number; geometry?: { type?: string } },
 ): number | null {
   if (!node || typeof node !== 'object') return null
   // The cast is structural — evaluate() expects an AST.Expr but
@@ -44,9 +45,15 @@ export function evalExtrudeExpr(
   // worker would force the worker to re-export the compiler's AST
   // surface; using `unknown` at the boundary is functionally
   // equivalent and keeps the call sites straightforward.
-  const bag = tileZoom === undefined
-    ? props
-    : makeEvalProps({ props, cameraZoom: tileZoom })
+  const useReservedKeys = tileZoom !== undefined || feature !== undefined
+  const bag = useReservedKeys
+    ? makeEvalProps({
+        props,
+        cameraZoom: tileZoom,
+        geometryType: feature?.geometry?.type,
+        featureId: feature?.id,
+      })
+    : props
   const v = evaluate(node as never, bag)
   if (typeof v !== 'number') return null
   if (!Number.isFinite(v) || v <= 0) return null

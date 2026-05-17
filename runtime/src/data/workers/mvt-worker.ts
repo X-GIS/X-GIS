@@ -50,9 +50,10 @@ function extractFeatureHeights(
   // explicitly via `extrude: .height ?? 50` (or whatever default the
   // author wants). The engine doesn't fabricate a default.
   for (let i = 0; i < features.length; i++) {
-    const props = features[i].properties
+    const f = features[i]
+    const props = f.properties
     if (!props) continue
-    const v = evalExtrudeExpr(expr, props as Record<string, unknown>, tileZoom)
+    const v = evalExtrudeExpr(expr, props as Record<string, unknown>, tileZoom, f)
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.set(i, v)
   }
   return out
