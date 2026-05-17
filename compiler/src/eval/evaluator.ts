@@ -485,7 +485,16 @@ function callBuiltin(name: string, args: unknown[]): unknown {
     case 'PI': return Math.PI
     case 'TAU': return Math.PI * 2
     // Array
-    case 'length': return Array.isArray(args[0]) ? args[0].length : 0
+    case 'length': {
+      // Mapbox `["length", v]` works on both strings and arrays.
+      // Pre-fix the evaluator only returned the array length and
+      // collapsed string inputs to 0 — \`["length", ["get", "name"]]\`
+      // returned 0 for every feature.
+      const v0 = args[0]
+      if (Array.isArray(v0)) return v0.length
+      if (typeof v0 === 'string') return [...v0].length  // codepoint count, not UTF-16 units
+      return 0
+    }
     // Geometry generators — return coordinate arrays
     case 'circle': {
       const [cx, cy, r, s] = args.map(toNumber)
