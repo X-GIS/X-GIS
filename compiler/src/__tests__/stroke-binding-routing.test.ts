@@ -171,6 +171,44 @@ describe('stroke binding routing — paint.line-width interpolate-by-zoom', () =
     expect(show!.strokeColorExpr, 'ShowCommand.strokeColorExpr (consumed by worker color_packed slot)').toBeDefined()
   })
 
+  it('Mapbox line-color ["case", …] ternary survives conversion', () => {
+    // Pins 2b168d8 — extractMatchDefaultColor walks ConditionalExpr
+    // ternaries (the xgis lowering of Mapbox `["case", c1, v1, …,
+    // default]`). Pre-fix the ternary fell through extractMatch's
+    // FnCall-match-only check and the surrounding lower-pass arm
+    // routed the AST to strokeWidthExpr — colour intent lost.
+    const style = {
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'toggle_line',
+        type: 'line',
+        source: 'v',
+        'source-layer': 'transportation',
+        paint: {
+          'line-color': ['case',
+            ['==', ['get', 'active'], true], '#ff0000',
+            '#888888'],
+          'line-width': 2,
+        },
+      }],
+    }
+    const xgis = convertMapboxStyle(style as never)
+    const scene = lower(new Parser(new Lexer(xgis).tokenize()).parse())
+    const node = scene.renderNodes.find(n => n.name === 'toggle_line')
+    expect(node, 'toggle_line render node must survive lower').toBeDefined()
+    // Same "kind: 'none' = silent drop" trap the match-shape test
+    // covers — a ternary case() landing as kind=none means lower
+    // didn't recognise it as a colour expression.
+    expect(node!.stroke.color.kind).not.toBe('none')
+    expect(node!.stroke.colorExpr, 'stroke colorExpr (per-feature AST)').toBeDefined()
+    // Default arm is #888888 → constant fallback should match.
+    if (node!.stroke.color.kind === 'constant') {
+      // Compare leading byte (0x88 = 136) against the constant rgba.
+      expect(node!.stroke.color.rgba[0]).toBeCloseTo(0x88 / 255, 2)
+    }
+  })
+
   it('end-to-end: every OFM-Bright highway layer resolves a non-default width', () => {
     // Sanity that the fix actually unblocks the original OFM Bright
     // regression — every highway-* line layer should now carry EITHER
