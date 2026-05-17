@@ -185,8 +185,17 @@ export function convertMapboxStyle(
   const bgLayer = (style.layers ?? []).find(l => l.type === 'background')
   if (bgLayer) {
     const before = warnings.length
+    // Respect `layout.visibility: 'none'` on background layers per
+    // Mapbox spec — without this gate a hidden background emitted a
+    // fill anyway and over-painted whatever canvas-clear / underlying
+    // colour the host expected to show through. Same v8 literal-wrap
+    // unwrap as the visibility gate on other layer types.
+    const bgVisibility = bgLayer.layout?.visibility
+    const bgVisibilityNone = bgVisibility === 'none'
+      || (Array.isArray(bgVisibility) && bgVisibility.length === 2
+        && bgVisibility[0] === 'literal' && bgVisibility[1] === 'none')
     const color = bgLayer.paint?.['background-color']
-    const colorStr = colorToXgis(color, warnings)
+    const colorStr = bgVisibilityNone ? null : colorToXgis(color, warnings)
     if (colorStr) {
       lines.push(`background { fill: ${colorStr} }`)
       lines.push('')

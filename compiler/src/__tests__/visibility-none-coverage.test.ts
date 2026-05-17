@@ -82,6 +82,50 @@ describe('layout.visibility: "none" propagates as visible: false', () => {
     expect(out).not.toMatch(/visible:\s*false/)
   })
 
+  it('background layer — visibility: "none" suppresses background block', () => {
+    // Mapbox spec: a background layer with visibility:none renders
+    // nothing (host canvas-clear shows through). Pre-fix the
+    // converter emitted `background { fill: … }` anyway.
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: {},
+      layers: [{
+        id: 'bg',
+        type: 'background',
+        paint: { 'background-color': '#fff' },
+        layout: { visibility: 'none' },
+      }],
+    } as never)
+    expect(out).not.toMatch(/^background\s*\{/m)
+  })
+
+  it('background layer — wrapped ["literal", "none"] also suppresses', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: {},
+      layers: [{
+        id: 'bg',
+        type: 'background',
+        paint: { 'background-color': '#fff' },
+        layout: { visibility: ['literal', 'none'] },
+      }],
+    } as never)
+    expect(out).not.toMatch(/^background\s*\{/m)
+  })
+
+  it('background layer — visibility omitted still emits background', () => {
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: {},
+      layers: [{
+        id: 'bg',
+        type: 'background',
+        paint: { 'background-color': '#abc' },
+      }],
+    } as never)
+    expect(out).toMatch(/background\s*\{[\s\S]*fill:\s*#abc/m)
+  })
+
   it('symbol layer — visibility omitted does NOT add visible: false', () => {
     const out = convertMapboxStyle({
       version: 8,
