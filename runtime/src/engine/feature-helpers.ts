@@ -82,7 +82,11 @@ export function featureAnchor(geom: { type: string; coordinates: unknown }): [nu
     return c as [number, number]
   }
   if (geom.type === 'MultiPoint' && Array.isArray(c) && c.length > 0) {
-    return c[0] as [number, number]
+    // Mirror the Point shape validation — first multi-point coord
+    // must be a valid [number, number] pair, else null.
+    const p = c[0]
+    if (!Array.isArray(p) || p.length < 2 || typeof p[0] !== 'number' || typeof p[1] !== 'number') return null
+    return p as [number, number]
   }
   if (geom.type === 'LineString' && Array.isArray(c)) {
     return ringBboxCentre(c as [number, number][])
