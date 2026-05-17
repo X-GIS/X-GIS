@@ -39,6 +39,8 @@ playground/e2e/__*__
 !playground/e2e/__pixel-match-survey__/**
 !playground/e2e/__pixel-match-demotiles-user__
 !playground/e2e/__pixel-match-demotiles-user__/**
+!playground/e2e/__projection-zoom-survey__
+!playground/e2e/__projection-zoom-survey__/**
 
 # Profiling + perf-debug dumps (ad-hoc, not source-controlled)
 *.cpuprofile
