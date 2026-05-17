@@ -133,18 +133,25 @@ export function convertSource(
     warnings.push(`Source "${id}" declares tileSize: ${tileSize}; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.`)
   }
 
-  if (src.type === 'vector') {
-    let url = src.url ?? src.tiles?.[0]
-    // Strip the Protomaps-tooling `pmtiles://` scheme prefix. The
-    // protomaps/PMTiles library expects a bare https:// URL and
-    // `pmtiles://https://...` is fetched verbatim → "Failed to fetch"
-    // / CORS preflight failure. Drop the prefix so the underlying
-    // URL reaches fetch unchanged. (The xgis source still routes
-    // through the pmtiles backend because the inner URL ends with
-    // .pmtiles.)
-    if (typeof url === 'string' && url.startsWith('pmtiles://')) {
-      url = url.slice('pmtiles://'.length)
+  // Strip the Protomaps-tooling `pmtiles://` scheme prefix from any
+  // URL across all source-type branches. The protomaps/PMTiles
+  // library expects a bare URL; passing the prefixed form through to
+  // fetch fails on the made-up `pmtiles:` scheme. (Vector / pmtiles
+  // / raster / raster-dem branches all share this helper now.)
+  const stripPmtilesScheme = (u: unknown): unknown => {
+    if (typeof u === 'string' && u.startsWith('pmtiles://')) {
+      return u.slice('pmtiles://'.length)
     }
+    return u
+  }
+  if (Array.isArray(src.tiles)) {
+    ;(src as { tiles?: unknown }).tiles = (src.tiles as unknown[]).map(stripPmtilesScheme)
+  }
+  if (typeof src.url === 'string') {
+    ;(src as { url?: unknown }).url = stripPmtilesScheme(src.url)
+  }
+  if (src.type === 'vector') {
+    const url = src.url ?? src.tiles?.[0]
     if (url && /\.pmtiles(\?|#|$)/.test(url)) {
       lines.push('  type: pmtiles')
       lines.push(`  url: ${JSON.stringify(url)}`)
