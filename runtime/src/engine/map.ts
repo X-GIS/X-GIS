@@ -4280,6 +4280,17 @@ export class XGISMap {
     if (!this.rawDatasets.has(sourceId)) {
       throw new Error(`[X-GIS] setSourceData: unknown source "${sourceId}"`)
     }
+    // Validate FeatureCollection shape. Pre-fix a host passing
+    // `null` / `[]` / a Feature / a Geometry directly polluted the
+    // rawDatasets entry and crashed rebuildLayers on .features
+    // access. Normalise to a safe FeatureCollection rather than
+    // storing whatever the caller passed verbatim.
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error(`[X-GIS] setSourceData: data must be a FeatureCollection object`)
+    }
+    if (!Array.isArray((data as { features?: unknown }).features)) {
+      throw new Error(`[X-GIS] setSourceData: data.features must be an array (got ${typeof (data as { features?: unknown }).features})`)
+    }
     this.rawDatasets.set(sourceId, data)
     // Full replace invalidates any cached feature index for this source.
     this._featureIndex.delete(sourceId)
