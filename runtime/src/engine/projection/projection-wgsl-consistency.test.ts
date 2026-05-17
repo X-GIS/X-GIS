@@ -32,8 +32,6 @@ import { globeForward } from './globe'
 // the GPU uses, replacing the old table-based interpolation. See the
 // Natural Earth describe block below.
 
-const TOLERANCE_EXACT_MM = 0.001
-
 function sampleGrid(): Array<[number, number]> {
   const out: Array<[number, number]> = []
   for (let i = 0; i < 10; i++) {

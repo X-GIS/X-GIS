@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from './camera'
-import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
+import { WORLD_MERC } from '../gpu/gpu-shared'
 
 const DEG2RAD = Math.PI / 180
 const EARTH_R = 6378137
