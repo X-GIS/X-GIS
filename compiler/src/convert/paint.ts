@@ -88,7 +88,7 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     // plane the way MapLibre would render it. Surface so style authors
     // know the geometry path doesn't yet read the base value, even
     // though the IR carries it.
-    const baseVal = p['fill-extrusion-base']
+    const baseVal = unwrapLiteralNumeric(p['fill-extrusion-base'])
     const baseIsNonZero = typeof baseVal === 'number'
       ? baseVal > 0
       : baseVal !== undefined  // expression / interpolate-by-zoom assumed non-trivial
