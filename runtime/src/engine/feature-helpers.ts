@@ -145,7 +145,7 @@ export function applyFilter(
   // access. The host's data-load step can hand applyFilter a
   // partially-constructed dataset mid-stream; .features on null was
   // a hard crash.
-  if (!data || !filterExpr?.ast || !data.features) return data
+  if (!data || !filterExpr?.ast || !Array.isArray(data.features)) return data
   const ast = filterExpr.ast as AST.Expr
   const filtered = data.features.filter(f => {
     // Inject `$geometryType` + `$featureId` so Mapbox
@@ -201,7 +201,7 @@ export function applyGeometry(
   // throws when the runtime receives a no-features payload (e.g. an
   // empty source or a partial transfer mid-load) and the host's data-
   // load step crashes the whole rebuild.
-  if (!data || !data.features) return data
+  if (!data || !Array.isArray(data.features)) return data
   const ast = geometryExpr.ast as AST.Expr
   const newFeatures = data.features.map(f => {
     const bag = makeEvalProps({
