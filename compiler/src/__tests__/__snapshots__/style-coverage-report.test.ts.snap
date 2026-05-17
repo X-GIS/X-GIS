@@ -835,6 +835,7 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "id": "ne2_shaded",
       "reasons": [
         "Source "ne2_shaded" declares minzoom/maxzoom (-…6); the runtime tile selector doesn't yet honour source-level zoom bounds, so out-of-range tiles will be requested and 404. Use layer-level minzoom/maxzoom to limit fetch volume.",
+        "Source "ne2_shaded" declares tileSize: 256; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.",
       ],
       "type": "raster",
     },
@@ -847,6 +848,7 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
   ],
   "warnings": [
     "Source "ne2_shaded" declares minzoom/maxzoom (-…6); the runtime tile selector doesn't yet honour source-level zoom bounds, so out-of-range tiles will be requested and 404. Use layer-level minzoom/maxzoom to limit fetch volume.",
+    "Source "ne2_shaded" declares tileSize: 256; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.",
     "Layer "building-top" — ignored paint properties: fill-translate",
     "Symbol layer "road_oneway" — ignored properties (Batch 1d/1e+): icon-opacity, icon-rotation-alignment",
     "Symbol layer "road_oneway_opposite" — ignored properties (Batch 1d/1e+): icon-opacity, icon-rotation-alignment",
@@ -1588,6 +1590,7 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "id": "ne2_shaded",
       "reasons": [
         "Source "ne2_shaded" declares minzoom/maxzoom (-…6); the runtime tile selector doesn't yet honour source-level zoom bounds, so out-of-range tiles will be requested and 404. Use layer-level minzoom/maxzoom to limit fetch volume.",
+        "Source "ne2_shaded" declares tileSize: 256; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.",
       ],
       "type": "raster",
     },
@@ -1600,6 +1603,7 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
   ],
   "warnings": [
     "Source "ne2_shaded" declares minzoom/maxzoom (-…6); the runtime tile selector doesn't yet honour source-level zoom bounds, so out-of-range tiles will be requested and 404. Use layer-level minzoom/maxzoom to limit fetch volume.",
+    "Source "ne2_shaded" declares tileSize: 256; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.",
     "Layer "landcover_wetland" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.",
     "Layer "landcover_wetland" — ignored paint properties: fill-translate-anchor",
     "Layer "waterway_tunnel" — ignored paint properties: line-gap-width",
@@ -1991,6 +1995,7 @@ exports[`style coverage > openfreemap-positron coverage matches snapshot 1`] = `
       "id": "ne2_shaded",
       "reasons": [
         "Source "ne2_shaded" declares minzoom/maxzoom (-…6); the runtime tile selector doesn't yet honour source-level zoom bounds, so out-of-range tiles will be requested and 404. Use layer-level minzoom/maxzoom to limit fetch volume.",
+        "Source "ne2_shaded" declares tileSize: 256; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.",
       ],
       "type": "raster",
     },
@@ -2003,6 +2008,7 @@ exports[`style coverage > openfreemap-positron coverage matches snapshot 1`] = `
   ],
   "warnings": [
     "Source "ne2_shaded" declares minzoom/maxzoom (-…6); the runtime tile selector doesn't yet honour source-level zoom bounds, so out-of-range tiles will be requested and 404. Use layer-level minzoom/maxzoom to limit fetch volume.",
+    "Source "ne2_shaded" declares tileSize: 256; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.",
     "Symbol layer "highway-shield-non-us" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
     "Symbol layer "highway-shield-non-us" — data-driven icon-image not yet supported (Phase B+).",

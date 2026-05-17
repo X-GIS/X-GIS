@@ -76,6 +76,20 @@ export function convertSource(
     warnings.push(`Source "${id}" declares bounds [${src.bounds.join(', ')}]; the runtime tile selector doesn't yet clip requests to the spatial extent, so tiles outside the box will be requested and 404. Filter coverage at the host (geojson clip / pre-cropped PMTiles archive) until native bounds support lands.`)
   }
 
+  // Mapbox source-level `tileSize` declares the native pixel size of
+  // the tile (typically 256 for shaded-relief / older OSM mirrors,
+  // 512 for modern raster tiles). X-GIS's tile selector hardcodes
+  // TILE_PX = 512 (runtime/src/engine/gpu/gpu-shared.ts) for ALL tile
+  // scale math. A 256-tile source rendered with 512-grid assumptions
+  // shows up as the wrong zoom level (effectively one zoom too far
+  // out) — tiles cover 2× the world-space they should. OFM Liberty's
+  // ne2_shaded source declares tileSize: 256; the low-zoom hillshade
+  // ends up coarser than MapLibre's reference rendering.
+  const tileSize = (src as { tileSize?: unknown }).tileSize
+  if (typeof tileSize === 'number' && tileSize !== 512) {
+    warnings.push(`Source "${id}" declares tileSize: ${tileSize}; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.`)
+  }
+
   if (src.type === 'vector') {
     const url = src.url ?? src.tiles?.[0]
     if (url && /\.pmtiles(\?|$)/.test(url)) {
