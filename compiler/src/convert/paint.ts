@@ -226,7 +226,16 @@ function interpolateZoomStops(
   if ((v[0] === 'interpolate-lab' || v[0] === 'interpolate-hcl') && warnings) {
     warnings.push(`${v[0]}(…) approximated as linear-RGB — xgis has no LAB/HCL per-stop evaluator yet.`)
   }
-  const curveSpec = v[1]
+  // v8 strict tooling can wrap the curve spec itself as
+  // `["literal", ["exponential", 2]]`. Pre-fix the wrapped form left
+  // curveSpec[0] === 'literal' (not 'exponential'/'cubic-bezier'),
+  // the curve recognition fell through, and the authored exponential
+  // / bezier curve collapsed to linear without a warning.
+  let curveSpec: unknown = v[1]
+  if (Array.isArray(curveSpec) && curveSpec.length === 2 && curveSpec[0] === 'literal'
+      && Array.isArray(curveSpec[1])) {
+    curveSpec = curveSpec[1]
+  }
   // Element 2 must be the `zoom` accessor.
   const input = v[2]
   if (!Array.isArray(input) || input[0] !== 'zoom') return null

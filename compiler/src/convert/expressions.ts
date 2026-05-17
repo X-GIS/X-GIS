@@ -301,7 +301,16 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // linear-RGB — the evaluator has no per-stop colour-space
       // walker yet (same trade-off paint.ts uses for the zoom path).
       if (v.length < 5) return null
-      const curveSpec = v[1]
+      // v8 strict tooling can wrap the curve spec itself as
+      // `["literal", ["exponential", 2]]`. Pre-fix the outer literal
+      // wrap left curveSpec[0] === 'literal' (not 'exponential'), the
+      // exponential branch never fired, and the authored curve fell
+      // back to linear silently.
+      let curveSpec: unknown = v[1]
+      if (Array.isArray(curveSpec) && curveSpec.length === 2 && curveSpec[0] === 'literal'
+          && Array.isArray(curveSpec[1])) {
+        curveSpec = curveSpec[1]
+      }
       const input = exprToXgis(v[2], warnings)
       if (input === null) return null
       let isExp = false
