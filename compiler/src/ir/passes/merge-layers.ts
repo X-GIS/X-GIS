@@ -168,6 +168,12 @@ function isMergeableNode(n: RenderNode): boolean {
   // mechanism — letting the merger collapse them to a constant would
   // discard that information. Skip them so they render unmerged.
   if (n.stroke.width.kind !== 'constant') return false
+  // Stroke colour already carries a per-feature AST (e.g. user-authored
+  // `paint.line-color: ["match", …]` lowered through the converter's
+  // data-driven path). The merge would synthesise a UNION match across
+  // group members and clobber the existing colorExpr — same data-loss
+  // class as the strokeWidth bail above. Leave these unmerged.
+  if (n.stroke.colorExpr !== undefined) return false
   return true
 }
 
