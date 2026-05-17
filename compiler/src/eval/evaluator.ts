@@ -134,12 +134,18 @@ function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv
   const l = toNumber(left)
   const r = toNumber(right)
 
+  // Guard intermediate arithmetic against overflow → Infinity, which
+  // would otherwise propagate through downstream multiplications and
+  // produce NaN buffer values via Infinity * 0. Coerce non-finite
+  // arithmetic results to 0 (consistent with toNumber's non-finite
+  // sentinel at c6aa3b0).
+  const finite = (n: number): number => Number.isFinite(n) ? n : 0
   switch (expr.op) {
-    case '+': return l + r
-    case '-': return l - r
-    case '*': return l * r
-    case '/': return r !== 0 ? l / r : 0
-    case '%': return r !== 0 ? l % r : 0
+    case '+': return finite(l + r)
+    case '-': return finite(l - r)
+    case '*': return finite(l * r)
+    case '/': return r !== 0 ? finite(l / r) : 0
+    case '%': return r !== 0 ? finite(l % r) : 0
     case '==': return left === right
     case '!=': return left !== right
     case '<': return l < r
