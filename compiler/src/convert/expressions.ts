@@ -812,9 +812,18 @@ export function filterToXgis(v: unknown, warnings: string[]): string | null {
   // utility class (fill- / stroke- / shape-) the layer uses — so we
   // drop the sub-predicate. $id has no accessor; user has to swap in
   // a real `.field` check after the fact.
+  // Peel wrapped pseudo-field name (mirror of legacy comparison fix
+  // 8013bc3) — ['==', ['literal', '$type'], 'Polygon'] should still
+  // be recognised as a pseudo-field drop, not fall to a literal-vs-
+  // literal compare.
+  let peeledPseudoField: unknown = v[1]
+  while (Array.isArray(peeledPseudoField) && peeledPseudoField.length === 2
+      && peeledPseudoField[0] === 'literal') {
+    peeledPseudoField = peeledPseudoField[1]
+  }
   if ((op === '==' || op === '!=' || op === 'in' || op === '!in') &&
-      (v[1] === '$type' || v[1] === '$id')) {
-    warnings.push(`Filter on "${v[1]}" dropped — no xgis equivalent (geometry type is implied by the layer's utility class).`)
+      (peeledPseudoField === '$type' || peeledPseudoField === '$id')) {
+    warnings.push(`Filter on "${peeledPseudoField}" dropped — no xgis equivalent (geometry type is implied by the layer's utility class).`)
     return null
   }
 
