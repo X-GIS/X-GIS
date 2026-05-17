@@ -121,7 +121,15 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       const arms: string[] = []
       const def = args[args.length - 1]
       for (let i = 0; i < args.length - 1; i += 2) {
-        const key = args[i]
+        // Mapbox v8 strict tooling can emit `["literal", [k1, k2]]`
+        // for the keys-array form. Without unwrap, the outer
+        // Array.isArray check passed and the iteration produced
+        // arms `"literal" -> val`, `[k1, k2] -> val` — both wrong.
+        // The bare-array shape `[k1, k2]` is still accepted.
+        let key = args[i]
+        if (Array.isArray(key) && key.length === 2 && key[0] === 'literal') {
+          key = key[1]
+        }
         const val = exprToXgis(args[i + 1], warnings)
         if (val === null) continue
         const keyStrs = Array.isArray(key) ? key : [key]
@@ -573,7 +581,13 @@ export function matchToBooleanFilter(v: unknown[], warnings: string[]): string |
 
   const parts: string[] = []
   for (let i = 0; i < args.length - 1; i += 2) {
-    const key = args[i]
+    // Unwrap Mapbox v8 `["literal", [k1, k2]]` keys-array wrapper —
+    // mirror of the main match handler. Pre-fix the wrapped form
+    // iterated "literal" + the actual key list as separate arms.
+    let key = args[i]
+    if (Array.isArray(key) && key.length === 2 && key[0] === 'literal') {
+      key = key[1]
+    }
     const val = args[i + 1]
     if (val !== targetVal) continue
     const keys = Array.isArray(key) ? key : [key]
@@ -598,7 +612,12 @@ export function matchToTernary(input: unknown, args: unknown[], warnings: string
   const def = exprToXgis(args[args.length - 1], warnings) ?? '0'
   let result = def
   for (let i = args.length - 3; i >= 0; i -= 2) {
-    const key = args[i]
+    // Same literal-wrap unwrap pattern as the main match + boolean
+    // filter paths — keep the three match handlers in sync.
+    let key = args[i]
+    if (Array.isArray(key) && key.length === 2 && key[0] === 'literal') {
+      key = key[1]
+    }
     const val = exprToXgis(args[i + 1], warnings)
     if (val === null) continue
     const keyStrs = Array.isArray(key) ? key : [key]
