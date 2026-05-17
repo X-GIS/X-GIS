@@ -94,3 +94,42 @@ describe('XGISLayer.extrude getter / setter', () => {
     expect(show.extrude).toEqual({ kind: 'constant', value: 100 })
   })
 })
+
+describe('XGISLayer.extrudeBase getter / setter', () => {
+  // Mirrors the extrude pin — fewer cases since both share the
+  // implementation pattern. Pins 6fd47d1.
+
+  it('reads null when extrudeBase is `kind: none`', () => {
+    const show = makeShow()
+    show.extrudeBase = { kind: 'none' }
+    const layer = new XGISLayer('test', show, () => {})
+    expect(layer.style.extrudeBase).toBeNull()
+  })
+
+  it('reads the numeric value when extrudeBase is `kind: constant`', () => {
+    const show = makeShow()
+    show.extrudeBase = { kind: 'constant', value: 5 }
+    const layer = new XGISLayer('test', show, () => {})
+    expect(layer.style.extrudeBase).toBe(5)
+  })
+
+  it('setting a number replaces the base with kind: constant + invalidate fires', () => {
+    const invalidate = vi.fn()
+    const show = makeShow()
+    show.extrudeBase = { kind: 'none' }
+    const layer = new XGISLayer('test', show, invalidate)
+    layer.style.extrudeBase = 8
+    expect(show.extrudeBase).toEqual({ kind: 'constant', value: 8 })
+    expect(invalidate).toHaveBeenCalledTimes(1)
+  })
+
+  it('setting null flattens the base (kind: none)', () => {
+    const invalidate = vi.fn()
+    const show = makeShow()
+    show.extrudeBase = { kind: 'constant', value: 12 }
+    const layer = new XGISLayer('test', show, invalidate)
+    layer.style.extrudeBase = null
+    expect(show.extrudeBase).toEqual({ kind: 'none' })
+    expect(invalidate).toHaveBeenCalledTimes(1)
+  })
+})
