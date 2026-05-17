@@ -88,6 +88,21 @@ export function convertSource(
       lines.push('  // TODO: vector source without url/tiles — fill in PMTiles archive URL')
       warnings.push(`Source "${id}" has neither url nor tiles[]; emitted placeholder.`)
     }
+  } else if (src.type === 'pmtiles') {
+    // Non-spec but common community-extension shape — Protomaps tooling
+    // and several third-party styles author `"type": "pmtiles"` directly
+    // instead of `"vector"` + relying on URL-extension sniffing. Accept
+    // both and route to the same X-GIS pmtiles backend. Without this
+    // arm the converter fell to "unsupported source type" and the layer
+    // dropped entirely.
+    const url = src.url ?? src.tiles?.[0]
+    if (url) {
+      lines.push('  type: pmtiles')
+      lines.push(`  url: "${url}"`)
+    } else {
+      lines.push('  // TODO: pmtiles source missing url')
+      warnings.push(`PMTiles source "${id}" has no URL.`)
+    }
   } else if (src.type === 'raster') {
     const url = src.tiles?.[0] ?? src.url
     if (url) {

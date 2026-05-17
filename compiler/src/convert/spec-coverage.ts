@@ -68,6 +68,7 @@ const TOP_LEVEL: readonly CoverageEntry[] = [
 const SOURCE_TYPES: readonly CoverageEntry[] = [
   { name: 'vector (.pmtiles)',  status: 'supported', note: 'Routed to PMTilesBackend.', source: 'sources.ts:38' },
   { name: 'vector (TileJSON)',  status: 'supported', note: 'Runtime fetches manifest then attaches PMTiles backend.', source: 'sources.ts:41' },
+  { name: 'pmtiles',            status: 'supported', note: 'Community-extension type ("type":"pmtiles") accepted as a sibling of the .pmtiles-URL detection path.', source: 'sources.ts:94' },
   { name: 'raster',             status: 'supported', source: 'sources.ts:48' },
   { name: 'geojson (URL)',      status: 'supported', source: 'sources.ts:73' },
   { name: 'geojson (inline)',   status: 'supported', note: 'Captured via inlineGeoJSON collector → auto-pushed after run().', source: 'sources.ts:77' },
