@@ -244,7 +244,7 @@ function convertSymbolLayer(
   const layout = (layer as { layout?: Record<string, unknown> }).layout ?? {}
   const paint = (layer as { paint?: Record<string, unknown> }).paint ?? {}
   const textField = layout['text-field']
-  const iconImage = layout['icon-image']
+  const iconImage = unwrapLiteralScalar(layout['icon-image'])
   const iconOnly = textField === undefined && typeof iconImage === 'string'
 
   if (textField === undefined && !iconOnly) {
@@ -424,7 +424,7 @@ function convertSymbolLayer(
   const variableAnchorOffset = layout['text-variable-anchor-offset']
   const hasVAO = Array.isArray(variableAnchorOffset) && variableAnchorOffset.length >= 2
   const variableAnchor = layout['text-variable-anchor']
-  const anchor = layout['text-anchor']
+  const anchor = unwrapLiteralScalar(layout['text-anchor'])
   if (hasVAO) {
     // handled in the offset block (needs fmtSigned in scope)
   } else if (Array.isArray(variableAnchor) && variableAnchor.length > 0) {
@@ -449,7 +449,7 @@ function convertSymbolLayer(
   }
 
   // text-transform → label-uppercase / lowercase / none.
-  const transform = layout['text-transform']
+  const transform = unwrapLiteralScalar(layout['text-transform'])
   if (transform === 'uppercase' || transform === 'lowercase' || transform === 'none') {
     utils.push(`label-${transform}`)
   }
@@ -624,7 +624,7 @@ function convertSymbolLayer(
   }
   const lineHeight = unwrapLiteralScalar(layout['text-line-height'])
   if (typeof lineHeight === 'number') utils.push(`label-line-height-${lineHeight}`)
-  const justify = layout['text-justify']
+  const justify = unwrapLiteralScalar(layout['text-justify'])
   if (justify === 'auto' || justify === 'left' || justify === 'center' || justify === 'right') {
     utils.push(`label-justify-${justify}`)
   }
@@ -736,7 +736,7 @@ function convertSymbolLayer(
   if (typeof iconSize === 'number' && iconSize !== 1) {
     utils.push(`label-icon-size-${fmtSigned(iconSize)}`)
   }
-  const iconAnchor = layout['icon-anchor']
+  const iconAnchor = unwrapLiteralScalar(layout['icon-anchor'])
   if (typeof iconAnchor === 'string' && iconAnchor !== 'center') {
     utils.push(`label-icon-anchor-${iconAnchor}`)
   }
