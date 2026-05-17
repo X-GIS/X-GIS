@@ -317,8 +317,11 @@ function convertSymbolLayer(
   // goal is "Mapbox 스타일이 다르게 렌더링되면 안 된다" — emit
   // defaults here so converted styles render identically without
   // changing baseline behaviour for hand-authored xgis.
+  // Treat null the same as undefined — Mapbox spec: a null paint
+  // value falls back to property default. Same pattern as the paint.ts
+  // add* helpers (26b8b20).
   const textColor = paint['text-color']
-  if (textColor !== undefined) {
+  if (textColor !== undefined && textColor !== null) {
     const interp = interpolateZoomCall(textColor, warnings, (val, w) => colorToXgis(val, w))
     if (interp !== null) {
       utils.push(`label-color-[${interp}]`)
@@ -355,7 +358,7 @@ function convertSymbolLayer(
     // `label-size--5` (double-dash utility name) on typo'd
     // negatives. Same class as the line-width / opacity clamps.
     utils.push(`label-size-${Math.max(0, textSize)}`)
-  } else if (textSize !== undefined) {
+  } else if (textSize !== undefined && textSize !== null) {
     const interp = interpolateZoomCall(textSize, warnings,
       (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
     if (interp !== null) {
@@ -383,7 +386,7 @@ function convertSymbolLayer(
   const haloWidth = unwrapLiteralScalar(paint['text-halo-width'])
   if (typeof haloWidth === 'number' && haloWidth > 0) {
     utils.push(`label-halo-${haloWidth}`)
-  } else if (haloWidth !== undefined) {
+  } else if (haloWidth !== undefined && haloWidth !== null) {
     // Same negative-clamp guard as text-size — Mapbox spec
     // text-halo-width >= 0.
     const interp = interpolateZoomCall(haloWidth, warnings,
@@ -401,7 +404,7 @@ function convertSymbolLayer(
     }
   }
   const haloColor = paint['text-halo-color']
-  if (haloColor !== undefined) {
+  if (haloColor !== undefined && haloColor !== null) {
     const interp = interpolateZoomCall(haloColor, warnings, (val, w) => colorToXgis(val, w))
     if (interp !== null) {
       utils.push(`label-halo-color-[${interp}]`)
@@ -612,7 +615,7 @@ function convertSymbolLayer(
   if (typeof padding === 'number') {
     // Mapbox spec: text-padding >= 0.
     utils.push(`label-padding-${Math.max(0, padding)}`)
-  } else if (padding !== undefined) {
+  } else if (padding !== undefined && padding !== null) {
     const interp = interpolateZoomCall(padding, warnings,
       (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
     if (interp !== null) utils.push(`label-padding-[${interp}]`)
@@ -978,7 +981,7 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
     // same class as the other paint-numeric clamps. `size--5`
     // would lex as double-dash and crash the layer.
     utils.push(`size-${Math.max(0, radius)}`)
-  } else if (radius !== undefined) {
+  } else if (radius !== undefined && radius !== null) {
     const interp = interpolateZoomCall(radius, warnings,
       (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
     if (interp !== null) {
@@ -1081,7 +1084,7 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   const strokeWidth = unwrapLiteralScalar(paint['circle-stroke-width'])
   if (typeof strokeWidth === 'number' && strokeWidth > 0) {
     utils.push(`stroke-${strokeWidth}`)
-  } else if (strokeWidth !== undefined) {
+  } else if (strokeWidth !== undefined && strokeWidth !== null) {
     const interp = interpolateZoomCall(strokeWidth, warnings,
       (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
     if (interp !== null) {
