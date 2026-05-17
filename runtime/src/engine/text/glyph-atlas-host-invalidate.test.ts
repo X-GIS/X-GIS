@@ -30,6 +30,7 @@ class CountingRasterizer implements GlyphRasterizer {
     return {
       fontKey: req.fontKey, codepoint: req.codepoint, sdfRadius: req.sdfRadius, sdf,
       advanceWidth: 10 + this.calls, bearingX: 0, bearingY: 10, width: 10, height: 10,
+      rasterFontSize: req.fontSize,
     }
   }
 }
