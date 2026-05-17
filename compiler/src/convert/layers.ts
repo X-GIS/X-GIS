@@ -547,6 +547,21 @@ function convertSymbolLayer(
   const rotate = layout['text-rotate']
   if (typeof rotate === 'number' && rotate !== 0) {
     utils.push(`label-rotate-${fmtSigned(rotate)}`)
+  } else if (rotate !== undefined && typeof rotate !== 'number') {
+    // zoom-interpolated or per-feature rotate. Routes through the
+    // bracket-binding form so the IR carries the expression; the
+    // lower pass currently has no `label-rotate-[…]` consumer (per
+    // the diagnostic warning path at lower.ts:957) so the binding
+    // surfaces a warn-level diagnostic on emit. Mirror of the
+    // letter-spacing / max-width zoom-interp paths below.
+    const interp = interpolateZoomCall(rotate, warnings,
+      (val) => typeof val === 'number' ? String(val) : null)
+    if (interp !== null) {
+      utils.push(`label-rotate-[${interp}]`)
+    } else {
+      const expr = exprToXgis(rotate, warnings)
+      if (expr !== null) utils.push(`label-rotate-[${expr}]`)
+    }
   }
   const letterSpacing = layout['text-letter-spacing']
   if (typeof letterSpacing === 'number' && letterSpacing !== 0) {
