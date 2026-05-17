@@ -155,7 +155,13 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
         return null
       }
       const def = exprToXgis(args[args.length - 1], warnings)
-      let result = def ?? '0'
+      // Fall back to `null` (not `0`) when the default arm fails to
+      // convert. Pre-fix the numeric '0' fallback type-mismatched
+      // colour cases — the runtime received '0' where a hex was
+      // expected and the layer rendered transparent. `null` reads
+      // as the Identifier(null), which the evaluator coerces by
+      // context (colour → no fill default; number → 0; bool → false).
+      let result = def ?? 'null'
       for (let i = args.length - 3; i >= 0; i -= 2) {
         const cond = exprToXgis(args[i], warnings)
         const val = exprToXgis(args[i + 1], warnings)
