@@ -87,6 +87,25 @@ describe('polygon shader markers — drift invariants', () => {
     expect(STROKE_RETURN_MARKER.length).toBeGreaterThan(0)
   })
 
+  it('per-fragment backface helper is called from all three polygon fragment shaders', () => {
+    // Pins c205871 — fs_fill / fs_oit_translucent / fs_stroke each
+    // discard back-hemisphere fragments via the
+    // `polygon_cos_c_fragment(...)` helper (not via the interpolated
+    // `input.cos_c < 0.0` varying that was the original cull). A
+    // future refactor that drops the helper call from any of the
+    // three frag shaders would silently leak fragments on globe /
+    // ortho — pin the trio explicitly so that regression fails CI
+    // instead of shipping as a back-hemisphere bleed-through.
+    const callCount = countOccurrences(
+      POLYGON_SHADER_SOURCE,
+      'polygon_cos_c_fragment(input.abs_merc_x, input.abs_merc_y)',
+    )
+    expect(callCount, 'polygon_cos_c_fragment must be called by fs_fill, fs_oit_translucent, and fs_stroke')
+      .toBe(3)
+    // And confirm the helper itself is still defined exactly once.
+    expect(countOccurrences(POLYGON_SHADER_SOURCE, 'fn polygon_cos_c_fragment')).toBe(1)
+  })
+
   it('a simulated variant replace actually changes the shader (no silent no-op)', () => {
     // End-to-end: take the same string.replace path buildShader
     // does, and confirm the resulting source DIFFERS from the input.
