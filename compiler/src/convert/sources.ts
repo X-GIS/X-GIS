@@ -64,6 +64,16 @@ export function convertSource(
     warnings.push(`Source "${id}" tiles must be an array of URL strings — ignoring non-array value (was ${typeof src.tiles}).`)
     ;(src as { tiles?: unknown }).tiles = undefined
   }
+  // Defensive: spec requires src.url to be a string. A non-string url
+  // (object / array) would otherwise serialise via JSON.stringify into
+  // the emitted xgis as `url: "{\"foo\":1}"` — the runtime would
+  // fetch that literal string and 404 on every request. Drop the
+  // mis-typed value so downstream falls back to tiles[0] (or the
+  // placeholder).
+  if (src.url !== undefined && src.url !== null && typeof src.url !== 'string') {
+    warnings.push(`Source "${id}" url must be a string — ignoring non-string value (was ${typeof src.url}).`)
+    ;(src as { url?: unknown }).url = undefined
+  }
 
   // Mapbox `scheme: "tms"` flips the Y axis (origin bottom-left vs the
   // XYZ default top-left). X-GIS's tile selector assumes XYZ throughout
