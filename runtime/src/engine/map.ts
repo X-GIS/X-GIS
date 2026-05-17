@@ -4130,12 +4130,18 @@ export class XGISMap {
       case 'fill-opacity':
       case 'line-opacity':
       case 'opacity':
-        if (typeof value !== 'number') return false
-        layer.style.opacity = value
+        // Mapbox spec: opacity ∈ [0, 1]. Pre-fix an out-of-range value
+        // propagated to the renderer untouched; negative opacity is
+        // undefined behaviour and > 1 amplified colour bleeds through
+        // alpha compositing.
+        if (typeof value !== 'number' || !Number.isFinite(value)) return false
+        layer.style.opacity = Math.max(0, Math.min(1, value))
         return true
       case 'line-width':
-        if (typeof value !== 'number') return false
-        layer.style.strokeWidth = value
+        // Mapbox spec: line-width >= 0. Negative values previously
+        // propagated and the line shader produced inside-out miters.
+        if (typeof value !== 'number' || !Number.isFinite(value)) return false
+        layer.style.strokeWidth = Math.max(0, value)
         return true
       case 'visibility':
         // Mapbox-style: 'visible' | 'none'. Coerce to boolean for the
