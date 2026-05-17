@@ -152,7 +152,21 @@ function strokesShapeEqual(a: RenderNode['stroke'], b: RenderNode['stroke']): bo
   if (a.patterns && b.patterns) {
     for (let i = 0; i < a.patterns.length; i++) {
       const p = a.patterns[i]; const q = b.patterns[i]
-      if (p.shape !== q.shape || p.spacing !== q.spacing || p.size !== q.size) return false
+      // Every pattern attribute (shape / spacing+unit / size+unit /
+      // offset+unit / startOffset / anchor) is layer-uniform — no
+      // per-segment override slot exists. Pre-fix the check only
+      // compared shape / spacing / size, so two layers differing in
+      // pattern offset or anchor mode would fold into one and render
+      // every absorbed kind with the FIRST member's placement.
+      if (p.shape !== q.shape) return false
+      if (p.spacing !== q.spacing) return false
+      if ((p.spacingUnit ?? null) !== (q.spacingUnit ?? null)) return false
+      if (p.size !== q.size) return false
+      if ((p.sizeUnit ?? null) !== (q.sizeUnit ?? null)) return false
+      if ((p.offset ?? 0) !== (q.offset ?? 0)) return false
+      if ((p.offsetUnit ?? null) !== (q.offsetUnit ?? null)) return false
+      if ((p.startOffset ?? 0) !== (q.startOffset ?? 0)) return false
+      if ((p.anchor ?? 'repeat') !== (q.anchor ?? 'repeat')) return false
     }
   }
   return true
