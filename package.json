@@ -9,7 +9,10 @@
     "test": "vitest run",
     "dev": "bun run --filter @xgis/playground dev",
     "dev:site": "bun run --filter @xgis/site dev",
-    "dev:all": "bun run --filter @xgis/playground --filter @xgis/site dev"
+    "dev:all": "bun run --filter @xgis/playground --filter @xgis/site dev",
+    "precheck": "bun scripts/precheck.ts",
+    "precheck:smoke": "bun scripts/precheck.ts --smoke",
+    "setup:hooks": "git config core.hooksPath .githooks && echo Pre-push hook armed. Skip with --no-verify."
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

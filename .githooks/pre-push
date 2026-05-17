@@ -1,0 +1,16 @@
+#!/bin/sh
+# X-GIS pre-push gate. Runs the local precheck (vitest unit suite) so
+# the bulk of CI-catchable regressions surface before the network
+# round-trip. Activated via `bun setup:hooks` (sets core.hooksPath
+# to .githooks). Skip per-push with `git push --no-verify`.
+#
+# Cost: ~1 min on a typical dev box (mirrors the CI `test` job).
+# For the visual / projection smoke tier, run `bun precheck:smoke`
+# manually before push instead — adding it here would push the hook
+# past 3 min which most pushes don't need.
+#
+# Bash because git hooks on Windows run via git-for-windows' bundled
+# sh; sticking to POSIX keeps Win + macOS parity without per-OS
+# branches.
+
+bun run precheck
