@@ -490,7 +490,15 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
       // `stroke-dasharray--4-2` (double-dash utility name) which the
       // parser splits incorrectly. Same class as the line-width /
       // opacity / text-size clamps.
-      const nums = v.filter(n => typeof n === 'number').map(n => Math.max(0, n as number))
+      // Per-element v8 literal-wrap unwrap. Strict tooling can emit
+      // `["literal", [["literal", 4], ["literal", 2]]]` — outer unwrap
+      // above gave the inner array but each element may still be a
+      // `["literal", 4]` scalar wrap. Without this, the typeof === 'number'
+      // filter rejected every element and the dash silently dropped.
+      const unwrapped = v.map(n =>
+        Array.isArray(n) && n.length === 2 && n[0] === 'literal' ? n[1] : n,
+      )
+      const nums = unwrapped.filter(n => typeof n === 'number').map(n => Math.max(0, n as number))
       if (nums.length >= 2) {
         out.push('stroke-dasharray-' + nums.join('-'))
         return
