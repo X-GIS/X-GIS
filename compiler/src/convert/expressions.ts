@@ -205,6 +205,47 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       const parts = v.slice(1).map(a => exprToXgis(a, warnings)).filter((s): s is string => s !== null)
       return parts.length > 0 ? `concat(${parts.join(', ')})` : null
     }
+    case 'format': {
+      // Mapbox `["format", text1, opts1, text2, opts2, …]`. Each
+      // (text, opts) pair is a span — `text` is the value to render,
+      // `opts` is `{}` for plain spans or an object with span-level
+      // overrides (font-scale, text-color, text-font, vertical-align)
+      // for rich-text labels. X-GIS labels currently render with one
+      // font/colour per layer, so we DROP the opts and concatenate
+      // the texts — preserving the displayed text content without
+      // the typography. Pre-fix the whole text-field collapsed to
+      // null and the layer dropped silently. Real-world hit: OFM
+      // Bright's road-shield + place-name layers use ["format", …]
+      // for primary-name + secondary-locale fallback.
+      const args = v.slice(1)
+      if (args.length === 0) return null
+      if (args.length % 2 !== 0) {
+        warnings.push(`Malformed ["format"] — text+opts pairs required: ${JSON.stringify(v).slice(0, 120)}`)
+        return null
+      }
+      let hasRichOpts = false
+      const texts: string[] = []
+      for (let i = 0; i < args.length; i += 2) {
+        const text = args[i]
+        const opts = args[i + 1]
+        // Empty opts `{}` is the bare-text case — no warning needed.
+        // Anything non-empty means the user requested styling we can't
+        // express; flag once per format call so the conversion notes
+        // surface the gap without N copies.
+        if (opts && typeof opts === 'object' && !Array.isArray(opts)
+            && Object.keys(opts as Record<string, unknown>).length > 0) {
+          hasRichOpts = true
+        }
+        const t = exprToXgis(text, warnings)
+        if (t === null) return null
+        texts.push(t)
+      }
+      if (hasRichOpts) {
+        warnings.push(`["format"] span-level options (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer.`)
+      }
+      if (texts.length === 1) return texts[0]!
+      return `concat(${texts.join(', ')})`
+    }
     case 'step': {
       // Mapbox `["step", input, default, stop1, val1, stop2, val2, …]`.
       // Total length is always ODD: 1 (op) + 1 (input) + 1 (default)

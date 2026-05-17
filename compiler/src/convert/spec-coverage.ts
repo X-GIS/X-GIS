@@ -318,7 +318,7 @@ const EXPRESSIONS: readonly CoverageEntry[] = [
   { name: 'feature-state',   status: 'na', note: 'Mapbox v8 dynamic property setter — no xgis equivalent.' },
   // Formatting / advanced
   { name: 'typeof',          status: 'supported', note: 'Returns Mapbox-shaped strings ("string" / "number" / "boolean" / "object" / "null").', source: 'expressions.ts:237' },
-  { name: 'format',          status: 'unsupported', impact: 'medium', note: 'Rich-text mixed font/colour spans.' },
+  { name: 'format',          status: 'partial', impact: 'low', note: 'Span texts concatenated via xgis concat(); per-span opts (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer.', source: 'expressions.ts:208' },
   { name: 'image',           status: 'unsupported', impact: 'high', note: 'Sprite atlas (Batch 2).' },
   { name: 'number-format',   status: 'supported', note: 'Lowers to positional `number_format(input, minFrac, maxFrac, locale, currency)` (xgis has no object-literal syntax). Routes through Intl.NumberFormat at runtime; null slots use spec defaults.', source: 'expressions.ts:275' },
   { name: 'collator',        status: 'unsupported', impact: 'low' },
