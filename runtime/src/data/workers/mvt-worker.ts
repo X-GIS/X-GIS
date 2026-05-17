@@ -149,11 +149,24 @@ function extractFeatureColors(
     // evaluate() they come back as either an integer (vec4 packed
     // into a number) or a string '#rrggbbaa'. Match arms in
     // mergeLayers emit hex strings.
-    if (typeof v === 'string' && v.startsWith('#') && (v.length === 7 || v.length === 9)) {
-      const r = parseInt(v.slice(1, 3), 16)
-      const g = parseInt(v.slice(3, 5), 16)
-      const b = parseInt(v.slice(5, 7), 16)
-      const a = v.length === 9 ? parseInt(v.slice(7, 9), 16) : 255
+    if (typeof v === 'string' && v.startsWith('#')
+        && (v.length === 4 || v.length === 5 || v.length === 7 || v.length === 9)) {
+      // Accept all four CSS hex forms: #rgb / #rgba / #rrggbb / #rrggbbaa.
+      // Pre-fix the short forms fell through the length gate and the
+      // per-feature colour baking emitted nothing — match arms using
+      // bare `#abc` or `#abcd` silently turned into the layer default.
+      let r: number, g: number, b: number, a: number
+      if (v.length === 4 || v.length === 5) {
+        r = parseInt(v[1] + v[1], 16)
+        g = parseInt(v[2] + v[2], 16)
+        b = parseInt(v[3] + v[3], 16)
+        a = v.length === 5 ? parseInt(v[4] + v[4], 16) : 255
+      } else {
+        r = parseInt(v.slice(1, 3), 16)
+        g = parseInt(v.slice(3, 5), 16)
+        b = parseInt(v.slice(5, 7), 16)
+        a = v.length === 9 ? parseInt(v.slice(7, 9), 16) : 255
+      }
       if (a > 0) {
         // Little-endian: low byte = R, high byte = A. Matches
         // WGSL's `unpack4x8unorm` which reads byte 0 → .x (= R).
