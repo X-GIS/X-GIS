@@ -1023,9 +1023,10 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   }
 
   // circle-opacity → opacity. Mapbox 0..1 → xgis 0..100 conversion
-  // handled inside addOpacity helper; reuse it here.
+  // handled inside addOpacity helper; reuse it here. Same null-as-
+  // omit treatment as the other paint properties.
   const opacity = unwrapLiteralScalar(paint['circle-opacity'])
-  if (opacity !== undefined) {
+  if (opacity !== undefined && opacity !== null) {
     // addOpacity pushes onto its `out` array; we splice into utils.
     const tmp: string[] = []
     // Lazy local re-route to addOpacity from paint.ts. We already have
