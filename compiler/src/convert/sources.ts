@@ -168,11 +168,13 @@ export function convertSource(
       clusterMinPoints?: unknown
       clusterProperties?: unknown
     }
+    // Treat null the same as undefined per Mapbox spec — both mean
+    // "field omitted" and shouldn't trigger the cluster warning.
     if (clusterCfg.cluster === true
-        || clusterCfg.clusterRadius !== undefined
-        || clusterCfg.clusterMaxZoom !== undefined
-        || clusterCfg.clusterMinPoints !== undefined
-        || clusterCfg.clusterProperties !== undefined) {
+        || (clusterCfg.clusterRadius !== undefined && clusterCfg.clusterRadius !== null)
+        || (clusterCfg.clusterMaxZoom !== undefined && clusterCfg.clusterMaxZoom !== null)
+        || (clusterCfg.clusterMinPoints !== undefined && clusterCfg.clusterMinPoints !== null)
+        || (clusterCfg.clusterProperties !== undefined && clusterCfg.clusterProperties !== null)) {
       warnings.push(`GeoJSON source "${id}" declares clustering (cluster / clusterRadius / clusterMaxZoom / clusterMinPoints / clusterProperties); X-GIS has no point-clustering pipeline today, so all features render at their authored positions. Pre-cluster the data at the host until native cluster support lands.`)
     }
     // Mapbox GeoJSON tuning fields: `tolerance` (Douglas-Peucker
@@ -188,8 +190,8 @@ export function convertSource(
       attribution?: unknown
     }
     const geoIgnored: string[] = []
-    if (geoCfg.tolerance !== undefined) geoIgnored.push('tolerance')
-    if (geoCfg.buffer !== undefined) geoIgnored.push('buffer')
+    if (geoCfg.tolerance !== undefined && geoCfg.tolerance !== null) geoIgnored.push('tolerance')
+    if (geoCfg.buffer !== undefined && geoCfg.buffer !== null) geoIgnored.push('buffer')
     if (geoCfg.lineMetrics === true) geoIgnored.push('lineMetrics (line-gradient prerequisite)')
     if (geoCfg.generateId === true) geoIgnored.push('generateId')
     if (geoIgnored.length > 0) {
@@ -200,7 +202,7 @@ export function convertSource(
     // doesn't promote ids today; `["id"]` resolves to whatever the
     // source data carries on the id slot, undefined when absent.
     const promoteId = (src as { promoteId?: unknown }).promoteId
-    if (promoteId !== undefined) {
+    if (promoteId !== undefined && promoteId !== null) {
       warnings.push(`GeoJSON source "${id}" declares promoteId; the runtime doesn't promote feature properties to feature.id, so the ["id"] accessor reads the original id slot only.`)
     }
     const data = (src as { data?: string | unknown }).data
