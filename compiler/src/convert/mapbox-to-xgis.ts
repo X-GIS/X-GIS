@@ -133,30 +133,27 @@ export function convertMapboxStyle(
 
   // ── Top-level style fields without an X-GIS equivalent ─────────────
   // The Mapbox style spec defines several top-level fields beyond
-  // `sources` / `layers` / `name`. Most are unsupported today; the
-  // ones that meaningfully affect rendering deserve an explicit note
-  // so style authors don't quietly inherit the X-GIS default.
+  // `sources` / `layers` / `name`. The CONVERTER doesn't encode any
+  // of them in the xgis source; the ones the host integration HANDLES
+  // out-of-band (glyphs / sprite via setGlyphsUrl + setSpriteUrl, plus
+  // camera state via the hash) deliberately stay off the warning list.
+  // Only fields that meaningfully change rendering AND have no host
+  // hook today get warned:
   //
   //   projection — runtime supports multiple projections via the
   //                `?proj=` URL flag, but the style-spec field isn't
   //                read. A style declaring `projection: { type:
   //                "globe" }` renders flat-Mercator.
-  //   glyphs     — custom-font URL template. X-GIS self-hosts a Noto
-  //                Sans / CJK stack; a style author's hosted font
-  //                family won't be picked up.
-  //   sprite     — bitmap sprite atlas (Batch 2 roadmap). Icons
-  //                + fill-pattern / line-pattern all wait on this.
   //   fog / light / terrain / transition / imports — Mapbox v3
   //                additions, none implemented.
   //
-  // Centre / zoom / pitch / bearing are deliberately omitted from
-  // this list — they're CAMERA STATE, not style intent, and the host
-  // sets them via the URL hash / `XGISMap` API.
+  // Centre / zoom / pitch / bearing / glyphs / sprite are deliberately
+  // omitted — they're host-integration concerns (the playground's
+  // demo-runner + compare-runner read them and call the matching
+  // XGISMap setters), not converter ones.
   const styleAny = style as unknown as Record<string, unknown>
   const topLevelGaps: string[] = []
   if (styleAny.projection !== undefined) topLevelGaps.push('projection')
-  if (typeof styleAny.glyphs === 'string') topLevelGaps.push('glyphs (custom font URL template)')
-  if (typeof styleAny.sprite === 'string') topLevelGaps.push('sprite (Batch 2 — sprite atlas)')
   for (const k of ['fog', 'light', 'terrain', 'transition', 'imports']) {
     if (styleAny[k] !== undefined) topLevelGaps.push(k)
   }
