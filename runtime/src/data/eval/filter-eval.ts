@@ -28,7 +28,16 @@ export type FilterAst = unknown // structurally-typed AST node from the compiler
  *  booleans direct, non-zero numbers truthy, everything else `!!`. */
 export function evalFilterExpr(ast: FilterAst, props: Record<string, unknown>): boolean {
   if (!ast || typeof ast !== 'object') return true
-  const v = evaluate(ast as never, props)
+  // Per-feature throw isolation — mirror of applyFilter (566ab36).
+  // Inside MVT worker decoding / PMTiles tile compile the filter is
+  // run thousands of times per tile; one pathological feature must
+  // not nuke the rest of the tile's slice. Treat throw as 'reject'.
+  let v: unknown
+  try {
+    v = evaluate(ast as never, props)
+  } catch {
+    return false
+  }
   if (typeof v === 'boolean') return v
   if (typeof v === 'number') return v !== 0
   return !!v
