@@ -53,6 +53,17 @@ export function convertSource(
   if (Array.isArray(src.tiles) && src.tiles.length > 1) {
     warnings.push(`Source "${id}" declares ${src.tiles.length} tile endpoint mirrors (subdomain rotation); the runtime uses only the first — others are ignored. Affects fetch parallelism, not correctness.`)
   }
+  // Defensive: spec requires src.tiles to be an array of URL strings.
+  // A malformed style that passes `tiles: "https://…"` as a bare
+  // string (common cut-and-paste mistake from people thinking of
+  // `url:`) would otherwise let `src.tiles?.[0]` return the first
+  // CHAR of the URL ("h"), producing a broken xgis source. Drop the
+  // mis-typed value and warn; downstream `src.url` fallback still
+  // works.
+  if (src.tiles !== undefined && !Array.isArray(src.tiles)) {
+    warnings.push(`Source "${id}" tiles must be an array of URL strings — ignoring non-array value (was ${typeof src.tiles}).`)
+    ;(src as { tiles?: unknown }).tiles = undefined
+  }
 
   // Mapbox `scheme: "tms"` flips the Y axis (origin bottom-left vs the
   // XYZ default top-left). X-GIS's tile selector assumes XYZ throughout
