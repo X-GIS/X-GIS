@@ -32,6 +32,16 @@ export function convertSource(
   warnings: string[],
   options?: ConvertSourceOptions,
 ): string {
+  // Malformed style: a source value that's null or not an object.
+  // Mapbox spec requires an object, but partial / hand-edited JSON in
+  // the wild can have null source bodies. Pre-fix the function crashed
+  // at `src.tiles` / `src.scheme` etc. and the WHOLE style failed to
+  // convert — even unrelated layers dropped. Emit a placeholder + warn
+  // so the rest of the style still converts.
+  if (src === null || typeof src !== 'object' || Array.isArray(src)) {
+    warnings.push(`Source "${id}" has invalid (non-object) body; emitted placeholder.`)
+    return `source ${sanitizeId(id)} {\n  // TODO: invalid source body\n}`
+  }
   const lines: string[] = [`source ${sanitizeId(id)} {`]
   // Mapbox source spec permits `tiles: [url0, url1, ...]` — the array
   // describes EQUIVALENT endpoints (typically subdomain-rotated mirrors
