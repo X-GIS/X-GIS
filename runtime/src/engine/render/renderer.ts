@@ -688,6 +688,14 @@ function parseColor(hex: string): [number, number, number, number] {
     r = parseInt(hex[1] + hex[1], 16) / 255
     g = parseInt(hex[2] + hex[2], 16) / 255
     b = parseInt(hex[3] + hex[3], 16) / 255
+  } else if (hex.length === 5) {
+    // #RGBA — CSS Color Module 4 short-alpha. Pre-fix this length
+    // fell to the [0,0,0,1] default; mirror of the feature-helpers
+    // parseHexColor fix (6acc299).
+    r = parseInt(hex[1] + hex[1], 16) / 255
+    g = parseInt(hex[2] + hex[2], 16) / 255
+    b = parseInt(hex[3] + hex[3], 16) / 255
+    a = parseInt(hex[4] + hex[4], 16) / 255
   } else if (hex.length === 7) {
     // #RRGGBB
     r = parseInt(hex.substring(1, 3), 16) / 255
