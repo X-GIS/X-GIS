@@ -552,11 +552,20 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
           ? `.${field}`
           : exprToXgis(field, warnings)
         if (fxg === null) return null
-        const eqs = list[1].map((k: unknown) => `${fxg} == ${typeof k === 'string' ? JSON.stringify(k) : k}`)
+        // Each key in the values list can itself be v8-literal-wrapped
+        // (Mapbox strict tooling: `["literal", [["literal", "a"], "b"]]`).
+        // Unwrap eagerly so the equality emit sees the bare value.
+        const eqs = list[1].map((k: unknown) => {
+          if (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
+          return `${fxg} == ${typeof k === 'string' ? JSON.stringify(k) : k}`
+        })
         return eqs.join(' || ')
       }
       if (typeof field === 'string') {
-        const eqs = v.slice(2).map(k => `.${field} == ${typeof k === 'string' ? JSON.stringify(k) : k}`)
+        const eqs = v.slice(2).map(k => {
+          if (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
+          return `.${field} == ${typeof k === 'string' ? JSON.stringify(k) : k}`
+        })
         return eqs.join(' || ')
       }
       warnings.push(`["in"] form not converted: ${JSON.stringify(v).slice(0, 120)}`)
