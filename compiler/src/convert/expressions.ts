@@ -14,7 +14,17 @@ import { parenthesize } from './utils'
  *  shape isn't recognised. Recursively walks the expression tree;
  *  `warnings` accumulates "this got dropped / approximated" notes. */
 export function exprToXgis(v: unknown, warnings: string[]): string | null {
-  if (v === null || v === undefined) return null
+  // Explicit `null` → emit the xgis `null` identifier. Mapbox styles
+  // use `[\"==\", [\"get\", \"field\"], null]` to test for missing
+  // properties; pre-fix this collapsed the whole comparison to the
+  // "not converted" branch and the predicate dropped silently.
+  // Evaluator: `null` lowers as Identifier(name='null'); `props['null']`
+  // is virtually never set, so `props['null'] ?? null` → null, then
+  // `===` matches a missing-field null. Real properties literally
+  // named 'null' would shadow this — acceptable trade-off (no observed
+  // styles do this).
+  if (v === null) return 'null'
+  if (v === undefined) return null
   if (typeof v === 'number' || typeof v === 'boolean') return String(v)
   if (typeof v === 'string') return JSON.stringify(v) // quoted string literal
   if (!Array.isArray(v)) return null
