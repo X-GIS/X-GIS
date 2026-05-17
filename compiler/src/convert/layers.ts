@@ -14,8 +14,10 @@ import { colorToXgis } from './colors'
 // dropped (outer length === 2 + offset[0] === "literal" fails the
 // numeric check).
 function unwrapLiteralTuple(v: unknown): unknown {
-  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal' && Array.isArray(v[1])) {
-    return v[1]
+  // Loop unwrap so `["literal", ["literal", [0, 1]]]` (rare v8 strict
+  // double-wrap) peels in one pass. Mirror of colorToXgis (921d5ad).
+  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal' && Array.isArray(v[1])) {
+    v = v[1]
   }
   return v
 }
@@ -25,10 +27,24 @@ function unwrapLiteralTuple(v: unknown): unknown {
 // wrap pattern without changing the bare-numeric fast path. Mirror
 // of paint.ts:unwrapLiteralNumeric from 240c5fb.
 function unwrapLiteralScalar(v: unknown): unknown {
-  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal'
+  // Loop unwrap so `["literal", ["literal", 16]]` (rare v8 strict
+  // double-wrap) peels in one pass. Each iteration peels one layer
+  // only when the inner is a bare scalar — preserves the existing
+  // behaviour on tuple wrappers (those route through unwrapLiteralTuple).
+  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal'
       && (typeof v[1] === 'number' || typeof v[1] === 'string'
           || typeof v[1] === 'boolean')) {
-    return v[1]
+    v = v[1]
+  }
+  // Handle the mixed case: `["literal", ["literal", 16]]` where the
+  // outer's inner is itself a literal-array wrapper (which the scalar
+  // gate above rejected). Peel once more if the inner is a 2-elt
+  // literal whose payload is scalar. Loop bounded by structural depth.
+  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal'
+      && Array.isArray(v[1]) && v[1].length === 2 && v[1][0] === 'literal'
+      && (typeof v[1][1] === 'number' || typeof v[1][1] === 'string'
+          || typeof v[1][1] === 'boolean')) {
+    v = v[1][1]
   }
   return v
 }

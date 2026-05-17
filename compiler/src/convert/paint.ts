@@ -21,8 +21,12 @@ import { maybeBracket } from './utils'
  *  eagerly lets a uniform code path handle both the bare and v8-
  *  strict forms. */
 function unwrapStopLiteral(v: unknown): unknown {
-  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
-    return v[1]
+  // Loop unwrap so double-wraps like `["literal", ["literal", 0.5]]`
+  // (rare, but emitted by some v8 strict preprocessor chains) peel
+  // down to the inner scalar/array in one pass. Mirror of the loop
+  // unwrap in colorToXgis (921d5ad).
+  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
+    v = v[1]
   }
   return v
 }
@@ -417,8 +421,10 @@ function addFillOutline(out: string[], v: unknown, warnings: string[]): void {
  *  with the inner number as a quoted string. Mirror of the literal-
  *  unwrap pattern in colorToXgis (e3c5c62) and addOpacity (718d21a). */
 function unwrapLiteralNumeric(v: unknown): unknown {
-  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
-    return v[1]
+  // Loop unwrap mirrors colorToXgis (921d5ad) so double-wrapped
+  // `["literal", ["literal", 1.5]]` peels in one pass.
+  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
+    v = v[1]
   }
   return v
 }
