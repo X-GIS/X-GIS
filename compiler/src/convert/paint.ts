@@ -562,8 +562,13 @@ function addOpacity(out: string[], v: unknown, warnings: string[]): void {
   const interp = interpolateZoomCall(v, warnings, (val) => {
     if (typeof val !== 'number') return null
     // Mapbox opacity is 0..1; xgis opacity utility takes 0..100.
-    // Scale here so the stops match the utility's scale.
-    return String(val <= 1 ? Math.round(val * 100) : val)
+    // Scale here so the stops match the utility's scale. Apply the
+    // SAME [0, 1] clamp the constant path uses — pre-fix a negative
+    // or > 1 stop emitted invalid utility names (opacity-[-50, …])
+    // or > 100 percent values. Mirror of the constant-path clamp
+    // at line 558.
+    const clamped = Math.max(0, Math.min(1, val <= 1 ? val : val / 100))
+    return String(Math.round(clamped * 100))
   })
   if (interp !== null) {
     out.push(`opacity-[${interp}]`)
