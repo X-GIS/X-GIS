@@ -157,9 +157,18 @@ export function installWebGPUStub(): StubInstallation {
   }
 
   // Snapshot prior state for clean restore.
-  const g = globalThis as { navigator?: Record<string, unknown> }
+  const g = globalThis as {
+    navigator?: Record<string, unknown>
+    GPUShaderStage?: unknown; GPUBufferUsage?: unknown; GPUTextureUsage?: unknown
+    GPUMapMode?: unknown; GPUColorWrite?: unknown
+  }
   const navExistedBefore = g.navigator !== undefined
   const priorGpu = g.navigator?.gpu
+  const priorGlobals = {
+    GPUShaderStage: g.GPUShaderStage, GPUBufferUsage: g.GPUBufferUsage,
+    GPUTextureUsage: g.GPUTextureUsage, GPUMapMode: g.GPUMapMode,
+    GPUColorWrite: g.GPUColorWrite,
+  }
 
   const priorGetContext = typeof HTMLCanvasElement !== 'undefined'
     ? HTMLCanvasElement.prototype.getContext : null
@@ -168,6 +177,30 @@ export function installWebGPUStub(): StubInstallation {
   // vitest-node sometimes doesn't. Define-if-missing then assign.
   if (!g.navigator) g.navigator = {}
   g.navigator.gpu = gpuStub
+
+  // WebGPU int-enum globals. Production code reads these as
+  // `GPUShaderStage.FRAGMENT` (= 2) etc., so the stub has to define
+  // them in JSDOM/Node where they don't exist. Values mirror the spec.
+  if (g.GPUShaderStage === undefined) {
+    g.GPUShaderStage = { VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 }
+  }
+  if (g.GPUBufferUsage === undefined) {
+    g.GPUBufferUsage = {
+      MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8,
+      INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128,
+      INDIRECT: 256, QUERY_RESOLVE: 512,
+    }
+  }
+  if (g.GPUTextureUsage === undefined) {
+    g.GPUTextureUsage = {
+      COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4,
+      STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16,
+    }
+  }
+  if (g.GPUMapMode === undefined) g.GPUMapMode = { READ: 1, WRITE: 2 }
+  if (g.GPUColorWrite === undefined) {
+    g.GPUColorWrite = { RED: 1, GREEN: 2, BLUE: 4, ALPHA: 8, ALL: 15 }
+  }
 
   // Stub canvas.getContext('webgpu'). Real Canvas2D / WebGL still need
   // to work for non-WebGPU tests, so we only intercept the 'webgpu' arg.
@@ -193,6 +226,13 @@ export function installWebGPUStub(): StubInstallation {
         delete g.navigator!.gpu
       } else {
         g.navigator!.gpu = priorGpu
+      }
+      // Restore (or remove) the WebGPU int-enum globals so test
+      // isolation holds — a later test in a different file shouldn't
+      // accidentally inherit them.
+      for (const [k, v] of Object.entries(priorGlobals)) {
+        if (v === undefined) delete (g as Record<string, unknown>)[k]
+        else (g as Record<string, unknown>)[k] = v
       }
       if (priorGetContext && typeof HTMLCanvasElement !== 'undefined') {
         HTMLCanvasElement.prototype.getContext = priorGetContext
