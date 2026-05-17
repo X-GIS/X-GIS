@@ -429,9 +429,16 @@ function convertSymbolLayer(
   // an array stuffed into `text-anchor`) lists the candidates; falling
   // back to the static 9-way `text-anchor`. The legacy "array in
   // text-anchor" shape is kept for callers that pre-fold it that way.
-  const variableAnchorOffset = layout['text-variable-anchor-offset']
+  // text-variable-anchor[-offset] both accept the v8 strict `["literal",
+  // [...]]` wrapper around the candidates list. Without unwrap the
+  // outer Array.isArray passed and the iteration produced the operator
+  // string "literal" as a (rejected) anchor name + the inner array
+  // (also rejected because not a string) — net result: NO anchors
+  // emitted, label fell back to the layer's static text-anchor (or
+  // the runtime's "center" default).
+  const variableAnchorOffset = unwrapLiteralTuple(layout['text-variable-anchor-offset'])
   const hasVAO = Array.isArray(variableAnchorOffset) && variableAnchorOffset.length >= 2
-  const variableAnchor = layout['text-variable-anchor']
+  const variableAnchor = unwrapLiteralTuple(layout['text-variable-anchor'])
   const anchor = unwrapLiteralScalar(layout['text-anchor'])
   if (hasVAO) {
     // handled in the offset block (needs fmtSigned in scope)
@@ -657,7 +664,12 @@ function convertSymbolLayer(
   // — "Noto Sans Bold" + "Noto Sans CJK KR Bold"). We parse weight/
   // style from each entry and emit a single utility for whichever
   // value appears most often (first non-default wins).
-  const fontStack = layout['text-font']
+  // text-font may be wrapped as `["literal", [...]]` under v8 strict
+  // tooling; the bare-array shape is the default. Without the unwrap
+  // the outer Array.isArray passed and the iteration produced
+  // `label-font-literal` (treating the operator string as a family
+  // name). Mirror of the unwrap pattern in parseSymbolPlacementStep.
+  const fontStack = unwrapLiteralTuple(layout['text-font'])
   if (Array.isArray(fontStack) && fontStack.length > 0) {
     let emittedWeight: number | undefined
     let emittedStyle: 'italic' | undefined
