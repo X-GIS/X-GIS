@@ -80,7 +80,16 @@ export function makeEvalProps(opts: {
   /** GeoJSON geometry type — exposed via `["geometry-type"]`. */
   geometryType?: string
 }): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...(opts.props ?? {}) }
+  // Defensive: coerce non-plain-object props to {}. A host passing
+  // a string or array (TypeScript-typed-as-record cast at the
+  // boundary) would otherwise spread char/index keys into the props
+  // bag and downstream `.field` lookups would return chars.
+  const rawProps = opts.props
+  const safeProps = rawProps !== null && rawProps !== undefined
+    && typeof rawProps === 'object' && !Array.isArray(rawProps)
+    ? rawProps as Record<string, unknown>
+    : {}
+  const out: Record<string, unknown> = { ...safeProps }
   if (opts.cameraZoom !== undefined) out[CAMERA_ZOOM_KEY] = opts.cameraZoom
   if (opts.featureId !== undefined) out[FEATURE_ID_KEY] = opts.featureId
   if (opts.geometryType !== undefined) {
