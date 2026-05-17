@@ -2419,7 +2419,15 @@ export class VectorTileRenderer {
     // (XGVT-binary, GeoJSON-runtime, no-filter PMTiles shows),
     // sliceKey collapses to plain `sourceLayer` ('' for single-
     // layer sources) — preserving back-compat.
-    const sliceLayer = computeSliceKey(show.sourceLayer ?? '', show.filterExpr?.ast ?? null)
+    // Inline GeoJSON shows lack explicit `sourceLayer`; the tilingPool
+    // emits MVT bytes with `_layer = sourceName`, so VTR must look up
+    // by `targetName` to match. Without this fallback, filtered shows
+    // (wealthy/top_economies in filter_gdp) computed sliceLayer='__hash'
+    // while the worker emitted 'countries__hash' — mismatch dropped
+    // their tiles silently. show-source-maps.ts mirrors this fallback
+    // so the worker emits keys matching what VTR will look up.
+    const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
+    const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
     // DIAG: capture per-frame draw order so the cross-tile depth
     // question ("is buildings actually drawn LAST?") is answered from
     // runtime behaviour rather than architectural reading. The Map's

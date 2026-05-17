@@ -116,11 +116,20 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
     needsExtrude: boolean
   }>>()
   for (const show of shows) {
-    if (!show.sourceLayer) continue
+    // Inline GeoJSON shows have no explicit `sourceLayer` (the source
+    // IS the layer). Fall back to `targetName` so they get a slice
+    // entry too — without it, the worker's slice path doesn't bucket
+    // per-filter, so wealthy/top_economies-style filtered layers
+    // render the unfiltered base data (filter_gdp emerald/yellow
+    // silently invisible bug). decodeMvtTile's `_layer` for
+    // tilingPool-emitted bytes equals `sourceName`, so `byLayer.get`
+    // resolves correctly.
+    const effectiveSourceLayer = show.sourceLayer || show.targetName
+    if (!effectiveSourceLayer) continue
     let list = showSlicesBySource.get(show.targetName)
     if (!list) { list = []; showSlicesBySource.set(show.targetName, list) }
     const filterAst = show.filterExpr?.ast ?? null
-    const sliceKey = computeSliceKey(show.sourceLayer, filterAst)
+    const sliceKey = computeSliceKey(effectiveSourceLayer, filterAst)
     // Worker emits featureProps Map when ANY downstream consumer reads per-
     // feature attributes: SDF label pipeline (show.label), per-feature paint
     // expressions that the variant shader branches on (data-driven fill /
@@ -137,7 +146,7 @@ export function buildShowSourceMaps(shows: readonly ShowCommand[]): ShowSourceMa
       if (needsFeatureProps) existing.needsFeatureProps = true
       if (needsExtrude) existing.needsExtrude = true
     } else {
-      list.push({ sliceKey, sourceLayer: show.sourceLayer, filterAst, needsFeatureProps, needsExtrude })
+      list.push({ sliceKey, sourceLayer: effectiveSourceLayer, filterAst, needsFeatureProps, needsExtrude })
     }
   }
 
