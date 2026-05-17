@@ -306,12 +306,12 @@ describe('globe — Cesium-style pitch', () => {
 })
 
 // The azimuthal set (orthographic / azimuthal_equidistant / stereographic)
-// promotes to this sphere path with a PARALLEL orbit camera when tilted.
-// The contract that makes the pitch=0 → pitch>0 transition seamless for
-// orthographic: an ortho-camera sphere at pitch=0 is byte-identical to
-// the flat 2D orthographic disc (orthographic projection of a sphere
-// along the surface normal IS that disc).
-describe('globe — orthographic (parallel) orbit camera', () => {
+// promotes to this sphere path when tilted. The `ortho` flag makes it a
+// TELEPHOTO orbit camera: visually near-parallel (matches the flat 2D
+// orthographic framing) yet it keeps a varying clip.w so the shared
+// log-depth buffer still occludes the far hemisphere — a true parallel
+// matrix (clip.w≡1) collapses log-depth and the back renders through.
+describe('globe — orthographic (telephoto) orbit camera', () => {
   const d2r = Math.PI / 180
   const projOrtho = (lon: number, lat: number, clon: number, clat: number) => {
     const lam = lon * d2r, phi = lat * d2r, l0 = clon * d2r, p0 = clat * d2r
@@ -328,24 +328,32 @@ describe('globe — orthographic (parallel) orbit camera', () => {
     ]
   }
 
-  it('pitch=0 ortho-globe matches the flat 2D orthographic disc', async () => {
+  it('pitch=0 telephoto-globe ≈ flat 2D orthographic, far closer than perspective', async () => {
     const { Camera } = await import('./camera')
     const clon = 10, clat = 30, zoom = 2
     const cam = new Camera(clon, clat, zoom)
     cam.projType = 3 // flat 2D azimuthal path
     const m2d = cam.getRTCMatrix(W, H, 1)
-    const v = buildGlobeMatrix(clon, clat, zoom, 0, 0, W, H, true)
+    const tele = buildGlobeMatrix(clon, clat, zoom, 0, 0, W, H, true)  // ortho/telephoto
+    const persp = buildGlobeMatrix(clon, clat, zoom, 0, 0, W, H, false) // plain perspective
     const fc = globeForward(clon, clat)
     for (const [lon, lat] of [[10, 30], [15, 35], [5, 25], [30, 10], [-10, 50], [40, -5]]) {
       const a = ndc(m2d, [...projOrtho(lon, lat, clon, clat), 0, 1])
       const g = globeForward(lon, lat)
-      const b = ndc(v.rtcMatrix, [g[0] - fc[0], g[1] - fc[1], g[2] - fc[2], 1])
-      expect(Math.abs(a[0] - b[0])).toBeLessThan(2e-3)
-      expect(Math.abs(a[1] - b[1])).toBeLessThan(2e-3)
+      const rel = [g[0] - fc[0], g[1] - fc[1], g[2] - fc[2], 1]
+      const t = ndc(tele.rtcMatrix, rel)
+      const p = ndc(persp.rtcMatrix, rel)
+      const eTele = Math.hypot(a[0] - t[0], a[1] - t[1])
+      const ePersp = Math.hypot(a[0] - p[0], a[1] - p[1])
+      // Telephoto is visually parallel: close to the exact 2D ortho …
+      expect(eTele).toBeLessThan(0.02)
+      // … and dramatically closer than a full perspective globe would be
+      // (skip the centre point where both are exactly 0).
+      if (ePersp > 1e-6) expect(eTele).toBeLessThan(ePersp * 0.2)
     }
   })
 
-  it('parallel projection (clip.w ≡ 1) and a real tilt at pitch>0', () => {
+  it('clip.w varies with depth (log-depth occludes the far hemisphere) + tilts', () => {
     const fc = globeForward(0, 0)
     const rel = (lon: number, lat: number) => {
       const g = globeForward(lon, lat)
@@ -353,11 +361,16 @@ describe('globe — orthographic (parallel) orbit camera', () => {
     }
     const flat = buildGlobeMatrix(0, 0, 2, 0, 0, W, H, true)
     const tilt = buildGlobeMatrix(0, 0, 2, 45, 0, W, H, true)
-    // No perspective divide under the parallel camera.
-    const m = tilt.rtcMatrix, p = rel(20, 15)
-    const w = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15] * p[3]
-    expect(Math.abs(w - 1)).toBeLessThan(1e-6)
-    // Tilting moves an off-centre point vertically on screen.
+    const clipW = (m: ArrayLike<number>, p: number[]) =>
+      m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15] * p[3]
+    // Near hemisphere (front, by the focus) vs far hemisphere (behind the
+    // globe). A real parallel matrix gives w≡1 for both → constant depth
+    // → back renders through. The telephoto camera MUST separate them.
+    const wFront = clipW(tilt.rtcMatrix, rel(0, 0))
+    const wBack = clipW(tilt.rtcMatrix, rel(180, 0))
+    expect(wFront).toBeGreaterThan(0)
+    expect(wBack - wFront).toBeGreaterThan(EARTH_R) // clearly ordered in depth
+    // Tilting still moves an off-centre point vertically on screen.
     expect(Math.abs(ndc(tilt.rtcMatrix, rel(0, 10))[1] - ndc(flat.rtcMatrix, rel(0, 10))[1]))
       .toBeGreaterThan(0.05)
   })
