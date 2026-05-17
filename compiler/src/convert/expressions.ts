@@ -787,6 +787,17 @@ export function matchToTernary(input: unknown, args: unknown[], warnings: string
  *  as a bare string in position 1). */
 export function filterToXgis(v: unknown, warnings: string[]): string | null {
   if (v === null || v === undefined) return null
+  // Peel multi-wrap null: `["literal", null]` / deeper means "no
+  // filter" per Mapbox spec (a null filter accepts every feature).
+  // Pre-fix the wrapped form fell through to exprToXgis which
+  // emitted the bare 'null' identifier — runtime then evaluated the
+  // filter to null, toBool(null) = false, EVERY feature dropped, and
+  // the layer rendered empty.
+  let peeled: unknown = v
+  while (Array.isArray(peeled) && peeled.length === 2 && peeled[0] === 'literal') {
+    peeled = peeled[1]
+  }
+  if (peeled === null || peeled === undefined) return null
   if (!Array.isArray(v)) return exprToXgis(v, warnings)
   const op = v[0]
 
