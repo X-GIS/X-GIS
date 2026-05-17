@@ -3708,7 +3708,7 @@ export class XGISMap {
                   const propsRec = props as Record<string, unknown>
                   const stableName = typeof propsRec.name === 'string' ? propsRec.name
                     : typeof propsRec.name_en === 'string' ? propsRec.name_en
-                    : resolveText(featDef.text, props)
+                    : resolveText(featDef.text, props, this.camera.zoom)
                   const resolvedTextForDedupe = stableName
                   // Walk the polyline and compute the screen-pixel
                   // position for an offset s along it. Used by the
