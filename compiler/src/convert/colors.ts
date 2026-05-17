@@ -26,7 +26,13 @@ export function colorToXgis(v: unknown, warnings: string[]): string | null {
   // data-driven `fill-["#fff"]` bracket binding instead of the
   // constant `fill-#fff` utility, paying per-feature eval cost for
   // a constant value.
-  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
+  // Loop unwrap so DOUBLE-wrapped forms like
+  // `["literal", ["literal", "#fff"]]` (rare but observed in v8 strict
+  // tooling chained through expression preprocessors) peel down to
+  // the inner string. Pre-fix the single-pass unwrap left the inner
+  // literal wrapper intact and the typeof === 'string' gate failed
+  // → "Color expression not converted" → constant fell to default.
+  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
     v = v[1]
   }
   // `["to-color", "#fff"]` — Mapbox v8 type-coercion wrapper. The
