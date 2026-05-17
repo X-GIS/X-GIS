@@ -186,6 +186,48 @@ describe('converter warning coverage', () => {
       .toBe(true)
   })
 
+  it('interpolate-lab colour spec → "approximated as linear-RGB" warning', () => {
+    // Pins e66e095 — Mapbox v3 perceptually-uniform colour interp
+    // accepted with a graceful linear-RGB downgrade.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'lab_fade',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'landuse',
+        paint: {
+          'fill-color': ['interpolate-lab', ['linear'], ['zoom'],
+            0, '#fff',
+            18, '#888'],
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('interpolate-lab') && s.includes('linear-RGB')))
+      .toBe(true)
+  })
+
+  it('interpolate-hcl colour spec → "approximated as linear-RGB" warning', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'hcl_fade',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'landuse',
+        paint: {
+          'fill-color': ['interpolate-hcl', ['linear'], ['zoom'],
+            0, '#f00',
+            18, '#00f'],
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('interpolate-hcl') && s.includes('linear-RGB')))
+      .toBe(true)
+  })
+
   it('glyphs / sprite must NOT appear in the top-level warning (host-integration handled)', () => {
     // Regression for 2819cd6 — these used to be flagged here even
     // though the playground importers forward them via setGlyphsUrl /
