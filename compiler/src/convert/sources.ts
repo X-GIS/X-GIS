@@ -80,9 +80,13 @@ export function convertSource(
   // emitted `url: 42` carried a bare number where xgis expects a
   // quoted string.
   if (Array.isArray(src.tiles)) {
-    const filtered = src.tiles.filter((t: unknown): t is string => typeof t === 'string')
+    // Drop non-string entries AND empty strings. Pre-fix `tiles: [""]`
+    // passed the string-only filter then `tiles?.[0]` returned an
+    // empty string, the URL-fallback chain saw a truthy empty value
+    // and emitted `url: ""` — runtime fetch on "" 404s on every tile.
+    const filtered = src.tiles.filter((t: unknown): t is string => typeof t === 'string' && t.length > 0)
     if (filtered.length < src.tiles.length) {
-      warnings.push(`Source "${id}" tiles[] contains non-string entries — dropped ${src.tiles.length - filtered.length}.`)
+      warnings.push(`Source "${id}" tiles[] contains non-string or empty entries — dropped ${src.tiles.length - filtered.length}.`)
     }
     ;(src as { tiles?: unknown }).tiles = filtered.length > 0 ? filtered : undefined
   }
