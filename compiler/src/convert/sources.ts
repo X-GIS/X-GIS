@@ -132,6 +132,26 @@ export function convertSource(
         || clusterCfg.clusterProperties !== undefined) {
       warnings.push(`GeoJSON source "${id}" declares clustering (cluster / clusterRadius / clusterMaxZoom / clusterMinPoints / clusterProperties); X-GIS has no point-clustering pipeline today, so all features render at their authored positions. Pre-cluster the data at the host until native cluster support lands.`)
     }
+    // Mapbox GeoJSON tuning fields: `tolerance` (Douglas-Peucker
+    // simplification), `buffer` (tile-clip padding), `lineMetrics`
+    // (line-progress accessor for line-gradient), `maxzoom`,
+    // `attribution`, `generateId`. X-GIS's GeoJSON pipeline uses
+    // hand-tuned defaults; none of these are honoured.
+    const geoCfg = src as {
+      tolerance?: unknown
+      buffer?: unknown
+      lineMetrics?: unknown
+      generateId?: unknown
+      attribution?: unknown
+    }
+    const geoIgnored: string[] = []
+    if (geoCfg.tolerance !== undefined) geoIgnored.push('tolerance')
+    if (geoCfg.buffer !== undefined) geoIgnored.push('buffer')
+    if (geoCfg.lineMetrics === true) geoIgnored.push('lineMetrics (line-gradient prerequisite)')
+    if (geoCfg.generateId === true) geoIgnored.push('generateId')
+    if (geoIgnored.length > 0) {
+      warnings.push(`GeoJSON source "${id}" — ignored tuning fields: ${geoIgnored.join(', ')}`)
+    }
     const data = (src as { data?: string | unknown }).data
     if (typeof data === 'string') {
       // External URL — runtime fetches and decodes lazily.
