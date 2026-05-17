@@ -831,13 +831,22 @@ export function filterToXgis(v: unknown, warnings: string[]): string | null {
   // pushed the value through to exprToXgis which emitted
   // \`\"kind\" == \"park\"\` (literal-vs-literal), always false.
   if (op === '==' || op === '!=' || op === '<' || op === '<=' || op === '>' || op === '>=') {
-    if (typeof v[1] === 'string') {
+    // Peel wrapped field name too: v8 strict tooling occasionally emits
+    // `["==", ["literal", "kind"], "park"]` even for legacy-shape
+    // comparisons. Pre-fix the wrapped form fell to exprToXgis case
+    // 'literal' which emitted the field as a quoted string ('"kind"')
+    // and the predicate became `"kind" == "park"` (always false).
+    let rawField: unknown = v[1]
+    while (Array.isArray(rawField) && rawField.length === 2 && rawField[0] === 'literal') {
+      rawField = rawField[1]
+    }
+    if (typeof rawField === 'string') {
       let rawVal = v[2]
       while (Array.isArray(rawVal) && rawVal.length === 2 && rawVal[0] === 'literal') {
         rawVal = rawVal[1]
       }
       if (!Array.isArray(rawVal)) {
-        const field = v[1]
+        const field = rawField
         return `.${field} ${op} ${typeof rawVal === 'string' ? JSON.stringify(rawVal) : rawVal}`
       }
     }
