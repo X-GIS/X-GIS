@@ -52,6 +52,32 @@ describe('opacity scale conversion (Mapbox 0..1 → xgis 0..100)', () => {
     expect(emitFill(['literal', 0.5])).toContain('opacity-50')
   })
 
+  it('interpolate-by-zoom with literal-wrapped stop values resolves correctly', () => {
+    // Pins c1954f4 — each stop value can be wrapped in ["literal",
+    // …] per Mapbox v8 strict-tooling output. The whole interpolate
+    // used to fail with one null-callback return; now each stop is
+    // unwrapped at the per-stop emit site.
+    const out = convertMapboxStyle({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'wrapped_stops',
+        type: 'line',
+        source: 'v',
+        'source-layer': 'transportation',
+        paint: {
+          'line-color': '#000',
+          'line-width': ['interpolate', ['linear'], ['zoom'],
+            10, ['literal', 1],
+            16, ['literal', 8]],
+        },
+      }],
+    } as never)
+    // Both stops should resolve to numeric values inside the
+    // interpolate(zoom, …) call.
+    expect(out).toMatch(/interpolate\(zoom,\s*10,\s*1,\s*16,\s*8\)/)
+  })
+
   it('literal-wrapped line-width → bare numeric stroke utility', () => {
     // Pins the addStrokeWidth unwrap. `["literal", 3]` should emit
     // `stroke-3`, not the data-driven bracket form.
