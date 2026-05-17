@@ -278,6 +278,14 @@ function convertSymbolLayer(
     const f = filterToXgis(layer.filter, warnings)
     if (f) lines.push(`  filter: ${f}`)
   }
+  // `layout.visibility: 'none'` applies to every Mapbox layer type per
+  // spec — not just the generic convertLayer path. Without this gate
+  // a hidden symbol layer (label / icon) rendered anyway because the
+  // converter never emitted `visible: false`. Mirror the unwrap so v8
+  // strict `["literal", "none"]` works the same as bare "none".
+  if (unwrapLiteralScalar(layout['visibility']) === 'none') {
+    lines.push(`  visible: false`)
+  }
 
   const utils: string[] = [`label-[${labelExpr}]`]
 
@@ -885,6 +893,7 @@ function parseSymbolPlacementStep(
  */
 function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   const paint = (layer as { paint?: Record<string, unknown> }).paint ?? {}
+  const layout = (layer as { layout?: Record<string, unknown> }).layout ?? {}
   const lines: string[] = [`layer ${sanitizeId(layer.id)} {`]
   if (layer.source) lines.push(`  source: ${sanitizeId(layer.source)}`)
   if (layer['source-layer']) lines.push(`  sourceLayer: "${layer['source-layer']}"`)
@@ -893,6 +902,12 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   if (layer.filter !== undefined) {
     const f = filterToXgis(layer.filter, warnings)
     if (f) lines.push(`  filter: ${f}`)
+  }
+  // `layout.visibility: 'none'` applies to circle layers per spec.
+  // Same gap as convertSymbolLayer — without this a hidden circle
+  // layer kept rendering. Mirror the v8 literal-wrap unwrap.
+  if (unwrapLiteralScalar(layout['visibility']) === 'none') {
+    lines.push(`  visible: false`)
   }
 
   const utils: string[] = []
