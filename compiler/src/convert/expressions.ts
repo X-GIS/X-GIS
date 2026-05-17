@@ -615,7 +615,13 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // Two flavours:
       //   expression-form: ["in", value, ["literal", [...]]]
       //   legacy:          ["in", "field", v1, v2, …]
-      const field = v[1]
+      // Peel wrapped field name (legacy form) mirror of the legacy
+      // comparison fix 8013bc3.
+      let field: unknown = v[1]
+      while (Array.isArray(field) && field.length === 2 && field[0] === 'literal'
+          && typeof field[1] === 'string') {
+        field = field[1]
+      }
       let list = v[2]
       // Loop peel for multi-level wraps so doubly-wrapped lists
       // (`["literal", ["literal", [...]]]`) from preprocessor chains
@@ -855,17 +861,27 @@ export function filterToXgis(v: unknown, warnings: string[]): string | null {
   // the `in` op handling — v8 strict tooling can wrap each value
   // (`["literal", "park"]`) and pre-fix the equality emit
   // JSON.stringify'd the wrapper.
-  if (op === '!in' && typeof v[1] === 'string') {
-    // Empty values list — `["!in", field]` (no keys) means "field is
-    // never in this empty set" → ALWAYS true (always matches). Mirror
-    // of the `in` empty-list → false handling.
-    if (v.length === 2) return 'true'
-    const field = v[1]
-    const eqs = v.slice(2).map(k => {
-      while (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
-      return `.${field} != ${typeof k === 'string' ? JSON.stringify(k) : k}`
-    })
-    return eqs.join(' && ')
+  if (op === '!in') {
+    // Peel wrapped field name (mirror of the legacy comparison fix
+    // 8013bc3). Pre-fix typeof v[1] === 'string' rejected
+    // ['!in', ['literal', 'kind'], 'park'] and the predicate fell to
+    // exprToXgis which emitted a literal-vs-literal comparison.
+    let rawField: unknown = v[1]
+    while (Array.isArray(rawField) && rawField.length === 2 && rawField[0] === 'literal') {
+      rawField = rawField[1]
+    }
+    if (typeof rawField === 'string') {
+      // Empty values list — `["!in", field]` (no keys) means "field is
+      // never in this empty set" → ALWAYS true (always matches). Mirror
+      // of the `in` empty-list → false handling.
+      if (v.length === 2) return 'true'
+      const field = rawField
+      const eqs = v.slice(2).map(k => {
+        while (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
+        return `.${field} != ${typeof k === 'string' ? JSON.stringify(k) : k}`
+      })
+      return eqs.join(' && ')
+    }
   }
   // Otherwise route through the expression converter — it covers
   // all (non-legacy) forms uniformly.
