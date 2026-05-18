@@ -10,10 +10,37 @@
 
 import { parenthesize } from './utils'
 
+/** Maximum nesting depth before the expression converter bails. A
+ *  pathological style with 1e4+ levels of nesting (case-inside-case
+ *  chains, recursive let bodies, …) could blow the V8 stack pre-fix —
+ *  256 is far above any realistic style spec (OFM Bright peaks at
+ *  ~12 levels) but well below the 10k+ frames where browsers start
+ *  to fail. The guard prevents a malformed style from crashing the
+ *  whole compile; a single subtree is dropped with a warning. */
+const MAX_EXPR_DEPTH = 256
+let _exprDepth = 0
+
 /** Mapbox v1 expression → xgis expression string, or null when the
  *  shape isn't recognised. Recursively walks the expression tree;
- *  `warnings` accumulates "this got dropped / approximated" notes. */
+ *  `warnings` accumulates "this got dropped / approximated" notes.
+ *  Re-entrant via the module-scoped `_exprDepth` counter — every
+ *  inner recursive call advances depth + decrements in `finally`. */
 export function exprToXgis(v: unknown, warnings: string[]): string | null {
+  if (_exprDepth >= MAX_EXPR_DEPTH) {
+    if (_exprDepth === MAX_EXPR_DEPTH) {
+      warnings.push(`Expression nesting depth exceeded ${MAX_EXPR_DEPTH}; subtree truncated.`)
+    }
+    return null
+  }
+  _exprDepth++
+  try {
+    return _exprToXgisImpl(v, warnings)
+  } finally {
+    _exprDepth--
+  }
+}
+
+function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
   // Explicit `null` → emit the xgis `null` identifier. Mapbox styles
   // use `[\"==\", [\"get\", \"field\"], null]` to test for missing
   // properties; pre-fix this collapsed the whole comparison to the
@@ -250,6 +277,25 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       const arms: string[] = []
       const def = args[args.length - 1]
       let droppedArms = 0
+      let invalidKeyArms = 0
+      // Set of known Mapbox expression operators. If a label position
+      // is a bare array whose first element matches one of these, the
+      // user passed an expression where Mapbox spec requires a literal.
+      // Pre-fix the code treated such arrays as `[k1, k2]` shorthand —
+      // e.g. `["get", "k"]` matched features with property "get" or "k".
+      const EXPR_OPS = new Set([
+        'get', 'has', '!has', 'in', '!in', 'literal', 'var', 'let',
+        'case', 'match', 'coalesce', 'step', 'interpolate', 'interpolate-lab',
+        'interpolate-hcl', 'concat', 'format', 'rgb', 'rgba', 'hsl', 'hsla',
+        'to-color', 'to-number', 'to-string', 'to-boolean', 'typeof',
+        'zoom', 'pi', 'e', 'ln2', 'all', 'any', '!',
+        '==', '!=', '<', '<=', '>', '>=', '+', '-', '*', '/', '%', '^',
+        'abs', 'ceil', 'floor', 'round', 'sqrt', 'sin', 'cos', 'tan',
+        'asin', 'acos', 'atan', 'ln', 'log10', 'log2', 'min', 'max',
+        'length', 'upcase', 'downcase', 'slice', 'index-of', 'at',
+        'geometry-type', 'id', 'properties', 'feature-state',
+        'image', 'number-format', 'array',
+      ])
       for (let i = 0; i < args.length - 1; i += 2) {
         // Mapbox v8 strict tooling can emit `["literal", [k1, k2]]`
         // for the keys-array form. Without unwrap, the outer
@@ -259,6 +305,15 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
         // Loop peel for multi-level wraps emitted by some v8 strict
         // preprocessor chains (`["literal", ["literal", k]]`).
         let key = args[i]
+        // Spec strict: reject bare expression at label position
+        // (e.g. `["get", "k"]`, `["case", …]`). After literal unwrap
+        // a still-array key whose first elt is a known operator name
+        // is an expression, not a literal-array shorthand.
+        if (Array.isArray(key) && key.length > 0 && typeof key[0] === 'string'
+            && EXPR_OPS.has(key[0]) && key[0] !== 'literal') {
+          invalidKeyArms++
+          continue
+        }
         while (Array.isArray(key) && key.length === 2 && key[0] === 'literal') {
           key = key[1]
         }
@@ -276,8 +331,22 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
           while (Array.isArray(k) && k.length === 2 && k[0] === 'literal') {
             k = k[1]
           }
+          // Mapbox style-spec strict: match labels MUST be literal
+          // string or number (or array of those). Expression-form keys
+          // (e.g. `["get", "x"]`) silently coerced to `[object Object]`
+          // pre-fix — never matched a real feature value. Drop the
+          // invalid key and surface a warning so the authored intent
+          // is visible at convert time instead of as a runtime
+          // mystery (matched arm never fires).
+          if (typeof k !== 'string' && typeof k !== 'number') {
+            invalidKeyArms++
+            continue
+          }
           arms.push(`    ${typeof k === 'string' ? JSON.stringify(k) : k} -> ${val}`)
         }
+      }
+      if (invalidKeyArms > 0) {
+        warnings.push(`["match"] dropped ${invalidKeyArms} arm key(s) that are not literal string/number; Mapbox spec requires literal labels. Matching values for those keys will fall through to default.`)
       }
       const defXgis = exprToXgis(def, warnings)
       if (defXgis !== null) arms.push(`    _ -> ${defXgis}`)
@@ -487,17 +556,26 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       }
       const stopArgs: string[] = []
       for (let i = 3; i + 1 < v.length; i += 2) {
-        const z = exprToXgis(v[i], warnings)
-        const y = exprToXgis(v[i + 1], warnings)
-        if (z === null || y === null) {
-          // Surface WHICH stop pair failed to convert before bailing
-          // the whole interpolate. Pre-fix this silently dropped the
-          // entire expression — the property fell to default with no
-          // hint that ONE stop (typically a non-finite value or an
-          // unsupported colour) caused it. Mirror of step's failed-arg
-          // surface (iter 364).
+        // Mapbox spec strict: stop x-values MUST be literal finite
+        // numbers. Expression-form x-values (e.g. `["get", "k"]`)
+        // pre-fix routed through exprToXgis and emitted runtime
+        // identifiers — the resulting interpolate() call had a
+        // non-monotonic / non-numeric stop axis at evaluation time
+        // which silently degenerates to the default-arm value. Unwrap
+        // ["literal", N] wraps because v8 strict tooling can emit
+        // those for explicit numeric literals.
+        let rawZ: unknown = v[i]
+        while (Array.isArray(rawZ) && rawZ.length === 2 && rawZ[0] === 'literal') rawZ = rawZ[1]
+        if (typeof rawZ !== 'number' || !Number.isFinite(rawZ)) {
           const stopIdx = ((i - 3) / 2) | 0
-          warnings.push(`["${op}"] stop ${stopIdx + 1} (${z === null ? 'zoom' : 'value'}) failed to convert; whole interpolate bails.`)
+          warnings.push(`["${op}"] stop ${stopIdx + 1} x-value must be a literal finite number per Mapbox spec; got ${JSON.stringify(v[i]).slice(0, 80)}. Whole interpolate bails.`)
+          return null
+        }
+        const z = String(rawZ)
+        const y = exprToXgis(v[i + 1], warnings)
+        if (y === null) {
+          const stopIdx = ((i - 3) / 2) | 0
+          warnings.push(`["${op}"] stop ${stopIdx + 1} value failed to convert; whole interpolate bails.`)
           return null
         }
         stopArgs.push(z, y)
@@ -880,20 +958,44 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
         // Each key in the values list can itself be v8-literal-wrapped
         // (Mapbox strict tooling: `["literal", [["literal", "a"], "b"]]`).
         // Unwrap eagerly so the equality emit sees the bare value.
-        const eqs = list[1].map((k: unknown) => {
+        // Mapbox spec strict: keys MUST be literal scalars (string,
+        // number, boolean). Expression-form keys can't be enumerated
+        // as `field == k` equalities; surface the constraint instead
+        // of silently emitting `[object Object]`.
+        let invalidKeys = 0
+        const eqs: string[] = []
+        for (let k of list[1]) {
           while (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
-          return `${fxg} == ${typeof k === 'string' ? JSON.stringify(k) : k}`
-        })
+          if (typeof k !== 'string' && typeof k !== 'number' && typeof k !== 'boolean') {
+            invalidKeys++
+            continue
+          }
+          eqs.push(`${fxg} == ${typeof k === 'string' ? JSON.stringify(k) : k}`)
+        }
+        if (invalidKeys > 0) {
+          warnings.push(`["in"] dropped ${invalidKeys} key(s) that are not literal string/number/boolean; Mapbox spec requires literal keys.`)
+        }
+        if (eqs.length === 0) return 'false'
         return eqs.join(' || ')
       }
       if (typeof field === 'string') {
         // Same empty-list contract for the legacy form.
         if (v.length === 2) return 'false'
-        const eqs = v.slice(2).map(k => {
+        let invalidKeysLegacy = 0
+        const eqsLegacy: string[] = []
+        for (let k of v.slice(2)) {
           while (Array.isArray(k) && k.length === 2 && k[0] === 'literal') k = k[1]
-          return `.${field} == ${typeof k === 'string' ? JSON.stringify(k) : k}`
-        })
-        return eqs.join(' || ')
+          if (typeof k !== 'string' && typeof k !== 'number' && typeof k !== 'boolean') {
+            invalidKeysLegacy++
+            continue
+          }
+          eqsLegacy.push(`.${field} == ${typeof k === 'string' ? JSON.stringify(k) : k}`)
+        }
+        if (invalidKeysLegacy > 0) {
+          warnings.push(`["in"] (legacy form) dropped ${invalidKeysLegacy} key(s) that are not literal string/number/boolean.`)
+        }
+        if (eqsLegacy.length === 0) return 'false'
+        return eqsLegacy.join(' || ')
       }
       warnings.push(`["in"] form not converted: ${JSON.stringify(v).slice(0, 120)}`)
       return null
@@ -938,9 +1040,19 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
 /** Recursively replace `["var", "name"]` nodes with their bound
  *  expression. Used by the `let` lowering — Mapbox lets are pure,
  *  so substitution is semantically equivalent to a runtime scope
- *  lookup and lets the rest of the converter walk a flat tree. */
-function substituteVars(expr: unknown, bindings: Map<string, unknown>): unknown {
+ *  lookup and lets the rest of the converter walk a flat tree.
+ *  `visited` short-circuits if the same node is re-entered (defensive
+ *  against malformed input with circular references built up by a
+ *  preprocessor; Mapbox styles in the wild are pure JSON so this is
+ *  belt-and-braces). */
+function substituteVars(
+  expr: unknown,
+  bindings: Map<string, unknown>,
+  visited: WeakSet<object> = new WeakSet(),
+): unknown {
   if (!Array.isArray(expr)) return expr
+  if (visited.has(expr)) return expr
+  visited.add(expr)
   if (expr[0] === 'var' && typeof expr[1] === 'string') {
     return bindings.has(expr[1]) ? bindings.get(expr[1]) : expr
   }
@@ -948,7 +1060,7 @@ function substituteVars(expr: unknown, bindings: Map<string, unknown>): unknown 
   // belong to the inner scope. A heuristic, but matches the way
   // Mapbox styles in the wild are written (no shadowing).
   if (expr[0] === 'let') return expr
-  return expr.map(c => substituteVars(c, bindings))
+  return expr.map(c => substituteVars(c, bindings, visited))
 }
 
 /** Lower `["match", input, k1, val1, …, default]` to a boolean
