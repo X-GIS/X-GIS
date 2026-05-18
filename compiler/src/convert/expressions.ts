@@ -323,7 +323,20 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       return exprToXgis(value, warnings)
     }
     case 'min': case 'max': {
+      // Mapbox spec: ≥ 1 argument required. Pre-fix `["min"]` /
+      // `["max"]` (zero args) returned null silently with no
+      // diagnostic; same for partial-drop when some args failed
+      // to convert (the result misleadingly succeeded with fewer
+      // operands than authored).
+      if (v.length < 2) {
+        warnings.push(`Malformed ["${op}"] expression: expected at least 1 argument, got 0.`)
+        return null
+      }
+      const rawCount = v.length - 1
       const args = v.slice(1).map(x => exprToXgis(x, warnings)).filter((s): s is string => s !== null)
+      if (args.length < rawCount) {
+        warnings.push(`["${op}"] dropped ${rawCount - args.length} of ${rawCount} arg(s) that failed to convert; result may differ from authored intent.`)
+      }
       return args.length > 0 ? `${op}(${args.join(', ')})` : null
     }
     case 'to-number': case 'number':
