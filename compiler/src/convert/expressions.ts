@@ -919,6 +919,11 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       'is-supported-script': 'is-supported-script accessor — Unicode script-coverage check not implemented; predicate evaluates to false.',
       'resolved-locale': 'resolved-locale accessor — collator-resolved BCP-47 locale tag not implemented; returns null.',
       'collator': 'collator object — locale-aware string ordering not implemented; comparison operators fall back to byte-exact compare.',
+      // Iter 544 additions — Mapbox spec ops the converter dropped to
+      // the generic "Expression not converted" catch-all. Specific
+      // messages so the lossy report surfaces the actual feature gap.
+      'properties': 'Feature properties bag accessor — Mapbox `["properties"]` returns the entire feature.properties object; xgis evaluates property access lazily via `.field` / `get("field")` so the bulk-bag form is moot for paint/filter usage. Returns null if reached.',
+      'distance': 'Geometry distance accessor — Mapbox `["distance", geometry]` returns metric distance from the feature to a target GeoJSON shape; requires a geometric-distance pipeline not yet wired (would need turf-style polygon-to-line nearest-neighbour at filter eval time).',
     }
     const reason = KNOWN_UNSUPPORTED[unsupportedOp]
     if (reason !== undefined) {
