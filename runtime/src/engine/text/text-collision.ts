@@ -29,6 +29,11 @@ export interface CollisionItem {
   bboxes: CollisionBbox[]
   allowOverlap?: boolean
   ignorePlacement?: boolean
+  /** Mapbox `symbol-sort-key`. Lower values place first (win
+   *  collisions). Default 0 — items at the same sortKey keep input
+   *  order (stable sort). When undefined on every item, behaviour
+   *  is byte-identical to the pre-sortKey input order. */
+  sortKey?: number
 }
 
 export interface CollisionPlacement {
@@ -38,11 +43,29 @@ export interface CollisionPlacement {
   chosen: number
 }
 
-/** Run the greedy pass. Returns one `CollisionPlacement` per item. */
+/** Run the greedy pass. Returns one `CollisionPlacement` per item
+ *  (indexed by ORIGINAL input order, not sortKey order).
+ *
+ *  When any item carries `sortKey`, the pass first builds a sorted
+ *  iteration order by sortKey ascending (stable — items with equal
+ *  keys keep their input order). Lower-key labels claim their bboxes
+ *  first and block higher-key labels that overlap. When no item has
+ *  sortKey, iteration order = input order (byte-identical legacy). */
 export function greedyPlaceBboxes(items: readonly CollisionItem[]): CollisionPlacement[] {
   const out: CollisionPlacement[] = new Array(items.length)
   const blocking: CollisionBbox[] = []
-  for (let i = 0; i < items.length; i++) {
+  // Sort indices by sortKey ascending. Stable sort: items at the
+  // same key keep their original order, so callers that don't set
+  // sortKey at all see exactly the legacy iteration order.
+  const order: number[] = new Array(items.length)
+  for (let i = 0; i < items.length; i++) order[i] = i
+  let anySortKey = false
+  for (const it of items) if (it.sortKey !== undefined) { anySortKey = true; break }
+  if (anySortKey) {
+    order.sort((a, b) => (items[a]!.sortKey ?? 0) - (items[b]!.sortKey ?? 0))
+  }
+  for (let k = 0; k < order.length; k++) {
+    const i = order[k]!
     const it = items[i]!
     let pickedIdx = -1
     for (let c = 0; c < it.bboxes.length; c++) {

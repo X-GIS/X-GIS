@@ -150,4 +150,57 @@ describe('greedyPlaceBboxes', () => {
       expect(placedFlags(greedyPlaceBboxes([items[1], items[0]]))).toEqual([true, true])
     })
   })
+
+  // ── symbol-sort-key (Mapbox priority-aware collision) ──
+  describe('sortKey iteration order', () => {
+    it('lower sortKey wins collision against higher sortKey', () => {
+      // Input order: state(sortKey=10), shield(sortKey=1).
+      // Without sortKey: state would win (first in input order).
+      // With sortKey: shield (key=1) wins, state (key=10) drops.
+      // Output index follows ORIGINAL input order.
+      const results = greedyPlaceBboxes([
+        { bboxes: [bbox(0, 0, 10, 10)], sortKey: 10 },
+        { bboxes: [bbox(5, 5, 15, 15)], sortKey: 1 },
+      ])
+      expect(results[0]!.placed).toBe(false) // state (key=10) dropped
+      expect(results[1]!.placed).toBe(true)  // shield (key=1) won
+    })
+
+    it('higher sortKey label drops when colliding with lower-key earlier in input', () => {
+      const results = greedyPlaceBboxes([
+        { bboxes: [bbox(5, 5, 15, 15)], sortKey: 1 },  // shield
+        { bboxes: [bbox(0, 0, 10, 10)], sortKey: 10 }, // state
+      ])
+      expect(results[0]!.placed).toBe(true)
+      expect(results[1]!.placed).toBe(false)
+    })
+
+    it('equal sortKey keeps stable (input) order', () => {
+      const results = greedyPlaceBboxes([
+        { bboxes: [bbox(0, 0, 10, 10)], sortKey: 5 },
+        { bboxes: [bbox(5, 5, 15, 15)], sortKey: 5 },
+      ])
+      // Item 0 first by stable sort, blocks item 1.
+      expect(results[0]!.placed).toBe(true)
+      expect(results[1]!.placed).toBe(false)
+    })
+
+    it('no sortKey on any item → legacy behaviour (byte-identical)', () => {
+      const items = [
+        { bboxes: [bbox(0, 0, 10, 10)] },
+        { bboxes: [bbox(5, 5, 15, 15)] },
+      ]
+      // Same expectation as the legacy "drops the second" test.
+      expect(placedFlags(greedyPlaceBboxes(items))).toEqual([true, false])
+    })
+
+    it('mixed: sortKey items prioritised, undefined items treated as 0', () => {
+      const results = greedyPlaceBboxes([
+        { bboxes: [bbox(0, 0, 10, 10)], sortKey: 10 },   // dropped
+        { bboxes: [bbox(5, 5, 15, 15)] },                 // sortKey=0, wins
+      ])
+      expect(results[1]!.placed).toBe(true)
+      expect(results[0]!.placed).toBe(false)
+    })
+  })
 })
