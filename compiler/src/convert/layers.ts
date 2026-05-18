@@ -1072,9 +1072,32 @@ function convertSymbolLayer(
       warnings.push(`Symbol layer "${layer.id}" — icon-image expression could not be converted: ${JSON.stringify(iconImage).slice(0, 80)}`)
     }
   }
+  // icon-size — Mapbox spec: >= 0, default 1. Pre-fix the typeof
+  // number gate accepted NaN / Infinity (typeof both === 'number')
+  // and emitted invalid utilities (`label-icon-size-NaN` /
+  // `-Infinity`) which the lower pass would parseFloat to NaN /
+  // Infinity and propagate into per-vertex scale as a poison value.
+  // Negative iconSize passed through fmtSigned's bracket form
+  // (`label-icon-size-[-2]`) which lower DID accept; the runtime
+  // multiplied sprite quad dimensions by the negative scale,
+  // flipping the icon and rendering it back-to-front. Clamp + warn
+  // matches the text-size pattern (layers.ts:496).
   const iconSize = unwrapLiteralScalar(layout['icon-size'])
-  if (typeof iconSize === 'number' && iconSize !== 1) {
-    utils.push(`label-icon-size-${fmtSigned(iconSize)}`)
+  if (typeof iconSize === 'number' && Number.isFinite(iconSize)) {
+    if (iconSize < 0) {
+      warnings.push(`Symbol layer "${layer.id}" — icon-size ${iconSize} is negative; Mapbox spec requires >= 0. Clamped to 0 (icon hidden).`)
+    }
+    const clamped = Math.max(0, iconSize)
+    if (clamped !== 1) utils.push(`label-icon-size-${fmtSigned(clamped)}`)
+  } else if (iconSize !== undefined && iconSize !== null
+      && typeof iconSize !== 'number') {
+    // Non-constant icon-size (zoom-interp / data-driven). Lower's
+    // `label-icon-size-` parser is constant-only — the bracket
+    // binding-form handler at lower.ts:1065 routes to labelIconSize
+    // only when the inner is a numeric literal. Expression forms
+    // drop silently in the constant path; surface a warning so the
+    // lossy report counts them.
+    warnings.push(`Symbol layer "${layer.id}" — icon-size non-constant form not yet supported.`)
   }
   const iconAnchor = unwrapLiteralScalar(layout['icon-anchor'])
   if (typeof iconAnchor === 'string') {
