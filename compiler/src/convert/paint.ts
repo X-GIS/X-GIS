@@ -583,6 +583,13 @@ function addOpacity(out: string[], v: unknown, warnings: string[]): void {
   // unwrap (e3c5c62).
   v = unwrapLiteralNumeric(v)
   if (typeof v === 'number') {
+    // Reject NaN/Infinity. typeof v === 'number' passes for NaN, then
+    // Math.max(0, Math.min(1, NaN)) propagates NaN, `Math.round(NaN
+    // * 100)` is NaN, and the emitted utility name is `opacity-NaN`
+    // — the runtime lex-rejects it and the whole layer's paint
+    // utilities silently drop. Same pattern as the raster-opacity
+    // NaN guard.
+    if (!Number.isFinite(v)) return
     // Mapbox spec: opacity ∈ [0, 1]. Clamp at convert time so a
     // typo'd negative or > 1 value doesn't produce a malformed
     // utility name (`opacity--50` lexes as an utility name with
@@ -592,13 +599,14 @@ function addOpacity(out: string[], v: unknown, warnings: string[]): void {
     return
   }
   const interp = interpolateZoomCall(v, warnings, (val) => {
-    if (typeof val !== 'number') return null
+    if (typeof val !== 'number' || !Number.isFinite(val)) return null
     // Mapbox opacity is 0..1; xgis opacity utility takes 0..100.
     // Scale here so the stops match the utility's scale. Apply the
     // SAME [0, 1] clamp the constant path uses — pre-fix a negative
     // or > 1 stop emitted invalid utility names (opacity-[-50, …])
     // or > 100 percent values. Mirror of the constant-path clamp
-    // at line 558.
+    // at line 558. Reject non-finite (NaN/Infinity) too — same
+    // class as the constant-path guard above.
     const clamped = Math.max(0, Math.min(1, val <= 1 ? val : val / 100))
     return String(Math.round(clamped * 100))
   })
