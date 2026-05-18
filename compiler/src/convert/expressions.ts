@@ -489,7 +489,17 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       for (let i = 3; i + 1 < v.length; i += 2) {
         const z = exprToXgis(v[i], warnings)
         const y = exprToXgis(v[i + 1], warnings)
-        if (z === null || y === null) return null
+        if (z === null || y === null) {
+          // Surface WHICH stop pair failed to convert before bailing
+          // the whole interpolate. Pre-fix this silently dropped the
+          // entire expression — the property fell to default with no
+          // hint that ONE stop (typically a non-finite value or an
+          // unsupported colour) caused it. Mirror of step's failed-arg
+          // surface (iter 364).
+          const stopIdx = ((i - 3) / 2) | 0
+          warnings.push(`["${op}"] stop ${stopIdx + 1} (${z === null ? 'zoom' : 'value'}) failed to convert; whole interpolate bails.`)
+          return null
+        }
         stopArgs.push(z, y)
       }
       if (stopArgs.length < 4) return null
