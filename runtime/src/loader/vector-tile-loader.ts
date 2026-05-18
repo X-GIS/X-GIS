@@ -148,6 +148,10 @@ export function detectVectorTileFormat(
   url: string,
   kind?: VectorTileFormat | 'auto',
 ): VectorTileFormat | null {
+  // Defensive: non-string url would crash at `.split('?')` (only
+  // available on string). Empty string is permissible to fall
+  // through to the kind-fallback branch / null return below.
+  if (typeof url !== 'string') return null
   // Strip BOTH query (?…) and fragment (#…) before extension matching.
   // Pre-fix only `?` was split off, so a URL like 'x.pmtiles#frag'
   // kept '#frag' in the path → endsWith('.pmtiles') failed → fell to
