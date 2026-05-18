@@ -796,6 +796,20 @@ function lowerLayer(
           if (zoomStops.base !== 1) sizeZoomStopsBase = zoomStops.base
           continue
         }
+        if (zoomStops && name === 'stroke-gap') {
+          // Mapbox `line-gap-width` zoom-interp. Full per-frame
+          // resolve is the right path (needs StrokeValue.gapWidth →
+          // PropertyShape<number>); not yet wired. Use last-stop
+          // approximation — same pattern as iter 508's fill-translate
+          // and iter 488's text-opacity zoom-interp drops. OFM Liberty
+          // waterway_tunnel stops at z=12 (0) → z=20 (6); last stop
+          // = 6 px so the runtime renders the double-line at full
+          // intended gap at the highest zoom; lower zooms render
+          // wider-than-spec but the visual is close.
+          const last = zoomStops.stops[zoomStops.stops.length - 1]
+          if (last && last.value > 0) strokeGapWidth = last.value
+          continue
+        }
         if (zoomStops && name === 'label-size') {
           for (const s of zoomStops.stops) labelSizeZoomStops.push({ zoom: s.zoom, value: s.value })
           if (zoomStops.base !== 1) labelSizeZoomStopsBase = zoomStops.base

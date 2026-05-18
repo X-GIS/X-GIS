@@ -55,16 +55,18 @@ describe('line-gap-width — Mapbox → ShowCommand.strokeGapWidth', () => {
     expect(shows[0]!.strokeGapWidth).toBeUndefined()
   })
 
-  it('zoom-interp line-gap-width emits bracket form but currently drops at lower', () => {
-    // Compiler emits `stroke-gap-[interp]` for zoom-interp. lower.ts
-    // has no binding-form arm yet, so the value falls to undefined.
-    // Pin the current behaviour; full zoom-interp lower lands later
-    // (parallel to addStrokeWidth's `stroke-[interp]` handling).
+  it('zoom-interp line-gap-width — last-stop approximation (iter 513)', () => {
+    // Iter 513 added the `stroke-gap` binding-form arm in lower.ts.
+    // Full per-frame zoom-interp resolve needs StrokeValue.gapWidth
+    // → PropertyShape<number>; deferred. Last-stop approximation is
+    // the same pattern as iter 488 (text-opacity) and iter 508 (fill-
+    // translate). For OFM waterway_tunnel stops 12→0, 20→6 — last
+    // = 6, so the runtime renders full gap at all visible zooms.
     const shows = compileToShows(lineLayer('zinterp', {
       'line-color': '#666', 'line-width': 1,
       'line-gap-width': ['interpolate', ['linear'], ['zoom'], 12, 0, 20, 6],
     }))
-    expect(shows[0]!.strokeGapWidth).toBeUndefined()
+    expect(shows[0]!.strokeGapWidth).toBe(6)
   })
 
   it('line-gap-width does NOT appear in the surfaceIgnoredPaint warning list', () => {
