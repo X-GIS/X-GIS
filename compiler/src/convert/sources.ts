@@ -507,10 +507,19 @@ function normaliseInlineGeoJSON(data: unknown): unknown {
   if (data === null || typeof data !== 'object') {
     return { type: 'FeatureCollection', features: [] }
   }
-  const obj = data as { type?: string; features?: unknown[]; geometry?: unknown; properties?: unknown }
+  const obj = data as { type?: string; features?: unknown[]; geometry?: unknown; properties?: unknown; geometries?: unknown[] }
   if (obj.type === 'FeatureCollection' && Array.isArray(obj.features)) return obj
   if (obj.type === 'Feature') {
     return { type: 'FeatureCollection', features: [obj] }
+  }
+  // GeometryCollection at the top level — RFC 7946 §3.1.8 spec-permitted.
+  // Wrap as a single Feature with the collection as geometry; the
+  // runtime loadGeoJSON (iter 452) then flattens the sub-geometries.
+  if (obj.type === 'GeometryCollection' && Array.isArray(obj.geometries)) {
+    return {
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', geometry: obj, properties: {} }],
+    }
   }
   // Bare Geometry (`Point`, `LineString`, `Polygon`, `MultiPoint`, …)
   // — wrap in a Feature, then a FeatureCollection.
