@@ -34,9 +34,9 @@ export const ZERO_SEMANTICS: readonly ZeroSemantic[] = [
   {
     property: 'line-blur',
     layerType: 'line',
-    kind: 'strict-zero',
+    kind: 'identity',
     rationale:
-      'blur=0 means a hard line edge per Mapbox spec. The runtime previously kept a 1.5px smoothstep fade regardless — visible MapLibre divergence at high zoom on thin strokes.',
+      'blur=0 means no ADDITIONAL blur on top of the implicit edge AA per Mapbox spec. X-GIS line shader splits aa_width_px as (0.5 + blur_px); blur=0 still keeps the 0.5px edge AA (which is required for any antialiased SDF line — making it strict-zero would produce jagged staircase edges). Identity at zero.',
   },
   {
     property: 'line-gap-width',

@@ -34,7 +34,9 @@ describe('zero-value semantics catalogue', () => {
 
   it('zeroSemantic lookup returns the right entry', () => {
     const lb = zeroSemantic('line', 'line-blur')
-    expect(lb?.kind).toBe('strict-zero')
+    // line-blur=0 is identity (no additional blur); the implicit
+    // 0.5px edge AA is required for any antialiased SDF line.
+    expect(lb?.kind).toBe('identity')
 
     const to = zeroSemantic('symbol', 'text-opacity')
     expect(to?.kind).toBe('invisible-but-present')
