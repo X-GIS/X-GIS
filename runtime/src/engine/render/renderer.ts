@@ -168,6 +168,19 @@ fn polygon_cos_c_fragment(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
   return needs_backface_cull(abs_lon, abs_lat, u.proj_params);
 }
 
+// Companion to polygon_cos_c_fragment: continuous-alpha rim fade
+// (smoothstep across the visibility boundary). Fragment shaders
+// multiply this into output alpha so geometry on the sphere rim
+// fades smoothly instead of popping at the cos_c=0 boundary. Cost
+// is one extra needs_backface_cull-equivalent call; safe to leave
+// on for all projections (returns 1.0 for flat / cylindrical).
+fn polygon_rim_alpha(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
+  let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
+  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let abs_lat = lat_rad / DEG2RAD;
+  return rim_alpha(abs_lon, abs_lat, u.proj_params);
+}
+
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) cos_c: f32,
@@ -499,6 +512,14 @@ fn fs_fill(input: VertexOutput) -> FragmentOutput {
   let roof_bonus = select(0.0, 0.05, input.wall_blend >= 0.999);
   let wall_shade = min(1.0, v_shade + roof_bonus);
   out.color = vec4<f32>(u.fill_color.rgb * wall_shade, u.fill_color.a);
+  // Rim alpha: smooth fade across the sphere visibility boundary so
+  // geometry at cos_c ≈ 0 (globe / ortho / azimuthal / stereographic
+  // edges) doesn't flicker as the per-fragment cos_c sign flips
+  // between frames. Returns 1.0 on flat / cylindrical projections
+  // — no-op there. Applied AFTER the marker-replaceable out.color
+  // line so variant pipelines (data-driven match → fillExpr) still
+  // get rim fade without per-variant codegen plumbing.
+  out.color.a = out.color.a * polygon_rim_alpha(input.abs_merc_x, input.abs_merc_y);
   __PICK_WRITE__
   // Per-feature deterministic depth jitter to break coplanar z-fights
   // at shared walls between adjacent buildings. Two buildings that
