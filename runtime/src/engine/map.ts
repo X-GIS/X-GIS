@@ -586,6 +586,13 @@ export class XGISMap {
   getMinZoom(): number { return this.camera.minZoom }
   getMaxZoom(): number { return this.camera.maxZoom }
 
+  /** Mapbox-API parity: increment / decrement zoom by 1.
+   *  Animation arg is accepted but ignored (no transition infra) —
+   *  matches MapLibre signature so callers can port code unchanged.
+   *  Result is clamped to [minZoom, maxZoom]. */
+  zoomIn(): void { this.setZoom(this.camera.zoom + 1) }
+  zoomOut(): void { this.setZoom(this.camera.zoom - 1) }
+
   setBearing(bearing: number): void {
     if (!Number.isFinite(bearing)) {
       console.warn(`[X-GIS] setBearing: non-finite (${bearing}); ignored.`)

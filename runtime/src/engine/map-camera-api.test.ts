@@ -26,6 +26,8 @@ interface Internals {
   setMaxZoom(z: number): void
   getMinZoom(): number
   getMaxZoom(): number
+  zoomIn(): void
+  zoomOut(): void
 }
 
 describe('XGISMap Mapbox-API camera setters', () => {
@@ -197,6 +199,34 @@ describe('XGISMap Mapbox-API camera setters', () => {
       map.setMinZoom(3)
       map.setMinZoom(NaN)
       expect(map.getMinZoom()).toBe(3)
+    })
+  })
+
+  describe('zoomIn / zoomOut', () => {
+    it('zoomIn increments by 1', () => {
+      map.setZoom(5)
+      map.zoomIn()
+      expect(map.getZoom()).toBe(6)
+    })
+
+    it('zoomOut decrements by 1', () => {
+      map.setZoom(5)
+      map.zoomOut()
+      expect(map.getZoom()).toBe(4)
+    })
+
+    it('zoomIn clamps to maxZoom', () => {
+      map.setMaxZoom(10)
+      map.setZoom(10)
+      map.zoomIn()
+      expect(map.getZoom()).toBe(10)
+    })
+
+    it('zoomOut clamps to minZoom', () => {
+      map.setMinZoom(2)
+      map.setZoom(2)
+      map.zoomOut()
+      expect(map.getZoom()).toBe(2)
     })
   })
 })
