@@ -557,6 +557,13 @@ function convertSymbolLayer(
   const transform = unwrapLiteralScalar(layout['text-transform'])
   if (transform === 'uppercase' || transform === 'lowercase' || transform === 'none') {
     utils.push(`label-${transform}`)
+  } else if (typeof transform === 'string') {
+    // Mapbox spec: text-transform must be 'none' | 'uppercase' |
+    // 'lowercase'. Only flag STRING values that don't match the enum
+    // — expression-shaped values (objects/arrays from interpolate /
+    // case / etc.) are valid data-driven inputs even though X-GIS
+    // doesn't lower them yet.
+    warnings.push(`Symbol layer "${layer.id}" — text-transform "${transform.slice(0, 40)}" is not a valid enum; expected 'none' | 'uppercase' | 'lowercase'.`)
   }
 
   // text-offset → label-offset-x-N + label-offset-y-N (em-units).
@@ -777,12 +784,11 @@ function convertSymbolLayer(
   const justify = unwrapLiteralScalar(layout['text-justify'])
   if (justify === 'auto' || justify === 'left' || justify === 'center' || justify === 'right') {
     utils.push(`label-justify-${justify}`)
-  } else if (justify !== undefined && justify !== null) {
+  } else if (typeof justify === 'string') {
     // Mapbox spec: text-justify must be 'auto' | 'left' | 'center'
-    // | 'right'. Anything else silently dropped pre-fix and the
-    // label fell to renderer's default; surface so author sees the
-    // typo (e.g. 'middle' / 'centered').
-    warnings.push(`Symbol layer "${layer.id}" — text-justify "${String(justify).slice(0, 40)}" is not a valid enum value; expected 'auto' | 'left' | 'center' | 'right'.`)
+    // | 'right'. Only flag string values — expression-shaped values
+    // pass through to downstream handling.
+    warnings.push(`Symbol layer "${layer.id}" — text-justify "${justify.slice(0, 40)}" is not a valid enum value; expected 'auto' | 'left' | 'center' | 'right'.`)
   }
 
   // text-font: ["Noto Sans Regular", "Noto Sans CJK KR Regular"] →
@@ -845,11 +851,10 @@ function convertSymbolLayer(
   // gating — Mapbox disables wrap for line placement.)
   if (placement === 'line') utils.push('label-along-path')
   else if (placement === 'line-center') utils.push('label-line-center')
-  else if (placement !== undefined && placement !== null && placement !== 'point') {
+  else if (typeof placement === 'string' && placement !== 'point') {
     // Mapbox spec: symbol-placement must be 'point' | 'line' |
-    // 'line-center'. Unknown value silently dropped pre-fix and the
-    // layer defaulted to 'point'; surface the typo.
-    warnings.push(`Symbol layer "${layer.id}" — symbol-placement "${String(placement).slice(0, 40)}" is not a valid enum; expected 'point' | 'line' | 'line-center'.`)
+    // 'line-center'. Only flag string values not in the enum.
+    warnings.push(`Symbol layer "${layer.id}" — symbol-placement "${placement.slice(0, 40)}" is not a valid enum; expected 'point' | 'line' | 'line-center'.`)
   }
 
   // text-rotation-alignment / text-pitch-alignment — Mapbox knobs
@@ -1369,18 +1374,18 @@ export function convertLayer(layer: MapboxLayer, warnings: string[]): string | n
     if (cap === 'butt') layoutUtils.push('stroke-butt-cap')
     else if (cap === 'round') layoutUtils.push('stroke-round-cap')
     else if (cap === 'square') layoutUtils.push('stroke-square-cap')
-    else if (cap !== undefined && cap !== null) {
+    else if (typeof cap === 'string') {
       // Mapbox spec: line-cap must be 'butt' | 'round' | 'square'.
-      // Anything else silently dropped pre-fix and the line fell to
-      // the renderer default; surface the typo.
-      warnings.push(`Layer "${layer.id}" — line-cap "${String(cap).slice(0, 40)}" is not a valid enum; expected 'butt' | 'round' | 'square'.`)
+      // Only flag STRING values not in the enum — expression-shaped
+      // (zoom-step) values pass through to downstream handling.
+      warnings.push(`Layer "${layer.id}" — line-cap "${cap.slice(0, 40)}" is not a valid enum; expected 'butt' | 'round' | 'square'.`)
     }
     const join = unwrapLiteralScalar(layout['line-join'])
     if (join === 'miter') layoutUtils.push('stroke-miter-join')
     else if (join === 'round') layoutUtils.push('stroke-round-join')
     else if (join === 'bevel') layoutUtils.push('stroke-bevel-join')
-    else if (join !== undefined && join !== null) {
-      warnings.push(`Layer "${layer.id}" — line-join "${String(join).slice(0, 40)}" is not a valid enum; expected 'miter' | 'round' | 'bevel'.`)
+    else if (typeof join === 'string') {
+      warnings.push(`Layer "${layer.id}" — line-join "${join.slice(0, 40)}" is not a valid enum; expected 'miter' | 'round' | 'bevel'.`)
     }
     const miter = unwrapLiteralScalar(layout['line-miter-limit'])
     if (typeof miter === 'number' && Number.isFinite(miter)) layoutUtils.push(`stroke-miterlimit-${miter}`)
