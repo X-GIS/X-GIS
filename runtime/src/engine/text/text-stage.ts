@@ -1304,13 +1304,16 @@ export class TextStage {
 
     // Phase 2: greedy bbox collision.
     //
-    // Mapbox / MapLibre collision semantic: a label belonging to a
-    // LATER layer in the style takes precedence over an earlier
-    // layer's label when their bboxes overlap. The mental model is
-    // "the layer you draw on top wins the screen real-estate
-    // contest" — countries (last in OFM Bright) beat water_name
-    // labels (first) at the antimeridian; POI labels (mid-stack)
-    // beat road shields when they collide.
+    // Mapbox / MapLibre collision precedence:
+    //   (1) Mapbox `symbol-sort-key` — lower keys win. This is the
+    //       explicit author-controlled ordering and trumps the
+    //       implicit layer-order rule.
+    //   (2) Layer order — a label in a LATER layer beats an earlier
+    //       layer's label. The mental model is "the layer you draw
+    //       on top wins the screen real-estate contest" — countries
+    //       (last in OFM Bright) beat water_name labels (first) at
+    //       the antimeridian; POI labels (mid-stack) beat road
+    //       shields when they collide.
     //
     // Our `pending` queue is populated in style order — water first,
     // country last — because map.ts iterates showCommands forward.
@@ -1320,8 +1323,11 @@ export class TextStage {
     // mobile views (multiple sea names crowd out country labels
     // around the antimeridian).
     //
-    // Fix: iterate the collision input in REVERSE so later layers
-    // place first. Draw order stays in original `shaped` order so
+    // Strategy: when ANY shaped item carries sortKey, defer ordering
+    // to greedyPlaceBboxes' stable sortKey-ascending pass. When no
+    // sortKey is set, iterate the collision input in REVERSE so
+    // later layers place first (legacy byte-identical path). Draw
+    // order stays in original `shaped` order so
     // the layered rendering effect (country text on top of water
     // halo) is preserved — only the collision dedup priority flips.
     const collisionInput: CollisionItem[] = shaped.map(s => ({
