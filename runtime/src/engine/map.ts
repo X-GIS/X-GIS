@@ -554,9 +554,37 @@ export class XGISMap {
       console.warn(`[X-GIS] setZoom: non-finite (${zoom}); ignored.`)
       return
     }
-    this.camera.zoom = Math.max(0, Math.min(22, zoom))
+    this.camera.zoom = Math.max(this.camera.minZoom, Math.min(this.camera.maxZoom, zoom))
     this.invalidate()
   }
+
+  /** Mapbox-API parity: set the lower / upper bound for camera.zoom.
+   *  Subsequent setZoom / jumpTo / user pan-zoom gestures clamp to
+   *  the active bounds. Default min=0 / max=22. */
+  setMinZoom(z: number): void {
+    if (!Number.isFinite(z)) {
+      console.warn(`[X-GIS] setMinZoom: non-finite (${z}); ignored.`)
+      return
+    }
+    this.camera.minZoom = Math.max(0, Math.min(22, z))
+    if (this.camera.zoom < this.camera.minZoom) {
+      this.camera.zoom = this.camera.minZoom
+      this.invalidate()
+    }
+  }
+  setMaxZoom(z: number): void {
+    if (!Number.isFinite(z)) {
+      console.warn(`[X-GIS] setMaxZoom: non-finite (${z}); ignored.`)
+      return
+    }
+    this.camera.maxZoom = Math.max(0, Math.min(22, z))
+    if (this.camera.zoom > this.camera.maxZoom) {
+      this.camera.zoom = this.camera.maxZoom
+      this.invalidate()
+    }
+  }
+  getMinZoom(): number { return this.camera.minZoom }
+  getMaxZoom(): number { return this.camera.maxZoom }
 
   setBearing(bearing: number): void {
     if (!Number.isFinite(bearing)) {
@@ -601,7 +629,7 @@ export class XGISMap {
       if (!Number.isFinite(opts.zoom)) {
         console.warn(`[X-GIS] jumpTo: non-finite zoom (${opts.zoom}); skipped.`)
       } else {
-        this.camera.zoom = Math.max(0, Math.min(22, opts.zoom))
+        this.camera.zoom = Math.max(this.camera.minZoom, Math.min(this.camera.maxZoom, opts.zoom))
       }
     }
     if (opts.bearing !== undefined) {

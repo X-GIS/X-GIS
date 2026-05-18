@@ -69,6 +69,12 @@ export class Camera {
    *  unlimited" for high-detail sources. */
   maxZoom = 22
 
+  /** Lower bound for `zoom`. Matches Mapbox spec default of 0 (whole
+   *  world view). Hosts can tighten via setMinZoom on XGISMap to prevent
+   *  the user zooming out past a desired threshold (e.g. minZoom=8 for a
+   *  city-level deployment that should never show a country-wide view). */
+  minZoom = 0
+
   /** Perspective field of view in degrees.
    *  Matches MapLibre's default `_fovInRadians = 0.6435011087932844`
    *  (≈ 36.87°). The earlier 45° was visibly wider than ML at pitched
