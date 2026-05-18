@@ -232,7 +232,11 @@ function interpolateZoomStops(
     }
     if (legacyStops.length < 2) return null
     const rawBase = (v as { base?: unknown }).base
-    const base = typeof rawBase === 'number' && rawBase !== 1 ? rawBase : 1
+    // Number.isFinite gate rejects NaN — `NaN !== 1` is true so a
+    // typeof-only check would let a NaN base land in the IR as the
+    // exponential curve's base, propagating through interpolate_exp
+    // math to NaN at the renderer.
+    const base = typeof rawBase === 'number' && Number.isFinite(rawBase) && rawBase !== 1 ? rawBase : 1
     return {
       curve: base === 1 ? 'linear' : 'exponential',
       base,
@@ -294,7 +298,8 @@ function interpolateZoomStops(
       while (Array.isArray(b) && b.length === 2 && b[0] === 'literal') b = b[1]
       // base === 1 is mathematically identical to linear; collapse so
       // the runtime takes the cheaper code path.
-      if (typeof b === 'number' && b !== 1) {
+      if (typeof b === 'number' && Number.isFinite(b) && b !== 1) {
+        // Mirror of the legacy-stops base NaN guard above.
         curve = 'exponential'
         base = b
       }
