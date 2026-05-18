@@ -1,9 +1,17 @@
 // ═══ AST Interpreter — AST를 실행 가능한 명령으로 변환 ═══
 
 import type * as AST from '@xgis/compiler'
-import { resolveUtilities, resolveColor, hexToRgba } from '@xgis/compiler'
+import { resolveUtilities, resolveColor } from '@xgis/compiler'
 import type { PaintShapes, PropertyShape, PropertyRGBA } from '@xgis/compiler'
 import type { ShowCommand } from './render/renderer'
+// Use runtime hexToRgba (nullable variant — returns null on invalid
+// hex shape) instead of the compiler's always-returns-tuple version.
+// The surrounding `fillRgba !== null ? … : null` ternary expects
+// nullable behaviour. Pre-fix the compiler version returned
+// [0,0,0,1] for ANY invalid input including legitimately invalid
+// hex strings — silently rendering them as opaque black instead of
+// no-fill. See iter 318 hexToRgba contract fix.
+import { hexToRgba } from './feature-helpers'
 
 /** Synthesize a PaintShapes bundle from a constant-only legacy show.
  *  The legacy `let`/`show` and the simple `source`/`layer` utility
