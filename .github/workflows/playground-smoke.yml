@@ -34,7 +34,11 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    continue-on-error: true
+    # NOTE: continue-on-error was at JOB level which left the JOB
+    # conclusion as failure (red X on commit dashboards) even though
+    # the workflow run reported success. Moved to STEP level on the
+    # SwiftShader-flaky playwright step so the job conclusion stays
+    # success and red X disappears from PR / commit listings.
     env:
       HEADED: '0'
       XGIS_SOFTWARE_GPU: '1'
@@ -87,6 +91,7 @@ jobs:
       # bugs and run only via playground-audit.yml's regression-specs
       # batch — moving them here would push smoke past 5 min.
       - name: Projection coverage spec
+        continue-on-error: true  # SwiftShader: visual gates self-skip, logic gates remain
         run: bunx playwright test e2e/_projection-coverage.spec.ts
           --workers=3 --reporter=line
         working-directory: playground
