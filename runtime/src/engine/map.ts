@@ -23,6 +23,7 @@ import {
 } from './render/bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
+import { injectPolarCaps } from '../loader/polar-cap-detect'
 import { isTileTemplate } from '../data/tile-select'
 import { computeSliceKey } from '../data/eval/filter-eval'
 import { RasterRenderer } from './render/raster-renderer'
@@ -526,6 +527,31 @@ export class XGISMap {
     this._graticuleInitial = on
     this.invalidate()
   }
+
+  /** Polar-cap synthesis on/off — when ON, setSourceData scans every
+   *  GeoJSON polygon for Web Mercator clamp-boundary spans (±85.05°)
+   *  and appends synthesised cap polygons closing the surface to the
+   *  pole. Fixes the circular hole at the pole on globe / ortho /
+   *  azimuthal projections (project_polar_cap_gap_globe).
+   *
+   *  Default OFF for backwards compatibility — Mercator-only
+   *  deployments don't pay the scan cost or load extra polygons.
+   *  Hosts using globe / azimuthal projections should enable this
+   *  early in setup, BEFORE setSourceData calls. */
+  private _polarCapsEnabled = false
+  setPolarCapsEnabled(on: boolean): void {
+    this._polarCapsEnabled = on
+    // Re-process all existing GeoJSON sources so the toggle takes
+    // effect for data loaded before the flag flipped.
+    if (on) {
+      for (const [sourceId, data] of this.rawDatasets) {
+        if (data && typeof data === 'object' && (data as { type?: string }).type === 'FeatureCollection') {
+          this.setSourceData(sourceId, data as GeoJSONFeatureCollection)
+        }
+      }
+    }
+  }
+  isPolarCapsEnabled(): boolean { return this._polarCapsEnabled }
 
   /** Current graticule on/off state. */
   isGraticuleEnabled(): boolean {
@@ -4340,6 +4366,14 @@ export class XGISMap {
     }
     if (!Array.isArray((normalized as { features?: unknown }).features)) {
       throw new Error(`[X-GIS] setSourceData: data.features must be an array (got ${typeof (normalized as { features?: unknown }).features})`)
+    }
+    // Polar-cap injection (opt-in via setPolarCapsEnabled). Appends
+    // synthesised cap polygons that close the surface to the pole
+    // for any source feature touching the Web Mercator clamp boundary
+    // (±85.05° lat). Mirrors the polar-cap fix steps from iter 394-396;
+    // see project_polar_cap_gap_globe memory note.
+    if (this._polarCapsEnabled) {
+      normalized = injectPolarCaps(normalized as never) as never
     }
     this.rawDatasets.set(sourceId, normalized)
     // Full replace invalidates any cached feature index for this source.
