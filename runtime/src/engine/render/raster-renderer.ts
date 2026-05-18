@@ -171,7 +171,12 @@ fn fs_tile(input: VsOut) -> RasterFragmentOutput {
   // straight→premultiplied conversion). RGB stays at texel value so a
   // half-opacity raster fades over the background instead of darkening
   // toward black.
-  out.color = vec4<f32>(c.rgb, c.a * u.raster_params.x);
+  // Rim alpha fade: input.vis carries (cos_c - threshold) so the same
+  // smoothstep band [0, 0.02] applies uniformly across all projections.
+  // For Mercator the vertex shader writes vis=1.0, so smoothstep returns
+  // 1.0 — no-op on flat / cylindrical projections.
+  let rim = smoothstep(0.0, 0.02, input.vis);
+  out.color = vec4<f32>(c.rgb, c.a * u.raster_params.x * rim);
   __PICK_WRITE__
   out.depth = compute_log_frag_depth(input.view_w, u.proj_params.w);
   return out;
