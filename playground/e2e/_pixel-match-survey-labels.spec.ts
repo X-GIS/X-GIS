@@ -74,6 +74,17 @@ const VIEWS: ViewSpec[] = [
     style: 'maplibre-demotiles',
     hash: '#2.5/48/15',
     description: 'MapLibre demotiles, Europe z=2 — country labels (Bold weight)' },
+  // User request 2026-05-18: verify highway shield rendering.
+  // Iter 503 wired icon-along-line dispatch; iter 506 wired
+  // line-tangent rotation. This view (Texas around I-10) lands the
+  // US Interstate shield (`us-interstate_2`) + state shield
+  // (`us-state_2`) + the white number text overlay. z=12 puts the
+  // text overlay at legibility threshold; both renderers should
+  // emit shield + numeric label at matching screen positions.
+  { id: 'bright-texas-shields',
+    style: 'openfreemap-bright',
+    hash: '#12/29.7604/-95.3698',
+    description: 'OFM Bright, Houston z=12 — US highway shields (I-10 / US-59)' },
 ]
 
 interface Buckets {
@@ -188,6 +199,16 @@ for (const view of VIEWS) {
     await page.evaluate(() => new Promise<void>(r =>
       requestAnimationFrame(() => requestAnimationFrame(() => r()))))
 
+    // iter 531 diagnostic: probe IconStage for icon names the style
+    // referenced but the atlas didn't have AFTER load. Surfaces
+    // sprite-atlas key mismatches the compiler can't see. Stashed
+    // to a per-view JSON for offline inspection; lossless — no
+    // effect on the diff bucketing above.
+    const missingIcons = await page.evaluate(() => {
+      const xg = (window as unknown as { __xgisMap?: { getMissingIconNames?: () => string[] | null } }).__xgisMap
+      return xg?.getMissingIconNames?.() ?? null
+    })
+
     const mlPng = await page.locator('#ml-map canvas').first().screenshot()
     const xgPng = await page.locator('#xg-canv').screenshot()
     const ml = PNG.sync.read(mlPng)
@@ -218,6 +239,7 @@ for (const view of VIEWS) {
       PNG.sync.write(makeDiffHeatmap(mlNorm, xgNorm, w, h)))
     writeFileSync(join(viewDir, 'buckets.json'), JSON.stringify({
       buckets, totalPx, canvasW: w, canvasH: h,
+      missingIcons,
     }, null, 2))
 
     // eslint-disable-next-line no-console

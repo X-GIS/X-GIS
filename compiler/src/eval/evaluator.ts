@@ -121,7 +121,20 @@ function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv
   // → the entire ordered string compare was always-false. Names
   // like ["<", "name1", "name2"] for symbol-sort-key emulation
   // silently broke. Fall to lex compare when both sides are strings.
+  //
+  // Iter 531: Mapbox spec also says ordered comparisons with a null
+  // / undefined operand return FALSE (reject the filter). Pre-fix
+  // toNumber(null)=0 silently passed `(.ref_length <= 6)` for
+  // features WITHOUT a ref_length field — letting OFM Bright's
+  // highway-shield-* layers feed undefined-ref_length features into
+  // the icon-image expression `concat("road_", get("ref_length"))`
+  // which resolved to "road_" (concat skips nulls), atlas missed,
+  // and the shield silently vanished. Diagnostic: pixel-match-
+  // survey-labels reported `missingIcons: ["road_"]` at iter 531.
   if (expr.op === '<' || expr.op === '>' || expr.op === '<=' || expr.op === '>=') {
+    if (left === null || left === undefined || right === null || right === undefined) {
+      return false
+    }
     if (typeof left === 'string' && typeof right === 'string') {
       switch (expr.op) {
         case '<': return left < right

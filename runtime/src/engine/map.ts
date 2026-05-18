@@ -1309,6 +1309,16 @@ export class XGISMap {
     this.spriteUrl = url
   }
 
+  /** Diagnostic — every icon name the style referenced that the
+   *  sprite atlas didn't have AFTER it loaded. Iter 526 plumbing
+   *  exposed on IconStage; lifted here as the public API so
+   *  playground / Playwright specs can probe without crossing the
+   *  private boundary. Returns `null` if the icon stage hasn't been
+   *  built yet (no label-producing show has fired). */
+  getMissingIconNames(): string[] | null {
+    return this.iconStage?.getMissingIconNames() ?? null
+  }
+
   /** Attach a per-label debug hook for the text stage. The hook fires
    *  once per addLabel / addCurvedLineLabel submission (BEFORE
    *  collision) and receives the final text + screen-pixel anchor.
