@@ -692,6 +692,18 @@ function convertSymbolLayer(
     // Legacy fallback only when the new property is absent.
     utils.push('label-allow-overlap')
   }
+  // Mapbox `symbol-sort-key` — lower values place first, winning
+  // collisions against higher-keyed labels (state/city > town >
+  // road shield ordering). Extracted from layout into LabelDef.
+  // sortKey downstream. Constant numeric form only for now —
+  // expression form (`["get", "rank"]`) drops to 0 with a warning
+  // so the layer still routes through the collision system.
+  const sortKey = unwrapLiteralScalar(layout['symbol-sort-key'])
+  if (typeof sortKey === 'number' && Number.isFinite(sortKey)) {
+    utils.push(`label-sort-key-${fmtSigned(sortKey)}`)
+  } else if (sortKey !== undefined && sortKey !== null) {
+    warnings.push(`Symbol layer "${layer.id}" — symbol-sort-key expression form not supported yet; flattened to 0.`)
+  }
   // icon-overlap / icon-allow-overlap: ignored.
   //
   // PREVIOUS BEHAVIOUR (regression source): we propagated these to
@@ -969,14 +981,11 @@ function convertSymbolLayer(
     'icon-halo-blur',
     'icon-rotation-alignment',
     'icon-text-fit',
-    // Symbol placement controls — `symbol-z-order` and `symbol-sort-key`
-    // change draw ordering at the layer level (Mapbox `symbol-sort-key`
-    // = per-feature priority), `symbol-avoid-edges` skips labels at
-    // tile boundaries to avoid clipped glyphs. Our placement passes
-    // use style-order + greedy collision; none of these knobs is
-    // honoured today.
+    // Symbol placement controls — `symbol-z-order` and
+    // `symbol-avoid-edges` skip labels at tile boundaries / control
+    // draw ordering. `symbol-sort-key` is extracted separately into
+    // LabelDef.sortKey (see below) — not in the ignored list.
     'symbol-z-order',
-    'symbol-sort-key',
     'symbol-avoid-edges',
   ]) {
     // Treat null the same as undefined per Mapbox spec — both mean
