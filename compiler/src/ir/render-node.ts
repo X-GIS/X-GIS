@@ -681,6 +681,9 @@ export function buildLabelShapes(input: {
   fontStack?: readonly string[]
   fontWeight?: number
   fontStyle?: 'normal' | 'italic'
+  iconSize?: number
+  iconSizeZoomStops?: import('./render-node').ZoomStop<number>[]
+  iconSizeZoomStopsBase?: number
 }): import('./property-types').LabelShapes {
   type RGBA = readonly [number, number, number, number]
   type Shape<T> = import('./property-types').PropertyShape<T>
@@ -753,7 +756,24 @@ export function buildLabelShapes(input: {
     ? { kind: 'constant', value: input.fontStyle }
     : null
 
-  return { size, color, haloWidth, haloColor, haloBlur, font, fontWeight, fontStyle }
+  // iter 523 — icon-size as PropertyShape so zoom-interp resolves per
+  // frame. OFM bright road_oneway authors `interpolate zoom 15→0.5,
+  // 19→1`; pre-fix the bracket-binding lower path dropped non-numeric
+  // inner values and the runtime fell back to the constant 1, rendering
+  // arrows 2× too large at z<=15.
+  let iconSize: Shape<number> | null = null
+  if (input.iconSizeZoomStops && input.iconSizeZoomStops.length > 0) {
+    iconSize = {
+      kind: 'zoom-interpolated',
+      stops: input.iconSizeZoomStops,
+      ...(input.iconSizeZoomStopsBase !== undefined
+        ? { base: input.iconSizeZoomStopsBase } : {}),
+    }
+  } else if (input.iconSize !== undefined) {
+    iconSize = { kind: 'constant', value: input.iconSize }
+  }
+
+  return { size, color, haloWidth, haloColor, haloBlur, font, fontWeight, fontStyle, iconSize }
 }
 
 /**

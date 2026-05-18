@@ -3918,6 +3918,14 @@ export class XGISMap {
           // Negate so a 30° map rotation yields a 30° label rotation
           // in the same visual direction.
           const bearingDeg = useMapRotForPoints ? -this.camera.bearing : 0
+          // icon-size — shapes.iconSize is the iter 523 PropertyShape
+          // path. Constant + zoom-interp both resolve here; absent
+          // shape falls back to def.iconSize (= constant from
+          // LabelDef) or the spec default 1 at dispatchIcon. Mirror
+          // of the text-size resolve above.
+          const resolvedIconSize = shapes && shapes.iconSize !== null && shapes.iconSize.kind !== 'data-driven'
+            ? resolveNumberShape(shapes.iconSize, z, elapsedMs).value
+            : def.iconSize
           const effectiveDef = {
             ...def,
             size: resolvedSize,
@@ -3926,6 +3934,7 @@ export class XGISMap {
             ...(resolvedFont !== undefined ? { font: resolvedFont } : {}),
             ...(resolvedFontWeight !== undefined ? { fontWeight: resolvedFontWeight } : {}),
             ...(resolvedFontStyle !== undefined ? { fontStyle: resolvedFontStyle } : {}),
+            ...(resolvedIconSize !== undefined ? { iconSize: resolvedIconSize } : {}),
             ...(bearingDeg !== 0
               ? { rotate: (def.rotate ?? 0) + bearingDeg } : {}),
           }

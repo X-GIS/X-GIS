@@ -1091,13 +1091,19 @@ function convertSymbolLayer(
     if (clamped !== 1) utils.push(`label-icon-size-${fmtSigned(clamped)}`)
   } else if (iconSize !== undefined && iconSize !== null
       && typeof iconSize !== 'number') {
-    // Non-constant icon-size (zoom-interp / data-driven). Lower's
-    // `label-icon-size-` parser is constant-only — the bracket
-    // binding-form handler at lower.ts:1065 routes to labelIconSize
-    // only when the inner is a numeric literal. Expression forms
-    // drop silently in the constant path; surface a warning so the
-    // lossy report counts them.
-    warnings.push(`Symbol layer "${layer.id}" — icon-size non-constant form not yet supported.`)
+    // Non-constant icon-size — zoom-interp emits the bracket binding
+    // form `label-icon-size-[interpolate(zoom, …)]` which lower.ts
+    // (iter 523 arm) accumulates into LabelDef.shapes.iconSize as a
+    // ZoomStop list. Per-frame resolve at map.ts dispatchIcon. Data-
+    // driven (case / match / get) doesn't yet have a path through the
+    // labelIconSize accumulator; falls through to the warning.
+    const interp = interpolateZoomCall(iconSize, warnings,
+      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
+    if (interp !== null) {
+      utils.push(`label-icon-size-[${interp}]`)
+    } else {
+      warnings.push(`Symbol layer "${layer.id}" — icon-size non-constant form not yet supported.`)
+    }
   }
   const iconAnchor = unwrapLiteralScalar(layout['icon-anchor'])
   if (typeof iconAnchor === 'string') {

@@ -497,6 +497,12 @@ function lowerLayer(
    *  sprite key. */
   let labelIconImageExpr: { ast: unknown } | undefined
   let labelIconSize: number | undefined
+  // Mapbox `icon-size: ["interpolate", …, ["zoom"], …]` (OFM bright
+  // road_oneway authors `15→0.5, 19→1`). Constant + zoom-interp both
+  // resolve to a per-frame number at runtime — same shape as text-
+  // size's labelSizeZoomStops. Mirror at layers.ts:emit (iter 523).
+  const labelIconSizeZoomStops: ZoomStop<number>[] = []
+  let labelIconSizeZoomStopsBase: number | undefined
   let labelIconAnchor: import('./render-node').LabelDef['iconAnchor'] | undefined
   let labelIconOffset: [number, number] | undefined
   let labelIconRotate: number | undefined
@@ -813,6 +819,19 @@ function lowerLayer(
         if (zoomStops && name === 'label-size') {
           for (const s of zoomStops.stops) labelSizeZoomStops.push({ zoom: s.zoom, value: s.value })
           if (zoomStops.base !== 1) labelSizeZoomStopsBase = zoomStops.base
+          continue
+        }
+        if (zoomStops && name === 'label-icon-size') {
+          // Mapbox `icon-size: interpolate(zoom, …)` — OFM bright
+          // road_oneway / road_oneway_opposite (2 layers) use this
+          // (15→0.5, 19→1) to shrink one-way arrows at low zoom.
+          // Pre-iter-523 the constant-only lower path silently
+          // dropped these stops → arrows always rendered at 100%
+          // (iter 522 surfaced the warning). Per-frame resolve now
+          // matches MapLibre's interpolate semantics including the
+          // pre-first-stop clamp (z<15 → 0.5x).
+          for (const s of zoomStops.stops) labelIconSizeZoomStops.push({ zoom: s.zoom, value: Math.max(0, s.value) })
+          if (zoomStops.base !== 1) labelIconSizeZoomStopsBase = zoomStops.base
           continue
         }
         // Non-zoom-interp label-size binding → per-feature evaluation.
@@ -1805,6 +1824,8 @@ function lowerLayer(
       labelPlacement, labelSpacing,
       labelRotationAlignment, labelPitchAlignment, labelKeepUpright,
       labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconRotate, labelIconOpacity, labelIconRotationAlignment,
+      labelIconSizeZoomStops: labelIconSizeZoomStops.length > 0 ? labelIconSizeZoomStops : undefined,
+      labelIconSizeZoomStopsBase,
     }),
   }
 }
@@ -1864,6 +1885,8 @@ function foldLabelKnobs(
     labelIconImage?: string
     labelIconImageExpr?: { ast: unknown }
     labelIconSize?: number
+    labelIconSizeZoomStops?: ZoomStop<number>[]
+    labelIconSizeZoomStopsBase?: number
     labelIconAnchor?: import('./render-node').LabelDef['iconAnchor']
     labelIconOffset?: [number, number]
     labelIconRotate?: number
@@ -1975,6 +1998,10 @@ function foldLabelKnobs(
     fontStack: merged.font,
     fontWeight: merged.fontWeight,
     fontStyle: merged.fontStyle,
+    iconSize: merged.iconSize,
+    iconSizeZoomStops: knobs.labelIconSizeZoomStops && knobs.labelIconSizeZoomStops.length > 0
+      ? knobs.labelIconSizeZoomStops : undefined,
+    iconSizeZoomStopsBase: knobs.labelIconSizeZoomStopsBase,
   })
   return merged
 }

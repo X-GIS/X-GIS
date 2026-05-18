@@ -72,14 +72,31 @@ describe('icon-size validation — iter 522', () => {
     expect(xgis).not.toContain('label-icon-size-Infinity')
   })
 
-  it('zoom-interp → non-constant warning (OFM road_oneway shape)', () => {
+  it('zoom-interp → bracket binding emit (iter 523: OFM road_oneway path)', () => {
+    // Iter 522 originally warned on zoom-interp. Iter 523 implements
+    // the per-frame resolve via `label-icon-size-[interpolate(zoom,
+    // …)]` bracket binding → lower.ts accumulates ZoomStops →
+    // LabelShapes.iconSize → runtime resolveNumberShape at dispatch
+    // time. OFM bright road_oneway / road_oneway_opposite arrows
+    // now scale 0.5x at z<=15 → 1.0x at z>=19 matching MapLibre.
     const { xgis, warnings } = compile(
       ['interpolate', ['linear'], ['zoom'], 15, 0.5, 19, 1],
+    )
+    expect(warnings.filter(w => w.includes('icon-size'))).toEqual([])
+    expect(xgis).toContain('label-icon-size-[interpolate')
+  })
+
+  it('data-driven (case / match) → still warns (no per-feature path yet)', () => {
+    // Bracket-binding lower only accepts zoom-interp shapes
+    // currently. case / match / get → non-zoom-stops, falls through
+    // the interpolateZoomCall helper, warning fires.
+    const { xgis, warnings } = compile(
+      ['case', ['has', 'highway'], 0.6, 1],
     )
     const hits = warnings.filter(w => w.includes('icon-size'))
     expect(hits.length).toBe(1)
     expect(hits[0]).toContain('non-constant')
-    expect(xgis).not.toContain('label-icon-size-[interpolate')
+    expect(xgis).not.toContain('label-icon-size-[case')
   })
 
   it('v8 literal-wrap ["literal", 0.5] → unwrapped to 0.5, no warning', () => {

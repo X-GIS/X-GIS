@@ -141,4 +141,9 @@ export interface LabelShapes {
   fontWeight: PropertyShape<number> | null
   /** CSS font-style. */
   fontStyle: PropertyShape<'normal' | 'italic'> | null
+  /** Mapbox `icon-size` scale factor on the sprite's design size.
+   *  `null` = no author input → runtime falls back to LabelDef.iconSize
+   *  (constant) or the spec default 1. Constant + zoom-interp both
+   *  resolve to a number; data-driven not yet supported (iter 523). */
+  iconSize: PropertyShape<number> | null
 }
