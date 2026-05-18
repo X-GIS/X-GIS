@@ -1455,7 +1455,18 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   // standalone `["match", ["get","class"], …]` stroke colour silently
   // dropped (same regression class as the line-color fix).
   // Same null-as-omit treatment as circle-color above.
+  //
+  // circle-stroke-opacity (Mapbox spec) folds into stroke-colour alpha
+  // when both are constant. Plan §4: stops short of a dedicated paint
+  // shape so non-constant opacity still warns + drops below. Constant
+  // alpha multiplication keeps the common case (e.g. `0.5`-alpha
+  // outline rings) correct without a per-frame uniform.
   const strokeColor = paint['circle-stroke-color']
+  const strokeOpacityRaw = unwrapLiteralScalar(paint['circle-stroke-opacity'])
+  const strokeOpacityConst =
+    typeof strokeOpacityRaw === 'number' && Number.isFinite(strokeOpacityRaw)
+      ? Math.max(0, Math.min(1, strokeOpacityRaw))
+      : null
   if (!isOmittedValue(strokeColor)) {
     const interp = interpolateZoomCall(strokeColor, warnings, (val, w) => colorToXgis(val, w))
     if (interp !== null) {
@@ -1463,7 +1474,23 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
     } else {
       const c = colorToXgis(strokeColor, warnings)
       if (c) {
-        utils.push(`stroke-${c}`)
+        // Fold constant stroke-opacity into the hex alpha channel
+        // when present. resolveColor already supports the 8-char
+        // hex form with alpha; convert opacity to a u8 alpha and
+        // append. Skip when no opacity declared (1.0 default ==
+        // 6-char hex stays).
+        if (strokeOpacityConst !== null && strokeOpacityConst < 0.999) {
+          // c is `#rrggbb` or `#rrggbbaa`. Replace alpha byte.
+          const baseAlpha = c.length === 9
+            ? parseInt(c.slice(7, 9), 16) / 255
+            : 1
+          const a = Math.round(baseAlpha * strokeOpacityConst * 255)
+          const aHex = a.toString(16).padStart(2, '0')
+          const rgb = c.slice(0, 7) // `#rrggbb`
+          utils.push(`stroke-${rgb}${aHex}`)
+        } else {
+          utils.push(`stroke-${c}`)
+        }
       } else {
         const expr = exprToXgis(strokeColor, warnings)
         if (expr !== null) utils.push(`stroke-[${expr}]`)
@@ -1506,7 +1533,14 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   const ignored: string[] = []
   for (const k of [
     'circle-blur', 'circle-translate', 'circle-translate-anchor',
-    'circle-pitch-scale', 'circle-pitch-alignment', 'circle-stroke-opacity',
+    'circle-pitch-scale', 'circle-pitch-alignment',
+    // circle-stroke-opacity: only the constant form folds into stroke
+    // hex alpha above. Zoom-interp / data-driven still surface as
+    // ignored so the user sees the gap. Check the unwrapped value
+    // shape — if it's a scalar number we handled it; otherwise warn.
+    ...(typeof strokeOpacityRaw === 'object' && strokeOpacityRaw !== null
+      ? ['circle-stroke-opacity']
+      : []),
     'circle-sort-key',
   ]) {
     // Treat null the same as undefined — see the symbol-ignored

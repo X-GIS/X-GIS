@@ -220,7 +220,7 @@ const PAINT_CIRCLE: readonly CoverageEntry[] = [
   { name: 'circle-stroke-color', status: 'supported' },
   { name: 'circle-stroke-width', status: 'supported', note: 'CSS px; constant + interpolate-by-zoom.' },
   { name: 'circle-blur',         status: 'unsupported', impact: 'low' },
-  { name: 'circle-stroke-opacity', status: 'unsupported', impact: 'low', note: 'Would need to fold into stroke-colour alpha.' },
+  { name: 'circle-stroke-opacity', status: 'partial', impact: 'low', note: 'Constant numeric form folds into stroke-color hex alpha (Plan §4 partial landing). Zoom-interp / data-driven forms still warn + drop — need a dedicated paint shape for per-frame uniform multiplication.', source: 'layers.ts:circle-stroke-color block' },
   { name: 'circle-translate',    status: 'unsupported', impact: 'low' },
   { name: 'circle-translate-anchor', status: 'unsupported', impact: 'low' },
   { name: 'circle-pitch-scale',  status: 'unsupported', impact: 'low' },
