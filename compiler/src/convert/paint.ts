@@ -455,7 +455,10 @@ function addStrokeWidth(out: string[], v: unknown, warnings: string[]): void {
   // a double-dash utility name the parser splits incorrectly. Lower
   // priority than the opacity-clamp (negative widths are even rarer
   // in real styles) but the malformed output crashes the layer.
-  if (typeof v === 'number') {
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    // Number.isFinite rejects NaN / Infinity: `typeof NaN === 'number'`
+    // slipped past the type gate and `Math.max(0, NaN) = NaN` emitted
+    // a literal `stroke-NaN` utility that the parser rejected.
     const clamped = Math.max(0, v)
     out.push(`stroke-${clamped}`)
     return

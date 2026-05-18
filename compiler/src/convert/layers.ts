@@ -405,10 +405,13 @@ function convertSymbolLayer(
   // lower pass (lower.ts:499) and produces `LabelDef.sizeZoomStops`
   // for per-frame interpolation.
   const textSize = unwrapLiteralScalar(layout['text-size'])
-  if (typeof textSize === 'number') {
+  if (typeof textSize === 'number' && Number.isFinite(textSize)) {
     // Mapbox spec: text-size >= 0. Clamp to prevent
     // `label-size--5` (double-dash utility name) on typo'd
     // negatives. Same class as the line-width / opacity clamps.
+    // Number.isFinite gate also rejects NaN / Infinity (typeof NaN
+    // === 'number' is true; Math.max(0, NaN) = NaN emits invalid
+    // `label-size-NaN`).
     utils.push(`label-size-${Math.max(0, textSize)}`)
   } else if (textSize !== undefined && textSize !== null) {
     const interp = interpolateZoomCall(textSize, warnings,
@@ -436,8 +439,9 @@ function convertSymbolLayer(
   // Both accept zoom-interpolated forms (common on basemap styles
   // that grow halos with zoom for legibility).
   const haloWidth = unwrapLiteralScalar(paint['text-halo-width'])
-  if (typeof haloWidth === 'number') {
+  if (typeof haloWidth === 'number' && Number.isFinite(haloWidth)) {
     // Same negative + zero skip as the circle-stroke-width fix.
+    // Number.isFinite rejects NaN/Infinity — see addStrokeWidth.
     // Both legitimately mean "no halo"; without the tighter type
     // guard a negative literal fell through to the else-if interp
     // path and emitted label-halo-[-N] as a bracket binding.
@@ -693,8 +697,9 @@ function convertSymbolLayer(
   }
   if (unwrapLiteralScalar(layout['text-ignore-placement']) === true) utils.push('label-ignore-placement')
   const padding = unwrapLiteralScalar(layout['text-padding'])
-  if (typeof padding === 'number') {
-    // Mapbox spec: text-padding >= 0.
+  if (typeof padding === 'number' && Number.isFinite(padding)) {
+    // Mapbox spec: text-padding >= 0. Number.isFinite gate rejects
+    // NaN / Infinity slipping past the typeof check.
     utils.push(`label-padding-${Math.max(0, padding)}`)
   } else if (padding !== undefined && padding !== null) {
     const interp = interpolateZoomCall(padding, warnings,
@@ -754,15 +759,16 @@ function convertSymbolLayer(
   const placement: unknown = overrides?.placement !== undefined
     ? overrides.placement
     : unwrapLiteralScalar(layout['symbol-placement'])
-  if (typeof maxWidth === 'number') {
-    // Mapbox spec: text-max-width >= 0 (em units).
+  if (typeof maxWidth === 'number' && Number.isFinite(maxWidth)) {
+    // Mapbox spec: text-max-width >= 0 (em units). Number.isFinite
+    // rejects NaN / Infinity.
     utils.push(`label-max-width-${Math.max(0, maxWidth)}`)
   } else if (placement !== 'line' && placement !== 'line-center') {
     utils.push('label-max-width-10')
   }
   const lineHeight = unwrapLiteralScalar(layout['text-line-height'])
   // Spec: text-line-height >= 0 (em units).
-  if (typeof lineHeight === 'number') utils.push(`label-line-height-${Math.max(0, lineHeight)}`)
+  if (typeof lineHeight === 'number' && Number.isFinite(lineHeight)) utils.push(`label-line-height-${Math.max(0, lineHeight)}`)
   const justify = unwrapLiteralScalar(layout['text-justify'])
   if (justify === 'auto' || justify === 'left' || justify === 'center' || justify === 'right') {
     utils.push(`label-justify-${justify}`)
@@ -1080,8 +1086,9 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   // expression all supported. Default 5 px per Mapbox spec — emit
   // explicitly so the runtime doesn't fall back to its own default (8).
   const radius = unwrapLiteralScalar(paint['circle-radius'])
-  if (typeof radius === 'number') {
+  if (typeof radius === 'number' && Number.isFinite(radius)) {
     // Mapbox spec: circle-radius >= 0. Clamp at convert time;
+    // Number.isFinite rejects NaN / Infinity (see paint NaN fix).
     // same class as the other paint-numeric clamps. `size--5`
     // would lex as double-dash and crash the layer.
     utils.push(`size-${Math.max(0, radius)}`)
@@ -1136,9 +1143,10 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
     // the right helper imported indirectly through paintToUtilities;
     // but since circle isn't routed through paintToUtilities, inline
     // the same logic to keep import surface tight.
-    if (typeof opacity === 'number') {
+    if (typeof opacity === 'number' && Number.isFinite(opacity)) {
       // Mapbox spec: opacity ∈ [0, 1]. Clamp at convert time;
       // same class as the addOpacity clamp (dc0e32a).
+      // Number.isFinite rejects NaN/Infinity (see paint NaN fix).
       const clamped = Math.max(0, Math.min(1, opacity <= 1 ? opacity : opacity / 100))
       tmp.push(`opacity-${Math.round(clamped * 100)}`)
     } else {
@@ -1187,8 +1195,9 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   // that already drops negatives; the interp-zoom callback clamps
   // per-stop to avoid double-dash utility names.
   const strokeWidth = unwrapLiteralScalar(paint['circle-stroke-width'])
-  if (typeof strokeWidth === 'number') {
+  if (typeof strokeWidth === 'number' && Number.isFinite(strokeWidth)) {
     // Negative + zero both mean "no stroke" — skip utility emission.
+    // Number.isFinite rejects NaN / Infinity.
     // Pre-fix a negative number fell through the `> 0` gate into the
     // else-if interp/expr branch and emitted `stroke-[-5]` as a
     // bracket binding.
