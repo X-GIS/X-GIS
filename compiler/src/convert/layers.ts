@@ -1104,6 +1104,19 @@ function convertSymbolLayer(
         const unwrapped = unwrapLiteralScalar(v)
         if (typeof unwrapped === 'number' && Number.isFinite(unwrapped)) continue
       }
+      // icon-rotation-alignment: "viewport" is X-GIS' DEFAULT icon
+      // render behaviour (icon-renderer paints axis-aligned to the
+      // screen). Layers that explicitly request viewport — OFM
+      // highway-shield-* (9 layers across bright/liberty/positron) —
+      // are NOT lossy; the rendered output matches Mapbox. Only the
+      // "map" value (OFM bright road_oneway / road_oneway_opposite —
+      // 2 layers, rotation along symbol-placement=line) is a real
+      // gap. "auto" with line placement is also a gap, but no OFM
+      // hits use that combination today.
+      if (k === 'icon-rotation-alignment') {
+        const v = unwrapLiteralScalar(lv ?? pv)
+        if (v === 'viewport' || v === 'auto') continue
+      }
       ignoredText.push(k)
     }
   }
