@@ -628,6 +628,12 @@ export class VectorTileLoader {
 
   /** Open and parse a TileJSON manifest (or return a cached one). */
   openTileJSON(url: string): Promise<CachedTileJSON> {
+    // Defensive: empty/non-string URL would hit the current document
+    // URL on fetch and `.json()` would throw on HTML payload. Mirror
+    // of fetchTileWithRetry + loadImageTexture empty-URL guards.
+    if (!url || typeof url !== 'string') {
+      return Promise.reject(new Error(`[X-GIS] openTileJSON: invalid URL ${JSON.stringify(url).slice(0, 60)}`))
+    }
     return memoizeOpen(this.tileJsonCache, url, async () => {
       // Mapbox-style sources can carry `tiles: ["…/{z}/{x}/{y}.mvt"]`
       // inline — no TileJSON manifest exists, the template IS the source.
