@@ -149,7 +149,7 @@ const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'text-writing-mode',    status: 'unsupported', impact: 'medium', note: 'CJK vertical text would need a per-glyph rotation pipeline.' },
   { name: 'text-max-angle',       status: 'unsupported', impact: 'low' },
   { name: 'icon-image',           status: 'supported', impact: 'high', note: 'Constant + data-driven match/case via label-icon-image-[<expr>] bracket binding. Per-feature evaluation in TextStage.applyFeatureExprs dispatches IconStage.addIcon. Iter 490 + 491 shipped 2026-05-18.', source: 'layers.ts:1007 + map.ts:applyFeatureExprs' },
-  { name: 'icon-size',            status: 'supported', note: 'Constant only.', source: 'layers.ts:623' },
+  { name: 'icon-size',            status: 'supported', note: 'Constant + zoom-interp (iter 523). Bracket-binding `label-icon-size-[interpolate(zoom, …)]` lowers to LabelShapes.iconSize PropertyShape; runtime resolveNumberShape at dispatchIcon time. Data-driven (case/match/get) still drops with a warning — no per-feature path. OFM bright road_oneway / road_oneway_opposite (15→0.5, 19→1) honoured.', source: 'layers.ts:1075' },
   { name: 'icon-rotate',          status: 'supported', note: 'Constant degrees.', source: 'layers.ts:641' },
   { name: 'icon-anchor',          status: 'supported', note: 'Literal 9-way enum.', source: 'layers.ts:627' },
   { name: 'icon-offset',          status: 'supported', note: '[x, y] in CSS px; split into label-icon-offset-x / -y utilities.', source: 'layers.ts:631' },

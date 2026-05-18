@@ -372,7 +372,10 @@ export interface LabelDef {
    *  but spec-legal). */
   iconImageExpr?: { ast: unknown }
   /** Mapbox `icon-size` scale factor on the sprite's design size.
-   *  Default 1.0. Constant only for now. */
+   *  Default 1.0. Static constant fallback only — the zoom-
+   *  interpolated form lives on `LabelShapes.iconSize` since iter
+   *  523; runtime reads the shape FIRST and falls back here only
+   *  when the shape is absent or data-driven. */
   iconSize?: number
   /** Mapbox `icon-anchor`. Default `center`. */
   iconAnchor?:
