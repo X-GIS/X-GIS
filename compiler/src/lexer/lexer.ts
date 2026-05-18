@@ -182,6 +182,39 @@ export class Lexer {
       }
     }
 
+    // Exponent part (iter 542). Mapbox-source JSON can carry scientific-
+    // notation numbers (e.g. 1.5e-7 for small Mercator deltas) and
+    // JSON.stringify falls into scientific for |n| >= 1e21 or
+    // |n| < 1e-6. Pre-fix the lexer stopped after the decimal block and
+    // emitted (Number, Identifier) which the parser surfaced as garbage
+    // — `1.5e3` ended up as the number 1.5 followed by a free-standing
+    // `e3` identifier the evaluator returned 0 for. Now consume the
+    // optional `e±NNN` tail when it's a well-formed exponent; fall
+    // through to the unit-suffix check otherwise so `1.5em` (if `em`
+    // were ever added to UNITS) still parses as a unit-tagged number.
+    const eCh = this.src[this.pos]
+    if (this.pos < this.src.length && (eCh === 'e' || eCh === 'E')) {
+      // Peek the next chars for a valid exponent shape: optional sign +
+      // at least one digit.
+      let look = this.pos + 1
+      if (this.src[look] === '+' || this.src[look] === '-') look++
+      if (look < this.src.length && this.isDigit(this.src[look]!)) {
+        // Consume e/E
+        value += this.src[this.pos]
+        this.pos++; this.col++
+        // Consume optional sign
+        if (this.src[this.pos] === '+' || this.src[this.pos] === '-') {
+          value += this.src[this.pos]
+          this.pos++; this.col++
+        }
+        // Consume exponent digits
+        while (this.pos < this.src.length && this.isDigit(this.src[this.pos])) {
+          value += this.src[this.pos]
+          this.pos++; this.col++
+        }
+      }
+    }
+
     this.tokens.push({ type: TokenType.Number, value, line: this.line, col: startCol })
 
     // Check for unit suffix (px, m, km, etc.)
