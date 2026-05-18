@@ -777,6 +777,12 @@ function convertSymbolLayer(
   const justify = unwrapLiteralScalar(layout['text-justify'])
   if (justify === 'auto' || justify === 'left' || justify === 'center' || justify === 'right') {
     utils.push(`label-justify-${justify}`)
+  } else if (justify !== undefined && justify !== null) {
+    // Mapbox spec: text-justify must be 'auto' | 'left' | 'center'
+    // | 'right'. Anything else silently dropped pre-fix and the
+    // label fell to renderer's default; surface so author sees the
+    // typo (e.g. 'middle' / 'centered').
+    warnings.push(`Symbol layer "${layer.id}" — text-justify "${String(justify).slice(0, 40)}" is not a valid enum value; expected 'auto' | 'left' | 'center' | 'right'.`)
   }
 
   // text-font: ["Noto Sans Regular", "Noto Sans CJK KR Regular"] →
