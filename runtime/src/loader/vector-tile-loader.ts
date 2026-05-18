@@ -519,6 +519,13 @@ export class VectorTileLoader {
   /** Construct a `VectorTileSource` for `url` (or `null` if the URL
    *  doesn't look like any vector tile format we know). */
   sourceFor(url: string, kind?: VectorTileFormat | 'auto'): VectorTileSource | null {
+    // Defensive: empty/non-string URL would propagate to
+    // PMTilesArchiveSource/TileJSONSource constructors and crash
+    // downstream when openArchive/openTileJSON tried to fetch.
+    // Mirror of openArchive/openTileJSON empty-URL guards (iters
+    // 350/351) — return null upfront so the source factory short-
+    // circuits cleanly.
+    if (!url || typeof url !== 'string') return null
     switch (detectVectorTileFormat(url, kind)) {
       case 'pmtiles':  return new PMTilesArchiveSource(url, this)
       case 'tilejson': return new TileJSONSource(url, this)
