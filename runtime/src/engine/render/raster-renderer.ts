@@ -129,16 +129,23 @@ fn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut {
     out.pos = apply_log_depth(clip_other, u.proj_params.w);
     out.view_w = clip_other.w;
     out.uv = vec2<f32>(uu, vv);
-    // Route through needs_backface_cull so the raster cull matches
-    // the polygon / line / point thresholds: orthographic uses raw
-    // cosC sign, azimuthal_equidistant culls at cosC <= -0.85,
-    // stereographic at cosC <= -0.8, oblique_mercator never culls
-    // (cylindrical). Pre-fix raster used raw cosC unconditionally —
-    // which over-culled azimuthal + stereo at the rim, making
-    // raster tiles disappear before the vector layers on the same
-    // pixel (rim misalignment between basemap raster and vector
-    // overlays). Globe (projType 7) doesn't reach this branch.
-    out.vis = needs_backface_cull(lon, lat, u.proj_params);
+    // Per-projection cull threshold: orthographic=0 (strict
+    // hemisphere), azimuthal_equidistant=-0.85, stereographic=-0.8,
+    // oblique_mercator never culls (cylindrical — vis=+1 always).
+    // Inline the threshold instead of routing through
+    // needs_backface_cull so per-vertex cost stays one cosC + one
+    // subtract — the WGSL compiler can't constant-fold the switch
+    // inside needs_backface_cull on a uniform read, which on
+    // perf-sensitive paths (Seoul z=15+ raster, many tiles per
+    // frame) showed measurable degradation post-iter-431.
+    var threshold = 0.0;
+    if (t > 3.5 && t < 4.5) { threshold = -0.85; }      // azimuthal
+    else if (t > 4.5 && t < 5.5) { threshold = -0.8; }  // stereo
+    else if (t > 5.5 && t < 6.5) {                       // oblique_merc
+      out.vis = 1.0;
+      return out;
+    }
+    out.vis = center_cos_c(lon, lat, u.proj_params.y, u.proj_params.z) - threshold;
     return out;
   }
 
