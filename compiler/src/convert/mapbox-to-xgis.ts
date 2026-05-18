@@ -197,6 +197,21 @@ export function convertMapboxStyle(
     && !Array.isArray(stylesSources)
     ? stylesSources
     : {}
+  // Pre-walk: source minzoom > maxzoom inversion. Mirror of the
+  // per-layer zoom-inversion check below. A source declaring
+  // `{ minzoom: 10, maxzoom: 4 }` has an empty servable-zoom range;
+  // every tile request to it produces a 404 / empty payload and the
+  // dependent layers stay blank. Common typo when copying source
+  // definitions between styles.
+  for (const [sid, src] of Object.entries(sourcesObj)) {
+    if (src === null || typeof src !== 'object' || Array.isArray(src)) continue
+    const mn = (src as { minzoom?: unknown }).minzoom
+    const mx = (src as { maxzoom?: unknown }).maxzoom
+    if (typeof mn === 'number' && typeof mx === 'number' && mn > mx) {
+      warnings.push(`Source "${sid.slice(0, 60)}" has minzoom=${mn} > maxzoom=${mx} — empty servable-zoom range; every dependent layer will render blank.`)
+    }
+  }
+
   // Pre-walk for source-id sanitization collisions. Raw-id duplicates
   // are impossible (Object.entries dedups by key), but `sanitizeId`
   // can collapse distinct raw ids (`world-tiles` / `world_tiles` both
