@@ -812,6 +812,22 @@ function convertSymbolLayer(
     if (interp !== null) utils.push(`label-padding-[${interp}]`)
   }
 
+  // icon-padding — spec default 2. X-GIS doesn't have an icon-side
+  // collision queue yet (Phase C.9), so the padding is a no-op
+  // regardless of value. Warn ONLY when the author declared a non-
+  // default value — declaring the default is the same as not
+  // declaring it, so the absence of an implementation is invisible
+  // to spec-default users. OFM bright authors `icon-padding: 2` on
+  // road_oneway / road_oneway_opposite (both default values); under
+  // this gate they stay lossless. Mirror of iter 494 icon-rotation-
+  // alignment viewport/auto suppression.
+  const iconPadding = unwrapLiteralScalar(layout['icon-padding'])
+  if (typeof iconPadding === 'number' && Number.isFinite(iconPadding) && iconPadding !== 2) {
+    warnings.push(`Symbol layer "${layer.id}" — icon-padding ${iconPadding} declared but X-GIS has no icon-side collision queue yet (Phase C.9); icons will pack at the spec-default spacing.`)
+  } else if (iconPadding !== undefined && iconPadding !== null && typeof iconPadding !== 'number') {
+    warnings.push(`Symbol layer "${layer.id}" — icon-padding non-constant form not yet supported.`)
+  }
+
   // text-rotate (degrees clockwise) + text-letter-spacing (em-units).
   // Both can be negative (counter-clockwise rotation, condensed
   // tracking) → bracket form for negatives. Mapbox text-letter-spacing
