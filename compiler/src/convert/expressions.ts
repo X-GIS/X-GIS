@@ -143,7 +143,18 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
     case 'coalesce': {
       const args = v.slice(1).map(a => exprToXgis(a, warnings))
       const valid = args.filter((a): a is string => a !== null)
+      // Surface partial-drop when SOME but not all args converted —
+      // pre-fix the invalid arms vanished silently so a coalesce
+      // expression that authored a fallback chain
+      // `["coalesce", ["image", "icon"], ["literal", "#abc"]]` could
+      // drop the unsupported `image` head and the runtime would always
+      // hit the colour fallback even when the icon was meant to
+      // resolve. Total-failure (length === 0) keeps the existing
+      // bail-to-null so callers know nothing converted.
       if (valid.length === 0) return null
+      if (valid.length < args.length) {
+        warnings.push(`["coalesce"] dropped ${args.length - valid.length} of ${args.length} args that failed to convert; resulting fallback chain may differ from the authored intent.`)
+      }
       return valid.join(' ?? ')
     }
     case 'case': {
@@ -162,11 +173,21 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // as the Identifier(null), which the evaluator coerces by
       // context (colour → no fill default; number → 0; bool → false).
       let result = def ?? 'null'
+      let droppedArms = 0
       for (let i = args.length - 3; i >= 0; i -= 2) {
         const cond = exprToXgis(args[i], warnings)
         const val = exprToXgis(args[i + 1], warnings)
-        if (cond === null || val === null) continue
+        if (cond === null || val === null) { droppedArms++; continue }
         result = `${cond} ? ${val} : ${result}`
+      }
+      // Surface partial-drop: a case arm whose cond OR val failed to
+      // convert was previously silently skipped — the resulting
+      // ternary chain fell through to the default for that condition
+      // with NO diagnostic. Real styles with one experimental arm
+      // (e.g. `["image", …]` head, currently unsupported) would lose
+      // the entire conditional path silently.
+      if (droppedArms > 0) {
+        warnings.push(`["case"] dropped ${droppedArms} arm(s) whose cond or value failed to convert; remaining chain may collapse to default for the affected conditions.`)
       }
       return result
     }
