@@ -31,6 +31,8 @@ interface Internals {
   panBy(offset: [number, number]): void
   setMaxBounds(bounds: [[number, number], [number, number]] | null): void
   getMaxBounds(): [[number, number], [number, number]] | null
+  easeTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number }): void
+  flyTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number }): void
 }
 
 describe('XGISMap Mapbox-API camera setters', () => {
@@ -332,6 +334,30 @@ describe('XGISMap Mapbox-API camera setters', () => {
       map.panBy([10000, 0])
       const state = map.getCameraState()
       expect(state.center[0]).toBeLessThanOrEqual(131)
+    })
+  })
+
+  describe('easeTo / flyTo (iter 437)', () => {
+    it('easeTo applies center/zoom/bearing/pitch (alias of jumpTo)', () => {
+      map.easeTo({ center: [10, 20], zoom: 5, bearing: 30, pitch: 25, duration: 1000 })
+      expect(map.getCameraState().zoom).toBe(5)
+      expect(map.getCameraState().bearing).toBe(30)
+      expect(map.getCameraState().pitch).toBe(25)
+    })
+
+    it('flyTo applies center/zoom/bearing/pitch (alias of jumpTo)', () => {
+      map.flyTo({ center: [50, 30], zoom: 8, bearing: 90, pitch: 45, duration: 2000, speed: 1.2 })
+      expect(map.getCameraState().zoom).toBe(8)
+      expect(map.getCameraState().bearing).toBe(90)
+      expect(map.getCameraState().pitch).toBe(45)
+    })
+
+    it('easeTo with partial opts still applies what is given', () => {
+      map.setBearing(0)
+      map.setPitch(0)
+      map.easeTo({ bearing: 60 })
+      expect(map.getBearing()).toBe(60)
+      expect(map.getPitch()).toBe(0) // untouched
     })
   })
 })

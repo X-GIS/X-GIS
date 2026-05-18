@@ -633,6 +633,21 @@ export class XGISMap {
     return [[b.west, b.south], [b.east, b.north]]
   }
 
+  /** Mapbox-API parity: `easeTo` and `flyTo` are the animated variants
+   *  of jumpTo in MapLibre GL JS. X-GIS has no transition infra yet, so
+   *  both alias to jumpTo (instant) — same final camera state, just no
+   *  smooth interpolation along the way. Callers porting MapLibre code
+   *  compile unchanged; behaviour degrades gracefully to a jump.
+   *
+   *  When animation lands, these become real eased / fly transitions
+   *  and the alias is removed. */
+  easeTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number; easing?: unknown }): void {
+    this.jumpTo({ center: opts.center, zoom: opts.zoom, bearing: opts.bearing, pitch: opts.pitch })
+  }
+  flyTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number; speed?: number; curve?: number }): void {
+    this.jumpTo({ center: opts.center, zoom: opts.zoom, bearing: opts.bearing, pitch: opts.pitch })
+  }
+
   /** Mapbox-API parity: pan the map by an offset in CSS pixels.
    *  Positive dx moves the map LEFT (camera moves RIGHT in world);
    *  positive dy moves the map UP (camera moves DOWN). Honors the
