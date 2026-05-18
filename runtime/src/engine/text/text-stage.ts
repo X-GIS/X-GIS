@@ -904,6 +904,10 @@ export class TextStage {
       }>
       allowOverlap: boolean
       ignorePlacement: boolean
+      /** Mapbox `symbol-sort-key` — lower wins collisions. When
+       *  undefined falls back to layer-order priority via the
+       *  reverse iteration trick below. */
+      sortKey?: number
     }
     const shaped: ShapedLabel[] = []
     const dpr = this.dpr
@@ -1099,6 +1103,7 @@ export class TextStage {
         layouts,
         allowOverlap: p.def.allowOverlap === true,
         ignorePlacement: p.def.ignorePlacement === true,
+        sortKey: p.def.sortKey,
       })
     }
 
@@ -1293,6 +1298,7 @@ export class TextStage {
         }],
         allowOverlap: p.def.allowOverlap === true,
         ignorePlacement: p.def.ignorePlacement === true,
+        sortKey: p.def.sortKey,
       })
     }
 
@@ -1322,15 +1328,28 @@ export class TextStage {
       bboxes: s.layouts.map(l => l.bbox),
       allowOverlap: s.allowOverlap,
       ignorePlacement: s.ignorePlacement,
+      sortKey: s.sortKey,
     }))
-    const reversed: CollisionItem[] = []
-    for (let i = collisionInput.length - 1; i >= 0; i--) reversed.push(collisionInput[i]!)
-    const placementsReversed = greedyPlaceBboxes(reversed)
-    // Map back to original index space so the draw loop below reads
-    // the right placement per shaped[i].
-    const placements: typeof placementsReversed = new Array(shaped.length)
-    for (let i = 0; i < placementsReversed.length; i++) {
-      placements[shaped.length - 1 - i] = placementsReversed[i]!
+    // When ANY shaped item carries an explicit sortKey, greedy­Place­
+    // Bboxes handles priority via stable sort by sortKey ascending —
+    // we don't need (and shouldn't apply) the reverse-iteration
+    // layer-order tie-break, because that would put high-sortKey
+    // labels in front of low-sortKey ones. When no item sets sortKey,
+    // keep the legacy reverse trick so "later layers win" behaviour
+    // stays byte-identical for styles without symbol-sort-key.
+    let placements
+    let anySortKey = false
+    for (const s of shaped) if (s.sortKey !== undefined) { anySortKey = true; break }
+    if (anySortKey) {
+      placements = greedyPlaceBboxes(collisionInput)
+    } else {
+      const reversed: CollisionItem[] = []
+      for (let i = collisionInput.length - 1; i >= 0; i--) reversed.push(collisionInput[i]!)
+      const placementsReversed = greedyPlaceBboxes(reversed)
+      placements = new Array(shaped.length) as typeof placementsReversed
+      for (let i = 0; i < placementsReversed.length; i++) {
+        placements[shaped.length - 1 - i] = placementsReversed[i]!
+      }
     }
     const draws: TextDraw[] = []
     for (let i = 0; i < shaped.length; i++) {
