@@ -15,6 +15,32 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 
 describe('setProjection validity set', () => {
+  it('every ALIASES entry maps to a VALID name', () => {
+    const src = readFileSync(
+      join(__dirname, 'map.ts'),
+      'utf8',
+    )
+    // ALIASES → canonical.
+    const aliasMatch = src.match(/const ALIASES: Record<string, string> = \{([\s\S]*?)\}/)
+    expect(aliasMatch).not.toBeNull()
+    const aliasMap = aliasMatch![1]
+      .split('\n').map(l => l.trim())
+      .filter(l => l.includes("':"))
+      .map(l => {
+        const m = l.match(/'([^']+)':\s*'([^']+)'/)
+        return m ? { alias: m[1], canonical: m[2] } : null
+      })
+      .filter((x): x is { alias: string; canonical: string } => x !== null)
+    expect(aliasMap.length).toBeGreaterThan(0)
+
+    const validMatch = src.match(/const VALID = new Set\(\[([\s\S]*?)\]\)/)
+    const validNames = new Set((validMatch![1].match(/'([a-z_]+)'/g) ?? []).map(s => s.slice(1, -1)))
+
+    for (const { alias, canonical } of aliasMap) {
+      expect(validNames.has(canonical), `alias '${alias}' maps to '${canonical}' which is not in VALID`).toBe(true)
+    }
+  })
+
   it('VALID set matches the renderFrame projType lookup', () => {
     const src = readFileSync(
       join(__dirname, 'map.ts'),
