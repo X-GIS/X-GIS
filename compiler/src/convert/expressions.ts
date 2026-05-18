@@ -785,7 +785,11 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
         warnings.push(`["${op}"] expected ${requiredCh} channels, got ${ch.length}: ${JSON.stringify(v).slice(0, 80)}`)
         return null
       }
-      const allNumeric = ch.every(c => typeof c === 'number')
+      // Number.isFinite gate — NaN passes typeof; Math.round(NaN) is
+      // NaN; `(NaN).toString(16)` is "NaN" → emitted hex literal
+      // would be `#NaNNaNNaN` which the runtime parseHexColor regex
+      // rejects, silently collapsing the colour to opaque black.
+      const allNumeric = ch.every(c => typeof c === 'number' && Number.isFinite(c))
       if (allNumeric) {
         const [r, g, b, a] = ch as number[]
         const cl = (n: number) => Math.max(0, Math.min(255, Math.round(n)))
