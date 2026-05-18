@@ -49,6 +49,14 @@ function synthesizeConstantPaintShapes(args: {
 export interface LoadCommand {
   name: string
   url: string
+  /** Source `type:` from the DSL — `'geojson'` / `'pmtiles'` /
+   *  `'tilejson'` / `'raster'` / `'xgvt'`. The runtime dispatches
+   *  on this when set; falls back to URL-extension sniffing
+   *  otherwise. Without it a TileJSON manifest URL with no file
+   *  extension misroutes into the generic `fetch().json()` path
+   *  and crashes when applyFilter reads `.features[0]`. Mirrors
+   *  the compiler-side LoadCommand at emit-commands.ts:29. */
+  type?: string
   /** Optional: restrict the source to a subset of named sub-layers.
    *  For PMTiles/MVT sources this maps to PMTilesSourceOptions.layers
    *  — the decoder filters features by MVT layer name before

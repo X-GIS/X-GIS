@@ -2017,7 +2017,7 @@ export class XGISMap {
    *  knows its bounds wins"); boxed in an object so each Promise sees
    *  the same flag. */
   private async _attachOneSource(
-    load: AST.Load,
+    load: SceneCommands['loads'][0],
     baseUrl: string,
     maps: ShowSourceMaps,
     cameraFitState: { fit: boolean },
