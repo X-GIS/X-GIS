@@ -290,4 +290,44 @@ fn needs_backface_cull(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f3
   }
   return 1.0; // flat projections — no culling
 }
+
+// Rim alpha: smooth transition near the visibility boundary. Returns
+// 0.0 fully behind the hemisphere, 1.0 fully in front, and a smoothstep
+// fade in between. Fragment shaders should multiply this into output
+// alpha instead of using needs_backface_cull's binary discard so geometry
+// at cos_c ≈ 0 doesn't flicker in/out across frames (the geometry
+// straddling the rim was previously hard-discarded with no fade —
+// visible jitter on globe at pitch=60+ near the horizon).
+// Cylindrical projections + flat — always 1.0 (no rim concept).
+// Azimuthal / stereo — fade in the [threshold, threshold+RIM_FADE]
+// band so cull threshold stays unchanged and only the transition
+// softens. Globe / ortho fade in [0, RIM_FADE] from the visibility
+// boundary.
+fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32 {
+  let t = proj_params.x;
+  let clon = proj_params.y;
+  let clat = proj_params.z;
+  let RIM_FADE = 0.02;
+  if (t > 2.5) {
+    let cc = center_cos_c(lon_deg, lat_deg, clon, clat);
+    if (t < 3.5) {
+      // ortho
+      return smoothstep(0.0, RIM_FADE, cc);
+    }
+    if (t < 4.5) {
+      // azimuthal equidistant — threshold at -0.85
+      return smoothstep(-0.85, -0.85 + RIM_FADE, cc);
+    }
+    if (t < 5.5) {
+      // stereographic — threshold at -0.8
+      return smoothstep(-0.8, -0.8 + RIM_FADE, cc);
+    }
+    if (t < 6.5) {
+      return 1.0; // oblique_mercator — no rim
+    }
+    // globe (7)
+    return smoothstep(0.0, RIM_FADE, cc);
+  }
+  return 1.0; // flat projections — no rim
+}
 `
