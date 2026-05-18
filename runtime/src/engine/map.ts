@@ -640,6 +640,24 @@ export class XGISMap {
   private _loaded = false
   loaded(): boolean { return this._loaded }
 
+  /** Mapbox-API parity: return the underlying canvas element.
+   *  Hosts need this to attach gesture listeners, capture screenshots
+   *  via canvas.toBlob, or compute hit-test coordinates. Falls back
+   *  to the constructor-supplied canvas if ctx hasn't initialized yet
+   *  (pre-init phase before WebGPU adapter resolves). */
+  getCanvas(): HTMLCanvasElement {
+    return (this.ctx?.canvas ?? this.canvas) as HTMLCanvasElement
+  }
+
+  /** Mapbox-API parity: return the canvas's parent container element.
+   *  Returns null if the canvas has no parent (e.g. detached mount).
+   *  Mapbox GL JS hosts use this to position UI controls relative to
+   *  the map. */
+  getContainer(): HTMLElement | null {
+    const c = this.getCanvas()
+    return (c?.parentElement as HTMLElement) ?? null
+  }
+
   /** Mapbox-API parity: fit the camera to a lon/lat bounding box.
    *  Picks zoom from the lon-span (matches the internal heuristic in
    *  _fitZoomToLonSpan), centers on the bbox midpoint, and applies

@@ -40,6 +40,8 @@ interface Internals {
   off(type: string, listener: unknown): void
   once(type: string, listener: unknown): void
   mapListeners: { has(type: string): boolean }
+  getCanvas(): HTMLCanvasElement
+  getContainer(): HTMLElement | null
 }
 
 describe('XGISMap Mapbox-API camera setters', () => {
@@ -424,6 +426,20 @@ describe('XGISMap Mapbox-API camera setters', () => {
       const fn = () => {}
       map.once('mousemove', fn)
       expect(map.mapListeners.has('mousemove')).toBe(true)
+    })
+  })
+
+  describe('getCanvas / getContainer (iter 444)', () => {
+    it('getCanvas returns the canvas element', () => {
+      const canvas = map.getCanvas()
+      expect(canvas).toBeDefined()
+      expect((canvas as unknown as { width: number }).width).toBe(1200)
+    })
+
+    it('getContainer returns null for a detached canvas (mockCanvas)', () => {
+      // mockCanvas() returns an HTMLCanvasElement-like object with no
+      // parentElement, so getContainer should resolve to null.
+      expect(map.getContainer()).toBeNull()
     })
   })
 })
