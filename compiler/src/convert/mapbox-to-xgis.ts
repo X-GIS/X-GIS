@@ -530,7 +530,15 @@ export function convertMapboxStyle(
         block = convertLayer(sub, warnings)
       } catch (e) {
         warnings.push(`Layer "${(sub as { id?: unknown }).id ?? '<unknown>'}" conversion threw: ${(e as Error).message}`)
-        block = `// SKIPPED layer "${(sub as { id?: unknown }).id ?? '<unknown>'}" — converter threw: ${(e as Error).message.slice(0, 80)}`
+        // Sanitize newlines + carriage returns in the placeholder
+        // comment — a `//` line comment terminates at newline, so an
+        // id or throw-message containing `\n` would close the
+        // comment mid-line and the rest of the message would parse
+        // as raw xgis code, cascading lex errors through the file.
+        const rawId = (sub as { id?: unknown }).id ?? '<unknown>'
+        const safeId = String(rawId).replace(/[\r\n]/g, ' ')
+        const safeMsg = (e as Error).message.replace(/[\r\n]/g, ' ').slice(0, 80)
+        block = `// SKIPPED layer "${safeId}" — converter threw: ${safeMsg}`
       }
       if (block) {
         lines.push(block)
