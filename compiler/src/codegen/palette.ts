@@ -235,7 +235,12 @@ function ingestColor(b: PaletteBuilder, value: ColorValue): void {
 function ingestNumberShape(b: PaletteBuilder, shape: PropertyShape<number>): void {
   switch (shape.kind) {
     case 'constant':
-      b.addScalar(shape.value)
+      // Number.isFinite gate — NaN/Infinity shape.value would
+      // pollute the palette (numbersEqual(NaN, NaN) = false →
+      // unbounded slot growth) AND the renderer would read NaN
+      // from the slot at draw time. Skip non-finite constants —
+      // the renderer falls back to its default for the property.
+      if (Number.isFinite(shape.value)) b.addScalar(shape.value)
       return
     case 'zoom-interpolated':
       b.addScalarGradient(shape.stops, shape.base)
@@ -263,7 +268,8 @@ function ingestRenderNode(b: PaletteBuilder, node: RenderNode): void {
   // + zoom-interpolated, leave the rest for runtime resolve.
   switch (node.size.kind) {
     case 'constant':
-      b.addScalar(node.size.value)
+      // Number.isFinite gate — mirror of ingestNumberShape.
+      if (Number.isFinite(node.size.value)) b.addScalar(node.size.value)
       break
     case 'zoom-interpolated':
       b.addScalarGradient(node.size.stops, node.size.base)
