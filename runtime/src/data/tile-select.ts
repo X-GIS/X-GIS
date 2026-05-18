@@ -833,10 +833,19 @@ export function tileBounds(coord: TileCoord): { west: number; south: number; eas
 
 /** Build tile URL from template */
 export function tileUrl(template: string, coord: TileCoord): string {
+  // Global replace + {ratio} substitution mirror the vector-tile
+  // loader's fix:
+  //   - Single-pass `.replace('{z}', …)` left subsequent
+  //     occurrences intact, fetch 400'd on duplicate placeholders
+  //     in URLs like `…/{z}/{x}/{y}/{z}-{x}.png`.
+  //   - `{ratio}` (Mapbox DPR suffix `""` / `"@2x"`) wasn't
+  //     substituted, so a raster source using a retina-aware
+  //     template fetched the unsubstituted URL and 404'd.
   return template
-    .replace('{z}', String(coord.z))
-    .replace('{x}', String(coord.x))
-    .replace('{y}', String(coord.y))
+    .replace(/\{z\}/g, String(coord.z))
+    .replace(/\{x\}/g, String(coord.x))
+    .replace(/\{y\}/g, String(coord.y))
+    .replace(/\{ratio\}/g, '')
 }
 
 /** Check if a URL is a tile template */
