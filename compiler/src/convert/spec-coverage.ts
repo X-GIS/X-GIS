@@ -123,7 +123,7 @@ const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'symbol-spacing',       status: 'supported', note: 'Defaults to 250 px when missing on line placement.', source: 'layers.ts:471' },
   { name: 'symbol-avoid-edges',   status: 'unsupported', impact: 'low' },
   { name: 'symbol-sort-key',      status: 'partial', impact: 'medium', note: 'Constant numeric value plumbed end-to-end (iter 399-405). Runtime collision pass sorts CollisionItems by sortKey ascending — lower wins. Expression form (`["get", "rank"]`) flattens to 0 with a warning.', source: 'layers.ts:702' },
-  { name: 'symbol-z-order',       status: 'unsupported', impact: 'low' },
+  { name: 'symbol-z-order',       status: 'unsupported', impact: 'low', note: 'Per-feature draw-order override. X-GIS uses symbol-sort-key for ordering today; symbol-z-order would need a separate sort pass after collision.' },
   { name: 'text-field',           status: 'supported', note: 'String / {token} / expression / number / boolean / null. Colon-bearing locale keys route via `get("name:xx")`.', source: 'layers.ts:164' },
   { name: 'text-font',            status: 'supported', note: 'Family extracted, weight + italic stripped into `label-font-weight-N` / `label-italic`.', source: 'layers.ts:417' },
   { name: 'text-size',            status: 'supported', note: 'Constant + interpolate-by-zoom + per-feature expression (sizeExpr).', source: 'layers.ts:231' },
@@ -158,7 +158,7 @@ const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'icon-ignore-placement',status: 'unsupported', impact: 'medium', note: 'Same icon-collision gap as icon-allow-overlap. "true" would let other labels overlap this icon\'s footprint.' },
   { name: 'icon-optional',        status: 'partial', impact: 'low', note: 'Default `false` (icon required for label placement) is X-GIS\' current contract — labels with iconImage place when both fit. OFM label_city/town/etc. all author the default. `true` (label may place icon-less) needs icon-side collision arbitration; not implemented.' },
   { name: 'icon-rotation-alignment', status: 'supported', impact: 'medium', note: 'All three values (map / viewport / auto) honored. "viewport"/"auto" map to X-GIS axis-aligned icons; "map" adds the per-segment tangent to icon-rotate at dispatch time under symbol-placement=line (OFM road_oneway one-way arrows). Compiler iter 506 emits label-icon-rotation-alignment-map; runtime adds tangent in dispatchIcon.', source: 'layers.ts:1056 + map.ts:dispatchIcon' },
-  { name: 'icon-padding',         status: 'unsupported', impact: 'low' },
+  { name: 'icon-padding',         status: 'unsupported', impact: 'low', note: 'Per-icon collision-bbox padding. X-GIS uses a fixed 2px default per spec; per-layer override needs to thread through label-collision.' },
   { name: 'icon-text-fit',        status: 'unsupported', impact: 'medium', note: 'Shield/badge backgrounds depend on this.' },
   { name: 'icon-text-fit-padding',status: 'unsupported', impact: 'low', note: 'Padding when icon-text-fit fits glyph bbox; dependent on icon-text-fit.' },
   { name: 'icon-keep-upright',    status: 'unsupported', impact: 'low' },
@@ -168,8 +168,8 @@ const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
 // ─── 5. Paint properties ──────────────────────────────────────────────
 const PAINT_BACKGROUND: readonly CoverageEntry[] = [
   { name: 'background-color',   status: 'partial', impact: 'low', note: 'Constant + CSS form only — interpolate-by-zoom of background falls through (rare).' },
-  { name: 'background-opacity', status: 'unsupported', impact: 'low' },
-  { name: 'background-pattern', status: 'unsupported', impact: 'low' },
+  { name: 'background-opacity', status: 'unsupported', impact: 'low', note: 'Constant background-color alpha is honoured if the input hex carries an alpha channel; a dedicated opacity multiplier is not threaded.' },
+  { name: 'background-pattern', status: 'unsupported', impact: 'low', note: 'Needs sprite atlas + tiled fragment. Batch 2 dependency.' },
 ]
 
 const PAINT_FILL: readonly CoverageEntry[] = [
@@ -192,7 +192,7 @@ const PAINT_LINE: readonly CoverageEntry[] = [
   { name: 'line-offset',    status: 'supported', note: 'Positive Mapbox values (right of travel) → `stroke-offset-right-N`; negative → `stroke-offset-left-N`. The xgis line renderer threads `strokeOffset` through to the vertex shader including offset-aware miter / join geometry. Constant only — interpolate-by-zoom warns and drops.', source: 'paint.ts:175' },
   { name: 'line-translate', status: 'unsupported', impact: 'low' },
   { name: 'line-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport / map coordinate space for line-translate; dependent on line-translate.' },
-  { name: 'line-pattern',   status: 'unsupported', impact: 'medium' },
+  { name: 'line-pattern',   status: 'unsupported', impact: 'medium', note: 'Bitmap pattern repeated along line — Batch 2 (sprite atlas dependency). Layer falls back to solid line-color if pattern is the only visual cue.' },
   { name: 'line-gradient',  status: 'unsupported', impact: 'low' },
 ]
 
@@ -204,7 +204,7 @@ const PAINT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'text-halo-blur',   status: 'supported', note: 'Constant only at conversion; IR exposes a PropertyShape so future zoom-interp / data-driven emit lands without IR changes.', source: 'layers.ts:283' },
   { name: 'text-translate',   status: 'supported', note: 'Pixel-space offset added on top of em-unit text-offset.', source: 'layers.ts:340' },
   { name: 'text-translate-anchor', status: 'unsupported', impact: 'low' },
-  { name: 'icon-color',       status: 'unsupported', impact: 'high' },
+  { name: 'icon-color',       status: 'unsupported', impact: 'high', note: 'SDF icon tint — needs IconStage vertex tint attribute + fragment tint multiply. Currently surfaces via ignoredText warning; PNG sprite path renders the un-tinted texel. Plan §4 deferred.' },
   { name: 'icon-opacity',     status: 'partial', impact: 'high', note: 'Constant form threads compiler → LabelDef → IconStage.addIcon → per-vertex opacity attribute → fragment alpha multiplier. Zoom-interp / data-driven deferred (per-feature alpha would need iconOpacityExpr path). Iter 492 shipped 2026-05-18.', source: 'layers.ts:1050' },
   { name: 'icon-halo-color',  status: 'unsupported', impact: 'medium' },
   { name: 'icon-halo-width',  status: 'unsupported', impact: 'medium' },

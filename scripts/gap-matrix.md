@@ -1,6 +1,6 @@
 # X-GIS Mapbox Support Gap Matrix
 
-Generated: 2026-05-18T23:38:19.488Z
+Generated: 2026-05-18T23:39:50.449Z
 
 ## Runtime capability gaps
 
@@ -38,7 +38,7 @@ Properties marked `unsupported` with `impact: high` — these are the most visib
 |---|---|
 | symbol (icon-only) | No text-field → skipped. Awaits Batch 2 (sprite atlas). |
 | fill-pattern | Batch 2 (bitmap atlas). |
-| icon-color |  |
+| icon-color | SDF icon tint — needs IconStage vertex tint attribute + fragment tint multiply. Currently surfaces via ignoredText warning; PNG sprite path renders the un-tinted texel. Plan §4 deferred. |
 | image | Sprite atlas (Batch 2). |
 
 ## Partial entries
