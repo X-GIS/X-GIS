@@ -859,6 +859,9 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       'feature-state': 'Feature-state accessor — map.setFeatureState() / hover-state is not yet implemented; values resolve to null.',
       'image': 'Image accessor — sprite atlas (Batch 2) not yet implemented; the layer falls through to its colour-only fallback.',
       'within': 'Within accessor — polygon-containment filter not yet implemented; predicate evaluates to false.',
+      'is-supported-script': 'is-supported-script accessor — Unicode script-coverage check not implemented; predicate evaluates to false.',
+      'resolved-locale': 'resolved-locale accessor — collator-resolved BCP-47 locale tag not implemented; returns null.',
+      'collator': 'collator object — locale-aware string ordering not implemented; comparison operators fall back to byte-exact compare.',
     }
     const reason = KNOWN_UNSUPPORTED[unsupportedOp]
     if (reason !== undefined) {
