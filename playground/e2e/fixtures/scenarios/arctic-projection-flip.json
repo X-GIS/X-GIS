@@ -1,0 +1,9 @@
+{
+  "name": "arctic-projection-flip",
+  "description": "Arctic camera transition globe→orthographic. Exercises low-zoom tile selector + polar cap synthesis. Camera over north pole should remain stable across the projection swap.",
+  "projection": "globe",
+  "startCamera": { "lon": 0, "lat": 80, "zoom": 2, "pitch": 0, "bearing": 0 },
+  "endCamera":   { "lon": 0, "lat": 89, "zoom": 2, "pitch": 0, "bearing": 0 },
+  "durationMs": 6000,
+  "easing": "ease-in-out-cubic"
+}

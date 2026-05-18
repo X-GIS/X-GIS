@@ -1,0 +1,9 @@
+{
+  "name": "global-globe-rotation",
+  "description": "Full globe rotation 360° around (0,0). Exercises sphere-cap tile selection, rim alpha fade, antimeridian wrap.",
+  "projection": "globe",
+  "startCamera": { "lon": 0, "lat": 0, "zoom": 2, "pitch": 0, "bearing": 0 },
+  "endCamera":   { "lon": 360, "lat": 0, "zoom": 2, "pitch": 0, "bearing": 0 },
+  "durationMs": 10000,
+  "easing": "linear"
+}
