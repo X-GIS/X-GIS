@@ -93,6 +93,23 @@ describe('XGISLayer.extrude getter / setter', () => {
     layer.style.reset('extrude')
     expect(show.extrude).toEqual({ kind: 'constant', value: 100 })
   })
+
+  it('extrude / extrudeBase getter returns null without crashing when the field is absent', () => {
+    // ShowCommand declares extrude/extrudeBase as OPTIONAL
+    // (renderer.ts:811-820), so a ShowCommand constructed without
+    // either field is type-legal. Pre-fix the getter did
+    // `e.kind === 'constant'` and crashed with
+    // "Cannot read properties of undefined" the moment a caller
+    // passed in a stripped ShowCommand. The `e?.kind` guard makes
+    // the getter return null for the missing-field case, mirroring
+    // the `kind: 'none'` semantics.
+    const show = makeShow()
+    delete (show as { extrude?: unknown }).extrude
+    delete (show as { extrudeBase?: unknown }).extrudeBase
+    const layer = new XGISLayer('test', show, () => {})
+    expect(layer.style.extrude).toBeNull()
+    expect(layer.style.extrudeBase).toBeNull()
+  })
 })
 
 describe('XGISLayer.extrudeBase getter / setter', () => {

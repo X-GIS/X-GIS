@@ -233,7 +233,7 @@ export class XGISLayerStyle {
    *  edits independently. */
   get extrude(): number | null {
     const e = this.host.show.extrude
-    if (e.kind === 'constant') return e.value
+    if (e?.kind === 'constant') return e.value
     return null
   }
   set extrude(v: number | null) {
@@ -252,7 +252,7 @@ export class XGISLayerStyle {
    *  `extrude` metres. Read/write contract identical to `extrude`. */
   get extrudeBase(): number | null {
     const e = this.host.show.extrudeBase
-    if (e.kind === 'constant') return e.value
+    if (e?.kind === 'constant') return e.value
     return null
   }
   set extrudeBase(v: number | null) {
