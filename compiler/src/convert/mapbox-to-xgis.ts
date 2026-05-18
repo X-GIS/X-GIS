@@ -197,6 +197,25 @@ export function convertMapboxStyle(
     && !Array.isArray(stylesSources)
     ? stylesSources
     : {}
+  // Pre-walk for source-id sanitization collisions. Raw-id duplicates
+  // are impossible (Object.entries dedups by key), but `sanitizeId`
+  // can collapse distinct raw ids (`world-tiles` / `world_tiles` both
+  // become `world_tiles`); the emitted xgis carries two `source
+  // world_tiles { … }` blocks and runtime registers only the last —
+  // every layer referencing the FIRST raw id falls back to the
+  // overriding second source's tiles silently. Mirror of the layer-id
+  // collision pre-walk above.
+  const seenSourceSanitized = new Map<string, string>()
+  for (const id of Object.keys(sourcesObj)) {
+    const sanitized = sanitizeId(id)
+    const collidedWith = seenSourceSanitized.get(sanitized)
+    if (collidedWith !== undefined && collidedWith !== id) {
+      warnings.push(`Source id "${id.slice(0, 60)}" sanitizes to "${sanitized}" — collides with another source "${collidedWith.slice(0, 60)}"; emitted blocks will share an identifier and later wins.`)
+    } else {
+      seenSourceSanitized.set(sanitized, id)
+    }
+  }
+
   for (const [id, src] of Object.entries(sourcesObj)) {
     const before = warnings.length
     // Mirror of the per-layer try/catch isolation (0c81006): a throw
