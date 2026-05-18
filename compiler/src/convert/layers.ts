@@ -1108,8 +1108,13 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   // `layout.visibility: 'none'` applies to circle layers per spec.
   // Same gap as convertSymbolLayer — without this a hidden circle
   // layer kept rendering. Mirror the v8 literal-wrap unwrap.
-  if (unwrapLiteralScalar(layout['visibility']) === 'none') {
+  const circleVisibility = unwrapLiteralScalar(layout['visibility'])
+  if (circleVisibility === 'none') {
     lines.push(`  visible: false`)
+  } else if (typeof circleVisibility === 'string' && circleVisibility !== 'visible') {
+    // Same enum validation as symbol layer — typo'd visibility value
+    // silently treated as default 'visible'.
+    warnings.push(`Circle layer "${layer.id}" — visibility "${circleVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`)
   }
 
   const utils: string[] = []
@@ -1370,8 +1375,11 @@ export function convertLayer(layer: MapboxLayer, warnings: string[]): string | n
   // for cap/join). Engine support: `compiler/src/ir/lower.ts:903`
   // for `visible:` block prop, lines 402-417 for cap/join utilities.
   const layout = safePropsBag((layer as { layout?: unknown }).layout)
-  if (unwrapLiteralScalar(layout['visibility']) === 'none') {
+  const generalVisibility = unwrapLiteralScalar(layout['visibility'])
+  if (generalVisibility === 'none') {
     lines.push(`  visible: false`)
+  } else if (typeof generalVisibility === 'string' && generalVisibility !== 'visible') {
+    warnings.push(`Layer "${layer.id}" — visibility "${generalVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`)
   }
 
   // Cap / join / miter-limit are emitted as UTILITIES (after the `|`)
