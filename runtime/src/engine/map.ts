@@ -640,6 +640,35 @@ export class XGISMap {
   private _loaded = false
   loaded(): boolean { return this._loaded }
 
+  /** Mapbox-API parity: fit the camera to a lon/lat bounding box.
+   *  Picks zoom from the lon-span (matches the internal heuristic in
+   *  _fitZoomToLonSpan), centers on the bbox midpoint, and applies
+   *  bearing=0 / pitch=0 unless the caller overrides. Honors
+   *  maxBounds (clamp post-fit) and the active zoom bounds. */
+  fitBounds(
+    bounds: [[number, number], [number, number]],
+    opts: { padding?: number; bearing?: number; pitch?: number } = {},
+  ): void {
+    const [[w, s], [e, n]] = bounds
+    if (!Number.isFinite(w) || !Number.isFinite(s) || !Number.isFinite(e) || !Number.isFinite(n)
+        || s > n) {
+      console.warn(`[X-GIS] fitBounds: invalid bounds (${w},${s})-(${e},${n}); ignored.`)
+      return
+    }
+    const centerLon = (w + e) / 2
+    const centerLat = (s + n) / 2
+    const lonSpan = Math.max(1e-9, e - w)
+    const canvasW = (this.ctx?.canvas?.width ?? 800) - (opts.padding ?? 0) * 2
+    const cssWidthPx = canvasW > 0 ? canvasW : 800
+    const zoom = this._fitZoomToLonSpan(lonSpan, cssWidthPx)
+    this.jumpTo({
+      center: [centerLon, centerLat],
+      zoom,
+      bearing: opts.bearing ?? 0,
+      pitch: opts.pitch ?? 0,
+    })
+  }
+
   /** Mapbox-API parity: notify the map that its container resized.
    *  X-GIS's renderFrame already reads canvas.width / .height every
    *  frame, so the actual buffer pickup is automatic — this method

@@ -35,6 +35,7 @@ interface Internals {
   flyTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number }): void
   resize(): void
   loaded(): boolean
+  fitBounds(bounds: [[number, number], [number, number]], opts?: { padding?: number; bearing?: number; pitch?: number }): void
 }
 
 describe('XGISMap Mapbox-API camera setters', () => {
@@ -382,6 +383,27 @@ describe('XGISMap Mapbox-API camera setters', () => {
       // mockCanvas() doesn't trigger GPU init, so the flag stays false
       // until the renderFrame ready-signal point is reached.
       expect(map.loaded()).toBe(false)
+    })
+  })
+
+  describe('fitBounds (iter 440)', () => {
+    it('centers on bbox midpoint', () => {
+      map.fitBounds([[120, 30], [130, 40]])
+      const state = map.getCameraState()
+      expect(state.center[0]).toBeCloseTo(125, 4)
+      expect(state.center[1]).toBeCloseTo(35, 4)
+    })
+
+    it('applies optional bearing + pitch', () => {
+      map.fitBounds([[0, 0], [10, 10]], { bearing: 45, pitch: 30 })
+      expect(map.getBearing()).toBe(45)
+      expect(map.getPitch()).toBe(30)
+    })
+
+    it('rejects malformed bbox (south > north)', () => {
+      map.setZoom(7)
+      map.fitBounds([[0, 50], [10, 10]])
+      expect(map.getZoom()).toBe(7) // untouched
     })
   })
 })
