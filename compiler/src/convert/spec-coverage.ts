@@ -305,7 +305,7 @@ const EXPRESSIONS: readonly CoverageEntry[] = [
   { name: 'at',              status: 'supported', note: 'Array indexing.' },
   // Coercions
   { name: 'to-number / number',  status: 'supported', note: 'Converter passes through to a coalesce chain; xgis evaluator coerces in arithmetic context. Iter 539 added spec-compliant `to_number(v, fallback…)` builtin in the evaluator for hand-authored xgis source / tooling chains that bypass the converter.', source: 'evaluator.ts:to_number' },
-  { name: 'to-string / to-boolean / to-color', status: 'supported', note: 'Converter passes through; iter 539 added spec-compliant `to_string` / `to_boolean` builtins in the evaluator (null → "", number → str, etc.).', source: 'evaluator.ts:to_string + to_boolean' },
+  { name: 'to-string / to-boolean / to-color', status: 'supported', note: 'Converter passes through to coalesce chains; iter 539 added spec-compliant `to_string` / `to_boolean` builtins in the evaluator (null → "", number → str, etc.); iter 541 added `to_color` (hex regex validation, X-GIS hex-only — converter pre-resolves CSS names like "red" via tokens/colors.ts:resolveColor).', source: 'evaluator.ts:to_string + to_boolean + to_color' },
   // Colour
   { name: 'rgb / rgba',      status: 'partial', impact: 'low', note: 'Constant channels only — hex-encoded at convert time. Per-channel v8 literal-wrap (`[\"literal\", N]`) accepted.', source: 'expressions.ts:507' },
   { name: 'hsl / hsla',      status: 'partial', impact: 'low', note: 'Constant channels only — converted via CSS hsl()/hsla() and re-hexed at convert time. Per-channel v8 literal-wrap accepted.', source: 'colors.ts:69' },
