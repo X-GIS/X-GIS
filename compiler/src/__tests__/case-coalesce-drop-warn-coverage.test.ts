@@ -71,7 +71,7 @@ describe('case / coalesce partial-drop warnings', () => {
     expect(code).toMatch(/\["case"\] dropped/)
   })
 
-  it('match with one unsupported arm warns (chained-ternary path)', () => {
+  it('match (field input) with unsupported arm warns', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
@@ -81,10 +81,6 @@ describe('case / coalesce partial-drop warnings', () => {
           type: 'fill',
           source: 's',
           paint: {
-            // input is `["concat", …]` so converter routes through
-            // matchToTernary (complex non-field input). Arms drop
-            // through chained ["case"] which already warns; the
-            // assertion is just that SOME drop warning surfaces.
             'fill-color': [
               'match',
               ['get', 'kind'],
@@ -97,7 +93,33 @@ describe('case / coalesce partial-drop warnings', () => {
       ],
     }
     const code = convertMapboxStyle(style as never)
-    expect(code).toMatch(/\["match"\] dropped|\["case"\] dropped/)
+    expect(code).toMatch(/\["match"\] dropped/)
+  })
+
+  it('match (chained-ternary path) with unsupported arm warns', () => {
+    const style = {
+      version: 8,
+      sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
+      layers: [
+        {
+          id: 'l',
+          type: 'fill',
+          source: 's',
+          paint: {
+            // Non-field input (`["downcase", …]`) routes through
+            // matchToTernary, not the field-direct match path.
+            'fill-color': [
+              'match',
+              ['downcase', ['get', 'kind']],
+              'park', ['image', 'green-leaf'],
+              '#aaa',
+            ],
+          },
+        },
+      ],
+    }
+    const code = convertMapboxStyle(style as never)
+    expect(code).toMatch(/chained-ternary path/)
   })
 
   it('all-valid case does NOT warn (regression guard)', () => {

@@ -817,6 +817,7 @@ export function matchToTernary(input: unknown, args: unknown[], warnings: string
   // Pre-fix '0' fallback type-mismatched colour matches.
   const def = exprToXgis(args[args.length - 1], warnings) ?? 'null'
   let result = def
+  let droppedArms = 0
   for (let i = args.length - 3; i >= 0; i -= 2) {
     // Same literal-wrap unwrap pattern as the main match + boolean
     // filter paths — keep the three match handlers in sync.
@@ -825,7 +826,7 @@ export function matchToTernary(input: unknown, args: unknown[], warnings: string
       key = key[1]
     }
     const val = exprToXgis(args[i + 1], warnings)
-    if (val === null) continue
+    if (val === null) { droppedArms++; continue }
     const keyStrs = Array.isArray(key) ? key : [key]
     const cond = keyStrs.map(k => {
       // Inner per-element literal-wrap, mirror of the main match handler.
@@ -833,6 +834,14 @@ export function matchToTernary(input: unknown, args: unknown[], warnings: string
       return `${inputXgis} == ${typeof k === 'string' ? JSON.stringify(k) : k}`
     }).join(' || ')
     result = `(${cond}) ? ${val} : ${result}`
+  }
+  // Mirror of the main match + case + coalesce partial-drop warnings.
+  // The chained-ternary path is hit when the match input isn't a
+  // field-access (e.g. `["concat", …]`, `["downcase", …]`); arms
+  // dropped here would otherwise collapse silently to the default
+  // for the affected keys.
+  if (droppedArms > 0) {
+    warnings.push(`["match"] (chained-ternary path) dropped ${droppedArms} arm(s) whose value failed to convert; matching keys will fall through to default.`)
   }
   return result
 }
