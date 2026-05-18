@@ -82,9 +82,15 @@ export function hexToRgba(hex: string | null | undefined): [number, number, numb
  *  to ringBboxCentre on the coordinate list. Returns null on empty /
  *  unsupported shapes so the caller can fall back to a different
  *  strategy (e.g. tile-centre when no per-feature anchor is available). */
-export function featureAnchor(geom: { type: string; coordinates: unknown }): [number, number] | null {
+export function featureAnchor(geom: import('../loader/geojson').GeoJSONGeometry | { type: string; coordinates: unknown }): [number, number] | null {
   if (!geom) return null
-  const c = geom.coordinates as unknown
+  // GeometryCollection (RFC 7946 §3.1.8) has `geometries`, not
+  // `coordinates`. No single anchor without picking a sub-geometry;
+  // return null and let the caller flatten via loadGeoJSON's
+  // injection path (geojson.ts:316) which assigns the parent
+  // feature's properties to each sub-geometry separately.
+  if (geom.type === 'GeometryCollection') return null
+  const c = (geom as { coordinates: unknown }).coordinates
   if (geom.type === 'Point') {
     // Validate Point coords shape — a malformed Point with missing /
     // non-numeric coordinates would otherwise let the caller deref

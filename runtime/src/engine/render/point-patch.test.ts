@@ -16,7 +16,7 @@ describe('pointPatchToFeatureCollection', () => {
       geometry: { type: 'Point' },
       properties: {},
     })
-    expect(fc.features[0].geometry?.coordinates[0]).toBeCloseTo(-30, 2)
+    expect((fc.features[0].geometry as unknown as { coordinates: [number, number] }).coordinates[0]).toBeCloseTo(-30, 2)
     expect(fc.features[1].id).toBe(102)
     expect(fc.features[2].id).toBe(103)
   })
