@@ -317,7 +317,7 @@ function extractInterpolateZoomStops(
  *  than snapping at one of the endpoints. */
 function extractInterpolateZoomColorStops(
   expr: AST.Expr,
-): Array<{ zoom: number; value: string }> | null {
+): { base: number; stops: Array<{ zoom: number; value: string }> } | null {
   if (expr.kind !== 'FnCall') return null
   if (expr.callee.kind !== 'Identifier') return null
   const calleeName = expr.callee.name
@@ -343,9 +343,11 @@ function extractInterpolateZoomColorStops(
   let cursor = 0
   const input = args[cursor++]
   if (input === undefined || input.kind !== 'Identifier' || input.name !== 'zoom') return null
+  let base = 1
   if (isExp) {
     const baseArg = args[cursor++]
     if (baseArg === undefined || baseArg.kind !== 'NumberLiteral') return null
+    base = baseArg.value
   }
   const remaining = args.length - cursor
   if (remaining < 4 || remaining % 2 !== 0) return null
@@ -366,7 +368,7 @@ function extractInterpolateZoomColorStops(
       return null
     }
   }
-  return stops.length >= 2 ? stops : null
+  return stops.length >= 2 ? { base, stops } : null
 }
 
 // ═══ New syntax lowering ═══
@@ -436,6 +438,7 @@ function lowerLayer(
   let labelSizeZoomStopsBase: number | undefined
   let labelColor: [number, number, number, number] | undefined
   const labelColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
+  let labelColorZoomStopsBase: number | undefined
   let labelColorExpr: import('./render-node').DataExpr | undefined
   let labelSizeExpr: import('./render-node').DataExpr | undefined
   let labelHaloWidth: number | undefined
@@ -443,6 +446,7 @@ function lowerLayer(
   let labelHaloWidthZoomStopsBase: number | undefined
   let labelHaloColor: [number, number, number, number] | undefined
   const labelHaloColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
+  let labelHaloColorZoomStopsBase: number | undefined
   let labelHaloBlur: number | undefined
   let labelSpacing: number | undefined
   let labelRotationAlignment: 'map' | 'viewport' | 'auto' | undefined
@@ -796,13 +800,14 @@ function lowerLayer(
         // populated from the last stop so non-interp consumers
         // still see a sensible value.
         if (name === 'label-color') {
-          const stops = extractInterpolateZoomColorStops(item.binding)
-          if (stops) {
-            for (const s of stops) {
+          const interp = extractInterpolateZoomColorStops(item.binding)
+          if (interp) {
+            for (const s of interp.stops) {
               const hex = resolveColor(s.value)
               if (hex) labelColorZoomStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
             }
             if (labelColorZoomStops.length > 0) {
+              if (interp.base !== 1) labelColorZoomStopsBase = interp.base
               labelColor = labelColorZoomStops[labelColorZoomStops.length - 1]!.value
               continue
             }
@@ -815,13 +820,14 @@ function lowerLayer(
           continue
         }
         if (name === 'label-halo-color') {
-          const stops = extractInterpolateZoomColorStops(item.binding)
-          if (stops) {
-            for (const s of stops) {
+          const interp = extractInterpolateZoomColorStops(item.binding)
+          if (interp) {
+            for (const s of interp.stops) {
               const hex = resolveColor(s.value)
               if (hex) labelHaloColorZoomStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
             }
             if (labelHaloColorZoomStops.length > 0) {
+              if (interp.base !== 1) labelHaloColorZoomStopsBase = interp.base
               labelHaloColor = labelHaloColorZoomStops[labelHaloColorZoomStops.length - 1]!.value
               continue
             }
@@ -855,15 +861,17 @@ function lowerLayer(
           // out at z=10) — every suburb polygon rendered invisible
           // regardless of viewing zoom; full preservation prevents
           // that regression class.
-          const colorStops = extractInterpolateZoomColorStops(item.binding)
-          if (colorStops && colorStops.length > 0) {
+          const colorInterp = extractInterpolateZoomColorStops(item.binding)
+          if (colorInterp && colorInterp.stops.length > 0) {
             const rgbaStops: ZoomStop<[number, number, number, number]>[] = []
-            for (const s of colorStops) {
+            for (const s of colorInterp.stops) {
               const hex = resolveColor(s.value)
               if (hex) rgbaStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
             }
             if (rgbaStops.length > 0) {
-              fill = { kind: 'zoom-interpolated', stops: rgbaStops }
+              fill = colorInterp.base !== 1
+                ? { kind: 'zoom-interpolated', stops: rgbaStops, base: colorInterp.base }
+                : { kind: 'zoom-interpolated', stops: rgbaStops }
               continue
             }
           }
@@ -906,16 +914,17 @@ function lowerLayer(
           // road's `stroke-[interpolate_exp(…)]` width silently
           // collapsed to the default 1 px, so the entire highway
           // network rendered as hair-thin lines.
-          const colorStops = extractInterpolateZoomColorStops(item.binding)
-          if (colorStops && colorStops.length > 0) {
+          const colorInterp = extractInterpolateZoomColorStops(item.binding)
+          if (colorInterp && colorInterp.stops.length > 0) {
             // Last stop is the constant fallback. ColorValue doesn't
             // (yet) have a `zoom-interpolated` variant for stroke; a
             // proper per-frame stroke colour update path is parallel
             // to the fill follow-up (see `name === 'fill'` arm).
             // For now picking the highest-zoom colour gives the right
             // appearance at typical viewing zoom and prevents the
-            // silent null-stroke drop.
-            const last = colorStops[colorStops.length - 1]!
+            // silent null-stroke drop. (base would land here once
+            // stroke-color gets the per-frame interp path.)
+            const last = colorInterp.stops[colorInterp.stops.length - 1]!
             const hex = resolveColor(last.value)
             if (hex) {
               const rgba = hexToRgba(hex)
@@ -1701,11 +1710,13 @@ function lowerLayer(
       labelSizeZoomStops: labelSizeZoomStops.length > 0 ? labelSizeZoomStops : undefined,
       labelSizeZoomStopsBase,
       labelColorZoomStops: labelColorZoomStops.length > 0 ? labelColorZoomStops : undefined,
+      labelColorZoomStopsBase,
       labelColorExpr, labelSizeExpr,
       labelAnchorCandidates: labelAnchorCandidates.length > 1 ? labelAnchorCandidates : undefined,
       labelHaloWidthZoomStops: labelHaloWidthZoomStops.length > 0 ? labelHaloWidthZoomStops : undefined,
       labelHaloWidthZoomStopsBase,
       labelHaloColorZoomStops: labelHaloColorZoomStops.length > 0 ? labelHaloColorZoomStops : undefined,
+      labelHaloColorZoomStopsBase,
       labelAllowOverlap, labelIgnorePlacement, labelPadding, labelSortKey,
       labelRotate, labelLetterSpacing, labelFontStack, labelFontWeight, labelFontStyle,
       labelMaxWidth, labelLineHeight, labelJustify,
@@ -1744,11 +1755,13 @@ function foldLabelKnobs(
      *  Undefined / 1 → linear; >1 → faster growth at higher zooms. */
     labelSizeZoomStopsBase?: number
     labelColorZoomStops?: ZoomStop<[number, number, number, number]>[]
+    labelColorZoomStopsBase?: number
     labelColorExpr?: import('./render-node').DataExpr
     labelSizeExpr?: import('./render-node').DataExpr
     labelHaloWidthZoomStops?: ZoomStop<number>[]
     labelHaloWidthZoomStopsBase?: number
     labelHaloColorZoomStops?: ZoomStop<[number, number, number, number]>[]
+    labelHaloColorZoomStopsBase?: number
     labelAllowOverlap?: boolean
     labelIgnorePlacement?: boolean
     labelPadding?: number
