@@ -110,6 +110,12 @@ export class IconRenderer {
    *  the same point (sentinel-stacked) or spread across the canvas
    *  as expected for line-placement?". */
   lastVertexBBox: { minX: number; minY: number; maxX: number; maxY: number } | null = null
+  /** Iter 538 — viewport dimensions passed to the last draw() call.
+   *  If the vertex bbox covers only half the expected screen area,
+   *  the smoking gun could be either (a) sparse feature dispatch or
+   *  (b) viewport uniform doesn't match canvas physical size. This
+   *  captures (b)'s ground truth. */
+  lastDrawViewport: { width: number; height: number } | null = null
   /** Bind group lazily built once the atlas texture exists, then held
    *  for the life of the renderer. `map.setSpriteUrl` only stores a
    *  URL for the not-yet-built stage — atlas hot-swap is NOT supported
@@ -295,6 +301,8 @@ export class IconRenderer {
     }
     const uniforms = new Float32Array([viewport.width, viewport.height, 0, 0])
     this.device.queue.writeBuffer(this.uniformBuf, 0, uniforms.buffer)
+    // Iter 538 — capture for the diagnostic.
+    this.lastDrawViewport = { width: viewport.width, height: viewport.height }
     pass.setPipeline(this.pipeline)
     pass.setVertexBuffer(0, this.vertexBuf)
     pass.setBindGroup(0, this.bindGroup)

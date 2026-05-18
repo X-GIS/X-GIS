@@ -1344,6 +1344,7 @@ export class XGISMap {
     firstVertex: [number, number, number, number, number] | null
     atlasSize: { width: number; height: number } | null
     vertexBBox: { minX: number; minY: number; maxX: number; maxY: number } | null
+    drawViewport: { width: number; height: number } | null
   } | null {
     return this.iconStage?.getLastDrawSample() ?? null
   }
