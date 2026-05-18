@@ -43,6 +43,13 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // not converted" because a bare `[1, 2, 3]` has no operator
       // string. Emit an xgis array literal instead so the evaluator
       // sees a real array at runtime.
+      // Spec: ["literal", value] requires exactly one inner value.
+      // A bare ["literal"] (no payload) used to silently bail via
+      // exprToXgis(undefined) → null at the bottom.
+      if (v.length < 2) {
+        warnings.push(`Malformed ["literal"] expression: missing inner value.`)
+        return null
+      }
       let inner = v[1]
       // Loop peel multi-level wraps: `["literal", ["literal", v]]` is
       // emitted by some v8 strict preprocessor chains. Pre-fix the
