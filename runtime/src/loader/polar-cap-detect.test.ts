@@ -6,7 +6,7 @@
 //   - distinguish north vs south pole boundary
 
 import { describe, it, expect } from 'vitest'
-import { findClampBoundarySpans, vertexOnClampBoundary } from './polar-cap-detect'
+import { findClampBoundarySpans, synthesizeCapRing, vertexOnClampBoundary, type CapSpan } from './polar-cap-detect'
 
 const LIMIT = 85.0511287798066
 
@@ -100,5 +100,67 @@ describe('findClampBoundarySpans', () => {
   it('returns empty for empty / degenerate ring', () => {
     expect(findClampBoundarySpans([])).toEqual([])
     expect(findClampBoundarySpans([[0, 0]])).toEqual([])
+  })
+})
+
+describe('synthesizeCapRing', () => {
+  it('south-pole span produces a closed ring with pole vertex at lat=-90', () => {
+    const span: CapSpan = {
+      pole: -1,
+      startIdx: 0, endIdx: 4,
+      startLon: -180, endLon: 180,
+    }
+    const ring = synthesizeCapRing(span, 8)
+    expect(ring.length).toBeGreaterThan(2)
+    expect(ring[0]).toEqual(ring[ring.length - 1]) // closed
+    const polePoint = ring.find(([, lat]) => lat === -90)
+    expect(polePoint, 'must include pole vertex at lat=-90').toBeDefined()
+  })
+
+  it('north-pole span produces ring with pole vertex at lat=+90', () => {
+    const span: CapSpan = {
+      pole: 1,
+      startIdx: 0, endIdx: 1,
+      startLon: -10, endLon: 10,
+    }
+    const ring = synthesizeCapRing(span, 4)
+    expect(ring.find(([, lat]) => lat === 90)).toBeDefined()
+  })
+
+  it('boundary vertices interpolated at MERCATOR_LAT_LIMIT', () => {
+    const span: CapSpan = {
+      pole: -1,
+      startIdx: 0, endIdx: 1,
+      startLon: 0, endLon: 90,
+    }
+    const ring = synthesizeCapRing(span, 4)
+    const boundaryPoints = ring.filter(([, lat]) => Math.abs(lat + LIMIT) < 1e-6)
+    expect(boundaryPoints.length).toBeGreaterThanOrEqual(5) // 4 subdivisions + endpoints
+  })
+
+  it('subdivision count controls ring vertex density', () => {
+    const span: CapSpan = {
+      pole: -1,
+      startIdx: 0, endIdx: 0,
+      startLon: -180, endLon: 180,
+    }
+    const ring4 = synthesizeCapRing(span, 4)
+    const ring32 = synthesizeCapRing(span, 32)
+    expect(ring32.length).toBeGreaterThan(ring4.length)
+  })
+
+  it('antimeridian-crossing span wraps correctly', () => {
+    // startLon=170, endLon=-170 — span crosses antimeridian.
+    const span: CapSpan = {
+      pole: -1,
+      startIdx: 0, endIdx: 1,
+      startLon: 170, endLon: -170,
+    }
+    const ring = synthesizeCapRing(span, 4)
+    // All longitudes must be in [-180, 180].
+    for (const [lon] of ring) {
+      expect(lon).toBeGreaterThanOrEqual(-180)
+      expect(lon).toBeLessThanOrEqual(180)
+    }
   })
 })

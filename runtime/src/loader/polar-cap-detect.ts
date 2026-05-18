@@ -52,6 +52,47 @@ export interface CapSpan {
   endLon: number
 }
 
+/** Synthesise a cap polygon ring that closes the surface from a
+ *  CapSpan to the pole. Output is in lon/lat (degrees) ready for
+ *  the existing source-data pipeline.
+ *
+ *  Geometry: trace the span at lat = ±MERCATOR_LAT_LIMIT from
+ *  startLon to endLon, then run to the pole at lat = ±90°, then
+ *  close the ring. Subdivides the boundary edge into N points so the
+ *  globe projection (proj_globe) sees a smooth curved edge rather
+ *  than a straight Mercator line in 3D.
+ *
+ *  Caller supplies the integer subdivision count (default 16); higher
+ *  values smooth the boundary at the cost of vertex count. The output
+ *  is a closed ring (last vertex equals first). */
+export function synthesizeCapRing(
+  span: CapSpan,
+  subdivisions = 16,
+): Array<[number, number]> {
+  const boundaryLat = span.pole * MERCATOR_LAT_LIMIT
+  const poleLat = span.pole * 90
+  // Normalise span longitude range. Wrap-around when endLon < startLon
+  // means the span crosses the antimeridian.
+  let startLon = span.startLon
+  let endLon = span.endLon
+  if (endLon < startLon) endLon += 360
+  const arc = endLon - startLon
+  const out: Array<[number, number]> = []
+  // Edge along the clamp boundary.
+  for (let i = 0; i <= subdivisions; i++) {
+    const t = i / subdivisions
+    const lon = startLon + arc * t
+    out.push([((lon + 540) % 360) - 180, boundaryLat])
+  }
+  // Single vertex at the pole. proj_globe collapses all longitudes
+  // at ±90° to the same 3D point, so one vertex is enough; adding
+  // more would create degenerate triangles.
+  out.push([endLon - 360 * Math.floor((endLon + 180) / 360), poleLat])
+  // Close.
+  out.push(out[0]!)
+  return out
+}
+
 export function findClampBoundarySpans(ring: Array<[number, number]>): CapSpan[] {
   if (ring.length < 2) return []
   const sides = ring.map(([, lat]) => vertexOnClampBoundary(lat))
