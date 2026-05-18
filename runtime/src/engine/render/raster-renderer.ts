@@ -296,6 +296,12 @@ export class RasterRenderer {
    *  previous value in place — single-raster scenes are fine but
    *  multi-raster mixing would need a per-tile or per-show extension. */
   setOpacity(opacity: number): void {
+    // Reject NaN / Infinity / non-numeric explicitly. Math.max /
+    // Math.min PROPAGATE NaN — `Math.max(0, Math.min(1, NaN))` is
+    // NaN, not 0 — so the previous clamp silently let a NaN
+    // raster-opacity reach the fragment shader, which multiplied
+    // every sampled texel by NaN and the whole layer disappeared.
+    if (typeof opacity !== 'number' || !Number.isFinite(opacity)) return
     this._opacity = Math.max(0, Math.min(1, opacity))
   }
 
