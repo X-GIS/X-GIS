@@ -313,6 +313,10 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       return parts.map(parenthesize).join(' || ')
     }
     case '!': {
+      if (v.length < 2) {
+        warnings.push(`Malformed ["!"] expression: missing inner filter argument.`)
+        return null
+      }
       const inner = filterToXgis(v[1], warnings)
       return inner ? `!(${inner})` : null
     }
