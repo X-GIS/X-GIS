@@ -331,6 +331,26 @@ export function convertMapboxStyle(
     }
   }
 
+  // ── Pre-walk: detect layers referencing undeclared sources ─────────
+  // Mapbox spec: every non-background layer's `source` field MUST
+  // reference a declared source in `style.sources`. Real-world failure
+  // mode: a layer copied between styles drags a `source: "osm"`
+  // reference but the destination style has no `osm` source; the
+  // runtime falls back to an empty source / no tiles and the layer
+  // renders blank with no diagnostic.
+  const declaredSourceIds = new Set(Object.keys(sourcesObj))
+  for (const l of layersArr) {
+    if (l === null || typeof l !== 'object' || Array.isArray(l)) continue
+    const layerType = (l as { type?: unknown }).type
+    if (layerType === 'background') continue
+    const layerSource = (l as { source?: unknown }).source
+    if (typeof layerSource !== 'string' || layerSource.length === 0) continue
+    if (!declaredSourceIds.has(layerSource)) {
+      const lid = (l as { id?: unknown }).id ?? '<unknown>'
+      warnings.push(`Layer "${String(lid).slice(0, 60)}" references undeclared source "${layerSource.slice(0, 60)}"; runtime will see no tiles and the layer renders blank.`)
+    }
+  }
+
   // ── Pre-walk: detect id collisions ─────────────────────────────────
   // Two failure modes Mapbox styles trip on in the wild:
   //   1. Duplicate raw id — Mapbox spec requires unique layer ids
