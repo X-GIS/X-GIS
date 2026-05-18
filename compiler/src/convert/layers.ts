@@ -845,6 +845,12 @@ function convertSymbolLayer(
   // gating — Mapbox disables wrap for line placement.)
   if (placement === 'line') utils.push('label-along-path')
   else if (placement === 'line-center') utils.push('label-line-center')
+  else if (placement !== undefined && placement !== null && placement !== 'point') {
+    // Mapbox spec: symbol-placement must be 'point' | 'line' |
+    // 'line-center'. Unknown value silently dropped pre-fix and the
+    // layer defaulted to 'point'; surface the typo.
+    warnings.push(`Symbol layer "${layer.id}" — symbol-placement "${String(placement).slice(0, 40)}" is not a valid enum; expected 'point' | 'line' | 'line-center'.`)
+  }
 
   // text-rotation-alignment / text-pitch-alignment — Mapbox knobs
   // controlling how labels orient relative to map vs viewport. Default
