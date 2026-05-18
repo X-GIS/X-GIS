@@ -327,6 +327,12 @@ describe('XGISMap Mapbox-API camera setters', () => {
       expect(map.getMaxBounds()).toBeNull()
     })
 
+    it('rejects antimeridian-crossing bbox (west > east, iter 448)', () => {
+      // Pacific-rim bbox: 170°E to -170°E (wraps through 180°/dateline)
+      map.setMaxBounds([[170, -50], [-170, 50]])
+      expect(map.getMaxBounds()).toBeNull()
+    })
+
     it('immediately clamps current center when bounds shrink', () => {
       map.setCenter(180, 0)
       map.setMaxBounds([[0, -10], [20, 10]]) // current center 180 is outside

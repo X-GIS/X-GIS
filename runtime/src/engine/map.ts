@@ -616,6 +616,17 @@ export class XGISMap {
       console.warn(`[X-GIS] setMaxBounds: invalid bounds (${w},${s})-(${e},${n}); ignored.`)
       return
     }
+    // Antimeridian-crossing bbox (west > east) is unsupported — the
+    // clamp math expects a contiguous [west, east] range. Hosts that
+    // need a Pacific-rim deployment can split the bbox in two halves
+    // (the meridian-east arc + meridian-west arc) and pick whichever
+    // the camera is currently inside, or pre-process the data to live
+    // entirely in [-180, 180] without wrap. Reject loudly so callers
+    // don't get a silently-incorrect clamp.
+    if (w > e) {
+      console.warn(`[X-GIS] setMaxBounds: antimeridian-crossing bbox (west=${w} > east=${e}) not supported; ignored.`)
+      return
+    }
     this._maxBounds = { west: w, south: s, east: e, north: n }
     // Immediately clamp current center inside the new bounds.
     const state = this.getCameraState()
