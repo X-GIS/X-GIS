@@ -348,8 +348,14 @@ function convertSymbolLayer(
   // a hidden symbol layer (label / icon) rendered anyway because the
   // converter never emitted `visible: false`. Mirror the unwrap so v8
   // strict `["literal", "none"]` works the same as bare "none".
-  if (unwrapLiteralScalar(layout['visibility']) === 'none') {
+  const symbolVisibility = unwrapLiteralScalar(layout['visibility'])
+  if (symbolVisibility === 'none') {
     lines.push(`  visible: false`)
+  } else if (typeof symbolVisibility === 'string' && symbolVisibility !== 'visible') {
+    // Mapbox spec: visibility must be 'visible' | 'none'. Anything
+    // else was silently treated as 'visible' (default), so a typo
+    // like 'hidden' silently left the layer visible.
+    warnings.push(`Symbol layer "${layer.id}" — visibility "${symbolVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`)
   }
 
   const utils: string[] = [`label-[${labelExpr}]`]
