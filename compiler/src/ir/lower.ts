@@ -473,6 +473,7 @@ function lowerLayer(
   let labelAllowOverlap: boolean | undefined
   let labelIgnorePlacement: boolean | undefined
   let labelPadding: number | undefined
+  let labelSortKey: number | undefined
   let labelRotate: number | undefined
   let labelLetterSpacing: number | undefined
   let labelFontStack: string[] | undefined
@@ -1119,6 +1120,11 @@ function lowerLayer(
         if (!isNaN(num)) labelPadding = num
         continue
       }
+      if (name.startsWith('label-sort-key-')) {
+        const num = parseFloat(name.slice('label-sort-key-'.length))
+        if (!isNaN(num) && Number.isFinite(num)) labelSortKey = num
+        continue
+      }
       if (name.startsWith('label-radial-offset-')) {
         const num = parseFloat(name.slice('label-radial-offset-'.length))
         if (!isNaN(num)) labelRadialOffset = num
@@ -1698,7 +1704,7 @@ function lowerLayer(
       labelHaloWidthZoomStops: labelHaloWidthZoomStops.length > 0 ? labelHaloWidthZoomStops : undefined,
       labelHaloWidthZoomStopsBase,
       labelHaloColorZoomStops: labelHaloColorZoomStops.length > 0 ? labelHaloColorZoomStops : undefined,
-      labelAllowOverlap, labelIgnorePlacement, labelPadding,
+      labelAllowOverlap, labelIgnorePlacement, labelPadding, labelSortKey,
       labelRotate, labelLetterSpacing, labelFontStack, labelFontWeight, labelFontStyle,
       labelMaxWidth, labelLineHeight, labelJustify,
       labelPlacement, labelSpacing,
@@ -1744,6 +1750,7 @@ function foldLabelKnobs(
     labelAllowOverlap?: boolean
     labelIgnorePlacement?: boolean
     labelPadding?: number
+    labelSortKey?: number
     labelRotate?: number
     labelLetterSpacing?: number
     labelFontStack?: string[]
@@ -1813,6 +1820,7 @@ function foldLabelKnobs(
     ...(knobs.labelAllowOverlap !== undefined ? { allowOverlap: knobs.labelAllowOverlap } : {}),
     ...(knobs.labelIgnorePlacement !== undefined ? { ignorePlacement: knobs.labelIgnorePlacement } : {}),
     ...(knobs.labelPadding !== undefined ? { padding: knobs.labelPadding } : {}),
+    ...(knobs.labelSortKey !== undefined ? { sortKey: knobs.labelSortKey } : {}),
     ...(knobs.labelRotate !== undefined ? { rotate: knobs.labelRotate } : {}),
     ...(knobs.labelLetterSpacing !== undefined ? { letterSpacing: knobs.labelLetterSpacing } : {}),
     ...(knobs.labelFontStack !== undefined && knobs.labelFontStack.length > 0
