@@ -859,6 +859,10 @@ export async function loadImageTexture(
   url: string,
   signal?: AbortSignal,
 ): Promise<GPUTexture | null> {
+  // Defensive: empty / non-string URL would hit the current document
+  // URL and createImageBitmap would fail on the HTML payload. Mirror
+  // of fetchTileWithRetry empty-URL guard (iter 348).
+  if (!url || typeof url !== 'string') return null
   try {
     const response = await fetch(url, { signal })
     if (!response.ok) return null
