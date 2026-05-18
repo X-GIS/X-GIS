@@ -339,6 +339,13 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // null-cascade anyway).
       // Last arg is always the value; preceding args are type/length
       // metadata we ignore.
+      // Pre-fix a bare `["array"]` (no value) picked v[0] = "array"
+      // itself and emitted the literal string `"array"` as a quoted
+      // identifier. Require at least one arg beyond the op.
+      if (v.length < 2) {
+        warnings.push(`Malformed ["array"] expression: missing inner value.`)
+        return null
+      }
       const value = v[v.length - 1]
       return exprToXgis(value, warnings)
     }
