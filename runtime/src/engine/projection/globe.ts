@@ -402,15 +402,23 @@ export function globeVisibleTiles(
   const SUBDIVIDE_PX = Math.max(256, Math.min(cssWidthPx, cssHeightPx) * 0.5)
   const MAX_TILES = 512
 
-  const toScreen = (p: Vec3): [number, number, number] | null => {
-    const cl = mulVec4(mvp, [p[0], p[1], p[2], 1])
-    if (cl[3] <= 1e-6) return null
-    return [
-      (cl[0] / cl[3] + 1) * 0.5 * cssWidthPx,
-      (1 - cl[1] / cl[3]) * 0.5 * cssHeightPx,
-      cl[2] / cl[3],
-    ]
-  }
+  // Pre-compute the off-screen bounds + matrix row scratch ONCE outside
+  // the recursion. Allocation per node was the GC hot spot at z=15+
+  // Seoul on globe — 32k nodes × 5 samples × 2 array allocs per sample
+  // = ~300k transient arrays/frame (toScreen tuple + mulVec4 tuple).
+  // Inline both ops into the loop; reuse scalar locals.
+  const minXBound = -cssWidthPx * 0.5
+  const maxXBound = cssWidthPx * 1.5
+  const minYBound = -cssHeightPx * 0.5
+  const maxYBound = cssHeightPx * 1.5
+  // Matrix elements as locals (avoids index-into-typed-array on every
+  // mvp[i] read inside the hot loop).
+  const m0 = mvp[0]!, m1 = mvp[1]!, m2 = mvp[2]!, m3 = mvp[3]!
+  const m4 = mvp[4]!, m5 = mvp[5]!, m6 = mvp[6]!, m7 = mvp[7]!
+  const m8 = mvp[8]!, m9 = mvp[9]!, m10 = mvp[10]!, m11 = mvp[11]!
+  const m12 = mvp[12]!, m13 = mvp[13]!, m14 = mvp[14]!, m15 = mvp[15]!
+  const pn = 1 / EARTH_R
+  const eyeN0 = eyeN[0], eyeN1 = eyeN[1], eyeN2 = eyeN[2]
 
   const out: GlobeTile[] = []
   type Node = { z: number; x: number; y: number }
@@ -421,28 +429,43 @@ export function globeVisibleTiles(
     const { lonW, lonE, latN, latS } = tileLonLat(t.z, t.x, t.y)
     const lonM = (lonW + lonE) / 2
     const latM = (latN + latS) / 2
-    const samples: Array<[number, number]> = [
-      [lonW, latN], [lonE, latN], [lonW, latS], [lonE, latS], [lonM, latM],
-    ]
+    // 5 sample lon/lat pairs — flat scalar form (no allocation).
+    const ll0L = lonW, ll0A = latN
+    const ll1L = lonE, ll1A = latN
+    const ll2L = lonW, ll2A = latS
+    const ll3L = lonE, ll3A = latS
+    const ll4L = lonM, ll4A = latM
 
     let anyFront = false
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
     let anyOnScreen = false
-    for (const [lo, la] of samples) {
-      const p = globeForward(lo, la)
-      const pn = 1 / EARTH_R
-      const facing = (p[0] * eyeN[0] + p[1] * eyeN[1] + p[2] * eyeN[2]) * pn
-      if (facing > horizonCos) anyFront = true
-      const s = toScreen(p)
-      if (s) {
-        if (s[0] < minX) minX = s[0]
-        if (s[0] > maxX) maxX = s[0]
-        if (s[1] < minY) minY = s[1]
-        if (s[1] > maxY) maxY = s[1]
-        if (s[0] >= -cssWidthPx * 0.5 && s[0] <= cssWidthPx * 1.5 &&
-            s[1] >= -cssHeightPx * 0.5 && s[1] <= cssHeightPx * 1.5) {
-          anyOnScreen = true
-        }
+    // Unroll the 5-sample loop. Inline globeForward + mulVec4 + toScreen
+    // so the hot path has zero array allocations per node.
+    for (let si = 0; si < 5; si++) {
+      const lo = si === 0 ? ll0L : si === 1 ? ll1L : si === 2 ? ll2L : si === 3 ? ll3L : ll4L
+      const la = si === 0 ? ll0A : si === 1 ? ll1A : si === 2 ? ll2A : si === 3 ? ll3A : ll4A
+      // Inline globeForward — sin/cos pair.
+      const lam = lo * DEG2RAD
+      const phi = la * DEG2RAD
+      const cphi = Math.cos(phi)
+      const px = EARTH_R * cphi * Math.cos(lam)
+      const py = EARTH_R * cphi * Math.sin(lam)
+      const pz = EARTH_R * Math.sin(phi)
+      // Horizon cull check.
+      if ((px * eyeN0 + py * eyeN1 + pz * eyeN2) * pn > horizonCos) anyFront = true
+      // Inline mulVec4 — w-divide and screen-space conversion.
+      const cw = m3 * px + m7 * py + m11 * pz + m15
+      if (cw <= 1e-6) continue
+      const cx = m0 * px + m4 * py + m8 * pz + m12
+      const cy = m1 * px + m5 * py + m9 * pz + m13
+      const sx = (cx / cw + 1) * 0.5 * cssWidthPx
+      const sy = (1 - cy / cw) * 0.5 * cssHeightPx
+      if (sx < minX) minX = sx
+      if (sx > maxX) maxX = sx
+      if (sy < minY) minY = sy
+      if (sy > maxY) maxY = sy
+      if (sx >= minXBound && sx <= maxXBound && sy >= minYBound && sy <= maxYBound) {
+        anyOnScreen = true
       }
     }
 
