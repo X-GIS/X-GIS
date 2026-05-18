@@ -644,7 +644,11 @@ function toNumber(val: unknown): number {
 
 function toBool(val: unknown): boolean {
   if (typeof val === 'boolean') return val
-  if (typeof val === 'number') return val !== 0
+  // NaN → false. Mirror of the runtime filter-eval / applyFilter NaN
+  // guards: `val !== 0` accepted NaN as truthy and a filter returning
+  // NaN (typically from arithmetic on missing/null props) would
+  // bypass the authored predicate.
+  if (typeof val === 'number') return val !== 0 && Number.isFinite(val)
   if (typeof val === 'string') return val !== ''
   return val !== null && val !== undefined
 }
