@@ -104,7 +104,7 @@ describe('OFM Bright place filter routing — should match exactly ONE show per 
       // for any of them, the lower → emit-commands mapping is broken
       // and every label show would match every feature in its
       // source-layer (the user-reported x6 baseline).
-      expect(s.filterExpr, `${s.name} missing filterExpr`).toBeTruthy()
+      expect(s.filterExpr, `${s.targetName} missing filterExpr`).toBeTruthy()
       expect(s.filterExpr!.ast).toBeTruthy()
     }
   })

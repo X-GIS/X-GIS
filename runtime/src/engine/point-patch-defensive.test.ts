@@ -36,6 +36,8 @@ describe('pointPatchToFeatureCollection defensive guards', () => {
     })
     expect(result.features).toHaveLength(3)
     expect(result.features[0]!.id).toBe(1)
-    expect((result.features[0]!.geometry as { coordinates: [number, number] }).coordinates[0]).toBeCloseTo(10)
+    const geom = result.features[0]!.geometry
+    expect(geom).not.toBeNull()
+    expect((geom as unknown as { coordinates: [number, number] }).coordinates[0]).toBeCloseTo(10)
   })
 })
