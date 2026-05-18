@@ -43,6 +43,12 @@ interface Internals {
   getCanvas(): HTMLCanvasElement
   getContainer(): HTMLElement | null
   getBounds(): [[number, number], [number, number]]
+  setStyle(s: unknown): void
+  addLayer(l: unknown): void
+  removeLayer(id: string): void
+  addSource(id: string, s: unknown): void
+  removeSource(id: string): void
+  addImage(id: string, img: unknown): void
 }
 
 describe('XGISMap Mapbox-API camera setters', () => {
@@ -472,6 +478,47 @@ describe('XGISMap Mapbox-API camera setters', () => {
       const [[, s], [, n]] = map.getBounds()
       expect(s).toBeGreaterThanOrEqual(-90)
       expect(n).toBeLessThanOrEqual(90)
+    })
+  })
+
+  describe('unsupported Mapbox style mutation stubs (iter 446)', () => {
+    it('setStyle warns + returns (no throw)', () => {
+      map.setStyle({})
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/setStyle.*not supported/))
+    })
+
+    it('addLayer warns + returns', () => {
+      map.addLayer({})
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/addLayer.*not supported/))
+    })
+
+    it('removeLayer warns + returns', () => {
+      map.removeLayer('foo')
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/removeLayer.*not supported/))
+    })
+
+    it('addSource warns + returns', () => {
+      map.addSource('s', {})
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/addSource.*not supported/))
+    })
+
+    it('removeSource warns + returns', () => {
+      map.removeSource('s')
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/removeSource.*not supported/))
+    })
+
+    it('addImage warns + returns', () => {
+      map.addImage('icon', {})
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/addImage.*not supported/))
+    })
+
+    it('warn-once: second call to same method does not re-warn', () => {
+      warnSpy.mockClear()
+      map.setStyle({})
+      const firstCallCount = warnSpy.mock.calls.length
+      map.setStyle({})
+      // No additional warning on the repeat — _warnedStyleAPI set dedupes.
+      expect(warnSpy.mock.calls.length).toBe(firstCallCount)
     })
   })
 })
