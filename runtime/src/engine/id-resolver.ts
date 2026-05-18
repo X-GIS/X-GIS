@@ -56,6 +56,16 @@ export interface PointPatch {
 /** Convert a PointPatch to a minimal GeoJSON FeatureCollection.
  *  Throws on length mismatch between lon/lat/ids/properties. */
 export function pointPatchToFeatureCollection(data: PointPatch): GeoJSONFeatureCollection {
+  // Defensive: null / non-object data would crash on `.lon.length`
+  // before the explicit length checks below could fire. Surface a
+  // clear error rather than the opaque TypeError. TS-typed-as-
+  // PointPatch casts at the boundary can let unexpected values
+  // through (host bypassing the API, test mocks, etc.).
+  if (!data || typeof data !== 'object'
+      || !data.lon || !(typeof (data.lon as ArrayLike<number>).length === 'number')
+      || !data.lat || !(typeof (data.lat as ArrayLike<number>).length === 'number')) {
+    throw new Error(`[X-GIS] setSourcePoints: data must be { lon: ArrayLike<number>, lat: ArrayLike<number>, ... }`)
+  }
   const n = data.lon.length
   if (data.lat.length !== n) {
     throw new Error(`[X-GIS] setSourcePoints: lon/lat length mismatch (${n} vs ${data.lat.length})`)
