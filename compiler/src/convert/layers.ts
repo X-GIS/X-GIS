@@ -412,7 +412,7 @@ function convertSymbolLayer(
     utils.push(`label-size-${Math.max(0, textSize)}`)
   } else if (textSize !== undefined && textSize !== null) {
     const interp = interpolateZoomCall(textSize, warnings,
-      (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
+      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
     if (interp !== null) {
       utils.push(`label-size-[${interp}]`)
     } else {
@@ -446,7 +446,7 @@ function convertSymbolLayer(
     // Same negative-clamp guard as text-size — Mapbox spec
     // text-halo-width >= 0.
     const interp = interpolateZoomCall(haloWidth, warnings,
-      (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
+      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
     if (interp !== null) {
       utils.push(`label-halo-[${interp}]`)
     } else {
@@ -698,7 +698,7 @@ function convertSymbolLayer(
     utils.push(`label-padding-${Math.max(0, padding)}`)
   } else if (padding !== undefined && padding !== null) {
     const interp = interpolateZoomCall(padding, warnings,
-      (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
+      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
     if (interp !== null) utils.push(`label-padding-[${interp}]`)
   }
 
@@ -1087,7 +1087,7 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
     utils.push(`size-${Math.max(0, radius)}`)
   } else if (radius !== undefined && radius !== null) {
     const interp = interpolateZoomCall(radius, warnings,
-      (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
+      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
     if (interp !== null) {
       utils.push(`size-[${interp}]`)
     } else {
@@ -1195,7 +1195,7 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
     if (strokeWidth > 0) utils.push(`stroke-${strokeWidth}`)
   } else if (strokeWidth !== undefined && strokeWidth !== null) {
     const interp = interpolateZoomCall(strokeWidth, warnings,
-      (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
+      (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
     if (interp !== null) {
       utils.push(`stroke-[${interp}]`)
     } else {

@@ -460,7 +460,7 @@ function addStrokeWidth(out: string[], v: unknown, warnings: string[]): void {
     out.push(`stroke-${clamped}`)
     return
   }
-  const interp = interpolateZoomCall(v, warnings, (val) => typeof val === 'number' ? String(Math.max(0, val)) : null)
+  const interp = interpolateZoomCall(v, warnings, (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
   if (interp !== null) {
     out.push(`stroke-[${interp}]`)
     return
@@ -632,7 +632,7 @@ function addExtrudeHeight(out: string[], v: unknown, warnings: string[]): void {
     // Mirror of the constant-path clamp: fill-extrusion-height >= 0.
     // Pre-fix a negative numeric stop landed verbatim into the
     // interpolate() emission and the runtime walled below z=0.
-    if (typeof val === 'number') return String(Math.max(0, val))
+    if (typeof val === 'number' && Number.isFinite(val)) return String(Math.max(0, val))
     return exprToXgis(val, w)
   })
   if (interp !== null) {
@@ -654,7 +654,7 @@ function addExtrudeBase(out: string[], v: unknown, warnings: string[]): void {
   }
   const interp = interpolateZoomCall(v, warnings, (val, w) => {
     // Mirror of the constant-path clamp: fill-extrusion-base >= 0.
-    if (typeof val === 'number') return String(Math.max(0, val))
+    if (typeof val === 'number' && Number.isFinite(val)) return String(Math.max(0, val))
     return exprToXgis(val, w)
   })
   if (interp !== null) {

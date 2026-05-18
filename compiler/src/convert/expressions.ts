@@ -25,7 +25,20 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
   // styles do this).
   if (v === null) return 'null'
   if (v === undefined) return null
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  if (typeof v === 'number') {
+    // Reject NaN / Infinity at the scalar emitter — `String(NaN)` →
+    // "NaN" landed verbatim in emitted xgis (e.g. inside
+    // `interpolate(zoom, 5, NaN, 10, 3)`), the parser tokenized the
+    // bare identifier "NaN" and the whole expression silently
+    // dropped to undefined at evaluation time. Mirror of the
+    // paint-side addOpacity / addStrokeWidth NaN guards.
+    if (!Number.isFinite(v)) {
+      warnings.push(`Non-finite numeric literal (${String(v)}) dropped — emit would be invalid xgis bare identifier.`)
+      return null
+    }
+    return String(v)
+  }
+  if (typeof v === 'boolean') return String(v)
   if (typeof v === 'string') return JSON.stringify(v) // quoted string literal
   if (!Array.isArray(v)) return null
   const op = v[0]
