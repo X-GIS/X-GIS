@@ -73,7 +73,10 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer, warnings?: string
 
   const args = fc.slice(2)
   // Need at least one (vals, out) pair and a default — i.e. 3 args.
-  if (args.length < 3 || args.length % 2 === 0) return null
+  if (args.length < 3 || args.length % 2 === 0) {
+    warnings?.push(`Layer "${layer.id}" — fill-color match has ${args.length} args; expected odd count ≥ 3 (val1, out1, …, default). Per-feature colour expand bailed; the layer will render with a single fallback colour.`)
+    return null
+  }
 
   // Group values by output colour. The match can have repeated
   // colours (e.g. ['v1', 'v2'] → '#abc', 'v3' → '#abc' both
@@ -131,7 +134,14 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer, warnings?: string
       // double-wrap fix (47d1d81). The outer unwrap above only peels
       // the array wrapper; each element may still be `["literal", x]`.
       while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') v = v[1]
-      if (typeof v !== 'string' && typeof v !== 'number') return null
+      if (typeof v !== 'string' && typeof v !== 'number') {
+        // A key in the match's value-list is neither a scalar string
+        // nor number (e.g. an expression or object); the value-set
+        // filter can't represent it. Surface so author sees why the
+        // palette expand bailed.
+        warnings?.push(`Layer "${layer.id}" — fill-color match contains a non-scalar key value (${typeof v}); per-feature colour expand bailed and the layer will render with a single fallback colour.`)
+        return null
+      }
       allVals.push(v)
       const bucket = byColour.get(out) ?? []
       bucket.push(v)

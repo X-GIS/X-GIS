@@ -61,6 +61,58 @@ describe('expand-color-match bail warnings', () => {
     expect(code).toMatch(/match arm output is not a constant colour string/)
   })
 
+  it('non-scalar key value warns', () => {
+    const style = {
+      version: 8,
+      sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
+      layers: [
+        {
+          id: 'l',
+          type: 'fill',
+          source: 's',
+          paint: {
+            'fill-color': [
+              'match',
+              ['get', 'iso'],
+              [['nested', 'array']], '#abc', // non-scalar key
+              'CA', '#def',
+              '#000',
+            ],
+          },
+        },
+      ],
+    }
+    const code = convertMapboxStyle(style as never)
+    expect(code).toMatch(/non-scalar key value/)
+  })
+
+  it('malformed match length warns (even arg count)', () => {
+    const style = {
+      version: 8,
+      sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
+      layers: [
+        {
+          id: 'l',
+          type: 'fill',
+          source: 's',
+          paint: {
+            // 4 args after match+input: val1, out1, val2, MISSING out2 + default
+            // → even count → bail with warning.
+            'fill-color': [
+              'match',
+              ['get', 'iso'],
+              'US', '#abc',
+              'CA', '#def',
+              // no trailing default — even count after slice(2) = 4
+            ],
+          },
+        },
+      ],
+    }
+    const code = convertMapboxStyle(style as never)
+    expect(code).toMatch(/has 4 args; expected odd count/)
+  })
+
   it('well-formed match does NOT warn (regression guard)', () => {
     const style = {
       version: 8,
