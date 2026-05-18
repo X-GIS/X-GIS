@@ -107,3 +107,53 @@ describe('to_boolean — Mapbox spec coercion (iter 539)', () => {
     expect(evalExpr('to_boolean(false)')).toBe(false)
   })
 })
+
+describe('to_color — Mapbox spec coercion (iter 541)', () => {
+  it('"#fff" → "#fff"', () => {
+    expect(evalExpr('to_color("#fff")')).toBe('#fff')
+  })
+
+  it('"#abcdef" → "#abcdef"', () => {
+    expect(evalExpr('to_color("#abcdef")')).toBe('#abcdef')
+  })
+
+  it('"#abcd" → "#abcd" (4-digit RGBA)', () => {
+    expect(evalExpr('to_color("#abcd")')).toBe('#abcd')
+  })
+
+  it('"#abcdef12" → "#abcdef12" (8-digit RRGGBBAA)', () => {
+    expect(evalExpr('to_color("#abcdef12")')).toBe('#abcdef12')
+  })
+
+  it('"not-a-color" → null', () => {
+    expect(evalExpr('to_color("not-a-color")')).toBeNull()
+  })
+
+  it('"red" (CSS name, not hex) → null (X-GIS hex-only validation)', () => {
+    // Mapbox accepts CSS names; X-GIS represents colours as hex
+    // strings so the converter pre-resolves names → hex. The
+    // evaluator's to_color enforces hex-only validity.
+    expect(evalExpr('to_color("red")')).toBeNull()
+  })
+
+  it('null → null (no valid color, no fallback)', () => {
+    expect(evalExpr('to_color(null)')).toBeNull()
+  })
+
+  it('number 5 → null', () => {
+    expect(evalExpr('to_color(5)')).toBeNull()
+  })
+
+  it('"not-a-color" with fallback "#fff" → "#fff"', () => {
+    expect(evalExpr('to_color("not-a-color", "#fff")')).toBe('#fff')
+  })
+
+  it('"#xyz" (invalid hex) → null', () => {
+    expect(evalExpr('to_color("#xyz")')).toBeNull()
+  })
+
+  it('"#12345" (5-char, invalid) → null', () => {
+    // CSS Color Module 4: only 3/4/6/8 hex digits valid
+    expect(evalExpr('to_color("#12345")')).toBeNull()
+  })
+})

@@ -684,6 +684,19 @@ function callBuiltin(name: string, args: unknown[]): unknown {
       if (typeof v === 'boolean') return v
       return true
     }
+    case 'to_color': {
+      // Iter 541 — Mapbox `["to-color", value, fallback…]`. Try each
+      // arg until one parses as a valid CSS-color hex string; null if
+      // none. X-GIS represents colours as hex strings (`#rgb` /
+      // `#rgba` / `#rrggbb` / `#rrggbbaa`), so "validity" is the
+      // CSS Color Module 4 hex regex. Non-string args (numbers,
+      // booleans, null) skip to the next fallback.
+      const HEX_RE = /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
+      for (const a of args) {
+        if (typeof a === 'string' && HEX_RE.test(a)) return a
+      }
+      return null
+    }
     default:
       return args[0] ?? null
   }
