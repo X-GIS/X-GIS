@@ -4319,10 +4319,18 @@ export class XGISMap {
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
       throw new Error(`[X-GIS] setSourceData: data must be a FeatureCollection object`)
     }
-    if (!Array.isArray((data as { features?: unknown }).features)) {
-      throw new Error(`[X-GIS] setSourceData: data.features must be an array (got ${typeof (data as { features?: unknown }).features})`)
+    // Auto-promote a single Feature → FeatureCollection (Mapbox API
+    // accepts both; was previously a confusing throw). Same lift the
+    // compiler-side normaliseInlineGeoJSON does for inline source.data.
+    let normalized: GeoJSONFeatureCollection = data
+    const shape = data as { type?: string; features?: unknown; geometry?: unknown }
+    if (shape.type === 'Feature' && !Array.isArray(shape.features)) {
+      normalized = { type: 'FeatureCollection', features: [data as never] } as GeoJSONFeatureCollection
     }
-    this.rawDatasets.set(sourceId, data)
+    if (!Array.isArray((normalized as { features?: unknown }).features)) {
+      throw new Error(`[X-GIS] setSourceData: data.features must be an array (got ${typeof (normalized as { features?: unknown }).features})`)
+    }
+    this.rawDatasets.set(sourceId, normalized)
     // Full replace invalidates any cached feature index for this source.
     this._featureIndex.delete(sourceId)
     this.teardownSource(sourceId)
