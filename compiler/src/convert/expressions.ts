@@ -208,6 +208,7 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       }
       const arms: string[] = []
       const def = args[args.length - 1]
+      let droppedArms = 0
       for (let i = 0; i < args.length - 1; i += 2) {
         // Mapbox v8 strict tooling can emit `["literal", [k1, k2]]`
         // for the keys-array form. Without unwrap, the outer
@@ -221,7 +222,7 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
           key = key[1]
         }
         const val = exprToXgis(args[i + 1], warnings)
-        if (val === null) continue
+        if (val === null) { droppedArms++; continue }
         const keyStrs = Array.isArray(key) ? key : [key]
         for (let k of keyStrs) {
           // Inner per-element literal-wrap. Mapbox v8 strict tooling
@@ -239,6 +240,14 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       }
       const defXgis = exprToXgis(def, warnings)
       if (defXgis !== null) arms.push(`    _ -> ${defXgis}`)
+      // Mirror of case + coalesce partial-drop warnings — surface arms
+      // whose value failed to convert. The match would have routed
+      // matching keys to the (possibly missing) default arm with no
+      // diagnostic; surfacing the count makes it obvious which arms
+      // disappeared from the authored ladder.
+      if (droppedArms > 0) {
+        warnings.push(`["match"] dropped ${droppedArms} arm(s) whose value failed to convert; matching keys will fall through to default.`)
+      }
       return `match(${inputXgis}) {\n${arms.join(',\n')}\n  }`
     }
     case 'all': {

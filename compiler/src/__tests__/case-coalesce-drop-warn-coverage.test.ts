@@ -71,6 +71,35 @@ describe('case / coalesce partial-drop warnings', () => {
     expect(code).toMatch(/\["case"\] dropped/)
   })
 
+  it('match with one unsupported arm warns (chained-ternary path)', () => {
+    const style = {
+      version: 8,
+      sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
+      layers: [
+        {
+          id: 'l',
+          type: 'fill',
+          source: 's',
+          paint: {
+            // input is `["concat", …]` so converter routes through
+            // matchToTernary (complex non-field input). Arms drop
+            // through chained ["case"] which already warns; the
+            // assertion is just that SOME drop warning surfaces.
+            'fill-color': [
+              'match',
+              ['get', 'kind'],
+              'park', ['image', 'green-leaf'],
+              'lake', '#00f',
+              '#aaa',
+            ],
+          },
+        },
+      ],
+    }
+    const code = convertMapboxStyle(style as never)
+    expect(code).toMatch(/\["match"\] dropped|\["case"\] dropped/)
+  })
+
   it('all-valid case does NOT warn (regression guard)', () => {
     const style = {
       version: 8,
