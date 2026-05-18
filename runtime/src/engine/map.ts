@@ -577,6 +577,69 @@ export class XGISMap {
     this.invalidate()
   }
 
+  /** Mapbox-API parity: bulk camera update. Applies center, zoom,
+   *  bearing, pitch in one call with a single invalidate() at the
+   *  end — avoids the 4-invalidate cascade of calling each setter
+   *  individually. Each field is optional and routes through the
+   *  same validation as the per-axis setters; invalid fields warn
+   *  and the rest of the call still applies.
+   *
+   *  Matches MapLibre GL JS `map.jumpTo({ center: [lon, lat], zoom, bearing, pitch })`. */
+  jumpTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number }): void {
+    if (opts.center) {
+      const [lon, lat] = opts.center
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+        console.warn(`[X-GIS] jumpTo: non-finite center (${lon}, ${lat}); skipped.`)
+      } else {
+        const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
+        const [mx, my] = lonLatToMercator(lon, clampedLat)
+        this.camera.centerX = mx
+        this.camera.centerY = my
+      }
+    }
+    if (opts.zoom !== undefined) {
+      if (!Number.isFinite(opts.zoom)) {
+        console.warn(`[X-GIS] jumpTo: non-finite zoom (${opts.zoom}); skipped.`)
+      } else {
+        this.camera.zoom = Math.max(0, Math.min(22, opts.zoom))
+      }
+    }
+    if (opts.bearing !== undefined) {
+      if (!Number.isFinite(opts.bearing)) {
+        console.warn(`[X-GIS] jumpTo: non-finite bearing (${opts.bearing}); skipped.`)
+      } else {
+        this.camera.bearing = ((opts.bearing % 360) + 360) % 360
+      }
+    }
+    if (opts.pitch !== undefined) {
+      if (!Number.isFinite(opts.pitch)) {
+        console.warn(`[X-GIS] jumpTo: non-finite pitch (${opts.pitch}); skipped.`)
+      } else {
+        this.camera.pitch = Math.max(0, Math.min(85, opts.pitch))
+      }
+    }
+    this.invalidate()
+  }
+
+  /** Mapbox-API parity: read the current camera state as a single
+   *  object. Returns longitude/latitude (NOT Mercator meters) so
+   *  callers can round-trip through jumpTo. */
+  getCamera(): { center: [number, number]; zoom: number; bearing: number; pitch: number } {
+    // Inverse Mercator: x → lon, y → lat. EARTH_RADIUS / DEG2RAD
+    // constants match the lonLatToMercator forward in geojson.ts.
+    const EARTH_RADIUS = 6378137
+    const DEG2RAD = Math.PI / 180
+    const lon = this.camera.centerX / (DEG2RAD * EARTH_RADIUS)
+    const latRad = 2 * Math.atan(Math.exp(this.camera.centerY / EARTH_RADIUS)) - Math.PI / 2
+    const lat = latRad / DEG2RAD
+    return {
+      center: [lon, lat],
+      zoom: this.camera.zoom,
+      bearing: this.camera.bearing,
+      pitch: this.camera.pitch,
+    }
+  }
+
   /** Polar-cap synthesis on/off — when ON, setSourceData scans every
    *  GeoJSON polygon for Web Mercator clamp-boundary spans (±85.05°)
    *  and appends synthesised cap polygons closing the surface to the
