@@ -623,8 +623,11 @@ export class XGISMap {
 
   /** Mapbox-API parity: read the current camera state as a single
    *  object. Returns longitude/latitude (NOT Mercator meters) so
-   *  callers can round-trip through jumpTo. */
-  getCamera(): { center: [number, number]; zoom: number; bearing: number; pitch: number } {
+   *  callers can round-trip through jumpTo.
+   *
+   *  Named `getCameraState` to avoid clashing with the existing
+   *  `getCamera(): Camera` which returns the internal Camera instance. */
+  getCameraState(): { center: [number, number]; zoom: number; bearing: number; pitch: number } {
     // Inverse Mercator: x → lon, y → lat. EARTH_RADIUS / DEG2RAD
     // constants match the lonLatToMercator forward in geojson.ts.
     const EARTH_RADIUS = 6378137
