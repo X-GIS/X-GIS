@@ -872,10 +872,14 @@ function convertSymbolLayer(
   const rotAlign = unwrapLiteralScalar(layout['text-rotation-alignment'])
   if (rotAlign === 'map' || rotAlign === 'viewport' || rotAlign === 'auto') {
     utils.push(`label-rotation-alignment-${rotAlign}`)
+  } else if (typeof rotAlign === 'string') {
+    warnings.push(`Symbol layer "${layer.id}" — text-rotation-alignment "${rotAlign.slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport' | 'auto'.`)
   }
   const pitchAlign = unwrapLiteralScalar(layout['text-pitch-alignment'])
   if (pitchAlign === 'map' || pitchAlign === 'viewport' || pitchAlign === 'auto') {
     utils.push(`label-pitch-alignment-${pitchAlign}`)
+  } else if (typeof pitchAlign === 'string') {
+    warnings.push(`Symbol layer "${layer.id}" — text-pitch-alignment "${pitchAlign.slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport' | 'auto'.`)
   }
 
   // symbol-spacing — distance between repeated labels along a line
