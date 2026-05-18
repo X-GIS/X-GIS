@@ -483,6 +483,13 @@ export class TileJSONSource extends VectorTileSource {
           .replace(/\{z\}/g, String(z))
           .replace(/\{x\}/g, String(x))
           .replace(/\{y\}/g, String(y))
+          // Mapbox spec `{ratio}` placeholder = DPR suffix
+          // (`""` for 1x, `"@2x"` for 2x). X-GIS doesn't switch
+          // per DPR yet so we substitute the empty 1x form;
+          // pre-fix the unsubstituted literal `{ratio}` reached
+          // fetch and 404'd. Compiler also warns at convert time
+          // (iter 302) so the user sees the partial support.
+          .replace(/\{ratio\}/g, '')
         return fetchTileWithRetry(url, `tile ${z}/${x}/${y}`, signal)
       },
     }
