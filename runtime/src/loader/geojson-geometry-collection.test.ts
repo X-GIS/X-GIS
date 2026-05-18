@@ -16,8 +16,6 @@ describe('loadGeoJSON GeometryCollection support', () => {
       features: [{
         type: 'Feature',
         geometry: {
-          // @ts-expect-error — GeometryCollection isn't in the runtime
-          // Geometry union but the loader handles it defensively.
           type: 'GeometryCollection',
           geometries: [
             {
@@ -39,7 +37,6 @@ describe('loadGeoJSON GeometryCollection support', () => {
       features: [{
         type: 'Feature',
         geometry: {
-          // @ts-expect-error — see above
           type: 'GeometryCollection',
           geometries: [
             {
@@ -61,7 +58,6 @@ describe('loadGeoJSON GeometryCollection support', () => {
       features: [{
         type: 'Feature',
         geometry: {
-          // @ts-expect-error
           type: 'GeometryCollection',
           geometries: [
             {
@@ -88,7 +84,6 @@ describe('loadGeoJSON GeometryCollection support', () => {
       features: [{
         type: 'Feature',
         geometry: {
-          // @ts-expect-error
           type: 'GeometryCollection',
           geometries: [],
         },
@@ -106,7 +101,6 @@ describe('loadGeoJSON GeometryCollection support', () => {
       features: [{
         type: 'Feature',
         geometry: {
-          // @ts-expect-error
           type: 'GeometryCollection',
           geometries: [
             {

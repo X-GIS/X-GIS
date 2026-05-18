@@ -21,6 +21,10 @@ export type GeoJSONGeometry =
   | { type: 'MultiLineString'; coordinates: number[][][] }
   | { type: 'Polygon'; coordinates: number[][][] }
   | { type: 'MultiPolygon'; coordinates: number[][][][] }
+  /** RFC 7946 §3.1.8 — bundles heterogeneous sub-geometries under one
+   *  feature. loadGeoJSON (iter 452) flattens one level. Nested
+   *  GeometryCollections are NOT recursed. */
+  | { type: 'GeometryCollection'; geometries: GeoJSONGeometry[] }
 
 // ═══ GPU-ready mesh data ═══
 
