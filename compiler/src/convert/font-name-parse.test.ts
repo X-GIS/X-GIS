@@ -89,4 +89,17 @@ describe('parseMapboxFontName', () => {
       family: 'Roboto', weight: 900,
     })
   })
+
+  // iter 441 — Roman = PostScript convention for regular
+  it('Roman keyword maps to weight 400 (PostScript convention)', () => {
+    expect(parseMapboxFontName('Times Roman')).toEqual({
+      family: 'Times', weight: 400,
+    })
+  })
+
+  it('Roman + Italic both parsed', () => {
+    expect(parseMapboxFontName('Times Roman Italic')).toEqual({
+      family: 'Times', weight: 400, style: 'italic',
+    })
+  })
 })

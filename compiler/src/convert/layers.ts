@@ -102,7 +102,10 @@ const FONT_WEIGHT_KEYWORDS: Record<string, number> = {
   Thin: 100, Hairline: 100,
   ExtraLight: 200, UltraLight: 200,
   Light: 300,
-  Regular: 400, Normal: 400, Book: 400,
+  // Roman = PostScript / Adobe Type 1 convention for the regular weight
+  // (e.g. "Times Roman"). Without this, the parser left "Roman" as
+  // part of the family name and the browser failed to match a font.
+  Regular: 400, Normal: 400, Book: 400, Roman: 400,
   Medium: 500,
   SemiBold: 600, DemiBold: 600,
   Bold: 700,
