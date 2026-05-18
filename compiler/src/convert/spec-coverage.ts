@@ -90,7 +90,7 @@ const LAYER_TYPES: readonly CoverageEntry[] = [
   { name: 'circle',             status: 'supported', note: 'Routes to the runtime PointRenderer (SDF disks). circle-radius/-color/-stroke-color/-stroke-width/-opacity all map onto the existing point utility surface, including interpolate-by-zoom + data-driven forms.', source: 'layers.ts:514' },
   { name: 'heatmap',            status: 'unsupported', impact: 'medium', note: 'Batch 3 (accumulation MRT + Gaussian blur).', source: 'layers.ts:18' },
   { name: 'hillshade',          status: 'unsupported', impact: 'medium', note: 'Batch 4 (raster-dem + lighting shader).', source: 'layers.ts:19' },
-  { name: 'sky',                status: 'unsupported', impact: 'low' },
+  { name: 'sky',                status: 'unsupported', impact: 'low', note: 'Atmospheric sky dome (sky-color / sky-atmosphere-* / sky-type). Layer-level skip added to SKIP_REASONS so the converter emits an explicit // SKIPPED comment with diagnostic note rather than falling through to the generic handler.', source: 'layers.ts:SKIP_REASONS' },
 ]
 
 // ─── 3b. Layer common fields ──────────────────────────────────────────
@@ -206,10 +206,10 @@ const PAINT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'text-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport (default) vs map coordinate space for text-translate. X-GIS applies text-translate in viewport space only; the `map` mode would need MVP-aware offset.' },
   { name: 'icon-color',       status: 'unsupported', impact: 'high', note: 'SDF icon tint — needs IconStage vertex tint attribute + fragment tint multiply. Currently surfaces via ignoredText warning; PNG sprite path renders the un-tinted texel. Plan §4 deferred.' },
   { name: 'icon-opacity',     status: 'partial', impact: 'high', note: 'Constant form threads compiler → LabelDef → IconStage.addIcon → per-vertex opacity attribute → fragment alpha multiplier. Zoom-interp / data-driven deferred (per-feature alpha would need iconOpacityExpr path). Iter 492 shipped 2026-05-18.', source: 'layers.ts:1050' },
-  { name: 'icon-halo-color',  status: 'unsupported', impact: 'medium' },
-  { name: 'icon-halo-width',  status: 'unsupported', impact: 'medium' },
-  { name: 'icon-halo-blur',   status: 'unsupported', impact: 'low' },
-  { name: 'icon-translate',   status: 'unsupported', impact: 'low' },
+  { name: 'icon-halo-color',  status: 'unsupported', impact: 'medium', note: 'SDF icon halo colour. PNG sprite path has no SDF — needs SDF icon support first. Text halo already supported.' },
+  { name: 'icon-halo-width',  status: 'unsupported', impact: 'medium', note: 'SDF icon halo width. Depends on SDF icon path (icon-halo-color).' },
+  { name: 'icon-halo-blur',   status: 'unsupported', impact: 'low', note: 'SDF icon halo feather. Depends on SDF icon path.' },
+  { name: 'icon-translate',   status: 'unsupported', impact: 'low', note: 'CSS-px viewport offset for icons. Symmetric with line-translate / fill-translate; not threaded through IconStage.' },
   { name: 'icon-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport / map coordinate space for icon-translate; dependent on icon pipeline (Batch 2).' },
 ]
 
@@ -219,12 +219,12 @@ const PAINT_CIRCLE: readonly CoverageEntry[] = [
   { name: 'circle-opacity',      status: 'supported', note: 'Mapbox 0..1 → xgis 0..100 scaled. Constant + interpolate-by-zoom.' },
   { name: 'circle-stroke-color', status: 'supported' },
   { name: 'circle-stroke-width', status: 'supported', note: 'CSS px; constant + interpolate-by-zoom.' },
-  { name: 'circle-blur',         status: 'unsupported', impact: 'low' },
+  { name: 'circle-blur',         status: 'unsupported', impact: 'low', note: 'Soft edge for circles. Point-renderer fragment uses smoothstep AA already; a per-feature blur attr + wider quad would extend the soft band.' },
   { name: 'circle-stroke-opacity', status: 'partial', impact: 'low', note: 'Constant numeric form folds into stroke-color hex alpha (Plan §4 partial landing). Zoom-interp / data-driven forms still warn + drop — need a dedicated paint shape for per-frame uniform multiplication.', source: 'layers.ts:circle-stroke-color block' },
-  { name: 'circle-translate',    status: 'unsupported', impact: 'low' },
-  { name: 'circle-translate-anchor', status: 'unsupported', impact: 'low' },
-  { name: 'circle-pitch-scale',  status: 'unsupported', impact: 'low' },
-  { name: 'circle-pitch-alignment', status: 'unsupported', impact: 'low' },
+  { name: 'circle-translate',    status: 'unsupported', impact: 'low', note: 'CSS-px viewport offset for circles. Symmetric with fill/line/icon translate.' },
+  { name: 'circle-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport / map for circle-translate; dependent on circle-translate.' },
+  { name: 'circle-pitch-scale',  status: 'unsupported', impact: 'low', note: 'viewport (default — radius constant on screen) vs map (radius scales with zoom). X-GIS uses viewport-scale unconditionally.' },
+  { name: 'circle-pitch-alignment', status: 'unsupported', impact: 'low', note: 'viewport (default) vs map. X-GIS uses viewport-aligned circles; map mode would project the disc onto the ground plane.' },
 ]
 
 const PAINT_FILL_EXTRUSION: readonly CoverageEntry[] = [
@@ -232,9 +232,9 @@ const PAINT_FILL_EXTRUSION: readonly CoverageEntry[] = [
   { name: 'fill-extrusion-opacity', status: 'supported' },
   { name: 'fill-extrusion-height',  status: 'supported', note: 'Constant + interpolate-by-zoom + per-feature expression.', source: 'paint.ts:154' },
   { name: 'fill-extrusion-base',    status: 'supported', source: 'paint.ts:165' },
-  { name: 'fill-extrusion-translate', status: 'unsupported', impact: 'low' },
+  { name: 'fill-extrusion-translate', status: 'unsupported', impact: 'low', note: 'CSS-px viewport offset for extrusions. Symmetric with fill-translate; not threaded.' },
   { name: 'fill-extrusion-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport / map space for fill-extrusion-translate; dependent on translate.' },
-  { name: 'fill-extrusion-pattern',   status: 'unsupported', impact: 'medium' },
+  { name: 'fill-extrusion-pattern',   status: 'unsupported', impact: 'medium', note: 'Bitmap pattern repeated on extrusion walls + roof. Same Batch 2 sprite-atlas dependency as fill-pattern / line-pattern.' },
   { name: 'fill-extrusion-vertical-gradient', status: 'unsupported', impact: 'low', note: 'Default `true` is always-on at runtime — fragment shader applies a vertical gradient ramp (0.6 base → 1.0 roof) plus a roof bonus to approximate MapLibre default. Setting `false` to disable the gradient would need a per-show flag + WGSL branch — surfaceIgnoredPaint warns when authored. Iter post-§9 tightened the ramp to match MapLibre defaults.' },
   { name: 'fill-extrusion-ambient-occlusion-intensity', status: 'unsupported', impact: 'low', note: 'AO would need per-vertex normal + screen-space AO pass. Not in current renderer.' },
   { name: 'fill-extrusion-ambient-occlusion-radius',    status: 'unsupported', impact: 'low', note: 'See fill-extrusion-ambient-occlusion-intensity.' },
@@ -242,13 +242,13 @@ const PAINT_FILL_EXTRUSION: readonly CoverageEntry[] = [
 
 const PAINT_RASTER: readonly CoverageEntry[] = [
   { name: 'raster-opacity',         status: 'supported', note: 'Constant + interpolate-by-zoom + data-driven (all PropertyShape kinds) routed through the global RasterRenderer opacity uniform. Single raster show per scene is supported; multi-raster styles fall back to the first declared show.', source: 'paint.ts:38' },
-  { name: 'raster-hue-rotate',      status: 'unsupported', impact: 'low' },
-  { name: 'raster-brightness-min',  status: 'unsupported', impact: 'low' },
-  { name: 'raster-brightness-max',  status: 'unsupported', impact: 'low' },
-  { name: 'raster-saturation',      status: 'unsupported', impact: 'low' },
-  { name: 'raster-contrast',        status: 'unsupported', impact: 'low' },
-  { name: 'raster-fade-duration',   status: 'unsupported', impact: 'low' },
-  { name: 'raster-resampling',      status: 'unsupported', impact: 'low' },
+  { name: 'raster-hue-rotate',      status: 'unsupported', impact: 'low', note: 'Rotate raster hue in HSL. Would need a fragment HSL-rotate pass.' },
+  { name: 'raster-brightness-min',  status: 'unsupported', impact: 'low', note: 'Lower bound of raster brightness remap. Fragment-shader linear contrast adjust.' },
+  { name: 'raster-brightness-max',  status: 'unsupported', impact: 'low', note: 'Upper bound of raster brightness remap.' },
+  { name: 'raster-saturation',      status: 'unsupported', impact: 'low', note: 'HSL saturation multiplier on raster sample.' },
+  { name: 'raster-contrast',        status: 'unsupported', impact: 'low', note: 'Fragment-shader contrast scale.' },
+  { name: 'raster-fade-duration',   status: 'unsupported', impact: 'low', note: 'Crossfade between zoom levels. X-GIS swaps tiles atomically; no fade.' },
+  { name: 'raster-resampling',      status: 'unsupported', impact: 'low', note: 'linear (default) vs nearest. Sampler is fixed to linear; per-show override would need a separate sampler binding.' },
   { name: 'resampling',             status: 'unsupported', impact: 'low', note: 'MapLibre v3 alias for raster-resampling — same semantic.' },
 ]
 
@@ -265,9 +265,9 @@ const PAINT_HILLSHADE: readonly CoverageEntry[] = [
   { name: 'hillshade-illumination-altitude',  status: 'unsupported', impact: 'medium', note: 'Light elevation angle (0–90°); no renderer.' },
   { name: 'hillshade-illumination-anchor',    status: 'unsupported', impact: 'low', note: 'map / viewport — whether the sun follows bearing; no renderer.' },
   { name: 'hillshade-exaggeration',           status: 'unsupported', impact: 'medium', note: 'Vertical-relief multiplier; no renderer.' },
-  { name: 'hillshade-shadow-color',           status: 'unsupported', impact: 'medium' },
-  { name: 'hillshade-highlight-color',        status: 'unsupported', impact: 'medium' },
-  { name: 'hillshade-accent-color',           status: 'unsupported', impact: 'low' },
+  { name: 'hillshade-shadow-color',           status: 'unsupported', impact: 'medium', note: 'Shadow side colour; no hillshade renderer.' },
+  { name: 'hillshade-highlight-color',        status: 'unsupported', impact: 'medium', note: 'Lit side colour; no hillshade renderer.' },
+  { name: 'hillshade-accent-color',           status: 'unsupported', impact: 'low', note: 'Per-feature accent tint; no hillshade renderer.' },
   { name: 'hillshade-method',                 status: 'unsupported', impact: 'low', note: 'basic / combined / igor / multidirectional — different DEM gradient algorithms.' },
   { name: 'resampling',                       status: 'unsupported', impact: 'low', note: 'bilinear / nearest sampling of the DEM raster; depends on hillshade renderer.' },
 ]
@@ -317,25 +317,25 @@ const EXPRESSIONS: readonly CoverageEntry[] = [
   // Feature meta
   { name: 'geometry-type',   status: 'supported', note: 'Routes via synthetic `$geometryType` prop injected at filter-eval time.', source: 'expressions.ts:263' },
   { name: 'id',              status: 'supported', note: 'Routes via synthetic `$featureId` prop injected from `feature.id` (GeoJSON RFC 7946 §3.2; MVT feature.id) at every filter-eval site. Same pattern as `geometry-type`.', source: 'expressions.ts:278' },
-  { name: 'properties',      status: 'unsupported', impact: 'low' },
+  { name: 'properties',      status: 'unsupported', impact: 'low', note: 'Returns whole feature properties object — X-GIS expressions access by field name (`.field` / `["get","field"]`); no object literal accessor.' },
   { name: 'feature-state',   status: 'na', note: 'Mapbox v8 dynamic property setter — no xgis equivalent.' },
   // Formatting / advanced
   { name: 'typeof',          status: 'supported', note: 'Returns Mapbox-shaped strings ("string" / "number" / "boolean" / "object" / "null").', source: 'expressions.ts:237' },
   { name: 'format',          status: 'partial', impact: 'low', note: 'Span texts concatenated via xgis concat(); per-span opts (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer.', source: 'expressions.ts:208' },
   { name: 'image',           status: 'unsupported', impact: 'high', note: 'Sprite atlas (Batch 2).' },
   { name: 'number-format',   status: 'supported', note: 'Lowers to positional `number_format(input, minFrac, maxFrac, locale, currency)` (xgis has no object-literal syntax). Routes through Intl.NumberFormat at runtime; null slots use spec defaults.', source: 'expressions.ts:275' },
-  { name: 'collator',        status: 'unsupported', impact: 'low' },
-  { name: 'resolved-locale', status: 'unsupported', impact: 'low' },
-  { name: 'is-supported-script', status: 'unsupported', impact: 'low' },
+  { name: 'collator',        status: 'unsupported', impact: 'low', note: 'Locale-aware comparator for ==/!=/in. X-GIS uses byte-exact string compare. Surface as warning when authored.' },
+  { name: 'resolved-locale', status: 'unsupported', impact: 'low', note: 'Returns locale string from a collator. Depends on collator support.' },
+  { name: 'is-supported-script', status: 'unsupported', impact: 'low', note: 'Returns true if all chars in a string are renderable. X-GIS assumes Unicode-renderable. No-op gate.' },
   { name: 'array',           status: 'partial', impact: 'low', note: 'Type-assertion drops to value pass-through (X-GIS arrays carry no per-element type tag, so the spec\'s "abort if not array" semantic is lost; in paint/filter use a non-array would null-cascade anyway).', source: 'expressions.ts:163' },
   { name: 'slice',           status: 'supported', note: 'String or array; Mapbox `["slice", input, start[, end]]`. Routes to JS String/Array `.slice` semantics.', source: 'expressions.ts:248' },
   { name: 'index-of',        status: 'supported', note: 'Lowers to xgis `index_of(needle, haystack[, from])`. Returns -1 when not found.', source: 'expressions.ts:257' },
   // Camera / spatial
   { name: 'zoom',            status: 'supported', note: 'Lowers to bare `zoom` identifier. Works in `interpolate(zoom, …)` / `step(zoom, …)` AND anywhere else (filter compare, case condition, arithmetic).', source: 'expressions.ts:471' },
-  { name: 'pitch',           status: 'unsupported', impact: 'low' },
-  { name: 'distance-from-center', status: 'unsupported', impact: 'low' },
-  { name: 'distance',        status: 'unsupported', impact: 'low' },
-  { name: 'within',          status: 'unsupported', impact: 'low' },
+  { name: 'pitch',           status: 'unsupported', impact: 'low', note: 'Returns current camera pitch in expressions (e.g. for pitch-aware styling). X-GIS expression scope has zoom but no pitch identifier yet.' },
+  { name: 'distance-from-center', status: 'unsupported', impact: 'low', note: 'Returns screen-space distance from viewport centre for the current feature. Would need per-feature distance evaluation in worker.' },
+  { name: 'distance',        status: 'unsupported', impact: 'low', note: 'Geometry-to-geometry geodesic distance. Surface as warning when authored; would need spatial index for performance.' },
+  { name: 'within',          status: 'unsupported', impact: 'low', note: 'Point-in-polygon test for filter context. Surface as warning when authored.' },
   { name: 'accumulated',     status: 'na', note: 'Heatmap-only.' },
   { name: 'heatmap-density', status: 'na', note: 'Heatmap-only.' },
   { name: 'line-progress',   status: 'na', note: 'line-gradient only.' },
@@ -350,7 +350,7 @@ const FILTERS: readonly CoverageEntry[] = [
   { name: 'all / any / !',                           status: 'supported' },
   { name: 'match (boolean form)',                    status: 'supported', note: 'Lowers to OR/AND chain when all values are boolean literals.', source: 'expressions.ts:335' },
   { name: '$type',                                   status: 'unsupported', impact: 'low', note: 'Legacy filter — use the new `["geometry-type"]` accessor instead.', source: 'expressions.ts:414' },
-  { name: '$id',                                     status: 'unsupported', impact: 'low' },
+  { name: '$id',                                     status: 'unsupported', impact: 'low', note: 'Legacy filter — use the new `["id"]` expression-form accessor instead. Mirror of $type → geometry-type migration.' },
 ]
 
 // ─── Assembled tree ───────────────────────────────────────────────────
