@@ -580,7 +580,8 @@ function convertSymbolLayer(
   }
   const offset = unwrapPairScalars(unwrapLiteralTuple(layout['text-offset']))
   if (offset !== null
-      && typeof offset[0] === 'number' && typeof offset[1] === 'number') {
+      && typeof offset[0] === 'number' && Number.isFinite(offset[0])
+      && typeof offset[1] === 'number' && Number.isFinite(offset[1])) {
     if (offset[0] !== 0) utils.push(`label-offset-x-${fmtSigned(offset[0])}`)
     if (offset[1] !== 0) utils.push(`label-offset-y-${fmtSigned(offset[1])}`)
   }
@@ -591,7 +592,8 @@ function convertSymbolLayer(
   // text-offset.
   const translate = unwrapPairScalars(unwrapLiteralTuple(paint['text-translate']))
   if (translate !== null
-      && typeof translate[0] === 'number' && typeof translate[1] === 'number') {
+      && typeof translate[0] === 'number' && Number.isFinite(translate[0])
+      && typeof translate[1] === 'number' && Number.isFinite(translate[1])) {
     if (translate[0] !== 0) utils.push(`label-translate-x-${fmtSigned(translate[0])}`)
     if (translate[1] !== 0) utils.push(`label-translate-y-${fmtSigned(translate[1])}`)
   }
@@ -604,6 +606,8 @@ function convertSymbolLayer(
   // form for the negative) which the runtime then would honour
   // against spec.
   const radialOffset = unwrapLiteralScalar(layout['text-radial-offset'])
+  // `> 0` rejects NaN (NaN > 0 = false), so no extra Number.isFinite
+  // guard needed here — keep the comparison as-is.
   if (typeof radialOffset === 'number' && radialOffset > 0) {
     utils.push(`label-radial-offset-${radialOffset}`)
   }
@@ -631,7 +635,8 @@ function convertSymbolLayer(
         : null
       if (typeof a === 'string' && VALID_ANCHORS.has(a)
           && off !== null
-          && typeof off[0] === 'number' && typeof off[1] === 'number') {
+          && typeof off[0] === 'number' && Number.isFinite(off[0])
+          && typeof off[1] === 'number' && Number.isFinite(off[1])) {
         utils.push(`label-anchor-${a}`)
         if (off[0] !== 0) utils.push(`label-vao-${idx}-x-${fmtSigned(off[0])}`)
         if (off[1] !== 0) utils.push(`label-vao-${idx}-y-${fmtSigned(off[1])}`)
@@ -713,7 +718,7 @@ function convertSymbolLayer(
   // is zoom-interpolatable; large basemap styles fade tracking out at
   // low zoom for legibility.
   const rotate = unwrapLiteralScalar(layout['text-rotate'])
-  if (typeof rotate === 'number' && rotate !== 0) {
+  if (typeof rotate === 'number' && Number.isFinite(rotate) && rotate !== 0) {
     utils.push(`label-rotate-${fmtSigned(rotate)}`)
   } else if (rotate !== undefined && rotate !== null && typeof rotate !== 'number') {
     // zoom-interpolated or per-feature rotate. Routes through the
@@ -723,7 +728,7 @@ function convertSymbolLayer(
     // surfaces a warn-level diagnostic on emit. Mirror of the
     // letter-spacing / max-width zoom-interp paths below.
     const interp = interpolateZoomCall(rotate, warnings,
-      (val) => typeof val === 'number' ? String(val) : null)
+      (val) => typeof val === 'number' && Number.isFinite(val) ? String(val) : null)
     if (interp !== null) {
       utils.push(`label-rotate-[${interp}]`)
     } else {
@@ -732,11 +737,11 @@ function convertSymbolLayer(
     }
   }
   const letterSpacing = unwrapLiteralScalar(layout['text-letter-spacing'])
-  if (typeof letterSpacing === 'number' && letterSpacing !== 0) {
+  if (typeof letterSpacing === 'number' && Number.isFinite(letterSpacing) && letterSpacing !== 0) {
     utils.push(`label-letter-spacing-${fmtSigned(letterSpacing)}`)
   } else if (letterSpacing !== undefined && letterSpacing !== null && typeof letterSpacing !== 'number') {
     const interp = interpolateZoomCall(letterSpacing, warnings,
-      (val) => typeof val === 'number' ? String(val) : null)
+      (val) => typeof val === 'number' && Number.isFinite(val) ? String(val) : null)
     if (interp !== null) utils.push(`label-letter-spacing-[${interp}]`)
   }
 
@@ -1357,7 +1362,7 @@ export function convertLayer(layer: MapboxLayer, warnings: string[]): string | n
     else if (join === 'round') layoutUtils.push('stroke-round-join')
     else if (join === 'bevel') layoutUtils.push('stroke-bevel-join')
     const miter = unwrapLiteralScalar(layout['line-miter-limit'])
-    if (typeof miter === 'number') layoutUtils.push(`stroke-miterlimit-${miter}`)
+    if (typeof miter === 'number' && Number.isFinite(miter)) layoutUtils.push(`stroke-miterlimit-${miter}`)
   }
 
   const utils = [...layoutUtils, ...paintToUtilities(layer, warnings)]
