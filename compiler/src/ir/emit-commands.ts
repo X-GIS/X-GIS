@@ -456,6 +456,7 @@ function composeStrokeWidthShape(
     return {
       kind: 'zoom-time',
       zoomStops: sp.stops,
+      ...(sp.base !== undefined && sp.base !== 1 ? { zoomBase: sp.base } : {}),
       timeStops,
       loop: meta.loop,
       easing: meta.easing,

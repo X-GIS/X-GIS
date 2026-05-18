@@ -68,6 +68,11 @@ export type PropertyShape<T> =
   | {
       kind: 'zoom-time'
       zoomStops: ZoomStop<T>[]
+      /** Mapbox `["exponential", N]` curve base on the zoom axis.
+       *  Undefined / 1 → linear. Preserved through the zoom-time
+       *  merge so exponential interp doesn't silently collapse to
+       *  linear when a time animation is also active. */
+      zoomBase?: number
       timeStops: TimeStop<T>[]
       loop: boolean
       easing: Easing
