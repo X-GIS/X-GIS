@@ -109,6 +109,23 @@ fn point_cos_c(rtc_merc: vec2<f32>) -> f32 {
   return needs_backface_cull(abs_lon, abs_lat, u.proj_params);
 }
 
+// Rim alpha at a point's center. Mirror of point_cos_c but returns
+// the continuous-alpha smoothstep instead of a binary cull signal.
+// Flat-interpolated like cos_c — all four quad corners share one
+// rim value so fragments either all fade together or all render
+// at full alpha (no per-corner artefacts on round points).
+fn point_rim_alpha(rtc_merc: vec2<f32>) -> f32 {
+  let cam_lat = clamp(u.proj_params.z, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
+  let cam_merc_x = u.proj_params.y * DEG2RAD * EARTH_R;
+  let cam_merc_y = log(tan(PI / 4.0 + cam_lat * DEG2RAD / 2.0)) * EARTH_R;
+  let abs_merc_x = rtc_merc.x + cam_merc_x;
+  let abs_merc_y = rtc_merc.y + cam_merc_y;
+  let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
+  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let abs_lat = lat_rad / DEG2RAD;
+  return rim_alpha(abs_lon, abs_lat, u.proj_params);
+}
+
 // ── SDF distance functions ──
 
 fn dist_to_line(p: vec2f, a: vec2f, b: vec2f) -> f32 {
@@ -221,6 +238,11 @@ struct PointOut {
   // flat-interpolated via the shared value — fragments either all
   // render or all discard. +1 for flat projections (no-op).
   @location(4) @interpolate(flat) cos_c: f32,
+  // Rim fade alpha at point center — flat-interpolated like cos_c.
+  // Multiplied into fragment alpha so sphere-rim points fade
+  // smoothly across [boundary, boundary + 0.02] cos_c on globe /
+  // azimuthal / stereographic. 1.0 on flat / cylindrical (no-op).
+  @location(5) @interpolate(flat) rim_a: f32,
 }
 
 struct PointFragmentOutput {
@@ -329,6 +351,7 @@ fn vs_point(
   out.feat_id = fid;
   out.radius_px = radius_px;
   out.cos_c = point_cos_c(rtc_merc);
+  out.rim_a = point_rim_alpha(rtc_merc);
   return out;
 }
 
@@ -392,6 +415,11 @@ fn fs_point(in: PointOut) -> PointFragmentOutput {
     color += vec4f(fill_color.rgb * glow, glow);
   }
 
+  // Apply rim alpha fade before the alpha-cutoff discard so points
+  // sitting at the sphere visibility boundary fade smoothly rather
+  // than popping. Flat / cylindrical projections receive rim_a=1.0
+  // so this is a no-op there.
+  color.a = color.a * in.rim_a;
   if (color.a < 0.005) { discard; }
   var out: PointFragmentOutput;
   out.color = color;
