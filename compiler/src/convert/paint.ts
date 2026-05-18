@@ -199,11 +199,22 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     // (OFM Liberty's `natural_earth`) fade out at higher zooms the
     // way they do in MapLibre.
     addOpacity(out, p['raster-opacity'], warnings)
+    // raster-resampling: 'linear' (default) matches X-GIS — the sampler
+    // is fixed to linear. 'nearest' is a real gap (pixel-art / DEM
+    // staircase rendering); suppress the spec-default warn and only
+    // surface the real gap.
+    const rsRaw = p['raster-resampling']
+    const rs = Array.isArray(rsRaw) && rsRaw.length === 2 && rsRaw[0] === 'literal' ? rsRaw[1] : rsRaw
+    const skipResamplingWarn = rs === 'linear' || rs === undefined || rs === null
     surfaceIgnoredPaint(layer.id, p, warnings, [
       'raster-hue-rotate', 'raster-brightness-min', 'raster-brightness-max',
       'raster-saturation', 'raster-contrast',
-      'raster-fade-duration', 'raster-resampling',
+      'raster-fade-duration',
+      ...(skipResamplingWarn ? [] : ['raster-resampling']),
     ])
+    if (rs === 'nearest') {
+      warnings.push(`Layer "${layer.id}" — raster-resampling: nearest set but X-GIS sampler is fixed to linear (Plan §4 deferred — would need a separate nearest-sampler binding). Tiles render with linear filtering regardless.`)
+    }
   }
 
   return out
