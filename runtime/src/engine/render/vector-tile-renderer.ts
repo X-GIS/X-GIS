@@ -331,6 +331,13 @@ export class VectorTileRenderer {
    *  `buildings` MVT slice, 0 elsewhere. Future: per-feature data-
    *  driven via PropertyTable + style `extrude:` syntax. */
   private currentExtrudeHeight = 0
+  /** Mapbox `fill-extrusion-base` wall-bottom z (metres). Default 0
+   *  matches a flat-base building flush with z=0. Constant form
+   *  (show.extrudeBase.kind === 'constant') pulls the value; feature
+   *  form falls back to the constant `fallback` for the uniform
+   *  mirror (per-feature base would require a second vertex
+   *  attribute, deferred). */
+  private currentExtrudeBase = 0
   /** Extrude routing for the current `render()` call.
    *   - 'none': flat polygon, no z lift
    *   - 'uniform': all features at currentExtrudeHeight (flat pipeline,
@@ -3113,6 +3120,17 @@ export class VectorTileRenderer {
       this.currentExtrudeHeight = 0
       this.currentExtrudeMode = 'none'
     }
+    // Mapbox `fill-extrusion-base` — wall BOTTOM z. Constant form
+    // packs into u.extrude_base_m; feature form falls back to the
+    // declared fallback for the uniform mirror (per-feature base
+    // needs its own attribute, deferred). Absent → 0 (flat ground).
+    if (show.extrudeBase && show.extrudeBase.kind === 'constant') {
+      this.currentExtrudeBase = show.extrudeBase.value
+    } else if (show.extrudeBase && show.extrudeBase.kind === 'feature') {
+      this.currentExtrudeBase = show.extrudeBase.fallback
+    } else {
+      this.currentExtrudeBase = 0
+    }
     // Per-frame resolved fill RGBA — animated stops were already
     // collapsed by the bucket scheduler. ResolvedShow is the SOLE
     // per-frame source; static hex still flows via show.fill below
@@ -4128,7 +4146,10 @@ export class VectorTileRenderer {
       // frame zoom set by VTR.render's caller before renderTileKeys
       // dispatches — camera isn't in this closure's scope.
       this.uniformF32[44] = this.lastZoom
-      this.uniformF32[45] = 0
+      // extrude_base_m (45) — wall bottom z (Mapbox
+      // `fill-extrusion-base`). Reuses the first `_pad_zoom_*` slot
+      // without growing the uniform struct past 192 bytes.
+      this.uniformF32[45] = this.currentExtrudeBase
       this.uniformF32[46] = 0
       this.uniformF32[47] = 0
 

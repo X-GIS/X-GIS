@@ -118,7 +118,13 @@ struct Uniforms {
   // 16-byte alignment would push the struct to 208 bytes) so the
   // struct ends on a 16-byte boundary at exactly 192 bytes.
   zoom: f32,
-  _pad_zoom_0: f32,
+  // 3D extrusion base — wall BOTTOM z in world metres (Mapbox
+  // fill-extrusion-base). vs_main_quantized lifts the wall bottom
+  // vertex to this value instead of z=0, carving a podium under
+  // the building. 0 (default) keeps the existing flat-base
+  // behaviour. Reused the first _pad_zoom_0 slot to avoid growing
+  // the struct past 192 bytes.
+  extrude_base_m: f32,
   _pad_zoom_1: f32,
   _pad_zoom_2: f32,
 }
@@ -313,7 +319,11 @@ fn vs_main_quantized(
   // vertical sides; top-face polygons all carry is_top=1. Non-
   // extruded layers set extrude_height_m=0 → both branches yield
   // z=0 → identical to the flat path.
-  let z_world = select(0.0, u.extrude_height_m, is_top);
+  // Walls run from extrude_base_m (default 0) to extrude_height_m.
+  // is_top=1 → roof at extrude_height_m; is_top=0 → wall bottom at
+  // extrude_base_m. Mapbox fill-extrusion-base controls the
+  // bottom; pre-fix it was always 0 even when authored otherwise.
+  let z_world = select(u.extrude_base_m, u.extrude_height_m, is_top);
   // Globe (projType 7) uses the sphere RTC + orbit MVP; extrusion on
   // the sphere is a later refinement (flat basemap path unaffected).
   let clip = select(
