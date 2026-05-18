@@ -494,7 +494,19 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // both return empty string per Mapbox spec. Pre-fix the empty
       // case returned null which silently dropped the property
       // (e.g. text-field collapsed to no label).
-      const parts = v.slice(1).map(a => exprToXgis(a, warnings)).filter((s): s is string => s !== null)
+      const rawArgs = v.slice(1)
+      const rawNonNullCount = rawArgs.filter(a => a !== null && a !== undefined).length
+      const parts = rawArgs.map(a => exprToXgis(a, warnings)).filter((s): s is string => s !== null)
+      // Surface partial-drop — an `["image", …]` head in a concat
+      // chain (e.g. `["concat", ["image", "icon"], " ", ["get",
+      // "name"]]`) would silently lose the icon and emit
+      // `concat(" ", get("name"))`, missing the authored prefix.
+      // null/undefined ARGS are explicitly permitted by Mapbox spec
+      // (skip-null semantic) so we only count non-null inputs that
+      // failed to convert.
+      if (parts.length < rawNonNullCount) {
+        warnings.push(`["concat"] dropped ${rawNonNullCount - parts.length} of ${rawNonNullCount} non-null arg(s) that failed to convert; concatenation may be missing the authored content.`)
+      }
       return parts.length > 0 ? `concat(${parts.join(', ')})` : '""'
     }
     case 'format': {
