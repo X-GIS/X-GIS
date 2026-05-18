@@ -175,6 +175,22 @@ export function convertMapboxStyle(
   // demo-runner + compare-runner read them and call the matching
   // XGISMap setters), not converter ones.
   const styleAny = style as unknown as Record<string, unknown>
+  // Mapbox spec: top-level `version` must be 8 — the entire schema
+  // (sources / layers / paint / layout / expressions) is version-
+  // tagged. Older v7 styles use a different paint/layout shape; a
+  // v7 style passed through the v8 converter produced garbage output
+  // (drop-in colour properties were renamed between versions). Warn
+  // explicitly so the user sees the version mismatch instead of
+  // chasing rendering bugs.
+  // Missing version → warn (spec requires it); v8 → silent; anything
+  // else → loud warning.
+  const styleVer = styleAny.version
+  if (styleVer === undefined || styleVer === null) {
+    warnings.push(`Style is missing top-level "version" field — Mapbox spec requires version: 8; converter assumed v8 schema.`)
+  } else if (styleVer !== 8) {
+    warnings.push(`Style declares version: ${JSON.stringify(styleVer).slice(0, 40)} — only Mapbox style v8 is supported; conversion output may be partial / wrong.`)
+  }
+
   const topLevelGaps: string[] = []
   if (styleAny.projection !== undefined && styleAny.projection !== null) {
     topLevelGaps.push('projection')
