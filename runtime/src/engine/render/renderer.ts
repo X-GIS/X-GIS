@@ -966,7 +966,13 @@ export function interpolateZoom(
       const z1 = stops[i + 1].zoom
       const span = z1 - z0
       let t: number
-      if (base === 1 || Math.abs(base - 1) < 1e-6) {
+      // Guard duplicate-zoom stops (z0 === z1) to avoid divide-by-zero
+      // → Infinity → NaN propagation. Mirror of the exponential path
+      // `denom === 0 ? 0 : ...` guard below + the compiler evaluator
+      // duplicate-x guard.
+      if (span === 0) {
+        t = 0
+      } else if (base === 1 || Math.abs(base - 1) < 1e-6) {
         t = (zoom - z0) / span
       } else {
         // Exponential. Math.pow handles base > 1 and 0 < base < 1.
