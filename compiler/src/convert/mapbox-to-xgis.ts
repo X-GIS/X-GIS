@@ -286,7 +286,14 @@ export function convertMapboxStyle(
       // comments block when the converter has any warnings — letting
       // a raw `*/` through the catch message closes the wrapper
       // early and the rest of the file parses as code.
-      const safeMsg = (e as Error).message.replace(/\*\//g, '* /').slice(0, 80)
+      // Also strip newlines so a message like "foo\nbar" doesn't
+      // terminate the `//` line comment mid-message and let the
+      // rest parse as raw xgis code. Mirror of the layer catch-path
+      // newline sanitize.
+      const safeMsg = (e as Error).message
+        .replace(/[\r\n]/g, ' ')
+        .replace(/\*\//g, '* /')
+        .slice(0, 80)
       block = `source ${sanitizeId(id)} {\n  // SKIPPED — converter threw: ${safeMsg}\n}`
     }
     lines.push(block)
