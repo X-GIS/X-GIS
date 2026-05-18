@@ -1007,7 +1007,17 @@ function convertSymbolLayer(
   if (typeof iconImage === 'string') {
     utils.push(`label-icon-image-${iconImage}`)
   } else if (iconImage !== undefined && iconImage !== null) {
-    warnings.push(`Symbol layer "${layer.id}" — data-driven icon-image not yet supported (Phase B+).`)
+    // Data-driven `icon-image: ["match", ["get", "subclass"], …]`
+    // (OFM POI layers) — emit as bracket binding so the lower
+    // resolves a per-feature expression AST onto LabelDef.iconImageExpr.
+    // Runtime TextStage evaluates the AST per feature, picks the
+    // resolved sprite key, and dispatches IconStage.addIcon.
+    const expr = exprToXgis(iconImage, warnings)
+    if (expr !== null) {
+      utils.push(`label-icon-image-[${expr}]`)
+    } else {
+      warnings.push(`Symbol layer "${layer.id}" — icon-image expression could not be converted: ${JSON.stringify(iconImage).slice(0, 80)}`)
+    }
   }
   const iconSize = unwrapLiteralScalar(layout['icon-size'])
   if (typeof iconSize === 'number' && iconSize !== 1) {

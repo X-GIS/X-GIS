@@ -355,6 +355,14 @@ export interface LabelDef {
    *  text-less symbol layers omit `text` entirely and render the
    *  icon alone. */
   iconImage?: string
+  /** Per-feature icon-image expression. Populated when the Mapbox
+   *  style declared `icon-image: ["match", ["get", "subclass"], …]`
+   *  (or similar data-driven form). Runtime TextStage evaluates the
+   *  AST against each feature's properties and dispatches the
+   *  resolved sprite key to IconStage.addIcon. iconImage takes
+   *  precedence when both are present (constant + expression — rare
+   *  but spec-legal). */
+  iconImageExpr?: { ast: unknown }
   /** Mapbox `icon-size` scale factor on the sprite's design size.
    *  Default 1.0. Constant only for now. */
   iconSize?: number

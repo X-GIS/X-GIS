@@ -678,35 +678,27 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "poi_r20",
-      "reasons": [
-        "Symbol layer "poi_r20" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "poi_r7",
-      "reasons": [
-        "Symbol layer "poi_r7" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "poi_r1",
-      "reasons": [
-        "Symbol layer "poi_r1" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "poi_transit",
-      "reasons": [
-        "Symbol layer "poi_transit" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -731,9 +723,7 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "action": "lossy",
       "layerId": "highway-shield-non-us",
       "reasons": [
-        "Symbol layer "highway-shield-non-us" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-        "Symbol layer "highway-shield-non-us" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
       ],
       "type": "symbol",
@@ -742,9 +732,7 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "action": "lossy",
       "layerId": "highway-shield-us-interstate",
       "reasons": [
-        "Symbol layer "highway-shield-us-interstate" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "highway-shield-us-interstate" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-        "Symbol layer "highway-shield-us-interstate" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "highway-shield-us-interstate" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
       ],
       "type": "symbol",
@@ -753,9 +741,7 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "action": "lossy",
       "layerId": "road_shield_us",
       "reasons": [
-        "Symbol layer "road_shield_us" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "road_shield_us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-        "Symbol layer "road_shield_us" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "road_shield_us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
       ],
       "type": "symbol",
@@ -773,19 +759,15 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "label_village",
-      "reasons": [
-        "Symbol layer "label_village" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "label_town",
-      "reasons": [
-        "Symbol layer "label_town" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -795,19 +777,15 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "label_city",
-      "reasons": [
-        "Symbol layer "label_city" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "label_city_capital",
-      "reasons": [
-        "Symbol layer "label_city_capital" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -852,26 +830,12 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
     "Layer "building-top" — ignored paint properties: fill-translate",
     "Symbol layer "road_oneway" — ignored properties (Batch 1d/1e+): icon-opacity, icon-rotation-alignment",
     "Symbol layer "road_oneway_opposite" — ignored properties (Batch 1d/1e+): icon-opacity, icon-rotation-alignment",
-    "Symbol layer "poi_r20" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "poi_r7" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "poi_r1" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "poi_transit" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "highway-shield-non-us" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "highway-shield-non-us" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "highway-shield-us-interstate" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "highway-shield-us-interstate" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "highway-shield-us-interstate" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "highway-shield-us-interstate" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "road_shield_us" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "road_shield_us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "road_shield_us" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "road_shield_us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "label_village" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "label_town" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "label_city" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "label_city_capital" — data-driven icon-image not yet supported (Phase B+).",
   ],
 }
 `;
@@ -1434,35 +1398,27 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "poi_r20",
-      "reasons": [
-        "Symbol layer "poi_r20" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "poi_r7",
-      "reasons": [
-        "Symbol layer "poi_r7" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "poi_r1",
-      "reasons": [
-        "Symbol layer "poi_r1" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "poi_transit",
-      "reasons": [
-        "Symbol layer "poi_transit" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -1487,9 +1443,7 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "action": "lossy",
       "layerId": "highway-shield-non-us",
       "reasons": [
-        "Symbol layer "highway-shield-non-us" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-        "Symbol layer "highway-shield-non-us" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
       ],
       "type": "symbol",
@@ -1498,9 +1452,7 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "action": "lossy",
       "layerId": "highway-shield-us-interstate",
       "reasons": [
-        "Symbol layer "highway-shield-us-interstate" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "highway-shield-us-interstate" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-        "Symbol layer "highway-shield-us-interstate" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "highway-shield-us-interstate" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
       ],
       "type": "symbol",
@@ -1509,9 +1461,7 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "action": "lossy",
       "layerId": "road_shield_us",
       "reasons": [
-        "Symbol layer "road_shield_us" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "road_shield_us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-        "Symbol layer "road_shield_us" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "road_shield_us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
       ],
       "type": "symbol",
@@ -1529,19 +1479,15 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "label_village",
-      "reasons": [
-        "Symbol layer "label_village" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "label_town",
-      "reasons": [
-        "Symbol layer "label_town" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -1551,19 +1497,15 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "label_city",
-      "reasons": [
-        "Symbol layer "label_city" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "label_city_capital",
-      "reasons": [
-        "Symbol layer "label_city_capital" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -1609,26 +1551,12 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
     "Layer "waterway_tunnel" — ignored paint properties: line-gap-width",
     "Layer "road_area_pattern" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.",
     "Layer "building-3d" — fill-extrusion-base declared but the polygon vertex shader doesn't yet honour the wall-base offset (renderer.ts line 317); the wall renders flush with z=0 regardless of the authored base.",
-    "Symbol layer "poi_r20" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "poi_r7" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "poi_r1" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "poi_transit" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "highway-shield-non-us" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "highway-shield-non-us" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "highway-shield-us-interstate" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "highway-shield-us-interstate" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "highway-shield-us-interstate" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "highway-shield-us-interstate" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "road_shield_us" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "road_shield_us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "road_shield_us" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "road_shield_us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "label_village" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "label_town" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "label_city" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "label_city_capital" — data-driven icon-image not yet supported (Phase B+).",
   ],
 }
 `;
@@ -1892,9 +1820,7 @@ exports[`style coverage > openfreemap-positron coverage matches snapshot 1`] = `
       "action": "lossy",
       "layerId": "highway-shield-non-us",
       "reasons": [
-        "Symbol layer "highway-shield-non-us" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-        "Symbol layer "highway-shield-non-us" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
       ],
       "type": "symbol",
@@ -1903,9 +1829,7 @@ exports[`style coverage > openfreemap-positron coverage matches snapshot 1`] = `
       "action": "lossy",
       "layerId": "highway-shield-us-interstate",
       "reasons": [
-        "Symbol layer "highway-shield-us-interstate" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "highway-shield-us-interstate" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-        "Symbol layer "highway-shield-us-interstate" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "highway-shield-us-interstate" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
       ],
       "type": "symbol",
@@ -1914,9 +1838,7 @@ exports[`style coverage > openfreemap-positron coverage matches snapshot 1`] = `
       "action": "lossy",
       "layerId": "road_shield_us",
       "reasons": [
-        "Symbol layer "road_shield_us" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "road_shield_us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-        "Symbol layer "road_shield_us" — data-driven icon-image not yet supported (Phase B+).",
         "Symbol layer "road_shield_us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
       ],
       "type": "symbol",
@@ -1934,19 +1856,15 @@ exports[`style coverage > openfreemap-positron coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "label_village",
-      "reasons": [
-        "Symbol layer "label_village" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "label_town",
-      "reasons": [
-        "Symbol layer "label_town" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -1956,19 +1874,15 @@ exports[`style coverage > openfreemap-positron coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "label_city",
-      "reasons": [
-        "Symbol layer "label_city" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "label_city_capital",
-      "reasons": [
-        "Symbol layer "label_city_capital" — data-driven icon-image not yet supported (Phase B+).",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -2010,22 +1924,12 @@ exports[`style coverage > openfreemap-positron coverage matches snapshot 1`] = `
   "warnings": [
     "Source "ne2_shaded" declares minzoom/maxzoom (-…6); the runtime tile selector doesn't yet honour source-level zoom bounds, so out-of-range tiles will be requested and 404. Use layer-level minzoom/maxzoom to limit fetch volume.",
     "Source "ne2_shaded" declares tileSize: 256; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.",
-    "Symbol layer "highway-shield-non-us" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "highway-shield-non-us" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "highway-shield-us-interstate" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "highway-shield-us-interstate" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "highway-shield-us-interstate" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "highway-shield-us-interstate" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "road_shield_us" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "road_shield_us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "road_shield_us" — data-driven icon-image not yet supported (Phase B+).",
     "Symbol layer "road_shield_us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
-    "Symbol layer "label_village" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "label_town" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "label_city" — data-driven icon-image not yet supported (Phase B+).",
-    "Symbol layer "label_city_capital" — data-driven icon-image not yet supported (Phase B+).",
   ],
 }
 `;

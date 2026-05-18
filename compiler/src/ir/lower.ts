@@ -490,6 +490,12 @@ function lowerLayer(
   let labelPlacement: 'point' | 'line' | 'line-center' | undefined
   // ── Icon (Batch 2) ──
   let labelIconImage: string | undefined
+  /** Per-feature icon-image expression. Set from the bracket
+   *  binding form `label-icon-image-[<expr>]` emitted by the
+   *  converter when icon-image is a Mapbox match/case expression.
+   *  Runtime TextStage evaluates the AST per feature to pick the
+   *  sprite key. */
+  let labelIconImageExpr: { ast: unknown } | undefined
   let labelIconSize: number | undefined
   let labelIconAnchor: import('./render-node').LabelDef['iconAnchor'] | undefined
   let labelIconOffset: [number, number] | undefined
@@ -987,6 +993,14 @@ function lowerLayer(
           // 12-px size seed is a default; subsequent `label-size-N`
           // utilities override it before foldLabelKnobs.
           label = { text: bindingToTextValue(item.binding), size: 12 }
+        } else if (name === 'label-icon-image') {
+          // `label-icon-image-[<expr>]` — per-feature icon sprite
+          // key. Runtime evaluates the AST against each feature's
+          // properties and dispatches the resolved sprite to
+          // IconStage. Used by OFM POI layers which select icons by
+          // `subclass` / `class` via Mapbox `match()` / `case()`.
+          labelIconImageExpr = { ast: item.binding }
+          continue
         } else {
           // Numeric label-* utilities that allow negative values use
           // bracket-binding form (`label-offset-y-[-0.2]`) since the
@@ -1722,7 +1736,7 @@ function lowerLayer(
       labelMaxWidth, labelLineHeight, labelJustify,
       labelPlacement, labelSpacing,
       labelRotationAlignment, labelPitchAlignment, labelKeepUpright,
-      labelIconImage, labelIconSize, labelIconAnchor, labelIconOffset, labelIconRotate,
+      labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconRotate,
     }),
   }
 }
@@ -1780,6 +1794,7 @@ function foldLabelKnobs(
     labelPitchAlignment?: 'map' | 'viewport' | 'auto'
     labelKeepUpright?: boolean
     labelIconImage?: string
+    labelIconImageExpr?: { ast: unknown }
     labelIconSize?: number
     labelIconAnchor?: import('./render-node').LabelDef['iconAnchor']
     labelIconOffset?: [number, number]
@@ -1857,6 +1872,7 @@ function foldLabelKnobs(
     ...(knobs.labelKeepUpright !== undefined ? { keepUpright: knobs.labelKeepUpright } : {}),
     // Batch 2 — sprite icon fields
     ...(knobs.labelIconImage !== undefined ? { iconImage: knobs.labelIconImage } : {}),
+    ...(knobs.labelIconImageExpr !== undefined ? { iconImageExpr: knobs.labelIconImageExpr } : {}),
     ...(knobs.labelIconSize !== undefined ? { iconSize: knobs.labelIconSize } : {}),
     ...(knobs.labelIconAnchor !== undefined ? { iconAnchor: knobs.labelIconAnchor } : {}),
     ...(knobs.labelIconOffset !== undefined ? { iconOffset: knobs.labelIconOffset } : {}),
