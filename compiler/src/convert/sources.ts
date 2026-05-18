@@ -444,9 +444,17 @@ export function convertSource(
         }
         warnings.push(`GeoJSON source "${id}" has inline data — emitted as no-URL stub; call map.setSourceData() after run().`)
       }
-    } else {
+    } else if (data === undefined || data === null) {
       lines.push('  // TODO: GeoJSON source missing data field')
-      warnings.push(`GeoJSON source "${id}" has no data field.`)
+      warnings.push(`GeoJSON source "${id}" has no data field. Set source.data to a URL string OR an inline FeatureCollection / Feature / Geometry object.`)
+    } else {
+      // data is some other type (boolean, number, etc.) — distinct
+      // from missing. Mapbox spec requires data to be string (URL)
+      // or object (inline). Pre-fix any non-string non-object value
+      // fell to the "missing" warning, sending users chasing the
+      // wrong fix when the real issue was a wrong-shape value.
+      lines.push(`  // TODO: GeoJSON source data field has invalid type (${typeof data})`)
+      warnings.push(`GeoJSON source "${id}" data field must be a URL string or inline object; got ${typeof data}.`)
     }
   } else if (src.type === 'image' || src.type === 'video') {
     lines.push(`  // SKIPPED: ${src.type} source not yet supported by X-GIS engine`)
