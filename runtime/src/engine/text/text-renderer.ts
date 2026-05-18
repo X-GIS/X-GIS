@@ -122,33 +122,27 @@ struct VsOut {
     return vec4<f32>(u.fill_color.rgb, u.fill_color.a * fill_a);
   }
 
-  // Halo: TWO smoothsteps combined via min() — matches MapLibre's
-  // symbol_sdf.fragment.glsl. The previous implementation used a
-  // single smoothstep centred on halo_edge, which never produced a
-  // solid halo band when (halo_blur + soft) ≥ halo_width / 2 — the
-  // typical case for 1px halos on light backgrounds (Positron city
-  // labels). Result: halos at <=50% opacity everywhere outside the
-  // glyph, visually invisible against near-white tiles.
+  // Halo: SINGLE smoothstep at halo_edge — matches MapLibre's
+  // symbol_sdf.fragment.glsl (which renders halo as a separate pass
+  // underneath the fill, with halo alpha = 1 over the entire glyph
+  // region + the halo_width-wide outer band). X-GIS combines halo +
+  // fill in one fragment, so the (1 - fill_w) composite factor below
+  // masks the halo region that overlaps the fill — equivalent to
+  // MapLibre's two-pass setup.
   //
-  // The MapLibre formula:
-  //   outer = smoothstep(halo_edge - aa, halo_edge + aa, sdf)  // fade IN
-  //   inner = smoothstep(inner_edge_halo - aa,                 // fade OUT
-  //                       inner_edge_halo + aa, sdf)
-  //   halo  = min(outer, 1 - inner)
-  // produces a flat-top "table" — solid 1.0 between the two
-  // transitions, feathered edges. inner_edge_halo sits just past the
-  // glyph edge so the halo flat-tops up to and including the visible
-  // boundary; the (1 - fill_w) composite factor below still masks
-  // the portion that overlaps the fill.
+  // History: prior iter used min(outer, 1-inner) to create a flat-
+  // top ring. That was an attempt to fix a "halo nearly invisible"
+  // bug on Positron city labels — but the actual fix was the per-
+  // source haloK (text-renderer.ts:561 PBF vs allLocal). The ring
+  // formula deviates from MapLibre's single-smoothstep envelope,
+  // visible at higher halo-width values as a hard inner cutoff
+  // instead of MapLibre's smooth falloff.
   let halo_edge: f32 = edge - u.halo_width;
   // halo_blur is now MapLibre's gamma_halo (already includes the
   // per-DPR EDGE_GAMMA AA constant). Don't add soft on top — that
   // would double-count the AA term and over-blur every halo.
   let aa_halo: f32 = max(u.halo_blur, soft);
-  let inner_edge_halo: f32 = edge + aa_halo;
-  let outer_a: f32 = smoothstep(halo_edge - aa_halo, halo_edge + aa_halo, sdf);
-  let inner_a: f32 = smoothstep(inner_edge_halo - aa_halo, inner_edge_halo + aa_halo, sdf);
-  let halo_a: f32 = min(outer_a, 1.0 - inner_a);
+  let halo_a: f32 = smoothstep(halo_edge - aa_halo, halo_edge + aa_halo, sdf);
   // Composite: halo behind, fill in front. (1 - fill_w) factor lets
   // a partially-transparent text-fill show the halo through it.
   let fill_w = u.fill_color.a * fill_a;
