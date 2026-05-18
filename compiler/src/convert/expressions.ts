@@ -720,6 +720,30 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       return null
     }
   }
+  // Mapbox-specific accessors with dedicated runtime support pending:
+  // surface a precise message instead of the generic "Expression not
+  // converted" catch-all so the user sees the gap is feature-specific
+  // (heatmap pipeline, line-gradient, feature-state, etc.) not a
+  // generic shape problem.
+  const unsupportedOp = (v as unknown[])[0]
+  if (typeof unsupportedOp === 'string') {
+    const KNOWN_UNSUPPORTED: Record<string, string> = {
+      'heatmap-density': 'Heatmap density accessor — heatmap layer rendering is Batch 3 (accumulation MRT + Gaussian blur); no runtime support today.',
+      'line-progress': 'Line-progress accessor — line-gradient requires source.lineMetrics + a per-fragment progress varying; not yet implemented.',
+      'sky-radial-progress': 'Sky-radial-progress accessor — sky layer rendering not implemented.',
+      'accumulated': 'Accumulated accessor — clusterProperties pipeline not implemented (clustering is host-side today).',
+      'distance-from-center': 'Distance-from-center accessor — globe-mode runtime queries not wired through to filter eval yet.',
+      'pitch': 'Camera pitch accessor — runtime pitch is not exposed as a filter/paint input today.',
+      'feature-state': 'Feature-state accessor — map.setFeatureState() / hover-state is not yet implemented; values resolve to null.',
+      'image': 'Image accessor — sprite atlas (Batch 2) not yet implemented; the layer falls through to its colour-only fallback.',
+      'within': 'Within accessor — polygon-containment filter not yet implemented; predicate evaluates to false.',
+    }
+    const reason = KNOWN_UNSUPPORTED[unsupportedOp]
+    if (reason !== undefined) {
+      warnings.push(`["${unsupportedOp}"] not yet supported: ${reason}`)
+      return null
+    }
+  }
   warnings.push(`Expression not converted: ${JSON.stringify(v).slice(0, 120)}`)
   return null
 }
