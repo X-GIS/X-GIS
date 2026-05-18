@@ -1063,8 +1063,21 @@ function convertSymbolLayer(
     utils.push(`label-icon-size-${fmtSigned(iconSize)}`)
   }
   const iconAnchor = unwrapLiteralScalar(layout['icon-anchor'])
-  if (typeof iconAnchor === 'string' && iconAnchor !== 'center') {
-    utils.push(`label-icon-anchor-${iconAnchor}`)
+  if (typeof iconAnchor === 'string') {
+    // Mapbox spec: icon-anchor 9-way enum. Lower rejects unknown
+    // values silently (lower.ts:1254 `valid.includes` gate), so a
+    // typo would land as `label-icon-anchor-centre` in xgis and the
+    // icon would render at the default 'center' anchor with no
+    // diagnostic. Warn at convert-time on enum mismatch — mirror
+    // of the symbol-placement / text-transform enum validators
+    // earlier in this function.
+    const validIconAnchors = ['center', 'top', 'bottom', 'left', 'right',
+      'top-left', 'top-right', 'bottom-left', 'bottom-right']
+    if (!validIconAnchors.includes(iconAnchor)) {
+      warnings.push(`Symbol layer "${layer.id}" — icon-anchor "${iconAnchor.slice(0, 40)}" is not a valid enum value; expected one of: ${validIconAnchors.join(', ')}.`)
+    } else if (iconAnchor !== 'center') {
+      utils.push(`label-icon-anchor-${iconAnchor}`)
+    }
   }
   // Per-element v8 literal-wrap unwrap (mirror of text-offset / text-translate).
   const iconOffsetRaw = unwrapLiteralTuple(layout['icon-offset'])
