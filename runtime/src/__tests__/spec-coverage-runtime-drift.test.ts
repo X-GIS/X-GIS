@@ -119,6 +119,34 @@ describe('spec-coverage ↔ runtime capability drift', () => {
     expect(orphans.length).toBeLessThan(80)
   })
 
+  it('no spec-coverage="supported" entry contradicts a capability row marked unsupported', () => {
+    // Strict direction: if spec-coverage claims a property is fully
+    // supported but the capability table flags ANY value-form as
+    // unsupported, downgrade the spec-coverage to "partial" or
+    // expand the capability table to mark it supported. Either way,
+    // contradiction = silent drop the user can't easily diagnose.
+    //
+    // ALLOWED partial-capability for spec-coverage="supported":
+    //   - constant variant: MUST be supported (we don't ship a
+    //     "supported" claim on a property the runtime drops at
+    //     constant time)
+    //   - zoom-interp / data-driven: MAY be unsupported (caller
+    //     surfaces a per-shape warning); the partial state is
+    //     reflected in spec-coverage notes.
+    const contradictions: string[] = []
+    for (const e of flattenCoverage()) {
+      if (e.status !== 'supported') continue
+      const cap = RUNTIME_CAPABILITIES.find(c => c.property === e.name && c.variant === 'constant')
+      if (!cap) continue // no capability row for this property (e.g. expression operator) — orphan test handles
+      if (!cap.supported) {
+        contradictions.push(
+          `${e.name}: spec-coverage="supported" but capability(constant).supported=false (${cap.layerType}). Demote to "partial" with explanation.`,
+        )
+      }
+    }
+    expect(contradictions, contradictions.join('\n')).toEqual([])
+  })
+
   it('no runtime capability with supported=true has a contradictory note', () => {
     for (const cap of RUNTIME_CAPABILITIES) {
       if (!cap.supported) continue
