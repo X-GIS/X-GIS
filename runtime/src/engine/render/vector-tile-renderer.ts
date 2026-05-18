@@ -2902,7 +2902,17 @@ export class VectorTileRenderer {
       // correctly, avoiding the slight over-selection bias the globe
       // selector has on flat 2D projections.
       const projType = (camera as { projType?: number }).projType ?? 0
-      const nearAntimeridian = (projType === 1 || projType === 2)
+      // Antimeridian heuristic: when the camera lon sits within 45° of
+      // ±180°, sphere-aware selection picks up tiles on BOTH sides of
+      // the dateline. Pre-fix only equirect/NE (projType 1/2) routed
+      // this way; ortho/azimuth/stereo (3/4/5) inherited the same gap
+      // because their selector also walks the Mercator pyramid. The
+      // visible region of an azimuthal projection centred near ±180°
+      // straddles the dateline just as much as equirect's strip does,
+      // so they get the same routing. Mercator (0) handles its own
+      // wrap via WORLD_COPIES; oblique (6) routed via the separate
+      // obliqueRouteToSphere flag below.
+      const nearAntimeridian = (projType >= 1 && projType <= 5)
         && Math.abs(((camera.centerX / 6378137 * (180 / Math.PI)) + 540) % 360 - 180) > 135
       // Oblique Mercator (projType 6) rotates the entire sphere so
       // (camera.lon, camera.lat) lands at (0, 0) in projected space.
@@ -3892,7 +3902,10 @@ export class VectorTileRenderer {
         // above) and load doomed-to-be-unused tiles into GPU.
         const projTypePF = (camera as { projType?: number }).projType ?? 0
         const obliquePF = projTypePF === 6
-        const nearAMPF = (projTypePF === 1 || projTypePF === 2)
+        // Mirror of main selector: ortho/azimuth/stereo near antimeridian
+        // also routed through globeVisibleTiles for the prefetch path
+        // so cached tiles match what the main render path expects.
+        const nearAMPF = (projTypePF >= 1 && projTypePF <= 5)
           && Math.abs(((camera.centerX / 6378137 * (180 / Math.PI)) + 540) % 360 - 180) > 135
         const prefetchTiles = (camera.globeMode || obliquePF || nearAMPF)
           ? (() => {
