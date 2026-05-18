@@ -319,16 +319,18 @@ export function resolveColor(name: string): string | null {
   return palette[parseInt(shade)] ?? null
 }
 
-/** Parse a CSS rgb / rgba / hsl / hsla / hwb function call into a
- *  `#RRGGBB` or `#RRGGBBAA` string. Accepts comma-separated and
- *  modern slash-separated alpha (`rgb(0 0 0 / 0.5)`). hwb is the
- *  CSS Color Module 4 hue/whiteness/blackness colour space — its
- *  parser is identical to hsl, only the channel→RGB step differs.
+/** Parse a CSS rgb / rgba / hsl / hsla / hwb / lab / lch / oklab /
+ *  oklch function call into a `#RRGGBB` or `#RRGGBBAA` string.
+ *  Accepts comma-separated and modern slash-separated alpha
+ *  (`rgb(0 0 0 / 0.5)`). hwb is the CSS Color Module 4
+ *  hue/whiteness/blackness; lab/lch are CIE Lab/LCH in D65; oklab/oklch
+ *  is Björn Ottosson's perceptually-uniform variant. All four end up
+ *  in sRGB hex via the relevant matrix + gamma conversion.
  *  Returns null when the input isn't a recognized colour function. */
 function parseCssColorFn(input: string): string | null {
   // Strip whitespace inside but keep the structure tokens
   const trimmed = input.trim()
-  const m = trimmed.match(/^(rgb|rgba|hsl|hsla|hwb)\((.*)\)$/i)
+  const m = trimmed.match(/^(rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\((.*)\)$/i)
   if (!m) return null
   const fn = m[1].toLowerCase()
   // Accept comma OR whitespace separation; the CSS-modern alpha
@@ -336,6 +338,36 @@ function parseCssColorFn(input: string): string | null {
   const inner = m[2].replace(/\//g, ',')
   const parts = inner.split(/[,\s]+/).filter(p => p.length > 0)
   if (parts.length < 3 || parts.length > 4) return null
+
+  if (fn === 'lab' || fn === 'oklab') {
+    // lab(L% a b [/ A]) or lab(L a b [/ A])
+    // L: 0-100 (lab) / 0-1 (oklab) percent or unitless
+    // a/b: typically -125..125 (lab) / -0.4..0.4 (oklab)
+    const L = parseLabL(parts[0], fn === 'oklab')
+    const a = parseLabAB(parts[1], fn === 'oklab')
+    const b = parseLabAB(parts[2], fn === 'oklab')
+    if (L === null || a === null || b === null) return null
+    const alpha = parts.length === 4 ? parseAlpha(parts[3]) : 1
+    if (alpha === null) return null
+    const [rr, gg, bb] = fn === 'oklab' ? oklabToSrgb(L, a, b) : labToSrgb(L, a, b)
+    return rgbToHex(rr * 255, gg * 255, bb * 255, alpha)
+  }
+
+  if (fn === 'lch' || fn === 'oklch') {
+    // lch(L C H [/ A]) / oklch(L C H [/ A]). H supports deg/turn/rad/grad.
+    const L = parseLabL(parts[0], fn === 'oklch')
+    const C = parseLabAB(parts[1], fn === 'oklch')
+    const H = parseHue(parts[2])
+    if (L === null || C === null || H === null) return null
+    const alpha = parts.length === 4 ? parseAlpha(parts[3]) : 1
+    if (alpha === null) return null
+    // LCH → Lab: a = C * cos(H), b = C * sin(H)
+    const hrad = H * Math.PI / 180
+    const a = C * Math.cos(hrad)
+    const b = C * Math.sin(hrad)
+    const [rr, gg, bb] = fn === 'oklch' ? oklabToSrgb(L, a, b) : labToSrgb(L, a, b)
+    return rgbToHex(rr * 255, gg * 255, bb * 255, alpha)
+  }
 
   if (fn === 'rgb' || fn === 'rgba') {
     const r = parseChannel(parts[0], 255)
@@ -472,10 +504,83 @@ function hueToRgb(p: number, q: number, t: number): number {
 }
 
 function rgbToHex(r: number, g: number, b: number, a: number): string {
-  const ri = Math.round(r), gi = Math.round(g), bi = Math.round(b)
-  const ai = Math.round(a * 255)
+  const ri = Math.round(Math.max(0, Math.min(255, r)))
+  const gi = Math.round(Math.max(0, Math.min(255, g)))
+  const bi = Math.round(Math.max(0, Math.min(255, b)))
+  const ai = Math.round(Math.max(0, Math.min(1, a)) * 255)
   const hex = (n: number) => n.toString(16).padStart(2, '0')
   return a >= 0.999
     ? `#${hex(ri)}${hex(gi)}${hex(bi)}`
     : `#${hex(ri)}${hex(gi)}${hex(bi)}${hex(ai)}`
+}
+
+// ─── CIE Lab / OKLab → sRGB ─────────────────────────────────────
+// Implementations follow CSS Color Module 4 §10 (CIE Lab) and Björn
+// Ottosson's OKLab paper, mirroring three.js Color.js for fixture
+// parity. Output channels in [0, 1] (sRGB gamma-encoded).
+
+function parseLabL(p: string, isOk: boolean): number | null {
+  // L: percent (lab: 0..100, ok: 0..100% → 0..1) or unitless number
+  // (lab: 0..100, ok: 0..1 typically). Spec clamps L to [0, ∞).
+  const v = parseFloat(p.endsWith('%') ? p.slice(0, -1) : p)
+  if (!Number.isFinite(v)) return null
+  if (p.endsWith('%')) return isOk ? Math.max(0, v / 100) : Math.max(0, v)
+  return Math.max(0, v)
+}
+
+function parseLabAB(p: string, _isOk: boolean): number | null {
+  // a/b: numeric — passed through. Spec also allows percent against
+  // the ±125 (lab) / ±0.4 (ok) reference range, but most authored
+  // input is bare numbers so accept those directly.
+  const v = parseFloat(p.endsWith('%') ? p.slice(0, -1) : p)
+  if (!Number.isFinite(v)) return null
+  // Percent: 100% maps to lab=125 or ok=0.4 per spec.
+  if (p.endsWith('%')) return _isOk ? v / 100 * 0.4 : v / 100 * 125
+  return v
+}
+
+// CIE Lab (D50) → sRGB. Standard pipeline: Lab → XYZ(D50) → XYZ(D65)
+// (Bradford CAT) → linear-sRGB → gamma sRGB.
+function labToSrgb(L: number, a: number, b: number): [number, number, number] {
+  // Lab → XYZ (D50 white point)
+  const fy = (L + 16) / 116
+  const fx = a / 500 + fy
+  const fz = fy - b / 200
+  const e = 216 / 24389
+  const k = 24389 / 27
+  const xr = fx ** 3 > e ? fx ** 3 : (116 * fx - 16) / k
+  const yr = L > k * e ? fy ** 3 : L / k
+  const zr = fz ** 3 > e ? fz ** 3 : (116 * fz - 16) / k
+  // D50 white point reference
+  const Xn = 0.96422, Yn = 1.0, Zn = 0.82521
+  const X50 = xr * Xn, Y50 = yr * Yn, Z50 = zr * Zn
+  // Bradford D50 → D65 chromatic adaptation (W3C CSS Color 4 Appendix B)
+  const X65 =  0.9555766 * X50 + -0.0230393 * Y50 +  0.0631636 * Z50
+  const Y65 = -0.0282895 * X50 +  1.0099416 * Y50 +  0.0210077 * Z50
+  const Z65 =  0.0122982 * X50 + -0.0204830 * Y50 +  1.3299098 * Z50
+  // XYZ(D65) → linear sRGB
+  const rL =  3.2404542 * X65 + -1.5371385 * Y65 + -0.4985314 * Z65
+  const gL = -0.9692660 * X65 +  1.8760108 * Y65 +  0.0415560 * Z65
+  const bL =  0.0556434 * X65 + -0.2040259 * Y65 +  1.0572252 * Z65
+  return [linearToSrgb(rL), linearToSrgb(gL), linearToSrgb(bL)]
+}
+
+// OKLab → sRGB. Per Ottosson 2020. Output in sRGB-gamma 0..1.
+function oklabToSrgb(L: number, a: number, b: number): [number, number, number] {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b
+  const l = l_ ** 3
+  const m = m_ ** 3
+  const s = s_ ** 3
+  const rL =  4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+  const gL = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+  const bL = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+  return [linearToSrgb(rL), linearToSrgb(gL), linearToSrgb(bL)]
+}
+
+function linearToSrgb(c: number): number {
+  if (c < 0) return 0
+  if (c > 1) c = 1
+  return c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055
 }
