@@ -105,11 +105,12 @@ export const interactions = {
   pan(start: { lng: number; lat: number }, end: { lng: number; lat: number }): (mapId: string, t: number) => void {
     // Body is stringified and re-evaluated inside page.evaluate; do not
     // close over external variables — inline the start/end.
+    // XGISMap.setCenter takes (lon, lat) as TWO scalars, not an array.
     const src = `
       const m = (window).__xgisMap;
       const lng = ${start.lng} + (${end.lng} - ${start.lng}) * t;
       const lat = ${start.lat} + (${end.lat} - ${start.lat}) * t;
-      m.setCenter([lng, lat]);
+      m.setCenter(lng, lat);
     `
     return new Function('mapId', 't', src) as never
   },
