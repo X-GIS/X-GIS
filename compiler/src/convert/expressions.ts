@@ -433,7 +433,7 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
           // ramp instead of the authored eased curve.
           let b: unknown = curveSpec[1]
           while (Array.isArray(b) && b.length === 2 && b[0] === 'literal') b = b[1]
-          if (typeof b === 'number' && b !== 1) { isExp = true; base = b }
+          if (typeof b === 'number' && Number.isFinite(b) && b !== 1) { isExp = true; base = b }
         } else if (curveSpec[0] === 'cubic-bezier') {
           warnings.push(`["interpolate", ["cubic-bezier", …], …] folded to linear — xgis has no per-stop bezier interpolator.`)
         }
