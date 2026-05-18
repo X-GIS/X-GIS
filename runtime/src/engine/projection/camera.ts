@@ -26,7 +26,16 @@ export class Camera {
   pitchLocked = false
   /** Camera pitch/tilt in degrees (0 = top-down, 85 = nearly horizontal) */
   get pitch(): number { return this.pitchLocked ? 0 : this._pitch }
-  set pitch(deg: number) { this._pitch = deg }
+  set pitch(deg: number) {
+    // Reject non-finite (NaN/Infinity) inputs. A pointer event with
+    // unexpected values, a deserialized hash with a malformed pitch
+    // field, or a buggy diagnostics replay would otherwise let NaN
+    // through; the matrix-math downstream propagates NaN to the
+    // view-projection and every fragment depth lands as NaN. Keep
+    // the previous pitch instead.
+    if (!Number.isFinite(deg)) return
+    this._pitch = deg
+  }
 
   /** Set by Map for the true 3D `globe` projection (projType 7). When
    *  on, the matrix the renderers consume is the orbit-camera view-proj
