@@ -343,6 +343,11 @@ export function convertMapboxStyle(
       bgVisibility = bgVisibility[1]
     }
     const bgVisibilityNone = bgVisibility === 'none'
+    // Mapbox spec: visibility must be 'visible' | 'none'. Warn on
+    // typo'd values that silently fell to default 'visible'.
+    if (typeof bgVisibility === 'string' && bgVisibility !== 'visible' && bgVisibility !== 'none') {
+      warnings.push(`Background layer "${bgLayer.id}" — visibility "${bgVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`)
+    }
     const color = bgLayer.paint?.['background-color']
     const colorStr = bgVisibilityNone ? null : colorToXgis(color, warnings)
     if (colorStr) {
