@@ -4579,6 +4579,20 @@ export class XGISMap {
     this.mapListeners.remove(type, listener)
   }
 
+  /** Mapbox-API parity: `on()` / `off()` aliases for addEventListener /
+   *  removeEventListener. MapLibre / Mapbox GL JS authors expect this
+   *  shorter form; routing both call sites through the same registry
+   *  keeps the existing one source of truth. */
+  on(type: XGISFeatureEventType, listener: XGISFeatureListener): void {
+    this.mapListeners.add(type, listener)
+  }
+  off(type: XGISFeatureEventType, listener: XGISFeatureListener): void {
+    this.mapListeners.remove(type, listener)
+  }
+  once(type: XGISFeatureEventType, listener: XGISFeatureListener): void {
+    this.mapListeners.add(type, listener, { once: true })
+  }
+
   /** Internal: dispatcher calls this after a layer-level dispatch so
    *  map-level handlers see every hit. The `event.defaultPrevented`
    *  flag carries through — listeners that want to suppress map-level
