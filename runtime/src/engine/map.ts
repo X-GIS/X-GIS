@@ -1336,6 +1336,17 @@ export class XGISMap {
     return this.iconStage?.getLastDrawIconCount() ?? null
   }
 
+  /** Iter 534 — vertex inspection diagnostic. Returns first vertex's
+   *  pos_px_xy + uv + opacity + last atlas-size capture from the
+   *  most recent IconRenderer.setDraws(). Lets the diagnostic answer
+   *  "are the icons positioned off-screen?" and "are the UVs sane?". */
+  getLastDrawSample(): {
+    firstVertex: [number, number, number, number, number] | null
+    atlasSize: { width: number; height: number } | null
+  } | null {
+    return this.iconStage?.getLastDrawSample() ?? null
+  }
+
   /** Attach a per-label debug hook for the text stage. The hook fires
    *  once per addLabel / addCurvedLineLabel submission (BEFORE
    *  collision) and receives the final text + screen-pixel anchor.

@@ -166,6 +166,20 @@ export class IconStage {
    *  addIcons" — likely a tile-cache / feature-iteration race. */
   getLastDrawIconCount(): number { return this.renderer.vertexCount / 6 }
 
+  /** Iter 534 — first vertex of the most recent setDraws (pos_px_xy,
+   *  uv, opacity) + last-known atlas dimensions. Lets the diagnostic
+   *  verify that vertex positions land on-screen AND UVs sit inside
+   *  the atlas. Returns null when no draw has been recorded. */
+  getLastDrawSample(): {
+    firstVertex: [number, number, number, number, number] | null
+    atlasSize: { width: number; height: number } | null
+  } {
+    return {
+      firstVertex: this.renderer.firstVertexSample,
+      atlasSize: this.renderer.lastAtlasSize,
+    }
+  }
+
   destroy(): void {
     this.renderer.destroy()
     this.gpu.destroy()

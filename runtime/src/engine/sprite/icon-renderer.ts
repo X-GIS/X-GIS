@@ -96,6 +96,15 @@ export class IconRenderer {
    *  frame actually submit icons" requires post-prepare visibility
    *  into the renderer's vertex buffer state. */
   vertexCount = 0
+  /** Iter 534 — first vertex of the most recent setDraws() call,
+   *  stashed for screen-position / UV inspection from the diagnostic
+   *  API. Format: [pos_px_x, pos_px_y, u, v, opacity]. Null if no
+   *  draw has been recorded yet. */
+  firstVertexSample: [number, number, number, number, number] | null = null
+  /** Iter 534 — last-known atlas dimensions captured at setDraws()
+   *  time. Lets the diagnostic verify UV coords are sensible
+   *  (sprite uses x=N/atlasW; if atlasW is 0 or wrong, UV collapses). */
+  lastAtlasSize: { width: number; height: number } | null = null
   /** Bind group lazily built once the atlas texture exists, then held
    *  for the life of the renderer. `map.setSpriteUrl` only stores a
    *  URL for the not-yet-built stage — atlas hot-swap is NOT supported
@@ -163,9 +172,10 @@ export class IconRenderer {
    *  loaded state — draws referencing not-yet-loaded sprites would
    *  produce undefined UVs. */
   setDraws(draws: IconDraw[]): void {
-    if (draws.length === 0) { this.vertexCount = 0; return }
+    if (draws.length === 0) { this.vertexCount = 0; this.firstVertexSample = null; return }
     const atlasSize = this.atlas.size()
-    if (atlasSize.width === 0) { this.vertexCount = 0; return }
+    this.lastAtlasSize = { width: atlasSize.width, height: atlasSize.height }
+    if (atlasSize.width === 0) { this.vertexCount = 0; this.firstVertexSample = null; return }
 
     const data = new Float32Array(draws.length * FLOATS_PER_QUAD)
     let off = 0
@@ -230,6 +240,10 @@ export class IconRenderer {
     }
 
     this.vertexCount = draws.length * VERTS_PER_QUAD
+    // Iter 534 diagnostic — stash the FIRST vertex (TL of quad 0).
+    this.firstVertexSample = data.length >= 5
+      ? [data[0]!, data[1]!, data[2]!, data[3]!, data[4]!]
+      : null
     if (this.vertexBuf === null || this.vertexBuf.size < data.byteLength) {
       this.vertexBuf?.destroy()
       this.vertexBuf = this.device.createBuffer({
