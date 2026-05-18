@@ -66,6 +66,14 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       return exprToXgis(inner, warnings)
     }
     case 'get': {
+      // Mapbox spec: ["get", key] or ["get", key, object]. The field
+      // arg is required — `["get"]` would silently drop via
+      // exprToXgis(undefined) → null. Warn before bailing so the user
+      // sees the malformed call.
+      if (v.length < 2) {
+        warnings.push(`Malformed ["get"] expression: missing field name argument.`)
+        return null
+      }
       const field = v[1]
       const obj = v[2]
       if (obj !== undefined) {
@@ -112,6 +120,10 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // bailed on non-string field, so `["has", ["concat", "name:",
       // ["get", "lang"]]]` collapsed to null and the filter dropped
       // every feature regardless of presence.
+      if (v.length < 2) {
+        warnings.push(`Malformed ["has"] expression: missing field name argument.`)
+        return null
+      }
       let field: unknown = v[1]
       while (Array.isArray(field) && field.length === 2 && field[0] === 'literal') {
         field = field[1]
@@ -128,6 +140,10 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
     }
     case '!has': {
       // Mirror of the `has` dynamic-key fix.
+      if (v.length < 2) {
+        warnings.push(`Malformed ["!has"] expression: missing field name argument.`)
+        return null
+      }
       let field: unknown = v[1]
       while (Array.isArray(field) && field.length === 2 && field[0] === 'literal') {
         field = field[1]
