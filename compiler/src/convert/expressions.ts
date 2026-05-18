@@ -541,7 +541,15 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
           hasRichOpts = true
         }
         const t = exprToXgis(text, warnings)
-        if (t === null) return null
+        if (t === null) {
+          // Surface WHICH section failed before bailing the whole
+          // format. Pre-fix the entire text-field collapsed silently
+          // and the label dropped from rendering with no hint that
+          // only ONE inner section was unconvertible — the user had
+          // to bisect the format chain manually.
+          warnings.push(`["format"] section ${i / 2 + 1} (${JSON.stringify(text).slice(0, 60)}) failed to convert — whole format expression bails and the label drops.`)
+          return null
+        }
         texts.push(t)
       }
       if (hasRichOpts) {
