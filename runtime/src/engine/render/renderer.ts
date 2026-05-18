@@ -589,7 +589,10 @@ fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
   }
   let wall_shade = 0.55 + 0.45 * input.wall_blend;
   let rgb = u.fill_color.rgb * wall_shade;
-  let a = u.fill_color.a;
+  // Rim alpha fade — same as fs_fill. Multiplies into alpha so
+  // OIT accumulation respects the soft-rim transition on globe /
+  // azimuthal / stereographic / ortho.
+  let a = u.fill_color.a * polygon_rim_alpha(input.abs_merc_x, input.abs_merc_y);
   if (a <= 0.001) { discard; }
   // McGuire-Bavoil weight: large for closer (smaller view_w) and
   // smaller alpha contributions, capped to avoid float overflow.
@@ -621,6 +624,10 @@ fn fs_stroke(input: VertexOutput) -> FragmentOutput {
   let alpha_scale = select(0.4, 1.0, input.feat_id > 0u);
   var out: FragmentOutput;
   out.color = vec4<f32>(u.stroke_color.rgb, u.stroke_color.a * alpha_scale);
+  // Rim alpha fade — same as fs_fill, applied AFTER the marker so
+  // variant pipelines inherit it. Smooths stroke fade across the
+  // sphere visibility boundary on globe / azimuthal / etc.
+  out.color.a = out.color.a * polygon_rim_alpha(input.abs_merc_x, input.abs_merc_y);
   __PICK_WRITE__
   out.depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
   return out;
