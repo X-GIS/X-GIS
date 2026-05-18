@@ -633,6 +633,15 @@ export class XGISMap {
     return [[b.west, b.south], [b.east, b.north]]
   }
 
+  /** Mapbox-API parity: notify the map that its container resized.
+   *  X-GIS's renderFrame already reads canvas.width / .height every
+   *  frame, so the actual buffer pickup is automatic — this method
+   *  just invalidates so the next frame fires immediately rather
+   *  than waiting for an unrelated trigger. Idempotent. */
+  resize(): void {
+    this.invalidate()
+  }
+
   /** Mapbox-API parity: `easeTo` and `flyTo` are the animated variants
    *  of jumpTo in MapLibre GL JS. X-GIS has no transition infra yet, so
    *  both alias to jumpTo (instant) — same final camera state, just no

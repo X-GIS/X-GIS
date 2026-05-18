@@ -33,6 +33,7 @@ interface Internals {
   getMaxBounds(): [[number, number], [number, number]] | null
   easeTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number }): void
   flyTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number }): void
+  resize(): void
 }
 
 describe('XGISMap Mapbox-API camera setters', () => {
@@ -358,6 +359,20 @@ describe('XGISMap Mapbox-API camera setters', () => {
       map.easeTo({ bearing: 60 })
       expect(map.getBearing()).toBe(60)
       expect(map.getPitch()).toBe(0) // untouched
+    })
+  })
+
+  describe('resize (iter 438)', () => {
+    it('is idempotent — no throw, no state change', () => {
+      map.setZoom(10)
+      map.setBearing(45)
+      map.resize()
+      expect(map.getZoom()).toBe(10)
+      expect(map.getBearing()).toBe(45)
+      // Repeat shouldn't bump anything.
+      map.resize()
+      map.resize()
+      expect(map.getZoom()).toBe(10)
     })
   })
 })
