@@ -312,22 +312,33 @@ export function loadGeoJSON(data: GeoJSONFeatureCollection): {
     }
   }
 
-  // Compute bounds (lon/lat degrees, stride 3: lon,lat,feat_id)
+  // Compute bounds (lon/lat degrees, stride 3: lon,lat,feat_id).
+  // Math.min/max propagate NaN — if ANY coord is NaN (malformed
+  // upstream geometry), the bounds collapse to NaN and downstream
+  // tile-coverage / fit-to-bounds logic that compares against them
+  // silently fails. Skip non-finite coords so the bounds stay
+  // computable from the valid subset.
   for (let i = 0; i < polyVertices.length; i += 3) {
     const lon = polyVertices[i], lat = polyVertices[i + 1]
-    if (lon < 500) {
+    if (Number.isFinite(lon) && lon < 500) {
       minLon = Math.min(minLon, lon)
       maxLon = Math.max(maxLon, lon)
     }
-    minLat = Math.min(minLat, lat)
-    maxLat = Math.max(maxLat, lat)
+    if (Number.isFinite(lat)) {
+      minLat = Math.min(minLat, lat)
+      maxLat = Math.max(maxLat, lat)
+    }
   }
   for (let i = 0; i < lineVertices.length; i += 4) {
     const lon = lineVertices[i], lat = lineVertices[i + 1]
-    minLon = Math.min(minLon, lon)
-    maxLon = Math.max(maxLon, lon)
-    minLat = Math.min(minLat, lat)
-    maxLat = Math.max(maxLat, lat)
+    if (Number.isFinite(lon)) {
+      minLon = Math.min(minLon, lon)
+      maxLon = Math.max(maxLon, lon)
+    }
+    if (Number.isFinite(lat)) {
+      minLat = Math.min(minLat, lat)
+      maxLat = Math.max(maxLat, lat)
+    }
   }
 
   const bounds: [number, number, number, number] = [minLon, minLat, maxLon, maxLat]
