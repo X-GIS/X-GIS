@@ -121,11 +121,23 @@ class PaletteBuilder {
   private readonly scalarGradientIndex = new Map<string, number>()
 
   addColor(rgba: RGBA): number {
+    // Coerce non-finite channels to deterministic zeroes — rgbaEqual
+    // delegates to numbersEqual which fails on NaN, so every NaN
+    // channel would carve its own slot. Per-channel sanitize keeps
+    // the palette bounded and renders as opaque-black on
+    // corrupted input rather than letting a NaN colour reach the
+    // GPU sampler.
+    const safe: RGBA = [
+      Number.isFinite(rgba[0]) ? rgba[0] : 0,
+      Number.isFinite(rgba[1]) ? rgba[1] : 0,
+      Number.isFinite(rgba[2]) ? rgba[2] : 0,
+      Number.isFinite(rgba[3]) ? rgba[3] : 1,
+    ]
     for (let i = 0; i < this.colors.length; i++) {
-      if (rgbaEqual(this.colors[i]!, rgba)) return i
+      if (rgbaEqual(this.colors[i]!, safe)) return i
     }
     const idx = this.colors.length
-    this.colors.push([rgba[0], rgba[1], rgba[2], rgba[3]] as const as RGBA)
+    this.colors.push([safe[0], safe[1], safe[2], safe[3]] as const as RGBA)
     return idx
   }
 
