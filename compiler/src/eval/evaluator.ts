@@ -135,6 +135,13 @@ function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv
     if (left === null || left === undefined || right === null || right === undefined) {
       return false
     }
+    // Mapbox v8 spec — ordered comparison requires BOTH operands to be
+    // the same type (both numbers or both strings). Mixed-type returns
+    // false. Iter 536 added — pre-fix `"abc" < 5` evaluated via the
+    // toNumber fallback (toNumber("abc")=0 → 0<5=true) which would
+    // let a string-typed MVT attribute slip past a numeric filter
+    // (e.g. ref_length stored as "5" string by some MVT encoders →
+    // "5" < 6 → true, allowing the shield through; spec says false).
     if (typeof left === 'string' && typeof right === 'string') {
       switch (expr.op) {
         case '<': return left < right
@@ -142,6 +149,9 @@ function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv
         case '<=': return left <= right
         case '>=': return left >= right
       }
+    }
+    if (typeof left !== 'number' || typeof right !== 'number') {
+      return false
     }
   }
   const l = toNumber(left)

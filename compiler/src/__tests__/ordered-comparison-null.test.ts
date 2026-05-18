@@ -88,4 +88,38 @@ describe('ordered comparison with null/undefined operand (iter 531)', () => {
       expect(evalExpr('.s < "z"', { s: null })).toBe(false)
     })
   })
+
+  describe('type mismatch — spec requires both same type (iter 536)', () => {
+    it('number < string → false (was: toNumber-coerced through)', () => {
+      // Pre-fix `5 < "abc"` happened to hit the string-string short-
+      // circuit fail-through then `toNumber("abc")=0`, so 5<0=false
+      // by coincidence. Other direction wasn't symmetric.
+      expect(evalExpr('5 < .s', { s: 'abc' })).toBe(false)
+    })
+
+    it('string < number → false (the broken direction)', () => {
+      // `"abc" < 5` was returning TRUE via toNumber("abc")=0, 0<5.
+      // Now type-mismatch gate returns false per spec.
+      expect(evalExpr('.s < 5', { s: 'abc' })).toBe(false)
+    })
+
+    it('numeric-string < number → false (MVT-stringified attr defence)', () => {
+      // Some MVT encoders serialise numeric fields as strings. Pre-
+      // fix `"5" < 6` evaluated as 5 < 6 → true, letting features
+      // through a strict-number filter. Spec: both operands must be
+      // the same type; string vs number → false.
+      expect(evalExpr('.s < 6', { s: '5' })).toBe(false)
+      expect(evalExpr('.s <= 6', { s: '5' })).toBe(false)
+    })
+
+    it('boolean < number → false', () => {
+      expect(evalExpr('.b < 5', { b: true })).toBe(false)
+    })
+
+    it('all four operators apply the type-match gate', () => {
+      for (const op of ['<', '>', '<=', '>=']) {
+        expect(evalExpr(`.s ${op} 5`, { s: 'x' })).toBe(false)
+      }
+    })
+  })
 })

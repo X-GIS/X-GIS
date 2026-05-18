@@ -39,7 +39,11 @@ describe('evaluator ordered string comparison', () => {
     expect(binCompare('<=', 10, 5)).toBe(false)
   })
 
-  it('mixed numeric/string falls to numeric coercion (existing behavior)', () => {
-    expect(binCompare('<', 'abc', 5)).toBe(true)  // 0 < 5
+  it('mixed numeric/string returns false per Mapbox spec (iter 536)', () => {
+    // Pre-iter-536 the toNumber coercion (`toNumber("abc")=0`) made
+    // this return true. Mapbox v8 spec requires ordered comparison
+    // operands be of the SAME type; mixed → false. See
+    // ordered-comparison-null.test.ts for the full type-mismatch matrix.
+    expect(binCompare('<', 'abc', 5)).toBe(false)
   })
 })
