@@ -102,8 +102,17 @@ export function runCompile(
   req: GeoJSONCompileRequest,
 ): { response: GeoJSONCompileResponse; transferables: ArrayBuffer[] } {
   const idResolver = resolveIdResolver(req.idResolverMode)
-  const parts = decomposeFeatures(req.geojson.features, idResolver)
-  const set = compileGeoJSONToTiles(req.geojson, {
+  // Runtime's GeoJSONFeature is strictly wider than the compiler's
+  // (RFC 7946 §3.2 nullable geometry + GeometryCollection variant
+  // landed in iter 469/470). The compiler tiler defensively skips
+  // null + recurses Collection per RFC, so the structural override
+  // is safe — cast through Parameters<…> to pin to the exact arg
+  // shape compileGeoJSONToTiles + decomposeFeatures expect.
+  const parts = decomposeFeatures(
+    req.geojson.features as unknown as Parameters<typeof decomposeFeatures>[0],
+    idResolver,
+  )
+  const set = compileGeoJSONToTiles(req.geojson as unknown as Parameters<typeof compileGeoJSONToTiles>[0], {
     minZoom: req.minZoom,
     maxZoom: req.maxZoom,
     idResolver,
