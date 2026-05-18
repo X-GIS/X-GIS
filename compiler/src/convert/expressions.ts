@@ -621,7 +621,19 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
         return null
       }
       const args = v.slice(1).map(a => exprToXgis(a, warnings))
-      if (args.some(a => a === null)) return null
+      // Surface which positional arg failed so the user can locate
+      // it without bisecting. Total-bail kept (step semantics require
+      // every slot to convert) — this is precision over the silent
+      // null return.
+      const failedIdx = args.findIndex(a => a === null)
+      if (failedIdx !== -1) {
+        const slotName = failedIdx === 0 ? 'input'
+          : failedIdx === 1 ? 'default'
+          : failedIdx % 2 === 0 ? `stop ${(failedIdx / 2) | 0}`
+          : `value ${((failedIdx - 1) / 2) | 0}`
+        warnings.push(`["step"] arg ${failedIdx + 1} (${slotName}) failed to convert; whole step bails.`)
+        return null
+      }
       return `step(${args.join(', ')})`
     }
     case 'let': {
