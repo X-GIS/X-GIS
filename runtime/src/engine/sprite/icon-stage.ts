@@ -34,6 +34,12 @@ export class IconStage {
   readonly renderer: IconRenderer
   private pending: PendingIcon[] = []
   private dpr: number = 1
+  /** Diagnostic tracker — icon names the style references that
+   *  weren't found in the atlas AFTER it loaded. Helps surface
+   *  sprite-atlas mismatches (the OFM `school` marker case from
+   *  the iter 510 pixel-match baseline). The Set survives across
+   *  frames; clear via `clearMissingIconNames()` between tests. */
+  private missingIconNames: Set<string> = new Set()
 
   constructor(
     device: GPUDevice,
@@ -83,9 +89,18 @@ export class IconStage {
     // as the atlas lands the next frame picks them up — but if
     // metadata isn't there yet, EVERY icon misses and we just skip.
     const draws: IconDraw[] = []
+    // Track missing names ONLY when the atlas is in the terminal
+    // 'loaded' state — during 'loading' / 'idle' / 'failed' every
+    // lookup misses for orthogonal reasons (no atlas in memory).
+    // Treating those as missing would flood the diagnostic with
+    // false positives during cold-start.
+    const atlasLoaded = this.host.getState().status === 'loaded'
     for (const p of this.pending) {
       const sprite = this.host.get(p.iconName)
-      if (!sprite) continue
+      if (!sprite) {
+        if (atlasLoaded) this.missingIconNames.add(p.iconName)
+        continue
+      }
       // Mapbox icon-size scaling already applies; DPR scaling layered
       // on top so a "1.0" icon-size looks the same physical size on
       // hidpi displays as the design intent.
@@ -118,6 +133,17 @@ export class IconStage {
    *  text-icon-fit code paths that need an icon's design size before
    *  the draw is queued. */
   getSprite(name: string): SpriteInfo | undefined { return this.host.get(name) }
+
+  /** Diagnostic: every icon name the style referenced that the atlas
+   *  didn't have AFTER it loaded. Useful for pinpointing sprite-
+   *  atlas mismatches (style says `school`; atlas has `school_11`).
+   *  Returns a fresh array so the caller can hold onto it across
+   *  frame boundaries. */
+  getMissingIconNames(): string[] { return [...this.missingIconNames].sort() }
+
+  /** Reset the missing-icon diagnostic (tests that drive the stage
+   *  through multiple atlas-load cycles). */
+  clearMissingIconNames(): void { this.missingIconNames.clear() }
 
   destroy(): void {
     this.renderer.destroy()
