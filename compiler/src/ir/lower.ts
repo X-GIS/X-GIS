@@ -1801,7 +1801,12 @@ function foldLabelKnobs(
       // where `highway-name-major` first appears: grey #666 text got
       // smothered by an opaque black halo.
       color: knobs.labelHaloColor ?? base.halo?.color ?? [0, 0, 0, 0],
-      width: knobs.labelHaloWidth ?? base.halo?.width ?? 1,
+      // Mapbox spec text-halo-width default is 0 (no halo). Pre-fix
+      // X-GIS defaulted to 1 so a style declaring text-halo-color: #fff
+      // with no halo-width painted a 1 px white halo — opposite of
+      // the Mapbox render. Aligned to spec; the runtime shader already
+      // gates on halo_width > 0 so a 0 default produces no draw.
+      width: knobs.labelHaloWidth ?? base.halo?.width ?? 0,
       ...(resolvedBlur !== undefined ? { blur: resolvedBlur } : {}),
     }
   }

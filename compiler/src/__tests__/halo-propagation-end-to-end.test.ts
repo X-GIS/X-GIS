@@ -105,27 +105,23 @@ describe('text-halo propagation — Mapbox style → ShowCommand.label.halo', ()
     expect(c[3]).toBeCloseTo(0.7, 2) // 179/255 quantisation
   })
 
-  it('KNOWN GAP: halo-width=0 with halo-color set yields width=1 not 0 (Mapbox spec default is 0)', () => {
-    // Mapbox spec: text-halo-width default is 0. A style author
-    // writing `text-halo-color: #fff` with no width should produce
-    // NO halo. X-GIS currently defaults width to 1 inside
-    // foldLabelKnobs (lower.ts:1804: `?? 1`) so a halo-color-only
-    // declaration paints a 1 px halo. Same path is hit when
-    // `text-halo-width: 0` is set (the converter skips emit for
-    // width≤0 at layers.ts:473 so the lower can't distinguish
-    // "explicitly 0" from "absent").
-    //
-    // This is a spec-compliance gap, not a render-correctness one
-    // for the OFM corpus (every OFM symbol layer that authors
-    // halo-color also authors a positive halo-width — verified
-    // 2026-05-18). Pinning current behaviour as regression gate;
-    // follow-up changes lower.ts default 1 → 0 to match Mapbox.
+  it('halo-width=0 with halo-color set defaults to width=0 (Mapbox spec)', () => {
+    // Mapbox spec: text-halo-width default is 0 (no halo). A style
+    // author writing `text-halo-color: #fff` with no width should
+    // produce NO halo. Pre-fix X-GIS defaulted to 1 inside
+    // foldLabelKnobs (lower.ts:1804 `?? 1`) so a halo-color-only
+    // declaration painted a 1 px white halo — opposite of MapLibre's
+    // render. Same path applied when `text-halo-width: 0` was
+    // explicitly set (converter skips emit for width≤0 at
+    // layers.ts:473 so lower can't distinguish "explicitly 0" from
+    // "absent"). Aligned to spec; runtime shader gates on halo_width
+    // > 0 so 0-width produces no draw.
     const shows = compileToShows(makeStyle([symbolWithHalo('zero-width', {
       width: 0, color: '#fff',
     })]))
     const halo = shows[0]!.label!.halo
     expect(halo).toBeDefined()
-    expect(halo!.width).toBe(1) // spec-incorrect; tracks current behaviour
+    expect(halo!.width).toBe(0)
   })
 
   it('halo width and blur survive across zoom-interp form (uses lattermost stop)', () => {
