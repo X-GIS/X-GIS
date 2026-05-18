@@ -12,7 +12,6 @@ import {
   projStereographicWgsl,
   projObliqueMercatorWgsl,
   cosC,
-  projObliqueMercatorWgsl,
   projGlobeWgsl,
   projectWgsl,
   projectGeomWgsl,
