@@ -312,7 +312,17 @@ const SINGLE_WORLD: readonly number[] = [0]
  *  Returning `[0]` for non-Mercator collapses to a single world.
  *  `projType` is the same `proj_params.x` encoding shaders use:
  *  0 = mercator, 1 = equirect, 2 = natural_earth, 3 = ortho,
- *  4 = azimuthal_equidistant, 5 = stereographic, 6 = oblique_mercator. */
+ *  4 = azimuthal_equidistant, 5 = stereographic, 6 = oblique_mercator,
+ *  7 = globe.
+ *
+ *  KNOWN GAP (user report 2026-05-18, memory note
+ *  project_projection_issues_2026_05_18): MapLibre's equirect /
+ *  natural_earth REPEAT the world strip horizontally at low zoom
+ *  (visible at z=0 — see the "world render copy" expectation). To
+ *  match, equirect/natural_earth WGSL would need to apply a
+ *  world-x offset to its output AND this function would need to
+ *  return WORLD_COPIES for projType 1 + 2. Tracked but not landed
+ *  this session (multi-file change). */
 export function worldCopiesFor(projType: number): readonly number[] {
   return projType === 0 ? WORLD_COPIES : SINGLE_WORLD
 }
