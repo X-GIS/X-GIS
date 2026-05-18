@@ -177,6 +177,11 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       return `get(${inner}) == null`
     }
     case 'coalesce': {
+      // Mapbox spec: at least one argument required.
+      if (v.length < 2) {
+        warnings.push(`Malformed ["coalesce"] expression: expected at least 1 argument, got 0.`)
+        return null
+      }
       const args = v.slice(1).map(a => exprToXgis(a, warnings))
       const valid = args.filter((a): a is string => a !== null)
       // Surface partial-drop when SOME but not all args converted —
