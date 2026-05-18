@@ -28,7 +28,7 @@ describe('geodesic refinement for non-Mercator tessellation', () => {
     }]
     const compiled = compileGeoJSONToTiles(
       { type: 'FeatureCollection' as const, features },
-      0, 2,
+      { minZoom: 0, maxZoom: 2 },
     )
     // Just ensure compilation didn't blow up. Geometry verification
     // happens via pixel-diff against MapLibre globe on playground.
@@ -48,7 +48,7 @@ describe('geodesic refinement for non-Mercator tessellation', () => {
     }]
     const compiled = compileGeoJSONToTiles(
       { type: 'FeatureCollection' as const, features },
-      0, 2,
+      { minZoom: 0, maxZoom: 2 },
     )
     expect(compiled).toBeTruthy()
   })
@@ -70,7 +70,7 @@ describe('geodesic refinement for non-Mercator tessellation', () => {
     }]
     const compiled = compileGeoJSONToTiles(
       { type: 'FeatureCollection' as const, features },
-      0, 5,
+      { minZoom: 0, maxZoom: 5 },
     )
     expect(compiled).toBeTruthy()
   })
