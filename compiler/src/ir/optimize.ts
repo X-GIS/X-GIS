@@ -115,7 +115,11 @@ function optimizeOpacity(value: OpacityValue, fnEnv: FnEnv): OpacityValue {
   const classification = classifyExpr(value.expr.ast, fnEnv)
   if (classification === 'constant') {
     const folded = constFold(value.expr.ast, fnEnv)
-    if (folded !== null && typeof folded.value === 'number') {
+    // Number.isFinite rejects NaN/Infinity that slip past typeof.
+    // Pre-fix a constant-folded NaN opacity bound itself into the IR
+    // as opacityConstant(NaN/100) = NaN; the downstream renderer
+    // multiplied every fragment by NaN and the layer disappeared.
+    if (folded !== null && typeof folded.value === 'number' && Number.isFinite(folded.value)) {
       return opacityConstant(folded.value <= 1 ? folded.value : folded.value / 100)
     }
   }
@@ -129,7 +133,11 @@ function optimizeSize(value: SizeValue, fnEnv: FnEnv): SizeValue {
   const classification = classifyExpr(value.expr.ast, fnEnv)
   if (classification === 'constant') {
     const folded = constFold(value.expr.ast, fnEnv)
-    if (folded !== null && typeof folded.value === 'number') {
+    // Mirror of the opacity NaN guard above — sizeConstant(NaN)
+    // bound itself into the IR as a NaN size and the vertex shader
+    // expanded to a NaN-sized point (typically degenerate / off-
+    // screen rather than visible).
+    if (folded !== null && typeof folded.value === 'number' && Number.isFinite(folded.value)) {
       return sizeConstant(folded.value)
     }
   }
