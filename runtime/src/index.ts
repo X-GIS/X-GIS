@@ -8,6 +8,10 @@ export {
   type CapSpan,
 } from './loader/polar-cap-detect'
 export {
+  synthesizePolarCaps, projectionNeedsPolarCaps,
+  type PolarCapOptions, type PolarCapFeatureCollection,
+} from './data/polar-cap-synth'
+export {
   // Function-style API (back-compat with prior versions)
   loadPMTilesSource, attachPMTilesSource,
   fetchPMTilesVectorLayerFields, fetchPMTilesVectorLayerSchema,
