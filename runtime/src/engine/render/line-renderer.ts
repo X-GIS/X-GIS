@@ -1328,10 +1328,23 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
   return vec4<f32>(base_color.rgb, base_color.a * alpha);
 }
 
+// Rim alpha smoothstep applied to line color so sphere-rim segments
+// fade smoothly on globe / azimuthal / stereographic / ortho. Mirror
+// of polygon_rim_alpha in renderer.ts. Returns 1.0 on flat /
+// cylindrical projections — zero visible change there.
+fn line_rim_alpha(in: LineOut) -> f32 {
+  let abs_merc = in.world_local + tile.tile_origin_merc;
+  let abs_lon = abs_merc.x / (DEG2RAD * EARTH_R);
+  let lat_rad = 2.0 * atan(exp(abs_merc.y / EARTH_R)) - PI / 2.0;
+  let abs_lat = lat_rad / DEG2RAD;
+  return rim_alpha(abs_lon, abs_lat, tile.proj_params);
+}
+
 @fragment
 fn fs_line(in: LineOut) -> LineFragmentOutput {
   var out: LineFragmentOutput;
   out.color = compute_line_color(in);
+  out.color.a = out.color.a * line_rim_alpha(in);
   __PICK_WRITE__
   out.depth = compute_log_frag_depth(in.view_w, tile.log_depth_fc);
   return out;
@@ -1344,7 +1357,9 @@ fn fs_line(in: LineOut) -> LineFragmentOutput {
 // framebuffer later, so its depth values would be discarded anyway.
 @fragment
 fn fs_line_max(in: LineOut) -> @location(0) vec4<f32> {
-  return compute_line_color(in);
+  var c = compute_line_color(in);
+  c.a = c.a * line_rim_alpha(in);
+  return c;
 }
 `
 
