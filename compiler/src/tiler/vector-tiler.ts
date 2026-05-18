@@ -702,6 +702,35 @@ function mmToLonLatDeg(x: number, y: number): [number, number] {
   return [lon, lat]
 }
 
+/** Forward Web Mercator: (lon°, lat°) → MM. Inverse of mmToLonLatDeg.
+ *  Used by geodesicMidpointMM to round-trip a slerp midpoint back to
+ *  MM coordinates after spherical interpolation. */
+function lonLatDegToMM(lon: number, lat: number): [number, number] {
+  const x = lon * DSFUN_DEG2RAD * DSFUN_EARTH_R
+  // Web Mercator y = R * ln(tan(π/4 + φ/2))
+  // Clamp lat just inside ±90° so the log doesn't blow to infinity;
+  // sphere slerp can produce ±90° exactly when an edge spans the pole.
+  const phi = Math.max(-89.999, Math.min(89.999, lat)) * DSFUN_DEG2RAD
+  const y = DSFUN_EARTH_R * Math.log(Math.tan(Math.PI / 4 + phi / 2))
+  return [x, y]
+}
+
+/** Geodesic midpoint of two MM points: project both to lon/lat,
+ *  slerp on the sphere at t=0.5, project back to MM. Used when a
+ *  triangle's edges span enough latitude/longitude that the linear
+ *  MM midpoint diverges visibly from the great-circle midpoint on
+ *  globe / orthographic / stereographic projections (z=0..3 country
+ *  polygons). For small edges the linear midpoint is already
+ *  indistinguishable from slerp; the caller gates via edge span.
+ *  Slerp is symmetric in t=0.5 so adjacent triangles sharing an edge
+ *  produce identical midpoints — dedupMap keeps the mesh watertight. */
+function geodesicMidpointMM(x0: number, y0: number, x1: number, y1: number): [number, number] {
+  const [lon0, lat0] = mmToLonLatDeg(x0, y0)
+  const [lon1, lat1] = mmToLonLatDeg(x1, y1)
+  const [mLon, mLat] = slerpLonLat(lon0, lat0, lon1, lat1, 0.5)
+  return lonLatDegToMM(mLon, mLat)
+}
+
 /** Get-or-add a vertex (MM coords) into the dedup-mapped output array.
  *  Stride-3 layout: x, y, featureId. Returns the global vertex index. */
 function getOrAddVertexMM(
@@ -769,9 +798,28 @@ function subdivideTriangleMM(
     return
   }
 
-  const m01x = (x0 + x1) * 0.5, m01y = (y0 + y1) * 0.5
-  const m12x = (x1 + x2) * 0.5, m12y = (y1 + y2) * 0.5
-  const m20x = (x2 + x0) * 0.5, m20y = (y2 + y0) * 0.5
+  // For sphere-aware projections (globe / orthographic / azimuthal /
+  // stereographic) the LINEAR MM midpoint of two vertices spanning a
+  // large arc projects to a CHORD that punches through the sphere
+  // surface. The slerp midpoint sits on the great-circle arc — the
+  // pre-fix linear path was visible as faceted polygons on globe at
+  // z=0..3 country boundaries. We gate the slerp on edge span: when
+  // any edge exceeds 5° (more than 2.5× MAX_TRI_DEGREES_FOR_PROJ),
+  // the chord-vs-arc divergence is large enough to matter; below
+  // that threshold the linear midpoint is visually identical to
+  // slerp and ~3× cheaper. The arc-test threshold is INSIDE the
+  // recursion guard so the gate matches the recursion's stopping
+  // criteria — sub-triangles below the threshold use linear midpoint.
+  let m01x: number, m01y: number, m12x: number, m12y: number, m20x: number, m20y: number
+  if (maxEdge > 5) {
+    ;[m01x, m01y] = geodesicMidpointMM(x0, y0, x1, y1)
+    ;[m12x, m12y] = geodesicMidpointMM(x1, y1, x2, y2)
+    ;[m20x, m20y] = geodesicMidpointMM(x2, y2, x0, y0)
+  } else {
+    m01x = (x0 + x1) * 0.5; m01y = (y0 + y1) * 0.5
+    m12x = (x1 + x2) * 0.5; m12y = (y1 + y2) * 0.5
+    m20x = (x2 + x0) * 0.5; m20y = (y2 + y0) * 0.5
+  }
   const i01 = getOrAddVertexMM(m01x, m01y, featureId, outVerts, dedupMap)
   const i12 = getOrAddVertexMM(m12x, m12y, featureId, outVerts, dedupMap)
   const i20 = getOrAddVertexMM(m20x, m20y, featureId, outVerts, dedupMap)
