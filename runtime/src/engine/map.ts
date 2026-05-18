@@ -633,6 +633,34 @@ export class XGISMap {
     return [[b.west, b.south], [b.east, b.north]]
   }
 
+  /** Mapbox-API parity: return the visible map bbox in lon/lat.
+   *  Approximation that ignores bearing + pitch — at non-zero pitch
+   *  the actual visible polygon is trapezoid-shaped; this returns
+   *  the axis-aligned bbox of the pitch=0 equivalent extent, which
+   *  is a strict under-estimate for narrow views and over-estimate
+   *  for wide tilted views. Matches MapLibre GL JS's shape for the
+   *  return value (`getBounds()` returns LngLatBounds). */
+  getBounds(): [[number, number], [number, number]] {
+    const canvas = this.getCanvas()
+    const cssW = canvas?.width ?? 800
+    const cssH = canvas?.height ?? 600
+    // degrees-per-pixel at current zoom (formula matches the inverse
+    // of _fitZoomToLonSpan: zoom = log2(360 / (degPerPx * 256)) - 1
+    // so degPerPx = 360 / (256 * 2^(zoom + 1))).
+    const degPerPx = 360 / (256 * Math.pow(2, this.camera.zoom + 1))
+    const halfLonSpan = (cssW * degPerPx) / 2
+    // Latitude span uses the same degPerPx as a rough approximation;
+    // proper Mercator inverse would scale with cos(centerLat) but the
+    // bbox is over-estimated near the poles either way.
+    const halfLatSpan = (cssH * degPerPx) / 2
+    const state = this.getCameraState()
+    const west = state.center[0] - halfLonSpan
+    const east = state.center[0] + halfLonSpan
+    const south = Math.max(-90, state.center[1] - halfLatSpan)
+    const north = Math.min(90, state.center[1] + halfLatSpan)
+    return [[west, south], [east, north]]
+  }
+
   /** Mapbox-API parity: returns true once the map has finished its
    *  initial load and entered the render loop. Matches MapLibre GL
    *  JS `map.loaded()`. Tracks the same `__xgisReady` signal the

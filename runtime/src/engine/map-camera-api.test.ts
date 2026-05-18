@@ -42,6 +42,7 @@ interface Internals {
   mapListeners: { has(type: string): boolean }
   getCanvas(): HTMLCanvasElement
   getContainer(): HTMLElement | null
+  getBounds(): [[number, number], [number, number]]
 }
 
 describe('XGISMap Mapbox-API camera setters', () => {
@@ -440,6 +441,37 @@ describe('XGISMap Mapbox-API camera setters', () => {
       // mockCanvas() returns an HTMLCanvasElement-like object with no
       // parentElement, so getContainer should resolve to null.
       expect(map.getContainer()).toBeNull()
+    })
+  })
+
+  describe('getBounds (iter 445)', () => {
+    it('returns a sensible bbox around the camera center at low zoom', () => {
+      map.setCenter(0, 0)
+      map.setZoom(2)
+      const [[w, s], [e, n]] = map.getBounds()
+      expect(w).toBeLessThan(0)
+      expect(e).toBeGreaterThan(0)
+      expect(s).toBeLessThan(0)
+      expect(n).toBeGreaterThan(0)
+    })
+
+    it('higher zoom → narrower bbox', () => {
+      map.setCenter(0, 0)
+      map.setZoom(2)
+      const wide = map.getBounds()
+      map.setZoom(10)
+      const tight = map.getBounds()
+      const wideSpan = wide[1][0] - wide[0][0]
+      const tightSpan = tight[1][0] - tight[0][0]
+      expect(tightSpan).toBeLessThan(wideSpan)
+    })
+
+    it('clamps lat to [-90, 90]', () => {
+      map.setCenter(0, 89)
+      map.setZoom(0)
+      const [[, s], [, n]] = map.getBounds()
+      expect(s).toBeGreaterThanOrEqual(-90)
+      expect(n).toBeLessThanOrEqual(90)
     })
   })
 })
