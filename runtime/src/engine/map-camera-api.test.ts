@@ -11,7 +11,7 @@ function mockCanvas(): HTMLCanvasElement {
 }
 
 interface Internals {
-  camera: { centerX: number; centerY: number; zoom: number; bearing: number; pitch: number }
+  camera: { centerX: number; centerY: number; zoom: number; bearing: number; pitch: number; minZoom: number; maxZoom: number }
   setCenter(lon: number, lat: number): void
   setZoom(zoom: number): void
   setBearing(bearing: number): void
@@ -22,6 +22,10 @@ interface Internals {
   getZoom(): number
   getBearing(): number
   getPitch(): number
+  setMinZoom(z: number): void
+  setMaxZoom(z: number): void
+  getMinZoom(): number
+  getMaxZoom(): number
 }
 
 describe('XGISMap Mapbox-API camera setters', () => {
@@ -146,6 +150,53 @@ describe('XGISMap Mapbox-API camera setters', () => {
       expect(map.getZoom()).toBe(5)
       expect(map.getBearing()).toBe(30)
       expect(map.getPitch()).toBe(25)
+    })
+  })
+
+  describe('setMinZoom / setMaxZoom', () => {
+    it('setZoom clamps to active bounds', () => {
+      map.setMinZoom(8)
+      map.setMaxZoom(15)
+      map.setZoom(5)
+      expect(map.camera.zoom).toBe(8)
+      map.setZoom(20)
+      expect(map.camera.zoom).toBe(15)
+      map.setZoom(12)
+      expect(map.camera.zoom).toBe(12)
+    })
+
+    it('setMinZoom auto-bumps current zoom if it falls below new floor', () => {
+      map.setZoom(5)
+      map.setMinZoom(10)
+      expect(map.camera.zoom).toBe(10)
+    })
+
+    it('setMaxZoom auto-trims current zoom if it sits above new ceiling', () => {
+      map.setZoom(18)
+      map.setMaxZoom(12)
+      expect(map.camera.zoom).toBe(12)
+    })
+
+    it('bounds clamp themselves to [0, 22]', () => {
+      map.setMinZoom(-5)
+      expect(map.getMinZoom()).toBe(0)
+      map.setMaxZoom(50)
+      expect(map.getMaxZoom()).toBe(22)
+    })
+
+    it('jumpTo zoom honors bounds', () => {
+      map.setMinZoom(5)
+      map.setMaxZoom(10)
+      map.jumpTo({ zoom: 100 })
+      expect(map.camera.zoom).toBe(10)
+      map.jumpTo({ zoom: 0 })
+      expect(map.camera.zoom).toBe(5)
+    })
+
+    it('non-finite input rejected', () => {
+      map.setMinZoom(3)
+      map.setMinZoom(NaN)
+      expect(map.getMinZoom()).toBe(3)
     })
   })
 })
