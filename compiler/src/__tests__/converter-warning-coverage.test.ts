@@ -316,8 +316,13 @@ describe('converter warning coverage', () => {
       .toBe(true)
   })
 
-  it('fill-extrusion-base non-zero → unhonoured-base warning', () => {
-    // Pins 4682b0d.
+  it('fill-extrusion-base non-zero → NO unhonoured-base warning (iter 489 + 493 — vertex shader now honors u.extrude_base_m)', () => {
+    // Pins 4682b0d's removal. Iter 489 wired the renderer.ts
+    // vs_main_quantized z_world select to pull u.extrude_base_m
+    // as the wall bottom, and iter 493 dropped the obsolete
+    // converter warning. A non-zero base is now correctly honoured
+    // at render time — the warning is gone and no test should
+    // expect it.
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -334,7 +339,7 @@ describe('converter warning coverage', () => {
       }],
     })
     expect(w.some(s => s.includes('"floating_building"') && s.includes('fill-extrusion-base')))
-      .toBe(true)
+      .toBe(false)
   })
 
   it('fill-extrusion-base: 0 → no unhonoured warning', () => {

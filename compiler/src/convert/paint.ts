@@ -155,22 +155,11 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     addOpacity(out, p['fill-extrusion-opacity'], warnings)
     addExtrudeHeight(out, p['fill-extrusion-height'], warnings)
     addExtrudeBase(out, p['fill-extrusion-base'], warnings)
-    // `fill-extrusion-base` IS converted to an xgis utility and IR
-    // node, but the polygon vertex shader (renderer.ts vs_main_quantized
-    // line 317 + vs_main_extruded_quantized line 390) currently anchors
-    // the bottom of every wall at z=0 unconditionally. So a non-zero
-    // base authored in a fill-extrusion-base loses its wall-base offset
-    // at render time — the building doesn't "float" above the ground
-    // plane the way MapLibre would render it. Surface so style authors
-    // know the geometry path doesn't yet read the base value, even
-    // though the IR carries it.
-    const baseVal = unwrapLiteralNumeric(p['fill-extrusion-base'])
-    const baseIsNonZero = typeof baseVal === 'number'
-      ? baseVal > 0
-      : baseVal !== undefined  // expression / interpolate-by-zoom assumed non-trivial
-    if (baseIsNonZero) {
-      warnings.push(`Layer "${layer.id}" — fill-extrusion-base declared but the polygon vertex shader doesn't yet honour the wall-base offset (renderer.ts line 317); the wall renders flush with z=0 regardless of the authored base.`)
-    }
+    // fill-extrusion-base is now honored by the polygon vertex shader
+    // (renderer.ts vs_main_quantized z_world select pulls
+    // u.extrude_base_m as the wall bottom, iter 489 landed
+    // 2026-05-18). Prior warning at this site is obsolete; uniform-
+    // constant base lifts walls off z=0 as MapLibre does.
     surfaceIgnoredPaint(layer.id, p, warnings, [
       'fill-extrusion-translate', 'fill-extrusion-translate-anchor',
       'fill-extrusion-pattern', 'fill-extrusion-vertical-gradient',

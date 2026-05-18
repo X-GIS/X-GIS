@@ -7,7 +7,7 @@ refresh by running `bun x vitest run compiler/src/__tests__/style-coverage-repor
 |---|---:|---:|---:|---:|---:|
 | maplibre-demotiles | 2 | 8 | 8 | 0 | 0 |
 | openfreemap-bright | 2 | 119 | 113 | 6 | 0 |
-| openfreemap-liberty | 2 | 111 | 104 | 7 | 0 |
+| openfreemap-liberty | 2 | 111 | 105 | 6 | 0 |
 | openfreemap-positron | 2 | 55 | 52 | 3 | 0 |
 
 ## maplibre-demotiles
@@ -26,7 +26,6 @@ refresh by running `bun x vitest run compiler/src/__tests__/style-coverage-repor
 - `symbol` × 3
 - `fill` × 2
 - `line` × 1
-- `fill-extrusion` × 1
 
 ## openfreemap-positron
 
