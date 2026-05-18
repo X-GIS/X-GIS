@@ -555,7 +555,10 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       const bindings = new Map<string, unknown>()
       for (let i = 0; i < args.length - 1; i += 2) {
         const name = args[i]
-        if (typeof name !== 'string') return null
+        if (typeof name !== 'string') {
+          warnings.push(`Malformed ["let"] expression: binding name at slot ${i} is ${typeof name}, expected string.`)
+          return null
+        }
         bindings.set(name, args[i + 1])
       }
       const substituted = substituteVars(body, bindings)
