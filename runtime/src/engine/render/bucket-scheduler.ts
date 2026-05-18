@@ -22,7 +22,7 @@
 // pure function lets `bucket-scheduler.test.ts` exercise every
 // fixture combination without spinning up the full WebGPU stack.
 
-import type { LayerDrawPhase } from './vector-tile-renderer'
+import type { LayerDrawPhase, VectorTileRenderer } from './vector-tile-renderer'
 import type { SceneCommands } from '@xgis/compiler'
 import { resolveNumberShape } from './paint-shape-resolve'
 import { resolveShow, type ResolvedShow } from './resolved-show'
@@ -90,10 +90,14 @@ export interface ClassifiedShow {
 /** Minimal contract the classifier needs from a vector-tile source
  *  entry. Real callers pass `{ source: XGVTSource, renderer:
  *  VectorTileRenderer }` — only `renderer.hasData()` is actually
- *  called, the rest is plumbed through to the output. */
+ *  called inside the classifier, but downstream consumers (map.ts
+ *  3323/3382/3428) invoke the full VectorTileRenderer API on the
+ *  plumbed-through value. The renderer slot is typed as `Partial`
+ *  of the real class so test stubs can pass a `{ hasData }`-only
+ *  object while production code keeps full method visibility. */
 export interface ClassifierVTSource {
   source: unknown
-  renderer: { hasData(): boolean } & Record<string, unknown>
+  renderer: { hasData(): boolean } & Partial<VectorTileRenderer>
 }
 
 /** Per-show entry as stored on `XGISMap.vectorTileShows`. The classifier

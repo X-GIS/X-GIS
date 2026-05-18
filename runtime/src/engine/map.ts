@@ -3320,7 +3320,7 @@ export class XGISMap {
               const lpF = debugLp ?? cs.lpF
               const fpG = debugFp ?? cs.fpG
               const fpGF = debugFp ?? cs.fpGF
-              cs.vtEntry.renderer.render(
+              cs.vtEntry.renderer.render!(
                 subPass, this.camera, projType, centerLon, centerLat, w, h,
                 cs.show, fp, lp, this.renderer.uniformBuffer, cs.bgl,
                 fpF, lpF,
@@ -3379,7 +3379,7 @@ export class XGISMap {
             },
           })
           for (const cs of oit) {
-            cs.vtEntry.renderer.render(
+            cs.vtEntry.renderer.render!(
               oitPass, this.camera, projType, centerLon, centerLat, w, h,
               cs.show, cs.fp, cs.lp, this.renderer.uniformBuffer, cs.bgl,
               cs.fpF, cs.lpF,
@@ -3425,7 +3425,7 @@ export class XGISMap {
 
           passScope(`translucent-off[${li}]`, () => {
             const offPass = this.lineRenderer!.beginTranslucentPass(encoder)
-            cs.vtEntry.renderer.render(
+            cs.vtEntry.renderer.render!(
               offPass, this.camera, projType, centerLon, centerLat, w, h,
               cs.show, cs.fp, cs.lp, this.renderer.uniformBuffer, cs.bgl,
               cs.fpF, cs.lpF,
