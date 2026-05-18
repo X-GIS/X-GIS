@@ -569,6 +569,13 @@ function lowerLayer(
 
   // Process utility lines
   let fill: ColorValue = colorNone()
+  /** Mapbox `paint.fill-translate` x — viewport pixel offset, +right.
+   *  Constant form only; zoom-interp on vec2 needs per-axis decomp
+   *  (deferred). 0 / undefined → no offset. */
+  let fillTranslateX: number | undefined
+  /** Mapbox `paint.fill-translate` y — viewport pixel offset, +down
+   *  (screen-space convention; runtime negates for NDC). */
+  let fillTranslateY: number | undefined
   let strokeColor: ColorValue = colorNone()
   let strokeWidth = 1
   /** Per-feature / zoom-interpolated stroke-width AST. Populated from
@@ -1020,6 +1027,8 @@ function lowerLayer(
             if (name === 'label-offset-y') { labelOffsetY = n; continue }
             if (name === 'label-translate-x') { labelTranslateX = n; continue }
             if (name === 'label-translate-y') { labelTranslateY = n; continue }
+            if (name === 'fill-translate-x') { fillTranslateX = n; continue }
+            if (name === 'fill-translate-y') { fillTranslateY = n; continue }
             if (name === 'label-radial-offset') { labelRadialOffset = n; continue }
             if (name.startsWith('label-vao-')) {
               // `label-vao-<idx>-<x|y>` bracket form (negative em).
@@ -1140,6 +1149,20 @@ function lowerLayer(
       if (name.startsWith('label-translate-x-')) {
         const num = parseFloat(name.slice('label-translate-x-'.length))
         if (!isNaN(num)) labelTranslateX = num
+        continue
+      }
+      if (name.startsWith('fill-translate-x-')) {
+        // Mapbox `paint.fill-translate` x component in CSS pixels.
+        // Bracket-wrap form for negatives (`fill-translate-x-[-2]`)
+        // is handled by the bracket binding parser above (label-
+        // numeric-binding pattern). Plain numeric form lands here.
+        const num = parseFloat(name.slice('fill-translate-x-'.length))
+        if (!isNaN(num)) fillTranslateX = num
+        continue
+      }
+      if (name.startsWith('fill-translate-y-')) {
+        const num = parseFloat(name.slice('fill-translate-y-'.length))
+        if (!isNaN(num)) fillTranslateY = num
         continue
       }
       if (name.startsWith('label-translate-y-')) {
@@ -1736,6 +1759,8 @@ function lowerLayer(
     anchor,
     extrude,
     extrudeBase,
+    fillTranslateX,
+    fillTranslateY,
     label: foldLabelKnobs(label, {
       labelSize, labelColor, labelHaloWidth, labelHaloColor, labelHaloBlur,
       labelAnchor, labelTransform, labelOffsetX, labelOffsetY,

@@ -132,6 +132,14 @@ export interface ShowCommand {
    *  `fill-extrusion-base`). Combined with `extrude` it carves out
    *  the `min_height` podium for buildings. `none` ⇒ z=0 default. */
   extrudeBase: import('./render-node').ExtrudeValue
+  /** Mapbox `paint.fill-translate` (viewport-anchor) — CSS px
+   *  offset on fills. Positive x = right, positive y = down. Runtime
+   *  reads these into u.fill_translate_x / u.fill_translate_y
+   *  (pre-baked as NDC-per-pixel) so the offset stays pixel-constant
+   *  across any depth. Default 0/0 / undefined preserves the no-
+   *  translate render path. */
+  fillTranslateX?: number
+  fillTranslateY?: number
   /** Optional per-feature text label spec (Batch 1c). When set, the
    *  runtime resolves `label.text` against each feature's properties
    *  via the format pipeline, projects the feature's anchor (point
@@ -429,6 +437,8 @@ function emitShow(
     strokeBlur: node.stroke.blur,
     extrude: node.extrude,
     extrudeBase: node.extrudeBase,
+    fillTranslateX: node.fillTranslateX,
+    fillTranslateY: node.fillTranslateY,
     label: node.label,
     paintShapes: {
       fill: colorValueToShape(node.fill),

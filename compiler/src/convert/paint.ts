@@ -129,8 +129,9 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
         && (p['fill-color'] === undefined || p['fill-color'] === null)) {
       warnings.push(`Layer "${layer.id}" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
     }
+    addFillTranslate(out, p['fill-translate'], warnings)
     surfaceIgnoredPaint(layer.id, p, warnings, [
-      'fill-translate', 'fill-translate-anchor', 'fill-sort-key',
+      'fill-translate-anchor', 'fill-sort-key',
     ])
   } else if (layer.type === 'line') {
     addStroke(out, p['line-color'], warnings)
@@ -558,6 +559,46 @@ function addLineGapWidth(out: string[], v: unknown, warnings: string[]): void {
     return
   }
   warnings.push(`paint.line-gap-width: non-constant non-zoom form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
+}
+
+/** Mapbox `paint.fill-translate: [dx, dy]` → xgis
+ *  `fill-translate-x-N fill-translate-y-M` (signed pixel offsets).
+ *  Constant form only at the moment; zoom-interp on vec2 needs
+ *  per-axis decomposition (Mapbox emits a single stop value per
+ *  zoom that is itself [x, y]) which the binding-form parser
+ *  doesn't yet handle. Default [0,0] is silent.
+ *
+ *  Sign convention: Mapbox positive x = right, positive y = down
+ *  (screen space). The runtime WGSL multiplies by clip.w to keep
+ *  the offset constant in pixels regardless of depth, then negates
+ *  y for NDC convention (NDC y is UP).
+ *
+ *  Anchor: fill-translate-anchor: viewport (default) is the only
+ *  currently-honored mode. "map" would shift in world coords; not
+ *  yet implemented (no OFM hits use map anchor). */
+function addFillTranslate(out: string[], v: unknown, warnings: string[]): void {
+  if (isOmitted(v)) return
+  // Mapbox v8 wraps `[dx, dy]` as `["literal", [dx, dy]]`. Unwrap so
+  // the bare-array fast path catches both forms.
+  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
+    v = v[1]
+  }
+  if (Array.isArray(v) && v.length === 2
+      && typeof v[0] === 'number' && Number.isFinite(v[0])
+      && typeof v[1] === 'number' && Number.isFinite(v[1])) {
+    // Negative numbers wrap in brackets so the utility-name lexer
+    // doesn't read the `-` as a segment separator (same convention
+    // as label-offset-x / -y in layers.ts:656).
+    const fmt = (n: number): string => n < 0 ? `[${n}]` : `${n}`
+    if (v[0] !== 0) out.push(`fill-translate-x-${fmt(v[0])}`)
+    if (v[1] !== 0) out.push(`fill-translate-y-${fmt(v[1])}`)
+    return
+  }
+  // Zoom-interp on vec2 — Mapbox emits stops whose values are
+  // [x, y] arrays. Per-axis decomposition is the right path but
+  // requires a binding-form handler; deferred. Warn so coverage
+  // reflects reality.
+  warnings.push(`paint.fill-translate: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
 }
 
 /** Mapbox `paint.line-blur` (edge feathering, CSS px) → xgis

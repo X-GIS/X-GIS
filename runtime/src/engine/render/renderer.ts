@@ -125,8 +125,15 @@ struct Uniforms {
   // behaviour. Reused the first _pad_zoom_0 slot to avoid growing
   // the struct past 192 bytes.
   extrude_base_m: f32,
-  _pad_zoom_1: f32,
-  _pad_zoom_2: f32,
+  // Mapbox fill-translate — CSS-px viewport offset on fills.
+  // Positive x shifts the fill to the right; positive y shifts
+  // down. Applied to clip-space (x, y) after the MVP transform in
+  // vs_main_quantized (the standard viewport-anchor case). 0,0
+  // default preserves the existing path. Map-anchor variant is not
+  // yet wired (would shift in world coords before MVP); OFM hits
+  // are viewport-anchored.
+  fill_translate_x: f32,
+  fill_translate_y: f32,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -234,11 +241,16 @@ fn vs_main(
   let globe_rtc = proj_globe(abs_lon, abs_lat) - proj_globe(u.proj_params.y, u.proj_params.z);
 
   var out: VertexOutput;
-  let clip = select(
+  var clip = select(
     u.mvp * vec4<f32>(rtc, 0.0, 1.0),
     u.mvp * vec4<f32>(globe_rtc, 1.0),
     t > 6.5,
   );
+  // Mapbox fill-translate (viewport anchor) — see vs_main_quantized
+  // for the math. Same pre-baked ndc-per-pixel constant applied here
+  // so the non-quantized path stays in sync.
+  clip.x = clip.x + u.fill_translate_x * clip.w;
+  clip.y = clip.y - u.fill_translate_y * clip.w;
   // Log-depth rewrite of clip.z. Three.js equivalent — preserves near-plane
   // precision at high pitch and when rendering 3D geometry.
   out.position = apply_log_depth(clip, u.log_depth_fc);
@@ -326,11 +338,19 @@ fn vs_main_quantized(
   let z_world = select(u.extrude_base_m, u.extrude_height_m, is_top);
   // Globe (projType 7) uses the sphere RTC + orbit MVP; extrusion on
   // the sphere is a later refinement (flat basemap path unaffected).
-  let clip = select(
+  var clip = select(
     u.mvp * vec4<f32>(rtc, z_world, 1.0),
     u.mvp * vec4<f32>(globe_rtc, 1.0),
     t > 6.5,
   );
+  // Mapbox fill-translate (viewport anchor): shift clip-space xy by
+  // tx/ty pixels. The runtime pre-bakes (px * 2 / canvasDim) into
+  // fill_translate_x/y so the shader just multiplies by clip.w
+  // (undoes perspective divide so the offset stays constant in
+  // SCREEN pixels regardless of depth). y is negated since Mapbox
+  // spec defines positive y as DOWN while our NDC y is UP.
+  clip.x = clip.x + u.fill_translate_x * clip.w;
+  clip.y = clip.y - u.fill_translate_y * clip.w;
   out.position = apply_log_depth(clip, u.log_depth_fc);
   out.position.z = out.position.z - u.layer_depth_offset * out.position.w;
   out.view_w = clip.w;
@@ -395,11 +415,17 @@ fn vs_main_quantized_extruded(
   let globe_rtc = proj_globe(abs_lon, abs_lat) - proj_globe(u.proj_params.y, u.proj_params.z);
 
   var out: VertexOutput;
-  let clip = select(
+  var clip = select(
     u.mvp * vec4<f32>(rtc, z_attr, 1.0),
     u.mvp * vec4<f32>(globe_rtc, 1.0),
     t > 6.5,
   );
+  // Mapbox fill-translate — viewport anchor (see vs_main_quantized
+  // for the math). Per-feature-z (extruded) path applies the same
+  // pixel offset so building roofs / walls stay aligned with the
+  // un-extruded ground plane.
+  clip.x = clip.x + u.fill_translate_x * clip.w;
+  clip.y = clip.y - u.fill_translate_y * clip.w;
   out.position = apply_log_depth(clip, u.log_depth_fc);
   out.position.z = out.position.z - u.layer_depth_offset * out.position.w;
   out.view_w = clip.w;
@@ -865,6 +891,14 @@ export interface ShowCommand {
    *  strokes composing a road casing. > 0 triggers the line renderer's
    *  double-draw path with offsets ±(gap + stroke) / 2. */
   strokeGapWidth?: number
+  /** Mapbox `paint.fill-translate` x — CSS-px viewport offset on
+   *  fills, +right. Runtime baker writes (px * 2 / canvasWidth) into
+   *  uniformF32[46] so the vertex shader can apply post-MVP. */
+  fillTranslateX?: number
+  /** Mapbox `paint.fill-translate` y — CSS-px viewport offset on
+   *  fills, +down. Runtime baker writes (px * 2 / canvasHeight) into
+   *  uniformF32[47]; vertex shader negates internally for NDC y. */
+  fillTranslateY?: number
   // Stable u16 layer ID assigned by `XGISMap` via `LayerIdRegistry` after
   // the compiler emits this command. Threaded into every per-tile uniform
   // write so the fragment shader can stamp the pick texture's G channel

@@ -97,6 +97,14 @@ export interface RenderNode {
    *  shapes as `extrude` (none / constant / feature). When `extrude`
    *  is `none`, this field is irrelevant and ignored. */
   extrudeBase: ExtrudeValue
+  /** Mapbox `paint.fill-translate` — fill shifted by [dx, dy] CSS px
+   *  in screen space (positive dx = right, positive dy = down).
+   *  Default [0,0]. Constant form here; zoom-interp on vec2 needs
+   *  per-axis decomposition (deferred). The runtime WGSL applies
+   *  the offset post-MVP so the visual shift stays constant in
+   *  pixels regardless of camera zoom. */
+  fillTranslateX?: number
+  fillTranslateY?: number
   projection: string
   visible: boolean
   /** CSS-style pointer interactivity. 'none' tells the runtime to skip

@@ -338,6 +338,13 @@ export class VectorTileRenderer {
    *  mirror (per-feature base would require a second vertex
    *  attribute, deferred). */
   private currentExtrudeBase = 0
+  /** Mapbox fill-translate — pre-baked from CSS px to NDC-per-pixel.
+   *  Set at render() time when show.fillTranslateX/Y are non-zero
+   *  using the current canvasWidth/Height. The vertex shader
+   *  multiplies by clip.w so the screen-space offset stays
+   *  pixel-constant regardless of depth. 0 = no translate (default). */
+  private currentFillTranslateNdcX = 0
+  private currentFillTranslateNdcY = 0
   /** Extrude routing for the current `render()` call.
    *   - 'none': flat polygon, no z lift
    *   - 'uniform': all features at currentExtrudeHeight (flat pipeline,
@@ -3131,6 +3138,15 @@ export class VectorTileRenderer {
     } else {
       this.currentExtrudeBase = 0
     }
+    // Mapbox fill-translate (viewport anchor) — bake CSS px → NDC-
+    // per-pixel here so the per-tile uniform write below is a
+    // straight scalar copy. `2 / canvasDim` is the NDC-per-px
+    // ratio; vertex shader multiplies by clip.w so the offset
+    // stays pixel-constant after the perspective divide.
+    const ftx = show.fillTranslateX ?? 0
+    const fty = show.fillTranslateY ?? 0
+    this.currentFillTranslateNdcX = ftx !== 0 ? (ftx * 2) / canvasWidth : 0
+    this.currentFillTranslateNdcY = fty !== 0 ? (fty * 2) / canvasHeight : 0
     // Per-frame resolved fill RGBA — animated stops were already
     // collapsed by the bucket scheduler. ResolvedShow is the SOLE
     // per-frame source; static hex still flows via show.fill below
@@ -4188,8 +4204,12 @@ export class VectorTileRenderer {
       // `fill-extrusion-base`). Reuses the first `_pad_zoom_*` slot
       // without growing the uniform struct past 192 bytes.
       this.uniformF32[45] = this.currentExtrudeBase
-      this.uniformF32[46] = 0
-      this.uniformF32[47] = 0
+      // fill-translate NDC-per-px (slots 46/47) — pre-baked at
+      // render() time using canvasWidth/Height. Vertex shader
+      // applies via clip += offset * clip.w so the pixel offset
+      // stays constant regardless of depth.
+      this.uniformF32[46] = this.currentFillTranslateNdcX
+      this.uniformF32[47] = this.currentFillTranslateNdcY
 
       // Allocate a fresh ring slot for this tile × layer × world-copy draw.
       const slotOffset = this.allocUniformSlot()
