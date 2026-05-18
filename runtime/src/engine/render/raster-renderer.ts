@@ -129,15 +129,13 @@ fn vs_tile(@builtin(vertex_index) vid: u32) -> VsOut {
     out.pos = apply_log_depth(clip_other, u.proj_params.w);
     out.view_w = clip_other.w;
     out.uv = vec2<f32>(uu, vv);
-    // ortho/azimuthal/stereographic (3,4,5) + globe (7) cull the far
-    // hemisphere; oblique_mercator (6) is cylindrical (whole sphere
-    // maps to a strip) so it must NOT be hemisphere-culled. The
-    // old t-greater-than-2.5 test alone wrongly clipped it, leaving
-    // a half-rendered map. Globe was excluded by t-less-than-5.5 and
-    // raster tiles rendered on the back of the sphere — visible as
-    // upside-down raster bleeding through the front.
-    let needsCull = (t > 2.5 && t < 5.5) || t > 6.5;
-    out.vis = select(1.0, center_cos_c(lon, lat, u.proj_params.y, u.proj_params.z), needsCull);
+    // ortho/azimuthal/stereographic (3,4,5) cull the far hemisphere;
+    // oblique_mercator (6) is cylindrical (whole sphere maps to a strip)
+    // so it must NOT be hemisphere-culled. The old t-greater-than-2.5
+    // test alone wrongly clipped it, leaving a half-rendered map.
+    // Globe (projType 7) doesn't reach this branch — it returns early
+    // at the t > 6.5 block above with vis = center_cos_c.
+    out.vis = select(1.0, center_cos_c(lon, lat, u.proj_params.y, u.proj_params.z), t > 2.5 && t < 5.5);
     return out;
   }
 
