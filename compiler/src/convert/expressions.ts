@@ -433,6 +433,14 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
     case 'asin': case 'acos': case 'atan':
     case 'ln': case 'log10': case 'log2':
     case 'length': case 'downcase': case 'upcase': {
+      // Mapbox spec: all of these take exactly one argument.
+      // A bare `["abs"]` (no operand) used to silently drop because
+      // exprToXgis(undefined) returns null; the user got no
+      // diagnostic and wondered why the abs() didn't convert.
+      if (v.length !== 2) {
+        warnings.push(`Malformed ["${op}"] expression: expected 1 argument, got ${v.length - 1}.`)
+        return null
+      }
       const inner = exprToXgis(v[1], warnings)
       return inner !== null ? `${op}(${inner})` : null
     }
