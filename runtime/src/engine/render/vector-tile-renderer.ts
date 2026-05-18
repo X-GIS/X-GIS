@@ -3195,6 +3195,11 @@ export class VectorTileRenderer {
     // to avoid ring-slot churn, redundant pattern-param warnings, and any
     // incidental validation surface in the translucent fill pre-pass.
     let lineLayerOffset = 0
+    // Mapbox `line-gap-width` double-draw second offset. When
+    // show.strokeGapWidth > 0 the line renders as TWO parallel
+    // strokes; this holds the second layer-slot uniform offset.
+    // -1 sentinel = no second draw (single-line legacy path).
+    let lineLayerOffsetGap = -1
     if (this.lineRenderer && phase !== 'fills') {
       // Pure-zoom stroke-width stops (Mapbox `paint.line-width:
       // ["interpolate", curve, ["zoom"], …]`) recompute per frame
@@ -3270,6 +3275,18 @@ export class VectorTileRenderer {
           : 0
       const effectiveOffset = explicitOffset + alignDelta
 
+      // Mapbox line-gap-width: render the line as TWO parallel
+      // strokes with perpendicular offsets ±(gap + stroke) / 2.
+      // OFM Liberty waterway_tunnel is the only fixture hit. Zero or
+      // absent gap stays on the legacy single-line path. The half-
+      // offset is added/subtracted from `effectiveOffset` so existing
+      // alignment + explicit offset stack correctly (a line authored
+      // with stroke-offset-right-2 + line-gap-width:6 + line-width:1
+      // ends up with one stroke at offset 2 + 3.5 = 5.5 and one at
+      // offset 2 − 3.5 = −1.5).
+      const gapWidth = show.strokeGapWidth ?? 0
+      const halfGap = gapWidth > 0 ? (gapWidth + strokeWidthPx) / 2 : 0
+
       lineLayerOffset = this.lineRenderer.writeLayerSlot(
         [this.cachedStrokeColor[0], this.cachedStrokeColor[1], this.cachedStrokeColor[2], this.cachedStrokeColor[3]],
         strokeWidthPx,
@@ -3280,10 +3297,26 @@ export class VectorTileRenderer {
         miterLimit,
         dash,
         patternSlots,
-        effectiveOffset,
+        effectiveOffset + halfGap,
         canvasHeight,
         show.strokeBlur ?? 0,
       )
+      if (gapWidth > 0) {
+        lineLayerOffsetGap = this.lineRenderer.writeLayerSlot(
+          [this.cachedStrokeColor[0], this.cachedStrokeColor[1], this.cachedStrokeColor[2], this.cachedStrokeColor[3]],
+          strokeWidthPx,
+          layerOpacity,
+          mpp,
+          cap,
+          join,
+          miterLimit,
+          dash,
+          patternSlots,
+          effectiveOffset - halfGap,
+          canvasHeight,
+          show.strokeBlur ?? 0,
+        )
+      }
     }
 
     // neededKeys + worldOffDeg + parentAtMaxLevel + archiveAncestor
@@ -3709,7 +3742,7 @@ export class VectorTileRenderer {
       const mainFill = this.currentExtrudeMode === 'none' && groundForLayout !== null
         ? groundForLayout
         : fillPipeline
-      this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, phase, layerCache, this.fillPipelineExtruded, bindGroupLayout, translucentBucket)
+      this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, this.fillPipelineExtruded, bindGroupLayout, translucentBucket)
     }
 
     // Render fallback ancestors (stencil test) — with world offsets for wrapping
@@ -3773,7 +3806,7 @@ export class VectorTileRenderer {
       const fallbackFill = this.currentExtrudeMode === 'none' && fallbackGroundForLayout !== null
         ? fallbackGroundForLayout
         : fillPipelineFallback
-      this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, phase, layerCache, this.fillPipelineExtrudedFallback, bindGroupLayout, translucentBucket, fallbackVisibleKeys)
+      this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, this.fillPipelineExtrudedFallback, bindGroupLayout, translucentBucket, fallbackVisibleKeys)
       if (_debugRed) {
         this.uniformF32[16] = _origR
         this.uniformF32[17] = _origG
@@ -3938,6 +3971,11 @@ export class VectorTileRenderer {
     projCenterLat: number,
     worldOffsets: number[] | undefined,
     lineLayerOffset: number,
+    /** Second layer-slot uniform offset for line-gap-width double-
+     *  draw. -1 sentinel = single-line legacy path (no second draw).
+     *  When ≥ 0, the strokeQueue iterates twice — once per offset —
+     *  producing the two parallel strokes that compose a road casing. */
+    lineLayerOffsetGap: number,
     phase: LayerDrawPhase,
     layerCache: Map<number, GPUTile>,
     fillPipelineExtruded: GPURenderPipeline | null,
@@ -4327,13 +4365,22 @@ export class VectorTileRenderer {
     // 3D geometry is now correct regardless of tile iteration order.
     if (strokeQueue.length > 0 && this.lineRenderer) {
       const currentLineTileBg2 = this.tileBgDefault!
-      for (let i = 0; i < strokeQueue.length; i++) {
-        const { cached, slotOffset } = strokeQueue[i]
-        if (cached.outlineSegmentCount > 0 && cached.outlineSegmentBindGroup) {
-          this.lineRenderer.drawSegments(pass, currentLineTileBg2, cached.outlineSegmentBindGroup, cached.outlineSegmentCount, slotOffset, lineLayerOffset, translucentLines)
-        }
-        if (cached.lineSegmentCount > 0 && cached.lineSegmentBindGroup) {
-          this.lineRenderer.drawSegments(pass, currentLineTileBg2, cached.lineSegmentBindGroup, cached.lineSegmentCount, slotOffset, lineLayerOffset, translucentLines)
+      // line-gap-width double-draw: when the second offset slot was
+      // written, iterate the strokeQueue with each offset. Single-line
+      // (default) draws once. The second pass uses the SAME segment
+      // data — only the layer-slot uniform's offset_m differs.
+      const offsets = lineLayerOffsetGap >= 0
+        ? [lineLayerOffset, lineLayerOffsetGap]
+        : [lineLayerOffset]
+      for (const lo of offsets) {
+        for (let i = 0; i < strokeQueue.length; i++) {
+          const { cached, slotOffset } = strokeQueue[i]
+          if (cached.outlineSegmentCount > 0 && cached.outlineSegmentBindGroup) {
+            this.lineRenderer.drawSegments(pass, currentLineTileBg2, cached.outlineSegmentBindGroup, cached.outlineSegmentCount, slotOffset, lo, translucentLines)
+          }
+          if (cached.lineSegmentCount > 0 && cached.lineSegmentBindGroup) {
+            this.lineRenderer.drawSegments(pass, currentLineTileBg2, cached.lineSegmentBindGroup, cached.lineSegmentCount, slotOffset, lo, translucentLines)
+          }
         }
       }
     }
