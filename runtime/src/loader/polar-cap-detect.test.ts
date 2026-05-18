@@ -242,6 +242,43 @@ describe('injectPolarCaps', () => {
     expect(result.features.length).toBe(2) // no caps added
   })
 
+  it('inner ring (hole) at boundary does NOT trigger cap synthesis', () => {
+    // Outer ring at lat -80 (no boundary touch) + inner ring (hole)
+    // at lat -85 (touches boundary). Synthesizing a cap for the hole
+    // would erroneously fill the carved-out area.
+    const fc = {
+      type: 'FeatureCollection' as const,
+      features: [{
+        type: 'Feature' as const,
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [
+            // Outer ring — no boundary touch
+            [
+              [-180, -80] as [number, number],
+              [180, -80] as [number, number],
+              [180, -82] as [number, number],
+              [-180, -82] as [number, number],
+              [-180, -80] as [number, number],
+            ],
+            // Inner ring (hole) — touches south boundary
+            [
+              [-90, -85.0511] as [number, number],
+              [90, -85.0511] as [number, number],
+              [90, -83] as [number, number],
+              [-90, -83] as [number, number],
+              [-90, -85.0511] as [number, number],
+            ],
+          ],
+        },
+        properties: {},
+      }],
+    }
+    const result = injectPolarCaps(fc)
+    // Outer doesn't touch boundary, inner is skipped → no caps added.
+    expect(result.features.length).toBe(1)
+  })
+
   it('cap feature inherits source feature properties', () => {
     const fc = {
       type: 'FeatureCollection' as const,

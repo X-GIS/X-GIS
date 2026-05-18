@@ -122,11 +122,18 @@ export function injectPolarCaps(
 }
 
 function polygonRingsOf(g: NonNullable<Feature['geometry']>): LonLat[][] {
-  if (g.type === 'Polygon') return (g as PolygonGeometry).coordinates
+  // Only the OUTER ring (index 0) of each polygon contributes to
+  // cap synthesis. Inner rings (holes) at the boundary represent
+  // EXCLUDED areas — synthesising a cap for a hole would erroneously
+  // fill the area the source polygon explicitly carved out.
+  if (g.type === 'Polygon') {
+    const coords = (g as PolygonGeometry).coordinates
+    return coords.length > 0 && coords[0] ? [coords[0]] : []
+  }
   if (g.type === 'MultiPolygon') {
     const out: LonLat[][] = []
     for (const poly of (g as MultiPolygonGeometry).coordinates) {
-      for (const ring of poly) out.push(ring)
+      if (poly.length > 0 && poly[0]) out.push(poly[0])
     }
     return out
   }
