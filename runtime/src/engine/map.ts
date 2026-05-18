@@ -3581,13 +3581,21 @@ export class XGISMap {
         // doesn't call this (icon-along-curve is a Phase B+ feature);
         // point-anchored POI symbols (the demotiles + OFM Bright bus-
         // stop / school / amenity layers) flow through here.
-        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconRotate?: number; iconOpacity?: number }, ax: number, ay: number): void => {
+        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconRotate?: number; iconOpacity?: number; iconRotationAlignment?: 'map' }, ax: number, ay: number, lineTangentDeg = 0): void => {
           if (!iStage || def.iconImage === undefined) return
           const offDx = (def.iconOffset?.[0] ?? 0) * dpr
           const offDy = (def.iconOffset?.[1] ?? 0) * dpr
+          // icon-rotation-alignment=map under symbol-placement=line
+          // adds the per-segment tangent to the icon's authored
+          // rotation. OFM road_oneway: icon-rotate=90 + tangent of
+          // an east-west road (0°) = 90° → arrow points up (the
+          // arrow sprite's design orientation has the head pointing
+          // right at 0°, so 90° clockwise = north). Caller passes 0
+          // for point-placement and other "viewport" rotation cases.
+          const tangent = def.iconRotationAlignment === 'map' ? lineTangentDeg : 0
           iStage.addIcon(ax + offDx, ay + offDy, def.iconImage, {
             sizeScale: def.iconSize ?? 1,
-            rotateRad: ((def.iconRotate ?? 0) * Math.PI) / 180,
+            rotateRad: ((def.iconRotate ?? 0) + tangent) * Math.PI / 180,
             anchor: def.iconAnchor ?? 'center',
             opacity: def.iconOpacity ?? 1,
           })
@@ -4073,9 +4081,15 @@ export class XGISMap {
               ): void => {
                 const x = pax + (pbx - pax) * t
                 const y = pay + (pby - pay) * t
+                // Raw segment tangent in degrees (CCW from +x). Icons
+                // with icon-rotation-alignment=map use this directly
+                // (no upright flip); text uses the flipped form so
+                // glyphs stay readable from the natural reading
+                // direction.
+                const rawTangentDeg = Math.atan2(pby - pay, pbx - pax) * 180 / Math.PI
                 const featDef = applyFeatureExprs(props)
                 if (useTangentRotation) {
-                  let angleDeg = Math.atan2(pby - pay, pbx - pax) * 180 / Math.PI
+                  let angleDeg = rawTangentDeg
                   if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
                   // No fontKey override — TextStage.composeFontKey
                   // builds the proper CSS shorthand with weight / italic
@@ -4100,8 +4114,10 @@ export class XGISMap {
                 // at z≥11) wants a road badge at every spacing stop;
                 // we dispatch the icon at the label's screen anchor
                 // so the badge + text composite correctly. User
-                // report 2026-05-18 "도로 번호에 아이콘 안뜸".
-                dispatchIcon(featDef, x, y)
+                // report 2026-05-18 "도로 번호에 아이콘 안뜸". The
+                // unflipped tangent feeds icon-rotation-alignment=map
+                // so OFM road_oneway arrows point along the road.
+                dispatchIcon(featDef, x, y, rawTangentDeg)
               }
               if (spacingPx > 0) {
                 // Polyline path: project all vertices, walk in screen
@@ -4149,7 +4165,11 @@ export class XGISMap {
                 // Static return holder for samplePosAt — closure used to
                 // return `{ x, y }` on every call, which fired in the
                 // hot loop below per spacing point.
-                const _samplePosOut: [number, number] = [0, 0]
+                // [x, y, tangentDeg] — tangent angle (degrees CCW from +x)
+                // is the segment direction at the sample point. Used by
+                // icon-rotation-alignment=map to rotate per-segment icons
+                // with the line direction (OFM road_oneway arrows).
+                const _samplePosOut: [number, number, number] = [0, 0, 0]
                 vtEntry.renderer.forEachLineLabelPolyline(sliceKey, (mxs, mys, props) => {
                   if (mxs.length < 2) return
                   // Project every vertex to physical-pixel screen
@@ -4239,6 +4259,11 @@ export class XGISMap {
                         const t = segLen > 0 ? (s - acc) / segLen : 0
                         _samplePosOut[0] = _pxScratch[i]! + dx * t
                         _samplePosOut[1] = _pyScratch[i]! + dy * t
+                        // Tangent angle in degrees (CCW from +x).
+                        // icon-rotation-alignment=map uses this to
+                        // rotate the icon along the line direction
+                        // (OFM road_oneway arrow).
+                        _samplePosOut[2] = Math.atan2(dy, dx) * 180 / Math.PI
                         return true
                       }
                       acc += segLen
@@ -4258,6 +4283,7 @@ export class XGISMap {
                     if (total < spacingPx * 0.5) {
                       if (samplePosAt(total * 0.5)) {
                         const sx = _samplePosOut[0], sy = _samplePosOut[1]
+                        const tang = _samplePosOut[2]
                         if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)) {
                           stage.addCurvedLineLabel(
                             featDef.text, props,
@@ -4272,7 +4298,10 @@ export class XGISMap {
                           // render road badges. Per-stop icon spacing
                           // matches the per-stop text spacing — better
                           // than no icons at all. User report 2026-05-18.
-                          dispatchIcon(featDef, sx, sy)
+                          // tang carries the segment direction so
+                          // icon-rotation-alignment=map (OFM road_oneway
+                          // arrows) follows the road tangent.
+                          dispatchIcon(featDef, sx, sy, tang)
                           recordTextPosition(resolvedTextForDedupe, sx, sy)
                         }
                       }
@@ -4282,6 +4311,7 @@ export class XGISMap {
                     while (nextStop <= total) {
                       if (samplePosAt(nextStop)) {
                         const sx = _samplePosOut[0], sy = _samplePosOut[1]
+                        const tang = _samplePosOut[2]
                         if (!isTooCloseToSameText(resolvedTextForDedupe, sx, sy)) {
                           stage.addCurvedLineLabel(
                             featDef.text, props,
@@ -4289,7 +4319,7 @@ export class XGISMap {
                             featDef,
                             undefined, labelLayerName,
                           )
-                          dispatchIcon(featDef, sx, sy)
+                          dispatchIcon(featDef, sx, sy, tang)
                           recordTextPosition(resolvedTextForDedupe, sx, sy)
                         }
                       }

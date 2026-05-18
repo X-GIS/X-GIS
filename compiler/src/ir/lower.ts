@@ -501,6 +501,11 @@ function lowerLayer(
   let labelIconOffset: [number, number] | undefined
   let labelIconRotate: number | undefined
   let labelIconOpacity: number | undefined
+  /** Mapbox `icon-rotation-alignment` — "map" means icon rotates
+   *  with the line tangent under symbol-placement=line. Other
+   *  values (viewport / auto / absent) match X-GIS' default render
+   *  and stay undefined here. */
+  let labelIconRotationAlignment: 'map' | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -1257,6 +1262,10 @@ function lowerLayer(
         if (!isNaN(num)) labelIconOpacity = Math.max(0, Math.min(1, num))
         continue
       }
+      if (name === 'label-icon-rotation-alignment-map') {
+        labelIconRotationAlignment = 'map'
+        continue
+      }
       if (name.startsWith('label-spacing-')) {
         const num = parseFloat(name.slice('label-spacing-'.length))
         if (!isNaN(num)) labelSpacing = num
@@ -1781,7 +1790,7 @@ function lowerLayer(
       labelMaxWidth, labelLineHeight, labelJustify,
       labelPlacement, labelSpacing,
       labelRotationAlignment, labelPitchAlignment, labelKeepUpright,
-      labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconRotate, labelIconOpacity,
+      labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconRotate, labelIconOpacity, labelIconRotationAlignment,
     }),
   }
 }
@@ -1845,6 +1854,7 @@ function foldLabelKnobs(
     labelIconOffset?: [number, number]
     labelIconRotate?: number
     labelIconOpacity?: number
+    labelIconRotationAlignment?: 'map'
   },
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
@@ -1924,6 +1934,7 @@ function foldLabelKnobs(
     ...(knobs.labelIconOffset !== undefined ? { iconOffset: knobs.labelIconOffset } : {}),
     ...(knobs.labelIconRotate !== undefined ? { iconRotate: knobs.labelIconRotate } : {}),
     ...(knobs.labelIconOpacity !== undefined ? { iconOpacity: knobs.labelIconOpacity } : {}),
+    ...(knobs.labelIconRotationAlignment !== undefined ? { iconRotationAlignment: knobs.labelIconRotationAlignment } : {}),
   }
   // Plan Label L3: the LabelDef no longer carries `xxxZoomStops` /
   // `xxxExpr` siblings — those were dead-staging fields. Build the

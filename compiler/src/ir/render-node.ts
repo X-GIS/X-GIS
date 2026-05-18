@@ -386,6 +386,13 @@ export interface LabelDef {
    *  range, default 1 (full opacity). Constant form only — non-
    *  constant warns at the converter (lossy layer). */
   iconOpacity?: number
+  /** Mapbox `icon-rotation-alignment` — only the "map" value is
+   *  tracked here; "viewport"/"auto"/absent default to X-GIS'
+   *  axis-aligned icon render. When set to "map" under symbol-
+   *  placement=line, the runtime adds the per-segment tangent angle
+   *  to the icon's rotation so one-way arrows / similar follow the
+   *  line direction (OFM road_oneway / road_oneway_opposite). */
+  iconRotationAlignment?: 'map'
 
   /** Unified PropertyShape bundle for the four "shape-able" paint
    *  properties (text-size, text-color, text-halo-width,

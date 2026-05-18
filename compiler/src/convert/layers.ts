@@ -1049,6 +1049,18 @@ function convertSymbolLayer(
     utils.push(`label-icon-rotate-${fmtSigned(iconRotate)}`)
   }
 
+  // icon-rotation-alignment "map" — icon rotates with the line
+  // tangent when symbol-placement=line (OFM road_oneway / road_
+  // oneway_opposite arrows). The "viewport" / "auto" values match
+  // X-GIS' default render and are suppressed at the warning loop
+  // below (no utility emitted). Only "map" needs the runtime
+  // tangent-rotation dispatch path, so we emit a utility for that
+  // single value.
+  const iconRotAlign = unwrapLiteralScalar(layout['icon-rotation-alignment'])
+  if (iconRotAlign === 'map') {
+    utils.push('label-icon-rotation-alignment-map')
+  }
+
   // icon-opacity (paint property) — Mapbox alpha multiplier on icon
   // fragment. Constant form emits a utility the runtime threads
   // through IconStage.addIcon → vertex attribute. Default 1 leaves
@@ -1114,8 +1126,13 @@ function convertSymbolLayer(
       // gap. "auto" with line placement is also a gap, but no OFM
       // hits use that combination today.
       if (k === 'icon-rotation-alignment') {
+        // viewport/auto match X-GIS' default icon render; map is
+        // handled by the per-segment tangent-rotation path (iter 506
+        // — runtime adds the line tangent to def.iconRotate when
+        // def.iconRotationAlignment === 'map'). All three values now
+        // route correctly — silence the warning.
         const v = unwrapLiteralScalar(lv ?? pv)
-        if (v === 'viewport' || v === 'auto') continue
+        if (v === 'viewport' || v === 'auto' || v === 'map') continue
       }
       ignoredText.push(k)
     }
