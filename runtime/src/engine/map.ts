@@ -715,6 +715,39 @@ export class XGISMap {
     })
   }
 
+  /** Mapbox-API parity stub: setStyle / addLayer / addSource / addImage
+   *  are not implemented. X-GIS uses compile-time IR, not runtime style
+   *  mutation — the host loads compiled .xgis via the constructor or
+   *  vector-tile attach helpers, not via these MapLibre GL JS methods.
+   *
+   *  These warn-once stubs make porting MapLibre code fail loudly and
+   *  early rather than silently no-op. The warning points the user at
+   *  the right replacement API. */
+  private _warnedStyleAPI = new Set<string>()
+  private _warnUnsupported(method: string, replacement: string): void {
+    if (this._warnedStyleAPI.has(method)) return
+    this._warnedStyleAPI.add(method)
+    console.warn(`[X-GIS] map.${method}() is not supported. ${replacement}`)
+  }
+  setStyle(_style: unknown): void {
+    this._warnUnsupported('setStyle', 'Recompile the .xgis source via @xgis/compiler and reload the runtime; X-GIS uses compile-time IR, not runtime style swap.')
+  }
+  addLayer(_layer: unknown, _beforeId?: string): void {
+    this._warnUnsupported('addLayer', 'Add the layer to your .xgis source and recompile; runtime layer-mutation is not implemented.')
+  }
+  removeLayer(_id: string): void {
+    this._warnUnsupported('removeLayer', 'Set `visible: false` on the layer style in your .xgis source instead.')
+  }
+  addSource(_id: string, _source: unknown): void {
+    this._warnUnsupported('addSource', 'Declare the source in your .xgis source / use attachPMTilesSource for vector tiles.')
+  }
+  removeSource(_id: string): void {
+    this._warnUnsupported('removeSource', 'Remove the source from your .xgis source and recompile.')
+  }
+  addImage(_id: string, _image: unknown): void {
+    this._warnUnsupported('addImage', 'Sprite atlas is not implemented yet (Batch 2 roadmap). Embed icon data in feature properties for now.')
+  }
+
   /** Mapbox-API parity: notify the map that its container resized.
    *  X-GIS's renderFrame already reads canvas.width / .height every
    *  frame, so the actual buffer pickup is automatic — this method
