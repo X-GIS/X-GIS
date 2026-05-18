@@ -7,6 +7,10 @@
   "scripts": {
     "build": "bun run --filter '*' build",
     "test": "vitest run",
+    "test:pixel": "cd playground && bunx playwright test _pixel-match-survey.spec.ts",
+    "test:perf": "cd playground && bunx playwright test _perf-bright-interactive.spec.ts",
+    "test:projection": "cd playground && bunx playwright test _projection-coverage.spec.ts",
+    "test:e2e": "cd playground && bunx playwright test",
     "dev": "bun run --filter @xgis/playground dev",
     "dev:site": "bun run --filter @xgis/site dev",
     "dev:all": "bun run --filter @xgis/playground --filter @xgis/site dev",
