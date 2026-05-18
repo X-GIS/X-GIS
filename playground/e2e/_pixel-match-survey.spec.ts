@@ -35,6 +35,12 @@ interface ViewSpec {
   /** `#zoom/lat/lon` */
   hash: string
   description: string
+  /** Regression gate: spec FAILS if buckets.gt128 exceeds this.
+   *  Picked from the 2026-05-18 baseline + ~15% antialiasing headroom
+   *  to absorb cross-driver / cross-machine noise without masking real
+   *  divergence. Tightening these values is a follow-up after a clean
+   *  baseline run on each platform. */
+  gt128Threshold: number
 }
 
 const VIEWS: ViewSpec[] = [
@@ -42,26 +48,37 @@ const VIEWS: ViewSpec[] = [
   { id: 'bright-seoul-school',
     style: 'openfreemap-bright',
     hash: '#17.85/37.12665/126.92430',
-    description: 'OFM Bright, Seoul 행정초등학교 — P1 verification gate (school fill)' },
+    description: 'OFM Bright, Seoul 행정초등학교 — P1 verification gate (school fill)',
+    // 2026-05-18 baseline: 0 px > 128. Headroom: 5 (low-zoom AA noise).
+    gt128Threshold: 5 },
 
   // OFM Bright at a lower zoom — different fill mix (water + landuse).
   { id: 'bright-tokyo-z14',
     style: 'openfreemap-bright',
     hash: '#14/35.6585/139.7454',
-    description: 'OFM Bright, Tokyo z=14 — landuse + water fills' },
+    description: 'OFM Bright, Tokyo z=14 — landuse + water fills',
+    // 2026-05-18 baseline: 6. Threshold accounts for outline AA drift.
+    gt128Threshold: 20 },
 
   // OFM Liberty — uses different color palette + interpolate stops.
   { id: 'liberty-paris-z14',
     style: 'openfreemap-liberty',
     hash: '#14/48.8534/2.3488',
-    description: 'OFM Liberty, Paris z=14 — interpolate-zoom heavy' },
+    description: 'OFM Liberty, Paris z=14 — interpolate-zoom heavy',
+    // 2026-05-18 baseline: 1020. Dense road network — high AA boundary
+    // count. Threshold ~+18% absorbs minor stroke-width / antialias
+    // drift without masking palette / interpolate regressions.
+    gt128Threshold: 1200 },
 
   // Demotiles — country fills via 214-arm match() (P5 LUT target
   // when compute path runs MVT, currently still legacy if-else for VTR).
   { id: 'demotiles-europe-z2',
     style: 'maplibre-demotiles',
     hash: '#2.5/48/15',
-    description: 'MapLibre demotiles, Europe z=2 — 214-arm ADM0_A3 country palette' },
+    description: 'MapLibre demotiles, Europe z=2 — 214-arm ADM0_A3 country palette',
+    // 2026-05-18 baseline: 1435. Long country borders, 214 palette
+    // colors meeting — AA boundary count dominates. ~+18% headroom.
+    gt128Threshold: 1700 },
 ]
 
 interface Buckets {
@@ -217,8 +234,17 @@ for (const view of VIEWS) {
     console.log(
       `[pixel-match ${view.id}] eq=${((buckets.eq0 / totalPx) * 100).toFixed(2)}% `
       + `le32=${(((buckets.eq0 + buckets.le8 + buckets.le16 + buckets.le32) / totalPx) * 100).toFixed(2)}% `
-      + `gt128=${buckets.gt128}px`,
+      + `gt128=${buckets.gt128}px (threshold ${view.gt128Threshold})`,
     )
+
+    // Regression gate. The buckets / REPORT.md / per-view PNGs are
+    // already written above so a failing assertion preserves the
+    // artifacts for inspection. Tighten thresholds in this file once
+    // the corresponding render gap closes.
+    test.expect(
+      buckets.gt128,
+      `${view.id}: gt128=${buckets.gt128} exceeds threshold ${view.gt128Threshold}; visual regression vs MapLibre. Inspect __pixel-match-survey__/${view.id}/diff-heatmap.png.`,
+    ).toBeLessThanOrEqual(view.gt128Threshold)
   })
 }
 
