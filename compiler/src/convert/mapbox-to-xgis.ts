@@ -232,6 +232,15 @@ export function convertMapboxStyle(
     if (typeof mn === 'number' && typeof mx === 'number' && mn > mx) {
       warnings.push(`Source "${sid.slice(0, 60)}" has minzoom=${mn} > maxzoom=${mx} — empty servable-zoom range; every dependent layer will render blank.`)
     }
+    // Out-of-range source zoom mirrors the per-layer check below. A
+    // typo'd `maxzoom: 30` here would make the tile selector clamp
+    // silently; surface so the author sees the gap.
+    if (typeof mn === 'number' && (mn < 0 || mn > 24)) {
+      warnings.push(`Source "${sid.slice(0, 60)}" minzoom=${mn} is outside Mapbox spec range [0, 24]; tile selector clamps so the source serves as if minzoom=${Math.max(0, Math.min(24, mn))}.`)
+    }
+    if (typeof mx === 'number' && (mx < 0 || mx > 24)) {
+      warnings.push(`Source "${sid.slice(0, 60)}" maxzoom=${mx} is outside Mapbox spec range [0, 24]; tile selector clamps so the source serves as if maxzoom=${Math.max(0, Math.min(24, mx))}.`)
+    }
   }
 
   // Pre-walk for source-id sanitization collisions. Raw-id duplicates
