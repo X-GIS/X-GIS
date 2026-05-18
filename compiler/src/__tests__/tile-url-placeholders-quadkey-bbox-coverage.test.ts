@@ -43,6 +43,18 @@ describe('tile URL placeholders beyond {z}/{x}/{y}', () => {
     expect(code).not.toMatch(/uses \{bbox-epsg-3857\}/)
   })
 
+  it('ratio placeholder warns', () => {
+    const style = {
+      version: 8,
+      sources: {
+        s: { type: 'raster', tiles: ['https://example.com/{z}/{x}/{y}{ratio}.png'] },
+      },
+      layers: [],
+    }
+    const code = convertMapboxStyle(style as never)
+    expect(code).toMatch(/uses \{ratio\} placeholder/)
+  })
+
   it('url field with quadkey also warns', () => {
     const style = {
       version: 8,

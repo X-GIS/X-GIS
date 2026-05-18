@@ -219,6 +219,9 @@ export function convertSource(
       if (t.includes('{bbox-epsg-3857}')) {
         warnings.push(`Source "${id}" tiles URL uses {bbox-epsg-3857} placeholder (WMS-style bbox); X-GIS runtime substitutes only {z}/{x}/{y} so the request fetches the unsubstituted URL and 404s. Use an XYZ tile endpoint instead of WMS.`)
       }
+      if (t.includes('{ratio}')) {
+        warnings.push(`Source "${id}" tiles URL uses {ratio} placeholder (Mapbox DPR suffix — "" / "@2x"); X-GIS runtime does not substitute it, so the request fetches the unsubstituted URL and 404s. Pre-bake the @2x endpoint or drop the placeholder.`)
+      }
     }
   }
   if (Array.isArray(src.tiles)) checkPlaceholdersOnTiles(src.tiles as unknown[])
