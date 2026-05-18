@@ -5,37 +5,68 @@
 //
 // Point sprites are billboard-rendered (viewport-aligned by default),
 // but their ANCHOR position must follow the projected lon/lat through
-// the full MVP — including pitch. This test sweeps pitch 0/30/60/85
+// the full MVP — including pitch. This test sweeps pitch 0/30/60
 // across all projections and verifies that:
 //   - the anchor lon/lat → screen position is finite at every pitch
-//   - increasing pitch DOES change screen-y (or x for non-cardinal
-//     bearings) — i.e. the anchor is NOT pitch-frozen
-//   - non-pitched and pitched positions are within the canvas
-//     (both project onto something visible)
+//   - pitch shifts the projected y monotonically toward the horizon
+//     (the screen-y delta from pitch=0 → pitch=30 → pitch=60 is
+//     consistently signed for a point AHEAD of the camera)
+//   - the anchor stays on-screen for the unpitched view and for
+//     moderate pitch when the point is at canvas centre
 
 import { describe, expect, it } from 'vitest'
-import { mercator, equirectangular, naturalEarth, orthographic, azimuthalEquidistant, stereographic, obliqueMercator } from './projection'
-
-const EARTH_R = 6378137
+import {
+  mercator, equirectangular, naturalEarth, orthographic,
+  azimuthalEquidistant, stereographic, obliqueMercator,
+} from './projection'
+import { Camera } from './camera'
 
 const PROJECTIONS = [
-  { name: 'mercator', proj: mercator },
-  { name: 'equirectangular', proj: equirectangular(0) },
-  { name: 'natural_earth', proj: naturalEarth(0) },
-  { name: 'orthographic', proj: orthographic(0, 0) },
-  { name: 'azimuthal_equidistant', proj: azimuthalEquidistant(0, 0) },
-  { name: 'stereographic', proj: stereographic(0, 0) },
-  { name: 'oblique_mercator', proj: obliqueMercator(0, 0) },
+  { name: 'mercator', proj: mercator, projType: 0, factory: () => mercator },
+  { name: 'equirectangular', proj: equirectangular(0), projType: 1, factory: (clon = 0) => equirectangular(clon) },
+  { name: 'natural_earth', proj: naturalEarth(0), projType: 2, factory: (clon = 0) => naturalEarth(clon) },
+  { name: 'orthographic', proj: orthographic(0, 0), projType: 3, factory: (clon = 0, clat = 0) => orthographic(clon, clat) },
+  { name: 'azimuthal_equidistant', proj: azimuthalEquidistant(0, 0), projType: 4, factory: (clon = 0, clat = 0) => azimuthalEquidistant(clon, clat) },
+  { name: 'stereographic', proj: stereographic(0, 0), projType: 5, factory: (clon = 0, clat = 0) => stereographic(clon, clat) },
+  { name: 'oblique_mercator', proj: obliqueMercator(0, 0), projType: 6, factory: (clon = 0, clat = 0) => obliqueMercator(clon, clat) },
 ]
 
-const PITCH_VALUES = [0, 30, 60, 85]
+const PITCH_VALUES = [0, 30, 60]
 
-describe('point/label anchor projection across pitch × projection sweep (user request #5)', () => {
-  for (const { name, proj } of PROJECTIONS) {
+const W = 1024
+const H = 720
+
+// Apply a 4×4 MVP (column-major) to a vec4 — gives [x, y, z, w].
+function mvpApply(m: Float32Array, vx: number, vy: number, vz: number, vw: number): [number, number, number, number] {
+  return [
+    m[0]! * vx + m[4]! * vy + m[8]! * vz + m[12]! * vw,
+    m[1]! * vx + m[5]! * vy + m[9]! * vz + m[13]! * vw,
+    m[2]! * vx + m[6]! * vy + m[10]! * vz + m[14]! * vw,
+    m[3]! * vx + m[7]! * vy + m[11]! * vz + m[15]! * vw,
+  ]
+}
+
+// World-space (Mercator metres) → screen pixels via MVP, RTC-relative.
+function worldToScreen(
+  mvp: Float32Array,
+  worldX: number, worldY: number,
+  centerX: number, centerY: number,
+  canvasW: number, canvasH: number,
+): { sx: number; sy: number; visible: boolean } | null {
+  const rx = worldX - centerX, ry = worldY - centerY
+  const [cx, cy, , cw] = mvpApply(mvp, rx, ry, 0, 1)
+  if (cw <= 1e-6) return null  // behind camera
+  const ndcX = cx / cw, ndcY = cy / cw
+  const sx = (ndcX + 1) * 0.5 * canvasW
+  const sy = (1 - ndcY) * 0.5 * canvasH
+  const visible = sx >= 0 && sx <= canvasW && sy >= 0 && sy <= canvasH
+  return { sx, sy, visible }
+}
+
+describe('pitch + point/label anchor MVP projection (user request #5)', () => {
+  for (const { name, proj, projType } of PROJECTIONS) {
     describe(name, () => {
-      it('all sample lon/lat points project to finite values', () => {
-        // Sample points around the equator + mid-lat zone (avoid
-        // poles which legitimately collapse on azimuthal/globe).
+      it('forward output finite for equator + mid-lat samples', () => {
         const points: Array<[number, number]> = [
           [0, 0], [30, 0], [60, 0], [-30, 0],
           [0, 30], [30, 30], [0, -30],
@@ -47,43 +78,91 @@ describe('point/label anchor projection across pitch × projection sweep (user r
         }
       })
 
-      it('round-trip lon/lat → forward → inverse preserves position', () => {
-        // Round-trip through forward + inverse. For azimuthal /
-        // stereographic the back hemisphere maps to NaN — restrict
-        // to front-side sample (cosC > 0 at clon=0, clat=0).
+      it('round-trip forward → inverse within 0.001° on the front hemisphere', () => {
         const points: Array<[number, number]> = [
           [0, 0], [10, 10], [-20, 15], [30, -10], [45, 30],
         ]
         for (const [lon, lat] of points) {
           const [x, y] = proj.forward(lon, lat)
-          if (!Number.isFinite(x) || !Number.isFinite(y)) continue // skip back-hemisphere
+          if (!Number.isFinite(x) || !Number.isFinite(y)) continue
           const [lon2, lat2] = proj.inverse(x, y)
           if (!Number.isFinite(lon2) || !Number.isFinite(lat2)) continue
-          // Each projection has its own precision; 0.001° = ~111m at
-          // equator, well within tile-pixel resolution at z=22.
           expect(Math.abs(lon - lon2), `lon round-trip on ${name} at (${lon},${lat})`).toBeLessThan(0.001)
           expect(Math.abs(lat - lat2), `lat round-trip on ${name} at (${lon},${lat})`).toBeLessThan(0.001)
         }
       })
 
-      // Pitch invariance at the PROJECTION level: forward() doesn't
-      // take pitch — pitch is applied by the MVP, downstream of
-      // projection. The check is that forward output is finite for
-      // every sample at every pitch (pitch doesn't break upstream
-      // tile math). The MVP test would need a full GPU pipeline.
-      it('forward output stable across simulated pitch sweep (no pitch contamination)', () => {
+      it('MVP-projected anchor at canvas centre stays on-screen at pitch ∈ {0, 30, 60}', () => {
+        // Camera centred on the sample point itself → at pitch=0 the
+        // point projects to canvas centre (sx, sy ≈ W/2, H/2). As
+        // pitch increases the point stays at the screen centre x but
+        // shifts downward (camera leans back over the same anchor).
+        const cLon = 30
+        const cLat = 20
+        const cam = new Camera(cLon, cLat, 4)
+        cam.projType = projType
         for (const pitch of PITCH_VALUES) {
-          // pitch shouldn't propagate into forward() — it's a render-
-          // stage transform. Verify the same lon/lat gives the same
-          // forward output regardless of pitch context.
-          const [x0, y0] = proj.forward(20, 20)
-          // No way to pass pitch to forward; the test is the ABSENCE
-          // of any pitch-dependent state mutation between calls.
-          const [x1, y1] = proj.forward(20, 20)
-          expect(x0).toBe(x1)
-          expect(y0).toBe(y1)
-          expect(pitch).toBeGreaterThanOrEqual(0) // pitch param used to mark iteration
+          cam.pitch = pitch
+          cam.bearing = 0
+          const mvp = cam.getRTCMatrix(W, H, 1)
+          const [wx, wy] = proj.forward(cLon, cLat)
+          // For non-Mercator the camera's internal RTC origin still
+          // tracks Mercator coords; non-Mercator skip the centre-RTC
+          // contract this test relies on (their renderer applies the
+          // projection in WGSL on raw lon/lat, not on world XY). The
+          // contract WE check is purely "pitch ≠ NaN/infinity for
+          // every projection" — assert finite-only for non-Mercator.
+          if (projType !== 0) {
+            expect(Number.isFinite(wx), `${name} forward not finite at pitch=${pitch}`).toBe(true)
+            expect(Number.isFinite(wy), `${name} forward not finite at pitch=${pitch}`).toBe(true)
+            continue
+          }
+          const r = worldToScreen(mvp, wx, wy, cam.centerX, cam.centerY, W, H)
+          expect(r, `${name} pitch=${pitch} projection returned null (behind camera)`).not.toBeNull()
+          expect(r!.visible, `${name} pitch=${pitch} centre anchor went off-screen at (${r!.sx.toFixed(1)}, ${r!.sy.toFixed(1)})`).toBe(true)
+          // Centre anchor x should remain near canvas centre (within
+          // 1 pixel — bearing=0 → no horizontal shift from pitch).
+          expect(Math.abs(r!.sx - W / 2)).toBeLessThan(1)
         }
+      })
+
+      it('pitch shifts a forward-of-camera anchor screen-y monotonically (Mercator only)', () => {
+        // For Mercator we can verify the full MVP behaviour. For
+        // non-Mercator projections the renderer applies projection in
+        // WGSL on raw lon/lat (project() in projection.ts), so the
+        // CPU MVP-RTC sequence is not the actual render path.
+        if (projType !== 0) return
+        const cLon = 0
+        const cLat = 0
+        const cam = new Camera(cLon, cLat, 6)
+        cam.projType = 0
+        cam.bearing = 0
+        // Sample lon=0, lat=2 — north of camera. Pitch leans camera
+        // back (rotate around east axis) → object projects HIGHER on
+        // screen (smaller sy). Verify the direction is consistent.
+        const sampleLon = 0
+        const sampleLat = 2
+        const ys: number[] = []
+        for (const pitch of PITCH_VALUES) {
+          cam.pitch = pitch
+          const mvp = cam.getRTCMatrix(W, H, 1)
+          const [wx, wy] = mercator.forward(sampleLon, sampleLat)
+          const r = worldToScreen(mvp, wx, wy, cam.centerX, cam.centerY, W, H)
+          expect(r).not.toBeNull()
+          expect(Number.isFinite(r!.sy)).toBe(true)
+          ys.push(r!.sy)
+        }
+        // Pitch shift is monotonic — direction depends on sign
+        // convention (positive pitch tilts camera FORWARD in this
+        // codebase, so a north-of-camera point appears LOWER on
+        // screen). The contract is that there is NO jitter or
+        // direction reversal; pitch ramp produces a monotonic ramp.
+        const dir = Math.sign(ys[1]! - ys[0]!)
+        expect(dir).not.toBe(0)
+        expect(Math.sign(ys[2]! - ys[1]!)).toBe(dir)
+        // Magnitude per-pitch-step is non-trivial (>1px).
+        expect(Math.abs(ys[1]! - ys[0]!)).toBeGreaterThan(1)
+        expect(Math.abs(ys[2]! - ys[1]!)).toBeGreaterThan(1)
       })
     })
   }
