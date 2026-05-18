@@ -287,12 +287,28 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       return `match(${inputXgis}) {\n${arms.join(',\n')}\n  }`
     }
     case 'all': {
+      const rawCount = v.length - 1
       const parts = v.slice(1).map(a => filterToXgis(a, warnings)).filter((s): s is string => !!s)
+      // Surface partial-drop — pre-fix a sub-filter that couldn't
+      // convert (e.g. `["image", …]` head) silently disappeared
+      // from the AND chain, so `["all", real-filter, unsupported]`
+      // collapsed to just `real-filter` and the layer's authored
+      // AND constraint was lost.
+      if (parts.length < rawCount && rawCount > 0) {
+        warnings.push(`["all"] dropped ${rawCount - parts.length} of ${rawCount} sub-filter(s) that failed to convert; remaining AND chain is more permissive than the authored intent.`)
+      }
       if (parts.length === 0) return 'true'
       return parts.map(parenthesize).join(' && ')
     }
     case 'any': {
+      const rawCount = v.length - 1
       const parts = v.slice(1).map(a => filterToXgis(a, warnings)).filter((s): s is string => !!s)
+      // Same partial-drop pattern as ["all"]. OR-chains hurt
+      // DIFFERENTLY — dropping an arm narrows the accepted set, so
+      // the layer becomes MORE restrictive than the author intended.
+      if (parts.length < rawCount && rawCount > 0) {
+        warnings.push(`["any"] dropped ${rawCount - parts.length} of ${rawCount} sub-filter(s) that failed to convert; remaining OR chain accepts fewer features than the authored intent.`)
+      }
       if (parts.length === 0) return 'false'
       return parts.map(parenthesize).join(' || ')
     }
