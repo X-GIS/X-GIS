@@ -451,6 +451,20 @@ export function convertSource(
   } else if (src.type === 'image' || src.type === 'video') {
     lines.push(`  // SKIPPED: ${src.type} source not yet supported by X-GIS engine`)
     warnings.push(`Source "${id}" type="${src.type}" — image/video sources not yet supported (no roadmap entry; file an issue if needed).`)
+  } else if (src.type === undefined || src.type === null) {
+    // Mapbox spec requires `type` per source — undefined/null is a
+    // distinct failure mode from "unsupported type string". Pre-fix
+    // both fell through to the same generic catch-all and emitted
+    // `unsupported type "undefined"` which is confusing because the
+    // real fix is "add a type field" not "switch to a different
+    // type string".
+    lines.push('  // TODO: source missing required `type` field')
+    warnings.push(`Source "${id}" is missing the required type field. Mapbox spec requires type: vector|raster|raster-dem|geojson|image|video.`)
+  } else if (typeof src.type !== 'string') {
+    // Non-string type — same isolated failure path. Note the actual
+    // typeof in the warning so the user sees the shape mismatch.
+    lines.push(`  // TODO: source type is non-string (${typeof src.type})`)
+    warnings.push(`Source "${id}" type field must be a string (got ${typeof src.type}).`)
   } else {
     lines.push(`  // TODO: unsupported source type "${src.type}"`)
     warnings.push(`Source "${id}" has unsupported type "${src.type}".`)
