@@ -12,6 +12,10 @@ export {
   type PolarCapOptions, type PolarCapFeatureCollection,
 } from './data/polar-cap-synth'
 export {
+  RUNTIME_CAPABILITIES, runtimeCapability, runtimeGaps,
+  type RuntimeCapability,
+} from './capabilities'
+export {
   // Function-style API (back-compat with prior versions)
   loadPMTilesSource, attachPMTilesSource,
   fetchPMTilesVectorLayerFields, fetchPMTilesVectorLayerSchema,
