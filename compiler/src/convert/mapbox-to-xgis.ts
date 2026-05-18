@@ -46,6 +46,7 @@ import { convertSource, type ConvertSourceOptions } from './sources'
 import { convertLayer } from './layers'
 import { colorToXgis } from './colors'
 import { expandPerFeatureColorMatch } from './expand-color-match'
+import { sanitizeId } from './utils'
 
 /** Per-source record emitted into the optional `coverage` collector.
  *  `reasons` holds warnings pushed during that source's conversion
@@ -208,7 +209,20 @@ export function convertMapboxStyle(
       block = convertSource(id, src, warnings, options)
     } catch (e) {
       warnings.push(`Source "${id}" conversion threw: ${(e as Error).message}`)
-      block = `source ${id} {\n  // SKIPPED — converter threw: ${(e as Error).message.slice(0, 80)}\n}`
+      // Use sanitizeId on the placeholder block — pre-fix a raw id
+      // with kebab-case / unicode / digit-leading shape produced an
+      // emitted `source road-major {` that the xgis lexer rejected,
+      // so the whole emitted style failed to load after one isolated
+      // source throw. Mirror of convertSource's normal-path
+      // sanitization.
+      // Also strip `*/` from the error message: comment lines are //
+      // single-line so `*/` is harmless in practice, BUT the emitted
+      // .map() output is itself wrapped in a top-of-file /* … */
+      // comments block when the converter has any warnings — letting
+      // a raw `*/` through the catch message closes the wrapper
+      // early and the rest of the file parses as code.
+      const safeMsg = (e as Error).message.replace(/\*\//g, '* /').slice(0, 80)
+      block = `source ${sanitizeId(id)} {\n  // SKIPPED — converter threw: ${safeMsg}\n}`
     }
     lines.push(block)
     lines.push('')
@@ -363,7 +377,16 @@ export function convertMapboxStyle(
   // ── Trailing warnings dump ─────────────────────────────────────────
   if (warnings.length > 0) {
     lines.push('/* Conversion notes (review before running):')
-    for (const w of warnings) lines.push(' *   • ' + w)
+    // Neutralise `*/` inside any warning so the wrapping block-
+    // comment doesn't close early. Pre-fix a thrown-error message or
+    // a malformed input value that contained `*/` (rare but
+    // observed in styles with embedded data URLs / regex patterns)
+    // closed the `/* … */` wrapper at the first occurrence; the
+    // rest of the warnings rendered as RAW xgis source and the
+    // subsequent parse exploded with cascade lex errors.
+    for (const w of warnings) {
+      lines.push(' *   • ' + w.replace(/\*\//g, '* /'))
+    }
     lines.push(' */')
   }
 
