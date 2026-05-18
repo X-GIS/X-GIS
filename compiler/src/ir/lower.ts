@@ -329,16 +329,17 @@ function extractInterpolateZoomColorStops(
   // Linear:
   //   interpolate(zoom, z1, c1, z2, c2, …)
   // Mirrors the numeric extractInterpolateZoomStops shape. We peel
-  // the `base` here for parity but the colour path currently doesn't
-  // route the curve to the runtime — `kind: 'zoom-interpolated'`
-  // ColorValue only carries linear stops. Returning the stops at
-  // least lets the lower pass take the interpolation branch (last-
-  // stop fallback / per-frame RGBA interp) instead of dropping the
-  // colour entirely to a default. The exponential curve will collapse
-  // to linear for now — accurate enough for OFM-style fill-color
-  // fades that span 1-2 stops, and matches the existing line-color
-  // exponential behaviour (extractInterpolateZoomStops keeps the
-  // base but the lower arm for stroke-color hasn't yet routed it).
+  // the `base` here for parity. The runtime side (interpolateZoomRgba
+  // in render/renderer.ts) DOES honor a non-1 base on the linear-vs-
+  // exponential branch as of iter 354 — but the IR `ColorValue` of
+  // kind 'zoom-interpolated' currently doesn't carry the base field,
+  // so callers of this extractor get only stops + the runtime always
+  // sees base=1. Routing the base through ColorValue → renderer is a
+  // follow-up: the runtime is ready, only the IR carrier needs the
+  // field. Until then, exponential colour curves collapse to linear —
+  // accurate enough for OFM-style 1-2-stop fades (per memory
+  // project_ofm_parity_investigation_2026_05_12 — "zero observable
+  // OFM impact").
   let cursor = 0
   const input = args[cursor++]
   if (input === undefined || input.kind !== 'Identifier' || input.name !== 'zoom') return null
