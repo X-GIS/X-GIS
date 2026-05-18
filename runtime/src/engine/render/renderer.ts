@@ -801,7 +801,12 @@ export interface ShowCommand {
   // the pre-resolved value. Bypasses VTR's hex-string parse cache.
   resolvedFillRgba?: [number, number, number, number] | null
   resolvedStrokeRgba?: [number, number, number, number] | null
-  shaderVariant?: { key: string; preamble: string; fillExpr: string; strokeExpr: string; fillPreamble?: string; strokePreamble?: string; needsFeatureBuffer: boolean; featureFields: string[]; uniformFields: string[] } | null
+  /** Compiler-emitted variant info. Inlined here as the canonical
+   *  ShaderVariant type so runtime accesses (palette routing flags,
+   *  computeBindings, categoryOrder, etc.) stay aligned with the
+   *  compiler — same drift-elimination pattern as ShaderVariantInfo
+   *  at line 595. */
+  shaderVariant?: import('@xgis/compiler').ShaderVariant | null
   filterExpr?: { ast: unknown } | null  // AST expression for per-feature filtering
   geometryExpr?: { ast: unknown } | null
   sizeExpr?: { ast: unknown } | null
