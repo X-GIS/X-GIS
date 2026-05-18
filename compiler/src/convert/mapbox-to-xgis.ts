@@ -312,6 +312,41 @@ export function convertMapboxStyle(
     }
   }
 
+  // ── Pre-walk: detect id collisions ─────────────────────────────────
+  // Two failure modes Mapbox styles trip on in the wild:
+  //   1. Duplicate raw id — Mapbox spec requires unique layer ids
+  //      but partial / hand-edited JSON breaks this. The second
+  //      layer's emitted block silently overrides the first in the
+  //      runtime's id-keyed registry.
+  //   2. Sanitization collision — distinct raw ids that collapse to
+  //      the same sanitized identifier (`a-b` and `a_b` both become
+  //      `a_b`; `1km` and `_1km` collide once digit-leading prefix
+  //      runs). The emitted xgis has two identical `layer foo { … }`
+  //      blocks; downstream lower / IR keys by sanitized id so the
+  //      later block wins silently.
+  // Warn at convert time so the user sees the problem instead of a
+  // mystery missing layer.
+  const seenRaw = new Set<unknown>()
+  const seenSanitized = new Map<string, unknown>()
+  for (const l of layersArr) {
+    if (l === null || typeof l !== 'object' || Array.isArray(l)) continue
+    if ((l as { type?: unknown }).type === 'background') continue
+    const rawId = (l as { id?: unknown }).id
+    if (rawId === undefined || rawId === null) continue
+    if (seenRaw.has(rawId)) {
+      warnings.push(`Duplicate layer id "${String(rawId).slice(0, 60)}" — Mapbox spec requires unique layer ids; later block overrides earlier in the runtime registry.`)
+    } else {
+      seenRaw.add(rawId)
+      const sanitized = sanitizeId(typeof rawId === 'string' ? rawId : String(rawId))
+      const collidedWith = seenSanitized.get(sanitized)
+      if (collidedWith !== undefined && collidedWith !== rawId) {
+        warnings.push(`Layer id "${String(rawId).slice(0, 60)}" sanitizes to "${sanitized}" — collides with another layer "${String(collidedWith).slice(0, 60)}"; emitted blocks will share an identifier and later wins.`)
+      } else {
+        seenSanitized.set(sanitized, rawId)
+      }
+    }
+  }
+
   // ── Layers ─────────────────────────────────────────────────────────
   for (const layer of layersArr) {
     // Defensive guard: null / non-object layer entry (malformed style).
