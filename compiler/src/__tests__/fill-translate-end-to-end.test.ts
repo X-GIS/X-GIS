@@ -86,9 +86,15 @@ describe('fill-translate — Mapbox → ShowCommand.fillTranslateX/Y', () => {
     expect(shows[0]!.fillTranslateY).toBe(3)
   })
 
-  it('zoom-interp form (OFM building-top) — drops to undefined + warns', () => {
-    // Per-axis decomposition of vec2 zoom-interp is the deferred
-    // follow-up. Constant form lands the IR; zoom-interp lossy.
+  it('zoom-interp form (OFM building-top) — last-stop approximation (iter 508)', () => {
+    // Iter 508 added last-stop approximation for vec2 zoom-interp.
+    // OFM building-top stops at z=14 [0,0] → z=16 [-2,-2]; last
+    // stop is [-2,-2]. Full per-axis per-frame resolve is the
+    // deferred follow-up, but the approximation gets the visual
+    // close: at z=16 (the most visible authoring) the offset is
+    // exact; at lower zooms the layer is mostly faded by the
+    // accompanying fill-opacity ramp so the position mismatch
+    // hides.
     const shows = compileToShows(fillLayer('zinterp', {
       'fill-color': '#f2eae2',
       'fill-translate': [
@@ -97,8 +103,8 @@ describe('fill-translate — Mapbox → ShowCommand.fillTranslateX/Y', () => {
         16, ['literal', [-2, -2]],
       ],
     }))
-    expect(shows[0]!.fillTranslateX).toBeUndefined()
-    expect(shows[0]!.fillTranslateY).toBeUndefined()
+    expect(shows[0]!.fillTranslateX).toBe(-2)
+    expect(shows[0]!.fillTranslateY).toBe(-2)
   })
 
   it('fill-translate does NOT appear in ignored-paint warning list (iter 501 removed it)', () => {

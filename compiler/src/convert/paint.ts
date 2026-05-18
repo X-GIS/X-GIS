@@ -595,9 +595,37 @@ function addFillTranslate(out: string[], v: unknown, warnings: string[]): void {
     return
   }
   // Zoom-interp on vec2 — Mapbox emits stops whose values are
-  // [x, y] arrays. Per-axis decomposition is the right path but
-  // requires a binding-form handler; deferred. Warn so coverage
-  // reflects reality.
+  // [x, y] arrays. Full per-axis decomposition + per-frame zoom
+  // resolve is the right path (binding-form handler for
+  // fill-translate-x/y zoom interp); deferred. Approximate by
+  // resolving to the LAST stop's [dx, dy] — works correctly at
+  // the highest authored zoom and degrades gracefully at lower
+  // zooms where the layer is typically faded (OFM building-top
+  // pairs fill-translate with a 13→0, 16→1 fill-opacity ramp so
+  // the offset mismatch at mid-zoom hides under near-transparent
+  // fills). Same pragmatic pattern as iter 488's text-opacity
+  // last-stop approximation.
+  if (Array.isArray(v) && v.length >= 4 && v[0] === 'interpolate') {
+    // Mapbox interpolate shape: ["interpolate", curve, ["zoom"],
+    // z1, val1, z2, val2, ...]. Walk pairs from index 3 → end,
+    // take the LAST stop value.
+    let last: unknown = null
+    for (let i = 3; i + 1 < v.length; i += 2) {
+      last = v[i + 1]
+    }
+    // Unwrap v8 literal-wrap on the inner stop value.
+    while (Array.isArray(last) && last.length === 2 && last[0] === 'literal') {
+      last = last[1]
+    }
+    if (Array.isArray(last) && last.length === 2
+        && typeof last[0] === 'number' && Number.isFinite(last[0])
+        && typeof last[1] === 'number' && Number.isFinite(last[1])) {
+      const fmt = (n: number): string => n < 0 ? `[${n}]` : `${n}`
+      if (last[0] !== 0) out.push(`fill-translate-x-${fmt(last[0])}`)
+      if (last[1] !== 0) out.push(`fill-translate-y-${fmt(last[1])}`)
+      return
+    }
+  }
   warnings.push(`paint.fill-translate: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
 }
 
