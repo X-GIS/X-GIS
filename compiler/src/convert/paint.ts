@@ -162,9 +162,19 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     // u.extrude_base_m as the wall bottom, iter 489 landed
     // 2026-05-18). Prior warning at this site is obsolete; uniform-
     // constant base lifts walls off z=0 as MapLibre does.
+    //
+    // fill-extrusion-vertical-gradient: special-case the default
+    // (true) so authors who explicitly set the spec default don't
+    // see a spurious "ignored" warning. false IS a real gap (runtime
+    // always applies the gradient ramp) and stays in the
+    // surfaceIgnoredPaint candidates list below.
+    const vgRaw = p['fill-extrusion-vertical-gradient']
+    const vg = Array.isArray(vgRaw) && vgRaw.length === 2 && vgRaw[0] === 'literal' ? vgRaw[1] : vgRaw
+    const skipVerticalGradientWarn = vg === true || vg === undefined || vg === null
     surfaceIgnoredPaint(layer.id, p, warnings, [
       'fill-extrusion-translate', 'fill-extrusion-translate-anchor',
-      'fill-extrusion-pattern', 'fill-extrusion-vertical-gradient',
+      'fill-extrusion-pattern',
+      ...(skipVerticalGradientWarn ? [] : ['fill-extrusion-vertical-gradient']),
       'fill-extrusion-ambient-occlusion-intensity',
       'fill-extrusion-ambient-occlusion-radius',
     ])
