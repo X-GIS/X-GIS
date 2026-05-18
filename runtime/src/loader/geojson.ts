@@ -309,6 +309,36 @@ export function loadGeoJSON(data: GeoJSONFeatureCollection): {
       for (const line of geom.coordinates) {
         tessellateLineString(line, feature.properties, lineVertices, lineIndices, lineFeatures)
       }
+    } else if (geom.type === 'GeometryCollection') {
+      // GeoJSON spec allows a feature whose geometry is a
+      // GeometryCollection — flatten sub-geometries and recurse on
+      // each. Pre-fix the four `else if` arms above silently dropped
+      // every GeometryCollection feature; OSM extracts that bundle
+      // a polygon + label-anchor point per landuse feature would
+      // never render the polygon side.
+      // Reads the typed shape with explicit narrowing so the inner
+      // recursion doesn't drag the broader Geometry union in.
+      const collection = geom as { geometries?: unknown[] }
+      for (const sub of collection.geometries ?? []) {
+        if (!sub || typeof sub !== 'object') continue
+        const subGeom = sub as { type?: string; coordinates?: unknown }
+        if (subGeom.type === 'Polygon') {
+          tessellatePolygon(subGeom.coordinates as never, feature.properties, polyVertices, polyIndices, polyFeatures)
+        } else if (subGeom.type === 'MultiPolygon') {
+          for (const polygon of (subGeom.coordinates as never[])) {
+            tessellatePolygon(polygon, feature.properties, polyVertices, polyIndices, polyFeatures)
+          }
+        } else if (subGeom.type === 'LineString') {
+          tessellateLineString(subGeom.coordinates as never, feature.properties, lineVertices, lineIndices, lineFeatures)
+        } else if (subGeom.type === 'MultiLineString') {
+          for (const line of (subGeom.coordinates as never[])) {
+            tessellateLineString(line, feature.properties, lineVertices, lineIndices, lineFeatures)
+          }
+        }
+        // Nested GeometryCollections (spec-permitted) are NOT recursed
+        // — Mapbox / MapLibre flatten one level only. Document the
+        // limit so callers needing deeper nesting pre-flatten.
+      }
     }
   }
 
