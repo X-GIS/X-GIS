@@ -4138,10 +4138,18 @@ export class XGISMap {
     switch (property) {
       case 'fill-color':
         if (typeof value !== 'string' && value !== null) return false
+        // Validate hex shape BEFORE delegating to the setter. The
+        // XGISLayerStyle.fill setter silently no-ops on invalid hex
+        // (to keep show.fill + paintShapes.fill in sync), so
+        // setPaintProperty would otherwise return `true` for an
+        // unparseable value while the layer's colour didn't change.
+        // Mirror of the runtime hexToRgba contract fix (iter 318).
+        if (typeof value === 'string' && hexToRgba(value) === null) return false
         layer.style.fill = value as string | null
         return true
       case 'line-color':
         if (typeof value !== 'string' && value !== null) return false
+        if (typeof value === 'string' && hexToRgba(value) === null) return false
         layer.style.stroke = value as string | null
         return true
       case 'fill-opacity':
