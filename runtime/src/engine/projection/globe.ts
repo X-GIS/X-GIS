@@ -400,7 +400,14 @@ export function globeVisibleTiles(
   const eyeN: Vec3 = [eye[0] / eyeLen, eye[1] / eyeLen, eye[2] / eyeLen]
 
   const SUBDIVIDE_PX = Math.max(256, Math.min(cssWidthPx, cssHeightPx) * 0.5)
-  const MAX_TILES = 512
+  // Tile-output cap. Mercator visibleTilesSSE typically returns 200-300
+  // tiles at normal zoom; the previous 512 cap was 1.7× over that with
+  // no observable visual gain (tiles past ~300 are far enough off-axis
+  // they contribute nothing to the visible hemisphere on a 1080p canvas).
+  // Lowering trims worst-case traversal post-front-face cull — Seoul
+  // z=15+ Globe view with OFM Bright hits the cap, so this directly
+  // limits the recursive node count after the iter 458 SoA stack landed.
+  const MAX_TILES = 300
 
   // Pre-compute the off-screen bounds + matrix row scratch ONCE outside
   // the recursion. Allocation per node was the GC hot spot at z=15+
