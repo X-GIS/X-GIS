@@ -2691,6 +2691,13 @@ export class XGISMap {
     if (!Number.isFinite(this.camera.centerX)) this.camera.centerX = 0
     if (!Number.isFinite(this.camera.centerY)) this.camera.centerY = 0
     if (!Number.isFinite(this.camera.zoom)) this.camera.zoom = 0
+    if (!Number.isFinite(this.camera.bearing)) this.camera.bearing = 0
+    // pitch goes through a setter (iter 368) so this is a defensive
+    // mirror; the setter rejects non-finite, but a direct field
+    // assignment from a host adapter could still slip past.
+    if (!Number.isFinite(this.camera.pitch)) this.camera.pitch = 0
+    if (!Number.isFinite(this.camera.minZoom)) this.camera.minZoom = 0
+    if (!Number.isFinite(this.camera.maxZoom)) this.camera.maxZoom = 22
     const MAX_MERC = 20037508.34
     const WORLD_MERC_FULL = MAX_MERC * 2 // full circumference
     const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
