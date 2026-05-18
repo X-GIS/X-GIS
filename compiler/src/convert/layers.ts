@@ -1288,6 +1288,28 @@ export function convertLayer(layer: MapboxLayer, warnings: string[]): string | n
     warnings.push(`Layer "${layer.id}" type="${layer.type}" — ${skipReason}.`)
     return `// SKIPPED layer "${layer.id}" type="${layer.type}" — ${skipReason}.`
   }
+  // Distinct failure modes for layer.type — mirror of the source-type
+  // validation. Pre-fix missing / non-string layer.type fell through
+  // to the main body, paintToUtilities returned [] (no `type === …`
+  // matched), the emitted block had no paint utilities, dead-layer-
+  // elim killed it silently. The user saw "my layer doesn't render"
+  // with no diagnostic.
+  const knownLayerTypes = new Set([
+    'fill', 'line', 'fill-extrusion', 'raster', 'symbol', 'circle',
+    'background', 'heatmap', 'hillshade',
+  ])
+  if (layer.type === undefined || layer.type === null) {
+    warnings.push(`Layer "${(layer as { id?: unknown }).id ?? '<unknown>'}" is missing the required type field; emitted SKIPPED placeholder.`)
+    return `// SKIPPED layer "${(layer as { id?: unknown }).id ?? '<unknown>'}" — missing required type field.`
+  }
+  if (typeof layer.type !== 'string') {
+    warnings.push(`Layer "${(layer as { id?: unknown }).id ?? '<unknown>'}" type field must be a string (got ${typeof layer.type}); emitted SKIPPED placeholder.`)
+    return `// SKIPPED layer "${(layer as { id?: unknown }).id ?? '<unknown>'}" — non-string type field.`
+  }
+  if (!knownLayerTypes.has(layer.type)) {
+    warnings.push(`Layer "${layer.id}" has unknown type "${layer.type}"; emitted SKIPPED placeholder. Mapbox spec layer types: fill, line, fill-extrusion, raster, symbol, circle, background, heatmap, hillshade.`)
+    return `// SKIPPED layer "${layer.id}" type="${layer.type}" — unknown layer type.`
+  }
 
   const lines: string[] = [`layer ${sanitizeId(layer.id)} {`]
   if (layer.source) lines.push(`  source: ${sanitizeId(layer.source)}`)
