@@ -331,6 +331,15 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       const args = v.slice(1).map(a => exprToXgis(a, warnings))
       const valid = args.filter((a): a is string => a !== null)
       if (valid.length === 0) return null
+      // Surface partial-drop — mirror of coalesce/case/match partial-
+      // drop warnings. A fallback chain with one unsupported head
+      // (`["to-number", ["image", "x"], 0]`) would silently lose the
+      // image-resolution attempt and always hit the `0` default. The
+      // visible-vs-authored mismatch was unfindable without this
+      // diagnostic.
+      if (valid.length < args.length) {
+        warnings.push(`["${op}"] dropped ${args.length - valid.length} of ${args.length} arg(s) that failed to convert; resulting fallback chain may differ from the authored intent.`)
+      }
       if (valid.length === 1) return valid[0]!
       return valid.join(' ?? ')
     }
