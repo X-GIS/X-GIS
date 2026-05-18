@@ -643,6 +643,47 @@ function callBuiltin(name: string, args: unknown[]): unknown {
       if (!Array.isArray(pts)) return null
       return { type: 'LineString', coordinates: pts }
     }
+    // Mapbox to-X conversion builtins. The CONVERTER drops these and
+    // emits a coalesce chain (convert/expressions.ts:412), but a
+    // direct xgis source author or a Mapbox tooling chain that
+    // bypasses the converter may still call them. Iter 539 added —
+    // pre-fix the default `args[0] ?? null` branch returned the input
+    // unchanged ("abc" → "abc" for to_number), silently breaking
+    // strict-equality comparisons downstream.
+    case 'to_number':
+    case 'number': {
+      // Try each arg until one converts to a finite number; null if none.
+      for (const a of args) {
+        if (typeof a === 'number' && Number.isFinite(a)) return a
+        if (typeof a === 'string') {
+          const n = Number(a)
+          if (Number.isFinite(n)) return n
+        }
+        if (typeof a === 'boolean') return a ? 1 : 0
+        // null / undefined / object — skip
+      }
+      return null
+    }
+    case 'to_string':
+    case 'string': {
+      const v = args[0]
+      if (v === null || v === undefined) return ''
+      if (typeof v === 'string') return v
+      if (typeof v === 'number') return Number.isFinite(v) ? String(v) : ''
+      if (typeof v === 'boolean') return v ? 'true' : 'false'
+      return JSON.stringify(v)
+    }
+    case 'to_boolean':
+    case 'boolean': {
+      // Mapbox spec: false-y values = false (0, "", null, undefined,
+      // NaN). Anything else truthy.
+      const v = args[0]
+      if (v === null || v === undefined) return false
+      if (typeof v === 'number') return v !== 0 && Number.isFinite(v)
+      if (typeof v === 'string') return v.length > 0
+      if (typeof v === 'boolean') return v
+      return true
+    }
     default:
       return args[0] ?? null
   }
