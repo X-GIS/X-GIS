@@ -19,6 +19,17 @@
 // No new measurement library — reuses pngjs / Playwright already in
 // the project per user direction (2026-05-18 "모든 측정 라이브러리는
 // 이미 존재하므로 코드베이스에서 적절히 수행 권장").
+//
+// COLD-START NOISE WARNING (iter 528 A/B verification finding):
+// Single-run numbers can swing ±1-2pp on bright-tokyo-z14 due to
+// WebGPU adapter / driver warm-up. Iter 527 reported a 1.93pp
+// "regression" on iter 523 that vanished on Run 3 — Run 1 produced
+// 20.36%, Runs 2/3 produced 22.29/22.30%. Two-of-three or median
+// before claiming a delta. Per-view stable baselines (iter 528):
+//   bright-seoul-school   94.73% / 1361 gt128
+//   bright-tokyo-z14      22.30% / 14713 gt128 (±0.05pp / ±20 px run-to-run)
+//   liberty-paris-z14     18.54% / 10430 gt128
+//   demotiles-europe-z2   84.06% / 4492 gt128 (±40 px run-to-run)
 
 import { test } from '@playwright/test'
 
