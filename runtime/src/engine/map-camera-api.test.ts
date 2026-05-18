@@ -162,6 +162,22 @@ describe('XGISMap Mapbox-API camera setters', () => {
       expect(state.bearing).toBe(60)
       expect(state.pitch).toBe(40)
     })
+
+    it('readback is NaN-safe on every axis (iter 449)', () => {
+      // Force NaN into all four camera fields (simulates a host bypass
+      // that wrote camera.* directly without going through setters).
+      map.camera.centerX = NaN
+      map.camera.centerY = NaN
+      map.camera.zoom = NaN
+      map.camera.bearing = NaN
+      map.camera.pitch = NaN
+      const state = map.getCameraState()
+      expect(Number.isFinite(state.center[0])).toBe(true)
+      expect(Number.isFinite(state.center[1])).toBe(true)
+      expect(state.zoom).toBe(0)
+      expect(state.bearing).toBe(0)
+      expect(state.pitch).toBe(0)
+    })
   })
 
   describe('per-axis getters', () => {
