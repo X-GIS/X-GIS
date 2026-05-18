@@ -479,10 +479,25 @@ fn fs_fill(input: VertexOutput) -> FragmentOutput {
     if (input.abs_merc_y > u.clip_bounds.w) { discard; }
   }
   var out: FragmentOutput;
-  // Wall shading: bottom of wall (wall_blend=0) gets a darker
-  // version of fill_color, roof (wall_blend=1) full brightness.
-  // Linear interp along wall triangles from 0 at base to 1 at top.
-  let wall_shade = 0.55 + 0.45 * input.wall_blend;
+  // Fill-extrusion shading. Approximates MapLibre default light
+  // model with NO Mapbox top-level light support yet (Phase 9
+  // followup needs per-vertex normals + a light-direction uniform).
+  // Two contributions:
+  //   1. Vertical gradient (fill-extrusion-vertical-gradient=true
+  //      default per Mapbox spec). Base shade 0.6 → top shade 1.0.
+  //      Pre-fix base 0.55 → top 1.0 (45% range vs MapLibre's 40%);
+  //      the wider range visually darkened buildings vs MapLibre on
+  //      the same style at the same camera. Match MapLibre default.
+  //   2. is_top flag bakes in an extra +5% for roof faces vs the
+  //      top of side walls. MapLibre's normal-based diffuse picks
+  //      this up because the roof normal points +Z while wall
+  //      normals point sideways — without a real normal we
+  //      approximate via the existing is_top vertex bit (writes
+  //      wall_blend=1.0 already for roof; the extra bump represents
+  //      the dot(up, light_dir) bias).
+  let v_shade = 0.6 + 0.4 * input.wall_blend;
+  let roof_bonus = select(0.0, 0.05, input.wall_blend >= 0.999);
+  let wall_shade = min(1.0, v_shade + roof_bonus);
   out.color = vec4<f32>(u.fill_color.rgb * wall_shade, u.fill_color.a);
   __PICK_WRITE__
   // Per-feature deterministic depth jitter to break coplanar z-fights
