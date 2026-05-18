@@ -122,7 +122,7 @@ const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'symbol-placement',     status: 'supported', note: 'point / line / line-center literals; `["step", ["zoom"], …]` form expands to multiple layers with intersected minzoom/maxzoom + segment-resolved placement (OFM Bright highway-shield-* coverage). Non-zoom step inputs fall back to default placement.', source: 'layers.ts:447' },
   { name: 'symbol-spacing',       status: 'supported', note: 'Defaults to 250 px when missing on line placement.', source: 'layers.ts:471' },
   { name: 'symbol-avoid-edges',   status: 'unsupported', impact: 'low' },
-  { name: 'symbol-sort-key',      status: 'unsupported', impact: 'medium', note: 'Layer draw order is style order; per-feature override not honoured.' },
+  { name: 'symbol-sort-key',      status: 'partial', impact: 'medium', note: 'Constant numeric value plumbed end-to-end (iter 399-405). Runtime collision pass sorts CollisionItems by sortKey ascending — lower wins. Expression form (`["get", "rank"]`) flattens to 0 with a warning.', source: 'layers.ts:702' },
   { name: 'symbol-z-order',       status: 'unsupported', impact: 'low' },
   { name: 'text-field',           status: 'supported', note: 'String / {token} / expression / number / boolean / null. Colon-bearing locale keys route via `get("name:xx")`.', source: 'layers.ts:164' },
   { name: 'text-font',            status: 'supported', note: 'Family extracted, weight + italic stripped into `label-font-weight-N` / `label-italic`.', source: 'layers.ts:417' },
