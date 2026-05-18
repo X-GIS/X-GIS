@@ -107,6 +107,31 @@ function cropPng(src: PNG, w: number, h: number): PNG {
   return out
 }
 
+/** RGB-delta heatmap PNG: black where pixels match, red intensity
+ *  proportional to max-channel-delta for visible inspection of
+ *  WHERE text / icon / halo drift lands. Channel:
+ *  - R = scaled max-channel-delta (0..255 mapped from 0..128, clamped)
+ *  - G = 0
+ *  - B = 0 if delta < 128 else 255 (so >128 px shows magenta vs red) */
+function makeDiffHeatmap(a: PNG, b: PNG, w: number, h: number): PNG {
+  const out = new PNG({ width: w, height: h })
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4
+      const dr = Math.abs(a.data[i]! - b.data[i]!)
+      const dg = Math.abs(a.data[i + 1]! - b.data[i + 1]!)
+      const db = Math.abs(a.data[i + 2]! - b.data[i + 2]!)
+      const m = Math.max(dr, dg, db)
+      const scaled = Math.min(255, Math.round(m * 2))
+      out.data[i] = scaled
+      out.data[i + 1] = 0
+      out.data[i + 2] = m > 128 ? 255 : 0
+      out.data[i + 3] = 255
+    }
+  }
+  return out
+}
+
 interface ViewResult {
   id: string
   style: string
@@ -172,6 +197,14 @@ for (const view of VIEWS) {
     mkdirSync(viewDir, { recursive: true })
     writeFileSync(join(viewDir, 'maplibre.png'), PNG.sync.write(mlNorm))
     writeFileSync(join(viewDir, 'xgis.png'), PNG.sync.write(xgNorm))
+    // Heatmap PNG — red intensity = max-channel-delta; magenta cast
+    // = >128 px drift. Glyph / icon regressions concentrate on text
+    // and icon pixels, so visual inspection of the heatmap localises
+    // the failure mode (text smaller → red ring around every glyph;
+    // halo missing → solid red around every label; icon missing →
+    // red rectangle at the anchor).
+    writeFileSync(join(viewDir, 'diff-heatmap.png'),
+      PNG.sync.write(makeDiffHeatmap(mlNorm, xgNorm, w, h)))
     writeFileSync(join(viewDir, 'buckets.json'), JSON.stringify({
       buckets, totalPx, canvasW: w, canvasH: h,
     }, null, 2))
