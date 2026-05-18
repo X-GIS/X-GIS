@@ -130,6 +130,18 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
       warnings.push(`Layer "${layer.id}" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
     }
     addFillTranslate(out, p['fill-translate'], warnings)
+    // fill-antialias: default `true` matches X-GIS runtime (fragment
+    // shader always anti-aliases edges via MSAA + smoothstep).
+    // Explicit `false` is a real gap — Mapbox spec says edges should
+    // be hard pixel-art steps; X-GIS can't disable AA per-layer yet
+    // (would need a separate pipeline binding without MSAA). Warn
+    // only on the false case so authors of pixel-art landcover
+    // styles know why their land looks soft.
+    const aaRaw = p['fill-antialias']
+    const aa = Array.isArray(aaRaw) && aaRaw.length === 2 && aaRaw[0] === 'literal' ? aaRaw[1] : aaRaw
+    if (aa === false) {
+      warnings.push(`Layer "${layer.id}" — fill-antialias false: X-GIS runtime can't disable edge AA per layer yet (would need a no-MSAA pipeline binding). Layer renders smooth edges; Plan §3.1 deferred.`)
+    }
     surfaceIgnoredPaint(layer.id, p, warnings, [
       'fill-translate-anchor', 'fill-sort-key',
     ])
