@@ -1011,7 +1011,12 @@ export function interpolateZoomRgba(
       const z1 = stops[i + 1].zoom
       const span = z1 - z0
       let t: number
-      if (base === 1 || Math.abs(base - 1) < 1e-6) {
+      // Duplicate-zoom guard — mirror of the scalar interpolateZoom
+      // fix. Pre-fix `(zoom - z0) / 0` → Infinity → component-wise
+      // NaN colour, GPU sampled undefined behaviour.
+      if (span === 0) {
+        t = 0
+      } else if (base === 1 || Math.abs(base - 1) < 1e-6) {
         t = (zoom - z0) / span
       } else {
         const numer = Math.pow(base, zoom - z0) - 1
