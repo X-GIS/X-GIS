@@ -622,7 +622,10 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // call:  number_format(input, minFrac, maxFrac, locale, currency).
       // Absent fields lower to `null` literals — the evaluator treats
       // null as "use spec default" for each slot.
-      if (v.length !== 3) return null
+      if (v.length !== 3) {
+        warnings.push(`Malformed ["number-format"] expression: expected 2 arguments (input, options), got ${v.length - 1}.`)
+        return null
+      }
       const input = exprToXgis(v[1], warnings)
       if (input === null) return null
       const opts = v[2]
@@ -687,6 +690,12 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // Pre-fix `["zoom"]` outside the dedicated path (e.g. nested
       // inside a `case` / `match` arm) fell to "Expression not
       // converted" and the containing expression dropped silently.
+      // Zero-arg accessor — surface extra args so the user notices
+      // a malformed `["zoom", 1]` instead of having the operand
+      // silently dropped.
+      if (v.length !== 1) {
+        warnings.push(`Malformed ["zoom"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`)
+      }
       return 'zoom'
     }
     case 'geometry-type': {
@@ -702,6 +711,9 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // intent) iterated EVERY water_name feature, doubling up with
       // the sibling Point layer on shared OMT centroids near the
       // antimeridian.
+      if (v.length !== 1) {
+        warnings.push(`Malformed ["geometry-type"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`)
+      }
       return 'get("$geometryType")'
     }
     case 'id': {
@@ -710,6 +722,9 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // ["geometry-type"] — the runtime filter-eval sites inject
       // `$featureId` into the props bag at evaluation time so the
       // ["==", ["id"], 42] / ["match", ["id"], …] filters work.
+      if (v.length !== 1) {
+        warnings.push(`Malformed ["id"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`)
+      }
       return 'get("$featureId")'
     }
     case 'in': {
