@@ -59,6 +59,10 @@ export function formatDate(value: DateInput, spec: FormatSpec): string {
 function coerceDate(v: DateInput): Date | null {
   if (v instanceof Date) return v
   if (typeof v === 'number') {
+    // Number.isFinite rejects NaN/Infinity. `new Date(NaN)` produces
+    // an invalid Date and downstream `.getTime()` returns NaN — every
+    // formatter call would then emit "Invalid Date" silently.
+    if (!Number.isFinite(v)) return null
     // Heuristic: > 1e12 → ms; otherwise seconds. (1e12 ms = 2001.)
     return new Date(v > 1e12 ? v : v * 1000)
   }
