@@ -40,6 +40,13 @@ export class IconStage {
    *  the iter 510 pixel-match baseline). The Set survives across
    *  frames; clear via `clearMissingIconNames()` between tests. */
   private missingIconNames: Set<string> = new Set()
+  /** Diagnostic counterpart — icon names the style ACTUALLY
+   *  dispatched (atlas resolved). Set rather than counter so the
+   *  test can answer "which names rendered" rather than "how
+   *  many". Iter 532 added to distinguish "shield filter rejected
+   *  all features" from "shield resolved but render path broken"
+   *  in the OFM bright-texas-shields view. */
+  private dispatchedIconNames: Set<string> = new Set()
 
   constructor(
     device: GPUDevice,
@@ -101,6 +108,7 @@ export class IconStage {
         if (atlasLoaded) this.missingIconNames.add(p.iconName)
         continue
       }
+      if (atlasLoaded) this.dispatchedIconNames.add(p.iconName)
       // Mapbox icon-size scaling already applies; DPR scaling layered
       // on top so a "1.0" icon-size looks the same physical size on
       // hidpi displays as the design intent.
@@ -144,6 +152,10 @@ export class IconStage {
   /** Reset the missing-icon diagnostic (tests that drive the stage
    *  through multiple atlas-load cycles). */
   clearMissingIconNames(): void { this.missingIconNames.clear() }
+
+  /** Iter 532 sibling — icon names successfully dispatched. */
+  getDispatchedIconNames(): string[] { return [...this.dispatchedIconNames].sort() }
+  clearDispatchedIconNames(): void { this.dispatchedIconNames.clear() }
 
   destroy(): void {
     this.renderer.destroy()

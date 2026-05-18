@@ -1319,6 +1319,15 @@ export class XGISMap {
     return this.iconStage?.getMissingIconNames() ?? null
   }
 
+  /** Sibling diagnostic — icon names that DID resolve and dispatched
+   *  to the GPU. Pair with `getMissingIconNames()` to distinguish
+   *  "feature filter rejected everything" (both empty) from "feature
+   *  reached dispatch and atlas resolved" (dispatched non-empty).
+   *  Iter 532. */
+  getDispatchedIconNames(): string[] | null {
+    return this.iconStage?.getDispatchedIconNames() ?? null
+  }
+
   /** Attach a per-label debug hook for the text stage. The hook fires
    *  once per addLabel / addCurvedLineLabel submission (BEFORE
    *  collision) and receives the final text + screen-pixel anchor.

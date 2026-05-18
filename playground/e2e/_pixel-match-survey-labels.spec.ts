@@ -204,9 +204,17 @@ for (const view of VIEWS) {
     // sprite-atlas key mismatches the compiler can't see. Stashed
     // to a per-view JSON for offline inspection; lossless — no
     // effect on the diff bucketing above.
-    const missingIcons = await page.evaluate(() => {
-      const xg = (window as unknown as { __xgisMap?: { getMissingIconNames?: () => string[] | null } }).__xgisMap
-      return xg?.getMissingIconNames?.() ?? null
+    const { missingIcons, dispatchedIcons } = await page.evaluate(() => {
+      const xg = (window as unknown as {
+        __xgisMap?: {
+          getMissingIconNames?: () => string[] | null
+          getDispatchedIconNames?: () => string[] | null
+        }
+      }).__xgisMap
+      return {
+        missingIcons: xg?.getMissingIconNames?.() ?? null,
+        dispatchedIcons: xg?.getDispatchedIconNames?.() ?? null,
+      }
     })
 
     const mlPng = await page.locator('#ml-map canvas').first().screenshot()
@@ -239,7 +247,7 @@ for (const view of VIEWS) {
       PNG.sync.write(makeDiffHeatmap(mlNorm, xgNorm, w, h)))
     writeFileSync(join(viewDir, 'buckets.json'), JSON.stringify({
       buckets, totalPx, canvasW: w, canvasH: h,
-      missingIcons,
+      missingIcons, dispatchedIcons,
     }, null, 2))
 
     // eslint-disable-next-line no-console
