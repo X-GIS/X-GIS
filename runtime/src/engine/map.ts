@@ -2436,6 +2436,15 @@ export class XGISMap {
     this.camera.maxZoom = 22
 
     // Clamp camera Y (latitude bounded), wrap X to a single world.
+    // Defensive: a non-finite centerX/Y/zoom upstream (malformed hash,
+    // buggy diagnostics replay, JS divide-by-zero in a host adapter)
+    // would propagate NaN through Math.min/max — the clamp doesn't
+    // self-correct since NaN compares false either way. Reset to a
+    // sensible default before the clamp so one bad assignment doesn't
+    // lock the camera into NaN matrices for every subsequent frame.
+    if (!Number.isFinite(this.camera.centerX)) this.camera.centerX = 0
+    if (!Number.isFinite(this.camera.centerY)) this.camera.centerY = 0
+    if (!Number.isFinite(this.camera.zoom)) this.camera.zoom = 0
     const MAX_MERC = 20037508.34
     const WORLD_MERC_FULL = MAX_MERC * 2 // full circumference
     const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
