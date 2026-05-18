@@ -4,6 +4,10 @@ export { Camera } from './engine/projection/camera'
 export { MapRenderer } from './engine/render/renderer'
 export { loadGeoJSON, lonLatToMercator } from './loader/geojson'
 export {
+  injectPolarCaps, findClampBoundarySpans, synthesizeCapRing, vertexOnClampBoundary,
+  type CapSpan,
+} from './loader/polar-cap-detect'
+export {
   // Function-style API (back-compat with prior versions)
   loadPMTilesSource, attachPMTilesSource,
   fetchPMTilesVectorLayerFields, fetchPMTilesVectorLayerSchema,
