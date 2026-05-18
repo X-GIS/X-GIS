@@ -828,6 +828,29 @@ function convertSymbolLayer(
     warnings.push(`Symbol layer "${layer.id}" — icon-padding non-constant form not yet supported.`)
   }
 
+  // text-optional / icon-optional — placement-policy pair. Both spec
+  // defaults are `false` (text+icon must both place, or neither does
+  // — matching X-GIS' current contract: drop the pair when either
+  // can't fit). `text-optional: true` lets the icon survive alone
+  // when the label can't fit; `icon-optional: true` lets the label
+  // survive alone when the icon can't fit. Neither is implemented
+  // (would need split icon/text collision arbitration in the symbol
+  // placement queue). OFM airport authors `text-optional: true` in
+  // all 3 OFM styles — at dense urban zooms the airport icon (sprite
+  // `airport_11`) would render alone in MapLibre when the "Airport"
+  // label can't fit, but X-GIS drops both. Warn only on the non-
+  // default value so OFM `icon-optional: false` (the default,
+  // authored explicitly on the 4 label_* layers per style) doesn't
+  // regress the lossless metric.
+  const textOptional = unwrapLiteralScalar(layout['text-optional'])
+  if (textOptional === true) {
+    warnings.push(`Symbol layer "${layer.id}" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.`)
+  }
+  const iconOptional = unwrapLiteralScalar(layout['icon-optional'])
+  if (iconOptional === true) {
+    warnings.push(`Symbol layer "${layer.id}" — icon-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The icon may be dropped at zoom levels where MapLibre would render label-only.`)
+  }
+
   // text-rotate (degrees clockwise) + text-letter-spacing (em-units).
   // Both can be negative (counter-clockwise rotation, condensed
   // tracking) → bracket form for negatives. Mapbox text-letter-spacing
