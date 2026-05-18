@@ -34,6 +34,13 @@ export interface IconDraw {
    *                                                  corner-anchored
    *  Each mode offsets the TL corner accordingly. */
   anchor?: IconAnchor
+  /** Mapbox `icon-opacity` 0..1 multiplier on fragment alpha. Default
+   *  1 (no fade). Packed as a per-vertex attribute; one batch can mix
+   *  multiple opacities across icons (different layers / per-feature
+   *  expressions). Below 1/255 the fragment alpha drops below 8-bit
+   *  precision — callers that filter near-zero icons save vertex
+   *  bandwidth. */
+  opacity?: number
 }
 
 export type IconAnchor =
@@ -41,7 +48,7 @@ export type IconAnchor =
   | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
 
 const VERTS_PER_QUAD = 6
-const FLOATS_PER_VERT = 4   // pos.x, pos.y, uv.x, uv.y
+const FLOATS_PER_VERT = 5   // pos.x, pos.y, uv.x, uv.y, opacity
 const FLOATS_PER_QUAD = VERTS_PER_QUAD * FLOATS_PER_VERT
 
 const ICON_SHADER_WGSL = /* wgsl */ `
@@ -54,19 +61,26 @@ struct Uniforms { viewport: vec2<f32>, _pad0: f32, _pad1: f32 }
 struct VsOut {
   @builtin(position) clip_pos: vec4<f32>,
   @location(0) uv: vec2<f32>,
+  @location(1) opacity: f32,
 }
 
-@vertex fn vs(@location(0) pos_px: vec2<f32>, @location(1) uv: vec2<f32>) -> VsOut {
+@vertex fn vs(
+  @location(0) pos_px: vec2<f32>,
+  @location(1) uv: vec2<f32>,
+  @location(2) opacity: f32,
+) -> VsOut {
   let ndc_x = (pos_px.x / u.viewport.x) * 2.0 - 1.0;
   let ndc_y = 1.0 - (pos_px.y / u.viewport.y) * 2.0;
-  return VsOut(vec4<f32>(ndc_x, ndc_y, 0.0, 1.0), uv);
+  return VsOut(vec4<f32>(ndc_x, ndc_y, 0.0, 1.0), uv, opacity);
 }
 
 @fragment fn fs(in: VsOut) -> @location(0) vec4<f32> {
   let c = textureSample(atlas_tex, atlas_smp, in.uv);
   // PNG is non-premultiplied; the blend state below uses src-alpha
   // accordingly so we don't need to premultiply in the shader.
-  return c;
+  // Mapbox icon-opacity multiplies the source alpha — 1.0 (default)
+  // passes through, 0.0 drops the icon, partial values cross-fade.
+  return vec4<f32>(c.rgb, c.a * in.opacity);
 }
 `
 
@@ -114,6 +128,7 @@ export class IconRenderer {
           attributes: [
             { shaderLocation: 0, offset: 0, format: 'float32x2' }, // pos_px
             { shaderLocation: 1, offset: 8, format: 'float32x2' }, // uv
+            { shaderLocation: 2, offset: 16, format: 'float32' },  // opacity
           ],
         }],
       },
@@ -194,14 +209,19 @@ export class IconRenderer {
         ;[trx, try_] = rotate(x1, y0)
       }
 
+      // Per-icon opacity gets stamped onto every vertex of the quad —
+      // the vertex shader passes it through as a varying so the
+      // fragment can multiply the texture alpha. Default 1 keeps
+      // the existing no-fade behaviour byte-for-byte.
+      const op = d.opacity ?? 1
       // tri 1: TL, BL, BR
-      data[off + 0] = tlx; data[off + 1] = tly; data[off + 2] = u0;  data[off + 3] = v0
-      data[off + 4] = blx; data[off + 5] = bly; data[off + 6] = u0;  data[off + 7] = v1
-      data[off + 8] = brx; data[off + 9] = bry; data[off + 10] = u1; data[off + 11] = v1
+      data[off +  0] = tlx; data[off +  1] = tly; data[off +  2] = u0; data[off +  3] = v0; data[off +  4] = op
+      data[off +  5] = blx; data[off +  6] = bly; data[off +  7] = u0; data[off +  8] = v1; data[off +  9] = op
+      data[off + 10] = brx; data[off + 11] = bry; data[off + 12] = u1; data[off + 13] = v1; data[off + 14] = op
       // tri 2: TL, BR, TR
-      data[off + 12] = tlx; data[off + 13] = tly; data[off + 14] = u0; data[off + 15] = v0
-      data[off + 16] = brx; data[off + 17] = bry; data[off + 18] = u1; data[off + 19] = v1
-      data[off + 20] = trx; data[off + 21] = try_; data[off + 22] = u1; data[off + 23] = v0
+      data[off + 15] = tlx; data[off + 16] = tly; data[off + 17] = u0; data[off + 18] = v0; data[off + 19] = op
+      data[off + 20] = brx; data[off + 21] = bry; data[off + 22] = u1; data[off + 23] = v1; data[off + 24] = op
+      data[off + 25] = trx; data[off + 26] = try_; data[off + 27] = u1; data[off + 28] = v0; data[off + 29] = op
       off += FLOATS_PER_QUAD
     }
 

@@ -500,6 +500,7 @@ function lowerLayer(
   let labelIconAnchor: import('./render-node').LabelDef['iconAnchor'] | undefined
   let labelIconOffset: [number, number] | undefined
   let labelIconRotate: number | undefined
+  let labelIconOpacity: number | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'source' && prop.value.kind === 'Identifier') {
@@ -1222,6 +1223,11 @@ function lowerLayer(
         if (!isNaN(num)) labelIconRotate = num
         continue
       }
+      if (name.startsWith('label-icon-opacity-')) {
+        const num = parseFloat(name.slice('label-icon-opacity-'.length))
+        if (!isNaN(num)) labelIconOpacity = Math.max(0, Math.min(1, num))
+        continue
+      }
       if (name.startsWith('label-spacing-')) {
         const num = parseFloat(name.slice('label-spacing-'.length))
         if (!isNaN(num)) labelSpacing = num
@@ -1736,7 +1742,7 @@ function lowerLayer(
       labelMaxWidth, labelLineHeight, labelJustify,
       labelPlacement, labelSpacing,
       labelRotationAlignment, labelPitchAlignment, labelKeepUpright,
-      labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconRotate,
+      labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconRotate, labelIconOpacity,
     }),
   }
 }
@@ -1799,6 +1805,7 @@ function foldLabelKnobs(
     labelIconAnchor?: import('./render-node').LabelDef['iconAnchor']
     labelIconOffset?: [number, number]
     labelIconRotate?: number
+    labelIconOpacity?: number
   },
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
@@ -1877,6 +1884,7 @@ function foldLabelKnobs(
     ...(knobs.labelIconAnchor !== undefined ? { iconAnchor: knobs.labelIconAnchor } : {}),
     ...(knobs.labelIconOffset !== undefined ? { iconOffset: knobs.labelIconOffset } : {}),
     ...(knobs.labelIconRotate !== undefined ? { iconRotate: knobs.labelIconRotate } : {}),
+    ...(knobs.labelIconOpacity !== undefined ? { iconOpacity: knobs.labelIconOpacity } : {}),
   }
   // Plan Label L3: the LabelDef no longer carries `xxxZoomStops` /
   // `xxxExpr` siblings — those were dead-staging fields. Build the

@@ -647,7 +647,7 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "action": "lossy",
       "layerId": "road_oneway",
       "reasons": [
-        "Symbol layer "road_oneway" — ignored properties (Batch 1d/1e+): icon-opacity, icon-rotation-alignment",
+        "Symbol layer "road_oneway" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
       ],
       "type": "symbol",
     },
@@ -655,7 +655,7 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "action": "lossy",
       "layerId": "road_oneway_opposite",
       "reasons": [
-        "Symbol layer "road_oneway_opposite" — ignored properties (Batch 1d/1e+): icon-opacity, icon-rotation-alignment",
+        "Symbol layer "road_oneway_opposite" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
       ],
       "type": "symbol",
     },
@@ -828,8 +828,8 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
     "Source "ne2_shaded" declares minzoom/maxzoom (-…6); the runtime tile selector doesn't yet honour source-level zoom bounds, so out-of-range tiles will be requested and 404. Use layer-level minzoom/maxzoom to limit fetch volume.",
     "Source "ne2_shaded" declares tileSize: 256; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.",
     "Layer "building-top" — ignored paint properties: fill-translate",
-    "Symbol layer "road_oneway" — ignored properties (Batch 1d/1e+): icon-opacity, icon-rotation-alignment",
-    "Symbol layer "road_oneway_opposite" — ignored properties (Batch 1d/1e+): icon-opacity, icon-rotation-alignment",
+    "Symbol layer "road_oneway" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
+    "Symbol layer "road_oneway_opposite" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
     "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
     "Symbol layer "highway-shield-non-us" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",
     "Symbol layer "highway-shield-us-interstate" — ignored properties (Batch 1d/1e+): icon-rotation-alignment",

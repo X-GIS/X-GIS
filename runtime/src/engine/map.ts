@@ -3581,7 +3581,7 @@ export class XGISMap {
         // doesn't call this (icon-along-curve is a Phase B+ feature);
         // point-anchored POI symbols (the demotiles + OFM Bright bus-
         // stop / school / amenity layers) flow through here.
-        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconRotate?: number }, ax: number, ay: number): void => {
+        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconRotate?: number; iconOpacity?: number }, ax: number, ay: number): void => {
           if (!iStage || def.iconImage === undefined) return
           const offDx = (def.iconOffset?.[0] ?? 0) * dpr
           const offDy = (def.iconOffset?.[1] ?? 0) * dpr
@@ -3589,6 +3589,7 @@ export class XGISMap {
             sizeScale: def.iconSize ?? 1,
             rotateRad: ((def.iconRotate ?? 0) * Math.PI) / 180,
             anchor: def.iconAnchor ?? 'center',
+            opacity: def.iconOpacity ?? 1,
           })
         }
         // Mapbox `text-field` expressions that depend on zoom (e.g.

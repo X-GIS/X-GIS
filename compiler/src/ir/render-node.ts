@@ -374,6 +374,10 @@ export interface LabelDef {
   iconOffset?: [number, number]
   /** Mapbox `icon-rotate` in degrees clockwise. Default 0. */
   iconRotate?: number
+  /** Mapbox `icon-opacity` alpha multiplier on icon fragments. 0..1
+   *  range, default 1 (full opacity). Constant form only — non-
+   *  constant warns at the converter (lossy layer). */
+  iconOpacity?: number
 
   /** Unified PropertyShape bundle for the four "shape-able" paint
    *  properties (text-size, text-color, text-halo-width,

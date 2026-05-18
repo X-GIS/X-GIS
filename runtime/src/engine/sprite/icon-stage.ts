@@ -25,6 +25,7 @@ interface PendingIcon {
   sizeScale: number
   rotateRad: number
   anchor: IconAnchor
+  opacity: number
 }
 
 export class IconStage {
@@ -56,13 +57,14 @@ export class IconStage {
    *  sprite atlas — unknown names are dropped silently in prepare(). */
   addIcon(
     anchorX: number, anchorY: number, iconName: string,
-    opts: { sizeScale?: number; rotateRad?: number; anchor?: IconAnchor } = {},
+    opts: { sizeScale?: number; rotateRad?: number; anchor?: IconAnchor; opacity?: number } = {},
   ): void {
     this.pending.push({
       anchorX, anchorY, iconName,
       sizeScale: opts.sizeScale ?? 1,
       rotateRad: opts.rotateRad ?? 0,
       anchor: opts.anchor ?? 'center',
+      opacity: opts.opacity ?? 1,
     })
   }
 
@@ -93,6 +95,7 @@ export class IconStage {
         sprite, sizeScale,
         rotateRad: p.rotateRad,
         anchor: p.anchor,
+        opacity: p.opacity,
       })
     }
     this.renderer.setDraws(draws)

@@ -1049,6 +1049,22 @@ function convertSymbolLayer(
     utils.push(`label-icon-rotate-${fmtSigned(iconRotate)}`)
   }
 
+  // icon-opacity (paint property) — Mapbox alpha multiplier on icon
+  // fragment. Constant form emits a utility the runtime threads
+  // through IconStage.addIcon → vertex attribute. Default 1 leaves
+  // the utility off (no-op). Zoom-interp / data-driven defer to a
+  // future paint-shape extension; for now non-constant warns via
+  // the ignoredText loop below.
+  const iconOpacity = unwrapLiteralScalar(paint['icon-opacity'])
+  if (typeof iconOpacity === 'number' && Number.isFinite(iconOpacity) && iconOpacity !== 1) {
+    utils.push(`label-icon-opacity-${Math.max(0, Math.min(1, iconOpacity))}`)
+  } else if (iconOpacity !== undefined && iconOpacity !== null && typeof iconOpacity !== 'number') {
+    // Non-constant icon-opacity (zoom interp / data-driven) — would
+    // need per-frame / per-feature alpha threading through IconStage.
+    // Deferred; warn so the lossy layer count reflects reality.
+    warnings.push(`Symbol layer "${layer.id}" — icon-opacity non-constant form not yet supported.`)
+  }
+
   const ignoredText: string[] = []
   // Unsupported symbol properties — surface ONE consolidated note per
   // layer so style authors know which knobs landed without effect.
@@ -1060,7 +1076,6 @@ function convertSymbolLayer(
     'text-max-angle',        // along-path glyph orientation clamp
     'text-opacity',          // Per-property fade; text uses layer opacity today
     'icon-color',
-    'icon-opacity',
     'icon-halo-color',
     'icon-halo-width',
     'icon-halo-blur',
