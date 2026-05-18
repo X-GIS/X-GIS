@@ -279,6 +279,22 @@ export function convertSource(
     // future hillshade / 3D-terrain layer will pick it up.
     const url = src.tiles?.[0] ?? src.url
     if (url) {
+      // Mirror of the raster path placeholder check — raster-dem also
+      // serves per-tile elevation textures and the URL template needs
+      // {z}/{x}/{y} unless it's a TileJSON manifest.
+      const isManifestUrl = /\.(?:json|tilejson)(?:\?|#|$)/i.test(url)
+      const fromTiles = src.tiles?.[0] === url
+      if (fromTiles && !isManifestUrl) {
+        const hasZ = url.includes('{z}')
+        const hasX = url.includes('{x}')
+        const hasY = url.includes('{y}')
+        if (!hasZ || !hasX || !hasY) {
+          const missing = [
+            !hasZ && '{z}', !hasX && '{x}', !hasY && '{y}',
+          ].filter(Boolean).join(', ')
+          warnings.push(`raster-dem source "${id}" tiles[0] is missing required URL placeholder${missing.includes(',') ? 's' : ''}: ${missing}. Expected a template like https://host/{z}/{x}/{y}.png.`)
+        }
+      }
       lines.push('  type: raster-dem')
       lines.push(`  url: ${JSON.stringify(url)}`)
       lines.push('  // NOTE: raster-dem rendering (hillshade / 3D terrain) — Batch 4 of the Mapbox compatibility roadmap.')

@@ -66,4 +66,28 @@ describe('raster tiles[] URL placeholder validation', () => {
     const code = convertMapboxStyle(style as never)
     expect(code).not.toMatch(/missing required URL placeholder/)
   })
+
+  it('raster-dem tiles[] without placeholders also warns', () => {
+    const style = {
+      version: 8,
+      sources: {
+        s: { type: 'raster-dem', tiles: ['https://example.com/dem.png'] },
+      },
+      layers: [],
+    }
+    const code = convertMapboxStyle(style as never)
+    expect(code).toMatch(/raster-dem source "s" tiles\[0\] is missing required URL placeholders/)
+  })
+
+  it('raster-dem with all three placeholders does NOT warn (regression guard)', () => {
+    const style = {
+      version: 8,
+      sources: {
+        s: { type: 'raster-dem', tiles: ['https://example.com/{z}/{x}/{y}.png'] },
+      },
+      layers: [],
+    }
+    const code = convertMapboxStyle(style as never)
+    expect(code).not.toMatch(/raster-dem source "s" tiles\[0\] is missing/)
+  })
 })
