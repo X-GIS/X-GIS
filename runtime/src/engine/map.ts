@@ -911,16 +911,22 @@ export class XGISMap {
   getCameraState(): { center: [number, number]; zoom: number; bearing: number; pitch: number } {
     // Inverse Mercator: x → lon, y → lat. EARTH_RADIUS / DEG2RAD
     // constants match the lonLatToMercator forward in geojson.ts.
+    // Number.isFinite gate: if camera.centerX/Y got into NaN/Infinity
+    // upstream (the renderFrame defensive reset doesn't fire until
+    // the next frame), report 0/0 instead of NaN coords. Otherwise
+    // getCameraState → jumpTo round-trip locks the camera into NaN.
     const EARTH_RADIUS = 6378137
     const DEG2RAD = Math.PI / 180
-    const lon = this.camera.centerX / (DEG2RAD * EARTH_RADIUS)
-    const latRad = 2 * Math.atan(Math.exp(this.camera.centerY / EARTH_RADIUS)) - Math.PI / 2
+    const cx = Number.isFinite(this.camera.centerX) ? this.camera.centerX : 0
+    const cy = Number.isFinite(this.camera.centerY) ? this.camera.centerY : 0
+    const lon = cx / (DEG2RAD * EARTH_RADIUS)
+    const latRad = 2 * Math.atan(Math.exp(cy / EARTH_RADIUS)) - Math.PI / 2
     const lat = latRad / DEG2RAD
     return {
       center: [lon, lat],
-      zoom: this.camera.zoom,
-      bearing: this.camera.bearing,
-      pitch: this.camera.pitch,
+      zoom: Number.isFinite(this.camera.zoom) ? this.camera.zoom : 0,
+      bearing: Number.isFinite(this.camera.bearing) ? this.camera.bearing : 0,
+      pitch: Number.isFinite(this.camera.pitch) ? this.camera.pitch : 0,
     }
   }
 
