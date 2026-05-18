@@ -90,4 +90,52 @@ describe('raster tiles[] URL placeholder validation', () => {
     const code = convertMapboxStyle(style as never)
     expect(code).not.toMatch(/raster-dem source "s" tiles\[0\] is missing/)
   })
+
+  it('vector tiles[] without placeholders warns (Wrong-magic-number trap)', () => {
+    const style = {
+      version: 8,
+      sources: {
+        s: { type: 'vector', tiles: ['https://example.com/static.mvt'] },
+      },
+      layers: [],
+    }
+    const code = convertMapboxStyle(style as never)
+    expect(code).toMatch(/Vector source "s" tiles\[0\] is missing required URL placeholders/)
+  })
+
+  it('vector pmtiles url path does NOT warn (no placeholders required)', () => {
+    const style = {
+      version: 8,
+      sources: {
+        s: { type: 'vector', tiles: ['https://example.com/archive.pmtiles'] },
+      },
+      layers: [],
+    }
+    const code = convertMapboxStyle(style as never)
+    expect(code).not.toMatch(/Vector source "s" tiles\[0\] is missing/)
+  })
+
+  it('vector tilejson manifest URL does NOT warn', () => {
+    const style = {
+      version: 8,
+      sources: {
+        s: { type: 'vector', tiles: ['https://example.com/tiles.json'] },
+      },
+      layers: [],
+    }
+    const code = convertMapboxStyle(style as never)
+    expect(code).not.toMatch(/Vector source "s" tiles\[0\] is missing/)
+  })
+
+  it('vector tiles[] with placeholders does NOT warn (regression guard)', () => {
+    const style = {
+      version: 8,
+      sources: {
+        s: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.mvt'] },
+      },
+      layers: [],
+    }
+    const code = convertMapboxStyle(style as never)
+    expect(code).not.toMatch(/Vector source "s" tiles\[0\] is missing/)
+  })
 })

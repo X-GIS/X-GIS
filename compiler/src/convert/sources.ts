@@ -209,6 +209,25 @@ export function convertSource(
       lines.push('  type: pmtiles')
       lines.push(`  url: ${JSON.stringify(url)}`)
     } else if (url) {
+      // Vector source from tiles[] WITHOUT a manifest URL or PMTiles
+      // extension must be a per-tile XYZ template. Mirror of the
+      // raster/raster-dem placeholder check — a static URL silently
+      // makes the runtime detectVectorTileFormat return null, the
+      // caller defaults to PMTiles, and the fetch fails with "Wrong
+      // magic number" on the non-archive bytes.
+      const fromTiles = src.url === undefined && src.tiles?.[0] === url
+      const isManifestUrl = /\.(?:json|tilejson)(?:\?|#|$)/i.test(url)
+      if (fromTiles && !isManifestUrl) {
+        const hasZ = url.includes('{z}')
+        const hasX = url.includes('{x}')
+        const hasY = url.includes('{y}')
+        if (!hasZ || !hasX || !hasY) {
+          const missing = [
+            !hasZ && '{z}', !hasX && '{x}', !hasY && '{y}',
+          ].filter(Boolean).join(', ')
+          warnings.push(`Vector source "${id}" tiles[0] is missing required URL placeholder${missing.includes(',') ? 's' : ''}: ${missing}. Without {z}/{x}/{y} the runtime tile-format detector returns null and the loader crashes with "Wrong magic number" on the fetched bytes.`)
+        }
+      }
       lines.push('  type: tilejson')
       lines.push(`  url: ${JSON.stringify(url)}`)
     } else {
