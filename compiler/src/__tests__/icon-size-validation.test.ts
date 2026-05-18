@@ -68,7 +68,7 @@ describe('icon-size validation — iter 522', () => {
   })
 
   it('Infinity → silently dropped', () => {
-    const { xgis, warnings } = compile(Infinity)
+    const { xgis } = compile(Infinity)
     expect(xgis).not.toContain('label-icon-size-Infinity')
   })
 
