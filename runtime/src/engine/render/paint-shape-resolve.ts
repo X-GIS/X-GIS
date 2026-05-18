@@ -66,7 +66,11 @@ export function resolveNumberShape(
         hasZoom: false, hasTime: true,
       }
     case 'zoom-time': {
-      const zoomFactor = interpolateZoom(shape.zoomStops, cameraZoom, 1)
+      // Pass zoomBase through to interpolateZoom so exponential curves
+      // (Mapbox `["exponential", N]`) survive the zoom-time merge.
+      // Pre-fix the merge always used base=1 → exponential paint axes
+      // collapsed to linear the moment a time animation was layered on.
+      const zoomFactor = interpolateZoom(shape.zoomStops, cameraZoom, shape.zoomBase ?? 1)
       const timeFactor = interpolateTime(
         shape.timeStops, elapsedMs, shape.loop, shape.easing, shape.delayMs,
       )
