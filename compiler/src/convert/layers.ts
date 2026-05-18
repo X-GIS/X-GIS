@@ -1363,10 +1363,19 @@ export function convertLayer(layer: MapboxLayer, warnings: string[]): string | n
     if (cap === 'butt') layoutUtils.push('stroke-butt-cap')
     else if (cap === 'round') layoutUtils.push('stroke-round-cap')
     else if (cap === 'square') layoutUtils.push('stroke-square-cap')
+    else if (cap !== undefined && cap !== null) {
+      // Mapbox spec: line-cap must be 'butt' | 'round' | 'square'.
+      // Anything else silently dropped pre-fix and the line fell to
+      // the renderer default; surface the typo.
+      warnings.push(`Layer "${layer.id}" — line-cap "${String(cap).slice(0, 40)}" is not a valid enum; expected 'butt' | 'round' | 'square'.`)
+    }
     const join = unwrapLiteralScalar(layout['line-join'])
     if (join === 'miter') layoutUtils.push('stroke-miter-join')
     else if (join === 'round') layoutUtils.push('stroke-round-join')
     else if (join === 'bevel') layoutUtils.push('stroke-bevel-join')
+    else if (join !== undefined && join !== null) {
+      warnings.push(`Layer "${layer.id}" — line-join "${String(join).slice(0, 40)}" is not a valid enum; expected 'miter' | 'round' | 'bevel'.`)
+    }
     const miter = unwrapLiteralScalar(layout['line-miter-limit'])
     if (typeof miter === 'number' && Number.isFinite(miter)) layoutUtils.push(`stroke-miterlimit-${miter}`)
   }
