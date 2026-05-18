@@ -365,12 +365,29 @@ function tileLonLat(z: number, x: number, y: number): { lonW: number; lonE: numb
  *  (x≈0 and x≈2^z−1). The old non-Mercator path collapsed to a single
  *  non-wrapping lon window and dropped the far half — fixed here.
  */
+// Per-call memo for globeVisibleTiles. The function inputs depend ONLY
+// on camera state + canvas — every source within the same frame hits
+// the same answer. Pre-fix vector-tile-renderer.ts called it per
+// source-show, paying the same recursive sphere-tile traversal 5-8×
+// per frame on OFM Bright (multiple sources × 60 fps = O(1M) toScreen
+// multiplies/sec on a Seoul-zoom-15 globe view — user-reported perf
+// degradation, 2026-05-18). The memo key serialises every input value
+// the algorithm reads, so a parameter change invalidates the cache.
+let _globeTilesCacheKey: string | null = null
+let _globeTilesCacheResult: GlobeTile[] = []
+
 export function globeVisibleTiles(
   centerLon: number, centerLat: number,
   zoom: number, maxZ: number,
   cssWidthPx: number, cssHeightPx: number,
   pitchDeg = 0, bearingDeg = 0,
 ): GlobeTile[] {
+  // Memo lookup. String key is round-tripped through toFixed(4) so
+  // micro-jitter (1e-9 lon drift after a re-projection) doesn't blow
+  // the cache on every frame; 4 decimals of lon ≈ 11m at equator
+  // which is well below tile-pixel resolution at z=22.
+  const key = `${centerLon.toFixed(4)}|${centerLat.toFixed(4)}|${zoom.toFixed(3)}|${maxZ}|${cssWidthPx.toFixed(0)}|${cssHeightPx.toFixed(0)}|${pitchDeg.toFixed(2)}|${bearingDeg.toFixed(2)}`
+  if (key === _globeTilesCacheKey) return _globeTilesCacheResult
   const view = buildGlobeMatrix(
     centerLon, centerLat, zoom, pitchDeg, bearingDeg, cssWidthPx, cssHeightPx,
   )
@@ -454,5 +471,7 @@ export function globeVisibleTiles(
       out.push({ z: t.z, x: t.x, y: t.y, ox: t.x })
     }
   }
+  _globeTilesCacheKey = key
+  _globeTilesCacheResult = out
   return out
 }
