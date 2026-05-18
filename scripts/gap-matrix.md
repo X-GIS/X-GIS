@@ -1,6 +1,6 @@
 # X-GIS Mapbox Support Gap Matrix
 
-Generated: 2026-05-18T23:33:48.760Z
+Generated: 2026-05-18T23:38:19.488Z
 
 ## Runtime capability gaps
 

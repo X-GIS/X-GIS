@@ -235,9 +235,9 @@ const PAINT_FILL_EXTRUSION: readonly CoverageEntry[] = [
   { name: 'fill-extrusion-translate', status: 'unsupported', impact: 'low' },
   { name: 'fill-extrusion-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport / map space for fill-extrusion-translate; dependent on translate.' },
   { name: 'fill-extrusion-pattern',   status: 'unsupported', impact: 'medium' },
-  { name: 'fill-extrusion-vertical-gradient', status: 'unsupported', impact: 'low' },
-  { name: 'fill-extrusion-ambient-occlusion-intensity', status: 'unsupported', impact: 'low' },
-  { name: 'fill-extrusion-ambient-occlusion-radius',    status: 'unsupported', impact: 'low' },
+  { name: 'fill-extrusion-vertical-gradient', status: 'unsupported', impact: 'low', note: 'Default `true` is always-on at runtime — fragment shader applies a vertical gradient ramp (0.6 base → 1.0 roof) plus a roof bonus to approximate MapLibre default. Setting `false` to disable the gradient would need a per-show flag + WGSL branch — surfaceIgnoredPaint warns when authored. Iter post-§9 tightened the ramp to match MapLibre defaults.' },
+  { name: 'fill-extrusion-ambient-occlusion-intensity', status: 'unsupported', impact: 'low', note: 'AO would need per-vertex normal + screen-space AO pass. Not in current renderer.' },
+  { name: 'fill-extrusion-ambient-occlusion-radius',    status: 'unsupported', impact: 'low', note: 'See fill-extrusion-ambient-occlusion-intensity.' },
 ]
 
 const PAINT_RASTER: readonly CoverageEntry[] = [
