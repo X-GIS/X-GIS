@@ -442,7 +442,17 @@ export function globeVisibleTiles(
     const tz = stackZ.pop()!
     const tx = stackX.pop()!
     const ty = stackY.pop()!
-    const { lonW, lonE, latN, latS } = tileLonLat(tz, tx, ty)
+    // Inline tileLonLat to avoid the 4-field object allocation per
+    // node visit. At z=15 globe ~32k node visits = 32k transient
+    // {lonW, lonE, latN, latS} objects pre-fix. V8 hidden-class
+    // sharing kept the pressure manageable but per-node object
+    // alloc still showed in heap-profile traces during the
+    // 2026-05-18 globe regression chase. Scalar locals match.
+    const tileN = Math.pow(2, tz)
+    const lonW = tx / tileN * 360 - 180
+    const lonE = (tx + 1) / tileN * 360 - 180
+    const latN = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / tileN))) * RAD2DEG
+    const latS = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / tileN))) * RAD2DEG
     const lonM = (lonW + lonE) / 2
     const latM = (latN + latS) / 2
     // 5 sample lon/lat pairs — flat scalar form (no allocation).
