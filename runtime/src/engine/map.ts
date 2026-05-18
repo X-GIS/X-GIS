@@ -11,6 +11,7 @@ import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT, WORLD_MERC, TILE_PX } from './g
 import { QUALITY, updateQuality, type QualityConfig } from './gpu/quality'
 import { GPUTimer } from './gpu/gpu-timer'
 import { Camera } from './projection/camera'
+import { MERCATOR_LAT_LIMIT } from './projection/projection'
 import { projectWgsl, needsBackfaceCullWgsl } from './projection/projection-wgsl-mirror'
 import { globeForward } from './projection/globe'
 import { MapRenderer, type ShowCommand } from './render/renderer'
@@ -525,6 +526,54 @@ export class XGISMap {
   setGraticuleEnabled(on: boolean): void {
     this.renderer?.setGraticuleEnabled(on)
     this._graticuleInitial = on
+    this.invalidate()
+  }
+
+  /** Mapbox-API parity: programmatic camera control.
+   *
+   *  Each setter validates the input (Number.isFinite + spec range
+   *  clamps) before assigning to the camera. Invalid input is dropped
+   *  with a warn-once and the camera state is unchanged — mirrors the
+   *  defensive resets at renderFrame top (iter 419) but catches the
+   *  bad call upstream so the host sees the warning. */
+  setCenter(lon: number, lat: number): void {
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+      console.warn(`[X-GIS] setCenter: non-finite (lon=${lon}, lat=${lat}); ignored.`)
+      return
+    }
+    // Clamp lat to Mercator-safe limit; lon wraps in renderFrame.
+    const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
+    const [mx, my] = lonLatToMercator(lon, clampedLat)
+    this.camera.centerX = mx
+    this.camera.centerY = my
+    this.invalidate()
+  }
+
+  setZoom(zoom: number): void {
+    if (!Number.isFinite(zoom)) {
+      console.warn(`[X-GIS] setZoom: non-finite (${zoom}); ignored.`)
+      return
+    }
+    this.camera.zoom = Math.max(0, Math.min(22, zoom))
+    this.invalidate()
+  }
+
+  setBearing(bearing: number): void {
+    if (!Number.isFinite(bearing)) {
+      console.warn(`[X-GIS] setBearing: non-finite (${bearing}); ignored.`)
+      return
+    }
+    // Wrap to [0, 360). Negative bearings wrap to positive equivalent.
+    this.camera.bearing = ((bearing % 360) + 360) % 360
+    this.invalidate()
+  }
+
+  setPitch(pitch: number): void {
+    if (!Number.isFinite(pitch)) {
+      console.warn(`[X-GIS] setPitch: non-finite (${pitch}); ignored.`)
+      return
+    }
+    this.camera.pitch = Math.max(0, Math.min(85, pitch))
     this.invalidate()
   }
 
