@@ -18,7 +18,7 @@ import {
 } from './geojson-compile-worker'
 import type { GeoJSONFeatureCollection } from '../../loader/geojson'
 
-function makePointFC(points: [number, number][], ids?: unknown[]): GeoJSONFeatureCollection {
+function makePointFC(points: [number, number][], ids?: (string | number)[]): GeoJSONFeatureCollection {
   return {
     type: 'FeatureCollection',
     features: points.map((c, i) => ({
@@ -48,19 +48,19 @@ function makePolygonFC(): GeoJSONFeatureCollection {
 describe('resolveIdResolver', () => {
   it('index mode returns the array index regardless of feature.id', () => {
     const r = resolveIdResolver('index')
-    expect(r({ type: 'Feature', id: 99, geometry: null as unknown as null, properties: {} }, 0)).toBe(0)
-    expect(r({ type: 'Feature', id: 99, geometry: null as unknown as null, properties: {} }, 5)).toBe(5)
+    expect(r({ type: 'Feature', id: 99, geometry: null, properties: {} }, 0)).toBe(0)
+    expect(r({ type: 'Feature', id: 99, geometry: null, properties: {} }, 5)).toBe(5)
   })
 
   it('feature-id-fallback honours feature.id when present', () => {
     const r = resolveIdResolver('feature-id-fallback')
-    expect(r({ type: 'Feature', id: 42, geometry: null as unknown as null, properties: {} }, 0)).toBe(42)
+    expect(r({ type: 'Feature', id: 42, geometry: null, properties: {} }, 0)).toBe(42)
   })
 
   it('feature-id-fallback falls back to properties.id, then index', () => {
     const r = resolveIdResolver('feature-id-fallback')
-    expect(r({ type: 'Feature', geometry: null as unknown as null, properties: { id: 7 } }, 999)).toBe(7)
-    expect(r({ type: 'Feature', geometry: null as unknown as null, properties: {} }, 3)).toBe(3)
+    expect(r({ type: 'Feature', geometry: null, properties: { id: 7 } }, 999)).toBe(7)
+    expect(r({ type: 'Feature', geometry: null, properties: {} }, 3)).toBe(3)
   })
 })
 

@@ -10,7 +10,15 @@ export interface GeoJSONFeatureCollection {
 
 export interface GeoJSONFeature {
   type: 'Feature'
-  geometry: GeoJSONGeometry
+  /** RFC 7946 §3.2 — Feature objects MAY include an `id` member
+   *  (string or number). resolveIdResolver consumes it as the
+   *  primary identifier in 'feature-id-fallback' mode. */
+  id?: string | number
+  /** RFC 7946 §3.2 — `geometry` may be JSON `null` for an
+   *  "unlocated" Feature. loadGeoJSON's main loop skips null-geometry
+   *  features defensively (geojson.ts:302); the type now matches the
+   *  spec so callers don't need `as unknown as null` casts. */
+  geometry: GeoJSONGeometry | null
   properties: Record<string, unknown>
 }
 
