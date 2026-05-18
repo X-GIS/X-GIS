@@ -700,6 +700,12 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       const fmtVal = (val: unknown): string => {
         if (val === undefined || val === null) return 'null'
         if (typeof val === 'string') return JSON.stringify(val)
+        // Reject NaN/Infinity — String(NaN) = "NaN" would land in
+        // the emitted number_format call as a bare identifier, the
+        // parser would resolve it to props['NaN'] (typically
+        // undefined), and number-format silently fell to spec
+        // default with no diagnostic.
+        if (typeof val === 'number' && !Number.isFinite(val)) return 'null'
         return String(val)
       }
       const minFrac = fmtVal(o['min-fraction-digits'])
