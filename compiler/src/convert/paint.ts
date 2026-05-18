@@ -546,6 +546,13 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
         return n
       })
       const nums = unwrapped.filter(n => typeof n === 'number').map(n => Math.max(0, n as number))
+      // Surface partial-drop: a dash array with one non-numeric entry
+      // (typo'd `[4, "two", 2]` from hand-edited JSON) would otherwise
+      // silently emit a `stroke-dasharray-4-2` that doesn't match the
+      // authored intent. Warn so the conversion notes record the gap.
+      if (nums.length !== unwrapped.length) {
+        warnings.push(`paint.line-dasharray: dropped ${unwrapped.length - nums.length} non-numeric entr${unwrapped.length - nums.length === 1 ? 'y' : 'ies'}; emitted dash pattern differs from authored value.`)
+      }
       if (nums.length >= 2) {
         out.push('stroke-dasharray-' + nums.join('-'))
         return
