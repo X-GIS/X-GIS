@@ -344,6 +344,16 @@ export function convertSource(
       lines.push('  type: raster-dem')
       lines.push(`  url: ${JSON.stringify(url)}`)
       lines.push('  // NOTE: raster-dem rendering (hillshade / 3D terrain) — Batch 4 of the Mapbox compatibility roadmap.')
+      // Mapbox raster-dem encoding: 'mapbox' (default — RGB-packed
+      // elevation à la Terrain RGB) vs 'terrarium' (Mapzen / Stamen
+      // alternative encoding). 'custom' uses redFactor/greenFactor/
+      // blueFactor/baseShift. Surface non-default encodings so the
+      // Batch-4 hillshade renderer can match the source's pack rule
+      // instead of assuming Mapbox-RGB.
+      const dem = src as { encoding?: unknown }
+      if (typeof dem.encoding === 'string' && dem.encoding !== 'mapbox') {
+        warnings.push(`raster-dem source "${id}" uses non-default encoding="${dem.encoding}" — when hillshade lands, the renderer needs the matching pack formula (mapbox=(R*256+G+B/256)*0.1-10000; terrarium=R*256+G+B/256-32768).`)
+      }
       warnings.push(`Source "${id}" type="raster-dem" registered but rendering not yet supported (Batch 4 — hillshade + 3D terrain).`)
     } else {
       lines.push('  // TODO: raster-dem source missing url/tiles')
