@@ -379,9 +379,19 @@ export function convertMapboxStyle(
     if (l === null || typeof l !== 'object' || Array.isArray(l)) continue
     const mn = (l as { minzoom?: unknown }).minzoom
     const mx = (l as { maxzoom?: unknown }).maxzoom
+    const lid = (l as { id?: unknown }).id ?? '<unknown>'
     if (typeof mn === 'number' && typeof mx === 'number' && mn > mx) {
-      const lid = (l as { id?: unknown }).id ?? '<unknown>'
       warnings.push(`Layer "${String(lid).slice(0, 60)}" has minzoom=${mn} > maxzoom=${mx} — the layer never renders. Swap the values or remove one.`)
+    }
+    // Mapbox spec: zoom values ∈ [0, 24]. Out-of-range usually
+    // indicates a typo. The tile selector silently clamps, so the
+    // layer renders the same as if the bound were the nearest valid
+    // value — no visual difference but the authored intent is lost.
+    if (typeof mn === 'number' && (mn < 0 || mn > 24)) {
+      warnings.push(`Layer "${String(lid).slice(0, 60)}" minzoom=${mn} is outside Mapbox spec range [0, 24]; tile selector clamps so the layer renders as if minzoom=${Math.max(0, Math.min(24, mn))}.`)
+    }
+    if (typeof mx === 'number' && (mx < 0 || mx > 24)) {
+      warnings.push(`Layer "${String(lid).slice(0, 60)}" maxzoom=${mx} is outside Mapbox spec range [0, 24]; tile selector clamps so the layer renders as if maxzoom=${Math.max(0, Math.min(24, mx))}.`)
     }
   }
 
