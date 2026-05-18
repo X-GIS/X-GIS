@@ -247,6 +247,26 @@ export function convertSource(
   } else if (src.type === 'raster') {
     const url = src.tiles?.[0] ?? src.url
     if (url) {
+      // tiles[] entries are XYZ URL TEMPLATES — Mapbox spec requires
+      // `{z}/{x}/{y}` placeholders. Without all three the runtime
+      // fetches the same literal URL for every tile coordinate (and
+      // either gets one image painted everywhere or 404s for tile-
+      // path servers that demand the coords). Distinguish manifest-
+      // shape URLs (`.json` / `.tilejson`) which don't need
+      // placeholders.
+      const isManifestUrl = /\.(?:json|tilejson)(?:\?|#|$)/i.test(url)
+      const fromTiles = src.tiles?.[0] === url
+      if (fromTiles && !isManifestUrl) {
+        const hasZ = url.includes('{z}')
+        const hasX = url.includes('{x}')
+        const hasY = url.includes('{y}')
+        if (!hasZ || !hasX || !hasY) {
+          const missing = [
+            !hasZ && '{z}', !hasX && '{x}', !hasY && '{y}',
+          ].filter(Boolean).join(', ')
+          warnings.push(`Raster source "${id}" tiles[0] is missing required URL placeholder${missing.includes(',') ? 's' : ''}: ${missing}. The runtime will fetch the same URL for every tile coordinate; expected a template like https://host/{z}/{x}/{y}.png.`)
+        }
+      }
       lines.push('  type: raster')
       lines.push(`  url: ${JSON.stringify(url)}`)
     } else {
