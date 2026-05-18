@@ -363,6 +363,37 @@ export function convertMapboxStyle(
     }
   }
 
+  // ── Pre-walk: vector-source layers require source-layer ────────────
+  // Mapbox spec: every layer reading from a vector source (vector /
+  // pmtiles / tilejson backends) MUST declare `source-layer`. Without
+  // it the runtime tile decoder has no MVT layer to read from and
+  // emits zero features → blank layer with no diagnostic. The omission
+  // is one of the top-3 "my layer doesn't render" support cases for
+  // hand-edited styles.
+  // Background / raster / raster-dem / image / video / geojson don't
+  // need source-layer (the source itself is the data).
+  const vectorSourceIds = new Set<string>()
+  for (const [sid, src] of Object.entries(sourcesObj)) {
+    if (src === null || typeof src !== 'object' || Array.isArray(src)) continue
+    const t = (src as { type?: unknown }).type
+    if (t === 'vector' || t === 'pmtiles' || t === 'tilejson') {
+      vectorSourceIds.add(sid)
+    }
+  }
+  for (const l of layersArr) {
+    if (l === null || typeof l !== 'object' || Array.isArray(l)) continue
+    const ltype = (l as { type?: unknown }).type
+    if (ltype === 'background' || ltype === 'raster' || ltype === 'hillshade') continue
+    const lsrc = (l as { source?: unknown }).source
+    if (typeof lsrc !== 'string' || lsrc.length === 0) continue
+    if (!vectorSourceIds.has(lsrc)) continue
+    const slayer = (l as { 'source-layer'?: unknown })['source-layer']
+    if (typeof slayer !== 'string' || slayer.length === 0) {
+      const lid = (l as { id?: unknown }).id ?? '<unknown>'
+      warnings.push(`Layer "${String(lid).slice(0, 60)}" reads from vector source "${lsrc.slice(0, 60)}" but has no source-layer; the runtime decoder will return zero features and the layer renders blank.`)
+    }
+  }
+
   // ── Pre-walk: detect layers referencing undeclared sources ─────────
   // Mapbox spec: every non-background layer's `source` field MUST
   // reference a declared source in `style.sources`. Real-world failure
