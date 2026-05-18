@@ -178,8 +178,8 @@ const PAINT_FILL: readonly CoverageEntry[] = [
   { name: 'fill-antialias',     status: 'partial', impact: 'low', note: 'Default `true` is X-GIS\' permanent contract — fragment shader smoothsteps every fill edge. OFM bright `building` / `road_area_pier` / `road_pier` author `true` explicitly = no-op match. OFM liberty `landcover_wood`/`grass`/`ice` set `false` for a pixel-art look; that opt-out (4 liberty layers) is not yet implemented and renders smooth instead of stepped. Iter 495 status review.' },
   { name: 'fill-outline-color', status: 'supported', note: 'Lowers to `stroke-<color> stroke-1` on the same fill layer — the xgis polygon renderer paints fill + outline in the same pass. Constant + interpolate-by-zoom.', source: 'paint.ts:153' },
   { name: 'fill-pattern',       status: 'unsupported', impact: 'high', note: 'Batch 2 (bitmap atlas).' },
-  { name: 'fill-translate',     status: 'unsupported', impact: 'low', note: 'OFM building-top pseudo-3D roof offset dropped.' },
-  { name: 'fill-translate-anchor', status: 'unsupported', impact: 'low' },
+  { name: 'fill-translate',     status: 'partial', impact: 'low', note: 'Constant vec2 + zoom-interp last-stop approx end-to-end. Runtime WGSL u.fill_translate_x/y adds CSS-px offset converted to NDC at vs_main (`clip.xy += u.fill_translate * clip.w`). OFM building-top pseudo-3D roof offset honoured. Full per-frame zoom-interp deferred. Iter 501 + 508 shipped 2026-05-18.', source: 'paint.ts:addFillTranslate' },
+  { name: 'fill-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport / map coordinate space for fill-translate; depends on fill-translate path.' },
 ]
 
 const PAINT_LINE: readonly CoverageEntry[] = [
@@ -188,7 +188,7 @@ const PAINT_LINE: readonly CoverageEntry[] = [
   { name: 'line-opacity',   status: 'supported', source: 'paint.ts:133' },
   { name: 'line-dasharray', status: 'partial', impact: 'medium', note: 'Constant numeric array only — interpolate-by-zoom dasharray not lowered.', source: 'paint.ts:126' },
   { name: 'line-blur',      status: 'supported', note: 'Edge feathering in CSS px. The line shader uses `aa_width_px` to widen both the geometry quad and the smoothstep range so the edge soft-fades over `1.5 + blur` px each side. Constant only — interpolate-by-zoom warns and drops.', source: 'paint.ts:190' },
-  { name: 'line-gap-width', status: 'unsupported', impact: 'medium', note: 'Used for road casings.' },
+  { name: 'line-gap-width', status: 'supported', impact: 'medium', note: 'Constant + zoom-interp last-stop approx end-to-end via stroke-gap-N utility. Runtime double-draws each line at ±(gap+stroke)/2 via writeLayerSlot (iter 499). OFM road-casing layers honoured. Iter 498 + 499 + 513 shipped 2026-05-18.', source: 'paint.ts:addLineGapWidth' },
   { name: 'line-offset',    status: 'supported', note: 'Positive Mapbox values (right of travel) → `stroke-offset-right-N`; negative → `stroke-offset-left-N`. The xgis line renderer threads `strokeOffset` through to the vertex shader including offset-aware miter / join geometry. Constant only — interpolate-by-zoom warns and drops.', source: 'paint.ts:175' },
   { name: 'line-translate', status: 'unsupported', impact: 'low' },
   { name: 'line-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport / map coordinate space for line-translate; dependent on line-translate.' },
