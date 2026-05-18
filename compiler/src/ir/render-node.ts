@@ -325,6 +325,14 @@ export interface LabelDef {
   /** When true, do not let this label block others.
    *  Mapbox `text-ignore-placement`. */
   ignorePlacement?: boolean
+  /** Mapbox `symbol-sort-key`. Lower values place first and win
+   *  collisions against higher-keyed labels. Default 0. Used by the
+   *  runtime collision system to prioritise state/city labels over
+   *  road shields at the same viewport when both compete for the
+   *  same pixel area. Constant-only for now — feature-property
+   *  expression form (`["get", "rank"]`) is recognised by the
+   *  converter but flattens to 0 with a warning. */
+  sortKey?: number
 
   // ── Deferred (placeholder typings; semantics defined later) ──
   /** Map / viewport / auto. Default 'auto' — point labels follow
