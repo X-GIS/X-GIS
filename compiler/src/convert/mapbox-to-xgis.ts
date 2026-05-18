@@ -331,6 +331,23 @@ export function convertMapboxStyle(
     }
   }
 
+  // ── Pre-walk: detect minzoom > maxzoom inversions ──────────────────
+  // Mapbox spec doesn't explicitly forbid `minzoom > maxzoom` but
+  // the runtime tile-selector treats the range as `[min, max]` so an
+  // inverted range produces an empty visible-zoom set — the layer
+  // NEVER renders. Common typo source (swapped min/max, off-by-one
+  // when copying between zoom-band-segmented styles). Pre-fix the
+  // layer dropped silently with no diagnostic.
+  for (const l of layersArr) {
+    if (l === null || typeof l !== 'object' || Array.isArray(l)) continue
+    const mn = (l as { minzoom?: unknown }).minzoom
+    const mx = (l as { maxzoom?: unknown }).maxzoom
+    if (typeof mn === 'number' && typeof mx === 'number' && mn > mx) {
+      const lid = (l as { id?: unknown }).id ?? '<unknown>'
+      warnings.push(`Layer "${String(lid).slice(0, 60)}" has minzoom=${mn} > maxzoom=${mx} — the layer never renders. Swap the values or remove one.`)
+    }
+  }
+
   // ── Pre-walk: detect layers referencing undeclared sources ─────────
   // Mapbox spec: every non-background layer's `source` field MUST
   // reference a declared source in `style.sources`. Real-world failure
