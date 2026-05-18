@@ -621,6 +621,17 @@ export class XGISMap {
     this.invalidate()
   }
 
+  /** Mapbox-API parity: per-axis getters. Match MapLibre GL JS's
+   *  `map.getCenter() / getZoom() / getBearing() / getPitch()`.
+   *  `getCenter` returns lon/lat (NOT Mercator meters) so callers
+   *  can round-trip back through setCenter / jumpTo. */
+  getCenter(): [number, number] {
+    return this.getCameraState().center
+  }
+  getZoom(): number { return this.camera.zoom }
+  getBearing(): number { return this.camera.bearing }
+  getPitch(): number { return this.camera.pitch }
+
   /** Mapbox-API parity: read the current camera state as a single
    *  object. Returns longitude/latitude (NOT Mercator meters) so
    *  callers can round-trip through jumpTo.

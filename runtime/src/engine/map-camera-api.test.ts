@@ -18,6 +18,10 @@ interface Internals {
   setPitch(pitch: number): void
   jumpTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number }): void
   getCameraState(): { center: [number, number]; zoom: number; bearing: number; pitch: number }
+  getCenter(): [number, number]
+  getZoom(): number
+  getBearing(): number
+  getPitch(): number
 }
 
 describe('XGISMap Mapbox-API camera setters', () => {
@@ -130,6 +134,18 @@ describe('XGISMap Mapbox-API camera setters', () => {
       expect(state.zoom).toBe(12)
       expect(state.bearing).toBe(60)
       expect(state.pitch).toBe(40)
+    })
+  })
+
+  describe('per-axis getters', () => {
+    it('getCenter / getZoom / getBearing / getPitch match camera state', () => {
+      map.jumpTo({ center: [10, 20], zoom: 5, bearing: 30, pitch: 25 })
+      const center = map.getCenter()
+      expect(center[0]).toBeCloseTo(10, 5)
+      expect(center[1]).toBeCloseTo(20, 5)
+      expect(map.getZoom()).toBe(5)
+      expect(map.getBearing()).toBe(30)
+      expect(map.getPitch()).toBe(25)
     })
   })
 })
