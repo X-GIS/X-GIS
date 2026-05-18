@@ -590,6 +590,13 @@ export class VectorTileLoader {
   /** Open a PMTiles archive (or return a cached open one). Caches by
    *  URL. Drops the cache entry on failure so the next call retries. */
   openArchive(url: string): Promise<CachedArchive> {
+    // Defensive: empty/non-string URL would let the PMTiles library
+    // fetch the current document URL and crash on the non-archive
+    // bytes ("Wrong magic number"). Mirror of openTileJSON +
+    // fetchTileWithRetry + loadImageTexture empty-URL guards.
+    if (!url || typeof url !== 'string') {
+      return Promise.reject(new Error(`[X-GIS] openArchive: invalid URL ${JSON.stringify(url).slice(0, 60)}`))
+    }
     // Strip Protomaps `pmtiles://` prefix before the PMTiles library
     // sees it. Mirror of the detectVectorTileFormat strip (a5fd65a).
     // Without this the library calls fetch on the prefixed URL and
