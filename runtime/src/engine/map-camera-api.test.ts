@@ -31,8 +31,8 @@ interface Internals {
   panBy(offset: [number, number]): void
   setMaxBounds(bounds: [[number, number], [number, number]] | null): void
   getMaxBounds(): [[number, number], [number, number]] | null
-  easeTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number }): void
-  flyTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number }): void
+  easeTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number; easing?: unknown }): void
+  flyTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number; speed?: number; curve?: number }): void
   resize(): void
   loaded(): boolean
   fitBounds(bounds: [[number, number], [number, number]], opts?: { padding?: number; bearing?: number; pitch?: number }): void

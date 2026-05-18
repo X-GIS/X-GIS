@@ -724,6 +724,14 @@ function parseColor(hex: string): [number, number, number, number] {
 export type Easing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out'
 
 export interface ShowCommand {
+  /** Position of this show in the compiled Scene's renderNodes — the
+   *  key the P4 compute plan uses to route output buffers back to
+   *  fragment-shader paint axes. Compiler emits it; runtime callers
+   *  (map.ts buildFeatureDataBuffer sites) read it. Optional for
+   *  back-compat with hand-built ShowCommands in tests; the compute
+   *  path falls back to 0 when absent. Mirrors the compiler-side
+   *  `ShowCommand.renderNodeIndex` at emit-commands.ts:41. */
+  renderNodeIndex?: number
   targetName: string
   /** DSL layer name (`layer <name> { source: <target> | ... }`). Used
    *  by `map.getLayer(name)` and `LayerIdRegistry` so two layers
