@@ -227,7 +227,13 @@ function interpolateZoomStops(
       // failed the typeof === 'number' gate and the legacy stops form
       // returned null, dropping the property to its default.
       const z = unwrapStopLiteral(s[0])
-      if (typeof z !== 'number') return null
+      // Number.isFinite rejects NaN — pre-fix a NaN zoom key (rare
+      // but observed in malformed legacy v0/v1 styles where the
+      // stop pair was hand-edited) landed in `legacyStops` as the
+      // zoom value; downstream sort + bounds-clamp at the
+      // interpolate evaluator returned NaN at every zoom, the
+      // emitted utility silently collapsed.
+      if (typeof z !== 'number' || !Number.isFinite(z)) return null
       legacyStops.push({ zoom: z, value: unwrapStopLiteral(s[1]) })
     }
     if (legacyStops.length < 2) return null
@@ -275,7 +281,8 @@ function interpolateZoomStops(
     // entire interpolate-zoom returned null → property fell to its
     // default (e.g. line-width snapping to 1px regardless of zoom).
     const z = unwrapStopLiteral(v[i])
-    if (typeof z !== 'number') return null
+    // Number.isFinite — mirror of the legacy-stops NaN guard above.
+    if (typeof z !== 'number' || !Number.isFinite(z)) return null
     // Mapbox v8 allows each stop's value to be wrapped in `["literal",
     // …]`. Unwrap eagerly so the numeric / colour callbacks
     // downstream see the bare value — without this each
