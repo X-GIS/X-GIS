@@ -51,6 +51,49 @@ function unwrapLiteralScalar(v: unknown): unknown {
   return v
 }
 
+/** Multiply a constant text-color hex's alpha channel by a 0..1
+ *  text-opacity multiplier. Returns hex with explicit alpha
+ *  (`#rrggbbaa`) when the result is < 1.0, else the original hex.
+ *  Pure utility for the constant-only path; non-constant opacity
+ *  routes still fall back to the legacy "ignored property" warning.
+ *
+ *  Accepts: `#rgb`, `#rrggbb`, `#rgba`, `#rrggbbaa`. Anything else
+ *  passes through verbatim — colorToXgis owns the parse, so by the
+ *  time we get here the format is normalised. */
+function applyAlphaMultiplier(colorStr: string, opacity: number | null): string {
+  if (opacity === null || opacity >= 1) return colorStr
+  if (!colorStr.startsWith('#')) return colorStr
+  let r: number, g: number, b: number, a: number
+  const hex = colorStr.slice(1)
+  if (hex.length === 3) {
+    r = parseInt(hex[0]! + hex[0]!, 16)
+    g = parseInt(hex[1]! + hex[1]!, 16)
+    b = parseInt(hex[2]! + hex[2]!, 16)
+    a = 255
+  } else if (hex.length === 4) {
+    r = parseInt(hex[0]! + hex[0]!, 16)
+    g = parseInt(hex[1]! + hex[1]!, 16)
+    b = parseInt(hex[2]! + hex[2]!, 16)
+    a = parseInt(hex[3]! + hex[3]!, 16)
+  } else if (hex.length === 6) {
+    r = parseInt(hex.slice(0, 2), 16)
+    g = parseInt(hex.slice(2, 4), 16)
+    b = parseInt(hex.slice(4, 6), 16)
+    a = 255
+  } else if (hex.length === 8) {
+    r = parseInt(hex.slice(0, 2), 16)
+    g = parseInt(hex.slice(2, 4), 16)
+    b = parseInt(hex.slice(4, 6), 16)
+    a = parseInt(hex.slice(6, 8), 16)
+  } else {
+    return colorStr
+  }
+  if ([r, g, b, a].some(v => !Number.isFinite(v))) return colorStr
+  const aOut = Math.max(0, Math.min(255, Math.round(a * opacity)))
+  const hh = (n: number): string => n.toString(16).padStart(2, '0')
+  return `#${hh(r)}${hh(g)}${hh(b)}${hh(aOut)}`
+}
+
 /** True when v should be treated as "property omitted" per Mapbox
  *  spec — bare null/undefined OR any depth of `["literal", … null]`
  *  wrap. Used by the layer-level paint accessor gates that previously
@@ -398,6 +441,19 @@ function convertSymbolLayer(
   // value falls back to property default. Same pattern as the paint.ts
   // add* helpers (26b8b20).
   const textColor = paint['text-color']
+  // Mapbox `text-opacity` is a paint-axis alpha multiplier on top of
+  // text-color's own alpha. When BOTH are simple constants, fold
+  // text-opacity into the colour's alpha hex so a single
+  // label-color-#rrggbbaa utility carries both. Non-constant forms
+  // (zoom interp / data-driven) on either axis fall back to the
+  // existing color emission and the spurious "ignored property:
+  // text-opacity" warning fires per the layers.ts:992 loop —
+  // implementing the non-constant case needs a separate paint shape
+  // axis (deferred).
+  const textOpacity = unwrapLiteralScalar(paint['text-opacity'])
+  const textOpacityConst =
+    typeof textOpacity === 'number' && Number.isFinite(textOpacity) && textOpacity >= 0 && textOpacity <= 1
+      ? textOpacity : null
   if (!isOmittedValue(textColor)) {
     const interp = interpolateZoomCall(textColor, warnings, (val, w) => colorToXgis(val, w))
     if (interp !== null) {
@@ -405,7 +461,7 @@ function convertSymbolLayer(
     } else {
       const colorStr = colorToXgis(textColor, warnings)
       if (colorStr) {
-        utils.push(`label-color-${colorStr}`)
+        utils.push(`label-color-${applyAlphaMultiplier(colorStr, textOpacityConst)}`)
       } else {
         // Data-driven shape (case / match / get). Route through the
         // generic expression converter — produces a ternary or match
@@ -416,13 +472,13 @@ function convertSymbolLayer(
           utils.push(`label-color-[${expr}]`)
         } else {
           // Couldn't convert — fall back to Mapbox spec default.
-          utils.push('label-color-#000')
+          utils.push(`label-color-${applyAlphaMultiplier('#000000', textOpacityConst)}`)
         }
       }
     }
   } else {
     // Mapbox text-color default = "#000000".
-    utils.push('label-color-#000')
+    utils.push(`label-color-${applyAlphaMultiplier('#000000', textOpacityConst)}`)
   }
 
   // text-size — constant or interpolate-by-zoom. The bracket binding
@@ -1013,6 +1069,16 @@ function convertSymbolLayer(
     const lv = layout[k]
     const pv = paint[k]
     if ((lv !== undefined && lv !== null) || (pv !== undefined && pv !== null)) {
+      // text-opacity constant form is folded into label-color's alpha
+      // channel above (applyAlphaMultiplier). Skip the warning for the
+      // constant-numeric case; non-constant text-opacity (zoom interp
+      // / data-driven) still warns because the alpha multiplier path
+      // can't carry it without a dedicated paint shape.
+      if (k === 'text-opacity') {
+        const v = pv ?? lv
+        const unwrapped = unwrapLiteralScalar(v)
+        if (typeof unwrapped === 'number' && Number.isFinite(unwrapped)) continue
+      }
       ignoredText.push(k)
     }
   }
