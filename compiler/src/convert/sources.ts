@@ -375,9 +375,20 @@ export function convertSource(
     }
     const data = (src as { data?: string | unknown }).data
     if (typeof data === 'string') {
-      // External URL — runtime fetches and decodes lazily.
-      lines.push('  type: geojson')
-      lines.push(`  url: ${JSON.stringify(data)}`)
+      // Defensive: empty-string URL would emit `url: ""` and the
+      // runtime fetch on "" hits the current document URL and
+      // either returns the host HTML or 404s on a SPA. Pre-fix the
+      // empty string fell through to the URL emit path silently;
+      // treat it the same as missing data field for consistency
+      // with the source.url empty-string guard above.
+      if (data.length === 0) {
+        lines.push('  // TODO: GeoJSON source data field is empty string')
+        warnings.push(`GeoJSON source "${id}" data field is an empty string; treated as missing.`)
+      } else {
+        // External URL — runtime fetches and decodes lazily.
+        lines.push('  type: geojson')
+        lines.push(`  url: ${JSON.stringify(data)}`)
+      }
     } else if (data && typeof data === 'object') {
       lines.push('  type: geojson')
       const safeId = sanitizeId(id)
