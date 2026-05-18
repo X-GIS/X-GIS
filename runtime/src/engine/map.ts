@@ -4389,7 +4389,12 @@ export class XGISMap {
 
     for (const [sourceId, patches] of this._pendingPatches) {
       const data = this.rawDatasets.get(sourceId)
-      if (!data) continue
+      // Also guard against malformed dataset shape — setSourceData
+      // validates upfront but a host bypassing the API and directly
+      // assigning rawDatasets (legacy / test) could leave the entry
+      // in an unexpected shape. `data.features` not being an array
+      // would crash the for-of with no diagnostic.
+      if (!data || !Array.isArray((data as { features?: unknown }).features)) continue
       // Lookup via featureId index so patching is O(patches) instead of
       // O(features). The index is built once per source and reused across
       // flush cycles until setSourceData replaces the dataset.
