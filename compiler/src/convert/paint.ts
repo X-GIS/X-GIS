@@ -99,8 +99,14 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     // cases. Warns when fill-pattern is present AND no fill-color is
     // authored — the pattern-augmented case (fill-color + fill-pattern)
     // still renders the colour today.
+    // Treat fill-color === null the same as undefined per Mapbox spec
+    // (null means "property omitted, use default"). Pre-fix only
+    // undefined hit this branch — an authored `fill-color: null`
+    // alongside a `fill-pattern` slipped past with no diagnostic
+    // even though the layer's only visual cue (the pattern atlas)
+    // isn't supported yet.
     if (p['fill-pattern'] !== undefined && p['fill-pattern'] !== null
-        && p['fill-color'] === undefined) {
+        && (p['fill-color'] === undefined || p['fill-color'] === null)) {
       warnings.push(`Layer "${layer.id}" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
     }
     surfaceIgnoredPaint(layer.id, p, warnings, [
@@ -115,8 +121,9 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     addLineBlur(out, p['line-blur'], warnings)
     // Same gap as fill-pattern: when a line layer's only visual is a
     // repeating sprite (no line-color), the layer goes dead silently.
+    // Mirror of the fill-pattern null-as-omit treatment above.
     if (p['line-pattern'] !== undefined && p['line-pattern'] !== null
-        && p['line-color'] === undefined) {
+        && (p['line-color'] === undefined || p['line-color'] === null)) {
       warnings.push(`Layer "${layer.id}" — line-pattern declared without line-color; the layer's only visual is a bitmap stroke which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
     }
     surfaceIgnoredPaint(layer.id, p, warnings, [
