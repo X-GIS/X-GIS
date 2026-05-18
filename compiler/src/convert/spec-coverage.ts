@@ -58,7 +58,7 @@ const TOP_LEVEL: readonly CoverageEntry[] = [
   { name: 'glyphs',   status: 'supported', note: 'Importer extracts the URL from raw JSON and forwards to XGISMap.setGlyphsUrl(). Runtime TextStage fetches MapLibre SDF PBFs and upgrades visually when available; Canvas2D fallback stays on for offline / missing-glyph cases. Not encoded in xgis source.' },
   { name: 'transition', status: 'unsupported', impact: 'low', note: 'Per-property fade-in dropped.' },
   { name: 'light',    status: 'unsupported', impact: 'low', note: 'No fill-extrusion ambient lighting model.' },
-  { name: 'fog',      status: 'unsupported', impact: 'low' },
+  { name: 'fog',      status: 'unsupported', impact: 'low', note: 'Mapbox v3 distance-fog gradient. Would need a post-process pass with depth-based mixing.' },
   { name: 'terrain',  status: 'unsupported', impact: 'medium', note: 'Roadmap Batch 4 (raster-dem + hillshade).' },
   { name: 'projection', status: 'partial', impact: 'low', note: 'mercator only; URL `?proj=` provides limited overrides at runtime.' },
   { name: 'imports',  status: 'unsupported', note: 'Mapbox v3 style-import not parsed.' },
@@ -74,8 +74,8 @@ const SOURCE_TYPES: readonly CoverageEntry[] = [
   { name: 'geojson (URL)',      status: 'supported', source: 'sources.ts:73' },
   { name: 'geojson (inline)',   status: 'supported', note: 'Captured via inlineGeoJSON collector → auto-pushed after run().', source: 'sources.ts:77' },
   { name: 'raster-dem',         status: 'partial',     impact: 'medium', note: 'Source registered, no hillshade renderer yet (Batch 4).', source: 'sources.ts:57' },
-  { name: 'image',              status: 'unsupported', impact: 'low' },
-  { name: 'video',              status: 'unsupported', impact: 'low' },
+  { name: 'image',              status: 'unsupported', impact: 'low', note: 'Single-image source (e.g. user-supplied PNG draped onto a quad). Not in current loader; raster is the closest substitute.' },
+  { name: 'video',              status: 'unsupported', impact: 'low', note: 'Streaming video source. Not in current loader.' },
 ]
 
 // ─── 3. Layer types ───────────────────────────────────────────────────
@@ -112,16 +112,16 @@ const LAYOUT_FILL_LINE: readonly CoverageEntry[] = [
   { name: 'line-cap',         status: 'supported', note: 'butt / round / square literals only.', source: 'layers.ts:548' },
   { name: 'line-join',        status: 'supported', note: 'miter / round / bevel literals only.', source: 'layers.ts:552' },
   { name: 'line-miter-limit', status: 'supported', note: 'Constant only.', source: 'layers.ts:556' },
-  { name: 'line-round-limit', status: 'unsupported', impact: 'low' },
-  { name: 'fill-sort-key',    status: 'unsupported', impact: 'low' },
-  { name: 'line-sort-key',    status: 'unsupported', impact: 'low' },
+  { name: 'line-round-limit', status: 'unsupported', impact: 'low', note: 'Limit beyond which round joins switch to bevel. X-GIS line-join logic uses a fixed threshold; per-layer override not threaded.' },
+  { name: 'fill-sort-key',    status: 'unsupported', impact: 'low', note: 'Per-feature fill draw-order. X-GIS uses layer-order; per-feature would need an additional sort pass.' },
+  { name: 'line-sort-key',    status: 'unsupported', impact: 'low', note: 'Per-feature line draw-order. Same gap as fill-sort-key.' },
   { name: 'circle-sort-key',  status: 'unsupported', impact: 'low', note: 'Per-feature draw-order key for circle layers; current renderer ignores it.' },
 ]
 
 const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'symbol-placement',     status: 'supported', note: 'point / line / line-center literals; `["step", ["zoom"], …]` form expands to multiple layers with intersected minzoom/maxzoom + segment-resolved placement (OFM Bright highway-shield-* coverage). Non-zoom step inputs fall back to default placement.', source: 'layers.ts:447' },
   { name: 'symbol-spacing',       status: 'supported', note: 'Defaults to 250 px when missing on line placement.', source: 'layers.ts:471' },
-  { name: 'symbol-avoid-edges',   status: 'unsupported', impact: 'low' },
+  { name: 'symbol-avoid-edges',   status: 'unsupported', impact: 'low', note: 'Skip labels whose bbox crosses tile boundaries. Useful for de-duping labels at tile seams; X-GIS today uses cross-tile collision instead.' },
   { name: 'symbol-sort-key',      status: 'partial', impact: 'medium', note: 'Constant numeric value plumbed end-to-end (iter 399-405). Runtime collision pass sorts CollisionItems by sortKey ascending — lower wins. Expression form (`["get", "rank"]`) flattens to 0 with a warning.', source: 'layers.ts:702' },
   { name: 'symbol-z-order',       status: 'unsupported', impact: 'low', note: 'Per-feature draw-order override. X-GIS uses symbol-sort-key for ordering today; symbol-z-order would need a separate sort pass after collision.' },
   { name: 'text-field',           status: 'supported', note: 'String / {token} / expression / number / boolean / null. Colon-bearing locale keys route via `get("name:xx")`.', source: 'layers.ts:164' },
@@ -147,7 +147,7 @@ const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'text-pitch-alignment', status: 'partial', impact: 'medium', note: 'Converter emits, runtime ignores — labels never project onto ground plane.', source: 'map.ts:2461' },
   { name: 'text-keep-upright',    status: 'supported', note: 'Per-glyph flip for line labels.', source: 'text-stage.ts:509' },
   { name: 'text-writing-mode',    status: 'unsupported', impact: 'medium', note: 'CJK vertical text would need a per-glyph rotation pipeline.' },
-  { name: 'text-max-angle',       status: 'unsupported', impact: 'low' },
+  { name: 'text-max-angle',       status: 'unsupported', impact: 'low', note: 'Maximum angle between consecutive glyphs on a line-placed label. X-GIS uses a fixed threshold; per-layer override would thread through label-placement.' },
   { name: 'icon-image',           status: 'supported', impact: 'high', note: 'Constant + data-driven match/case via label-icon-image-[<expr>] bracket binding. Per-feature evaluation in TextStage.applyFeatureExprs dispatches IconStage.addIcon. Iter 490 + 491 shipped 2026-05-18. Iter 535 verified end-to-end across the OFM Bright highway-shield path (road_N / us-interstate_N / us-state_N): the iter 531 null-comparison fix unblocks the shield-layer filter, the diagnostic quartet (iter 526/532/533/534) confirmed dispatch → vertex buffer → GPU draw all complete. The atlas ships shields as WHITE-on-transparent backgrounds (zero SDF sprites) so colored shield appearance comes from the text-field number overlay — not sprite tinting.', source: 'layers.ts:1007 + map.ts:applyFeatureExprs' },
   { name: 'icon-size',            status: 'supported', note: 'Constant + zoom-interp (iter 523). Bracket-binding `label-icon-size-[interpolate(zoom, …)]` lowers to LabelShapes.iconSize PropertyShape; runtime resolveNumberShape at dispatchIcon time. Data-driven (case/match/get) still drops with a warning — no per-feature path. OFM bright road_oneway / road_oneway_opposite (15→0.5, 19→1) honoured.', source: 'layers.ts:1075' },
   { name: 'icon-rotate',          status: 'supported', note: 'Constant degrees.', source: 'layers.ts:641' },
@@ -161,8 +161,8 @@ const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'icon-padding',         status: 'unsupported', impact: 'low', note: 'Per-icon collision-bbox padding. X-GIS uses a fixed 2px default per spec; per-layer override needs to thread through label-collision.' },
   { name: 'icon-text-fit',        status: 'unsupported', impact: 'medium', note: 'Shield/badge backgrounds depend on this.' },
   { name: 'icon-text-fit-padding',status: 'unsupported', impact: 'low', note: 'Padding when icon-text-fit fits glyph bbox; dependent on icon-text-fit.' },
-  { name: 'icon-keep-upright',    status: 'unsupported', impact: 'low' },
-  { name: 'icon-pitch-alignment', status: 'unsupported', impact: 'low' },
+  { name: 'icon-keep-upright',    status: 'unsupported', impact: 'low', note: 'Flip line-placed icons so they always face up. Currently icons follow the symbol-placement=line tangent without flipping.' },
+  { name: 'icon-pitch-alignment', status: 'unsupported', impact: 'low', note: 'viewport (default) / map / auto. X-GIS uses viewport-aligned icons unconditionally; map mode would project the icon quad onto the ground plane.' },
 ]
 
 // ─── 5. Paint properties ──────────────────────────────────────────────
@@ -190,10 +190,10 @@ const PAINT_LINE: readonly CoverageEntry[] = [
   { name: 'line-blur',      status: 'supported', note: 'Edge feathering in CSS px. The line shader uses `aa_width_px` to widen both the geometry quad and the smoothstep range so the edge soft-fades over `1.5 + blur` px each side. Constant only — interpolate-by-zoom warns and drops.', source: 'paint.ts:190' },
   { name: 'line-gap-width', status: 'supported', impact: 'medium', note: 'Constant + zoom-interp last-stop approx end-to-end via stroke-gap-N utility. Runtime double-draws each line at ±(gap+stroke)/2 via writeLayerSlot (iter 499). OFM road-casing layers honoured. Iter 498 + 499 + 513 shipped 2026-05-18.', source: 'paint.ts:addLineGapWidth' },
   { name: 'line-offset',    status: 'supported', note: 'Positive Mapbox values (right of travel) → `stroke-offset-right-N`; negative → `stroke-offset-left-N`. The xgis line renderer threads `strokeOffset` through to the vertex shader including offset-aware miter / join geometry. Constant only — interpolate-by-zoom warns and drops.', source: 'paint.ts:175' },
-  { name: 'line-translate', status: 'unsupported', impact: 'low' },
+  { name: 'line-translate', status: 'unsupported', impact: 'low', note: 'CSS-px viewport offset for lines. fill-translate is supported via u.fill_translate_x/y; line-translate would need a matching line-renderer uniform.' },
   { name: 'line-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport / map coordinate space for line-translate; dependent on line-translate.' },
   { name: 'line-pattern',   status: 'unsupported', impact: 'medium', note: 'Bitmap pattern repeated along line — Batch 2 (sprite atlas dependency). Layer falls back to solid line-color if pattern is the only visual cue.' },
-  { name: 'line-gradient',  status: 'unsupported', impact: 'low' },
+  { name: 'line-gradient',  status: 'unsupported', impact: 'low', note: 'Gradient along the line (requires line-progress accessor). Needs per-fragment arc-length varying through the line renderer.' },
 ]
 
 const PAINT_SYMBOL: readonly CoverageEntry[] = [
@@ -203,7 +203,7 @@ const PAINT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'text-halo-width',  status: 'supported', note: 'Constant + interpolate-by-zoom; PR #76 fixed scaling into SDF units.', source: 'layers.ts:259' },
   { name: 'text-halo-blur',   status: 'supported', note: 'Constant only at conversion; IR exposes a PropertyShape so future zoom-interp / data-driven emit lands without IR changes.', source: 'layers.ts:283' },
   { name: 'text-translate',   status: 'supported', note: 'Pixel-space offset added on top of em-unit text-offset.', source: 'layers.ts:340' },
-  { name: 'text-translate-anchor', status: 'unsupported', impact: 'low' },
+  { name: 'text-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport (default) vs map coordinate space for text-translate. X-GIS applies text-translate in viewport space only; the `map` mode would need MVP-aware offset.' },
   { name: 'icon-color',       status: 'unsupported', impact: 'high', note: 'SDF icon tint — needs IconStage vertex tint attribute + fragment tint multiply. Currently surfaces via ignoredText warning; PNG sprite path renders the un-tinted texel. Plan §4 deferred.' },
   { name: 'icon-opacity',     status: 'partial', impact: 'high', note: 'Constant form threads compiler → LabelDef → IconStage.addIcon → per-vertex opacity attribute → fragment alpha multiplier. Zoom-interp / data-driven deferred (per-feature alpha would need iconOpacityExpr path). Iter 492 shipped 2026-05-18.', source: 'layers.ts:1050' },
   { name: 'icon-halo-color',  status: 'unsupported', impact: 'medium' },
