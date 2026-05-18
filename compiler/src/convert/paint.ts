@@ -57,6 +57,20 @@ function isOmitted(v: unknown): boolean {
  *  the conversion-notes section readable while still surfacing every
  *  gap. Callers pass the list of property names that the layer
  *  TYPE doesn't currently process. */
+/** Mapbox spec: anchor properties have no effect without their parent
+ *  translate. Skip the warning when the parent is absent — the layer's
+ *  visual is unchanged regardless of our handling. landcover_wetland
+ *  in openfreemap-liberty hits this (fill-translate-anchor: "map"
+ *  with no fill-translate) so the iter 467 lossy report counted a
+ *  spurious entry for that layer. */
+const ANCHOR_PARENT: Record<string, string> = {
+  'fill-translate-anchor': 'fill-translate',
+  'line-translate-anchor': 'line-translate',
+  'icon-translate-anchor': 'icon-translate',
+  'text-translate-anchor': 'text-translate',
+  'fill-extrusion-translate-anchor': 'fill-extrusion-translate',
+}
+
 function surfaceIgnoredPaint(
   layerId: string,
   paint: Record<string, unknown>,
@@ -68,7 +82,13 @@ function surfaceIgnoredPaint(
     // Both undefined AND null mean "property omitted" per Mapbox
     // spec — no warning needed when the author explicitly set it
     // to null to fall back to the default.
-    if (paint[k] !== undefined && paint[k] !== null) hits.push(k)
+    if (paint[k] === undefined || paint[k] === null) continue
+    // Anchor-dependency skip: a `*-translate-anchor` without its
+    // parent `*-translate` has no observable effect (anchor only
+    // controls the coordinate space of the translate).
+    const parent = ANCHOR_PARENT[k]
+    if (parent !== undefined && (paint[parent] === undefined || paint[parent] === null)) continue
+    hits.push(k)
   }
   if (hits.length > 0) {
     warnings.push(`Layer "${layerId}" — ignored paint properties: ${hits.join(', ')}`)
