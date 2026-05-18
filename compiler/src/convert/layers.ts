@@ -815,6 +815,20 @@ function convertSymbolLayer(
       && iconOverlap !== 'always' && iconOverlap !== 'never' && iconOverlap !== 'cooperative') {
     warnings.push(`Symbol layer "${layer.id}" — unrecognised icon-overlap value ${JSON.stringify(iconOverlap)}; ignored.`)
   }
+  // icon-overlap: 'never' / 'cooperative' and icon-allow-overlap: false
+  // are the REAL gaps: X-GIS has no icon-side collision queue, so
+  // icons always render regardless of overlap with other icons.
+  // Authors of dense POI layers (e.g. city dots at low zoom) won't
+  // see deduplication. Surface the gap so the lack of collision is
+  // diagnostic rather than mystery. 'always' / true match X-GIS
+  // default (place every icon) — silent.
+  if (iconOverlap === 'never' || iconOverlap === 'cooperative') {
+    warnings.push(`Symbol layer "${layer.id}" — icon-overlap "${iconOverlap}" set but X-GIS has no icon-side collision queue yet (Plan §3.1 deferred); icons place at every anchor regardless.`)
+  }
+  const iconAllowOverlap = unwrapLiteralScalar(layout['icon-allow-overlap'])
+  if (iconAllowOverlap === false) {
+    warnings.push(`Symbol layer "${layer.id}" — icon-allow-overlap: false set but X-GIS has no icon-side collision queue yet (Plan §3.1 deferred); icons place at every anchor regardless.`)
+  }
   if (unwrapLiteralScalar(layout['text-ignore-placement']) === true) utils.push('label-ignore-placement')
   const padding = unwrapLiteralScalar(layout['text-padding'])
   if (typeof padding === 'number' && Number.isFinite(padding)) {
