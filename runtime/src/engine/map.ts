@@ -4322,10 +4322,21 @@ export class XGISMap {
     // Auto-promote a single Feature → FeatureCollection (Mapbox API
     // accepts both; was previously a confusing throw). Same lift the
     // compiler-side normaliseInlineGeoJSON does for inline source.data.
+    // Also accept a bare Geometry (`{ type: 'Point', coordinates: … }`)
+    // by wrapping it in a Feature inside a FeatureCollection.
     let normalized: GeoJSONFeatureCollection = data
-    const shape = data as { type?: string; features?: unknown; geometry?: unknown }
+    const shape = data as { type?: string; features?: unknown; geometry?: unknown; coordinates?: unknown }
     if (shape.type === 'Feature' && !Array.isArray(shape.features)) {
       normalized = { type: 'FeatureCollection', features: [data as never] } as GeoJSONFeatureCollection
+    } else if (typeof shape.type === 'string'
+        && shape.type !== 'FeatureCollection'
+        && shape.type !== 'Feature'
+        && shape.coordinates !== undefined) {
+      // Bare Geometry (Point / LineString / Polygon / Multi*).
+      normalized = {
+        type: 'FeatureCollection',
+        features: [{ type: 'Feature', geometry: data as never, properties: {} }],
+      } as GeoJSONFeatureCollection
     }
     if (!Array.isArray((normalized as { features?: unknown }).features)) {
       throw new Error(`[X-GIS] setSourceData: data.features must be an array (got ${typeof (normalized as { features?: unknown }).features})`)
