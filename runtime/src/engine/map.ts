@@ -4095,6 +4095,13 @@ export class XGISMap {
                     undefined, labelLayerName,
                   )
                 }
+                // Icon-along-line approximation — same anchor as the
+                // label. OFM highway-shield-* (symbol-placement=line
+                // at z≥11) wants a road badge at every spacing stop;
+                // we dispatch the icon at the label's screen anchor
+                // so the badge + text composite correctly. User
+                // report 2026-05-18 "도로 번호에 아이콘 안뜸".
+                dispatchIcon(featDef, x, y)
               }
               if (spacingPx > 0) {
                 // Polyline path: project all vertices, walk in screen
@@ -4258,6 +4265,14 @@ export class XGISMap {
                             featDef,
                             undefined, labelLayerName,
                           )
+                          // OFM road shield + similar: icon-along-line
+                          // approximation. Dispatch the icon at the
+                          // line label's anchor so highway-shield-*
+                          // layers (symbol-placement=line at z≥11)
+                          // render road badges. Per-stop icon spacing
+                          // matches the per-stop text spacing — better
+                          // than no icons at all. User report 2026-05-18.
+                          dispatchIcon(featDef, sx, sy)
                           recordTextPosition(resolvedTextForDedupe, sx, sy)
                         }
                       }
@@ -4274,6 +4289,7 @@ export class XGISMap {
                             featDef,
                             undefined, labelLayerName,
                           )
+                          dispatchIcon(featDef, sx, sy)
                           recordTextPosition(resolvedTextForDedupe, sx, sy)
                         }
                       }
