@@ -130,6 +130,15 @@ class PaletteBuilder {
   }
 
   addScalar(value: number): number {
+    // Coerce non-finite (NaN/Infinity) inputs to 0 — `numbersEqual`
+    // (epsilon compare) fails on NaN vs NaN (`Math.abs(NaN - NaN) <
+    // eps` is false), so every NaN would carve its own slot AND the
+    // renderer would read NaN at draw time. The downgrade-to-0
+    // sentinel keeps the palette bounded and renders as the
+    // numerically-safe default while the upstream pipeline's
+    // separate NaN gates (palette.ts ingestNumberShape, IR
+    // optimize.ts opacity/size const-fold) surface the bad input.
+    if (!Number.isFinite(value)) value = 0
     for (let i = 0; i < this.scalars.length; i++) {
       if (numbersEqual(this.scalars[i]!, value)) return i
     }
