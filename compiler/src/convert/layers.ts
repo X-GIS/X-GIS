@@ -607,6 +607,13 @@ function convertSymbolLayer(
   // and tuple (`unwrapLiteralTuple` for `["literal", ["top", "bottom"]]`)
   // wrap forms so the iteration below sees the actual values.
   const anchor = unwrapLiteralTuple(unwrapLiteralScalar(layout['text-anchor']))
+  // Collect typos / out-of-enum anchor values so we can surface ONE
+  // warning per layer (the array forms may carry multiple invalids
+  // — duplicate warnings would be noisy). Mirror of iter 520's
+  // icon-anchor enum gate; pre-fix invalid strings silently fell
+  // through the `VALID_ANCHORS.has` check and the label rendered
+  // at the IR default with no diagnostic.
+  const invalidAnchors: string[] = []
   if (hasVAO) {
     // handled in the offset block (needs fmtSigned in scope)
   } else if (Array.isArray(variableAnchor) && variableAnchor.length > 0) {
@@ -619,19 +626,26 @@ function convertSymbolLayer(
       // Per-element v8 literal-wrap unwrap. Loop peel for multi-level
       // wraps from preprocessor chains. Mirror of colorToXgis (921d5ad).
       while (Array.isArray(a) && a.length === 2 && a[0] === 'literal') a = a[1]
-      if (typeof a === 'string' && VALID_ANCHORS.has(a)) {
-        utils.push(`label-anchor-${a}`)
+      if (typeof a === 'string') {
+        if (VALID_ANCHORS.has(a)) utils.push(`label-anchor-${a}`)
+        else invalidAnchors.push(a.slice(0, 40))
       }
     }
-  } else if (typeof anchor === 'string' && VALID_ANCHORS.has(anchor)) {
-    utils.push(`label-anchor-${anchor}`)
+  } else if (typeof anchor === 'string') {
+    if (VALID_ANCHORS.has(anchor)) utils.push(`label-anchor-${anchor}`)
+    else invalidAnchors.push(anchor.slice(0, 40))
   } else if (Array.isArray(anchor) && anchor.length > 0) {
     for (let a of anchor) {
       while (Array.isArray(a) && a.length === 2 && a[0] === 'literal') a = a[1]
-      if (typeof a === 'string' && VALID_ANCHORS.has(a)) {
-        utils.push(`label-anchor-${a}`)
+      if (typeof a === 'string') {
+        if (VALID_ANCHORS.has(a)) utils.push(`label-anchor-${a}`)
+        else invalidAnchors.push(a.slice(0, 40))
       }
     }
+  }
+  if (invalidAnchors.length > 0) {
+    const valid = [...VALID_ANCHORS].join(', ')
+    warnings.push(`Symbol layer "${layer.id}" — text-anchor / text-variable-anchor contains invalid enum value(s): ${invalidAnchors.map(s => `"${s}"`).join(', ')}; expected one of: ${valid}.`)
   }
 
   // text-transform → label-uppercase / lowercase / none.
