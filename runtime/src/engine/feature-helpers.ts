@@ -53,11 +53,22 @@ export function parseHexColor(hex: string): [number, number, number, number] {
 }
 
 /** Nullable variant of {@link parseHexColor}: returns null for null /
- *  undefined / empty input. Callers that propagate a "no colour
- *  declared" intent (label fill fallback, time-interpolated colour
- *  stops) need this distinction over the all-zero default. */
+ *  undefined / empty / INVALID-SHAPE input. Callers that propagate a
+ *  "no colour declared" intent (label fill fallback, time-interpolated
+ *  colour stops) need this distinction over the all-zero default —
+ *  AND the layer-style fill / stroke setter validation gates rely on
+ *  the null signal to reject typo'd colour strings instead of
+ *  silently rendering black.
+ *
+ *  Pre-fix the regex validation lived inside parseHexColor where it
+ *  always returned the [0,0,0,1] black default for invalid input;
+ *  the gate `parseHexColor(v) === null` in layer.ts (and callers
+ *  expecting hexToRgba to signal validity) was dead code, and an
+ *  authored `"red"` reached the renderer as black. */
 export function hexToRgba(hex: string | null | undefined): [number, number, number, number] | null {
   if (!hex) return null
+  if (typeof hex !== 'string') return null
+  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) return null
   return parseHexColor(hex)
 }
 
