@@ -1224,11 +1224,13 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
     const pv = paint[k]
     if (pv !== undefined && pv !== null) ignored.push(k)
   }
-  const layoutForCircle = (layer as { layout?: Record<string, unknown> }).layout ?? {}
-  // Treat null the same as undefined per Mapbox spec — null means
-  // "property omitted" and shouldn't trigger the ignored-prop warning.
-  // Mirror of the paint loop above.
-  const lsk = layoutForCircle['circle-sort-key']
+  // Reuse the safePropsBag-guarded `layout` const from the top of
+  // this function — a malformed layer with `layout: "..."` (string)
+  // or `layout: [..]` (array) would otherwise let the raw read of
+  // layer.layout index a char or undefined, and the ignored-prop
+  // warning would garbage-output. Treat null the same as undefined
+  // per Mapbox spec — null means "property omitted".
+  const lsk = layout['circle-sort-key']
   if (lsk !== undefined && lsk !== null) ignored.push('circle-sort-key (layout)')
   if (ignored.length > 0) {
     warnings.push(`Circle layer "${layer.id}" — ignored properties: ${ignored.join(', ')}`)
