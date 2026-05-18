@@ -106,8 +106,12 @@ const FONT_WEIGHT_KEYWORDS: Record<string, number> = {
   Medium: 500,
   SemiBold: 600, DemiBold: 600,
   Bold: 700,
-  ExtraBold: 800, UltraBold: 800, Heavy: 800,
-  Black: 900,
+  ExtraBold: 800, UltraBold: 800,
+  // CSS / OpenType convention: Heavy and Black both map to weight
+  // 900 (the heaviest standard tier). Pre-fix Heavy was 800, which
+  // matched no real foundry's naming — fonts shipped as "Roboto
+  // Heavy" rendered one tier lighter than the author intended.
+  Black: 900, Heavy: 900,
 }
 const FONT_STYLE_KEYWORDS = new Set(['Italic', 'Oblique'])
 

@@ -76,4 +76,17 @@ describe('parseMapboxFontName', () => {
       family: 'Noto Sans', weight: 400,
     })
   })
+
+  // iter 417 — Heavy weight maps to 900 per CSS / OpenType
+  it('Heavy keyword maps to weight 900 (matches Black, not ExtraBold)', () => {
+    expect(parseMapboxFontName('Roboto Heavy')).toEqual({
+      family: 'Roboto', weight: 900,
+    })
+  })
+
+  it('Black keyword maps to weight 900', () => {
+    expect(parseMapboxFontName('Roboto Black')).toEqual({
+      family: 'Roboto', weight: 900,
+    })
+  })
 })
