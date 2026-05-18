@@ -28,6 +28,7 @@ interface Internals {
   getMaxZoom(): number
   zoomIn(): void
   zoomOut(): void
+  panBy(offset: [number, number]): void
 }
 
 describe('XGISMap Mapbox-API camera setters', () => {
@@ -227,6 +228,39 @@ describe('XGISMap Mapbox-API camera setters', () => {
       map.setZoom(2)
       map.zoomOut()
       expect(map.getZoom()).toBe(2)
+    })
+  })
+
+  describe('panBy', () => {
+    it('positive dx moves camera east (with bearing=0)', () => {
+      map.setCenter(0, 0)
+      const startX = map.camera.centerX
+      map.panBy([100, 0])
+      expect(map.camera.centerX).toBeGreaterThan(startX)
+    })
+
+    it('positive dy moves camera south (with bearing=0)', () => {
+      map.setCenter(0, 0)
+      const startY = map.camera.centerY
+      map.panBy([0, 100])
+      // Screen-y down = Mercator-y down (negative direction)
+      expect(map.camera.centerY).toBeLessThan(startY)
+    })
+
+    it('rejects non-finite without changing camera state', () => {
+      map.setCenter(0, 0)
+      const startX = map.camera.centerX
+      map.panBy([NaN, 0])
+      expect(map.camera.centerX).toBe(startX)
+    })
+
+    it('zero offset is a no-op', () => {
+      map.setCenter(127, 37)
+      const startX = map.camera.centerX
+      const startY = map.camera.centerY
+      map.panBy([0, 0])
+      expect(map.camera.centerX).toBe(startX)
+      expect(map.camera.centerY).toBe(startY)
     })
   })
 })

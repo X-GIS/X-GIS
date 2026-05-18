@@ -593,6 +593,32 @@ export class XGISMap {
   zoomIn(): void { this.setZoom(this.camera.zoom + 1) }
   zoomOut(): void { this.setZoom(this.camera.zoom - 1) }
 
+  /** Mapbox-API parity: pan the map by an offset in CSS pixels.
+   *  Positive dx moves the map LEFT (camera moves RIGHT in world);
+   *  positive dy moves the map UP (camera moves DOWN). Honors the
+   *  current bearing so a +dx with bearing=90 pans north, not east. */
+  panBy(offset: [number, number]): void {
+    if (!Number.isFinite(offset[0]) || !Number.isFinite(offset[1])) {
+      console.warn(`[X-GIS] panBy: non-finite offset (${offset[0]}, ${offset[1]}); ignored.`)
+      return
+    }
+    const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, this.camera.zoom)
+    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 4) : 1
+    // CSS-px → Mercator meters at current zoom. dpr scales the CSS-px
+    // input into the device-px buffer the camera works in.
+    const dxMerc = offset[0] * mpp * dpr
+    const dyMerc = offset[1] * mpp * dpr
+    // Bearing rotation: screen-space +x is the map's east only when
+    // bearing=0. Rotate the offset back into the map's reference frame.
+    const bearingRad = this.camera.bearing * Math.PI / 180
+    const cos = Math.cos(bearingRad), sin = Math.sin(bearingRad)
+    const dxMap = dxMerc * cos - dyMerc * sin
+    const dyMap = dxMerc * sin + dyMerc * cos
+    this.camera.centerX += dxMap
+    this.camera.centerY -= dyMap // screen-y inverted vs Mercator-y
+    this.invalidate()
+  }
+
   setBearing(bearing: number): void {
     if (!Number.isFinite(bearing)) {
       console.warn(`[X-GIS] setBearing: non-finite (${bearing}); ignored.`)
