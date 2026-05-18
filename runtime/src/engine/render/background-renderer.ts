@@ -115,6 +115,18 @@ export class BackgroundRenderer {
    *  (canvas clearValue then dominates). Caller writes
    *  `[r, g, b, a]` in 0..1 floats. */
   setFill(rgba: [number, number, number, number] | null): void {
+    if (rgba === null) { this.fillRgba = null; return }
+    // Defensive: reject non-array, wrong-length, or non-finite channel.
+    // Pre-fix a NaN channel propagated to the WebGPU clear-value and
+    // some drivers produced undefined behaviour (transparent black on
+    // M1, opaque black on NV, magenta on AMD). Mirror of palette.ts
+    // addColor channel sanitisation.
+    if (!Array.isArray(rgba) || rgba.length !== 4
+        || !Number.isFinite(rgba[0]) || !Number.isFinite(rgba[1])
+        || !Number.isFinite(rgba[2]) || !Number.isFinite(rgba[3])) {
+      console.warn(`[X-GIS] BackgroundRenderer.setFill: rejected non-finite RGBA ${JSON.stringify(rgba)}`)
+      return
+    }
     this.fillRgba = rgba
   }
 
