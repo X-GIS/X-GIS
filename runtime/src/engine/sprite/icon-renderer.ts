@@ -91,7 +91,11 @@ export class IconRenderer {
   private readonly pipeline: GPURenderPipeline
   private readonly uniformBuf: GPUBuffer
   private vertexBuf: GPUBuffer | null = null
-  private vertexCount = 0
+  /** Last-frame vertex count. Public for the iter 533 diagnostic
+   *  (IconStage.getLastDrawIconCount) — reading "did the screenshot
+   *  frame actually submit icons" requires post-prepare visibility
+   *  into the renderer's vertex buffer state. */
+  vertexCount = 0
   /** Bind group lazily built once the atlas texture exists, then held
    *  for the life of the renderer. `map.setSpriteUrl` only stores a
    *  URL for the not-yet-built stage — atlas hot-swap is NOT supported

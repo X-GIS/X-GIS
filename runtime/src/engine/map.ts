@@ -1328,6 +1328,14 @@ export class XGISMap {
     return this.iconStage?.getDispatchedIconNames() ?? null
   }
 
+  /** Per-frame draw count — answers "did icons render in the most
+   *  recent prepare?" Distinct from `getDispatchedIconNames()` which
+   *  is cumulative across all frames. Iter 533 — added to localize
+   *  the bright-texas-shields invisible-shields bug. */
+  getLastDrawIconCount(): number | null {
+    return this.iconStage?.getLastDrawIconCount() ?? null
+  }
+
   /** Attach a per-label debug hook for the text stage. The hook fires
    *  once per addLabel / addCurvedLineLabel submission (BEFORE
    *  collision) and receives the final text + screen-pixel anchor.

@@ -157,6 +157,15 @@ export class IconStage {
   getDispatchedIconNames(): string[] { return [...this.dispatchedIconNames].sort() }
   clearDispatchedIconNames(): void { this.dispatchedIconNames.clear() }
 
+  /** Iter 533 sibling — last frame's actual GPU-submitted icon count.
+   *  `getDispatchedIconNames()` is cumulative across all frames and
+   *  proves nothing about the CURRENT screen state. This returns the
+   *  vertex-buffer-derived draw count from the most recent
+   *  `prepare()`. Zero here despite a non-empty dispatched set means
+   *  "shields rendered earlier; the screenshot frame had no pending
+   *  addIcons" — likely a tile-cache / feature-iteration race. */
+  getLastDrawIconCount(): number { return this.renderer.vertexCount / 6 }
+
   destroy(): void {
     this.renderer.destroy()
     this.gpu.destroy()
