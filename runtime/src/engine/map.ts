@@ -781,6 +781,20 @@ export class XGISMap {
       'oblique-mercator': 'oblique_mercator',
     }
     const canonical = ALIASES[name] ?? name
+    // Validate the canonical name is one the renderFrame projType
+    // lookup recognises. Pre-fix an unknown name (`setProjection
+    // ("globey")`) silently fell to mercator at renderFrame (`?? 0`)
+    // — a debugging footgun. Warn loudly + drop the call so the
+    // previous projection stays active.
+    const VALID = new Set([
+      'mercator', 'equirectangular', 'natural_earth',
+      'orthographic', 'azimuthal_equidistant', 'stereographic',
+      'oblique_mercator', 'globe',
+    ])
+    if (!VALID.has(canonical)) {
+      console.warn(`[X-GIS] setProjection: unknown projection "${name}" — keeping "${this.projectionName}". Valid: ${[...VALID].join(', ')}.`)
+      return
+    }
     const prevProj = this.projectionName
     this.projectionName = canonical
     name = canonical
