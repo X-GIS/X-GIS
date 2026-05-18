@@ -52,6 +52,87 @@ export interface CapSpan {
   endLon: number
 }
 
+/** Minimal GeoJSON shapes the injector reads. The runtime's full
+ *  GeoJSON types live elsewhere; we only need polygon-ish fields
+ *  here, so we duck-type rather than importing the full hierarchy. */
+type LonLat = [number, number]
+interface PolygonGeometry {
+  type: 'Polygon'
+  coordinates: LonLat[][]
+}
+interface MultiPolygonGeometry {
+  type: 'MultiPolygon'
+  coordinates: LonLat[][][]
+}
+interface Feature {
+  type: 'Feature'
+  geometry: PolygonGeometry | MultiPolygonGeometry | { type: string; coordinates?: unknown } | null
+  properties?: Record<string, unknown> | null
+  id?: string | number
+}
+interface FeatureCollection {
+  type: 'FeatureCollection'
+  features: Feature[]
+}
+
+/** Scan a FeatureCollection for polygons touching the Web Mercator
+ *  clamp boundary, synthesise a cap polygon for each detected span,
+ *  and return a NEW FeatureCollection with the original features +
+ *  the synthesised cap features appended.
+ *
+ *  Original features are pass-through references (no copy); the
+ *  appended cap features carry the source feature's `properties`
+ *  so style rules (e.g. fill-color match) apply to the cap fragment
+ *  the same way they apply to the source polygon body.
+ *
+ *  Non-polygon geometries are passed through untouched. Idempotent:
+ *  the cap features themselves don't sit on the boundary at the
+ *  pole-side (the pole vertex is at lat ±90, not ±85), so a second
+ *  pass adds nothing. */
+export function injectPolarCaps(
+  fc: FeatureCollection,
+  subdivisions = 16,
+): FeatureCollection {
+  if (!fc || fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) {
+    return fc
+  }
+  const capFeatures: Feature[] = []
+  for (const feat of fc.features) {
+    if (!feat || !feat.geometry) continue
+    const polygons = polygonRingsOf(feat.geometry)
+    if (polygons.length === 0) continue
+    for (const ring of polygons) {
+      const spans = findClampBoundarySpans(ring)
+      for (const span of spans) {
+        const capRing = synthesizeCapRing(span, subdivisions)
+        capFeatures.push({
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: [capRing] },
+          properties: feat.properties ?? {},
+          id: typeof feat.id !== 'undefined' ? `${feat.id}__polar_cap_${span.pole}` : undefined,
+        })
+      }
+    }
+  }
+  if (capFeatures.length === 0) return fc
+  return {
+    type: 'FeatureCollection',
+    features: [...fc.features, ...capFeatures],
+  }
+}
+
+function polygonRingsOf(g: NonNullable<Feature['geometry']>): LonLat[][] {
+  if (g.type === 'Polygon') return (g as PolygonGeometry).coordinates
+  if (g.type === 'MultiPolygon') {
+    const out: LonLat[][] = []
+    for (const poly of (g as MultiPolygonGeometry).coordinates) {
+      for (const ring of poly) out.push(ring)
+    }
+    return out
+  }
+  return []
+}
+
 /** Synthesise a cap polygon ring that closes the surface from a
  *  CapSpan to the pole. Output is in lon/lat (degrees) ready for
  *  the existing source-data pipeline.

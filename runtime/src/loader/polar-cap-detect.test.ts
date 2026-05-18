@@ -6,7 +6,7 @@
 //   - distinguish north vs south pole boundary
 
 import { describe, it, expect } from 'vitest'
-import { findClampBoundarySpans, synthesizeCapRing, vertexOnClampBoundary, type CapSpan } from './polar-cap-detect'
+import { findClampBoundarySpans, injectPolarCaps, synthesizeCapRing, vertexOnClampBoundary, type CapSpan } from './polar-cap-detect'
 
 const LIMIT = 85.0511287798066
 
@@ -162,5 +162,107 @@ describe('synthesizeCapRing', () => {
       expect(lon).toBeGreaterThanOrEqual(-180)
       expect(lon).toBeLessThanOrEqual(180)
     }
+  })
+})
+
+describe('injectPolarCaps', () => {
+  it('appends cap feature for antarctica-like polygon', () => {
+    const fc = {
+      type: 'FeatureCollection' as const,
+      features: [{
+        type: 'Feature' as const,
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [[
+            [-180, -80] as [number, number],
+            [180, -80] as [number, number],
+            [180, -85.0511] as [number, number],
+            [-180, -85.0511] as [number, number],
+            [-180, -80] as [number, number],
+          ]],
+        },
+        properties: { name: 'Antarctica' },
+      }],
+    }
+    const result = injectPolarCaps(fc, 8)
+    expect(result.features.length).toBe(2)
+    const cap = result.features[1]!
+    expect(cap.geometry?.type).toBe('Polygon')
+    expect(cap.properties).toEqual({ name: 'Antarctica' })
+    // Cap ring must include the south pole vertex.
+    const ring = (cap.geometry as { coordinates: [number, number][][] }).coordinates[0]
+    expect(ring.find(([, lat]) => lat === -90)).toBeDefined()
+  })
+
+  it('passes through FC unchanged when no polygon touches boundary', () => {
+    const fc = {
+      type: 'FeatureCollection' as const,
+      features: [{
+        type: 'Feature' as const,
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [[[0, 0] as [number, number], [10, 0] as [number, number], [10, 10] as [number, number], [0, 0] as [number, number]]],
+        },
+        properties: {},
+      }],
+    }
+    const result = injectPolarCaps(fc)
+    expect(result).toBe(fc) // same reference — short-circuit
+  })
+
+  it('handles MultiPolygon geometry', () => {
+    const fc = {
+      type: 'FeatureCollection' as const,
+      features: [{
+        type: 'Feature' as const,
+        geometry: {
+          type: 'MultiPolygon' as const,
+          coordinates: [
+            [[[0, 0] as [number, number], [10, 0] as [number, number], [10, 10] as [number, number], [0, 0] as [number, number]]],
+            [[[170, -80] as [number, number], [-170, -80] as [number, number], [-170, -85.0511] as [number, number], [170, -85.0511] as [number, number], [170, -80] as [number, number]]],
+          ],
+        },
+        properties: {},
+      }],
+    }
+    const result = injectPolarCaps(fc)
+    // Original feature + 1 cap from the boundary-touching sub-polygon.
+    expect(result.features.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('skips non-polygon geometries (Point, LineString, null)', () => {
+    const fc = {
+      type: 'FeatureCollection' as const,
+      features: [
+        { type: 'Feature' as const, geometry: { type: 'Point', coordinates: [0, -85] }, properties: {} },
+        { type: 'Feature' as const, geometry: null, properties: {} },
+      ],
+    }
+    const result = injectPolarCaps(fc)
+    expect(result.features.length).toBe(2) // no caps added
+  })
+
+  it('cap feature inherits source feature properties', () => {
+    const fc = {
+      type: 'FeatureCollection' as const,
+      features: [{
+        type: 'Feature' as const,
+        id: 'aq',
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [[
+            [-180, -80] as [number, number],
+            [-180, -85.0511] as [number, number],
+            [0, -85.0511] as [number, number],
+            [-180, -80] as [number, number],
+          ]],
+        },
+        properties: { class: 'land', color: 'green' },
+      }],
+    }
+    const result = injectPolarCaps(fc)
+    const cap = result.features[result.features.length - 1]!
+    expect(cap.properties).toEqual({ class: 'land', color: 'green' })
+    expect(cap.id).toBe('aq__polar_cap_-1')
   })
 })
