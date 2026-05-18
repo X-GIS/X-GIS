@@ -654,9 +654,22 @@ export class XGISMap {
     const cos = Math.cos(bearingRad), sin = Math.sin(bearingRad)
     const dxMap = dxMerc * cos - dyMerc * sin
     const dyMap = dxMerc * sin + dyMerc * cos
-    this.camera.centerX += dxMap
-    this.camera.centerY -= dyMap // screen-y inverted vs Mercator-y
-    this.invalidate()
+    // Route the result through setCenter so the maxBounds clamp
+    // applies. Convert the new Mercator center back to lon/lat first
+    // since setCenter expects lon/lat, then setCenter re-projects.
+    if (this._maxBounds) {
+      const EARTH = 6378137, D2R = Math.PI / 180
+      const newMercX = this.camera.centerX + dxMap
+      const newMercY = this.camera.centerY - dyMap // screen-y inverted
+      const newLon = newMercX / (D2R * EARTH)
+      const newLatRad = 2 * Math.atan(Math.exp(newMercY / EARTH)) - Math.PI / 2
+      const newLat = newLatRad * 180 / Math.PI
+      this.setCenter(newLon, newLat)
+    } else {
+      this.camera.centerX += dxMap
+      this.camera.centerY -= dyMap
+      this.invalidate()
+    }
   }
 
   setBearing(bearing: number): void {

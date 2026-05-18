@@ -320,5 +320,18 @@ describe('XGISMap Mapbox-API camera setters', () => {
       map.setMaxBounds([[1, 2], [3, 4]])
       expect(map.getMaxBounds()).toEqual([[1, 2], [3, 4]])
     })
+
+    it('panBy honors bounds (iter 435)', () => {
+      // Tight bbox around Korea + small zoom so panBy resolves to a
+      // measurable lon delta.
+      map.setMaxBounds([[125, 33], [131, 39]])
+      map.setZoom(0)
+      map.setCenter(128, 36) // inside bbox
+      // Pan east aggressively (1000 px); at zoom=0 with DPR=1 this is a
+      // huge lon delta that would escape the bbox without the clamp.
+      map.panBy([10000, 0])
+      const state = map.getCameraState()
+      expect(state.center[0]).toBeLessThanOrEqual(131)
+    })
   })
 })
