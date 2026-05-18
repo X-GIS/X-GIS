@@ -57,7 +57,14 @@ export function formatDate(value: DateInput, spec: FormatSpec): string {
 // ─── helpers ──────────────────────────────────────────────────────
 
 function coerceDate(v: DateInput): Date | null {
-  if (v instanceof Date) return v
+  if (v instanceof Date) {
+    // Reject invalid Date instances (e.g. new Date(NaN), new
+    // Date("not a date")). isNaN(date.getTime()) is the spec idiom
+    // for invalid-Date detection. Pre-fix an invalid Date was
+    // returned as-is and downstream formatter calls emitted
+    // "Invalid Date" silently.
+    return isNaN(v.getTime()) ? null : v
+  }
   if (typeof v === 'number') {
     // Number.isFinite rejects NaN/Infinity. `new Date(NaN)` produces
     // an invalid Date and downstream `.getTime()` returns NaN — every
