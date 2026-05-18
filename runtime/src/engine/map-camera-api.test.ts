@@ -29,6 +29,8 @@ interface Internals {
   zoomIn(): void
   zoomOut(): void
   panBy(offset: [number, number]): void
+  setMaxBounds(bounds: [[number, number], [number, number]] | null): void
+  getMaxBounds(): [[number, number], [number, number]] | null
 }
 
 describe('XGISMap Mapbox-API camera setters', () => {
@@ -261,6 +263,62 @@ describe('XGISMap Mapbox-API camera setters', () => {
       map.panBy([0, 0])
       expect(map.camera.centerX).toBe(startX)
       expect(map.camera.centerY).toBe(startY)
+    })
+  })
+
+  describe('setMaxBounds', () => {
+    it('clamps setCenter to bbox', () => {
+      // Korea bbox: roughly [125, 33] to [131, 39]
+      map.setMaxBounds([[125, 33], [131, 39]])
+      map.setCenter(0, 0) // outside bbox
+      const state = map.getCameraState()
+      expect(state.center[0]).toBeGreaterThanOrEqual(125)
+      expect(state.center[0]).toBeLessThanOrEqual(131)
+      expect(state.center[1]).toBeGreaterThanOrEqual(33)
+      expect(state.center[1]).toBeLessThanOrEqual(39)
+    })
+
+    it('clamps jumpTo center to bbox', () => {
+      map.setMaxBounds([[125, 33], [131, 39]])
+      map.jumpTo({ center: [180, 80], zoom: 5 })
+      const state = map.getCameraState()
+      expect(state.center[0]).toBeLessThanOrEqual(131)
+      expect(state.center[1]).toBeLessThanOrEqual(39)
+    })
+
+    it('null clears bounds', () => {
+      map.setMaxBounds([[0, 0], [10, 10]])
+      map.setMaxBounds(null)
+      expect(map.getMaxBounds()).toBeNull()
+      map.setCenter(180, 80) // should not be clamped
+      const state = map.getCameraState()
+      // Bounds cleared — center should reach roughly 180/80 (with lat
+      // clamped to MERCATOR_LAT_LIMIT)
+      expect(state.center[0]).toBeCloseTo(180, 0)
+    })
+
+    it('rejects malformed bbox (south > north)', () => {
+      map.setMaxBounds([[0, 50], [10, 10]]) // south=50 > north=10
+      expect(map.getMaxBounds()).toBeNull()
+    })
+
+    it('rejects out-of-range lat', () => {
+      map.setMaxBounds([[0, -95], [10, 10]])
+      expect(map.getMaxBounds()).toBeNull()
+      map.setMaxBounds([[0, 0], [10, 100]])
+      expect(map.getMaxBounds()).toBeNull()
+    })
+
+    it('immediately clamps current center when bounds shrink', () => {
+      map.setCenter(180, 0)
+      map.setMaxBounds([[0, -10], [20, 10]]) // current center 180 is outside
+      const state = map.getCameraState()
+      expect(state.center[0]).toBeLessThanOrEqual(20)
+    })
+
+    it('getMaxBounds returns the active bbox', () => {
+      map.setMaxBounds([[1, 2], [3, 4]])
+      expect(map.getMaxBounds()).toEqual([[1, 2], [3, 4]])
     })
   })
 })
