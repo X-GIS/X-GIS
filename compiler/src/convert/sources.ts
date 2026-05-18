@@ -220,7 +220,11 @@ export function convertSource(
         warnings.push(`Source "${id}" tiles URL uses {bbox-epsg-3857} placeholder (WMS-style bbox); X-GIS runtime substitutes only {z}/{x}/{y} so the request fetches the unsubstituted URL and 404s. Use an XYZ tile endpoint instead of WMS.`)
       }
       if (t.includes('{ratio}')) {
-        warnings.push(`Source "${id}" tiles URL uses {ratio} placeholder (Mapbox DPR suffix — "" / "@2x"); X-GIS runtime does not substitute it, so the request fetches the unsubstituted URL and 404s. Pre-bake the @2x endpoint or drop the placeholder.`)
+        // Runtime substitutes `{ratio}` → "" (1x DPR) at fetch time.
+        // No DPR switching yet, so retina endpoints render at 1x;
+        // surface as informational so the author knows the @2x
+        // ramp isn't picked up.
+        warnings.push(`Source "${id}" tiles URL uses {ratio} placeholder (Mapbox DPR suffix); runtime substitutes "" (1x DPR) — retina @2x tiles will not be requested until per-DPR selection lands.`)
       }
     }
   }
