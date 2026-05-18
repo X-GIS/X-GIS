@@ -284,7 +284,12 @@ function ingestRenderNode(b: PaletteBuilder, node: RenderNode): void {
     // touch the legacy fields — the labelShapes migration ingests
     // through the existing PropertyShape<T> visitor when wired in
     // P3.2.
-    if (typeof label.size === 'number') b.addScalar(label.size)
+    // Number.isFinite rejects NaN — addScalar dedups via numbersEqual
+    // (epsilon compare), but `Math.abs(NaN - NaN) < eps` is false so
+    // every NaN size would get its own palette slot AND the renderer
+    // would read a NaN size from the slot at draw time. Skip non-
+    // finite sizes — the label falls to the renderer's default.
+    if (typeof label.size === 'number' && Number.isFinite(label.size)) b.addScalar(label.size)
     if (label.color) b.addColor(label.color)
   }
 }
