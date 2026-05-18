@@ -134,6 +134,7 @@ function isOmittedValue(v: unknown): boolean {
 const SKIP_REASONS: Record<string, string> = {
   heatmap: 'heatmap layer — Batch 3 (accumulation MRT + Gaussian blur)',
   hillshade: 'hillshade layer — Batch 4 (raster-dem + lighting shader)',
+  sky: 'sky layer — gradient/atmospheric sky rendering not yet wired (would need a dome quad + per-fragment hue interpolation)',
 }
 
 /** Mapbox font-name trailing keywords → CSS font-weight numerics.
