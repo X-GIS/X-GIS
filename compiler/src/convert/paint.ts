@@ -139,6 +139,7 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     addOpacity(out, p['line-opacity'], warnings)
     addLineOffset(out, p['line-offset'], warnings)
     addLineBlur(out, p['line-blur'], warnings)
+    addLineGapWidth(out, p['line-gap-width'], warnings)
     // Same gap as fill-pattern: when a line layer's only visual is a
     // repeating sprite (no line-color), the layer goes dead silently.
     // Mirror of the fill-pattern null-as-omit treatment above.
@@ -148,7 +149,7 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     }
     surfaceIgnoredPaint(layer.id, p, warnings, [
       'line-translate', 'line-translate-anchor', 'line-sort-key',
-      'line-gap-width', 'line-round-limit', 'line-gradient',
+      'line-round-limit', 'line-gradient',
     ])
   } else if (layer.type === 'fill-extrusion') {
     addFill(out, p['fill-extrusion-color'], warnings)
@@ -528,6 +529,35 @@ function addLineOffset(out: string[], v: unknown, warnings: string[]): void {
   // Non-constant — interpolate-by-zoom or per-feature expression.
   // No binding-form handler in lower.ts yet; warn and skip.
   warnings.push(`paint.line-offset: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
+}
+
+/** Mapbox `paint.line-gap-width` (gap WIDTH between two parallel
+ *  lines, CSS px) → xgis `stroke-gap-N`. When non-zero the line
+ *  draws as TWO parallel strokes (each stroke-width wide) with the
+ *  gap between them — the typical road-casing visual.
+ *
+ *  Constant + interpolate-by-zoom both emit; non-constant non-zoom
+ *  expressions defer and warn. Runtime route: ShowCommand.strokeGapWidth
+ *  > 0 triggers two writeLayerSlot + drawSegments calls per line layer
+ *  with offsets ±(gap+stroke)/2. OFM Liberty waterway_tunnel
+ *  (zoom-interp 12→0, 20→6) is the only fixture hit. */
+function addLineGapWidth(out: string[], v: unknown, warnings: string[]): void {
+  if (isOmitted(v)) return
+  v = unwrapLiteralNumeric(v)
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    // Default 0 = no gap = single line; skip emit so the runtime
+    // single-draw path stays unchanged.
+    if (v <= 0) return
+    out.push(`stroke-gap-${v}`)
+    return
+  }
+  const interp = interpolateZoomCall(v, warnings,
+    (val) => typeof val === 'number' && Number.isFinite(val) ? String(Math.max(0, val)) : null)
+  if (interp !== null) {
+    out.push(`stroke-gap-[${interp}]`)
+    return
+  }
+  warnings.push(`paint.line-gap-width: non-constant non-zoom form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
 }
 
 /** Mapbox `paint.line-blur` (edge feathering, CSS px) → xgis

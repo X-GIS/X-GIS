@@ -861,6 +861,10 @@ export interface ShowCommand {
   strokeAlign?: 'center' | 'inset' | 'outset'
   /** Mapbox `paint.line-blur` — edge feathering in CSS px (0 = crisp). */
   strokeBlur?: number
+  /** Mapbox `paint.line-gap-width` — px gap between two parallel
+   *  strokes composing a road casing. > 0 triggers the line renderer's
+   *  double-draw path with offsets ±(gap + stroke) / 2. */
+  strokeGapWidth?: number
   // Stable u16 layer ID assigned by `XGISMap` via `LayerIdRegistry` after
   // the compiler emits this command. Threaded into every per-tile uniform
   // write so the fragment shader can stamp the pick texture's G channel

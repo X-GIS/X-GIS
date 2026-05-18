@@ -599,6 +599,12 @@ function lowerLayer(
   let strokeOffset: number | undefined
   let strokeAlign: 'center' | 'inset' | 'outset' | undefined
   let strokeBlur: number | undefined
+  /** Mapbox `line-gap-width` — px gap between the two parallel
+   *  strokes that make up a "double line" casing. Constant form
+   *  only at the moment; zoom-interp lands later (the converter
+   *  emits the bracket form for zoom-interp but lower.ts only
+   *  consumes the constant here). */
+  let strokeGapWidth: number | undefined
   // Phase 4: pattern stack — up to 3 slots. Slot 0 = `stroke-pattern-*`,
   // slots 1/2 = `stroke-pattern-1-*` / `stroke-pattern-2-*`.
   const patternSlots: import('./render-node').StrokePattern[] = [
@@ -1373,6 +1379,13 @@ function lowerLayer(
         // Mapbox `paint.line-blur` — edge feathering in CSS px.
         const num = parseFloat(name.slice('stroke-blur-'.length))
         if (!isNaN(num)) strokeBlur = num
+      } else if (name.startsWith('stroke-gap-')) {
+        // Mapbox `paint.line-gap-width` — px gap between two parallel
+        // strokes that make up a "double line" casing. Constant form
+        // here; zoom-interp emits the bracket binding form which is
+        // currently dropped (lower.ts has no binding-form arm for it).
+        const num = parseFloat(name.slice('stroke-gap-'.length))
+        if (!isNaN(num) && num > 0) strokeGapWidth = num
       } else if (name.startsWith('stroke-')) {
         const rest = name.slice(7)
         const num = parseFloat(rest)
@@ -1703,6 +1716,7 @@ function lowerLayer(
         offset: strokeOffset,
         align: strokeAlign,
         blur: strokeBlur,
+        gapWidth: strokeGapWidth,
         timeWidthStops: strokeWidthTimeStops.length >= 2 ? strokeWidthTimeStops : undefined,
         timeDashOffsetStops: dashOffsetTimeStops.length >= 2 ? dashOffsetTimeStops : undefined,
       }

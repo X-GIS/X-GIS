@@ -497,6 +497,12 @@ export interface StrokeValue {
    *  0 (default) preserves crisp 1.5 px AA expansion; positive values
    *  soft-fade the edge over `1.5 + blur` px each side. */
   blur?: number
+  /** Mapbox `paint.line-gap-width` — px gap between two parallel
+   *  strokes that compose a "double line" casing (typical road
+   *  outline). When > 0, the renderer draws the line TWICE with
+   *  perpendicular offsets ±(gapWidth + width)/2. Default 0 = single
+   *  line. Constant form here; zoom-interp deferred. */
+  gapWidth?: number
   /** Stroke alignment relative to the centerline. Default 'center'.
    *  Inset shifts the stroke onto the left side of travel by half-width
    *  (so the stroke's right edge sits on the original line); outset shifts

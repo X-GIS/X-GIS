@@ -116,6 +116,12 @@ export interface ShowCommand {
   strokeAlign?: 'center' | 'inset' | 'outset'
   /** Mapbox `paint.line-blur` edge feathering in CSS px (0 = crisp). */
   strokeBlur?: number
+  /** Mapbox `paint.line-gap-width` — px gap between two parallel
+   *  strokes composing a road casing. > 0 triggers the line renderer's
+   *  double-draw path (two writeLayerSlot + drawSegments per layer
+   *  with offsets ±(gap + stroke) / 2). 0 / absent stays on the
+   *  single-draw legacy path. */
+  strokeGapWidth?: number
   /** 3D extrusion height. `none` = flat polygon (default). `constant`
    *  = uniform metres for every feature. `feature` = per-feature
    *  property name + fallback metres. The runtime branches the upload
@@ -418,6 +424,7 @@ function emitShow(
     dashOffsetShape,
     patterns: node.stroke.patterns,
     strokeOffset: node.stroke.offset,
+    strokeGapWidth: node.stroke.gapWidth,
     strokeAlign: node.stroke.align,
     strokeBlur: node.stroke.blur,
     extrude: node.extrude,
