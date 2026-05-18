@@ -36,6 +36,10 @@ interface Internals {
   resize(): void
   loaded(): boolean
   fitBounds(bounds: [[number, number], [number, number]], opts?: { padding?: number; bearing?: number; pitch?: number }): void
+  on(type: string, listener: unknown): void
+  off(type: string, listener: unknown): void
+  once(type: string, listener: unknown): void
+  mapListeners: { has(type: string): boolean }
 }
 
 describe('XGISMap Mapbox-API camera setters', () => {
@@ -404,6 +408,22 @@ describe('XGISMap Mapbox-API camera setters', () => {
       map.setZoom(7)
       map.fitBounds([[0, 50], [10, 10]])
       expect(map.getZoom()).toBe(7) // untouched
+    })
+  })
+
+  describe('on / off / once (iter 442)', () => {
+    it('on registers listener; off removes it', () => {
+      const fn = () => {}
+      map.on('click', fn)
+      expect(map.mapListeners.has('click')).toBe(true)
+      map.off('click', fn)
+      expect(map.mapListeners.has('click')).toBe(false)
+    })
+
+    it('once registers a one-shot listener', () => {
+      const fn = () => {}
+      map.once('mousemove', fn)
+      expect(map.mapListeners.has('mousemove')).toBe(true)
     })
   })
 })
