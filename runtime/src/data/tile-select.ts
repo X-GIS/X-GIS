@@ -850,6 +850,10 @@ export function tileUrl(template: string, coord: TileCoord): string {
 
 /** Check if a URL is a tile template */
 export function isTileTemplate(url: string): boolean {
+  // Defensive: non-string url would crash on `.includes`. Type
+  // assertion at the boundary (TS-typed-as-string) lets unexpected
+  // values reach here.
+  if (typeof url !== 'string') return false
   return url.includes('{z}') && url.includes('{x}') && url.includes('{y}')
 }
 
