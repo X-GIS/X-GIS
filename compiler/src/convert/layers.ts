@@ -337,8 +337,8 @@ function convertSymbolLayer(
   if (layer['source-layer']) lines.push(`  sourceLayer: ${JSON.stringify(layer['source-layer'])}`)
   const effectiveMin = overrides?.minzoom !== undefined ? overrides.minzoom : layer.minzoom
   const effectiveMax = overrides?.maxzoom !== undefined ? overrides.maxzoom : layer.maxzoom
-  if (typeof effectiveMin === 'number') lines.push(`  minzoom: ${effectiveMin}`)
-  if (typeof effectiveMax === 'number') lines.push(`  maxzoom: ${effectiveMax}`)
+  if (typeof effectiveMin === 'number' && Number.isFinite(effectiveMin)) lines.push(`  minzoom: ${effectiveMin}`)
+  if (typeof effectiveMax === 'number' && Number.isFinite(effectiveMax)) lines.push(`  maxzoom: ${effectiveMax}`)
   if (layer.filter !== undefined) {
     const f = filterToXgis(layer.filter, warnings)
     if (f) lines.push(`  filter: ${f}`)
@@ -1067,8 +1067,8 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   const lines: string[] = [`layer ${sanitizeId(layer.id)} {`]
   if (layer.source) lines.push(`  source: ${sanitizeId(layer.source)}`)
   if (layer['source-layer']) lines.push(`  sourceLayer: ${JSON.stringify(layer['source-layer'])}`)
-  if (typeof layer.minzoom === 'number') lines.push(`  minzoom: ${layer.minzoom}`)
-  if (typeof layer.maxzoom === 'number') lines.push(`  maxzoom: ${layer.maxzoom}`)
+  if (typeof layer.minzoom === 'number' && Number.isFinite(layer.minzoom)) lines.push(`  minzoom: ${layer.minzoom}`)
+  if (typeof layer.maxzoom === 'number' && Number.isFinite(layer.maxzoom)) lines.push(`  maxzoom: ${layer.maxzoom}`)
   if (layer.filter !== undefined) {
     const f = filterToXgis(layer.filter, warnings)
     if (f) lines.push(`  filter: ${f}`)
@@ -1273,10 +1273,10 @@ export function convertLayer(layer: MapboxLayer, warnings: string[]): string | n
         // minzoom/maxzoom so a layer that's already gated outside
         // the step's full domain stays gated.
         const minzoom = seg.minzoom !== undefined
-          ? (typeof layer.minzoom === 'number' ? Math.max(layer.minzoom, seg.minzoom) : seg.minzoom)
+          ? (typeof layer.minzoom === 'number' && Number.isFinite(layer.minzoom) ? Math.max(layer.minzoom, seg.minzoom) : seg.minzoom)
           : layer.minzoom
         const maxzoom = seg.maxzoom !== undefined
-          ? (typeof layer.maxzoom === 'number' ? Math.min(layer.maxzoom, seg.maxzoom) : seg.maxzoom)
+          ? (typeof layer.maxzoom === 'number' && Number.isFinite(layer.maxzoom) ? Math.min(layer.maxzoom, seg.maxzoom) : seg.maxzoom)
           : layer.maxzoom
         blocks.push(convertSymbolLayer(layer, warnings, {
           idSuffix: String(i),
@@ -1323,8 +1323,8 @@ export function convertLayer(layer: MapboxLayer, warnings: string[]): string | n
   const lines: string[] = [`layer ${sanitizeId(layer.id)} {`]
   if (layer.source) lines.push(`  source: ${sanitizeId(layer.source)}`)
   if (layer['source-layer']) lines.push(`  sourceLayer: ${JSON.stringify(layer['source-layer'])}`)
-  if (typeof layer.minzoom === 'number') lines.push(`  minzoom: ${layer.minzoom}`)
-  if (typeof layer.maxzoom === 'number') lines.push(`  maxzoom: ${layer.maxzoom}`)
+  if (typeof layer.minzoom === 'number' && Number.isFinite(layer.minzoom)) lines.push(`  minzoom: ${layer.minzoom}`)
+  if (typeof layer.maxzoom === 'number' && Number.isFinite(layer.maxzoom)) lines.push(`  maxzoom: ${layer.maxzoom}`)
   if (layer.filter !== undefined) {
     const f = filterToXgis(layer.filter, warnings)
     if (f) lines.push(`  filter: ${f}`)
