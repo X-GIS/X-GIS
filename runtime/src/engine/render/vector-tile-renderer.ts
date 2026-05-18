@@ -2530,6 +2530,17 @@ export class VectorTileRenderer {
     const alignDeltaPx_h = show.strokeAlign === 'inset' || show.strokeAlign === 'outset'
       ? strokeWidthPx_h / 2 : 0
     const offsetMarginPx = Math.ceil(strokeOffsetPx_h + alignDeltaPx_h + strokeWidthPx_h / 2 + 2)
+    // KNOWN GAP (user report 2026-05-18 — memory note
+    // project_projection_issues_2026_05_18 #4): non-Mercator tile
+    // selection uses MERCATOR's forward/inverse regardless of the
+    // actual projection. Works for pseudocyl (equirect / natural_earth)
+    // which share Mercator's lon-x linear mapping, but obliqueMercator
+    // ROTATES the entire sphere, so a Mercator-space (z/x/y) tile
+    // doesn't correspond to obliqueMercator's visual bounds. At
+    // z >= 1 with shifting centerLon, tiles appear in wrong positions
+    // / flipped. Fix needs per-projection forward/inverse threaded
+    // through visibleTilesSSE → not landed this session (multi-file
+    // + projection-specific tile-bound math).
     const selectorProj = projType === 0
       ? mercatorProj
       : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
