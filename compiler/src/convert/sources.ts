@@ -203,6 +203,26 @@ export function convertSource(
   if (typeof src.url === 'string') {
     ;(src as { url?: unknown }).url = stripPmtilesScheme(src.url)
   }
+  // Mapbox tile URL templates can carry placeholders beyond
+  // `{z}/{x}/{y}`: `{quadkey}` (Bing tile scheme) and
+  // `{bbox-epsg-3857}` (WMS-style bbox in Web Mercator). The X-GIS
+  // runtime substitutes ONLY {z}/{x}/{y}; unknown placeholders pass
+  // through literally and every tile request 404s with the
+  // unsubstituted text in the URL. Surface at convert time so the
+  // user sees the gap.
+  const checkPlaceholdersOnTiles = (tilesArr: unknown[]): void => {
+    for (const t of tilesArr) {
+      if (typeof t !== 'string') continue
+      if (t.includes('{quadkey}')) {
+        warnings.push(`Source "${id}" tiles URL uses {quadkey} placeholder (Bing tile scheme); X-GIS runtime substitutes only {z}/{x}/{y} so the request fetches the unsubstituted URL and 404s. Convert the endpoint to the XYZ form.`)
+      }
+      if (t.includes('{bbox-epsg-3857}')) {
+        warnings.push(`Source "${id}" tiles URL uses {bbox-epsg-3857} placeholder (WMS-style bbox); X-GIS runtime substitutes only {z}/{x}/{y} so the request fetches the unsubstituted URL and 404s. Use an XYZ tile endpoint instead of WMS.`)
+      }
+    }
+  }
+  if (Array.isArray(src.tiles)) checkPlaceholdersOnTiles(src.tiles as unknown[])
+  if (typeof src.url === 'string') checkPlaceholdersOnTiles([src.url])
   if (src.type === 'vector') {
     const url = src.url ?? src.tiles?.[0]
     if (url && /\.pmtiles(\?|#|$)/i.test(url)) {
