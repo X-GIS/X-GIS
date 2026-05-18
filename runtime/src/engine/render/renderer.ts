@@ -592,15 +592,13 @@ export const STROKE_RETURN_MARKER = 'out.color = vec4<f32>(u.stroke_color.rgb, u
 export const PICK_FIELD_TOKEN = '__PICK_FIELD__'
 export const PICK_WRITE_TOKEN = '__PICK_WRITE__'
 
-export interface ShaderVariantInfo {
-  key: string
-  preamble: string
-  fillExpr: string
-  strokeExpr: string
-  needsFeatureBuffer: boolean
-  featureFields: string[]
-  uniformFields: string[]
-}
+/** Runtime alias for the compiler-emitted ShaderVariant. Earlier this
+ *  was a stripped local interface that fell behind every time the
+ *  compiler added a field (palette routing, computeBindings, etc.),
+ *  forcing 5+ `Property 'computeBindings' does not exist` errors at
+ *  every renderer access. Pointing at the canonical compiler type
+ *  removes the drift surface entirely. */
+export type ShaderVariantInfo = import('@xgis/compiler').ShaderVariant
 
 export interface CachedPipeline {
   fillPipeline: GPURenderPipeline
