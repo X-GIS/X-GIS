@@ -38,7 +38,7 @@ function summariseIR(ir: ReturnType<typeof lower>) {
       .map(rn => (rn as { kind?: string }).kind ?? 'unknown')
       .reduce<Record<string, number>>((acc, k) => { acc[k] = (acc[k] ?? 0) + 1; return acc }, {}),
     symbolCount: ir.symbols?.length ?? 0,
-    hasBackground: !!ir.background,
+    hasBackground: !!(ir as { background?: unknown }).background,
     diagnosticCount: ir.diagnostics?.length ?? 0,
   }
 }

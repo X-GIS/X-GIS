@@ -1,0 +1,75 @@
+{
+  "version": 8,
+  "name": "synthetic-nested-expressions",
+  "sources": {
+    "test-vector": {
+      "type": "vector",
+      "tiles": ["https://example.com/tiles/{z}/{x}/{y}.pbf"]
+    }
+  },
+  "layers": [
+    {
+      "id": "interpolate-with-case",
+      "type": "line",
+      "source": "test-vector",
+      "source-layer": "roads",
+      "paint": {
+        "line-width": [
+          "interpolate", ["linear"], ["zoom"],
+          5, 1,
+          10, 2,
+          15, 4
+        ],
+        "line-color": [
+          "case",
+          ["==", ["get", "kind"], "motorway"],
+            ["interpolate", ["linear"], ["zoom"], 5, "#ff8800", 15, "#ffaa44"],
+          ["==", ["get", "kind"], "trunk"],
+            ["interpolate", ["linear"], ["zoom"], 5, "#cc6600", 15, "#dd8822"],
+          "#888"
+        ]
+      },
+      "filter": [
+        "all",
+        ["==", ["get", "$type"], "LineString"],
+        ["any",
+          ["in", ["get", "kind"], ["literal", ["motorway", "trunk", "primary"]]],
+          ["==", ["get", "highway"], true]
+        ]
+      ]
+    },
+    {
+      "id": "let-binding-with-data-driven-arms",
+      "type": "circle",
+      "source": "test-vector",
+      "source-layer": "places",
+      "paint": {
+        "circle-radius": [
+          "let",
+          "base", ["get", "rank"],
+          ["+", ["var", "base"], 2]
+        ]
+      }
+    },
+    {
+      "id": "format-spans",
+      "type": "symbol",
+      "source": "test-vector",
+      "source-layer": "places",
+      "layout": {
+        "text-field": [
+          "format",
+          ["get", "name"], {},
+          " ", {},
+          ["get", "name_en"], { "font-scale": 0.8 }
+        ],
+        "text-size": [
+          "interpolate", ["linear"], ["zoom"],
+          5, 10,
+          10, 14,
+          15, 18
+        ]
+      }
+    }
+  ]
+}
