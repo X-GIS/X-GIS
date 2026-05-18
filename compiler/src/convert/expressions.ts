@@ -422,7 +422,10 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
     // FnCall expression.
     case '^': {
       // Mapbox `["^", a, b]` → xgis `pow(a, b)`. Two args required.
-      if (v.length !== 3) return null
+      if (v.length !== 3) {
+        warnings.push(`Malformed ["^"] expression: expected 2 arguments, got ${v.length - 1}.`)
+        return null
+      }
       const a = exprToXgis(v[1], warnings)
       const b = exprToXgis(v[2], warnings)
       if (a === null || b === null) return null
@@ -447,6 +450,11 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
     case 'pi': case 'e': case 'ln2': {
       // Zero-arg constants — Mapbox emits `["pi"]`. The evaluator
       // resolves these as builtin calls with empty arg lists.
+      // Extra args would be silently dropped — warn so the author
+      // doesn't accidentally pass operands to a no-arg constant.
+      if (v.length !== 1) {
+        warnings.push(`Malformed ["${op}"] expression: zero-arg constant takes no arguments, got ${v.length - 1}.`)
+      }
       return `${op}()`
     }
     case 'concat': {
