@@ -269,6 +269,12 @@ async function fetchTileWithRetry(
   url: string, tileLabel: string, signal: AbortSignal,
 ): Promise<Uint8Array | null | 'failed'> {
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+  // Defensive: empty URL would hit the current document URL via
+  // fetch(""). The host's HTML (200 OK) would arrive as supposed
+  // tile data and the MVT parser would crash on the response bytes.
+  // Compiler now rejects empty URLs upstream (iter 300); this gate
+  // catches hand-constructed scenes that bypass the converter.
+  if (!url || typeof url !== 'string') return 'failed'
   const negativeExpiry = tileFetchNegativeCache.get(url)
   if (negativeExpiry !== undefined) {
     if (Date.now() < negativeExpiry) return 'failed'
