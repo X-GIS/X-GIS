@@ -633,6 +633,13 @@ export class XGISMap {
     return [[b.west, b.south], [b.east, b.north]]
   }
 
+  /** Mapbox-API parity: returns true once the map has finished its
+   *  initial load and entered the render loop. Matches MapLibre GL
+   *  JS `map.loaded()`. Tracks the same `__xgisReady` signal the
+   *  smoke-test harness polls. */
+  private _loaded = false
+  loaded(): boolean { return this._loaded }
+
   /** Mapbox-API parity: notify the map that its container resized.
    *  X-GIS's renderFrame already reads canvas.width / .height every
    *  frame, so the actual buffer pickup is automatic — this method
@@ -1823,6 +1830,7 @@ export class XGISMap {
     // to know when a demo has completed its initial load and entered
     // the render loop. Gated on `typeof window` so SSR / Node tests
     // don't trip over the global.
+    this._loaded = true
     if (typeof window !== 'undefined') {
       ;(window as unknown as { __xgisReady?: boolean }).__xgisReady = true
       // Expose a deterministic scene-snapshot helper. Captures the

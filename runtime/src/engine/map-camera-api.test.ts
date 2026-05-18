@@ -34,6 +34,7 @@ interface Internals {
   easeTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number }): void
   flyTo(opts: { center?: [number, number]; zoom?: number; bearing?: number; pitch?: number; duration?: number }): void
   resize(): void
+  loaded(): boolean
 }
 
 describe('XGISMap Mapbox-API camera setters', () => {
@@ -373,6 +374,14 @@ describe('XGISMap Mapbox-API camera setters', () => {
       map.resize()
       map.resize()
       expect(map.getZoom()).toBe(10)
+    })
+  })
+
+  describe('loaded (iter 439)', () => {
+    it('returns false before init completes', () => {
+      // mockCanvas() doesn't trigger GPU init, so the flag stays false
+      // until the renderFrame ready-signal point is reached.
+      expect(map.loaded()).toBe(false)
     })
   })
 })
