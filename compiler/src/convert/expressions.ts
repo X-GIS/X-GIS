@@ -571,7 +571,10 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
     case 'at': {
       // Mapbox `["at", index, array]` — array indexing. xgis has
       // ArrayAccess via `arr[idx]` syntax (parsed as a postfix).
-      if (v.length !== 3) return null
+      if (v.length !== 3) {
+        warnings.push(`Malformed ["at"] expression: expected 2 arguments (index, array), got ${v.length - 1}.`)
+        return null
+      }
       const idx = exprToXgis(v[1], warnings)
       const arr = exprToXgis(v[2], warnings)
       if (idx === null || arr === null) return null
@@ -581,14 +584,20 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
       // Mapbox `["typeof", value]` → xgis `typeof(value)`. The
       // evaluator returns "string" / "number" / "boolean" / "object" /
       // "null" matching the Mapbox spec.
-      if (v.length !== 2) return null
+      if (v.length !== 2) {
+        warnings.push(`Malformed ["typeof"] expression: expected 1 argument, got ${v.length - 1}.`)
+        return null
+      }
       const inner = exprToXgis(v[1], warnings)
       return inner !== null ? `typeof(${inner})` : null
     }
     case 'slice': {
       // Mapbox `["slice", input, start]` or `["slice", input, start, end]`.
       // Routes through xgis `slice(input, start[, end])` builtin.
-      if (v.length < 3 || v.length > 4) return null
+      if (v.length < 3 || v.length > 4) {
+        warnings.push(`Malformed ["slice"] expression: expected 2-3 arguments (input, start[, end]), got ${v.length - 1}.`)
+        return null
+      }
       const parts = v.slice(1).map(a => exprToXgis(a, warnings))
       if (parts.some(p => p === null)) return null
       return `slice(${parts.join(', ')})`
@@ -596,7 +605,10 @@ export function exprToXgis(v: unknown, warnings: string[]): string | null {
     case 'index-of': {
       // Mapbox `["index-of", needle, haystack]` or
       // `["index-of", needle, haystack, from_index]`.
-      if (v.length < 3 || v.length > 4) return null
+      if (v.length < 3 || v.length > 4) {
+        warnings.push(`Malformed ["index-of"] expression: expected 2-3 arguments (needle, haystack[, from_index]), got ${v.length - 1}.`)
+        return null
+      }
       const parts = v.slice(1).map(a => exprToXgis(a, warnings))
       if (parts.some(p => p === null)) return null
       // xgis identifier names can't contain hyphens; route to the
