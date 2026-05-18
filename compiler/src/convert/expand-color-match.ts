@@ -40,7 +40,7 @@ type InFilter = [string, [string, string], [string, (string | number)[]]]
  *  features. Caller emits each sublayer through `convertLayer` as
  *  usual; the result is a slightly inflated layer count for a layer
  *  that needs per-feature colour. */
-export function expandPerFeatureColorMatch(layer: MapboxLayer): MapboxLayer[] | null {
+export function expandPerFeatureColorMatch(layer: MapboxLayer, warnings?: string[]): MapboxLayer[] | null {
   if (layer.type !== 'fill') return null
   // Defensive: layer.paint should be an object per spec. A non-object
   // form (string, array, etc. from malformed JSON) would otherwise let
@@ -87,7 +87,16 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer): MapboxLayer[] | 
   while (Array.isArray(defaultOut) && defaultOut.length === 2 && defaultOut[0] === 'literal') {
     defaultOut = defaultOut[1]
   }
-  if (typeof defaultOut !== 'string') return null  // non-colour-string default
+  if (typeof defaultOut !== 'string') {
+    // The match LOOKS like a per-feature colour palette (fill-type +
+    // match + get-field input) but the default arm isn't a constant
+    // colour. The split bails; lower.ts's pick-first-stop fallback
+    // takes over and the layer renders ONE colour for every feature.
+    // Surface so the author sees why an 8-country palette collapsed
+    // to one colour.
+    warnings?.push(`Layer "${layer.id}" — fill-color match default arm is not a constant colour string; per-feature colour expand bailed and the layer will render with a single fallback colour.`)
+    return null
+  }
 
   const byColour = new Map<string, (string | number)[]>()
   const allVals: (string | number)[] = []
@@ -112,7 +121,10 @@ export function expandPerFeatureColorMatch(layer: MapboxLayer): MapboxLayer[] | 
     while (Array.isArray(out) && out.length === 2 && out[0] === 'literal') {
       out = out[1]
     }
-    if (typeof out !== 'string') return null  // every arm must be a colour string
+    if (typeof out !== 'string') {
+      warnings?.push(`Layer "${layer.id}" — fill-color match arm output is not a constant colour string (got ${typeof out}); per-feature colour expand bailed and the layer will render with a single fallback colour.`)
+      return null
+    }
     const valList = Array.isArray(vals) ? vals : [vals]
     for (let v of valList) {
       // Inner per-element literal-wrap, mirror of the match-handler

@@ -517,7 +517,7 @@ export function convertMapboxStyle(
     try {
       expanded = options?.bypassExpandColorMatch
         ? null
-        : expandPerFeatureColorMatch(layer as MapboxLayer)
+        : expandPerFeatureColorMatch(layer as MapboxLayer, warnings)
     } catch (e) {
       warnings.push(`Layer "${(layer as { id?: unknown }).id ?? '<unknown>'}" expand-color-match threw: ${(e as Error).message}`)
     }
