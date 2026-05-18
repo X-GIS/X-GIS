@@ -494,7 +494,11 @@ function addStrokeWidth(out: string[], v: unknown, warnings: string[]): void {
 function addLineOffset(out: string[], v: unknown, warnings: string[]): void {
   if (isOmitted(v)) return
   v = unwrapLiteralNumeric(v)
-  if (typeof v === 'number') {
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    // Number.isFinite rejects NaN/Infinity (typeof NaN === 'number'
+    // is true; sign-test against NaN falls neither > 0 nor < 0 and
+    // emitted `stroke-offset-right-NaN` from the inversion fallback
+    // on negative; finite gate avoids the malformed emit).
     if (v === 0) return
     if (v > 0) out.push(`stroke-offset-right-${v}`)
     else out.push(`stroke-offset-left-${-v}`)
@@ -512,7 +516,10 @@ function addLineOffset(out: string[], v: unknown, warnings: string[]): void {
 function addLineBlur(out: string[], v: unknown, warnings: string[]): void {
   if (isOmitted(v)) return
   v = unwrapLiteralNumeric(v)
-  if (typeof v === 'number') {
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    // Number.isFinite rejects NaN/Infinity. NaN <= 0 is false, so
+    // a NaN blur would fall through the v <= 0 skip and emit
+    // `stroke-blur-NaN`.
     if (v <= 0) return
     out.push(`stroke-blur-${v}`)
     return
@@ -627,7 +634,9 @@ function addExtrudeHeight(out: string[], v: unknown, warnings: string[]): void {
   // Mapbox spec: fill-extrusion-height >= 0. Clamp constant
   // literals so a typo'd negative doesn't emit
   // `fill-extrusion-height--5` (double-dash utility name).
-  if (typeof v === 'number') {
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    // Number.isFinite rejects NaN/Infinity — Math.max(0, NaN) = NaN
+    // would emit `fill-extrusion-height-NaN`.
     out.push(`fill-extrusion-height-${Math.max(0, v)}`)
     return
   }
@@ -651,7 +660,7 @@ function addExtrudeBase(out: string[], v: unknown, warnings: string[]): void {
   v = unwrapLiteralNumeric(v)
   // Mapbox spec: fill-extrusion-base >= 0. Mirror of the
   // addExtrudeHeight clamp.
-  if (typeof v === 'number') {
+  if (typeof v === 'number' && Number.isFinite(v)) {
     out.push(`fill-extrusion-base-${Math.max(0, v)}`)
     return
   }
