@@ -633,11 +633,13 @@ export function buildLabelShapes(input: {
   sizeExpr?: import('./render-node').DataExpr
   color?: [number, number, number, number]
   colorZoomStops?: import('./render-node').ZoomStop<[number, number, number, number]>[]
+  colorZoomStopsBase?: number
   colorExpr?: import('./render-node').DataExpr
   halo?: { color: [number, number, number, number]; width: number; blur?: number }
   haloWidthZoomStops?: import('./render-node').ZoomStop<number>[]
   haloWidthZoomStopsBase?: number
   haloColorZoomStops?: import('./render-node').ZoomStop<[number, number, number, number]>[]
+  haloColorZoomStopsBase?: number
   /** Font family stack (family names only). Callers that source from
    *  a format which embeds weight / style in family names (e.g. a
    *  trailing "Bold" or "Italic") are responsible for stripping
@@ -668,7 +670,12 @@ export function buildLabelShapes(input: {
   if (input.colorExpr) {
     color = { kind: 'data-driven', expr: input.colorExpr }
   } else if (input.colorZoomStops && input.colorZoomStops.length > 0) {
-    color = { kind: 'zoom-interpolated', stops: input.colorZoomStops }
+    color = {
+      kind: 'zoom-interpolated',
+      stops: input.colorZoomStops,
+      ...(input.colorZoomStopsBase !== undefined
+        ? { base: input.colorZoomStopsBase } : {}),
+    }
   } else if (input.color) {
     color = { kind: 'constant', value: input.color }
   }
@@ -687,7 +694,12 @@ export function buildLabelShapes(input: {
 
   let haloColor: Shape<RGBA> | null = null
   if (input.haloColorZoomStops && input.haloColorZoomStops.length > 0) {
-    haloColor = { kind: 'zoom-interpolated', stops: input.haloColorZoomStops }
+    haloColor = {
+      kind: 'zoom-interpolated',
+      stops: input.haloColorZoomStops,
+      ...(input.haloColorZoomStopsBase !== undefined
+        ? { base: input.haloColorZoomStopsBase } : {}),
+    }
   } else if (input.halo?.color) {
     haloColor = { kind: 'constant', value: input.halo.color }
   }

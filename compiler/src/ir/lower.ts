@@ -1870,6 +1870,7 @@ function foldLabelKnobs(
     color: merged.color,
     colorZoomStops: knobs.labelColorZoomStops && knobs.labelColorZoomStops.length > 0
       ? knobs.labelColorZoomStops : undefined,
+    colorZoomStopsBase: knobs.labelColorZoomStopsBase,
     colorExpr: knobs.labelColorExpr,
     halo: merged.halo,
     haloWidthZoomStops: knobs.labelHaloWidthZoomStops && knobs.labelHaloWidthZoomStops.length > 0
@@ -1877,6 +1878,7 @@ function foldLabelKnobs(
     haloWidthZoomStopsBase: knobs.labelHaloWidthZoomStopsBase,
     haloColorZoomStops: knobs.labelHaloColorZoomStops && knobs.labelHaloColorZoomStops.length > 0
       ? knobs.labelHaloColorZoomStops : undefined,
+    haloColorZoomStopsBase: knobs.labelHaloColorZoomStopsBase,
     fontStack: merged.font,
     fontWeight: merged.fontWeight,
     fontStyle: merged.fontStyle,
