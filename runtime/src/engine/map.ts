@@ -1343,6 +1343,7 @@ export class XGISMap {
   getLastDrawSample(): {
     firstVertex: [number, number, number, number, number] | null
     atlasSize: { width: number; height: number } | null
+    vertexBBox: { minX: number; minY: number; maxX: number; maxY: number } | null
   } | null {
     return this.iconStage?.getLastDrawSample() ?? null
   }

@@ -173,10 +173,12 @@ export class IconStage {
   getLastDrawSample(): {
     firstVertex: [number, number, number, number, number] | null
     atlasSize: { width: number; height: number } | null
+    vertexBBox: { minX: number; minY: number; maxX: number; maxY: number } | null
   } {
     return {
       firstVertex: this.renderer.firstVertexSample,
       atlasSize: this.renderer.lastAtlasSize,
+      vertexBBox: this.renderer.lastVertexBBox,
     }
   }
 

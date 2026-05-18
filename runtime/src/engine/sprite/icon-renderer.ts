@@ -105,6 +105,11 @@ export class IconRenderer {
    *  time. Lets the diagnostic verify UV coords are sensible
    *  (sprite uses x=N/atlasW; if atlasW is 0 or wrong, UV collapses). */
   lastAtlasSize: { width: number; height: number } | null = null
+  /** Iter 537 — bbox over ALL vertex positions in the most recent
+   *  setDraws(). Lets the diagnostic answer "are all 28 quads at
+   *  the same point (sentinel-stacked) or spread across the canvas
+   *  as expected for line-placement?". */
+  lastVertexBBox: { minX: number; minY: number; maxX: number; maxY: number } | null = null
   /** Bind group lazily built once the atlas texture exists, then held
    *  for the life of the renderer. `map.setSpriteUrl` only stores a
    *  URL for the not-yet-built stage — atlas hot-swap is NOT supported
@@ -244,6 +249,22 @@ export class IconRenderer {
     this.firstVertexSample = data.length >= 5
       ? [data[0]!, data[1]!, data[2]!, data[3]!, data[4]!]
       : null
+    // Iter 537 — compute bbox over all vertex positions (every 5th
+    // float is x, every 5th+1 is y). Reveals whether dispatched
+    // icons spread across the canvas or stack at one position.
+    if (data.length >= 2) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      for (let i = 0; i < data.length; i += FLOATS_PER_VERT) {
+        const x = data[i]!, y = data[i + 1]!
+        if (x < minX) minX = x
+        if (x > maxX) maxX = x
+        if (y < minY) minY = y
+        if (y > maxY) maxY = y
+      }
+      this.lastVertexBBox = { minX, minY, maxX, maxY }
+    } else {
+      this.lastVertexBBox = null
+    }
     if (this.vertexBuf === null || this.vertexBuf.size < data.byteLength) {
       this.vertexBuf?.destroy()
       this.vertexBuf = this.device.createBuffer({
