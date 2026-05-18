@@ -2904,7 +2904,23 @@ export class VectorTileRenderer {
       const projType = (camera as { projType?: number }).projType ?? 0
       const nearAntimeridian = (projType === 1 || projType === 2)
         && Math.abs(((camera.centerX / 6378137 * (180 / Math.PI)) + 540) % 360 - 180) > 135
-      if (camera.globeMode || nearAntimeridian) {
+      // Oblique Mercator (projType 6) rotates the entire sphere so
+      // (camera.lon, camera.lat) lands at (0, 0) in projected space.
+      // The Mercator-tile-pyramid-based frustum selector below uses
+      // mercator.forward(lon, lat) which is independent of camera
+      // center — same lon/lat → same tile every time. But oblique
+      // RENDERS the same lon/lat at a center-dependent (x, y), so the
+      // tile selector picks wrong tiles at z>=1 once the camera pans.
+      // Sphere-aware selection via globeVisibleTiles gives the right
+      // visible set because oblique's rotated frame is geometrically
+      // equivalent to globe's hemisphere cull at (camera.lon, lat) →
+      // (0, 0). The selector returns Mercator-pyramid tile IDs that
+      // match the catalog regardless of which projection the renderer
+      // ultimately uses to place those tiles on screen.
+      // Issue: project_projection_issues_2026_05_18 #4
+      // (oblique_mercator-tile-mismatch.test.ts pins the divergence.)
+      const obliqueRouteToSphere = projType === 6
+      if (camera.globeMode || nearAntimeridian || obliqueRouteToSphere) {
         // Globe (projType 7): sphere-aware tile selection. The
         // mercator selectors below all reason about a flat viewport
         // and don't know about hemisphere culling or the antimeridian
@@ -3869,7 +3885,28 @@ export class VectorTileRenderer {
         prefetchZ = currentZ - 1
       }
       if (prefetchZ >= 0) {
-        const prefetchTiles = (camera.pitch ?? 0) < 30
+        // Oblique mercator + globe + near-antimeridian pseudocyl: route
+        // prefetch through globeVisibleTiles so the prefetch tile set
+        // matches the main selector's set. Otherwise prefetch would
+        // pick wrong tiles for oblique (see main selector comment
+        // above) and load doomed-to-be-unused tiles into GPU.
+        const projTypePF = (camera as { projType?: number }).projType ?? 0
+        const obliquePF = projTypePF === 6
+        const nearAMPF = (projTypePF === 1 || projTypePF === 2)
+          && Math.abs(((camera.centerX / 6378137 * (180 / Math.PI)) + 540) % 360 - 180) > 135
+        const prefetchTiles = (camera.globeMode || obliquePF || nearAMPF)
+          ? (() => {
+              const R = 6378137
+              const lonPF = camera.centerX / R * (180 / Math.PI)
+              const latPF = (2 * Math.atan(Math.exp(camera.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
+              const cssWPF = canvasWidth / dpr
+              const cssHPF = canvasHeight / dpr
+              return globeVisibleTiles(
+                lonPF, latPF, camera.zoom, prefetchZ, cssWPF, cssHPF,
+                camera.pitch ?? 0, camera.bearing ?? 0,
+              ).map(t => makeTileCoord(t.z, t.x, t.y, 0))
+            })()
+          : (camera.pitch ?? 0) < 30
           ? visibleTilesFrustumSampled(
               camera, selectorProj, prefetchZ,
               canvasWidth, canvasHeight, offsetMarginPx, dpr,
