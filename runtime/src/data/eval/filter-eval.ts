@@ -39,7 +39,13 @@ export function evalFilterExpr(ast: FilterAst, props: Record<string, unknown>): 
     return false
   }
   if (typeof v === 'boolean') return v
-  if (typeof v === 'number') return v !== 0
+  // For numeric filter results, treat 0 and NaN as false (`Boolean(NaN)
+  // === false` matches JS coercion; Mapbox spec doesn't define NaN
+  // explicitly but matches "neither truthy nor zero"). Pre-fix
+  // `v !== 0` accepted NaN as true and a filter returning NaN (e.g.
+  // from a corrupted feature property divided by zero) would let
+  // every feature through.
+  if (typeof v === 'number') return v !== 0 && Number.isFinite(v)
   return !!v
 }
 

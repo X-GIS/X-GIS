@@ -187,7 +187,11 @@ export function applyFilter(
     }
     // Truthy check: non-zero numbers, true booleans, non-empty strings.
     if (typeof result === 'boolean') return result
-    if (typeof result === 'number') return result !== 0
+    // NaN filter result → false. Mirror of filter-eval.ts NaN guard:
+    // pre-fix `result !== 0` accepted NaN as truthy and a filter
+    // returning NaN (e.g. corrupted property divided by zero) let
+    // every feature through.
+    if (typeof result === 'number') return result !== 0 && Number.isFinite(result)
     return !!result
   })
   if (filtered.length === data.features.length) return data
