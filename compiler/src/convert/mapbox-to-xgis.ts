@@ -179,7 +179,13 @@ export function convertMapboxStyle(
   if (styleAny.projection !== undefined && styleAny.projection !== null) {
     topLevelGaps.push('projection')
   }
-  for (const k of ['fog', 'light', 'terrain', 'transition', 'imports']) {
+  // sky (v2+ atmospheric haze / horizon gradient), lights (v3
+  // standard-style ambient + directional rig), models (v3 standard-
+  // style glTF 3D placements) — none implemented. Pre-fix the
+  // converter silently dropped them and the conversion-notes block
+  // gave no hint that an authored sky / lights setup wasn't carrying
+  // through. Same surfacing pattern as fog / light / terrain.
+  for (const k of ['fog', 'light', 'lights', 'terrain', 'sky', 'transition', 'imports', 'models']) {
     const v = styleAny[k]
     if (v !== undefined && v !== null) topLevelGaps.push(k)
   }
