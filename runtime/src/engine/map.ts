@@ -3555,10 +3555,13 @@ export class XGISMap {
         const stage = this.textStage
         // Lazy IconStage — only built when the style has a `sprite`
         // URL AND at least one currently-active label show declares
-        // an `iconImage`. Both gates avoid the network fetch on
-        // styles that don't need icons.
+        // an `iconImage` (const form) OR `iconImageExpr` (per-
+        // feature, OFM POI layers). Both gates avoid the network
+        // fetch on styles that don't need icons.
         if (this.iconStage === null && this.spriteUrl !== null
-            && labelShows.some(s => s.label?.iconImage !== undefined)) {
+            && labelShows.some(s =>
+                 s.label?.iconImage !== undefined
+                 || (s.label as { iconImageExpr?: unknown } | undefined)?.iconImageExpr !== undefined)) {
           this.iconStage = new IconStage(device, this.ctx.format, {
             spriteUrl: this.spriteUrl, dpr,
           }, sc)
@@ -3929,9 +3932,16 @@ export class XGISMap {
             ? shapes.size.expr.ast : null
           const colorExprAst = shapes && shapes.color !== null && shapes.color.kind === 'data-driven'
             ? shapes.color.expr.ast : null
+          // Per-feature icon-image expression. Compiler emits this
+          // when Mapbox `icon-image: ["match", ["get", "subclass"], …]`
+          // is present (OFM POI layers). Runtime evaluates the AST
+          // per feature, resolves to a sprite atlas key, and feeds
+          // dispatchIcon's existing const-path (which already gates
+          // on def.iconImage !== undefined and calls IconStage.addIcon).
+          const iconImageExprAst = (def as { iconImageExpr?: { ast?: unknown } }).iconImageExpr?.ast ?? null
           const cameraZoom = this.camera.zoom
           const applyFeatureExprs = (props: Record<string, unknown>) => {
-            if (sizeExprAst === null && colorExprAst === null) return effectiveDef
+            if (sizeExprAst === null && colorExprAst === null && iconImageExprAst === null) return effectiveDef
             // makeEvalProps injects the reserved `$zoom` key so label
             // text-size / text-color expressions referencing
             // `interpolate(zoom, …)` resolve to the current camera
@@ -3956,6 +3966,14 @@ export class XGISMap {
                   if (rgba) out.color = rgba
                 }
               } catch { /* fall back to effectiveDef.color */ }
+            }
+            if (iconImageExprAst !== null) {
+              try {
+                const v = evaluate(iconImageExprAst as never, bag)
+                if (typeof v === 'string' && v.length > 0) {
+                  (out as { iconImage?: string }).iconImage = v
+                }
+              } catch { /* fall back to effectiveDef.iconImage */ }
             }
             return out
           }
