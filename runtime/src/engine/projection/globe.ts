@@ -421,12 +421,21 @@ export function globeVisibleTiles(
   const eyeN0 = eyeN[0], eyeN1 = eyeN[1], eyeN2 = eyeN[2]
 
   const out: GlobeTile[] = []
-  type Node = { z: number; x: number; y: number }
-  const stack: Node[] = [{ z: 0, x: 0, y: 0 }]
+  // 3 parallel number arrays as a structure-of-arrays stack — avoids
+  // the {z, x, y} object literal allocation per push. At z=15 globe
+  // ~32k node visits, so the pre-fix Node[] stack churned 32k
+  // transient objects per call (already memoised once per frame by
+  // iter 456, but still spikes on the first call). number[] push/
+  // pop hits the JS engine's typed numeric storage fast path.
+  const stackZ: number[] = [0]
+  const stackX: number[] = [0]
+  const stackY: number[] = [0]
 
-  while (stack.length && out.length < MAX_TILES) {
-    const t = stack.pop()!
-    const { lonW, lonE, latN, latS } = tileLonLat(t.z, t.x, t.y)
+  while (stackZ.length && out.length < MAX_TILES) {
+    const tz = stackZ.pop()!
+    const tx = stackX.pop()!
+    const ty = stackY.pop()!
+    const { lonW, lonE, latN, latS } = tileLonLat(tz, tx, ty)
     const lonM = (lonW + lonE) / 2
     const latM = (latN + latS) / 2
     // 5 sample lon/lat pairs — flat scalar form (no allocation).
@@ -476,7 +485,7 @@ export function globeVisibleTiles(
     // hemisphere cull, mirroring the 2D selector's low-z handling
     // (tile-select.ts). The 5-sample cull only becomes reliable once
     // tiles are small relative to the sphere.
-    const forceDescend = t.z < maxZ && t.z <= 2
+    const forceDescend = tz < maxZ && tz <= 2
     // Whole tile on the far hemisphere → cull (this is what makes the
     // globe show only the front side; it is NOT the dateline bug — the
     // dateline is handled by working in continuous lon/lat→sphere
@@ -484,14 +493,16 @@ export function globeVisibleTiles(
     if (!forceDescend && !anyFront) continue
     const screenSpan = Math.max(maxX - minX, maxY - minY)
     const tooBig = !isFinite(screenSpan) || screenSpan > SUBDIVIDE_PX
-    if (t.z < maxZ && (forceDescend || tooBig)) {
-      for (let dy = 0; dy < 2; dy++)
-        for (let dx = 0; dx < 2; dx++)
-          stack.push({ z: t.z + 1, x: t.x * 2 + dx, y: t.y * 2 + dy })
+    if (tz < maxZ && (forceDescend || tooBig)) {
+      const cz = tz + 1, cx0 = tx * 2, cy0 = ty * 2
+      // 4 children pushed via parallel arrays (no object literal).
+      stackZ.push(cz, cz, cz, cz)
+      stackX.push(cx0, cx0 + 1, cx0, cx0 + 1)
+      stackY.push(cy0, cy0, cy0 + 1, cy0 + 1)
       continue
     }
     if (anyFront && anyOnScreen) {
-      out.push({ z: t.z, x: t.x, y: t.y, ox: t.x })
+      out.push({ z: tz, x: tx, y: ty, ox: tx })
     }
   }
   _globeTilesCacheKey = key
