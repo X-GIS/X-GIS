@@ -1281,7 +1281,16 @@ export class XGISMap {
       }
       if (color) bgColor = color
     }
-    if (bgColor) this._backgroundColor = parseHexColor(bgColor)
+    // Use hexToRgba (nullable variant) so an invalid hex shape falls
+    // through to the renderer's built-in default instead of silently
+    // painting black. parseHexColor always returns [0,0,0,1] on
+    // regex-fail; switching to the null-returning variant surfaces
+    // the bad input as "no override" rather than "opaque black
+    // background".
+    if (bgColor) {
+      const parsed = hexToRgba(bgColor)
+      if (parsed !== null) this._backgroundColor = parsed
+    }
 
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
