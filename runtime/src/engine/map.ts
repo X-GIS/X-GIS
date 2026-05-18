@@ -541,9 +541,16 @@ export class XGISMap {
       console.warn(`[X-GIS] setCenter: non-finite (lon=${lon}, lat=${lat}); ignored.`)
       return
     }
+    // Honor setMaxBounds: clamp the input lon/lat to the bbox before
+    // projecting. Without this, jumpTo could escape the constraint.
+    let cLon = lon, cLat = lat
+    if (this._maxBounds) {
+      cLon = Math.max(this._maxBounds.west, Math.min(this._maxBounds.east, cLon))
+      cLat = Math.max(this._maxBounds.south, Math.min(this._maxBounds.north, cLat))
+    }
     // Clamp lat to Mercator-safe limit; lon wraps in renderFrame.
-    const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
-    const [mx, my] = lonLatToMercator(lon, clampedLat)
+    const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, cLat))
+    const [mx, my] = lonLatToMercator(cLon, clampedLat)
     this.camera.centerX = mx
     this.camera.centerY = my
     this.invalidate()
@@ -592,6 +599,39 @@ export class XGISMap {
    *  Result is clamped to [minZoom, maxZoom]. */
   zoomIn(): void { this.setZoom(this.camera.zoom + 1) }
   zoomOut(): void { this.setZoom(this.camera.zoom - 1) }
+
+  /** Mapbox-API parity: constrain pan to a lon/lat bounding box.
+   *  Subsequent setCenter / jumpTo / user pan gestures clamp the
+   *  camera center inside the bbox so the view can't drift outside
+   *  the deployment's intended area. Pass `null` to clear. */
+  private _maxBounds: { west: number; south: number; east: number; north: number } | null = null
+  setMaxBounds(bounds: [[number, number], [number, number]] | null): void {
+    if (bounds === null) {
+      this._maxBounds = null
+      return
+    }
+    const [[w, s], [e, n]] = bounds
+    if (!Number.isFinite(w) || !Number.isFinite(s) || !Number.isFinite(e) || !Number.isFinite(n)
+        || s > n || s < -90 || n > 90) {
+      console.warn(`[X-GIS] setMaxBounds: invalid bounds (${w},${s})-(${e},${n}); ignored.`)
+      return
+    }
+    this._maxBounds = { west: w, south: s, east: e, north: n }
+    // Immediately clamp current center inside the new bounds.
+    const state = this.getCameraState()
+    const lon = state.center[0]
+    const lat = state.center[1]
+    const clampedLon = Math.max(w, Math.min(e, lon))
+    const clampedLat = Math.max(s, Math.min(n, lat))
+    if (clampedLon !== lon || clampedLat !== lat) {
+      this.setCenter(clampedLon, clampedLat)
+    }
+  }
+  getMaxBounds(): [[number, number], [number, number]] | null {
+    if (!this._maxBounds) return null
+    const b = this._maxBounds
+    return [[b.west, b.south], [b.east, b.north]]
+  }
 
   /** Mapbox-API parity: pan the map by an offset in CSS pixels.
    *  Positive dx moves the map LEFT (camera moves RIGHT in world);
@@ -652,8 +692,14 @@ export class XGISMap {
       if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
         console.warn(`[X-GIS] jumpTo: non-finite center (${lon}, ${lat}); skipped.`)
       } else {
-        const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
-        const [mx, my] = lonLatToMercator(lon, clampedLat)
+        // Honor maxBounds clamp first.
+        let cLon = lon, cLat = lat
+        if (this._maxBounds) {
+          cLon = Math.max(this._maxBounds.west, Math.min(this._maxBounds.east, cLon))
+          cLat = Math.max(this._maxBounds.south, Math.min(this._maxBounds.north, cLat))
+        }
+        const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, cLat))
+        const [mx, my] = lonLatToMercator(cLon, clampedLat)
         this.camera.centerX = mx
         this.camera.centerY = my
       }
