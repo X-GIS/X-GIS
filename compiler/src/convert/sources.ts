@@ -134,6 +134,25 @@ export function convertSource(
     if (!allNumeric) {
       warnings.push(`Source "${id}" bounds must contain 4 finite numbers; got ${JSON.stringify(src.bounds).slice(0, 80)} — ignored.`)
     } else {
+      // Mapbox bounds format = [west, south, east, north]. Sanity
+      // checks BEYOND finiteness:
+      //   - south > north → inverted latitude box, never intersects
+      //     any tile, the source is dead.
+      //   - lat outside [-90, 90] / lon outside [-180, 180] → typo
+      //     (commonly swapped axes when copying from a CSV).
+      // west > east is INTENTIONALLY not flagged — Mapbox spec permits
+      // antimeridian-crossing bounds where the longitude wraps past
+      // +180 / -180 (Bering-strait, dateline-crossing extents).
+      const [west, south, east, north] = src.bounds as [number, number, number, number]
+      if (south > north) {
+        warnings.push(`Source "${id}" bounds south=${south} > north=${north} — inverted latitude box never intersects any tile; the source is dead. Verify [west, south, east, north] order.`)
+      }
+      if (south < -90 || south > 90 || north < -90 || north > 90) {
+        warnings.push(`Source "${id}" bounds latitude out of [-90, 90]: south=${south}, north=${north}. Likely a swapped lon/lat axis.`)
+      }
+      if (west < -180 || west > 180 || east < -180 || east > 180) {
+        warnings.push(`Source "${id}" bounds longitude out of [-180, 180]: west=${west}, east=${east}. Likely a swapped lon/lat axis.`)
+      }
       warnings.push(`Source "${id}" declares bounds [${src.bounds.join(', ')}]; the runtime tile selector doesn't yet clip requests to the spatial extent, so tiles outside the box will be requested and 404. Filter coverage at the host (geojson clip / pre-cropped PMTiles archive) until native bounds support lands.`)
     }
   } else if (Array.isArray(src.bounds)) {
