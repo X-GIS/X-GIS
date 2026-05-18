@@ -179,8 +179,20 @@ export function parseMapboxFontName(name: string): {
       }
     }
   }
+  const family = parts.join(' ')
+  // Defensive: a degenerate input where every word is a weight /
+  // style keyword (e.g. "Bold Italic" with no family token) would
+  // leave family empty. Mapbox spec requires a family, but a host
+  // could feed malformed data; preserve the original name as
+  // family + drop the parsed weight/style so downstream font
+  // loaders get a non-empty key. Without this guard the empty
+  // family kicked the system font fallback (browser default sans-
+  // serif) for every label using the malformed name.
+  if (family === '') {
+    return { family: name.trim() }
+  }
   return {
-    family: parts.join(' '),
+    family,
     ...(weight !== undefined ? { weight } : {}),
     ...(style !== undefined ? { style } : {}),
   }
