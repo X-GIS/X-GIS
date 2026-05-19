@@ -605,6 +605,19 @@ export class TextStage {
    *  text-expr eval failures from downstream collision suppression.
    *  Iter 108. */
   private readonly dispatchedLabelTexts: Set<string> = new Set()
+  /** iter 152 diagnostic — per-label halo normalisation capture for
+   *  the z0-halo-too-large probe (user report #1). One entry per
+   *  shaped label this prepare(): resolved fontSize (= def.size·dpr),
+   *  the fixed atlas rasterFontSize, the resolved halo width (phys
+   *  px), and haloWidthNorm = the value packUniforms feeds the
+   *  shader (halo.width·3/fontSize). Lets an E2E read what the LIVE
+   *  pipeline actually resolves at z0 vs deeper zoom — the unknown a
+   *  unit probe of packUniforms can't reach. Capped to keep the
+   *  array bounded. (memory project_z0_halo_too_large_2026_05_19) */
+  private readonly haloDebug: Array<{
+    text: string; fontSize: number; rasterFontSize: number
+    haloWidth: number; haloWidthNorm: number
+  }> = []
   /** Iter 112: pair-keys of labels REJECTED by the collision pass.
    *  IconStage reads this set in its own prepare() to drop matching
    *  icons — MapLibre-style "text+icon as one symbol" sync without a
@@ -852,6 +865,12 @@ export class TextStage {
    *  text-overlay no-render bug. */
   getDispatchedLabelTexts(): string[] { return [...this.dispatchedLabelTexts].sort() }
   clearDispatchedLabelTexts(): void { this.dispatchedLabelTexts.clear() }
+  /** iter 152 — drain the z0-halo probe capture (see haloDebug). */
+  getHaloDebug(): ReadonlyArray<{
+    text: string; fontSize: number; rasterFontSize: number
+    haloWidth: number; haloWidthNorm: number
+  }> { return this.haloDebug.slice() }
+  clearHaloDebug(): void { this.haloDebug.length = 0 }
 
   /** Iter 112: pair-keys of text labels REJECTED by the most recent
    *  prepare() collision pass. IconStage.prepare reads this to drop
@@ -1126,6 +1145,19 @@ export class TextStage {
             sdfRadius: this.opts.sdfRadius,
           },
           bbox,
+        })
+      }
+      // iter 152: z0-halo probe capture. haloK=3 mirrors
+      // packUniforms' pxToSdf (text-renderer.ts:602-609) exactly so
+      // haloWidthNorm here == the buf[12] the shader receives.
+      if (this.haloDebug.length < 512) {
+        const hw = haloOut ? haloOut.width : 0
+        this.haloDebug.push({
+          text: p.text,
+          fontSize: sizePx,
+          rasterFontSize: this.opts.rasterFontSize,
+          haloWidth: hw,
+          haloWidthNorm: sizePx > 0 ? (hw * 3) / sizePx : 0,
         })
       }
       shaped.push({

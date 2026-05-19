@@ -1340,6 +1340,18 @@ export class XGISMap {
     return this.textStage?.getDispatchedLabelTexts() ?? null
   }
 
+  /** iter 152 — z0-halo probe (user report #1). Per-label resolved
+   *  fontSize / rasterFontSize / halo width / haloWidthNorm (the
+   *  value packUniforms feeds the shader). Lets an E2E read what the
+   *  LIVE pipeline resolves at z0 vs deeper zoom.
+   *  (memory project_z0_halo_too_large_2026_05_19) */
+  getHaloDebug(): ReadonlyArray<{
+    text: string; fontSize: number; rasterFontSize: number
+    haloWidth: number; haloWidthNorm: number
+  }> | null {
+    return this.textStage?.getHaloDebug() ?? null
+  }
+
   /** Per-frame draw count — answers "did icons render in the most
    *  recent prepare?" Distinct from `getDispatchedIconNames()` which
    *  is cumulative across all frames. Iter 533 — added to localize
