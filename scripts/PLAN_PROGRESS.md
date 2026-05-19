@@ -51,6 +51,11 @@ parity plan (`C:\Users\soung\.claude\plans\lovely-launching-eagle.md`).
 | step spec-strict | Step stop x-values literal-finite enforced (parallel to interpolate). |
 | format partial-drop | Surviving sections concat instead of total bail. |
 | surfaceIgnoredPaint aggregation test | Pin contract: 1 warning per layer aggregating all ignored props. |
+| Translate-property specific warnings (iters 32-35) | line-translate / fill-extrusion-translate / circle-translate / icon-translate all surface gap-specific warnings naming the missing u.*_translate_x/y uniform plumbing. fill-translate itself is supported. |
+| translate-gap-warnings regression gate (iter 36) | 4-cell test pinning the translate-warning specificity contract — generic ignored-properties blob excluded. |
+| spec-coverage iter cross-references (iters 37-38) | 8 spec-coverage notes now cite the iter where their value-aware diagnostic landed (fill-antialias, vertical-gradient, raster-resampling, line-gradient, 4 translate props). |
+| line-dasharray shape-specific warning (iter 27) | Distinguish zoom-interp vs data-driven vs generic non-constant in the warn text. |
+| partial-status conversion smoke matrix (iter 30) | 13-cell gate that every partial property converts to non-empty xgis without throwing. |
 
 ## Plan items genuinely not yet done
 
