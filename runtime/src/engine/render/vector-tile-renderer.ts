@@ -2947,8 +2947,27 @@ export class VectorTileRenderer {
       // ultimately uses to place those tiles on screen.
       // Issue: project_projection_issues_2026_05_18 #4
       // (oblique_mercator-tile-mismatch.test.ts pins the divergence.)
+      // iter 157: the same center-dependent-render argument applies to
+      // the azimuthal family — orthographic (3), azimuthal_equidistant
+      // (4), stereographic (5) ALL project relative to the camera
+      // centre (clon,clat → 0,0), exactly like oblique (6). The
+      // mercator-frustum visibleTilesSSE selector is camera-centre-
+      // INDEPENDENT, so at Seoul z15 (not near the antimeridian, so
+      // the existing nearAntimeridian heuristic doesn't fire) it
+      // hands these projections the wrong tile set → every feature/
+      // label is dispatched from mis-selected tiles and lands at the
+      // wrong screen position (user report #6, azimuthal z15.29).
+      // The label-projection math itself was proven correct (forward
+      // == WGSL ≤1mm, same rtcMatrix + centerLon constant as the
+      // geometry path); the fault is purely tile SELECTION. Route
+      // 3/4/5 through the sphere-aware selector unconditionally, the
+      // same fix iter-127 applied to oblique (6). globeVisibleTiles
+      // already handles deep zoom (iter-149 overzoom branch).
+      const azimuthalFamilyRouteToSphere =
+        projType === 3 || projType === 4 || projType === 5
       const obliqueRouteToSphere = projType === 6
-      if (camera.globeMode || nearAntimeridian || obliqueRouteToSphere) {
+      if (camera.globeMode || nearAntimeridian
+        || obliqueRouteToSphere || azimuthalFamilyRouteToSphere) {
         // Globe (projType 7): sphere-aware tile selection. The
         // mercator selectors below all reason about a flat viewport
         // and don't know about hemisphere culling or the antimeridian
