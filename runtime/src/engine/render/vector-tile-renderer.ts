@@ -245,6 +245,8 @@ export class VectorTileRenderer {
    *  frame the threshold is no longer crossed. */
   private _czPendingAdvance: { target: number, since: number } | null = null
   private stableKeys: number[] = []
+  // Iter 132 perf: reused dedupe Set for forEachLabelFeature.
+  private readonly _labelKeyScratch: Set<number> = new Set()
   /** Camera idle detection — prefetch is suppressed while the
    *  camera is actively moving (pinch zoom, pan) to keep mobile
    *  GPU + bandwidth budget on visible-only work. The moment the
@@ -1035,16 +1037,15 @@ export class VectorTileRenderer {
     // dedup when bbox padding rounds inconsistently across iterations.
     // Visiting each tile ONCE here matches the per-feature iteration
     // count to the rendered label count.
-    const rawLabelKeys: number[] = []
-    if (this._frameTileCache?.neededKeys) rawLabelKeys.push(...this._frameTileCache.neededKeys)
-    rawLabelKeys.push(...this.stableKeys)
-    // ALWAYS dedupe — stableKeys (the fallback path when neededKeys is
-    // empty during early-frame loading) can also contain the same
-    // canonical tileKey N times across world copies, and without the
-    // dedupe we emit N labels per feature → duplicate country names
-    // stacked at the same screen position.
-    const labelKeys = [...new Set(rawLabelKeys)]
-    for (const key of labelKeys) {
+    // Iter 132 perf: inline dedupe (was rawLabelKeys + new Set +
+    // spread = 3 allocations per call). Reuse scratch Set, iterate
+    // via Set.values() directly without array materialisation.
+    const seen = this._labelKeyScratch
+    seen.clear()
+    const neededKeys = this._frameTileCache?.neededKeys
+    if (neededKeys) for (const k of neededKeys) seen.add(k)
+    for (const k of this.stableKeys) seen.add(k)
+    for (const key of seen) {
       const tileData = this.source.getTileData(key, sliceLayer)
       if (!tileData?.pointVertices || tileData.pointVertices.length < 5) continue
       const ptv = tileData.pointVertices
