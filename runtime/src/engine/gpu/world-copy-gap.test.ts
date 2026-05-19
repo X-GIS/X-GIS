@@ -1,21 +1,22 @@
-// World-copy support inventory. Pin the current state of which
-// projections enumerate multiple world copies vs single-world.
-// Mercator gets 5 copies — its periodicity in lon means features
-// at lon ± 360 are visually distinct copies. Other projections
-// currently return SINGLE_WORLD even when they SHOULD repeat
-// (equirect / natural_earth at low zoom show black edges at the
-// world boundary instead of wrapping).
+// World-copy support inventory. Pin which projections enumerate
+// multiple world copies vs single-world.
 //
-// Plan §5.2 followup: equirect / natural_earth (projType 1, 2)
-// should return WORLD_COPIES once the WGSL vertex shader applies
-// a per-instance world-x offset. Until then this test pins the
-// current SINGLE_WORLD state so a partial fix that flips one but
-// not the other doesn't silently regress.
+// Cylindrical / pseudocylindrical projections (Mercator, Equirect,
+// Natural Earth, Oblique Mercator) are 2π-periodic in lon, so
+// features at lon ± 360 render as visually distinct copies and the
+// pyramid enumerates 5 copies (-2..+2). Hemispherical projections
+// (Ortho, Azimuthal, Stereographic) and the 3D Globe stay single-
+// world because no periodicity exists.
+//
+// Plan §5.2 closed: iter 126 (`965c6c3`) flipped projType 1+2 to
+// WORLD_COPIES (z=0 root-split per worldCopy + project_geom wo
+// offset). Iter 127 (`0df48ec`) added oblique-mercator (projType 6).
+// E2E `_world-copy-projections.spec.ts` pins the rendered behaviour.
 
 import { describe, expect, it } from 'vitest'
 import { worldCopiesFor } from './gpu-shared'
 
-describe('worldCopiesFor — current world-copy enumeration state', () => {
+describe('worldCopiesFor — projection world-copy enumeration', () => {
   it('Mercator (0): returns 5 copies (-2..+2)', () => {
     const copies = worldCopiesFor(0)
     expect(copies.length).toBe(5)

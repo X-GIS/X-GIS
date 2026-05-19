@@ -302,40 +302,28 @@ export const TILE_PX = 512
 export const WORLD_COPIES = [-2, -1, 0, 1, 2]
 const SINGLE_WORLD: readonly number[] = [0]
 
-/** World-copy enumeration gated by projection. Mercator (and only
- *  Mercator) is periodic in lon and uses the full ±2 wrap; every other
- *  projection currently in this codebase (equirect, natural earth,
- *  ortho, azimuthal_equidistant, stereographic, oblique_mercator) either
- *  isn't periodic or doesn't apply the WORLD_MERC offset to its output
- *  in the WGSL `project()` path — so the additional copies overdraw at
- *  the same pixels and waste 4× draws (plus introduce coplanar z-fight).
- *  Returning `[0]` for non-Mercator collapses to a single world.
+/** World-copy enumeration gated by projection. Cylindrical /
+ *  pseudocylindrical projections (mercator, equirect, natural_earth,
+ *  oblique_mercator) are 2π-periodic in lon and emit 5 copies; the
+ *  hemispherical projections (ortho, azimuthal_equidistant, stereographic)
+ *  and the 3D globe have no periodicity and collapse to a single world.
  *  `projType` is the same `proj_params.x` encoding shaders use:
  *  0 = mercator, 1 = equirect, 2 = natural_earth, 3 = ortho,
  *  4 = azimuthal_equidistant, 5 = stereographic, 6 = oblique_mercator,
  *  7 = globe.
  *
- *  KNOWN GAP (user report 2026-05-18, memory note
- *  project_projection_issues_2026_05_18): MapLibre's equirect /
- *  natural_earth REPEAT the world strip horizontally at low zoom
- *  (visible at z=0 — see the "world render copy" expectation). To
- *  match, equirect/natural_earth WGSL would need to apply a
- *  world-x offset to its output AND this function would need to
- *  return WORLD_COPIES for projType 1 + 2. Tracked but not landed
- *  this session (multi-file change). */
+ *  History: equirect / natural_earth shipped iter 126 (`965c6c3`),
+ *  oblique_mercator shipped iter 127 (`0df48ec`). Each required a
+ *  coordinated three-piece change so the wrapped tiles actually reach
+ *  pixels:
+ *    1. (this function) emit world-copy tile coords from tiles-sse
+ *    2. vector-tile-renderer.ts z=0 root-split enumerates the
+ *       4 z=1 children PER world-copy (pre-fix dropped ox != 0 entries)
+ *    3. shaders/projection.ts project_geom detects wo from ref_lon and
+ *       adds wo*world_width to projected x
+ *  Pinned by `world-copy-gap.test.ts` and the
+ *  `_world-copy-projections.spec.ts` E2E render. */
 export function worldCopiesFor(projType: number): readonly number[] {
-  // Iter 126 — pseudocyl projections (equirect, NE) wrap in projected x
-  // and benefit from the same WORLD_COPIES enumeration Mercator uses.
-  // Requires three coordinated changes for the data to actually reach
-  // pixels (one-shot attempt at iter 122-124 failed because it only
-  // touched this function):
-  //   1. (this function) emit world-copy tile coords from tiles-sse
-  //   2. vector-tile-renderer.ts z=0 root-split must enumerate the
-  //      4 z=1 children PER world-copy (was: dropped ox != 0 entries)
-  //   3. shaders/projection.ts project_geom must detect wo from
-  //      ref_lon and add wo*world_width to projected x
-  // oblique_mercator (6) still excluded — its routing through
-  // globeVisibleTiles hard-codes ox=0 and needs a separate fix.
   if (projType === 0 || projType === 1 || projType === 2 || projType === 6) return WORLD_COPIES
   return SINGLE_WORLD
 }
