@@ -311,7 +311,7 @@ const EXPRESSIONS: readonly CoverageEntry[] = [
   { name: 'hsl / hsla',      status: 'partial', impact: 'low', note: 'Constant channels only — converted via CSS hsl()/hsla() and re-hexed at convert time. Per-channel v8 literal-wrap accepted.', source: 'colors.ts:69' },
   { name: 'interpolate (linear)',      status: 'supported' },
   { name: 'interpolate (exponential)', status: 'supported', note: 'Mapbox `["exponential", N]` lowers to `interpolate_exp(zoom, N, …)`; runtime applies the Mapbox curve formula. base=1 collapses to the linear fast path.', source: 'paint.ts:46' },
-  { name: 'interpolate (cubic-bezier)',status: 'partial', impact: 'low', note: 'Folded to linear with a warning — no per-stop bezier evaluator yet.' },
+  { name: 'interpolate (cubic-bezier)',status: 'partial', impact: 'low', note: 'Numeric-valued zoom interpolates densify at compile time into a piecewise-linear approximation (6 samples per segment, CSS bezier-eased via Newton-Raphson). Runtime sees a longer linear stop list and visually approximates the bezier curve. Non-numeric values (colour stops) still warn and fold to pure linear. Iter 60 landing.', source: 'paint.ts:cssBezierEase' },
   { name: 'interpolate-hcl',           status: 'partial', impact: 'low', note: 'Approximated as linear-RGB with a warning — no LAB/HCL per-stop evaluator yet.', source: 'expressions.ts:220' },
   { name: 'interpolate-lab',           status: 'partial', impact: 'low', note: 'Approximated as linear-RGB with a warning — no LAB/HCL per-stop evaluator yet.', source: 'expressions.ts:220' },
   // Feature meta

@@ -435,12 +435,100 @@ function interpolateZoomStops(
         base = b
       }
     } else if (curveSpec[0] === 'cubic-bezier') {
-      // No cubic-bezier evaluator yet; warn loudly so the user knows
-      // the output is approximated as linear.
-      warnings?.push(`["interpolate", ["cubic-bezier", …], ["zoom"], …] folded to linear — xgis has no per-stop bezier interpolator.`)
+      // CSS cubic-bezier easing approximated by dense piecewise-linear
+      // resampling at compile time. For each adjacent stop pair we
+      // insert SAMPLES_PER_SEGMENT intermediate stops with eased Y
+      // values — the runtime then does its normal linear interpolate
+      // between the dense stops and visually approximates the bezier.
+      // This only works when stop values are numeric; colour / array
+      // values still warn-and-fold-to-linear (see else branch).
+      const x1 = typeof curveSpec[1] === 'number' && Number.isFinite(curveSpec[1]) ? curveSpec[1] : 0
+      const y1 = typeof curveSpec[2] === 'number' && Number.isFinite(curveSpec[2]) ? curveSpec[2] : 0
+      const x2 = typeof curveSpec[3] === 'number' && Number.isFinite(curveSpec[3]) ? curveSpec[3] : 1
+      const y2 = typeof curveSpec[4] === 'number' && Number.isFinite(curveSpec[4]) ? curveSpec[4] : 1
+      const allNumeric = stops.every(s => typeof s.value === 'number' && Number.isFinite(s.value as number))
+      if (allNumeric) {
+        const SAMPLES_PER_SEGMENT = 6
+        const dense: typeof stops = []
+        for (let i = 0; i < stops.length - 1; i++) {
+          const a = stops[i]!
+          const b = stops[i + 1]!
+          dense.push(a)
+          const az = a.zoom, bz = b.zoom
+          const av = a.value as number
+          const bv = b.value as number
+          for (let k = 1; k < SAMPLES_PER_SEGMENT; k++) {
+            const t = k / SAMPLES_PER_SEGMENT
+            const eased = cssBezierEase(t, x1, y1, x2, y2)
+            dense.push({
+              zoom: az + (bz - az) * t,
+              value: av + (bv - av) * eased,
+            })
+          }
+        }
+        dense.push(stops[stops.length - 1]!)
+        warnings?.push(`["interpolate", ["cubic-bezier", ${x1}, ${y1}, ${x2}, ${y2}], ["zoom"], …] approximated via dense piecewise-linear samples (${SAMPLES_PER_SEGMENT} per segment) — xgis has no per-stop bezier interpolator at runtime.`)
+        return { curve, base, stops: dense }
+      }
+      warnings?.push(`["interpolate", ["cubic-bezier", …], ["zoom"], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric stop values can't be densified at compile time.`)
     }
   }
   return { curve, base, stops }
+}
+
+/** CSS cubic-bezier easing function: given a normalized parameter
+ *  t ∈ [0, 1] along the input axis and control points (x1, y1) +
+ *  (x2, y2), returns the eased y value. The CSS spec defines the
+ *  curve parametrically — both x and y are cubic Bezier polynomials
+ *  in a parameter s ∈ [0, 1]. We invert numerically: find s such
+ *  that x(s) == t, then evaluate y(s).
+ *
+ *  Newton-Raphson with 8 iterations converges within ~1e-7 for the
+ *  standard CSS control points (x1/x2 ∈ [0, 1]) — well below the
+ *  visible discretization of the runtime interpolate. Fallback to
+ *  bisection if the derivative goes near-zero (rare with valid CSS
+ *  control points but covered for robustness). */
+export function cssBezierEase(
+  t: number, x1: number, y1: number, x2: number, y2: number,
+): number {
+  if (t <= 0) return 0
+  if (t >= 1) return 1
+  // x(s) = 3(1-s)² s x1 + 3(1-s) s² x2 + s³
+  //      = ((1-3x2+3x1) s + (3x2 - 6x1)) s² + 3x1 s   [Horner-ish]
+  // Coefficients of a polynomial a s³ + b s² + c s for the x curve:
+  const ax = 1 - 3 * x2 + 3 * x1
+  const bx = 3 * x2 - 6 * x1
+  const cx = 3 * x1
+  const ay = 1 - 3 * y2 + 3 * y1
+  const by = 3 * y2 - 6 * y1
+  const cy = 3 * y1
+  const xOf = (s: number) => ((ax * s + bx) * s + cx) * s
+  const dxOf = (s: number) => (3 * ax * s + 2 * bx) * s + cx
+  const yOf = (s: number) => ((ay * s + by) * s + cy) * s
+  // Newton-Raphson seed at s = t (good approximation when x1/x2
+  // close to the diagonal); 8 iterations is plenty for CSS curves.
+  let s = t
+  for (let i = 0; i < 8; i++) {
+    const xs = xOf(s) - t
+    if (Math.abs(xs) < 1e-7) return yOf(s)
+    const ds = dxOf(s)
+    if (Math.abs(ds) < 1e-6) break
+    s = s - xs / ds
+    if (s < 0) s = 0
+    if (s > 1) s = 1
+  }
+  // Bisection fallback if Newton stalled — guaranteed convergence
+  // on a monotonic x(s) (CSS constrains control points so x is
+  // monotonic on [0, 1]).
+  let lo = 0, hi = 1
+  for (let i = 0; i < 24; i++) {
+    s = (lo + hi) * 0.5
+    const xs = xOf(s)
+    if (xs < t) lo = s
+    else hi = s
+    if (hi - lo < 1e-7) break
+  }
+  return yOf(s)
 }
 
 /** Render a Mapbox interpolate-by-zoom expression as an xgis

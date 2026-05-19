@@ -79,7 +79,7 @@ describe('interpolate-exponential conversion', () => {
     expect(xgis).not.toContain('interpolate_exp')
   })
 
-  it('cubic-bezier curve warns and falls back to linear', () => {
+  it('cubic-bezier curve densifies stops at compile time (iter 60)', () => {
     const style = {
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -95,9 +95,15 @@ describe('interpolate-exponential conversion', () => {
       }],
     }
     const xgis = convertMapboxStyle(style as never)
-    // Falls through to linear (no bezier evaluator).
-    expect(xgis).toContain('interpolate(zoom, 11, 1, 19, 2.5)')
-    expect(xgis).toMatch(/cubic-bezier/) // warning in trailing notes
+    // Iter 60: numeric-valued bezier interpolates densify into a
+    // piecewise-linear approximation at compile time (6 samples per
+    // segment). The emitted interpolate() call keeps `zoom` as the
+    // first arg and starts/ends with the authored endpoints (11→1,
+    // 19→2.5) but contains intermediate stops in between.
+    expect(xgis).toMatch(/interpolate\(zoom,\s*11/) // starts at z=11, v=1
+    expect(xgis).toMatch(/19,\s*2\.5/) // ends at z=19, v=2.5
+    expect(xgis).toMatch(/cubic-bezier/) // approximation warning in trailing notes
+    expect(xgis).toMatch(/dense piecewise-linear/) // exact warning shape
   })
 })
 
