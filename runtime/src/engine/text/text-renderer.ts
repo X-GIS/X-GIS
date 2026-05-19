@@ -102,18 +102,19 @@ struct VsOut {
 
 @fragment fn fs(in: VsOut) -> @location(0) vec4<f32> {
   let sdf: f32 = textureSample(atlas_tex, atlas_smp, in.uv).r;
-  // MapLibre symbol_sdf shader uses 192.0/256.0 = 0.75 as the edge
-  // threshold (Mapbox PBF convention: byte 192 = exactly on glyph
-  // outline). We previously used 192.0/255.0 = 0.7529 -- the off-
-  // by-0.003 made every byte=192 sample land 0.003 above edge,
-  // smoothstep classified more outer-band bytes as outside, glyph
-  // silhouette ~0.7 SDF byte units narrower per side, every label
-  // rendered ~1 CSS-px thinner stroke than MapLibre on same PBF
-  // data. User report 2026-05-19: OFM Positron NYC z=14 labels
-  // slightly thin; visible in pixel-match-survey-labels
-  // positron-nyc-z14 eq=35.6 / 886 gt128. Match MapLibre exact:
-  // 192/256 = 0.75.
-  let edge: f32 = 0.75;
+  // Edge threshold for SDF -> alpha smoothstep. MapLibre's symbol_sdf
+  // uses buffer=192/256=0.75 + a per-glyph-size buffer_offset that
+  // shifts edge inward (i.e. LOWER) for smaller display sizes, making
+  // small text appear bolder. X-GIS lacks the per-size shift, so a
+  // fixed 0.75 leaves small labels visibly thinner than MapLibre.
+  // Iter 107: lower edge to 0.7 (= 179/256). At byte 192 on the SDF
+  // (exact glyph outline per Mapbox PBF convention), our smoothstep
+  // now classifies the byte as inside the glyph rather than at the
+  // 0.5-alpha boundary -- silhouette widens by ~3 SDF byte units per
+  // side, restoring stroke thickness to match MapLibre on the same
+  // PBF data. User report 2026-05-19: "폰트가 너무 얇게 렌더링돼요";
+  // pixel-match-survey-labels positron-nyc-z14 pre-fix eq=35.7%.
+  let edge: f32 = 0.7;
 
   // Adaptive AA: derive smoothstep half-width from the SDF's
   // screen-space derivative. fwidth() returns |dF/dx|+|dF/dy|, the
