@@ -955,13 +955,27 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       }
       const body = args[args.length - 1]
       const bindings = new Map<string, unknown>()
+      const seenNames = new Set<string>()
+      const duplicateNames: string[] = []
       for (let i = 0; i < args.length - 1; i += 2) {
         const name = args[i]
         if (typeof name !== 'string') {
           warnings.push(`Malformed ["let"] expression: binding name at slot ${i} is ${typeof name}, expected string.`)
           return null
         }
+        if (seenNames.has(name)) {
+          duplicateNames.push(name)
+        } else {
+          seenNames.add(name)
+        }
+        // Mapbox spec doesn't formally forbid duplicate let names but
+        // the evaluator semantic is undefined when a name is bound
+        // twice (our substitution uses Map.set, so LAST write wins —
+        // earlier bindings become silent dead code).
         bindings.set(name, args[i + 1])
+      }
+      if (duplicateNames.length > 0) {
+        warnings.push(`["let"] duplicate binding name(s) ${duplicateNames.slice(0, 4).map(d => `"${d}"`).join(', ')}${duplicateNames.length > 4 ? ` + ${duplicateNames.length - 4} more` : ''}. The LAST binding wins; earlier ones are silent dead code.`)
       }
       const substituted = substituteVars(body, bindings)
       return exprToXgis(substituted, warnings)
