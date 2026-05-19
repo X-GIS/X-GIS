@@ -4090,12 +4090,21 @@ export class XGISMap {
               // fallback. Keep this comment on every call site so the
               // override doesn't quietly come back.
               for (const projected of projectLonLatCopies(anchor[0], anchor[1])) {
+                // iter 119: point-label paired-symbol collision. OFM
+                // Positron label_city/town/village pair the place name
+                // with circle_11_black icon and rely on
+                // icon-optional=false to drop the icon when text drops.
+                const pairedWithIcon = featDef.iconImage !== undefined
+                  && featDef.iconImage !== null && featDef.iconImage !== ''
+                const pairKey = pairedWithIcon
+                  ? `${labelLayerName ?? ''}:${Math.round(projected[0])},${Math.round(projected[1])}`
+                  : undefined
                 stage.addLabel(
                   featDef.text, feat.properties ?? {},
                   projected[0], projected[1], featDef,
-                  undefined, labelLayerName,
+                  undefined, labelLayerName, pairKey,
                 )
-                dispatchIcon(featDef, projected[0], projected[1])
+                dispatchIcon(featDef, projected[0], projected[1], 0, pairKey)
               }
             }
             continue
@@ -4509,15 +4518,21 @@ export class XGISMap {
                 // Mirror of `projectLonLatCopies` for non-mercator
                 // projections is still needed because those reproject
                 // through lonLat space; we handle that here inline.
+                // iter 119: paired-symbol collision for point labels.
+                const pairedWithIcon = featDef.iconImage !== undefined
+                  && featDef.iconImage !== null && featDef.iconImage !== ''
                 if (this.projectionName !== 'mercator') {
                   const [lon, lat] = mercToLonLat(mercX, mercY)
                   for (const projected of projectLonLatCopies(lon, lat)) {
+                    const pairKey = pairedWithIcon
+                      ? `${labelLayerName ?? ''}:${Math.round(projected[0])},${Math.round(projected[1])}`
+                      : undefined
                     stage.addLabel(
                       featDef.text, props,
                       projected[0], projected[1], featDef,
-                      undefined, labelLayerName,
+                      undefined, labelLayerName, pairKey,
                     )
-                    dispatchIcon(featDef, projected[0], projected[1])
+                    dispatchIcon(featDef, projected[0], projected[1], 0, pairKey)
                   }
                   return
                 }
@@ -4528,12 +4543,15 @@ export class XGISMap {
                 for (const wo of [0, -1, 1, -2, 2]) {
                   const proj = projectMerc(mercX, mercY, wo * WORLD_MERC)
                   if (!proj) continue
+                  const pairKey = pairedWithIcon
+                    ? `${labelLayerName ?? ''}:${Math.round(proj[0])},${Math.round(proj[1])}`
+                    : undefined
                   stage.addLabel(
                     featDef.text, props,
                     proj[0], proj[1], featDef,
-                    undefined, labelLayerName,
+                    undefined, labelLayerName, pairKey,
                   )
-                  dispatchIcon(featDef, proj[0], proj[1])
+                  dispatchIcon(featDef, proj[0], proj[1], 0, pairKey)
                   break
                 }
               })
