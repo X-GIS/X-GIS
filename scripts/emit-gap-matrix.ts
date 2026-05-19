@@ -21,8 +21,13 @@ import { RUNTIME_CAPABILITIES, runtimeGaps } from '../runtime/src/capabilities'
 const lines: string[] = []
 lines.push('# X-GIS Mapbox Support Gap Matrix')
 lines.push('')
-lines.push(`Generated: ${new Date().toISOString()}`)
-lines.push('')
+// Skip timestamp by default so re-running the generator doesn't
+// churn the snapshot file with a per-second diff. Pass --timestamp
+// when authoring a manual snapshot to capture the moment.
+if (process.argv.includes('--timestamp')) {
+  lines.push(`Generated: ${new Date().toISOString()}`)
+  lines.push('')
+}
 
 // ───── Section 1: runtime capability gaps ─────
 lines.push('## Runtime capability gaps')

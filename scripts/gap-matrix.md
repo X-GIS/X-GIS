@@ -1,7 +1,5 @@
 # X-GIS Mapbox Support Gap Matrix
 
-Generated: 2026-05-18T23:46:40.290Z
-
 ## Runtime capability gaps
 
 Properties where the runtime currently degrades or drops a specific value-form.
