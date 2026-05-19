@@ -87,13 +87,18 @@ const VIEWS: ViewSpec[] = [
     description: 'OFM Bright, Houston z=12 — US highway shields (I-10 / US-59)' },
   // User report 2026-05-19: "라벨 렌더링에서 폰트의 두께가 조금 얇게
   // 렌더링되는듯함. 가독성이 떨어지는 문제 발생". OFM Positron at
-  // high-latitude near North Pole (lat≈83.9, lon≈-77.0, z=13.35).
-  // Captures label font-weight delta at a view with sparse polygons
-  // and dense labels so font thickness drift is isolated visually.
+  // user-given hash (#13.35/83.90/-77.02). At z=13 lat=83 the Arctic
+  // Ocean Mercator tiles are empty (eq=100% on first survey run);
+  // kept anyway as the user's literal reference + a parallel
+  // dense-label NYC view at z=14 for actual font-weight measurement.
   { id: 'positron-arctic-z13',
     style: 'openfreemap-positron',
     hash: '#13.35/83.90080/-77.02119',
-    description: 'OFM Positron, Arctic z=13.35 — label font-weight thinness check' },
+    description: 'OFM Positron, user-supplied Arctic z=13.35 hash (likely empty ocean)' },
+  { id: 'positron-nyc-z14',
+    style: 'openfreemap-positron',
+    hash: '#14/40.7484/-73.9857',
+    description: 'OFM Positron, NYC z=14 — dense Latin labels for font-weight thinness measurement' },
 ]
 
 interface Buckets {

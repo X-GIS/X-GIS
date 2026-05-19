@@ -102,15 +102,32 @@ struct VsOut {
 
 @fragment fn fs(in: VsOut) -> @location(0) vec4<f32> {
   let sdf: f32 = textureSample(atlas_tex, atlas_smp, in.uv).r;
-  let edge: f32 = 192.0 / 255.0;
+  // MapLibre symbol_sdf shader uses 192.0/256.0 = 0.75 as the edge
+  // threshold (Mapbox PBF convention: byte 192 = exactly on glyph
+  // outline). We previously used 192.0/255.0 = 0.7529 -- the off-
+  // by-0.003 made every byte=192 sample land 0.003 above edge,
+  // smoothstep classified more outer-band bytes as outside, glyph
+  // silhouette ~0.7 SDF byte units narrower per side, every label
+  // rendered ~1 CSS-px thinner stroke than MapLibre on same PBF
+  // data. User report 2026-05-19: OFM Positron NYC z=14 labels
+  // slightly thin; visible in pixel-match-survey-labels
+  // positron-nyc-z14 eq=35.6 / 886 gt128. Match MapLibre exact:
+  // 192/256 = 0.75.
+  let edge: f32 = 0.75;
 
   // Adaptive AA: derive smoothstep half-width from the SDF's
   // screen-space derivative. fwidth() returns |dF/dx|+|dF/dy|, the
-  // pixel-rate of change; using 0.7 * fwidth gives a ~1.4 px
-  // crossfade band that stays sharp across any display scale —
-  // small text, large text, mid-zoom interpolation all alias-free.
-  // Floor avoids div-by-zero on perfectly flat samples.
-  let soft: f32 = max(0.7 * fwidth(sdf), 1.0 / 255.0);
+  // pixel-rate of change; using 0.5 * fwidth gives a ~1.0 px
+  // crossfade band that stays sharp across any display scale.
+  // Prior 0.7 * fwidth (~1.4 px) softened the edge enough that
+  // glyph silhouettes appeared ~1 CSS-px thinner than MapLibre on
+  // the same PBF data (user report 2026-05-19: Positron NYC z=14
+  // labels visibly thin vs reference). MapLibre gamma_scaled
+  // approach uses a sharper edge by default (gamma=0.105 * SDF_PX
+  // * u_size/u_zoom typically lands at half-width ~0.5 px). Iter
+  // 106 tightens to match. Floor avoids div-by-zero on flat
+  // samples.
+  let soft: f32 = max(0.3 * fwidth(sdf), 1.0 / 255.0);
 
   // Fill mask
   let fill_a: f32 = smoothstep(edge - soft, edge + soft, sdf);
