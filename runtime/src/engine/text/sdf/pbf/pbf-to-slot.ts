@@ -40,102 +40,58 @@ export function pbfGlyphToSlot(
   // Latin "Seoul"/"l"). The returned `rasterFontSize: PBF_REF_SIZE`
   // tells the renderer to scale this glyph by sizePx/24 at draw
   // time, so display size is unchanged while the SDF stays 1:1.
-  const scale = 1
   void rasterFontSize  // PBF size is source-fixed, not the global raster
-  const drawW = Math.round(g.width * scale)
-  const drawH = Math.round(g.height * scale)
-
-  // The PBF arrives pre-rendered as an SDF with byte 192 = edge and
-  // the same falloff convention the shader expects (sdfRadius bytes
-  // per SDF px). We bilinearly resample the byte SDF directly into
-  // the slot — no intermediate binary alpha + recompute.
-  //
-  // Previous behaviour (commit history before this change): threshold
-  // each bilinear sample to 0/255 and re-run computeSDF on the binary
-  // mask. The threshold step discarded the original PBF's sub-pixel
-  // edge precision (any sample 191.9 was rounded to 0), eroding the
-  // glyph silhouette by ~0.5 px per side. Net visual effect: every
-  // PBF-sourced label rendered ~1 px thinner than MapLibre on the
-  // same PBF data — the user-reported "labels too thin" on the
-  // Korea pitched compare view (#12.21/37.19319/127.26829/0/69).
-  // Sampling the SDF directly keeps the precision the upstream tile
-  // server already encoded.
-  //
-  // Background pixels OUTSIDE the glyph bbox are set to 0 (= "deep
-  // outside the glyph"), matching the PBF buffer-region convention
-  // where SDF bytes far from any glyph stroke saturate at 0. The
-  // shader smoothstep around edge=192/255 reads these as fully
-  // transparent.
+  void sdfRadius       // distance encoding already matches engine convention
+  // PBF is baked at its native 24-px reference. Slot is sized for
+  // PBF native at this scale (slot=64 fits 24 + 2*8 sdfRadius +
+  // headroom). Copy the FULL PBF bitmap (g.width + 2·buffer wide,
+  // g.height + 2·buffer tall) into the slot centered, preserving
+  // the 3-px outer-falloff buffer the PBF server bakes around every
+  // glyph. The buffer pixels carry the SDF gradient from edge byte
+  // 192 down to 0 — without them, sampling beyond the glyph's
+  // silhouette reads slot zero-padding and the shader smoothstep
+  // hits a HARD cutoff at the glyph boundary instead of a smooth
+  // falloff into background. Iter 121 root fix for user-reported
+  // "S 글자가 박스 형태로 더 얇아짐" at OFM Positron
+  // #4.82/36.87/128.90: pixel column scan showed inconsistent ink
+  // breaks inside glyph strokes (e.g. y=19 byte=122 in middle of
+  // what should be solid black S top arc) — caused by sampling
+  // landing exactly at the missing-buffer boundary where the SDF
+  // dropped from edge byte 192 to 0 in one pixel.
+  const bw = g.width + 2 * PBF_BUFFER
+  const bh = g.height + 2 * PBF_BUFFER
   const N = slotSize * slotSize
   const sdf = new Uint8Array(N)
-
-  if (g.bitmap.length > 0 && drawW > 0 && drawH > 0) {
-    const bw = g.width + 2 * PBF_BUFFER
-    const bh = g.height + 2 * PBF_BUFFER
-    const ox = Math.floor((slotSize - drawW) / 2)
-    const oy = Math.floor((slotSize - drawH) / 2)
-
-    // PBF byte SDF is encoded for the NATIVE 24-px raster: each PBF
-    // pixel of signed distance from the edge changes the byte by
-    // (255-192)/8 ≈ 7.875. After upscaling to the engine slot at
-    // `rasterFontSize` (default 32), 1 slot pixel = 1/scale PBF
-    // pixels. The shader assumes the byte changes by 63/sdfRadius
-    // per SLOT pixel — so without rescaling, our bilinear-resampled
-    // bytes still encode PBF-pixel distances and the shader reads
-    // every SDF distance ~0.75× narrower than authored:
-    //   - halo at width=1 renders ~0.75 px wide
-    //   - edge-AA softer than designed
-    //   - net visual: every PBF glyph ~25 % thinner than MapLibre
-    //     on the same PBF data (user-reported on OFM Bright Korea
-    //     z=4.7: "라벨이 너무 얇게 렌더링").
-    //
-    // Rescale signed distance from edge: byte_new = 192 +
-    // (byte_pbf − 192) × scale. Clamps to [0, 255]; pixels past
-    // sdfRadius × 0.75 PBF px from edge already saturate at 0 / 255
-    // and bottom out the shader's smoothstep regardless.
-    const rescale = scale  // = rasterFontSize / 24
-    for (let y = 0; y < drawH; y++) {
-      const srcY = (y + 0.5) / scale - 0.5 + PBF_BUFFER
-      const yi = Math.floor(srcY)
-      const yf = srcY - yi
-      if (yi < 0 || yi + 1 >= bh) continue
-      const rowBase = yi * bw
-      const nextRowBase = (yi + 1) * bw
-      const outRowBase = (oy + y) * slotSize + ox
-
-      for (let x = 0; x < drawW; x++) {
-        const srcX = (x + 0.5) / scale - 0.5 + PBF_BUFFER
-        const xi = Math.floor(srcX)
-        const xf = srcX - xi
-        if (xi < 0 || xi + 1 >= bw) continue
-
-        const i00 = g.bitmap[rowBase + xi]!
-        const i10 = g.bitmap[rowBase + xi + 1]!
-        const i01 = g.bitmap[nextRowBase + xi]!
-        const i11 = g.bitmap[nextRowBase + xi + 1]!
-        const top = i00 + (i10 - i00) * xf
-        const bot = i01 + (i11 - i01) * xf
-        const s = top + (bot - top) * yf
-
-        // Rescale PBF-pixel-distance byte → slot-pixel-distance byte
-        // around the 192 edge midpoint, then clamp + integer-round.
-        const rescaled = 192 + (s - 192) * rescale
-        sdf[outRowBase + x] = rescaled < 0 ? 0 : rescaled > 255 ? 255 : (rescaled | 0)
+  if (g.bitmap.length > 0 && bw > 0 && bh > 0) {
+    const ox = Math.floor((slotSize - bw) / 2)
+    const oy = Math.floor((slotSize - bh) / 2)
+    // Direct byte copy — no bilinear resample (PBF native = slot
+    // raster) and no byte rescale (PBF already encodes 255-per-
+    // radius slope matching the shader's haloK=3 convention since
+    // iter 114).
+    for (let y = 0; y < bh; y++) {
+      const dstY = oy + y
+      if (dstY < 0 || dstY >= slotSize) continue
+      const srcBase = y * bw
+      const dstBase = dstY * slotSize + ox
+      for (let x = 0; x < bw; x++) {
+        const dstX = ox + x
+        if (dstX < 0 || dstX >= slotSize) continue
+        sdf[dstBase + x] = g.bitmap[srcBase + x]!
       }
     }
   }
-  void sdfRadius  // signature compat — distance encoding now matches engine convention
 
   return {
     fontKey,
     codepoint: g.id,
     sdfRadius,
     sdf,
-    advanceWidth: g.advance * scale,
-    bearingX: g.left * scale,
-    bearingY: g.top * scale,
-    width: g.width * scale,
-    height: g.height * scale,
+    advanceWidth: g.advance,
+    bearingX: g.left,
+    bearingY: g.top,
+    width: g.width,
+    height: g.height,
     rasterFontSize: PBF_REF_SIZE,
   }
 }
