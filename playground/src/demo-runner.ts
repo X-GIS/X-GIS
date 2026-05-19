@@ -997,7 +997,25 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
         const stylePitch = (styleObj as { pitch?: number }).pitch
         const xgis = convertMapboxStyle(styleObj)
         editor.setValue(xgis)
+        // Wire glyphs + sprite URLs BEFORE runSource so the first
+        // label-bearing frame can construct TextStage / IconStage
+        // with the URLs already set. Pre-fix the order was reversed:
+        // runSource → first frame (sprite URL still null → IconStage
+        // not constructed → icons render after a later frame). User
+        // report iter 56: production OFM Bright icons not visible.
+        // Setting BEFORE means the IconStage construction gate's
+        // `this.spriteUrl !== null` check fires on the FIRST frame
+        // that has labelShows with iconImage.
+        if (typeof glyphsUrl === 'string' && glyphsUrl.length > 0) {
+          currentMap?.setGlyphsUrl(glyphsUrl)
+        }
+        if (typeof spriteUrl === 'string' && spriteUrl.length > 0) {
+          currentMap?.setSpriteUrl(spriteUrl)
+        }
         await runSource(xgis, 'Imported (Mapbox)')
+        // Re-apply after runSource in case the source restart
+        // recreates currentMap and the pre-runSource setters were
+        // wired to a stale reference.
         if (typeof glyphsUrl === 'string' && glyphsUrl.length > 0) {
           currentMap?.setGlyphsUrl(glyphsUrl)
         }
