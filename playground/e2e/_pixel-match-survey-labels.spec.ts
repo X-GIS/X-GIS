@@ -99,6 +99,13 @@ const VIEWS: ViewSpec[] = [
     style: 'openfreemap-positron',
     hash: '#14/40.7484/-73.9857',
     description: 'OFM Positron, NYC z=14 — dense Latin labels for font-weight thinness measurement' },
+  // User request 2026-05-19: label-quality check at OFM Positron
+  // Seoul z=14.16 — dense Hangul labels (CJK-fallback chain) +
+  // mixed-script "Seoul" Latin name. Focus: label quality.
+  { id: 'positron-seoul-z14',
+    style: 'openfreemap-positron',
+    hash: '#14.16/37.57197/126.98361',
+    description: 'OFM Positron, Seoul z=14.16 — Hangul label quality compare' },
   // User report 2026-05-19: "OFM Bright #19.31/37.12621/126.93016
   // 에서 도로 비주얼 아티팩트 발생. 컴페어 및 픽셀 디프 권고 확인후
   // 상세 검토 필요". Seoul z=19.31 road artifact view.
