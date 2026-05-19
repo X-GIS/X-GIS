@@ -3894,40 +3894,42 @@ export class XGISMap {
           // shape is null the halo axis was never authored; reuse the
           // legacy `def.halo` object as the static fallback so a halo
           // declared without zoom-stops still applies.
-          let resolvedHalo = def.halo
+          // Iter 130 perf: previous impl did up to 3 object spreads
+          // per label per frame to merge haloWidth / haloColor /
+          // haloBlur into resolvedHalo. Per-frame label count at z=14
+          // OFM Liberty Seoul reaches ~300 labels → ~900 spreads/frame
+          // = significant alloc churn on the JS GC. Resolve the 3 knobs
+          // into locals first; build resolvedHalo ONCE at the end
+          // (single allocation, only when any knob actually changed).
+          let haloWidthOverride: number | undefined
+          let haloColorOverride: [number, number, number, number] | undefined
+          let haloBlurOverride: number | undefined
           if (shapes?.haloWidth && shapes.haloWidth.kind !== 'data-driven') {
-            const w = resolveNumberShape(shapes.haloWidth, z, elapsedMs).value
-            // Mapbox spec default for text-halo-color is rgba(0,0,0,0)
-            // (transparent). Matches lower.ts halo merging — keeps the
-            // fallback symmetric so a haloWidth-only authored style
-            // doesn't paint an opaque black outline. Prior [0,0,0,1]
-            // re-introduced the opaque-black-halo bug class on the
-            // runtime side.
-            resolvedHalo = {
-              ...(resolvedHalo ?? { color: [0, 0, 0, 0], width: 0 }),
-              width: w,
-            }
+            haloWidthOverride = resolveNumberShape(shapes.haloWidth, z, elapsedMs).value
           }
           if (shapes?.haloColor && shapes.haloColor.kind !== 'data-driven') {
             const c = resolveColorShape(shapes.haloColor, z, elapsedMs)
-            const cv = c !== null
+            haloColorOverride = (c !== null
               ? c.value as [number, number, number, number]
               : (shapes.haloColor.kind === 'constant'
                 ? shapes.haloColor.value as [number, number, number, number]
-                : undefined)
-            if (cv !== undefined) {
-              resolvedHalo = {
-                ...(resolvedHalo ?? { color: cv, width: 0 }),
-                color: cv,
-              }
-            }
+                : undefined))
           }
           if (shapes?.haloBlur && shapes.haloBlur.kind !== 'data-driven') {
-            const b = resolveNumberShape(shapes.haloBlur, z, elapsedMs).value
-            resolvedHalo = {
-              ...(resolvedHalo ?? { color: [0, 0, 0, 0], width: 0 }),
-              blur: b,
-            }
+            haloBlurOverride = resolveNumberShape(shapes.haloBlur, z, elapsedMs).value
+          }
+          let resolvedHalo = def.halo
+          if (haloWidthOverride !== undefined || haloColorOverride !== undefined || haloBlurOverride !== undefined) {
+            // Mapbox spec defaults: text-halo-color transparent black,
+            // text-halo-width 0. Used as fallback when a knob is
+            // resolved but `def.halo` is absent (haloWidth-only style).
+            const baseColor = haloColorOverride ?? def.halo?.color ?? [0, 0, 0, 0]
+            const baseWidth = haloWidthOverride ?? def.halo?.width ?? 0
+            const baseBlur = haloBlurOverride !== undefined
+              ? haloBlurOverride : def.halo?.blur
+            resolvedHalo = baseBlur !== undefined
+              ? { color: baseColor, width: baseWidth, blur: baseBlur }
+              : { color: baseColor, width: baseWidth }
           }
           // Font resolution: family stack / weight / style are three
           // independent PropertyShapes resolved through the shared
