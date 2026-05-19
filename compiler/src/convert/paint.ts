@@ -494,6 +494,15 @@ function interpolateZoomStops(
       const y1 = unwrapCP(curveSpec[2], 0)
       const x2 = unwrapCP(curveSpec[3], 1)
       const y2 = unwrapCP(curveSpec[4], 1)
+      // CSS cubic-bezier spec: x1 + x2 MUST be in [0, 1] (so x(t) is
+      // monotonic on [0, 1] and the curve is invertible). y1 + y2 can
+      // be any value (overshoot curves are common in CSS animations).
+      // Out-of-range x produces a non-invertible curve — Newton-
+      // Raphson then converges to weird values. Surface so the
+      // author sees the spec violation.
+      if (x1 < 0 || x1 > 1 || x2 < 0 || x2 > 1) {
+        warnings?.push(`["${v[0]}", ["cubic-bezier", ${x1}, ${y1}, ${x2}, ${y2}], …]: x control points (x1=${x1}, x2=${x2}) must be in [0, 1] per CSS spec; the curve becomes non-invertible outside that range and the eased output is undefined.`)
+      }
       const allNumeric = stops.every(s => typeof s.value === 'number' && Number.isFinite(s.value as number))
       if (allNumeric) {
         const SAMPLES_PER_SEGMENT = 6

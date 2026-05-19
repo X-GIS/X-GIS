@@ -74,6 +74,55 @@ describe('Mapbox interpolate-cubic-bezier conversion → densified stops', () =>
     expect(w, `expected folded-to-linear warning; got: ${warnings.join('\n')}`).toBeDefined()
   })
 
+  it('cubic-bezier with x1 out of [0,1] warns about CSS spec (iter 103)', () => {
+    const style = build([
+      'interpolate', ['cubic-bezier', 1.5, 0, 0.5, 1], ['zoom'],
+      10, 1, 20, 16,
+    ])
+    const warnings: string[] = []
+    convertMapboxStyle(style as unknown as string, {
+      coverage: { sources: [], layers: [], warnings },
+    })
+    expect(warnings.some(w =>
+      w.includes('cubic-bezier')
+      && w.includes('x control points')
+      && w.includes('[0, 1]'),
+    )).toBe(true)
+  })
+
+  it('cubic-bezier with x2 = -0.3 warns (iter 103)', () => {
+    const style = build([
+      'interpolate', ['cubic-bezier', 0.5, 0, -0.3, 1], ['zoom'],
+      10, 1, 20, 16,
+    ])
+    const warnings: string[] = []
+    convertMapboxStyle(style as unknown as string, {
+      coverage: { sources: [], layers: [], warnings },
+    })
+    expect(warnings.some(w =>
+      w.includes('cubic-bezier')
+      && w.includes('x control points'),
+    )).toBe(true)
+  })
+
+  it('cubic-bezier with overshoot y but x in [0,1] does NOT warn about x range', () => {
+    // CSS overshoot curves (y > 1 or y < 0) are spec-valid — only x
+    // is constrained. (0.5, -0.5, 0.5, 1.5) is the canonical "spring"
+    // ease curve.
+    const style = build([
+      'interpolate', ['cubic-bezier', 0.5, -0.5, 0.5, 1.5], ['zoom'],
+      10, 1, 20, 16,
+    ])
+    const warnings: string[] = []
+    convertMapboxStyle(style as unknown as string, {
+      coverage: { sources: [], layers: [], warnings },
+    })
+    expect(warnings.some(w =>
+      w.includes('cubic-bezier')
+      && w.includes('x control points'),
+    )).toBe(false)
+  })
+
   it('malformed cubic-bezier with wrong CP count warns (iter 82)', () => {
     // Spec requires exactly 4 control points. Truncated forms
     // previously silently defaulted to (CP1, 0, 1, 1) with no
