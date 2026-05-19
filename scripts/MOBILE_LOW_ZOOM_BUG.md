@@ -1,6 +1,25 @@
-# 🔴 Mobile + low-zoom rendering bug — iPhone Safari, x-gis.github.io, OFM Bright z=0.50
+# 🟡 Mobile + low-zoom rendering bug — iPhone Safari, x-gis.github.io, OFM Bright z=0.50
 
 User reported via screenshot — iter 40 of the ralph-loop run.
+
+**STATUS**: Hypothesis 3 fixed in iter 41 (`c4e4e03` —
+`fix(tiler): cap geodesic-midpoint subdivision at 60° edge span`).
+Desktop pixel-match-survey verified post-fix:
+  * bright-seoul-school 97.28% identical / 0 gt128 (P1 gate)
+  * bright-tokyo-z14 31.32% / 6 gt128 (PASS, threshold 20)
+  * liberty-paris-z14 22.04% / 1025 gt128 (PASS, threshold 1200)
+  * demotiles-europe-z2 87.32% / 1436 gt128 (PASS, threshold 1700,
+    improved from earlier 83.68% — country polygons benefit from
+    the pole-hop cap)
+
+Mobile verification still requires device-level testing. The
+horizontal-stripe banding pattern is consistent with the
+pole-hopping midpoint chaos hypothesis: at z=0.5 the Eurasia
+ring polygon has edges spanning 100°+ lon at high lat, and the
+iter 6 unconditional slerp midpoint hopped those midpoints to
+the pole. The iter 41 cap restricts slerp to (5°, 60°) edge
+span — within which slerp produces sensible interior points;
+beyond which linear MM midpoint is used.
 
 ## Symptom
 
