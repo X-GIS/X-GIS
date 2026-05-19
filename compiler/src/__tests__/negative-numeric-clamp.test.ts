@@ -228,6 +228,42 @@ describe('negative numeric clamp warnings', () => {
     expect(w.some(s => s.includes('line-blur') && s.includes('negative'))).toBe(true)
   })
 
+  it('text-halo-width with negative literal warns', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'lbl',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'a',
+        layout: { 'text-field': '{name}' },
+        paint: { 'text-color': '#000', 'text-halo-width': -2 },
+      }],
+    })
+    expect(w.some(s => s.includes('text-halo-width') && s.includes('negative'))).toBe(true)
+  })
+
+  it('circle-stroke-width with negative literal warns', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'c',
+        type: 'circle',
+        source: 'v',
+        'source-layer': 'a',
+        paint: {
+          'circle-color': '#000',
+          'circle-stroke-color': '#000',
+          'circle-stroke-width': -1,
+          'circle-radius': 5,
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('circle-stroke-width') && s.includes('negative'))).toBe(true)
+  })
+
   it('line-width=0 (valid, hides line) does NOT warn', () => {
     const w = warningsOf({
       version: 8,

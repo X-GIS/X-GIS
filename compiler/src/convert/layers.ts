@@ -530,6 +530,9 @@ function convertSymbolLayer(
     // Both legitimately mean "no halo"; without the tighter type
     // guard a negative literal fell through to the else-if interp
     // path and emitted label-halo-[-N] as a bracket binding.
+    if (haloWidth < 0) {
+      warnings.push(`Symbol layer "${layer.id}" — text-halo-width ${haloWidth} is negative; Mapbox spec requires >= 0. Skipped (no halo).`)
+    }
     if (haloWidth > 0) utils.push(`label-halo-${haloWidth}`)
   } else if (haloWidth !== undefined && haloWidth !== null) {
     // Same negative-clamp guard as text-size — Mapbox spec
@@ -1645,6 +1648,9 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
     // Pre-fix a negative number fell through the `> 0` gate into the
     // else-if interp/expr branch and emitted `stroke-[-5]` as a
     // bracket binding.
+    if (strokeWidth < 0) {
+      warnings.push(`Circle layer "${layer.id}" — circle-stroke-width ${strokeWidth} is negative; Mapbox spec requires >= 0. Skipped (no stroke).`)
+    }
     if (strokeWidth > 0) utils.push(`stroke-${strokeWidth}`)
   } else if (strokeWidth !== undefined && strokeWidth !== null) {
     const interp = interpolateZoomCall(strokeWidth, warnings,
