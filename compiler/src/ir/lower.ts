@@ -519,6 +519,14 @@ function lowerLayer(
   const labelIconOpacityZoomStops: ZoomStop<number>[] = []
   let labelIconOpacityZoomStopsBase: number | undefined
   let labelIconOpacityExpr: { ast: unknown } | undefined
+  // iter 138 — icon-color (SDF sprite tint). Mirrors labelColor: a
+  // static RGBA fallback plus optional zoom-interp stops / per-feature
+  // expression. Runtime dispatchIcon resolves and passes tint into
+  // IconRenderer; raster sprites ignore it (renderer-side per spec).
+  let labelIconColor: [number, number, number, number] | undefined
+  const labelIconColorZoomStops: ZoomStop<[number, number, number, number]>[] = []
+  let labelIconColorZoomStopsBase: number | undefined
+  let labelIconColorExpr: import('./render-node').DataExpr | undefined
   /** Mapbox `icon-rotation-alignment` — "map" means icon rotates
    *  with the line tangent under symbol-placement=line. Other
    *  values (viewport / auto / absent) match X-GIS' default render
@@ -928,6 +936,24 @@ function lowerLayer(
           labelColorExpr = { ast: item.binding }
           continue
         }
+        // icon-color zoom-interp / per-feature binding (iter 138).
+        // Direct mirror of the label-color arm above.
+        if (name === 'label-icon-color') {
+          const interp = extractInterpolateZoomColorStops(item.binding)
+          if (interp) {
+            for (const s of interp.stops) {
+              const hex = resolveColor(s.value)
+              if (hex) labelIconColorZoomStops.push({ zoom: s.zoom, value: hexToRgba(hex) })
+            }
+            if (labelIconColorZoomStops.length > 0) {
+              if (interp.base !== 1) labelIconColorZoomStopsBase = interp.base
+              labelIconColor = labelIconColorZoomStops[labelIconColorZoomStops.length - 1]!.value
+              continue
+            }
+          }
+          labelIconColorExpr = { ast: item.binding }
+          continue
+        }
         if (name === 'label-halo-color') {
           const interp = extractInterpolateZoomColorStops(item.binding)
           if (interp) {
@@ -1218,6 +1244,11 @@ function lowerLayer(
       if (name.startsWith('label-halo-')) {
         const num = parseFloat(name.slice('label-halo-'.length))
         if (!isNaN(num)) labelHaloWidth = num
+        continue
+      }
+      if (name.startsWith('label-icon-color-')) {
+        const hex = resolveColor(name.slice('label-icon-color-'.length))
+        if (hex) labelIconColor = hexToRgba(hex)
         continue
       }
       if (name.startsWith('label-color-')) {
@@ -1883,6 +1914,10 @@ function lowerLayer(
       labelIconOpacityZoomStops: labelIconOpacityZoomStops.length > 0 ? labelIconOpacityZoomStops : undefined,
       labelIconOpacityZoomStopsBase,
       labelIconOpacityExpr,
+      labelIconColor,
+      labelIconColorZoomStops: labelIconColorZoomStops.length > 0 ? labelIconColorZoomStops : undefined,
+      labelIconColorZoomStopsBase,
+      labelIconColorExpr,
     }),
   }
 }
@@ -1956,6 +1991,11 @@ function foldLabelKnobs(
     labelIconOpacityZoomStops?: ZoomStop<number>[]
     labelIconOpacityZoomStopsBase?: number
     labelIconOpacityExpr?: { ast: unknown }
+    // iter 138 — icon-color (SDF tint) PropertyShape inputs.
+    labelIconColor?: [number, number, number, number]
+    labelIconColorZoomStops?: ZoomStop<[number, number, number, number]>[]
+    labelIconColorZoomStopsBase?: number
+    labelIconColorExpr?: import('./render-node').DataExpr
   },
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
@@ -2035,6 +2075,7 @@ function foldLabelKnobs(
     ...(knobs.labelIconOffset !== undefined ? { iconOffset: knobs.labelIconOffset } : {}),
     ...(knobs.labelIconRotate !== undefined ? { iconRotate: knobs.labelIconRotate } : {}),
     ...(knobs.labelIconOpacity !== undefined ? { iconOpacity: knobs.labelIconOpacity } : {}),
+    ...(knobs.labelIconColor !== undefined ? { iconColor: knobs.labelIconColor } : {}),
     ...(knobs.labelIconRotationAlignment !== undefined ? { iconRotationAlignment: knobs.labelIconRotationAlignment } : {}),
   }
   // Plan Label L3: the LabelDef no longer carries `xxxZoomStops` /
@@ -2075,6 +2116,11 @@ function foldLabelKnobs(
       ? knobs.labelIconOpacityZoomStops : undefined,
     iconOpacityZoomStopsBase: knobs.labelIconOpacityZoomStopsBase,
     iconOpacityExpr: knobs.labelIconOpacityExpr as import('./render-node').DataExpr | undefined,
+    iconColor: merged.iconColor,
+    iconColorZoomStops: knobs.labelIconColorZoomStops && knobs.labelIconColorZoomStops.length > 0
+      ? knobs.labelIconColorZoomStops : undefined,
+    iconColorZoomStopsBase: knobs.labelIconColorZoomStopsBase,
+    iconColorExpr: knobs.labelIconColorExpr,
   })
   return merged
 }

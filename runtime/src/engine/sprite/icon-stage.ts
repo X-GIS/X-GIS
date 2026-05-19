@@ -26,6 +26,9 @@ interface PendingIcon {
   rotateRad: number
   anchor: IconAnchor
   opacity: number
+  /** Mapbox `icon-color` SDF tint, sRGB 0..1. Undefined = white
+   *  (identity); only applied to SDF sprites by the renderer. */
+  tint?: [number, number, number]
   /** Iter 112 paired-symbol collision: identifier shared with the
    *  matching text label dispatched at the SAME line-walk anchor.
    *  Before prepare() emits the draw, IconStage checks against
@@ -76,7 +79,7 @@ export class IconStage {
    *  sprite atlas — unknown names are dropped silently in prepare(). */
   addIcon(
     anchorX: number, anchorY: number, iconName: string,
-    opts: { sizeScale?: number; rotateRad?: number; anchor?: IconAnchor; opacity?: number; pairKey?: string } = {},
+    opts: { sizeScale?: number; rotateRad?: number; anchor?: IconAnchor; opacity?: number; tint?: [number, number, number]; pairKey?: string } = {},
   ): void {
     this.pending.push({
       anchorX, anchorY, iconName,
@@ -84,6 +87,7 @@ export class IconStage {
       rotateRad: opts.rotateRad ?? 0,
       anchor: opts.anchor ?? 'center',
       opacity: opts.opacity ?? 1,
+      tint: opts.tint,
       pairKey: opts.pairKey,
     })
   }
@@ -139,6 +143,7 @@ export class IconStage {
         rotateRad: p.rotateRad,
         anchor: p.anchor,
         opacity: p.opacity,
+        tint: p.tint,
       })
     }
     this.renderer.setDraws(draws)

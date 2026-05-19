@@ -3633,7 +3633,7 @@ export class XGISMap {
         // doesn't call this (icon-along-curve is a Phase B+ feature);
         // point-anchored POI symbols (the demotiles + OFM Bright bus-
         // stop / school / amenity layers) flow through here.
-        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconRotate?: number; iconOpacity?: number; iconRotationAlignment?: 'map' }, ax: number, ay: number, lineTangentDeg = 0, pairKey?: string): void => {
+        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconRotate?: number; iconOpacity?: number; iconColor?: [number, number, number, number]; iconRotationAlignment?: 'map' }, ax: number, ay: number, lineTangentDeg = 0, pairKey?: string): void => {
           if (!iStage || def.iconImage === undefined) return
           const offDx = (def.iconOffset?.[0] ?? 0) * dpr
           const offDy = (def.iconOffset?.[1] ?? 0) * dpr
@@ -3645,11 +3645,17 @@ export class XGISMap {
           // right at 0°, so 90° clockwise = north). Caller passes 0
           // for point-placement and other "viewport" rotation cases.
           const tangent = def.iconRotationAlignment === 'map' ? lineTangentDeg : 0
+          // icon-color → SDF tint (RGBA from resolver; renderer takes
+          // rgb, ignores alpha — Mapbox icon-color has no alpha axis,
+          // icon-opacity owns alpha). Undefined when unauthored so
+          // the renderer keeps the raster/identity path.
+          const ic = def.iconColor
           iStage.addIcon(ax + offDx, ay + offDy, def.iconImage, {
             sizeScale: def.iconSize ?? 1,
             rotateRad: ((def.iconRotate ?? 0) + tangent) * Math.PI / 180,
             anchor: def.iconAnchor ?? 'center',
             opacity: def.iconOpacity ?? 1,
+            tint: ic ? [ic[0], ic[1], ic[2]] : undefined,
             pairKey,
           })
         }
@@ -4003,6 +4009,16 @@ export class XGISMap {
           const resolvedIconOpacity = shapes && shapes.iconOpacity !== null && shapes.iconOpacity.kind !== 'data-driven'
             ? resolveNumberShape(shapes.iconOpacity, z, elapsedMs).value
             : def.iconOpacity
+          // icon-color — constant + zoom-interp route through
+          // shapes.iconColor (PropertyShape<RGBA>); data-driven is
+          // handled by the per-feature evaluator below (mirrors color).
+          let resolvedIconColor: [number, number, number, number] | undefined
+          if (shapes && shapes.iconColor !== null && shapes.iconColor.kind !== 'data-driven') {
+            const ic = resolveColorShape(shapes.iconColor, z, elapsedMs)
+            if (ic !== null) resolvedIconColor = ic.value as [number, number, number, number]
+            else if (shapes.iconColor.kind === 'constant') resolvedIconColor = shapes.iconColor.value as [number, number, number, number]
+          }
+          if (resolvedIconColor === undefined) resolvedIconColor = def.iconColor
           // Iter 133 perf: in-place field set instead of conditional
           // spreads. Pre-fix did `{ ...def, ...(cond ? { field } : {}) }`
           // × 7 conditionals → ~8 object allocations per label per frame
@@ -4017,6 +4033,7 @@ export class XGISMap {
           if (resolvedFontStyle !== undefined) effectiveDef.fontStyle = resolvedFontStyle
           if (resolvedIconSize !== undefined) effectiveDef.iconSize = resolvedIconSize
           if (resolvedIconOpacity !== undefined) effectiveDef.iconOpacity = resolvedIconOpacity
+          if (resolvedIconColor !== undefined) effectiveDef.iconColor = resolvedIconColor
           if (bearingDeg !== 0) effectiveDef.rotate = (def.rotate ?? 0) + bearingDeg
 
           // Per-feature evaluator for data-driven text-size /

@@ -389,6 +389,10 @@ export interface LabelDef {
    *  range, default 1 (full opacity). Constant form only — non-
    *  constant warns at the converter (lossy layer). */
   iconOpacity?: number
+  /** Mapbox `icon-color` — SDF sprite tint, RGBA 0..1. Static
+   *  fallback; zoom-interp / data-driven forms flow through
+   *  LabelShapes.iconColor. iter 138. */
+  iconColor?: [number, number, number, number]
   /** Mapbox `icon-rotation-alignment` — only the "map" value is
    *  tracked here; "viewport"/"auto"/absent default to X-GIS'
    *  axis-aligned icon render. When set to "map" under symbol-
@@ -699,6 +703,13 @@ export function buildLabelShapes(input: {
   iconOpacityZoomStops?: import('./render-node').ZoomStop<number>[]
   iconOpacityZoomStopsBase?: number
   iconOpacityExpr?: import('./render-node').DataExpr
+  /** Mapbox `icon-color` — SDF sprite tint. Constant + zoom-interp +
+   *  data-driven all route through the same PropertyShape<RGBA> so
+   *  the runtime resolves per frame / per feature. iter 138. */
+  iconColor?: [number, number, number, number]
+  iconColorZoomStops?: import('./render-node').ZoomStop<[number, number, number, number]>[]
+  iconColorZoomStopsBase?: number
+  iconColorExpr?: import('./render-node').DataExpr
 }): import('./property-types').LabelShapes {
   type RGBA = readonly [number, number, number, number]
   type Shape<T> = import('./property-types').PropertyShape<T>
@@ -824,7 +835,21 @@ export function buildLabelShapes(input: {
     iconOpacity = { kind: 'constant', value: input.iconOpacity }
   }
 
-  return { size, color, haloWidth, haloColor, haloBlur, font, fontWeight, fontStyle, iconSize, opacity, iconOpacity }
+  let iconColor: Shape<RGBA> | null = null
+  if (input.iconColorExpr) {
+    iconColor = { kind: 'data-driven', expr: input.iconColorExpr }
+  } else if (input.iconColorZoomStops && input.iconColorZoomStops.length > 0) {
+    iconColor = {
+      kind: 'zoom-interpolated',
+      stops: input.iconColorZoomStops,
+      ...(input.iconColorZoomStopsBase !== undefined
+        ? { base: input.iconColorZoomStopsBase } : {}),
+    }
+  } else if (input.iconColor) {
+    iconColor = { kind: 'constant', value: input.iconColor }
+  }
+
+  return { size, color, haloWidth, haloColor, haloBlur, font, fontWeight, fontStyle, iconSize, opacity, iconOpacity, iconColor }
 }
 
 /**

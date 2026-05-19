@@ -2,11 +2,12 @@
 //
 // Vertex stage: screen-pixel quad → NDC, same convention as the SDF
 // text-renderer. Fragment stage: straight texture sample with alpha
-// blending. SDF icons (sdf:true in sprite JSON) get the same fwidth-
-// based AA shader path as text — but only the bitmap path is wired
-// up here. SDF tinting via icon-color lands in a follow-up commit
-// (Phase B). Today's pipeline handles non-SDF (raster) sprites only,
-// which covers ~90 % of icons in Mapbox / MapLibre / OFM styles.
+// blending for raster sprites; SDF sprites (sdf:true in sprite JSON)
+// take an fwidth-based AA path identical to the text renderer and are
+// tinted by the per-vertex `icon-color` (Plan §4, iter 138). One
+// batch can freely mix raster and SDF quads — the per-vertex `sdf`
+// flag selects the path in the fragment shader, so no pipeline split
+// or draw-call partitioning is needed.
 //
 // Coordinate frame: anchor arrives already in physical pixels (the
 // caller projects lon/lat → screen px before submitting). The vertex
@@ -41,6 +42,11 @@ export interface IconDraw {
    *  precision — callers that filter near-zero icons save vertex
    *  bandwidth. */
   opacity?: number
+  /** Mapbox `icon-color` — SDF tint, sRGB 0..1 per channel. Only
+   *  applied when the sprite is SDF (`sprite.sdf === true`); raster
+   *  sprites ignore it per the Mapbox spec (the bitmap already carries
+   *  its own colour). Default white = identity for both paths. */
+  tint?: [number, number, number]
 }
 
 export type IconAnchor =
@@ -48,7 +54,8 @@ export type IconAnchor =
   | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
 
 const VERTS_PER_QUAD = 6
-const FLOATS_PER_VERT = 5   // pos.x, pos.y, uv.x, uv.y, opacity
+// pos.x, pos.y, uv.x, uv.y, opacity, tint.r, tint.g, tint.b, sdf
+const FLOATS_PER_VERT = 9
 const FLOATS_PER_QUAD = VERTS_PER_QUAD * FLOATS_PER_VERT
 
 const ICON_SHADER_WGSL = /* wgsl */ `
@@ -62,24 +69,44 @@ struct VsOut {
   @builtin(position) clip_pos: vec4<f32>,
   @location(0) uv: vec2<f32>,
   @location(1) opacity: f32,
+  @location(2) tint: vec3<f32>,
+  // Flat: a quad is wholly SDF or wholly raster — no interpolation
+  // across the boundary (there is none within a quad).
+  @location(3) @interpolate(flat) sdf: f32,
 }
 
 @vertex fn vs(
   @location(0) pos_px: vec2<f32>,
   @location(1) uv: vec2<f32>,
   @location(2) opacity: f32,
+  @location(3) tint: vec3<f32>,
+  @location(4) sdf: f32,
 ) -> VsOut {
   let ndc_x = (pos_px.x / u.viewport.x) * 2.0 - 1.0;
   let ndc_y = 1.0 - (pos_px.y / u.viewport.y) * 2.0;
-  return VsOut(vec4<f32>(ndc_x, ndc_y, 0.0, 1.0), uv, opacity);
+  return VsOut(vec4<f32>(ndc_x, ndc_y, 0.0, 1.0), uv, opacity, tint, sdf);
 }
 
 @fragment fn fs(in: VsOut) -> @location(0) vec4<f32> {
   let c = textureSample(atlas_tex, atlas_smp, in.uv);
-  // PNG is non-premultiplied; the blend state below uses src-alpha
-  // accordingly so we don't need to premultiply in the shader.
-  // Mapbox icon-opacity multiplies the source alpha — 1.0 (default)
-  // passes through, 0.0 drops the icon, partial values cross-fade.
+  if (in.sdf > 0.5) {
+    // SDF sprite: the alpha channel holds an unsigned distance field
+    // (0.5 = glyph edge, same encoding as the text atlas). fwidth-
+    // based screen-space AA — mirror of text-renderer's fill_a so
+    // SDF icons and SDF glyphs antialias identically at any zoom.
+    // Colour comes entirely from icon-color (in.tint); the atlas
+    // texel's RGB is meaningless for SDF sprites.
+    let d = c.a;
+    let aa = max(fwidth(d), 1e-4);
+    let cov = smoothstep(0.5 - aa, 0.5 + aa, d);
+    return vec4<f32>(in.tint, cov * in.opacity);
+  }
+  // Raster sprite: straight texture sample. PNG is non-premultiplied;
+  // the blend state below uses src-alpha accordingly so we don't need
+  // to premultiply in the shader. Mapbox icon-opacity multiplies the
+  // source alpha — 1.0 (default) passes through, 0.0 drops the icon,
+  // partial values cross-fade. icon-color is intentionally ignored
+  // for raster sprites per the Mapbox spec.
   return vec4<f32>(c.rgb, c.a * in.opacity);
 }
 `
@@ -150,9 +177,11 @@ export class IconRenderer {
         buffers: [{
           arrayStride: FLOATS_PER_VERT * 4,
           attributes: [
-            { shaderLocation: 0, offset: 0, format: 'float32x2' }, // pos_px
-            { shaderLocation: 1, offset: 8, format: 'float32x2' }, // uv
-            { shaderLocation: 2, offset: 16, format: 'float32' },  // opacity
+            { shaderLocation: 0, offset: 0, format: 'float32x2' },  // pos_px
+            { shaderLocation: 1, offset: 8, format: 'float32x2' },  // uv
+            { shaderLocation: 2, offset: 16, format: 'float32' },   // opacity
+            { shaderLocation: 3, offset: 20, format: 'float32x3' }, // tint rgb
+            { shaderLocation: 4, offset: 32, format: 'float32' },   // sdf flag
           ],
         }],
       },
@@ -239,14 +268,27 @@ export class IconRenderer {
       // fragment can multiply the texture alpha. Default 1 keeps
       // the existing no-fade behaviour byte-for-byte.
       const op = d.opacity ?? 1
+      // icon-color tint. Only meaningful for SDF sprites; raster
+      // sprites carry sdf=0 and the fragment shader ignores the tint
+      // for them. Default white = identity (matches the prior
+      // untinted behaviour byte-for-byte for raster icons).
+      const t = d.tint
+      const tr = t ? t[0] : 1, tg = t ? t[1] : 1, tb = t ? t[2] : 1
+      const sdf = d.sprite.sdf ? 1 : 0
+      // Per-vertex: pos.xy, uv.xy, opacity, tint.rgb, sdf (9 floats).
+      const W = (o: number, x: number, y: number, uu: number, vv: number): void => {
+        data[o] = x; data[o + 1] = y; data[o + 2] = uu; data[o + 3] = vv
+        data[o + 4] = op; data[o + 5] = tr; data[o + 6] = tg; data[o + 7] = tb
+        data[o + 8] = sdf
+      }
       // tri 1: TL, BL, BR
-      data[off +  0] = tlx; data[off +  1] = tly; data[off +  2] = u0; data[off +  3] = v0; data[off +  4] = op
-      data[off +  5] = blx; data[off +  6] = bly; data[off +  7] = u0; data[off +  8] = v1; data[off +  9] = op
-      data[off + 10] = brx; data[off + 11] = bry; data[off + 12] = u1; data[off + 13] = v1; data[off + 14] = op
+      W(off +  0, tlx, tly, u0, v0)
+      W(off +  9, blx, bly, u0, v1)
+      W(off + 18, brx, bry, u1, v1)
       // tri 2: TL, BR, TR
-      data[off + 15] = tlx; data[off + 16] = tly; data[off + 17] = u0; data[off + 18] = v0; data[off + 19] = op
-      data[off + 20] = brx; data[off + 21] = bry; data[off + 22] = u1; data[off + 23] = v1; data[off + 24] = op
-      data[off + 25] = trx; data[off + 26] = try_; data[off + 27] = u1; data[off + 28] = v0; data[off + 29] = op
+      W(off + 27, tlx, tly, u0, v0)
+      W(off + 36, brx, bry, u1, v1)
+      W(off + 45, trx, try_, u1, v0)
       off += FLOATS_PER_QUAD
     }
 

@@ -1274,15 +1274,28 @@ function convertSymbolLayer(
   }
 
   // icon-color: SDF icon tint — Mapbox spec multiplies the sampled
-  // texel by an authored colour for SDF sprites (used by highway-
-  // shield colour variations etc.). X-GIS' IconStage today emits
-  // un-tinted PNG sprite texels; SDF tint needs a vertex-attribute
-  // color + fragment tint multiply (Plan §4 deferred). Surface a
-  // specific gap warning rather than burying icon-color in the
-  // generic ignoredText blob — mirror of the iter 14-17 pattern
-  // for line-gradient / fill-pattern / line-pattern.
-  if (paint['icon-color'] !== undefined && paint['icon-color'] !== null) {
-    warnings.push(`Symbol layer "${layer.id}" — icon-color set but X-GIS' IconStage doesn't yet tint SDF sprites (Plan §4 deferred — needs per-vertex tint attribute + fragment multiply). Icon renders with the atlas texel verbatim.`)
+  // SDF texel by an authored colour for sdf:true sprites (highway-
+  // shield colour variants etc.). Plan §4, iter 138: the IconRenderer
+  // now carries a per-vertex tint + fragment SDF path, so icon-color
+  // is plumbed end-to-end the same way text-color is. Constant emits
+  // `label-icon-color-<hex>`; zoom-interp / data-driven emit a
+  // bracket binding lower.ts threads into LabelShapes.iconColor.
+  // Raster sprites ignore the tint (spec) — handled in the renderer.
+  const iconColor = paint['icon-color']
+  if (!isOmittedValue(iconColor)) {
+    const interp = interpolateZoomCall(iconColor, warnings, (val, w) => colorToXgis(val, w))
+    if (interp !== null) {
+      utils.push(`label-icon-color-[${interp}]`)
+    } else {
+      const colorStr = colorToXgis(iconColor, warnings)
+      if (colorStr) {
+        utils.push(`label-icon-color-${colorStr}`)
+      } else {
+        const expr = exprToXgis(iconColor, warnings)
+        if (expr !== null) utils.push(`label-icon-color-[${expr}]`)
+        else warnings.push(`Symbol layer "${layer.id}" — icon-color non-constant form could not be converted.`)
+      }
+    }
   }
   // icon-halo-color / icon-halo-width / icon-halo-blur: SDF icon halo
   // — same Plan §4 dependency as icon-color. Text halo is supported

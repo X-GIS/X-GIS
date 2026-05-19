@@ -158,4 +158,10 @@ export interface LabelShapes {
    *  `null` = no author input → runtime falls back to LabelDef.iconOpacity
    *  (constant) or the spec default 1. Iter 113. */
   iconOpacity: PropertyShape<number> | null
+  /** Mapbox `icon-color` SDF sprite tint (RGBA 0..1). `null` = no
+   *  author input → runtime falls back to LabelDef.iconColor or the
+   *  spec default white (#000000-alpha-aware: spec default is
+   *  "#000000" but renderer only tints SDF, identity = white).
+   *  iter 138. */
+  iconColor: PropertyShape<readonly [number, number, number, number]> | null
 }
