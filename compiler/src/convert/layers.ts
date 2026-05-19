@@ -1197,6 +1197,13 @@ function convertSymbolLayer(
   const iconRotAlign = unwrapLiteralScalar(layout['icon-rotation-alignment'])
   if (iconRotAlign === 'map') {
     utils.push('label-icon-rotation-alignment-map')
+  } else if (typeof iconRotAlign === 'string'
+      && iconRotAlign !== 'viewport' && iconRotAlign !== 'auto') {
+    // Mapbox spec: icon-rotation-alignment enum is one of
+    // map / viewport / auto. Unknown values (typos like "MAP" /
+    // "screen") would silently fall through to X-GIS' default
+    // (viewport-aligned icons) without diagnostic.
+    warnings.push(`Symbol layer "${layer.id}" — icon-rotation-alignment "${iconRotAlign.slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport' | 'auto'.`)
   }
 
   // icon-opacity (paint property) — Mapbox alpha multiplier on icon
