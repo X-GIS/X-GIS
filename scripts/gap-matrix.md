@@ -66,5 +66,5 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | interpolate (cubic-bezier) | low | Folded to linear with a warning — no per-stop bezier evaluator yet. |
 | interpolate-hcl | low | Approximated as linear-RGB with a warning — no LAB/HCL per-stop evaluator yet. |
 | interpolate-lab | low | Approximated as linear-RGB with a warning — no LAB/HCL per-stop evaluator yet. |
-| format | low | Span texts concatenated via xgis concat(); per-span opts (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer. |
+| format | low | Span texts concatenated via xgis concat(); per-span opts (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer. Iter 25 added per-section partial-drop semantics: when one section fails to convert (e.g. uses an unsupported accessor), surviving sections still concat — only ALL-sections-fail returns null. Pre-fix any single failure bailed the whole format expression and dropped the label silently. |
 | array | low | Type-assertion drops to value pass-through (X-GIS arrays carry no per-element type tag, so the spec's "abort if not array" semantic is lost; in paint/filter use a non-array would null-cascade anyway). |
