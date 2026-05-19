@@ -797,6 +797,9 @@ function addStrokeWidth(out: string[], v: unknown, warnings: string[]): void {
     // Number.isFinite rejects NaN / Infinity: `typeof NaN === 'number'`
     // slipped past the type gate and `Math.max(0, NaN) = NaN` emitted
     // a literal `stroke-NaN` utility that the parser rejected.
+    if (v < 0) {
+      warnings.push(`paint.line-width: value ${v} is negative; Mapbox spec requires >= 0. Clamped to 0 (line won't render at this zoom).`)
+    }
     const clamped = Math.max(0, v)
     out.push(`stroke-${clamped}`)
     return

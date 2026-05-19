@@ -494,6 +494,9 @@ function convertSymbolLayer(
     // Number.isFinite gate also rejects NaN / Infinity (typeof NaN
     // === 'number' is true; Math.max(0, NaN) = NaN emits invalid
     // `label-size-NaN`).
+    if (textSize < 0) {
+      warnings.push(`Symbol layer "${layer.id}" — text-size ${textSize} is negative; Mapbox spec requires >= 0. Clamped to 0 (labels won't render at this zoom).`)
+    }
     utils.push(`label-size-${Math.max(0, textSize)}`)
   } else if (textSize !== undefined && textSize !== null) {
     const interp = interpolateZoomCall(textSize, warnings,
