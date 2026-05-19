@@ -280,6 +280,46 @@ describe('negative numeric clamp warnings', () => {
     expect(w.some(s => s.includes('text-halo-blur') && s.includes('negative'))).toBe(true)
   })
 
+  it('symbol-spacing with zero on line placement warns', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'lbl',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'a',
+        layout: {
+          'text-field': '{name}',
+          'symbol-placement': 'line',
+          'symbol-spacing': 0,
+        },
+        paint: { 'text-color': '#000' },
+      }],
+    })
+    expect(w.some(s => s.includes('symbol-spacing') && s.includes('not positive'))).toBe(true)
+  })
+
+  it('symbol-spacing with negative on line placement warns', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'lbl',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'a',
+        layout: {
+          'text-field': '{name}',
+          'symbol-placement': 'line',
+          'symbol-spacing': -50,
+        },
+        paint: { 'text-color': '#000' },
+      }],
+    })
+    expect(w.some(s => s.includes('symbol-spacing') && s.includes('not positive'))).toBe(true)
+  })
+
   it('line-width=0 (valid, hides line) does NOT warn', () => {
     const w = warningsOf({
       version: 8,

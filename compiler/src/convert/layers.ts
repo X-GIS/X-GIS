@@ -1094,8 +1094,13 @@ function convertSymbolLayer(
   // collapse to a single label per feature.
   const symbolSpacing = unwrapLiteralScalar(layout['symbol-spacing'])
   if (placement === 'line') {
-    if (typeof symbolSpacing === 'number' && symbolSpacing > 0) {
-      utils.push(`label-spacing-${symbolSpacing}`)
+    if (typeof symbolSpacing === 'number' && Number.isFinite(symbolSpacing)) {
+      if (symbolSpacing <= 0) {
+        warnings.push(`Symbol layer "${layer.id}" — symbol-spacing ${symbolSpacing} is not positive; Mapbox spec requires > 0. Falling back to default 250 px.`)
+        utils.push('label-spacing-250')
+      } else {
+        utils.push(`label-spacing-${symbolSpacing}`)
+      }
     } else {
       utils.push('label-spacing-250')
     }
