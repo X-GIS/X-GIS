@@ -669,6 +669,7 @@ export class VectorTileRenderer {
     // calls within the frame accumulate into one total (see render()).
     this._missedTiles = 0
     this._frameTilesVisible = 0
+    this._frameGlobeTilesSelected = 0
     this._frameDrawCalls = 0
     this._frameTriangles = 0
     this._frameLines = 0
@@ -1428,6 +1429,14 @@ export class VectorTileRenderer {
    *  layers' draws of the SAME world-tile + worldOff). These
    *  counters track the FRAME total across all layer renders. */
   private _frameTilesVisible = 0
+  /** iter 142 diagnostic — raw globeVisibleTiles() output length for
+   *  the most recent non-Mercator selection this frame (0 for the
+   *  Mercator/SSE path). Splits the non-Merc render-fail repro into
+   *  (a) selection returned empty vs (c) selected-but-culled: if
+   *  this is >0 while tilesVisible==0, selection is fine and the
+   *  fault is downstream; if this is 0, globeVisibleTiles itself
+   *  returned nothing. See project_non_mercator_systemic_2026_05_19. */
+  private _frameGlobeTilesSelected = 0
   private _frameDrawCalls = 0
   private _frameTriangles = 0
   private _frameLines = 0
@@ -1450,7 +1459,7 @@ export class VectorTileRenderer {
    *  which we re-apply identically to subsequent same-slice shows. */
   private _frameClassifyMemo: Map<string, Map<number, TileDecision>> = new Map()
 
-  getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number; missedTiles: number } {
+  getDrawStats(): { drawCalls: number; vertices: number; triangles: number; lines: number; tilesVisible: number; missedTiles: number; globeTilesSelected: number } {
     return {
       drawCalls: this._frameDrawCalls,
       vertices: this._frameVertices,
@@ -1458,6 +1467,7 @@ export class VectorTileRenderer {
       lines: this._frameLines,
       tilesVisible: this._frameTilesVisible,
       missedTiles: this._missedTiles,
+      globeTilesSelected: this._frameGlobeTilesSelected,
     }
   }
 
@@ -2956,6 +2966,10 @@ export class VectorTileRenderer {
           lon, lat, camera.zoom, currentZ, cssW, cssH,
           camera.pitch ?? 0, camera.bearing ?? 0,
         )
+        // iter 142 diagnostic: raw selection count BEFORE world-copy
+        // fan-out / makeTileCoord, so the harness can split
+        // selection-empty from selected-but-culled.
+        this._frameGlobeTilesSelected = globeTiles.length
         // GlobeTile (z/x/y/ox) matches the TileCoord shape exactly;
         // makeTileCoord wraps with the absolute-x contract.
         //

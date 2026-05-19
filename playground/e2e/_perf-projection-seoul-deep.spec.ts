@@ -53,11 +53,12 @@ const PROJECTIONS = [
   'globe',
 ] as const
 
-interface DrawStats { drawCalls: number; tilesVisible: number; triangles: number }
+interface DrawStats { drawCalls: number; tilesVisible: number; triangles: number; globeTilesSelected: number }
 
 interface Row {
   projection: string
   z11Rendered: boolean
+  z11Selected: number
   z11Tiles: number
   sweepP95: number
   sweepMax: number
@@ -72,10 +73,10 @@ async function readDrawStats(page: Page): Promise<DrawStats> {
   return page.evaluate(() => {
     const m = (window as unknown as {
       __xgisMap?: { vtSources?: Map<string, { renderer?: {
-        getDrawStats?: () => { drawCalls: number; vertices: number; triangles: number; tilesVisible: number }
+        getDrawStats?: () => { drawCalls: number; vertices: number; triangles: number; tilesVisible: number; globeTilesSelected: number }
       } }> }
     }).__xgisMap
-    const agg = { drawCalls: 0, tilesVisible: 0, triangles: 0 }
+    const agg = { drawCalls: 0, tilesVisible: 0, triangles: 0, globeTilesSelected: 0 }
     if (!m?.vtSources) return agg
     for (const [, src] of m.vtSources) {
       const s = src.renderer?.getDrawStats?.()
@@ -83,6 +84,7 @@ async function readDrawStats(page: Page): Promise<DrawStats> {
       agg.drawCalls += s.drawCalls
       agg.tilesVisible += s.tilesVisible
       agg.triangles += s.triangles
+      agg.globeTilesSelected = Math.max(agg.globeTilesSelected, s.globeTilesSelected ?? 0)
     }
     return agg
   })
@@ -117,6 +119,8 @@ test.describe('perf-projection-seoul-deep', () => {
       // (1) Render-success at z=11.
       const z11 = await readDrawStats(page)
       const z11Rendered = z11.drawCalls > 0 && z11.tilesVisible > 0
+      // Split selection-empty from selected-but-culled (iter 142).
+      const z11Selected = z11.globeTilesSelected
 
       // (2) Deep zoom-in sweep 13 → 16.5.
       const timings = await runInteraction(
@@ -129,6 +133,7 @@ test.describe('perf-projection-seoul-deep', () => {
       rows.push({
         projection: proj,
         z11Rendered,
+        z11Selected,
         z11Tiles: z11.tilesVisible,
         sweepP95: +stats.p95.toFixed(1),
         sweepMax: +stats.max.toFixed(1),
@@ -139,7 +144,7 @@ test.describe('perf-projection-seoul-deep', () => {
 
       // eslint-disable-next-line no-console
       console.log(
-        `[seoul-deep ${proj}] z11Rendered=${z11Rendered} z11Tiles=${z11.tilesVisible} `
+        `[seoul-deep ${proj}] z11Rendered=${z11Rendered} z11Selected=${z11Selected} z11Tiles=${z11.tilesVisible} `
         + `sweep p95=${stats.p95.toFixed(1)} max=${stats.max.toFixed(1)} `
         + `deepTiles=${deep.tilesVisible} deepDraws=${deep.drawCalls}`,
       )
@@ -164,15 +169,17 @@ test.describe('perf-projection-seoul-deep', () => {
       `Coord: ${SEOUL.lon}, ${SEOUL.lat} (OFM bright)`,
       '',
       'z11Rendered=false → "렌더링 안됨" report reproduced.',
+      'z11Sel=0 → globeVisibleTiles returned empty (selection bug).',
+      'z11Sel>0 but z11Tiles=0 → selected-but-culled (downstream).',
       'High sweepP95/Max + large deepTiles → "줌 인 시 렉" reproduced.',
       'Compare every row against the mercator control.',
       '',
-      '| Projection | z11 rendered | z11 tiles | sweep median | sweep p95 | sweep max | deep tiles | deep draws |',
-      '|---|:--:|--:|--:|--:|--:|--:|--:|',
+      '| Projection | z11 rendered | z11 sel | z11 tiles | sweep median | sweep p95 | sweep max | deep tiles | deep draws |',
+      '|---|:--:|--:|--:|--:|--:|--:|--:|--:|',
     ]
     for (const r of rows) {
       lines.push(
-        `| ${r.projection} | ${r.z11Rendered ? '✓' : '✗'} | ${r.z11Tiles} `
+        `| ${r.projection} | ${r.z11Rendered ? '✓' : '✗'} | ${r.z11Selected} | ${r.z11Tiles} `
         + `| ${r.sweepMedian} | ${r.sweepP95} | ${r.sweepMax} `
         + `| ${r.deepTiles} | ${r.deepDraws} |`,
       )
