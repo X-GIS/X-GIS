@@ -49,9 +49,14 @@ describe('worldCopiesFor — current world-copy enumeration state', () => {
     expect(copies.length).toBe(1)
   })
 
-  it('Oblique Mercator (6): single-world (rotated cylindrical, not applicable)', () => {
+  it('Oblique Mercator (6): world-copy enumeration (rotated cylindrical wraps after 2π — iter 122)', () => {
+    // Same WORLD_COPIES enumeration as Mercator. Vertex shader applies
+    // the camera offset in projected meters; lam_rot wraps cleanly so
+    // ±WORLD_MERC shifts produce valid adjacent worlds across the
+    // antimeridian of the rotated frame.
     const copies = worldCopiesFor(6)
-    expect(copies.length).toBe(1)
+    expect(copies.length).toBeGreaterThan(1)
+    expect(copies).toEqual([-2, -1, 0, 1, 2])
   })
 
   it('Globe (7): single-world (3D sphere, not applicable)', () => {
@@ -59,14 +64,14 @@ describe('worldCopiesFor — current world-copy enumeration state', () => {
     expect(copies.length).toBe(1)
   })
 
-  it('only one projType currently returns multiple world copies', () => {
+  it('cylindrical projections (Mercator + Oblique Mercator) return multi-world; rest single-world', () => {
     let multi = 0
     for (let t = 0; t <= 7; t++) {
       if (worldCopiesFor(t).length > 1) multi++
     }
-    // Pre-§5.2: 1. Post-§5.2 fix: 3 (Mercator + Equirect + NE).
-    // Pin at 1 so the partial fix that flips equirect WITHOUT WGSL
-    // support visibly breaks this gate.
-    expect(multi).toBe(1)
+    // Iter 122: Mercator (0) + Oblique Mercator (6) both wrap
+    // cylindrically. Equirect + NE still single-world pending the
+    // matching WGSL world-x offset path (§5.2 gap, future work).
+    expect(multi).toBe(2)
   })
 })
