@@ -88,6 +88,46 @@ function glyphsCacheKey(fontKey: string, text: string): number {
   return h | 0
 }
 
+/** Fingerprint for the iter-168 layout cache (single-anchor static
+ *  case). Mixes the slice-1 glyphsKey (which encodes fontKey + text)
+ *  with every shape-affecting def field. Numeric fields are
+ *  bucket-quantised so sub-px / sub-frame jitter collapses on one
+ *  entry (same convention as pretextCacheKey). 32-bit hash, 4096-
+ *  entry cap — collision probability well below pixel-visible. */
+const _ANCHOR_ORDINAL: Record<string, number> = {
+  center: 0, top: 1, bottom: 2, left: 3, right: 4,
+  'top-left': 5, 'top-right': 6, 'bottom-left': 7, 'bottom-right': 8,
+}
+const _JUSTIFY_ORDINAL: Record<string, number> = {
+  center: 0, left: 1, right: 2, auto: 3,
+}
+function layoutCacheKey(
+  glyphsKey: number,
+  sizePx: number, letterSpacingPx: number, maxWidthPx: number,
+  lineHeightPx: number,
+  justify: string, anchor: string,
+  offsetX: number, offsetY: number,
+  translateX: number, translateY: number,
+  padding: number,
+  haloWidth: number, haloBlur: number,
+): number {
+  let h = glyphsKey | 0
+  h = Math.imul(h ^ ((sizePx * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((letterSpacingPx * 100) | 0), 0x01000193)
+  h = Math.imul(h ^ (maxWidthPx === Infinity ? -1 : (maxWidthPx * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((lineHeightPx * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((_JUSTIFY_ORDINAL[justify] ?? 15) + 1), 0x01000193)
+  h = Math.imul(h ^ ((_ANCHOR_ORDINAL[anchor] ?? 15) + 1), 0x01000193)
+  h = Math.imul(h ^ ((offsetX * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((offsetY * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((translateX * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((translateY * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((padding * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((haloWidth * 10) | 0), 0x01000193)
+  h = Math.imul(h ^ ((haloBlur * 10) | 0), 0x01000193)
+  return h | 0
+}
+
 function pretextCacheKey(
   glyphs: readonly GlyphInfo[],
   advances: readonly number[],
@@ -663,6 +703,26 @@ export class TextStage {
    *  array shape host.ensureString would return). */
   private readonly _glyphsByTextCache = new Map<number, import('./sdf/glyph-atlas-host').GlyphInfo[]>()
   private static readonly GLYPHS_CACHE_MAX = 4096
+  /** iter 168 — Phase A slice 2: across-frame layout cache.
+   *  Caches the per-anchor camera-independent layout output (dx, dy,
+   *  glyphOffsets, totalAdvance, blockTop, blockBottom, haloGeom,
+   *  letterSpacingPx, rotateRad) for the SINGLE-ANCHOR-STATIC case
+   *  (no variable anchors / no radialOffset / single candidate / no
+   *  rotate). Variable-mode labels skip the cache (their layout
+   *  depends on anchor-specific offset evaluation that is more
+   *  intricate to fingerprint safely). Per frame on hit:
+   *  drawX/Y = p.anchorX/Y + cached.dx/dy, bbox = drawX/Y +
+   *  cached.bbox-offsets, color = per-frame p.def.color, halo color
+   *  = per-frame p.def.halo.color (only halo GEOMETRY is cached). */
+  private readonly _layoutCache = new Map<number, {
+    dx: number; dy: number; totalAdvance: number
+    blockTop: number; blockBottom: number; padding: number
+    glyphOffsets: Float32Array
+    glyphs: import('./sdf/glyph-atlas-host').GlyphInfo[]
+    haloGeom?: { width: number; blur?: number }
+    sizePx: number; letterSpacingPx: number; rotateRad?: number
+  }>()
+  private static readonly LAYOUT_CACHE_MAX = 4096
   /** DPR applied to LabelDef.size (and offset/halo/maxWidth) at
    *  prepare() time. Anchors arrive already in physical pixels
    *  (map.ts projects against canvas.width/height) but `size` etc.
@@ -1008,6 +1068,9 @@ export class TextStage {
     // the GPU upload wrapper observes consumeDirty separately.
     if (this.host.consumeEvictions().length > 0) {
       this._glyphsByTextCache.clear()
+      // iter-168: layout cache entries reference GlyphInfo[] whose
+      // slot.pxX/pxY would point to the wrong glyph after eviction.
+      this._layoutCache.clear()
     }
     for (const p of this.pending) {
       let glyphs: import('./sdf/glyph-atlas-host').GlyphInfo[]
@@ -1107,6 +1170,73 @@ export class TextStage {
             ...(p.def.halo.blur !== undefined ? { blur: p.def.halo.blur * dpr } : {}),
           }
         : undefined
+
+      // iter-168 Phase A slice 2 — layout cache (single-anchor static).
+      // Variable-anchor / radialOffset / multi-candidate / rotated
+      // labels skip the cache (their per-anchor offset evaluation
+      // needs intricate fingerprinting; not worth the risk for the
+      // small share of labels they cover in OFM-class styles).
+      const _isCacheable = !variableMode
+        && candidates.length === 1
+        && p.def.rotate === undefined
+      let _layoutKey: number | undefined
+      if (_isCacheable) {
+        const anchorStr = String(candidates[0])
+        _layoutKey = layoutCacheKey(
+          cacheKey, sizePx, letterSpacingPx,
+          maxWidthPx === Infinity ? Infinity : maxWidthPx,
+          lineHeightPx,
+          justify, anchorStr,
+          p.def.offset ? p.def.offset[0] : 0, p.def.offset ? p.def.offset[1] : 0,
+          p.def.translate ? p.def.translate[0] : 0,
+          p.def.translate ? p.def.translate[1] : 0,
+          padding,
+          haloOut ? haloOut.width : 0,
+          haloOut?.blur ?? 0,
+        )
+        const hit = this._layoutCache.get(_layoutKey)
+        if (hit !== undefined) {
+          // LRU touch.
+          this._layoutCache.delete(_layoutKey)
+          this._layoutCache.set(_layoutKey, hit)
+          const drawX = p.anchorX + hit.dx
+          const drawY = p.anchorY + hit.dy
+          const haloLive = hit.haloGeom && p.def.halo
+            ? {
+                color: p.def.halo.color,
+                width: hit.haloGeom.width,
+                ...(hit.haloGeom.blur !== undefined ? { blur: hit.haloGeom.blur } : {}),
+              }
+            : undefined
+          shaped.push({
+            layouts: [{
+              draw: {
+                anchorX: drawX, anchorY: drawY,
+                glyphs: hit.glyphs,
+                fontSize: hit.sizePx,
+                rasterFontSize: this.opts.rasterFontSize,
+                color: p.def.color ?? [0, 0, 0, 1],
+                halo: haloLive,
+                letterSpacingPx: hit.letterSpacingPx,
+                rotateRad: hit.rotateRad,
+                glyphOffsets: hit.glyphOffsets,
+                sdfRadius: this.opts.sdfRadius,
+              },
+              bbox: {
+                minX: drawX - hit.padding,
+                minY: drawY + hit.blockTop - hit.padding,
+                maxX: drawX + hit.totalAdvance + hit.padding,
+                maxY: drawY + hit.blockBottom + hit.padding,
+              },
+            }],
+            allowOverlap: p.def.allowOverlap === true,
+            ignorePlacement: p.def.ignorePlacement === true,
+            sortKey: p.def.sortKey,
+          })
+          continue
+        }
+      }
+
       const layouts: Array<{ draw: TextDraw; bbox: typeof shaped[number]['layouts'][number]['bbox'] }> = []
       for (const anchor of candidates) {
         let dx = 0, dy = 0
@@ -1213,6 +1343,28 @@ export class TextStage {
           },
           bbox,
         })
+        // iter-168 cache store (cold-path single-iter cacheable case).
+        if (_isCacheable && _layoutKey !== undefined) {
+          if (this._layoutCache.size >= TextStage.LAYOUT_CACHE_MAX) {
+            const oldest = this._layoutCache.keys().next().value
+            if (oldest !== undefined) this._layoutCache.delete(oldest)
+          }
+          this._layoutCache.set(_layoutKey, {
+            dx, dy,
+            totalAdvance, padding,
+            blockTop: vlay.blockTop,
+            blockBottom: vlay.blockBottom,
+            glyphOffsets, glyphs,
+            haloGeom: haloOut
+              ? {
+                  width: haloOut.width,
+                  ...(haloOut.blur !== undefined ? { blur: haloOut.blur } : {}),
+                }
+              : undefined,
+            sizePx, letterSpacingPx,
+            rotateRad: p.def.rotate ? p.def.rotate * Math.PI / 180 : undefined,
+          })
+        }
       }
       // iter 152: z0-halo probe capture. haloK=3 mirrors
       // packUniforms' pxToSdf (text-renderer.ts:602-609) exactly so
