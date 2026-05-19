@@ -848,6 +848,9 @@ function convertSymbolLayer(
   if (typeof padding === 'number' && Number.isFinite(padding)) {
     // Mapbox spec: text-padding >= 0. Number.isFinite gate rejects
     // NaN / Infinity slipping past the typeof check.
+    if (padding < 0) {
+      warnings.push(`Symbol layer "${layer.id}" — text-padding ${padding} is negative; Mapbox spec requires >= 0. Clamped to 0.`)
+    }
     utils.push(`label-padding-${Math.max(0, padding)}`)
   } else if (padding !== undefined && padding !== null) {
     const interp = interpolateZoomCall(padding, warnings,
@@ -955,7 +958,12 @@ function convertSymbolLayer(
   }
   const lineHeight = unwrapLiteralScalar(layout['text-line-height'])
   // Spec: text-line-height >= 0 (em units).
-  if (typeof lineHeight === 'number' && Number.isFinite(lineHeight)) utils.push(`label-line-height-${Math.max(0, lineHeight)}`)
+  if (typeof lineHeight === 'number' && Number.isFinite(lineHeight)) {
+    if (lineHeight < 0) {
+      warnings.push(`Symbol layer "${layer.id}" — text-line-height ${lineHeight} is negative; Mapbox spec requires >= 0. Clamped to 0.`)
+    }
+    utils.push(`label-line-height-${Math.max(0, lineHeight)}`)
+  }
   const justify = unwrapLiteralScalar(layout['text-justify'])
   if (justify === 'auto' || justify === 'left' || justify === 'center' || justify === 'right') {
     utils.push(`label-justify-${justify}`)

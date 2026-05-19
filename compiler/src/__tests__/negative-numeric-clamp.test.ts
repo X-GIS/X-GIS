@@ -158,6 +158,38 @@ describe('negative numeric clamp warnings', () => {
     expect(w.some(s => s.includes('opacity') && s.includes('out of range'))).toBe(false)
   })
 
+  it('text-padding with negative literal warns', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'lbl',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'a',
+        layout: { 'text-field': '{name}', 'text-padding': -2 },
+        paint: { 'text-color': '#000' },
+      }],
+    })
+    expect(w.some(s => s.includes('text-padding') && s.includes('negative'))).toBe(true)
+  })
+
+  it('text-line-height with negative literal warns', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'lbl',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'a',
+        layout: { 'text-field': '{name}', 'text-line-height': -1.2 },
+        paint: { 'text-color': '#000' },
+      }],
+    })
+    expect(w.some(s => s.includes('text-line-height') && s.includes('negative'))).toBe(true)
+  })
+
   it('line-width=0 (valid, hides line) does NOT warn', () => {
     const w = warningsOf({
       version: 8,
