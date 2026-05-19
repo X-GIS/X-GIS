@@ -225,11 +225,12 @@ for (const view of VIEWS) {
     // sprite-atlas key mismatches the compiler can't see. Stashed
     // to a per-view JSON for offline inspection; lossless — no
     // effect on the diff bucketing above.
-    const { missingIcons, dispatchedIcons, lastDrawIconCount, lastDrawSample, canvasInfo } = await page.evaluate(() => {
+    const { missingIcons, dispatchedIcons, dispatchedLabelTexts, lastDrawIconCount, lastDrawSample, canvasInfo } = await page.evaluate(() => {
       const xg = (window as unknown as {
         __xgisMap?: {
           getMissingIconNames?: () => string[] | null
           getDispatchedIconNames?: () => string[] | null
+          getDispatchedLabelTexts?: () => string[] | null
           getLastDrawIconCount?: () => number | null
           getLastDrawSample?: () => unknown | null
         }
@@ -238,6 +239,7 @@ for (const view of VIEWS) {
       return {
         missingIcons: xg?.getMissingIconNames?.() ?? null,
         dispatchedIcons: xg?.getDispatchedIconNames?.() ?? null,
+        dispatchedLabelTexts: xg?.getDispatchedLabelTexts?.() ?? null,
         lastDrawIconCount: xg?.getLastDrawIconCount?.() ?? null,
         lastDrawSample: xg?.getLastDrawSample?.() ?? null,
         canvasInfo: xgCanvas ? {
@@ -278,7 +280,8 @@ for (const view of VIEWS) {
       PNG.sync.write(makeDiffHeatmap(mlNorm, xgNorm, w, h)))
     writeFileSync(join(viewDir, 'buckets.json'), JSON.stringify({
       buckets, totalPx, canvasW: w, canvasH: h,
-      missingIcons, dispatchedIcons, lastDrawIconCount, lastDrawSample, canvasInfo,
+      missingIcons, dispatchedIcons, dispatchedLabelTexts,
+      lastDrawIconCount, lastDrawSample, canvasInfo,
     }, null, 2))
 
     // eslint-disable-next-line no-console

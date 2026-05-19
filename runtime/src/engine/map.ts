@@ -1328,6 +1328,18 @@ export class XGISMap {
     return this.iconStage?.getDispatchedIconNames() ?? null
   }
 
+  /** Iter 108 sibling to getDispatchedIconNames — every resolved
+   *  label text string TextStage has submitted post text-expr
+   *  evaluation. Answers "did the text reach the stage" (vs
+   *  "evaluated to empty and dropped before submit"). Used by
+   *  bright-texas-shields e2e to isolate text-expr eval failures
+   *  from downstream collision suppression. Returns null when no
+   *  TextStage has been built yet (no label-producing show has
+   *  fired). */
+  getDispatchedLabelTexts(): string[] | null {
+    return this.textStage?.getDispatchedLabelTexts() ?? null
+  }
+
   /** Per-frame draw count — answers "did icons render in the most
    *  recent prepare?" Distinct from `getDispatchedIconNames()` which
    *  is cumulative across all frames. Iter 533 — added to localize

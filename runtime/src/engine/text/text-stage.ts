@@ -591,6 +591,14 @@ export class TextStage {
   private readonly fontTypography: TextStageOptions['fontTypography'] | null
   private readonly pending: PendingLabel[] = []
   private readonly pendingLine: PendingLineLabel[] = []
+  /** Diagnostic: cumulative set of resolved label-text strings the
+   *  stage has SUBMITTED (post addLabel / addCurvedLineLabel) since
+   *  last clear. Mirror of IconStage.getDispatchedIconNames() — answers
+   *  "did the text reach the stage" (vs "evaluated to empty and
+   *  dropped before submit"). Used by e2e diagnostics to isolate
+   *  text-expr eval failures from downstream collision suppression.
+   *  Iter 108. */
+  private readonly dispatchedLabelTexts: Set<string> = new Set()
   /** DPR applied to LabelDef.size (and offset/halo/maxWidth) at
    *  prepare() time. Anchors arrive already in physical pixels
    *  (map.ts projects against canvas.width/height) but `size` etc.
@@ -799,6 +807,7 @@ export class TextStage {
     // scripts head-to-tail along the road).
     const transformed = stripCurveLineExtraScripts(applyTextTransform(text, def.transform))
     if (transformed.length === 0) return
+    if (this.dispatchedLabelTexts.size < 256) this.dispatchedLabelTexts.add(transformed)
     if (this._debugHook && polylineX.length > 0) {
       // Approximate the curve's anchor as its first vertex — enough
       // for the debug overlay to pin down a screen position. Mid-
@@ -838,6 +847,13 @@ export class TextStage {
    *  TextValue + feature props inline; caller already knows the
    *  feature's screen anchor (after projection). Empty resolved
    *  text is silently skipped. */
+  /** Diagnostic: every resolved text string the stage has submitted
+   *  since last clear (mirror of IconStage.getDispatchedIconNames).
+   *  Iter 108 — added to localize the OFM Bright Texas highway-shield
+   *  text-overlay no-render bug. */
+  getDispatchedLabelTexts(): string[] { return [...this.dispatchedLabelTexts].sort() }
+  clearDispatchedLabelTexts(): void { this.dispatchedLabelTexts.clear() }
+
   addLabel(
     value: TextValue,
     props: FeatureProps,
@@ -850,6 +866,11 @@ export class TextStage {
     const text = resolveText(value, props, this.cameraZoom)
     if (text.length === 0) return
     const transformed = applyTextTransform(text, def.transform)
+    // Iter 108 dispatch diagnostic — record post-resolve text BEFORE
+    // collision. Mirror of IconStage.dispatchedIconNames. Cap at 256
+    // entries so unbounded label corpora (Bright Korea ~5000 unique)
+    // don't blow up the set.
+    if (this.dispatchedLabelTexts.size < 256) this.dispatchedLabelTexts.add(transformed)
     if (this._debugHook) {
       this._debugHook(transformed, anchorScreenX, anchorScreenY, 'point')
     }
