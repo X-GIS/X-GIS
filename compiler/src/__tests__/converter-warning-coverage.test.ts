@@ -236,6 +236,32 @@ describe('converter warning coverage', () => {
     )).toBe(true)
   })
 
+  it('cubic-bezier zoom interp with numeric stops → compile-time densification warning (iter 60)', () => {
+    // Iter 60: Mapbox `["interpolate", ["cubic-bezier", …], ["zoom"],
+    // …]` over numeric stops resamples in CSS bezier space at compile
+    // time, emitting dense piecewise-linear stops.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [{
+        id: 'bezier_width',
+        type: 'line',
+        source: 'v',
+        'source-layer': 'roads',
+        paint: {
+          'line-color': '#000',
+          'line-width': ['interpolate', ['cubic-bezier', 0.42, 0, 0.58, 1], ['zoom'],
+            10, 1,
+            20, 8],
+        },
+      }],
+    })
+    expect(w.some(s =>
+      s.includes('cubic-bezier')
+      && s.includes('dense piecewise-linear'),
+    )).toBe(true)
+  })
+
   it('source "type": "pmtiles" routes through to xgis pmtiles source', () => {
     // Pins 1c61b9f — Protomaps community-extension shape ("type":
     // "pmtiles" instead of "vector" + .pmtiles URL detection) must
