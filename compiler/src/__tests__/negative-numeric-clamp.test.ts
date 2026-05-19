@@ -102,6 +102,62 @@ describe('negative numeric clamp warnings', () => {
     expect(w.some(s => s.includes('fill-extrusion-height') && s.includes('negative'))).toBe(true)
   })
 
+  it('fill-opacity = -0.5 (negative) warns + clamps to 0', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'l',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'a',
+        paint: {
+          'fill-color': '#000',
+          'fill-opacity': -0.5,
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('opacity') && s.includes('out of range'))).toBe(true)
+  })
+
+  it('fill-opacity = 150 (out of percent range) warns + clamps to 1', () => {
+    // Auto-detect 100-scale kicks in for 1 < v <= 100; values >100 are
+    // outright spec violations.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'l',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'a',
+        paint: {
+          'fill-color': '#000',
+          'fill-opacity': 150,
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('opacity') && s.includes('out of range'))).toBe(true)
+  })
+
+  it('fill-opacity = 50 (auto-detect percent) does NOT warn', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'l',
+        type: 'fill',
+        source: 'v',
+        'source-layer': 'a',
+        paint: {
+          'fill-color': '#000',
+          'fill-opacity': 50,
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('opacity') && s.includes('out of range'))).toBe(false)
+  })
+
   it('line-width=0 (valid, hides line) does NOT warn', () => {
     const w = warningsOf({
       version: 8,
