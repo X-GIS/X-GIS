@@ -56,6 +56,9 @@ parity plan (`C:\Users\soung\.claude\plans\lovely-launching-eagle.md`).
 | spec-coverage iter cross-references (iters 37-38) | 8 spec-coverage notes now cite the iter where their value-aware diagnostic landed (fill-antialias, vertical-gradient, raster-resampling, line-gradient, 4 translate props). |
 | line-dasharray shape-specific warning (iter 27) | Distinguish zoom-interp vs data-driven vs generic non-constant in the warn text. |
 | partial-status conversion smoke matrix (iter 30) | 13-cell gate that every partial property converts to non-empty xgis without throwing. |
+| Mobile iPhone OFM Bright horizontal-stripe BUG FIX (iter 41) | User-reported iPhone Safari z=0.50 banding. Root cause: iter 6 geodesic-midpoint pole-hopping on >100°-lon-span edges. Cap geodesic to (5°, 60°). Desktop pixel-match-survey verified post-fix; demotiles-europe-z2 improved 83.68% → 87.32% identical. |
+| Pattern-warning specificity batch (iters 43-46) | line-pattern / fill-pattern / fill-extrusion-pattern surface two-state warnings (pattern alone → empty layer; pattern + colour → solid colour fallback). 6-cell regression gate. |
+| Background-opacity constant fold (iter 47) | Mirror of circle-stroke-opacity (iter 4). Constant opacity folds into background-color hex alpha. Zoom-interp / data-driven still warn. spec-coverage: unsupported → partial. |
 
 ## Plan items genuinely not yet done
 
