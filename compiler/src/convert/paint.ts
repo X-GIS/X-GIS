@@ -180,9 +180,15 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     // Same gap as fill-pattern: when a line layer's only visual is a
     // repeating sprite (no line-color), the layer goes dead silently.
     // Mirror of the fill-pattern null-as-omit treatment above.
-    if (p['line-pattern'] !== undefined && p['line-pattern'] !== null
-        && (p['line-color'] === undefined || p['line-color'] === null)) {
-      warnings.push(`Layer "${layer.id}" — line-pattern declared without line-color; the layer's only visual is a bitmap stroke which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
+    if (p['line-pattern'] !== undefined && p['line-pattern'] !== null) {
+      if (p['line-color'] === undefined || p['line-color'] === null) {
+        warnings.push(`Layer "${layer.id}" — line-pattern declared without line-color; the layer's only visual is a bitmap stroke which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
+      } else {
+        // line-pattern WITH line-color: pattern silently dropped,
+        // layer still renders with the solid colour fallback. Surface
+        // the gap so the author knows the pattern intent didn't land.
+        warnings.push(`Layer "${layer.id}" — line-pattern set alongside line-color; pattern is dropped (Batch 2 sprite-atlas dependency) and the layer renders with the solid line-color fallback.`)
+      }
     }
     // line-gradient — value-aware: when present, surface the specific
     // gap reason (needs line-progress accessor) instead of the
