@@ -62,6 +62,32 @@ const _pretextCache = new Map<number, WrappedLineRange[]>()
  *  collapses the key build to ~10 integer ops per glyph + 4 fixed-size
  *  bucket hashes, with no per-frame allocation. Collision rate at
  *  1024-entry cache is well below visibly-distinguishable thresholds. */
+/** FNV-1a 32-bit hash of (fontKey, text codepoints). Used by the
+ *  iter-167 glyph-string cache. Same hash shape as pretextCacheKey
+ *  but without the size/spacing fields (the cached value depends on
+ *  fontKey + text only). Collisions trade a misrender against speed:
+ *  at 32 bits and ≤4096 entries collision probability is well below
+ *  pixel-visible — same trade-off the wrap cache already accepts. */
+function glyphsCacheKey(fontKey: string, text: string): number {
+  let h = 0x811c9dc5 | 0
+  for (let i = 0; i < fontKey.length; i++) {
+    h = Math.imul(h ^ fontKey.charCodeAt(i), 0x01000193)
+  }
+  // 0x1f delimiter — defends against the (fontKey + text) collision
+  // case `("AB","CD") vs ("ABC","D")` that a plain concat would
+  // permit. Same trick xgis uses for tile-key composition.
+  h = Math.imul(h ^ 0x1f, 0x01000193)
+  // Codepoint-aware (matches ensureString's surrogate handling).
+  const len = text.length
+  let i = 0
+  while (i < len) {
+    const cp = text.codePointAt(i)!
+    h = Math.imul(h ^ cp, 0x01000193)
+    i += cp > 0xFFFF ? 2 : 1
+  }
+  return h | 0
+}
+
 function pretextCacheKey(
   glyphs: readonly GlyphInfo[],
   advances: readonly number[],
@@ -623,6 +649,20 @@ export class TextStage {
    *  icons — MapLibre-style "text+icon as one symbol" sync without a
    *  full paired-symbol collision queue. Cleared every prepare(). */
   private readonly droppedPairKeys: Set<string> = new Set()
+  /** iter 167 — across-frame glyph-string cache (#10 Phase A first
+   *  slice). `host.ensureString` per-character atlas-slot lookup
+   *  dominates drag CPU (iter-161 profile: ensure 21.5% +
+   *  ensureString 7.1% = 28.6%). For the SAME (fontKey, text) the
+   *  result is camera-independent; cache it across frames. Cap at
+   *  4096 entries (well above any label-dense scene; OFM Bright
+   *  Korea z=5 has ~5k addLabel calls but most share a tiny set of
+   *  unique texts). Invalidated wholesale on atlas eviction (rare).
+   *
+   *  Key: FNV-1a hash of (fontKey, text codepoints) — same shape as
+   *  pretextCacheKey. Value: GlyphInfo[] (one per codepoint, same
+   *  array shape host.ensureString would return). */
+  private readonly _glyphsByTextCache = new Map<number, import('./sdf/glyph-atlas-host').GlyphInfo[]>()
+  private static readonly GLYPHS_CACHE_MAX = 4096
   /** DPR applied to LabelDef.size (and offset/halo/maxWidth) at
    *  prepare() time. Anchors arrive already in physical pixels
    *  (map.ts projects against canvas.width/height) but `size` etc.
@@ -959,8 +999,35 @@ export class TextStage {
     }
     const shaped: ShapedLabel[] = []
     const dpr = this.dpr
+    // iter-167 Phase A first slice — across-frame glyph-string cache.
+    // Atlas evictions invalidate cached GlyphInfo[] (the slot the
+    // entry references is reused for a different codepoint), so on
+    // ANY eviction this frame, drop the whole cache before lookups.
+    // host.consumeEvictions() has no other consumer in the current
+    // codebase (grep verified iter-167), so draining here is safe;
+    // the GPU upload wrapper observes consumeDirty separately.
+    if (this.host.consumeEvictions().length > 0) {
+      this._glyphsByTextCache.clear()
+    }
     for (const p of this.pending) {
-      const glyphs = this.host.ensureString(p.fontKey, p.text)
+      let glyphs: import('./sdf/glyph-atlas-host').GlyphInfo[]
+      const cacheKey = glyphsCacheKey(p.fontKey, p.text)
+      const cached = this._glyphsByTextCache.get(cacheKey)
+      if (cached !== undefined) {
+        // LRU touch: re-insert moves entry to the tail.
+        this._glyphsByTextCache.delete(cacheKey)
+        this._glyphsByTextCache.set(cacheKey, cached)
+        glyphs = cached
+      } else {
+        glyphs = this.host.ensureString(p.fontKey, p.text)
+        // Drop the OLDEST entry when capping; Map preserves insert
+        // order so the first key is the LRU.
+        if (this._glyphsByTextCache.size >= TextStage.GLYPHS_CACHE_MAX) {
+          const oldest = this._glyphsByTextCache.keys().next().value
+          if (oldest !== undefined) this._glyphsByTextCache.delete(oldest)
+        }
+        this._glyphsByTextCache.set(cacheKey, glyphs)
+      }
       // CSS-px → physical-px. The atlas is in physical px (anchors
       // arrive projected to canvas.width/height) so every length
       // sourced from the LabelDef has to scale by DPR.
