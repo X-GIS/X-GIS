@@ -9,8 +9,8 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { flattenCoverage } from '../convert/spec-coverage'
-import { RUNTIME_CAPABILITIES, runtimeGaps } from '../../../runtime/src/capabilities'
+import { flattenCoverage } from '../../../compiler/src/convert/spec-coverage'
+import { runtimeGaps } from '../capabilities'
 
 const SNAPSHOT_PATH = join(__dirname, '..', '..', '..', 'scripts', 'gap-matrix.md')
 

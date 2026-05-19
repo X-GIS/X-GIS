@@ -708,7 +708,35 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
         warnings.push(`Malformed ["step"] expression: ${JSON.stringify(v).slice(0, 120)}`)
         return null
       }
-      const args = v.slice(1).map(a => exprToXgis(a, warnings))
+      // Mapbox spec strict: stop x-values (positions 3, 5, 7, …)
+      // MUST be literal finite numbers — same constraint as
+      // interpolate. Pre-fix step accepted any expression at stop
+      // positions, breaking the spec's "step input → bucketed
+      // output" semantic (the stops must form a monotonic axis).
+      // Unwrap ["literal", N] wraps because v8 strict tooling emits
+      // those for explicit numeric literals.
+      for (let i = 3; i < v.length; i += 2) {
+        let stopX: unknown = v[i]
+        while (Array.isArray(stopX) && stopX.length === 2 && stopX[0] === 'literal') stopX = stopX[1]
+        if (typeof stopX !== 'number' || !Number.isFinite(stopX)) {
+          const stopIdx = ((i - 3) / 2) | 0
+          warnings.push(`["step"] stop ${stopIdx + 1} x-value must be a literal finite number per Mapbox spec; got ${JSON.stringify(v[i]).slice(0, 80)}. Whole step bails.`)
+          return null
+        }
+      }
+      const args = v.slice(1).map((a, idx) => {
+        // Stop x-values (positions 3, 5, 7, … in v → idx 2, 4, 6,
+        // … in args) are validated literal numbers — bypass
+        // exprToXgis and stringify the literal directly. Values
+        // (idx 3, 5, 7, …) and input (0) + default (1) go through
+        // exprToXgis as normal.
+        if (idx >= 2 && idx % 2 === 0) {
+          let v2: unknown = a
+          while (Array.isArray(v2) && v2.length === 2 && v2[0] === 'literal') v2 = v2[1]
+          return String(v2)
+        }
+        return exprToXgis(a, warnings)
+      })
       // Surface which positional arg failed so the user can locate
       // it without bisecting. Total-bail kept (step semantics require
       // every slot to convert) — this is precision over the silent
