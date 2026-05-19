@@ -1590,7 +1590,25 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
     // Treat null the same as undefined — see the symbol-ignored
     // gate above for the rationale.
     const pv = paint[k]
-    if (pv !== undefined && pv !== null) ignored.push(k)
+    if (pv === undefined || pv === null) continue
+    // Special-case circle-translate-anchor: when parent
+    // circle-translate is ABSENT, the anchor is a no-op (anchor only
+    // changes the translate's coordinate space). Skip the warning
+    // in that case — mirror of the surfaceIgnoredPaint ANCHOR_PARENT
+    // check for fill / line equivalents.
+    if (k === 'circle-translate-anchor'
+        && (paint['circle-translate'] === undefined || paint['circle-translate'] === null)) {
+      continue
+    }
+    // circle-translate-anchor='viewport' matches X-GIS behaviour
+    // (viewport-space translate); only 'map' is the real gap. Mirror
+    // of the SPEC_DEFAULT_NO_WARN suppression in surfaceIgnoredPaint.
+    if (k === 'circle-translate-anchor') {
+      let av: unknown = pv
+      while (Array.isArray(av) && av.length === 2 && av[0] === 'literal') av = av[1]
+      if (av === 'viewport') continue
+    }
+    ignored.push(k)
   }
   // Reuse the safePropsBag-guarded `layout` const from the top of
   // this function — a malformed layer with `layout: "..."` (string)
