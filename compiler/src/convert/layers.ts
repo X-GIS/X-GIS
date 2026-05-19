@@ -576,8 +576,11 @@ function convertSymbolLayer(
   // value. Real-world use: most basemap styles set 0.5–1.0 px so
   // the halo doesn't look like a hard outline.
   const haloBlur = unwrapLiteralScalar(paint['text-halo-blur'])
-  if (typeof haloBlur === 'number' && haloBlur > 0) {
-    utils.push(`label-halo-blur-${haloBlur}`)
+  if (typeof haloBlur === 'number' && Number.isFinite(haloBlur)) {
+    if (haloBlur < 0) {
+      warnings.push(`Symbol layer "${layer.id}" — text-halo-blur ${haloBlur} is negative; Mapbox spec requires >= 0. Skipped (no halo blur).`)
+    }
+    if (haloBlur > 0) utils.push(`label-halo-blur-${haloBlur}`)
   }
 
   // text-anchor → label-anchor-X. Mapbox's 9-way anchor maps 1:1
