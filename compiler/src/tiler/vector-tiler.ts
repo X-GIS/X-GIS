@@ -803,15 +803,27 @@ function subdivideTriangleMM(
   // large arc projects to a CHORD that punches through the sphere
   // surface. The slerp midpoint sits on the great-circle arc — the
   // pre-fix linear path was visible as faceted polygons on globe at
-  // z=0..3 country boundaries. We gate the slerp on edge span: when
-  // any edge exceeds 5° (more than 2.5× MAX_TRI_DEGREES_FOR_PROJ),
-  // the chord-vs-arc divergence is large enough to matter; below
-  // that threshold the linear midpoint is visually identical to
-  // slerp and ~3× cheaper. The arc-test threshold is INSIDE the
-  // recursion guard so the gate matches the recursion's stopping
-  // criteria — sub-triangles below the threshold use linear midpoint.
+  // z=0..3 country boundaries.
+  //
+  // GATE: slerp ONLY for edges in (5°, MAX_GEODESIC_EDGE_DEG=60°).
+  //   * Below 5°: linear midpoint is visually identical and ~3×
+  //     cheaper.
+  //   * Above 60°: slerp produces wildly off-axis midpoints. The
+  //     pathological case is a 180°-lon-span edge at high latitude:
+  //     slerp midpoint hops to the POLE (great-circle between two
+  //     points at the same lat passes through the pole if they're
+  //     ~180° apart in lon). For Mercator rendering of a z=0
+  //     Eurasia polygon edge (~360° lon span at high lat), the
+  //     pole-hopping midpoint becomes vertex chaos — visible on
+  //     iPhone Safari as horizontal-stripe banding (mobile bug
+  //     report scripts/MOBILE_LOW_ZOOM_BUG.md hypothesis 3). Fall
+  //     back to LINEAR midpoint above 60° edge span; the renderer's
+  //     per-vertex projection still handles the chord-vs-arc
+  //     correctness for sphere projections at this scale because
+  //     edges this long get further subdivided next iteration.
+  const MAX_GEODESIC_EDGE_DEG = 60
   let m01x: number, m01y: number, m12x: number, m12y: number, m20x: number, m20y: number
-  if (maxEdge > 5) {
+  if (maxEdge > 5 && maxEdge < MAX_GEODESIC_EDGE_DEG) {
     ;[m01x, m01y] = geodesicMidpointMM(x0, y0, x1, y1)
     ;[m12x, m12y] = geodesicMidpointMM(x1, y1, x2, y2)
     ;[m20x, m20y] = geodesicMidpointMM(x2, y2, x0, y0)
