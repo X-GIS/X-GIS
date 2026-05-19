@@ -4003,19 +4003,21 @@ export class XGISMap {
           const resolvedIconOpacity = shapes && shapes.iconOpacity !== null && shapes.iconOpacity.kind !== 'data-driven'
             ? resolveNumberShape(shapes.iconOpacity, z, elapsedMs).value
             : def.iconOpacity
-          const effectiveDef = {
-            ...def,
-            size: resolvedSize,
-            color: resolvedColor,
-            ...(resolvedHalo !== undefined ? { halo: resolvedHalo } : {}),
-            ...(resolvedFont !== undefined ? { font: resolvedFont } : {}),
-            ...(resolvedFontWeight !== undefined ? { fontWeight: resolvedFontWeight } : {}),
-            ...(resolvedFontStyle !== undefined ? { fontStyle: resolvedFontStyle } : {}),
-            ...(resolvedIconSize !== undefined ? { iconSize: resolvedIconSize } : {}),
-            ...(resolvedIconOpacity !== undefined ? { iconOpacity: resolvedIconOpacity } : {}),
-            ...(bearingDeg !== 0
-              ? { rotate: (def.rotate ?? 0) + bearingDeg } : {}),
-          }
+          // Iter 133 perf: in-place field set instead of conditional
+          // spreads. Pre-fix did `{ ...def, ...(cond ? { field } : {}) }`
+          // × 7 conditionals → ~8 object allocations per label per frame
+          // (300 labels × 8 = 2.4k objs/frame at z=14 OFM Liberty Seoul,
+          // dominant GC-pressure source after iter 130's halo merge fix).
+          // Single { ...def } copy + direct assignment for each resolved
+          // override yields the same effectiveDef shape with 1 alloc.
+          const effectiveDef = { ...def, size: resolvedSize, color: resolvedColor }
+          if (resolvedHalo !== undefined) effectiveDef.halo = resolvedHalo
+          if (resolvedFont !== undefined) effectiveDef.font = resolvedFont
+          if (resolvedFontWeight !== undefined) effectiveDef.fontWeight = resolvedFontWeight
+          if (resolvedFontStyle !== undefined) effectiveDef.fontStyle = resolvedFontStyle
+          if (resolvedIconSize !== undefined) effectiveDef.iconSize = resolvedIconSize
+          if (resolvedIconOpacity !== undefined) effectiveDef.iconOpacity = resolvedIconOpacity
+          if (bearingDeg !== 0) effectiveDef.rotate = (def.rotate ?? 0) + bearingDeg
 
           // Per-feature evaluator for data-driven text-size /
           // text-color (Mapbox `["case", …]` / `["match", …]` /
