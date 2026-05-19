@@ -40,7 +40,13 @@ parity plan (`C:\Users\soung\.claude\plans\lovely-launching-eagle.md`).
 | line-blur=0 zero-semantics correction | identity, not strict-zero (the 0.5px AA floor is the implicit edge AA, not blur). |
 | Sky layer explicit skip | Added to SKIP_REASONS so the converter emits a // SKIPPED comment instead of falling through. |
 | circle-stroke-opacity constant fold | Folds into stroke-color hex alpha (Plan §4 partial). |
-| Gap matrix generator | Cross-references spec-coverage + capabilities into a Markdown gap matrix. |
+| Gap matrix generator | Cross-references spec-coverage + capabilities into a Markdown gap matrix. Deterministic by default (no timestamp). |
+| Gap matrix freshness gate | Vitest test re-generates in-process + diffs against snapshot — catches stale docs on PR. |
+| spec-coverage note backfill 1/2/3 | All 50 previously note-less partial/unsupported entries now annotated with WHY the gap exists + WHAT closing it requires. |
+| spec-coverage-notes invariant | Future partial/unsupported entries must carry a ≥20-char note. |
+| Stricter drift gate | Reverse-direction check — spec-coverage="supported" cannot contradict capability(constant)=false. |
+| Value-aware warnings: vertical-gradient / fill-antialias / icon-overlap / icon-allow-overlap / raster-resampling | Spec default (matches X-GIS) silent; real gap value warns. Replaces always-warn surface. Generic SPEC_DEFAULT_NO_WARN helper for future additions. |
+| text-pitch-alignment=map warning | Surface runtime gap (label ground-projection not implemented) explicitly. |
 
 ## Plan items genuinely not yet done
 
