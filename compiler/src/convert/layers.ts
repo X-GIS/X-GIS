@@ -1283,6 +1283,22 @@ function convertSymbolLayer(
   if (typeof maxAngleRaw === 'number' && Number.isFinite(maxAngleRaw) && maxAngleRaw !== 45) {
     warnings.push(`Symbol layer "${layer.id}" — text-max-angle ${maxAngleRaw} set but X-GIS' line-label path doesn't clamp per-glyph orientation deltas yet (Plan §4 deferred — labels follow segment tangents without the angular gate). Default 45° matches X-GIS behaviour silently.`)
   }
+  // symbol-z-order: per-feature draw-order override (`auto` default /
+  // `viewport-y` / `source`). X-GIS uses symbol-sort-key for ordering;
+  // symbol-z-order would need a separate sort pass after collision.
+  // Surface specific gap.
+  const zOrderRaw = unwrapLiteralScalar(layout['symbol-z-order'])
+  if (typeof zOrderRaw === 'string' && zOrderRaw !== 'auto') {
+    warnings.push(`Symbol layer "${layer.id}" — symbol-z-order "${zOrderRaw}" set but X-GIS uses symbol-sort-key for label ordering; symbol-z-order would need a separate sort pass after collision (Plan §4 deferred).`)
+  }
+  // symbol-avoid-edges: skip labels whose bbox crosses tile boundaries.
+  // X-GIS today uses cross-tile collision instead — symbol-avoid-edges
+  // is moot for X-GIS' rendering model but the authored intent isn't
+  // reflected. Surface so the author knows the knob doesn't apply.
+  const avoidEdgesRaw = unwrapLiteralScalar(layout['symbol-avoid-edges'])
+  if (avoidEdgesRaw === true) {
+    warnings.push(`Symbol layer "${layer.id}" — symbol-avoid-edges: true set but X-GIS uses cross-tile collision so labels at tile seams aren't double-rendered. The avoid-edges knob is moot for this rendering model — no effect.`)
+  }
 
   const ignoredText: string[] = []
   // Unsupported symbol properties — surface ONE consolidated note per
@@ -1297,12 +1313,7 @@ function convertSymbolLayer(
     // icon-halo-color / -width / -blur: specific gap warnings (iter 89)
     // icon-text-fit: specific gap warning (iter 89)
     'icon-rotation-alignment',
-    // Symbol placement controls — `symbol-z-order` and
-    // `symbol-avoid-edges` skip labels at tile boundaries / control
-    // draw ordering. `symbol-sort-key` is extracted separately into
-    // LabelDef.sortKey (see below) — not in the ignored list.
-    'symbol-z-order',
-    'symbol-avoid-edges',
+    // symbol-z-order / symbol-avoid-edges: specific gap warnings (iter 91)
     // icon-pitch-alignment: viewport/auto match X-GIS billboard
     // icons; only 'map' is the real gap. Listing it here surfaces
     // 'map' via the consolidated note; viewport/auto suppressed
