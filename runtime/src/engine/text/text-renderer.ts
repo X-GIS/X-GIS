@@ -579,21 +579,15 @@ function packUniforms(d: TextDraw): Float32Array {
     // halo_width=2 phys): halo_width_norm 0.061 → 0.188 (3.1× wider),
     // matching MapLibre's render on the same PBF input. halo_blur
     // shares the same px→SDF factor (see the buf[13] note below).
-    // The `·3` constant (= ONE_EM/SDF_PX = 24/8) is correct ONLY for
-    // PBF-server SDFs whose byte slope is 255-per-radius (MapLibre
-    // SDF_PX=8). computeSDF-rasterised glyphs (CJK / Hangul fallback,
-    // icons, any font absent from the glyph server) encode a
-    // 63-per-`sdfRadius` slope — ~4.05× shallower — so the SAME `·3`
-    // made their halo ~4× too thick (user-reported on Mapbox styles
-    // with locally-rasterised Korean place labels). For an all-local
-    // draw, normalise with the SDF's own convention:
-    // rasterFontSize·63 / (sdfRadius·255). Mixed / any-PBF draws keep
-    // `·3` so Latin (PBF) halo stays MapLibre-correct (no regression).
-    const sdfRadius = d.sdfRadius ?? 8
-    const allLocal = d.glyphs.length > 0 && !d.glyphs.some(g => g.pbf)
-    const haloK = allLocal
-      ? (d.rasterFontSize * 63) / (sdfRadius * 255)
-      : 3
+    // The `·3` constant (= ONE_EM/SDF_PX = 24/8) is the MapLibre /
+    // PBF / TinySDF convention: 255-per-radius byte slope, edge byte
+    // 192. Iter 114 unified computeSDF (local CJK / Hangul / icons)
+    // onto this same encoding so a single haloK works for every glyph
+    // source. Pre-iter-114 local glyphs used 63-per-`sdfRadius` slope
+    // (~4× shallower) which made shader AA cover ~4 px of edge instead
+    // of ~1 px — the user-reported Hangul stroke unevenness.
+    void d.glyphs  // source attribution no longer affects halo math
+    const haloK = 3
     // px → normalised-SDF conversion. haloK/fontSize maps one physical
     // pixel of edge distance into the [0,1] SDF byte space for THIS
     // draw's glyph source (PBF 255-per-radius vs computeSDF 63-per-

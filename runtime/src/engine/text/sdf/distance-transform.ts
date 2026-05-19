@@ -170,9 +170,19 @@ export function computeSDF(
 
   const out = new Uint8Array(N)
   // Encode distance in pixels (sqrt the squared field). Edge maps
-  // to 192, falloff over `radius` px on each side fills the rest
-  // of the byte. Outside positive, inside negative — packed into
-  // [0, 255] with 192 as the zero crossing.
+  // to 192, slope is 255/radius bytes per signed pixel of distance.
+  // Identical encoding to TinySDF and MapLibre's PBF glyph server,
+  // so every SDF in the atlas (PBF + locally-rasterised Hangul / icons)
+  // shares ONE byte-slope convention — the shader's smoothstep AA
+  // half-width works the same way regardless of source.
+  //
+  // Pre-iter-114 used `192 - (signed/radius)*63` which produced a
+  // 7.875-byte-per-pixel slope (≈ 4× shallower than PBF's 31.875).
+  // Same shader AA half-width then covered ~4 pixels of edge on
+  // locally-rasterised glyphs vs ~1 pixel on PBF — the user-reported
+  // Hangul stroke unevenness root cause: identical fragment math
+  // applied wildly different blur to local-rasterised text.
+  const slopePerPx = 255 / radius
   for (let i = 0; i < N; i++) {
     const distOut = Math.sqrt(fOut[i]!)
     const distIn = Math.sqrt(fIn[i]!)
@@ -187,7 +197,7 @@ export function computeSDF(
     const a = alpha[i]!
     const subpx = (a - 128) / 255
     const signed = (distIn - distOut) + subpx
-    const v = 192 - (signed / radius) * 63
+    const v = 192 - signed * slopePerPx
     out[i] = v < 0 ? 0 : v > 255 ? 255 : Math.round(v)
   }
   return out

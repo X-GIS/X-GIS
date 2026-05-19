@@ -89,25 +89,25 @@ describe('packUniforms — halo MapLibre-parity formula', () => {
   })
 })
 
-describe('packUniforms — local (computeSDF) glyph halo normalisation', () => {
-  // Locally-rasterised glyphs (CJK / Hangul fallback, icons, any font
-  // absent from the glyph server) encode a 63-per-sdfRadius byte
-  // slope, NOT the PBF 255-per-radius slope the `·3` constant assumes.
-  // The SDF-consistent constant is rasterFontSize·63 / (sdfRadius·255).
-  const localK = (32 * 63) / (8 * 255) // makeDraw uses rasterFontSize=32, sdfRadius=8
+describe('packUniforms — unified halo normalisation (iter 114)', () => {
+  // Iter 114 unified computeSDF byte encoding onto MapLibre's 255-per-
+  // radius slope (formerly 63-per-sdfRadius). Local glyphs (CJK /
+  // Hangul fallback, icons) and PBF glyphs now share ONE convention —
+  // haloK=3. Root cause of Hangul stroke unevenness: shallow-slope
+  // encoding made shader AA cover ~4 px on local vs ~1 px on PBF.
 
-  it('all-local draw normalises halo with rasterFontSize·63/(sdfRadius·255)', () => {
+  it('all-local draw normalises halo identically to PBF (haloK=3)', () => {
     const u = packUniformsForTesting(makeDraw(32, 1, 0, /* pbf */ false))
-    expect(u[HALO_WIDTH_SLOT]).toBeCloseTo(1 * localK / 32, 6)
+    expect(u[HALO_WIDTH_SLOT]).toBeCloseTo(3 / 32, 6)
   })
 
-  it('local halo is ~4.05× thinner than the PBF formula for the same input', () => {
+  it('local + PBF produce identical halo_width for the same input', () => {
     const local = packUniformsForTesting(makeDraw(32, 2, 0, false))[HALO_WIDTH_SLOT]
     const pbf = packUniformsForTesting(makeDraw(32, 2, 0, true))[HALO_WIDTH_SLOT]
-    expect(pbf / local).toBeCloseTo(3 / localK, 4) // = 255·8 / (32·63) ≈ 4.05
+    expect(local).toBeCloseTo(pbf, 6)
   })
 
-  it('a draw with ANY pbf glyph keeps the `·3` PBF formula (no Latin regression)', () => {
+  it('mixed local+pbf draw also uses haloK=3', () => {
     const mixed: TextDraw = {
       ...makeDraw(32, 1, 0, false),
       glyphs: [{ ...baseGlyph, pbf: false }, { ...baseGlyph, pbf: true }],
@@ -116,25 +116,15 @@ describe('packUniforms — local (computeSDF) glyph halo normalisation', () => {
     expect(u[HALO_WIDTH_SLOT]).toBeCloseTo(3 / 32, 6)
   })
 
-  it('sdfRadius scales the local constant inversely', () => {
-    const r8 = packUniformsForTesting(makeDraw(32, 1, 0, false))[HALO_WIDTH_SLOT]
-    const r16: TextDraw = { ...makeDraw(32, 1, 0, false), sdfRadius: 16 }
-    expect(packUniformsForTesting(r16)[HALO_WIDTH_SLOT]).toBeCloseTo(r8 / 2, 6)
-  })
-
-  it('local halo_blur uses the same source-aware factor as width', () => {
-    // Regression for the user-reported OFM Bright Korean glow: commit
-    // #130 fixed local halo_width but left halo_blur on the PBF `·24`
-    // formula → local blur ~4× too wide. Both knobs must now share
-    // the local pxToSdf = localK / fontSize.
+  it('local halo_blur uses haloK=3 like PBF', () => {
     const u = packUniformsForTesting(makeDraw(32, 1, 2, /* pbf */ false))
-    expect(u[HALO_BLUR_SLOT]).toBeCloseTo(2 * 1.19 * localK / 32, 6)
+    expect(u[HALO_BLUR_SLOT]).toBeCloseTo(2 * 1.19 * 3 / 32, 6)
   })
 
-  it('local halo_blur is ~4.05× thinner than the PBF formula', () => {
+  it('local halo_blur matches PBF halo_blur for the same input', () => {
     const local = packUniformsForTesting(makeDraw(32, 1, 2, false))[HALO_BLUR_SLOT]
     const pbf = packUniformsForTesting(makeDraw(32, 1, 2, true))[HALO_BLUR_SLOT]
-    expect(pbf / local).toBeCloseTo(3 / localK, 4)
+    expect(local).toBeCloseTo(pbf, 6)
   })
 })
 

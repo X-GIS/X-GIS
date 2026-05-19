@@ -91,7 +91,7 @@ describe('computeSDF', () => {
     const sdf = computeSDF(alpha, w, h, 8)
     // No inside pixels means inside-distance is +∞ → signed
     // distance is `INF - 0 = INF` → byte clamps to 0
-    // (since v = 192 - (INF/radius)*63 < 0 → clamped).
+    // (since v = 192 - INF*(255/radius) < 0 → clamped).
     expect(sdf[0]).toBe(0)
     expect(sdf[w * h - 1]).toBe(0)
   })
@@ -115,12 +115,13 @@ describe('computeSDF', () => {
     const sdf = computeSDF(alpha, w, h, 8)
     // Pixel at column 3 is just outside the boundary
     // (distance ≈ 1 px outside); column 4 is just inside (≈ 1 px in).
-    // The edge sits between cols 3 and 4; both should be near 192
-    // with tiny offset (1/8 * 63 ≈ 8 units).
+    // The edge sits between cols 3 and 4; iter 114 unified slope is
+    // 255/8 ≈ 31.9 bytes per pixel, so a 1-pixel offset lands ≈ 32
+    // bytes from edge=192.
     const v3 = sdf[1 * w + 3]!
     const v4 = sdf[1 * w + 4]!
-    expect(Math.abs(v3 - 192)).toBeLessThan(15)
-    expect(Math.abs(v4 - 192)).toBeLessThan(15)
+    expect(Math.abs(v3 - 192)).toBeLessThan(45)
+    expect(Math.abs(v4 - 192)).toBeLessThan(45)
     expect(v3).toBeLessThan(v4)  // outside < edge < inside in this packing
   })
 
