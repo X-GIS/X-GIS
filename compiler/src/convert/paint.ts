@@ -531,16 +531,25 @@ function interpolateZoomStops(
     }
   }
   // Interpolate-lab / interpolate-hcl densification (Plan §11 follow-
-  // up). When all stop values are hex colours AND the curve is linear
-  // (exponential lab/hcl is rare in the wild; deferred), resample
-  // each adjacent stop pair in Lab/LCh space at SAMPLES_PER_SEGMENT
-  // intermediate t values, converting each sample back to a hex
-  // colour. The runtime then linearly interpolates between the dense
-  // hex stops in gamma-sRGB — visually approximating the authored
-  // perceptual-colour-space interpolation. Endpoints preserved
-  // exactly so styles that depend on z<=z_first / z>=z_last hex
-  // colours render identically to the authored intent.
-  if (isLabHcl && curve === 'linear') {
+  // up). When all stop values are hex colours, resample each adjacent
+  // stop pair in Lab/LCh space at SAMPLES_PER_SEGMENT intermediate
+  // values, converting each sample back to a hex colour. The runtime
+  // then linearly interpolates between the dense hex stops in
+  // gamma-sRGB — visually approximating the authored perceptual-
+  // colour-space interpolation. Endpoints preserved exactly so styles
+  // that depend on z<=z_first / z>=z_last hex colours render
+  // identically to the authored intent.
+  //
+  // Both the linear AND exponential curves densify here. For the
+  // exponential curve the sample's COLOUR uses the Mapbox progress
+  // warp `t' = (base^(z-az) - 1) / (base^(bz-az) - 1)` (canonical form
+  // at evaluator.ts:553-554) while the dense stop's ZOOM stays at the
+  // linear position — the runtime's linear interpolate between dense
+  // stops then reproduces the exponential easing the same way the
+  // cubic-bezier branch above reproduces its easing. The emitted
+  // curve is downgraded to 'linear' so the runtime does NOT re-apply
+  // the exponential warp on top of the already-warped dense samples.
+  if (isLabHcl && (curve === 'linear' || curve === 'exponential')) {
     const labStops: Array<{ zoom: number; L: number; a: number; b: number }> = []
     let allColour = true
     for (const s of stops) {
@@ -554,13 +563,21 @@ function interpolateZoomStops(
       const SAMPLES_PER_SEGMENT = 6
       const dense: typeof stops = []
       const useHcl = v[0] === 'interpolate-hcl'
+      const isExp = curve === 'exponential' && Math.abs(base - 1) >= 1e-6
       for (let i = 0; i < labStops.length - 1; i++) {
         const a = labStops[i]!
         const b = labStops[i + 1]!
         dense.push({ zoom: a.zoom, value: stops[i]!.value })
+        const span = b.zoom - a.zoom
+        // Exponential denominator is constant per segment.
+        const denom = isExp ? Math.pow(base, span) - 1 : 1
         for (let k = 1; k < SAMPLES_PER_SEGMENT; k++) {
-          const t = k / SAMPLES_PER_SEGMENT
-          const z = a.zoom + (b.zoom - a.zoom) * t
+          const p = k / SAMPLES_PER_SEGMENT
+          const z = a.zoom + span * p
+          // Colour interpolation parameter: linear curve uses the
+          // raw fraction; exponential warps it (degenerate denom==0
+          // — e.g. span 0 — already excluded by ascending-stop guard).
+          const t = isExp ? (Math.pow(base, span * p) - 1) / denom : p
           let L: number, A: number, B: number
           if (useHcl) {
             // Interpolate in LCh (polar) space — hue takes shortest
@@ -586,15 +603,18 @@ function interpolateZoomStops(
         zoom: labStops[labStops.length - 1]!.zoom,
         value: stops[stops.length - 1]!.value,
       })
-      warnings?.push(`${v[0]}(…) approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) — perceptually correct in ${useHcl ? 'LCh' : 'Lab'} space at compile time; runtime interpolation between dense hex stops.`)
-      return { curve, base, stops: dense }
+      const curveDesc = isExp ? `exponential base ${base}` : 'linear'
+      warnings?.push(`${v[0]}(…) [${curveDesc}] approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) — perceptually correct in ${useHcl ? 'LCh' : 'Lab'} space at compile time; runtime interpolation between dense hex stops.`)
+      // Dense samples already carry the exponential warp — emit linear
+      // so the runtime doesn't double-apply it.
+      return { curve: 'linear', base: 1, stops: dense }
     }
     // Non-hex stops (data-driven values etc.) fall through with a
-    // graceful-downgrade warning matching the prior behaviour.
+    // graceful-downgrade warning matching the prior behaviour. This is
+    // the genuine §11 remnant: closing it needs a runtime LAB/HCL
+    // per-stop evaluator (non-hex values can't be densified ahead of
+    // time because the colour isn't known until feature eval).
     warnings?.push(`${v[0]}(…) approximated as linear-sRGB — xgis has no LAB/HCL per-stop evaluator at runtime and non-hex stop values can't be densified at compile time.`)
-  } else if (isLabHcl) {
-    // exponential lab/hcl: not densified yet — fall through.
-    warnings?.push(`${v[0]}(…) with non-linear curve approximated as linear-sRGB — compile-time densification only handles the linear curve.`)
   }
   return { curve, base, stops }
 }

@@ -98,6 +98,65 @@ describe('Mapbox interpolate-lab over zoom → densified hex stops', () => {
     expect(w).toContain('LCh space')
   })
 
+  it('exponential-curve interpolate-lab densifies (iter 137 §11)', () => {
+    // Pre-iter-137 the exponential curve fell straight through to a
+    // "non-linear curve approximated as linear-sRGB" warning. Now it
+    // densifies the same way the linear curve does, with the Mapbox
+    // exponential progress warp applied to the colour parameter.
+    const style = build([
+      'interpolate-lab', ['exponential', 2], ['zoom'],
+      0, '#ffffff',
+      10, '#000000',
+    ])
+    const warnings: string[] = []
+    const out = convertMapboxStyle(style as unknown as string, {
+      coverage: { sources: [], layers: [], warnings },
+    })
+    expect(out).toContain('#ffffff')
+    expect(out).toContain('#000000')
+    const w = warnings.find(s => s.includes('interpolate-lab'))
+    expect(w, warnings.join('\n')).toBeDefined()
+    expect(w).toContain('exponential base 2')
+    expect(w).toContain('dense piecewise-linear')
+    // The old "non-linear curve approximated as linear-sRGB" warning
+    // must NOT appear — exponential is densified, not dropped.
+    expect(warnings.some(s => s.includes('non-linear curve'))).toBe(false)
+  })
+
+  it('exponential-curve interpolate-hcl densifies in LCh space', () => {
+    const style = build([
+      'interpolate-hcl', ['exponential', 1.5], ['zoom'],
+      0, '#ff0000',
+      8, '#0000ff',
+    ])
+    const warnings: string[] = []
+    convertMapboxStyle(style as unknown as string, {
+      coverage: { sources: [], layers: [], warnings },
+    })
+    const w = warnings.find(s => s.includes('interpolate-hcl'))
+    expect(w, warnings.join('\n')).toBeDefined()
+    expect(w).toContain('exponential base 1.5')
+    expect(w).toContain('LCh space')
+  })
+
+  it('exponential base ≈1 collapses to linear (no warp, no double-apply)', () => {
+    // base 1 is mathematically linear; the dense samples must equal
+    // the linear-curve densification and the emitted curve stays
+    // linear so the runtime doesn't re-warp.
+    const style = build([
+      'interpolate-lab', ['exponential', 1], ['zoom'],
+      0, '#ffffff',
+      10, '#000000',
+    ])
+    const warnings: string[] = []
+    const out = convertMapboxStyle(style as unknown as string, {
+      coverage: { sources: [], layers: [], warnings },
+    })
+    expect(out).toContain('#ffffff')
+    expect(out).toContain('#000000')
+    expect(warnings.some(s => s.includes('non-linear curve'))).toBe(false)
+  })
+
   it('non-hex stops fall back to linear-sRGB with diagnostic warning', () => {
     // ["get", "x"] inside an interpolate-lab stop value — runtime
     // expression, can't densify at compile time.
