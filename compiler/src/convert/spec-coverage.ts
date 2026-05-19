@@ -144,7 +144,7 @@ const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'text-overlap',         status: 'partial', impact: 'low', note: 'MapLibre overlap-policy enum (never / always / cooperative). always → label-allow-overlap; never → default; cooperative approximated as always (priority-aware collision pending) + warning. Wins over legacy text-allow-overlap when both declared.', source: 'layers.ts:418' },
   { name: 'text-optional',        status: 'unsupported', impact: 'low', note: 'Icons not implemented — moot.' },
   { name: 'text-rotation-alignment', status: 'supported', note: 'Literal map / viewport / auto. Honoured at runtime.', source: 'map.ts:2369' },
-  { name: 'text-pitch-alignment', status: 'partial', impact: 'medium', note: 'Converter emits, runtime ignores — labels never project onto ground plane.', source: 'map.ts:2461' },
+  { name: 'text-pitch-alignment', status: 'partial', impact: 'medium', note: 'Converter emits, runtime ignores — labels never project onto ground plane. Iter 10 surfaced an explicit warning when `map` is authored (the gap-revealing case) so authors of pitched-view styles see the diagnostic. `viewport` and `auto` match X-GIS\' billboard-rendering default and stay silent.', source: 'map.ts:2461' },
   { name: 'text-keep-upright',    status: 'supported', note: 'Per-glyph flip for line labels.', source: 'text-stage.ts:509' },
   { name: 'text-writing-mode',    status: 'unsupported', impact: 'medium', note: 'CJK vertical text would need a per-glyph rotation pipeline.' },
   { name: 'text-max-angle',       status: 'unsupported', impact: 'low', note: 'Maximum angle between consecutive glyphs on a line-placed label. X-GIS uses a fixed threshold; per-layer override would thread through label-placement.' },
