@@ -105,6 +105,12 @@ export function convertSource(
   // user doesn't silently get an upside-down map.
   if (src.scheme === 'tms') {
     warnings.push(`Source "${id}" declares scheme: "tms" but the X-GIS tile selector assumes XYZ (top-left origin) — tiles will render Y-flipped. Convert the URL template to XYZ form, or wait for native scheme support.`)
+  } else if (typeof src.scheme === 'string' && src.scheme !== 'xyz') {
+    // Mapbox spec accepts only "xyz" (default) or "tms". An unknown
+    // scheme value silently falls through to xyz with no diagnostic;
+    // surface so a typo like "XYZ" / "wms" / "TMS" is visible at
+    // compile time rather than a mysteriously-misoriented map.
+    warnings.push(`Source "${id}" declares scheme: "${src.scheme.slice(0, 40)}" but Mapbox spec recognises only "xyz" (default) or "tms". Falling back to xyz; check the spelling.`)
   }
 
   // Mapbox source-level `minzoom` / `maxzoom` constrain which tile
