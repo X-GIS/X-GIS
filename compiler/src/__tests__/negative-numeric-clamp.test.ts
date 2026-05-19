@@ -64,6 +64,44 @@ describe('negative numeric clamp warnings', () => {
     expect(w.some(s => s.includes('text-size') && s.includes('negative'))).toBe(false)
   })
 
+  it('circle-radius with negative literal warns + emits clamped utility', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'c',
+        type: 'circle',
+        source: 'v',
+        'source-layer': 'a',
+        paint: {
+          'circle-color': '#000',
+          'circle-stroke-color': '#000',
+          'circle-stroke-width': 1,
+          'circle-radius': -5,
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('circle-radius') && s.includes('negative'))).toBe(true)
+  })
+
+  it('fill-extrusion-height with negative literal warns', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'e',
+        type: 'fill-extrusion',
+        source: 'v',
+        'source-layer': 'a',
+        paint: {
+          'fill-extrusion-color': '#888',
+          'fill-extrusion-height': -10,
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('fill-extrusion-height') && s.includes('negative'))).toBe(true)
+  })
+
   it('line-width=0 (valid, hides line) does NOT warn', () => {
     const w = warningsOf({
       version: 8,

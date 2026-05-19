@@ -1438,6 +1438,9 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
     // Number.isFinite rejects NaN / Infinity (see paint NaN fix).
     // same class as the other paint-numeric clamps. `size--5`
     // would lex as double-dash and crash the layer.
+    if (radius < 0) {
+      warnings.push(`Circle layer "${layer.id}" — circle-radius ${radius} is negative; Mapbox spec requires >= 0. Clamped to 0 (circles won't render).`)
+    }
     utils.push(`size-${Math.max(0, radius)}`)
   } else if (radius !== undefined && radius !== null) {
     const interp = interpolateZoomCall(radius, warnings,

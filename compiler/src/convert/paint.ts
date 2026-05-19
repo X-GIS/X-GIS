@@ -1088,6 +1088,9 @@ function addExtrudeHeight(out: string[], v: unknown, warnings: string[]): void {
   if (typeof v === 'number' && Number.isFinite(v)) {
     // Number.isFinite rejects NaN/Infinity — Math.max(0, NaN) = NaN
     // would emit `fill-extrusion-height-NaN`.
+    if (v < 0) {
+      warnings.push(`paint.fill-extrusion-height: value ${v} is negative; Mapbox spec requires >= 0. Clamped to 0 (walls won't extrude).`)
+    }
     out.push(`fill-extrusion-height-${Math.max(0, v)}`)
     return
   }
