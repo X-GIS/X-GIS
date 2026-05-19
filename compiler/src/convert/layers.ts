@@ -1689,9 +1689,17 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   if (paint['circle-translate'] !== undefined && paint['circle-translate'] !== null) {
     warnings.push(`Layer "${layer.id}" — circle-translate set but the point renderer has no per-frame translate uniform yet (Plan §4 deferred — mirror of fill-translate's u.fill_translate_x/y); offset is dropped.`)
   }
+  // circle-blur: soft edge for circles (CSS-px feathering). Point-
+  // renderer fragment uses a smoothstep AA already but doesn't expand
+  // by an authored blur width — needs a per-feature blur attr + wider
+  // quad (Plan §4 deferred). Surface specific gap.
+  if (paint['circle-blur'] !== undefined && paint['circle-blur'] !== null) {
+    warnings.push(`Layer "${layer.id}" — circle-blur set but X-GIS' point renderer has no per-feature blur attribute yet (Plan §4 deferred — needs vertex blur attr + wider quad). Circles render with the fixed AA smoothstep.`)
+  }
   const ignored: string[] = []
   for (const k of [
-    'circle-blur', 'circle-translate-anchor',
+    // circle-blur: specific gap warning (iter 99)
+    'circle-translate-anchor',
     'circle-pitch-scale', 'circle-pitch-alignment',
     // circle-stroke-opacity: only the constant form folds into stroke
     // hex alpha above. Zoom-interp / data-driven still surface as
