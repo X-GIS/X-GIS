@@ -175,7 +175,7 @@ const PAINT_BACKGROUND: readonly CoverageEntry[] = [
 const PAINT_FILL: readonly CoverageEntry[] = [
   { name: 'fill-color',         status: 'supported', note: 'Constant + interpolate-by-zoom + per-feature case/match expressions.', source: 'paint.ts:91' },
   { name: 'fill-opacity',       status: 'supported', source: 'paint.ts:133' },
-  { name: 'fill-antialias',     status: 'partial', impact: 'low', note: 'Default `true` is X-GIS\' permanent contract — fragment shader smoothsteps every fill edge. OFM bright `building` / `road_area_pier` / `road_pier` author `true` explicitly = no-op match. OFM liberty `landcover_wood`/`grass`/`ice` set `false` for a pixel-art look; that opt-out (4 liberty layers) is not yet implemented and renders smooth instead of stepped. Iter 495 status review.' },
+  { name: 'fill-antialias',     status: 'partial', impact: 'low', note: 'Default `true` is X-GIS\' permanent contract — fragment shader smoothsteps every fill edge. OFM bright `building` / `road_area_pier` / `road_pier` author `true` explicitly = no-op match. OFM liberty `landcover_wood`/`grass`/`ice` set `false` for a pixel-art look; that opt-out (4 liberty layers) is not yet implemented and renders smooth instead of stepped. Iter 14 added a specific gap warning when `false` is authored explicitly so the gap surfaces rather than silently dropping.' },
   { name: 'fill-outline-color', status: 'supported', note: 'Lowers to `stroke-<color> stroke-1` on the same fill layer — the xgis polygon renderer paints fill + outline in the same pass. Constant + interpolate-by-zoom.', source: 'paint.ts:153' },
   { name: 'fill-pattern',       status: 'unsupported', impact: 'high', note: 'Batch 2 (bitmap atlas).' },
   { name: 'fill-translate',     status: 'partial', impact: 'low', note: 'Constant vec2 + zoom-interp last-stop approx end-to-end. Runtime WGSL u.fill_translate_x/y adds CSS-px offset converted to NDC at vs_main (`clip.xy += u.fill_translate * clip.w`). OFM building-top pseudo-3D roof offset honoured. Full per-frame zoom-interp deferred. Iter 501 + 508 shipped 2026-05-18.', source: 'paint.ts:addFillTranslate' },
@@ -193,7 +193,7 @@ const PAINT_LINE: readonly CoverageEntry[] = [
   { name: 'line-translate', status: 'unsupported', impact: 'low', note: 'CSS-px viewport offset for lines. fill-translate is supported via u.fill_translate_x/y; line-translate would need a matching line-renderer uniform. Iter 32 added a specific gap warning naming the missing u.line_translate_x/y plumbing.' },
   { name: 'line-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport / map coordinate space for line-translate; dependent on line-translate.' },
   { name: 'line-pattern',   status: 'unsupported', impact: 'medium', note: 'Bitmap pattern repeated along line — Batch 2 (sprite atlas dependency). Layer falls back to solid line-color if pattern is the only visual cue.' },
-  { name: 'line-gradient',  status: 'unsupported', impact: 'low', note: 'Gradient along the line (requires line-progress accessor). Needs per-fragment arc-length varying through the line renderer.' },
+  { name: 'line-gradient',  status: 'unsupported', impact: 'low', note: 'Gradient along the line (requires line-progress accessor). Needs per-fragment arc-length varying through the line renderer. Iter 22 added a specific gap warning citing the line-progress dependency.' },
 ]
 
 const PAINT_SYMBOL: readonly CoverageEntry[] = [
@@ -235,7 +235,7 @@ const PAINT_FILL_EXTRUSION: readonly CoverageEntry[] = [
   { name: 'fill-extrusion-translate', status: 'unsupported', impact: 'low', note: 'CSS-px viewport offset for extrusions. Symmetric with fill-translate; not threaded. Iter 33 added a specific gap warning naming the missing fill-extrusion translate uniform.' },
   { name: 'fill-extrusion-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport / map space for fill-extrusion-translate; dependent on translate.' },
   { name: 'fill-extrusion-pattern',   status: 'unsupported', impact: 'medium', note: 'Bitmap pattern repeated on extrusion walls + roof. Same Batch 2 sprite-atlas dependency as fill-pattern / line-pattern.' },
-  { name: 'fill-extrusion-vertical-gradient', status: 'unsupported', impact: 'low', note: 'Default `true` is always-on at runtime — fragment shader applies a vertical gradient ramp (0.6 base → 1.0 roof) plus a roof bonus to approximate MapLibre default. Setting `false` to disable the gradient would need a per-show flag + WGSL branch — surfaceIgnoredPaint warns when authored. Iter post-§9 tightened the ramp to match MapLibre defaults.' },
+  { name: 'fill-extrusion-vertical-gradient', status: 'unsupported', impact: 'low', note: 'Default `true` is always-on at runtime — fragment shader applies a vertical gradient ramp (0.6 base → 1.0 roof) plus a roof bonus to approximate MapLibre default. Setting `false` to disable the gradient would need a per-show flag + WGSL branch. Iter post-§9 tightened the ramp to match MapLibre defaults. Iter 12 added spec-default suppression so authoring true (the spec default) no longer surfaces a spurious "ignored property" warning; only `false` (the real gap) warns.' },
   { name: 'fill-extrusion-ambient-occlusion-intensity', status: 'unsupported', impact: 'low', note: 'AO would need per-vertex normal + screen-space AO pass. Not in current renderer.' },
   { name: 'fill-extrusion-ambient-occlusion-radius',    status: 'unsupported', impact: 'low', note: 'See fill-extrusion-ambient-occlusion-intensity.' },
 ]
@@ -248,7 +248,7 @@ const PAINT_RASTER: readonly CoverageEntry[] = [
   { name: 'raster-saturation',      status: 'unsupported', impact: 'low', note: 'HSL saturation multiplier on raster sample.' },
   { name: 'raster-contrast',        status: 'unsupported', impact: 'low', note: 'Fragment-shader contrast scale.' },
   { name: 'raster-fade-duration',   status: 'unsupported', impact: 'low', note: 'Crossfade between zoom levels. X-GIS swaps tiles atomically; no fade.' },
-  { name: 'raster-resampling',      status: 'unsupported', impact: 'low', note: 'linear (default) vs nearest. Sampler is fixed to linear; per-show override would need a separate sampler binding.' },
+  { name: 'raster-resampling',      status: 'unsupported', impact: 'low', note: 'linear (default) vs nearest. Sampler is fixed to linear; per-show override would need a separate sampler binding. Iter 17 added spec-default suppression + iter 18 generic SPEC_DEFAULT_NO_WARN helper so authoring `linear` (matches X-GIS) is silent; `nearest` warns explicitly.' },
   { name: 'resampling',             status: 'unsupported', impact: 'low', note: 'MapLibre v3 alias for raster-resampling — same semantic.' },
 ]
 
