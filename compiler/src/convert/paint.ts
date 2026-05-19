@@ -149,9 +149,16 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     // alongside a `fill-pattern` slipped past with no diagnostic
     // even though the layer's only visual cue (the pattern atlas)
     // isn't supported yet.
-    if (p['fill-pattern'] !== undefined && p['fill-pattern'] !== null
-        && (p['fill-color'] === undefined || p['fill-color'] === null)) {
-      warnings.push(`Layer "${layer.id}" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
+    if (p['fill-pattern'] !== undefined && p['fill-pattern'] !== null) {
+      if (p['fill-color'] === undefined || p['fill-color'] === null) {
+        warnings.push(`Layer "${layer.id}" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
+      } else {
+        // fill-pattern WITH fill-color: pattern silently dropped,
+        // layer still renders with the solid colour fallback. Mirror
+        // of the iter 43 line-pattern + line-color surface so the
+        // author knows the pattern intent didn't land.
+        warnings.push(`Layer "${layer.id}" — fill-pattern set alongside fill-color; pattern is dropped (Batch 2 sprite-atlas dependency) and the layer renders with the solid fill-color fallback.`)
+      }
     }
     addFillTranslate(out, p['fill-translate'], warnings)
     // fill-antialias: default `true` matches X-GIS runtime (fragment
