@@ -606,6 +606,11 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
           bezierY1 = unwrapCP(curveSpec[2], 0)
           bezierX2 = unwrapCP(curveSpec[3], 1)
           bezierY2 = unwrapCP(curveSpec[4], 1)
+          // CSS cubic-bezier spec: x1 + x2 MUST be in [0, 1] for
+          // monotonic x(t). Mirror of paint.ts gate (iter 103).
+          if (bezierX1 < 0 || bezierX1 > 1 || bezierX2 < 0 || bezierX2 > 1) {
+            warnings.push(`["${op}", ["cubic-bezier", ${bezierX1}, ${bezierY1}, ${bezierX2}, ${bezierY2}], …]: x control points (x1=${bezierX1}, x2=${bezierX2}) must be in [0, 1] per CSS spec; the curve becomes non-invertible outside that range and the eased output is undefined.`)
+          }
         }
       }
       const isLab = op === 'interpolate-lab' || op === 'interpolate-hcl'
