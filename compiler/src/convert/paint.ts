@@ -241,9 +241,20 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     if (p['fill-extrusion-translate'] !== undefined && p['fill-extrusion-translate'] !== null) {
       warnings.push(`Layer "${layer.id}" — fill-extrusion-translate set but the fill-extrusion renderer has no per-frame translate uniform yet (Plan §4 deferred — mirror of fill-translate's u.fill_translate_x/y); offset is dropped.`)
     }
+    // fill-extrusion-pattern: same atlas dependency as fill-pattern
+    // / line-pattern. When fill-extrusion-color is also set, the
+    // pattern silently drops and the layer renders the solid colour.
+    // Surface the specific gap so authors who depend on textured
+    // building walls see the diagnostic.
+    if (p['fill-extrusion-pattern'] !== undefined && p['fill-extrusion-pattern'] !== null) {
+      if (p['fill-extrusion-color'] === undefined || p['fill-extrusion-color'] === null) {
+        warnings.push(`Layer "${layer.id}" — fill-extrusion-pattern declared without fill-extrusion-color; the layer's only visual is a bitmap wall fill which is not yet supported (Batch 2 — sprite atlas). The layer will render walls as uncoloured.`)
+      } else {
+        warnings.push(`Layer "${layer.id}" — fill-extrusion-pattern set alongside fill-extrusion-color; pattern is dropped (Batch 2 sprite-atlas dependency) and the walls render with the solid colour fallback.`)
+      }
+    }
     surfaceIgnoredPaint(layer.id, p, warnings, [
       'fill-extrusion-translate-anchor',
-      'fill-extrusion-pattern',
       ...(skipVerticalGradientWarn ? [] : ['fill-extrusion-vertical-gradient']),
       'fill-extrusion-ambient-occlusion-intensity',
       'fill-extrusion-ambient-occlusion-radius',
