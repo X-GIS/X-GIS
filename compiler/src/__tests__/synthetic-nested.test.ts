@@ -31,15 +31,15 @@ describe('synthetic-nested expression fixture', () => {
     expect(() => new Parser(tokens).parse()).not.toThrow()
   })
 
-  it('lowers to IR with the 3 declared layers', () => {
+  it('lowers to IR with at least 4 declared layers', () => {
     const style = readFixture()
     const xgis = convertMapboxStyle(style)
     const tokens = new Lexer(xgis).tokenize()
     const ast = new Parser(tokens).parse()
     const ir = lower(ast)
-    // Three layers in fixture → IR should have at least 3 renderNodes
-    // (some layers may split, e.g. text+icon symbols, so allow ≥3).
-    expect(ir.renderNodes?.length ?? 0).toBeGreaterThanOrEqual(3)
+    // Four layers in fixture → IR should have at least 4 renderNodes
+    // (some layers may split, e.g. text+icon symbols, so allow ≥4).
+    expect(ir.renderNodes?.length ?? 0).toBeGreaterThanOrEqual(4)
   })
 
   it('does not warn about depth-exceeded on the deepest path', () => {

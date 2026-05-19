@@ -70,6 +70,22 @@
           15, 18
         ]
       }
+    },
+    {
+      "id": "step-bucket-with-zoom",
+      "type": "line",
+      "source": "test-vector",
+      "source-layer": "boundaries",
+      "paint": {
+        "line-width": [
+          "step", ["zoom"],
+          0.5,
+          5, 1,
+          10, 1.5,
+          15, 2
+        ],
+        "line-color": "#888"
+      }
     }
   ]
 }
