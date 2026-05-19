@@ -190,6 +190,25 @@ describe('negative numeric clamp warnings', () => {
     expect(w.some(s => s.includes('text-line-height') && s.includes('negative'))).toBe(true)
   })
 
+  it('fill-extrusion-base with negative literal warns', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'e',
+        type: 'fill-extrusion',
+        source: 'v',
+        'source-layer': 'a',
+        paint: {
+          'fill-extrusion-color': '#888',
+          'fill-extrusion-height': 50,
+          'fill-extrusion-base': -5,
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('fill-extrusion-base') && s.includes('negative'))).toBe(true)
+  })
+
   it('line-width=0 (valid, hides line) does NOT warn', () => {
     const w = warningsOf({
       version: 8,

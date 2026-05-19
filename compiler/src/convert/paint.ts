@@ -1121,6 +1121,9 @@ function addExtrudeBase(out: string[], v: unknown, warnings: string[]): void {
   // Mapbox spec: fill-extrusion-base >= 0. Mirror of the
   // addExtrudeHeight clamp.
   if (typeof v === 'number' && Number.isFinite(v)) {
+    if (v < 0) {
+      warnings.push(`paint.fill-extrusion-base: value ${v} is negative; Mapbox spec requires >= 0. Clamped to 0.`)
+    }
     out.push(`fill-extrusion-base-${Math.max(0, v)}`)
     return
   }
