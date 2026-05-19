@@ -624,38 +624,26 @@ export class TextStage {
     sampleCount: number = 1,
   ) {
     this.opts = { ...DEFAULTS, ...options } as Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr'>>
-    // DPR-aware raster size. Glyphs the PBF endpoint doesn't serve
-    // (Hangul/Han on OFM Bright etc.) are Canvas2D-rasterised once at
-    // this size and then GPU-scaled to the physical display size. On
-    // a hidpi phone (dpr 2-3) a 24-px raster gets upscaled ~dpr×,
-    // visibly soft. Baking at base·k (k = dpr) makes that GPU step
-    // ~1:1 for typical label sizes.
+    // Iter 116: rasterFontSize + sdfRadius are now DPR-invariant —
+    // they match MapLibre's TinySDF defaults (fontSize=24, radius=8,
+    // textureScale=1) and the PBF glyph server's native 24-px raster.
+    // Display-size scaling happens at draw time via the shader's
+    // sizePx / rasterFontSize factor, so glyph fidelity does NOT
+    // depend on the host DPR.
     //
-    // rasterFontSize AND sdfRadius scale by the SAME factor k so the
-    // SDF falloff stays a FIXED fraction of the glyph (em-relative).
-    // Scaling only rasterFontSize (the original #134) left the 8-px
-    // band a smaller share of the bigger raster, halving the usable
-    // halo/AA headroom in display px → halo width/blur clamped and
-    // "evaluated strangely" on hidpi (user-reported). With both
-    // scaled, #133's halo math (which already divides by sdfRadius)
-    // is dpr-invariant. k is capped so glyph + 2·falloff still fits a
-    // slot: k ≤ slotSize/(base+2·baseRadius) = 64/40 = 1.6 at the
-    // defaults (raster 38, radius 13 — no slot growth). floor() keeps
-    // the sum ≤ slotSize. PBF resamples through pbf-to-slot's
-    // sub-pixel bilinear at the same factor; SDF upscales gracefully
-    // so Latin fidelity is unaffected. All downstream consumers
-    // (atlas raster, display `scale`, TextDraw.rasterFontSize/sdfRadius,
-    // halo normalisation) read these two values so they stay
-    // consistent.
-    const dpr = options.dpr && options.dpr > 0 ? options.dpr : 1
-    const baseRaster = this.opts.rasterFontSize
-    const baseRadius = this.opts.sdfRadius
-    const k = Math.max(
-      1,
-      Math.min(dpr, this.opts.slotSize / (baseRaster + 2 * baseRadius)),
-    )
-    this.opts.rasterFontSize = Math.floor(baseRaster * k)
-    this.opts.sdfRadius = Math.floor(baseRadius * k)
+    // Pre-iter-116 multiplied both knobs by dpr (capped at 1.6 to fit
+    // the slot). Justification was "fewer GPU upscales on hidpi", but
+    // the trade-off conflicted with iter 114 / iter 115 SDF-encoding
+    // parity work: a DPR-scaled local raster produced byte SDFs at a
+    // DIFFERENT pixel-per-unit ratio than the PBF 24-px reference,
+    // forcing the halo math to compensate per-source. With both
+    // sources locked to the MapLibre TinySDF defaults, the shader's
+    // 2.52/font_size_px AA half-width and haloK=3 are exact across
+    // PBF and Canvas2D paths.
+    //
+    // Side effect: Canvas2D-rasterised glyphs (Hangul / icons / any
+    // font absent from the PBF server) cost ~dpr² fewer GPU bytes
+    // per slot, slightly reducing atlas memory on hidpi displays.
     // Rasterizer selection:
     //   1. explicit `rasterizer` override     → use as-is
     //   2. ANY of {glyphsUrl, inlineGlyphs,
