@@ -79,6 +79,17 @@ const ANCHOR_PARENT: Record<string, string> = {
  */
 const SPEC_DEFAULT_NO_WARN: Record<string, unknown> = {
   'raster-resampling': 'linear',
+  // *-translate-anchor: spec default 'map' for fill/line/circle/
+  // fill-extrusion translate-anchor, but X-GIS today only implements
+  // viewport-space translates (matches the 'viewport' value). Authors
+  // writing 'viewport' explicitly match X-GIS behaviour — no warning.
+  // 'map' is the real gap (would shift in world coords on bearing).
+  'line-translate-anchor': 'viewport',
+  'circle-translate-anchor': 'viewport',
+  'fill-translate-anchor': 'viewport',
+  'fill-extrusion-translate-anchor': 'viewport',
+  // text-translate-anchor / icon-translate-anchor: same shape but
+  // handled in the symbol layout path, not via surfaceIgnoredPaint.
   // Add future spec-defaults here when they enter surfaceIgnoredPaint.
   // fill-extrusion-vertical-gradient already handled inline because
   // its conditional is at the candidate-list site (cleaner there).
