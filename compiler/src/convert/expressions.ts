@@ -352,6 +352,32 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       if (invalidKeyArms > 0) {
         warnings.push(`["match"] dropped ${invalidKeyArms} arm key(s) that are not literal string/number; Mapbox spec requires literal labels. Matching values for those keys will fall through to default.`)
       }
+      // Mapbox spec: match labels must be unique within a single
+      // expression. Duplicates produce undefined behaviour (MapLibre
+      // uses the FIRST matching arm); silently emitting both arms
+      // means the second one is dead code that the author probably
+      // didn't notice. Compare the parsed label values across arms.
+      {
+        const seenLabels = new Set<string>()
+        const duplicates: string[] = []
+        for (const armLine of arms) {
+          // Each arm line is "    <label> -> <val>" or "    _ -> <default>".
+          // Extract the label prefix.
+          const labelStart = armLine.indexOf('    ') + 4
+          const arrowAt = armLine.indexOf(' -> ', labelStart)
+          if (arrowAt < 0) continue
+          const label = armLine.slice(labelStart, arrowAt)
+          if (label === '_') continue // default arm
+          if (seenLabels.has(label)) {
+            duplicates.push(label)
+          } else {
+            seenLabels.add(label)
+          }
+        }
+        if (duplicates.length > 0) {
+          warnings.push(`["match"] duplicate label(s) ${duplicates.slice(0, 4).map(d => `"${d}"`).join(', ')}${duplicates.length > 4 ? ` + ${duplicates.length - 4} more` : ''}. Mapbox spec requires unique labels; only the FIRST occurrence wins, the rest are dead arms.`)
+        }
+      }
       const defXgis = exprToXgis(def, warnings)
       if (defXgis !== null) arms.push(`    _ -> ${defXgis}`)
       // Mirror of case + coalesce partial-drop warnings — surface arms
