@@ -118,6 +118,31 @@ export function distanceTransform2D(
 let _sdf_fOut: Float64Array = new Float64Array(0)
 let _sdf_fIn: Float64Array = new Float64Array(0)
 
+// TinySDF gamma-corrected alpha → signed-squared-distance lookup
+// (Mapbox @mapbox/tiny-sdf index.js:4-9). Maps an 8-bit alpha value
+// to a continuous "sub-pixel offset" that the DT propagates through
+// the grid. Iter 115 replaces X-GIS's previous binary-seed +
+// post-DT `(a-128)/255` subpixel correction with this approach —
+// matches TinySDF / MapLibre localGlyphRasterizer byte-for-byte on
+// the same Canvas2D alpha input, giving Hangul / icon glyph corners
+// the same sub-pixel accuracy as PBF Latin from the OFM glyph server.
+//
+// The `1/2.2` exponent recovers linear coverage from sRGB-encoded
+// alpha values produced by Canvas2D's gamma-aware rasterisation
+// (Canvas2D fillText outputs alpha in display-gamma space; binary
+// thresholding at 128 was the X-GIS approximation that fed straight
+// AA staircase on partial-coverage pixels).
+//
+// alphaTable[255] = -INF guarantees fully-inside pixels seed the
+// inner grid at INF (canonical "fully not a non-ink seed"), so the
+// inner-DT distance from inside out reaches that pixel.
+const alphaTable = new Float64Array(256)
+for (let i = 0; i < 256; i++) {
+  const d = 0.5 - Math.pow(i / 255, 1 / 2.2)
+  alphaTable[i] = d * Math.abs(d)
+}
+alphaTable[255] = -INF
+
 /** Build a signed distance field from an 8-bit alpha mask.
  *
  *  alpha[y*w + x] in [0, 255]: 0 outside glyph, 255 inside,
@@ -147,22 +172,28 @@ export function computeSDF(
   const fOut = _sdf_fOut
   const fIn = _sdf_fIn
 
-  // Threshold at alpha = 128 (= the edge). Soft anti-aliased pixels
-  // sit between fully-outside (0) and fully-inside (255). We classify
-  // them by the threshold for the DT seeds, then apply a sub-pixel
-  // correction term per pixel below — this is the standard tiny-sdf
-  // trick that recovers analytic-boundary sharpness from a
-  // discretely-sampled mask.
+  // TinySDF-style continuous seeding (iter 115). The DT now propagates
+  // an alpha-derived sub-pixel offset baked into each pixel's seed
+  // value, removing the post-DT `(a-128)/255` correction X-GIS used
+  // pre-iter-115. Result: smoother glyph corners + matches TinySDF /
+  // MapLibre localGlyphRasterizer encoding on the same Canvas2D
+  // alpha input.
+  //
+  // Field naming follows the X-GIS convention "field of distances TO
+  // <name>" — fIn after DT = squared distance to nearest INSIDE-ish
+  // pixel; fOut after DT = squared distance to nearest OUTSIDE-ish.
+  // Mapping to TinySDF's grids: fIn ≡ gridOuter (seeds at ink-side),
+  // fOut ≡ gridInner (seeds at non-ink-side).
+  for (let i = 0; i < N; i++) {
+    fIn[i] = INF  // assume "no ink" until alpha tells us otherwise
+    fOut[i] = 0   // every pixel is treated as outside-seed by default
+  }
   for (let i = 0; i < N; i++) {
     const a = alpha[i]!
-    if (a < 128) {
-      // Outside the glyph — distance to nearest INSIDE pixel later.
-      fOut[i] = 0
-      fIn[i] = INF
-    } else {
-      fOut[i] = INF
-      fIn[i] = 0
-    }
+    if (a === 0) continue  // pure outside — keep defaults (fIn=INF, fOut=0)
+    const t = alphaTable[a]!
+    fIn[i] = Math.max(0, t)    // inside-seed (= 0) for a >= 178, small + for a < 178
+    fOut[i] = Math.max(0, -t)  // outside-seed (= 0) for a < 178, small + for a > 178, INF for a = 255
   }
 
   distanceTransform2D(fOut, w, h)
@@ -186,17 +217,10 @@ export function computeSDF(
   for (let i = 0; i < N; i++) {
     const distOut = Math.sqrt(fOut[i]!)
     const distIn = Math.sqrt(fIn[i]!)
-    // Sub-pixel correction: the discrete DT measures distance to
-    // the nearest sample CENTER, which is ~0.5 px off from the
-    // analytic boundary at edge-adjacent pixels. The mask's alpha
-    // value at the pixel encodes how much of the pixel is covered
-    // (0=outside, 255=inside, intermediate=partial); shifting the
-    // distance by `(a-128)/255` recovers the sub-pixel offset of
-    // the actual edge inside the cell. Without this, the SDF edge
-    // snaps to the pixel grid and produces visibly jagged text.
-    const a = alpha[i]!
-    const subpx = (a - 128) / 255
-    const signed = (distIn - distOut) + subpx
+    // signed > 0 outside the glyph; signed < 0 inside. Sub-pixel
+    // accuracy is embedded in the alphaTable seeds (iter 115) — no
+    // explicit post-DT correction needed.
+    const signed = distIn - distOut
     const v = 192 - signed * slopePerPx
     out[i] = v < 0 ? 0 : v > 255 ? 255 : Math.round(v)
   }
