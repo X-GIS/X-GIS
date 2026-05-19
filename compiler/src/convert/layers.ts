@@ -1554,9 +1554,18 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   // `circle-sort-key` (per-feature draw order) and
   // `visibility:none` (caller-route via the layer-level visible
   // property) belong here too.
+  //
+  // circle-translate gets the same specific gap warning as
+  // line-translate / fill-extrusion-translate — its absence is
+  // because the point-renderer has no per-frame translate uniform
+  // yet, NOT because the property is silently dropped. Surface
+  // outside the generic ignored-properties blob.
+  if (paint['circle-translate'] !== undefined && paint['circle-translate'] !== null) {
+    warnings.push(`Layer "${layer.id}" — circle-translate set but the point renderer has no per-frame translate uniform yet (Plan §4 deferred — mirror of fill-translate's u.fill_translate_x/y); offset is dropped.`)
+  }
   const ignored: string[] = []
   for (const k of [
-    'circle-blur', 'circle-translate', 'circle-translate-anchor',
+    'circle-blur', 'circle-translate-anchor',
     'circle-pitch-scale', 'circle-pitch-alignment',
     // circle-stroke-opacity: only the constant form folds into stroke
     // hex alpha above. Zoom-interp / data-driven still surface as
