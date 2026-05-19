@@ -22,16 +22,23 @@ describe('worldCopiesFor — current world-copy enumeration state', () => {
     expect(Array.from(copies)).toEqual([-2, -1, 0, 1, 2])
   })
 
-  it('Equirectangular (1): currently single-world (plan §5.2 gap)', () => {
+  it('Equirectangular (1): world-copy enumeration (iter 123)', () => {
+    // wrap_lon_delta keeps each vertex in its own world strip; camera
+    // offset shifts the strip on screen exactly like Mercator. The
+    // pseudocyl pair (equirect / NE) now matches the camera-shift
+    // mechanism Mercator + Oblique Mercator already use.
     const copies = worldCopiesFor(1)
-    expect(copies.length).toBe(1)
-    expect(Array.from(copies)).toEqual([0])
+    expect(copies.length).toBeGreaterThan(1)
+    expect(copies).toEqual([-2, -1, 0, 1, 2])
   })
 
-  it('Natural Earth (2): currently single-world (plan §5.2 gap)', () => {
+  it('Natural Earth (2): world-copy enumeration (iter 123)', () => {
+    // Same model as Equirectangular — pseudocyl x is still linear in
+    // lon_rel (scaled by lat-dependent x_scale), so camera offset
+    // translates the rendered strip cleanly.
     const copies = worldCopiesFor(2)
-    expect(copies.length).toBe(1)
-    expect(Array.from(copies)).toEqual([0])
+    expect(copies.length).toBeGreaterThan(1)
+    expect(copies).toEqual([-2, -1, 0, 1, 2])
   })
 
   it('Orthographic (3): single-world (hemispherical, not applicable)', () => {
@@ -64,14 +71,14 @@ describe('worldCopiesFor — current world-copy enumeration state', () => {
     expect(copies.length).toBe(1)
   })
 
-  it('cylindrical projections (Mercator + Oblique Mercator) return multi-world; rest single-world', () => {
+  it('cylindrical + pseudocyl projections return multi-world; rest single-world', () => {
     let multi = 0
     for (let t = 0; t <= 7; t++) {
       if (worldCopiesFor(t).length > 1) multi++
     }
-    // Iter 122: Mercator (0) + Oblique Mercator (6) both wrap
-    // cylindrically. Equirect + NE still single-world pending the
-    // matching WGSL world-x offset path (§5.2 gap, future work).
-    expect(multi).toBe(2)
+    // Iter 123: Mercator (0) + Equirect (1) + NE (2) + Oblique Merc (6).
+    // Globe (7) renders a true sphere; Ortho/Azimuth/Stereo (3-5) clip
+    // to a disc — all single-world.
+    expect(multi).toBe(4)
   })
 })

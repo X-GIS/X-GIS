@@ -324,14 +324,25 @@ const SINGLE_WORLD: readonly number[] = [0]
  *  return WORLD_COPIES for projType 1 + 2. Tracked but not landed
  *  this session (multi-file change). */
 export function worldCopiesFor(projType: number): readonly number[] {
-  // Cylindrical projections (Mercator + Oblique Mercator) are periodic
-  // in projected x and benefit from world-copy enumeration so labels /
-  // tiles render across the antimeridian. Oblique Mercator's rotated
-  // longitude (lam_rot) wraps after 2π exactly like Mercator's lon, so
-  // shifting the camera by ±WORLD_MERC in projected x produces a valid
-  // adjacent-world copy. Iter 122 for user-reported "어빌리큐 메르키토르
-  // 프로젝션에서 날짜변경선 부근 렌더 월드 카피 안됨".
-  if (projType === 0 || projType === 6) return WORLD_COPIES
+  // Cylindrical + pseudocylindrical projections wrap in projected x and
+  // benefit from world-copy enumeration so labels / tiles render across
+  // the antimeridian:
+  //   0 = mercator              — periodic in lon (EARTH_R · lon_rad)
+  //   1 = equirectangular       — periodic in lon (wrap_lon_delta keeps
+  //                               each vertex in its own world strip;
+  //                               camera offset shifts the strip on
+  //                               screen exactly like Mercator)
+  //   2 = natural_earth         — same model as equirect (polynomial in
+  //                               lat scales x, but x is still linear in
+  //                               lon_rel, so camera offset wraps)
+  //   6 = oblique_mercator      — rotated lon (lam_rot) wraps after 2π
+  // Iter 122 (Mercator + Oblique). Iter 123 adds Equirect + NE for
+  // user-reported "네츄럴 어스도 월드 렌더 카피 안됨" 2026-05-19.
+  // Globe (7) renders a true sphere — single world. Ortho/Azimuth/
+  // Stereographic (3-5) clip to a disc — single world.
+  if (projType === 0 || projType === 1 || projType === 2 || projType === 6) {
+    return WORLD_COPIES
+  }
   return SINGLE_WORLD
 }
 
