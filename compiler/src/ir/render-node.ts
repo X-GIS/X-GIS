@@ -687,6 +687,18 @@ export function buildLabelShapes(input: {
   iconSize?: number
   iconSizeZoomStops?: import('./render-node').ZoomStop<number>[]
   iconSizeZoomStopsBase?: number
+  /** Mapbox `text-opacity` non-constant forms. Constant is folded
+   *  into `color`'s alpha at convert-time (applyAlphaMultiplier).
+   *  Iter 113. */
+  opacityZoomStops?: import('./render-node').ZoomStop<number>[]
+  opacityZoomStopsBase?: number
+  opacityExpr?: import('./render-node').DataExpr
+  /** Mapbox `icon-opacity`. Constant + non-constant routed through
+   *  the same PropertyShape so the runtime resolves per frame. */
+  iconOpacity?: number
+  iconOpacityZoomStops?: import('./render-node').ZoomStop<number>[]
+  iconOpacityZoomStopsBase?: number
+  iconOpacityExpr?: import('./render-node').DataExpr
 }): import('./property-types').LabelShapes {
   type RGBA = readonly [number, number, number, number]
   type Shape<T> = import('./property-types').PropertyShape<T>
@@ -776,7 +788,43 @@ export function buildLabelShapes(input: {
     iconSize = { kind: 'constant', value: input.iconSize }
   }
 
-  return { size, color, haloWidth, haloColor, haloBlur, font, fontWeight, fontStyle, iconSize }
+  // iter 113 — text-opacity as PropertyShape so zoom-interp + data-
+  // driven both resolve per frame. Constant is still folded into
+  // color.a at convert-time so a simple `text-opacity: 0.6` rides a
+  // single label-color-#rrggbbaa utility without round-tripping
+  // through this shape. The shape is non-null only when the source
+  // authored a non-constant form.
+  let opacity: Shape<number> | null = null
+  if (input.opacityExpr) {
+    opacity = { kind: 'data-driven', expr: input.opacityExpr }
+  } else if (input.opacityZoomStops && input.opacityZoomStops.length > 0) {
+    opacity = {
+      kind: 'zoom-interpolated',
+      stops: input.opacityZoomStops,
+      ...(input.opacityZoomStopsBase !== undefined
+        ? { base: input.opacityZoomStopsBase } : {}),
+    }
+  }
+
+  // iter 113 — icon-opacity. Constant ALSO lands here (unlike text-
+  // opacity) because there's no equivalent of the label-color-alpha
+  // fold for sprite icons — IconRenderer multiplies a per-draw
+  // opacity scalar onto the sprite quad's alpha channel.
+  let iconOpacity: Shape<number> | null = null
+  if (input.iconOpacityExpr) {
+    iconOpacity = { kind: 'data-driven', expr: input.iconOpacityExpr }
+  } else if (input.iconOpacityZoomStops && input.iconOpacityZoomStops.length > 0) {
+    iconOpacity = {
+      kind: 'zoom-interpolated',
+      stops: input.iconOpacityZoomStops,
+      ...(input.iconOpacityZoomStopsBase !== undefined
+        ? { base: input.iconOpacityZoomStopsBase } : {}),
+    }
+  } else if (input.iconOpacity !== undefined) {
+    iconOpacity = { kind: 'constant', value: input.iconOpacity }
+  }
+
+  return { size, color, haloWidth, haloColor, haloBlur, font, fontWeight, fontStyle, iconSize, opacity, iconOpacity }
 }
 
 /**

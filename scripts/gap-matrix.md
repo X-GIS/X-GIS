@@ -25,8 +25,8 @@ Properties where the runtime currently degrades or drops a specific value-form.
 
 | Status | Count |
 |---|---:|
-| supported | 126 |
-| partial | 24 |
+| supported | 128 |
+| partial | 22 |
 | unsupported | 85 |
 | na | 7 |
 | **total** | **242** |
@@ -61,8 +61,6 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | fill-antialias | low | Default `true` is X-GIS' permanent contract — fragment shader smoothsteps every fill edge. OFM bright `building` / `road_area_pier` / `road_pier` author `true` explicitly = no-op match. OFM liberty `landcover_wood`/`grass`/`ice` set `false` for a pixel-art look; that opt-out (4 liberty layers) is not yet implemented and renders smooth instead of stepped. Iter 14 added a specific gap warning when `false` is authored explicitly so the gap surfaces rather than silently dropping. |
 | fill-translate | low | Constant vec2 + zoom-interp last-stop approx end-to-end. Runtime WGSL u.fill_translate_x/y adds CSS-px offset converted to NDC at vs_main (`clip.xy += u.fill_translate * clip.w`). OFM building-top pseudo-3D roof offset honoured. Full per-frame zoom-interp deferred. Iter 501 + 508 shipped 2026-05-18. |
 | line-dasharray | medium | Constant numeric array only — interpolate-by-zoom dasharray not lowered. Iter 27 sharpened the non-constant warning to name the specific shape (zoom-interp needs PropertyShape<array>; data-driven needs per-feature dash plumbing). |
-| text-opacity | low | Constant form folded into label-color alpha channel. Zoom-interp / data-driven defer to a per-frame paint shape; non-constant still warns. Iter 488 shipped 2026-05-18. |
-| icon-opacity | high | Constant form threads compiler → LabelDef → IconStage.addIcon → per-vertex opacity attribute → fragment alpha multiplier. Zoom-interp / data-driven deferred (per-feature alpha would need iconOpacityExpr path). Iter 492 shipped 2026-05-18. |
 | circle-stroke-opacity | low | Constant numeric form folds into stroke-color hex alpha (iter 4, Plan §4 partial landing — same pattern later applied to background-opacity in iter 47). Zoom-interp / data-driven forms still warn + drop — need a dedicated paint shape for per-frame uniform multiplication. |
 | fill-extrusion-vertical-gradient | low | Default `true` is honoured end-to-end — fragment shader applies a vertical gradient ramp (0.6 base → 1.0 roof) plus a roof bonus matching MapLibre. Setting `false` to disable the gradient is the remaining gap (would need a per-show flag + WGSL branch). Iter 12 added spec-default suppression so authoring true (the spec default) no longer surfaces a spurious "ignored property" warning; only `false` (the real gap) warns. Promoted unsupported → partial in the capability-table expansion (iter 59) since the default path is real Phase 9 lighting, not stub. |
 | rgb / rgba | low | Constant channels only — hex-encoded at convert time. Per-channel v8 literal-wrap (`["literal", N]`) accepted. |

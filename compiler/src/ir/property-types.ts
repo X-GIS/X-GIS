@@ -146,4 +146,16 @@ export interface LabelShapes {
    *  (constant) or the spec default 1. Constant + zoom-interp both
    *  resolve to a number; data-driven not yet supported (iter 523). */
   iconSize: PropertyShape<number> | null
+  /** Mapbox `text-opacity` 0..1 alpha multiplier on the resolved
+   *  text fill colour. `null` = no author input. The constant form
+   *  is still folded into `color`'s alpha at convert-time
+   *  (applyAlphaMultiplier — single label-color hex carries both).
+   *  Zoom-interp / data-driven forms land here and the runtime
+   *  multiplies `resolvedColor.a` (+ halo colour alpha) per frame.
+   *  Iter 113. */
+  opacity: PropertyShape<number> | null
+  /** Mapbox `icon-opacity` 0..1 alpha multiplier on the sprite quad.
+   *  `null` = no author input → runtime falls back to LabelDef.iconOpacity
+   *  (constant) or the spec default 1. Iter 113. */
+  iconOpacity: PropertyShape<number> | null
 }

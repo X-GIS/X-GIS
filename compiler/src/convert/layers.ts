@@ -482,6 +482,26 @@ function convertSymbolLayer(
     utils.push(`label-color-${applyAlphaMultiplier('#000000', textOpacityConst)}`)
   }
 
+  // iter 113 — non-constant text-opacity (zoom-interp or data-driven).
+  // Constant text-opacity is folded into label-color's alpha above;
+  // anything else lands on a dedicated `label-opacity-[…]` utility.
+  // lower.ts threads zoom-interp into LabelShapes.opacity (PropertyShape
+  // zoom-interpolated) and bracket-binding into LabelShapes.opacity
+  // (PropertyShape data-driven). Runtime resolves per frame and
+  // multiplies into resolvedColor.a + resolvedHalo.color.a.
+  if (textOpacity !== undefined && textOpacity !== null && textOpacityConst === null) {
+    const interp = interpolateZoomCall(paint['text-opacity'], warnings,
+      (val) => typeof val === 'number' && Number.isFinite(val)
+        ? String(Math.max(0, Math.min(1, val))) : null)
+    if (interp !== null) {
+      utils.push(`label-opacity-[${interp}]`)
+    } else {
+      const expr = exprToXgis(paint['text-opacity'], warnings)
+      if (expr !== null) utils.push(`label-opacity-[${expr}]`)
+      else warnings.push(`Symbol layer "${layer.id}" — text-opacity non-constant form could not be converted.`)
+    }
+  }
+
   // text-size — constant or interpolate-by-zoom. The bracket binding
   // form `label-size-[interpolate(zoom, …)]` is recognised by the
   // lower pass (lower.ts:499) and produces `LabelDef.sizeZoomStops`
@@ -1232,19 +1252,25 @@ function convertSymbolLayer(
   }
 
   // icon-opacity (paint property) — Mapbox alpha multiplier on icon
-  // fragment. Constant form emits a utility the runtime threads
-  // through IconStage.addIcon → vertex attribute. Default 1 leaves
-  // the utility off (no-op). Zoom-interp / data-driven defer to a
-  // future paint-shape extension; for now non-constant warns via
-  // the ignoredText loop below.
+  // fragment. Constant emits a static utility; zoom-interp / data-
+  // driven emit a bracket-binding utility that lower.ts threads into
+  // LabelShapes.iconOpacity. Runtime dispatchIcon resolves per frame
+  // (zoom) or per feature (data-driven) and overrides def.iconOpacity.
+  // Iter 113 — was previously deferred with a warn.
   const iconOpacity = unwrapLiteralScalar(paint['icon-opacity'])
   if (typeof iconOpacity === 'number' && Number.isFinite(iconOpacity) && iconOpacity !== 1) {
     utils.push(`label-icon-opacity-${Math.max(0, Math.min(1, iconOpacity))}`)
   } else if (iconOpacity !== undefined && iconOpacity !== null && typeof iconOpacity !== 'number') {
-    // Non-constant icon-opacity (zoom interp / data-driven) — would
-    // need per-frame / per-feature alpha threading through IconStage.
-    // Deferred; warn so the lossy layer count reflects reality.
-    warnings.push(`Symbol layer "${layer.id}" — icon-opacity non-constant form not yet supported.`)
+    const interp = interpolateZoomCall(paint['icon-opacity'], warnings,
+      (val) => typeof val === 'number' && Number.isFinite(val)
+        ? String(Math.max(0, Math.min(1, val))) : null)
+    if (interp !== null) {
+      utils.push(`label-icon-opacity-[${interp}]`)
+    } else {
+      const expr = exprToXgis(paint['icon-opacity'], warnings)
+      if (expr !== null) utils.push(`label-icon-opacity-[${expr}]`)
+      else warnings.push(`Symbol layer "${layer.id}" — icon-opacity non-constant form could not be converted.`)
+    }
   }
 
   // icon-color: SDF icon tint — Mapbox spec multiplies the sampled
@@ -1322,7 +1348,8 @@ function convertSymbolLayer(
   // already-warned set (data-driven icon-image is its own warning).
   for (const k of [
     // text-writing-mode / text-max-angle: specific gap warnings (iter 90)
-    'text-opacity',          // Per-property fade; text uses layer opacity today
+    // text-opacity: routed through LabelShapes.opacity (iter 113) — was
+    // listed here pre-fix when only the constant fold path existed.
     // icon-color: handled by the specific gap warning above (iter 88)
     // icon-halo-color / -width / -blur: specific gap warnings (iter 89)
     // icon-text-fit: specific gap warning (iter 89)
@@ -1340,16 +1367,6 @@ function convertSymbolLayer(
     const lv = layout[k]
     const pv = paint[k]
     if ((lv !== undefined && lv !== null) || (pv !== undefined && pv !== null)) {
-      // text-opacity constant form is folded into label-color's alpha
-      // channel above (applyAlphaMultiplier). Skip the warning for the
-      // constant-numeric case; non-constant text-opacity (zoom interp
-      // / data-driven) still warns because the alpha multiplier path
-      // can't carry it without a dedicated paint shape.
-      if (k === 'text-opacity') {
-        const v = pv ?? lv
-        const unwrapped = unwrapLiteralScalar(v)
-        if (typeof unwrapped === 'number' && Number.isFinite(unwrapped)) continue
-      }
       // icon-rotation-alignment: "viewport" is X-GIS' DEFAULT icon
       // render behaviour (icon-renderer paints axis-aligned to the
       // screen). Layers that explicitly request viewport — OFM

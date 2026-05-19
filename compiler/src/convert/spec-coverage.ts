@@ -198,14 +198,14 @@ const PAINT_LINE: readonly CoverageEntry[] = [
 
 const PAINT_SYMBOL: readonly CoverageEntry[] = [
   { name: 'text-color',       status: 'supported', note: 'Constant + interpolate-by-zoom + per-feature colorExpr.', source: 'layers.ts:199' },
-  { name: 'text-opacity',     status: 'partial', impact: 'low', note: 'Constant form folded into label-color alpha channel. Zoom-interp / data-driven defer to a per-frame paint shape; non-constant still warns. Iter 488 shipped 2026-05-18.', source: 'layers.ts:400' },
+  { name: 'text-opacity',     status: 'supported', note: 'Constant folded into label-color alpha (applyAlphaMultiplier). Zoom-interp + data-driven emit `label-opacity-[…]` → LabelShapes.opacity PropertyShape; runtime resolveNumberShape multiplies into resolvedColor.a + resolvedHalo.color.a per frame. Iter 113.', source: 'layers.ts:480' },
   { name: 'text-halo-color',  status: 'supported', note: 'Constant + interpolate-by-zoom.', source: 'layers.ts:269' },
   { name: 'text-halo-width',  status: 'supported', note: 'Constant + interpolate-by-zoom; PR #76 fixed scaling into SDF units.', source: 'layers.ts:259' },
   { name: 'text-halo-blur',   status: 'supported', note: 'Constant only at conversion; IR exposes a PropertyShape so future zoom-interp / data-driven emit lands without IR changes.', source: 'layers.ts:283' },
   { name: 'text-translate',   status: 'supported', note: 'Pixel-space offset added on top of em-unit text-offset.', source: 'layers.ts:340' },
   { name: 'text-translate-anchor', status: 'unsupported', impact: 'low', note: 'viewport (default) vs map coordinate space for text-translate. X-GIS applies text-translate in viewport space only; the `map` mode would need MVP-aware offset.' },
   { name: 'icon-color',       status: 'unsupported', impact: 'high', note: 'SDF icon tint — needs IconStage vertex tint attribute + fragment tint multiply. Iter 88 promoted from generic ignoredText blob to a specific layer-level warning naming the missing tint plumbing (Plan §4 — mirror of line-gradient / fill-pattern / line-pattern specific warnings).', source: 'layers.ts:1234 icon-color specific warning' },
-  { name: 'icon-opacity',     status: 'partial', impact: 'high', note: 'Constant form threads compiler → LabelDef → IconStage.addIcon → per-vertex opacity attribute → fragment alpha multiplier. Zoom-interp / data-driven deferred (per-feature alpha would need iconOpacityExpr path). Iter 492 shipped 2026-05-18.', source: 'layers.ts:1050' },
+  { name: 'icon-opacity',     status: 'supported', note: 'Constant + zoom-interp + data-driven all route through LabelShapes.iconOpacity PropertyShape. Runtime resolveNumberShape at dispatchIcon → IconStage.addIcon per-vertex alpha. Iter 113.', source: 'layers.ts:1260' },
   { name: 'icon-halo-color',  status: 'unsupported', impact: 'medium', note: 'SDF icon halo colour. PNG sprite path has no SDF — needs SDF icon support first. Text halo already supported.' },
   { name: 'icon-halo-width',  status: 'unsupported', impact: 'medium', note: 'SDF icon halo width. Depends on SDF icon path (icon-halo-color).' },
   { name: 'icon-halo-blur',   status: 'unsupported', impact: 'low', note: 'SDF icon halo feather. Depends on SDF icon path.' },

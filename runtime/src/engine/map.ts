@@ -3979,6 +3979,28 @@ export class XGISMap {
           const resolvedIconSize = shapes && shapes.iconSize !== null && shapes.iconSize.kind !== 'data-driven'
             ? resolveNumberShape(shapes.iconSize, z, elapsedMs).value
             : def.iconSize
+          // text-opacity — non-constant forms only land here. The
+          // constant form is already folded into label-color's alpha
+          // at convert-time (applyAlphaMultiplier). Multiplied into
+          // resolvedColor.a + resolvedHalo.color.a so halo also fades.
+          // Data-driven goes through applyFeatureExprs. Iter 113.
+          if (shapes && shapes.opacity !== null && shapes.opacity.kind !== 'data-driven') {
+            const op = resolveNumberShape(shapes.opacity, z, elapsedMs).value
+            const clamped = Math.max(0, Math.min(1, op))
+            if (resolvedColor !== undefined) {
+              resolvedColor = [resolvedColor[0], resolvedColor[1], resolvedColor[2], resolvedColor[3] * clamped]
+            }
+            if (resolvedHalo !== undefined) {
+              const hc = resolvedHalo.color as [number, number, number, number]
+              resolvedHalo = { ...resolvedHalo, color: [hc[0], hc[1], hc[2], hc[3] * clamped] }
+            }
+          }
+          // icon-opacity — both constant and non-constant route through
+          // shapes.iconOpacity (PropertyShape). Falls back to def.iconOpacity
+          // (LabelDef constant) when no shape was authored.
+          const resolvedIconOpacity = shapes && shapes.iconOpacity !== null && shapes.iconOpacity.kind !== 'data-driven'
+            ? resolveNumberShape(shapes.iconOpacity, z, elapsedMs).value
+            : def.iconOpacity
           const effectiveDef = {
             ...def,
             size: resolvedSize,
@@ -3988,6 +4010,7 @@ export class XGISMap {
             ...(resolvedFontWeight !== undefined ? { fontWeight: resolvedFontWeight } : {}),
             ...(resolvedFontStyle !== undefined ? { fontStyle: resolvedFontStyle } : {}),
             ...(resolvedIconSize !== undefined ? { iconSize: resolvedIconSize } : {}),
+            ...(resolvedIconOpacity !== undefined ? { iconOpacity: resolvedIconOpacity } : {}),
             ...(bearingDeg !== 0
               ? { rotate: (def.rotate ?? 0) + bearingDeg } : {}),
           }

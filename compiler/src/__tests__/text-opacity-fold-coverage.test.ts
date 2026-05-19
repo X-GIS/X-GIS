@@ -78,15 +78,18 @@ describe('text-opacity → label-color alpha fold (constant form)', () => {
     expect(hasWarning(out, 'ignored properties (Batch 1d/1e+)')).toBe(false)
   })
 
-  it('non-constant text-opacity (zoom interp) still warns since alpha-fold needs constant', () => {
+  it('non-constant text-opacity (zoom interp) emits dedicated label-opacity utility (iter 113)', () => {
     const out = convertMapboxStyle(symbolWith({
       'text-color': '#fff',
       'text-opacity': ['interpolate', ['linear'], ['zoom'], 0, 1, 22, 0.5],
     }) as Parameters<typeof convertMapboxStyle>[0])
-    // Color emits without folded alpha — the zoom interpolation
-    // can't collapse to a single hex.
+    // Color emits without folded alpha — the zoom interp lives on a
+    // separate label-opacity-[…] utility that lower.ts threads into
+    // LabelShapes.opacity PropertyShape. Runtime resolves per frame.
     expect(extractLabelColor(out)).toBe('label-color-#fff')
-    expect(hasWarning(out, 'text-opacity')).toBe(true)
+    expect(out).toContain('label-opacity-[interpolate(zoom,')
+    // No spurious "ignored property" warning — the value is captured.
+    expect(hasWarning(out, 'ignored properties (Batch 1d/1e+)')).toBe(false)
   })
 
   it('text-opacity = 0 collapses to fully transparent (#rrggbb00)', () => {

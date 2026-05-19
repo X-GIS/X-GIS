@@ -507,6 +507,18 @@ function lowerLayer(
   let labelIconOffset: [number, number] | undefined
   let labelIconRotate: number | undefined
   let labelIconOpacity: number | undefined
+  // iter 113 — text-opacity + icon-opacity PropertyShape accumulators.
+  // Constant text-opacity stays folded into label-color's alpha at
+  // convert-time (applyAlphaMultiplier in layers.ts); only zoom-interp
+  // / data-driven forms land here. Constant icon-opacity DOES route
+  // through labelIconOpacity (above) since IconStage carries its own
+  // per-draw opacity scalar.
+  const labelOpacityZoomStops: ZoomStop<number>[] = []
+  let labelOpacityZoomStopsBase: number | undefined
+  let labelOpacityExpr: { ast: unknown } | undefined
+  const labelIconOpacityZoomStops: ZoomStop<number>[] = []
+  let labelIconOpacityZoomStopsBase: number | undefined
+  let labelIconOpacityExpr: { ast: unknown } | undefined
   /** Mapbox `icon-rotation-alignment` — "map" means icon rotates
    *  with the line tangent under symbol-placement=line. Other
    *  values (viewport / auto / absent) match X-GIS' default render
@@ -832,6 +844,45 @@ function lowerLayer(
           // pre-first-stop clamp (z<15 → 0.5x).
           for (const s of zoomStops.stops) labelIconSizeZoomStops.push({ zoom: s.zoom, value: Math.max(0, s.value) })
           if (zoomStops.base !== 1) labelIconSizeZoomStopsBase = zoomStops.base
+          continue
+        }
+        if (zoomStops && name === 'label-opacity') {
+          // Mapbox `text-opacity: interpolate(zoom, …)` — non-constant
+          // form for the alpha multiplier on label fill colour. The
+          // converter emits this bracket binding only when the value
+          // CANNOT be folded into label-color's alpha (i.e. non-
+          // constant on either axis). Runtime resolves per frame via
+          // shapes.opacity and multiplies into resolvedColor.a +
+          // resolvedHalo.color.a. Iter 113.
+          for (const s of zoomStops.stops) {
+            labelOpacityZoomStops.push({
+              zoom: s.zoom,
+              value: Math.max(0, Math.min(1, s.value)),
+            })
+          }
+          if (zoomStops.base !== 1) labelOpacityZoomStopsBase = zoomStops.base
+          continue
+        }
+        if (zoomStops && name === 'label-icon-opacity') {
+          // Mapbox `icon-opacity: interpolate(zoom, …)`. Per-frame
+          // resolve at dispatchIcon → IconStage opacity. Iter 113.
+          for (const s of zoomStops.stops) {
+            labelIconOpacityZoomStops.push({
+              zoom: s.zoom,
+              value: Math.max(0, Math.min(1, s.value)),
+            })
+          }
+          if (zoomStops.base !== 1) labelIconOpacityZoomStopsBase = zoomStops.base
+          continue
+        }
+        if (!zoomStops && name === 'label-opacity') {
+          // Data-driven text-opacity (case / match / get). Runtime
+          // applyFeatureExprs evaluates the AST per feature. Iter 113.
+          labelOpacityExpr = { ast: item.binding }
+          continue
+        }
+        if (!zoomStops && name === 'label-icon-opacity') {
+          labelIconOpacityExpr = { ast: item.binding }
           continue
         }
         // Non-zoom-interp label-size binding → per-feature evaluation.
@@ -1826,6 +1877,12 @@ function lowerLayer(
       labelIconImage, labelIconImageExpr, labelIconSize, labelIconAnchor, labelIconOffset, labelIconRotate, labelIconOpacity, labelIconRotationAlignment,
       labelIconSizeZoomStops: labelIconSizeZoomStops.length > 0 ? labelIconSizeZoomStops : undefined,
       labelIconSizeZoomStopsBase,
+      labelOpacityZoomStops: labelOpacityZoomStops.length > 0 ? labelOpacityZoomStops : undefined,
+      labelOpacityZoomStopsBase,
+      labelOpacityExpr,
+      labelIconOpacityZoomStops: labelIconOpacityZoomStops.length > 0 ? labelIconOpacityZoomStops : undefined,
+      labelIconOpacityZoomStopsBase,
+      labelIconOpacityExpr,
     }),
   }
 }
@@ -1892,6 +1949,13 @@ function foldLabelKnobs(
     labelIconRotate?: number
     labelIconOpacity?: number
     labelIconRotationAlignment?: 'map'
+    // iter 113 — opacity PropertyShape inputs (zoom-interp + expr).
+    labelOpacityZoomStops?: ZoomStop<number>[]
+    labelOpacityZoomStopsBase?: number
+    labelOpacityExpr?: { ast: unknown }
+    labelIconOpacityZoomStops?: ZoomStop<number>[]
+    labelIconOpacityZoomStopsBase?: number
+    labelIconOpacityExpr?: { ast: unknown }
   },
 ): import('./render-node').LabelDef | undefined {
   if (!base) return undefined
@@ -2002,6 +2066,15 @@ function foldLabelKnobs(
     iconSizeZoomStops: knobs.labelIconSizeZoomStops && knobs.labelIconSizeZoomStops.length > 0
       ? knobs.labelIconSizeZoomStops : undefined,
     iconSizeZoomStopsBase: knobs.labelIconSizeZoomStopsBase,
+    opacityZoomStops: knobs.labelOpacityZoomStops && knobs.labelOpacityZoomStops.length > 0
+      ? knobs.labelOpacityZoomStops : undefined,
+    opacityZoomStopsBase: knobs.labelOpacityZoomStopsBase,
+    opacityExpr: knobs.labelOpacityExpr as import('./render-node').DataExpr | undefined,
+    iconOpacity: merged.iconOpacity,
+    iconOpacityZoomStops: knobs.labelIconOpacityZoomStops && knobs.labelIconOpacityZoomStops.length > 0
+      ? knobs.labelIconOpacityZoomStops : undefined,
+    iconOpacityZoomStopsBase: knobs.labelIconOpacityZoomStopsBase,
+    iconOpacityExpr: knobs.labelIconOpacityExpr as import('./render-node').DataExpr | undefined,
   })
   return merged
 }
