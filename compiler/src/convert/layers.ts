@@ -1266,6 +1266,23 @@ function convertSymbolLayer(
   if (typeof iconTextFitRaw === 'string' && iconTextFitRaw !== 'none') {
     warnings.push(`Symbol layer "${layer.id}" — icon-text-fit "${iconTextFitRaw}" set but X-GIS' IconStage doesn't stretch icons to text bbox yet (Plan §4 deferred — needs per-label-bbox quad placement). Icon renders at its native icon-size.`)
   }
+  // text-writing-mode: CJK / Arabic vertical text per Mapbox spec
+  // (`horizontal` default / `vertical`). X-GIS' TextStage walks glyph
+  // advances horizontally only; vertical text needs a per-glyph
+  // rotation + advance flip path. Surface specific gap.
+  const writingModeRaw = unwrapLiteralTuple(layout['text-writing-mode'])
+  if (Array.isArray(writingModeRaw) && writingModeRaw.length > 0
+      && !(writingModeRaw.length === 1 && writingModeRaw[0] === 'horizontal')) {
+    warnings.push(`Symbol layer "${layer.id}" — text-writing-mode set but X-GIS' TextStage walks glyph advances horizontally only; CJK / Arabic vertical text needs per-glyph rotation + advance flip (Plan §4 deferred).`)
+  }
+  // text-max-angle: per-glyph orientation clamp on line-placed labels
+  // (default 45°). X-GIS' line-label path emits labels at segment
+  // tangents without clamping the inter-glyph angular delta. Surface
+  // specific gap.
+  const maxAngleRaw = unwrapLiteralScalar(layout['text-max-angle'])
+  if (typeof maxAngleRaw === 'number' && Number.isFinite(maxAngleRaw) && maxAngleRaw !== 45) {
+    warnings.push(`Symbol layer "${layer.id}" — text-max-angle ${maxAngleRaw} set but X-GIS' line-label path doesn't clamp per-glyph orientation deltas yet (Plan §4 deferred — labels follow segment tangents without the angular gate). Default 45° matches X-GIS behaviour silently.`)
+  }
 
   const ignoredText: string[] = []
   // Unsupported symbol properties — surface ONE consolidated note per
@@ -1274,8 +1291,7 @@ function convertSymbolLayer(
   // text-padding when icon-padding isn't used) and the per-Batch
   // already-warned set (data-driven icon-image is its own warning).
   for (const k of [
-    'text-writing-mode',     // CJK vertical text — per-glyph rotation pipeline pending
-    'text-max-angle',        // along-path glyph orientation clamp
+    // text-writing-mode / text-max-angle: specific gap warnings (iter 90)
     'text-opacity',          // Per-property fade; text uses layer opacity today
     // icon-color: handled by the specific gap warning above (iter 88)
     // icon-halo-color / -width / -blur: specific gap warnings (iter 89)
