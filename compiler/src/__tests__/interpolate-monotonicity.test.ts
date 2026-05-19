@@ -105,6 +105,51 @@ describe('interpolate stops monotonicity', () => {
     expect(w.some(s => s.includes('not strictly ascending'))).toBe(true)
   })
 
+  it('step with reverse-ordered stops warns specifically', () => {
+    // Iter 75 follow-up: parallel monotonicity gate on `step`.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'l',
+        type: 'line',
+        source: 'v',
+        'source-layer': 'a',
+        paint: {
+          'line-color': '#fff',
+          'line-width': ['step', ['zoom'],
+            0.5,
+            20, 8,
+            10, 1,
+          ],
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('step') && s.includes('not strictly ascending'))).toBe(true)
+  })
+
+  it('step with ascending stops does NOT warn', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'l',
+        type: 'line',
+        source: 'v',
+        'source-layer': 'a',
+        paint: {
+          'line-color': '#fff',
+          'line-width': ['step', ['zoom'],
+            0.5,
+            10, 1,
+            20, 8,
+          ],
+        },
+      }],
+    })
+    expect(w.some(s => s.includes('step') && s.includes('not strictly ascending'))).toBe(false)
+  })
+
   it('one warning per non-monotonic interpolate, not per pair', () => {
     // Style with TWO non-monotonic pairs in the same interpolate —
     // should still only emit one warning (gate breaks on first).

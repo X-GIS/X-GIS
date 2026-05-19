@@ -866,6 +866,7 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       // output" semantic (the stops must form a monotonic axis).
       // Unwrap ["literal", N] wraps because v8 strict tooling emits
       // those for explicit numeric literals.
+      const stopXs: number[] = []
       for (let i = 3; i < v.length; i += 2) {
         let stopX: unknown = v[i]
         while (Array.isArray(stopX) && stopX.length === 2 && stopX[0] === 'literal') stopX = stopX[1]
@@ -873,6 +874,17 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
           const stopIdx = ((i - 3) / 2) | 0
           warnings.push(`["step"] stop ${stopIdx + 1} x-value must be a literal finite number per Mapbox spec; got ${JSON.stringify(v[i]).slice(0, 80)}. Whole step bails.`)
           return null
+        }
+        stopXs.push(stopX)
+      }
+      // Mapbox spec: step stops must be strictly ascending — same
+      // requirement as interpolate (iter 74 gate). Non-monotonic
+      // step stops produce undefined evaluator output (the runtime
+      // bucket scan picks the first range matching the input).
+      for (let i = 1; i < stopXs.length; i++) {
+        if (stopXs[i]! <= stopXs[i - 1]!) {
+          warnings.push(`["step"] stops not strictly ascending: stop ${i + 1} input=${stopXs[i]} <= stop ${i} input=${stopXs[i - 1]}. Mapbox spec requires monotonically increasing input values — evaluator output is undefined for the violating range.`)
+          break // one warning per step, not per pair
         }
       }
       const args = v.slice(1).map((a, idx) => {
