@@ -505,7 +505,27 @@ export function globeVisibleTiles(
     // hemisphere cull, mirroring the 2D selector's low-z handling
     // (tile-select.ts). The 5-sample cull only becomes reliable once
     // tiles are small relative to the sphere.
-    const forceDescend = tz < maxZ && tz <= 2
+    //
+    // iter 144: ALSO force descent down the single quadtree branch
+    // whose lon/lat bbox contains the camera target. Root cause of
+    // the 2026-05-19 non-Mercator render-fail (memory
+    // project_non_mercator_systemic_2026_05_19): zoomed in, the
+    // visible-cone half-angle θ=acos(EARTH_R/eyeLen) shrinks to
+    // ~0.8°, so an intermediate tile (z3..~8) that CONTAINS the
+    // camera still has all 5 horizon samples outside that tight
+    // cone → anyFront=false → the whole branch over the camera was
+    // pruned and globeVisibleTiles returned empty. Geometric
+    // containment is exclusive — at most ONE tile per level
+    // contains the point — so this forces at most +maxZ extra node
+    // visits (NOT the 4^zFloor explosion the reverted iter-143
+    // forced-descent approach caused), and it touches neither the
+    // screen-AABB nor the emit gate (so the z=0 world-copy path is
+    // byte-unchanged). Robust at any zoom: pure bbox containment,
+    // no sample reliability assumption.
+    const containsTarget =
+      centerLon >= lonW && centerLon <= lonE
+      && centerLat >= latS && centerLat <= latN
+    const forceDescend = tz < maxZ && (tz <= 2 || containsTarget)
     // Whole tile on the far hemisphere → cull (this is what makes the
     // globe show only the front side; it is NOT the dateline bug — the
     // dateline is handled by working in continuous lon/lat→sphere
