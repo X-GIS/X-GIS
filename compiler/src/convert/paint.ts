@@ -459,6 +459,14 @@ function interpolateZoomStops(
         base = b
       }
     } else if (curveSpec[0] === 'cubic-bezier') {
+      // Mapbox spec: cubic-bezier requires EXACTLY 4 control points
+      // (x1, y1, x2, y2). Malformed forms (e.g. `["cubic-bezier",
+      // 0.42]`) previously silently defaulted to (0.42, 0, 1, 1)
+      // with no diagnostic — the authored curve was nonsense + the
+      // emitted curve didn't reflect it either.
+      if (curveSpec.length !== 5) {
+        warnings?.push(`["${v[0]}", ["cubic-bezier", …]] requires exactly 4 control points (x1, y1, x2, y2); got ${curveSpec.length - 1}. Missing slots default to (0, 0, 1, 1) — verify the authored curve.`)
+      }
       // CSS cubic-bezier easing approximated by dense piecewise-linear
       // resampling at compile time. For each adjacent stop pair we
       // insert SAMPLES_PER_SEGMENT intermediate stops with eased Y

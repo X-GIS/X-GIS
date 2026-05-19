@@ -581,6 +581,11 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
           if (typeof b === 'number' && Number.isFinite(b) && b !== 1) { isExp = true; base = b }
         } else if (curveSpec[0] === 'cubic-bezier') {
           isBezier = true
+          // Mapbox spec: cubic-bezier requires EXACTLY 4 control
+          // points. Mirror of paint.ts gate (iter 82).
+          if (curveSpec.length !== 5) {
+            warnings.push(`["${op}", ["cubic-bezier", …]] requires exactly 4 control points (x1, y1, x2, y2); got ${curveSpec.length - 1}. Missing slots default to (0, 0, 1, 1) — verify the authored curve.`)
+          }
           // v8 strict tooling can wrap individual control points as
           // `["literal", N]`; unwrap so the typeof gate accepts both
           // bare and wrapped forms — mirror of paint.ts cubic-bezier

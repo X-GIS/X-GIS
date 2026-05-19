@@ -74,6 +74,25 @@ describe('Mapbox interpolate-cubic-bezier conversion → densified stops', () =>
     expect(w, `expected folded-to-linear warning; got: ${warnings.join('\n')}`).toBeDefined()
   })
 
+  it('malformed cubic-bezier with wrong CP count warns (iter 82)', () => {
+    // Spec requires exactly 4 control points. Truncated forms
+    // previously silently defaulted to (CP1, 0, 1, 1) with no
+    // diagnostic — the authored intent was nonsensical AND the
+    // emitted curve didn't reflect it.
+    const style = build([
+      'interpolate', ['cubic-bezier', 0.42], ['zoom'],
+      10, 1, 20, 16,
+    ])
+    const warnings: string[] = []
+    convertMapboxStyle(style as unknown as string, {
+      coverage: { sources: [], layers: [], warnings },
+    })
+    expect(warnings.some(w =>
+      w.includes('cubic-bezier')
+      && w.includes('exactly 4 control points'),
+    )).toBe(true)
+  })
+
   it('v8-strict-wrapped control points still recognised as cubic-bezier', () => {
     // Mapbox v8 strict tooling can wrap each control point as
     // `["literal", N]`. Pre-fix the typeof === 'number' gate failed
