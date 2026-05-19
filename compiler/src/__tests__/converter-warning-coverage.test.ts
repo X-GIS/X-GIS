@@ -186,9 +186,11 @@ describe('converter warning coverage', () => {
       .toBe(true)
   })
 
-  it('interpolate-lab colour spec → "approximated as linear-RGB" warning', () => {
-    // Pins e66e095 — Mapbox v3 perceptually-uniform colour interp
-    // accepted with a graceful linear-RGB downgrade.
+  it('interpolate-lab colour spec → compile-time densification warning (iter 61)', () => {
+    // Iter 61 (Plan §11 follow-up): Mapbox v3 perceptually-uniform
+    // colour interp is now resampled in Lab space at compile time,
+    // emitting a dense piecewise-linear hex stop set the runtime
+    // linearly interpolates between. Endpoints preserved exactly.
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -204,11 +206,14 @@ describe('converter warning coverage', () => {
         },
       }],
     })
-    expect(w.some(s => s.includes('interpolate-lab') && s.includes('linear-RGB')))
-      .toBe(true)
+    expect(w.some(s =>
+      s.includes('interpolate-lab')
+      && s.includes('dense piecewise-linear')
+      && s.includes('Lab space'),
+    )).toBe(true)
   })
 
-  it('interpolate-hcl colour spec → "approximated as linear-RGB" warning', () => {
+  it('interpolate-hcl colour spec → compile-time densification warning (iter 61)', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -224,8 +229,11 @@ describe('converter warning coverage', () => {
         },
       }],
     })
-    expect(w.some(s => s.includes('interpolate-hcl') && s.includes('linear-RGB')))
-      .toBe(true)
+    expect(w.some(s =>
+      s.includes('interpolate-hcl')
+      && s.includes('dense piecewise-linear')
+      && s.includes('LCh space'),
+    )).toBe(true)
   })
 
   it('source "type": "pmtiles" routes through to xgis pmtiles source', () => {

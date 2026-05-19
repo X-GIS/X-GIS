@@ -584,3 +584,92 @@ function linearToSrgb(c: number): number {
   if (c > 1) c = 1
   return c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055
 }
+
+// ── sRGB ↔ Lab (D50) round-trip for compile-time interpolate-lab /
+// interpolate-hcl stop densification (iter 61, Plan §11 follow-up).
+// Pipeline mirrors labToSrgb's inverse: sRGB → linear-sRGB → XYZ(D65)
+// → XYZ(D50) (inverse Bradford CAT) → Lab(D50).
+
+function srgbToLinear(c: number): number {
+  if (c <= 0) return 0
+  if (c >= 1) return 1
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+}
+
+/** Parse `#rrggbb` / `#rgb` / `#rrggbbaa` / `#rgba` into an [r, g, b]
+ *  triple in the gamma-encoded sRGB 0..1 range. Returns null when the
+ *  hex string is malformed. Alpha is dropped — callers preserve it
+ *  separately via colorToXgis's alpha-channel passthrough. */
+export function parseSrgbHex(hex: string): [number, number, number] | null {
+  const m = hex.match(/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/)
+  if (!m) return null
+  const body = m[1]!
+  let rr: number, gg: number, bb: number
+  if (body.length === 3 || body.length === 4) {
+    rr = parseInt(body[0]! + body[0]!, 16)
+    gg = parseInt(body[1]! + body[1]!, 16)
+    bb = parseInt(body[2]! + body[2]!, 16)
+  } else {
+    rr = parseInt(body.slice(0, 2), 16)
+    gg = parseInt(body.slice(2, 4), 16)
+    bb = parseInt(body.slice(4, 6), 16)
+  }
+  return [rr / 255, gg / 255, bb / 255]
+}
+
+/** sRGB (gamma-encoded, 0..1 per channel) → CIE Lab (D50). */
+export function srgbToLab(r: number, g: number, b: number): [number, number, number] {
+  const rL = srgbToLinear(r), gL = srgbToLinear(g), bL = srgbToLinear(b)
+  // linear sRGB → XYZ(D65). Inverse of the D65 matrix in labToSrgb.
+  const X65 = 0.4124564 * rL + 0.3575761 * gL + 0.1804375 * bL
+  const Y65 = 0.2126729 * rL + 0.7151522 * gL + 0.0721750 * bL
+  const Z65 = 0.0193339 * rL + 0.1191920 * gL + 0.9503041 * bL
+  // D65 → D50 (inverse Bradford CAT from W3C CSS Color 4 App B).
+  const X50 =  1.0478112 * X65 +  0.0228866 * Y65 + -0.0501270 * Z65
+  const Y50 =  0.0295424 * X65 +  0.9904844 * Y65 + -0.0170491 * Z65
+  const Z50 = -0.0092345 * X65 +  0.0150436 * Y65 +  0.7521316 * Z65
+  // XYZ(D50) → Lab(D50). D50 reference white from labToSrgb.
+  const Xn = 0.96422, Yn = 1.0, Zn = 0.82521
+  const e = 216 / 24389
+  const k = 24389 / 27
+  const fx_ = X50 / Xn
+  const fy_ = Y50 / Yn
+  const fz_ = Z50 / Zn
+  const fx = fx_ > e ? Math.cbrt(fx_) : (k * fx_ + 16) / 116
+  const fy = fy_ > e ? Math.cbrt(fy_) : (k * fy_ + 16) / 116
+  const fz = fz_ > e ? Math.cbrt(fz_) : (k * fz_ + 16) / 116
+  const L = 116 * fy - 16
+  const a = 500 * (fx - fy)
+  const bb = 200 * (fy - fz)
+  return [L, a, bb]
+}
+
+/** CIE Lab (D50) → `#rrggbb` hex string. Inverse of `parseSrgbHex` +
+ *  `srgbToLab`. The internal Lab→sRGB pipeline is identical to the
+ *  CSS lab() function path (`labToSrgb`); this wrapper just clamps
+ *  + packs into the hex form so callers don't repeat the 8-bit
+ *  conversion. */
+export function labToHex(L: number, a: number, b: number): string {
+  const [rr, gg, bb] = labToSrgb(L, a, b)
+  const r8 = Math.max(0, Math.min(255, Math.round(rr * 255)))
+  const g8 = Math.max(0, Math.min(255, Math.round(gg * 255)))
+  const b8 = Math.max(0, Math.min(255, Math.round(bb * 255)))
+  return '#' + r8.toString(16).padStart(2, '0')
+    + g8.toString(16).padStart(2, '0')
+    + b8.toString(16).padStart(2, '0')
+}
+
+/** Lab → polar LCh (CIE LCh, used by Mapbox's `interpolate-hcl`).
+ *  hue in degrees [0, 360). */
+export function labToLch(L: number, a: number, b: number): [number, number, number] {
+  const C = Math.hypot(a, b)
+  let h = Math.atan2(b, a) * 180 / Math.PI
+  if (h < 0) h += 360
+  return [L, C, h]
+}
+
+/** LCh → Lab. Inverse of `labToLch`. hue in degrees. */
+export function lchToLab(L: number, C: number, h: number): [number, number, number] {
+  const hr = h * Math.PI / 180
+  return [L, C * Math.cos(hr), C * Math.sin(hr)]
+}

@@ -13,6 +13,9 @@ import type { MapboxLayer } from './types'
 import { colorToXgis } from './colors'
 import { exprToXgis } from './expressions'
 import { maybeBracket } from './utils'
+import {
+  parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab,
+} from '../tokens/colors'
 
 /** Unwrap Mapbox v8's `["literal", value]` wrapper for any scalar /
  *  array stop value or paint scalar input. The callbacks downstream
@@ -381,9 +384,7 @@ function interpolateZoomStops(
   // same loss-prevention pattern cubic-bezier already uses below.
   if (!Array.isArray(v)) return null
   if (v[0] !== 'interpolate' && v[0] !== 'interpolate-lab' && v[0] !== 'interpolate-hcl') return null
-  if ((v[0] === 'interpolate-lab' || v[0] === 'interpolate-hcl') && warnings) {
-    warnings.push(`${v[0]}(…) approximated as linear-RGB — xgis has no LAB/HCL per-stop evaluator yet.`)
-  }
+  const isLabHcl = v[0] === 'interpolate-lab' || v[0] === 'interpolate-hcl'
   // v8 strict tooling can wrap the curve spec itself as
   // `["literal", ["exponential", 2]]`. Pre-fix the wrapped form left
   // curveSpec[0] === 'literal' (not 'exponential'/'cubic-bezier'),
@@ -472,6 +473,72 @@ function interpolateZoomStops(
       }
       warnings?.push(`["interpolate", ["cubic-bezier", …], ["zoom"], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric stop values can't be densified at compile time.`)
     }
+  }
+  // Interpolate-lab / interpolate-hcl densification (Plan §11 follow-
+  // up). When all stop values are hex colours AND the curve is linear
+  // (exponential lab/hcl is rare in the wild; deferred), resample
+  // each adjacent stop pair in Lab/LCh space at SAMPLES_PER_SEGMENT
+  // intermediate t values, converting each sample back to a hex
+  // colour. The runtime then linearly interpolates between the dense
+  // hex stops in gamma-sRGB — visually approximating the authored
+  // perceptual-colour-space interpolation. Endpoints preserved
+  // exactly so styles that depend on z<=z_first / z>=z_last hex
+  // colours render identically to the authored intent.
+  if (isLabHcl && curve === 'linear') {
+    const labStops: Array<{ zoom: number; L: number; a: number; b: number }> = []
+    let allColour = true
+    for (const s of stops) {
+      if (typeof s.value !== 'string') { allColour = false; break }
+      const rgb = parseSrgbHex(s.value)
+      if (!rgb) { allColour = false; break }
+      const [L, a, b] = srgbToLab(rgb[0], rgb[1], rgb[2])
+      labStops.push({ zoom: s.zoom, L, a, b })
+    }
+    if (allColour) {
+      const SAMPLES_PER_SEGMENT = 6
+      const dense: typeof stops = []
+      const useHcl = v[0] === 'interpolate-hcl'
+      for (let i = 0; i < labStops.length - 1; i++) {
+        const a = labStops[i]!
+        const b = labStops[i + 1]!
+        dense.push({ zoom: a.zoom, value: stops[i]!.value })
+        for (let k = 1; k < SAMPLES_PER_SEGMENT; k++) {
+          const t = k / SAMPLES_PER_SEGMENT
+          const z = a.zoom + (b.zoom - a.zoom) * t
+          let L: number, A: number, B: number
+          if (useHcl) {
+            // Interpolate in LCh (polar) space — hue takes shortest
+            // angular path (mod 360, choose direction by smaller arc).
+            const [La, Ca, ha] = labToLch(a.L, a.a, a.b)
+            const [Lb, Cb, hb] = labToLch(b.L, b.a, b.b)
+            let dh = hb - ha
+            if (dh > 180) dh -= 360
+            if (dh < -180) dh += 360
+            const Lt = La + (Lb - La) * t
+            const Ct = Ca + (Cb - Ca) * t
+            const ht = ha + dh * t
+            ;[L, A, B] = lchToLab(Lt, Ct, ht)
+          } else {
+            L = a.L + (b.L - a.L) * t
+            A = a.a + (b.a - a.a) * t
+            B = a.b + (b.b - a.b) * t
+          }
+          dense.push({ zoom: z, value: labToHex(L, A, B) })
+        }
+      }
+      dense.push({
+        zoom: labStops[labStops.length - 1]!.zoom,
+        value: stops[stops.length - 1]!.value,
+      })
+      warnings?.push(`${v[0]}(…) approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) — perceptually correct in ${useHcl ? 'LCh' : 'Lab'} space at compile time; runtime interpolation between dense hex stops.`)
+      return { curve, base, stops: dense }
+    }
+    // Non-hex stops (data-driven values etc.) fall through with a
+    // graceful-downgrade warning matching the prior behaviour.
+    warnings?.push(`${v[0]}(…) approximated as linear-sRGB — xgis has no LAB/HCL per-stop evaluator at runtime and non-hex stop values can't be densified at compile time.`)
+  } else if (isLabHcl) {
+    // exponential lab/hcl: not densified yet — fall through.
+    warnings?.push(`${v[0]}(…) with non-linear curve approximated as linear-sRGB — compile-time densification only handles the linear curve.`)
   }
   return { curve, base, stops }
 }
