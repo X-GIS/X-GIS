@@ -65,3 +65,6 @@ runtime/src/**/*.js
 !compiler/src/tiler/earcut.d.ts
 *.tsbuildinfo
 nul
+
+# Local Claude Code harness state (per-machine)
+.claude/
