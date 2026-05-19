@@ -989,6 +989,14 @@ function convertSymbolLayer(
   // `label-font-literal` (treating the operator string as a family
   // name). Mirror of the unwrap pattern in parseSymbolPlacementStep.
   const fontStack = unwrapLiteralTuple(layout['text-font'])
+  // Mapbox spec: text-font is an Array of strings (each a font face
+  // name). A single string ("Noto Sans Regular" instead of ["Noto Sans
+  // Regular"]) is a spec violation — silently dropped by the
+  // Array.isArray gate below. Surface so the author sees the typo.
+  if (layout['text-font'] !== undefined && layout['text-font'] !== null
+      && !Array.isArray(fontStack)) {
+    warnings.push(`Symbol layer "${layer.id}" — text-font must be an array of strings per Mapbox spec; got ${typeof layout['text-font']} (${JSON.stringify(layout['text-font']).slice(0, 60)}). Authored font dropped — labels render with the runtime fallback font.`)
+  }
   if (Array.isArray(fontStack) && fontStack.length > 0) {
     let emittedWeight: number | undefined
     let emittedStyle: 'italic' | undefined
