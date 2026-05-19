@@ -700,6 +700,17 @@ function convertSymbolLayer(
     if (translate[0] !== 0) utils.push(`label-translate-x-${fmtSigned(translate[0])}`)
     if (translate[1] !== 0) utils.push(`label-translate-y-${fmtSigned(translate[1])}`)
   }
+  // icon-translate (paint) — symmetric with text-translate but
+  // separate offset that applies only to icons (e.g. shift a POI
+  // icon up by 4px while keeping the label centred). X-GIS symbol
+  // path uses the SAME label-translate-{x,y}-N utilities for both
+  // text and icon today; a dedicated label-icon-translate-{x,y}
+  // pair would thread through IconStage at dispatch time. Surface
+  // the gap explicitly so authors who depend on independent icon
+  // vs text offset (shield + caption styles) see it.
+  if (paint['icon-translate'] !== undefined && paint['icon-translate'] !== null) {
+    warnings.push(`Symbol layer "${layer.id}" — icon-translate set but X-GIS shares the text-translate offset for both icon and text (Plan §4 deferred — needs dedicated label-icon-translate plumbing through IconStage). Icon uses text-translate value if any, else 0.`)
+  }
   // text-radial-offset (em) → label-radial-offset-N. Only meaningful
   // alongside text-variable-anchor: the runtime pushes the label away
   // from the anchor point by this radius in each candidate anchor's
