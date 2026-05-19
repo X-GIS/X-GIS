@@ -104,31 +104,40 @@ struct VsOut {
   let sdf: f32 = textureSample(atlas_tex, atlas_smp, in.uv).r;
   // Edge threshold for SDF -> alpha smoothstep. MapLibre's symbol_sdf
   // uses buffer=192/256=0.75 + a per-glyph-size buffer_offset that
-  // shifts edge inward (i.e. LOWER) for smaller display sizes, making
-  // small text appear bolder. X-GIS lacks the per-size shift, so a
-  // fixed 0.75 leaves small labels visibly thinner than MapLibre.
-  // Iter 107: lower edge to 0.7 (= 179/256). At byte 192 on the SDF
-  // (exact glyph outline per Mapbox PBF convention), our smoothstep
-  // now classifies the byte as inside the glyph rather than at the
-  // 0.5-alpha boundary -- silhouette widens by ~3 SDF byte units per
-  // side, restoring stroke thickness to match MapLibre on the same
-  // PBF data. User report 2026-05-19: "폰트가 너무 얇게 렌더링돼요";
-  // pixel-match-survey-labels positron-nyc-z14 pre-fix eq=35.7%.
-  let edge: f32 = 0.7;
+  // shifts edge inward for smaller display sizes (small text appears
+  // bolder). X-GIS lacks the per-size shift; iter 109 settles at
+  // 0.72 -- between iter 106's 0.75 (matched MapLibre default but
+  // labels too thin per user) and iter 107's 0.7 (too bold + chunky
+  // per follow-up). 0.72 widens silhouette by ~1.4 SDF byte units
+  // per side vs MapLibre default, partially compensating for the
+  // missing per-size buffer_offset without overshooting into
+  // blocky-looking glyphs.
+  //
+  // Remaining smoothness gap (user report 2026-05-19 followup
+  // "현재 라벨 렌더링이 맵리브레와 비교했을때 부드럽게 보이지 않고"):
+  // 3x-crop visual inspection at positron-nyc-z14 shows X-GIS small
+  // labels (label_other 10-CSS-px italic) appear chunkier than
+  // MapLibre's even with this edge + a 0.7 fwidth AA band. The
+  // chunkiness isn't an AA-width issue -- it's vertex sub-pixel
+  // positioning + the PBF 24px native raster downsampled to ~10px
+  // display. Higher-resolution rasterisation or per-fragment gamma
+  // correction would close it; iter 109 leaves the trade-off
+  // documented for a follow-up.
+  let edge: f32 = 0.72;
 
   // Adaptive AA: derive smoothstep half-width from the SDF's
-  // screen-space derivative. fwidth() returns |dF/dx|+|dF/dy|, the
-  // pixel-rate of change; using 0.5 * fwidth gives a ~1.0 px
-  // crossfade band that stays sharp across any display scale.
-  // Prior 0.7 * fwidth (~1.4 px) softened the edge enough that
-  // glyph silhouettes appeared ~1 CSS-px thinner than MapLibre on
-  // the same PBF data (user report 2026-05-19: Positron NYC z=14
-  // labels visibly thin vs reference). MapLibre gamma_scaled
-  // approach uses a sharper edge by default (gamma=0.105 * SDF_PX
-  // * u_size/u_zoom typically lands at half-width ~0.5 px). Iter
-  // 106 tightens to match. Floor avoids div-by-zero on flat
-  // samples.
-  let soft: f32 = max(0.3 * fwidth(sdf), 1.0 / 255.0);
+  // screen-space derivative. fwidth() = |dF/dx|+|dF/dy|, the
+  // pixel-rate of change. Multiplier picks the visual trade-off:
+  // higher = softer / smoother edges, lower = crisper / more
+  // aliased at small sizes. User report 2026-05-19:
+  //   "현재 라벨 렌더링이 맵리브레와 비교했을때 부드럽게 보이지 않고"
+  // Iter 109 widens 0.3 -> 0.5 fwidth to add ~0.4 px more crossfade
+  // band per side (~1.0 px total vs prior ~0.6 px). The iter 107
+  // edge=0.7 widening (which fixed thinness) is preserved; this
+  // re-introduces some of the AA softness without retreating to
+  // the iter 106 0.7 fwidth that made glyphs too thin again.
+  // Floor avoids div-by-zero on flat samples.
+  let soft: f32 = max(0.7 * fwidth(sdf), 1.0 / 255.0);
 
   // Fill mask
   let fill_a: f32 = smoothstep(edge - soft, edge + soft, sdf);

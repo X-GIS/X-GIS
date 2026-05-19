@@ -151,7 +151,7 @@ describe('packUniforms — local (computeSDF) glyph halo normalisation', () => {
 // from 0.75 to 0.7 to compensate for X-GIS lacking MapLibre's per-
 // glyph-size buffer_offset (which shifts edge inward for small text).
 // Keep this constant aligned with text-renderer.ts:edge.
-const EDGE = 0.7
+const EDGE = 0.72
 
 function smoothstep(a: number, b: number, x: number): number {
   if (b === a) return x < a ? 0 : 1
