@@ -601,6 +601,20 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       }
       if (stopArgs.length < 4) return null
 
+      // Mapbox spec: stops must be in strictly ascending order on
+      // the input axis. Non-monotonic stops produce undefined
+      // evaluator output. Warn at compile time so the author sees
+      // the diagnostic rather than silently rendering wrong values.
+      // (Parallel to the paint.ts:interpolateZoomStops gate.)
+      for (let i = 2; i < stopArgs.length; i += 2) {
+        const prev = Number(stopArgs[i - 2]!)
+        const cur = Number(stopArgs[i]!)
+        if (Number.isFinite(prev) && Number.isFinite(cur) && cur <= prev) {
+          warnings.push(`["${op}"] stops not strictly ascending: stop input=${cur} <= prior input=${prev}. Mapbox spec requires monotonically increasing input values — evaluator output is undefined for the violating range.`)
+          break // one warning per interpolate, not per pair
+        }
+      }
+
       // ── Compile-time stop densification for cubic-bezier and Lab/LCh
       // colour-space curves over data-driven inputs (iter 62, mirror of
       // paint.ts:interpolateZoomStops densification for zoom inputs).

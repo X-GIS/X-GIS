@@ -417,6 +417,18 @@ function interpolateZoomStops(
   }
   if (stops.length < 2) return null
 
+  // Mapbox spec: stops must be in strictly ascending order on the
+  // input axis. Non-monotonic stops produce undefined evaluator
+  // output (the runtime scan picks the first range matching the
+  // input). Warn at compile time so the author sees the diagnostic
+  // rather than silently rendering wrong values.
+  for (let i = 1; i < stops.length; i++) {
+    if (stops[i]!.zoom <= stops[i - 1]!.zoom) {
+      warnings?.push(`["${v[0]}"] stops not strictly ascending: stop ${i} zoom=${stops[i]!.zoom} <= stop ${i - 1} zoom=${stops[i - 1]!.zoom}. Mapbox spec requires monotonically increasing input values — evaluator output is undefined for the violating range.`)
+      break // one warning per interpolate, not per pair
+    }
+  }
+
   let curve: 'linear' | 'exponential' = 'linear'
   let base = 1
   if (Array.isArray(curveSpec)) {
