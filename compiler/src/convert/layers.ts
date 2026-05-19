@@ -1608,6 +1608,22 @@ function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
       while (Array.isArray(av) && av.length === 2 && av[0] === 'literal') av = av[1]
       if (av === 'viewport') continue
     }
+    // circle-pitch-alignment='viewport' (Mapbox spec default) matches
+    // X-GIS billboard-rendering default; 'map' (project disc onto
+    // ground plane) is the real gap.
+    if (k === 'circle-pitch-alignment') {
+      let av: unknown = pv
+      while (Array.isArray(av) && av.length === 2 && av[0] === 'literal') av = av[1]
+      if (av === 'viewport' || av === 'auto') continue
+    }
+    // circle-pitch-scale='viewport' matches X-GIS (radius stays
+    // constant on screen). 'map' (Mapbox spec default — radius
+    // scales with zoom in map space) is the real gap.
+    if (k === 'circle-pitch-scale') {
+      let av: unknown = pv
+      while (Array.isArray(av) && av.length === 2 && av[0] === 'literal') av = av[1]
+      if (av === 'viewport') continue
+    }
     ignored.push(k)
   }
   // Reuse the safePropsBag-guarded `layout` const from the top of
