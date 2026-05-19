@@ -201,6 +201,10 @@ struct VertexOutput {
   // world position from view_w in the fragment.
   @location(5) abs_merc_x: f32,
   @location(6) abs_merc_y: f32,
+  // World-space z (extrude height) — fragment computes face normal
+  // via cross(dFdx, dFdy) on (abs_merc_x, abs_merc_y, world_z) for
+  // directional shading. Iter 128 building-light fix.
+  @location(7) world_z: f32,
 }
 
 struct FragmentOutput {
@@ -287,6 +291,7 @@ fn vs_main(
   out.wall_blend = 1.0; // DSFUN line pipeline isn't extruded; full brightness
   out.abs_merc_x = abs_merc_x;
   out.abs_merc_y = abs_merc_y;
+  out.world_z = 0.0; // non-extruded path
   return out;
 }
 
@@ -384,6 +389,7 @@ fn vs_main_quantized(
   out.wall_blend = select(1.0, select(0.0, 1.0, is_top), u.extrude_height_m > 0.0);
   out.abs_merc_x = abs_merc_x;
   out.abs_merc_y = abs_merc_y;
+  out.world_z = z_world;
   return out;
 }
 
@@ -457,6 +463,7 @@ fn vs_main_quantized_extruded(
   out.wall_blend = select(0.0, 1.0, z_attr > 0.0);
   out.abs_merc_x = abs_merc_x;
   out.abs_merc_y = abs_merc_y;
+  out.world_z = z_attr;
   return out;
 }
 
@@ -492,22 +499,22 @@ fn fs_fill(input: VertexOutput) -> FragmentOutput {
     if (input.abs_merc_y > u.clip_bounds.w) { discard; }
   }
   var out: FragmentOutput;
-  // Fill-extrusion shading. Approximates MapLibre default light
-  // model with NO Mapbox top-level light support yet (Phase 9
-  // followup needs per-vertex normals + a light-direction uniform).
-  // Two contributions:
-  //   1. Vertical gradient (fill-extrusion-vertical-gradient=true
-  //      default per Mapbox spec). Base shade 0.6 → top shade 1.0.
-  //      Pre-fix base 0.55 → top 1.0 (45% range vs MapLibre's 40%);
-  //      the wider range visually darkened buildings vs MapLibre on
-  //      the same style at the same camera. Match MapLibre default.
-  //   2. is_top flag bakes in an extra +5% for roof faces vs the
-  //      top of side walls. MapLibre's normal-based diffuse picks
-  //      this up because the roof normal points +Z while wall
-  //      normals point sideways — without a real normal we
-  //      approximate via the existing is_top vertex bit (writes
-  //      wall_blend=1.0 already for roof; the extra bump represents
-  //      the dot(up, light_dir) bias).
+  // Fill-extrusion shading — iter 128 directional light via fragment
+  // screen-space derivatives. Iter 129 tweak: use tile-local position
+  // for derivatives (abs_merc_x/y are 1e7 m at typical zooms; dFdx
+  // of large numbers loses precision and adds graininess to walls).
+  //
+  // Face normal is computed as cross(dFdx(p), dFdy(p)) where p is in
+  // tile-local meters + world z. Wall fragments → horizontal outward
+  // normal; roof fragments → +Z. abs() the dot product so winding
+  // doesn't matter.
+  //
+  // Light direction matches MapLibre default (~SSW + 30° elevation):
+  // light_dir ≈ (-0.4, -0.7, 0.6).
+  // Iter 129 final: derivative-based normal proved too noisy at z>=17
+  // (fragment 2x2 quads span multiple small triangles → mixed normal).
+  // Restore vertical gradient + roof_bonus for stable shading; proper
+  // per-vertex normal attribute is a separate refactor.
   let v_shade = 0.6 + 0.4 * input.wall_blend;
   let roof_bonus = select(0.0, 0.05, input.wall_blend >= 0.999);
   let wall_shade = min(1.0, v_shade + roof_bonus);
@@ -587,7 +594,10 @@ fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
     if (input.abs_merc_y < u.clip_bounds.y) { discard; }
     if (input.abs_merc_y > u.clip_bounds.w) { discard; }
   }
-  let wall_shade = 0.55 + 0.45 * input.wall_blend;
+  // OIT fill-extrusion shading — same as fs_fill (iter 129 final).
+  let v_shade = 0.6 + 0.4 * input.wall_blend;
+  let roof_bonus = select(0.0, 0.05, input.wall_blend >= 0.999);
+  let wall_shade = min(1.0, v_shade + roof_bonus);
   let rgb = u.fill_color.rgb * wall_shade;
   // Rim alpha fade — same as fs_fill. Multiplies into alpha so
   // OIT accumulation respects the soft-rim transition on globe /
@@ -1794,16 +1804,8 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
         layout: pipelineLayout,
         vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
         fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
-        // Two-sided rendering. The earlier `cullMode: 'back'` saved
-        // ~half the extruded fragments BUT cut a hole into any concave
-        // building (dome interior, courtyard, atrium) — once the
-        // camera tilts enough to see the inside the cull drops the
-        // inward-facing wall and the user looks straight through.
-        // Mapbox / MapLibre `fill-extrusion` rendering is unculled for
-        // the same reason: source data carries arbitrary footprints
-        // and the inside-out artefact is far more visible than the
-        // ~2× fragment cost. Depth test + outward-winding emission
-        // still resolve overdraw correctly.
+        // Two-sided rendering. Concave footprints (dome, courtyard)
+        // need back walls visible when the camera tilts to see inside.
         primitive: { topology: 'triangle-list', cullMode: 'none' },
         depthStencil: STENCIL_WRITE, multisample: msaaState,
         label: `fill-pipeline-extruded${suffix}`,
@@ -1956,13 +1958,18 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
       layout: pipelineLayout,
       vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
       fragment: { module: shaderModule, entryPoint: 'fs_oit_translucent', targets: oitTargets },
-      // Two-sided. Translucent OIT specifically benefits from front+
-      // back contributions to the weighted-blend accum (otherwise
-      // the inside surface of a translucent dome / shell adds
-      // nothing and the volume looks empty from one side). Matches
-      // the opaque-extruded pipeline above so opaque <-> translucent
-      // transitions don't reveal cull seams.
-      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      // Iter 130: cullMode 'back' for OIT translucent extruded path.
+      // Liberty's fill-extrusion-opacity=0.8 routes here. Pre-iter-130
+      // cull=none made every wall contribute twice to the weighted-
+      // blend accum (front wall AND back wall of the same building),
+      // raising the building's effective opacity from 0.8 → 0.96 and
+      // darkening it noticeably (user-reported on Seoul Liberty z=16
+      // pitch=60). Back-face cull drops the inward wall so each
+      // building renders at its authored opacity. Trade-off: concave
+      // building interiors (dome, courtyard) lose their inward-facing
+      // wall when the camera tilts to look inside — acceptable for
+      // OFM Liberty's rectangular-block footprint corpus.
+      primitive: { topology: 'triangle-list', cullMode: 'back', frontFace: 'ccw' },
       // OIT pass attaches the opaque MSAA depth-stencil so
       // translucent fragments depth-test against the full opaque
       // scene. depthWriteEnabled=false keeps OIT
