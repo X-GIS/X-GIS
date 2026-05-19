@@ -714,6 +714,9 @@ export class TileCatalog {
    *  _prefetch-cancelled.spec.ts saw 23 901 aborts over 5 s of a
    *  stationary camera at zoom 3.6). */
   private _prefetchKeys: Set<number> = new Set()
+  // Iter 131 perf: reused merged-active-keys Set for cancelStale().
+  // Avoids `new Set(activeKeys)` allocation per frame.
+  private readonly _mergedScratch: Set<number> = new Set()
   /** Frames since last prefetchTiles call. Used to age out the
    *  shield so genuinely abandoned background fetches can still be
    *  cancelled — e.g., camera direction reverses and the previously-
@@ -848,7 +851,19 @@ export class TileCatalog {
    *  no-ops here. */
   cancelStale(activeKeys: Set<number>): void {
     const needsCopy = this._prefetchKeys.size > 0 || this._skeletonKeys.size > 0
-    const merged: Set<number> = needsCopy ? new Set(activeKeys) : activeKeys
+    // Iter 131 perf: reuse a single Set across frames when copy needed.
+    // Pre-fix allocated `new Set(activeKeys)` per frame — at z=14 OFM
+    // Liberty Seoul activeKeys has ~300 entries, ~600 Set ops + GC on
+    // every frame. Profile attribution: cancelStale 104 ms (2.3 %) of
+    // a 4 s window on Seoul Liberty z16-p60 perf survey.
+    let merged: Set<number>
+    if (needsCopy) {
+      merged = this._mergedScratch
+      merged.clear()
+      for (const k of activeKeys) merged.add(k)
+    } else {
+      merged = activeKeys
+    }
     if (this._prefetchKeys.size > 0) {
       for (const k of this._prefetchKeys) merged.add(k)
     }
