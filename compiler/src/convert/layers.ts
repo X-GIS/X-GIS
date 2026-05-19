@@ -1244,6 +1244,28 @@ function convertSymbolLayer(
   if (paint['icon-color'] !== undefined && paint['icon-color'] !== null) {
     warnings.push(`Symbol layer "${layer.id}" — icon-color set but X-GIS' IconStage doesn't yet tint SDF sprites (Plan §4 deferred — needs per-vertex tint attribute + fragment multiply). Icon renders with the atlas texel verbatim.`)
   }
+  // icon-halo-color / icon-halo-width / icon-halo-blur: SDF icon halo
+  // — same Plan §4 dependency as icon-color. Text halo is supported
+  // because TextStage emits SDF glyphs; icons are PNG sprites today
+  // and need an SDF icon path. Surface specific gap warnings rather
+  // than burying in the generic ignoredText blob.
+  if (paint['icon-halo-color'] !== undefined && paint['icon-halo-color'] !== null) {
+    warnings.push(`Symbol layer "${layer.id}" — icon-halo-color set but X-GIS' IconStage doesn't yet support SDF icon halos (Plan §4 deferred — needs an SDF icon rendering path; PNG sprites can't carry a halo).`)
+  }
+  if (paint['icon-halo-width'] !== undefined && paint['icon-halo-width'] !== null) {
+    warnings.push(`Symbol layer "${layer.id}" — icon-halo-width set but X-GIS' IconStage has no SDF icon halo path (Plan §4 — see icon-halo-color).`)
+  }
+  if (paint['icon-halo-blur'] !== undefined && paint['icon-halo-blur'] !== null) {
+    warnings.push(`Symbol layer "${layer.id}" — icon-halo-blur set but X-GIS' IconStage has no SDF icon halo path (Plan §4 — see icon-halo-color).`)
+  }
+  // icon-text-fit: stretch icon to fit text bbox per Mapbox spec
+  // (`none` / `width` / `height` / `both`). X-GIS' IconStage emits
+  // fixed-quad icons sized by icon-size; per-label-bbox sizing needs
+  // a different vertex placement pipeline (Plan §4).
+  const iconTextFitRaw = unwrapLiteralScalar(layout['icon-text-fit'])
+  if (typeof iconTextFitRaw === 'string' && iconTextFitRaw !== 'none') {
+    warnings.push(`Symbol layer "${layer.id}" — icon-text-fit "${iconTextFitRaw}" set but X-GIS' IconStage doesn't stretch icons to text bbox yet (Plan §4 deferred — needs per-label-bbox quad placement). Icon renders at its native icon-size.`)
+  }
 
   const ignoredText: string[] = []
   // Unsupported symbol properties — surface ONE consolidated note per
@@ -1256,11 +1278,9 @@ function convertSymbolLayer(
     'text-max-angle',        // along-path glyph orientation clamp
     'text-opacity',          // Per-property fade; text uses layer opacity today
     // icon-color: handled by the specific gap warning above (iter 88)
-    'icon-halo-color',
-    'icon-halo-width',
-    'icon-halo-blur',
+    // icon-halo-color / -width / -blur: specific gap warnings (iter 89)
+    // icon-text-fit: specific gap warning (iter 89)
     'icon-rotation-alignment',
-    'icon-text-fit',
     // Symbol placement controls — `symbol-z-order` and
     // `symbol-avoid-edges` skip labels at tile boundaries / control
     // draw ordering. `symbol-sort-key` is extracted separately into
