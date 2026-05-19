@@ -1,0 +1,41 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Fixture conversion structural snapshot > maplibre-demotiles — converted output fingerprint 1`] = `
+{
+  "layerCount": 8,
+  "outputBytes": 13948,
+  "outputLines": 138,
+  "outputSha256": "d2d794f99c227da5c6864b43577b2e2ed8b1f645affd0d7787831127b337a1fb",
+  "warningCount": 1,
+}
+`;
+
+exports[`Fixture conversion structural snapshot > openfreemap-bright — converted output fingerprint 1`] = `
+{
+  "layerCount": 119,
+  "outputBytes": 40779,
+  "outputLines": 923,
+  "outputSha256": "a8c459597425a67de7c07bb33a3123f2603b0c2b4fdaab5e6574d3cbbb5e2a26",
+  "warningCount": 4,
+}
+`;
+
+exports[`Fixture conversion structural snapshot > openfreemap-liberty — converted output fingerprint 1`] = `
+{
+  "layerCount": 111,
+  "outputBytes": 36710,
+  "outputLines": 866,
+  "outputSha256": "b11ef65da9d317f7a01385332ea7bea351d47c3b9b32f6caed42097feaa95334",
+  "warningCount": 8,
+}
+`;
+
+exports[`Fixture conversion structural snapshot > openfreemap-positron — converted output fingerprint 1`] = `
+{
+  "layerCount": 55,
+  "outputBytes": 22190,
+  "outputLines": 468,
+  "outputSha256": "44dc6cde12473f6be10df3eaea72e9872158e98855b1e03e913791e6f81eb59b",
+  "warningCount": 3,
+}
+`;
