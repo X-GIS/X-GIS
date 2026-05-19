@@ -170,13 +170,21 @@ export class GlyphAtlasHost {
   }
 
   /** Ensure every glyph in `text` is in the atlas. Returns one
-   *  GlyphInfo per codepoint in iteration order (Unicode-aware
-   *  via `for...of`, so surrogate pairs count once). */
+   *  GlyphInfo per codepoint (Unicode-aware: surrogate pairs counted
+   *  once). Iter 133 perf: indexed codePointAt iteration instead of
+   *  `for...of`; the iterator-protocol path allocates a ~50-byte
+   *  StringIterator + per-step result `{value, done}` object on
+   *  every char, dominant GC contributor at z=14 OFM Liberty Seoul
+   *  with ~300 labels × ~10 chars/frame = ~3 k iterator allocs/frame. */
   ensureString(fontKey: string, text: string): GlyphInfo[] {
     const out: GlyphInfo[] = []
-    for (const ch of text) {
-      const cp = ch.codePointAt(0)!
+    const len = text.length
+    let i = 0
+    while (i < len) {
+      const cp = text.codePointAt(i)!
       out.push(this.ensure(fontKey, cp))
+      // Surrogate pair (BMP supplement) spans 2 UTF-16 code units.
+      i += cp > 0xFFFF ? 2 : 1
     }
     return out
   }

@@ -1167,16 +1167,18 @@ export class VectorTileRenderer {
     const clampLat = (v: number): number => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
     const STRIDE = 10  // [mx_h, my_h, mx_l, my_l, feat_id, arc, tin_x, tin_y, tout_x, tout_y]
 
-    // Same visible-only walk as forEachLabelFeature — see comment
-    // there for the 30× iteration-count win at Bright z=14 and the
-    // world-copy dedup rationale.
-    const rawLabelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
-    const labelKeys = rawLabelKeys.length > 0 ? [...new Set(rawLabelKeys)] : rawLabelKeys
+    // Same visible-only walk as forEachLabelFeature. Iter 133 perf:
+    // reuse _labelKeyScratch Set for dedup.
+    const seen = this._labelKeyScratch
+    seen.clear()
+    const neededKeys = this._frameTileCache?.neededKeys
+    if (neededKeys) for (const k of neededKeys) seen.add(k)
+    for (const k of this.stableKeys) seen.add(k)
     // Reusable across tiles to avoid per-tile Map allocation churn.
     // Holds the longest segment seen so far for each featId in the
     // CURRENT tile's iteration; cleared at tile boundary.
     const best = new Map<number, { a: number; b: number; len2: number }>()
-    for (const key of labelKeys) {
+    for (const key of seen) {
       const tileData = this.source.getTileData(key, sliceLayer)
       if (!tileData?.lineVertices || !tileData?.lineIndices) continue
       const lv = tileData.lineVertices
@@ -1257,13 +1259,18 @@ export class VectorTileRenderer {
     const clampLat = (v: number): number => Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, v))
     const STRIDE = 10
 
-    // Same dedup rationale as forEachLabelFeature — see comment there.
-    const rawLabelKeys = this._frameTileCache?.neededKeys ?? this.stableKeys
-    const labelKeys = rawLabelKeys.length > 0 ? [...new Set(rawLabelKeys)] : rawLabelKeys
+    // Same dedup rationale as forEachLabelFeature — iter 132/133 perf:
+    // reuse _labelKeyScratch Set instead of `[...new Set(rawLabelKeys)]`
+    // array+Set allocation per call.
+    const seen = this._labelKeyScratch
+    seen.clear()
+    const neededKeys = this._frameTileCache?.neededKeys
+    if (neededKeys) for (const k of neededKeys) seen.add(k)
+    for (const k of this.stableKeys) seen.add(k)
     // Reusable buffers grown as needed — most polylines fit in 32 verts.
     let xs = new Float64Array(64)
     let ys = new Float64Array(64)
-    for (const key of labelKeys) {
+    for (const key of seen) {
       const tileData = this.source.getTileData(key, sliceLayer)
       if (!tileData?.lineVertices || !tileData?.lineIndices) continue
       const lv = tileData.lineVertices
