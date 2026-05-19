@@ -253,17 +253,31 @@ fn project_geom(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, ref_lon: f32
   let clon = proj_params.y;
   let clat = proj_params.z;
   if (t > 0.5 && t < 2.5) {
-    // equirect / natural_earth: unwrap the camera-relative lon delta
-    // toward the tile centre's wrapped delta.
-    let ref_d = wrap_lon_delta(ref_lon - clon);
-    let d = unwrap_lon_near(lon_deg - clon, ref_d);
-    if (t < 1.5) { return proj_equirectangular_d(d, lat_deg); }
-    return proj_natural_earth_d(d, lat_deg);
+    // Iter 126: equirect / natural_earth world-copy. ref_lon (tile
+    // centre lon, absolute including ox*360 offset) encodes which
+    // world this tile belongs to:
+    //   wo = floor((ref_lon - clon + 180) / 360)
+    // Project as if in primary world (lon - wo*360) so the per-tile
+    // unwrap operates in a single 360° branch, then add wo*world_width
+    // to projected x so adjacent copies land at the right screen
+    // offset. wo=0 collapses to the pre-iter-126 single-world path.
+    let wo = floor((ref_lon - clon + 180.0) / 360.0);
+    let lon_primary = lon_deg - wo * 360.0;
+    let ref_primary = ref_lon - wo * 360.0;
+    let ref_d = wrap_lon_delta(ref_primary - clon);
+    let d = unwrap_lon_near(lon_primary - clon, ref_d);
+    let world_off_m = wo * 2.0 * PI * EARTH_R;
+    var p: vec2<f32>;
+    if (t < 1.5) { p = proj_equirectangular_d(d, lat_deg); }
+    else { p = proj_natural_earth_d(d, lat_deg); }
+    p.x = p.x + world_off_m;
+    return p;
   }
   if (t > 5.5) {
     // oblique_mercator: unwrap the rotated longitude toward the tile
     // centre's rotated longitude (evaluated at the projection-centre
-    // latitude so it is a per-tile constant).
+    // latitude so it is a per-tile constant). World-copy support
+    // deferred (oblique tile selection still hard-codes ox=0).
     let r = oblique_rot(lon_deg, lat_deg, clon, clat);
     let ref_r = oblique_rot(ref_lon, clat, clon, clat);
     let lam_u = unwrap_rad_near(r.x, ref_r.x);

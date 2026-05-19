@@ -324,7 +324,20 @@ const SINGLE_WORLD: readonly number[] = [0]
  *  return WORLD_COPIES for projType 1 + 2. Tracked but not landed
  *  this session (multi-file change). */
 export function worldCopiesFor(projType: number): readonly number[] {
-  return projType === 0 ? WORLD_COPIES : SINGLE_WORLD
+  // Iter 126 — pseudocyl projections (equirect, NE) wrap in projected x
+  // and benefit from the same WORLD_COPIES enumeration Mercator uses.
+  // Requires three coordinated changes for the data to actually reach
+  // pixels (one-shot attempt at iter 122-124 failed because it only
+  // touched this function):
+  //   1. (this function) emit world-copy tile coords from tiles-sse
+  //   2. vector-tile-renderer.ts z=0 root-split must enumerate the
+  //      4 z=1 children PER world-copy (was: dropped ox != 0 entries)
+  //   3. shaders/projection.ts project_geom must detect wo from
+  //      ref_lon and add wo*world_width to projected x
+  // oblique_mercator (6) still excluded — its routing through
+  // globeVisibleTiles hard-codes ox=0 and needs a separate fix.
+  if (projType === 0 || projType === 1 || projType === 2) return WORLD_COPIES
+  return SINGLE_WORLD
 }
 
 /** Create an empty uniform buffer */

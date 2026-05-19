@@ -3005,19 +3005,33 @@ export class VectorTileRenderer {
       // goes through `globeVisibleTiles` above (different branch).
       const projTypeForSplit = (camera as { projType?: number }).projType ?? 0
       if (projTypeForSplit !== 0 && projTypeForSplit !== 7 && !camera.globeMode) {
+        // Iter 126: enumerate z=0 → 4 z=1 children PER WORLD COPY.
+        // Pre-iter-126 dropped every z=0 entry and pushed 4 z=1 children
+        // with hard-coded ox=0 — collapsed world-copy variants into the
+        // primary world and made equirect / NE world-copy invisible.
         const withoutRoot: typeof tiles = []
-        let rootSeen = false
+        const worldCopiesWithRoot = new Set<number>()
         for (const t of tiles) {
-          if (t.z === 0 && t.x === 0 && t.y === 0) { rootSeen = true; continue }
+          if (t.z === 0 && t.x === 0 && t.y === 0) {
+            // ox - x for z=0 root = ox (since x = 0). Track per world.
+            worldCopiesWithRoot.add(t.ox ?? 0)
+            continue
+          }
           withoutRoot.push(t)
         }
-        if (rootSeen) {
-          withoutRoot.push(makeTileCoord(1, 0, 0, 0))
-          withoutRoot.push(makeTileCoord(1, 0, 1, 0))
-          withoutRoot.push(makeTileCoord(1, 1, 0, 0))
-          withoutRoot.push(makeTileCoord(1, 1, 1, 0))
-          tiles = withoutRoot
+        for (const wc of worldCopiesWithRoot) {
+          // makeTileCoord(z, wrappedX, y, worldCopy) computes
+          // ox = wrappedX + worldCopy * 2^z. Pass wc directly as
+          // worldCopy — NOT wc*2 (that doubled the offset and pushed
+          // world+1 children into world+2 slots, which fell outside
+          // the viewport and left only world 0 + world-1 rendering
+          // visibly on a fresh wc-enabled run).
+          withoutRoot.push(makeTileCoord(1, 0, 0, wc))
+          withoutRoot.push(makeTileCoord(1, 0, 1, wc))
+          withoutRoot.push(makeTileCoord(1, 1, 0, wc))
+          withoutRoot.push(makeTileCoord(1, 1, 1, wc))
         }
+        if (worldCopiesWithRoot.size > 0) tiles = withoutRoot
       }
 
       // Phase 2 selector-shape invariant — single-zoom emission was

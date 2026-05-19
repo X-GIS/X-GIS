@@ -22,16 +22,16 @@ describe('worldCopiesFor — current world-copy enumeration state', () => {
     expect(Array.from(copies)).toEqual([-2, -1, 0, 1, 2])
   })
 
-  it('Equirectangular (1): currently single-world (plan §5.2 gap)', () => {
+  it('Equirectangular (1): world-copy enumeration (iter 126)', () => {
     const copies = worldCopiesFor(1)
-    expect(copies.length).toBe(1)
-    expect(Array.from(copies)).toEqual([0])
+    expect(copies.length).toBe(5)
+    expect(Array.from(copies)).toEqual([-2, -1, 0, 1, 2])
   })
 
-  it('Natural Earth (2): currently single-world (plan §5.2 gap)', () => {
+  it('Natural Earth (2): world-copy enumeration (iter 126)', () => {
     const copies = worldCopiesFor(2)
-    expect(copies.length).toBe(1)
-    expect(Array.from(copies)).toEqual([0])
+    expect(copies.length).toBe(5)
+    expect(Array.from(copies)).toEqual([-2, -1, 0, 1, 2])
   })
 
   it('Orthographic (3): single-world (hemispherical, not applicable)', () => {
@@ -64,9 +64,8 @@ describe('worldCopiesFor — current world-copy enumeration state', () => {
     for (let t = 0; t <= 7; t++) {
       if (worldCopiesFor(t).length > 1) multi++
     }
-    // Pre-§5.2: 1. Post-§5.2 fix: 3 (Mercator + Equirect + NE).
-    // Pin at 1 so the partial fix that flips equirect WITHOUT WGSL
-    // support visibly breaks this gate.
-    expect(multi).toBe(1)
+    // Iter 126: Mercator (0) + Equirect (1) + NE (2). Oblique Mercator
+    // (6) excluded pending globeVisibleTiles ox plumbing.
+    expect(multi).toBe(3)
   })
 })

@@ -60,18 +60,19 @@ const PROJECTIONS: { name: string; expectMultiCopy: boolean }[] = [
 ]
 
 for (const proj of PROJECTIONS) {
-  // Iter 124 finding: non-Mercator world-copy needs multi-file work in
-  // tiles-sse selector + WGSL project_geom + VTR ox-handling. Investigated
-  // 2026-05-19 but a clean fix didn't land in one session. Equirect / NE /
-  // oblique-merc DO render their primary world but the world-copy
-  // enumeration the camera-shift mechanism uses for Mercator doesn't
-  // produce visible adjacent copies. Test kept as a documented gap; the
-  // multi-world expectation only applies to Mercator until the fix lands.
-  const isXfail = proj.expectMultiCopy && proj.name !== 'mercator'
+  // Iter 126: equirect + NE now enumerate world copies via the
+  // worldCopiesFor + root-split + project_geom triple. Oblique-merc
+  // still routes through globeVisibleTiles with hard-coded ox=0; skip.
+  const isXfail = proj.name === 'oblique_mercator'
   const wrap = isXfail ? test.skip : test
   wrap(`world-copy ${proj.name}`, async ({ page }) => {
     test.setTimeout(60_000)
     await page.setViewportSize(VIEW)
+    const errors: string[] = []
+    page.on('console', (m) => {
+      if (m.type() === 'error') errors.push(m.text())
+    })
+    page.on('pageerror', (e) => errors.push(`PAGE_ERROR: ${e.message}`))
     await page.goto(`/demo.html?id=minimal&e2e=1&proj=${proj.name}#0/0/0`, {
       waitUntil: 'domcontentloaded',
     })
@@ -132,6 +133,10 @@ for (const proj of PROJECTIONS) {
       + `left nonBg=${left.nonBgCount}/${left.total} `
       + `right nonBg=${right.nonBgCount}/${right.total}`,
     )
+    if (errors.length > 0) {
+      // eslint-disable-next-line no-console
+      console.log(`[world-copy ${proj.name}] ERRORS: ` + errors.slice(0, 5).join(' | '))
+    }
 
     // Centre column must always have content (the primary world).
     expect(centre.nonBgCount).toBeGreaterThan(centre.total * 0.05)
