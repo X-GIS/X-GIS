@@ -184,9 +184,16 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
         && (p['line-color'] === undefined || p['line-color'] === null)) {
       warnings.push(`Layer "${layer.id}" — line-pattern declared without line-color; the layer's only visual is a bitmap stroke which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
     }
+    // line-gradient — value-aware: when present, surface the specific
+    // gap reason (needs line-progress accessor) instead of the
+    // generic ignored-properties warn. Removed from surfaceIgnoredPaint
+    // candidates so the specific message isn't duplicated.
+    if (p['line-gradient'] !== undefined && p['line-gradient'] !== null) {
+      warnings.push(`Layer "${layer.id}" — line-gradient set but requires the line-progress accessor + per-fragment arc-length varying through the line renderer; not implemented (Plan §4 deferred). Layer falls back to solid line-color.`)
+    }
     surfaceIgnoredPaint(layer.id, p, warnings, [
       'line-translate', 'line-translate-anchor', 'line-sort-key',
-      'line-round-limit', 'line-gradient',
+      'line-round-limit',
     ])
   } else if (layer.type === 'fill-extrusion') {
     addFill(out, p['fill-extrusion-color'], warnings)
