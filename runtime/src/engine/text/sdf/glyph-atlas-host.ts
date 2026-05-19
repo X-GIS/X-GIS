@@ -74,8 +74,11 @@ export class GlyphAtlasHost {
   private readonly rasterizer: GlyphRasterizer
   private readonly fontSize: number
   private readonly sdfRadius: number
-  /** Per-glyph layout metrics, keyed identically to AtlasState. */
-  private readonly metrics = new Map<string, CachedMetrics>()
+  /** Per-glyph layout metrics, keyed by numeric encoding (iter 129 —
+   *  was Map<string> with template-literal allocations dominating the
+   *  glyph-atlas hot path at z=14 / z=16-p60). Uses the same
+   *  fontKey→fontId interning as AtlasState below. */
+  private readonly metrics = new Map<number, CachedMetrics>()
   /** Newly rasterised glyphs awaiting GPU upload. Drained by
    *  the GPU wrapper via `consumeDirty()`. */
   private dirty: DirtyGlyph[] = []
@@ -87,7 +90,12 @@ export class GlyphAtlasHost {
    *  bound, metrics overwrite, dirty queue gets a fresh upload. Used
    *  by the PBF rasterizer to upgrade a Canvas2D-fallback glyph after
    *  the async PBF fetch lands. */
-  private readonly stale = new Set<string>()
+  private readonly stale = new Set<number>()
+  // fontKey → small integer id (iter 129 perf, mirrors AtlasState's
+  // own interning so callers don't pay the string-allocation cost on
+  // every metricsKey() call).
+  private readonly fontKeyId = new Map<string, number>()
+  private nextFontId = 0
 
   constructor(
     config: AtlasConfig,
@@ -204,8 +212,15 @@ export class GlyphAtlasHost {
 
   // ─── internals ────────────────────────────────────────────────
 
-  private metricsKey(k: GlyphKey): string {
-    return `${k.fontKey}\x1f${k.codepoint}\x1f${k.sdfRadius}`
+  private metricsKey(k: GlyphKey): number {
+    // Same encoding shape as AtlasState.keyToNum — sdfRadius 7b |
+    // codepoint 21b | fontId 25b. Lazy fontKey → fontId interning.
+    let id = this.fontKeyId.get(k.fontKey)
+    if (id === undefined) {
+      id = this.nextFontId++
+      this.fontKeyId.set(k.fontKey, id)
+    }
+    return id * 0x10000000 + k.codepoint * 0x80 + (k.sdfRadius & 0x7F)
   }
 
   private assembleInfo(

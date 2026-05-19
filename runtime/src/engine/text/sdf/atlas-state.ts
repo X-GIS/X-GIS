@@ -53,7 +53,9 @@ export interface GlyphKey {
 
 interface SlotEntry {
   slot: AtlasSlot
-  keyStr: string
+  fontKey: string
+  codepoint: number
+  sdfRadius: number
 }
 
 export interface EnsureResult {
@@ -74,8 +76,22 @@ export class AtlasState {
   private readonly slotsPerPage: number
   /** All free slots, newest-released last. Used as a stack. */
   private readonly freeSlots: AtlasSlot[] = []
-  /** keyStr → entry. Map iteration order = LRU order (oldest first). */
-  private readonly entries = new Map<string, SlotEntry>()
+  /** numeric-key → entry. Map iteration order = LRU order (oldest first).
+   *  Iter 129 perf: replaced Map<string, SlotEntry> + template-literal
+   *  `${fontKey}|${codepoint}|${sdfRadius}` per call with Map<number, ...>
+   *  keyed by `fontId<<28 | codepoint<<7 | sdfRadius`. fontId comes from
+   *  the lazy fontKey→fontId interning below. CPU profile on Seoul
+   *  Liberty z16-p60 showed keyToString + ensure dominated the glyph
+   *  atlas hot path (~10 % of frame at z=14, ~15 % at z=16-p60); the
+   *  numeric encoding eliminates the per-call string allocation. */
+  private readonly entries = new Map<number, SlotEntry>()
+  // fontKey → small integer id assigned in order of first sighting.
+  // Reverse map for parseKey eviction-path. Bounded by font diversity
+  // (typically < 16 fonts per style — well under the 4-bit id we'd
+  // theoretically need; allow up to 65536 for safety).
+  private readonly fontKeyId = new Map<string, number>()
+  private readonly fontIdKey: string[] = []
+  private nextFontId = 0
   private pageCountInternal = 0
   private hitCount = 0
   private missCount = 0
@@ -98,19 +114,19 @@ export class AtlasState {
   /** Look up an existing slot WITHOUT touching LRU order. Returns
    *  undefined if not present. Use `ensure` for the normal path. */
   peek(key: GlyphKey): AtlasSlot | undefined {
-    return this.entries.get(this.keyToString(key))?.slot
+    return this.entries.get(this.keyToNum(key))?.slot
   }
 
   /** Ensure a slot is allocated for `key`. On hit: bumps LRU,
    *  returns existing slot with `created: false`. On miss: allocates
    *  (or evicts the LRU), returns slot with `created: true`. */
   ensure(key: GlyphKey): EnsureResult {
-    const ks = this.keyToString(key)
-    const existing = this.entries.get(ks)
+    const kn = this.keyToNum(key)
+    const existing = this.entries.get(kn)
     if (existing !== undefined) {
       // Hit — bump LRU by re-insert.
-      this.entries.delete(ks)
-      this.entries.set(ks, existing)
+      this.entries.delete(kn)
+      this.entries.set(kn, existing)
       this.hitCount += 1
       return { slot: existing.slot, created: false }
     }
@@ -122,12 +138,12 @@ export class AtlasState {
     let evictedKey: GlyphKey | undefined
     if (slot === undefined) {
       // No free slot: evict LRU.
-      const oldestKey = this.entries.keys().next().value
-      if (oldestKey !== undefined) {
-        const evicted = this.entries.get(oldestKey)!
-        this.entries.delete(oldestKey)
+      const oldestKn = this.entries.keys().next().value as number | undefined
+      if (oldestKn !== undefined) {
+        const evicted = this.entries.get(oldestKn)!
+        this.entries.delete(oldestKn)
         slot = evicted.slot
-        evictedKey = this.parseKey(oldestKey)
+        evictedKey = { fontKey: evicted.fontKey, codepoint: evicted.codepoint, sdfRadius: evicted.sdfRadius }
         this.evictionCount += 1
       } else {
         // Nothing to evict — grow.
@@ -135,17 +151,22 @@ export class AtlasState {
         slot = this.freeSlots.pop()!
       }
     }
-    this.entries.set(ks, { slot, keyStr: ks })
+    this.entries.set(kn, {
+      slot,
+      fontKey: key.fontKey,
+      codepoint: key.codepoint,
+      sdfRadius: key.sdfRadius,
+    })
     return { slot, created: true, evictedKey }
   }
 
   /** Bump an entry's LRU position without changing its slot. */
   touch(key: GlyphKey): void {
-    const ks = this.keyToString(key)
-    const e = this.entries.get(ks)
+    const kn = this.keyToNum(key)
+    const e = this.entries.get(kn)
     if (e === undefined) return
-    this.entries.delete(ks)
-    this.entries.set(ks, e)
+    this.entries.delete(kn)
+    this.entries.set(kn, e)
   }
 
   /** Total slots currently holding a glyph. */
@@ -189,19 +210,21 @@ export class AtlasState {
     // handles non-contiguous lookups.
   }
 
-  private keyToString(k: GlyphKey): string {
-    // `` separator avoids collisions with anything plausible
-    // in fontKey. (Mapbox font stack names contain spaces, dashes,
-    // commas — never control characters.)
-    return `${k.fontKey}${k.codepoint}${k.sdfRadius}`
-  }
-
-  private parseKey(ks: string): GlyphKey {
-    const parts = ks.split('')
-    return {
-      fontKey: parts[0]!,
-      codepoint: parseInt(parts[1]!, 10),
-      sdfRadius: parseInt(parts[2]!, 10),
+  /** Encode (fontKey, codepoint, sdfRadius) into a JS number.
+   *  Layout (low → high): sdfRadius 7 bits | codepoint 21 bits |
+   *  fontId 25 bits. Stays within 53-bit safe-integer range. The
+   *  fontKey → fontId interning is lazy; collisions are impossible
+   *  because each new fontKey gets a fresh id. Iter 129 perf fix:
+   *  replaced template-literal string keys (10-15 % of frame time
+   *  on Seoul Liberty) with numeric keys to eliminate per-call
+   *  string allocation in the glyph-atlas hot path. */
+  private keyToNum(k: GlyphKey): number {
+    let id = this.fontKeyId.get(k.fontKey)
+    if (id === undefined) {
+      id = this.nextFontId++
+      this.fontKeyId.set(k.fontKey, id)
+      this.fontIdKey.push(k.fontKey)
     }
+    return id * 0x10000000 + k.codepoint * 0x80 + (k.sdfRadius & 0x7F)
   }
 }
