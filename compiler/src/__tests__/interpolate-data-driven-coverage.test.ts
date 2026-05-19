@@ -43,11 +43,13 @@ describe('data-driven interpolate (non-zoom input)', () => {
     expect(out).toBe('interpolate(.h, 0, 0, 100, 50)')
   })
 
-  it('interpolate-lab over feature input falls back to linear-sRGB (non-hex stops)', () => {
-    // Stop values are quoted strings (`'"#000"'`), not bare hex
-    // literals — Lab densification needs raw `#rrggbb` form. With
-    // non-hex stops the path falls through to plain linear with a
-    // graceful-downgrade warning naming the specific blocker.
+  it('interpolate-lab over feature input routes to runtime interpolate_lab (iter 164)', () => {
+    // Stop values that can't be densified at compile time (here
+    // they're quoted strings, not bare hex literals the densifier
+    // accepts) now route to the runtime evaluator's interpolate_lab
+    // case — pre-iter-164 the same input silently downgraded to
+    // plain linear-sRGB, losing the Lab intent. Pins the new
+    // routing.
     const w: string[] = []
     const out = exprToXgis(
       ['interpolate-lab', ['linear'], ['get', 'idx'],
@@ -57,7 +59,10 @@ describe('data-driven interpolate (non-zoom input)', () => {
       w,
     )
     expect(out).not.toBeNull()
-    expect(w.some(s => s.includes('interpolate-lab') && s.includes('linear-sRGB'))).toBe(true)
+    expect(out!).toContain('interpolate_lab(')
+    expect(w.some(s => s.includes('interpolate-lab') && /routed to runtime/.test(s))).toBe(true)
+    // The old downgrade warning must NOT fire.
+    expect(w.some(s => s.includes('linear-sRGB'))).toBe(false)
   })
 
   it('interpolate-lab over feature input with bare-hex stops densifies in Lab (iter 62)', () => {

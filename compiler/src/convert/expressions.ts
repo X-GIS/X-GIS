@@ -770,7 +770,19 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
           warnings.push(`${op}(…) approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) — perceptually correct in ${useHcl ? 'LCh' : 'Lab'} space at compile time; runtime interpolation between dense hex stops.`)
           return `interpolate(${input}, ${dense.join(', ')})`
         }
-        warnings.push(`${op}(…) approximated as linear-sRGB — xgis has no LAB/HCL per-stop evaluator at runtime and non-hex stop values can't be densified at compile time.`)
+        // iter-164 (§11 runtime evaluator): non-hex linear lab/hcl
+        // now routes to the dedicated runtime case rather than
+        // silently downgrading to linear-sRGB. Stop values may be
+        // ANY expression yielding a colour (e.g. `["get","k"]`,
+        // `["case",…]`, `rgb(r,g,b)`); the evaluator parses each
+        // stop's y as a hex / rgba colour at eval time, interpolates
+        // in Lab / LCh space, returns a hex. Exponential lab/hcl
+        // (the else-if below) stays as the existing warning — the
+        // base curve adds another dimension that would compound the
+        // runtime cost; not yet routed.
+        const lookup = op === 'interpolate-hcl' ? 'interpolate_hcl' : 'interpolate_lab'
+        warnings.push(`${op}(…) routed to runtime ${lookup}(…) — per-feature Lab/LCh interpolation between resolved stop colours. iter 164.`)
+        return `${lookup}(${input}, ${stopArgs.join(', ')})`
       } else if (isLab) {
         warnings.push(`${op}(…) with non-linear curve approximated as linear-sRGB — compile-time densification only handles the linear curve.`)
       }

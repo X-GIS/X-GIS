@@ -4,6 +4,9 @@
 
 import type * as AST from '../parser/ast'
 import { CAMERA_ZOOM_KEY } from './reserved-keys'
+import {
+  parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab,
+} from '../tokens/colors'
 
 /** A bag of feature properties (e.g., from GeoJSON properties). The
  *  reserved key {@link CAMERA_ZOOM_KEY} (`$zoom`) carries the current
@@ -559,6 +562,75 @@ function callBuiltin(name: string, args: unknown[]): unknown {
           }
           // Non-numeric — pick the closer stop.
           return (input - a.x) < (b.x - input) ? a.y : b.y
+        }
+      }
+      return stops[0].y
+    }
+    case 'interpolate_lab':
+    case 'interpolate_hcl': {
+      // §11 runtime evaluator (iter 164). Data-driven Lab/LCh colour
+      // interpolation: `interpolate_lab(input, x0, y0, x1, y1, …)`
+      // where each yi resolves at eval time to a colour (hex string
+      // / "#rrggbb" / "#rrggbbaa", produced by `["get",…]`,
+      // `["case",…]`, `rgb(…)`, etc.). Stop x-values must be
+      // literal numbers (the converter at expressions.ts:641 already
+      // strict-rejects non-numeric stop inputs). For each adjacent
+      // pair containing the input value, parse both endpoint colours
+      // to sRGB → Lab (or LCh for -hcl, hue-shortest-path),
+      // interpolate, convert back to hex.
+      // Non-hex resolved colour (e.g. unrecognised) at eval time:
+      // fall back to the nearest stop (parallel to the numeric-fail
+      // branch in interpolate above). Curve is linear only — the
+      // converter routes exponential lab/hcl through the legacy
+      // warning, NOT here. (memory project_lovely_launching_eagle_iter_100)
+      const useHcl = name === 'interpolate_hcl'
+      if (args.length < 3) return null
+      const input = toNumber(args[0])
+      const remaining = args.length - 1
+      if (remaining < 2 || remaining % 2 !== 0) return null
+      const stops: Array<{ x: number; y: unknown }> = []
+      for (let i = 1; i + 1 < args.length; i += 2) {
+        stops.push({ x: toNumber(args[i]), y: args[i + 1] })
+      }
+      if (stops.length === 0) return null
+      if (input <= stops[0].x) return stops[0].y
+      if (input >= stops[stops.length - 1].x) return stops[stops.length - 1].y
+      const toHex = (v: unknown): string | null =>
+        typeof v === 'string' ? v : null
+      const parseLab = (s: string | null): [number, number, number] | null => {
+        if (!s) return null
+        const rgb = parseSrgbHex(s)
+        if (!rgb) return null
+        return srgbToLab(rgb[0], rgb[1], rgb[2])
+      }
+      for (let i = 0; i + 1 < stops.length; i++) {
+        const a = stops[i], b = stops[i + 1]
+        if (input >= a.x && input <= b.x) {
+          const labA = parseLab(toHex(a.y))
+          const labB = parseLab(toHex(b.y))
+          if (!labA || !labB) {
+            return (input - a.x) < (b.x - input) ? a.y : b.y
+          }
+          // Same duplicate-x guard as `interpolate`.
+          const t = b.x === a.x ? 0 : (input - a.x) / (b.x - a.x)
+          const tt = Number.isFinite(t) ? t : 0
+          let L: number, A: number, B: number
+          if (useHcl) {
+            const [La, Ca, ha] = labToLch(labA[0], labA[1], labA[2])
+            const [Lb, Cb, hb] = labToLch(labB[0], labB[1], labB[2])
+            let dh = hb - ha
+            if (dh > 180) dh -= 360
+            if (dh < -180) dh += 360
+            const Lt = La + (Lb - La) * tt
+            const Ct = Ca + (Cb - Ca) * tt
+            const ht = ha + dh * tt
+            ;[L, A, B] = lchToLab(Lt, Ct, ht)
+          } else {
+            L = labA[0] + (labB[0] - labA[0]) * tt
+            A = labA[1] + (labB[1] - labA[1]) * tt
+            B = labA[2] + (labB[2] - labA[2]) * tt
+          }
+          return labToHex(L, A, B)
         }
       }
       return stops[0].y
