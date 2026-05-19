@@ -131,11 +131,12 @@ describe('spec-coverage ↔ runtime capability drift', () => {
     }
     // Hard gate: orphan count shouldn't BALLOON. Iter 59 lowered
     // ceiling 80 → 10 after capability-table expansion drained the
-    // ~51 baseline to 0 (paint/layout coverage now complete for
-    // fill/line/symbol/circle/background/fill-extrusion/raster).
-    // Future "supported" entries either need a capability row OR
-    // an explicit NON_RENDERABLE entry above before the gate passes.
-    expect(orphans.length).toBeLessThan(10)
+    // ~51 baseline to 0; iter 72 tightens further to 3 after
+    // stable green runs across iter 60-71 confirmed no new orphans
+    // accumulate. Future "supported" entries either need a capability
+    // row OR an explicit NON_RENDERABLE entry above before the gate
+    // passes.
+    expect(orphans.length).toBeLessThan(3)
   })
 
   it('no spec-coverage="supported" entry contradicts a capability row marked unsupported', () => {
