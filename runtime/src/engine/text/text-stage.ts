@@ -563,6 +563,12 @@ interface PendingLabel {
   anchorY: number
   def: LabelDef
   fontKey: string
+  /** Iter 112 paired-symbol collision: identifier shared with the
+   *  matching icon dispatched at the SAME line-walk anchor. After
+   *  collision, the stage exposes droppedPairKeys so IconStage can
+   *  drop the paired icon — implements MapLibre's "text+icon as one
+   *  symbol" invariant without a full paired-symbol collision queue. */
+  pairKey?: string
 }
 
 interface PendingLineLabel {
@@ -599,6 +605,11 @@ export class TextStage {
    *  text-expr eval failures from downstream collision suppression.
    *  Iter 108. */
   private readonly dispatchedLabelTexts: Set<string> = new Set()
+  /** Iter 112: pair-keys of labels REJECTED by the collision pass.
+   *  IconStage reads this set in its own prepare() to drop matching
+   *  icons — MapLibre-style "text+icon as one symbol" sync without a
+   *  full paired-symbol collision queue. Cleared every prepare(). */
+  private readonly droppedPairKeys: Set<string> = new Set()
   /** DPR applied to LabelDef.size (and offset/halo/maxWidth) at
    *  prepare() time. Anchors arrive already in physical pixels
    *  (map.ts projects against canvas.width/height) but `size` etc.
@@ -854,6 +865,13 @@ export class TextStage {
   getDispatchedLabelTexts(): string[] { return [...this.dispatchedLabelTexts].sort() }
   clearDispatchedLabelTexts(): void { this.dispatchedLabelTexts.clear() }
 
+  /** Iter 112: pair-keys of text labels REJECTED by the most recent
+   *  prepare() collision pass. IconStage.prepare reads this to drop
+   *  paired icons whose text was dropped. Set is cleared at the
+   *  START of each prepare() so call order matters: IconStage must
+   *  run AFTER TextStage. */
+  getDroppedPairKeys(): ReadonlySet<string> { return this.droppedPairKeys }
+
   addLabel(
     value: TextValue,
     props: FeatureProps,
@@ -862,6 +880,7 @@ export class TextStage {
     def: LabelDef,
     fontKey?: string,
     layerName?: string,
+    pairKey?: string,
   ): void {
     const text = resolveText(value, props, this.cameraZoom)
     if (text.length === 0) return
@@ -900,6 +919,7 @@ export class TextStage {
       anchorY: anchorScreenY,
       def,
       fontKey: fontKey ?? composeFontKey(def, this.opts.defaultFont),
+      pairKey,
     })
   }
 
@@ -1379,9 +1399,25 @@ export class TextStage {
       }
     }
     const draws: TextDraw[] = []
+    // Iter 112 paired-symbol collision: stamp pairKeys of REJECTED
+    // text labels so IconStage.prepare can drop the matching icon.
+    // MapLibre treats text + icon as one symbol — both placed or both
+    // dropped. Without this, every dispatched icon survived (no
+    // IconStage collision) while text could be collision-rejected,
+    // visible as "white shield boxes without road numbers" on
+    // highway-shield-* layers.
+    this.droppedPairKeys.clear()
+    // shaped[i] is built 1:1 from this.pending in iteration order
+    // above (line ~941). The collision-input may reorder but each
+    // ShapedLabel still references its source PendingLabel by index.
     for (let i = 0; i < shaped.length; i++) {
       const placement = placements[i]!
-      if (placement.placed) draws.push(shaped[i]!.layouts[placement.chosen]!.draw)
+      const src = this.pending[i]
+      if (placement.placed) {
+        draws.push(shaped[i]!.layouts[placement.chosen]!.draw)
+      } else if (src?.pairKey !== undefined) {
+        this.droppedPairKeys.add(src.pairKey)
+      }
     }
 
     // Flush dirty SDFs to GPU BEFORE setDraws — guarantees every

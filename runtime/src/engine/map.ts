@@ -3633,7 +3633,7 @@ export class XGISMap {
         // doesn't call this (icon-along-curve is a Phase B+ feature);
         // point-anchored POI symbols (the demotiles + OFM Bright bus-
         // stop / school / amenity layers) flow through here.
-        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconRotate?: number; iconOpacity?: number; iconRotationAlignment?: 'map' }, ax: number, ay: number, lineTangentDeg = 0): void => {
+        const dispatchIcon = (def: { iconImage?: string; iconSize?: number; iconAnchor?: import('@xgis/compiler').LabelDef['iconAnchor']; iconOffset?: [number, number]; iconRotate?: number; iconOpacity?: number; iconRotationAlignment?: 'map' }, ax: number, ay: number, lineTangentDeg = 0, pairKey?: string): void => {
           if (!iStage || def.iconImage === undefined) return
           const offDx = (def.iconOffset?.[0] ?? 0) * dpr
           const offDy = (def.iconOffset?.[1] ?? 0) * dpr
@@ -3650,6 +3650,7 @@ export class XGISMap {
             rotateRad: ((def.iconRotate ?? 0) + tangent) * Math.PI / 180,
             anchor: def.iconAnchor ?? 'center',
             opacity: def.iconOpacity ?? 1,
+            pairKey,
           })
         }
         // Mapbox `text-field` expressions that depend on zoom (e.g.
@@ -4164,12 +4165,22 @@ export class XGISMap {
                 // icon survives. symbol-spacing on these layers (200 px
                 // typical) keeps the visual spacing close enough to
                 // MapLibre's collision-resolved cadence.
+                // Iter 112 paired-symbol collision: when a text label
+                // has a paired iconImage (OFM highway-shield-* /
+                // road_shield_us at z>=11), tie them by a shared
+                // per-anchor pairKey. TextStage.prepare runs collision
+                // and stamps droppedPairKeys for any REJECTED text;
+                // IconStage.prepare drops icons whose paired text was
+                // rejected. Matches MapLibre's "text+icon as one
+                // symbol" invariant. Replaces iter 111's allowOverlap
+                // shortcut which kept every shield instance and
+                // produced visible duplication along single routes.
                 const pairedWithIcon = featDef.iconImage !== undefined
                   && featDef.iconImage !== null
                   && featDef.iconImage !== ''
-                const pairedDef = pairedWithIcon
-                  ? { ...featDef, allowOverlap: true }
-                  : featDef
+                const pairKey = pairedWithIcon
+                  ? `${labelLayerName ?? ''}:${Math.round(x)},${Math.round(y)}`
+                  : undefined
                 if (useTangentRotation) {
                   let angleDeg = rawTangentDeg
                   if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
@@ -4179,27 +4190,24 @@ export class XGISMap {
                   stage.addLabel(
                     featDef.text, props,
                     x, y,
-                    { ...pairedDef, rotate: angleDeg },
-                    undefined, labelLayerName,
+                    { ...featDef, rotate: angleDeg },
+                    undefined, labelLayerName, pairKey,
                   )
                 } else {
                   // Viewport-aligned: just place at the line position
                   // with the def's static rotate (typically 0).
                   stage.addLabel(
                     featDef.text, props,
-                    x, y, pairedDef,
-                    undefined, labelLayerName,
+                    x, y, featDef,
+                    undefined, labelLayerName, pairKey,
                   )
                 }
-                // Icon-along-line approximation — same anchor as the
-                // label. OFM highway-shield-* (symbol-placement=line
-                // at z≥11) wants a road badge at every spacing stop;
-                // we dispatch the icon at the label's screen anchor
-                // so the badge + text composite correctly. User
-                // report 2026-05-18 "도로 번호에 아이콘 안뜸". The
-                // unflipped tangent feeds icon-rotation-alignment=map
-                // so OFM road_oneway arrows point along the road.
-                dispatchIcon(featDef, x, y, rawTangentDeg)
+                // Icon-along-line: same anchor + same pairKey as the
+                // label. OFM highway-shield-* wants the badge + text
+                // to place/drop together. The unflipped tangent feeds
+                // icon-rotation-alignment=map so road_oneway arrows
+                // point along the road.
+                dispatchIcon(featDef, x, y, rawTangentDeg, pairKey)
               }
               if (spacingPx > 0) {
                 // Polyline path: project all vertices, walk in screen
@@ -4511,6 +4519,7 @@ export class XGISMap {
         }
 
         stage.prepare()
+        if (iStage) iStage.setDroppedPairKeys(stage.getDroppedPairKeys())
         iStage?.prepare()
         // Text overlay v1: skipped in debug=overdraw — text pipeline
         // targets the swapchain format, not r16float. Phase 2 adds

@@ -26,6 +26,12 @@ interface PendingIcon {
   rotateRad: number
   anchor: IconAnchor
   opacity: number
+  /** Iter 112 paired-symbol collision: identifier shared with the
+   *  matching text label dispatched at the SAME line-walk anchor.
+   *  Before prepare() emits the draw, IconStage checks against
+   *  TextStage.getDroppedPairKeys() and drops icons whose paired
+   *  text was collision-rejected. */
+  pairKey?: string
 }
 
 export class IconStage {
@@ -70,7 +76,7 @@ export class IconStage {
    *  sprite atlas — unknown names are dropped silently in prepare(). */
   addIcon(
     anchorX: number, anchorY: number, iconName: string,
-    opts: { sizeScale?: number; rotateRad?: number; anchor?: IconAnchor; opacity?: number } = {},
+    opts: { sizeScale?: number; rotateRad?: number; anchor?: IconAnchor; opacity?: number; pairKey?: string } = {},
   ): void {
     this.pending.push({
       anchorX, anchorY, iconName,
@@ -78,7 +84,16 @@ export class IconStage {
       rotateRad: opts.rotateRad ?? 0,
       anchor: opts.anchor ?? 'center',
       opacity: opts.opacity ?? 1,
+      pairKey: opts.pairKey,
     })
+  }
+
+  /** Iter 112 paired-symbol collision: source of REJECTED text-label
+   *  pair-keys. Set by `setDroppedPairKeys()` from the map every
+   *  frame after TextStage.prepare and BEFORE IconStage.prepare. */
+  private droppedPairKeys: ReadonlySet<string> = new Set()
+  setDroppedPairKeys(keys: ReadonlySet<string>): void {
+    this.droppedPairKeys = keys
   }
 
   /** Resolve sprite metadata for every pending icon and build the
@@ -103,6 +118,11 @@ export class IconStage {
     // false positives during cold-start.
     const atlasLoaded = this.host.getState().status === 'loaded'
     for (const p of this.pending) {
+      // Iter 112: drop icon when its paired text label was collision-
+      // rejected. Mirrors MapLibre's "text+icon as one symbol" rule.
+      if (p.pairKey !== undefined && this.droppedPairKeys.has(p.pairKey)) {
+        continue
+      }
       const sprite = this.host.get(p.iconName)
       if (!sprite) {
         if (atlasLoaded) this.missingIconNames.add(p.iconName)
