@@ -9,6 +9,10 @@
 // shapes — most callers want this one.
 
 import { parenthesize } from './utils'
+import { cssBezierEase } from './paint'
+import {
+  parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab,
+} from '../tokens/colors'
 
 /** Maximum nesting depth before the expression converter bails. A
  *  pathological style with 1e4+ levels of nesting (case-inside-case
@@ -524,6 +528,11 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       if (input === null) return null
       let isExp = false
       let base = 1
+      // Cubic-bezier control points (when curveSpec is cubic-bezier).
+      // Used by the data-driven densification path below (iter 62, mirror
+      // of paint.ts:cssBezierEase densification for zoom interpolates).
+      let bezierX1 = 0, bezierY1 = 0, bezierX2 = 1, bezierY2 = 1
+      let isBezier = false
       if (Array.isArray(curveSpec)) {
         if (curveSpec[0] === 'exponential') {
           // v8 strict tooling can wrap the base scalar as
@@ -536,12 +545,14 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
           while (Array.isArray(b) && b.length === 2 && b[0] === 'literal') b = b[1]
           if (typeof b === 'number' && Number.isFinite(b) && b !== 1) { isExp = true; base = b }
         } else if (curveSpec[0] === 'cubic-bezier') {
-          warnings.push(`["interpolate", ["cubic-bezier", …], …] folded to linear — xgis has no per-stop bezier interpolator.`)
+          isBezier = true
+          bezierX1 = typeof curveSpec[1] === 'number' && Number.isFinite(curveSpec[1]) ? curveSpec[1] : 0
+          bezierY1 = typeof curveSpec[2] === 'number' && Number.isFinite(curveSpec[2]) ? curveSpec[2] : 0
+          bezierX2 = typeof curveSpec[3] === 'number' && Number.isFinite(curveSpec[3]) ? curveSpec[3] : 1
+          bezierY2 = typeof curveSpec[4] === 'number' && Number.isFinite(curveSpec[4]) ? curveSpec[4] : 1
         }
       }
-      if (op === 'interpolate-lab' || op === 'interpolate-hcl') {
-        warnings.push(`${op}(…) approximated as linear-RGB — xgis has no LAB/HCL per-stop evaluator yet.`)
-      }
+      const isLab = op === 'interpolate-lab' || op === 'interpolate-hcl'
       // Stops follow as flat (xi, yi) pairs. The trailing-arg-count
       // parity check fires BEFORE the loop so a malformed
       // ["interpolate", curve, input, x1, y1, x2] (missing y2) emits
@@ -581,6 +592,114 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
         stopArgs.push(z, y)
       }
       if (stopArgs.length < 4) return null
+
+      // ── Compile-time stop densification for cubic-bezier and Lab/LCh
+      // colour-space curves over data-driven inputs (iter 62, mirror of
+      // paint.ts:interpolateZoomStops densification for zoom inputs).
+      // The runtime sees ordinary linear `interpolate(input, …)` with a
+      // longer stop list that visually approximates the authored eased
+      // / perceptual curve. Densification requires literal stop values
+      // — when a stop value is itself an expression (`["get", "k"]`
+      // etc.), compile-time eased samples can't be computed and the
+      // stops fall through to plain linear with a graceful-downgrade
+      // warning.
+      if (isBezier) {
+        // stopArgs is [z0, y0, z1, y1, ...] strings. Densify iff all y
+        // strings parse as finite numeric literals.
+        const numericStops: Array<{ z: number; v: number }> = []
+        let allNumeric = true
+        for (let i = 0; i < stopArgs.length; i += 2) {
+          const z = Number(stopArgs[i]!)
+          const y = Number(stopArgs[i + 1]!)
+          if (!Number.isFinite(z) || !Number.isFinite(y)) { allNumeric = false; break }
+          numericStops.push({ z, v: y })
+        }
+        if (allNumeric) {
+          const SAMPLES_PER_SEGMENT = 6
+          const dense: string[] = []
+          for (let i = 0; i < numericStops.length - 1; i++) {
+            const a = numericStops[i]!
+            const b = numericStops[i + 1]!
+            dense.push(String(a.z), String(a.v))
+            for (let k = 1; k < SAMPLES_PER_SEGMENT; k++) {
+              const t = k / SAMPLES_PER_SEGMENT
+              const eased = cssBezierEase(t, bezierX1, bezierY1, bezierX2, bezierY2)
+              dense.push(String(a.z + (b.z - a.z) * t), String(a.v + (b.v - a.v) * eased))
+            }
+          }
+          const last = numericStops[numericStops.length - 1]!
+          dense.push(String(last.z), String(last.v))
+          warnings.push(`["${op}", ["cubic-bezier", ${bezierX1}, ${bezierY1}, ${bezierX2}, ${bezierY2}], …] approximated via dense piecewise-linear samples (${SAMPLES_PER_SEGMENT} per segment) — xgis has no per-stop bezier interpolator at runtime.`)
+          return `interpolate(${input}, ${dense.join(', ')})`
+        }
+        warnings.push(`["${op}", ["cubic-bezier", …], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric stop values can't be densified at compile time.`)
+      }
+      if (isLab && !isExp && !isBezier) {
+        // Try Lab/LCh densification over hex colour stops. stopArgs y
+        // entries are the converted xgis strings — for hex literals
+        // these may be either bare `#rrggbb` form OR JSON-quoted
+        // `"#rrggbb"` (the latter is what exprToXgis emits for raw
+        // string stop values, since strings are quoted at the
+        // expression level to survive lexer round-trip).
+        const labStops: Array<{ z: number; L: number; a: number; b: number; hex: string; quoted: boolean }> = []
+        let allHex = true
+        for (let i = 0; i < stopArgs.length; i += 2) {
+          const z = Number(stopArgs[i]!)
+          let y = stopArgs[i + 1]!
+          if (!Number.isFinite(z)) { allHex = false; break }
+          // Strip JSON quote wrap if present
+          const quoted = y.length >= 2 && y.startsWith('"') && y.endsWith('"')
+          const peeled = quoted ? y.slice(1, -1) : y
+          const rgb = parseSrgbHex(peeled)
+          if (!rgb) { allHex = false; break }
+          const [L, a, b] = srgbToLab(rgb[0], rgb[1], rgb[2])
+          labStops.push({ z, L, a, b, hex: peeled, quoted })
+        }
+        if (allHex) {
+          const SAMPLES_PER_SEGMENT = 6
+          const dense: string[] = []
+          const useHcl = op === 'interpolate-hcl'
+          // Preserve input quoting convention: if any stop was JSON-
+          // quoted, every emitted hex is JSON-quoted too so the
+          // resulting interpolate call parses identically.
+          const reQuote = labStops.some(s => s.quoted)
+          const emit = (hex: string) => reQuote ? `"${hex}"` : hex
+          for (let i = 0; i < labStops.length - 1; i++) {
+            const a = labStops[i]!
+            const b = labStops[i + 1]!
+            dense.push(String(a.z), emit(a.hex))
+            for (let k = 1; k < SAMPLES_PER_SEGMENT; k++) {
+              const t = k / SAMPLES_PER_SEGMENT
+              const z = a.z + (b.z - a.z) * t
+              let L: number, A: number, B: number
+              if (useHcl) {
+                const [La, Ca, ha] = labToLch(a.L, a.a, a.b)
+                const [Lb, Cb, hb] = labToLch(b.L, b.a, b.b)
+                let dh = hb - ha
+                if (dh > 180) dh -= 360
+                if (dh < -180) dh += 360
+                const Lt = La + (Lb - La) * t
+                const Ct = Ca + (Cb - Ca) * t
+                const ht = ha + dh * t
+                ;[L, A, B] = lchToLab(Lt, Ct, ht)
+              } else {
+                L = a.L + (b.L - a.L) * t
+                A = a.a + (b.a - a.a) * t
+                B = a.b + (b.b - a.b) * t
+              }
+              dense.push(String(z), emit(labToHex(L, A, B)))
+            }
+          }
+          const last = labStops[labStops.length - 1]!
+          dense.push(String(last.z), emit(last.hex))
+          warnings.push(`${op}(…) approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) — perceptually correct in ${useHcl ? 'LCh' : 'Lab'} space at compile time; runtime interpolation between dense hex stops.`)
+          return `interpolate(${input}, ${dense.join(', ')})`
+        }
+        warnings.push(`${op}(…) approximated as linear-sRGB — xgis has no LAB/HCL per-stop evaluator at runtime and non-hex stop values can't be densified at compile time.`)
+      } else if (isLab) {
+        warnings.push(`${op}(…) with non-linear curve approximated as linear-sRGB — compile-time densification only handles the linear curve.`)
+      }
+
       if (isExp) return `interpolate_exp(${input}, ${base}, ${stopArgs.join(', ')})`
       return `interpolate(${input}, ${stopArgs.join(', ')})`
     }

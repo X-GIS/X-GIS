@@ -43,7 +43,11 @@ describe('data-driven interpolate (non-zoom input)', () => {
     expect(out).toBe('interpolate(.h, 0, 0, 100, 50)')
   })
 
-  it('interpolate-lab over feature input warns + approximates as linear', () => {
+  it('interpolate-lab over feature input falls back to linear-sRGB (non-hex stops)', () => {
+    // Stop values are quoted strings (`'"#000"'`), not bare hex
+    // literals — Lab densification needs raw `#rrggbb` form. With
+    // non-hex stops the path falls through to plain linear with a
+    // graceful-downgrade warning naming the specific blocker.
     const w: string[] = []
     const out = exprToXgis(
       ['interpolate-lab', ['linear'], ['get', 'idx'],
@@ -53,18 +57,40 @@ describe('data-driven interpolate (non-zoom input)', () => {
       w,
     )
     expect(out).not.toBeNull()
-    expect(w.some(s => s.includes('interpolate-lab') && s.includes('linear-RGB'))).toBe(true)
+    expect(w.some(s => s.includes('interpolate-lab') && s.includes('linear-sRGB'))).toBe(true)
   })
 
-  it('cubic-bezier curve warns + folds to linear', () => {
+  it('interpolate-lab over feature input with bare-hex stops densifies in Lab (iter 62)', () => {
+    const w: string[] = []
+    const out = exprToXgis(
+      ['interpolate-lab', ['linear'], ['get', 'idx'],
+        0, '#000000',
+        1, '#ffffff',
+      ],
+      w,
+    )
+    expect(out).not.toBeNull()
+    expect(out).toContain('#000000') // start endpoint preserved
+    expect(out).toContain('#ffffff') // end endpoint preserved
+    expect(w.some(s =>
+      s.includes('interpolate-lab')
+      && s.includes('dense piecewise-linear')
+      && s.includes('Lab space'),
+    )).toBe(true)
+  })
+
+  it('cubic-bezier curve over feature input with numeric stops densifies (iter 62)', () => {
     const w: string[] = []
     const out = exprToXgis(
       ['interpolate', ['cubic-bezier', 0.42, 0, 0.58, 1], ['get', 'm'],
         0, 0, 1, 1],
       w,
     )
-    expect(out).toBe('interpolate(.m, 0, 0, 1, 1)')
-    expect(w.some(s => s.includes('cubic-bezier'))).toBe(true)
+    // Densified output preserves endpoints + extends the interpolate
+    // call with intermediate (zoom, eased-y) pairs.
+    expect(out).toMatch(/^interpolate\(\.m, 0, 0/) // starts at z=0, v=0
+    expect(out).toMatch(/, 1, 1\)$/) // ends at z=1, v=1
+    expect(w.some(s => s.includes('cubic-bezier') && s.includes('dense piecewise-linear'))).toBe(true)
   })
 
   it('malformed interpolate (too few stops) returns null', () => {
