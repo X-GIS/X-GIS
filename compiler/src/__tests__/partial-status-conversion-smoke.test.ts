@@ -29,6 +29,9 @@ const PARTIAL_SMOKE_CASES: Array<{
   { property: 'line-dasharray', layer: { type: 'line', sourceLayer: 'a' }, value: [4, 2], paintOrLayout: 'paint' },
   // Background
   { property: 'background-color', layer: { type: 'background' }, value: '#abc', paintOrLayout: 'paint' },
+  { property: 'background-opacity', layer: { type: 'background' }, value: 0.5, paintOrLayout: 'paint' },
+  // Fill-extrusion partial
+  { property: 'fill-extrusion-vertical-gradient', layer: { type: 'fill-extrusion', sourceLayer: 'a' }, value: false, paintOrLayout: 'paint' },
   // Symbol
   { property: 'symbol-sort-key', layer: { type: 'symbol', sourceLayer: 'a' }, value: 5, paintOrLayout: 'layout' },
   { property: 'text-pitch-alignment', layer: { type: 'symbol', sourceLayer: 'a' }, value: 'viewport', paintOrLayout: 'layout' },
@@ -62,6 +65,8 @@ function buildStyle(cell: typeof PARTIAL_SMOKE_CASES[number]): Record<string, un
     baseLayer.paint = { 'text-color': '#fff' }
   } else if (cell.layer.type === 'circle') {
     baseLayer.paint = { 'circle-radius': 4, 'circle-color': '#fff', 'circle-stroke-color': '#000', 'circle-stroke-width': 1 }
+  } else if (cell.layer.type === 'fill-extrusion') {
+    baseLayer.paint = { 'fill-extrusion-color': '#fff', 'fill-extrusion-height': 10 }
   } else if (cell.layer.type === 'background') {
     // no source
   }
