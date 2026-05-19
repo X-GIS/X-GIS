@@ -958,6 +958,9 @@ function addLineBlur(out: string[], v: unknown, warnings: string[]): void {
     // Number.isFinite rejects NaN/Infinity. NaN <= 0 is false, so
     // a NaN blur would fall through the v <= 0 skip and emit
     // `stroke-blur-NaN`.
+    if (v < 0) {
+      warnings.push(`paint.line-blur: value ${v} is negative; Mapbox spec requires >= 0. Clamped to 0 (line renders without blur).`)
+    }
     if (v <= 0) return
     out.push(`stroke-blur-${v}`)
     return
