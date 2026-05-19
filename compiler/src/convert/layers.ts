@@ -1229,6 +1229,11 @@ function convertSymbolLayer(
     // LabelDef.sortKey (see below) — not in the ignored list.
     'symbol-z-order',
     'symbol-avoid-edges',
+    // icon-pitch-alignment: viewport/auto match X-GIS billboard
+    // icons; only 'map' is the real gap. Listing it here surfaces
+    // 'map' via the consolidated note; viewport/auto suppressed
+    // inline below.
+    'icon-pitch-alignment',
   ]) {
     // Treat null the same as undefined per Mapbox spec — both mean
     // "property omitted, use default". Pre-fix a null value emitted
@@ -1263,6 +1268,14 @@ function convertSymbolLayer(
         // route correctly — silence the warning.
         const v = unwrapLiteralScalar(lv ?? pv)
         if (v === 'viewport' || v === 'auto' || v === 'map') continue
+      }
+      // icon-pitch-alignment: viewport / auto match X-GIS' billboard
+      // icon rendering (icons stay screen-aligned regardless of
+      // camera pitch). 'map' would project the icon quad onto the
+      // ground plane — Plan §4 deferred.
+      if (k === 'icon-pitch-alignment') {
+        const v = unwrapLiteralScalar(lv ?? pv)
+        if (v === 'viewport' || v === 'auto') continue
       }
       ignoredText.push(k)
     }
