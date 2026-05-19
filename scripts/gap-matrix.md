@@ -39,7 +39,7 @@ Properties marked `unsupported` with `impact: high` — these are the most visib
 |---|---|
 | symbol (icon-only) | No text-field → skipped. Awaits Batch 2 (sprite atlas). |
 | fill-pattern | Batch 2 (bitmap atlas). |
-| icon-color | SDF icon tint — needs IconStage vertex tint attribute + fragment tint multiply. Currently surfaces via ignoredText warning; PNG sprite path renders the un-tinted texel. Plan §4 deferred. |
+| icon-color | SDF icon tint — needs IconStage vertex tint attribute + fragment tint multiply. Iter 88 promoted from generic ignoredText blob to a specific layer-level warning naming the missing tint plumbing (Plan §4 — mirror of line-gradient / fill-pattern / line-pattern specific warnings). |
 | image | Sprite atlas (Batch 2). |
 
 ## Partial entries

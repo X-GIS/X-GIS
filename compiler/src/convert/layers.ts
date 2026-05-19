@@ -1233,6 +1233,18 @@ function convertSymbolLayer(
     warnings.push(`Symbol layer "${layer.id}" — icon-opacity non-constant form not yet supported.`)
   }
 
+  // icon-color: SDF icon tint — Mapbox spec multiplies the sampled
+  // texel by an authored colour for SDF sprites (used by highway-
+  // shield colour variations etc.). X-GIS' IconStage today emits
+  // un-tinted PNG sprite texels; SDF tint needs a vertex-attribute
+  // color + fragment tint multiply (Plan §4 deferred). Surface a
+  // specific gap warning rather than burying icon-color in the
+  // generic ignoredText blob — mirror of the iter 14-17 pattern
+  // for line-gradient / fill-pattern / line-pattern.
+  if (paint['icon-color'] !== undefined && paint['icon-color'] !== null) {
+    warnings.push(`Symbol layer "${layer.id}" — icon-color set but X-GIS' IconStage doesn't yet tint SDF sprites (Plan §4 deferred — needs per-vertex tint attribute + fragment multiply). Icon renders with the atlas texel verbatim.`)
+  }
+
   const ignoredText: string[] = []
   // Unsupported symbol properties — surface ONE consolidated note per
   // layer so style authors know which knobs landed without effect.
@@ -1243,7 +1255,7 @@ function convertSymbolLayer(
     'text-writing-mode',     // CJK vertical text — per-glyph rotation pipeline pending
     'text-max-angle',        // along-path glyph orientation clamp
     'text-opacity',          // Per-property fade; text uses layer opacity today
-    'icon-color',
+    // icon-color: handled by the specific gap warning above (iter 88)
     'icon-halo-color',
     'icon-halo-width',
     'icon-halo-blur',
