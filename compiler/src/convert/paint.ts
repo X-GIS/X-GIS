@@ -222,8 +222,14 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     const vgRaw = p['fill-extrusion-vertical-gradient']
     const vg = Array.isArray(vgRaw) && vgRaw.length === 2 && vgRaw[0] === 'literal' ? vgRaw[1] : vgRaw
     const skipVerticalGradientWarn = vg === true || vg === undefined || vg === null
+    // fill-extrusion-translate — mirror of line-translate + fill-
+    // translate gap surfaces. fill-extrusion-vertex-shader has no
+    // per-frame translate uniform yet.
+    if (p['fill-extrusion-translate'] !== undefined && p['fill-extrusion-translate'] !== null) {
+      warnings.push(`Layer "${layer.id}" — fill-extrusion-translate set but the fill-extrusion renderer has no per-frame translate uniform yet (Plan §4 deferred — mirror of fill-translate's u.fill_translate_x/y); offset is dropped.`)
+    }
     surfaceIgnoredPaint(layer.id, p, warnings, [
-      'fill-extrusion-translate', 'fill-extrusion-translate-anchor',
+      'fill-extrusion-translate-anchor',
       'fill-extrusion-pattern',
       ...(skipVerticalGradientWarn ? [] : ['fill-extrusion-vertical-gradient']),
       'fill-extrusion-ambient-occlusion-intensity',
