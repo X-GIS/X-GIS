@@ -71,6 +71,25 @@ const ANCHOR_PARENT: Record<string, string> = {
   'fill-extrusion-translate-anchor': 'fill-extrusion-translate',
 }
 
+/** Spec-default values where authoring the default matches X-GIS
+ *  behaviour — no warning needed. Per-property lookup; the warn-only
+ *  case is the gap-revealing value (e.g. fill-antialias=false). Keyed
+ *  by property name; value is the spec default that suppresses warn.
+ *  ["literal", v] wraps unwrapped before comparison.
+ */
+const SPEC_DEFAULT_NO_WARN: Record<string, unknown> = {
+  'raster-resampling': 'linear',
+  // Add future spec-defaults here when they enter surfaceIgnoredPaint.
+  // fill-extrusion-vertical-gradient already handled inline because
+  // its conditional is at the candidate-list site (cleaner there).
+  // fill-antialias has its own value-aware emit before this fn.
+}
+
+function unwrapLiteralScalarLocal(v: unknown): unknown {
+  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') v = v[1]
+  return v
+}
+
 function surfaceIgnoredPaint(
   layerId: string,
   paint: Record<string, unknown>,
@@ -88,6 +107,11 @@ function surfaceIgnoredPaint(
     // controls the coordinate space of the translate).
     const parent = ANCHOR_PARENT[k]
     if (parent !== undefined && (paint[parent] === undefined || paint[parent] === null)) continue
+    // Spec-default suppression: when the author explicitly sets the
+    // spec default value AND that default matches X-GIS behaviour,
+    // skip the warning (no actual gap to surface).
+    const specDefault = SPEC_DEFAULT_NO_WARN[k]
+    if (specDefault !== undefined && unwrapLiteralScalarLocal(paint[k]) === specDefault) continue
     hits.push(k)
   }
   if (hits.length > 0) {
