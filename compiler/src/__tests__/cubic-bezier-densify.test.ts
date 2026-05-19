@@ -74,6 +74,32 @@ describe('Mapbox interpolate-cubic-bezier conversion → densified stops', () =>
     expect(w, `expected folded-to-linear warning; got: ${warnings.join('\n')}`).toBeDefined()
   })
 
+  it('v8-strict-wrapped control points still recognised as cubic-bezier', () => {
+    // Mapbox v8 strict tooling can wrap each control point as
+    // `["literal", N]`. Pre-fix the typeof === 'number' gate failed
+    // and the curve silently degraded to (0, 0, 1, 1) linear with no
+    // diagnostic. The unwrapCP helper added in iter 71 peels these
+    // wraps so the densification still kicks in.
+    const style = build([
+      'interpolate', ['cubic-bezier',
+        ['literal', 0.42], ['literal', 0],
+        ['literal', 0.58], ['literal', 1],
+      ], ['zoom'],
+      10, 1, 20, 16,
+    ])
+    const warnings: string[] = []
+    convertMapboxStyle(style as unknown as string, {
+      coverage: { sources: [], layers: [], warnings },
+    })
+    const bezierWarn = warnings.find(w => w.includes('cubic-bezier'))
+    expect(bezierWarn, warnings.join('\n')).toBeDefined()
+    // The warning should report the unwrapped numeric control points
+    // 0.42 / 0 / 0.58 / 1 — confirming unwrap fired.
+    expect(bezierWarn).toContain('0.42')
+    expect(bezierWarn).toContain('0.58')
+    expect(bezierWarn).toContain('dense piecewise-linear')
+  })
+
   it('densified output preserves end-stop values exactly', () => {
     // The densifier inserts intermediate samples but the first and
     // last stops must remain at the authored values so the runtime

@@ -443,10 +443,18 @@ function interpolateZoomStops(
       // between the dense stops and visually approximates the bezier.
       // This only works when stop values are numeric; colour / array
       // values still warn-and-fold-to-linear (see else branch).
-      const x1 = typeof curveSpec[1] === 'number' && Number.isFinite(curveSpec[1]) ? curveSpec[1] : 0
-      const y1 = typeof curveSpec[2] === 'number' && Number.isFinite(curveSpec[2]) ? curveSpec[2] : 0
-      const x2 = typeof curveSpec[3] === 'number' && Number.isFinite(curveSpec[3]) ? curveSpec[3] : 1
-      const y2 = typeof curveSpec[4] === 'number' && Number.isFinite(curveSpec[4]) ? curveSpec[4] : 1
+      // v8 strict tooling can wrap individual control points as
+      // `["literal", N]`; unwrap so the typeof gate accepts both bare
+      // and wrapped forms instead of silently degrading to (0,0,1,1)
+      // linear.
+      const unwrapCP = (v: unknown, fallback: number): number => {
+        while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') v = v[1]
+        return typeof v === 'number' && Number.isFinite(v) ? v : fallback
+      }
+      const x1 = unwrapCP(curveSpec[1], 0)
+      const y1 = unwrapCP(curveSpec[2], 0)
+      const x2 = unwrapCP(curveSpec[3], 1)
+      const y2 = unwrapCP(curveSpec[4], 1)
       const allNumeric = stops.every(s => typeof s.value === 'number' && Number.isFinite(s.value as number))
       if (allNumeric) {
         const SAMPLES_PER_SEGMENT = 6

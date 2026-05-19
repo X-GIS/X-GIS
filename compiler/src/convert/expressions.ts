@@ -546,10 +546,18 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
           if (typeof b === 'number' && Number.isFinite(b) && b !== 1) { isExp = true; base = b }
         } else if (curveSpec[0] === 'cubic-bezier') {
           isBezier = true
-          bezierX1 = typeof curveSpec[1] === 'number' && Number.isFinite(curveSpec[1]) ? curveSpec[1] : 0
-          bezierY1 = typeof curveSpec[2] === 'number' && Number.isFinite(curveSpec[2]) ? curveSpec[2] : 0
-          bezierX2 = typeof curveSpec[3] === 'number' && Number.isFinite(curveSpec[3]) ? curveSpec[3] : 1
-          bezierY2 = typeof curveSpec[4] === 'number' && Number.isFinite(curveSpec[4]) ? curveSpec[4] : 1
+          // v8 strict tooling can wrap individual control points as
+          // `["literal", N]`; unwrap so the typeof gate accepts both
+          // bare and wrapped forms — mirror of paint.ts cubic-bezier
+          // handler's unwrapCP helper.
+          const unwrapCP = (v: unknown, fallback: number): number => {
+            while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') v = v[1]
+            return typeof v === 'number' && Number.isFinite(v) ? v : fallback
+          }
+          bezierX1 = unwrapCP(curveSpec[1], 0)
+          bezierY1 = unwrapCP(curveSpec[2], 0)
+          bezierX2 = unwrapCP(curveSpec[3], 1)
+          bezierY2 = unwrapCP(curveSpec[4], 1)
         }
       }
       const isLab = op === 'interpolate-lab' || op === 'interpolate-hcl'
