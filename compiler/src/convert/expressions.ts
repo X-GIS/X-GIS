@@ -669,6 +669,7 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       }
       let hasRichOpts = false
       const texts: string[] = []
+      let droppedSections = 0
       for (let i = 0; i < args.length; i += 2) {
         const text = args[i]
         const opts = args[i + 1]
@@ -682,15 +683,24 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
         }
         const t = exprToXgis(text, warnings)
         if (t === null) {
-          // Surface WHICH section failed before bailing the whole
-          // format. Pre-fix the entire text-field collapsed silently
-          // and the label dropped from rendering with no hint that
-          // only ONE inner section was unconvertible — the user had
-          // to bisect the format chain manually.
-          warnings.push(`["format"] section ${i / 2 + 1} (${JSON.stringify(text).slice(0, 60)}) failed to convert — whole format expression bails and the label drops.`)
-          return null
+          // Partial-drop: skip the failed section but keep the rest
+          // (Plan §1 §1 finishing — pre-fix the whole format bailed
+          // entirely when any one section failed, dropping the
+          // label visibly). Surface WHICH section failed so the user
+          // can locate it without bisecting the format chain.
+          warnings.push(`["format"] section ${i / 2 + 1} (${JSON.stringify(text).slice(0, 60)}) failed to convert — dropped from concat; remaining sections still emit.`)
+          droppedSections++
+          continue
         }
         texts.push(t)
+      }
+      // Only bail if EVERY section failed; otherwise emit whatever
+      // sections survived. Mirrors the partial-drop semantics for
+      // coalesce / case / match / concat — never silently empty
+      // unless there's truly nothing to emit.
+      if (texts.length === 0) {
+        warnings.push(`["format"] all ${droppedSections} sections failed to convert — format expression returns null.`)
+        return null
       }
       if (hasRichOpts) {
         warnings.push(`["format"] span-level options (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer.`)
