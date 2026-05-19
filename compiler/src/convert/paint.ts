@@ -454,9 +454,17 @@ function interpolateZoomStops(
       // base === 1 is mathematically identical to linear; collapse so
       // the runtime takes the cheaper code path.
       if (typeof b === 'number' && Number.isFinite(b) && b !== 1) {
-        // Mirror of the legacy-stops base NaN guard above.
-        curve = 'exponential'
-        base = b
+        // Mapbox spec: exponential base must be > 0 (and != 1).
+        // Negative / zero / non-finite base produces a degenerate
+        // curve at the evaluator (pow(neg, frac) is NaN, pow(0, neg)
+        // is Infinity). Surface so the author sees the spec violation.
+        if (b <= 0) {
+          warnings?.push(`["${v[0]}", ["exponential", ${b}], …] base must be > 0 per Mapbox spec; got ${b}. Falling back to linear interpolation.`)
+        } else {
+          // Mirror of the legacy-stops base NaN guard above.
+          curve = 'exponential'
+          base = b
+        }
       }
     } else if (curveSpec[0] === 'cubic-bezier') {
       // Mapbox spec: cubic-bezier requires EXACTLY 4 control points

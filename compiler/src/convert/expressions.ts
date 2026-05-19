@@ -578,7 +578,15 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
           // ramp instead of the authored eased curve.
           let b: unknown = curveSpec[1]
           while (Array.isArray(b) && b.length === 2 && b[0] === 'literal') b = b[1]
-          if (typeof b === 'number' && Number.isFinite(b) && b !== 1) { isExp = true; base = b }
+          if (typeof b === 'number' && Number.isFinite(b) && b !== 1) {
+            // Mapbox spec: exponential base must be > 0 (and != 1).
+            // Mirror of paint.ts gate (iter 83).
+            if (b <= 0) {
+              warnings.push(`["${op}", ["exponential", ${b}], …] base must be > 0 per Mapbox spec; got ${b}. Falling back to linear interpolation.`)
+            } else {
+              isExp = true; base = b
+            }
+          }
         } else if (curveSpec[0] === 'cubic-bezier') {
           isBezier = true
           // Mapbox spec: cubic-bezier requires EXACTLY 4 control
