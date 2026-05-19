@@ -4149,6 +4149,27 @@ export class XGISMap {
                 // direction.
                 const rawTangentDeg = Math.atan2(pby - pay, pbx - pax) * 180 / Math.PI
                 const featDef = applyFeatureExprs(props)
+                // Iter 111: text + icon pair on a line-placement symbol
+                // layer (OFM highway-shield-* + road_shield_us at z>=11)
+                // must place TOGETHER. Text collision could reject the
+                // label while the icon (no collision gate) still emits
+                // — visible bug: shield boxes render with no road
+                // number inside ("도로 번호가 렌더링되지 않는 경우가
+                // 있음 하지만 실제 흰색 배경 아이콘은 렌더링됨").
+                // MapLibre treats text-allow-overlap=false + paired
+                // icon-image as a single symbol — both placed or both
+                // dropped. We don't have full paired-symbol collision
+                // yet; the pragmatic match is to let paired text bypass
+                // collision (allowOverlap), so it survives wherever the
+                // icon survives. symbol-spacing on these layers (200 px
+                // typical) keeps the visual spacing close enough to
+                // MapLibre's collision-resolved cadence.
+                const pairedWithIcon = featDef.iconImage !== undefined
+                  && featDef.iconImage !== null
+                  && featDef.iconImage !== ''
+                const pairedDef = pairedWithIcon
+                  ? { ...featDef, allowOverlap: true }
+                  : featDef
                 if (useTangentRotation) {
                   let angleDeg = rawTangentDeg
                   if (angleDeg > 90 || angleDeg < -90) angleDeg += 180
@@ -4158,7 +4179,7 @@ export class XGISMap {
                   stage.addLabel(
                     featDef.text, props,
                     x, y,
-                    { ...featDef, rotate: angleDeg },
+                    { ...pairedDef, rotate: angleDeg },
                     undefined, labelLayerName,
                   )
                 } else {
@@ -4166,7 +4187,7 @@ export class XGISMap {
                   // with the def's static rotate (typically 0).
                   stage.addLabel(
                     featDef.text, props,
-                    x, y, featDef,
+                    x, y, pairedDef,
                     undefined, labelLayerName,
                   )
                 }
