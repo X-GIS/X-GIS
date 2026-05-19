@@ -958,6 +958,9 @@ function convertSymbolLayer(
   if (typeof maxWidth === 'number' && Number.isFinite(maxWidth)) {
     // Mapbox spec: text-max-width >= 0 (em units). Number.isFinite
     // rejects NaN / Infinity.
+    if (maxWidth < 0) {
+      warnings.push(`Symbol layer "${layer.id}" — text-max-width ${maxWidth} is negative; Mapbox spec requires >= 0. Clamped to 0 (label wraps every character).`)
+    }
     utils.push(`label-max-width-${Math.max(0, maxWidth)}`)
   } else if (placement !== 'line' && placement !== 'line-center') {
     utils.push('label-max-width-10')

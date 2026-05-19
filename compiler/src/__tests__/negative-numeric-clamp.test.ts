@@ -336,6 +336,22 @@ describe('negative numeric clamp warnings', () => {
     expect(w.some(s => s.includes('line-miter-limit') && s.includes('negative'))).toBe(true)
   })
 
+  it('text-max-width with negative literal warns', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'lbl',
+        type: 'symbol',
+        source: 'v',
+        'source-layer': 'a',
+        layout: { 'text-field': '{name}', 'text-max-width': -5 },
+        paint: { 'text-color': '#000' },
+      }],
+    })
+    expect(w.some(s => s.includes('text-max-width') && s.includes('negative'))).toBe(true)
+  })
+
   it('line-width=0 (valid, hides line) does NOT warn', () => {
     const w = warningsOf({
       version: 8,
