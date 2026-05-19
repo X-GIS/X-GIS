@@ -336,7 +336,7 @@ export function worldCopiesFor(projType: number): readonly number[] {
   //      ref_lon and add wo*world_width to projected x
   // oblique_mercator (6) still excluded — its routing through
   // globeVisibleTiles hard-codes ox=0 and needs a separate fix.
-  if (projType === 0 || projType === 1 || projType === 2) return WORLD_COPIES
+  if (projType === 0 || projType === 1 || projType === 2 || projType === 6) return WORLD_COPIES
   return SINGLE_WORLD
 }
 

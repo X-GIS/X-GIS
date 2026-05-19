@@ -49,9 +49,13 @@ describe('worldCopiesFor — current world-copy enumeration state', () => {
     expect(copies.length).toBe(1)
   })
 
-  it('Oblique Mercator (6): single-world (rotated cylindrical, not applicable)', () => {
+  it('Oblique Mercator (6): world-copy enumeration (iter 127)', () => {
+    // Rotated lon wraps after 2π just like Mercator's lon. World-copy
+    // works after iter 127 globeVisibleTiles WORLD_COPIES enumeration
+    // + project_geom wo-offset for the oblique branch.
     const copies = worldCopiesFor(6)
-    expect(copies.length).toBe(1)
+    expect(copies.length).toBe(5)
+    expect(Array.from(copies)).toEqual([-2, -1, 0, 1, 2])
   })
 
   it('Globe (7): single-world (3D sphere, not applicable)', () => {
@@ -64,8 +68,8 @@ describe('worldCopiesFor — current world-copy enumeration state', () => {
     for (let t = 0; t <= 7; t++) {
       if (worldCopiesFor(t).length > 1) multi++
     }
-    // Iter 126: Mercator (0) + Equirect (1) + NE (2). Oblique Mercator
-    // (6) excluded pending globeVisibleTiles ox plumbing.
-    expect(multi).toBe(3)
+    // Iter 127: Mercator (0) + Equirect (1) + NE (2) + Oblique Merc (6).
+    // All cylindrical / pseudocyl projections enumerate world copies.
+    expect(multi).toBe(4)
   })
 })

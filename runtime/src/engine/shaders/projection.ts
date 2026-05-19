@@ -274,14 +274,19 @@ fn project_geom(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, ref_lon: f32
     return p;
   }
   if (t > 5.5) {
-    // oblique_mercator: unwrap the rotated longitude toward the tile
-    // centre's rotated longitude (evaluated at the projection-centre
-    // latitude so it is a per-tile constant). World-copy support
-    // deferred (oblique tile selection still hard-codes ox=0).
-    let r = oblique_rot(lon_deg, lat_deg, clon, clat);
-    let ref_r = oblique_rot(ref_lon, clat, clon, clat);
+    // oblique_mercator: same world-copy mechanic as equirect / NE.
+    // ref_lon (tile-centre lon, absolute incl ox*360) tells us which
+    // world; rotate primary-world lon through oblique_rot, then add
+    // wo*world_width to projected x. Iter 127.
+    let wo = floor((ref_lon - clon + 180.0) / 360.0);
+    let lon_primary = lon_deg - wo * 360.0;
+    let ref_primary = ref_lon - wo * 360.0;
+    let r = oblique_rot(lon_primary, lat_deg, clon, clat);
+    let ref_r = oblique_rot(ref_primary, clat, clon, clat);
     let lam_u = unwrap_rad_near(r.x, ref_r.x);
-    return proj_oblique_mercator_d(lam_u, r.y);
+    var p = proj_oblique_mercator_d(lam_u, r.y);
+    p.x = p.x + wo * 2.0 * PI * EARTH_R;
+    return p;
   }
   return project(lon_deg, lat_deg, proj_params);
 }

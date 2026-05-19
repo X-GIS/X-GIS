@@ -60,12 +60,9 @@ const PROJECTIONS: { name: string; expectMultiCopy: boolean }[] = [
 ]
 
 for (const proj of PROJECTIONS) {
-  // Iter 126: equirect + NE now enumerate world copies via the
-  // worldCopiesFor + root-split + project_geom triple. Oblique-merc
-  // still routes through globeVisibleTiles with hard-coded ox=0; skip.
-  const isXfail = proj.name === 'oblique_mercator'
-  const wrap = isXfail ? test.skip : test
-  wrap(`world-copy ${proj.name}`, async ({ page }) => {
+  // Iter 127: oblique-merc world-copy now enabled via globeVisibleTiles
+  // WORLD_COPIES enumeration + project_geom wo-offset for oblique branch.
+  test(`world-copy ${proj.name}`, async ({ page }) => {
     test.setTimeout(60_000)
     await page.setViewportSize(VIEW)
     const errors: string[] = []

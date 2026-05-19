@@ -2949,9 +2949,24 @@ export class VectorTileRenderer {
           camera.pitch ?? 0, camera.bearing ?? 0,
         )
         // GlobeTile (z/x/y/ox) matches the TileCoord shape exactly;
-        // makeTileCoord wraps with the absolute-x contract (ox===x
-        // for globe which renders a single world copy).
-        tiles = globeTiles.map(t => makeTileCoord(t.z, t.x, t.y, 0))
+        // makeTileCoord wraps with the absolute-x contract.
+        //
+        // Iter 127: enumerate WORLD_COPIES for the cylindrical /
+        // pseudocyl projections that route through globeVisibleTiles
+        // (equirect / NE at antimeridian, oblique-merc always). For
+        // ortho/azimuth/stereo + globe (single-disc / true sphere),
+        // single-world is correct and ox stays = x.
+        const periodicProj = projType === 1 || projType === 2 || projType === 6
+        if (periodicProj) {
+          tiles = []
+          for (const wc of [-2, -1, 0, 1, 2]) {
+            for (const t of globeTiles) {
+              tiles.push(makeTileCoord(t.z, t.x, t.y, wc))
+            }
+          }
+        } else {
+          tiles = globeTiles.map(t => makeTileCoord(t.z, t.x, t.y, 0))
+        }
       } else {
         tiles = !sseDisabled
           ? visibleTilesSSE(
