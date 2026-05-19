@@ -20,7 +20,7 @@ describe('surfaceIgnoredPaint aggregation', () => {
         'source-layer': 'r',
         paint: {
           'line-color': '#fff',
-          'line-translate': [1, 1],
+          'line-translate-anchor': 'viewport',
           'line-sort-key': 5,
           'line-round-limit': 1.5,
         },
@@ -28,9 +28,11 @@ describe('surfaceIgnoredPaint aggregation', () => {
     } as never, { coverage })
 
     const layerWarns = coverage.warnings.filter(w => w.includes('ignored paint properties'))
+    // The anchor-parent dependency check suppresses
+    // line-translate-anchor (parent line-translate is absent), so
+    // only the OTHER two ignored properties surface. Aggregation
+    // contract still holds: 1 warning total naming both.
     expect(layerWarns.length).toBe(1)
-    // All three ignored properties named in the single message.
-    expect(layerWarns[0]).toContain('line-translate')
     expect(layerWarns[0]).toContain('line-sort-key')
     expect(layerWarns[0]).toContain('line-round-limit')
   })
@@ -41,8 +43,8 @@ describe('surfaceIgnoredPaint aggregation', () => {
       version: 8,
       sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
       layers: [
-        { id: 'a', type: 'line', source: 'v', 'source-layer': 'r', paint: { 'line-color': '#fff', 'line-translate': [1, 1] } },
-        { id: 'b', type: 'line', source: 'v', 'source-layer': 'r', paint: { 'line-color': '#fff', 'line-translate': [1, 1] } },
+        { id: 'a', type: 'line', source: 'v', 'source-layer': 'r', paint: { 'line-color': '#fff', 'line-sort-key': 1 } },
+        { id: 'b', type: 'line', source: 'v', 'source-layer': 'r', paint: { 'line-color': '#fff', 'line-sort-key': 1 } },
       ],
     } as never, { coverage })
 
@@ -64,7 +66,7 @@ describe('surfaceIgnoredPaint aggregation', () => {
         'source-layer': 'r',
         paint: {
           'line-color': '#fff',
-          'line-translate': null,
+          'line-translate-anchor': null,
           'line-sort-key': null,
         },
       }],

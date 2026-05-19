@@ -191,8 +191,16 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     if (p['line-gradient'] !== undefined && p['line-gradient'] !== null) {
       warnings.push(`Layer "${layer.id}" — line-gradient set but requires the line-progress accessor + per-fragment arc-length varying through the line renderer; not implemented (Plan §4 deferred). Layer falls back to solid line-color.`)
     }
+    // line-translate — fill-translate has a u.fill_translate_x/y
+    // uniform; line-translate would mirror that via a
+    // u.line_translate_x/y uniform threaded through line-renderer.ts
+    // vertex shader. Surface the specific gap rather than the
+    // generic ignored-properties blob.
+    if (p['line-translate'] !== undefined && p['line-translate'] !== null) {
+      warnings.push(`Layer "${layer.id}" — line-translate set but the line renderer has no per-frame translate uniform yet (Plan §4 deferred — mirror of fill-translate's u.fill_translate_x/y); offset is dropped.`)
+    }
     surfaceIgnoredPaint(layer.id, p, warnings, [
-      'line-translate', 'line-translate-anchor', 'line-sort-key',
+      'line-translate-anchor', 'line-sort-key',
       'line-round-limit',
     ])
   } else if (layer.type === 'fill-extrusion') {
