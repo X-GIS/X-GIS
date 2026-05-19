@@ -175,10 +175,20 @@ struct VsOut {
   // visible at higher halo-width values as a hard inner cutoff
   // instead of MapLibre's smooth falloff.
   let halo_edge: f32 = edge - u.halo_width;
-  // halo_blur is now MapLibre's gamma_halo (already includes the
-  // per-DPR EDGE_GAMMA AA constant). Don't add soft on top — that
-  // would double-count the AA term and over-blur every halo.
-  let aa_halo: f32 = max(u.halo_blur, soft);
+  // Iter 117: aa_halo = u.halo_blur + soft (SUM, not MAX).
+  // MapLibre symbol_sdf.fragment.glsl line 46 computes
+  //   gamma_halo = (halo_blur * 1.19 / SDF_PX + EDGE_GAMMA)
+  //                / (fontScale * gamma_scale)
+  // which after the per-DPR / per-fontScale algebra becomes
+  //   gamma_halo = halo_blur_term_in_sdf + soft
+  // where halo_blur_term_in_sdf is what X-GIS packs as
+  // u.halo_blur (= halo_blur_phys * 1.19 * 3 / size_phys) and
+  // soft is 2.52 / font_size_px (the per-glyph-size AA half-width).
+  // Pre-iter-117 used max(halo_blur, soft) which underestimated
+  // AA spread when both terms were present, narrowing halo AA so
+  // halo visual bulking absent and fill alone perceived as too thin
+  // (user-reported on OFM Positron 8.88/36.55/127.16 Seoul label).
+  let aa_halo: f32 = u.halo_blur + soft;
   let halo_a: f32 = smoothstep(halo_edge - aa_halo, halo_edge + aa_halo, sdf);
   // Composite: halo behind, fill in front. (1 - fill_w) factor lets
   // a partially-transparent text-fill show the halo through it.

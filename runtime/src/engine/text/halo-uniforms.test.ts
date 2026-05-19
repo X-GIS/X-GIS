@@ -154,7 +154,7 @@ function smoothstep(a: number, b: number, x: number): number {
   return t * t * (3 - 2 * t)
 }
 
-/** Mirrors the WGSL fragment shader's halo math 1:1. */
+/** Mirrors the WGSL fragment shader's halo math 1:1 (iter 117). */
 function shaderHaloAlpha(args: {
   sdf: number; soft: number; fontSize: number;
   haloWidthPx: number; haloBlurPx: number;
@@ -162,11 +162,9 @@ function shaderHaloAlpha(args: {
   const halo_width_norm = args.haloWidthPx * 3 / args.fontSize
   const halo_blur_norm = args.haloBlurPx * 1.19 * 3 / args.fontSize
   const halo_edge = EDGE - halo_width_norm
-  const aa_halo = Math.max(halo_blur_norm, args.soft)
-  const inner_edge_halo = EDGE + aa_halo
-  const outer_a = smoothstep(halo_edge - aa_halo, halo_edge + aa_halo, args.sdf)
-  const inner_a = smoothstep(inner_edge_halo - aa_halo, inner_edge_halo + aa_halo, args.sdf)
-  const halo_a = Math.min(outer_a, 1 - inner_a)
+  // Iter 117: aa_halo = halo_blur + soft (SUM, matches MapLibre).
+  const aa_halo = halo_blur_norm + args.soft
+  const halo_a = smoothstep(halo_edge - aa_halo, halo_edge + aa_halo, args.sdf)
   const fill_a = smoothstep(EDGE - args.soft, EDGE + args.soft, args.sdf)
   return { halo_a, fill_a, halo_edge }
 }
