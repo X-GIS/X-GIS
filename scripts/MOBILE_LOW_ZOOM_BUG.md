@@ -2,24 +2,39 @@
 
 User reported via screenshot — iter 40 of the ralph-loop run.
 
-**STATUS**: Hypothesis 3 fixed in iter 41 (`c4e4e03` —
-`fix(tiler): cap geodesic-midpoint subdivision at 60° edge span`).
-Desktop pixel-match-survey verified post-fix:
-  * bright-seoul-school 97.28% identical / 0 gt128 (P1 gate)
-  * bright-tokyo-z14 31.32% / 6 gt128 (PASS, threshold 20)
-  * liberty-paris-z14 22.04% / 1025 gt128 (PASS, threshold 1200)
-  * demotiles-europe-z2 87.32% / 1436 gt128 (PASS, threshold 1700,
-    improved from earlier 83.68% — country polygons benefit from
-    the pole-hop cap)
+**STATUS**: 🟢 RESOLVED in iter 56 (`25a3331` — `revert(tiler):
+geodesic-midpoint subdivision`).
 
-Mobile verification still requires device-level testing. The
-horizontal-stripe banding pattern is consistent with the
-pole-hopping midpoint chaos hypothesis: at z=0.5 the Eurasia
-ring polygon has edges spanning 100°+ lon at high lat, and the
-iter 6 unconditional slerp midpoint hopped those midpoints to
-the pole. The iter 41 cap restricts slerp to (5°, 60°) edge
-span — within which slerp produces sensible interior points;
-beyond which linear MM midpoint is used.
+Timeline:
+  * Iter 6: introduced geodesic (slerp) midpoint subdivision for
+    sphere projections.
+  * Iter 40: user reports iPhone OFM Bright z=0.5 banding.
+  * Iter 41: capped geodesic at 60° edge span — desktop survey
+    verified clean, but the regression PERSISTED in production
+    iPhone deploy.
+  * Iter 56: user re-reports "z=0 still broken on deploy". Reverted
+    geodesic-midpoint subdivision entirely. Pre-iter-6 baseline was
+    the production-shipped state without z=0 banding artefacts.
+
+Desktop pixel-match-survey verified post-revert (iter 57):
+  * bright-seoul-school: P1 gate stays PASS
+  * bright-tokyo-z14: eq=31.32% / 6 gt128 (PASS, threshold 20)
+  * liberty-paris-z14: eq=22.04% / 1025 gt128 (PASS, threshold 1200)
+  * demotiles-europe-z2: eq=87.71% / 1434 gt128 (PASS, threshold
+    1700 — slight improvement vs earlier numbers)
+
+New z=0 regression gate added (iter 56,
+`compiler/src/__tests__/z0-world-polygon-regression.test.ts`)
+with 5 cases including Eurasia / Russia / antimeridian /
+MultiPolygon shapes. User explicitly noted "test was missing" —
+gate now exists.
+
+Trade-off: the iter 6 chord-vs-arc fidelity improvement on globe
+country polygons at z=0..3 is rolled back. The pre-iter-6 baseline
+was documented as acceptable; per-vertex projection in the
+renderer handles the chord visibility at the high-zoom levels
+where it matters. Plan §6 (geodesic refinement) deferred until a
+runtime-projection-aware implementation can land safely.
 
 ## Symptom
 
