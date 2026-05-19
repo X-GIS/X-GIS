@@ -86,10 +86,75 @@ export const RUNTIME_CAPABILITIES: readonly RuntimeCapability[] = [
   { property: 'fill-extrusion-height', layerType: 'fill-extrusion', variant: 'zoom-interp', supported: true },
   { property: 'fill-extrusion-height', layerType: 'fill-extrusion', variant: 'data-driven', supported: true },
   { property: 'fill-extrusion-base',   layerType: 'fill-extrusion', variant: 'constant',    supported: true },
+  { property: 'fill-extrusion-opacity', layerType: 'fill-extrusion', variant: 'constant',   supported: true },
+  { property: 'fill-extrusion-vertical-gradient', layerType: 'fill-extrusion', variant: 'constant', supported: true, note: 'Phase 9 vertical gradient lighting honoured (commit 2026-05-18).' },
 
-  // Raster
-  { property: 'raster-opacity',      layerType: 'raster', variant: 'constant',    supported: true },
-  { property: 'raster-opacity',      layerType: 'raster', variant: 'zoom-interp', supported: true },
+  // Fill outline (lowers to stroke- utilities in xgis)
+  { property: 'fill-outline-color',  layerType: 'fill', variant: 'constant',    supported: true },
+  { property: 'fill-outline-color',  layerType: 'fill', variant: 'zoom-interp', supported: true },
+
+  // Line layout
+  { property: 'line-cap',            layerType: 'line', variant: 'constant',    supported: true,  note: 'butt / round / square literal only' },
+  { property: 'line-join',           layerType: 'line', variant: 'constant',    supported: true,  note: 'miter / round / bevel literal only' },
+  { property: 'line-miter-limit',    layerType: 'line', variant: 'constant',    supported: true },
+
+  // Symbol layout — common
+  { property: 'symbol-placement',    layerType: 'symbol', variant: 'constant',  supported: true,  note: 'point / line / line-center literal' },
+  { property: 'symbol-spacing',      layerType: 'symbol', variant: 'constant',  supported: true },
+
+  // Symbol text layout
+  { property: 'text-field',          layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'text-field',          layerType: 'symbol', variant: 'data-driven', supported: true },
+  { property: 'text-font',           layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'text-size',           layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'text-size',           layerType: 'symbol', variant: 'zoom-interp', supported: true },
+  { property: 'text-size',           layerType: 'symbol', variant: 'data-driven', supported: true,  note: 'sizeExpr per-feature evaluation' },
+  { property: 'text-max-width',      layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'text-line-height',    layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'text-letter-spacing', layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'text-letter-spacing', layerType: 'symbol', variant: 'zoom-interp', supported: true },
+  { property: 'text-justify',        layerType: 'symbol', variant: 'constant',    supported: true,  note: 'auto / left / center / right literal' },
+  { property: 'text-anchor',         layerType: 'symbol', variant: 'constant',    supported: true,  note: '9-way enum literal' },
+  { property: 'text-variable-anchor', layerType: 'symbol', variant: 'constant',   supported: true },
+  { property: 'text-variable-anchor-offset', layerType: 'symbol', variant: 'constant', supported: true },
+  { property: 'text-radial-offset',  layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'text-offset',         layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'text-rotate',         layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'text-padding',        layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'text-padding',        layerType: 'symbol', variant: 'zoom-interp', supported: true },
+  { property: 'text-transform',      layerType: 'symbol', variant: 'constant',    supported: true,  note: 'uppercase / lowercase / none literal' },
+  { property: 'text-allow-overlap',  layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'text-ignore-placement', layerType: 'symbol', variant: 'constant',  supported: true },
+  { property: 'text-rotation-alignment', layerType: 'symbol', variant: 'constant', supported: true, note: 'map / viewport / auto literal' },
+  { property: 'text-keep-upright',   layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'text-translate',      layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'text-halo-blur',      layerType: 'symbol', variant: 'constant',    supported: true,  note: 'IR exposes PropertyShape; non-constant emits warn until shape-resolve lands' },
+
+  // Symbol icon layout
+  { property: 'icon-image',          layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'icon-image',          layerType: 'symbol', variant: 'data-driven', supported: true,  note: 'match/case via label-icon-image-[<expr>] (iter 490)' },
+  { property: 'icon-rotate',         layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'icon-anchor',         layerType: 'symbol', variant: 'constant',    supported: true,  note: '9-way enum literal' },
+  { property: 'icon-offset',         layerType: 'symbol', variant: 'constant',    supported: true },
+  { property: 'icon-rotation-alignment', layerType: 'symbol', variant: 'constant', supported: true, note: 'map / viewport / auto literal (iter 506)' },
+
+  // Circle (remaining)
+  { property: 'circle-opacity',      layerType: 'circle', variant: 'constant',    supported: true },
+  { property: 'circle-opacity',      layerType: 'circle', variant: 'zoom-interp', supported: true },
+  { property: 'circle-stroke-color', layerType: 'circle', variant: 'constant',    supported: true },
+  { property: 'circle-stroke-color', layerType: 'circle', variant: 'zoom-interp', supported: true },
+  { property: 'circle-stroke-width', layerType: 'circle', variant: 'constant',    supported: true },
+  { property: 'circle-stroke-width', layerType: 'circle', variant: 'zoom-interp', supported: true },
+  { property: 'circle-stroke-opacity', layerType: 'circle', variant: 'constant',  supported: true,  note: 'Folds into stroke-color hex alpha at compile time (iter 4)' },
+  { property: 'circle-stroke-opacity', layerType: 'circle', variant: 'zoom-interp', supported: false, note: 'Per-frame uniform path pending' },
+
+  // Background (top-level directive in xgis)
+  { property: 'background-color',    layerType: 'background', variant: 'constant',  supported: true },
+  { property: 'background-opacity',  layerType: 'background', variant: 'constant',  supported: true,  note: 'Folds into background-color hex alpha (iter 47)' },
+  { property: 'background-opacity',  layerType: 'background', variant: 'zoom-interp', supported: false, note: 'Per-frame uniform path pending' },
+
+  // Raster (remaining tracks supported by raster-renderer)
+  { property: 'raster-opacity',      layerType: 'raster', variant: 'data-driven', supported: false, note: 'Data-driven not applicable to raster tiles' },
 ] as const
 
 /** Lookup a (layerType, property, variant) tuple. Returns undefined

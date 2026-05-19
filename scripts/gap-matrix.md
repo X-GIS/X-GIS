@@ -17,14 +17,17 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | symbol | icon-opacity | data-driven | Per-feature alpha path deferred |
 | symbol | icon-size | data-driven | Worker per-feature evaluator pending |
 | symbol | symbol-sort-key | data-driven | Expression flattens to 0; per-feature key plumbing pending |
+| circle | circle-stroke-opacity | zoom-interp | Per-frame uniform path pending |
+| background | background-opacity | zoom-interp | Per-frame uniform path pending |
+| raster | raster-opacity | data-driven | Data-driven not applicable to raster tiles |
 
 ## Spec-coverage status breakdown
 
 | Status | Count |
 |---|---:|
 | supported | 126 |
-| partial | 23 |
-| unsupported | 86 |
+| partial | 24 |
+| unsupported | 85 |
 | na | 7 |
 | **total** | **242** |
 
@@ -61,6 +64,7 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | text-opacity | low | Constant form folded into label-color alpha channel. Zoom-interp / data-driven defer to a per-frame paint shape; non-constant still warns. Iter 488 shipped 2026-05-18. |
 | icon-opacity | high | Constant form threads compiler → LabelDef → IconStage.addIcon → per-vertex opacity attribute → fragment alpha multiplier. Zoom-interp / data-driven deferred (per-feature alpha would need iconOpacityExpr path). Iter 492 shipped 2026-05-18. |
 | circle-stroke-opacity | low | Constant numeric form folds into stroke-color hex alpha (iter 4, Plan §4 partial landing — same pattern later applied to background-opacity in iter 47). Zoom-interp / data-driven forms still warn + drop — need a dedicated paint shape for per-frame uniform multiplication. |
+| fill-extrusion-vertical-gradient | low | Default `true` is honoured end-to-end — fragment shader applies a vertical gradient ramp (0.6 base → 1.0 roof) plus a roof bonus matching MapLibre. Setting `false` to disable the gradient is the remaining gap (would need a per-show flag + WGSL branch). Iter 12 added spec-default suppression so authoring true (the spec default) no longer surfaces a spurious "ignored property" warning; only `false` (the real gap) warns. Promoted unsupported → partial in the capability-table expansion (iter 59) since the default path is real Phase 9 lighting, not stub. |
 | rgb / rgba | low | Constant channels only — hex-encoded at convert time. Per-channel v8 literal-wrap (`["literal", N]`) accepted. |
 | hsl / hsla | low | Constant channels only — converted via CSS hsl()/hsla() and re-hexed at convert time. Per-channel v8 literal-wrap accepted. |
 | interpolate (cubic-bezier) | low | Folded to linear with a warning — no per-stop bezier evaluator yet. |

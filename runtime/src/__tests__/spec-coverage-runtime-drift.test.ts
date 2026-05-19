@@ -84,6 +84,24 @@ describe('spec-coverage ↔ runtime capability drift', () => {
       'abs', 'ceil', 'floor', 'round', 'sqrt', 'sin', 'cos', 'tan',
       'asin', 'acos', 'atan', 'ln', 'log10', 'log2', 'pi', 'e', 'ln2',
       'pow',
+      // Grouped operator-set entries in spec-coverage (single coverage
+      // row covers multiple closely-related operators).
+      'let / var',
+      '== / != / < / <= / > / >=',
+      '== / != / < / <= / > / >= (legacy form)',
+      '+ / - / * / / / %',
+      '^ / abs / ceil / floor / round / sqrt',
+      'sin / cos / tan / asin / acos / atan',
+      'ln / log10 / log2',
+      'pi / e / ln2',
+      'upcase / downcase',
+      'min / max',
+      'has / !has',
+      'in / !in (legacy + expression form)',
+      'all / any / !',
+      'match (boolean form)',
+      // Layer-type rows that aggregate over all properties of a type
+      'symbol (text)',
       // Source types
       'vector (.pmtiles)', 'vector (TileJSON)', 'pmtiles', 'tilejson (explicit)',
       'raster', 'geojson (URL)', 'geojson (inline)', 'raster-dem',
@@ -111,12 +129,13 @@ describe('spec-coverage ↔ runtime capability drift', () => {
     if (orphans.length > 0) {
       console.warn(`[spec-coverage-runtime-drift] ${orphans.length} orphan entries:\n${orphans.slice(0, 10).join('\n')}`)
     }
-    // Hard gate: orphan count shouldn't BALLOON. 80 is a generous
-    // ceiling above the current count of ~51 — the goal is to catch
-    // a regression where someone adds N "supported" entries without
-    // capability rows, not to demand a complete capability table on
-    // day one. Lower this ceiling as plan §12.2 fills the table out.
-    expect(orphans.length).toBeLessThan(80)
+    // Hard gate: orphan count shouldn't BALLOON. Iter 59 lowered
+    // ceiling 80 → 10 after capability-table expansion drained the
+    // ~51 baseline to 0 (paint/layout coverage now complete for
+    // fill/line/symbol/circle/background/fill-extrusion/raster).
+    // Future "supported" entries either need a capability row OR
+    // an explicit NON_RENDERABLE entry above before the gate passes.
+    expect(orphans.length).toBeLessThan(10)
   })
 
   it('no spec-coverage="supported" entry contradicts a capability row marked unsupported', () => {
