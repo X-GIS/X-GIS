@@ -78,7 +78,7 @@ struct Uniforms {
   halo_color: vec4<f32>,
   halo_width: f32,         // 0 = no halo (SDF-byte units, [0,1])
   halo_blur: f32,          // additional smoothstep half-width for halo
-  _pad0: f32,
+  font_size_px: f32,       // physical-pixel glyph size (CSS-size × DPR)
   _pad1: f32,
 }
 
@@ -123,21 +123,31 @@ struct VsOut {
   // display. Higher-resolution rasterisation or per-fragment gamma
   // correction would close it; iter 109 leaves the trade-off
   // documented for a follow-up.
-  let edge: f32 = 0.72;
-
-  // Adaptive AA: derive smoothstep half-width from the SDF's
-  // screen-space derivative. fwidth() = |dF/dx|+|dF/dy|, the
-  // pixel-rate of change. Multiplier picks the visual trade-off:
-  // higher = softer / smoother edges, lower = crisper / more
-  // aliased at small sizes. User report 2026-05-19:
-  //   "현재 라벨 렌더링이 맵리브레와 비교했을때 부드럽게 보이지 않고"
-  // Iter 109 widens 0.3 -> 0.5 fwidth to add ~0.4 px more crossfade
-  // band per side (~1.0 px total vs prior ~0.6 px). The iter 107
-  // edge=0.7 widening (which fixed thinness) is preserved; this
-  // re-introduces some of the AA softness without retreating to
-  // the iter 106 0.7 fwidth that made glyphs too thin again.
-  // Floor avoids div-by-zero on flat samples.
-  let soft: f32 = max(0.7 * fwidth(sdf), 1.0 / 255.0);
+  // Iter 110: MapLibre-exact AA formula. Earlier fwidth-based AA
+  // (iter 106-109) produced a smoothstep half-width ~18x narrower
+  // than MapLibre's at typical 10-CSS-px labels -- the dominant
+  // cause of user-reported chunky/jagged labels. The fix replaces
+  // the screen-space-derivative AA with MapLibre's per-glyph-size
+  // formula (symbol_sdf.fragment.glsl line 24-42):
+  //   EDGE_GAMMA   = 0.105 / DPR
+  //   fontScale    = size_CSS / 24
+  //   gamma_scaled = EDGE_GAMMA / fontScale  (for non-pitched 2D)
+  //                = 0.105 * 24 / size_CSS
+  //                = 2.52 / size_CSS
+  // Substituting size_CSS = size_phys / DPR cancels DPR:
+  //   gamma_scaled = 2.52 / size_phys
+  // At label_other 10-CSS-px DPR=1: half-width = 0.252, which is
+  // ~12x wider than the prior 0.02 from 0.7*fwidth(sdf). Matches
+  // MapLibre byte-for-byte on non-pitched views.
+  //
+  // Edge restored to 0.75 (= 192/256, MapLibre default). The
+  // iter 107-109 edge=0.7/0.72 was a compensation for the missing
+  // wide AA band; with proper AA the glyph silhouette no longer
+  // needs the inward shift -- smoothstep covers a wide enough
+  // range around byte 192 that the alpha gradient lands at the
+  // correct half-byte for "boldness".
+  let edge: f32 = 0.75;
+  let soft: f32 = max(2.52 / max(u.font_size_px, 1.0), 1.0 / 255.0);
 
   // Fill mask
   let fill_a: f32 = smoothstep(edge - soft, edge + soft, sdf);
@@ -614,6 +624,9 @@ function packUniforms(d: TextDraw): Float32Array {
     buf[12] = 0
     buf[13] = 0
   }
-  buf[14] = 0; buf[15] = 0
+  // Iter 110: font_size_px (physical pixels) drives MapLibre-exact
+  // AA half-width in the fragment shader (soft = 2.52 / font_size_px).
+  buf[14] = d.fontSize
+  buf[15] = 0
   return buf
 }

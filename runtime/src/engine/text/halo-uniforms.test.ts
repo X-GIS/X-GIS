@@ -151,7 +151,12 @@ describe('packUniforms — local (computeSDF) glyph halo normalisation', () => {
 // from 0.75 to 0.7 to compensate for X-GIS lacking MapLibre's per-
 // glyph-size buffer_offset (which shifts edge inward for small text).
 // Keep this constant aligned with text-renderer.ts:edge.
-const EDGE = 0.72
+// MapLibre symbol_sdf edge constant — 192/256 = 0.75. Iter 110
+// restored to the MapLibre default once the per-glyph-size AA
+// half-width (2.52 / font_size_px) replaced the fwidth-based AA.
+// The earlier 0.7/0.72 was a compensation for too-narrow AA;
+// with proper AA the spec-default edge stays correct.
+const EDGE = 0.75
 
 function smoothstep(a: number, b: number, x: number): number {
   if (b === a) return x < a ? 0 : 1
