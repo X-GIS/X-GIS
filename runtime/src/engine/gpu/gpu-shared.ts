@@ -324,15 +324,7 @@ const SINGLE_WORLD: readonly number[] = [0]
  *  return WORLD_COPIES for projType 1 + 2. Tracked but not landed
  *  this session (multi-file change). */
 export function worldCopiesFor(projType: number): readonly number[] {
-  // Cylindrical projections (Mercator + Oblique Mercator) are periodic
-  // in projected x and benefit from world-copy enumeration so labels /
-  // tiles render across the antimeridian. Oblique Mercator's rotated
-  // longitude (lam_rot) wraps after 2π exactly like Mercator's lon, so
-  // shifting the camera by ±WORLD_MERC in projected x produces a valid
-  // adjacent-world copy. Iter 122 for user-reported "어빌리큐 메르키토르
-  // 프로젝션에서 날짜변경선 부근 렌더 월드 카피 안됨".
-  if (projType === 0 || projType === 6) return WORLD_COPIES
-  return SINGLE_WORLD
+  return projType === 0 ? WORLD_COPIES : SINGLE_WORLD
 }
 
 /** Create an empty uniform buffer */
