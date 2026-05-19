@@ -86,6 +86,33 @@
         ],
         "line-color": "#888"
       }
+    },
+    {
+      "id": "cubic-bezier-stroke-width",
+      "type": "line",
+      "source": "test-vector",
+      "source-layer": "transportation",
+      "paint": {
+        "line-color": "#444",
+        "line-width": [
+          "interpolate", ["cubic-bezier", 0.42, 0, 0.58, 1], ["zoom"],
+          5, 0.5,
+          15, 4
+        ]
+      }
+    },
+    {
+      "id": "interpolate-lab-fill",
+      "type": "fill",
+      "source": "test-vector",
+      "source-layer": "landuse",
+      "paint": {
+        "fill-color": [
+          "interpolate-lab", ["linear"], ["zoom"],
+          5, "#ffffff",
+          15, "#222222"
+        ]
+      }
     }
   ]
 }
