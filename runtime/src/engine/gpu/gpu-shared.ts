@@ -328,6 +328,30 @@ export function worldCopiesFor(projType: number): readonly number[] {
   return SINGLE_WORLD
 }
 
+/** Whether the globeVisibleTiles-routed periodic projections
+ *  (equirect=1 / natural_earth=2 / oblique_mercator=6) should
+ *  enumerate the ±2 neighbour world copies at the current zoom.
+ *
+ *  iter 127 enumerated them at EVERY zoom, a flat 5× tile multiplier.
+ *  Adjacent world copies are only ever on-screen when the whole world
+ *  is small relative to the viewport — i.e. low zoom. At z≈11-16
+ *  (street level) world±1 is thousands of px off-canvas, so the 4×
+ *  extra copies were pure fetch / decode / upload / draw waste and the
+ *  direct cause of the 2026-05-19 non-Mercator zoom-in jank reports.
+ *
+ *  iter 139 gates the enumeration to z≤4 (conservative: at z=4 the
+ *  world is ~16 tiles wide so one neighbour can still clip a wide
+ *  viewport; by z=5 it cannot). Extracted here as a pure predicate so
+ *  the user-bug fix is unit-pinned rather than living as an inline
+ *  magic comparison in vector-tile-renderer (see
+ *  project_predictability_sinks — untested inline thresholds are a
+ *  fix-doesn't-hold sink). projType encoding matches `worldCopiesFor`. */
+export const WORLD_COPY_MAX_ZOOM = 4
+export function enumerateWorldCopies(projType: number, zoom: number): boolean {
+  const periodic = projType === 1 || projType === 2 || projType === 6
+  return periodic && zoom <= WORLD_COPY_MAX_ZOOM
+}
+
 /** Create an empty uniform buffer */
 export function createUniformBuffer(device: GPUDevice, size: number, label?: string): GPUBuffer {
   return device.createBuffer({

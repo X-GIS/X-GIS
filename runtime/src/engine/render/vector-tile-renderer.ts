@@ -25,7 +25,7 @@ import {
 } from '../../core/polygon-mesh'
 import { tileKey, tileKeyParent, tileKeyChildren, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool, asyncWriteBuffer } from '../gpu/staging-buffer-pool'
-import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
+import { WORLD_MERC, TILE_PX, enumerateWorldCopies } from '../gpu/gpu-shared'
 import { PriorityQueue, PriorityQueueItemRemovedError } from '../../core/priority-queue'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../../data/tile-catalog'
@@ -2964,23 +2964,11 @@ export class VectorTileRenderer {
         // (equirect / NE at antimeridian, oblique-merc always). For
         // ortho/azimuth/stereo + globe (single-disc / true sphere),
         // single-world is correct and ox stays = x.
-        // Iter 127 enumerated ±2 world copies for the periodic
-        // projections (equirect / NE / oblique-merc) at EVERY zoom.
-        // Adjacent world copies are only on-screen when the whole
-        // world is small relative to the viewport — i.e. low zoom.
-        // At z≈11-16 (Seoul street level) world±1 sits thousands of
-        // px off-canvas, so the extra 4× tiles were pure waste:
-        // ~5× the tile fetch / decode / upload / draw work, the
-        // direct cause of the severe non-Mercator zoom-in jank the
-        // user reported 2026-05-19 for equirect / natural_earth /
-        // oblique-merc. Gate the multi-copy enumeration to the zoom
-        // band where a neighbour world can actually be visible. z≤4
-        // is conservative: at z=4 the world is ~16 tiles wide so a
-        // single neighbour copy can still clip into a wide viewport;
-        // by z=5 it cannot. World-copy E2E runs at z=0 so the
-        // low-zoom path stays covered.
-        const periodicProj = projType === 1 || projType === 2 || projType === 6
-        if (periodicProj && camera.zoom <= 4) {
+        // World-copy enumeration for the periodic projections is
+        // gated to low zoom — see enumerateWorldCopies (gpu-shared)
+        // for the full rationale + iter history. Extracted to a pure
+        // predicate so the iter-139 user-bug fix is unit-pinned.
+        if (enumerateWorldCopies(projType, camera.zoom)) {
           tiles = []
           for (const wc of [-2, -1, 0, 1, 2]) {
             for (const t of globeTiles) {

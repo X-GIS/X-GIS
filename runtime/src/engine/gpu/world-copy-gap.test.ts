@@ -14,7 +14,7 @@
 // E2E `_world-copy-projections.spec.ts` pins the rendered behaviour.
 
 import { describe, expect, it } from 'vitest'
-import { worldCopiesFor } from './gpu-shared'
+import { worldCopiesFor, enumerateWorldCopies, WORLD_COPY_MAX_ZOOM } from './gpu-shared'
 
 describe('worldCopiesFor — projection world-copy enumeration', () => {
   it('Mercator (0): returns 5 copies (-2..+2)', () => {
@@ -72,5 +72,38 @@ describe('worldCopiesFor — projection world-copy enumeration', () => {
     // Iter 127: Mercator (0) + Equirect (1) + NE (2) + Oblique Merc (6).
     // All cylindrical / pseudocyl projections enumerate world copies.
     expect(multi).toBe(4)
+  })
+})
+
+describe('enumerateWorldCopies — iter 139 low-zoom gate (user-bug pin)', () => {
+  // 2026-05-19: equirect/NE/oblique suffered 5× tile jank at Seoul
+  // street zoom because iter 127 enumerated ±2 world copies at EVERY
+  // zoom. iter 139 gates to z<=WORLD_COPY_MAX_ZOOM. These cases lock
+  // the predicate so the regression can't silently return.
+  const PERIODIC = [1, 2, 6]   // equirect, natural_earth, oblique-merc
+  const NON_PERIODIC = [0, 3, 4, 5, 7] // merc(SSE path), ortho, azi, stereo, globe
+
+  it('periodic projections enumerate copies at/below the zoom gate', () => {
+    for (const p of PERIODIC) {
+      expect(enumerateWorldCopies(p, 0)).toBe(true)
+      expect(enumerateWorldCopies(p, WORLD_COPY_MAX_ZOOM)).toBe(true)
+    }
+  })
+
+  it('periodic projections do NOT enumerate copies above the gate', () => {
+    for (const p of PERIODIC) {
+      // The exact street-zoom range the user reported jank at.
+      expect(enumerateWorldCopies(p, WORLD_COPY_MAX_ZOOM + 0.01)).toBe(false)
+      expect(enumerateWorldCopies(p, 11.5)).toBe(false)
+      expect(enumerateWorldCopies(p, 16)).toBe(false)
+    }
+  })
+
+  it('non-periodic projections never enumerate copies (any zoom)', () => {
+    for (const p of NON_PERIODIC) {
+      for (const z of [0, 2, 4, 8, 15]) {
+        expect(enumerateWorldCopies(p, z)).toBe(false)
+      }
+    }
   })
 })
