@@ -409,6 +409,75 @@ export function globeVisibleTiles(
   // limits the recursive node count after the iter 458 SoA stack landed.
   const MAX_TILES = 300
 
+  // Hoisted above the overzoom branch so both it and the legacy
+  // descent share one accumulator.
+  const out: GlobeTile[] = []
+
+  // ─── Overzoom geographic-footprint selection (iter 149) ──────────
+  // Root (probes iter 147/148): once the camera zoom exceeds maxZ a
+  // single maxZ tile projects LARGER than the whole viewport, so the
+  // 5-sample descent/cull below is geometrically meaningless — the
+  // descent prune (`!anyFront` under a ~0° cone) collapses the set
+  // to ~1 tile and globe/oblique go near-blank past z≈15. (ortho/
+  // azi/stereo are unaffected: vtr.ts:2951 routes only globe(7) /
+  // oblique(6) / nearAntimeridian here; the others use the overzoom-
+  // capable visibleTilesSSE.) Bypass the heuristic entirely in the
+  // overzoom regime: unproject the viewport corners + edges onto the
+  // sphere, take the lon/lat bbox, emit every maxZ tile covering it
+  // — the same overzoom set visibleTilesSSE yields for the flat
+  // path. Deterministic; output bounded by the (tiny, at overzoom)
+  // footprint → no recursion, structurally cannot explode.
+  if (zoom > maxZ + 1e-3) {
+    const W = cssWidthPx, H = cssHeightPx
+    const probes: ReadonlyArray<readonly [number, number]> = [
+      [0, 0], [W, 0], [0, H], [W, H], [W * 0.5, H * 0.5],
+      [W * 0.5, 0], [W * 0.5, H], [0, H * 0.5], [W, H * 0.5],
+    ]
+    let lonMin = Infinity, lonMax = -Infinity
+    let latMin = Infinity, latMax = -Infinity
+    let hits = 0
+    for (const [sx, sy] of probes) {
+      const ll = unprojectGlobe(sx, sy, W, H, view)
+      if (!ll) continue
+      hits++
+      const lo = ll[0], la = ll[1]
+      if (lo < lonMin) lonMin = lo
+      if (lo > lonMax) lonMax = lo
+      if (la < latMin) latMin = la
+      if (la > latMax) latMax = la
+    }
+    // Need ≥1 hit AND a non-limb-straddling box; otherwise fall
+    // through to the legacy descent rather than emit nothing / half
+    // the world (a corner ray grazing the limb can blow the span).
+    if (hits > 0 && lonMax - lonMin <= 170 && latMax - latMin <= 170) {
+      const tileN = (1 << maxZ) | 0
+      const lonToX = (lo: number): number =>
+        Math.min(tileN - 1, Math.max(0,
+          Math.floor(((lo + 180) / 360) * tileN)))
+      const latToY = (la: number): number => {
+        const r = Math.max(-85.05, Math.min(85.05, la)) * DEG2RAD
+        const yf = (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2
+        return Math.min(tileN - 1, Math.max(0, Math.floor(yf * tileN)))
+      }
+      // ±1 tile pad so an edge tile only fractionally on-screen
+      // isn't dropped. north (latMax) → smaller y.
+      const x0 = Math.max(0, lonToX(lonMin) - 1)
+      const x1 = Math.min(tileN - 1, lonToX(lonMax) + 1)
+      const y0 = Math.max(0, latToY(latMax) - 1)
+      const y1 = Math.min(tileN - 1, latToY(latMin) + 1)
+      for (let ty = y0; ty <= y1 && out.length < MAX_TILES; ty++) {
+        for (let tx = x0; tx <= x1 && out.length < MAX_TILES; tx++) {
+          out.push({ z: maxZ, x: tx, y: ty, ox: tx })
+        }
+      }
+      if (out.length > 0) {
+        _globeTilesCacheKey = key
+        _globeTilesCacheResult = out
+        return out
+      }
+    }
+  }
+
   // Pre-compute the off-screen bounds + matrix row scratch ONCE outside
   // the recursion. Allocation per node was the GC hot spot at z=15+
   // Seoul on globe — 32k nodes × 5 samples × 2 array allocs per sample
@@ -427,7 +496,7 @@ export function globeVisibleTiles(
   const pn = 1 / EARTH_R
   const eyeN0 = eyeN[0], eyeN1 = eyeN[1], eyeN2 = eyeN[2]
 
-  const out: GlobeTile[] = []
+  // (`out` hoisted above the overzoom branch.)
   // 3 parallel number arrays as a structure-of-arrays stack — avoids
   // the {z, x, y} object literal allocation per push. At z=15 globe
   // ~32k node visits, so the pre-fix Node[] stack churned 32k

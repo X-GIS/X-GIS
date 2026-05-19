@@ -46,37 +46,36 @@ describe('globeVisibleTiles deep-zoom probe (Seoul)', () => {
     expect(n).toBeGreaterThan(0)
   })
 
-  // RESULT (2026-05-19, with the CORRECT source-maxLevel-clamped
-  // maxZ): selection COLLAPSES under overzoom —
-  //   z11=35 z13=35 z14=40  z15=12  z16=4  z16.5=1
-  // (an earlier revision used maxZ=floor(zoom) and wrongly read
-  // 15-40 flat — VTR clamps cz to sourceMaxLevel BEFORE calling
-  // globeVisibleTiles, so the realistic deep-zoom maxZ is 14, not
-  // 16.) ROOT: once the camera zoom exceeds the source maxLevel,
-  // a maxZ(=14) tile is far larger than the viewport; its corner
-  // samples project off-screen so the anyFront / anyOnScreen
-  // 5-sample test keeps only the ~1 tile whose centre still lands
-  // on screen. The Mercator overzoom path (visibleTilesSSE) instead
-  // returns every maxLevel tile whose GEOGRAPHIC extent meets the
-  // frustum (~109 in the Seoul-deep harness) and the draw path
-  // scales them up — that is why globe/oblique go near-blank at
-  // z>~15 while ortho/azi/stereo/mercator do not.
+  // History (source-maxLevel-clamped maxZ; OFM bright maxLevel 14):
+  //   BROKEN pre-iter-149:  z14=40 z15=12 z16=4  z16.5=1
+  //   FIXED  iter-149:      z14=40 z15=16 z16=12 z16.5=12
+  // Root: once camera zoom exceeds maxLevel, a maxZ tile projects
+  // larger than the viewport so globeVisibleTiles' 5-sample
+  // descent/cull collapsed the set to ~1 tile (globe/oblique
+  // near-blank past z≈15; ortho/azi/stereo unaffected — they use
+  // visibleTilesSSE, not this function). iter-149 added an
+  // overzoom branch: when zoom>maxZ, unproject the viewport
+  // corners onto the sphere and emit the maxZ tiles covering that
+  // lon/lat footprint (same overzoom set visibleTilesSSE yields),
+  // bypassing the meaningless sample heuristic. Deterministic;
+  // bounded by the footprint → no recursion / explosion.
   //
-  // Locks the degradation curve so the fix (overzoom-aware
-  // geographic-extent selection when camera zoom > maxZ) can be
-  // verified to flatten it back toward the z14 count, and a
-  // regression re-collapsing it fails here.
-  it('selection collapses under overzoom — characterises the root', () => {
+  // Pins the FIXED curve: selection must NOT collapse at overzoom
+  // (a regression re-collapsing it, or a change exploding it,
+  // fails here).
+  it('selection stays a bounded non-trivial set under overzoom (iter 149)', () => {
     const counts: Record<number, number> = {}
     for (const z of [13, 14, 15, 16, 16.5]) {
       counts[z] = selectAt(z)
       // eslint-disable-next-line no-console
       console.log(`[probe] globeVisibleTiles z=${z} Seoul (maxZ clamped) → ${counts[z]} tiles`)
     }
-    // Pin the CURRENT broken behaviour exactly (so the fix's
-    // before/after is unambiguous): selection still collapses to a
-    // near-empty handful at extreme overzoom.
     expect(counts[14]!).toBeGreaterThan(20)
-    expect(counts[16.5]!).toBeLessThanOrEqual(2) // BROKEN: ~1 tile
+    // FIXED: deep overzoom no longer collapses to ~1 — a real
+    // viewport-covering set …
+    expect(counts[16]!, 'z16 must not collapse').toBeGreaterThanOrEqual(4)
+    expect(counts[16.5]!, 'z16.5 must not collapse').toBeGreaterThanOrEqual(4)
+    // … but is still bounded (no overzoom explosion / runaway).
+    expect(counts[16.5]!, 'z16.5 must stay bounded').toBeLessThanOrEqual(64)
   })
 })
