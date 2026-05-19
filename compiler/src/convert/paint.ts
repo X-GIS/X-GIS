@@ -432,6 +432,17 @@ function interpolateZoomStops(
   let curve: 'linear' | 'exponential' = 'linear'
   let base = 1
   if (Array.isArray(curveSpec)) {
+    // Mapbox spec: curve type must be one of `linear` / `exponential` /
+    // `cubic-bezier`. An unknown curve name silently falls through to
+    // linear below without diagnostic — surface it so the author sees
+    // the typo at compile time. (Linear itself is recognised by the
+    // outer `if (Array.isArray(curveSpec))` + falling through with
+    // defaults; this gate only fires for truly unknown names.)
+    const cn = curveSpec[0]
+    if (typeof cn === 'string'
+        && cn !== 'linear' && cn !== 'exponential' && cn !== 'cubic-bezier') {
+      warnings?.push(`["${v[0]}"] unknown curve type "${cn}". Mapbox spec recognises only linear / exponential / cubic-bezier. Falling back to linear.`)
+    }
     if (curveSpec[0] === 'exponential') {
       // v8 strict tooling can wrap the base scalar as
       // `["exponential", ["literal", 2]]`. Mirror of the same unwrap

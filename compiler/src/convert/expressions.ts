@@ -560,6 +560,15 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       let bezierX1 = 0, bezierY1 = 0, bezierX2 = 1, bezierY2 = 1
       let isBezier = false
       if (Array.isArray(curveSpec)) {
+        // Mapbox spec: curve type must be one of `linear` / `exponential`
+        // / `cubic-bezier`. An unknown curve name silently falls through
+        // to linear without diagnostic — surface it so the author sees
+        // the typo. Mirror of paint.ts gate (iter 78).
+        const cn = curveSpec[0]
+        if (typeof cn === 'string'
+            && cn !== 'linear' && cn !== 'exponential' && cn !== 'cubic-bezier') {
+          warnings.push(`["${op}"] unknown curve type "${cn}". Mapbox spec recognises only linear / exponential / cubic-bezier. Falling back to linear.`)
+        }
         if (curveSpec[0] === 'exponential') {
           // v8 strict tooling can wrap the base scalar as
           // `["exponential", ["literal", 2]]`. Without the unwrap the
