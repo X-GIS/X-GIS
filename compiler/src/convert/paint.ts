@@ -767,7 +767,20 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
   // warning so the gap is visible in conversion notes rather than
   // silently producing an undashed line — matches addLineOffset /
   // addLineBlur behaviour for the same not-yet-supported case.
-  warnings.push(`paint.line-dasharray: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
+  //
+  // Specific shape detection so the warning explains WHICH gap fires:
+  //   * ["interpolate", ...] → zoom-interp gap (PropertyShape<array>)
+  //   * ["case", ...] / ["match", ...] / ["get", ...] → data-driven
+  //   * anything else → generic non-constant
+  let shape = 'non-constant'
+  if (Array.isArray(v) && v.length > 0) {
+    if (v[0] === 'interpolate' || v[0] === 'interpolate-lab' || v[0] === 'interpolate-hcl') {
+      shape = 'zoom-interp (needs PropertyShape<array> variant)'
+    } else if (v[0] === 'case' || v[0] === 'match' || v[0] === 'get' || v[0] === 'step') {
+      shape = 'data-driven (needs per-feature dash plumbing)'
+    }
+  }
+  warnings.push(`paint.line-dasharray: ${shape} form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`)
 }
 
 function addOpacity(out: string[], v: unknown, warnings: string[]): void {

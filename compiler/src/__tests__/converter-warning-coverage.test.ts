@@ -580,8 +580,11 @@ describe('converter warning coverage', () => {
         },
       }],
     })
-    expect(w.some(s => s.includes('paint.line-dasharray') && s.includes('non-constant')))
-      .toBe(true)
+    // Post-iter-27 warning text distinguishes the specific gap
+    // shape (zoom-interp vs data-driven vs generic non-constant)
+    // so the user knows WHICH path is missing.
+    expect(w.some(s => s.includes('paint.line-dasharray')
+      && (s.includes('zoom-interp') || s.includes('non-constant')))).toBe(true)
   })
 
   it('glyphs / sprite must NOT appear in the top-level warning (host-integration handled)', () => {
