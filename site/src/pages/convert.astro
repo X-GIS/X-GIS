@@ -264,12 +264,30 @@ const presets: Preset[] = [
       }
     }
 
+    // Sprite + glyphs URLs lifted out of the parsed Mapbox JSON so
+    // openInPlayground can stash them alongside the converted xgis
+    // source. Pre-fix the convert page sent only the xgis string;
+    // the playground had no way to recover sprite/glyphs URLs from
+    // the original style and icon-image layers rendered blank.
+    // Iter 105.
+    let lastSpriteUrl = ''
+    let lastGlyphsUrl = ''
+
     function convertJsonString(jsonStr: string, label?: string) {
       try {
         const parsed = JSON.parse(jsonStr)
         const xgis = convertMapboxStyle(parsed)
         $out.value = xgis
         if (label) lastImportLabel = label
+        // Capture sprite + glyphs URLs from the parsed JSON for the
+        // playground hand-off. Spec: `sprite` is a URL prefix (no
+        // .json/.png suffix); `glyphs` is a URL template with
+        // {fontstack} and {range} placeholders. Both are top-level
+        // fields on the style root.
+        const rawSprite = (parsed as { sprite?: unknown }).sprite
+        const rawGlyphs = (parsed as { glyphs?: unknown }).glyphs
+        lastSpriteUrl = typeof rawSprite === 'string' ? rawSprite : ''
+        lastGlyphsUrl = typeof rawGlyphs === 'string' ? rawGlyphs : ''
         showWarnings(xgis)
         const noteCount = (xgis.match(/^\s*\*\s+•/gm) || []).length
         setStatus(noteCount > 0
@@ -388,13 +406,26 @@ const presets: Preset[] = [
         }
         const encoded = btoa(unescape(encodeURIComponent(source)))
         const labelParam = encodeURIComponent(label)
+        // Sprite + glyphs URLs threaded as query params (cross-origin
+        // dev → sessionStorage doesn't survive the origin hop).
+        const spriteParam = lastSpriteUrl ? `&sprite=${encodeURIComponent(lastSpriteUrl)}` : ''
+        const glyphsParam = lastGlyphsUrl ? `&glyphs=${encodeURIComponent(lastGlyphsUrl)}` : ''
         window.location.href =
-          `https://localhost:3000/demo.html?id=__import&label=${labelParam}#src=${encoded}`
+          `https://localhost:3000/demo.html?id=__import&label=${labelParam}${spriteParam}${glyphsParam}#src=${encoded}`
         return
       }
       try {
         sessionStorage.setItem('__xgisImportSource', source)
         sessionStorage.setItem('__xgisImportLabel', label)
+        // Iter 105: stash sprite + glyphs URLs so the playground's
+        // XGISMap constructor seeds the IconStage gate before the
+        // first label-bearing frame. Without these, icon-image
+        // layers in the converted xgis would render blank because
+        // the atlas was never fetched.
+        if (lastSpriteUrl) sessionStorage.setItem('__xgisImportSprite', lastSpriteUrl)
+        else sessionStorage.removeItem('__xgisImportSprite')
+        if (lastGlyphsUrl) sessionStorage.setItem('__xgisImportGlyphs', lastGlyphsUrl)
+        else sessionStorage.removeItem('__xgisImportGlyphs')
       } catch { /* sessionStorage may be unavailable in some embeds */ }
       window.location.href = playgroundUrl + '?id=__import'
     }

@@ -17,6 +17,15 @@ const params = new URLSearchParams(location.search)
 let currentIdx = Math.max(0, demoIds.indexOf(params.get('id') ?? 'minimal'))
 let currentMap: XGISMap | null = null
 
+// Module-scope sprite / glyphs URL stash for the Mapbox-import flows
+// (`__xgisImportMapbox` direct call AND `__xgisImportSource` session-
+// Storage / hash channel from the site /convert page). The XGISMap
+// constructor inside runSource consumes them so the IconStage's
+// first-frame construction gate sees a non-null URL. Iter 105 +
+// the convert-page sprite/glyphs path fix.
+let pendingSpriteUrl: string | null = null
+let pendingGlyphsUrl: string | null = null
+
 const canvas = document.getElementById('map') as HTMLCanvasElement
 const status = document.getElementById('status')!
 const errorDiv = document.getElementById('error')!
@@ -829,7 +838,21 @@ async function runSource(source: string, label: string) {
     // → per-frame dispatch. Default off; demos that don't pass the
     // flag render through the legacy fragment-shader path unchanged.
     const computeOptIn = new URL(window.location.href).searchParams.get('compute') === '1'
-    currentMap = new XGISMap(canvas, { enableComputePath: computeOptIn })
+    // Pre-runSource sprite / glyphs URL seeding. The Mapbox-import flows
+    // (__xgisImportMapbox + convert-page __xgisImportSource via session-
+    // Storage) stash the original style's sprite + glyphs URLs in
+    // module-scope `pendingSpriteUrl` / `pendingGlyphsUrl` BEFORE
+    // calling runSource. Threading them into the XGISMap constructor
+    // (vs the late setSpriteUrl call) guarantees the IconStage's first-
+    // frame construction gate sees a non-null URL — pre-fix the gate
+    // fired with `spriteUrl === null` and the atlas was never built,
+    // so icon-image layers rendered nothing (iter 56 deploy-bug repro).
+    const ctorOpts: { enableComputePath: boolean; spriteUrl?: string; glyphs?: { url?: string } } = {
+      enableComputePath: computeOptIn,
+    }
+    if (pendingSpriteUrl) ctorOpts.spriteUrl = pendingSpriteUrl
+    if (pendingGlyphsUrl) ctorOpts.glyphs = { url: pendingGlyphsUrl }
+    currentMap = new XGISMap(canvas, ctorOpts)
     // Debug hook — Playwright tests + DevTools console can poke at
     // map._elapsedMs, map.vectorTileShows, etc. without re-wiring the
     // demo runner. Keep it lightweight; not part of the public API.
@@ -997,31 +1020,19 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
         const stylePitch = (styleObj as { pitch?: number }).pitch
         const xgis = convertMapboxStyle(styleObj)
         editor.setValue(xgis)
-        // Wire glyphs + sprite URLs BEFORE runSource so the first
-        // label-bearing frame can construct TextStage / IconStage
-        // with the URLs already set. Pre-fix the order was reversed:
-        // runSource → first frame (sprite URL still null → IconStage
-        // not constructed → icons render after a later frame). User
-        // report iter 56: production OFM Bright icons not visible.
-        // Setting BEFORE means the IconStage construction gate's
-        // `this.spriteUrl !== null` check fires on the FIRST frame
-        // that has labelShows with iconImage.
-        if (typeof glyphsUrl === 'string' && glyphsUrl.length > 0) {
-          currentMap?.setGlyphsUrl(glyphsUrl)
-        }
-        if (typeof spriteUrl === 'string' && spriteUrl.length > 0) {
-          currentMap?.setSpriteUrl(spriteUrl)
-        }
+        // Stash sprite + glyphs URLs in module-scope so the XGISMap
+        // constructor inside runSource picks them up at build time
+        // (vs the late setSpriteUrl call which fires AFTER IconStage's
+        // first-frame construction gate has already seen
+        // spriteUrl === null). Iter 105: the prior approach
+        // (`currentMap?.setSpriteUrl(...)` before runSource) was a
+        // no-op on first call because currentMap was null at that
+        // point; the post-runSource re-apply hit after IconStage was
+        // already built without the URL. Constructor-option seeding
+        // is the canonical fix.
+        pendingSpriteUrl = typeof spriteUrl === 'string' && spriteUrl.length > 0 ? spriteUrl : null
+        pendingGlyphsUrl = typeof glyphsUrl === 'string' && glyphsUrl.length > 0 ? glyphsUrl : null
         await runSource(xgis, 'Imported (Mapbox)')
-        // Re-apply after runSource in case the source restart
-        // recreates currentMap and the pre-runSource setters were
-        // wired to a stale reference.
-        if (typeof glyphsUrl === 'string' && glyphsUrl.length > 0) {
-          currentMap?.setGlyphsUrl(glyphsUrl)
-        }
-        if (typeof spriteUrl === 'string' && spriteUrl.length > 0) {
-          currentMap?.setSpriteUrl(spriteUrl)
-        }
         // Apply style-declared camera when nothing else (URL hash or
         // bounds-fit) explicitly positioned us yet. URL hash camera
         // (parseHash → markCameraPositioned at boot) wins because the
@@ -1158,6 +1169,25 @@ if (params.get('id') === '__import') {
       label = sessionStorage.getItem('__xgisImportLabel')
     } catch { /* sessionStorage unavailable */ }
   }
+  // Sibling sprite + glyphs URLs from the convert page. Iter 105:
+  // pre-fix the convert page sent only the converted xgis source, so
+  // sprite/glyphs URLs from the original Mapbox JSON were lost and
+  // icon-image layers rendered blank. Now the convert page stashes
+  // both URLs alongside the source; this block reads them and
+  // populates the pre-runSource pending vars so the XGISMap
+  // constructor seeds the IconStage gate.
+  try {
+    const ss = sessionStorage.getItem('__xgisImportSprite')
+    const gs = sessionStorage.getItem('__xgisImportGlyphs')
+    if (typeof ss === 'string' && ss.length > 0) pendingSpriteUrl = ss
+    if (typeof gs === 'string' && gs.length > 0) pendingGlyphsUrl = gs
+  } catch { /* sessionStorage unavailable */ }
+  // Hash channel also supports sprite/glyphs query params (dev cross-
+  // origin, sessionStorage doesn't survive the origin hop).
+  const hashSprite = params.get('sprite')
+  const hashGlyphs = params.get('glyphs')
+  if (hashSprite) pendingSpriteUrl = hashSprite
+  if (hashGlyphs) pendingGlyphsUrl = hashGlyphs
   if (imported) {
     document.title = (label ?? 'Imported') + ' — X-GIS'
     tagEl.textContent = 'imported'
