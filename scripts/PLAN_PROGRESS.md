@@ -7,7 +7,7 @@ parity plan (`C:\Users\soung\.claude\plans\lovely-launching-eagle.md`).
 
 | Phase | Title | Status | Key commits |
 |---|---|---|---|
-| 1 | Expression spec-strict + depth/cycle guards | **done** | match labels / interpolate stops / `in` keys literal-strict; MAX_EXPR_DEPTH=256; substituteVars WeakSet; WGSL MatchBlock select-chain; format partial-drop |
+| 1 | Expression spec-strict + depth/cycle guards | **done** | match labels / interpolate stops / step stops / `in` keys literal-strict; MAX_EXPR_DEPTH=256; substituteVars WeakSet; WGSL MatchBlock select-chain; format full partial-drop (per-section + total-fail surface) |
 | 2 | Defaults single source + zero-semantics | **done** | spec/zero-semantics.ts catalogue; oracle.ts already-existing single-source-of-truth confirmed |
 | 5.1 | Oblique Mercator tile selector fix | **done** | route projType=6 through globeVisibleTiles, prefetch path matches main selector |
 | 5.3 | Antimeridian routing for ortho/azimuth/stereo | **done** | extend heuristic from projType {1,2} to {1..5}; CPU mirror test |
@@ -47,6 +47,10 @@ parity plan (`C:\Users\soung\.claude\plans\lovely-launching-eagle.md`).
 | Stricter drift gate | Reverse-direction check — spec-coverage="supported" cannot contradict capability(constant)=false. |
 | Value-aware warnings: vertical-gradient / fill-antialias / icon-overlap / icon-allow-overlap / raster-resampling | Spec default (matches X-GIS) silent; real gap value warns. Replaces always-warn surface. Generic SPEC_DEFAULT_NO_WARN helper for future additions. |
 | text-pitch-alignment=map warning | Surface runtime gap (label ground-projection not implemented) explicitly. |
+| line-gradient specific warning | Replace generic ignored-properties blob with specific message citing line-progress accessor + Plan §4 dependency. |
+| step spec-strict | Step stop x-values literal-finite enforced (parallel to interpolate). |
+| format partial-drop | Surviving sections concat instead of total bail. |
+| surfaceIgnoredPaint aggregation test | Pin contract: 1 warning per layer aggregating all ignored props. |
 
 ## Plan items genuinely not yet done
 
