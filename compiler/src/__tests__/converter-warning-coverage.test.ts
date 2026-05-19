@@ -262,8 +262,12 @@ describe('converter warning coverage', () => {
     expect(w.some(s => s.includes('"protomaps"') && s.includes('unsupported type'))).toBe(false)
   })
 
-  it('background-opacity / background-pattern → ignored-properties warning', () => {
-    // Pins 00f8834.
+  it('background-pattern → ignored-properties warning (constant background-opacity folded into hex)', () => {
+    // Pins iter 47: background-opacity constant form is folded into
+    // background-color hex alpha and NO longer surfaces via the
+    // ignored-properties bucket. Only background-pattern (real gap)
+    // still warns. Non-constant background-opacity (zoom-interp /
+    // data-driven) would still warn — verified separately below.
     const w = warningsOf({
       version: 8,
       sources: {},
@@ -279,8 +283,28 @@ describe('converter warning coverage', () => {
     })
     const note = w.find(s => s.includes('"bg"') && s.includes('ignored properties'))
     expect(note, `expected background ignored-properties note: ${JSON.stringify(w)}`).toBeDefined()
-    expect(note).toContain('background-opacity')
+    // Constant background-opacity is now FOLDED, not surfaced.
+    expect(note).not.toContain('background-opacity')
+    // background-pattern (real Batch 2 gap) still surfaces.
     expect(note).toContain('background-pattern')
+  })
+
+  it('background-opacity zoom-interp → still surfaces as non-constant gap', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: {},
+      layers: [{
+        id: 'bg',
+        type: 'background',
+        paint: {
+          'background-color': '#f8f4f0',
+          'background-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.5, 10, 1],
+        },
+      }],
+    })
+    const note = w.find(s => s.includes('"bg"') && s.includes('background-opacity'))
+    expect(note).toBeDefined()
+    expect(note).toContain('non-constant')
   })
 
   it('GeoJSON promoteId → reserved-id warning', () => {

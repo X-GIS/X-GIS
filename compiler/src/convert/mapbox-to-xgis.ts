@@ -349,17 +349,7 @@ export function convertMapboxStyle(
       warnings.push(`Background layer "${bgLayer.id}" — visibility "${bgVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`)
     }
     const color = bgLayer.paint?.['background-color']
-    const colorStr = bgVisibilityNone ? null : colorToXgis(color, warnings)
-    if (colorStr) {
-      lines.push(`background { fill: ${colorStr} }`)
-      lines.push('')
-    }
-    // Surface dropped background paint props. xgis's `background {
-    // fill: # }` directive doesn't carry opacity / pattern. Mapbox
-    // background-opacity defaults to 1 so a missing value is fine;
-    // explicit < 1 silently downgrades to fully opaque and the user
-    // never knows. background-pattern is the bitmap-atlas equivalent
-    // (Batch 2 follow-up).
+    let colorStr = bgVisibilityNone ? null : colorToXgis(color, warnings)
     // Defensive: coerce non-object bgLayer.paint to {} (mirror of the
     // layers.ts safePropsBag guard). A string paint value previously
     // let bgPaint['background-opacity'] index a char and the warning
@@ -369,11 +359,48 @@ export function convertMapboxStyle(
       && typeof rawBgPaint === 'object' && !Array.isArray(rawBgPaint))
       ? rawBgPaint as Record<string, unknown>
       : {}
+    // Background-opacity constant fold (same pattern as
+    // circle-stroke-opacity iter 4 partial landing). When both
+    // background-color hex AND a constant numeric background-opacity
+    // < 1 are authored, fold the opacity into the hex alpha channel.
+    // Zoom-interp / data-driven forms still warn via the ignored list
+    // below.
+    {
+      let bgOpRaw: unknown = bgPaint['background-opacity']
+      while (Array.isArray(bgOpRaw) && bgOpRaw.length === 2 && bgOpRaw[0] === 'literal') bgOpRaw = bgOpRaw[1]
+      if (colorStr && typeof bgOpRaw === 'number' && Number.isFinite(bgOpRaw) && bgOpRaw < 0.999) {
+        const a = Math.max(0, Math.min(1, bgOpRaw))
+        const baseAlpha = colorStr.length === 9
+          ? parseInt(colorStr.slice(7, 9), 16) / 255
+          : 1
+        const ai = Math.round(baseAlpha * a * 255)
+        const aHex = ai.toString(16).padStart(2, '0')
+        colorStr = colorStr.slice(0, 7) + aHex
+      }
+    }
+    if (colorStr) {
+      lines.push(`background { fill: ${colorStr} }`)
+      lines.push('')
+    }
+    // Surface dropped background paint props. background-pattern is
+    // the bitmap-atlas equivalent (Batch 2 follow-up). Constant
+    // background-opacity has been folded into the hex above; only
+    // non-constant (zoom-interp / data-driven) forms surface here.
     const bgIgnored: string[] = []
-    // Treat null the same as undefined per Mapbox spec.
     const bgOpacity = bgPaint['background-opacity']
+    // Suppress the "ignored" warning when bg-opacity is a constant
+    // number — already folded into the hex alpha. Only the
+    // non-constant form is a real gap (would need a per-frame
+    // uniform).
+    const bgOpacityIsConstant = (() => {
+      let v: unknown = bgOpacity
+      while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') v = v[1]
+      return typeof v === 'number' && Number.isFinite(v)
+    })()
+    if (bgOpacity !== undefined && bgOpacity !== null && !bgOpacityIsConstant) {
+      bgIgnored.push('background-opacity (non-constant)')
+    }
     const bgPattern = bgPaint['background-pattern']
-    if (bgOpacity !== undefined && bgOpacity !== null) bgIgnored.push('background-opacity')
     if (bgPattern !== undefined && bgPattern !== null) bgIgnored.push('background-pattern (Batch 2)')
     if (bgIgnored.length > 0) {
       warnings.push(`Background layer "${bgLayer.id}" — ignored properties: ${bgIgnored.join(', ')}`)

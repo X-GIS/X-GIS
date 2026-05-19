@@ -23,8 +23,8 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | Status | Count |
 |---|---:|
 | supported | 126 |
-| partial | 22 |
-| unsupported | 87 |
+| partial | 23 |
+| unsupported | 86 |
 | na | 7 |
 | **total** | **242** |
 
@@ -54,6 +54,7 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | icon-overlap | medium | MapLibre overlap-policy enum. `always` matches X-GIS default (every icon places). `never`/`cooperative` need icon collision bboxes (deferred). Iter 495 status review. |
 | icon-optional | low | Default `false` (icon required for label placement) is X-GIS' current contract — labels with iconImage place when both fit. OFM label_city/town/etc. all author the default. `true` (label may place icon-less) needs icon-side collision arbitration; not implemented. |
 | background-color | low | Constant + CSS form only — interpolate-by-zoom of background falls through (rare). |
+| background-opacity | low | Constant numeric form folds into background-color hex alpha (iter 47, mirror of circle-stroke-opacity iter 4). Zoom-interp / data-driven still warn — would need a per-frame uniform on the background-fill emit path. |
 | fill-antialias | low | Default `true` is X-GIS' permanent contract — fragment shader smoothsteps every fill edge. OFM bright `building` / `road_area_pier` / `road_pier` author `true` explicitly = no-op match. OFM liberty `landcover_wood`/`grass`/`ice` set `false` for a pixel-art look; that opt-out (4 liberty layers) is not yet implemented and renders smooth instead of stepped. Iter 14 added a specific gap warning when `false` is authored explicitly so the gap surfaces rather than silently dropping. |
 | fill-translate | low | Constant vec2 + zoom-interp last-stop approx end-to-end. Runtime WGSL u.fill_translate_x/y adds CSS-px offset converted to NDC at vs_main (`clip.xy += u.fill_translate * clip.w`). OFM building-top pseudo-3D roof offset honoured. Full per-frame zoom-interp deferred. Iter 501 + 508 shipped 2026-05-18. |
 | line-dasharray | medium | Constant numeric array only — interpolate-by-zoom dasharray not lowered. |
