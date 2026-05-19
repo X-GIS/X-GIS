@@ -1877,7 +1877,12 @@ export function convertLayer(layer: MapboxLayer, warnings: string[]): string | n
       warnings.push(`Layer "${layer.id}" — line-join "${join.slice(0, 40)}" is not a valid enum; expected 'miter' | 'round' | 'bevel'.`)
     }
     const miter = unwrapLiteralScalar(layout['line-miter-limit'])
-    if (typeof miter === 'number' && Number.isFinite(miter)) layoutUtils.push(`stroke-miterlimit-${miter}`)
+    if (typeof miter === 'number' && Number.isFinite(miter)) {
+      if (miter < 0) {
+        warnings.push(`Layer "${layer.id}" — line-miter-limit ${miter} is negative; Mapbox spec default is 2 and values < 1 collapse to bevel joins. Negative emits a malformed utility — clamped to 0.`)
+      }
+      layoutUtils.push(`stroke-miterlimit-${Math.max(0, miter)}`)
+    }
   }
 
   const utils = [...layoutUtils, ...paintToUtilities(layer, warnings)]
