@@ -1422,6 +1422,12 @@ export class MapRenderer {
    *  `show.fillPattern` is non-null (iter-183 routing). */
   fillPipelinePatternGround!: GPURenderPipeline
   fillPipelinePatternGroundFallback!: GPURenderPipeline
+  /** iter-186 — fill-extrusion-pattern Stage 2 variants. Same
+   *  vs_main_quantized_extruded vertex path as the solid extrude
+   *  pipelines + the per-feature z attribute buffer; fragment uses
+   *  `fs_fill_pattern` so walls + roofs sample the sprite atlas. */
+  fillPipelinePatternExtruded!: GPURenderPipeline
+  fillPipelinePatternExtrudedFallback!: GPURenderPipeline
   linePipelineFallback!: GPURenderPipeline
   // `pointer-events: none` mirrors — same shader, writeMask:0 on the
   // pick attachment so the layer's pickId never lands in the pick
@@ -2021,6 +2027,31 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
         depthStencil: STENCIL_TEST_NO_DEPTH, multisample: msaaState,
         label: `fill-pipeline-pattern-ground-fallback${suffix}`,
       }),
+      // iter-186 — fill-extrusion-pattern Stage 2 variants. Same per-
+      // feature extrusion vertex (vs_main_quantized_extruded) as the
+      // solid extrude pipeline + extrudedZBufferLayout for the z slot;
+      // fragment routes to `fs_fill_pattern` so building walls + roofs
+      // sample the sprite atlas. Documented Stage 2 trade-off:
+      // pattern-extrude shows lose the wall_shade lighting (sprite
+      // colour replaces the shaded fill rgb). Stage 2.1 will route to
+      // a dedicated fs_fill_pattern_extruded that multiplies by
+      // wall_shade.
+      fillPatternExtruded: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_fill_pattern', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_WRITE, multisample: msaaState,
+        label: `fill-pipeline-pattern-extruded${suffix}`,
+      }),
+      fillPatternExtrudedFallback: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_fill_pattern', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_TEST, multisample: msaaState,
+        label: `fill-pipeline-pattern-extruded-fallback${suffix}`,
+      }),
     })
 
     const pickable = buildSet(colorTargets, '')
@@ -2034,6 +2065,8 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
     this.linePipelineFallback = pickable.lineFallback
     this.fillPipelinePatternGround = pickable.fillPatternGround
     this.fillPipelinePatternGroundFallback = pickable.fillPatternGroundFallback
+    this.fillPipelinePatternExtruded = pickable.fillPatternExtruded
+    this.fillPipelinePatternExtrudedFallback = pickable.fillPatternExtrudedFallback
 
     // `?debug=overdraw` — fill + line debug mirrors. Same VS as the
     // opaque pipelines so the rasterizer produces matching fragment

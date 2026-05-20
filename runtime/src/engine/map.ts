@@ -1116,6 +1116,10 @@ export class XGISMap {
           this.renderer.fillPipelinePatternGround,
           this.renderer.fillPipelinePatternGroundFallback,
         )
+        vtRenderer.setPatternExtrudedPipelines(
+          this.renderer.fillPipelinePatternExtruded,
+          this.renderer.fillPipelinePatternExtrudedFallback,
+        )
         vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
       }
     }
@@ -2134,6 +2138,7 @@ export class XGISMap {
       vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
       vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
     vtRenderer.setPatternPipelines(this.renderer.fillPipelinePatternGround, this.renderer.fillPipelinePatternGroundFallback)
+    vtRenderer.setPatternExtrudedPipelines(this.renderer.fillPipelinePatternExtruded, this.renderer.fillPipelinePatternExtrudedFallback)
       vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
       if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
       vtRenderer.setSource(source) // connect before load so preloaded tiles auto-upload
@@ -2298,6 +2303,7 @@ export class XGISMap {
     vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
     vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
     vtRenderer.setPatternPipelines(this.renderer.fillPipelinePatternGround, this.renderer.fillPipelinePatternGroundFallback)
+    vtRenderer.setPatternExtrudedPipelines(this.renderer.fillPipelinePatternExtruded, this.renderer.fillPipelinePatternExtrudedFallback)
     vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
     if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
     vtRenderer.setSource(source)
@@ -2561,6 +2567,7 @@ export class XGISMap {
       vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
       vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
     vtRenderer.setPatternPipelines(this.renderer.fillPipelinePatternGround, this.renderer.fillPipelinePatternGroundFallback)
+    vtRenderer.setPatternExtrudedPipelines(this.renderer.fillPipelinePatternExtruded, this.renderer.fillPipelinePatternExtrudedFallback)
       vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
       if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
       vtRenderer.setSource(source)

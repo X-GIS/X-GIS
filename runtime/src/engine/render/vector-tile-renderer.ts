@@ -530,6 +530,16 @@ export class VectorTileRenderer {
   private fillPipelinePatternGround: GPURenderPipeline | null = null
   private fillPipelinePatternGroundFallback: GPURenderPipeline | null = null
 
+  /** iter-186 — fill-extrusion-pattern Stage 2 variants. Mirror of
+   *  setPatternPipelines for the extruded (per-feature z attribute)
+   *  vertex path. */
+  setPatternExtrudedPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+    this.fillPipelinePatternExtruded = main
+    this.fillPipelinePatternExtrudedFallback = fallback
+  }
+  private fillPipelinePatternExtruded: GPURenderPipeline | null = null
+  private fillPipelinePatternExtrudedFallback: GPURenderPipeline | null = null
+
   /** Provide the OIT translucent extrude pipeline. Used when
    *  render() runs with phase='oit-fill': translucent buildings
    *  draw their fills into the accum + revealage MRT pair so a
@@ -3995,7 +4005,18 @@ export class VectorTileRenderer {
       const mainFill = this.currentExtrudeMode === 'none' && groundChoice !== null
         ? groundChoice
         : fillPipeline
-      this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, this.fillPipelineExtruded, bindGroupLayout, translucentBucket)
+      // iter-186 — fill-extrusion-pattern Stage 2: when the extruded
+      // pattern pipeline is wired and the show has a resolved pattern
+      // UV bbox, route per-feature extruded draws to the pattern
+      // variant. Same gate as the ground path.
+      const extrudedPatternActive = !DEBUG_OVERDRAW
+        && groundIsBase
+        && show.fillPatternUV != null
+        && this.fillPipelinePatternExtruded !== null
+      const extrudedPipeline = extrudedPatternActive
+        ? this.fillPipelinePatternExtruded
+        : this.fillPipelineExtruded
+      this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, extrudedPipeline, bindGroupLayout, translucentBucket)
     }
 
     // Render fallback ancestors (stencil test) — with world offsets for wrapping
@@ -4068,7 +4089,15 @@ export class VectorTileRenderer {
       const fallbackFill = this.currentExtrudeMode === 'none' && fallbackGroundChoice !== null
         ? fallbackGroundChoice
         : fillPipelineFallback
-      this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, this.fillPipelineExtrudedFallback, bindGroupLayout, translucentBucket, fallbackVisibleKeys)
+      // iter-186 — fill-extrusion-pattern fallback path mirror.
+      const fallbackExtrudedPatternActive = !DEBUG_OVERDRAW
+        && fallbackGroundIsBase
+        && show.fillPatternUV != null
+        && this.fillPipelinePatternExtrudedFallback !== null
+      const fallbackExtrudedPipeline = fallbackExtrudedPatternActive
+        ? this.fillPipelinePatternExtrudedFallback
+        : this.fillPipelineExtrudedFallback
+      this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, fallbackExtrudedPipeline, bindGroupLayout, translucentBucket, fallbackVisibleKeys)
       if (_debugRed) {
         this.uniformF32[16] = _origR
         this.uniformF32[17] = _origG
