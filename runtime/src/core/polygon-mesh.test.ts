@@ -202,10 +202,19 @@ describe('quantizePolygonVerticesExtruded', () => {
     const heights = new Map<number, number>([[1, 30], [2, 60]])
     const out = quantizePolygonVerticesExtruded(dsfun, ext, heights, 50)
     expect(out.vertices.byteLength).toBe(3 * 8)
-    expect(out.z.length).toBe(3)
+    // iter-194 — z buffer now stores (z, nx, ny, nz) per vertex; 4
+    // floats × 3 vertices = 12. Top-face vertices carry the +Z
+    // normal (0, 0, 1) for the directional lighting path.
+    expect(out.z.length).toBe(12)
     expect(out.z[0]).toBe(30)
-    expect(out.z[1]).toBe(60)
-    expect(out.z[2]).toBe(30)
+    expect(out.z[4]).toBe(60)
+    expect(out.z[8]).toBe(30)
+    // Every roof vertex has +Z normal.
+    for (let i = 0; i < 3; i++) {
+      expect(out.z[i * 4 + 1]).toBe(0)
+      expect(out.z[i * 4 + 2]).toBe(0)
+      expect(out.z[i * 4 + 3]).toBe(1)
+    }
   })
 
   it('falls back to defaultHeight for unknown featIds', () => {
@@ -238,15 +247,28 @@ describe('generateWallMeshExtruded', () => {
     }]
     const heights = new Map<number, number>([[7, 80]])
     const mesh = generateWallMeshExtruded(polys, ext, 0, 0, heights, 50)
-    // 3 edges × 4 verts = 12 vertices total
-    expect(mesh.z.length).toBe(12)
-    // Order per wall: a_bot, b_bot, a_top, b_top
+    // iter-194 — z buffer is vec4 per vertex `(z, nx, ny, nz)`.
+    // 3 edges × 4 verts × 4 floats = 48.
+    expect(mesh.z.length).toBe(48)
+    // Order per wall: a_bot, b_bot, a_top, b_top. Vertex i's z
+    // value lives at index i*4.
     for (let edge = 0; edge < 3; edge++) {
-      const off = edge * 4
-      expect(mesh.z[off + 0]).toBe(0)   // a_bot
-      expect(mesh.z[off + 1]).toBe(0)   // b_bot
-      expect(mesh.z[off + 2]).toBe(80)  // a_top
-      expect(mesh.z[off + 3]).toBe(80)  // b_top
+      const off = edge * 4 * 4
+      expect(mesh.z[off + 0 * 4]).toBe(0)   // a_bot z
+      expect(mesh.z[off + 1 * 4]).toBe(0)   // b_bot z
+      expect(mesh.z[off + 2 * 4]).toBe(80)  // a_top z
+      expect(mesh.z[off + 3 * 4]).toBe(80)  // b_top z
+      // All four vertices of one wall share the SAME horizontal
+      // outward normal (nz = 0).
+      const nx = mesh.z[off + 1]
+      const ny = mesh.z[off + 2]
+      const nlen = Math.hypot(nx, ny)
+      expect(nlen).toBeCloseTo(1, 5)
+      for (let v = 0; v < 4; v++) {
+        expect(mesh.z[off + v * 4 + 1]).toBeCloseTo(nx, 5)
+        expect(mesh.z[off + v * 4 + 2]).toBeCloseTo(ny, 5)
+        expect(mesh.z[off + v * 4 + 3]).toBe(0)
+      }
     }
   })
 
@@ -257,7 +279,8 @@ describe('generateWallMeshExtruded', () => {
       featId: 99,
     }]
     const mesh = generateWallMeshExtruded(polys, ext, 0, 0, new Map(), 35)
-    expect(mesh.z[2]).toBe(35)
+    // vertex 2 (a_top) z value at z[2*4] = z[8]
+    expect(mesh.z[2 * 4]).toBe(35)
   })
 
   it('different polygons get different per-feature heights in the same buffer', () => {
@@ -268,9 +291,9 @@ describe('generateWallMeshExtruded', () => {
     ]
     const heights = new Map<number, number>([[1, 30], [2, 90]])
     const mesh = generateWallMeshExtruded(polys, ext, 0, 0, heights, 50)
-    // Polygon 1: 3 edges × 4 verts = 12 verts at indices [0..12)
-    expect(mesh.z[2]).toBe(30)  // poly 1 a_top
-    expect(mesh.z[12 + 2]).toBe(90)  // poly 2 a_top
+    // Polygon 1: 3 edges × 4 verts × 4 floats = 48 floats at z[0..48)
+    expect(mesh.z[2 * 4]).toBe(30)         // poly 1 a_top
+    expect(mesh.z[48 + 2 * 4]).toBe(90)    // poly 2 a_top
   })
 
   it('walls carry featId on bottom and top vertices for picking', () => {
@@ -281,8 +304,10 @@ describe('generateWallMeshExtruded', () => {
     }]
     const mesh = generateWallMeshExtruded(polys, ext, 0, 0, new Map([[42, 50]]), 50)
     const f32 = new Float32Array(mesh.vertices)
-    // featId at f32[1], f32[3], f32[5], ... (one per stride-8 vertex)
-    for (let v = 0; v < mesh.z.length; v++) {
+    // featId at f32[1], f32[3], f32[5], ... (one per stride-8 vertex).
+    // Vertex count = z.length / 4 since z is now vec4 per vertex.
+    const vertexCount = mesh.z.length / 4
+    for (let v = 0; v < vertexCount; v++) {
       expect(f32[v * 2 + 1]).toBe(42)
     }
   })

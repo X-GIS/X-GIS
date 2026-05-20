@@ -211,7 +211,14 @@ export interface QuantizeExtrudedResult {
 
 /** Same packing as `quantizePolygonVertices` (top-face only — every
  *  vertex gets is_top=1 and z=heights.get(featId) ?? defaultHeight),
- *  plus a parallel Float32Array of per-vertex z. */
+ *  plus a parallel Float32Array storing FOUR floats per vertex:
+ *  `[z, nx, ny, nz]`. The top face's normal is +Z (0, 0, 1); walls
+ *  emit their own outward normals via `generateWallMeshExtruded`.
+ *  iter-194 — MapLibre-equivalent face-normal lighting in the
+ *  extrude vertex shader needs the normal as a per-vertex attribute,
+ *  so the previous f32-per-vertex layout grew to vec4. The vertex
+ *  buffer's stride change (4 → 16 bytes) follows in renderer.ts's
+ *  `extrudedZBufferLayout`. */
 export function quantizePolygonVerticesExtruded(
   dsfun: Float32Array,
   tileExtentM: number,
@@ -222,7 +229,7 @@ export function quantizePolygonVerticesExtruded(
   const buf = new ArrayBuffer(n * 8)
   const u16 = new Uint16Array(buf)
   const f32 = new Float32Array(buf)
-  const z = new Float32Array(n)
+  const z = new Float32Array(n * 4)
   const scale = POS_RANGE / tileExtentM
   for (let i = 0; i < n; i++) {
     const localX = dsfun[i * 5] + dsfun[i * 5 + 2]
@@ -236,7 +243,11 @@ export function quantizePolygonVerticesExtruded(
     u16[u16Idx] = mxQ | IS_TOP_BIT
     u16[u16Idx + 1] = myQ
     f32[i * 2 + 1] = fid
-    z[i] = heights.get(fid) ?? defaultHeight
+    const zi = i * 4
+    z[zi] = heights.get(fid) ?? defaultHeight  // height
+    z[zi + 1] = 0  // nx — top face normal is +Z
+    z[zi + 2] = 0  // ny
+    z[zi + 3] = 1  // nz
   }
   return { vertices: buf, z }
 }
@@ -301,14 +312,20 @@ export function generateWallMeshExtruded(
   const buf = new ArrayBuffer(totalVerts * 8)
   const u16 = new Uint16Array(buf)
   const f32 = new Float32Array(buf)
-  const z = new Float32Array(totalVerts)
+  // iter-194 — z buffer grew to vec4 (z, nx, ny, nz) per vertex so
+  // the extrude vertex shader can do per-vertex face-normal
+  // directional lighting matching MapLibre's
+  // `fill_extrusion.vertex.glsl`. Wall vertices get the outward
+  // horizontal normal (perpendicular to the edge in world space);
+  // see the per-edge `nx, ny` computation below.
+  const z = new Float32Array(totalVerts * 4)
   const scale = POS_RANGE / tileExtentM
   const indices = new Uint32Array(edgeCount * 6)
 
   let vIdx = 0
   let idxOut = 0
 
-  const writeVertex = (mx: number, my: number, isTop: boolean, fid: number, h: number, b: number): void => {
+  const writeVertex = (mx: number, my: number, isTop: boolean, fid: number, h: number, b: number, nx: number, ny: number): void => {
     let mxQ = Math.round((mx - tileMx) * scale)
     let myQ = Math.round((my - tileMy) * scale)
     if (mxQ < 0) mxQ = 0; else if (mxQ > POS_RANGE) mxQ = POS_RANGE
@@ -317,7 +334,11 @@ export function generateWallMeshExtruded(
     u16[u16Idx] = mxQ | (isTop ? IS_TOP_BIT : 0)
     u16[u16Idx + 1] = myQ
     f32[vIdx * 2 + 1] = fid
-    z[vIdx] = isTop ? h : b
+    const zi = vIdx * 4
+    z[zi] = isTop ? h : b
+    z[zi + 1] = nx
+    z[zi + 2] = ny
+    z[zi + 3] = 0  // wall normals are horizontal (no z component)
     vIdx++
   }
 
@@ -357,11 +378,22 @@ export function generateWallMeshExtruded(
         const bIdx = ccw ? j : i
         const ax = ring[aIdx][0], ay = ring[aIdx][1]
         const bx = ring[bIdx][0], by = ring[bIdx][1]
+        // iter-194 — per-wall outward unit normal. Edge tangent
+        // t = (bx-ax, by-ay). The outward normal (right of tangent
+        // when looking along it) is (ty, -tx) normalised. Vertex
+        // order has been flipped to keep front-facing CCW already,
+        // so this formula gives outward-pointing without further
+        // sign flip. Matches MapLibre's `a_normal_ed.xyz / 16384`
+        // semantics — points away from polygon interior.
+        const tx = bx - ax, ty = by - ay
+        const tlen = Math.hypot(tx, ty) || 1
+        const nx = ty / tlen
+        const ny = -tx / tlen
         const baseV = vIdx
-        writeVertex(ax, ay, false, fid, h, b)
-        writeVertex(bx, by, false, fid, h, b)
-        writeVertex(ax, ay, true,  fid, h, b)
-        writeVertex(bx, by, true,  fid, h, b)
+        writeVertex(ax, ay, false, fid, h, b, nx, ny)
+        writeVertex(bx, by, false, fid, h, b, nx, ny)
+        writeVertex(ax, ay, true,  fid, h, b, nx, ny)
+        writeVertex(bx, by, true,  fid, h, b, nx, ny)
         indices[idxOut++] = baseV + 0
         indices[idxOut++] = baseV + 1
         indices[idxOut++] = baseV + 2

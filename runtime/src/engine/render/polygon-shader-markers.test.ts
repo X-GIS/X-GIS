@@ -100,11 +100,13 @@ describe('polygon shader markers — drift invariants', () => {
       POLYGON_SHADER_SOURCE,
       'polygon_cos_c_fragment(input.abs_merc_x, input.abs_merc_y)',
     )
-    // iter-182 added fs_fill_pattern (fill-pattern Stage 2). It mirrors
-    // fs_fill's hemisphere-cull discard so the call count grew from 3
-    // to 4: fs_fill, fs_oit_translucent, fs_stroke, fs_fill_pattern.
-    expect(callCount, 'polygon_cos_c_fragment must be called by fs_fill, fs_oit_translucent, fs_stroke, fs_fill_pattern')
-      .toBe(4)
+    // iter-182 added fs_fill_pattern (fill-pattern Stage 2).
+    // iter-194 added fs_fill_extrude (MapLibre-equivalent face-normal
+    // lighting). Both mirror fs_fill's hemisphere-cull discard, so
+    // the call count is now 5: fs_fill, fs_oit_translucent,
+    // fs_stroke, fs_fill_pattern, fs_fill_extrude.
+    expect(callCount, 'polygon_cos_c_fragment must be called by fs_fill, fs_oit_translucent, fs_stroke, fs_fill_pattern, fs_fill_extrude')
+      .toBe(5)
     // And confirm the helper itself is still defined exactly once.
     expect(countOccurrences(POLYGON_SHADER_SOURCE, 'fn polygon_cos_c_fragment')).toBe(1)
   })

@@ -213,6 +213,13 @@ struct VertexOutput {
   // via cross(dFdx, dFdy) on (abs_merc_x, abs_merc_y, world_z) for
   // directional shading. Iter 128 building-light fix.
   @location(7) world_z: f32,
+  // iter-194 — MapLibre-equivalent fill-extrusion lighting. The
+  // extrude vertex shader computes per-vertex face-normal directional
+  // lighting + vertical-gradient and emits the final pre-shaded
+  // color (PREMULTIPLIED alpha) here. fs_fill_extrude returns this
+  // verbatim; other fragment shaders ignore. Non-extrude vertex
+  // shaders write vec4(0,0,0,0) — they have no normal attribute.
+  @location(8) v_color: vec4<f32>,
 }
 
 struct FragmentOutput {
@@ -300,6 +307,7 @@ fn vs_main(
   out.abs_merc_x = abs_merc_x;
   out.abs_merc_y = abs_merc_y;
   out.world_z = 0.0; // non-extruded path
+  out.v_color = vec4<f32>(0.0); // iter-194 — only the extrude path emits
   return out;
 }
 
@@ -398,6 +406,7 @@ fn vs_main_quantized(
   out.abs_merc_x = abs_merc_x;
   out.abs_merc_y = abs_merc_y;
   out.world_z = z_world;
+  out.v_color = vec4<f32>(0.0); // iter-194 — flat path has no normal attr
   return out;
 }
 
@@ -414,7 +423,7 @@ fn vs_main_quantized(
 fn vs_main_quantized_extruded(
   @location(0) pos_raw: vec2<u32>,
   @location(2) feature_id: f32,
-  @location(3) z_attr: f32,
+  @location(3) z_attr: vec4<f32>,  // iter-194 — .x=z, .yzw=outward unit normal
 ) -> VertexOutput {
   let mx_q = f32(pos_raw.x & 0x7FFFu);
   let my_q = f32(pos_raw.y);
@@ -441,9 +450,13 @@ fn vs_main_quantized_extruded(
   }
   let globe_rtc = proj_globe(abs_lon, abs_lat) - proj_globe(u.proj_params.y, u.proj_params.z);
 
+  // iter-194 — unpack z + normal from the vec4 attribute.
+  let z_world = z_attr.x;
+  let normal = z_attr.yzw;
+
   var out: VertexOutput;
   var clip = select(
-    u.mvp * vec4<f32>(rtc, z_attr, 1.0),
+    u.mvp * vec4<f32>(rtc, z_world, 1.0),
     u.mvp * vec4<f32>(globe_rtc, 1.0),
     t > 6.5,
   );
@@ -456,22 +469,60 @@ fn vs_main_quantized_extruded(
   out.position = apply_log_depth(clip, u.log_depth_fc);
   out.position.z = out.position.z - u.layer_depth_offset * out.position.w;
   out.view_w = clip.w;
-  // cos_c kept as a varying-layout placeholder — fragments now
-  // recompute hemisphere cull per-pixel via polygon_cos_c_fragment()
-  // (commit c205871) since linear interpolation of cos_c across
-  // large triangles diverges from the true sphere distance. Writing
-  // 0 avoids the per-vertex needs_backface_cull() call which on
-  // globe/ortho computes sin/cos; flat projections were already a
-  // no-op (returns 1.0) so this is a perf win on the projection
-  // paths that benefit AND a clarity win everywhere else (no
-  // misleading "this varying gets read" implication).
   out.cos_c = 0.0;
   out.feat_id = u32(feature_id);
   out.abs_lat = abs_lat_clamped;
-  out.wall_blend = select(0.0, 1.0, z_attr > 0.0);
+  out.wall_blend = select(0.0, 1.0, z_world > 0.0);
   out.abs_merc_x = abs_merc_x;
   out.abs_merc_y = abs_merc_y;
-  out.world_z = z_attr;
+  out.world_z = z_world;
+
+  // iter-194 — MapLibre-equivalent face-normal directional lighting.
+  // Direct port of fill_extrusion.vertex.glsl, with the default
+  // light style:
+  //   light.position = [1.15, 210°, 30°]  → cartesian (0.288, -0.498, 0.996)
+  //   light.intensity = 0.5
+  //   light.color = (1, 1, 1)
+  //   fill-extrusion-vertical-gradient default = 1.0
+  let color_rgb = u.fill_color.rgb;
+  let opacity = u.fill_color.a;
+  let colorvalue = color_rgb.r * 0.2126 + color_rgb.g * 0.7152 + color_rgb.b * 0.0722;
+  let ambient = vec3<f32>(0.03);
+  let lit_color_rgb = color_rgb + ambient;
+  let LIGHT_POS = vec3<f32>(0.288, -0.498, 0.996);
+  let LIGHT_INTENSITY = 0.5;
+  let LIGHT_COLOR = vec3<f32>(1.0);
+  var directional = clamp(dot(normal, LIGHT_POS), 0.0, 1.0);
+  directional = mix(
+    1.0 - LIGHT_INTENSITY,
+    max(1.0 - colorvalue + LIGHT_INTENSITY, 1.0),
+    directional,
+  );
+  // Vertical gradient — walls only (nz≈0). t = is_top boolean.
+  let is_wall = abs(normal.z) < 0.5;
+  let t_top = select(0.0, 1.0, z_world > 0.0);
+  if (is_wall) {
+    // (t + base) * sqrt(height/150). With our z_world packing,
+    // wall-top z_world = feature_height, wall-bottom z_world = 0
+    // (or base — treated as 0 for the gradient term in MapLibre too).
+    // Approximate feature height by max(z_world, 1) for the bottom
+    // vertex's compute; the bottom always lands at the lower bound.
+    let h_for_grad = max(z_world, 1.0);
+    let vgrad = clamp(
+      (t_top) * sqrt(h_for_grad / 150.0),
+      mix(0.7, 0.98, 1.0 - LIGHT_INTENSITY),
+      1.0,
+    );
+    directional = directional * vgrad;
+  }
+  let shaded_rgb = clamp(lit_color_rgb * directional * LIGHT_COLOR, vec3<f32>(0.0), vec3<f32>(1.0));
+  // iter-194 — non-premultiplied output so X-GIS' existing
+  // BLEND_ALPHA (srcFactor=src-alpha) produces the same final
+  // blend math MapLibre's BLEND_ALPHA_PREMULT (srcFactor=one) does
+  // on its pre-multiplied output. Both reduce to
+  //   final = src.rgb * src.a + dst * (1 - src.a)
+  // — exact equivalence.
+  out.v_color = vec4<f32>(shaded_rgb, opacity);
   return out;
 }
 
@@ -678,6 +729,47 @@ fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
   var out: OitFragmentOutput;
   out.accum = vec4<f32>(rgb * a, a) * w;
   out.revealage = a;
+  return out;
+}
+
+// iter-194 — MapLibre-equivalent fill-extrusion fragment. All
+// lighting was computed per-vertex in vs_main_quantized_extruded
+// and interpolated as v_color; this fragment just passes it through
+// (after the same per-fragment cull + clip discards as fs_fill so
+// hemisphere boundaries + parent-tile clip masks stay correct).
+// v_color is PREMULTIPLIED (rgb * alpha, alpha); the pipeline uses
+// BLEND_ALPHA_PREMULT so the result composites the same way
+// MapLibre's translucent extrude path does.
+@fragment
+fn fs_fill_extrude(input: VertexOutput) -> FragmentOutput {
+  if (polygon_cos_c_fragment(input.abs_merc_x, input.abs_merc_y) < 0.0) { discard; }
+  if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
+  let _clip_valid =
+    u.clip_bounds.x > -1e29 &&
+    u.clip_bounds.z > u.clip_bounds.x &&
+    u.clip_bounds.w > u.clip_bounds.y;
+  if (_clip_valid) {
+    if (input.abs_merc_x < u.clip_bounds.x) { discard; }
+    if (input.abs_merc_x > u.clip_bounds.z) { discard; }
+    if (input.abs_merc_y < u.clip_bounds.y) { discard; }
+    if (input.abs_merc_y > u.clip_bounds.w) { discard; }
+  }
+  var out: FragmentOutput;
+  // Rim alpha — operates on the premultiplied colour: scale both
+  // rgb and alpha by the rim factor so the building still fades at
+  // sphere edges on globe / azimuthal projections.
+  let rim = polygon_rim_alpha(input.abs_merc_x, input.abs_merc_y);
+  out.color = input.v_color * rim;
+  __PICK_WRITE__
+  let base_depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
+  let id_lo = input.feat_id & 0xFFFFu;
+  let mixed = (id_lo ^ (id_lo >> 7u) ^ (id_lo << 3u)) & 0x3FFu;
+  let jitter = select(
+    0.0,
+    (f32(mixed) - 512.0) * 1.5e-8,
+    input.feat_id != 0u,
+  );
+  out.depth = base_depth + jitter;
   return out;
 }
 
@@ -1895,14 +1987,21 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
         { shaderLocation: 2, offset: 4, format: 'float32'   as GPUVertexFormat },
       ],
     }
-    // Parallel z attribute (slot 1) for the per-feature extrusion
-    // pipeline — one float per polygon vertex, 0 for wall bottoms,
-    // feature-height for wall tops + roof faces. Bound only when the
-    // tile's slice carries `heights`.
+    // iter-194 — Parallel attribute (slot 1) for the per-feature
+    // extrusion pipeline. Layout grew f32 → vec4 to carry the per-
+    // vertex outward normal alongside the lift height:
+    //   .x = z          (world metres, 0 for wall bottoms, feature
+    //                    height for wall tops + roof faces)
+    //   .yzw = normal   (unit outward face normal — horizontal for
+    //                    walls, +Z for roof faces; matches MapLibre
+    //                    `a_normal_ed.xyz / 16384` semantics)
+    // The extrude vertex shader uses .yzw to compute MapLibre-
+    // equivalent face-normal directional lighting in the VERTEX
+    // stage (passed to the fragment via `v_color` varying).
     const extrudedZBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 4,
+      arrayStride: 16,
       attributes: [
-        { shaderLocation: 3, offset: 0, format: 'float32' as GPUVertexFormat },
+        { shaderLocation: 3, offset: 0, format: 'float32x4' as GPUVertexFormat },
       ],
     }
     // DSFUN line vertex: [mx_h, my_h, mx_l, my_l, feat_id, arc_start] — stride 24 bytes.
@@ -1956,7 +2055,7 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
       fillExtruded: device.createRenderPipeline({
         layout: pipelineLayout,
         vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
-        fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
+        fragment: { module: shaderModule, entryPoint: 'fs_fill_extrude', targets },
         // Two-sided rendering. Concave footprints (dome, courtyard)
         // need back walls visible when the camera tilts to see inside.
         primitive: { topology: 'triangle-list', cullMode: 'none' },
@@ -1992,7 +2091,7 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
       fillExtrudedFallback: device.createRenderPipeline({
         layout: pipelineLayout,
         vertex: { module: shaderModule, entryPoint: 'vs_main_quantized_extruded', buffers: [vertexBufferLayout, extrudedZBufferLayout] },
-        fragment: { module: shaderModule, entryPoint: 'fs_fill', targets },
+        fragment: { module: shaderModule, entryPoint: 'fs_fill_extrude', targets },
         // Same rationale as `fillExtruded` above: unculled to keep
         // dome / courtyard interiors visible.
         primitive: { topology: 'triangle-list', cullMode: 'none' },
