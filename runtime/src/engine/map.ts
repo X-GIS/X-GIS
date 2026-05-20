@@ -465,6 +465,22 @@ export class XGISMap {
    *  capture the Set still read the live shared ref correctly. */
   private readonly _scratchEmittedTextNames = new Set<string>()
   private readonly _scratchEmittedPointNames = new Set<string>()
+  /** iter-259 (Plan AAA B.7) — applyFeatureExprs cache. Keyed on
+   *  props ref via WeakMap so per-feature LabelDef survives across
+   *  frames + auto-GCs when source data drops the feature. Per
+   *  PMTiles MVT path each tile's featureProps Map returns the
+   *  same object ref per featId across frames, so the same feature
+   *  hits the same cache entry.
+   *
+   *  Cache value is invalidated when:
+   *   - zoomBucket changes (camera zoom passes a 0.25-zoom threshold)
+   *   - effectiveDef ref changes (style hot-update / show rebuild)
+   *
+   *  No explicit invalidation needed for tile reload: the new
+   *  worker decode produces a new props object ref → cache miss
+   *  on first access → entry recomputed. Old entries GC via
+   *  WeakMap automatic cleanup. */
+  private readonly _featureExprsCache = new WeakMap<Record<string, unknown>, { zoomBucket: number; effectiveDef: unknown; def: unknown }>()
   private _frameCount = 0
   // Bumped from 60 → 240 (4 s @ 60 fps) — PMTiles world-scale
   // archives at z=0/z=1 trigger massive worker compiles (water +
@@ -4298,8 +4314,27 @@ export class XGISMap {
           // on def.iconImage !== undefined and calls IconStage.addIcon).
           const iconImageExprAst = (def as { iconImageExpr?: { ast?: unknown } }).iconImageExpr?.ast ?? null
           const cameraZoom = this.camera.zoom
+          // iter-259 (Plan AAA B.7) — applyFeatureExprs cache. Key
+          // on props ref + zoomBucket (0.25 zoom resolution). For
+          // PMTiles MVT tiles, the per-tile featureProps Map
+          // returns the SAME object ref across frames per featId,
+          // so a WeakMap keyed on props ref gives stable cache
+          // entries across frames. Zoom bucket lets the cache
+          // survive small camera zooms (typical interactive zoom
+          // sweeps ~0.1 per frame); larger zoom changes recompute.
+          //
+          // iter-258 profile: encoder.label-dispatch = 10.93 ms
+          // = 73 % of frame. Per-feature applyFeatureExprs runs 3
+          // evaluate() AST walks + 2 alloc (bag + spread). Cache
+          // hit returns cached LabelDef directly, skips all that
+          // work.
+          const zoomBucket = Math.round(cameraZoom * 4)
           const applyFeatureExprs = (props: Record<string, unknown>) => {
             if (sizeExprAst === null && colorExprAst === null && iconImageExprAst === null) return effectiveDef
+            const cached = this._featureExprsCache.get(props)
+            if (cached !== undefined && cached.zoomBucket === zoomBucket && cached.effectiveDef === effectiveDef) {
+              return cached.def
+            }
             // makeEvalProps injects the reserved `$zoom` key so label
             // text-size / text-color expressions referencing
             // `interpolate(zoom, …)` resolve to the current camera
@@ -4333,6 +4368,11 @@ export class XGISMap {
                 }
               } catch { /* fall back to effectiveDef.iconImage */ }
             }
+            // iter-259 — cache the result. Stores the resolved
+            // LabelDef + zoomBucket; future calls with same
+            // (props, zoomBucket, effectiveDef) hit the cache and
+            // skip the evaluate() AST walks.
+            this._featureExprsCache.set(props, { zoomBucket, effectiveDef, def: out })
             return out
           }
 
