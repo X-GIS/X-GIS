@@ -11,6 +11,7 @@ import { interpolateZoom } from './renderer'
 import type { ResolvedShow } from './resolved-show'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority, makeTileCoord } from '../../data/tile-select'
 import { bumpAlloc } from '../__profile__/alloc-counter'
+import { FrameArena } from '../gpu/frame-arena'
 import { visibleTilesSSE } from '../../loader/tiles-sse'
 import { globeVisibleTiles } from '../projection/globe'
 import {
@@ -385,6 +386,18 @@ export class VectorTileRenderer {
    *  ordering. Used to replace `[...map.entries()].sort()` (which
    *  allocates a fresh Array per tile). Cleared via `length = 0`. */
   private readonly _scratchOrderedFeatEntries: Array<[number, { mercX: number; mercY: number; firstIdx: number }]> = []
+  /** iter-243 (Plan AAA B.2) — per-frame scratch arena for VTR
+   *  call-scope typed-array allocations (forEachLineLabelPolyline
+   *  xs/ys Float64Array). Lifetime is single-call: views allocated
+   *  during one forEachLineLabelPolyline invocation are read +
+   *  resliced to permanent storage (tileRuns cache) within the
+   *  same call. The next frame's `beginFrame()` resets the
+   *  watermark and invalidates the in-flight views — safe because
+   *  the function never retains its scratch refs across frames.
+   *
+   *  Sized 32 KB initial (~4096 polyline vertices at 8B each ×
+   *  2 axes); auto-grows on overflow. */
+  private readonly _frameArena = new FrameArena(32 * 1024)
   // Sized to UNIFORM_SIZE (= WGSL Uniforms struct size). Grew from
   // 160 → 176 when `clip_bounds: vec4<f32>` was added at offset 160.
   // Out-of-bounds typed-array writes are silent no-ops in JS, so a
@@ -870,6 +883,12 @@ export class VectorTileRenderer {
   beginFrame(frameId: number = 0): void {
     this.currentFrameId = frameId
     this.uniformSlot = 0
+    // iter-243 (Plan AAA B.2) — reset per-frame scratch arena
+    // before any forEachLineLabelPolyline calls. The previous
+    // frame's xs/ys views become invalid here, but callers don't
+    // retain them across frames (they reslice into tileRuns
+    // cache which copies into permanent storage).
+    this._frameArena.beginFrame()
     // Reset the frame-scoped miss counter here so multiple render()
     // calls within the frame accumulate into one total (see render()).
     this._missedTiles = 0
@@ -1494,9 +1513,14 @@ export class VectorTileRenderer {
     if (neededKeys) for (const k of neededKeys) seen.add(k)
     for (const k of this.stableKeys) seen.add(k)
     // Reusable buffers grown as needed — most polylines fit in 32 verts.
-    bumpAlloc('vtr.forEachLineLabelPolyline.xsys.Float64Array.init')
-    let xs = new Float64Array(64)
-    let ys = new Float64Array(64)
+    // iter-243 (Plan AAA B.2) — xs/ys scratch from FrameArena
+    // instead of `new Float64Array(64)`. Lifetime = single call;
+    // resliced to permanent storage inside flushRun before this
+    // function returns. iter-240 profile pinned init at 1820 / 3 s
+    // + grow at 1 / 3 s; both eliminated.
+    bumpAlloc('vtr.forEachLineLabelPolyline.xsys.FrameArena.init')
+    let xs = this._frameArena.allocF64(64)
+    let ys = this._frameArena.allocF64(64)
     for (const key of seen) {
       // iter-169 cache check FIRST — skip the getTileData lookup +
       // walk + dedup work entirely for tiles whose runs are cached.
@@ -1574,9 +1598,14 @@ export class VectorTileRenderer {
         if (need <= xs.length) return
         let cap = xs.length
         while (cap < need) cap *= 2
-        bumpAlloc('vtr.forEachLineLabelPolyline.xsys.Float64Array.grow')
-        const nx = new Float64Array(cap)
-        const ny = new Float64Array(cap)
+        // iter-243 — grow via arena instead of `new Float64Array`.
+        // Previous allocations stay in the arena until next frame
+        // (~watermark advance, ~half-wasted memory per grow chain);
+        // acceptable for a per-call scratch that resets on
+        // beginFrame.
+        bumpAlloc('vtr.forEachLineLabelPolyline.xsys.FrameArena.grow')
+        const nx = this._frameArena.allocF64(cap)
+        const ny = this._frameArena.allocF64(cap)
         nx.set(xs); ny.set(ys)
         xs = nx; ys = ny
       }

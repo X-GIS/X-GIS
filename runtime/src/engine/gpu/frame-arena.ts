@@ -132,6 +132,15 @@ export class FrameArena {
     return new Int32Array(this.buffer, u8.byteOffset, count)
   }
 
+  /** Allocate `count` Float64 slots (8 × count bytes, 8-byte aligned).
+   *  Added iter-243 for VTR polyline xs/ys scratch — Float64 needed
+   *  because polyline math accumulates mercator metre coords whose
+   *  magnitude (±2e7) overflows Float32 precision at metre scale. */
+  allocF64(count: number): Float64Array {
+    const u8 = this.alloc(count * 8, 8)
+    return new Float64Array(this.buffer, u8.byteOffset, count)
+  }
+
   /** Pre-grow capacity to AT LEAST `bytes` total. No-op if already
    *  large enough. Use when a frame is about to make a known-large
    *  allocation that would otherwise overflow; calling reserve() at
