@@ -14,6 +14,7 @@ import { mergeLayersPass } from './passes/merge-layers'
 import { foldTrivialStopsPass } from './passes/fold-trivial-stops'
 import { foldTrivialCasePass } from './passes/fold-trivial-case'
 import { deadLayerElimPass } from './passes/dead-layer-elim'
+import { deadSourceElimPass } from './passes/dead-source-elim'
 
 /**
  * Optimize a Scene by classifying expressions and folding constants.
@@ -54,6 +55,10 @@ export function optimize(scene: Scene, program?: AST.Program): Scene {
   //                           produce a visible pixel (visible:
   //                           false, empty zoom range, no paint
   //                           surface).
+  //   5. dead-source-elim   — drop SourceDefs that no surviving
+  //                           RenderNode references (sources orphaned
+  //                           by step 4 or by the iter-198 unused-
+  //                           source convert-layer drop's IR sibling).
   //
   // Each pass has its own stats / unit / integration tests
   // (passes/*.test.ts) and is byte-stable against MapLibre parity
@@ -68,6 +73,7 @@ function buildPipeline(): PassManager {
   pm.register(foldTrivialStopsPass)
   pm.register(foldTrivialCasePass)
   pm.register(deadLayerElimPass)
+  pm.register(deadSourceElimPass)
   return pm
 }
 
