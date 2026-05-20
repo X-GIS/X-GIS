@@ -28,6 +28,10 @@ interface FrameSample {
    *  (delta of lifetime bundle hits + misses). Pre-RB.B = 0 (bundle
    *  path inactive). Post-RB.B = small constant per (slice, phase). */
   bundleReplays: number
+  /** iter-231 — wall-clock frame time (ms). Sampled to enable
+   *  before/after perf comparison vs a worktree at the pre-bundle
+   *  baseline commit (iter-219 = 5602a77). */
+  frameTime: number
 }
 
 async function setupIdleScene(page: Page, hash: string, style: string): Promise<void> {
@@ -53,13 +57,14 @@ async function sampleSteadyState(page: Page, frameCount: number): Promise<FrameS
         triangles: number
         vertices: number
         tilesVisible: number
-        bundleReplaysThisFrame: number
+        bundleReplaysThisFrame?: number
+        frameTime: number
       }
       invalidate: () => void
     }
     const map = (window as unknown as { __xgisMap?: M }).__xgisMap
     if (!map) throw new Error('__xgisMap missing')
-    const samples: { drawCalls: number; triangles: number; vertices: number; tilesVisible: number; bundleReplays: number }[] = []
+    const samples: { drawCalls: number; triangles: number; vertices: number; tilesVisible: number; bundleReplays: number; frameTime: number }[] = []
     return await new Promise<typeof samples>(resolve => {
       let frames = 0
       const tick = () => {
@@ -70,7 +75,10 @@ async function sampleSteadyState(page: Page, frameCount: number): Promise<FrameS
           triangles: s.triangles,
           vertices: s.vertices,
           tilesVisible: s.tilesVisible,
-          bundleReplays: s.bundleReplaysThisFrame,
+          // iter-231 — fallback to 0 so the spec also runs against
+          // pre-iter-229 commits (no bundleReplaysThisFrame field).
+          bundleReplays: s.bundleReplaysThisFrame ?? 0,
+          frameTime: s.frameTime,
         })
         frames++
         // Force re-render so stats get re-populated even at idle.
@@ -135,15 +143,19 @@ test.describe('Phase RB.C — pre-bundle baseline harness', () => {
       const drawCalls = stable.map(s => s.drawCalls)
       const tilesVisible = stable.map(s => s.tilesVisible)
       const bundleReplays = stable.map(s => s.bundleReplays)
+      const frameTimes = stable.map(s => s.frameTime)
       const m = median(drawCalls)
       const mt = median(tilesVisible)
       const mbr = median(bundleReplays)
+      const mft = median(frameTimes)
+      const ftMin = Math.min(...frameTimes)
+      const ftMax = Math.max(...frameTimes)
       const max = Math.max(...drawCalls)
       const min = Math.min(...drawCalls)
 
       // eslint-disable-next-line no-console
       console.log(
-        `[baseline ${fx.name}] drawCalls median=${m} min=${min} max=${max} tilesVisible.median=${mt} bundleReplays.median=${mbr} ratio=${mbr > 0 ? (m / mbr).toFixed(1) : 'n/a'}×`,
+        `[baseline ${fx.name}] drawCalls median=${m} min=${min} max=${max} tilesVisible.median=${mt} bundleReplays.median=${mbr} ratio=${mbr > 0 ? (m / mbr).toFixed(1) : 'n/a'}× frameTime median=${mft.toFixed(2)}ms min=${ftMin.toFixed(2)} max=${ftMax.toFixed(2)}`,
       )
 
       // Sanity: idle camera should be CONSISTENT across frames.
@@ -175,8 +187,13 @@ test.describe('Phase RB.C — pre-bundle baseline harness', () => {
       // silently disabled. Looser than the 97.6 % hit-rate gate in
       // _perf-bundle-hit-rate.spec.ts but cheaper — runs at the same
       // 3 fixtures already covered by this baseline.
-      expect(mbr, `bundle path should fire (median bundleReplays > 0); idle had 0 ⇒ wrap inactive`)
-        .toBeGreaterThan(0)
+      // iter-231 — gate behind env flag so the spec also runs in
+      // pre-bundle worktrees for before/after timing comparison.
+      // Default: gate active (HEAD behavior).
+      if (!process.env.PERF_BASELINE_NO_BUNDLE_GATE) {
+        expect(mbr, `bundle path should fire (median bundleReplays > 0); idle had 0 ⇒ wrap inactive`)
+          .toBeGreaterThan(0)
+      }
     })
   }
 })
