@@ -257,10 +257,12 @@ export class BackgroundRenderer {
 
   /** iter-222 — BundleCache stats accessor for the map-level stats
    *  panel. Returns lifetime hits/misses across this renderer's
-   *  cached bundle variants (main / overdraw / pick combinations). */
-  getBundleStats(): { hits: number; misses: number } {
+   *  cached bundle variants (main / overdraw / pick combinations).
+   *  iter-228 widens to also report LRU evictions so the global
+   *  panel can surface cap pressure. */
+  getBundleStats(): { hits: number; misses: number; evictions: number } {
     const s = this.bundleCache.getStats()
-    return { hits: s.hits, misses: s.misses }
+    return { hits: s.hits, misses: s.misses, evictions: s.evictions }
   }
 
   /** Rebuild pipeline (call from setQuality reroll). */

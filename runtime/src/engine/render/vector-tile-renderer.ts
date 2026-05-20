@@ -1705,10 +1705,12 @@ export class VectorTileRenderer {
   /** iter-222 — BundleCache stats accessor. Returns lifetime
    *  hit/miss counters across all (slice, phase, key-set, gen,
    *  attachment) variants this VTR has cached. Map.ts aggregates
-   *  across all VT sources + bg renderer for the global stats. */
-  getBundleStats(): { hits: number; misses: number } {
+   *  across all VT sources + bg renderer for the global stats.
+   *  iter-228 widens to also report LRU evictions so the global
+   *  panel can surface cap pressure. */
+  getBundleStats(): { hits: number; misses: number; evictions: number } {
     const s = this.bundleCache.getStats()
-    return { hits: s.hits, misses: s.misses }
+    return { hits: s.hits, misses: s.misses, evictions: s.evictions }
   }
 
   /** Build per-feature GPU storage buffer from PropertyTable */

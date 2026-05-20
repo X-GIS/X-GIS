@@ -30,7 +30,7 @@ Labels + icons hidden on both sides to isolate fill / line / outline parity.
 - **Hash**: `#14/48.8534/2.3488`
 - **Description**: OFM Liberty, Paris z=14 — interpolate-zoom heavy
 - **Canvas**: 639×704 (449856 px)
-- **Buckets**: `{"eq0":99969,"le8":193919,"le16":40893,"le32":52235,"le64":42267,"le128":20273,"gt128":300}`
+- **Buckets**: `{"eq0":99969,"le8":193920,"le16":40888,"le32":52239,"le64":42267,"le128":20273,"gt128":300}`
 
 ### demotiles-europe-z2
 - **Style**: `maplibre-demotiles`

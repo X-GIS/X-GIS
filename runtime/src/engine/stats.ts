@@ -25,6 +25,13 @@ export interface RenderStats {
   /** Hit rate over the lifetime of the BundleCache instances (NOT
    *  per-frame). Use as a steady-state indicator. */
   bundleHitRate: number
+  /** iter-228 — Lifetime count of LRU evictions across all
+   *  BundleCache instances. Bumps when the cap (default 1024) is
+   *  hit on a miss-insert; a stable `> 0` value with hitRate still
+   *  high indicates a healthy cache + cap pair. A run-away
+   *  increase under pan/zoom flags cap pressure (consider raising
+   *  the cap). */
+  bundleEvictions: number
 }
 
 export class StatsTracker {
@@ -42,6 +49,8 @@ export class StatsTracker {
    *  reset). Aggregated across all BundleCache instances. */
   bundleHits = 0
   bundleMisses = 0
+  /** iter-228 — LRU evictions (lifetime). See `RenderStats.bundleEvictions`. */
+  bundleEvictions = 0
 
   // FPS tracking
   private frames = 0
@@ -104,6 +113,7 @@ export class StatsTracker {
       bundleHits: this.bundleHits,
       bundleMisses: this.bundleMisses,
       bundleHitRate: total > 0 ? this.bundleHits / total : 0,
+      bundleEvictions: this.bundleEvictions,
     }
   }
 }
@@ -192,6 +202,8 @@ export class StatsPanel {
     this.rows.get('tilesCached')!.textContent = String(stats.tilesCached)
     // iter-223 — `bundle` row: "hits (rate%)" format. At idle the
     // hit-rate should approach 100 %; pan/zoom drops it.
+    // iter-228 — append " ev:N" when LRU evictions have fired so
+    // users can see cap pressure without needing a separate row.
     const bundleRow = this.rows.get('bundle')
     if (bundleRow) {
       const total = stats.bundleHits + stats.bundleMisses
@@ -199,7 +211,10 @@ export class StatsPanel {
         bundleRow.textContent = '—'
       } else {
         const ratePct = (stats.bundleHitRate * 100).toFixed(0)
-        bundleRow.textContent = `${stats.bundleHits} (${ratePct}%)`
+        const ev = stats.bundleEvictions
+        bundleRow.textContent = ev > 0
+          ? `${stats.bundleHits} (${ratePct}%) ev:${ev}`
+          : `${stats.bundleHits} (${ratePct}%)`
         bundleRow.style.color = stats.bundleHitRate >= 0.8 ? '#4ade80'
           : stats.bundleHitRate >= 0.5 ? '#facc15' : '#ef4444'
       }

@@ -4914,13 +4914,17 @@ export class XGISMap {
     this._stats.lines = rs.lines
     // iter-222 — bundle stats aggregation. Lifetime counters,
     // monotonic. Aggregate VTR per-source caches + BackgroundRenderer.
+    // iter-228 — also aggregate LRU `evictions` so the panel shows
+    // when the cap is firing.
     this._stats.bundleHits = 0
     this._stats.bundleMisses = 0
+    this._stats.bundleEvictions = 0
     if (this.backgroundRenderer) {
       const bgs = this.backgroundRenderer.getBundleStats?.()
       if (bgs) {
         this._stats.bundleHits += bgs.hits
         this._stats.bundleMisses += bgs.misses
+        this._stats.bundleEvictions += bgs.evictions
       }
     }
     let totalTilesVis = 0, totalTilesCached = 0, totalMissed = 0
@@ -4935,6 +4939,7 @@ export class XGISMap {
       if (vtbs) {
         this._stats.bundleHits += vtbs.hits
         this._stats.bundleMisses += vtbs.misses
+        this._stats.bundleEvictions += vtbs.evictions
       }
       totalTilesVis += vts.tilesVisible
       totalTilesCached += vtR.getCacheSize()
