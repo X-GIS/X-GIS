@@ -23,10 +23,10 @@ exports[`Fixture conversion structural snapshot > openfreemap-bright — convert
 exports[`Fixture conversion structural snapshot > openfreemap-liberty — converted output fingerprint 1`] = `
 {
   "layerCount": 111,
-  "outputBytes": 36710,
-  "outputLines": 866,
-  "outputSha256": "b11ef65da9d317f7a01385332ea7bea351d47c3b9b32f6caed42097feaa95334",
-  "warningCount": 8,
+  "outputBytes": 36311,
+  "outputLines": 865,
+  "outputSha256": "cb857384db05f0f12cd3137233a0b1e943f27b5da052eee78aee416b3f1b6832",
+  "warningCount": 6,
 }
 `;
 

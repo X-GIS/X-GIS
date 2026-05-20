@@ -105,6 +105,11 @@ export interface RenderNode {
    *  pixels regardless of camera zoom. */
   fillTranslateX?: number
   fillTranslateY?: number
+  /** iter-177 Mapbox `paint.fill-pattern` Stage 1 — constant sprite
+   *  name. Runtime resolves against sprite atlas at draw time and
+   *  uses sprite centre pixel as fill colour. Stage 2 (real
+   *  UV-tiled fragment shader) deferred. undefined = no pattern. */
+  fillPattern?: string
   projection: string
   visible: boolean
   /** CSS-style pointer interactivity. 'none' tells the runtime to skip

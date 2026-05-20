@@ -163,15 +163,21 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     // alongside a `fill-pattern` slipped past with no diagnostic
     // even though the layer's only visual cue (the pattern atlas)
     // isn't supported yet.
+    // iter-177 — fill-pattern Stage 1: constant string emit. Runtime
+    // resolves the sprite at draw time and uses the sprite's centre
+    // pixel as the layer fill colour (placeholder for the real UV-
+    // tiling fragment shader, which is Stage 2). On OFM Liberty the
+    // `landcover_wetland` (wetland_bg_11) and `road_area_pattern`
+    // (pedestrian_polygon) layers have NO fill-color authored —
+    // they were invisible pre-iter-177. The centre-pixel colour at
+    // least gives the layer its intended hue band so the wetland
+    // reads as light-blue and the pedestrian polygon reads as tan.
     if (p['fill-pattern'] !== undefined && p['fill-pattern'] !== null) {
-      if (p['fill-color'] === undefined || p['fill-color'] === null) {
-        warnings.push(`Layer "${layer.id}" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.`)
+      const v = p['fill-pattern']
+      if (typeof v === 'string') {
+        out.push(`fill-pattern-${v}`)
       } else {
-        // fill-pattern WITH fill-color: pattern silently dropped,
-        // layer still renders with the solid colour fallback. Mirror
-        // of the iter 43 line-pattern + line-color surface so the
-        // author knows the pattern intent didn't land.
-        warnings.push(`Layer "${layer.id}" — fill-pattern set alongside fill-color; pattern is dropped (Batch 2 sprite-atlas dependency) and the layer renders with the solid fill-color fallback.`)
+        warnings.push(`Layer "${layer.id}" — fill-pattern non-constant form (expression / interpolate) not yet wired through the IR; the constant string form is supported (iter-177). The layer falls back to fill-color or transparent.`)
       }
     }
     addFillTranslate(out, p['fill-translate'], warnings)

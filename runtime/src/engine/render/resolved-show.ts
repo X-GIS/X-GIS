@@ -52,6 +52,16 @@ interface ResolveCacheEntry {
 }
 const _resolveCache = new WeakMap<ShowCommand, ResolveCacheEntry>()
 
+/** iter-177 — drop the cached entry for `show` so the next
+ *  `resolveShow` call re-reads `show.resolvedFillRgba`. Used by the
+ *  fill-pattern Stage 1 resolver in map.ts which writes the resolved
+ *  RGBA after the sprite atlas finishes loading. Without invalidation
+ *  the cached `{fill: null}` from before the atlas loaded sticks and
+ *  the polygon stays invisible. */
+export function invalidateResolvedShowCache(show: ShowCommand): void {
+  _resolveCache.delete(show)
+}
+
 function shapeIsTimeDep(s: ShapeRef): boolean {
   if (s === null || s === undefined) return false
   return s.kind === 'time-interpolated' || s.kind === 'zoom-time'

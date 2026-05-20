@@ -16,6 +16,7 @@ import { projectWgsl, needsBackfaceCullWgsl } from './projection/projection-wgsl
 import { globeForward } from './projection/globe'
 import { MapRenderer, type ShowCommand } from './render/renderer'
 import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from './render/paint-shape-resolve'
+import { invalidateResolvedShowCache } from './render/resolved-show'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
   groupOpaqueBySource as groupOpaqueBySourceImpl,
@@ -2863,9 +2864,33 @@ export class XGISMap {
     return groupOpaqueBySourceImpl(opaque)
   }
 
+  /** iter-177 — fill-pattern Stage 1 resolver. Walks `showCommands`
+   *  once per frame (cheap: one Map lookup per show + early-out when
+   *  no pattern authored). When a show declares `fill-pattern: X` and
+   *  has no resolved fill yet, asks the SpriteAtlasHost for sprite X's
+   *  centre pixel and stores it as `resolvedFillRgba`. Polygons that
+   *  previously rendered transparent now get the sprite's intended
+   *  hue band. Stage 2 (true UV-tiled fragment shader) replaces this
+   *  with per-fragment sprite sampling. */
+  private _resolveFillPatterns(): void {
+    const host = this.iconStage?.host
+    if (!host) return
+    if (host.getState().status !== 'loaded') return
+    for (const show of this.showCommands) {
+      const name = show.fillPattern
+      if (!name) continue
+      if (show.resolvedFillRgba) continue
+      const px = host.getSpriteCenterColor(name)
+      if (!px) continue
+      show.resolvedFillRgba = [px[0] / 255, px[1] / 255, px[2] / 255, px[3] / 255]
+      invalidateResolvedShowCache(show)
+    }
+  }
+
   private renderFrame(): void {
     this._stats.beginFrame()
     resizeCanvas(this.ctx)
+    this._resolveFillPatterns()
 
     // Seed the animation clock on first rendered frame, then compute the
     // elapsed wall-clock milliseconds. Everything time-interpolated
@@ -3623,9 +3648,15 @@ export class XGISMap {
         // feature, OFM POI layers). Both gates avoid the network
         // fetch on styles that don't need icons.
         if (this.iconStage === null && this.spriteUrl !== null
-            && labelShows.some(s =>
+            && (labelShows.some(s =>
                  s.label?.iconImage !== undefined
-                 || (s.label as { iconImageExpr?: unknown } | undefined)?.iconImageExpr !== undefined)) {
+                 || (s.label as { iconImageExpr?: unknown } | undefined)?.iconImageExpr !== undefined)
+                // iter-177 — fill-pattern Stage 1 also needs the
+                // sprite atlas loaded, even when no icon dispatch
+                // label show exists (Liberty `landcover_wetland` +
+                // `road_area_pattern` only declare `fill-pattern`,
+                // no icon layers).
+                || this.showCommands.some(s => s.fillPattern))) {
           this.iconStage = new IconStage(device, this.ctx.format, {
             spriteUrl: this.spriteUrl, dpr,
           }, sc)

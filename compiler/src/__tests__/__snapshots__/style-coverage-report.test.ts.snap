@@ -880,11 +880,9 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "type": "fill",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "landcover_wetland",
-      "reasons": [
-        "Layer "landcover_wetland" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.",
-      ],
+      "reasons": [],
       "type": "fill",
     },
     {
@@ -1080,11 +1078,9 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "type": "line",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "road_area_pattern",
-      "reasons": [
-        "Layer "road_area_pattern" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.",
-      ],
+      "reasons": [],
       "type": "fill",
     },
     {
@@ -1527,8 +1523,6 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
     "Layer "landcover_wood" — fill-antialias false: X-GIS runtime can't disable edge AA per layer yet (would need a no-MSAA pipeline binding). Layer renders smooth edges; Plan §3.1 deferred.",
     "Layer "landcover_grass" — fill-antialias false: X-GIS runtime can't disable edge AA per layer yet (would need a no-MSAA pipeline binding). Layer renders smooth edges; Plan §3.1 deferred.",
     "Layer "landcover_ice" — fill-antialias false: X-GIS runtime can't disable edge AA per layer yet (would need a no-MSAA pipeline binding). Layer renders smooth edges; Plan §3.1 deferred.",
-    "Layer "landcover_wetland" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.",
-    "Layer "road_area_pattern" — fill-pattern declared without fill-color; the layer's only visual is a bitmap fill which is not yet supported (Batch 2 — sprite atlas). The layer will render empty until the atlas pipeline lands.",
     "Symbol layer "airport" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.",
   ],
 }

@@ -841,6 +841,10 @@ export interface ShowCommand {
    *  (camelCase here for lexer compatibility). */
   sourceLayer?: string
   fill: string | null
+  /** iter-177 Mapbox `paint.fill-pattern` constant sprite name. Map.ts
+   *  resolves the sprite atlas centre pixel at frame time and writes
+   *  the colour into `resolvedFillRgba`; this string is the source. */
+  fillPattern?: string | null
   stroke: string | null
   strokeWidth: number
   /** Optional per-feature stroke-width override AST. Set by the

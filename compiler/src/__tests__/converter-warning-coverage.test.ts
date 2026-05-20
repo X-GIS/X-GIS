@@ -21,7 +21,12 @@ function warningsOf(style: unknown): string[] {
 }
 
 describe('converter warning coverage', () => {
-  it('fill-pattern without fill-color → Batch 2 warning', () => {
+  it('fill-pattern without fill-color → no Batch 2 warning (iter-177 Stage 1)', () => {
+    // iter-177: `fill-pattern` is now emitted as a `fill-pattern-<name>`
+    // utility and the runtime samples the sprite centre pixel for
+    // colour. The legacy "Batch 2 sprite-atlas dependency" warning was
+    // retired; this assertion locks the new contract so a regression
+    // back to warn-only is caught.
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -33,8 +38,10 @@ describe('converter warning coverage', () => {
         paint: { 'fill-pattern': 'wetland_bg_11' },
       }],
     })
-    expect(w.some(s => s.includes('wetland') && s.includes('fill-pattern')))
-      .toBe(true)
+    expect(w.some(s =>
+      s.includes('fill-pattern declared without')
+      || s.includes('Batch 2 sprite-atlas')))
+      .toBe(false)
   })
 
   it('line-pattern without line-color → Batch 2 warning', () => {

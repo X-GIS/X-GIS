@@ -54,6 +54,12 @@ export interface ShowCommand {
    *  semantics (camelCase here for lexer compatibility). */
   sourceLayer?: string
   fill: string | null
+  /** iter-177 Mapbox `fill-pattern` (constant string only at this
+   *  stage). When set, the runtime resolves the sprite name against
+   *  the sprite atlas and uses the sprite's centre pixel as the
+   *  fill colour — placeholder for the proper UV-tiling fragment
+   *  shader (Stage 2). null = no pattern authored. */
+  fillPattern: string | null
   stroke: string | null
   strokeWidth: number
   /** Optional per-feature stroke-width override AST. Compiler-
@@ -400,6 +406,7 @@ function emitShow(
      *  `layerName`s and distinct entries in the layer registry. */
     layerName: node.name,
     fill: colorToHex(node.fill),
+    fillPattern: node.fillPattern ?? null,
     stroke: colorToHex(node.stroke.color),
     // Flatten the discriminated `StrokeWidthValue` into the three
     // back-compat ShowCommand fields the runtime currently consumes.

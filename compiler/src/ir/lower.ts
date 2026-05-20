@@ -600,6 +600,11 @@ function lowerLayer(
 
   // Process utility lines
   let fill: ColorValue = colorNone()
+  /** iter-177 Mapbox `paint.fill-pattern` constant sprite name. The
+   *  runtime resolves this against the sprite atlas at draw time and
+   *  uses the sprite's centre pixel as fill colour (Stage 1 — full
+   *  UV-tiling fragment shader is Stage 2). null = no pattern. */
+  let fillPattern: string | null = null
   /** Mapbox `paint.fill-translate` x — viewport pixel offset, +right.
    *  Constant form only; zoom-interp on vec2 needs per-axis decomp
    *  (deferred). 0 / undefined → no offset. */
@@ -1465,6 +1470,13 @@ function lowerLayer(
         // the `-[expr]` branch above.
         const num = parseFloat(name.slice('fill-extrusion-base-'.length))
         if (!isNaN(num)) extrudeBase = { kind: 'constant', value: num }
+      } else if (name.startsWith('fill-pattern-')) {
+        // iter-177 Mapbox `fill-pattern` Stage 1. Sprite name segment
+        // after `fill-pattern-`; the runtime samples that sprite's
+        // centre pixel for the layer fill colour. Must precede the
+        // generic `fill-<color>` branch below.
+        const sprite = name.slice('fill-pattern-'.length)
+        if (sprite.length > 0) fillPattern = sprite
       } else if (name.startsWith('fill-')) {
         const hex = resolveColor(name.slice(5))
         if (hex) fill = colorConstant(...hexToRgba(hex))
@@ -1885,6 +1897,7 @@ function lowerLayer(
     extrudeBase,
     fillTranslateX,
     fillTranslateY,
+    fillPattern: fillPattern ?? undefined,
     label: foldLabelKnobs(label, {
       labelSize, labelColor, labelHaloWidth, labelHaloColor, labelHaloBlur,
       labelAnchor, labelTransform, labelOffsetX, labelOffsetY,

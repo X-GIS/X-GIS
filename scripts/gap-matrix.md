@@ -25,9 +25,9 @@ Properties where the runtime currently degrades or drops a specific value-form.
 
 | Status | Count |
 |---|---:|
-| supported | 128 |
-| partial | 22 |
-| unsupported | 85 |
+| supported | 131 |
+| partial | 21 |
+| unsupported | 83 |
 | na | 7 |
 | **total** | **242** |
 
@@ -38,8 +38,6 @@ Properties marked `unsupported` with `impact: high` — these are the most visib
 | Property | Note |
 |---|---|
 | symbol (icon-only) | No text-field → skipped. Awaits Batch 2 (sprite atlas). |
-| fill-pattern | Batch 2 (bitmap atlas). |
-| icon-color | SDF icon tint — needs IconStage vertex tint attribute + fragment tint multiply. Iter 88 promoted from generic ignoredText blob to a specific layer-level warning naming the missing tint plumbing (Plan §4 — mirror of line-gradient / fill-pattern / line-pattern specific warnings). |
 | image | Sprite atlas (Batch 2). |
 
 ## Partial entries
@@ -59,6 +57,7 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | background-color | low | Constant + CSS form only — interpolate-by-zoom of background falls through (rare). |
 | background-opacity | low | Constant numeric form folds into background-color hex alpha (iter 47, mirror of circle-stroke-opacity iter 4). Zoom-interp / data-driven still warn — would need a per-frame uniform on the background-fill emit path. |
 | fill-antialias | low | Default `true` is X-GIS' permanent contract — fragment shader smoothsteps every fill edge. OFM bright `building` / `road_area_pier` / `road_pier` author `true` explicitly = no-op match. OFM liberty `landcover_wood`/`grass`/`ice` set `false` for a pixel-art look; that opt-out (4 liberty layers) is not yet implemented and renders smooth instead of stepped. Iter 14 added a specific gap warning when `false` is authored explicitly so the gap surfaces rather than silently dropping. |
+| fill-pattern | high | iter-177 Stage 1 landed 2026-05-20: compiler emits `fill-pattern-<name>` utility; lower.ts threads it into ShowCommand.fillPattern; map.ts asks the SpriteAtlasHost for the sprite's centre pixel and stores it as `resolvedFillRgba`. Liberty `landcover_wetland` (wetland_bg_11) + `road_area_pattern` (pedestrian_polygon) now render in their intended hue band instead of staying invisible. Stage 2 (true UV-tiled fragment shader with sprite atlas sampler) still pending — visual is a flat colour, not the repeating bitmap pattern MapLibre renders. Constant string form only; expression form of fill-pattern still warns and falls back. |
 | fill-translate | low | Constant vec2 + zoom-interp last-stop approx end-to-end. Runtime WGSL u.fill_translate_x/y adds CSS-px offset converted to NDC at vs_main (`clip.xy += u.fill_translate * clip.w`). OFM building-top pseudo-3D roof offset honoured. Full per-frame zoom-interp deferred. Iter 501 + 508 shipped 2026-05-18. |
 | line-dasharray | medium | Constant numeric array only — interpolate-by-zoom dasharray not lowered. Iter 27 sharpened the non-constant warning to name the specific shape (zoom-interp needs PropertyShape<array>; data-driven needs per-feature dash plumbing). |
 | circle-stroke-opacity | low | Constant numeric form folds into stroke-color hex alpha (iter 4, Plan §4 partial landing — same pattern later applied to background-opacity in iter 47). Zoom-interp / data-driven forms still warn + drop — need a dedicated paint shape for per-frame uniform multiplication. |
@@ -66,7 +65,5 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | rgb / rgba | low | Constant channels only — hex-encoded at convert time. Per-channel v8 literal-wrap (`["literal", N]`) accepted. |
 | hsl / hsla | low | Constant channels only — converted via CSS hsl()/hsla() and re-hexed at convert time. Per-channel v8 literal-wrap accepted. |
 | interpolate (cubic-bezier) | low | Numeric-valued zoom AND data-driven interpolates densify at compile time into a piecewise-linear approximation (6 samples per segment, CSS bezier-eased via Newton-Raphson). Runtime sees a longer linear stop list and visually approximates the bezier curve. Non-numeric values (colour stops) still warn and fold to pure linear. Iter 60-62 landings. |
-| interpolate-hcl | low | Zoom AND data-driven interpolates over hex colour stops densify in LCh (polar Lab) space at compile time (iter 61-62, 6 samples per segment, hue shortest-path). Runtime sees a longer linear-sRGB hex stop list and visually approximates the LCh-space interpolation. Non-hex stops fall back to linear-sRGB with a graceful-downgrade warning. |
-| interpolate-lab | low | Zoom AND data-driven interpolates over hex colour stops densify in Lab (D50) space at compile time (iter 61-62, 6 samples per segment). Runtime sees a longer linear-sRGB hex stop list and visually approximates the Lab-space interpolation. Non-hex stops fall back to linear-sRGB with a graceful-downgrade warning. |
 | format | low | Span texts concatenated via xgis concat(); per-span opts (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer. Iter 25 added per-section partial-drop semantics: when one section fails to convert (e.g. uses an unsupported accessor), surviving sections still concat — only ALL-sections-fail returns null. Pre-fix any single failure bailed the whole format expression and dropped the label silently. |
 | array | low | Type-assertion drops to value pass-through (X-GIS arrays carry no per-element type tag, so the spec's "abort if not array" semantic is lost; in paint/filter use a non-array would null-cascade anyway). |

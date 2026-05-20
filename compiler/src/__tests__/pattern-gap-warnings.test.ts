@@ -1,13 +1,16 @@
-// Regression gate: every bitmap-pattern paint property emits a
-// specific gap warning naming the Batch 2 sprite-atlas dependency,
-// with TWO distinct messages depending on whether a colour fallback
-// is also authored:
+// Regression gate: every bitmap-pattern paint property STILL waiting
+// on the Stage 2 UV-tiled fragment shader emits a specific gap
+// warning naming its sprite-atlas dependency, with TWO distinct
+// messages depending on whether a colour fallback is also authored:
 //   * pattern alone → empty layer / uncoloured walls
 //   * pattern + colour → pattern dropped, colour fallback renders
 //
-// Catches a future refactor that re-buckets one of these into
-// surfaceIgnoredPaint and loses the specificity. Covers iters
-// 43 (line-pattern), 44 (fill-pattern), 45 (fill-extrusion-pattern).
+// iter-177 promoted `fill-pattern` to Stage 1 (compiler emits a
+// `fill-pattern-<name>` utility + runtime samples the sprite centre
+// pixel as a flat fill colour). It no longer warns, so it dropped
+// from this matrix and has its own coverage test below. The
+// remaining patterns (`line-pattern`, `fill-extrusion-pattern`) keep
+// the legacy warn-only contract until their Stage-N implementations.
 
 import { describe, expect, it } from 'vitest'
 import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
@@ -24,13 +27,40 @@ const CASES: Case[] = [
   { property: 'line-pattern', layerType: 'line', colourProp: 'line-color',
     alone:      { message: 'declared without line-color' },
     withColour: { message: 'set alongside line-color' } },
-  { property: 'fill-pattern', layerType: 'fill', colourProp: 'fill-color',
-    alone:      { message: 'declared without fill-color' },
-    withColour: { message: 'set alongside fill-color' } },
   { property: 'fill-extrusion-pattern', layerType: 'fill-extrusion', colourProp: 'fill-extrusion-color',
     alone:      { message: 'declared without fill-extrusion-color' },
     withColour: { message: 'set alongside fill-extrusion-color' } },
 ]
+
+// iter-177 — `fill-pattern` Stage 1 emits a `fill-pattern-<name>`
+// utility silently (no warning) regardless of whether a `fill-color`
+// fallback is also authored. This pinned test catches a regression
+// to the legacy warn-only contract.
+describe('fill-pattern Stage 1 — no Batch-2 warning', () => {
+  const baseStyle = (extra: Record<string, unknown>) => ({
+    version: 8,
+    sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+    layers: [{
+      id: 'l', type: 'fill', source: 'v', 'source-layer': 'a',
+      paint: { 'fill-pattern': 'my-pat', ...extra },
+    }],
+  })
+  for (const [variant, extra] of [
+    ['alone', {}],
+    ['+ fill-color', { 'fill-color': '#fff' }],
+  ] as const) {
+    it(`fill-pattern ${variant} emits no Batch-2 warning`, () => {
+      const coverage = { sources: [], layers: [], warnings: [] as string[] }
+      convertMapboxStyle(baseStyle(extra) as never, { coverage })
+      const stale = coverage.warnings.find(w =>
+        w.includes('declared without fill-color')
+        || w.includes('set alongside fill-color')
+        || w.includes('Batch 2 sprite-atlas')
+        || (w.includes('fill-pattern') && w.includes('not yet supported')))
+      expect(stale, `unexpected legacy warning for fill-pattern ${variant}: ${stale}`).toBeUndefined()
+    })
+  }
+})
 
 function buildStyle(c: Case, includeColour: boolean): Record<string, unknown> {
   const paint: Record<string, unknown> = { [c.property]: 'my-pattern' }

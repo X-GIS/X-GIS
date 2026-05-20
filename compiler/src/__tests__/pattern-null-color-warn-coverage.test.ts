@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest'
 import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
 
 describe('pattern-without-color null-as-omit', () => {
-  it('fill-pattern + explicit null fill-color warns', () => {
+  it('fill-pattern + explicit null fill-color emits the fill-pattern utility (iter-177 Stage 1)', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
@@ -22,7 +22,11 @@ describe('pattern-without-color null-as-omit', () => {
       ],
     }
     const code = convertMapboxStyle(style as never)
-    expect(code).toMatch(/fill-pattern declared without fill-color/)
+    // iter-177 — Stage 1 emits a `fill-pattern-<name>` utility; the
+    // runtime samples the sprite centre pixel for fill colour. The
+    // legacy "declared without fill-color" warning was retired.
+    expect(code).toMatch(/fill-pattern-wetland/)
+    expect(code).not.toMatch(/fill-pattern declared without/)
   })
 
   it('line-pattern + explicit null line-color warns', () => {
@@ -42,7 +46,7 @@ describe('pattern-without-color null-as-omit', () => {
     expect(code).toMatch(/line-pattern declared without line-color/)
   })
 
-  it('fill-color + fill-pattern coexist does NOT warn (regression guard)', () => {
+  it('fill-color + fill-pattern coexist emits both utilities (regression guard)', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
@@ -57,5 +61,9 @@ describe('pattern-without-color null-as-omit', () => {
     }
     const code = convertMapboxStyle(style as never)
     expect(code).not.toMatch(/fill-pattern declared without/)
+    // Stage 1 — both utilities emit; downstream lower.ts retains
+    // the pattern, runtime resolver patches `resolvedFillRgba` if
+    // the sprite atlas centre pixel differs from the static fill.
+    expect(code).toMatch(/fill-pattern-wetland/)
   })
 })

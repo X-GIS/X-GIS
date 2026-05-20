@@ -86,6 +86,53 @@ export class SpriteAtlasHost {
     return this.state.status === 'loaded' ? this.state.image : undefined
   }
 
+  /** iter-177 fill-pattern Stage 1 — sample the sprite's centre pixel
+   *  as an sRGB 0..255 RGBA tuple. Cached per sprite name; populated
+   *  lazily through an OffscreenCanvas (browser) on first ask. Stage 1
+   *  uses this as a flat fill colour for layers whose only paint
+   *  declaration was `fill-pattern: X` (no `fill-color` fallback) so
+   *  the layer at least renders in its intended hue band instead of
+   *  staying invisible. Returns null when the atlas isn't loaded yet,
+   *  the sprite is missing, or the canvas readback failed (e.g.,
+   *  tainted SVG sprite). */
+  getSpriteCenterColor(name: string): [number, number, number, number] | null {
+    if (this.state.status !== 'loaded') return null
+    const cached = this._centerColorCache.get(name)
+    if (cached) return cached
+    const sprite = this.state.metadata.get(name)
+    if (!sprite) return null
+    const cx = Math.floor(sprite.x + sprite.width / 2)
+    const cy = Math.floor(sprite.y + sprite.height / 2)
+    try {
+      if (!this._readbackCtx) {
+        const img = this.state.image
+        const w = (img as ImageBitmap).width
+        const h = (img as ImageBitmap).height
+        // OffscreenCanvas (workers + most modern browsers); fall
+        // through to HTMLCanvas in legacy environments.
+        const C: typeof OffscreenCanvas | undefined =
+          typeof OffscreenCanvas !== 'undefined' ? OffscreenCanvas : undefined
+        const canvas = C ? new C(w, h) : (() => {
+          const el = document.createElement('canvas')
+          el.width = w; el.height = h
+          return el as unknown as OffscreenCanvas
+        })()
+        const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D | null
+        if (!ctx) return null
+        ctx.drawImage(img as CanvasImageSource, 0, 0)
+        this._readbackCtx = ctx
+      }
+      const px = this._readbackCtx.getImageData(cx, cy, 1, 1).data
+      const rgba: [number, number, number, number] = [px[0], px[1], px[2], px[3]]
+      this._centerColorCache.set(name, rgba)
+      return rgba
+    } catch {
+      return null
+    }
+  }
+  private _centerColorCache: Map<string, [number, number, number, number]> = new Map()
+  private _readbackCtx: OffscreenCanvasRenderingContext2D | null = null
+
   private kickOffLoad(): void {
     this.state = { status: 'loading' }
     const tryLoad = async (suffix: string): Promise<void> => {
