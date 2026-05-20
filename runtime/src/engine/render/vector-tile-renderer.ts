@@ -401,6 +401,10 @@ export class VectorTileRenderer {
   private readonly _scratchParentAtMaxLevel: number[] = []
   private readonly _scratchArchiveAncestor: number[] = []
   private readonly _scratchAncestorMemo = new Map<number, boolean>()
+  /** iter-255 (Plan AAA A.2) — per-frame scratch array for the
+   *  `_tileDecisions` diagnostic. Same `.length = N` reset pattern
+   *  as iter-254 parentAtMaxLevel. */
+  private readonly _scratchTileDecisions: (string | undefined)[] = []
   /** iter-243 (Plan AAA B.2) — per-frame scratch arena for VTR
    *  call-scope typed-array allocations (forEachLineLabelPolyline
    *  xs/ys Float64Array). Lifetime is single-call: views allocated
@@ -914,7 +918,13 @@ export class VectorTileRenderer {
     this._frameLines = 0
     this._frameVertices = 0
     this._frameDrawnByZoom.clear()
-    this._frameClassifyMemo.clear()
+    // iter-255 (Plan AAA A.2) — clear inner Maps in place instead
+    // of dropping them. Outer Map retained; inner Maps' hash
+    // buckets reused next frame. Pre-iter-255 each frame's first
+    // `_frameClassifyMemo.get(slice)` returned undefined → new
+    // Map(). At ~13 distinct slices per Bright frame = ~13
+    // Map allocations / frame.
+    for (const inner of this._frameClassifyMemo.values()) inner.clear()
     // Reset the per-frame upload counter + replay any uploads that
     // got held over by the previous frame's cap. Without this, a
     // 80+ slice scene (Bright) bursts hundreds of uploads into one
@@ -3883,7 +3893,11 @@ export class VectorTileRenderer {
     // The invariant-throw at end of loop is gated on
     // `globalThis.__XGIS_INVARIANTS`; the per-decision count summary
     // (exposed via `getLastDecisionCounts()`) is always available.
-    const _tileDecisions: (string | undefined)[] = new Array(tiles.length)
+    // iter-255 — scratch reuse + length reset. Clear prior values
+    // by setting indices to undefined inside the loop below
+    // (decision always assigned per tile in the for loop).
+    const _tileDecisions = this._scratchTileDecisions
+    _tileDecisions.length = tiles.length
     const _inv = (globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS
 
     // Per-frame slice memo: 81 shows in bright resolve to ~13 distinct
