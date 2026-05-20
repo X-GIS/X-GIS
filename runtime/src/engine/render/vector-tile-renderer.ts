@@ -118,6 +118,16 @@ interface GPUTile {
    *  `uniformRing`. Used in place of the source-level `tileBgFeature`
    *  when present. Null when `featureDataBuffer` is null. */
   featureBindGroup: GPUBindGroup | null
+  /** iter-226 — Strictly-monotonic per-tile upload counter, stamped
+   *  by `doUploadTile` / `doUploadTileAsync` from a VTR-wide counter
+   *  (`_tileUploadEpoch`). Used as the per-tile component of the
+   *  RenderBundle cache key: when a tile is re-uploaded (same key,
+   *  new `featureBindGroup` ref), its epoch bumps and any cached
+   *  bundle that referenced this tile must re-encode. Strictly more
+   *  precise than the iter-220 `_gpuCacheCount` signal, which
+   *  changed on every upload/eviction anywhere in the cache (over-
+   *  invalidates). */
+  uploadEpoch: number
 }
 
 // Per-VTR GPU tile cache cap on UNIQUE tile keys. With sliced
@@ -248,6 +258,21 @@ export class VectorTileRenderer {
    *  `gpuCache.size` reported; used by eviction trigger, cache-size
    *  diagnostics, and the setLineRenderer reset guard. */
   private _gpuCacheCount = 0
+  /** iter-226 — Strictly-monotonic counter assigned to each upload's
+   *  `GPUTile.uploadEpoch`. Replaces the cache-size signal
+   *  (`_gpuCacheCount`) in the RenderBundle cache key, where it was
+   *  too coarse (changed on any upload/eviction even for tiles
+   *  unrelated to the bundle). Per-tile epoch XORed across needed
+   *  keys lets a hit prove every referenced tile's bind group is
+   *  still the one the bundle recorded. */
+  private _tileUploadEpoch = 0
+  /** iter-226 — Bumped on every `rebuildTileBindGroups()` call.
+   *  rebuilds replace `tileBgDefault` / `tileBgFeature` (shared
+   *  bind groups used by tiles whose per-tile `featureBindGroup`
+   *  is null), so cached bundles holding refs to the prior
+   *  generation must re-encode. Independent of per-tile uploads;
+   *  fires on uniform-ring grow + sprite-atlas / palette rewire. */
+  private _bindGroupRebuildEpoch = 0
   private getLayerCache(sourceLayer: string): Map<number, GPUTile> | undefined {
     return this.gpuCache.get(sourceLayer)
   }
@@ -766,6 +791,10 @@ export class VectorTileRenderer {
     } else {
       this.tileBgFeature = null
     }
+    // iter-226 — tileBg{Default,Feature} are new refs after this
+    // function. Any cached RenderBundle that held the prior refs is
+    // now stale; bump the epoch so the next cache lookup misses.
+    this._bindGroupRebuildEpoch = (this._bindGroupRebuildEpoch + 1) | 0
   }
 
   /** Ring buffers retired mid-frame because of capacity grow. Destroyed on
@@ -2335,6 +2364,9 @@ export class VectorTileRenderer {
       uploadTimeMs: performance.now(),
       featureDataBuffer: perTileFeat?.buffer ?? null,
       featureBindGroup: perTileFeat?.bindGroup ?? null,
+      // iter-226 — strictly-monotonic per-tile upload counter for
+      // RenderBundle cache key composition (see _tileUploadEpoch).
+      uploadEpoch: (this._tileUploadEpoch = (this._tileUploadEpoch + 1) | 0),
     })
     this._gpuCacheCount++
 
@@ -2595,6 +2627,8 @@ export class VectorTileRenderer {
       uploadTimeMs: performance.now(),
       featureDataBuffer: perTileFeat?.buffer ?? null,
       featureBindGroup: perTileFeat?.bindGroup ?? null,
+      // iter-226 — see sync upload-path for rationale.
+      uploadEpoch: (this._tileUploadEpoch = (this._tileUploadEpoch + 1) | 0),
     })
     this._gpuCacheCount++
 
@@ -4178,9 +4212,21 @@ export class VectorTileRenderer {
         // Hash neededKeys deterministically + cheap (FNV-1a 32-bit).
         // Tile churn = different hash = miss.
         let kh = 0
+        // iter-226 — per-tile uploadEpoch XOR. Captures every
+        // featureBindGroup re-creation for tiles this bundle
+        // references (a re-upload bumps the tile's epoch; the
+        // XOR fingerprint changes; cache misses + re-encodes).
+        // Tiles in neededKeys not yet in `layerCache` contribute 0
+        // (no draw recorded for them; on first upload their epoch
+        // joins the XOR and triggers re-encode — matches the prior
+        // `_gpuCacheCount` behavior for that case).
+        let ueXor = 0
         for (let i = 0; i < neededKeys.length; i++) {
-          kh = (kh ^ neededKeys[i]!) >>> 0
+          const k = neededKeys[i]!
+          kh = (kh ^ k) >>> 0
           kh = ((kh * 16777619) >>> 0)
+          const t = layerCache.get(k)
+          if (t) ueXor = (ueXor ^ t.uploadEpoch) >>> 0
         }
         // World-offset fingerprint — world-copy enumeration changes
         // the per-tile uniform writes, so the bundle would be wrong
@@ -4193,7 +4239,12 @@ export class VectorTileRenderer {
         }
         const pickOn = isPickEnabled()
         const samples = getSampleCount()
-        const cacheKey = `vt:${sliceLayer}:${phase}:${kh.toString(36)}:${woh.toString(36)}:${this._gpuCacheCount}:${pickOn ? 1 : 0}:${samples}:${mainFill.label ?? '?'}:${linePipeline.label ?? '?'}`
+        // iter-226 — `ueXor:rbEpoch` replace the iter-220 single
+        // `_gpuCacheCount` signal. uploadEpoch captures per-tile
+        // featureBindGroup churn; rebuildEpoch captures shared
+        // tileBgDefault/tileBgFeature rebuilds (uniform-ring grow
+        // + sprite-atlas / palette rewire).
+        const cacheKey = `vt:${sliceLayer}:${phase}:${kh.toString(36)}:${woh.toString(36)}:${ueXor.toString(36)}:${this._bindGroupRebuildEpoch}:${pickOn ? 1 : 0}:${samples}:${mainFill.label ?? '?'}:${linePipeline.label ?? '?'}`
         const desc: BundleEncodeDescriptor = {
           colorFormats: pickOn ? [this.format, 'rg32uint'] : [this.format],
           depthStencilFormat: 'depth24plus-stencil8',
@@ -4319,9 +4370,16 @@ export class VectorTileRenderer {
         && !_debugRed
       if (fbShouldBundle) {
         let fbKh = 0
+        // iter-226 — per-tile uploadEpoch XOR (mirrors primary
+        // path; the fallbackKeys are the ones actually drawn here,
+        // so they're what the bundle holds bind-group refs for).
+        let fbUeXor = 0
         for (let i = 0; i < fallbackKeys.length; i++) {
-          fbKh = (fbKh ^ fallbackKeys[i]!) >>> 0
+          const k = fallbackKeys[i]!
+          fbKh = (fbKh ^ k) >>> 0
           fbKh = ((fbKh * 16777619) >>> 0)
+          const t = layerCache.get(k)
+          if (t) fbUeXor = (fbUeXor ^ t.uploadEpoch) >>> 0
         }
         let fbWoh = 0
         if (fallbackOffsets) {
@@ -4338,7 +4396,7 @@ export class VectorTileRenderer {
         }
         const fbPickOn = isPickEnabled()
         const fbSamples = getSampleCount()
-        const fbCacheKey = `vt-fb:${sliceLayer}:${phase}:${fbKh.toString(36)}:${fbWoh.toString(36)}:${fbVkh.toString(36)}:${this._gpuCacheCount}:${fbPickOn ? 1 : 0}:${fbSamples}:${fallbackFill.label ?? '?'}:${linePipelineFallback!.label ?? '?'}`
+        const fbCacheKey = `vt-fb:${sliceLayer}:${phase}:${fbKh.toString(36)}:${fbWoh.toString(36)}:${fbVkh.toString(36)}:${fbUeXor.toString(36)}:${this._bindGroupRebuildEpoch}:${fbPickOn ? 1 : 0}:${fbSamples}:${fallbackFill.label ?? '?'}:${linePipelineFallback!.label ?? '?'}`
         const fbDesc: BundleEncodeDescriptor = {
           colorFormats: fbPickOn ? [this.format, 'rg32uint'] : [this.format],
           depthStencilFormat: 'depth24plus-stencil8',

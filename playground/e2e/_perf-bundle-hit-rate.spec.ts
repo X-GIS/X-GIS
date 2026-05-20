@@ -90,17 +90,19 @@ test.describe('Phase RB.B validation — bundle hit rate at idle', () => {
     console.log(
       `[bundle hit-rate Seoul z=14] hits=${last.bundleHits} misses=${last.bundleMisses} rate=${(last.bundleHitRate * 100).toFixed(1)}%`,
     )
-    // Steady-state baseline. Initial measurement on first ship of
-    // iter-220/221 wrap: ~19.7 % hit rate on this fixture. The
-    // cache key composition includes `_gpuCacheCount` which churns
-    // on every (upload, eviction) — at idle there's still background
-    // upload drain. Follow-up iters will refine the invalidation
-    // signal (cache key needs to track REFERENCED gen, not total
-    // tile churn). The assertion below is a regression gate: hit
-    // rate should never drop BELOW the current baseline minus a
-    // safety margin. Tighten as the cache key is refined.
-    expect(last.bundleHitRate, 'bundle hit rate should be > 10 % (baseline)')
-      .toBeGreaterThan(0.1)
+    // Steady-state baseline. Hit rate trajectory:
+    //   - iter-220/221 first ship (_gpuCacheCount key): 19.9 %.
+    //   - iter-226 v2 key (per-tile uploadEpoch XOR +
+    //     bindGroupRebuildEpoch): 97.6 %. The previous key changed
+    //     on every (upload, eviction) anywhere in the cache; v2
+    //     keys only churn when a tile actually referenced by the
+    //     bundle is re-uploaded OR shared tileBg{Default,Feature}
+    //     is rebuilt (uniform ring grow / sprite-atlas wire).
+    // Threshold 80 % gates the iter-226 win against future
+    // regressions (cache-key over-invalidation would drop rate
+    // below this floor before pixel-match catches anything).
+    expect(last.bundleHitRate, 'bundle hit rate should be > 80 % (iter-226 baseline 97.6 %)')
+      .toBeGreaterThan(0.8)
 
     // Total bundle calls should be NON-ZERO — proves bundle path
     // actually runs (not gated off for this fixture).
