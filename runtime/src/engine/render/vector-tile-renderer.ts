@@ -4391,9 +4391,17 @@ export class VectorTileRenderer {
     }
   }
 
+  /** iter-214 (Phase RB.B.3) — `pass` parameter type widened to also
+   *  accept `GPURenderBundleEncoder` so a future caller can record
+   *  the per-tile draw loop into a cached bundle. Every method this
+   *  function calls on `pass` (`setPipeline`, `setBindGroup`,
+   *  `setVertexBuffer`, `setIndexBuffer`, `drawIndexed`) is in BOTH
+   *  interfaces' common subset. The pass-only calls
+   *  (`setStencilReference`) live ONE level up in the calling site
+   *  (line ~4077 / ~4167) so they wrap any future bundle replay. */
   private renderTileKeys(
     keys: number[],
-    pass: GPURenderPassEncoder,
+    pass: GPURenderPassEncoder | GPURenderBundleEncoder,
     fillPipeline: GPURenderPipeline,
     linePipeline: GPURenderPipeline,
     projCenterLon: number,
