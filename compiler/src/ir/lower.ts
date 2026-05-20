@@ -605,6 +605,11 @@ function lowerLayer(
    *  uses the sprite's centre pixel as fill colour (Stage 1 — full
    *  UV-tiling fragment shader is Stage 2). null = no pattern. */
   let fillPattern: string | null = null
+  /** iter-178 Mapbox `paint.line-pattern` constant sprite name —
+   *  stroke-side mirror of fillPattern. Stage 1 samples the sprite
+   *  centre pixel as the line colour; Stage 2 (real repeating-sprite
+   *  stroke renderer) deferred. null = no pattern. */
+  let linePattern: string | null = null
   /** Mapbox `paint.fill-translate` x — viewport pixel offset, +right.
    *  Constant form only; zoom-interp on vec2 needs per-axis decomp
    *  (deferred). 0 / undefined → no offset. */
@@ -1545,6 +1550,14 @@ function lowerLayer(
         // currently dropped (lower.ts has no binding-form arm for it).
         const num = parseFloat(name.slice('stroke-gap-'.length))
         if (!isNaN(num) && num > 0) strokeGapWidth = num
+      } else if (name.startsWith('stroke-pattern-')) {
+        // iter-178 Mapbox `line-pattern` Stage 1. Sprite name after
+        // `stroke-pattern-`; runtime samples the sprite's centre
+        // pixel for the line colour. Must precede the generic
+        // `stroke-` branch below (which would otherwise treat
+        // `pattern-X` as an unknown colour name and drop it).
+        const sprite = name.slice('stroke-pattern-'.length)
+        if (sprite.length > 0) linePattern = sprite
       } else if (name.startsWith('stroke-')) {
         const rest = name.slice(7)
         const num = parseFloat(rest)
@@ -1898,6 +1911,7 @@ function lowerLayer(
     fillTranslateX,
     fillTranslateY,
     fillPattern: fillPattern ?? undefined,
+    linePattern: linePattern ?? undefined,
     label: foldLabelKnobs(label, {
       labelSize, labelColor, labelHaloWidth, labelHaloColor, labelHaloBlur,
       labelAnchor, labelTransform, labelOffsetX, labelOffsetY,

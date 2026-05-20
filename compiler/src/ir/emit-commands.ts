@@ -60,6 +60,9 @@ export interface ShowCommand {
    *  fill colour — placeholder for the proper UV-tiling fragment
    *  shader (Stage 2). null = no pattern authored. */
   fillPattern: string | null
+  /** iter-178 Mapbox `line-pattern` (constant string only) — stroke-
+   *  side mirror of fillPattern. null = no pattern authored. */
+  linePattern: string | null
   stroke: string | null
   strokeWidth: number
   /** Optional per-feature stroke-width override AST. Compiler-
@@ -407,6 +410,7 @@ function emitShow(
     layerName: node.name,
     fill: colorToHex(node.fill),
     fillPattern: node.fillPattern ?? null,
+    linePattern: node.linePattern ?? null,
     stroke: colorToHex(node.stroke.color),
     // Flatten the discriminated `StrokeWidthValue` into the three
     // back-compat ShowCommand fields the runtime currently consumes.

@@ -23,19 +23,20 @@ interface Case {
   withColour: { message: string }
 }
 
+// iter-178 promoted `line-pattern` to Stage 1 alongside fill-pattern,
+// so it joined fill-pattern in dropping from the warn-only matrix.
+// fill-extrusion-pattern keeps the legacy contract.
 const CASES: Case[] = [
-  { property: 'line-pattern', layerType: 'line', colourProp: 'line-color',
-    alone:      { message: 'declared without line-color' },
-    withColour: { message: 'set alongside line-color' } },
   { property: 'fill-extrusion-pattern', layerType: 'fill-extrusion', colourProp: 'fill-extrusion-color',
     alone:      { message: 'declared without fill-extrusion-color' },
     withColour: { message: 'set alongside fill-extrusion-color' } },
 ]
 
-// iter-177 — `fill-pattern` Stage 1 emits a `fill-pattern-<name>`
-// utility silently (no warning) regardless of whether a `fill-color`
-// fallback is also authored. This pinned test catches a regression
-// to the legacy warn-only contract.
+// iter-177/178 — `fill-pattern` + `line-pattern` Stage 1 emit a
+// `fill-pattern-<name>` / `stroke-pattern-<name>` utility silently
+// (no warning) regardless of whether a colour fallback is also
+// authored. These pinned tests catch a regression to the legacy
+// warn-only contract.
 describe('fill-pattern Stage 1 — no Batch-2 warning', () => {
   const baseStyle = (extra: Record<string, unknown>) => ({
     version: 8,
@@ -58,6 +59,32 @@ describe('fill-pattern Stage 1 — no Batch-2 warning', () => {
         || w.includes('Batch 2 sprite-atlas')
         || (w.includes('fill-pattern') && w.includes('not yet supported')))
       expect(stale, `unexpected legacy warning for fill-pattern ${variant}: ${stale}`).toBeUndefined()
+    })
+  }
+})
+
+describe('line-pattern Stage 1 — no Batch-2 warning', () => {
+  const baseStyle = (extra: Record<string, unknown>) => ({
+    version: 8,
+    sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+    layers: [{
+      id: 'l', type: 'line', source: 'v', 'source-layer': 'a',
+      paint: { 'line-pattern': 'my-pat', 'line-width': 1, ...extra },
+    }],
+  })
+  for (const [variant, extra] of [
+    ['alone', {}],
+    ['+ line-color', { 'line-color': '#fff' }],
+  ] as const) {
+    it(`line-pattern ${variant} emits no Batch-2 warning`, () => {
+      const coverage = { sources: [], layers: [], warnings: [] as string[] }
+      convertMapboxStyle(baseStyle(extra) as never, { coverage })
+      const stale = coverage.warnings.find(w =>
+        w.includes('declared without line-color')
+        || w.includes('set alongside line-color')
+        || w.includes('Batch 2 sprite-atlas')
+        || (w.includes('line-pattern') && w.includes('not yet supported')))
+      expect(stale, `unexpected legacy warning for line-pattern ${variant}: ${stale}`).toBeUndefined()
     })
   }
 })

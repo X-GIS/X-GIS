@@ -110,6 +110,11 @@ export interface RenderNode {
    *  uses sprite centre pixel as fill colour. Stage 2 (real
    *  UV-tiled fragment shader) deferred. undefined = no pattern. */
   fillPattern?: string
+  /** iter-178 Mapbox `paint.line-pattern` Stage 1 — stroke-side
+   *  mirror of fillPattern. Runtime samples the sprite centre pixel
+   *  as the line colour; Stage 2 (real repeating-sprite stroke
+   *  renderer) deferred. undefined = no pattern. */
+  linePattern?: string
   projection: string
   visible: boolean
   /** CSS-style pointer interactivity. 'none' tells the runtime to skip

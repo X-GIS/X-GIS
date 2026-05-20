@@ -26,8 +26,8 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | Status | Count |
 |---|---:|
 | supported | 131 |
-| partial | 21 |
-| unsupported | 83 |
+| partial | 22 |
+| unsupported | 82 |
 | na | 7 |
 | **total** | **242** |
 
@@ -60,6 +60,7 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | fill-pattern | high | iter-177 Stage 1 landed 2026-05-20: compiler emits `fill-pattern-<name>` utility; lower.ts threads it into ShowCommand.fillPattern; map.ts asks the SpriteAtlasHost for the sprite's centre pixel and stores it as `resolvedFillRgba`. Liberty `landcover_wetland` (wetland_bg_11) + `road_area_pattern` (pedestrian_polygon) now render in their intended hue band instead of staying invisible. Stage 2 (true UV-tiled fragment shader with sprite atlas sampler) still pending — visual is a flat colour, not the repeating bitmap pattern MapLibre renders. Constant string form only; expression form of fill-pattern still warns and falls back. |
 | fill-translate | low | Constant vec2 + zoom-interp last-stop approx end-to-end. Runtime WGSL u.fill_translate_x/y adds CSS-px offset converted to NDC at vs_main (`clip.xy += u.fill_translate * clip.w`). OFM building-top pseudo-3D roof offset honoured. Full per-frame zoom-interp deferred. Iter 501 + 508 shipped 2026-05-18. |
 | line-dasharray | medium | Constant numeric array only — interpolate-by-zoom dasharray not lowered. Iter 27 sharpened the non-constant warning to name the specific shape (zoom-interp needs PropertyShape<array>; data-driven needs per-feature dash plumbing). |
+| line-pattern | low | iter-178 Stage 1 landed 2026-05-20: compiler emits `stroke-pattern-<name>` utility; lower.ts threads it into ShowCommand.linePattern; map.ts samples the sprite's centre pixel and stores it as `resolvedStrokeRgba`. Lines whose only stroke declaration was `line-pattern: X` now render in the sprite's intended colour band instead of staying invisible. Stage 2 (true repeating-sprite stroke renderer with along-line UV) still pending — visual is a flat colour, not the repeating bitmap pattern MapLibre renders. Constant string form only. |
 | circle-stroke-opacity | low | Constant numeric form folds into stroke-color hex alpha (iter 4, Plan §4 partial landing — same pattern later applied to background-opacity in iter 47). Zoom-interp / data-driven forms still warn + drop — need a dedicated paint shape for per-frame uniform multiplication. |
 | fill-extrusion-vertical-gradient | low | Default `true` is honoured end-to-end — fragment shader applies a vertical gradient ramp (0.6 base → 1.0 roof) plus a roof bonus matching MapLibre. Setting `false` to disable the gradient is the remaining gap (would need a per-show flag + WGSL branch). Iter 12 added spec-default suppression so authoring true (the spec default) no longer surfaces a spurious "ignored property" warning; only `false` (the real gap) warns. Promoted unsupported → partial in the capability-table expansion (iter 59) since the default path is real Phase 9 lighting, not stub. |
 | rgb / rgba | low | Constant channels only — hex-encoded at convert time. Per-channel v8 literal-wrap (`["literal", N]`) accepted. |

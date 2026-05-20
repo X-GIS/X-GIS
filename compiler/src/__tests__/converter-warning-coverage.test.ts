@@ -44,7 +44,11 @@ describe('converter warning coverage', () => {
       .toBe(false)
   })
 
-  it('line-pattern without line-color → Batch 2 warning', () => {
+  it('line-pattern without line-color → no Batch 2 warning (iter-178 Stage 1)', () => {
+    // iter-178: parallel to fill-pattern Stage 1 — `line-pattern`
+    // now emits a `stroke-pattern-<name>` utility and the runtime
+    // samples the sprite centre pixel for the line colour. Legacy
+    // Batch-2 warning retired.
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -56,8 +60,10 @@ describe('converter warning coverage', () => {
         paint: { 'line-pattern': 'dashed_white' },
       }],
     })
-    expect(w.some(s => s.includes('road_pattern') && s.includes('line-pattern')))
-      .toBe(true)
+    expect(w.some(s =>
+      s.includes('line-pattern declared without')
+      || s.includes('Batch 2 sprite-atlas')))
+      .toBe(false)
   })
 
   it('fill-pattern WITH fill-color → no warning (pattern is supplement)', () => {

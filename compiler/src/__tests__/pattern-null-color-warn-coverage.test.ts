@@ -29,7 +29,7 @@ describe('pattern-without-color null-as-omit', () => {
     expect(code).not.toMatch(/fill-pattern declared without/)
   })
 
-  it('line-pattern + explicit null line-color warns', () => {
+  it('line-pattern + explicit null line-color emits the stroke-pattern utility (iter-178 Stage 1)', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
@@ -43,7 +43,10 @@ describe('pattern-without-color null-as-omit', () => {
       ],
     }
     const code = convertMapboxStyle(style as never)
-    expect(code).toMatch(/line-pattern declared without line-color/)
+    // iter-178 — Stage 1 emits `stroke-pattern-<name>`; legacy warn
+    // ("declared without line-color") was retired.
+    expect(code).toMatch(/stroke-pattern-dashes/)
+    expect(code).not.toMatch(/line-pattern declared without/)
   })
 
   it('fill-color + fill-pattern coexist emits both utilities (regression guard)', () => {

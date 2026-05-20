@@ -845,6 +845,10 @@ export interface ShowCommand {
    *  resolves the sprite atlas centre pixel at frame time and writes
    *  the colour into `resolvedFillRgba`; this string is the source. */
   fillPattern?: string | null
+  /** iter-178 Mapbox `paint.line-pattern` constant sprite name —
+   *  stroke-side mirror of fillPattern. Map.ts writes the resolved
+   *  sprite centre RGBA into `resolvedStrokeRgba`. */
+  linePattern?: string | null
   stroke: string | null
   strokeWidth: number
   /** Optional per-feature stroke-width override AST. Set by the

@@ -2885,6 +2885,19 @@ export class XGISMap {
       show.resolvedFillRgba = [px[0] / 255, px[1] / 255, px[2] / 255, px[3] / 255]
       invalidateResolvedShowCache(show)
     }
+    // iter-178 — line-pattern Stage 1 mirror. Pulls the same sprite
+    // centre pixel into `resolvedStrokeRgba` so polygon outlines and
+    // line layers whose only stroke declaration was a `line-pattern`
+    // get a visible colour instead of staying black/transparent.
+    for (const show of this.showCommands) {
+      const name = show.linePattern
+      if (!name) continue
+      if (show.resolvedStrokeRgba) continue
+      const px = host.getSpriteCenterColor(name)
+      if (!px) continue
+      show.resolvedStrokeRgba = [px[0] / 255, px[1] / 255, px[2] / 255, px[3] / 255]
+      invalidateResolvedShowCache(show)
+    }
   }
 
   private renderFrame(): void {
@@ -3651,12 +3664,12 @@ export class XGISMap {
             && (labelShows.some(s =>
                  s.label?.iconImage !== undefined
                  || (s.label as { iconImageExpr?: unknown } | undefined)?.iconImageExpr !== undefined)
-                // iter-177 — fill-pattern Stage 1 also needs the
-                // sprite atlas loaded, even when no icon dispatch
-                // label show exists (Liberty `landcover_wetland` +
-                // `road_area_pattern` only declare `fill-pattern`,
-                // no icon layers).
-                || this.showCommands.some(s => s.fillPattern))) {
+                // iter-177 / iter-178 — fill-pattern + line-pattern
+                // Stage 1 also need the sprite atlas loaded, even
+                // when no icon dispatch label show exists (Liberty
+                // `landcover_wetland` + `road_area_pattern` only
+                // declare `fill-pattern`, no icon layers).
+                || this.showCommands.some(s => s.fillPattern || s.linePattern))) {
           this.iconStage = new IconStage(device, this.ctx.format, {
             spriteUrl: this.spriteUrl, dpr,
           }, sc)
