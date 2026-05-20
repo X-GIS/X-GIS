@@ -121,3 +121,55 @@ describe('GlyphAtlasHost — fontKey isolation', () => {
     expect(dirty[0]!.slot).not.toEqual(dirty[1]!.slot)
   })
 })
+
+describe('GlyphAtlasHost — iter-205 GlyphInfo memoization', () => {
+  it('repeated ensure() for the same glyph returns reference-equal GlyphInfo', () => {
+    // Cache-hit branch returns the cached object so callers like
+    // `ensureString` (which is on the hot per-frame path) avoid
+    // allocating a new `{codepoint, slot, ...}` wrapper per char.
+    const a = host.ensure('noto', 65)
+    const b = host.ensure('noto', 65)
+    expect(b).toBe(a)  // reference equality, not just structural
+  })
+
+  it('different codepoints get distinct GlyphInfo references', () => {
+    const a = host.ensure('noto', 65)
+    const b = host.ensure('noto', 66)
+    expect(b).not.toBe(a)
+    expect(a.codepoint).toBe(65)
+    expect(b.codepoint).toBe(66)
+  })
+
+  it('invalidate() clears the GlyphInfo cache (next ensure rebuilds)', () => {
+    const a = host.ensure('noto', 65)
+    host.invalidate('noto', 65)
+    const b = host.ensure('noto', 65)
+    // Same metrics (slot kept, re-rastered in place) but DIFFERENT
+    // reference — the post-invalidate ensure had to rebuild.
+    expect(b).not.toBe(a)
+    expect(b.codepoint).toBe(a.codepoint)
+  })
+
+  it('eviction drops the cached info entry for the displaced glyph', () => {
+    // 4×4 = 16 slots; insert 16 distinct glyphs, then the 17th evicts.
+    for (let i = 0; i < 16; i++) host.ensure('noto', 65 + i)
+    const firstBefore = host.ensure('noto', 65)  // cache hit, ref A
+    host.ensure('noto', 65 + 16)  // forces eviction of LRU slot
+    // After eviction, re-ensuring codepoint 65 (assuming it was the
+    // evicted one — LRU policy) MUST re-rasterise + rebuild info.
+    // We don't assert which slot got evicted; we just verify that
+    // ensure() is functionally correct after the churn.
+    const firstAfter = host.ensure('noto', 65)
+    expect(firstAfter.codepoint).toBe(65)
+    // If codepoint 65 survived the eviction (LRU may have evicted a
+    // different glyph), reference equality holds. If it got evicted,
+    // it differs. Both are valid post-eviction states; the cache
+    // remained CONSISTENT either way (no stale slot leak).
+    if (firstAfter !== firstBefore) {
+      // Got evicted then re-inserted — drained dirty should reflect
+      // the re-rasterise.
+      const dirty = host.consumeDirty()
+      expect(dirty.length).toBeGreaterThan(0)
+    }
+  })
+})

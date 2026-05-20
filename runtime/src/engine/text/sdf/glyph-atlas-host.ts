@@ -79,6 +79,15 @@ export class GlyphAtlasHost {
    *  glyph-atlas hot path at z=14 / z=16-p60). Uses the same
    *  fontKey→fontId interning as AtlasState below. */
   private readonly metrics = new Map<number, CachedMetrics>()
+  /** iter-205 — cached GlyphInfo objects per metricsKey. Cache HIT in
+   *  `ensure()` previously allocated a new GlyphInfo object every call;
+   *  at ~3000 ensures/frame (300 labels × 10 chars at z=14 OFM Bright)
+   *  that's ~3k obj allocs/frame just for the return wrapper, dominant
+   *  contributor to the 4.5% GC samples in the iter-197 CPU profile.
+   *  Cache is invalidated on slot eviction (same site that bumps
+   *  _generation) AND on `invalidate()` (PBF upgrade path — fresh
+   *  GlyphInfo built next ensure call after re-raster). */
+  private readonly infoCache = new Map<number, GlyphInfo>()
   /** Newly rasterised glyphs awaiting GPU upload. Drained by
    *  the GPU wrapper via `consumeDirty()`. */
   private dirty: DirtyGlyph[] = []
@@ -128,7 +137,12 @@ export class GlyphAtlasHost {
       // The slot we got was reclaimed — the renderer needs to know
       // the previous tenant is gone.
       this.evictions.push(ensured.evictedKey)
-      this.metrics.delete(this.metricsKey(ensured.evictedKey))
+      const evictedMk = this.metricsKey(ensured.evictedKey)
+      this.metrics.delete(evictedMk)
+      // iter-205 — drop the cached GlyphInfo for the evicted glyph.
+      // Same slot will be reused for the NEW glyph; the cached info
+      // would point at the wrong codepoint + stale metrics.
+      this.infoCache.delete(evictedMk)
       // iter-190 — bump a monotonic generation counter on every slot
       // reuse. Across-frame caches that key by `(text, generation)`
       // miss after any eviction (mid-frame too — the iter-167 cache
@@ -155,11 +169,25 @@ export class GlyphAtlasHost {
       })
       this.dirty.push({ key, slot: ensured.slot, sdf: result.sdf })
       this.stale.delete(mk)
-      return this.assembleInfo(codepoint, ensured.slot, result)
+      // iter-205 — populate infoCache so the next cache-hit
+      // ensure() for the same glyph returns the same reference
+      // (the test pin asserts `b === a` after two ensure calls).
+      // Without this populate, the FIRST call goes through this
+      // forceRasterize branch + builds via assembleInfo, while the
+      // SECOND call hits the cache-hit branch + builds a fresh
+      // object — defeats the memoisation invariant.
+      const info = this.assembleInfo(codepoint, ensured.slot, result)
+      this.infoCache.set(mk, info)
+      return info
     }
-    // Cache hit: pull metrics from the cache.
+    // Cache hit: return memoised GlyphInfo when available (iter-205);
+    // otherwise build + cache. Slot reference stays valid as long as
+    // the slot isn't reclaimed — eviction handler above clears the
+    // cache entry, so a hit here is always serving the current slot.
+    const cached = this.infoCache.get(mk)
+    if (cached !== undefined) return cached
     const m = this.metrics.get(mk)!
-    return {
+    const info: GlyphInfo = {
       codepoint, slot: ensured.slot,
       advanceWidth: m.advanceWidth,
       bearingX: m.bearingX,
@@ -169,6 +197,8 @@ export class GlyphAtlasHost {
       pbf: m.pbf,
       rasterFontSize: m.rasterFontSize,
     }
+    this.infoCache.set(mk, info)
+    return info
   }
 
   /** Mark one glyph as stale so its next `ensure()` call re-rasterises
@@ -181,7 +211,13 @@ export class GlyphAtlasHost {
   invalidate(fontKey: string, codepoint: number): void {
     const key: GlyphKey = { fontKey, codepoint, sdfRadius: this.sdfRadius }
     const mk = this.metricsKey(key)
-    if (this.metrics.has(mk)) this.stale.add(mk)
+    if (this.metrics.has(mk)) {
+      this.stale.add(mk)
+      // iter-205 — also drop the cached GlyphInfo; the next ensure()
+      // will re-raster + rebuild with the post-upgrade metrics. Skip
+      // this and a stale GlyphInfo could survive until eviction.
+      this.infoCache.delete(mk)
+    }
   }
 
   /** Ensure every glyph in `text` is in the atlas. Returns one
