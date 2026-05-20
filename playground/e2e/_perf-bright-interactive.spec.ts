@@ -109,6 +109,46 @@ async function runAnimation(
   }, { ms: durationMs, body: updateFn })
 }
 
+// iter-240 — drive the alloc-counter during a representative
+// interactive scenario. Logs the top per-site counts. The drag
+// path re-runs label collision + shape per frame, so sites that
+// cache-out at idle WILL fire here.
+async function captureAllocProfile(page: Page, body: string, ms: number = 3000): Promise<Record<string, number>> {
+  return await page.evaluate(async ({ src, dur }) => {
+    interface API {
+      setEnabled: (on: boolean) => void
+      snapshotAllocProfile: () => Record<string, number>
+    }
+    const api = (window as unknown as { __xgisAllocProfile?: API }).__xgisAllocProfile
+    if (!api) return {}
+    interface M {
+      getCamera: () => { zoom: number; centerX: number; centerY: number; pitch: number; bearing: number }
+      invalidate: () => void
+    }
+    const map = (window as unknown as { __xgisMap?: M }).__xgisMap
+    if (!map) return {}
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+    const update = new Function('t', 'cam', 'map', src) as (t: number, c: unknown, m: unknown) => void
+    const cam = map.getCamera()
+    api.setEnabled(true)
+    api.snapshotAllocProfile()  // discard pre-window state
+    await new Promise<void>(resolve => {
+      const start = performance.now()
+      const tick = () => {
+        const elapsed = performance.now() - start
+        if (elapsed >= dur) { resolve(); return }
+        update(elapsed / dur, cam, map)
+        map.invalidate()
+        requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+    const delta = api.snapshotAllocProfile()
+    api.setEnabled(false)
+    return delta
+  }, { src: body, dur: ms })
+}
+
 test('Bright interactive perf — 3 scenarios', async ({ page }) => {
   test.setTimeout(120_000)
   await page.setViewportSize({ width: 1280, height: 800 })
@@ -166,4 +206,25 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
   console.log(reportRow('2. zoom 10→14→10 + pan',    s2))
   // eslint-disable-next-line no-console
   console.log(reportRow('3. pitch 0→80→0',           s3))
+
+  // iter-240 (Plan AAA C.2) — alloc profile during interactive
+  // path. Drag/zoom drives re-shape + re-collision per frame, so
+  // sites that cache-out at idle fire here.
+  const profile = await captureAllocProfile(page, `
+    const phase = t < 0.5 ? t * 2 : (1 - t) * 2;
+    cam.zoom = 10 + phase * 4;
+    cam.centerX = ${baseCam.x} + phase * 200000;
+  `, 3000)
+  const sorted = Object.entries(profile).sort((a, b) => b[1] - a[1])
+  if (sorted.length > 0) {
+    // eslint-disable-next-line no-console
+    console.log('\n=== Alloc profile — zoom+pan 3s ===')
+    for (const [key, count] of sorted.slice(0, 20)) {
+      // eslint-disable-next-line no-console
+      console.log(`  ${count.toString().padStart(7)}  ${key}`)
+    }
+  } else {
+    // eslint-disable-next-line no-console
+    console.log('\n[alloc-profile] empty (sites cached-out or API missing)')
+  }
 })
