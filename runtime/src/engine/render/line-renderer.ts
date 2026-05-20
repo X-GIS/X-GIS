@@ -1878,8 +1878,14 @@ export class LineRenderer {
    * `tileOffset` and `layerOffset` are the dynamic byte offsets returned from
    * each ring's allocator for this draw.
    */
+  /** iter-218 (Phase RB.B.6) — `pass` parameter type widened to
+   *  also accept `GPURenderBundleEncoder`. The 4 GPU commands here
+   *  (setPipeline, setBindGroup ×2, draw) are in the common subset
+   *  of both interfaces, matching the VTR `recordTileFill` pattern
+   *  (iter-216). Unblocks future iters from routing the SDF stroke
+   *  emit through a cached RenderBundle alongside the fill draws. */
   drawSegments(
-    pass: GPURenderPassEncoder,
+    pass: GPURenderPassEncoder | GPURenderBundleEncoder,
     tileBindGroup: GPUBindGroup,
     layerBindGroup: GPUBindGroup,
     segmentCount: number,

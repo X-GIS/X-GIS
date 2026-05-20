@@ -26,6 +26,8 @@ import {
 import { tileKey, tileKeyParent, tileKeyChildren, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool, asyncWriteBuffer } from '../gpu/staging-buffer-pool'
 import { GPUArena } from '../gpu/gpu-arena'
+import { BundleCache, type BundleEncodeDescriptor } from './bundle-cache'
+import { isPickEnabled, getSampleCount } from '../gpu/gpu'
 import { WORLD_MERC, TILE_PX, enumerateWorldCopies } from '../gpu/gpu-shared'
 import { PriorityQueue, PriorityQueueItemRemovedError } from '../../core/priority-queue'
 import type { ShaderVariant } from '@xgis/compiler'
@@ -512,8 +514,21 @@ export class VectorTileRenderer {
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
+    this.format = ctx.format
     this.stagingPool = new StagingBufferPool(ctx.device)
+    this.bundleCache = new BundleCache(ctx.device)
   }
+
+  /** iter-218 (Phase RB.B.6) — swapchain color format. Captured from
+   *  the GPUContext so bundle descriptors can declare the correct
+   *  color attachment format. */
+  private format: GPUTextureFormat
+  /** iter-218 — per-show RenderBundle cache. Encodes draw commands
+   *  once + replays via `executeBundles([bundle])` on stable scenes
+   *  (idle camera / slow pan). Invalidated by cache key composition:
+   *  any tile set change OR gpuCache change OR pipeline rebuild
+   *  produces a different key → re-encode. */
+  private bundleCache: BundleCache
 
   /** Phase 6a.2 (iter-208) — shared polygon vertex arena. Replaces the
    *  per-tile `acquireBuffer` allocation for polygon vertex buffers so
