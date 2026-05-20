@@ -145,6 +145,11 @@ export class StatsPanel {
       ['zoom', 'Zoom'],
       ['tilesVisible', 'Tiles Vis'],
       ['tilesCached', 'Tiles Cache'],
+      // iter-223 — RenderBundle cache visibility. `Bundle` shows
+      // hits + hit-rate so users see when the bundle path is paying
+      // off (idle camera → rate → 1.0) vs invalidating (pan/zoom →
+      // rate dropping).
+      ['bundle', 'Bundle'],
     ]
 
     for (const [key, label] of fields) {
@@ -185,6 +190,20 @@ export class StatsPanel {
     this.rows.get('zoom')!.textContent = stats.zoom.toFixed(1)
     this.rows.get('tilesVisible')!.textContent = String(stats.tilesVisible)
     this.rows.get('tilesCached')!.textContent = String(stats.tilesCached)
+    // iter-223 — `bundle` row: "hits (rate%)" format. At idle the
+    // hit-rate should approach 100 %; pan/zoom drops it.
+    const bundleRow = this.rows.get('bundle')
+    if (bundleRow) {
+      const total = stats.bundleHits + stats.bundleMisses
+      if (total === 0) {
+        bundleRow.textContent = '—'
+      } else {
+        const ratePct = (stats.bundleHitRate * 100).toFixed(0)
+        bundleRow.textContent = `${stats.bundleHits} (${ratePct}%)`
+        bundleRow.style.color = stats.bundleHitRate >= 0.8 ? '#4ade80'
+          : stats.bundleHitRate >= 0.5 ? '#facc15' : '#ef4444'
+      }
+    }
   }
 
   destroy(): void {
