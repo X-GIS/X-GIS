@@ -1609,10 +1609,15 @@ export class TextStage {
         if (walkReversed) angle += Math.PI
         _sampleOut[2] = angle
       }
-      bumpAlloc('text-stage.curved.glyphOffsets.Float32Array')
-      const glyphOffsets = new Float32Array(glyphs.length * 2)
-      bumpAlloc('text-stage.curved.glyphRotations.Float32Array')
-      const glyphRotations = new Float32Array(glyphs.length)
+      // iter-246 (Plan AAA B.2) — curved label per-glyph arrays via
+      // FrameArena. Curved labels are NOT stored in _layoutCache
+      // (only point labels are — see line ~1455 cache store branch),
+      // so the arena view's lifetime is purely prepare() → render
+      // within the same frame. Watermark resets at next beginFrame.
+      bumpAlloc('text-stage.curved.glyphOffsets.FrameArena')
+      const glyphOffsets = this._frameArena.allocF32(glyphs.length * 2)
+      bumpAlloc('text-stage.curved.glyphRotations.FrameArena')
+      const glyphRotations = this._frameArena.allocF32(glyphs.length)
       // Per-glyph centre = startS + sum(prev advances) + currentAdvance/2.
       // Vertical alignment: sample.y is the polyline anchor; the text
       // renderer treats it as the glyph BASELINE (glyphs grow upward
