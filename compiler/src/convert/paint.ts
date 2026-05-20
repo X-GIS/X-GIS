@@ -256,12 +256,16 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     const vgRaw = p['fill-extrusion-vertical-gradient']
     const vg = Array.isArray(vgRaw) && vgRaw.length === 2 && vgRaw[0] === 'literal' ? vgRaw[1] : vgRaw
     const skipVerticalGradientWarn = vg === true || vg === undefined || vg === null
-    // fill-extrusion-translate — mirror of line-translate + fill-
-    // translate gap surfaces. fill-extrusion-vertex-shader has no
-    // per-frame translate uniform yet.
-    if (p['fill-extrusion-translate'] !== undefined && p['fill-extrusion-translate'] !== null) {
-      warnings.push(`Layer "${layer.id}" — fill-extrusion-translate set but the fill-extrusion renderer has no per-frame translate uniform yet (Plan §4 deferred — mirror of fill-translate's u.fill_translate_x/y); offset is dropped.`)
-    }
+    // iter-180 — fill-extrusion-translate Stage 1. The fill-extrusion
+    // WGSL paths (vs_main_quantized + vs_main_quantized_extruded) already
+    // apply u.fill_translate_x/y to clip-space xy at the end of the
+    // vertex stage. The runtime Uniforms struct is SHARED across
+    // fill + fill-extrusion (one Uniforms binding per pipeline kind),
+    // so routing fill-extrusion-translate through the same
+    // `fill-translate-x-N` / `fill-translate-y-M` utilities works end-
+    // to-end with zero runtime changes — the converter just needs to
+    // stop dropping the value.
+    addFillTranslate(out, p['fill-extrusion-translate'], warnings)
     // iter-179 — fill-extrusion-pattern Stage 1. Building walls are
     // drawn through the same fill RGBA channel as ground fills (the
     // extrude shader multiplies the colour by wall_shade in the

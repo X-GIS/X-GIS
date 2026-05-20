@@ -26,8 +26,8 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | Status | Count |
 |---|---:|
 | supported | 131 |
-| partial | 23 |
-| unsupported | 81 |
+| partial | 24 |
+| unsupported | 80 |
 | na | 7 |
 | **total** | **242** |
 
@@ -62,6 +62,7 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | line-dasharray | medium | Constant numeric array only — interpolate-by-zoom dasharray not lowered. Iter 27 sharpened the non-constant warning to name the specific shape (zoom-interp needs PropertyShape<array>; data-driven needs per-feature dash plumbing). |
 | line-pattern | low | iter-178 Stage 1 landed 2026-05-20: compiler emits `stroke-pattern-<name>` utility; lower.ts threads it into ShowCommand.linePattern; map.ts samples the sprite's centre pixel and stores it as `resolvedStrokeRgba`. Lines whose only stroke declaration was `line-pattern: X` now render in the sprite's intended colour band instead of staying invisible. Stage 2 (true repeating-sprite stroke renderer with along-line UV) still pending — visual is a flat colour, not the repeating bitmap pattern MapLibre renders. Constant string form only. |
 | circle-stroke-opacity | low | Constant numeric form folds into stroke-color hex alpha (iter 4, Plan §4 partial landing — same pattern later applied to background-opacity in iter 47). Zoom-interp / data-driven forms still warn + drop — need a dedicated paint shape for per-frame uniform multiplication. |
+| fill-extrusion-translate | low | iter-180 routed through addFillTranslate alongside fill-translate. The fill-extrusion vertex shaders (vs_main_quantized + vs_main_quantized_extruded) already apply u.fill_translate_x/y; the converter just stopped dropping the value. Constant vec2 + zoom-interp last-stop approximation supported. Full per-frame zoom-interp deferred (mirror of fill-translate). |
 | fill-extrusion-pattern | low | iter-179 Stage 1 landed 2026-05-20: compiler routes fill-extrusion-pattern through the same `fill-pattern-<name>` utility as iter-177, since the extrude renderer multiplies the layer fill RGBA by wall_shade in the fragment shader. Pattern-only building styles now render walls in the sprite's centre-pixel colour band instead of uncoloured. Stage 2 (real UV-tiling fragment shader on walls + roof) still pending. Constant string form only. |
 | fill-extrusion-vertical-gradient | low | Default `true` is honoured end-to-end — fragment shader applies a vertical gradient ramp (0.6 base → 1.0 roof) plus a roof bonus matching MapLibre. Setting `false` to disable the gradient is the remaining gap (would need a per-show flag + WGSL branch). Iter 12 added spec-default suppression so authoring true (the spec default) no longer surfaces a spurious "ignored property" warning; only `false` (the real gap) warns. Promoted unsupported → partial in the capability-table expansion (iter 59) since the default path is real Phase 9 lighting, not stub. |
 | rgb / rgba | low | Constant channels only — hex-encoded at convert time. Per-channel v8 literal-wrap (`["literal", N]`) accepted. |

@@ -16,14 +16,13 @@ interface Case {
 }
 
 const CASES: Case[] = [
-  // fill-translate is SUPPORTED (constant + last-stop zoom-interp),
-  // so omitted from this matrix — it has no gap warning to gate.
+  // fill-translate is SUPPORTED (constant + last-stop zoom-interp).
+  // fill-extrusion-translate is SUPPORTED iter-180 — routed through
+  // the same addFillTranslate helper since the fill-extrusion vertex
+  // shaders apply u.fill_translate_x/y already. Both omitted here.
   { property: 'line-translate',
     layerType: 'line', value: [1, 1],
     expectIn: 'no per-frame translate uniform' },
-  { property: 'fill-extrusion-translate',
-    layerType: 'fill-extrusion', value: [1, 1],
-    expectIn: 'fill-extrusion renderer has no per-frame translate' },
   { property: 'circle-translate',
     layerType: 'circle', value: [1, 1],
     expectIn: 'point renderer has no per-frame translate' },
@@ -61,6 +60,28 @@ function buildStyle(c: Case): Record<string, unknown> {
     layers: [layer],
   }
 }
+
+describe('fill-extrusion-translate Stage 1 — emits utility, no warning', () => {
+  it('routes through addFillTranslate; no Plan §4 gap warning', () => {
+    const coverage = { sources: [], layers: [], warnings: [] as string[] }
+    convertMapboxStyle({
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+      layers: [{
+        id: 'b', type: 'fill-extrusion', source: 'v', 'source-layer': 'b',
+        paint: {
+          'fill-extrusion-color': '#aaa',
+          'fill-extrusion-height': 10,
+          'fill-extrusion-translate': [3, 4],
+        },
+      }],
+    } as never, { coverage })
+    const stale = coverage.warnings.find(w =>
+      w.includes('fill-extrusion-translate')
+      && (w.includes('no per-frame translate') || w.includes('Plan §4 deferred')))
+    expect(stale, `unexpected legacy gap warning: ${stale}`).toBeUndefined()
+  })
+})
 
 describe('translate-property gap warning specificity', () => {
   for (const c of CASES) {
