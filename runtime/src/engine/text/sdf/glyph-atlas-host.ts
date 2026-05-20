@@ -88,6 +88,25 @@ export class GlyphAtlasHost {
    *  _generation) AND on `invalidate()` (PBF upgrade path — fresh
    *  GlyphInfo built next ensure call after re-raster). */
   private readonly infoCache = new Map<number, GlyphInfo>()
+  /** iter-233 — string-level GlyphInfo[] cache. ensureString allocates
+   *  a fresh array per call + does N codepoint lookups; at 300 labels
+   *  × 10 chars/frame on z=14 OFM Bright that's ~3k array allocs and
+   *  ~3k codePointAt iterations per frame. Memory note
+   *  project_merc_high_pitch_drag_2026_05_20 pins ~21.5 % of drag CPU
+   *  on the ensureString / ensure path; same-text-second-frame call
+   *  should short-circuit.
+   *
+   *  iter-167/168 attempted this and was reverted (iter-175) because
+   *  the per-frame eviction drain corrupted cached arrays whose
+   *  GlyphInfo entries referenced slots reclaimed mid-frame. iter-190
+   *  added `_generation` (bumps on EVERY slot reuse, including
+   *  mid-frame), so a `{ info, generation }` envelope makes any
+   *  post-eviction read a clean miss — re-runs the full ensure loop
+   *  and re-caches.
+   *
+   *  Cached array is shared by reference; callers must treat it
+   *  read-only (matches the existing infoCache contract). */
+  private readonly stringInfoCache = new Map<string, { info: GlyphInfo[]; generation: number }>()
   /** Newly rasterised glyphs awaiting GPU upload. Drained by
    *  the GPU wrapper via `consumeDirty()`. */
   private dirty: DirtyGlyph[] = []
@@ -226,8 +245,25 @@ export class GlyphAtlasHost {
    *  `for...of`; the iterator-protocol path allocates a ~50-byte
    *  StringIterator + per-step result `{value, done}` object on
    *  every char, dominant GC contributor at z=14 OFM Liberty Seoul
-   *  with ~300 labels × ~10 chars/frame = ~3 k iterator allocs/frame. */
+   *  with ~300 labels × ~10 chars/frame = ~3 k iterator allocs/frame.
+   *
+   *  iter-233 — string-level memo (see stringInfoCache). Cache key
+   *  is `fontKey|text`; cache value is the GlyphInfo[] tagged with
+   *  `_generation` at build time. A subsequent call with the same
+   *  text + same generation returns the cached array directly,
+   *  skipping the codepoint loop + per-glyph `ensure()` calls + the
+   *  array allocation. A slot eviction anywhere bumps `_generation`
+   *  so the stale array is dropped on next access.
+   *
+   *  Contract: returned array is SHARED with the cache. Callers must
+   *  not mutate (matches the existing GlyphInfo / infoCache contract;
+   *  text-stage `wrapWithKnuthPlass` + line-label paths read-only). */
   ensureString(fontKey: string, text: string): GlyphInfo[] {
+    const cacheKey = fontKey + '|' + text
+    const cached = this.stringInfoCache.get(cacheKey)
+    if (cached !== undefined && cached.generation === this._generation) {
+      return cached.info
+    }
     const out: GlyphInfo[] = []
     const len = text.length
     let i = 0
@@ -237,6 +273,14 @@ export class GlyphAtlasHost {
       // Surrogate pair (BMP supplement) spans 2 UTF-16 code units.
       i += cp > 0xFFFF ? 2 : 1
     }
+    // CRITICAL: read `_generation` AFTER the ensure loop. Any
+    // ensure() call inside the loop may bump it (slot reuse); the
+    // cached array's tag must reflect the FINAL state so the next
+    // matching call validates cleanly. iter-167/168 corruption came
+    // from caching with the START-of-frame generation while later
+    // labels in the same frame evicted referenced slots — iter-190's
+    // monotonic counter + post-loop read prevents that.
+    this.stringInfoCache.set(cacheKey, { info: out, generation: this._generation })
     return out
   }
 
