@@ -339,7 +339,9 @@ export class TextRenderer {
       const letterSpacingPx = d.letterSpacingPx ?? 0
       const offsets = d.glyphOffsets
       const perGlyphRot = d.glyphRotations
-      const uniforms = packUniforms(d)
+      // iter-248 — pass arena so each per-draw uniform pack uses
+      // the same backing buffer as the iter-244 vertex data.
+      const uniforms = packUniforms(d, this._frameArena)
       // Track the page for the current sub-slice. A label spanning
       // pages flushes a slice each time the active page changes;
       // single-page maps emit exactly one slice per draw.
@@ -579,8 +581,14 @@ export function packUniformsForTesting(d: TextDraw): Float32Array {
   return packUniforms(d)
 }
 
-function packUniforms(d: TextDraw): Float32Array {
-  const buf = new Float32Array(UNIFORM_BYTES / 4)
+// iter-248 (Plan AAA B.2) — optional FrameArena for the 16-float
+// uniform pack. setDraws calls this per-draw (~300 / frame on
+// Bright z=14); test seam passes undefined to keep the legacy
+// fresh-heap allocation path.
+function packUniforms(d: TextDraw, arena?: FrameArena): Float32Array {
+  const buf = arena !== undefined
+    ? arena.allocF32(UNIFORM_BYTES / 4)
+    : new Float32Array(UNIFORM_BYTES / 4)
   // viewport (slots 0,1) — written by draw()
   buf[2] = 0; buf[3] = 0  // viewport pad
   buf[4] = d.color[0]; buf[5] = d.color[1]; buf[6] = d.color[2]; buf[7] = d.color[3]
