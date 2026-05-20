@@ -228,6 +228,126 @@ describe('dead-layer-elim — identity preservation', () => {
   })
 })
 
+describe('dead-layer-elim — Phase D.1 transparent fill drop', () => {
+  it('drops a layer with constant alpha=0 fill + no stroke + no label + pointerEvents=none', () => {
+    const dead = makeNode({
+      fill: { kind: 'constant', rgba: [0.5, 0.5, 0.5, 0] },
+      stroke: {
+        color: { kind: 'none' },
+        width: { kind: 'constant', value: 0 },
+      },
+      pointerEvents: 'none',
+    })
+    const out = deadLayerElimPass.run(sceneOf([dead]))
+    expect(out.renderNodes).toHaveLength(0)
+  })
+
+  it('KEEPS transparent fill + opaque stroke (outline-only pattern)', () => {
+    // Country borders / admin boundaries — fill is transparent on
+    // purpose; the stroke draws the line. MUST keep.
+    const outlineOnly = makeNode({
+      fill: { kind: 'constant', rgba: [0, 0, 0, 0] },
+      stroke: {
+        color: { kind: 'constant', rgba: [0.2, 0.2, 0.2, 1] },
+        width: { kind: 'constant', value: 1 },
+      },
+      pointerEvents: 'none',
+    })
+    const out = deadLayerElimPass.run(sceneOf([outlineOnly]))
+    expect(out.renderNodes).toHaveLength(1)
+    expect(out.renderNodes[0]).toBe(outlineOnly)
+  })
+
+  it('KEEPS transparent fill when pointerEvents=auto (invisible hit target)', () => {
+    // Anti-pattern but valid use: an author wants a click region
+    // that overlays other content invisibly. Dropping would break
+    // the click handler.
+    const hitTarget = makeNode({
+      fill: { kind: 'constant', rgba: [0, 0, 0, 0] },
+      stroke: {
+        color: { kind: 'none' },
+        width: { kind: 'constant', value: 0 },
+      },
+      pointerEvents: 'auto',
+    })
+    const out = deadLayerElimPass.run(sceneOf([hitTarget]))
+    expect(out.renderNodes).toHaveLength(1)
+    expect(out.renderNodes[0]).toBe(hitTarget)
+  })
+
+  it('KEEPS data-driven fill (could resolve non-zero alpha per feature)', () => {
+    // Conservative: data-driven can't be statically proved transparent.
+    const dataDriven = makeNode({
+      fill: { kind: 'data-driven', expr: { ast: { kind: 'Identifier', name: 'class' } as never } },
+      stroke: {
+        color: { kind: 'none' },
+        width: { kind: 'constant', value: 0 },
+      },
+      pointerEvents: 'none',
+    })
+    const out = deadLayerElimPass.run(sceneOf([dataDriven]))
+    expect(out.renderNodes).toHaveLength(1)
+  })
+
+  it('drops zoom-interpolated fill where EVERY stop has alpha=0', () => {
+    // Two stops, both alpha=0 → linear interpolation between them
+    // is also alpha=0 → fill stays transparent at every zoom.
+    const allTransparent = makeNode({
+      fill: {
+        kind: 'zoom-interpolated',
+        stops: [
+          { zoom: 0, value: [1, 0, 0, 0] },
+          { zoom: 20, value: [0, 0, 1, 0] },
+        ],
+      },
+      stroke: {
+        color: { kind: 'none' },
+        width: { kind: 'constant', value: 0 },
+      },
+      pointerEvents: 'none',
+    })
+    const out = deadLayerElimPass.run(sceneOf([allTransparent]))
+    expect(out.renderNodes).toHaveLength(0)
+  })
+
+  it('KEEPS zoom-interpolated fill when at least one stop has alpha>0', () => {
+    // Mix of transparent + opaque stops → interpolated alpha is
+    // non-zero somewhere in the camera zoom range.
+    const mixed = makeNode({
+      fill: {
+        kind: 'zoom-interpolated',
+        stops: [
+          { zoom: 0, value: [1, 0, 0, 0] },
+          { zoom: 20, value: [0, 0, 1, 1] },
+        ],
+      },
+      stroke: {
+        color: { kind: 'none' },
+        width: { kind: 'constant', value: 0 },
+      },
+      pointerEvents: 'none',
+    })
+    const out = deadLayerElimPass.run(sceneOf([mixed]))
+    expect(out.renderNodes).toHaveLength(1)
+  })
+
+  it('REGRESSION: opacity:0 with non-transparent fill STILL KEPT', () => {
+    // dead-layer-elim policy header pin (lines 23-25): opacity is
+    // the animation-base channel and stays alive even when the
+    // current value is 0. Phase D.1 only targets the FILL alpha
+    // channel.
+    const opacityZero = makeNode({
+      opacity: { kind: 'constant', value: 0 },
+      // fill is opaque (alpha=1); only opacity multiplies to 0.
+      fill: { kind: 'constant', rgba: [1, 0, 0, 1] },
+      pointerEvents: 'none',
+    })
+    const out = deadLayerElimPass.run(sceneOf([opacityZero]))
+    expect(out.renderNodes).toHaveLength(1)
+    expect(out.renderNodes[0]).toBe(opacityZero)
+  })
+})
+
 describe('dead-layer-elim — pass metadata', () => {
   it('declares the right name and depends on merge-layers + folds', () => {
     expect(deadLayerElimPass.name).toBe('dead-layer-elim')

@@ -35,7 +35,36 @@
 //     in a different camera state. Not dead, just out of view.
 
 import type { IRPass } from '../pass-manager'
-import type { Scene, RenderNode } from '../render-node'
+import type { Scene, RenderNode, ColorValue } from '../render-node'
+
+/** Phase D.1 — true when a ColorValue is GUARANTEED transparent at
+ *  EVERY camera / feature state, without consulting runtime data.
+ *
+ *  Considered transparent:
+ *    - `kind: 'constant'` with rgba[3] === 0
+ *    - `kind: 'zoom-interpolated'` whose EVERY stop has alpha === 0
+ *      (zoom-interp can only produce a non-zero alpha if at least
+ *      one stop has alpha > 0 — interpolation between two zero-
+ *      alpha stops stays at zero)
+ *  Not considered transparent (conservative):
+ *    - `kind: 'data-driven'` — a match() arm could resolve to a
+ *      non-zero alpha per feature. Statically impossible to prove
+ *      every arm transparent without walking the AST.
+ *    - `kind: 'conditional'` — same reasoning.
+ *    - `kind: 'time-interpolated'` — animation may bring alpha > 0.
+ *
+ *  Returns false for `kind: 'none'` because `isDeadLayer` already
+ *  handles the no-paint surface case via the `hasFill` /
+ *  `hasStrokeColour` discriminator; this helper covers "paint
+ *  declared but provably invisible". */
+function isStaticallyTransparent(value: ColorValue): boolean {
+  if (value.kind === 'constant') return value.rgba[3] === 0
+  if (value.kind === 'zoom-interpolated') {
+    if (value.stops.length === 0) return false
+    return value.stops.every(s => s.value[3] === 0)
+  }
+  return false
+}
 
 function isDeadLayer(node: RenderNode, rasterSources: Set<string>): boolean {
   // Explicit author intent.
@@ -76,6 +105,37 @@ function isDeadLayer(node: RenderNode, rasterSources: Set<string>): boolean {
   const hasLabel = node.label !== undefined
   const hasProcedural = node.geometry !== null
   if (!hasFill && !hasStroke && !hasLabel && !hasProcedural) return true
+
+  // Phase D.1 (iter 203) — statically-transparent fill drop.
+  //
+  // A `fill: rgba(R, G, B, 0)` (or zoom-interpolated all-alpha-0)
+  // layer with NO stroke + NO label + NO procedural geometry +
+  // NO interactive hit target produces zero visible fragments at
+  // every camera state. Pre-D.1 the layer survived `hasFill` (the
+  // ColorValue.kind isn't 'none') and burned a draw call per frame
+  // emitting fragments that all alpha-blended to zero.
+  //
+  // Three guards prevent regression:
+  //   1. `isStaticallyTransparent(fill)` — conservative; only
+  //      `constant` and `zoom-interpolated` qualify. Data-driven /
+  //      conditional / time-interpolated may resolve non-zero per
+  //      feature / per frame → kept.
+  //   2. NO STROKE — a transparent fill + opaque stroke is the
+  //      common "outline-only" pattern (admin boundaries, country
+  //      borders). MUST keep.
+  //   3. `pointerEvents !== 'auto'` — the hit-target anti-pattern
+  //      (`pointer-events: auto` + transparent fill) lets the
+  //      author build an invisible click region. Keep it.
+  //
+  // `opacity: 0` policy is UNCHANGED — see the dead-layer-elim
+  // header comment + the pin test at line 134-144. opacity is the
+  // animation-base channel; transparent fill is the
+  // structurally-dead channel.
+  if (hasFill && !hasStroke && !hasLabel && !hasProcedural
+      && node.pointerEvents !== 'auto'
+      && isStaticallyTransparent(node.fill)) {
+    return true
+  }
 
   return false
 }
