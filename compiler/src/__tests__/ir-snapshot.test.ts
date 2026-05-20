@@ -74,9 +74,8 @@ describe('IR snapshot — production fixtures', () => {
         "renderNodeKinds": {
           "unknown": 121,
         },
-        "sourceCount": 2,
+        "sourceCount": 1,
         "sourceTypes": [
-          "unknown",
           "unknown",
         ],
         "symbolCount": 0,
@@ -114,9 +113,8 @@ describe('IR snapshot — production fixtures', () => {
         "renderNodeKinds": {
           "unknown": 57,
         },
-        "sourceCount": 2,
+        "sourceCount": 1,
         "sourceTypes": [
-          "unknown",
           "unknown",
         ],
         "symbolCount": 0,

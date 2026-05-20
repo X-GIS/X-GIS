@@ -9,10 +9,16 @@ import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
 
 describe('source null body guard', () => {
   it('null source body emits placeholder, does not crash', () => {
+    // iter-198 — fixture now references `bad` from a layer too. The
+    // dead-source-drop pass (iter-198) would otherwise skip `bad` as
+    // unreferenced, masking the null-body coverage. The assertion below
+    // pins the placeholder path runs when a layer DOES reference the
+    // malformed source.
     const style = {
       version: 8,
       sources: { bad: null as unknown, good: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
       layers: [
+        { id: 'lbad', type: 'fill', source: 'bad', paint: { 'fill-color': '#fff' } },
         { id: 'l', type: 'fill', source: 'good', paint: { 'fill-color': '#000' } },
       ],
     }

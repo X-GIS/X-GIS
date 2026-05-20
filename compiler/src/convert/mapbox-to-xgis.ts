@@ -262,7 +262,46 @@ export function convertMapboxStyle(
     }
   }
 
+  // iter-198 — dead-source drop. Build the set of source ids actually
+  // referenced by layers; sources declared but unused get warned + skipped
+  // from emit. Bright fixture has `ne2_shaded` declared but never bound
+  // to a layer — pre-fix the converter emitted the source block which
+  // then sat in IR cost forever (parse, source-instance, prewarm probe
+  // round-trip). LLVM-style early DCE: shrink the input surface before
+  // any subsequent pass (merge-layers / CSE / codegen) runs.
+  //
+  // Background and the various non-source layer types don't carry a
+  // `source` field; everything else with a `source: <id>` reference
+  // marks that id as live. Mirror of the layer-source schema check
+  // above (declaredSourceIds) but inverted: layer→source rather than
+  // source→layer.
+  const referencedSourceIds = new Set<string>()
+  const rawLayersForSourceUse = Array.isArray(style.layers) ? style.layers : []
+  for (const l of rawLayersForSourceUse) {
+    if (l === null || typeof l !== 'object' || Array.isArray(l)) continue
+    const layerSource = (l as { source?: unknown }).source
+    if (typeof layerSource === 'string' && layerSource.length > 0) {
+      referencedSourceIds.add(layerSource)
+    }
+  }
+  // Only run the dead-source drop on styles that DECLARE layers. A
+  // sources-only style (unit-test fixture / partial author authoring
+  // sources first then layers later) would otherwise see every source
+  // dropped — surprising behaviour for the in-flight author and the
+  // existing source-emit test suite that pre-dates this pass. Real
+  // Mapbox styles always carry layers; the elided case is the tooling
+  // fixture, which doesn't need the optimisation anyway.
+  const dropUnusedSources = rawLayersForSourceUse.length > 0
   for (const [id, src] of Object.entries(sourcesObj)) {
+    if (dropUnusedSources && !referencedSourceIds.has(id)) {
+      // Drop + warn. Type guard mirrors convertSource's null-tolerant
+      // contract — a string `type` aids the diagnostic but isn't required.
+      const t = (src !== null && typeof src === 'object' && !Array.isArray(src))
+        ? (src as { type?: unknown }).type : undefined
+      const tStr = typeof t === 'string' ? ` (type=${t})` : ''
+      warnings.push(`Source "${id.slice(0, 60)}"${tStr} is declared but never referenced by any layer; dropped from emit (saves a tile fetch + IR slot). Layers may have been removed in the style but the source declaration was left behind.`)
+      continue
+    }
     const before = warnings.length
     // Mirror of the per-layer try/catch isolation (0c81006): a throw
     // inside convertSource (unexpected runtime conditions) would
