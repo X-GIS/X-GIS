@@ -255,6 +255,14 @@ export class BackgroundRenderer {
     })
   }
 
+  /** iter-222 — BundleCache stats accessor for the map-level stats
+   *  panel. Returns lifetime hits/misses across this renderer's
+   *  cached bundle variants (main / overdraw / pick combinations). */
+  getBundleStats(): { hits: number; misses: number } {
+    const s = this.bundleCache.getStats()
+    return { hits: s.hits, misses: s.misses }
+  }
+
   /** Rebuild pipeline (call from setQuality reroll). */
   rebuildForQuality(): void {
     this.bgPipeline = null

@@ -13,6 +13,18 @@ export interface RenderStats {
   tilesCached: number
   gpuBuffers: number
   zoom: number
+  /** iter-222 — RenderBundle cache stats (Phase RB.B follow-up).
+   *  Aggregated across all BundleCache instances (VTR + bg).
+   *  hits = `executeBundles` replay of a previously-encoded
+   *  bundle; misses = encode required because cache key changed
+   *  or first encounter. At idle camera with stable tile set,
+   *  hits dominate (cache key includes tile-keys hash +
+   *  _gpuCacheCount — no churn means same key). */
+  bundleHits: number
+  bundleMisses: number
+  /** Hit rate over the lifetime of the BundleCache instances (NOT
+   *  per-frame). Use as a steady-state indicator. */
+  bundleHitRate: number
 }
 
 export class StatsTracker {
@@ -26,6 +38,10 @@ export class StatsTracker {
   tilesCached = 0
   gpuBuffers = 0
   zoom = 0
+  /** iter-222 — bundle stats. Lifetime counters (NOT per-frame
+   *  reset). Aggregated across all BundleCache instances. */
+  bundleHits = 0
+  bundleMisses = 0
 
   // FPS tracking
   private frames = 0
@@ -72,6 +88,7 @@ export class StatsTracker {
 
   /** Get current snapshot */
   get(): RenderStats {
+    const total = this.bundleHits + this.bundleMisses
     return {
       fps: this.fps,
       frameTime: this.frameTime,
@@ -84,6 +101,9 @@ export class StatsTracker {
       tilesCached: this.tilesCached,
       gpuBuffers: this.gpuBuffers,
       zoom: this.zoom,
+      bundleHits: this.bundleHits,
+      bundleMisses: this.bundleMisses,
+      bundleHitRate: total > 0 ? this.bundleHits / total : 0,
     }
   }
 }

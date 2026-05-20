@@ -59,6 +59,8 @@ function makeEncoder(bump: (k: string) => void): unknown {
     draw: () => { bump('pass.draw') },
     drawIndexed: () => { bump('pass.drawIndexed') },
     drawIndirect: () => { bump('pass.drawIndirect') },
+    executeBundles: () => { bump('pass.executeBundles') },
+    setStencilReference: () => { bump('pass.setStencilReference') },
     end: () => { bump('pass.end') },
     setViewport: () => undefined,
     setScissorRect: () => undefined,
@@ -130,6 +132,23 @@ export function installWebGPUStub(): StubInstallation {
     createComputePipeline: () => { bump('createComputePipeline'); return makePipeline() },
     createComputePipelineAsync: () => { bump('createComputePipelineAsync'); return Promise.resolve(makePipeline()) },
     createShaderModule: () => { bump('createShaderModule'); return {} },
+    createRenderBundleEncoder: () => {
+      bump('createRenderBundleEncoder')
+      // Bundle encoder shares the same command-recording surface as
+      // the render pass encoder (subset). Reuse the pass stub +
+      // a finish() that returns a sentinel bundle object.
+      const bundlePass = {
+        setPipeline: () => { bump('bundle.setPipeline') },
+        setBindGroup: () => { bump('bundle.setBindGroup') },
+        setVertexBuffer: () => { bump('bundle.setVertexBuffer') },
+        setIndexBuffer: () => { bump('bundle.setIndexBuffer') },
+        draw: () => { bump('bundle.draw') },
+        drawIndexed: () => { bump('bundle.drawIndexed') },
+        drawIndirect: () => { bump('bundle.drawIndirect') },
+        finish: () => { bump('bundle.finish'); return { __bundle: true } },
+      }
+      return bundlePass
+    },
     createCommandEncoder: () => { bump('createCommandEncoder'); return makeEncoder(bump) },
     createQuerySet: () => ({ destroy: () => undefined }),
     pushErrorScope: () => undefined,

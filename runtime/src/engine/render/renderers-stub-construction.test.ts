@@ -68,10 +68,11 @@ describe('renderer construction smoke (stub)', () => {
 
   it('BackgroundRenderer.render fires exactly one draw(6) per pass', async () => {
     // Draw-call surface check: with a colour set, BackgroundRenderer
-    // emits a fullscreen-quad pass (6 vertices). The stub tracks
-    // pass.draw call counts, so we can verify the renderer actually
-    // dispatches without needing pixel output. Catches "render() bailed
-    // silently because uniform upload moved" regressions.
+    // emits a fullscreen-quad pass (6 vertices). iter-213 routed
+    // that draw through GPURenderBundle — bg now records into a
+    // bundle encoder + replays via `pass.executeBundles([bundle])`.
+    // Updated to check that surface instead of `pass.draw` (which
+    // is now called on the bundleEncoder, not the pass).
     const ctx = await makeCtx()
     const bg = new BackgroundRenderer(ctx)
     bg.setFill([0.1, 0.2, 0.3, 1])
@@ -82,12 +83,12 @@ describe('renderer construction smoke (stub)', () => {
         loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 },
       }],
     })
-    const drawsBefore = stub.callCounts['pass.draw'] ?? 0
+    const exBefore = stub.callCounts['pass.executeBundles'] ?? 0
     bg.render(pass)
     pass.end()
-    const drawsAfter = stub.callCounts['pass.draw'] ?? 0
-    expect(drawsAfter - drawsBefore,
-      'BackgroundRenderer.render should emit exactly one fullscreen-quad draw')
+    const exAfter = stub.callCounts['pass.executeBundles'] ?? 0
+    expect(exAfter - exBefore,
+      'BackgroundRenderer.render should emit exactly one executeBundles call (bundle path)')
       .toBe(1)
   })
 

@@ -1673,6 +1673,15 @@ export class VectorTileRenderer {
     }
   }
 
+  /** iter-222 — BundleCache stats accessor. Returns lifetime
+   *  hit/miss counters across all (slice, phase, key-set, gen,
+   *  attachment) variants this VTR has cached. Map.ts aggregates
+   *  across all VT sources + bg renderer for the global stats. */
+  getBundleStats(): { hits: number; misses: number } {
+    const s = this.bundleCache.getStats()
+    return { hits: s.hits, misses: s.misses }
+  }
+
   /** Build per-feature GPU storage buffer from PropertyTable */
   buildFeatureDataBuffer(
     variant: ShaderVariant,

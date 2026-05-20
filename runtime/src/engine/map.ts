@@ -4912,6 +4912,17 @@ export class XGISMap {
     this._stats.vertices = rs.vertices
     this._stats.triangles = rs.triangles
     this._stats.lines = rs.lines
+    // iter-222 — bundle stats aggregation. Lifetime counters,
+    // monotonic. Aggregate VTR per-source caches + BackgroundRenderer.
+    this._stats.bundleHits = 0
+    this._stats.bundleMisses = 0
+    if (this.backgroundRenderer) {
+      const bgs = this.backgroundRenderer.getBundleStats?.()
+      if (bgs) {
+        this._stats.bundleHits += bgs.hits
+        this._stats.bundleMisses += bgs.misses
+      }
+    }
     let totalTilesVis = 0, totalTilesCached = 0, totalMissed = 0
     for (const [name, { renderer: vtR }] of this.vtSources) {
       if (!vtR.hasData()) continue
@@ -4920,6 +4931,11 @@ export class XGISMap {
       this._stats.vertices += vts.vertices
       this._stats.triangles += vts.triangles
       this._stats.lines += vts.lines
+      const vtbs = vtR.getBundleStats?.()
+      if (vtbs) {
+        this._stats.bundleHits += vtbs.hits
+        this._stats.bundleMisses += vtbs.misses
+      }
       totalTilesVis += vts.tilesVisible
       totalTilesCached += vtR.getCacheSize()
       totalMissed += vts.missedTiles
