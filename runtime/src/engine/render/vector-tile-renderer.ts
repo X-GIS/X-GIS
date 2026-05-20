@@ -373,6 +373,17 @@ export class VectorTileRenderer {
   private _scratchParentKeysSet = new Set<number>()
   private _scratchMergedStableKeys = new Set<number>()
   private _scratchProtectedKeys = new Set<number>()
+  /** iter-236 (Plan A.2) — Scratch Map for forEachLabelFeature's
+   *  per-tile `bestByFeatId`. Pre-iter-236 this was allocated fresh
+   *  per tile inside the inner loop; at 270 tiles / frame × 60 fps
+   *  that's 16 k Map allocations per second on Bright z=14 Seoul.
+   *  Hoisted to a single instance + `.clear()` per tile, mirroring
+   *  the `best` Map scratch pattern just below (line ~1382). */
+  private readonly _scratchBestByFeatId = new Map<number, { mercX: number; mercY: number; firstIdx: number }>()
+  /** iter-236 — Scratch array for the per-tile featId-emission
+   *  ordering. Used to replace `[...map.entries()].sort()` (which
+   *  allocates a fresh Array per tile). Cleared via `length = 0`. */
+  private readonly _scratchOrderedFeatEntries: Array<[number, { mercX: number; mercY: number; firstIdx: number }]> = []
   // Sized to UNIFORM_SIZE (= WGSL Uniforms struct size). Grew from
   // 160 → 176 when `clip_bounds: vec4<f32>` was added at offset 160.
   // Out-of-bounds typed-array writes are silent no-ops in JS, so a
@@ -1275,7 +1286,11 @@ export class VectorTileRenderer {
       // deterministic sequence.
       const WORLD_MERC_HALF = 20037508.342789244  // π × earth_radius
       const ANTIMERIDIAN_TOL = 1.0  // metres; tile-edge wrap copies sit at exactly ±half
-      const bestByFeatId = new Map<number, { mercX: number; mercY: number; firstIdx: number }>()
+      // iter-236 (Plan A.2) — scratch Map reuse; clear per tile.
+      // Pre-iter-236 was `new Map()` per tile = 270 alloc / frame
+      // on Bright z=14 Seoul + GC pressure proportional.
+      const bestByFeatId = this._scratchBestByFeatId
+      bestByFeatId.clear()
       for (let i = 0; i < ptv.length; i += 5) {
         const ptMxLocal = ptv[i] + ptv[i + 2]
         const ptMyLocal = ptv[i + 1] + ptv[i + 3]
@@ -1293,7 +1308,14 @@ export class VectorTileRenderer {
         }
       }
       // Emit in featId-first-encounter order for caller determinism.
-      const ordered = [...bestByFeatId.entries()].sort((a, b) => a[1].firstIdx - b[1].firstIdx)
+      // iter-236 (Plan A.2) — scratch array reuse; pre-iter-236 used
+      // `[...map.entries()].sort()` which allocates a fresh Array
+      // per tile. Clear via length = 0, fill via .push, sort in
+      // place. Same final order, zero alloc.
+      const ordered = this._scratchOrderedFeatEntries
+      ordered.length = 0
+      for (const entry of bestByFeatId) ordered.push(entry)
+      ordered.sort((a, b) => a[1].firstIdx - b[1].firstIdx)
       for (const [featId, pt] of ordered) {
         // SKIP antimeridian-edge anchors. When a tile only contains
         // wrap copies of a feature (e.g., the East-Hemisphere tile
