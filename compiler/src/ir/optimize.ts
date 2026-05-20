@@ -15,6 +15,7 @@ import { foldTrivialStopsPass } from './passes/fold-trivial-stops'
 import { foldTrivialCasePass } from './passes/fold-trivial-case'
 import { deadLayerElimPass } from './passes/dead-layer-elim'
 import { deadSourceElimPass } from './passes/dead-source-elim'
+import { cseAnnotatePass } from './passes/cse-annotate'
 
 /**
  * Optimize a Scene by classifying expressions and folding constants.
@@ -88,6 +89,11 @@ function buildPipeline(): PassManager {
     passes: [deadLayerElimPass, deadSourceElimPass],
     maxIterations: 4,
   })
+  // Phase C.1 (iter 201) — CSE annotation side-table. Attaches
+  // `scene.cseAnnotation` for downstream consumers (compute-plan
+  // kernel dedup is the first consumer, Phase C.2). Runs AFTER
+  // dce-fixpoint so dead expressions aren't walked.
+  pm.register(cseAnnotatePass)
   return pm
 }
 

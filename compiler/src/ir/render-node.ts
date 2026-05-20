@@ -13,6 +13,15 @@ export interface Scene {
    *  console. Optional for back-compat; consumers should treat
    *  `undefined` as empty array. */
   diagnostics?: Diagnostic[]
+  /** CSE side-table built by `cse-annotate` pass (Phase C.1, iter 201).
+   *  Maps duplicate AST `Expr` subtrees to a shared integer id so
+   *  downstream codegen (compute-plan, shader-gen variant cache) can
+   *  fold identical kernels without re-canonicalising. Optional —
+   *  consumers must treat absence as "no dedup info" and fall back to
+   *  one-off handling. Contains a WeakMap so JSON-serialising the
+   *  Scene MUST exclude this field (the fixture-ir-snapshot serializer
+   *  does so explicitly). */
+  cseAnnotation?: import('./passes/apply-cse').CSEAnnotation
 }
 
 /** Compiler diagnostic — one record per "this is suspicious / wrong /
