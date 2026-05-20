@@ -4077,17 +4077,23 @@ export class XGISMap {
         // clamped at ±2). Replaces the iter-188 hardcoded
         // `[0, -1, 1, -2, 2]` enum + per-callsite NDC cull.
         const visibleWorldCopies = this.camera.getVisibleWorldCopies(w, h, dpr)
+        // iter-260 (Plan AAA B.7) — projectLonLatCopies output array
+        // reused across calls. Each caller iterates the returned
+        // array immediately + doesn't retain it across calls;
+        // scratch reuse safe.
+        const _projectScratch: Array<[number, number]> = []
         const projectLonLatCopies = (lon: number, lat: number): Array<[number, number]> => {
+          _projectScratch.length = 0
           if (this.projectionName !== 'mercator') {
             const proj = projectLonLat(lon, lat, 0)
-            return proj ? [proj] : []
+            if (proj) _projectScratch.push(proj)
+            return _projectScratch
           }
-          const out: Array<[number, number]> = []
           for (const wo of visibleWorldCopies) {
             const proj = projectLonLat(lon, lat, wo * WORLD_MERC)
-            if (proj) out.push(proj)
+            if (proj) _projectScratch.push(proj)
           }
-          return out
+          return _projectScratch
         }
 
         // (a) Imperative overlays
