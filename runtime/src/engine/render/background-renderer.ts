@@ -34,6 +34,7 @@ import {
   OVERDRAW_BLEND_STATE,
   OVERDRAW_DEPTH_STENCIL,
 } from '../debug-flags'
+import { BundleCache } from './bundle-cache'
 
 // Marker-drift invariant export (renderer-shader-markers.test.ts).
 // Background shader uses three PICK tokens (PICK_FIELD,
@@ -122,9 +123,19 @@ export class BackgroundRenderer {
   private mvpDirty = true
   private camCenterDirty = true
 
+  /** iter-213 (Phase RB.B sub-step) — caches the encoded
+   *  GPURenderBundle for the bg's single draw. The bundle records
+   *  [setPipeline, setBindGroup, draw(6)] once; subsequent frames
+   *  reduce to one `executeBundles([bundle])` call. Uniform DATA
+   *  (mvp / cam_center / color) still updates via `writeBuffer` —
+   *  the bundle records the bind group REF, not the buffer bytes,
+   *  so writes flow through. */
+  private bundleCache: BundleCache
+
   constructor(ctx: GPUContext) {
     this.device = ctx.device
     this.format = ctx.format
+    this.bundleCache = new BundleCache(ctx.device)
     // iter-196 — uniform binding moved to VERTEX | FRAGMENT visibility
     // because the world-extent vertex stage now reads mvp + cam_center.
     this.bgBindGroupLayout = this.device.createBindGroupLayout({
@@ -248,44 +259,82 @@ export class BackgroundRenderer {
   rebuildForQuality(): void {
     this.bgPipeline = null
     this.bgPipelineOverdraw = null
+    // iter-213 — pipeline rebuild invalidates the bundle cache;
+    // bundles record pipeline references that just became stale.
+    this.bundleCache.invalidateAll()
   }
 
   render(pass: GPURenderPassEncoder): void {
     if (!this.fillRgba) return
-    if (DEBUG_OVERDRAW) {
-      if (!this.bgPipelineOverdraw) this.bgPipelineOverdraw = this.buildPipelineOverdraw()
-      pass.setPipeline(this.bgPipelineOverdraw)
-      pass.setBindGroup(0, this.bgBindGroup!)
-      pass.draw(6)
-      return
-    }
-    if (!this.bgPipeline) this.bgPipeline = this.buildPipeline()
     // iter-196 — uniform write covers mat4 (offset 0..63) + cam_center
     // (64..71) + pad (72..79) + color (80..95). mvpDirty +
     // camCenterDirty + per-channel colour diff gate the writeBuffer
     // so a stationary camera doesn't touch the uniform every frame.
-    const colorChanged = this.fillRgba[0] !== this.uploadedRgba[0]
-      || this.fillRgba[1] !== this.uploadedRgba[1]
-      || this.fillRgba[2] !== this.uploadedRgba[2]
-      || this.fillRgba[3] !== this.uploadedRgba[3]
-    if (colorChanged) {
-      this.uniformData[20] = this.fillRgba[0]
-      this.uniformData[21] = this.fillRgba[1]
-      this.uniformData[22] = this.fillRgba[2]
-      this.uniformData[23] = this.fillRgba[3]
-      this.uploadedRgba[0] = this.fillRgba[0]
-      this.uploadedRgba[1] = this.fillRgba[1]
-      this.uploadedRgba[2] = this.fillRgba[2]
-      this.uploadedRgba[3] = this.fillRgba[3]
+    // iter-213 — uniform updates stay OUTSIDE the bundle. Bundle
+    // records the bind group ref, not buffer bytes; writeBuffer
+    // through the same bind group reaches the GPU on the next draw.
+    if (!DEBUG_OVERDRAW) {
+      const colorChanged = this.fillRgba[0] !== this.uploadedRgba[0]
+        || this.fillRgba[1] !== this.uploadedRgba[1]
+        || this.fillRgba[2] !== this.uploadedRgba[2]
+        || this.fillRgba[3] !== this.uploadedRgba[3]
+      if (colorChanged) {
+        this.uniformData[20] = this.fillRgba[0]
+        this.uniformData[21] = this.fillRgba[1]
+        this.uniformData[22] = this.fillRgba[2]
+        this.uniformData[23] = this.fillRgba[3]
+        this.uploadedRgba[0] = this.fillRgba[0]
+        this.uploadedRgba[1] = this.fillRgba[1]
+        this.uploadedRgba[2] = this.fillRgba[2]
+        this.uploadedRgba[3] = this.fillRgba[3]
+      }
+      if (this.mvpDirty || this.camCenterDirty || colorChanged) {
+        this.device.queue.writeBuffer(this.bgUniformBuffer, 0, this.uniformData)
+        this.mvpDirty = false
+        this.camCenterDirty = false
+      }
     }
-    if (this.mvpDirty || this.camCenterDirty || colorChanged) {
-      this.device.queue.writeBuffer(this.bgUniformBuffer, 0, this.uniformData)
-      this.mvpDirty = false
-      this.camCenterDirty = false
-    }
-    pass.setPipeline(this.bgPipeline)
-    pass.setBindGroup(0, this.bgBindGroup!)
-    pass.draw(6)
+
+    // iter-213 (Phase RB.B) — encode the bg's [setPipeline,
+    // setBindGroup, draw(6)] into a cached GPURenderBundle. The cache
+    // key captures every variant that affects the bundle's recorded
+    // commands or descriptor:
+    //   - DEBUG_OVERDRAW flag (different pipeline + color format)
+    //   - isPickEnabled flag (additional rg32uint color attachment)
+    //   - sampleCount (MSAA changes pipeline + bundle attachment)
+    // rebuildForQuality() invalidates the entire cache via
+    // bundleCache.invalidateAll so a quality flip cleanly re-encodes.
+    const pickOn = isPickEnabled()
+    const overdraw = DEBUG_OVERDRAW
+    const samples = getSampleCount()
+    const key = `bg-${overdraw ? 'od' : 'main'}-${pickOn ? 'pick' : 'no'}-msaa${samples}`
+    const colorFormats: (GPUTextureFormat | null)[] = overdraw
+      ? [OVERDRAW_ACCUM_FORMAT]
+      : pickOn
+        ? [this.format, 'rg32uint']
+        : [this.format]
+    const bundle = this.bundleCache.getOrEncode(key, {
+      colorFormats,
+      depthStencilFormat: 'depth24plus-stencil8',
+      sampleCount: samples,
+      // The bg's owning pass (map.ts:3455 subPass) writes depth +
+      // stencil from subsequent tile draws → bundle must declare
+      // both writeable.
+      depthReadOnly: false,
+      stencilReadOnly: false,
+      label: key,
+    }, encoder => {
+      if (overdraw) {
+        if (!this.bgPipelineOverdraw) this.bgPipelineOverdraw = this.buildPipelineOverdraw()
+        encoder.setPipeline(this.bgPipelineOverdraw)
+      } else {
+        if (!this.bgPipeline) this.bgPipeline = this.buildPipeline()
+        encoder.setPipeline(this.bgPipeline)
+      }
+      encoder.setBindGroup(0, this.bgBindGroup!)
+      encoder.draw(6)
+    })
+    pass.executeBundles([bundle])
   }
 
   /** iter-196 — push the camera MVP matrix into the bg uniform.
