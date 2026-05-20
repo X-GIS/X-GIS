@@ -27,6 +27,7 @@ import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
 import { createRasterizer, createMetricsRasterizer, type GlyphRasterizer } from './sdf/glyph-rasterizer'
 import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
 import { bumpAlloc } from '../__profile__/alloc-counter'
+import { FrameArena } from '../gpu/frame-arena'
 import { InlineGlyphProvider, type InlineGlyphSource } from './sdf/pbf/inline-glyph-provider'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
@@ -152,7 +153,10 @@ function textKeyFor(fontKey: string, text: string): number {
 
 function pretextCacheKey(
   glyphs: readonly GlyphInfo[],
-  advances: readonly number[],
+  // iter-241 — `ArrayLike<number>` accepts both `number[]` and
+  // `Float32Array` (the FrameArena-backed view). Hashing uses
+  // index access + length, common to both.
+  advances: ArrayLike<number>,
   fontKey: string, fontSizePx: number,
   letterSpacingPx: number, maxWidthPx: number,
 ): number {
@@ -376,7 +380,10 @@ function _kpWrapSegment(
 
 function wrapWithKnuthPlass(
   glyphs: readonly GlyphInfo[],
-  advances: readonly number[],
+  // iter-241 — accept Float32Array (FrameArena-backed view) in
+  // addition to `number[]`. Both expose `[i]` + `length` matching
+  // ArrayLike<number>.
+  advances: ArrayLike<number>,
   fontKey: string,
   fontSizePx: number,
   letterSpacingPx: number,
@@ -686,6 +693,24 @@ export class TextStage {
   private readonly fontTypography: TextStageOptions['fontTypography'] | null
   private readonly pending: PendingLabel[] = []
   private readonly pendingLine: PendingLineLabel[] = []
+  /** iter-241 (Plan AAA B.2) — per-frame scratch arena for typed-array
+   *  allocations that today fire per-label-per-frame inside `prepare()`.
+   *  iter-240 interactive profile pinned `advances.Array` at 12,573
+   *  allocations in a 3 s zoom+pan window — 54 % of the profiled
+   *  total. Migrating to FrameArena turns those into watermark
+   *  bumps in a single ArrayBuffer; allocation rate stabilises at
+   *  the per-session peak.
+   *
+   *  Sub-views must NOT outlive the next `beginFrame()` call —
+   *  watermark reset invalidates them. Confined to the
+   *  prepare()-then-render-once pass, which completes within one
+   *  synchronous frame. */
+  private readonly _frameArena = new FrameArena(64 * 1024)
+  /** iter-241 — call at the start of each frame (map.ts renderFrame).
+   *  Resets the arena watermark; capacity grows automatically. */
+  beginFrame(): void {
+    this._frameArena.beginFrame()
+  }
   /** Diagnostic: cumulative set of resolved label-text strings the
    *  stage has SUBMITTED (post addLabel / addCurvedLineLabel) since
    *  last clear. Mirror of IconStage.getDispatchedIconNames() — answers
@@ -1139,8 +1164,17 @@ export class TextStage {
       // NOT use ink metrics anymore — it follows MapLibre's constant
       // lineHeight-box model via `mlVerticalLayout` per candidate
       // anchor below.
-      bumpAlloc('text-stage.prepare.advances.Array')
-      const advances: number[] = new Array(glyphs.length)
+      // iter-241 (Plan AAA B.2) — FrameArena-backed scratch instead
+      // of `new Array(glyphs.length)`. iter-240 profile pinned this
+      // site at 12,573 / 3 s on the interactive harness (top
+      // allocator, 54 %). Sub-view valid through the synchronous
+      // prepare() → render flow; the watermark resets next frame
+      // (TextStage.beginFrame), invalidating this view but only
+      // after the consumer (wrapWithKnuthPlass + downstream draw)
+      // is done. Float32 precision matches the ~0.1 px tolerance of
+      // PBF advance buckets — no observable rounding regression.
+      bumpAlloc('text-stage.prepare.advances.FrameArena')
+      const advances = this._frameArena.allocF32(glyphs.length)
       for (let gi = 0; gi < glyphs.length; gi++) {
         const g = glyphs[gi]!
         // Per-glyph slot→display scale: PBF runs are baked at 24 px,

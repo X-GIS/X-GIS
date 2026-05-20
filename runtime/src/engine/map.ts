@@ -3027,6 +3027,13 @@ export class XGISMap {
 
   private renderFrame(): void {
     this._stats.beginFrame()
+    // iter-241 (Plan AAA B.2) — TextStage FrameArena watermark
+    // reset. Per-label scratch allocations during prepare() carve
+    // from the arena; this call invalidates last frame's
+    // sub-views. Safe — TextStage.prepare runs INSIDE this frame
+    // and consumers of arena views don't outlive the prepare →
+    // render → end sequence.
+    this.textStage?.beginFrame()
     resizeCanvas(this.ctx)
     this._resolveFillPatterns()
 
