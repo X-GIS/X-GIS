@@ -3979,13 +3979,19 @@ export class XGISMap {
         // labels whose AABBes overlap, so the "one Belgium per
         // visible copy" output mirrors MapLibre without manual
         // priority arbitration.
+        // iter-189 — single source of visible world copies. Camera
+        // computes the list ONCE per frame from inverse-MVP corner
+        // unprojections (z=0 plane lon range → integer offsets
+        // clamped at ±2). Replaces the iter-188 hardcoded
+        // `[0, -1, 1, -2, 2]` enum + per-callsite NDC cull.
+        const visibleWorldCopies = this.camera.getVisibleWorldCopies(w, h, dpr)
         const projectLonLatCopies = (lon: number, lat: number): Array<[number, number]> => {
           if (this.projectionName !== 'mercator') {
             const proj = projectLonLat(lon, lat, 0)
             return proj ? [proj] : []
           }
           const out: Array<[number, number]> = []
-          for (const wo of [0, -1, 1, -2, 2]) {
+          for (const wo of visibleWorldCopies) {
             const proj = projectLonLat(lon, lat, wo * WORLD_MERC)
             if (proj) out.push(proj)
           }
@@ -4727,22 +4733,15 @@ export class XGISMap {
                   }
                   return
                 }
-                // iter-188 — Mercator world-copy label iteration.
-                // Previously had a `break` after the first projection
-                // that fit, so labels only rendered in ONE world copy
-                // even when 3-4 copies were on-screen at z=0 pitch=63
-                // bearing=90 (user-reported). Polygon / line geometry
-                // already enumerates WORLD_COPIES = [-2..+2] in the
-                // vertex shader; labels need the same treatment to
-                // stay anchored to their feature in every visible
-                // world. projectMerc returns null for copies outside
-                // the NDC ±1.5 window, so each valid copy gets an
-                // addLabel + dispatchIcon. Screen-space collision
-                // dedupes when adjacent copies' AABBes overlap.
-                // projectMerc reuses a scratch tuple; snapshot the
-                // values into local consts so multiple iterations
-                // don't all reference the same overwritten slot.
-                for (const wo of [0, -1, 1, -2, 2]) {
+                // iter-189 — Mercator label world-copy iteration uses
+                // camera-derived `visibleWorldCopies` (computed once
+                // per frame from inverse-MVP corner unprojection).
+                // No hardcoded [-2..+2] enum here. projectMerc still
+                // returns null for any copy that lands outside the
+                // projector's NDC ±1.5 window (rare overshoot at the
+                // frustum edge) — defensive cull, not the primary
+                // gate any more.
+                for (const wo of visibleWorldCopies) {
                   const proj = projectMerc(mercX, mercY, wo * WORLD_MERC)
                   if (!proj) continue
                   const px = proj[0], py = proj[1]

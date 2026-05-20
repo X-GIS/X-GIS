@@ -450,15 +450,16 @@ export class RasterRenderer {
       }
     }
 
-    // iter-188 — world-copy iteration for Mercator raster. Mirror of
-    // polygon's WORLD_COPIES = [-2..+2] enumeration so raster tiles
-    // (e.g. OFM Liberty natural_earth shaded relief) render in every
-    // visible world copy at low zoom + pitch + bearing, not just the
-    // primary. Non-Mercator projections collapse to a single world
-    // copy (matches worldCopiesFor() in gpu-shared). WORLD_MERC
-    // constant matches the polygon path's value.
+    // iter-189 — camera-derived world-copy enumeration. Single source
+    // shared with the label / overlay paths in map.ts: at z=0 with
+    // pitch + bearing the camera sees up to 5 copies; un-pitched z=15
+    // collapses to [0]. Non-Mercator + globe modes return [0] from
+    // the helper. Cheaper than the iter-188 hardcoded 5-iteration
+    // loop when fewer than 5 copies fit the frustum (typical case).
     const RASTER_WORLD_MERC = 40075016.686
-    const RASTER_WORLD_COPIES = projType < 0.5 ? [0, -1, 1, -2, 2] : [0]
+    const RASTER_WORLD_COPIES = projType < 0.5
+      ? camera.getVisibleWorldCopies(canvasWidth, canvasHeight, dpr)
+      : [0]
     // Render tiles: current zoom first, then parent fallback for missing
     for (const coord of tiles) {
       const key = `${coord.z}/${coord.x}/${coord.y}`
