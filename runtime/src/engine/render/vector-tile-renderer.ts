@@ -4391,6 +4391,18 @@ export class VectorTileRenderer {
     }
   }
 
+  /** iter-217 (Phase RB.B.5) — flag set by a future caller to gate
+   *  the recordTileFill draw emit. When true, recordTileFill skips
+   *  the 6 GPU commands (bundle replay handles them instead). The
+   *  caller still runs renderTileKeys for per-frame state side
+   *  effects (uniform staging, strokeQueue population) — only the
+   *  fill-draw recording is bypassed.
+   *
+   *  Default false. Pixel-match identical to iter-216 when no
+   *  caller flips it. iter-218 introduces the actual bundle wrap
+   *  that sets this true during the replay path. */
+  private _skipFillDrawForBundle: boolean = false
+
   /** iter-216 (Phase RB.B.4) — bundle-compatible per-tile fill draw
    *  recording. The 6 GPU commands here are EXACTLY the subset
    *  accepted by both `GPURenderPassEncoder` and
@@ -4406,7 +4418,12 @@ export class VectorTileRenderer {
    *  z-arena slice (extruded / OIT-extrude paths).
    *
    *  Pipeline gating (OIT vs extruded vs ground) stays in the
-   *  caller — the choice is reflected in `pipeline` + `bindZBuffer`. */
+   *  caller — the choice is reflected in `pipeline` + `bindZBuffer`.
+   *
+   *  iter-217 — early-returns when `_skipFillDrawForBundle` is true
+   *  so the caller's bundle-replay path can run renderTileKeys for
+   *  state side effects without re-recording the draws (bundle
+   *  already carries them). */
   private recordTileFill(
     encoder: GPURenderPassEncoder | GPURenderBundleEncoder,
     pipeline: GPURenderPipeline,
@@ -4415,6 +4432,7 @@ export class VectorTileRenderer {
     cached: GPUTile,
     bindZBuffer: boolean,
   ): void {
+    if (this._skipFillDrawForBundle) return
     encoder.setPipeline(pipeline)
     encoder.setBindGroup(0, tileBg, [slotOffset])
     // Phase 6a.2 — polygon vertex buffer is the shared arena
