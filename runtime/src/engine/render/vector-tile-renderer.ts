@@ -10,6 +10,7 @@ import type { ShowCommand } from './renderer'
 import { interpolateZoom } from './renderer'
 import type { ResolvedShow } from './resolved-show'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority, makeTileCoord } from '../../data/tile-select'
+import { bumpAlloc } from '../__profile__/alloc-counter'
 import { visibleTilesSSE } from '../../loader/tiles-sse'
 import { globeVisibleTiles } from '../projection/globe'
 import {
@@ -1401,6 +1402,7 @@ export class VectorTileRenderer {
     // Reusable across tiles to avoid per-tile Map allocation churn.
     // Holds the longest segment seen so far for each featId in the
     // CURRENT tile's iteration; cleared at tile boundary.
+    bumpAlloc('vtr.forEachLineLabelFeature.best.Map')
     const best = new Map<number, { a: number; b: number; len2: number }>()
     for (const key of seen) {
       const tileData = this.source.getTileData(key, sliceLayer)
@@ -1492,6 +1494,7 @@ export class VectorTileRenderer {
     if (neededKeys) for (const k of neededKeys) seen.add(k)
     for (const k of this.stableKeys) seen.add(k)
     // Reusable buffers grown as needed — most polylines fit in 32 verts.
+    bumpAlloc('vtr.forEachLineLabelPolyline.xsys.Float64Array.init')
     let xs = new Float64Array(64)
     let ys = new Float64Array(64)
     for (const key of seen) {
@@ -1530,6 +1533,7 @@ export class VectorTileRenderer {
       // Cross-tile dedupe is a separate concern handled in map.ts via
       // featId-Set tracking — featIds are tile-local in PMTiles MVT.
       type RunEntry = { xs: Float64Array; ys: Float64Array; len: number; props: Record<string, unknown> }
+      bumpAlloc('vtr.forEachLineLabelPolyline.tileRuns.Map')
       const tileRuns = new Map<number, RunEntry>()
       let runFeatId = -1
       let runEndIdx = -1
@@ -1570,6 +1574,7 @@ export class VectorTileRenderer {
         if (need <= xs.length) return
         let cap = xs.length
         while (cap < need) cap *= 2
+        bumpAlloc('vtr.forEachLineLabelPolyline.xsys.Float64Array.grow')
         const nx = new Float64Array(cap)
         const ny = new Float64Array(cap)
         nx.set(xs); ny.set(ys)

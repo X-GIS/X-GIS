@@ -26,6 +26,7 @@ import {
 import { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
 import { createRasterizer, createMetricsRasterizer, type GlyphRasterizer } from './sdf/glyph-rasterizer'
 import { GlyphPbfCache } from './sdf/pbf/glyph-pbf-cache'
+import { bumpAlloc } from '../__profile__/alloc-counter'
 import { InlineGlyphProvider, type InlineGlyphSource } from './sdf/pbf/inline-glyph-provider'
 import type { GlyphProvider } from './sdf/pbf/glyph-provider'
 import { PbfRasterizer } from './sdf/pbf-rasterizer'
@@ -485,6 +486,7 @@ export function mlVerticalLayout(
   const n = lineCount
   const off = (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM
   const shiftY = -vAlign * n * LH + 0.5 * LH
+  bumpAlloc('text-stage.mlVerticalLayout.baselineY.Array')
   const baselineY: number[] = new Array(n)
   for (let li = 0; li < n; li++) baselineY[li] = li * LH + off + shiftY
   const blockTop = -vAlign * n * LH
@@ -1137,6 +1139,7 @@ export class TextStage {
       // NOT use ink metrics anymore — it follows MapLibre's constant
       // lineHeight-box model via `mlVerticalLayout` per candidate
       // anchor below.
+      bumpAlloc('text-stage.prepare.advances.Array')
       const advances: number[] = new Array(glyphs.length)
       for (let gi = 0; gi < glyphs.length; gi++) {
         const g = glyphs[gi]!
@@ -1336,6 +1339,7 @@ export class TextStage {
         // differently and was the source of the #140 double-count.
         // Offsets are pure deltas from the draw anchor (drawX/drawY);
         // the renderer does base = d.anchor + offset.
+        bumpAlloc('text-stage.prepare.glyphOffsets.point.Float32Array')
         const glyphOffsets = new Float32Array(glyphs.length * 2)
         {
           // text-justify: auto resolves per anchor — left-anchors →
@@ -1535,7 +1539,9 @@ export class TextStage {
         if (walkReversed) angle += Math.PI
         _sampleOut[2] = angle
       }
+      bumpAlloc('text-stage.curved.glyphOffsets.Float32Array')
       const glyphOffsets = new Float32Array(glyphs.length * 2)
+      bumpAlloc('text-stage.curved.glyphRotations.Float32Array')
       const glyphRotations = new Float32Array(glyphs.length)
       // Per-glyph centre = startS + sum(prev advances) + currentAdvance/2.
       // Vertical alignment: sample.y is the polyline anchor; the text

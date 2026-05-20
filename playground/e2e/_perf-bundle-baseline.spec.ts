@@ -54,6 +54,39 @@ async function setupIdleScene(page: Page, hash: string, style: string): Promise<
   await page.waitForTimeout(4_000)
 }
 
+/** iter-240 — Capture per-call-site alloc counts over a frame window.
+ *  Returns the delta of counts during the sampled period (uses
+ *  snapshotAllocProfile to subtract pre-sample state). Empty object
+ *  when profile API unavailable. */
+async function sampleAllocProfile(page: Page, frames: number): Promise<Record<string, number>> {
+  return await page.evaluate(async (n: number) => {
+    interface API {
+      setEnabled: (on: boolean) => void
+      snapshotAllocProfile: () => Record<string, number>
+    }
+    const api = (window as unknown as { __xgisAllocProfile?: API }).__xgisAllocProfile
+    if (!api) return {}
+    interface M { invalidate: () => void }
+    const map = (window as unknown as { __xgisMap?: M }).__xgisMap
+    if (!map) return {}
+    api.setEnabled(true)
+    api.snapshotAllocProfile()  // discard pre-sample baseline
+    await new Promise<void>(r => {
+      let i = 0
+      const tick = () => {
+        if (i >= n) { r(); return }
+        map.invalidate()
+        i++
+        requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+    const delta = api.snapshotAllocProfile()
+    api.setEnabled(false)
+    return delta
+  }, frames)
+}
+
 async function sampleSteadyState(page: Page, frameCount: number): Promise<FrameSample[]> {
   return await page.evaluate(async (n: number) => {
     interface M {
@@ -173,6 +206,20 @@ test.describe('Phase RB.C — pre-bundle baseline harness', () => {
       console.log(
         `[baseline ${fx.name}] drawCalls median=${m} min=${min} max=${max} tilesVisible.median=${mt} bundleReplays.median=${mbr} ratio=${mbr > 0 ? (m / mbr).toFixed(1) : 'n/a'}× frameTime median=${mft.toFixed(2)}ms min=${ftMin.toFixed(2)} max=${ftMax.toFixed(2)} ${heapKb}`,
       )
+
+      // iter-240 (Plan AAA C.2) — capture per-call-site alloc
+      // counts over a separate 30-frame window. Reports the top
+      // sites so B.2 first-consumer pick is data-driven.
+      const profile = await sampleAllocProfile(page, 30)
+      const sorted = Object.entries(profile).sort((a, b) => b[1] - a[1])
+      if (sorted.length > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[alloc-profile ${fx.name}] (30 frames, sorted by count)`)
+        for (const [key, count] of sorted.slice(0, 20)) {
+          // eslint-disable-next-line no-console
+          console.log(`  ${count.toString().padStart(6)}  ${key}`)
+        }
+      }
 
       // Sanity: idle camera should be CONSISTENT across frames.
       // Pre-bundle: drawCalls per frame is steady (every frame re-issues
