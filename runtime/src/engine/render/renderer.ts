@@ -1750,6 +1750,37 @@ export class MapRenderer {
       sampler: { type: 'filtering' as const } },
   ]
 
+  /** iter-204A — palette + sprite-atlas binding slots (bindings 2/4/5/6)
+   *  that BOTH the base + feature bind group layouts include. The
+   *  per-tile BindGroup in VTR (`per-tile-feature-bg`) writes these
+   *  entries unconditionally; if either layout is missing one, the
+   *  WebGPU validator throws "binding index N not present in the bind
+   *  group layout" — exactly the iter-197 spam class.
+   *
+   *  Hoisted from a function-scope const inside `initPipelines` to a
+   *  static member so the bind-group-drift invariant test can read
+   *  the canonical binding set without instantiating a renderer
+   *  (which needs a real GPUDevice). Visibility encoded as raw spec
+   *  bits ({@link FEATURE_LAYOUT_ENTRIES} comment explains why). */
+  static readonly PALETTE_LAYOUT_ENTRIES: readonly GPUBindGroupLayoutEntry[] = [
+    { binding: 2, visibility: /* FRAGMENT */ 2,
+      texture: { sampleType: 'float' as const, viewDimension: '2d' as const } },
+    { binding: 4, visibility: /* FRAGMENT */ 2,
+      sampler: { type: 'filtering' as const } },
+    { binding: 5, visibility: /* FRAGMENT */ 2,
+      texture: { sampleType: 'float' as const, viewDimension: '2d' as const } },
+    { binding: 6, visibility: /* FRAGMENT */ 2,
+      sampler: { type: 'filtering' as const } },
+  ]
+
+  /** Public mirror of {@link FEATURE_LAYOUT_ENTRIES} for the drift
+   *  invariant test (private static can't be reached from a different
+   *  source file via a normal import — the export attaches at module
+   *  level). Same array; do not duplicate. */
+  static getFeatureLayoutEntries(): readonly GPUBindGroupLayoutEntry[] {
+    return MapRenderer.FEATURE_LAYOUT_ENTRIES
+  }
+
   /** Rebuild all pipelines + invalidate shader variant cache. Called by
    *  `map.setQuality()` when MSAA or picking flip at runtime — both force
    *  a pipeline `sampleCount` / fragment-target-count change that's baked
@@ -1872,37 +1903,16 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
     // Both base and feature layouts include these so the variant
     // pipeline can validate against either, regardless of whether the
     // layer also needs the per-feature data buffer.
-    const paletteLayoutEntries: GPUBindGroupLayoutEntry[] = [
-      {
-        binding: 2,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: 'float', viewDimension: '2d' },
-      },
-      {
-        binding: 4,
-        visibility: GPUShaderStage.FRAGMENT,
-        sampler: { type: 'filtering' },
-      },
-      // iter-181 — sprite atlas texture for fill-pattern Stage 2.
-      // Bound on every polygon pipeline (stub 1×1 white until the
-      // runtime hands in the real atlas via setSpriteAtlas).
-      {
-        binding: 5,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: 'float', viewDimension: '2d' },
-      },
-      // iter-182 — dedicated sprite atlas sampler at binding 6.
-      // Reuses the `paletteSampler` GPU resource (same linear /
-      // clamp-to-edge settings) but declares a separate WGSL binding
-      // so the variant codegen's palette_samp at binding 4 doesn't
-      // collide with the base shader's sprite_samp. fs_fill_pattern
-      // references `sprite_samp`; non-pattern fragments ignore it.
-      {
-        binding: 6,
-        visibility: GPUShaderStage.FRAGMENT,
-        sampler: { type: 'filtering' },
-      },
-    ]
+    // iter-204A — hoisted to `MapRenderer.PALETTE_LAYOUT_ENTRIES`
+    // so the bind-group-drift invariant test can read the canonical
+    // set without instantiating the renderer. Visibility encoded as
+    // raw FRAGMENT bit (= 2) so Node test environments (no WebGPU
+    // globals at module load) can still import the array. Cast back
+    // to GPUBindGroupLayoutEntry for the device.createBindGroupLayout
+    // call — runtime treats numeric visibility identical to the
+    // GPUShaderStage flag.
+    const paletteLayoutEntries: readonly GPUBindGroupLayoutEntry[] =
+      MapRenderer.PALETTE_LAYOUT_ENTRIES
 
     this.bindGroupLayout = device.createBindGroupLayout({
       label: 'mr-baseBindGroupLayout',
