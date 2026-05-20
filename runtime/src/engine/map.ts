@@ -3170,6 +3170,11 @@ export class XGISMap {
     // frame-level scope so both levels fire independently — the inner scope
     // pinpoints which pass failed, the outer one catches encoder-wide state.
     const passScope = (label: string, fn: () => void): void => {
+      // iter-257 (Plan AAA C.3) — wrap each passScope with a
+      // perf-marks pair using the label as phase name. Lets the
+      // iter-256 diagnostic decompose the encoder block's 13 ms
+      // budget into bg / vtr / oit / text / overdraw shares.
+      perfMarkStart(`encoder.pass.${label}`)
       device.pushErrorScope('validation')
       try { fn() }
       finally {
@@ -3177,6 +3182,7 @@ export class XGISMap {
           if (err) console.error(`[X-GIS pass:${label}]`, err.message)
         }).catch(() => { /* scope stack mismatch — swallow */ })
       }
+      perfMarkEnd(`encoder.pass.${label}`)
     }
 
     {
@@ -4086,6 +4092,10 @@ export class XGISMap {
         }
 
         // (b) Per-feature labels from ShowCommand.label
+        // iter-258 (Plan AAA C.3) — phase mark wrapping the entire
+        // label dispatch loop. Picks up forEachLabelFeature +
+        // forEachLineLabelPolyline + dispatchIcon + addLabel work.
+        perfMarkStart('encoder.label-dispatch')
         for (const show of labelShows) {
           // If LabelDef.color is unset, fall back to the layer's fill
           // (typical Mapbox-style symbol-on-poly pattern: the same
@@ -4836,9 +4846,13 @@ export class XGISMap {
           }
         }
 
+        // iter-258 — label-dispatch loop ends here; mark close.
+        perfMarkEnd('encoder.label-dispatch')
+        perfMarkStart('encoder.stage-prepare')
         stage.prepare()
         if (iStage) iStage.setDroppedPairKeys(stage.getDroppedPairKeys())
         iStage?.prepare()
+        perfMarkEnd('encoder.stage-prepare')
         // Text overlay v1: skipped in debug=overdraw — text pipeline
         // targets the swapchain format, not r16float. Phase 2 adds
         // a text debug pipeline so glyph + halo overdraw counts.
