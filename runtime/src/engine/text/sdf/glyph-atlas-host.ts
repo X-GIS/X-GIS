@@ -85,6 +85,14 @@ export class GlyphAtlasHost {
   /** Newly evicted glyphs whose vertex data the renderer needs to
    *  invalidate. Drained by `consumeEvictions()`. */
   private evictions: GlyphKey[] = []
+  /** iter-190 — monotonic generation counter bumped on every slot
+   *  reuse. Cached `GlyphInfo[]` arrays reference live atlas slots
+   *  whose pxX / pxY change when the slot is reassigned. Keying a
+   *  cache by `(text, fontKey, generation)` makes any post-eviction
+   *  read miss instead of returning glyphs with stale pixel coords.
+   *  Read via `getGeneration()`. */
+  private _generation = 0
+  getGeneration(): number { return this._generation }
   /** Glyph keys marked stale via `invalidate()`. The next `ensure()`
    *  call for one of these re-rasterises in place — same slot stays
    *  bound, metrics overwrite, dirty queue gets a fresh upload. Used
@@ -121,6 +129,13 @@ export class GlyphAtlasHost {
       // the previous tenant is gone.
       this.evictions.push(ensured.evictedKey)
       this.metrics.delete(this.metricsKey(ensured.evictedKey))
+      // iter-190 — bump a monotonic generation counter on every slot
+      // reuse. Across-frame caches that key by `(text, generation)`
+      // miss after any eviction (mid-frame too — the iter-167 cache
+      // only drained per-frame via consumeEvictions and corrupted
+      // labels whenever one label's ensure() displaced a cached
+      // glyph slot referenced by a later label in the same frame).
+      this._generation++
     }
     const mk = this.metricsKey(key)
     const forceRasterize = ensured.created || this.stale.has(mk)

@@ -128,6 +128,27 @@ function layoutCacheKey(
   return h | 0
 }
 
+/** iter-167/190 — quick FNV-1a of `(fontKey, text)` for the layout
+ *  cache. Smaller than pretextCacheKey (no advances bucket) since
+ *  the layout cache is keyed by `(text, font, size, …)` and the
+ *  advances depend on the resolved glyphs, which themselves are
+ *  function of `(fontKey, text)` — folding advances into this key
+ *  would just be redundant entropy. The atlas-generation guard at
+ *  the cache-hit site catches the stale-slot case that needed
+ *  per-advance bucketing in pretextCacheKey. */
+function textKeyFor(fontKey: string, text: string): number {
+  let h = 0x811c9dc5 | 0
+  for (let i = 0; i < fontKey.length; i++) {
+    h = Math.imul(h ^ fontKey.charCodeAt(i), 0x01000193)
+  }
+  // Separator byte so `font+text` != `fon+ttext`.
+  h = Math.imul(h ^ 0x7f, 0x01000193)
+  for (let i = 0; i < text.length; i++) {
+    h = Math.imul(h ^ text.charCodeAt(i), 0x01000193)
+  }
+  return h | 0
+}
+
 function pretextCacheKey(
   glyphs: readonly GlyphInfo[],
   advances: readonly number[],
@@ -719,6 +740,11 @@ export class TextStage {
     blockTop: number; blockBottom: number; padding: number
     glyphOffsets: Float32Array
     glyphs: import('./sdf/glyph-atlas-host').GlyphInfo[]
+    /** iter-190 — atlas generation at cache write. On read, compare
+     *  with host.getGeneration(); mismatch → glyphs[] slot references
+     *  may point at reassigned codepoints (iter-175 corruption root),
+     *  so treat as cache miss. */
+    generation: number
     haloGeom?: { width: number; blur?: number }
     sizePx: number; letterSpacingPx: number; rotateRad?: number
   }>()
@@ -1173,16 +1199,24 @@ export class TextStage {
       // labels skip the cache (their per-anchor offset evaluation
       // needs intricate fingerprinting; not worth the risk for the
       // small share of labels they cover in OFM-class styles).
-      // iter-175 REVERT — see iter-167 comment above. Layout cache
-      // disabled pending redesign; forced to false here so neither
-      // the lookup at L1180 nor the store at L1344 fires. Cache
-      // fields + helpers retained for the future redesign.
-      const _isCacheable = false && !variableMode
+      // iter-190 RE-ENABLE — iter-175 reverted iter-167/168 because
+      // the cached `GlyphInfo[]` references aliased atlas slots that
+      // got reassigned mid-frame (one label's ensure() displacing a
+      // cached glyph still indirected by a later label). Fix: keyed
+      // by atlas generation. Cache entries store the generation at
+      // write; on read, if `host.getGeneration()` differs, drop the
+      // entry and recompute. Atlas eviction bumps generation, so any
+      // stale slot pointer triggers a miss. Steady-state Paris z=18
+      // pitch=70 idle frame budget was 78ms with no caching (probe
+      // 2026-05-20) — label layout dominated. Re-enabling restores
+      // the iter-167 / iter-168 perf gains correctly.
+      const _isCacheable = !variableMode
         && candidates.length === 1
         && p.def.rotate === undefined
       let _layoutKey: number | undefined
       if (_isCacheable) {
         const anchorStr = String(candidates[0])
+        const cacheKey = textKeyFor(p.fontKey, p.text)
         _layoutKey = layoutCacheKey(
           cacheKey, sizePx, letterSpacingPx,
           maxWidthPx === Infinity ? Infinity : maxWidthPx,
@@ -1196,7 +1230,12 @@ export class TextStage {
           haloOut?.blur ?? 0,
         )
         const hit = this._layoutCache.get(_layoutKey)
-        if (hit !== undefined) {
+        // iter-190 generation guard. hit.glyphs[] references atlas
+        // slots whose pxX / pxY change when the slot is reassigned.
+        // If the host bumped its generation since this entry was
+        // written, the references may now point at unrelated
+        // codepoints → drop the entry and fall through to recompute.
+        if (hit !== undefined && hit.generation === this.host.getGeneration()) {
           // LRU touch.
           this._layoutCache.delete(_layoutKey)
           this._layoutCache.set(_layoutKey, hit)
@@ -1356,6 +1395,7 @@ export class TextStage {
             blockTop: vlay.blockTop,
             blockBottom: vlay.blockBottom,
             glyphOffsets, glyphs,
+            generation: this.host.getGeneration(),
             haloGeom: haloOut
               ? {
                   width: haloOut.width,

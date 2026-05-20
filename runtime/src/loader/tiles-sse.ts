@@ -154,7 +154,20 @@ export function visibleTilesSSE(
   let targetSSE = baseTarget
   if (opts.targetSSEPx === undefined && pitchDeg > 60) {
     const t = Math.min(1, (pitchDeg - 60) / 20)
-    targetSSE = Math.min(16, baseTarget + t * (12 - baseTarget))
+    targetSSE = Math.min(24, baseTarget + t * (12 - baseTarget))
+    // iter-190 — additional ramp for high-z + high-pitch views.
+    // Probe 2026-05-20 Liberty Paris z=18.25 pitch=70: idle frame
+    // 85 ms, 254 tiles, 1.7M vertices. z=18 multiplies the fore-
+    // shortened ground tile fan by 2× over z=17, so the base
+    // 60°→80° ramp (top=12 at p=80) leaves z=18 p=70 emitting too
+    // many horizon tiles. Above z=17 push the SSE target toward 24
+    // proportionally so horizon LOD coarsens hard while the
+    // foreground (high screen-space-error tiles) still subdivides
+    // to native resolution.
+    if (camera.zoom > 17) {
+      const zBoost = Math.min(1, (camera.zoom - 17) / 1.5)
+      targetSSE = Math.min(24, targetSSE + zBoost * (24 - targetSSE))
+    }
   }
   const maxEmitted = opts.maxEmitted ?? MAX_EMITTED
 
