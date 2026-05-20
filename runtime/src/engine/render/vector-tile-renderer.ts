@@ -25,6 +25,7 @@ import {
 } from '../../core/polygon-mesh'
 import { tileKey, tileKeyParent, tileKeyChildren, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool, asyncWriteBuffer } from '../gpu/staging-buffer-pool'
+import { GPUArena } from '../gpu/gpu-arena'
 import { WORLD_MERC, TILE_PX, enumerateWorldCopies } from '../gpu/gpu-shared'
 import { PriorityQueue, PriorityQueueItemRemovedError } from '../../core/priority-queue'
 import type { ShaderVariant } from '@xgis/compiler'
@@ -49,6 +50,18 @@ export type LayerDrawPhase = 'all' | 'fills' | 'strokes' | 'oit-fill'
 
 interface GPUTile {
   vertexBuffer: GPUBuffer
+  /** Phase 6a.2 (iter-208) — polygon vertex byte offset into
+   *  `vertexBuffer`. Pre-Phase-6 `vertexBuffer` was a per-tile
+   *  `acquireBuffer` slice (offset always 0); starting Phase 6a.2
+   *  `vertexBuffer` points at the shared `polyVertexArena.buffer`
+   *  and this field carries the per-tile offset for
+   *  `pass.setVertexBuffer(0, vertexBuffer, polyVertexOffset, polyVertexByteLength)`.
+   *  Eviction calls `polyVertexArena.free(polyVertexOffset,
+   *  polyVertexByteLength)` instead of `releaseBuffer(vertexBuffer)`. */
+  polyVertexOffset: number
+  /** Phase 6a.2 — aligned byte length of the polygon vertex slice.
+   *  Together with `polyVertexOffset` defines the arena sub-range. */
+  polyVertexByteLength: number
   indexBuffer: GPUBuffer
   indexCount: number
   /** Per-vertex z (world metres) for extruded polygons. When non-null,
@@ -488,6 +501,32 @@ export class VectorTileRenderer {
   constructor(ctx: GPUContext) {
     this.device = ctx.device
     this.stagingPool = new StagingBufferPool(ctx.device)
+  }
+
+  /** Phase 6a.2 (iter-208) — shared polygon vertex arena. Replaces the
+   *  per-tile `acquireBuffer` allocation for polygon vertex buffers so
+   *  ALL tiles bind from the same underlying GPUBuffer with per-tile
+   *  offsets. Lazy-init on first `doUploadTile` / `doUploadTileAsync`
+   *  call so the GPUDevice is guaranteed alive (constructor runs before
+   *  the device is fully configured in some test paths).
+   *
+   *  Sizing rationale (iter-208 initial): 64 MB caps at ~256 tiles ×
+   *  ~250 KB peak polygon vertex per (tile, source-layer). Sufficient
+   *  for OFM Bright/Liberty/Positron z=14 (~150 visible × ~6 source-
+   *  layers ≈ ~37 MB headroom). Future Phase 6a.5 adds auto-grow if
+   *  needed. */
+  private polyVertexArena: GPUArena | null = null
+  private static readonly POLY_VERTEX_ARENA_CAPACITY = 64 * 1024 * 1024
+
+  private getOrCreatePolyVertexArena(): GPUArena {
+    if (this.polyVertexArena === null) {
+      this.polyVertexArena = new GPUArena(this.device, {
+        capacityBytes: VectorTileRenderer.POLY_VERTEX_ARENA_CAPACITY,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        label: 'poly-vertex-arena',
+      })
+    }
+    return this.polyVertexArena
   }
 
   /** Tiered MAP_WRITE | COPY_SRC pool used by the async upload path
@@ -1022,7 +1061,10 @@ export class VectorTileRenderer {
     if (wasNull && this._gpuCacheCount > 0) {
       for (const inner of this.gpuCache.values()) {
         for (const tile of inner.values()) {
-          tile.vertexBuffer?.destroy()
+          // Phase 6a.2 — vertexBuffer is the shared arena's GPUBuffer.
+          // DO NOT destroy() here — it'd kill every other tile's slice
+          // pointing at the same buffer. Reset the arena once after
+          // the loop instead.
           tile.indexBuffer?.destroy()
           tile.lineVertexBuffer?.destroy()
           tile.lineIndexBuffer?.destroy()
@@ -1032,6 +1074,10 @@ export class VectorTileRenderer {
           tile.featureDataBuffer?.destroy()
         }
       }
+      // Phase 6a.2 — release every arena slice in one shot. `reset()`
+      // keeps the GPU buffer alive (next upload re-uses it from offset
+      // 0) so we avoid the destroy/recreate cost.
+      this.polyVertexArena?.reset()
       this.gpuCache.clear()
       this._gpuCacheCount = 0
     }
@@ -1484,7 +1530,9 @@ export class VectorTileRenderer {
     this.computeHandlesByTile.clear()
     for (const inner of this.gpuCache.values()) {
       for (const tile of inner.values()) {
-        tile.vertexBuffer?.destroy()
+        // Phase 6a.2 — vertexBuffer is the shared arena buffer; the
+        // arena.destroy() below tears it down. Per-tile destroy()
+        // would over-destroy a shared resource.
         tile.indexBuffer?.destroy()
         tile.lineVertexBuffer?.destroy()
         tile.lineIndexBuffer?.destroy()
@@ -1496,6 +1544,9 @@ export class VectorTileRenderer {
     }
     this.gpuCache.clear()
     this._gpuCacheCount = 0
+    // Phase 6a.2 — release the arena's underlying GPU buffer.
+    this.polyVertexArena?.destroy()
+    this.polyVertexArena = null
 
     this.featureDataBuffer?.destroy()
     this.featureDataBuffer = null
@@ -2041,12 +2092,16 @@ export class VectorTileRenderer {
       polyVerts = quantizePolygonVertices(data.vertices, tileExtentM, { isTop: false })
       polyIndices = data.indices
     }
-    const vertexBuffer = this.acquireBuffer(
-      Math.max(polyVerts.byteLength * 3, 12),
-      GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      'tile-vertices',
-    )
-    this.device.queue.writeBuffer(vertexBuffer, 0, polyVerts)
+    // Phase 6a.2 (iter-208) — polygon vertex now allocates from the
+    // shared arena. The arena's underlying GPUBuffer is set as
+    // `cached.vertexBuffer`; per-tile `polyVertexOffset` +
+    // `polyVertexByteLength` carry the sub-range. Mirrors stayed
+    // for the async path below + the eviction `arena.free` call.
+    const polyVertexArena = this.getOrCreatePolyVertexArena()
+    const polyVertexByteLength = Math.max(polyVerts.byteLength, 12)
+    const polyVertexOffset = polyVertexArena.alloc(polyVertexByteLength)
+    const vertexBuffer = polyVertexArena.buffer
+    this.device.queue.writeBuffer(vertexBuffer, polyVertexOffset, polyVerts)
 
     const indexBuffer = this.acquireBuffer(
       Math.max(polyIndices.byteLength * 3, 4),
@@ -2187,7 +2242,7 @@ export class VectorTileRenderer {
     const perTileFeat = this.buildPerTileFeatureData(data.featureProps, `${key}:${sourceLayer}`)
 
     layerCache.set(key, {
-      vertexBuffer, indexBuffer,
+      vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
       indexCount: polyIndices.length,
       zBuffer,
       lineVertexBuffer, lineIndexBuffer,
@@ -2293,11 +2348,13 @@ export class VectorTileRenderer {
     const encoder = this.device.createCommandEncoder({ label: `tile-upload-${key}` })
     const releases: Array<() => void> = []
 
-    const vertexBuffer = this.acquireBuffer(
-      Math.max(polyVerts.byteLength * 3, 12),
-      GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      'tile-vertices',
-    )
+    // Phase 6a.2 (iter-208) — async upload mirror of sync path. Both
+    // paths allocate from the same polyVertexArena so eviction
+    // behaviour matches regardless of upload route.
+    const polyVertexArena = this.getOrCreatePolyVertexArena()
+    const polyVertexByteLength = Math.max(polyVerts.byteLength, 12)
+    const polyVertexOffset = polyVertexArena.alloc(polyVertexByteLength)
+    const vertexBuffer = polyVertexArena.buffer
     const indexBuffer = this.acquireBuffer(
       Math.max(polyIndices.byteLength * 3, 4),
       GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
@@ -2308,7 +2365,7 @@ export class VectorTileRenderer {
     // parallel, then await both. mapAsync round-trips overlap, so
     // the wall-clock cost is one round-trip (not N).
     const writeHandles: Array<Promise<{ release: () => void }>> = []
-    writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, vertexBuffer, 0, polyVerts))
+    writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, vertexBuffer, polyVertexOffset, polyVerts))
     writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, indexBuffer, 0, polyIndices))
 
     let zBuffer: GPUBuffer | null = null
@@ -2442,7 +2499,7 @@ export class VectorTileRenderer {
     const perTileFeat = this.buildPerTileFeatureData(data.featureProps, `${key}:${sourceLayer}`)
 
     layerCache.set(key, {
-      vertexBuffer, indexBuffer,
+      vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
       indexCount: polyIndices.length,
       zBuffer,
       lineVertexBuffer, lineIndexBuffer,
@@ -4650,7 +4707,12 @@ export class VectorTileRenderer {
                 : fillPipeline)
         pass.setPipeline(activePipe)
         pass.setBindGroup(0, currentTileBg, [slotOffset])
-        pass.setVertexBuffer(0, cached.vertexBuffer)
+        // Phase 6a.2 (iter-208) — vertex buffer is now the shared
+        // `polyVertexArena.buffer`; pass the per-tile byte offset +
+        // length to bind only this tile's sub-range. baseVertex stays
+        // at 0 since `firstIndex` already addresses indices relative
+        // to that sub-range.
+        pass.setVertexBuffer(0, cached.vertexBuffer, cached.polyVertexOffset, cached.polyVertexByteLength)
         if (useOitPipe || useExtrudedPipe) pass.setVertexBuffer(1, cached.zBuffer!)
         pass.setIndexBuffer(cached.indexBuffer, 'uint32')
         pass.drawIndexed(cached.indexCount)
@@ -4789,7 +4851,13 @@ export class VectorTileRenderer {
         // is the hot path during fast pinch/pan, where the next
         // upload almost certainly needs same-size buffers. Pool
         // caps prevent unbounded GPU memory retention.
-        this.releaseBuffer(tile.vertexBuffer)
+        // Phase 6a.2 (iter-208) — polygon vertex now lives in the
+        // shared arena. Release the per-tile RANGE back to the arena
+        // (free-list) instead of pooling the shared GPUBuffer object
+        // (which would corrupt every other tile sharing this arena).
+        if (this.polyVertexArena !== null) {
+          this.polyVertexArena.free(tile.polyVertexOffset, tile.polyVertexByteLength)
+        }
         this.releaseBuffer(tile.indexBuffer)
         this.releaseBuffer(tile.zBuffer)
         this.releaseBuffer(tile.lineVertexBuffer)
