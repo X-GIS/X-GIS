@@ -11,6 +11,7 @@ import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../shaders/projecti
 import type { ShapeRegistry } from '../text/sdf-shape'
 import { parseHexColor } from '../feature-helpers'
 import { resolveNumberShape } from './paint-shape-resolve'
+import { FrameArena } from '../gpu/frame-arena'
 
 // ═══ WGSL Shader ═══
 
@@ -486,6 +487,14 @@ export class PointRenderer {
   private vertexBufferLayout: GPUVertexBufferLayout | null = null
   private uniformBuffer: GPUBuffer
   private uniformData = new Float32Array(28) // mvp(16) + proj_params(4) + tile_rtc(4) + viewport(2) + pad(2)
+  /** iter-249 (Plan AAA B.2) — per-flush arena. Each flush*() call
+   *  allocates 3 large typed arrays (verts / indices / featData)
+   *  sized to per-call vertex count. On flush entry, beginFrame()
+   *  resets the watermark and reuses the same backing buffer; on
+   *  flush exit, the data has been queue.writeBuffer'd to GPU
+   *  (synchronous copy per WebGPU spec) so the arena views can be
+   *  safely invalidated by the next flush's beginFrame call. */
+  private readonly _frameArena = new FrameArena(64 * 1024)
   private layers: PointLayer[] = []
   private shapeRegistry: ShapeRegistry | null = null
 
@@ -746,10 +755,14 @@ export class PointRenderer {
     const COPIES = worldCopiesFor(projType)
     const totalN = N * COPIES.length
 
-    const verts = new Float32Array(totalN * 4 * 4)
-    const indices = new Uint32Array(totalN * 6)
-    const featData = new Float32Array(totalN * STRIDE)
-    const u32View = new Uint32Array(verts.buffer)
+    // iter-249 (Plan AAA B.2) — arena-backed scratch. Pre-iter-249
+    // each flush allocated 3 fresh typed arrays per call; now they
+    // share one ArrayBuffer that grows to per-session peak.
+    this._frameArena.beginFrame()
+    const verts = this._frameArena.allocF32(totalN * 4 * 4)
+    const indices = this._frameArena.allocU32(totalN * 6)
+    const featData = this._frameArena.allocF32(totalN * STRIDE)
+    const u32View = new Uint32Array(verts.buffer, verts.byteOffset, verts.length)
 
     for (let w = 0; w < COPIES.length; w++) {
       const worldOff = COPIES[w] * WORLD_MERC
@@ -867,10 +880,12 @@ export class PointRenderer {
     if (points.length === 0) return
 
     // Build quad vertices: 4 vertices per point
-    const verts = new Float32Array(points.length * 4 * 4) // 4 verts × 4 floats
-    const indices = new Uint32Array(points.length * 6)
+    // iter-249 (Plan AAA B.2) — arena-backed.
+    this._frameArena.beginFrame()
+    const verts = this._frameArena.allocF32(points.length * 4 * 4) // 4 verts × 4 floats
+    const indices = this._frameArena.allocU32(points.length * 6)
 
-    const u32View = new Uint32Array(verts.buffer)
+    const u32View = new Uint32Array(verts.buffer, verts.byteOffset, verts.length)
     for (let i = 0; i < points.length; i++) {
       const base = i * 4 * 4 // 4 verts × 4 floats
       const { lon, lat } = points[i]
@@ -893,7 +908,7 @@ export class PointRenderer {
 
     // Build per-feature data (stride = 11 floats)
     const STRIDE = 14
-    const featData = new Float32Array(points.length * STRIDE)
+    const featData = this._frameArena.allocF32(points.length * STRIDE)
     let flags = 0
     if (fill) flags |= 1
     if (stroke) flags |= 2
@@ -1069,17 +1084,21 @@ export class PointRenderer {
     const uploadLayer = (layer: PointLayer): number => {
       const N = layer.pointCount
       const totalPoints = N * COPIES.length
-      const expandedFeat = new Float32Array(totalPoints * STRIDE)
-      const expandedVerts = new Float32Array(totalPoints * 4 * 4)
-      const expandedIdx = new Uint32Array(totalPoints * 6)
-      const u32Verts = new Uint32Array(expandedVerts.buffer)
+      // iter-249 (Plan AAA B.2) — arena-backed scratch for layer
+      // upload. Lifetime ends at queue.writeBuffer (sync copy);
+      // safe to reset on next uploadLayer call.
+      this._frameArena.beginFrame()
+      const expandedFeat = this._frameArena.allocF32(totalPoints * STRIDE)
+      const expandedVerts = this._frameArena.allocF32(totalPoints * 4 * 4)
+      const expandedIdx = this._frameArena.allocU32(totalPoints * 6)
+      const u32Verts = new Uint32Array(expandedVerts.buffer, expandedVerts.byteOffset, expandedVerts.length)
 
       // Pre-compute each instance's view-forward depth so we can write
       // the index buffer in back-to-front order. Only translucent layers
       // actually need this (opaque depth-test handles occlusion); for
       // opaque we skip the sort and keep feature-index order.
-      const depths = layer.isTranslucent ? new Float32Array(totalPoints) : null
-      const order = layer.isTranslucent ? new Uint32Array(totalPoints) : null
+      const depths = layer.isTranslucent ? this._frameArena.allocF32(totalPoints) : null
+      const order = layer.isTranslucent ? this._frameArena.allocU32(totalPoints) : null
 
       for (let w = 0; w < COPIES.length; w++) {
         const worldOff = COPIES[w] * WORLD_MERC
