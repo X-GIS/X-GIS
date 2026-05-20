@@ -2,7 +2,7 @@
 // dependency error messages, run-order invariants.
 
 import { describe, it, expect } from 'vitest'
-import { PassManager, type IRPass } from './pass-manager'
+import { PassManager, type IRPass, type PassGroup } from './pass-manager'
 import type { Scene } from './render-node'
 
 // Empty Scene stub — passes don't actually look inside it for these
@@ -30,7 +30,7 @@ describe('PassManager — registration', () => {
     const mgr = new PassManager()
     mgr.register({ name: 'a', dependencies: [], run: s => s })
     expect(() => mgr.register({ name: 'a', dependencies: [], run: s => s }))
-      .toThrow(/duplicate pass name/)
+      .toThrow(/duplicate step name/)
   })
 
   it('register order does NOT determine run order — dependencies do', () => {
@@ -100,7 +100,7 @@ describe('PassManager — error messages', () => {
     const mgr = new PassManager()
     mgr.register({ name: 'b', dependencies: ['a'], run: s => s })
     expect(() => mgr.run(emptyScene))
-      .toThrow(/pass "b" depends on "a", which is not registered/)
+      .toThrow(/step "b" depends on "a", which is not registered/)
   })
 
   it('rejects a dependency cycle', () => {
@@ -116,5 +116,132 @@ describe('PassManager — error messages', () => {
     mgr.register({ name: 'a', dependencies: ['a'], run: s => s })
     expect(() => mgr.run(emptyScene))
       .toThrow(/dependency cycle/)
+  })
+})
+
+describe('PassManager — fixpoint groups (Phase B)', () => {
+  it('identity-stable group converges in 1 iteration', () => {
+    // Group of two passes that both identity-return when scene is
+    // already stable. Should exit after iter-1 (no useless iter-2).
+    const log: string[] = []
+    const idA: IRPass = {
+      name: 'no-op-a', dependencies: [],
+      run(scene) { log.push('a'); return scene },
+    }
+    const idB: IRPass = {
+      name: 'no-op-b', dependencies: [],
+      run(scene) { log.push('b'); return scene },
+    }
+    const group: PassGroup = {
+      name: 'noop-group', dependencies: [],
+      passes: [idA, idB], maxIterations: 4,
+    }
+    const mgr = new PassManager()
+    mgr.registerGroup(group)
+    const result = mgr.run(emptyScene)
+    // Single iteration: both passes ran once, then identity-stable.
+    expect(log).toEqual(['a', 'b'])
+    expect(result.ranPasses).toEqual([
+      'noop-group/iter-1/no-op-a',
+      'noop-group/iter-1/no-op-b',
+    ])
+  })
+
+  it('mutating pass triggers a second iteration; group stops when stable', () => {
+    // Pass A returns a NEW scene exactly once (simulates a transform
+    // that creates new dead surface). Pass B identity-returns.
+    // Expectation: iter-1 sees A return new scene, iter-2 sees A
+    // identity-return → loop exits.
+    let aCallCount = 0
+    const sceneB: Scene = { sources: [], renderNodes: [], symbols: [] }
+    const passA: IRPass = {
+      name: 'churn-once', dependencies: [],
+      run(scene) {
+        aCallCount++
+        // First call returns a NEW reference; subsequent calls
+        // identity-return (the "fixpoint reached" contract).
+        return aCallCount === 1 ? sceneB : scene
+      },
+    }
+    const passB: IRPass = {
+      name: 'noop', dependencies: [],
+      run(scene) { return scene },
+    }
+    const group: PassGroup = {
+      name: 'churn-group', dependencies: [],
+      passes: [passA, passB], maxIterations: 4,
+    }
+    const mgr = new PassManager()
+    mgr.registerGroup(group)
+    const result = mgr.run(emptyScene)
+    expect(aCallCount).toBe(2)  // iter-1 + iter-2
+    expect(result.scene).toBe(sceneB)
+    expect(result.ranPasses).toEqual([
+      'churn-group/iter-1/churn-once',
+      'churn-group/iter-1/noop',
+      'churn-group/iter-2/churn-once',
+      'churn-group/iter-2/noop',
+    ])
+  })
+
+  it('throws when group fails to converge within maxIterations', () => {
+    // Synthetic pass that ALWAYS returns a new scene reference.
+    // Should hit the cap.
+    const oscillating: IRPass = {
+      name: 'osc', dependencies: [],
+      run() { return { sources: [], renderNodes: [], symbols: [] } },
+    }
+    const group: PassGroup = {
+      name: 'bad-group', dependencies: [],
+      passes: [oscillating], maxIterations: 3,
+    }
+    const mgr = new PassManager()
+    mgr.registerGroup(group)
+    expect(() => mgr.run(emptyScene))
+      .toThrow(/group "bad-group" did not reach a fixpoint within maxIterations=3/)
+  })
+
+  it('rejects empty group at registration time', () => {
+    const mgr = new PassManager()
+    expect(() => mgr.registerGroup({
+      name: 'empty', dependencies: [], passes: [], maxIterations: 4,
+    })).toThrow(/has no passes/)
+  })
+
+  it('rejects maxIterations < 1', () => {
+    const mgr = new PassManager()
+    expect(() => mgr.registerGroup({
+      name: 'zero-iter', dependencies: [],
+      passes: [{ name: 'p', dependencies: [], run: s => s }],
+      maxIterations: 0,
+    })).toThrow(/maxIterations must be >= 1/)
+  })
+
+  it('groups topo-sort with passes in the same dependency namespace', () => {
+    const log: string[] = []
+    const preGroup: IRPass = {
+      name: 'pre', dependencies: [],
+      run(scene) { log.push('pre'); return scene },
+    }
+    const inner: IRPass = {
+      name: 'inner', dependencies: [],
+      run(scene) { log.push('inner'); return scene },
+    }
+    const postGroup: IRPass = {
+      name: 'post', dependencies: ['my-group'],
+      run(scene) { log.push('post'); return scene },
+    }
+    const group: PassGroup = {
+      name: 'my-group',
+      dependencies: ['pre'],     // group depends on a pass
+      passes: [inner],
+      maxIterations: 2,
+    }
+    const mgr = new PassManager()
+    mgr.register(postGroup)        // registers before its dep on purpose
+    mgr.registerGroup(group)
+    mgr.register(preGroup)
+    mgr.run(emptyScene)
+    expect(log).toEqual(['pre', 'inner', 'post'])
   })
 })

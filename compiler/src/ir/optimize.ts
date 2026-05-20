@@ -72,8 +72,22 @@ function buildPipeline(): PassManager {
   pm.register(mergeLayersPass)
   pm.register(foldTrivialStopsPass)
   pm.register(foldTrivialCasePass)
-  pm.register(deadLayerElimPass)
-  pm.register(deadSourceElimPass)
+  // Phase B (iter 200) — LLVM-style fixpoint DCE. The two dead-elim
+  // passes form a group that iterates until the Scene reference is
+  // identity-stable. Today (with the existing fold-trivial-* passes)
+  // one iteration is sufficient; the fixpoint loop costs ~one extra
+  // identity check per pass per build. Future passes that can produce
+  // newly-dead surface (Phase D transparent-fill drop, CSE rewrites
+  // that prove a paint expression constant-transparent, …) will
+  // automatically benefit — the loop catches them with zero extra
+  // wiring beyond inclusion in the group's `passes[]` array. Cap = 4
+  // (LLVM convention); a throw fires if a future pass oscillates.
+  pm.registerGroup({
+    name: 'dce-fixpoint',
+    dependencies: ['fold-trivial-case'],
+    passes: [deadLayerElimPass, deadSourceElimPass],
+    maxIterations: 4,
+  })
   return pm
 }
 
