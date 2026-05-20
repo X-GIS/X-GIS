@@ -4145,7 +4145,76 @@ export class VectorTileRenderer {
       const extrudedPipeline = extrudedPatternActive
         ? this.fillPipelinePatternExtruded
         : this.fillPipelineExtruded
-      this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, extrudedPipeline, bindGroupLayout, translucentBucket)
+      // iter-220 (Phase RB.B.8) — bundle wrap for the primary
+      // opaque pass call. Gated to the main opaque attachment
+      // context (excludes OIT, debug overdraw, translucent stroke
+      // bucket, the standalone strokes phase). Cache key includes
+      // every input that affects the recorded draws OR the bundle
+      // descriptor; the next miss re-encodes from scratch.
+      //
+      // Hit path: re-runs renderTileKeys for state side effects
+      // (uniform staging, strokeQueue population) but
+      // `_skipFillDrawForBundle` + `_skipStrokeDrawForBundle` mute
+      // the actual draw emit. `executeBundles([bundle])` replays
+      // the cached commands.
+      //
+      // Miss path: getOrEncode runs renderTileKeys with the
+      // bundle encoder. State side effects + draws recorded into
+      // the bundle. `executeBundles` replays into the real pass.
+      const shouldBundle = !DEBUG_OVERDRAW
+        && !translucentBucket
+        && phase !== 'strokes'
+        && phase !== 'oit-fill'
+      if (shouldBundle) {
+        // Hash neededKeys deterministically + cheap (FNV-1a 32-bit).
+        // Tile churn = different hash = miss.
+        let kh = 0
+        for (let i = 0; i < neededKeys.length; i++) {
+          kh = (kh ^ neededKeys[i]!) >>> 0
+          kh = ((kh * 16777619) >>> 0)
+        }
+        // World-offset fingerprint — world-copy enumeration changes
+        // the per-tile uniform writes, so the bundle would be wrong
+        // if the same key set draws at a different offset.
+        let woh = 0
+        if (worldOffDeg) {
+          for (let i = 0; i < worldOffDeg.length; i++) {
+            woh = (woh + Math.round(worldOffDeg[i]! * 1e3)) | 0
+          }
+        }
+        const pickOn = isPickEnabled()
+        const samples = getSampleCount()
+        const cacheKey = `vt:${sliceLayer}:${phase}:${kh.toString(36)}:${woh.toString(36)}:${this._gpuCacheCount}:${pickOn ? 1 : 0}:${samples}:${mainFill.label ?? '?'}:${linePipeline.label ?? '?'}`
+        const desc: BundleEncodeDescriptor = {
+          colorFormats: pickOn ? [this.format, 'rg32uint'] : [this.format],
+          depthStencilFormat: 'depth24plus-stencil8',
+          sampleCount: samples,
+          depthReadOnly: false,
+          stencilReadOnly: false,
+          label: cacheKey,
+        }
+        let wasMiss = false
+        const bundle = this.bundleCache.getOrEncode(cacheKey, desc, encoder => {
+          wasMiss = true
+          this._skipFillDrawForBundle = false
+          this._skipStrokeDrawForBundle = false
+          this.renderTileKeys(neededKeys, encoder, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, extrudedPipeline, bindGroupLayout, translucentBucket)
+        })
+        if (!wasMiss) {
+          // Cache hit: replay path. Re-run renderTileKeys for state
+          // side effects with both skip flags TRUE — recordTileFill
+          // + drawSegments no-op; uniform staging + strokeQueue
+          // population still happens.
+          this._skipFillDrawForBundle = true
+          this._skipStrokeDrawForBundle = true
+          this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, extrudedPipeline, bindGroupLayout, translucentBucket)
+          this._skipFillDrawForBundle = false
+          this._skipStrokeDrawForBundle = false
+        }
+        pass.executeBundles([bundle])
+      } else {
+        this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, extrudedPipeline, bindGroupLayout, translucentBucket)
+      }
     }
 
     // Render fallback ancestors (stencil test) — with world offsets for wrapping
