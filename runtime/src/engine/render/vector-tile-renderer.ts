@@ -247,6 +247,18 @@ export class VectorTileRenderer {
   private stableKeys: number[] = []
   // Iter 132 perf: reused dedupe Set for forEachLabelFeature.
   private readonly _labelKeyScratch: Set<number> = new Set()
+  /** iter 169 — Phase A slice 3: across-frame line-label run cache.
+   *  forEachLineLabelPolyline showed 14% of drag CPU (iter-161
+   *  profile) walking segments + dedup-longest-per-featId + Float64
+   *  array slicing every frame for the SAME tiles. Tile geometry is
+   *  immutable for a given tile-key, so the produced runs
+   *  ({xs, ys, props, len} per featId) are camera-independent → cache
+   *  them. Key: `${sliceLayer ?? '_'}:${tileKey}`. LRU-capped; stale
+   *  entries for tiles no longer in `seen` evict naturally via LRU. */
+  private readonly _lineLabelRunsCache = new Map<string, ReadonlyArray<{
+    xs: Float64Array; ys: Float64Array; props: Record<string, unknown>
+  }>>()
+  private static readonly LINE_LABEL_RUNS_CACHE_MAX = 4096
   /** Camera idle detection — prefetch is suppressed while the
    *  camera is actively moving (pinch zoom, pan) to keep mobile
    *  GPU + bandwidth budget on visible-only work. The moment the
@@ -1272,6 +1284,17 @@ export class VectorTileRenderer {
     let xs = new Float64Array(64)
     let ys = new Float64Array(64)
     for (const key of seen) {
+      // iter-169 cache check FIRST — skip the getTileData lookup +
+      // walk + dedup work entirely for tiles whose runs are cached.
+      const cacheKey = `${sliceLayer ?? '_'}:${key}`
+      const cachedRuns = this._lineLabelRunsCache.get(cacheKey)
+      if (cachedRuns !== undefined) {
+        // LRU touch.
+        this._lineLabelRunsCache.delete(cacheKey)
+        this._lineLabelRunsCache.set(cacheKey, cachedRuns)
+        for (const run of cachedRuns) fn(run.xs, run.ys, run.props)
+        continue
+      }
       const tileData = this.source.getTileData(key, sliceLayer)
       if (!tileData?.lineVertices || !tileData?.lineIndices) continue
       const lv = tileData.lineVertices
@@ -1371,9 +1394,21 @@ export class VectorTileRenderer {
       }
       flushRun()
       // Emit the best (longest) run per featId for this tile.
+      // iter-169: snapshot runs into an array so subsequent frames
+      // skip the walk entirely. tileRuns Map is local to this
+      // iteration; the array holds the runs (xs/ys are already
+      // independent Float64Array slices made by flushRun).
+      const runsArr: Array<{ xs: Float64Array; ys: Float64Array; props: Record<string, unknown> }> = []
       for (const run of tileRuns.values()) {
+        runsArr.push({ xs: run.xs, ys: run.ys, props: run.props })
         fn(run.xs, run.ys, run.props)
       }
+      // LRU cap.
+      if (this._lineLabelRunsCache.size >= VectorTileRenderer.LINE_LABEL_RUNS_CACHE_MAX) {
+        const oldest = this._lineLabelRunsCache.keys().next().value
+        if (oldest !== undefined) this._lineLabelRunsCache.delete(oldest)
+      }
+      this._lineLabelRunsCache.set(cacheKey, runsArr)
     }
   }
 
