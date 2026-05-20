@@ -29,8 +29,8 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | Status | Count |
 |---|---:|
 | supported | 134 |
-| partial | 21 |
-| unsupported | 80 |
+| partial | 22 |
+| unsupported | 79 |
 | na | 7 |
 | **total** | **242** |
 
@@ -49,6 +49,7 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 
 | Property | Impact | Note |
 |---|---|---|
+| light | low | iter-194 — MapLibre-equivalent face-normal directional lighting + vertical-gradient implemented in the extrude vertex shader (`vs_main_quantized_extruded`). Default Mapbox light values baked as WGSL consts: position=[1.15, 210°, 30°] → cartesian (0.288, -0.498, 0.996), intensity=0.5, color=white. Style-spec `light` keyword parsing (custom anchor / intensity / position / color) is the remaining gap — when authored, those values are dropped and the renderer falls through to the defaults. For OFM bright / liberty / positron the defaults are exactly what the style would author, so this gap is invisible on the target corpus; custom-light styles (Mapbox Studio gallery, NYT data-vis maps) would still see the default lighting. |
 | projection | low | mercator only; URL `?proj=` provides limited overrides at runtime. |
 | raster-dem | medium | Source registered, no hillshade renderer yet (Batch 4). |
 | symbol-sort-key | medium | Constant numeric value plumbed end-to-end (iter 399-405). Runtime collision pass sorts CollisionItems by sortKey ascending — lower wins. Expression form (`["get", "rank"]`) flattens to 0 with a warning. |
