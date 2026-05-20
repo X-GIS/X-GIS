@@ -4295,7 +4295,67 @@ export class VectorTileRenderer {
       const fallbackExtrudedPipeline = fallbackExtrudedPatternActive
         ? this.fillPipelinePatternExtrudedFallback
         : this.fillPipelineExtrudedFallback
-      this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, fallbackExtrudedPipeline, bindGroupLayout, translucentBucket, fallbackVisibleKeys)
+      // iter-221 (Phase RB.B.9) — fallback path bundle wrap. Mirror
+      // of iter-220's primary-call wrap, applied to the
+      // fallbackKeys renderTileKeys invocation. Same gate + same
+      // cache key shape, plus the fallback-specific
+      // `fallbackVisibleKeys` hash so the per-tile clip_bounds
+      // (set from `visibleKeysForClip`) is part of the invalidation
+      // surface. Tiles + visibleKeys + offsets together fully
+      // describe the recorded draws.
+      const fbShouldBundle = !DEBUG_OVERDRAW
+        && !translucentBucket
+        && phase !== 'strokes'
+        && phase !== 'oit-fill'
+        && !_debugRed
+      if (fbShouldBundle) {
+        let fbKh = 0
+        for (let i = 0; i < fallbackKeys.length; i++) {
+          fbKh = (fbKh ^ fallbackKeys[i]!) >>> 0
+          fbKh = ((fbKh * 16777619) >>> 0)
+        }
+        let fbWoh = 0
+        if (fallbackOffsets) {
+          for (let i = 0; i < fallbackOffsets.length; i++) {
+            fbWoh = (fbWoh + Math.round(fallbackOffsets[i]! * 1e3)) | 0
+          }
+        }
+        let fbVkh = 0
+        if (fallbackVisibleKeys) {
+          for (let i = 0; i < fallbackVisibleKeys.length; i++) {
+            fbVkh = (fbVkh ^ fallbackVisibleKeys[i]!) >>> 0
+            fbVkh = ((fbVkh * 16777619) >>> 0)
+          }
+        }
+        const fbPickOn = isPickEnabled()
+        const fbSamples = getSampleCount()
+        const fbCacheKey = `vt-fb:${sliceLayer}:${phase}:${fbKh.toString(36)}:${fbWoh.toString(36)}:${fbVkh.toString(36)}:${this._gpuCacheCount}:${fbPickOn ? 1 : 0}:${fbSamples}:${fallbackFill.label ?? '?'}:${linePipelineFallback!.label ?? '?'}`
+        const fbDesc: BundleEncodeDescriptor = {
+          colorFormats: fbPickOn ? [this.format, 'rg32uint'] : [this.format],
+          depthStencilFormat: 'depth24plus-stencil8',
+          sampleCount: fbSamples,
+          depthReadOnly: false,
+          stencilReadOnly: false,
+          label: fbCacheKey,
+        }
+        let fbWasMiss = false
+        const fbBundle = this.bundleCache.getOrEncode(fbCacheKey, fbDesc, encoder => {
+          fbWasMiss = true
+          this._skipFillDrawForBundle = false
+          this._skipStrokeDrawForBundle = false
+          this.renderTileKeys(fallbackKeys, encoder, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, fallbackExtrudedPipeline, bindGroupLayout, translucentBucket, fallbackVisibleKeys)
+        })
+        if (!fbWasMiss) {
+          this._skipFillDrawForBundle = true
+          this._skipStrokeDrawForBundle = true
+          this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, fallbackExtrudedPipeline, bindGroupLayout, translucentBucket, fallbackVisibleKeys)
+          this._skipFillDrawForBundle = false
+          this._skipStrokeDrawForBundle = false
+        }
+        pass.executeBundles([fbBundle])
+      } else {
+        this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, fallbackExtrudedPipeline, bindGroupLayout, translucentBucket, fallbackVisibleKeys)
+      }
       if (_debugRed) {
         this.uniformF32[16] = _origR
         this.uniformF32[17] = _origG
