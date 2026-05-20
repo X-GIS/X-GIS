@@ -4391,6 +4391,46 @@ export class VectorTileRenderer {
     }
   }
 
+  /** iter-216 (Phase RB.B.4) — bundle-compatible per-tile fill draw
+   *  recording. The 6 GPU commands here are EXACTLY the subset
+   *  accepted by both `GPURenderPassEncoder` and
+   *  `GPURenderBundleEncoder`, so a future iter (iter-217+) can
+   *  pass a `GPURenderBundleEncoder` instead of a render pass to
+   *  build a cached bundle without re-tracing the per-tile
+   *  conditionals (OIT / extruded / pattern routes).
+   *
+   *  Side-effect free besides the GPU commands — `slotOffset` is
+   *  pre-resolved by the caller (`allocUniformSlot` + stage), and
+   *  `cached` carries the arena offsets (iter-208/209/210 Phase
+   *  6a). When `bindZBuffer` is true, slot 1 is bound to the
+   *  z-arena slice (extruded / OIT-extrude paths).
+   *
+   *  Pipeline gating (OIT vs extruded vs ground) stays in the
+   *  caller — the choice is reflected in `pipeline` + `bindZBuffer`. */
+  private recordTileFill(
+    encoder: GPURenderPassEncoder | GPURenderBundleEncoder,
+    pipeline: GPURenderPipeline,
+    tileBg: GPUBindGroup,
+    slotOffset: number,
+    cached: GPUTile,
+    bindZBuffer: boolean,
+  ): void {
+    encoder.setPipeline(pipeline)
+    encoder.setBindGroup(0, tileBg, [slotOffset])
+    // Phase 6a.2 — polygon vertex buffer is the shared arena
+    // (`polyVertexArena.buffer`). Per-tile sub-range carried by
+    // (polyVertexOffset, polyVertexByteLength).
+    encoder.setVertexBuffer(0, cached.vertexBuffer, cached.polyVertexOffset, cached.polyVertexByteLength)
+    // Phase 6a.4 — z-buffer slice for extruded / OIT paths.
+    if (bindZBuffer) {
+      encoder.setVertexBuffer(1, cached.zBuffer!, cached.zBufferOffset, cached.zBufferByteLength)
+    }
+    // Phase 6a.3 — index buffer is the shared arena. Per-tile
+    // sub-range carried by (polyIndexOffset, polyIndexByteLength).
+    encoder.setIndexBuffer(cached.indexBuffer, 'uint32', cached.polyIndexOffset, cached.polyIndexByteLength)
+    encoder.drawIndexed(cached.indexCount)
+  }
+
   /** iter-214 (Phase RB.B.3) — `pass` parameter type widened to also
    *  accept `GPURenderBundleEncoder` so a future caller can record
    *  the per-tile draw loop into a cached bundle. Every method this
@@ -4770,26 +4810,17 @@ export class VectorTileRenderer {
               : useExtrudedPipe
                 ? fillPipelineExtruded!
                 : fillPipeline)
-        pass.setPipeline(activePipe)
-        pass.setBindGroup(0, currentTileBg, [slotOffset])
-        // Phase 6a.2 (iter-208) — vertex buffer is now the shared
-        // `polyVertexArena.buffer`; pass the per-tile byte offset +
-        // length to bind only this tile's sub-range. baseVertex stays
-        // at 0 since `firstIndex` already addresses indices relative
-        // to that sub-range.
-        pass.setVertexBuffer(0, cached.vertexBuffer, cached.polyVertexOffset, cached.polyVertexByteLength)
-        // Phase 6a.4 — z-buffer now from shared arena; pass per-tile
-        // offset + length. `zBuffer` non-null implies the arena was
-        // populated for this tile (zBufferOffset/Length carry the
-        // sub-range; flat tiles have zBuffer=null + offset=0).
-        if (useOitPipe || useExtrudedPipe) {
-          pass.setVertexBuffer(1, cached.zBuffer!, cached.zBufferOffset, cached.zBufferByteLength)
-        }
-        // Phase 6a.3 — index buffer is now the shared arena's
-        // GPUBuffer; pass the per-tile byte offset + length to bind
-        // only this tile's index sub-range. firstIndex stays at 0.
-        pass.setIndexBuffer(cached.indexBuffer, 'uint32', cached.polyIndexOffset, cached.polyIndexByteLength)
-        pass.drawIndexed(cached.indexCount)
+        // Phase RB.B.4 (iter-216) — bundle-compatible draw recording
+        // extracted to `recordTileFill`. The 6 GPU commands below
+        // (setPipeline, setBindGroup, setVertexBuffer ×1-2,
+        // setIndexBuffer, drawIndexed) are the EXACT subset that
+        // GPURenderBundleEncoder accepts. Encapsulating them lets a
+        // future iter (iter-217) route through a bundle encoder
+        // without re-tracing the conditionals.
+        this.recordTileFill(
+          pass, activePipe, currentTileBg, slotOffset, cached,
+          /* bindZBuffer */ useOitPipe || useExtrudedPipe,
+        )
       }
 
       // Strokes (polygon outlines + line features) deferred to a
