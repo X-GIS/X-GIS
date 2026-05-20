@@ -24,6 +24,10 @@ interface FrameSample {
   triangles: number
   vertices: number
   tilesVisible: number
+  /** iter-229 — actual `pass.executeBundles` call count this frame
+   *  (delta of lifetime bundle hits + misses). Pre-RB.B = 0 (bundle
+   *  path inactive). Post-RB.B = small constant per (slice, phase). */
+  bundleReplays: number
 }
 
 async function setupIdleScene(page: Page, hash: string, style: string): Promise<void> {
@@ -49,12 +53,13 @@ async function sampleSteadyState(page: Page, frameCount: number): Promise<FrameS
         triangles: number
         vertices: number
         tilesVisible: number
+        bundleReplaysThisFrame: number
       }
       invalidate: () => void
     }
     const map = (window as unknown as { __xgisMap?: M }).__xgisMap
     if (!map) throw new Error('__xgisMap missing')
-    const samples: { drawCalls: number; triangles: number; vertices: number; tilesVisible: number }[] = []
+    const samples: { drawCalls: number; triangles: number; vertices: number; tilesVisible: number; bundleReplays: number }[] = []
     return await new Promise<typeof samples>(resolve => {
       let frames = 0
       const tick = () => {
@@ -65,6 +70,7 @@ async function sampleSteadyState(page: Page, frameCount: number): Promise<FrameS
           triangles: s.triangles,
           vertices: s.vertices,
           tilesVisible: s.tilesVisible,
+          bundleReplays: s.bundleReplaysThisFrame,
         })
         frames++
         // Force re-render so stats get re-populated even at idle.
@@ -128,14 +134,16 @@ test.describe('Phase RB.C — pre-bundle baseline harness', () => {
       const stable = samples.slice(5)
       const drawCalls = stable.map(s => s.drawCalls)
       const tilesVisible = stable.map(s => s.tilesVisible)
+      const bundleReplays = stable.map(s => s.bundleReplays)
       const m = median(drawCalls)
       const mt = median(tilesVisible)
+      const mbr = median(bundleReplays)
       const max = Math.max(...drawCalls)
       const min = Math.min(...drawCalls)
 
       // eslint-disable-next-line no-console
       console.log(
-        `[baseline ${fx.name}] drawCalls median=${m} min=${min} max=${max} tilesVisible.median=${mt}`,
+        `[baseline ${fx.name}] drawCalls median=${m} min=${min} max=${max} tilesVisible.median=${mt} bundleReplays.median=${mbr} ratio=${mbr > 0 ? (m / mbr).toFixed(1) : 'n/a'}×`,
       )
 
       // Sanity: idle camera should be CONSISTENT across frames.
@@ -160,6 +168,15 @@ test.describe('Phase RB.C — pre-bundle baseline harness', () => {
       // Use chai-style toBeGreaterThan via Playwright expect.
       const { expect } = await import('@playwright/test')
       expect(m, 'idle drawCalls should be > 0').toBeGreaterThan(0)
+      // iter-230 — bundle path active sanity. Post-RB.B every fixture
+      // emits at least one `executeBundles` per idle frame; if this
+      // drops to 0 the bundle wrap was bypassed (e.g. accidental
+      // DEBUG_OVERDRAW gate flip) and the perf optimization is
+      // silently disabled. Looser than the 97.6 % hit-rate gate in
+      // _perf-bundle-hit-rate.spec.ts but cheaper — runs at the same
+      // 3 fixtures already covered by this baseline.
+      expect(mbr, `bundle path should fire (median bundleReplays > 0); idle had 0 ⇒ wrap inactive`)
+        .toBeGreaterThan(0)
     })
   }
 })
