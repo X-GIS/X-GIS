@@ -207,6 +207,23 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
   // eslint-disable-next-line no-console
   console.log(reportRow('3. pitch 0→80→0',           s3))
 
+  // iter-256 (Plan AAA C.3) — phase timing breakdown. Identifies
+  // CPU bottleneck (frame.prep vs frame.encode vs frame.submit)
+  // so the NEXT perf attack is data-driven, not a guess.
+  const phaseProfile = await page.evaluate(() => {
+    interface API { getPhaseAverages: () => Array<{ name: string; meanMs: number; samples: number }> }
+    const api = (window as unknown as { __xgisPerfPhases?: API }).__xgisPerfPhases
+    return api?.getPhaseAverages() ?? []
+  })
+  if (phaseProfile.length > 0) {
+    // eslint-disable-next-line no-console
+    console.log('\n=== Phase timing breakdown (rolling 60-frame mean) ===')
+    for (const p of phaseProfile) {
+      // eslint-disable-next-line no-console
+      console.log(`  ${p.meanMs.toFixed(2).padStart(7)} ms  ${p.name}  (${p.samples} samples)`)
+    }
+  }
+
   // iter-240 (Plan AAA C.2) — alloc profile during interactive
   // path. Drag/zoom drives re-shape + re-collision per frame, so
   // sites that cache-out at idle fire here.

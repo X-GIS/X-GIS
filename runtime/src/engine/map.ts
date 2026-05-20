@@ -4,6 +4,7 @@ import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, 
 import { packPalette, uploadPalette, type PaletteTextures } from './gpu/palette-texture'
 import type * as AST from '@xgis/compiler'
 import { BackgroundRenderer } from './render/background-renderer'
+import { markStart as perfMarkStart, markEnd as perfMarkEnd } from './__profile__/perf-marks'
 import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
 import { initGPU, resizeCanvas, GPU_PROF, getSampleCount, getMaxDpr, isPickEnabled, type GPUContext } from './gpu/gpu'
 import { DEBUG_OVERDRAW } from './debug-flags'
@@ -3026,6 +3027,8 @@ export class XGISMap {
   }
 
   private renderFrame(): void {
+    perfMarkStart('frame.total')
+    perfMarkStart('frame.prep')
     this._stats.beginFrame()
     // iter-241 (Plan AAA B.2) — TextStage FrameArena watermark
     // reset. Per-label scratch allocations during prepare() carve
@@ -3120,6 +3123,8 @@ export class XGISMap {
       (2 * Math.atan(Math.exp(this.camera.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
     ))
 
+    perfMarkEnd('frame.prep')
+    perfMarkStart('frame.encode')
     const encoder = device.createCommandEncoder()
     const screenView = context.getCurrentTexture().createView()
     // Reset per-frame timer state BEFORE compute dispatch so the
@@ -4901,7 +4906,11 @@ export class XGISMap {
 
     // Outer scope catches the FRAME-level error (one entry per bad frame),
     // matching the inner scope opened right after createCommandEncoder().
+    perfMarkEnd('frame.encode')
+    perfMarkStart('frame.submit')
     device.queue.submit([encoder.finish()])
+    perfMarkEnd('frame.submit')
+    perfMarkEnd('frame.total')
 
     // DIAG: dump per-frame draw order trace if armed. One-shot —
     // clears the flag so subsequent frames stay silent.
