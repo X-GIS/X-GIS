@@ -336,6 +336,11 @@ export class XGISMap {
   /** Icon overlay stage — lazy, constructed on first frame after a
    *  spriteUrl is set. */
   private iconStage: IconStage | null = null
+  /** iter-183 — one-shot guard so the sprite atlas view is pushed
+   *  into MapRenderer + every VTR exactly once after the iconStage
+   *  uploads it. Stays true for the session life since the atlas
+   *  texture identity doesn't change post-load. */
+  private _spriteAtlasViewPushed = false
 
   // Vector tile sources + renderers (per .xgvt source)
   private vtSources = new Map<string, { source: TileCatalog; renderer: VectorTileRenderer }>()
@@ -1106,6 +1111,10 @@ export class XGISMap {
         vtRenderer.setGroundPipelines(
           this.renderer.fillPipelineGround,
           this.renderer.fillPipelineGroundFallback,
+        )
+        vtRenderer.setPatternPipelines(
+          this.renderer.fillPipelinePatternGround,
+          this.renderer.fillPipelinePatternGroundFallback,
         )
         vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
       }
@@ -2124,6 +2133,7 @@ export class XGISMap {
     vtRenderer.setSpriteAtlasView(this.renderer.spriteAtlasView)
       vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
       vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
+    vtRenderer.setPatternPipelines(this.renderer.fillPipelinePatternGround, this.renderer.fillPipelinePatternGroundFallback)
       vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
       if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
       vtRenderer.setSource(source) // connect before load so preloaded tiles auto-upload
@@ -2287,6 +2297,7 @@ export class XGISMap {
     vtRenderer.setSpriteAtlasView(this.renderer.spriteAtlasView)
     vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
     vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
+    vtRenderer.setPatternPipelines(this.renderer.fillPipelinePatternGround, this.renderer.fillPipelinePatternGroundFallback)
     vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
     if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
     vtRenderer.setSource(source)
@@ -2549,6 +2560,7 @@ export class XGISMap {
     vtRenderer.setSpriteAtlasView(this.renderer.spriteAtlasView)
       vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
       vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
+    vtRenderer.setPatternPipelines(this.renderer.fillPipelinePatternGround, this.renderer.fillPipelinePatternGroundFallback)
       vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
       if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
       vtRenderer.setSource(source)
@@ -2880,14 +2892,72 @@ export class XGISMap {
     const host = this.iconStage?.host
     if (!host) return
     if (host.getState().status !== 'loaded') return
+    // iter-183 — push the real sprite atlas texture view into renderers
+    // once (idempotent). Replaces the 1×1 white stub bound at binding
+    // 5 since iter-181 so `fs_fill_pattern` (iter-182) actually samples
+    // the loaded sprite atlas. Done lazily here (rather than at
+    // iconStage creation) because the GPU buffer + bind groups are
+    // wired by this point.
+    if (!this._spriteAtlasViewPushed) {
+      const view = this.iconStage?.gpu.getView()
+      if (view) {
+        this.renderer.setSpriteAtlas(view)
+        for (const { renderer: vtRenderer } of this.vtSources.values()) {
+          vtRenderer.setSpriteAtlasView(view)
+        }
+        this._spriteAtlasViewPushed = true
+      }
+    }
+    // iter-183 — compute the sprite atlas UV bbox + the world-anchored
+    // pattern repeat in absolute Mercator metres per show. The UV
+    // bbox is constant (SpriteInfo doesn't change after atlas load),
+    // but the repeat metres ARE camera-zoom-dependent: a sprite that
+    // is 64 CSS px wide must repeat every 64 CSS px on screen, which
+    // converts to `64 * WORLD_MERC / (256 * 2^cameraZoom)` Mercator
+    // metres. Run once at load (UV bbox) + once per frame (repeat).
+    const atlasSize = this.iconStage?.gpu.size() ?? { width: 0, height: 0 }
+    const camZoom = this.camera.zoom
+    const WORLD_MERC = 40075016.686
+    const pxPerWorldAtZ = 256 * Math.pow(2, camZoom)
+    const metersPerCssPx = WORLD_MERC / pxPerWorldAtZ
     for (const show of this.showCommands) {
       const name = show.fillPattern
       if (!name) continue
-      if (show.resolvedFillRgba) continue
-      const px = host.getSpriteCenterColor(name)
-      if (!px) continue
-      show.resolvedFillRgba = [px[0] / 255, px[1] / 255, px[2] / 255, px[3] / 255]
-      invalidateResolvedShowCache(show)
+      if (show.resolvedFillRgba) {
+        // Stage 1 colour already in place from a prior frame; still
+        // populate Stage 2 fields if not yet resolved.
+      } else {
+        const px = host.getSpriteCenterColor(name)
+        if (px) {
+          show.resolvedFillRgba = [px[0] / 255, px[1] / 255, px[2] / 255, px[3] / 255]
+          invalidateResolvedShowCache(show)
+        }
+      }
+      // Stage 2 — UV bbox derived from SpriteInfo + atlas dims. The
+      // SpriteInfo's x/y/width/height are atlas-pixel coords; divide
+      // by atlas width/height to get the [0,1] UV bbox used by
+      // textureSample in fs_fill_pattern. Cached once; the atlas
+      // doesn't reshuffle after load.
+      if (!show.fillPatternUV && atlasSize.width > 0) {
+        const sprite = host.get(name)
+        if (sprite) {
+          const u0 = sprite.x / atlasSize.width
+          const v0 = sprite.y / atlasSize.height
+          const u1 = (sprite.x + sprite.width) / atlasSize.width
+          const v1 = (sprite.y + sprite.height) / atlasSize.height
+          show.fillPatternUV = [u0, v0, u1, v1]
+        }
+      }
+      // Stage 2 — per-frame repeat metres. sprite.width is in atlas
+      // PIXELS; divide by sprite.pixelRatio to get the design CSS
+      // pixel width, then convert to Mercator metres at the current
+      // camera zoom.
+      const sprite = host.get(name)
+      if (sprite) {
+        const cssW = sprite.width / Math.max(sprite.pixelRatio, 1)
+        const cssH = sprite.height / Math.max(sprite.pixelRatio, 1)
+        show.fillPatternRepeatM = [cssW * metersPerCssPx, cssH * metersPerCssPx]
+      }
     }
     // iter-178 — line-pattern Stage 1 mirror. Pulls the same sprite
     // centre pixel into `resolvedStrokeRgba` so polygon outlines and

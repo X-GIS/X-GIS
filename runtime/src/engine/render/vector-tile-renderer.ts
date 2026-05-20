@@ -359,6 +359,14 @@ export class VectorTileRenderer {
    *  pixel-constant regardless of depth. 0 = no translate (default). */
   private currentFillTranslateNdcX = 0
   private currentFillTranslateNdcY = 0
+  /** iter-183 — fill-pattern Stage 2 per-show flag. Set true when the
+   *  current `render()` call's show has a resolved pattern UV bbox +
+   *  the pattern pipeline is wired. Per-tile uniform writes use this
+   *  to decide whether slot 46/47 carries fill-translate NDC values
+   *  or the pattern repeat in Mercator metres. */
+  private _patternUniformActive = false
+  private _patternRepeatMX = 1
+  private _patternRepeatMY = 1
   /** Extrude routing for the current `render()` call.
    *   - 'none': flat polygon, no z lift
    *   - 'uniform': all features at currentExtrudeHeight (flat pipeline,
@@ -504,6 +512,18 @@ export class VectorTileRenderer {
     this.fillPipelineGround = main
     this.fillPipelineGroundFallback = fallback
   }
+
+  /** iter-183 — fill-pattern Stage 2 pattern ground pipelines. Caller
+   *  hands the `fillPipelinePatternGround` + fallback pair built by
+   *  MapRenderer. VTR selects them in place of the regular ground
+   *  pipelines when `show.fillPatternUV` is populated (the iconStage
+   *  has resolved the sprite atlas UV bbox via map.ts). */
+  setPatternPipelines(main: GPURenderPipeline, fallback: GPURenderPipeline): void {
+    this.fillPipelinePatternGround = main
+    this.fillPipelinePatternGroundFallback = fallback
+  }
+  private fillPipelinePatternGround: GPURenderPipeline | null = null
+  private fillPipelinePatternGroundFallback: GPURenderPipeline | null = null
 
   /** Provide the OIT translucent extrude pipeline. Used when
    *  render() runs with phase='oit-fill': translucent buildings
@@ -3350,8 +3370,28 @@ export class VectorTileRenderer {
     // Write uniforms directly via cached Float32Array view (no new typed array allocations)
     const uf = this.uniformF32
     uf.set(mvp, 0) // offset 0: mvp (16 floats)
-    uf[16] = this.cachedFillColor[0]; uf[17] = this.cachedFillColor[1]
-    uf[18] = this.cachedFillColor[2]; uf[19] = this.cachedFillColor[3] * this.currentOpacity
+    // iter-183 — fill-pattern Stage 2 packs the sprite atlas UV bbox
+    // into the fill_color slot (16-19) instead of the resolved RGBA.
+    // fs_fill_pattern reads (u0, v0, u1, v1) from u.fill_color. The
+    // pattern repeat in metres is written to slots 46/47 below
+    // (overriding the fill-translate NDC values). Both overrides
+    // apply ONLY when the show has a resolved pattern bbox + the
+    // pattern pipeline path is wired by the caller (setPatternPipelines).
+    const patternUV = show.fillPatternUV
+    const patternRepeat = show.fillPatternRepeatM
+    const patternSlotsActive = patternUV != null && patternRepeat != null
+      && this.fillPipelinePatternGround !== null
+    if (patternSlotsActive) {
+      uf[16] = patternUV![0]; uf[17] = patternUV![1]
+      uf[18] = patternUV![2]; uf[19] = patternUV![3]
+      this._patternUniformActive = true
+      this._patternRepeatMX = patternRepeat![0]
+      this._patternRepeatMY = patternRepeat![1]
+    } else {
+      uf[16] = this.cachedFillColor[0]; uf[17] = this.cachedFillColor[1]
+      uf[18] = this.cachedFillColor[2]; uf[19] = this.cachedFillColor[3] * this.currentOpacity
+      this._patternUniformActive = false
+    }
     uf[20] = this.cachedStrokeColor[0]; uf[21] = this.cachedStrokeColor[1]
     uf[22] = this.cachedStrokeColor[2]; uf[23] = this.cachedStrokeColor[3] * this.currentOpacity
     uf[24] = projType; uf[25] = projCenterLon; uf[26] = projCenterLat; uf[27] = 0
@@ -3906,8 +3946,23 @@ export class VectorTileRenderer {
         : (groundIsBase
             ? this.fillPipelineGround
             : (fillPipelineGroundOverride ?? null))
-      const mainFill = this.currentExtrudeMode === 'none' && groundForLayout !== null
-        ? groundForLayout
+      // iter-183 — fill-pattern Stage 2 routing. When the show has a
+      // resolved pattern UV bbox AND the variant pipeline path isn't
+      // active AND we're not in DEBUG_OVERDRAW (r16float surface),
+      // swap the ground pipeline for the pattern variant. The pattern
+      // pipeline uses the same base bindGroupLayout, so it's only
+      // valid on the `groundIsBase` path; variant + feature-data
+      // pattern shows fall through to the generic fillPipeline
+      // (visual fallback to solid Stage-1 colour, not crash).
+      const patternActive = !DEBUG_OVERDRAW
+        && groundIsBase
+        && show.fillPatternUV != null
+        && this.fillPipelinePatternGround !== null
+      const groundChoice = patternActive
+        ? this.fillPipelinePatternGround
+        : groundForLayout
+      const mainFill = this.currentExtrudeMode === 'none' && groundChoice !== null
+        ? groundChoice
         : fillPipeline
       this.renderTileKeys(neededKeys, pass, mainFill, linePipeline, projCenterLon, projCenterLat, worldOffDeg, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, this.fillPipelineExtruded, bindGroupLayout, translucentBucket)
     }
@@ -3970,8 +4025,17 @@ export class VectorTileRenderer {
         : (fallbackGroundIsBase
             ? this.fillPipelineGroundFallback
             : (fillPipelineGroundFallbackOverride ?? null))
-      const fallbackFill = this.currentExtrudeMode === 'none' && fallbackGroundForLayout !== null
-        ? fallbackGroundForLayout
+      // iter-183 — fill-pattern Stage 2 fallback routing (mirror of
+      // the primary path above).
+      const fallbackPatternActive = !DEBUG_OVERDRAW
+        && fallbackGroundIsBase
+        && show.fillPatternUV != null
+        && this.fillPipelinePatternGroundFallback !== null
+      const fallbackGroundChoice = fallbackPatternActive
+        ? this.fillPipelinePatternGroundFallback
+        : fallbackGroundForLayout
+      const fallbackFill = this.currentExtrudeMode === 'none' && fallbackGroundChoice !== null
+        ? fallbackGroundChoice
         : fillPipelineFallback
       this.renderTileKeys(fallbackKeys, pass, fallbackFill, linePipelineFallback!, projCenterLon, projCenterLat, fallbackOffsets, lineLayerOffset, lineLayerOffsetGap, phase, layerCache, this.fillPipelineExtrudedFallback, bindGroupLayout, translucentBucket, fallbackVisibleKeys)
       if (_debugRed) {
@@ -4382,9 +4446,18 @@ export class VectorTileRenderer {
       // fill-translate NDC-per-px (slots 46/47) — pre-baked at
       // render() time using canvasWidth/Height. Vertex shader
       // applies via clip += offset * clip.w so the pixel offset
-      // stays constant regardless of depth.
-      this.uniformF32[46] = this.currentFillTranslateNdcX
-      this.uniformF32[47] = this.currentFillTranslateNdcY
+      // stays constant regardless of depth. iter-183 — pattern shows
+      // overwrite the same slots with the pattern repeat in Mercator
+      // metres (fs_fill_pattern reads u.fill_translate as repeat_m
+      // for the world-anchored UV). Pattern shows cannot also use
+      // fill-translate; documented Stage 2 trade-off.
+      if (this._patternUniformActive) {
+        this.uniformF32[46] = this._patternRepeatMX
+        this.uniformF32[47] = this._patternRepeatMY
+      } else {
+        this.uniformF32[46] = this.currentFillTranslateNdcX
+        this.uniformF32[47] = this.currentFillTranslateNdcY
+      }
 
       // Allocate a fresh ring slot for this tile × layer × world-copy draw.
       const slotOffset = this.allocUniformSlot()

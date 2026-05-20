@@ -910,6 +910,15 @@ export interface ShowCommand {
    *  resolves the sprite atlas centre pixel at frame time and writes
    *  the colour into `resolvedFillRgba`; this string is the source. */
   fillPattern?: string | null
+  /** iter-183 — fill-pattern Stage 2 per-show resolved data. Populated
+   *  by `map.ts._resolveFillPatterns` once the iconStage's sprite
+   *  atlas is loaded. VTR reads these and routes pattern shows to the
+   *  `fillPipelinePatternGround` pipeline with the values packed into
+   *  the per-tile uniform's `fill_color` / `fill_translate` slots.
+   *  Stays undefined while the atlas is still loading; the Stage 1
+   *  `resolvedFillRgba` centre-pixel colour remains as the fallback. */
+  fillPatternUV?: [number, number, number, number] | null  // (u0, v0, u1, v1)
+  fillPatternRepeatM?: [number, number] | null             // metres per pattern tile
   /** iter-178 Mapbox `paint.line-pattern` constant sprite name —
    *  stroke-side mirror of fillPattern. Map.ts writes the resolved
    *  sprite centre RGBA into `resolvedStrokeRgba`. */

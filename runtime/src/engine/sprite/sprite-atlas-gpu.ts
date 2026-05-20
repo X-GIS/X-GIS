@@ -61,6 +61,23 @@ export class SpriteAtlasGPU {
     return img ? { width: img.width, height: img.height } : { width: 0, height: 0 }
   }
 
+  /** iter-183 — fill-pattern Stage 2 entry point. Returns a texture
+   *  view for the loaded atlas, or null when the host hasn't
+   *  finished. Idempotent — repeated calls reuse the same view per
+   *  texture identity (texture only changes on `destroy` + re-load,
+   *  rare). Caller (map.ts) pushes the view into MapRenderer +
+   *  VectorTileRenderer via their setSpriteAtlas[View] setters. */
+  getView(): GPUTextureView | null {
+    const tex = this.ensure()
+    if (!tex) return null
+    if (this._cachedView && this._cachedViewTexture === tex) return this._cachedView
+    this._cachedView = tex.createView()
+    this._cachedViewTexture = tex
+    return this._cachedView
+  }
+  private _cachedView: GPUTextureView | null = null
+  private _cachedViewTexture: GPUTexture | null = null
+
   destroy(): void {
     this.texture?.destroy()
     this.texture = null
