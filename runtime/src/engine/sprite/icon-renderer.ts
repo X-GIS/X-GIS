@@ -89,6 +89,14 @@ struct VsOut {
 
 @fragment fn fs(in: VsOut) -> @location(0) vec4<f32> {
   let c = textureSample(atlas_tex, atlas_smp, in.uv);
+  // fwidth REQUIRES uniform control flow per WGSL spec — calling it
+  // inside a conditional (even with @interpolate(flat) on the gate
+  // varying) fails strict implementations with
+  //   "fwidth must only be called from uniform flow".
+  // Compute aa unconditionally; the raster path discards it. Cost is
+  // negligible (one fwidth + one max per fragment).
+  let d_for_aa = c.a;
+  let aa = max(fwidth(d_for_aa), 1e-4);
   if (in.sdf > 0.5) {
     // SDF sprite: the alpha channel holds an unsigned distance field
     // (0.5 = glyph edge, same encoding as the text atlas). fwidth-
@@ -96,9 +104,7 @@ struct VsOut {
     // SDF icons and SDF glyphs antialias identically at any zoom.
     // Colour comes entirely from icon-color (in.tint); the atlas
     // texel's RGB is meaningless for SDF sprites.
-    let d = c.a;
-    let aa = max(fwidth(d), 1e-4);
-    let cov = smoothstep(0.5 - aa, 0.5 + aa, d);
+    let cov = smoothstep(0.5 - aa, 0.5 + aa, c.a);
     return vec4<f32>(in.tint, cov * in.opacity);
   }
   // Raster sprite: straight texture sample. PNG is non-premultiplied;
