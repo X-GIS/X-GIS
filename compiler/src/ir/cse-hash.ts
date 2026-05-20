@@ -128,13 +128,65 @@ function canonicalArrayAccess(a: ArrayAccess): string {
 }
 
 function canonicalMatchBlock(m: MatchBlock): string {
-  // Match arms are POSITION-SENSITIVE — `{a -> X, b -> Y}` is NOT
-  // the same as `{b -> Y, a -> X}` (first-match semantics). Don't
-  // sort — preserve the source order.
-  const arms = m.arms
-    .map(a => `${a.pattern}->${canonicalExpr(a.value)}`)
-    .join(',')
-  return `M([${arms}])`
+  // iter-204B — canonical arm sort when SAFE. Mapbox match() spec:
+  // arms test in declared order, first-match wins. Position matters
+  // ONLY when two arms share the same pattern (which Mapbox spec
+  // technically forbids but partial / hand-edited styles may
+  // contain) OR when `_` (default) appears mid-list and would
+  // shadow later arms.
+  //
+  // When ALL non-default patterns are unique AND `_` (if present)
+  // is at the end, arm order is irrelevant to evaluation — and
+  // sorting brings two reordered-but-equivalent matches into a
+  // shared canonical string → shared cseId (Phase C.1) → shared
+  // compute kernel (Phase C.2). The pre-sort behaviour fell back
+  // to the WGSL fingerprint cache for these cases (shader-gen sorts
+  // at emit time), which works but costs an extra lower + emit per
+  // axis.
+  //
+  // The unsafe path (duplicate non-default patterns, `_` mid-list)
+  // preserves source order — same byte-stable output as pre-204B,
+  // so any consumer that asserted on the old format on such inputs
+  // sees no change.
+  const armStrings = m.arms.map(a => `${a.pattern}->${canonicalExpr(a.value)}`)
+  if (canSortArmsSafely(m)) {
+    // Pull out the `_` arm if present, sort the rest alphabetically,
+    // re-append the default at the tail.
+    const sortable: string[] = []
+    let defaultArm: string | null = null
+    for (let i = 0; i < m.arms.length; i++) {
+      if (m.arms[i]!.pattern === '_') defaultArm = armStrings[i]!
+      else sortable.push(armStrings[i]!)
+    }
+    sortable.sort()
+    if (defaultArm !== null) sortable.push(defaultArm)
+    return `M([${sortable.join(',')}])`
+  }
+  return `M([${armStrings.join(',')}])`
+}
+
+/** True iff sorting non-default arms of `m` would NOT change
+ *  evaluation semantics. Two conditions:
+ *    1. Non-default patterns are unique (no duplicate-pattern
+ *       arms where first wins).
+ *    2. `_` (default) appears AT MOST ONCE and only at the LAST
+ *       position. A mid-list `_` is technically invalid spec, but
+ *       guard defensively — sorting it to the end would change
+ *       which arms execute (the default would no longer shadow
+ *       later arms).
+ *  Conservative: returns false on any ambiguity. */
+function canSortArmsSafely(m: MatchBlock): boolean {
+  const seen = new Set<string>()
+  for (let i = 0; i < m.arms.length; i++) {
+    const p = m.arms[i]!.pattern
+    if (p === '_') {
+      if (i !== m.arms.length - 1) return false
+      continue
+    }
+    if (seen.has(p)) return false
+    seen.add(p)
+  }
+  return true
 }
 
 /** True when two expressions canonicalise to the same string —

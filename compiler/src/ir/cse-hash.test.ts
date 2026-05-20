@@ -137,7 +137,13 @@ describe('canonicalExpr — arrays + match + pipe', () => {
     })).toBe('Idx(I(xs);N(0))')
   })
 
-  it('MatchBlock arms are position-sensitive (first-match semantics)', () => {
+  it('MatchBlock arms are canonical-sorted when SAFE (unique patterns, default at tail)', () => {
+    // iter-204B — when non-default patterns are all unique AND `_`
+    // (if present) is at the tail, arm order is semantically
+    // irrelevant (Mapbox match() spec: first-match wins, but no two
+    // arms can match the same input when patterns are unique). The
+    // canonical form sorts arms alphabetically so two reordered-but-
+    // equivalent matches collapse to a shared cseId.
     const ab = matchBlock([
       { pattern: 'a', value: num(1) },
       { pattern: 'b', value: num(2) },
@@ -146,7 +152,46 @@ describe('canonicalExpr — arrays + match + pipe', () => {
       { pattern: 'b', value: num(2) },
       { pattern: 'a', value: num(1) },
     ])
-    expect(canonicalExpr(ab)).not.toBe(canonicalExpr(ba))
+    expect(canonicalExpr(ab)).toBe(canonicalExpr(ba))
+    expect(canonicalExpr(ab)).toBe('M([a->N(1),b->N(2)])')
+  })
+
+  it('MatchBlock `_` default arm stays at the tail of the sorted form', () => {
+    const withDefault = matchBlock([
+      { pattern: 'b', value: num(2) },
+      { pattern: 'a', value: num(1) },
+      { pattern: '_', value: num(0) },
+    ])
+    // Non-default arms sort; `_` re-appended at the end so the
+    // default-shadowing semantics is preserved at emit time.
+    expect(canonicalExpr(withDefault)).toBe('M([a->N(1),b->N(2),_->N(0)])')
+  })
+
+  it('MatchBlock arms with DUPLICATE patterns preserve source order (position-sensitive)', () => {
+    // Spec-illegal but defensive: when two arms share the same
+    // pattern, Mapbox match() takes the FIRST. Sorting could reorder
+    // the duplicate to the SECOND position and change which value
+    // wins. Conservative: preserve source order on this case.
+    const dup = matchBlock([
+      { pattern: 'a', value: num(2) },
+      { pattern: 'a', value: num(1) },
+      { pattern: 'b', value: num(3) },
+    ])
+    // Preserved as-authored — not sorted.
+    expect(canonicalExpr(dup)).toBe('M([a->N(2),a->N(1),b->N(3)])')
+  })
+
+  it('MatchBlock with `_` mid-list preserves source order (position-sensitive)', () => {
+    // `_` mid-list is technically invalid Mapbox spec but
+    // defensively we don't sort: a mid-list `_` would have
+    // shadowed every later arm. Sorting it to the tail would change
+    // which arms execute.
+    const midDefault = matchBlock([
+      { pattern: 'a', value: num(1) },
+      { pattern: '_', value: num(99) },
+      { pattern: 'b', value: num(2) },
+    ])
+    expect(canonicalExpr(midDefault)).toBe('M([a->N(1),_->N(99),b->N(2)])')
   })
 
   it('PipeExpr captures the transform order', () => {
