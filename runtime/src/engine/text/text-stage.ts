@@ -468,8 +468,12 @@ const SHAPING_DEFAULT_OFFSET = -17
 export interface MlVerticalLayout {
   /** Per-line baseline Y in px, relative to the label anchor
    *  (screen-down positive). The renderer converts baseline→quad-top
-   *  by subtracting each glyph's own bearingY. */
-  baselineY: number[]
+   *  by subtracting each glyph's own bearingY.
+   *
+   *  iter-242 — widened to `ArrayLike<number>` so FrameArena-backed
+   *  `Float32Array` views work as drop-in. Read-only access via `[i]`
+   *  + `length` — both Array<number> and Float32Array satisfy. */
+  baselineY: ArrayLike<number>
   /** Block bbox edges in px relative to the anchor (collision). */
   blockTop: number
   blockBottom: number
@@ -488,14 +492,31 @@ export interface MlVerticalLayout {
 export function mlVerticalLayout(
   vAlign: 0 | 0.5 | 1, lineCount: number,
   lineHeightPx: number, sizePx: number,
+  // iter-242 (Plan AAA B.2) — optional FrameArena for baselineY
+  // scratch. When provided, the per-line baseline array carves from
+  // the arena (no per-call allocation); when undefined (test seam),
+  // falls back to `new Array(n)`. The returned `baselineY` is a
+  // typed-array view that's only valid until the arena's next
+  // `beginFrame()` — consumers must read inside the same frame
+  // (matches the iter-241 advances lifetime contract).
+  arena?: FrameArena,
 ): MlVerticalLayout {
   const LH = lineHeightPx
   const n = lineCount
   const off = (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM
   const shiftY = -vAlign * n * LH + 0.5 * LH
-  bumpAlloc('text-stage.mlVerticalLayout.baselineY.Array')
-  const baselineY: number[] = new Array(n)
-  for (let li = 0; li < n; li++) baselineY[li] = li * LH + off + shiftY
+  let baselineY: ArrayLike<number>
+  if (arena !== undefined) {
+    bumpAlloc('text-stage.mlVerticalLayout.baselineY.FrameArena')
+    const view = arena.allocF32(n)
+    for (let li = 0; li < n; li++) view[li] = li * LH + off + shiftY
+    baselineY = view
+  } else {
+    bumpAlloc('text-stage.mlVerticalLayout.baselineY.Array')
+    const arr: number[] = new Array(n)
+    for (let li = 0; li < n; li++) arr[li] = li * LH + off + shiftY
+    baselineY = arr
+  }
   const blockTop = -vAlign * n * LH
   return { baselineY, blockTop, blockBottom: blockTop + n * LH }
 }
@@ -1330,7 +1351,9 @@ export class TextStage {
           (anchor === 'top' || anchor.startsWith('top-')) ? 0
           : (anchor === 'bottom' || anchor.startsWith('bottom-')) ? 1
           : 0.5
-        const vlay = mlVerticalLayout(vAlign, lines.length, lineHeightPx, sizePx)
+        // iter-242 (Plan AAA B.2) — pass arena so baselineY scratches
+        // from FrameArena instead of allocating a fresh `new Array`.
+        const vlay = mlVerticalLayout(vAlign, lines.length, lineHeightPx, sizePx, this._frameArena)
         if (variableMode) {
           // Per-anchor variable offset (MapLibre evaluateVariableOffset
           // / variable-anchor-offset), in em → scale by sizePx like
