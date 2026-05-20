@@ -268,11 +268,21 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
 
     const isTranslucentStroke =
       !safeMode && composedOpa < 0.999 && !!entry.show.stroke
-    // Translucent extruded fills route through Weighted-Blended OIT.
-    const isOitExtrude =
-      !safeMode && composedOpa < 0.999
-      && entry.show.extrude !== undefined
-      && entry.show.extrude.kind !== 'none'
+    // iter-191 — translucent extrude routing. Previously fed
+    // Weighted-Blended OIT (McGuire-Bavoil 2013, fs_oit_translucent
+    // + accum/revealage MRT compose). MapLibre uses straightforward
+    // alpha-blend with depth test + depth write — same artefacts
+    // (a translucent wall behind a closer translucent wall is
+    // partially occluded) but pixel-identical blend math. User
+    // pixel-diff at OFM Liberty #18.25/48.84778/2.33194/47.5/49.8
+    // showed building walls drift in the le32 — le128 bucket
+    // because OIT's weight function approximates the final colour
+    // differently from a back-to-front alpha blend. Falling back to
+    // the opaque fillPipelineExtruded (which already uses
+    // BLEND_ALPHA + STENCIL_WRITE) restores parity; the OIT
+    // pipeline stays built for future opt-in via a render flag.
+    const isOitExtrude = false
+    void composedOpa // referenced below in the stroke gate
     const noPick = entry.show.pointerEvents === 'none'
     const fp = noPick
       ? (entry.pipelines?.fillPipelineNoPick ?? defaults.fillPipelineNoPick ?? entry.pipelines?.fillPipeline ?? defaults.fillPipeline)
