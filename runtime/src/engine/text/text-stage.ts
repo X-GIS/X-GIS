@@ -1073,24 +1073,21 @@ export class TextStage {
       this._layoutCache.clear()
     }
     for (const p of this.pending) {
-      let glyphs: import('./sdf/glyph-atlas-host').GlyphInfo[]
-      const cacheKey = glyphsCacheKey(p.fontKey, p.text)
-      const cached = this._glyphsByTextCache.get(cacheKey)
-      if (cached !== undefined) {
-        // LRU touch: re-insert moves entry to the tail.
-        this._glyphsByTextCache.delete(cacheKey)
-        this._glyphsByTextCache.set(cacheKey, cached)
-        glyphs = cached
-      } else {
-        glyphs = this.host.ensureString(p.fontKey, p.text)
-        // Drop the OLDEST entry when capping; Map preserves insert
-        // order so the first key is the LRU.
-        if (this._glyphsByTextCache.size >= TextStage.GLYPHS_CACHE_MAX) {
-          const oldest = this._glyphsByTextCache.keys().next().value
-          if (oldest !== undefined) this._glyphsByTextCache.delete(oldest)
-        }
-        this._glyphsByTextCache.set(cacheKey, glyphs)
-      }
+      // iter-175 REVERT: the iter-167 glyphsByTextCache + iter-168
+      // layoutCache caused intermittent label corruption (user
+      // report 2026-05-20 OFM positron #7.54/36.227/128.513 —
+      // 한글 라벨이 깨져서 보여, e.g. "대전광역시" rendering as
+      // "광역" with missing/wrong chars). Root: cached GlyphInfo[]
+      // entries reference atlas-slot OBJECTS which the atlas-state
+      // reuses for different codepoints over the session. Even with
+      // a per-iteration eviction drain (iter-175 attempt), the
+      // shared-slot aliasing produced wrong glyphs across labels.
+      // Phase A label cache shipped iter-167/168 disabled here
+      // pending redesign (likely needs slot-generation indices on
+      // GlyphInfo or a cache value that copies pxX/pxY rather than
+      // referencing the live slot). #10 drag p95 -36% (slice 1) +
+      // -4% (slice 2) gains lost; correctness > perf.
+      const glyphs = this.host.ensureString(p.fontKey, p.text)
       // CSS-px → physical-px. The atlas is in physical px (anchors
       // arrive projected to canvas.width/height) so every length
       // sourced from the LabelDef has to scale by DPR.
@@ -1176,7 +1173,11 @@ export class TextStage {
       // labels skip the cache (their per-anchor offset evaluation
       // needs intricate fingerprinting; not worth the risk for the
       // small share of labels they cover in OFM-class styles).
-      const _isCacheable = !variableMode
+      // iter-175 REVERT — see iter-167 comment above. Layout cache
+      // disabled pending redesign; forced to false here so neither
+      // the lookup at L1180 nor the store at L1344 fires. Cache
+      // fields + helpers retained for the future redesign.
+      const _isCacheable = false && !variableMode
         && candidates.length === 1
         && p.def.rotate === undefined
       let _layoutKey: number | undefined
