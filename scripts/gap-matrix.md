@@ -25,8 +25,8 @@ Properties where the runtime currently degrades or drops a specific value-form.
 
 | Status | Count |
 |---|---:|
-| supported | 132 |
-| partial | 23 |
+| supported | 133 |
+| partial | 22 |
 | unsupported | 80 |
 | na | 7 |
 | **total** | **242** |
@@ -59,7 +59,6 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | fill-antialias | low | Default `true` is X-GIS' permanent contract — fragment shader smoothsteps every fill edge. OFM bright `building` / `road_area_pier` / `road_pier` author `true` explicitly = no-op match. OFM liberty `landcover_wood`/`grass`/`ice` set `false` for a pixel-art look; that opt-out (4 liberty layers) is not yet implemented and renders smooth instead of stepped. Iter 14 added a specific gap warning when `false` is authored explicitly so the gap surfaces rather than silently dropping. |
 | fill-translate | low | Constant vec2 + zoom-interp last-stop approx end-to-end. Runtime WGSL u.fill_translate_x/y adds CSS-px offset converted to NDC at vs_main (`clip.xy += u.fill_translate * clip.w`). OFM building-top pseudo-3D roof offset honoured. Full per-frame zoom-interp deferred. Iter 501 + 508 shipped 2026-05-18. |
 | line-dasharray | medium | Constant numeric array only — interpolate-by-zoom dasharray not lowered. Iter 27 sharpened the non-constant warning to name the specific shape (zoom-interp needs PropertyShape<array>; data-driven needs per-feature dash plumbing). |
-| line-pattern | low | iter-178 Stage 1 landed 2026-05-20: compiler emits `stroke-pattern-<name>` utility; lower.ts threads it into ShowCommand.linePattern; map.ts samples the sprite's centre pixel and stores it as `resolvedStrokeRgba`. Lines whose only stroke declaration was `line-pattern: X` now render in the sprite's intended colour band instead of staying invisible. Stage 2 (true repeating-sprite stroke renderer with along-line UV) still pending — visual is a flat colour, not the repeating bitmap pattern MapLibre renders. Constant string form only. |
 | circle-stroke-opacity | low | Constant numeric form folds into stroke-color hex alpha (iter 4, Plan §4 partial landing — same pattern later applied to background-opacity in iter 47). Zoom-interp / data-driven forms still warn + drop — need a dedicated paint shape for per-frame uniform multiplication. |
 | fill-extrusion-translate | low | iter-180 routed through addFillTranslate alongside fill-translate. The fill-extrusion vertex shaders (vs_main_quantized + vs_main_quantized_extruded) already apply u.fill_translate_x/y; the converter just stopped dropping the value. Constant vec2 + zoom-interp last-stop approximation supported. Full per-frame zoom-interp deferred (mirror of fill-translate). |
 | fill-extrusion-pattern | low | iter-179 Stage 1 landed 2026-05-20: compiler routes fill-extrusion-pattern through the same `fill-pattern-<name>` utility as iter-177, since the extrude renderer multiplies the layer fill RGBA by wall_shade in the fragment shader. Pattern-only building styles now render walls in the sprite's centre-pixel colour band instead of uncoloured. Stage 2 (real UV-tiling fragment shader on walls + roof) still pending. Constant string form only. |

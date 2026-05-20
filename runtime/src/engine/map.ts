@@ -2963,14 +2963,37 @@ export class XGISMap {
     // centre pixel into `resolvedStrokeRgba` so polygon outlines and
     // line layers whose only stroke declaration was a `line-pattern`
     // get a visible colour instead of staying black/transparent.
+    // iter-185 — adds Stage 2 line-pattern UV bbox + repeat metres
+    // alongside the Stage 1 colour fallback. VTR routes pattern shows
+    // to `linePipelinePattern` when both fields are set; otherwise
+    // falls through to the Stage 1 solid stroke colour.
     for (const show of this.showCommands) {
       const name = show.linePattern
       if (!name) continue
-      if (show.resolvedStrokeRgba) continue
-      const px = host.getSpriteCenterColor(name)
-      if (!px) continue
-      show.resolvedStrokeRgba = [px[0] / 255, px[1] / 255, px[2] / 255, px[3] / 255]
-      invalidateResolvedShowCache(show)
+      if (!show.resolvedStrokeRgba) {
+        const px = host.getSpriteCenterColor(name)
+        if (px) {
+          show.resolvedStrokeRgba = [px[0] / 255, px[1] / 255, px[2] / 255, px[3] / 255]
+          invalidateResolvedShowCache(show)
+        }
+      }
+      // Stage 2 — UV bbox + repeat metres (same math as fill-pattern).
+      if (!show.linePatternUV && atlasSize.width > 0) {
+        const sprite = host.get(name)
+        if (sprite) {
+          const u0 = sprite.x / atlasSize.width
+          const v0 = sprite.y / atlasSize.height
+          const u1 = (sprite.x + sprite.width) / atlasSize.width
+          const v1 = (sprite.y + sprite.height) / atlasSize.height
+          show.linePatternUV = [u0, v0, u1, v1]
+        }
+      }
+      const sprite = host.get(name)
+      if (sprite) {
+        const cssW = sprite.width / Math.max(sprite.pixelRatio, 1)
+        const cssH = sprite.height / Math.max(sprite.pixelRatio, 1)
+        show.linePatternRepeatM = [cssW * metersPerCssPx, cssH * metersPerCssPx]
+      }
     }
   }
 

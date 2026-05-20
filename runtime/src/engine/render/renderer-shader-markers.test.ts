@@ -109,9 +109,11 @@ describe('background-renderer shader markers', () => {
 })
 
 describe('PICK token count sanity (multiplicity invariant)', () => {
-  it('LINE_SHADER_SOURCE: __PICK_FIELD__ ×1, __PICK_WRITE__ ×1', () => {
+  it('LINE_SHADER_SOURCE: __PICK_FIELD__ ×1, __PICK_WRITE__ ×2', () => {
     expect(countOccurrences(LINE_SHADER_SOURCE, '__PICK_FIELD__')).toBe(1)
-    expect(countOccurrences(LINE_SHADER_SOURCE, '__PICK_WRITE__')).toBe(1)
+    // iter-185 added fs_line_pattern (line-pattern Stage 2) which also
+    // emits a __PICK_WRITE__. Count is now 2: fs_line + fs_line_pattern.
+    expect(countOccurrences(LINE_SHADER_SOURCE, '__PICK_WRITE__')).toBe(2)
   })
 
   it('RASTER_SHADER_SOURCE: __PICK_FIELD__ ×1, __PICK_WRITE__ ×1', () => {

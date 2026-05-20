@@ -919,6 +919,12 @@ export interface ShowCommand {
    *  `resolvedFillRgba` centre-pixel colour remains as the fallback. */
   fillPatternUV?: [number, number, number, number] | null  // (u0, v0, u1, v1)
   fillPatternRepeatM?: [number, number] | null             // metres per pattern tile
+  /** iter-185 — line-pattern Stage 2 mirror. Populated by
+   *  `map.ts._resolveFillPatterns`; VTR routes pattern shows to
+   *  `linePipelinePattern` + writes UV bbox into stroke_color slot
+   *  and repeat metres into layer.color.r / .a. */
+  linePatternUV?: [number, number, number, number] | null
+  linePatternRepeatM?: [number, number] | null
   /** iter-178 Mapbox `paint.line-pattern` constant sprite name —
    *  stroke-side mirror of fillPattern. Map.ts writes the resolved
    *  sprite centre RGBA into `resolvedStrokeRgba`. */

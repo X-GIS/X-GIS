@@ -208,6 +208,13 @@ struct TileUniforms {
   clip_bounds: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> tile: TileUniforms;
+// iter-185 — line-pattern Stage 2 sprite atlas. Same bindings as the
+// polygon shader (iter 181/182). Tile bind group layout is shared
+// with VTR so the texture + sampler are already attached by the
+// renderer side; the line shader just has to declare them to read
+// the atlas in fs_line_pattern.
+@group(0) @binding(5) var sprite_atlas: texture_2d<f32>;
+@group(0) @binding(6) var sprite_samp: sampler;
 
 ${WGSL_LOG_DEPTH_FNS}
 ${WGSL_PROJECTION_FNS}
@@ -1350,6 +1357,51 @@ fn fs_line(in: LineOut) -> LineFragmentOutput {
   return out;
 }
 
+// iter-185 — line-pattern Stage 2 fragment. Mirrors fs_fill_pattern
+// (renderer.ts iter 182) but on the SDF line geometry. World-anchored
+// UV via abs_merc / repeat_m (along + transverse share the same world
+// scale, so the bitmap stays anchored to the ground as the camera
+// pans / zooms). Stage 2.1 (true along-line UV using segment arc
+// length + transverse stroke v) is a follow-up.
+//
+// Pattern parameters reuse uniform slots:
+//   tile.stroke_color.rgba = (u0, v0, u1, v1) atlas-UV bbox
+//   layer.color.r = repeat_x metres, layer.color.a = repeat_y metres
+// (VTR writeLayerSlot caller overrides those channels for pattern
+// shows; the per-tile shared TileUniforms is untouched.)
+@fragment
+fn fs_line_pattern(in: LineOut) -> LineFragmentOutput {
+  // Preserve fs_line's SDF + alpha + rim + clip discards by piggy-
+  // backing on compute_line_color, then OVERRIDE the rgb with the
+  // sprite sample. compute_line_color already applied alpha + clip
+  // + backface; we use its alpha and replace the color band.
+  let base = compute_line_color(in);
+  let abs_merc = in.world_local + tile.tile_origin_merc;
+  // Pattern repeat metres come from the layer uniform (writeLayerSlot
+  // overrides color.r/.a for pattern shows). Guard against zero so
+  // a misconfigured layer doesn't divide by zero.
+  let repeat_x = max(layer.color.r, 1.0);
+  let repeat_y = max(layer.color.a, 1.0);
+  let uv_local = vec2<f32>(
+    fract(abs_merc.x / repeat_x),
+    fract(abs_merc.y / repeat_y),
+  );
+  // Sprite UV bbox lives in tile.stroke_color slot — VTR overrides
+  // it per show via uf[20..23] when the pattern pipeline is active.
+  let u0 = tile.stroke_color.r; let v0 = tile.stroke_color.g;
+  let u1 = tile.stroke_color.b; let v1 = tile.stroke_color.a;
+  let atlas_uv = vec2<f32>(
+    u0 + uv_local.x * (u1 - u0),
+    v0 + uv_local.y * (v1 - v0),
+  );
+  let sampled = textureSample(sprite_atlas, sprite_samp, atlas_uv);
+  var out: LineFragmentOutput;
+  out.color = vec4<f32>(sampled.rgb, sampled.a * base.a * line_rim_alpha(in));
+  __PICK_WRITE__
+  out.depth = compute_log_frag_depth(in.view_w, tile.log_depth_fc);
+  return out;
+}
+
 // Max-blend path: targets an offscreen color-only attachment (no depth).
 // Writing @builtin(frag_depth) here trips WebGPU's "shader writes frag
 // depth but no depth texture set" validation, so this entry point skips
@@ -1375,6 +1427,10 @@ export class LineRenderer {
    *  RT. Max blending eliminates within-layer alpha accumulation at corner
    *  overlaps and self-intersections. */
   private pipelineMax!: GPURenderPipeline
+  /** iter-185 — line-pattern Stage 2 pipeline (fs_line_pattern,
+   *  alpha-blend, same layout as `pipeline`). Selected by
+   *  `pipelineFor` when the show has a resolved line-pattern UV. */
+  private pipelinePattern!: GPURenderPipeline
   private tileBindGroupLayout: GPUBindGroupLayout
   private layerBindGroupLayout: GPUBindGroupLayout
   private shapeRegistry: ShapeRegistry | null = null
@@ -1511,6 +1567,30 @@ export class LineRenderer {
       primitive: { topology: 'triangle-list', cullMode: 'none' },
     })
 
+    // iter-185 — line-pattern Stage 2 pipeline. Same vertex + bind
+    // group layout as the standard `pipeline`; fragment routes to
+    // `fs_line_pattern` which samples the sprite atlas at world-
+    // anchored UV. Selected by `pipelineFor` when the show has a
+    // resolved line-pattern UV bbox.
+    this.pipelinePattern = this.device.createRenderPipeline({
+      label: 'line-pipeline-pattern',
+      layout: linePipelineLayout,
+      vertex: { module, entryPoint: 'vs_line' },
+      fragment: {
+        module,
+        entryPoint: 'fs_line_pattern',
+        targets: isPickEnabled()
+          ? [
+              { format: this.format, blend: BLEND_ALPHA },
+              { format: 'rg32uint' as GPUTextureFormat, writeMask: 0 },
+            ]
+          : [{ format: this.format, blend: BLEND_ALPHA }],
+      },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: DEPTH_READ_ONLY,
+      multisample: { count: getSampleCount() },
+    })
+
     // ── Composite pipeline ──
     this.compositeBindGroupLayout = this.device.createBindGroupLayout({
       entries: [
@@ -1645,9 +1725,14 @@ export class LineRenderer {
   }
 
   /** Used by VTR to pick the right pipeline depending on whether the
-   *  current pass is the offscreen translucent pass. */
-  getDrawPipeline(translucent: boolean): GPURenderPipeline {
-    return translucent ? this.pipelineMax : this.pipeline
+   *  current pass is the offscreen translucent pass + whether the
+   *  show wants line-pattern Stage 2. Pattern shows route to
+   *  `pipelinePattern`; translucent pattern falls back to the
+   *  max-blend opaque-colour pipeline (Stage 2.1 will add a pattern
+   *  max variant). */
+  getDrawPipeline(translucent: boolean, patternActive = false): GPURenderPipeline {
+    if (translucent) return this.pipelineMax
+    return patternActive ? this.pipelinePattern : this.pipeline
   }
 
   setShapeRegistry(registry: ShapeRegistry): void {
@@ -1801,6 +1886,7 @@ export class LineRenderer {
     tileOffset: number,
     layerOffset: number,
     translucent: boolean = false,
+    patternActive: boolean = false,
   ): void {
     if (segmentCount === 0) return
     // Overdraw-debug v1: SDF stroke pipeline targets the swapchain
@@ -1808,7 +1894,7 @@ export class LineRenderer {
     // don't contribute to the v1 heatmap. Phase 2 adds an additive
     // r16float variant so line overdraw counts too.
     if (DEBUG_OVERDRAW) return
-    pass.setPipeline(translucent ? this.pipelineMax : this.pipeline)
+    pass.setPipeline(this.getDrawPipeline(translucent, patternActive))
     pass.setBindGroup(0, tileBindGroup, [tileOffset])
     pass.setBindGroup(1, layerBindGroup, [layerOffset])
     pass.draw(6, segmentCount)

@@ -367,6 +367,11 @@ export class VectorTileRenderer {
   private _patternUniformActive = false
   private _patternRepeatMX = 1
   private _patternRepeatMY = 1
+  /** iter-185 — line-pattern Stage 2 per-show flag. True when the
+   *  current `render()` call's show has a resolved line-pattern UV
+   *  bbox + repeat AND lineRenderer is wired. Read by the deferred
+   *  drawSegments() pass to route through `pipelinePattern`. */
+  private _linePatternActiveForShow = false
   /** Extrude routing for the current `render()` call.
    *   - 'none': flat polygon, no z lift
    *   - 'uniform': all features at currentExtrudeHeight (flat pipeline,
@@ -3392,8 +3397,22 @@ export class VectorTileRenderer {
       uf[18] = this.cachedFillColor[2]; uf[19] = this.cachedFillColor[3] * this.currentOpacity
       this._patternUniformActive = false
     }
-    uf[20] = this.cachedStrokeColor[0]; uf[21] = this.cachedStrokeColor[1]
-    uf[22] = this.cachedStrokeColor[2]; uf[23] = this.cachedStrokeColor[3] * this.currentOpacity
+    // iter-185 — line-pattern Stage 2 packs the sprite atlas UV bbox
+    // into the stroke_color slot (20-23). fs_line_pattern reads
+    // (u0, v0, u1, v1) from tile.stroke_color. Pattern shows trade
+    // their solid stroke colour for the atlas sample; documented in
+    // the line-pattern partial → supported promotion (iter 186).
+    const linePatternSlotsActive = show.linePatternUV != null
+      && show.linePatternRepeatM != null
+      && this.lineRenderer != null
+    this._linePatternActiveForShow = linePatternSlotsActive
+    if (linePatternSlotsActive) {
+      const lu = show.linePatternUV!
+      uf[20] = lu[0]; uf[21] = lu[1]; uf[22] = lu[2]; uf[23] = lu[3]
+    } else {
+      uf[20] = this.cachedStrokeColor[0]; uf[21] = this.cachedStrokeColor[1]
+      uf[22] = this.cachedStrokeColor[2]; uf[23] = this.cachedStrokeColor[3] * this.currentOpacity
+    }
     uf[24] = projType; uf[25] = projCenterLon; uf[26] = projCenterLat; uf[27] = 0
 
     // Allocate + write SDF line layer slot for this render() call. All
@@ -3494,8 +3513,20 @@ export class VectorTileRenderer {
       const gapWidth = show.strokeGapWidth ?? 0
       const halfGap = gapWidth > 0 ? (gapWidth + strokeWidthPx) / 2 : 0
 
+      // iter-185 — line-pattern Stage 2 override. When the show has a
+      // resolved pattern repeat, replace strokeColor.r / .a with the
+      // x / y repeat metres (fs_line_pattern reads layer.color.r/.a
+      // as repeat axes). Stage 1 resolvedStrokeRgba is lost on the
+      // pattern path, but the sprite atlas sample provides the visual
+      // colour band — documented Stage 2 trade-off (mirror of
+      // fill-pattern's fill_color slot reuse).
+      const linePatternActive = show.linePatternUV != null && show.linePatternRepeatM != null
+      const lineSlotColor: [number, number, number, number] = linePatternActive
+        ? [show.linePatternRepeatM![0], 0, 0, show.linePatternRepeatM![1]]
+        : [this.cachedStrokeColor[0], this.cachedStrokeColor[1], this.cachedStrokeColor[2], this.cachedStrokeColor[3]]
+
       lineLayerOffset = this.lineRenderer.writeLayerSlot(
-        [this.cachedStrokeColor[0], this.cachedStrokeColor[1], this.cachedStrokeColor[2], this.cachedStrokeColor[3]],
+        lineSlotColor,
         strokeWidthPx,
         layerOpacity,
         mpp,
@@ -4644,10 +4675,10 @@ export class VectorTileRenderer {
         for (let i = 0; i < strokeQueue.length; i++) {
           const { cached, slotOffset } = strokeQueue[i]
           if (cached.outlineSegmentCount > 0 && cached.outlineSegmentBindGroup) {
-            this.lineRenderer.drawSegments(pass, currentLineTileBg2, cached.outlineSegmentBindGroup, cached.outlineSegmentCount, slotOffset, lo, translucentLines)
+            this.lineRenderer.drawSegments(pass, currentLineTileBg2, cached.outlineSegmentBindGroup, cached.outlineSegmentCount, slotOffset, lo, translucentLines, this._linePatternActiveForShow)
           }
           if (cached.lineSegmentCount > 0 && cached.lineSegmentBindGroup) {
-            this.lineRenderer.drawSegments(pass, currentLineTileBg2, cached.lineSegmentBindGroup, cached.lineSegmentCount, slotOffset, lo, translucentLines)
+            this.lineRenderer.drawSegments(pass, currentLineTileBg2, cached.lineSegmentBindGroup, cached.lineSegmentCount, slotOffset, lo, translucentLines, this._linePatternActiveForShow)
           }
         }
       }
