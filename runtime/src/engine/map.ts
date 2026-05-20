@@ -4202,6 +4202,19 @@ export class XGISMap {
               // 'map' (= tangent), matching the historical behaviour.
               const lineRotAlign = effectiveDef.rotationAlignment ?? 'auto'
               const useTangentRotation = lineRotAlign !== 'viewport'
+              // iter-176 pairKey-by-sequence: pre-iter-176 the pair key
+              // was `${layer}:${Math.round(x)},${Math.round(y)}` —
+              // unstable across frames (sub-pixel camera drift flips
+              // the rounding) AND prone to STRING-collisions between
+              // two near-anchored labels (both round to same coords).
+              // Symptom: highway shield box appears/disappears as
+              // user pans (user report 2026-05-20 OFM bright Seoul
+              // Yangjaecheon). Replace with a monotonic per-line-walk
+              // counter — text + icon at the SAME emitLabelAlongSegment
+              // call share the same seq; different anchors get
+              // different seqs; deterministic across frames as long as
+              // the polyline walk is (iter-169 cache makes it so).
+              let _lineLabelSeq = 0
               const emitLabelAlongSegment = (
                 pax: number, pay: number, pbx: number, pby: number,
                 t: number, props: Record<string, unknown>,
@@ -4244,7 +4257,7 @@ export class XGISMap {
                   && featDef.iconImage !== null
                   && featDef.iconImage !== ''
                 const pairKey = pairedWithIcon
-                  ? `${labelLayerName ?? ''}:${Math.round(x)},${Math.round(y)}`
+                  ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
                   : undefined
                 if (useTangentRotation) {
                   let angleDeg = rawTangentDeg
