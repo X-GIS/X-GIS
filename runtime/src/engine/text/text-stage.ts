@@ -1396,8 +1396,15 @@ export class TextStage {
         // differently and was the source of the #140 double-count.
         // Offsets are pure deltas from the draw anchor (drawX/drawY);
         // the renderer does base = d.anchor + offset.
-        bumpAlloc('text-stage.prepare.glyphOffsets.point.Float32Array')
-        const glyphOffsets = new Float32Array(glyphs.length * 2)
+        // iter-245 (Plan AAA B.3 prototype) — copy-on-cache pattern.
+        // Allocate from arena (frame-scope) for the immediate render
+        // path. If this layout is cacheable (see store site below),
+        // a permanent `Float32Array(view)` copy is allocated at
+        // cache-store time. Cache HITs return the permanent copy
+        // (line ~1303), so the arena view is only valid within
+        // THIS frame's prepare→render sequence.
+        bumpAlloc('text-stage.prepare.glyphOffsets.point.FrameArena')
+        const glyphOffsets = this._frameArena.allocF32(glyphs.length * 2)
         {
           // text-justify: auto resolves per anchor — left-anchors →
           // left, right-anchors → right, else center.
@@ -1450,12 +1457,18 @@ export class TextStage {
             const oldest = this._layoutCache.keys().next().value
             if (oldest !== undefined) this._layoutCache.delete(oldest)
           }
+          // iter-245 (Plan AAA B.3) — copy arena view to a permanent
+          // heap-backed Float32Array for cache storage. The arena
+          // view is only valid until next beginFrame; the cache
+          // outlives many frames, so it must hold its own bytes.
+          // `new Float32Array(view)` copies the underlying data.
+          const cachedGlyphOffsets = new Float32Array(glyphOffsets)
           this._layoutCache.set(_layoutKey, {
             dx, dy,
             totalAdvance, padding,
             blockTop: vlay.blockTop,
             blockBottom: vlay.blockBottom,
-            glyphOffsets, glyphs,
+            glyphOffsets: cachedGlyphOffsets, glyphs,
             generation: this.host.getGeneration(),
             haloGeom: haloOut
               ? {
