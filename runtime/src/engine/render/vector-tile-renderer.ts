@@ -77,6 +77,11 @@ interface GPUTile {
    *  path (z carries the bottom-vs-top distinction directly). Null on
    *  flat polygon tiles. */
   zBuffer: GPUBuffer | null
+  /** Phase 6a.4 (iter-210) — z-buffer byte offset into the shared
+   *  z-arena. 0 when `zBuffer` is null (no extruded data). */
+  zBufferOffset: number
+  /** Phase 6a.4 — aligned byte length of z-buffer slice. */
+  zBufferByteLength: number
   lineVertexBuffer: GPUBuffer | null
   lineIndexBuffer: GPUBuffer | null
   lineIndexCount: number
@@ -553,6 +558,23 @@ export class VectorTileRenderer {
       })
     }
     return this.polyIndexArena
+  }
+
+  /** Phase 6a.4 (iter-210) — z-attribute arena. Per-vertex z (world
+   *  metres) for extruded polygons. Smaller pool — only extruded
+   *  tiles (e.g. fill-extrusion buildings) write here. */
+  private zBufferArena: GPUArena | null = null
+  private static readonly Z_BUFFER_ARENA_CAPACITY = 32 * 1024 * 1024
+
+  private getOrCreateZBufferArena(): GPUArena {
+    if (this.zBufferArena === null) {
+      this.zBufferArena = new GPUArena(this.device, {
+        capacityBytes: VectorTileRenderer.Z_BUFFER_ARENA_CAPACITY,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        label: 'z-buffer-arena',
+      })
+    }
+    return this.zBufferArena
   }
 
   /** Tiered MAP_WRITE | COPY_SRC pool used by the async upload path
@@ -1098,12 +1120,13 @@ export class VectorTileRenderer {
           tile.featureDataBuffer?.destroy()
         }
       }
-      // Phase 6a.2/6a.3 — reset both arenas (keep GPU buffers alive
-      // for next upload). reset() bounces the bump pointer to 0 +
-      // clears the free-list — same effect as destroy + recreate
+      // Phase 6a.2/6a.3/6a.4 — reset every arena (keep GPU buffers
+      // alive for next upload). reset() bounces the bump pointer to
+      // 0 + clears the free-list — same effect as destroy + recreate
       // but without the GPU allocation cost.
       this.polyVertexArena?.reset()
       this.polyIndexArena?.reset()
+      this.zBufferArena?.reset()
       this.gpuCache.clear()
       this._gpuCacheCount = 0
     }
@@ -1568,11 +1591,13 @@ export class VectorTileRenderer {
     }
     this.gpuCache.clear()
     this._gpuCacheCount = 0
-    // Phase 6a.2/6a.3 — release both arenas' underlying GPU buffers.
+    // Phase 6a.2/6a.3/6a.4 — release every arena's GPU buffer.
     this.polyVertexArena?.destroy()
     this.polyVertexArena = null
     this.polyIndexArena?.destroy()
     this.polyIndexArena = null
+    this.zBufferArena?.destroy()
+    this.zBufferArena = null
 
     this.featureDataBuffer?.destroy()
     this.featureDataBuffer = null
@@ -2136,14 +2161,16 @@ export class VectorTileRenderer {
     const indexBuffer = polyIndexArena.buffer
     this.device.queue.writeBuffer(indexBuffer, polyIndexOffset, polyIndices)
 
+    // Phase 6a.4 (iter-210) — z-buffer from shared arena.
     let zBuffer: GPUBuffer | null = null
+    let zBufferOffset = 0
+    let zBufferByteLength = 0
     if (zAttribute) {
-      zBuffer = this.acquireBuffer(
-        Math.max(zAttribute.byteLength, 4),
-        GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        'tile-z-attr',
-      )
-      this.device.queue.writeBuffer(zBuffer, 0, zAttribute)
+      const zArena = this.getOrCreateZBufferArena()
+      zBufferByteLength = Math.max(zAttribute.byteLength, 4)
+      zBufferOffset = zArena.alloc(zBufferByteLength)
+      zBuffer = zArena.buffer
+      this.device.queue.writeBuffer(zBuffer, zBufferOffset, zAttribute)
     }
 
     let lineVertexBuffer: GPUBuffer | null = null
@@ -2271,7 +2298,7 @@ export class VectorTileRenderer {
       vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
       polyIndexOffset, polyIndexByteLength,
       indexCount: polyIndices.length,
-      zBuffer,
+      zBuffer, zBufferOffset, zBufferByteLength,
       lineVertexBuffer, lineIndexBuffer,
       lineIndexCount: data.lineIndices.length,
       outlineIndexBuffer, outlineIndexCount,
@@ -2395,14 +2422,16 @@ export class VectorTileRenderer {
     writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, vertexBuffer, polyVertexOffset, polyVerts))
     writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, indexBuffer, polyIndexOffset, polyIndices))
 
+    // Phase 6a.4 (iter-210) — z-buffer async path mirror.
     let zBuffer: GPUBuffer | null = null
+    let zBufferOffset = 0
+    let zBufferByteLength = 0
     if (zAttribute) {
-      zBuffer = this.acquireBuffer(
-        Math.max(zAttribute.byteLength, 4),
-        GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        'tile-z-attr',
-      )
-      writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, zBuffer, 0, zAttribute))
+      const zArena = this.getOrCreateZBufferArena()
+      zBufferByteLength = Math.max(zAttribute.byteLength, 4)
+      zBufferOffset = zArena.alloc(zBufferByteLength)
+      zBuffer = zArena.buffer
+      writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, zBuffer, zBufferOffset, zAttribute))
     }
 
     let lineVertexBuffer: GPUBuffer | null = null
@@ -2529,7 +2558,7 @@ export class VectorTileRenderer {
       vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
       polyIndexOffset, polyIndexByteLength,
       indexCount: polyIndices.length,
-      zBuffer,
+      zBuffer, zBufferOffset, zBufferByteLength,
       lineVertexBuffer, lineIndexBuffer,
       lineIndexCount: data.lineIndices.length,
       outlineIndexBuffer, outlineIndexCount,
@@ -4741,7 +4770,13 @@ export class VectorTileRenderer {
         // at 0 since `firstIndex` already addresses indices relative
         // to that sub-range.
         pass.setVertexBuffer(0, cached.vertexBuffer, cached.polyVertexOffset, cached.polyVertexByteLength)
-        if (useOitPipe || useExtrudedPipe) pass.setVertexBuffer(1, cached.zBuffer!)
+        // Phase 6a.4 — z-buffer now from shared arena; pass per-tile
+        // offset + length. `zBuffer` non-null implies the arena was
+        // populated for this tile (zBufferOffset/Length carry the
+        // sub-range; flat tiles have zBuffer=null + offset=0).
+        if (useOitPipe || useExtrudedPipe) {
+          pass.setVertexBuffer(1, cached.zBuffer!, cached.zBufferOffset, cached.zBufferByteLength)
+        }
         // Phase 6a.3 — index buffer is now the shared arena's
         // GPUBuffer; pass the per-tile byte offset + length to bind
         // only this tile's index sub-range. firstIndex stays at 0.
@@ -4895,7 +4930,12 @@ export class VectorTileRenderer {
         if (this.polyIndexArena !== null) {
           this.polyIndexArena.free(tile.polyIndexOffset, tile.polyIndexByteLength)
         }
-        this.releaseBuffer(tile.zBuffer)
+        // Phase 6a.4 — z-buffer arena slice release. Flat (non-
+        // extruded) tiles have zBufferByteLength === 0; arena.free
+        // is a silent no-op in that case (GPUArena guards bytes<=0).
+        if (this.zBufferArena !== null && tile.zBufferByteLength > 0) {
+          this.zBufferArena.free(tile.zBufferOffset, tile.zBufferByteLength)
+        }
         this.releaseBuffer(tile.lineVertexBuffer)
         this.releaseBuffer(tile.lineIndexBuffer)
         this.releaseBuffer(tile.outlineIndexBuffer)
