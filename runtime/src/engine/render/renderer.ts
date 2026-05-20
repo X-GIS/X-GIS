@@ -1737,6 +1737,17 @@ export class MapRenderer {
       texture: { sampleType: 'float' as const, viewDimension: '2d' as const } },
     { binding: 4, visibility: /* FRAGMENT */ 2,
       sampler: { type: 'filtering' as const } },
+    // iter-197 — sprite atlas binding 5 + sampler binding 6 (iter-181/182
+    // additions). Drift caught at compute=1 + OFM Bright z=10 Seoul: the
+    // compute-extended layout (built from this static via
+    // `extendBindGroupLayoutEntriesForCompute`) was missing 5/6 while
+    // `paletteLayoutEntries` (the non-compute path's source of truth)
+    // already included them. VTR's `per-tile-feature-bg` BindGroup binds
+    // 5/6 unconditionally → validation error on compute path only.
+    { binding: 5, visibility: /* FRAGMENT */ 2,
+      texture: { sampleType: 'float' as const, viewDimension: '2d' as const } },
+    { binding: 6, visibility: /* FRAGMENT */ 2,
+      sampler: { type: 'filtering' as const } },
   ]
 
   /** Rebuild all pipelines + invalidate shader variant cache. Called by
