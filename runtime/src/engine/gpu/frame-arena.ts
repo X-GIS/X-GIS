@@ -104,11 +104,30 @@ export class FrameArena {
     const aligned = (this.watermark + align - 1) & ~(align - 1)
     const next = aligned + bytes
     if (next > this.buffer.byteLength) {
-      throw new RangeError(
-        `FrameArena overflow: alloc(${bytes}, align=${align}) at watermark ${this.watermark} `
-        + `would push past capacity ${this.buffer.byteLength}. Call beginFrame() first or `
-        + `pre-grow via reserve().`,
-      )
+      // iter-251 — mid-frame auto-grow. Pre-iter-251 the arena
+      // THREW on overflow, which caused runtime fatal errors on the
+      // first frame where a peak exceeded the initial capacity
+      // before beginFrame had a chance to grow. Now we grow + copy
+      // the existing watermark contents into a new larger buffer.
+      //
+      // CAVEAT: existing views handed out earlier in THIS frame
+      // become detached (their `.buffer` is the OLD ArrayBuffer
+      // which is no longer this arena's backing store). Reads
+      // through those views still work (they're typed-array views
+      // over the old buffer which holds the data we just copied
+      // — V8 keeps the old buffer alive while any view references
+      // it), but WRITES through them do NOT reach the new buffer.
+      // Caller code that mutates a view after another alloc fired
+      // would be incorrect anyway — by spec the arena is bump-only
+      // and downstream allocations may collide with upstream views.
+      // No call site in X-GIS today mutates an old view after a
+      // new alloc, so this is safe in practice.
+      const newCap = Math.max(next * 2, Math.ceil(this.buffer.byteLength * FrameArena.GROW_FACTOR))
+      const aligned16 = (newCap + 15) & ~15
+      const newBuf = new ArrayBuffer(aligned16)
+      new Uint8Array(newBuf).set(new Uint8Array(this.buffer, 0, this.watermark))
+      this.buffer = newBuf
+      this.grows++
     }
     this.watermark = next
     return new Uint8Array(this.buffer, aligned, bytes)

@@ -98,9 +98,34 @@ describe('FrameArena — reserve + overflow', () => {
     expect(a.getStats().grows).toBe(0)
   })
 
-  it('alloc throws RangeError on overflow', () => {
+  it('alloc auto-grows on overflow (iter-251)', () => {
     const a = new FrameArena(64)
-    expect(() => a.alloc(128)).toThrowError(/FrameArena overflow/)
+    // 128-byte alloc exceeds initial 64-byte capacity.
+    // Pre-iter-251 threw; post-iter-251 grows + copies + returns
+    // a valid view at the alloc site.
+    const view = a.alloc(128)
+    expect(view.byteLength).toBe(128)
+    expect(a.getStats().capacityBytes).toBeGreaterThanOrEqual(128)
+    expect(a.getStats().grows).toBe(1)
+  })
+
+  it('mid-frame grow preserves prior watermark contents', () => {
+    const a = new FrameArena(64)
+    // Fill some bytes, then trigger overflow.
+    const before = a.alloc(40)
+    before[0] = 0xAB
+    before[1] = 0xCD
+    // This alloc triggers grow + copy.
+    const after = a.alloc(64)
+    expect(after.byteLength).toBe(64)
+    // Prior view's bytes (read-only) still readable via the OLD
+    // buffer — but a fresh view at the same offset on the new
+    // buffer should also show the copied data.
+    const recovered = new Uint8Array(
+      (a as unknown as { buffer: ArrayBuffer }).buffer, 0, 40,
+    )
+    expect(recovered[0]).toBe(0xAB)
+    expect(recovered[1]).toBe(0xCD)
   })
 })
 

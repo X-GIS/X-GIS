@@ -726,7 +726,12 @@ export class TextStage {
    *  watermark reset invalidates them. Confined to the
    *  prepare()-then-render-once pass, which completes within one
    *  synchronous frame. */
-  private readonly _frameArena = new FrameArena(64 * 1024)
+  // iter-251 — initial 64 KB overflowed on dense scene (text-stage
+  // advances + baselineY + glyphOffsets point + curved sums past
+  // 65 KB on Bright z=10 zoom transitions). Bumped initial to
+  // 256 KB; auto-grow handles further peaks via the GROW_TRIGGER
+  // logic in FrameArena.beginFrame.
+  private readonly _frameArena = new FrameArena(256 * 1024)
   /** iter-241 — call at the start of each frame (map.ts renderFrame).
    *  Resets the arena watermark; capacity grows automatically. */
   beginFrame(): void {
