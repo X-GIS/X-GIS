@@ -9,7 +9,9 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | fill | fill-opacity | data-driven | Per-feature opacity not threaded through renderer |
 | fill | fill-antialias | constant | false branch not implemented; pipeline always uses MSAA |
 | fill | fill-translate | zoom-interp | Per-frame zoom-interp deferred; last-stop approx only |
+| fill | fill-pattern | data-driven | Expression form of fill-pattern (per-feature sprite name) not threaded through IR |
 | line | line-dasharray | zoom-interp | PropertyShape<array> variant pending |
+| line | line-pattern | data-driven | Expression form not threaded through IR |
 | symbol | text-opacity | zoom-interp | Fast-path resolves constant only |
 | symbol | text-opacity | data-driven | Per-feature alpha path deferred |
 | symbol | text-pitch-alignment | constant | Runtime never projects labels onto ground plane |
@@ -17,6 +19,7 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | symbol | icon-opacity | data-driven | Per-feature alpha path deferred |
 | symbol | icon-size | data-driven | Worker per-feature evaluator pending |
 | symbol | symbol-sort-key | data-driven | Expression flattens to 0; per-feature key plumbing pending |
+| fill-extrusion | fill-extrusion-pattern | data-driven | Expression form not threaded through IR |
 | circle | circle-stroke-opacity | zoom-interp | Per-frame uniform path pending |
 | background | background-opacity | zoom-interp | Per-frame uniform path pending |
 | raster | raster-opacity | data-driven | Data-driven not applicable to raster tiles |

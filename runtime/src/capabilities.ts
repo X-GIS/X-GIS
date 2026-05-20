@@ -31,6 +31,11 @@ export const RUNTIME_CAPABILITIES: readonly RuntimeCapability[] = [
   { property: 'fill-antialias',      layerType: 'fill', variant: 'constant',    supported: false, note: 'false branch not implemented; pipeline always uses MSAA' },
   { property: 'fill-translate',      layerType: 'fill', variant: 'constant',    supported: true },
   { property: 'fill-translate',      layerType: 'fill', variant: 'zoom-interp', supported: false, note: 'Per-frame zoom-interp deferred; last-stop approx only' },
+  // iter-181/182/183/184 Stage 2 — UV-tiled sprite atlas sampled in
+  // fs_fill_pattern with world-anchored UV. Constant string sprite
+  // name only; expression form still warns at convert.
+  { property: 'fill-pattern',        layerType: 'fill', variant: 'constant',    supported: true },
+  { property: 'fill-pattern',        layerType: 'fill', variant: 'data-driven', supported: false, note: 'Expression form of fill-pattern (per-feature sprite name) not threaded through IR' },
 
   // Line
   { property: 'line-color',          layerType: 'line', variant: 'constant',    supported: true },
@@ -47,6 +52,10 @@ export const RUNTIME_CAPABILITIES: readonly RuntimeCapability[] = [
   { property: 'line-gap-width',      layerType: 'line', variant: 'constant',    supported: true },
   { property: 'line-gap-width',      layerType: 'line', variant: 'zoom-interp', supported: true },
   { property: 'line-offset',         layerType: 'line', variant: 'constant',    supported: true },
+  // iter-185 Stage 2 — UV-tiled sprite atlas sampled in fs_line_pattern
+  // with world-anchored UV. Stage 2.1 along-line UV pending.
+  { property: 'line-pattern',        layerType: 'line', variant: 'constant',    supported: true },
+  { property: 'line-pattern',        layerType: 'line', variant: 'data-driven', supported: false, note: 'Expression form not threaded through IR' },
 
   // Symbol (text)
   { property: 'text-color',          layerType: 'symbol', variant: 'constant',    supported: true },
@@ -88,6 +97,11 @@ export const RUNTIME_CAPABILITIES: readonly RuntimeCapability[] = [
   { property: 'fill-extrusion-base',   layerType: 'fill-extrusion', variant: 'constant',    supported: true },
   { property: 'fill-extrusion-opacity', layerType: 'fill-extrusion', variant: 'constant',   supported: true },
   { property: 'fill-extrusion-vertical-gradient', layerType: 'fill-extrusion', variant: 'constant', supported: true, note: 'Phase 9 vertical gradient lighting honoured (commit 2026-05-18).' },
+  // iter-186 Stage 2 — extruded variant of fillPipelinePattern;
+  // fragment shares fs_fill_pattern with the ground path. Walls lose
+  // the wall_shade lighting in this Stage 2 cut (Stage 2.1 follow-up).
+  { property: 'fill-extrusion-pattern', layerType: 'fill-extrusion', variant: 'constant', supported: true, note: 'Walls + roofs sample atlas via fs_fill_pattern; wall_shade lighting deferred to Stage 2.1' },
+  { property: 'fill-extrusion-pattern', layerType: 'fill-extrusion', variant: 'data-driven', supported: false, note: 'Expression form not threaded through IR' },
 
   // Fill outline (lowers to stroke- utilities in xgis)
   { property: 'fill-outline-color',  layerType: 'fill', variant: 'constant',    supported: true },
