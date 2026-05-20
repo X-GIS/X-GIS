@@ -137,6 +137,14 @@ struct Uniforms {
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
+// iter-181/182 — fill-pattern Stage 2 sprite atlas. Bound on every
+// polygon pipeline; stub 1x1 white until the IconStage finishes
+// loading the real atlas. Sampled by fs_fill_pattern (iter-182) at
+// world-derived UV; non-pattern fragment shaders ignore the binding.
+// The sampler lives at binding 6 (separate from the variant-codegen
+// palette_samp at binding 4) so the two declarations never collide.
+@group(0) @binding(5) var sprite_atlas: texture_2d<f32>;
+@group(0) @binding(6) var sprite_samp: sampler;
 
 ${WGSL_PROJECTION_FNS}
 
@@ -551,6 +559,63 @@ fn fs_fill(input: VertexOutput) -> FragmentOutput {
   let base_depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
   let id_lo = input.feat_id & 0xFFFFu;
   let mixed = (id_lo ^ (id_lo >> 7u) ^ (id_lo << 3u)) & 0x3FFu; // 0..1023
+  let jitter = select(
+    0.0,
+    (f32(mixed) - 512.0) * 1.5e-8,
+    input.feat_id != 0u,
+  );
+  out.depth = base_depth + jitter;
+  return out;
+}
+
+// iter-182 — fill-pattern Stage 2 fragment. Mirrors fs_fill's
+// hemisphere-cull + clip discard + log-depth jitter, but the final
+// out.color assignment samples the sprite atlas instead of using
+// the solid u.fill_color. Pattern parameters travel in REUSED
+// uniform slots so the Uniforms struct stays at 192 bytes:
+//   u.fill_color.rgba  = (u0, v0, u1, v1) in atlas UV [0..1]
+//   u.fill_translate_x = pattern repeat in absolute Mercator metres
+//   u.fill_translate_y = pattern repeat in absolute Mercator metres
+// (Pattern-fill layers cannot also use a solid fill colour or a
+// fill-translate offset; that is the documented Stage 2 trade-off.)
+@fragment
+fn fs_fill_pattern(input: VertexOutput) -> FragmentOutput {
+  if (polygon_cos_c_fragment(input.abs_merc_x, input.abs_merc_y) < 0.0) { discard; }
+  if (abs(input.abs_lat) > MERCATOR_LAT_LIMIT) { discard; }
+  let _clip_valid =
+    u.clip_bounds.x > -1e29 &&
+    u.clip_bounds.z > u.clip_bounds.x &&
+    u.clip_bounds.w > u.clip_bounds.y;
+  if (_clip_valid) {
+    if (input.abs_merc_x < u.clip_bounds.x) { discard; }
+    if (input.abs_merc_x > u.clip_bounds.z) { discard; }
+    if (input.abs_merc_y < u.clip_bounds.y) { discard; }
+    if (input.abs_merc_y > u.clip_bounds.w) { discard; }
+  }
+  var out: FragmentOutput;
+  // Sprite UV: world-anchored repeating tile via abs_merc / repeat_m.
+  // fract wraps the local UV into [0, 1); u0 + frac * (u1 - u0)
+  // remaps that into the sprite atlas-UV bbox.
+  let repeat_x = max(u.fill_translate_x, 1.0);
+  let repeat_y = max(u.fill_translate_y, 1.0);
+  let uv_local = vec2<f32>(
+    fract(input.abs_merc_x / repeat_x),
+    fract(input.abs_merc_y / repeat_y),
+  );
+  let u0 = u.fill_color.r; let v0 = u.fill_color.g;
+  let u1 = u.fill_color.b; let v1 = u.fill_color.a;
+  let atlas_uv = vec2<f32>(
+    u0 + uv_local.x * (u1 - u0),
+    v0 + uv_local.y * (v1 - v0),
+  );
+  let sampled = textureSample(sprite_atlas, sprite_samp, atlas_uv);
+  // Layer opacity multiplies sprite alpha so fill-opacity still works.
+  out.color = vec4<f32>(sampled.rgb, sampled.a * u.opacity);
+  out.color.a = out.color.a * polygon_rim_alpha(input.abs_merc_x, input.abs_merc_y);
+  __PICK_WRITE__
+  let base_depth = compute_log_frag_depth(input.view_w, u.log_depth_fc);
+  let id_lo = input.feat_id & 0xFFFFu;
+  let mixed = (id_lo ^ (id_lo >> 7u) ^ (id_lo << 3u)) & 0x3FFu;
   let jitter = select(
     0.0,
     (f32(mixed) - 512.0) * 1.5e-8,
@@ -1336,6 +1401,12 @@ export class MapRenderer {
   fillPipelineFallback!: GPURenderPipeline
   fillPipelineGroundFallback!: GPURenderPipeline
   fillPipelineExtrudedFallback!: GPURenderPipeline
+  /** iter-182 — fill-pattern Stage 2 ground variant. Same vertex
+   *  path as `fillPipelineGround` (no depth write) but routed to
+   *  `fs_fill_pattern`. VTR selects this pipeline at draw time when
+   *  `show.fillPattern` is non-null (iter-183 routing). */
+  fillPipelinePatternGround!: GPURenderPipeline
+  fillPipelinePatternGroundFallback!: GPURenderPipeline
   linePipelineFallback!: GPURenderPipeline
   // `pointer-events: none` mirrors — same shader, writeMask:0 on the
   // pick attachment so the layer's pickId never lands in the pick
@@ -1688,15 +1759,22 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
       },
       // iter-181 — sprite atlas texture for fill-pattern Stage 2.
       // Bound on every polygon pipeline (stub 1×1 white until the
-      // runtime hands in the real atlas via setSpriteAtlas). The
-      // future fs_fill_pattern fragment shader samples this with
-      // paletteSampler at binding 4. Adding a layout entry that no
-      // shader yet references is legal in WGSL/WebGPU; the unused
-      // binding costs only ~16 bytes of bind group state per draw.
+      // runtime hands in the real atlas via setSpriteAtlas).
       {
         binding: 5,
         visibility: GPUShaderStage.FRAGMENT,
         texture: { sampleType: 'float', viewDimension: '2d' },
+      },
+      // iter-182 — dedicated sprite atlas sampler at binding 6.
+      // Reuses the `paletteSampler` GPU resource (same linear /
+      // clamp-to-edge settings) but declares a separate WGSL binding
+      // so the variant codegen's palette_samp at binding 4 doesn't
+      // collide with the base shader's sprite_samp. fs_fill_pattern
+      // references `sprite_samp`; non-pattern fragments ignore it.
+      {
+        binding: 6,
+        visibility: GPUShaderStage.FRAGMENT,
+        sampler: { type: 'filtering' },
       },
     ]
 
@@ -1906,6 +1984,28 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
         depthStencil: STENCIL_TEST, multisample: msaaState,
         label: `line-pipeline-fallback${suffix}`,
       }),
+      // iter-182 — fill-pattern Stage 2 ground variant. Same vertex
+      // path as `fillGround` (quantized polygon, ground-z plane, no
+      // depth write) but routed to `fs_fill_pattern`, which samples
+      // the sprite atlas at world-anchored UV. Used by VTR (iter-183
+      // routing) when `show.fillPattern` is set. Ground-only for now
+      // — extrude-pattern variant deferred to iter-185.
+      fillPatternGround: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_fill_pattern', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_WRITE_NO_DEPTH, multisample: msaaState,
+        label: `fill-pipeline-pattern-ground${suffix}`,
+      }),
+      fillPatternGroundFallback: device.createRenderPipeline({
+        layout: pipelineLayout,
+        vertex: { module: shaderModule, entryPoint: 'vs_main_quantized', buffers: [vertexBufferLayout] },
+        fragment: { module: shaderModule, entryPoint: 'fs_fill_pattern', targets },
+        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        depthStencil: STENCIL_TEST_NO_DEPTH, multisample: msaaState,
+        label: `fill-pipeline-pattern-ground-fallback${suffix}`,
+      }),
     })
 
     const pickable = buildSet(colorTargets, '')
@@ -1917,6 +2017,8 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
     this.fillPipelineGroundFallback = pickable.fillGroundFallback
     this.fillPipelineExtrudedFallback = pickable.fillExtrudedFallback
     this.linePipelineFallback = pickable.lineFallback
+    this.fillPipelinePatternGround = pickable.fillPatternGround
+    this.fillPipelinePatternGroundFallback = pickable.fillPatternGroundFallback
 
     // `?debug=overdraw` — fill + line debug mirrors. Same VS as the
     // opaque pipelines so the rasterizer produces matching fragment
@@ -2150,6 +2252,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
         { binding: 2, resource: this.paletteColorAtlasView },
         { binding: 4, resource: this.paletteSampler },
         { binding: 5, resource: this.spriteAtlasView },
+        { binding: 6, resource: this.paletteSampler },
       ],
     })
   }
@@ -2230,6 +2333,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
         { binding: 2, resource: this.paletteColorAtlasView },
         { binding: 4, resource: this.paletteSampler },
         { binding: 5, resource: this.spriteAtlasView },
+        { binding: 6, resource: this.paletteSampler },
       ],
     })
     for (const layer of this.layers) {
@@ -2242,6 +2346,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
             { binding: 5, resource: this.spriteAtlasView },
+        { binding: 6, resource: this.paletteSampler },
           ],
         })
       }
@@ -2382,6 +2487,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
             { binding: 5, resource: this.spriteAtlasView },
+        { binding: 6, resource: this.paletteSampler },
             ...extraComputeEntries,
           ],
         })
@@ -2448,6 +2554,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
           { binding: 2, resource: this.paletteColorAtlasView },
           { binding: 4, resource: this.paletteSampler },
           { binding: 5, resource: this.spriteAtlasView },
+        { binding: 6, resource: this.paletteSampler },
         ],
       })
     }
@@ -2470,6 +2577,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
             { binding: 5, resource: this.spriteAtlasView },
+        { binding: 6, resource: this.paletteSampler },
             ...computeEntries,
           ],
         })
@@ -2494,6 +2602,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
           { binding: 2, resource: this.paletteColorAtlasView },
           { binding: 4, resource: this.paletteSampler },
           { binding: 5, resource: this.spriteAtlasView },
+        { binding: 6, resource: this.paletteSampler },
         ],
       })
     }
@@ -2511,6 +2620,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
             { binding: 5, resource: this.spriteAtlasView },
+        { binding: 6, resource: this.paletteSampler },
             ...computeEntries,
           ],
         })

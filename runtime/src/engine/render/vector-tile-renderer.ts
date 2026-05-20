@@ -610,6 +610,7 @@ export class VectorTileRenderer {
         { binding: 2, resource: this.paletteColorAtlasView },
         { binding: 4, resource: this.paletteSampler },
         { binding: 5, resource: this.spriteAtlasView },
+        { binding: 6, resource: this.paletteSampler },
       ],
     })
     if (this.featureBindGroupLayout && this.featureDataBuffer) {
@@ -622,6 +623,7 @@ export class VectorTileRenderer {
           { binding: 2, resource: this.paletteColorAtlasView },
           { binding: 4, resource: this.paletteSampler },
           { binding: 5, resource: this.spriteAtlasView },
+          { binding: 6, resource: this.paletteSampler },
         ],
       })
     } else {
@@ -1784,6 +1786,7 @@ export class VectorTileRenderer {
         { binding: 2, resource: this.paletteColorAtlasView },
         { binding: 4, resource: this.paletteSampler },
         { binding: 5, resource: this.spriteAtlasView },
+        { binding: 6, resource: this.paletteSampler },
         ...extraComputeEntries,
       ],
     })
