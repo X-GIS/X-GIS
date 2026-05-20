@@ -149,6 +149,23 @@ export class IconRenderer {
    *  (b) viewport uniform doesn't match canvas physical size. This
    *  captures (b)'s ground truth. */
   lastDrawViewport: { width: number; height: number } | null = null
+  /** iter-234 — reusable scratch Float32Array. Per-frame setDraws()
+   *  used to allocate `new Float32Array(N × FLOATS_PER_QUAD)` every
+   *  call (~24 KB / 500 icons), one of the dominant GC sources on
+   *  mobile during dense icon scenes. Now grown-but-never-shrunk;
+   *  same buffer reused across frames whose icon count stays
+   *  below the high-water mark. */
+  private vertexScratch: Float32Array | null = null
+  /** iter-234 — 4-float reusable scratch for the per-draw viewport
+   *  uniform write (see `draw()`). Constant size, allocated once. */
+  private readonly uniformScratch = new Float32Array(4)
+  /** iter-234 — gates the vertex bbox computation in setDraws. The
+   *  diagnostic is only read by inspector / debug tooling, but the
+   *  O(vertexCount) loop fires every frame regardless. Default
+   *  false; flip via setBBoxDiagnostic(true) when the inspector
+   *  panel actually consumes `lastVertexBBox`. */
+  private bboxDiagnosticEnabled = false
+  setBBoxDiagnostic(on: boolean): void { this.bboxDiagnosticEnabled = on }
   /** Bind group lazily built once the atlas texture exists, then held
    *  for the life of the renderer. `map.setSpriteUrl` only stores a
    *  URL for the not-yet-built stage — atlas hot-swap is NOT supported
@@ -223,7 +240,17 @@ export class IconRenderer {
     this.lastAtlasSize = { width: atlasSize.width, height: atlasSize.height }
     if (atlasSize.width === 0) { this.vertexCount = 0; this.firstVertexSample = null; return }
 
-    const data = new Float32Array(draws.length * FLOATS_PER_QUAD)
+    // iter-234 — scratch-buffer pool. Grow-but-never-shrink; the
+    // capacity tracks the high-water mark of icon count over the
+    // session, but a frame with fewer icons uses a sub-range of
+    // the existing buffer (writeBuffer copies only the prefix
+    // we filled). Avoids the per-frame ~24 KB allocation that
+    // dominated mobile GC during dense icon scenes.
+    const need = draws.length * FLOATS_PER_QUAD
+    if (this.vertexScratch === null || this.vertexScratch.length < need) {
+      this.vertexScratch = new Float32Array(need)
+    }
+    const data = this.vertexScratch
     let off = 0
 
     for (const d of draws) {
@@ -299,16 +326,21 @@ export class IconRenderer {
     }
 
     this.vertexCount = draws.length * VERTS_PER_QUAD
+    // iter-234 — `data` may be larger than this frame's payload
+    // (scratch grow-but-never-shrink). The byte range we actually
+    // wrote is `[0, need * 4)`.
+    const needBytes = need * 4
     // Iter 534 diagnostic — stash the FIRST vertex (TL of quad 0).
-    this.firstVertexSample = data.length >= 5
+    this.firstVertexSample = need >= 5
       ? [data[0]!, data[1]!, data[2]!, data[3]!, data[4]!]
       : null
-    // Iter 537 — compute bbox over all vertex positions (every 5th
-    // float is x, every 5th+1 is y). Reveals whether dispatched
-    // icons spread across the canvas or stack at one position.
-    if (data.length >= 2) {
+    // Iter 537 — bbox over all written vertex positions. iter-234
+    // gates the O(vertexCount) loop behind `bboxDiagnosticEnabled`
+    // (default off) — runtime perf doesn't pay for an unread
+    // diagnostic. Inspector panel flips the flag on when shown.
+    if (this.bboxDiagnosticEnabled && need >= 2) {
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-      for (let i = 0; i < data.length; i += FLOATS_PER_VERT) {
+      for (let i = 0; i < need; i += FLOATS_PER_VERT) {
         const x = data[i]!, y = data[i + 1]!
         if (x < minX) minX = x
         if (x > maxX) maxX = x
@@ -319,15 +351,27 @@ export class IconRenderer {
     } else {
       this.lastVertexBBox = null
     }
-    if (this.vertexBuf === null || this.vertexBuf.size < data.byteLength) {
+    // iter-234 — 1.5× growth hysteresis (mirror of the WebGPU
+    // arena pattern). Pre-iter-234 each capacity overshoot
+    // destroyed + re-created the buffer at exactly the needed
+    // size, so a single icon-count jump (e.g. LOD transition)
+    // could trigger N back-to-back reallocations. Growing
+    // `max(needed, current × 1.5)` keeps the cumulative
+    // reallocation count O(log N) instead of O(N).
+    if (this.vertexBuf === null || this.vertexBuf.size < needBytes) {
+      const prevSize = this.vertexBuf?.size ?? 0
+      const grown = Math.max(needBytes, Math.ceil(prevSize * 1.5))
       this.vertexBuf?.destroy()
       this.vertexBuf = this.device.createBuffer({
-        size: Math.max(1024, data.byteLength),
+        size: Math.max(1024, grown),
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
         label: 'icon-vertex',
       })
     }
-    this.device.queue.writeBuffer(this.vertexBuf, 0, data.buffer, data.byteOffset, data.byteLength)
+    // iter-234 — writeBuffer only the filled prefix (`needBytes`),
+    // not the whole scratch (which may be larger than this frame's
+    // payload).
+    this.device.queue.writeBuffer(this.vertexBuf, 0, data.buffer, data.byteOffset, needBytes)
   }
 
   /** Encode the icon draw call. Returns silently when nothing to draw
@@ -347,8 +391,13 @@ export class IconRenderer {
         ],
       })
     }
-    const uniforms = new Float32Array([viewport.width, viewport.height, 0, 0])
-    this.device.queue.writeBuffer(this.uniformBuf, 0, uniforms.buffer)
+    // iter-234 — reuse a pre-allocated 4-float scratch instead of
+    // `new Float32Array([...])` per draw. The 16-byte alloc per
+    // frame is dwarfed by the vertex scratch, but eliminating it
+    // is free + completes the no-per-frame-alloc invariant.
+    const u = this.uniformScratch
+    u[0] = viewport.width; u[1] = viewport.height
+    this.device.queue.writeBuffer(this.uniformBuf, 0, u.buffer)
     // Iter 538 — capture for the diagnostic.
     this.lastDrawViewport = { width: viewport.width, height: viewport.height }
     pass.setPipeline(this.pipeline)
