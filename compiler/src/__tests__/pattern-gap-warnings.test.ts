@@ -23,14 +23,11 @@ interface Case {
   withColour: { message: string }
 }
 
-// iter-178 promoted `line-pattern` to Stage 1 alongside fill-pattern,
-// so it joined fill-pattern in dropping from the warn-only matrix.
-// fill-extrusion-pattern keeps the legacy contract.
-const CASES: Case[] = [
-  { property: 'fill-extrusion-pattern', layerType: 'fill-extrusion', colourProp: 'fill-extrusion-color',
-    alone:      { message: 'declared without fill-extrusion-color' },
-    withColour: { message: 'set alongside fill-extrusion-color' } },
-]
+// iter-177/178/179 promoted every bitmap-pattern paint property to
+// Stage 1, so the warn-only matrix is now empty. The CASES array is
+// retained so a future Stage 0 (warn-only) pattern can be slotted in
+// without scaffolding work.
+const CASES: Case[] = []
 
 // iter-177/178 — `fill-pattern` + `line-pattern` Stage 1 emit a
 // `fill-pattern-<name>` / `stroke-pattern-<name>` utility silently
@@ -59,6 +56,31 @@ describe('fill-pattern Stage 1 — no Batch-2 warning', () => {
         || w.includes('Batch 2 sprite-atlas')
         || (w.includes('fill-pattern') && w.includes('not yet supported')))
       expect(stale, `unexpected legacy warning for fill-pattern ${variant}: ${stale}`).toBeUndefined()
+    })
+  }
+})
+
+describe('fill-extrusion-pattern Stage 1 — no Batch-2 warning', () => {
+  const baseStyle = (extra: Record<string, unknown>) => ({
+    version: 8,
+    sources: { v: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+    layers: [{
+      id: 'l', type: 'fill-extrusion', source: 'v', 'source-layer': 'a',
+      paint: { 'fill-extrusion-pattern': 'my-pat', 'fill-extrusion-height': 10, ...extra },
+    }],
+  })
+  for (const [variant, extra] of [
+    ['alone', {}],
+    ['+ fill-extrusion-color', { 'fill-extrusion-color': '#fff' }],
+  ] as const) {
+    it(`fill-extrusion-pattern ${variant} emits no Batch-2 warning`, () => {
+      const coverage = { sources: [], layers: [], warnings: [] as string[] }
+      convertMapboxStyle(baseStyle(extra) as never, { coverage })
+      const stale = coverage.warnings.find(w =>
+        w.includes('declared without fill-extrusion-color')
+        || w.includes('set alongside fill-extrusion-color')
+        || w.includes('Batch 2 sprite-atlas'))
+      expect(stale, `unexpected legacy warning for fill-extrusion-pattern ${variant}: ${stale}`).toBeUndefined()
     })
   }
 })
@@ -103,27 +125,33 @@ function buildStyle(c: Case, includeColour: boolean): Record<string, unknown> {
   }
 }
 
-describe('pattern-property gap warning specificity', () => {
-  for (const c of CASES) {
-    it(`${c.property} alone → "${c.alone.message}" warning`, () => {
-      const coverage = { sources: [], layers: [], warnings: [] as string[] }
-      convertMapboxStyle(buildStyle(c, false) as never, { coverage })
-      const w = coverage.warnings.find(w => w.includes(c.alone.message))
-      expect(w, `expected warning for ${c.property} alone`).toBeDefined()
-      // Must NOT also surface via the generic ignored-properties blob.
-      expect(coverage.warnings.some(
-        w => w.includes('ignored paint properties') && w.includes(c.property),
-      )).toBe(false)
-    })
+// CASES is empty after iter-179 promoted every bitmap-pattern paint
+// property to Stage 1, but the describe survives to host the iterator
+// — vitest rejects suites with zero registered `it()` calls, so the
+// loop is guarded behind an early-out placeholder.
+if (CASES.length > 0) {
+  describe('pattern-property gap warning specificity', () => {
+    for (const c of CASES) {
+      it(`${c.property} alone → "${c.alone.message}" warning`, () => {
+        const coverage = { sources: [], layers: [], warnings: [] as string[] }
+        convertMapboxStyle(buildStyle(c, false) as never, { coverage })
+        const w = coverage.warnings.find(w => w.includes(c.alone.message))
+        expect(w, `expected warning for ${c.property} alone`).toBeDefined()
+        // Must NOT also surface via the generic ignored-properties blob.
+        expect(coverage.warnings.some(
+          w => w.includes('ignored paint properties') && w.includes(c.property),
+        )).toBe(false)
+      })
 
-    it(`${c.property} + ${c.colourProp} → "${c.withColour.message}" warning`, () => {
-      const coverage = { sources: [], layers: [], warnings: [] as string[] }
-      convertMapboxStyle(buildStyle(c, true) as never, { coverage })
-      const w = coverage.warnings.find(w => w.includes(c.withColour.message))
-      expect(w, `expected warning for ${c.property} + colour`).toBeDefined()
-      expect(coverage.warnings.some(
-        w => w.includes('ignored paint properties') && w.includes(c.property),
-      )).toBe(false)
-    })
-  }
-})
+      it(`${c.property} + ${c.colourProp} → "${c.withColour.message}" warning`, () => {
+        const coverage = { sources: [], layers: [], warnings: [] as string[] }
+        convertMapboxStyle(buildStyle(c, true) as never, { coverage })
+        const w = coverage.warnings.find(w => w.includes(c.withColour.message))
+        expect(w, `expected warning for ${c.property} + colour`).toBeDefined()
+        expect(coverage.warnings.some(
+          w => w.includes('ignored paint properties') && w.includes(c.property),
+        )).toBe(false)
+      })
+    }
+  })
+}

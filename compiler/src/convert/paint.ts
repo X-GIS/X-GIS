@@ -262,16 +262,18 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
     if (p['fill-extrusion-translate'] !== undefined && p['fill-extrusion-translate'] !== null) {
       warnings.push(`Layer "${layer.id}" — fill-extrusion-translate set but the fill-extrusion renderer has no per-frame translate uniform yet (Plan §4 deferred — mirror of fill-translate's u.fill_translate_x/y); offset is dropped.`)
     }
-    // fill-extrusion-pattern: same atlas dependency as fill-pattern
-    // / line-pattern. When fill-extrusion-color is also set, the
-    // pattern silently drops and the layer renders the solid colour.
-    // Surface the specific gap so authors who depend on textured
-    // building walls see the diagnostic.
+    // iter-179 — fill-extrusion-pattern Stage 1. Building walls are
+    // drawn through the same fill RGBA channel as ground fills (the
+    // extrude shader multiplies the colour by wall_shade in the
+    // fragment stage), so reusing `fill-pattern-<name>` here gives
+    // pattern-only building styles a visible wall colour. Real
+    // bitmap wall texturing is Stage 2.
     if (p['fill-extrusion-pattern'] !== undefined && p['fill-extrusion-pattern'] !== null) {
-      if (p['fill-extrusion-color'] === undefined || p['fill-extrusion-color'] === null) {
-        warnings.push(`Layer "${layer.id}" — fill-extrusion-pattern declared without fill-extrusion-color; the layer's only visual is a bitmap wall fill which is not yet supported (Batch 2 — sprite atlas). The layer will render walls as uncoloured.`)
+      const v = p['fill-extrusion-pattern']
+      if (typeof v === 'string') {
+        out.push(`fill-pattern-${v}`)
       } else {
-        warnings.push(`Layer "${layer.id}" — fill-extrusion-pattern set alongside fill-extrusion-color; pattern is dropped (Batch 2 sprite-atlas dependency) and the walls render with the solid colour fallback.`)
+        warnings.push(`Layer "${layer.id}" — fill-extrusion-pattern non-constant form (expression / interpolate) not yet wired through the IR; the constant string form is supported (iter-179). The walls fall back to fill-extrusion-color or transparent.`)
       }
     }
     surfaceIgnoredPaint(layer.id, p, warnings, [
