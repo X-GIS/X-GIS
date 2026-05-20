@@ -41,7 +41,12 @@ import {
 // polygon shader, twice the chance for a stale rename to drop a
 // token unnoticed.
 export const BG_SHADER_SOURCE: string = /* wgsl */ `
-struct U { color: vec4<f32> }
+struct U {
+  mvp: mat4x4<f32>,
+  cam_center: vec2<f32>,
+  _pad: vec2<f32>,
+  color: vec4<f32>,
+}
 @group(0) @binding(0) var<uniform> u: U;
 
 struct VOut {
@@ -49,17 +54,37 @@ struct VOut {
   __PICK_FIELD__
 }
 
+// iter-196 — World-extent quad (was fullscreen clip-space).
+// Vertex emits the 4 corners of the Mercator world (clamped to
+// the ±85.051° lat band — anything past that is invalid Mercator
+// space and not rendered by the vector-tile pyramid either). The
+// quad gets projected via the camera MVP so it lands at the world
+// position MapLibre's tile-mesh background renders. Outside the
+// world band (e.g. above the horizon at z=0 + pitch where the
+// world only fills a fraction of the canvas) the canvas clear
+// value (now black per iter-196) shows through instead of the
+// style background colour — matching MapLibre's "no world here =
+// black" convention.
+const WORLD_MERC: f32 = 40075016.686;
+const MAX_Y: f32 = 20037508.34;
+
 @vertex
 fn vs(@builtin(vertex_index) idx: u32) -> VOut {
-  // Two triangles, six clip-space verts — a fullscreen quad without
-  // a vertex buffer. Index sequence: bottom-left, bottom-right,
-  // top-left, top-left, bottom-right, top-right.
+  // 5-world-copy wide in X so the quad covers every visible world
+  // wrap at low zoom + bearing (matches iter-189's [-2..+2]
+  // visibleWorldCopies ceiling). Y stays at ±MAX_Y — the world
+  // ends at ±85.051° lat.
+  let X = WORLD_MERC * 2.5;
+  let Y = MAX_Y;
   var p = array<vec2<f32>, 6>(
-    vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(-1.0, 1.0),
-    vec2<f32>(-1.0, 1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0)
+    vec2<f32>(-X, -Y), vec2<f32>(X, -Y), vec2<f32>(-X, Y),
+    vec2<f32>(-X, Y), vec2<f32>(X, -Y), vec2<f32>(X, Y)
   );
+  // Camera-relative position — MVP expects RTC coords (Mercator
+  // metres minus camera centre).
+  let local = p[idx] - u.cam_center;
   var out: VOut;
-  out.pos = vec4<f32>(p[idx], 0.0, 1.0);
+  out.pos = u.mvp * vec4<f32>(local, 0.0, 1.0);
   return out;
 }
 
@@ -90,17 +115,24 @@ export class BackgroundRenderer {
   private fillRgba: [number, number, number, number] | null = null
   private uploadedRgba: [number, number, number, number] = [0, 0, 0, 0]
   private format: GPUTextureFormat
-  private uniformData = new Float32Array(4)
+  // iter-196 — uniform layout grew to mat4(64) + vec2 cam_center(8) +
+  // pad(8) + vec4 color(16) = 96 bytes. setMvp + setCamCenter populate
+  // the matrix/cam slots per frame; setFill writes the colour slot.
+  private uniformData = new Float32Array(24)
+  private mvpDirty = true
+  private camCenterDirty = true
 
   constructor(ctx: GPUContext) {
     this.device = ctx.device
     this.format = ctx.format
+    // iter-196 — uniform binding moved to VERTEX | FRAGMENT visibility
+    // because the world-extent vertex stage now reads mvp + cam_center.
     this.bgBindGroupLayout = this.device.createBindGroupLayout({
-      entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }],
+      entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }],
       label: 'bg-bgl',
     })
     this.bgUniformBuffer = this.device.createBuffer({
-      size: 16,
+      size: 96,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       label: 'bg-uniform',
     })
@@ -228,25 +260,49 @@ export class BackgroundRenderer {
       return
     }
     if (!this.bgPipeline) this.bgPipeline = this.buildPipeline()
-    // Skip writeBuffer when color hasn't changed since last render.
-    if (
-      this.fillRgba[0] !== this.uploadedRgba[0] ||
-      this.fillRgba[1] !== this.uploadedRgba[1] ||
-      this.fillRgba[2] !== this.uploadedRgba[2] ||
-      this.fillRgba[3] !== this.uploadedRgba[3]
-    ) {
-      this.uniformData[0] = this.fillRgba[0]
-      this.uniformData[1] = this.fillRgba[1]
-      this.uniformData[2] = this.fillRgba[2]
-      this.uniformData[3] = this.fillRgba[3]
-      this.device.queue.writeBuffer(this.bgUniformBuffer, 0, this.uniformData)
+    // iter-196 — uniform write covers mat4 (offset 0..63) + cam_center
+    // (64..71) + pad (72..79) + color (80..95). mvpDirty +
+    // camCenterDirty + per-channel colour diff gate the writeBuffer
+    // so a stationary camera doesn't touch the uniform every frame.
+    const colorChanged = this.fillRgba[0] !== this.uploadedRgba[0]
+      || this.fillRgba[1] !== this.uploadedRgba[1]
+      || this.fillRgba[2] !== this.uploadedRgba[2]
+      || this.fillRgba[3] !== this.uploadedRgba[3]
+    if (colorChanged) {
+      this.uniformData[20] = this.fillRgba[0]
+      this.uniformData[21] = this.fillRgba[1]
+      this.uniformData[22] = this.fillRgba[2]
+      this.uniformData[23] = this.fillRgba[3]
       this.uploadedRgba[0] = this.fillRgba[0]
       this.uploadedRgba[1] = this.fillRgba[1]
       this.uploadedRgba[2] = this.fillRgba[2]
       this.uploadedRgba[3] = this.fillRgba[3]
     }
+    if (this.mvpDirty || this.camCenterDirty || colorChanged) {
+      this.device.queue.writeBuffer(this.bgUniformBuffer, 0, this.uniformData)
+      this.mvpDirty = false
+      this.camCenterDirty = false
+    }
     pass.setPipeline(this.bgPipeline)
     pass.setBindGroup(0, this.bgBindGroup!)
     pass.draw(6)
+  }
+
+  /** iter-196 — push the camera MVP matrix into the bg uniform.
+   *  Caller (map.ts renderFrame) sets per frame, before render(). */
+  setMvp(mvp: ArrayLike<number>): void {
+    for (let i = 0; i < 16; i++) this.uniformData[i] = mvp[i] as number
+    this.mvpDirty = true
+  }
+
+  /** iter-196 — push camera centre (Mercator metres) into the bg
+   *  uniform. World-extent vertices subtract this to get RTC coords
+   *  before applying the MVP. */
+  setCamCenter(x: number, y: number): void {
+    this.uniformData[16] = x
+    this.uniformData[17] = y
+    this.uniformData[18] = 0  // pad
+    this.uniformData[19] = 0
+    this.camCenterDirty = true
   }
 }

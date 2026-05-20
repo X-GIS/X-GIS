@@ -3426,10 +3426,20 @@ export class XGISMap {
             // GeoJSON source injected at parse time. In debug=overdraw
             // mode the r16float accumulator clears to 0 — every fragment
             // count starts from zero.
+            // iter-196 — pure black clear (was dark navy 0.039/0.039/0.063).
+            // MapLibre uses pure black for the "no world here" region;
+            // the style `background-color` only renders inside the
+            // world band via the world-extent quad BackgroundRenderer
+            // path. At z=0 + pitch where the camera frustum reaches
+            // above / below the ±85° Mercator world, this clear value
+            // shows through outside the world — same convention as
+            // MapLibre, restoring pixel parity at the z=0 p=60 cell of
+            // the seoul-zoom-matrix (was gt128=204480 = 45 % canvas,
+            // entirely the bg colour difference).
             clearValue: isFirst
               ? (DEBUG_OVERDRAW
                   ? { r: 0, g: 0, b: 0, a: 0 }
-                  : { r: 0.039, g: 0.039, b: 0.063, a: 1 })
+                  : { r: 0, g: 0, b: 0, a: 1 })
               : undefined,
             loadOp: isFirst ? 'clear' : 'load',
             storeOp: 'store',
@@ -3465,9 +3475,20 @@ export class XGISMap {
           // content. These are always the back-most layers in the
           // current architecture.
           if (isFirst) {
-            // Earth-surface fill — fullscreen quad with depth/stencil
-            // writes disabled. Runs first so subsequent draws paint
-            // freely on top with no depth-buffer interaction.
+            // iter-196 — push the camera MVP + centre into the
+            // background uniform so the (no-longer-fullscreen) bg
+            // quad projects to the world-extent rectangle instead
+            // of the canvas. Cheap when stationary (the bg side
+            // gates writeBuffer behind a dirty flag).
+            if (this.backgroundRenderer) {
+              const _bgFrame = this.camera.getFrameView(w, h, dpr)
+              this.backgroundRenderer.setMvp(_bgFrame.matrix)
+              this.backgroundRenderer.setCamCenter(this.camera.centerX, this.camera.centerY)
+            }
+            // Earth-surface fill — world-extent quad with depth /
+            // stencil writes disabled. Runs first so subsequent
+            // draws paint freely on top with no depth-buffer
+            // interaction.
             this.backgroundRenderer?.render(subPass)
             this.gpuTimer?.mark(subPass, 'after_bg')
             // Per-frame raster-opacity resolve. resolveNumberShape
