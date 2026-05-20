@@ -17,6 +17,11 @@ const STYLES: { id: string; label: string; url: string }[] = [
   { id: 'openfreemap-bright',   label: 'OFM Bright',           url: 'https://tiles.openfreemap.org/styles/bright' },
   { id: 'openfreemap-liberty',  label: 'OFM Liberty',          url: 'https://tiles.openfreemap.org/styles/liberty' },
   { id: 'openfreemap-positron', label: 'OFM Positron',         url: 'https://tiles.openfreemap.org/styles/positron' },
+  // iter-192 isolated extrude pixel-diff harness. Strips Liberty to
+  // background + flat building fill + 3D building extrusion only,
+  // so visual divergence from MapLibre can be attributed to the
+  // extrude pipeline (translucent OIT vs alpha vs FBO + composite).
+  { id: 'liberty-buildings-only', label: 'Buildings-only (iter-192)', url: '/liberty-buildings-only.json' },
 ]
 
 // ── Hash math ───────────────────────────────────────────────────────

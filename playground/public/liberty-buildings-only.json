@@ -1,0 +1,47 @@
+{
+  "version": 8,
+  "name": "Liberty buildings-only (test env, iter-192)",
+  "metadata": {
+    "purpose": "Isolated fill-extrusion-opacity pixel-diff harness. Strips Liberty to background + flat building fill (z=13..14) + 3D building extrusion (z>=14). Use with #18.25/48.84778/2.33194/47.5/49.8 (Paris) to probe the iter-191/192 translucent extrude path."
+  },
+  "sources": {
+    "openmaptiles": {
+      "type": "vector",
+      "url": "https://tiles.openfreemap.org/planet"
+    }
+  },
+  "sprite": "https://tiles.openfreemap.org/sprites/ofm_f384/ofm",
+  "glyphs": "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": { "background-color": "#f8f4f0" }
+    },
+    {
+      "id": "building",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "building",
+      "minzoom": 13,
+      "maxzoom": 14,
+      "paint": {
+        "fill-color": "hsl(35,8%,85%)",
+        "fill-outline-color": ["interpolate", ["linear"], ["zoom"], 13, "hsla(35,6%,79%,0.32)", 14, "hsl(35,6%,79%)"]
+      }
+    },
+    {
+      "id": "building-3d",
+      "type": "fill-extrusion",
+      "source": "openmaptiles",
+      "source-layer": "building",
+      "minzoom": 14,
+      "paint": {
+        "fill-extrusion-base": ["get", "render_min_height"],
+        "fill-extrusion-color": "hsl(35,8%,85%)",
+        "fill-extrusion-height": ["get", "render_height"],
+        "fill-extrusion-opacity": 0.8
+      }
+    }
+  ]
+}

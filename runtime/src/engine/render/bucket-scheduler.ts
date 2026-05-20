@@ -268,18 +268,21 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
 
     const isTranslucentStroke =
       !safeMode && composedOpa < 0.999 && !!entry.show.stroke
-    // iter-192 — translucent extrude routes through the two-pass
-    // offscreen composite path (was iter-191 alpha-blend opaque
-    // pipeline). The "OIT" pipeline name survives but the math is
-    // now equivalent to MapLibre's offscreen FBO + composite —
-    // fragment writes (rgb*wall_shade, a) with weight=1 into the
-    // offscreen accum texture, depth-write ON so front walls occlude
-    // back walls inside the FBO, compose then over-blends the result
-    // onto the main framebuffer at the layer opacity.
-    const isOitExtrude =
-      !safeMode && composedOpa < 0.999
-      && entry.show.extrude !== undefined
-      && entry.show.extrude.kind !== 'none'
+    // iter-193 — revert iter-192's two-pass offscreen OIT path.
+    // Buildings-only isolated harness (Paris z=18.25 pitch=49.8)
+    // showed iter-192 produced ≤8 cumul = 18.60 % vs iter-191
+    // alpha-blend = 47.95 % — iter-192's compose output was not
+    // populating the framebuffer for the isolated style (likely a
+    // bind-group or accum/revealage attachment mismatch under the
+    // depth-write change). iter-191 alpha-blend wins on the
+    // isolated harness, was marginally better on Liberty z14
+    // survey, and matches MapLibre's standard alpha-blend
+    // depth-test+write behaviour for fill-extrusion-opacity. Stay
+    // with iter-191. The two-pass offscreen FBO + composite remains
+    // a future direction once the bind-group plumbing matches
+    // properly (separate from the OIT accum/revealage MRT).
+    const isOitExtrude = false
+    void composedOpa
     const noPick = entry.show.pointerEvents === 'none'
     const fp = noPick
       ? (entry.pipelines?.fillPipelineNoPick ?? defaults.fillPipelineNoPick ?? entry.pipelines?.fillPipeline ?? defaults.fillPipeline)

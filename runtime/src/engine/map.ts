@@ -3596,17 +3596,15 @@ export class XGISMap {
                 loadOp: 'clear', storeOp: 'store',
               },
             ],
-            // iter-192 — fresh offscreen depth (NOT the opaque
-            // scene's stencilTexture). Clear at start so the first
-            // wall fragment in this pass is always closest; subsequent
-            // fragments depth-test against THIS pass's writes,
-            // yielding correct inter-building occlusion inside the
-            // offscreen FBO. Discard at end — main pass uses its
-            // own depth-stencil view.
+            // iter-193 — reverted iter-192's offscreenExtrudeDepth.
+            // OIT path is unused by default (bucket-scheduler keeps
+            // isOitExtrude=false) so this attachment never actually
+            // executes; restored to the canonical opaque-depth load
+            // for the future opt-in path.
             depthStencilAttachment: {
-              view: this.offscreenExtrudeDepth!.createView(),
-              depthLoadOp: 'clear', depthClearValue: 1.0, depthStoreOp: 'discard',
-              stencilLoadOp: 'clear', stencilClearValue: 0, stencilStoreOp: 'discard',
+              view: this.stencilTexture!.createView(),
+              depthLoadOp: 'load', depthStoreOp: 'discard',
+              stencilLoadOp: 'load', stencilStoreOp: 'discard',
             },
           })
           for (const cs of oit) {
