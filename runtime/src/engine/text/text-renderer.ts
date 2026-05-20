@@ -17,6 +17,8 @@
 
 import type { GlyphInfo } from './sdf/glyph-atlas-host'
 import type { GlyphAtlasGPU } from './sdf/glyph-atlas-gpu'
+import { FrameArena } from '../gpu/frame-arena'
+import { bumpAlloc } from '../__profile__/alloc-counter'
 
 export interface TextDraw {
   /** Anchor in screen pixels — caller projects from (lon, lat). */
@@ -224,6 +226,15 @@ export class TextRenderer {
    *  intervals. Rebuilt per frame in setDraws; viewport patched in
    *  draw() before the single GPU upload. */
   private allUniforms: Float32Array | null = null
+  /** iter-244 (Plan AAA B.2) — per-frame arena for the large vertex
+   *  data buffer in `setDraws()`. The previous `new Float32Array(N)`
+   *  allocated 100s of KB per frame (totalGlyphs × 12 floats × 4 B).
+   *  Arena reuses the same backing ArrayBuffer across frames; only
+   *  watermark moves. The view passed to `queue.writeBuffer` is
+   *  copied into GPU memory synchronously, so the view's lifetime
+   *  ends with setDraws() — safe to invalidate on next setDraws
+   *  begin (next frame). */
+  private readonly _frameArena = new FrameArena(256 * 1024)
   /** One bind group per atlas page, lazily built. The atlas only
    *  ever GROWS pages (no destroy in-flight), so cached entries stay
    *  valid across frames. Single-page maps populate just index 0
@@ -307,7 +318,14 @@ export class TextRenderer {
 
     let totalGlyphs = 0
     for (const d of draws) totalGlyphs += d.glyphs.length
-    const data = new Float32Array(totalGlyphs * FLOATS_PER_GLYPH)
+    // iter-244 (Plan AAA B.2) — self-contained arena. Watermark
+    // resets at the start of each setDraws call (which fires once
+    // per frame). The view passed to `queue.writeBuffer` below is
+    // synchronously copied to GPU memory by WebGPU; the view's
+    // arena-backed lifetime ends here.
+    this._frameArena.beginFrame()
+    bumpAlloc('text-renderer.setDraws.data.FrameArena')
+    const data = this._frameArena.allocF32(totalGlyphs * FLOATS_PER_GLYPH)
     this.drawSlices = []
 
     let glyphIdx = 0
