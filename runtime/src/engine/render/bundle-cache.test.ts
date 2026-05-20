@@ -116,3 +116,63 @@ describe('BundleCache — stats', () => {
     expect(cache.getStats().hitRate).toBe(0)
   })
 })
+
+describe('BundleCache — iter-227 LRU cap', () => {
+  it('default cap = 1024', () => {
+    const cache = new BundleCache(mockDevice())
+    expect(cache.getStats().maxEntries).toBe(1024)
+  })
+
+  it('custom cap honoured', () => {
+    const cache = new BundleCache(mockDevice(), 3)
+    expect(cache.getStats().maxEntries).toBe(3)
+  })
+
+  it('size never exceeds cap; eviction count bumps on overflow', () => {
+    const cache = new BundleCache(mockDevice(), 3)
+    cache.getOrEncode('a', DESC, () => {})
+    cache.getOrEncode('b', DESC, () => {})
+    cache.getOrEncode('c', DESC, () => {})
+    expect(cache.getStats().size).toBe(3)
+    expect(cache.getStats().evictions).toBe(0)
+    cache.getOrEncode('d', DESC, () => {})  // overflow → evict 1
+    expect(cache.getStats().size).toBe(3)
+    expect(cache.getStats().evictions).toBe(1)
+    cache.getOrEncode('e', DESC, () => {})  // overflow → evict 2
+    expect(cache.getStats().size).toBe(3)
+    expect(cache.getStats().evictions).toBe(2)
+  })
+
+  it('LRU policy: hit bumps recency, oldest-by-lastUsed evicted', () => {
+    const cache = new BundleCache(mockDevice(), 3)
+    cache.getOrEncode('a', DESC, () => {})   // call 1, 'a'.lastUsed=1
+    cache.getOrEncode('b', DESC, () => {})   // call 2, 'b'.lastUsed=2
+    cache.getOrEncode('c', DESC, () => {})   // call 3, 'c'.lastUsed=3
+    cache.getOrEncode('a', DESC, () => {})   // call 4 (hit), 'a'.lastUsed=4
+    // 'b' is now oldest (lastUsed=2). Inserting 'd' should evict 'b'.
+    cache.getOrEncode('d', DESC, () => {})   // call 5 (miss + evict)
+    expect(cache.getStats().size).toBe(3)
+    // Confirm: 'b' gone (next call re-encodes), 'a' / 'c' / 'd' present.
+    let bReEncoded = false
+    cache.getOrEncode('b', DESC, () => { bReEncoded = true })
+    expect(bReEncoded).toBe(true)
+    // 'a' still cached (no re-encode).
+    let aReEncoded = false
+    cache.getOrEncode('a', DESC, () => { aReEncoded = true })
+    expect(aReEncoded).toBe(false)
+  })
+
+  it('invalidateAll → cache cleared but cap retained', () => {
+    const cache = new BundleCache(mockDevice(), 2)
+    cache.getOrEncode('a', DESC, () => {})
+    cache.getOrEncode('b', DESC, () => {})
+    cache.invalidateAll()
+    expect(cache.getStats().size).toBe(0)
+    expect(cache.getStats().maxEntries).toBe(2)
+    // New fills still bounded.
+    cache.getOrEncode('a', DESC, () => {})
+    cache.getOrEncode('b', DESC, () => {})
+    cache.getOrEncode('c', DESC, () => {})
+    expect(cache.getStats().size).toBe(2)
+  })
+})

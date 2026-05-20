@@ -91,9 +91,25 @@ export class BundleCache {
   /** Cache hit / miss counters (diagnostic). */
   private _hits = 0
   private _misses = 0
+  /** iter-227 — Soft cap on cached bundle count. Without a cap the
+   *  cache grows unbounded across long pan/zoom sessions: every
+   *  distinct (slice, phase, tile-set, world-offset, upload-epoch,
+   *  rebuild-epoch, pickEnabled, sampleCount, pipeline labels)
+   *  tuple is a new entry. iter-226 raised the steady-state hit
+   *  rate to 97.6 %, which is excellent but means the cache rarely
+   *  GCs by natural turnover. 1024 entries × (one GPURenderBundle
+   *  command list + bind-group refs each) keeps the cache footprint
+   *  small while covering all common multi-zoom-level scenes.
+   *  Configurable via constructor for tests + future tuning. */
+  private maxEntries: number
+  /** iter-227 — Lifetime eviction counter (diagnostic). Exposed
+   *  through getStats() so users can see whether the cap is firing
+   *  during the session. */
+  private _evictions = 0
 
-  constructor(device: GPUDevice) {
+  constructor(device: GPUDevice, maxEntries: number = 1024) {
     this.device = device
+    this.maxEntries = maxEntries
   }
 
   /** Get the bundle for `key`; encode + cache on miss.
@@ -125,9 +141,33 @@ export class BundleCache {
     })
     encodeFn(encoder)
     const bundle = encoder.finish({ label: desc.label })
+    // iter-227 — enforce cap BEFORE insertion so post-insert size
+    // stays at `maxEntries`. Eviction picks the entry with the
+    // lowest `lastUsed` (LRU). Scan cost = O(N); only paid on
+    // miss + cap-hit, which is rare at the 97.6 % steady-state
+    // hit rate.
+    if (this.bundles.size >= this.maxEntries) this.evictLRU()
     this.bundles.set(key, { bundle, lastUsed: this.callCounter })
     this._misses++
     return bundle
+  }
+
+  /** iter-227 — Drop the entry with the lowest `lastUsed` counter.
+   *  Called from `getOrEncode` on a miss when the cap is hit.
+   *  Map.size never exceeds `maxEntries` post-call. */
+  private evictLRU(): void {
+    let oldestKey: string | null = null
+    let oldestUsed = Infinity
+    for (const [k, v] of this.bundles) {
+      if (v.lastUsed < oldestUsed) {
+        oldestUsed = v.lastUsed
+        oldestKey = k
+      }
+    }
+    if (oldestKey !== null) {
+      this.bundles.delete(oldestKey)
+      this._evictions++
+    }
   }
 
   /** Drop a specific cache entry. Next `getOrEncode` for the same
@@ -144,14 +184,25 @@ export class BundleCache {
     this.bundles.clear()
   }
 
-  /** Diagnostic snapshot. */
-  getStats(): { size: number; hits: number; misses: number; hitRate: number } {
+  /** Diagnostic snapshot. iter-227 adds `evictions` (lifetime count
+   *  of LRU drops from the cap) + `maxEntries` (the configured cap)
+   *  so users can see whether the cap is firing during the session. */
+  getStats(): {
+    size: number
+    hits: number
+    misses: number
+    hitRate: number
+    evictions: number
+    maxEntries: number
+  } {
     const total = this._hits + this._misses
     return {
       size: this.bundles.size,
       hits: this._hits,
       misses: this._misses,
       hitRate: total > 0 ? this._hits / total : 0,
+      evictions: this._evictions,
+      maxEntries: this.maxEntries,
     }
   }
 }

@@ -5,7 +5,7 @@ Labels + icons hidden on both sides to isolate fill / line / outline parity.
 | View | Identical | ≤8 cumul | ≤32 cumul | ≤128 cumul | >128 px |
 |---|---:|---:|---:|---:|---:|
 | `bright-seoul-school` | 97.28% | 98.27% | 99.28% | 100.00% | 0 |
-| `bright-tokyo-z14` | 31.31% | 63.75% | 92.43% | 100.00% | 6 |
+| `bright-tokyo-z14` | 31.31% | 63.75% | 92.44% | 100.00% | 6 |
 | `liberty-paris-z14` | 22.22% | 65.33% | 86.03% | 99.93% | 300 |
 | `demotiles-europe-z2` | 87.71% | 89.66% | 94.90% | 99.68% | 1434 |
 
@@ -23,7 +23,7 @@ Labels + icons hidden on both sides to isolate fill / line / outline parity.
 - **Hash**: `#14/35.6585/139.7454`
 - **Description**: OFM Bright, Tokyo z=14 — landuse + water fills
 - **Canvas**: 639×704 (449856 px)
-- **Buckets**: `{"eq0":140871,"le8":145919,"le16":76128,"le32":52901,"le64":27953,"le128":6078,"gt128":6}`
+- **Buckets**: `{"eq0":140870,"le8":145912,"le16":76130,"le32":52920,"le64":27940,"le128":6078,"gt128":6}`
 
 ### liberty-paris-z14
 - **Style**: `openfreemap-liberty`
