@@ -386,6 +386,11 @@ export class VectorTileRenderer {
    *  ordering. Used to replace `[...map.entries()].sort()` (which
    *  allocates a fresh Array per tile). Cleared via `length = 0`. */
   private readonly _scratchOrderedFeatEntries: Array<[number, { mercX: number; mercY: number; firstIdx: number }]> = []
+  /** iter-252 (Plan AAA A.2) — Scratch Map for forEachLineLabelFeature's
+   *  per-call `best` Map. Pre-iter-252 each function call (per
+   *  ShowCommand per frame) allocated fresh. Cleared at function
+   *  entry, V8 retains hash buckets. */
+  private readonly _scratchBestLineLabel = new Map<number, { a: number; b: number; len2: number }>()
   /** iter-243 (Plan AAA B.2) — per-frame scratch arena for VTR
    *  call-scope typed-array allocations (forEachLineLabelPolyline
    *  xs/ys Float64Array). Lifetime is single-call: views allocated
@@ -1421,8 +1426,10 @@ export class VectorTileRenderer {
     // Reusable across tiles to avoid per-tile Map allocation churn.
     // Holds the longest segment seen so far for each featId in the
     // CURRENT tile's iteration; cleared at tile boundary.
+    // iter-252 — scratch reuse; clear at function entry.
     bumpAlloc('vtr.forEachLineLabelFeature.best.Map')
-    const best = new Map<number, { a: number; b: number; len2: number }>()
+    const best = this._scratchBestLineLabel
+    best.clear()
     for (const key of seen) {
       const tileData = this.source.getTileData(key, sliceLayer)
       if (!tileData?.lineVertices || !tileData?.lineIndices) continue
