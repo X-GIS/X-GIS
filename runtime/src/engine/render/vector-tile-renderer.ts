@@ -63,6 +63,13 @@ interface GPUTile {
    *  Together with `polyVertexOffset` defines the arena sub-range. */
   polyVertexByteLength: number
   indexBuffer: GPUBuffer
+  /** Phase 6a.3 (iter-209) — polygon index byte offset into
+   *  `indexBuffer`. Mirror of `polyVertexOffset` for the index
+   *  arena. `pass.setIndexBuffer(indexBuffer, 'uint32',
+   *  polyIndexOffset, polyIndexByteLength)`. */
+  polyIndexOffset: number
+  /** Phase 6a.3 — aligned byte length of polygon index slice. */
+  polyIndexByteLength: number
   indexCount: number
   /** Per-vertex z (world metres) for extruded polygons. When non-null,
    *  the fill path binds the `*Extruded` pipeline and feeds this as
@@ -527,6 +534,25 @@ export class VectorTileRenderer {
       })
     }
     return this.polyVertexArena
+  }
+
+  /** Phase 6a.3 (iter-209) — shared polygon index arena. Mirror of
+   *  the vertex arena above. Capacity 64 MB matching vertex arena —
+   *  initial 32 MB sizing underestimated demotiles-europe-z2 which
+   *  exceeded 33 MB across all source-layers before eviction kicked
+   *  in. Phase 6a.5 will add auto-grow + cross-test reset. */
+  private polyIndexArena: GPUArena | null = null
+  private static readonly POLY_INDEX_ARENA_CAPACITY = 64 * 1024 * 1024
+
+  private getOrCreatePolyIndexArena(): GPUArena {
+    if (this.polyIndexArena === null) {
+      this.polyIndexArena = new GPUArena(this.device, {
+        capacityBytes: VectorTileRenderer.POLY_INDEX_ARENA_CAPACITY,
+        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        label: 'poly-index-arena',
+      })
+    }
+    return this.polyIndexArena
   }
 
   /** Tiered MAP_WRITE | COPY_SRC pool used by the async upload path
@@ -1061,11 +1087,9 @@ export class VectorTileRenderer {
     if (wasNull && this._gpuCacheCount > 0) {
       for (const inner of this.gpuCache.values()) {
         for (const tile of inner.values()) {
-          // Phase 6a.2 — vertexBuffer is the shared arena's GPUBuffer.
-          // DO NOT destroy() here — it'd kill every other tile's slice
-          // pointing at the same buffer. Reset the arena once after
-          // the loop instead.
-          tile.indexBuffer?.destroy()
+          // Phase 6a.2/6a.3 — vertex + index buffers are shared arena
+          // GPUBuffers. Per-tile destroy() would kill every other
+          // tile's slice. Reset arenas once after the loop.
           tile.lineVertexBuffer?.destroy()
           tile.lineIndexBuffer?.destroy()
           tile.outlineIndexBuffer?.destroy()
@@ -1074,10 +1098,12 @@ export class VectorTileRenderer {
           tile.featureDataBuffer?.destroy()
         }
       }
-      // Phase 6a.2 — release every arena slice in one shot. `reset()`
-      // keeps the GPU buffer alive (next upload re-uses it from offset
-      // 0) so we avoid the destroy/recreate cost.
+      // Phase 6a.2/6a.3 — reset both arenas (keep GPU buffers alive
+      // for next upload). reset() bounces the bump pointer to 0 +
+      // clears the free-list — same effect as destroy + recreate
+      // but without the GPU allocation cost.
       this.polyVertexArena?.reset()
+      this.polyIndexArena?.reset()
       this.gpuCache.clear()
       this._gpuCacheCount = 0
     }
@@ -1530,10 +1556,8 @@ export class VectorTileRenderer {
     this.computeHandlesByTile.clear()
     for (const inner of this.gpuCache.values()) {
       for (const tile of inner.values()) {
-        // Phase 6a.2 — vertexBuffer is the shared arena buffer; the
-        // arena.destroy() below tears it down. Per-tile destroy()
-        // would over-destroy a shared resource.
-        tile.indexBuffer?.destroy()
+        // Phase 6a.2/6a.3 — vertex + index buffers are shared arena
+        // resources. arena.destroy() below tears them down.
         tile.lineVertexBuffer?.destroy()
         tile.lineIndexBuffer?.destroy()
         tile.outlineIndexBuffer?.destroy()
@@ -1544,9 +1568,11 @@ export class VectorTileRenderer {
     }
     this.gpuCache.clear()
     this._gpuCacheCount = 0
-    // Phase 6a.2 — release the arena's underlying GPU buffer.
+    // Phase 6a.2/6a.3 — release both arenas' underlying GPU buffers.
     this.polyVertexArena?.destroy()
     this.polyVertexArena = null
+    this.polyIndexArena?.destroy()
+    this.polyIndexArena = null
 
     this.featureDataBuffer?.destroy()
     this.featureDataBuffer = null
@@ -2103,12 +2129,12 @@ export class VectorTileRenderer {
     const vertexBuffer = polyVertexArena.buffer
     this.device.queue.writeBuffer(vertexBuffer, polyVertexOffset, polyVerts)
 
-    const indexBuffer = this.acquireBuffer(
-      Math.max(polyIndices.byteLength * 3, 4),
-      GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-      'tile-indices',
-    )
-    this.device.queue.writeBuffer(indexBuffer, 0, polyIndices)
+    // Phase 6a.3 (iter-209) — polygon index from shared arena.
+    const polyIndexArena = this.getOrCreatePolyIndexArena()
+    const polyIndexByteLength = Math.max(polyIndices.byteLength, 4)
+    const polyIndexOffset = polyIndexArena.alloc(polyIndexByteLength)
+    const indexBuffer = polyIndexArena.buffer
+    this.device.queue.writeBuffer(indexBuffer, polyIndexOffset, polyIndices)
 
     let zBuffer: GPUBuffer | null = null
     if (zAttribute) {
@@ -2243,6 +2269,7 @@ export class VectorTileRenderer {
 
     layerCache.set(key, {
       vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
+      polyIndexOffset, polyIndexByteLength,
       indexCount: polyIndices.length,
       zBuffer,
       lineVertexBuffer, lineIndexBuffer,
@@ -2355,18 +2382,18 @@ export class VectorTileRenderer {
     const polyVertexByteLength = Math.max(polyVerts.byteLength, 12)
     const polyVertexOffset = polyVertexArena.alloc(polyVertexByteLength)
     const vertexBuffer = polyVertexArena.buffer
-    const indexBuffer = this.acquireBuffer(
-      Math.max(polyIndices.byteLength * 3, 4),
-      GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-      'tile-indices',
-    )
+    // Phase 6a.3 — async index also from arena.
+    const polyIndexArena = this.getOrCreatePolyIndexArena()
+    const polyIndexByteLength = Math.max(polyIndices.byteLength, 4)
+    const polyIndexOffset = polyIndexArena.alloc(polyIndexByteLength)
+    const indexBuffer = polyIndexArena.buffer
 
     // Kick off the staging-buffer mapAsync for vertex + index in
     // parallel, then await both. mapAsync round-trips overlap, so
     // the wall-clock cost is one round-trip (not N).
     const writeHandles: Array<Promise<{ release: () => void }>> = []
     writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, vertexBuffer, polyVertexOffset, polyVerts))
-    writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, indexBuffer, 0, polyIndices))
+    writeHandles.push(asyncWriteBuffer(this.stagingPool, encoder, indexBuffer, polyIndexOffset, polyIndices))
 
     let zBuffer: GPUBuffer | null = null
     if (zAttribute) {
@@ -2500,6 +2527,7 @@ export class VectorTileRenderer {
 
     layerCache.set(key, {
       vertexBuffer, polyVertexOffset, polyVertexByteLength, indexBuffer,
+      polyIndexOffset, polyIndexByteLength,
       indexCount: polyIndices.length,
       zBuffer,
       lineVertexBuffer, lineIndexBuffer,
@@ -4714,7 +4742,10 @@ export class VectorTileRenderer {
         // to that sub-range.
         pass.setVertexBuffer(0, cached.vertexBuffer, cached.polyVertexOffset, cached.polyVertexByteLength)
         if (useOitPipe || useExtrudedPipe) pass.setVertexBuffer(1, cached.zBuffer!)
-        pass.setIndexBuffer(cached.indexBuffer, 'uint32')
+        // Phase 6a.3 — index buffer is now the shared arena's
+        // GPUBuffer; pass the per-tile byte offset + length to bind
+        // only this tile's index sub-range. firstIndex stays at 0.
+        pass.setIndexBuffer(cached.indexBuffer, 'uint32', cached.polyIndexOffset, cached.polyIndexByteLength)
         pass.drawIndexed(cached.indexCount)
       }
 
@@ -4858,7 +4889,12 @@ export class VectorTileRenderer {
         if (this.polyVertexArena !== null) {
           this.polyVertexArena.free(tile.polyVertexOffset, tile.polyVertexByteLength)
         }
-        this.releaseBuffer(tile.indexBuffer)
+        // Phase 6a.3 — index now arena-resident too. Free the range
+        // back to the arena's free-list; never call releaseBuffer on
+        // the shared GPUBuffer.
+        if (this.polyIndexArena !== null) {
+          this.polyIndexArena.free(tile.polyIndexOffset, tile.polyIndexByteLength)
+        }
         this.releaseBuffer(tile.zBuffer)
         this.releaseBuffer(tile.lineVertexBuffer)
         this.releaseBuffer(tile.lineIndexBuffer)
