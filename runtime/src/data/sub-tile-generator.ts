@@ -48,6 +48,13 @@ export class SubTileGenerator {
   private readonly _scratchOutLV: number[] = []
   private readonly _scratchOutLI: number[] = []
   private readonly _scratchOutLVKey = new Map<string, number>()
+  /** iter-250 — outline scratch arrays. olvScratch is `number[]`
+   *  passed to `tessellateLineToArrays` which pushes vertices into
+   *  it; oliScratch carries the index list. Each pre-iter-250
+   *  generate() call allocated fresh arrays — hoist mirrors the
+   *  iter-247 polygon scratch pattern. */
+  private readonly _scratchOlv: number[] = []
+  private readonly _scratchOli: number[] = []
 
   /** Returns true if `parent` carries any geometry the sub-tile can be
    *  clipped from. Polygon-only, line-only (PMTiles 'roads'), point-only
@@ -260,8 +267,12 @@ export class SubTileGenerator {
     const isSameParentBoundarySide = makeSameBoundarySidePredicateMerc(
       0, 0, parentMxE_local, parentMyN_local,
     )
-    const olvScratch: number[] = []
-    const oliScratch: number[] = []
+    // iter-250 — scratch reuse; clear at start. Same pattern as
+    // outV/outI hoist above.
+    const olvScratch = this._scratchOlv
+    olvScratch.length = 0
+    const oliScratch = this._scratchOli
+    oliScratch.length = 0
     if (parent.polygons && parent.polygons.length > 0) {
       for (const poly of parent.polygons) {
         for (const ring of poly.rings) {
