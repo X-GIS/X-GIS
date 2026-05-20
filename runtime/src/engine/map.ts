@@ -409,6 +409,13 @@ export class XGISMap {
   // alpha blending in a single translucent draw pass.
   private oitAccumTexture: GPUTexture | null = null
   private oitRevealageTexture: GPUTexture | null = null
+  /** iter-192 — two-pass offscreen-composite extrude. Renders the
+   *  translucent extrude shows opaquely into oitAccumTexture with
+   *  this fresh depth attachment so front walls depth-occlude back
+   *  walls inside the offscreen FBO. Composite then over-blends the
+   *  resulting opaque image onto the main framebuffer at the layer
+   *  opacity. Sized + reallocated alongside oitAccumTexture. */
+  private offscreenExtrudeDepth: GPUTexture | null = null
   /** `?debug=overdraw` accumulator — every renderer's debug pipeline
    *  writes 1.0 (additive) to this r16float target instead of the
    *  swapchain. A final compose pass colormaps the result to RGBA. */
@@ -3209,6 +3216,17 @@ export class XGISMap {
           usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
           label: 'oit-revealage',
         })
+        // iter-192 — fresh depth for the two-pass offscreen extrude
+        // pass. Cleared at the start of every `oit-fill` pass; never
+        // shared with the opaque scene depth.
+        this.offscreenExtrudeDepth?.destroy()
+        this.offscreenExtrudeDepth = device.createTexture({
+          size: { width: w, height: h },
+          format: 'depth24plus-stencil8',
+          sampleCount: sc,
+          usage: GPUTextureUsage.RENDER_ATTACHMENT,
+          label: 'offscreen-extrude-depth',
+        })
         if (DEBUG_OVERDRAW) {
           // r16float lets per-pixel additive accumulation grow well
           // past the [0, 1] swapchain range. MSAA forced to 1× in
@@ -3578,10 +3596,17 @@ export class XGISMap {
                 loadOp: 'clear', storeOp: 'store',
               },
             ],
+            // iter-192 — fresh offscreen depth (NOT the opaque
+            // scene's stencilTexture). Clear at start so the first
+            // wall fragment in this pass is always closest; subsequent
+            // fragments depth-test against THIS pass's writes,
+            // yielding correct inter-building occlusion inside the
+            // offscreen FBO. Discard at end — main pass uses its
+            // own depth-stencil view.
             depthStencilAttachment: {
-              view: this.stencilTexture!.createView(),
-              depthLoadOp: 'load', depthStoreOp: 'discard',
-              stencilLoadOp: 'load', stencilStoreOp: 'discard',
+              view: this.offscreenExtrudeDepth!.createView(),
+              depthLoadOp: 'clear', depthClearValue: 1.0, depthStoreOp: 'discard',
+              stencilLoadOp: 'clear', stencilClearValue: 0, stencilStoreOp: 'discard',
             },
           })
           for (const cs of oit) {

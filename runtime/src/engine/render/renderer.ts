@@ -669,10 +669,17 @@ fn fs_oit_translucent(input: VertexOutput) -> OitFragmentOutput {
   // azimuthal / stereographic / ortho.
   let a = u.fill_color.a * polygon_rim_alpha(input.abs_merc_x, input.abs_merc_y);
   if (a <= 0.001) { discard; }
-  // McGuire-Bavoil weight: large for closer (smaller view_w) and
-  // smaller alpha contributions, capped to avoid float overflow.
-  let z = max(input.view_w, 1e-3);
-  let w = clamp(0.03 / (1e-5 + pow(z / 200.0, 4.0)), 1e-2, 3.0e3);
+  // iter-192 — two-pass offscreen-composite (was McGuire-Bavoil OIT).
+  // With weight=1.0 the accum / revealage math collapses to standard
+  // alpha-blend math whenever fragments DO NOT overlap at the same
+  // pixel, which the pipeline-side depth-write achieves: front wall
+  // depth-occludes back wall in the offscreen FBO, so only ONE
+  // fragment reaches accum per pixel. Compose then divides
+  //   avg = accum.rgb / accum.a = rgb
+  //   alpha = 1 - revealage = 1 - (1-a) = a
+  // and over-blends (avg, alpha) onto the main framebuffer. That is
+  // exactly what MapLibre offscreen FBO + composite produces.
+  let w = 1.0;
   var out: OitFragmentOutput;
   out.accum = vec4<f32>(rgb * a, a) * w;
   out.revealage = a;
@@ -2172,14 +2179,19 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
       // wall when the camera tilts to look inside — acceptable for
       // OFM Liberty's rectangular-block footprint corpus.
       primitive: { topology: 'triangle-list', cullMode: 'back', frontFace: 'ccw' },
-      // OIT pass attaches the opaque MSAA depth-stencil so
-      // translucent fragments depth-test against the full opaque
-      // scene. depthWriteEnabled=false keeps OIT
-      // translucent-vs-translucent order independent.
+      // iter-192 — depth-write ENABLED + uses an offscreen depth
+      // attachment (allocated alongside oitAccumTexture in map.ts,
+      // see `offscreenExtrudeDepth`). Front walls write depth and
+      // occlude back walls IN the offscreen pass — inter-building
+      // occlusion now correct. Compose blends the offscreen onto
+      // the main framebuffer at the layer opacity. This is MapLibre's
+      // canonical two-pass extrude path; the OIT pipeline name
+      // survives for historical continuity but the math is no
+      // longer McGuire-Bavoil weighted.
       depthStencil: {
         format: 'depth24plus-stencil8',
         depthCompare: 'less-equal',
-        depthWriteEnabled: false,
+        depthWriteEnabled: true,
         stencilFront: { compare: 'always', passOp: 'keep' },
         stencilBack: { compare: 'always', passOp: 'keep' },
         stencilWriteMask: 0x00,
