@@ -121,6 +121,12 @@ const FALLBACK_PARENT_DEPTH = 2
  *  eviction protection. With these the selector is feature-equivalent
  *  to `visibleTilesFrustum` for Mercator. Phase 3 follow-ups (OBB
  *  cull, globe / non-Mercator projections, latitude clamp) ship later. */
+// iter-253 (Plan AAA A.2) — module-level scratch for `injectedParents`
+// (see visibleTilesSSE body). Cleared at function entry; reused
+// across calls. Safe because visibleTilesSSE is invoked sequentially
+// within the synchronous render loop.
+const _injectedParentsScratch = new Set<number>()
+
 export function visibleTilesSSE(
   camera: Camera,
   projection: Projection,
@@ -305,7 +311,11 @@ export function visibleTilesSSE(
   // — the parent of a NE quadrant child and its SW sibling can be the
   // same coord; without dedup the renderer ends up drawing the same
   // ancestor twice.
-  const injectedParents = new Set<number>()
+  // iter-253 (Plan AAA A.2) — module-level scratch. visibleTilesSSE
+  // is called ~once per render per source (sequential within a
+  // frame, no async). Pre-iter-253 allocated a fresh Set per call.
+  const injectedParents = _injectedParentsScratch
+  injectedParents.clear()
   const parentKey = (z: number, x: number, y: number, worldCopy: number): number =>
     // Pack (worldCopy, z, x, y) into a 53-bit number for Set lookup.
     // worldCopy fits ±10 (overhead bits), z ≤ 22 (5 bits), x/y ≤ 2^22.
