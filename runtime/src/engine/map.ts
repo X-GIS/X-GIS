@@ -3966,33 +3966,30 @@ export class XGISMap {
         // gpu-shared for the rationale.
         // Label-specific world-copy iteration. Polygon / line draws
         // enumerate WORLD_COPIES = [-2..+2] so geometry wraps cleanly
-        // at the antimeridian. For LABELS, projecting the same
-        // anchor through every world copy stacks duplicate country
-        // names onto the visible canvas — at z=0/lng=180 the ±360°
-        // copies all land within projectLonLat's NDC ±1.5 window and
-        // the user sees Belgium / Russia / etc. drawn 2-3× across
-        // the Pacific. MapLibre renders each feature's label exactly
-        // once at its primary world position. Match that here by
-        // trying offsets in `|offset|` order [0, ±1, ±2] and
-        // returning the FIRST that projects; the primary copy wins
-        // whenever it's visible, and only the antimeridian-seam
-        // case falls through to an adjacent wrap.
+        // at the antimeridian. MapLibre renders labels in EVERY
+        // visible world copy too — at z=0 with pitch / bearing the
+        // user sees multiple worlds and expects country names in
+        // each. iter-188 fix: previous "first that projects" logic
+        // (designed to suppress 2-3× duplicate clusters on un-
+        // pitched z=0) wrongly capped labels at one world copy
+        // even when 3-4 were on-screen, leaving the user's
+        // pitched / bearing'd view with labels only in the central
+        // copy. Now enumerate ALL copies that pass the projector's
+        // NDC ±1.5 window — the screen-space collision pass dedupes
+        // labels whose AABBes overlap, so the "one Belgium per
+        // visible copy" output mirrors MapLibre without manual
+        // priority arbitration.
         const projectLonLatCopies = (lon: number, lat: number): Array<[number, number]> => {
           if (this.projectionName !== 'mercator') {
             const proj = projectLonLat(lon, lat, 0)
             return proj ? [proj] : []
           }
-          // Try world copies in increasing |offset| order: 0, then ±1,
-          // then ±2. First copy that projects within the projector's
-          // NDC ±1.5 window wins. Matches MapLibre: every label is
-          // anchored to its primary world copy when visible, and only
-          // wraps to an adjacent copy when the primary projects off-
-          // screen (e.g., at the antimeridian seam).
+          const out: Array<[number, number]> = []
           for (const wo of [0, -1, 1, -2, 2]) {
             const proj = projectLonLat(lon, lat, wo * WORLD_MERC)
-            if (proj) return [proj]
+            if (proj) out.push(proj)
           }
-          return []
+          return out
         }
 
         // (a) Imperative overlays
@@ -4730,23 +4727,34 @@ export class XGISMap {
                   }
                   return
                 }
-                // Mercator world-copy iteration: try offset 0, ±1, ±2
-                // (same order projectLonLatCopies uses) directly on
-                // merc coords. First copy that projects within the
-                // NDC window wins.
+                // iter-188 — Mercator world-copy label iteration.
+                // Previously had a `break` after the first projection
+                // that fit, so labels only rendered in ONE world copy
+                // even when 3-4 copies were on-screen at z=0 pitch=63
+                // bearing=90 (user-reported). Polygon / line geometry
+                // already enumerates WORLD_COPIES = [-2..+2] in the
+                // vertex shader; labels need the same treatment to
+                // stay anchored to their feature in every visible
+                // world. projectMerc returns null for copies outside
+                // the NDC ±1.5 window, so each valid copy gets an
+                // addLabel + dispatchIcon. Screen-space collision
+                // dedupes when adjacent copies' AABBes overlap.
+                // projectMerc reuses a scratch tuple; snapshot the
+                // values into local consts so multiple iterations
+                // don't all reference the same overwritten slot.
                 for (const wo of [0, -1, 1, -2, 2]) {
                   const proj = projectMerc(mercX, mercY, wo * WORLD_MERC)
                   if (!proj) continue
+                  const px = proj[0], py = proj[1]
                   const pairKey = pairedWithIcon
-                    ? `${labelLayerName ?? ''}:${Math.round(proj[0])},${Math.round(proj[1])}`
+                    ? `${labelLayerName ?? ''}:${Math.round(px)},${Math.round(py)}`
                     : undefined
                   stage.addLabel(
                     featDef.text, props,
-                    proj[0], proj[1], featDef,
+                    px, py, featDef,
                     undefined, labelLayerName, pairKey,
                   )
-                  dispatchIcon(featDef, proj[0], proj[1], 0, pairKey)
-                  break
+                  dispatchIcon(featDef, px, py, 0, pairKey)
                 }
               })
             }

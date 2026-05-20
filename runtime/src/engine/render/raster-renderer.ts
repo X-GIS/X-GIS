@@ -450,6 +450,15 @@ export class RasterRenderer {
       }
     }
 
+    // iter-188 — world-copy iteration for Mercator raster. Mirror of
+    // polygon's WORLD_COPIES = [-2..+2] enumeration so raster tiles
+    // (e.g. OFM Liberty natural_earth shaded relief) render in every
+    // visible world copy at low zoom + pitch + bearing, not just the
+    // primary. Non-Mercator projections collapse to a single world
+    // copy (matches worldCopiesFor() in gpu-shared). WORLD_MERC
+    // constant matches the polygon path's value.
+    const RASTER_WORLD_MERC = 40075016.686
+    const RASTER_WORLD_COPIES = projType < 0.5 ? [0, -1, 1, -2, 2] : [0]
     // Render tiles: current zoom first, then parent fallback for missing
     for (const coord of tiles) {
       const key = `${coord.z}/${coord.x}/${coord.y}`
@@ -478,23 +487,6 @@ export class RasterRenderer {
       if (!cached) continue
 
       cached.lastUsedFrame = this.frameCount
-
-      // Get or create a pooled uniform buffer + matching bind group for this
-      // draw. The bind group is pre-built 1:1 with the buffer so the hot loop
-      // skips createBindGroup entirely.
-      if (this.tileUniformIdx >= this.tileUniformPool.length) {
-        const buf = this.device.createBuffer({
-          size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        })
-        this.tileUniformPool.push(buf)
-        this.tileBindGroupPool.push(this.device.createBindGroup({
-          layout: this.tileBindGroupLayout,
-          entries: [{ binding: 0, resource: { buffer: buf } }],
-        }))
-      }
-      const tileBuf = this.tileUniformPool[this.tileUniformIdx]
-      const tileBG = this.tileBindGroupPool[this.tileUniformIdx]
-      this.tileUniformIdx++
 
       // Compute bounds: use fallback tile's coordinates if using parent
       const renderCoord = isFallback ? fallbackCoord : coord
@@ -547,20 +539,8 @@ export class RasterRenderer {
       const mercNorth = Math.log(Math.tan(Math.PI / 4 + clampMerc(north) * DEG2RAD / 2))
       const mercDiff = mercNorth - mercSouth
 
-      const tf = this.drawTileF32
-      tf[0] = west; tf[1] = south; tf[2] = east; tf[3] = north   // bounds
-      tf[4] = tileX - centerX  // tile_rtc.x (f64 → f32)
-      tf[5] = tileY - centerY  // tile_rtc.y
-      tf[6] = west             // tile_rtc.z = tileWest
-      tf[7] = south            // tile_rtc.w = tileSouth
-      tf[8] = mercSouth        // merc_y.x (absolute, for non-Mercator projections)
-      tf[9] = mercDiff         // merc_y.y (small diff, precise at any zoom)
-      tf[10] = 0; tf[11] = 0   // padding
-      this.device.queue.writeBuffer(tileBuf, 0, tf)
-
-      // Per-tile global bind group: immutable after load because the texture
-      // view and sampler are stable for the tile's lifetime. Cached on the
-      // CachedTile entry so repeated frames reuse the same GPU binding.
+      // Per-tile global bind group: immutable after load. Pre-build
+      // ONCE per tile lifetime — shared across all world-copy draws.
       if (!cached.globalBG) {
         cached.globalBG = this.device.createBindGroup({
           layout: this.globalBindGroupLayout,
@@ -571,10 +551,43 @@ export class RasterRenderer {
           ],
         })
       }
-
       pass.setBindGroup(0, cached.globalBG)
-      pass.setBindGroup(1, tileBG)
-      pass.draw(384) // 8×8 grid × 6 verts/cell
+
+      // iter-188 — world-copy loop. For Mercator, draw the tile in
+      // every visible world copy by shifting tile_rtc.x by
+      // wo * WORLD_MERC. local_x in the vertex shader stays anchored
+      // to the unshifted tileWest (tile_rtc.z), so adding the world
+      // offset to tile_rtc.x cleanly translates the rendered grid.
+      // Non-Mercator collapses to wo=0 only.
+      for (const wo of RASTER_WORLD_COPIES) {
+        // Get or create a pooled uniform buffer + matching bind group.
+        if (this.tileUniformIdx >= this.tileUniformPool.length) {
+          const buf = this.device.createBuffer({
+            size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          })
+          this.tileUniformPool.push(buf)
+          this.tileBindGroupPool.push(this.device.createBindGroup({
+            layout: this.tileBindGroupLayout,
+            entries: [{ binding: 0, resource: { buffer: buf } }],
+          }))
+        }
+        const tileBuf = this.tileUniformPool[this.tileUniformIdx]
+        const tileBG = this.tileBindGroupPool[this.tileUniformIdx]
+        this.tileUniformIdx++
+
+        const tf = this.drawTileF32
+        tf[0] = west; tf[1] = south; tf[2] = east; tf[3] = north   // bounds
+        tf[4] = (tileX - centerX) + wo * RASTER_WORLD_MERC          // tile_rtc.x with world offset
+        tf[5] = tileY - centerY  // tile_rtc.y
+        tf[6] = west             // tile_rtc.z = tileWest (unshifted)
+        tf[7] = south            // tile_rtc.w = tileSouth
+        tf[8] = mercSouth        // merc_y.x
+        tf[9] = mercDiff         // merc_y.y
+        tf[10] = 0; tf[11] = 0   // padding
+        this.device.queue.writeBuffer(tileBuf, 0, tf)
+        pass.setBindGroup(1, tileBG)
+        pass.draw(384) // 8×8 grid × 6 verts/cell
+      }
     }
 
     // Capture this frame's visible set; deferred eviction runs in the next
