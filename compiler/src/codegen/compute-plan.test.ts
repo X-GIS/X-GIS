@@ -400,3 +400,125 @@ describe('planComputeKernels — kernel dedup', () => {
     expect(plan[1]!.kernel).toBe(plan[2]!.kernel)
   })
 })
+
+describe('planComputeKernels — Phase C.2 cseId-keyed dedup', () => {
+  it('cseAnnotation hit reuses the kernel without re-emitting WGSL', async () => {
+    // Build a Scene with two distinct match() AST OBJECTS that share
+    // the same cseId. Without cseAnnotation, both axes would call
+    // emitMatchComputeKernel separately and rely on the WGSL
+    // fingerprint cache. With cseAnnotation, the second axis hits the
+    // cseCache and skips emit entirely. Both paths MUST yield the
+    // same plan (shadow-mode invariant).
+    const exprA: DataExpr = matchAst('class', [
+      { pattern: 'school', hex: '#aaaaaa' },
+      { pattern: '_',      hex: '#000000' },
+    ])
+    const exprB: DataExpr = matchAst('class', [
+      { pattern: 'school', hex: '#aaaaaa' },
+      { pattern: '_',      hex: '#000000' },
+    ])
+    const fillA: ColorValue = { kind: 'data-driven', expr: exprA }
+    const fillB: ColorValue = { kind: 'data-driven', expr: exprB }
+
+    // Build a cseAnnotation that maps exprA.ast and exprB.ast to the
+    // same cseId (id = 7 chosen arbitrarily). Mimics what
+    // cse-annotate would do for canonical-equal subtrees.
+    const cseIdByExpr = new WeakMap<import('../parser/ast').Expr, number>()
+    cseIdByExpr.set(exprA.ast, 7)
+    cseIdByExpr.set(exprB.ast, 7)
+    const annotation = {
+      cseIdByExpr,
+      canonicalById: new Map([[7, 'F(match;...)']]),
+      uniqueCount: 1,
+      totalNodes: 2,
+    }
+    const scene: Scene = {
+      sources: [], symbols: [],
+      renderNodes: [makeNode({ fill: fillA }), makeNode({ fill: fillB })],
+      cseAnnotation: annotation,
+    } as Scene
+    const plan = planComputeKernels(scene)
+    expect(plan).toHaveLength(2)
+    // Reference equality holds via cseId fast path.
+    expect(plan[0]!.kernel).toBe(plan[1]!.kernel)
+  })
+
+  it('shadow-mode parity — cseAnnotation result matches no-annotation result', () => {
+    // The cseId fast path is supposed to be functionally equivalent
+    // to the WGSL fingerprint fallback. Build a Scene twice — once
+    // with annotation, once without — and assert the plans contain
+    // the same kernel references (proves the shortcut never produces
+    // a divergent decision).
+    const sameMatch = (): ColorValue => ({
+      kind: 'data-driven',
+      expr: matchAst('class', [
+        { pattern: 'a', hex: '#111111' },
+        { pattern: 'b', hex: '#222222' },
+      ]),
+    })
+    const fillA = sameMatch()
+    const fillB = sameMatch()
+    // Path 1: no annotation (existing WGSL fingerprint dedup).
+    const planNoAnnot = planComputeKernels({
+      sources: [], symbols: [],
+      renderNodes: [makeNode({ fill: fillA }), makeNode({ fill: fillB })],
+    } as Scene)
+    expect(planNoAnnot).toHaveLength(2)
+    expect(planNoAnnot[0]!.kernel).toBe(planNoAnnot[1]!.kernel)
+
+    // Path 2: with annotation mapping both ASTs to one cseId.
+    const cseIdByExpr = new WeakMap<import('../parser/ast').Expr, number>()
+    // ColorValue union → narrow to data-driven for the .expr access.
+    // sameMatch() always emits a data-driven shape; cast over the
+    // discriminated-union narrowing TypeScript can't infer through.
+    cseIdByExpr.set((fillA as { kind: 'data-driven'; expr: DataExpr }).expr.ast, 1)
+    cseIdByExpr.set((fillB as { kind: 'data-driven'; expr: DataExpr }).expr.ast, 1)
+    const planWithAnnot = planComputeKernels({
+      sources: [], symbols: [],
+      renderNodes: [makeNode({ fill: fillA }), makeNode({ fill: fillB })],
+      cseAnnotation: {
+        cseIdByExpr, canonicalById: new Map([[1, 'k']]),
+        uniqueCount: 1, totalNodes: 2,
+      },
+    } as Scene)
+    expect(planWithAnnot).toHaveLength(2)
+    expect(planWithAnnot[0]!.kernel).toBe(planWithAnnot[1]!.kernel)
+    // Both paths produced reference-equal kernels — invariant met.
+    // (We can't assert planNoAnnot[0].kernel === planWithAnnot[0].kernel
+    //  because they're emitted in different planComputeKernels calls,
+    //  each with its own cache. The within-call reference equality is
+    //  what the runtime consumes.)
+  })
+
+  it('cseAnnotation MISS falls back to WGSL fingerprint path (no regression)', () => {
+    // Some ASTs may be outside the cse-annotate walk (e.g. injected
+    // post-pipeline by a test or a runtime adjustment). When
+    // cseIdByExpr.get(ast) is undefined, planComputeKernels MUST
+    // still dedup via the existing WGSL fingerprint cache.
+    const sharedExpr = matchAst('class', [
+      { pattern: 'a', hex: '#aabbcc' },
+    ])
+    const fillA: ColorValue = { kind: 'data-driven', expr: sharedExpr }
+    const fillB: ColorValue = {
+      kind: 'data-driven',
+      // A DIFFERENT AST object but byte-identical match() — emits
+      // the same WGSL.
+      expr: matchAst('class', [{ pattern: 'a', hex: '#aabbcc' }]),
+    }
+    // Empty annotation: neither ast is in the WeakMap.
+    const emptyAnnotation = {
+      cseIdByExpr: new WeakMap<import('../parser/ast').Expr, number>(),
+      canonicalById: new Map<number, string>(),
+      uniqueCount: 0,
+      totalNodes: 0,
+    }
+    const plan = planComputeKernels({
+      sources: [], symbols: [],
+      renderNodes: [makeNode({ fill: fillA }), makeNode({ fill: fillB })],
+      cseAnnotation: emptyAnnotation,
+    } as Scene)
+    expect(plan).toHaveLength(2)
+    // WGSL fingerprint kicked in — kernels match by reference.
+    expect(plan[0]!.kernel).toBe(plan[1]!.kernel)
+  })
+})

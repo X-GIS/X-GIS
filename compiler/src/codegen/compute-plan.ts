@@ -113,17 +113,34 @@ export interface ComputePlanEntry {
  *  shapes are silently skipped — the runtime's fragment path still
  *  handles them via the legacy paint-shape-resolve.
  *
- *  Kernels are deduplicated by WGSL+entryPoint fingerprint: two
- *  entries whose emitted kernel is byte-identical share the same
- *  ComputeKernel object reference, so the runtime can collapse them
- *  to one dispatch without re-hashing the WGSL. */
+ *  Kernels are deduplicated by (in priority order):
+ *    1. **cseId** — Phase C.2 (iter 202). When `scene.cseAnnotation`
+ *       is present (set by the `cse-annotate` pass that runs at the
+ *       tail of `optimize()`), two `data-driven` ColorValues whose
+ *       source `Expr` shares a `cseId` skip the lower + emit step
+ *       entirely and reuse the cached `ComputeKernel`. Costless dedup
+ *       relative to the existing fingerprint path — the canonical
+ *       hash is computed once during `cse-annotate`, not per axis.
+ *    2. **WGSL+entryPoint fingerprint** — pre-existing fallback. Two
+ *       entries whose emitted kernel is byte-identical (regardless
+ *       of source AST identity — e.g. AST-different but emit-equal)
+ *       still share the same `ComputeKernel` reference. Covers
+ *       conditional ColorValues that have no single Expr to key on,
+ *       and any data-driven Expr that wasn't seen by `cse-annotate`
+ *       (e.g. scenes built directly by tests, bypassing the pipeline). */
 export function planComputeKernels(scene: Scene): ComputePlanEntry[] {
   const out: ComputePlanEntry[] = []
-  const cache = new Map<string, ComputeKernel>()
+  const wgslCache = new Map<string, ComputeKernel>()
+  // Phase C.2 — cseId-keyed cache. Populated incrementally as
+  // pushAxis processes axes. The cseAnnotation may be undefined
+  // (Scene built without running cse-annotate, e.g. direct
+  // construction in tests); pushAxis handles the fallback.
+  const cseCache = new Map<number, ComputeKernel>()
+  const cseIdByExpr = scene.cseAnnotation?.cseIdByExpr
   for (let i = 0; i < scene.renderNodes.length; i++) {
     const node = scene.renderNodes[i]!
-    pushAxis(out, cache, i, 'fill', node.fill)
-    pushAxis(out, cache, i, 'stroke-color', node.stroke.color)
+    pushAxis(out, wgslCache, cseCache, cseIdByExpr, i, 'fill', node.fill)
+    pushAxis(out, wgslCache, cseCache, cseIdByExpr, i, 'stroke-color', node.stroke.color)
   }
   return out
 }
@@ -150,7 +167,9 @@ function shareOrCache(
 
 function pushAxis(
   out: ComputePlanEntry[],
-  cache: Map<string, ComputeKernel>,
+  wgslCache: Map<string, ComputeKernel>,
+  cseCache: Map<number, ComputeKernel>,
+  cseIdByExpr: WeakMap<import('../parser/ast').Expr, number> | undefined,
   renderNodeIndex: number,
   paintAxis: PaintAxis,
   value: RenderNode['fill'],
@@ -170,9 +189,14 @@ function pushAxis(
   // signal being `compute-feature` is necessary but not sufficient.
 
   if (value.kind === 'conditional') {
+    // Conditional values have no single Expr to key cseId on
+    // (multiple branch conditions + fallback). Stay on the WGSL
+    // fingerprint path. Future iter could hash a synthetic id from
+    // each branch's `condition.ast` cseId but the benefit is small
+    // — conditional ColorValues are rare in real-world styles.
     const spec = lowerConditionalColorToTernary(value)
     if (!spec) return
-    const kernel = shareOrCache(cache, emitTernaryComputeKernel(spec))
+    const kernel = shareOrCache(wgslCache, emitTernaryComputeKernel(spec))
     out.push({
       renderNodeIndex, paintAxis, kernel,
       fieldOrder: kernel.fieldOrder,
@@ -182,9 +206,31 @@ function pushAxis(
   }
 
   if (value.kind === 'data-driven') {
+    // Phase C.2 — cseId fast path. If `cse-annotate` ran AND this
+    // Expr is in its WeakMap, two data-driven ColorValues sharing a
+    // cseId emit the same kernel by construction (canonicalExpr
+    // walks the same AST shape). Skip the lower + emit + WGSL hash
+    // entirely.
+    const cseId = cseIdByExpr?.get(value.expr.ast)
+    if (cseId !== undefined) {
+      const cached = cseCache.get(cseId)
+      if (cached) {
+        out.push({
+          renderNodeIndex, paintAxis, kernel: cached,
+          fieldOrder: cached.fieldOrder,
+          categoryOrder: cached.categoryOrder ?? {},
+        })
+        return
+      }
+    }
     const spec = lowerMatchColorToMatch(value.expr)
     if (!spec) return
-    const kernel = shareOrCache(cache, emitMatchComputeKernel(spec))
+    const kernel = shareOrCache(wgslCache, emitMatchComputeKernel(spec))
+    // Populate cseCache so subsequent axes sharing this cseId hit
+    // the fast path. WGSL-fingerprint cache populated by
+    // shareOrCache above remains the safety net for axes whose Expr
+    // isn't in the cseAnnotation (Scene built outside `optimize()`).
+    if (cseId !== undefined) cseCache.set(cseId, kernel)
     out.push({
       renderNodeIndex, paintAxis, kernel,
       fieldOrder: kernel.fieldOrder,
