@@ -4418,6 +4418,17 @@ export class VectorTileRenderer {
    *  that sets this true during the replay path. */
   private _skipFillDrawForBundle: boolean = false
 
+  /** iter-219 (Phase RB.B.7) — sibling of `_skipFillDrawForBundle`
+   *  for the stroke (drawSegments) draws emitted at the tail of
+   *  renderTileKeys. When the bundle includes strokes (phase ===
+   *  'all' on the opaque pass), a cache-hit replay path that
+   *  re-runs renderTileKeys for state side effects must NOT
+   *  re-emit strokes to the real pass — `executeBundles([bundle])`
+   *  already replays them. This flag gates the two `drawSegments`
+   *  call sites inside renderTileKeys (one for outlines, one for
+   *  lines). Default false. */
+  private _skipStrokeDrawForBundle: boolean = false
+
   /** iter-216 (Phase RB.B.4) — bundle-compatible per-tile fill draw
    *  recording. The 6 GPU commands here are EXACTLY the subset
    *  accepted by both `GPURenderPassEncoder` and
@@ -4891,7 +4902,13 @@ export class VectorTileRenderer {
     // buffer; with DEPTH_READ_ONLY they don't disturb later layers'
     // depth tests, but their occlusion against THIS layer's own
     // 3D geometry is now correct regardless of tile iteration order.
-    if (strokeQueue.length > 0 && this.lineRenderer) {
+    if (strokeQueue.length > 0 && this.lineRenderer && !this._skipStrokeDrawForBundle) {
+      // iter-219 (Phase RB.B.7) — `_skipStrokeDrawForBundle` gates
+      // these two drawSegments call sites. When set true by the
+      // bundle replay path, both calls are skipped — the cached
+      // bundle's executeBundles already replays the stroke draws.
+      // strokeQueue side effects (push from per-tile loop) remain
+      // populated for any non-bundle path or stats.
       const currentLineTileBg2 = this.tileBgDefault!
       // line-gap-width double-draw: when the second offset slot was
       // written, iterate the strokeQueue with each offset. Single-line
