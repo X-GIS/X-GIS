@@ -574,6 +574,17 @@ export class VectorTileRenderer {
   private paletteColorAtlasView: GPUTextureView | null = null
   private paletteSampler: GPUSampler | null = null
 
+  /** iter-181 — fill-pattern Stage 2 infra mirror of
+   *  setPaletteResources. Sprite atlas texture at binding 5; sampler
+   *  reuses `paletteSampler` at binding 4. Stub 1×1 white via the
+   *  initial MapRenderer.setSpriteAtlas push; replaced when the
+   *  IconStage finishes loading the real sprite atlas. */
+  setSpriteAtlasView(view: GPUTextureView): void {
+    this.spriteAtlasView = view
+    this.rebuildTileBindGroups()
+  }
+  private spriteAtlasView: GPUTextureView | null = null
+
   private ensureUniformRing(): void {
     if (this.uniformRing) return
     this.uniformRing = this.device.createBuffer({
@@ -590,7 +601,7 @@ export class VectorTileRenderer {
     // mr-featureBindGroupLayout. Defer bind-group construction until
     // both palette resources are wired so we don't ever build a
     // group missing those entries.
-    if (!this.paletteColorAtlasView || !this.paletteSampler) return
+    if (!this.paletteColorAtlasView || !this.paletteSampler || !this.spriteAtlasView) return
     this.tileBgDefault = this.device.createBindGroup({
       label: 'vtr-tileBg-default',
       layout: this.baseBindGroupLayout,
@@ -598,6 +609,7 @@ export class VectorTileRenderer {
         { binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } },
         { binding: 2, resource: this.paletteColorAtlasView },
         { binding: 4, resource: this.paletteSampler },
+        { binding: 5, resource: this.spriteAtlasView },
       ],
     })
     if (this.featureBindGroupLayout && this.featureDataBuffer) {
@@ -609,6 +621,7 @@ export class VectorTileRenderer {
           { binding: 1, resource: { buffer: this.featureDataBuffer } },
           { binding: 2, resource: this.paletteColorAtlasView },
           { binding: 4, resource: this.paletteSampler },
+          { binding: 5, resource: this.spriteAtlasView },
         ],
       })
     } else {
@@ -1717,7 +1730,7 @@ export class VectorTileRenderer {
     // (added in P3 Step 3c). When the renderer hasn't pushed palette
     // resources yet, return null buffer so the caller falls back to
     // a non-feature pipeline rather than producing an invalid group.
-    if (!this.paletteColorAtlasView || !this.paletteSampler) return null
+    if (!this.paletteColorAtlasView || !this.paletteSampler || !this.spriteAtlasView) return null
 
     // P4 compute path: when the captured variant carries
     // computeBindings, build (or refresh) a per-tile
@@ -1770,6 +1783,7 @@ export class VectorTileRenderer {
         { binding: 1, resource: { buffer } },
         { binding: 2, resource: this.paletteColorAtlasView },
         { binding: 4, resource: this.paletteSampler },
+        { binding: 5, resource: this.spriteAtlasView },
         ...extraComputeEntries,
       ],
     })

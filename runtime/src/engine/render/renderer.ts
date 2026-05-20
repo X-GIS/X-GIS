@@ -1362,6 +1362,19 @@ export class MapRenderer {
    *  stub; set to the real atlas via `setPaletteColorAtlas`. */
   paletteColorAtlasView!: GPUTextureView
   paletteSampler!: GPUSampler
+  /** iter-181 — fill-pattern Stage 2 infra. Sprite atlas texture
+   *  resources are bound to every polygon pipeline at binding 5 so
+   *  the future fs_fill_pattern fragment can `textureSample()` it
+   *  without a separate pipeline-variant matrix. Defaults to a 1×1
+   *  white stub so existing fill draws are unaffected (they ignore
+   *  the binding); replaced via `setSpriteAtlas` once the runtime
+   *  IconStage finishes loading the real atlas. The sampler is
+   *  shared with `paletteSampler` at binding 4 — both atlases want
+   *  the same linear / clamp-to-edge filter, no point doubling the
+   *  binding count. */
+  spriteAtlasStubTexture!: GPUTexture
+  spriteAtlasStubTextureView!: GPUTextureView
+  spriteAtlasView!: GPUTextureView
   private bindGroup!: GPUBindGroup
   private layers: RenderLayer[] = []
   private graticuleBuffer: GPUBuffer | null = null
@@ -1673,6 +1686,18 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
         visibility: GPUShaderStage.FRAGMENT,
         sampler: { type: 'filtering' },
       },
+      // iter-181 — sprite atlas texture for fill-pattern Stage 2.
+      // Bound on every polygon pipeline (stub 1×1 white until the
+      // runtime hands in the real atlas via setSpriteAtlas). The
+      // future fs_fill_pattern fragment shader samples this with
+      // paletteSampler at binding 4. Adding a layout entry that no
+      // shader yet references is legal in WGSL/WebGPU; the unused
+      // binding costs only ~16 bytes of bind group state per draw.
+      {
+        binding: 5,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: 'float', viewDimension: '2d' },
+      },
     ]
 
     this.bindGroupLayout = device.createBindGroupLayout({
@@ -1731,6 +1756,25 @@ fn fs_compose(in: VsOut) -> @location(0) vec4<f32> {
       addressModeU: 'clamp-to-edge',
       addressModeV: 'clamp-to-edge',
     })
+
+    // iter-181 — sprite atlas stub. 1×1 OPAQUE WHITE so any future
+    // shader that samples without the pattern flag set still gets a
+    // neutral colour (multiplied by u.fill_color → original fill).
+    // setSpriteAtlas() swaps the view once iconStage's atlas lands.
+    this.spriteAtlasStubTexture = device.createTexture({
+      label: 'mr-sprite-atlas-stub',
+      size: { width: 1, height: 1 },
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    })
+    device.queue.writeTexture(
+      { texture: this.spriteAtlasStubTexture },
+      new Uint8Array([255, 255, 255, 255]),
+      { bytesPerRow: 4 },
+      { width: 1, height: 1 },
+    )
+    this.spriteAtlasStubTextureView = this.spriteAtlasStubTexture.createView()
+    this.spriteAtlasView = this.spriteAtlasStubTextureView
     // Outer scope of constructor — methods that need re-bind on
     // palette swap close over `device` via `this.ctx.device`.
 
@@ -2105,6 +2149,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
         { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
         { binding: 2, resource: this.paletteColorAtlasView },
         { binding: 4, resource: this.paletteSampler },
+        { binding: 5, resource: this.spriteAtlasView },
       ],
     })
   }
@@ -2184,6 +2229,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
         { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
         { binding: 2, resource: this.paletteColorAtlasView },
         { binding: 4, resource: this.paletteSampler },
+        { binding: 5, resource: this.spriteAtlasView },
       ],
     })
     for (const layer of this.layers) {
@@ -2195,6 +2241,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
+            { binding: 5, resource: this.spriteAtlasView },
           ],
         })
       }
@@ -2334,6 +2381,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
+            { binding: 5, resource: this.spriteAtlasView },
             ...extraComputeEntries,
           ],
         })
@@ -2399,6 +2447,7 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
           { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
           { binding: 2, resource: this.paletteColorAtlasView },
           { binding: 4, resource: this.paletteSampler },
+          { binding: 5, resource: this.spriteAtlasView },
         ],
       })
     }
@@ -2420,6 +2469,48 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
             { binding: 1, resource: { buffer: layer.featureDataBuffer } },
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
+            { binding: 5, resource: this.spriteAtlasView },
+            ...computeEntries,
+          ],
+        })
+      }
+    }
+  }
+
+  /** iter-181 — fill-pattern Stage 2 infra. Swaps the sprite atlas
+   *  view bound at binding 5 across every cached bind group. Called
+   *  by map.ts once the IconStage's SpriteAtlasGPU finishes uploading
+   *  the real atlas; until then every bind group points at the 1×1
+   *  white stub so existing fill draws are unaffected. The setter
+   *  mirrors `setPaletteColorAtlas`'s rebuild-all-bind-groups pattern
+   *  since WebGPU bind groups are immutable once created. */
+  setSpriteAtlas(view: GPUTextureView): void {
+    this.spriteAtlasView = view
+    if (this.bindGroup) {
+      this.bindGroup = this.ctx.device.createBindGroup({
+        layout: this.bindGroupLayout,
+        entries: [
+          { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
+          { binding: 2, resource: this.paletteColorAtlasView },
+          { binding: 4, resource: this.paletteSampler },
+          { binding: 5, resource: this.spriteAtlasView },
+        ],
+      })
+    }
+    for (const layer of this.layers) {
+      if (layer.featureDataBuffer) {
+        const variant = layer.show.shaderVariant as ShaderVariantInfo | null | undefined
+        const computeEntries = variant?.computeBindings
+          ? (this.computeRegistry?.getHandle(layer.show.targetName)?.getBindGroupEntries() ?? [])
+          : []
+        layer.perLayerBindGroup = this.ctx.device.createBindGroup({
+          layout: variant ? this.getOrBuildVariantLayout(variant) : this.featureBindGroupLayout,
+          entries: [
+            { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
+            { binding: 1, resource: { buffer: layer.featureDataBuffer } },
+            { binding: 2, resource: this.paletteColorAtlasView },
+            { binding: 4, resource: this.paletteSampler },
+            { binding: 5, resource: this.spriteAtlasView },
             ...computeEntries,
           ],
         })
