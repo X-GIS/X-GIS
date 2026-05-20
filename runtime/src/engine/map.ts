@@ -450,6 +450,20 @@ export class XGISMap {
    *  a real FLICKER (GPU cache eviction churn, tile-drop regression)
    *  sustains past that horizon. */
   private _flickerFirstFrame = new Map<string, number>()
+  /** iter-237 (Plan A.2) — Scratch Sets for per-show label-name dedup.
+   *  Pre-iter-237 each show allocated fresh `new Set<string>()` for
+   *  text-along-line emit dedup + for point-label emit dedup. At
+   *  80 shows × 60 fps that's 9600 Set + internal-table allocations
+   *  per second per axis. Hoisted + `.clear()` before each show; V8
+   *  retains the internal hash buckets across clears so amortized
+   *  zero alloc.
+   *
+   *  Lifetime: scoped to a single show's emit pass. renderFrame is
+   *  synchronous + non-reentrant, so sharing across shows is safe
+   *  as long as each show clears before use. The closures that
+   *  capture the Set still read the live shared ref correctly. */
+  private readonly _scratchEmittedTextNames = new Set<string>()
+  private readonly _scratchEmittedPointNames = new Set<string>()
   private _frameCount = 0
   // Bumped from 60 → 240 (4 s @ 60 fps) — PMTiles world-scale
   // archives at z=0/z=1 trigger massive worker compiles (water +
@@ -4506,7 +4520,10 @@ export class XGISMap {
                 // along the road tangent and adjacent tile segments
                 // don't overlap enough to trigger the collision drop.
                 // Hard-cap here matches the reference output.
-                const emittedTextNames = new Set<string>()
+                // iter-237 (Plan A.2) — scratch reuse; clear per show
+                // entry. Pre-iter-237 was `new Set<string>()` per show.
+                const emittedTextNames = this._scratchEmittedTextNames
+                emittedTextNames.clear()
                 const isTooCloseToSameText = (resolvedText: string, _sx: number, _sy: number): boolean => {
                   return emittedTextNames.has(resolvedText)
                 }
@@ -4743,7 +4760,10 @@ export class XGISMap {
               // dedupe the same name appears 2-3× across adjacent
               // tiles. Mirror the line-label dedupe (Set keyed by
               // stable name) to keep one emission per ShowCommand.
-              const emittedPointNames = new Set<string>()
+              // iter-237 (Plan A.2) — scratch reuse; clear per show
+              // entry. Same rationale as emittedTextNames above.
+              const emittedPointNames = this._scratchEmittedPointNames
+              emittedPointNames.clear()
               vtEntry.renderer.forEachLabelFeature(sliceKey, (mercX, mercY, props) => {
                 const propsRec = props as Record<string, unknown>
                 const stableName = typeof propsRec.name === 'string' ? propsRec.name
