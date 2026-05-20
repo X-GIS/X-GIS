@@ -391,6 +391,16 @@ export class VectorTileRenderer {
    *  ShowCommand per frame) allocated fresh. Cleared at function
    *  entry, V8 retains hash buckets. */
   private readonly _scratchBestLineLabel = new Map<number, { a: number; b: number; len2: number }>()
+  /** iter-254 (Plan AAA A.2) — per-frame scratch arrays for
+   *  parentAtMaxLevel + archiveAncestor + ancestorMemo. These were
+   *  allocated fresh on every render() call (`new Array(tiles.length)`
+   *  + `new Map()`). At 60 fps with multiple shows per source =
+   *  30+ allocations per second per VTR. Hoisted to scratch + reset
+   *  via `.length = N` (Array) or `.clear()` (Map). V8 retains
+   *  backing storage across resets. */
+  private readonly _scratchParentAtMaxLevel: number[] = []
+  private readonly _scratchArchiveAncestor: number[] = []
+  private readonly _scratchAncestorMemo = new Map<number, boolean>()
   /** iter-243 (Plan AAA B.2) — per-frame scratch arena for VTR
    *  call-scope typed-array allocations (forEachLineLabelPolyline
    *  xs/ys Float64Array). Lifetime is single-call: views allocated
@@ -3467,12 +3477,17 @@ export class VectorTileRenderer {
         }
       }
       tiles = renderTiles
-      parentAtMaxLevel = new Array(tiles.length)
-      archiveAncestor = new Array(tiles.length)
+      // iter-254 — scratch reuse. `.length = N` truncates the JS
+      // array; backing storage stays + future index writes reuse it.
+      parentAtMaxLevel = this._scratchParentAtMaxLevel
+      parentAtMaxLevel.length = tiles.length
+      archiveAncestor = this._scratchArchiveAncestor
+      archiveAncestor.length = tiles.length
       // Per-frame-populate hasEntry memo. Adjacent tiles share
       // ancestors so memoization keeps the index lookup count
       // sub-linear in tiles.length.
-      const ancestorMemo = new Map<number, boolean>()
+      const ancestorMemo = this._scratchAncestorMemo
+      ancestorMemo.clear()
       const ancestorHasEntry = (k: number): boolean => {
         let v = ancestorMemo.get(k)
         if (v === undefined) {
