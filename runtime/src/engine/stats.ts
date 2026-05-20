@@ -32,6 +32,13 @@ export interface RenderStats {
    *  increase under pan/zoom flags cap pressure (consider raising
    *  the cap). */
   bundleEvictions: number
+  /** iter-229 — `pass.executeBundles([b])` calls this frame
+   *  (delta of lifetime bundleHits + bundleMisses). The actual
+   *  GPU API-call count for the bundle path; pair with the
+   *  logical `drawCalls` field to see the reduction ratio
+   *  (e.g. drawCalls=270, bundleReplays=5 → 54× CPU reduction
+   *  on this axis). */
+  bundleReplaysThisFrame: number
 }
 
 export class StatsTracker {
@@ -51,6 +58,15 @@ export class StatsTracker {
   bundleMisses = 0
   /** iter-228 — LRU evictions (lifetime). See `RenderStats.bundleEvictions`. */
   bundleEvictions = 0
+  /** iter-229 — Bundle replays during the most recent frame.
+   *  Computed as the delta of (bundleHits + bundleMisses) at
+   *  `endFrame()`, which gives the exact number of `executeBundles`
+   *  calls that fired this frame. Every cache hit AND miss path
+   *  calls `executeBundles([b])` (the miss path encodes + then
+   *  replays), so the sum delta is the per-frame API-call count
+   *  without any new bumps at the render sites. */
+  bundleReplaysThisFrame = 0
+  private _prevBundleTotal = 0
 
   // FPS tracking
   private frames = 0
@@ -82,6 +98,12 @@ export class StatsTracker {
       this.frames = 0
       this.lastTime = now
     }
+    // iter-229 — per-frame `executeBundles` call count, derived
+    // from the lifetime hits + misses delta. map.ts populates
+    // bundleHits + bundleMisses just before calling endFrame.
+    const total = this.bundleHits + this.bundleMisses
+    this.bundleReplaysThisFrame = total - this._prevBundleTotal
+    this._prevBundleTotal = total
   }
 
   /** Record a draw call */
@@ -114,6 +136,7 @@ export class StatsTracker {
       bundleMisses: this.bundleMisses,
       bundleHitRate: total > 0 ? this.bundleHits / total : 0,
       bundleEvictions: this.bundleEvictions,
+      bundleReplaysThisFrame: this.bundleReplaysThisFrame,
     }
   }
 }
@@ -160,6 +183,11 @@ export class StatsPanel {
       // off (idle camera → rate → 1.0) vs invalidating (pan/zoom →
       // rate dropping).
       ['bundle', 'Bundle'],
+      // iter-229 — Per-frame `pass.executeBundles` call count.
+      // Paired with `drawCalls` for ratio inspection: drawCalls
+      // is logical-per-axis; bundleCalls is actual-API. At idle
+      // bundleCalls collapses to the (slice × phase) count.
+      ['bundleCalls', 'Bundle/f'],
     ]
 
     for (const [key, label] of fields) {
@@ -218,6 +246,13 @@ export class StatsPanel {
         bundleRow.style.color = stats.bundleHitRate >= 0.8 ? '#4ade80'
           : stats.bundleHitRate >= 0.5 ? '#facc15' : '#ef4444'
       }
+    }
+    // iter-229 — Bundle calls per frame. At idle on the bundled
+    // path this should be small (1 per phase per slice) regardless
+    // of how many logical draws each replays.
+    const bundleCallsRow = this.rows.get('bundleCalls')
+    if (bundleCallsRow) {
+      bundleCallsRow.textContent = String(stats.bundleReplaysThisFrame)
     }
   }
 

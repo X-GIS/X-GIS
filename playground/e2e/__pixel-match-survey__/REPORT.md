@@ -6,7 +6,7 @@ Labels + icons hidden on both sides to isolate fill / line / outline parity.
 |---|---:|---:|---:|---:|---:|
 | `bright-seoul-school` | 97.28% | 98.27% | 99.28% | 100.00% | 0 |
 | `bright-tokyo-z14` | 31.31% | 63.75% | 92.44% | 100.00% | 6 |
-| `liberty-paris-z14` | 22.22% | 65.33% | 86.03% | 99.93% | 300 |
+| `liberty-paris-z14` | 22.25% | 65.32% | 86.02% | 99.93% | 302 |
 | `demotiles-europe-z2` | 87.71% | 89.66% | 94.90% | 99.68% | 1434 |
 
 ## View details
@@ -30,7 +30,7 @@ Labels + icons hidden on both sides to isolate fill / line / outline parity.
 - **Hash**: `#14/48.8534/2.3488`
 - **Description**: OFM Liberty, Paris z=14 — interpolate-zoom heavy
 - **Canvas**: 639×704 (449856 px)
-- **Buckets**: `{"eq0":99969,"le8":193920,"le16":40888,"le32":52239,"le64":42267,"le128":20273,"gt128":300}`
+- **Buckets**: `{"eq0":100074,"le8":193768,"le16":40856,"le32":52283,"le64":42276,"le128":20297,"gt128":302}`
 
 ### demotiles-europe-z2
 - **Style**: `maplibre-demotiles`
