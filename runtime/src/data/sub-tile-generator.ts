@@ -24,6 +24,31 @@ import {
 import { type TileData, DSFUN_LINE_STRIDE } from './tile-types'
 
 export class SubTileGenerator {
+  /** iter-247 (Plan AAA B.2) — scratch fields. Pre-iter-247 every
+   *  `generate()` call allocated 4 fresh `number[]` (outV/outI/outLV/
+   *  outLI) + 2 `Map<string, number>` (outVKey/outLVKey) + 2 fresh
+   *  number[] for outline (olvScratch/oliScratch). During zoom-
+   *  transition cascades (over-zoom past archive maxLevel) the
+   *  function fires per visible sub-tile — easily 30+ calls / frame
+   *  on a typical pan into a deep-zoom region. The number[] arrays
+   *  grow via push() with V8 internal capacity doubling, each grow
+   *  allocating new backing storage; the Maps allocate hash buckets.
+   *
+   *  Hoisted to instance fields, cleared at the start of each
+   *  generate() call. V8 retains the number[] backing array and the
+   *  Map's hash buckets across clears, so amortized allocation drops
+   *  to zero after the first call establishes peak size.
+   *
+   *  Lifetime: scoped to one generate() call. Final output is copied
+   *  into `new Float32Array(outV)` etc. before return, so the
+   *  permanent TileData doesn't depend on the scratch state. */
+  private readonly _scratchOutV: number[] = []
+  private readonly _scratchOutI: number[] = []
+  private readonly _scratchOutVKey = new Map<string, number>()
+  private readonly _scratchOutLV: number[] = []
+  private readonly _scratchOutLI: number[] = []
+  private readonly _scratchOutLVKey = new Map<string, number>()
+
   /** Returns true if `parent` carries any geometry the sub-tile can be
    *  clipped from. Polygon-only, line-only (PMTiles 'roads'), point-only
    *  ('places'), or mixed all qualify — the previous early-exit only
@@ -79,10 +104,14 @@ export class SubTileGenerator {
     }
 
     // Polygon vertex output: DSFUN stride-5 [mx_h, my_h, mx_l, my_l, feat_id].
+    // iter-247 (Plan AAA B.2) — scratch reuse; clear at start.
     const verts = parent.vertices
-    const outV: number[] = []
-    const outI: number[] = []
-    const outVKey = new Map<string, number>()
+    const outV = this._scratchOutV
+    outV.length = 0
+    const outI = this._scratchOutI
+    outI.length = 0
+    const outVKey = this._scratchOutVKey
+    outVKey.clear()
     // Quantize to ~1 cm to tolerate clipper noise — DSFUN vertices afford
     // tighter quantization than the old 10 cm tile-local-degree key.
     const pushDedupPV = (x: number, y: number, fid: number): number => {
@@ -129,11 +158,15 @@ export class SubTileGenerator {
     }
 
     // Line clip (Liang-Barsky). DSFUN stride-10 reconstruction + dedup.
+    // iter-247 — scratch reuse; clear at start.
     const lineVerts = parent.lineVertices
     const lineIdx = parent.lineIndices
-    const outLV: number[] = []
-    const outLI: number[] = []
-    const outLVKey = new Map<string, number>()
+    const outLV = this._scratchOutLV
+    outLV.length = 0
+    const outLI = this._scratchOutLI
+    outLI.length = 0
+    const outLVKey = this._scratchOutLVKey
+    outLVKey.clear()
     const pushDedupLV = (x: number, y: number, fid: number, arc: number, tinX: number, tinY: number, toutX: number, toutY: number): number => {
       const k = `${Math.round(x * 100)},${Math.round(y * 100)},${fid}`
       const hit = outLVKey.get(k)
