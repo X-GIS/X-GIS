@@ -32,6 +32,11 @@ interface FrameSample {
    *  before/after perf comparison vs a worktree at the pre-bundle
    *  baseline commit (iter-219 = 5602a77). */
   frameTime: number
+  /** iter-235 — V8 heap delta rolling average (bytes). Sentinel -1
+   *  when `performance.memory` unavailable. The C.1 baseline lock
+   *  for Plan AAA Phase C; subsequent phases (A.x / B.x / etc.)
+   *  must not regress this past +5 KB. */
+  heapDeltaAvg: number
 }
 
 async function setupIdleScene(page: Page, hash: string, style: string): Promise<void> {
@@ -59,12 +64,13 @@ async function sampleSteadyState(page: Page, frameCount: number): Promise<FrameS
         tilesVisible: number
         bundleReplaysThisFrame?: number
         frameTime: number
+        heapDeltaAvgBytes?: number
       }
       invalidate: () => void
     }
     const map = (window as unknown as { __xgisMap?: M }).__xgisMap
     if (!map) throw new Error('__xgisMap missing')
-    const samples: { drawCalls: number; triangles: number; vertices: number; tilesVisible: number; bundleReplays: number; frameTime: number }[] = []
+    const samples: { drawCalls: number; triangles: number; vertices: number; tilesVisible: number; bundleReplays: number; frameTime: number; heapDeltaAvg: number }[] = []
     return await new Promise<typeof samples>(resolve => {
       let frames = 0
       const tick = () => {
@@ -79,6 +85,9 @@ async function sampleSteadyState(page: Page, frameCount: number): Promise<FrameS
           // pre-iter-229 commits (no bundleReplaysThisFrame field).
           bundleReplays: s.bundleReplaysThisFrame ?? 0,
           frameTime: s.frameTime,
+          // iter-235 — fallback to -1 sentinel so older worktrees
+          // without heap diagnostic still run cleanly.
+          heapDeltaAvg: s.heapDeltaAvgBytes ?? -1,
         })
         frames++
         // Force re-render so stats get re-populated even at idle.
@@ -144,18 +153,25 @@ test.describe('Phase RB.C — pre-bundle baseline harness', () => {
       const tilesVisible = stable.map(s => s.tilesVisible)
       const bundleReplays = stable.map(s => s.bundleReplays)
       const frameTimes = stable.map(s => s.frameTime)
+      const heapDeltas = stable.map(s => s.heapDeltaAvg).filter(v => v >= 0)
       const m = median(drawCalls)
       const mt = median(tilesVisible)
       const mbr = median(bundleReplays)
       const mft = median(frameTimes)
+      const mhd = heapDeltas.length > 0 ? median(heapDeltas) : -1
       const ftMin = Math.min(...frameTimes)
       const ftMax = Math.max(...frameTimes)
       const max = Math.max(...drawCalls)
       const min = Math.min(...drawCalls)
 
+      // iter-235 — log heap delta rolling avg in KB. Chrome / Edge
+      // only (Firefox / Safari report -1 sentinel; we skip-log
+      // those). The C.1 baseline is informational on first ship;
+      // Phase A iters will lock against the median observed.
+      const heapKb = mhd >= 0 ? `heapDeltaAvg.median=${(mhd / 1024).toFixed(1)}KB` : 'heapDeltaAvg=n/a'
       // eslint-disable-next-line no-console
       console.log(
-        `[baseline ${fx.name}] drawCalls median=${m} min=${min} max=${max} tilesVisible.median=${mt} bundleReplays.median=${mbr} ratio=${mbr > 0 ? (m / mbr).toFixed(1) : 'n/a'}× frameTime median=${mft.toFixed(2)}ms min=${ftMin.toFixed(2)} max=${ftMax.toFixed(2)}`,
+        `[baseline ${fx.name}] drawCalls median=${m} min=${min} max=${max} tilesVisible.median=${mt} bundleReplays.median=${mbr} ratio=${mbr > 0 ? (m / mbr).toFixed(1) : 'n/a'}× frameTime median=${mft.toFixed(2)}ms min=${ftMin.toFixed(2)} max=${ftMax.toFixed(2)} ${heapKb}`,
       )
 
       // Sanity: idle camera should be CONSISTENT across frames.

@@ -39,6 +39,25 @@ export interface RenderStats {
    *  (e.g. drawCalls=270, bundleReplays=5 → 54× CPU reduction
    *  on this axis). */
   bundleReplaysThisFrame: number
+  /** iter-235 (Plan C.1) — Per-frame V8 heap delta in bytes.
+   *  Computed from `performance.memory.usedJSHeapSize` (Chrome /
+   *  Edge only — sentinel 0 elsewhere). Approximates allocation
+   *  rate without an invasive Proxy on Array/Map/Set globals. A
+   *  GC sweep can produce NEGATIVE deltas; the panel shows a
+   *  rolling-average over recent frames so single-frame GC events
+   *  don't dominate.
+   *
+   *  Interpretation:
+   *    ~0 KB/f sustained → balanced alloc/GC, no leak
+   *    > 100 KB/f sustained → likely hot-path allocations
+   *    growing trend → memory leak in a persistent cache
+   *
+   *  Sentinel -1 when `performance.memory` is unavailable. */
+  heapDeltaBytes: number
+  /** iter-235 — Rolling average of `heapDeltaBytes` over the last
+   *  N frames (window = 30). Smooths over GC spikes / settle
+   *  jitter. Sentinel 0 when unavailable. */
+  heapDeltaAvgBytes: number
 }
 
 export class StatsTracker {
@@ -67,6 +86,15 @@ export class StatsTracker {
    *  without any new bumps at the render sites. */
   bundleReplaysThisFrame = 0
   private _prevBundleTotal = 0
+  /** iter-235 — heap diagnostic state. See `RenderStats.heapDeltaBytes`. */
+  heapDeltaBytes = -1
+  heapDeltaAvgBytes = 0
+  private _prevHeapBytes = -1
+  /** Ring buffer (window=30) of recent heap deltas for rolling
+   *  average. Single Int32Array allocated once; no per-frame alloc. */
+  private readonly _heapDeltaRing = new Int32Array(30)
+  private _heapDeltaRingIdx = 0
+  private _heapDeltaRingFilled = 0
 
   // FPS tracking
   private frames = 0
@@ -104,6 +132,36 @@ export class StatsTracker {
     const total = this.bundleHits + this.bundleMisses
     this.bundleReplaysThisFrame = total - this._prevBundleTotal
     this._prevBundleTotal = total
+    // iter-235 (Plan C.1) — heap delta diagnostic. Chrome / Edge
+    // only via `performance.memory`. Non-standard but the
+    // de-facto way to spot allocation hot paths from inside the
+    // page without a Proxy on every global constructor.
+    const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory
+    if (mem !== undefined) {
+      const used = mem.usedJSHeapSize | 0
+      if (this._prevHeapBytes >= 0) {
+        const delta = used - this._prevHeapBytes
+        this.heapDeltaBytes = delta
+        // Ring-buffer update: O(1) write, no alloc.
+        this._heapDeltaRing[this._heapDeltaRingIdx] = delta
+        this._heapDeltaRingIdx = (this._heapDeltaRingIdx + 1) % this._heapDeltaRing.length
+        if (this._heapDeltaRingFilled < this._heapDeltaRing.length) {
+          this._heapDeltaRingFilled++
+        }
+        // Rolling avg: sum / count. Sum loop is O(30), trivial.
+        let sum = 0
+        for (let i = 0; i < this._heapDeltaRingFilled; i++) {
+          sum += this._heapDeltaRing[i]!
+        }
+        this.heapDeltaAvgBytes = (sum / this._heapDeltaRingFilled) | 0
+      } else {
+        // First sample establishes baseline; delta meaningful from
+        // frame 2 onward.
+        this.heapDeltaBytes = 0
+        this.heapDeltaAvgBytes = 0
+      }
+      this._prevHeapBytes = used
+    }
   }
 
   /** Record a draw call */
@@ -137,6 +195,8 @@ export class StatsTracker {
       bundleHitRate: total > 0 ? this.bundleHits / total : 0,
       bundleEvictions: this.bundleEvictions,
       bundleReplaysThisFrame: this.bundleReplaysThisFrame,
+      heapDeltaBytes: this.heapDeltaBytes,
+      heapDeltaAvgBytes: this.heapDeltaAvgBytes,
     }
   }
 }
@@ -188,6 +248,11 @@ export class StatsPanel {
       // is logical-per-axis; bundleCalls is actual-API. At idle
       // bundleCalls collapses to the (slice × phase) count.
       ['bundleCalls', 'Bundle/f'],
+      // iter-235 (Plan C.1) — Per-frame V8 heap delta. Chrome /
+      // Edge only via `performance.memory`. ~0 = balanced
+      // alloc/GC; growing trend = leak; > 100 KB/f sustained =
+      // hot-path allocations worth investigating.
+      ['heapDelta', 'Heap Δ/f'],
     ]
 
     for (const [key, label] of fields) {
@@ -253,6 +318,25 @@ export class StatsPanel {
     const bundleCallsRow = this.rows.get('bundleCalls')
     if (bundleCallsRow) {
       bundleCallsRow.textContent = String(stats.bundleReplaysThisFrame)
+    }
+    // iter-235 — heap delta rolling average. Format as KB with sign;
+    // colour-code by magnitude.
+    const heapRow = this.rows.get('heapDelta')
+    if (heapRow) {
+      if (stats.heapDeltaBytes < 0) {
+        // Sentinel — `performance.memory` unavailable (Firefox /
+        // Safari). Show dash; don't mislead the user with 0.
+        heapRow.textContent = 'n/a'
+        heapRow.style.color = '#555'
+      } else {
+        const avgKb = stats.heapDeltaAvgBytes / 1024
+        heapRow.textContent = (avgKb >= 0 ? '+' : '') + avgKb.toFixed(1) + ' KB'
+        // Color: < 50 KB green (clean), 50-200 KB yellow (notable),
+        // > 200 KB red (hot-path allocations).
+        const abs = Math.abs(avgKb)
+        heapRow.style.color = abs < 50 ? '#4ade80'
+          : abs < 200 ? '#facc15' : '#ef4444'
+      }
     }
   }
 
