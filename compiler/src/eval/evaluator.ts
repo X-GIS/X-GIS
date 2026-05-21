@@ -138,6 +138,13 @@ function evaluateBinary(expr: AST.BinaryExpr, props: FeatureProps, fnEnv?: FnEnv
     if (left === null || left === undefined || right === null || right === undefined) {
       return false
     }
+    // iter-293 — non-finite numeric operand rejects ordered compare.
+    // `toNumber()` defensively strips NaN/Infinity to 0; without this
+    // guard, `(NaN < 5)` evaluates as `(0 < 5)` = true. Extension of
+    // the iter-531 null/undefined rule, same spirit as Mapbox spec
+    // "comparable operand required". Surfaced by iter-293 fuzz.
+    if (typeof left === 'number' && !Number.isFinite(left)) return false
+    if (typeof right === 'number' && !Number.isFinite(right)) return false
     // Mapbox v8 spec — ordered comparison requires BOTH operands to be
     // the same type (both numbers or both strings). Mixed-type returns
     // false. Iter 536 added — pre-fix `"abc" < 5` evaluated via the
