@@ -56,6 +56,15 @@ export class IconStage {
    *  all features" from "shield resolved but render path broken"
    *  in the OFM bright-texas-shields view. */
   private dispatchedIconNames: Set<string> = new Set()
+  /** iter-301 — per-icon dispatch debug hook. Symmetric to
+   *  TextStage's `setLabelDebugHook` so a test harness can collect
+   *  paired-symbol (icon + text) anchor coordinates and assert
+   *  alignment per pairKey. Hook fires once per addIcon submission
+   *  BEFORE the prepare() pass + sprite resolution; null = no hook. */
+  private _iconDebugHook: ((iconName: string, anchorX: number, anchorY: number, pairKey: string | undefined) => void) | null = null
+  setIconDebugHook(hook: ((iconName: string, anchorX: number, anchorY: number, pairKey: string | undefined) => void) | null): void {
+    this._iconDebugHook = hook
+  }
 
   constructor(
     device: GPUDevice,
@@ -81,6 +90,9 @@ export class IconStage {
     anchorX: number, anchorY: number, iconName: string,
     opts: { sizeScale?: number; rotateRad?: number; anchor?: IconAnchor; opacity?: number; tint?: [number, number, number]; pairKey?: string } = {},
   ): void {
+    if (this._iconDebugHook) {
+      this._iconDebugHook(iconName, anchorX, anchorY, opts.pairKey)
+    }
     this.pending.push({
       anchorX, anchorY, iconName,
       sizeScale: opts.sizeScale ?? 1,
