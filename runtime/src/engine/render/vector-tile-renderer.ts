@@ -4331,23 +4331,47 @@ export class VectorTileRenderer {
         && phase !== 'oit-fill'
         && allTilesLoaded
       if (shouldBundle) {
-        // Hash neededKeys deterministically + cheap (FNV-1a 32-bit).
-        // Tile churn = different hash = miss.
+        // Hash neededKeys + per-tile uploadEpoch into a single FNV-1a
+        // stream so position-dependent contributions don't collide.
+        //
+        // iter-271 — user-reported flicker: rendering momentarily
+        // shows correct then breaks again, repeating. Root: the iter
+        // 226 ueXor was XOR-over-tile-uploadEpochs which is ORDER-
+        // INDEPENDENT (a^b == b^a) and SET-COLLAPSE-AMBIGUOUS (any
+        // pairwise diff cancels). Two distinct epoch distributions
+        // can XOR to the same value:
+        //
+        //   {A.ep=10, B.ep=20} → XOR = 30
+        //   {A.ep=12, B.ep=18} → XOR = 30   (collision)
+        //
+        // When tiles re-uploaded in between, ueXor can come back to a
+        // previously-seen value while the actual rendered content
+        // changed. Cache key matches → HIT → stale bundle replayed.
+        //
+        // Replacement: fold each tile's uploadEpoch into the same
+        // FNV-1a stream that hashes the keys, at the same position
+        // the key occupies. Now order + per-tile content both
+        // contribute uniquely. Hit only when EVERY position matches
+        // in both key + epoch — a real "same draws" invariant.
+        // iter-270 gate on allTilesLoaded keeps the contract that
+        // every tile contributes a real epoch (no zero-from-absent).
         let kh = 0
-        // iter-226 — per-tile uploadEpoch XOR. Captures every
-        // featureBindGroup re-creation for tiles this bundle
-        // references (a re-upload bumps the tile's epoch; the
-        // XOR fingerprint changes; cache misses + re-encodes).
-        // iter-270: gated on allTilesLoaded so every tile in
-        // neededKeys is guaranteed present in layerCache — no
-        // partial-set bundles cached.
-        let ueXor = 0
         for (let i = 0; i < neededKeys.length; i++) {
           const k = neededKeys[i]!
           kh = (kh ^ k) >>> 0
           kh = ((kh * 16777619) >>> 0)
-          const t = layerCache.get(k)
-          if (t) ueXor = (ueXor ^ t.uploadEpoch) >>> 0
+          const t = layerCache.get(k)!
+          kh = (kh ^ t.uploadEpoch) >>> 0
+          kh = ((kh * 16777619) >>> 0)
+        }
+        // Legacy ueXor preserved as a secondary fingerprint in the
+        // cache key string. Two different `kh` streams could still
+        // theoretically produce the same hash; the secondary term
+        // narrows the collision space further at near-zero cost.
+        let ueXor = 0
+        for (let i = 0; i < neededKeys.length; i++) {
+          const t = layerCache.get(neededKeys[i]!)!
+          ueXor = (ueXor ^ t.uploadEpoch) >>> 0
         }
         // World-offset fingerprint — world-copy enumeration changes
         // the per-tile uniform writes, so the bundle would be wrong
