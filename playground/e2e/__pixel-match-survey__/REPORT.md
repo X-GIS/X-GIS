@@ -4,9 +4,9 @@ Labels + icons hidden on both sides to isolate fill / line / outline parity.
 
 | View | Identical | ≤8 cumul | ≤32 cumul | ≤128 cumul | >128 px |
 |---|---:|---:|---:|---:|---:|
-| `bright-seoul-school` | 76.48% | 77.43% | 98.87% | 100.00% | 0 |
-| `bright-tokyo-z14` | 31.31% | 63.75% | 92.44% | 100.00% | 6 |
-| `liberty-paris-z14` | 22.22% | 65.33% | 86.03% | 99.93% | 300 |
+| `bright-seoul-school` | 97.28% | 98.27% | 99.28% | 100.00% | 0 |
+| `bright-tokyo-z14` | 31.32% | 63.85% | 92.45% | 100.00% | 6 |
+| `liberty-paris-z14` | 22.29% | 65.43% | 86.10% | 99.93% | 306 |
 | `demotiles-europe-z2` | 87.71% | 89.66% | 94.90% | 99.68% | 1434 |
 
 ## View details
@@ -16,21 +16,21 @@ Labels + icons hidden on both sides to isolate fill / line / outline parity.
 - **Hash**: `#17.85/37.12665/126.92430`
 - **Description**: OFM Bright, Seoul 행정초등학교 — P1 verification gate (school fill)
 - **Canvas**: 639×704 (449856 px)
-- **Buckets**: `{"eq0":344068,"le8":4242,"le16":1884,"le32":94582,"le64":3508,"le128":1572,"gt128":0}`
+- **Buckets**: `{"eq0":437639,"le8":4433,"le16":2015,"le32":2518,"le64":1679,"le128":1572,"gt128":0}`
 
 ### bright-tokyo-z14
 - **Style**: `openfreemap-bright`
 - **Hash**: `#14/35.6585/139.7454`
 - **Description**: OFM Bright, Tokyo z=14 — landuse + water fills
 - **Canvas**: 639×704 (449856 px)
-- **Buckets**: `{"eq0":140870,"le8":145912,"le16":76130,"le32":52920,"le64":27940,"le128":6078,"gt128":6}`
+- **Buckets**: `{"eq0":140885,"le8":146359,"le16":76069,"le32":52588,"le64":27868,"le128":6081,"gt128":6}`
 
 ### liberty-paris-z14
 - **Style**: `openfreemap-liberty`
 - **Hash**: `#14/48.8534/2.3488`
 - **Description**: OFM Liberty, Paris z=14 — interpolate-zoom heavy
 - **Canvas**: 639×704 (449856 px)
-- **Buckets**: `{"eq0":99969,"le8":193919,"le16":40893,"le32":52235,"le64":42267,"le128":20273,"gt128":300}`
+- **Buckets**: `{"eq0":100252,"le8":194104,"le16":40663,"le32":52327,"le64":42069,"le128":20135,"gt128":306}`
 
 ### demotiles-europe-z2
 - **Style**: `maplibre-demotiles`

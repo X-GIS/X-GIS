@@ -4298,10 +4298,38 @@ export class VectorTileRenderer {
       // Miss path: getOrEncode runs renderTileKeys with the
       // bundle encoder. State side effects + draws recorded into
       // the bundle. `executeBundles` replays into the real pass.
+      // iter-270 — bundle ONLY when every needed tile is in layer
+      // cache. Partial-set bundles caused the user-reported flicker
+      // (2026-05-21 OFM Bright import + wheel zoom):
+      //
+      //   1. Fast zoom selects new neededKeys; tiles A,B not loaded yet.
+      //   2. Bundle encodes — recordTileFill skips A,B (cache miss
+      //      inside per-tile loop), records draws for already-loaded
+      //      C,D only.
+      //   3. Bundle cached under key with ueXor reflecting only C,D's
+      //      uploadEpochs (the iter-226 comment "tiles not yet in
+      //      layerCache contribute 0" was the design gap).
+      //   4. Frame N+1: same neededKeys, same ueXor (A,B still loading,
+      //      C,D unchanged) → cache HIT → replays the partial bundle
+      //      with A,B missing → polygon fills disappear for A,B until
+      //      they finally upload + bump ueXor.
+      //   5. Strokes don't hit this because `phase === 'strokes'` skips
+      //      the bundle path entirely (line 4303 below), and the
+      //      fallback ancestor path is also bundled with the same gap.
+      //
+      // Gating shouldBundle on the all-loaded invariant eliminates the
+      // partial-encode case. During fast zoom we fall through to a
+      // direct renderTileKeys call (no bundle, no cache); steady-state
+      // (all tiles loaded) keeps the iter-226 97.6% hit rate.
+      let allTilesLoaded = true
+      for (let i = 0; i < neededKeys.length; i++) {
+        if (!layerCache.get(neededKeys[i]!)) { allTilesLoaded = false; break }
+      }
       const shouldBundle = !DEBUG_OVERDRAW
         && !translucentBucket
         && phase !== 'strokes'
         && phase !== 'oit-fill'
+        && allTilesLoaded
       if (shouldBundle) {
         // Hash neededKeys deterministically + cheap (FNV-1a 32-bit).
         // Tile churn = different hash = miss.
@@ -4310,10 +4338,9 @@ export class VectorTileRenderer {
         // featureBindGroup re-creation for tiles this bundle
         // references (a re-upload bumps the tile's epoch; the
         // XOR fingerprint changes; cache misses + re-encodes).
-        // Tiles in neededKeys not yet in `layerCache` contribute 0
-        // (no draw recorded for them; on first upload their epoch
-        // joins the XOR and triggers re-encode — matches the prior
-        // `_gpuCacheCount` behavior for that case).
+        // iter-270: gated on allTilesLoaded so every tile in
+        // neededKeys is guaranteed present in layerCache — no
+        // partial-set bundles cached.
         let ueXor = 0
         for (let i = 0; i < neededKeys.length; i++) {
           const k = neededKeys[i]!
@@ -4457,11 +4484,21 @@ export class VectorTileRenderer {
       // (set from `visibleKeysForClip`) is part of the invalidation
       // surface. Tiles + visibleKeys + offsets together fully
       // describe the recorded draws.
+      // iter-270 — mirror the primary path's all-loaded gate. Fallback
+      // keys are by construction picked from layerCache, but a fallback
+      // entry could in principle be evicted between selection and
+      // bundle encode (LRU under tight cap). Cheap guard avoids the
+      // same partial-set replay class of bug.
+      let fbAllLoaded = true
+      for (let i = 0; i < fallbackKeys.length; i++) {
+        if (!layerCache.get(fallbackKeys[i]!)) { fbAllLoaded = false; break }
+      }
       const fbShouldBundle = !DEBUG_OVERDRAW
         && !translucentBucket
         && phase !== 'strokes'
         && phase !== 'oit-fill'
         && !_debugRed
+        && fbAllLoaded
       if (fbShouldBundle) {
         let fbKh = 0
         // iter-226 — per-tile uploadEpoch XOR (mirrors primary
