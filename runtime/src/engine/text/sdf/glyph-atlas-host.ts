@@ -268,6 +268,31 @@ export class GlyphAtlasHost {
     }
   }
 
+  /** iter-273 — check whether EVERY codepoint in `text` is currently
+   *  resident in the atlas. Used by TextStage.prepare() AFTER the
+   *  preloadString pass to detect atlas overflow: when total unique
+   *  codepoints across all pending labels exceed slot capacity, the
+   *  earliest-admitted codepoints get LRU-evicted by the latest-
+   *  admitted, and `preloadString` no longer satisfies the "atlas
+   *  stable for shape loop" invariant. Callers drop labels for
+   *  which this returns false rather than render with stale
+   *  GlyphInfo[] references that would alias another label's SDF
+   *  bytes (the iter-175 "Pyongyang → Pyongy시ng" corruption class).
+   *
+   *  Returns true iff every codepoint's metricsKey is in
+   *  `this.metrics` (= survived the preload + any further eviction). */
+  hasAllGlyphs(fontKey: string, text: string): boolean {
+    const len = text.length
+    let i = 0
+    while (i < len) {
+      const cp = text.codePointAt(i)!
+      const key: GlyphKey = { fontKey, codepoint: cp, sdfRadius: this.sdfRadius }
+      if (!this.metrics.has(this.metricsKey(key))) return false
+      i += cp > 0xFFFF ? 2 : 1
+    }
+    return true
+  }
+
   /** Ensure every glyph in `text` is in the atlas. Returns one
    *  GlyphInfo per codepoint (Unicode-aware: surrogate pairs counted
    *  once). Iter 133 perf: indexed codePointAt iteration instead of

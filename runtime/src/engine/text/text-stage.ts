@@ -1223,6 +1223,44 @@ export class TextStage {
       this.host.preloadString(p.fontKey, p.text)
     }
 
+    // iter-273 — atlas overflow guard. preloadString admits each
+    // codepoint individually; when total unique codepoints across
+    // all pending labels exceed atlas slot capacity, the LRU policy
+    // evicts the earliest-admitted codepoints to make room for the
+    // latest. The "atlas stable for the rest of the frame"
+    // invariant iter-268 relied on no longer holds.
+    //
+    // Without this guard, the shape loop's ensureString returns
+    // GlyphInfo[] arrays whose slot.pxX/pxY references point to
+    // atlas pixels that get OVERWRITTEN by later labels' codepoints
+    // before render reads them. The renderer reads the wrong SDF
+    // bytes → the iter-175 "Pyongyang → Pyongy시ng" / "Se성남nam 시"
+    // corruption class returns even with iter-268 preload + iter-272
+    // atlas size bump (overflow scales with scene density).
+    //
+    // Fix: AFTER the preload loop completes (atlas is now in its
+    // final state for this frame), verify EVERY pending label's
+    // codepoints are STILL all resident. If any codepoint was
+    // evicted (= the label overflowed), drop the label entirely
+    // for this frame. Better to skip than to render corrupted text.
+    //
+    // The drop is in-place: zero out the entry's text so the shape
+    // loop's ensureString call returns an empty array → shaped[]
+    // gets an empty layout → collision drops it cleanly. Cleared
+    // on next frame's reset().
+    for (let i = 0; i < this.pending.length; i++) {
+      const p = this.pending[i]!
+      if (!this.host.hasAllGlyphs(p.fontKey, p.text)) {
+        p.text = ''  // overflow drop — label skipped this frame
+      }
+    }
+    for (let i = 0; i < this.pendingLine.length; i++) {
+      const p = this.pendingLine[i]!
+      if (!this.host.hasAllGlyphs(p.fontKey, p.text)) {
+        p.text = ''
+      }
+    }
+
     // iter-265 — sub-phase drill. Point-label shaping loop covers
     // ensureString + advances FrameArena fill + Knuth-Plass wrap +
     // per-anchor candidates' vertical layout + per-glyph offsets +

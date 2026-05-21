@@ -194,6 +194,111 @@ describe('GlyphAtlasHost.preloadString — iter-268 within-frame aliasing fix', 
     expect(labelB.map(g => g.codepoint)).toEqual(
       [...'pyeong'].map(c => c.codePointAt(0)!))
   })
+
+  // iter-273 — atlas OVERFLOW repro. User-reported (post-iter-268
+  // deploy) Korea z=11 bilingual labels still corrupting on live.
+  // Hypothesis: preloadString's "admit before shape" invariant
+  // assumes the atlas FITS all unique codepoints from one frame.
+  // When total unique codepoints EXCEEDS slot capacity, eviction
+  // cycles WITHIN preload mean some early-admitted codepoints get
+  // evicted before the shape loop reads them. Same iter-175 corruption
+  // class.
+  it('overflow: preload more codepoints than slots → which labels stay valid?', () => {
+    // 16-slot atlas. Force overflow with 24 unique codepoints across
+    // two bilingual-style labels. After preload, the LRU policy will
+    // have evicted the earliest-admitted codepoints to make room for
+    // the latest.
+    const labelAText = 'ABCDEFGHIJKL'   // 12 unique Latin
+    const labelBText = 'MNOPQRSTUVWX'   // 12 unique Latin → 24 total > 16
+    host.preloadString('noto', labelAText)
+    host.preloadString('noto', labelBText)
+
+    // Atlas can only hold 16 of the 24 admitted. 8 were evicted.
+    const evictedFromPreload = host.consumeEvictions()
+    expect(evictedFromPreload.length).toBe(8)
+    // The 8 evicted should be the earliest admitted (LRU = labelA's
+    // first 8 codepoints A-H).
+    const evictedCodepoints = evictedFromPreload.map(k => k.codepoint).sort()
+    const expectedEvicted = [...'ABCDEFGH'].map(c => c.codePointAt(0)!).sort()
+    expect(evictedCodepoints).toEqual(expectedEvicted)
+
+    // Now the shape loop calls ensureString for labelA. It re-admits
+    // A-H, which EVICTS items from labelB to make room. This is the
+    // bug: shape-loop ensureString triggers FURTHER eviction beyond
+    // the "preload should have settled atlas" invariant.
+    const genBeforeA = host.getGeneration()
+    const labelAGlyphs = host.ensureString('noto', labelAText)
+    const evictionsDuringA = host.consumeEvictions()
+    const genAfterA = host.getGeneration()
+
+    // INVARIANT VIOLATED — generation bumped during shape loop ⇒
+    // preload didn't make atlas stable when overflow occurs.
+    // This test DOCUMENTS the bug, not asserts the fix.
+    expect(genAfterA).toBeGreaterThan(genBeforeA)
+    expect(evictionsDuringA.length).toBeGreaterThan(0)
+
+    // labelA's glyphs were JUST admitted, so their slots ARE valid
+    // for labelA. But labelA's admission evicted some of labelB's
+    // codepoints whose slots are still referenced by NOTHING (labelB
+    // not yet shape-looped). Once labelB ensureString runs:
+    const labelBGlyphs = host.ensureString('noto', labelBText)
+    const evictionsDuringB = host.consumeEvictions()
+
+    // labelB's ensureString evicts labelA codepoints to make room.
+    // labelA's already-built GlyphInfo[] now references stale slots.
+    expect(evictionsDuringB.length).toBeGreaterThan(0)
+
+    // The corruption: labelAGlyphs[i].slot was admitted before
+    // labelB's ensureString ran, but slot has now been REUSED for
+    // a labelB codepoint. labelAGlyphs[i].slot.pxX/pxY point to
+    // atlas pixels that now hold labelB's SDF. Render reads wrong
+    // SDF for labelA glyphs = the user-reported "Se성남nam 시"
+    // corruption class.
+    //
+    // Concrete proof: at least one labelA glyph's slot has been
+    // reused (compare slot pxX/pxY between labelA glyphs and
+    // labelB glyphs — if any pair shares slot coords, that slot
+    // was reassigned).
+    const labelASlotCoords = new Set(labelAGlyphs.map(g =>
+      `${g.slot.pxX},${g.slot.pxY}`))
+    let collisionCount = 0
+    for (const bg of labelBGlyphs) {
+      if (labelASlotCoords.has(`${bg.slot.pxX},${bg.slot.pxY}`)) {
+        collisionCount++
+      }
+    }
+    // BUG: at least one slot reused → labelA's references are stale.
+    expect(collisionCount).toBeGreaterThan(0)
+  })
+
+  // iter-273 — hasAllGlyphs survival check for overflow drop.
+  it('hasAllGlyphs returns false when codepoints have been evicted', () => {
+    // Atlas = 16 slots. Admit 24 unique → 8 oldest evicted.
+    const all = 'ABCDEFGHIJKLMNOPQRSTUVWX'
+    host.preloadString('noto', all)
+    // Labels that include the EARLIEST-admitted chars (A-H) lost
+    // those codepoints — hasAllGlyphs returns false.
+    expect(host.hasAllGlyphs('noto', 'ABC')).toBe(false)
+    expect(host.hasAllGlyphs('noto', 'A')).toBe(false)
+    // Labels that use only LATE-admitted chars (M-X) survived.
+    expect(host.hasAllGlyphs('noto', 'MNO')).toBe(true)
+    expect(host.hasAllGlyphs('noto', 'X')).toBe(true)
+    // Labels that MIX evicted + survived → false (the dropped class).
+    expect(host.hasAllGlyphs('noto', 'AX')).toBe(false)
+  })
+
+  it('hasAllGlyphs true when atlas has every codepoint', () => {
+    host.preloadString('noto', 'ABCD')
+    expect(host.hasAllGlyphs('noto', 'ABCD')).toBe(true)
+    expect(host.hasAllGlyphs('noto', 'ABC')).toBe(true)
+    expect(host.hasAllGlyphs('noto', 'A')).toBe(true)
+  })
+
+  it('hasAllGlyphs surrogate-pair aware', () => {
+    host.preloadString('noto', '😀')
+    expect(host.hasAllGlyphs('noto', '😀')).toBe(true)
+    expect(host.hasAllGlyphs('noto', '😀X')).toBe(false)  // X not admitted
+  })
 })
 
 describe('GlyphAtlasHost — fontKey isolation', () => {
