@@ -66,8 +66,21 @@ const LON_MAX = 180
 const LON_MIN = -180
 const LAT_MAX = 85.0511287
 const LAT_MIN = -85.0511287
-const clampLon = (v: number) => v > LON_MAX ? LON_MAX : v < LON_MIN ? LON_MIN : v
-const clampLat = (v: number) => v > LAT_MAX ? LAT_MAX : v < LAT_MIN ? LAT_MIN : v
+// iter-296 — `v > MAX` and `v < MIN` are both false for NaN, so the
+// previous ternary returned NaN unchanged on a malformed-MVT decode
+// path. Surfaced by iter-296 fuzz. Same defensive convention as
+// evaluator's `toNumber`: non-finite → 0 (planet centre). Real-world
+// reach: tiny (the external decoder is well-formed-tested), but the
+// downstream renderer reads these as f32 vertex positions where NaN
+// poisons the whole tile mesh.
+// NaN guard only — Infinity vs MAX/MIN compares correctly already
+// (Infinity > MAX = true → MAX). Pre-fix the NaN branch leaked NaN
+// through both comparisons (NaN > MAX and NaN < MIN both false →
+// fallthrough returned NaN). Surfaced by iter-296 fuzz.
+const clampLon = (v: number) =>
+  Number.isNaN(v) ? 0 : v > LON_MAX ? LON_MAX : v < LON_MIN ? LON_MIN : v
+const clampLat = (v: number) =>
+  Number.isNaN(v) ? 0 : v > LAT_MAX ? LAT_MAX : v < LAT_MIN ? LAT_MIN : v
 
 function clampPos(p: number[]): number[] {
   return [clampLon(p[0]), clampLat(p[1])]

@@ -68,7 +68,7 @@ describe('iter-295 clipPolygonToRect fuzz', () => {
     // produce a degenerate result on exact-boundary rings. The
     // contract here is: no crash, no out-of-bounds output.
     for (const ring of r) {
-      for (const [x, y] of ring) {
+      for (const [x] of ring) {
         expect(x).toBeGreaterThanOrEqual(-1e-9)
         expect(x).toBeLessThanOrEqual(1 + 1e-9)
       }
