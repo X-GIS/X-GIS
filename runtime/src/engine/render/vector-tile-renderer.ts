@@ -14,6 +14,7 @@ import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '../gpu/frame-arena'
 import { structuralHashKey } from '../_cache/structural-key'
 import { Epoch } from '../_cache/versioned-state'
+import type { BundleKeyState } from '../_cache/bundle-cache-key'
 import { visibleTilesSSE } from '../../loader/tiles-sse'
 import { globeVisibleTiles } from '../projection/globe'
 import {
@@ -4365,6 +4366,10 @@ export class VectorTileRenderer {
         for (let i = 0; i < neededKeys.length; i++) {
           epochs[i] = layerCache.get(neededKeys[i]!)!.uploadEpoch
         }
+        // iter-283 — `satisfies BundleKeyState` enforces every
+        // property of the contract is filled. Adding a new dimension
+        // to BundleKeyState breaks BOTH call sites here (primary +
+        // fallback) until the literal is updated.
         const keyState = {
           sliceLayer,
           phase,
@@ -4378,7 +4383,7 @@ export class VectorTileRenderer {
           samples,
           mainPipelineLabel: mainFill.label ?? null,
           linePipelineLabel: linePipeline.label ?? null,
-        } as const
+        } as const satisfies BundleKeyState
         const cacheKey = `vt:${sliceLayer}:${phase}:${structuralHashKey(keyState)}`
         const desc: BundleEncodeDescriptor = {
           colorFormats: pickOn ? [this.format, 'rg32uint'] : [this.format],
@@ -4529,6 +4534,10 @@ export class VectorTileRenderer {
         const fbKeyState = {
           sliceLayer,
           phase,
+          // Fallback bundle has no `neededKeys` (the primary side),
+          // only fallback tile keys; populate both for uniform shape
+          // — the structural hash treats null + the array distinctly.
+          neededKeys: fallbackKeys.slice(),
           fallbackKeys: fallbackKeys.slice(),
           fallbackVisibleKeys: fallbackVisibleKeys ? fallbackVisibleKeys.slice() : null,
           epochs: fbEpochs,
@@ -4538,7 +4547,7 @@ export class VectorTileRenderer {
           samples: fbSamples,
           mainPipelineLabel: fallbackFill.label ?? null,
           linePipelineLabel: linePipelineFallback?.label ?? null,
-        } as const
+        } as const satisfies BundleKeyState
         const fbCacheKey = `vt-fb:${sliceLayer}:${phase}:${structuralHashKey(fbKeyState)}`
         const fbDesc: BundleEncodeDescriptor = {
           colorFormats: fbPickOn ? [this.format, 'rg32uint'] : [this.format],
