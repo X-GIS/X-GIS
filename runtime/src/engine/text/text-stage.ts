@@ -808,6 +808,25 @@ export class TextStage {
     sizePx: number; letterSpacingPx: number; rotateRad?: number
   }>()
   private static readonly LAYOUT_CACHE_MAX = 4096
+  // iter-266 — layout cache hit-rate counter. The iter-261 L.1.1
+  // probe at the OUTER label-dispatch loop (map.ts sig cache)
+  // recorded 4.9 % hit-rate on zoom+pan, but the inner layout
+  // cache here is keyed on content alone (textKeyFor + sizePx +
+  // maxWidthPx + ... — no camera term), so its hit-rate should be
+  // dramatically higher and reveal where the real Phase L.1 fix
+  // is. Read via TextStage.getLayoutCacheStats() — wired into
+  // map.ts global probe in the same iter for harness access.
+  private _layoutCacheHits = 0
+  private _layoutCacheMisses = 0
+  getLayoutCacheStats(): { hits: number; misses: number; hitRate: number; entries: number } {
+    const total = this._layoutCacheHits + this._layoutCacheMisses
+    return {
+      hits: this._layoutCacheHits,
+      misses: this._layoutCacheMisses,
+      hitRate: total > 0 ? this._layoutCacheHits / total : 0,
+      entries: this._layoutCache.size,
+    }
+  }
   /** DPR applied to LabelDef.size (and offset/halo/maxWidth) at
    *  prepare() time. Anchors arrive already in physical pixels
    *  (map.ts projects against canvas.width/height) but `size` etc.
@@ -1311,6 +1330,9 @@ export class TextStage {
         // written, the references may now point at unrelated
         // codepoints → drop the entry and fall through to recompute.
         if (hit !== undefined && hit.generation === this.host.getGeneration()) {
+          // iter-266 — count hit (after generation guard, so this
+          // is a "real" hit that skipped the candidates loop).
+          this._layoutCacheHits++
           // LRU touch.
           this._layoutCache.delete(_layoutKey)
           this._layoutCache.set(_layoutKey, hit)
@@ -1350,6 +1372,9 @@ export class TextStage {
           })
           continue
         }
+        // iter-266 — fell through: either no hit, or generation
+        // mismatched. Both count as a miss for the harness probe.
+        this._layoutCacheMisses++
       }
 
       const layouts: Array<{ draw: TextDraw; bbox: typeof shaped[number]['layouts'][number]['bbox'] }> = []

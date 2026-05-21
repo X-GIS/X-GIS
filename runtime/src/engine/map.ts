@@ -500,6 +500,15 @@ export class XGISMap {
       hitRate: total > 0 ? this._labelDispatchHits / total : 0,
     }
   }
+  /** iter-266 — TextStage's per-label content-keyed layout cache
+   *  (textKeyFor + sizePx + maxWidthPx + …). Decouples camera from
+   *  the key, so unlike the outer dispatch-sig cache (which keys
+   *  camera-exact and got 4.9 %) this one should hit through pan +
+   *  small zoom changes. Harness reads it via
+   *  __xgisMap.getLayoutCacheStats() to size the Phase L.1 retry. */
+  getLayoutCacheStats(): { hits: number; misses: number; hitRate: number; entries: number } | null {
+    return this.textStage?.getLayoutCacheStats() ?? null
+  }
   private _frameCount = 0
   // Bumped from 60 → 240 (4 s @ 60 fps) — PMTiles world-scale
   // archives at z=0/z=1 trigger massive worker compiles (water +

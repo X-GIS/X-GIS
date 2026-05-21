@@ -219,6 +219,22 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
     console.log(`\n=== Label-dispatch sig cache (L.1 hit-rate diagnostic) ===\n  hits=${labelStats.hits} misses=${labelStats.misses} rate=${(labelStats.hitRate * 100).toFixed(1)}%`)
   }
 
+  // iter-266 — content-keyed layout cache hit-rate inside
+  // TextStage.prepare. Decoupled from camera, so unlike the outer
+  // dispatch-sig cache (4.9 % on zoom+pan) this should hit on
+  // every repeated label. Low hit-rate here ⇒ key has a hidden
+  // camera-dependent term (offset or padding bucket drift); high
+  // hit-rate ⇒ the candidates loop is the right place to attack.
+  const layoutStats = await page.evaluate(() => {
+    interface M { getLayoutCacheStats: () => { hits: number; misses: number; hitRate: number; entries: number } | null }
+    const map = (window as unknown as { __xgisMap?: M }).__xgisMap
+    return map?.getLayoutCacheStats?.() ?? null
+  })
+  if (layoutStats !== null) {
+    // eslint-disable-next-line no-console
+    console.log(`\n=== TextStage layout cache (iter-266 diagnostic) ===\n  hits=${layoutStats.hits} misses=${layoutStats.misses} rate=${(layoutStats.hitRate * 100).toFixed(1)}% entries=${layoutStats.entries}`)
+  }
+
   // iter-256 (Plan AAA C.3) — phase timing breakdown. Identifies
   // CPU bottleneck (frame.prep vs frame.encode vs frame.submit)
   // so the NEXT perf attack is data-driven, not a guess.
