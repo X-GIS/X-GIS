@@ -20,6 +20,7 @@
 // environment has none.
 
 import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
+import { MERCATOR_LAT_LIMIT } from './projection'
 
 // Matches projection.ts EARTH_RADIUS exactly — the same sphere the 2D
 // projections scale by, so globe zoom lines up with the 2D pyramid.
@@ -455,7 +456,11 @@ export function globeVisibleTiles(
         Math.min(tileN - 1, Math.max(0,
           Math.floor(((lo + 180) / 360) * tileN)))
       const latToY = (la: number): number => {
-        const r = Math.max(-85.05, Math.min(85.05, la)) * DEG2RAD
+        // iter-312 (A-2) — was a coarse ±85.05 literal that disagreed
+        // with MERCATOR_LAT_LIMIT (±85.051129) used by every other
+        // tile-Y derivation. The 0.0011° gap classified the polar-
+        // most tile row differently in globe selection vs render.
+        const r = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, la)) * DEG2RAD
         const yf = (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2
         return Math.min(tileN - 1, Math.max(0, Math.floor(yf * tileN)))
       }
