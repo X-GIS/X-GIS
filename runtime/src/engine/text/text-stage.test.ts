@@ -133,3 +133,41 @@ describe('composeFontKey', () => {
     expect(key).toBe(DEFAULT)
   })
 })
+
+// iter-285 — submitted vs drawn label counters consumer pin.
+// Without a unit test the accessor pair could silently break the
+// browser-side `__xgisMap.getLastLabelCounts()` console probe.
+// Direct private-field read via type-asserted Object.create —
+// matches the vtr-tile-load-diagnostic pattern (iter-289).
+import { TextStage } from './text-stage'
+
+describe('TextStage submitted/drawn label counters (iter-285)', () => {
+  it('zero state before any prepare()', () => {
+    const stage = Object.create(TextStage.prototype) as TextStage
+    ;(stage as unknown as { _lastSubmittedLabelCount: number })._lastSubmittedLabelCount = 0
+    ;(stage as unknown as { _lastDrawnLabelCount: number })._lastDrawnLabelCount = 0
+    expect(stage.getLastSubmittedLabelCount()).toBe(0)
+    expect(stage.getLastDrawnLabelCount()).toBe(0)
+  })
+
+  it('reflects iter-285 partition: submitted ≫ drawn = collision-suppressed', () => {
+    const stage = Object.create(TextStage.prototype) as TextStage
+    ;(stage as unknown as { _lastSubmittedLabelCount: number })._lastSubmittedLabelCount = 44
+    ;(stage as unknown as { _lastDrawnLabelCount: number })._lastDrawnLabelCount = 6
+    expect(stage.getLastSubmittedLabelCount()).toBe(44)
+    expect(stage.getLastDrawnLabelCount()).toBe(6)
+    // The expected reading on the highway-shield case: text-collision
+    // dropped 38 of 44 shield-number labels in the most recent prepare.
+    const collisionRate = 1 - stage.getLastDrawnLabelCount() / stage.getLastSubmittedLabelCount()
+    expect(collisionRate).toBeCloseTo(0.864, 2)
+  })
+
+  it('reflects iter-285 partition: submitted == drawn = render-but-invisible', () => {
+    const stage = Object.create(TextStage.prototype) as TextStage
+    ;(stage as unknown as { _lastSubmittedLabelCount: number })._lastSubmittedLabelCount = 28
+    ;(stage as unknown as { _lastDrawnLabelCount: number })._lastDrawnLabelCount = 28
+    expect(stage.getLastSubmittedLabelCount()).toBe(stage.getLastDrawnLabelCount())
+    // All 28 labels reached the renderer but none visible on screen
+    // → render-but-invisible class (color / halo / pipeline / z-order).
+  })
+})
