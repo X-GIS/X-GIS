@@ -189,22 +189,20 @@ describe('iter-298 computeSliceKey fuzz', () => {
     expect(() => computeSliceKey('x', cyc)).not.toThrow()
   })
 
-  it('two distinct deep ASTs (both hit sentinel path) get separate cache slots via WeakMap', () => {
-    // The sentinel string isn't AST-content-unique, but the WeakMap
-    // above partitions by object identity — so two distinct AST
-    // objects each get their own entry in `_sliceKeyCache`. The
-    // returned key may match (both sentinels), but the cache
-    // structure doesn't conflate them.
+  it('two structurally-distinct deep ASTs produce DISTINCT keys (iter-299 iterative hash)', () => {
+    // iter-298 fallback returned a sentinel — both deep ASTs hashed
+    // to the same string. iter-299's iterative walk hashes the actual
+    // tree content, so distinct deep ASTs produce distinct keys.
     let f1: unknown = num(0)
     let f2: unknown = num(0)
     for (let i = 0; i < 5000; i++) {
       f1 = bin('+', f1, num(1))
-      f2 = bin('+', f2, num(2))
+      f2 = bin('+', f2, num(2))  // different RHS literal
     }
-    // No crash — both fall to sentinel.
-    expect(() => {
-      computeSliceKey('a', f1)
-      computeSliceKey('a', f2)
-    }).not.toThrow()
+    const k1 = computeSliceKey('a', f1)
+    const k2 = computeSliceKey('a', f2)
+    expect(k1).not.toBe(k2)
+    expect(k1.startsWith('a::')).toBe(true)
+    expect(k2.startsWith('a::')).toBe(true)
   })
 })

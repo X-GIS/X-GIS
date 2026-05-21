@@ -68,6 +68,121 @@ export function evalFilterExpr(ast: FilterAst, props: Record<string, unknown>): 
  *  Memoising by AST object identity drops the steady-state cost to
  *  one Map.get per call. */
 const _sliceKeyCache = new WeakMap<object, Map<string, string>>()
+
+/** Iterative AST hash. iter-299 replaces the previous
+ *  `JSON.stringify` path that blew the stack on 5000-node deep
+ *  filters (and threw on circular ASTs). Walks the AST via an
+ *  explicit work-list and accumulates a djb2-style hash node-by-
+ *  node — same hash family as before so the key space is unchanged
+ *  for shallow inputs.
+ *
+ *  Visit-set bounds recursion through circular references: each
+ *  object is hashed at most once. Distinct objects with identical
+ *  content still hash to the same value (structural equality —
+ *  matches the old JSON.stringify contract).
+ *
+ *  Key ordering invariant: object properties are walked in sorted
+ *  key order so two structurally-identical objects with different
+ *  property-insertion order hash identically. (V8 generally
+ *  preserves insertion order, but a sort is the cheap path to
+ *  insulation against future engine changes.) */
+function hashAstIterative(root: unknown): number {
+  let h = 5381
+  // Inline djb2 step. Numbers fold via 8 bytes of bit-pattern; the
+  // exact mantissa interpretation doesn't matter for stability —
+  // only that equal values produce equal hashes.
+  const f64 = new Float64Array(1)
+  const u32 = new Uint32Array(f64.buffer)
+  const stepStr = (s: string) => {
+    for (let i = 0; i < s.length; i++) {
+      h = (h * 33) ^ s.charCodeAt(i)
+      h |= 0
+    }
+  }
+  const stepNum = (n: number) => {
+    f64[0] = n
+    h = (h * 33) ^ u32[0]!; h |= 0
+    h = (h * 33) ^ u32[1]!; h |= 0
+  }
+  // Markers (single-byte) separate value categories so e.g. the
+  // number 1 and the string '1' don't collide; same for null,
+  // boolean, object-open, array-open, end-of-children.
+  const M_OBJ = 0x7b      // '{'
+  const M_ARR = 0x5b      // '['
+  const M_END = 0x7d      // '}'
+  const M_STR = 0x73      // 's'
+  const M_NUM = 0x6e      // 'n'
+  const M_BOOL = 0x62     // 'b'
+  const M_NULL = 0x6f     // 'o'
+  const stack: unknown[] = [root]
+  const visited = new WeakSet<object>()
+  while (stack.length > 0) {
+    const v = stack.pop()
+    if (v === null || v === undefined) {
+      h = (h * 33) ^ M_NULL; h |= 0
+      continue
+    }
+    const t = typeof v
+    if (t === 'string') {
+      h = (h * 33) ^ M_STR; h |= 0
+      stepStr(v as string)
+      continue
+    }
+    if (t === 'number') {
+      h = (h * 33) ^ M_NUM; h |= 0
+      stepNum(v as number)
+      continue
+    }
+    if (t === 'boolean') {
+      h = (h * 33) ^ M_BOOL; h |= 0
+      h = (h * 33) ^ ((v as boolean) ? 1 : 0); h |= 0
+      continue
+    }
+    if (t === 'object') {
+      const obj = v as object
+      if (visited.has(obj)) {
+        // Cyclic reference — emit a stable marker so two distinct
+        // cyclic ASTs with different cycle structures still hash
+        // distinctly via the prior walk before re-encountering.
+        h = (h * 33) ^ M_END; h |= 0
+        continue
+      }
+      visited.add(obj)
+      if (Array.isArray(v)) {
+        h = (h * 33) ^ M_ARR; h |= 0
+        // Push end-marker first so it's popped LAST after children.
+        stack.push({ kind: 'EndMarker' } as unknown)
+        // Push children in reverse order so they pop in original order.
+        for (let i = (v as unknown[]).length - 1; i >= 0; i--) {
+          stack.push((v as unknown[])[i])
+        }
+        continue
+      }
+      // Plain object (frozen AST POJO).
+      const o = v as Record<string, unknown>
+      // Detect end-marker placeholder (pushed by array/object open).
+      if (o.kind === 'EndMarker') {
+        h = (h * 33) ^ M_END; h |= 0
+        continue
+      }
+      h = (h * 33) ^ M_OBJ; h |= 0
+      const keys = Object.keys(o).sort()
+      stack.push({ kind: 'EndMarker' } as unknown)
+      for (let i = keys.length - 1; i >= 0; i--) {
+        const k = keys[i]!
+        stack.push(o[k])
+        // Key string mixed in BEFORE value via a fake string push.
+        stack.push(k)
+      }
+      continue
+    }
+    // function / symbol / bigint — unreachable for AST POJOs but
+    // included for defensive completeness.
+    h = (h * 33) ^ M_NULL; h |= 0
+  }
+  return h >>> 0
+}
+
 export function computeSliceKey(sourceLayer: string, filterAst: FilterAst | null | undefined): string {
   if (!filterAst) return sourceLayer
   let inner = _sliceKeyCache.get(filterAst as object)
@@ -78,32 +193,13 @@ export function computeSliceKey(sourceLayer: string, filterAst: FilterAst | null
     inner = new Map()
     _sliceKeyCache.set(filterAst as object, inner)
   }
-  // iter-298 — JSON.stringify recurses through the AST; a deep
-  // (5000+ node) nest blows the call stack. Catch + fall back to a
-  // deterministic sentinel that still partitions by AST identity
-  // through the WeakMap above, so two distinct deep ASTs don't
-  // share a slice even when the hash path can't run. Surfaced by
-  // iter-298 fuzz. Reach: tiny in practice (real filters are
-  // shallow), but a malformed style or a compiler optimisation
-  // chain could trip it.
-  let json: string
-  try {
-    json = JSON.stringify(filterAst)
-  } catch {
-    // Identity-stable sentinel: WeakMap above already partitions
-    // by AST object, so distinct deep ASTs each get their own
-    // cache slot and never share keys. Sentinel string just
-    // needs to be deterministic.
-    const sentinel = `deepAST:${sourceLayer}`
-    inner.set(sourceLayer, sentinel)
-    return sentinel
-  }
-  let h = 5381
-  for (let i = 0; i < json.length; i++) {
-    h = (h * 33) ^ json.charCodeAt(i)
-    h |= 0
-  }
-  const key = `${sourceLayer}::${(h >>> 0).toString(36)}`
+  // iter-299 — Iterative AST walk. Replaces iter-298's
+  // JSON.stringify + try/catch path that hit a 5000-node stack
+  // overflow and propagated the throw. Walks the tree via an
+  // explicit work-list with a visited WeakSet to bound recursion
+  // on circular ASTs.
+  const h = hashAstIterative(filterAst)
+  const key = `${sourceLayer}::${h.toString(36)}`
   inner.set(sourceLayer, key)
   return key
 }
