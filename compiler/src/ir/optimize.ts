@@ -16,6 +16,7 @@ import { foldTrivialCasePass } from './passes/fold-trivial-case'
 import { deadLayerElimPass } from './passes/dead-layer-elim'
 import { deadSourceElimPass } from './passes/dead-source-elim'
 import { cseAnnotatePass } from './passes/cse-annotate'
+import { exprAnalyzePass } from './passes/expr-analyze'
 
 /**
  * Optimize a Scene by classifying expressions and folding constants.
@@ -94,6 +95,12 @@ function buildPipeline(): PassManager {
   // kernel dedup is the first consumer, Phase C.2). Runs AFTER
   // dce-fixpoint so dead expressions aren't walked.
   pm.register(cseAnnotatePass)
+  // iter-269 — per-Expr structural + purity metadata side-table.
+  // Foundation for Tier 1 compiler advancement: WGSL match-arm
+  // switch codegen, CSE purity gate, branch elimination. Runs after
+  // cse-annotate so it walks the same post-dce Expr surface. Pure
+  // analysis — Scene unchanged except for the optional side-table.
+  pm.register(exprAnalyzePass)
   return pm
 }
 

@@ -22,6 +22,15 @@ export interface Scene {
    *  Scene MUST exclude this field (the fixture-ir-snapshot serializer
    *  does so explicitly). */
   cseAnnotation?: import('./passes/apply-cse').CSEAnnotation
+  /** Per-Expr structural + purity metadata built by `expr-analyze`
+   *  pass (iter-269). Maps AST `Expr` nodes to `{ depth, matchArmCount,
+   *  allArmsConst, idempotent, hasFieldAccess, hasMatch, hasFnCall }`.
+   *  Foundation for Tier 1 compiler advancement: WGSL match-arm switch
+   *  codegen (uses matchArmCount + allArmsConst), CSE purity gate
+   *  (uses idempotent), branch elimination (uses hasMatch). Contains
+   *  a WeakMap — the fixture-ir-snapshot serializer MUST exclude this
+   *  field, mirroring the cseAnnotation gate. */
+  exprAnalysis?: import('./passes/expr-analyze').ExprAnalysis
 }
 
 /** Compiler diagnostic — one record per "this is suspicious / wrong /
