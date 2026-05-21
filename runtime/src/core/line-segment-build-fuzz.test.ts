@@ -152,4 +152,74 @@ describe('iter-297 buildLineSegments fuzz', () => {
     const r = buildLineSegments(v, i, 6)
     expect(r.length).toBe((N - 1) * LINE_SEGMENT_STRIDE_F32)
   })
+
+  // iter-316 — render-error gate: the SDF segment buffer feeds the
+  // GPU line shader directly. A single non-finite float (from a
+  // miter / tangent / pad-ratio computation on a degenerate chain)
+  // poisons the segment quad → blank or smeared line. iter-297
+  // checked offsets + no-crash; this asserts EVERY output float is
+  // finite across realistic + degenerate chains.
+  describe('iter-316 every-float-finite render gate', () => {
+    function assertAllFinite(buf: Float32Array, ctx: string): void {
+      for (let i = 0; i < buf.length; i++) {
+        if (!Number.isFinite(buf[i]!)) throw new Error(`${ctx}[${i}] non-finite: ${buf[i]}`)
+      }
+    }
+
+    function makeRng(seed: number): () => number {
+      let s = seed | 0
+      return () => {
+        s ^= s << 13; s |= 0
+        s ^= s >>> 17
+        s ^= s << 5; s |= 0
+        return ((s >>> 0) / 0x1_0000_0000)
+      }
+    }
+
+    it('straight chain — all segment floats finite', () => {
+      const v = v6([0, 0, 0, 0, 0, 0], [100, 0, 0, 0, 0, 100], [200, 50, 0, 0, 0, 250])
+      const r = buildLineSegments(v, idx(0, 1, 1, 2), 6, 1000, 1000)
+      assertAllFinite(r, 'straight')
+    })
+
+    it('sharp hairpin (near-180° turn) — miter pad stays finite', () => {
+      // A→B→A' where B is the apex: tangent reverses, miter pad
+      // formula can blow up if not guarded.
+      const v = v6([0, 0, 0, 0, 0, 0], [100, 0.001, 0, 0, 0, 100], [0, 0.002, 0, 0, 0, 200])
+      const r = buildLineSegments(v, idx(0, 1, 1, 2), 6, 1000, 1000)
+      assertAllFinite(r, 'hairpin')
+    })
+
+    it('coincident consecutive vertices — zero tangent guarded', () => {
+      const v = v6([5, 5, 0, 0, 0, 0], [5, 5, 0, 0, 0, 0], [10, 10, 0, 0, 0, 7])
+      const r = buildLineSegments(v, idx(0, 1, 1, 2), 6, 1000, 1000)
+      assertAllFinite(r, 'coincident')
+    })
+
+    it('200 random chains of varying angle — all finite', () => {
+      const rng = makeRng(0x11ce)
+      for (let trial = 0; trial < 200; trial++) {
+        const n = 2 + Math.floor(rng() * 8)
+        const rows: number[][] = []
+        for (let k = 0; k < n; k++) {
+          rows.push([(rng() * 2 - 1) * 1000, (rng() * 2 - 1) * 1000, 0, 0, 0, k * 10])
+        }
+        const v = v6(...rows)
+        const ix: number[] = []
+        for (let k = 0; k < n - 1; k++) { ix.push(k, k + 1) }
+        const r = buildLineSegments(v, idx(...ix), 6, 1000, 1000)
+        assertAllFinite(r, `rand-${trial}`)
+      }
+    })
+
+    it('boundary-coincident endpoints (tile-join detection) finite', () => {
+      // Chain ending exactly on the tile boundary triggers the
+      // virtual-join (no-cap) path. Width/height set so detection
+      // fires.
+      const W = 1000, H = 1000
+      const v = v6([0, 500, 0, 0, 0, 0], [W, 500, 0, 0, 0, W])  // ends on east edge
+      const r = buildLineSegments(v, idx(0, 1), 6, W, H)
+      assertAllFinite(r, 'boundary-join')
+    })
+  })
 })
