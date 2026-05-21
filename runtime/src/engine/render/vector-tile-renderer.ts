@@ -4321,23 +4321,20 @@ export class VectorTileRenderer {
       // partial-encode case. During fast zoom we fall through to a
       // direct renderTileKeys call (no bundle, no cache); steady-state
       // (all tiles loaded) keeps the iter-226 97.6% hit rate.
-      // iter-273 — bundle path DISABLED. User-reported sustained
-      // corruption (text + line + polygon wrong positions) on live
-      // deploy across desktop + mobile, persisting after iter-268/270/
-      // 271/272 fixes. The bundle replay path is the common thread
-      // through all three affected rendering layers (iter-220 +
-      // iter-221 wrap fill + fallback; both feed text/icon dispatch
-      // via shared per-tile uniform writes). Turning the path off
-      // forces every frame to go through direct renderTileKeys with
-      // current state — no recorded-command replay, no key collision
-      // class. Loses the iter-220 perf win (~97% steady-state hit
-      // rate); regaining it requires bundle replay invariant proof
-      // that the current implementation lacks.
+      // iter-275 — bundle path gated by `globalThis.__XGIS_BUNDLE_ENABLE`
+      // flag (default OFF after iter-273). Set true at runtime to
+      // re-enable bundle replay path for testing. E2E invariant test
+      // (_bundle-pixel-invariant.spec.ts) renders the SAME scene
+      // twice — once with bundle on, once off — and pixel-diffs the
+      // canvases. Flip the default to true only after that gate
+      // shows pixel-identical (or within bit-noise threshold).
       let allTilesLoaded = true
       for (let i = 0; i < neededKeys.length; i++) {
         if (!layerCache.get(neededKeys[i]!)) { allTilesLoaded = false; break }
       }
-      const shouldBundle = false
+      const _bundleEnabled = (globalThis as { __XGIS_BUNDLE_ENABLE?: boolean })
+        .__XGIS_BUNDLE_ENABLE === true
+      const shouldBundle = _bundleEnabled
         && !DEBUG_OVERDRAW
         && !translucentBucket
         && phase !== 'strokes'
@@ -4530,8 +4527,10 @@ export class VectorTileRenderer {
       for (let i = 0; i < fallbackKeys.length; i++) {
         if (!layerCache.get(fallbackKeys[i]!)) { fbAllLoaded = false; break }
       }
-      // iter-273 — bundle path DISABLED (see primary path above).
-      const fbShouldBundle = false
+      // iter-275 — bundle path gated (mirrors primary). Default OFF.
+      const _fbBundleEnabled = (globalThis as { __XGIS_BUNDLE_ENABLE?: boolean })
+        .__XGIS_BUNDLE_ENABLE === true
+      const fbShouldBundle = _fbBundleEnabled
         && !DEBUG_OVERDRAW
         && !translucentBucket
         && phase !== 'strokes'
