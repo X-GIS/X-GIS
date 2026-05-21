@@ -13,6 +13,7 @@ import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority, makeTi
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '../gpu/frame-arena'
 import { structuralHashKey } from '../_cache/structural-key'
+import { Epoch } from '../_cache/versioned-state'
 import { visibleTilesSSE } from '../../loader/tiles-sse'
 import { globeVisibleTiles } from '../projection/globe'
 import {
@@ -275,7 +276,10 @@ export class VectorTileRenderer {
    *  is null), so cached bundles holding refs to the prior
    *  generation must re-encode. Independent of per-tile uploads;
    *  fires on uniform-ring grow + sprite-atlas / palette rewire. */
-  private _bindGroupRebuildEpoch = 0
+  // iter-282 — Epoch instance instead of raw counter. .bump() at
+  // rebuild sites + .value() in cache key state literal. Same numeric
+  // semantics, type-safe at the call site (must go through .bump()).
+  private readonly _bindGroupEpoch = new Epoch()
   private getLayerCache(sourceLayer: string): Map<number, GPUTile> | undefined {
     return this.gpuCache.get(sourceLayer)
   }
@@ -839,7 +843,9 @@ export class VectorTileRenderer {
     // iter-226 — tileBg{Default,Feature} are new refs after this
     // function. Any cached RenderBundle that held the prior refs is
     // now stale; bump the epoch so the next cache lookup misses.
-    this._bindGroupRebuildEpoch = (this._bindGroupRebuildEpoch + 1) | 0
+    // iter-282 — Epoch.bump() supersedes the raw `++` (single
+    // mutation point; consumers read via .value() in key literals).
+    this._bindGroupEpoch.bump()
   }
 
   /** Ring buffers retired mid-frame because of capacity grow. Destroyed on
@@ -4367,7 +4373,7 @@ export class VectorTileRenderer {
           neededKeys: neededKeys.slice(),
           epochs,
           worldOffsets: worldOffDeg ? worldOffDeg.map(o => Math.round(o * 1e3)) : null,
-          bindGroupEpoch: this._bindGroupRebuildEpoch,
+          bindGroupEpoch: this._bindGroupEpoch.value(),
           pickOn,
           samples,
           mainPipelineLabel: mainFill.label ?? null,
@@ -4527,7 +4533,7 @@ export class VectorTileRenderer {
           fallbackVisibleKeys: fallbackVisibleKeys ? fallbackVisibleKeys.slice() : null,
           epochs: fbEpochs,
           worldOffsets: fallbackOffsets ? fallbackOffsets.map(o => Math.round(o * 1e3)) : null,
-          bindGroupEpoch: this._bindGroupRebuildEpoch,
+          bindGroupEpoch: this._bindGroupEpoch.value(),
           pickOn: fbPickOn,
           samples: fbSamples,
           mainPipelineLabel: fallbackFill.label ?? null,
