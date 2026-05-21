@@ -38,7 +38,7 @@ Tooling: `scripts/mutate.ts` (iter-302). Zero-dep hand-rolled Stryker-lite.
 |---|---:|---:|---:|
 | `clip.ts` | 30.0 % | 30.7 % | +0.7 |
 | `colors.ts` | 24.1 % | 40.8 % | +16.7 ⭐ |
-| `evaluator.ts` (no plug; baseline) | — | 13.0 % | — |
+| `evaluator.ts` | 13.0 % | 47.8 % | +34.8 ⭐⭐ |
 | `versioned-state.ts` | — | 100 % | — |
 | `bundle-cache-key.ts` | — | 100 % | — |
 | `camera.ts` | — | 4.7 % | — |
