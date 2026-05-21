@@ -758,6 +758,16 @@ export class TextStage {
    *  text-expr eval failures from downstream collision suppression.
    *  Iter 108. */
   private readonly dispatchedLabelTexts: Set<string> = new Set()
+  /** iter-285 — per-frame counters disambiguating collision-suppressed
+   *  vs render-but-invisible. Filled by prepare(): submitted is the
+   *  raw addLabel/addCurvedLineLabel count at frame start, drawn is the
+   *  count of TextDraws actually pushed to renderer.setDraws (post-
+   *  collision). User-reported OFM Bright Texas highway shields:
+   *  text numbers dispatchedLabelTexts include "10"/"45"/"288" but no
+   *  visible glyphs on screen — these counters localise whether
+   *  collision dropped them or render-but-invisible. */
+  private _lastSubmittedLabelCount = 0
+  private _lastDrawnLabelCount = 0
   /** iter 152 diagnostic — per-label halo normalisation capture for
    *  the z0-halo-too-large probe (user report #1). One entry per
    *  shaped label this prepare(): resolved fontSize (= def.size·dpr),
@@ -1076,6 +1086,11 @@ export class TextStage {
    *  text-overlay no-render bug. */
   getDispatchedLabelTexts(): string[] { return [...this.dispatchedLabelTexts].sort() }
   clearDispatchedLabelTexts(): void { this.dispatchedLabelTexts.clear() }
+  /** iter-285 — last frame's submitted (raw addLabel) and drawn
+   *  (post-collision) label counts. `submitted - drawn` measures
+   *  collision-suppression pressure for the most recent prepare(). */
+  getLastSubmittedLabelCount(): number { return this._lastSubmittedLabelCount }
+  getLastDrawnLabelCount(): number { return this._lastDrawnLabelCount }
   /** iter 152 — drain the z0-halo probe capture (see haloDebug). */
   getHaloDebug(): ReadonlyArray<{
     text: string; fontSize: number; rasterFontSize: number
@@ -1146,8 +1161,13 @@ export class TextStage {
    *  before encoding the render pass; render() then encodes the
    *  draws onto the supplied pass. */
   prepare(): void {
+    // iter-285 — snapshot submitted count BEFORE collision pass.
+    // pendingLine entries each may yield 1+ placements; counted as 1
+    // per submission for a coarse but useful diagnostic.
+    this._lastSubmittedLabelCount = this.pending.length + this.pendingLine.length
     if (this.pending.length === 0 && this.pendingLine.length === 0) {
       this.renderer.setDraws([])
+      this._lastDrawnLabelCount = 0
       return
     }
     // Phase 1: shape every label, compute its screen-space bbox, and
@@ -1931,6 +1951,7 @@ export class TextStage {
     // page0.width to compute UVs.
     this.gpu.flush()
     this.renderer.setDraws(draws)
+    this._lastDrawnLabelCount = draws.length
     perfMarkEnd('stage-prepare.emit')
   }
 

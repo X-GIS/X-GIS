@@ -1420,6 +1420,22 @@ export class XGISMap {
     return this.textStage?.getDispatchedLabelTexts() ?? null
   }
 
+  /** iter-285 — disambiguate collision-suppressed vs render-but-
+   *  invisible. `submitted` is the raw addLabel/addCurvedLineLabel
+   *  count at frame start, `drawn` is the count of TextDraws that
+   *  reached renderer.setDraws (post-collision). User-reported OFM
+   *  Bright Texas highway shields: dispatchedLabelTexts include the
+   *  shield numbers but the screen shows no glyphs — comparing
+   *  submitted vs drawn here localises whether collision dropped
+   *  them or whether they reached GPU but rendered invisibly. */
+  getLastLabelCounts(): { submitted: number; drawn: number } | null {
+    if (!this.textStage) return null
+    return {
+      submitted: this.textStage.getLastSubmittedLabelCount(),
+      drawn: this.textStage.getLastDrawnLabelCount(),
+    }
+  }
+
   /** iter 152 — z0-halo probe (user report #1). Per-label resolved
    *  fontSize / rasterFontSize / halo width / haloWidthNorm (the
    *  value packUniforms feeds the shader). Lets an E2E read what the
