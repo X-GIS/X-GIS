@@ -40,6 +40,12 @@ import {
   evaluateVariableOffsetEm, variableAnchorOffsetEm,
   type LabelAnchor,
 } from './text-stage-helpers'
+// iter-265 — sub-phase drill inside prepare(). encoder.stage-prepare
+// shows 1.31 ms/frame in iter-263 budget but we don't know which
+// inner phase dominates (point shape vs curved line layout vs
+// collision vs emit). Sub-marks let the perf harness identify the
+// hottest sub-phase to attack next.
+import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
 
 interface WrappedLineRange { start: number; end: number; width: number }
 
@@ -1151,6 +1157,12 @@ export class TextStage {
       // slot.pxX/pxY would point to the wrong glyph after eviction.
       this._layoutCache.clear()
     }
+    // iter-265 — sub-phase drill. Point-label shaping loop covers
+    // ensureString + advances FrameArena fill + Knuth-Plass wrap +
+    // per-anchor candidates' vertical layout + per-glyph offsets +
+    // bbox compute + cache hit/miss store. The single biggest chunk
+    // of prepare() time when point labels dominate (countries, POI).
+    perfMarkStart('stage-prepare.point-loop')
     for (const p of this.pending) {
       // iter-175 REVERT: the iter-167 glyphsByTextCache + iter-168
       // layoutCache caused intermittent label corruption (user
@@ -1506,6 +1518,7 @@ export class TextStage {
         sortKey: p.def.sortKey,
       })
     }
+    perfMarkEnd('stage-prepare.point-loop')
 
     // Phase 1b: shape curved line labels. Each glyph rides a
     // different point on the polyline with the local tangent rotation.
@@ -1522,6 +1535,12 @@ export class TextStage {
     let _advanceScratch = new Float32Array(0)
     let _cumLenScratch = new Float32Array(0)
     const _sampleOut: [number, number, number] = [0, 0, 0]
+    // iter-265 — sub-phase drill. Curved-label loop covers ensure
+    // String + per-glyph advance fill + cumulative length + keep
+    // upright check + per-glyph sample (atan2 / Math.sin / Math.cos)
+    // + glyphOffsets/Rotations arena fill. Dominates prepare() on
+    // road/transportation heavy fixtures (Liberty highways at z>=12).
+    perfMarkStart('stage-prepare.line-loop')
     for (const p of this.pendingLine) {
       const glyphs = this.host.ensureString(p.fontKey, p.text)
       if (glyphs.length === 0) continue
@@ -1708,6 +1727,7 @@ export class TextStage {
         sortKey: p.def.sortKey,
       })
     }
+    perfMarkEnd('stage-prepare.line-loop')
 
     // Phase 2: greedy bbox collision.
     //
@@ -1737,6 +1757,10 @@ export class TextStage {
     // order stays in original `shaped` order so
     // the layered rendering effect (country text on top of water
     // halo) is preserved — only the collision dedup priority flips.
+    // iter-265 — sub-phase drill. Collision = CollisionItem.map +
+    // greedyPlaceBboxes + per-shape place loop. greedy is O(N²) so
+    // dense-label scenes (low-z world view) spend a chunk here.
+    perfMarkStart('stage-prepare.collision')
     const collisionInput: CollisionItem[] = shaped.map(s => ({
       bboxes: s.layouts.map(l => l.bbox),
       allowOverlap: s.allowOverlap,
@@ -1785,12 +1809,19 @@ export class TextStage {
         this.droppedPairKeys.add(src.pairKey)
       }
     }
+    perfMarkEnd('stage-prepare.collision')
 
+    // iter-265 — sub-phase drill. Emit = GPU flush (dirty SDF
+    // uploads) + setDraws (uniform pack into FrameArena +
+    // renderer state). Expected small but exposes GPU upload
+    // pressure when glyph cache misses spike.
+    perfMarkStart('stage-prepare.emit')
     // Flush dirty SDFs to GPU BEFORE setDraws — guarantees every
     // referenced glyph slot is resident when the renderer reads
     // page0.width to compute UVs.
     this.gpu.flush()
     this.renderer.setDraws(draws)
+    perfMarkEnd('stage-prepare.emit')
   }
 
   /** Encode the prepared draws onto the pass. Safe to call without
