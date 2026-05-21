@@ -1700,6 +1700,58 @@ export class VectorTileRenderer {
     return this._gpuCacheCount
   }
 
+  /** iter-288 — FLICKER class diagnostic. Returns a per-frame
+   *  partition of where the visible-tile set stands:
+   *
+   *    needed         — last frame's `_frameTilesVisible` (visible
+   *                     unique tile count emitted by the per-tile
+   *                     loop, sum across all sliceLayers)
+   *    missed         — `_missedTiles`: tiles classified as 'pending'
+   *                     (no fallback resolved this frame)
+   *    gpuUnique      — `_gpuCacheCount`: unique (sliceLayer, key)
+   *                     pairs resident on GPU
+   *    catalogCached  — catalog.getCacheSize() (CPU-side dataCache
+   *                     entries)
+   *    catalogLoading — catalog.getPendingLoadCount() (in-flight
+   *                     fetches)
+   *    uploadQueued   — VTR's uploadQueue.size (decoded but not yet
+   *                     uploaded to GPU; bounded by uploadBudgetFor)
+   *    gpuCapDesktop  — current MAX_GPU_TILES (256 desktop / 64
+   *                     mobile); FLICKER fires when needed > cap
+   *                     AND fallback walk doesn't resolve
+   *
+   *  Cheap; only Map.size + integer reads. Designed for `__xgisMap`
+   *  shell-injection from a Playwright probe or a manual user
+   *  capture during the FLICKER repro:
+   *
+   *      window.__xgisMap.getTileLoadDiagnostic()
+   *
+   *  User reported (memory `project_water_low_zoom_iter271`):
+   *  z=5 mercator burst → 'FLICKER 140 tiles z=5 gpuCache=62'.
+   *  The accessor surfaces every term in that decomposition so the
+   *  next focused-fix iter can attribute the missed tiles to a
+   *  specific bottleneck (fetch saturation vs upload saturation vs
+   *  cap eviction). */
+  getTileLoadDiagnostic(): {
+    needed: number
+    missed: number
+    gpuUnique: number
+    catalogCached: number
+    catalogLoading: number
+    uploadQueued: number
+    gpuCap: number
+  } {
+    return {
+      needed: this._frameTilesVisible,
+      missed: this._missedTiles,
+      gpuUnique: this._gpuCacheCount,
+      catalogCached: this.source?.getCacheSize?.() ?? 0,
+      catalogLoading: this.source?.getPendingLoadCount?.() ?? 0,
+      uploadQueued: this.uploadQueue.size(),
+      gpuCap: getMaxGpuTiles(),
+    }
+  }
+
   /** Tear down all GPU resources owned by this renderer.
    *  Used when a source is being replaced (setSourceData) or the
    *  whole map is disposed. After destroy() the renderer is dead —

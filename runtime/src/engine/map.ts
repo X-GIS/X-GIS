@@ -1436,6 +1436,34 @@ export class XGISMap {
     }
   }
 
+  /** iter-288 — FLICKER class tile-load diagnostic. Aggregates the
+   *  per-source partition VTR exposes (`getTileLoadDiagnostic`)
+   *  across every attached vector-tile source. Per memory entry
+   *  `project_water_low_zoom_iter271`, the user-reported FLICKER
+   *  log (`140 tiles z=5 gpuCache=62`) decomposes into needed vs
+   *  cached vs upload-queued vs fetch-in-flight vs cap; this
+   *  accessor surfaces every term so the next focused-fix iter can
+   *  pin the bottleneck without re-reading the FLICKER log.
+   *
+   *  Returns one entry per source (keyed by source name) so multi-
+   *  source styles (e.g. raster basemap + vector overlay) don't
+   *  collide. */
+  getTileLoadDiagnostic(): Record<string, {
+    needed: number
+    missed: number
+    gpuUnique: number
+    catalogCached: number
+    catalogLoading: number
+    uploadQueued: number
+    gpuCap: number
+  }> {
+    const out: Record<string, ReturnType<VectorTileRenderer['getTileLoadDiagnostic']>> = {}
+    for (const [name, entry] of this.vtSources) {
+      out[name] = entry.renderer.getTileLoadDiagnostic()
+    }
+    return out
+  }
+
   /** iter-286 — camera state snapshot for probe-first diagnosis of
    *  z=0 render bugs (mercator z=0 + pitch flat strip;
    *  ortho/azi/stereo/oblique z=0 disc-scale mis-render). Per
