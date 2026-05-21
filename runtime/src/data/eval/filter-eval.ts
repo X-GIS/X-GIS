@@ -78,7 +78,26 @@ export function computeSliceKey(sourceLayer: string, filterAst: FilterAst | null
     inner = new Map()
     _sliceKeyCache.set(filterAst as object, inner)
   }
-  const json = JSON.stringify(filterAst)
+  // iter-298 — JSON.stringify recurses through the AST; a deep
+  // (5000+ node) nest blows the call stack. Catch + fall back to a
+  // deterministic sentinel that still partitions by AST identity
+  // through the WeakMap above, so two distinct deep ASTs don't
+  // share a slice even when the hash path can't run. Surfaced by
+  // iter-298 fuzz. Reach: tiny in practice (real filters are
+  // shallow), but a malformed style or a compiler optimisation
+  // chain could trip it.
+  let json: string
+  try {
+    json = JSON.stringify(filterAst)
+  } catch {
+    // Identity-stable sentinel: WeakMap above already partitions
+    // by AST object, so distinct deep ASTs each get their own
+    // cache slot and never share keys. Sentinel string just
+    // needs to be deterministic.
+    const sentinel = `deepAST:${sourceLayer}`
+    inner.set(sourceLayer, sentinel)
+    return sentinel
+  }
   let h = 5381
   for (let i = 0; i < json.length; i++) {
     h = (h * 33) ^ json.charCodeAt(i)
