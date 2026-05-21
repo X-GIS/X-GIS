@@ -4321,11 +4321,24 @@ export class VectorTileRenderer {
       // partial-encode case. During fast zoom we fall through to a
       // direct renderTileKeys call (no bundle, no cache); steady-state
       // (all tiles loaded) keeps the iter-226 97.6% hit rate.
+      // iter-273 — bundle path DISABLED. User-reported sustained
+      // corruption (text + line + polygon wrong positions) on live
+      // deploy across desktop + mobile, persisting after iter-268/270/
+      // 271/272 fixes. The bundle replay path is the common thread
+      // through all three affected rendering layers (iter-220 +
+      // iter-221 wrap fill + fallback; both feed text/icon dispatch
+      // via shared per-tile uniform writes). Turning the path off
+      // forces every frame to go through direct renderTileKeys with
+      // current state — no recorded-command replay, no key collision
+      // class. Loses the iter-220 perf win (~97% steady-state hit
+      // rate); regaining it requires bundle replay invariant proof
+      // that the current implementation lacks.
       let allTilesLoaded = true
       for (let i = 0; i < neededKeys.length; i++) {
         if (!layerCache.get(neededKeys[i]!)) { allTilesLoaded = false; break }
       }
-      const shouldBundle = !DEBUG_OVERDRAW
+      const shouldBundle = false
+        && !DEBUG_OVERDRAW
         && !translucentBucket
         && phase !== 'strokes'
         && phase !== 'oit-fill'
@@ -4517,7 +4530,9 @@ export class VectorTileRenderer {
       for (let i = 0; i < fallbackKeys.length; i++) {
         if (!layerCache.get(fallbackKeys[i]!)) { fbAllLoaded = false; break }
       }
-      const fbShouldBundle = !DEBUG_OVERDRAW
+      // iter-273 — bundle path DISABLED (see primary path above).
+      const fbShouldBundle = false
+        && !DEBUG_OVERDRAW
         && !translucentBucket
         && phase !== 'strokes'
         && phase !== 'oit-fill'
