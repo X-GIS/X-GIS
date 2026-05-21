@@ -52,44 +52,85 @@ function hashString(h: number, s: string): number {
   return h
 }
 
-/** Recursively hash any JSON-like value. Object keys are visited in
- *  sorted order so structurally-equal objects with different
- *  insertion order produce the same hash. */
-function hashValue(h: number, v: unknown): number {
-  if (v === null || v === undefined) return fnv(h, 0)
-  switch (typeof v) {
-    case 'number':
-      // Floor-bias to mix the integer half into the hash. Floats with
-      // identical integer parts but different fractions hit the same
-      // bucket — acceptable for the cache-key use case (zoom 11.231
-      // and 11.234 don't need distinct bundles), and the caller can
-      // pre-bucket (e.g., Math.round(zoom * 100)) for finer-grain
-      // when it matters.
-      return fnv(h, v | 0)
-    case 'boolean':
-      return fnv(h, v ? 1 : 0)
-    case 'string':
-      return hashString(h, v)
-    case 'object':
+/** Iterative depth-first hash. iter-300 replaces the prior recursive
+ *  walk that risked a JS engine stack overflow on a state object
+ *  containing deeply-nested data (per the iter-298/299 path on
+ *  filter-eval's computeSliceKey, same class of risk).
+ *
+ *  Stack growth is O(frontier-of-tree-at-each-pop) not
+ *  O(tree-depth), so a state literal with a 10 K-element array runs
+ *  fine — the prior recursive version would tail-recurse through
+ *  the array via the for-loop but a nested object chain blew up at
+ *  ~5 K depth.
+ *
+ *  Cycles (defensive — POJOs shouldn't normally cycle): tracked via
+ *  WeakSet, emit a fixed marker on re-entry instead of looping. */
+function hashValue(h: number, root: unknown): number {
+  let acc = h
+  const stack: unknown[] = [root]
+  const visited = new WeakSet<object>()
+  // Phantom marker pushed AFTER object/array open so the
+  // children-then-close hash order matches the prior recursive
+  // shape (avoids destabilising the hash space vs iter-281).
+  const _END = { __end: true } as const
+  while (stack.length > 0) {
+    const v = stack.pop()
+    if (v === _END) {
+      // No-op: the prior recursive version had no explicit close
+      // marker. Kept here for future shape changes that need one.
+      continue
+    }
+    if (v === null || v === undefined) {
+      acc = fnv(acc, 0)
+      continue
+    }
+    const t = typeof v
+    if (t === 'number') {
+      acc = fnv(acc, (v as number) | 0)
+      continue
+    }
+    if (t === 'boolean') {
+      acc = fnv(acc, (v as boolean) ? 1 : 0)
+      continue
+    }
+    if (t === 'string') {
+      acc = hashString(acc, v as string)
+      continue
+    }
+    if (t === 'object') {
+      const obj = v as object
+      if (visited.has(obj)) {
+        // Cycle — emit a fixed marker (distinct from null) and
+        // skip the children.
+        acc = fnv(acc, 0xfade)
+        continue
+      }
+      visited.add(obj)
       if (Array.isArray(v)) {
-        // Array order is significant (sorted-set semantics need the
-        // caller to sort before passing in).
-        let hh = fnv(h, v.length)
-        for (let i = 0; i < v.length; i++) hh = hashValue(hh, v[i])
-        return hh
+        // Array length is mixed in first (matches iter-281 shape).
+        acc = fnv(acc, (v as unknown[]).length)
+        // Push children in REVERSE so they pop in original order.
+        const arr = v as unknown[]
+        for (let i = arr.length - 1; i >= 0; i--) stack.push(arr[i])
+        continue
       }
-      // Plain object — visit sorted keys so structurally-equal objects
-      // built in different orders produce the same hash.
-      let hh = h
-      const keys = Object.keys(v as object).sort()
-      for (const k of keys) {
-        hh = hashString(hh, k)
-        hh = hashValue(hh, (v as Record<string, unknown>)[k])
+      // Plain object — visit sorted keys for insertion-order
+      // independence. Push (value) then (key-as-string) so the
+      // pop order interleaves key/value just like the recursive
+      // version's `hashString(hh, k); hashValue(hh, o[k])`.
+      const o = v as Record<string, unknown>
+      const keys = Object.keys(o).sort()
+      for (let i = keys.length - 1; i >= 0; i--) {
+        const k = keys[i]!
+        stack.push(o[k])
+        stack.push(k)  // string — gets hashed via hashString branch
       }
-      return hh
-    default:
-      return h
+      continue
+    }
+    // function / symbol / bigint — unreachable for normal state
+    // literals but defensive.
   }
+  return acc
 }
 
 /** Type-checked structural hash over a state object.

@@ -91,4 +91,35 @@ describe('structuralHash', () => {
     const c = { ...a, newDimension: 'experimental' }
     expect(structuralHash(a)).not.toBe(structuralHash(c))
   })
+
+  // iter-300 — iterative walk pin. Prior recursive version blew the
+  // stack at ~5 K depth.
+  describe('iter-300 iterative walk — depth + cycle resilience', () => {
+    it('5000-deep nested object handled without stack overflow', () => {
+      let inner: Record<string, unknown> = { x: 1 }
+      for (let i = 0; i < 5000; i++) inner = { next: inner }
+      expect(() => structuralHash({ root: inner })).not.toThrow()
+    })
+
+    it('10000-element flat array handled', () => {
+      const big = Array.from({ length: 10000 }, (_, i) => i)
+      expect(() => structuralHash({ keys: big })).not.toThrow()
+    })
+
+    it('cyclic reference does not infinite-loop (WeakSet guard)', () => {
+      const a: Record<string, unknown> = { kind: 'cyclic' }
+      a.self = a
+      expect(() => structuralHash(a)).not.toThrow()
+    })
+
+    it('two structurally-distinct deep objects produce distinct hashes', () => {
+      let a: Record<string, unknown> = { x: 1 }
+      let b: Record<string, unknown> = { x: 2 }
+      for (let i = 0; i < 1000; i++) {
+        a = { next: a }
+        b = { next: b }
+      }
+      expect(structuralHash(a)).not.toBe(structuralHash(b))
+    })
+  })
 })
