@@ -120,4 +120,48 @@ describe('iter-287 z=0 camera matrix probe (mercator flat-strip + non-merc disc)
     // far DOES change because maxViewAngle = pitch + halfFov.
     expect(sp.far).toBeGreaterThan(sf.far)
   })
+
+  // iter-292 — Pin the framing root cause. Self-diagnosis (iter-292
+  // memory: ran _pixel-match-seoul-zoom-matrix, found z=0 p=0
+  // gt128=122,688 px = 27 % canvas) confirmed the bug visually:
+  // X-GIS renders world as 512×512 patch with black bars top/bottom;
+  // MapLibre stretches world to fill canvas.
+  //
+  // Numeric root: at z=0 the viewport height in world meters far
+  // exceeds Mercator world height. The camera sees "more sky than
+  // world", and the pyramid pixel-perfect convention produces black
+  // bars instead of stretching.
+  it('pins z=0 framing root: viewport-height-meters > world-height-meters', () => {
+    const cam = new Camera(0, 0, 0)
+    const WORLD_MERC = 40075016.686
+    const TILE_PX = 512
+    const metersPerPixel = WORLD_MERC / TILE_PX  // z=0 baseline
+    const viewportHeightMeters = H * metersPerPixel
+    // 800 CSS px * 78,271 m/px ≈ 62.6 Mm of "viewport content area",
+    // but the world is only 40 Mm tall. Ratio > 1 means the world
+    // doesn't fill viewport at z=0 with a fixed metersPerPixel.
+    expect(viewportHeightMeters).toBeGreaterThan(WORLD_MERC)
+    expect(viewportHeightMeters / WORLD_MERC).toBeCloseTo(1.56, 1)
+    // And: altitude derived from this viewportHeightMeters becomes
+    // huge (~94 Mm), which kills perspective at the same zoom (see
+    // iter-287 records above). Same root.
+    const s = cam.getDebugSnapshot(W, H, DPR)
+    expect(s.altitude).toBeGreaterThan(WORLD_MERC * 2)
+  })
+
+  // iter-292 — Same probe at z=4 confirms the bug is z=0-specific:
+  // viewport much smaller than world at this zoom.
+  it('at z>=4 the inverse holds: world far exceeds viewport — perspective healthy', () => {
+    const cam = new Camera(0, 0, 4)
+    const WORLD_MERC = 40075016.686
+    const TILE_PX = 512
+    const metersPerPixel = WORLD_MERC / TILE_PX / Math.pow(2, 4)
+    const viewportHeightMeters = H * metersPerPixel
+    // 800 * 4892 = 3.9 Mm viewport vs 40 Mm world → 1 % of world
+    // visible. Normal "zoom in" regime.
+    expect(viewportHeightMeters).toBeLessThan(WORLD_MERC / 10)
+    const s = cam.getDebugSnapshot(W, H, DPR)
+    // Altitude < world. Perspective division has meaningful range.
+    expect(s.altitude).toBeLessThan(WORLD_MERC / 5)
+  })
 })

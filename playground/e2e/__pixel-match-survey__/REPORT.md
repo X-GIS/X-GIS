@@ -7,7 +7,7 @@ Labels + icons hidden on both sides to isolate fill / line / outline parity.
 | `bright-seoul-school` | 97.28% | 98.27% | 99.28% | 100.00% | 0 |
 | `bright-tokyo-z14` | 31.32% | 63.85% | 92.45% | 100.00% | 6 |
 | `liberty-paris-z14` | 22.29% | 65.48% | 86.15% | 99.93% | 307 |
-| `demotiles-europe-z2` | 87.71% | 89.66% | 94.90% | 99.68% | 1434 |
+| `demotiles-europe-z2` | 87.71% | 89.66% | 94.90% | 99.68% | 1433 |
 
 ## View details
 
@@ -37,4 +37,4 @@ Labels + icons hidden on both sides to isolate fill / line / outline parity.
 - **Hash**: `#2.5/48/15`
 - **Description**: MapLibre demotiles, Europe z=2 — 214-arm ADM0_A3 country palette
 - **Canvas**: 639×704 (449856 px)
-- **Buckets**: `{"eq0":394566,"le8":8763,"le16":8885,"le32":14694,"le64":13915,"le128":7599,"gt128":1434}`
+- **Buckets**: `{"eq0":394575,"le8":8764,"le16":8885,"le32":14688,"le64":13913,"le128":7598,"gt128":1433}`
