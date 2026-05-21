@@ -112,6 +112,90 @@ describe('GlyphAtlasHost.prewarm', () => {
   })
 })
 
+describe('GlyphAtlasHost.preloadString — iter-268 within-frame aliasing fix', () => {
+  it('admits every codepoint without returning array', () => {
+    // Each char admitted to atlas; no per-call allocation of GlyphInfo[].
+    host.preloadString('noto', 'ABC')
+    expect(host.consumeDirty()).toHaveLength(3)
+  })
+
+  it('idempotent — second call does not re-rasterise', () => {
+    host.preloadString('noto', 'ABC')
+    host.consumeDirty()
+    host.preloadString('noto', 'ABC')
+    expect(host.consumeDirty()).toEqual([])
+  })
+
+  it('Unicode-aware: surrogate pair admitted once', () => {
+    host.preloadString('noto', '😀')
+    expect(host.consumeDirty()).toHaveLength(1)
+  })
+
+  it('subsequent ensureString sees fully populated atlas — no further eviction', () => {
+    // The point of preloadString is to drain ALL admissions (and any
+    // evictions they cause) BEFORE any shape loop holds GlyphInfo[]
+    // references. After the preload, ensureString must find every
+    // codepoint already in atlas state and never trigger another
+    // eviction — generation counter MUST be stable across the
+    // subsequent shape loop.
+    //
+    // Setup: preload two short strings whose unique codepoints together
+    // fit in the 16-slot atlas.
+    host.preloadString('noto', 'ABCDE')   // 5 unique
+    host.preloadString('noto', 'FGHIJ')   // 5 unique → 10 total ≪ 16
+    const generationAfterPreload = host.getGeneration()
+    host.consumeEvictions()                // drain anything from preload
+    host.consumeDirty()
+
+    // Now run the shape loop pattern: ensureString twice with the SAME
+    // two strings. The atlas is fully populated; no admission, no
+    // eviction, no generation bump.
+    const glyphsA = host.ensureString('noto', 'ABCDE')
+    const glyphsB = host.ensureString('noto', 'FGHIJ')
+
+    expect(host.getGeneration()).toBe(generationAfterPreload)
+    expect(host.consumeEvictions()).toEqual([])
+    expect(glyphsA.map(g => g.codepoint)).toEqual([65, 66, 67, 68, 69])
+    expect(glyphsB.map(g => g.codepoint)).toEqual([70, 71, 72, 73, 74])
+  })
+
+  it('label A glyphs survive label B preload — no within-frame aliasing', () => {
+    // The user-reported OFM Korea bug scenario, condensed:
+    //   - Label A (Latin "Pyongyang") shape-loop builds GlyphInfo[]
+    //   - Label B (Hangul "평양")    ensure() would evict + reuse a
+    //     slot referenced by Label A's array
+    //   - Label A's draw later renders Label B's SDF bytes
+    //
+    // With the preload pass, ALL admissions happen FIRST. By the time
+    // the shape loop builds either label's array, the atlas is settled
+    // — no further eviction, both arrays reference STABLE slots whose
+    // pxX/pxY contents are the right codepoint's SDF.
+    host.preloadString('noto', 'Pyongyang')
+    host.preloadString('noto', 'pyeong')   // simulate Hangul names with ASCII codepoints
+    const dirtyAfterPreload = host.consumeDirty()
+    // Unique codepoints in 'Pyongyang' + 'pyeong' = P, y, o, n, g, a
+    // (uppercase P), p, e (lowercase p) = 8 (case-sensitive). Atlas has
+    // 16 slots — fits with margin so no eviction during preload itself.
+    expect(dirtyAfterPreload.length).toBe(8)
+
+    // Now the shape loop runs. ensureString for each label must NOT
+    // trigger any eviction. The generation counter is the invariant.
+    const genBefore = host.getGeneration()
+    const labelA = host.ensureString('noto', 'Pyongyang')
+    const labelB = host.ensureString('noto', 'pyeong')
+
+    // Eviction is the bug we're guarding against. If it happens here,
+    // labelA's slot refs are now invalidated by labelB's ensure().
+    expect(host.getGeneration()).toBe(genBefore)
+    expect(host.consumeEvictions()).toEqual([])
+    // Both arrays are fully populated with the right codepoints.
+    expect(labelA.map(g => g.codepoint)).toEqual(
+      [...'Pyongyang'].map(c => c.codePointAt(0)!))
+    expect(labelB.map(g => g.codepoint)).toEqual(
+      [...'pyeong'].map(c => c.codePointAt(0)!))
+  })
+})
+
 describe('GlyphAtlasHost — fontKey isolation', () => {
   it('same codepoint, different font → different slot + dirty entry', () => {
     host.ensure('noto-regular', 65)

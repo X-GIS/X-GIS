@@ -1176,6 +1176,46 @@ export class TextStage {
       // slot.pxX/pxY would point to the wrong glyph after eviction.
       this._layoutCache.clear()
     }
+
+    // iter-268 — atlas slot aliasing fix. PRE-LOAD every codepoint
+    // needed by every pending label BEFORE any shaping loop builds a
+    // GlyphInfo[] array that downstream code holds in `shaped[]`.
+    //
+    // Bug class (user-reported 2026-05-21 OFM Bright z=5 Korea):
+    // "Pyongyang" rendering as "Pyongy시ng"; "South Korea" as
+    // "South 민국ea". The exact same iter-175 corruption that motivated
+    // the iter-167/168 cache revert AND the iter-190 generation
+    // guard — but those fixes only catch the CROSS-FRAME and
+    // CACHE-RE-LOOKUP cases. They do not catch the within-frame
+    // path: label A calls ensureString → builds A_glyphs holding
+    // slot refs → label B calls ensureString → B's ensure() evicts
+    // one of A_glyphs' slots and reuses pxX/pxY for B's codepoint →
+    // A_glyphs is still alive in `shaped[]`, the renderer reads
+    // its (now stale) slot reference, and the wrong SDF is drawn.
+    //
+    // Fix: collect all admissions into the atlas in a dedicated
+    // phase BEFORE any shaped[] entry exists. Any evictions trigger
+    // BEFORE any live GlyphInfo[] reference is held. After this
+    // loop, the atlas is stable for the rest of the frame; the
+    // subsequent ensureString calls in the shape loops below find
+    // every codepoint already in metrics + infoCache and do not
+    // trigger further evictions.
+    //
+    // Assumes the atlas fits all unique codepoints in one frame
+    // (true for OFM-class styles: ~50-300 labels × ~10 chars
+    // ≪ atlas slot capacity). If the atlas is too small, eviction
+    // cycles during preload would still leave some labels mis-
+    // rendered — that's a separate "atlas size budget" issue and
+    // doesn't apply at the user-reported zoom levels.
+    for (let i = 0; i < this.pending.length; i++) {
+      const p = this.pending[i]!
+      this.host.preloadString(p.fontKey, p.text)
+    }
+    for (let i = 0; i < this.pendingLine.length; i++) {
+      const p = this.pendingLine[i]!
+      this.host.preloadString(p.fontKey, p.text)
+    }
+
     // iter-265 — sub-phase drill. Point-label shaping loop covers
     // ensureString + advances FrameArena fill + Knuth-Plass wrap +
     // per-anchor candidates' vertical layout + per-glyph offsets +

@@ -239,6 +239,35 @@ export class GlyphAtlasHost {
     }
   }
 
+  /** iter-268 — preload every codepoint in `text` into the atlas
+   *  WITHOUT returning a GlyphInfo[] array. Used by `TextStage
+   *  .prepare()` to drain all per-frame admissions (and any
+   *  evictions they cause) BEFORE any shaping loop builds an array
+   *  that holds slot references.
+   *
+   *  Root motivation: a shape loop that interleaves ensureString
+   *  calls is vulnerable to within-frame slot aliasing — label B's
+   *  ensure() can evict a slot referenced by label A's already-built
+   *  GlyphInfo[]. The slot's pxX/pxY are reused for B's codepoint;
+   *  A's draw later reads B's SDF bytes at those coordinates,
+   *  producing the iter-175 corruption (Pyongyang → "Pyongy시ng",
+   *  South Korea → "South 민국ea" on OFM Bright z=5 Korea).
+   *
+   *  This call admits each codepoint exactly once. Any evictions
+   *  happen here, in a phase where NO GlyphInfo[] is held downstream.
+   *  After this completes for ALL pending labels, the atlas is
+   *  stable for the rest of the frame; subsequent `ensureString`
+   *  calls hit the metrics cache without further eviction. */
+  preloadString(fontKey: string, text: string): void {
+    const len = text.length
+    let i = 0
+    while (i < len) {
+      const cp = text.codePointAt(i)!
+      this.ensure(fontKey, cp)
+      i += cp > 0xFFFF ? 2 : 1
+    }
+  }
+
   /** Ensure every glyph in `text` is in the atlas. Returns one
    *  GlyphInfo per codepoint (Unicode-aware: surrogate pairs counted
    *  once). Iter 133 perf: indexed codePointAt iteration instead of
