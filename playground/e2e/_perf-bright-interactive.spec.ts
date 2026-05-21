@@ -207,6 +207,18 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
   // eslint-disable-next-line no-console
   console.log(reportRow('3. pitch 0→80→0',           s3))
 
+  // iter-261 (Plan L.1.1) — label-dispatch cache hit-rate. Tells
+  // us whether to invest in the full L.1 snapshot/replay refactor.
+  const labelStats = await page.evaluate(() => {
+    interface M { getLabelDispatchStats: () => { hits: number; misses: number; hitRate: number } }
+    const map = (window as unknown as { __xgisMap?: M }).__xgisMap
+    return map?.getLabelDispatchStats?.() ?? null
+  })
+  if (labelStats !== null) {
+    // eslint-disable-next-line no-console
+    console.log(`\n=== Label-dispatch sig cache (L.1 hit-rate diagnostic) ===\n  hits=${labelStats.hits} misses=${labelStats.misses} rate=${(labelStats.hitRate * 100).toFixed(1)}%`)
+  }
+
   // iter-256 (Plan AAA C.3) — phase timing breakdown. Identifies
   // CPU bottleneck (frame.prep vs frame.encode vs frame.submit)
   // so the NEXT perf attack is data-driven, not a guess.

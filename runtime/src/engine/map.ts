@@ -481,6 +481,25 @@ export class XGISMap {
    *  on first access → entry recomputed. Old entries GC via
    *  WeakMap automatic cleanup. */
   private readonly _featureExprsCache = new WeakMap<Record<string, unknown>, { zoomBucket: number; effectiveDef: unknown; def: unknown }>()
+  /** iter-261 (Plan L.1.1) — label-dispatch signature for cache
+   *  hit-rate diagnostic. Computed at the start of the labelShows
+   *  loop; compared to prior frame. Tracks hit/miss without
+   *  changing behavior. If hit rate is < 50 % we cancel L.1
+   *  before investing in the full snapshot/replay refactor. */
+  private _prevLabelDispatchSig: string | null = null
+  private _labelDispatchHits = 0
+  private _labelDispatchMisses = 0
+  /** iter-261 — read this via __xgisMap.getLabelDispatchStats() to
+   *  see Phase L.1 cache hit-rate without actually building the
+   *  cache. */
+  getLabelDispatchStats(): { hits: number; misses: number; hitRate: number } {
+    const total = this._labelDispatchHits + this._labelDispatchMisses
+    return {
+      hits: this._labelDispatchHits,
+      misses: this._labelDispatchMisses,
+      hitRate: total > 0 ? this._labelDispatchHits / total : 0,
+    }
+  }
   private _frameCount = 0
   // Bumped from 60 → 240 (4 s @ 60 fps) — PMTiles world-scale
   // archives at z=0/z=1 trigger massive worker compiles (water +
@@ -4118,6 +4137,27 @@ export class XGISMap {
         // label dispatch loop. Picks up forEachLabelFeature +
         // forEachLineLabelPolyline + dispatchIcon + addLabel work.
         perfMarkStart('encoder.label-dispatch')
+        // iter-261 (Plan L.1.1) — hit-rate diagnostic. Compute
+        // signature: camera + canvas + each VTR's tile-set hash +
+        // labelShows count + style version. If this sig matches
+        // the prior frame, a future Phase L.1 implementation would
+        // skip the entire dispatch loop and replay cached pending.
+        const c = this.camera
+        let _vtrSig = ''
+        for (const [name, e] of this.vtSources) {
+          _vtrSig += `${name}:${e.renderer.getCacheSize()};`
+        }
+        const _dispatchSig =
+          `${(c.zoom * 100) | 0}|${c.centerX | 0},${c.centerY | 0}`
+          + `|${(c.bearing * 100) | 0}|${(c.pitch * 100) | 0}`
+          + `|${this.ctx.canvas.width}x${this.ctx.canvas.height}`
+          + `|${labelShows.length}|${_vtrSig}`
+        if (this._prevLabelDispatchSig === _dispatchSig) {
+          this._labelDispatchHits++
+        } else {
+          this._labelDispatchMisses++
+          this._prevLabelDispatchSig = _dispatchSig
+        }
         for (const show of labelShows) {
           // If LabelDef.color is unset, fall back to the layer's fill
           // (typical Mapbox-style symbol-on-poly pattern: the same
