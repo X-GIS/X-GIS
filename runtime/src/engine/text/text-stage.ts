@@ -674,7 +674,14 @@ export interface TextStageOptions {
 const CJK_FALLBACK_CHAIN = '"Noto Sans CJK KR","Apple SD Gothic Neo","Malgun Gothic","Microsoft YaHei","Noto Sans CJK JP","Hiragino Sans","Yu Gothic",sans-serif'
 const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'inlineGlyphs' | 'glyphProviders' | 'fontTypography' | 'dpr'>> = {
   slotSize: 64,
-  pageSize: 2304,
+  // iter-272 — bump atlas slots 1296 → 4096 (~3.2× headroom).
+  // User-reported bilingual label corruption on OFM Bright dense
+  // scenes (Seoul z=11) where atlas overflow cycles within the
+  // iter-268 preloadString pass, breaking the "all admissions
+  // complete before shape work" invariant. Dense bilingual scenes
+  // (Latin + Hangul ~300 syllables + CJK + numbers + punctuation ×
+  // multiple font weights) exceed 1296. 4096² R8 = 16 MB (was 5.3 MB).
+  pageSize: 4096,
   rasterFontSize: 24,
   sdfRadius: 8,
   defaultFont: CJK_FALLBACK_CHAIN,
