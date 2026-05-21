@@ -4667,7 +4667,8 @@ export class XGISMap {
                 // with the line direction (OFM road_oneway arrows).
                 const _samplePosOut: [number, number, number] = [0, 0, 0]
                 vtEntry.renderer.forEachLineLabelPolyline(sliceKey, (mxs, mys, props) => {
-                  if (mxs.length < 2) return
+                  perfMarkStart('encoder.label-dispatch.line.polyline')
+                  if (mxs.length < 2) { perfMarkEnd('encoder.label-dispatch.line.polyline'); return }
                   // Project every vertex to physical-pixel screen
                   // space; pack into typed arrays for the curved-text
                   // sampler. Drop unprojectable vertices by trimming
@@ -4697,14 +4698,44 @@ export class XGISMap {
                     _pxScratch = new Float32Array(upper * 2)  // 2× to amortise growth
                     _pyScratch = new Float32Array(upper * 2)
                   }
+                  perfMarkStart('encoder.label-dispatch.line.project')
                   let pn = 0  // active sample count
+                  // iter-264 — adaptive subdivision based on segment
+                  // length. Subdivision exists to handle world-spanning
+                  // lines (demotiles geolines: Tropic of Cancer with 2
+                  // vertices at lng=±180) so the on-screen portion
+                  // projects properly. PMTiles road segments are
+                  // typically < 10 km in mercator-metre space —
+                  // subdivision count of 16 is gross overkill.
+                  //
+                  // Threshold = 100 km (1e5 m). Anything below = no
+                  // subdivision needed (just project endpoints). Above
+                  // 100 km, proportional sampling up to SUBDIVS_PER_SEG.
+                  //
+                  // Trade-off: very short segments (< 100 km) get
+                  // straight-line interpolation between endpoints,
+                  // which is correct in mercator space anyway. Long
+                  // segments still get dense sampling for projection
+                  // correctness across viewport boundaries.
+                  const SUBDIV_LEN_THRESHOLD_M = 1e5
                   for (let i = 0; i < N - 1; i++) {
                     const ax = mxs[i]!, ay = mys[i]!
                     const bx = mxs[i + 1]!, by = mys[i + 1]!
-                    const steps = i === 0 ? SUBDIVS_PER_SEG : SUBDIVS_PER_SEG - 1
-                    const startT = i === 0 ? 0 : 1 / SUBDIVS_PER_SEG
-                    for (let s = 0; s <= steps; s++) {
-                      const t = startT + s * (1 - startT) / steps
+                    const segDx = bx - ax, segDy = by - ay
+                    const segLenM = Math.sqrt(segDx * segDx + segDy * segDy)
+                    // Adaptive subdivision count. Short segments get 1
+                    // (endpoint only); long segments get full count
+                    // proportional to length / threshold.
+                    let dynSteps: number
+                    if (segLenM < SUBDIV_LEN_THRESHOLD_M) {
+                      dynSteps = 1
+                    } else {
+                      const k = Math.min(SUBDIVS_PER_SEG, Math.ceil(segLenM / SUBDIV_LEN_THRESHOLD_M))
+                      dynSteps = i === 0 ? k : k - 1
+                    }
+                    const startT = (i === 0 || segLenM < SUBDIV_LEN_THRESHOLD_M) ? 0 : 1 / dynSteps
+                    for (let s = 0; s <= dynSteps; s++) {
+                      const t = dynSteps > 0 ? startT + s * (1 - startT) / dynSteps : 0
                       const sx = ax + (bx - ax) * t
                       const sy = ay + (by - ay) * t
                       // Direct merc → screen projection. Skips the
@@ -4719,7 +4750,9 @@ export class XGISMap {
                       }
                     }
                   }
-                  if (pn < 2) return
+                  perfMarkEnd('encoder.label-dispatch.line.project')
+                  if (pn < 2) { perfMarkEnd('encoder.label-dispatch.line.polyline'); return }
+                  perfMarkStart('encoder.label-dispatch.line.emit')
                   let total = 0
                   for (let i = 0; i < pn - 1; i++) {
                     const dx = _pxScratch[i + 1]! - _pxScratch[i]!
@@ -4821,6 +4854,8 @@ export class XGISMap {
                       }
                       nextStop += spacingPx
                     }
+                    perfMarkEnd('encoder.label-dispatch.line.emit')
+                    perfMarkEnd('encoder.label-dispatch.line.polyline')
                     return
                   }
                   // Viewport-aligned path: keep the historical single-
@@ -4835,10 +4870,14 @@ export class XGISMap {
                       if (acc + segLen >= target) {
                         const t = segLen > 0 ? (target - acc) / segLen : 0
                         emitLabelAlongSegment(_pxScratch[i]!, _pyScratch[i]!, _pxScratch[i + 1]!, _pyScratch[i + 1]!, t, props)
+                        perfMarkEnd('encoder.label-dispatch.line.emit')
+                        perfMarkEnd('encoder.label-dispatch.line.polyline')
                         return
                       }
                       acc += segLen
                     }
+                    perfMarkEnd('encoder.label-dispatch.line.emit')
+                    perfMarkEnd('encoder.label-dispatch.line.polyline')
                     return
                   }
                   let nextStop = spacingPx * 0.5
@@ -4854,6 +4893,8 @@ export class XGISMap {
                     }
                     acc += segLen
                   }
+                  perfMarkEnd('encoder.label-dispatch.line.emit')
+                  perfMarkEnd('encoder.label-dispatch.line.polyline')
                 })
               } else {
                 // Single-label-per-feature fallback (line-center, or
