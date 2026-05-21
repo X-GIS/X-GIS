@@ -114,6 +114,37 @@ describe('iter-295 interpolateGreatCircle fuzz', () => {
     expect(r[0]).toBeCloseTo(45, 4)
     expect(r[1]).toBeCloseTo(35, 0)  // approx midpoint lat
   })
+
+  // iter-302 — mutation testing surfaced surviving mutants on the
+  // d < 1e-12 linear-fallback path. Identical-endpoint tests above
+  // only probed t=0/t=1 (degenerate), so a mutation of
+  // `(lon2 - lon1) * t` / `lat1 + …` survives because the difference
+  // term is zero either way. Add a NEAR-coincident probe with NON-
+  // identical endpoints so the linear interp arithmetic is actually
+  // exercised.
+  it('iter-302: near-coincident (but not identical) endpoints linear-interp correctly at mid-t', () => {
+    // Points 1e-13 apart in lat — well below the 1e-12 epsilon, so
+    // the fallback fires. The interior t should produce a linear
+    // blend, NOT clamp to start/end.
+    const lon1 = 30, lat1 = 45
+    const lon2 = 30 + 1e-13, lat2 = 45 + 1e-13
+    const t = 0.5
+    const r = interpolateGreatCircle(lon1, lat1, lon2, lat2, t)
+    // Result must be the linear midpoint, not lon1 or lon2 alone.
+    expect(r[0]).toBeCloseTo(lon1 + (lon2 - lon1) * t, 15)
+    expect(r[1]).toBeCloseTo(lat1 + (lat2 - lat1) * t, 15)
+  })
+
+  it('iter-302: same near-coincident probe at t=0.25 + t=0.75 distinguishes sign mutants', () => {
+    const lon1 = 30, lat1 = 45
+    const lon2 = 30 + 1e-13, lat2 = 45 + 1e-13
+    const r25 = interpolateGreatCircle(lon1, lat1, lon2, lat2, 0.25)
+    const r75 = interpolateGreatCircle(lon1, lat1, lon2, lat2, 0.75)
+    // Closer to start at t=0.25, closer to end at t=0.75. Mutating
+    // `+` → `-` inside the fallback would invert this ordering.
+    expect(r25[0]).toBeLessThan(r75[0])
+    expect(r25[1]).toBeLessThan(r75[1])
+  })
 })
 
 describe('iter-295 haversineDistance fuzz', () => {
