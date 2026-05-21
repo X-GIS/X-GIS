@@ -4159,6 +4159,9 @@ export class XGISMap {
           this._prevLabelDispatchSig = _dispatchSig
         }
         for (const show of labelShows) {
+          // iter-262 — per-show wrap to find what consumes the
+          // 6+ ms gap not accounted for by line/point sub-marks.
+          perfMarkStart('encoder.label-dispatch.show')
           // If LabelDef.color is unset, fall back to the layer's fill
           // (typical Mapbox-style symbol-on-poly pattern: the same
           // colour for the polygon AND its label). When THAT is also
@@ -4501,6 +4504,11 @@ export class XGISMap {
             // (not mercator) keeps the label aligned with the visible
             // road through any pitch / bearing.
             const useLine = effectiveDef.placement === 'line' || effectiveDef.placement === 'line-center'
+            // iter-262 (Plan L.1.2) — split label-dispatch into
+            // line vs point sub-paths. Tells us which path
+            // dominates the 9.5 ms encoder.label-dispatch budget.
+            const _ldMark = useLine ? 'encoder.label-dispatch.line' : 'encoder.label-dispatch.point'
+            perfMarkStart(_ldMark)
             if (useLine) {
               // Mapbox `symbol-spacing` (CSS px). When set on a line
               // placement layer (placement === 'line' only — line-
@@ -4929,7 +4937,10 @@ export class XGISMap {
                 }
               })
             }
+            // iter-262 — close the line/point sub-mark.
+            perfMarkEnd(_ldMark)
           }
+          perfMarkEnd('encoder.label-dispatch.show')
         }
 
         // iter-258 — label-dispatch loop ends here; mark close.
