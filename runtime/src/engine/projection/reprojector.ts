@@ -76,6 +76,20 @@ fn inv_mercator(mx: f32, my: f32) -> vec2<f32> {
 }
 
 // ═══ Inverse Natural Earth (Newton-Raphson, 5 iterations) ═══
+// ═══ Inverse Equirectangular (iter-311 — was MISSING, pt==1 fell to OOB) ═══
+// Forward (shaders/projection.ts proj_equirectangular_d):
+//   proj_x = lon_rel_deg * DEG2RAD * R
+//   proj_y = lat_deg     * DEG2RAD * R
+// Inverse mirrors inv_natural_earth's relative-lon convention (no
+// clon add — the eq-bounds UV mapping below uses the same frame for
+// every cylindrical projection, so NE and equirect must agree).
+fn inv_equirectangular(px: f32, py: f32) -> vec2<f32> {
+  let lon = (px / R) * RAD2DEG;
+  let lat = (py / R) * RAD2DEG;
+  if (abs(lat) > 90.0 || abs(lon) > 180.0) { return OOB; }
+  return vec2<f32>(lon, lat);
+}
+
 fn inv_natural_earth(px: f32, py: f32) -> vec2<f32> {
   let goal_y = py / R;
   // Initial guess from linear approximation
@@ -210,6 +224,8 @@ fn fs_reproject(input: VsOut) -> @location(0) vec4<f32> {
   let pt = i32(u.proj_type + 0.5); // round to nearest int
   if (pt == 0) {
     lonlat = inv_mercator(u.center_x + proj_x, u.center_y + proj_y);
+  } else if (pt == 1) {
+    lonlat = inv_equirectangular(proj_x, proj_y);
   } else if (pt == 2) {
     lonlat = inv_natural_earth(proj_x, proj_y);
   } else if (pt == 3) {
