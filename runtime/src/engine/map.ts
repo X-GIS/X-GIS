@@ -4931,13 +4931,30 @@ export class XGISMap {
               const emittedPointNames = this._scratchEmittedPointNames
               emittedPointNames.clear()
               vtEntry.renderer.forEachLabelFeature(sliceKey, (mercX, mercY, props) => {
-                const propsRec = props as Record<string, unknown>
-                const stableName = typeof propsRec.name === 'string' ? propsRec.name
-                  : typeof propsRec.name_en === 'string' ? propsRec.name_en
-                  : ''
-                if (stableName !== '' && emittedPointNames.has(stableName)) return
-                if (stableName !== '') emittedPointNames.add(stableName)
+                // iter-274 — dedup by RESOLVED text-field output, not
+                // raw `props.name`. OFM Bright bilingual text-field
+                // (`["case", ["has", "name:nonlatin"], ["concat",
+                // ["get", "name:latin"], "\n", ["get", "name:nonlatin"]],
+                // ...]`) collapses two features with DIFFERENT raw
+                // .name values to the SAME resolved string (e.g. one
+                // feature .name="Seongnam", another .name="성남시" —
+                // both resolve to "Seongnam\n성남시"). Pre-iter-274
+                // dedup on raw .name treated these as distinct → both
+                // dispatched → overlap at near-anchor positions →
+                // visible "Se성남nam 시" / "Japan / 日本" → "J日a本"
+                // collision-failure pattern user reported on live.
+                //
+                // Resolve via applyFeatureExprs (gives the per-feature
+                // text-field result already) — keyed on featDef.text's
+                // resolved string. Same applyFeatureExprs result is
+                // reused below for the dispatch, so cost is one call
+                // per feature instead of two.
                 const featDef = applyFeatureExprs(props)
+                const resolvedText = featDef.text
+                  ? resolveText(featDef.text, props, this.camera.zoom, undefined)
+                  : ''
+                if (resolvedText !== '' && emittedPointNames.has(resolvedText)) return
+                if (resolvedText !== '') emittedPointNames.add(resolvedText)
                 // No fontKey override — see note at line ~2370.
                 // World-copy loop on MERCATOR coords directly — skips
                 // the merc → lonLat → merc round-trip the previous
