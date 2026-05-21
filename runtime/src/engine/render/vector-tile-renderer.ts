@@ -12,6 +12,7 @@ import type { ResolvedShow } from './resolved-show'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority, makeTileCoord } from '../../data/tile-select'
 import { bumpAlloc } from '../__profile__/alloc-counter'
 import { FrameArena } from '../gpu/frame-arena'
+import { structuralHashKey } from '../_cache/structural-key'
 import { visibleTilesSSE } from '../../loader/tiles-sse'
 import { globeVisibleTiles } from '../projection/globe'
 import {
@@ -4344,65 +4345,35 @@ export class VectorTileRenderer {
         && phase !== 'oit-fill'
         && allTilesLoaded
       if (shouldBundle) {
-        // Hash neededKeys + per-tile uploadEpoch into a single FNV-1a
-        // stream so position-dependent contributions don't collide.
-        //
-        // iter-271 — user-reported flicker: rendering momentarily
-        // shows correct then breaks again, repeating. Root: the iter
-        // 226 ueXor was XOR-over-tile-uploadEpochs which is ORDER-
-        // INDEPENDENT (a^b == b^a) and SET-COLLAPSE-AMBIGUOUS (any
-        // pairwise diff cancels). Two distinct epoch distributions
-        // can XOR to the same value:
-        //
-        //   {A.ep=10, B.ep=20} → XOR = 30
-        //   {A.ep=12, B.ep=18} → XOR = 30   (collision)
-        //
-        // When tiles re-uploaded in between, ueXor can come back to a
-        // previously-seen value while the actual rendered content
-        // changed. Cache key matches → HIT → stale bundle replayed.
-        //
-        // Replacement: fold each tile's uploadEpoch into the same
-        // FNV-1a stream that hashes the keys, at the same position
-        // the key occupies. Now order + per-tile content both
-        // contribute uniquely. Hit only when EVERY position matches
-        // in both key + epoch — a real "same draws" invariant.
-        // iter-270 gate on allTilesLoaded keeps the contract that
-        // every tile contributes a real epoch (no zero-from-absent).
-        let kh = 0
-        for (let i = 0; i < neededKeys.length; i++) {
-          const k = neededKeys[i]!
-          kh = (kh ^ k) >>> 0
-          kh = ((kh * 16777619) >>> 0)
-          const t = layerCache.get(k)!
-          kh = (kh ^ t.uploadEpoch) >>> 0
-          kh = ((kh * 16777619) >>> 0)
-        }
-        // Legacy ueXor preserved as a secondary fingerprint in the
-        // cache key string. Two different `kh` streams could still
-        // theoretically produce the same hash; the secondary term
-        // narrows the collision space further at near-zero cost.
-        let ueXor = 0
-        for (let i = 0; i < neededKeys.length; i++) {
-          const t = layerCache.get(neededKeys[i]!)!
-          ueXor = (ueXor ^ t.uploadEpoch) >>> 0
-        }
-        // World-offset fingerprint — world-copy enumeration changes
-        // the per-tile uniform writes, so the bundle would be wrong
-        // if the same key set draws at a different offset.
-        let woh = 0
-        if (worldOffDeg) {
-          for (let i = 0; i < worldOffDeg.length; i++) {
-            woh = (woh + Math.round(worldOffDeg[i]! * 1e3)) | 0
-          }
-        }
+        // iter-281 — structural cache key. Replaces the iter-226 +
+        // iter-271 manual concat (kh + ueXor + woh + rebuildEpoch +
+        // pickOn + samples + pipeline labels) with a single
+        // structuralHashKey() over a typed state literal. Adding a
+        // new dependency below = one new property; the hash adapts
+        // automatically and downstream cache invalidates correctly
+        // without any string-template churn. See _cache/structural-
+        // key.ts for the pattern rationale.
         const pickOn = isPickEnabled()
         const samples = getSampleCount()
-        // iter-226 — `ueXor:rbEpoch` replace the iter-220 single
-        // `_gpuCacheCount` signal. uploadEpoch captures per-tile
-        // featureBindGroup churn; rebuildEpoch captures shared
-        // tileBgDefault/tileBgFeature rebuilds (uniform-ring grow
-        // + sprite-atlas / palette rewire).
-        const cacheKey = `vt:${sliceLayer}:${phase}:${kh.toString(36)}:${woh.toString(36)}:${ueXor.toString(36)}:${this._bindGroupRebuildEpoch}:${pickOn ? 1 : 0}:${samples}:${mainFill.label ?? '?'}:${linePipeline.label ?? '?'}`
+        const epochs: number[] = new Array(neededKeys.length)
+        for (let i = 0; i < neededKeys.length; i++) {
+          epochs[i] = layerCache.get(neededKeys[i]!)!.uploadEpoch
+        }
+        const keyState = {
+          sliceLayer,
+          phase,
+          // Order significant — neededKeys is iteration order, the
+          // same order the bundle records draws in.
+          neededKeys: neededKeys.slice(),
+          epochs,
+          worldOffsets: worldOffDeg ? worldOffDeg.map(o => Math.round(o * 1e3)) : null,
+          bindGroupEpoch: this._bindGroupRebuildEpoch,
+          pickOn,
+          samples,
+          mainPipelineLabel: mainFill.label ?? null,
+          linePipelineLabel: linePipeline.label ?? null,
+        } as const
+        const cacheKey = `vt:${sliceLayer}:${phase}:${structuralHashKey(keyState)}`
         const desc: BundleEncodeDescriptor = {
           colorFormats: pickOn ? [this.format, 'rg32uint'] : [this.format],
           depthStencilFormat: 'depth24plus-stencil8',
@@ -4541,34 +4512,28 @@ export class VectorTileRenderer {
         && !_debugRed
         && fbAllLoaded
       if (fbShouldBundle) {
-        let fbKh = 0
-        // iter-226 — per-tile uploadEpoch XOR (mirrors primary
-        // path; the fallbackKeys are the ones actually drawn here,
-        // so they're what the bundle holds bind-group refs for).
-        let fbUeXor = 0
-        for (let i = 0; i < fallbackKeys.length; i++) {
-          const k = fallbackKeys[i]!
-          fbKh = (fbKh ^ k) >>> 0
-          fbKh = ((fbKh * 16777619) >>> 0)
-          const t = layerCache.get(k)
-          if (t) fbUeXor = (fbUeXor ^ t.uploadEpoch) >>> 0
-        }
-        let fbWoh = 0
-        if (fallbackOffsets) {
-          for (let i = 0; i < fallbackOffsets.length; i++) {
-            fbWoh = (fbWoh + Math.round(fallbackOffsets[i]! * 1e3)) | 0
-          }
-        }
-        let fbVkh = 0
-        if (fallbackVisibleKeys) {
-          for (let i = 0; i < fallbackVisibleKeys.length; i++) {
-            fbVkh = (fbVkh ^ fallbackVisibleKeys[i]!) >>> 0
-            fbVkh = ((fbVkh * 16777619) >>> 0)
-          }
-        }
+        // iter-281 — structural cache key (mirrors primary path; see
+        // _cache/structural-key.ts).
         const fbPickOn = isPickEnabled()
         const fbSamples = getSampleCount()
-        const fbCacheKey = `vt-fb:${sliceLayer}:${phase}:${fbKh.toString(36)}:${fbWoh.toString(36)}:${fbVkh.toString(36)}:${fbUeXor.toString(36)}:${this._bindGroupRebuildEpoch}:${fbPickOn ? 1 : 0}:${fbSamples}:${fallbackFill.label ?? '?'}:${linePipelineFallback!.label ?? '?'}`
+        const fbEpochs: number[] = new Array(fallbackKeys.length)
+        for (let i = 0; i < fallbackKeys.length; i++) {
+          fbEpochs[i] = layerCache.get(fallbackKeys[i]!)?.uploadEpoch ?? 0
+        }
+        const fbKeyState = {
+          sliceLayer,
+          phase,
+          fallbackKeys: fallbackKeys.slice(),
+          fallbackVisibleKeys: fallbackVisibleKeys ? fallbackVisibleKeys.slice() : null,
+          epochs: fbEpochs,
+          worldOffsets: fallbackOffsets ? fallbackOffsets.map(o => Math.round(o * 1e3)) : null,
+          bindGroupEpoch: this._bindGroupRebuildEpoch,
+          pickOn: fbPickOn,
+          samples: fbSamples,
+          mainPipelineLabel: fallbackFill.label ?? null,
+          linePipelineLabel: linePipelineFallback?.label ?? null,
+        } as const
+        const fbCacheKey = `vt-fb:${sliceLayer}:${phase}:${structuralHashKey(fbKeyState)}`
         const fbDesc: BundleEncodeDescriptor = {
           colorFormats: fbPickOn ? [this.format, 'rg32uint'] : [this.format],
           depthStencilFormat: 'depth24plus-stencil8',
