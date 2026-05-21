@@ -3344,6 +3344,21 @@ export class XGISMap {
       // rebuilds per frame) from triggering "Buffer used in submit
       // while destroyed" validation errors.
       this.pointRenderer?.beginFrame()
+      // iter-280 — frame-scoped point-label dedup. Pre-iter-280 the
+      // _scratchEmittedPointNames Set was cleared per ShowCommand,
+      // so cross-show duplicates of the same feature (different
+      // place-layer rules matching the same vector tile feature, or
+      // two features at near-identical anchors that resolve to the
+      // same text-field output) leaked through. User-reported
+      // post-iter-274: bilingual "Incheon/인천광역시" rendered
+      // overlapping a Korean-only "인천광역시" — second dispatch
+      // hides Latin under the first. Clear once at frame start so
+      // every dispatched-this-frame text accumulates; per-feature
+      // check below also keys on anchor coords (rounded) so two
+      // distinct features sharing the same resolved string at
+      // different locations both pass.
+      this._scratchEmittedPointNames.clear()
+      this._scratchEmittedTextNames.clear()
       // Thread the renderer's _frameCount into each VTR so its
       // per-frame catalog budget reset can short-circuit duplicate
       // calls from the same source feeding multiple layers.
@@ -4926,10 +4941,10 @@ export class XGISMap {
               // dedupe the same name appears 2-3× across adjacent
               // tiles. Mirror the line-label dedupe (Set keyed by
               // stable name) to keep one emission per ShowCommand.
-              // iter-237 (Plan A.2) — scratch reuse; clear per show
-              // entry. Same rationale as emittedTextNames above.
+              // iter-280 — frame-scoped dedup (cleared at frame start
+              // in renderFrame). Pre-iter-280 the Set was cleared per
+              // ShowCommand entry, leaking cross-show duplicates.
               const emittedPointNames = this._scratchEmittedPointNames
-              emittedPointNames.clear()
               vtEntry.renderer.forEachLabelFeature(sliceKey, (mercX, mercY, props) => {
                 // iter-274 — dedup by RESOLVED text-field output, not
                 // raw `props.name`. OFM Bright bilingual text-field
@@ -4944,17 +4959,23 @@ export class XGISMap {
                 // visible "Se성남nam 시" / "Japan / 日本" → "J日a本"
                 // collision-failure pattern user reported on live.
                 //
-                // Resolve via applyFeatureExprs (gives the per-feature
-                // text-field result already) — keyed on featDef.text's
-                // resolved string. Same applyFeatureExprs result is
-                // reused below for the dispatch, so cost is one call
-                // per feature instead of two.
+                // iter-280 — include anchor proximity in the key. Two
+                // distinct features sharing the same resolved string
+                // at DIFFERENT world positions (rare but possible —
+                // homonym place-names across the planet) should both
+                // pass; only same-text-at-near-anchor is a duplicate
+                // worth dropping. Bucket world-Mercator coords to
+                // ~256 m grid (Math.round(merc / 256)) so anchors
+                // within one OSM tile-cell collapse together.
                 const featDef = applyFeatureExprs(props)
                 const resolvedText = featDef.text
                   ? resolveText(featDef.text, props, this.camera.zoom, undefined)
                   : ''
-                if (resolvedText !== '' && emittedPointNames.has(resolvedText)) return
-                if (resolvedText !== '') emittedPointNames.add(resolvedText)
+                const dedupKey = resolvedText !== ''
+                  ? `${resolvedText}|${Math.round(mercX / 256)},${Math.round(mercY / 256)}`
+                  : ''
+                if (dedupKey !== '' && emittedPointNames.has(dedupKey)) return
+                if (dedupKey !== '') emittedPointNames.add(dedupKey)
                 // No fontKey override — see note at line ~2370.
                 // World-copy loop on MERCATOR coords directly — skips
                 // the merc → lonLat → merc round-trip the previous
