@@ -663,4 +663,47 @@ describe('Camera — globeMode (orbit matrix for the true 3D globe)', () => {
     expect(lat).toBeLessThanOrEqual(85.0512)
     expect(Number.isFinite(cam.centerX)).toBe(true)
   })
+
+  // iter-286 — getDebugSnapshot probe for z=0 render-bug investigation.
+  describe('getDebugSnapshot — diagnostic probe (iter-286)', () => {
+    it('returns the same matrix _buildRTCMatrix produced', () => {
+      const cam = new Camera(0, 0, 4)
+      cam.pitch = 30
+      const snap = cam.getDebugSnapshot(W, H, DPR)
+      const mvp = cam.getRTCMatrix(W, H, DPR)
+      expect(snap.matrix.length).toBe(16)
+      for (let i = 0; i < 16; i++) {
+        expect(snap.matrix[i]).toBeCloseTo(mvp[i], 6)
+      }
+    })
+
+    it('altitude shrinks as zoom increases (closer view)', () => {
+      const cam0 = new Camera(0, 0, 0)
+      const cam5 = new Camera(0, 0, 5)
+      const s0 = cam0.getDebugSnapshot(W, H, DPR)
+      const s5 = cam5.getDebugSnapshot(W, H, DPR)
+      expect(s5.altitude).toBeLessThan(s0.altitude)
+      // 5 zoom levels = 2^5 = 32× tighter view
+      expect(s0.altitude / s5.altitude).toBeCloseTo(32, 0)
+    })
+
+    it('far plane grows with pitch at the same zoom', () => {
+      const camFlat = new Camera(0, 0, 4)
+      const camPitch = new Camera(0, 0, 4)
+      camPitch.pitch = 60
+      const sFlat = camFlat.getDebugSnapshot(W, H, DPR)
+      const sPitch = camPitch.getDebugSnapshot(W, H, DPR)
+      expect(sPitch.far).toBeGreaterThan(sFlat.far)
+    })
+
+    it('captures pitch/bearing/zoom unmodified', () => {
+      const cam = new Camera(0, 0, 7.5)
+      cam.pitch = 45
+      cam.bearing = 30
+      const s = cam.getDebugSnapshot(W, H, DPR)
+      expect(s.pitchDeg).toBe(45)
+      expect(s.bearingDeg).toBe(30)
+      expect(s.zoom).toBe(7.5)
+    })
+  })
 })

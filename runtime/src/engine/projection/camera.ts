@@ -299,6 +299,54 @@ export class Camera {
     return this.rtcMatrix
   }
 
+  /** iter-286 — diagnostic snapshot of the resolved camera state for
+   *  the current viewport. Captures the derived numbers (altitude,
+   *  near, far, halfFov, pitch, bearing) that the matrix construction
+   *  inside `_buildRTCMatrix` consumes, plus the resulting RTC matrix
+   *  as a flat 16-tuple. Probe-first guidance from memory entries
+   *  `project_mercator_z0_pitch_render` + `project_non_merc_z0_disc_
+   *  render_fail`: blind-patching camera.ts has historically flipped
+   *  failure modes; the only viable change cycle is matrix-dump-diff
+   *  vs known-good cells first, code change second.
+   *
+   *  Independent of `getFrameView` — pure read, no mutation of the
+   *  cached matrix beyond the standard `_buildRTCMatrix` call that
+   *  every render path already issues. */
+  getDebugSnapshot(canvasWidth: number, canvasHeight: number, dpr: number = 1): {
+    matrix: number[]
+    far: number
+    altitude: number
+    halfFovRad: number
+    pitchDeg: number
+    bearingDeg: number
+    zoom: number
+    canvasW: number
+    canvasH: number
+    dpr: number
+  } {
+    const far = this._buildRTCMatrix(canvasWidth, canvasHeight, dpr)
+    // Recompute altitude + halfFov from the same inputs the build
+    // method uses; avoids exposing a private field. `metersPerPixel`
+    // mirrors the build's local — kept in sync via comment if either
+    // ever changes shape.
+    const metersPerPixel = (WORLD_MERC / TILE_PX) / Math.pow(2, this.zoom)
+    const halfFovRad = (Camera.FOV * Math.PI / 180) / 2
+    const viewHeightMeters = (canvasHeight / dpr) * metersPerPixel
+    const altitude = viewHeightMeters / 2 / Math.tan(halfFovRad)
+    return {
+      matrix: Array.from(this.rtcMatrix),
+      far,
+      altitude,
+      halfFovRad,
+      pitchDeg: this.pitch,
+      bearingDeg: this.bearing,
+      zoom: this.zoom,
+      canvasW: canvasWidth,
+      canvasH: canvasHeight,
+      dpr,
+    }
+  }
+
   /** Build the matrix + far + log-depth factor in a single call. No hidden
    *  state — callers get the far value directly and pass it to whatever
    *  uniform or shader needs it.

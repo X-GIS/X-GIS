@@ -1436,6 +1436,33 @@ export class XGISMap {
     }
   }
 
+  /** iter-286 — camera state snapshot for probe-first diagnosis of
+   *  z=0 render bugs (mercator z=0 + pitch flat strip;
+   *  ortho/azi/stereo/oblique z=0 disc-scale mis-render). Per
+   *  `project_mercator_z0_pitch_render` + `project_non_merc_z0_disc_
+   *  render_fail` memos, blind-patching camera.ts has historically
+   *  flipped failure modes — matrix dump diff vs known-good cells is
+   *  the only safe change cycle.
+   *
+   *  Returns the resolved 4×4 RTC matrix (column-major, 16 floats) +
+   *  the derived altitude / halfFov / near-far plane numbers
+   *  `_buildRTCMatrix` consumes. Caller passes current canvas dims
+   *  (matches whatever the renderer used last frame). */
+  getCameraDebugSnapshot(canvasWidth: number, canvasHeight: number, dpr: number = 1): {
+    matrix: number[]
+    far: number
+    altitude: number
+    halfFovRad: number
+    pitchDeg: number
+    bearingDeg: number
+    zoom: number
+    canvasW: number
+    canvasH: number
+    dpr: number
+  } {
+    return this.camera.getDebugSnapshot(canvasWidth, canvasHeight, dpr)
+  }
+
   /** iter 152 — z0-halo probe (user report #1). Per-label resolved
    *  fontSize / rasterFontSize / halo width / haloWidthNorm (the
    *  value packUniforms feeds the shader). Lets an E2E read what the
