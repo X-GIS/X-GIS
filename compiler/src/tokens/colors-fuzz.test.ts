@@ -211,3 +211,83 @@ describe('iter-294 parseSrgbHex fuzz', () => {
     expect(r![2]).toBeCloseTo(1, 5)
   })
 })
+
+// iter-308 — Mutation testing surfaced gaps in parseCssColorFn
+// function-name discrimination (`fn === 'lab' | 'oklab' | 'lch' | ...`).
+// Mutation `===` → `!==` would route every function call to the
+// wrong colour space. Plug each path with a specific output check.
+describe('iter-308 CSS colour-function name discrimination', () => {
+  it('lab() routes to Lab→sRGB conversion (not hsl/oklab/lch)', () => {
+    // Mid-grey Lab(50%, 0, 0) → mid-grey sRGB ≈ #777.
+    const r = resolveColor('lab(50% 0 0)')
+    expect(r).not.toBe(null)
+    expect(r!.charAt(0)).toBe('#')
+    // R, G, B equal (achromatic).
+    const m = r!.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/)
+    expect(m).not.toBe(null)
+    expect(m![1]).toBe(m![2])
+    expect(m![2]).toBe(m![3])
+  })
+
+  it('lch() routes to Lab via polar — chroma 0 = achromatic', () => {
+    const r = resolveColor('lch(50% 0 90)')
+    expect(r).not.toBe(null)
+    const m = r!.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/)
+    expect(m).not.toBe(null)
+    expect(m![1]).toBe(m![2])  // grey
+  })
+
+  it('oklab() distinct from lab() at same numeric inputs', () => {
+    // oklab and lab use different lightness scales (0-1 vs 0-100).
+    // Sanity: both succeed but emit different colours.
+    const rLab = resolveColor('lab(50% 20 -30)')
+    const rOklab = resolveColor('oklab(0.5 0.05 -0.05)')
+    expect(rLab).not.toBe(null)
+    expect(rOklab).not.toBe(null)
+    expect(rLab).not.toBe(rOklab)
+  })
+
+  it('oklch() distinct from lch() at same inputs', () => {
+    const rLch = resolveColor('lch(50% 30 90)')
+    const rOklch = resolveColor('oklch(0.5 0.1 90)')
+    expect(rLch).not.toBe(null)
+    expect(rOklch).not.toBe(null)
+    expect(rLch).not.toBe(rOklch)
+  })
+
+  it('hwb() routes to HWB→sRGB (not lab/lch)', () => {
+    // Pure hue with no white/black tint.
+    const r = resolveColor('hwb(0 0% 0%)')  // pure red
+    expect(r).not.toBe(null)
+    expect(r!.toLowerCase()).toBe('#ff0000')
+  })
+
+  it('hwb() with 100% white = white regardless of hue', () => {
+    const r = resolveColor('hwb(180 100% 0%)')
+    expect(r).not.toBe(null)
+    // 100% white → result has no chroma — must be (255, 255, 255).
+    const m = r!.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/)
+    expect(m).not.toBe(null)
+    expect(m![1]).toBe('ff')
+    expect(m![2]).toBe('ff')
+    expect(m![3]).toBe('ff')
+  })
+
+  it('hwb() with 100% black = black regardless of hue', () => {
+    const r = resolveColor('hwb(45 0% 100%)')
+    expect(r).not.toBe(null)
+    expect(r!.toLowerCase().slice(0, 7)).toBe('#000000')
+  })
+
+  it('hwb() w + b > 1 grayscale clamp (line 472 branch)', () => {
+    // hwbToRgb: when w+b ≥ 1 → grey = w / (w+b). Mutation `>=` to
+    // `>` at line 472 would let w+b == 1 fall through to mix branch
+    // → divide-by-zero in (1 - w - b) scaling.
+    const r = resolveColor('hwb(0 50% 50%)')
+    expect(r).not.toBe(null)
+    const m = r!.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/)
+    expect(m).not.toBe(null)
+    expect(m![1]).toBe(m![2])  // grey
+    expect(m![2]).toBe(m![3])
+  })
+})

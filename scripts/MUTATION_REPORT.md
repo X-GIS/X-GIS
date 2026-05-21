@@ -32,6 +32,23 @@ Tooling: `scripts/mutate.ts` (iter-302). Zero-dep hand-rolled Stryker-lite.
 | `compiler/src/tokens/colors.ts` | `colors-fuzz` | 228 | 55 | 173 | 24.1 % |
 | `runtime/src/core/line-segment-build.ts` | `line-segment-build-fuzz` | 153 | 19 | 134 | 12.4 % |
 
+## iter-307/308/309 plug results
+
+| Target | Pre | Post | Δ |
+|---|---:|---:|---:|
+| `clip.ts` | 30.0 % | 30.7 % | +0.7 |
+| `colors.ts` | 24.1 % | 40.8 % | +16.7 ⭐ |
+| `evaluator.ts` (no plug; baseline) | — | 13.0 % | — |
+| `versioned-state.ts` | — | 100 % | — |
+| `bundle-cache-key.ts` | — | 100 % | — |
+| `camera.ts` | — | 4.7 % | — |
+| `structural-key.ts` | 81.5 % | 85.2 % | +3.7 |
+
+Biggest win: colors lab/lch/oklab/oklch routing tests (8 cases →
++38 mutants killed). Pattern: discriminator branches (`fn === 'lab'`
+vs `fn === 'oklab'`) need outputs distinguishable across the
+branches, not just non-null.
+
 ## Reading the numbers
 
 **> 80 % score** — fuzz suite exercises the surface's branches well.

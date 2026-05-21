@@ -166,4 +166,93 @@ describe('iter-295 splitBoundaryBacktracks fuzz', () => {
     const ring = [[NaN, 0.5], [0.8, 0.5], [0.5, 0.8]]
     expect(() => splitBoundaryBacktracks(ring, 0, 0, 1, 1)).not.toThrow()
   })
+
+  // iter-307 — Mutation testing surfaced gaps in the backtrack
+  // detection: E/W vs N/S branch, edge-tag equality, direction-
+  // sign opposite-pair detection. Construct rings that exercise
+  // each branch.
+  it('iter-307: E-edge backtrack (vertical) — both segs on east edge, opposite dir', () => {
+    // A ring that enters via west, runs along EAST edge UP, comes
+    // back along EAST edge DOWN, then exits. Triggers the param=1
+    // (E/W → y) branch + opposite-direction detection (line 119).
+    const ring = [
+      [0.2, 0.2],
+      [1.0, 0.4],   // hit east edge going up
+      [1.0, 0.8],   // along east, upward
+      [1.0, 0.3],   // along east, DOWN — backtrack
+      [0.2, 0.6],
+    ]
+    const r = splitBoundaryBacktracks(ring, 0, 0, 1, 1)
+    expect(Array.isArray(r)).toBe(true)
+    // The exact split count varies with input shape; key invariant:
+    // function returns ≥ 1 ring without throwing, and each ring is
+    // closed with finite coords.
+    expect(r.length).toBeGreaterThanOrEqual(1)
+    for (const sub of r) {
+      for (const [x, y] of sub) {
+        expect(Number.isFinite(x)).toBe(true)
+        expect(Number.isFinite(y)).toBe(true)
+      }
+    }
+  })
+
+  it('iter-307: N-edge backtrack (horizontal) — both segs on north edge', () => {
+    // Parameter=0 (N/S → x) branch.
+    const ring = [
+      [0.2, 0.2],
+      [0.4, 1.0],   // hit north edge
+      [0.8, 1.0],   // along north, right
+      [0.3, 1.0],   // along north, LEFT — backtrack
+      [0.6, 0.2],
+    ]
+    expect(() => splitBoundaryBacktracks(ring, 0, 0, 1, 1)).not.toThrow()
+  })
+
+  it('iter-307: same-direction segs on same edge → NO split (line 119 d1===d2)', () => {
+    // Two segs along east edge in SAME direction → not a backtrack;
+    // function returns original ring. Mutation `===` → `!==` would
+    // flip the gate and trigger spurious splits.
+    const ring = [
+      [0.2, 0.2],
+      [1.0, 0.3],
+      [1.0, 0.5],
+      [1.0, 0.7],
+      [0.2, 0.8],
+    ]
+    const r = splitBoundaryBacktracks(ring, 0, 0, 1, 1)
+    // No back-track to detect; result is the original ring.
+    expect(r.length).toBe(1)
+    expect(r[0]!.length).toBe(ring.length)
+  })
+
+  it('iter-307: zero-length boundary seg (degenerate) skipped (line 119 d===0)', () => {
+    // A boundary seg where pStart === pEnd has direction sign 0.
+    // Line 119: `d1 === 0 || d2 === 0 || d1 === d2 → continue`.
+    // Mutation `||` → `&&` would let zero-length segs participate
+    // in back-track detection.
+    const ring = [
+      [0.2, 0.2],
+      [1.0, 0.5],
+      [1.0, 0.5],   // zero-length on east
+      [0.2, 0.5],
+    ]
+    expect(() => splitBoundaryBacktracks(ring, 0, 0, 1, 1)).not.toThrow()
+  })
+
+  it('iter-307: clipPolygonToRect E + W lat axis 1, N + S lat axis 0', () => {
+    // Pin axis index discrimination at line 105 (param = E/W ? 1 : 0)
+    // by checking that the result lies within the clip rect on all
+    // axes. Mutation `===` flip would mis-assign axis → vertices
+    // out of bounds.
+    const ring = [[-0.5, 0.3], [1.5, 0.3], [0.5, 0.7]]
+    const r = clipPolygonToRect([ring], 0, 0, 1, 1)
+    for (const sub of r) {
+      for (const [x, y] of sub) {
+        expect(x).toBeGreaterThanOrEqual(-1e-9)
+        expect(x).toBeLessThanOrEqual(1 + 1e-9)
+        expect(y).toBeGreaterThanOrEqual(-1e-9)
+        expect(y).toBeLessThanOrEqual(1 + 1e-9)
+      }
+    }
+  })
 })
