@@ -223,6 +223,98 @@ describe('classifyTile', () => {
     }
   })
 
+  // iter-305 — Mutation testing surfaced gaps in boundary
+  // conditions of classifyTile. Pin them.
+  describe('iter-305 mutation-gap pins (classifyTile boundaries)', () => {
+    it('tileZ === maxLevel: NOT over-zoom (path branch boundary)', () => {
+      // Mutation `>` → `>=` at line 140 would route z===maxLevel
+      // through overzoom-parent. Spec: only z>maxLevel triggers
+      // it. Boundary case = z==maxLevel must go to primary /
+      // queued / fallback paths.
+      const visible = tile(14, 100, 50)
+      const visibleKey = tileKey(visible.z, visible.x, visible.y)
+      const layerCache = new Map<number, unknown>([[visibleKey, {}]])
+      const d = classifyTile(baseInputs({
+        visible, visibleKey, maxLevel: 14, layerCache,
+      }))
+      expect(d.kind).toBe('primary')  // NOT overzoom-parent
+    })
+
+    it('tileZ === maxLevel + 1: IS over-zoom (just past boundary)', () => {
+      // Sanity pair — z=maxLevel+1 must trigger the over-zoom path.
+      // Mutation `>=` → `>` at line 140 would reverse this (z exactly
+      // maxLevel+1 would skip overzoom). Both pins together pin
+      // the strict-greater contract.
+      const visible = tile(15, 200, 100)
+      const parentAtMaxLevel = tileKey(14, 100, 50)
+      const d = classifyTile(baseInputs({
+        visible,
+        visibleKey: tileKey(visible.z, visible.x, visible.y),
+        maxLevel: 14,
+        parentAtMaxLevel,
+      }))
+      expect(d.kind).toBe('overzoom-parent')
+    })
+
+    it('parent-fallback: wantsRequestKey only set when visible is BOTH uncached AND in archive', () => {
+      // Mutation `&&` → `||` at line 282 (wantsRequestKey gate)
+      // would set wantsRequestKey when ONE condition is true.
+      // Two pair tests pin both halves of the conjunction.
+      const visibleKey = tileKey(8, 100, 50)
+      const parentKey = tileKeyParent(visibleKey)
+      // Case 1: visible NOT in archive, ancestor cached.
+      //   hasSliceInCatalog(visible)=false, hasEntryInIndex(visible)=false.
+      //   AND  = false → wantsRequestKey = null
+      //   OR   = true  → wantsRequestKey = visibleKey  (mutant)
+      const d1 = classifyTile(baseInputs({
+        visibleKey,
+        hasSliceInCatalog: (k) => k === parentKey,
+        hasEntryInIndex: () => false,
+      }))
+      expect(d1.kind).toBe('parent-fallback')
+      if (d1.kind === 'parent-fallback') {
+        expect(d1.wantsRequestKey).toBe(null)
+      }
+    })
+
+    it('parent-fallback: wantsRequestKey set when BOTH conditions hold', () => {
+      const visibleKey = tileKey(8, 100, 50)
+      const parentKey = tileKeyParent(visibleKey)
+      // Both: visible NOT cached AND visible in archive.
+      const d = classifyTile(baseInputs({
+        visibleKey,
+        hasSliceInCatalog: (k) => k === parentKey,
+        hasEntryInIndex: () => true,
+      }))
+      expect(d.kind).toBe('parent-fallback')
+      if (d.kind === 'parent-fallback') {
+        expect(d.wantsRequestKey).toBe(visibleKey)
+      }
+    })
+
+    it('over-zoom parent: NOT-cached flag exactly distinguishes fetch vs upload', () => {
+      // Pin the parentNeedsFetch / parentNeedsUpload exclusive
+      // contract. parentNeedsFetch === true iff slice not in
+      // catalog. Mutation `!` removal at line 141 or 142 would
+      // flip the meaning.
+      const visible = tile(16, 12345, 6789)
+      const parentAtMaxLevel = tileKey(14, 3086, 1697)
+      const d = classifyTile(baseInputs({
+        visible,
+        visibleKey: tileKey(visible.z, visible.x, visible.y),
+        maxLevel: 14,
+        parentAtMaxLevel,
+        hasSliceInCatalog: (k) => k === parentAtMaxLevel,  // cached
+        layerCache: new Map([[parentAtMaxLevel, {}]]),  // also on GPU
+      }))
+      expect(d.kind).toBe('overzoom-parent')
+      if (d.kind === 'overzoom-parent') {
+        expect(d.parentNeedsFetch).toBe(false)
+        expect(d.parentNeedsUpload).toBe(false)
+      }
+    })
+  })
+
   it('regression — commit 49d4801: queued visible falls through to walk', () => {
     // Pre-fix this scenario produced no fallback (uploadTile + continue
     // skipped the walk). The decision-classifier guarantees a fallback
