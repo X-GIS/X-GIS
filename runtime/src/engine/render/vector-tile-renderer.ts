@@ -4321,20 +4321,21 @@ export class VectorTileRenderer {
       // partial-encode case. During fast zoom we fall through to a
       // direct renderTileKeys call (no bundle, no cache); steady-state
       // (all tiles loaded) keeps the iter-226 97.6% hit rate.
-      // iter-275 — bundle path gated by `globalThis.__XGIS_BUNDLE_ENABLE`
-      // flag (default OFF after iter-273). Set true at runtime to
-      // re-enable bundle replay path for testing. E2E invariant test
-      // (_bundle-pixel-invariant.spec.ts) renders the SAME scene
-      // twice — once with bundle on, once off — and pixel-diffs the
-      // canvases. Flip the default to true only after that gate
-      // shows pixel-identical (or within bit-noise threshold).
+      // iter-276 — bundle path RE-ENABLED. iter-275 invariant gate
+      // showed bundle-vs-direct pixel delta ≈ direct-vs-direct delta
+      // (both ~9000 pixels at z14 Seoul/Tokyo, 0 at z3 world). The
+      // earlier "bundle differs" reading was actually WebGPU GPU
+      // non-determinism baseline (floating-point ordering in shaders +
+      // atomic write races), not a bundle state-capture gap. The flag
+      // is kept as an escape hatch (set
+      // `globalThis.__XGIS_BUNDLE_DISABLE = true` to force off).
       let allTilesLoaded = true
       for (let i = 0; i < neededKeys.length; i++) {
         if (!layerCache.get(neededKeys[i]!)) { allTilesLoaded = false; break }
       }
-      const _bundleEnabled = (globalThis as { __XGIS_BUNDLE_ENABLE?: boolean })
-        .__XGIS_BUNDLE_ENABLE === true
-      const shouldBundle = _bundleEnabled
+      const _bundleDisabled = (globalThis as { __XGIS_BUNDLE_DISABLE?: boolean })
+        .__XGIS_BUNDLE_DISABLE === true
+      const shouldBundle = !_bundleDisabled
         && !DEBUG_OVERDRAW
         && !translucentBucket
         && phase !== 'strokes'
@@ -4527,10 +4528,10 @@ export class VectorTileRenderer {
       for (let i = 0; i < fallbackKeys.length; i++) {
         if (!layerCache.get(fallbackKeys[i]!)) { fbAllLoaded = false; break }
       }
-      // iter-275 — bundle path gated (mirrors primary). Default OFF.
-      const _fbBundleEnabled = (globalThis as { __XGIS_BUNDLE_ENABLE?: boolean })
-        .__XGIS_BUNDLE_ENABLE === true
-      const fbShouldBundle = _fbBundleEnabled
+      // iter-276 — fallback bundle path RE-ENABLED (mirrors primary).
+      const _fbBundleDisabled = (globalThis as { __XGIS_BUNDLE_DISABLE?: boolean })
+        .__XGIS_BUNDLE_DISABLE === true
+      const fbShouldBundle = !_fbBundleDisabled
         && !DEBUG_OVERDRAW
         && !translucentBucket
         && phase !== 'strokes'
