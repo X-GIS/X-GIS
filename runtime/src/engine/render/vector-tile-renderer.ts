@@ -4321,21 +4321,23 @@ export class VectorTileRenderer {
       // partial-encode case. During fast zoom we fall through to a
       // direct renderTileKeys call (no bundle, no cache); steady-state
       // (all tiles loaded) keeps the iter-226 97.6% hit rate.
-      // iter-276 — bundle path RE-ENABLED. iter-275 invariant gate
-      // showed bundle-vs-direct pixel delta ≈ direct-vs-direct delta
-      // (both ~9000 pixels at z14 Seoul/Tokyo, 0 at z3 world). The
-      // earlier "bundle differs" reading was actually WebGPU GPU
-      // non-determinism baseline (floating-point ordering in shaders +
-      // atomic write races), not a bundle state-capture gap. The flag
-      // is kept as an escape hatch (set
-      // `globalThis.__XGIS_BUNDLE_DISABLE = true` to force off).
+      // iter-277 — bundle path RE-DISABLED. iter-276 re-enable based
+      // on iter-275 invariant gate was wrong: gate only tested SINGLE
+      // STATIC SCREENSHOT per scene, missed interactive cases.
+      // User screenshot iPhone OFM Bright z=7.53/36.97/127.46 + pitch
+      // 3.6 shows MOSTLY EMPTY canvas (polygons + lines almost all
+      // missing on X-GIS pane). Bundle replay during interactive
+      // navigation / pitch produces broken state.
+      //
+      // Default OFF. Override:
+      //   __XGIS_BUNDLE_FORCE_ON = true   to force enable (testing only)
       let allTilesLoaded = true
       for (let i = 0; i < neededKeys.length; i++) {
         if (!layerCache.get(neededKeys[i]!)) { allTilesLoaded = false; break }
       }
-      const _bundleDisabled = (globalThis as { __XGIS_BUNDLE_DISABLE?: boolean })
-        .__XGIS_BUNDLE_DISABLE === true
-      const shouldBundle = !_bundleDisabled
+      const _bundleForceOn = (globalThis as { __XGIS_BUNDLE_FORCE_ON?: boolean })
+        .__XGIS_BUNDLE_FORCE_ON === true
+      const shouldBundle = _bundleForceOn
         && !DEBUG_OVERDRAW
         && !translucentBucket
         && phase !== 'strokes'
@@ -4528,10 +4530,10 @@ export class VectorTileRenderer {
       for (let i = 0; i < fallbackKeys.length; i++) {
         if (!layerCache.get(fallbackKeys[i]!)) { fbAllLoaded = false; break }
       }
-      // iter-276 — fallback bundle path RE-ENABLED (mirrors primary).
-      const _fbBundleDisabled = (globalThis as { __XGIS_BUNDLE_DISABLE?: boolean })
-        .__XGIS_BUNDLE_DISABLE === true
-      const fbShouldBundle = !_fbBundleDisabled
+      // iter-277 — fallback path also RE-DISABLED.
+      const _fbBundleForceOn = (globalThis as { __XGIS_BUNDLE_FORCE_ON?: boolean })
+        .__XGIS_BUNDLE_FORCE_ON === true
+      const fbShouldBundle = _fbBundleForceOn
         && !DEBUG_OVERDRAW
         && !translucentBucket
         && phase !== 'strokes'
