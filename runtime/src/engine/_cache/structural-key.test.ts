@@ -121,5 +121,31 @@ describe('structuralHash', () => {
       }
       expect(structuralHash(a)).not.toBe(structuralHash(b))
     })
+
+    // iter-306 — mutation testing surfaced gaps at line 114 / 123
+    // iteration bounds. Pin first/last element distinction.
+    it('iter-306: array first element distinguishes hash (kills i>0 skip mutant)', () => {
+      const a = structuralHash({ arr: [1, 99, 99] })
+      const b = structuralHash({ arr: [2, 99, 99] })
+      expect(a).not.toBe(b)
+    })
+
+    it('iter-306: array last element distinguishes hash (kills length+1 over-read mutant)', () => {
+      const a = structuralHash({ arr: [99, 99, 1] })
+      const b = structuralHash({ arr: [99, 99, 2] })
+      expect(a).not.toBe(b)
+    })
+
+    it('iter-306: object first-key value distinguishes hash', () => {
+      const a = structuralHash({ a: 1, b: 99, c: 99 })
+      const b = structuralHash({ a: 2, b: 99, c: 99 })
+      expect(a).not.toBe(b)
+    })
+
+    it('iter-306: object last-key value distinguishes hash', () => {
+      const a = structuralHash({ a: 99, b: 99, c: 1 })
+      const b = structuralHash({ a: 99, b: 99, c: 2 })
+      expect(a).not.toBe(b)
+    })
   })
 })

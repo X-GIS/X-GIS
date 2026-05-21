@@ -1,3 +1,22 @@
+# Mutation Test Report — 2026-05-22 (iter-306 update)
+
+## Methodology insight (iter-306)
+
+Mutation score correlates with test SPECIFICITY, not COVERAGE.
+
+  iter-281–283 cache layer (versioned-state, bundle-cache-key,
+  structural-key) → 85-100 % scores. Recent code shipped with
+  TIGHT EQUALITY-checked unit tests.
+
+  camera.ts (105 unit + 10 fuzz) → 4.7 %. Property-style tests
+  (matrix finite, alt scales 32×) verify high-level invariants
+  but skip specific arithmetic-byte equality. Mutation flips
+  produce arithmetically-close matrices that pass the invariants.
+
+Takeaway: equality-pinned unit tests outperform property tests
+under mutation scoring. Use property-fuzz to find edges (iter-293
+NaN compare); use equality pins to kill mutants.
+
 # Mutation Test Report — 2026-05-21
 
 Tooling: `scripts/mutate.ts` (iter-302). Zero-dep hand-rolled Stryker-lite.
