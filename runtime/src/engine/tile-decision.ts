@@ -182,7 +182,30 @@ export function classifyTile(input: ClassifyTileInputs): TileDecision {
   //    Drop silently. Only when tileZ <= maxLevel (over-zoom uses
   //    sub-tile gen which would be blocked otherwise — see comment in
   //    vector-tile-renderer.ts).
+  //
+  //    iter-284 — Prefer ancestor / child fallback over silent drop
+  //    when an ancestor's slice IS cached. User-reported (OFM Bright
+  //    z=0-5): blue ocean missing because PMTiles MVT at S. Atlantic
+  //    z=2 tile decoded WITH landcover features but ZERO water
+  //    features (real archive data — some ocean tiles carry only
+  //    boundary/coastline geometry, not full water polygon). Without
+  //    this guard, every such tile silently drops water even when the
+  //    z=1 or z=0 ancestor has the proper water polygon clipped to
+  //    its bounds — visible regression as missing ocean.
+  //
+  //    classifyFallback's parent-fallback / child-fallback paths
+  //    only fire when `hasSliceInCatalog(ancestor)=true` — i.e. the
+  //    other tile actually carries water in catalog. If no ancestor
+  //    has the slice either, classifyFallback returns 'pending' /
+  //    'drop-no-archive', and we fall through to DROP_EMPTY. So this
+  //    branch never refetches the visible tile unnecessarily — the
+  //    catalog's per-key dedupe (`hasTileData(visibleKey)=true`
+  //    because landcover slice is present) blocks repeat loadTile.
   if (sliceLayer && tileZ <= maxLevel && hasAnySliceInCatalog(visibleKey)) {
+    const fb = classifyFallback(input)
+    if (fb.kind === 'parent-fallback' || fb.kind === 'child-fallback') {
+      return fb
+    }
     return DROP_EMPTY_DECISION
   }
 

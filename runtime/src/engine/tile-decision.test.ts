@@ -65,12 +65,50 @@ describe('classifyTile', () => {
     }
   })
 
-  it('returns drop-empty-slice when this layer empty but tile loaded', () => {
+  it('returns drop-empty-slice when this layer empty but tile loaded AND no ancestor has slice', () => {
     const visibleKey = tileKey(8, 100, 50)
     const d = classifyTile(baseInputs({
       visibleKey,
-      hasSliceInCatalog: () => false,         // this layer empty
+      hasSliceInCatalog: () => false,         // this layer empty everywhere
       hasAnySliceInCatalog: () => true,        // tile loaded for some other layer
+    }))
+    expect(d.kind).toBe('drop-empty-slice')
+  })
+
+  it('iter-284: prefers parent-fallback over drop-empty-slice when ancestor has the slice cached', () => {
+    // User-reported (OFM Bright z=0-5): tile loaded with landcover but
+    // NO water features; the z=1 ancestor HAS water clipped to its
+    // bounds. Pre-fix: drop-empty silently dropped water — visible as
+    // missing blue ocean. Fix: render ancestor stretched.
+    const visibleKey = tileKey(2, 1, 2)        // z=2 S. Atlantic-ish tile
+    const ancestorKey = tileKeyParent(visibleKey) // z=1
+    const d = classifyTile(baseInputs({
+      visible: tile(2, 1, 2),
+      visibleKey,
+      // This-layer slice exists for the ancestor, NOT for visible.
+      hasSliceInCatalog: (k) => k === ancestorKey,
+      // Tile loaded (other slices present) — so drop-empty would fire
+      // pre-fix.
+      hasAnySliceInCatalog: () => true,
+    }))
+    expect(d.kind).toBe('parent-fallback')
+    if (d.kind === 'parent-fallback') {
+      expect(d.parentKey).toBe(ancestorKey)
+    }
+  })
+
+  it('iter-284: still drops empty when neither ancestor nor children have the slice', () => {
+    // Ensures the iter-284 guard does NOT mask the legitimate empty
+    // case. Without any ancestor / child carrying the slice,
+    // classifyFallback returns pending / drop-no-archive (neither
+    // parent-fallback nor child-fallback) → DROP_EMPTY remains the
+    // correct decision.
+    const visibleKey = tileKey(8, 100, 50)
+    const d = classifyTile(baseInputs({
+      visibleKey,
+      hasSliceInCatalog: () => false,         // empty everywhere
+      hasAnySliceInCatalog: () => true,        // tile loaded
+      hasEntryInIndex: () => false,           // no archive entry → no pending refetch
     }))
     expect(d.kind).toBe('drop-empty-slice')
   })
