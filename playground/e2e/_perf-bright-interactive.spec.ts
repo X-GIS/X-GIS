@@ -223,16 +223,18 @@ test('Bright interactive perf — 3 scenarios', async ({ page }) => {
   // CPU bottleneck (frame.prep vs frame.encode vs frame.submit)
   // so the NEXT perf attack is data-driven, not a guess.
   const phaseProfile = await page.evaluate(() => {
-    interface API { getPhaseAverages: () => Array<{ name: string; meanMs: number; samples: number }> }
+    interface API { getPhaseAverages: () => Array<{ name: string; meanMs: number; perFrameMs: number; samples: number }> }
     const api = (window as unknown as { __xgisPerfPhases?: API }).__xgisPerfPhases
     return api?.getPhaseAverages() ?? []
   })
   if (phaseProfile.length > 0) {
     // eslint-disable-next-line no-console
-    console.log('\n=== Phase timing breakdown (rolling 60-frame mean) ===')
+    console.log('\n=== Phase timing (sorted by per-frame budget) ===')
+    // eslint-disable-next-line no-console
+    console.log('  per-frame  per-call   phase')
     for (const p of phaseProfile) {
       // eslint-disable-next-line no-console
-      console.log(`  ${p.meanMs.toFixed(2).padStart(7)} ms  ${p.name}  (${p.samples} samples)`)
+      console.log(`  ${p.perFrameMs.toFixed(2).padStart(7)}    ${p.meanMs.toFixed(2).padStart(6)}    ${p.name}`)
     }
   }
 

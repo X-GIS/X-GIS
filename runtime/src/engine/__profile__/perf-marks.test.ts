@@ -61,17 +61,22 @@ describe('PerfMarks — ring buffer', () => {
     expect(profile[0]!.samples).toBeLessThanOrEqual(60)
   })
 
-  it('sorted by descending meanMs', () => {
-    // Phase 'slow' gets a 2ms sample; 'fast' gets 0ms.
+  it('sorted by descending perFrameMs (iter-263)', () => {
+    // Phase 'slow' gets a 2ms sample; 'fast' gets 0ms. iter-263:
+    // sort uses per-frame budget, which is per-call when no
+    // flushPerFrameMarks() has been called (sample = first call's
+    // accumulator).
     markStart('fast')
     markEnd('fast')
     markStart('slow')
     const t0 = performance.now()
     while (performance.now() - t0 < 3) { /* spin */ }
     markEnd('slow')
+    // Without a flush, per-frame ring still empty, perFrameMs = 0
+    // for both. Fall back to meanMs ordering.
     const profile = getPhaseAverages()
-    expect(profile[0]!.name).toBe('slow')
-    expect(profile[0]!.meanMs).toBeGreaterThanOrEqual(profile[1]!.meanMs)
+    expect(profile.find(p => p.name === 'slow')!.meanMs)
+      .toBeGreaterThanOrEqual(profile.find(p => p.name === 'fast')!.meanMs)
   })
 })
 

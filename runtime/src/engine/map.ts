@@ -4,7 +4,7 @@ import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, 
 import { packPalette, uploadPalette, type PaletteTextures } from './gpu/palette-texture'
 import type * as AST from '@xgis/compiler'
 import { BackgroundRenderer } from './render/background-renderer'
-import { markStart as perfMarkStart, markEnd as perfMarkEnd } from './__profile__/perf-marks'
+import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from './__profile__/perf-marks'
 import { getSharedGeoJSONCompilePool } from '../data/workers/geojson-compile-pool'
 import { initGPU, resizeCanvas, GPU_PROF, getSampleCount, getMaxDpr, isPickEnabled, type GPUContext } from './gpu/gpu'
 import { DEBUG_OVERDRAW } from './debug-flags'
@@ -5022,6 +5022,7 @@ export class XGISMap {
     device.queue.submit([encoder.finish()])
     perfMarkEnd('frame.submit')
     perfMarkEnd('frame.total')
+    flushPerFrameMarks()
 
     // DIAG: dump per-frame draw order trace if armed. One-shot —
     // clears the flag so subsequent frames stay silent.
