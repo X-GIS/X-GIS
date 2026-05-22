@@ -13,6 +13,7 @@ import { cssBezierEase } from './paint'
 import {
   parseSrgbHex, srgbToLab, labToHex, labToLch, lchToLab,
 } from '../tokens/colors'
+import { substituteVars } from './expressions-helpers'
 
 /** Maximum nesting depth before the expression converter bails. A
  *  pathological style with 1e4+ levels of nesting (case-inside-case
@@ -1305,32 +1306,6 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
   }
   warnings.push(`Expression not converted: ${JSON.stringify(v).slice(0, 120)}`)
   return null
-}
-
-/** Recursively replace `["var", "name"]` nodes with their bound
- *  expression. Used by the `let` lowering — Mapbox lets are pure,
- *  so substitution is semantically equivalent to a runtime scope
- *  lookup and lets the rest of the converter walk a flat tree.
- *  `visited` short-circuits if the same node is re-entered (defensive
- *  against malformed input with circular references built up by a
- *  preprocessor; Mapbox styles in the wild are pure JSON so this is
- *  belt-and-braces). */
-function substituteVars(
-  expr: unknown,
-  bindings: Map<string, unknown>,
-  visited: WeakSet<object> = new WeakSet(),
-): unknown {
-  if (!Array.isArray(expr)) return expr
-  if (visited.has(expr)) return expr
-  visited.add(expr)
-  if (expr[0] === 'var' && typeof expr[1] === 'string') {
-    return bindings.has(expr[1]) ? bindings.get(expr[1]) : expr
-  }
-  // Don't recurse into nested `let`s — their inner `var` references
-  // belong to the inner scope. A heuristic, but matches the way
-  // Mapbox styles in the wild are written (no shadowing).
-  if (expr[0] === 'let') return expr
-  return expr.map(c => substituteVars(c, bindings, visited))
 }
 
 /** Lower `["match", input, k1, val1, …, default]` to a boolean
