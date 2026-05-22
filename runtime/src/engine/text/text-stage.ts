@@ -1591,7 +1591,7 @@ export class TextStage {
           const effectiveJustify = justify === 'auto'
             ? (isLeftAnchor ? 'left' : isRightAnchor ? 'right' : 'center')
             : justify
-          // iter-344 — centre-anchor ink fix. X-GIS's bearingY is a
+          // iter-344/345 — centre-anchor ink fix. X-GIS's bearingY is a
           // baseline-relative POSITIVE ascent (incl. the pbf-rasterizer
           // recovery that flips ascender-relative latin `top` to a true
           // ascent), but `vlay`'s SHAPING_DEFAULT_OFFSET baseline is the
@@ -1599,31 +1599,47 @@ export class TextStage {
           // those two conventions don't cancel, leaving the ink ~1em
           // ABOVE the anchor — the user-reported "shield number floats
           // over its white box" (debug-labels box gap was a constant
-          // +11px at fs10). For the centre case, position each glyph so
-          // its INK centres on the line point: drop the SHAPING baseline
-          // term and add the glyph's own (bearingY − height/2). Matches
-          // MapLibre's EM-box centring and the paired icon's anchor-
-          // centred box. Top/bottom (vAlign 0/1) keep the MapLibre port
-          // untouched. Baked into glyphOffsets so the layout cache + dump
-          // both see the corrected position.
+          // +11px at fs10). For the centre case, shift the line's baseline
+          // so its INK BAND centres on the line point. Computed PER LINE
+          // from the line's max ascent/descent (NOT per glyph — that
+          // de-aligned baselines within a mixed-height line e.g. 여(h22)
+          // vs 도(h17), splitting "여의도" into staggered glyphs). All
+          // glyphs in the line keep a SHARED baseline (correct typography)
+          // and the band centres. Top/bottom (vAlign 0/1) keep the
+          // MapLibre port untouched. Baked into glyphOffsets so the layout
+          // cache + dump both see the corrected position.
+          // One CONSTANT block shift (not per-line) so multi-line labels
+          // keep their lineHeight spacing while the whole ink BLOCK
+          // centres on the anchor. Drop the SHAPING baseline term and add
+          // the block's ink-band half-offset (max ascent/descent over the
+          // label). Per-line centring (iter-345) compressed 2-line spacing
+          // into an overlap; a uniform shift preserves it.
           const shapingBaselineOff = (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM
+          let centreShift = 0
+          if (vAlign === 0.5) {
+            let maxAsc = 0, maxDesc = 0
+            for (let gi = 0; gi < glyphs.length; gi++) {
+              const g = glyphs[gi]!
+              if (g.height <= 0) continue  // skip blanks (junk metrics)
+              const sc = sizePx / (g.rasterFontSize ?? this.opts.rasterFontSize)
+              const asc = g.bearingY * sc
+              const desc = (g.height - g.bearingY) * sc
+              if (asc > maxAsc) maxAsc = asc
+              if (desc > maxDesc) maxDesc = desc
+            }
+            centreShift = -shapingBaselineOff + (maxAsc - maxDesc) / 2
+          }
           for (let li = 0; li < lines.length; li++) {
             const ln = lines[li]!
             let lineX = 0
             if (effectiveJustify === 'right') lineX = totalAdvance - ln.width
             else if (effectiveJustify === 'left') lineX = 0
             else lineX = (totalAdvance - ln.width) * 0.5
-            const lineY = vlay.baselineY[li]!
+            const lineY = vlay.baselineY[li]! + centreShift
             let pen = lineX
             for (let gi = ln.start; gi < ln.end; gi++) {
               glyphOffsets[gi * 2] = pen
-              if (vAlign === 0.5) {
-                const g = glyphs[gi]!
-                const sc = sizePx / (g.rasterFontSize ?? this.opts.rasterFontSize)
-                glyphOffsets[gi * 2 + 1] = (lineY - shapingBaselineOff) + g.bearingY * sc - g.height * sc / 2
-              } else {
-                glyphOffsets[gi * 2 + 1] = lineY
-              }
+              glyphOffsets[gi * 2 + 1] = lineY
               pen += advances[gi]!
               if (gi < ln.end - 1) pen += letterSpacingPx
             }
