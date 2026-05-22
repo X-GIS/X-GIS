@@ -325,6 +325,13 @@ export class Camera {
     dpr: number
   } {
     const far = this._buildRTCMatrix(canvasWidth, canvasHeight, dpr)
+    // iter-338 — report the ACTUAL matrix the renderer uses: in globe
+    // mode that's the orbit-camera `_globeFrame`, not the Mercator RTC.
+    // Without this the snapshot (and any continuity gate built on it)
+    // silently tracked the wrong matrix in globe mode.
+    const matrix = this.globeMode
+      ? Array.from(this._globeFrame(canvasWidth, canvasHeight, dpr).matrix)
+      : Array.from(this.rtcMatrix)
     // Recompute altitude + halfFov from the same inputs the build
     // method uses; avoids exposing a private field. `metersPerPixel`
     // mirrors the build's local — kept in sync via comment if either
@@ -334,7 +341,7 @@ export class Camera {
     const viewHeightMeters = (canvasHeight / dpr) * metersPerPixel
     const altitude = viewHeightMeters / 2 / Math.tan(halfFovRad)
     return {
-      matrix: Array.from(this.rtcMatrix),
+      matrix,
       far,
       altitude,
       halfFovRad,
