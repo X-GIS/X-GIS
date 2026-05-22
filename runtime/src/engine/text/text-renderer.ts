@@ -373,6 +373,13 @@ export class TextRenderer {
       }
       for (let gi = 0; gi < d.glyphs.length; gi++) {
         const g = d.glyphs[gi]!
+        // Hard newline (cp 10) is a segment break, NOT a drawable glyph.
+        // wrapWithKnuthPlass splits lines on it (text-stage.ts:415) so it
+        // sits in NO line range → the composition loop never writes its
+        // glyphOffsets slot. Drawing it here would stamp a quad at the
+        // stale (unwritten) offset = a ghost glyph at a previous label's
+        // position. Skip it so only positioned glyphs reach the buffer.
+        if (g.codepoint === 10) continue
         // Page boundary: flush the current slice and start a new one
         // pointing at this glyph's page.
         if (g.slot.page !== slicePage && sliceGlyphCount > 0) {
