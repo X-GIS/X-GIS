@@ -1341,6 +1341,19 @@ export class XGISMap {
     // pitch>0 (renderers branch on projType 7).
     this.camera.globeMode = name === 'globe'
 
+    // Non-Mercator projections render beyond the Web Mercator clamp
+    // (±85.05°) — up to the true poles for globe / azimuthal — so polygon
+    // sources that stop at the clamp boundary (every Web-Mercator-tiled
+    // source does) leave a blank cap at the pole. Auto-enable cap
+    // synthesis on the first switch to a non-Mercator projection so
+    // GeoJSON polygons close to the pole. No-op for raster / vector-tile
+    // basemaps (no data exists above the clamp to extend). Not enabled for
+    // Mercator (never exposes the gap); not auto-DISABLED on the way back
+    // since the synthesised caps clamp to a degenerate sliver there.
+    if (name !== 'mercator' && !this._polarCapsEnabled) {
+      this.setPolarCapsEnabled(true)
+    }
+
     this.invalidate()
   }
 
