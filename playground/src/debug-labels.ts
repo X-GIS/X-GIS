@@ -147,18 +147,20 @@ function analyze(l: DumpLabel, icon?: DumpIcon | null): { html: string; bad: boo
     }
   }
 
-  // Logical lines by offset y (what prepare intends).
-  const byOffset = new Map<number, DumpGlyph[]>()
-  for (const g of l.glyphs) {
-    // Skip non-rendering glyphs (newline cp10, space, any zero-ink): no
-    // on-screen quad, so their (often junk-negative) bearingY must not
-    // pollute the render-y line analysis.
-    if (g.cp === 10 || g.height <= 0) continue
-    const k = Math.round(g.y)
-    if (!byOffset.has(k)) byOffset.set(k, [])
-    byOffset.get(k)!.push(g)
+  // Logical lines by offset y (what prepare intends). Cluster by a
+  // tolerance (¼ fontSize) rather than exact round(y): glyphs on ONE
+  // line can carry slightly different baseline y (e.g. mixed-height CJK
+  // 여 h22 vs 도 h17), and an exact-key split made the cross-line check
+  // false-flag a single line as [줄겹침]. Skip non-rendering glyphs
+  // (newline cp10, space, zero-ink): junk bearingY must not pollute.
+  const ink = l.glyphs.filter(g => g.cp !== 10 && g.height > 0).sort((a, b) => a.y - b.y)
+  const tol = Math.max(2, l.fontSize * 0.25)
+  const lines: [number, DumpGlyph[]][] = []
+  for (const g of ink) {
+    const last = lines[lines.length - 1]
+    if (last && Math.abs(g.y - last[1][0]!.y) <= tol) last[1].push(g)
+    else lines.push([Math.round(g.y), [g]])
   }
-  const lines = [...byOffset.entries()].sort((a, b) => a[0] - b[0])
 
   const lineRenderY: number[] = []
   for (const [oy, gs] of lines) {
