@@ -59,7 +59,7 @@ describe('ocean polygon with island holes — low-zoom hole preservation (z=1 Au
     const parts = decomposeFeatures([feature])
     const tile = compileSingleTile(parts, 1, 1, 1, 14)
     expect(tile, 'tile compiled').not.toBeNull()
-    const polys = tile!.polygons
+    const polys = tile!.polygons!
     expect(polys.length, 'one ocean polygon').toBe(1)
     const rings = polys[0]!.rings as Array<number[] | [number, number][]>
     // 1 outer + 3 holes survive. The exact count is the invariant the
@@ -75,7 +75,7 @@ describe('ocean polygon with island holes — low-zoom hole preservation (z=1 Au
 
   it('holes wind opposite to the outer ring (not inverted → not filled over)', () => {
     const tile = compileSingleTile(decomposeFeatures([feature]), 1, 1, 1, 14)!
-    const rings = tile.polygons[0]!.rings as Array<number[] | [number, number][]>
+    const rings = tile.polygons![0]!.rings as Array<number[] | [number, number][]>
     const outerSign = Math.sign(signedArea(rings[0]!))
     expect(outerSign, 'outer ring non-degenerate').not.toBe(0)
     for (let i = 1; i < rings.length; i++) {
@@ -86,7 +86,7 @@ describe('ocean polygon with island holes — low-zoom hole preservation (z=1 Au
 
   it('largest hole (Australia) keeps its area within 25% after simplify', () => {
     const tile = compileSingleTile(decomposeFeatures([feature]), 1, 1, 1, 14)!
-    const rings = tile.polygons[0]!.rings as Array<number[] | [number, number][]>
+    const rings = tile.polygons![0]!.rings as Array<number[] | [number, number][]>
     const holeAreas = rings.slice(1).map(r => Math.abs(signedArea(r))).sort((a, b) => b - a)
     // Australia is the biggest hole; its compiled area must stay close
     // to the others' ordering and not collapse toward zero.
