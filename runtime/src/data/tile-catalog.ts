@@ -41,6 +41,7 @@ import {
   MAX_CACHED_TILES, maxCachedBytes, maxConcurrentLoads, defaultSkeletonDepth,
   type VirtualCatalog, type VirtualTileFetcher,
 } from './tile-types'
+import { unionBounds } from './tile-catalog-helpers'
 
 export {
   type TileData, type TileState,
@@ -1308,21 +1309,5 @@ export class TileCatalog {
       }
     }
   }
-}
-
-// ═══ Helpers ═══
-
-/** Bounding union of two lon/lat rectangles. Used by mergeBackendMeta
- *  when multiple backends contribute coverage. */
-function unionBounds(
-  a: [number, number, number, number],
-  b: [number, number, number, number],
-): [number, number, number, number] {
-  return [
-    Math.min(a[0], b[0]),
-    Math.min(a[1], b[1]),
-    Math.max(a[2], b[2]),
-    Math.max(a[3], b[3]),
-  ]
 }
 
