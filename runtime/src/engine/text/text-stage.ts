@@ -1591,6 +1591,22 @@ export class TextStage {
           const effectiveJustify = justify === 'auto'
             ? (isLeftAnchor ? 'left' : isRightAnchor ? 'right' : 'center')
             : justify
+          // iter-344 — centre-anchor ink fix. X-GIS's bearingY is a
+          // baseline-relative POSITIVE ascent (incl. the pbf-rasterizer
+          // recovery that flips ascender-relative latin `top` to a true
+          // ascent), but `vlay`'s SHAPING_DEFAULT_OFFSET baseline is the
+          // ascender-relative value from the MapLibre port. For vAlign=0.5
+          // those two conventions don't cancel, leaving the ink ~1em
+          // ABOVE the anchor — the user-reported "shield number floats
+          // over its white box" (debug-labels box gap was a constant
+          // +11px at fs10). For the centre case, position each glyph so
+          // its INK centres on the line point: drop the SHAPING baseline
+          // term and add the glyph's own (bearingY − height/2). Matches
+          // MapLibre's EM-box centring and the paired icon's anchor-
+          // centred box. Top/bottom (vAlign 0/1) keep the MapLibre port
+          // untouched. Baked into glyphOffsets so the layout cache + dump
+          // both see the corrected position.
+          const shapingBaselineOff = (SHAPING_DEFAULT_OFFSET * sizePx) / ONE_EM
           for (let li = 0; li < lines.length; li++) {
             const ln = lines[li]!
             let lineX = 0
@@ -1601,7 +1617,13 @@ export class TextStage {
             let pen = lineX
             for (let gi = ln.start; gi < ln.end; gi++) {
               glyphOffsets[gi * 2] = pen
-              glyphOffsets[gi * 2 + 1] = lineY
+              if (vAlign === 0.5) {
+                const g = glyphs[gi]!
+                const sc = sizePx / (g.rasterFontSize ?? this.opts.rasterFontSize)
+                glyphOffsets[gi * 2 + 1] = (lineY - shapingBaselineOff) + g.bearingY * sc - g.height * sc / 2
+              } else {
+                glyphOffsets[gi * 2 + 1] = lineY
+              }
               pen += advances[gi]!
               if (gi < ln.end - 1) pen += letterSpacingPx
             }
