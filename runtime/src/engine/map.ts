@@ -1436,6 +1436,22 @@ export class XGISMap {
     }
   }
 
+  /** iter-327 — live per-glyph placement dump for a user-reported label
+   *  scatter. Call `setLabelDumpFilter("서울특별시")`, let one frame
+   *  render, then `getDumpedLabels()` returns the ACTUAL per-glyph (x,y)
+   *  offsets the renderer received. If line-2 glyphs share one y and
+   *  ascend in x, the CPU composition is correct → the scatter is in the
+   *  GPU shader; if they're mixed, the bug is in prepare. Off by default. */
+  setLabelDumpFilter(substr: string | null): void {
+    this.textStage?.setLabelDumpFilter(substr)
+  }
+  getDumpedLabels(): ReadonlyArray<{
+    text: string; anchorX: number; anchorY: number
+    glyphs: ReadonlyArray<{ cp: number; x: number; y: number }>
+  }> | null {
+    return this.textStage?.getDumpedLabels() ?? null
+  }
+
   /** iter-288 — FLICKER class tile-load diagnostic. Aggregates the
    *  per-source partition VTR exposes (`getTileLoadDiagnostic`)
    *  across every attached vector-tile source. Per memory entry

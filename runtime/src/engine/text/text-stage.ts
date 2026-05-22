@@ -1080,6 +1080,30 @@ export class TextStage {
    *  TextValue + feature props inline; caller already knows the
    *  feature's screen anchor (after projection). Empty resolved
    *  text is silently skipped. */
+  // iter-327 — live glyph-placement dump. When `_dumpFilter` is set,
+  // prepare() records the actual per-glyph (x,y) offsets of every drawn
+  // label whose text CONTAINS the filter substring. Lets a live session
+  // read the REAL composition output for a user-reported scatter (e.g.
+  // "서울특별시") and decide whether the corruption is in prepare (CPU)
+  // or downstream in the GPU shader. Off by default (zero cost).
+  private _dumpFilter: string | null = null
+  private _dumpedLabels: Array<{
+    text: string; anchorX: number; anchorY: number
+    glyphs: Array<{ cp: number; x: number; y: number }>
+  }> = []
+  /** Enable per-glyph offset capture for labels containing `substr`.
+   *  Pass null to disable. Cleared + refilled each prepare(). */
+  setLabelDumpFilter(substr: string | null): void { this._dumpFilter = substr }
+  /** Last prepare()'s captured labels matching the dump filter, with
+   *  each glyph's resolved (x,y) offset from the label anchor. A
+   *  correct multi-line label has all glyphs of one line at the same y
+   *  and strictly increasing x; a scatter shows mixed y / non-monotonic
+   *  x within a line. */
+  getDumpedLabels(): ReadonlyArray<{
+    text: string; anchorX: number; anchorY: number
+    glyphs: ReadonlyArray<{ cp: number; x: number; y: number }>
+  }> { return this._dumpedLabels }
+
   /** Diagnostic: every resolved text string the stage has submitted
    *  since last clear (mirror of IconStage.getDispatchedIconNames).
    *  Iter 108 — added to localize the OFM Bright Texas highway-shield
@@ -1950,6 +1974,22 @@ export class TextStage {
     // referenced glyph slot is resident when the renderer reads
     // page0.width to compute UVs.
     this.gpu.flush()
+    // iter-327 — live glyph-placement dump (off unless a filter is set).
+    if (this._dumpFilter !== null) {
+      const filt = this._dumpFilter
+      this._dumpedLabels = []
+      for (const d of draws) {
+        const text = String.fromCodePoint(...d.glyphs.map(g => g.codepoint))
+        if (!text.includes(filt)) continue
+        const off = d.glyphOffsets
+        const glyphs = d.glyphs.map((g, gi) => ({
+          cp: g.codepoint,
+          x: off ? off[gi * 2]! : NaN,
+          y: off ? off[gi * 2 + 1]! : NaN,
+        }))
+        this._dumpedLabels.push({ text, anchorX: d.anchorX, anchorY: d.anchorY, glyphs })
+      }
+    }
     this.renderer.setDraws(draws)
     this._lastDrawnLabelCount = draws.length
     perfMarkEnd('stage-prepare.emit')
