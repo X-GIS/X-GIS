@@ -16,7 +16,7 @@
 import type { GlyphRasterResult } from '../glyph-rasterizer'
 import type { PbfGlyph } from './glyphs-proto'
 
-const PBF_REF_SIZE = 24       // MapLibre rasterises all glyph PBFs at 24 px
+export const PBF_REF_SIZE = 24  // MapLibre rasterises all glyph PBFs at 24 px
 const PBF_BUFFER = 3          // px of outer buffer around the glyph bbox
 
 // One fresh Uint8Array per call — the result is returned and the

@@ -18,7 +18,7 @@ import type {
 } from './glyph-rasterizer'
 import { parseFontKey } from './glyph-rasterizer'
 import type { GlyphProvider } from './pbf/glyph-provider'
-import { pbfGlyphToSlot } from './pbf/pbf-to-slot'
+import { pbfGlyphToSlot, PBF_REF_SIZE } from './pbf/pbf-to-slot'
 
 // CSS-weight number → MapLibre fontstack-name keyword. MapLibre's
 // glyphs-server URL convention concatenates the family + weight keyword
@@ -147,10 +147,28 @@ export class PbfRasterizer implements GlyphRasterizer {
         // constant. Tag it so packUniforms keeps that path unchanged
         // (locally-rasterised fallbacks below stay untagged → the
         // SDF-consistent halo normalisation applies to them instead).
-        return {
-          ...pbfGlyphToSlot(g, req.fontKey, req.slotSize, req.sdfRadius, req.fontSize),
-          pbf: true,
+        const slot = pbfGlyphToSlot(g, req.fontKey, req.slotSize, req.sdfRadius, req.fontSize)
+        // bearingY (= PBF `top`) convention fix. Some OFM fontstacks bake
+        // LATIN glyphs with `top` relative to the font ASCENDER line
+        // (→ NEGATIVE) while CJK is baseline-relative (→ positive). The
+        // baseline-relative setDraws placement (`y0 = baseline -
+        // bearingY*scale`) reads a negative bearingY as "ink below the
+        // baseline", dropping the latin line into the CJK line below →
+        // the user-reported bilingual vertical collapse (2026-05-22,
+        // /debug-labels.html: "Fuxing\n复兴镇 복흥진" line-2 over line-1).
+        // A printing glyph (ink height > 0) can NEVER have a negative
+        // baseline-ascent, so a negative bearingY is the convention tell.
+        // Recover the TRUE ascent from the Canvas2D fallback's
+        // actualBoundingBoxAscent (real per-font metric — no hardcoded
+        // ascender constant), rescaled to the PBF 24-px reference. Runs
+        // once per glyph (atlas-cached), latin-only.
+        if (slot.bearingY < 0 && req.fontSize > 0) {
+          const m = this.fallback.rasterize(req)
+          if (m.advanceWidth > 0 && m.bearingY > 0) {
+            slot.bearingY = m.bearingY * (PBF_REF_SIZE / req.fontSize)
+          }
         }
+        return { ...slot, pbf: true }
       }
     }
 
