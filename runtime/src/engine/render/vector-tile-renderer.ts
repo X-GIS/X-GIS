@@ -847,6 +847,51 @@ export class VectorTileRenderer {
     // iter-282 — Epoch.bump() supersedes the raw `++` (single
     // mutation point; consumers read via .value() in key literals).
     this._bindGroupEpoch.bump()
+    // iter-349 — the PER-TILE feature bind groups (data-driven MVT
+    // tiles) bind the uniform ring at binding 0 too, but were created
+    // once at upload and are NOT among tileBg{Default,Feature}. After a
+    // uniform-ring grow they'd keep referencing the OLD (retired, then
+    // destroyed-next-frame) ring → data-driven fills read stale uniform
+    // colours (the user-reported high-pitch "land flashes water-blue"
+    // while moving; compute=1 reads colour from its output buffer so it
+    // was immune). Rebuild them against the new ring.
+    this.rebuildPerTileFeatureBindGroups()
+  }
+
+  /** Recreate every cached per-tile feature bind group against the
+   *  CURRENT uniform ring + feature data buffer (+ stable compute output
+   *  entries). Called from rebuildTileBindGroups so a uniform-ring grow
+   *  doesn't strand data-driven tiles on the retired ring. No-op until
+   *  the atlas/palette resources are wired or when no per-tile groups
+   *  exist (setup-time calls hit an empty cache). Grows are rare (ring
+   *  capacity doubles + persists), so the O(cached tiles) cost is paid
+   *  at most once per capacity level. */
+  private rebuildPerTileFeatureBindGroups(): void {
+    if (!this.uniformRing || !this.featureBindGroupLayout
+      || !this.paletteColorAtlasView || !this.paletteSampler || !this.spriteAtlasView) return
+    for (const [sourceLayer, layerCache] of this.gpuCache) {
+      for (const [tileKey, tile] of layerCache) {
+        if (!tile.featureBindGroup || !tile.featureDataBuffer) continue
+        // Compute output buffers (binding 16+) are unaffected by a ring
+        // grow; re-fetch from the per-tile handle so the entry list
+        // matches what buildPerTileFeatureData produced.
+        const handle = this.computeHandlesByTile.get(`${tileKey}:${sourceLayer}`)
+        const compEntries = handle?.getBindGroupEntries() ?? []
+        tile.featureBindGroup = this.device.createBindGroup({
+          label: 'per-tile-feature-bg',
+          layout: this.featureBindGroupLayout,
+          entries: [
+            { binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } },
+            { binding: 1, resource: { buffer: tile.featureDataBuffer } },
+            { binding: 2, resource: this.paletteColorAtlasView },
+            { binding: 4, resource: this.paletteSampler },
+            { binding: 5, resource: this.spriteAtlasView },
+            { binding: 6, resource: this.paletteSampler },
+            ...compEntries,
+          ],
+        })
+      }
+    }
   }
 
   /** Ring buffers retired mid-frame because of capacity grow. Destroyed on
