@@ -43,16 +43,21 @@ function wrapLon(lon: number): number {
   return ((lon + 180) % 360 + 360) % 360 - 180
 }
 
-/** Fraction of in-(pyramid)-range viewport samples covered by some
- *  selected tile, using the renderer's own screen→lon/lat mapping. */
-function coverage(proj: Projection, cam: Camera, ctx: string): { covered: number; inRange: number; tiles: number } {
-  const maxZ = Math.round(cam.zoom)
-  const tiles = visibleTilesSSE(cam, proj, maxZ, W, H, 0, 1) as Tile[]
-  const isMerc = proj.name === 'mercator'
+/** Fraction of the viewport (under `viewProj`'s rendered geometry) covered
+ *  by the tiles `selectProj` selects. `selectProj` and `viewProj` are split
+ *  so a test can SELECT with one projection (e.g. the buggy Mercator
+ *  geometry) while measuring against what another projection actually draws
+ *  (e.g. equirectangular) — i.e. reproduce the under-selection bug. When
+ *  they're equal this is the plain renderer-faithful coverage check. */
+/** Renderer-faithful coverage of a GIVEN tile set under `viewProj`. */
+function measureCoverage(
+  tiles: Tile[], viewProj: Projection, cam: Camera, ctx: string,
+): { covered: number; inRange: number; tiles: number } {
+  const isMerc = viewProj.name === 'mercator'
   const camLon = (cam.centerX / R) * RAD2DEG
   const camLat = Math.max(-85, Math.min(85,
     (2 * Math.atan(Math.exp(cam.centerY / R)) - Math.PI / 2) * RAD2DEG))
-  const centerProj = isMerc ? [0, 0] : proj.forward(camLon, camLat)
+  const centerProj = isMerc ? [0, 0] : viewProj.forward(camLon, camLat)
 
   const SAMPLES = 7
   let covered = 0, inRange = 0
@@ -67,7 +72,7 @@ function coverage(proj: Projection, cam: Camera, ctx: string): { covered: number
         lon = ((cam.centerX + rel[0]) / R) * RAD2DEG
         lat = (2 * Math.atan(Math.exp((cam.centerY + rel[1]) / R)) - Math.PI / 2) * RAD2DEG
       } else {
-        ;[lon, lat] = proj.inverse(centerProj[0]! + rel[0], centerProj[1]! + rel[1])
+        ;[lon, lat] = viewProj.inverse(centerProj[0]! + rel[0], centerProj[1]! + rel[1])
       }
       if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
       // No Web Mercator tiles exist beyond the clamp latitude — exclude.
@@ -84,6 +89,22 @@ function coverage(proj: Projection, cam: Camera, ctx: string): { covered: number
   }
   expect(inRange, `${ctx} produced no in-range samples`).toBeGreaterThan(0)
   return { covered, inRange, tiles: tiles.length }
+}
+
+/** Coverage of `viewProj`'s rendered viewport by the tiles `selectProj`
+ *  selects. Splitting select/view lets a test SELECT with one projection
+ *  (e.g. the buggy Mercator geometry) while measuring against what another
+ *  projection actually draws — i.e. reproduce the under-selection bug. */
+function coverageWith(
+  selectProj: Projection, viewProj: Projection, cam: Camera, ctx: string,
+): { covered: number; inRange: number; tiles: number } {
+  const maxZ = Math.round(cam.zoom)
+  const tiles = visibleTilesSSE(cam, selectProj, maxZ, W, H, 0, 1) as Tile[]
+  return measureCoverage(tiles, viewProj, cam, ctx)
+}
+
+function coverage(proj: Projection, cam: Camera, ctx: string): { covered: number; inRange: number; tiles: number } {
+  return coverageWith(proj, proj, cam, ctx)
 }
 
 function assertCovered(proj: Projection, lon: number, lat: number, zoom: number, ctx: string): void {
@@ -121,5 +142,68 @@ describe('natural_earth covers the viewport at poles + dateline', () => {
     it(`natural_earth @ ${lon},${lat} z${z}`, () => {
       assertCovered(naturalEarth(lon), lon, lat, z, `ne-${lon}-${lat}-z${z}`)
     })
+  }
+})
+
+// ─── Bug #1 reproduction + fix: POLES (geometry) ───────────────────────
+// Pre-fix the flat selectors culled tiles with MERCATOR screen geometry for
+// EVERY projection. Under an equirect / natural_earth view that under-covers
+// at the poles: Mercator y → ∞ pushes the visible high-latitude tiles off
+// the cull frustum, so they're dropped and render blank. Each case selects
+// BOTH ways against the same non-Mercator view:
+//   BEFORE = visibleTilesSSE(cam, mercator)        ← the old behaviour
+//   AFTER  = visibleTilesSSE(cam, theProjection)   ← the fix
+// and asserts BEFORE under-covers while AFTER covers. (At the equator the
+// two geometries coincide — the divergence is a high-latitude effect — so
+// these cases are deliberately polar.)
+describe('regression #1 (poles) — Mercator-geometry selection under-covers non-Mercator views', () => {
+  const cases: ReadonlyArray<readonly [string, Projection, number, number, number]> = [
+    ['equirect pole lat84',      equirectangular(0), 0, 84, 5],
+    ['equirect pole lat80',      equirectangular(0), 0, 80, 4],
+    ['natural_earth pole lat80', naturalEarth(0),    0, 80, 4],
+  ]
+  for (const [label, view, lon, lat, z] of cases) {
+    it(`${label}: BEFORE(merc-geom) under-covers, AFTER(proj-aware) covers`, () => {
+      const cam = new Camera(lon, lat, z)
+      const before = coverageWith(mercator, view, cam, `${label} BEFORE`)
+      const after = coverageWith(view, view, cam, `${label} AFTER`)
+      const b = before.covered / before.inRange, a = after.covered / after.inRange
+      // eslint-disable-next-line no-console
+      console.log(`[${label}] BEFORE(merc-geom)=${(b * 100).toFixed(0)}% (${before.covered}/${before.inRange})  AFTER(proj-aware)=${(a * 100).toFixed(0)}% (${after.covered}/${after.inRange})`)
+      expect(b, `${label}: expected Mercator-geom selection to UNDER-cover`).toBeLessThan(0.8)
+      expect(a, `${label}: expected projection-aware selection to cover`).toBeGreaterThanOrEqual(0.9)
+      expect(a).toBeGreaterThan(b)
+    })
+  }
+})
+
+// ─── Dateline, post-fix: covered on both sides (was a routing concern) ──
+// Pre-fix, equirect / natural_earth within 45° of ±180° were routed to the
+// sphere selector globeVisibleTiles. That handled the dateline "by
+// construction" but used GLOBE screen geometry to cull an EQUIRECT view —
+// the wrong projection — so LOD / placement could drift. The fix keeps
+// equirect/NE on the projection-aware flat selector (+ world-copy
+// enumeration), which covers BOTH sides of the dateline with the correct
+// geometry. (This is verified as a coverage check rather than a before/
+// after under-cover, because the old globe route did still cover the band.)
+describe('dateline (post-fix) — flat selector covers both sides for equirect/NE', () => {
+  for (const [name, view, lon] of [
+    ['equirect', equirectangular(180), 180],
+    ['equirect', equirectangular(-179.5), -179.5],
+    ['natural_earth', naturalEarth(180), 180],
+  ] as const) {
+    for (const z of [2, 3, 4]) {
+      it(`${name} @ lon${lon} z${z}: both sides covered`, () => {
+        const cam = new Camera(lon as number, 0, z)
+        const { covered, inRange } = coverageWith(view, view, cam, `${name}-${lon}-z${z}`)
+        // Selection must reach both sides of ±180 — assert tiles exist in
+        // the far-east and far-west longitude bands, not just the centre.
+        const tiles = visibleTilesSSE(cam, view, z, W, H, 0, 1) as Tile[]
+        const lons = tiles.map(t => tileLonLatBounds(t)).map(b => (b.west + b.east) / 2)
+        expect(lons.some(l => l > 90), `${name} z${z}: no east-side tiles`).toBe(true)
+        expect(lons.some(l => l < -90), `${name} z${z}: no west-side tiles`).toBe(true)
+        expect(covered / inRange, `${name} z${z}: under-covered`).toBeGreaterThanOrEqual(0.9)
+      })
+    }
   }
 })
