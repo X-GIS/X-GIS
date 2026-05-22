@@ -25,7 +25,7 @@ const camEl = document.getElementById('cam')!
 const panel = document.getElementById('panel')!
 
 interface DumpGlyph { cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }
-interface DumpLabel { text: string; anchorX: number; anchorY: number; glyphs: DumpGlyph[] }
+interface DumpLabel { text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number; glyphs: DumpGlyph[] }
 interface DebugMap {
   run(src: string, base: string): Promise<void>
   setGlyphsUrl(u: string): void
@@ -107,34 +107,73 @@ async function mount(): Promise<void> {
 }
 
 // ── Dump rendering ──────────────────────────────────────────────────
-function lineGroups(g: DumpLabel): Map<number, DumpGlyph[]> {
-  const m = new Map<number, DumpGlyph[]>()
-  for (const gl of g.glyphs) {
-    if (gl.cp === 10) continue
-    const key = Math.round(gl.y)
-    if (!m.has(key)) m.set(key, [])
-    m.get(key)!.push(gl)
-  }
-  return m
+// REAL rendered glyph centre-y (matches text-renderer setDraws):
+//   y0(top) = offsetY - bearingY*scale - (slotSize - height)*scale/2
+//   centre  = y0 + slotSize*scale/2 = offsetY - bearingY*scale + height*scale/2
+// where scale = fontSize / rfs. A glyph whose rfs/bearingY differs from
+// its line-mates renders at a DIFFERENT y even when its offset y is the
+// same — the offset-only check missed this (the 탄 case).
+function renderCenterY(g: DumpGlyph, fontSize: number): number {
+  const scale = fontSize / (g.rfs || fontSize || 1)
+  return g.y - g.bearingY * scale + (g.height * scale) / 2
 }
 
 function analyze(l: DumpLabel): { html: string; bad: boolean } {
-  const groups = [...lineGroups(l).entries()].sort((a, b) => a[0] - b[0])
   let bad = false
   const out: string[] = []
-  out.push(`<span class="hdr">"${l.text.replace(/\n/g, '\\n')}"</span> @(${l.anchorX.toFixed(0)},${l.anchorY.toFixed(0)})`)
-  for (const [y, gs] of groups) {
+  out.push(`<span class="hdr">"${l.text.replace(/\n/g, '\\n')}"</span> fs=${l.fontSize.toFixed(1)} slot=${l.slotSize}`)
+
+  // Logical lines by offset y (what prepare intends).
+  const byOffset = new Map<number, DumpGlyph[]>()
+  for (const g of l.glyphs) {
+    if (g.cp === 10) continue
+    const k = Math.round(g.y)
+    if (!byOffset.has(k)) byOffset.set(k, [])
+    byOffset.get(k)!.push(g)
+  }
+  const lines = [...byOffset.entries()].sort((a, b) => a[0] - b[0])
+
+  const lineRenderY: number[] = []
+  for (const [oy, gs] of lines) {
     const chars = gs.map(g => String.fromCodePoint(g.cp)).join('')
+    // Per-glyph rendered centre y + rfs.
+    const rys = gs.map(g => renderCenterY(g, l.fontSize))
+    const minRy = Math.min(...rys), maxRy = Math.max(...rys)
+    lineRenderY.push((minRy + maxRy) / 2)
     // intra-line x monotonic?
     let mono = true
     for (let i = 1; i < gs.length; i++) if (gs[i]!.x <= gs[i - 1]!.x) mono = false
     if (!mono) bad = true
+    // render-y spread within a line should be small (< fontSize). A
+    // glyph that jumped to another row blows this up.
+    const spread = maxRy - minRy
+    const ySpread = spread > l.fontSize * 0.6
+    if (ySpread) bad = true
+    // rfs uniform within a line?
+    const rfsSet = [...new Set(gs.map(g => g.rfs))]
+    const rfsMixed = rfsSet.length > 1
+    if (rfsMixed) bad = true
     const xr = `${gs[0]!.x.toFixed(0)}→${gs[gs.length - 1]!.x.toFixed(0)}`
-    out.push(`  y=${y} ${mono ? '' : '<span class="bad">[x역순!]</span>'} "${chars}" x:${xr}`)
+    out.push(`  oy=${oy} "${chars}" x:${xr} rdrY:${minRy.toFixed(0)}~${maxRy.toFixed(0)}`
+      + (mono ? '' : ' <span class="bad">[x역순]</span>')
+      + (ySpread ? ` <span class="bad">[렌더Y이탈 ${spread.toFixed(0)}px]</span>` : '')
+      + (rfsMixed ? ` <span class="bad">[rfs혼합 ${rfsSet.join(',')}]</span>` : ''))
   }
-  // Vertical order: each successive line must be strictly below (y larger).
-  for (let i = 1; i < groups.length; i++) {
-    if (groups[i]![0] <= groups[i - 1]![0]) { bad = true; out.push(`  <span class="bad">[줄겹침: line${i} y=${groups[i]![0]} ≤ line${i - 1} y=${groups[i - 1]![0]}]</span>`) }
+  // Cross-line: rendered lines must stay in order (each below previous).
+  for (let i = 1; i < lineRenderY.length; i++) {
+    if (lineRenderY[i]! <= lineRenderY[i - 1]! + 1) {
+      bad = true
+      out.push(`  <span class="bad">[줄겹침: line${i} rdrY≈${lineRenderY[i]!.toFixed(0)} ≤ line${i - 1} ${lineRenderY[i - 1]!.toFixed(0)}]</span>`)
+    }
+  }
+  // When bad, dump every glyph's metrics so the anomalous one (wrong
+  // bearingY/height/rfs → wrong rendered y) is visible.
+  if (bad) {
+    for (const g of l.glyphs) {
+      if (g.cp === 10) continue
+      const ry = renderCenterY(g, l.fontSize)
+      out.push(`    <span class="dim">${String.fromCodePoint(g.cp)} oy=${g.y.toFixed(0)} rfs=${g.rfs} bY=${g.bearingY.toFixed(0)} h=${g.height} → rdrY=${ry.toFixed(0)}</span>`)
+    }
   }
   return { html: out.join('\n'), bad }
 }

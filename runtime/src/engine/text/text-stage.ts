@@ -1088,19 +1088,21 @@ export class TextStage {
   // or downstream in the GPU shader. Off by default (zero cost).
   private _dumpFilter: string | null = null
   private _dumpedLabels: Array<{
-    text: string; anchorX: number; anchorY: number
+    text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number
     glyphs: Array<{ cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }>
   }> = []
   /** Enable per-glyph offset capture for labels containing `substr`.
    *  Pass null to disable. Cleared + refilled each prepare(). */
   setLabelDumpFilter(substr: string | null): void { this._dumpFilter = substr }
   /** Last prepare()'s captured labels matching the dump filter, with
-   *  each glyph's resolved (x,y) offset from the label anchor. A
-   *  correct multi-line label has all glyphs of one line at the same y
-   *  and strictly increasing x; a scatter shows mixed y / non-monotonic
-   *  x within a line. */
+   *  each glyph's resolved (x,y) offset from the label anchor PLUS the
+   *  per-glyph metrics + display fontSize + atlas slotSize the renderer
+   *  uses to compute the final vertex y (y0 = anchorY + y -
+   *  bearingY*(fontSize/rfs) - (slotSize - height)*(fontSize/rfs)/2).
+   *  A correct label has uniform RENDERED y per line; a mixed-rfs glyph
+   *  renders at the wrong height even when its offset y is correct. */
   getDumpedLabels(): ReadonlyArray<{
-    text: string; anchorX: number; anchorY: number
+    text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number
     glyphs: ReadonlyArray<{ cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }>
   }> { return this._dumpedLabels }
 
@@ -1994,7 +1996,11 @@ export class TextStage {
           height: g.height,
           rfs: g.rasterFontSize ?? this.opts.rasterFontSize,
         }))
-        this._dumpedLabels.push({ text, anchorX: d.anchorX, anchorY: d.anchorY, glyphs })
+        this._dumpedLabels.push({
+          text, anchorX: d.anchorX, anchorY: d.anchorY,
+          fontSize: d.fontSize, slotSize: this.opts.slotSize,
+          glyphs,
+        })
       }
     }
     this.renderer.setDraws(draws)
