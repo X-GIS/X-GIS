@@ -1463,6 +1463,17 @@ export class XGISMap {
   }> | null {
     return this.textStage?.getDumpedLabels() ?? null
   }
+  /** iter-343 — paired-icon placement dump (debug-labels page). Pairs
+   *  with getDumpedLabels so the analyzer can flag a shield whose text
+   *  centre drifts from its box (icon) centre. */
+  setIconDumpEnabled(on: boolean): void {
+    this.iconStage?.setIconDumpEnabled(on)
+  }
+  getDumpedIcons(): ReadonlyArray<{
+    name: string; anchorX: number; anchorY: number; drawW: number; drawH: number; centerY: number
+  }> | null {
+    return this.iconStage?.getDumpedIcons() ?? null
+  }
 
   /** iter-288 — FLICKER class tile-load diagnostic. Aggregates the
    *  per-source partition VTR exposes (`getTileLoadDiagnostic`)

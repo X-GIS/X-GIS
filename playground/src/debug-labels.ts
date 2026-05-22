@@ -26,12 +26,15 @@ const panel = document.getElementById('panel')!
 
 interface DumpGlyph { cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }
 interface DumpLabel { text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number; curved: boolean; glyphs: DumpGlyph[] }
+interface DumpIcon { name: string; anchorX: number; anchorY: number; drawW: number; drawH: number; centerY: number }
 interface DebugMap {
   run(src: string, base: string): Promise<void>
   setGlyphsUrl(u: string): void
   setSpriteUrl(u: string): void
   setLabelDumpFilter(s: string | null): void
   getDumpedLabels(): DumpLabel[] | null
+  setIconDumpEnabled?(on: boolean): void
+  getDumpedIcons?(): DumpIcon[] | null
   invalidate?(): void
   setSourceData?(id: string, data: unknown): void
   getCamera(): { centerX: number; centerY: number; zoom: number }
@@ -79,6 +82,7 @@ async function mount(): Promise<void> {
 
   map = new XGISMap(canvas) as unknown as DebugMap
   ;(window as unknown as { __xgisMap?: unknown }).__xgisMap = map
+  map.setIconDumpEnabled?.(true)  // iter-343: capture shield/icon boxes for text-vs-box check
   if (typeof styleJson.glyphs === 'string') map.setGlyphsUrl(styleJson.glyphs)
   if (typeof styleJson.sprite === 'string') map.setSpriteUrl(styleJson.sprite)
   try {
@@ -118,10 +122,30 @@ function renderCenterY(g: DumpGlyph, fontSize: number): number {
   return g.y - g.bearingY * scale + (g.height * scale) / 2
 }
 
-function analyze(l: DumpLabel): { html: string; bad: boolean } {
+function analyze(l: DumpLabel, icon?: DumpIcon | null): { html: string; bad: boolean } {
   let bad = false
   const out: string[] = []
   out.push(`<span class="hdr">"${l.text.replace(/\n/g, '\\n')}"</span> fs=${l.fontSize.toFixed(1)} slot=${l.slotSize}`)
+
+  // iter-343 — text vs paired ICON (shield/marker box) vertical alignment.
+  // The "라벨이랑 뒤 흰색 박스가 안맞아요" class: a shield's number must sit
+  // at the box centre. Compute the text ink centre (abs) vs the box centre.
+  if (icon) {
+    const inkGs = l.glyphs.filter(g => g.cp !== 10 && g.height > 0)
+    if (inkGs.length) {
+      const centers = inkGs.map(g => l.anchorY + renderCenterY(g, l.fontSize))
+      const textCenter = (Math.min(...centers) + Math.max(...centers)) / 2
+      const gap = textCenter - icon.centerY
+      // tolerate ~quarter font size of drift (sub-pixel + halo).
+      const tol = Math.max(2, l.fontSize * 0.25)
+      if (Math.abs(gap) > tol) {
+        bad = true
+        out.push(`  <span class="bad">[텍스트-박스 어긋남 ${gap.toFixed(0)}px] text-center=${textCenter.toFixed(0)} box(${icon.name})-center=${icon.centerY.toFixed(0)}</span>`)
+      } else {
+        out.push(`  <span class="dim">box ${icon.name} gap=${gap.toFixed(0)}px (ok)</span>`)
+      }
+    }
+  }
 
   // Logical lines by offset y (what prepare intends).
   const byOffset = new Map<number, DumpGlyph[]>()
@@ -195,7 +219,18 @@ function doDump(filter: string): void {
     // Line-following labels (roads/rivers) place glyphs along a curve —
     // the stacked-line analysis doesn't apply. Skip them.
     const pointLabels = labels.filter(l => !l.curved)
-    const parts = pointLabels.map(analyze)
+    // Pair each point label with its nearest icon (same anchor) so the
+    // analyzer can flag text-vs-box (shield) vertical misalignment.
+    const icons = map!.getDumpedIcons?.() ?? []
+    const nearestIcon = (l: DumpLabel): DumpIcon | null => {
+      let best: DumpIcon | null = null, bestD = 1e9
+      for (const ic of icons) {
+        const d = Math.abs(ic.anchorX - l.anchorX) + Math.abs(ic.anchorY - l.anchorY)
+        if (d < bestD) { bestD = d; best = ic }
+      }
+      return bestD <= 12 ? best : null
+    }
+    const parts = pointLabels.map(l => analyze(l, nearestIcon(l)))
     const badCount = parts.filter(p => p.bad).length
     panel.innerHTML =
       `<span class="${badCount ? 'bad' : 'ok'}">${labels.length}개 라벨 (점 ${pointLabels.length}/곡선 ${labels.length - pointLabels.length}), 이상 ${badCount}개</span>\n\n` +

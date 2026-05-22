@@ -56,6 +56,15 @@ export class IconStage {
    *  all features" from "shield resolved but render path broken"
    *  in the OFM bright-texas-shields view. */
   private dispatchedIconNames: Set<string> = new Set()
+  /** iter-343 — per-frame icon placement dump (debug-labels page).
+   *  Captures the resolved draw box (anchor + drawW/drawH) of every
+   *  prepared icon so the on-device analyzer can compare a paired
+   *  shield's box centre against its text label centre (the "라벨이랑
+   *  흰색 박스가 안맞아요" class). Refreshed each prepare(); null when
+   *  capture is disabled (default off — zero overhead). */
+  private _iconDump: { name: string; anchorX: number; anchorY: number; drawW: number; drawH: number; centerY: number }[] | null = null
+  setIconDumpEnabled(on: boolean): void { this._iconDump = on ? [] : null }
+  getDumpedIcons(): { name: string; anchorX: number; anchorY: number; drawW: number; drawH: number; centerY: number }[] | null { return this._iconDump }
   /** iter-301 — per-icon dispatch debug hook. Symmetric to
    *  TextStage's `setLabelDebugHook` so a test harness can collect
    *  paired-symbol (icon + text) anchor coordinates and assert
@@ -118,6 +127,7 @@ export class IconStage {
    *  rather than a console flood. Call once per frame BEFORE
    *  render(). */
   prepare(): void {
+    if (this._iconDump) this._iconDump = []
     if (this.pending.length === 0) {
       this.renderer.setDraws([])
       return
@@ -157,6 +167,18 @@ export class IconStage {
         opacity: p.opacity,
         tint: p.tint,
       })
+      if (this._iconDump) {
+        const drawW = (sprite.width / sprite.pixelRatio) * sizeScale
+        const drawH = (sprite.height / sprite.pixelRatio) * sizeScale
+        const a = p.anchor ?? 'center'
+        // vertical centre of the rendered box relative to nothing — the
+        // SAME geometry icon-renderer uses (anchorOffset). center/left/
+        // right centre on anchorY; top* below; bottom* above.
+        const cy = a === 'top' || a === 'top-left' || a === 'top-right' ? p.anchorY + drawH / 2
+          : a === 'bottom' || a === 'bottom-left' || a === 'bottom-right' ? p.anchorY - drawH / 2
+          : p.anchorY
+        this._iconDump.push({ name: p.iconName, anchorX: p.anchorX, anchorY: p.anchorY, drawW, drawH, centerY: cy })
+      }
     }
     this.renderer.setDraws(draws)
     this.pending = []
