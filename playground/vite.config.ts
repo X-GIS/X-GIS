@@ -40,6 +40,7 @@ export default defineConfig({
         main: 'index.html',
         demo: 'demo.html',
         compare: 'compare.html',
+        debugLabels: 'debug-labels.html',
       },
     },
   },

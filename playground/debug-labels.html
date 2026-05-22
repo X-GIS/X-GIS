@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>X-GIS — Label Debug</title>
+  <meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate">
+  <link rel="icon" href="data:,">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #06080c; --surface: rgba(12,16,23,0.92); --border: #1a2233;
+      --text: #c8d3e0; --dim: #5a6a7e; --accent: #38bdf8; --green: #4ade80;
+      --red: #f87171; --mono: 'SF Mono','Fira Code',ui-monospace,monospace;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text);
+      font-family: system-ui, sans-serif; overflow: hidden; -webkit-font-smoothing: antialiased; }
+    #map { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+    /* Top control bar */
+    #bar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+      display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+      padding: 8px; background: var(--surface); backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+    }
+    #bar input, #bar button, #bar select {
+      font-family: var(--mono); font-size: 13px; border-radius: 8px;
+      border: 1px solid var(--border); background: #0c1017; color: var(--text);
+      padding: 8px 10px;
+    }
+    #filter { flex: 1; min-width: 100px; }
+    #bar button { background: #38bdf818; color: var(--accent); border-color: #38bdf840; font-weight: 600; }
+    #bar button:active { background: #38bdf830; }
+    #cam { font-family: var(--mono); font-size: 11px; color: var(--dim); width: 100%; }
+
+    /* Result panel — bottom sheet, scrollable */
+    #panel {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+      max-height: 52vh; overflow: auto;
+      background: var(--surface); backdrop-filter: blur(10px);
+      border-top: 1px solid var(--border);
+      font-family: var(--mono); font-size: 12px; line-height: 1.5;
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+      white-space: pre-wrap; word-break: break-word;
+    }
+    #panel .ok { color: var(--green); }
+    #panel .bad { color: var(--red); font-weight: 700; }
+    #panel .hdr { color: var(--accent); }
+    #panel .dim { color: var(--dim); }
+    #status { position: fixed; top: 50%; left: 0; right: 0; text-align: center;
+      color: var(--dim); font-family: var(--mono); font-size: 13px; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <canvas id="map"></canvas>
+  <div id="status">로딩…</div>
+  <div id="bar">
+    <input id="filter" type="text" placeholder="라벨 필터 (예: 대한민국, 빈칸=전체)" value="대한민국">
+    <button id="dump">DUMP</button>
+    <button id="shot">자동검사</button>
+    <span id="cam"></span>
+  </div>
+  <div id="panel"><span class="dim">맵 이동/줌 후 DUMP 누르면 그려진 라벨의 글자별 좌표가 여기 표시됩니다. "자동검사"는 모든 멀티라인 라벨의 겹침/순서 이상을 자동 플래그.</span></div>
+  <script type="module" src="/src/debug-labels.ts"></script>
+</body>
+</html>
