@@ -54,6 +54,21 @@ import {
   inspectMapPipeline, captureMapSnapshot, replayMapSnapshot,
   type PipelineInspection, type MapSnapshot, type ReplayResult,
 } from './diagnostics'
+import type {
+  VariantPipelines, TextOverlay,
+  TextOverlayOptions, TextOverlayHandle, XGISFontResource,
+  XGISMapOptions, FontTypographyMap,
+} from './map-types'
+// Re-export the public type surface so existing `import { ... } from
+// './engine/map'` paths keep resolving after the extraction.
+export type {
+  TextOverlayOptions, TextOverlayHandle, XGISFontResource,
+  XGISMapOptions, FontTypographyMap,
+} from './map-types'
+import {
+  asVectorTileKind, sceneHasAnyAnimation, computeGeoJSONBounds,
+  buildTypographyMap, registerFonts,
+} from './map-geo-helpers'
 import { attachPMTilesSource, prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
 import { VirtualPMTilesBackend } from '../data/sources/virtual-pmtiles-backend'
 import { reprojectFeatureCollection } from '../data/sources/reproject-fc'
@@ -61,22 +76,6 @@ import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
 // reprojector.ts preserved for future tile-coordinate RTT approach
-
-interface VariantPipelines {
-  fillPipeline: GPURenderPipeline
-  fillPipelineGround?: GPURenderPipeline
-  linePipeline: GPURenderPipeline
-  fillPipelineFallback?: GPURenderPipeline
-  fillPipelineGroundFallback?: GPURenderPipeline
-  linePipelineFallback?: GPURenderPipeline
-  // pointer-events: none mirrors (writeMask:0 on the pick attachment).
-  fillPipelineNoPick?: GPURenderPipeline
-  fillPipelineGroundNoPick?: GPURenderPipeline
-  linePipelineNoPick?: GPURenderPipeline
-  fillPipelineFallbackNoPick?: GPURenderPipeline
-  fillPipelineGroundFallbackNoPick?: GPURenderPipeline
-  linePipelineFallbackNoPick?: GPURenderPipeline
-}
 
 // ClassifiedShow + OpaqueGroup live in bucket-scheduler.ts so they're
 // importable by tests. Local aliases keep the rest of map.ts terse.
@@ -87,217 +86,6 @@ type OpaqueGroup = ExternalOpaqueGroup
  *  reports LIVE runtime state (not a simulation) so CPU debug sessions
  *  can correlate a specific frame's tile-selection decisions with the
  *  cache / budget pressure that drove them. */
-/** Map.addOverlay options. The text + anchor are required; everything
- *  else has sensible defaults. */
-export interface TextOverlayOptions {
-  /** Display string. Use `text-transform` via `.transform`. */
-  text: string
-  /** Geo anchor [lon, lat]. The map projects per frame. */
-  anchor: [number, number]
-  /** Font size in display pixels. Default 14. */
-  size?: number
-  /** RGBA fill color (0..1 per channel). Default white. */
-  color?: [number, number, number, number]
-  /** Optional halo for legibility over busy backgrounds. */
-  halo?: { color: [number, number, number, number]; width: number }
-  /** Font key to look up in the runtime's font registry. */
-  font?: string
-  /** Mapbox `text-transform` post-processing. */
-  transform?: 'none' | 'uppercase' | 'lowercase'
-}
-
-interface TextOverlay {
-  text: string
-  lon: number
-  lat: number
-  size: number
-  color: [number, number, number, number]
-  halo?: { color: [number, number, number, number]; width: number }
-  font?: string
-  transform?: 'none' | 'uppercase' | 'lowercase'
-}
-
-export interface TextOverlayHandle {
-  /** Remove the overlay. Idempotent. */
-  remove(): void
-}
-
-
-/** Filter the xgis source DSL's `type:` field down to the values
- *  `detectVectorTileFormat` understands. XGIS source `type` can also
- *  be 'raster' / 'geojson' / 'auto' / undefined / arbitrary user string,
- *  none of which are vector tile kinds — return undefined so the
- *  detector falls through to URL-extension sniffing. */
-function asVectorTileKind(t: string | undefined): 'pmtiles' | 'tilejson' | 'auto' | undefined {
-  // Mapbox-style sources declare `type: vector`; treat that as `auto`
-  // so the URL-based detector picks the right format. Without this
-  // mapping, sources like Protomaps `type:vector, tiles:[".../{z}/{x}/{y}.mvt"]`
-  // fell through to raster classification via `isTileTemplate(url)`
-  // and rendered as empty tiles (user-reported 2026-05-16).
-  if (t === 'vector') return 'auto'
-  return t === 'pmtiles' || t === 'tilejson' || t === 'auto' ? t : undefined
-}
-
-/** Scene-level animation detection. `true` when ANY ShowCommand
- *  carries a per-frame time-driven property — the paint axes
- *  (opacity / fill / stroke / strokeWidth / size) on PaintShapes
- *  or the structural dashOffsetShape. Drives the render loop's
- *  continuous-redraw decision: a static scene renders once and
- *  idles; an animated scene requestAnimationFrame's every tick. */
-function sceneHasAnyAnimation(shows: {
-  paintShapes: import('@xgis/compiler').PaintShapes
-  dashOffsetShape?: import('@xgis/compiler').PropertyShape<number> | null
-}[]): boolean {
-  const isTimeAnimated = (k: string): boolean =>
-    k === 'time-interpolated' || k === 'zoom-time'
-  return shows.some(s => {
-    const p = s.paintShapes
-    return isTimeAnimated(p.opacity.kind)
-      || isTimeAnimated(p.strokeWidth.kind)
-      || (p.fill !== null && isTimeAnimated(p.fill.kind))
-      || (p.stroke !== null && isTimeAnimated(p.stroke.kind))
-      || (p.size !== null && isTimeAnimated(p.size.kind))
-      || (s.dashOffsetShape !== null && s.dashOffsetShape !== undefined && isTimeAnimated(s.dashOffsetShape.kind))
-  })
-}
-
-/** Walk every coordinate in a GeoJSON FeatureCollection and return
- *  the lon/lat bbox. Used by the Phase 5e VirtualPMTilesBackend
- *  attach path to pick a camera-fit position when the source has
- *  no external metadata (unlike PMTiles' `bounds` field). Returns
- *  null when the collection has no usable geometry. */
-function computeGeoJSONBounds(
-  fc: GeoJSONFeatureCollection,
-): [number, number, number, number] | null {
-  let minLon = Infinity, minLat = Infinity
-  let maxLon = -Infinity, maxLat = -Infinity
-  const visit = (c: unknown): void => {
-    if (!Array.isArray(c)) return
-    // Coordinate pair: [lon, lat, ...]
-    if (typeof c[0] === 'number' && typeof c[1] === 'number') {
-      const lon = c[0] as number, lat = c[1] as number
-      if (lon < minLon) minLon = lon
-      if (lon > maxLon) maxLon = lon
-      if (lat < minLat) minLat = lat
-      if (lat > maxLat) maxLat = lat
-      return
-    }
-    for (const inner of c) visit(inner)
-  }
-  for (const f of fc.features ?? []) {
-    if (f.geometry) visit((f.geometry as { coordinates?: unknown }).coordinates)
-  }
-  if (!isFinite(minLon)) return null
-  return [minLon, minLat, maxLon, maxLat]
-}
-
-/** A single font face to register via the CSS FontFace API. The
- *  pre-loaded `data` lets the map run completely offline — the host
- *  application embeds the WOFF/TTF bytes in its own bundle and hands
- *  them in. `weight` accepts a CSS-spec range string for variable
- *  fonts (e.g. `"300 800"`) or a single value (`"600"`). */
-export interface XGISFontResource {
-  family: string
-  data: ArrayBuffer | Uint8Array
-  weight?: string
-  style?: string
-  /** Em-unit offset ADDED to layer-level `text-letter-spacing` for any
-   *  label whose primary font matches this family. Default 0. Useful
-   *  when bundling fonts whose intrinsic tracking differs — e.g. Noto
-   *  Sans looks slightly looser than Open Sans at the same nominal
-   *  spacing, so a -0.02 offset re-balances multi-font layouts. */
-  letterSpacingEm?: number
-  /** Multiplier on the layer-level `text-line-height` (default 1.2em).
-   *  Default 1.0. Some fonts authored with a tight UPM benefit from a
-   *  small expansion (e.g. 1.05) for multi-line labels. */
-  lineHeightScale?: number
-}
-
-/** Resource-injection bag for XGISMap. All fields are optional so the
- *  no-arg constructor (`new XGISMap(canvas)`) still works. Resources
- *  attached here are picked up by the TextStage on first construction
- *  (lazy — happens on the first label-bearing frame). Setters + `add
- *  GlyphProvider` cover the late-binding case. */
-export interface XGISMapOptions {
-  /** Glyph sources. `url` points at a MapLibre PBF server template;
-   *  `inline` seeds the cache with pre-loaded PBF range bytes per
-   *  fontstack — useful for air-gapped deployments. */
-  glyphs?: {
-    url?: string
-    inline?: NonNullable<TextStageOptions['inlineGlyphs']>
-  }
-  /** Sprite atlas URL prefix (e.g. `https://.../sprites/ofm`). The
-   *  IconStage fetches `${url}.json` + `${url}.png` on first label-
-   *  bearing frame. Optional — leaving it unset means icon-image
-   *  layers from imported styles render nothing (current default). */
-  spriteUrl?: string
-  /** Raw provider chain — escape hatch for custom backends (IndexedDB,
-   *  S3, etc.). Sits between inline and HTTP in the chain. */
-  glyphProviders?: GlyphProvider[]
-  /** Pre-loaded WOFF/TTF fonts registered via the CSS FontFace API.
-   *  Same effect as <link rel="preload"> + @font-face, but driven from
-   *  JS so the host can ship the bytes inside its own bundle. */
-  fonts?: XGISFontResource[]
-  /** Plan P4 opt-in: route per-feature paint expressions
-   *  (`match(get(field), ...)`, `case(...)`) through a GPU compute
-   *  kernel instead of the legacy fragment-shader if-else chain.
-   *
-   *  When set to `true`, `emitCommands` runs with
-   *  `enableComputePath: true`: the compiler emits a `computePlan`
-   *  + variants carrying `computeBindings`, and MapRenderer attaches
-   *  `ComputeLayerHandle` instances that dispatch per-frame compute
-   *  kernels (see `compute-layer-registry.ts`).
-   *
-   *  Default is `false` (legacy fragment-shader path) until the
-   *  per-style pixel-match verification gate flips. Direct .xgis
-   *  fixtures with `match()` data-driven fills exercise the path
-   *  cleanly; Mapbox-converted styles (OFM Bright etc.) get their
-   *  match() expressions pre-expanded by `expand-color-match` so
-   *  the compute path sees 0 entries on them — still safe to enable. */
-  enableComputePath?: boolean
-  /** Show the lat/lon graticule grid lines. Default `false` — the
-   *  graticule was a debugging aid that shipped on by default; for
-   *  basemap-quality output it should opt in. Toggle at runtime via
-   *  `map.setGraticuleEnabled(bool)`. */
-  graticule?: boolean
-}
-
-/** Map of CSS family name → per-font typography overrides. Built once
- *  from the constructor options and consulted in TextStage when
- *  computing per-label letter-spacing and line-height. */
-export type FontTypographyMap = Map<string, { letterSpacingEm: number; lineHeightScale: number }>
-
-function buildTypographyMap(fonts: readonly XGISFontResource[]): FontTypographyMap | null {
-  const map: FontTypographyMap = new Map()
-  for (const f of fonts) {
-    const ls = f.letterSpacingEm ?? 0
-    const lh = f.lineHeightScale ?? 1
-    if (ls === 0 && lh === 1) continue
-    map.set(f.family, { letterSpacingEm: ls, lineHeightScale: lh })
-  }
-  return map.size > 0 ? map : null
-}
-
-/** Register a batch of fonts via the FontFace API, returning a promise
- *  that resolves once every face has finished loading. No-op (and
- *  resolved immediately) in environments without `document.fonts`. */
-async function registerFonts(fonts: readonly XGISFontResource[]): Promise<void> {
-  if (typeof document === 'undefined' || !document.fonts) return
-  await Promise.all(fonts.map(async f => {
-    try {
-      const face = new FontFace(f.family, f.data as BufferSource, {
-        weight: f.weight ?? 'normal',
-        style: f.style ?? 'normal',
-      })
-      await face.load()
-      document.fonts.add(face)
-    } catch (e) {
-      // One bad font shouldn't bring down the rest. Swallow + log so
-      // the developer can spot it without crashing the page.
-      console.warn(`[XGISMap] FontFace load failed for "${f.family}":`, e)
-    }
-  }))
-}
 
 export class XGISMap {
   private ctx!: GPUContext
