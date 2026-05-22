@@ -1089,7 +1089,7 @@ export class TextStage {
   private _dumpFilter: string | null = null
   private _dumpedLabels: Array<{
     text: string; anchorX: number; anchorY: number
-    glyphs: Array<{ cp: number; x: number; y: number }>
+    glyphs: Array<{ cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }>
   }> = []
   /** Enable per-glyph offset capture for labels containing `substr`.
    *  Pass null to disable. Cleared + refilled each prepare(). */
@@ -1101,7 +1101,7 @@ export class TextStage {
    *  x within a line. */
   getDumpedLabels(): ReadonlyArray<{
     text: string; anchorX: number; anchorY: number
-    glyphs: ReadonlyArray<{ cp: number; x: number; y: number }>
+    glyphs: ReadonlyArray<{ cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }>
   }> { return this._dumpedLabels }
 
   /** Diagnostic: every resolved text string the stage has submitted
@@ -1986,6 +1986,13 @@ export class TextStage {
           cp: g.codepoint,
           x: off ? off[gi * 2]! : NaN,
           y: off ? off[gi * 2 + 1]! : NaN,
+          // setDraws inputs: the final vertex top y =
+          //   anchorY + y - bearingY*(fontSize/rfs) - (slotH - height*scale)/2.
+          // A CJK glyph with anomalous bearingY/height rises into the
+          // line above even though its baseline y is correct.
+          bearingY: g.bearingY,
+          height: g.height,
+          rfs: g.rasterFontSize ?? this.opts.rasterFontSize,
         }))
         this._dumpedLabels.push({ text, anchorX: d.anchorX, anchorY: d.anchorY, glyphs })
       }

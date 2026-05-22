@@ -1447,7 +1447,7 @@ export class XGISMap {
   }
   getDumpedLabels(): ReadonlyArray<{
     text: string; anchorX: number; anchorY: number
-    glyphs: ReadonlyArray<{ cp: number; x: number; y: number }>
+    glyphs: ReadonlyArray<{ cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }>
   }> | null {
     return this.textStage?.getDumpedLabels() ?? null
   }
