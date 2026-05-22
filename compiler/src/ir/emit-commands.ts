@@ -30,6 +30,12 @@ export interface LoadCommand {
   /** Optional MVT layer subset for PMTiles sources. See the parallel
    *  field on the legacy `interpreter.ts` LoadCommand. */
   layers?: string[]
+  /** Optional source-level input CRS (EPSG code, e.g. `"EPSG:5179"`)
+   *  threaded from IR `SourceDef.crs`. This is the runtime's carrier
+   *  for the URL/command fetch path — the runtime reprojects this
+   *  source's GeoJSON from this CRS to WGS84 LL once at registration.
+   *  `"EPSG:4326"` (the geojson default) is a no-op. */
+  crs?: string
 }
 
 export interface ShowCommand {
@@ -270,6 +276,7 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
     url: src.url,
     type: src.type,
     layers: src.layers,
+    crs: src.crs,
   }))
 
   // Walk the IR once to collect every ZOOM-only paint literal /

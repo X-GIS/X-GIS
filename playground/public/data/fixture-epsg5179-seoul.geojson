@@ -1,0 +1,40 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Gwanghwamun", "kind": "point" },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [953818.7, 1953086.6]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Bukchon", "kind": "polygon" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [954262.7, 1953527.9],
+          [954969.0, 1953524.0],
+          [954972.7, 1954189.7],
+          [954266.3, 1954193.6],
+          [954262.7, 1953527.9]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Han River", "kind": "line" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [946981.3, 1947136.1],
+          [951398.2, 1946887.3],
+          [955815.4, 1946640.7],
+          [960232.3, 1946285.6]
+        ]
+      }
+    }
+  ]
+}

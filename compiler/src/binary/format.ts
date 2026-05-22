@@ -41,6 +41,11 @@ export function serializeXGB(scene: BinaryScene): ArrayBuffer {
   encoder.writeU16(VERSION)
 
   // Loads
+  // Non-goal (AC12): BinaryLoad serialises only `name` + `url`.
+  // The `crs` field from LoadCommand is intentionally NOT written here.
+  // .xgb consumers therefore assume EPSG:4326 (WGS84) for every source.
+  // To support non-4326 sources in .xgb files, a future format revision
+  // would need to add a `crs` string field here and bump VERSION.
   encoder.writeU16(scene.loads.length)
   for (const load of scene.loads) {
     encoder.writeString(load.name)

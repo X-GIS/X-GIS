@@ -5819,5 +5819,207 @@
     },
     "earth_radius_m": 6378137.0,
     "pi_times_R": 20037508.342789244
-  }
+  },
+  "epsg_reprojection": [
+    {
+      "label": "Seoul city hall",
+      "fromEPSG": "EPSG:4326",
+      "inputX": 126.978388,
+      "inputY": 37.56661,
+      "refMercX": 14135169.493910719,
+      "refMercY": 4518381.95842802
+    },
+    {
+      "label": "Busan port",
+      "fromEPSG": "EPSG:4326",
+      "inputX": 129.041667,
+      "inputY": 35.1,
+      "refMercX": 14364852.661555173,
+      "refMercY": 4177479.0621810867
+    },
+    {
+      "label": "Jeju island centre",
+      "fromEPSG": "EPSG:4326",
+      "inputX": 126.552003,
+      "inputY": 33.499625,
+      "refMercX": 14087704.532828828,
+      "refMercY": 3961810.1569728097
+    },
+    {
+      "label": "Pyeongchang (2018 Olympics)",
+      "fromEPSG": "EPSG:4326",
+      "inputX": 128.673656,
+      "inputY": 37.37029,
+      "refMercX": 14323885.86442885,
+      "refMercY": 4490846.889613264
+    },
+    {
+      "label": "Incheon airport",
+      "fromEPSG": "EPSG:4326",
+      "inputX": 126.450967,
+      "inputY": 37.469194,
+      "refMercX": 14076457.25675704,
+      "refMercY": 4504709.735863691
+    },
+    {
+      "label": "Dokdo island",
+      "fromEPSG": "EPSG:4326",
+      "inputX": 131.86171,
+      "inputY": 37.24225,
+      "refMercX": 14678778.412330307,
+      "refMercY": 4472927.319987526
+    },
+    {
+      "label": "Tokyo",
+      "fromEPSG": "EPSG:4326",
+      "inputX": 139.6917,
+      "inputY": 35.6895,
+      "refMercX": 15550408.912046732,
+      "refMercY": 4257980.732184108
+    },
+    {
+      "label": "Origin (0,0)",
+      "fromEPSG": "EPSG:4326",
+      "inputX": 0.0,
+      "inputY": 0.0,
+      "refMercX": 0.0,
+      "refMercY": 0.0
+    },
+    {
+      "label": "Paris",
+      "fromEPSG": "EPSG:4326",
+      "inputX": 2.3522,
+      "inputY": 48.8566,
+      "refMercX": 261845.70624393807,
+      "refMercY": 6250564.349543127
+    },
+    {
+      "label": "New York",
+      "fromEPSG": "EPSG:4326",
+      "inputX": -74.006,
+      "inputY": 40.7128,
+      "refMercX": -8238310.235647004,
+      "refMercY": 4970071.579142426
+    },
+    {
+      "label": "Seoul MM",
+      "fromEPSG": "EPSG:3857",
+      "inputX": 14134866.26,
+      "inputY": 4518236.78,
+      "refMercX": 14134866.26,
+      "refMercY": 4518236.78
+    },
+    {
+      "label": "Busan MM",
+      "fromEPSG": "EPSG:3857",
+      "inputX": 14363500.0,
+      "inputY": 4172526.6,
+      "refMercX": 14363500.0,
+      "refMercY": 4172526.6
+    },
+    {
+      "label": "Jeju MM",
+      "fromEPSG": "EPSG:3857",
+      "inputX": 14092218.27,
+      "inputY": 3970108.85,
+      "refMercX": 14092218.27,
+      "refMercY": 3970108.85
+    },
+    {
+      "label": "Tokyo MM",
+      "fromEPSG": "EPSG:3857",
+      "inputX": 15549273.09,
+      "inputY": 4262689.16,
+      "refMercX": 15549273.09,
+      "refMercY": 4262689.16
+    },
+    {
+      "label": "Origin MM",
+      "fromEPSG": "EPSG:3857",
+      "inputX": 0.0,
+      "inputY": 0.0,
+      "refMercX": 0.0,
+      "refMercY": 0.0
+    },
+    {
+      "label": "Seoul city hall",
+      "fromEPSG": "EPSG:5179",
+      "inputX": 953931.78,
+      "inputY": 1953317.84,
+      "refMercX": 14135155.892094376,
+      "refMercY": 4519994.38367993
+    },
+    {
+      "label": "Busan port",
+      "fromEPSG": "EPSG:5179",
+      "inputX": 1102370.64,
+      "inputY": 1752442.31,
+      "refMercX": 14319297.62060493,
+      "refMercY": 4268064.0781976115
+    },
+    {
+      "label": "Jeju island centre",
+      "fromEPSG": "EPSG:5179",
+      "inputX": 921151.22,
+      "inputY": 1561059.07,
+      "refMercX": 14098145.03650023,
+      "refMercY": 4034118.5211955365
+    },
+    {
+      "label": "Pyeongchang",
+      "fromEPSG": "EPSG:5179",
+      "inputX": 1071050.67,
+      "inputY": 1949754.26,
+      "refMercX": 14282769.376554675,
+      "refMercY": 4515260.914672838
+    },
+    {
+      "label": "Incheon airport",
+      "fromEPSG": "EPSG:5179",
+      "inputX": 930451.83,
+      "inputY": 1938403.78,
+      "refMercX": 14105713.443207076,
+      "refMercY": 4500924.057805709
+    },
+    {
+      "label": "Seoul city hall",
+      "fromEPSG": "EPSG:5186",
+      "inputX": 199657.11,
+      "inputY": 552685.61,
+      "refMercX": 14137143.238686182,
+      "refMercY": 4519379.859778289
+    },
+    {
+      "label": "Busan port",
+      "fromEPSG": "EPSG:5186",
+      "inputX": 349139.93,
+      "inputY": 351873.31,
+      "refMercX": 14321129.908871941,
+      "refMercY": 4266663.903363464
+    },
+    {
+      "label": "Jeju island centre",
+      "fromEPSG": "EPSG:5186",
+      "inputX": 168119.88,
+      "inputY": 159313.41,
+      "refMercX": 14099148.741254598,
+      "refMercY": 4032550.751606207
+    },
+    {
+      "label": "Pyeongchang",
+      "fromEPSG": "EPSG:5186",
+      "inputX": 317768.7,
+      "inputY": 549106.25,
+      "refMercX": 14285898.97585767,
+      "refMercY": 4513795.8791580135
+    },
+    {
+      "label": "Incheon airport",
+      "fromEPSG": "EPSG:5186",
+      "inputX": 177238.26,
+      "inputY": 539021.66,
+      "refMercX": 14108939.381844131,
+      "refMercY": 4502063.205588482
+    }
+  ]
 }

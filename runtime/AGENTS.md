@@ -44,7 +44,24 @@
 - `pmtiles` — PMTiles archive reader.
 - `@chenglou/pretext` — text layout helper.
 - `earcut` — polygon triangulation.
+- `proj4` — EPSG input-data reprojection (see zero-dep exception below).
 - `geojson-vt`, `vt-pbf` (dev) — in-memory GeoJSON tiling + MVT encoding for the virtual-PMTiles path.
 - `@webgpu/types` — WebGPU type definitions.
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+
+### Zero-dep policy exception: `proj4` (user-approved, 2026-05-22)
+The repo's standing rule is to avoid adding npm dependencies and prefer
+hand-written code. `proj4` is an **explicit, user-approved exception** for the
+EPSG input-reprojection feature (plan: `.omc/plans/epsg-input-reprojection.md`,
+Decision Driver #1). Supporting arbitrary input EPSG codes requires a general
+projection library; hand-coding the Transverse-Mercator + datum math to <1mm is
+the documented "Option C — rejected (<1mm hand-coding risk)". `proj4` is only
+used on the **input side** (input data → WGS84 lon/lat); the seven **display**
+projections remain hand-written in `engine/projection/` and are untouched.
+
+The EPSG def registry lives at `src/data/sources/epsg-defs.ts` (registers
+codes proj4 does not bundle — currently EPSG:5179 / 5186 — and throws a clear
+error for unregistered/invalid codes). Its AC0 precision spike pinned the
+cross-validation tolerance at **1e-3 m (1mm), measured at EPSG:3857 meters**
+(actual proj4js↔pyproj divergence ≈ 3.7e-9 m).

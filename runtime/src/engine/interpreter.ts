@@ -64,6 +64,14 @@ export interface LoadCommand {
    *  archive with different MVT layer subsets so each renders with
    *  its own style (water blue, roads grey, buildings beige, etc.). */
   layers?: string[]
+  // NOTE: input-CRS reprojection (`SourceDef.crs`) is intentionally NOT
+  // carried on this legacy interpreter LoadCommand. The interpreter path
+  // (`interpret(ast)` in map.ts:1957) is reached only as a fallback for
+  // OLD-syntax programs (`let`/`show`) that have no `source { crs: ... }`
+  // block — that property only exists in the new source/layer grammar,
+  // which always routes through the IR pipeline (lower + emitCommands).
+  // The legacy path therefore assumes EPSG:4326. The CRS-carrying field
+  // lives on the compiler LoadCommand at emit-commands.ts instead.
 }
 
 export interface SceneCommands {

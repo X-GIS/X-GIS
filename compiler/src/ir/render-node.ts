@@ -70,6 +70,13 @@ export interface SourceDef {
    *  Lets multiple xgis sources point at the same archive with
    *  different MVT layer slices for layered styling. */
   layers?: string[]
+  /** Optional source-level input CRS (EPSG code, e.g. `"EPSG:5179"`).
+   *  The runtime reprojects this source's GeoJSON coordinates from this
+   *  CRS to WGS84 LL once at FC-registration time. Only meaningful for
+   *  `type:geojson`; defaults to `"EPSG:4326"` when unset (no-op
+   *  reprojection). `type:vector` with a crs is rejected at lower time
+   *  (MVT/PMTiles reprojection is out of scope). */
+  crs?: string
 }
 
 /**

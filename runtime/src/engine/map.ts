@@ -56,6 +56,7 @@ import {
 } from './diagnostics'
 import { attachPMTilesSource, prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
 import { VirtualPMTilesBackend } from '../data/sources/virtual-pmtiles-backend'
+import { reprojectFeatureCollection } from '../data/sources/reproject-fc'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
@@ -350,6 +351,14 @@ export class XGISMap {
 
   // Raw data for re-projection
   private rawDatasets = new Map<string, GeoJSONFeatureCollection>()
+  /** Declared input CRS per source id, built at run() time from
+   *  `commands.loads[].crs` (the LoadCommand carrier threaded from IR
+   *  `SourceDef.crs`). The IR `Scene` is not retained past emitCommands,
+   *  so this is the runtime's only carrier for the host-push path:
+   *  `setSourceData(sourceId, fc)` looks the declared CRS up here to
+   *  reproject pushed data from EPSG → WGS84. Sources without a declared
+   *  CRS are absent (treated as EPSG:4326 / no-op). */
+  private sourceCRS = new Map<string, string>()
   private showCommands: SceneCommands['shows'] = []
 
   /** Stable u16 IDs assigned to each layer in `addLayer` order. Stamped
@@ -2003,6 +2012,23 @@ export class XGISMap {
 
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
+    // AC11b: build the per-source declared-CRS registry from the
+    // LoadCommand carrier (`commands.loads[].crs`, threaded from IR
+    // SourceDef.crs). The IR Scene is not retained past emitCommands, so
+    // this Map is the runtime's only carrier for the host-push path —
+    // setSourceData(sourceId, fc) looks the declared CRS up here later.
+    // Rebuilt fresh each run() so a re-run with a different program
+    // doesn't leak stale CRS declarations.
+    // Cast: interpreter's LoadCommand type doesn't carry `crs` (it's a
+    // compiler-LoadCommand-only field — the legacy interpreter path
+    // assumes EPSG:4326, see interpreter.ts:67-74). Field access returns
+    // undefined uniformly when absent, so the legacy path leaves the
+    // registry empty (every source treated as 4326 / no-op).
+    this.sourceCRS.clear()
+    for (const load of commands.loads as { name: string; crs?: string }[]) {
+      if (load.crs) this.sourceCRS.set(load.name, load.crs)
+    }
+
     // Prewarm PMTiles archive caches in parallel with the rest of init
     // (GPU adapter + shader pipeline compilation below). The archive
     // open does 2 sequential HTTP round trips (header + metadata, ~100-
@@ -2130,7 +2156,11 @@ export class XGISMap {
     // cameraFit state is boxed in an object so the parallel loads
     // share the same "first source that knows its bounds wins" gate.
     const cameraFitState = { fit: false }
-    await Promise.all(commands.loads.map(load =>
+    // allSettled (not all) so a single source that fails EPSG reprojection
+    // (invalid / unsupported `crs`) is isolated rather than aborting every
+    // load (AC7). Non-reprojection failures (HTTP, JSON parse, …) keep the
+    // existing fail-the-run contract and are re-thrown after the batch.
+    const loadResults = await Promise.allSettled(commands.loads.map(load =>
       this._attachOneSource(load, baseUrl, {
         usedSourceLayers,
         extrudeExprsBySource,
@@ -2140,6 +2170,16 @@ export class XGISMap {
         showSlicesBySource,
       }, cameraFitState),
     ))
+    for (const r of loadResults) {
+      if (r.status !== 'rejected') continue
+      const reason = r.reason as { xgisReprojectFailure?: boolean } | undefined
+      if (reason && reason.xgisReprojectFailure === true) {
+        // Isolate: log the bad-CRS source and let the other loads stand.
+        console.error(reason instanceof Error ? reason.message : String(reason))
+        continue
+      }
+      throw r.reason
+    }
 
     // Seed inline GeoJSON captured from imported Mapbox styles. Direct
     // rawDatasets write (not setSourceData) because rebuildLayers runs
@@ -2147,7 +2187,9 @@ export class XGISMap {
     // would fire a redundant retile.
     for (const [id, fc] of inlineGeoJSON) {
       if (this.rawDatasets.has(id)) {
-        this.rawDatasets.set(id, fc as GeoJSONFeatureCollection)
+        // Reproject declared-CRS input → WGS84 LL before tiling. Absent
+        // CRS ⇒ EPSG:4326 / no-op (returns same ref). See reproject-fc.ts.
+        this.rawDatasets.set(id, this._reprojectIngest(id, fc as GeoJSONFeatureCollection))
       } else {
         console.warn(`[X-GIS] Inline GeoJSON for unknown source "${id}" — dropping. (Mapbox style sources didn't emit a matching load command.)`)
       }
@@ -2267,6 +2309,41 @@ export class XGISMap {
   /** Replay a captured snapshot — see diagnostics.replayMapSnapshot. */
   async replaySnapshot(snap: Parameters<typeof replayMapSnapshot>[1], opts?: Parameters<typeof replayMapSnapshot>[2]): Promise<ReplayResult> {
     return replayMapSnapshot(this, snap, opts)
+  }
+
+  /** Reproject a real-FC ingest from its declared source CRS to WGS84
+   *  lon/lat before it enters `rawDatasets` (and therefore before tiling
+   *  / bounds / camera-fit). The declared CRS is looked up by source name
+   *  in `this.sourceCRS` (built in `run()` from `commands.loads[].crs`);
+   *  a source with no declared CRS is treated as EPSG:4326 and the call
+   *  is a no-op that returns the same reference (no clone). An invalid /
+   *  unsupported EPSG throws a clear, source-attributable error (AC7) —
+   *  callers on the parallel `Promise.all` load path isolate the failure
+   *  to that one source rather than aborting every load. Only call this
+   *  for real FeatureCollections — never for the synthetic `_vectorTile`
+   *  / `_tileUrl` markers (those carry no coordinate data).
+   *
+   *  Public (underscore-prefixed) as a test seam — same convention as
+   *  `_runBoundsFitGate` — so integration tests can drive the ingest
+   *  reprojection without a GPU device (AC3/AC7/AC8). */
+  _reprojectIngest(
+    sourceName: string,
+    fc: GeoJSONFeatureCollection,
+  ): GeoJSONFeatureCollection {
+    const fromEPSG = this.sourceCRS.get(sourceName)
+    if (fromEPSG === undefined) return fc // no declared CRS ⇒ 4326 / no-op
+    try {
+      return reprojectFeatureCollection(fc, fromEPSG)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      const err = new Error(
+        `[X-GIS] Failed to reproject source "${sourceName}" from ${fromEPSG}: ${msg}`,
+      )
+      // Tag so the parallel-load orchestrator (run()) can isolate a single
+      // bad-CRS source instead of aborting every load (AC7).
+      ;(err as { xgisReprojectFailure?: boolean }).xgisReprojectFailure = true
+      throw err
+    }
   }
 
   /** Attach one declared `load:` from the parsed program — dispatches
@@ -2415,7 +2492,10 @@ export class XGISMap {
       return
     }
 
-    this.rawDatasets.set(load.name, data)
+    // Legacy opt-out path. Reproject declared-CRS input → WGS84 LL before
+    // it enters rawDatasets (and therefore before tiling). Absent CRS ⇒
+    // EPSG:4326 / no-op.
+    this.rawDatasets.set(load.name, this._reprojectIngest(load.name, data))
   }
 
   /** Phase 5f-2 opt-in: attach an INLINE GeoJSON source (filtered,
@@ -2484,6 +2564,10 @@ export class XGISMap {
     maps: ShowSourceMaps,
     cameraFitState: { fit: boolean },
   ): Promise<void> {
+    // Reproject declared-CRS input → WGS84 LL FIRST so both the tiling
+    // backend (below) and the camera-fit bounds (computeGeoJSONBounds)
+    // operate on reprojected coordinates (AC9). Absent CRS ⇒ 4326 / no-op.
+    data = this._reprojectIngest(sourceName, data)
     const source = new TileCatalog()
     const vtRenderer = new VectorTileRenderer(this.ctx)
     vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
@@ -2923,6 +3007,12 @@ export class XGISMap {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
       const response = await fetch(url)
       const data = await response.json() as GeoJSONFeatureCollection
+      // No EPSG reprojection here: .xgb does not serialize a source `crs`
+      // (compiler/src/serialization/format.ts:44-48 carries name+url only),
+      // and runBinary never builds the sourceCRS registry — so every .xgb
+      // source is assumed EPSG:4326. Input-reprojection for binary loads is
+      // an explicit Non-goal of the EPSG plan (AC12); revisit if/when the
+      // .xgb format gains a crs field.
       this.rawDatasets.set(load.name, data)
     }
 
@@ -5622,6 +5712,11 @@ export class XGISMap {
     if (!Array.isArray((normalized as { features?: unknown }).features)) {
       throw new Error(`[X-GIS] setSourceData: data.features must be an array (got ${typeof (normalized as { features?: unknown }).features})`)
     }
+    // Reproject declared-CRS host-pushed data → WGS84 LL after the shape
+    // normalize above and BEFORE polar-cap injection / tiling (AC9). The
+    // declared CRS is looked up by sourceId in the run()-time registry;
+    // absent CRS ⇒ EPSG:4326 / no-op.
+    normalized = this._reprojectIngest(sourceId, normalized)
     // Polar-cap injection (opt-in via setPolarCapsEnabled). Appends
     // synthesised cap polygons that close the surface to the pole
     // for any source feature touching the Web Mercator clamp boundary

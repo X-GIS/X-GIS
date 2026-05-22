@@ -377,12 +377,27 @@ function lowerSource(stmt: AST.SourceStatement): SourceDef | null {
   let type = 'geojson'
   let url = ''
   let layers: string[] | undefined
+  let crs: string | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'type' && prop.value.kind === 'Identifier') {
       type = prop.value.name
     } else if (prop.name === 'url' && prop.value.kind === 'StringLiteral') {
       url = prop.value.value
+    } else if (prop.name === 'crs') {
+      if (prop.value.kind === 'StringLiteral') {
+        // Constant CRS is preserved in the AST by the generic
+        // parseBlockProperty (parser.ts:626) — no parser change needed.
+        crs = prop.value.value
+      } else {
+        // Per-feature / expression-form CRS (e.g. `crs: [.srid]`) is not
+        // implemented — MVP supports constant EPSG strings only.
+        throw new Error(
+          `Source '${stmt.name}' (line ${stmt.line}): 'crs' must be a constant ` +
+          `string (e.g. "EPSG:5179"). Per-feature/expression CRS is not ` +
+          `implemented — constant EPSG only is supported in this version.`,
+        )
+      }
     } else if (prop.name === 'layers') {
       // Accept either `layers: "water"` (single MVT layer) or
       // `layers: ["water", "roads"]` (subset). PMTiles backend uses
@@ -400,9 +415,23 @@ function lowerSource(stmt: AST.SourceStatement): SourceDef | null {
     }
   }
 
+  // Source-level input CRS. MVT/PMTiles reprojection is out of scope —
+  // a `crs` on a `type:vector` source is a hard error so it surfaces at
+  // compile time instead of silently rendering tiles in the wrong place.
+  if (crs && type === 'vector') {
+    throw new Error(
+      `Source '${stmt.name}' (line ${stmt.line}): 'crs' is not supported on ` +
+      `type:vector sources — input reprojection only applies to type:geojson. ` +
+      `Remove the crs property or use a geojson source.`,
+    )
+  }
+  // GeoJSON sources default to WGS84 (EPSG:4326), i.e. a no-op
+  // reprojection. Non-geojson sources without a crs leave it unset.
+  const resolvedCrs = crs ?? (type === 'geojson' ? 'EPSG:4326' : undefined)
+
   // Inline source (no url) — runtime seeds with an empty FeatureCollection
   // and the host fills it via setSourceData / setSourcePoints.
-  return { name: stmt.name, type, url, layers }
+  return { name: stmt.name, type, url, layers, crs: resolvedCrs }
 }
 
 function lowerLayer(

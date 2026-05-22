@@ -10,7 +10,8 @@
   "dependencies": {
     "@chenglou/pretext": "^0.0.7",
     "@xgis/compiler": "workspace:*",
-    "pmtiles": "^4.4.1"
+    "pmtiles": "^4.4.1",
+    "proj4": "^2.20.8"
   },
   "devDependencies": {
     "geojson-vt": "^4.0.2",

@@ -396,6 +396,95 @@ for case in SIMPLIFY_CASES:
 
 
 # ════════════════════════════════════════════════════════════════════
+# 10. EPSG input-reprojection cross-validation (AC5)
+#
+# For each input EPSG code (4326, 3857, 5179, 5186) we supply a set of
+# representative input points and record:
+#   - the input coordinates in that CRS
+#   - the expected FINAL Web Mercator (EPSG:3857) X, Y in metres, as
+#     computed by pyproj (the independent reference).
+#
+# The runtime test takes the same input, runs reprojectFeatureCollection
+# (EPSG:n → WGS84 lon/lat) then X-GIS's mercator.forward (LL → MM), and
+# asserts that the resulting MM metres match the pyproj reference within
+# 1 mm (1e-3 m) — the tolerance decided by the AC0 spike.
+#
+# Input points are chosen to be real-world locations whose reprojection
+# can be independently verified:
+#   EPSG:4326 — WGS84 lon/lat, round-trip is identity at machine epsilon.
+#   EPSG:3857 — Web Mercator metres, proj4 inverts to lon/lat then re-forward.
+#   EPSG:5179 — Korea 2000 / UTM-K (Seoul city hall, Busan, Jeju Island).
+#   EPSG:5186 — Korea 2000 / Central Belt 2010 (same real-world locations).
+# ════════════════════════════════════════════════════════════════════
+
+# pyproj transformers: each input CRS → EPSG:3857 (final reference).
+_epsg_to_3857: dict[str, pyproj.Transformer] = {}
+for _code in ["EPSG:4326", "EPSG:3857", "EPSG:5179", "EPSG:5186"]:
+    _epsg_to_3857[_code] = pyproj.Transformer.from_crs(
+        _code, "EPSG:3857", always_xy=True
+    )
+
+# Representative input points expressed in each CRS.
+# Format: (label, x_or_lon, y_or_lat)  — always_xy so x=easting/lon first.
+EPSG_INPUT_POINTS: dict[str, list[tuple[str, float, float]]] = {
+    "EPSG:4326": [
+        # lon, lat pairs (WGS84 geographic)
+        ("Seoul city hall",     126.978388, 37.566610),
+        ("Busan port",          129.041667, 35.100000),
+        ("Jeju island centre",  126.552003, 33.499625),
+        ("Pyeongchang (2018 Olympics)", 128.673656, 37.370290),
+        ("Incheon airport",     126.450967, 37.469194),
+        ("Dokdo island",        131.861710, 37.242250),
+        # Outside Korea — verify no special-casing
+        ("Tokyo",               139.691700, 35.689500),
+        ("Origin (0,0)",          0.0,        0.0),
+        ("Paris",                 2.352200,  48.856600),
+        ("New York",            -74.006000,  40.712800),
+    ],
+    "EPSG:3857": [
+        # Web Mercator metres — identity at the final step so the
+        # reference value equals the input directly.
+        ("Seoul MM",            14134866.26, 4518236.78),
+        ("Busan MM",            14363500.00, 4172526.60),
+        ("Jeju MM",             14092218.27, 3970108.85),
+        ("Tokyo MM",            15549273.09, 4262689.16),
+        ("Origin MM",                  0.0,        0.0),
+    ],
+    "EPSG:5179": [
+        # Korea 2000 / UTM-K  (easting, northing in metres)
+        # Reference values from NGII / officially published control points.
+        ("Seoul city hall",     953931.78, 1953317.84),
+        ("Busan port",         1102370.64, 1752442.31),
+        ("Jeju island centre",  921151.22, 1561059.07),
+        ("Pyeongchang",        1071050.67, 1949754.26),
+        ("Incheon airport",     930451.83, 1938403.78),
+    ],
+    "EPSG:5186": [
+        # Korea 2000 / Central Belt 2010  (easting, northing in metres)
+        ("Seoul city hall",     199657.11, 552685.61),
+        ("Busan port",          349139.93, 351873.31),
+        ("Jeju island centre",  168119.88, 159313.41),
+        ("Pyeongchang",         317768.70, 549106.25),
+        ("Incheon airport",     177238.26, 539021.66),
+    ],
+}
+
+epsg_reprojection_samples: list[dict] = []
+for epsg_code, pts in EPSG_INPUT_POINTS.items():
+    tf3857 = _epsg_to_3857[epsg_code]
+    for label, x_in, y_in in pts:
+        merc_x, merc_y = tf3857.transform(x_in, y_in)
+        epsg_reprojection_samples.append({
+            "label": label,
+            "fromEPSG": epsg_code,
+            "inputX": x_in,
+            "inputY": y_in,
+            "refMercX": merc_x,   # pyproj EPSG:3857 metres (reference)
+            "refMercY": merc_y,
+        })
+
+
+# ════════════════════════════════════════════════════════════════════
 # Package everything as one JSON fixture.
 # ════════════════════════════════════════════════════════════════════
 
@@ -416,6 +505,7 @@ fixture = {
     "pipeline_area_samples": pipeline_area_samples,
     "simplify_samples": simplify_samples,
     "constants": reference_constants,
+    "epsg_reprojection": epsg_reprojection_samples,
 }
 
 
@@ -435,3 +525,5 @@ print(f"  tile_feature_counts: {len(tile_feature_counts)} tiles "
 print(f"  country_bboxes:      {len(country_bboxes)} countries")
 print(f"  pipeline_area:       {len(pipeline_area_samples)} country-tile samples")
 print(f"  simplify:            {len(simplify_samples)} D-P cases")
+print(f"  epsg_reprojection:   {len(epsg_reprojection_samples)} samples "
+      f"({len(EPSG_INPUT_POINTS)} EPSG codes)")
