@@ -33,7 +33,7 @@ import { StagingBufferPool, asyncWriteBuffer } from '../gpu/staging-buffer-pool'
 import { GPUArena } from '../gpu/gpu-arena'
 import { BundleCache, type BundleEncodeDescriptor } from './bundle-cache'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
-import { WORLD_MERC, TILE_PX, enumerateWorldCopies } from '../gpu/gpu-shared'
+import { WORLD_MERC, TILE_PX, enumerateWorldCopies, routeToSphereSelector } from '../gpu/gpu-shared'
 import { PriorityQueue, PriorityQueueItemRemovedError } from '../../core/priority-queue'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../../data/tile-catalog'
@@ -3367,11 +3367,7 @@ export class VectorTileRenderer {
       // 3/4/5 through the sphere-aware selector unconditionally, the
       // same fix iter-127 applied to oblique (6). globeVisibleTiles
       // already handles deep zoom (iter-149 overzoom branch).
-      const azimuthalFamilyRouteToSphere =
-        projType === 3 || projType === 4 || projType === 5
-      const obliqueRouteToSphere = projType === 6
-      if (camera.globeMode || nearAntimeridian
-        || obliqueRouteToSphere || azimuthalFamilyRouteToSphere) {
+      if (routeToSphereSelector(projType, camera.globeMode, nearAntimeridian)) {
         // Globe (projType 7): sphere-aware tile selection. The
         // mercator selectors below all reason about a flat viewport
         // and don't know about hemisphere culling or the antimeridian

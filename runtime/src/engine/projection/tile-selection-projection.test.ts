@@ -15,6 +15,7 @@ import { globeVisibleTiles } from './globe'
 import { visibleTilesFrustumSampled } from '../../data/tile-select'
 import { mercator, equirectangular, naturalEarth } from './projection'
 import { Camera } from './camera'
+import { routeToSphereSelector } from '../gpu/gpu-shared'
 
 const W = 800, H = 800
 
@@ -150,5 +151,96 @@ describe('iter-321 visibleTilesFrustumSampled — mercator/equirect/NE polar + d
     // CSS-pixel-invariant: the tile COUNT shouldn't balloon 9× at DPR3.
     expect(t3.length).toBeLessThanOrEqual(t1.length * 2)
     assertTileSetSane(t3, 5, 'merc-dpr3-antimeridian')
+  })
+})
+
+// iter-322 — ALL-projection routing contract + sphere-routed selection.
+// The VTR picks one of two selector families per projection:
+//   cylindrical (mercator=0 / equirect=1 / natural_earth=2) → flat
+//     frustum selector (camera-centre-independent forward).
+//   azimuthal family (ortho=3 / azi=4 / stereo=5) + oblique=6 +
+//     globe=7 → sphere-aware globeVisibleTiles (centre-relative).
+// Wrong routing = the user-reported #4/#6 mispositioning class. These
+// pin the routing decision AND that the sphere selector produces sane
+// tiles for EVERY projType that routes to it (ortho/azi/stereo/oblique
+// were NOT exercised by the iter-321 globe-only cases above).
+describe('iter-322 routeToSphereSelector — per-projection routing contract', () => {
+  // projType encoding: 0 merc, 1 equirect, 2 NE, 3 ortho, 4 azi,
+  // 5 stereo, 6 oblique, 7 globe.
+  const CYLINDRICAL = [0, 1, 2]
+  const AZIMUTHAL_FAMILY = [3, 4, 5]
+  const OBLIQUE = 6
+
+  it('cylindrical projections use the flat frustum selector (no sphere route, non-dateline)', () => {
+    for (const p of CYLINDRICAL) {
+      expect(routeToSphereSelector(p, false, false), `proj ${p} should NOT sphere-route`).toBe(false)
+    }
+  })
+
+  it('azimuthal family always sphere-routes (centre-relative projection)', () => {
+    for (const p of AZIMUTHAL_FAMILY) {
+      expect(routeToSphereSelector(p, false, false), `proj ${p} must sphere-route`).toBe(true)
+    }
+  })
+
+  it('oblique mercator always sphere-routes (iter-127)', () => {
+    expect(routeToSphereSelector(OBLIQUE, false, false)).toBe(true)
+  })
+
+  it('globe routes via globeMode regardless of projType', () => {
+    expect(routeToSphereSelector(7, true, false)).toBe(true)
+    // globeMode forces the route even for a projType that otherwise wouldn't.
+    expect(routeToSphereSelector(0, true, false)).toBe(true)
+  })
+
+  it('any projection facing the antimeridian sphere-routes (no dateline seam)', () => {
+    for (const p of [0, 1, 2, 3, 4, 5, 6, 7]) {
+      expect(routeToSphereSelector(p, false, true), `proj ${p} at dateline must sphere-route`).toBe(true)
+    }
+  })
+})
+
+describe('iter-322 sphere-routed projections — selection sane at pole + dateline', () => {
+  // ortho/azi/stereo/oblique all consume globeVisibleTiles (projection-
+  // agnostic: it takes lon/lat/zoom only). Confirm the selector output
+  // is in-range for the centres these projections are actually used at.
+  // Each is a projType that routeToSphereSelector(p,false,false)===true.
+  const SPHERE_ROUTED = [3, 4, 5, 6, 7]
+
+  for (const p of SPHERE_ROUTED) {
+    it(`proj ${p}: routes to sphere AND selection sane at pole + dateline + mid`, () => {
+      // Sanity: this projType genuinely sphere-routes (else the test
+      // would be exercising the wrong selector).
+      const routes = p === 7
+        ? routeToSphereSelector(p, true, false)   // globe via globeMode
+        : routeToSphereSelector(p, false, false)
+      expect(routes, `proj ${p} expected to sphere-route`).toBe(true)
+
+      // North pole, south pole, antimeridian, mid-latitude — the same
+      // globeVisibleTiles call the VTR makes for this projType.
+      assertTileSetSane(globeVisibleTiles(0, 85, 2, 14, W, H), 2, `proj${p}-npole`)
+      assertTileSetSane(globeVisibleTiles(0, -85, 2, 14, W, H), 2, `proj${p}-spole`)
+      assertTileSetSane(globeVisibleTiles(180, 0, 2, 14, W, H), 2, `proj${p}-dateline`)
+      assertTileSetSane(globeVisibleTiles(126.978, 37.566, 8, 14, W, H), 8, `proj${p}-seoul`)
+    })
+  }
+
+  it('world-copy fan-out preserves data-x in-range (only ox shifts by world)', () => {
+    // For the periodic sphere-routed projections (equirect=1/NE=2/
+    // oblique=6) the VTR multiplies globeVisibleTiles output by world
+    // copies [-2..2]. The wrapped data-x stays in [0,2^z); only the
+    // absolute ox carries the world offset. Simulate the fan-out.
+    const base = globeVisibleTiles(179.5, 0, 3, 14, W, H)
+    const n = Math.pow(2, 3)
+    for (const wc of [-2, -1, 0, 1, 2]) {
+      for (const t of base) {
+        // data-x (wrapped) must remain valid at the tile's own zoom.
+        const tn = Math.pow(2, t.z)
+        expect(t.x >= 0 && t.x < tn, `wc${wc} data-x ${t.x} OOB at z${t.z}`).toBe(true)
+        // absolute-x for this world copy is x + wc*2^z — finite.
+        const absX = t.x + wc * n
+        expect(Number.isFinite(absX)).toBe(true)
+      }
+    }
   })
 })

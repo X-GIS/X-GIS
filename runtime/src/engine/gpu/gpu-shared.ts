@@ -352,6 +352,37 @@ export function enumerateWorldCopies(projType: number, zoom: number): boolean {
   return periodic && zoom <= WORLD_COPY_MAX_ZOOM
 }
 
+/** Whether tile selection routes through the sphere-aware
+ *  `globeVisibleTiles` selector instead of the flat mercator-frustum
+ *  selectors (`visibleTilesSSE` / `visibleTilesFrustumSampled`).
+ *
+ *  The frustum selectors use `mercator.forward(lon,lat)` which is
+ *  camera-CENTRE-INDEPENDENT — same lon/lat → same tile. Correct for
+ *  the cylindrical projections (mercator=0, equirect=1, natural_earth
+ *  =2) which render lon/lat at a centre-independent position. But the
+ *  azimuthal family (ortho=3, azimuthal=4, stereographic=5) and
+ *  oblique_mercator=6 project relative to the camera centre (clon,clat
+ *  → 0,0), so the frustum selector hands them the WRONG tile set once
+ *  the camera pans (user reports #4 / #6). Globe (projType 7) reaches
+ *  this via `globeMode`. `nearAntimeridian` forces sphere routing for
+ *  any projection facing the dateline so tiles on BOTH sides survive
+ *  (no black seam).
+ *
+ *  Extracted from the inline boolean in vector-tile-renderer so the
+ *  routing decision is unit-pinned, not a fix-doesn't-hold inline
+ *  threshold (project_predictability_sinks; iter-127 oblique +
+ *  iter-157 azimuthal-family routing). projType matches
+ *  `worldCopiesFor`. */
+export function routeToSphereSelector(
+  projType: number,
+  globeMode: boolean,
+  nearAntimeridian: boolean,
+): boolean {
+  const azimuthalFamily = projType === 3 || projType === 4 || projType === 5
+  const oblique = projType === 6
+  return globeMode || nearAntimeridian || azimuthalFamily || oblique
+}
+
 /** Create an empty uniform buffer */
 export function createUniformBuffer(device: GPUDevice, size: number, label?: string): GPUBuffer {
   return device.createBuffer({

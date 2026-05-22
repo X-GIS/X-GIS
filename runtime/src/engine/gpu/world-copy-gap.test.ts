@@ -107,3 +107,55 @@ describe('enumerateWorldCopies — iter 139 low-zoom gate (user-bug pin)', () =>
     }
   })
 })
+
+// iter-322 — cross-consistency between the TWO world-copy functions.
+// `worldCopiesFor` (which copy coords to emit) and `enumerateWorldCopies`
+// (whether the globeVisibleTiles-routed path wraps at this zoom) encode
+// the SAME periodicity fact independently. If a future edit adds a
+// projType to one list but not the other, the renderer either emits
+// copy coords nobody draws OR tries to wrap a projection with only a
+// single world. These pins force the two to agree.
+describe('iter-322 worldCopiesFor ↔ enumerateWorldCopies cross-consistency', () => {
+  const ALL_PROJ = [0, 1, 2, 3, 4, 5, 6, 7]
+
+  it('every projType where copies CAN be enumerated has >1 world copy', () => {
+    // enumerateWorldCopies(p, lowZoom)===true  ⟹  worldCopiesFor(p).length>1.
+    // Otherwise the wrap walk finds no neighbour coords to emit.
+    for (const p of ALL_PROJ) {
+      if (enumerateWorldCopies(p, 0)) {
+        expect(worldCopiesFor(p).length, `proj ${p} enumerates but is single-world`).toBeGreaterThan(1)
+      }
+    }
+  })
+
+  it('the only multi-copy projType that never enumerates is mercator (frustum path)', () => {
+    // Mercator (0) has 5 copies but enumerateWorldCopies(0)===false because
+    // its frustum selector emits world copies inline (not via the gate).
+    // Any OTHER multi-copy projType MUST enumerate at low zoom.
+    for (const p of ALL_PROJ) {
+      const multi = worldCopiesFor(p).length > 1
+      const enumerates = enumerateWorldCopies(p, 0)
+      if (multi && !enumerates) {
+        expect(p, `proj ${p}: multi-copy but never enumerates — only mercator may`).toBe(0)
+      }
+    }
+  })
+
+  it('all 8 projTypes resolve to a defined, non-empty copy set', () => {
+    for (const p of ALL_PROJ) {
+      const copies = worldCopiesFor(p)
+      expect(copies, `proj ${p} undefined copy set`).toBeDefined()
+      expect(copies.length, `proj ${p} empty copy set`).toBeGreaterThanOrEqual(1)
+      // Copy 0 (the home world) MUST always be present.
+      expect(copies.includes(0), `proj ${p} missing home world copy 0`).toBe(true)
+    }
+  })
+
+  it('unknown projType (out-of-range) collapses to single-world (no crash)', () => {
+    // Defensive: a corrupt proj_params.x must not blow up enumeration.
+    for (const bad of [-1, 8, 99, NaN]) {
+      expect(worldCopiesFor(bad)).toEqual([0])
+      expect(enumerateWorldCopies(bad, 0)).toBe(false)
+    }
+  })
+})
