@@ -71,7 +71,14 @@ export function equirectangular(centralLon = 0): Projection {
 
     inverse(x: number, y: number): [number, number] {
       const lon = wrapLonDelta((x / EARTH_RADIUS) * RAD2DEG + centralLon)
-      const lat = (y / EARTH_RADIUS) * RAD2DEG
+      // Saturate latitude: y beyond ±(π/2)R is "past the pole" — no such
+      // latitude exists. The linear y→lat has no asymptote (unlike
+      // mercator's atan∘exp), so without this clamp an out-of-domain y
+      // (e.g. a screen corner past the oval at low zoom) returns a
+      // finite-but-impossible lat>90 that silently corrupts tile
+      // selection. Brings equirect into the "in-range or NaN" inverse
+      // contract the azimuthal family already holds.
+      const lat = Math.max(-90, Math.min(90, (y / EARTH_RADIUS) * RAD2DEG))
       return [lon, lat]
     },
   }
@@ -130,7 +137,11 @@ export function naturalEarth(centralLon = 0): Projection {
       const xScale = 0.8707 - 0.131979 * t2 + 0.013791 * t4 - 0.0081435 * t6
       if (Math.abs(xScale) < 1e-6) return [NaN, NaN]
       const lon = wrapLonDelta((x / (xScale * EARTH_RADIUS)) * RAD2DEG + centralLon)
-      const lat = t * RAD2DEG
+      // Saturate latitude. For a goalY beyond the polynomial's range
+      // (out-of-domain y), the Newton solve diverges and t·RAD2DEG can
+      // exceed ±90 (observed -170°). Clamp so the inverse stays in the
+      // "in-range or NaN" contract — no-op for in-domain inputs.
+      const lat = Math.max(-90, Math.min(90, t * RAD2DEG))
       return [lon, lat]
     },
   }
