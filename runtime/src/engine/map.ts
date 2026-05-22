@@ -1436,6 +1436,18 @@ export class XGISMap {
     }
   }
 
+  /** iter-336 — glyph-atlas generation counter (bumps on EVERY slot
+   *  eviction/reuse, iter-190). Aliasing ("wrong character" — a label's
+   *  glyph rendered from a slot since reassigned to another codepoint,
+   *  the iter-175/268/273 class) can only happen when a slot is evicted.
+   *  A STEADY frame (no camera change) whose generation is unchanged
+   *  proves no eviction occurred → no aliasing possible that frame. A
+   *  generation that keeps climbing at steady state = atlas thrashing =
+   *  aliasing risk. Returns null before any TextStage is built. */
+  getAtlasGeneration(): number | null {
+    return this.textStage?.getAtlasGeneration() ?? null
+  }
+
   /** iter-327 — live per-glyph placement dump for a user-reported label
    *  scatter. Call `setLabelDumpFilter("서울특별시")`, let one frame
    *  render, then `getDumpedLabels()` returns the ACTUAL per-glyph (x,y)

@@ -1091,6 +1091,11 @@ export class TextStage {
     text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number; curved: boolean
     glyphs: Array<{ cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }>
   }> = []
+  /** iter-336 — glyph-atlas generation (host bumps on every slot
+   *  eviction). Stable across a steady frame ⇒ no eviction ⇒ no
+   *  glyph-slot aliasing possible. See XGISMap.getAtlasGeneration. */
+  getAtlasGeneration(): number { return this.host.getGeneration() }
+
   /** Enable per-glyph offset capture for labels containing `substr`.
    *  Pass null to disable. Cleared + refilled each prepare(). */
   setLabelDumpFilter(substr: string | null): void { this._dumpFilter = substr }
