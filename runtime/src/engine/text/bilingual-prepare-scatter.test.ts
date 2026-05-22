@@ -54,13 +54,13 @@ function litValue(s: string): TextValue {
   return { kind: 'expr', expr: { ast: { kind: 'StringLiteral', value: s } as never } }
 }
 
-function defOf(size: number, maxWidth: number): LabelDef {
+function defOf(size: number, maxWidth: number, anchor: string = 'bottom'): LabelDef {
   return {
     text: litValue(''),
     size,
     maxWidth,
     font: ['Noto Sans Bold'],
-    anchor: 'bottom',
+    anchor,
   } as LabelDef
 }
 
@@ -189,5 +189,42 @@ describe('iter-327 bilingual prepare() scatter — real TextStage, stub GPU', ()
       if (d.glyphs.length === 0) continue
       assertNoScatter(d, `overflow-draw-${d.glyphs.map(g => g.codepoint).join(',')}`)
     }
+  })
+
+  // iter-328 — user repro: OFM Bright z=6 country label
+  // "South Korea\n대한민국" with anchor=CENTER (label_country default,
+  // vs city's bottom) + max-width 6.25. Newline splits but line-2
+  // (대한민국) renders OVERLAPPING line-1 instead of below.
+  it('country label (center anchor): line-2 (대한민국) renders BELOW line-1, not overlapping', () => {
+    const { stage, captured } = makeStage()
+    stage.setCameraZoom(6)
+    stage.beginFrame()
+    // label_country_3 @ z6: size≈15, max-width 6.25, Bold, anchor center (undefined → center).
+    stage.addLabel(litValue('South Korea\n대한민국'), {}, 400, 300, defOf(15, 6.25, 'center'))
+    stage.prepare()
+    const draws = captured[0]!
+    const draw = findDrawWithText(draws, 0xb300)  // 대
+    expect(draw, 'country draw missing').toBeDefined()
+    // Collect y per non-newline glyph; CJK (대한민국, 0xAC00-0xD7A3) must
+    // all sit BELOW the Latin glyphs (South Korea).
+    const latinYs: number[] = []
+    const cjkYs: number[] = []
+    const g = draw!.glyphs
+    const off = draw!.glyphOffsets!
+    for (let i = 0; i < g.length; i++) {
+      const cp = g[i]!.codepoint
+      if (cp === 10) continue
+      const y = off[i * 2 + 1]!
+      if (cp >= 0xac00 && cp <= 0xd7a3) cjkYs.push(y)
+      else if (cp !== 32) latinYs.push(y)
+    }
+    expect(cjkYs.length).toBeGreaterThan(0)
+    expect(latinYs.length).toBeGreaterThan(0)
+    const maxLatinY = Math.max(...latinYs)
+    const minCjkY = Math.min(...cjkYs)
+    // Every CJK glyph's baseline must be strictly below every Latin one
+    // (screen-down +y). Overlap = minCjkY <= maxLatinY → the bug.
+    expect(minCjkY > maxLatinY,
+      `대한민국 overlaps South Korea: minCjkY=${minCjkY} maxLatinY=${maxLatinY}`).toBe(true)
   })
 })
