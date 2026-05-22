@@ -39,12 +39,20 @@ import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../../data/tile-catalog'
 import type { TileData } from '../../data/tile-types'
 import { computeSliceKey } from '../../data/eval/filter-eval'
-import { mercator as mercatorProj, type Projection } from '../projection/projection'
+import { mercator as mercatorProj, getProjection, type Projection } from '../projection/projection'
 import type { PointRenderer } from './point-renderer'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
 import { parseHexColor } from '../feature-helpers'
 import { ComputeDispatcher } from '../gpu/compute'
 import { ComputeLayerHandle } from './compute-layer-handle'
+
+// projType (camera.projType / proj_params.x) → projection registry name,
+// for building the projection-aware `selectorProj`. Index 0 (mercator) and
+// 7 (globe) are handled separately (globe has no flat-projection entry).
+const SELECTOR_PROJ_NAMES = [
+  'mercator', 'equirectangular', 'natural_earth', 'orthographic',
+  'azimuthal_equidistant', 'stereographic', 'oblique_mercator',
+] as const
 
 // ═══ Types ═══
 
@@ -3031,20 +3039,19 @@ export class VectorTileRenderer {
     const alignDeltaPx_h = show.strokeAlign === 'inset' || show.strokeAlign === 'outset'
       ? strokeWidthPx_h / 2 : 0
     const offsetMarginPx = Math.ceil(strokeOffsetPx_h + alignDeltaPx_h + strokeWidthPx_h / 2 + 2)
-    // KNOWN GAP (user report 2026-05-18 — memory note
-    // project_projection_issues_2026_05_18 #4): non-Mercator tile
-    // selection uses MERCATOR's forward/inverse regardless of the
-    // actual projection. Works for pseudocyl (equirect / natural_earth)
-    // which share Mercator's lon-x linear mapping, but obliqueMercator
-    // ROTATES the entire sphere, so a Mercator-space (z/x/y) tile
-    // doesn't correspond to obliqueMercator's visual bounds. At
-    // z >= 1 with shifting centerLon, tiles appear in wrong positions
-    // / flipped. Fix needs per-projection forward/inverse threaded
-    // through visibleTilesSSE → not landed this session (multi-file
-    // + projection-specific tile-bound math).
-    const selectorProj = projType === 0
-      ? mercatorProj
-      : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
+    // Projection-aware tile selection: the flat selectors project tile
+    // corners through THIS projection's forward (relative to the projected
+    // centre), matching the GPU vertex path, so equirect / natural_earth
+    // select the right tiles at the poles + dateline (previously they used
+    // Mercator's forward and went blank at high latitude — user report
+    // project_projection_issues_2026_05_18 #4). Built with the same centre
+    // (projCenterLon/Lat) the GPU uses as proj_params.y/z. The azimuthal
+    // family (3/4/5), oblique (6) and globe (7) sphere-route, so their
+    // selectorProj is unused — fall back to mercatorProj (globe has no
+    // flat-projection entry in the registry).
+    const selectorProj: Projection = (projType >= 1 && projType <= 6)
+      ? getProjection(SELECTOR_PROJ_NAMES[projType]!, projCenterLon, projCenterLat)
+      : mercatorProj
 
     // Round-based currentZ with anti-oscillation hysteresis. Diagnosis:
     // pinch-zoom input on iOS Safari delivers fractional camera.zoom
@@ -3373,66 +3380,24 @@ export class VectorTileRenderer {
       const _pitchDeg = camera.pitch ?? 0
       const sseDisabled = typeof window !== 'undefined'
         && (window as unknown as { __XGIS_USE_SSE_SELECTOR?: boolean }).__XGIS_USE_SSE_SELECTOR === false
-      // Sphere-aware tile selection: in addition to globe (projType 7
-      // — fixes the empty-hemisphere regression where globe at
-      // #2/0/180 rendered almost nothing — PR #138 added the function
-      // but never wired a production caller), also use it for
-      // equirectangular (projType 1) and natural_earth (projType 2)
-      // when the camera sits within 45° of the antimeridian. The
-      // mercator selectors used otherwise only sample the central
-      // world copy, which leaves the far side of the dateline blank
-      // for these pseudocylindrical projections (the vertex shader's
-      // `unwrap_lon_near` per-tile reference IS already in place; the
-      // gap was only that selectors weren't asking for the wrap-side
-      // tiles to feed it). 45° is conservative — far enough from
-      // dateline that the regular SSE/frustum selectors still serve
-      // correctly, avoiding the slight over-selection bias the globe
-      // selector has on flat 2D projections.
+      // Sphere-aware tile selection for the centre-relative projections.
+      // Globe (projType 7, via globeMode), oblique_mercator (6) and the
+      // azimuthal family (ortho=3, azimuthal=4, stereographic=5) all
+      // project relative to the camera centre (clon,clat → 0,0), so the
+      // flat selectors hand them the WRONG tile set once the camera pans
+      // (user reports #4 / #6). They route through globeVisibleTiles,
+      // which culls by sphere visibility and matches the catalog's
+      // Mercator-pyramid tile IDs.
+      //
+      // The cylindrical projections (mercator=0, equirect=1,
+      // natural_earth=2) do NOT sphere-route: the flat selectors are now
+      // projection-aware (selectorProj carries the real forward/inverse),
+      // so they select correctly at the poles AND cover both sides of the
+      // dateline via world-copy enumeration — no hemisphere cull, which
+      // would have dropped the back-of-sphere tiles a full-world flat
+      // projection still displays.
       const projType = (camera as { projType?: number }).projType ?? 0
-      // Antimeridian heuristic: when the camera lon sits within 45° of
-      // ±180°, sphere-aware selection picks up tiles on BOTH sides of
-      // the dateline. Pre-fix only equirect/NE (projType 1/2) routed
-      // this way; ortho/azimuth/stereo (3/4/5) inherited the same gap
-      // because their selector also walks the Mercator pyramid. The
-      // visible region of an azimuthal projection centred near ±180°
-      // straddles the dateline just as much as equirect's strip does,
-      // so they get the same routing. Mercator (0) handles its own
-      // wrap via WORLD_COPIES; oblique (6) routed via the separate
-      // obliqueRouteToSphere flag below.
-      const nearAntimeridian = (projType >= 1 && projType <= 5)
-        && Math.abs(((camera.centerX / 6378137 * (180 / Math.PI)) + 540) % 360 - 180) > 135
-      // Oblique Mercator (projType 6) rotates the entire sphere so
-      // (camera.lon, camera.lat) lands at (0, 0) in projected space.
-      // The Mercator-tile-pyramid-based frustum selector below uses
-      // mercator.forward(lon, lat) which is independent of camera
-      // center — same lon/lat → same tile every time. But oblique
-      // RENDERS the same lon/lat at a center-dependent (x, y), so the
-      // tile selector picks wrong tiles at z>=1 once the camera pans.
-      // Sphere-aware selection via globeVisibleTiles gives the right
-      // visible set because oblique's rotated frame is geometrically
-      // equivalent to globe's hemisphere cull at (camera.lon, lat) →
-      // (0, 0). The selector returns Mercator-pyramid tile IDs that
-      // match the catalog regardless of which projection the renderer
-      // ultimately uses to place those tiles on screen.
-      // Issue: project_projection_issues_2026_05_18 #4
-      // (oblique_mercator-tile-mismatch.test.ts pins the divergence.)
-      // iter 157: the same center-dependent-render argument applies to
-      // the azimuthal family — orthographic (3), azimuthal_equidistant
-      // (4), stereographic (5) ALL project relative to the camera
-      // centre (clon,clat → 0,0), exactly like oblique (6). The
-      // mercator-frustum visibleTilesSSE selector is camera-centre-
-      // INDEPENDENT, so at Seoul z15 (not near the antimeridian, so
-      // the existing nearAntimeridian heuristic doesn't fire) it
-      // hands these projections the wrong tile set → every feature/
-      // label is dispatched from mis-selected tiles and lands at the
-      // wrong screen position (user report #6, azimuthal z15.29).
-      // The label-projection math itself was proven correct (forward
-      // == WGSL ≤1mm, same rtcMatrix + centerLon constant as the
-      // geometry path); the fault is purely tile SELECTION. Route
-      // 3/4/5 through the sphere-aware selector unconditionally, the
-      // same fix iter-127 applied to oblique (6). globeVisibleTiles
-      // already handles deep zoom (iter-149 overzoom branch).
-      if (routeToSphereSelector(projType, camera.globeMode, nearAntimeridian)) {
+      if (routeToSphereSelector(projType, camera.globeMode)) {
         // Globe (projType 7): sphere-aware tile selection. The
         // mercator selectors below all reason about a flat viewport
         // and don't know about hemisphere culling or the antimeridian
@@ -4734,19 +4699,14 @@ export class VectorTileRenderer {
         prefetchZ = currentZ - 1
       }
       if (prefetchZ >= 0) {
-        // Oblique mercator + globe + near-antimeridian pseudocyl: route
-        // prefetch through globeVisibleTiles so the prefetch tile set
-        // matches the main selector's set. Otherwise prefetch would
-        // pick wrong tiles for oblique (see main selector comment
-        // above) and load doomed-to-be-unused tiles into GPU.
+        // Mirror the main selector's routing so the prefetch tile set
+        // matches what the render path will ask for: the centre-relative
+        // projections (azimuthal family, oblique, globe) go through
+        // globeVisibleTiles; the cylindrical ones use the projection-
+        // aware flat selectors. Otherwise prefetch loads doomed-to-be-
+        // unused tiles into the GPU.
         const projTypePF = (camera as { projType?: number }).projType ?? 0
-        const obliquePF = projTypePF === 6
-        // Mirror of main selector: ortho/azimuth/stereo near antimeridian
-        // also routed through globeVisibleTiles for the prefetch path
-        // so cached tiles match what the main render path expects.
-        const nearAMPF = (projTypePF >= 1 && projTypePF <= 5)
-          && Math.abs(((camera.centerX / 6378137 * (180 / Math.PI)) + 540) % 360 - 180) > 135
-        const prefetchTiles = (camera.globeMode || obliquePF || nearAMPF)
+        const prefetchTiles = routeToSphereSelector(projTypePF, camera.globeMode)
           ? (() => {
               const R = 6378137
               const lonPF = camera.centerX / R * (180 / Math.PI)

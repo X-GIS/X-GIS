@@ -1,90 +1,52 @@
-// Verify the antimeridian routing condition for projection types
-// 1..5 (equirect, NE, ortho, azimuth, stereo) — when the camera
-// sits within 45° of ±180° these projections should route through
-// globeVisibleTiles so the selector picks up tiles on both sides
-// of the dateline.
+// Antimeridian / dateline routing contract.
 //
-// Plan §5.3: the original heuristic only fired for projType 1+2;
-// fix extended it to 1..5 inclusive so ortho / azimuthal /
-// stereographic camera centred near ±180° also gets sphere-cap
-// tile selection. The visible region of an azimuthal projection
-// centred near ±180° straddles the dateline just as much as
-// equirect's strip does.
+// HISTORY: tile selection used to route equirect/NE (and, in a later
+// extension, ortho/azimuth/stereo) through the hemisphere-culling
+// globeVisibleTiles selector whenever the camera centre sat within 45°
+// of ±180°, to pick up tiles on both sides of the dateline. That was a
+// workaround for the flat selector using Mercator's forward for every
+// projection. It had two failure modes for the full-world cylindrical
+// projections (equirect=1 / natural_earth=2): the hemisphere cull
+// dropped the back-of-world tiles they actually display, and the
+// camera-centre-only heuristic missed wide low-zoom views that span
+// ±180 while centred far from it.
+//
+// FIX: the flat selectors are now projection-aware (selectorProj carries
+// the real forward/inverse) and enumerate world copies, so the
+// cylindrical projections cover both sides of the dateline on the flat
+// path — they NEVER sphere-route. Only the centre-relative projections
+// (azimuthal family 3/4/5, oblique 6, globe 7) sphere-route, and they do
+// so at ALL longitudes (the routing no longer depends on camera lon).
 
 import { describe, expect, it } from 'vitest'
+import { routeToSphereSelector } from '../gpu/gpu-shared'
 
-// Mirror of the runtime heuristic in vector-tile-renderer.ts.
-function antimeridianRoutes(projType: number, lonDeg: number): boolean {
-  if (projType < 1 || projType > 5) return false
-  return Math.abs(((lonDeg + 540) % 360 - 180)) > 135
-}
-
-describe('antimeridian sphere-selector routing condition', () => {
-  it('mercator (0) never routes to sphere — uses WORLD_COPIES wrap instead', () => {
-    expect(antimeridianRoutes(0, 0)).toBe(false)
-    expect(antimeridianRoutes(0, 180)).toBe(false)
-    expect(antimeridianRoutes(0, -179)).toBe(false)
+describe('dateline routing — cylindrical projections stay on the flat selector', () => {
+  it('mercator (0) never sphere-routes — WORLD_COPIES wrap handles the dateline', () => {
+    expect(routeToSphereSelector(0, false)).toBe(false)
   })
 
-  it('equirect (1) routes when lon within 45° of ±180°', () => {
-    expect(antimeridianRoutes(1, 0)).toBe(false)
-    expect(antimeridianRoutes(1, 90)).toBe(false)
-    expect(antimeridianRoutes(1, 135.1)).toBe(true)
-    expect(antimeridianRoutes(1, 170)).toBe(true)
-    expect(antimeridianRoutes(1, -170)).toBe(true)
-    expect(antimeridianRoutes(1, 180)).toBe(true)
+  it('equirect (1) / natural_earth (2) never sphere-route — world-copy enumeration covers both sides', () => {
+    // The behaviour change: previously these routed to globeVisibleTiles
+    // near ±180 and lost the back-of-world tiles. Now the projection-aware
+    // flat selector covers the dateline directly.
+    expect(routeToSphereSelector(1, false)).toBe(false)
+    expect(routeToSphereSelector(2, false)).toBe(false)
   })
 
-  it('natural_earth (2) routes the same as equirect', () => {
-    expect(antimeridianRoutes(2, 0)).toBe(false)
-    expect(antimeridianRoutes(2, 170)).toBe(true)
-    expect(antimeridianRoutes(2, -170)).toBe(true)
+  it('azimuthal family (3/4/5) always sphere-routes, independent of longitude', () => {
+    for (const p of [3, 4, 5]) {
+      expect(routeToSphereSelector(p, false), `proj ${p} must sphere-route`).toBe(true)
+    }
   })
 
-  it('orthographic (3) routes near antimeridian (plan §5.3 extension)', () => {
-    // Pre-fix this returned false for all lons — selector inherited
-    // the Mercator-pyramid gap and missed tiles on the far side of
-    // ±180° even though the azimuthal disc covered them.
-    expect(antimeridianRoutes(3, 170)).toBe(true)
-    expect(antimeridianRoutes(3, -170)).toBe(true)
-    expect(antimeridianRoutes(3, 0)).toBe(false)
+  it('oblique_mercator (6) always sphere-routes (centre-relative)', () => {
+    expect(routeToSphereSelector(6, false)).toBe(true)
   })
 
-  it('azimuthal_equidistant (4) routes near antimeridian', () => {
-    expect(antimeridianRoutes(4, 170)).toBe(true)
-    expect(antimeridianRoutes(4, -170)).toBe(true)
-  })
-
-  it('stereographic (5) routes near antimeridian', () => {
-    expect(antimeridianRoutes(5, 170)).toBe(true)
-    expect(antimeridianRoutes(5, -170)).toBe(true)
-  })
-
-  it('oblique_mercator (6) does NOT use the antimeridian heuristic — uses obliqueRouteToSphere flag instead', () => {
-    expect(antimeridianRoutes(6, 0)).toBe(false)
-    expect(antimeridianRoutes(6, 170)).toBe(false)
-  })
-
-  it('globe (7) does NOT use the antimeridian heuristic — globeMode always routes', () => {
-    expect(antimeridianRoutes(7, 0)).toBe(false)
-    expect(antimeridianRoutes(7, 170)).toBe(false)
-  })
-
-  it('boundary: exactly 135° from antimeridian does NOT route', () => {
-    // lon=45 → wrap distance from 180 = 135 exactly. Heuristic uses
-    // strict > 135, so this returns false.
-    expect(antimeridianRoutes(1, 45)).toBe(false)
-    expect(antimeridianRoutes(1, -45)).toBe(false)
-  })
-
-  it('wrap arithmetic handles lon outside [-180, 180]', () => {
-    // Camera may accumulate drag distance past ±180°. The heuristic
-    // normalizes via (lon + 540) % 360 - 180. Equivalents:
-    //   lon = 360 + 170 = 530 → maps back to 170° → routes.
-    //   lon = -360 - 170 = -530 → maps back to -170° → routes.
-    //   lon = 370 → maps to 10° (far from AM) → does NOT route.
-    expect(antimeridianRoutes(1, 530)).toBe(true)
-    expect(antimeridianRoutes(1, -530)).toBe(true)
-    expect(antimeridianRoutes(1, 370)).toBe(false)
+  it('globe (7) sphere-routes via globeMode', () => {
+    expect(routeToSphereSelector(7, true)).toBe(true)
+    // globeMode forces the route even for a projType that otherwise wouldn't.
+    expect(routeToSphereSelector(0, true)).toBe(true)
   })
 })

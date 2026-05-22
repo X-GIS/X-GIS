@@ -353,20 +353,24 @@ export function enumerateWorldCopies(projType: number, zoom: number): boolean {
 }
 
 /** Whether tile selection routes through the sphere-aware
- *  `globeVisibleTiles` selector instead of the flat mercator-frustum
- *  selectors (`visibleTilesSSE` / `visibleTilesFrustumSampled`).
+ *  `globeVisibleTiles` selector instead of the flat frustum selectors
+ *  (`visibleTilesSSE` / `visibleTilesFrustumSampled`).
  *
- *  The frustum selectors use `mercator.forward(lon,lat)` which is
- *  camera-CENTRE-INDEPENDENT — same lon/lat → same tile. Correct for
- *  the cylindrical projections (mercator=0, equirect=1, natural_earth
- *  =2) which render lon/lat at a centre-independent position. But the
- *  azimuthal family (ortho=3, azimuthal=4, stereographic=5) and
+ *  The flat selectors are now PROJECTION-AWARE: they project tile
+ *  corners through the active projection's `forward` (relative to the
+ *  projected camera centre), matching the GPU vertex path exactly. That
+ *  makes them correct for ALL the cylindrical / pseudocylindrical
+ *  projections (mercator=0, equirect=1, natural_earth=2) — including at
+ *  the poles (where Mercator y diverges from the projection's y) and the
+ *  antimeridian (handled by the flat selector's world-copy enumeration,
+ *  so both sides of the dateline are covered without a hemisphere cull).
+ *  These therefore NEVER sphere-route.
+ *
+ *  The azimuthal family (ortho=3, azimuthal=4, stereographic=5) and
  *  oblique_mercator=6 project relative to the camera centre (clon,clat
- *  → 0,0), so the frustum selector hands them the WRONG tile set once
- *  the camera pans (user reports #4 / #6). Globe (projType 7) reaches
- *  this via `globeMode`. `nearAntimeridian` forces sphere routing for
- *  any projection facing the dateline so tiles on BOTH sides survive
- *  (no black seam).
+ *  → 0,0), so the flat selector hands them the WRONG tile set once the
+ *  camera pans (user reports #4 / #6) — they must use the sphere-aware
+ *  selector. Globe (projType 7) reaches this via `globeMode`.
  *
  *  Extracted from the inline boolean in vector-tile-renderer so the
  *  routing decision is unit-pinned, not a fix-doesn't-hold inline
@@ -376,11 +380,10 @@ export function enumerateWorldCopies(projType: number, zoom: number): boolean {
 export function routeToSphereSelector(
   projType: number,
   globeMode: boolean,
-  nearAntimeridian: boolean,
 ): boolean {
   const azimuthalFamily = projType === 3 || projType === 4 || projType === 5
   const oblique = projType === 6
-  return globeMode || nearAntimeridian || azimuthalFamily || oblique
+  return globeMode || azimuthalFamily || oblique
 }
 
 /** Create an empty uniform buffer */
