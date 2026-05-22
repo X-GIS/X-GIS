@@ -1161,7 +1161,27 @@ export class VectorTileRenderer {
     // Don't destroy the old ring immediately — it may still be bound to
     // commands already recorded in the current command encoder. Retire it
     // to be destroyed at the start of the next frame (after submit).
-    if (this.uniformRing) this.retiredUniformRings.push(this.uniformRing)
+    if (this.uniformRing) {
+      // CORRECTNESS (high-pitch transient fix): draws already recorded
+      // THIS frame are bound to the OLD buffer at their slot offsets via
+      // setBindGroup. `flushUniformStaging` at end-of-pass writes only the
+      // NEW buffer, so without this the old buffer would still hold the
+      // PREVIOUS frame's uniforms → every pre-grow draw renders stale
+      // colours. Surfaced as the user-reported high-pitch "land polygons
+      // painted water-blue" transient: a heavy frame (many tiles × layers
+      // at pitch ~79°) first crosses the ring capacity, the ring grows
+      // mid-pass, and the draws before the grow read last frame's slot
+      // colours (a land draw landing on a slot that held water's fill).
+      // Push THIS frame's staged slots into the old buffer so those draws
+      // read correct data before it's retired.
+      if (this.uniformSlot > 0) {
+        this.device.queue.writeBuffer(
+          this.uniformRing, 0, this.uniformStaging.buffer,
+          this.uniformStaging.byteOffset, this.uniformSlot * UNIFORM_SLOT,
+        )
+      }
+      this.retiredUniformRings.push(this.uniformRing)
+    }
     this.uniformRingCapacity = newCap
     this.uniformRing = this.device.createBuffer({
       size: newCap * UNIFORM_SLOT,
