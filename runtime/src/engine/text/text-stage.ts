@@ -38,8 +38,13 @@ import type { GlyphInfo } from './sdf/glyph-atlas-host'
 import {
   applyTextTransform, stripCurveLineExtraScripts,
   evaluateVariableOffsetEm, variableAnchorOffsetEm,
+  resolveTypography,
   type LabelAnchor,
 } from './text-stage-helpers'
+import type {
+  WrappedLineRange, KPBreak, MlVerticalLayout,
+  TextStageOptions, PendingLabel, PendingLineLabel,
+} from './text-stage-types'
 // iter-265 — sub-phase drill inside prepare(). encoder.stage-prepare
 // shows 1.31 ms/frame in iter-263 budget but we don't know which
 // inner phase dominates (point shape vs curved line layout vs
@@ -47,7 +52,12 @@ import {
 // hottest sub-phase to attack next.
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
 
-interface WrappedLineRange { start: number; end: number; width: number }
+// Re-export the previously-`export`ed types so the public surface of
+// this module stays byte-identical after the text-stage-types.ts split.
+export type { MlVerticalLayout, TextStageOptions } from './text-stage-types'
+// Re-export the pure typography helper (moved to text-stage-helpers.ts)
+// so existing `import { resolveTypography } from './text-stage'` works.
+export { resolveTypography } from './text-stage-helpers'
 
 /** LRU cache for wrap results. Same (glyph sequence, font, size,
  *  letter-spacing, maxWidth) tuple produces identical line breaks. On
@@ -261,13 +271,6 @@ function _allowsIdeographicBreaking(cp: number): boolean {
     || cp === 0x02ea || cp === 0x02eb
 }
 
-interface KPBreak {
-  index: number
-  x: number
-  prior: KPBreak | null
-  badness: number
-}
-
 function _kpBadness(lineWidth: number, targetWidth: number, penalty: number, isLast: boolean): number {
   const ragged = (lineWidth - targetWidth) ** 2
   if (isLast) return lineWidth < targetWidth ? ragged / 2 : ragged * 2
@@ -471,20 +474,6 @@ export function wrapForTesting(
 const ONE_EM = 24
 const SHAPING_DEFAULT_OFFSET = -17
 
-export interface MlVerticalLayout {
-  /** Per-line baseline Y in px, relative to the label anchor
-   *  (screen-down positive). The renderer converts baseline→quad-top
-   *  by subtracting each glyph's own bearingY.
-   *
-   *  iter-242 — widened to `ArrayLike<number>` so FrameArena-backed
-   *  `Float32Array` views work as drop-in. Read-only access via `[i]`
-   *  + `length` — both Array<number> and Float32Array satisfy. */
-  baselineY: ArrayLike<number>
-  /** Block bbox edges in px relative to the anchor (collision). */
-  blockTop: number
-  blockBottom: number
-}
-
 /** MapLibre `shapeLines` + `align()` vertical model for the common
  *  single-section (scale=1, no inline images) case — every map label
  *  in OFM/MapLibre-demo styles. Each line occupies a CONSTANT
@@ -555,27 +544,6 @@ export function verticalLayoutForTesting(
  *  list so Mapbox styles that only declare "Noto Sans Regular"
  *  still pick up a Korean / Japanese / Chinese font from the host
  *  OS for glyphs the primary family lacks. */
-/** Resolve per-font typography overrides for the given fontKey against
- *  a typography table. The primary family is the first entry of the
- *  comma-separated CSS list inside the (possibly sentinel-encoded)
- *  fontKey. Returns identity values (0 / 1) when no override is
- *  registered, so callers always get a usable result. Pure helper —
- *  exported for unit testing. */
-export function resolveTypography(
-  fontKey: string,
-  table: Map<string, { letterSpacingEm: number; lineHeightScale: number }> | null | undefined,
-): { letterSpacingEm: number; lineHeightScale: number } {
-  if (!table) return { letterSpacingEm: 0, lineHeightScale: 1 }
-  // Skip the sentinel prefix if present; the family list is the last
-  // segment. composeFontKey appends the CJK fallback chain, so the
-  // primary family is whatever comes before the first comma.
-  const familyList = fontKey.startsWith(FONT_KEY_SENTINEL)
-    ? (fontKey.split(FONT_KEY_SENTINEL)[3] ?? '')
-    : fontKey
-  const primary = familyList.split(',')[0]!.trim().replace(/^["']|["']$/g, '')
-  return table.get(primary) ?? { letterSpacingEm: 0, lineHeightScale: 1 }
-}
-
 export function composeFontKey(def: LabelDef, defaultFamily: string): string {
   const family = def.font && def.font.length > 0
     ? def.font.map(f => f.includes(' ') ? `"${f}"` : f).join(',')
@@ -587,63 +555,6 @@ export function composeFontKey(def: LabelDef, defaultFamily: string): string {
   const style = def.fontStyle ?? 'normal'
   const weight = def.fontWeight ?? 400
   return `${FONT_KEY_SENTINEL}${style}${FONT_KEY_SENTINEL}${weight}${FONT_KEY_SENTINEL}${family}`
-}
-
-export interface TextStageOptions {
-  /** Atlas slot side length in pixels. Each glyph rasterises into
-   *  one slot; slot must be larger than (rasterFontSize + 2*sdfRadius). */
-  slotSize?: number
-  /** Atlas page side length in pixels. Multiple of slotSize. */
-  pageSize?: number
-  /** Pixel size each glyph is rasterised at. Display sizes scale
-   *  via the SDF threshold smoothing in the shader. Picking ~24px
-   *  gives good fidelity from 12px up to 64px display. */
-  rasterFontSize?: number
-  /** SDF falloff radius in pixels. Determines edge smoothness +
-   *  halo headroom. */
-  sdfRadius?: number
-  /** Device-pixel-ratio the atlas rasterises for. `rasterFontSize`
-   *  is multiplied by this (capped so rasterFontSize + 2*sdfRadius
-   *  still fits slotSize) so locally Canvas2D-rasterised glyphs
-   *  (Hangul/Han — not served by the PBF glyph endpoint) are baked
-   *  near their physical-pixel display size instead of being
-   *  GPU-upscaled ~dpr× from a 24-px raster (visible as low-res
-   *  CJK labels on hidpi phones). Fixed at construction — the atlas
-   *  is built once; matches the existing single-build lifecycle.
-   *  Defaults to 1 (no scaling). */
-  dpr?: number
-  /** Default font key when LabelDef doesn't specify a font stack. */
-  defaultFont?: string
-  /** Optional rasterizer override (e.g. a worker-backed implementation
-   *  injected by the integration layer). When omitted, picks the best
-   *  available for the current environment via createRasterizer(). */
-  rasterizer?: GlyphRasterizer
-  /** Style-spec `glyphs` URL template (`{fontstack}` + `{range}`).
-   *  When provided AND no explicit `rasterizer` is supplied, the stage
-   *  wraps the Canvas2D rasterizer with one that fetches MapLibre SDF
-   *  PBF glyphs in the background. Failed fetches (offline / 404 / CORS)
-   *  stay on Canvas2D for the session. Combined with `inlineGlyphs` /
-   *  `glyphProviders`, the URL provider sits at the END of the chain
-   *  so cheap inline / IDB sources shadow network requests. */
-  glyphsUrl?: string
-  /** Pre-loaded PBF range data keyed by `{ fontstack: { rangeStart:
-   *  Uint8Array } }`. Used for closed-network / military / air-gapped
-   *  deployments where the host application bundles its own PBF
-   *  bytes. Stacks at the TOP of the provider chain — inline data
-   *  shadows network requests for any range the host pre-bundled. */
-  inlineGlyphs?: { [fontstack: string]: InlineGlyphSource }
-  /** Raw provider chain — escape hatch for custom backends (IndexedDB,
-   *  S3, IPFS). Appended AFTER `inlineGlyphs` and BEFORE the URL-based
-   *  HTTP provider. Implement the `GlyphProvider` interface to plug in. */
-  glyphProviders?: GlyphProvider[]
-  /** Per-font typography overrides — `{ family → { letterSpacingEm,
-   *  lineHeightScale } }`. The letter-spacing offset is ADDED to the
-   *  layer-level `text-letter-spacing` (in em-units), and the line-
-   *  height scale multiplies the layer-level `text-line-height`. Lets
-   *  callers tune multi-font bundles where the bundled families have
-   *  different intrinsic tracking / leading without forking the style
-   *  spec. Missing-family lookups are no-ops (identity 0 / 1). */
-  fontTypography?: Map<string, { letterSpacingEm: number; lineHeightScale: number }>
 }
 
 // Slot must fit (rasterFontSize + 2*sdfRadius). PBF arrives at 24 px
@@ -685,31 +596,6 @@ const DEFAULTS: Required<Omit<TextStageOptions, 'rasterizer' | 'glyphsUrl' | 'in
   rasterFontSize: 24,
   sdfRadius: 8,
   defaultFont: CJK_FALLBACK_CHAIN,
-}
-
-interface PendingLabel {
-  text: string
-  anchorX: number
-  anchorY: number
-  def: LabelDef
-  fontKey: string
-  /** Iter 112 paired-symbol collision: identifier shared with the
-   *  matching icon dispatched at the SAME line-walk anchor. After
-   *  collision, the stage exposes droppedPairKeys so IconStage can
-   *  drop the paired icon — implements MapLibre's "text+icon as one
-   *  symbol" invariant without a full paired-symbol collision queue. */
-  pairKey?: string
-}
-
-interface PendingLineLabel {
-  text: string
-  /** Polyline already projected to screen pixels by the caller. */
-  polylineX: Float32Array
-  polylineY: Float32Array
-  /** Distance along the polyline (px) where the label centre sits. */
-  centerOffsetPx: number
-  def: LabelDef
-  fontKey: string
 }
 
 export class TextStage {

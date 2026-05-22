@@ -2,6 +2,29 @@
 // here for production use; tests can import without pulling in
 // TextRenderer's WGSL pipeline + GPU types.
 
+import { FONT_KEY_SENTINEL } from './sdf/glyph-rasterizer'
+
+/** Resolve per-font typography overrides for the given fontKey against
+ *  a typography table. The primary family is the first entry of the
+ *  comma-separated CSS list inside the (possibly sentinel-encoded)
+ *  fontKey. Returns identity values (0 / 1) when no override is
+ *  registered, so callers always get a usable result. Pure helper —
+ *  exported for unit testing. */
+export function resolveTypography(
+  fontKey: string,
+  table: Map<string, { letterSpacingEm: number; lineHeightScale: number }> | null | undefined,
+): { letterSpacingEm: number; lineHeightScale: number } {
+  if (!table) return { letterSpacingEm: 0, lineHeightScale: 1 }
+  // Skip the sentinel prefix if present; the family list is the last
+  // segment. composeFontKey appends the CJK fallback chain, so the
+  // primary family is whatever comes before the first comma.
+  const familyList = fontKey.startsWith(FONT_KEY_SENTINEL)
+    ? (fontKey.split(FONT_KEY_SENTINEL)[3] ?? '')
+    : fontKey
+  const primary = familyList.split(',')[0]!.trim().replace(/^["']|["']$/g, '')
+  return table.get(primary) ?? { letterSpacingEm: 0, lineHeightScale: 1 }
+}
+
 /** Mapbox `text-transform` — uppercase / lowercase / none.
  *  Note for CJK: case mapping is undefined for ideographs and
  *  hangul — Unicode default-cased mappings pass them through. */
