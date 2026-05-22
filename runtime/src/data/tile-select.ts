@@ -761,17 +761,28 @@ export function visibleTilesFrustumSampled(
     tileSet.add(key)
   }
 
-  // World-copy aware tile decode. The sample's absolute longitude
-  // (computed from raw mercator x) tells us which world copy the
-  // ground point is in — Math.floor(absTileFx / n) yields the world-
-  // offset (negative = west, positive = east), and the tile-x is the
-  // remainder modulo n. Without this, low-zoom mercator demos that
-  // show multiple Earth copies side-by-side only emit tiles for the
-  // central copy and the East/West copies render blank (regression:
-  // smoke vector_categorical / water_hierarchy at zoom 0).
-  const decodeAbsTile = (absMx: number, absMy: number): void => {
-    const lon = (absMx / R) / DEG2RAD
-    const lat = (2 * Math.atan(Math.exp(absMy / R)) - Math.PI / 2) / DEG2RAD
+  // Projection centre + circumference for the projection-aware decode.
+  // The GPU draws non-Mercator geometry as projection.forward(lon,lat)
+  // relative to the projected centre, so an unprojected screen sample
+  // (camera.unprojectToZ0 returns coords in that SAME projected space
+  // for non-Mercator) must be run through projection.inverse — NOT the
+  // Mercator inverse — to recover the lon/lat the renderer actually
+  // paints there. Mercator (projType 0) keeps the original raw path.
+  const isMerc = projType === 0
+  const RAD2DEG = 180 / Math.PI
+  const WORLD_W = 2 * Math.PI * R
+  const camLon = (camera.centerX / R) * RAD2DEG
+  // Match the GPU's projection centre (renderFrame clamps centerLat to ±85).
+  const camLat = Math.max(-85, Math.min(85,
+    (2 * Math.atan(Math.exp(camera.centerY / R)) - Math.PI / 2) * RAD2DEG))
+  const centerProj = isMerc ? [0, 0] : projection.forward(camLon, camLat)
+
+  // CONTINUOUS lon (may exceed ±180 for world copies) + lat in degrees.
+  // `Math.floor(absTileFx / n)` yields the world-offset (negative = west,
+  // positive = east); the tile-x is the remainder modulo n. Without the
+  // world copies low-zoom multi-Earth demos render the East/West copies
+  // blank (regression: smoke vector_categorical / water_hierarchy z0).
+  const decodeLonLat = (lon: number, lat: number): void => {
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) return
     const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
     const absTileFx = (lon + 180) / 360 * n
@@ -783,12 +794,27 @@ export function visibleTilesFrustumSampled(
     addTile(tx, ty, ox)
   }
 
+  // Convert an unprojected sample (relative to camera centre) → lon/lat.
+  const decodeSample = (relX: number, relY: number): void => {
+    if (isMerc) {
+      decodeLonLat(
+        ((camera.centerX + relX) / R) * RAD2DEG,
+        (2 * Math.atan(Math.exp((camera.centerY + relY) / R)) - Math.PI / 2) * RAD2DEG,
+      )
+    } else {
+      const [lonW, lat] = projection.inverse(centerProj[0]! + relX, centerProj[1]! + relY)
+      // projection.inverse wraps lon to ±180; restore the continuous lon
+      // so the dateline world copy resolves to the correct ox.
+      decodeLonLat(lonW + Math.round(relX / WORLD_W) * 360, lat)
+    }
+  }
+
   // Pin the camera's current tile unconditionally — at extreme pitch
   // the camera's forward ray may miss samples that actually land on
   // it, so include it here. Matches the "camera-foot tile always
   // loaded" invariant the existing animation-coverage tests rely on
   // at low pitch.
-  decodeAbsTile(camera.centerX, camera.centerY)
+  decodeLonLat(camLon, camLat)
 
   for (let iy = 0; iy < SAMPLES_PER_AXIS; iy++) {
     const fy = iy / (SAMPLES_PER_AXIS - 1)
@@ -796,7 +822,7 @@ export function visibleTilesFrustumSampled(
       const fx = ix / (SAMPLES_PER_AXIS - 1)
       const rel = camera.unprojectToZ0(fx * canvasWidth, fy * canvasHeight, canvasWidth, canvasHeight, dpr)
       if (!rel) continue // sample ray misses ground (at/above horizon)
-      decodeAbsTile(camera.centerX + rel[0], camera.centerY + rel[1])
+      decodeSample(rel[0], rel[1])
     }
   }
 

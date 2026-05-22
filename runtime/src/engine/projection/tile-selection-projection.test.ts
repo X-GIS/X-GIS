@@ -171,32 +171,29 @@ describe('iter-322 routeToSphereSelector — per-projection routing contract', (
   const AZIMUTHAL_FAMILY = [3, 4, 5]
   const OBLIQUE = 6
 
-  it('cylindrical projections use the flat frustum selector (no sphere route, non-dateline)', () => {
+  it('cylindrical projections use the flat (projection-aware) selector — never sphere-route', () => {
+    // Includes the dateline: the flat selector now covers both sides via
+    // world-copy enumeration, so equirect/NE no longer need the hemisphere-
+    // culling sphere selector (which dropped the back-of-world tiles).
     for (const p of CYLINDRICAL) {
-      expect(routeToSphereSelector(p, false, false), `proj ${p} should NOT sphere-route`).toBe(false)
+      expect(routeToSphereSelector(p, false), `proj ${p} should NOT sphere-route`).toBe(false)
     }
   })
 
   it('azimuthal family always sphere-routes (centre-relative projection)', () => {
     for (const p of AZIMUTHAL_FAMILY) {
-      expect(routeToSphereSelector(p, false, false), `proj ${p} must sphere-route`).toBe(true)
+      expect(routeToSphereSelector(p, false), `proj ${p} must sphere-route`).toBe(true)
     }
   })
 
   it('oblique mercator always sphere-routes (iter-127)', () => {
-    expect(routeToSphereSelector(OBLIQUE, false, false)).toBe(true)
+    expect(routeToSphereSelector(OBLIQUE, false)).toBe(true)
   })
 
   it('globe routes via globeMode regardless of projType', () => {
-    expect(routeToSphereSelector(7, true, false)).toBe(true)
+    expect(routeToSphereSelector(7, true)).toBe(true)
     // globeMode forces the route even for a projType that otherwise wouldn't.
-    expect(routeToSphereSelector(0, true, false)).toBe(true)
-  })
-
-  it('any projection facing the antimeridian sphere-routes (no dateline seam)', () => {
-    for (const p of [0, 1, 2, 3, 4, 5, 6, 7]) {
-      expect(routeToSphereSelector(p, false, true), `proj ${p} at dateline must sphere-route`).toBe(true)
-    }
+    expect(routeToSphereSelector(0, true)).toBe(true)
   })
 })
 
@@ -204,7 +201,7 @@ describe('iter-322 sphere-routed projections — selection sane at pole + dateli
   // ortho/azi/stereo/oblique all consume globeVisibleTiles (projection-
   // agnostic: it takes lon/lat/zoom only). Confirm the selector output
   // is in-range for the centres these projections are actually used at.
-  // Each is a projType that routeToSphereSelector(p,false,false)===true.
+  // Each is a projType that routeToSphereSelector(p,false)===true.
   const SPHERE_ROUTED = [3, 4, 5, 6, 7]
 
   for (const p of SPHERE_ROUTED) {
@@ -212,8 +209,8 @@ describe('iter-322 sphere-routed projections — selection sane at pole + dateli
       // Sanity: this projType genuinely sphere-routes (else the test
       // would be exercising the wrong selector).
       const routes = p === 7
-        ? routeToSphereSelector(p, true, false)   // globe via globeMode
-        : routeToSphereSelector(p, false, false)
+        ? routeToSphereSelector(p, true)   // globe via globeMode
+        : routeToSphereSelector(p, false)
       expect(routes, `proj ${p} expected to sphere-route`).toBe(true)
 
       // North pole, south pole, antimeridian, mid-latitude — the same

@@ -217,18 +217,48 @@ export function visibleTilesSSE(
   // logic; we only apply this cap on Mercator + equirect, where the
   // math otherwise lets the strip grow unboundedly. Disable via
   // `opts.disableHorizonCull` for diagnostic rendering.
-  const projType = projection.name === 'mercator' ? 0 : 1
+  const projType = projection.name === 'mercator' ? 0
+    : projection.name === 'natural_earth' ? 2 : 1
   const horizonCullActive = projType === 0 && !opts.disableHorizonCull
   const earthR = 6378137
   const horizonDist = horizonCullActive
     ? 1.2 * Math.sqrt(2 * earthR * Math.max(altitude, 1))
     : Infinity
 
+  // Projection-aware screen projection. Tile bounds are enumerated in
+  // Mercator meters (the tile pyramid is Web Mercator), but the GPU
+  // draws non-Mercator geometry as `projection.forward(lon,lat)` relative
+  // to the projected camera centre, then applies this SAME Mercator-built
+  // MVP (see renderer.ts project_geom path). The cull MUST mirror that:
+  // converting each Mercator-meter corner → lon/lat → projection.forward
+  // makes selection screen-space match what's actually rasterised. Skip
+  // it for Mercator (projType 0) so that hot path stays byte-identical.
+  const RAD2DEG = 180 / Math.PI
+  const camLon = (camMx / earthR) * RAD2DEG
+  // Match the GPU's projection centre (renderFrame clamps centerLat to
+  // ±85 before feeding it as proj_params.z).
+  const camLat = Math.max(-85, Math.min(85,
+    (2 * Math.atan(Math.exp(camMy / earthR)) - Math.PI / 2) * RAD2DEG))
+  const centerProj = projType === 0 ? [0, 0] : projection.forward(camLon, camLat)
   // Frustum cull via the camera's MVP — same matrix the renderer uses
   // to draw, so cull and rasterisation agree on screen space at any DPR.
   const mvp = camera.getRTCMatrix(canvasWidth, canvasHeight, dpr)
   const toScreen = (mx: number, my: number): [number, number] | null => {
-    const rx = mx - camMx, ry = my - camMy
+    let rx: number, ry: number
+    if (projType === 0) {
+      rx = mx - camMx; ry = my - camMy
+    } else {
+      const lonAbs = (mx / earthR) * RAD2DEG
+      const lat = (2 * Math.atan(Math.exp(my / earthR)) - Math.PI / 2) * RAD2DEG
+      const p = projection.forward(lonAbs, lat)
+      if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null
+      // projection.forward wraps lon to the primary world (clon±180); add
+      // the world-copy offset back on x so adjacent copies land at the
+      // right screen position, matching the GPU's `project_geom` world_off.
+      const wo = Math.floor((lonAbs - camLon + 180) / 360)
+      rx = p[0] + wo * EARTH_CIRC_M - centerProj[0]!
+      ry = p[1] - centerProj[1]!
+    }
     const cw = mvp[3]! * rx + mvp[7]! * ry + mvp[15]!
     if (cw <= 1e-6) return null  // behind camera
     const cx = mvp[0]! * rx + mvp[4]! * ry + mvp[12]!
