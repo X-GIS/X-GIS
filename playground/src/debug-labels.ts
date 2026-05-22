@@ -25,7 +25,7 @@ const camEl = document.getElementById('cam')!
 const panel = document.getElementById('panel')!
 
 interface DumpGlyph { cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }
-interface DumpLabel { text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number; glyphs: DumpGlyph[] }
+interface DumpLabel { text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number; curved: boolean; glyphs: DumpGlyph[] }
 interface DebugMap {
   run(src: string, base: string): Promise<void>
   setGlyphsUrl(u: string): void
@@ -126,7 +126,10 @@ function analyze(l: DumpLabel): { html: string; bad: boolean } {
   // Logical lines by offset y (what prepare intends).
   const byOffset = new Map<number, DumpGlyph[]>()
   for (const g of l.glyphs) {
-    if (g.cp === 10) continue
+    // Skip non-rendering glyphs (newline cp10, space, any zero-ink): no
+    // on-screen quad, so their (often junk-negative) bearingY must not
+    // pollute the render-y line analysis.
+    if (g.cp === 10 || g.height <= 0) continue
     const k = Math.round(g.y)
     if (!byOffset.has(k)) byOffset.set(k, [])
     byOffset.get(k)!.push(g)
@@ -189,10 +192,13 @@ function doDump(filter: string): void {
       panel.innerHTML = `<span class="dim">필터 "${filter || '(전체)'}" 일치 라벨 0개. 맵을 그 라벨이 보이는 위치로 이동 후 다시 DUMP. (라벨 로딩 몇 초 걸릴 수 있음)</span>`
       return
     }
-    const parts = labels.map(analyze)
+    // Line-following labels (roads/rivers) place glyphs along a curve —
+    // the stacked-line analysis doesn't apply. Skip them.
+    const pointLabels = labels.filter(l => !l.curved)
+    const parts = pointLabels.map(analyze)
     const badCount = parts.filter(p => p.bad).length
     panel.innerHTML =
-      `<span class="${badCount ? 'bad' : 'ok'}">${labels.length}개 라벨, 이상 ${badCount}개</span>\n\n` +
+      `<span class="${badCount ? 'bad' : 'ok'}">${labels.length}개 라벨 (점 ${pointLabels.length}/곡선 ${labels.length - pointLabels.length}), 이상 ${badCount}개</span>\n\n` +
       parts.map(p => p.html).join('\n\n')
   }, 250)
 }

@@ -1088,7 +1088,7 @@ export class TextStage {
   // or downstream in the GPU shader. Off by default (zero cost).
   private _dumpFilter: string | null = null
   private _dumpedLabels: Array<{
-    text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number
+    text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number; curved: boolean
     glyphs: Array<{ cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }>
   }> = []
   /** Enable per-glyph offset capture for labels containing `substr`.
@@ -1102,7 +1102,7 @@ export class TextStage {
    *  A correct label has uniform RENDERED y per line; a mixed-rfs glyph
    *  renders at the wrong height even when its offset y is correct. */
   getDumpedLabels(): ReadonlyArray<{
-    text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number
+    text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number; curved: boolean
     glyphs: ReadonlyArray<{ cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }>
   }> { return this._dumpedLabels }
 
@@ -1999,6 +1999,10 @@ export class TextStage {
         this._dumpedLabels.push({
           text, anchorX: d.anchorX, anchorY: d.anchorY,
           fontSize: d.fontSize, slotSize: this.opts.slotSize,
+          // Line-following labels (roads/rivers, symbol-placement=line)
+          // carry per-glyph rotations and place glyphs ALONG a curve —
+          // the stacked-line render-y analysis does NOT apply to them.
+          curved: d.glyphRotations !== undefined,
           glyphs,
         })
       }

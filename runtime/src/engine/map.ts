@@ -1446,7 +1446,7 @@ export class XGISMap {
     this.textStage?.setLabelDumpFilter(substr)
   }
   getDumpedLabels(): ReadonlyArray<{
-    text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number
+    text: string; anchorX: number; anchorY: number; fontSize: number; slotSize: number; curved: boolean
     glyphs: ReadonlyArray<{ cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }>
   }> | null {
     return this.textStage?.getDumpedLabels() ?? null
