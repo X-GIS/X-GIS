@@ -13,6 +13,7 @@ import { QUALITY, updateQuality, type QualityConfig } from './gpu/quality'
 import { GPUTimer } from './gpu/gpu-timer'
 import { Camera } from './projection/camera'
 import { CameraController } from './camera-controller'
+import { SourceManager } from './source-manager'
 import { MERCATOR_LAT_LIMIT } from './projection/projection'
 import { projectWgsl, needsBackfaceCullWgsl } from './projection/projection-wgsl-mirror'
 import { globeForward } from './projection/globe'
@@ -27,8 +28,6 @@ import {
 } from './render/bucket-scheduler'
 import { interpret, type SceneCommands } from './interpreter'
 import { lonLatToMercator, type GeoJSONFeatureCollection } from '../loader/geojson'
-import { injectPolarCaps } from '../loader/polar-cap-detect'
-import { isTileTemplate } from '../data/tile-select'
 import { computeSliceKey } from '../data/eval/filter-eval'
 import { RasterRenderer } from './render/raster-renderer'
 import { PointRenderer } from './render/point-renderer'
@@ -46,7 +45,7 @@ import {
 } from './layer'
 import { EventDispatcher } from './event-dispatcher'
 import { TileCatalog } from '../data/tile-catalog'
-import { buildShowSourceMaps, type ShowSourceMaps } from './show-source-maps'
+import { buildShowSourceMaps } from './show-source-maps'
 import {
   parseHexColor, hexToRgba, featureAnchor,
   applyFilter, applyGeometry,
@@ -67,12 +66,11 @@ export type {
   XGISMapOptions, FontTypographyMap,
 } from './map-types'
 import {
-  asVectorTileKind, sceneHasAnyAnimation, computeGeoJSONBounds,
+  asVectorTileKind, sceneHasAnyAnimation,
   buildTypographyMap, registerFonts,
 } from './map-geo-helpers'
-import { attachPMTilesSource, prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
+import { prewarmVectorTileSource, detectVectorTileFormat } from '../loader/vector-tile-loader'
 import { VirtualPMTilesBackend } from '../data/sources/virtual-pmtiles-backend'
-import { reprojectFeatureCollection } from '../data/sources/reproject-fc'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
 import { toU32Id, pointPatchToFeatureCollection, type PointPatch } from './id-resolver'
 import type { GeoJSONFeature } from '../loader/geojson'
@@ -92,6 +90,7 @@ export class XGISMap {
   private ctx!: GPUContext
   private camera: Camera
   private cameraController!: CameraController
+  private sourceManager!: SourceManager
   private renderer!: MapRenderer
   private rasterRenderer!: RasterRenderer
   /** Show whose source backs the active raster URL — single-tracked
@@ -364,6 +363,28 @@ export class XGISMap {
       invalidate: () => this.invalidate(),
       getCanvas: () => this.getCanvas(),
       getCtxCanvas: () => this.ctx?.canvas,
+    })
+    // Source-ingest cluster — receives the SAME source-state Map
+    // instances by reference so every internal read in renderFrame /
+    // rebuildLayers / hasPendingSourceWork / diagnostics stays untouched.
+    // ctx / renderer / lineRenderer are read fresh (populated in run())
+    // via accessors; camera / canvas are stable ctor-time instances.
+    this.sourceManager = new SourceManager({
+      rawDatasets: this.rawDatasets,
+      vtSources: this.vtSources,
+      sourceCRS: this.sourceCRS,
+      camera: this.camera,
+      canvas: this.canvas,
+      getCtx: () => this.ctx,
+      getRenderer: () => this.renderer,
+      getLineRenderer: () => this.lineRenderer,
+      invalidate: () => this.invalidate(),
+      fitZoomToLonSpan: (lonSpan, cssWidthPx) => this._fitZoomToLonSpan(lonSpan, cssWidthPx),
+      runBoundsFitGate: (apply) => this._runBoundsFitGate(apply),
+      rebuildLayers: () => this.rebuildLayers(),
+      teardownSource: (sourceId) => this.teardownSource(sourceId),
+      deleteFeatureIndex: (sourceId) => { this._featureIndex.delete(sourceId) },
+      isPolarCapsEnabled: () => this._polarCapsEnabled,
     })
     // Apply resource options BEFORE the first render frame so the
     // lazy TextStage construction sees the full bundle. Setters
@@ -1682,7 +1703,7 @@ export class XGISMap {
     // load (AC7). Non-reprojection failures (HTTP, JSON parse, …) keep the
     // existing fail-the-run contract and are re-thrown after the batch.
     const loadResults = await Promise.allSettled(commands.loads.map(load =>
-      this._attachOneSource(load, baseUrl, {
+      this.sourceManager._attachOneSource(load, baseUrl, {
         usedSourceLayers,
         extrudeExprsBySource,
         extrudeBaseExprsBySource,
@@ -1851,292 +1872,9 @@ export class XGISMap {
     sourceName: string,
     fc: GeoJSONFeatureCollection,
   ): GeoJSONFeatureCollection {
-    const fromEPSG = this.sourceCRS.get(sourceName)
-    if (fromEPSG === undefined) return fc // no declared CRS ⇒ 4326 / no-op
-    try {
-      return reprojectFeatureCollection(fc, fromEPSG)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      const err = new Error(
-        `[X-GIS] Failed to reproject source "${sourceName}" from ${fromEPSG}: ${msg}`,
-      )
-      // Tag so the parallel-load orchestrator (run()) can isolate a single
-      // bad-CRS source instead of aborting every load (AC7).
-      ;(err as { xgisReprojectFailure?: boolean }).xgisReprojectFailure = true
-      throw err
-    }
+    return this.sourceManager._reprojectIngest(sourceName, fc)
   }
 
-  /** Attach one declared `load:` from the parsed program — dispatches
-   *  by URL/format into the four supported branches:
-   *    1. raster tile template (`{z}/{x}/{y}` URL)        → store URL string
-   *    2. vector tile archive (.pmtiles / .tilejson / .xgvt) → spin up
-   *       per-source TileCatalog + VectorTileRenderer, attach via the
-   *       unified vector-tile-loader, register vtSources entry
-   *    3. inline-empty source (`url: ''`)                 → empty FeatureCollection
-   *    4. GeoJSON URL                                      → fetch + JSON parse
-   *
-   *  The five preprocessed maps from `buildShowSourceMaps` flow into
-   *  the vector-tile branch only — nothing else uses them. cameraFit
-   *  is shared mutable state across parallel loads ("first source that
-   *  knows its bounds wins"); boxed in an object so each Promise sees
-   *  the same flag. */
-  private async _attachOneSource(
-    load: SceneCommands['loads'][0],
-    baseUrl: string,
-    maps: ShowSourceMaps,
-    cameraFitState: { fit: boolean },
-  ): Promise<void> {
-    const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
-    console.log(`[X-GIS] Loading: ${load.name} from ${url}`)
-
-    // Source `type:` from the DSL takes precedence over URL-extension
-    // sniffing so a URL without a file extension (e.g. a TileJSON
-    // manifest at `https://tiles.example.com/planet`) still routes
-    // correctly. Without this, the misrouted URL falls into the
-    // bottom `fetch().json()` branch and the JSON gets stored as a
-    // FeatureCollection — which then crashes `applyFilter` because
-    // there's no `.features` array.
-    const declaredType = load.type
-    // Mapbox styles declare `type: vector` / converted to `type: tilejson`
-    // for MVT XYZ endpoints whose URL contains the `{z}/{x}/{y}` template.
-    // Don't let the template-shape heuristic re-route those into the
-    // raster path — declared vector-family type wins.
-    const isDeclaredVector = declaredType === 'vector'
-      || declaredType === 'tilejson'
-      || declaredType === 'pmtiles'
-    const looksLikeRaster = declaredType === 'raster'
-      || (!isDeclaredVector && isTileTemplate(url))
-    const vectorTileFormat = detectVectorTileFormat(url, asVectorTileKind(declaredType))
-
-    if (looksLikeRaster) {
-      this.rawDatasets.set(load.name, { _tileUrl: url } as unknown as GeoJSONFeatureCollection)
-      return
-    }
-
-    if (vectorTileFormat !== null) {
-      const source = new TileCatalog()
-      const vtRenderer = new VectorTileRenderer(this.ctx)
-      vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
-    vtRenderer.setPaletteResources(this.renderer.paletteColorAtlasView, this.renderer.paletteSampler) // must be set before any tile uploads
-    vtRenderer.setSpriteAtlasView(this.renderer.spriteAtlasView)
-      vtRenderer.setPaletteResources(this.renderer.paletteColorAtlasView, this.renderer.paletteSampler)
-    vtRenderer.setSpriteAtlasView(this.renderer.spriteAtlasView)
-      vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
-      vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
-    vtRenderer.setPatternPipelines(this.renderer.fillPipelinePatternGround, this.renderer.fillPipelinePatternGroundFallback)
-    vtRenderer.setPatternExtrudedPipelines(this.renderer.fillPipelinePatternExtruded, this.renderer.fillPipelinePatternExtrudedFallback)
-      vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
-      if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
-      vtRenderer.setSource(source) // connect before load so preloaded tiles auto-upload
-      const fullUrl = url.startsWith('http') ? url : new URL(url, location.href).href
-      // Inferred set + explicit `layers:` merge: explicit wins for any
-      // layer not in the inferred set; inferred is typically a subset.
-      const inferred = maps.usedSourceLayers.get(load.name)
-      const filterLayers = load.layers && load.layers.length > 0
-        ? load.layers
-        : (inferred && inferred.size > 0 ? [...inferred] : undefined)
-      await attachPMTilesSource(source, {
-        url: fullUrl,
-        kind: vectorTileFormat,
-        layers: filterLayers,
-        extrudeExprs: maps.extrudeExprsBySource.get(load.name),
-        extrudeBaseExprs: maps.extrudeBaseExprsBySource.get(load.name),
-        showSlices: maps.showSlicesBySource.get(load.name),
-        strokeWidthExprs: maps.strokeWidthExprsBySource.get(load.name),
-        strokeColorExprs: maps.strokeColorExprsBySource.get(load.name),
-      })
-      this.vtSources.set(load.name, { source, renderer: vtRenderer })
-      this.rawDatasets.set(load.name, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
-
-      // Fit camera to the FIRST source that finishes. Multi-source demos
-      // typically share world-bounds; "first to win" avoids order-
-      // dependent racing across parallel loads.
-      if (!cameraFitState.fit) {
-        const vtBounds = vtRenderer.getBounds()
-        if (vtBounds) {
-          cameraFitState.fit = true
-          const [minLon, minLat, maxLon, maxLat] = vtBounds
-          const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
-          const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
-          this.camera.centerX = cx
-          this.camera.centerY = cy
-          const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-          const cssW = this.canvas.width / dpr
-          this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
-        }
-      }
-      return
-    }
-
-    if (load.url === '') {
-      // Inline source — host pushes data later via setSourceData /
-      // setSourcePoints / updateFeature.
-      this.rawDatasets.set(load.name, { type: 'FeatureCollection', features: [] })
-      return
-    }
-
-    // GeoJSON URL fetch.
-    const response = await fetch(url)
-    if (!response.ok) {
-      throw new Error(
-        `[X-GIS] Failed to load "${load.name}" from ${url} — HTTP ${response.status}. ` +
-        `Check that the file exists at that path (iOS Safari otherwise surfaces this as the opaque ` +
-        `"string did not match the expected pattern" when response.json() runs on an HTML 404 body).`,
-      )
-    }
-    const data = await response.json() as GeoJSONFeatureCollection
-
-    // Phase 5f: VirtualPMTilesBackend is now the default route for
-    // GeoJSON URL sources. The legacy main-thread compileSync path
-    // (GeoJSONRuntimeBackend) is still available for opt-out
-    // diagnostics during the rollout via either:
-    //   - `window.__XGIS_USE_LEGACY_GEOJSON = true` in DevTools
-    //   - `?legacy=1` query param
-    // The opt-out keeps the safety net while we confirm the new
-    // path is stable across every demo + fixture. Once the e2e
-    // suite has run green for a stretch, the legacy path comes
-    // out entirely (Phase 5f follow-up).
-    const useLegacy = typeof window !== 'undefined' && (
-      (window as unknown as { __XGIS_USE_LEGACY_GEOJSON?: boolean }).__XGIS_USE_LEGACY_GEOJSON === true
-      || /[?&]legacy=1\b/.test(window.location.search)
-    )
-    const useVirtualPMTiles = !useLegacy
-    if (useVirtualPMTiles) {
-      // Diagnostic flag — set on `window` so the Phase 5e regression
-      // spec can assert the route taken without parsing console
-      // output. Cheap: one property write at attach time.
-      if (typeof window !== 'undefined') {
-        (window as unknown as { __xgisVirtualPMTilesActive?: boolean }).__xgisVirtualPMTilesActive = true
-      }
-      await this._attachGeoJSONViaVirtualPMTiles(load.name, data, maps, cameraFitState)
-      return
-    }
-
-    // Legacy opt-out path. Reproject declared-CRS input → WGS84 LL before
-    // it enters rawDatasets (and therefore before tiling). Absent CRS ⇒
-    // EPSG:4326 / no-op.
-    this.rawDatasets.set(load.name, this._reprojectIngest(load.name, data))
-  }
-
-  /** Phase 5f-2 opt-in: attach an INLINE GeoJSON source (filtered,
-   *  per-show) through VirtualPMTilesBackend, bypassing the legacy
-   *  pool.compile + setRawParts + GeoJSONRuntimeBackend chain. Run
-   *  when `__XGIS_USE_VIRTUAL_INLINE_GEOJSON` / `?virt_inline=1` is
-   *  set AND the show is simple (no filter, no geometryExpr, no
-   *  per-feature buffer variant — those still take the legacy path
-   *  until showSlices and feature-buffer build ordering are wired
-   *  through VirtualPMTilesBackend). */
-  private _attachInlineGeoJSONViaVirtualPMTiles(
-    vtKey: string,
-    filtered: GeoJSONFeatureCollection,
-    _show: ShowCommand,
-    source: TileCatalog,
-  ): void {
-    const backend = new VirtualPMTilesBackend({
-      sourceName: vtKey,
-      geojson: filtered,
-      // No per-show filter / extrude / stroke overrides here — those
-      // are exactly the cases the gate above rejects.
-    })
-    source.attachBackend(backend)
-
-    // Camera fit from the data's bounds. Same heuristic the legacy
-    // compile callback uses; the bounds come from a sync walk
-    // because we don't get a tileSet callback in this path.
-    this._runBoundsFitGate(() => {
-      let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity
-      const visit = (c: unknown): void => {
-        if (!Array.isArray(c)) return
-        if (typeof c[0] === 'number' && typeof c[1] === 'number') {
-          const lon = c[0] as number, lat = c[1] as number
-          if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon
-          if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat
-          return
-        }
-        for (const inner of c) visit(inner)
-      }
-      for (const f of filtered.features) {
-        if (f.geometry) visit((f.geometry as { coordinates?: unknown }).coordinates)
-      }
-      if (minLon < Infinity) {
-        const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
-        const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
-        this.camera.centerX = cx
-        this.camera.centerY = cy
-        const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-        const cssW = this.canvas.width / dpr
-        this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
-      }
-    })
-
-    this.invalidate()
-  }
-
-  /** Phase 5e: attach a GeoJSON source through VirtualPMTilesBackend
-   *  so it flows through the catalog + MVT-worker pipeline instead
-   *  of the synchronous main-thread compileSync path. Mirrors the
-   *  PMTiles attach branch above — same TileCatalog + VectorTileRenderer
-   *  setup, same camera-fit logic, same vtSources registry — only
-   *  the backend instance differs. */
-  private async _attachGeoJSONViaVirtualPMTiles(
-    sourceName: string,
-    data: GeoJSONFeatureCollection,
-    maps: ShowSourceMaps,
-    cameraFitState: { fit: boolean },
-  ): Promise<void> {
-    // Reproject declared-CRS input → WGS84 LL FIRST so both the tiling
-    // backend (below) and the camera-fit bounds (computeGeoJSONBounds)
-    // operate on reprojected coordinates (AC9). Absent CRS ⇒ 4326 / no-op.
-    data = this._reprojectIngest(sourceName, data)
-    const source = new TileCatalog()
-    const vtRenderer = new VectorTileRenderer(this.ctx)
-    vtRenderer.setBindGroupLayout(this.renderer.bindGroupLayout)
-    vtRenderer.setPaletteResources(this.renderer.paletteColorAtlasView, this.renderer.paletteSampler)
-    vtRenderer.setSpriteAtlasView(this.renderer.spriteAtlasView)
-    vtRenderer.setExtrudedPipelines(this.renderer.fillPipelineExtruded, this.renderer.fillPipelineExtrudedFallback)
-    vtRenderer.setGroundPipelines(this.renderer.fillPipelineGround, this.renderer.fillPipelineGroundFallback)
-    vtRenderer.setPatternPipelines(this.renderer.fillPipelinePatternGround, this.renderer.fillPipelinePatternGroundFallback)
-    vtRenderer.setPatternExtrudedPipelines(this.renderer.fillPipelinePatternExtruded, this.renderer.fillPipelinePatternExtrudedFallback)
-    vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
-    if (this.lineRenderer) vtRenderer.setLineRenderer(this.lineRenderer)
-    vtRenderer.setSource(source)
-
-    const inferred = maps.usedSourceLayers.get(sourceName)
-    const filterLayers = inferred && inferred.size > 0 ? [...inferred] : undefined
-
-    const backend = new VirtualPMTilesBackend({
-      sourceName,
-      geojson: data,
-      layers: filterLayers,
-      extrudeExprs: maps.extrudeExprsBySource.get(sourceName),
-      extrudeBaseExprs: maps.extrudeBaseExprsBySource.get(sourceName),
-      showSlices: maps.showSlicesBySource.get(sourceName),
-      strokeWidthExprs: maps.strokeWidthExprsBySource.get(sourceName),
-      strokeColorExprs: maps.strokeColorExprsBySource.get(sourceName),
-    })
-    source.attachBackend(backend)
-
-    this.vtSources.set(sourceName, { source, renderer: vtRenderer })
-    this.rawDatasets.set(sourceName, { _vectorTile: true } as unknown as GeoJSONFeatureCollection)
-
-    // Camera-fit: derive bounds from the GeoJSON features themselves
-    // (no remote metadata to consult, unlike PMTiles).
-    if (!cameraFitState.fit) {
-      const bounds = computeGeoJSONBounds(data)
-      if (bounds) {
-        cameraFitState.fit = true
-        const [minLon, minLat, maxLon, maxLat] = bounds
-        const clampedLat = Math.max(-85, Math.min(85, (minLat + maxLat) / 2))
-        const [cx, cy] = lonLatToMercator((minLon + maxLon) / 2, clampedLat)
-        this.camera.centerX = cx
-        this.camera.centerY = cy
-        const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-        const cssW = this.canvas.width / dpr
-        this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
-      }
-    }
-  }
 
   /** Rebuild GPU layers from raw data with current projection */
   private rebuildLayers(): void {
@@ -2387,7 +2125,7 @@ export class XGISMap {
         && !show.geometryExpr?.ast
         && !needsFeatureBuffer
       if (useVirtualForInline) {
-        this._attachInlineGeoJSONViaVirtualPMTiles(vtKey, filtered, show, source)
+        this.sourceManager._attachInlineGeoJSONViaVirtualPMTiles(vtKey, filtered, show, source)
         // Setup shader variant pipelines + layout synchronously so the
         // render loop has them on the first frame. needsFeatureBuffer
         // shows take the legacy path above; the variant pipeline here
@@ -5200,58 +4938,7 @@ export class XGISMap {
    *
    *  Throws if `sourceId` was not declared in the .xgis file. */
   setSourceData(sourceId: string, data: GeoJSONFeatureCollection): void {
-    if (!this.rawDatasets.has(sourceId)) {
-      throw new Error(`[X-GIS] setSourceData: unknown source "${sourceId}"`)
-    }
-    // Validate FeatureCollection shape. Pre-fix a host passing
-    // `null` / `[]` / a Feature / a Geometry directly polluted the
-    // rawDatasets entry and crashed rebuildLayers on .features
-    // access. Normalise to a safe FeatureCollection rather than
-    // storing whatever the caller passed verbatim.
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      throw new Error(`[X-GIS] setSourceData: data must be a FeatureCollection object`)
-    }
-    // Auto-promote a single Feature → FeatureCollection (Mapbox API
-    // accepts both; was previously a confusing throw). Same lift the
-    // compiler-side normaliseInlineGeoJSON does for inline source.data.
-    // Also accept a bare Geometry (`{ type: 'Point', coordinates: … }`)
-    // by wrapping it in a Feature inside a FeatureCollection.
-    let normalized: GeoJSONFeatureCollection = data
-    const shape = data as { type?: string; features?: unknown; geometry?: unknown; coordinates?: unknown }
-    if (shape.type === 'Feature' && !Array.isArray(shape.features)) {
-      normalized = { type: 'FeatureCollection', features: [data as never] } as GeoJSONFeatureCollection
-    } else if (typeof shape.type === 'string'
-        && shape.type !== 'FeatureCollection'
-        && shape.type !== 'Feature'
-        && shape.coordinates !== undefined) {
-      // Bare Geometry (Point / LineString / Polygon / Multi*).
-      normalized = {
-        type: 'FeatureCollection',
-        features: [{ type: 'Feature', geometry: data as never, properties: {} }],
-      } as GeoJSONFeatureCollection
-    }
-    if (!Array.isArray((normalized as { features?: unknown }).features)) {
-      throw new Error(`[X-GIS] setSourceData: data.features must be an array (got ${typeof (normalized as { features?: unknown }).features})`)
-    }
-    // Reproject declared-CRS host-pushed data → WGS84 LL after the shape
-    // normalize above and BEFORE polar-cap injection / tiling (AC9). The
-    // declared CRS is looked up by sourceId in the run()-time registry;
-    // absent CRS ⇒ EPSG:4326 / no-op.
-    normalized = this._reprojectIngest(sourceId, normalized)
-    // Polar-cap injection (opt-in via setPolarCapsEnabled). Appends
-    // synthesised cap polygons that close the surface to the pole
-    // for any source feature touching the Web Mercator clamp boundary
-    // (±85.05° lat). Mirrors the polar-cap fix steps from iter 394-396;
-    // see project_polar_cap_gap_globe memory note.
-    if (this._polarCapsEnabled) {
-      normalized = injectPolarCaps(normalized as never) as never
-    }
-    this.rawDatasets.set(sourceId, normalized)
-    // Full replace invalidates any cached feature index for this source.
-    this._featureIndex.delete(sourceId)
-    this.teardownSource(sourceId)
-    this.rebuildLayers()
-    this.invalidate()
+    this.sourceManager.setSourceData(sourceId, data)
   }
 
   /** Typed-array fast path for point sources.
