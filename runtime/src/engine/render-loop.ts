@@ -31,6 +31,7 @@ import { IconStage } from './sprite/icon-stage'
 import { resolveText } from './text/text-resolver'
 import { hexToRgba, featureAnchor } from './feature-helpers'
 import { type ShowCommand } from './render/renderer'
+import { type FrameContext } from './render/frame-context'
 import { XGISMap } from './map'
 
 /** Typed view of the XGISMap members the relocated render path touches.
@@ -105,6 +106,14 @@ export type RenderLoopHost = Pick<XGISMap,
 
 export class RenderLoop {
   private readonly host: RenderLoopHost
+
+  /** The single REUSED per-frame FrameContext. Lazily built on the first
+   *  rendered frame, then mutated in place every subsequent frame — the
+   *  60 Hz loop is allocation-paranoid (see the arena / scratch-reuse
+   *  patterns in render()), so a fresh object per frame is forbidden. Its
+   *  fields are repopulated at the SAME points the equivalent locals were
+   *  computed before this struct existed, so behaviour is byte-identical. */
+  private _ctx: FrameContext | null = null
 
   constructor(map: XGISMap) {
     // Hold the owning map through the typed host view. The Pick-based
@@ -272,6 +281,47 @@ export class RenderLoop {
       perfMarkEnd(`encoder.pass.${label}`)
     }
 
+    // ── Build / repopulate the single reused FrameContext ──
+    // Bundles the per-frame locals computed above (plus the few derived
+    // deeper in the frame: colorView / sampleCount / useResolve set in the
+    // MSAA block, mvp / visibleWorldCopies set in the label block). The
+    // values are IDENTICAL to the locals and assigned at the same points;
+    // this is a pure bundling. Lazily allocate once on the first frame,
+    // then mutate in place — the 60 Hz loop is allocation-paranoid.
+    if (this._ctx === null) {
+      this._ctx = {
+        device, encoder, screenView,
+        colorView: screenView,            // set in the MSAA block below
+        camera: this.host.camera,
+        projType, centerLon, centerLat, w, h, dpr,
+        elapsedMs: this.host._elapsedMs,
+        frameCount: this.host._frameCount,
+        sampleCount: 1,                   // set in the MSAA block below
+        useResolve: false,                // set in the MSAA block below
+        mvp: new Float32Array(0),         // set in the label block below
+        visibleWorldCopies: [],           // set in the label block below
+        passScope,
+      }
+    } else {
+      const c = this._ctx
+      c.device = device
+      c.encoder = encoder
+      c.screenView = screenView
+      c.camera = this.host.camera
+      c.projType = projType
+      c.centerLon = centerLon
+      c.centerLat = centerLat
+      c.w = w
+      c.h = h
+      c.dpr = dpr
+      c.elapsedMs = this.host._elapsedMs
+      c.frameCount = this.host._frameCount
+      c.passScope = passScope
+      // colorView / sampleCount / useResolve / mvp / visibleWorldCopies
+      // are repopulated at their own (deeper) computation points below.
+    }
+    const ctx = this._ctx
+
     {
       // ═══ Direct rendering: vertex shader handles all projections ═══
       // MSAA + stencil texture management (recreate on resize).
@@ -279,6 +329,8 @@ export class RenderLoop {
       // ?safe / ?quality=performance / ?msaa=1, 4 on desktop default).
       const sc = getSampleCount()
       const useResolve = sc > 1
+      ctx.sampleCount = sc
+      ctx.useResolve = useResolve
       if (!this.host.stencilTexture || this.host.msaaWidth !== w || this.host.msaaHeight !== h) {
         this.host.msaaTexture?.destroy()
         this.host.stencilTexture?.destroy()
@@ -375,6 +427,7 @@ export class RenderLoop {
       const colorView = DEBUG_OVERDRAW
         ? this.host.overdrawAccumTexture!.createView()
         : (useResolve ? this.host.msaaTexture!.createView() : screenView)
+      ctx.colorView = colorView
 
       // Reset per-frame uniform ring cursors (dynamic-offset slots).
       this.host.renderer.beginFrame()
@@ -415,7 +468,7 @@ export class RenderLoop {
       // the prev-cam velocity vector and _evictShield population
       // stay frame-stable. See VTR.pumpPrefetch doc.
       for (const [, { renderer: vtR }] of this.host.vtSources) {
-        vtR.pumpPrefetch(this.host.camera, projType, w, h, dpr)
+        vtR.pumpPrefetch(this.host.camera, ctx.projType, ctx.w, ctx.h, ctx.dpr)
       }
 
       // ══════ Bucket scheduler ══════
@@ -465,7 +518,7 @@ export class RenderLoop {
           projection: this.host.projectionName ?? 'mercator',
           viewportWidthPx: cw,
           viewportHeightPx: ch,
-          dpr: dpr,
+          dpr: ctx.dpr,
         })
       }
       const { opaque, translucent, oit } = this.host.classifyVectorTileShows()
@@ -504,7 +557,7 @@ export class RenderLoop {
           ? 'composite'
           : 'opaque'
 
-      if (hasTranslucent) this.host.lineRenderer!.ensureOffscreen(w, h)
+      if (hasTranslucent) this.host.lineRenderer!.ensureOffscreen(ctx.w, ctx.h)
 
       // ── Bucket 1: opaque ──
       // Always emit at least one pass so raster + canvas background
@@ -519,7 +572,7 @@ export class RenderLoop {
         // Only the LAST opaque sub-pass can claim resolveTarget, and
         // only if no translucent/points pass runs after it.
         const resolveHere =
-          useResolve && isLastOpaque && _resolveOwner === 'opaque'
+          ctx.useResolve && isLastOpaque && _resolveOwner === 'opaque'
         // Depth must persist across opaque sub-passes so group N's
         // polygons are correctly occluded by group N-1's (e.g. roads
         // rendered after buildings must respect building depth in a
@@ -533,7 +586,7 @@ export class RenderLoop {
         // sub-pass to STORE depth instead of discarding.
         const persistDepth = !isLastOpaque || hasPoints || hasOit
 
-        passScope(isFirst ? 'opaque-main' : `opaque[${gi}]`, () => {
+        ctx.passScope(isFirst ? 'opaque-main' : `opaque[${gi}]`, () => {
           // Time EVERY opaque sub-pass. The timer pre-allocates a
           // QuerySet wide enough for MAX_SUBPASSES sub-passes, with
           // sub-pass 0 carrying the inside-passes breakdown (bg/raster/
@@ -550,8 +603,8 @@ export class RenderLoop {
           // subsequent sub-passes load so earlier-group IDs persist
           // where later groups didn't draw.
           const colorAttachments: GPURenderPassColorAttachment[] = [{
-            view: colorView,
-            resolveTarget: resolveHere ? screenView : undefined,
+            view: ctx.colorView,
+            resolveTarget: resolveHere ? ctx.screenView : undefined,
             // First pass clears to a neutral dark "space" color
             // visible only where the globe ISN'T (ortho projection
             // corners outside the sphere). Mapbox `background`
@@ -615,7 +668,7 @@ export class RenderLoop {
             // of the canvas. Cheap when stationary (the bg side
             // gates writeBuffer behind a dirty flag).
             if (this.host.backgroundRenderer) {
-              const _bgFrame = this.host.camera.getFrameView(w, h, dpr)
+              const _bgFrame = this.host.camera.getFrameView(ctx.w, ctx.h, ctx.dpr)
               this.host.backgroundRenderer.setMvp(_bgFrame.matrix)
               this.host.backgroundRenderer.setCamCenter(this.host.camera.centerX, this.host.camera.centerY)
             }
@@ -639,9 +692,9 @@ export class RenderLoop {
             } else {
               this.host.rasterRenderer.setOpacity(1)
             }
-            this.host.rasterRenderer.render(subPass, this.host.camera, projType, centerLon, centerLat, w, h, dpr)
+            this.host.rasterRenderer.render(subPass, this.host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr)
             this.host.gpuTimer?.mark(subPass, 'after_raster')
-            this.host.renderer.renderToPass(subPass, this.host.camera, projType, centerLon, centerLat, this.host._elapsedMs)
+            this.host.renderer.renderToPass(subPass, this.host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, this.host._elapsedMs)
             this.host.gpuTimer?.mark(subPass, 'after_legacy')
           }
 
@@ -700,12 +753,12 @@ export class RenderLoop {
               const fpG = debugFp ?? cs.fpG
               const fpGF = debugFp ?? cs.fpGF
               cs.vtEntry.renderer.render!(
-                subPass, this.host.camera, projType, centerLon, centerLat, w, h,
+                subPass, this.host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h,
                 cs.show, fp, lp, this.host.renderer.uniformBuffer, cs.bgl,
                 fpF, lpF,
                 DEBUG_OVERDRAW ? null : this.host.pointRenderer,
                 cs.fillPhase,
-                dpr,
+                ctx.dpr,
                 fpG, fpGF,
                 false, cs.resolvedShow,
               )
@@ -729,7 +782,7 @@ export class RenderLoop {
       // colour with a full-screen compose draw. Order-independent
       // by construction — no back-to-front sort.
       if (hasOit && !DEBUG_OVERDRAW) {
-        passScope('oit-fill', () => {
+        ctx.passScope('oit-fill', () => {
           // OIT pass shares the opaque pass's MSAA depth-stencil
           // (depthLoadOp='load' so the opaque depth is what
           // translucent fragments test against). depthStoreOp='discard'
@@ -764,11 +817,11 @@ export class RenderLoop {
           })
           for (const cs of oit) {
             cs.vtEntry.renderer.render!(
-              oitPass, this.host.camera, projType, centerLon, centerLat, w, h,
+              oitPass, this.host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h,
               cs.show, cs.fp, cs.lp, this.host.renderer.uniformBuffer, cs.bgl,
               cs.fpF, cs.lpF,
               null, 'oit-fill',
-              dpr,
+              ctx.dpr,
               cs.fpG, cs.fpGF,
               false, cs.resolvedShow,
             )
@@ -776,11 +829,11 @@ export class RenderLoop {
           oitPass.end()
         })
 
-        passScope('oit-compose', () => {
+        ctx.passScope('oit-compose', () => {
           const compPass = encoder.beginRenderPass({
             colorAttachments: [{
-              view: colorView,
-              resolveTarget: useResolve && !hasTranslucent && !hasPoints && _resolveOwner === 'composite' ? screenView : undefined,
+              view: ctx.colorView,
+              resolveTarget: ctx.useResolve && !hasTranslucent && !hasPoints && _resolveOwner === 'composite' ? ctx.screenView : undefined,
               loadOp: 'load', storeOp: 'store',
             }],
           })
@@ -805,16 +858,16 @@ export class RenderLoop {
           const cs = translucent[li]
           const isLastTranslucent = li === translucent.length - 1
           const resolveHere =
-            useResolve && isLastTranslucent && _resolveOwner === 'composite'
+            ctx.useResolve && isLastTranslucent && _resolveOwner === 'composite'
 
-          passScope(`translucent-off[${li}]`, () => {
+          ctx.passScope(`translucent-off[${li}]`, () => {
             const offPass = this.host.lineRenderer!.beginTranslucentPass(encoder)
             cs.vtEntry.renderer.render!(
-              offPass, this.host.camera, projType, centerLon, centerLat, w, h,
+              offPass, this.host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h,
               cs.show, cs.fp, cs.lp, this.host.renderer.uniformBuffer, cs.bgl,
               cs.fpF, cs.lpF,
               null, 'strokes',
-              dpr,
+              ctx.dpr,
               cs.fpG, cs.fpGF,
               true, // translucentBucket — offscreen pass has no depth
               cs.resolvedShow,
@@ -822,11 +875,11 @@ export class RenderLoop {
             offPass.end()
           })
 
-          passScope(`translucent-comp[${li}]`, () => {
+          ctx.passScope(`translucent-comp[${li}]`, () => {
             const compPass = encoder.beginRenderPass({
               colorAttachments: [{
-                view: colorView,
-                resolveTarget: resolveHere ? screenView : undefined,
+                view: ctx.colorView,
+                resolveTarget: resolveHere ? ctx.screenView : undefined,
                 loadOp: 'load',
                 storeOp: 'store',
               }],
@@ -849,11 +902,11 @@ export class RenderLoop {
       // direct layers exist; tile-points are handled inline in
       // bucket 1 via VTR.render's pointRenderer parameter.
       if (hasPoints && !DEBUG_OVERDRAW) {
-        passScope('points', () => {
+        ctx.passScope('points', () => {
           const ptPass = encoder.beginRenderPass({
             colorAttachments: [{
-              view: colorView,
-              resolveTarget: useResolve ? screenView : undefined,
+              view: ctx.colorView,
+              resolveTarget: ctx.useResolve ? ctx.screenView : undefined,
               loadOp: 'load',
               storeOp: 'store',
             }],
@@ -873,7 +926,7 @@ export class RenderLoop {
           // current camera before drawing. No-op for layers without
           // zoomSizeStops; internally skipped when zoom is unchanged.
           this.host.pointRenderer!.updateDynamicSizes(this.host.camera.zoom, performance.now())
-          this.host.pointRenderer!.render(ptPass, this.host.camera, projType, centerLon, centerLat, w, h, dpr)
+          this.host.pointRenderer!.render(ptPass, this.host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr)
           ptPass.end()
         })
       }
@@ -1006,6 +1059,7 @@ export class RenderLoop {
         stage.setCameraZoom(this.host.camera.zoom)
         const frame = this.host.camera.getFrameView(w, h, dpr)
         const mvp = frame.matrix
+        ctx.mvp = mvp
         const ccx = this.host.camera.centerX
         const ccy = this.host.camera.centerY
 
@@ -1070,6 +1124,7 @@ export class RenderLoop {
         // clamped at ±2). Replaces the iter-188 hardcoded
         // `[0, -1, 1, -2, 2]` enum + per-callsite NDC cull.
         const visibleWorldCopies = this.host.camera.getVisibleWorldCopies(w, h, dpr)
+        ctx.visibleWorldCopies = visibleWorldCopies
         const { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies } =
           makeLabelProjectors(
             mvp, w, h, ccx, ccy, projType, centerLon, centerLat,
@@ -1835,19 +1890,19 @@ export class RenderLoop {
         // targets the swapchain format, not r16float. Phase 2 adds
         // a text debug pipeline so glyph + halo overdraw counts.
         if (!DEBUG_OVERDRAW) {
-          passScope('text-overlay', () => {
+          ctx.passScope('text-overlay', () => {
             const tPass = encoder.beginRenderPass({
               colorAttachments: [{
-                view: colorView,
-                resolveTarget: useResolve ? screenView : undefined,
+                view: ctx.colorView,
+                resolveTarget: ctx.useResolve ? ctx.screenView : undefined,
                 loadOp: 'load',
                 storeOp: 'store',
               }],
             })
             // Icons render BEFORE text so labels read on top of their
             // POI badges — matches MapLibre's symbol-stage ordering.
-            iStage?.render(tPass, { width: w, height: h })
-            stage.render(tPass, { width: w, height: h })
+            iStage?.render(tPass, { width: ctx.w, height: ctx.h })
+            stage.render(tPass, { width: ctx.w, height: ctx.h })
             tPass.end()
           })
         }
@@ -1860,11 +1915,11 @@ export class RenderLoop {
     // the swapchain. Runs as the LAST pass of the frame so it owns
     // the swapchain attachment.
     if (DEBUG_OVERDRAW && this.host.overdrawAccumTexture) {
-      passScope('overdraw-compose', () => {
+      ctx.passScope('overdraw-compose', () => {
         const pipeline = this.host.renderer.ensureOverdrawCompose()
         const compPass = encoder.beginRenderPass({
           colorAttachments: [{
-            view: screenView,
+            view: ctx.screenView,
             clearValue: { r: 0, g: 0, b: 0, a: 1 },
             loadOp: 'clear', storeOp: 'store',
           }],

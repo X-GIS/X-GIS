@@ -61,8 +61,14 @@ describe('setProjection validity set', () => {
       'stereographic',
     ])
 
-    // renderFrame projType lookup — names → ids.
-    const projTypeMatch = src.match(/let projType = \{([\s\S]*?)\}\[this\.projectionName\]/)
+    // renderFrame projType lookup — names → ids. Lives in RenderLoop.render
+    // (extracted from map.ts in the engine-redesign refactor); reads
+    // `this.host.projectionName` via the RenderLoopHost view.
+    const renderSrc = readFileSync(
+      join(__dirname, 'render-loop.ts'),
+      'utf8',
+    )
+    const projTypeMatch = renderSrc.match(/let projType = \{([\s\S]*?)\}\[this\.host\.projectionName\]/)
     expect(projTypeMatch).not.toBeNull()
     const projTypeNames = (projTypeMatch![1].match(/([a-z_]+):/g) ?? []).map(s => s.slice(0, -1))
     expect(projTypeNames.sort()).toEqual(validNames.sort())
