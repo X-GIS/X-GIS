@@ -22,228 +22,29 @@
 // preserve every prior import path. Power users can construct their own
 // loader instance for isolated caches.
 
-import { PMTiles, TileType, type Header } from 'pmtiles'
+import { PMTiles, TileType } from 'pmtiles'
 import { TileCatalog } from '../data/tile-catalog'
-import { PMTilesBackend, type PMTilesFetcher } from '../data/sources/pmtiles-backend'
+import { PMTilesBackend } from '../data/sources/pmtiles-backend'
+import type {
+  VectorLayerInfo,
+  VectorTileFormat,
+  PMTilesSourceOptions,
+  ResolvedSource,
+  CachedArchive,
+  CachedTileJSON,
+  RawTileJSON,
+} from './vector-tile-loader-types'
+import { detectVectorTileFormat, memoizeOpen, normalizeVectorLayers } from './vector-tile-loader-helpers'
 
-// ─── Types ──────────────────────────────────────────────────────────
-
-/** Per-MVT-layer info pulled from `metadata.vector_layers`. Used by
- *  the runtime to skip work when the current camera zoom is outside a
- *  layer's data range — protomaps v4 only carries `roads` at z≥6 and
- *  `buildings` at z≥14, so requesting them at z=0/z=3 would otherwise
- *  trigger FLICKER warnings + sub-tile generation for tiles the archive
- *  simply doesn't have features in. */
-export interface VectorLayerInfo {
-  id: string
-  minzoom: number
-  maxzoom: number
-  fields?: Record<string, string>
-}
-
-/** The vector tile formats this loader knows how to attach. `null`
- *  means "the URL doesn't look like any of these" — the caller (e.g.
- *  the data-load loop in map.ts) routes to a different branch (raster,
- *  GeoJSON, etc.). */
-export type VectorTileFormat = 'pmtiles' | 'tilejson'
-
-export interface PMTilesSourceOptions {
-  url: string
-  /** Explicit declaration of what's at the URL. Bypasses URL-extension
-   *  sniffing when the caller already knows the format (`.pmtiles` is
-   *  unambiguous; `.json` could be TileJSON or GeoJSON; manifest URLs
-   *  often have no extension at all). Default `'auto'`.
-   *
-   *  - `'pmtiles'` — single .pmtiles archive, byte-range MVT.
-   *  - `'tilejson'` — TileJSON manifest pointing at an XYZ MVT server.
-   *  - `'auto'` — sniff by URL extension. */
-  kind?: VectorTileFormat | 'auto'
-  /** Restrict to a subset of MVT layer names (default: all layers). */
-  layers?: string[]
-  /** Per-MVT-layer 3D-extrude expression AST. */
-  extrudeExprs?: Record<string, unknown>
-  /** Per-MVT-layer 3D-extrude BASE expression AST. */
-  extrudeBaseExprs?: Record<string, unknown>
-  /** Per-show slice descriptors. */
-  showSlices?: Array<{ sliceKey: string; sourceLayer: string; filterAst: unknown | null }>
-  /** Per-sliceKey stroke-width override AST. */
-  strokeWidthExprs?: Record<string, unknown>
-  /** Per-sliceKey stroke-colour override AST. */
-  strokeColorExprs?: Record<string, unknown>
-  /** Skeleton prewarm depth — see TileCatalog.prewarmSkeleton. */
-  prewarmSkeletonDepth?: number
-}
-
-/** Unified shape returned by `VectorTileSource.resolve()` for sources
- *  that go through `PMTilesBackend`. PMTiles and TileJSON produce
- *  different metadata containers (header vs manifest) but the attach
- *  flow only needs the same six fields + a fetcher closure. XGVT-
- *  binary sources don't go through PMTilesBackend and return null. */
-export interface ResolvedSource {
-  format: VectorTileFormat
-  name?: string
-  attribution?: string
-  minZoom: number
-  maxZoom: number
-  bounds: [number, number, number, number]
-  vectorLayers: VectorLayerInfo[]
-  /** Format-specific log fragment ("N tile entries" vs "template=..."). */
-  logDetail: string
-  fetcher: PMTilesFetcher
-}
-
-interface CachedArchive {
-  archive: PMTiles
-  header: Header
-  vectorLayers: VectorLayerInfo[]
-  archiveName?: string
-  attribution?: string
-}
-
-interface CachedTileJSON {
-  tilesTemplate: string
-  bounds: [number, number, number, number]
-  minzoom: number
-  maxzoom: number
-  vectorLayers: VectorLayerInfo[]
-  name?: string
-  attribution?: string
-}
-
-interface RawTileJSON {
-  tilejson?: string
-  tiles?: string[]
-  bounds?: [number, number, number, number]
-  minzoom?: number
-  maxzoom?: number
-  name?: string
-  attribution?: string
-  vector_layers?: Array<{
-    id: string
-    minzoom?: number
-    maxzoom?: number
-    fields?: Record<string, string>
-  }>
-}
-
-// ─── Format detection ───────────────────────────────────────────────
-
-/** Single source of truth for "what format is at `url`". Used by the
- *  data-load loop to decide if a load is a vector tile source at all,
- *  by `VectorTileLoader.sourceFor` to pick which subclass to instantiate,
- *  and by `prewarm` to pick which cache to prime.
- *
- *  Routing precedence (most-authoritative first):
- *    1. URL extension is decisive when present (`.tilejson` / `.json`,
- *       `.pmtiles`, `.xgvt`). The server is the source of truth for
- *       what bytes come back — an explicit `kind: pmtiles` from a stale
- *       xgis source can't override a `.json` URL (that broke the
- *       protomaps `.pmtiles → api.protomaps.com/v4.json?key=…` rewrite
- *       with "Wrong magic number" before the URL-wins rule landed).
- *       `.geojson` is excluded so feature-data URLs aren't mis-routed.
- *    2. Otherwise honour explicit `kind`.
- *    3. Fall through to `null` — caller decides what to do with the
- *       unknown URL. */
-export function detectVectorTileFormat(
-  url: string,
-  kind?: VectorTileFormat | 'auto',
-): VectorTileFormat | null {
-  // Defensive: non-string url would crash at `.split('?')` (only
-  // available on string). Empty string is permissible to fall
-  // through to the kind-fallback branch / null return below.
-  if (typeof url !== 'string') return null
-  // Strip BOTH query (?…) and fragment (#…) before extension matching.
-  // Pre-fix only `?` was split off, so a URL like 'x.pmtiles#frag'
-  // kept '#frag' in the path → endsWith('.pmtiles') failed → fell to
-  // null and the caller defaulted to PMTiles which crashed on the
-  // wrong-magic-number boundary. Mirror of the compiler-side fragment
-  // detection fix (8885924).
-  // Strip the Protomaps `pmtiles://` scheme prefix if a host passed
-  // it through bypassing the converter side. Mirror of the compiler
-  // strip (3b81145). The protomaps/PMTiles library expects a bare
-  // URL; without the strip the format detection still routed pmtiles
-  // (since the inner URL ends with .pmtiles) but the subsequent
-  // fetch failed on the `pmtiles:` scheme.
-  // Case-insensitive scheme strip per RFC 3986 §3.1 — `PMTILES://...`
-  // is the same URI as `pmtiles://...`. Path extension matching is
-  // ALSO case-insensitive so `.PMTILES` / `.JSON` / `.TILEJSON` from a
-  // case-tolerant server (Windows-style or S3 keys uppercased by an
-  // upstream rewrite) route correctly instead of falling to the null
-  // return + PMTiles-default crash on Wrong magic number.
-  const stripped = /^pmtiles:\/\//i.test(url) ? url.slice('pmtiles://'.length) : url
-  const path = stripped.split('?')[0]!.split('#')[0]!
-  const lcPath = path.toLowerCase()
-  if (lcPath.endsWith('.tilejson')) return 'tilejson'
-  if (lcPath.endsWith('.json') && !lcPath.endsWith('.geojson')) return 'tilejson'
-  if (lcPath.endsWith('.pmtiles')) return 'pmtiles'
-  // Mapbox-style vector sources can declare `tiles: ["…/{z}/{x}/{y}.mvt"]`
-  // (single-tile XYZ endpoint, no TileJSON manifest). Route those into
-  // the MVT path; the loader synthesises a minimal TileJSON wrapper
-  // around the template so the rest of the vector-tile pipeline doesn't
-  // need to know whether the source had a real manifest or not.
-  // ALSO accept extensionless `{z}/{x}/{y}` URLs — some Mapbox styles
-  // (and OSM-derived hosts) author the XYZ template without a file
-  // extension. The presence of all three placeholders is a strong
-  // signal the URL is a per-tile fetch template, not a manifest. Pre-
-  // fix this case fell to the `null` return and the caller defaulted
-  // to PMTiles, which then failed with "Wrong magic number" on the
-  // first fetch.
-  if (kind === 'auto' || kind === 'tilejson') {
-    if (lcPath.endsWith('.mvt') || lcPath.endsWith('.pbf')) return 'tilejson'
-    if (url.includes('{z}') && url.includes('{x}') && url.includes('{y}')) {
-      return 'tilejson'
-    }
-  }
-  if (kind && kind !== 'auto') return kind
-  return null
-}
-
-/** @deprecated Use {@link detectVectorTileFormat}. PMTiles is the
- *  legacy fallback for unknown URLs declared as a vector tile source,
- *  preserved for back-compat with `type: pmtiles` xgis declarations
- *  pointing at extensionless archives. */
-export function resolveDispatch(
-  url: string,
-  kind: 'pmtiles' | 'tilejson' | 'auto' | undefined,
-): 'pmtiles' | 'tilejson' {
-  const f = detectVectorTileFormat(url, kind)
-  return f === 'tilejson' ? 'tilejson' : 'pmtiles'
-}
-
-// ─── Cache helpers ──────────────────────────────────────────────────
-
-/** Memoize an in-flight fetch by URL: dedupes concurrent callers, evicts
- *  on rejection so the next call retries instead of resolving the cached
- *  failure forever. */
-function memoizeOpen<T>(
-  cache: Map<string, Promise<T>>,
-  url: string,
-  factory: () => Promise<T>,
-): Promise<T> {
-  const hit = cache.get(url)
-  if (hit) return hit
-  const promise = factory()
-  promise.catch(() => cache.delete(url))
-  cache.set(url, promise)
-  return promise
-}
-
-/** Normalize a TileJSON / PMTiles `vector_layers[]` entry. Both formats
- *  use the same shape but different default-zoom plumbing, so the per-
- *  layer minzoom/maxzoom fall back to the SOURCE's overall zoom range
- *  when a layer omits them. */
-function normalizeVectorLayers(
-  raw: Array<{ id: string; minzoom?: number; maxzoom?: number; fields?: Record<string, string> }> | undefined,
-  defaultMin: number,
-  defaultMax: number,
-): VectorLayerInfo[] {
-  return (raw ?? []).map(vl => ({
-    id: vl.id,
-    minzoom: vl.minzoom ?? defaultMin,
-    maxzoom: vl.maxzoom ?? defaultMax,
-    fields: vl.fields,
-  }))
-}
+// Re-export public types + format-detection helpers to preserve every prior
+// import path.
+export type {
+  VectorLayerInfo,
+  VectorTileFormat,
+  PMTilesSourceOptions,
+  ResolvedSource,
+} from './vector-tile-loader-types'
+export { detectVectorTileFormat, resolveDispatch } from './vector-tile-loader-helpers'
 
 // ─── Per-tile fetch retry (module-level, shared globally) ───────────
 
