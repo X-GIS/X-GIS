@@ -13,6 +13,7 @@
 // `let`-style (mutable) for that reason.
 
 import type { Camera } from '../projection/camera'
+import type { RenderTargets } from './render-targets'
 
 /** Per-frame render state. One reused instance lives on RenderLoop; its
  *  fields are (re)populated at the start of each `render()` at the same
@@ -65,4 +66,8 @@ export interface FrameContext {
   /** Per-pass validation-scope + perf-marks helper. Re-bound each frame
    *  because it closes over this frame's `device`. */
   passScope: (label: string, fn: () => void) => void
+  /** The owning map's RenderTargets (live reference). Passes read its
+   *  textures (stencil / oitAccum / oitRevealage / pick / overdrawAccum)
+   *  for their render-pass attachments. */
+  rt: RenderTargets
 }

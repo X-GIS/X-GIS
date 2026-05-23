@@ -16,6 +16,7 @@ import { MERCATOR_LAT_LIMIT } from './projection/projection'
 import { MapRenderer } from './render/renderer'
 import { resolveNumberShape } from './render/paint-shape-resolve'
 import { RenderLoop } from './render-loop'
+import { RenderTargets } from './render/render-targets'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
   groupOpaqueBySource as groupOpaqueBySourceImpl,
@@ -187,32 +188,14 @@ export class XGISMap {
   // (full replace) and rebuilt on demand.
   private _featureIndex = new Map<string, Map<number, GeoJSONFeature>>()
 
-  // Stencil buffer for tile overlap masking
-  stencilTexture: GPUTexture | null = null
-
-  // MSAA 4x render target
-  msaaTexture: GPUTexture | null = null
-  // Weighted-Blended OIT render targets. Allocated to canvas size at
-  // single sample (compose pass blends onto the resolved main color
-  // afterwards). accumTexture: rgba16float — sum of (color × α ×
-  // weight, α × weight). revealageTexture: r16float — Π(1 - α). The
-  // pair is enough to recover an order-independent approximation of
-  // alpha blending in a single translucent draw pass.
-  oitAccumTexture: GPUTexture | null = null
-  oitRevealageTexture: GPUTexture | null = null
-  /** iter-192 — two-pass offscreen-composite extrude. Renders the
-   *  translucent extrude shows opaquely into oitAccumTexture with
-   *  this fresh depth attachment so front walls depth-occlude back
-   *  walls inside the offscreen FBO. Composite then over-blends the
-   *  resulting opaque image onto the main framebuffer at the layer
-   *  opacity. Sized + reallocated alongside oitAccumTexture. */
-  offscreenExtrudeDepth: GPUTexture | null = null
-  /** `?debug=overdraw` accumulator — every renderer's debug pipeline
-   *  writes 1.0 (additive) to this r16float target instead of the
-   *  swapchain. A final compose pass colormaps the result to RGBA. */
-  overdrawAccumTexture: GPUTexture | null = null
-  msaaWidth = 0
-  msaaHeight = 0
+  // GPU render-target texture lifecycle (stencil / msaa / OIT accum +
+  // revealage / offscreen-extrude depth / overdraw accumulator / pick),
+  // including their recreate-on-resize gate. Extracted into RenderTargets
+  // (render/render-targets.ts) — RenderLoop reads its textures via
+  // FrameContext.rt; the pick path reads `pickTexture` (getter below).
+  // Constructed lazily-by-ctx-accessor so it survives ctx reassignment in
+  // run(). Instantiated alongside renderLoopInstance in the constructor.
+  renderTargets: RenderTargets = new RenderTargets(() => this.ctx)
 
   // Pick (GPU hover/click) — secondary color attachment that every main-pass
   // pipeline writes `vec2<u32>(feature_id, instance_id)` into. 1-tex design
@@ -221,7 +204,8 @@ export class XGISMap {
   // pipelines have a stable target format; `map.pickAt()` reads back a 1×1
   // at the pointer location via async mapAsync. Kept at single-sample
   // regardless of SAMPLE_COUNT — picking wants deterministic, non-resolved IDs.
-  pickTexture: GPUTexture | null = null
+  // Now owned by RenderTargets; delegated here for the pick-path accessor.
+  get pickTexture(): GPUTexture | null { return this.renderTargets.pickTexture }
 
   // Stats inspector
   _stats = new StatsTracker()
@@ -690,8 +674,7 @@ export class XGISMap {
       // textures at the new sampleCount. The existing size-change gate
       // (`msaaWidth !== w`) won't trip on its own since width/height
       // are unchanged, so we zero it to force a re-alloc.
-      this.msaaWidth = 0
-      this.msaaHeight = 0
+      this.renderTargets.invalidate()
       this.renderer.rebuildForQuality()
       this.rasterRenderer.rebuildForQuality()
       this.lineRenderer?.rebuildForQuality()

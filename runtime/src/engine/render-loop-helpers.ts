@@ -224,7 +224,7 @@ export function makeLabelProjectors(
   globeCenter: [number, number, number],
   lblCenter: [number, number],
   projectionName: string | null | undefined,
-  visibleWorldCopies: number[],
+  visibleWorldCopies: readonly number[],
 ): {
   projectMerc: (mx: number, my: number, worldMercatorOffset?: number) => [number, number] | null
   projectLonLat: (lon: number, lat: number, worldMercatorOffset?: number) => [number, number] | null

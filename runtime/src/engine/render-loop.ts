@@ -19,7 +19,7 @@ import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from './__profile__/perf-marks'
 import { resizeCanvas, getSampleCount, getMaxDpr, isPickEnabled } from './gpu/gpu'
 import { DEBUG_OVERDRAW } from './debug-flags'
-import { OIT_ACCUM_FORMAT, OIT_REVEALAGE_FORMAT, WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
+import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
 import { projectWgsl } from './projection/projection-wgsl-mirror'
 import { globeForward } from './projection/globe'
 import { resolveNumberShape } from './render/paint-shape-resolve'
@@ -82,24 +82,16 @@ export type RenderLoopHost = Pick<XGISMap,
   | 'iconStage'
   | 'inlineGlyphs'
   | 'lineRenderer'
-  | 'msaaHeight'
-  | 'msaaTexture'
-  | 'msaaWidth'
-  | 'offscreenExtrudeDepth'
-  | 'oitAccumTexture'
-  | 'oitRevealageTexture'
-  | 'overdrawAccumTexture'
   | 'overlays'
-  | 'pickTexture'
   | 'pointRenderer'
   | 'projectionName'
   | 'rasterRenderer'
   | 'rawDatasets'
   | 'renderLoop'
+  | 'renderTargets'
   | 'renderer'
   | 'showCommands'
   | 'spriteUrl'
-  | 'stencilTexture'
   | 'textStage'
   | 'vtSources'
 >
@@ -301,6 +293,7 @@ export class RenderLoop {
         mvp: new Float32Array(0),         // set in the label block below
         visibleWorldCopies: [],           // set in the label block below
         passScope,
+        rt: this.host.renderTargets,
       }
     } else {
       const c = this._ctx
@@ -317,6 +310,7 @@ export class RenderLoop {
       c.elapsedMs = this.host._elapsedMs
       c.frameCount = this.host._frameCount
       c.passScope = passScope
+      c.rt = this.host.renderTargets
       // colorView / sampleCount / useResolve / mvp / visibleWorldCopies
       // are repopulated at their own (deeper) computation points below.
     }
@@ -324,109 +318,19 @@ export class RenderLoop {
 
     {
       // ═══ Direct rendering: vertex shader handles all projections ═══
-      // MSAA + stencil texture management (recreate on resize).
-      // sample count tracks the pipeline-time SAMPLE_COUNT (1 on mobile /
-      // ?safe / ?quality=performance / ?msaa=1, 4 on desktop default).
+      // MSAA + stencil + OIT + pick + overdraw render-target lifecycle
+      // (recreate-on-resize) lives in RenderTargets (render/render-targets.ts).
+      // `ensure` recreates exactly when the inline gate did (no stencil yet,
+      // or w/h changed), in the same destroy → recreate order, then returns
+      // the per-frame colorView decision. sample count tracks the
+      // pipeline-time SAMPLE_COUNT (1 on mobile / ?safe / ?quality=performance
+      // / ?msaa=1, 4 on desktop default).
       const sc = getSampleCount()
-      const useResolve = sc > 1
       ctx.sampleCount = sc
+      const { useResolve, colorView } = ctx.rt.ensure(
+        w, h, sc, isPickEnabled(), DEBUG_OVERDRAW, screenView,
+      )
       ctx.useResolve = useResolve
-      if (!this.host.stencilTexture || this.host.msaaWidth !== w || this.host.msaaHeight !== h) {
-        this.host.msaaTexture?.destroy()
-        this.host.stencilTexture?.destroy()
-        this.host.pickTexture?.destroy()
-        this.host.oitAccumTexture?.destroy()
-        this.host.oitRevealageTexture?.destroy()
-        this.host.overdrawAccumTexture?.destroy()
-        this.host.overdrawAccumTexture = null
-        // Allocate the MSAA color attachment ONLY when MSAA is on. When
-        // sc === 1 we render straight to the swapchain (no resolveTarget)
-        // and the MSAA texture would just waste w×h×4 bytes per frame.
-        this.host.msaaTexture = useResolve
-          ? device.createTexture({
-              size: { width: w, height: h },
-              format: this.host.ctx.format,
-              sampleCount: sc,
-              usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            })
-          : null
-        this.host.stencilTexture = device.createTexture({
-          size: { width: w, height: h },
-          format: 'depth24plus-stencil8',
-          sampleCount: sc,
-          usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        })
-        // Pick RT: RG32Uint, single-sample. `?picking=1` forces SAMPLE_COUNT
-        // to 1 globally (see quality.ts) so sc === 1 here whenever PICK is
-        // true — the pick attachment and color attachment share sample count
-        // as WebGPU requires.
-        this.host.pickTexture = isPickEnabled()
-          ? device.createTexture({
-              size: { width: w, height: h },
-              format: 'rg32uint',
-              sampleCount: 1,
-              usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-            })
-          : null
-        // OIT render targets — sampleCount matches the opaque pass so
-        // both can share the same depth attachment. Without that
-        // sharing the OIT pass had no depth → translucent buildings
-        // didn't occlude behind opaque foreground walls. Compose
-        // pass resolves the MSAA samples by averaging in the shader.
-        this.host.oitAccumTexture = device.createTexture({
-          size: { width: w, height: h },
-          format: OIT_ACCUM_FORMAT,
-          sampleCount: sc,
-          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-          label: 'oit-accum',
-        })
-        this.host.oitRevealageTexture = device.createTexture({
-          size: { width: w, height: h },
-          format: OIT_REVEALAGE_FORMAT,
-          sampleCount: sc,
-          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-          label: 'oit-revealage',
-        })
-        // iter-192 — fresh depth for the two-pass offscreen extrude
-        // pass. Cleared at the start of every `oit-fill` pass; never
-        // shared with the opaque scene depth.
-        this.host.offscreenExtrudeDepth?.destroy()
-        this.host.offscreenExtrudeDepth = device.createTexture({
-          size: { width: w, height: h },
-          format: 'depth24plus-stencil8',
-          sampleCount: sc,
-          usage: GPUTextureUsage.RENDER_ATTACHMENT,
-          label: 'offscreen-extrude-depth',
-        })
-        if (DEBUG_OVERDRAW) {
-          // r16float lets per-pixel additive accumulation grow well
-          // past the [0, 1] swapchain range. MSAA forced to 1× in
-          // quality.ts when debug=overdraw, so sampleCount=1 here.
-          this.host.overdrawAccumTexture = device.createTexture({
-            size: { width: w, height: h },
-            format: 'r16float',
-            sampleCount: 1,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-            label: 'overdraw-accum',
-          })
-        }
-        this.host.msaaWidth = w
-        this.host.msaaHeight = h
-      }
-
-      // When SAMPLE_COUNT === 1 (mobile / no MSAA), render DIRECTLY to the
-      // swapchain texture and never set a resolveTarget — single-sample
-      // attachments cannot have a resolve target per WebGPU spec.
-      //
-      // `?debug=overdraw` reroutes every opaque/translucent pass into the
-      // r16float accumulator instead. A trailing compose pass at the end
-      // of the frame samples the accumulator and writes the colormap to
-      // the swapchain. Translucent/OIT paths still run — their debug
-      // pipeline mirrors emit into the same accumulator with additive
-      // blend, so the heatmap counts every contributing draw.
-      const colorView = DEBUG_OVERDRAW
-        ? this.host.overdrawAccumTexture!.createView()
-        : (useResolve ? this.host.msaaTexture!.createView() : screenView)
       ctx.colorView = colorView
 
       // Reset per-frame uniform ring cursors (dynamic-offset slots).
@@ -524,7 +428,7 @@ export class RenderLoop {
       const { opaque, translucent, oit } = this.host.classifyVectorTileShows()
       const opaqueGroups = this.host.groupOpaqueBySource(opaque)
       const hasTranslucent = translucent.length > 0 && this.host.lineRenderer !== null
-      const hasOit = oit.length > 0 && this.host.oitAccumTexture !== null && this.host.oitRevealageTexture !== null
+      const hasOit = oit.length > 0 && ctx.rt.oitAccumTexture !== null && ctx.rt.oitRevealageTexture !== null
       const hasPoints = this.host.pointRenderer?.hasLayers() ?? false
       // ── Two independent point paths ──
       //
@@ -631,9 +535,9 @@ export class RenderLoop {
             loadOp: isFirst ? 'clear' : 'load',
             storeOp: 'store',
           }]
-          if (isPickEnabled() && this.host.pickTexture) {
+          if (isPickEnabled() && ctx.rt.pickTexture) {
             colorAttachments.push({
-              view: this.host.pickTexture.createView(),
+              view: ctx.rt.pickTexture.createView(),
               clearValue: isFirst ? { r: 0, g: 0, b: 0, a: 0 } : undefined,
               loadOp: isFirst ? 'clear' : 'load',
               storeOp: 'store',
@@ -642,7 +546,7 @@ export class RenderLoop {
           const subPass = encoder.beginRenderPass({
             colorAttachments,
             depthStencilAttachment: {
-              view: this.host.stencilTexture!.createView(),
+              view: ctx.rt.stencilTexture!.createView(),
               depthClearValue: 1.0,
               // First sub-pass clears depth; subsequent ones load the
               // depth their predecessor stored.
@@ -794,12 +698,12 @@ export class RenderLoop {
           const oitPass = encoder.beginRenderPass({
             colorAttachments: [
               {
-                view: this.host.oitAccumTexture!.createView(),
+                view: ctx.rt.oitAccumTexture!.createView(),
                 clearValue: { r: 0, g: 0, b: 0, a: 0 },
                 loadOp: 'clear', storeOp: 'store',
               },
               {
-                view: this.host.oitRevealageTexture!.createView(),
+                view: ctx.rt.oitRevealageTexture!.createView(),
                 clearValue: { r: 1, g: 0, b: 0, a: 0 },
                 loadOp: 'clear', storeOp: 'store',
               },
@@ -810,7 +714,7 @@ export class RenderLoop {
             // executes; restored to the canonical opaque-depth load
             // for the future opt-in path.
             depthStencilAttachment: {
-              view: this.host.stencilTexture!.createView(),
+              view: ctx.rt.stencilTexture!.createView(),
               depthLoadOp: 'load', depthStoreOp: 'discard',
               stencilLoadOp: 'load', stencilStoreOp: 'discard',
             },
@@ -841,8 +745,8 @@ export class RenderLoop {
           const bg = this.host.ctx.device.createBindGroup({
             layout: this.host.renderer.oitComposeBindGroupLayout,
             entries: [
-              { binding: 0, resource: this.host.oitAccumTexture!.createView() },
-              { binding: 1, resource: this.host.oitRevealageTexture!.createView() },
+              { binding: 0, resource: ctx.rt.oitAccumTexture!.createView() },
+              { binding: 1, resource: ctx.rt.oitRevealageTexture!.createView() },
             ],
           })
           compPass.setPipeline(this.host.renderer.oitComposePipeline)
@@ -911,7 +815,7 @@ export class RenderLoop {
               storeOp: 'store',
             }],
             depthStencilAttachment: {
-              view: this.host.stencilTexture!.createView(),
+              view: ctx.rt.stencilTexture!.createView(),
               // Load the depth the last opaque sub-pass stored above so
               // billboards on the back side of a globe / pitched surface
               // are correctly occluded by the front-facing opaque
@@ -1914,7 +1818,7 @@ export class RenderLoop {
     // Read the r16float accumulator and write a colormapped RGBA to
     // the swapchain. Runs as the LAST pass of the frame so it owns
     // the swapchain attachment.
-    if (DEBUG_OVERDRAW && this.host.overdrawAccumTexture) {
+    if (DEBUG_OVERDRAW && ctx.rt.overdrawAccumTexture) {
       ctx.passScope('overdraw-compose', () => {
         const pipeline = this.host.renderer.ensureOverdrawCompose()
         const compPass = encoder.beginRenderPass({
@@ -1928,7 +1832,7 @@ export class RenderLoop {
           layout: this.host.renderer.overdrawComposeBindGroupLayout,
           entries: [{
             binding: 0,
-            resource: this.host.overdrawAccumTexture!.createView(),
+            resource: ctx.rt.overdrawAccumTexture!.createView(),
           }],
         })
         compPass.setPipeline(pipeline)
