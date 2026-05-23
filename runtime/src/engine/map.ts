@@ -16,11 +16,11 @@ import { CameraController } from './camera-controller'
 import { SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
 import { MERCATOR_LAT_LIMIT } from './projection/projection'
-import { projectWgsl, needsBackfaceCullWgsl } from './projection/projection-wgsl-mirror'
+import { projectWgsl } from './projection/projection-wgsl-mirror'
 import { globeForward } from './projection/globe'
 import { MapRenderer, type ShowCommand } from './render/renderer'
 import { resolveNumberShape } from './render/paint-shape-resolve'
-import { resolveLabelEffectiveDef } from './render-loop-helpers'
+import { resolveLabelEffectiveDef, makeLabelProjectors } from './render-loop-helpers'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import {
   classifyVectorTileShows as classifyVectorTileShowsImpl,
@@ -3349,41 +3349,17 @@ export class XGISMap {
         const ccx = this.camera.centerX
         const ccy = this.camera.centerY
 
-        // Inline projector — captures matrix + camera center; returns
-        // null when the point projects behind camera or far outside.
-        // `worldMercatorOffset` shifts the mercator X by N×WORLD_MERC
-        // so the polygon renderer's world-copy loop can be mirrored
-        // for labels (see projectLonLatCopies below).
-        // Hot-path scalar projection. The line-label polyline path used to
-        // be merc → lonLat → merc → screen (mercToLonLat + lonLatToMercator
-        // back-to-back, both allocating `[x, y]` per vertex). Inlining a
-        // direct merc → screen projector eliminates both round-trips +
-        // both allocations. Profile on OFM Bright z=13: forEachLineLabel-
-        // Polyline ran at 31ms/frame, with lonLatToMercator + mercToLonLat
-        // alone consuming 25ms (80% of the function's time). The
-        // direct projector caps that at the matrix-multiply core.
+        // The four label-anchor projectors (projectMerc / projectLonLat
+        // / projectMercAny / projectLonLatCopies) were inline closures
+        // here. They are now lifted VERBATIM into makeLabelProjectors in
+        // render-loop-helpers.ts — the bodies, scratch-reuse contract and
+        // inter-projector delegation are byte-identical; only the per-
+        // frame locals they captured (MVP, camera centre, projection
+        // flags, projected focus, visible-world-copy list) are now passed
+        // as explicit factory arguments. The per-frame derived values
+        // below are computed in the SAME order as before so behaviour and
+        // side-effect timing are unchanged.
         //
-        // Returns negative cw / out-of-NDC-window via `null` as before.
-        // `projectScreen` is a SHARED 2-element scratch — caller copies
-        // values out before the next call.
-        const _projScratch: [number, number] = [0, 0]
-        const projectMerc = (
-          mx: number, my: number, worldMercatorOffset: number = 0,
-        ): [number, number] | null => {
-          const rtcX = (mx + worldMercatorOffset) - ccx
-          const rtcY = my - ccy
-          const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
-          if (cw <= 0) return null
-          const ccx_ = mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!
-          const ccy_ = mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!
-          const ndcX = ccx_ / cw
-          const ndcY = ccy_ / cw
-          if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
-          _projScratch[0] = (ndcX + 1) * 0.5 * w
-          _projScratch[1] = (1 - ndcY) * 0.5 * h
-          return _projScratch
-        }
-
         // Non-Mercator label anchors mirror the GPU reproject_point
         // (point-renderer.ts): project(lon,lat) - project(center) in the
         // ACTIVE projection, then the shared MVP — NOT the Mercator
@@ -3403,75 +3379,6 @@ export class XGISMap {
         const _lblCenter: [number, number] = _lblIsMerc || _lblIsGlobe
           ? [0, 0]
           : projectWgsl(projType, centerLon, centerLat, centerLon, centerLat)
-
-        const projectLonLat = (
-          lon: number, lat: number, worldMercatorOffset: number = 0,
-        ): [number, number] | null => {
-          if (_lblIsMerc) {
-            // Inlined lonLatToMercator to skip the per-call allocation
-            // (used to be `[mx, my] = lonLatToMercator(lon, lat)`).
-            const DEG2RAD = Math.PI / 180
-            const R = 6378137
-            const LAT_LIMIT = 85.051129
-            const lat_c = lat < -LAT_LIMIT ? -LAT_LIMIT : (lat > LAT_LIMIT ? LAT_LIMIT : lat)
-            const mx = lon * DEG2RAD * R
-            const my = Math.log(Math.tan(Math.PI / 4 + lat_c * DEG2RAD / 2)) * R
-            const proj = projectMerc(mx, my, worldMercatorOffset)
-            if (!proj) return null
-            // Return a FRESH 2-tuple — projectMerc's scratch can't survive
-            // across multiple projectLonLat calls in the same expression
-            // (`projectLonLatCopies` builds a list of results).
-            return [proj[0], proj[1]]
-          }
-          if (_lblIsGlobe) {
-            // True 3D globe: hemisphere-cull, then sphere RTC against
-            // the focus through the FULL 4×4 orbit MVP (the z column is
-            // significant here, unlike the flat path which drops it).
-            if (needsBackfaceCullWgsl(projType, lon, lat, centerLon, centerLat) < 0) return null
-            const g = globeForward(lon, lat)
-            const rx = g[0] - _lblGlobeCenter[0]
-            const ry = g[1] - _lblGlobeCenter[1]
-            const rz = g[2] - _lblGlobeCenter[2]
-            const cw = mvp[3]! * rx + mvp[7]! * ry + mvp[11]! * rz + mvp[15]!
-            if (cw <= 0) return null
-            const ndcX = (mvp[0]! * rx + mvp[4]! * ry + mvp[8]! * rz + mvp[12]!) / cw
-            const ndcY = (mvp[1]! * rx + mvp[5]! * ry + mvp[9]! * rz + mvp[13]!) / cw
-            if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
-            return [(ndcX + 1) * 0.5 * w, (1 - ndcY) * 0.5 * h]
-          }
-          // Non-Mercator: exact CPU mirror of the GPU per-vertex path.
-          // Cull the back hemisphere first (same thresholds as the
-          // shader's needs_backface_cull), then project unconditionally
-          // and apply the shared MVP. worldMercatorOffset is unused —
-          // non-Mercator collapses to a single world copy.
-          if (needsBackfaceCullWgsl(projType, lon, lat, centerLon, centerLat) < 0) return null
-          const p = projectWgsl(projType, lon, lat, centerLon, centerLat)
-          if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null
-          const rtcX = p[0] - _lblCenter[0]
-          const rtcY = p[1] - _lblCenter[1]
-          const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
-          if (cw <= 0) return null
-          const ndcX = (mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!) / cw
-          const ndcY = (mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!) / cw
-          if (ndcX < -1.5 || ndcX > 1.5 || ndcY < -1.5 || ndcY > 1.5) return null
-          return [(ndcX + 1) * 0.5 * w, (1 - ndcY) * 0.5 * h]
-        }
-
-        // Line-label polylines arrive as absolute Mercator metres.
-        // Mercator: project directly (the hot path — no merc↔lonLat
-        // round-trip, which was ~80% of this pass pre-optimisation).
-        // Non-Mercator: invert to lon/lat and route through
-        // projectLonLat so the polyline reprojects through the ACTIVE
-        // projection (with back-face cull) exactly like its line
-        // geometry — otherwise curved road labels stay Mercator-laid
-        // while the road itself is reprojected.
-        const projectMercAny = (sx: number, sy: number): [number, number] | null => {
-          if (_lblIsMerc) return projectMerc(sx, sy)
-          const R = 6378137
-          const lon = sx / (Math.PI / 180 * R)
-          const lat = (2 * Math.atan(Math.exp(sy / R)) - Math.PI / 2) / (Math.PI / 180)
-          return projectLonLat(lon, lat, 0)
-        }
 
         // Mercator is periodic in lon, so PointRenderer / VTR emit
         // every polygon 5× across the -2..+2 world copies. Without
@@ -3503,24 +3410,12 @@ export class XGISMap {
         // clamped at ±2). Replaces the iter-188 hardcoded
         // `[0, -1, 1, -2, 2]` enum + per-callsite NDC cull.
         const visibleWorldCopies = this.camera.getVisibleWorldCopies(w, h, dpr)
-        // iter-260 (Plan AAA B.7) — projectLonLatCopies output array
-        // reused across calls. Each caller iterates the returned
-        // array immediately + doesn't retain it across calls;
-        // scratch reuse safe.
-        const _projectScratch: Array<[number, number]> = []
-        const projectLonLatCopies = (lon: number, lat: number): Array<[number, number]> => {
-          _projectScratch.length = 0
-          if (this.projectionName !== 'mercator') {
-            const proj = projectLonLat(lon, lat, 0)
-            if (proj) _projectScratch.push(proj)
-            return _projectScratch
-          }
-          for (const wo of visibleWorldCopies) {
-            const proj = projectLonLat(lon, lat, wo * WORLD_MERC)
-            if (proj) _projectScratch.push(proj)
-          }
-          return _projectScratch
-        }
+        const { projectMerc, projectLonLat, projectMercAny, projectLonLatCopies } =
+          makeLabelProjectors(
+            mvp, w, h, ccx, ccy, projType, centerLon, centerLat,
+            _lblIsMerc, _lblIsGlobe, _lblGlobeCenter, _lblCenter,
+            this.projectionName, visibleWorldCopies,
+          )
 
         // (a) Imperative overlays
         for (const ov of this.overlays) {
