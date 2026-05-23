@@ -3,10 +3,9 @@
 // Three specialization axes: projection × value constants × feature data.
 
 import type { RenderNode, ColorValue, OpacityValue } from '../ir/render-node'
-import { rgbaToHex, hexToRgba } from '../ir/render-node'
+import { rgbaToHex } from '../ir/render-node'
 import { exprToWGSL, collectFields, type WGSLFnEnv } from './wgsl-expr'
 import { generatePaletteWGSL } from './categorical-encoder'
-import { resolveColor } from '../tokens/colors'
 import type { Palette } from './palette'
 import {
   emitColorGradientSample,
@@ -15,84 +14,15 @@ import {
   emitPaletteBindings,
   type ScalarPaletteMode,
 } from './palette-emit'
+import type { ShaderVariant, ColorResult, OpacityResult } from './shader-gen-types'
+import {
+  buildFieldMap,
+  matchArmsKey,
+  resolveColorFromAST,
+  fmt,
+} from './shader-gen-helpers'
 
-/**
- * A specialized shader variant for a layer.
- */
-export interface ShaderVariant {
-  /** Cache key — layers with identical keys share a pipeline */
-  key: string
-  /** WGSL const declarations to prepend to the shader */
-  preamble: string
-  /** WGSL expression for fill color (replaces `u.fill_color`) */
-  fillExpr: string
-  /** WGSL expression for stroke color (replaces `u.stroke_color`) */
-  strokeExpr: string
-  /** WGSL code injected before fill return (match if-else chains) */
-  fillPreamble?: string
-  /** WGSL code injected before stroke return — analogous to
-   *  `fillPreamble` for the stroke entry point. Without this, a
-   *  `match()` expression on stroke colour produces an `_mcSS = ...`
-   *  if-else chain whose VAR DECLARATION is dropped on the floor
-   *  while the `expr` still references the var name → "unresolved
-   *  identifier _mc83" at WGSL compile time. */
-  strokePreamble?: string
-  /** Whether a storage buffer is needed for per-feature data */
-  needsFeatureBuffer: boolean
-  /** Fields needed from feature data (for storage buffer layout) */
-  featureFields: string[]
-  /** Which uniform fields are still needed (not inlined) */
-  uniformFields: string[]
-  /** For every field consumed by a `match()` expression, the
-   *  AUTHORITATIVE sorted list of string patterns the shader's
-   *  if-else chain expects. The runtime must use this list as the
-   *  string → integer-ID map when packing the per-feature data
-   *  buffer; otherwise the IDs computed from "unique values in this
-   *  tile's data" can collide with the shader's compile-time IDs.
-   *  Example: shader knows {cemetery,hospital,railway,school}={0,1,
-   *  2,3} but a tile with only "school" features would otherwise
-   *  encode school=0 — colliding with cemetery's slot in the
-   *  shader's if-else chain. */
-  categoryOrder: Record<string, string[]>
-  /** P3 Step 3 — non-empty when this variant sampled a gradient from
-   *  the palette atlas. The runtime uses this signal to:
-   *    (a) bind the palette textures + sampler to the variant's
-   *        pipeline (Step 3c).
-   *    (b) skip the zoom-interpolated CPU resolve path for these
-   *        properties (Step 4) — the shader reads the per-zoom
-   *        value via textureSampleLevel each frame instead.
-   *  Empty when `palette` is omitted from generateShaderVariant or
-   *  the node has no zoom-interpolated paint properties. */
-  paletteColorGradients: number[]
-  /** P3 Step 3c-scalar — non-empty when the variant samples a scalar
-   *  gradient (opacity / stroke-width zoom-interpolated). Runtime uses
-   *  it to bind the scalar atlas + sampler and skip the per-frame
-   *  `resolveNumberShape(...)` CPU eval for the routed axes. */
-  paletteScalarGradients: number[]
-  /** P3 Step 4 — true when fill's zoom-interpolated colour routed
-   *  through `textureSampleLevel`. The bucket-scheduler skips the
-   *  per-frame `resolveColorShape(paintShapes.fill, …)` CPU eval
-   *  for these axes — the fragment shader reads from the gradient
-   *  atlas directly, so the CPU result would be a dead write into
-   *  `u.fill_color`. */
-  fillUsesPalette: boolean
-  /** Stroke counterpart to `fillUsesPalette`. */
-  strokeUsesPalette: boolean
-  /** True when opacity's zoom-interpolated value routed through the
-   *  scalar atlas. The bucket-scheduler skips the per-frame
-   *  `resolveNumberShape(paintShapes.opacity, …)` CPU eval and the
-   *  paired `u.opacity` writeBuffer when this is set. */
-  opacityUsesPalette: boolean
-  /** P4-5 — populated by `mergeComputeAddendumIntoVariant` when the
-   *  fill / stroke axis routed through a compute kernel. Each entry
-   *  is `(paintAxis, bindGroup, binding)` so the runtime can detect
-   *  "this variant needs the compute bind-group layout" via existence
-   *  + iterate to attach the right `TileComputeResources.getOutBuffer`
-   *  per binding without re-parsing the preamble. Absent on legacy
-   *  variants and on variants whose computePlan filter returned
-   *  empty for this show. */
-  computeBindings?: readonly import('./compute-output-binding').ComputeOutputBindingSpec[]
-}
+export type { ShaderVariant } from './shader-gen-types'
 
 /**
  * Generate a shader variant for a RenderNode.
@@ -219,26 +149,6 @@ export function generateShaderVariant(
 }
 
 // ═══ Value processing ═══
-
-interface ColorResult {
-  preamble: string[]
-  isConst: boolean
-  /** Index into `palette.colorGradients` when this result was routed
-   *  through the textureSampleLevel path. Undefined for every legacy
-   *  path (constant, time-interpolated, data-driven, conditional). */
-  paletteGradientIdx?: number
-  needsFeatures: boolean
-  isVec4: boolean  // true if expr already returns vec4f (categorical/gradient)
-  expr: string // WGSL expression for the color
-  matchPreamble?: string // if-else chain for match() — injected before return in fragment
-  /** field → ordered list of patterns the if-else chain expects. The
-   *  runtime uses this to assign matching integer IDs into the per-
-   *  feature data buffer. Without this, IDs would be derived from
-   *  the data's unique values (alphabetical), which collide with the
-   *  shader's compile-time pattern order whenever the data is a
-   *  proper subset of the patterns. */
-  categoryOrder?: Record<string, string[]>
-}
 
 function processColorValue(
   value: ColorValue,
@@ -439,18 +349,6 @@ function processColorValue(
   }
 }
 
-interface OpacityResult {
-  preamble: string[]
-  needsUniform: boolean
-  needsFeatures: boolean
-  expr: string
-  /** Set when this opacity is `zoom-interpolated` AND a matching
-   *  scalar gradient was collected into the palette pool. Variant
-   *  caller pushes onto `paletteScalarGradients` so the runtime can
-   *  skip the per-frame `u.opacity` CPU write. */
-  paletteScalarIdx?: number
-}
-
 function processOpacity(
   value: OpacityValue,
   featureFields: Set<string>,
@@ -545,29 +443,6 @@ function buildStrokeExpr(color: ColorResult, opacity: OpacityResult): string {
 
 // ═══ Helpers ═══
 
-function buildFieldMap(fields: Set<string>): Map<string, number> {
-  const map = new Map<string, number>()
-  let offset = 0
-  for (const field of [...fields].sort()) {
-    map.set(field, offset++)
-  }
-  return map
-}
-
-/** Stable short hash of the fill / stroke match-preamble bodies.
- *  Returns empty string when both are absent so non-match variants
- *  keep their existing cache key bytes unchanged. */
-function matchArmsKey(fillPre: string | undefined, strokePre: string | undefined): string {
-  if (!fillPre && !strokePre) return ''
-  const combined = `${fillPre ?? ''}${strokePre ?? ''}`
-  let h = 5381
-  for (let i = 0; i < combined.length; i++) {
-    h = (h * 33) ^ combined.charCodeAt(i)
-    h |= 0
-  }
-  return `|m:${(h >>> 0).toString(36)}`
-}
-
 function buildKey(
   node: RenderNode,
   fill: ColorResult,
@@ -610,87 +485,4 @@ function buildKey(
   }
 
   return parts.join('|')
-}
-
-/** Resolve a color from an AST node (Identifier like "green-100") */
-function resolveColorFromAST(node: import('../parser/ast').Expr): [number, number, number, number] | null {
-  if (node.kind === 'Identifier') {
-    const hex = resolveColor(node.name)
-    if (hex) return hexToRgba(hex)
-  }
-  if (node.kind === 'StringLiteral') {
-    const hex = resolveColor(node.value)
-    if (hex) return hexToRgba(hex)
-  }
-  // Hex literal direct from a synthesized AST (e.g. mergeLayers'
-  // `match() { value -> #rrggbbaa }` arms) AND user-authored short
-  // forms (`fill: #fff`). Without the 4/5 lengths the short form
-  // would collapse to "no colour" — fragment match preambles end up
-  // containing only the default variable declaration, variant cache
-  // keys collide across compounds, and the wrong pipeline gets
-  // shared. CSS allows 3/4/6/8 hex digits (lengths 4/5/7/9 with #).
-  if (node.kind === 'ColorLiteral' && typeof node.value === 'string') {
-    const hex = node.value
-    if (/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
-      return hexToRgba(hex)
-    }
-  }
-  // Hyphenated color names parsed as subtraction: sky-300 → Identifier("sky") - NumberLiteral(300)
-  if (node.kind === 'BinaryExpr' && node.op === '-'
-      && node.left.kind === 'Identifier'
-      && node.right.kind === 'NumberLiteral') {
-    const colorName = `${node.left.name}-${node.right.value}`
-    const hex = resolveColor(colorName)
-    if (hex) return hexToRgba(hex)
-  }
-  // CSS rgb / rgba / hsl / hsla function call. Reconstruct the
-  // source-text from the AST so the same parser in resolveColor()
-  // (which already handles the string form) can produce hex.
-  if (node.kind === 'FnCall' && node.callee.kind === 'Identifier') {
-    const name = node.callee.name.toLowerCase()
-    if (name === 'rgb' || name === 'rgba' || name === 'hsl' || name === 'hsla') {
-      const reconstructed = reconstructCssFnCall(node)
-      if (reconstructed) {
-        const hex = resolveColor(reconstructed)
-        if (hex) return hexToRgba(hex)
-      }
-    }
-  }
-  return null
-}
-
-/** Reconstruct a CSS-style function call string (e.g. "rgb(255, 0,
- *  0)" or "hsl(120deg, 50%, 50%)") from a parsed FnCall AST. Numeric
- *  literals and identifiers are emitted verbatim; anything else
- *  yields null so resolveColorFromAST falls through. */
-function reconstructCssFnCall(call: { callee: import('../parser/ast').Expr; args: import('../parser/ast').Expr[] }): string | null {
-  if (call.callee.kind !== 'Identifier') return null
-  const parts: string[] = []
-  for (const a of call.args) {
-    const piece = exprToCssArg(a)
-    if (piece === null) return null
-    parts.push(piece)
-  }
-  return `${call.callee.name}(${parts.join(', ')})`
-}
-
-function exprToCssArg(node: import('../parser/ast').Expr): string | null {
-  if (node.kind === 'NumberLiteral') return String(node.value)
-  // `50%` parses as Identifier("%") preceded by a number? No — the
-  // lexer doesn't produce a `%` token. CSS percent literals can't be
-  // expressed in the parser today; users wanting hsl() must drop the
-  // `%` (`hsl(120, 50, 50)` — the colour parser tolerates the
-  // unitless form). Same story for `0.5` alpha which parses cleanly.
-  if (node.kind === 'Identifier') return node.name
-  // `120deg` / `0.5turn`: BinaryExpr would be wrong, but the lexer
-  // recognises `deg` etc. as Px-equivalent unit tokens that stick to
-  // the preceding number — so a user writing `hsl(120deg, ...)`
-  // actually emits a single Identifier("120deg") via parseUtilityName
-  // up the chain. Out of scope here.
-  return null
-}
-
-function fmt(n: number): string {
-  const s = n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '.0')
-  return s
 }
