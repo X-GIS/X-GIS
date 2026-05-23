@@ -14,6 +14,7 @@ import { GPUTimer } from './gpu/gpu-timer'
 import { Camera } from './projection/camera'
 import { CameraController } from './camera-controller'
 import { SourceManager } from './source-manager'
+import { InteractionController } from './interaction-controller'
 import { MERCATOR_LAT_LIMIT } from './projection/projection'
 import { projectWgsl, needsBackfaceCullWgsl } from './projection/projection-wgsl-mirror'
 import { globeForward } from './projection/globe'
@@ -91,6 +92,7 @@ export class XGISMap {
   private camera: Camera
   private cameraController!: CameraController
   private sourceManager!: SourceManager
+  private interactionController!: InteractionController
   private renderer!: MapRenderer
   private rasterRenderer!: RasterRenderer
   /** Show whose source backs the active raster URL — single-tracked
@@ -227,10 +229,6 @@ export class XGISMap {
   // at the pointer location via async mapAsync. Kept at single-sample
   // regardless of SAMPLE_COUNT — picking wants deterministic, non-resolved IDs.
   private pickTexture: GPUTexture | null = null
-  /** Reusable MAP_READ buffer pool for pickAt() readbacks. Each entry holds
-   *  exactly 8 bytes (one RG32Uint pixel) — a ring keeps mapAsync latency
-   *  off the hot path. */
-  private pickReadbackPool: { buf: GPUBuffer; inUse: boolean }[] = []
 
   // Stats inspector
   private _stats = new StatsTracker()
@@ -385,6 +383,21 @@ export class XGISMap {
       teardownSource: (sourceId) => this.teardownSource(sourceId),
       deleteFeatureIndex: (sourceId) => { this._featureIndex.delete(sourceId) },
       isPolarCapsEnabled: () => this._polarCapsEnabled,
+    })
+    // Pick / interaction QUERY cluster — receives the shared camera +
+    // layer/source state by reference; ctx / pickTexture / projectionName /
+    // vectorTileShows are read fresh via accessors (lazily populated,
+    // mutated, or reassigned at runtime). pickReadbackPool is owned inside.
+    this.interactionController = new InteractionController({
+      camera: this.camera,
+      layerIds: this.layerIds,
+      xgisLayers: this.xgisLayers,
+      rawDatasets: this.rawDatasets,
+      featureIndex: this._featureIndex,
+      getCtx: () => this.ctx,
+      getPickTexture: () => this.pickTexture,
+      getProjectionName: () => this.projectionName,
+      getVectorTileShows: () => this.vectorTileShows,
     })
     // Apply resource options BEFORE the first render frame so the
     // lazy TextStage construction sees the full bundle. Setters
@@ -758,59 +771,7 @@ export class XGISMap {
    *  Pool reuse: the staging buffer ring avoids allocating per call, so
    *  hover scenarios (60 Hz pickAt) stay cheap. */
   async pickAt(clientX: number, clientY: number): Promise<{ featureId: number; layerId: number; instanceId: number } | null> {
-    if (!this.pickTexture || !this.ctx) return null
-    const canvas = this.ctx.canvas
-    const rect = canvas.getBoundingClientRect()
-    // Convert CSS coords → physical pixels (match the dpr used for the
-    // framebuffer size). Clamp into bounds; out-of-canvas → null.
-    const px = Math.floor((clientX - rect.left) * (canvas.width / rect.width))
-    const py = Math.floor((clientY - rect.top) * (canvas.height / rect.height))
-    if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) return null
-
-    // Rent a staging buffer. Each slot is 8 bytes (one RG32Uint pixel,
-    // padded to minimum 256-byte row per WebGPU's copy alignment). We
-    // over-allocate to 256 so bytesPerRow is valid.
-    let slot = this.pickReadbackPool.find(s => !s.inUse)
-    if (!slot) {
-      slot = {
-        buf: this.ctx.device.createBuffer({
-          size: 256,
-          usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-          label: 'pick-readback',
-        }),
-        inUse: false,
-      }
-      this.pickReadbackPool.push(slot)
-    }
-    slot.inUse = true
-
-    const encoder = this.ctx.device.createCommandEncoder({ label: 'pick-copy' })
-    encoder.copyTextureToBuffer(
-      { texture: this.pickTexture, origin: { x: px, y: py } },
-      { buffer: slot.buf, bytesPerRow: 256, rowsPerImage: 1 },
-      { width: 1, height: 1 },
-    )
-    this.ctx.device.queue.submit([encoder.finish()])
-
-    try {
-      await slot.buf.mapAsync(GPUMapMode.READ, 0, 8)
-      const view = new Uint32Array(slot.buf.getMappedRange(0, 8))
-      const featureId = view[0]
-      // G channel packs (instanceId << 16) | layerId — see LayerIdRegistry.
-      const packed = view[1]
-      slot.buf.unmap()
-      const layerId = packed & 0xffff
-      const instanceId = (packed >>> 16) & 0xffff
-      // Both featureId=0 and layerId=0 are sentinels: featureId=0 means "no
-      // feature drew here" (raster-only / background), layerId=0 means "no
-      // pickable layer drew here" (e.g., graticule, or Phase 3's
-      // pointer-events:none with writeMask=0 yields 0 because the slot was
-      // never written). Either is a miss.
-      if (featureId === 0 || layerId === 0) return null
-      return { featureId, layerId, instanceId }
-    } finally {
-      slot.inUse = false
-    }
+    return this.interactionController.pickAt(clientX, clientY)
   }
 
   /** Show/hide the stats inspector panel */
@@ -1308,10 +1269,7 @@ export class XGISMap {
    *  XGISLayer wrapper. Returns null for the sentinel `0` and any ID
    *  that no longer maps to a registered layer (post-clearLayers). */
   private getLayerByPickId(layerId: number): XGISLayer | null {
-    if (layerId === 0) return null
-    const name = this.layerIds.getName(layerId)
-    if (!name) return null
-    return this.xgisLayers.get(name) ?? null
+    return this.interactionController.getLayerByPickId(layerId)
   }
 
   /** Build the rich feature payload for an event hit. Falls back to an
@@ -1319,22 +1277,7 @@ export class XGISMap {
    *  full properties (e.g., .xgvt-loaded tile sources without a parsed
    *  property table). */
   private buildFeatureForEvent(layerId: number, featureId: number): XGISFeature | null {
-    const layerName = this.layerIds.getName(layerId)
-    if (!layerName) return null
-    const layer = this.xgisLayers.get(layerName)
-    if (!layer) return null
-    // Find the source by walking vectorTileShows for the show this layer
-    // wraps. Phase 4 only supports GeoJSON sources (in `_featureIndex`);
-    // .xgvt sources land in Phase 5 with property-table reverse mapping.
-    const entry = this.vectorTileShows.find(e => (e.show.layerName ?? e.show.targetName) === layerName)
-    const sourceName = entry?.show.targetName ?? layerName
-    const props = this.lookupFeatureProperties(sourceName, featureId)
-    return {
-      id: featureId,
-      source: sourceName,
-      layer: layerName,
-      properties: props ?? {},
-    }
+    return this.interactionController.buildFeatureForEvent(layerId, featureId)
   }
 
   /** Look up properties for `featureId` in `sourceName`'s GeoJSON
@@ -1345,47 +1288,14 @@ export class XGISMap {
    *  Returns null when the source isn't a GeoJSON dataset or the ID
    *  isn't found. */
   private lookupFeatureProperties(sourceName: string, featureId: number): Record<string, unknown> | null {
-    const data = this.rawDatasets.get(sourceName)
-    if (!data) return null
-    let index = this._featureIndex.get(sourceName)
-    if (!index) {
-      index = new Map()
-      for (let i = 0; i < data.features.length; i++) {
-        const f = data.features[i]
-        const id = toU32Id(f.id ?? f.properties?.id ?? i)
-        index.set(id, f)
-      }
-      this._featureIndex.set(sourceName, index)
-    }
-    const feature = index.get(featureId)
-    return (feature?.properties as Record<string, unknown>) ?? null
+    return this.interactionController.lookupFeatureProperties(sourceName, featureId)
   }
 
   /** Convert a CSS-coordinate point to longitude/latitude using the
    *  current camera. Mercator-only; other projections return null and
    *  the dispatcher coerces to [NaN, NaN]. */
   private clientToLngLat(clientX: number, clientY: number): readonly [number, number] | null {
-    if (!this.ctx) return null
-    const canvas = this.ctx.canvas
-    const rect = canvas.getBoundingClientRect()
-    // Map CSS coords → physical pixels for unproject (which works in
-    // physical-pixel framebuffer space).
-    const px = (clientX - rect.left) * (canvas.width / rect.width)
-    const py = (clientY - rect.top) * (canvas.height / rect.height)
-    const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1
-    const rtc = this.camera.unprojectToZ0(px, py, canvas.width, canvas.height, dpr)
-    if (!rtc) return null
-    // RTC coords are camera-relative meters in projection space. For
-    // Mercator (the most common path) we add cameraCenter to get
-    // absolute Mercator meters then invert to lng/lat. Other projections
-    // need a per-projection inverse — Phase 5 work.
-    if (this.projectionName !== 'mercator') return null
-    const R = 6378137
-    const merc_x = rtc[0] + this.camera.centerX
-    const merc_y = rtc[1] + this.camera.centerY
-    const lon = (merc_x / R) * (180 / Math.PI)
-    const lat = (2 * Math.atan(Math.exp(merc_y / R)) - Math.PI / 2) * (180 / Math.PI)
-    return [lon, lat]
+    return this.interactionController.clientToLngLat(clientX, clientY)
   }
 
   /** Load and run an X-GIS program */
