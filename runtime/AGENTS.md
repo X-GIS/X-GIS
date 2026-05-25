@@ -22,7 +22,7 @@
 
 ### Working In This Directory
 - WebGPU-first. Renderers assume a `GPUDevice`; pure logic (tile math, packing, collision, layout) is deliberately split into GPU-free modules so it is unit-testable without a device (see the `__test-support__/webgpu-stub`).
-- **CPU↔GPU projection parity is a hard contract.** Any edit to `engine/projection/projection.ts` (CPU) must mirror `engine/shaders/projection.ts` (WGSL source of truth) and the TS mirror `engine/projection/projection-wgsl-mirror.ts`. Divergences here are a documented recurring bug class.
+- **CPU↔GPU projection parity is a hard contract.** Any edit to `engine/projection/projection.ts` (CPU) must mirror `engine/shaders/projection.ts` (WGSL source of truth) and the GENERATED cpu-f64 lowering `engine/shader-dsl/cpu-projections.ts` (from the IR in `engine/shader-dsl/projections.ts` — formerly the hand-maintained `projection-wgsl-mirror.ts`, now deleted). Divergences here are a documented recurring bug class.
 - **Tile selection + budget is bug-prone.** `data/tile-select.ts`, `loader/tiles-sse.ts`, `data/tile-catalog.ts`, and the VTR per-tile loop interact through implicit budgets (upload/frame, GPU-cache LRU, SSE). Gate any change on concrete e2e tile/perf numbers vs a mercator control.
 - earcut runs in Mercator-projected coordinates so triangle edges match the GPU. Never re-tessellate per projection — projections switch via a GPU uniform.
 

@@ -1,10 +1,16 @@
 // ═══ Shader DSL — projection graph (authored once, two backends) ═══
 //
 // Re-authors runtime/src/engine/shaders/projection.ts (WGSL_PROJECTION_FNS +
-// WGSL_PROJECTION_CONSTS) and runtime/src/engine/projection/projection-wgsl-
-// mirror.ts as ONE IR. The WGSL backend regenerates the shader block; the
-// CPU backend regenerates the f64 mirror. Drift between GPU and CPU becomes
-// impossible — both are emitted from this single graph.
+// WGSL_PROJECTION_CONSTS) and the (now-deleted) projection-wgsl-mirror.ts as
+// ONE IR. The CPU backend regenerates the f64 mirror — so the CPU side of the
+// drift class is closed NOW (cpu-projections.ts is generated, not hand-kept).
+//
+// SCOPE (Phase 0): the WGSL backend's output of this graph is validated, but
+// the GPU still runs the hand-written WGSL_PROJECTION_FNS string — wiring
+// createShaderModule to emitModule(PROJECTION_MODULE) is Phase 2. Until then
+// the hand WGSL ⟷ this IR are kept in lockstep by projection-threshold-drift
+// .test.ts + _shader-math-parity.spec.ts; full "single source" lands when the
+// GPU is re-targeted onto this graph too.
 //
 // The int-dispatch ladder (project / project_geom forward selection) is
 // GENERATED from PROJECTIONS (projections-table.ts): array index == projType

@@ -383,18 +383,25 @@ export class Builder {
     return new IfChain(arms, (e) => { stmt.elseBody = e })
   }
 
-  /** C-style for: `for (var name = init; name <cond>; name = name+step)`. */
+  /** C-style for: `for (var name = init; name <cond>; name = name+step)`.
+   *  A numeric / omitted step is typed to the loop var's scalar so a u32/i32
+   *  counter emits `i + 1u` / `i + 1` (not `i + 1.0`, which naga/tint reject). */
   forRange<K extends string>(
     name: string,
     init: Node<K>,
     cond: (i: Node<K>) => Node<'bool'>,
     body: (b: Builder, i: Node<K>) => void,
-    step: Node<ScalarKey> | number = f32(1),
+    step?: Node<ScalarKey> | number,
   ): void {
     const i = new Node<K>({ op: 'varref', type: init.type, name })
+    const litOf = (v: number): Node => {
+      if (init.type.kind === 'scalar' && init.type.scalar === 'u32') return u32(v)
+      if (init.type.kind === 'scalar' && init.type.scalar === 'i32') return i32(v)
+      return f32(v)
+    }
+    const stepNode = step === undefined ? litOf(1) : typeof step === 'number' ? litOf(step) : step
     const initStmt: Stmt = { s: 'var', name, type: init.type, init: init.expr }
-    // step is always a scalar/number — valid as an ArithArg for any K.
-    const updateStmt: Stmt = { s: 'assign', target: i.expr, expr: i.add(step as ArithArg<K>).expr }
+    const updateStmt: Stmt = { s: 'assign', target: i.expr, expr: i.add(stepNode as ArithArg<K>).expr }
     this.push({ s: 'for', init: initStmt, cond: cond(i).expr, update: updateStmt, body: subBody((b) => body(b, i)) })
   }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  fn, module, f32, vec2, vec3, vec2fT, f32T, boolT, u32T,
+  fn, module, f32, u32, vec2, vec3, vec2fT, f32T, boolT, u32T,
   param, constRef, clamp, log, tan, min, dot,
   type ConstDecl,
 } from './ir'
@@ -95,5 +95,17 @@ describe('shader-dsl CPU backend', () => {
     const mod = compileModule(module({ funcs: [f] }))
     // 0+1+2+3+3 = 9
     expect(mod.fns.acc()).toBe(9)
+  })
+
+  it('a default-step u32 loop emits an integer increment (i + 1u), not i + 1.0', () => {
+    // Guards the naga/tint trap: a u32 counter must not increment by an f32.
+    const f = fn('count', {}, u32T, (b) => {
+      const n = b.var('n', u32T, u32(0))
+      b.forRange('i', u32(0), (i) => i.lt(u32(4)), (loop) => { loop.addAssign(n, u32(1)) })
+      b.ret(n)
+    })
+    expect(emitFunc(f)).toContain('i = (i + 1u)')
+    expect(emitFunc(f)).toContain('var i: u32 = 0u')
+    expect(compileModule(module({ funcs: [f] })).fns.count()).toBe(4)
   })
 })

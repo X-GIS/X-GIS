@@ -192,6 +192,12 @@ function setLValue(target: Expr, value: CpuValue, env: Map<string, CpuValue>, ct
 type Signal = { kind: 'normal' } | { kind: 'return'; value: CpuValue | undefined } | { kind: 'break' } | { kind: 'discard' }
 const NORMAL: Signal = { kind: 'normal' }
 
+// One flat env per function call (no per-block child scope). This is safe
+// because the ONLY way to reference a binding is the Node returned by
+// b.let()/b.var()/forRange — the TS host already scopes those lexically, so a
+// `var` declared in one branch can't be read from another. (A future
+// "read a binding by name" API would expose the divergence from WGSL block
+// scoping; don't add one without per-block scopes here.)
 function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): Signal {
   for (const s of body) {
     switch (s.s) {

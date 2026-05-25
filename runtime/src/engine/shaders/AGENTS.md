@@ -16,7 +16,7 @@ Shared WGSL string blocks that every renderer concatenates into its inline shade
 ## For AI Agents
 
 ### Working In This Directory
-- `projection.ts` (WGSL) is the source of truth for projection math. Any change here must be mirrored in the CPU `engine/projection/projection.ts` AND the TS mirror `engine/projection/projection-wgsl-mirror.ts` — the parity test compares all three. This is a documented recurring divergence point.
+- `projection.ts` (WGSL) is the source of truth for projection math. Any change here must be mirrored in the CPU `engine/projection/projection.ts` AND the shader-DSL graph `engine/shader-dsl/projections.ts` (which regenerates the cpu-f64 lowering `engine/shader-dsl/cpu-projections.ts` — formerly the hand-maintained `projection-wgsl-mirror.ts`, now deleted). The parity tests compare all three. This is a documented recurring divergence point.
 - These are plain template strings (`/* wgsl */`); they get string-concatenated, so keep WGSL identifiers globally unique and avoid reserved words (gated by `wgsl-reserved-words.test.ts`).
 - Log-depth FC must be computed consistently on CPU (`computeLogDepthFc`) and applied in the WGSL block — they pair up.
 
