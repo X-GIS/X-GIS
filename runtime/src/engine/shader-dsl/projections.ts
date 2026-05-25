@@ -30,6 +30,7 @@ import {
   type ConstDecl, type FuncDecl, type ModuleDecl, type Node, type Builder,
 } from './ir'
 import { PROJECTIONS } from '../projection/projections-table'
+import { emitConst, emitFunc } from './backend-wgsl'
 
 // ── Constants (WGSL value | CPU value) ──
 export const PROJECTION_CONSTS: ConstDecl[] = [
@@ -335,3 +336,13 @@ export const PROJECTION_MODULE: ModuleDecl = module({
   consts: PROJECTION_CONSTS,
   funcs: PROJECTION_FUNCS,
 })
+
+// ── GPU shader emission (US-P0-4b: the live GPU block, generated) ──
+// The GPU runs every projection fn EXCEPT project_geom_cpu, which is the
+// CPU-only no-world-offset variant (the GPU uses project_geom, with offset).
+// shaders/projection.ts re-exports these as WGSL_PROJECTION_CONSTS /
+// WGSL_PROJECTION_FNS — so the polygon / line / point / raster shaders now
+// consume DSL-emitted WGSL from the SAME graph as the cpu-f64 lowering.
+const GPU_PROJECTION_FUNCS = PROJECTION_FUNCS.filter((f) => f.name !== 'project_geom_cpu')
+export const PROJECTION_WGSL_CONSTS = `${PROJECTION_CONSTS.map(emitConst).join('\n')}\n`
+export const PROJECTION_WGSL_FNS = `${GPU_PROJECTION_FUNCS.map(emitFunc).join('\n\n')}\n`

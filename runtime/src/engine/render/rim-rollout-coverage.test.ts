@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import {
   POLYGON_SHADER_SOURCE,
 } from './renderer'
+import { WGSL_PROJECTION_FNS } from '../shaders/projection'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
@@ -45,11 +46,9 @@ describe('rim_alpha rollout coverage', () => {
     expect(src).toContain('u.raster_params.x * rim')
   })
 
-  it('rim_alpha function itself is defined in shaders/projection.ts', () => {
-    const src = readFileSync(
-      join(__dirname, '..', 'shaders', 'projection.ts'),
-      'utf8',
-    )
-    expect(src).toContain('fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32')
+  it('rim_alpha function is emitted into WGSL_PROJECTION_FNS', () => {
+    // The projection block is now DSL-emitted (shader-dsl/projections.ts), so
+    // check the emitted string carries the fn — not the source file text.
+    expect(WGSL_PROJECTION_FNS).toContain('fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32')
   })
 })
