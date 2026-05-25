@@ -10,6 +10,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from './camera'
+import { PROJECTION_NAME_TO_TYPE } from './projections-table'
 
 const PROJECTIONS = [
   // (name, projType, globeMode, globeOrtho)
@@ -48,6 +49,15 @@ function allFinite(m: Float32Array): { ok: boolean; bad?: { i: number; v: number
 }
 
 describe('Camera matrix coverage — no NaN/Infinity at extreme params', () => {
+  // This fixture's (name, projType) columns must agree with the canonical
+  // PROJECTIONS table (the globeMode/globeOrtho columns are camera-specific
+  // and stay local). Pins the last name→projType drift surface to the table.
+  it('fixture name→projType agrees with the PROJECTIONS table', () => {
+    for (const [name, projType] of PROJECTIONS) {
+      expect(PROJECTION_NAME_TO_TYPE[name]).toBe(projType)
+    }
+  })
+
   for (const [name, projType, globeMode, globeOrtho] of PROJECTIONS) {
     for (const [lon, lat, anchor] of ANCHORS) {
       it(`${name} @ ${anchor} — zoom/pitch/bearing sweep`, () => {
