@@ -39,16 +39,21 @@ for (let lon = -75; lon <= 75; lon += 15) {
   for (let lat = -75; lat <= 75; lat += 15) GRID.push([lon, lat])
 }
 
-// Tolerance. Hardware GPU: f32 + truncated constants diverge ~5–10 m at
-// Mercator scale. SwiftShader (the CI software-WebGPU path, XGIS_SOFTWARE_GPU=1)
-// has much weaker transcendentals (log/tan/sin/cos) — measured up to ~450 m
-// on the Mercator y term — so it needs a looser, relative tol there. Both
-// sit FAR below any real formula drift (a dropped term / wrong constant is
-// hundreds of km), so the gate keeps its teeth in either mode. A probe
-// `* 1.001` in proj_mercator fails both (Δ≈8 km).
+// Tolerance, by GPU class:
+//   Hardware (local / pre-push): 100 m absolute. f32 + the WGSL's truncated
+//   constants diverge only ~5–10 m at Mercator scale, so this catches even
+//   a sub-permille formula drift — full sensitivity.
+//   SwiftShader (CI software WebGPU, XGIS_SOFTWARE_GPU=1): its software
+//   transcendentals (log/tan/sin/cos) are far weaker — measured ~3e-4
+//   relative (stereographic's 2/(1+cos_c) amplifies it to ~2.7 km at 9.5e6 m).
+//   So CI uses 2e-3 relative (+3 km floor): ~6× above SwiftShader noise, and
+//   well below any GROSS formula drift (a dropped term / wrong sign / wrong
+//   constant is whole-percent → hundreds of km). Net contract: CI catches
+//   gross shader-math breakage; the tight hardware gate (pre-push) catches
+//   the subtle drift SwiftShader is too imprecise to see.
 const SOFTWARE_GPU = process.env.XGIS_SOFTWARE_GPU === '1'
 const tolFor = (cpuVal: number): number =>
-  SOFTWARE_GPU ? Math.max(2000, Math.abs(cpuVal) * 2e-4) : 100
+  SOFTWARE_GPU ? Math.max(3000, Math.abs(cpuVal) * 2e-3) : 100
 
 // Compute WGSL: shared consts + the real projection block + a kernel that
 // calls the actual `project()` over the grid for one projType.
