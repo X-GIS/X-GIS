@@ -23,8 +23,12 @@ describe('shader-dsl IR — type inference', () => {
     expect(dot(v, v).type).toEqual(f32T) // dot → f32
   })
 
-  it('mismatched vector op throws at authoring time', () => {
-    // vec2 + vec3 is a shape error the type system rejects eagerly.
+  it('mismatched vector op is a TS compile error AND a runtime throw (AC4)', () => {
+    // The phantom key on Node<K> makes vec2 + vec3 a compile error; the
+    // runtime binResultType also throws as a second layer. The directive below
+    // asserts the compile-time rejection — a regression that lets it type-check
+    // makes the directive "unused" and fails the build.
+    // @ts-expect-error vec2.add(vec3) — mismatched vector keys
     expect(() => vec2(f32(1), f32(2)).add(vec3(f32(1), f32(2), f32(3)))).toThrow()
   })
 

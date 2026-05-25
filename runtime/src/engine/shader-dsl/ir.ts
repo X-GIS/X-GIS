@@ -34,18 +34,35 @@ export type ShaderType =
   | { readonly kind: 'array'; readonly elem: ShaderType }
   | { readonly kind: 'void' }
 
-export const f32T: ShaderType = { kind: 'scalar', scalar: 'f32' }
-export const i32T: ShaderType = { kind: 'scalar', scalar: 'i32' }
-export const u32T: ShaderType = { kind: 'scalar', scalar: 'u32' }
-export const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' }
-export const vec2fT: ShaderType = { kind: 'vec', n: 2, elem: 'f32' }
-export const vec3fT: ShaderType = { kind: 'vec', n: 3, elem: 'f32' }
-export const vec4fT: ShaderType = { kind: 'vec', n: 4, elem: 'f32' }
-export const vec3uT: ShaderType = { kind: 'vec', n: 3, elem: 'u32' }
-export const vec4uT: ShaderType = { kind: 'vec', n: 4, elem: 'u32' }
-export const voidT: ShaderType = { kind: 'void' }
+// `as const satisfies` keeps each constant's LITERAL type (so KeyOf<typeof f32T>
+// resolves to the precise key 'f32' / 'vec2<f32>' …) while still checking it is
+// a valid ShaderType — the basis for the compile-time type-safety gate (AC4).
+export const f32T = { kind: 'scalar', scalar: 'f32' } as const satisfies ShaderType
+export const i32T = { kind: 'scalar', scalar: 'i32' } as const satisfies ShaderType
+export const u32T = { kind: 'scalar', scalar: 'u32' } as const satisfies ShaderType
+export const boolT = { kind: 'scalar', scalar: 'bool' } as const satisfies ShaderType
+export const vec2fT = { kind: 'vec', n: 2, elem: 'f32' } as const satisfies ShaderType
+export const vec3fT = { kind: 'vec', n: 3, elem: 'f32' } as const satisfies ShaderType
+export const vec4fT = { kind: 'vec', n: 4, elem: 'f32' } as const satisfies ShaderType
+export const vec3uT = { kind: 'vec', n: 3, elem: 'u32' } as const satisfies ShaderType
+export const vec4uT = { kind: 'vec', n: 4, elem: 'u32' } as const satisfies ShaderType
+export const voidT = { kind: 'void' } as const satisfies ShaderType
 export const structT = (name: string): ShaderType => ({ kind: 'struct', name })
 export const arrayT = (elem: ShaderType): ShaderType => ({ kind: 'array', elem })
+
+// Type-level key of a ShaderType literal — the phantom carried by Node<K>.
+export type KeyOf<T> =
+  T extends { kind: 'scalar'; scalar: infer S extends string } ? S :
+  T extends { kind: 'vec'; n: infer N extends number; elem: infer E extends string } ? `vec${N}<${E}>` :
+  string
+/** Element key of a vector key (`vec3<u32>` → `u32`); identity for scalars. */
+export type ElemKey<K extends string> = K extends `vec${number}<${infer E}>` ? E : K
+type ScalarKey = 'f32' | 'i32' | 'u32'
+/** Operand a binary arithmetic op accepts: a matching vector or any scalar
+ *  (WGSL vec∘scalar broadcast) for a vector LHS; any scalar for a scalar LHS.
+ *  A `vec2`+`vec3` mismatch is therefore a TS error. */
+type ArithArg<K extends string> =
+  K extends `vec${string}` ? Node<K> | Node<ScalarKey> | number : Node<ScalarKey> | number
 
 export function typeKey(t: ShaderType): string {
   switch (t.kind) {
@@ -173,7 +190,11 @@ function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
 
 const VEC_FIELD_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 }
 
-export class Node {
+export class Node<K extends string = string> {
+  /** Phantom type key (no runtime value). Carried covariantly so a
+   *  Node<'vec3<f32>'> is NOT assignable where Node<'vec2<f32>'> is wanted —
+   *  the mechanism that makes a vec3+vec2 authoring slip a TS compile error. */
+  declare readonly __k: K
   constructor(readonly expr: Expr) {}
   get type(): ShaderType { return this.expr.type }
 
@@ -181,75 +202,80 @@ export class Node {
     const b = lift(o)
     return new Node({ op: 'binop', type: binResultType(this.type, b.type, bop), bop, a: this.expr, b: b.expr })
   }
-  add(o: NodeLike): Node { return this.bin('+', o) }
-  sub(o: NodeLike): Node { return this.bin('-', o) }
-  mul(o: NodeLike): Node { return this.bin('*', o) }
-  div(o: NodeLike): Node { return this.bin('/', o) }
-  mod(o: NodeLike): Node { return this.bin('%', o) }
-  neg(): Node { return new Node({ op: 'unop', type: this.type, a: this.expr }) }
+  add(o: ArithArg<K>): Node<K> { return this.bin('+', o) as Node<K> }
+  sub(o: ArithArg<K>): Node<K> { return this.bin('-', o) as Node<K> }
+  mul(o: ArithArg<K>): Node<K> { return this.bin('*', o) as Node<K> }
+  div(o: ArithArg<K>): Node<K> { return this.bin('/', o) as Node<K> }
+  mod(o: ArithArg<K>): Node<K> { return this.bin('%', o) as Node<K> }
+  neg(): Node<K> { return new Node<K>({ op: 'unop', type: this.type, a: this.expr }) }
 
-  private cmp(cop: CmpOp, o: NodeLike): Node {
-    return new Node({ op: 'compare', type: boolT, cop, a: this.expr, b: lift(o).expr })
+  private cmp(cop: CmpOp, o: NodeLike): Node<'bool'> {
+    return new Node<'bool'>({ op: 'compare', type: boolT, cop, a: this.expr, b: lift(o).expr })
   }
-  lt(o: NodeLike): Node { return this.cmp('<', o) }
-  gt(o: NodeLike): Node { return this.cmp('>', o) }
-  le(o: NodeLike): Node { return this.cmp('<=', o) }
-  ge(o: NodeLike): Node { return this.cmp('>=', o) }
-  eq(o: NodeLike): Node { return this.cmp('==', o) }
-  ne(o: NodeLike): Node { return this.cmp('!=', o) }
+  lt(o: Node<ScalarKey> | number): Node<'bool'> { return this.cmp('<', o) }
+  gt(o: Node<ScalarKey> | number): Node<'bool'> { return this.cmp('>', o) }
+  le(o: Node<ScalarKey> | number): Node<'bool'> { return this.cmp('<=', o) }
+  ge(o: Node<ScalarKey> | number): Node<'bool'> { return this.cmp('>=', o) }
+  eq(o: Node<ScalarKey> | number): Node<'bool'> { return this.cmp('==', o) }
+  ne(o: Node<ScalarKey> | number): Node<'bool'> { return this.cmp('!=', o) }
 
-  and(o: Node): Node { return new Node({ op: 'logical', type: boolT, lop: '&&', a: this.expr, b: o.expr }) }
-  or(o: Node): Node { return new Node({ op: 'logical', type: boolT, lop: '||', a: this.expr, b: o.expr }) }
+  and(o: Node<'bool'>): Node<'bool'> { return new Node<'bool'>({ op: 'logical', type: boolT, lop: '&&', a: this.expr, b: o.expr }) }
+  or(o: Node<'bool'>): Node<'bool'> { return new Node<'bool'>({ op: 'logical', type: boolT, lop: '||', a: this.expr, b: o.expr }) }
 
   /** Vector component access — `.x`/`.y`/`.z`/`.w` → elem scalar. */
-  comp(field: 'x' | 'y' | 'z' | 'w'): Node {
+  comp(field: 'x' | 'y' | 'z' | 'w'): Node<ElemKey<K>> {
     const t = this.type
     if (!isVec(t)) throw new Error(`shader-dsl: .${field} on non-vector ${typeKey(t)}`)
     if (VEC_FIELD_INDEX[field] >= t.n) throw new Error(`shader-dsl: .${field} out of range on ${typeKey(t)}`)
-    return new Node({ op: 'member', type: { kind: 'scalar', scalar: t.elem }, base: this.expr, field })
+    return new Node<ElemKey<K>>({ op: 'member', type: { kind: 'scalar', scalar: t.elem }, base: this.expr, field })
   }
-  get x(): Node { return this.comp('x') }
-  get y(): Node { return this.comp('y') }
-  get z(): Node { return this.comp('z') }
-  get w(): Node { return this.comp('w') }
+  get x(): Node<ElemKey<K>> { return this.comp('x') }
+  get y(): Node<ElemKey<K>> { return this.comp('y') }
+  get z(): Node<ElemKey<K>> { return this.comp('z') }
+  get w(): Node<ElemKey<K>> { return this.comp('w') }
 
-  /** Struct field access (type resolved from the registered struct). */
-  field(name: string, type: ShaderType): Node {
-    return new Node({ op: 'member', type, base: this.expr, field: name })
-  }
-
-  /** Array index — base[idx]. elem is the array element type. */
-  at(idx: NodeLike, elem: ShaderType): Node {
-    return new Node({ op: 'index', type: elem, base: this.expr, idx: lift(idx).expr })
+  /** Struct field access (key inferred from the field's ShaderType literal). */
+  field<T extends ShaderType>(name: string, type: T): Node<KeyOf<T>> {
+    return new Node<KeyOf<T>>({ op: 'member', type, base: this.expr, field: name })
   }
 
-  /** `this ? a : b` (this is a bool). Mirrors WGSL select(b, a, this). */
-  select(a: NodeLike, b: NodeLike): Node {
+  /** Array index — base[idx]. Key inferred from the element ShaderType. */
+  at<T extends ShaderType>(idx: Node<ScalarKey> | number, elem: T): Node<KeyOf<T>> {
+    return new Node<KeyOf<T>>({ op: 'index', type: elem, base: this.expr, idx: lift(idx).expr })
+  }
+
+  /** `this ? a : b` (only valid on a bool node — enforced via `this:`).
+   *  Both branches must share a key. Mirrors WGSL select(b, a, this). */
+  select<R extends string = 'f32'>(this: Node<'bool'>, a: Node<R> | number, b: Node<R> | number): Node<R> {
     if (!typeEq(this.type, boolT)) throw new Error('shader-dsl: .select on non-bool condition')
     const ta = lift(a), tb = lift(b)
     if (!typeEq(ta.type, tb.type)) throw new Error(`shader-dsl: select branches differ ${typeKey(ta.type)} vs ${typeKey(tb.type)}`)
-    return new Node({ op: 'select', type: ta.type, cond: this.expr, ifTrue: ta.expr, ifFalse: tb.expr })
+    return new Node<R>({ op: 'select', type: ta.type, cond: this.expr, ifTrue: ta.expr, ifFalse: tb.expr })
   }
 }
 
 // ── Literal / ref constructors ──
 
-export const f32 = (v: number): Node => new Node({ op: 'lit', type: f32T, value: v })
-export const i32 = (v: number): Node => new Node({ op: 'lit', type: i32T, value: v })
-export const u32 = (v: number): Node => new Node({ op: 'lit', type: u32T, value: v })
-export const bool = (v: boolean): Node => new Node({ op: 'lit', type: boolT, value: v })
+export const f32 = (v: number): Node<'f32'> => new Node<'f32'>({ op: 'lit', type: f32T, value: v })
+export const i32 = (v: number): Node<'i32'> => new Node<'i32'>({ op: 'lit', type: i32T, value: v })
+export const u32 = (v: number): Node<'u32'> => new Node<'u32'>({ op: 'lit', type: u32T, value: v })
+export const bool = (v: boolean): Node<'bool'> => new Node<'bool'>({ op: 'lit', type: boolT, value: v })
 
-/** A reference to a module-level const (PI, DEG2RAD, EARTH_R, …). */
-export const constRef = (name: string, type: ShaderType = f32T): Node =>
-  new Node({ op: 'constref', type, name })
+/** A reference to a module-level const (PI, DEG2RAD, EARTH_R, …). Defaults to
+ *  an f32 const (every projection const is f32). */
+export function constRef<T extends ShaderType = typeof f32T>(name: string, type?: T): Node<KeyOf<T>> {
+  return new Node<KeyOf<T>>({ op: 'constref', type: type ?? f32T, name })
+}
 
-/** A function parameter reference. */
-export const param = (name: string, type: ShaderType): Node =>
-  new Node({ op: 'param', type, name })
+/** A function parameter reference (key inferred from the ShaderType literal). */
+export function param<T extends ShaderType>(name: string, type: T): Node<KeyOf<T>> {
+  return new Node<KeyOf<T>>({ op: 'param', type, name })
+}
 
 /** A module-level binding reference (storage/uniform). */
-export const bindingRef = (name: string, type: ShaderType): Node =>
-  new Node({ op: 'varref', type, name })
+export function bindingRef<T extends ShaderType>(name: string, type: T): Node<KeyOf<T>> {
+  return new Node<KeyOf<T>>({ op: 'varref', type, name })
+}
 
 // ── Builtins (free functions) ──
 
@@ -258,8 +284,8 @@ const elemScalarType = (t: ShaderType): ShaderType => (isVec(t) ? { kind: 'scala
 const call = (fn: string, type: ShaderType, ...args: NodeLike[]): Node =>
   new Node({ op: 'call', type, fn, args: args.map((a) => lift(a).expr) })
 
-// genType in → genType out (component-wise) builtins
-const genType1 = (fn: string) => (x: NodeLike): Node => { const n = lift(x); return call(fn, n.type, n) }
+// genType1: component-wise unary builtin — preserves the operand key.
+const genType1 = (fn: string) => <K extends string>(x: Node<K>): Node<K> => call(fn, x.type, x) as Node<K>
 
 export const sin = genType1('sin')
 export const cos = genType1('cos')
@@ -274,41 +300,42 @@ export const ceil = genType1('ceil')
 export const abs = genType1('abs')
 export const sqrt = genType1('sqrt')
 
-export const atan2 = (y: NodeLike, x: NodeLike): Node => { const n = lift(y); return call('atan2', n.type, n, x) }
-export const min = (a: NodeLike, b: NodeLike): Node => { const n = lift(a); return call('min', binResultType(n.type, lift(b).type, 'min'), n, b) }
-export const max = (a: NodeLike, b: NodeLike): Node => { const n = lift(a); return call('max', binResultType(n.type, lift(b).type, 'max'), n, b) }
-export const clamp = (x: NodeLike, lo: NodeLike, hi: NodeLike): Node => { const n = lift(x); return call('clamp', n.type, n, lo, hi) }
-export const mix = (a: NodeLike, b: NodeLike, t: NodeLike): Node => { const n = lift(a); return call('mix', n.type, n, b, t) }
-export const smoothstep = (e0: NodeLike, e1: NodeLike, x: NodeLike): Node => { const n = lift(x); return call('smoothstep', elemScalarType(n.type), e0, e1, n) }
-export const length = (v: NodeLike): Node => call('length', f32T, v)
-export const dot = (a: NodeLike, b: NodeLike): Node => call('dot', f32T, a, b)
+export const atan2 = <K extends string>(y: Node<K>, x: ArithArg<K>): Node<K> => call('atan2', y.type, y, x) as Node<K>
+export const min = <K extends string>(a: Node<K>, b: ArithArg<K>): Node<K> => call('min', binResultType(a.type, lift(b).type, 'min'), a, b) as Node<K>
+export const max = <K extends string>(a: Node<K>, b: ArithArg<K>): Node<K> => call('max', binResultType(a.type, lift(b).type, 'max'), a, b) as Node<K>
+export const clamp = <K extends string>(x: Node<K>, lo: ArithArg<K>, hi: ArithArg<K>): Node<K> => call('clamp', x.type, x, lo, hi) as Node<K>
+export const mix = <K extends string>(a: Node<K>, b: ArithArg<K>, t: Node<ScalarKey> | number): Node<K> => call('mix', a.type, a, b, t) as Node<K>
+export const smoothstep = (e0: Node<ScalarKey> | number, e1: Node<ScalarKey> | number, x: Node<ScalarKey> | number): Node<'f32'> => { const n = lift(x); return call('smoothstep', elemScalarType(n.type), e0, e1, n) as Node<'f32'> }
+export const length = (v: Node<string>): Node<'f32'> => call('length', f32T, v) as Node<'f32'>
+export const dot = (a: Node<string>, b: Node<string>): Node<'f32'> => call('dot', f32T, a, b) as Node<'f32'>
 /** Pack a vec4<f32> (each component in [0,1]) into a u32 RGBA8. */
-export const pack4x8unorm = (v: NodeLike): Node => call('pack4x8unorm', u32T, v)
+export const pack4x8unorm = (v: Node<'vec4<f32>'>): Node<'u32'> => call('pack4x8unorm', u32T, v) as Node<'u32'>
 
 /** select(cond, ifTrue, ifFalse) — free-function form of Node.select. */
-export const select = (cond: Node, ifTrue: NodeLike, ifFalse: NodeLike): Node => cond.select(ifTrue, ifFalse)
+export const select = <R extends string>(cond: Node<'bool'>, ifTrue: Node<R> | number, ifFalse: Node<R> | number): Node<R> => cond.select(ifTrue, ifFalse)
 
 // Casts
-export const toF32 = (x: NodeLike): Node => call('f32', f32T, x)
-export const toI32 = (x: NodeLike): Node => call('i32', i32T, x)
-export const toU32 = (x: NodeLike): Node => call('u32', u32T, x)
+export const toF32 = (x: Node<string> | number): Node<'f32'> => call('f32', f32T, x) as Node<'f32'>
+export const toI32 = (x: Node<string> | number): Node<'i32'> => call('i32', i32T, x) as Node<'i32'>
+export const toU32 = (x: Node<string> | number): Node<'u32'> => call('u32', u32T, x) as Node<'u32'>
 
 /** Call a user-defined (authored) function by name. The WGSL backend emits
  *  `name(args)`; the CPU backend dispatches through the compiled fn table. */
-export const callFn = (name: string, ret: ShaderType, ...args: NodeLike[]): Node =>
-  new Node({ op: 'call', type: ret, fn: name, args: args.map((a) => lift(a).expr) })
+export function callFn<T extends ShaderType>(name: string, ret: T, ...args: NodeLike[]): Node<KeyOf<T>> {
+  return new Node<KeyOf<T>>({ op: 'call', type: ret, fn: name, args: args.map((a) => lift(a).expr) })
+}
 
 // Vector constructors
 const construct = (type: ShaderType, args: NodeLike[]): Node =>
   new Node({ op: 'construct', type, args: args.map((a) => lift(a).expr) })
-export const vec2 = (...a: NodeLike[]): Node => construct(vec2fT, a)
-export const vec3 = (...a: NodeLike[]): Node => construct(vec3fT, a)
-export const vec4 = (...a: NodeLike[]): Node => construct(vec4fT, a)
+export const vec2 = (...a: NodeLike[]): Node<'vec2<f32>'> => construct(vec2fT, a) as Node<'vec2<f32>'>
+export const vec3 = (...a: NodeLike[]): Node<'vec3<f32>'> => construct(vec3fT, a) as Node<'vec3<f32>'>
+export const vec4 = (...a: NodeLike[]): Node<'vec4<f32>'> => construct(vec4fT, a) as Node<'vec4<f32>'>
 
 // ── Function builder ──
 
 export type ParamSpec = Record<string, ShaderType>
-type ParamNodes<P extends ParamSpec> = { [K in keyof P]: Node }
+type ParamNodes<P extends ParamSpec> = { [K in keyof P]: Node<KeyOf<P[K]>> }
 
 export class Builder {
   readonly stmts: Stmt[] = []
@@ -316,28 +343,29 @@ export class Builder {
 
   private push(s: Stmt): void { this.stmts.push(s) }
 
-  /** Immutable binding — `let name = expr;`. Returns a varref Node. */
-  let(name: string, value: Node): Node {
+  /** Immutable binding — `let name = expr;`. Returns a varref Node of the
+   *  bound value's key. */
+  let<K extends string>(name: string, value: Node<K>): Node<K> {
     this.push({ s: 'let', name, expr: value.expr })
-    return new Node({ op: 'varref', type: value.type, name })
+    return new Node<K>({ op: 'varref', type: value.type, name })
   }
 
   /** Mutable binding — `var name: T = init?;`. Returns a varref Node. */
-  var(name: string, type: ShaderType, init?: Node): Node {
+  var<T extends ShaderType>(name: string, type: T, init?: Node<KeyOf<T>>): Node<KeyOf<T>> {
     this.push({ s: 'var', name, type, init: init?.expr })
-    return new Node({ op: 'varref', type, name })
+    return new Node<KeyOf<T>>({ op: 'varref', type, name })
   }
 
   /** Fresh unique name (for generated temporaries). */
   tmp(prefix = 't'): string { return `${prefix}_${this.uid++}` }
 
-  assign(target: Node, value: Node): void {
+  assign<K extends string>(target: Node<K>, value: Node<K>): void {
     this.push({ s: 'assign', target: target.expr, expr: value.expr })
   }
-  assignOp(target: Node, bop: BinOp, value: Node): void {
-    this.push({ s: 'assignOp', target: target.expr, bop, expr: value.expr })
+  assignOp<K extends string>(target: Node<K>, bop: BinOp, value: ArithArg<K>): void {
+    this.push({ s: 'assignOp', target: target.expr, bop, expr: lift(value).expr })
   }
-  addAssign(target: Node, value: Node): void { this.assignOp(target, '+', value) }
+  addAssign<K extends string>(target: Node<K>, value: ArithArg<K>): void { this.assignOp(target, '+', value) }
 
   ret(value?: Node): void { this.push({ s: 'return', expr: value?.expr }) }
   break(): void { this.push({ s: 'break' }) }
@@ -346,7 +374,7 @@ export class Builder {
   /** if / else-if / else chain. Returns a chainer so `.elif().else()` reads
    *  top-to-bottom. The If stmt is pushed on the first call and mutated in
    *  place by subsequent .elif/.else. */
-  if(cond: Node, body: (b: Builder) => void): IfChain {
+  if(cond: Node<'bool'>, body: (b: Builder) => void): IfChain {
     const arms: Array<{ cond: Expr; body: Stmt[] }> = [{ cond: cond.expr, body: subBody(body) }]
     const stmt = { s: 'if' as const, arms, elseBody: undefined as Stmt[] | undefined }
     // Push a mutable-shaped object; the readonly Stmt typing is a compile-time
@@ -356,20 +384,21 @@ export class Builder {
   }
 
   /** C-style for: `for (var name = init; name <cond>; name = name+step)`. */
-  forRange(
+  forRange<K extends string>(
     name: string,
-    init: Node,
-    cond: (i: Node) => Node,
-    body: (b: Builder, i: Node) => void,
-    step: Node = f32(1),
+    init: Node<K>,
+    cond: (i: Node<K>) => Node<'bool'>,
+    body: (b: Builder, i: Node<K>) => void,
+    step: Node<ScalarKey> | number = f32(1),
   ): void {
-    const i = new Node({ op: 'varref', type: init.type, name })
+    const i = new Node<K>({ op: 'varref', type: init.type, name })
     const initStmt: Stmt = { s: 'var', name, type: init.type, init: init.expr }
-    const updateStmt: Stmt = { s: 'assign', target: i.expr, expr: i.add(step).expr }
+    // step is always a scalar/number — valid as an ArithArg for any K.
+    const updateStmt: Stmt = { s: 'assign', target: i.expr, expr: i.add(step as ArithArg<K>).expr }
     this.push({ s: 'for', init: initStmt, cond: cond(i).expr, update: updateStmt, body: subBody((b) => body(b, i)) })
   }
 
-  switch(scrut: Node, cases: Array<[number, (b: Builder) => void]>, defaultBody?: (b: Builder) => void): void {
+  switch(scrut: Node<ScalarKey>, cases: Array<[number, (b: Builder) => void]>, defaultBody?: (b: Builder) => void): void {
     this.push({
       s: 'switch',
       scrut: scrut.expr,
@@ -384,7 +413,7 @@ export class IfChain {
     private readonly arms: Array<{ cond: Expr; body: Stmt[] }>,
     private readonly setElse: (body: Stmt[]) => void,
   ) {}
-  elif(cond: Node, body: (b: Builder) => void): IfChain {
+  elif(cond: Node<'bool'>, body: (b: Builder) => void): IfChain {
     this.arms.push({ cond: cond.expr, body: subBody(body) })
     return this
   }
@@ -400,7 +429,7 @@ function subBody(fn: (b: Builder) => void): Stmt[] {
 }
 
 /** Author a function. The body callback receives the builder + typed param
- *  Nodes. Returns a FuncDecl for the module. */
+ *  Nodes (each keyed by its ShaderType). Returns a FuncDecl for the module. */
 export function fn<P extends ParamSpec>(
   name: string,
   params: P,
@@ -423,9 +452,9 @@ export function computeFn(
   name: string,
   workgroupSize: number,
   gidName: string,
-  body: (b: Builder, gid: Node) => void,
+  body: (b: Builder, gid: Node<'vec3<u32>'>) => void,
 ): FuncDecl {
-  const gid = new Node({ op: 'param', type: vec3uT, name: gidName })
+  const gid = new Node<'vec3<u32>'>({ op: 'param', type: vec3uT, name: gidName })
   const b = new Builder()
   body(b, gid)
   return {
