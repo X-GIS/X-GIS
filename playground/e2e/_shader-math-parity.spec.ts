@@ -25,7 +25,7 @@
 
 import { test, expect } from '@playwright/test'
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../../runtime/src/engine/shaders/projection'
-import { projectWgsl, invMercLatRad } from '../../runtime/src/engine/projection/projection-wgsl-mirror'
+import { projectWgsl, invMercLatRad } from '../../runtime/src/engine/shader-dsl/cpu-projections'
 
 const PROJ_NAMES = [
   'mercator', 'equirectangular', 'natural_earth',

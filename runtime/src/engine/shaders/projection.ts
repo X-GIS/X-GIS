@@ -48,9 +48,12 @@ const MERCATOR_LAT_LIMIT: f32 = 85.051129;
  *    6 = oblique_mercator
  *
  *  When changing math here, also update:
- *   - `projection.ts`              (CPU canonical, used by tile selection)
- *   - `projection-wgsl-mirror.ts`  (TS mirror tested by
- *                                   projection-wgsl-consistency.test.ts) */
+ *   - `projection.ts`               (CPU canonical, used by tile selection)
+ *   - `shader-dsl/projections.ts`   (the IR the cpu-f64 lowering is generated
+ *                                    from — formerly the hand-maintained
+ *                                    projection-wgsl-mirror.ts, now deleted).
+ *  GPU↔CPU agreement is pinned by _shader-math-parity.spec.ts (executed WGSL
+ *  vs the generated cpu dispatch) + projection-wgsl-consistency.test.ts. */
 export const WGSL_PROJECTION_FNS = /* wgsl */ `
 fn proj_mercator(lon_deg: f32, lat_deg: f32) -> vec2<f32> {
   let lat = clamp(lat_deg, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);

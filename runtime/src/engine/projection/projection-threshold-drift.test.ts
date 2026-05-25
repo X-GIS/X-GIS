@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROJECTIONS } from './projections-table'
 import { WGSL_PROJECTION_FNS } from '../shaders/projection'
+import { cosC, needsBackfaceCullWgsl } from '../shader-dsl/cpu-projections'
 
 const AZIMUTHAL = PROJECTIONS[4]!.cullThreshold! // -0.85
 const STEREO = PROJECTIONS[5]!.cullThreshold!    // -0.8
@@ -64,11 +65,23 @@ describe('projection threshold drift gate', () => {
     expect(orthoGlobe).toEqual([ORTHO, ORTHO])
   })
 
-  it('CPU mirror needsBackfaceCullWgsl thresholds == table', () => {
-    const mirror = readFileSync(join(__dirname, 'projection-wgsl-mirror.ts'), 'utf8')
-    // `if (projType < 4.5) return cc > -0.85 ? 1 : -1` (azimuthal, stereo).
-    const found = allMatches(mirror, /cc > (-?[\d.]+) \? 1 : -1/g)
-    expect(found).toEqual([AZIMUTHAL, STEREO])
+  it('generated cpu needs_backface_cull follows the table thresholds (behavioral)', () => {
+    // The cpu-f64 lowering (shader-dsl/projections.ts) pulls cull thresholds
+    // from the PROJECTIONS table, so its cull SIGN flips exactly at the table
+    // value — drift-impossible by construction. Probe: azimuthal (4) visible
+    // iff cc > AZIMUTHAL, stereographic (5) iff cc > STEREO. (Replaces the old
+    // regex over the hand-written mirror, now deleted.)
+    const CL = 0, CT = 20
+    for (const [pt, thr] of [[4, AZIMUTHAL], [5, STEREO]] as const) {
+      for (let i = 0; i < 12; i++) {
+        for (let j = 0; j < 12; j++) {
+          const lon = -180 + (i / 11) * 360
+          const lat = -85 + (j / 11) * 170
+          const cc = cosC(lon, lat, CL, CT)
+          expect(needsBackfaceCullWgsl(pt, lon, lat, CL, CT) > 0).toBe(cc > thr)
+        }
+      }
+    }
   })
 
   it('inline raster cull ladder thresholds == table', () => {

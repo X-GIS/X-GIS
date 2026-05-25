@@ -47,7 +47,8 @@ export function projectCpu(projType: number, lon: number, lat: number, clon: num
 
 export function projectGeomCpu(projType: number, lon: number, lat: number, clon: number, clat: number, refLon: number): [number, number] {
   if (projType > 6.5) throw new Error(`projectGeomCpu: projType ${projType} (globe) has no 2D projection — use globeForward`)
-  return vec2(M.fns.project_geom(lon, lat, pp(projType, clon, clat), refLon))
+  // project_geom_cpu: the mirror's no-world-offset variant (see projections.ts).
+  return vec2(M.fns.project_geom_cpu(lon, lat, pp(projType, clon, clat), refLon))
 }
 
 export function needsBackfaceCullCpu(projType: number, lon: number, lat: number, clon: number, clat: number): number {
@@ -56,4 +57,33 @@ export function needsBackfaceCullCpu(projType: number, lon: number, lat: number,
 
 export function rimAlphaCpu(projType: number, lon: number, lat: number, clon: number, clat: number): number {
   return M.fns.rim_alpha(lon, lat, pp(projType, clon, clat)) as number
+}
+
+// ── Legacy mirror-API names ──
+// projection-wgsl-mirror.ts is deleted; these generated cpu-f64 functions are
+// its drop-in replacement (same f64 numbers, proven ≤1e-6 m before deletion).
+// The historical `*Wgsl` / `cosC` names are kept so the existing CPU consumers
+// (raster-renderer, label-pass, render-loop-helpers) and the parity tests
+// switch only the import PATH, not call sites.
+export {
+  projMercatorCpu as projMercatorWgsl,
+  projEquirectangularCpu as projEquirectangularWgsl,
+  projEquirectangularDCpu as projEquirectangularDWgsl,
+  projNaturalEarthCpu as projNaturalEarthWgsl,
+  projNaturalEarthDCpu as projNaturalEarthDWgsl,
+  projOrthographicCpu as projOrthographicWgsl,
+  projAzimuthalEquidistantCpu as projAzimuthalEquidistantWgsl,
+  projStereographicCpu as projStereographicWgsl,
+  obliqueRotCpu as obliqueRotWgsl,
+  projObliqueMercatorDCpu as projObliqueMercatorDWgsl,
+  projObliqueMercatorCpu as projObliqueMercatorWgsl,
+  projGlobeCpu as projGlobeWgsl,
+  cosCCpu as cosC,
+  invMercLatRadCpu as invMercLatRad,
+  wrapLonDeltaCpu as wrapLonDelta,
+  unwrapLonNearCpu as unwrapLonNear,
+  unwrapRadNearCpu as unwrapRadNear,
+  projectCpu as projectWgsl,
+  projectGeomCpu as projectGeomWgsl,
+  needsBackfaceCullCpu as needsBackfaceCullWgsl,
 }

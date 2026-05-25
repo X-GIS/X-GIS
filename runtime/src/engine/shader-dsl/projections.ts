@@ -253,6 +253,33 @@ const project_geom = fn('project_geom', { lon_deg: f32T, lat_deg: f32T, proj_par
   b.ret(callFn('project', vec2fT, lon_deg, lat_deg, proj_params))
 })
 
+// CPU-side project_geom — mirrors the (now-deleted) projection-wgsl-mirror.ts
+// projectGeomWgsl, which INTENTIONALLY OMITS the world-copy offset the GPU
+// project_geom applies. The CPU consumer (raster tile_rtc) telescopes
+// `project_geom(v) − project_geom(SW) + tile_rtc`, so the constant per-tile
+// world offset cancels — and label anchors need the absolute camera-relative
+// position (no whole-world jump) when the camera sits near ±180°. The GPU
+// per-vertex path keeps the offset to place adjacent world copies. These are
+// genuinely different functions, so they are authored separately.
+const project_geom_cpu = fn('project_geom_cpu', { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT, ref_lon: f32T }, vec2fT, (b, { lon_deg, lat_deg, proj_params, ref_lon }) => {
+  const t = b.let('t', proj_params.x)
+  const clon = b.let('clon', proj_params.y)
+  const clat = b.let('clat', proj_params.z)
+  b.if(t.gt(0.5).and(t.lt(2.5)), (bb) => {
+    const ref_d = bb.let('ref_d', callFn('wrap_lon_delta', f32T, ref_lon.sub(clon)))
+    const d = bb.let('d', callFn('unwrap_lon_near', f32T, lon_deg.sub(clon), ref_d))
+    bb.if(t.lt(1.5), (c) => { c.ret(callFn('proj_equirectangular_d', vec2fT, d, lat_deg)) })
+      .else((c) => { c.ret(callFn('proj_natural_earth_d', vec2fT, d, lat_deg)) })
+  })
+  b.if(t.gt(5.5), (bb) => {
+    const r = bb.let('r', callFn('oblique_rot', vec2fT, lon_deg, lat_deg, clon, clat))
+    const ref_r = bb.let('ref_r', callFn('oblique_rot', vec2fT, ref_lon, clat, clon, clat))
+    const lam_u = bb.let('lam_u', callFn('unwrap_rad_near', f32T, r.x, ref_r.x))
+    bb.ret(callFn('proj_oblique_mercator_d', vec2fT, lam_u, r.y))
+  })
+  b.ret(callFn('project', vec2fT, lon_deg, lat_deg, proj_params))
+})
+
 const needs_backface_cull = fn('needs_backface_cull', { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT }, f32T, (b, { lon_deg, lat_deg, proj_params }) => {
   const t = b.let('t', proj_params.x)
   const clon = b.let('clon', proj_params.y)
@@ -295,7 +322,7 @@ export const PROJECTION_FUNCS: FuncDecl[] = [
   proj_equirectangular, proj_natural_earth, unwrap_lon_near, unwrap_rad_near,
   proj_orthographic, proj_azimuthal_equidistant, proj_stereographic,
   oblique_rot, proj_oblique_mercator_d, proj_oblique_mercator, proj_globe,
-  center_cos_c, project, project_geom, needs_backface_cull, rim_alpha, inv_merc_lat_rad,
+  center_cos_c, project, project_geom, project_geom_cpu, needs_backface_cull, rim_alpha, inv_merc_lat_rad,
 ]
 
 export const PROJECTION_MODULE: ModuleDecl = module({
