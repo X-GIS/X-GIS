@@ -27,3 +27,38 @@ jobs:
       # where tests live; vitest.config.* (if any) is respected
       # automatically.
       - run: ./node_modules/.bin/vitest run compiler/src blueprint/src runtime/src
+
+  # Render-behavior gate: the unit suite above NEVER executes a shader or
+  # renders a frame (deep-dive 2026-05-25 finding #1). This job runs the
+  # GPU-INDEPENDENT render gates under SwiftShader (software WebGPU) so a
+  # projection / shader-math regression fails CI, not just a human eyeball:
+  #   - _shader-math-parity      : executes WGSL project() vs the TS mirror
+  #                                (pure compute — works under SwiftShader)
+  #   - _projection-coverage     : NaN-matrix / alias-misroute / console
+  #                                errors (XGIS_SOFTWARE_GPU=1 skips paint)
+  # The pixel survey is NOT here: SwiftShader can't raster the X-GIS
+  # pipeline correctly, so pixel diffs false-positive — it stays a local /
+  # pre-push hardware-GPU gate.
+  #
+  # continue-on-error during validation: WebGPU init under headless
+  # SwiftShader on GH's free runners is unproven. First run confirms it
+  # enumerates an adapter; once green, drop continue-on-error to make this
+  # a true blocking gate. If it can't init, this documents the need for a
+  # GPU-enabled runner instead of silently shipping no render gate.
+  render-gate:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun run build
+      - run: bunx playwright install chromium --with-deps
+      - name: Render gates under SwiftShader
+        working-directory: playground
+        env:
+          XGIS_SOFTWARE_GPU: '1'
+          HEADED: '0'
+        run: bunx playwright test _shader-math-parity.spec.ts _projection-coverage.spec.ts

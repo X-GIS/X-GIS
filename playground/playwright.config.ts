@@ -63,10 +63,25 @@ export default defineConfig({
     // working GPU-enabled runner.
     headless: process.env.HEADED === '0',
     launchOptions: {
-      args: [
-        '--enable-unsafe-webgpu',
-        '--enable-features=Vulkan',
-      ],
+      // XGIS_SOFTWARE_GPU=1 (CI on GitHub Linux runners with no GPU):
+      // force the SwiftShader Vulkan ICD so WebGPU enumerates a software
+      // adapter headlessly. Only the GPU-INDEPENDENT gates run in this mode
+      // (projection-coverage skips paint via the same env var; shader-math
+      // parity is a pure compute pass). The full raster pipeline / pixel
+      // survey do NOT render correctly under SwiftShader, so they stay on
+      // the hardware-GPU (headed) path and are not run in this mode.
+      args: process.env.XGIS_SOFTWARE_GPU === '1'
+        ? [
+            '--enable-unsafe-webgpu',
+            '--enable-unsafe-swiftshader',
+            '--use-angle=swiftshader',
+            '--use-vulkan=swiftshader',
+            '--enable-features=Vulkan',
+          ]
+        : [
+            '--enable-unsafe-webgpu',
+            '--enable-features=Vulkan',
+          ],
     },
   },
   projects: [

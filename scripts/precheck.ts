@@ -8,8 +8,10 @@
 //   slice-key invariants, filter routing) before CI does.
 //
 // Smoke (`bun precheck:smoke`): adds the projection-coverage Playwright
-//   spec. ~2-3 min total. Mirrors the CI `playground-smoke` PR gate so
-//   visual / projection regressions surface locally before push.
+//   spec. ~2-3 min total. Overlaps the CI `render-gate` job (test.yml),
+//   which runs projection-coverage + shader-math-parity under SwiftShader
+//   so GPU-independent projection / shader-math regressions surface in CI;
+//   the pixel survey stays local (SwiftShader can't raster the pipeline).
 //
 // Wired as a git pre-push hook by `bun setup:hooks` — once armed,
 // every `git push` runs the default tier. Skip with `git push --no-verify`.
