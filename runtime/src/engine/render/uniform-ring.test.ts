@@ -1,79 +1,113 @@
-import { describe, expect, it } from 'vitest'
-// WebGPU globals don't exist under happy-dom — stub the few constants
-// LineRenderer touches in its constructor.
-;(globalThis as unknown as { GPUShaderStage: { VERTEX: number; FRAGMENT: number } }).GPUShaderStage = { VERTEX: 1, FRAGMENT: 2 }
-;(globalThis as unknown as { GPUBufferUsage: Record<string, number> }).GPUBufferUsage = {
-  UNIFORM: 1, COPY_DST: 2, STORAGE: 4, VERTEX: 8, INDEX: 16,
+// Unit tests for the shared UniformRing (extracted from MapRenderer + VTR).
+// Pins the iter-348 mid-grow old-buffer flush, the grow/staging math, the
+// flush dirty-range upload, and the caller-policy retired handoff — without
+// a real WebGPU device.
+
+import { describe, it, expect } from 'vitest'
+import { UniformRing } from './uniform-ring'
+
+;(globalThis as { GPUBufferUsage?: unknown }).GPUBufferUsage ??= {
+  UNIFORM: 0x40, COPY_DST: 0x08, VERTEX: 0x20, INDEX: 0x10, STORAGE: 0x80, COPY_SRC: 0x04,
 }
-import { LineRenderer, LINE_UNIFORM_SIZE, packLineLayerUniform } from './line-renderer'
 
-// These tests validate the ring-buffer math and the public guarantees of
-// the dynamic-offset layer ring without spinning up a real WebGPU device.
-// They are the last line of defense against a regression where two layers
-// sharing a source silently stomp each other's uniforms inside a single
-// command submission.
+const SLOT = 256
 
-describe('LineRenderer layer uniform ring', () => {
-  it('packLineLayerUniform emits a LINE_UNIFORM_SIZE payload', () => {
-    const data = packLineLayerUniform([1, 0, 0, 1], 4, 1, 1)
-    expect(data.byteLength).toBe(LINE_UNIFORM_SIZE)
+interface FakeBuffer { id: string; destroyed?: boolean }
+
+function makeRing(initialCapacity: number) {
+  const writes: { buf: FakeBuffer; bufOffset: number; dataLen: number }[] = []
+  const created: FakeBuffer[] = []
+  let n = 0
+  let onGrowCalls = 0
+  const device = {
+    createBuffer: () => {
+      const b: FakeBuffer = { id: `buf${n++}`, destroy() { (this as FakeBuffer).destroyed = true } } as FakeBuffer
+      created.push(b)
+      return b as unknown as GPUBuffer
+    },
+    queue: {
+      writeBuffer: (buf: FakeBuffer, bufOffset: number, _d: ArrayBuffer, _o: number, size: number) => {
+        writes.push({ buf, bufOffset, dataLen: size })
+      },
+    },
+  } as unknown as GPUDevice
+  const ring = new UniformRing(device, SLOT, initialCapacity, 'test-ring', () => { onGrowCalls++ })
+  return { ring, writes, created, getOnGrow: () => onGrowCalls }
+}
+
+describe('UniformRing', () => {
+  it('ensure() lazily creates the buffer and fires onGrow once (idempotent)', () => {
+    const { ring, created, getOnGrow } = makeRing(8)
+    expect(ring.buffer).toBeNull()
+    ring.ensure()
+    expect(ring.buffer).toBe(created[0] as unknown)
+    expect(getOnGrow()).toBe(1)
+    ring.ensure()
+    expect(created.length).toBe(1)
+    expect(getOnGrow()).toBe(1)
   })
 
-  it('writeLayerSlot returns distinct, 256-aligned offsets per call', () => {
-    // Fake GPU device — record writeBuffer offsets only.
-    const writes: { offset: number; byteLen: number }[] = []
-    const fakeBuffer = {} as GPUBuffer
-    const fakeDevice = {
-      createBuffer: () => fakeBuffer,
-      createBindGroup: () => ({}) as GPUBindGroup,
-      createBindGroupLayout: () => ({}) as GPUBindGroupLayout,
-      createPipelineLayout: () => ({}) as GPUPipelineLayout,
-      createRenderPipeline: () => ({}) as GPURenderPipeline,
-      createShaderModule: () => ({}) as GPUShaderModule,
-      createSampler: () => ({}) as GPUSampler,
-      createTexture: () => ({ createView: () => ({}) }) as unknown as GPUTexture,
-      queue: {
-        writeBuffer: (
-          _buf: GPUBuffer, offset: number, data: ArrayBufferView | ArrayBuffer,
-          _dataOffset?: number, size?: number,
-        ) => {
-          const byteLen = size ?? (
-            'byteLength' in (data as object) ? (data as ArrayBuffer).byteLength : 0
-          )
-          writes.push({ offset, byteLen })
-        },
-      },
-    }
-    const lr = new LineRenderer(
-      { device: fakeDevice as unknown as GPUDevice, format: 'bgra8unorm', canvas: {} as HTMLCanvasElement, context: {} as GPUCanvasContext },
-      {} as GPUBindGroupLayout,
-    )
+  it('allocSlot returns sequential byte offsets', () => {
+    const { ring } = makeRing(8)
+    ring.ensure()
+    expect(ring.allocSlot()).toBe(0)
+    expect(ring.allocSlot()).toBe(SLOT)
+    expect(ring.allocSlot()).toBe(2 * SLOT)
+  })
 
-    const a = lr.writeLayerSlot([1, 0, 0, 1], 2, 1, 1)
-    const b = lr.writeLayerSlot([0, 1, 0, 1], 3, 1, 1)
-    const c = lr.writeLayerSlot([0, 0, 1, 1], 4, 1, 1)
-    expect(a).toBe(0)
-    expect(b).toBe(256)
-    expect(c).toBe(512)
-    // After batching: three writeLayerSlot calls now stage into a CPU
-    // mirror without issuing any GPU writes. The flush happens in
-    // endFrame() just before queue.submit. Assertion on the offsets
-    // still validates the ring math; writeBuffer spy should see zero
-    // calls until flush.
-    expect(writes).toHaveLength(0)
-    lr.endFrame()
-    // Flush writes one contiguous range covering all 3 slots.
-    expect(writes).toHaveLength(1)
-    expect(writes[0].offset).toBe(0)
-    expect(writes[0].byteLen).toBe(3 * 256)
+  it('grow flushes THIS frame staged slots into the OLD buffer before retiring (iter-348)', () => {
+    const { ring, writes, created } = makeRing(2)
+    ring.ensure()
+    const oldBuf = created[0]!
+    ring.allocSlot(); ring.allocSlot()          // fill capacity (slot cursor → 2)
+    ring.stageSlot(0, new ArrayBuffer(SLOT))
+    ring.allocSlot()                            // slot 2 >= capacity → grow
+    const oldWrite = writes.find(w => w.buf === oldBuf)
+    expect(oldWrite, 'old buffer flushed on grow').toBeDefined()
+    expect(oldWrite!.bufOffset).toBe(0)
+    expect(oldWrite!.dataLen).toBe(2 * SLOT)    // cursor was 2 at grow
+    expect(ring.takeRetired()).toContain(oldBuf)
+  })
 
-    lr.beginFrame()
-    const d = lr.writeLayerSlot([1, 1, 1, 1], 1, 1, 1)
-    expect(d).toBe(0) // beginFrame() resets slot cursor
-    lr.endFrame()
-    // Second frame flushes only its own staged slot.
-    expect(writes).toHaveLength(2)
-    expect(writes[1].offset).toBe(0)
-    expect(writes[1].byteLen).toBe(256)
+  it('capacity doubles past the requested minimum and fires onGrow per grow', () => {
+    const { ring, created, getOnGrow } = makeRing(2)
+    ring.ensure()
+    expect(getOnGrow()).toBe(1)                 // ensure
+    ring.allocSlot(); ring.allocSlot(); ring.allocSlot() // slot 2 → grow to 4
+    expect(created.length).toBe(2)
+    expect(getOnGrow()).toBe(2)                 // ensure + 1 grow
+  })
+
+  it('flush writes the dirty range to the current buffer, then no-ops when clean', () => {
+    const { ring, writes, created } = makeRing(8)
+    ring.ensure()
+    ring.stageSlot(0, new ArrayBuffer(SLOT))
+    ring.stageSlot(SLOT, new ArrayBuffer(SLOT))
+    ring.flush()
+    const cur = created[0]!
+    const flushWrite = writes.find(w => w.buf === cur && w.bufOffset === 0)
+    expect(flushWrite).toBeDefined()
+    expect(flushWrite!.dataLen).toBe(2 * SLOT)
+    const before = writes.length
+    ring.flush()
+    expect(writes.length).toBe(before)
+  })
+
+  it('takeRetired returns then clears; resetSlot rewinds the cursor', () => {
+    const { ring } = makeRing(1)
+    ring.ensure()
+    ring.allocSlot(); ring.allocSlot()          // grow → 1 retired
+    expect(ring.takeRetired().length).toBe(1)
+    expect(ring.takeRetired().length).toBe(0)
+    ring.resetSlot()
+    expect(ring.allocSlot()).toBe(0)
+  })
+
+  it('destroy() clears the live buffer reference', () => {
+    const { ring } = makeRing(1)
+    ring.ensure()
+    ring.allocSlot(); ring.allocSlot()
+    ring.destroy()
+    expect(ring.buffer).toBeNull()
   })
 })

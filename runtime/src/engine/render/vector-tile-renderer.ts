@@ -49,6 +49,7 @@ import { ComputeDispatcher } from '../gpu/compute'
 import { ComputeLayerHandle } from './compute-layer-handle'
 import type { GPUTile } from './vector-tile-renderer-types'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
+import { UniformRing } from './uniform-ring'
 
 // projType (camera.projType / proj_params.x) → projection registry name,
 // for building the projection-aware `selectorProj`. Index 0 (mercator) and
@@ -367,19 +368,7 @@ export class VectorTileRenderer {
   // ── Uniform ring (dynamic-offset) ──
   // Shared across all tiles + world copies + layers in a frame. Each draw
   // gets a fresh 256-byte slot, preventing multi-layer writeBuffer clobber.
-  private uniformRing: GPUBuffer | null = null
-  private uniformRingCapacity = 1024 // slots — 256 KB initial
-  /** Staging mirror of the uniform ring. We accumulate every tile's
-   *  per-draw uniform into this CPU-side buffer during a render pass
-   *  and emit ONE writeBuffer at the end instead of one-per-tile. In
-   *  the fixture-audit translucent_stroke scenario the per-tile
-   *  writeBuffer count dropped from ~34k to a handful per frame. */
-  private uniformStaging = new Uint8Array(this.uniformRingCapacity * UNIFORM_SLOT)
-  /** Inclusive-exclusive byte range that's been written to uniformStaging
-   *  but not yet copied to the GPU ring. */
-  private uniformDirtyLo = 0
-  private uniformDirtyHi = 0
-  private uniformSlot = 0
+  private uniformRing: UniformRing | null = null
   /** Tile bind group referencing the ring with dynamic offset (uniform only). */
   private tileBgDefault: GPUBindGroup | null = null
   /** Tile bind group referencing the ring + feature storage (variant shaders). */
@@ -668,16 +657,13 @@ export class VectorTileRenderer {
 
   private ensureUniformRing(): void {
     if (this.uniformRing) return
-    this.uniformRing = this.device.createBuffer({
-      size: this.uniformRingCapacity * UNIFORM_SLOT,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      label: 'vtr-uniform-ring',
-    })
-    this.rebuildTileBindGroups()
+    this.uniformRing = new UniformRing(this.device, UNIFORM_SLOT, 1024, 'vtr-uniform-ring', () => this.rebuildTileBindGroups())
+    this.uniformRing.ensure()
   }
 
   private rebuildTileBindGroups(): void {
-    if (!this.uniformRing || !this.baseBindGroupLayout) return
+    const ringBuf = this.uniformRing?.buffer
+    if (!ringBuf || !this.baseBindGroupLayout) return
     // Palette bindings 2/4 are part of mr-baseBindGroupLayout /
     // mr-featureBindGroupLayout. Defer bind-group construction until
     // both palette resources are wired so we don't ever build a
@@ -687,7 +673,7 @@ export class VectorTileRenderer {
       label: 'vtr-tileBg-default',
       layout: this.baseBindGroupLayout,
       entries: [
-        { binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } },
+        { binding: 0, resource: { buffer: ringBuf, offset: 0, size: UNIFORM_SIZE } },
         { binding: 2, resource: this.paletteColorAtlasView },
         { binding: 4, resource: this.paletteSampler },
         { binding: 5, resource: this.spriteAtlasView },
@@ -699,7 +685,7 @@ export class VectorTileRenderer {
         label: 'vtr-tileBg-feature',
         layout: this.featureBindGroupLayout,
         entries: [
-          { binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } },
+          { binding: 0, resource: { buffer: ringBuf, offset: 0, size: UNIFORM_SIZE } },
           { binding: 1, resource: { buffer: this.featureDataBuffer } },
           { binding: 2, resource: this.paletteColorAtlasView },
           { binding: 4, resource: this.paletteSampler },
@@ -736,7 +722,8 @@ export class VectorTileRenderer {
    *  capacity doubles + persists), so the O(cached tiles) cost is paid
    *  at most once per capacity level. */
   private rebuildPerTileFeatureBindGroups(): void {
-    if (!this.uniformRing || !this.featureBindGroupLayout
+    const ringBuf = this.uniformRing?.buffer
+    if (!ringBuf || !this.featureBindGroupLayout
       || !this.paletteColorAtlasView || !this.paletteSampler || !this.spriteAtlasView) return
     for (const [sourceLayer, layerCache] of this.gpuCache) {
       for (const [tileKey, tile] of layerCache) {
@@ -750,7 +737,7 @@ export class VectorTileRenderer {
           label: 'per-tile-feature-bg',
           layout: this.featureBindGroupLayout,
           entries: [
-            { binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } },
+            { binding: 0, resource: { buffer: ringBuf, offset: 0, size: UNIFORM_SIZE } },
             { binding: 1, resource: { buffer: tile.featureDataBuffer } },
             { binding: 2, resource: this.paletteColorAtlasView },
             { binding: 4, resource: this.paletteSampler },
@@ -762,12 +749,6 @@ export class VectorTileRenderer {
       }
     }
   }
-
-  /** Ring buffers retired mid-frame because of capacity grow. Destroyed on
-   *  the NEXT beginFrame() so the in-flight submit that still references
-   *  them via bind groups completes without hitting "used in submit while
-   *  destroyed". */
-  private retiredUniformRings: GPUBuffer[] = []
 
   /** Frame ID set by `beginFrame(frameId)`, threaded through to
    *  `source.resetCompileBudget(frameId)` so the catalog's per-frame
@@ -823,7 +804,7 @@ export class VectorTileRenderer {
 
   beginFrame(frameId: number = 0): void {
     this.currentFrameId = frameId
-    this.uniformSlot = 0
+    this.uniformRing?.resetSlot()
     // iter-243 (Plan AAA B.2) — reset per-frame scratch arena
     // before any forEachLineLabelPolyline calls. The previous
     // frame's xs/ys views become invalid here, but callers don't
@@ -873,7 +854,7 @@ export class VectorTileRenderer {
     // GPU resource at the right time. Bounded memory cost — ring grows
     // double capacity, so the retired pool tops out at log2(maxCap)
     // buffers (a handful, ~MB-scale transient).
-    this.retiredUniformRings.length = 0
+    this.uniformRing?.takeRetired()
     // Same safety window applies to tile-buffer eviction. Eviction used to
     // run inline at the end of render() (`this.gpuCache.size > MAX_GPU_TILES`
     // check after the per-frame draws were encoded). The bucket scheduler
@@ -1065,64 +1046,14 @@ export class VectorTileRenderer {
   }
 
   private allocUniformSlot(): number {
-    if (this.uniformSlot >= this.uniformRingCapacity) this.growUniformRing(this.uniformSlot + 1)
-    return this.uniformSlot++ * UNIFORM_SLOT
-  }
-
-  private growUniformRing(minSlots: number): void {
-    let newCap = this.uniformRingCapacity
-    while (newCap < minSlots) newCap *= 2
-    // Don't destroy the old ring immediately — it may still be bound to
-    // commands already recorded in the current command encoder. Retire it
-    // to be destroyed at the start of the next frame (after submit).
-    if (this.uniformRing) {
-      // CORRECTNESS (high-pitch transient fix): draws already recorded
-      // THIS frame are bound to the OLD buffer at their slot offsets via
-      // setBindGroup. `flushUniformStaging` at end-of-pass writes only the
-      // NEW buffer, so without this the old buffer would still hold the
-      // PREVIOUS frame's uniforms → every pre-grow draw renders stale
-      // colours. Surfaced as the user-reported high-pitch "land polygons
-      // painted water-blue" transient: a heavy frame (many tiles × layers
-      // at pitch ~79°) first crosses the ring capacity, the ring grows
-      // mid-pass, and the draws before the grow read last frame's slot
-      // colours (a land draw landing on a slot that held water's fill).
-      // Push THIS frame's staged slots into the old buffer so those draws
-      // read correct data before it's retired.
-      if (this.uniformSlot > 0) {
-        this.device.queue.writeBuffer(
-          this.uniformRing, 0, this.uniformStaging.buffer,
-          this.uniformStaging.byteOffset, this.uniformSlot * UNIFORM_SLOT,
-        )
-      }
-      this.retiredUniformRings.push(this.uniformRing)
-    }
-    this.uniformRingCapacity = newCap
-    this.uniformRing = this.device.createBuffer({
-      size: newCap * UNIFORM_SLOT,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      label: 'vtr-uniform-ring',
-    })
-    // Resize the CPU staging buffer in lockstep; preserve already-written
-    // bytes so a grow mid-pass doesn't lose pending uniforms.
-    const grown = new Uint8Array(newCap * UNIFORM_SLOT)
-    grown.set(this.uniformStaging.subarray(0, Math.min(this.uniformStaging.length, grown.length)))
-    this.uniformStaging = grown
-    this.rebuildTileBindGroups()
+    return this.uniformRing!.allocSlot()
   }
 
   /** Copy a per-tile uniform block into the staging mirror at the given
    *  ring byte offset and extend the dirty range. Replaces the old
    *  per-draw `device.queue.writeBuffer` call inside renderTileKeys. */
   private stageUniformSlot(slotOffset: number, src: ArrayBuffer): void {
-    this.uniformStaging.set(new Uint8Array(src, 0, Math.min(src.byteLength, UNIFORM_SLOT)), slotOffset)
-    const hi = slotOffset + UNIFORM_SLOT
-    if (this.uniformDirtyHi === this.uniformDirtyLo) {
-      this.uniformDirtyLo = slotOffset
-      this.uniformDirtyHi = hi
-    } else {
-      if (slotOffset < this.uniformDirtyLo) this.uniformDirtyLo = slotOffset
-      if (hi > this.uniformDirtyHi) this.uniformDirtyHi = hi
-    }
+    this.uniformRing!.stageSlot(slotOffset, src)
   }
 
   /** Upload the accumulated uniform-ring bytes as a SINGLE writeBuffer,
@@ -1132,14 +1063,7 @@ export class VectorTileRenderer {
    *  correct — the subsequent pass.end → encoder.finish → queue.submit
    *  sees the updated ring contents. */
   private flushUniformStaging(): void {
-    if (this.uniformDirtyHi === this.uniformDirtyLo || !this.uniformRing) return
-    const lo = this.uniformDirtyLo, hi = this.uniformDirtyHi
-    this.device.queue.writeBuffer(
-      this.uniformRing, lo,
-      this.uniformStaging.buffer, this.uniformStaging.byteOffset + lo, hi - lo,
-    )
-    this.uniformDirtyLo = 0
-    this.uniformDirtyHi = 0
+    this.uniformRing?.flush()
   }
 
   /** Provide the shared SDF line renderer (set by map.ts after GPU init). */
@@ -1725,9 +1649,6 @@ export class VectorTileRenderer {
 
     this.uniformRing?.destroy()
     this.uniformRing = null
-
-    for (const r of this.retiredUniformRings) r.destroy()
-    this.retiredUniformRings = []
   }
 
   /** Frame-scoped accumulators (reset in beginFrame, updated in
@@ -1925,7 +1846,8 @@ export class VectorTileRenderer {
   ): { buffer: GPUBuffer; bindGroup: GPUBindGroup } | null {
     if (!featureProps || featureProps.size === 0) return null
     if (this.latestVariantFields.length === 0) return null
-    if (!this.featureBindGroupLayout || !this.uniformRing) return null
+    const ringBuf = this.uniformRing?.buffer
+    if (!this.featureBindGroupLayout || !ringBuf) return null
 
     const fields = this.latestVariantFields
     const fieldCount = fields.length
@@ -2050,7 +1972,7 @@ export class VectorTileRenderer {
       label: 'per-tile-feature-bg',
       layout: this.featureBindGroupLayout,
       entries: [
-        { binding: 0, resource: { buffer: this.uniformRing, offset: 0, size: UNIFORM_SIZE } },
+        { binding: 0, resource: { buffer: ringBuf, offset: 0, size: UNIFORM_SIZE } },
         { binding: 1, resource: { buffer } },
         { binding: 2, resource: this.paletteColorAtlasView },
         { binding: 4, resource: this.paletteSampler },
@@ -4837,7 +4759,7 @@ export class VectorTileRenderer {
     // bind group resolution happens inside the keys loop. baseBindGroup
     // is constant-fill and never per-tile, so its absence still aborts.
     if (fillBindGroupLayout === this.baseBindGroupLayout && !fillBg) return
-    if (!this.uniformRing) return
+    if (!this.uniformRing?.buffer) return
     // Stroke draws are batched and emitted AFTER every fill in this
     // pass has written depth, so per-tile outlines depth-test against
     // the layer's full geometry (not just whatever was drawn before
