@@ -55,17 +55,24 @@ ${WGSL_PROJECTION_FNS}
 // Mercator (proj_params.x < 0.5): the offset is already what we want.
 // Non-Mercator: add camera Mercator back to get absolute Mercator, convert
 // to lon/lat, project through the dispatch, subtract projected camera.
-fn reproject_point(rtc_merc: vec2<f32>) -> vec2<f32> {
-  if (u.proj_params.x < 0.5) { return rtc_merc; }
+// Recover absolute (lon, lat) in degrees from a point's camera-relative
+// Mercator-meter offset (rtc_merc = absMerc - cameraMerc). Add camera
+// Mercator back, then inverse-Mercator. Shared by the four point helpers
+// below (was inlined 4×).
+fn point_abs_lonlat(rtc_merc: vec2<f32>) -> vec2<f32> {
   let cam_lat = clamp(u.proj_params.z, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
   let cam_merc_x = u.proj_params.y * DEG2RAD * EARTH_R;
   let cam_merc_y = log(tan(PI / 4.0 + cam_lat * DEG2RAD / 2.0)) * EARTH_R;
-  let abs_merc_x = rtc_merc.x + cam_merc_x;
-  let abs_merc_y = rtc_merc.y + cam_merc_y;
-  let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
-  let lat_rad = inv_merc_lat_rad(abs_merc_y);
+  let abs_lon = (rtc_merc.x + cam_merc_x) / (DEG2RAD * EARTH_R);
+  let lat_rad = inv_merc_lat_rad(rtc_merc.y + cam_merc_y);
   let abs_lat = lat_rad / DEG2RAD;
-  let proj_xy = project(abs_lon, abs_lat, u.proj_params);
+  return vec2<f32>(abs_lon, abs_lat);
+}
+
+fn reproject_point(rtc_merc: vec2<f32>) -> vec2<f32> {
+  if (u.proj_params.x < 0.5) { return rtc_merc; }
+  let ll = point_abs_lonlat(rtc_merc);
+  let proj_xy = project(ll.x, ll.y, u.proj_params);
   let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
   return proj_xy - center_xy;
 }
@@ -76,13 +83,8 @@ fn reproject_point(rtc_merc: vec2<f32>) -> vec2<f32> {
 // corners are screen-space offsets), so this is all globe markers /
 // labels need to sit on the 3D earth.
 fn reproject_point_globe(rtc_merc: vec2<f32>) -> vec3<f32> {
-  let cam_lat = clamp(u.proj_params.z, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
-  let cam_merc_x = u.proj_params.y * DEG2RAD * EARTH_R;
-  let cam_merc_y = log(tan(PI / 4.0 + cam_lat * DEG2RAD / 2.0)) * EARTH_R;
-  let abs_lon = (rtc_merc.x + cam_merc_x) / (DEG2RAD * EARTH_R);
-  let lat_rad = inv_merc_lat_rad(rtc_merc.y + cam_merc_y);
-  let abs_lat = lat_rad / DEG2RAD;
-  return proj_globe(abs_lon, abs_lat) - proj_globe(u.proj_params.y, u.proj_params.z);
+  let ll = point_abs_lonlat(rtc_merc);
+  return proj_globe(ll.x, ll.y) - proj_globe(u.proj_params.y, u.proj_params.z);
 }
 
 // Backface signal at a point's center. Same lon/lat reconstruction as
@@ -90,15 +92,8 @@ fn reproject_point_globe(rtc_merc: vec2<f32>) -> vec3<f32> {
 // needs_backface_cull. Cheap for flat projections — that helper
 // returns +1 immediately when proj_params.x < 2.5.
 fn point_cos_c(rtc_merc: vec2<f32>) -> f32 {
-  let cam_lat = clamp(u.proj_params.z, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
-  let cam_merc_x = u.proj_params.y * DEG2RAD * EARTH_R;
-  let cam_merc_y = log(tan(PI / 4.0 + cam_lat * DEG2RAD / 2.0)) * EARTH_R;
-  let abs_merc_x = rtc_merc.x + cam_merc_x;
-  let abs_merc_y = rtc_merc.y + cam_merc_y;
-  let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
-  let lat_rad = inv_merc_lat_rad(abs_merc_y);
-  let abs_lat = lat_rad / DEG2RAD;
-  return needs_backface_cull(abs_lon, abs_lat, u.proj_params);
+  let ll = point_abs_lonlat(rtc_merc);
+  return needs_backface_cull(ll.x, ll.y, u.proj_params);
 }
 
 // Rim alpha at a point's center. Mirror of point_cos_c but returns
@@ -107,15 +102,8 @@ fn point_cos_c(rtc_merc: vec2<f32>) -> f32 {
 // rim value so fragments either all fade together or all render
 // at full alpha (no per-corner artefacts on round points).
 fn point_rim_alpha(rtc_merc: vec2<f32>) -> f32 {
-  let cam_lat = clamp(u.proj_params.z, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
-  let cam_merc_x = u.proj_params.y * DEG2RAD * EARTH_R;
-  let cam_merc_y = log(tan(PI / 4.0 + cam_lat * DEG2RAD / 2.0)) * EARTH_R;
-  let abs_merc_x = rtc_merc.x + cam_merc_x;
-  let abs_merc_y = rtc_merc.y + cam_merc_y;
-  let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
-  let lat_rad = inv_merc_lat_rad(abs_merc_y);
-  let abs_lat = lat_rad / DEG2RAD;
-  return rim_alpha(abs_lon, abs_lat, u.proj_params);
+  let ll = point_abs_lonlat(rtc_merc);
+  return rim_alpha(ll.x, ll.y, u.proj_params);
 }
 
 // ── SDF distance functions ──
