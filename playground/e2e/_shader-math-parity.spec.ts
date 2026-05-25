@@ -39,7 +39,16 @@ for (let lon = -75; lon <= 75; lon += 15) {
   for (let lat = -75; lat <= 75; lat += 15) GRID.push([lon, lat])
 }
 
-const TOL_M = 100 // absolute metres — see header
+// Tolerance. Hardware GPU: f32 + truncated constants diverge ~5–10 m at
+// Mercator scale. SwiftShader (the CI software-WebGPU path, XGIS_SOFTWARE_GPU=1)
+// has much weaker transcendentals (log/tan/sin/cos) — measured up to ~450 m
+// on the Mercator y term — so it needs a looser, relative tol there. Both
+// sit FAR below any real formula drift (a dropped term / wrong constant is
+// hundreds of km), so the gate keeps its teeth in either mode. A probe
+// `* 1.001` in proj_mercator fails both (Δ≈8 km).
+const SOFTWARE_GPU = process.env.XGIS_SOFTWARE_GPU === '1'
+const tolFor = (cpuVal: number): number =>
+  SOFTWARE_GPU ? Math.max(2000, Math.abs(cpuVal) * 2e-4) : 100
 
 // Compute WGSL: shared consts + the real projection block + a kernel that
 // calls the actual `project()` over the grid for one projType.
@@ -145,7 +154,7 @@ test.describe('shader-math parity (executed WGSL vs TS mirror)', () => {
         if (!Number.isFinite(gx) || !Number.isFinite(gy) || !Number.isFinite(cx) || !Number.isFinite(cy)) continue
         compared++
         const dx = Math.abs(gx - cx), dy = Math.abs(gy - cy)
-        if (dx > TOL_M || dy > TOL_M) {
+        if (dx > tolFor(cx) || dy > tolFor(cy)) {
           failures.push(
             `${PROJ_NAMES[projType]} (${lon},${lat}): WGSL=(${gx.toFixed(1)},${gy.toFixed(1)}) ` +
             `mirror=(${cx.toFixed(1)},${cy.toFixed(1)}) Δ=(${dx.toFixed(1)},${dy.toFixed(1)})m`,
@@ -155,6 +164,6 @@ test.describe('shader-math parity (executed WGSL vs TS mirror)', () => {
     }
     // Guard against a silent no-op (e.g. all-NaN output skipping every point).
     expect(compared, 'no finite point pairs were compared — kernel likely produced no output').toBeGreaterThan(300)
-    expect(failures, `executed WGSL project() drifted from the TS mirror beyond ${TOL_M} m:\n${failures.slice(0, 20).join('\n')}`).toEqual([])
+    expect(failures, `executed WGSL project() drifted from the TS mirror beyond tolerance (${SOFTWARE_GPU ? 'software' : 'hardware'} GPU):\n${failures.slice(0, 20).join('\n')}`).toEqual([])
   })
 })
