@@ -77,6 +77,12 @@ const BUILTINS: Record<string, Builtin> = {
   f32: (x) => Number(x),
   i32: (x) => Math.trunc(x as number),
   u32: (x) => Math.trunc(x as number) >>> 0,
+  // pack a vec4<f32> (each in [0,1]) into u32 RGBA8; component 0 → low byte.
+  pack4x8unorm: (v) => {
+    const a = v as number[]
+    const q = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255) & 0xff
+    return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0
+  },
 }
 
 function applyMinMax(f: (a: number, b: number) => number, a: CpuValue, b: CpuValue): number[] {

@@ -137,9 +137,12 @@ export function emitBinding(b: BindingDecl): string {
 }
 
 export function emitFunc(f: FuncDecl): string {
-  const params = f.params.map((p) => `${p.name}: ${wgslType(p.type)}`).join(', ')
+  const params = f.params
+    .map((p) => `${p.builtin ? `@builtin(${p.builtin}) ` : ''}${p.name}: ${wgslType(p.type)}`)
+    .join(', ')
   const ret = f.ret.kind === 'void' ? '' : ` -> ${wgslType(f.ret)}`
-  return `fn ${f.name}(${params})${ret} {\n${emitBody(f.body, 1)}\n}`
+  const attrs = f.attrs && f.attrs.length ? `${f.attrs.join(' ')}\n` : ''
+  return `${attrs}fn ${f.name}(${params})${ret} {\n${emitBody(f.body, 1)}\n}`
 }
 
 export function emitModule(m: ModuleDecl): string {

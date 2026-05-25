@@ -41,6 +41,8 @@ export const boolT: ShaderType = { kind: 'scalar', scalar: 'bool' }
 export const vec2fT: ShaderType = { kind: 'vec', n: 2, elem: 'f32' }
 export const vec3fT: ShaderType = { kind: 'vec', n: 3, elem: 'f32' }
 export const vec4fT: ShaderType = { kind: 'vec', n: 4, elem: 'f32' }
+export const vec3uT: ShaderType = { kind: 'vec', n: 3, elem: 'u32' }
+export const vec4uT: ShaderType = { kind: 'vec', n: 4, elem: 'u32' }
 export const voidT: ShaderType = { kind: 'void' }
 export const structT = (name: string): ShaderType => ({ kind: 'struct', name })
 export const arrayT = (elem: ShaderType): ShaderType => ({ kind: 'array', elem })
@@ -124,9 +126,12 @@ export interface BindingDecl {
 
 export interface FuncDecl {
   readonly name: string
-  readonly params: readonly { name: string; type: ShaderType }[]
+  readonly params: readonly { name: string; type: ShaderType; builtin?: string }[]
   readonly ret: ShaderType
   readonly body: readonly Stmt[]
+  /** Stage / pipeline attributes emitted before `fn` (e.g. `@compute`,
+   *  `@workgroup_size(64)`). Empty for ordinary helper functions. */
+  readonly attrs?: readonly string[]
 }
 
 export interface ModuleDecl {
@@ -277,6 +282,8 @@ export const mix = (a: NodeLike, b: NodeLike, t: NodeLike): Node => { const n = 
 export const smoothstep = (e0: NodeLike, e1: NodeLike, x: NodeLike): Node => { const n = lift(x); return call('smoothstep', elemScalarType(n.type), e0, e1, n) }
 export const length = (v: NodeLike): Node => call('length', f32T, v)
 export const dot = (a: NodeLike, b: NodeLike): Node => call('dot', f32T, a, b)
+/** Pack a vec4<f32> (each component in [0,1]) into a u32 RGBA8. */
+export const pack4x8unorm = (v: NodeLike): Node => call('pack4x8unorm', u32T, v)
 
 /** select(cond, ifTrue, ifFalse) — free-function form of Node.select. */
 export const select = (cond: Node, ifTrue: NodeLike, ifFalse: NodeLike): Node => cond.select(ifTrue, ifFalse)
@@ -407,6 +414,27 @@ export function fn<P extends ParamSpec>(
   const b = new Builder()
   body(b, paramNodes)
   return { name, params: paramList, ret, body: b.stmts }
+}
+
+/** Author a `@compute @workgroup_size(N)` entry point. The body callback
+ *  receives the builder + the `@builtin(global_invocation_id)` Node (vec3<u32>).
+ *  Compute entries return void; output is via storage bindings. */
+export function computeFn(
+  name: string,
+  workgroupSize: number,
+  gidName: string,
+  body: (b: Builder, gid: Node) => void,
+): FuncDecl {
+  const gid = new Node({ op: 'param', type: vec3uT, name: gidName })
+  const b = new Builder()
+  body(b, gid)
+  return {
+    name,
+    params: [{ name: gidName, type: vec3uT, builtin: 'global_invocation_id' }],
+    ret: voidT,
+    body: b.stmts,
+    attrs: ['@compute', `@workgroup_size(${workgroupSize})`],
+  }
 }
 
 /** Assemble a module from its declarations. */
