@@ -449,6 +449,18 @@ export class XGISMap {
   private _loaded = false
   loaded(): boolean { return this._loaded }
 
+  /** Host hook fired once if the GPU device is lost (driver reset, tab
+   *  backgrounding, OOM) — NOT on explicit teardown. The render loop
+   *  already stops itself on loss (no error cascade); use this to surface
+   *  a "GPU lost — reload" affordance or trigger app-level re-init. Safe
+   *  to call before or after init: stored and applied when the GPU
+   *  context resolves. */
+  onDeviceLost(cb: (info: GPUDeviceLostInfo) => void): void {
+    this._onDeviceLost = cb
+    if (this.ctx) this.ctx.onDeviceLost = cb
+  }
+  private _onDeviceLost?: (info: GPUDeviceLostInfo) => void
+
   /** Mapbox-API parity: return the underlying canvas element.
    *  Hosts need this to attach gesture listeners, capture screenshots
    *  via canvas.toBlob, or compute hit-test coordinates. Falls back
@@ -1517,6 +1529,7 @@ export class XGISMap {
     const result = await gpuInit
     if (result instanceof Error) throw result
     this.ctx = result
+    if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
     this.renderer = new MapRenderer(this.ctx)
     this.renderer.setGraticuleEnabled(this._graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
@@ -2156,6 +2169,7 @@ export class XGISMap {
     console.log('[X-GIS] Binary loaded:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
     this.ctx = await initGPU(this.canvas)
+    if (this._onDeviceLost) this.ctx.onDeviceLost = this._onDeviceLost
     this.renderer = new MapRenderer(this.ctx)
     this.renderer.setGraticuleEnabled(this._graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)

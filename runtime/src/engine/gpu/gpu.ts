@@ -85,6 +85,17 @@ export interface GPUContext {
    *  production code can ignore it (the queue grows unbounded but
    *  errors are also still logged to console for visibility). */
   _validationErrors: { message: string; t: number }[]
+  /** Set true once `device.lost` resolves. The render loop checks this
+   *  and stops issuing GPU work into the dead device — without the guard
+   *  a lost device (driver reset, tab backgrounding, OOM) turns every
+   *  subsequent frame into a cascade of "device is lost" errors. */
+  deviceLost: boolean
+  /** Optional host hook fired once when the device is lost (after
+   *  `deviceLost` is set). Lets the embedding app surface a "GPU lost —
+   *  reload" affordance or trigger its own re-init. Wired via
+   *  XGISMap.onDeviceLost(). 'destroyed' reason (explicit device.destroy())
+   *  is NOT forwarded — that is an intentional teardown, not a fault. */
+  onDeviceLost?: (info: GPUDeviceLostInfo) => void
 }
 
 /** `?gpuprof=1` — opt in to timestamp-query GPU profiling. We only
@@ -154,7 +165,6 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   const device = await adapter.requestDevice(
     requiredFeatures.length > 0 ? { requiredFeatures } : undefined,
   )
-  device.lost.then((info) => console.error('WebGPU device lost:', info.message))
 
   const context = canvas.getContext('webgpu')
   if (!context) throw new Error('Failed to get WebGPU context')
@@ -172,7 +182,18 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     timestampInsidePassesSupported,
     float32FilterableSupported,
     _validationErrors: [],
+    deviceLost: false,
   }
+
+  // Device-loss guard: flip the flag (the render loop reads it and stops
+  // issuing work into the dead device) and fire the optional host hook.
+  // 'destroyed' is our own device.destroy() teardown — not a fault — so
+  // it's logged but not forwarded to onDeviceLost.
+  device.lost.then((info) => {
+    ctx.deviceLost = true
+    console.error('[X-GIS] WebGPU device lost:', info.reason, info.message)
+    if (info.reason !== 'destroyed') ctx.onDeviceLost?.(info)
+  }).catch(() => { /* device GC'd before lost resolved — ignore */ })
 
   // Surface validation errors via TWO sinks:
   //   (1) console.error for human visibility (existing behavior)

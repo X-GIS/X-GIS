@@ -111,6 +111,12 @@ export class RenderLoop {
   }
 
   render(): void {
+    // Device-loss guard: once the GPU device is lost (driver reset, tab
+    // backgrounding, OOM), every GPU call throws. Stop the loop entirely —
+    // do NOT reschedule rAF — so we don't spew a cascade of "device is
+    // lost" errors each frame. The host's onDeviceLost hook (if set) drives
+    // recovery / re-init; a fresh map rebuilds the loop on a new device.
+    if (this.host.ctx.deviceLost) return
     perfMarkStart('frame.total')
     perfMarkStart('frame.prep')
     this.host._stats.beginFrame()
