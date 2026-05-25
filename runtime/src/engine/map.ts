@@ -1,5 +1,7 @@
 // ═══ X-GIS Map — 전체를 연결하는 엔트리포인트 ═══
 
+import { xlog } from './log'
+import { setLogSink as setEngineLogSink } from './log'
 import { Lexer, Parser, lower, optimize, emitCommands, evaluate, makeEvalProps, deserializeXGB, resolveImportsAsync, resolveUtilities, resolveColor } from '@xgis/compiler'
 import { packPalette, uploadPalette, type PaletteTextures } from './gpu/palette-texture'
 import type * as AST from '@xgis/compiler'
@@ -500,7 +502,7 @@ export class XGISMap {
   private _warnUnsupported(method: string, replacement: string): void {
     if (this._warnedStyleAPI.has(method)) return
     this._warnedStyleAPI.add(method)
-    console.warn(`[X-GIS] map.${method}() is not supported. ${replacement}`)
+    xlog.warn(`[X-GIS] map.${method}() is not supported. ${replacement}`)
   }
   setStyle(_style: unknown): void {
     this._warnUnsupported('setStyle', 'Recompile the .xgis source via @xgis/compiler and reload the runtime; X-GIS uses compile-time IR, not runtime style swap.')
@@ -529,6 +531,11 @@ export class XGISMap {
   resize(): void {
     this.invalidate()
   }
+
+  /** Route engine logs (pass-validation errors, warnings) to a custom sink
+   *  instead of the console — for telemetry / in-app overlays. Pass null to
+   *  restore the console default. */
+  setLogSink(sink: import('./log').LogSink | null): void { setEngineLogSink(sink) }
 
   /** Mapbox-API parity: animated camera variants. X-GIS has no
    *  transition infra yet, so both alias to jumpTo (instant) inside
@@ -810,7 +817,7 @@ export class XGISMap {
       'oblique_mercator', 'globe',
     ])
     if (!VALID.has(canonical)) {
-      console.warn(`[X-GIS] setProjection: unknown projection "${name}" — keeping "${this.projectionName}". Valid: ${[...VALID].join(', ')}.`)
+      xlog.warn(`[X-GIS] setProjection: unknown projection "${name}" — keeping "${this.projectionName}". Valid: ${[...VALID].join(', ')}.`)
       return
     }
     const prevProj = this.projectionName
@@ -1229,7 +1236,7 @@ export class XGISMap {
           entry.pipelines = this.renderer.getOrCreateVariantPipelines(variant as never)
           entry.layout = this.renderer.getOrBuildVariantLayout(variant as never)
         } catch (e) {
-          console.warn('[X-GIS] Variant pipeline re-resolve after setQuality failed:', e)
+          xlog.warn('[X-GIS] Variant pipeline re-resolve after setQuality failed:', e)
           entry.pipelines = null
           entry.layout = null
         }
@@ -1355,18 +1362,18 @@ export class XGISMap {
       let url: string
       try { url = new URL(path, absBase).href }
       catch (e) {
-        console.error(`[X-GIS import] cannot build URL for "${path}" against base "${absBase}":`, (e as Error).message)
+        xlog.error(`[X-GIS import] cannot build URL for "${path}" against base "${absBase}":`, (e as Error).message)
         return null
       }
       try {
         const resp = await fetch(url)
         if (!resp.ok) {
-          console.error(`[X-GIS import] fetch ${url} failed: ${resp.status} ${resp.statusText}`)
+          xlog.error(`[X-GIS import] fetch ${url} failed: ${resp.status} ${resp.statusText}`)
           return null
         }
         return await resp.text()
       } catch (e) {
-        console.error(`[X-GIS import] fetch ${url} threw:`, (e as Error).message)
+        xlog.error(`[X-GIS import] fetch ${url} threw:`, (e as Error).message)
         return null
       }
     }
@@ -1405,7 +1412,7 @@ export class XGISMap {
           ? `[X-GIS ${d.code ?? 'diag'} warn]`
           : `[X-GIS ${d.code ?? 'diag'} info]`
         const lineSuffix = d.line ? ` (line ${d.line})` : ''
-        if (d.severity === 'warn') console.warn(`${prefix}${lineSuffix} ${d.message}`)
+        if (d.severity === 'warn') xlog.warn(`${prefix}${lineSuffix} ${d.message}`)
         else console.log(`${prefix}${lineSuffix} ${d.message}`)
       }
       commands = emitCommands(optimize(scene, ast), {
@@ -1557,7 +1564,7 @@ export class XGISMap {
         this._paletteHandles = handles
         this.renderer.setPaletteColorAtlas(handles.colorGradientAtlas.createView())
       } catch (e) {
-        console.warn('[X-GIS] palette upload failed; falling back to legacy uniform path:',
+        xlog.warn('[X-GIS] palette upload failed; falling back to legacy uniform path:',
           (e as Error)?.message)
       }
     }
@@ -1574,13 +1581,13 @@ export class XGISMap {
       }
       this.shapeRegistry.uploadToGPU()
       this.pointRenderer.setShapeRegistry(this.shapeRegistry)
-    } catch (e) { console.warn('[X-GIS] PointRenderer init failed:', e) }
+    } catch (e) { xlog.warn('[X-GIS] PointRenderer init failed:', e) }
 
     // SDF line renderer (shared by all VTR instances)
     try {
       this.lineRenderer = new LineRenderer(this.ctx, this.renderer.bindGroupLayout)
       if (this.shapeRegistry) this.lineRenderer.setShapeRegistry(this.shapeRegistry)
-    } catch (e) { console.warn('[X-GIS] LineRenderer init failed:', e) }
+    } catch (e) { xlog.warn('[X-GIS] LineRenderer init failed:', e) }
     // VT sources/renderers created per .xgvt file in the load loop
 
 
@@ -1630,7 +1637,7 @@ export class XGISMap {
       const reason = r.reason as { xgisReprojectFailure?: boolean } | undefined
       if (reason && reason.xgisReprojectFailure === true) {
         // Isolate: log the bad-CRS source and let the other loads stand.
-        console.error(reason instanceof Error ? reason.message : String(reason))
+        xlog.error(reason instanceof Error ? reason.message : String(reason))
         continue
       }
       throw r.reason
@@ -1646,7 +1653,7 @@ export class XGISMap {
         // CRS ⇒ EPSG:4326 / no-op (returns same ref). See reproject-fc.ts.
         this.rawDatasets.set(id, this._reprojectIngest(id, fc as GeoJSONFeatureCollection))
       } else {
-        console.warn(`[X-GIS] Inline GeoJSON for unknown source "${id}" — dropping. (Mapbox style sources didn't emit a matching load command.)`)
+        xlog.warn(`[X-GIS] Inline GeoJSON for unknown source "${id}" — dropping. (Mapbox style sources didn't emit a matching load command.)`)
       }
     }
 
@@ -1698,7 +1705,7 @@ export class XGISMap {
       try {
         await this.renderer.prewarmShaderVariantsAsync(variants as unknown as Parameters<MapRenderer['prewarmShaderVariantsAsync']>[0])
       } catch (e) {
-        console.warn('[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):', (e as Error).message)
+        xlog.warn('[X-GIS] shader prewarm failed (falling back to lazy compile on first draw):', (e as Error).message)
       }
     }
 
@@ -1886,7 +1893,7 @@ export class XGISMap {
               )
             }
           } catch (e) {
-            console.warn('[X-GIS] VT variant pipeline failed:', e)
+            xlog.warn('[X-GIS] VT variant pipeline failed:', e)
           }
         }
 
@@ -1922,7 +1929,7 @@ export class XGISMap {
                 variant as any, layout, show.renderNodeIndex,
               )
             }
-          } catch (e) { console.warn('[X-GIS] VT variant pipeline failed:', e) }
+          } catch (e) { xlog.warn('[X-GIS] VT variant pipeline failed:', e) }
         }
         this.vectorTileShows.push({ sourceName: vtKey, show, pipelines, layout })
         continue
@@ -2051,7 +2058,7 @@ export class XGISMap {
             syncPipelines = this.renderer.getOrCreateVariantPipelines(variantSync as any)
             syncLayout = this.renderer.bindGroupLayout
           } catch (e) {
-            console.warn('[X-GIS] GeoJSON VT variant pipeline failed:', e)
+            xlog.warn('[X-GIS] GeoJSON VT variant pipeline failed:', e)
           }
         }
         this.vectorTileShows.push({ sourceName: vtKey, show, pipelines: syncPipelines, layout: syncLayout })
@@ -2135,7 +2142,7 @@ export class XGISMap {
           }
         })
       }).catch((err) => {
-        console.error('[X-GIS] GeoJSON compile failed:', err)
+        xlog.error('[X-GIS] GeoJSON compile failed:', err)
       })
 
       // Setup shader variant if needed. The pipeline + layout must be
@@ -2152,7 +2159,7 @@ export class XGISMap {
           pipelines = this.renderer.getOrCreateVariantPipelines(variantSync as any)
           layout = this.renderer.getOrBuildVariantLayout(variantSync as never)
         } catch (e) {
-          console.warn('[X-GIS] GeoJSON VT variant pipeline failed:', e)
+          xlog.warn('[X-GIS] GeoJSON VT variant pipeline failed:', e)
         }
       }
       this.vectorTileShows.push({ sourceName: vtKey, show, pipelines, layout })
@@ -2174,7 +2181,7 @@ export class XGISMap {
     this.renderer.setGraticuleEnabled(this._graticuleInitial)
     this.rasterRenderer = new RasterRenderer(this.ctx)
     if (GPU_PROF) this.gpuTimer = new GPUTimer(this.ctx)
-      try { this.pointRenderer = new PointRenderer(this.ctx) } catch (e) { console.warn('[X-GIS] PointRenderer init failed:', e) }
+      try { this.pointRenderer = new PointRenderer(this.ctx) } catch (e) { xlog.warn('[X-GIS] PointRenderer init failed:', e) }
 
     for (const load of commands.loads) {
       const url = load.url.startsWith('http') || load.url.startsWith('/') ? load.url : baseUrl + load.url
@@ -2227,7 +2234,7 @@ export class XGISMap {
       // (and PC DevTools) can show the real message. Without this wrap,
       // requestAnimationFrame errors bubble to window.onerror as the
       // useless "Script error. @ :0:0" placeholder under iOS WebKit.
-      console.error('[X-GIS frame]', (err as Error)?.stack ?? err)
+      xlog.error('[X-GIS frame]', (err as Error)?.stack ?? err)
       this.running = false  // stop the loop so the error doesn't repeat 60×/sec
     }
   }
@@ -2587,7 +2594,7 @@ export class XGISMap {
   ): void {
     if (!this.rawDatasets.has(sourceId)) {
       if (!this._unknownSourceWarned.has(sourceId)) {
-        console.warn(`[X-GIS] updateFeature: unknown source "${sourceId}"`)
+        xlog.warn(`[X-GIS] updateFeature: unknown source "${sourceId}"`)
         this._unknownSourceWarned.add(sourceId)
       }
       return

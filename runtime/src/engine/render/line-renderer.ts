@@ -41,6 +41,7 @@
 import { isPickEnabled, getSampleCount, type GPUContext } from '../gpu/gpu'
 import { DEBUG_OVERDRAW } from '../debug-flags'
 import { asyncWriteBuffer, type StagingBufferPool } from '../gpu/staging-buffer-pool'
+import { xlog } from '../log'
 import { BLEND_ALPHA, BLEND_ALPHA_PREMULT, BLEND_MAX, DEPTH_READ_ONLY } from '../gpu/gpu-shared'
 import { COMPOSITE_SHADER, LINE_SHADER_SOURCE } from './line-renderer-shaders'
 import type { ShapeRegistry } from '../text/sdf-shape'
@@ -502,7 +503,7 @@ export class LineRenderer {
     checkPatternParams(patterns, mppAtCenter, (k, m) => this.warnOnce(k, m))
 
     if (this.layerSlot >= this.layerRingCapacity) {
-      console.warn('[LineRenderer] layer ring overflow — capping at capacity; style bleed possible')
+      xlog.warn('[LineRenderer] layer ring overflow — capping at capacity; style bleed possible')
       return (this.layerRingCapacity - 1) * LineRenderer.LAYER_SLOT
     }
     const off = this.layerSlot * LineRenderer.LAYER_SLOT
@@ -545,7 +546,7 @@ export class LineRenderer {
   private warnOnce(key: string, msg: string): void {
     if (this.patternWarnings.has(key)) return
     this.patternWarnings.add(key)
-    console.warn(msg)
+    xlog.warn(msg)
   }
 
   /**

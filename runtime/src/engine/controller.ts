@@ -1,6 +1,7 @@
 // ═══ Map Controllers — 프로젝션에 따른 카메라 조작 ═══
 
 import type { Camera } from './projection/camera'
+import { xlog } from './log'
 
 export interface Controller {
   name: string
@@ -62,7 +63,7 @@ export class PanZoomController implements Controller {
     const safe = <T extends (...a: never[]) => unknown>(label: string, fn: T): T =>
       ((...args: never[]) => {
         try { return fn(...args) }
-        catch (e) { console.error('[ctrl ' + label + ']', (e as Error)?.stack ?? e) }
+        catch (e) { xlog.error('[ctrl ' + label + ']', (e as Error)?.stack ?? e) }
       }) as T
 
     let isDragging = false

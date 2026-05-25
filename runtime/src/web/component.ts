@@ -2,6 +2,7 @@
 // HTML에서 바로 X-GIS 코드를 쓸 수 있게 해주는 커스텀 엘리먼트
 
 import { XGISMap } from '../engine/map'
+import { xlog } from '../engine/log'
 
 export class XGISMapElement extends HTMLElement {
   private map: XGISMap | null = null
@@ -61,7 +62,7 @@ export class XGISMapElement extends HTMLElement {
       const errorDiv = this.shadowRoot!.querySelector('.error') as HTMLDivElement
       errorDiv.style.display = 'block'
       errorDiv.textContent = String(err)
-      console.error('[X-GIS]', err)
+      xlog.error('[X-GIS]', err)
     }
   }
 

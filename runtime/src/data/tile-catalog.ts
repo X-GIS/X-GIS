@@ -24,6 +24,7 @@ import {
   type CompiledTileSet, type TileLevel,
   type GeometryPart,
 } from '@xgis/compiler'
+import { xlog } from '../engine/log'
 import { visibleTiles } from './tile-select'
 import { VirtualCatalogAdapter } from './sources/virtual-catalog-adapter'
 import { GeoJSONRuntimeBackend } from './sources/geojson-runtime-backend'
@@ -1050,7 +1051,7 @@ export class TileCatalog {
 
     this.setSlice(key, sourceLayer, data)
     try { this.onTileLoaded?.(key, data, sourceLayer) }
-    catch (e) { console.error('[onTileLoaded]', (e as Error)?.stack ?? e) }
+    catch (e) { xlog.error('[onTileLoaded]', (e as Error)?.stack ?? e) }
   }
 
   // ── Sub-tile generation (overzoom CPU clipping) ──
@@ -1086,7 +1087,7 @@ export class TileCatalog {
     this.setSlice(subKey, sourceLayer, subData)
     this._subTileCountThisFrame++
     try { this.onTileLoaded?.(subKey, subData, sourceLayer) }
-    catch (e) { console.error('[onTileLoaded sub]', (e as Error)?.stack ?? e) }
+    catch (e) { xlog.error('[onTileLoaded sub]', (e as Error)?.stack ?? e) }
     return true
   }
 

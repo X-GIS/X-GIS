@@ -8,6 +8,7 @@ import { DEBUG_OVERDRAW } from '../debug-flags'
 import { Camera } from '../projection/camera'
 import type { ShowCommand } from './renderer'
 import { interpolateZoom } from './renderer'
+import { xlog } from '../log'
 import type { ResolvedShow } from './resolved-show'
 import { visibleTilesFrustum, visibleTilesFrustumSampled, sortByPriority, makeTileCoord } from '../../data/tile-select'
 import { bumpAlloc } from '../__profile__/alloc-counter'
@@ -2113,7 +2114,7 @@ export class VectorTileRenderer {
       // past the target tile). It's a normal flow signal, not an
       // error — surface the others.
       if (err instanceof PriorityQueueItemRemovedError) return
-      console.error('[upload queue]', err)
+      xlog.error('[upload queue]', err)
     })
   }
 
@@ -3921,7 +3922,7 @@ export class VectorTileRenderer {
         const wKey = `no-ancestor:${t.z}/${t.x}/${t.y}`
         if (!this.tileDropWarnings.has(wKey)) {
           this.tileDropWarnings.add(wKey)
-          console.warn(`[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${maxLevel}).`)
+          xlog.warn(`[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${maxLevel}).`)
         }
         continue
       }

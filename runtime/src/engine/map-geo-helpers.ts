@@ -5,6 +5,7 @@
 
 import type { GeoJSONFeatureCollection } from '../loader/geojson'
 import type { XGISFontResource, FontTypographyMap } from './map-types'
+import { xlog } from './log'
 
 /** Filter the xgis source DSL's `type:` field down to the values
  *  `detectVectorTileFormat` understands. XGIS source `type` can also
@@ -101,7 +102,7 @@ export async function registerFonts(fonts: readonly XGISFontResource[]): Promise
     } catch (e) {
       // One bad font shouldn't bring down the rest. Swallow + log so
       // the developer can spot it without crashing the page.
-      console.warn(`[XGISMap] FontFace load failed for "${f.family}":`, e)
+      xlog.warn(`[XGISMap] FontFace load failed for "${f.family}":`, e)
     }
   }))
 }

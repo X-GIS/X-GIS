@@ -18,6 +18,7 @@ import { Camera } from './projection/camera'
 import { MERCATOR_LAT_LIMIT, mercatorYToLatRad } from './projection/projection'
 import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
 import { lonLatToMercator } from '../loader/geojson'
+import { xlog } from './log'
 
 /** Dependencies CameraController needs from the host XGISMap. */
 export interface CameraControllerDeps {
@@ -55,7 +56,7 @@ export class CameraController {
    *  bad call upstream so the host sees the warning. */
   setCenter(lon: number, lat: number): void {
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
-      console.warn(`[X-GIS] setCenter: non-finite (lon=${lon}, lat=${lat}); ignored.`)
+      xlog.warn(`[X-GIS] setCenter: non-finite (lon=${lon}, lat=${lat}); ignored.`)
       return
     }
     // Honor setMaxBounds: clamp the input lon/lat to the bbox before
@@ -75,7 +76,7 @@ export class CameraController {
 
   setZoom(zoom: number): void {
     if (!Number.isFinite(zoom)) {
-      console.warn(`[X-GIS] setZoom: non-finite (${zoom}); ignored.`)
+      xlog.warn(`[X-GIS] setZoom: non-finite (${zoom}); ignored.`)
       return
     }
     this.camera.zoom = Math.max(this.camera.minZoom, Math.min(this.camera.maxZoom, zoom))
@@ -87,7 +88,7 @@ export class CameraController {
    *  the active bounds. Default min=0 / max=22. */
   setMinZoom(z: number): void {
     if (!Number.isFinite(z)) {
-      console.warn(`[X-GIS] setMinZoom: non-finite (${z}); ignored.`)
+      xlog.warn(`[X-GIS] setMinZoom: non-finite (${z}); ignored.`)
       return
     }
     this.camera.minZoom = Math.max(0, Math.min(22, z))
@@ -98,7 +99,7 @@ export class CameraController {
   }
   setMaxZoom(z: number): void {
     if (!Number.isFinite(z)) {
-      console.warn(`[X-GIS] setMaxZoom: non-finite (${z}); ignored.`)
+      xlog.warn(`[X-GIS] setMaxZoom: non-finite (${z}); ignored.`)
       return
     }
     this.camera.maxZoom = Math.max(0, Math.min(22, z))
@@ -130,7 +131,7 @@ export class CameraController {
     const [[w, s], [e, n]] = bounds
     if (!Number.isFinite(w) || !Number.isFinite(s) || !Number.isFinite(e) || !Number.isFinite(n)
         || s > n || s < -90 || n > 90) {
-      console.warn(`[X-GIS] setMaxBounds: invalid bounds (${w},${s})-(${e},${n}); ignored.`)
+      xlog.warn(`[X-GIS] setMaxBounds: invalid bounds (${w},${s})-(${e},${n}); ignored.`)
       return
     }
     // Antimeridian-crossing bbox (west > east) is unsupported — the
@@ -141,7 +142,7 @@ export class CameraController {
     // entirely in [-180, 180] without wrap. Reject loudly so callers
     // don't get a silently-incorrect clamp.
     if (w > e) {
-      console.warn(`[X-GIS] setMaxBounds: antimeridian-crossing bbox (west=${w} > east=${e}) not supported; ignored.`)
+      xlog.warn(`[X-GIS] setMaxBounds: antimeridian-crossing bbox (west=${w} > east=${e}) not supported; ignored.`)
       return
     }
     this._maxBounds = { west: w, south: s, east: e, north: n }
@@ -201,7 +202,7 @@ export class CameraController {
     const [[w, s], [e, n]] = bounds
     if (!Number.isFinite(w) || !Number.isFinite(s) || !Number.isFinite(e) || !Number.isFinite(n)
         || s > n) {
-      console.warn(`[X-GIS] fitBounds: invalid bounds (${w},${s})-(${e},${n}); ignored.`)
+      xlog.warn(`[X-GIS] fitBounds: invalid bounds (${w},${s})-(${e},${n}); ignored.`)
       return
     }
     const centerLon = (w + e) / 2
@@ -239,7 +240,7 @@ export class CameraController {
    *  current bearing so a +dx with bearing=90 pans north, not east. */
   panBy(offset: [number, number]): void {
     if (!Number.isFinite(offset[0]) || !Number.isFinite(offset[1])) {
-      console.warn(`[X-GIS] panBy: non-finite offset (${offset[0]}, ${offset[1]}); ignored.`)
+      xlog.warn(`[X-GIS] panBy: non-finite offset (${offset[0]}, ${offset[1]}); ignored.`)
       return
     }
     const mpp = (WORLD_MERC / TILE_PX) / Math.pow(2, this.camera.zoom)
@@ -274,7 +275,7 @@ export class CameraController {
 
   setBearing(bearing: number): void {
     if (!Number.isFinite(bearing)) {
-      console.warn(`[X-GIS] setBearing: non-finite (${bearing}); ignored.`)
+      xlog.warn(`[X-GIS] setBearing: non-finite (${bearing}); ignored.`)
       return
     }
     // Wrap to [0, 360). Negative bearings wrap to positive equivalent.
@@ -284,7 +285,7 @@ export class CameraController {
 
   setPitch(pitch: number): void {
     if (!Number.isFinite(pitch)) {
-      console.warn(`[X-GIS] setPitch: non-finite (${pitch}); ignored.`)
+      xlog.warn(`[X-GIS] setPitch: non-finite (${pitch}); ignored.`)
       return
     }
     this.camera.pitch = Math.max(0, Math.min(85, pitch))
@@ -303,7 +304,7 @@ export class CameraController {
     if (opts.center) {
       const [lon, lat] = opts.center
       if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
-        console.warn(`[X-GIS] jumpTo: non-finite center (${lon}, ${lat}); skipped.`)
+        xlog.warn(`[X-GIS] jumpTo: non-finite center (${lon}, ${lat}); skipped.`)
       } else {
         // Honor maxBounds clamp first.
         let cLon = lon, cLat = lat
@@ -319,21 +320,21 @@ export class CameraController {
     }
     if (opts.zoom !== undefined) {
       if (!Number.isFinite(opts.zoom)) {
-        console.warn(`[X-GIS] jumpTo: non-finite zoom (${opts.zoom}); skipped.`)
+        xlog.warn(`[X-GIS] jumpTo: non-finite zoom (${opts.zoom}); skipped.`)
       } else {
         this.camera.zoom = Math.max(this.camera.minZoom, Math.min(this.camera.maxZoom, opts.zoom))
       }
     }
     if (opts.bearing !== undefined) {
       if (!Number.isFinite(opts.bearing)) {
-        console.warn(`[X-GIS] jumpTo: non-finite bearing (${opts.bearing}); skipped.`)
+        xlog.warn(`[X-GIS] jumpTo: non-finite bearing (${opts.bearing}); skipped.`)
       } else {
         this.camera.bearing = ((opts.bearing % 360) + 360) % 360
       }
     }
     if (opts.pitch !== undefined) {
       if (!Number.isFinite(opts.pitch)) {
-        console.warn(`[X-GIS] jumpTo: non-finite pitch (${opts.pitch}); skipped.`)
+        xlog.warn(`[X-GIS] jumpTo: non-finite pitch (${opts.pitch}); skipped.`)
       } else {
         this.camera.pitch = Math.max(0, Math.min(85, opts.pitch))
       }

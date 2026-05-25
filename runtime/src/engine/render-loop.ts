@@ -15,6 +15,7 @@
 // keeping the public/internal call surface (render-loop tick, tests)
 // unchanged.
 
+import { xlog } from './log'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from './__profile__/perf-marks'
 import { mercatorYToLat } from './projection/projection'
 import { resizeCanvas, getSampleCount, getMaxDpr, isPickEnabled } from './gpu/gpu'
@@ -270,7 +271,7 @@ export class RenderLoop {
       try { fn() }
       finally {
         device.popErrorScope().then((err) => {
-          if (err) console.error(`[X-GIS pass:${label}]`, err.message)
+          if (err) xlog.error(`[X-GIS pass:${label}]`, err.message)
         }).catch(() => { /* scope stack mismatch — swallow */ })
       }
       perfMarkEnd(`encoder.pass.${label}`)
@@ -517,7 +518,7 @@ export class RenderLoop {
     // on freshly-submitted ones. Cheap when disabled (no-op).
     this.host.gpuTimer?.pollReadbacks()
     device.popErrorScope().then((err) => {
-      if (err) console.error('[X-GIS frame-validation]', err.message)
+      if (err) xlog.error('[X-GIS frame-validation]', err.message)
     }).catch(() => { /* scope mismatch — ignore */ })
 
     // Collect stats from renderers
@@ -583,7 +584,7 @@ export class RenderLoop {
             this.host._flickerLastFrame.set(name, this.host._frameCount)
             const zRounded = Math.round(this.host.camera.zoom)
             const cacheSize = vtR.getCacheSize()
-            console.warn(`[FLICKER] ${name}: ${vts.missedTiles} tiles without fallback (z=${zRounded} gpuCache=${cacheSize})`)
+            xlog.warn(`[FLICKER] ${name}: ${vts.missedTiles} tiles without fallback (z=${zRounded} gpuCache=${cacheSize})`)
             // Ring-buffer the event so inspectPipeline() can replay
             // the last few seconds without needing a live console capture.
             this.host._flickerLog.push({

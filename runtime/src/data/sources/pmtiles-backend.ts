@@ -17,6 +17,7 @@
 // catalog pace compile work via the per-frame tick budget while
 // fetches keep streaming in async.
 
+import { xlog } from '../../engine/log'
 import {
   tileKeyUnpack,
   decodeMvtTile, decomposeFeatures, compileSingleTile,
@@ -183,7 +184,7 @@ export class PMTilesBackend implements TileSource {
       }
       // doFetch swallows its own errors, so anything reaching here is
       // unexpected (queue invariant violation).
-      console.error('[pmtiles fetch queue]', err)
+      xlog.error('[pmtiles fetch queue]', err)
       sink.releaseLoading(key)
     })
   }
@@ -243,7 +244,7 @@ export class PMTilesBackend implements TileSource {
       if (!isAbort) {
         const count = (this.failedKeys.get(key)?.count ?? 0) + 1
         this.failedKeys.set(key, { expiresAt: Date.now() + failedKeyTtlMs(count), count })
-        console.error('[pmtiles fetch]', (err as Error)?.stack ?? err)
+        xlog.error('[pmtiles fetch]', (err as Error)?.stack ?? err)
       }
       sink.releaseLoading(key)
     } finally {
@@ -400,7 +401,7 @@ export class PMTilesBackend implements TileSource {
             }, slice.layerName)
           }
         }).catch(err => {
-          console.error('[pmtiles worker]', (err as Error)?.stack ?? err)
+          xlog.error('[pmtiles worker]', (err as Error)?.stack ?? err)
           sink.acceptResult(key, null)
         }).finally(() => {
           sink.releaseLoading(key)
@@ -536,7 +537,7 @@ export class PMTilesBackend implements TileSource {
       }
       if (!emittedAny) sink.acceptResult(key, null)
     } catch (err) {
-      console.error('[pmtiles inline]', (err as Error)?.stack ?? err)
+      xlog.error('[pmtiles inline]', (err as Error)?.stack ?? err)
       sink.acceptResult(key, null)
     }
   }

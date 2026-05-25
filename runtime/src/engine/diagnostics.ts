@@ -24,6 +24,7 @@ import { getMaxDpr } from './gpu/gpu'
 import { mercatorYToLat } from './projection/projection'
 import type { QualityConfig } from './gpu/quality'
 import type { XGISMap } from './map'
+import { xlog } from './log'
 
 // ─── Types ─────────────────────────────────────────────────────────
 
@@ -279,7 +280,7 @@ export async function captureMapSnapshot(map: XGISMap): Promise<MapSnapshot> {
       }
     }
   } catch (e) {
-    console.warn('[xgisSnapshot] pixel hash failed:', e)
+    xlog.warn('[xgisSnapshot] pixel hash failed:', e)
   }
 
   const cssWidth = canvas.clientWidth || canvas.width

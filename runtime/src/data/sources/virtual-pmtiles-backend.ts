@@ -15,6 +15,7 @@
 // compile, per-layer slices, extrude / stroke-width per-feature
 // bakes, etc.) without a separate runtime backend.
 
+import { xlog } from '../../engine/log'
 import {
   tileKeyUnpack,
   decodeMvtTile, decomposeFeatures, compileSingleTile,
@@ -119,7 +120,7 @@ export class VirtualPMTilesBackend implements TileSource {
     this.indexReady
       .then(() => this.fetchAndCompile(key, sink))
       .catch(err => {
-        console.error('[virtual-pmtiles fetch]', (err as Error)?.stack ?? err)
+        xlog.error('[virtual-pmtiles fetch]', (err as Error)?.stack ?? err)
         sink.acceptResult(key, null)
         sink.releaseLoading(key)
       })
@@ -138,7 +139,7 @@ export class VirtualPMTilesBackend implements TileSource {
     try {
       bytes = await tilingPool.getTile(this.sourceName, z, x, y, key)
     } catch (err) {
-      console.error('[virtual-pmtiles getTile]', (err as Error)?.stack ?? err)
+      xlog.error('[virtual-pmtiles getTile]', (err as Error)?.stack ?? err)
       sink.acceptResult(key, null)
       sink.releaseLoading(key)
       return
@@ -176,7 +177,7 @@ export class VirtualPMTilesBackend implements TileSource {
           }
         }
       } catch (err) {
-        console.error('[virtual-pmtiles worker]', (err as Error)?.stack ?? err)
+        xlog.error('[virtual-pmtiles worker]', (err as Error)?.stack ?? err)
         sink.acceptResult(key, null)
       } finally {
         sink.releaseLoading(key)
@@ -242,7 +243,7 @@ export class VirtualPMTilesBackend implements TileSource {
       }
       if (!emitted) sink.acceptResult(key, null)
     } catch (err) {
-      console.error('[virtual-pmtiles inline]', (err as Error)?.stack ?? err)
+      xlog.error('[virtual-pmtiles inline]', (err as Error)?.stack ?? err)
       sink.acceptResult(key, null)
     }
   }

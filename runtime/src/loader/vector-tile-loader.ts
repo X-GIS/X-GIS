@@ -22,6 +22,7 @@
 // preserve every prior import path. Power users can construct their own
 // loader instance for isolated caches.
 
+import { xlog } from '../engine/log'
 import { PMTiles, TileType } from 'pmtiles'
 import { TileCatalog } from '../data/tile-catalog'
 import { PMTilesBackend } from '../data/sources/pmtiles-backend'
@@ -115,7 +116,7 @@ async function fetchTileWithRetry(
   const lastLogged = tileFetchLogThrottle.get(urlKey) ?? 0
   if (now - lastLogged > TILE_FETCH_LOG_INTERVAL_MS) {
     tileFetchLogThrottle.set(urlKey, now)
-    console.warn(
+    xlog.warn(
       `[X-GIS] ${tileLabel} fetch failed after ${backoffsMs.length + 1} attempts ` +
       `(${lastErr?.message ?? 'unknown error'}). ` +
       `Caching as missing for ${NEGATIVE_CACHE_TTL_MS / 60_000} min — that area will render empty. ` +
@@ -168,7 +169,7 @@ export abstract class VectorTileSource {
       const known = new Set(meta.vectorLayers.map(l => l.id))
       for (const lname of opts.layers) {
         if (!known.has(lname)) {
-          console.warn(
+          xlog.warn(
             `[X-GIS] ${formatName}: requested layer "${lname}" is not in ` +
             `vector_layers. Known: [${meta.vectorLayers.map(l => l.id).join(', ')}].`,
           )
@@ -209,7 +210,7 @@ export class PMTilesArchiveSource extends VectorTileSource {
     try { cached = await this.loader.openArchive(this.url) }
     catch (e) {
       const msg = (e as Error)?.message ?? String(e)
-      console.error(
+      xlog.error(
         `[X-GIS] PMTiles attach failed for ${this.url}\n` +
         `  ${msg}\n` +
         `  If this is "Failed to fetch", the archive's origin likely\n` +
@@ -262,7 +263,7 @@ export class TileJSONSource extends VectorTileSource {
     try { tj = await this.loader.openTileJSON(this.url) }
     catch (e) {
       const msg = (e as Error)?.message ?? String(e)
-      console.error(
+      xlog.error(
         `[X-GIS] TileJSON attach failed for ${this.url}\n` +
         `  ${msg}\n` +
         `  If this is "Failed to fetch", the manifest's origin lacks\n` +
@@ -439,7 +440,7 @@ export class VectorTileLoader {
           vectorLayers = normalizeVectorLayers(meta.vector_layers, header.minZoom, header.maxZoom)
         }
       } catch (e) {
-        console.warn(`[X-GIS] PMTiles metadata fetch failed (non-fatal): ${(e as Error)?.message ?? e}`)
+        xlog.warn(`[X-GIS] PMTiles metadata fetch failed (non-fatal): ${(e as Error)?.message ?? e}`)
       }
       return { archive, header, vectorLayers, archiveName, attribution }
     })

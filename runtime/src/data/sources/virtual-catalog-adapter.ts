@@ -12,6 +12,7 @@
 // (via attachBackend); this adapter exists only for the
 // VirtualCatalog interface that predates PMTilesBackend.
 
+import { xlog } from '../../engine/log'
 import { tileKeyUnpack } from '@xgis/compiler'
 import type {
   TileSource, TileSourceSink, TileSourceMeta, BackendTileResult,
@@ -70,7 +71,7 @@ export class VirtualCatalogAdapter implements TileSource {
       } satisfies BackendTileResult : null)
     }).catch(err => {
       sink.releaseLoading(key)
-      console.error('[virtual-catalog fetch]', (err as Error)?.stack ?? err)
+      xlog.error('[virtual-catalog fetch]', (err as Error)?.stack ?? err)
     })
   }
 }

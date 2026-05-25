@@ -24,6 +24,7 @@
 
 import type { ShowCommand } from './render/renderer'
 import { parseHexColor as parseHexColorRaw } from './feature-helpers'
+import { xlog } from './log'
 
 /** Wrapper that returns `null` on parse failure so the setters can
  *  short-circuit without touching paintShapes when given a malformed
@@ -412,7 +413,7 @@ export class ListenerRegistry {
     if (!typeMap || typeMap.size === 0) return
     for (const wrapped of [...typeMap.values()]) {
       try { wrapped(event) }
-      catch (e) { console.error(`[X-GIS] '${event.type}' listener on ${label}:`, e) }
+      catch (e) { xlog.error(`[X-GIS] '${event.type}' listener on ${label}:`, e) }
       if (event.defaultPrevented) break
     }
   }

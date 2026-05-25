@@ -27,6 +27,7 @@
 
 import type { GPUContext } from '../gpu/gpu'
 import { isPickEnabled, getSampleCount } from '../gpu/gpu'
+import { xlog } from '../log'
 import {
   DEBUG_OVERDRAW,
   OVERDRAW_ACCUM_FORMAT,
@@ -167,7 +168,7 @@ export class BackgroundRenderer {
     if (!Array.isArray(rgba) || rgba.length !== 4
         || !Number.isFinite(rgba[0]) || !Number.isFinite(rgba[1])
         || !Number.isFinite(rgba[2]) || !Number.isFinite(rgba[3])) {
-      console.warn(`[X-GIS] BackgroundRenderer.setFill: rejected non-finite RGBA ${JSON.stringify(rgba)}`)
+      xlog.warn(`[X-GIS] BackgroundRenderer.setFill: rejected non-finite RGBA ${JSON.stringify(rgba)}`)
       return
     }
     this.fillRgba = rgba
