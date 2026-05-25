@@ -18,6 +18,7 @@
 import { xlog } from './log'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from './__profile__/perf-marks'
 import { mercatorYToLat } from './projection/projection'
+import { PROJECTION_NAME_TO_TYPE } from './projection/projections-table'
 import { resizeCanvas, getSampleCount, getMaxDpr, isPickEnabled } from './gpu/gpu'
 import { DEBUG_OVERDRAW } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
@@ -138,11 +139,7 @@ export class RenderLoop {
     if (this.host._startTime === null) this.host._startTime = performance.now()
     this.host._elapsedMs = performance.now() - this.host._startTime
 
-    let projType = {
-      mercator: 0, equirectangular: 1, natural_earth: 2,
-      orthographic: 3, azimuthal_equidistant: 4, stereographic: 5,
-      oblique_mercator: 6, globe: 7,
-    }[this.host.projectionName] ?? 0
+    let projType = PROJECTION_NAME_TO_TYPE[this.host.projectionName] ?? 0
     // Azimuthal-when-tilted: ortho/azimuthal_eq/stereographic are exact
     // 2D discs at pitch=0 but promote to the true 3D sphere once the
     // user tilts. At pitch>0 we drive the globe vertex path (projType 7
