@@ -20,7 +20,7 @@ export {
 // ═══ Frustum-based tile selection ═══
 
 import type { Camera } from '../engine/projection/camera'
-import { type Projection, MERCATOR_LAT_LIMIT } from '../engine/projection/projection'
+import { type Projection, MERCATOR_LAT_LIMIT, mercatorYToLat } from '../engine/projection/projection'
 
 // Mobile GPUs choke on 300 frustum tiles — each tile is a draw call plus
 // SDF-shaded line segments. 120 keeps the foreground refined and the
@@ -190,7 +190,7 @@ export function visibleTilesFrustum(
 
   // Camera position in lon/lat for "camera inside tile" test below.
   const camLon = (camMercX / R) * (180 / Math.PI)
-  const camLat = (2 * Math.atan(Math.exp(camMercY / R)) - Math.PI / 2) * (180 / Math.PI)
+  const camLat = mercatorYToLat(camMercY)
 
   // Unified classify: returns screen-space tile size in px, or -1 if not visible.
   // Handles null corners (behind camera) consistently — a tile with all corners
@@ -624,7 +624,7 @@ export function visibleTilesFrustumSampled(
   const camLon = (camera.centerX / R) * RAD2DEG
   // Match the GPU's projection centre (renderFrame clamps centerLat to ±85).
   const camLat = Math.max(-85, Math.min(85,
-    (2 * Math.atan(Math.exp(camera.centerY / R)) - Math.PI / 2) * RAD2DEG))
+    mercatorYToLat(camera.centerY)))
   const centerProj = isMerc ? [0, 0] : projection.forward(camLon, camLat)
 
   // CONTINUOUS lon (may exceed ±180 for world copies) + lat in degrees.
@@ -649,7 +649,7 @@ export function visibleTilesFrustumSampled(
     if (isMerc) {
       decodeLonLat(
         ((camera.centerX + relX) / R) * RAD2DEG,
-        (2 * Math.atan(Math.exp((camera.centerY + relY) / R)) - Math.PI / 2) * RAD2DEG,
+        mercatorYToLat(camera.centerY + relY),
       )
     } else {
       const [lonW, lat] = projection.inverse(centerProj[0]! + relX, centerProj[1]! + relY)

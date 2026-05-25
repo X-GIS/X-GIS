@@ -44,6 +44,7 @@
 
 import type { Camera } from '../engine/projection/camera'
 import type { Projection } from './../engine/projection/projection'
+import { mercatorYToLat } from '../engine/projection/projection'
 import { worldCopiesFor, TILE_PX } from '../engine/gpu/gpu-shared'
 import type { TileCoord } from '../data/tile-select'
 
@@ -238,7 +239,7 @@ export function visibleTilesSSE(
   // Match the GPU's projection centre (renderFrame clamps centerLat to
   // ±85 before feeding it as proj_params.z).
   const camLat = Math.max(-85, Math.min(85,
-    (2 * Math.atan(Math.exp(camMy / earthR)) - Math.PI / 2) * RAD2DEG))
+    mercatorYToLat(camMy)))
   const centerProj = projType === 0 ? [0, 0] : projection.forward(camLon, camLat)
   // Frustum cull via the camera's MVP — same matrix the renderer uses
   // to draw, so cull and rasterisation agree on screen space at any DPR.
@@ -249,7 +250,7 @@ export function visibleTilesSSE(
       rx = mx - camMx; ry = my - camMy
     } else {
       const lonAbs = (mx / earthR) * RAD2DEG
-      const lat = (2 * Math.atan(Math.exp(my / earthR)) - Math.PI / 2) * RAD2DEG
+      const lat = mercatorYToLat(my)
       const p = projection.forward(lonAbs, lat)
       if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null
       // projection.forward wraps lon to the primary world (clon±180); add

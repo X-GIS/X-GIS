@@ -15,7 +15,7 @@
 //   - `this._maxBounds` / `this._cameraExplicitlyPositioned` → owned here
 
 import { Camera } from './projection/camera'
-import { MERCATOR_LAT_LIMIT } from './projection/projection'
+import { MERCATOR_LAT_LIMIT, mercatorYToLatRad } from './projection/projection'
 import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
 import { lonLatToMercator } from '../loader/geojson'
 
@@ -262,7 +262,7 @@ export class CameraController {
       const newMercX = this.camera.centerX + dxMap
       const newMercY = this.camera.centerY - dyMap // screen-y inverted
       const newLon = newMercX / (D2R * EARTH)
-      const newLatRad = 2 * Math.atan(Math.exp(newMercY / EARTH)) - Math.PI / 2
+      const newLatRad = mercatorYToLatRad(newMercY)
       const newLat = newLatRad * 180 / Math.PI
       this.setCenter(newLon, newLat)
     } else {
@@ -370,7 +370,7 @@ export class CameraController {
     const cx = Number.isFinite(this.camera.centerX) ? this.camera.centerX : 0
     const cy = Number.isFinite(this.camera.centerY) ? this.camera.centerY : 0
     const lon = cx / (DEG2RAD * EARTH_RADIUS)
-    const latRad = 2 * Math.atan(Math.exp(cy / EARTH_RADIUS)) - Math.PI / 2
+    const latRad = mercatorYToLatRad(cy)
     const lat = latRad / DEG2RAD
     return {
       center: [lon, lat],

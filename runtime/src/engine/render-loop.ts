@@ -16,6 +16,7 @@
 // unchanged.
 
 import { markStart as perfMarkStart, markEnd as perfMarkEnd, flushPerFrameMarks } from './__profile__/perf-marks'
+import { mercatorYToLat } from './projection/projection'
 import { resizeCanvas, getSampleCount, getMaxDpr, isPickEnabled } from './gpu/gpu'
 import { DEBUG_OVERDRAW } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from './gpu/gpu-shared'
@@ -210,7 +211,7 @@ export class RenderLoop {
     const R = 6378137
     const centerLon = (this.host.camera.centerX / R) * (180 / Math.PI)
     const centerLat = Math.max(-85, Math.min(85,
-      (2 * Math.atan(Math.exp(this.host.camera.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
+      mercatorYToLat(this.host.camera.centerY)
     ))
 
     perfMarkEnd('frame.prep')
@@ -411,7 +412,7 @@ export class RenderLoop {
         const camMy = this.host.camera.centerY
         const R = 6378137
         const lon = (camMx / R) * (180 / Math.PI)
-        const lat = (Math.atan(Math.exp(camMy / R)) * 2 - Math.PI / 2) * (180 / Math.PI)
+        const lat = mercatorYToLat(camMy)
         const canvas = this.host.ctx?.canvas
         const cw = canvas?.width ?? 0
         const ch = canvas?.height ?? 0

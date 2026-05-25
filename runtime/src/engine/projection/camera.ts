@@ -5,6 +5,7 @@ import { WORLD_MERC, TILE_PX } from '../gpu/gpu-shared'
 import { getMaxDpr } from '../gpu/gpu'
 import { computeLogDepthFc } from '../shaders/log-depth'
 import { buildGlobeMatrix } from './globe'
+import { mercatorYToLat, mercatorYToLatRad } from './projection'
 import { invOrthographic, mulVec4, invert4x4 } from './camera-helpers'
 
 export class Camera {
@@ -280,7 +281,7 @@ export class Camera {
   private _globeFrame(canvasWidth: number, canvasHeight: number, dpr: number): { matrix: Float32Array; far: number } {
     const R = 6378137
     const lon = this.centerX / R * (180 / Math.PI)
-    const lat = (2 * Math.atan(Math.exp(this.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
+    const lat = mercatorYToLat(this.centerY)
     const v = buildGlobeMatrix(
       lon, lat, this.zoom, this.pitch, this.bearing,
       canvasWidth / dpr, canvasHeight / dpr,
@@ -525,7 +526,7 @@ export class Camera {
       const gdy = -dx * sb + dy * cb
       const degPerPx = (mpp / R) * (180 / Math.PI)
       let lon = this.centerX / R * (180 / Math.PI) - gdx * degPerPx
-      let lat = (2 * Math.atan(Math.exp(this.centerY / R)) - Math.PI / 2) * (180 / Math.PI) + gdy * degPerPx
+      let lat = mercatorYToLat(this.centerY) + gdy * degPerPx
       lat = Math.max(-85.051129, Math.min(85.051129, lat))
       lon = ((lon + 180) % 360 + 360) % 360 - 180
       this.centerX = lon * (Math.PI / 180) * R
@@ -615,7 +616,7 @@ export class Camera {
         !!p && Math.hypot(p[0], p[1]) < DISC_SAFE
 
       const lon0 = this.centerX / R
-      const lat0 = 2 * Math.atan(Math.exp(this.centerY / R)) - Math.PI / 2
+      const lat0 = mercatorYToLatRad(this.centerY)
       const anchor = onDisc(before) ? invOrthographic(before![0], before![1], lon0, lat0) : null
 
       this.zoom = Math.max(0, Math.min(this.maxZoom, this.zoom + delta))

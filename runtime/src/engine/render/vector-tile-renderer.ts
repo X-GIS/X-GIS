@@ -39,7 +39,7 @@ import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog } from '../../data/tile-catalog'
 import type { TileData } from '../../data/tile-types'
 import { computeSliceKey } from '../../data/eval/filter-eval'
-import { mercator as mercatorProj, getProjection, type Projection } from '../projection/projection'
+import { mercator as mercatorProj, getProjection, type Projection, mercatorYToLat } from '../projection/projection'
 import type { PointRenderer } from './point-renderer'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
 import { parseHexColor } from '../feature-helpers'
@@ -2884,7 +2884,7 @@ export class VectorTileRenderer {
     const { centerX, centerY } = camera
     const R = 6378137
     const centerLon = (centerX / R) * (180 / Math.PI)
-    const centerLat = (2 * Math.atan(Math.exp(centerY / R)) - Math.PI / 2) * (180 / Math.PI)
+    const centerLat = mercatorYToLat(centerY)
 
     const maxLevel = this.source.maxLevel
     // DSFUN precision lets sub-tiles work at any camera zoom. Clamp to 22
@@ -3270,7 +3270,7 @@ export class VectorTileRenderer {
         // camera faces the antimeridian.
         const R = 6378137
         const lon = camera.centerX / R * (180 / Math.PI)
-        const lat = (2 * Math.atan(Math.exp(camera.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
+        const lat = mercatorYToLat(camera.centerY)
         const cssW = canvasWidth / dpr
         const cssH = canvasHeight / dpr
         const globeTiles = globeVisibleTiles(
@@ -4572,7 +4572,7 @@ export class VectorTileRenderer {
           ? (() => {
               const R = 6378137
               const lonPF = camera.centerX / R * (180 / Math.PI)
-              const latPF = (2 * Math.atan(Math.exp(camera.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
+              const latPF = mercatorYToLat(camera.centerY)
               const cssWPF = canvasWidth / dpr
               const cssHPF = canvasHeight / dpr
               return globeVisibleTiles(

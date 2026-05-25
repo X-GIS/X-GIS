@@ -9,6 +9,7 @@ import { resolveNumberShape, resolveColorShape, resolveSteppedShape } from './re
 import { hexToRgba } from './feature-helpers'
 import { WORLD_MERC } from './gpu/gpu-shared'
 import { projectWgsl, needsBackfaceCullWgsl } from './projection/projection-wgsl-mirror'
+import { mercatorYToLat } from './projection/projection'
 import { globeForward } from './projection/globe'
 
 /** Per-show label paint resolution. Collapses the unified LabelShapes
@@ -308,7 +309,7 @@ export function makeLabelProjectors(
     if (isMerc) return projectMerc(sx, sy)
     const R = 6378137
     const lon = sx / (Math.PI / 180 * R)
-    const lat = (2 * Math.atan(Math.exp(sy / R)) - Math.PI / 2) / (Math.PI / 180)
+    const lat = mercatorYToLat(sy)
     return projectLonLat(lon, lat, 0)
   }
 

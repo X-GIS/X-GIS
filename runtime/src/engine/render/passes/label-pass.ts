@@ -19,6 +19,7 @@ import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__prof
 import { DEBUG_OVERDRAW } from '../../debug-flags'
 import { WORLD_MERC } from '../../gpu/gpu-shared'
 import { projectWgsl } from '../../projection/projection-wgsl-mirror'
+import { mercatorYToLat } from '../../projection/projection'
 import { globeForward } from '../../projection/globe'
 import { resolveNumberShape } from '../paint-shape-resolve'
 import { resolveLabelEffectiveDef, makeLabelProjectors } from '../../render-loop-helpers'
@@ -444,7 +445,7 @@ class LabelPass implements RenderPass {
             const R = 6378137
             const mercToLonLat = (mx: number, my: number): [number, number] => [
               (mx / R) / DEG2RAD,
-              (2 * Math.atan(Math.exp(my / R)) - Math.PI / 2) / DEG2RAD,
+              mercatorYToLat(my),
             ]
             // The MVT worker buckets features per (sourceLayer, filter)
             // and stores each subset under its sliceKey — so a layer

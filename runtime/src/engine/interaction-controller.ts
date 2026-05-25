@@ -26,6 +26,7 @@
 //   - `this.pickReadbackPool`   → owned here (only pickAt reads/mutates it).
 
 import type { Camera } from './projection/camera'
+import { mercatorYToLat } from './projection/projection'
 import type { GPUContext } from './gpu/gpu'
 import type { LayerIdRegistry, XGISLayer, XGISFeature } from './layer'
 import type { SceneCommands } from './interpreter'
@@ -245,7 +246,7 @@ export class InteractionController {
     const merc_x = rtc[0] + this.camera.centerX
     const merc_y = rtc[1] + this.camera.centerY
     const lon = (merc_x / R) * (180 / Math.PI)
-    const lat = (2 * Math.atan(Math.exp(merc_y / R)) - Math.PI / 2) * (180 / Math.PI)
+    const lat = mercatorYToLat(merc_y)
     return [lon, lat]
   }
 }

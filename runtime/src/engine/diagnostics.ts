@@ -21,6 +21,7 @@
 
 import { tileKey as compilerTileKey } from '@xgis/compiler'
 import { getMaxDpr } from './gpu/gpu'
+import { mercatorYToLat } from './projection/projection'
 import type { QualityConfig } from './gpu/quality'
 import type { XGISMap } from './map'
 
@@ -161,7 +162,7 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
   const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
 
   const lon = (cam.centerX / R) * DEG
-  const lat = (2 * Math.atan(Math.exp(cam.centerY / R)) - Math.PI / 2) * DEG
+  const lat = mercatorYToLat(cam.centerY)
 
   const sources: PipelineInspection['sources'] = []
   for (const [name, entry] of m.vtSources) {
@@ -223,7 +224,7 @@ export async function captureMapSnapshot(map: XGISMap): Promise<MapSnapshot> {
   }
   const camera = m.camera
   const lon = (camera.centerX / 6378137) / (Math.PI / 180)
-  const lat = (2 * Math.atan(Math.exp(camera.centerY / 6378137)) - Math.PI / 2) / (Math.PI / 180)
+  const lat = mercatorYToLat(camera.centerY)
 
   const sources: MapSnapshot['sources'] = {}
   if (m.vtSources) {
