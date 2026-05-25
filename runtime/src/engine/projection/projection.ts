@@ -33,9 +33,23 @@ export const mercator: Projection = {
 
   inverse(x: number, y: number): [number, number] {
     const lon = (x / EARTH_RADIUS) * RAD2DEG
-    const lat = (2 * Math.atan(Math.exp(y / EARTH_RADIUS)) - Math.PI / 2) * RAD2DEG
+    const lat = mercatorYToLatRad(y) * RAD2DEG
     return [lon, lat]
   },
+}
+
+// Inverse Web Mercator, Y-only — the CPU single source for recovering
+// latitude from a Mercator-Y metre value. Previously hand-inlined as
+// `2 * Math.atan(Math.exp(y / R)) - Math.PI / 2` at ~22 sites (tile
+// selection, camera, VTR, diagnostics, render loop, label pass) with
+// assorted R / RAD2DEG aliases — all numerically identical (R = 6378137).
+// Mirrors the GPU `inv_merc_lat_rad` (shaders/projection.ts).
+export function mercatorYToLatRad(y: number): number {
+  return 2 * Math.atan(Math.exp(y / EARTH_RADIUS)) - Math.PI / 2
+}
+/** Inverse Web Mercator, Y-only → latitude in DEGREES (the common case). */
+export function mercatorYToLat(y: number): number {
+  return mercatorYToLatRad(y) * RAD2DEG
 }
 
 // Longitude delta wrapped to [-180, 180]. Identity inside that range so
@@ -293,7 +307,7 @@ export function obliqueMercator(centerLon: number, centerLat: number): Projectio
     inverse(x: number, y: number): [number, number] {
       // Inverse Mercator on rotated frame, then unrotate (rotate by -clat
       // around the same axis).
-      const phiRot = 2 * Math.atan(Math.exp(y / EARTH_RADIUS)) - Math.PI / 2
+      const phiRot = mercatorYToLatRad(y)
       const lamRot = x / EARTH_RADIUS
       const lat = Math.asin(Math.max(-1, Math.min(1,
         Math.sin(phiRot) * cosPhi0 + Math.cos(phiRot) * Math.cos(lamRot) * sinPhi0,
