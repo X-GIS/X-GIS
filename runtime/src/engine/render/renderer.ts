@@ -19,6 +19,7 @@ import { ComputeLayerRegistry } from './compute-layer-registry'
 import { extendBindGroupLayoutEntriesForCompute, buildComputeBindGroupEntries } from './compute-bind-layout'
 import type { ShaderVariantInfo, CachedPipeline, ShowCommand, RenderLayer } from './renderer-types'
 import { parseColor } from './renderer-helpers'
+import { UniformRing } from './uniform-ring'
 
 // Re-export the extracted types so this module's public surface stays
 // byte-identical (external consumers import these from './renderer').
@@ -163,14 +164,6 @@ export class MapRenderer {
   private uniformDataBuf = new ArrayBuffer(192)
   // Dynamic-offset uniform ring (see docs: multi-layer uniform slots)
   private static readonly UNIFORM_SLOT = 256
-  /** CPU-side mirror of uniformBuffer. Each draw's uniform block is
-   *  copied into this staging buffer and a dirty range tracked; one
-   *  writeBuffer per frame flushes the range. Saves ~1000 per-frame
-   *  writeBuffer calls in the fixture audit's stress-many-layers
-   *  scenario. Mirrors the VTR + LineRenderer pattern. */
-  private uniformStaging = new Uint8Array(0)
-  private uniformDirtyLo = 0
-  private uniformDirtyHi = 0
   // Polygon Uniforms struct grew from 160 to 176 bytes when
   // `clip_bounds: vec4<f32>` was added for per-tile clip masking
   // (parent fallback z=11 ancestor's geometry clipped to the missing
@@ -178,8 +171,6 @@ export class MapRenderer {
   // log-depth precision). WGSL spec requires bind group binding
   // ranges ≥ struct size + multiple of 16.
   private static readonly UNIFORM_SIZE = 192
-  private uniformRingCapacity = 256 // slots
-  private uniformSlot = 0
   fillPipeline!: GPURenderPipeline
   /** Ground-layer fill — identical to fillPipeline except depth
    *  test/write are off. Selected at draw time for any layer whose
@@ -253,7 +244,11 @@ export class MapRenderer {
   fillPipelineGroundFallbackNoPick!: GPURenderPipeline
   fillPipelineExtrudedFallbackNoPick!: GPURenderPipeline
   linePipelineFallbackNoPick!: GPURenderPipeline
-  uniformBuffer!: GPUBuffer
+  private uniformRing!: UniformRing
+  /** Live uniform ring buffer. Public — read by the OIT / opaque /
+   *  translucent passes via `host.renderer.uniformBuffer`. Delegates to
+   *  the shared UniformRing so those callers keep working unchanged. */
+  get uniformBuffer(): GPUBuffer { return this.uniformRing.buffer! }
   bindGroupLayout!: GPUBindGroupLayout
   featureBindGroupLayout!: GPUBindGroupLayout
   // P3 Step 3c palette atlas resources. The texture starts as a 1×1
@@ -1132,112 +1127,21 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
 
     // Uniform ring buffer: 256-byte slots, dynamic offsets per draw.
     // Guarantees that multi-layer draws don't overwrite each other's uniforms.
-    this.uniformBuffer = device.createBuffer({
-      size: this.uniformRingCapacity * MapRenderer.UNIFORM_SLOT,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      label: 'uniform-ring',
-    })
-    this.uniformStaging = new Uint8Array(this.uniformRingCapacity * MapRenderer.UNIFORM_SLOT)
-
-    this.bindGroup = device.createBindGroup({
-      layout: this.bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.uniformBuffer, offset: 0, size: MapRenderer.UNIFORM_SIZE } },
-        { binding: 2, resource: this.paletteColorAtlasView },
-        { binding: 4, resource: this.paletteSampler },
-        { binding: 5, resource: this.spriteAtlasView },
-        { binding: 6, resource: this.paletteSampler },
-      ],
-    })
+    // ensure() fires the onGrow callback → builds this.bindGroup (and the
+    // per-layer loop, empty at init since no layers are registered yet),
+    // faithfully replacing the inline build at the same point in init.
+    this.uniformRing = new UniformRing(device, MapRenderer.UNIFORM_SLOT, 256, 'uniform-ring', () => this.rebuildUniformBindGroups())
+    this.uniformRing.ensure()
   }
 
-  /** Ring buffers retired by growUniformRing during the previous frame.
-   *  Destroyed at the START of the next frame, after the previous
-   *  frame's queue.submit() completed — destroying mid-frame races
-   *  with in-flight commands that still reference the old ring via
-   *  bind groups recorded into the current encoder, which surfaces
-   *  as STATUS_BREAKPOINT (GPU process __debugbreak under buffer-
-   *  used-after-destroyed validation). VTR uses the same pattern;
-   *  see vector-tile-renderer.ts:retiredUniformRings. */
-  private retiredUniformRings: GPUBuffer[] = []
-
-  /** Reset the ring-buffer slot cursor. Call once per frame before any draws. */
-  beginFrame(): void {
-    this.uniformSlot = 0
-    for (const b of this.retiredUniformRings) b.destroy()
-    this.retiredUniformRings.length = 0
-  }
-
-  /** Copy a draw's uniform block into the staging mirror; tracked by
-   *  dirty range so endFrame() can emit one writeBuffer instead of
-   *  one per draw. Same pattern as VTR.stageUniformSlot. */
-  private stageUniformSlot(slotOffset: number, src: ArrayBuffer): void {
-    const slot = MapRenderer.UNIFORM_SLOT
-    this.uniformStaging.set(new Uint8Array(src, 0, Math.min(src.byteLength, slot)), slotOffset)
-    const hi = slotOffset + slot
-    if (this.uniformDirtyHi === this.uniformDirtyLo) {
-      this.uniformDirtyLo = slotOffset
-      this.uniformDirtyHi = hi
-    } else {
-      if (slotOffset < this.uniformDirtyLo) this.uniformDirtyLo = slotOffset
-      if (hi > this.uniformDirtyHi) this.uniformDirtyHi = hi
-    }
-  }
-
-  /** Flush the staged uniform bytes before queue.submit(). Safe to
-   *  call any number of times per frame — a no-op when no slots have
-   *  been staged since the last flush. */
-  endFrame(): void {
-    if (this.uniformDirtyHi === this.uniformDirtyLo) return
-    const lo = this.uniformDirtyLo, hi = this.uniformDirtyHi
-    this.ctx.device.queue.writeBuffer(
-      this.uniformBuffer, lo,
-      this.uniformStaging.buffer, this.uniformStaging.byteOffset + lo, hi - lo,
-    )
-    this.uniformDirtyLo = 0
-    this.uniformDirtyHi = 0
-  }
-
-  private allocUniformSlot(): number {
-    if (this.uniformSlot >= this.uniformRingCapacity) this.growUniformRing(this.uniformSlot + 1)
-    return this.uniformSlot++ * MapRenderer.UNIFORM_SLOT
-  }
-
-  private growUniformRing(minSlots: number): void {
+  /** Rebuild the bind group(s) that reference the uniform ring. Invoked
+   *  on first `ensure()` and after every ring grow (the `onGrow`
+   *  callback). Rebuilds the base `bindGroup` plus every registered
+   *  layer's `perLayerBindGroup` against the CURRENT ring buffer (read
+   *  via the `uniformBuffer` getter). At init the layer loop is empty
+   *  (no layers yet), so this matches the original inline init build. */
+  private rebuildUniformBindGroups(): void {
     const { device } = this.ctx
-    let newCap = this.uniformRingCapacity
-    while (newCap < minSlots) newCap *= 2
-    // Defer destroy: in-flight commands recorded into the current
-    // frame's encoder still reference the old buffer via bind groups.
-    // beginFrame() destroys these after the next queue.submit() wraps.
-    if (this.uniformBuffer) {
-      // iter-348 parity with VTR.growUniformRing: draws already recorded
-      // THIS frame are bound to the OLD buffer at their slot offsets via
-      // setBindGroup dynamic offsets. endFrame() flushes only the NEW
-      // buffer, so without this those pre-grow draws read the OLD buffer at
-      // slots still holding the PREVIOUS frame's uniforms → stale colours.
-      // MapRenderer grows mid-frame only during warmup (registered-layer
-      // count is bounded + uniformRingCapacity is sticky), so this fixes a
-      // warmup transient — but the omission is the same latent bug VTR hit
-      // in steady state (vector-tile-renderer.ts:growUniformRing). Push this
-      // frame's staged slots into the old buffer before retiring it.
-      if (this.uniformSlot > 0) {
-        device.queue.writeBuffer(
-          this.uniformBuffer, 0, this.uniformStaging.buffer,
-          this.uniformStaging.byteOffset, this.uniformSlot * MapRenderer.UNIFORM_SLOT,
-        )
-      }
-      this.retiredUniformRings.push(this.uniformBuffer)
-    }
-    this.uniformRingCapacity = newCap
-    this.uniformBuffer = device.createBuffer({
-      size: newCap * MapRenderer.UNIFORM_SLOT,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      label: 'uniform-ring',
-    })
-    const grown = new Uint8Array(newCap * MapRenderer.UNIFORM_SLOT)
-    grown.set(this.uniformStaging.subarray(0, Math.min(this.uniformStaging.length, grown.length)))
-    this.uniformStaging = grown
     this.bindGroup = device.createBindGroup({
       layout: this.bindGroupLayout,
       entries: [
@@ -1263,6 +1167,30 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
         })
       }
     }
+  }
+
+  /** Reset the ring-buffer slot cursor. Call once per frame before any draws. */
+  beginFrame(): void {
+    this.uniformRing.resetSlot()
+    for (const b of this.uniformRing.takeRetired()) b.destroy()
+  }
+
+  /** Copy a draw's uniform block into the staging mirror; tracked by
+   *  dirty range so endFrame() can emit one writeBuffer instead of
+   *  one per draw. Same pattern as VTR.stageUniformSlot. */
+  private stageUniformSlot(slotOffset: number, src: ArrayBuffer): void {
+    this.uniformRing.stageSlot(slotOffset, src)
+  }
+
+  /** Flush the staged uniform bytes before queue.submit(). Safe to
+   *  call any number of times per frame — a no-op when no slots have
+   *  been staged since the last flush. */
+  endFrame(): void {
+    this.uniformRing.flush()
+  }
+
+  private allocUniformSlot(): number {
+    return this.uniformRing.allocSlot()
   }
 
   /** Register data + show command as a render layer.

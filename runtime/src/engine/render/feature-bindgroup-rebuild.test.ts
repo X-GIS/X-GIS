@@ -28,7 +28,7 @@ describe('iter-349 per-tile feature bind group rebuild on ring grow', () => {
         const bg: FakeBG = { id: `bg${created.length}`, entries: d.entries }; created.push(bg); return bg
       },
     }
-    inj.uniformRing = NEW_RING
+    inj.uniformRing = { buffer: NEW_RING }
     inj.featureBindGroupLayout = { id: 'feat-layout' }
     inj.paletteColorAtlasView = { id: 'pal' }
     inj.paletteSampler = { id: 'samp' }
@@ -53,7 +53,7 @@ describe('iter-349 per-tile feature bind group rebuild on ring grow', () => {
     const vtr = Object.create(VectorTileRenderer.prototype) as VectorTileRenderer
     const inj = vtr as unknown as Record<string, unknown>
     inj.device = { createBindGroup: () => { throw new Error('should not be called') } }
-    inj.uniformRing = { id: 'r' }
+    inj.uniformRing = { buffer: { id: 'r' } }
     inj.featureBindGroupLayout = null   // not ready
     inj.paletteColorAtlasView = null
     inj.computeHandlesByTile = new Map()
