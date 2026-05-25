@@ -55,10 +55,6 @@ export function needsBackfaceCullCpu(projType: number, lon: number, lat: number,
   return M.fns.needs_backface_cull(lon, lat, pp(projType, clon, clat)) as number
 }
 
-export function rimAlphaCpu(projType: number, lon: number, lat: number, clon: number, clat: number): number {
-  return M.fns.rim_alpha(lon, lat, pp(projType, clon, clat)) as number
-}
-
 // ── Legacy mirror-API names ──
 // projection-wgsl-mirror.ts is deleted; these generated cpu-f64 functions are
 // its drop-in replacement (same f64 numbers, proven ≤1e-6 m before deletion).

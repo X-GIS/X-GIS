@@ -339,7 +339,6 @@ type ParamNodes<P extends ParamSpec> = { [K in keyof P]: Node<KeyOf<P[K]>> }
 
 export class Builder {
   readonly stmts: Stmt[] = []
-  private uid = 0
 
   private push(s: Stmt): void { this.stmts.push(s) }
 
@@ -355,9 +354,6 @@ export class Builder {
     this.push({ s: 'var', name, type, init: init?.expr })
     return new Node<KeyOf<T>>({ op: 'varref', type, name })
   }
-
-  /** Fresh unique name (for generated temporaries). */
-  tmp(prefix = 't'): string { return `${prefix}_${this.uid++}` }
 
   assign<K extends string>(target: Node<K>, value: Node<K>): void {
     this.push({ s: 'assign', target: target.expr, expr: value.expr })
