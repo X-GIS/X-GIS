@@ -20,7 +20,10 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+// GPUVertexBufferLayout consts stay in renderer.ts; the WGSL (with the
+// vs_main* @location signatures) was extracted to renderer-shaders.ts.
 const SRC = readFileSync(join(HERE, 'renderer.ts'), 'utf8')
+const SHADER_SRC = readFileSync(join(HERE, 'renderer-shaders.ts'), 'utf8')
 
 // GPUVertexFormat → byte width.
 const FORMAT_BYTES: Record<string, number> = {
@@ -52,7 +55,7 @@ function parseLayout(constName: string): Layout {
 /** Parse the @location(N) inputs a WGSL fn reads from its param list. */
 function parseFnLocations(fnName: string): number[] {
   const re = new RegExp(`fn ${fnName}\\s*\\(([\\s\\S]*?)\\)\\s*->`)
-  const m = SRC.match(re)
+  const m = SHADER_SRC.match(re)
   if (!m) throw new Error(`fn ${fnName} not found`)
   const params = m[1]!
   const locs: number[] = []

@@ -45,9 +45,10 @@ interface Field { name: string; type: string; byteOffset: number }
 /** Parse `struct Uniforms { ... }` from renderer.ts, strip comments,
  *  compute WGSL-aligned byte offsets. */
 function parseUniformStruct(): { fields: Field[]; sizeBytes: number } {
-  const src = readFileSync(join(HERE, 'renderer.ts'), 'utf8')
+  // WGSL (incl. `struct Uniforms`) was extracted to renderer-shaders.ts.
+  const src = readFileSync(join(HERE, 'renderer-shaders.ts'), 'utf8')
   const m = src.match(/struct Uniforms \{([\s\S]*?)\n\}/)
-  if (!m) throw new Error('struct Uniforms not found in renderer.ts')
+  if (!m) throw new Error('struct Uniforms not found in renderer-shaders.ts')
   const body = m[1]!
   const fields: Field[] = []
   let cursor = 0

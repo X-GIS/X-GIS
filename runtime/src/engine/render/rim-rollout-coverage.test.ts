@@ -25,14 +25,16 @@ describe('rim_alpha rollout coverage', () => {
   })
 
   it('line shader calls line_rim_alpha in fs_line and fs_line_max', () => {
-    const src = readShaderSource('line-renderer.ts')
+    // WGSL moved to line-renderer-shaders.ts (renderer re-exports LINE_SHADER_SOURCE).
+    const src = readShaderSource('line-renderer-shaders.ts')
     const occurrences = (src.match(/line_rim_alpha/g) ?? []).length
     // 1 definition + 2 uses (fs_line + fs_line_max)
     expect(occurrences).toBeGreaterThanOrEqual(3)
   })
 
   it('point shader passes rim_a flat varying and applies it in fs_point', () => {
-    const src = readShaderSource('point-renderer.ts')
+    // WGSL moved to point-renderer-shaders.ts (renderer re-exports POINT_SHADER).
+    const src = readShaderSource('point-renderer-shaders.ts')
     expect(src).toContain('point_rim_alpha')
     expect(src).toContain('color.a = color.a * in.rim_a')
   })
