@@ -24,7 +24,9 @@
 import { describe, expect, it } from 'vitest'
 import { LINE_SHADER_SOURCE } from './line-renderer'
 import { RASTER_SHADER_SOURCE } from './raster-renderer'
-import { BG_SHADER_SOURCE } from './background-renderer'
+// NOTE: the background shader no longer uses __PICK_*__ markers — it is emitted
+// from the shader DSL (shader-dsl/background.ts) with conditional pick emission.
+// Its pick-variant coverage lives in shader-dsl/background-dsl.test.ts.
 
 function countOccurrences(source: string, needle: string): number {
   if (needle.length === 0) return 0
@@ -74,40 +76,6 @@ describe('raster-renderer shader markers', () => {
   })
 })
 
-describe('background-renderer shader markers', () => {
-  it('__PICK_FIELD__ token present', () => {
-    expect(BG_SHADER_SOURCE).toContain('__PICK_FIELD__')
-  })
-
-  it('__PICK_OUT_FIELD__ token present (background-specific output struct token)', () => {
-    expect(BG_SHADER_SOURCE).toContain('__PICK_OUT_FIELD__')
-  })
-
-  it('__PICK_WRITE__ token present', () => {
-    expect(BG_SHADER_SOURCE).toContain('__PICK_WRITE__')
-  })
-
-  it('three-token regex replace simulation actually changes the shader', () => {
-    const replaced = BG_SHADER_SOURCE
-      .replace(/__PICK_FIELD__/g, '@location(0) @interpolate(flat) _pad: u32,')
-      .replace(/__PICK_OUT_FIELD__/g, '@location(1) pick: vec2<u32>,')
-      .replace(/__PICK_WRITE__/g, 'out.pick = vec2<u32>(0u, 0u);')
-    expect(replaced).not.toBe(BG_SHADER_SOURCE)
-  })
-
-  it('no stray token name typos — every PICK_* substring in source matches a known token', () => {
-    // Catches a misnaming like `__PICK_FELD__` (typo) that produces
-    // an unresolved identifier far downstream. Allowed tokens are
-    // the exact three the renderer replaces.
-    const known = new Set(['__PICK_FIELD__', '__PICK_OUT_FIELD__', '__PICK_WRITE__'])
-    // Find every `__PICK_…__` substring and assert it's known.
-    const matches = BG_SHADER_SOURCE.match(/__PICK_[A-Z_]+__/g) ?? []
-    for (const m of matches) {
-      expect(known.has(m), `unknown PICK token in BG_SHADER_SOURCE: "${m}"`).toBe(true)
-    }
-  })
-})
-
 describe('PICK token count sanity (multiplicity invariant)', () => {
   it('LINE_SHADER_SOURCE: __PICK_FIELD__ ×1, __PICK_WRITE__ ×2', () => {
     expect(countOccurrences(LINE_SHADER_SOURCE, '__PICK_FIELD__')).toBe(1)
@@ -119,11 +87,5 @@ describe('PICK token count sanity (multiplicity invariant)', () => {
   it('RASTER_SHADER_SOURCE: __PICK_FIELD__ ×1, __PICK_WRITE__ ×1', () => {
     expect(countOccurrences(RASTER_SHADER_SOURCE, '__PICK_FIELD__')).toBe(1)
     expect(countOccurrences(RASTER_SHADER_SOURCE, '__PICK_WRITE__')).toBe(1)
-  })
-
-  it('BG_SHADER_SOURCE: three tokens each appear exactly once', () => {
-    expect(countOccurrences(BG_SHADER_SOURCE, '__PICK_FIELD__')).toBe(1)
-    expect(countOccurrences(BG_SHADER_SOURCE, '__PICK_OUT_FIELD__')).toBe(1)
-    expect(countOccurrences(BG_SHADER_SOURCE, '__PICK_WRITE__')).toBe(1)
   })
 })

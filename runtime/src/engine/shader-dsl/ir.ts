@@ -45,6 +45,7 @@ export const boolT = { kind: 'scalar', scalar: 'bool' } as const satisfies Shade
 export const vec2fT = { kind: 'vec', n: 2, elem: 'f32' } as const satisfies ShaderType
 export const vec3fT = { kind: 'vec', n: 3, elem: 'f32' } as const satisfies ShaderType
 export const vec4fT = { kind: 'vec', n: 4, elem: 'f32' } as const satisfies ShaderType
+export const vec2uT = { kind: 'vec', n: 2, elem: 'u32' } as const satisfies ShaderType
 export const vec3uT = { kind: 'vec', n: 3, elem: 'u32' } as const satisfies ShaderType
 export const vec4uT = { kind: 'vec', n: 4, elem: 'u32' } as const satisfies ShaderType
 export const vec4iT = { kind: 'vec', n: 4, elem: 'i32' } as const satisfies ShaderType
@@ -354,6 +355,7 @@ const construct = (type: ShaderType, args: NodeLike[]): Node =>
 export const vec2 = (...a: NodeLike[]): Node<'vec2<f32>'> => construct(vec2fT, a) as Node<'vec2<f32>'>
 export const vec3 = (...a: NodeLike[]): Node<'vec3<f32>'> => construct(vec3fT, a) as Node<'vec3<f32>'>
 export const vec4 = (...a: NodeLike[]): Node<'vec4<f32>'> => construct(vec4fT, a) as Node<'vec4<f32>'>
+export const vec2u = (...a: NodeLike[]): Node<'vec2<u32>'> => construct(vec2uT, a) as Node<'vec2<u32>'>
 
 /** mat4x4 × vec4 → vec4 (the generic `.mul` correctly rejects mat×vec since a
  *  matrix is not a scalar/matching-vector operand — this is the explicit MVP
