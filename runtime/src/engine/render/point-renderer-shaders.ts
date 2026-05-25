@@ -63,7 +63,7 @@ fn reproject_point(rtc_merc: vec2<f32>) -> vec2<f32> {
   let abs_merc_x = rtc_merc.x + cam_merc_x;
   let abs_merc_y = rtc_merc.y + cam_merc_y;
   let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
-  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let lat_rad = inv_merc_lat_rad(abs_merc_y);
   let abs_lat = lat_rad / DEG2RAD;
   let proj_xy = project(abs_lon, abs_lat, u.proj_params);
   let center_xy = project(u.proj_params.y, u.proj_params.z, u.proj_params);
@@ -80,7 +80,7 @@ fn reproject_point_globe(rtc_merc: vec2<f32>) -> vec3<f32> {
   let cam_merc_x = u.proj_params.y * DEG2RAD * EARTH_R;
   let cam_merc_y = log(tan(PI / 4.0 + cam_lat * DEG2RAD / 2.0)) * EARTH_R;
   let abs_lon = (rtc_merc.x + cam_merc_x) / (DEG2RAD * EARTH_R);
-  let lat_rad = 2.0 * atan(exp((rtc_merc.y + cam_merc_y) / EARTH_R)) - PI / 2.0;
+  let lat_rad = inv_merc_lat_rad(rtc_merc.y + cam_merc_y);
   let abs_lat = lat_rad / DEG2RAD;
   return proj_globe(abs_lon, abs_lat) - proj_globe(u.proj_params.y, u.proj_params.z);
 }
@@ -96,7 +96,7 @@ fn point_cos_c(rtc_merc: vec2<f32>) -> f32 {
   let abs_merc_x = rtc_merc.x + cam_merc_x;
   let abs_merc_y = rtc_merc.y + cam_merc_y;
   let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
-  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let lat_rad = inv_merc_lat_rad(abs_merc_y);
   let abs_lat = lat_rad / DEG2RAD;
   return needs_backface_cull(abs_lon, abs_lat, u.proj_params);
 }
@@ -113,7 +113,7 @@ fn point_rim_alpha(rtc_merc: vec2<f32>) -> f32 {
   let abs_merc_x = rtc_merc.x + cam_merc_x;
   let abs_merc_y = rtc_merc.y + cam_merc_y;
   let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
-  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let lat_rad = inv_merc_lat_rad(abs_merc_y);
   let abs_lat = lat_rad / DEG2RAD;
   return rim_alpha(abs_lon, abs_lat, u.proj_params);
 }

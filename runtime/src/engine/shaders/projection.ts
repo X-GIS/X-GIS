@@ -349,4 +349,16 @@ fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>) -> f32 {
   }
   return 1.0; // flat projections — no rim
 }
+
+// Inverse Web Mercator: meters (north) → geodetic latitude in RADIANS.
+// SINGLE SOURCE for the GPU side — previously hand-inlined as
+// \`2.0 * atan(exp(y / EARTH_R)) - PI / 2.0\` at ~9 sites across the
+// point / line / polygon shaders (every non-Mercator vertex path
+// reconstructs lon/lat from DSFUN absolute-Mercator meters). Mirrored by
+// invMercLatRad() in projection-wgsl-mirror.ts and executed-vs-mirror
+// pinned by _shader-math-parity.spec.ts. Pass absolute Mercator metres;
+// callers that already divided by EARTH_R should multiply back.
+fn inv_merc_lat_rad(merc_y_m: f32) -> f32 {
+  return 2.0 * atan(exp(merc_y_m / EARTH_R)) - PI / 2.0;
+}
 `

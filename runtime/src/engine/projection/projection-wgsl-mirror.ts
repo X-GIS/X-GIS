@@ -28,6 +28,13 @@ function wrapLonDelta(d: number): number {
   return d
 }
 
+/** Mirror of `fn inv_merc_lat_rad` in shaders/projection.ts — inverse Web
+ *  Mercator: absolute Mercator metres (north) → geodetic latitude in
+ *  RADIANS. Pinned executed-vs-this by _shader-math-parity.spec.ts. */
+export function invMercLatRad(mercYm: number): number {
+  return 2 * Math.atan(Math.exp(mercYm / EARTH_R)) - Math.PI / 2
+}
+
 /** Mirror of `fn proj_mercator` in wgsl-projection.ts. */
 export function projMercatorWgsl(lon: number, lat: number): [number, number] {
   const clamped = Math.max(-85.051129, Math.min(85.051129, lat))

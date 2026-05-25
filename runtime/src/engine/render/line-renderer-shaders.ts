@@ -143,7 +143,7 @@ fn endpoint_cos_c(p_h: vec2<f32>, p_l: vec2<f32>) -> f32 {
   let abs_merc_x = (p_h.x + p_l.x) + tile.tile_origin_merc.x;
   let abs_merc_y = (p_h.y + p_l.y) + tile.tile_origin_merc.y;
   let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
-  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let lat_rad = inv_merc_lat_rad(abs_merc_y);
   let abs_lat = lat_rad / DEG2RAD;
   return needs_backface_cull(abs_lon, abs_lat, tile.proj_params);
 }
@@ -190,7 +190,7 @@ fn finalize_corner(corner: vec2<f32>) -> vec2<f32> {
   }
   let abs_merc = corner + tile.tile_origin_merc;
   let abs_lon = abs_merc.x / (DEG2RAD * EARTH_R);
-  let lat_rad = 2.0 * atan(exp(abs_merc.y / EARTH_R)) - PI / 2.0;
+  let lat_rad = inv_merc_lat_rad(abs_merc.y);
   let abs_lat = lat_rad / DEG2RAD;
   let tile_ref_lon = (tile.tile_origin_merc.x + 0.5 * tile.tile_extent_m) / (DEG2RAD * EARTH_R);
   let proj_xy = project_geom(abs_lon, abs_lat, tile.proj_params, tile_ref_lon);
@@ -204,7 +204,7 @@ fn finalize_corner(corner: vec2<f32>) -> vec2<f32> {
 fn finalize_corner_globe(corner: vec2<f32>) -> vec3<f32> {
   let abs_merc = corner + tile.tile_origin_merc;
   let abs_lon = abs_merc.x / (DEG2RAD * EARTH_R);
-  let lat_rad = 2.0 * atan(exp(abs_merc.y / EARTH_R)) - PI / 2.0;
+  let lat_rad = inv_merc_lat_rad(abs_merc.y);
   let abs_lat = lat_rad / DEG2RAD;
   return proj_globe(abs_lon, abs_lat) - proj_globe(tile.proj_params.y, tile.proj_params.z);
 }
@@ -679,7 +679,7 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
   if (tile.proj_params.x >= 0.5) {
     let abs_merc = in.world_local + tile.tile_origin_merc;
     let abs_lon = abs_merc.x / (DEG2RAD * EARTH_R);
-    let lat_rad = 2.0 * atan(exp(abs_merc.y / EARTH_R)) - PI / 2.0;
+    let lat_rad = inv_merc_lat_rad(abs_merc.y);
     let abs_lat = lat_rad / DEG2RAD;
     if (needs_backface_cull(abs_lon, abs_lat, tile.proj_params) < 0.0) { discard; }
   }
@@ -1240,7 +1240,7 @@ fn compute_line_color(in: LineOut) -> vec4<f32> {
 fn line_rim_alpha(in: LineOut) -> f32 {
   let abs_merc = in.world_local + tile.tile_origin_merc;
   let abs_lon = abs_merc.x / (DEG2RAD * EARTH_R);
-  let lat_rad = 2.0 * atan(exp(abs_merc.y / EARTH_R)) - PI / 2.0;
+  let lat_rad = inv_merc_lat_rad(abs_merc.y);
   let abs_lat = lat_rad / DEG2RAD;
   return rim_alpha(abs_lon, abs_lat, tile.proj_params);
 }

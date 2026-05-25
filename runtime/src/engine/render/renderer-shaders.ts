@@ -156,7 +156,7 @@ ${WGSL_PROJECTION_FNS}
 // renderers.
 fn polygon_cos_c_fragment(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
   let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
-  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let lat_rad = inv_merc_lat_rad(abs_merc_y);
   let abs_lat = lat_rad / DEG2RAD;
   return needs_backface_cull(abs_lon, abs_lat, u.proj_params);
 }
@@ -169,7 +169,7 @@ fn polygon_cos_c_fragment(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
 // on for all projections (returns 1.0 for flat / cylindrical).
 fn polygon_rim_alpha(abs_merc_x: f32, abs_merc_y: f32) -> f32 {
   let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
-  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let lat_rad = inv_merc_lat_rad(abs_merc_y);
   let abs_lat = lat_rad / DEG2RAD;
   return rim_alpha(abs_lon, abs_lat, u.proj_params);
 }
@@ -230,7 +230,7 @@ fn vs_main(
   let abs_merc_x = (pos_h.x + pos_l.x) + u.tile_origin_merc.x;
   let abs_merc_y = (pos_h.y + pos_l.y) + u.tile_origin_merc.y;
   let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
-  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let lat_rad = inv_merc_lat_rad(abs_merc_y);
   let abs_lat = lat_rad / DEG2RAD;
   let abs_lat_clamped = clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
 
@@ -328,7 +328,7 @@ fn vs_main_quantized(
   let abs_merc_x = local.x + u.tile_origin_merc.x;
   let abs_merc_y = local.y + u.tile_origin_merc.y;
   let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
-  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let lat_rad = inv_merc_lat_rad(abs_merc_y);
   let abs_lat = lat_rad / DEG2RAD;
   let abs_lat_clamped = clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
 
@@ -419,7 +419,7 @@ fn vs_main_quantized_extruded(
   let abs_merc_x = local.x + u.tile_origin_merc.x;
   let abs_merc_y = local.y + u.tile_origin_merc.y;
   let abs_lon = abs_merc_x / (DEG2RAD * EARTH_R);
-  let lat_rad = 2.0 * atan(exp(abs_merc_y / EARTH_R)) - PI / 2.0;
+  let lat_rad = inv_merc_lat_rad(abs_merc_y);
   let abs_lat = lat_rad / DEG2RAD;
   let abs_lat_clamped = clamp(abs_lat, -MERCATOR_LAT_LIMIT, MERCATOR_LAT_LIMIT);
 
