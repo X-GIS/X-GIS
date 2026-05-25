@@ -15,6 +15,7 @@ import {
   type FuncDecl, type ModuleDecl,
 } from './ir'
 import { struct } from './schema'
+import { emitFunc, emitStruct } from './backend-wgsl'
 
 // Storage structs (match sdf-shape.ts byte layout; field types drive access).
 export const ShapeDesc = struct('ShapeDesc', {
@@ -141,3 +142,18 @@ export const SDF_MODULE: ModuleDecl = module({
   ],
   funcs: SDF_FUNCS,
 })
+
+// ── Emitted WGSL (Phase 2: shaders/sdf.ts re-exports these) ──
+// line-renderer-shaders.ts inlines the individual dist/winding fns + the
+// shape structs. Emitted from the same IR PoC-B verified.
+const fnByName = (name: string): FuncDecl => {
+  const f = SDF_FUNCS.find((x) => x.name === name)
+  if (!f) throw new Error(`sdf-dsl: missing fn ${name}`)
+  return f
+}
+export const SDF_WGSL_DIST_TO_SEGMENT = `${emitFunc(fnByName('dist_to_segment'))}\n`
+export const SDF_WGSL_DIST_TO_QUADRATIC = `${emitFunc(fnByName('dist_to_quadratic'))}\n`
+export const SDF_WGSL_DIST_TO_CUBIC = `${emitFunc(fnByName('dist_to_cubic'))}\n`
+export const SDF_WGSL_WINDING_LINE = `${emitFunc(fnByName('winding_line'))}\n`
+export const SDF_WGSL_SHAPE = `${emitFunc(fnByName('sdf_shape'))}\n`
+export const SDF_WGSL_SHAPE_STRUCTS = `${emitStruct(ShapeDesc.decl)}\n\n${emitStruct(ShapeSegment.decl)}\n`
