@@ -43,11 +43,10 @@ jobs:
   #   - pixel survey         : SwiftShader can't raster X-GIS correctly →
   #                            false-positive diffs. Local / pre-push only.
   #
-  # continue-on-error during validation: the run that confirms green flips
-  # this off to make it a true blocking gate.
+  # Blocking gate (validated green on run 26387561414): shader-math runs
+  # under SwiftShader and now fails CI on gross WGSL projection drift.
   render-gate:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
