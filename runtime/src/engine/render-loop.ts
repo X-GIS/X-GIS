@@ -34,6 +34,9 @@ import { type ShowCommand } from './render/renderer'
 import { type FrameContext } from './render/frame-context'
 import { buildSceneView } from './render/scene-view'
 import { opaquePass } from './render/passes/opaque-pass'
+import { oitPass } from './render/passes/oit-pass'
+import { translucentPass } from './render/passes/translucent-pass'
+import { pointsPass } from './render/passes/points-pass'
 import { XGISMap } from './map'
 
 /** Typed view of the XGISMap members the relocated render path touches.
@@ -451,161 +454,14 @@ export class RenderLoop {
       // ── Bucket 1: opaque ── (OpaquePass — render/passes/opaque-pass.ts)
       opaquePass.execute(ctx, scene, this.host)
 
-      // ── Bucket 1.5: OIT translucent extrude ──
-      // Render every translucent extruded fill into the accum +
-      // revealage MRT pair (depth-load from opaque, no depth write),
-      // then blend the recovered colour onto the resolved main
-      // colour with a full-screen compose draw. Order-independent
-      // by construction — no back-to-front sort.
-      if (scene.hasOit && !DEBUG_OVERDRAW) {
-        ctx.passScope('oit-fill', () => {
-          // OIT pass shares the opaque pass's MSAA depth-stencil
-          // (depthLoadOp='load' so the opaque depth is what
-          // translucent fragments test against). depthStoreOp='discard'
-          // because no later pass needs the OIT-side depth. With
-          // sample counts matched, translucent buildings hide
-          // correctly behind opaque foreground walls — full
-          // McGuire-Bavoil order independence applies only to
-          // translucent-vs-translucent.
-          const oitPass = encoder.beginRenderPass({
-            colorAttachments: [
-              {
-                view: ctx.rt.oitAccumTexture!.createView(),
-                clearValue: { r: 0, g: 0, b: 0, a: 0 },
-                loadOp: 'clear', storeOp: 'store',
-              },
-              {
-                view: ctx.rt.oitRevealageTexture!.createView(),
-                clearValue: { r: 1, g: 0, b: 0, a: 0 },
-                loadOp: 'clear', storeOp: 'store',
-              },
-            ],
-            // iter-193 — reverted iter-192's offscreenExtrudeDepth.
-            // OIT path is unused by default (bucket-scheduler keeps
-            // isOitExtrude=false) so this attachment never actually
-            // executes; restored to the canonical opaque-depth load
-            // for the future opt-in path.
-            depthStencilAttachment: {
-              view: ctx.rt.stencilTexture!.createView(),
-              depthLoadOp: 'load', depthStoreOp: 'discard',
-              stencilLoadOp: 'load', stencilStoreOp: 'discard',
-            },
-          })
-          for (const cs of scene.oit) {
-            cs.vtEntry.renderer.render!(
-              oitPass, this.host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h,
-              cs.show, cs.fp, cs.lp, this.host.renderer.uniformBuffer, cs.bgl,
-              cs.fpF, cs.lpF,
-              null, 'oit-fill',
-              ctx.dpr,
-              cs.fpG, cs.fpGF,
-              false, cs.resolvedShow,
-            )
-          }
-          oitPass.end()
-        })
+      // ── Bucket 1.5: OIT translucent extrude ── (OitPass — render/passes/oit-pass.ts)
+      if (oitPass.shouldRun(scene)) oitPass.execute(ctx, scene, this.host)
 
-        ctx.passScope('oit-compose', () => {
-          const compPass = encoder.beginRenderPass({
-            colorAttachments: [{
-              view: ctx.colorView,
-              resolveTarget: ctx.useResolve && !scene.hasTranslucent && !scene.hasPoints && scene.resolveOwner === 'composite' ? ctx.screenView : undefined,
-              loadOp: 'load', storeOp: 'store',
-            }],
-          })
-          // Lazy-build the bind group when texture views change.
-          const bg = this.host.ctx.device.createBindGroup({
-            layout: this.host.renderer.oitComposeBindGroupLayout,
-            entries: [
-              { binding: 0, resource: ctx.rt.oitAccumTexture!.createView() },
-              { binding: 1, resource: ctx.rt.oitRevealageTexture!.createView() },
-            ],
-          })
-          compPass.setPipeline(this.host.renderer.oitComposePipeline)
-          compPass.setBindGroup(0, bg)
-          compPass.draw(3) // oversized triangle — vs_full covers fullscreen with 3 verts
-          compPass.end()
-        })
-      }
+      // ── Bucket 2: translucent offscreen + composite ── (TranslucentPass — render/passes/translucent-pass.ts)
+      if (translucentPass.shouldRun(scene)) translucentPass.execute(ctx, scene, this.host)
 
-      // ── Bucket 2: translucent offscreen + composite ──
-      if (scene.hasTranslucent && !DEBUG_OVERDRAW) {
-        for (let li = 0; li < scene.translucent.length; li++) {
-          const cs = scene.translucent[li]
-          const isLastTranslucent = li === scene.translucent.length - 1
-          const resolveHere =
-            ctx.useResolve && isLastTranslucent && scene.resolveOwner === 'composite'
-
-          ctx.passScope(`translucent-off[${li}]`, () => {
-            const offPass = this.host.lineRenderer!.beginTranslucentPass(encoder)
-            cs.vtEntry.renderer.render!(
-              offPass, this.host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h,
-              cs.show, cs.fp, cs.lp, this.host.renderer.uniformBuffer, cs.bgl,
-              cs.fpF, cs.lpF,
-              null, 'strokes',
-              ctx.dpr,
-              cs.fpG, cs.fpGF,
-              true, // translucentBucket — offscreen pass has no depth
-              cs.resolvedShow,
-            )
-            offPass.end()
-          })
-
-          ctx.passScope(`translucent-comp[${li}]`, () => {
-            const compPass = encoder.beginRenderPass({
-              colorAttachments: [{
-                view: ctx.colorView,
-                resolveTarget: resolveHere ? ctx.screenView : undefined,
-                loadOp: 'load',
-                storeOp: 'store',
-              }],
-            })
-            // Composite opacity reads the Phase 4b ResolvedShow
-            // snapshot: zoom × time already collapsed by the bucket
-            // scheduler. Was `cs.show.opacity` — equivalent value,
-            // narrower type (the snapshot is readonly, so a future
-            // refactor that mutates `cs.show.opacity` mid-frame
-            // can't accidentally drift this composite's input).
-            this.host.lineRenderer!.composite(compPass, cs.resolvedShow.opacity)
-            compPass.end()
-          })
-        }
-      }
-
-      // ── Bucket 3: direct-layer points ──
-      // Renders pointRenderer.layers (GeoJSON sources routed through
-      // pointRenderer.addLayer in rebuildLayers). Always runs when
-      // direct layers exist; tile-points are handled inline in
-      // bucket 1 via VTR.render's pointRenderer parameter.
-      if (scene.hasPoints && !DEBUG_OVERDRAW) {
-        ctx.passScope('points', () => {
-          const ptPass = encoder.beginRenderPass({
-            colorAttachments: [{
-              view: ctx.colorView,
-              resolveTarget: ctx.useResolve ? ctx.screenView : undefined,
-              loadOp: 'load',
-              storeOp: 'store',
-            }],
-            depthStencilAttachment: {
-              view: ctx.rt.stencilTexture!.createView(),
-              // Load the depth the last opaque sub-pass stored above so
-              // billboards on the back side of a globe / pitched surface
-              // are correctly occluded by the front-facing opaque
-              // polygons. Translucent points still skip depth WRITES
-              // (their pipeline disables depthWriteEnabled), so a halo
-              // doesn't block other markers — but they DO depth-test.
-              depthClearValue: 1.0, depthLoadOp: 'load', depthStoreOp: 'discard',
-              stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard',
-            },
-          })
-          // Re-evaluate zoom-interpolated point sizes against the
-          // current camera before drawing. No-op for layers without
-          // zoomSizeStops; internally skipped when zoom is unchanged.
-          this.host.pointRenderer!.updateDynamicSizes(this.host.camera.zoom, performance.now())
-          this.host.pointRenderer!.render(ptPass, this.host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h, ctx.dpr)
-          ptPass.end()
-        })
-      }
+      // ── Bucket 3: direct-layer points ── (PointsPass — render/passes/points-pass.ts)
+      if (pointsPass.shouldRun(scene)) pointsPass.execute(ctx, scene, this.host)
 
       // ── Bucket 4: text overlays + per-feature labels ──
       // Two sources of label work:
