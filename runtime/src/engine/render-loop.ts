@@ -27,6 +27,7 @@ import { oitPass } from './render/passes/oit-pass'
 import { translucentPass } from './render/passes/translucent-pass'
 import { pointsPass } from './render/passes/points-pass'
 import { labelPass } from './render/passes/label-pass'
+import { overdrawComposePass } from './render/passes/overdraw-compose-pass'
 import { XGISMap } from './map'
 
 /** Typed view of the XGISMap members the relocated render path touches.
@@ -455,34 +456,10 @@ export class RenderLoop {
 
       // ── Bucket 4: text overlays + per-feature labels ── (LabelPass — render/passes/label-pass.ts)
       labelPass.execute(ctx, scene, this.host)
-    }
 
-    // ── Debug overdraw compose ──
-    // Read the r16float accumulator and write a colormapped RGBA to
-    // the swapchain. Runs as the LAST pass of the frame so it owns
-    // the swapchain attachment.
-    if (DEBUG_OVERDRAW && ctx.rt.overdrawAccumTexture) {
-      ctx.passScope('overdraw-compose', () => {
-        const pipeline = this.host.renderer.ensureOverdrawCompose()
-        const compPass = encoder.beginRenderPass({
-          colorAttachments: [{
-            view: ctx.screenView,
-            clearValue: { r: 0, g: 0, b: 0, a: 1 },
-            loadOp: 'clear', storeOp: 'store',
-          }],
-        })
-        const bg = this.host.ctx.device.createBindGroup({
-          layout: this.host.renderer.overdrawComposeBindGroupLayout,
-          entries: [{
-            binding: 0,
-            resource: ctx.rt.overdrawAccumTexture!.createView(),
-          }],
-        })
-        compPass.setPipeline(pipeline)
-        compPass.setBindGroup(0, bg)
-        compPass.draw(3)
-        compPass.end()
-      })
+      // ── Debug overdraw compose ── (OverdrawComposePass — render/passes/overdraw-compose-pass.ts)
+      // Runs as the LAST pass of the frame so it owns the swapchain attachment.
+      if (overdrawComposePass.shouldRun(scene)) overdrawComposePass.execute(ctx, scene, this.host)
     }
 
     // Flush CPU-side uniform-ring mirrors just before submit. WebGPU
