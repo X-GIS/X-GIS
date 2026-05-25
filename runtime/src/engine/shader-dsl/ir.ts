@@ -191,10 +191,13 @@ function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
 const VEC_FIELD_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 }
 
 export class Node<K extends string = string> {
-  /** Phantom type key (no runtime value). Carried covariantly so a
-   *  Node<'vec3<f32>'> is NOT assignable where Node<'vec2<f32>'> is wanted —
-   *  the mechanism that makes a vec3+vec2 authoring slip a TS compile error. */
-  declare readonly __k: K
+  /** Phantom type key. Optional + never assigned, so it carries K covariantly
+   *  at the type level (a Node<'vec3<f32>'> is NOT assignable where
+   *  Node<'vec2<f32>'> is wanted — the vec3+vec2 compile-error mechanism)
+   *  with no real runtime cost. NOTE: must NOT be a `declare` field — the e2e
+   *  babel transform (@babel/plugin-transform-typescript) rejects `declare`
+   *  class fields, which broke the playwright render-gate build. */
+  readonly __k?: K
   constructor(readonly expr: Expr) {}
   get type(): ShaderType { return this.expr.type }
 
