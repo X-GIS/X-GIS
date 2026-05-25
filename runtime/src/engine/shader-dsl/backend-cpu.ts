@@ -100,8 +100,17 @@ function mixVal(a: CpuValue, b: CpuValue, t: number): CpuValue {
 
 function zeroOf(type: { kind: string; n?: number }): CpuValue {
   if (type.kind === 'vec') return new Array(type.n as number).fill(0)
+  if (type.kind === 'mat') return new Array((type.n as number) * (type.n as number)).fill(0)
+  if (type.kind === 'struct') return {} // fields populated by member assignments
   if (type.kind === 'scalar') return 0
   return 0
+}
+
+// mat4x4 (column-major) × vec4 → vec4. result[row] = Σ_col m[col*4+row]*v[col].
+function matVec4(m: number[], v: number[]): number[] {
+  const out = [0, 0, 0, 0]
+  for (let i = 0; i < 4; i++) out[i] = m[i]! * v[0]! + m[4 + i]! * v[1]! + m[8 + i]! * v[2]! + m[12 + i]! * v[3]!
+  return out
 }
 
 function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
@@ -118,7 +127,15 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (e.name in ctx.bindings) return ctx.bindings[e.name]
       throw new Error(`shader-dsl/cpu: unbound ${e.name}`)
     }
-    case 'binop': return applyBin(e.bop, evalExpr(e.a, env, ctx), evalExpr(e.b, env, ctx))
+    case 'binop': {
+      const av = evalExpr(e.a, env, ctx), bv = evalExpr(e.b, env, ctx)
+      // mat4 * vec4 (column-major) — the MVP transform. Dispatched by the
+      // operand's static type since values are type-blind number[] at runtime.
+      if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'vec') {
+        return matVec4(av as number[], bv as number[])
+      }
+      return applyBin(e.bop, av, bv)
+    }
     case 'unop': {
       const a = evalExpr(e.a, env, ctx)
       return isArr(a) ? a.map((v) => -(v as number)) : -(a as number)
@@ -154,6 +171,9 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       return (base as Record<string, CpuValue>)[e.field]
     }
     case 'construct': {
+      // Array literal: keep each element intact (array<vec2,N> → [[x,y],…]).
+      if (e.type.kind === 'array') return e.args.map((a) => evalExpr(a, env, ctx)) as CpuValue
+      // Vector constructor: flatten scalar/vec args into one component list.
       const out: number[] = []
       for (const a of e.args) {
         const v = evalExpr(a, env, ctx)

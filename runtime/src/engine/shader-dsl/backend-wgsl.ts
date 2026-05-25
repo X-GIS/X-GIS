@@ -14,8 +14,9 @@ export function wgslType(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar': return t.scalar
     case 'vec': return `vec${t.n}<${t.elem}>`
+    case 'mat': return `mat${t.n}x${t.n}<${t.elem}>`
     case 'struct': return t.name
-    case 'array': return `array<${wgslType(t.elem)}>`
+    case 'array': return t.size !== undefined ? `array<${wgslType(t.elem)}, ${t.size}>` : `array<${wgslType(t.elem)}>`
     case 'void': return 'void'
   }
 }
@@ -127,7 +128,7 @@ export function emitConst(c: ConstDecl): string {
 }
 
 export function emitStruct(s: StructDecl): string {
-  const fields = s.fields.map((f) => `  ${f.name}: ${wgslType(f.type)},`).join('\n')
+  const fields = s.fields.map((f) => `  ${f.attr ? `${f.attr} ` : ''}${f.name}: ${wgslType(f.type)},`).join('\n')
   return `struct ${s.name} {\n${fields}\n}`
 }
 

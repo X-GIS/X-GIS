@@ -30,8 +30,9 @@ export type Scalar = 'f32' | 'i32' | 'u32' | 'bool'
 export type ShaderType =
   | { readonly kind: 'scalar'; readonly scalar: Scalar }
   | { readonly kind: 'vec'; readonly n: 2 | 3 | 4; readonly elem: 'f32' | 'i32' | 'u32' }
+  | { readonly kind: 'mat'; readonly n: 2 | 3 | 4; readonly elem: 'f32' }
   | { readonly kind: 'struct'; readonly name: string }
-  | { readonly kind: 'array'; readonly elem: ShaderType }
+  | { readonly kind: 'array'; readonly elem: ShaderType; readonly size?: number }
   | { readonly kind: 'void' }
 
 // `as const satisfies` keeps each constant's LITERAL type (so KeyOf<typeof f32T>
@@ -46,14 +47,18 @@ export const vec3fT = { kind: 'vec', n: 3, elem: 'f32' } as const satisfies Shad
 export const vec4fT = { kind: 'vec', n: 4, elem: 'f32' } as const satisfies ShaderType
 export const vec3uT = { kind: 'vec', n: 3, elem: 'u32' } as const satisfies ShaderType
 export const vec4uT = { kind: 'vec', n: 4, elem: 'u32' } as const satisfies ShaderType
+export const vec4iT = { kind: 'vec', n: 4, elem: 'i32' } as const satisfies ShaderType
+export const mat4x4fT = { kind: 'mat', n: 4, elem: 'f32' } as const satisfies ShaderType
 export const voidT = { kind: 'void' } as const satisfies ShaderType
 export const structT = (name: string): ShaderType => ({ kind: 'struct', name })
-export const arrayT = (elem: ShaderType): ShaderType => ({ kind: 'array', elem })
+/** Array type; pass `size` for a fixed-length WGSL array (`array<T, N>`). */
+export const arrayT = (elem: ShaderType, size?: number): ShaderType => ({ kind: 'array', elem, size })
 
 // Type-level key of a ShaderType literal — the phantom carried by Node<K>.
 export type KeyOf<T> =
   T extends { kind: 'scalar'; scalar: infer S extends string } ? S :
   T extends { kind: 'vec'; n: infer N extends number; elem: infer E extends string } ? `vec${N}<${E}>` :
+  T extends { kind: 'mat'; n: infer N extends number } ? `mat${N}x${N}<f32>` :
   string
 /** Element key of a vector key (`vec3<u32>` → `u32`); identity for scalars. */
 export type ElemKey<K extends string> = K extends `vec${number}<${infer E}>` ? E : K
@@ -68,8 +73,9 @@ export function typeKey(t: ShaderType): string {
   switch (t.kind) {
     case 'scalar': return t.scalar
     case 'vec': return `vec${t.n}<${t.elem}>`
+    case 'mat': return `mat${t.n}x${t.n}<${t.elem}>`
     case 'struct': return `struct:${t.name}`
-    case 'array': return `array<${typeKey(t.elem)}>`
+    case 'array': return t.size !== undefined ? `array<${typeKey(t.elem)},${t.size}>` : `array<${typeKey(t.elem)}>`
     case 'void': return 'void'
   }
 }
@@ -80,6 +86,7 @@ export function typeEq(a: ShaderType, b: ShaderType): boolean {
 
 const isVec = (t: ShaderType): t is Extract<ShaderType, { kind: 'vec' }> => t.kind === 'vec'
 const isScalar = (t: ShaderType): t is Extract<ShaderType, { kind: 'scalar' }> => t.kind === 'scalar'
+const isMat = (t: ShaderType): t is Extract<ShaderType, { kind: 'mat' }> => t.kind === 'mat'
 
 // ── Expression nodes ──
 
@@ -127,7 +134,13 @@ export interface ConstDecl {
   readonly cpuValue: number
 }
 
-export interface StructField { readonly name: string; readonly type: ShaderType }
+export interface StructField {
+  readonly name: string
+  readonly type: ShaderType
+  /** Optional WGSL field attribute(s) for I/O structs, e.g.
+   *  `@builtin(position)`, `@location(0)`, `@location(0) @interpolate(flat)`. */
+  readonly attr?: string
+}
 export interface StructDecl { readonly name: string; readonly fields: readonly StructField[] }
 
 export type AddressSpace = 'uniform' | 'storage'
@@ -173,6 +186,12 @@ function lift(x: NodeLike): Node {
  *  vec op a different vec is a type error (returned as a poisoned mismatch
  *  that the WGSL/CPU backend never sees because typecheck fails first). */
 function binResultType(a: ShaderType, b: ShaderType, ctx: string): ShaderType {
+  // mat * vec → vec (matN x vecN); mat * mat → mat.
+  if (isMat(a) && isVec(b)) {
+    if (a.n !== b.n) throw new Error(`shader-dsl: ${ctx} mat${a.n} * vec${b.n} size mismatch`)
+    return b
+  }
+  if (isMat(a) && isMat(b)) return a
   if (isVec(a) && isVec(b)) {
     if (!typeEq(a, b)) throw new Error(`shader-dsl: ${ctx} on mismatched vectors ${typeKey(a)} vs ${typeKey(b)}`)
     return a
@@ -336,6 +355,16 @@ export const vec2 = (...a: NodeLike[]): Node<'vec2<f32>'> => construct(vec2fT, a
 export const vec3 = (...a: NodeLike[]): Node<'vec3<f32>'> => construct(vec3fT, a) as Node<'vec3<f32>'>
 export const vec4 = (...a: NodeLike[]): Node<'vec4<f32>'> => construct(vec4fT, a) as Node<'vec4<f32>'>
 
+/** mat4x4 × vec4 → vec4 (the generic `.mul` correctly rejects mat×vec since a
+ *  matrix is not a scalar/matching-vector operand — this is the explicit MVP
+ *  transform path). */
+export const transformMat4 = (m: Node<'mat4x4<f32>'>, v: Node<'vec4<f32>'>): Node<'vec4<f32>'> =>
+  new Node<'vec4<f32>'>({ op: 'binop', type: vec4fT, bop: '*', a: m.expr, b: v.expr })
+
+/** A fixed-length array literal — `array<elemKey, N>(...)`. */
+export const arrayLit = (elem: ShaderType, ...items: Node[]): Node =>
+  new Node({ op: 'construct', type: arrayT(elem, items.length), args: items.map((n) => n.expr) })
+
 // ── Function builder ──
 
 export type ParamSpec = Record<string, ShaderType>
@@ -470,6 +499,37 @@ export function computeFn(
     ret: voidT,
     body: b.stmts,
     attrs: ['@compute', `@workgroup_size(${workgroupSize})`],
+  }
+}
+
+export interface EntryParam { readonly name: string; readonly type: ShaderType; readonly builtin?: string }
+
+/** Maps an entry's param tuple to a name→keyed-Node record, so a `@builtin`
+ *  scalar param (e.g. vertex_index: u32) is `Node<'u32'>`, usable as an index. */
+type EntryParamNodes<P extends readonly EntryParam[]> = {
+  [K in P[number]['name']]: Node<KeyOf<Extract<P[number], { name: K }>['type']>>
+}
+
+/** Author a `@vertex` / `@fragment` entry point. Params may carry a `@builtin`
+ *  (vertex_index, etc.) or be an I/O struct (the interpolated vertex output);
+ *  the body returns the stage's output struct. */
+export function entryFn<const P extends readonly EntryParam[]>(
+  name: string,
+  stage: 'vertex' | 'fragment',
+  params: P,
+  ret: ShaderType,
+  body: (b: Builder, p: EntryParamNodes<P>) => void,
+): FuncDecl {
+  const paramNodes: Record<string, Node> = {}
+  for (const p of params) paramNodes[p.name] = new Node({ op: 'param', type: p.type, name: p.name })
+  const b = new Builder()
+  body(b, paramNodes as EntryParamNodes<P>)
+  return {
+    name,
+    params: params.map((p) => ({ name: p.name, type: p.type, builtin: p.builtin })),
+    ret,
+    body: b.stmts,
+    attrs: [`@${stage}`],
   }
 }
 
