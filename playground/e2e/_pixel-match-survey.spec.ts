@@ -41,6 +41,21 @@ interface ViewSpec {
    *  divergence. Tightening these values is a follow-up after a clean
    *  baseline run on each platform. */
   gt128Threshold: number
+  /** Regression gate: spec FAILS if the exact-match percentage
+   *  (buckets.eq0 / totalPx) drops BELOW this floor.
+   *
+   *  Why this exists (2026-05-25): gt128 alone is blind to whole-frame
+   *  MODERATE shifts. A probe that halved every polygon fill's alpha
+   *  (`out.color.a * 0.5`) left gt128 essentially unchanged on all four
+   *  cells (it counts only pixels differing by >128/255, and a half-alpha
+   *  composite shifts each pixel by less than that) — yet eq cratered
+   *  (seoul 97.28→11.90, demo 87.71→33.83). The gate passed a 50%-alpha
+   *  regression. eq0 is the canary for alpha / color / gamma / whole-frame
+   *  drift; it is very stable run-to-run on a fixed machine, so a floor
+   *  with headroom below the baseline catches that class without flapping.
+   *  Floors are baseline-minus-headroom; demo's is loose because its
+   *  ancestor-LRU non-determinism makes eq bimodal (see gt128 note). */
+  eqFloorPct: number
 }
 
 const VIEWS: ViewSpec[] = [
@@ -50,7 +65,8 @@ const VIEWS: ViewSpec[] = [
     hash: '#17.85/37.12665/126.92430',
     description: 'OFM Bright, Seoul 행정초등학교 — P1 verification gate (school fill)',
     // 2026-05-18 baseline: 0 px > 128. Headroom: 5 (low-zoom AA noise).
-    gt128Threshold: 5 },
+    // eq baseline 97.28%; floor 90 = ~7pp headroom (very stable cell).
+    gt128Threshold: 5, eqFloorPct: 90 },
 
   // OFM Bright at a lower zoom — different fill mix (water + landuse).
   { id: 'bright-tokyo-z14',
@@ -58,7 +74,8 @@ const VIEWS: ViewSpec[] = [
     hash: '#14/35.6585/139.7454',
     description: 'OFM Bright, Tokyo z=14 — landuse + water fills',
     // 2026-05-18 baseline: 6. Threshold accounts for outline AA drift.
-    gt128Threshold: 20 },
+    // eq baseline 31.31%; floor 25 (intrinsically lower eq + AA noise).
+    gt128Threshold: 20, eqFloorPct: 25 },
 
   // OFM Liberty — uses different color palette + interpolate stops.
   { id: 'liberty-paris-z14',
@@ -68,7 +85,8 @@ const VIEWS: ViewSpec[] = [
     // 2026-05-18 baseline: 1020. Dense road network — high AA boundary
     // count. Threshold ~+18% absorbs minor stroke-width / antialias
     // drift without masking palette / interpolate regressions.
-    gt128Threshold: 1200 },
+    // eq baseline 22.30%; floor 16 (dense AA boundaries lower eq).
+    gt128Threshold: 1200, eqFloorPct: 16 },
 
   // Demotiles — country fills via 214-arm match() (P5 LUT target
   // when compute path runs MVT, currently still legacy if-else for VTR).
@@ -88,7 +106,10 @@ const VIEWS: ViewSpec[] = [
     // headroom). Future tightening requires runtime-side fix:
     // deterministic LRU tie-breaker on (lastUsedFrame, tileKey)
     // pair so eviction picks the same ancestors every run.
-    gt128Threshold: 10000 },
+    // eq baseline 87.71%; floor 60 = LOOSE on purpose — the ancestor-LRU
+    // non-determinism makes eq bimodal, so a tight floor would flap.
+    // 60 still catches a whole-frame regression (probe drove eq to 33.83).
+    gt128Threshold: 10000, eqFloorPct: 60 },
 ]
 
 interface Buckets {
@@ -326,6 +347,14 @@ for (const view of VIEWS) {
       buckets.gt128,
       `${view.id}: gt128=${buckets.gt128} exceeds threshold ${view.gt128Threshold}; visual regression vs MapLibre. Inspect __pixel-match-survey__/${view.id}/diff-heatmap.png.`,
     ).toBeLessThanOrEqual(view.gt128Threshold)
+    // Whole-frame-shift gate: gt128 counts only grossly-different pixels,
+    // so an alpha/color/gamma regression that moves EVERY pixel moderately
+    // slips under it (see eqFloorPct doc). eq0% is the canary.
+    const eqPct = (buckets.eq0 / totalPx) * 100
+    test.expect(
+      eqPct,
+      `${view.id}: eq=${eqPct.toFixed(2)}% below floor ${view.eqFloorPct}%; whole-frame shift (alpha/color/gamma) vs MapLibre — gt128 can miss this. Inspect __pixel-match-survey__/${view.id}/xgis.png.`,
+    ).toBeGreaterThanOrEqual(view.eqFloorPct)
   })
 }
 
