@@ -55,7 +55,10 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run build
-      - run: bunx playwright install chromium --with-deps
+      # Headless runs use chrome-headless-shell, a SEPARATE binary from the
+      # full chromium — install both or browserType.launch fails before any
+      # test runs ("Executable doesn't exist at .../chrome-headless-shell").
+      - run: bunx playwright install chromium chromium-headless-shell --with-deps
       - name: Render gates under SwiftShader
         working-directory: playground
         env:
