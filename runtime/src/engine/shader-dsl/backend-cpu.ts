@@ -60,7 +60,7 @@ const map1 = (f: (x: number) => number): Builtin => (x) => (isArr(x) ? x.map((v)
 const BUILTINS: Record<string, Builtin> = {
   sin: map1(Math.sin), cos: map1(Math.cos), tan: map1(Math.tan),
   asin: map1(Math.asin), acos: map1(Math.acos), atan: map1(Math.atan),
-  exp: map1(Math.exp), log: map1(Math.log), sqrt: map1(Math.sqrt),
+  exp: map1(Math.exp), log: map1(Math.log), log2: map1(Math.log2), sqrt: map1(Math.sqrt),
   floor: map1(Math.floor), ceil: map1(Math.ceil), abs: map1(Math.abs),
   atan2: (y, x) => Math.atan2(y as number, x as number),
   min: (a, b) => (isArr(a) || isArr(b) ? applyMinMax(Math.min, a, b) : Math.min(a as number, b as number)),

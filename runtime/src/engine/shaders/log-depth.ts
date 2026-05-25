@@ -22,26 +22,13 @@
 // camera's far plane and packs it into the existing uniform ring (reusing
 // the old DSFUN _pad0 slot — no layout growth).
 
-/** WGSL snippet: log-depth helper functions. Embed via template literal
- *  in every perspective-projected shader (POLYGON, LINE, POINT, RASTER). */
-export const WGSL_LOG_DEPTH_FNS = /* wgsl */ `
-// log-depth: adjust clip-space z so depth is logarithmic in view-space w.
-// fc = 1.0 / log2(cam_far + 1.0), supplied via uniform each frame.
-// The vertex shader multiplies by pos.w to pre-cancel the subsequent
-// perspective division — the rasterizer linearly interpolates w, not z,
-// so after division the interpolated z is the raw log2 value.
-fn apply_log_depth(pos: vec4<f32>, fc: f32) -> vec4<f32> {
-  let z = log2(max(1e-6, pos.w + 1.0)) * fc * pos.w;
-  return vec4<f32>(pos.x, pos.y, z, pos.w);
-}
-
-// Fragment-stage per-pixel log-depth. view_w is the vertex shader's
-// pre-division position.w passed as a varying. Result must be written to
-// @builtin(frag_depth) so rasterizer interpolation of z is overridden.
-fn compute_log_frag_depth(view_w: f32, fc: f32) -> f32 {
-  return log2(max(1e-6, view_w + 1.0)) * fc;
-}
-`
+/** WGSL snippet: log-depth helper functions (apply_log_depth +
+ *  compute_log_frag_depth). Embed via template literal in every
+ *  perspective-projected shader (POLYGON, LINE, POINT, RASTER).
+ *  Now EMITTED from the shader DSL (`shader-dsl/log-depth.ts`) — the CPU
+ *  helpers below (computeLogDepthFc / simulateLogDepthZ) stay the canonical
+ *  CPU reference, pinned against the emitted math by log-depth.test.ts. */
+export { LOG_DEPTH_WGSL_FNS as WGSL_LOG_DEPTH_FNS } from '../shader-dsl/log-depth'
 
 /** CPU-side factor computation — exported for tests and for the uniform
  *  pack path in every renderer. Matches the shader exactly. */
