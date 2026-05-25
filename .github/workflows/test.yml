@@ -55,13 +55,17 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run build
-      # Headless runs use chrome-headless-shell, a SEPARATE binary from the
-      # full chromium — install both or browserType.launch fails before any
-      # test runs ("Executable doesn't exist at .../chrome-headless-shell").
-      - run: bunx playwright install chromium chromium-headless-shell --with-deps
+      # Use the PROJECT-LOCAL playwright bin (hoisted to root node_modules
+      # by bun), NOT `bunx playwright` — bunx fetches the standalone
+      # `playwright` package at a DIFFERENT version, installs browsers for
+      # that revision, and the test step (project @playwright/test) then
+      # can't find its own revision's binary. Headless runs use
+      # chrome-headless-shell, a SEPARATE binary from full chromium —
+      # install both or browserType.launch fails before any test runs.
+      - run: ./playground/node_modules/.bin/playwright install chromium chromium-headless-shell --with-deps
       - name: Render gates under SwiftShader
         working-directory: playground
         env:
           XGIS_SOFTWARE_GPU: '1'
           HEADED: '0'
-        run: bunx playwright test _shader-math-parity.spec.ts _projection-coverage.spec.ts
+        run: ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _projection-coverage.spec.ts
