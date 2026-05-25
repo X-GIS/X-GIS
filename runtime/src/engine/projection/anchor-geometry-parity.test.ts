@@ -77,6 +77,15 @@ describe('anchor ↔ geometry projection parity (E1)', () => {
     }
   })
 
+  it('project()/project_geom() THROW for globe (projType 7) — no silent oblique fall-through', () => {
+    // Camera face A2: globe has no 2D projection. The pre-fix code silently
+    // returned the oblique-Mercator result for projType 7, detaching anchors
+    // from the proj_globe-rendered geometry under the azimuthal-when-tilted
+    // promotion. The guard makes a stray projType-7 caller fail loudly.
+    expect(() => projectWgsl(7, 10, 20, 0, 0)).toThrow(/globe/)
+    expect(() => projectGeomWgsl(7, 10, 20, 0, 0, 10)).toThrow(/globe/)
+  })
+
   it('project_geom anchored on the feature tile matches the geometry of the SAME tile', () => {
     // The fix routes anchors through project_geom with the feature's tile
     // ref-lon — identical to how the geometry vertex seam projects, so a

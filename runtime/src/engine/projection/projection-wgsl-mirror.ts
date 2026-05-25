@@ -208,6 +208,12 @@ export function projGlobeWgsl(lon: number, lat: number): [number, number, number
 export function projectWgsl(
   projType: number, lon: number, lat: number, clon: number, clat: number,
 ): [number, number] {
+  // Globe (projType 7) is a vec3 sphere projection (proj_globe / globeForward)
+  // with NO 2D forward — it must NOT silently fall through to the oblique-
+  // Mercator return below (that detached labels/rasters under the azimuthal-
+  // when-tilted promotion). Loud guard: callers route projType 7 to the globe
+  // path. See deep-dive-trace-projection-rendering-architecture (camera face).
+  if (projType > 6.5) throw new Error(`projectWgsl: projType ${projType} (globe) has no 2D projection — use globeForward`)
   if (projType < 0.5) return projMercatorWgsl(lon, lat)
   if (projType < 1.5) return projEquirectangularWgsl(lon, lat, clon)
   if (projType < 2.5) return projNaturalEarthWgsl(lon, lat, clon)
@@ -229,6 +235,10 @@ export function projectWgsl(
 export function projectGeomWgsl(
   projType: number, lon: number, lat: number, clon: number, clat: number, refLon: number,
 ): [number, number] {
+  // Globe (projType 7) has no 2D geometry projection — same guard as
+  // projectWgsl so a stray projType-7 caller fails loudly instead of taking
+  // the oblique-Mercator branch below.
+  if (projType > 6.5) throw new Error(`projectGeomWgsl: projType ${projType} (globe) has no 2D projection — use globeForward`)
   if (projType > 0.5 && projType < 2.5) {
     const refD = wrapLonDelta(refLon - clon)
     const d = unwrapLonNear(lon - clon, refD)

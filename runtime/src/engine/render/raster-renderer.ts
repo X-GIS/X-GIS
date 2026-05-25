@@ -518,6 +518,17 @@ export class RasterRenderer {
         centerX = projCenterLon * DEG2RAD * R
         tileY = Math.log(Math.tan(Math.PI / 4 + clampMerc(south) * DEG2RAD / 2)) * R
         centerY = Math.log(Math.tan(Math.PI / 4 + clampMerc(projCenterLat) * DEG2RAD / 2)) * R
+      } else if (projType > 6.5) {
+        // globe (projType 7): the vertex shader's globe branch recomputes
+        // RTC straight from proj_globe(lon,lat) − proj_globe(centre) and
+        // IGNORES tile_rtc ("the Mercator tile_rtc offset is irrelevant
+        // here" — vs_main). The 2D projectWgsl/projectGeomWgsl mirrors have
+        // no globe case (globe is a vec3 sphere path), so any value here is
+        // discarded — compute nothing and, crucially, do NOT fall through
+        // to projectWgsl(7) which silently returned the OBLIQUE-MERCATOR
+        // result. azimuthal-when-tilted promotes to projType 7, so this is
+        // the raster sibling of the label _lblIsGlobe fix.
+        tileX = 0; tileY = 0; centerX = 0; centerY = 0
       } else {
         // natural_earth & centre-based projections take the shader's
         // project_geom else-branch — the SW corner must use the SAME
