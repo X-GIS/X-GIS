@@ -41,6 +41,7 @@ import type { TileCatalog } from '../../data/tile-catalog'
 import type { TileData } from '../../data/tile-types'
 import { computeSliceKey } from '../../data/eval/filter-eval'
 import { mercator as mercatorProj, getProjection, type Projection, mercatorYToLat } from '../projection/projection'
+import { SELECTOR_PROJ_NAMES } from '../projection/projections-table'
 import type { PointRenderer } from './point-renderer'
 import { buildLineSegments, type LineRenderer } from './line-renderer'
 import { parseHexColor } from '../feature-helpers'
@@ -52,10 +53,7 @@ import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
 // projType (camera.projType / proj_params.x) → projection registry name,
 // for building the projection-aware `selectorProj`. Index 0 (mercator) and
 // 7 (globe) are handled separately (globe has no flat-projection entry).
-const SELECTOR_PROJ_NAMES = [
-  'mercator', 'equirectangular', 'natural_earth', 'orthographic',
-  'azimuthal_equidistant', 'stereographic', 'oblique_mercator',
-] as const
+// Derived from the single-source PROJECTIONS table (excludes globe).
 
 // ═══ Types ═══
 

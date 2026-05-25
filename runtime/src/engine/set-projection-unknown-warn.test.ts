@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'fs'
 import { join } from 'path'
+import { PROJECTIONS } from './projection/projections-table'
 
 describe('setProjection validity set', () => {
   it('every ALIASES entry maps to a VALID name', () => {
@@ -61,16 +62,10 @@ describe('setProjection validity set', () => {
       'stereographic',
     ])
 
-    // renderFrame projType lookup — names → ids. Lives in RenderLoop.render
-    // (extracted from map.ts in the engine-redesign refactor); reads
-    // `this.host.projectionName` via the RenderLoopHost view.
-    const renderSrc = readFileSync(
-      join(__dirname, 'render-loop.ts'),
-      'utf8',
-    )
-    const projTypeMatch = renderSrc.match(/let projType = \{([\s\S]*?)\}\[this\.host\.projectionName\]/)
-    expect(projTypeMatch).not.toBeNull()
-    const projTypeNames = (projTypeMatch![1].match(/([a-z_]+):/g) ?? []).map(s => s.slice(0, -1))
-    expect(projTypeNames.sort()).toEqual(validNames.sort())
+    // renderFrame's projType lookup is now derived from the single-source
+    // PROJECTIONS table (render-loop.ts uses PROJECTION_NAME_TO_TYPE, built
+    // from this table). The VALID set in map.ts must stay in sync with the
+    // table's projection names — checked here against the runtime values.
+    expect(PROJECTIONS.map((p) => p.name).sort()).toEqual(validNames.sort())
   })
 })
