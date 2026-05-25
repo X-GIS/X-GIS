@@ -1210,7 +1210,25 @@ const SAMPLE_COUNT: i32 = ${sampleCount};
     // Defer destroy: in-flight commands recorded into the current
     // frame's encoder still reference the old buffer via bind groups.
     // beginFrame() destroys these after the next queue.submit() wraps.
-    if (this.uniformBuffer) this.retiredUniformRings.push(this.uniformBuffer)
+    if (this.uniformBuffer) {
+      // iter-348 parity with VTR.growUniformRing: draws already recorded
+      // THIS frame are bound to the OLD buffer at their slot offsets via
+      // setBindGroup dynamic offsets. endFrame() flushes only the NEW
+      // buffer, so without this those pre-grow draws read the OLD buffer at
+      // slots still holding the PREVIOUS frame's uniforms → stale colours.
+      // MapRenderer grows mid-frame only during warmup (registered-layer
+      // count is bounded + uniformRingCapacity is sticky), so this fixes a
+      // warmup transient — but the omission is the same latent bug VTR hit
+      // in steady state (vector-tile-renderer.ts:growUniformRing). Push this
+      // frame's staged slots into the old buffer before retiring it.
+      if (this.uniformSlot > 0) {
+        device.queue.writeBuffer(
+          this.uniformBuffer, 0, this.uniformStaging.buffer,
+          this.uniformStaging.byteOffset, this.uniformSlot * MapRenderer.UNIFORM_SLOT,
+        )
+      }
+      this.retiredUniformRings.push(this.uniformBuffer)
+    }
     this.uniformRingCapacity = newCap
     this.uniformBuffer = device.createBuffer({
       size: newCap * MapRenderer.UNIFORM_SLOT,
