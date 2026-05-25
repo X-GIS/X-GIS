@@ -32,6 +32,7 @@ import { resolveText } from './text/text-resolver'
 import { hexToRgba, featureAnchor } from './feature-helpers'
 import { type ShowCommand } from './render/renderer'
 import { type FrameContext } from './render/frame-context'
+import { buildSceneView } from './render/scene-view'
 import { XGISMap } from './map'
 
 /** Typed view of the XGISMap members the relocated render path touches.
@@ -425,58 +426,41 @@ export class RenderLoop {
           dpr: ctx.dpr,
         })
       }
-      const { opaque, translucent, oit } = this.host.classifyVectorTileShows()
-      const opaqueGroups = this.host.groupOpaqueBySource(opaque)
-      const hasTranslucent = translucent.length > 0 && this.host.lineRenderer !== null
-      const hasOit = oit.length > 0 && ctx.rt.oitAccumTexture !== null && ctx.rt.oitRevealageTexture !== null
-      const hasPoints = this.host.pointRenderer?.hasLayers() ?? false
-      // ── Two independent point paths ──
+      // ── Bucket scheduler → SceneView ──
+      // Classify shows into opaque / translucent / OIT buckets, group the
+      // opaque ones by source, and derive the has*/resolveOwner flags the
+      // passes below read. Bundled into a per-frame SceneView (scene-view.ts).
       //
-      // 1. TILE points: data lives on xgvt tiles (e.g. countries_xgvt
-      //    + populated_places_xgvt). VTR drains them per-source via
-      //    pointRenderer.addTilePoint/flushTilePoints inside its own
-      //    render pass. We pass `pointRenderer` to every VTR.render
-      //    call below — VTR's tile loop is a no-op for sources that
-      //    don't carry point vertices, so this is safe and free.
-      //
-      // 2. DIRECT-LAYER points: GeoJSON sources where rebuildLayers
-      //    routed the show into pointRenderer.addLayer() instead of
-      //    creating a vector-tile pipeline. These live in
-      //    pointRenderer.layers and are rendered by a dedicated bucket
-      //    3 pass. They are NEVER reachable from VTR.render — VTR
-      //    only sees tile data.
-      //
-      // The original `inlinePoints` optimization conflated these two
-      // paths and silently skipped bucket 3 whenever there was no
-      // translucent layer, hiding every direct-layer point demo
-      // (sdf_points, gradient_points, megacities, custom_*, etc).
-      // Fix: bucket 3 always runs when direct-layer points exist.
-      // Which pass owns the MSAA resolveTarget? Precisely the last
-      // pass that writes to the color target. Priority: dedicated
-      // points > last composite > last opaque sub-pass.
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const _resolveOwner = hasPoints
-        ? 'points'
-        : hasTranslucent
-          ? 'composite'
-          : 'opaque'
+      // hasPoints covers TWO independent point paths:
+      //   1. TILE points (xgvt tiles, e.g. countries_xgvt) — drained per
+      //      source via pointRenderer.addTilePoint/flushTilePoints inside
+      //      each VTR's own render pass (the VTR tile loop is a no-op for
+      //      sources without point vertices, so passing pointRenderer to
+      //      every VTR.render below is safe and free).
+      //   2. DIRECT-LAYER points (GeoJSON routed into pointRenderer.addLayer
+      //      by rebuildLayers) — rendered by the dedicated bucket-3 pass and
+      //      NEVER reachable from VTR.render. The old `inlinePoints` opt
+      //      conflated the two and skipped bucket 3 when no translucent
+      //      layer existed, hiding every direct-layer point demo; bucket 3
+      //      now always runs when direct-layer points exist.
+      const scene = buildSceneView(this.host, ctx)
 
-      if (hasTranslucent) this.host.lineRenderer!.ensureOffscreen(ctx.w, ctx.h)
+      if (scene.hasTranslucent) this.host.lineRenderer!.ensureOffscreen(ctx.w, ctx.h)
 
       // ── Bucket 1: opaque ──
       // Always emit at least one pass so raster + canvas background
       // can run even if there are no vector layers to draw. The first
       // pass clears the color target; subsequent opaque sub-passes
       // load.
-      const opaqueCount = Math.max(1, opaqueGroups.length)
+      const opaqueCount = Math.max(1, scene.opaqueGroups.length)
       for (let gi = 0; gi < opaqueCount; gi++) {
-        const group = opaqueGroups[gi]
+        const group = scene.opaqueGroups[gi]
         const isFirst = gi === 0
         const isLastOpaque = gi === opaqueCount - 1
         // Only the LAST opaque sub-pass can claim resolveTarget, and
         // only if no translucent/points pass runs after it.
         const resolveHere =
-          ctx.useResolve && isLastOpaque && _resolveOwner === 'opaque'
+          ctx.useResolve && isLastOpaque && scene.resolveOwner === 'opaque'
         // Depth must persist across opaque sub-passes so group N's
         // polygons are correctly occluded by group N-1's (e.g. roads
         // rendered after buildings must respect building depth in a
@@ -488,7 +472,7 @@ export class RenderLoop {
         // fragments behind opaque foreground walls; bucket 3 (points)
         // also reads it. Either consumer requires the LAST opaque
         // sub-pass to STORE depth instead of discarding.
-        const persistDepth = !isLastOpaque || hasPoints || hasOit
+        const persistDepth = !isLastOpaque || scene.hasPoints || scene.hasOit
 
         ctx.passScope(isFirst ? 'opaque-main' : `opaque[${gi}]`, () => {
           // Time EVERY opaque sub-pass. The timer pre-allocates a
@@ -685,7 +669,7 @@ export class RenderLoop {
       // then blend the recovered colour onto the resolved main
       // colour with a full-screen compose draw. Order-independent
       // by construction — no back-to-front sort.
-      if (hasOit && !DEBUG_OVERDRAW) {
+      if (scene.hasOit && !DEBUG_OVERDRAW) {
         ctx.passScope('oit-fill', () => {
           // OIT pass shares the opaque pass's MSAA depth-stencil
           // (depthLoadOp='load' so the opaque depth is what
@@ -719,7 +703,7 @@ export class RenderLoop {
               stencilLoadOp: 'load', stencilStoreOp: 'discard',
             },
           })
-          for (const cs of oit) {
+          for (const cs of scene.oit) {
             cs.vtEntry.renderer.render!(
               oitPass, this.host.camera, ctx.projType, ctx.centerLon, ctx.centerLat, ctx.w, ctx.h,
               cs.show, cs.fp, cs.lp, this.host.renderer.uniformBuffer, cs.bgl,
@@ -737,7 +721,7 @@ export class RenderLoop {
           const compPass = encoder.beginRenderPass({
             colorAttachments: [{
               view: ctx.colorView,
-              resolveTarget: ctx.useResolve && !hasTranslucent && !hasPoints && _resolveOwner === 'composite' ? ctx.screenView : undefined,
+              resolveTarget: ctx.useResolve && !scene.hasTranslucent && !scene.hasPoints && scene.resolveOwner === 'composite' ? ctx.screenView : undefined,
               loadOp: 'load', storeOp: 'store',
             }],
           })
@@ -757,12 +741,12 @@ export class RenderLoop {
       }
 
       // ── Bucket 2: translucent offscreen + composite ──
-      if (hasTranslucent && !DEBUG_OVERDRAW) {
-        for (let li = 0; li < translucent.length; li++) {
-          const cs = translucent[li]
-          const isLastTranslucent = li === translucent.length - 1
+      if (scene.hasTranslucent && !DEBUG_OVERDRAW) {
+        for (let li = 0; li < scene.translucent.length; li++) {
+          const cs = scene.translucent[li]
+          const isLastTranslucent = li === scene.translucent.length - 1
           const resolveHere =
-            ctx.useResolve && isLastTranslucent && _resolveOwner === 'composite'
+            ctx.useResolve && isLastTranslucent && scene.resolveOwner === 'composite'
 
           ctx.passScope(`translucent-off[${li}]`, () => {
             const offPass = this.host.lineRenderer!.beginTranslucentPass(encoder)
@@ -805,7 +789,7 @@ export class RenderLoop {
       // pointRenderer.addLayer in rebuildLayers). Always runs when
       // direct layers exist; tile-points are handled inline in
       // bucket 1 via VTR.render's pointRenderer parameter.
-      if (hasPoints && !DEBUG_OVERDRAW) {
+      if (scene.hasPoints && !DEBUG_OVERDRAW) {
         ctx.passScope('points', () => {
           const ptPass = encoder.beginRenderPass({
             colorAttachments: [{
