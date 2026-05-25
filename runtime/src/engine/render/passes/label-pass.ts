@@ -180,7 +180,17 @@ class LabelPass implements RenderPass {
         // centerLat / projType are renderFrame constants) so the hot
         // per-label path stays allocation-free.
         const _lblIsMerc = host.projectionName === 'mercator'
-        const _lblIsGlobe = host.projectionName === 'globe'
+        // Effective-projection, NOT the raw name: ortho/azimuthal/stereo
+        // (projType 3-5) are PROMOTED to the globe path (projType 7) once
+        // tilted (render-loop azimuthalTilted). The GPU + tile selector
+        // already follow the promoted projType; labels must too, or a
+        // tilted-azimuthal view renders geometry as a 3D sphere (proj_globe)
+        // while label anchors fall through projectWgsl's missing projType-7
+        // case to the OBLIQUE-MERCATOR formula → labels detach from their
+        // features ("floating above the disc"). projType===7 ⊇
+        // projectionName==='globe' (globe always promotes to 7), so real
+        // globe is unaffected.
+        const _lblIsGlobe = projType === 7
         // Globe label anchor = sphere RTC against the focus, then the
         // full 4×4 orbit MVP (camera emits it in globe mode). Hoisted
         // per frame like _lblCenter.
